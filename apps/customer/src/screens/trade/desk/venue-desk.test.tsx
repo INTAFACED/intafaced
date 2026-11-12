@@ -36,6 +36,10 @@ const MARKET: VenueMarket = {
   markRule: { known: false },
   tradingHours: { known: false },
   feed: { known: false },
+  session: { known: false },
+  contractSize: { known: false },
+  mark: { known: false },
+  funding: { known: false },
 };
 const limitBuy: TicketFields = { side: 'buy', type: 'limit', price: '60000.1', amount: '0.1' };
 

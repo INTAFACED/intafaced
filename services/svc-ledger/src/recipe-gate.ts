@@ -1075,6 +1075,54 @@ function extraShapePosts(): Array<{ name: RecipeName; post: PostRequest }> {
       }),
     },
     {
+      name: 'partnerFeeEarn',
+      // Shape sample only, never posted: a TEST rate, because the owner's rate is unset and Earn refuses without one.
+      post: recipes.partnerFeeEarn({
+        partnerId: 'test-partner',
+        module: 'merchant',
+        paymentId: 'pay-test',
+        assetId: 'USDC',
+        grossAmount: AMT,
+        rate: { bps: 100 },
+      }),
+    },
+    {
+      name: 'partnerFeeSettle',
+      post: recipes.partnerFeeSettle({
+        partnerId: 'test-partner',
+        module: 'merchant',
+        to: { kind: 'treasury-wallet', walletId: 'test' },
+        settlementLineId: 'line-test',
+        assetId: 'USDC',
+        amount: AMT,
+      }),
+    },
+    {
+      name: 'feeGiveBackOwe',
+      // Shape sample only, never posted: TEST approvers and amounts.
+      post: recipes.feeGiveBackOwe({
+        venueId: 'test-venue',
+        venueAccount: '0xtest',
+        fillId: 'f-test',
+        userId: '11111111-1111-4111-8111-111111111111',
+        assetId: 'USDC',
+        feePaid: AMT,
+        amount: AMT,
+        approvers: ['test-approver-a', 'test-approver-b'],
+      }),
+    },
+    {
+      name: 'feeGiveBackPayOut',
+      post: recipes.feeGiveBackPayOut({
+        userId: '11111111-1111-4111-8111-111111111111',
+        from: { kind: 'treasury-wallet', walletId: 'test' },
+        toWallet: '0x00000000000000000000000000000000000000c1',
+        chainTx: '0xtest',
+        assetId: 'USDC',
+        amount: AMT,
+      }),
+    },
+    {
       name: 'tradeFillMakerRebate',
       post: recipes.tradeFillMakerRebate({ ...fill, fillId: 'f-rebate', makerFeeBps: 0, takerFeeBps: 10, makerRebateBps: 5 }),
     },

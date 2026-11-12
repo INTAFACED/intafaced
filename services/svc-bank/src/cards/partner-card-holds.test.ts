@@ -5,7 +5,14 @@
  */
 import { describe, expect, it } from 'vitest';
 import { BankError } from '../errors.js';
-import { SWITCHES_OFF, moneyHeldBy, partnerUnset, testPartner, type TestPartnerSwitches } from '../partner/test-partner.js';
+import {
+  SWITCHES_OFF,
+  TEST_PARTNER_UNLISTED_DECLINE,
+  moneyHeldBy,
+  partnerUnset,
+  testPartner,
+  type TestPartnerSwitches,
+} from '../partner/test-partner.js';
 import { NOTHING_REPORTED, type CardPartnerTerms } from './partner-terms.js';
 import { PartnerCardRefusal, TEST_CARD_HOLD_DAYS, partnerCardKey, testPartnerCardHolds } from './partner-card-holds.js';
 
@@ -62,6 +69,7 @@ describe('whose book holds the money', () => {
   it('the switches start on and live', () => {
     expect(SWITCHES_OFF.custody).toBe('on');
     expect(SWITCHES_OFF.cardHold).toBe('live');
+    expect(SWITCHES_OFF.cardDecline).toBe('none');
   });
 });
 
@@ -144,6 +152,15 @@ describe('capture, release, expiry and refund are the partner’s, each once', (
     expect(await codeOf(card.capture({ key: partnerCardKey('capture', AUTH), holdKey: HOLD, amount: '1' }))).toBe(
       'bank.card_partner_hold_closed',
     );
+  });
+
+  it('the person’s cardDecline switch declines with a code of the partner’s own, holding nothing, and replays it', async () => {
+    const card = partnerCard({}, { cardDecline: 'unlisted' });
+    const answer = await card.hold({ key: HOLD, userId: ADA, assetId: 'USDC', amount: '1' });
+    expect(answer).toMatchObject({ approved: false, reason: TEST_PARTNER_UNLISTED_DECLINE, figures: { available: '100', held: '0' } });
+    expect(TEST_PARTNER_UNLISTED_DECLINE.startsWith('bank.')).toBe(false);
+    expect(await card.hold({ key: HOLD, userId: ADA, assetId: 'USDC', amount: '1' })).toEqual(answer);
+    expect(await card.holdState({ holdKey: HOLD })).toBeNull();
   });
 
   it('the person’s cardHold switch runs an open hold out at once', async () => {

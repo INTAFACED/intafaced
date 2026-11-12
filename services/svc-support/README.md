@@ -173,7 +173,7 @@ principal, the desk is a `support:ops` principal. The filter runs before the pag
 place in a page and is in no count, and it answers exactly like a missing id (`null`, or the same refusal). `setKbAudience`
 (`support:ops`) takes the revision the desk read, writes a new version that keeps the keys and topic, and one audit row
 (`support.kb_audience_changes`: article, from, to, revisions, actor; append-only). The same audience again changes nothing
-and writes no row. A stale revision is a CONFLICT (`support.kb.revision_stale`); an audience outside the list never
+and writes no row. A stale revision is a CONFLICT (`support.kb_revision_stale`); an audience outside the list never
 reaches the service and, if it does, refuses `support.kb_audience_invalid`. `kbAudienceChanges` (`support:ops`, `{id}`) reads
 that trail for one article, oldest first: old and new audience, the revisions, who and when; an unknown article has none.
 Per-segment visibility is not built: whether it is wanted is a thread decision, and nothing about a segment is stored.
@@ -202,7 +202,9 @@ replay of an attach already made is never refused for the count. The store and t
 production wires neither, so every attach refuses naming `support.attachment_store`. For the test stack only,
 `SUPPORT_ATTACHMENT_STORE=local-test-memory` (bytes kept in this process, lost on restart) and
 `SUPPORT_MALWARE_SCANNER=local-test-eicar` (infected only for the EICAR test string) install LOCAL-TEST adapters; boot
-throws `support.attachment_adapter_refused` unless `APP_ENV` is exactly `dev` or `test`, and for any other name. Size, types
+throws `support.attachment_adapter_refused` unless `APP_ENV` is exactly `dev` or `test`, and for any other name.
+`SUPPORT_LOCAL_TEST_SCAN_DELAY_MS` (1 to 60000, only with `local-test-eicar`) makes each check take that long, so a journey
+can see a file while it is being checked. Size, types
 and count still come from the owner's settings, so a journey sets them through the admin card first.
 
 Scan state: a file's row is written `scanning` first (`support.ticket_attachments.scan_state`, migration 0024; rows from before

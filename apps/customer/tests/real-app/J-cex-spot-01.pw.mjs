@@ -1016,7 +1016,7 @@ test(`${J} #11 reads the bought lot on Profit and loss, sells it, and reads the 
   await expect(realised).toHaveText(new RegExp(`^[+−]${DOLLARS}$`), { timeout: 30_000 });
   await expect.poll(async () => shownUnits(await realised.innerText()), { timeout: 30_000 }).toBe(asShownUsd(realisedUsd));
   await expect(main.locator('[data-testid=money-note][data-indicator=true]')).toHaveText(
-    'This is an indicator worked out from your own trades. It is not a tax form.',
+    'Indicator, not tax advice. It is worked out from your own trades and is not a tax form.',
   );
 });
 

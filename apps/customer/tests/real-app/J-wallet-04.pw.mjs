@@ -1,9 +1,9 @@
-// World: stack
+// World: stack, restart
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
-import { ROOT, journeyState, mailedCodes, mailedLines, nextMailedCode } from './stack.mjs';
+import { ROOT, journeyState, mailedCodes, mailedLines, nextMailedCode, restartWithSetting, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
 import { responseAfterNavigation } from './navigation.mjs';
@@ -17,6 +17,10 @@ import { responseAfterNavigation } from './navigation.mjs';
 // address changes and withdrawals. Every journey browser presents the stack's one TEST device key, so "another device" is
 // a browser with its cookies cleared, authorised by the mailed device code, as J-identity-02 #5 does. The lock itself
 // and the password refusal are in J-wallet-04-security-lock, so #7 counts only when both its halves pass (each is "#7").
+// The owner's values a step names blank or small (#2's address-book cap, #5's cooling-off) are svc-bank restarted on that
+// one TEST setting (LOCAL_STACK_BANK_ADDRESS_BOOK_CAP, LOCAL_STACK_BANK_OFFRAMP_COOLING) and put back after. #1's listed book
+// is read once #2 and #3 have saved two entries, one with a tag. #7's "until unlock" ends the asked-for wait with a LOCAL
+// TEST fixture (end-security-lock-wait) and shows the address, the password and the withdraw allowed again.
 const J = 'J-wallet-04';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const ADDRESS = '0x52908400098527886E0F7030069857D2E4169EE7';
@@ -104,6 +108,36 @@ const field = (page, name) =>
     .locator('input, select');
 const savedRows = (page) => page.locator('tbody tr', { hasText: 'Crypto wallet' });
 
+/**
+ * Runs `fn` with svc-bank restarted on one TEST setting (`LOCAL_STACK_BANK_<NAME>`, tooling/scripts/local-stack-services/
+ * bank.mjs) set to `value`, and restarts it on the stack's TEST value after, even when `fn` fails.
+ */
+async function withBankSetting(key, value, fn) {
+  restartWithSetting('bank', key, value);
+  try {
+    return await fn();
+  } finally {
+    restartWithSetting('bank', key, null);
+  }
+}
+
+/** Fills the add form and presses Save, then answers "Confirm it's you"; returns the save's own answer from the bank. */
+async function saveWithCode(page, { label, network, address, tag }) {
+  await field(page, 'Label').fill(label);
+  await field(page, 'Asset').selectOption('USDT');
+  await field(page, 'Network').selectOption(network);
+  await field(page, 'Address').fill(address);
+  if (tag) await field(page, 'Memo or tag \\(optional\\)').fill(tag);
+  await addForm(page).getByRole('button', { name: 'Save address' }).click();
+  const answer = page.waitForResponse((res) => /\/api\/bank\/trpc\/ramps\.destinations\.save$/.test(res.url()), { timeout: 60_000 });
+  await confirmItsMe(page);
+  const res = await answer;
+  return { status: res.status(), body: await res.json().catch(() => null) };
+}
+
+/** The refusal code in a tRPC error answer. */
+const codeOf = (body) => body?.error?.data?.code ?? body?.error?.json?.data?.code ?? body?.error?.message ?? JSON.stringify(body);
+
 test(`${J} #1 opens the address book from Withdraw: empty, with only the assets and networks the registry publishes`, async ({ page }) => {
   test.setTimeout(180_000);
   const who = await signUp(page, 'wa');
@@ -131,7 +165,7 @@ test(`${J} #1 opens the address book from Withdraw: empty, with only the assets 
 });
 
 test(`${J} #2 refuses a mistyped address with its reason, then saves a good one after a fresh confirmation`, async ({ page }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(600_000);
   await signInWithCode(page);
   await page.goto('/uc/withdraw/address');
   const form = addForm(page);
@@ -139,9 +173,22 @@ test(`${J} #2 refuses a mistyped address with its reason, then saves a good one 
   await field(page, 'Asset').selectOption('USDT');
   await field(page, 'Network').selectOption('base');
   await field(page, 'Address').fill('0x1234');
+  // "Refused with the reason before any call": from the press on, every request the page sends is recorded. Neither
+  // the bank's address check (`ramps.destinations.check`) nor its save, nor any other write (a non-GET to any API), may
+  // leave the page.
+  const sent = [];
+  const record = (req) => {
+    if (!/\/api\//.test(req.url())) return;
+    if (req.method() !== 'GET' || /ramps\.destinations\.(check|save)\b/.test(req.url())) sent.push(`${req.method()} ${req.url()}`);
+  };
+  page.on('request', record);
   await form.getByRole('button', { name: 'Save address' }).click();
   await expect(form.getByRole('alert')).toHaveText('This is not a valid address. It must be 0x followed by 40 letters a to f or digits.');
   await expect(page.getByRole('dialog')).toHaveCount(0);
+  // A call the press started late would land after the alert: wait for the page's network to go quiet before reading.
+  await page.waitForLoadState('networkidle', { timeout: 5_000 }).catch(() => {});
+  page.off('request', record);
+  expect(sent, 'a mistyped address sends no call').toEqual([]);
 
   await field(page, 'Address').fill(ADDRESS);
   await form.getByRole('button', { name: 'Save address' }).click();
@@ -158,6 +205,37 @@ test(`${J} #2 refuses a mistyped address with its reason, then saves a good one 
   await expect(row.locator('td[data-withdrawal-private]')).toHaveText('0x5290…9EE7');
   await page.reload();
   await expect(savedRows(page).filter({ hasText: 'TEST cold wallet' })).toHaveCount(1);
+
+  // A second entry with the same label, at another address: the bank refuses it after the confirmation, says why, and
+  // its own book still holds only the first.
+  const same = await saveWithCode(page, { label: 'TEST cold wallet', network: 'ethereum', address: DEVICE_ADDRESS });
+  expect(same.status).toBeGreaterThanOrEqual(400);
+  expect(JSON.stringify(same.body)).toContain('bank.destination_label_taken');
+  const stepUp = page.getByRole('dialog', { name: 'Confirm it’s you' });
+  await expect(stepUp.getByTestId('failure')).toHaveText(/already have a saved address with (that|this) name/);
+  expect((await bankBookOnReload(page)).map((row) => row.label)).toEqual(['TEST cold wallet']);
+
+  // The owner's cap, here the stack set to 1 for this check: the book is full, and the refusal names the cap. Nothing saved.
+  await withBankSetting('LOCAL_STACK_BANK_ADDRESS_BOOK_CAP', '1', async () => {
+    await page.goto('/uc/withdraw/address');
+    const full = await saveWithCode(page, { label: 'TEST second wallet', network: 'ethereum', address: DEVICE_ADDRESS });
+    expect(full.status).toBeGreaterThanOrEqual(400);
+    expect(JSON.stringify(full.body)).toContain('bank.address_book_full');
+    await expect(page.getByRole('dialog', { name: 'Confirm it’s you' }).getByTestId('failure')).toHaveText(
+      /address book is full at 1 address/,
+    );
+    expect((await bankBookOnReload(page)).map((row) => row.label)).toEqual(['TEST cold wallet']);
+  });
+
+  // The owner's cap left blank: no save goes ahead, refused by name, never a limit the bank made up. Nothing saved.
+  await withBankSetting('LOCAL_STACK_BANK_ADDRESS_BOOK_CAP', 'off', async () => {
+    await page.goto('/uc/withdraw/address');
+    const blank = await saveWithCode(page, { label: 'TEST second wallet', network: 'ethereum', address: DEVICE_ADDRESS });
+    expect(blank.status).toBeGreaterThanOrEqual(400);
+    expect(JSON.stringify(blank.body)).toContain('bank.address_book_cap_unset');
+    await expect(page.getByRole('dialog', { name: 'Confirm it’s you' }).getByTestId('failure')).toContainText('unset');
+    expect((await bankBookOnReload(page)).map((row) => row.label)).toEqual(['TEST cold wallet']);
+  });
 });
 
 test(`${J} #3 refuses a changed character, and warns about a look-alike of a saved address until it is checked`, async ({ page }) => {
@@ -168,6 +246,8 @@ test(`${J} #3 refuses a changed character, and warns about a look-alike of a sav
   await field(page, 'Label').fill('TEST look-alike');
   await field(page, 'Asset').selectOption('USDT');
   await field(page, 'Network').selectOption('base');
+  // A memo or tag, so #1's listed book has one to show.
+  await field(page, 'Memo or tag \\(optional\\)').fill('TEST-MEMO-7');
 
   // A changed character: the bank's checksum check refuses it at the field, before any code is asked for.
   await field(page, 'Address').fill(TAMPERED);
@@ -201,6 +281,35 @@ test(`${J} #3 refuses a changed character, and warns about a look-alike of a sav
   await expect(lookalikeRow.locator('td[data-withdrawal-private]')).toHaveText('0x5290…9EE7');
   await expect(lookalikeRow).toContainText('You confirmed the look-alike warning');
   await expect(savedRows(page).filter({ hasText: 'TEST cold wallet' })).not.toContainText('You confirmed the look-alike warning');
+});
+
+test(`${J} #1 (the listed book): each entry shows its asset, network, tag and state as the bank holds them, the address masked`, async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  await signInWithCode(page);
+  await page.goto('/uc/withdraw/address');
+  const book = await bankBookOnReload(page);
+  expect(book.map((row) => row.label).sort()).toEqual(['TEST cold wallet', 'TEST look-alike']);
+  await expect(savedRows(page)).toHaveCount(2);
+  for (const entry of book) {
+    const row = savedRows(page).filter({ hasText: entry.label });
+    await expect(row).toHaveCount(1);
+    const cells = row.locator('td');
+    // Asset, network and tag, each as the bank holds it; an entry with no tag shows none.
+    await expect(cells.nth(2)).toHaveText([entry.assetId, entry.network, entry.tag].filter(Boolean).join(' · '));
+    await expect(cells.nth(6)).toHaveText(entry.state === 'pending' ? 'Waiting for approval' : /./);
+    // Masked in the list: the first six and last four characters, and the full address only behind Details.
+    await expect(cells.nth(3)).toHaveText(`${entry.ref.slice(0, 6)}…${entry.ref.slice(-4)}`);
+    await expect(row.locator('.withdrawal-address-full')).toBeHidden();
+  }
+  const cold = book.find((row) => row.label === 'TEST cold wallet');
+  const lookalike = book.find((row) => row.label === 'TEST look-alike');
+  expect([cold.assetId, cold.network, cold.tag, cold.state]).toEqual(['USDT', 'base', null, 'pending']);
+  expect([lookalike.assetId, lookalike.network, lookalike.tag, lookalike.state]).toEqual(['USDT', 'base', 'TEST-MEMO-7', 'pending']);
+  await expect(savedRows(page).filter({ hasText: 'TEST look-alike' }).locator('td').nth(2)).toHaveText('USDT · base · TEST-MEMO-7');
+  await expect(savedRows(page).filter({ hasText: 'TEST cold wallet' }).locator('td').nth(6)).toHaveText('Waiting for approval');
+  await expect(page.locator('tbody')).not.toContainText(/0x52908400098527886e0f/i, { useInnerText: true });
 });
 
 test(`${J} #4 renaming an entry keeps its cooling-off clock as it was; removing one needs a fresh confirmation, and it is gone after a reload`, async ({
@@ -308,6 +417,11 @@ test(`${J} #4 renaming an entry keeps its cooling-off clock as it was; removing 
 
 /** Reloads the page and returns the bank's own row for `label` from the address-book read that load makes. */
 async function bankRowOnReload(page, label) {
+  return (await bankBookOnReload(page)).find((row) => row.label === label) ?? null;
+}
+
+/** Reloads the page and returns the bank's own rows from the address-book read that load makes. */
+async function bankBookOnReload(page) {
   // Only the read the reloaded page makes counts. A rename makes the old page read the book again just before the
   // reload, and when that read was the one matched the reload dropped its body ("No resource with given identifier
   // found", #7457). So the match starts once the reload has committed and the body is read as soon as it arrives
@@ -329,7 +443,7 @@ async function bankRowOnReload(page, label) {
     }
   };
   walk(res.body);
-  return rows.find((row) => row.label === label) ?? null;
+  return rows;
 }
 
 /** The approval links mailed to this person so far, oldest first, from the stack's LOCAL-TEST outbox. */
@@ -350,7 +464,7 @@ test(`${J} #5 a new address waits for approval by an emailed link (an expired on
   page,
   browser,
 }) => {
-  test.setTimeout(600_000);
+  test.setTimeout(900_000);
   const { account: who } = account();
   await signInWithCode(page);
   await page.goto('/uc/withdraw/address');
@@ -441,6 +555,29 @@ test(`${J} #5 a new address waits for approval by an emailed link (an expired on
   } finally {
     await other.close();
   }
+
+  // The owner's cooling-off left blank (the stack restarted without it): the bank sends nothing to the approved address,
+  // and says the window is not published rather than inventing one. Back on the TEST value, it names its end again.
+  await withBankSetting('LOCAL_STACK_BANK_OFFRAMP_COOLING', 'off', async () => {
+    await page.goto('/uc/withdraw/address');
+    const held = await bankRowOnReload(page, 'TEST new wallet');
+    expect([held.coolingOffEndsAt, held.coolingBlocker]).toEqual([null, 'bank.offramp_cooling_unset']);
+    const unset = savedRows(page).filter({ hasText: 'TEST new wallet' });
+    await expect(unset.locator('td').nth(5)).toHaveText('No cooling-off period is published');
+    const readiness = page.waitForResponse((res) => /\/api\/bank\/trpc\/ramps\.destinations\.readiness/.test(res.url()), {
+      timeout: 30_000,
+    });
+    await unset.getByRole('button', { name: 'Withdraw to this address' }).click();
+    expect(JSON.stringify(await (await readiness).json())).toContain('"cooling_unset"');
+    await expect(page.getByTestId('address-use').getByRole('alert')).toHaveText(
+      'The bank has published no cooling-off period, so nothing can be sent to TEST new wallet.',
+    );
+  });
+  await page.goto('/uc/withdraw/address');
+  await savedRows(page).filter({ hasText: 'TEST new wallet' }).getByRole('button', { name: 'Withdraw to this address' }).click();
+  await expect(page.getByTestId('address-use').getByRole('alert')).toContainText(
+    'TEST new wallet is a new address. Money can be sent to it from',
+  );
 
   // From another device. A second address saved in this browser cannot be approved in this browser.
   await page.goto('/uc/withdraw/address');
@@ -564,7 +701,7 @@ test(`${J} #6 proves a private wallet by signing a message: another wallet's sig
 test(`${J} #7 (the bank's half): with the security lock on, the bank refuses adding an address and withdrawing to one`, async ({
   page,
 }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(420_000);
   await signInWithCode(page);
   await page.goto('/uc/safe');
   const card = page.getByTestId('security__lock');
@@ -584,6 +721,8 @@ test(`${J} #7 (the bank's half): with the security lock on, the bank refuses add
   await form.getByRole('button', { name: 'Save address' }).click();
   await expect(form.getByRole('alert')).toHaveText(LOCKED);
   await expect(page.getByRole('dialog')).toHaveCount(0);
+  // Nothing changed, read from the bank's own book: only #6's proved wallet is in it.
+  expect((await bankBookOnReload(page)).map((row) => row.label)).toEqual(['TEST private wallet']);
 
   // Withdrawing to the proved wallet from #6: refused with the lock, and Security is one step away.
   const row = savedRows(page).filter({ hasText: 'TEST private wallet' });
@@ -609,4 +748,32 @@ test(`${J} #7 (the bank's half): with the security lock on, the bank refuses add
   await expect(page.getByTestId('address-use').getByRole('alert')).toContainText(
     'Your security lock is on, so nothing can be withdrawn to this address until it ends. It ends',
   );
+  expect((await bankBookOnReload(page)).map((row) => row.label)).toEqual(['TEST private wallet']);
+
+  // Until unlock: the wait runs out (a LOCAL TEST fixture moves the lock's times back by the wait), and both are allowed again.
+  const { account: who } = account();
+  expect(tool('local-test-stack.mjs', 'end-security-lock-wait', who.email)).toContain('1 security lock(s)');
+  await page.goto('/uc/safe');
+  await expect(card).toContainText('The lock is off.');
+  // The password changes again.
+  const password = page.getByTestId('security__password');
+  const next = `${who.password}-2`;
+  await password.getByLabel('Current password').fill(who.password);
+  await password.getByLabel('New password', { exact: true }).fill(next);
+  await password.getByLabel('Repeat the new password').fill(next);
+  await password.getByRole('button', { name: 'Change password' }).click();
+  await expect(password).toContainText('Your password was changed');
+  await expect(password).not.toContainText('Your security lock is on');
+  run.reset({ ...account(), account: { ...who, password: next } });
+
+  await page.goto('/uc/withdraw/address');
+  await savedRows(page).filter({ hasText: 'TEST private wallet' }).getByRole('button', { name: 'Withdraw to this address' }).click();
+  // The bank answers on the address itself again (it still waits for approval), not with the lock.
+  const useAgain = page.getByTestId('address-use');
+  await expect(useAgain.getByRole('alert')).toContainText('TEST private wallet is waiting for your approval');
+  await expect(useAgain).not.toContainText('Your security lock is on');
+  const unlocked = await saveWithCode(page, { label: 'TEST after unlock', network: 'base', address: ADDRESS });
+  expect(unlocked.status).toBe(200);
+  await expect(page.getByText('TEST after unlock was saved to your address book. Approve it before it can be used.')).toBeVisible();
+  expect((await bankBookOnReload(page)).map((row) => row.label).sort()).toEqual(['TEST after unlock', 'TEST private wallet']);
 });

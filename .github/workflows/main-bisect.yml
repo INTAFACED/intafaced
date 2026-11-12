@@ -1,4 +1,7 @@
 name: Main bisect
+# The journeys revert's runs carry their commit and steps in their name, so a second start for the same red sees the
+# first (tooling/ci/journeys-revert.mjs startRevert).
+run-name: ${{ inputs.journeys != '' && format('Main bisect {0} {1}{2}', inputs.bad, inputs.journeys, inputs.confirm != '' && format(' {0}', inputs.confirm) || '') || 'Main bisect' }}
 
 # Two searches, both started by Main trust; workflow_dispatch can only be started by a person with write access or by
 # Main trust.
@@ -13,12 +16,24 @@ name: Main bisect
 # Real-app journeys (`journeys`): when a journey step that passed in the run before failed outright in this one on main
 # (Main trust's post-merge job, tooling/ci/journeys-revert.mjs trigger). Finds the one pull request between the last passing
 # and the first failing commit that broke it (the commits whose files reach the failing journeys, each proven by running
-# those journey files on a stack, by binary search when there are several), and opens its revert with squash auto-merge, through the
+# those journey files on a stack, by binary search when there are several, beside a control that runs them again on the
+# last passing commit: a red that commit shares is no merge's, and no one is blamed), and opens its revert with squash auto-merge, through the
 # normal merge seal (OWNER 249 (3): "a red main is reverted"). Never more than one revert per red, never a revert of a
 # revert, never a push to main. The revert opens with a token of the App intafaced-mac-agents, minted from its key in
 # the `ci-review` environment (INTAFACED_APP_KEY, the key ci-review.yml mints with), whose deployment rule allows main
 # alone, so only main's copy of this file can open one; `base` lets a person prove it on a test branch.
 # (Failure it prevents: before this, a red journeys run on main named its commits in an issue and nothing reverted.)
+#
+# Confirm (`confirm`): when the automatic revert merges, journeys-back.yml starts the failing journeys alone on main's
+# new head, in their own group, so they wait behind no full run. The steps passing is the break back, noted on the
+# journey's break issue; the issue still closes only when main's full run passes them.
+# It also writes the recovery record (journeys-revert.mjs recoveryRecord) as a comment on the revert, which project-state
+# tooling/board/event.mjs reads for "affected journey back".
+#
+# Settle (`confirm: settle`): when a journeys red traces to no single merge (revert-unknown below, or Main trust's trigger
+# when no commit lies between the passing run and the red one), the failing journeys run alone on main's head the same
+# way. Passing: each step gets one `flaky` issue and the red is settled, since a red main is a step that fails again run
+# alone on main's head (the programme lead, 12 Nov 2026). Failing again: one `regression` issue per journey at once.
 on:
   workflow_dispatch:
     inputs:
@@ -48,12 +63,20 @@ on:
         description: The branch the red run ran on, and the revert targets (the journeys revert)
         required: false
         default: main
+      confirm:
+        description: "'true': run the journeys steps alone on bad (main's head after the revert merged) and note whether they pass; 'settle': the same for a red no single merge explains"
+        required: false
+        default: ''
+      revert_pr:
+        description: 'With confirm: the automatic revert that merged, which gets the recovery record'
+        required: false
+        default: ''
 
 permissions: {}
 
 concurrency:
   # The unit-test bisect keeps its one group; each journeys red gets its own, so one red never replaces another's.
-  group: ${{ inputs.journeys != '' && format('main-bisect-journeys-{0}-{1}', inputs.base, inputs.bad) || 'main-bisect' }}
+  group: ${{ inputs.journeys != '' && format('main-bisect-journeys{0}-{1}-{2}{3}', inputs.confirm == 'true' && '-confirm' || inputs.confirm == 'settle' && '-settle' || '', inputs.base, inputs.bad, inputs.confirm == 'settle' && format('-{0}', inputs.journeys) || '') || 'main-bisect' }}
   cancel-in-progress: false
 
 jobs:
@@ -96,7 +119,7 @@ jobs:
           ref: ${{ inputs.bad }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
@@ -118,7 +141,7 @@ jobs:
 
   revert-find:
     name: 'Journeys revert: find the culprit'
-    if: inputs.journeys != ''
+    if: inputs.journeys != '' && inputs.confirm == ''
     runs-on: ubuntu-latest
     timeout-minutes: 10 # healthy run: under a minute
     permissions:
@@ -187,7 +210,7 @@ jobs:
         env:
           BASE: ${{ inputs.base }}
         run: git fetch --quiet --no-tags origin "+refs/heads/$BASE:refs/remotes/origin/$BASE"
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
@@ -207,10 +230,11 @@ jobs:
           exec docker run --rm --init --network host ghcr.io/foundry-rs/foundry:v1.5.1 "anvil $*"
           EOF
           chmod +x "$LOCAL_STACK_ANVIL_BIN"
-      - name: Install, and the browser's system packages
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm exec playwright install --with-deps chromium
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Install the browser
+        timeout-minutes: 15
+        uses: ./.github/actions/browser
       - name: Probe
         id: probe
         env:
@@ -222,11 +246,188 @@ jobs:
         if: always()
         run: node tooling/scripts/local-test-stack.mjs stop || true
 
+  # The control, beside the probe: the failing journey files on the last commit where they passed (good), on the same
+  # kind of runner and stack. A red that is the runner's or the world's, not a merge's (a new runner image, ubuntu-26.04's
+  # pg_dump on 11 Nov 2026, #7933), fails there too, and then no one is blamed. It adds no time: it runs while the probe does.
+  revert-control:
+    name: 'Journeys revert: run the last passing commit again'
+    needs: revert-find
+    if: needs.revert-find.outputs.probe == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60 # one probe: about 10 minutes
+    permissions:
+      contents: read
+    outputs:
+      passes: ${{ steps.probe.outputs.back }}
+    env:
+      INTAFACED_SANCTIONS_REGIONS: ${{ secrets.INTAFACED_SANCTIONS_REGIONS }}
+      INTAFACED_SANCTIONS_LIST_SOURCE: ${{ secrets.INTAFACED_SANCTIONS_LIST_SOURCE }}
+    steps:
+      - name: Paths
+        run: |
+          {
+            echo "LOCAL_STACK_STATE=$RUNNER_TEMP/stack-state"
+            echo "LOCAL_STACK_NATS_BIN=$RUNNER_TEMP/nats-server"
+            echo "LOCAL_STACK_ANVIL_BIN=$RUNNER_TEMP/anvil"
+            echo "JOURNEY_REPORT=$RUNNER_TEMP/journeys/report.json"
+            echo "JOURNEY_BLOB_DIR=$RUNNER_TEMP/journeys/blob"
+          } >> "$GITHUB_ENV"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # The run checks out the good commit; keep the probe (from this workflow's commit) out of the way.
+      - name: Keep the probe outside the checkout
+        run: cp tooling/ci/journeys-revert-probe.mjs tooling/ci/journeys-revert-probe.sh "$RUNNER_TEMP/"
+      - name: Fetch the base
+        env:
+          BASE: ${{ inputs.base }}
+        run: git fetch --quiet --no-tags origin "+refs/heads/$BASE:refs/remotes/origin/$BASE"
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - name: Put pnpm next to node
+        run: ln -sf "$(command -v pnpm)" "$(dirname "$(command -v node)")/pnpm"
+      - name: Get a nats-server binary
+        run: |
+          docker create --name nats-src nats:2.10.24-alpine
+          docker cp nats-src:/usr/local/bin/nats-server "$LOCAL_STACK_NATS_BIN"
+          docker rm nats-src
+          chmod +x "$LOCAL_STACK_NATS_BIN"
+      - name: Get an anvil launcher
+        run: |
+          docker pull ghcr.io/foundry-rs/foundry:v1.5.1
+          cat > "$LOCAL_STACK_ANVIL_BIN" <<'EOF'
+          #!/bin/sh
+          exec docker run --rm --init --network host ghcr.io/foundry-rs/foundry:v1.5.1 "anvil $*"
+          EOF
+          chmod +x "$LOCAL_STACK_ANVIL_BIN"
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Install the browser
+        timeout-minutes: 15
+        uses: ./.github/actions/browser
+      - name: Probe
+        id: probe
+        env:
+          CONFIRM: 'true'
+          CANDIDATES: ${{ inputs.good }}
+          FILES: ${{ needs.revert-find.outputs.files }}
+          STEPS: ${{ needs.revert-find.outputs.steps }}
+        run: PROBE_SH="$RUNNER_TEMP/journeys-revert-probe.sh" node "$RUNNER_TEMP/journeys-revert-probe.mjs"
+      - name: Stop the stack
+        if: always()
+        run: node tooling/scripts/local-test-stack.mjs stop || true
+
+  # Confirm: the failing journey files alone on main's head (bad), a fresh stack set up as a shard sets it up, no retry.
+  confirm-run:
+    name: 'Journeys revert: run the failing journeys on main'
+    if: inputs.journeys != '' && (inputs.confirm == 'true' || inputs.confirm == 'settle')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40 # one journey file on a fresh stack: about 15 minutes
+    permissions:
+      contents: read
+    outputs:
+      back: ${{ steps.probe.outputs.back }}
+      steps: ${{ steps.files.outputs.steps }}
+    env:
+      INTAFACED_SANCTIONS_REGIONS: ${{ secrets.INTAFACED_SANCTIONS_REGIONS }}
+      INTAFACED_SANCTIONS_LIST_SOURCE: ${{ secrets.INTAFACED_SANCTIONS_LIST_SOURCE }}
+    steps:
+      - name: Paths
+        run: |
+          {
+            echo "LOCAL_STACK_STATE=$RUNNER_TEMP/stack-state"
+            echo "LOCAL_STACK_NATS_BIN=$RUNNER_TEMP/nats-server"
+            echo "LOCAL_STACK_ANVIL_BIN=$RUNNER_TEMP/anvil"
+            echo "JOURNEY_REPORT=$RUNNER_TEMP/journeys/report.json"
+            echo "JOURNEY_BLOB_DIR=$RUNNER_TEMP/journeys/blob"
+          } >> "$GITHUB_ENV"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - name: The failing journeys' files
+        id: files
+        env:
+          STEPS: ${{ inputs.journeys }}
+          BAD: ${{ inputs.bad }}
+        run: node tooling/ci/journeys-revert.mjs confirm-files
+      - name: Keep the probe outside the checkout
+        run: cp tooling/ci/journeys-revert-probe.mjs tooling/ci/journeys-revert-probe.sh "$RUNNER_TEMP/"
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - name: Put pnpm next to node
+        run: ln -sf "$(command -v pnpm)" "$(dirname "$(command -v node)")/pnpm"
+      - name: Get a nats-server binary
+        run: |
+          docker create --name nats-src nats:2.10.24-alpine
+          docker cp nats-src:/usr/local/bin/nats-server "$LOCAL_STACK_NATS_BIN"
+          docker rm nats-src
+          chmod +x "$LOCAL_STACK_NATS_BIN"
+      - name: Get an anvil launcher
+        run: |
+          docker pull ghcr.io/foundry-rs/foundry:v1.5.1
+          cat > "$LOCAL_STACK_ANVIL_BIN" <<'EOF'
+          #!/bin/sh
+          exec docker run --rm --init --network host ghcr.io/foundry-rs/foundry:v1.5.1 "anvil $*"
+          EOF
+          chmod +x "$LOCAL_STACK_ANVIL_BIN"
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Install the browser
+        timeout-minutes: 15
+        uses: ./.github/actions/browser
+      - name: Run them
+        id: probe
+        env:
+          CONFIRM: 'true'
+          CANDIDATES: ${{ inputs.bad }}
+          FILES: ${{ steps.files.outputs.files }}
+          STEPS: ${{ steps.files.outputs.steps }}
+        run: PROBE_SH="$RUNNER_TEMP/journeys-revert-probe.sh" node "$RUNNER_TEMP/journeys-revert-probe.mjs"
+      - name: Stop the stack
+        if: always()
+        run: node tooling/scripts/local-test-stack.mjs stop || true
+
+  confirm-note:
+    name: 'Journeys revert: note whether the break is back'
+    needs: confirm-run
+    if: ${{ !cancelled() && (inputs.confirm == 'true' || inputs.confirm == 'settle') && needs.confirm-run.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5 # healthy run: seconds
+    permissions:
+      contents: read
+      issues: write # comment on the journey's break issue
+      pull-requests: write # the recovery record, a comment on the automatic revert (a pull request's comments need this)
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - name: Note it on the break issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          STEPS: ${{ inputs.journeys }}
+          BAD: ${{ inputs.bad }}
+          BACK: ${{ needs.confirm-run.outputs.back }}
+          REVERT_PR: ${{ inputs.revert_pr }}
+          SETTLE: ${{ inputs.confirm == 'settle' && 'true' || '' }}
+          RED_RUN: ${{ inputs.red_run }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: node tooling/ci/journeys-revert.mjs back
+
   revert-open:
     name: 'Revert on main: open the revert'
     # One revert for both reds on main: a journeys step (revert-find, revert-probe) or a CI job (bisect, with red_run).
-    needs: [revert-find, revert-probe, bisect]
-    if: ${{ !cancelled() && (needs.revert-find.outputs.culprit != '' || needs.revert-probe.outputs.culprit != '' || (needs.bisect.outputs.culprit != '' && inputs.red_run != '')) }}
+    # A journeys culprit is blamed only when the control passed: the last passing commit still passes, so the red is a merge's.
+    needs: [revert-find, revert-probe, revert-control, bisect]
+    if: ${{ !cancelled() && ((needs.revert-probe.outputs.culprit != '' && needs.revert-control.outputs.passes == 'true') || (needs.bisect.outputs.culprit != '' && inputs.red_run != '')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10 # healthy run: under a minute
     # An App token: a pull request opened with GITHUB_TOKEN starts no workflow, so its seal would never run. The App's
@@ -248,7 +449,8 @@ jobs:
         env:
           FACTORY_APP_KEY: ${{ secrets.INTAFACED_APP_KEY }}
           ISSUES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CULPRIT: ${{ needs.revert-find.outputs.culprit || needs.revert-probe.outputs.culprit || needs.bisect.outputs.culprit }}
+          CULPRIT: ${{ needs.revert-probe.outputs.culprit || needs.bisect.outputs.culprit }}
+          CONTROL: ${{ needs.revert-control.outputs.passes == 'true' && inputs.good || '' }}
           KIND: ${{ inputs.journeys != '' && 'journeys' || 'ci' }}
           STEPS: ${{ needs.revert-find.outputs.steps }}
           TESTS: ${{ inputs.tests }}
@@ -257,17 +459,19 @@ jobs:
           BASE: ${{ inputs.base }}
         run: node tooling/ci/journeys-revert.mjs open
 
-  # A confirmed journeys red that traces to no single merge (revert-find names none, or the probe names no culprit):
-  # the journey's one break issue gets `main-unknown-red` and why (OWNER 289 item 6, OWNER 180). Never a new issue.
+  # A journeys red that traces to no single merge (revert-find names none, or the probe names no culprit): start the
+  # settle run of the failing journeys alone on main's head (above). Only when that start fails does a labelled
+  # `main-unknown-red` issue open at once, naming why.
   revert-unknown:
     name: 'Journeys revert: no single merge found'
-    needs: [revert-find, revert-probe]
-    if: ${{ !cancelled() && inputs.journeys != '' && needs.revert-find.result == 'success' && (needs.revert-find.outputs.unknown != '' || (needs.revert-find.outputs.probe == 'true' && needs.revert-probe.outputs.culprit == '')) }}
+    needs: [revert-find, revert-probe, revert-control]
+    if: ${{ !cancelled() && inputs.journeys != '' && needs.revert-find.result == 'success' && (needs.revert-find.outputs.unknown != '' || (needs.revert-find.outputs.probe == 'true' && (needs.revert-probe.outputs.culprit == '' || needs.revert-control.outputs.passes != 'true'))) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5 # healthy run: seconds
     permissions:
       contents: read
-      issues: write # comment on and label the journey's break issue
+      actions: write # start the settle run (this workflow, confirm: settle)
+      issues: write # open the labelled break issue when the settle run can't start
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -275,10 +479,12 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
-      - name: Note it on the break issue
+      - name: Run the steps alone on main's head
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           STEPS: ${{ needs.revert-find.outputs.steps }}
           RED_RUN: ${{ inputs.red_run }}
-          REASON: ${{ needs.revert-find.outputs.unknown || 'the probe ran the failing journeys on each candidate commit and named no single one' }}
+          REASON: ${{ needs.revert-find.outputs.unknown || (needs.revert-probe.outputs.culprit != '' && 'CONTROL_FAILED') || 'the probe ran the failing journeys on each candidate commit and named no single one' }}
+          GOOD: ${{ inputs.good }}
+          PROBED: ${{ needs.revert-probe.outputs.culprit }}
         run: node tooling/ci/journeys-revert.mjs unknown

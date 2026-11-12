@@ -17,10 +17,14 @@ import {
   type OrderIntent,
   type VenueFill,
   type VenueBestPrices,
+  type VenueGatedContract,
   type VenueMarginMode,
   type VenueMarket,
   type VenuePosition,
   type VenuePreview,
+  type VenueSession,
+  type VenueMarketEvent,
+  type VenueSettlement,
   type VenueUp,
 } from '../../../features/trade/venue-api';
 import {
@@ -40,6 +44,7 @@ import {
   outcomeText,
   keepsDraft,
   ReadBack,
+  useAsOfText,
   useOwner,
   useVenueAccount,
   useVenueActions,
@@ -100,8 +105,51 @@ function Desk({ status, requested }: { status: Extract<VenueMode, { mode: 'on' }
           </div>
         ) : null}
       </section>
+      <GatedList status={status} />
       {markets.data && perps.length > 0 ? <Contracts status={status} perps={perps} requested={requested} /> : null}
     </div>
+  );
+}
+
+/**
+ * J-derivatives-01 #2: every contract marked open or blocked for this account, with each reason as svc-trade's gated list
+ * names it (the region and level gate, our builder fee, our listing, the venue's own state). It reads on its own, so a
+ * person the region or level gate blocks still sees why.
+ */
+function GatedList({ status }: { status: VenueUp }) {
+  const { t } = futuresVenueCopy.useCopy();
+  const venue = useVenueApi();
+  const asOfText = useAsOfText();
+  const gated = usePolled((signal) => venue.gatedList(signal), 'venue-gated-list', 5_000);
+  const rows: VenueGatedContract[] = gated.data?.value ?? [];
+  return (
+    <section className="dk-panel" aria-label={t('Gated list')} data-testid="venue-gated-list">
+      <h2 className="dk-tab-title">
+        {t('Gated list')} <TestMark test={status.test} />
+      </h2>
+      <ReadProblem failure={gated.failure} venueName={status.venue.displayName} />
+      <ul className="form-stack">
+        {rows.map((c) => (
+          <li key={c.symbol} data-testid="venue-gate" data-symbol={c.symbol} data-open={c.open ? 'true' : 'false'}>
+            <strong>{c.symbol}</strong> <span data-testid="venue-gate-state">{c.open ? t('Gated open') : t('Gated blocked')}</span>
+            {c.blockers.length > 0 ? (
+              <ul>
+                {c.blockers.map((b) => (
+                  <li key={b.code} data-code={b.code}>
+                    {b.message}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+      {gated.data ? (
+        <p className="muted" data-testid="venue-gated-as-of">
+          {asOfText(gated.data.asOf)}
+        </p>
+      ) : null}
+    </section>
   );
 }
 
@@ -130,11 +178,14 @@ function Contracts({ status, perps, requested }: { status: VenueUp; perps: Venue
           </li>
         ))}
       </ul>
-      <ContractStrip market={market} positions={account.positions.data} test={status.test} />
+      <ContractStrip market={market} test={status.test} />
       <MarketRules market={market} venueName={status.venue.displayName} test={status.test} />
       <WalletBar />
       <ReadProblem failure={account.balances.failure} venueName={status.venue.displayName} />
       {owner ? <BalancesPanel balances={account.balances.data} test={status.test} /> : null}
+      {owner && market.marginAccount?.known ? (
+        <MarketMarginStep key={`mm:${market.symbol}`} market={market} owner={owner} run={run} test={status.test} />
+      ) : null}
       {owner ? <MarginStep key={market.symbol} market={market} owner={owner} run={run} test={status.test} disabled={false} /> : null}
       {owner ? (
         <Ticket
@@ -163,9 +214,9 @@ function PrimaryLeverageRoutes({ symbol, owner, side, run }: { symbol: string; o
   return <VenueRoutes symbol={symbol} owner={owner} side={side} run={run} leverage={lev.data?.value ?? null} />;
 }
 
-function ContractStrip({ market, positions, test }: { market: VenueMarket; positions: AsOf<VenuePosition[]> | null; test: boolean }) {
+function ContractStrip({ market, test }: { market: VenueMarket; test: boolean }) {
   const { t } = futuresVenueCopy.useCopy();
-  const held = positions?.value.find((p) => p.symbol === market.symbol);
+  const funding = market.funding.known ? market.funding.value : null;
   return (
     <section className="dk-panel" aria-label={t('Contract strip')} data-testid="venue-contract-strip">
       <h2 className="dk-tab-title">
@@ -174,11 +225,19 @@ function ContractStrip({ market, positions, test }: { market: VenueMarket; posit
       <dl className="protocol-facts">
         <div>
           <dt>{t('Family')}</dt>
-          <dd>{t('family_perpetual')}</dd>
+          <dd data-testid="venue-family">{t('family_perpetual')}</dd>
         </div>
         <div>
           <dt>{t('Settle asset')}</dt>
-          <dd>{market.quoteAsset}</dd>
+          <dd data-testid="venue-settle-asset">{market.quoteAsset}</dd>
+        </div>
+        <div>
+          <dt>{t('Contract size')}</dt>
+          <dd className="numeric" data-testid="venue-contract-size">
+            {market.contractSize.known
+              ? t('Contract size value', { size: market.contractSize.value, base: market.baseAsset })
+              : t('Not published')}
+          </dd>
         </div>
         <div>
           <dt>{t('Lot size')}</dt>
@@ -196,19 +255,47 @@ function ContractStrip({ market, positions, test }: { market: VenueMarket; posit
         </div>
         <div>
           <dt>{t('Mark price')}</dt>
-          <dd className="numeric">
-            <Known value={held ? { known: true, value: held.markPrice } : { known: false }} />
+          <dd className="numeric" data-testid="venue-mark" data-value={market.mark.known ? market.mark.value : undefined}>
+            {market.mark.known ? displayAmount(market.mark.value) : t('Not published')}
           </dd>
         </div>
         <div>
           <dt>{t('Funding')}</dt>
-          <dd>
-            <Known value={{ known: false }} />
+          <dd data-testid="venue-funding" data-rate={funding?.rate}>
+            {funding ? (
+              <>
+                <span className="numeric" data-testid="venue-funding-rate">
+                  {t('Funding rate value', { percent: percentOf(funding.rate), every: intervalText(funding.intervalSeconds) })}
+                </span>{' '}
+                {t('Funding next')}{' '}
+                <time dateTime={funding.nextFundingAt} data-testid="venue-funding-next">
+                  {funding.nextFundingAt}
+                </time>
+              </>
+            ) : (
+              t('Not published')
+            )}
           </dd>
         </div>
       </dl>
     </section>
   );
+}
+
+/** A signed scaled fraction as a percent, digit for digit (`0.0000125` is `0.00125`): the decimal point moved two places. */
+export function percentOf(fraction: string): string {
+  const negative = fraction.startsWith('-');
+  const [whole = '0', part = ''] = (negative ? fraction.slice(1) : fraction).split('.');
+  const padded = part.padEnd(2, '0');
+  const int = `${whole}${padded.slice(0, 2)}`.replace(/^0+(?=\d)/, '');
+  const rest = padded.slice(2).replace(/0+$/, '');
+  const out = rest ? `${int}.${rest}` : int;
+  return negative && /[1-9]/.test(out) ? `-${out}` : out;
+}
+
+/** A funding interval in hours when it is whole hours, else in seconds. */
+export function intervalText(seconds: number): string {
+  return seconds % 3600 === 0 ? `${seconds / 3600}h` : `${seconds}s`;
 }
 
 /**
@@ -273,7 +360,231 @@ function MarketRules({ market, venueName, test }: { market: VenueMarket; venueNa
           <dt>{t('Stale rule')}</dt>
           <dd data-testid="venue-stale-rule">{feed ? text(feed.staleRule) : t('Not published')}</dd>
         </div>
+        {market.openInterest?.known ? (
+          <>
+            <div>
+              <dt>{t('Open interest')}</dt>
+              <dd className="numeric" data-testid="venue-open-interest">
+                {t('Open interest value', { size: market.openInterest.value.size, base: market.baseAsset })}
+              </dd>
+            </div>
+            <div>
+              <dt>{t('Open interest cap')}</dt>
+              <dd className="numeric" data-testid="venue-open-interest-cap">
+                {market.openInterest.value.capSize === null
+                  ? t('Open interest no cap')
+                  : t('Open interest cap value', { cap: market.openInterest.value.capSize, base: market.baseAsset })}
+              </dd>
+            </div>
+          </>
+        ) : null}
       </dl>
+      {market.session.known ? <SessionRules session={market.session.value} symbol={market.symbol} venueName={venueName} /> : null}
+      {market.lastEvent?.known ? <MarketEvent event={market.lastEvent.value} symbol={market.symbol} venueName={venueName} /> : null}
+    </section>
+  );
+}
+
+/**
+ * The latest deployer's halt or split the venue reports on the market (J-derivatives-27 #9 #10): when, the price it
+ * settled every position at, that it cancelled every order, and whether and when it reopened. The venue's report; the
+ * app adds no protection of its own.
+ */
+function MarketEvent({ event, symbol, venueName }: { event: VenueMarketEvent; symbol: string; venueName: string }) {
+  const { t } = futuresVenueCopy.useCopy();
+  return (
+    <div
+      role="status"
+      data-testid="venue-market-event"
+      data-kind={event.kind}
+      data-at={event.eventAt}
+      data-price={event.settlementPrice}
+      data-reopened={event.reopenedAt ?? ''}
+    >
+      {event.kind === 'deployer_halt' ? (
+        <>
+          <p data-testid="venue-market-event-words">
+            {t('event_deployer_halt', { venue: venueName, symbol, at: event.eventAt, price: event.settlementPrice })}
+          </p>
+          <p data-testid="venue-market-event-state">
+            {event.reopenedAt === null
+              ? t('event_halt_open', { symbol })
+              : t('event_halt_reopened', { symbol, reopened: event.reopenedAt })}
+          </p>
+        </>
+      ) : (
+        <p data-testid="venue-market-event-words">
+          {t('event_split', {
+            venue: venueName,
+            symbol,
+            ratio: event.splitRatio ?? '',
+            at: event.eventAt,
+            price: event.settlementPrice,
+            reopened: event.reopenedAt ?? '',
+          })}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * A stock perpetual's home market, read from the venue (J-derivatives-27 #4): whether it is open now, and the venue's own
+ * off-hours mode, band, leverage, reopen time and refusal rule, each in its words or "not published by this venue".
+ */
+function SessionRules({ session, symbol, venueName }: { session: VenueSession; symbol: string; venueName: string }) {
+  const { t } = futuresVenueCopy.useCopy();
+  const text = (value: MaybeKnown<string>) => (value.known ? value.value : t('Not published'));
+  const closed = session.state === 'off_hours';
+  return (
+    <div data-testid="venue-session" data-state={session.state}>
+      {closed ? (
+        <p role="status" data-testid="venue-off-hours">
+          {t('Off-hours notice', { venue: venueName, home: session.homeMarket, symbol, rule: text(session.offHoursRule) })}
+        </p>
+      ) : null}
+      <dl className="protocol-facts">
+        <div>
+          <dt>{t('Home market')}</dt>
+          <dd data-testid="venue-home-market">{t(closed ? 'session_off_hours' : 'session_open', { home: session.homeMarket })}</dd>
+        </div>
+        <div>
+          <dt>{t('Off-hours mode')}</dt>
+          <dd data-testid="venue-off-hours-mode">{text(session.offHoursMode)}</dd>
+        </div>
+        <div>
+          <dt>{t('Off-hours band')}</dt>
+          <dd data-testid="venue-off-hours-band">{text(session.offHoursBand)}</dd>
+        </div>
+        <div>
+          <dt>{t('Off-hours leverage')}</dt>
+          <dd className="numeric" data-testid="venue-off-hours-leverage">
+            {session.offHoursMaxLeverageBps === null
+              ? t('Not published')
+              : t('Off-hours leverage times', { times: String(leverageTimes(session.offHoursMaxLeverageBps)) })}
+          </dd>
+        </div>
+        <div>
+          <dt>{t('Reopens')}</dt>
+          <dd data-testid="venue-reopens">
+            {!closed ? (
+              t('Reopens while open')
+            ) : session.reopensAt === null ? (
+              t('Not published')
+            ) : (
+              <time dateTime={session.reopensAt}>{session.reopensAt}</time>
+            )}
+          </dd>
+        </div>
+        <div>
+          <dt>{t('Off-hours rule')}</dt>
+          <dd data-testid="venue-off-hours-rule">{text(session.offHoursRule)}</dd>
+        </div>
+      </dl>
+    </div>
+  );
+}
+
+/**
+ * The margin account a market's deployer keeps for it, apart from the main account (J-derivatives-27 #7): its name,
+ * collateral asset and margin mode as the deployer set them, the person's balance in it as the venue reports it, and a
+ * move in or out that the person's own wallet signs on the main account. Nothing moves without that signature.
+ */
+function MarketMarginStep({ market, owner, run, test }: { market: VenueMarket; owner: string; run: RunAction; test: boolean }) {
+  const { t } = futuresVenueCopy.useCopy();
+  const venue = useVenueApi();
+  const read = usePolled((signal) => venue.marketMargin(owner, market.symbol, signal), `mm:${owner}:${market.symbol}`, VENUE_POLL_MS);
+  const rule = market.marginAccount?.known ? market.marginAccount.value : null;
+  const [amount, setAmount] = useState('');
+  const [result, setResult] = useState<ActionResult | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const draft = useRef(draftId());
+  if (!rule) return null;
+
+  async function move(direction: 'into_market' | 'out_of_market') {
+    setProblem(null);
+    let value: string;
+    try {
+      value = canonicalDecimal(amount);
+      if (parseAmount(value) <= 0n) throw new Error('not above zero');
+    } catch {
+      return setProblem(t('Market margin amount invalid'));
+    }
+    const answer = await run({
+      kind: 'market_margin_transfer',
+      symbol: market.symbol,
+      direction,
+      asset: rule!.collateralAsset,
+      amount: value,
+      moveKey: keys.marketMargin(owner, market.symbol, direction, draft.current),
+    });
+    setResult(answer);
+    if (!keepsDraft(answer)) draft.current = draftId();
+    read.reload();
+  }
+
+  const held = read.data?.value ?? null;
+  return (
+    <section className="dk-panel form-stack" aria-label={t('Market margin')} data-testid="venue-market-margin">
+      <h2 className="dk-tab-title">
+        {t('Market margin')} <TestMark test={test} />
+      </h2>
+      <p data-testid="venue-market-margin-note">{t('Market margin note', { name: rule.name, symbol: market.symbol })}</p>
+      <ReadProblem failure={read.failure} venueName={rule.name} />
+      <dl className="protocol-facts">
+        <div>
+          <dt>{t('Market margin name')}</dt>
+          <dd data-testid="venue-market-margin-name">{rule.name}</dd>
+        </div>
+        <div>
+          <dt>{t('Market margin collateral')}</dt>
+          <dd data-testid="venue-market-margin-collateral">{rule.collateralAsset}</dd>
+        </div>
+        <div>
+          <dt>{t('Market margin mode')}</dt>
+          <dd data-testid="venue-market-margin-mode" data-mode={rule.marginMode}>
+            {t(`mode_${rule.marginMode}`)}
+          </dd>
+        </div>
+        <div>
+          <dt>{t('Market margin free')}</dt>
+          <dd className="numeric" data-testid="venue-market-margin-free">
+            {held ? held.free : ''}
+          </dd>
+        </div>
+        <div>
+          <dt>{t('Market margin used')}</dt>
+          <dd className="numeric" data-testid="venue-market-margin-used">
+            {held ? held.locked : ''}
+          </dd>
+        </div>
+        <div>
+          <dt>{t('Market margin total')}</dt>
+          <dd className="numeric" data-testid="venue-market-margin-total">
+            {held ? held.total : ''}
+          </dd>
+        </div>
+      </dl>
+      {read.data ? <AsOfLine asOf={read.data.asOf} /> : null}
+      <label className="field">
+        <span>{t('Market margin amount', { asset: rule.collateralAsset })}</span>
+        <input
+          inputMode="decimal"
+          aria-label={t('Market margin amount', { asset: rule.collateralAsset })}
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+        />
+      </label>
+      <Button onClick={() => void move('into_market')}>{t('Market margin in')}</Button>
+      <Button variant="secondary" onClick={() => void move('out_of_market')}>
+        {t('Market margin out')}
+      </Button>
+      {problem ? (
+        <p className="failure" role="alert">
+          {problem}
+        </p>
+      ) : null}
+      <OutcomeLine result={result} owner={owner} />
     </section>
   );
 }
@@ -664,7 +975,10 @@ function Blotter({
           <OutcomeLine result={cancelResult} owner={owner} />
         </>
       ) : (
-        <History fills={account.fills.data} test={status.test} />
+        <>
+          <Settlements owner={owner} test={status.test} />
+          <History fills={account.fills.data} test={status.test} />
+        </>
       )}
     </section>
   );
@@ -880,6 +1194,62 @@ function History({ fills, test }: { fills: AsOf<VenueFill[]> | null; test: boole
         </DataTable>
       ) : null}
       <FillsTable fills={fills} test={test} />
+    </div>
+  );
+}
+
+/** How far back the history reads the venue's settlements. */
+const SETTLEMENTS_WINDOW_MS = 90 * 24 * 60 * 60 * 1000;
+
+/**
+ * The person's positions the venue settled, and orders it cancelled, when a market's deployer halted it or it split
+ * (J-derivatives-27 #9 #10): each as the venue records it, with its time and realised result.
+ */
+function Settlements({ owner, test }: { owner: string; test: boolean }) {
+  const { t } = futuresVenueCopy.useCopy();
+  const venue = useVenueApi();
+  const since = useMemo(() => new Date(Date.now() - SETTLEMENTS_WINDOW_MS).toISOString(), []);
+  const read = usePolled((signal) => venue.settlements(owner, since, signal), `settlements:${owner}`, VENUE_POLL_MS);
+  const rows: VenueSettlement[] = read.data?.value ?? [];
+  if (rows.length === 0) return null;
+  return (
+    <div data-testid="venue-settlements">
+      <DataTable
+        label={t('Settlements')}
+        headers={[
+          t('Settlement market'),
+          t('Settlement why'),
+          t('Settlement position'),
+          t('Settlement price'),
+          t('Settlement result'),
+          t('Settlement cancelled'),
+          t('Settlement time'),
+        ]}
+      >
+        {rows.map((s) => (
+          <tr key={`${s.symbol}:${s.settledAt}`} data-settled={s.symbol} data-kind={s.kind} data-at={s.settledAt}>
+            <td>
+              {s.symbol} <TestMark test={test} />
+            </td>
+            <td data-cell="why">{t(`settlement_${s.kind}`)}</td>
+            <td className="numeric" data-cell="position">
+              {s.side === null ? t('Settlement no position') : t('Settlement position value', { side: t(`side_${s.side}`), size: s.size })}
+            </td>
+            <td className="numeric" data-cell="price">
+              {s.price}
+            </td>
+            <td className="numeric" data-cell="realised">
+              {s.realisedPnl}
+            </td>
+            <td className="numeric" data-cell="cancelled">
+              {String(s.cancelledOrders.length)}
+            </td>
+            <td data-cell="time">
+              <time dateTime={s.settledAt}>{s.settledAt}</time>
+            </td>
+          </tr>
+        ))}
+      </DataTable>
     </div>
   );
 }

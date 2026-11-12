@@ -312,14 +312,14 @@ export function groupPulls(commits, headRef) {
  * Returns { ok, state, why }.
  */
 /**
- * A change that needs no verdict (requiredChecks is empty) merges without one when the judge is up, by the owner's
- * decisions of 2026-10-22 and 2026-11-06. When the judge was down on its head, it waits for the judge as a gate-file change
- * does: "No PR merges without its judge" (project-state OWNER 289 point 11; CI review on 0cef53f9b, item 3). Returns that
+ * Whether a verdict a change needs is missing only because the judge was down on its head: the seal then stops waiting
+ * for it (the catch-up re-runs the review and the seal when the judge is back). A change that needs no verdict merges
+ * without one, the judge up or down (owner decisions of 2026-10-22 and 2026-11-06; project-state OWNER 302). Returns that
  * need, or null when the head's CI review was not down.
  */
 export const judgeDownNeed = (verdict) =>
   verdict?.state === 'none' && /the judge was down in run/.test(String(verdict.why ?? ''))
-    ? { check: REVIEW_CHECK, reason: 'the judge was down on this head, and no pull request merges without its judge' }
+    ? { check: REVIEW_CHECK, reason: 'the judge was down on this head, and this change needs its verdict' }
     : null;
 
 /** A sign-off missing because the judge was down says so in its title, never a red that reads as the change's own (OWNER 289 point 11). */
@@ -950,24 +950,10 @@ async function main() {
     process.exit(1);
   }
   if (PR_NUMBER) {
+    // A change that needs no verdict merges without one, the judge up or down (project-state OWNER 302, 12 Nov 2026:
+    // "While the reviewer is down, a product pull request that it can only advise on merges on its tests and its
+    // journey; the reviewer reads it when it is back and anything it finds becomes a fix."; judge-down.mjs catchUpTargets).
     needs = requiredChecks(await readChangedFiles(REPO, PR_NUMBER, HEAD_SHA, GH_TOKEN));
-    // A change that needs no verdict still waits for a judge that was down on its head (judgeDownNeed).
-    if (needs.length === 0) {
-      const down = judgeDownNeed(
-        await lookForSignoff({
-          sha: HEAD_SHA,
-          io: {
-            reviewRuns: (sha) => readReviewRuns(REPO, sha, GH_TOKEN, branch),
-            attempts: (run) => readAttempts(REPO, run, GH_TOKEN),
-            tree: (sha) => readTree(REPO, sha, GH_TOKEN),
-          },
-          base: pull?.base?.ref,
-          number: PR_NUMBER,
-          check: REVIEW_CHECK,
-        }),
-      );
-      if (down) needs = [down];
-    }
     if (needs.length === 0) {
       console.log(
         'independent review not required: no gate file, look baseline, journey test or shared test code changed (owner decisions 2026-10-22 and 2026-11-06; the test judge, E1)',

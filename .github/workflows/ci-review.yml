@@ -50,6 +50,8 @@ jobs:
       judge: ${{ steps.review.outputs.kind == 'down' && 'down' || (steps.review.outputs.called == 'true' && 'back' || '') }}
       judge-action: ${{ steps.review.outputs.action }}
       judge-closed: ${{ steps.judge-back.outputs.closed }} # true only when this run closed the judge-down issue
+      verdict: ${{ steps.verdict.outcome }} # success or failure when the review answered; read by Start the seal's fix issue
+      tests: ${{ steps.tests.outcome }}
     permissions:
       contents: read # the default branch's checkout, the compare diff, and the base and head as text for the test part
       actions: read # read this run's tree index
@@ -147,10 +149,26 @@ jobs:
         id: review
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          CLAUDE_CODE_OAUTH_TOKEN_2: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_2 }}
         run: |
           dir="$RUNNER_TEMP/review"
+          # The second key (project-state#2180): kept in an unexported variable, so a call sees one key, as before. Only
+          # when the first key is refused or used up (reviewer-error.mjs --key: `other`, never a refusal about the
+          # change) is the same call asked once more on it. With no second key set, nothing here changes.
+          second="$CLAUDE_CODE_OAUTH_TOKEN_2"
+          unset CLAUDE_CODE_OAUTH_TOKEN_2
+          answered_on=first
+          other_key() {
+            [ -n "$second" ] && [ "$answered_on" = first ] || return 1
+            [ "$(node "$GITHUB_WORKSPACE/tooling/ci/reviewer-error.mjs" "$1" "$2" --key)" = other ] || return 1
+            line="$(node "$GITHUB_WORKSPACE/tooling/ci/reviewer-error.mjs" "$1" "$2" | sed 's/^::[a-z]*:://')"
+            echo "::warning::the first reviewer key failed, so this call is asked again on CLAUDE_CODE_OAUTH_TOKEN_2: $line"
+            echo "first_line=$line" >> "$GITHUB_OUTPUT"
+            CLAUDE_CODE_OAUTH_TOKEN="${second}"
+            answered_on=second
+          }
           if [ -f "$dir/skip-reviewer" ]; then
-            echo "the diff step already decided (too large to review whole)"
+            echo "the diff step already decided (too large to review even in parts)"
             exec node "$GITHUB_WORKSPACE/tooling/ci/ci-review.mjs" read "$dir"
           fi
           if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
@@ -171,6 +189,7 @@ jobs:
           if [ -f "$dir/input.jsonl" ]; then
             # Look-baseline images go with the prompt (ci-review.mjs streamInput): the same call, its input one stream
             # message, its answer a stream whose one `result` line the read step takes (readStreamOutput).
+            ask() {
             "$RUNNER_TEMP/reviewer/node_modules/.bin/claude" -p \
               --model claude-opus-5-5 --effort medium \
               --tools "Read,Grep,Glob" --restricted --permission-mode dontAsk --permission-prompts none \
@@ -180,9 +199,17 @@ jobs:
               --setting-sources "" --strict-mcp-config --mcp-config '{"mcpServers":{}}' \
               --no-session-persistence --input-format stream-json --output-format stream-json --verbose \
               --json-schema "$schema" \
-              < "$dir/input.jsonl" > "$dir/answer.jsonl" 2> "$dir/answer.jsonl.stderr" || failed "$dir/answer.jsonl" "$?"
+              < "$dir/input.jsonl" > "$dir/answer.jsonl" 2> "$dir/answer.jsonl.stderr"
+            }
+            ask || { rc=$?; other_key "$dir/answer.jsonl" "$rc" || failed "$dir/answer.jsonl" "$rc"; ask || failed "$dir/answer.jsonl" "$?"; }
             echo "called=true" >> "$GITHUB_OUTPUT"
+            [ -z "$second" ] || { echo "key=$answered_on" >> "$GITHUB_OUTPUT" && echo "reviewer key: $answered_on"; }
           else
+            # A diff over the cap is reviewed in parts (ci-review.mjs splitDiff): the first in "$dir", each other in
+            # "$dir/parts/<n>", one call each, side by side; the read step needs every part's answer. A part whose call
+            # failed on the first key (reviewer-error.mjs --key: `other`) is asked once more on the second, as one call was.
+            ask() {
+            schema="$(cat "$1/schema.json")"
             "$RUNNER_TEMP/reviewer/node_modules/.bin/claude" -p \
               --model claude-opus-5-5 --effort medium \
               --tools "Read,Grep,Glob" --restricted --permission-mode dontAsk --permission-prompts none \
@@ -192,8 +219,30 @@ jobs:
               --setting-sources "" --strict-mcp-config --mcp-config '{"mcpServers":{}}' \
               --no-session-persistence --output-format json --json-schema "$schema" \
               "Review the pull request in the input against the brief at its top. Answer with the structured verdict only." \
-              < "$dir/prompt.txt" > "$dir/answer.json" 2> "$dir/answer.json.stderr" || failed "$dir/answer.json" "$?"
+              < "$1/prompt.txt" > "$1/answer.json" 2> "$1/answer.json.stderr"
+            }
+            pids=()
+            parts=()
+            for part in "$dir" "$dir"/parts/*; do
+              [ -f "$part/prompt.txt" ] || continue
+              ask "$part" &
+              pids+=("$!")
+              parts+=("$part")
+            done
+            for i in "${!pids[@]}"; do
+              p="${parts[$i]}"
+              rc=0
+              wait "${pids[$i]}" || rc=$?
+              [ "$rc" = 0 ] && continue
+              if [ "$answered_on" = first ]; then
+                other_key "$p/answer.json" "$rc" || failed "$p/answer.json" "$rc"
+              else
+                [ "$(node "$GITHUB_WORKSPACE/tooling/ci/reviewer-error.mjs" "$p/answer.json" "$rc" --key)" = other ] || failed "$p/answer.json" "$rc"
+              fi
+              ask "$p" || failed "$p/answer.json" "$?"
+            done
             echo "called=true" >> "$GITHUB_OUTPUT"
+            [ -z "$second" ] || { echo "key=$answered_on" >> "$GITHUB_OUTPUT" && echo "reviewer key: $answered_on"; }
           fi
           node "$GITHUB_WORKSPACE/tooling/ci/ci-review.mjs" read "$dir"
 
@@ -257,6 +306,19 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: node tooling/ci/judge-down.mjs back "CI review" issue
 
+      # Which key answered, in one place: the "CI review on its second key" project-state issue (judge-down.mjs `key`),
+      # opened when the second key answered and closed when the first answers again, so the first is renewed before the
+      # second runs out too. Its failure can't fail the job. With no second key set, no `key` output is written and this
+      # step never runs.
+      - name: Reviewer key
+        if: ${{ !cancelled() && steps.review.outputs.key != '' && steps.review.outputs.kind != 'down' }}
+        continue-on-error: true
+        env:
+          ISSUE_TOKEN: ${{ steps.issues-token.outputs.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          LINE: ${{ steps.review.outputs.first_line }}
+        run: node tooling/ci/judge-down.mjs "${{ steps.review.outputs.key == 'second' && 'second' || 'first' }}" "CI review" key
+
   # The proof read, a check on the pull request that blocks nothing (project-state OWNER.md items 251 (3) and 250 (2);
   # OWNER 257: nothing new may block a merge). A job of its own after the review, so the review job the seal reads
   # (REVIEW_JOB) neither waits for it nor changes with it, and no required check reads it. For each step the title
@@ -307,9 +369,13 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PROJECT_STATE_READ_TOKEN: ${{ secrets.PROJECT_STATE_READ_TOKEN }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          CLAUDE_CODE_OAUTH_TOKEN_2: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_2 }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           dir="$RUNNER_TEMP/read"
+          # The second key, as in the Review step: unexported, and asked only after the first is refused or used up.
+          second="$CLAUDE_CODE_OAUTH_TOKEN_2"
+          unset CLAUDE_CODE_OAUTH_TOKEN_2
           no() { echo "::warning::no proof read of this head: $1 (it blocks nothing)"; exit 0; }
           # The first read of a head counts: an earlier attempt of this run that read it is never read again.
           had="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=proof-v2-read-$HEAD_SHA" --jq '.total_count')" || no "the artifacts can't be listed"
@@ -322,8 +388,8 @@ jobs:
           # The first and the second, blind call answer apart, so they run side by side.
           pids=()
           dirs=()
-          for d in "$dir" "$dir/second"; do
-            [ -f "$d/prompt.txt" ] || continue
+          ask() {
+            d="$1"
             "$RUNNER_TEMP/reviewer/node_modules/.bin/claude" -p \
               --model "$READER_MODEL" --effort "$READER_EFFORT" \
               --tools "Read,Grep,Glob" --restricted --permission-mode dontAsk --permission-prompts none \
@@ -333,7 +399,21 @@ jobs:
               --setting-sources "" --strict-mcp-config --mcp-config '{"mcpServers":{}}' \
               --no-session-persistence --output-format json --json-schema "$(cat "$d/schema.json")" \
               "Read the steps in the input against the brief at its top. Answer with the structured reads only." \
-              < "$d/prompt.txt" > "$d/answer.json" 2> "$d/answer.json.stderr" &
+              < "$d/prompt.txt" > "$d/answer.json" 2> "$d/answer.json.stderr"
+          }
+          # One reader call, asked again on the second key only when the first is refused or used up (--key: `other`).
+          read_one() {
+            ask "$1" && return 0
+            rc=$?
+            [ -n "$second" ] && [ "$(node "$GITHUB_WORKSPACE/tooling/ci/reviewer-error.mjs" "$1/answer.json" "$rc" --key)" = other ] || return "$rc"
+            echo "::warning::the first reviewer key failed, so this read is asked again on CLAUDE_CODE_OAUTH_TOKEN_2: $(node "$GITHUB_WORKSPACE/tooling/ci/reviewer-error.mjs" "$1/answer.json" "$rc" | sed 's/^::[a-z]*:://')"
+            CLAUDE_CODE_OAUTH_TOKEN="${second}"
+            : > "$1/answered-on-second-key"
+            ask "$1"
+          }
+          for d in "$dir" "$dir/second"; do
+            [ -f "$d/prompt.txt" ] || continue
+            read_one "$d" &
             pids+=("$!")
             dirs+=("$d")
           done
@@ -347,6 +427,9 @@ jobs:
           done
           [ "$failed" = 0 ] || no "a reader call failed"
           echo "called=true" >> "$GITHUB_OUTPUT"
+          if [ -e "$dir/answered-on-second-key" ] || [ -e "$dir/second/answered-on-second-key" ]; then
+            echo "::warning::reviewer key: second (CLAUDE_CODE_OAUTH_TOKEN_2); renew CLAUDE_CODE_OAUTH_TOKEN"
+          else echo "reviewer key: first"; fi
           node "$GITHUB_WORKSPACE/tooling/ci/step-read.mjs" read "$dir" || no "the answer can't be read"
           echo "read=1" >> "$GITHUB_OUTPUT"
 
@@ -430,6 +513,40 @@ jobs:
           if-no-files-found: ignore
           overwrite: false
 
+  # A pull request that needs no verdict merges while the judge is down, and the catch-up reads it when the judge is back
+  # (judge-down.mjs catchUpTargets). When that review FAILs on a pull request that has merged, its findings become one
+  # `regression` issue on this repository for a builder to fix (project-state OWNER 302: "the reviewer reads it when it
+  # is back and anything it finds becomes a fix"). On an open pull request it does nothing: the FAIL is on the pull
+  # request itself. Its own job, so Start the seal keeps no write it does not need. Its failure fails nothing the seal reads.
+  after-merge:
+    name: Fix issue after merge
+    needs: review
+    if: ${{ !cancelled() && (needs.review.outputs.verdict == 'failure' || needs.review.outputs.tests == 'failure') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read # whether the pull request has merged
+      issues: write # the fix issue
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - name: Fix issue for a merged pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          VERDICT: ${{ needs.review.outputs.verdict }}
+          TESTS: ${{ needs.review.outputs.tests }}
+        run: node tooling/ci/judge-down.mjs merged "CI review" issue
+
   # The CI review ends here: whatever its verdict, the seal reads it (review-marker.mjs).
   # It starts merge-seal.yml's seal, or re-runs its verdict, once every input on the head has finished: CI, the CI
   # review, and the journeys run the change needs (journey-seal.mjs --recheck, START_JOB). It needs every other job
@@ -439,7 +556,7 @@ jobs:
   # (INTAFACED/project-state#1574). Fails closed: if it fails, the seal waits, and a missing seal blocks the merge.
   seal-start:
     name: Start the seal
-    needs: [review, read]
+    needs: [review, read, after-merge]
     if: ${{ !cancelled() && needs.review.result != 'skipped' }}
     runs-on: ubuntu-latest
     timeout-minutes: 6 # healthy run: seconds; waiting out a seal that is already running takes up to 4 minutes
@@ -452,6 +569,7 @@ jobs:
         with:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
+
       - name: Start the seal
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -462,10 +580,14 @@ jobs:
         run: node tooling/ci/journey-seal.mjs --recheck
 
       # The judge is back and this run closed the judge-down issue (the review job's Judge back step): re-run the CI
-      # review on the oldest open PR heads with no verdict (judge-down.mjs CATCH_UP_CAP, 10 per success). Its own
-      # failure can't fail the job.
+      # review on the oldest PR heads with no verdict, open or merged while the judge was down (judge-down.mjs CATCH_UP_CAP,
+      # 10 per success; OWNER 302). A re-run
+      # attempt whose reviewer call succeeded carries it on, so heads past the cap are taken by the re-runs' own
+      # successes until none is left; a first attempt (a push) never reads them. (Failure it prevents: on 11 Nov the one
+      # catch-up at 23:33 UTC re-ran 10 heads and left "6 more past the cap", and eight armed PRs, #7947 among them, still
+      # had no verdict at 00:11 UTC.) Its own failure can't fail the job.
       - name: Judge back, catch up
-        if: ${{ !cancelled() && needs.review.outputs.judge-closed == 'true' }}
+        if: ${{ !cancelled() && (needs.review.outputs.judge-closed == 'true' || (github.run_attempt != '1' && needs.review.outputs.judge == 'back')) }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -15,8 +15,8 @@
 # project-state OWNER 225 and 227). A run on main retries a failed test once (JOURNEY_RETRIES); a test that fails and then
 # passes on the same commit ends "flaky", and the verdict sets its step aside for 7 days, a list each main run keeps in
 # its own artifact (set-aside.json) for the next: it still runs and is shown, it isn't counted as proven, and its failure
-# doesn't turn main red. A money step that is flaky is never set aside or proven: it stays red, opens a `flaky` issue,
-# and the merge seal holds only the pull requests in its area (project-state OWNER 278). (Failure it prevents: with no retry and no way to set a test
+# doesn't turn main red. A step that is flaky and not set aside, a money step included, is a pass that is never proven
+# and opens a `flaky` issue (the programme lead's decision of 12 Nov 2026 under project-state OWNER 296 and 297). (Failure it prevents: with no retry and no way to set a test
 # aside, one flaky test turned main red, or a red was left standing and read as noise.) The cost: each failed test runs
 # twice; the failed tests of runs 1635, 1636 and 1639 took 83 to 102 journey-minutes of a run, spread over its shards.
 #
@@ -384,6 +384,35 @@ jobs:
           REPO: ${{ github.repository }}
         run: node .base/tooling/ci/main-first.mjs --release
 
+  # On main, a journey step that passed in main's run before and fails outright in a shard of this run starts the
+  # journeys revert (main-bisect.yml) as that shard's job ends, not when the whole run ends: it reads each shard's own
+  # report as the shard finishes (tooling/ci/journeys-revert.mjs early). Main trust's start at the run's end still
+  # runs and starts only the steps this one did not. It runs no code of the run's commit beyond main's own tooling.
+  early-break:
+    name: Act on a shard's break as it ends
+    needs: [touch]
+    if: ${{ !cancelled() && needs.touch.outputs.mode != 'none' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 110 # waits on the shards (90 minutes each at most), reading each one once as it ends
+    permissions:
+      contents: read
+      actions: write # read this run's jobs and shard reports, and start main-bisect.yml
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - name: Start the journeys revert as each shard ends
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WORKFLOW_ID: real-app-journeys.yml
+          RUN_ID: ${{ github.run_id }}
+          HEAD_SHA: ${{ github.sha }}
+        run: node tooling/ci/journeys-revert.mjs early
+
   release-after-dispatch:
     name: Let deferred runs go after this full run
     needs: [touch, journeys]
@@ -428,7 +457,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
@@ -441,7 +470,7 @@ jobs:
       # svc-fix's pinned JDK and Maven archives, kept between runs: the build fetches them from GitHub's release host,
       # whose 504s failed every journeys run before any test (runs 42561646967 and 42578853059, 9 Nov). Only the archives
       # are kept; ensure-toolchain.mjs checks each one's pinned sha256/sha512 and fetches it again when it does not match.
-      - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ${{ runner.temp }}/stack-state/java-tools/jdk.tgz
@@ -537,7 +566,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
@@ -585,19 +614,12 @@ jobs:
           EOF
           chmod +x "$LOCAL_STACK_ANVIL_BIN"
 
-      # Each try has 8 minutes and there is one more try (failure it prevents: on 10 Nov at 04:52 and 05:08 UTC, `apt-get
-      # update` inside this install hung on the runner's Ubuntu mirror until the job's 90-minute limit, and the hung shard
-      # of main's run 42751940428 held main's one journeys lane for 66 minutes). A healthy install takes 14 s to 5 min
-      # (32 shards of run 42745917050). Two hung tries fail the shard, which sends no report, so the verdict is red.
+      # The browser and its system packages come from GitHub's cache, so an outage of Ubuntu's mirror or the browser host
+      # does not stop the shard (.github/actions/browser says why and how). Every outside call there is time-boxed and
+      # fails with its reason, so this limit is only the last stop. A healthy install takes about 20 s.
       - name: Install the browser
-        timeout-minutes: 18
-        run: |
-          for try in 1 2; do
-            if timeout --kill-after=30 480 pnpm exec playwright install --with-deps chromium; then exit 0; fi
-            echo "::warning::browser install try $try failed or ran past 8 minutes"
-          done
-          echo "::error::the browser install failed twice (an outside host: the Ubuntu mirror or the browser download)"
-          exit 1
+        timeout-minutes: 15
+        uses: ./.github/actions/browser
 
       # The run's one build (the build job), with its stamp in this shard's stack state, taken as late as possible so the
       # setup above runs beside the build. It waits for that job at most 10 minutes, asking every 20 s (about 3 asks per
@@ -633,7 +655,7 @@ jobs:
 
       # The build job's kept JDK and Maven archives, read only: a shard without the run's build builds svc-fix itself and
       # fetched the JDK from the same release host (run 42568666064, 9 Nov: the build and 20 shards failed on its 504s).
-      - uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ${{ runner.temp }}/stack-state/java-tools/jdk.tgz
@@ -750,8 +772,8 @@ jobs:
         if: success() || failure()
         run: node tooling/scripts/local-test-stack.mjs csp-report --fail
 
-      # The shard's blob (merged by the scoreboard job) and its failure screenshots; the run's TEST account files stay
-      # on the runner.
+      # The shard's blob (merged by the scoreboard job), its failure screenshots, and its own JSON report (which the
+      # early-break job reads as the shard ends); the run's TEST account files stay on the runner.
       - name: Keep the shard's report
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -759,14 +781,25 @@ jobs:
           name: real-app-journeys-shard-${{ matrix.shard }}
           path: |
             ${{ runner.temp }}/journeys/blob
+            ${{ runner.temp }}/journeys/report.json
             /tmp/intafaced-real-app/results
           if-no-files-found: warn
           retention-days: 7
 
+      # A journey that failed leaves the shard green (the run's verdict judges it), so the logs print then too: otherwise a
+      # flaky step's service-side cause goes with the runner (#8044: svc-ledger did not answer, and nothing kept why).
       - name: Stack logs on failure
-        if: failure()
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
         run: |
-          for f in "$LOCAL_STACK_STATE"/logs/*.log; do echo "::group::$f"; tail -40 "$f"; echo "::endgroup::"; done
+          if [ "$JOB_STATUS" = success ] && ! jq -e '(.stats.unexpected // 0) > 0' "$JOURNEY_REPORT" >/dev/null 2>&1; then
+            exit 0
+          fi
+          for f in "$LOCAL_STACK_STATE"/logs/*.log; do
+            [ -f "$f" ] || continue
+            echo "::group::$f"; tail -200 "$f" || true; echo "::endgroup::"
+          done
 
       - name: Stop the stack
         if: always()
@@ -780,7 +813,7 @@ jobs:
     needs: [touch, journeys]
     if: always()
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 80 # healthy run: a few minutes; the shard download may wait up to 65 for a spent API budget to reset
     env:
       JOURNEYS_TARGET: ${{ needs.touch.outputs.target }}
       NOTHING: ${{ needs.touch.outputs.mode == 'none' }}
@@ -803,7 +836,7 @@ jobs:
           # for the set-aside list (it refuses a shallow clone).
           fetch-depth: 0
           persist-credentials: false
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
@@ -825,9 +858,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SHARD_COUNT: ${{ needs.touch.outputs.count || 8 }}
+          WAIT_BUDGET_MINUTES: 65 # the job's timeout-minutes less the time the later steps need
+        # A spent API budget is waited out until its reset, never swallowed: run 4084 (12 Nov 2026) hit "API rate limit
+        # exceeded for installation" here, saved a report with no report.json, and every pull request's verdict failed on
+        # it. Any other refusal fails this step by name (tooling/ci/shard-download.mjs). It prints the token's budget.
         run: |
           mkdir -p "$RUNNER_TEMP/shards" "$RUNNER_TEMP/blobs" "$RUNNER_TEMP/journeys"
-          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --pattern 'real-app-journeys-shard-*' --dir "$RUNNER_TEMP/shards" || true
+          node tooling/ci/shard-download.mjs "$RUNNER_TEMP/shards"
           # One folder per shard artifact; the blob keeps its own name, prefixed so two shards never collide.
           for d in "$RUNNER_TEMP"/shards/real-app-journeys-shard-*; do
             [ -d "$d" ] || continue
@@ -885,12 +922,13 @@ jobs:
       - name: Verdict tests
         if: always() && env.NOTHING != 'true'
         run: node --test tooling/ci/journey-verdict.test.mjs
-      # It also writes the set-aside list (set-aside.json), kept with the report below.
+      # It also writes the set-aside list (set-aside.json) and, on main, the stored pass history (pass-history.json) the
+      # next verdicts read instead of every run since the baseline; both are kept with the report below.
       - name: Verdict against the list of steps not built yet
         if: always() && env.NOTHING != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: node tooling/ci/journey-verdict.mjs --report "$RUNNER_TEMP/journeys/report.json" --fetch --set-aside-out "$RUNNER_TEMP/journeys/set-aside.json"
+        run: node tooling/ci/journey-verdict.mjs --report "$RUNNER_TEMP/journeys/report.json" --fetch --set-aside-out "$RUNNER_TEMP/journeys/set-aside.json" --history-out "$RUNNER_TEMP/journeys/pass-history.json"
 
       # After the verdict, so the set-aside list goes with the report; it runs whatever the verdict says.
       - name: Keep the report
@@ -902,6 +940,15 @@ jobs:
             ${{ runner.temp }}/journeys/report.json
             ${{ runner.temp }}/journeys/set-aside.json
           if-no-files-found: warn
+      # The stored pass history on its own (about 2 MB, 40 KB zipped, beside a report of about 25 MB), so a verdict reading it
+      # downloads only it. Written on main only; nothing to keep elsewhere.
+      - name: Keep the pass history
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: real-app-journeys-pass-history
+          path: ${{ runner.temp }}/journeys/pass-history.json
+          if-no-files-found: ignore
 
   # A journeys run on a branch ends here, dispatched or on a pull request in this repository (never main's or a schedule's).
   # It starts merge-seal.yml's seal, or re-runs its verdict, once every input on the head has finished: CI, the CI
@@ -912,7 +959,7 @@ jobs:
   # (INTAFACED/project-state#1574). Fails closed: if it fails, the seal waits, and a missing seal blocks the merge.
   seal-start:
     name: Start the seal
-    needs: [touch, release, release-after-dispatch, build, journeys, scoreboard]
+    needs: [touch, release, early-break, release-after-dispatch, build, journeys, scoreboard]
     if: ${{ !cancelled() && github.ref != 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) }}
     runs-on: ubuntu-latest
     timeout-minutes: 6 # healthy run: seconds; waiting out a seal that is already running takes up to 4 minutes

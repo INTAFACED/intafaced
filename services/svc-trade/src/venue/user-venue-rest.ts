@@ -3,11 +3,13 @@
  *
  *   GET  /api/v1/venue/status                          `{ enabled: false }` when the door is off; else the venue, TEST label, chain id
  *   GET  /api/v1/venue/markets                         the markets we list, each with `listing` (ours) beside the venue's own status
+ *   GET  /api/v1/venue/gated-list                      each perpetual open or blocked for this account, every reason (J-derivatives-01 #2)
  *   GET  /api/v1/venue/best-prices?symbol=BTC-USDC         the venue's best bid and ask (a market order's worst price)
  *   GET  /api/v1/venue/balances?owner=0x…              (and orders/open, positions, agents, builder-fee-approval)
  *   GET  /api/v1/venue/orders/by-client-id?owner=&clientOrderId=
  *   GET  /api/v1/venue/fills?owner=&since=<ISO>
  *   GET  /api/v1/venue/withdrawals/:nonce?owner=
+ *   GET  /api/v1/venue/deposits?owner=                 the on-chain deposits the venue has seen: confirming, credited or not (J-dex-protocol-05 #2)
  *   GET  /api/v1/venue/leverage?owner=&symbol=
  *   POST /api/v1/venue/preview   { owner, intent }
  *   POST /api/v1/venue/convert/sell-quote   { owner, symbol, amount, quoteKey }   the venue's price for a sell (J-cex-spot-17 #8)
@@ -45,6 +47,7 @@ import { requireScope, type Principal, type Scope } from '@intafaced/auth';
 import { StepUpCheckError } from '@intafaced/contracts';
 import {
   VenueRefusalError,
+  hasSubAccountReads,
   VenueWireError,
   decodeVenueWire,
   encodeVenueWire,
@@ -64,6 +67,8 @@ import { presentVenueSellQuote, type VenueSellQuotes } from './venue-sell-quotes
 export interface UserVenueRestDeps {
   requirePrincipal: (req: FastifyRequest, reply: FastifyReply) => Principal | null;
   requireTradeJurisdiction: (req: FastifyRequest, reply: FastifyReply, principal: Principal) => boolean;
+  /** The region and level gate's reason for this caller, or null when it may trade (the gated list reads it as a reason). */
+  tradeAccessBlocker?: (req: FastifyRequest, principal: Principal) => { code: string; message: string } | null;
   /**
    * The owner's market price protection in basis points (TRADE_MARKET_SLIPPAGE_CAP_BPS), or null when blank, as
    * `best-prices` answers it. The desk bounds a venue spot market order's worst price by it, and the door enforces the same
@@ -188,6 +193,20 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     return answer(reply, async (d) => d.markets(), (req.query as Query).venueId);
   });
 
+  // J-derivatives-01 #2: each perpetual open or blocked for this account, with every reason. The region and level gate is
+  // a reason here, not a refusal, so a person it blocks still sees why.
+  app.get<{ Querystring: Query }>('/api/v1/venue/gated-list', privateRead, async (req, reply) => {
+    const principal = deps.requirePrincipal(req, reply);
+    if (!principal) return;
+    try {
+      requireScope(principal, 'trade:read');
+    } catch (error) {
+      return venueRefusalReply(reply, error);
+    }
+    const account = deps.tradeAccessBlocker ? deps.tradeAccessBlocker(req, principal) : null;
+    return answer(reply, async (d) => d.gatedList(account), req.query.venueId);
+  });
+
   // J-derivatives-28 #1: every configured venue for one market, with its own price, depth and fees, our builder fee,
   // whether the person can sign there, and its health. A down venue is a row with since when and why.
   app.get<{ Params: { symbol: string }; Querystring: Query }>('/api/v1/venue/markets/:symbol/venues', privateRead, async (req, reply) => {
@@ -236,6 +255,18 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
       return { ...read, figures: venuePositionFigures(venue.venue, read, new Date()) };
     },
     '/api/v1/venue/agents': async (d, _q, a) => (await d.venue()).agents(a),
+    // The owner's sub-accounts, read on the main account (J-agents-08 #2: the accounts a person may give their agent).
+    '/api/v1/venue/sub-accounts': async (d, _q, a) => {
+      const venue = await d.venue();
+      if (a.subAccount !== null) throw new VenueWireError('sub-accounts are read on the main account: send no subAccount');
+      if (!hasSubAccountReads(venue))
+        throw new VenueRefusalError({
+          venueId: a.venueId,
+          code: 'not_offered',
+          detail: `${venue.venue.displayName} offers no sub-accounts`,
+        });
+      return venue.subAccounts(a);
+    },
     '/api/v1/venue/orders/by-client-id': async (d, q, a) => {
       if (!q.clientOrderId) throw new VenueWireError('clientOrderId is required');
       return (await d.venue()).orderByClientId(a, q.clientOrderId);
@@ -245,9 +276,42 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
       if (Number.isNaN(since.getTime())) throw new VenueWireError('since is required (an ISO time)');
       return (await d.venue()).fills(a, since);
     },
+    // J-dex-protocol-05 #2: the venue's own list of the deposits it has seen; a venue that publishes none refuses not_offered.
+    '/api/v1/venue/deposits': async (d, _q, a) => {
+      const venue = await d.venue();
+      if (!venue.deposits)
+        throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: 'this venue publishes no deposit list' });
+      return venue.deposits(a);
+    },
     '/api/v1/venue/leverage': async (d, q, a) => {
       if (!q.symbol) throw new VenueWireError('symbol is required');
       return (await d.venue()).leverage(a, q.symbol);
+    },
+    // J-derivatives-27 #7: the person's balance in the margin account a market's deployer keeps for it, on the main
+    // account; a venue that reads none refuses not_offered.
+    '/api/v1/venue/market-margin': async (d, q, a) => {
+      if (!q.symbol) throw new VenueWireError('symbol is required');
+      const venue = await d.venue();
+      if (!venue.marketMargin)
+        throw new VenueRefusalError({
+          venueId: venue.venue.id,
+          code: 'not_offered',
+          detail: `${venue.venue.displayName} reads no market margin account`,
+        });
+      return venue.marketMargin(a, q.symbol);
+    },
+    // J-derivatives-27 #9 #10: the person's settlements in a market deployer's halt or a split, as the venue records them.
+    '/api/v1/venue/settlements': async (d, q, a) => {
+      const since = new Date(q.since ?? '');
+      if (Number.isNaN(since.getTime())) throw new VenueWireError('since is required (an ISO time)');
+      const venue = await d.venue();
+      if (!venue.settlements)
+        throw new VenueRefusalError({
+          venueId: venue.venue.id,
+          code: 'not_offered',
+          detail: `${venue.venue.displayName} reports no market settlements`,
+        });
+      return venue.settlements(a, since);
     },
     '/api/v1/venue/builder-fee-approval': async (d, _q, a) => {
       const status = await d.status();
@@ -266,9 +330,13 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     '/api/v1/venue/orders/open',
     '/api/v1/venue/positions',
     '/api/v1/venue/agents',
+    '/api/v1/venue/sub-accounts',
     '/api/v1/venue/orders/by-client-id',
     '/api/v1/venue/fills',
+    '/api/v1/venue/deposits',
     '/api/v1/venue/leverage',
+    '/api/v1/venue/market-margin',
+    '/api/v1/venue/settlements',
     '/api/v1/venue/builder-fee-approval',
   ]) {
     const read = accountReads[path]!;

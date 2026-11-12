@@ -5,6 +5,12 @@ import assert from 'node:assert/strict';
 import {
   SET_ASIDE_DAYS,
   historyRuns,
+  readHistory,
+  historyThrough,
+  findStored,
+  storedRuns,
+  passedSteps,
+  HISTORY_VERSION,
   issueProblem,
   judge,
   moneyRule,
@@ -247,6 +253,117 @@ test("history: only main's own finished runs between the named run and this one"
   );
 });
 
+// Run 4084 (43127556856, 12 Nov 2026) finished `failure` with a report artifact that had no report.json, after its shard
+// merge hit the API rate limit; run 4005 (11 Nov) finished with none after no shard started. Each failed every pull
+// request's verdict ("the pass history couldn't be read") until it was re-run or cancelled. A finished run with no report
+// is skipped and named; a report that can't be read (a refusal, a rate limit) still fails the read.
+test('the pass history skips a finished main run that kept no report, and still fails on one it cannot read', () => {
+  const hr = (n) => ({ id: 43127556000 + n, run_number: n });
+  const report = (states) => ({ states });
+  const reports = { 4083: report({ 'J-a-01#1': 'passed' }), 4085: report({ 'J-a-02#1': 'flaky' }) };
+  const got = readHistory([hr(4083), hr(4084), hr(4085)], (r) => reports[r.run_number] ?? null);
+  assert.deepEqual(got.skipped, [4084]);
+  assert.deepEqual(passesSince(got.reports), { 'J-a-01#1': 4083, 'J-a-02#1': 4085 });
+  // What a skip lets through: a step that passed only in the skipped run is not in the pass history.
+  const only = readHistory([hr(4084)], () => null);
+  assert.deepEqual(passesSince(only.reports), {});
+  // Unreadable stays red: a rate-limited or refused download throws, named by run.
+  assert.throws(
+    () =>
+      readHistory([hr(4083), hr(4084)], (r) => {
+        if (r.run_number === 4084)
+          throw new Error('Command failed: gh run download: error fetching artifacts: HTTP 403: API rate limit exceeded for installation.');
+        return reports[r.run_number];
+      }),
+    /run 4084's report couldn't be read \(Command failed: gh run download: error fetching artifacts: HTTP 403: API rate limit exceeded/,
+  );
+});
+
+test("fetchInputs reads the history with the optional reader, so only a missing artifact or a missing report.json skips, and the named run's report stays required", () => {
+  const src = readFileSync(new URL('./journey-verdict.mjs', import.meta.url), 'utf8');
+  const body = src.slice(src.indexOf('export function fetchInputs('), src.indexOf('function main()'));
+  assert.match(body, /historyThrough\(runs, \{[\s\S]*downloadReport\(repo, r\.id, 'report\.json', true\)/);
+  assert.match(body, /named = reportOf\(baseline\.run\.id\);/);
+  assert.match(body, /readReport\(raw \?\? downloadReport\(repo, id\)\)/);
+});
+
+// The stored pass history: a verdict reads the newest main run's pass-history.json and downloads only what it doesn't
+// cover, and gets the same pass history as reading every run (12 Nov 2026: 208 calls and about 10 minutes per verdict).
+const STATES = ['passed', 'flaky', 'failed', 'skipped', 'missing'];
+const seeded = (seed) => () => (seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31;
+const fakeHistory = (n, rnd) =>
+  Array.from({ length: n }, (_, i) => {
+    const states = {};
+    for (let k = 1; k <= 12; k++) states[`J-a-${String(k).padStart(2, '0')}#1`] = STATES[Math.floor(rnd() * STATES.length)];
+    return { run: { id: 9000 + i, run_number: 100 + i, run_attempt: 1 }, report: rnd() < 0.1 ? null : { states } };
+  });
+const entriesOf = (list) =>
+  Object.fromEntries(
+    list.filter((x) => x.report).map((x) => [String(x.run.id), { number: x.run.run_number, attempt: 1, passed: passedSteps(x.report) }]),
+  );
+
+test('the stored pass history gives exactly the pass history of reading every run, and downloads only what it lacks', () => {
+  for (let seed = 1; seed <= 40; seed++) {
+    const rnd = seeded(seed);
+    const list = fakeHistory(30, rnd);
+    const runs = list.map((x) => x.run);
+    const byId = new Map(list.map((x) => [x.run.id, x.report]));
+    const full = readHistory(runs, (r) => byId.get(r.id));
+    // The file a run part-way along wrote, one run it read at an attempt since re-run, and runs newer than it.
+    const cut = 5 + Math.floor(rnd() * 20);
+    const stored = { from: runs[cut - 1].run_number, runs: entriesOf(list.slice(0, cut)) };
+    const rerun = runs[Math.floor(rnd() * cut)];
+    const now = runs.map((r) => (r === rerun ? { ...r, run_attempt: 2 } : r));
+    const via = historyThrough(now, { stored, read: (r) => byId.get(r.id) });
+    assert.deepEqual(passesSince(via.reports), passesSince(full.reports), `seed ${seed}`);
+    assert.deepEqual(via.skipped, full.skipped, `seed ${seed}: a run with no report is skipped either way`);
+    const expectRead = now.filter((r, i) => i >= cut || r === now[runs.indexOf(rerun)] || !byId.get(r.id)).map((r) => r.run_number);
+    assert.deepEqual(via.read, expectRead, `seed ${seed}: downloads only runs the file doesn't cover`);
+    // The next file holds every run with a report, the re-run at its new attempt.
+    assert.equal(Object.keys(via.entries).length, list.filter((x) => x.report).length);
+    if (byId.get(rerun.id)) assert.equal(via.entries[rerun.id].attempt, 2);
+  }
+});
+
+test('a stored file is read only when it is whole: newest first, within the lookback, a refusal stays red', () => {
+  const runs = [1, 2, 3, 4, 5, 6, 7].map((n) => ({ id: n, run_number: n }));
+  const good = { version: HISTORY_VERSION, runs: { 1: { number: 1, attempt: 1, passed: ['J-a-01#1'] } } };
+  assert.equal(storedRuns(good), good.runs);
+  for (const bad of [null, {}, { version: 99, runs: {} }, { version: HISTORY_VERSION, runs: { 1: { number: 1, attempt: 1 } } }])
+    assert.equal(storedRuns(bad), null, JSON.stringify(bad));
+  // Newest first: run 7 has none, run 6 a malformed one, run 5 a good one.
+  const files = { 7: null, 6: { version: HISTORY_VERSION, runs: { 1: { passed: 'x' } } }, 5: good };
+  assert.deepEqual(
+    findStored(runs, (r) => files[r.run_number] ?? null),
+    { from: 5, runs: good.runs },
+  );
+  // Only within the lookback; past it the verdict reads every run, as before.
+  assert.equal(
+    findStored(runs, (r) => (r.run_number === 1 ? good : null)),
+    null,
+  );
+  // A failed download that isn't a refusal passes the file over; a refusal is thrown on.
+  const broken = (r) => {
+    if (r.run_number === 7) throw Object.assign(new Error('malformed'), { stderr: 'unexpected end of JSON' });
+    return files[r.run_number] ?? null;
+  };
+  assert.equal(findStored(runs, broken).from, 5);
+  const limited = () => {
+    throw Object.assign(new Error('Command failed'), { stderr: 'HTTP 403: API rate limit exceeded for installation.' });
+  };
+  assert.throws(() => findStored(runs, limited), /Command failed/);
+});
+
+test("fetchInputs finds the stored history among main's own history runs and writes only on main from a whole read", () => {
+  const src = readFileSync(new URL('./journey-verdict.mjs', import.meta.url), 'utf8');
+  const body = src.slice(src.indexOf('export function fetchInputs('), src.indexOf('function main()'));
+  assert.match(body, /readStored = \(r\) => downloadReport\(repo, r\.id, HISTORY_FILE, true, \{ artifact: HISTORY_ARTIFACT \}\)/);
+  assert.match(body, /const stored = findStored\(runs, readStored\);/);
+  assert.match(body, /historyThrough\(runs, \{\s*stored,/);
+  const main = src.slice(src.indexOf('function main()'));
+  assert.match(main, /if \(arg\('--history-out'\) && onMain && entries\)/);
+});
+
 // The set-aside (OWNER 225, 227): a step that failed, then passed on its retry, on main, is set aside by the machine for
 // SET_ASIDE_DAYS, never a money step.
 const at = (day) => `2026-11-${String(day).padStart(2, '0')}T00:00:00.000Z`;
@@ -335,80 +452,47 @@ test('broken, not flaky: a set-aside step that fails outright in two runs in a r
   assert.match(run(report(bad('J-a-01 #1'), bad('J-a-01 #2')), { setAside }).red[0].why, /failing, not in the baseline/);
 });
 
-test('OWNER 278: on main, a money step that failed, then passed on its retry, stays red, marked for the seal, with its flaky issue', () => {
+test('a pass on its retry is a pass, money or not: on main it is listed for its one flaky issue; failing outright is still red', () => {
   const v = run(report(ok('J-a-01 #1'), flaky('J-a-05 #1')), { money: moneyToo, onMain: true });
-  assert.deepEqual(
-    v.red.map((r) => [r.step, r.money, r.retryFlaky]),
-    [['J-a-05#1', true, true]],
-    'red on main, marked as a retry pass',
-  );
-  assert.match(v.red[0].why, /failed, then passed on its retry, and a money step is never set aside/);
-  assert.deepEqual(v.moneyFlaky, ['J-a-05#1'], 'listed for its flaky issue, never proven');
+  assert.deepEqual(v.red, [], 'a money step that passed on its retry is not red');
+  assert.deepEqual(v.flaky, ['J-a-05#1'], 'listed for its flaky issue, never proven');
   assert.deepEqual(v.setAside, [], 'never set aside');
-  assert.equal(
-    v.red[0].why,
-    run(report(ok('J-a-01 #1'), flaky('J-a-05 #1')), { money: moneyToo }).red[0].why,
-    'the same verdict line off main',
-  );
+  assert.deepEqual(run(report(ok('J-a-01 #1'), flaky('J-a-05 #1')), { money: moneyToo }).flaky, [], 'off main: no issue');
   // The planted break: the same money step failing outright on main is red.
   const broke = run(report(ok('J-a-01 #1'), bad('J-a-05 #1')), { money: moneyToo, onMain: true });
   assert.deepEqual(
     broke.red.map((r) => [r.step, r.money]),
     [['J-a-05#1', true]],
   );
-  assert.deepEqual(broke.moneyFlaky, []);
-  assert.equal(broke.red[0].retryFlaky, undefined, 'failing outright is not marked as a retry pass');
-  // A baseline entry that breaks its rules is still red, flaky or not.
-  const listed = { ...baseline, notBaselined: [{ step: 'J-a-05#1' }] };
-  const notBase = run(report(ok('J-a-01 #1'), flaky('J-a-05 #1')), { money: moneyToo, onMain: true, baseline: listed });
-  assert.deepEqual(
-    notBase.red.map((r) => r.step),
-    ['J-a-05#1'],
-  );
-  // It is not OWNER 278's retry pass: not marked for the seal, so the seal never passes it over, and no flaky issue.
-  assert.equal(notBase.red[0].retryFlaky, undefined, 'a notBaselined money step that passed on its retry is not marked retryFlaky');
-  assert.deepEqual(notBase.moneyFlaky, [], 'a notBaselined money step goes to no flaky issue');
-  // The same for a money step the baseline lists: red, never marked for the seal, no flaky issue.
-  const inBase = { ...baseline, steps: [...baseline.steps, { step: 'J-a-05#1', state: 'regression', money: true, issue: 9 }] };
-  const based = run(report(ok('J-a-01 #1'), flaky('J-a-05 #1')), { money: moneyToo, onMain: true, baseline: inBase });
-  assert.deepEqual(
-    based.red.map((r) => r.step),
-    ['J-a-05#1'],
-    'a money step the baseline lists as a regression is red',
-  );
-  assert.equal(based.red[0].retryFlaky, undefined, 'a baselined money step that passed on its retry is not marked retryFlaky');
-  assert.deepEqual(based.moneyFlaky, [], 'a baselined money step goes to no flaky issue');
-  // A non-money flaky step with no set-aside is red, as before: OWNER 278 is about money steps only.
-  assert.deepEqual(
-    run(report(flaky('J-a-01 #1')), { onMain: true }).red.map((r) => r.step),
-    ['J-a-01#1'],
-  );
+  assert.deepEqual(broke.flaky, []);
+  // A non-money step with no set-aside that passed on its retry is a pass too, listed for its issue.
+  const plain = run(report(flaky('J-a-01 #1')), { onMain: true });
+  assert.deepEqual([plain.red, plain.flaky], [[], ['J-a-01#1']]);
+  // A set-aside step's own issue tracks it: it is not listed twice.
+  assert.deepEqual(run(report(flaky('J-a-01 #1')), { onMain: true, setAside: aside({ 'J-a-01#1': 'flaky' }, 3) }).flaky, []);
 });
-
-test('never set aside: off main, a money step that failed, then passed on its retry, is red', () => {
-  const v = run(report(ok('J-a-01 #1'), flaky('J-a-05 #1')), { money: moneyToo, setAside: aside({ 'J-a-05#1': 'flaky' }, 3) });
+test('never set aside: a money step is never set aside, so its outright failure is red whatever a list says', () => {
+  const v = run(report(ok('J-a-01 #1'), bad('J-a-05 #1')), { money: moneyToo, setAside: aside({ 'J-a-05#1': 'flaky' }, 3) });
   assert.deepEqual(
     v.red.map((r) => [r.step, r.money]),
     [['J-a-05#1', true]],
   );
-  assert.match(v.red[0].why, /money step is never set aside: failing, not in the baseline/);
+  assert.match(v.red[0].why, /failing, not in the baseline/);
   // Even a hand-made list naming it changes nothing: the verdict reads the money rule itself.
-  const forged = { 'J-a-05#1': { active: true, until: at(30) } };
-  assert.equal(run(report(ok('J-a-01 #1'), flaky('J-a-05 #1')), { money: moneyToo, setAside: forged }).red.length, 1);
+  const forged = { 'J-a-05#1': { active: true, before: 'passed', until: at(30) } };
   assert.equal(run(report(ok('J-a-01 #1'), bad('J-a-05 #1')), { money: moneyToo, setAside: forged }).red.length, 1);
 });
-
 test('a pass only on the retry is judged as a failure: excused only where a failure would be', () => {
   // J-a-01#2 is unbuilt in the baseline, so failing is excused; passing only on its retry is excused the same way.
   assert.deepEqual(run(report(ok('J-a-01 #1'), flaky('J-a-01 #2')), { money: { ...money, 'J-a-01#2': false } }).red, []);
 });
 
-test('after the end date: a failure, or a pass only on the retry, is red again', () => {
+test('after the end date: a failure is red again; a pass on the retry is a pass, listed for its flaky issue', () => {
   const setAside = aside({}, 2 + SET_ASIDE_DAYS, rows(aside({ 'J-a-01#1': 'flaky' }, 2)));
   assert.match(run(report(bad('J-a-01 #1')), { setAside }).red[0].why, /failing, not in the baseline/);
-  assert.match(run(report(flaky('J-a-01 #1')), { setAside }).red[0].why, /not set aside now: failing, not in the baseline/);
+  const v = run(report(flaky('J-a-01 #1')), { setAside, onMain: true });
+  assert.deepEqual([v.red, v.flaky], [[], ['J-a-01#1']]);
 });
-
 test('never excused: a set-aside step that is skipped or missing', () => {
   const setAside = aside({ 'J-a-01#1': 'flaky' }, 3);
   assert.match(run(report(skip('J-a-01 #1')), { setAside }).red[0].why, /skipped now/);
@@ -502,12 +586,12 @@ test('the set-aside guard: money by the rule, a wallet, bank or pay journey, J-o
   });
 });
 
-test('never set aside: a wallet step the baseline rule calls non-money is red when flaky, and gets no set-aside', () => {
+test('never set aside: a wallet step the baseline rule calls non-money gets no set-aside, and its outright failure is red', () => {
   const guard = { ...money, 'J-wallet-01#1': true };
   const states = readReport(report(flaky('J-wallet-01 #1'))).states;
   assert.deepEqual(setAsideSteps({ states, money: guard, run: { number: 103, at: at(3) } }), {});
   const v = judge({
-    newest: readReport(report(ok('J-a-01 #1'), flaky('J-wallet-01 #1'))),
+    newest: readReport(report(ok('J-a-01 #1'), bad('J-wallet-01 #1'))),
     named,
     baseline,
     money: { ...money, 'J-wallet-01#1': false },
@@ -517,10 +601,9 @@ test('never set aside: a wallet step the baseline rule calls non-money is red wh
   assert.deepEqual(
     v.red.map((r) => r.step),
     ['J-wallet-01#1'],
+    'a guarded step is never excused by a set-aside',
   );
-  assert.match(v.red[0].why, /money step is never set aside/);
 });
-
 test("a carried list's end date is re-derived from its start, never taken as written", () => {
   const forged = [{ step: 'J-a-01#1', since: 102, sinceAt: at(2), until: at(28), state: 'passed' }];
   const list = aside({}, 2 + SET_ASIDE_DAYS, forged);
@@ -539,26 +622,28 @@ const realSlices = repoJson('docs/roadmap/slices.json');
 const realMoney = moneyRule({ journeys: realJourneys, slices: realSlices, manifests: manifestsAt(ROOT) });
 const realGuard = setAsideGuard({ journeys: realJourneys, slices: realSlices, money: realMoney });
 
-test("the reviewer's case: J-wallet-01 #1 and J-pay-01 #1, non-money by the slice rule, are never set aside and are red when flaky", () => {
+test("the reviewer's case: J-wallet-01 #1 and J-pay-01 #1, non-money by the slice rule, are never set aside; a pass on the retry is a pass, an outright failure red", () => {
   for (const step of ['J-wallet-01#1', 'J-pay-01#1']) {
     assert.equal(realMoney[step], false, `${step}: the slice rule alone calls it non-money (the hole)`);
     assert.equal(realGuard[step], true, `${step}: the set-aside guard calls it money`);
   }
   const states = { 'J-wallet-01#1': 'flaky', 'J-pay-01#1': 'flaky' };
   assert.deepEqual(setAsideSteps({ states, money: realGuard, run: { number: 103, at: at(3) } }), {});
-  const newest = readReport(report(flaky('J-wallet-01 #1'), flaky('J-pay-01 #1')));
-  const v = judge({
-    newest,
-    named: readReport(report()),
-    baseline: { run: { number: 100 }, steps: [] },
-    money: realMoney,
-    guard: realGuard,
-    setAside: {},
-  });
-  assert.deepEqual(v.red.map((r) => r.step).sort(), ['J-pay-01#1', 'J-wallet-01#1']);
-  assert.ok(v.red.every((r) => /money step is never set aside/.test(r.why)));
+  const judged = (newest) =>
+    judge({
+      newest,
+      named: readReport(report()),
+      baseline: { run: { number: 100 }, steps: [] },
+      money: realMoney,
+      guard: realGuard,
+      setAside: {},
+      onMain: true,
+    });
+  const v = judged(readReport(report(flaky('J-wallet-01 #1'), flaky('J-pay-01 #1'))));
+  assert.deepEqual([v.red, v.flaky], [[], ['J-pay-01#1', 'J-wallet-01#1']]);
+  const broke = judged(readReport(report(bad('J-wallet-01 #1'), bad('J-pay-01 #1'))));
+  assert.deepEqual(broke.red.map((r) => r.step).sort(), ['J-pay-01#1', 'J-wallet-01#1']);
 });
-
 test("money by the proof count's definition: every wallet, bank and pay step and J-ops-console-27 is guarded, whatever its slices", () => {
   const named = Object.keys(realGuard).filter((k) => /^J-(wallet|bank|pay)-\d+#/.test(k) || k.startsWith('J-ops-console-27#'));
   assert.ok(named.length > 100, `found ${named.length}`);
@@ -780,9 +865,14 @@ test('no complete earlier list: fail closed, never fresh; fresh only when main n
   assert.equal(priorSetAside([], () => null).fresh, true);
   // An incomplete list from a run that predates nothing stays unreadable, even if `predates` would say yes.
   assert.equal(priorSetAside(runs, incomplete, () => true).unreadable, true);
-  // A step in cool-down keeps it: no fresh 7 days. The CLI with no complete list excuses nothing, even a flaky step.
+  // A step in cool-down keeps it: no fresh 7 days. The CLI with no complete list excuses no failure (a pass on the
+  // retry is a pass whatever the list says).
   assert.equal(excusedSetAside({ setAside: { a: 1 }, onMain: true, incomplete: true }).a, undefined);
-  assert.equal(cli({ ref: 'refs/heads/main', state: 'flaky', priorIncomplete: true }), 1, 'no complete list: the flaky step is red');
+  assert.equal(
+    cli({ ref: 'refs/heads/main', state: 'flaky', priorIncomplete: true }),
+    0,
+    'no complete list: a pass on the retry is a pass',
+  );
   assert.equal(cli({ ref: 'refs/heads/main', priorIncomplete: true }), 1, 'no complete list: the failure is red');
 });
 

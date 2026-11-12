@@ -165,6 +165,7 @@ export function createLedgerHistoryPages(baseUrl: string, internalSecret: string
           rail?: string | null;
           product?: string | null;
           orderId?: string | null;
+          withdrawalId?: string | null;
         }>;
         nextCursor: string | null;
       }>('/trpc/historyPage', body);
@@ -186,6 +187,8 @@ export function createLedgerHistoryPages(baseUrl: string, internalSecret: string
           ...(typeof e.product === 'string' || e.product === null ? { product: e.product } : {}),
           // The page owner's own order id (trade lines only). Absent from an older ledger; null or absent = none.
           ...(typeof e.orderId === 'string' && e.orderId !== '' ? { orderId: e.orderId } : {}),
+          // A withdrawal line's own withdrawal id and attempt (`<id>:<n>`), allow-listed by svc-ledger. Absent elsewhere.
+          ...(typeof e.withdrawalId === 'string' && e.withdrawalId !== '' ? { withdrawalId: e.withdrawalId } : {}),
         })),
         nextCursor: result.nextCursor,
       };

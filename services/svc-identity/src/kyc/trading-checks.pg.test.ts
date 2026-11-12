@@ -15,6 +15,7 @@ import { MemoryEventBus } from '@intafaced/events';
 import { createTestDb } from '../fixture-truncate.testkit.js';
 import { RankService } from '../rank/rank-service.js';
 import { AuthService } from '../auth/auth-service.js';
+import { FounderControls } from '../controls/founder-controls.js';
 import { sealBirthDate } from './birth-date.js';
 import { parseKycCapabilitiesByLevel } from './capabilities.js';
 import { parseKycRejectReasons } from './cases.js';
@@ -168,6 +169,22 @@ if (!available) {
       const stored = JSON.stringify(await db.sql`SELECT * FROM trading_checks WHERE user_id = ${userId}`);
       expect(stored).not.toContain('Trader');
       expect(JSON.stringify(await db.sql`SELECT * FROM birth_dates WHERE user_id = ${userId}`)).not.toContain('1990');
+    });
+
+    it("a clear never raises the level that Edge's per-request authority read forwards to every service", async () => {
+      const userId = await person();
+      const [session] = await db.sql<Array<{ id: string }>>`SELECT id FROM sessions WHERE user_id = ${userId} LIMIT 1`;
+      const authority = () =>
+        new FounderControls(db.sql, null).currentAuthority({ userId, credential: { kind: 'session', sessionId: session!.id } });
+      expect(await desk().run(userId, { legalName: 'TEST Trader One', country: 'DE', confirmed: true })).toMatchObject({
+        outcome: 'cleared',
+      });
+      // Edge overwrites each forwarded principal's tier with this value, so a trading clear here would open the bank gates.
+      expect(await authority()).toMatchObject({ status: 'eligible', account: { kycTier: 'none' } });
+      // An operator-approved level beside the clear still reads as itself.
+      await db.sql`INSERT INTO kyc_records (user_id, tier, jurisdiction, status, reviewed_by, reviewed_at)
+        VALUES (${userId}, 'basic', 'DE', 'approved', 'TEST operator', now())`;
+      expect(await authority()).toMatchObject({ status: 'eligible', account: { kycTier: 'basic' } });
     });
 
     it('a hit holds the account under review: a pending record for a person, nothing granted', async () => {

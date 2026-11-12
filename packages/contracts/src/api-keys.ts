@@ -34,7 +34,7 @@ export const API_KEY_CREATE_REFUSALS = [
   'identity.key_org_denied',
   'identity.portfolio_key_cap_unset',
   'identity.portfolio_key_cap_reached',
-  'identity.agent_scope_forbidden',
+  'auth.agent_scope_forbidden',
 ] as const;
 export type ApiKeyCreateRefusal = (typeof API_KEY_CREATE_REFUSALS)[number];
 
@@ -46,7 +46,7 @@ export type ApiKeyKind = (typeof API_KEY_KINDS)[number];
  * The permissions an agent key never holds (DV-keys-05: "cannot hold refund, payout or configuration scopes"): refunds,
  * payouts, withdrawals and bank writes (loan repayments, transfers, address changes) move money off the account or
  * change where it goes, and the identity and merchant write scopes change its settings.
- * Asking for one on an agent key refuses `identity.agent_scope_forbidden` at create.
+ * Asking for one on an agent key refuses `auth.agent_scope_forbidden` at create.
  */
 export const AGENT_KEY_FORBIDDEN_SCOPES = [
   'pay:refund',
@@ -311,9 +311,9 @@ export function apiKeyCreateRequestId(
 }
 
 /**
- * The sensitive actions an agent key's attempt is held for its owner instead of run (DV-keys-05: "a sensitive action by
- * an agent key creates an approval-queue row instead of running"). The edge names the action from the route; nothing
- * is forwarded to the service, so the action never runs from the attempt.
+ * The money actions an agent key may never take (J-developer-15 #6: "The payout is refused `auth.scope_denied` and no
+ * approval row is made"). The edge names the action from the route and asks identity whether the key is an agent key;
+ * an agent key's attempt is refused at the edge and nothing is forwarded or written, so the action never runs.
  */
 export const AGENT_HELD_ACTIONS = ['pay.payout', 'pay.refund'] as const;
 export type AgentHeldAction = (typeof AGENT_HELD_ACTIONS)[number];
@@ -348,10 +348,16 @@ export const agentKeyApprovalSchema = z
   .strict();
 export type AgentKeyApproval = z.infer<typeof agentKeyApprovalSchema>;
 
-/** `held: false`: the key is not an agent key, and the request goes on as any key's would. */
+/** The refusal an agent key's money action gets at the edge. */
+export const AGENT_KEY_ACTION_REFUSAL = 'auth.scope_denied' as const;
+
+/**
+ * `held: false`: the key is not an agent key, and the request goes on as any key's would. `held: true`: an agent key;
+ * the request is refused `auth.scope_denied` and nothing is written.
+ */
 export const agentKeyHoldOutputSchema = z.discriminatedUnion('held', [
   z.object({ held: z.literal(false) }).strict(),
-  z.object({ held: z.literal(true), approval: agentKeyApprovalSchema }).strict(),
+  z.object({ held: z.literal(true), refusal: z.literal(AGENT_KEY_ACTION_REFUSAL) }).strict(),
 ]);
 export type AgentKeyHoldOutput = z.infer<typeof agentKeyHoldOutputSchema>;
 

@@ -8,9 +8,9 @@ import {
   READ_SCHEMA,
   buildReads,
   cmdRead,
-  countMoney,
   countSample,
-  moneyLineHash,
+  laterInSerial,
+  localImports,
   readStatus,
   secondReason,
   writeReads,
@@ -35,9 +35,7 @@ const WORDS_MD = [
   '| # | The person does | They see | Slices | Proof |',
   '| 1 | Sends the coins | The ledger shows them gone | S | none |',
 ].join('\n');
-// project-state's money.json: J-x-01 decided not money on its Money line; J-wallet-01 has none, so it is money.
-const MONEY = { 'J-x-01': { money: false, line: moneyLineHash('none') } };
-const words = async () => ({ words: parseStepWords(WORDS_MD), ref: 'c'.repeat(40), money: MONEY });
+const words = async () => ({ words: parseStepWords(WORDS_MD), ref: 'c'.repeat(40) });
 // A run id whose sample holds none of J-x-01's steps (asserted below).
 const RUN = '1006';
 
@@ -97,6 +95,28 @@ test('a step whose own test changed is read, with its words and its journey file
   assert.deepEqual(JSON.parse(readFileSync(join(dir, 'meta.json'), 'utf8')).required, ['J-x-01 #2']);
 });
 
+test("a journey file's own helpers are read with it, and theirs in turn; another journey file and a path outside its folder are not", async () => {
+  const dir = tmp();
+  const imports =
+    "import { venueRead } from './own-reads.mjs';\nimport { other } from './J-other-01.pw.mjs';\nimport { x } from '../../far.mjs';\n";
+  const src = fakeSrc(DIFF, {
+    [`${RA}/J-x-01.pw.mjs`]: imports + JFILE.replace('toBe(1);', 'toBeTruthy();'),
+    [`${RA}/own-reads.mjs`]: "export { deeper } from './deeper-reads.mjs';\nexport const venueRead = () => 'OWN_HELPER_CHECK';\n",
+    [`${RA}/deeper-reads.mjs`]: "export const deeper = () => 'DEEPER_HELPER_CHECK';\n",
+    [`${RA}/J-other-01.pw.mjs`]: "export const other = 'OTHER_JOURNEY_FILE';\n",
+  });
+  await writeReads(dir, { src, base: BASE, head: HEAD, pr: 7, loadWords: words, runId: RUN });
+  const prompt = readFileSync(join(dir, 'prompt.txt'), 'utf8');
+  assert.match(prompt, /BEGIN UNTRUSTED FILE at the head .* apps\/customer\/tests\/real-app\/own-reads\.mjs\n[^]*OWN_HELPER_CHECK/);
+  assert.match(prompt, /BEGIN UNTRUSTED FILE at the head .* apps\/customer\/tests\/real-app\/deeper-reads\.mjs\n[^]*DEEPER_HELPER_CHECK/);
+  assert.doesNotMatch(prompt, /OTHER_JOURNEY_FILE/);
+  assert.doesNotMatch(prompt, /far\.mjs\n/);
+  assert.deepEqual(localImports("import { a } from './a.mjs';\nexport * from \"./b.mjs\";\nimport c from '../c.mjs';"), [
+    `${RA}/a.mjs`,
+    `${RA}/b.mjs`,
+  ]);
+});
+
 test('a claimed step is read from its file at the head though the PR changes no test; a Left-or-replaced step is not', async () => {
   const got = await buildReads({
     src: fakeSrc(DOCS),
@@ -150,31 +170,32 @@ test('a step with no test at the head, or no words, is named as not read; the re
   );
 });
 
-test('a money step gets a second, blind call of its own; others only when the count samples them', async () => {
+test('OWNER 296: a second, blind call follows the 15% sample alone; a money step outside it gets none', async () => {
+  const seedFor = (step, want) => {
+    for (let n = 1; ; n++) if (countSample(step, `run:${n}`) === want) return n;
+  };
   const dir = tmp();
-  await writeReads(dir, { src: fakeSrc(DOCS), base: BASE, head: HEAD, pr: 7, title: 'svc: J-wallet-01 #1', loadWords: words, runId: RUN });
-  const count = { words: parseStepWords(WORDS_MD), money: MONEY, seed: `run:${RUN}` };
-  assert.equal(secondReason('J-wallet-01 #1', count), 'money step');
-  assert.equal(secondReason('J-x-01 #1', count), null);
+  await writeReads(dir, {
+    src: fakeSrc(DOCS),
+    base: BASE,
+    head: HEAD,
+    pr: 7,
+    title: 'svc: J-wallet-01 #1',
+    loadWords: words,
+    runId: seedFor('J-wallet-01 #1', true),
+  });
+  assert.equal(secondReason('J-wallet-01 #1', { seed: `run:${seedFor('J-wallet-01 #1', true)}` }), '15% sample');
+  assert.equal(
+    secondReason('J-wallet-01 #1', { seed: `run:${seedFor('J-wallet-01 #1', false)}` }),
+    null,
+    'planted: a money step outside the sample',
+  );
   const second = readFileSync(join(dir, 'second', 'prompt.txt'), 'utf8');
   assert.match(second, /ANSWER FOR\nJ-wallet-01 #1\n/);
   assert.doesNotMatch(second, /FAITHFUL"|WEAK"/, 'the second prompt carries no first answer');
 });
 
-test("money and the sample follow project-state's rule: money.json on the Money line it was decided on, and the run id", () => {
-  const w = parseStepWords(WORDS_MD);
-  assert.equal(countMoney('J-x-01 #1', w, MONEY), false);
-  assert.equal(countMoney('J-x-01 #1', w, null), true, 'no money.json: money');
-  assert.equal(
-    countMoney('J-x-01 #1', w, { 'J-x-01': { money: false, line: moneyLineHash('none; a cancel releases a hold') } }),
-    true,
-    'planted: the Money line changed since it was decided',
-  );
-  assert.equal(
-    countMoney('J-wallet-01 #1', w, { 'J-wallet-01': { money: false, line: moneyLineHash(null) } }),
-    true,
-    'no Money line: money',
-  );
+test('the sample draws on the run id', () => {
   for (const n of [1, 2, 3]) assert.equal(countSample(`J-x-01 #${n}`, `run:${RUN}`), false);
   assert.equal(countSample('J-x-01 #1', 'run:20'), true, 'another run draws again');
   assert.equal(countSample('J-x-01 #1', null), true, 'no run id: sampled');
@@ -216,7 +237,9 @@ test('fails closed: an unanswered step, a bad verdict, an errored call or a miss
     pr: 7,
     title: 'svc: J-x-01 #1, J-wallet-01 #1',
     loadWords: words,
-    runId: RUN,
+    runId: (() => {
+      for (let n = 1; ; n++) if (countSample('J-wallet-01 #1', `run:${n}`)) return n;
+    })(),
   });
   const ok = [
     { step: 'J-x-01 #1', verdict: 'FAITHFUL', refusal: false, note: 'n' },
@@ -277,4 +300,34 @@ test("the workflow: the read is a job of its own after the review, never fails a
   assert.equal(models.length, 2);
   assert.equal(models[1], models[0]);
   assert.equal(/\n {6}READER_MODEL: (\S+)\n/.exec(job)[1], models[0]);
+});
+
+// In a serial file a step's own test, for the count, holds every step above it (project-state test-hash.mjs), so a
+// change to #1 is a change to #2's own test too: both are read, or #2 is left unread on main.
+test('in a serial file, a change to one step reads it and every step below it; not one above, not in a parallel file', async () => {
+  const SERIAL = JFILE.replace("const J = 'J-x-01';", "const J = 'J-x-01';\ntest.describe.configure({ mode: 'serial' });");
+  const changeOne = [
+    `diff --git a/${RA}/J-x-01.pw.mjs b/${RA}/J-x-01.pw.mjs`,
+    `--- a/${RA}/J-x-01.pw.mjs`,
+    `+++ b/${RA}/J-x-01.pw.mjs`,
+    '@@ -5,1 +5,1 @@',
+    '-  expect(widget).toHaveCount(1);',
+    '+  expect(widget).toHaveCount(2);',
+    '',
+  ].join('\n');
+  const src = (file, diff) => {
+    const base = { [`${RA}/J-x-01.pw.mjs`]: file, [`${RA}/J-wallet-01.pw.mjs`]: WFILE };
+    const at = { ...base, [`${RA}/J-x-01.pw.mjs`]: file.replace('toHaveCount(1)', 'toHaveCount(2)') };
+    return {
+      diff: async () => ({ diff, mergeBase: BASE }),
+      read: async (sha, p) => (sha === HEAD ? at : base)[p] ?? null,
+      journeys: async () => Object.keys(base).sort(),
+    };
+  };
+  const read = async (file) =>
+    (await buildReads({ src: src(file, changeOne), base: BASE, head: HEAD, pr: 7, loadWords: words, runId: RUN })).required;
+  assert.deepEqual(await read(SERIAL), ['J-x-01 #1', 'J-x-01 #2']);
+  assert.deepEqual(await read(JFILE), ['J-x-01 #1'], 'a parallel file: only the step changed');
+  assert.deepEqual(laterInSerial(SERIAL, 'J-x-01', new Set(['J-x-01 #2'])), ['J-x-01 #2'], 'nothing above the change');
+  assert.deepEqual(laterInSerial(SERIAL, 'J-x-01', new Set()), []);
 });

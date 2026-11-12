@@ -214,7 +214,7 @@ export const positionPreviewSchema = z.object({
     .nullable()
     .optional(),
   orderable: z.boolean(),
-  refusals: z.array(z.object({ code: z.string(), field: z.string(), message: z.string() })),
+  refusals: z.array(z.object({ code: z.string(), field: z.string(), message: z.string(), venue: z.string().optional() })),
 });
 /** What can be converted now (`convert.pairs`): each coin with its per-conversion limit, null when none is set. */
 export const convertPairsSchema = z.object({

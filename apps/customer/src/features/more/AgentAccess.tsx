@@ -1,7 +1,10 @@
-import { useId, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { useApi } from '../session/session';
 import { useResource } from '../../shared/resource';
-import { Button, DataTable, Failure, Panel } from '../../shared/ui';
+import { Button, DataTable, Failure, Field, Panel } from '../../shared/ui';
+import { useVenueMode } from '../trade/use-venue-mode';
+import { venueApi } from '../trade/venue-api';
+import { VenueFrame, WalletBar, useOwner } from '../trade/venue/VenueKit';
 import { Read, Select } from './common';
 import { agentAccessCopy } from './agent-access-copy';
 import type { Failed } from './AgentGuardrails';
@@ -9,7 +12,9 @@ import {
   OWN_AGENT_POLICY_ACTIONS,
   OWN_AGENT_POLICY_EFFECTS,
   OWN_AGENT_POLICY_SCOPES,
+  ownAgentAccessSchema,
   ownAgentPolicySchema,
+  type OwnAgentAccess,
   type OwnAgent,
   type OwnAgentPolicy,
   type OwnAgentPolicyAction,
@@ -18,12 +23,20 @@ import {
 } from '@intafaced/contracts/agents-own';
 
 /**
- * An own agent's Access page (AG-spend-02, J-agents-08 #1): the person's allow and deny rules by action and account, and
- * what svc-agents decides from them for each action on the main account. Every decision shown is the service's own; the
- * page never works one out. Nothing here moves money.
+ * An own agent's Access page (AG-spend-02, J-agents-08 #1 #2): the person's allow and deny rules by action and account,
+ * what svc-agents decides from them for each action on the main account, and which of the person's venue sub-accounts
+ * the agent may act on until when. Every decision shown is the service's own; the page never works one out. Nothing here
+ * moves money.
  */
 
-const KNOWN = new Set(['agents.policy_rule_not_found', 'agents.own.not_found']);
+const KNOWN = new Set([
+  'agents.policy_rule_not_found',
+  'agents.own.not_found',
+  'agents.access_expiry_unset',
+  'agents.access_expiry_invalid',
+  'agents.access_none_chosen',
+  'agents.access_request_invalid',
+]);
 
 function Refused({ failed }: { failed: Failed }) {
   const { t } = agentAccessCopy.useCopy();
@@ -48,7 +61,140 @@ export function AccessPage({ agent }: { agent: OwnAgent }) {
       <Read resource={loaded.resource} retry={loaded.reload}>
         {(policy) => <Policy agent={agent} stored={policy} />}
       </Read>
+      <AccountAccess agent={agent} />
     </Panel>
+  );
+}
+
+/**
+ * Which of the person's venue sub-accounts the agent may act on (J-agents-08 #2). The sub-accounts are the venue's own
+ * list for the connected wallet; the grant and its end are svc-agents'. With the venue off, the section says so.
+ */
+function AccountAccess({ agent }: { agent: OwnAgent }) {
+  const { t } = agentAccessCopy.useCopy();
+  const mode = useVenueMode();
+  return (
+    <section role="region" aria-label={t('accountAccessTitle')}>
+      <h3>{t('accountAccessTitle')}</h3>
+      <p className="muted">{t('accountAccessIntro')}</p>
+      {mode.mode === 'on' ? (
+        <VenueFrame mode={mode}>
+          <AccountAccessGrant agent={agent} venueId={mode.status.available ? mode.status.venue.id : null} />
+        </VenueFrame>
+      ) : mode.mode === 'checking' ? (
+        <p className="muted">{t('accountAccessChecking')}</p>
+      ) : (
+        <p className="muted">{t('accountAccessOff')}</p>
+      )}
+    </section>
+  );
+}
+
+function AccountAccessGrant({ agent, venueId }: { agent: OwnAgent; venueId: string | null }) {
+  const api = useApi();
+  const { t } = agentAccessCopy.useCopy();
+  const venue = useMemo(() => venueApi(api), [api]);
+  const owner = useOwner();
+  const subs = useResource(
+    (signal) => (owner ? venue.subAccounts(owner, signal) : Promise.resolve({ ok: true as const, data: null })),
+    `venue-subs:${owner ?? 'none'}`,
+  );
+  const stored = useResource(
+    (signal) => api.query('agents', 'own.access.get', { id: agent.id }, ownAgentAccessSchema, { signal }),
+    `own-access:${agent.id}`,
+  );
+  const [access, setAccess] = useState<OwnAgentAccess | null>(null);
+  const [chosen, setChosen] = useState<ReadonlySet<string>>(new Set());
+  const [endsIn, setEndsIn] = useState('');
+  // One key per grant the person is writing: a retried press is the same grant; a new one starts after an answer.
+  const [grantKey, setGrantKey] = useState(() => crypto.randomUUID());
+  const [refused, setRefused] = useState<Failed | null>(null);
+  const [busy, setBusy] = useState(false);
+  const shown = access ?? (stored.resource.status === 'ready' ? stored.resource.data : null);
+  const listed = subs.resource.status === 'ready' ? subs.resource.data : null;
+
+  async function grant() {
+    if (!owner || !venueId || !listed) return;
+    setBusy(true);
+    setRefused(null);
+    try {
+      const subAccounts = listed.value.filter((s) => chosen.has(s.subAccount));
+      const res = await api.mutate(
+        'agents',
+        'own.access.grant',
+        { id: agent.id, grantKey, venueId, owner, subAccounts, endsInDays: endsIn.trim() === '' ? null : endsIn.trim() },
+        ownAgentAccessSchema,
+      );
+      if (!res.ok) return setRefused(res);
+      setAccess(res.data);
+      setGrantKey(crypto.randomUUID());
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <WalletBar />
+      {!owner ? (
+        <p className="muted">{t('connectFirst')}</p>
+      ) : subs.resource.status === 'failed' ? (
+        <p role="alert">{t('subAccountsRefused')}</p>
+      ) : listed && listed.value.length === 0 ? (
+        <p className="muted">{t('noSubAccounts')}</p>
+      ) : listed ? (
+        <form
+          aria-label={t('accountAccessTitle')}
+          onSubmit={(event) => {
+            event.preventDefault();
+            void grant();
+          }}
+        >
+          {listed.value.map((sub) => (
+            <label key={sub.subAccount} className="agent-surface-choice">
+              <input
+                type="checkbox"
+                checked={chosen.has(sub.subAccount)}
+                disabled={busy}
+                onChange={(event) => {
+                  const next = new Set(chosen);
+                  if (event.target.checked) next.add(sub.subAccount);
+                  else next.delete(sub.subAccount);
+                  setChosen(next);
+                }}
+              />
+              <span>{sub.name}</span>
+            </label>
+          ))}
+          <Field
+            label={t('endsIn')}
+            hint={t('endsInHint')}
+            inputMode="numeric"
+            value={endsIn}
+            disabled={busy}
+            onChange={(event) => setEndsIn(event.target.value)}
+          />
+          <Button type="submit" disabled={busy}>
+            {t('grantAccess')}
+          </Button>
+          {refused ? <Refused failed={refused} /> : null}
+        </form>
+      ) : null}
+      {shown && shown.grants.length ? (
+        <DataTable label={t('grantedTable')} headers={[t('colAccount'), t('colEnds')]}>
+          {shown.grants.map((g) => (
+            <tr key={g.id}>
+              <td>{g.name}</td>
+              <td data-testid="access-ends">
+                <time dateTime={g.endsAt}>{new Date(g.endsAt).toLocaleString()}</time>
+              </td>
+            </tr>
+          ))}
+        </DataTable>
+      ) : shown ? (
+        <p className="muted">{t('noGrants')}</p>
+      ) : null}
+    </>
   );
 }
 

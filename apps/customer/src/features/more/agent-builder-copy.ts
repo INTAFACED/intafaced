@@ -75,7 +75,6 @@ const en = {
     'Data controls and the retention statement are not built (AG-guardrails-04). This draft has never run, so it holds no data from a run.',
   page_Access: 'Access',
   page_Allowance: 'Allowance',
-  parked_Allowance: 'A per-agent allowance is not built (AG-spend-02), so this agent has no allowance of its own.',
   page_Schedules: 'Schedules',
   parked_Schedules: 'Scheduled runs are not built (AG-sessions-02), so this agent runs only when you start it.',
   page_Triggers: 'Triggers',
@@ -376,7 +375,6 @@ const es = {
     'Los controles de datos y la declaración de conservación no están construidos (AG-guardrails-04). Este borrador nunca se ha ejecutado, así que no guarda datos de ninguna ejecución.',
   page_Access: 'Acceso',
   page_Allowance: 'Asignación',
-  parked_Allowance: 'La asignación por agente no está construida (AG-spend-02), así que este agente no tiene asignación propia.',
   page_Schedules: 'Horarios',
   parked_Schedules:
     'Las ejecuciones programadas no están construidas (AG-sessions-02), así que este agente solo se ejecuta cuando tú lo inicias.',
@@ -685,7 +683,6 @@ const fr = {
     'Les contrôles des données et la déclaration de conservation ne sont pas construits (AG-guardrails-04). Ce brouillon n’a jamais tourné ; il ne détient aucune donnée d’exécution.',
   page_Access: 'Accès',
   page_Allowance: 'Allocation',
-  parked_Allowance: 'L’allocation par agent n’est pas construite (AG-spend-02) ; cet agent n’a pas d’allocation propre.',
   page_Schedules: 'Planifications',
   parked_Schedules: 'Les exécutions planifiées ne sont pas construites (AG-sessions-02) ; cet agent ne tourne que lorsque vous le lancez.',
   page_Triggers: 'Déclencheurs',

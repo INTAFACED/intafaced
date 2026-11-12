@@ -90,8 +90,9 @@ jobs:
     needs: [now]
     if: ${{ !cancelled() && (github.run_attempt != '1' || needs.now.result != 'success' || needs.now.outputs.now == 'true') }}
     runs-on: ubuntu-latest
-    # healthy run: seconds; up to 20 minutes when it waits for the CI review (tooling/ci/review-marker.mjs)
-    timeout-minutes: 25
+    # healthy run: seconds once its inputs have finished; up to 60 minutes waiting for them, checking every 5 (journey-seal.mjs WAIT_POLLS)
+    # and up to 20 more for the CI review (tooling/ci/review-marker.mjs)
+    timeout-minutes: 85
     permissions:
       contents: read # the default branch's scripts
       actions: write # CI's, the CI review's and the journeys' runs and jobs on the head; re-run an older red seal here
@@ -102,6 +103,17 @@ jobs:
         with:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
+      # While CI, the CI review or the journeys this change needs are still going on the head, the seal waits here: a
+      # running check, which blocks the merge as a missing one does, never a red that only means "not finished yet"
+      # (project-state OWNER 262 part 2: "no red while waiting"). It then judges once, below. A re-check started by an
+      # input's end leaves a seal still in this step alone (journey-seal.mjs WAIT_STEP, recheckStep).
+      - name: Wait for CI, the CI review and the journeys this change needs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: node tooling/ci/journey-seal.mjs --wait-inputs
       # CI's jobs on this exact head (ci-jobs-seal.mjs): what ci.yml's seal read from `needs:`, now through the API, with
       # the default branch deciding which jobs the change needs. Red while CI is still running; re-run when it finishes.
       - name: Require CI's jobs on this exact head

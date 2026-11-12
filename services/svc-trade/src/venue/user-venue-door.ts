@@ -1,3 +1,4 @@
+import { venueGatedList, type VenueGatedBlocker, type VenueGatedContract } from './venue-gated-list.js';
 import { createHash } from 'node:crypto';
 import { hashTypedData, recoverTypedDataAddress, type Hex, type TypedDataDefinition } from 'viem';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client/money';
@@ -6,6 +7,7 @@ import type { StepUpCheck } from '@intafaced/contracts';
 import {
   OWNER_ONLY_INTENTS,
   VenueRefusalError,
+  hasSubAccountReads,
   assertSignatureMatches,
   encodeVenueWire,
   isTestVenue,
@@ -96,14 +98,44 @@ export interface DoorCaller {
   readonly agentAccount?: boolean;
 }
 
-function assertDoorMay(kind: VenueIntent['kind'], caller: DoorCaller | undefined): void {
-  if (AGENT_ACCOUNT_INTENTS.has(kind) && !caller?.agentAccount) {
+/**
+ * THE PERSON'S OWN SUB-ACCOUNT (J-portfolio-04 #2). Besides the agent account, a person may open a plain sub-account of
+ * their own under their main venue account and move their own coins into and out of it, each signed by their wallet on the
+ * main account. It is stored only under these keys, which only the plain door stores and only for these two intents:
+ *
+ *   · `own:sub-account:<owner>:<name>` for `create_sub_account`;
+ *   · `own:move:<owner>:<id>` for `sub_account_transfer`, and only to or from a sub-account this person opened under an
+ *     `own:sub-account:` key: never an agent account's, whose moves are held to the person's cap (agent-account.ts).
+ *
+ * Nothing leaves the venue and the ledger posts nothing: the coins only move between two accounts the same wallet owns.
+ */
+export const OWN_SUB_ACCOUNT_PREFIX = 'own:sub-account:';
+export const OWN_MOVE_PREFIX = 'own:move:';
+
+function isOwnSubAccountKey(kind: VenueIntent['kind'], key: string): boolean {
+  if (kind === 'create_sub_account') return key.startsWith(OWN_SUB_ACCOUNT_PREFIX);
+  if (kind === 'sub_account_transfer') return key.startsWith(OWN_MOVE_PREFIX);
+  return false;
+}
+
+function assertDoorMay(kind: VenueIntent['kind'], caller: DoorCaller | undefined, key: string): void {
+  if (AGENT_ACCOUNT_INTENTS.has(kind) && !caller?.agentAccount && !isOwnSubAccountKey(kind, key)) {
     throw new UserVenueDoorError(
       `a venue ${kind} is made only through the agent account (/api/v1/venue/agent-accounts), which holds it to the person's cap`,
       'trade.venue_agent_account_only',
       403,
     );
   }
+}
+
+/** The key prefix of an order the person's assistant placed through its agent key (agent-orders.ts, J-agents-21 #7). */
+export const AGENT_ORDER_PREFIX = 'agent:order:';
+
+/** The origin an order stored under `businessKey` carries: `agent:<keyId>` for the assistant's, else `null` (the person's own). */
+export function orderOriginOf(businessKey: string): string | null {
+  if (!businessKey.startsWith(AGENT_ORDER_PREFIX)) return null;
+  const keyId = businessKey.slice(AGENT_ORDER_PREFIX.length).split(':')[0] ?? '';
+  return UUID_RE.test(keyId) ? `agent:${keyId.toLowerCase()}` : null;
 }
 
 export const VENUE_WITHDRAW_STEP_UP_SCOPE = 'trade.step_up.venue.withdraw' as const;
@@ -136,6 +168,8 @@ export type UserVenueDoorCode =
   | 'trade.venue_session_none'
   | 'trade.venue_session_unavailable'
   | 'trade.venue_session_superseded'
+  | 'trade.venue_own_key_misused'
+  | 'trade.venue_sub_account_not_own'
   // Convert's venue sell quotes (venue-sell-quotes.ts, J-cex-spot-17 #8).
   | 'trade.venue_sell_quote_unwired'
   | 'trade.venue_sell_quote_market_unknown'
@@ -156,7 +190,10 @@ const RESERVED_KEY_PREFIXES = [SESSION_KEY_PREFIX, SESSION_KEY_END_PREFIX] as co
 export interface PrepareOptions extends DoorCaller {
   /** Set only by the session routes (session-key.ts): lets the action be stored under a reserved session key. */
   readonly sessionKey?: boolean;
-  /** Set only by the signal desk: the alert names its own worst price, so the owner's protection is not applied. */
+  /**
+   * Set only by the signal desk (the alert names its own worst price) and an own agent's order (its worst price is the
+   * owner's agent bound, own-agent-trading.ts): the owner's spot protection is not applied.
+   */
   readonly ownWorstPrice?: boolean;
 }
 
@@ -203,6 +240,8 @@ export function orderKeyOfIdempotencyKey(header: string | null | undefined): str
 export interface VenueOrderByKey {
   readonly actionKey: string;
   readonly venueClientOrderId: string | null;
+  /** `agent:<keyId>` when the person's assistant placed it through its agent key (shown "by your assistant"), else `null`. */
+  readonly origin: string | null;
   readonly state: 'accepted' | 'unknown' | 'refused' | 'not_sent';
   /** Why the state is unknown: the venue did not answer this read, or it has no record of the order yet. */
   readonly reason?: 'venue_down' | 'not_on_venue_yet';
@@ -603,6 +642,25 @@ export class UserVenueDoor {
     }
   }
 
+  /**
+   * J-derivatives-01 #2: every perpetual we show here, open or blocked for this account with every reason. `account` is
+   * the region and level gate's reason, or null. A read: nothing is prepared or sent.
+   */
+  async gatedList(account: VenueGatedBlocker | null): Promise<{ venueId: string; value: VenueGatedContract[]; asOf: Date }> {
+    const venue = await this.venue();
+    const read = await this.markets();
+    const perps = read.value.filter((m) => m.kind === 'perpetual');
+    const published = new Map<string, boolean>();
+    for (const m of perps) published.set(m.symbol, (await this.builderFeeFor(m.symbol, 'buy')) !== null);
+    const value = venueGatedList({
+      markets: perps,
+      account,
+      builderFeePublished: (symbol) => published.get(symbol) === true,
+      venueName: venue.venue.displayName,
+    });
+    return { venueId: venue.venue.id, value, asOf: this.deps.now() };
+  }
+
   /** The venue's markets we show (an approved listing), each with our listing beside the venue's own state. */
   async markets() {
     const venue = await this.venue();
@@ -645,7 +703,7 @@ export class UserVenueDoor {
     if (intent.kind === 'place_order') key = intent.clientOrderKey;
     else if (intent.kind === 'withdraw') key = intent.withdrawalKey;
     else if (intent.kind === 'cancel_order') key = actionKey ?? `cancel:${intent.clientOrderKey}`;
-    else if (intent.kind === 'sub_account_transfer') key = intent.moveKey;
+    else if (intent.kind === 'sub_account_transfer' || intent.kind === 'market_margin_transfer') key = intent.moveKey;
     else if (intent.kind === 'create_sub_account') key = intent.subAccountKey;
     else key = actionKey;
     const k = (key ?? '').trim();
@@ -672,7 +730,6 @@ export class UserVenueDoor {
       intent = { ...intent, clientOrderKey: key };
     }
     const caller: DoorCaller = opts;
-    assertDoorMay(intent.kind, caller);
     if (
       !req.signer ||
       (req.signer.role !== 'owner' && req.signer.role !== 'agent') ||
@@ -684,6 +741,15 @@ export class UserVenueDoor {
     assertTradingLevel(principal, intent.kind);
     if (intent.kind === 'place_order') assertPlaceIntent(intent);
     const key = this.businessKey(intent, req.actionKey);
+    assertDoorMay(intent.kind, caller, key);
+    // The person's own sub-account keys are for its two intents only, never another action's.
+    if (key.startsWith('own:') && !isOwnSubAccountKey(intent.kind, key)) {
+      throw new UserVenueDoorError(
+        `the key ${key} is for opening your own sub-account (${OWN_SUB_ACCOUNT_PREFIX}) or moving into or out of it (${OWN_MOVE_PREFIX})`,
+        'trade.venue_own_key_misused',
+        400,
+      );
+    }
     // The agent account's keys (`agent:account:...`, `agent:move:...`) are its own: the plain door never stores an action
     // under one, so the agent account reads back only what it prepared.
     if (key.startsWith('agent:') && !caller?.agentAccount) {
@@ -764,6 +830,9 @@ export class UserVenueDoor {
 
     const existing = await this.deps.store.find(principal.userId, key);
     if (existing) return this.reuse(existing, account, signer, finalIntent);
+    if (finalIntent.kind === 'sub_account_transfer' && key.startsWith(OWN_MOVE_PREFIX)) {
+      await this.assertOwnSubAccount(principal, venue, account, finalIntent.subAccount);
+    }
     if (finalIntent.kind === 'place_order') await this.admitPlace(venue.venue.id, finalIntent);
 
     // A new market order is bounded before the venue is asked to prepare it. A stored one was bounded when it was
@@ -775,6 +844,50 @@ export class UserVenueDoor {
     // A concurrent prepare of the same key may have won the insert: the stored action is the one.
     if (stored.prepared.digest !== prepared.digest) return this.reuse(stored, account, signer, finalIntent);
     return { actionKey: key, prepared: stored.prepared, reused: false, signed: false, lastOutcome: null };
+  }
+
+  /**
+   * The sub-accounts this person opened as their own on `account` (the main account): each `own:sub-account:` action the
+   * venue accepted, by the id it answered, or, for one whose answer was lost, the venue's own sub-account of that name.
+   */
+  async ownSubAccounts(principal: Principal, account: UserVenueAccount): Promise<ReadonlySet<string>> {
+    const rows = await this.deps.store.listByPrefix(principal.userId, OWN_SUB_ACCOUNT_PREFIX);
+    const mine = rows.filter(
+      (r) =>
+        r.prepared.intent.kind === 'create_sub_account' &&
+        r.prepared.venueId === account.venueId &&
+        r.prepared.account.owner.toLowerCase() === account.owner &&
+        r.signature !== null,
+    );
+    const own = new Set<string>();
+    const unanswered = new Set<string>();
+    for (const r of mine) {
+      const o = r.lastOutcome;
+      if (o?.definite && o.accepted && o.venueRef) own.add(o.venueRef.toLowerCase());
+      else if (!o?.definite && r.prepared.intent.kind === 'create_sub_account') unanswered.add(r.prepared.intent.name.trim());
+    }
+    if (unanswered.size > 0) {
+      const venue = await this.venue();
+      if (hasSubAccountReads(venue)) {
+        for (const sub of (await venue.subAccounts(account)).value)
+          if (unanswered.has(sub.name.trim())) own.add(sub.subAccount.toLowerCase());
+      }
+    }
+    return own;
+  }
+
+  /** A move under an `own:move:` key reaches only a sub-account this person opened as their own, never an agent account. */
+  private async assertOwnSubAccount(principal: Principal, venue: UserVenue, account: UserVenueAccount, subAccount: unknown) {
+    const id = typeof subAccount === 'string' ? subAccount.trim().toLowerCase() : '';
+    if (id === '') invalid('subAccount is the venue id of the sub-account to move into or out of');
+    if (account.subAccount !== null) invalid('a move between your accounts is signed on your main account: send no subAccount');
+    if (!(await this.ownSubAccounts(principal, account)).has(id)) {
+      throw new UserVenueDoorError(
+        `${id} is not a sub-account you opened as your own on ${venue.venue.displayName}; an agent account is funded from its own page, under its cap`,
+        'trade.venue_sub_account_not_own',
+        403,
+      );
+    }
   }
 
   private reuse(row: StoredVenueAction, account: UserVenueAccount, signer: VenueSigner, intent: VenueIntent): PreparedAnswer {
@@ -818,7 +931,7 @@ export class UserVenueDoor {
     const row = await this.deps.store.find(principal.userId, key);
     if (!row)
       throw new UserVenueDoorError(`no prepared action under ${JSON.stringify(key)}: prepare it first`, 'trade.venue_action_unknown', 404);
-    assertDoorMay(row.prepared.intent.kind, caller);
+    assertDoorMay(row.prepared.intent.kind, caller, key);
     assertInteractive(principal, row.prepared.intent.kind);
     // An action is only ever sent to the venue it was prepared for: with several venues behind the router, a key stored
     // for another venue is that venue's door's to send (venue-router.ts), never this one's.
@@ -959,7 +1072,7 @@ export class UserVenueDoor {
 
   private async orderState(userId: string, row: StoredVenueAction): Promise<VenueOrderByKey> {
     const p = row.prepared;
-    const base = { actionKey: row.businessKey, venueClientOrderId: p.venueClientOrderId };
+    const base = { actionKey: row.businessKey, venueClientOrderId: p.venueClientOrderId, origin: orderOriginOf(row.businessKey) };
     const recorded = row.lastOutcome;
     if (!row.signature) return { ...base, state: 'not_sent', order: null, asOf: null };
     if (recorded?.definite && !recorded.accepted)

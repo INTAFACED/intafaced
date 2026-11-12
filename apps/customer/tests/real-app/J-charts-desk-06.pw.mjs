@@ -1,7 +1,32 @@
 // World: none
 import { test, expect } from './journey.mjs';
-import { clickPlot, figureLines, openWorkbench, pick, plot, pointText, pricesOf, rowNamed, rows, timesOf } from './charts-desk.mjs';
+import { figureLines, openWorkbench, pick, plot as barPlot, pointText, pricesOf, rowNamed, rows, timesOf } from './charts-desk.mjs';
 import { openOrders, signUp } from './desk.mjs';
+
+/** The chart's panes as the drawings read them: each pane's index, top and height in pixels from the chart's top. */
+const paneBoxes = (page) =>
+  page
+    .getByTestId('cw')
+    .getByTestId('wc-host')
+    .evaluate((el) => el.readPaneBoxes());
+
+/**
+ * A point on the chart's price pane: across, on the loaded bar `fx` picks; down, at `fy` of the price pane's own height,
+ * on a whole pixel as a mouse gives. The indicator panes under the price pane (the default Volume pane) take their own
+ * clicks, so a fraction of the whole chart's height would land a low click on them.
+ */
+async function plot(page, fx, fy) {
+  const { x } = await barPlot(page, fx, 0.5);
+  const box = await page.getByTestId('cw').getByTestId('wc-host').boundingBox();
+  const price = (await paneBoxes(page)).find((b) => b.index === 0);
+  if (!box || !price) throw new Error('the chart has no price pane');
+  return { x, y: box.y + Math.round(price.top + price.height * fy) };
+}
+
+async function clickPlot(page, fx, fy) {
+  const p = await plot(page, fx, fy);
+  await page.mouse.click(p.x, p.y);
+}
 
 // J-charts-desk-06 "I mark up a trade idea with Fibonacci, channels, patterns and position boxes", in the running app. One
 // test per step, titled "J-charts-desk-06 #<n>", run in order in one browser context (drawings are kept on this device).
@@ -90,9 +115,15 @@ async function loadedBars(page, box) {
   // Bars 50 and 80 of the chart need its history in (the stack writes 210 bars at 15m); a thin chart fails here, by name.
   await expect.poll(async () => Number(await host.getAttribute('data-bars')), { message: 'the chart has its history' }).toBeGreaterThan(80);
   await expect(host).toHaveAttribute('data-view-from', /\d/);
-  const from = Number(await host.getAttribute('data-view-from'));
-  const to = Number(await host.getAttribute('data-view-to'));
-  const loaded = Number(await host.getAttribute('data-bars'));
+  const view = async () => ({
+    from: Number(await host.getAttribute('data-view-from')),
+    to: Number(await host.getAttribute('data-view-to')),
+    loaded: Number(await host.getAttribute('data-bars')),
+    // The first and last loaded bars' own times, as the series holds them (ms).
+    firstAt: Number(await host.getAttribute('data-drawn-first')),
+    lastAt: Number(await host.getAttribute('data-drawn-last')),
+  });
+  const before = await view();
   const seen = new Map();
   for (let x = 0; x <= Math.floor(box.width); x++) {
     await page.mouse.move(box.x + x, box.y + box.height * 0.5);
@@ -102,23 +133,44 @@ async function loadedBars(page, box) {
     bar.max = x;
     seen.set(time, bar);
   }
-  const first = Math.max(0, Math.ceil(from));
-  const inView = Math.min(loaded - 1, Math.floor(to)) - first + 1;
+  const { from, to, loaded, firstAt, lastAt } = await view();
+  const shown = JSON.stringify({ from, to, loaded });
+  if (JSON.stringify({ from: before.from, to: before.to, loaded: before.loaded }) !== shown)
+    throw new Error(`the chart moved during the sweep: ${JSON.stringify(before)} then ${shown}`);
   const bars = [...seen.values()].sort((a, b) => a.time - b.time);
-  // A bar narrower than a pixel can't be pointed at, and a skipped bar would shift every index after it.
-  if (bars.length !== inView) throw new Error(`the sweep found ${bars.length} bars of the ${inView} in view`);
+  // The edge bars may show only in part: the chart points pixel x at bar ceil(to - (width - 1 - x) / spacing), so a
+  // fractional left edge still shows bar ceil(from) - 1 in its first pixel. Index from the loaded bar the sweep reached
+  // by its own time (the first, else the last), never from the rounded edge (#7978: from 0.3 found one bar more).
+  let first;
+  if (bars[0]?.time * 1000 === firstAt) first = 0;
+  else if (bars.at(-1)?.time * 1000 === lastAt) first = loaded - bars.length;
+  else throw new Error(`the sweep reached neither the first nor the last loaded bar (view ${shown})`);
+  const last = first + bars.length - 1;
+  // A bar narrower than a pixel can't be pointed at, and a skipped bar would shift every index after it: the swept bars
+  // must run without a gap from the one in the first pixel to the one in the last.
+  // Bars ceil(from)..floor(to) show whole and must be found; one more at either edge may show in part.
+  const [mayFirst, mayLast] = [Math.max(0, Math.ceil(from) - 1), Math.min(loaded - 1, Math.ceil(to))];
+  const [mustFirst, mustLast] = [Math.max(0, Math.ceil(from)), Math.min(loaded - 1, Math.floor(to))];
+  const gapless = first >= mayFirst && first <= mustFirst && last >= mustLast && last <= mayLast;
+  const ends = (bars[0].time * 1000 !== firstAt || first === 0) && (bars.at(-1).time * 1000 !== lastAt || last === loaded - 1);
+  if (!gapless || !ends) throw new Error(`the sweep found bars ${first}..${last} of the ${mustFirst}..${mustLast} in view (${shown})`);
   const byIndex = new Map(bars.map((bar, i) => [first + i, bar]));
   indexed.set(page, byIndex);
   return byIndex;
 }
 
-/** Clicks loaded bar `index` (0 is the first loaded bar) at height `fy`, and answers that bar's own time in seconds. */
+/**
+ * Clicks loaded bar `index` (0 is the first loaded bar) at `fy` of the price pane's height, and answers that bar's own time
+ * in seconds. The indicator panes under the price pane take their own clicks.
+ */
 async function clickBar(page, index, fy) {
   const box = await page.getByTestId('cw').getByTestId('wc-host').boundingBox();
   if (!box) throw new Error('the chart has no box on the page');
   const bar = (await loadedBars(page, box)).get(index);
   if (!bar) throw new Error(`loaded bar ${index} is not in view`);
-  await page.mouse.click(box.x + (bar.min + bar.max) / 2, box.y + box.height * fy);
+  const price = (await paneBoxes(page)).find((b) => b.index === 0);
+  if (!price) throw new Error('the chart has no price pane');
+  await page.mouse.click(box.x + (bar.min + bar.max) / 2, box.y + Math.round(price.top + price.height * fy));
   return bar.time;
 }
 

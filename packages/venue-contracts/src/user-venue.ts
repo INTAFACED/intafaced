@@ -237,6 +237,24 @@ export interface SubAccountTransferIntent {
   readonly moveKey: string;
 }
 
+/**
+ * Move collateral between the owner's main account and the margin account a market's deployer keeps for it (a
+ * Hyperliquid HIP-3 deployer's own margin, apart from the main account), signed by the owner's wallet on the MAIN
+ * account. Only free balance moves, and only the collateral asset the deployer set; nothing leaves the venue.
+ */
+export interface MarketMarginTransferIntent {
+  readonly kind: 'market_margin_transfer';
+  /** A market whose deployer keeps its own margin account (`UserVenueMarket.marginAccount`). */
+  readonly symbol: string;
+  /** `into_market`: main → the market's margin account. `out_of_market`: back to the main account. */
+  readonly direction: 'into_market' | 'out_of_market';
+  readonly asset: string;
+  /** Always positive. */
+  readonly amount: Amount;
+  /** The business key of this move, e.g. `market-margin:<owner>:<symbol>:<draft>`: a retry re-sends the same bytes. */
+  readonly moveKey: string;
+}
+
 export type VenueIntent =
   | PlaceUserOrderIntent
   | UpdateLeverageIntent
@@ -247,7 +265,8 @@ export type VenueIntent =
   | ApproveAgentIntent
   | RevokeAgentIntent
   | CreateSubAccountIntent
-  | SubAccountTransferIntent;
+  | SubAccountTransferIntent
+  | MarketMarginTransferIntent;
 
 export type VenueIntentKind = VenueIntent['kind'];
 
@@ -259,12 +278,14 @@ export const OWNER_ONLY_INTENTS: ReadonlySet<VenueIntentKind> = new Set<VenueInt
   'revoke_agent',
   'create_sub_account',
   'sub_account_transfer',
+  'market_margin_transfer',
 ]);
 
 /** Actions signed on the owner's MAIN account only, never on a sub-account. */
 export const MAIN_ACCOUNT_ONLY_INTENTS: ReadonlySet<VenueIntentKind> = new Set<VenueIntentKind>([
   'create_sub_account',
   'sub_account_transfer',
+  'market_margin_transfer',
 ]);
 
 export type VenueMarginMode = 'cross' | 'isolated';
@@ -389,6 +410,11 @@ export type VenueRefusalCode =
    * that takes only reduce-only orders while stale refuses an opening one). The detail is the venue's rule.
    */
   | 'feed_stale'
+  /**
+   * The market's home market is closed and the venue's own off-hours rule refuses this order (a market order, a
+   * leverage above the off-hours cap, a price outside the off-hours band). The detail is the venue's rule.
+   */
+  | 'market_off_hours'
   /** No order with that client id exists on the venue. */
   | 'unknown_order'
   /** The order is already final (filled, cancelled, rejected). */
@@ -417,6 +443,11 @@ export type VenueRefusalCode =
   | 'market_delisted'
   /** The order is larger than the venue's own largest order size or notional for the market. */
   | 'order_above_venue_max'
+  /**
+   * An opening order would take the market's open interest past the cap its deployer set
+   * (`UserVenueMarket.openInterest.capSize`). The detail names the cap; nothing is signed.
+   */
+  | 'open_interest_above_cap'
   /** The agent's cap is revoked or expired: only cancels are signed. */
   | 'agent_cap_inactive'
   /** The room under the cap can't be measured (a holding with no known mark, a market in another quote). Nothing signed. */
@@ -570,6 +601,36 @@ export interface UserVenueDepositRoute {
   readonly address: string;
   /** The venue asset the transfer is credited as. */
   readonly asset: string;
+  /**
+   * The venue's published terms for this route (J-dex-protocol-05 #1), each `null` when the venue publishes none (shown
+   * as "not published", never a made-up value). `minimum` is a decimal string in `asset`: a transfer below it is never
+   * credited. `confirmations` is how many confirmations the venue waits for before it credits. `network` is the venue's
+   * own name for the chain. Each deposit carries its own explorer link (`UserVenueDeposit.explorerUrl`).
+   */
+  readonly minimum?: string | null;
+  readonly confirmations?: number | null;
+  readonly network?: string | null;
+}
+
+/**
+ * One on-chain deposit the venue has seen for an account (J-dex-protocol-05 #2), as the venue reports it: confirming
+ * (`confirmations` of `required`), credited, or not credited (`reason` says why: below the venue's minimum). The venue's
+ * own record: INTAFACED keeps no copy and the ledger posts nothing.
+ */
+export interface UserVenueDeposit {
+  /** The transfer's id, `<chainId>:<txHash>:<logIndex>` (`venueDepositRef`). */
+  readonly depositRef: string;
+  readonly txHash: string;
+  readonly asset: string;
+  readonly amount: Amount;
+  readonly status: 'confirming' | 'credited' | 'not_credited';
+  readonly confirmations: number;
+  readonly required: number;
+  readonly reason: 'below_minimum' | null;
+  /** When the venue first saw the transfer on chain. */
+  readonly seenAt: Date;
+  /** The transfer on the network's explorer, as the venue links it; `null` when the network has no explorer. */
+  readonly explorerUrl: string | null;
 }
 
 /** The venue's id for one on-chain deposit: the same transfer always gives the same id, so a replay credits nothing. */
@@ -605,6 +666,8 @@ export interface UserVenueTransfer {
   readonly amount: Amount;
   /** A move between one owner's own accounts settles at once, or the venue refuses it. */
   readonly status: 'done';
+  /** The venue's own time for the move: when the coins left one account and reached the other. */
+  readonly settledAt: Date;
 }
 
 /** Every read is a snapshot of the venue's record at the venue's own time. */
@@ -640,6 +703,94 @@ export interface UserVenueFeed {
   readonly lastOracleUpdateAt: Date;
   /** The venue's own published rule while the feed is stale, or `known: false` when it publishes none. */
   readonly staleRule: MaybeKnown<string>;
+}
+
+/**
+ * A market that tracks something traded on a home market with its own hours (a stock perpetual): whether that home
+ * market is open now, and the venue's own off-hours mode while it is closed, as the venue publishes them. Each rule is
+ * the venue's, `known: false` (or `null`) where it publishes none; never ours.
+ */
+export interface UserVenueSession {
+  readonly state: 'open' | 'off_hours';
+  /** The home market's name, as the venue publishes it. */
+  readonly homeMarket: string;
+  /** What the venue does with the market while its home market is closed, in its words. */
+  readonly offHoursMode: MaybeKnown<string>;
+  /** The price band the venue holds the market to while closed, in its words. */
+  readonly offHoursBand: MaybeKnown<string>;
+  /** The most leverage the venue allows on an open while closed, in bps (`20000` is 2x), or `null` when not published. */
+  readonly offHoursMaxLeverageBps: number | null;
+  /** While closed: when the venue says the home market reopens, or `null` when it publishes no time (and while open). */
+  readonly reopensAt: Date | null;
+  /** The venue's rule for what it refuses while closed, in its words. */
+  readonly offHoursRule: MaybeKnown<string>;
+}
+
+/**
+ * The margin account a market's deployer keeps for it, apart from the owner's main account (a Hyperliquid HIP-3
+ * deployer's own margin): its name, the collateral asset and the margin mode the deployer set. Funded only by the
+ * owner's own signed `market_margin_transfer`; orders on the market draw their margin from it.
+ */
+export interface UserVenueMarginAccountRule {
+  readonly name: string;
+  readonly collateralAsset: string;
+  readonly marginMode: VenueMarginMode;
+}
+
+/** One owner's balance in a market's own margin account, as the venue reports it (`UserVenue.marketMargin`). */
+export interface UserVenueMarketMargin extends UserVenueMarginAccountRule {
+  readonly symbol: string;
+  /** Free to move back or to post as margin. */
+  readonly free: Amount;
+  /** Locked by resting orders or used as margin on the market's positions. */
+  readonly locked: Amount;
+  readonly total: Amount;
+}
+
+/** A market's open interest as the venue reports it: the size open now, and the cap its deployer set (`null`: none). */
+export interface UserVenueOpenInterest {
+  readonly size: Amount;
+  readonly capSize: Amount | null;
+}
+
+/**
+ * The latest event the venue reports that settled a market's positions (J-derivatives-27 #9 #10): its deployer halted it,
+ * or a split in what it tracks. The venue cancelled every order on the market and settled every position at
+ * `settlementPrice` at `eventAt`; `reopenedAt` is when it took orders again, `null` while it has not.
+ */
+export interface UserVenueMarketEvent {
+  readonly kind: 'deployer_halt' | 'split';
+  readonly eventAt: Date;
+  readonly settlementPrice: Amount;
+  readonly reopenedAt: Date | null;
+  /** A split's ratio as the venue publishes it (`2` for 2 for 1), text; `null` for a halt. */
+  readonly splitRatio: string | null;
+}
+
+/** One account's settlement in a market event (`UserVenue.settlements`): its position settled and its orders cancelled. */
+export interface UserVenueSettlement {
+  readonly symbol: string;
+  readonly kind: UserVenueMarketEvent['kind'];
+  /** The settled position's side and size, or `null` when the account held none (only its orders were cancelled). */
+  readonly side: 'long' | 'short' | null;
+  readonly size: Amount;
+  readonly price: Amount;
+  /** The realised result the venue booked on the settled position (zero with no position). */
+  readonly realisedPnl: Amount;
+  /** The client order ids of the account's orders the venue cancelled (`null` for an order placed without one). */
+  readonly cancelledOrders: readonly (string | null)[];
+  readonly settledAt: Date;
+}
+
+/**
+ * A perpetual's funding as the venue publishes it now: the signed rate it applies at the next settlement (a scaled
+ * fraction of notional, `parseAmount('0.0001')` is one basis point; positive means longs pay shorts), how many seconds
+ * lie between settlements, and when the next one is. The venue's figures, never ours.
+ */
+export interface UserVenueFunding {
+  readonly rate: Amount;
+  readonly intervalSeconds: number;
+  readonly nextFundingAt: Date;
 }
 
 export interface UserVenueMarket {
@@ -682,6 +833,22 @@ export interface UserVenueMarket {
   readonly markRule: MaybeKnown<string>;
   readonly tradingHours: MaybeKnown<string>;
   readonly feed: MaybeKnown<UserVenueFeed>;
+  /** Its home market's session and the venue's off-hours mode (a stock perpetual), or `known: false` for a market with none. */
+  readonly session: MaybeKnown<UserVenueSession>;
+  /** The deployer's own margin account for this market, or `known: false` where orders draw on the main account. */
+  readonly marginAccount: MaybeKnown<UserVenueMarginAccountRule>;
+  /** The market's open interest and its deployer's cap (in base units), or `known: false` where the venue reports none. */
+  readonly openInterest: MaybeKnown<UserVenueOpenInterest>;
+  /** The latest halt or split that settled the market's positions, or `known: false` when the venue reports none. */
+  readonly lastEvent: MaybeKnown<UserVenueMarketEvent>;
+  /**
+   * The contract strip's figures (J-derivatives-01 #4), each the venue's own, `known: false` where it publishes none:
+   * how many base units one contract is, the market's mark price now, and its funding (perpetuals). Never filled with
+   * our own figure, and never a zero for "not published".
+   */
+  readonly contractSize: MaybeKnown<Amount>;
+  readonly mark: MaybeKnown<Amount>;
+  readonly funding: MaybeKnown<UserVenueFunding>;
 }
 
 /**
@@ -875,6 +1042,18 @@ export interface UserVenue {
   positions(account: UserVenueAccount): Promise<AsOf<readonly UserVenuePosition[]>>;
   /** By the signed action's nonce, the only id the venue knows it by. `null` is a confirmed miss. */
   withdrawal(account: UserVenueAccount, nonce: string): Promise<AsOf<UserVenueWithdrawal | null>>;
+  /**
+   * The on-chain deposits the venue has seen for this account, newest first (J-dex-protocol-05 #2). Optional: a venue
+   * that publishes no deposit list leaves it out, and the door refuses the read `not_offered`.
+   */
+  deposits?(account: UserVenueAccount): Promise<AsOf<readonly UserVenueDeposit[]>>;
+  /**
+   * The owner's balance in the margin account a market's deployer keeps for it (`UserVenueMarket.marginAccount`), read on
+   * the main account. A market with none refuses `not_offered`. Absent on an adapter that does not read it.
+   */
+  marketMargin?(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueMarketMargin>>;
+  /** The account's settlements in market events (a deployer's halt, a split) since `since`, oldest first. Absent: not read. */
+  settlements?(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueSettlement[]>>;
   /** The most the account has approved for `builder`, in bps; zero when never approved. */
   builderFeeApproval(account: UserVenueAccount, builder: string): Promise<AsOf<Amount>>;
   /**

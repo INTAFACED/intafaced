@@ -86,13 +86,61 @@ describe('user-venue wire', () => {
         known: true,
         value: { state: 'stale', lastOracleUpdateAt: new Date('2026-11-09T10:00:00.000Z'), staleRule: { known: true, value: '10' } },
       },
+      // A session's words that read like a number stay text too; its reopen time travels as ISO (J-derivatives-27).
+      session: {
+        known: true,
+        value: {
+          state: 'off_hours',
+          homeMarket: 'TEST home exchange',
+          offHoursMode: { known: true, value: '5' },
+          offHoursBand: { known: false },
+          offHoursMaxLeverageBps: 20_000,
+          reopensAt: new Date('2026-11-09T14:30:00.000Z'),
+          offHoursRule: { known: true, value: '2' },
+        },
+      },
+      // A deployer's margin account name that reads like a number stays text; its open interest and cap are money-scaled
+      // sizes (J-derivatives-27 #7 #8).
+      marginAccount: { known: true, value: { name: '7', collateralAsset: 'USDC', marginMode: 'isolated' } },
+      openInterest: { known: true, value: { size: parseAmount('12.5'), capSize: null } },
+      // A split's settlement price is money, its times travel as ISO and its ratio stays text (J-derivatives-27 #10).
+      lastEvent: {
+        known: true,
+        value: {
+          kind: 'split',
+          eventAt: new Date('2026-11-12T09:00:00.000Z'),
+          settlementPrice: parseAmount('101.5'),
+          reopenedAt: new Date('2026-11-12T09:00:01.000Z'),
+          splitRatio: '2',
+        },
+      },
+      contractSize: { known: true, value: parseAmount('1') },
+      mark: { known: true, value: parseAmount('2650.1') },
+      funding: {
+        known: true,
+        value: { rate: parseAmount('-0.0000125'), intervalSeconds: 3600, nextFundingAt: new Date('2026-11-09T11:00:00.000Z') },
+      },
     };
     const json = JSON.parse(JSON.stringify(encodeVenueWire(market)));
+    // The strip's figures travel as decimal strings and an ISO time (J-derivatives-01 #4); a negative rate keeps its sign.
+    expect(json.mark).toEqual({ known: true, value: '2650.1' });
+    expect(json.funding.value).toEqual({ rate: '-0.0000125', intervalSeconds: 3600, nextFundingAt: '2026-11-09T11:00:00.000Z' });
     expect(json.feed.value.lastOracleUpdateAt).toBe('2026-11-09T10:00:00.000Z');
     expect(json.oracleRule).toEqual({ known: true, value: '3' });
+    expect(json.session.value.reopensAt).toBe('2026-11-09T14:30:00.000Z');
     const back = decodeVenueWire<UserVenueMarket>(json);
     expect(back).toEqual(market);
     expect(typeof (back.oracleRule as { value: unknown }).value).toBe('string');
     expect(back.markRule).toEqual({ known: false });
+    expect(json.openInterest.value).toEqual({ size: '12.5', capSize: null });
+    expect(json.lastEvent.value).toEqual({
+      kind: 'split',
+      eventAt: '2026-11-12T09:00:00.000Z',
+      settlementPrice: '101.5',
+      reopenedAt: '2026-11-12T09:00:01.000Z',
+      splitRatio: '2',
+    });
+    expect(typeof (back.marginAccount as { value: { name: unknown } }).value.name).toBe('string');
+    expect(() => decodeVenueWire({ funding: { known: true, value: { rate: 0.0001 } } })).toThrow(/decimal string/);
   });
 });

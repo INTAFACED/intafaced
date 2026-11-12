@@ -56,6 +56,8 @@ export interface WidgetProps {
   openSocket?: OpenSocket;
   /** Add-ons drawn on the chart (studies, drawings). */
   addons?: (host: ChartHost | null, bars: readonly Candle[], view: AddonView) => ReactNode;
+  /** Add-ons shown under the empty state of a market with no trades (the studies bar, whose studies say what they lack). */
+  emptyAddons?: () => ReactNode;
   onHost?: (host: ChartHost | null) => void;
   /** The markets that can be compared on this chart; no compare tools without them. */
   markets?: readonly DeskMarket[];
@@ -88,6 +90,7 @@ export const MarketChartWidget = memo(function MarketChartWidget({
   onScheme,
   openSocket,
   addons,
+  emptyAddons,
   onHost,
   command,
   markets,
@@ -249,7 +252,12 @@ export const MarketChartWidget = memo(function MarketChartWidget({
   else if (polled.status === 'empty')
     // Volume is the sum of the market's trades, so a market with no trades has none: the chart says so, as the volume
     // study does on loaded bars with no volume.
-    body = <StateBlock kind="empty" title={t('No trades in this period')} body={t('No volume in this period')} />;
+    body = (
+      <>
+        <StateBlock kind="empty" title={t('No trades in this period')} body={t('No volume in this period')} />
+        {emptyAddons?.()}
+      </>
+    );
   else if (polled.status === 'error')
     body = <StateBlock kind="error" title={t('Couldn’t load the chart')} onRetry={polled.retry} retryLabel={t('Try again')} />;
   else if (polled.status === 'refused') {

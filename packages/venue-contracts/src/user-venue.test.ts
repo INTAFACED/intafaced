@@ -106,15 +106,31 @@ describe('assertSignerMaySign', () => {
     },
   );
 
-  it('keeps withdrawal, every approval and every sub-account action owner-only', () => {
+  it('keeps withdrawal, every approval, every sub-account action and a market margin move owner-only', () => {
     expect([...OWNER_ONLY_INTENTS].sort()).toEqual([
       'approve_agent',
       'approve_builder_fee',
       'create_sub_account',
+      'market_margin_transfer',
       'revoke_agent',
       'sub_account_transfer',
       'withdraw',
     ]);
+  });
+
+  it("refuses an agent key a move into a market deployer's margin account, and refuses it on a sub-account (J-derivatives-27 #7)", () => {
+    const marginMove: VenueIntent = {
+      kind: 'market_margin_transfer',
+      symbol: 'XSTD-PERP',
+      direction: 'into_market',
+      asset: 'USDC',
+      amount: parseAmount('100'),
+      moveKey: 'market-margin:0xowner:xstd-perp:m-1',
+    };
+    expect(refusalCode(() => assertSignerMaySign(account, agent, marginMove))).toBe('agent_not_permitted');
+    const owner = { role: 'owner' as const, address: account.owner };
+    expect(() => assertSignerMaySign(account, owner, marginMove)).not.toThrow();
+    expect(refusalCode(() => assertSignerMaySign({ ...account, subAccount: '0xsub' }, owner, marginMove))).toBe('not_offered');
   });
 
   const move = (extra: Partial<Extract<VenueIntent, { kind: 'sub_account_transfer' }>> = {}): VenueIntent => ({

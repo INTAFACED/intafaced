@@ -33,11 +33,11 @@
  *     SET_ASIDE_DAYS, so the time stays limited;
  *   - a money step is never set aside (setAsideGuard: the money rule above, a wallet, bank, pay or p2p journey,
  *     J-ops-console-27, or a step with no slices or a slice that touches nothing), and neither is a step whose set-aside
- *     ended: a pass only on the retry then counts as a failure, judged by the rules above;
- *   - OWNER 278 (10 Nov 2026): on main, a money step the baseline doesn't list that failed, then passed on its retry,
- *     stops only its own journeys: it stays red (marked retryFlaky), never proven (notProven), never set aside, and Main
- *     trust opens a `flaky` issue for its area (moneyFlaky); the seal holds only the pull requests in its area
- *     (journey-seal.mjs splitInherited). Two outright failures in a row on main still revert (journeys-revert.mjs);
+ *     ended;
+ *   - a pass on the retry is a pass, money step or not (the lead's decision of 12 Nov 2026 under OWNER 296 and 297,
+ *     which replaced OWNER 278's red for money steps): it never turns the verdict red and is never proven from that run
+ *     (notProven), and on main a step no set-aside tracks is listed (`flaky`) for Main trust's one `flaky` issue. A step
+ *     that fails on every try still fails, and starts its revert (journeys-revert.mjs);
  *   - a set-aside step still runs, and the summary shows its result; while it is set aside, a failure leaves the verdict
  *     green only when the run just before this one on main showed it passing (two failures in a row is broken, not
  *     flaky; a missing or incomplete record of that run excuses nothing). Skipped or missing is never excused;
@@ -317,10 +317,9 @@ export function setAsideSteps({ prior = [], priorIsPrevious = true, states = {},
  * maps a step to the newest run on main after the named run that passed it; `issues` maps an issue number to its read;
  * `target` is the set of journey file names a targeted run ran, or null for a full run; `setAside` is setAsideSteps();
  * `guard` is setAsideGuard() (the money rule when not given): a guarded step is never set aside.
- * `onMain` is runIsOnMain(): only there are the money steps that passed only on their retry listed for Main trust's
- * `flaky` issue (project-state OWNER 278); they stay red, marked retryFlaky, as every flaky red row is.
- * Returns { failing, red, setAside, moneyFlaky } (setAside: the steps a set-aside kept out of the red, with their state
- * this run; moneyFlaky: on main, the money steps that failed, then passed on their retry, red and never proven).
+ * `onMain` is runIsOnMain(): only there are the steps that passed only on their retry listed for Main trust's `flaky`
+ * issue. Returns { failing, red, setAside, flaky } (setAside: the steps a set-aside kept out of the red, with their state
+ * this run; flaky: on main, the steps that failed, then passed on their retry, that no set-aside tracks).
  */
 export function judge({
   newest,
@@ -335,13 +334,22 @@ export function judge({
   onMain = false,
 }) {
   const inScope = (step, files) => !target || target.has(files[step]);
-  // A pass only on the retry counts as a failure unless the step is set aside (a money step never is).
   const asideNow = (step) => setAside[step]?.active && !(guard[step] ?? true);
+  // A pass on the retry is a pass, money step or not (the lead's decision of 12 Nov 2026 under OWNER 296 and 297: "A step
+  // that passes on its retry is a pass with a `flaky` issue, money step or not"). It is never proven from this run
+  // (notProven), and on main it is listed for its one `flaky` issue unless a set-aside already tracks it. A step that
+  // fails both attempts still fails.
   const failing = new Set(
     Object.entries(newest.states)
-      .filter(([k, s]) => s === 'failed' || (s === 'flaky' && !asideNow(k)))
+      .filter(([, s]) => s === 'failed')
       .map(([k]) => k),
   );
+  const flakySteps = onMain
+    ? Object.entries(newest.states)
+        .filter(([k, s]) => s === 'flaky' && !asideNow(k))
+        .map(([k]) => k)
+        .sort(byStep)
+    : [];
   for (const [step, s] of Object.entries(named.states))
     if ((s === 'passed' || s === 'flaky') && !RAN.has(newest.states[step]) && inScope(step, named.files)) failing.add(step);
   const entries = new Map();
@@ -351,25 +359,10 @@ export function judge({
   const runNo = baseline?.run?.number;
   const red = [];
   const kept = [];
-  const moneyFlaky = [];
   for (const step of [...failing].sort(byStep)) {
     const isMoney = money[step] ?? true; // a step missing from journeys.json counts as money
     const e = entries.get(step);
-    const flaky = newest.states[step] === 'flaky';
-    // OWNER 278's retry pass: failed, then passed on its retry, with no baseline entry and not listed as notBaselined.
-    // Only this row is marked retryFlaky for the seal, and on main only this row goes to moneyFlaky for its `flaky`
-    // issue, so the seal never passes over a money red that no flaky issue tracks (CI review on #7779, a4360da62).
-    const retryPass = flaky && !e && !notBaselined.has(step);
-    const no = (why) =>
-      red.push({
-        step,
-        why: flaky
-          ? `failed, then passed on its retry, and ${(guard[step] ?? true) ? 'a money step is never set aside' : 'it is not set aside now'}: ${why}`
-          : why,
-        money: isMoney,
-        // Failed, then passed on its retry: the seal may hold only the pull requests in its area (OWNER 278).
-        ...(retryPass ? { retryFlaky: true } : {}),
-      });
+    const no = (why) => red.push({ step, why, money: isMoney });
     // Set aside by the machine: it ran and failed, it is not money, its set-aside lasts, the run just before this one
     // showed it passing (two failures in a row is broken; an unknown previous result excuses nothing), and its baseline
     // entry (if any) is well formed. Skipped or missing never.
@@ -383,16 +376,11 @@ export function judge({
       kept.push(step);
       continue;
     }
-    // OWNER 278: on main, a money step that failed, then passed on its retry, stops only its own journeys. It stays red
-    // here, never set aside and never proven (notProven names it), and Main trust opens a `flaky` issue for its area
-    // (moneyFlaky). Which pull requests it stops is the seal's: only those in its area (journey-seal.mjs
-    // splitInherited). Two outright failures in a row still revert (journeys-revert.mjs counts outright failures only).
-    if (onMain && retryPass && (guard[step] ?? true)) moneyFlaky.push(step);
     if (!e) {
       if (notBaselined.has(step)) no(`listed as notBaselined in run ${runNo}'s baseline, so it counts as failing`);
       else
         no(
-          newest.states[step] === 'failed' || flaky
+          newest.states[step] === 'failed'
             ? 'failing, not in the baseline'
             : `passed in run ${runNo}, ${newest.states[step] ?? 'missing'} now`,
         );
@@ -409,7 +397,7 @@ export function judge({
       }
     } else no(`state "${e.state}" is not one the baseline allows`);
   }
-  return { failing: failing.size, red, setAside: kept, moneyFlaky };
+  return { failing: failing.size, red, setAside: kept, flaky: flakySteps };
 }
 
 /** A git command's exit: 0 or 1 (a plain no). Any other failure (a missing object, a shallow clone, no git) throws, so a
@@ -498,6 +486,99 @@ export function historyRuns(runs, { repo, namedCreated, thisCreated, thisId }) {
     .sort((a, b) => a.run_number - b.run_number);
 }
 
+/**
+ * The pass history's reports: `read(run)` gives a run's report, or null when the finished run kept none (its journeys
+ * artifact is missing or has no report.json). A run with no report is skipped, named in `skipped`, never thrown on: a
+ * finished main run that saved no report (run 4084, 12 Nov 2026: its shard merge hit GitHub's API rate limit; run 4005,
+ * 11 Nov: no shard started) would otherwise fail every pull request's verdict until someone re-ran it. What a skip can let
+ * through: a step that passed only in the skipped run, and fails now, counts as not built yet instead of red; main's own
+ * next runs, which run every journey, catch it there. A report that can't be read (a refusal, a rate limit, a malformed
+ * file) still throws: unreadable is red.
+ */
+export function readHistory(runs, read) {
+  const reports = [];
+  const skipped = [];
+  for (const r of runs) {
+    let report;
+    try {
+      report = read(r);
+    } catch (e) {
+      throw new Error(`run ${r.run_number}'s report couldn't be read (${e.message.split('\n')[0]}), so a pass in it can't be ruled out`);
+    }
+    if (report) reports.push([r.run_number, report]);
+    else skipped.push(r.run_number);
+  }
+  return { reports, skipped };
+}
+
+/**
+ * THE STORED PASS HISTORY (pass-history.json, in each main run's HISTORY_ARTIFACT). Reading main's
+ * history run by run cost 208 API calls and about 10 minutes per verdict on 12 Nov 2026 (98 runs since the baseline, two
+ * calls each), and the merge seal read it all again. Each main run now stores, for every history run it read and for
+ * itself, the steps that passed there (passed or flaky, as passesSince counts them) and the attempt it read. A later
+ * verdict reads the newest such file and only the runs it does not cover: a run newer than the file, a run the file read
+ * at another attempt (re-run since), or one with no report (skipped again, so it can never turn every pull request red).
+ * The pass history it gives is the same as reading every run: passesSince takes, per step, the newest run that passed it,
+ * and each run's entry holds exactly the steps that run passed. Only main's own runs are in the history (historyRuns), so
+ * only main's runs write files a verdict reads. A file that is missing or malformed is passed over; none found in the
+ * newest STORED_LOOKBACK runs reads every run, as before.
+ */
+export const HISTORY_FILE = 'pass-history.json';
+/** Its own artifact: a main run's report.json is about 25 MB (run 4095), its pass history a small part of that. */
+export const HISTORY_ARTIFACT = 'real-app-journeys-pass-history';
+export const STORED_LOOKBACK = 5;
+export const HISTORY_VERSION = 1;
+export const passedSteps = (report) =>
+  Object.entries(report.states)
+    .filter(([, s]) => s === 'passed' || s === 'flaky')
+    .map(([step]) => step)
+    .sort(byStep);
+export const attemptOf = (run) => Number(run.run_attempt || 1);
+/** A stored file's run entries, or null when it isn't one this code reads. */
+export function storedRuns(file) {
+  if (file?.version !== HISTORY_VERSION || !file.runs || typeof file.runs !== 'object') return null;
+  for (const e of Object.values(file.runs))
+    if (!Number.isInteger(e?.number) || !Number.isInteger(e?.attempt) || !Array.isArray(e?.passed)) return null;
+  return file.runs;
+}
+/** The newest stored file among the newest `lookback` history runs: { from: run number, runs } or null. `readFile(run)`
+ *  gives the file or null; a refusal it throws is thrown on (unreadable is red); any other failure passes the file over. */
+export function findStored(runs, readFile, { lookback = STORED_LOOKBACK, refusal = (e) => refusedDownload(e?.stderr) } = {}) {
+  for (const r of [...runs].sort((a, b) => b.run_number - a.run_number).slice(0, lookback)) {
+    let file;
+    try {
+      file = readFile(r);
+    } catch (e) {
+      if (refusal(e)) throw e;
+      continue;
+    }
+    const got = storedRuns(file);
+    if (got) return { from: r.run_number, runs: got };
+  }
+  return null;
+}
+/**
+ * The pass history through a stored file: `read(run)` downloads one run's report (null when it kept none). Returns
+ * readHistory's { reports, skipped } with each report reduced to the steps it passed, plus `entries` (each run's entry,
+ * for the next file) and `read` (the run numbers downloaded).
+ */
+export function historyThrough(runs, { stored, read }) {
+  const entries = {};
+  const downloaded = [];
+  const got = readHistory(runs, (r) => {
+    const e = stored?.runs[String(r.id)];
+    if (e && e.attempt === attemptOf(r)) {
+      entries[r.id] = e;
+      return { states: Object.fromEntries(e.passed.map((step) => [step, 'passed'])) };
+    }
+    downloaded.push(r.run_number);
+    const report = read(r);
+    if (report) entries[r.id] = { number: r.run_number, attempt: attemptOf(r), passed: passedSteps(report) };
+    return report;
+  });
+  return { ...got, entries, read: downloaded };
+}
+
 // ── CLI ────────────────────────────────────────────────────────────────────
 const arg = (name) => {
   const i = process.argv.indexOf(name);
@@ -556,11 +637,17 @@ export function ghDownload(args, { run = execFileSync, wait = pause, tries = 3, 
     }
   }
 }
-export function downloadReport(repo, runId, file = 'report.json', optional = file !== 'report.json', opts = {}) {
+export function downloadReport(
+  repo,
+  runId,
+  file = 'report.json',
+  optional = file !== 'report.json',
+  { artifact = JOURNEYS_ARTIFACT, ...opts } = {},
+) {
   const dir = mkdtempSync(join(tmpdir(), 'verdict-'));
   try {
     try {
-      ghDownload(['run', 'download', String(runId), '--repo', repo, '--name', JOURNEYS_ARTIFACT, '--dir', dir], opts);
+      ghDownload(['run', 'download', String(runId), '--repo', repo, '--name', artifact, '--dir', dir], opts);
     } catch (e) {
       if (optional && missingArtifact(e.stderr)) return null;
       throw e;
@@ -568,7 +655,7 @@ export function downloadReport(repo, runId, file = 'report.json', optional = fil
     const f = join(dir, file);
     if (!existsSync(f)) {
       if (optional) return null;
-      throw new Error(`run ${runId}'s ${JOURNEYS_ARTIFACT} artifact has no ${file}`);
+      throw new Error(`run ${runId}'s ${artifact} artifact has no ${file}`);
     }
     return json(f);
   } finally {
@@ -606,16 +693,28 @@ export function rootInputs(root, baselineFile) {
 /**
  * The verdict's inputs read from GitHub, GET only: the baseline's named run's report, the pass history on main after it
  * and before the run judged (`thisRunId`, or `thisRun` when already read), and the regression issues the baseline names.
- * Returns { named, passedSince, issues, problems, shas }; each input that can't be read is a problem, which is red, never
+ * Returns { named, passedSince, issues, problems, shas, skipped }; `skipped` lists the history runs that finished with no
+ * report (readHistory); `entries` each history run's stored entry (historyThrough), null when the history couldn't be
+ * read. Each input that can't be read is a problem, which is red, never
  * green. `shas` maps the run number of the named run and of each history run to its head commit (the merge seal reads
  * where a step last passed from it). `reports` caches downloaded reports by run id, so the merge seal reading several runs downloads each once.
  */
-export function fetchInputs({ repo, baseline, thisRunId, thisRun, reports = new Map(), log = console.log }) {
+export function fetchInputs({
+  repo,
+  baseline,
+  thisRunId,
+  thisRun,
+  reports = new Map(),
+  log = console.log,
+  readStored = (r) => downloadReport(repo, r.id, HISTORY_FILE, true, { artifact: HISTORY_ARTIFACT }),
+}) {
   const problems = [];
-  const reportOf = (id) => {
-    if (!reports.has(id)) reports.set(id, readReport(downloadReport(repo, id)));
+  const reportOf = (id, raw) => {
+    if (!reports.has(id)) reports.set(id, readReport(raw ?? downloadReport(repo, id)));
     return reports.get(id);
   };
+  let skipped = [];
+  let entries = null;
   let named = null;
   let passedSince = {};
   const issues = {};
@@ -639,16 +738,26 @@ export function fetchInputs({ repo, baseline, thisRunId, thisRun, reports = new 
       throw new Error(
         `${runs.length} finished runs on main since run ${baseline.run.number}, more than ${HISTORY_MAX}: rewrite the baseline from a newer run`,
       );
-    const read = [];
-    for (const r of runs) {
-      try {
-        read.push([r.run_number, reportOf(r.id)]);
-      } catch (e) {
-        throw new Error(`run ${r.run_number}'s report couldn't be read (${e.message.split('\n')[0]}), so a pass in it can't be ruled out`);
-      }
-    }
-    log(`pass history: ${read.length} finished run(s) on main after run ${baseline.run.number}`);
-    passedSince = passesSince(read);
+    // The newest stored pass history, then only the runs it doesn't cover (historyThrough). A finished run that kept
+    // no report is skipped (readHistory), only in the history: the named run must have one.
+    const stored = findStored(runs, readStored);
+    const history = historyThrough(runs, {
+      stored,
+      read: (r) => {
+        if (reports.has(r.id)) return reports.get(r.id);
+        const got = downloadReport(repo, r.id, 'report.json', true);
+        return got ? reportOf(r.id, got) : null;
+      },
+    });
+    skipped = history.skipped;
+    entries = history.entries;
+    log(
+      `pass history: ${history.reports.length} finished run(s) on main after run ${baseline.run.number}` +
+        (stored ? `, from run ${stored.from}'s stored history` : ', no stored history found') +
+        `; downloaded ${history.read.length}` +
+        (skipped.length ? `; skipped, finished with no report: run ${skipped.join(', run ')}` : ''),
+    );
+    passedSince = passesSince(history.reports);
   } catch (e) {
     problems.push(`the pass history couldn't be read: ${e.message}`);
   }
@@ -659,7 +768,7 @@ export function fetchInputs({ repo, baseline, thisRunId, thisRun, reports = new 
       issues[n] = { problem: e.message.split('\n')[0] };
     }
   }
-  return { named, passedSince, issues, problems, shas };
+  return { named, passedSince, issues, problems, shas, skipped, entries };
 }
 
 function main() {
@@ -687,13 +796,15 @@ function main() {
   let named = null;
   let passedSince = {};
   let issues = {};
+  let skipped = [];
+  let entries = null;
   let thisRun = {
     number: Number(arg('--run-number') ?? process.env.GITHUB_RUN_NUMBER) || null,
     at: arg('--now') ?? new Date().toISOString(),
   };
   if (fetch) {
     const got = fetchInputs({ repo, baseline, thisRunId: process.env.GITHUB_RUN_ID });
-    ({ named, passedSince, issues } = got);
+    ({ named, passedSince, issues, skipped, entries } = got);
     for (const why of got.problems) problem(why);
   } else {
     try {
@@ -763,6 +874,18 @@ function main() {
   }
   // On main only (runIsOnMain): a branch run, a targeted run or an offline run neither adds to the list nor is excused.
   const onMain = runIsOnMain({ target, fetch, ref: process.env.GITHUB_REF, priorFile: Boolean(arg('--prior-set-aside')) });
+  // The stored pass history (HISTORY_FILE) for the next verdicts: on main only, and only when this run read its whole
+  // history. Its own entry is this run's report, at this attempt.
+  if (arg('--history-out') && onMain && entries) {
+    const runs = { ...entries };
+    if (newest && process.env.GITHUB_RUN_ID)
+      runs[process.env.GITHUB_RUN_ID] = {
+        number: thisRun.number,
+        attempt: Number(process.env.GITHUB_RUN_ATTEMPT || 1),
+        passed: passedSteps(newest),
+      };
+    writeFileSync(arg('--history-out'), `${JSON.stringify({ version: HISTORY_VERSION, run: thisRun.number, runs })}\n`);
+  }
   const setAside = newest
     ? setAsideSteps({ prior, priorIsPrevious, states: onMain ? newest.states : {}, money: guard, owners, run: thisRun })
     : {};
@@ -780,7 +903,7 @@ function main() {
           setAside: excusedSetAside({ setAside, onMain, incomplete }),
           onMain,
         })
-      : { failing: 0, red: [], setAside: [], moneyFlaky: [] };
+      : { failing: 0, red: [], setAside: [], flaky: [] };
   verdict.red.unshift(...red);
   const asideRows = Object.entries(setAside)
     .sort(([a], [b]) => byStep(a, b))
@@ -798,9 +921,9 @@ function main() {
       ...(incomplete || !newest ? { incomplete: true } : {}),
       steps: asideRows,
       notProven,
-      // OWNER 278: the money steps that passed only on their retry, each with its journey's owner, for Main trust's
-      // `flaky` issue. Each is in notProven too.
-      moneyFlaky: verdict.moneyFlaky.map((step) => ({
+      // The steps that passed only on their retry and no set-aside tracks, each with its journey's owner, for Main
+      // trust's one `flaky` issue each. Each is in notProven too.
+      flaky: verdict.flaky.map((step) => ({
         step,
         file: newest?.files[step] ?? null,
         owner: owners[step.split('#')[0]] ? `the ${owners[step.split('#')[0]]} area` : null,
@@ -813,6 +936,12 @@ function main() {
     '### Verdict against the list of steps not built yet',
     '',
     `Baseline: run ${baseline.run?.number} (\`${BASELINE_PATH}\`).${target ? ` Targeted run: ${[...target].join(', ')}.` : ''}`,
+    ...(skipped.length
+      ? [
+          '',
+          `Pass history: skipped main run ${skipped.join(', run ')}, finished with no report. A step that passed only there and fails here counts as not built yet; main's next full run catches it.`,
+        ]
+      : []),
     `Failing or missing steps: ${verdict.failing}; outside the list or against its rules: **${verdict.red.length}**.`,
     '',
     ...(verdict.red.length
@@ -830,14 +959,14 @@ function main() {
         )
       : ['None.']),
     '',
-    `### Money steps that passed only on their retry: ${verdict.moneyFlaky.length}`,
+    `### Steps that passed only on their retry: ${verdict.flaky.length}`,
     '',
-    'A money step that fails, then passes on its retry, on main, stops only its own journeys (project-state OWNER 278): it stays red here, is never set aside and never counts as proven, Main trust opens a `flaky` issue for its area, and the seal holds only the pull requests in its area. Failing outright, on every try, still starts its revert.',
+    'A step that fails, then passes on its retry, is a pass, money step or not: it does not turn this verdict red, it never counts as proven from this run, and on main Main trust opens one `flaky` issue for it. Failing on every try still fails, and starts its revert.',
     '',
-    ...(verdict.moneyFlaky.length
-      ? verdict.moneyFlaky.map(
+    ...(verdict.flaky.length
+      ? verdict.flaky.map(
           (step) =>
-            `- ${step} (money): red and not proven in this run; owner: ${owners[step.split('#')[0]] ? `the ${owners[step.split('#')[0]]} area` : 'none named'}`,
+            `- ${step}${(money[step] ?? true) ? ' (money)' : ''}: passed on its retry, not proven in this run; owner: ${owners[step.split('#')[0]] ? `the ${owners[step.split('#')[0]]} area` : 'none named'}`,
         )
       : ['None.']),
   ];

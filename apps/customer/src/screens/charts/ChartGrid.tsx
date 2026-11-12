@@ -218,6 +218,12 @@ export function ChartGrid({ market, markets, workbench, setting, setInterval, se
         const onPrice = param.paneIndex === undefined || param.paneIndex === host.main.getPane().paneIndex();
         const atPointer = param.point && onPrice ? host.main.coordinateToPrice(param.point.y) : null;
         mark('crosshairPrice', atPointer === null ? '' : String(atPointer));
+        // The pane under the pointer, and over an indicator pane the value at that height on the pane's own scale.
+        const paneIndex = param.paneIndex ?? 0;
+        mark('crosshairPane', param.point ? String(paneIndex) : '');
+        const paneSeries = !onPrice && param.point ? host.chart.panes?.()[paneIndex]?.getSeries?.()[0] : undefined;
+        const atPane = paneSeries && param.point ? paneSeries.coordinateToPrice(param.point.y) : null;
+        mark('crosshairPaneValue', atPane === null ? '' : String(atPane));
         if (syncing || !grid.sync.crosshair) return;
         syncing = true;
         try {
@@ -448,6 +454,17 @@ export function ChartGrid({ market, markets, workbench, setting, setInterval, se
                   onHost={(host) => onHost(i, host)}
                   command={commands[i] ?? null}
                   markets={markets}
+                  // A market with no trades draws no chart, but its studies bar stays: each study says what it lacks (a
+                  // tape study: no public trades), so nothing is shown as a value.
+                  emptyAddons={() => (
+                    <StudiesBar
+                      host={null}
+                      market={cellMarket}
+                      interval={cell.interval}
+                      bars={[]}
+                      workbench={i === 0 ? workbench : `${workbench}:${i}`}
+                    />
+                  )}
                   addons={(host, bars, view: AddonView) => (
                     <>
                       {i === 0 ? mainAddons?.(host, bars, { ...view, onTreeSlot: setTreeSlot }) : null}

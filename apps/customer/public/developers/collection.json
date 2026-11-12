@@ -1241,6 +1241,14 @@
           }
         },
         {
+          "name": "venueGatedList",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/venue/gated-list", "host": ["{{baseUrl}}"], "path": ["api", "v1", "venue", "gated-list"] }
+          }
+        },
+        {
           "name": "venueBestPrices",
           "request": {
             "method": "GET",
@@ -1285,6 +1293,18 @@
           }
         },
         {
+          "name": "venueSubAccounts",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/sub-accounts",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "sub-accounts"]
+            }
+          }
+        },
+        {
           "name": "venueOrderByClientId",
           "request": {
             "method": "GET",
@@ -1305,11 +1325,39 @@
           }
         },
         {
+          "name": "venueDeposits",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/venue/deposits", "host": ["{{baseUrl}}"], "path": ["api", "v1", "venue", "deposits"] }
+          }
+        },
+        {
           "name": "venueLeverage",
           "request": {
             "method": "GET",
             "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
             "url": { "raw": "{{baseUrl}}/api/v1/venue/leverage", "host": ["{{baseUrl}}"], "path": ["api", "v1", "venue", "leverage"] }
+          }
+        },
+        {
+          "name": "venueMarketMargin",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/market-margin",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "market-margin"]
+            }
+          }
+        },
+        {
+          "name": "venueSettlements",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/venue/settlements", "host": ["{{baseUrl}}"], "path": ["api", "v1", "venue", "settlements"] }
           }
         },
         {
@@ -1522,6 +1570,156 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "venue", "agent-accounts", ":id", "close"],
               "variable": [{ "key": "id", "value": "" }]
+            }
+          }
+        },
+        {
+          "name": "venueAgentConnections",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/agent-accounts/connections",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "agent-accounts", "connections"]
+            }
+          }
+        },
+        {
+          "name": "venueAgentConnect",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/agent-accounts/:id/connections",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "agent-accounts", ":id", "connections"],
+              "variable": [{ "key": "id", "value": "" }]
+            }
+          }
+        },
+        {
+          "name": "venueAgentOrder",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/agent/orders",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "agent", "orders"]
+            }
+          }
+        },
+        {
+          "name": "ownAgentAllowances",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/own-agents/:agentId/allowances",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "own-agents", ":agentId", "allowances"],
+              "variable": [{ "key": "agentId", "value": "" }]
+            }
+          }
+        },
+        {
+          "name": "ownAgentAllowanceGrant",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/own-agents/:agentId/allowances",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "own-agents", ":agentId", "allowances"],
+              "variable": [{ "key": "agentId", "value": "" }]
+            }
+          }
+        },
+        {
+          "name": "ownAgentAllowanceSubmit",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/own-agents/:agentId/allowances/:id/submit",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "own-agents", ":agentId", "allowances", ":id", "submit"],
+              "variable": [
+                { "key": "agentId", "value": "" },
+                { "key": "id", "value": "" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "ownAgentAllowanceAbandon",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/own-agents/:agentId/allowances/:id/abandon",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "own-agents", ":agentId", "allowances", ":id", "abandon"],
+              "variable": [
+                { "key": "agentId", "value": "" },
+                { "key": "id", "value": "" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "ownAgentAllowanceRevoke",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/own-agents/:agentId/allowances/:id/revoke",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "own-agents", ":agentId", "allowances", ":id", "revoke"],
+              "variable": [
+                { "key": "agentId", "value": "" },
+                { "key": "id", "value": "" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "ownAgentOrderPreview",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/own-agents/:agentId/orders/preview",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "own-agents", ":agentId", "orders", "preview"],
+              "variable": [{ "key": "agentId", "value": "" }]
+            }
+          }
+        },
+        {
+          "name": "ownAgentOrder",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/own-agents/:agentId/orders",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "own-agents", ":agentId", "orders"],
+              "variable": [{ "key": "agentId", "value": "" }]
+            }
+          }
+        },
+        {
+          "name": "ownAgentOrders",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/own-agents/:agentId/orders",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "own-agents", ":agentId", "orders"],
+              "variable": [{ "key": "agentId", "value": "" }]
             }
           }
         },

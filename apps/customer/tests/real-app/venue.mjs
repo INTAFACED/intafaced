@@ -90,9 +90,16 @@ export async function venueInfo() {
 
 export const venueAccount = async (owner) => ({ venueId: (await venueInfo()).id, owner: owner.toLowerCase(), subAccount: null });
 
-/** The venue's own record for `owner`, read directly (what the desk must equal). */
-export async function venueRecord(owner, path, extra = {}) {
-  const { status, body } = await testVenue(path, { account: await venueAccount(owner), ...extra });
+/**
+ * The venue's own record for `owner`, read directly (what the desk must equal). `base` is the TEST venue read: the
+ * first by default, or TEST_VENUE_B for a journey that routes across both.
+ */
+export async function venueRecord(owner, path, extra = {}, base = TEST_VENUE) {
+  const at = await testVenueAt(base, '/venue');
+  expect(at.status, JSON.stringify(at.body)).toBe(200);
+  expect(at.body.label).toBe('TEST');
+  const account = { venueId: at.body.venue.id, owner: owner.toLowerCase(), subAccount: null };
+  const { status, body } = await testVenueAt(base, path, { account, ...extra });
   expect(status, JSON.stringify(body)).toBe(200);
   return body;
 }
@@ -170,8 +177,8 @@ export function sameDecimal(a, b) {
   return units(a) === units(b);
 }
 
-/** The venue's balance of `asset` for `owner`, from its own record. */
-export async function venueBalance(owner, asset) {
-  const body = await venueRecord(owner, '/balances');
+/** The venue's balance of `asset` for `owner`, from its own record (on the TEST venue at `base`). */
+export async function venueBalance(owner, asset, base = TEST_VENUE) {
+  const body = await venueRecord(owner, '/balances', {}, base);
   return body.value.find((b) => b.asset === asset) ?? { asset, free: '0', locked: '0', total: '0' };
 }

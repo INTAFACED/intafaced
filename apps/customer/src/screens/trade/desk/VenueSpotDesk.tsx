@@ -44,6 +44,7 @@ import {
   type VenueAccount,
 } from '../../../features/trade/venue/VenueKit';
 import { builderApproved, carriesBuilderFee } from '../../../features/trade/venue/VenueReview';
+import { SubAccountsPanel } from '../../../features/trade/venue/SubAccounts';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
 import { tradeAccess } from '../markets/TradeAccess';
 import { deskCopy } from './copy';
@@ -257,6 +258,9 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
         onWithdraw={() => setDialog('withdraw')}
         withdrawal={owner && withdrawalNonce ? <WithdrawalTracker owner={owner} nonce={withdrawalNonce} /> : null}
       />
+      {owner ? (
+        <SubAccountsPanel owner={owner} balances={account.balances.data} test={status.test} run={run} onMoved={account.reload} />
+      ) : null}
       <Tabs value={type} onValueChange={(value) => setType(value as VenueOrderType)} data-testid="dk-order" className="dk-panel dk-order">
         <div className="dk-order-head">
           <TabsList className="dk-tabs" aria-label={t('Order type')}>

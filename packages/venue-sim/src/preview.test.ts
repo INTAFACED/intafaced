@@ -206,8 +206,8 @@ describe('HTTP answers', () => {
       const [status, out] = await answerTestVenue(sim, 'POST', path, JSON.stringify(encodeVenueWire(body)));
       return { status, out: decodeVenueWire<any>(JSON.parse(JSON.stringify(out))), raw: out as any };
     };
-    // Five levels a side on each of the three TEST markets (BTC-USDC, BTC-PERP, XAU-PERP).
-    expect((await call('/test/seed', {})).out.orders).toBe(30);
+    // Five levels a side on each of the five laddered TEST markets (BTC-USDC, BTC-PERP, XAU-PERP, XSTK-PERP, XSTD-PERP).
+    expect((await call('/test/seed', {})).out.orders).toBe(50);
     expect((await call('/test/seed', {})).out.orders).toBe(0);
     expect((await call('/test/deposit', { account, asset: 'USDC', amount: a('70000'), depositRef: 'dep:http' })).out.credited).toBe(true);
     expect((await call('/test/deposit', { account, asset: 'USDC', amount: a('70000'), depositRef: 'dep:http' })).out.credited).toBe(false);
@@ -265,7 +265,7 @@ describe('HTTP answers', () => {
     const markets = await call('/markets', { account: null });
     const eth = markets.raw.value.find((m: any) => m.symbol === 'ETH-USDC');
     expect(eth).toMatchObject({ status: 'trading', maxOrderQty: '500', maxOrderNotional: '2000000' });
-    expect(markets.raw.value.map((m: any) => m.symbol)).toEqual(['BTC-USDC', 'BTC-PERP', 'ETH-USDC', 'XAU-PERP']);
+    expect(markets.raw.value.map((m: any) => m.symbol)).toEqual(['BTC-USDC', 'BTC-PERP', 'ETH-USDC', 'XAU-PERP', 'XSTK-PERP', 'XSTD-PERP']);
 
     // A resting order placed while trading stays as it is through every state change.
     const resting = await run(order({ price: a('59000'), amount: a('0.1'), clientOrderKey: 'order:preview-trader:rest' }));

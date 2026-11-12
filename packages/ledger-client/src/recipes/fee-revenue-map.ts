@@ -128,6 +128,16 @@ export const FEE_REVENUE_PATHS = {
     recipe: 'chargeEarn',
     note: 'A charge a customer owes us (agent usage, a course, a subscription) → houseFees(<module>), owed by them on a charge receivable until a Collect at one of our own-funds places; price unset refuses (launch money model, OWNER 288).',
   },
+  'launch.partner_fee_earned': {
+    kind: 'recipe',
+    recipe: 'partnerFeeEarn',
+    note: "Our fee on a payment a licensed partner processed → houseFees(<module>), owed by the partner on a partner fee receivable until it settles into our treasury wallet or our reserve at that partner; the customer's payment never enters our book; rate unset refuses (launch money model, OWNER 288).",
+  },
+  'launch.fee_giveback_owed': {
+    kind: 'recipe',
+    recipe: 'feeGiveBackOwe',
+    note: 'A fee a customer paid on a fill, given back as goodwill: houseFees(builder) down, owed to them until paid from one of our own-funds places to their own wallet; two different approvers, at most the fee paid on that fill (launch money model, OWNER 288).',
+  },
   'trade.copy.fee_share_pay': {
     kind: 'recipe',
     recipe: 'rewardPay',
@@ -283,6 +293,8 @@ export const RECIPES_TOUCHING_HOUSE_FEES = [
   'builderFeeEarn',
   'feeShareBudgetFund',
   'chargeEarn',
+  'partnerFeeEarn',
+  'feeGiveBackOwe',
   'marketMakerMakerFill',
   'futuresInsuranceTopup',
   'futuresMarginRelease',

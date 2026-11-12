@@ -98,6 +98,10 @@
       "types": "./dist/protocol-venue-wallet.d.ts",
       "default": "./dist/protocol-venue-wallet.js"
     },
+    "./protocol-venue-funds": {
+      "types": "./dist/protocol-venue-funds.d.ts",
+      "default": "./dist/protocol-venue-funds.js"
+    },
     "./protocol-wallet-tx": {
       "types": "./dist/protocol-wallet-tx.d.ts",
       "default": "./dist/protocol-wallet-tx.js"

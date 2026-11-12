@@ -12,7 +12,7 @@ import {
   type VenueIntent,
   type VenueSubmitOutcome,
 } from '@intafaced/venue-contracts';
-import { startTestVenueServer, type TestVenueSimulator, type TestVenueTypedData } from '@intafaced/venue-sim';
+import { creditDepositLogs, startTestVenueServer, type TestVenueSimulator, type TestVenueTypedData } from '@intafaced/venue-sim';
 import { HttpUserVenue, readDepositRoute } from './http-user-venue.js';
 import { listedTestStore } from './venue-listing-store.js';
 import { StoreVenueRoutingGate } from './venue-listing.js';
@@ -98,11 +98,23 @@ const somePrepared = (venueId: string): PreparedVenueAction => ({
 });
 const someSignature = { digest: '0xabc', signature: '0x00', signedBy: owner };
 
+/**
+ * Connect's own `GET /venue` shares the client's per-call timeout. A test that sets a short timeout to make one later call
+ * time out gives the descriptor read a generous budget instead, so a slow answer on a loaded runner can't refuse the
+ * connect before the call under test is reached (#7702). Every other call keeps the short timeout it was given.
+ */
+function patientConnect(inner: typeof fetch = fetch): typeof fetch {
+  return (input, init) =>
+    new URL(String(input instanceof Request ? input.url : input)).pathname === '/venue'
+      ? inner(input, { ...init, signal: AbortSignal.timeout(10_000) })
+      : inner(input, init);
+}
+
 describe('HttpUserVenue: a lost answer after send is never definite', () => {
   it('a submit that times out after the request was sent is definite:false timeout', async () => {
     const { server, url } = await fakeVenue(() => undefined); // receives the body, never answers
     try {
-      const venue = await HttpUserVenue.connect({ baseUrl: url, timeoutMs: 200 });
+      const venue = await HttpUserVenue.connect({ baseUrl: url, timeoutMs: 200, fetch: patientConnect() });
       expect(venue.chainId).toBe(84532);
       expect(await venue.submit(somePrepared(venue.venue.id), someSignature)).toEqual({ definite: false, reason: 'timeout' });
     } finally {
@@ -151,7 +163,7 @@ describe('HttpUserVenue: a lost answer after send is never definite', () => {
         throw new TypeError('fetch failed', { cause: Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' }) });
       return fetch(input, init);
     };
-    const venue = await HttpUserVenue.connect({ baseUrl: url, timeoutMs: 200, fetch: refusing });
+    const venue = await HttpUserVenue.connect({ baseUrl: url, timeoutMs: 200, fetch: patientConnect(refusing) });
     await closeServer(server);
     refuse = true;
     await expect(venue.balances({ venueId: venue.venue.id, owner, subAccount: null })).rejects.toMatchObject({
@@ -606,6 +618,10 @@ describe('the deposit route and a withdrawal read back through the door (J-walle
     tokenDecimals: 6,
     address: '0x00000000000000000000000000000000de905170',
     asset: 'USDC',
+    // The venue's published terms (J-dex-protocol-05 #1).
+    minimum: '5',
+    confirmations: 3,
+    network: 'TEST chain',
   };
   let server: http.Server;
   let sim: TestVenueSimulator;
@@ -657,8 +673,48 @@ describe('the deposit route and a withdrawal read back through the door (J-walle
     expect((await venue.withdrawal(account, prepared.prepared.nonce)).value?.status).toBe('done');
   });
 
+  it('the deposits the venue has seen read back over HTTP: confirming, credited, or below the minimum (J-dex-protocol-05 #2)', async () => {
+    const d = door();
+    const venue = await d.venue();
+    const account = await d.account(owner);
+    expect(venue.deposits).toBeDefined();
+    creditDepositLogs(
+      sim,
+      ROUTE,
+      [{ transactionHash: `0x${'a'.repeat(64)}`, logIndex: 0, from: owner, to: ROUTE.address, value: 25_000_000n, blockNumber: 9n }],
+      9n,
+    );
+    creditDepositLogs(
+      sim,
+      ROUTE,
+      [{ transactionHash: `0x${'b'.repeat(64)}`, logIndex: 0, from: owner, to: ROUTE.address, value: 1_000_000n, blockNumber: 9n }],
+      9n,
+    );
+    const read = await venue.deposits!(account);
+    expect(read.value.map((x) => [x.txHash, x.amount, x.status, x.confirmations, x.required, x.reason])).toEqual([
+      [`0x${'b'.repeat(64)}`, a('1'), 'not_credited', 1, 3, 'below_minimum'],
+      [`0x${'a'.repeat(64)}`, a('25'), 'confirming', 1, 3, null],
+    ]);
+    expect(read.value[0]!.seenAt).toBeInstanceOf(Date);
+  });
+
   it('a route that is named but malformed is not used: no deposit is offered rather than a wrong address', () => {
     expect(readDepositRoute(ROUTE)).toEqual(ROUTE);
+    // Terms it does not publish, or gives in a form that is not theirs, are not published: null, never guessed.
+    const bare = {
+      chainId: ROUTE.chainId,
+      token: ROUTE.token,
+      tokenDecimals: ROUTE.tokenDecimals,
+      address: ROUTE.address,
+      asset: ROUTE.asset,
+    };
+    expect(readDepositRoute(bare)).toEqual({ ...bare, minimum: null, confirmations: null, network: null });
+    expect(readDepositRoute({ ...ROUTE, minimum: 5, confirmations: 0, network: ' ' })).toEqual({
+      ...bare,
+      minimum: null,
+      confirmations: null,
+      network: null,
+    });
     expect(readDepositRoute(null)).toBeNull();
     expect(readDepositRoute({ ...ROUTE, address: 'nowhere' })).toBeNull();
     expect(readDepositRoute({ ...ROUTE, tokenDecimals: 19 })).toBeNull();

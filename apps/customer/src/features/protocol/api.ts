@@ -1,4 +1,11 @@
 import {
+  protocolAssetLinkReviewOutputSchema,
+  protocolVenueReadsOutputSchema,
+  protocolVenueBalancesOutputSchema,
+  protocolVenueBuildOutputSchema,
+  type ProtocolVenueBuildInput,
+} from '@intafaced/contracts/protocol-venue-funds';
+import {
   protocolContractBuildWriteOutputSchema,
   protocolContractInspectOutputSchema,
   protocolContractReadOutputSchema,
@@ -164,6 +171,19 @@ export function createProtocolApi(api: ApiClient) {
     /** Records the wallet's signature over `representationStatus().message`. The service checks that the address signed it. */
     representationAccept: (input: { address: string; version: string; signature: string }) =>
       api.mutate('protocol', 'representation.accept', input, protocolRepresentationAcceptOutputSchema),
+    /** The trading venue's balances for `account` (total, reserved, free), read from the contract (D-bridge-chain-04). */
+    venueBalances: (account: string, signal?: AbortSignal) =>
+      api.query('protocol', 'venue.balances', { account }, protocolVenueBalancesOutputSchema, { signal }),
+    /** The unsigned approval (when needed) and `deposit` call; nothing is sent. */
+    venueBuildDeposit: (input: ProtocolVenueBuildInput) =>
+      api.query('protocol', 'venue.buildDeposit', input, protocolVenueBuildOutputSchema),
+    /** The unsigned `withdraw` call; above the free amount refuses `protocol.venue_insufficient_free` naming it. */
+    venueBuildWithdraw: (input: ProtocolVenueBuildInput) =>
+      api.query('protocol', 'venue.buildWithdraw', input, protocolVenueBuildOutputSchema),
+    /** Whether `token` is one of the venue's own two assets, with its decimals; a read (J-dex-protocol-05 #10). */
+    assetLinkReview: (token: string) => api.query('protocol', 'venue.assetLinkReview', { token }, protocolAssetLinkReviewOutputSchema),
+    /** The venue's read-only calls with examples (the contract-read docs). */
+    venueReads: (signal?: AbortSignal) => api.query('protocol', 'venue.reads', undefined, protocolVenueReadsOutputSchema, { signal }),
     /** The claim-link escrow and its published expiry bounds, read from the contract; blank refuses by name (D-swap-12). */
     claimLinkConfig: (signal?: AbortSignal) =>
       api.query('protocol', 'claimLink.config', undefined, protocolClaimLinkConfigOutputSchema, { signal }),

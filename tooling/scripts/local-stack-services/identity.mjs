@@ -296,11 +296,19 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     // LOCAL TEST sign-in challenge (I-signin-sessions-30, J-identity-02 #2), labelled TEST in the same profile; the key is
     // this stack's own (secrets.json). `LOCAL_STACK_IDENTITY_SIGNIN_CHALLENGE_AFTER=<n>` on a start or restart sets the
     // failure count, so a journey can see the challenge; a plain restart puts the TEST value back.
+    // `LOCAL_STACK_IDENTITY_SIGNIN_CHALLENGE_ROUND=<label>` beside it signs with a key derived from the stack's secret and
+    // that label. Identity counts an address's failures under a hash keyed by it, so the journey starts from no failures
+    // and its own 15-minute window, not one the run's earlier wrong passwords opened that could close mid-step (#7988).
     IDENTITY_SIGNIN_CHALLENGE_AFTER_FAILURES:
       process.env.LOCAL_STACK_IDENTITY_SIGNIN_CHALLENGE_AFTER || testValue('IDENTITY_SIGNIN_CHALLENGE_AFTER_FAILURES'),
     IDENTITY_SIGNIN_CHALLENGE_BITS: testValue('IDENTITY_SIGNIN_CHALLENGE_BITS'),
     IDENTITY_SIGNIN_CHALLENGE_TTL_SECONDS: testValue('IDENTITY_SIGNIN_CHALLENGE_TTL_SECONDS'),
-    IDENTITY_SIGNIN_CHALLENGE_KEY: secrets.identitySigninChallenge,
+    IDENTITY_SIGNIN_CHALLENGE_KEY:
+      process.env.LOCAL_STACK_IDENTITY_SIGNIN_CHALLENGE_ROUND && secrets.identitySigninChallenge
+        ? createHmac('sha256', secrets.identitySigninChallenge)
+            .update(`local-test:signin-challenge-round:${process.env.LOCAL_STACK_IDENTITY_SIGNIN_CHALLENGE_ROUND}`)
+            .digest('hex')
+        : secrets.identitySigninChallenge,
     // LOCAL TEST one-tap share tags (RC-campaigns-06, J-campaigns-05 #2): the visit limit is labelled TEST in the same
     // profile; the signing key is derived from this stack's own sign-in challenge secret (secrets.json), so it is valid
     // nowhere else and needs no new secret name. `LOCAL_STACK_IDENTITY_SHARE_TAG_KEY=off` leaves it blank, as production is

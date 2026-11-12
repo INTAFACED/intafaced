@@ -43,6 +43,7 @@
  *   node tooling/scripts/local-test-stack.mjs age-linked-accounts <email> <hours>   TEST fixture: past a cooling-off
  *   node tooling/scripts/local-test-stack.mjs expire-address-approvals <email>   TEST fixture: open approval links run out
  *   node tooling/scripts/local-test-stack.mjs expire-email-confirmations <email>   TEST fixture: open email confirmation links run out
+ *   node tooling/scripts/local-test-stack.mjs end-security-lock-wait <email>   TEST fixture: an asked-for unlock's wait is over
  *   node tooling/scripts/local-test-stack.mjs expire-deposit-addresses <email>   TEST fixture: open extra deposit addresses expire
  *   node tooling/scripts/local-test-stack.mjs expire-staff-holds <email>   TEST fixture: open staff holds with an expiry reach it
  *   node tooling/scripts/local-test-stack.mjs age-task-progress <email> <campaignId> <days>   TEST fixture: a task campaign's counted events happened days earlier
@@ -91,7 +92,7 @@ import ledger from './local-stack-services/ledger.mjs';
 import market from './local-stack-services/market.mjs';
 import matching from './local-stack-services/matching.mjs';
 import miningPool from './local-stack-services/mining-pool.mjs';
-import notify from './local-stack-services/notify.mjs';
+import notify, { NOTIFY_EMPTY_NOTICES_DB, notifyNoticesOff, onEmptyNoticesDb } from './local-stack-services/notify.mjs';
 import ops from './local-stack-services/ops.mjs';
 import p2p from './local-stack-services/p2p.mjs';
 import pay from './local-stack-services/pay.mjs';
@@ -1290,6 +1291,33 @@ const supportCatalogueWanted = () => (supportCatalogueOff() ? 'off' : 'on');
  */
 const keepSupportEmptyCatalogue = () => process.env.LOCAL_STACK_SUPPORT_CATALOGUE_KEEP === 'on' && supportCatalogueWas() === 'off';
 
+/**
+ * The empty notice board's database (local-stack-services/notify.mjs), made new on every start of notify with
+ * LOCAL_STACK_NOTIFY_NOTICES=off: dropped, created, given svc-notify's schema and migrated as svc_notify, so it holds
+ * svc-notify's tables and no notice. svc-notify is stopped by then (start migrates only what is about to start), so
+ * nothing holds a connection to it. The stack's own database is never touched.
+ */
+async function resetNotifyEmptyNotices(secrets) {
+  psql(secrets, `DROP DATABASE IF EXISTS ${NOTIFY_EMPTY_NOTICES_DB} WITH (FORCE)`);
+  psql(secrets, `CREATE DATABASE ${NOTIFY_EMPTY_NOTICES_DB}`);
+  psql(
+    secrets,
+    `CREATE EXTENSION IF NOT EXISTS citext; CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE SCHEMA IF NOT EXISTS notify AUTHORIZATION svc_notify;
+GRANT USAGE ON SCHEMA public TO svc_notify;`,
+    { db: NOTIFY_EMPTY_NOTICES_DB },
+  );
+  await runPnpmAsync(['--filter', '@intafaced/svc-notify', 'db:migrate'], 'migrate-notify-empty-notices', {
+    DATABASE_URL: onEmptyNoticesDb(dbUrl('svc_notify', secrets)),
+  });
+  say(`  notify: empty notice board on ${NOTIFY_EMPTY_NOTICES_DB} (LOCAL_STACK_NOTIFY_NOTICES=off), made new`);
+}
+
+/** Which database the running svc-notify is on: 'off' (the empty notice board's) or 'on' (the stack's). */
+const notifyNoticesFile = () => path.join(STATE, 'notify-notices');
+const notifyNoticesWas = () => (fs.existsSync(notifyNoticesFile()) ? fs.readFileSync(notifyNoticesFile(), 'utf8').trim() : 'on');
+const notifyNoticesWanted = () => (notifyNoticesOff() ? 'off' : 'on');
+
 // ── Service definitions ─────────────────────────────────────────────────────
 
 // Placeholder secrets used only to list names, ports and URLs (plan / health table). Never reaches a process.
@@ -1586,6 +1614,8 @@ function testChain() {
     usdToken: record.tokens?.USD?.address ?? null,
     feeRelay: record.feeRelay ?? null,
     claimEscrow: record.claimEscrow ?? null,
+    // The TEST trading venue (SovereignVenue) a wallet deposits into and withdraws from (J-dex-protocol-05 #9).
+    venue: record.venue ?? null,
     liquidityRouter: record.liquidityRouter ?? null,
     // The smart account factory and implementation (J-dex-protocol-08's session keys).
     accountFactory: record.accountFactory ?? null,
@@ -2310,6 +2340,9 @@ async function cmdStart(flags) {
   // (a journey that switched it off and never switched it back, say): it is never left reading the wrong book.
   if (wanted.some((d) => d.name === 'support') && ownedAlive(readProcs().support) && supportCatalogueWas() !== supportCatalogueWanted())
     await cmdStop(['support']);
+  // The same for svc-notify and the empty notice board.
+  if (wanted.some((d) => d.name === 'notify') && ownedAlive(readProcs().notify) && notifyNoticesWas() !== notifyNoticesWanted())
+    await cmdStop(['notify']);
   const procsNow = readProcs();
   const toStart = wanted.filter((d) => !ownedAlive(procsNow[d.name]) || !onCurrentBuild(procsNow[d.name], backendBuild));
   // An old build never serves a schema migrated past it: stop it before its migrations run.
@@ -2321,6 +2354,8 @@ async function cmdStart(flags) {
   if (supportCatalogueOff() && !keepSupportEmptyCatalogue() && toStart.some((d) => d.name === 'support'))
     await resetSupportEmptyCatalogue(secrets);
   if (toStart.some((d) => d.name === 'support')) writePrivate(supportCatalogueFile(), `${supportCatalogueWanted()}\n`);
+  if (notifyNoticesOff() && toStart.some((d) => d.name === 'notify')) await resetNotifyEmptyNotices(secrets);
+  if (toStart.some((d) => d.name === 'notify')) writePrivate(notifyNoticesFile(), `${notifyNoticesWanted()}\n`);
   await startNats();
   ensureStreams();
   const renewed = !only || only.includes('protocol') ? await startTestChain(secrets) : [];
@@ -2334,6 +2369,10 @@ async function cmdStart(flags) {
   if (extra.includes('support')) {
     if (supportCatalogueOff() && !keepSupportEmptyCatalogue()) await resetSupportEmptyCatalogue(secrets);
     writePrivate(supportCatalogueFile(), `${supportCatalogueWanted()}\n`);
+  }
+  if (extra.includes('notify')) {
+    if (notifyNoticesOff()) await resetNotifyEmptyNotices(secrets);
+    writePrivate(notifyNoticesFile(), `${notifyNoticesWanted()}\n`);
   }
   // Vault before identity starts, so the first boot already has the invite hashes.
   // Enrolment itself waits until edge is up (below).
@@ -3218,6 +3257,31 @@ function cmdExpireAddressApprovals(args) {
     .split('\n')
     .filter((line) => /^[0-9a-f-]{36}$/.test(line));
   say(`  ${moved.length} open address approval link(s) of ${who} now expired (LOCAL TEST fixture)`);
+}
+
+/**
+ * `end-security-lock-wait <email-or-userId>`: the TEST person's security lock whose unlock was asked for (W-withdraw-09)
+ * reaches its unlock time now, so a journey can show, as J-wallet-04 #7 does, that what the lock stopped is allowed again
+ * once it ends, without waiting the stack's TEST day out. The lock's times all move back by the same amount, so the wait
+ * stays exactly as long as it was fixed for. A lock with no unlock asked for is left holding: it never unlocks anyone.
+ */
+function cmdEndSecurityLockWait(args) {
+  const [who] = args;
+  if (!who) fail('usage: node tooling/scripts/local-test-stack.mjs end-security-lock-wait <email-or-userId>', 2);
+  const { secrets, userId } = localFixturePerson(who);
+  const moved = psql(
+    secrets,
+    `UPDATE identity.account_security_locks
+        SET locked_at = locked_at - (unlocks_at - now()) - interval '1 second',
+            unlock_requested_at = unlock_requested_at - (unlocks_at - now()) - interval '1 second',
+            unlocks_at = now() - interval '1 second'
+      WHERE user_id = :'uid' AND state = 'locked' AND unlocks_at IS NOT NULL AND unlocks_at > now() RETURNING id`,
+    { db: DB_NAME, user: 'svc_identity', password: secrets.pgService, vars: { uid: userId }, tuples: true },
+  )
+    .trim()
+    .split('\n')
+    .filter((line) => /^[0-9a-f-]{36}$/.test(line));
+  say(`  ${moved.length} security lock(s) of ${who} reached their unlock time (LOCAL TEST fixture)`);
 }
 
 /**
@@ -4229,6 +4293,7 @@ async function runCli() {
   else if (cmd === 'token-params') cmdTokenParams();
   else if (cmd === 'expire-address-approvals') cmdExpireAddressApprovals(rest);
   else if (cmd === 'expire-email-confirmations') cmdExpireEmailConfirmations(rest);
+  else if (cmd === 'end-security-lock-wait') cmdEndSecurityLockWait(rest);
   else if (cmd === 'expire-deposit-addresses') cmdExpireDepositAddresses(rest);
   else if (cmd === 'expire-staff-holds') cmdExpireStaffHolds(rest);
   else if (cmd === 'age-task-progress') cmdAgeTaskProgress(rest);
@@ -4243,7 +4308,7 @@ async function runCli() {
     process.exit(ok ? 0 : 1);
   } else
     fail(
-      `unknown command "${cmd}". Use: start | build | stop | status | overrides | fund | seed-withdrawal | age-addresses | age-linked-accounts | expire-address-approvals | expire-email-confirmations | expire-deposit-addresses | expire-staff-holds | age-task-progress | seed-notice | plan | restart | customer-dist`,
+      `unknown command "${cmd}". Use: start | build | stop | status | overrides | fund | seed-withdrawal | age-addresses | age-linked-accounts | expire-address-approvals | expire-email-confirmations | end-security-lock-wait | expire-deposit-addresses | expire-staff-holds | age-task-progress | seed-notice | plan | restart | customer-dist`,
       2,
     );
 }

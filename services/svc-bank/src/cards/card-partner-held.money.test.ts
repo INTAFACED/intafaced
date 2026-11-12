@@ -837,6 +837,52 @@ describe('partner-held card authorisations (PG)', () => {
       expect(ledger.journal()).toHaveLength(0);
     });
 
+    it('J-bank-14 #6: the feed lists the refund on its payment, recurring payments group by merchant, and an unlisted partner code is kept raw; the ledger posts nothing', async () => {
+      const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
+        testPartner: partner,
+        custodyLayer: 'on',
+        postingFreeze: freeze,
+        cards: { issuer: cardSim({ partner: PARTNER }) },
+      });
+      const caller = as(bank);
+      await caller.testPartner.set({ custody: 'off' });
+      const card = await issue(bank.cards);
+      const pay = (authorizationRef: string, amount: string, more: { merchant?: string; recurring?: boolean } = {}) =>
+        bank.cards.authorize({ cardId: card.id, authorizationRef, amount: amt(amount), ...more });
+
+      await pay('six-sub-1', '5', { merchant: 'TEST Stream', recurring: true });
+      await pay('six-sub-2', '6', { merchant: 'TEST Stream', recurring: true });
+      await pay('six-gym', '7', { merchant: 'TEST Gym', recurring: true });
+      await pay('six-shop', '8', { merchant: 'TEST Stream' });
+      // A redelivery of a recurring payment is the same decision, never a second payment in the group.
+      await pay('six-sub-2', '6', { merchant: 'TEST Stream', recurring: true });
+      const recurring = await caller.cards.recurring({ cardId: card.id, limit: 10 });
+      expect(recurring.map((r) => [r.merchant, r.payments, r.lastAmount])).toEqual([
+        ['TEST Gym', 1, '7'],
+        ['TEST Stream', 2, '6'],
+      ]);
+
+      await bank.cards.capture({ cardId: card.id, authorizationRef: 'six-shop', amount: amt('8') });
+      await caller.testPartner.cardRefund({ cardId: card.id, authorizationRef: 'six-shop', amount: '3' });
+      const feed = await caller.cards.authorizations({ cardId: card.id, limit: 10 });
+      expect(feed.find((r) => r.authorizationRef === 'six-shop')).toMatchObject({
+        recurring: false,
+        refund: { amount: '3', status: 'settled' },
+      });
+      expect(feed.find((r) => r.authorizationRef === 'six-sub-1')).toMatchObject({ recurring: true, refund: null });
+
+      await caller.testPartner.set({ cardDecline: 'unlisted' });
+      const declined = await pay('six-unlisted', '1');
+      expect(declined).toMatchObject({ decision: 'declined', declineCode: 'test_partner.unlisted_reason', partnerHoldRef: null });
+      expect(
+        (await caller.cards.authorizations({ cardId: card.id, limit: 10 })).find((r) => r.authorizationRef === 'six-unlisted'),
+      ).toMatchObject({
+        decision: 'declined',
+        declineCode: 'test_partner.unlisted_reason',
+      });
+      expect(ledger.journal()).toHaveLength(0);
+    });
+
     it('the TEST merchant refund refuses off the TEST stack', async () => {
       const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), { cards: { issuer: cardSim({ partner: PARTNER }) } });
       const caller = as(bank);

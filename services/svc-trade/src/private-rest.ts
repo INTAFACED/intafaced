@@ -96,7 +96,10 @@ import { privateRead, privateWith, privateWrite, publicRead } from './route-inve
 import { attachGridRestRoutes } from './grid/grid-rest.js';
 import { attachUserVenueRoutes } from './venue/user-venue-rest.js';
 import { attachAgentAccountRoutes } from './venue/agent-account-rest.js';
+import { attachOwnAgentTradingRoutes } from './venue/own-agent-trading-rest.js';
+import type { OwnAgentTrading } from './venue/own-agent-trading.js';
 import type { AgentAccounts } from './venue/agent-account.js';
+import type { AgentOrders } from './venue/agent-orders.js';
 import type { UserVenueDoor } from './venue/user-venue-door.js';
 import type { UserVenueRouter } from './venue/venue-router.js';
 import type { VenueSellQuotes } from './venue/venue-sell-quotes.js';
@@ -210,6 +213,10 @@ export interface PrivateRestDeps {
   userVenueSlippageCapBps?: number | null;
   /** J-agents-21's agent account beside the door (src/venue/agent-account.ts); null when the door is off. */
   agentAccounts?: AgentAccounts | null;
+  /** The assistant's trade path on its agent account (J-agents-21 #6 #7 #10). Off with the door. */
+  agentOrders?: AgentOrders | null;
+  /** A person's own agent trading their venue sub-account under an allowance (J-agents-08 #3 to #7). Off with the door. */
+  ownAgentTrading?: OwnAgentTrading | null;
   /** Convert's sell quotes priced by the venue (J-cex-spot-17 #8); absent with the door. */
   venueSellQuotes?: VenueSellQuotes | null;
   /** The algo engine's calls (CB-execution-08). Absent: every `/api/v1/algo` door answers 503 `trade.algo_unavailable`. */
@@ -1336,14 +1343,13 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
    * Jurisdiction gate for money writes — mirrors `scopedProcedure(..., { module: 'trade' })`.
    * Scope is still enforced inside TradeService; this refuses a region that may not trade.
    */
-  function requireTradeJurisdiction(req: FastifyRequest, reply: FastifyReply, principal: Principal, kycTier = principal.tier): boolean {
+  function tradeAccessDecision(req: FastifyRequest, principal: Principal, kycTier = principal.tier) {
     const { region } = contextFrom(req);
-    const decision = checkAccess({
-      module: 'trade',
-      plane: 'fiat',
-      region,
-      kycTier,
-    });
+    return checkAccess({ module: 'trade', plane: 'fiat', region, kycTier });
+  }
+
+  function requireTradeJurisdiction(req: FastifyRequest, reply: FastifyReply, principal: Principal, kycTier = principal.tier): boolean {
+    const decision = tradeAccessDecision(req, principal, kycTier);
     if (!decision.allowed) {
       // Credentials were fine; this principal may not trade from here. CCXT
       // `PermissionDenied` — a bot must stop, not re-sign and retry. The tier
@@ -1363,10 +1369,16 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     // The venue holds the person's own funds, not ours: the trading checks' clear (`trd`) opens it, as OWNER 258 (4)
     // decided. Every custodial route above keeps reading the approved level alone.
     requireTradeJurisdiction: (req, reply, principal) => requireTradeJurisdiction(req, reply, principal, tradeTier(principal)),
+    // J-derivatives-01 #2: the same region and level check, read as a reason on the gated list instead of a refusal.
+    tradeAccessBlocker: (req, principal) => {
+      const decision = tradeAccessDecision(req, principal, tradeTier(principal));
+      return decision.allowed ? null : { code: decision.code, message: decision.reason };
+    },
     slippageCapBps: deps.userVenueSlippageCapBps ?? null,
     sellQuotes: deps.venueSellQuotes ?? null,
   });
-  attachAgentAccountRoutes(app, deps.agentAccounts ?? null, { requirePrincipal, requireTradeJurisdiction });
+  attachAgentAccountRoutes(app, deps.agentAccounts ?? null, { requirePrincipal, requireTradeJurisdiction }, deps.agentOrders ?? null);
+  attachOwnAgentTradingRoutes(app, deps.ownAgentTrading ?? null, { requirePrincipal, requireTradeJurisdiction });
 
   // Mounted only while futures orders go through the book; otherwise the conditional-orders refusal answers the path.
   if (deps.futuresOrders) {

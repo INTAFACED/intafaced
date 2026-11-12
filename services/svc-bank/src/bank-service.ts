@@ -1,4 +1,5 @@
-import { testPartnerCustody, type TestPartner } from './partner/test-partner.js';
+import { testPartnerCustody, testPartnerPurchases, type TestPartner } from './partner/test-partner.js';
+import type { PartnerPurchaseCustody } from './partner/partner-purchases.js';
 import {
   bankCustodyLayer,
   custodyGuardedLedger,
@@ -55,6 +56,7 @@ import { BusinessLookupLimiter, unconfiguredBusinessDirectory, type BusinessDire
 import { PortfolioService, type PortfolioServiceOptions } from './portfolio/portfolio-service.js';
 import { ActivityService, type ActivityServiceOptions } from './activity/activity-service.js';
 import { ActivityRecordService } from './activity/activity-records.js';
+import type { TaxEffectMap } from './activity/tax-effects.js';
 import { StatementService } from './statements/statement-service.js';
 import { StatementJobService, type StatementJobsConfig } from './statements/statement-jobs.js';
 import { AccountDetailsService, type AccountDetailsOptions } from './account-details/account-details.js';
@@ -98,8 +100,12 @@ export interface BankServices {
   readonly blockedRegionNotice?: string | undefined;
   /** The TEST partner bank and ramp with their switches (CUSTODY-DELTA §4), on a dev or test stack only; null elsewhere. */
   readonly testPartner: TestPartner | null;
+  /** What each kind of activity line means for tax: the owner's map, the TEST one on a test stack, or null (refused). */
+  readonly taxEffects: TaxEffectMap | null;
   /** Who holds each person's bank money: the partner, or (null) the custodial layer. */
   readonly partnerCustody: PartnerCustody;
+  /** Who credits a partner-held person's purchase and reports what it holds back of it (J-wallet-01 #3). */
+  readonly partnerPurchases: PartnerPurchaseCustody;
   readonly spaces: SpaceService;
   readonly transfers: TransferService;
   readonly personalPay: PersonalPayService;
@@ -205,6 +211,8 @@ export interface BankServiceOptions {
   onrampPartner?: OnrampPartner | null;
   /** The TEST partner bank and ramp (`BANK_TEST_PARTNER=test`); refused at boot outside dev/test. Unset: no switches. */
   testPartner?: TestPartner | null;
+  /** The tax-effect map (`activity/tax-effects.ts`). Unset: `activity.taxEffects` refuses by name. */
+  taxEffects?: TaxEffectMap | null;
   /**
    * The custody switch as svc-bank reads it (`LEDGER_CUSTODY_LAYER`, OWNER 226). A value passed in wins; otherwise the
    * live env, where unset is off. Off: every customer-balance post refuses `bank.no_partner_bank` before svc-ledger,
@@ -509,7 +517,9 @@ export function createBankServices(
   });
   // The pay-in partner opens hosted payments (as the ramps' payment port) and says each was paid; unset everywhere but a
   // dev or test stack with the TEST stand-in chosen.
-  const addMoney = new AddMoneyService(sql, ramps, { ledger, partner: options.onrampPartner ?? null });
+  // A person the TEST partner holds money for has their paid purchase credited by the partner itself, not the ledger.
+  const partnerPurchases = testPartnerPurchases(options.testPartner);
+  const addMoney = new AddMoneyService(sql, ramps, { ledger, partner: options.onrampPartner ?? null, purchases: partnerPurchases });
   // The same owner values as the crypto address book: its cap, and the payout cooling-off window.
   const linkedAccounts = new LinkedAccountService(sql, {
     // Resolved as RampService resolves them: a value passed in wins, otherwise the live env.
@@ -565,6 +575,7 @@ export function createBankServices(
   return {
     blockedRegionNotice: options.blockedRegionNotice,
     testPartner: options.testPartner ?? null,
+    taxEffects: options.taxEffects ?? null,
     spaces,
     sorter,
     billsPots,
@@ -577,6 +588,7 @@ export function createBankServices(
     analytics,
     budgets,
     partnerCustody: custody,
+    partnerPurchases,
     portfolio,
     activity,
     activityRecords,
