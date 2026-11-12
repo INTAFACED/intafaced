@@ -104,6 +104,7 @@ export const deskCopy = defineCopy('support-desk', {
   rateDoneNext:
     'Our team can see your rating. If something is still not right, reply on this request, or start a follow-up from a closed one.',
   rateChip: 'Rate this request',
+  solvedThanks: 'Thank you for your patience while we worked on this.',
   rateAsk: 'This request is solved. Tell us how it went by rating it below. It takes one tap and you can add a note.',
   rateScoreLabel: 'Your score',
   rateScoreOption5: '5 · Very helpful',

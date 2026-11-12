@@ -98,6 +98,8 @@ const DATE_FIELDS: ReadonlySet<string> = new Set([
   'since',
   'lastOracleUpdateAt',
   'reopensAt',
+  // UserVenueDeposit (J-dex-protocol-05 #2)
+  'seenAt',
 ]);
 
 /**

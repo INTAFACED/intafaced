@@ -21,14 +21,25 @@ name: Main trust
 # in this one starts the journeys revert (main-bisect.yml, tooling/ci/journeys-revert.mjs), which opens the culprit's revert;
 # the run's own early-break job usually started it already as the failing shard ended, and then this start adds nothing.
 #
+# Every hour (`revive`): a Real-app journeys run on main that finished with no report (it died before its tests ran) has its
+# failed jobs re-run, with waits of 30 min, 1 h, 2 h and 4 h between attempts and five attempts at most, then one issue
+# names it. Every pull request's verdict reads main's reports and fails closed on one it can't read, so one dead run would
+# otherwise stop every pull request until a person re-ran it (run 4005, 11 Nov 2026). See tooling/ci/journeys-revive.mjs.
+# Then, and after each Real-app journeys run on main ends (post-merge): an open pull request's journeys run that is red
+# only because its verdict couldn't read main's inputs, and main is back, has its failed jobs re-run, at most twice per
+# head; a red of its own stays red, and a refusal from GitHub stops it and opens one issue. (Failure it prevents: main's
+# run was green at 23:50 UTC on 11 Nov and the open pull requests stayed red until a person re-ran six of them.)
+#
 # Ends: with each run of the workflows it follows (workflow_run): one run per finished run of theirs on main, so it
-# stops only when they do, and they never end on their own. A stop disables it until the lift
-# (project-state handover/STOP.md).
+# stops only when they do, and they never end on their own; `revive` runs on the hourly timer and ends never. A stop
+# disables it until the lift (project-state handover/STOP.md).
 on:
   workflow_run:
     workflows: [CI, Order-path CX-8, Customer Money browser checks, Real-app journeys, PR checks]
     types: [completed]
     branches: [main]
+  schedule:
+    - cron: '17 * * * *'
 
 permissions: {}
 
@@ -66,12 +77,13 @@ jobs:
       (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch' ||
       github.event.workflow_run.event == 'schedule')
     runs-on: ubuntu-latest
-    timeout-minutes: 5 # healthy run: under a minute (three journey reports at most)
+    timeout-minutes: 15 # healthy run: under a minute (three journey reports at most); after an outage, a report read per red main run of the last day
     permissions:
       contents: read # compare commits
       actions: write # re-run failed jobs once, read runs and their journey reports, start the journeys revert
       checks: read # a job's annotations: a cancel by the job time limit counts as red
       issues: write # open, comment on and close the break issues
+      pull-requests: read # whether a pull request whose journeys run is red only on main's inputs is open on that head
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -96,3 +108,29 @@ jobs:
           RUN_ID: ${{ github.event.workflow_run.id }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: node tooling/ci/journeys-revert.mjs trigger
+      # Main's report is back (or was never gone): re-run the open pull requests' journeys runs that are red only because
+      # their verdict couldn't read main's inputs (tooling/ci/journeys-revive.mjs prTick), so they follow main within minutes.
+      - name: Re-run pull requests red only on main's inputs
+        if: github.event.workflow_run.name == 'Real-app journeys'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node tooling/ci/journeys-revive.mjs prs
+
+  revive:
+    name: Re-run a journeys run on main that has no report
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15 # healthy run: a report read of a few seconds per red main run of the last day
+    permissions:
+      contents: read
+      actions: write # read runs, their jobs' logs and their journey reports, re-run failed jobs
+      issues: write # name a run still without a report after its last try, or a refusal
+      pull-requests: read # whether a pull request whose journeys run is red only on main's inputs is open on that head
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Re-run or name a finished main run without a report, then pull requests red only on main's inputs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node tooling/ci/journeys-revive.mjs

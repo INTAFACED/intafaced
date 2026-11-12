@@ -1,9 +1,11 @@
 // World: none
+// Market: live
 import { readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
 import { EDGE, journeyState, times, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { closedBarsSince, tapeWindow } from './tape.mjs';
+import { answerAfterNavigation } from './navigation.mjs';
 
 // J-algo-dev-01, in the running app (docs/roadmap/journeys.json): build a first strategy, save it and backtest it on
 // history. One test per step this build serves, titled "J-algo-dev-01 #<n>", run in order on one TEST developer who
@@ -124,8 +126,11 @@ test(`${J} #2 picks a starter template and presses Use: a draft with every numbe
   expect(template.name).toMatch(/^TEST /);
 
   await signIn(page, developer());
-  const listed = page.waitForResponse((r) => r.url().includes('/api/quant/trpc/template.list') && r.ok());
-  await page.goto('/quant/studio');
+  const listed = await answerAfterNavigation(
+    page,
+    (r) => r.url().includes('/api/quant/trpc/template.list') && r.ok(),
+    () => page.goto('/quant/studio'),
+  );
   // Every starter template the product serves, not only this one, holds no number: no starter value to label.
   const served = (await (await listed).json()).result.data.templates;
   expect(served.length).toBeGreaterThan(0);

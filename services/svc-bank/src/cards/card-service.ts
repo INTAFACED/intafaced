@@ -411,6 +411,11 @@ export interface AuthorizationRecord {
   merchant: string | null;
   merchantCountry: string | null;
   channel: CardChannel;
+  /**
+   * The issuer said the merchant charged a card it keeps on file, on a schedule the cardholder agreed (a subscription;
+   * J-bank-14 #6). What the issuer said, never a guess from the merchant's name; false when it said nothing.
+   */
+  recurring: boolean;
   decision: 'approved' | 'declined';
   declineCode: string | null;
   status: 'pending' | 'settled' | 'rejected';
@@ -559,6 +564,25 @@ export interface CardServiceOptions {
   readonly heldBy?: (userId: string) => MoneyHeldBy;
   /** The card partner that holds partner-held authorisations (today only the TEST partner card). Absent: none. */
   readonly partnerHolds?: PartnerCardHolds | null;
+}
+
+/** A merchant's refund of one card payment as recorded (J-bank-14 #6): pending until the partner answers. */
+export interface CardRefundLine {
+  readonly amount: Amount;
+  readonly status: 'pending' | 'settled' | 'rejected';
+  /** When the partner settled it, or when it was asked for while it is not settled. */
+  readonly at: Date;
+}
+
+/** One merchant that charges this card on file (J-bank-14 #6), from the issuer's recurring flag. */
+export interface CardRecurringMerchant {
+  readonly merchant: string | null;
+  readonly merchantCountry: string | null;
+  readonly payments: number;
+  readonly firstAt: Date;
+  readonly lastAt: Date;
+  /** The newest payment, in the card's funding asset. */
+  readonly lastAmount: Amount;
 }
 
 /** A refund the card partner made of a partner-held capture. */
@@ -1559,6 +1583,8 @@ export class CardService {
     channel?: CardChannel;
     /** The PIN typed at the terminal, when there was one. Checked by the issuer; never stored or put in an error (J-bank-14 #3). */
     pin?: string;
+    /** The issuer's flag for a merchant charging a card on file on an agreed schedule (J-bank-14 #6). Omitted is false. */
+    recurring?: boolean;
   }): Promise<AuthorizationRecord> {
     this.assertModuleEnabled();
     this.assertIssuerMayMutate();
@@ -2931,25 +2957,75 @@ export class CardService {
 
   // ── Reads ──────────────────────────────────────────────────────────────────
 
-  async authorizationsOf(cardId: string, limit?: number): Promise<AuthorizationRecord[]> {
+  /**
+   * The card's decisions, newest first, each with the merchant's refund of it when there is one (J-bank-14 #6). A refund
+   * is the partner's to move on a partner-held capture (`refund` below); this only reads what was recorded, and posts
+   * nothing.
+   */
+  async authorizationsOf(cardId: string, limit?: number): Promise<Array<AuthorizationRecord & { refund: CardRefundLine | null }>> {
     const page = assertCardAuthorizationsListLimit(limit);
-    const rows = await this.sql<AuthorizationRow[]>`
-      SELECT a.id, a.card_id, a.authorization_ref, a.amount, a.merchant_category, a.merchant, a.merchant_country, a.channel, a.decision, a.decline_code, a.status,
+    const rows = await this.sql<
+      Array<AuthorizationRow & { refund_amount: string | null; refund_status: CardRefundLine['status'] | null; refund_at: Date | null }>
+    >`
+      SELECT a.id, a.card_id, a.authorization_ref, a.amount, a.merchant_category, a.merchant, a.merchant_country, a.channel, a.recurring, a.decision, a.decline_code, a.status,
              a.hold_ledger_tx_id, a.money_book, a.partner_hold_ref, a.partner_mode, a.decided_at,
-             c.settlement_asset_id, c.settlement_amount, c.funding_asset_id, c.funding_amount, c.rate, c.rate_quality, c.rate_as_of
+             c.settlement_asset_id, c.settlement_amount, c.funding_asset_id, c.funding_amount, c.rate, c.rate_quality, c.rate_as_of,
+             r.amount::text AS refund_amount, r.status AS refund_status, coalesce(r.settled_at, r.created_at) AS refund_at
         FROM bank.card_authorizations a
         LEFT JOIN bank.card_conversions c ON c.authorization_id = a.id
+        LEFT JOIN bank.card_partner_refunds r ON r.authorization_id = a.id
        WHERE a.card_id = ${cardId}
        ORDER BY a.decided_at DESC
        LIMIT ${page}
     `;
-    return rows.map(toAuthorization);
+    return rows.map((row) => ({
+      ...toAuthorization(row),
+      refund:
+        row.refund_amount === null || row.refund_status === null || row.refund_at === null
+          ? null
+          : { amount: parseAmount(row.refund_amount), status: row.refund_status, at: row.refund_at },
+    }));
+  }
+
+  /**
+   * The card's recurring payments, one row per merchant (J-bank-14 #6; BK-cpay-02 `cards-048`): every approved payment
+   * the issuer flagged as a merchant charging the card on file, grouped by the merchant and its country as the issuer
+   * named them, newest first. A merchant the issuer did not name is its own row with merchant null. Reads only.
+   */
+  async recurringOf(cardId: string, limit?: number): Promise<CardRecurringMerchant[]> {
+    const page = assertCardAuthorizationsListLimit(limit);
+    const rows = await this.sql<
+      Array<{
+        merchant: string | null;
+        merchant_country: string | null;
+        payments: number;
+        first_at: Date;
+        last_at: Date;
+        last_amount: string;
+      }>
+    >`
+      SELECT a.merchant, a.merchant_country, count(*)::int AS payments, min(a.decided_at) AS first_at, max(a.decided_at) AS last_at,
+             (array_agg(a.amount::text ORDER BY a.decided_at DESC))[1] AS last_amount
+        FROM bank.card_authorizations a
+       WHERE a.card_id = ${cardId} AND a.recurring AND a.decision = 'approved'
+       GROUP BY a.merchant, a.merchant_country
+       ORDER BY max(a.decided_at) DESC
+       LIMIT ${page}
+    `;
+    return rows.map((r) => ({
+      merchant: r.merchant,
+      merchantCountry: r.merchant_country,
+      payments: r.payments,
+      firstAt: r.first_at,
+      lastAt: r.last_at,
+      lastAmount: parseAmount(r.last_amount),
+    }));
   }
 
   /** One authorisation by id, for the operator read (BK-cops-01). Null when there is none; never writes. */
   async authorizationById(authorizationId: string): Promise<(AuthorizationRecord & { userId: string; assetId: string }) | null> {
     const rows = await this.sql<Array<AuthorizationRow & { user_id: string; card_asset_id: string }>>`
-      SELECT a.id, a.card_id, a.authorization_ref, a.amount, a.merchant_category, a.merchant, a.merchant_country, a.channel, a.decision, a.decline_code, a.status,
+      SELECT a.id, a.card_id, a.authorization_ref, a.amount, a.merchant_category, a.merchant, a.merchant_country, a.channel, a.recurring, a.decision, a.decline_code, a.status,
              a.hold_ledger_tx_id, a.money_book, a.partner_hold_ref, a.partner_mode, a.decided_at,
              c.settlement_asset_id, c.settlement_amount, c.funding_asset_id, c.funding_amount, c.rate, c.rate_quality, c.rate_as_of,
              k.user_id, k.asset_id AS card_asset_id
@@ -2982,7 +3058,7 @@ export class CardService {
 
   private async authorizationByRef(cardId: string, authorizationRef: string): Promise<AuthorizationRecord | null> {
     const rows = await this.sql<AuthorizationRow[]>`
-      SELECT a.id, a.card_id, a.authorization_ref, a.amount, a.merchant_category, a.merchant, a.merchant_country, a.channel, a.decision, a.decline_code, a.status,
+      SELECT a.id, a.card_id, a.authorization_ref, a.amount, a.merchant_category, a.merchant, a.merchant_country, a.channel, a.recurring, a.decision, a.decline_code, a.status,
              a.hold_ledger_tx_id, a.money_book, a.partner_hold_ref, a.partner_mode, a.decided_at,
              c.settlement_asset_id, c.settlement_amount, c.funding_asset_id, c.funding_amount, c.rate, c.rate_quality, c.rate_as_of
         FROM bank.card_authorizations a
@@ -3070,7 +3146,14 @@ export class CardService {
    */
   private async recordDecision(input: {
     card: CardRecord;
-    input: { authorizationRef: string; merchantCategory?: string; merchant?: string; merchantCountry?: string; channel: CardChannel };
+    input: {
+      authorizationRef: string;
+      merchantCategory?: string;
+      merchant?: string;
+      merchantCountry?: string;
+      channel: CardChannel;
+      recurring?: boolean;
+    };
     fundingAmount: Amount;
     quote: ConversionQuote | null;
     decision: 'approved' | 'declined';
@@ -3104,10 +3187,10 @@ export class CardService {
           }
         }
         const claimed = await tx<Array<{ id: string }>>`
-          INSERT INTO bank.card_authorizations (card_id, authorization_ref, amount, merchant_category, merchant, merchant_country, channel, decision, decline_code, status, money_book)
+          INSERT INTO bank.card_authorizations (card_id, authorization_ref, amount, merchant_category, merchant, merchant_country, channel, recurring, decision, decline_code, status, money_book)
           VALUES (
             ${input.card.id}, ${input.input.authorizationRef}, ${formatAmount(input.fundingAmount)}::numeric,
-            ${input.input.merchantCategory ?? null}, ${input.input.merchant?.trim() || null}, ${input.input.merchantCountry?.trim().toUpperCase() || null}, ${input.input.channel}, ${decision}, ${declineCode},
+            ${input.input.merchantCategory ?? null}, ${input.input.merchant?.trim() || null}, ${input.input.merchantCountry?.trim().toUpperCase() || null}, ${input.input.channel}, ${input.input.recurring === true}, ${decision}, ${declineCode},
             ${decision === 'approved' ? 'pending' : 'rejected'}, ${input.heldBy}
           )
           ON CONFLICT (card_id, authorization_ref) DO NOTHING
@@ -3658,6 +3741,7 @@ interface AuthorizationRow {
   merchant?: string | null;
   merchant_country?: string | null;
   channel: string;
+  recurring?: boolean;
   decision: 'approved' | 'declined';
   decline_code: string | null;
   status: AuthorizationRecord['status'];
@@ -3805,6 +3889,7 @@ function toAuthorization(row: AuthorizationRow): AuthorizationRecord {
     merchant: row.merchant ?? null,
     merchantCountry: row.merchant_country ?? null,
     channel: parseChannel(row.channel),
+    recurring: row.recurring === true,
     decision: row.decision,
     declineCode: row.decline_code,
     status: row.status,
