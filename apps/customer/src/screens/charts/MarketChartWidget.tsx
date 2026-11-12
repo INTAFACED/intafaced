@@ -106,6 +106,12 @@ export const MarketChartWidget = memo(function MarketChartWidget({
   const bookHalt = useBookHalt(market.symbol);
   const serverClock = useServerClock();
   const lastTrade = useLastTrade(market.symbol);
+  // The newest trade time read for this market, kept once the tape stops answering, so a down feed names its last tick.
+  const [seenTrade, setSeenTrade] = useState<{ symbol: string; ms: number } | null>(null);
+  useEffect(() => {
+    if (lastTrade.status === 'ready' && lastTrade.data !== null) setSeenTrade({ symbol: market.symbol, ms: lastTrade.data });
+  }, [lastTrade, market.symbol]);
+  const lastTradeSeenMs = seenTrade?.symbol === market.symbol ? seenTrade.ms : null;
   const owner = useChartOwnerValues(market.symbol);
   // Order entry on the chart: the same one rule as the status chip and the trade link (C-ops-02).
   const orderRefusal = refusalText(tradeRefusal(lifecycle, bookHalt, now), t);
@@ -119,6 +125,7 @@ export const MarketChartWidget = memo(function MarketChartWidget({
     bookHalt,
     candles: polled,
     lastTrade,
+    lastTradeSeenMs,
     pollIntervalMs: CANDLE_POLL_MS,
   });
   // Settings and price lines are this device's own display choices.
