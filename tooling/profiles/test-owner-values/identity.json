@@ -66,6 +66,11 @@
       "value": "image/jpeg,image/png,application/pdf",
       "note": "TEST: the ID photo may be JPEG, PNG or PDF (J-identity-08 #2)."
     },
+    "IDENTITY_SANCTIONS_PERSONS_LIST": {
+      "service": "identity",
+      "value": "{\"label\": \"TEST: the local test stack only, never a real list\", \"entries\": [{\"legalName\": \"TEST Listed Person\", \"dateOfBirth\": \"1970-01-01\", \"country\": \"DE\"}]}",
+      "note": "TEST: one TEST person, never a real name, so the trading checks can show a hit held under review (J-cex-spot-01 #3). Identity refuses a TEST list outside APP_ENV dev or test. LOCAL_STACK_IDENTITY_SANCTIONS_LIST=off leaves it blank, so the kyc.screening_list_unset refusal can be seen."
+    },
     "IDENTITY_KYC_POA_MAX_AGE_DAYS": {
       "service": "identity",
       "value": "90",

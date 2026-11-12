@@ -30,6 +30,15 @@
  * If this crashes after the partner credited and before the row says so, the partner's next "paid" asks again under the
  * same key, which the partner answers with the credit it already made, and the row catches up: credited once.
  *
+ * RETURNED (J-bank-02 #7). A credited payment the partner later says was sent back (a payment from someone else's account,
+ * a pull the payer's bank reversed) is taken out of the balance once, as the partner reports: the partner that holds the
+ * person's bank money takes it out at the partner under the purchase's key, and the ledger posts nothing (OWNER 226). The
+ * request then reads `returned` with when. A request the custodial layer credited on the ledger is not taken back here
+ * (`bank.ramp_conflict`, nothing moves): INTAFACED holds no customer money at launch. If this crashes after the return and before the row says so, the partner's next
+ * "returned" asks again under the same key, answered with the return already made, and the row catches up: returned
+ * once. A request not credited cannot be returned (`bank.ramp_conflict`), and a balance that no longer holds the amount
+ * refuses before anything moves; the request stays credited.
+ *
  * The request id is the customer's business key: asking again with the same id and the same terms is the same request,
  * and with other terms is `bank.ramp_conflict`. A quote the customer accepted must be theirs and on the request's own
  * terms; one that has already expired is refused (`bank.onramp_quote_expired`) and keeps nothing.
@@ -70,7 +79,7 @@ const railRefusal = (err: unknown): BankErrorCode | null => (err instanceof Bank
 const finalRefusal = (err: unknown): BankErrorCode | null =>
   railRefusal(err) ?? (err instanceof BankError && err.code === 'bank.onramp_quote_expired' ? err.code : null);
 
-export type AddMoneyStatus = 'opening' | 'refused' | 'opened' | 'pending' | 'credited';
+export type AddMoneyStatus = 'opening' | 'refused' | 'opened' | 'pending' | 'credited' | 'returned';
 
 export interface AddMoneyMethodView {
   readonly method: OnrampMethod;
@@ -104,6 +113,8 @@ export interface AddMoneyRequestView {
   readonly creditedAmount: string | null;
   /** Who credited it: the ledger (custodial layer) or the partner that holds the person's money. Null until credited. */
   readonly creditedBy: 'ledger' | 'partner' | null;
+  /** When the partner said the payment was sent back and the credit was taken out once; null unless returned. */
+  readonly returnedAt: string | null;
 }
 
 interface RequestRow {
@@ -125,6 +136,8 @@ interface RequestRow {
   credited_amount: string | null;
   ledger_tx_id: string | null;
   partner_pay_in_ref: string | null;
+  returned_at: Date | null;
+  return_ref: string | null;
 }
 
 export interface AddMoneyInput {
@@ -327,6 +340,36 @@ export class AddMoneyService {
     return this.withOnramp(rows[0] ?? (await this.row(row.id)) ?? row, onramp);
   }
 
+  /**
+   * The partner says a credited payment was sent back: take the credit out once, where it was credited. A request already
+   * returned answers as it stands and takes nothing again.
+   */
+  async returned(input: { requestId: string }): Promise<AddMoneyRequestView> {
+    const { partner } = this.wired();
+    const { row, onramp } = await this.partnerRow(partner, input.requestId);
+    if (row.status === 'returned') return this.withOnramp(row, onramp);
+    if (row.status !== 'credited' || row.credited_amount === null) {
+      throw new BankError(`This request is ${row.status}; only a credited payment can be sent back`, 'bank.ramp_conflict');
+    }
+    const atPartner = row.partner_pay_in_ref ? (this.credit?.purchases?.purchasesFor(row.user_id) ?? null) : null;
+    const paidBy = paidByFor(row.method);
+    if (!atPartner || paidBy === null) {
+      throw new BankError(
+        'Only the partner that holds this person’s money takes a returned payment back, and it did not credit this one. Nothing was taken',
+        'bank.ramp_conflict',
+      );
+    }
+    const amount = parseAmount(row.credited_amount);
+    const key = `deposit:${partner.rail}:add-money:${row.id}`;
+    const ref = (await atPartner.returned(row.user_id, { key, assetId: row.asset_id, amount, paidBy })).id;
+    const rows = await this.sql<RequestRow[]>`
+      UPDATE bank.add_money_requests SET status = 'returned', returned_at = now(), return_ref = ${ref}
+       WHERE id = ${row.id}::uuid AND status = 'credited'
+      RETURNING *
+    `;
+    return this.withOnramp(rows[0] ?? (await this.row(row.id)) ?? row, onramp);
+  }
+
   private wired(): { ledger: Pick<LedgerClient, 'post'>; partner: OnrampPartner } {
     const partner = this.credit?.partner;
     if (!this.credit || !partner) {
@@ -439,7 +482,8 @@ function view(row: RequestRow, onramps: ReadonlyMap<string, CustomerOnrampView>)
     pendingAt: row.pending_at?.toISOString() ?? null,
     creditedAt: row.credited_at?.toISOString() ?? null,
     creditedAmount: row.credited_amount === null ? null : formatAmount(parseAmount(row.credited_amount)),
-    creditedBy: row.status !== 'credited' ? null : row.partner_pay_in_ref ? 'partner' : 'ledger',
+    creditedBy: row.status !== 'credited' && row.status !== 'returned' ? null : row.partner_pay_in_ref ? 'partner' : 'ledger',
+    returnedAt: row.returned_at?.toISOString() ?? null,
   };
 }
 

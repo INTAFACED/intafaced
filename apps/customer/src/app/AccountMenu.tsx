@@ -40,9 +40,11 @@ function Summary() {
   const name = profile.resource.status === 'ready' ? profile.resource.data.displayName : null;
   const levelKey =
     level.resource.status === 'ready'
-      ? ({ none: 'levelNone', basic: 'levelBasic', full: 'levelFull', institutional: 'levelInstitutional' } as const)[
-          level.resource.data.tier
-        ]
+      ? level.resource.data.tier === 'basic' && level.resource.data.tradingOnly
+        ? ('levelBasicTrading' as const)
+        : ({ none: 'levelNone', basic: 'levelBasic', full: 'levelFull', institutional: 'levelInstitutional' } as const)[
+            level.resource.data.tier
+          ]
       : null;
   return (
     <li className="tb-account-summary" aria-label={t('summaryLabel')} aria-busy={loading} data-testid="account-summary">

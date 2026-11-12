@@ -371,6 +371,13 @@ const schema = serviceEnvSchema
        * `{"<country>": {"accepted": [{"type","label"}], "rejected": [...]}}` (a country not listed reads not published).
        * Parsed at start; malformed stops the service.
        */
+      /**
+       * Owner setting (J-cex-spot-01 #3, OWNER 258 (4)), NO DEFAULT: the sanctions list of persons the trading checks
+       * screen a legal name, date of birth and country against, as JSON `{"label", "entries": [{"legalName",
+       * "dateOfBirth", "country"}]}`. Unset refuses every check `kyc.screening_list_unset` and clears nothing. A list
+       * labelled TEST is refused outside APP_ENV dev or test. Parsed at start; malformed stops the service.
+       */
+      IDENTITY_SANCTIONS_PERSONS_LIST: z.string().optional(),
       IDENTITY_KYC_POA_MAX_AGE_DAYS: z.string().optional(),
       IDENTITY_KYC_POA_TYPES_BY_COUNTRY: z.string().optional(),
       /**

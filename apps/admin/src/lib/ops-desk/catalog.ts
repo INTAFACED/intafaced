@@ -1553,6 +1553,11 @@ const academySections: readonly DeskSection[] = [
         label: 'Learn hub',
         why: 'The featured article as staff chose it, and the topic list courses are filed under.',
       },
+      {
+        href: '/academy-ops/catalogue/moderation',
+        label: 'Moderation',
+        why: 'Discussion posts learners reported, deleting one with a reason, and every moderation action taken.',
+      },
     ],
   },
   {
@@ -1704,7 +1709,13 @@ const academySections: readonly DeskSection[] = [
     unavailable: [],
     disabledActions: [],
     sectionAction: 'academy.ambassador.appoint',
-    links: [],
+    links: [
+      {
+        href: '/academy-ops/ambassadors/roles',
+        label: 'Course team roles',
+        why: 'Who holds which role on each course, role changes waiting for a second founder, and custom roles.',
+      },
+    ],
   },
   {
     id: 'grants',

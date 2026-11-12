@@ -100,6 +100,8 @@ const API_PREFIXES: readonly (readonly [string, ModuleId])[] = [
   ['/api/academy-learners', 'academy-ops'],
   ['/api/academy-media', 'academy-ops'],
   ['/api/academy-hub', 'academy-ops'],
+  ['/api/academy-moderation', 'academy-ops'],
+  ['/api/academy-team', 'academy-ops'],
   ['/api/academy-course-links', 'academy-ops'],
   ['/api/more-ops', 'more-ops'],
   ['/api/launch', 'launch'],

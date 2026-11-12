@@ -1679,6 +1679,8 @@ services:
       # Owner-published isolate ceilings. Blank = sandbox refuses quant.sandbox_max_ops_unset / quant.sandbox_max_source_unset.
       SANDBOX_MAX_OPS: ${SANDBOX_MAX_OPS:-}
       SANDBOX_MAX_SOURCE: ${SANDBOX_MAX_SOURCE:-}
+      # Paper-book fee in basis points. Blank = every paper order refuses quant.paper_fee_unset (never invented as zero).
+      QUANT_PAPER_FEE_BPS: ${QUANT_PAPER_FEE_BPS:-}
       # Venue Vault trade-only pin. Blank = venue OMS refuses quant.venue_vault_unset.
       QUANT_VENUE_VAULT: ${QUANT_VENUE_VAULT:-}
       # Role svc_quant and schema quant come from postgres-init.

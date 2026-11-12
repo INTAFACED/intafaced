@@ -140,6 +140,7 @@ function stubServices(): Stub {
   const auth = {
     submitKyc: record('submitKyc', () => kycRecord()),
     listKycRecords: record('listKycRecords', () => [kycRecord()]),
+    kycTradingOnly: record('kycTradingOnly', () => false),
     listPendingKyc: record('listPendingKyc', () => [kycRecord()]),
     listKycCases: record('listKycCases', () => []),
     assertKycRejectable: record('assertKycRejectable', () => undefined),

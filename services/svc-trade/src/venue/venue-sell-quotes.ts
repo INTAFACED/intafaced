@@ -204,15 +204,16 @@ export class VenueSellQuotes {
       throw new UserVenueDoorError(`${ask.symbol} is not a market of ${venue.venue.id}`, 'trade.venue_sell_quote_market_unknown', 422);
     if (market.kind !== 'spot')
       throw new UserVenueDoorError(`${ask.symbol} is not a spot market: Convert sells spot only`, 'trade.venue_sell_quote_not_spot', 422);
-    // A market sell of the whole amount at the venue's depth now: its worst price is one tick, so the preview walks every
-    // bid, and `fill` says how much of the amount the book takes and at what average price.
+    // A market sell of the whole amount at the worst price the owner's protection allows, so the preview walks every bid
+    // the sell could really take; `fill` says how much the book takes there and at what average price.
+    const worst = await this.deps.door.marketWorstPrice(market.symbol, 'sell');
     const intent: PlaceUserOrderIntent = {
       kind: 'place_order',
       symbol: market.symbol,
       side: 'sell',
       type: 'market',
       amount: ask.amount,
-      price: market.tickSize,
+      price: worst,
       timeInForce: 'IOC',
       reduceOnly: false,
       clientOrderKey: `convert-quote:${principal.userId}:${ask.quoteKey}`,

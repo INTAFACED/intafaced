@@ -173,6 +173,12 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
       ? {}
       : { IDENTITY_KYC_POA_MAX_AGE_DAYS: testValue('IDENTITY_KYC_POA_MAX_AGE_DAYS') }),
     IDENTITY_KYC_POA_TYPES_BY_COUNTRY: testValue('IDENTITY_KYC_POA_TYPES_BY_COUNTRY'),
+    // The trading checks' sanctions list of persons (J-cex-spot-01 #3): one labelled TEST person from the profile, never a
+    // real name or an owner list. `LOCAL_STACK_IDENTITY_SANCTIONS_LIST=off` on a start or restart leaves it blank, as
+    // production is until the owner sets one, so the check's kyc.screening_list_unset refusal can be seen.
+    ...(process.env.LOCAL_STACK_IDENTITY_SANCTIONS_LIST === 'off'
+      ? {}
+      : { IDENTITY_SANCTIONS_PERSONS_LIST: testValue('IDENTITY_SANCTIONS_PERSONS_LIST') }),
     // `LOCAL_STACK_IDENTITY_MEMBERSHIP=test` on a start or restart publishes the one TEST membership tier above, so the
     // published tier can be seen (J-wallet-01 #6); without it the tiers are blank and Account says membership is not offered.
     ...(process.env.LOCAL_STACK_IDENTITY_MEMBERSHIP === 'test' ? { IDENTITY_MEMBERSHIP_TIERS: JSON.stringify(TEST_MEMBERSHIP_TIERS) } : {}),
