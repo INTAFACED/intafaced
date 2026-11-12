@@ -75,6 +75,7 @@ export const CAMPAIGN_REFUSAL_CODES = [
   'campaigns.voucher_amount_invalid',
   'campaigns.voucher_exceeds_remaining',
   'campaigns.voucher_sequence_invalid',
+  'campaigns.voucher_not_cash',
   'campaigns.attempt_limit_unset',
   'campaigns.per_customer_limit_unset',
   'campaigns.customer_limit_reached',
@@ -547,7 +548,16 @@ export const campaignDefinitionInputSchema = z
      * claimed and until when a claimed one may be used. Either blank: every claim refuses `campaigns.voucher_window_unset`.
      */
     vouchers: z
-      .object({ claimBy: z.string().max(64).nullish(), useBy: z.string().max(64).nullish() })
+      .object({
+        claimBy: z.string().max(64).nullish(),
+        useBy: z.string().max(64).nullish(),
+        /**
+         * A fee-saver coupon campaign (CM-vouchers-coupons-02, J-campaigns-09): each voucher takes `discountBps` of our
+         * builder fee off (a fraction of the fee: 5000 is half of it) on up to `orders` venue orders, and moves no value.
+         * Absent or null: a cash voucher, whose face value is the campaign's reward.
+         */
+        feeSaver: z.lazy(() => feeSaverTermsSchema).nullish(),
+      })
       .strict()
       .nullish(),
     /** The campaign's limits; a blank per-customer limit refuses activation `campaigns.per_customer_limit_unset`. */
@@ -593,6 +603,19 @@ export const VOUCHER_STATES = [
 export type VoucherState = (typeof VOUCHER_STATES)[number];
 
 /**
+ * A fee-saver coupon's terms (CM-vouchers-coupons-02): `discountBps` of our builder fee off (a fraction of the fee, as a
+ * rank's `feeDiscountBps` is), on up to `orders` venue orders. Only our builder fee: never the venue's own fee.
+ */
+export const feeSaverTermsSchema = z
+  .object({ discountBps: z.number().int().min(1).max(10_000), orders: z.number().int().min(1).max(1000) })
+  .strict();
+export type FeeSaverTerms = z.infer<typeof feeSaverTermsSchema>;
+
+/** A voucher's kind: `cash` redeems its face value through the reward saga; `fee_saver` lowers our builder fee. */
+export const VOUCHER_KINDS = ['cash', 'fee_saver'] as const;
+export type VoucherKind = (typeof VOUCHER_KINDS)[number];
+
+/**
  * A voucher of a voucher campaign. It keeps the revision it was issued under and that revision's reward as its face value:
  * a later approved revision changes the vouchers issued after it, never one already published (T-3). The face value is a
  * counter, not a balance: nothing is held for it.
@@ -602,7 +625,10 @@ export const campaignVoucherSchema = z.object({
   campaignId: id,
   code: z.string(),
   revision: z.number().int().positive(),
+  /** A fee-saver's face is its orders: `{ asset: 'ORDERS', amount: '<orders>' }`; a cash voucher's is its reward. */
   face: z.object({ asset, amount: campaignDecimal }),
+  kind: z.enum(VOUCHER_KINDS).default('cash'),
+  feeSaver: feeSaverTermsSchema.nullable().default(null),
   state: z.enum(VOUCHER_STATES),
   issuedBy: z.string(),
   issuedAt: iso,
@@ -634,8 +660,12 @@ export const campaignLimitsSchema = z
   .strict();
 export type CampaignLimits = z.infer<typeof campaignLimitsSchema>;
 
-/** A voucher campaign's claim-by and use-by times, as stored; either may be blank. */
-export const voucherWindowSchema = z.object({ claimBy: iso.nullable(), useBy: iso.nullable() });
+/** A voucher campaign's claim-by and use-by times, as stored; either may be blank. A fee-saver campaign has its terms. */
+export const voucherWindowSchema = z.object({
+  claimBy: iso.nullable(),
+  useBy: iso.nullable(),
+  feeSaver: feeSaverTermsSchema.nullable().optional(),
+});
 export type VoucherWindow = z.infer<typeof voucherWindowSchema>;
 
 /** A voucher code: 4 to 32 letters, digits or hyphens, stored upper case. With the campaign it is the issue's business key. */
@@ -661,6 +691,8 @@ export const voucherValidationSchema = z.object({
   face: z.object({ asset, amount: campaignDecimal }),
   claimBy: iso,
   useBy: iso,
+  /** A fee-saver coupon's terms (J-campaigns-09); null for a cash voucher. */
+  feeSaver: feeSaverTermsSchema.nullable().default(null),
 });
 export type VoucherValidation = z.infer<typeof voucherValidationSchema>;
 
@@ -697,6 +729,19 @@ export const myVoucherSchema = z.object({
   useBy: iso,
   expiredAt: iso.nullable(),
   redemptions: z.array(voucherRedemptionSchema),
+  kind: z.enum(VOUCHER_KINDS).default('cash'),
+  /**
+   * A fee-saver coupon (J-campaigns-09 #1): what it takes off our builder fee, on how many orders, and each order it was
+   * taken on, oldest first. `used` and `remaining` then count orders. Null for a cash voucher.
+   */
+  feeSaver: z
+    .object({
+      discountBps: z.number().int().min(1).max(10_000),
+      orders: z.number().int().min(1),
+      uses: z.array(z.object({ sequence: z.number().int().positive(), orderKey: z.string(), at: iso })),
+    })
+    .nullable()
+    .default(null),
 });
 export type MyVoucher = z.infer<typeof myVoucherSchema>;
 
@@ -961,3 +1006,37 @@ export const potFundingRequestInputSchema = z
   .object({ reference, sourceModule: z.enum(POT_SOURCE_MODULES), asset: z.string().max(16), amount: z.unknown() })
   .strict();
 export const potFundingApproveInputSchema = z.object({ reference }).strict();
+
+// ── Fee-saver coupons at order time (CM-vouchers-coupons-02, J-campaigns-09 #2 #3) ────────────────────────────────────
+
+/** The only service that asks for a fee-saver coupon: svc-trade, when it prices our builder fee on a venue order. */
+export const FEE_SAVER_CALLERS = ['svc-trade'] as const;
+
+/**
+ * svc-trade asks for the caller's best fee-saver coupon on one order, by the order's own business key. `quote` names the
+ * coupon that would be taken and writes nothing (the review sheet); `take` takes one use of it for this order, once: the
+ * same order key again returns the same use, never a second; `read` returns the use already taken for this order, or
+ * null (a replayed prepare). Campaigns posts nothing for a discount (ENGINE VC-9): svc-trade signs the lower builder fee
+ * into the order and the venue charges it.
+ */
+export const feeSaverAskInputSchema = z
+  .object({
+    accountId: z.string().uuid(),
+    orderKey: z.string().min(3).max(200),
+    mode: z.enum(['quote', 'take', 'read']),
+  })
+  .strict();
+export type FeeSaverAskInput = z.infer<typeof feeSaverAskInputSchema>;
+
+export const feeSaverAnswerSchema = z.object({
+  coupon: z
+    .object({
+      voucherId: id,
+      code: z.string(),
+      discountBps: z.number().int().min(1).max(10_000),
+      /** The n-th order this coupon was taken on; null for a quote. */
+      sequence: z.number().int().positive().nullable(),
+    })
+    .nullable(),
+});
+export type FeeSaverAnswer = z.infer<typeof feeSaverAnswerSchema>;

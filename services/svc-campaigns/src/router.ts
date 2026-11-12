@@ -1,7 +1,7 @@
 import { AuthError, requireMfa } from '@intafaced/auth';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
-import { publicProcedure, router, scopedProcedure } from '@intafaced/contracts';
+import { publicProcedure, router, scopedProcedure, serviceProcedureFor } from '@intafaced/contracts';
 import {
   dropClaimInputSchema,
   dropClaimResultSchema,
@@ -51,6 +51,9 @@ import {
   taskProgressSchema,
   type CampaignRefusalCode,
   campaignVoucherSchema,
+  FEE_SAVER_CALLERS,
+  feeSaverAnswerSchema,
+  feeSaverAskInputSchema,
   voucherIssueInputSchema,
   voucherListInputSchema,
   welcomeChecklistSchema,
@@ -121,6 +124,7 @@ const STATUS: Record<CampaignsRefusalCode | CampaignRefusalCode, TRPCError['code
   'campaigns.voucher_window_invalid': 'BAD_REQUEST',
   'campaigns.voucher_code_taken': 'CONFLICT',
   'campaigns.voucher_expired': 'CONFLICT',
+  'campaigns.voucher_not_cash': 'CONFLICT',
   'campaigns.voucher_amount_invalid': 'BAD_REQUEST',
   'campaigns.voucher_exceeds_remaining': 'CONFLICT',
   'campaigns.voucher_sequence_invalid': 'CONFLICT',
@@ -296,6 +300,23 @@ export function createCampaignsRouter(drops: DropService, campaigns: CampaignSer
         .query(async ({ ctx }) => {
           try {
             return await tasks.myRewards({ accountId: ctx.principal!.userId });
+          } catch (err) {
+            mapError(err);
+          }
+        }),
+    }),
+
+    service: router({
+      /**
+       * svc-trade's ask for a fee-saver coupon on one venue order (J-campaigns-09 #2 #3): quote, take once per order key,
+       * or read the use an order took. Only svc-trade may call it.
+       */
+      feeSaver: serviceProcedureFor(FEE_SAVER_CALLERS)
+        .input(feeSaverAskInputSchema)
+        .output(feeSaverAnswerSchema)
+        .mutation(async ({ input }) => {
+          try {
+            return await vouchers.feeSaver(input);
           } catch (err) {
             mapError(err);
           }

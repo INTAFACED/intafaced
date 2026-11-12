@@ -109,6 +109,11 @@ const schema = serviceEnvSchema
        * sub-accounts they gave the agent access to). Blank: every grant and agent order refuses agents.policy_unavailable.
        */
       AGENTS_URL: z.string().default(''),
+      /**
+       * svc-campaigns' address, for a person's fee-saver coupon on our builder fee (J-campaigns-09 #2 #3). Blank: no
+       * coupon is asked for, and every venue order carries the rank's rate or the builder fee in force.
+       */
+      CAMPAIGNS_URL: z.string().default(''),
       /** Dedicated trading decision key; blank disables new exposure, never founder/read auth. */
       IDENTITY_ADMISSION_SECRET: z.string().default(''),
 

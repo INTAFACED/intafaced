@@ -208,6 +208,14 @@ export const venuePreviewSchema = z.object({
   role: z.enum(['maker', 'taker']),
   venueFee: maybeKnown(assetAmount),
   builderFee: maybeKnown(assetAmount),
+  // What lowered our builder fee on this order (J-campaigns-09 #2): a fee-saver coupon or the rank, the larger of the two.
+  feeDiscount: z
+    .union([
+      z.object({ source: z.literal('coupon'), bps: z.number().int(), code: z.string(), voucherId: z.string() }),
+      z.object({ source: z.literal('rank'), bps: z.number().int() }),
+    ])
+    .nullable()
+    .optional(),
   // What fills now against the venue's book, and at what average price (the venue's word; not a quote).
   fill: maybeKnown(z.object({ amount: decimalSchema, averagePrice: decimalSchema.nullable() })).optional(),
   perpetual: z

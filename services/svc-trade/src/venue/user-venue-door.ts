@@ -27,6 +27,7 @@ import {
 import type { PreparedActionStore, StoredVenueAction } from './prepared-action-store.js';
 import { VenueRouteRefusal, type ListedVenueMarket, type VenueRouteRefusalCode, type VenueRoutingGate } from './venue-listing.js';
 import { BuilderFeeVersionError, builderFeeOf, type BuilderFeeBook } from './builder-fee-versions.js';
+import type { FeeSaverSource } from './fee-saver-client.js';
 
 /**
  * THE USER-VENUE DOOR (B1; project-state #1789 item 2): the signed-in customer's own account on a user-signed venue,
@@ -305,6 +306,43 @@ export interface UserVenueDoorDeps {
   readonly listings: VenueRoutingGate;
   /** Owner value: the largest page of `GET /api/v1/venue/orders`. Null (blank) refuses every list. */
   readonly ordersPageMax?: number | null;
+  /**
+   * What lowers our builder fee on one person's order (J-campaigns-09 #2 #3): their rank's `feeDiscountBps` (svc-identity)
+   * and a fee-saver coupon (svc-campaigns). Absent: every order carries the builder fee in force.
+   */
+  readonly feeDiscounts?: BuilderFeeDiscounts;
+}
+
+/**
+ * The two discounts on our builder fee. Each is a fraction OF the fee in basis points (5000 is half of it), never of the
+ * venue's fee. `rankBps` answers null when the rank cannot be read; `coupons` is null when svc-campaigns is not wired.
+ * Either unreadable, that discount is skipped and logged, and the order carries the rate without it: a discount that
+ * cannot be read is never guessed.
+ */
+export interface BuilderFeeDiscounts {
+  readonly rankBps: (userId: string) => Promise<number | null>;
+  readonly coupons: FeeSaverSource | null;
+  readonly skipped?: (what: 'rank' | 'coupon', userId: string, orderKey: string) => void;
+}
+
+/** What priced our builder fee on an order: the winning discount and where it came from (`null`: none applied). */
+export type BuilderFeeDiscount =
+  | { readonly source: 'coupon'; readonly bps: number; readonly code: string; readonly voucherId: string }
+  | { readonly source: 'rank'; readonly bps: number }
+  | null;
+
+/** A tenth of a basis point, scaled: the finest builder fee a venue takes (Hyperliquid's `f`). */
+const TENTH_BPS = parseAmount('0.1');
+
+/**
+ * Our builder fee less `discountBps` of it, floored to a tenth of a basis point: the discount never charges more than it
+ * promises, and the venue takes the rate it is given.
+ */
+export function discountedBuilderFee(feeBps: Amount, discountBps: number): Amount {
+  if (!Number.isInteger(discountBps) || discountBps <= 0) return feeBps;
+  const off = BigInt(Math.min(discountBps, 10_000));
+  const lowered = (feeBps * (10_000n - off)) / 10_000n;
+  return lowered - (lowered % TENTH_BPS);
 }
 
 export interface PrepareRequest {
@@ -614,7 +652,7 @@ export class UserVenueDoor {
     }
   }
 
-  async preview(_principal: Principal, owner: string, intent: VenueIntent) {
+  async preview(principal: Principal, owner: string, intent: VenueIntent) {
     if (intent?.kind !== 'place_order') invalid('preview takes an order intent (kind place_order)');
     assertPlaceIntent(intent);
     const venue = await this.venue();
@@ -622,8 +660,45 @@ export class UserVenueDoor {
     // then our builder fee, then our listing, routing state, dates and largest order.
     const withFee = await this.withBuilderFee(venue, intent);
     await this.admitPlace(venue.venue.id, withFee);
+    // The winning discount as it stands: a coupon is named, never taken, by a preview.
+    const { intent: priced, discount } = await this.withFeeDiscount(principal, withFee, intent.clientOrderKey, 'quote');
     const account = await this.account(owner);
-    return venue.preview(account, withFee);
+    const answered = await venue.preview(account, priced);
+    return { ...answered, value: { ...answered.value, feeDiscount: discount } };
+  }
+
+  /**
+   * Our builder fee on `intent` less the winning discount (J-campaigns-09 #2 #3): the larger of the person's rank discount
+   * and their best fee-saver coupon, never both. `quote` names the coupon and takes nothing; `take` takes one use of it for
+   * this order key, only when it beats the rank, once (the same key again is the same use); `read` reprices a stored
+   * order with the use it already took. svc-campaigns down, or no coupon: the rank's rate, or the rate in force.
+   */
+  private async withFeeDiscount(
+    principal: Principal,
+    intent: PlaceUserOrderIntent,
+    orderKey: string,
+    mode: 'quote' | 'take' | 'read',
+  ): Promise<{ intent: PlaceUserOrderIntent; discount: BuilderFeeDiscount }> {
+    const d = this.deps.feeDiscounts;
+    if (!d || !intent.builderFee) return { intent, discount: null };
+    const rank = await d.rankBps(principal.userId).catch(() => null);
+    if (rank === null) d.skipped?.('rank', principal.userId, orderKey);
+    const rankBps = rank ?? 0;
+    let coupon = null as Awaited<ReturnType<FeeSaverSource['ask']>>;
+    if (d.coupons) {
+      const ask = mode === 'take' ? 'quote' : mode;
+      coupon = await d.coupons.ask(principal.userId, orderKey, ask);
+      // A coupon that beats the rank is taken for this order; one that does not is left for another.
+      if (mode === 'take' && coupon && coupon.discountBps > rankBps) coupon = await d.coupons.ask(principal.userId, orderKey, 'take');
+      if (coupon === undefined) d.skipped?.('coupon', principal.userId, orderKey);
+    }
+    let discount: BuilderFeeDiscount = rankBps > 0 ? { source: 'rank', bps: rankBps } : null;
+    if (coupon && coupon.discountBps > rankBps) {
+      discount = { source: 'coupon', bps: coupon.discountBps, code: coupon.code, voucherId: coupon.voucherId };
+    }
+    if (!discount) return { intent, discount };
+    const feeBps = discountedBuilderFee(intent.builderFee.feeBps, discount.bps);
+    return { intent: { ...intent, builderFee: { ...intent.builderFee, feeBps } }, discount };
   }
 
   /** The key the action is stored under: the intent's own business key where it has one. */
@@ -757,11 +832,19 @@ export class UserVenueDoor {
     }
 
     const existing = await this.deps.store.find(principal.userId, key);
-    if (existing) return this.reuse(existing, account, signer, finalIntent);
+    if (existing) {
+      // A stored order is repriced with the coupon use it already took, never a new one.
+      if (finalIntent.kind === 'place_order') finalIntent = (await this.withFeeDiscount(principal, finalIntent, key, 'read')).intent;
+      return this.reuse(existing, account, signer, finalIntent);
+    }
     if (finalIntent.kind === 'sub_account_transfer' && key.startsWith(OWN_MOVE_PREFIX)) {
       await this.assertOwnSubAccount(principal, venue, account, finalIntent.subAccount);
     }
-    if (finalIntent.kind === 'place_order') await this.admitPlace(venue.venue.id, finalIntent);
+    if (finalIntent.kind === 'place_order') {
+      await this.admitPlace(venue.venue.id, finalIntent);
+      // The order keeps the builder fee it is signed with: a coupon used up later never reprices it (J-campaigns-09 #3).
+      finalIntent = (await this.withFeeDiscount(principal, finalIntent, key, 'take')).intent;
+    }
 
     const prepared = await venue.prepare(account, signer, finalIntent);
     const stored = await this.deps.store.insertOnce(principal.userId, key, prepared, this.deps.now());
