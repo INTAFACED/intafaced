@@ -242,8 +242,8 @@ export type CopiedPosition = z.infer<typeof copiedPositionSchema>;
 /** One market's copied position by average entry (J-copy-bots-otc-06 #2). A spot position has no funding: null. */
 export const copiedMarketSchema = z.object({
   market: z.string(),
-  fills: z.number().int(),
-  filled: decimalSchema,
+  fills: z.number().int().nullable(),
+  filled: decimalSchema.nullable(),
   open: decimalSchema,
   averageEntry: decimalSchema.nullable(),
   funding: decimalSchema.nullable(),

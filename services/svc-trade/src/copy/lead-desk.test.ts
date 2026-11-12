@@ -67,6 +67,19 @@ describe('copiedMarketPositions (average entry)', () => {
   });
 });
 
+describe('copiedMarketPositions (entry not known)', () => {
+  it('a position whose fills are not known leaves the market with no average entry, never one from part of the fills', () => {
+    const positions = allocateCopiedPositions({
+      buys: [buy(1, '0.001', '70'), buy(2, '0.001', '72', { entryQty: undefined, entryCost: undefined, fills: undefined })],
+      targeted: new Map(),
+      untargeted: new Map(),
+    });
+    expect(copiedMarketPositions(positions)).toEqual([
+      { market: 'BTC/USDT', fills: null, filled: null, open: '0.002', averageEntry: null, funding: null },
+    ]);
+  });
+});
+
 describe('presentLeadEarnings', () => {
   const law = { published: true as const, leaderShareBps: 1000, earningsCapPerFollower: '100', decayRoundTrips: 0, decayShareBps: 1000 };
   const row = (fill: string, amount: string, asset = 'USDT') => ({

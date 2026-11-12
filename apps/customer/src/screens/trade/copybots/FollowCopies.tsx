@@ -134,8 +134,14 @@ export function CopiedPositions({ follow, api, guard }: { follow: Follow; api: R
   // One market's position by average entry: what all its copied buys' fills paid over what they filled (sells never move it).
   const marketColumns: TableColumn<CopiedMarket>[] = [
     { id: 'market', header: t('Market'), value: (r) => r.market, pin: 'start' },
-    { id: 'fills', header: t('Fills'), numeric: true, value: (r) => String(r.fills) },
-    { id: 'filled', header: t('Bought'), numeric: true, value: (r) => r.filled, cell: (r) => displayAmount(r.filled) },
+    { id: 'fills', header: t('Fills'), numeric: true, value: (r) => (r.fills === null ? t('Not known') : String(r.fills)) },
+    {
+      id: 'filled',
+      header: t('Bought'),
+      numeric: true,
+      value: (r) => r.filled ?? '',
+      cell: (r) => (r.filled === null ? t('Not known') : displayAmount(r.filled)),
+    },
     { id: 'open', header: t('Open'), numeric: true, value: (r) => r.open, cell: (r) => displayAmount(r.open) },
     {
       id: 'entry',

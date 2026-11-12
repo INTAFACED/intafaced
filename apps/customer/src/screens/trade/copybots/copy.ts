@@ -634,6 +634,7 @@ const messages = {
   'None recorded yet': 'None recorded yet',
   'Not offered': 'Not offered',
   'Not set: the platform has not published level thresholds': 'Not set: the platform has not published level thresholds',
+  'Not known': 'Not known',
   'Not shown': 'Not shown',
   'Our fee on the fill': 'Our fee on the fill',
   'Profit share': 'Profit share',

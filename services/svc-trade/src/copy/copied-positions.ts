@@ -51,9 +51,10 @@ export type CopiedPosition = {
   readonly closing: Amount;
   readonly status: CopiedPositionStatus;
   readonly placedAt: Date;
-  readonly entryQty: Amount;
-  readonly entryCost: Amount;
-  readonly fills: number;
+  /** The buy's fills: base filled, quote paid and how many. Absent when the reader does not know them. */
+  readonly entryQty?: Amount;
+  readonly entryCost?: Amount;
+  readonly fills?: number;
 };
 
 export type CopiedPositionInputs = {
@@ -113,9 +114,9 @@ export function allocateCopiedPositions(input: CopiedPositionInputs): CopiedPosi
       closing: minAmount(closing, held),
       status,
       placedAt: buy.placedAt,
-      entryQty: buy.entryQty ?? 0n,
-      entryCost: buy.entryCost ?? 0n,
-      fills: buy.fills ?? 0,
+      ...(buy.entryQty === undefined || buy.entryCost === undefined || buy.fills === undefined
+        ? {}
+        : { entryQty: buy.entryQty, entryCost: buy.entryCost, fills: buy.fills }),
     };
   });
   return out.sort((a, b) => b.placedAt.getTime() - a.placedAt.getTime() || cmp(b.orderId, a.orderId));
@@ -257,15 +258,19 @@ export function copiedPositionWire(position: CopiedPosition) {
 /**
  * One market's copied position, by average entry (J-copy-bots-otc-06 #2; CB-copy-pro-share-01): every copied buy's fills
  * in that market, the average entry price (quote paid over base filled, so sells never move it) and what is open.
- * Funding is null: a spot position has no funding data, and the screen says "Not set". No fills → average entry null.
+ * Funding is null: a spot position has no funding data, and the screen says "Not set". No fills, or any position in the
+ * market whose fills are not known → average entry and fills null, never a guess from part of them.
  */
 export function copiedMarketPositions(positions: readonly CopiedPosition[]) {
-  const by = new Map<string, { fills: number; qty: Amount; cost: Amount; open: Amount }>();
+  const by = new Map<string, { fills: number; qty: Amount; cost: Amount; open: Amount; known: boolean }>();
   for (const p of positions) {
-    const cur = by.get(p.symbol) ?? { fills: 0, qty: 0n, cost: 0n, open: 0n };
-    cur.fills += p.fills;
-    cur.qty += p.entryQty;
-    cur.cost += p.entryCost;
+    const cur = by.get(p.symbol) ?? { fills: 0, qty: 0n, cost: 0n, open: 0n, known: true };
+    if (p.entryQty === undefined || p.entryCost === undefined || p.fills === undefined) cur.known = false;
+    else {
+      cur.fills += p.fills;
+      cur.qty += p.entryQty;
+      cur.cost += p.entryCost;
+    }
     cur.open += p.open;
     by.set(p.symbol, cur);
   }
@@ -273,10 +278,10 @@ export function copiedMarketPositions(positions: readonly CopiedPosition[]) {
     .sort(([a], [b]) => cmp(a, b))
     .map(([market, m]) => ({
       market,
-      fills: m.fills,
-      filled: formatAmount(m.qty),
+      fills: m.known ? m.fills : null,
+      filled: m.known ? formatAmount(m.qty) : null,
       open: formatAmount(m.open),
-      averageEntry: m.qty > 0n ? formatAmount(div(m.cost, m.qty, 'half-up')) : null,
+      averageEntry: m.known && m.qty > 0n ? formatAmount(div(m.cost, m.qty, 'half-up')) : null,
       funding: null,
     }));
 }

@@ -95,7 +95,7 @@ export function LeadDesk({ api }: { api: RoomApi }) {
             }}
           >
             <Field label={t('Profit share, %')}>
-              <Input value={percent} onChange={(event) => setPercent(event.target.value)} inputMode="decimal" />
+              <Input kind="decimal" value={percent} onValueChange={setPercent} precision={18} autoComplete="off" />
             </Field>
             <Button type="submit" variant="secondary">
               {t('Set a profit share')}
@@ -126,7 +126,7 @@ export function LeadDesk({ api }: { api: RoomApi }) {
             }}
           >
             <Field label={t('Maximum ratio')}>
-              <Input value={ratio} onChange={(event) => setRatio(event.target.value)} inputMode="decimal" />
+              <Input kind="decimal" value={ratio} onValueChange={setRatio} precision={18} autoComplete="off" />
             </Field>
             <Button type="submit" variant="secondary">
               {t('Set a maximum ratio')}
