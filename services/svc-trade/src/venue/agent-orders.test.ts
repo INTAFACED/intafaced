@@ -675,7 +675,7 @@ describe("the assistant's trade path on its agent account (TEST venue)", () => {
       ]);
       // Cancelled on the venue; the holding stays, and the venue still lists the agent until the wallet signs.
       expect((await sim.openOrders(sub)).value).toEqual([]);
-      expect((await sim.orderByClientId(sub, resting.order!.venueClientOrderId)).value?.status).toBe('canceled');
+      expect((await sim.orderByClientId(sub, resting.order!.venueClientOrderId!)).value?.status).toBe('canceled');
       expect(await total(sub, 'BTC')).toBe(btc);
       expect(view.agent).toEqual({ address: account.agentAddress, onVenue: true });
       expect(view.next).toMatchObject({ actionKey: `agent:account:${account.accountId}:revoke`, step: 'revoke_agent', signed: false });
@@ -775,7 +775,7 @@ describe("the assistant's trade path on its agent account (TEST venue)", () => {
       const view = await orders.revoke(person, keyId);
       expect(view.agentKeyDropped).toBe(true);
       expect((await sim.openOrders(sub)).value).toEqual([]);
-      expect((await sim.orderByClientId(sub, resting.order!.venueClientOrderId)).value?.status).toBe('canceled');
+      expect((await sim.orderByClientId(sub, resting.order!.venueClientOrderId!)).value?.status).toBe('canceled');
       expect(view.cancels).toHaveLength(1);
     });
   });
