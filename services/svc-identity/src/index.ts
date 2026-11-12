@@ -510,7 +510,21 @@ auth.useFounderSessionScopes(env.IDENTITY_FOUNDER_SESSION_SCOPES);
 // non-blank roster refuses boot anywhere else (identity.staff_test_roster_refused). Blank is no roster: no staff scopes.
 auth.useStaffTestRoster(parseStaffTestRoster(env.IDENTITY_STAFF_TEST_ROSTER, process.env.APP_ENV));
 
-const referral = new ReferralService(sql);
+/**
+ * Each referral edge is announced once it commits (`identity.referral.created`, keyed by the invitee): svc-campaigns
+ * tracks the invitee's progress from it (CM-referral-02). A failed announcement never undoes the attach; it is logged.
+ */
+const referral = new ReferralService(sql, undefined, async (edge) => {
+  try {
+    await bus.publish(
+      'referralCreated',
+      { userId: edge.userId, referrerId: edge.referrerId, attachedAt: edge.attributedAt.toISOString() },
+      { idempotencyKey: `identity.referral.created:${edge.userId}` },
+    );
+  } catch (err) {
+    app.log.error({ err, userId: edge.userId }, 'identity.referral.created could not be announced');
+  }
+});
 /** One-tap share tags (RC-campaigns-06): a blank key or visit limit refuses by name; malformed ones stop the service. */
 const share = new ShareService(sql, {
   tagKey: parseShareTagKey(env.IDENTITY_SHARE_TAG_KEY),
