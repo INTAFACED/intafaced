@@ -4,7 +4,7 @@ import { CopyError } from './errors.js';
 import { drawdownDecision, mirrorOccupiesConcurrencySlot } from './follow-limits-extra.js';
 import { canonicalizeCopyFillId } from './fee-share.js';
 import { followRelationshipState, parseCopyRelationshipState, type CopyRelationshipState } from './copy-lifecycle.js';
-import { copyReserveKey, type CopyCursor, type CopyFollow } from './follows.js';
+import { copyReserveKey, type CopyCursor, type CopyEnvelope, type CopyFollow } from './follows.js';
 import { parseAlgoPlaceGrant } from '../algo/durable-principal.js';
 import { dropFollowSessionKey, overlayFollowSessionKey, persistFollowSessionKey } from './session-key.js';
 
@@ -291,6 +291,11 @@ export interface CopyFollowStore {
    */
   getMirroredFill(followId: string, fillId: string): Promise<StoredMirrorPlan | null>;
   /**
+   * The quote amount of the buys this follow copied, in one market and/or from a moment on (the per-contract and daily
+   * caps, CB-copy-06). Read under runFollowExclusive, so a concurrent copy of the same follow can't slip between.
+   */
+  sumCopiedBuys(followId: string, scope: { readonly marketId?: string; readonly since?: Date }): Promise<Amount>;
+  /**
    * Atomically claim a leader fillId for this follow and apply notional to
    * exposure when under cap. Same fillId twice → prior plan, no second bump.
    *
@@ -302,6 +307,8 @@ export interface CopyFollowStore {
     fillId: string;
     maxAggregate: Amount;
     plan: Omit<StoredMirrorPlan, 'nextExposure'>;
+    /** When the copy is claimed; the daily cap counts by it. Omitted → the store's clock. */
+    at?: Date;
     /**
      * When set, the peak result is raised under the same transaction as the
      * plan insert. A stop writes nothing.
@@ -414,6 +421,7 @@ export class MemoryCopyFollowStore implements CopyFollowStore {
   private readonly period = new Map<string, CopyPeriodStats>();
   /** Keyed `${followId}\0${fillId}` — one plan per leader fill under a follow. */
   private readonly mirrored = new Map<string, StoredMirrorPlan>();
+  private readonly mirroredAt = new Map<string, Date>();
   /** Keyed `${followId}\0${fillId}` — one fee-share settle per follower fill. */
   private readonly settled = new Map<string, StoredSettledFeeShare>();
   /** Keyed fillId — one fill shares with at most one leader, including after unfollow. */
@@ -624,11 +632,23 @@ export class MemoryCopyFollowStore implements CopyFollowStore {
     return this.mirrored.get(mirrorKey(followId, canonicalizeCopyFillId(fillId))) ?? null;
   }
 
+  async sumCopiedBuys(followId: string, scope: { readonly marketId?: string; readonly since?: Date }): Promise<Amount> {
+    let total = 0n;
+    for (const [key, plan] of this.mirrored) {
+      if (plan.followId !== followId || plan.side !== 'buy') continue;
+      if (scope.marketId !== undefined && plan.marketId !== scope.marketId) continue;
+      if (scope.since !== undefined && (this.mirroredAt.get(key)?.getTime() ?? 0) < scope.since.getTime()) continue;
+      total += plan.notional;
+    }
+    return total;
+  }
+
   async claimMirrorFill(input: {
     followId: string;
     fillId: string;
     maxAggregate: Amount;
     plan: Omit<StoredMirrorPlan, 'nextExposure'>;
+    at?: Date;
     drawdown?: { readonly current: Amount; readonly cap: Amount };
   }): Promise<ClaimMirrorFillResult> {
     // Same exclusive domain as addExposureIfUnderCap (`exp:${followId}`).
@@ -662,6 +682,7 @@ export class MemoryCopyFollowStore implements CopyFollowStore {
       const plan: StoredMirrorPlan = { ...input.plan, fillId, nextExposure };
       this.exposure.set(input.followId, nextExposure);
       this.mirrored.set(key, plan);
+      this.mirroredAt.set(key, input.at ?? new Date());
       if (follow && nextPeak !== null) {
         this.follows.set(input.followId, { ...follow, peakResult: nextPeak });
       }
@@ -791,6 +812,7 @@ type FollowRow = {
   exposure: string;
   created_at: Date;
   fixed_order_size?: string | null;
+  copy_rules?: unknown;
   place_grant?: unknown;
   session_key_hash?: string | null;
   session_key_prefix?: string | null;
@@ -830,6 +852,53 @@ export function marketsFromJson(raw: unknown): string[] {
   return value.map((m) => String(m));
 }
 
+type CopyRulesJson = {
+  sizingMode?: string;
+  smartSync?: { followerTotal: string; leaderEquity: string };
+  maxPerMarket?: string;
+  maxPerDay?: string;
+};
+
+/** The follower's own copy rules (follow-rules.ts) as the `copy_rules` column holds them: decimal strings, never numbers. */
+export function copyRulesToJson(envelope: CopyEnvelope): CopyRulesJson {
+  return {
+    ...(envelope.sizingMode ? { sizingMode: envelope.sizingMode } : {}),
+    ...(envelope.smartSync
+      ? {
+          smartSync: {
+            followerTotal: formatAmount(envelope.smartSync.followerTotal),
+            leaderEquity: formatAmount(envelope.smartSync.leaderEquity),
+          },
+        }
+      : {}),
+    ...(envelope.maxPerMarket !== undefined ? { maxPerMarket: formatAmount(envelope.maxPerMarket) } : {}),
+    ...(envelope.maxPerDay !== undefined ? { maxPerDay: formatAmount(envelope.maxPerDay) } : {}),
+  };
+}
+
+export function copyRulesFromJson(raw: unknown): Partial<CopyEnvelope> {
+  let value = raw;
+  if (typeof value === 'string') {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return {};
+    }
+  }
+  if (!value || typeof value !== 'object') return {};
+  const rules = value as CopyRulesJson;
+  return {
+    ...(rules.sizingMode === 'smart_sync' || rules.sizingMode === 'fixed_amount' ? { sizingMode: rules.sizingMode } : {}),
+    ...(rules.smartSync
+      ? {
+          smartSync: { followerTotal: parseAmount(rules.smartSync.followerTotal), leaderEquity: parseAmount(rules.smartSync.leaderEquity) },
+        }
+      : {}),
+    ...(rules.maxPerMarket ? { maxPerMarket: parseAmount(rules.maxPerMarket) } : {}),
+    ...(rules.maxPerDay ? { maxPerDay: parseAmount(rules.maxPerDay) } : {}),
+  };
+}
+
 function rowToFollow(row: FollowRow): CopyFollow {
   return {
     followId: row.follow_id,
@@ -846,6 +915,7 @@ function rowToFollow(row: FollowRow): CopyFollow {
       ...(row.max_concurrent != null && row.max_concurrent !== '' ? { maxConcurrent: Number(row.max_concurrent) } : {}),
       ...(row.max_drawdown ? { maxDrawdown: parseAmount(String(row.max_drawdown)) } : {}),
       ...(row.fixed_order_size ? { fixedOrderSize: parseAmount(String(row.fixed_order_size)) } : {}),
+      ...copyRulesFromJson(row.copy_rules),
     },
     ...(row.reserve
       ? {
@@ -993,7 +1063,7 @@ export class SqlCopyFollowStore implements CopyFollowStore {
         max_notional_per_order, max_aggregate_exposure, max_loss,
         max_slippage_bps, max_concurrent, max_drawdown, expires_at,
         fee_share_killed, relationship_state, exposure, created_at, updated_at, fixed_order_size, place_grant,
-        session_key_hash, session_key_prefix, session_key_revoked
+        session_key_hash, session_key_prefix, session_key_revoked, copy_rules
       ) VALUES (
         ${follow.followId},
         ${follow.followerId},
@@ -1016,7 +1086,8 @@ export class SqlCopyFollowStore implements CopyFollowStore {
         ${follow.placeGrant ? this.sql.json(follow.placeGrant as never) : null},
         ${follow.sessionKeyHash ?? null},
         ${follow.sessionKeyPrefix ?? null},
-        ${follow.sessionKeyRevoked === true}
+        ${follow.sessionKeyRevoked === true},
+        ${this.sql.json(copyRulesToJson(follow.envelope) as never)}
       )
       ON CONFLICT (follow_id) DO UPDATE SET
         fee_share_killed = EXCLUDED.fee_share_killed,
@@ -1031,6 +1102,7 @@ export class SqlCopyFollowStore implements CopyFollowStore {
         expires_at = EXCLUDED.expires_at,
         region = EXCLUDED.region,
         fixed_order_size = EXCLUDED.fixed_order_size,
+        copy_rules = EXCLUDED.copy_rules,
         place_grant = EXCLUDED.place_grant,
         session_key_hash = EXCLUDED.session_key_hash,
         session_key_prefix = EXCLUDED.session_key_prefix,
@@ -1077,7 +1149,7 @@ export class SqlCopyFollowStore implements CopyFollowStore {
     return this.sql`max_notional_per_order::text, max_aggregate_exposure::text,
       max_loss::text, max_slippage_bps, max_concurrent, max_drawdown::text,
       peak_result::text, expires_at, fee_share_killed, relationship_state,
-      exposure::text, created_at, fixed_order_size::text, place_grant,
+      exposure::text, created_at, fixed_order_size::text, place_grant, copy_rules,
       session_key_hash, session_key_prefix, session_key_revoked, copy_cursor_at, copy_cursor_fill,
       (SELECT json_build_object('asset', r.asset, 'amount', r.amount::text, 'heldAt', r.held_at, 'releasedAt', r.released_at)
          FROM copy_follow_reserves r WHERE r.follow_id = copy_follows.follow_id) AS reserve`;
@@ -1407,11 +1479,23 @@ export class SqlCopyFollowStore implements CopyFollowStore {
     return row ? rowToMirrored(row) : null;
   }
 
+  async sumCopiedBuys(followId: string, scope: { readonly marketId?: string; readonly since?: Date }): Promise<Amount> {
+    const [row] = await this.sql<Array<{ total: string | null }>>`
+      SELECT sum(notional)::text AS total
+        FROM copy_mirrored_fills
+       WHERE follow_id = ${followId} AND side = 'buy'
+         AND (${scope.marketId ?? null}::text IS NULL OR market_id = ${scope.marketId ?? null})
+         AND (${scope.since ?? null}::timestamptz IS NULL OR created_at >= ${scope.since ?? null})
+    `;
+    return row?.total ? parseAmount(row.total) : 0n;
+  }
+
   async claimMirrorFill(input: {
     followId: string;
     fillId: string;
     maxAggregate: Amount;
     plan: Omit<StoredMirrorPlan, 'nextExposure'>;
+    at?: Date;
     drawdown?: { readonly current: Amount; readonly cap: Amount };
   }): Promise<ClaimMirrorFillResult> {
     if (input.plan.notional < 0n) {
@@ -1488,7 +1572,7 @@ export class SqlCopyFollowStore implements CopyFollowStore {
           ${formatAmount(plan.qty)},
           ${formatAmount(plan.notional)},
           ${formatAmount(plan.nextExposure)},
-          now()
+          coalesce(${input.at ?? null}::timestamptz, now())
         )
       `;
       return { status: 'claimed' as const, plan };

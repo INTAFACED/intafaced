@@ -71,6 +71,16 @@
       "value": "60",
       "note": "TEST wait of 60 seconds before a rejected lead applicant may apply again, so J-copy-bots-otc-10 #4 sees the wait refuse and then end on the real clock."
     },
+    "TRADE_COPY_MIN_INVESTMENT": {
+      "service": "trade",
+      "value": "10",
+      "note": "TEST minimum investment of 10 USDT per follow, below every journey's most in total, so J-copy-bots-otc-02 #2 shows it."
+    },
+    "TRADE_COPY_DAY_START_UTC_OFFSET_MINUTES": {
+      "service": "trade",
+      "value": "0",
+      "note": "TEST copy day starting at midnight UTC, so a daily cap in J-copy-bots-otc-02 counts from it."
+    },
     "TRADE_SIGNAL_MAX_ALERT_AGE_SECONDS": {
       "service": "trade",
       "value": "20",

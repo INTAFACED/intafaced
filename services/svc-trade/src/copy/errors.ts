@@ -83,7 +83,15 @@ export type CopyErrorCode =
   | 'trade.copy_lead_application_decided'
   | 'trade.copy_lead_application_not_found'
   | 'trade.copy_lead_reapply_wait_unset'
-  | 'trade.copy_lead_reapply_wait';
+  | 'trade.copy_lead_reapply_wait'
+  | 'trade.copy_mode_owner_decision'
+  | 'trade.copy_mode_locked'
+  | 'trade.copy_smart_sync_unavailable'
+  | 'trade.copy_min_not_set'
+  | 'trade.copy_below_min_investment'
+  | 'trade.copy_day_not_set'
+  | 'trade.copy_market_cap_reached'
+  | 'trade.copy_daily_cap_reached';
 
 /**
  * Closed set for the customer desk and blank-law refusals.

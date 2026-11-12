@@ -12,6 +12,8 @@ export const copyDeskSchema = z.object({
   jurisdictionPublished: z.boolean(),
   leaderShareBps: z.string().nullable(),
   autoMirrorPlace: z.object({ published: z.boolean() }).optional(),
+  /** The owner's minimum investment per follow; null when unpublished (every follow refuses). */
+  minInvestment: z.string().nullable().optional(),
 });
 export type CopyDesk = z.infer<typeof copyDeskSchema>;
 
@@ -258,9 +260,17 @@ export type FollowRequest = {
   maxLoss?: string;
   /** Quote amount each copied order uses. Left out means no fixed size. */
   fixedOrderSize?: string;
+  /** How each copy is sized. Locked once the follow is made. */
+  sizingMode?: 'fixed_amount' | 'smart_sync';
   expiresAt: string;
   /** This Start copying request's own key: pressing again returns the same follow. */
   clientRequestId: string;
+};
+export type AmendFollowRequest = {
+  followId: string;
+  sizingMode?: 'fixed_amount' | 'smart_sync' | 'multiplier';
+  maxPerMarket?: string;
+  maxPerDay?: string;
 };
 export type TwapRequest = {
   symbol: string;
@@ -303,6 +313,8 @@ export function createRoomApi(api: ApiClient) {
     follows: tools.copyFollows,
     follow: (input: FollowRequest) => api.mutate('trade', 'copy.follow', input, copyFollowSchema),
     followAction: tools.copyAction,
+    /** Edit limits: the sizing mode is locked (a change is refused), a blank cap clears it. */
+    amendFollow: (input: AmendFollowRequest) => api.mutate('trade', 'copy.amendFollow', input, copyFollowSchema),
     /** Lets the service place each copy as this person. The one-time key it answers with is never kept. */
     grantCopying: (followId: string) => api.mutate('trade', 'copy.grantSessionKey', { followId }, copyFollowSchema),
     stopCopying: (followId: string) => api.mutate('trade', 'copy.killSessionKey', { followId }, copyFollowSchema),

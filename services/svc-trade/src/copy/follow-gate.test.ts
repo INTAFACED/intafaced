@@ -88,6 +88,7 @@ async function setup(
     feeShareLaw: fee,
     jurisdictionLaw: jur,
     minTier: opts.minTier === undefined ? 'full' : opts.minTier,
+    minInvestment: { published: true, amount: parseAmount('10') },
     store,
     ...(opts.gridUnusedReserves ? { gridUnusedReserves: opts.gridUnusedReserves } : {}),
     ...(opts.sqlDirectory ? { directory: sqlLeaderDirectory(opts.sqlDirectory, { now: () => NOW, feeShareLaw: fee }) } : {}),

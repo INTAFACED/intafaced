@@ -224,6 +224,7 @@ import { canonicalizeCopyFillId } from './copy/fee-share.js';
 import { parseCopyFeeShareLawJson, parseCopyJurisdictionLawJson } from './copy/fee-share-law.js';
 import { parseCopyMetricDefinitionsJson } from './copy/leader-profile.js';
 import { parseCopyMinTier } from './copy/follow-gate.js';
+import { parseCopyMinInvestment, parseCopyOwnerDay } from './copy/follow-rules.js';
 import { CopyService } from './copy/copy-service.js';
 import { freeSpotBalance } from './copy/follow-gate.js';
 import { GridService } from './grid/grid-service.js';
@@ -432,6 +433,8 @@ const copyFeeShareLaw = parseCopyFeeShareLawJson(env.TRADE_COPY_FEE_SHARE_LAW);
 const copyJurisdictionLaw = parseCopyJurisdictionLawJson(env.TRADE_COPY_JURISDICTION_LAW);
 const copyMetricDefinitions = parseCopyMetricDefinitionsJson(env.TRADE_COPY_METRIC_DEFINITIONS);
 const copyMinTier = parseCopyMinTier(env.TRADE_COPY_MIN_TIER);
+const copyMinInvestment = parseCopyMinInvestment(env.TRADE_COPY_MIN_INVESTMENT);
+const copyOwnerDay = parseCopyOwnerDay(env.TRADE_COPY_DAY_START_UTC_OFFSET_MINUTES);
 const copyStore = new SqlCopyFollowStore(sql);
 const placeFollowerOrder: PlaceFollowerOrderPort = async (principal, input) => {
   if (!input.followId) throw new TradingControlError('auth.credential_denied');
@@ -625,6 +628,8 @@ const copy = new CopyService(ledger, {
   jurisdictionLaw: copyJurisdictionLaw,
   metricDefinitions: copyMetricDefinitions,
   minTier: copyMinTier,
+  minInvestment: copyMinInvestment,
+  ownerDay: copyOwnerDay,
   store: copyStore,
   directory: leaderDirectory,
   placeFollowerOrder,

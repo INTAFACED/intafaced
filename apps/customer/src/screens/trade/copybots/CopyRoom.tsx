@@ -388,7 +388,14 @@ export function CopyRoom({ path }: { path: string }) {
       </Tabs>
 
       {wizardNode}
-      <FollowDetail follow={openFollow} onClose={() => setOpenFollowId(null)} api={api} guard={guard} onChanged={follows.reload} />
+      <FollowDetail
+        follow={openFollow}
+        onClose={() => setOpenFollowId(null)}
+        api={api}
+        guard={guard}
+        desk={desk.data}
+        onChanged={follows.reload}
+      />
     </Page>
   );
 }

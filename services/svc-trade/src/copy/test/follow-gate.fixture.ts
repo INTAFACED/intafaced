@@ -5,10 +5,12 @@
 
 import { MemoryLedger, parseAmount, recipes, type AccountRef, type Balance } from '@intafaced/ledger-client';
 import type { CopyTier } from '../follow-gate.js';
+import type { CopyMinInvestment } from '../follow-rules.js';
 
-/** CopyService options that open the gate: a TEST copy tier. */
-export const OPEN_FOLLOW_GATE: { readonly minTier: CopyTier } = {
+/** CopyService options that open the gate: a TEST copy tier and a TEST minimum investment of 1 USDT. */
+export const OPEN_FOLLOW_GATE: { readonly minTier: CopyTier; readonly minInvestment: CopyMinInvestment } = {
   minTier: 'basic',
+  minInvestment: { published: true, amount: parseAmount('1') },
 };
 
 /** A ledger that funds a user's USDT through the real deposit recipe the first time their balance is read. */

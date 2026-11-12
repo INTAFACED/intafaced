@@ -2,19 +2,18 @@
 import { test, expect } from './journey.mjs';
 import { api, journeyState, tool } from './stack.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
-import { copiedOrders, followOnScreen, leadFill, listLeader, openFollow, takeBest, wizardAtLimits } from './copy.mjs';
+import { copiedOrders, followOnScreen, leadFill, listLeader, openFollow, takeBest, weekAhead, wizardAtLimits } from './copy.mjs';
 
 // J-copy-bots-otc-02, in the running app (docs/roadmap/journeys.json): keep my copying inside my own limits. One test per
 // step, titled "J-copy-bots-otc-02 #<n>", run in order. #1 makes the journey's start: a TEST leader listed by the stack's
 // TEST founder (spot, BTC/USDT and ETH/USDT), and a verified follower with TEST 1000 USDT who follows it on screen. The
 // leader's trades are its own real fills on the TEST book; the follower's copies, skips and limits are read back from
 // svc-trade. The failure count before auto-unfollow is the stack's TEST copy value.
+// The minimum investment and the owner day are the stack's TEST values (tooling/profiles/test-owner-values/trade.json).
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #1: the wizard offers a fixed amount only: no sizing mode choice (smart sync, multiplier refused), no mode lock.
-// - #2, #3: no per-contract cap, daily cap, minimum investment or leverage limit.
-// - #4: no take-profit, total-loss limit or equity trailing stop (only "Stop at a loss of").
-// - #5: no copy-existing-positions switch and no slippage limit.
-// - #1, #2, #4 to #6: the follow's limits can't be edited ("Change this follow" holds Pause, Stop and Leave only).
+// - #4: no take-profit, total-loss limit or equity trailing stop on Edit limits.
+// - #5: no copy-existing-positions switch and no slippage limit on Edit limits.
+// - #6: the most in total can't be changed on Edit limits.
 // - #7: no consecutive-failure count, auto-unfollow or notice; no stack tool holds a balance away
 //   (`local-test-gates.mjs hold`) so copies fail for lack of funds.
 const J = 'J-copy-bots-otc-02';
@@ -68,23 +67,49 @@ test(`${J} #1 chooses a sizing mode: smart sync and fixed amount offered, multip
   run.write({ followId });
 
   // The sizing choice, on the wizard for a second leader (one follow per leader).
+  const otherName = `Journey Limits B ${tag}`;
   const other = await fundedTrader(page, 'jcl2b', '100');
-  const otherRef = await listLeader(other, `Journey Limits B ${tag}`);
+  const otherRef = await listLeader(other, otherName);
   await signIn(page, follower);
   const wizard = await wizardAtLimits(page, otherRef);
   const sizing = wizard.getByRole('radiogroup', { name: 'How each copy is sized' });
-  await expect(sizing.getByRole('radio', { name: 'Smart sync' })).toBeVisible(UNBUILT);
+  await expect(sizing.getByRole('radio', { name: 'Smart sync' })).toBeVisible();
   await expect(sizing.getByRole('radio', { name: 'Fixed amount' })).toBeVisible();
   await sizing.getByRole('radio', { name: 'Multiplier' }).check();
   await expect(wizard.getByText('Multiplier sizing is not offered: the platform has not decided it.')).toBeVisible();
+  // Multiplier can't go further: Next stays on the limits step.
+  await wizard.getByRole('button', { name: 'Next' }).click();
+  await expect(wizard.getByRole('button', { name: 'Start copying' })).toHaveCount(0);
+
+  // Smart sync is a real choice: a follow of the second leader made with it reads back as smart sync.
+  await sizing.getByRole('radio', { name: 'Smart sync' }).check();
+  await expect(wizard.getByLabel(/Fixed amount per copied order/)).toHaveCount(0);
+  await wizard.getByLabel('Most per order (USDT)').fill('50');
+  await wizard.getByLabel('Most in total (USDT)').fill('50');
+  await wizard.getByLabel('Permission ends').fill(weekAhead());
+  await wizard.getByRole('button', { name: 'Next' }).click();
+  await expect(wizard).toContainText(/How each copy is sized\s*Smart sync/);
+  const answer = page.waitForResponse((res) => res.url().includes('copy.follow'));
+  await wizard.getByRole('button', { name: 'Start copying' }).click();
+  const res = await answer;
+  expect(res.status(), (await res.text()).slice(0, 300)).toBe(200);
+  const synced = (await res.json()).result.data;
+  expect(synced.sizingMode).toBe('smart_sync');
+  expect(synced.smartSync).toEqual({ followerTotal: '50' });
+  const syncedDetail = await openFollow(page, otherRef);
+  await expect(syncedDetail).toContainText(/How each copy is sized\s*Smart sync/);
   await page.keyboard.press('Escape');
 
-  // Once the follow is active its mode is locked.
+  // Once the follow is active its mode is locked: a change is refused by name and the mode stays.
   const detail = await myFollow(page);
-  await detail.getByRole('button', { name: 'Edit limits' }).click(UNBUILT);
+  await expect(detail).toContainText(/How each copy is sized\s*Fixed amount/);
+  await detail.getByRole('button', { name: 'Edit limits' }).click();
   await detail.getByRole('radio', { name: 'Smart sync' }).check();
   await detail.getByRole('button', { name: 'Save changes' }).click();
   await expect(detail.getByText('The sizing mode can’t change while the follow is active.')).toBeVisible();
+  const kept = await (await api(follower)).get(trpc('copy.listMyFollows', { limit: 100 }));
+  expect(kept.status, JSON.stringify(kept.body).slice(0, 300)).toBe(200);
+  expect(kept.body.result.data.find((f) => f.followId === followId)?.sizingMode).toBe('fixed_amount');
 });
 
 test(`${J} #2 sets a per-contract cap, a daily cap, a minimum investment and a leverage limit: no leverage field on a spot follow`, async ({
@@ -92,15 +117,28 @@ test(`${J} #2 sets a per-contract cap, a daily cap, a minimum investment and a l
 }) => {
   await signIn(page, state('follower'));
   const detail = await myFollow(page);
-  await detail.getByRole('button', { name: 'Edit limits' }).click(UNBUILT);
-  await detail.getByLabel('Most per contract (USDT)').fill('25', UNBUILT);
+  await detail.getByRole('button', { name: 'Edit limits' }).click();
+  await detail.getByLabel('Most per contract (USDT)').fill('25');
   await detail.getByLabel('Most per day (USDT)').fill('100');
+  // The owner's minimum is shown; with it blank the follow refuses (svc-trade follow-rules.test.ts, as no stack runs blank).
   await expect(detail.getByText(/Minimum investment: [\d.]+ USDT/)).toBeVisible();
   // A spot follow has no leverage to limit, so no field asks for one.
   await expect(detail.getByLabel(/Leverage/)).toHaveCount(0);
   await detail.getByRole('button', { name: 'Save changes' }).click();
   await expect(detail).toContainText(/Most per contract\s*25 USDT/);
   await expect(detail).toContainText(/Most per day\s*100 USDT/);
+  // A follow below the minimum is refused on the wizard before anything is sent.
+  const third = await fundedTrader(page, 'jcl2c', '100');
+  const thirdRef = await listLeader(third, `Journey Limits C ${state('tag')}`);
+  await signIn(page, state('follower'));
+  const wizard = await wizardAtLimits(page, thirdRef);
+  await wizard.getByLabel('Most per order (USDT)').fill('1');
+  await wizard.getByLabel('Most in total (USDT)').fill('1');
+  await wizard.getByLabel('Fixed amount per copied order (USDT)').fill('1');
+  await wizard.getByLabel('Permission ends').fill(weekAhead());
+  await wizard.getByRole('button', { name: 'Next' }).click();
+  await expect(wizard.getByText(/The minimum investment is [\d.]+ USDT/)).toBeVisible();
+  await expect(wizard.getByRole('button', { name: 'Start copying' })).toHaveCount(0);
 });
 
 test(`${J} #3 a lead order past the per-contract cap: refused with the cap code, while orders on other contracts still copy`, async ({

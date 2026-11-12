@@ -1698,6 +1698,11 @@ export function createTradeRouter(
             clientRequestId: z.string().min(8).max(120),
             /** Quote amount each copied order uses. Omitted means no fixed size. */
             fixedOrderSize: decimal.optional(),
+            /** How each copy is sized; multiplier is accepted and refused (owner decision). Omitted → fixed amount. */
+            sizingMode: z.enum(['fixed_amount', 'smart_sync', 'multiplier']).optional(),
+            /** Most copied into one market, and per owner day. Omitted → not set. */
+            maxPerMarket: decimal.optional(),
+            maxPerDay: decimal.optional(),
             leaderSettings: z
               .object({
                 maxAllocation: decimal.optional(),
@@ -1717,6 +1722,23 @@ export function createTradeRouter(
               throw new CopyError(COPY_JURISDICTION_RESIDUAL, 'trade.copy_jurisdiction_blank', COPY_JURISDICTION_RESIDUAL);
             }
             return copy.startFollow(ctx.principal, input);
+          }),
+        ),
+
+      /** Edit limits on a follow (J-copy-bots-otc-02): the sizing mode is locked; a blank cap clears it. */
+      amendFollow: scopedProcedure('trade:write', { module: 'trade' })
+        .input(
+          z.object({
+            followId: z.string().min(1).max(64),
+            sizingMode: z.enum(['fixed_amount', 'smart_sync', 'multiplier']).optional(),
+            maxPerMarket: z.union([decimal, z.literal('')]).optional(),
+            maxPerDay: z.union([decimal, z.literal('')]).optional(),
+          }),
+        )
+        .mutation(({ ctx, input }) =>
+          guard(async () => {
+            if (!copy) throw new CopyError('Copy trading is unavailable', 'trade.copy_unavailable');
+            return copy.amendFollow(ctx.principal, input);
           }),
         ),
 

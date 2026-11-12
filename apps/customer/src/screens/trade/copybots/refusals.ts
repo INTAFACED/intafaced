@@ -203,6 +203,38 @@ const COPY: Readonly<Record<string, Words>> = {
     title: 'The price difference has no basis points',
     body: 'The leader price was zero, so the difference in basis points is not shown.',
   },
+  'trade.copy_mode_owner_decision': {
+    title: 'Multiplier sizing is not offered: the platform has not decided it.',
+    body: 'Choose smart sync or a fixed amount. Nothing was followed.',
+  },
+  'trade.copy_mode_locked': {
+    title: 'The sizing mode can’t change while the follow is active.',
+    body: 'Stop this follow and start a new one to use another mode. Nothing was changed.',
+  },
+  'trade.copy_smart_sync_unavailable': {
+    title: 'Smart sync can’t size copies of this leader',
+    body: 'The leader holds nothing in this asset right now, so there is nothing to scale by. Use a fixed amount. Nothing was followed.',
+  },
+  'trade.copy_min_not_set': {
+    title: 'Copy trading has no minimum investment yet',
+    body: 'The platform hasn’t set the smallest amount a copy may use, so no copy can start. Nothing was followed.',
+  },
+  'trade.copy_below_min_investment': {
+    title: 'That is below the minimum investment',
+    body: 'Raise the most in total to at least the minimum shown. Nothing was followed.',
+  },
+  'trade.copy_day_not_set': {
+    title: 'A daily limit can’t be counted yet',
+    body: 'The platform hasn’t set when a copy day starts. Leave the most per day blank for now. Nothing was changed.',
+  },
+  'trade.copy_market_cap_reached': {
+    title: 'That copy would pass your most per contract',
+    body: 'Copies in this market stop here; copies in your other markets go on.',
+  },
+  'trade.copy_daily_cap_reached': {
+    title: 'That copy would pass your most per day',
+    body: 'Copying resumes when the next copy day starts.',
+  },
   'trade.copy_slippage_exceeded': {
     title: 'That copy is too far from the leader’s price',
     body: 'The price difference is above the slippage limit you set, so the order was not placed.',

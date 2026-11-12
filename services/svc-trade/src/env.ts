@@ -868,6 +868,21 @@ const schema = serviceEnvSchema
       TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS: z.string().default(''),
 
       /**
+       * The smallest most-in-total a follow may have, in the quote asset (CB-copy-06, J-copy-bots-otc-02 #2).
+       *
+       * Empty (default) = unset → every Start copying refuses `trade.copy_min_not_set`. Owner value. Never invent one.
+       */
+      TRADE_COPY_MIN_INVESTMENT: z.string().default(''),
+
+      /**
+       * When a copy day starts, as whole minutes east of UTC (-720 to 840): a follower's most per day counts from local
+       * midnight at that offset and resumes the next one (CB-copy-06, J-copy-bots-otc-02 #3).
+       *
+       * Empty (default) = unset → a follow with a daily cap refuses `trade.copy_day_not_set`. Owner value.
+       */
+      TRADE_COPY_DAY_START_UTC_OFFSET_MINUTES: z.string().default(''),
+
+      /**
        * The oldest chart alert a webhook accepts, in whole seconds (1 to 3600): server time minus the alert's time
        * (CB-bots-api-signal-01, J-copy-bots-otc-20 #2). Empty (default) = unset → every alert refuses
        * `trade.signal_latency_not_set`. Owner value; never invented.

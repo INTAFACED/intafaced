@@ -24,6 +24,36 @@ import { InfoNote, RefusalNote } from './parts';
 
 type Step = 1 | 2 | 3 | 4;
 
+/** The sizing modes shown. Multiplier is shown so the person sees it exists, and refused by name. */
+export type SizingChoice = 'smart_sync' | 'fixed_amount' | 'multiplier';
+
+export function sizingWord(mode: string, t: (key: 'Smart sync' | 'Fixed amount' | 'Multiplier') => string): string {
+  return mode === 'smart_sync' ? t('Smart sync') : mode === 'multiplier' ? t('Multiplier') : t('Fixed amount');
+}
+
+/** The three sizing modes as one radio group (the wizard and Edit limits share it). */
+export function SizingChoices({ value, onChange, name }: { value: SizingChoice; onChange: (next: SizingChoice) => void; name: string }) {
+  const { t } = roomCopy.useCopy();
+  const options: { mode: SizingChoice; label: string }[] = [
+    { mode: 'smart_sync', label: t('Smart sync') },
+    { mode: 'fixed_amount', label: t('Fixed amount') },
+    { mode: 'multiplier', label: t('Multiplier') },
+  ];
+  return (
+    <fieldset className="cb-fieldset">
+      <legend className="cb-label">{t('How each copy is sized')}</legend>
+      <div role="radiogroup" aria-label={t('How each copy is sized')}>
+        {options.map((o) => (
+          <label key={o.mode} className="cb-check">
+            <input type="radio" name={name} checked={value === o.mode} onChange={() => onChange(o.mode)} />
+            <span>{o.label}</span>
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
 /** The datetime-local box gives "2026-10-20T12:00" in the person's own zone; the service wants an instant. */
 function instantOf(local: string): string | null {
   if (!local) return null;
@@ -61,7 +91,8 @@ export function FollowWizard({
   const [perOrder, setPerOrder] = useState('');
   const [aggregate, setAggregate] = useState('');
   const [maxLoss, setMaxLoss] = useState('');
-  const [useFixed, setUseFixed] = useState(true);
+  const [sizing, setSizing] = useState<SizingChoice>('fixed_amount');
+  const useFixed = sizing === 'fixed_amount';
   const [fixed, setFixed] = useState('');
   const [expiry, setExpiry] = useState('');
   // One key per opening of the wizard: a second press of Start copying, or a retry after a lost answer, is the same
@@ -101,11 +132,24 @@ export function FollowWizard({
           : '',
     reserve: free !== null && (dec(aggregate) ?? 0n) > free ? t('That is more than your free {asset}', { asset: quote ?? '' }) : '',
     expiry: instantOf(expiry) && new Date(expiry).getTime() > Date.now() ? '' : t('Choose a time in the future'),
+    sizing: sizing === 'multiplier' ? t('Multiplier sizing is not offered: the platform has not decided it.') : '',
+    belowMin:
+      desk?.minInvestment && (dec(aggregate) ?? 0n) > 0n && (dec(aggregate) ?? 0n) < (dec(desk.minInvestment) ?? 0n)
+        ? t('The minimum investment is {min} {asset}', { min: displayAmount(desk.minInvestment), asset: quote ?? '' })
+        : '',
     mixedQuote: picked.length > 0 && quote === null ? t('Choose markets that settle in the same asset') : '',
   };
   const valid1 = !problems.leader && !problems.region;
   const valid2 = !problems.markets && !problems.mixedQuote;
-  const valid3 = !problems.perOrder && !problems.aggregate && !problems.maxLoss && !problems.fixed && !problems.reserve && !problems.expiry;
+  const valid3 =
+    !problems.perOrder &&
+    !problems.aggregate &&
+    !problems.belowMin &&
+    !problems.sizing &&
+    !problems.maxLoss &&
+    !problems.fixed &&
+    !problems.reserve &&
+    !problems.expiry;
   const [touched, setTouched] = useState(false);
   const show = (message: string) => (touched ? message : '');
 
@@ -135,6 +179,7 @@ export function FollowWizard({
           maxAggregateExposure: aggregate,
           ...(maxLoss ? { maxLoss } : {}),
           ...(useFixed ? { fixedOrderSize: fixed } : {}),
+          sizingMode: sizing === 'smart_sync' ? 'smart_sync' : 'fixed_amount',
           expiresAt,
           clientRequestId: requestKey,
         });
@@ -240,6 +285,16 @@ export function FollowWizard({
             >
               <Input kind="decimal" value={aggregate} onValueChange={setAggregate} precision={8} trailing={asset} />
             </Field>
+            <InfoNote>
+              {desk?.minInvestment
+                ? t('Minimum investment: {min} {asset}', { min: displayAmount(desk.minInvestment), asset })
+                : t('The platform hasn’t set a minimum investment, so a copy can’t start yet.')}
+            </InfoNote>
+            {show(problems.belowMin) ? (
+              <p className="cb-error" role="alert">
+                {problems.belowMin}
+              </p>
+            ) : null}
             <KeyValue
               items={[
                 {
@@ -254,10 +309,19 @@ export function FollowWizard({
                 {problems.reserve}
               </p>
             ) : null}
-            <label className="cb-check">
-              <Checkbox checked={useFixed} onCheckedChange={(v) => setUseFixed(v === true)} />
-              <span>{t('Use the same amount for every copied order')}</span>
-            </label>
+            <SizingChoices value={sizing} onChange={setSizing} name="copy-sizing" />
+            {sizing === 'multiplier' ? (
+              <p className="cb-error" role="alert">
+                {problems.sizing}
+              </p>
+            ) : null}
+            {sizing === 'smart_sync' ? (
+              <InfoNote>
+                {t(
+                  'Smart sync copies each of the leader’s orders scaled by your most in total over the leader’s balance when you start, never past your limits.',
+                )}
+              </InfoNote>
+            ) : null}
             {useFixed ? (
               <Field
                 label={t('Fixed amount per copied order ({asset})', { asset })}
@@ -298,6 +362,7 @@ export function FollowWizard({
                 { label: t('Most per order'), value: `${displayAmount(perOrder)} ${asset}` },
                 { label: t('Most in total'), value: `${displayAmount(aggregate)} ${asset}` },
                 { label: t('Reserved for this copy'), value: `${displayAmount(aggregate)} ${asset}` },
+                { label: t('How each copy is sized'), value: sizingWord(sizing, t) },
                 {
                   label: t('Fixed amount per copied order'),
                   value: useFixed ? `${displayAmount(fixed)} ${asset}` : t('Not set'),

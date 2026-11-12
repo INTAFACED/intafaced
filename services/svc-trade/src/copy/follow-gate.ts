@@ -82,6 +82,15 @@ export function freeSpotBalance(rows: readonly Balance[], asset: string): Amount
   return free;
 }
 
+/** Everything one owner has in one asset that is spendable or already held for their orders (smart sync's reading). */
+export function totalInAsset(rows: readonly Balance[], asset: string): Amount {
+  let total = 0n;
+  for (const row of rows) {
+    if (row.account.assetId === asset && (row.account.kind === 'available' || row.account.kind === 'hold')) total += row.amount;
+  }
+  return total;
+}
+
 /**
  * `free` is the ledger's available balance, which each copied order's hold already lowers. So `reservedElsewhere` is
  * only the unused part of the other follows' reserves (reserve less that follow's open exposure), or used reserve

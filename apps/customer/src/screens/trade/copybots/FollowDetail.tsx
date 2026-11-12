@@ -15,6 +15,8 @@ import {
   DialogHeader,
   DialogTitle,
   EmptyState,
+  Field,
+  Input,
   KeyValue,
   Table,
   Tabs,
@@ -30,7 +32,8 @@ import { displayAmount } from '../../../shared/money';
 import type { z } from 'zod';
 import type { copyFollowSchema } from '../../../features/trade/tool-api';
 import { useResource } from '../../../shared/resource';
-import type { CopyPosition, RoomApi } from './api';
+import type { CopyDesk, CopyPosition, RoomApi } from './api';
+import { SizingChoices, sizingWord, type SizingChoice } from './FollowWizard';
 import { roomCopy } from './copy';
 import type { WriteGuard } from './guard';
 import { InfoNote, RefusalNote } from './parts';
@@ -282,21 +285,82 @@ function CopiedOrders({ follow, api }: { follow: Follow; api: RoomApi }) {
   );
 }
 
+/**
+ * Edit limits on a follow (J-copy-bots-otc-02). The sizing mode is shown as chosen and stays locked: a change is sent and
+ * the service refuses it by name, so the screen never claims a lock it doesn't hold. A cap left blank clears it.
+ */
+function EditLimits({
+  follow,
+  api,
+  guard,
+  desk,
+  onDone,
+  onCancel,
+}: {
+  follow: Follow;
+  api: RoomApi;
+  guard: WriteGuard;
+  desk: CopyDesk | null;
+  onDone: () => void;
+  onCancel: () => void;
+}) {
+  const { t } = roomCopy.useCopy();
+  const asset = quoteAsset(follow);
+  const [sizing, setSizing] = useState<SizingChoice>(follow.sizingMode ?? 'fixed_amount');
+  const [perMarket, setPerMarket] = useState(follow.maxPerMarket ?? '');
+  const [perDay, setPerDay] = useState(follow.maxPerDay ?? '');
+  const save = () =>
+    void guard.run(
+      { kind: 'copy', id: follow.followId, symbol: follow.permittedMarkets.join(','), operation: 'amend' },
+      () => api.amendFollow({ followId: follow.followId, sizingMode: sizing, maxPerMarket: perMarket, maxPerDay: perDay }),
+      onDone,
+    );
+  return (
+    <section aria-label={t('Edit limits')} className="cb-form">
+      {guard.failure ? <RefusalNote failure={guard.failure} /> : null}
+      <SizingChoices value={sizing} onChange={setSizing} name={`sizing-${follow.followId}`} />
+      <Field label={t('Most per contract ({asset})', { asset })} hint={t('Optional. The most copied into one market.')}>
+        <Input kind="decimal" value={perMarket} onValueChange={setPerMarket} precision={8} trailing={asset} />
+      </Field>
+      <Field label={t('Most per day ({asset})', { asset })} hint={t('Optional. Copying resumes the next day once reached.')}>
+        <Input kind="decimal" value={perDay} onValueChange={setPerDay} precision={8} trailing={asset} />
+      </Field>
+      <InfoNote>
+        {desk?.minInvestment
+          ? t('Minimum investment: {min} {asset}', { min: displayAmount(desk.minInvestment), asset })
+          : t('The platform hasn’t set a minimum investment, so a copy can’t start yet.')}
+      </InfoNote>
+      <InfoNote>{t('Spot copying uses no leverage, so there is no leverage limit to set.')}</InfoNote>
+      <div className="cb-action-row">
+        <Button size={32} onClick={save} loading={guard.busy} disabled={guard.locked}>
+          {t('Save changes')}
+        </Button>
+        <Button variant="secondary" size={32} onClick={onCancel} disabled={guard.busy}>
+          {t('Cancel')}
+        </Button>
+      </div>
+    </section>
+  );
+}
+
 export function FollowDetail({
   follow,
   onClose,
   api,
   guard,
+  desk = null,
   onChanged,
 }: {
   follow: Follow | null;
   onClose: () => void;
   api: RoomApi;
   guard: WriteGuard;
+  desk?: CopyDesk | null;
   onChanged: () => void;
 }) {
   const { t } = roomCopy.useCopy();
   const [tab, setTab] = useState<CopiesTab>('orders');
+  const [editing, setEditing] = useState(false);
   return (
     <Dialog open={follow !== null} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="cb-dialog">
@@ -322,6 +386,15 @@ export function FollowDetail({
             <KeyValue
               items={[
                 { label: t('Markets'), value: follow.permittedMarkets.join(', ') },
+                { label: t('How each copy is sized'), value: sizingWord(follow.sizingMode ?? 'fixed_amount', t) },
+                {
+                  label: t('Most per contract'),
+                  value: follow.maxPerMarket ? withAsset(follow.maxPerMarket, quoteAsset(follow)) : t('Not set'),
+                },
+                {
+                  label: t('Most per day'),
+                  value: follow.maxPerDay ? withAsset(follow.maxPerDay, quoteAsset(follow)) : t('Not set'),
+                },
                 { label: t('Most per order'), value: withAsset(follow.maxNotionalPerOrder, quoteAsset(follow)) },
                 { label: t('Most in total'), value: withAsset(follow.maxAggregateExposure, quoteAsset(follow)) },
                 {
@@ -350,6 +423,31 @@ export function FollowDetail({
                 },
               ]}
             />
+            {editing ? (
+              <EditLimits
+                follow={follow}
+                api={api}
+                guard={guard}
+                desk={desk}
+                onDone={() => {
+                  setEditing(false);
+                  onChanged();
+                }}
+                onCancel={() => setEditing(false)}
+              />
+            ) : (
+              <Button
+                variant="secondary"
+                size={32}
+                disabled={follow.relationshipState.toUpperCase() === 'DETACHED' || guard.busy || guard.locked}
+                onClick={() => {
+                  guard.setFailure(null);
+                  setEditing(true);
+                }}
+              >
+                {t('Edit limits')}
+              </Button>
+            )}
             <h3 className="cb-h3">{t('Result so far')}</h3>
             <KeyValue
               items={[

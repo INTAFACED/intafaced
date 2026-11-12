@@ -34,6 +34,8 @@ describe('skipWords (CB-copy-11)', () => {
       'insufficient_funds',
       'max_copy_total',
       'copy_slippage_exceeded',
+      'per_contract_cap',
+      'daily_cap',
       'position_closed',
       'refused',
     ];

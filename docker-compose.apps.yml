@@ -755,6 +755,10 @@ services:
       TRADE_COPY_MIN_TIER: ${TRADE_COPY_MIN_TIER:-}
       # CB-copy-12 wait before a rejected lead applicant may apply again. Empty = applying again refuses.
       TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS: ${TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS:-}
+      # CB-copy-06 the owner's minimum investment per follow. Empty = every Start copying refuses.
+      TRADE_COPY_MIN_INVESTMENT: ${TRADE_COPY_MIN_INVESTMENT:-}
+      # CB-copy-06 when a copy day starts, minutes east of UTC. Empty = a follow with a daily cap refuses.
+      TRADE_COPY_DAY_START_UTC_OFFSET_MINUTES: ${TRADE_COPY_DAY_START_UTC_OFFSET_MINUTES:-}
       TRADE_SIGNAL_MAX_ALERT_AGE_SECONDS: ${TRADE_SIGNAL_MAX_ALERT_AGE_SECONDS:-}
       TRADE_SIGNAL_WEBHOOK_DAYS: ${TRADE_SIGNAL_WEBHOOK_DAYS:-}
       # PTX-M21 fee/rebate schedule — pass-through, no compose default.

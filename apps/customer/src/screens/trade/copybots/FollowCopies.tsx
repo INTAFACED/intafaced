@@ -214,6 +214,8 @@ const SKIP_WORDS: Record<string, string> = {
   insufficient_funds: 'Your balance did not cover it',
   max_copy_total: 'It would have gone past your limits',
   copy_slippage_exceeded: 'The price moved past your slippage limit',
+  per_contract_cap: 'It would have gone past your most per contract',
+  daily_cap: 'It would have gone past your most per day; copying resumes the next day',
   position_closed: 'Nothing you copied was left open to close',
   refused: 'The copy was refused',
 };

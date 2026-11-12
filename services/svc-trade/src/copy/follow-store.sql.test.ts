@@ -161,6 +161,58 @@ describe('SqlCopyFollowStore fee-share claim-before-post', () => {
     expect((await store.getFollow(FOLLOW_A))?.envelope.permittedMarkets).toEqual(['SOL-USDT']);
   });
 
+  it('copy_rules round-trips the sizing mode, smart sync readings and caps; copied buys sum by market and by day', async () => {
+    const store = new SqlCopyFollowStore(db!.sql);
+    const base = follow(FOLLOW_A, LEADER);
+    await store.saveFollow({
+      ...base,
+      envelope: {
+        ...base.envelope,
+        sizingMode: 'smart_sync',
+        smartSync: { followerTotal: parseAmount('300'), leaderEquity: parseAmount('3000') },
+        maxPerMarket: parseAmount('25'),
+        maxPerDay: parseAmount('100'),
+      },
+    });
+    const loaded = await store.getFollow(FOLLOW_A);
+    expect(loaded?.envelope).toMatchObject({
+      sizingMode: 'smart_sync',
+      smartSync: { followerTotal: parseAmount('300'), leaderEquity: parseAmount('3000') },
+      maxPerMarket: parseAmount('25'),
+      maxPerDay: parseAmount('100'),
+    });
+    // A follow saved without rules reads as fixed amount with no caps (the column's default).
+    await store.saveFollow(follow(FOLLOW_B, LEADER_B));
+    const plain = await store.getFollow(FOLLOW_B);
+    expect(plain?.envelope.sizingMode).toBeUndefined();
+    expect(plain?.envelope.maxPerMarket).toBeUndefined();
+
+    const claim = (fillId: string, marketId: string, side: 'buy' | 'sell', notional: string, at: string) =>
+      store.claimMirrorFill({
+        followId: FOLLOW_A,
+        fillId,
+        maxAggregate: parseAmount('1000'),
+        at: new Date(at),
+        plan: {
+          fillId,
+          followId: FOLLOW_A,
+          followerId: FOLLOWER,
+          leaderId: LEADER,
+          marketId,
+          side,
+          qty: parseAmount('0.001'),
+          notional: parseAmount(notional),
+        },
+      });
+    await claim('f-rules-1', 'BTC-USDT', 'buy', '20', '2026-11-12T23:00:00.000Z');
+    await claim('f-rules-2', 'ETH-USDT', 'buy', '15', '2026-11-13T01:00:00.000Z');
+    await claim('f-rules-3', 'BTC-USDT', 'sell', '20', '2026-11-13T02:00:00.000Z');
+    expect(await store.sumCopiedBuys(FOLLOW_A, { marketId: 'BTC-USDT' })).toBe(parseAmount('20'));
+    expect(await store.sumCopiedBuys(FOLLOW_A, { since: new Date('2026-11-13T00:00:00.000Z') })).toBe(parseAmount('15'));
+    expect(await store.sumCopiedBuys(FOLLOW_A, {})).toBe(parseAmount('35'));
+    expect(await store.sumCopiedBuys(FOLLOW_B, {})).toBe(0n);
+  });
+
   it('INSERT unique fill_id is visible before run() — crash window cannot miss the row', async () => {
     const store = new SqlCopyFollowStore(db!.sql);
     await store.saveFollow(follow(FOLLOW_A, LEADER));
