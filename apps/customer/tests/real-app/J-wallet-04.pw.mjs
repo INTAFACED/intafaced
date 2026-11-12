@@ -173,9 +173,22 @@ test(`${J} #2 refuses a mistyped address with its reason, then saves a good one 
   await field(page, 'Asset').selectOption('USDT');
   await field(page, 'Network').selectOption('base');
   await field(page, 'Address').fill('0x1234');
+  // "Refused with the reason before any call": from the press on, every request the page sends is recorded. Neither
+  // the bank's address check (`ramps.destinations.check`) nor its save, nor any other write (a non-GET to any API), may
+  // leave the page.
+  const sent = [];
+  const record = (req) => {
+    if (!/\/api\//.test(req.url())) return;
+    if (req.method() !== 'GET' || /ramps\.destinations\.(check|save)\b/.test(req.url())) sent.push(`${req.method()} ${req.url()}`);
+  };
+  page.on('request', record);
   await form.getByRole('button', { name: 'Save address' }).click();
   await expect(form.getByRole('alert')).toHaveText('This is not a valid address. It must be 0x followed by 40 letters a to f or digits.');
   await expect(page.getByRole('dialog')).toHaveCount(0);
+  // A call the press started late would land after the alert: wait for the page's network to go quiet before reading.
+  await page.waitForLoadState('networkidle', { timeout: 5_000 }).catch(() => {});
+  page.off('request', record);
+  expect(sent, 'a mistyped address sends no call').toEqual([]);
 
   await field(page, 'Address').fill(ADDRESS);
   await form.getByRole('button', { name: 'Save address' }).click();
