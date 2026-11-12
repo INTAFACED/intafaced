@@ -74,7 +74,7 @@
     display: flex;
     align-items: center;
     gap: var(--if-space-4);
-    height: 88px;
+    min-height: 88px;
     padding: var(--if-space-5);
     background: var(--if-panel);
     border: 1px solid var(--if-line);
@@ -118,6 +118,14 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .more-tile__state {
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .more-tile__state[data-state='not_answering'],
+  .more-tile__state[data-blocker] {
+    color: var(--if-warn-text);
   }
   @media (max-width: 1000px) {
     .more-hub-grid,

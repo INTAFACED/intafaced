@@ -59,4 +59,8 @@ export const moreCopy = defineCopy('more', {
   'Protocol line': 'Contracts, rails and audit',
   'P2P tile': 'Person-to-person',
   'P2P line': 'Offers, orders and counterparties',
+  'Room checking': 'Checking the service',
+  'Room open': 'Open: its service answers',
+  'Room not_answering': 'Not answering right now',
+  'Room waits on owner decision': 'Publishing waits on an owner decision',
 });
