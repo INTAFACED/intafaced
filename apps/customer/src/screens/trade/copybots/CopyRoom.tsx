@@ -26,6 +26,7 @@ import { FollowWizard } from './FollowWizard';
 import { FollowDetail, STATE_TONE, quoteAsset, stateWord, type Follow } from './FollowDetail';
 import { useWriteGuard } from './guard';
 import { LeaderDirectory } from './LeaderDirectory';
+import { LeadDesk } from './LeadDesk';
 import { LeaderPage } from './LeaderPage';
 import { useLive } from './live';
 import { AccountBadge, Freshness, InfoNote, ModeNav, PendingBanner, RefusalNote } from './parts';
@@ -208,6 +209,25 @@ export function CopyRoom({ path }: { path: string }) {
     );
   }
 
+  // The lead's own desk: their copiers, level and listing (J-copy-bots-otc-05).
+  if (params.get('lead') === '1') {
+    return (
+      <Page width="full" className="cb-page">
+        <ModeNav active="copy" />
+        <PageHeader
+          title={t('Your lead desk')}
+          description={t('Your copiers, your level and your listing. Copiers are shown by their follow, never by who they are.')}
+          actions={
+            <Button variant="secondary" onClick={() => navigate('/trade/copy', true)}>
+              {t('Back to copy trading')}
+            </Button>
+          }
+        />
+        <LeadDesk api={transport} tab={requested} setTab={(id) => navigate(`/trade/copy?lead=1&tab=${id}`, true)} />
+      </Page>
+    );
+  }
+
   return (
     <Page width="full" className="cb-page">
       <ModeNav active="copy" />
@@ -234,9 +254,14 @@ export function CopyRoom({ path }: { path: string }) {
           </span>
         }
         actions={
-          <Button onClick={() => setWizard({ open: true, leader: '', listed: null })} disabled={!session}>
-            {t('Follow by leader ID')}
-          </Button>
+          <span className="cb-meta">
+            <Button variant="secondary" onClick={() => navigate('/trade/copy?lead=1', true)} disabled={!session}>
+              {t('My lead desk')}
+            </Button>
+            <Button onClick={() => setWizard({ open: true, leader: '', listed: null })} disabled={!session}>
+              {t('Follow by leader ID')}
+            </Button>
+          </span>
         }
       />
 

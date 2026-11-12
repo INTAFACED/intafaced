@@ -71,6 +71,16 @@
       "value": "60",
       "note": "TEST wait of 60 seconds before a rejected lead applicant may apply again, so J-copy-bots-otc-10 #4 sees the wait refuse and then end on the real clock."
     },
+    "TRADE_COPY_LEAD_REMOVAL_DAILY_LIMIT": {
+      "service": "trade",
+      "value": "10",
+      "note": "TEST limit of 10 copier removals per lead per UTC day, so J-copy-bots-otc-05 #1 sees the eleventh removal refused. Not an owner decision."
+    },
+    "TRADE_COPY_LEAD_LEVELS": {
+      "service": "trade",
+      "value": "{\"asset\": \"USDT\", \"levels\": [{\"name\": \"TEST Cadet\", \"minCopiedFunds\": \"0\"}, {\"name\": \"TEST Silver\", \"minCopiedFunds\": \"5000\"}]}",
+      "note": "TEST lead levels: TEST Cadet from 0 USDT of copied funds, TEST Silver from 5000, so J-copy-bots-otc-05 #6 sees a level with its threshold. Not an owner decision."
+    },
     "TRADE_SIGNAL_MAX_ALERT_AGE_SECONDS": {
       "service": "trade",
       "value": "20",

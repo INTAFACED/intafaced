@@ -47,6 +47,7 @@ import {
 } from './copy/desk-status.js';
 import { COPY_FEE_SHARE_RESIDUAL, COPY_JURISDICTION_RESIDUAL, CopyError } from './copy/errors.js';
 import type { LeadDesk } from './copy/lead-applications.js';
+import type { LeadOwnDesk } from './copy/lead-own-desk.js';
 import { signalsRouter } from './signals/router.js';
 import type { SignalDesk } from './signals/signal-desk.js';
 import type { PlatformPauseDesk } from './copy/platform-pauses.js';
@@ -569,6 +570,8 @@ export function toTrpcError(err: unknown): TRPCError {
     switch (err.code) {
       case 'trade.copy_not_following':
       case 'trade.copy_leader_not_found':
+      case 'trade.copy_lead_not_leading':
+      case 'trade.copy_lead_stop_not_found':
         return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
       case 'trade.copy_jurisdiction_blocked':
       case 'trade.copy_self_follow':
@@ -601,6 +604,13 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'trade.copy_leader_capacity_full':
       case 'trade.copy_tier_unset':
       case 'trade.copy_reserve_exceeds_balance':
+      case 'trade.copy_lead_not_listed':
+      case 'trade.copy_lead_positions_open':
+      case 'trade.copy_lead_positions_unreadable':
+      case 'trade.copy_lead_stop_decided':
+      case 'trade.copy_open_positions_block_removal':
+      case 'trade.copy_removal_limit_unset':
+      case 'trade.copy_removal_limit_reached':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
       case 'trade.copy_paper_live_forbidden':
         return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
@@ -902,8 +912,15 @@ export function createTradeRouter(
   builderFees?: BuilderFeeReconReader,
   venueActivity?: OwnVenueActivityDeps,
   signals?: SignalDesk,
+  leadOwn?: LeadOwnDesk,
 ) {
   const placeAttempts = new PlaceAttemptBook();
+  /** The lead's own desk (J-copy-bots-otc-05): unmounted refuses by the copy service's own code. */
+  const own = <T>(fn: (desk: LeadOwnDesk) => Promise<T>): Promise<T> =>
+    guard(async () => {
+      if (!leadOwn) throw new CopyError('Copy trading is not available', 'trade.copy_unavailable');
+      return fn(leadOwn);
+    });
   /** The lead desk's refusals carry their code at the end of the message, where the console reads it. */
   // Mapped outside `guard`: guard wraps any TRPCError thrown inside it again as a 500, which loses the code.
   const lead = async <T>(fn: (desk: LeadDesk) => Promise<T>): Promise<T> => {
@@ -1962,6 +1979,29 @@ export function createTradeRouter(
       /** The caller's newest lead application, or null. */
       myLeadApplication: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) => lead((desk) => desk.mine(ctx.principal))),
 
+      /**
+       * The lead's own desk (CB-copy-13, CB-copy-15, CB-copy-18; J-copy-bots-otc-05): their listing and its stop
+       * request, their copiers and removing them, and their level. Only the caller's own listing and copiers.
+       */
+      lead: router({
+        listing: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) => own((desk) => desk.listing(ctx.principal))),
+        followers: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) => own((desk) => desk.followers(ctx.principal))),
+        removeFollower: scopedProcedure('trade:write', { module: 'trade' })
+          .input(z.object({ followId: z.string().min(1).max(64), reason: z.string().max(500).optional() }).strict())
+          .mutation(({ ctx, input }) => own((desk) => desk.removeFollower(ctx.principal, input))),
+        removeFollowers: scopedProcedure('trade:write', { module: 'trade' })
+          .input(z.object({ followIds: z.array(z.string().min(1).max(64)).max(1000), reason: z.string().max(500).optional() }).strict())
+          .mutation(({ ctx, input }) => own((desk) => desk.removeFollowers(ctx.principal, input))),
+        level: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) => own((desk) => desk.level(ctx.principal))),
+        /** Accepted only so it can be refused by name: the platform sets no profit-share ratio. */
+        setProfitShareRatio: scopedProcedure('trade:write', { module: 'trade' })
+          .input(z.object({ ratio: z.string().max(40).optional(), scope: z.string().max(40).optional() }).optional())
+          .mutation(({ ctx }) => own((desk) => desk.setProfitShareRatio(ctx.principal))),
+        stop: scopedProcedure('trade:write', { module: 'trade' })
+          .input(z.object({ clientRequestId: z.string().min(8).max(120) }).strict())
+          .mutation(({ ctx, input }) => own((desk) => desk.stopLeading(ctx.principal, input))),
+      }),
+
       /** The scopes the platform has paused now (CB-ops-03): leads by listing ref, bot types and symbols. */
       platformPauses: scopedProcedure('trade:read', { module: 'trade' }).query(() => pauses((desk) => desk.publicPauses())),
 
@@ -2021,6 +2061,16 @@ export function createTradeRouter(
           reject: scopedProcedure('admin:write', { module: 'trade' })
             .input(z.object({ applicationId: z.string().uuid(), reason: z.string().min(3).max(500) }).strict())
             .mutation(({ ctx, input }) => lead((desk) => desk.reject(ctx.principal, input))),
+        }),
+
+        /** Leads' requests to stop leading (CB-copy-18): the open queue, and a founder's decision. */
+        leadStops: router({
+          queue: scopedProcedure('admin:read', { module: 'trade' }).query(({ ctx }) => own((desk) => desk.stopQueue(ctx.principal))),
+          decide: scopedProcedure('admin:write', { module: 'trade' })
+            .input(
+              z.object({ stopId: z.string().uuid(), decision: z.enum(['approve', 'reject']), reason: z.string().min(3).max(500) }).strict(),
+            )
+            .mutation(({ ctx, input }) => own((desk) => desk.decideStop(ctx.principal, input))),
         }),
 
         /** Operator writes need `admin:write`, the trade operator desk's write scope. */

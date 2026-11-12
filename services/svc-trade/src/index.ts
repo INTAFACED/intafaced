@@ -232,6 +232,9 @@ import { SqlGridStore } from './grid/store.js';
 import { SqlCopyFollowStore } from './copy/follow-store.js';
 import { SqlMirrorEventLog } from './copy/mirror-events.js';
 import { sqlLeaderDirectory } from './copy/leader-directory.js';
+import { LeadOwnDesk, SqlLeadOwnStore, parseLeadLevels, parseLeadRemovalDailyLimit } from './copy/lead-own-desk.js';
+import { sqlCopiedPositions } from './copy/copied-positions.js';
+import { pairLeaderTrades, readLeaderOrderFills } from './copy/leader-profile.js';
 import { createCopyClosePort } from './copy/copy-close.js';
 import { createFollowerFlattenPort } from './copy/follower-flatten-port.js';
 import { parseCopyPlaceMirrorFlag, type PlaceFollowerOrderPort } from './copy/auto-mirror-place.js';
@@ -817,6 +820,16 @@ export const appRouter = createTradeRouter(
   // svc-tax reads a person's own venue spot trading for their profit and loss (J-cex-spot-01 #11); off: the door is off.
   { venue: userVenue ? () => userVenue.venue() : null, store: new SqlPreparedActionStore(sql) },
   signalDesk,
+  new LeadOwnDesk({
+    store: new SqlLeadOwnStore(sql),
+    follows: copyStore,
+    directory: leaderDirectory,
+    copiedPositions: sqlCopiedPositions(sql),
+    leaderTrades: async (leaderUserId) => pairLeaderTrades(await readLeaderOrderFills(sql, leaderUserId)),
+    now: () => new Date(),
+    removalDailyLimit: parseLeadRemovalDailyLimit(env.TRADE_COPY_LEAD_REMOVAL_DAILY_LIMIT),
+    levels: parseLeadLevels(env.TRADE_COPY_LEAD_LEVELS),
+  }),
 );
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({

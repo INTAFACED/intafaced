@@ -248,10 +248,15 @@ export class LeaderDirectory {
   }
 
   /** One query. The listing ref and state for a leader user id, or null when no row exists. */
-  async listingIdentity(leaderUserId: string): Promise<{ readonly leaderRef: string; readonly state: CopyLeaderListingState } | null> {
+  async listingIdentity(leaderUserId: string): Promise<{
+    readonly leaderRef: string;
+    readonly state: CopyLeaderListingState;
+    readonly marketMode: CopyLeaderMarketMode;
+    readonly displayName: string;
+  } | null> {
     const row = await this.backend.getByUser(leaderUserId, false);
     if (!row) return null;
-    return { leaderRef: row.leaderRef, state: row.state };
+    return { leaderRef: row.leaderRef, state: row.state, marketMode: row.marketMode, displayName: row.displayName };
   }
 
   async leaderStatus(leaderUserId: string): Promise<CopyLeaderCustomerStatus> {

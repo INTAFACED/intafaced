@@ -83,7 +83,18 @@ export type CopyErrorCode =
   | 'trade.copy_lead_application_decided'
   | 'trade.copy_lead_application_not_found'
   | 'trade.copy_lead_reapply_wait_unset'
-  | 'trade.copy_lead_reapply_wait';
+  | 'trade.copy_lead_reapply_wait'
+  // The lead's own desk (CB-copy-13, CB-copy-15, CB-copy-18; J-copy-bots-otc-05).
+  | 'trade.copy_lead_not_leading'
+  | 'trade.copy_lead_not_listed'
+  | 'trade.copy_lead_positions_open'
+  | 'trade.copy_lead_positions_unreadable'
+  | 'trade.copy_lead_stop_not_found'
+  | 'trade.copy_lead_stop_decided'
+  | 'trade.copy_open_positions_block_removal'
+  | 'trade.copy_removal_limit_unset'
+  | 'trade.copy_removal_limit_reached'
+  | 'trade.copy_batch_too_large';
 
 /**
  * Closed set for the customer desk and blank-law refusals.

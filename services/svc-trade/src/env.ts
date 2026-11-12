@@ -868,6 +868,20 @@ const schema = serviceEnvSchema
       TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS: z.string().default(''),
 
       /**
+       * The most copiers one lead may remove in a UTC day, a whole number 1 to 10000 (CB-copy-15, J-copy-bots-otc-05 #1).
+       * Empty (default) = unset → every removal refuses `trade.copy_removal_limit_unset`. Owner value; blank is never
+       * unlimited.
+       */
+      TRADE_COPY_LEAD_REMOVAL_DAILY_LIMIT: z.string().default(''),
+
+      /**
+       * The lead levels (CB-copy-13, J-copy-bots-otc-05 #6), JSON `{"asset":"USDT","levels":[{"name":"…","minCopiedFunds":"0"}]}`,
+       * thresholds rising, in copied funds held by the lead's active copiers. Empty (default) = unset → the level reads
+       * "Not set". Owner value. Levels never carry a profit-share ratio: the platform sets none.
+       */
+      TRADE_COPY_LEAD_LEVELS: z.string().default(''),
+
+      /**
        * The oldest chart alert a webhook accepts, in whole seconds (1 to 3600): server time minus the alert's time
        * (CB-bots-api-signal-01, J-copy-bots-otc-20 #2). Empty (default) = unset → every alert refuses
        * `trade.signal_latency_not_set`. Owner value; never invented.

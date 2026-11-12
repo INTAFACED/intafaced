@@ -248,6 +248,40 @@ const COPY: Readonly<Record<string, Words>> = {
     title: 'Applying again opens later',
     body: 'The waiting period after a rejection is still running. Nothing was sent.',
   },
+  'trade.copy_lead_not_leading': {
+    title: 'You don’t lead yet',
+    body: 'This desk is for listed leaders. Apply to lead first; founders decide each application.',
+  },
+  'trade.copy_lead_not_listed': {
+    title: 'Your listing isn’t live',
+    body: 'Only a listed lead can ask to stop leading. Nothing was changed.',
+  },
+  'trade.copy_lead_positions_open': {
+    title: 'Close your open positions first',
+    body: 'You still hold an open position. Close it, then ask to stop leading. Your listing is unchanged.',
+  },
+  'trade.copy_lead_positions_unreadable': {
+    title: 'We can’t check your positions in this market',
+    body: 'Stopping is only offered where your positions can be checked. Your listing is unchanged.',
+  },
+  'trade.copy_lead_stop_not_found': { title: 'That request wasn’t found', body: 'Refresh the list and try again.' },
+  'trade.copy_lead_stop_decided': { title: 'That request is already decided', body: 'Refresh to see the decision.' },
+  'trade.copy_open_positions_block_removal': {
+    title: 'This copier has open copied positions',
+    body: 'They can be removed once those positions are closed. Nothing was changed.',
+  },
+  'trade.copy_removal_limit_unset': {
+    title: 'Removing copiers is closed',
+    body: 'The daily limit on removing copiers hasn’t been set by the platform, so no one can be removed yet.',
+  },
+  'trade.copy_removal_limit_reached': {
+    title: 'You’ve reached today’s removal limit',
+    body: 'You can remove more copiers tomorrow. This copier still follows you.',
+  },
+  'trade.copy_batch_too_large': {
+    title: 'That list is too long',
+    body: 'Nothing was written. Send a shorter list.',
+  },
   'trade.copy_lead_criteria_unset': {
     title: 'Lead approvals are closed',
     body: 'The criteria a lead must meet are not set, so no application can be approved.',

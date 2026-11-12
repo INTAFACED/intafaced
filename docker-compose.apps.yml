@@ -755,6 +755,10 @@ services:
       TRADE_COPY_MIN_TIER: ${TRADE_COPY_MIN_TIER:-}
       # CB-copy-12 wait before a rejected lead applicant may apply again. Empty = applying again refuses.
       TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS: ${TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS:-}
+      # CB-copy-15 most copiers a lead may remove in a day. Empty = every removal refuses.
+      TRADE_COPY_LEAD_REMOVAL_DAILY_LIMIT: ${TRADE_COPY_LEAD_REMOVAL_DAILY_LIMIT:-}
+      # CB-copy-13 lead levels and their copied-funds thresholds (JSON). Empty = the level reads Not set.
+      TRADE_COPY_LEAD_LEVELS: ${TRADE_COPY_LEAD_LEVELS:-}
       TRADE_SIGNAL_MAX_ALERT_AGE_SECONDS: ${TRADE_SIGNAL_MAX_ALERT_AGE_SECONDS:-}
       TRADE_SIGNAL_WEBHOOK_DAYS: ${TRADE_SIGNAL_WEBHOOK_DAYS:-}
       # PTX-M21 fee/rebate schedule — pass-through, no compose default.
