@@ -52,6 +52,8 @@ import { CourseRelease } from './curriculum/course-release.js';
 import { CourseItemRules } from './curriculum/course-item-rules.js';
 import { CourseGradebook } from './curriculum/course-gradebook.js';
 import { GradeReports } from './curriculum/grade-reports.js';
+import { LearnerSummaries } from './analytics/learner-summaries.js';
+import { ReportTasks } from './analytics/report-tasks.js';
 import { PeerReviews, type GetObjectFn } from './curriculum/peer-review.js';
 import { AssignmentGrading } from './curriculum/grading.js';
 import { LearnHub } from './curriculum/learn-hub.js';
@@ -324,6 +326,16 @@ export interface AcademyServiceOptions {
   graderLeaseSeconds?: number;
   /** AC-assignments-04: learner rows one grade report holds (`ACADEMY_GRADE_REPORT_ROWS`). Unset, a report refuses. */
   gradeReportRows?: number;
+  /** AC-analytics-01: learners one page of summaries shows (`ACADEMY_LEARNER_SUMMARIES_PAGE_SIZE`). Unset, the read refuses. */
+  learnerSummariesPageSize?: number;
+  /** AC-analytics-02: report tasks one list shows (`ACADEMY_REPORT_TASKS_PAGE_SIZE`). Unset, the list refuses. */
+  reportTasksPageSize?: number;
+  /** AC-analytics-02: hours a finished report file is served (`ACADEMY_REPORT_RETENTION_HOURS`). Unset, a request refuses. */
+  reportRetentionHours?: number;
+  /** AC-analytics-02: learner rows one report holds (`ACADEMY_REPORT_ROWS`). Unset, a request refuses. */
+  reportRows?: number;
+  /** AC-analytics-02: seconds between report sweeps (`ACADEMY_REPORT_SWEEP_SECONDS`). Unset, no sweep runs and a request refuses. */
+  reportSweepSeconds?: number;
   /** AC-quizzes-04: bytes one quiz curve file may hold (`ACADEMY_BULK_FILE_MAX_BYTES`). Unset, a curve upload refuses. */
   bulkFileMaxBytes?: number;
   /** AC-articles-01: how many topics a list shows (`ACADEMY_TOPICS_LIST_LIMIT`). Unset, the list refuses. */
@@ -450,6 +462,10 @@ export class AcademyService {
   readonly courseItemRules: CourseItemRules;
   readonly courseGradebook: CourseGradebook;
   readonly gradeReports: GradeReports;
+  /** AC-analytics-01: per-learner summaries for the founder console. */
+  readonly learnerSummaries: LearnerSummaries;
+  /** AC-analytics-02: the reports centre's tasks and their sweep. */
+  readonly reportTasks: ReportTasks;
 
   constructor(
     private readonly sql: Sql,
@@ -510,6 +526,13 @@ export class AcademyService {
     this.courseItemRules = new CourseItemRules(sql);
     this.courseGradebook = new CourseGradebook(sql);
     this.gradeReports = new GradeReports(sql, this.courseGradebook, this.options.gradeReportRows ?? null);
+    this.learnerSummaries = new LearnerSummaries(sql, this.options.learnerSummariesPageSize ?? null);
+    this.reportTasks = new ReportTasks(sql, {
+      pageSize: this.options.reportTasksPageSize ?? null,
+      retentionHours: this.options.reportRetentionHours ?? null,
+      rowLimit: this.options.reportRows ?? null,
+      sweepSeconds: this.options.reportSweepSeconds ?? null,
+    });
     this.discussion = new CourseDiscussion(sql, {
       postMaxChars: this.options.postMaxChars ?? null,
       imageMaxBytes: this.options.postImageMaxBytes ?? null,

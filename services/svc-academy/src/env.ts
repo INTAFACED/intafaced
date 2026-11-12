@@ -190,6 +190,36 @@ const schema = serviceEnvSchema
       ACADEMY_GRADE_REPORT_ROWS: blankAsUnset(z.coerce.number().int().min(1).max(100_000)),
 
       /**
+       * AC-analytics-01: how many learners one page of the founder console's learner summaries shows, at most the
+       * Academy's list ceiling (200). Blank / unset is unpublished: the read refuses `academy.learner_summaries_list_limit_unset`.
+       */
+      ACADEMY_LEARNER_SUMMARIES_PAGE_SIZE: blankAsUnset(z.coerce.number().int().min(1).max(200)),
+
+      /**
+       * AC-analytics-02: how many report tasks the reports centre lists, at most 200. Blank / unset is unpublished: the
+       * list refuses `academy.report_tasks_list_limit_unset`.
+       */
+      ACADEMY_REPORT_TASKS_PAGE_SIZE: blankAsUnset(z.coerce.number().int().min(1).max(200)),
+
+      /**
+       * AC-analytics-02: hours a finished report file is served before it expires. Blank / unset is unpublished: a
+       * report request refuses `academy.report_retention_unset`.
+       */
+      ACADEMY_REPORT_RETENTION_HOURS: blankAsUnset(z.coerce.number().int().min(1).max(87_600)),
+
+      /**
+       * AC-analytics-02: how many learner rows one report may hold. Blank / unset is unpublished: a report request
+       * refuses `academy.report_limit_unset`, and a larger report fails with `academy.report_too_large`.
+       */
+      ACADEMY_REPORT_ROWS: blankAsUnset(z.coerce.number().int().min(1).max(100_000)),
+
+      /**
+       * AC-analytics-02: seconds between report sweeps, which run requested reports. Blank / unset is unpublished: no
+       * sweep runs and a report request refuses `academy.report_sweep_unset`.
+       */
+      ACADEMY_REPORT_SWEEP_SECONDS: blankAsUnset(z.coerce.number().int().min(1).max(86_400)),
+
+      /**
        * AC-quizzes-04: the largest quiz curve file, in bytes, that is read. Blank / unset is unpublished: a curve upload
        * refuses `academy.bulk_limit_unset`; a larger file refuses `academy.bulk_file_too_large` before it is read.
        */

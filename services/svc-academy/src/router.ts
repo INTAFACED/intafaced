@@ -195,6 +195,7 @@ import {
 import { AcademyError } from './errors.js';
 import { learnerDeskProcedures } from './learners/learner-desk-router.js';
 import { gradeReportProcedures } from './curriculum/grade-reports-router.js';
+import { analyticsProcedures } from './analytics/analytics-router.js';
 import { relatedItems } from './curriculum/related.js';
 import { searchPublicCurriculum } from './curriculum/public-catalogue.js';
 import { COURSE_VISIBILITIES } from './curriculum/course-terms.js';
@@ -3310,6 +3311,7 @@ export function createAcademyRouter(
 
     admin: router({
       ...gradeReportProcedures(academy.gradeReports),
+      ...analyticsProcedures(academy.learnerSummaries, academy.reportTasks),
       ...learnerDeskProcedures(academy, guard),
       /** AC-course-structure-01: the courses staff created, newest first, and how many are in each state. */
       courses: scopedProcedure('admin:read', { module: 'academy' })
@@ -4020,6 +4022,8 @@ export function createAcademyRouter(
           z.object({
             from: z.string(),
             to: z.string(),
+            /** The first UTC day the service recorded learning activity on; an earlier day is `metric_not_recorded`. */
+            recordingSince: z.string(),
             days: z.array(
               z.object({
                 date: z.string(),
