@@ -9,7 +9,7 @@ import { userIdOf } from './copy.mjs';
 
 // J-academy-16 "Read the Academy numbers and manage reports", in the founder console (docs/roadmap/journeys.json). One
 // test per step, titled "J-academy-16 #<n>", run in order. The founder is the stack's LOCAL TEST founder A on the console's
-// Academy numbers page (/academy-ops/catalogue/analytics) and reports centre (/academy-ops/catalogue/reports). A fresh TEST
+// Academy numbers page (/academy-ops/catalogue/analytics) and reports centre (/academy-ops/catalogue/report-centre). A fresh TEST
 // learner, signed up in the browser, enrols on the Foundations path, reads three lessons and completes one through
 // Academy's own API, and founder A tags them with this run's tag through Academy's admin door, the one the console uses.
 // The stack's TEST owner values (tooling/scripts/local-stack-services/academy.mjs): 50 summaries a page, reports of up to
@@ -98,7 +98,7 @@ async function untilState(page, id, state, ms) {
 async function requestReport(page) {
   const form = page.getByRole('form', { name: 'Request a report' });
   await form.getByLabel('Learner tag').fill(TAG);
-  const answer = page.waitForResponse((r) => r.url().endsWith('/api/academy-reports') && r.request().method() === 'POST');
+  const answer = page.waitForResponse((r) => r.url().endsWith('/api/academy-report-centre') && r.request().method() === 'POST');
   await form.getByRole('button', { name: /^Request report \d+$/ }).click();
   const body = await (await answer).json();
   expect(body.ok, JSON.stringify(body).slice(0, 300)).toBe(true);
@@ -235,10 +235,10 @@ test(`${J} #3 a requested report shows Requested, then Running; aborted while ru
   expect(second.n).toBe(first.n + 1);
   await untilState(desk, second.id, 'running', SWEEP_MS + 15_000);
   await expect(taskRow(desk, first.id)).toHaveAttribute('data-state', 'aborted');
-  const file = await desk.request.get(`/api/academy-reports?task=${first.id}`);
+  const file = await desk.request.get(`/api/academy-report-centre?task=${first.id}`);
   expect(file.status()).toBe(409);
   expect((await file.json()).code).toBe('academy.report_not_ready');
-  const held = (await staff('query', 'admin.reportTasks', undefined)).tasks.find((t) => t.id === first.id);
+  const held = (await staff('query', 'admin.reportCentreTasks', undefined)).tasks.find((t) => t.id === first.id);
   expect(held).toMatchObject({ state: 'aborted', sha256: null, rows: null });
 });
 
@@ -248,11 +248,11 @@ test(`${J} #4 a finished report downloads with its time and hash; once expired i
   test.setTimeout(300_000);
   const { userId } = await learner(browser);
   const desk = await console_(browser);
-  await desk.goto('/academy-ops/catalogue/reports');
+  await desk.goto('/academy-ops/catalogue/report-centre');
   await untilState(desk, tasks.done, 'done', 2 * SWEEP_MS + 15_000);
   const row = taskRow(desk, tasks.done);
   await expect(row.getByTestId('report-state')).toHaveText('Finished');
-  const held = (await staff('query', 'admin.reportTasks', undefined)).tasks.find((t) => t.id === tasks.done);
+  const held = (await staff('query', 'admin.reportCentreTasks', undefined)).tasks.find((t) => t.id === tasks.done);
   await expect(row.getByTestId('report-made-at')).toHaveAttribute('data-at', held.finishedAt);
   await expect(row.getByTestId('report-sha256')).toHaveText(held.sha256);
 
@@ -273,14 +273,14 @@ test(`${J} #4 a finished report downloads with its time and hash; once expired i
   expect(held.expired).toBe(false);
   expect(tool('local-test-stack.mjs', 'expire-academy-report', tasks.done)).toContain('1 Academy report(s) now past their retention');
   // svc-academy's own answer: the file's retention has ended, kept exactly as long as it was made to be.
-  const lapsed = (await staff('query', 'admin.reportTasks', undefined)).tasks.find((t) => t.id === tasks.done);
+  const lapsed = (await staff('query', 'admin.reportCentreTasks', undefined)).tasks.find((t) => t.id === tasks.done);
   expect(lapsed).toMatchObject({ state: 'done', expired: true, sha256: held.sha256 });
   expect(Date.parse(lapsed.expiresAt)).toBeLessThan(Date.now());
   expect(Date.parse(lapsed.expiresAt) - Date.parse(lapsed.finishedAt)).toBe(24 * 3_600_000);
   await desk.reload();
   await expect(row.getByTestId('report-state')).toHaveText('Expired');
   await expect(row.getByTestId('report-expires-at')).toContainText('Expired');
-  const gone = await desk.request.get(`/api/academy-reports?task=${tasks.done}`);
+  const gone = await desk.request.get(`/api/academy-report-centre?task=${tasks.done}`);
   expect(gone.status()).toBe(412);
   const body = await gone.json();
   expect(body.code).toBe('academy.report_expired');
@@ -306,7 +306,7 @@ test(`${J} #4 a finished report downloads with its time and hash; once expired i
 test(`${J} #5 deleting a report task takes it and its file off the list`, async ({ browser }) => {
   test.setTimeout(180_000);
   const desk = await console_(browser);
-  await desk.goto('/academy-ops/catalogue/reports');
+  await desk.goto('/academy-ops/catalogue/report-centre');
   for (const id of [tasks.done, tasks.aborted]) {
     const row = taskRow(desk, id);
     await expect(row).toHaveCount(1);
@@ -316,11 +316,11 @@ test(`${J} #5 deleting a report task takes it and its file off the list`, async 
     await expect(taskRow(desk, id)).toHaveCount(0);
     await desk.reload();
     await expect(taskRow(desk, id)).toHaveCount(0);
-    const file = await desk.request.get(`/api/academy-reports?task=${id}`);
+    const file = await desk.request.get(`/api/academy-report-centre?task=${id}`);
     expect(file.status()).toBe(404);
     expect((await file.json()).code).toBe('academy.report_not_found');
   }
-  const left = (await staff('query', 'admin.reportTasks', undefined)).tasks.map((t) => t.id);
+  const left = (await staff('query', 'admin.reportCentreTasks', undefined)).tasks.map((t) => t.id);
   expect(left).not.toContain(tasks.done);
   expect(left).not.toContain(tasks.aborted);
 });

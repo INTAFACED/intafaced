@@ -3248,7 +3248,7 @@ function cmdExpireAcademyReport(args) {
   const secrets = localFixtureSecrets();
   const moved = psql(
     secrets,
-    `UPDATE academy.report_tasks
+    `UPDATE academy.report_centre_tasks
         SET finished_at = finished_at - (expires_at - now()) - interval '1 minute',
             expires_at = now() - interval '1 minute'
       WHERE id = :'tid' AND state = 'done' AND deleted_at IS NULL AND expires_at > now() RETURNING id`,

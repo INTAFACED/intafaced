@@ -5,7 +5,7 @@ import { useCallback, useState } from 'react';
 import './desk.css';
 import { formatAsOf, formatWhen } from '@/lib/as-of';
 import { fetchReports, postReportsChange } from '@/lib/academy/analytics-browser';
-import { stateText, type AcademyReportTask, type ReportsDeskReply, type ReportsView } from '@/lib/academy/analytics-model';
+import { stateText, type AcademyReportCentreTask, type ReportsDeskReply, type ReportsView } from '@/lib/academy/analytics-model';
 import { Failed, Outcome } from '@/components/academy-courses-desk';
 
 /**
@@ -19,7 +19,17 @@ import { Failed, Outcome } from '@/components/academy-courses-desk';
  * second; only pressing Request again does. Every state is the service's own, read again after each change.
  */
 
-function TaskRow({ task, busy, onAbort, onDelete }: { task: AcademyReportTask; busy: boolean; onAbort: () => void; onDelete: () => void }) {
+function TaskRow({
+  task,
+  busy,
+  onAbort,
+  onDelete,
+}: {
+  task: AcademyReportCentreTask;
+  busy: boolean;
+  onAbort: () => void;
+  onDelete: () => void;
+}) {
   const file = task.state === 'done' && !task.expired;
   return (
     <tr data-report-task={task.id} data-state={task.expired ? 'expired' : task.state}>
@@ -38,7 +48,7 @@ function TaskRow({ task, busy, onAbort, onDelete }: { task: AcademyReportTask; b
       </td>
       <td className="dk-row">
         {task.state === 'done' && (
-          <a href={`/api/academy-reports?task=${encodeURIComponent(task.id)}`} download aria-disabled={!file}>
+          <a href={`/api/academy-report-centre?task=${encodeURIComponent(task.id)}`} download aria-disabled={!file}>
             Download report {task.n}
           </a>
         )}

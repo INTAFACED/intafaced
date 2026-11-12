@@ -1,8 +1,8 @@
 import type {
   AcademyLearnerSummaries,
   AcademyOpsMetrics,
-  AcademyReportTask,
-  AcademyReportTasks,
+  AcademyReportCentreTask,
+  AcademyReportCentreTasks,
 } from '@intafaced/contracts/academy-analytics';
 import type { Part } from '@/lib/desk/part';
 
@@ -10,7 +10,7 @@ import type { Part } from '@/lib/desk/part';
  * The Academy's numbers and reports centre on the founder console (AC-analytics-01, AC-analytics-02; J-academy-16).
  * Pure, so the server loaders, the route and the browser component share it.
  */
-export type { AcademyLearnerSummaries, AcademyOpsMetrics, AcademyReportTask, AcademyReportTasks };
+export type { AcademyLearnerSummaries, AcademyOpsMetrics, AcademyReportCentreTask, AcademyReportCentreTasks };
 
 /** Days the activity table covers, today (UTC) last. */
 export const ACTIVITY_DAYS = 14;
@@ -22,12 +22,12 @@ export interface AnalyticsView {
 }
 
 export interface ReportsView {
-  readonly tasks: Part<AcademyReportTasks>;
+  readonly tasks: Part<AcademyReportCentreTasks>;
   readonly asOf: string;
 }
 
 export type ReportsDeskReply =
-  | { readonly ok: true; readonly what: string; readonly task?: AcademyReportTask }
+  | { readonly ok: true; readonly what: string; readonly task?: AcademyReportCentreTask }
   | {
       readonly ok: false;
       readonly title: string;
@@ -50,7 +50,7 @@ export function cellText(cell: { value: number | null; reason: string | null }):
   return cell.value === null ? 'not recorded' : String(cell.value);
 }
 
-const STATE_WORDS: Record<AcademyReportTask['state'], string> = {
+const STATE_WORDS: Record<AcademyReportCentreTask['state'], string> = {
   queued: 'Requested',
   running: 'Running',
   done: 'Finished',
@@ -59,6 +59,6 @@ const STATE_WORDS: Record<AcademyReportTask['state'], string> = {
 };
 
 /** A task's state in words; a finished file past its retention says Expired. */
-export function stateText(task: AcademyReportTask): string {
+export function stateText(task: AcademyReportCentreTask): string {
   return task.expired ? 'Expired' : STATE_WORDS[task.state];
 }

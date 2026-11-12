@@ -1559,8 +1559,8 @@ const academySections: readonly DeskSection[] = [
         why: 'Lesson reads, completions and certificates by day, and a summary of each learner, as svc-academy counts them.',
       },
       {
-        href: '/academy-ops/catalogue/reports',
-        label: 'Reports',
+        href: '/academy-ops/catalogue/report-centre',
+        label: 'Reports centre',
         why: 'Request a learners report, watch it run, abort it, download its file with its hash, and delete it.',
       },
     ],

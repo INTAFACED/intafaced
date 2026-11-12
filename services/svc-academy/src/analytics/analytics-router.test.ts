@@ -24,18 +24,18 @@ describe('analytics procedures', () => {
   it('refuse a learner, and a read-only operator any change', async () => {
     const learner = app.createCaller(callers.signed({ scopes: ['academy:read'] }));
     await expect(learner.learnerSummaries({})).rejects.toMatchObject({ code: 'FORBIDDEN' });
-    await expect(learner.reportTasks()).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(learner.reportCentreTasks()).rejects.toMatchObject({ code: 'FORBIDDEN' });
     const reader = app.createCaller(callers.signed({ scopes: ['admin:read'] }));
     await expect(reader.requestReport({ kind: 'learners', tag: null, n: 1 })).rejects.toMatchObject({ code: 'FORBIDDEN' });
     await expect(reader.abortReport({ taskId: TASK })).rejects.toMatchObject({ code: 'FORBIDDEN' });
     await expect(reader.deleteReport({ taskId: TASK })).rejects.toMatchObject({ code: 'FORBIDDEN' });
-    await expect(app.createCaller(callers.forged()).reportFile({ taskId: TASK })).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+    await expect(app.createCaller(callers.forged()).reportCentreFile({ taskId: TASK })).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
   });
 
   it('send each refusal code and its status to the console', async () => {
     const founder = app.createCaller(callers.signed());
     await expectRefusal(founder.learnerSummaries({}), 'academy.learner_summaries_list_limit_unset', 'PRECONDITION_FAILED');
-    await expectRefusal(founder.reportTasks(), 'academy.report_tasks_list_limit_unset', 'PRECONDITION_FAILED');
+    await expectRefusal(founder.reportCentreTasks(), 'academy.report_tasks_list_limit_unset', 'PRECONDITION_FAILED');
     await expectRefusal(
       founder.requestReport({ kind: 'learners', tag: null, n: 1 }),
       'academy.report_retention_unset',
@@ -43,6 +43,6 @@ describe('analytics procedures', () => {
     );
     await expectRefusal(founder.abortReport({ taskId: TASK }), 'academy.report_not_abortable', 'CONFLICT');
     await expectRefusal(founder.deleteReport({ taskId: TASK }), 'academy.report_not_found', 'NOT_FOUND');
-    await expectRefusal(founder.reportFile({ taskId: TASK }), 'academy.report_expired', 'PRECONDITION_FAILED');
+    await expectRefusal(founder.reportCentreFile({ taskId: TASK }), 'academy.report_expired', 'PRECONDITION_FAILED');
   });
 });

@@ -6,7 +6,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(v
 
 export async function fetchReports(): Promise<ReportsView | null> {
   try {
-    const res = await fetch('/api/academy-reports', { cache: 'no-store', credentials: 'same-origin' });
+    const res = await fetch('/api/academy-report-centre', { cache: 'no-store', credentials: 'same-origin' });
     if (!res.ok) return null;
     const body: unknown = await res.json();
     return isRecord(body) && typeof body.asOf === 'string' && isRecord(body.tasks) ? (body as unknown as ReportsView) : null;
@@ -40,7 +40,7 @@ export async function postReportsChange(body: Record<string, unknown>): Promise<
     };
   }
   try {
-    const res = await fetch('/api/academy-reports', {
+    const res = await fetch('/api/academy-report-centre', {
       method: 'POST',
       headers,
       body: JSON.stringify(body),

@@ -256,6 +256,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
           TRADE_AGENT_MAX_ORDER_NOTIONAL: testValue('TRADE_AGENT_MAX_ORDER_NOTIONAL'),
           TRADE_AGENT_WORST_PRICE_BPS: testValue('TRADE_AGENT_WORST_PRICE_BPS'),
           TRADE_AGENT_MARKETS: testValue('TRADE_AGENT_MARKETS'),
+          // J-agents-21 #16: the ceilings of the person's own leverage and daily-loss caps (the per-order cap's is the
+          // largest agent order above).
+          TRADE_AGENT_MAX_LEVERAGE: testValue('TRADE_AGENT_MAX_LEVERAGE'),
+          TRADE_AGENT_MAX_DAILY_LOSS: testValue('TRADE_AGENT_MAX_DAILY_LOSS'),
           // J-developer-05 #6: `LOCAL_STACK_USER_VENUE_ORDERS_PAGE_MAX=off` leaves the largest page blank, so a list refuses.
           TRADE_USER_VENUE_ORDERS_PAGE_MAX:
             process.env.LOCAL_STACK_USER_VENUE_ORDERS_PAGE_MAX === 'off' ? '' : testValue('TRADE_USER_VENUE_ORDERS_PAGE_MAX'),

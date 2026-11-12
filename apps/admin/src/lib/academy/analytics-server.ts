@@ -3,12 +3,12 @@ import {
   academyLearnerSummariesSchema,
   academyOpsMetricsSchema,
   academyReportDeletedSchema,
-  academyReportFileSchema,
+  academyReportCentreFileSchema,
   academyReportTaskInputSchema,
-  academyReportTaskSchema,
-  academyReportTasksSchema,
+  academyReportCentreTaskSchema,
+  academyReportCentreTasksSchema,
   academyRequestReportInputSchema,
-  type AcademyReportFile,
+  type AcademyReportCentreFile,
 } from '@intafaced/contracts/academy-analytics';
 import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
 import { partFrom, type PartLabels } from '@/lib/desk/part';
@@ -40,7 +40,7 @@ const COPY: Record<string, Omit<RefusalView, 'code' | 'changed'>> = {
   },
   'academy.report_limit_unset': {
     title: 'The report size is not set',
-    body: 'The owner has not set how many learner rows one report may hold (ACADEMY_REPORT_ROWS), so no report is requested.',
+    body: 'The owner has not set how many learner rows one report may hold (ACADEMY_LEARNER_EXPORT_ROWS), so no report is requested.',
     next: 'The owner sets it for this deployment. Nothing was requested.',
   },
   'academy.report_sweep_unset': {
@@ -89,10 +89,10 @@ const ACADEMY: PartLabels = {
 
 const readMetrics = parseWith(academyOpsMetricsSchema);
 const readSummaries = parseWith(academyLearnerSummariesSchema);
-const readTasks = parseWith(academyReportTasksSchema);
-const readTask = parseWith(academyReportTaskSchema);
+const readTasks = parseWith(academyReportCentreTasksSchema);
+const readTask = parseWith(academyReportCentreTaskSchema);
 const readDeleted = parseWith(academyReportDeletedSchema);
-const readFile = parseWith(academyReportFileSchema);
+const readFile = parseWith(academyReportCentreFileSchema);
 
 export async function loadAnalytics(
   ctx: FounderCallContext,
@@ -113,7 +113,7 @@ export async function loadAnalytics(
 }
 
 export async function loadReports(ctx: FounderCallContext): Promise<ReportsView> {
-  const tasks = await founderCall(ctx, 'academy', 'admin.reportTasks', 'GET', undefined, readTasks);
+  const tasks = await founderCall(ctx, 'academy', 'admin.reportCentreTasks', 'GET', undefined, readTasks);
   return { tasks: partFrom(tasks, (d) => d, ACADEMY), asOf: new Date().toISOString() };
 }
 
@@ -143,8 +143,8 @@ function refusal(result: FounderCallResult<unknown>): { status: number; reply: R
 export async function loadReportFile(
   ctx: FounderCallContext,
   taskId: string,
-): Promise<{ file: AcademyReportFile } | { status: number; reply: ReportsDeskReply }> {
-  const result = await founderCall(ctx, 'academy', 'admin.reportFile', 'GET', { taskId }, readFile);
+): Promise<{ file: AcademyReportCentreFile } | { status: number; reply: ReportsDeskReply }> {
+  const result = await founderCall(ctx, 'academy', 'admin.reportCentreFile', 'GET', { taskId }, readFile);
   return result.kind === 'ok' && result.data ? { file: result.data } : refusal(result);
 }
 

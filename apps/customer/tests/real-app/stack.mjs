@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -232,6 +232,30 @@ export function tool(script, ...args) {
     return run(script, args, TOOL_CAP_MS);
   } catch (error) {
     throw toolError(error, script, args);
+  }
+}
+
+/**
+ * `tool`, awaited: the worker's event loop stays free while the tool runs. A long tool call (a service stopped or
+ * started, about 84 s) that blocks the loop outlives Edge's 72 s keep-alive without this process seeing Edge close the
+ * socket, so the next request through Edge is written to a closed socket and fails with "other side closed" (#7449,
+ * as approveKyb in #7461). Same output, limit and error as `tool`.
+ */
+export async function toolAwaited(script, ...args) {
+  try {
+    return await new Promise((resolve, reject) =>
+      execFile(
+        process.execPath,
+        [path.join(ROOT, 'tooling/scripts', script), ...args],
+        { cwd: ROOT, encoding: 'utf8', timeout: TOOL_CAP_MS, maxBuffer: 64 * 1024 * 1024 },
+        (error, stdout, stderr) => (error ? reject(Object.assign(error, { stdout, stderr })) : resolve(stdout)),
+      ),
+    );
+  } catch (error) {
+    // A killed run is the limit reached: it reads as `tool`'s timeout does.
+    const raw = error?.killed ? Object.assign(error, { code: 'ETIMEDOUT' }) : error;
+    if (typeof raw?.code === 'number') Object.assign(raw, { status: raw.code, code: null });
+    throw toolError(raw, script, args);
   }
 }
 

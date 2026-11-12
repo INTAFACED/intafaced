@@ -7,10 +7,10 @@ import {
   academyLearnerSummariesInputSchema,
   academyLearnerSummariesSchema,
   academyReportDeletedSchema,
-  academyReportFileSchema,
+  academyReportCentreFileSchema,
   academyReportTaskInputSchema,
-  academyReportTaskSchema,
-  academyReportTasksSchema,
+  academyReportCentreTaskSchema,
+  academyReportCentreTasksSchema,
   academyRequestReportInputSchema,
   scopedProcedure,
 } from '@intafaced/contracts';
@@ -28,18 +28,18 @@ export function analyticsProcedures(summaries: LearnerSummaries, reports: Report
       .output(academyLearnerSummariesSchema)
       .query(({ input }) => guard(() => summaries.page(input))),
 
-    reportTasks: read()
-      .output(academyReportTasksSchema)
+    reportCentreTasks: read()
+      .output(academyReportCentreTasksSchema)
       .query(({ ctx }) => guard(() => reports.list(ctx.principal!.userId))),
 
     requestReport: write()
       .input(academyRequestReportInputSchema)
-      .output(academyReportTaskSchema)
+      .output(academyReportCentreTaskSchema)
       .mutation(({ input, ctx }) => guard(() => reports.request({ ...input, actorId: ctx.principal!.userId, now: new Date() }))),
 
     abortReport: write()
       .input(academyReportTaskInputSchema)
-      .output(academyReportTaskSchema)
+      .output(academyReportCentreTaskSchema)
       .mutation(({ input, ctx }) => guard(() => reports.abort({ ...input, actorId: ctx.principal!.userId, now: new Date() }))),
 
     deleteReport: write()
@@ -47,9 +47,9 @@ export function analyticsProcedures(summaries: LearnerSummaries, reports: Report
       .output(academyReportDeletedSchema)
       .mutation(({ input, ctx }) => guard(() => reports.delete({ ...input, actorId: ctx.principal!.userId, now: new Date() }))),
 
-    reportFile: read()
+    reportCentreFile: read()
       .input(academyReportTaskInputSchema)
-      .output(academyReportFileSchema)
+      .output(academyReportCentreFileSchema)
       .query(({ input }) => guard(() => reports.file(input.taskId))),
   };
 }

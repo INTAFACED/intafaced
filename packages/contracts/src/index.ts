@@ -167,6 +167,7 @@ export * from './academy-course-quizzes.js';
 export * from './academy-course-release.js';
 export * from './academy-course-item-rules.js';
 export * from './academy-learner-desk.js';
+export * from './academy-staff-enrolment.js';
 export * from './identity-learner-card.js';
 export * from './academy-course-gradebook.js';
 export * from './academy-grade-reports.js';

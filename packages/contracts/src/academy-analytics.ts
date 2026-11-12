@@ -71,16 +71,16 @@ export const academyOpsMetricsSchema = z.object({
 });
 export type AcademyOpsMetrics = z.infer<typeof academyOpsMetricsSchema>;
 
-export const ACADEMY_REPORT_KINDS = ['learners'] as const;
-export const ACADEMY_REPORT_STATES = ['queued', 'running', 'done', 'aborted', 'failed'] as const;
+export const ACADEMY_REPORT_CENTRE_KINDS = ['learners'] as const;
+export const ACADEMY_REPORT_CENTRE_STATES = ['queued', 'running', 'done', 'aborted', 'failed'] as const;
 
-export const academyReportTaskSchema = z.object({
+export const academyReportCentreTaskSchema = z.object({
   id: z.string().guid(),
   n: z.number().int().positive(),
-  kind: z.enum(ACADEMY_REPORT_KINDS),
+  kind: z.enum(ACADEMY_REPORT_CENTRE_KINDS),
   /** The learner tag the report is filtered by; null for every learner. */
   tag: z.string().nullable(),
-  state: z.enum(ACADEMY_REPORT_STATES),
+  state: z.enum(ACADEMY_REPORT_CENTRE_STATES),
   requestedBy: z.string().guid(),
   requestedAt: isoInstant,
   startedAt: isoInstant.nullable(),
@@ -97,20 +97,20 @@ export const academyReportTaskSchema = z.object({
   /** Why a failed task failed, as a refusal code. */
   failure: z.string().nullable(),
 });
-export type AcademyReportTask = z.infer<typeof academyReportTaskSchema>;
+export type AcademyReportCentreTask = z.infer<typeof academyReportCentreTaskSchema>;
 
-export const academyReportTasksSchema = z.object({
+export const academyReportCentreTasksSchema = z.object({
   pageSize: z.number().int().positive(),
   /** Every task not deleted, newest first, up to the page size. */
-  tasks: z.array(academyReportTaskSchema),
+  tasks: z.array(academyReportCentreTaskSchema),
   /** The number the signed-in founder's next request takes. */
   nextN: z.number().int().positive(),
 });
-export type AcademyReportTasks = z.infer<typeof academyReportTasksSchema>;
+export type AcademyReportCentreTasks = z.infer<typeof academyReportCentreTasksSchema>;
 
 export const academyRequestReportInputSchema = z
   .object({
-    kind: z.enum(ACADEMY_REPORT_KINDS),
+    kind: z.enum(ACADEMY_REPORT_CENTRE_KINDS),
     tag: tag.nullable(),
     /** The founder's next request number as the desk read it. */
     n: z.number().int().positive(),
@@ -121,8 +121,8 @@ export type AcademyRequestReportInput = z.infer<typeof academyRequestReportInput
 export const academyReportTaskInputSchema = z.object({ taskId: z.string().guid() }).strict();
 export type AcademyReportTaskInput = z.infer<typeof academyReportTaskInputSchema>;
 
-export const academyReportFileSchema = academyReportTaskSchema.extend({ csv: z.string() });
-export type AcademyReportFile = z.infer<typeof academyReportFileSchema>;
+export const academyReportCentreFileSchema = academyReportCentreTaskSchema.extend({ csv: z.string() });
+export type AcademyReportCentreFile = z.infer<typeof academyReportCentreFileSchema>;
 
 /** `admin.deleteReport`: the task is off the list and its file is gone. */
 export const academyReportDeletedSchema = z.object({ taskId: z.string().guid(), deleted: z.literal(true) });

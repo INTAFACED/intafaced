@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ACTIVITY_DAYS, activityWindow, cellText, stateText, type AcademyReportTask } from './analytics-model';
+import { ACTIVITY_DAYS, activityWindow, cellText, stateText, type AcademyReportCentreTask } from './analytics-model';
 
 describe('Academy numbers on the console', () => {
   it('reads the last whole UTC days, today last', () => {
@@ -13,7 +13,7 @@ describe('Academy numbers on the console', () => {
   });
 
   it('names a finished file past its retention Expired', () => {
-    const task = { state: 'done', expired: false } as AcademyReportTask;
+    const task = { state: 'done', expired: false } as AcademyReportCentreTask;
     expect(stateText(task)).toBe('Finished');
     expect(stateText({ ...task, expired: true })).toBe('Expired');
     expect(stateText({ ...task, state: 'queued' })).toBe('Requested');

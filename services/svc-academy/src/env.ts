@@ -202,18 +202,6 @@ const schema = serviceEnvSchema
       ACADEMY_REPORT_TASKS_PAGE_SIZE: blankAsUnset(z.coerce.number().int().min(1).max(200)),
 
       /**
-       * AC-analytics-02: hours a finished report file is served before it expires. Blank / unset is unpublished: a
-       * report request refuses `academy.report_retention_unset`.
-       */
-      ACADEMY_REPORT_RETENTION_HOURS: blankAsUnset(z.coerce.number().int().min(1).max(87_600)),
-
-      /**
-       * AC-analytics-02: how many learner rows one report may hold. Blank / unset is unpublished: a report request
-       * refuses `academy.report_limit_unset`, and a larger report fails with `academy.report_too_large`.
-       */
-      ACADEMY_REPORT_ROWS: blankAsUnset(z.coerce.number().int().min(1).max(100_000)),
-
-      /**
        * AC-analytics-02: seconds between report sweeps, which run requested reports. Blank / unset is unpublished: no
        * sweep runs and a report request refuses `academy.report_sweep_unset`.
        */
@@ -224,6 +212,30 @@ const schema = serviceEnvSchema
        * refuses `academy.bulk_limit_unset`; a larger file refuses `academy.bulk_file_too_large` before it is read.
        */
       ACADEMY_BULK_FILE_MAX_BYTES: blankAsUnset(z.coerce.number().int().min(1).max(900_000)),
+
+      /**
+       * AC-enrolment-03: how many addresses one bulk enrolment upload may hold. Blank / unset is unpublished: a bulk
+       * upload refuses `academy.bulk_limit_unset`; a longer upload refuses `academy.bulk_limit_exceeded`.
+       */
+      ACADEMY_BULK_ENROL_ROWS: blankAsUnset(z.coerce.number().int().min(1).max(1000)),
+
+      /**
+       * AC-notifications-02: days without learning after which a learner is left out of a course email. Blank / unset is
+       * unpublished: a course email refuses `academy.inactivity_period_unset`.
+       */
+      ACADEMY_BULK_EMAIL_INACTIVE_DAYS: blankAsUnset(z.coerce.number().int().min(1).max(3650)),
+
+      /**
+       * AC-analytics-02: hours a finished learner export is kept. Blank / unset is unpublished: a request refuses
+       * `academy.report_retention_unset`.
+       */
+      ACADEMY_REPORT_RETENTION_HOURS: blankAsUnset(z.coerce.number().int().min(1).max(8760)),
+
+      /**
+       * AC-analytics-02: learner rows one learner export may hold. Blank / unset is unpublished: a request refuses
+       * `academy.report_limit_unset`; a longer export fails with that limit named.
+       */
+      ACADEMY_LEARNER_EXPORT_ROWS: blankAsUnset(z.coerce.number().int().min(1).max(100_000)),
 
       /**
        * AC-access-grants-02: how many lines one page of the grant audit shows, at most the Academy's list ceiling (200).

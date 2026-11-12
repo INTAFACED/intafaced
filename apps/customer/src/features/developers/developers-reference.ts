@@ -1144,6 +1144,14 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     summary: "Change the agent account's cap; above the owner's ceiling it is refused, naming the ceiling",
   },
   {
+    name: 'venueAgentAccountLimits',
+    method: 'POST',
+    path: '/api/v1/venue/agent-accounts/:id/limits',
+    product: 'accounts',
+    access: 'private',
+    summary: "Set the agent account's per-order size, leverage and daily-loss caps; one above the owner's ceiling is refused, naming it",
+  },
+  {
     name: 'venueAgentAccountClose',
     method: 'POST',
     path: '/api/v1/venue/agent-accounts/:id/close',

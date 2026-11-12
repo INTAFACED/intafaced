@@ -30,7 +30,8 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ t
         <div>
           <h1>Academy numbers</h1>
           <p>
-            <Link href="/academy-ops/catalogue">Back to the catalogue</Link> · <Link href="/academy-ops/catalogue/reports">Reports</Link>
+            <Link href="/academy-ops/catalogue">Back to the catalogue</Link> ·{' '}
+            <Link href="/academy-ops/catalogue/report-centre">Reports</Link>
           </p>
         </div>
       </div>

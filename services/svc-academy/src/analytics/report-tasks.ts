@@ -6,7 +6,7 @@
  *   (`report:<kind>:<founder>:<n>`): a retry of a request that already made task n answers task n, so a retry never
  *   makes a second task; only pressing Request again does. It refuses before writing anything when the owner has left
  *   blank the retention (`ACADEMY_REPORT_RETENTION_HOURS`, `academy.report_retention_unset`), the rows one report may
- *   hold (`ACADEMY_REPORT_ROWS`, `academy.report_limit_unset`) or the sweep interval (`ACADEMY_REPORT_SWEEP_SECONDS`,
+ *   hold (`ACADEMY_LEARNER_EXPORT_ROWS`, shared with learner exports, `academy.report_limit_unset`) or the sweep interval (`ACADEMY_REPORT_SWEEP_SECONDS`,
  *   `academy.report_sweep_unset`: with no sweep a task would never run).
  * - Each sweep first finishes the tasks that were already running (it stores the CSV, its row count and SHA-256 and marks
  *   the task `done`, kept until the retention ends; or `failed` with the refusal that stopped it), then starts the queued
@@ -23,7 +23,7 @@
  */
 import { createHash } from 'node:crypto';
 import type { Sql, TransactionSql } from 'postgres';
-import type { AcademyReportFile, AcademyReportTask, AcademyReportTasks } from '@intafaced/contracts';
+import type { AcademyReportCentreFile, AcademyReportCentreTask, AcademyReportCentreTasks } from '@intafaced/contracts';
 import { requireSetting } from '@intafaced/service-kit';
 import { csvField } from '../curriculum/grade-reports.js';
 import { analyticsRefusals, learnerIds, summariesOf } from './learner-summaries.js';
@@ -37,7 +37,7 @@ type Row = {
   n: number;
   kind: 'learners';
   tag: string | null;
-  state: AcademyReportTask['state'];
+  state: AcademyReportCentreTask['state'];
   requested_at: Date;
   started_at: Date | null;
   finished_at: Date | null;
@@ -52,7 +52,7 @@ const COLUMNS =
 
 const iso = (d: Date | null) => (d ? d.toISOString() : null);
 
-function view(r: Row, now: Date): AcademyReportTask {
+function view(r: Row, now: Date): AcademyReportCentreTask {
   return {
     id: r.id,
     n: r.n,
@@ -107,31 +107,31 @@ export class ReportTasks {
 
   private async event(tx: Db, taskId: string, event: string, actorId: string | null, at: Date): Promise<void> {
     await tx`
-      INSERT INTO academy.report_task_events (task_id, n, event, actor_id, at)
+      INSERT INTO academy.report_centre_events (task_id, n, event, actor_id, at)
       SELECT ${taskId}, coalesce(max(n), 0) + 1, ${event}, ${actorId}, ${at}
-        FROM academy.report_task_events WHERE task_id = ${taskId}
+        FROM academy.report_centre_events WHERE task_id = ${taskId}
     `;
   }
 
   private async nextN(tx: Db, actorId: string): Promise<number> {
     const [{ next } = { next: 1 }] = await tx<Array<{ next: number }>>`
-      SELECT coalesce(max(n), 0)::int + 1 AS next FROM academy.report_tasks WHERE requested_by = ${actorId}
+      SELECT coalesce(max(n), 0)::int + 1 AS next FROM academy.report_centre_tasks WHERE requested_by = ${actorId}
     `;
     return next;
   }
 
   /** Every task not deleted, newest first, up to the owner's page size, and the number the caller's next request takes. */
-  async list(actorId: string, now: Date = new Date()): Promise<AcademyReportTasks> {
+  async list(actorId: string, now: Date = new Date()): Promise<AcademyReportCentreTasks> {
     const pageSize = requireSetting(this.settings.pageSize, analyticsRefusals, 'academy.report_tasks_list_limit_unset');
     const rows = await this.sql<Row[]>`
-      SELECT ${this.sql.unsafe(COLUMNS)} FROM academy.report_tasks
+      SELECT ${this.sql.unsafe(COLUMNS)} FROM academy.report_centre_tasks
        WHERE deleted_at IS NULL ORDER BY requested_at DESC, id LIMIT ${pageSize}
     `;
     return { pageSize, tasks: rows.map((r) => view(r, now)), nextN: await this.nextN(this.sql, actorId) };
   }
 
   /** Task n of this founder: queued now when n is their next, the stored one when it already exists. */
-  async request(input: { actorId: string; kind: 'learners'; tag: string | null; n: number; now: Date }): Promise<AcademyReportTask> {
+  async request(input: { actorId: string; kind: 'learners'; tag: string | null; n: number; now: Date }): Promise<AcademyReportCentreTask> {
     requireSetting(this.settings.retentionHours, analyticsRefusals, 'academy.report_retention_unset');
     requireSetting(this.settings.rowLimit, analyticsRefusals, 'academy.report_limit_unset');
     requireSetting(this.settings.sweepSeconds, analyticsRefusals, 'academy.report_sweep_unset');
@@ -139,13 +139,13 @@ export class ReportTasks {
       // One request per founder at a time, so two presses cannot both take the next number.
       await tx`SELECT pg_advisory_xact_lock(hashtext(${`report:${input.actorId}`}))`;
       const [existing] = await tx<Row[]>`
-        SELECT ${tx.unsafe(COLUMNS)} FROM academy.report_tasks WHERE requested_by = ${input.actorId} AND n = ${input.n}
+        SELECT ${tx.unsafe(COLUMNS)} FROM academy.report_centre_tasks WHERE requested_by = ${input.actorId} AND n = ${input.n}
       `;
       if (existing) return view(existing, input.now);
       const next = await this.nextN(tx, input.actorId);
       if (input.n !== next) refuse('academy.report_out_of_order', `your next report request is ${next}, not ${input.n}`);
       const [made] = await tx<Row[]>`
-        INSERT INTO academy.report_tasks (requested_by, n, kind, tag, state, requested_at)
+        INSERT INTO academy.report_centre_tasks (requested_by, n, kind, tag, state, requested_at)
         VALUES (${input.actorId}, ${input.n}, ${input.kind}, ${input.tag}, 'queued', ${input.now})
         RETURNING ${tx.unsafe(COLUMNS)}
       `;
@@ -155,17 +155,17 @@ export class ReportTasks {
   }
 
   /** Stops a queued or running task. Aborting an aborted task answers it again; any other state refuses. */
-  async abort(input: { actorId: string; taskId: string; now: Date }): Promise<AcademyReportTask> {
+  async abort(input: { actorId: string; taskId: string; now: Date }): Promise<AcademyReportCentreTask> {
     return this.sql.begin(async (tx) => {
       const [task] = await tx<Row[]>`
-        SELECT ${tx.unsafe(COLUMNS)} FROM academy.report_tasks WHERE id = ${input.taskId} AND deleted_at IS NULL FOR UPDATE
+        SELECT ${tx.unsafe(COLUMNS)} FROM academy.report_centre_tasks WHERE id = ${input.taskId} AND deleted_at IS NULL FOR UPDATE
       `;
       if (!task) return refuse('academy.report_not_found', 'no report task has that id');
       if (task.state === 'aborted') return view(task, input.now);
       if (task.state !== 'queued' && task.state !== 'running')
         refuse('academy.report_not_abortable', `the task is ${task.state}, so there is nothing to abort`);
       const [done] = await tx<Row[]>`
-        UPDATE academy.report_tasks SET state = 'aborted', finished_at = ${input.now}
+        UPDATE academy.report_centre_tasks SET state = 'aborted', finished_at = ${input.now}
          WHERE id = ${input.taskId} RETURNING ${tx.unsafe(COLUMNS)}
       `;
       await this.event(tx, input.taskId, 'aborted', input.actorId, input.now);
@@ -176,19 +176,19 @@ export class ReportTasks {
   /** Takes a task off the list and drops its file. Deleting a deleted task answers the same. */
   async delete(input: { actorId: string; taskId: string; now: Date }): Promise<{ taskId: string; deleted: true }> {
     return this.sql.begin(async (tx) => {
-      const [task] = await tx<Row[]>`SELECT ${tx.unsafe(COLUMNS)} FROM academy.report_tasks WHERE id = ${input.taskId} FOR UPDATE`;
+      const [task] = await tx<Row[]>`SELECT ${tx.unsafe(COLUMNS)} FROM academy.report_centre_tasks WHERE id = ${input.taskId} FOR UPDATE`;
       if (!task) return refuse('academy.report_not_found', 'no report task has that id');
       if (task.deleted_at) return { taskId: input.taskId, deleted: true as const };
-      await tx`UPDATE academy.report_tasks SET deleted_at = ${input.now}, csv = NULL WHERE id = ${input.taskId}`;
+      await tx`UPDATE academy.report_centre_tasks SET deleted_at = ${input.now}, csv = NULL WHERE id = ${input.taskId}`;
       await this.event(tx, input.taskId, 'deleted', input.actorId, input.now);
       return { taskId: input.taskId, deleted: true as const };
     });
   }
 
   /** A done task's stored CSV, exactly as it was made, while its retention lasts. */
-  async file(taskId: string, now: Date = new Date()): Promise<AcademyReportFile> {
+  async file(taskId: string, now: Date = new Date()): Promise<AcademyReportCentreFile> {
     const [task] = await this.sql<Array<Row & { csv: string | null }>>`
-      SELECT ${this.sql.unsafe(COLUMNS)}, csv FROM academy.report_tasks WHERE id = ${taskId} AND deleted_at IS NULL
+      SELECT ${this.sql.unsafe(COLUMNS)}, csv FROM academy.report_centre_tasks WHERE id = ${taskId} AND deleted_at IS NULL
     `;
     if (!task) return refuse('academy.report_not_found', 'no report task has that id');
     if (task.state !== 'done') return refuse('academy.report_not_ready', `the task is ${task.state}, so it has no file`);
@@ -203,19 +203,19 @@ export class ReportTasks {
    */
   async sweep(now: Date = new Date()): Promise<{ finished: number; started: number }> {
     const expired = await this.sql<Array<{ id: string }>>`
-      UPDATE academy.report_tasks SET csv = NULL
+      UPDATE academy.report_centre_tasks SET csv = NULL
        WHERE state = 'done' AND csv IS NOT NULL AND expires_at <= ${now} RETURNING id
     `;
     for (const { id } of expired) await this.event(this.sql, id, 'expired', null, now);
 
     const running = await this.sql<Array<{ id: string }>>`
-      SELECT id FROM academy.report_tasks WHERE state = 'running' AND deleted_at IS NULL ORDER BY requested_at
+      SELECT id FROM academy.report_centre_tasks WHERE state = 'running' AND deleted_at IS NULL ORDER BY requested_at
     `;
     let finished = 0;
     for (const { id } of running) if (await this.finish(id, now)) finished += 1;
 
     const started = await this.sql<Array<{ id: string }>>`
-      UPDATE academy.report_tasks SET state = 'running', started_at = ${now}
+      UPDATE academy.report_centre_tasks SET state = 'running', started_at = ${now}
        WHERE state = 'queued' AND deleted_at IS NULL RETURNING id
     `;
     for (const { id } of started) await this.event(this.sql, id, 'started', null, now);
@@ -226,12 +226,12 @@ export class ReportTasks {
   private finish(taskId: string, now: Date): Promise<boolean> {
     return this.sql.begin(async (tx) => {
       const [task] = await tx<Row[]>`
-        SELECT ${tx.unsafe(COLUMNS)} FROM academy.report_tasks
+        SELECT ${tx.unsafe(COLUMNS)} FROM academy.report_centre_tasks
          WHERE id = ${taskId} AND state = 'running' AND deleted_at IS NULL FOR UPDATE SKIP LOCKED
       `;
       if (!task) return false;
       const fail = async (failure: string) => {
-        await tx`UPDATE academy.report_tasks SET state = 'failed', failure = ${failure}, finished_at = ${now} WHERE id = ${taskId}`;
+        await tx`UPDATE academy.report_centre_tasks SET state = 'failed', failure = ${failure}, finished_at = ${now} WHERE id = ${taskId}`;
         await this.event(tx, taskId, 'failed', null, now);
         return true;
       };
@@ -245,7 +245,7 @@ export class ReportTasks {
       const sha256 = createHash('sha256').update(csv, 'utf8').digest('hex');
       const expiresAt = new Date(now.getTime() + retentionHours * 3_600_000);
       await tx`
-        UPDATE academy.report_tasks
+        UPDATE academy.report_centre_tasks
            SET state = 'done', csv = ${csv}, rows = ${rows.length}, sha256 = ${sha256}, finished_at = ${now}, expires_at = ${expiresAt}
          WHERE id = ${taskId}
       `;

@@ -118,7 +118,7 @@ describe('report tasks', () => {
     await r.sweep(gone);
     const [{ csv } = { csv: 'x' }] = await db.sql<
       Array<{ csv: string | null }>
-    >`SELECT csv FROM academy.report_tasks WHERE id = ${task.id}`;
+    >`SELECT csv FROM academy.report_centre_tasks WHERE id = ${task.id}`;
     expect(csv).toBeNull();
     expect((await r.list(me, gone)).tasks.find((t) => t.id === task.id)).toMatchObject({ expired: true });
   });
@@ -133,7 +133,7 @@ describe('report tasks', () => {
     await r.sweep(later(20));
     await expectRefusal(r.file(task.id, later(21)), 'academy.report_not_ready');
     const [{ events } = { events: [] }] = await db.sql<Array<{ events: string[] }>>`
-      SELECT array_agg(event ORDER BY n) AS events FROM academy.report_task_events WHERE task_id = ${task.id}
+      SELECT array_agg(event ORDER BY n) AS events FROM academy.report_centre_events WHERE task_id = ${task.id}
     `;
     expect(events).toEqual(['requested', 'started', 'aborted']);
   });
@@ -179,7 +179,7 @@ describe('report tasks', () => {
     await expectRefusal(reports({ pageSize: null }).list(me), 'academy.report_tasks_list_limit_unset');
     const [{ n } = { n: -1 }] = await db.sql<
       Array<{ n: number }>
-    >`SELECT count(*)::int AS n FROM academy.report_tasks WHERE requested_by = ${me}`;
+    >`SELECT count(*)::int AS n FROM academy.report_centre_tasks WHERE requested_by = ${me}`;
     expect(n).toBe(0);
   });
 });
