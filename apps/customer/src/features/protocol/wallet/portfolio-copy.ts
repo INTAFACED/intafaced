@@ -69,6 +69,7 @@ const en = {
   modeLink: 'What Standard means',
   modeAsk: 'Ask for portfolio margin',
   modeCode: 'Code: {code}',
+  modeOffered: 'The futures service now offers portfolio margin. It is not switched on here: it is set when a position opens.',
   trackerTitle: 'Track an address',
   trackerNote:
     'Paste any public address to see what it holds and its token history. The read sends only the address: no cookie, no sign-in and nothing about you. The watchlist stays in this browser and is never sent or exported.',

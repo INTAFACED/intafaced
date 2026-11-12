@@ -409,7 +409,13 @@ test(`${J} #7 opens Accounts and asks for portfolio margin: Standard only, with 
   const link = mode.getByRole('link').first();
   await expect(link).toBeVisible();
   expect(await link.getAttribute('href')).toMatch(/^\/|^https?:/);
+  // The ask goes to the futures service, and the refusal shown is the code it answered with.
+  const asked = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/v1/futures/margin-modes');
   await mode.getByRole('button', { name: 'Ask for portfolio margin' }).click();
+  const answer = await asked;
+  expect(answer.status(), 'the futures service answered').toBe(200);
+  const portfolio = (await answer.json()).modes.find((row) => row.mode === 'portfolio');
+  expect(portfolio, 'the futures service names portfolio margin').toMatchObject({ offered: false, code: 'trade.portfolio_margin_unset' });
   await expect(mode.getByRole('alert')).toContainText('trade.portfolio_margin_unset');
   // Asking changed nothing: the mode is still Standard, and still the only one.
   await expect(shown).toHaveAttribute('data-account-mode', 'standard');
