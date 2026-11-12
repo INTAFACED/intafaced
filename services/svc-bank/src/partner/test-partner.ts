@@ -42,6 +42,9 @@ export type TestPartnerSetting = (typeof TEST_PARTNER_SETTINGS)[number];
 
 export const TEST_PARTNER_LABEL = 'TEST partner bank';
 
+/** The reason the TEST partner card declines with under `cardDecline: 'unlisted'`: a code nothing here has words for. */
+export const TEST_PARTNER_UNLISTED_DECLINE = 'test_partner.unlisted_reason';
+
 /**
  * TEST: how old the TEST partner bank says its figure may be before it is stale (b2 change 6). A real partner declares
  * its own; this TEST value stands in on test stacks only.
@@ -99,6 +102,12 @@ export interface TestPartnerSwitches {
    */
   readonly cardHold: 'live' | 'expired';
   /**
+   * `unlisted`: the TEST partner card declines this person's next holds with a reason code of its own that INTAFACED has
+   * no words for (`TEST_PARTNER_UNLISTED_DECLINE`), as a real partner may send one we have not seen (J-bank-14 #6: an
+   * unknown code shows the raw code). `none` (the default): the partner declines only for its own figures.
+   */
+  readonly cardDecline: 'none' | 'unlisted';
+  /**
    * `issued`: the partner has issued this person TEST account details, labelled TEST (J-bank-01 #6). `none`, the default,
    * is a stack with no banking partner for account details: every currency answers `rail.bank` and no number is shown.
    */
@@ -116,6 +125,7 @@ export const SWITCHES_OFF: TestPartnerSwitches = Object.freeze({
   custody: 'on',
   nextReply: 'answered',
   cardHold: 'live',
+  cardDecline: 'none',
   accountDetails: 'none',
 });
 

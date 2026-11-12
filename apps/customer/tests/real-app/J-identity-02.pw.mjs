@@ -138,16 +138,27 @@ test(`${J} #2 several wrong passwords give a typed lockout with the minutes left
   await expect(page).toHaveURL(/\/login/);
 });
 
-/** Restarts identity with the sign-in challenge after `count` failures from an address, or the stack's TEST count. */
+/**
+ * Restarts identity with the sign-in challenge after `count` failures from an address, or the stack's TEST count. A
+ * count comes with a fresh challenge round (a key of its own), so this address starts from no failures in a window of
+ * its own: the run's earlier wrong passwords opened a 15-minute window that could otherwise close mid-test, and the
+ * console's sign-in then counted as the first failure and was never asked (#7988).
+ */
 function challengeAfter(count) {
-  const before = process.env.LOCAL_STACK_IDENTITY_SIGNIN_CHALLENGE_AFTER;
-  if (count === null) delete process.env.LOCAL_STACK_IDENTITY_SIGNIN_CHALLENGE_AFTER;
-  else process.env.LOCAL_STACK_IDENTITY_SIGNIN_CHALLENGE_AFTER = String(count);
+  const keys = ['LOCAL_STACK_IDENTITY_SIGNIN_CHALLENGE_AFTER', 'LOCAL_STACK_IDENTITY_SIGNIN_CHALLENGE_ROUND'];
+  const before = keys.map((key) => process.env[key]);
+  if (count === null) for (const key of keys) delete process.env[key];
+  else {
+    process.env.LOCAL_STACK_IDENTITY_SIGNIN_CHALLENGE_AFTER = String(count);
+    process.env.LOCAL_STACK_IDENTITY_SIGNIN_CHALLENGE_ROUND = randomUUID();
+  }
   try {
     tool('local-test-stack.mjs', 'restart', 'identity');
   } finally {
-    if (before === undefined) delete process.env.LOCAL_STACK_IDENTITY_SIGNIN_CHALLENGE_AFTER;
-    else process.env.LOCAL_STACK_IDENTITY_SIGNIN_CHALLENGE_AFTER = before;
+    keys.forEach((key, i) => {
+      if (before[i] === undefined) delete process.env[key];
+      else process.env[key] = before[i];
+    });
   }
 }
 

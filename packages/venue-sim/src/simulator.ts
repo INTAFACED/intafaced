@@ -14,6 +14,7 @@ import {
   type UserVenueAccount,
   type UserVenueAgent,
   type UserVenueBalance,
+  type UserVenueDeposit,
   type UserVenueDescriptor,
   type UserVenueFeed,
   type UserVenueFill,
@@ -184,6 +185,11 @@ export interface SimSwitches {
   unpublishedWithdrawalFee: Amount;
   /** The network fee a withdrawal reports, taken from what arrives at its destination. */
   networkFee: MaybeKnown<Amount>;
+  /**
+   * The explorer link the venue gives each chain deposit, a transaction hash appended (J-dex-protocol-05 #2); `null` for a
+   * network with no explorer, when a deposit shows its hash alone.
+   */
+  depositExplorerTxUrl: string | null;
   /** The network fee actually taken when `networkFee` is not published (never 0 by default, as `unpublishedWithdrawalFee`). */
   unpublishedNetworkFee: Amount;
   /** The trading fees actually charged, and reported on fills, on a market whose fee is not published. */
@@ -278,6 +284,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   private readonly withdrawalFeeCharged = new Map<string, Amount>();
   private readonly networkFeeCharged = new Map<string, Amount>();
   private readonly withdrawalSubmittedAt = new Map<string, Date>();
+  /** Every on-chain deposit the venue has seen, by its transfer id, with the main account it is for (J-dex-protocol-05 #2). */
+  private readonly chainDeposits = new Map<string, { readonly accountKey: string; record: UserVenueDeposit }>();
   private seqCounter = 0;
   private fillCounter = 0;
   /** Builder fees charged, by builder address and fee asset: the venue's own builder totals (OWNER 288 1e). */
@@ -308,6 +316,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       withdrawalFee: { known: true, value: parseAmount('1') },
       unpublishedWithdrawalFee: parseAmount('2'),
       networkFee: { known: true, value: parseAmount('0.25') },
+      depositExplorerTxUrl: null,
       unpublishedNetworkFee: parseAmount('0.5'),
       unpublishedMakerFeeBps: parseAmount('2'),
       unpublishedTakerFeeBps: parseAmount('5'),
@@ -406,6 +415,43 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     const balance = this.balance(state, asset);
     balance.free = add(balance.free, amount);
     return true;
+  }
+
+  /**
+   * Record what the venue has seen of one on-chain deposit (chain-deposits.ts): confirming, credited, or not credited.
+   * The first sighting's time is kept; a later call only moves its confirmations and status on. A credited deposit never
+   * goes back to confirming. Nothing here credits: `deposit` does, by the same transfer id.
+   */
+  trackChainDeposit(
+    account: UserVenueAccount,
+    seen: Omit<UserVenueDeposit, 'seenAt' | 'status' | 'explorerUrl'> & { readonly status: UserVenueDeposit['status'] },
+  ): void {
+    const state = this.account(account);
+    const before = this.chainDeposits.get(seen.depositRef);
+    const credited = state.deposits.has(seen.depositRef);
+    const status: UserVenueDeposit['status'] = credited ? 'credited' : before?.record.status === 'credited' ? 'credited' : seen.status;
+    this.chainDeposits.set(seen.depositRef, {
+      accountKey: state.key,
+      record: {
+        ...seen,
+        status,
+        confirmations: Math.max(seen.confirmations, before?.record.confirmations ?? 0),
+        seenAt: before?.record.seenAt ?? this.clock(),
+        explorerUrl: null,
+      },
+    });
+  }
+
+  /** The on-chain deposits the venue has seen for this account, newest first (J-dex-protocol-05 #2). */
+  async deposits(account: UserVenueAccount): Promise<AsOf<readonly UserVenueDeposit[]>> {
+    this.up();
+    const key = this.account(account).key;
+    // The explorer link as the venue gives it now: its network's explorer, or none.
+    const explorer = this.switches.depositExplorerTxUrl;
+    const mine = [...this.chainDeposits.values()]
+      .filter((d) => d.accountKey === key)
+      .map((d) => ({ ...d.record, explorerUrl: explorer ? `${explorer}${d.record.txHash}` : null }));
+    return this.asOf(mine.reverse());
   }
 
   /**

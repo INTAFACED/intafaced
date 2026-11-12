@@ -1038,9 +1038,16 @@ export function createCardsRouter(c: BankRouterContext) {
             merchant: z.string().nullable(),
             merchantCountry: z.string().nullable(),
             channel: z.enum(['card-present', 'online', 'contactless', 'atm', 'foreign']),
+            /** The issuer flagged it as a merchant charging the card on file on an agreed schedule (J-bank-14 #6). */
+            recurring: z.boolean(),
             decision: z.enum(['approved', 'declined']),
             declineCode: z.string().nullable(),
             status: z.string(),
+            /**
+             * THE MERCHANT'S REFUND of this payment (J-bank-14 #6), as recorded: the partner gives it back to the partner
+             * balance on a partner-held capture, and our ledger posts nothing. Null when there is none.
+             */
+            refund: z.object({ amount: amountString, status: z.enum(['pending', 'settled', 'rejected']), at: z.string() }).nullable(),
             /** Whose book held it (OWNER 226): `ledger`, or `partner` (the card partner held it; our ledger posted nothing). */
             heldBy: z.enum(['ledger', 'partner']),
             decidedAt: z.string(),
@@ -1082,9 +1089,11 @@ export function createCardsRouter(c: BankRouterContext) {
             merchant: a.merchant,
             merchantCountry: a.merchantCountry,
             channel: a.channel,
+            recurring: a.recurring,
             decision: a.decision,
             declineCode: a.declineCode,
             status: a.status,
+            refund: a.refund ? { amount: formatAmount(a.refund.amount), status: a.refund.status, at: a.refund.at.toISOString() } : null,
             heldBy: a.heldBy,
             decidedAt: a.decidedAt.toISOString(),
             conversion: a.conversion
@@ -1096,6 +1105,40 @@ export function createCardsRouter(c: BankRouterContext) {
                   rateAsOf: a.conversion.rateAsOf.toISOString(),
                 }
               : null,
+          }));
+        }),
+      ),
+
+    /**
+     * THE CARD'S RECURRING PAYMENTS, one row per merchant (J-bank-14 #6; BK-cpay-02): the approved payments the issuer
+     * flagged as a merchant charging the card on file, grouped by merchant, newest first. Reads only.
+     */
+    recurring: scopedProcedure('bank:read', { module: 'bank' })
+      .input(z.object({ cardId: z.string().guid(), limit: z.number().int().min(1).max(200).optional() }))
+      .output(
+        z.array(
+          z.object({
+            merchant: z.string().nullable(),
+            merchantCountry: z.string().nullable(),
+            payments: z.number().int(),
+            firstAt: z.string(),
+            lastAt: z.string(),
+            lastAmount: amountString,
+          }),
+        ),
+      )
+      .query(async ({ ctx, input }) =>
+        guard(async () => {
+          const card = await bank.cards.card(input.cardId);
+          assertSelf(ctx.principal.userId, card.userId);
+          const rows = await bank.cards.recurringOf(input.cardId, input.limit);
+          return rows.map((r) => ({
+            merchant: r.merchant,
+            merchantCountry: r.merchantCountry,
+            payments: r.payments,
+            firstAt: r.firstAt.toISOString(),
+            lastAt: r.lastAt.toISOString(),
+            lastAmount: formatAmount(r.lastAmount),
           }));
         }),
       ),

@@ -202,7 +202,9 @@ replay of an attach already made is never refused for the count. The store and t
 production wires neither, so every attach refuses naming `support.attachment_store`. For the test stack only,
 `SUPPORT_ATTACHMENT_STORE=local-test-memory` (bytes kept in this process, lost on restart) and
 `SUPPORT_MALWARE_SCANNER=local-test-eicar` (infected only for the EICAR test string) install LOCAL-TEST adapters; boot
-throws `support.attachment_adapter_refused` unless `APP_ENV` is exactly `dev` or `test`, and for any other name. Size, types
+throws `support.attachment_adapter_refused` unless `APP_ENV` is exactly `dev` or `test`, and for any other name.
+`SUPPORT_LOCAL_TEST_SCAN_DELAY_MS` (1 to 60000, only with `local-test-eicar`) makes each check take that long, so a journey
+can see a file while it is being checked. Size, types
 and count still come from the owner's settings, so a journey sets them through the admin card first.
 
 Scan state: a file's row is written `scanning` first (`support.ticket_attachments.scan_state`, migration 0024; rows from before
