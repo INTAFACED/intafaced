@@ -1,10 +1,10 @@
-// World: restart
+// World: book, restart
 import { randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { CHAIN_ID, fundOnTestChain, testChain } from './dex.mjs';
-import { api, journeyState, signOutBrowser, tool } from './stack.mjs';
+import { api, fund, journeyState, signOutBrowser, tool } from './stack.mjs';
 import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs';
 import { testDeposit } from './venue.mjs';
 
@@ -17,8 +17,10 @@ import { testDeposit } from './venue.mjs';
 // from the venue (svc-trade's user-venue door on the stack's TEST venue, which takes the TEST chain's TEST USD at its
 // TEST deposit address and credits it as TEST USDC). The ledger posts nothing for a deposit.
 // #2 restarts trade with `LOCAL_STACK_USER_VENUE=on` (which starts the TEST venue) and the file puts it back off after.
-// #3 and #4 (a deposit of reward money INTAFACED paid the wallet; one reward per task owed and paid once to the
-// connected wallet) wait for the payout to the customer's own wallet, which does not exist yet: they are not here.
+// #3 and #4 keep their earlier tests until the reward is paid to the customer's own wallet, which does not exist yet: #3
+// shows a TEST trial credit to a ledger balance never ticks the deposit task, and #4 claims each task once against the
+// reward pot (TEST USDT, the stack's custody layer on). Neither yet proves its step's wallet words (a deposit of reward
+// money we paid that wallet; each reward owed once and paid once to the connected wallet), so the PR names both left.
 const J = 'J-campaigns-04';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const tag = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -92,6 +94,19 @@ async function endCampaign(id) {
   const a = await pair.a.campaignsOpsToken();
   const ended = data(await ctx.edge.mutate('campaigns', 'ops.campaigns.transition', { id, action: 'end', revision: 1 }, a), 'end');
   expect(ended.state).toBe('ended');
+}
+
+/** Founder A asks to sweep earned trade fees into the reward pot; founder B approves, which posts it. */
+async function fundPot(reference, amount) {
+  const { ctx, pair } = await operators();
+  const a = await pair.a.campaignsOpsToken();
+  const b = await pair.b.campaignsOpsToken();
+  data(
+    await ctx.edge.mutate('campaigns', 'ops.pot.request', { reference, sourceModule: 'trade', asset: 'USDT', amount }, a),
+    'ops.pot.request',
+  );
+  const funded = data(await ctx.edge.mutate('campaigns', 'ops.pot.approve', { reference }, b), 'ops.pot.approve');
+  expect(funded.state, JSON.stringify(funded)).toBe('posted');
 }
 
 async function checklistOf(who) {
@@ -269,7 +284,8 @@ test(`${J} #2 verifies and deposits TEST USDC from the wallet into the venue acc
   expect(testChain().chain, 'the stack runs its TEST chain').toBe('running');
   const page = await (await browser.newContext()).newPage();
   await signIn(page, me);
-  await verify(page, me, 'Basic');
+  // Full, as #4's spot trade on our own TEST book needs; the verify task ticks on the first tier granted.
+  await verify(page, me, 'Full');
   await waitForTask(me, 'identity.verified', 'done');
   // Nothing deposited yet: the deposit task is open, read from the venue (or unread while the door is off), never ticked.
   expect(taskOf(await checklistOf(me), 'pay.deposit')).toMatchObject({ state: 'open', doneAt: null });
@@ -326,6 +342,91 @@ test(`${J} #2 verifies and deposits TEST USDC from the wallet into the venue acc
   await expect(row(page, 'pay.deposit')).toHaveAttribute('data-state', 'done');
   // The ledger posts nothing for the deposit: the person's ledger balances are exactly as before.
   expect(await (await api(me)).balances()).toEqual(ledgerBefore);
+});
+
+test(`${J} #3 deposits using bonus money: the deposit task does not tick`, async ({ browser }) => {
+  test.setTimeout(240_000);
+  const { fullId } = state('fullId');
+  const page = await (await browser.newContext()).newPage();
+  const other = await signUp(page, 'jc04z');
+  await waitForChecklist(other, fullId);
+  // Money that is not the customer's own deposit into their venue account: the stack's labelled TEST funds credit (a
+  // trial fund through the real ledger). It lands in a ledger balance, never in a venue account a wallet of theirs owns,
+  // and the deposit task is read from the venue alone: with no wallet connected there is no venue deposit to read.
+  const credit = fund(other.email, 'USDT', '50');
+  expect(credit.tx).toBeTruthy();
+  await expect.poll(async () => (await checklistOf(other)).deposit?.source, { timeout: 30_000 }).toBe('no_wallet');
+  expect(taskOf(await checklistOf(other), 'pay.deposit')).toMatchObject({ state: 'open', doneAt: null });
+  await openChecklist(page);
+  await expect(row(page, 'pay.deposit')).toHaveAttribute('data-state', 'open');
+  await expect(row(page, 'pay.deposit').getByTestId('welcome-why')).toContainText(
+    'Rewards INTAFACED paid to that wallet do not count if you send them back.',
+  );
+  // Asking to claim it anyway is refused by name, and nothing is written.
+  const res = await (await api(other)).post('/api/campaigns/trpc/tasks.welcome.claim', { event: 'pay.deposit' });
+  expect(res.body?.error?.message ?? '').toContain('[campaigns.tasks_incomplete]');
+  expect(taskOf(await checklistOf(other), 'pay.deposit').record).toBeNull();
+});
+
+test(`${J} #4 claims after all tasks are done: one reward per task, each once`, async ({ browser }) => {
+  test.setTimeout(300_000);
+  const { me, fullId } = state('me', 'fullId');
+  // The last task by a real trade: a market buy on the real book, filled against the market maker.
+  expect(fund(me.email, 'USDT', '500').tx).toBeTruthy();
+  const client = await api(me);
+  const order = await client.post('/api/v1/orders', {
+    symbol: 'BTC/USDT',
+    type: 'market',
+    side: 'buy',
+    amount: '0.001',
+    clientOrderId: `${J}-buy-${Date.now()}`,
+  });
+  expect(order.status, JSON.stringify(order.body).slice(0, 300)).toBeLessThan(300);
+  await waitForTask(me, 'trade.fill', 'done');
+  // Sold back: the pot is funded from trade fees the platform earned in USDT, and a sell pays its fee in USDT.
+  const back = await client.post('/api/v1/orders', {
+    symbol: 'BTC/USDT',
+    type: 'market',
+    side: 'sell',
+    // The buy's fee was taken in BTC, so a little less than it bought.
+    amount: '0.0009',
+    clientOrderId: `${J}-sell-${Date.now()}`,
+  });
+  expect(back.status, JSON.stringify(back.body).slice(0, 300)).toBeLessThan(300);
+  await fundPot(`TEST-${J}-${tag}`, '0.06');
+
+  const page = await (await browser.newContext()).newPage();
+  await signIn(page, me);
+  await openChecklist(page);
+  for (const [event, title] of Object.entries(TITLES)) {
+    await page.getByRole('button', { name: `Claim the reward for ${title}` }).click();
+    await expect(row(page, event)).toHaveAttribute('data-state', 'claimed');
+  }
+  await expect
+    .poll(async () => (await checklistOf(me)).tasks.map((t) => t.record?.state), { timeout: 60_000 })
+    .toEqual(['posted', 'posted', 'posted']);
+  const claimed = await checklistOf(me);
+  for (const t of claimed.tasks) {
+    expect(t.record.rewardKey).toBe(`task:${fullId}:${client.userId.toLowerCase()}:welcome:${t.event}`);
+    expect(t.record.amount).toBe(REWARDS[t.event]);
+    // A second claim returns the first: nothing new is created or paid.
+    const again = await client.post('/api/campaigns/trpc/tasks.welcome.claim', { event: t.event });
+    expect(again.body?.result?.data, JSON.stringify(again.body).slice(0, 300)).toMatchObject({
+      created: false,
+      reward: { rewardKey: t.record.rewardKey, ledgerTxId: t.record.ledgerTxId },
+    });
+  }
+  await page.reload();
+  for (const event of Object.keys(TITLES)) {
+    await expect(row(page, event)).toHaveAttribute('data-state', 'claimed');
+    await expect(row(page, event).getByTestId('welcome-tx')).toBeVisible();
+  }
+  await expect(page.getByRole('button', { name: /^Claim the reward for/ })).toHaveCount(0);
+  // My rewards lists exactly the three, each once.
+  await page.goto('/uc/promotion');
+  const rows = page.locator(`[data-testid="reward-row"][data-campaign="${fullId}"]`);
+  await expect(rows).toHaveCount(3, { timeout: 30_000 });
+  await expect(rows.filter({ has: page.locator('[data-testid="reward-status"]', { hasText: 'Posted' }) })).toHaveCount(3);
 });
 
 test(`${J} #5 returns after the window: the tasks read expired and no reward is created`, async ({ browser }) => {
