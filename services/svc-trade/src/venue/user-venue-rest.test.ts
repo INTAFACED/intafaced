@@ -59,7 +59,7 @@ function door(withdrawStepUp: 'approve' | 'required' = 'approve', builder: Build
     },
     builder,
     now: () => new Date(),
-    listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP', 'XAU-PERP', 'XSTK-PERP'])),
+    listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP', 'XAU-PERP', 'XSTK-PERP', 'XSTD-PERP'])),
   });
 }
 
@@ -351,6 +351,114 @@ describe('/api/v1/venue/*', () => {
       });
     } finally {
       await session('open');
+    }
+  });
+
+  it("J-derivatives-27 #7 #8: a market's own margin account is read on the main account and funded by the owner's signed move; an open past the deployer's open-interest cap is trade.venue.open_interest_above_cap naming it", async () => {
+    await mount(door('approve', { address: '0x7e57000000000000000000000000000000000b1d', feeBps: parseAmount('0.5') }));
+    const venueId = ((await (await fetch(`${url}/venue`)).json()) as { venue: { id: string } }).venue.id;
+    const control = (path: string, body: unknown) =>
+      fetch(`${url}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    expect(
+      (
+        await control('/test/deposit', {
+          account: { venueId, owner, subAccount: null },
+          asset: 'USDC',
+          amount: '200',
+          depositRef: 'rest:xstd:1',
+        })
+      ).status,
+    ).toBe(200);
+    const market = (await app.inject({ method: 'GET', url: '/api/v1/venue/markets' }))
+      .json()
+      .value.find((m: { symbol: string }) => m.symbol === 'XSTD-PERP');
+    expect(market).toMatchObject({
+      listedBy: { known: true, value: { kind: 'hip3' } },
+      marginAccount: { known: true, value: { name: 'TEST stock margin deployer margin', collateralAsset: 'USDC', marginMode: 'isolated' } },
+      openInterest: { known: true, value: { capSize: '500' } },
+    });
+    const margin = async () => app.inject({ method: 'GET', url: `/api/v1/venue/market-margin?owner=${owner}&symbol=XSTD-PERP` });
+    const before = await margin();
+    expect(before.statusCode).toBe(200);
+    const free = parseAmount(before.json().value.free);
+    // The owner's signed move, stored under its business key.
+    const signed = async (intent: Record<string, unknown>, actionKey: string | null) => {
+      const prep = await app.inject({
+        method: 'POST',
+        url: '/api/v1/venue/prepare',
+        payload: { owner, signer: { role: 'owner', address: owner }, intent, actionKey },
+      });
+      expect(prep.statusCode, prep.body).toBe(200);
+      const prepared = prep.json().prepared;
+      const t = prepared.typedData as TestVenueTypedData;
+      const signature = await key.signTypedData({ domain: t.domain, types: t.types, primaryType: t.primaryType, message: t.message });
+      return app.inject({
+        method: 'POST',
+        url: '/api/v1/venue/submit',
+        payload: { actionKey: prep.json().actionKey ?? actionKey, signature: { digest: prepared.digest, signature, signedBy: owner } },
+      });
+    };
+    const moveKey = `market-margin:${owner}:xstd-perp:rest-1`;
+    const moved = await signed(
+      { kind: 'market_margin_transfer', symbol: 'XSTD-PERP', direction: 'into_market', asset: 'USDC', amount: '150', moveKey },
+      null,
+    );
+    expect(moved.json().outcome).toMatchObject({ definite: true, accepted: true });
+    expect(parseAmount((await margin()).json().value.free)).toBe(free + parseAmount('150'));
+    // Asked of a market with no margin account of its own: the venue's refusal.
+    const none = await app.inject({ method: 'GET', url: `/api/v1/venue/market-margin?owner=${owner}&symbol=XSTK-PERP` });
+    expect(none.statusCode).toBe(422);
+    expect(none.json().intafacedCode).toBe('trade.venue.not_offered');
+
+    const lev = { kind: 'update_leverage', symbol: 'XSTD-PERP', leverageBps: 20_000, marginMode: 'isolated' };
+    expect((await signed(lev, `leverage:${USER.userId}:xstd-2`)).json().outcome).toMatchObject({ accepted: true });
+    expect((await control('/test/open-interest-cap', { symbol: 'XSTD-PERP', capSize: '0.1' })).status).toBe(200);
+    try {
+      const order = {
+        kind: 'place_order',
+        symbol: 'XSTD-PERP',
+        side: 'buy',
+        type: 'market',
+        amount: '1',
+        price: '105',
+        timeInForce: 'IOC',
+        reduceOnly: false,
+        clientOrderKey: `order:${USER.userId}:xstd:1`,
+        builderFee: null,
+      };
+      const refused = await app.inject({ method: 'POST', url: '/api/v1/venue/preview', payload: { owner, intent: order } });
+      expect(refused.statusCode).toBe(422);
+      expect(refused.json()).toMatchObject({ intafacedCode: 'trade.venue.open_interest_above_cap' });
+      expect(refused.json().message).toContain('caps its open interest at 0.1 XSTD');
+    } finally {
+      await control('/test/open-interest-cap', { symbol: 'XSTD-PERP', capSize: '500' });
+    }
+  });
+
+  it("J-derivatives-27 #9 #10: a deployer's halt is the market's lastEvent with its time and price; settlements are read since a time", async () => {
+    await mount(door());
+    const control = (path: string, body: unknown) =>
+      fetch(`${url}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const since = new Date(Date.now() - 60_000).toISOString();
+    const none = await app.inject({ method: 'GET', url: `/api/v1/venue/settlements?owner=${owner}&since=${since}` });
+    expect(none.statusCode).toBe(200);
+    expect(none.json().value).toEqual([]);
+    const noSince = await app.inject({ method: 'GET', url: `/api/v1/venue/settlements?owner=${owner}` });
+    expect(noSince.statusCode).toBe(400);
+    expect((await control('/test/deployer-halt', { symbol: 'XSTD-PERP' })).status).toBe(200);
+    try {
+      const market = (await app.inject({ method: 'GET', url: '/api/v1/venue/markets' }))
+        .json()
+        .value.find((m: { symbol: string }) => m.symbol === 'XSTD-PERP');
+      expect(market.status).toBe('halted');
+      expect(market.lastEvent).toMatchObject({
+        known: true,
+        value: { kind: 'deployer_halt', settlementPrice: '100', reopenedAt: null, splitRatio: null },
+      });
+      expect(Number.isNaN(Date.parse(market.lastEvent.value.eventAt))).toBe(false);
+    } finally {
+      await control('/test/market-status', { symbol: 'XSTD-PERP', status: 'trading' });
+      await control('/test/seed', {});
     }
   });
 

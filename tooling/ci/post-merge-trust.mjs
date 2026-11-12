@@ -520,6 +520,40 @@ export function untrackedRedBody({ name, sha, runId, runUrl, prev, lastGreen, ra
   ].join('\n');
 }
 
+/** The one issue for shards that sent no report on two attempts in a row (or that GitHub wouldn't re-run). */
+export const LOST_SHARD_TITLE = 'Broken on main: Real-app journeys (shard lost)';
+
+/**
+ * Opens (or comments on) the lost-shard issue, labelled so a builder's pick reads it (the lead's decision of 12 Nov 2026,
+ * items 3 and 4: a shard with no report is run again by code until it has a report or has failed the same way twice,
+ * then one labelled issue); closes it on a run where every shard reported.
+ */
+/** The lost-shard issue's body. Pure. */
+export function lostShardBody({ missing, sha, runId, runUrl, attempt, why }) {
+  return [
+    `${missing.map((m) => `\`${m}\``).join(', ')} sent no report on \`${sha.slice(0, 10)}\` ([run ${runId}](${runUrl}), attempt ${attempt}${why ? `; ${why}` : ', after its one re-run'}), so ${missing.length === 1 ? 'its' : 'their'} journeys count as not passing.`,
+    '',
+    "Read the shard job's log for the step that died before the tests (a runner lost, a package mirror down, the stack not starting); never skip a journey to get past it.",
+    '',
+    '_Opened by tooling/ci/post-merge-trust.mjs. It closes itself on the next run where every shard reports._',
+  ].join('\n');
+}
+
+async function lostShardCheck({ repo, runId, sha, runUrl, attempt }, missing, why) {
+  if (missing.length) {
+    const body = lostShardBody({ missing, sha, runId, runUrl, attempt, why });
+    return `- Shards with no report: ${missing.join(', ')}: ${await upsertIssue(repo, LOST_SHARD_TITLE, body, ISSUE_LABELS.break)}`;
+  }
+  const issue = await findOpenIssue(repo, LOST_SHARD_TITLE);
+  if (!issue) return null;
+  await closeIssue(
+    repo,
+    issue,
+    `Every shard of [run ${runId}](${runUrl}) on \`${sha.slice(0, 10)}\` sent its report. Closing.\n\n_Closed by tooling/ci/post-merge-trust.mjs._`,
+  );
+  return `- Shards with no report: none, closed #${issue.number}`;
+}
+
 /** Opens (or comments on) the time-limit issue when jobs hit their limit; closes it on a run where none did. */
 async function timeLimitCheck({ repo, name, runId, sha, runUrl, timedOut }) {
   const title = timeLimitIssueTitle(name);
@@ -615,13 +649,19 @@ async function journeysCheck(ctx) {
       '### Shards with no report',
       '',
       `${missing.length} shard(s) sent no report on attempt ${ctx.attempt}: ${missing.join(', ')}. GitHub didn't take the re-run (${r.status}), so this attempt is judged as it is: their journeys count as not passing.`,
+      await lostShardCheck(ctx, missing, `GitHub didn't take its re-run (${r.status})`),
     ]);
   } else if (missing.length)
     summary([
       '### Shards with no report',
       '',
       `${missing.length} shard(s) sent no report on attempt ${ctx.attempt}: ${missing.join(', ')}. Their journeys count as not passing${again.why ? `; not re-run: ${again.why}` : ''}.`,
+      await lostShardCheck(ctx, missing, again.why ? `not re-run: ${again.why}` : null),
     ]);
+  else {
+    const closed = await lostShardCheck(ctx, [], null);
+    if (closed) summary(['### Shards with no report', '', closed]);
+  }
   const { repo, runId, sha, runUrl, earlier } = ctx;
   const now = await journeyReport(repo, runId);
   if (!now)
@@ -851,6 +891,11 @@ function selfTest() {
     'a flaky step gets one issue while none is open (an older money-flaky title counts): once per step, again after its last one closed',
   );
   if (!/never counts as proven/.test(flakyIssueBody(mf, 'u'))) throw new Error('the flaky issue says it is never proven');
+  const lost = lostShardBody({ missing: ['shard 2 of 4'], sha: 'a'.repeat(40), runId: 9, runUrl: 'u', attempt: 2, why: null });
+  if (!/`shard 2 of 4` sent no report on `aaaaaaaaaa` \(\[run 9\]\(u\), attempt 2, after its one re-run\)/.test(lost))
+    throw new Error('the lost-shard issue names the shard, the commit, the run and its attempt');
+  eq(LOST_SHARD_TITLE, 'Broken on main: Real-app journeys (shard lost)', 'one lost-shard issue title');
+  eq(newIssuePayload(LOST_SHARD_TITLE, lost, ISSUE_LABELS.break).labels, ['regression'], 'the lost-shard issue opens labelled');
   const shardJobs = [1, 2, 3, 4].map((n) => ({ name: `Journeys (shard ${n} of 4)` })).concat([{ name: 'Real-app journeys' }]);
   eq(
     shardsWithoutReport(shardJobs, ['real-app-journeys-shard-1', 'real-app-journeys-shard-3', 'real-app-journeys', 'x-shard-2']),
@@ -930,7 +975,7 @@ function selfTest() {
     .map((m) => m[0])
     .filter((c) => !c.includes('ISSUE_LABELS.') && !c.includes('labels = []'));
   eq(bare, [], 'no caller opens an issue without labels');
-  console.log('✓ post-merge-trust --self-test OK (36 fixtures)');
+  console.log('✓ post-merge-trust --self-test OK (39 fixtures)');
 }
 
 async function main() {

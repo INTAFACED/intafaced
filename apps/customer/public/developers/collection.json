@@ -1333,6 +1333,26 @@
           }
         },
         {
+          "name": "venueMarketMargin",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/market-margin",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "market-margin"]
+            }
+          }
+        },
+        {
+          "name": "venueSettlements",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/venue/settlements", "host": ["{{baseUrl}}"], "path": ["api", "v1", "venue", "settlements"] }
+          }
+        },
+        {
           "name": "venueBuilderFeeApproval",
           "request": {
             "method": "GET",
