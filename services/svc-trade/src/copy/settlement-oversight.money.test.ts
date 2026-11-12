@@ -148,7 +148,13 @@ describe('copy settlement oversight (J-copy-bots-otc-11 #1)', () => {
 
   it('reads the posted amount from the payout recipe itself', () => {
     const s = share();
-    const pay = recipes.rewardPay({ rewardId: 'copy-leader-share:x', userId: LEAD, assetId: 'USDT', amount: s.owed });
+    const pay = recipes.rewardPay({
+      rewardId: 'copy-leader-share:x',
+      userId: LEAD,
+      assetId: 'USDT',
+      amount: s.owed,
+      reason: 'trade.copy.fee_share',
+    });
     expect(judgeSettlement(s, { sweep: posted(s).sweep, payout: tx(pay) }, [venueFee(s.protocolFee)]).status).toBe('settled');
   });
 });
