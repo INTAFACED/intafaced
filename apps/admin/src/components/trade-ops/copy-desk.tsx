@@ -324,7 +324,7 @@ export function CopyDesk({ initial, userId }: { initial: Outcome<LeadDeskRead>; 
 
         <TabsPanel value="pooled" className="flex flex-col gap-3 pt-4">
           <p className="text-sm text-fg-2">
-            A pooled master runs one pool that followers put money into. INTAFACED holds no customer money, so no pool can be created yet:
+            A pooled master runs one pool that followers put money into. INTAFACED holds no customer money, so no pool can be created:
             applications from the master center wait here, and none can be approved.
           </p>
           {desk ? (

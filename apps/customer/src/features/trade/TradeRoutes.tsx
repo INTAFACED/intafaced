@@ -15,6 +15,7 @@ import { RiskControl } from './risk/RiskControl';
 import { OrderDetailRoom } from './orders/OrderDetailRoom';
 import { OrderHistoryRoom } from './orders/OrderHistoryRoom';
 import { LeadApplyRoom } from './lead-apply/LeadApplyRoom';
+import { PoolApplyRoom } from './pool-apply/PoolApplyRoom';
 import { MarketAnalyticsRoom } from './market-analytics/MarketAnalyticsRoom';
 import { FuturesOrderDetail } from './orders/FuturesOrderDetail';
 import { FuturesOrdersRoom } from './orders/FuturesOrdersRoom';
@@ -54,6 +55,7 @@ export function TradeRoutes({ path }: { path: string }) {
   if (pathname === '/trade/calendar') return <CalendarRoom />;
   if (pathname === '/trade/risk') return <RiskControl />;
   if (pathname === '/copy/lead/apply') return <LeadApplyRoom />;
+  if (pathname === '/copy/pools/apply') return <PoolApplyRoom />;
   const analytics = /^\/trade\/analytics\/([^/]+)$/.exec(pathname);
   if (analytics) return <MarketAnalyticsRoom pair={decodedSegment(analytics[1]!)} />;
   // Spot and futures orders are two halves of one room; `?product=futures` picks the futures half and its order pages.
