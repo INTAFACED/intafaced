@@ -71,12 +71,17 @@ function router() {
         store,
         stepUp: { require: async () => ({ stepUpEventId: 'x', consumedAt: null, replayed: false }) },
         builder: BUILDER,
+        // A labelled TEST bound, the widest; the bound is proven in user-venue-protection.test.ts.
+        slippageCapBps: TEST_SLIPPAGE_CAP_BPS,
         now: () => new Date(),
         listings,
       }),
   );
   return { router: new UserVenueRouter({ doors, store, now: () => new Date() }), store, doors };
 }
+
+/** TEST: the owner's market price protection on these doors, the widest the owner setting takes (5000, 50%), so routing, not protection, decides here. */
+const TEST_SLIPPAGE_CAP_BPS = 5_000;
 
 const buy = (amount: string, n: string): PlaceUserOrderIntent => ({
   kind: 'place_order',

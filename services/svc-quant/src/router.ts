@@ -48,6 +48,14 @@ import {
   quantPaperListSchema,
   quantPaperRunSchema,
   quantPaperStartInputSchema,
+  quantCriteriaSchema,
+  quantCriteriaSetInputSchema,
+  quantLifecycleSchema,
+  quantPromoteInputSchema,
+  quantPromoteOutputSchema,
+  QUANT_OWNER_CRITERIA,
+  type QuantLifecycle,
+  type QuantStage,
 } from '@intafaced/contracts';
 import type { BacktestCostModel } from '@intafaced/quant-honesty';
 import { missingLake, type BacktestLake } from './backtest/lake.js';
@@ -107,6 +115,7 @@ import {
   QUANT_RUN_UNFINISHED,
   QUANT_SANDBOX_MAX_OPS_UNSET,
   QUANT_SANDBOX_MAX_SOURCE_UNSET,
+  QUANT_PAPER_FEE_UNSET,
   QUANT_SANDBOX_UNWIRED,
   QUANT_SIMULATED_AS_LIVE,
   QUANT_STRATEGY_VERSION_UNSET,
@@ -119,8 +128,14 @@ import {
   QUANT_QUOTA_UNSET,
   QUANT_PAPER_LIST_LIMIT_UNSET,
   QUANT_BACKTEST_RULES_REQUIRED,
+  QUANT_CRITERIA_REASON_UNSET,
+  QUANT_GATE_CRITERIA_UNSET,
+  QUANT_STAGE_TRANSITION_INVALID,
   QuantError,
 } from './errors.js';
+import { createMemoryLifecycleRepository } from './lifecycle/memory-repository.js';
+import type { LifecycleRepository } from './lifecycle/repository.js';
+import { evaluateGate, GATE_CRITERION_NAMES, gateCriteriaOf, OWNER_CRITERION_FORMAT, verdictCriteriaOf } from './lifecycle/gate.js';
 import { paperKey, paperSettingsOf, paperView } from './paper/view.js';
 import type { StoredPaperRun } from './runs/types.js';
 import { createMemoryQuota } from './quota/memory.js';
@@ -177,6 +192,52 @@ const fillSchema = z.object({
   venue: z.literal('internal'),
 });
 
+const rejectReason = z.enum([
+  'quantity invalid',
+  'price invalid',
+  'time in force invalid',
+  'unknown symbol',
+  'limit hit',
+  'insufficient cash',
+  'exceeds position',
+  'no short rule',
+  'unknown order',
+  'not open',
+]);
+
+/** One event of one paper order (AL-orders-01). */
+const orderEventSchema = z.object({
+  seq: z.number().int(),
+  order: z.string(),
+  kind: z.enum(['new', 'accepted', 'filled', 'rejected', 'cancel_pending', 'cancelled']),
+  type: z.enum(['market', 'limit']),
+  side: z.enum(['buy', 'sell']),
+  symbol: z.string(),
+  qty: z.string(),
+  tif: z.enum(['gtc', 'ioc']),
+  market: z.string(),
+  limit: z.string().optional(),
+  price: z.string().optional(),
+  reason: rejectReason.optional(),
+  notional: z.string().optional(),
+  fee: z.string().optional(),
+  cash: z.string().optional(),
+  position: z.string().optional(),
+  reserved: z.string().optional(),
+});
+
+/** One leg of a reversal, each checked on its own (AL-orders-02). */
+const reverseLegSchema = z.object({
+  leg: z.enum(['close', 'open']),
+  side: z.enum(['buy', 'sell']),
+  symbol: z.string(),
+  qty: z.string(),
+  checked: z.literal(true),
+  outcome: z.enum(['filled', 'refused']),
+  order: z.string(),
+  reason: rejectReason.nullable(),
+});
+
 const runOutput = z
   .object({
     ok: z.literal(true),
@@ -186,6 +247,9 @@ const runOutput = z
     pnl: z.string(),
     fills: z.array(fillSchema),
     positions: z.array(z.object({ symbol: z.string(), qty: z.string() })),
+    events: z.array(orderEventSchema),
+    legs: z.array(reverseLegSchema),
+    ticks: z.object({ label: z.literal('TEST'), path: z.record(z.string(), z.array(z.string())) }),
     venue: z.literal('internal'),
     venueVault: z.enum(['unset', 'set']),
   })
@@ -221,6 +285,7 @@ function toTrpc(err: unknown): never {
         : err.code === QUANT_SANDBOX_UNWIRED ||
             err.code === QUANT_SANDBOX_MAX_OPS_UNSET ||
             err.code === QUANT_SANDBOX_MAX_SOURCE_UNSET ||
+            err.code === QUANT_PAPER_FEE_UNSET ||
             err.code === QUANT_BACKTEST_LAKE_MISSING ||
             err.code === QUANT_BACKTEST_FILLS_MISSING ||
             err.code === QUANT_STUDIO_LIST_LIMIT_UNSET ||
@@ -240,6 +305,8 @@ function toTrpc(err: unknown): never {
             err.code === QUANT_QUOTA_UNSET ||
             err.code === QUANT_QUOTA_EXCEEDED ||
             err.code === QUANT_QUOTA_PROFILE_UNSET ||
+            err.code === QUANT_GATE_CRITERIA_UNSET ||
+            err.code === QUANT_STAGE_TRANSITION_INVALID ||
             err.code === 'quant.venue_vault_unset'
           ? 'PRECONDITION_FAILED'
           : err.code === QUANT_DATABASE_URL_UNSET || err.code === QUANT_DATABASE_POOL_MAX_UNSET
@@ -411,6 +478,11 @@ export interface QuantRouterDeps extends SandboxDeps {
    * gate is passed to the strategy and run repositories, which enforce it. Omitted in unit tests: no profile applies.
    */
   readonly quota?: QuotaRepository;
+  /**
+   * The lifecycle store (AL-lifecycle-01): stage rows, gate decisions and the owner criteria an operator sets at
+   * runtime. Omitted in unit tests: an in-memory store with nothing set.
+   */
+  readonly lifecycle?: LifecycleRepository;
   /** Omitted uses the published byte cap. Pass null only to prove the cap refuses. */
   readonly runResultCap?: number | null;
   /**
@@ -458,6 +530,57 @@ export function createQuantRouter(deps: QuantRouterDeps) {
   const disclosure = deps.disclosure ?? openDisclosureRepository({}).repository;
   const templates = deps.templates ?? openTemplateRepository({}).repository;
   const quota = deps.quota ?? createMemoryQuota({ defaultProfile: null }).repository;
+  const lifecycle = deps.lifecycle ?? createMemoryLifecycleRepository();
+
+  /**
+   * One version's lifecycle (AL-lifecycle-01): its stage rows and gate decisions, and the gate as it reads now, from this
+   * account's own stored backtests and paper runs of exactly this version and the owner's stored criteria. Nothing the
+   * caller sends is read, and no Preview room's sample windows can count: they are never stored as runs.
+   */
+  async function lifecycleOf(accountId: string, strategyId: string, strategyVersion: number): Promise<QuantLifecycle> {
+    const found = await strategies.get({ accountId, id: strategyId });
+    const version = found && !found.deletedAt ? found.versions.find((row) => row.version === strategyVersion) : undefined;
+    if (!found || !version) missingStrategy();
+    const [rows, stored, page, paper] = await Promise.all([
+      lifecycle.criteria(),
+      lifecycle.of({ accountId, strategyId: found.id, strategyVersion }),
+      runs.history({
+        userId: accountId,
+        kind: 'backtest',
+        keyPrefix: BAR_BACKTEST_KEY_PREFIX,
+        limit: BACKTEST_HISTORY_PAGE_MAX,
+        cursor: null,
+        strategyId: found.id,
+      }),
+      runs.paperRuns({ userId: accountId, strategyId: found.id, limit: 10_000 }),
+    ]);
+    const backtests: QuantBacktestResult[] = [];
+    for (const row of page.runs) {
+      if (row.strategyVersion !== strategyVersion || !row.finished || row.outcome !== 'ok') continue;
+      const full = await runs.get({ userId: accountId, id: row.id });
+      const result = full && isBarBacktest(full) ? readStoredBacktest(full.response) : null;
+      if (result) backtests.push(presentBacktest(result, full!.id));
+    }
+    const reading = evaluateGate({
+      criteria: gateCriteriaOf(rows),
+      backtests,
+      paper: paper
+        .filter((row) => row.run.strategyVersion === strategyVersion)
+        .map((row) => ({ runId: row.run.id, startedAt: row.run.started, stoppedAt: row.run.finished })),
+      risk: version.risk,
+      nowMs: now(),
+    });
+    const last = stored.stages[stored.stages.length - 1];
+    return {
+      strategyId: found.id,
+      strategyVersion,
+      stage: last ? last.to : reading.derivedStage,
+      stages: [...stored.stages],
+      decisions: [...stored.decisions],
+      gate: { approved: reading.approved, unset: reading.unset, checks: reading.checks },
+      asOf: new Date(now()).toISOString(),
+    };
+  }
   /** A paper run as the screen reads it, from its own strategy version. */
   async function presentPaper(accountId: string, paper: StoredPaperRun) {
     const found = await strategies.get({ accountId, id: paper.run.strategyId ?? '' });
@@ -1149,6 +1272,77 @@ export function createQuantRouter(deps: QuantRouterDeps) {
         }),
     }),
 
+    lifecycle: router({
+      /** One version's stage, its stored stage rows and gate decisions, and every gate check as it reads now. Writes nothing. */
+      get: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ strategyId: z.string().min(1).max(128), strategyVersion: z.number().int().positive(), ...accountField }))
+        .output(quantLifecycleSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            return await lifecycleOf(accountOf(ctx, input.accountId), input.strategyId, input.strategyVersion);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      /**
+       * Promote: asks the gate to move one version from `paper` to `candidate` (ENGINE LC-2, LC-3). A blank criterion
+       * refuses `quant.gate_criteria_unset` naming it and writes nothing. Otherwise the decision is one audit row and, when
+       * approved, one stage row, in one transaction under `quant.stage:<id>:v<n>:paper:candidate:<seq>`: the same press
+       * again reads its first answer back, and a version already past `paper` refuses `quant.stage_transition_invalid`.
+       */
+      promote: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantPromoteInputSchema.extend(accountField))
+        .output(quantPromoteOutputSchema)
+        .mutation(async ({ input, ctx }) =>
+          withQuantSpan('quant.lifecycle.promote', { language: 'none' }, async () => {
+            try {
+              const accountId = accountOf(ctx, input.accountId);
+              const key = `quant.stage:${input.strategyId}:v${input.strategyVersion}:paper:candidate:${input.seq}`;
+              const prior = await lifecycle.replay(accountId, key);
+              if (prior) return { ...prior, lifecycle: await lifecycleOf(accountId, input.strategyId, input.strategyVersion) };
+              const before = await lifecycleOf(accountId, input.strategyId, input.strategyVersion);
+              if (before.gate.unset.length) {
+                throw new QuantError(
+                  QUANT_GATE_CRITERIA_UNSET,
+                  `${before.gate.unset.join(', ')} — not set by the owner: ${before.gate.unset.map((name) => GATE_CRITERION_NAMES[name]).join('; ')}`,
+                );
+              }
+              const moved = (stage: QuantStage) => !['draft', 'backtested', 'validated', 'paper'].includes(stage);
+              if (moved(before.stage)) {
+                throw new QuantError(QUANT_STAGE_TRANSITION_INVALID, `${before.stage} to candidate — this version already left paper`);
+              }
+              const at = new Date(now()).toISOString();
+              const approved = before.gate.approved && before.stage === 'paper';
+              const runIds = before.gate.checks.flatMap((check) => (check.runId ? [check.runId] : []));
+              const decision = {
+                decision: approved ? ('approved' as const) : ('rejected' as const),
+                at,
+                runIds: [...new Set(runIds)],
+                criteria: before.gate.checks.flatMap((check) => (check.criterion ? [check.criterion] : [])),
+              };
+              const stage = approved ? { from: 'paper' as const, to: 'candidate' as const, at, runIds: decision.runIds } : null;
+              const response = { decision, stage };
+              const kept = await lifecycle.record({
+                key,
+                accountId,
+                strategyId: before.strategyId,
+                strategyVersion: input.strategyVersion,
+                actor: ctx.principal?.userId ?? accountId,
+                decision,
+                stage,
+                response,
+              });
+              if (!kept)
+                throw new QuantError(QUANT_STAGE_TRANSITION_INVALID, 'paper to candidate — this version already reached candidate');
+              return { ...kept, lifecycle: await lifecycleOf(accountId, input.strategyId, input.strategyVersion) };
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+        ),
+    }),
+
     backtest: router({
       run: publicJurisdictionProcedure('quant', 'fiat')
         .input(
@@ -1321,7 +1515,8 @@ export function createQuantRouter(deps: QuantRouterDeps) {
                 { id: found.id, version: version.version, modules: version.modules, risk: version.risk },
                 fees,
                 now(),
-                judgement,
+                // The owner's out-of-sample criteria as they stand now: an operator's stored value wins over the boot one.
+                { ...judgement, criteria: verdictCriteriaOf(await lifecycle.criteria(), judgement.criteria) },
               );
               // What this request sent that only the service may set is named on the answer, also when it replays a run.
               const withRun = async (result: StoredBacktest) => {
@@ -1916,6 +2111,69 @@ export function createQuantRouter(deps: QuantRouterDeps) {
             toTrpc(err);
           }
         }),
+
+      criteria: router({
+        /** Every owner criterion an operator can set at runtime, with where its value comes from now. */
+        get: scopedProcedure('admin:read', { module: 'quant', plane: 'fiat' })
+          .output(quantCriteriaSchema)
+          .query(async () => {
+            try {
+              const rows = await lifecycle.criteria();
+              const boot: Record<string, string | null> = {
+                'oos.minTrades': judgement.criteria.minTrades,
+                'oos.minReturnPercent': judgement.criteria.minReturnPercent,
+                'oos.maxDrawdownPercent': judgement.criteria.maxDrawdownPercent,
+                'oos.maxShortfallPercent': judgement.criteria.maxShortfallPercent,
+              };
+              return {
+                criteria: QUANT_OWNER_CRITERIA.map((name) => {
+                  const row = rows.find((r) => r.name === name);
+                  return row
+                    ? { name, value: row.value, source: 'operator' as const }
+                    : { name, value: boot[name] ?? null, source: 'boot' as const };
+                }),
+              };
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+
+        /**
+         * Sets one owner criterion, blank for "not set", or with `toBoot` puts it back to its boot value. A reason is required
+         * and kept with the actor in an audit row.
+         */
+        set: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
+          .input(quantCriteriaSetInputSchema)
+          .output(
+            z.object({
+              name: z.enum(QUANT_OWNER_CRITERIA),
+              value: z.string().nullable(),
+              setAt: z.string(),
+              toBoot: z.boolean().optional(),
+            }),
+          )
+          .mutation(async ({ input, ctx }) => {
+            try {
+              const reason = input.reason.trim();
+              if (!reason) throw new QuantError(QUANT_CRITERIA_REASON_UNSET, 'reason — an owner criterion change needs a reason');
+              const toBoot = input.toBoot === true;
+              const value = toBoot ? null : input.value?.trim() ? input.value.trim() : null;
+              if (value !== null && !OWNER_CRITERION_FORMAT[input.name].test(value)) {
+                throw new QuantError('quant.params_invalid', `${input.name} — ${value} is not a value this criterion takes`);
+              }
+              return await lifecycle.setCriterion({
+                name: input.name,
+                value,
+                toBoot,
+                reason,
+                actor: ctx.principal.userId,
+                idempotencyKey: input.idempotencyKey,
+              });
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+      }),
 
       quota: router({
         /** Sets one limit of one profile; blank is "not set". A reason is required and kept with the actor. */

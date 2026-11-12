@@ -58,6 +58,16 @@ const reportRows = () => (process.env.LOCAL_STACK_ACADEMY_REPORT_ROWS === 'off' 
 // leaves it blank, so the "limit not set" refusal can be seen too.
 const bulkLimit = () => (process.env.LOCAL_STACK_ACADEMY_BULK_LIMIT === 'off' ? {} : { ACADEMY_BULK_FILE_MAX_BYTES: '65536' });
 
+// LOCAL TEST staff enrolment, course email and export values (TEST owner values, not decisions): 50 addresses an upload,
+// 30 days without learning is inactive, an export kept 24 hours and holding at most 1000 learners (J-academy-15).
+// Each `LOCAL_STACK_ACADEMY_<NAME>=off` leaves its value blank, so its "not set" refusal can be seen too.
+const staffLimits = () => ({
+  ...(process.env.LOCAL_STACK_ACADEMY_BULK_ENROL_ROWS === 'off' ? {} : { ACADEMY_BULK_ENROL_ROWS: '50' }),
+  ...(process.env.LOCAL_STACK_ACADEMY_INACTIVE_DAYS === 'off' ? {} : { ACADEMY_BULK_EMAIL_INACTIVE_DAYS: '30' }),
+  ...(process.env.LOCAL_STACK_ACADEMY_REPORT_RETENTION === 'off' ? {} : { ACADEMY_REPORT_RETENTION_HOURS: '24' }),
+  ...(process.env.LOCAL_STACK_ACADEMY_EXPORT_ROWS === 'off' ? {} : { ACADEMY_LEARNER_EXPORT_ROWS: '1000' }),
+});
+
 // LOCAL TEST certificate issue sweep (a TEST owner value): every 5 seconds, so a one-minute delayed certificate is issued
 // within the journey (J-academy-05 #1). `LOCAL_STACK_ACADEMY_CERT_SWEEP=off` leaves it blank.
 const certSweep = () => (process.env.LOCAL_STACK_ACADEMY_CERT_SWEEP === 'off' ? {} : { ACADEMY_CERT_ISSUE_SWEEP_SECONDS: '5' });
@@ -84,6 +94,10 @@ const postLimits = () =>
 // specialist rooms J-academy-19 #4 reads. `LOCAL_STACK_ACADEMY_ROOM_CAPACITY=off` leaves it blank (createRoom refuses).
 const roomCapacity = () => (process.env.LOCAL_STACK_ACADEMY_ROOM_CAPACITY === 'off' ? {} : { ACADEMY_MAX_ROOM_CAPACITY: '500' });
 
+// LOCAL TEST custom role limit (a TEST owner value): 50 custom roles, room for the journey's one role per run on a kept
+// stack (J-academy-18 #6). `LOCAL_STACK_ACADEMY_ROLE_LIMIT=off` leaves it blank, so the "limit not set" refusal can be seen.
+const roleLimit = () => (process.env.LOCAL_STACK_ACADEMY_ROLE_LIMIT === 'off' ? {} : { ACADEMY_CUSTOM_ROLE_LIMIT: '50' });
+
 export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
   name: 'academy',
   env: () => ({
@@ -103,10 +117,12 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     ...graderLease(),
     ...reportRows(),
     ...bulkLimit(),
+    ...staffLimits(),
     ...certSweep(),
     ...programmeMax(),
     ...postLimits(),
     ...verifyRate(),
     ...roomCapacity(),
+    ...roleLimit(),
   }),
 });

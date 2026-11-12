@@ -3,13 +3,13 @@ import { randomUUID } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { signUp, verify } from './desk.mjs';
-import { EDGE, ORIGIN, api, journeyState, tool, toUnits } from './stack.mjs';
+import { EDGE, ORIGIN, api, fromUnits, journeyState, tool, toUnits } from './stack.mjs';
 import { signedHeaders } from './developer.mjs';
 import { confirmStepUp, restorePasskey, testPasskey } from './p2p.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 
 // J-agents-21, in the running app (docs/roadmap/journeys.json): I let my own AI assistant trade on a capped account I
-// can revoke. This file holds the steps built so far (#1 #3 #4 #5 #8 #9 #10 #13 #14), one test per step,
+// can revoke. This file holds the steps built so far (#1 #3 #4 #5 #8 #9 #10 #13 #14 #16 #17 #18), one test per step,
 // titled "J-agents-21 #<n>", run in order by one signed-in, verified TEST person with one TEST wallet key (kept in this
 // run's state) on the stack's TEST venue simulator (tooling/scripts/local-test-venue.mjs). Every figure the TEST venue
 // reports is TEST.
@@ -26,8 +26,11 @@ import { testWalletKey } from './test-wallet.mjs';
 // stand-in for #6's Connect screen, which is a later piece. #13 closes against the perp the assistant opened in #8.
 //
 // Not here, under the passing/unbuilt rule: #2 and #6 (the Connect your assistant screen), #7 (the MCP server's order
-// tool), #11 #12 (the connection's log and revoke), #15 (the founder's desk) and #16 to #19 (the per-order, daily-loss,
-// leverage and expiry caps) are later pieces.
+// tool), #11 #12 (the connection's log and revoke), #15 (the founder's desk) and #19 (the key's expiry) are later
+// pieces.
+//
+// #14 closes the first agent account, so #16, #17 and #18 act on a second one the person opens the same way (cap TEST 200,
+// funded 100), with a second assistant key connected to it by the same TEST stand-in.
 //
 // Switches: the door is on for this file only (trade restarts with LOCAL_STACK_USER_VENUE=on, and back off after). #1
 // restarts trade once more with LOCAL_STACK_AGENT_ACCOUNT_CEILING=off (tooling/scripts/local-stack-services/trade.mjs),
@@ -309,8 +312,7 @@ test(`${J} #5 Raises the cap above the owner's TEST ceiling: refused agents.acco
 });
 
 /** The person's own wallet signs one action on the agent sub-account through the plain door. */
-async function onSubAccount(session, intent, actionKey = null) {
-  const { subAccount } = state();
+async function onSubAccount(session, intent, actionKey = null, subAccount = state().subAccount) {
   const prepared = body200(
     await session.post('/api/v1/venue/prepare', {
       owner: owner(),
@@ -335,24 +337,32 @@ const PERP = { kind: 'place_order', symbol: 'BTC-PERP', type: 'market', amount: 
  * identity's API, answering the fresh-factor check with their TEST passkey, and connects it to the agent account with
  * step-up. Kept in this run's state; made once.
  */
-async function assistantKey() {
+async function assistantKey(which = 'first') {
   const s = state();
-  if (s.agentKey) return s;
+  if (which !== 'first') {
+    if (!s.second) throw new Error(`${J} #16 opened no second agent account, so this step has no account to trade`);
+    if (s.second.agentKey) return { ...s, ...s.second };
+  } else if (s.agentKey) return s;
+  const target = which === 'first' ? { accountId: s.accountId, subAccount: s.subAccount } : s.second;
   const { session, passkey } = await person();
   const options = await session.post('/api/identity/trpc/auth.stepUpOptions', {});
   const challenge = options.body?.result?.data?.challenge;
   expect(challenge, JSON.stringify(options.body).slice(0, 300)).toBeTruthy();
-  const asked = { name: 'TEST assistant', scopes: ['trade:read', 'trade:write'], kind: 'agent' };
+  const asked = {
+    name: which === 'first' ? 'TEST assistant' : `TEST assistant (${which})`,
+    scopes: ['trade:read', 'trade:write'],
+    kind: 'agent',
+  };
   const made = await session.post('/api/identity/trpc/developerKeys.create', {
     ...asked,
-    requestId: `${J}:${s.accountId}:assistant-key`,
+    requestId: `${J}:${target.accountId}:assistant-key`,
     factorProof: { webauthn: await passkey.assertion(challenge) },
   });
   run.write({ passkey: passkey.saved() });
   expect(made.status, JSON.stringify(made.body).slice(0, 300)).toBe(200);
   const { record, key, signingSecret } = made.body.result.data;
   expect(record).toMatchObject({ kind: 'agent', scopes: ['trade:read', 'trade:write'] });
-  const fields = { keyId: record.id, accountId: s.accountId };
+  const fields = { keyId: record.id, accountId: target.accountId };
   const stepUpApprovalId = await confirmStepUp(session, passkey, {
     scope: 'trade.step_up.venue.agentConnect',
     purpose: 'venue.agentConnect',
@@ -360,15 +370,17 @@ async function assistantKey() {
     fields,
   });
   run.write({ passkey: passkey.saved() });
-  const connected = body200(await session.post(`${BASE}/${s.accountId}/connections`, { keyId: record.id, stepUpApprovalId }));
-  expect(connected).toMatchObject({ keyId: record.id, accountId: s.accountId, subAccount: s.subAccount });
-  run.write({ agentKey: key, agentKeyId: record.id, agentSecret: signingSecret });
-  return state();
+  const connected = body200(await session.post(`${BASE}/${target.accountId}/connections`, { keyId: record.id, stepUpApprovalId }));
+  expect(connected).toMatchObject({ keyId: record.id, accountId: target.accountId, subAccount: target.subAccount });
+  const keys = { agentKey: key, agentKeyId: record.id, agentSecret: signingSecret };
+  if (which === 'first') run.write(keys);
+  else run.write({ second: { ...target, ...keys } });
+  return assistantKey(which);
 }
 
 /** One call to Edge as the assistant: its agent key, each request signed with the key's signing secret. */
-async function asAssistant(method, route, body) {
-  const { agentKey, agentSecret } = await assistantKey();
+async function asAssistant(method, route, body, which = 'first') {
+  const { agentKey, agentSecret } = await assistantKey(which);
   const raw = body === undefined ? undefined : JSON.stringify(body);
   const res = await fetch(`${EDGE}${route}`, {
     method,
@@ -391,8 +403,7 @@ async function asAssistant(method, route, body) {
 }
 
 /** Everything a step must leave as it was: both venue accounts as the venue reports them, and our ledger. */
-async function everything(session) {
-  const { subAccount } = state();
+async function everything(session, subAccount = state().subAccount) {
   return {
     main: (await venue('/balances', { account: await acct(owner()) })).value,
     mainPositions: (await venue('/positions', { account: await acct(owner()) })).value,
@@ -584,4 +595,212 @@ test(`${J} #14 Closes the perp, moves the agent account's balance back and close
   refused(await session.post(`${BASE}/${accountId}/fund`, { moveId: randomUUID(), amount: '1' }), 409, 'agents.account_not_open');
   // Our ledger posted nothing for any of it.
   expect(await session.balances()).toEqual(ledgerBefore);
+});
+
+test(`${J} #16 Sets a per-order size cap, a daily-loss cap and a leverage cap on the agent account, each under the owner's TEST ceiling: the three caps are saved and shown with the funding cap`, async () => {
+  test.setTimeout(300_000);
+  const { session, passkey } = await person();
+  // #14 closed the first agent account: the person opens a second the same way, cap TEST 200 funded with 100.
+  const accountId = randomUUID();
+  const fields = { accountId, owner: owner(), asset: 'USDC', cap: '200', fund: '100' };
+  let view = body200(await session.post(BASE, { ...fields, stepUpApprovalId: await stepUpFor(session, passkey, fields) }));
+  for (let i = 0; view.next && i < 5; i += 1) {
+    view = body200(
+      await session.post(`${BASE}/${accountId}/submit`, { actionKey: view.next.actionKey, signature: await sign(view.next.prepared) }),
+    );
+  }
+  expect(view.status).toBe('open');
+  run.write({ second: { accountId, subAccount: view.subAccount } });
+  expect(view.limits).toEqual({ maxOrderNotional: null, maxLeverage: null, maxDailyLoss: null });
+
+  // The owner's TEST ceilings for the three caps, and the person's caps under each.
+  const { limitCeilings } = body200(await session.get(`${BASE}/terms`));
+  const caps = { maxOrderNotional: '50', maxLeverage: '2', maxDailyLoss: '25' };
+  for (const [name, value] of Object.entries(caps)) {
+    expect(limitCeilings[name], name).not.toBeNull();
+    expect(toUnits(value) < toUnits(limitCeilings[name]), `${name} ${value} under ${limitCeilings[name]}`).toBe(true);
+  }
+  const before = await everything(session, view.subAccount);
+  const set = body200(await session.post(`${BASE}/${accountId}/limits`, caps));
+  // The three caps are saved and shown with the funding cap: read back on the account and in the list.
+  for (const shown of [
+    set,
+    body200(await session.get(`${BASE}/${accountId}`)),
+    body200(await session.get(BASE)).accounts.find((a) => a.accountId === accountId),
+  ]) {
+    expect(same(shown.limits.maxOrderNotional, '50.00')).toBe(true);
+    expect(shown.limits.maxLeverage).toBe('2');
+    expect(same(shown.limits.maxDailyLoss, '25.00')).toBe(true);
+    expect(same(shown.cap, '200.00')).toBe(true);
+  }
+  // Setting caps moves nothing and asks the wallet for nothing.
+  expect(set.next).toBeNull();
+  expect(await everything(session, view.subAccount)).toEqual(before);
+});
+
+test(`${J} #17 The assistant sends an order above the per-order cap, then one above the leverage cap: each refused naming the cap, before anything is signed`, async () => {
+  test.setTimeout(240_000);
+  const { session } = await person();
+  const { second } = state();
+  const { agentKeyId } = await assistantKey('second');
+  const before = await everything(session, second.subAccount);
+  const leverageBefore = (await venue('/leverage', { account: await acct(owner(), second.subAccount), symbol: 'BTC-PERP' })).value;
+
+  // Above the per-order cap: TEST 0.001 BTC at 60100 is 60.10 USDC, over the person's cap of 50 (inside the funding cap
+  // and the owner's largest assistant order).
+  const size = await asAssistant(
+    'POST',
+    '/api/v1/venue/agent/orders',
+    { clientOrderId: 'over-size', symbol: 'BTC-USDC', side: 'buy', type: 'limit', amount: '0.001', price: '60100', timeInForce: 'IOC' },
+    'second',
+  );
+  refused(size, 422, 'agents.order_size_cap_exceeded');
+  expect(same(size.body.cap, '50')).toBe(true);
+  expect(size.body.message).toContain('per-order size cap');
+  expect(size.body.message).toContain('50 USDC');
+
+  // Above the leverage cap: a TEST perp at 3x, its size inside the per-order cap, over the person's leverage cap of 2x.
+  const lev = await asAssistant(
+    'POST',
+    '/api/v1/venue/agent/orders',
+    {
+      clientOrderId: 'over-leverage',
+      symbol: 'BTC-PERP',
+      side: 'buy',
+      type: 'market',
+      amount: '0.0005',
+      price: '60100',
+      timeInForce: 'IOC',
+      leverage: '3',
+    },
+    'second',
+  );
+  refused(lev, 422, 'agents.leverage_cap_exceeded');
+  expect(lev.body.cap).toBe('2');
+  expect(lev.body.message).toContain('leverage cap');
+  expect(lev.body.message).toContain('2x');
+
+  // Before anything is signed: no order is kept under either order's key, the venue shows no leverage set for the perp
+  // and no new order or position, and nothing moved on either venue account or in our ledger.
+  for (const key of [`agent:order:${agentKeyId}:over-size`, `agent:order:${agentKeyId}:over-leverage`]) {
+    refused(await session.get(`/api/v1/venue/orders/by-key?actionKey=${encodeURIComponent(key)}`), 404, 'trade.venue_action_unknown');
+  }
+  expect((await venue('/leverage', { account: await acct(owner(), second.subAccount), symbol: 'BTC-PERP' })).value).toEqual(leverageBefore);
+  expect(await everything(session, second.subAccount)).toEqual(before);
+});
+
+test(`${J} #18 The agent account's loss for the day reaches the daily-loss cap: the assistant's next order is refused naming the cap; open positions are untouched`, async () => {
+  test.setTimeout(300_000);
+  const { session } = await person();
+  const { second } = state();
+  const subAcct = await acct(owner(), second.subAccount);
+  // The person's own wallet approves our builder fee on the second agent sub-account, once, as #8 did on the first.
+  const status = body200(await session.get('/api/v1/venue/status'));
+  await onSubAccount(
+    session,
+    { kind: 'approve_builder_fee', builder: status.builder.address, maxFeeBps: status.builder.feeBps },
+    `approve:${second.accountId}:builder`,
+    second.subAccount,
+  );
+  const since = new Date();
+  since.setUTCHours(0, 0, 0, 0);
+  const todays = async () => (await venue('/fills', { account: subAcct, since: since.toISOString() })).value;
+  /** The day's loss from the venue's own fills: realised results less every fee (each in USDC on this perp). */
+  const lossOf = (fills) => {
+    let result = 0n;
+    for (const f of fills) {
+      expect(f.feeAsset).toBe('USDC');
+      if (f.realisedPnl !== null) result += toUnits(f.realisedPnl);
+      result -= toUnits(f.venueFee) + toUnits(f.builderFee);
+    }
+    return result < 0n ? -result : 0n;
+  };
+  expect(await todays()).toEqual([]);
+
+  // The assistant opens a TEST 0.0008 BTC-PERP long at 2x (under the per-order cap of 50 and the leverage cap of 2x).
+  const open = await asAssistant(
+    'POST',
+    '/api/v1/venue/agent/orders',
+    {
+      clientOrderId: 'loss-open',
+      symbol: 'BTC-PERP',
+      side: 'buy',
+      type: 'market',
+      amount: '0.0008',
+      price: '60100',
+      timeInForce: 'IOC',
+      leverage: '2',
+    },
+    'second',
+  );
+  expect(body200(open).state).toBe('accepted');
+  const opened = lossOf(await todays());
+  expect(opened > 0n, 'the opening fill cost its fees').toBe(true);
+
+  // The person tightens the daily-loss cap (still under the owner's TEST ceiling) to half again what the day has lost so
+  // far, to the cent's ten-thousandth: the day's loss is under it, and the assistant may still order.
+  const step = 10n ** 12n;
+  const cap = fromUnits((((opened * 3n) / 2n + step - 1n) / step) * step);
+  const set = body200(await session.post(`${BASE}/${second.accountId}/limits`, { maxDailyLoss: cap }));
+  expect(same(set.limits.maxDailyLoss, cap)).toBe(true);
+  expect(opened < toUnits(cap)).toBe(true);
+
+  // The assistant closes three quarters of it across the spread: a realised loss and its fee take the day's loss to the cap.
+  const close = await asAssistant(
+    'POST',
+    '/api/v1/venue/agent/orders',
+    {
+      clientOrderId: 'loss-close',
+      symbol: 'BTC-PERP',
+      side: 'sell',
+      type: 'market',
+      amount: '0.0006',
+      price: '59900',
+      timeInForce: 'IOC',
+      reduceOnly: true,
+    },
+    'second',
+  );
+  expect(body200(close).state).toBe('accepted');
+  const fills = await todays();
+  expect(fills.map((f) => [f.symbol, f.side])).toEqual([
+    ['BTC-PERP', 'buy'],
+    ['BTC-PERP', 'sell'],
+  ]);
+  const loss = lossOf(fills);
+  expect(loss >= toUnits(cap), `the day's loss ${fromUnits(loss)} reaches the cap ${cap}`).toBe(true);
+  const before = await everything(session, second.subAccount);
+  expect(before.subPositions).toHaveLength(1);
+  expect(before.subPositions[0]).toMatchObject({ symbol: 'BTC-PERP', side: 'long' });
+  expect(same(before.subPositions[0].size, '0.0002')).toBe(true);
+
+  // The assistant's next order: refused naming the cap and the day's loss, before anything is set or signed.
+  const next = await asAssistant(
+    'POST',
+    '/api/v1/venue/agent/orders',
+    {
+      clientOrderId: 'loss-next',
+      symbol: 'BTC-PERP',
+      side: 'buy',
+      type: 'market',
+      amount: '0.0001',
+      price: '60100',
+      timeInForce: 'IOC',
+      leverage: '2',
+    },
+    'second',
+  );
+  refused(next, 422, 'agents.daily_loss_cap_reached');
+  expect(same(next.body.cap, cap)).toBe(true);
+  expect(toUnits(next.body.loss)).toBe(loss);
+  expect(next.body.message).toContain('daily-loss cap');
+  expect(next.body.message).toContain(`USDC`);
+  const { agentKeyId } = await assistantKey('second');
+  refused(
+    await session.get(`/api/v1/venue/orders/by-key?actionKey=${encodeURIComponent(`agent:order:${agentKeyId}:loss-next`)}`),
+    404,
+    'trade.venue_action_unknown',
+  );
+  // Open positions untouched: the perp stays as it was, nothing is cancelled, and nothing moved anywhere.
+  expect(await everything(session, second.subAccount)).toEqual(before);
 });

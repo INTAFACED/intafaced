@@ -1,4 +1,4 @@
-import { add, compare, div, parseAmount, ZERO, type Amount } from '@intafaced/ledger-client/money';
+import { add, compare, div, formatAmount, mul, parseAmount, sub as minus, ZERO, type Amount } from '@intafaced/ledger-client/money';
 import { isApiKeyPrincipal, type Principal } from '@intafaced/auth';
 import type { StepUpCheck } from '@intafaced/contracts';
 import type { TypedDataDefinition } from 'viem';
@@ -432,6 +432,10 @@ export class AgentOrders {
       clientOrderKey: key,
       builderFee: null,
     };
+    // #17: the person's own per-order size and leverage caps, before anything is set or signed.
+    this.withinAccountLimits(a, intent, leverageBps);
+    // #18: the person's daily-loss cap, from the venue's own fills on the sub-account today.
+    await this.withinDailyLoss(a, venue, sub);
     const signer = this.signerFor(a, venue, seed);
     const cap: AgentCap = { account: sub, agentAddress: a.agentAddress, asset: a.asset, cap: a.cap, validUntil: null, revokedAt: null };
     // #8: an opening perpetual is isolated at the named leverage on the sub-account, set first by the agent key.
@@ -484,6 +488,60 @@ export class AgentOrders {
       throw this.signRefusal(error, venue, key);
     }
     return this.send(principal, a, keyId, clientOrderId, key, signature, venue, false);
+  }
+
+  /**
+   * #17: an order past the person's own per-order size cap (its notional, amount × price as signed, in the account's
+   * asset) or an opening perpetual past their leverage cap is refused naming the cap, before the leverage is set or the
+   * agent key signs anything. A cap not set leaves only the owner's bounds.
+   */
+  private withinAccountLimits(a: AgentAccountRecord, intent: PlaceUserOrderIntent, leverageBps: number | null): void {
+    const { maxOrderNotional, maxLeverage } = a.limits;
+    if (maxOrderNotional !== null) {
+      const notional = mul(intent.amount, intent.price, 'ceil');
+      if (compare(notional, maxOrderNotional) > 0) {
+        throw new AgentAccountError(
+          'agents.order_size_cap_exceeded',
+          `this order is ${formatAmount(notional)} ${a.asset}; your per-order size cap for this assistant is ${formatAmount(maxOrderNotional)} ${a.asset}`,
+          422,
+          { cap: formatAmount(maxOrderNotional), notional: formatAmount(notional) },
+        );
+      }
+    }
+    if (maxLeverage !== null && leverageBps !== null && leverageBps > maxLeverage * ONE_X_BPS) {
+      throw new AgentAccountError(
+        'agents.leverage_cap_exceeded',
+        `this order opens at ${leverageBps / ONE_X_BPS}x; your leverage cap for this assistant is ${maxLeverage}x`,
+        422,
+        { cap: String(maxLeverage), leverage: String(leverageBps / ONE_X_BPS) },
+      );
+    }
+  }
+
+  /**
+   * #18: once the agent account's loss for the day reaches the person's daily-loss cap, every further order from the
+   * assistant is refused naming the cap, before the leverage is set or the agent key signs anything. Open positions are
+   * left as they are: nothing is closed or cancelled.
+   *
+   * The day's loss is read from the venue's own fills on the agent sub-account since 00:00 UTC: the realised result the
+   * venue reports on each closing fill, less the venue's fee and the builder fee on every fill (a fee charged in the
+   * market's base asset is valued at that fill's price). A loss is what that comes to below zero; a gain is no loss.
+   * Unrealised results on open positions are not counted. A cap not set leaves only the owner's bounds.
+   */
+  private async withinDailyLoss(a: AgentAccountRecord, venue: UserVenue, sub: UserVenueAccount): Promise<void> {
+    const cap = a.limits.maxDailyLoss;
+    if (cap === null) return;
+    const now = this.deps.now();
+    const since = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const loss = dailyLossOf((await venue.fills(sub, since)).value, a.asset);
+    if (compare(loss, cap) >= 0) {
+      throw new AgentAccountError(
+        'agents.daily_loss_cap_reached',
+        `this agent account has lost ${formatAmount(loss)} ${a.asset} today (UTC); your daily-loss cap for this assistant is ${formatAmount(cap)} ${a.asset}, so no further order is placed today; open positions are left as they are`,
+        422,
+        { cap: formatAmount(cap), loss: formatAmount(loss), since: since.toISOString() },
+      );
+    }
   }
 
   /** A refusal before the agent key signs: the cap's and the bounds' own codes, else the venue's, named. */
@@ -653,4 +711,27 @@ export class AgentOrders {
       test: isTestVenue(venue.venue),
     };
   }
+}
+
+/**
+ * #18: the loss in `asset` the venue's fills come to: their realised results less every fee, as a positive amount; zero
+ * when they come to a gain. A fee in another asset (a spot buy's fee in the base asset) is valued at the fill's price.
+ */
+export function dailyLossOf(
+  fills: readonly {
+    readonly price: Amount;
+    readonly venueFee: Amount;
+    readonly builderFee: Amount;
+    readonly feeAsset: string;
+    readonly realisedPnl: Amount | null;
+  }[],
+  asset: string,
+): Amount {
+  let result = ZERO;
+  for (const f of fills) {
+    if (f.realisedPnl !== null) result = add(result, f.realisedPnl);
+    const fees = add(f.venueFee, f.builderFee);
+    result = minus(result, f.feeAsset === asset ? fees : mul(fees, f.price, 'ceil'));
+  }
+  return compare(result, ZERO) < 0 ? minus(ZERO, result) : ZERO;
 }

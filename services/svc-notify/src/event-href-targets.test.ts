@@ -39,6 +39,8 @@ const LIVE_ROOMS = [
   '/agents/approvals',
   // The P2P board filtered to one maker, where a followed trader's new ad is (J-p2p-12 #4).
   '/p2p?makerId=:id',
+  // The Academy Rooms tab, where a learner reaches their course discussions (J-academy-18 #2).
+  '/academy/rooms',
 ];
 
 /** Detail rows IA-SPEC 2.3, 2.4, 2.6 and 2.9 give to bank, cex-spot, pay and agents. The app falls back to the nearest list room until they exist. */
