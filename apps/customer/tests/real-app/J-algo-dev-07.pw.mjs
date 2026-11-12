@@ -376,6 +376,8 @@ test(`${J} #5 opens the run when the account freeze is on: the freeze stopped it
   await page.goto('/uc/safe');
   const card = page.getByTestId('security__card').filter({ has: page.getByRole('heading', { name: 'Freeze your account' }) });
   await card.getByLabel('Your password').fill(t.who.password);
+  // Taken before the click, so it is never later than the freeze.
+  const frozenAt = new Date().toISOString();
   await card.getByRole('button', { name: 'Freeze my account' }).click();
 
   // The freeze stops the run: its open order is cancelled on the venue; the position stays in the person's sub-account.
@@ -402,6 +404,12 @@ test(`${J} #5 opens the run when the account freeze is on: the freeze stopped it
   const detail = body200(await frozenSession.get(`${LIVE}/${runId}`));
   expect(detail).toMatchObject({ state: 'stopped', endReason: 'account_frozen', permission: 'revoked' });
   expect(detail.log.map((e) => e.kind)).toEqual(expect.arrayContaining(['stopped', 'permission_revoked']));
+  // On the venue an agent approval is withdrawn only by the wallet that signed it: the venue still lists the run's agent,
+  // and its own record shows that agent signed nothing on the sub-account since the freeze (no fill, no open order).
+  const agents = (await subRecord(t, sub, '/agents')).map((x) => x.address.toLowerCase());
+  expect(agents).toContain(detail.agentAddress.toLowerCase());
+  expect(await subRecord(t, sub, '/fills', { since: frozenAt })).toEqual([]);
+  expect(await subRecord(t, sub, '/open-orders')).toEqual([]);
   // INTAFACED takes no action for the person: a manual order is refused with the freeze reason and reaches no venue.
   const manual = await frozenSession.post(`${LIVE}/${runId}/orders`, {
     seq: detail.nextSeq,
