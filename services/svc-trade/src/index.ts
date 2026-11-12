@@ -116,6 +116,9 @@ import { UserVenueDoor, UserVenueDoorError, parseBuilderFee, parseOrdersPageMax 
 import { AgentAccounts, parseAgentAccountValues } from './venue/agent-account.js';
 import { SqlAgentAccountStore } from './venue/agent-account-store.js';
 import { AgentOrders } from './venue/agent-orders.js';
+import { OwnAgentTrading } from './venue/own-agent-trading.js';
+import { SqlAllowanceStore } from './venue/own-agent-allowance-store.js';
+import { createOwnAgentPolicy } from './venue/own-agent-policy-client.js';
 import { SqlAgentConnectionStore } from './venue/agent-connection-store.js';
 import { createAgentKeyReader } from './venue/agent-key-read-client.js';
 import { SqlVenueSellQuoteStore, VenueSellQuotes } from './venue/venue-sell-quotes.js';
@@ -542,6 +545,18 @@ const agentOrders = userVenue
       connections: new SqlAgentConnectionStore(sql),
       keys: createAgentKeyReader(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s),
       stepUp,
+      values: agentAccountValues,
+      now: () => new Date(),
+    })
+  : null;
+// A person's own agent trading their venue sub-account under an allowance (J-agents-08 #3 to #7): the allowance and
+// its draws here, the agent's rules and access asked of svc-agents through its own gate. Off with the door; with
+// AGENTS_URL blank every grant and order refuses agents.policy_unavailable.
+const ownAgentTrading = userVenue
+  ? new OwnAgentTrading({
+      door: userVenue,
+      store: new SqlAllowanceStore(sql),
+      policy: env.AGENTS_URL.trim() ? createOwnAgentPolicy(env.AGENTS_URL.trim(), env.INTERNAL_SERVICE_SECRET, outS2s) : null,
       values: agentAccountValues,
       now: () => new Date(),
     })
@@ -1824,6 +1839,7 @@ registerPrivateRest(app, {
   userVenue: userVenueRouter,
   agentAccounts,
   agentOrders,
+  ownAgentTrading,
   venueSellQuotes,
   algo: trade,
   rfqExport: (principal, query) => trade.rfqExport(principal, query),

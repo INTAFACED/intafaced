@@ -307,6 +307,7 @@ export type OwnRefusalCode =
   | 'agents.access_request_invalid'
   | 'agents.access_account_denied'
   | 'agents.access_expired'
+  | 'agents.order_not_understood'
   | 'agents.baseline_value_unset'
   | 'agents.baseline_loosen_refused'
   | 'agents.request_id_replay'
