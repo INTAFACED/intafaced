@@ -89,11 +89,14 @@ const desk = async (page) => {
 async function reconnect(page, wallet) {
   await page.reload();
   await expect(page.getByTestId('venue-header')).toBeVisible({ timeout: 30_000 });
-  // The desk may keep the wallet connected across the reload; connect it again only when it asks to be.
+  // The desk may bring the wallet back by itself after the reload: it shows Connect first, then swaps it for the
+  // address once the wallet answers. Press Connect only while it is still there, and never wait on a button that left.
   const connect = page.getByRole('button', { name: 'Connect TEST Wallet' });
   const address = page.getByTestId('venue-wallet-address');
-  await expect(connect.or(address)).toBeVisible({ timeout: 30_000 });
-  if (await connect.isVisible()) await connect.click();
+  await expect(async () => {
+    if (!(await address.isVisible())) await connect.click({ timeout: 2_000 });
+    await expect(address).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
   await expect(address).toHaveText(wallet.address);
   await expect(page.getByTestId('venue-routes')).toBeVisible({ timeout: 30_000 });
 }
