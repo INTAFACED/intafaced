@@ -544,6 +544,11 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       return sim.preview(account(body), body.intent as PlaceUserOrderIntent);
     case '/best-prices':
       return sim.bestPrices(str(body, 'symbol'));
+    case '/funding-history': {
+      const since = body.since;
+      if (!(since instanceof Date)) throw new VenueWireError('since is required (an ISO time)');
+      return sim.fundingHistory(str(body, 'symbol'), since);
+    }
     case '/prepare':
       return sim.prepare(account(body), body.signer as VenueSigner, body.intent as VenueIntent);
     case '/submit':

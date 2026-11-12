@@ -148,7 +148,7 @@ import {
   type CertPerkOutcome,
   type CertPerkPlaneStatus,
 } from './certs/perk-plane.js';
-import { getCurriculumItem, hasCurriculumSlug, listCurriculum, type CurriculumPath } from './curriculum/catalog.js';
+import { getCurriculumItem, hasCurriculumSlug, itemType, listCurriculum, type CurriculumPath } from './curriculum/catalog.js';
 import { curriculumBodyForLocale, curriculumI18nStrategyLine } from './curriculum/i18n-strategy.js';
 import { type ProgrammeDefinition } from './curriculum/programmes.js';
 import { getVideoSpineItem, listVideoSpine, type VideoSpineEntry } from './video/catalog.js';
@@ -2007,6 +2007,7 @@ export class AcademyService {
         slug: row.slug,
         title: row.title,
         kind: row.kind,
+        type: itemType(row.kind, quizzes.has(row.slug)),
         state: view.state,
         lock: view.lock,
         missing: [...view.missing],
@@ -2366,11 +2367,12 @@ export class AcademyService {
   }
 
   /** The public course page (AC-catalogue-03), with the path's published certificate title when there is one. */
-  publicCourse(slug: string, now?: Date) {
+  async publicCourse(slug: string, now?: Date) {
     return publicCourse(
       slug,
       (path) => this.certs().find((row) => row.path === path)?.title ?? null,
       (itemSlug) => this.opensSignedOut(itemSlug, now),
+      await this.assessments.publishedSlugs(),
     );
   }
 

@@ -1,0 +1,47 @@
+import { describe, expect, it } from 'vitest';
+import type { ProtocolComplianceReport } from '@intafaced/contracts/protocol-address-risk';
+import { TRUST_TABS, TRUST_TAB_WAITS, pendingReview, publishedWords, reportWords, trustRefusalWords } from './model';
+
+const report = (over: Partial<ProtocolComplianceReport> = {}): ProtocolComplianceReport => ({
+  id: '00000000-0000-4000-8000-000000000001',
+  chainId: 84532,
+  address: '0x00000000000000000000000000000000000ba5e0',
+  kind: 'phishing',
+  reporterId: 'r',
+  note: 'TEST phishing report',
+  evidenceUrl: null,
+  status: 'open',
+  duplicatesRefused: 0,
+  createdAt: '2026-11-12T00:00:00.000Z',
+  reviews: [],
+  ...over,
+});
+const review = (status: 'pending' | 'published') => ({
+  id: '00000000-0000-4000-9000-000000000001',
+  kind: 'phishing' as const,
+  reason: 'TEST',
+  status,
+  requesterId: 'a',
+  approverId: status === 'published' ? 'b' : null,
+  askedAt: '2026-11-12T00:00:00.000Z',
+  decidedAt: status === 'published' ? '2026-11-12T00:01:00.000Z' : null,
+});
+
+describe('protocol trust desk words', () => {
+  it('says a refused duplicate only when there was one', () => {
+    expect(reportWords(report())).toBeNull();
+    expect(reportWords(report({ duplicatesRefused: 1 }))).toBe('Duplicate from the same reporter refused once');
+    expect(reportWords(report({ duplicatesRefused: 3 }))).toBe('Duplicate from the same reporter refused 3 times');
+  });
+  it('reads the pending review and the published labels', () => {
+    expect(pendingReview(report({ reviews: [review('pending')] }))?.status).toBe('pending');
+    expect(pendingReview(report({ reviews: [review('published')] }))).toBeNull();
+    expect(publishedWords(report({ reviews: [review('published')] }))).toEqual(['Public: phishing. Why: TEST']);
+  });
+  it('names what every unbuilt tab waits for, and words each refusal', () => {
+    for (const tab of Object.keys(TRUST_TAB_WAITS)) expect(TRUST_TABS).toContain(tab);
+    expect(trustRefusalWords('protocol.compliance.same_reviewer')).toMatch(/different person/);
+    expect(trustRefusalWords('protocol.other')).toBeNull();
+    expect(trustRefusalWords(null)).toBeNull();
+  });
+});

@@ -159,7 +159,7 @@ export type SectionAction =
   'academy.ambassador.appoint' | 'bank.card.status' | 'bank.card.funding' | 'pay.transfer.lookup' | 'bank.customer.balances';
 
 /** A section that is drawn by its own component from the reads above it, not as a list or facts. */
-export type SectionPanel = 'protocol.blockers';
+export type SectionPanel = 'protocol.blockers' | 'protocol.trust';
 
 /** Something the desk cannot show, and exactly why. Never rendered as a zero. */
 export interface Unavailable {
