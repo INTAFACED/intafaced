@@ -218,7 +218,12 @@ test('J-charts-desk-03 #3 adds EMA(20), Volume, MACD, Stochastic, Bollinger and 
   await expect(chart).toContainText('No trades in this period.');
   await expect(chart).toContainText('This market has no volume in the loaded bars.');
   await expect(host(page)).toHaveCount(0);
-  await expect(page.getByTestId('study-legend')).toHaveCount(0);
+  // The studies bar stays on a market with no trades (so a tape study can say there is no tape, J-charts-desk-04 #4),
+  // and every study in it shows no value: no series value and no fact, only what it lacks.
+  const legend = page.getByTestId('study-legend');
+  await expect(legend.locator('.st-row').first()).toBeVisible();
+  await expect(legend.locator('[data-series]')).toHaveCount(0);
+  await expect(legend.locator('.st-fact')).toHaveCount(0);
 });
 
 test('J-charts-desk-03 #4 hides an indicator on one interval only; it shows on the others and the setting is remembered', async ({

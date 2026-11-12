@@ -228,10 +228,10 @@ test('J-charts-desk-04 #4 adds volume delta and a volume profile: series built f
     )
     .toBe('true true');
 
-  // With no tape for the market it says so. Volume delta and the profile read only the public tape, and the chart's bars
-  // are built from the same executed trades, so a listed spot market whose trades route answers none has nothing to
-  // build either from: its chart says there were no trades and no volume, and draws no series at all (no chart is
-  // drawn), so no delta, cumulative delta or profile is shown as a value.
+  // With no tape for the market it says so. A listed spot market whose public trades route answers none has no tape and,
+  // since the chart's bars are built from the same executed trades, no bars: the chart says there were no trades, the
+  // person adds volume delta and the profile there, and each says by name that there are no public trades. Nothing is
+  // drawn and no delta, cumulative delta or profile figure is shown.
   const listed = await (await fetch(`${EDGE}/api/v1/markets?limit=500`)).json();
   let quiet = null;
   for (const m of listed.filter((x) => x.spot === true && x.active === true && x.symbol !== MARKET_NAME)) {
@@ -242,14 +242,19 @@ test('J-charts-desk-04 #4 adds volume delta and a volume profile: series built f
     }
   }
   expect(quiet, 'the stack lists a spot market with no public trades').not.toBeNull();
-  await page.goto(`/charts/${quiet.replace('/', '-')}`);
+  await page.goto(`/charts/${quiet.replace('/', '-')}?w=no-tape`);
   await expect(page.getByRole('heading', { name: 'Charts' })).toBeVisible();
   const chart = page.getByTestId('cw').first();
   await expect(chart).toContainText('No trades in this period.');
-  await expect(chart).toContainText('This market has no volume in the loaded bars.');
+  await expect(page.getByTestId('studies')).toBeVisible();
+  await addStudy(page, 'delta', 'Volume delta');
+  await addStudy(page, 'profile', 'Volume profile');
+  for (const id of ['volume-delta-1', 'volume-profile-1']) {
+    await expect(row(page, id)).toContainText('No public trades for this market.');
+    await expect(row(page, id).locator('[data-series]')).toHaveCount(0);
+    await expect(row(page, id).locator('.st-fact')).toHaveCount(0);
+  }
   await expect(host(page)).toHaveCount(0);
-  await expect(page.locator('[data-study="volume-delta-1"] [data-series], [data-study="volume-profile-1"] [data-series]')).toHaveCount(0);
-  await expect(page.getByText(/Point of control|Cumulative delta/)).toHaveCount(0);
 });
 
 test('J-charts-desk-04 #5 adds a higher-timeframe study: the study at a coarser interval, aligned to the chart', async ({ page }) => {
