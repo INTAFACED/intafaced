@@ -19,7 +19,7 @@ import {
   type VenueSignature,
   type VenueSubmitOutcome,
 } from '@intafaced/venue-contracts';
-import { AGENT_ACCOUNT_STEP_UP_SCOPE, AgentAccountError, assertPerson, capErrorAs, type AgentAccountValues } from './agent-account.js';
+import { AGENT_CONNECT_STEP_UP_SCOPE, AgentAccountError, assertPerson, capErrorAs, type AgentAccountValues } from './agent-account.js';
 import type { AgentAccountRecord, AgentAccountStore } from './agent-account-store.js';
 import type { AgentConnectionRecord, AgentConnectionStore } from './agent-connection-store.js';
 import type { AgentKeyReader } from './agent-key-read-client.js';
@@ -212,7 +212,7 @@ export class AgentOrders {
     const existing = await this.deps.connections.active(keyId);
     if (existing) return this.connectedOrRefused(existing, principal.userId, id, account);
     await this.deps.stepUp.require({
-      scope: AGENT_ACCOUNT_STEP_UP_SCOPE,
+      scope: AGENT_CONNECT_STEP_UP_SCOPE,
       userId: principal.userId,
       sessionId: principal.sid,
       approvalId: req.stepUpApprovalId,

@@ -121,6 +121,8 @@ export interface AgentAccountValues {
 }
 
 export const AGENT_ACCOUNT_STEP_UP_SCOPE = 'trade.step_up.venue.agentAccount' as const;
+/** The step-up that connects one of the person's agent keys to one of their agent accounts (J-agents-21 #6). */
+export const AGENT_CONNECT_STEP_UP_SCOPE = 'trade.step_up.venue.agentConnect' as const;
 
 export interface AgentAccountsDeps {
   readonly door: UserVenueDoor;

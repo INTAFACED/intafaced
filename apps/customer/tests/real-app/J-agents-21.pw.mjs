@@ -353,7 +353,12 @@ async function assistantKey() {
   const { record, key, signingSecret } = made.body.result.data;
   expect(record).toMatchObject({ kind: 'agent', scopes: ['trade:read', 'trade:write'] });
   const fields = { keyId: record.id, accountId: s.accountId };
-  const stepUpApprovalId = await confirmStepUp(session, passkey, { ...STEP_UP, target: s.accountId, fields });
+  const stepUpApprovalId = await confirmStepUp(session, passkey, {
+    scope: 'trade.step_up.venue.agentConnect',
+    purpose: 'venue.agentConnect',
+    target: record.id,
+    fields,
+  });
   run.write({ passkey: passkey.saved() });
   const connected = body200(await session.post(`${BASE}/${s.accountId}/connections`, { keyId: record.id, stepUpApprovalId }));
   expect(connected).toMatchObject({ keyId: record.id, accountId: s.accountId, subAccount: s.subAccount });

@@ -235,7 +235,7 @@ describe("the assistant's trade path on its agent account (TEST venue)", () => {
       expect(c).toMatchObject({ keyId, accountId: v.accountId, subAccount: v.subAccount });
       expect(stepUps.slice(before)).toEqual([
         expect.objectContaining({
-          scope: 'trade.step_up.venue.agentAccount',
+          scope: 'trade.step_up.venue.agentConnect',
           fields: { keyId, accountId: v.accountId },
           requestId: `venue.agentConnect:${keyId}`,
         }),
