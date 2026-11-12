@@ -6,6 +6,7 @@ import { Button, Failure, Field, Loading } from '../../shared/ui';
 import { useSession } from '../session/session';
 import { apiKeysCopy as copy, type ApiKeysPlainKey } from './api-keys-copy';
 import { RevokedReason, stateOf } from './ApiKeys';
+import { KeyCallLog } from './KeyCallLog';
 import { KeyUsage } from './KeyUsage';
 import {
   changeRefusal,
@@ -224,6 +225,7 @@ export function ApiKeyDetail({ keyId }: { keyId: string }) {
           ) : (
             <p className="muted">{t('notLive')}</p>
           )}
+          <KeyCallLog keyId={detail.key.id} />
         </>
       )}
     </div>
