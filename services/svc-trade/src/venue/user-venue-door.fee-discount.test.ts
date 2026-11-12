@@ -134,15 +134,18 @@ describe('UserVenueDoor: our builder fee at the winning discount (J-campaigns-09
     expect(coupons.usesLeft).toBe(1);
   });
 
-  it('svc-campaigns down: the order carries the rank’s rate, and the skipped discount is logged; with neither, the fee in force', async () => {
+  it('svc-campaigns down: the order carries the normal builder fee in force, and the skipped discount is logged', async () => {
     const skipped: string[] = [];
     const down = new FixedFeeSaver(undefined);
     const d = door({ rankBps: async () => 25, coupons: down, skipped: (what) => skipped.push(what) });
-    expect((await d.prepare(principal, { owner, signer, intent: sell() })).prepared.builderFee?.feeBps).toBe(a('0.4'));
-    expect(skipped).toEqual(['coupon']);
-    const none = door({ rankBps: async () => null, coupons: down, skipped: (what) => skipped.push(what) });
+    expect((await d.prepare(principal, { owner, signer, intent: sell() })).prepared.builderFee?.feeBps).toBe(a('0.5'));
+    const preview = await d.preview(principal, owner, sell());
+    expect(preview.value.feeDiscount).toBeNull();
+    expect(skipped).toEqual(['coupon', 'coupon']);
+    // The rank unreadable with svc-campaigns up and no coupon: the fee in force too, with the rank's skip logged.
+    const none = door({ rankBps: async () => null, coupons: new FixedFeeSaver(null), skipped: (what) => skipped.push(what) });
     expect((await none.prepare(principal, { owner, signer, intent: sell() })).prepared.builderFee?.feeBps).toBe(a('0.5'));
-    expect(skipped).toEqual(['coupon', 'rank', 'coupon']);
+    expect(skipped).toEqual(['coupon', 'coupon', 'rank']);
     // Nothing wired at all: the builder fee in force.
     expect((await door(undefined).prepare(principal, { owner, signer, intent: sell() })).prepared.builderFee?.feeBps).toBe(a('0.5'));
   });

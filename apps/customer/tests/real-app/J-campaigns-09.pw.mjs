@@ -351,19 +351,19 @@ test(`${J} #2 places and fills an order with the coupon and a rank discount: the
   await expect(row.getByTestId('voucher-remaining')).toHaveText('1 of 2 orders left.');
   await expect(row.getByTestId('voucher-uses').locator(`li[data-order-key="${clientId}"]`)).toHaveCount(1);
 
-  // svc-campaigns down: the order carries the normal builder fee, with no coupon (the rank's rate, which svc-identity still
-  // answers), and takes nothing from the coupon.
+  // svc-campaigns down: the order carries the normal builder fee, the TEST 0.5 bp in force with no discount at all (the
+  // winning rate cannot be known without the coupon), no discount line, and it takes nothing from the coupon.
   let downClientId;
   try {
     tool('local-test-stack.mjs', 'stop', 'campaigns');
     await desk(page);
     const down = await reviewSell(page, { type: 'market', price: SELL.worst, amount: SELL.amount });
     downClientId = (await line(down, 'client-id').innerText()).trim();
-    await expect(line(down, 'builder-fee-discount')).toHaveText('Your rank: 0.25% off our builder fee, never the venue’s');
-    const rank = await venuePreviewAt(owner, { type: 'market', price: SELL.worst, amount: SELL.amount }, downClientId, RATE.rank);
-    await expect(line(down, 'builder-fee')).toHaveText(at(rank));
+    await expect(line(down, 'builder-fee-discount')).toHaveCount(0);
+    const normal = await venuePreviewAt(owner, { type: 'market', price: SELL.worst, amount: SELL.amount }, downClientId, RATE.full);
+    await expect(line(down, 'builder-fee')).toHaveText(at(normal));
     await expect(await confirmAndSign(page, down)).toContainText('Filled on the venue.');
-    await postedOnce(owner, await chargedAt(page, owner, downClientId, RATE.rank));
+    await postedOnce(owner, await chargedAt(page, owner, downClientId, RATE.full));
   } finally {
     tool('local-test-stack.mjs', 'start', '--only', 'campaigns');
   }

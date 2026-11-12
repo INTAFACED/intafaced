@@ -357,9 +357,9 @@ export interface UserVenueDoorDeps {
 
 /**
  * The two discounts on our builder fee. Each is a fraction OF the fee in basis points (5000 is half of it), never of the
- * venue's fee. `rankBps` answers null when the rank cannot be read; `coupons` is null when svc-campaigns is not wired.
- * Either unreadable, that discount is skipped and logged, and the order carries the rate without it: a discount that
- * cannot be read is never guessed.
+ * venue's fee. `rankBps` answers null when the rank cannot be read (that discount is skipped and logged); `coupons` is
+ * null when svc-campaigns is not wired (no coupon is asked for). svc-campaigns unreachable: the whole discount is skipped
+ * and logged and the order carries the normal builder fee in force. A discount that cannot be read is never guessed.
  */
 export interface BuilderFeeDiscounts {
   readonly rankBps: (userId: string) => Promise<number | null>;
@@ -785,7 +785,9 @@ export class UserVenueDoor {
    * Our builder fee on `intent` less the winning discount (J-campaigns-09 #2 #3): the larger of the person's rank discount
    * and their best fee-saver coupon, never both. `quote` names the coupon and takes nothing; `take` takes one use of it for
    * this order key, only when it beats the rank, once (the same key again is the same use); `read` reprices a stored
-   * order with the use it already took. svc-campaigns down, or no coupon: the rank's rate, or the rate in force.
+   * order with the use it already took. No coupon: the rank's rate. svc-campaigns down (or unwired with none answered):
+   * the winning rate cannot be known, so the discount is skipped and logged and the order carries the normal builder fee
+   * in force ("if the campaigns service is down the order carries the normal builder fee", J-campaigns-09 #2).
    */
   private async withFeeDiscount(
     principal: Principal,
@@ -804,7 +806,10 @@ export class UserVenueDoor {
       coupon = await d.coupons.ask(principal.userId, orderKey, ask);
       // A coupon that beats the rank is taken for this order; one that does not is left for another.
       if (mode === 'take' && coupon && coupon.discountBps > rankBps) coupon = await d.coupons.ask(principal.userId, orderKey, 'take');
-      if (coupon === undefined) d.skipped?.('coupon', principal.userId, orderKey);
+      if (coupon === undefined) {
+        d.skipped?.('coupon', principal.userId, orderKey);
+        return { intent, discount: null };
+      }
     }
     let discount: BuilderFeeDiscount = rankBps > 0 ? { source: 'rank', bps: rankBps } : null;
     if (coupon && coupon.discountBps > rankBps) {
