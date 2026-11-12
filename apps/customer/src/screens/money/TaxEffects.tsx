@@ -36,6 +36,16 @@ function kindWord(kind: string, copy: Copy): string {
   return [...new Set(words)].join(' / ');
 }
 
+/** The kinds of one group in words, comma-separated, each marked with the bank's own kind name. */
+function kindList(kinds: readonly string[], copy: Copy): React.ReactNode {
+  return kinds.map((kind, i) => (
+    <span key={kind} data-kind={kind}>
+      {i > 0 ? ', ' : ''}
+      {kindWord(kind, copy)}
+    </span>
+  ));
+}
+
 /**
  * Activity types grouped by how they are taxed (income, disposal, neutral). What each type means for tax is an owner and
  * counsel value: while it is not set the bank refuses with `portfolio.tax_effect_map_unset`, and this says so in words.
@@ -88,13 +98,13 @@ export function TaxEffects() {
           {groups.map((group) => (
             <div className="money-fact" key={group.effect} data-effect={group.effect}>
               <dt>{group.effect in EFFECT_WORD ? t(EFFECT_WORD[group.effect as KnownEffect]) : group.effect}</dt>
-              <dd>{group.kinds.map((kind) => kindWord(kind, copy)).join(', ')}</dd>
+              <dd>{kindList(group.kinds, copy)}</dd>
             </div>
           ))}
           {unset.length > 0 && (
             <div className="money-fact" data-effect="unset">
               <dt>{t('Tax effect not set')}</dt>
-              <dd>{unset.map((kind) => kindWord(kind, copy)).join(', ')}</dd>
+              <dd>{kindList(unset, copy)}</dd>
             </div>
           )}
         </dl>

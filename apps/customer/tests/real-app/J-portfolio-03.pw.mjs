@@ -387,6 +387,14 @@ test(`${J} #2 filters by date, asset, type, account, address and year, and sorts
     expect(kept.map((l) => l.id).sort(), `UTC year ${asked}`).toEqual(want.sort());
   }
   expect(lines.filter((l) => new Date(l.postedAt).getUTCFullYear() === thisYear)).toHaveLength(lines.length);
+  // The year's edges are the UTC ones, to the millisecond: with a range that ends just before 1 January 00:00 UTC, or starts
+  // at the next 1 January 00:00 UTC, nothing of the year is left and the bank refuses the empty range; a range that touches
+  // the first or the last millisecond of the UTC year is answered. A year in any other zone moves at least one edge.
+  const edge = async (range) => (await bankRead(who, 'activity.list', { limit: 10, year: thisYear, ...range })).status;
+  expect(await edge({ to: `${thisYear - 1}-12-31T23:59:59.999Z` }), 'ends before the UTC year').toBe(400);
+  expect(await edge({ to: `${thisYear}-01-01T00:00:00.000Z` }), 'touches its first UTC millisecond').toBe(200);
+  expect(await edge({ from: `${thisYear}-12-31T23:59:59.999Z` }), 'touches its last UTC millisecond').toBe(200);
+  expect(await edge({ from: `${thisYear + 1}-01-01T00:00:00.000Z` }), 'starts after the UTC year').toBe(400);
   const askedFor = (y) =>
     page.waitForRequest((r) => r.url().includes('activity.list') && decodeURIComponent(r.url()).includes(`"year":${y}`));
   const asks = askedFor(thisYear);
@@ -661,6 +669,17 @@ test(`${J} #7 groups activity by tax effect: types grouped by whether they are i
       expect((await groups.locator(`[data-effect="${other}"] dd`).innerText()).split(', ')).not.toContain(word);
     }
   }
+  // Grouped by whether they are income, disposal or neutral: each of the three holds at least one kind the bank named,
+  // so a map that puts everything under one effect does not pass. Every kind the bank answered is in exactly its own
+  // group on the screen, and in no other.
+  for (const effect of Object.keys(named)) {
+    expect(Object.values(effects).filter((e) => e === effect).length, `${effect} holds a kind`).toBeGreaterThan(0);
+  }
+  for (const [kind, effect] of Object.entries(effects)) {
+    await expect(groups.locator(`[data-effect="${effect}"] [data-kind="${kind}"]`), kind).toHaveCount(1);
+    await expect(groups.locator(`[data-kind="${kind}"]`), `${kind} in one group`).toHaveCount(1);
+  }
+  await expect(groups.locator('[data-kind]')).toHaveCount(Object.keys(effects).length);
   // The list stays below the groups.
   await expect(rows(page)).not.toHaveCount(0);
 });
