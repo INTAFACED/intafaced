@@ -35,6 +35,15 @@ async function enrolments(who) {
 }
 
 const enrolBlock = (page) => page.locator('[data-academy-enrol]');
+/** The Seats value on a course page's enrol block, found by its own label. */
+const seatsOf = (block) => block.locator('dt', { hasText: /^Seats$/ }).locator('xpath=following-sibling::dd[1]');
+
+/** Academy's own terms of enrolling in a course, read with the learner's session. */
+async function termsOf(who, slug) {
+  const res = await (await api(who)).get(`/api/academy/trpc/courseEnrolment?input=${encodeURIComponent(JSON.stringify({ slug }))}`);
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  return res.body.result.data;
+}
 
 test(`${J} #1 a course page offers Enrol now on the free track, with the start date, seats not set and the paid track closed in words`, async ({
   page,
@@ -50,12 +59,23 @@ test(`${J} #1 a course page offers Enrol now on the free track, with the start d
   const block = enrolBlock(page);
   await expect(block).toHaveAttribute('data-academy-enrol', first);
   await expect(block.getByText('Self-paced: the course opens when you enrol.')).toBeVisible();
-  await expect(block.locator('dd').nth(1)).toHaveText('Not set');
+  await expect(seatsOf(block)).toHaveText('Not set');
   await expect(block.getByRole('radio', { name: /Free track/ })).toBeChecked();
   await expect(block.getByRole('radio', { name: /Certificate track/ })).toBeDisabled();
   await expect(block.getByText('No price is set for this track, so it is closed for enrolment.')).toBeVisible();
   // Nothing is open to close the course: no cap, no window, published. A closed course would say why here instead.
   await expect(block.getByText(/closed for enrolment/)).toHaveCount(1);
+  // Academy's own answer says the same: no cap and no seats count, the course open, the free track open and the
+  // certificate track closed for no price.
+  expect(await termsOf(who, first)).toMatchObject({
+    seatCap: null,
+    seatsRemaining: null,
+    closed: null,
+    tracks: [
+      { track: 'audit', free: true, closed: null },
+      { track: 'certificate', free: false, closed: 'no_price' },
+    ],
+  });
 
   await block.getByRole('button', { name: 'Enrol now', exact: true }).click();
   await expect(block.getByText(/^You are enrolled on the Free track since /)).toBeVisible();
@@ -66,13 +86,7 @@ test(`${J} #1 a course page offers Enrol now on the free track, with the start d
   // (nobody in this run is enrolled in it until #4) through Academy's admin door, one at a time, and take it off again.
   const third = (await courses())[2];
   expect(third, 'a third published course is needed for the cap and closed reasons').toBeTruthy();
-  const terms = async () => {
-    const res = await (
-      await api(who)
-    ).get(`/api/academy/trpc/courseEnrolment?input=${encodeURIComponent(JSON.stringify({ slug: third }))}`);
-    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
-    return res.body.result.data;
-  };
+  const terms = () => termsOf(who, third);
   const reason = `TEST ${J}`;
   const day = 24 * 3600_000;
   const page3 = async () => {
@@ -80,7 +94,7 @@ test(`${J} #1 a course page offers Enrol now on the free track, with the start d
     await expect(enrolBlock(page)).toHaveAttribute('data-academy-enrol', third);
     return enrolBlock(page);
   };
-  const seats = (b) => b.locator('dt', { hasText: /^Seats$/ }).locator('xpath=following-sibling::dd[1]');
+  const seats = seatsOf;
   try {
     // A cap: the remaining seats under it, as Academy counts them.
     await setSeatCap(third, 3, reason);
