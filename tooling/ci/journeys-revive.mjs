@@ -8,7 +8,7 @@
  * trust's one shard re-run ended 15:23 UTC with no report again, and every pull request's verdict failed on it until a
  * person re-ran it at 23:14 UTC. The verdict stays as strict as it is; this only brings the report back.
  *
- * Main trust runs this on its hourly timer (main-trust.yml `revive`). It reads main's own journeys runs (push, schedule,
+ * Main trust runs this on its hourly timer and after each CI run on main (main-trust.yml `revive`). It reads main's own journeys runs (push, schedule,
  * dispatch) created in the last WINDOW_HOURS, finished and not cancelled or skipped, that did not succeed (a run still going,
  * or one of its attempts still going, is left alone), and for each one whose `real-app-journeys` artifact has no
  * report.json:
@@ -40,6 +40,7 @@
  *
  *   node tooling/ci/journeys-revive.mjs        main runs, then pull requests (GITHUB_REPOSITORY, GH_TOKEN; DRY_RUN=1 writes nothing)
  *   node tooling/ci/journeys-revive.mjs prs    pull requests only
+ *   node tooling/ci/journeys-revive.mjs main   main runs only (after each CI run on main: GitHub's cron here runs late or never)
  * Its tests: tooling/ci/journeys-revive.test.mjs.
  */
 import { downloadReport, isMainRun, JOURNEYS_FILE } from './journey-verdict.mjs';
@@ -310,12 +311,17 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     process.exit(1);
   }
   const io = githubIo(repo);
-  const prsOnly = process.argv[2] === 'prs';
+  const mode = process.argv[2] ?? 'all';
+  if (!['all', 'main', 'prs'].includes(mode)) {
+    console.error(`✖ journeys-revive: unknown mode ${mode} (all, main or prs)`);
+    process.exit(1);
+  }
   (async () => {
-    if (!prsOnly) {
+    if (mode !== 'prs') {
       const lines = await tick({ repo, now: Date.now(), io });
       console.log(lines.length ? lines.join('\n') : 'every finished journeys run on main in the window has a report');
     }
+    if (mode === 'main') return;
     const lines = await prTick({ repo, now: Date.now(), io });
     console.log(lines.length ? lines.join('\n') : 'no pull request journeys run in the window is red only on the verdict');
   })().catch(async (e) => {
