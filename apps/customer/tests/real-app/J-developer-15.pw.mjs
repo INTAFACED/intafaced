@@ -10,7 +10,7 @@ import { tableIn } from './tables.mjs';
 
 // J-developer-15, in the running app (docs/roadmap/journeys.json): run keys for sub-accounts, teams and agents. One
 // test per step, titled "J-developer-15 #<n>", each checking the step's own words. The person is a TEST master account
-// with an authenticator, an approved TEST business (#6's payout is of its settlement) and a passkey (only such an
+// with an authenticator, an approved TEST business (#6's refused payout is of its settlement) and a passkey (only such an
 // account may hold a key; the passkey gives each create its fresh step-up), and two sub-accounts, A and B. The master
 // is funded with TEST USDT and the sub-accounts hold nothing, so a balance read says whose account answered. The
 // stack's TEST value caps keys per sub-account at two (IDENTITY_PORTFOLIO_KEYS_MAX, LOCAL TEST); #2 restarts identity
@@ -28,7 +28,7 @@ const sub = { a: '', b: '' };
 let subKey = '';
 /** The agent key #5 makes (trade:read), which #6 uses. */
 let agentKey = '';
-/** The master's approved TEST business, set up before its passkey; #6's agent key asks to pay out its settlement. */
+/** The master's approved TEST business, set up before its passkey; #6's agent key tries to pay out its settlement. */
 let merchantId = '';
 
 const BALANCE = '/api/v1/account/balance';
@@ -352,7 +352,7 @@ test(`${J} #5 creates an agent key: it is tagged and restricted, and a forbidden
   expect(record).toMatchObject({ kind: 'agent', scopes: ['trade:read'] });
 });
 
-test(`${J} #6 the agent key attempts a payout: an approval row appears and no payout runs; a read call runs`, async () => {
+test(`${J} #6 the agent key attempts a payout, then a read: the payout is refused auth.scope_denied and no approval row is made; the read runs`, async () => {
   test.setTimeout(480_000);
   expect(agentKey, 'the agent key from #5').toMatch(/^ifc_/);
   // A payout that could really run: the master's business takes a TEST card payment and settles the day, so svc-pay
@@ -378,29 +378,24 @@ test(`${J} #6 the agent key attempts a payout: an approval row appears and no pa
   const PAYOUT = '/api/pay/trpc/settlement.payout';
   const approvalsPath = `/api/identity/trpc/developerKeys.approvals?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`;
 
-  // The attempt is held at the door: a typed answer naming the waiting row, and nothing is forwarded to the service.
-  const attempt = await withKey(agentKey, { method: 'POST', path: PAYOUT, body: asked });
-  expect(attempt.status, JSON.stringify(attempt.body).slice(0, 300)).toBe(202);
-  expect(codeOf(attempt.body)).toBe('edge.agent_approval_required');
-  expect(attempt.body.approval).toMatchObject({ keyName: 'agent-reader', action: 'pay.payout', status: 'waiting' });
-  // The same attempt again is the same row, not a second one.
-  const again = await withKey(agentKey, { method: 'POST', path: PAYOUT, body: asked });
-  expect(again.status).toBe(202);
-  expect(again.body.approval.id).toBe(attempt.body.approval.id);
+  // The payout is refused with the typed code, at the door: nothing is forwarded to the service. The same attempt again
+  // is refused the same way.
+  for (const attempt of [1, 2]) {
+    const refused = await withKey(agentKey, { method: 'POST', path: PAYOUT, body: asked });
+    expect(refused.status, `attempt ${attempt}: ${JSON.stringify(refused.body).slice(0, 300)}`).toBe(403);
+    expect(codeOf(refused.body), `attempt ${attempt}`).toBe('auth.scope_denied');
+    expect(refused.body?.approval, `attempt ${attempt}: no approval row is named`).toBeUndefined();
+  }
 
-  // An approval row appears: the owner's list holds exactly this one, waiting.
+  // No approval row is made: the owner's approval list holds none.
   const approvals = await me.get(approvalsPath);
   expect(approvals.status, JSON.stringify(approvals.body).slice(0, 300)).toBe(200);
-  expect(approvals.body.result.data.approvals).toEqual([
-    expect.objectContaining({ id: attempt.body.approval.id, keyName: 'agent-reader', action: 'pay.payout', status: 'waiting' }),
-  ]);
-  // And the key page shows it, saying nothing was sent.
+  expect(approvals.body.result.data.approvals).toEqual([]);
+  // And the key page shows no waiting row.
   await page.goto('/uc/safe/api-keys');
-  const row = page.getByTestId('api-keys__approvals').locator('tbody tr');
-  await expect(row).toHaveCount(1);
-  await expect(row).toContainText('agent-reader');
-  await expect(row).toContainText('Send a payout');
-  await expect(row).toContainText('Waiting for you. Nothing was sent.');
+  await expect(keyRow('agent-reader')).toHaveCount(1);
+  await expect(page.getByTestId('api-keys__approvals')).toHaveCount(0);
+  await expect(page.getByText('Waiting for your approval')).toHaveCount(0);
 
   // No payout runs. Read back from svc-pay: the settlement is still posted, with no payout reference, and the business's
   // available money is where it was; and the master's own money is where it was.
@@ -409,9 +404,10 @@ test(`${J} #6 the agent key attempts a payout: an approval row appears and no pa
   const own = await me.balances();
   expect(own.USDT?.total, JSON.stringify(own)).toBe('250');
 
-  // A read call runs with the same agent key.
+  // Then the read runs with the same agent key: the master's balance, 250 TEST USDT.
   const read = await withKey(agentKey, { path: BALANCE });
   expect(read.status, JSON.stringify(read.body).slice(0, 300)).toBe(200);
+  expect(Number(read.body.balances?.USDT?.total), JSON.stringify(read.body).slice(0, 300)).toBe(250);
 });
 
 test(`${J} #7 the API explorer with a live key builds a write: a typed refusal; with a sandbox key it runs`, async ({ browser }) => {

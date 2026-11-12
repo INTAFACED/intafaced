@@ -3,17 +3,6 @@ import { agentHeldAction, holdAgentKeyAttempt, requestBodyHash } from './agent-k
 
 const USER = '11111111-1111-4111-8111-111111111111';
 const KEY = '22222222-2222-4222-8222-222222222222';
-const APPROVAL = {
-  id: '33333333-3333-4333-8333-333333333333',
-  keyId: KEY,
-  keyName: 'agent-reader',
-  action: 'pay.payout',
-  method: 'POST',
-  path: '/api/pay/trpc/settlement.payout',
-  status: 'waiting',
-  createdAt: '2026-11-09T13:00:00.000Z',
-};
-
 describe('agentHeldAction (J-developer-15 #6)', () => {
   it('holds a payout and a refund, alone or inside a tRPC batch, encoded or not', () => {
     expect(agentHeldAction('POST', '/api/pay/trpc/settlement.payout')).toBe('pay.payout');
@@ -55,10 +44,10 @@ describe('holdAgentKeyAttempt', () => {
     let sent: { url: string; body: Record<string, unknown> } | undefined;
     const fetchFn: typeof fetch = async (input, init) => {
       sent = { url: String(input), body: JSON.parse(String(init?.body)) as Record<string, unknown> };
-      return new Response(JSON.stringify({ result: { data: { held: true, approval: APPROVAL } } }), { status: 200 });
+      return new Response(JSON.stringify({ result: { data: { held: true, refusal: 'auth.scope_denied' } } }), { status: 200 });
     };
     const outcome = await holdAgentKeyAttempt({ ...base, fetch: fetchFn });
-    expect(outcome).toEqual({ kind: 'held', approval: APPROVAL });
+    expect(outcome).toEqual({ kind: 'agent_refused', code: 'auth.scope_denied' });
     expect(sent?.url).toBe('http://identity.test/trpc/developerKeys.holdAgentAction');
     expect(sent?.body).toEqual({
       userId: USER,
@@ -83,6 +72,13 @@ describe('holdAgentKeyAttempt', () => {
     expect(await holdAgentKeyAttempt({ ...base, fetch: reply(200, { result: { data: { held: 'yes' } } }) })).toEqual({
       kind: 'unavailable',
     });
+    // An agent answer that names any other refusal, or an old approval row, is unreadable: never let through.
+    expect(
+      await holdAgentKeyAttempt({
+        ...base,
+        fetch: reply(200, { result: { data: { held: true, refusal: 'edge.agent_approval_required' } } }),
+      }),
+    ).toEqual({ kind: 'unavailable' });
     const down: typeof fetch = async () => {
       throw new Error('connect ECONNREFUSED');
     };
