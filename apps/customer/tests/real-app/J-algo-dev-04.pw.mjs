@@ -1,4 +1,4 @@
-// World: none
+// World: book
 // Market: live
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
