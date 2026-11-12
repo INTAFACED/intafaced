@@ -3,9 +3,11 @@ import { checkDays, checkLeadReason, type LeadApplication } from '@/lib/trade-op
 import {
   approveLead,
   approveLeadApproval,
+  decideLeadStop,
   fileLeadApproval,
   proposeLead,
   readLeadDesk,
+  readLeadStops,
   rejectLead,
   setLeadCriteria,
   setLeadState,
@@ -27,6 +29,8 @@ import { ok, refused, type Outcome } from '@/lib/trade-ops/outcome';
  *   POST { action: 'confirm', applicationId }               founder B: approve it in identity, then list the lead
  *   POST { action: 'reject', applicationId, reason }        reject; the applicant reads the reason
  *   POST { action: 'suspend', leaderRef, reason }           suspend a listed lead (audited with the reason)
+ *   POST { action: 'stops' }                                leads' requests to stop leading, waiting for a founder
+ *   POST { action: 'stop', stopId, decision, reason }       approve (the listing is delisted) or reject (it stays listed)
  *
  * The approval is bound to the application, the name it lists under and the criteria in force when it was filed; an
  * approval while the criteria are unset is refused here before anything is filed (svc-trade refuses it the same way,
@@ -59,6 +63,17 @@ async function handler(ctx: TradeCtx, body: Record<string, unknown>): Promise<Ou
     // The change from the criteria in force now to these: the same save sent twice is one row.
     const from = read.data.queue.criteria?.setAt ?? 'unset';
     return setLeadCriteria(ctx, { minTrackRecordDays: days.days, clientRequestId: `${from}>${days.days}` });
+  }
+
+  if (action === 'stops') return readLeadStops(ctx);
+
+  if (action === 'stop') {
+    if (typeof body.stopId !== 'string' || !UUID.test(body.stopId)) return refused('trade_ops.copy_bad_stop', 'Choose a request.', 400);
+    if (body.decision !== 'approve' && body.decision !== 'reject')
+      return refused('trade_ops.bad_action', 'Approve or reject the request.', 400);
+    const reason = checkLeadReason(body.reason);
+    if (!reason.ok) return refused('reason_required', reason.message, 400);
+    return decideLeadStop(ctx, { stopId: body.stopId.toLowerCase(), decision: body.decision, reason: reason.reason });
   }
 
   if (action === 'suspend') {

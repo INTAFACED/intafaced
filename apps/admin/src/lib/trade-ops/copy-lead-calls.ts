@@ -8,6 +8,9 @@ import {
   parseCriteria,
   parseListings,
   parseQueue,
+  parseStop,
+  parseStops,
+  type LeadStop,
   type LeadApplication,
   type LeadCriteria,
   type LeadDeskRead,
@@ -109,4 +112,17 @@ export function setLeadState(
       return r && typeof r.leaderRef === 'string' && typeof r.state === 'string' ? { leaderRef: r.leaderRef, state: r.state } : null;
     }),
   ).then(coded);
+}
+
+/** Leads' requests to stop leading that wait for a founder, oldest first (CB-copy-18). */
+export function readLeadStops(ctx: TradeCtx): Promise<Outcome<readonly LeadStop[]>> {
+  return edgeCall(ctx, trpcSpec('trade', 'copy.ops.leadStops.queue', 'query', undefined, parseStops)).then(coded);
+}
+
+/** A founder's decision on one stop request: approving delists the listing, rejecting keeps it listed. */
+export function decideLeadStop(
+  ctx: TradeCtx,
+  input: { stopId: string; decision: 'approve' | 'reject'; reason: string },
+): Promise<Outcome<LeadStop>> {
+  return edgeCall(ctx, trpcSpec('trade', 'copy.ops.leadStops.decide', 'mutation', input, parseStop)).then(coded);
 }

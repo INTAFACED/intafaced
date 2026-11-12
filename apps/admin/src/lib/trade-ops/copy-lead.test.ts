@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkDays, checkLeadReason, parseApplication, parseQueue } from './copy-lead';
+import { checkDays, checkLeadReason, parseApplication, parseQueue, parseStops } from './copy-lead';
 import { copyLeadPayloadHash } from './copy-lead-hash';
 
 const APPLICATION = '55555555-5555-4555-8555-555555555555';
@@ -46,5 +46,32 @@ describe('copy lead reads', () => {
     expect(checkLeadReason('  TEST reason  ')).toEqual({ ok: true, reason: 'TEST reason' });
     expect(checkLeadReason('no').ok).toBe(false);
     expect(checkLeadReason('x'.repeat(501)).ok).toBe(false);
+  });
+});
+
+describe('stop requests (CB-copy-18)', () => {
+  const stop = {
+    stopId: '66666666-6666-4666-8666-666666666666',
+    key: 'copy.lead.stop:lead-ref:stop-request-1',
+    leaderRef: 'lead-ref',
+    marketMode: 'spot',
+    state: 'review_pending',
+    requestedAt: '2026-11-12T10:00:00.000Z',
+    decidedAt: null,
+    reason: null,
+  };
+  it('reads the queue svc-trade sends and refuses any other shape', () => {
+    expect(parseStops({ stops: [stop] })).toEqual([
+      {
+        stopId: stop.stopId,
+        leaderRef: 'lead-ref',
+        marketMode: 'spot',
+        state: 'review_pending',
+        requestedAt: stop.requestedAt,
+        reason: null,
+      },
+    ]);
+    expect(parseStops({ stops: [{ ...stop, state: 'delisted' }] })).toBeNull();
+    expect(parseStops([stop])).toBeNull();
   });
 });

@@ -153,3 +153,39 @@ export function checkLeadReason(value: unknown): { ok: true; reason: string } | 
   if (text.length < 3 || text.length > 500) return { ok: false, message: 'Write a reason of 3 to 500 characters.' };
   return { ok: true, reason: text };
 }
+
+/** A lead's request to stop leading (svc-trade `copy.ops.leadStops.*`, CB-copy-18), waiting for a founder. */
+export type LeadStopState = 'review_pending' | 'approved' | 'failed';
+export interface LeadStop {
+  readonly stopId: string;
+  readonly leaderRef: string;
+  readonly marketMode: string;
+  readonly state: LeadStopState;
+  readonly requestedAt: string;
+  readonly reason: string | null;
+}
+
+export const LEAD_STOP_TEXT: Record<LeadStopState, string> = {
+  review_pending: 'Review pending',
+  approved: 'Approved: delisted',
+  failed: 'Not approved: still listed',
+};
+
+export function parseStop(raw: unknown): LeadStop | null {
+  const r = obj(raw);
+  if (!r || !str(r.stopId) || !str(r.leaderRef) || !str(r.marketMode) || !str(r.requestedAt) || !strOrNull(r.reason)) return null;
+  if (!str(r.state) || !['review_pending', 'approved', 'failed'].includes(r.state)) return null;
+  return {
+    stopId: r.stopId,
+    leaderRef: r.leaderRef,
+    marketMode: r.marketMode,
+    state: r.state as LeadStopState,
+    requestedAt: r.requestedAt,
+    reason: r.reason,
+  };
+}
+
+export function parseStops(raw: unknown): readonly LeadStop[] | null {
+  const r = obj(raw);
+  return r ? all(r.stops, parseStop) : null;
+}

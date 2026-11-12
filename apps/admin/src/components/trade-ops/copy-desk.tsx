@@ -1,6 +1,6 @@
 'use client';
 
-import { useId, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import {
   Badge,
   Button,
@@ -24,7 +24,9 @@ import { tradeOpsAction } from '@/lib/trade-ops/client';
 import {
   LEAD_STATE_TEXT,
   LEAD_STATUS_TEXT,
+  LEAD_STOP_TEXT,
   type LeadApplication,
+  type LeadStop,
   type LeadAuditRow,
   type LeadDeskRead,
   type LeadListing,
@@ -42,7 +44,10 @@ import { OutcomeNotice } from './outcome-notice';
 const utc = (iso: string) => iso.replace('T', ' ').slice(0, 19);
 
 type Notice = { outcome: Outcome<unknown>; doneText: string } | null;
-type Reasoned = { kind: 'reject'; application: LeadApplication } | { kind: 'suspend'; lead: LeadListing };
+type Reasoned =
+  | { kind: 'reject'; application: LeadApplication }
+  | { kind: 'suspend'; lead: LeadListing }
+  | { kind: 'stop'; stop: LeadStop; decision: 'approve' | 'reject' };
 
 export function CopyDesk({ initial, userId }: { initial: Outcome<LeadDeskRead>; userId: string }) {
   const [read, setRead] = useState<Outcome<LeadDeskRead>>(initial);
@@ -54,6 +59,12 @@ export function CopyDesk({ initial, userId }: { initial: Outcome<LeadDeskRead>; 
   const daysId = useId();
 
   const desk = read.kind === 'ok' ? read.data : null;
+  // Leads' requests to stop leading (CB-copy-18), read on their own: a refusal here never hides the rest of the room.
+  const [stops, setStops] = useState<Outcome<readonly LeadStop[]> | null>(null);
+  const loadStops = async () => setStops(await tradeOpsAction<readonly LeadStop[]>('copy', { action: 'stops' }));
+  useEffect(() => {
+    void loadStops();
+  }, []);
 
   async function load() {
     const n = ++reads.current;
@@ -182,6 +193,42 @@ export function CopyDesk({ initial, userId }: { initial: Outcome<LeadDeskRead>; 
     },
   ];
 
+  const stopColumns: TableColumn<LeadStop>[] = [
+    { id: 'at', header: 'Asked (UTC)', width: 170, value: (r) => utc(r.requestedAt) },
+    { id: 'ref', header: 'Lead', value: (r) => r.leaderRef, cell: (r) => <span className="if-num text-xs">{r.leaderRef}</span> },
+    { id: 'market', header: 'Market', width: 110, value: (r) => r.marketMode },
+    { id: 'state', header: 'State', width: 190, value: (r) => LEAD_STOP_TEXT[r.state] },
+    {
+      id: 'act',
+      header: '',
+      headerLabel: 'Actions',
+      width: 220,
+      value: () => null,
+      cell: (r) => (
+        <span className="flex flex-wrap gap-2">
+          <Button
+            size={28}
+            variant="primary"
+            shape="rounded"
+            disabled={busy !== null}
+            onClick={() => setAsking({ kind: 'stop', stop: r, decision: 'approve' })}
+          >
+            Approve stop
+          </Button>
+          <Button
+            size={28}
+            variant="secondary"
+            shape="rounded"
+            disabled={busy !== null}
+            onClick={() => setAsking({ kind: 'stop', stop: r, decision: 'reject' })}
+          >
+            Keep listed
+          </Button>
+        </span>
+      ),
+    },
+  ];
+
   const auditColumns: TableColumn<LeadAuditRow>[] = [
     { id: 'at', header: 'When (UTC)', width: 170, value: (r) => utc(r.at) },
     { id: 'action', header: 'Action', width: 190, value: (r) => r.action },
@@ -198,6 +245,7 @@ export function CopyDesk({ initial, userId }: { initial: Outcome<LeadDeskRead>; 
         <TabsList divider>
           <TabsTab value="applications">Applications</TabsTab>
           <TabsTab value="leads">Leads</TabsTab>
+          <TabsTab value="stops">Stop requests</TabsTab>
           <TabsTab value="audit">Audit</TabsTab>
           <TabsTab value="pooled">Pooled masters</TabsTab>
           <TabsTab value="whitelists">Whitelists</TabsTab>
@@ -328,11 +376,31 @@ export function CopyDesk({ initial, userId }: { initial: Outcome<LeadDeskRead>; 
           </section>
         </TabsPanel>
 
+        <TabsPanel value="stops" className="flex flex-col gap-3 pt-4">
+          <p className="text-sm text-fg-2">
+            A lead asks to stop leading once their positions are closed. Approving delists the listing; keeping it listed records the
+            reason, which the lead reads.
+          </p>
+          {stops && stops.kind !== 'ok' ? <OutcomeNotice outcome={stops} /> : null}
+          <Table
+            label="Stop requests"
+            columns={stopColumns}
+            rows={stops?.kind === 'ok' ? [...stops.data] : []}
+            getRowId={(r) => r.stopId}
+            status={stops === null ? 'loading' : stops.kind === 'ok' ? 'ready' : 'error'}
+            emptyState={<p className="p-4 text-sm text-fg-2">No lead is waiting to stop leading.</p>}
+          />
+        </TabsPanel>
+
         <TabsPanel value="levels" className="flex flex-col gap-3 pt-4">
           <KeyValue
             density="dense"
             items={[
-              { label: 'Levels', value: 'None: lead levels are not built (CB-copy-pro-share-11).' },
+              {
+                label: 'Levels',
+                value:
+                  'From the copied funds a lead\u2019s active copiers hold, against the owner\u2019s thresholds (TRADE_COPY_LEAD_LEVELS); unset reads Not set. Each lead reads theirs on their own desk.',
+              },
               { label: 'Ratio', value: 'Maximum ratio: not set by the platform.' },
             ]}
           />
@@ -348,7 +416,14 @@ export function CopyDesk({ initial, userId }: { initial: Outcome<LeadDeskRead>; 
           const out =
             asking.kind === 'reject'
               ? await act('reject', { action: 'reject', applicationId: asking.application.id, reason }, 'Rejected')
-              : await act('suspend', { action: 'suspend', leaderRef: asking.lead.leaderRef, reason }, 'Suspended');
+              : asking.kind === 'suspend'
+                ? await act('suspend', { action: 'suspend', leaderRef: asking.lead.leaderRef, reason }, 'Suspended')
+                : await act(
+                    'stop',
+                    { action: 'stop', stopId: asking.stop.stopId, decision: asking.decision, reason },
+                    asking.decision === 'approve' ? 'Stop approved: the listing is delisted' : 'Kept listed',
+                  );
+          if (asking.kind === 'stop') await loadStops();
           if (out.kind === 'ok') setAsking(null);
         }}
       />
@@ -360,8 +435,11 @@ export function CopyDesk({ initial, userId }: { initial: Outcome<LeadDeskRead>; 
 function ReasonDialog(props: { asking: Reasoned | null; busy: boolean; onClose: () => void; onSend: (reason: string) => Promise<void> }) {
   const [reason, setReason] = useState('');
   const id = useId();
-  const verb = props.asking?.kind === 'suspend' ? 'Suspend' : 'Reject';
-  const who = props.asking ? (props.asking.kind === 'reject' ? props.asking.application.displayName : props.asking.lead.displayName) : '';
+  const a = props.asking;
+  const verb =
+    a?.kind === 'suspend' ? 'Suspend' : a?.kind === 'stop' ? (a.decision === 'approve' ? 'Approve stop' : 'Keep listed') : 'Reject';
+  const who = a ? (a.kind === 'reject' ? a.application.displayName : a.kind === 'suspend' ? a.lead.displayName : a.stop.leaderRef) : '';
+  const title = verb === 'Reject' ? `Reject ${who}?` : verb === 'Suspend' ? `Suspend ${who}?` : `${verb}: ${who}?`;
   return (
     <Dialog
       open={props.asking !== null}
@@ -373,7 +451,7 @@ function ReasonDialog(props: { asking: Reasoned | null; busy: boolean; onClose: 
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{verb === 'Reject' ? `Reject ${who}?` : `Suspend ${who}?`}</DialogTitle>
+          <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
         <form
           onSubmit={(e) => {
