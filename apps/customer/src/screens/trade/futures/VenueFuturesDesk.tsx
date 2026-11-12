@@ -16,6 +16,7 @@ import {
   type MaybeKnown,
   type OrderIntent,
   type VenueFill,
+  type VenueGatedContract,
   type VenueMarginMode,
   type VenueMarket,
   type VenuePosition,
@@ -42,6 +43,7 @@ import {
   outcomeText,
   keepsDraft,
   ReadBack,
+  useAsOfText,
   useOwner,
   useVenueAccount,
   useVenueActions,
@@ -101,8 +103,51 @@ function Desk({ status, requested }: { status: Extract<VenueMode, { mode: 'on' }
           </div>
         ) : null}
       </section>
+      <GatedList status={status} />
       {markets.data && perps.length > 0 ? <Contracts status={status} perps={perps} requested={requested} /> : null}
     </div>
+  );
+}
+
+/**
+ * J-derivatives-01 #2: every contract marked open or blocked for this account, with each reason as svc-trade's gated list
+ * names it (the region and level gate, our builder fee, our listing, the venue's own state). It reads on its own, so a
+ * person the region or level gate blocks still sees why.
+ */
+function GatedList({ status }: { status: VenueUp }) {
+  const { t } = futuresVenueCopy.useCopy();
+  const venue = useVenueApi();
+  const asOfText = useAsOfText();
+  const gated = usePolled((signal) => venue.gatedList(signal), 'venue-gated-list', 5_000);
+  const rows: VenueGatedContract[] = gated.data?.value ?? [];
+  return (
+    <section className="dk-panel" aria-label={t('Gated list')} data-testid="venue-gated-list">
+      <h2 className="dk-tab-title">
+        {t('Gated list')} <TestMark test={status.test} />
+      </h2>
+      <ReadProblem failure={gated.failure} venueName={status.venue.displayName} />
+      <ul className="form-stack">
+        {rows.map((c) => (
+          <li key={c.symbol} data-testid="venue-gate" data-symbol={c.symbol} data-open={c.open ? 'true' : 'false'}>
+            <strong>{c.symbol}</strong> <span data-testid="venue-gate-state">{c.open ? t('Gated open') : t('Gated blocked')}</span>
+            {c.blockers.length > 0 ? (
+              <ul>
+                {c.blockers.map((b) => (
+                  <li key={b.code} data-code={b.code}>
+                    {b.message}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+      {gated.data ? (
+        <p className="muted" data-testid="venue-gated-as-of">
+          {asOfText(gated.data.asOf)}
+        </p>
+      ) : null}
+    </section>
   );
 }
 

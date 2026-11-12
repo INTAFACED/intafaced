@@ -3,6 +3,7 @@
  *
  *   GET  /api/v1/venue/status                          `{ enabled: false }` when the door is off; else the venue, TEST label, chain id
  *   GET  /api/v1/venue/markets                         the markets we list, each with `listing` (ours) beside the venue's own status
+ *   GET  /api/v1/venue/gated-list                      each perpetual open or blocked for this account, every reason (J-derivatives-01 #2)
  *   GET  /api/v1/venue/best-prices?symbol=BTC-USDC         the venue's best bid and ask (a market order's worst price)
  *   GET  /api/v1/venue/balances?owner=0x…              (and orders/open, positions, agents, builder-fee-approval)
  *   GET  /api/v1/venue/orders/by-client-id?owner=&clientOrderId=
@@ -65,6 +66,8 @@ import { presentVenueSellQuote, type VenueSellQuotes } from './venue-sell-quotes
 export interface UserVenueRestDeps {
   requirePrincipal: (req: FastifyRequest, reply: FastifyReply) => Principal | null;
   requireTradeJurisdiction: (req: FastifyRequest, reply: FastifyReply, principal: Principal) => boolean;
+  /** The region and level gate's reason for this caller, or null when it may trade (the gated list reads it as a reason). */
+  tradeAccessBlocker?: (req: FastifyRequest, principal: Principal) => { code: string; message: string } | null;
   /**
    * The owner's market price protection in basis points (TRADE_MARKET_SLIPPAGE_CAP_BPS), or null when blank, as
    * `best-prices` answers it beside the venue's book, so a desk can bound a venue market order's worst price by it. Never
@@ -186,6 +189,20 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     if (!admit(req, reply, 'trade:read')) return;
     // Only the markets two operators listed, each with our listing beside the venue's own state (J-cex-spot-16).
     return answer(reply, async (d) => d.markets(), (req.query as Query).venueId);
+  });
+
+  // J-derivatives-01 #2: each perpetual open or blocked for this account, with every reason. The region and level gate is
+  // a reason here, not a refusal, so a person it blocks still sees why.
+  app.get<{ Querystring: Query }>('/api/v1/venue/gated-list', privateRead, async (req, reply) => {
+    const principal = deps.requirePrincipal(req, reply);
+    if (!principal) return;
+    try {
+      requireScope(principal, 'trade:read');
+    } catch (error) {
+      return venueRefusalReply(reply, error);
+    }
+    const account = deps.tradeAccessBlocker ? deps.tradeAccessBlocker(req, principal) : null;
+    return answer(reply, async (d) => d.gatedList(account), req.query.venueId);
   });
 
   // J-derivatives-28 #1: every configured venue for one market, with its own price, depth and fees, our builder fee,

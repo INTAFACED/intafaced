@@ -257,3 +257,133 @@ describe('the venue account beside the ledger book (J-cex-spot-01 #11)', () => {
     expect(withVenue(main, read(), shared)).toEqual({ ...main, venue: { status: 'read', test: true, accounts: [] } });
   });
 });
+
+// J-portfolio-04 #2: a move from the main venue account to the person's own venue sub-account, signed in their wallet,
+// carries the lots with their acquired date and basis. Every figure is TEST, worked out by hand.
+describe('a move into the person own venue sub-account carries the lots', () => {
+  const SUB = '0x00000000000000000000000000000000000000c5';
+  const SUB_KEY = `venue:test-venue:${OWNER}:${SUB}`;
+  const A = fill({
+    fillId: 'a',
+    side: 'buy',
+    price: '60000',
+    amount: '0.6',
+    fee: '0',
+    feeAsset: 'BTC',
+    filledAt: '2026-11-10T01:00:00.000Z',
+  });
+  const B = fill({
+    fillId: 'b',
+    side: 'buy',
+    price: '61000',
+    amount: '0.6',
+    fee: '0',
+    feeAsset: 'BTC',
+    filledAt: '2026-11-10T02:00:00.000Z',
+  });
+  const MOVED_AT = '2026-11-11T01:00:00.000Z';
+  const main = (
+    transfers: NonNullable<TradeVenueAccountActivity['transfers']>,
+    btc: string,
+    fills = [A, B],
+  ): TradeVenueAccountActivity => ({
+    ...activity(fills, btc),
+    transfers,
+  });
+  const sub = (btc: string, fills: VenueFill[] = []): TradeVenueAccountActivity => ({
+    venueId: 'test-venue',
+    owner: OWNER,
+    subAccount: SUB,
+    balances: [{ asset: 'BTC', total: btc }],
+    fills,
+    asOf: '2026-11-11T03:00:01.000Z',
+  });
+  const into = (amount: string, moveId = 'n1', settledAt = MOVED_AT) => ({
+    moveId,
+    subAccount: SUB,
+    direction: 'into_sub_account' as const,
+    asset: 'BTC',
+    amount,
+    settledAt,
+  });
+  const lotsIn = (book: ReturnType<typeof withVenue>, account: string) => book.lots.filter((l) => l.venueAccount === account);
+
+  it('FIFO: the whole oldest lot and a share of the next arrive in the sub-account with their dates and basis; the main account keeps the rest', () => {
+    const book = withVenue(emptyMain(), read(main([into('1')], '0.2'), sub('1')), shared);
+    expect(lotBookSchema.safeParse(book).success).toBe(true);
+    const moved = lotsIn(book, SUB_KEY);
+    expect(
+      moved.map((l) => [
+        l.acquiredAt,
+        l.source,
+        l.qty,
+        l.remaining,
+        l.costUsd,
+        l.remainingCostUsd,
+        l.carriedFrom?.lotId,
+        l.carriedFrom?.movedAt,
+      ]),
+    ).toEqual([
+      // TEST: 0.6 BTC at 60000 is 36000; 0.4 of the 0.6 BTC bought at 61000 (36600) is 24400.
+      [A.filledAt, 'trade', '0.6', '0.6', '36000', '36000', `lot:${ACCOUNT}:a:BTC`, MOVED_AT],
+      [B.filledAt, 'trade', '0.4', '0.4', '24400', '24400', `lot:${ACCOUNT}:b:BTC`, MOVED_AT],
+    ]);
+    // Not a buy: a carried lot names no fee of its own.
+    expect(moved.every((l) => l.fee === undefined)).toBe(true);
+    const left = lotsIn(book, ACCOUNT);
+    expect(left.map((l) => [l.id, l.remaining, l.remainingCostUsd])).toEqual([
+      [`lot:${ACCOUNT}:a:BTC`, '0', '0'],
+      [`lot:${ACCOUNT}:b:BTC`, '0.2', '12200'],
+    ]);
+    // Both accounts reconcile with what the venue holds, and a move is not a sale.
+    expect(book.residuals).toEqual([]);
+    expect(book.sales).toEqual([]);
+    expect(book.assets.filter((a) => a.assetId === 'BTC').map((a) => [a.venueAccount, a.openQty, a.openCostUsd, a.held])).toEqual([
+      [ACCOUNT, '0.2', '12200', '0.2'],
+      [SUB_KEY, '1', '60400', '1'],
+    ]);
+  });
+
+  it('LIFO moves the newest lot first, by the method a sale at that moment would use', () => {
+    const book = withVenue(emptyMain(), read(main([into('1')], '0.2'), sub('1')), { ...shared, method: 'LIFO' as const });
+    expect(lotsIn(book, SUB_KEY).map((l) => [l.acquiredAt, l.qty, l.costUsd])).toEqual([
+      [A.filledAt, '0.4', '24000'],
+      [B.filledAt, '0.6', '36600'],
+    ]);
+  });
+
+  it("a sale in the sub-account draws on the lots carried there, at their basis, never on the main account's", () => {
+    const SELL_SUB = fill({
+      fillId: 's',
+      side: 'sell',
+      price: '62000',
+      amount: '0.5',
+      fee: '0',
+      feeAsset: 'USDC',
+      filledAt: '2026-11-11T02:00:00.000Z',
+    });
+    const book = withVenue(emptyMain(), read(main([into('1')], '0.2'), sub('0.5', [SELL_SUB])), shared);
+    const sale = book.sales.find((s) => s.venueAccount === SUB_KEY)!;
+    // TEST: 0.5 of the carried 0.6 at 36000 is 30000; sold for 31000.
+    expect([sale.costUsd, sale.proceedsUsd, sale.realizedUsd]).toEqual(['30000', '31000', '1000']);
+    expect(sale.matches.map((m) => m.lotId)).toEqual([lotsIn(book, SUB_KEY)[0]!.id]);
+    expect(lotsIn(book, ACCOUNT).find((l) => l.remaining !== '0')?.remaining).toBe('0.2');
+    expect(book.residuals).toEqual([]);
+  });
+
+  it('a move with no lot behind it arrives with no basis, named, never a made-up one', () => {
+    const book = withVenue(emptyMain(), read(main([into('1')], '0', []), sub('1')), shared);
+    const moved = lotsIn(book, SUB_KEY);
+    expect(moved.map((l) => [l.source, l.qty, l.costUsd])).toEqual([['transfer_in', '1', null]]);
+    expect(book.residuals).toContain('tax.cost_basis_unavailable');
+  });
+
+  it('a move back out of a sub-account is not followed: that coin is unknown on both accounts, named', () => {
+    const out = { ...into('0.3', 'n2', '2026-11-11T02:00:00.000Z'), direction: 'out_of_sub_account' as const };
+    const book = withVenue(emptyMain(), read(main([into('1'), out], '0.5'), sub('0.7')), shared);
+    expect(book.residuals).toContain('tax.lot_book_unreconciled');
+    for (const key of [ACCOUNT, SUB_KEY]) {
+      expect(book.assets.find((a) => a.venueAccount === key && a.assetId === 'BTC')?.openCostUsd).toBeNull();
+    }
+  });
+});

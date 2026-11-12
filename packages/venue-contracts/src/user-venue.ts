@@ -666,6 +666,8 @@ export interface UserVenueTransfer {
   readonly amount: Amount;
   /** A move between one owner's own accounts settles at once, or the venue refuses it. */
   readonly status: 'done';
+  /** The venue's own time for the move: when the coins left one account and reached the other. */
+  readonly settledAt: Date;
 }
 
 /** Every read is a snapshot of the venue's record at the venue's own time. */
