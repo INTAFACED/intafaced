@@ -116,7 +116,7 @@ describe('wallet Accounts (D-portfolio-wallet-02)', () => {
     session.userId = 'u1';
     await mount(<AccountsPanel key="off" />);
     await act(async () => {});
-    expect(text()).toContain('The trading venue is not connected');
+    expect(text()).toContain('The trading venue is switched off in this build');
     venueStatus.mockResolvedValue({
       ok: true,
       data: { enabled: true, available: false, refusal: { code: 'venue_down', detail: 'TEST venue is down' } },

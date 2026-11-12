@@ -26,7 +26,7 @@ const en = {
   venueSubsNone: 'This wallet has no sub-account on {venue}.',
   venueSubsSignIn: "Sign in to see this wallet's sub-accounts on the trading venue.",
   venueSubsChecking: 'Checking the trading venue…',
-  venueSubsOff: 'The trading venue is not connected, so no venue sub-account can be read.',
+  venueSubsOff: 'The trading venue is switched off in this build, so no venue sub-account can be read.',
   venueSubsDown: 'The trading venue did not answer, so its sub-accounts cannot be read: {detail}',
   custodialNote: "INTAFACED keeps no sub-account of its own for you: the venue sub-accounts above are your own venue account's.",
   multisigTitle: 'Multi-signature accounts',
