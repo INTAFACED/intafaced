@@ -1077,8 +1077,8 @@ export function createIdentityRouter(
      */
     waitlist?: WaitlistService;
     /**
-     * Per-caller budget for the people lookups (`resolveHandle`, `payeeCard`,
-     * `searchPayees`), 30 per minute. index.ts wires the shared Postgres one
+     * Per-caller budget for the people lookups (`resolveHandle`, `searchPayees`),
+     * 30 per minute. index.ts wires the shared Postgres one
      * (`PgHandleLookupLimiter`); absent, a process-local one serves light tests.
      */
     handleLookupLimiter?: HandleLookupLimiterPort;

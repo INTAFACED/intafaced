@@ -89,7 +89,9 @@ export class PgHandleLookupLimiter implements HandleLookupLimiterPort {
   async tryTake(callerId: string): Promise<boolean> {
     const at = this.now ? this.now().toISOString() : null;
     const windowSeconds = this.limit.windowMs / 1000;
-    const rows = await this.sql<{ hits: number }[]>`
+    let rows: { hits: number }[];
+    try {
+      rows = await this.sql<{ hits: number }[]>`
       WITH t AS (SELECT COALESCE(${at}::timestamptz, now()) AS at)
       INSERT INTO handle_lookup_budget AS b (user_id, window_started_at, hits)
       SELECT ${callerId}::uuid, t.at, 1 FROM t
@@ -103,6 +105,11 @@ export class PgHandleLookupLimiter implements HandleLookupLimiterPort {
       WHERE b.window_started_at <= EXCLUDED.window_started_at - make_interval(secs => ${windowSeconds})
          OR b.hits < ${this.limit.max}
       RETURNING b.hits`;
+    } catch (err) {
+      // A caller with no user row (an account removed under a live token) has no budget: refuse it, never a 500.
+      if ((err as { code?: string }).code === '23503') return false;
+      throw err;
+    }
     return rows.length === 1;
   }
 }

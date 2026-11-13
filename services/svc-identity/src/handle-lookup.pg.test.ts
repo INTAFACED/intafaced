@@ -191,5 +191,10 @@ if (!available) {
       expect(await limiter.tryTake(one)).toBe(false);
       expect(await limiter.tryTake(two)).toBe(true);
     });
+
+    it('refuses a caller with no user row instead of failing', async () => {
+      const limiter = new PgHandleLookupLimiter(db.sql, limit, () => new Date('2026-11-13T13:00:00Z'));
+      expect(await limiter.tryTake('99999999-9999-4999-8999-999999999999')).toBe(false);
+    });
   });
 }
