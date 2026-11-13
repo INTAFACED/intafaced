@@ -1,4 +1,4 @@
-// World: book, gates
+// World: book, gates, restart
 import { test, expect } from './journey.mjs';
 import { EDGE, ORIGIN, api, journeyState, tool, toolAwaited } from './stack.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
