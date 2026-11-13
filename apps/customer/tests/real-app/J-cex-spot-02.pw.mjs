@@ -561,9 +561,16 @@ async function restingBuy(page, wallet, owner, symbol, base) {
   await page.locator('[role=tab]', { hasText: /^Limit$/ }).click();
   const form = page.locator('form[data-testid="dk-form"][data-side="buy"]');
   await form.getByRole('textbox', { name: 'Price' }).fill('10');
-  const answer = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/preview' && r.request().method() === 'POST');
-  await form.getByRole('textbox', { name: 'Amount' }).fill('1');
-  expect((await answer).status()).toBe(200);
+  // A market listed a moment ago may not be in our door's market list yet: it re-reads the venue's list on a miss, at
+  // most every few seconds (user-venue-door.ts MARKET_MISS_REREAD_MS), so the preview is asked again until it answers.
+  const amount = form.getByRole('textbox', { name: 'Amount' });
+  await expect(async () => {
+    await amount.fill('');
+    const answer = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/preview' && r.request().method() === 'POST');
+    await amount.fill('1');
+    const res = await answer;
+    expect(res.status(), (await res.text()).slice(0, 300)).toBe(200);
+  }).toPass({ timeout: 30_000, intervals: [2_000] });
   await page.getByRole('button', { name: `Buy ${base}` }).click();
   await expect(reviewSheet(page)).toBeVisible();
   await page.getByRole('button', { name: 'Confirm buy' }).click();
