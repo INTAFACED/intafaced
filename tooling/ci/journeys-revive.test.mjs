@@ -16,6 +16,10 @@ import {
   mainInputOnly,
   prCandidates,
   prTick,
+  revertRerun,
+  revertTick,
+  isAutoRevert,
+  REVERT_WORKFLOWS,
   tick,
   verdictReds,
 } from './journeys-revive.mjs';
@@ -417,4 +421,87 @@ test('lazy (after each CI run on main): a run inside its wait is not read, a lar
   assert.deepEqual(calls.checked, [3], 'only the run whose artifact is small is downloaded');
   assert.deepEqual(calls.rerun, [3]);
   assert.equal(lines.length, 1);
+});
+
+// ── automatic reverts (revertTick) ──────────────────────────────────────────
+const MAIN_AT = Date.parse('2026-11-13T00:51:39Z'); // #8166 merged
+const revertPr = (over = {}) => ({
+  number: 8138,
+  draft: false,
+  user: { login: 'intafaced-mac-agents[bot]', type: 'Bot' },
+  head: { ref: 'revert/auto-2481c93533', sha: 'cbe12915337701912c2be93f2d1de9b0182d1722', repo: { full_name: REPO } },
+  ...over,
+});
+const revertRun = (over = {}) => ({
+  id: 43253820978,
+  run_number: 9000,
+  event: 'pull_request',
+  status: 'completed',
+  conclusion: 'failure',
+  run_attempt: 1,
+  created_at: '2026-11-12T15:58:00Z',
+  run_started_at: '2026-11-12T15:58:00Z',
+  ...over,
+});
+function revertIo(pulls, runsByFile, { rerunStatus = 201 } = {}) {
+  const calls = { rerun: [] };
+  return {
+    calls,
+    io: {
+      openPulls: async () => pulls,
+      mainAt: async () => MAIN_AT,
+      workflowHeadRuns: async (file) => runsByFile[file] ?? [],
+      rerun: async (r) => (calls.rerun.push(r.id), { ok: rerunStatus >= 200 && rerunStatus < 300, status: rerunStatus }),
+    },
+  };
+}
+
+test('#8138 replayed: after the merge that changed the checks, its red CI and CI review re-run once, with no hand', async () => {
+  const runs = {
+    'ci.yml': [revertRun()],
+    'ci-review.yml': [
+      revertRun({ id: 43253821356, run_number: 7000, event: 'pull_request_target' }),
+      revertRun({ id: 43253821400, run_number: 7001, event: 'pull_request_target', conclusion: 'skipped' }),
+    ],
+    'real-app-journeys.yml': [revertRun({ id: 5, run_number: 4470, conclusion: 'success' })],
+  };
+  const f = revertIo([revertPr()], runs);
+  const lines = await revertTick({ repo: REPO, io: f.io });
+  assert.deepEqual(f.calls.rerun, [43253820978, 43253821356]);
+  assert.equal(lines.length, REVERT_WORKFLOWS.length);
+  // The next merge's pass, with both re-runs started after main's head: nothing again.
+  const after = { ...runs, 'ci.yml': [revertRun({ run_attempt: 2, run_started_at: '2026-11-13T00:55:00Z' })] };
+  after['ci-review.yml'] = [
+    revertRun({ id: 43253821356, run_number: 7000, event: 'pull_request_target', run_attempt: 2, run_started_at: '2026-11-13T00:55:00Z' }),
+  ];
+  const g = revertIo([revertPr()], after);
+  await revertTick({ repo: REPO, io: g.io });
+  assert.deepEqual(g.calls.rerun, [], 'once per merge: a run started after main moved is not re-run');
+});
+
+test("only main-bisect's own revert is re-run: not another author, a person, a fork, another branch or a draft", () => {
+  assert.equal(isAutoRevert(revertPr(), REPO), true);
+  assert.equal(isAutoRevert(revertPr({ user: { login: 'ZenYoda3', type: 'User' } }), REPO), false);
+  assert.equal(isAutoRevert(revertPr({ user: { login: 'intafaced-mac-agents[bot]', type: 'User' } }), REPO), false);
+  assert.equal(isAutoRevert(revertPr({ head: { ...revertPr().head, repo: { full_name: 'x/y' } } }), REPO), false);
+  assert.equal(isAutoRevert(revertPr({ head: { ...revertPr().head, ref: 'fix/revert' } }), REPO), false);
+  assert.equal(isAutoRevert(revertPr({ draft: true }), REPO), false);
+});
+
+test('bounded: a green, going or newer run, and a run at its last attempt, are left alone', () => {
+  const at = { event: 'pull_request', mainAt: MAIN_AT };
+  assert.ok(revertRerun([revertRun()], at).run);
+  assert.equal(revertRerun([revertRun({ conclusion: 'success' })], at).run, undefined);
+  assert.equal(revertRerun([revertRun({ status: 'in_progress', conclusion: null })], at).run, undefined);
+  assert.equal(revertRerun([revertRun({ run_started_at: '2026-11-13T01:00:00Z' })], at).run, undefined);
+  assert.equal(revertRerun([revertRun({ run_attempt: MAX_ATTEMPT })], at).run, undefined);
+  assert.equal(revertRerun([revertRun({ event: 'push' })], at).run, undefined, 'another event is not the pull request run');
+  // The newest run decides: an older red one under a newer green one is not re-run.
+  assert.equal(revertRerun([revertRun(), revertRun({ id: 2, run_number: 9001, conclusion: 'success' })], at).run, undefined);
+});
+
+test('no open automatic revert reads nothing more', async () => {
+  const f = revertIo([revertPr({ user: { login: 'ZenYoda3', type: 'User' } })], {});
+  f.io.mainAt = async () => assert.fail('main is not read');
+  assert.deepEqual(await revertTick({ repo: REPO, io: f.io }), []);
 });

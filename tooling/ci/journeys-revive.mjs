@@ -37,6 +37,15 @@
  * It runs after each Real-app journeys run on main ends (main-trust.yml post-merge, `prs`), so it follows main's
  * report coming back within minutes, and on the hourly `revive` tick after the main pass, for any other input outage.
  *
+ * AUTOMATIC REVERTS (revertTick). main-bisect's own revert (exact-revert.mjs: a revert/auto-<sha10> branch of this
+ * repository, opened by the factory App as a Bot) is re-run after each merge into main, so a revert that main's checks
+ * refused passes as soon as a merge changes those checks or fixes main's input, with no hand. For each such open pull
+ * request, the newest run on its head of CI, the CI review and Real-app journeys (REVERT_WORKFLOWS) has its failed jobs
+ * re-run when it finished `failure`, its latest attempt started before main's head commit, and its attempt is below
+ * MAX_ATTEMPT: at most one re-run per run per merge, and MAX_ATTEMPT - 1 per run in all. The checks decide as before;
+ * this only runs them again on main's newer rules. (Failure it prevents: intafaced #8138, main-bisect's revert of #8113,
+ * stayed red after #8166 changed the checks that refused it until a person re-ran its Doctrine gates and CI review.)
+ *
  * A refused request (403, 429) stops the tick, never retried, and opens one issue (REFUSED_TITLE) when GitHub still takes it.
  *
  *   node tooling/ci/journeys-revive.mjs        main runs, then pull requests (GITHUB_REPOSITORY, GH_TOKEN; DRY_RUN=1 writes nothing)
@@ -44,6 +53,7 @@
  *   node tooling/ci/journeys-revive.mjs main   main runs only (after each CI run on main: GitHub's cron here runs late or never)
  * Its tests: tooling/ci/journeys-revive.test.mjs.
  */
+import { AUTO_REVERT_AUTHOR, AUTO_REVERT_BRANCH } from './exact-revert.mjs';
 import { downloadReport, isMainRun, JOURNEYS_FILE } from './journey-verdict.mjs';
 
 export const MAX_ATTEMPT = 5;
@@ -273,6 +283,59 @@ export async function prTick({ repo, now, io }) {
   return out;
 }
 
+/** The workflows of an automatic revert's head that revertTick re-runs, with the event each runs on. */
+export const REVERT_WORKFLOWS = [
+  { file: 'ci.yml', event: 'pull_request' },
+  { file: 'ci-review.yml', event: 'pull_request_target' },
+  { file: JOURNEYS_FILE, event: 'pull_request' },
+];
+
+/** Whether an open pull request is main-bisect's automatic revert, by its branch, author and repository. Pure. */
+export function isAutoRevert(pr, repo) {
+  return (
+    AUTO_REVERT_BRANCH.test(String(pr?.head?.ref ?? '')) &&
+    pr?.user?.login === AUTO_REVERT_AUTHOR &&
+    pr?.user?.type === 'Bot' &&
+    pr?.head?.repo?.full_name === repo &&
+    !pr?.draft
+  );
+}
+
+/** The run of `runs` (one workflow, one head) to re-run after main moved at `mainAt` (ms), or why not. Pure. */
+export function revertRerun(runs, { event, mainAt }) {
+  const newest = runs.filter((r) => r.event === event && r.conclusion !== 'skipped').sort((a, b) => b.run_number - a.run_number)[0];
+  if (!newest) return { why: 'no run' };
+  if (newest.status !== 'completed') return { why: `run ${newest.id} is going` };
+  if (newest.conclusion !== 'failure') return { why: `run ${newest.id} ${newest.conclusion}` };
+  if (Number(newest.run_attempt || 1) >= MAX_ATTEMPT) return { why: `run ${newest.id} is at attempt ${newest.run_attempt}, the last` };
+  if (!(Date.parse(newest.run_started_at ?? newest.created_at) < mainAt)) return { why: `run ${newest.id} ran after main's head` };
+  return { run: newest };
+}
+
+/**
+ * One pass over the open automatic reverts. `io` adds: openPulls() -> open pull requests, mainAt() -> main's head commit
+ * time (ms), workflowHeadRuns(file, sha) -> runs. Returns one line per run read.
+ */
+export async function revertTick({ repo, io }) {
+  const out = [];
+  const pulls = (await io.openPulls()).filter((p) => isAutoRevert(p, repo));
+  if (!pulls.length) return out;
+  const mainAt = await io.mainAt();
+  for (const pr of pulls)
+    for (const w of REVERT_WORKFLOWS) {
+      const d = revertRerun(await io.workflowHeadRuns(w.file, pr.head.sha), { event: w.event, mainAt });
+      if (!d.run) {
+        out.push(`#${pr.number} ${w.file}: left (${d.why})`);
+        continue;
+      }
+      const r = await io.rerun(d.run);
+      out.push(
+        `#${pr.number} ${w.file}: run ${d.run.id} ${r.ok ? 're-run of failed jobs requested' : `GitHub did not take its re-run (${r.status})`}`,
+      );
+    }
+  return out;
+}
+
 // ── GitHub ─────────────────────────────────────────────────────────────────
 async function gh(method, path, body, raw = false) {
   if (process.env.DRY_RUN === '1' && method !== 'GET') {
@@ -336,6 +399,10 @@ export function githubIo(repo) {
       (await gh('GET', `/repos/${repo}/actions/runs/${run.id}/attempts/${run.run_attempt || 1}/jobs?per_page=100`)).json.jobs,
     // GET /rate_limit spends no budget.
     budget: async () => (await gh('GET', '/rate_limit')).json.resources.core,
+    openPulls: async () => (await gh('GET', `/repos/${repo}/pulls?state=open&per_page=100`)).json,
+    mainAt: async () => Date.parse((await gh('GET', `/repos/${repo}/commits/main`)).json.commit.committer.date),
+    workflowHeadRuns: async (file, sha) =>
+      (await gh('GET', `/repos/${repo}/actions/workflows/${file}/runs?head_sha=${sha}&per_page=100`)).json.workflow_runs,
     jobLog: async (job) => (await gh('GET', `/repos/${repo}/actions/jobs/${job.id}/logs`, undefined, true)).text,
   };
 }
@@ -369,6 +436,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     if (mode !== 'prs') {
       const lines = await tick({ repo, now: Date.now(), io, lazy: mode === 'main' });
       console.log(lines.length ? lines.join('\n') : 'every finished journeys run on main in the window has a report');
+      const reverts = await revertTick({ repo, io });
+      console.log(reverts.length ? reverts.join('\n') : 'no open automatic revert');
     }
     if (mode === 'main') return;
     const lines = await prTick({ repo, now: Date.now(), io });
