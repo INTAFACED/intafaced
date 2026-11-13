@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { api, fromUnits, journeyState, tool, toUnits } from './stack.mjs';
-import { signUp, verify } from './desk.mjs';
+import { reviewSheet, signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import {
   continueInWallet,
@@ -36,11 +36,11 @@ const DAY = 86_400_000;
 /** The TEST builder fee in force, and what each discount leaves of it (floored to the venue's tenth of a basis point). */
 const RATE = { full: '0.5', coupon: '0.2', rank: '0.4' };
 /**
- * A TEST market sell into the TEST bids (the TEST ladder's bids start at 59990), its worst price inside the stack's TEST
- * 50 bps price protection, and a TEST limit sell resting inside the spread, below the TEST asks (from 60010), so a
+ * A TEST market sell into the TEST bids (the TEST ladder's bids start at 59990), at the worst price the desk sets from the
+ * stack's TEST price protection, and a TEST limit sell resting inside the spread, below the TEST asks (from 60010), so a
  * buyer's sweep up to its price fills it.
  */
-const SELL = { amount: '0.001', worst: '59900' };
+const SELL = { amount: '0.001' };
 const REST = { amount: '0.001', price: '60005' };
 
 test.describe.configure({ mode: 'default' });
@@ -143,17 +143,25 @@ const desk = async (page) => {
 };
 const line = (sheet, name) => sheet.locator(`[data-line="${name}"]`);
 
-/** The ticket filled for a sell and Review pressed; returns the review sheet. */
+/**
+ * The desk's sell form filled and Sell pressed, once the venue's own preview of it has answered; returns the review dialog
+ * and the price the order carries (a market order's worst price is the desk's, from the stack's TEST price protection).
+ */
 async function reviewSell(page, { type, price, amount }) {
-  const ticket = page.getByTestId('venue-ticket');
-  await ticket.getByRole('button', { name: 'Sell', exact: true }).click();
-  await ticket.getByRole('button', { name: type === 'limit' ? 'Limit' : 'Market', exact: true }).click();
-  await ticket.getByRole('textbox', { name: type === 'limit' ? 'Price' : 'Worst price (slippage limit)' }).fill(price);
-  await ticket.getByRole('textbox', { name: 'Amount (BTC)' }).fill(amount);
-  await ticket.getByRole('button', { name: 'Review sell' }).click();
-  const sheet = page.getByTestId('venue-review');
+  await page
+    .getByTestId('dk-order')
+    .locator('[role=tab]', { hasText: type === 'limit' ? /^Limit$/ : /^Market$/ })
+    .click();
+  const form = page.locator('[data-testid="dk-form"][data-side="sell"]');
+  if (type === 'limit') await form.getByRole('textbox', { name: 'Price' }).fill(price);
+  const answer = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/preview' && r.request().method() === 'POST');
+  await form.getByRole('textbox', { name: 'Amount' }).fill(amount);
+  expect((await answer).status()).toBe(200);
+  await form.locator('button[type=submit]').click();
+  const sheet = reviewSheet(page);
   await expect(sheet).toBeVisible();
-  return sheet;
+  const at = type === 'limit' ? price : (await line(sheet, 'worst').innerText()).replace(/,/g, '').trim();
+  return { sheet, price: at };
 }
 
 /** What the venue itself previews for this sell at our builder fee `feeBps`: the figure the sheet must show. */
@@ -176,11 +184,12 @@ async function venuePreviewAt(owner, { type, price, amount }, clientOrderKey, fe
   ).value;
 }
 
-/** Confirm and sign in the review; returns the outcome line. */
+/** Confirm the review (it closes) and sign in the wallet; returns the order's outcome line under the form. */
 async function confirmAndSign(page, sheet) {
-  await sheet.getByRole('button', { name: 'Confirm and sign' }).click();
+  await expect(sheet.getByRole('button', { name: 'Confirm sell' })).toBeEnabled({ timeout: 20_000 });
+  await sheet.getByRole('button', { name: 'Confirm sell' }).click();
   await continueInWallet(page);
-  const outcome = sheet.getByTestId('venue-outcome').last();
+  const outcome = page.locator('[data-testid="dk-form"][data-side="sell"]').getByTestId('venue-outcome');
   await expect(outcome).not.toHaveText('', { timeout: 15_000 });
   return outcome;
 }
@@ -320,24 +329,26 @@ test(`${J} #2 places and fills an order with the coupon and a rank discount: the
 
   // The coupon (half off) beats the rank (25 bps of the fee off): the sheet names it, and our builder fee is the venue's own
   // preview of this order at the coupon's rate, not at the rate in force.
-  const sheet = await reviewSell(page, { type: 'market', price: SELL.worst, amount: SELL.amount });
+  const { sheet, price: worst } = await reviewSell(page, { type: 'market', amount: SELL.amount });
   const clientId = (await line(sheet, 'client-id').innerText()).trim();
   await expect(line(sheet, 'builder-fee-discount')).toHaveText(`Coupon ${code}: 50% off our builder fee, never the venue’s`);
   await expect(line(sheet, 'builder-fee-discount')).toHaveAttribute('data-source', 'coupon');
   const at = (p) => `${p.builderFee.value.amount} ${p.builderFee.value.asset}`;
-  const coupon = await venuePreviewAt(owner, { type: 'market', price: SELL.worst, amount: SELL.amount }, clientId, RATE.coupon);
-  const full = await venuePreviewAt(owner, { type: 'market', price: SELL.worst, amount: SELL.amount }, clientId, RATE.full);
+  const coupon = await venuePreviewAt(owner, { type: 'market', price: worst, amount: SELL.amount }, clientId, RATE.coupon);
+  const full = await venuePreviewAt(owner, { type: 'market', price: worst, amount: SELL.amount }, clientId, RATE.full);
   expect(toUnits(coupon.builderFee.value.amount)).toBeLessThan(toUnits(full.builderFee.value.amount));
-  await expect(line(sheet, 'builder-fee')).toHaveText(at(coupon));
+  await expect(line(sheet, 'builder-fee')).toContainText(at(coupon));
   // The venue's fee is the venue's, unchanged by any discount of ours.
   await expect(line(sheet, 'venue-fee')).toHaveText(`${full.venueFee.value.amount} ${full.venueFee.value.asset}`);
   // The review takes nothing.
   expect((await couponOf(account, code)).remaining).toBe('2');
 
   // Our builder fee is approved once, at the rate in force (a discounted order asks for less), then the order is signed.
+  await expect(line(sheet, 'builder-fee')).toContainText(`Not signed: your wallet signs an approval of up to ${RATE.full} bps`);
   await sheet.getByRole('button', { name: 'Approve our builder fee in your wallet' }).click();
   await continueInWallet(page);
-  await expect(line(sheet, 'builder-approval')).toHaveText(`Signed, up to ${RATE.full} bps`, { timeout: 15_000 });
+  await expect(line(sheet, 'builder-fee')).not.toContainText('Not signed', { timeout: 20_000 });
+  await expect(line(sheet, 'builder-fee')).toHaveText(at(coupon));
   await expect(await confirmAndSign(page, sheet)).toContainText('Filled on the venue.');
   const fills = await chargedAt(page, owner, clientId, RATE.coupon);
   await postedOnce(owner, fills);
@@ -357,10 +368,10 @@ test(`${J} #2 places and fills an order with the coupon and a rank discount: the
   try {
     tool('local-test-stack.mjs', 'stop', 'campaigns');
     await desk(page);
-    const down = await reviewSell(page, { type: 'market', price: SELL.worst, amount: SELL.amount });
+    const { sheet: down, price: downWorst } = await reviewSell(page, { type: 'market', amount: SELL.amount });
     downClientId = (await line(down, 'client-id').innerText()).trim();
     await expect(line(down, 'builder-fee-discount')).toHaveCount(0);
-    const normal = await venuePreviewAt(owner, { type: 'market', price: SELL.worst, amount: SELL.amount }, downClientId, RATE.full);
+    const normal = await venuePreviewAt(owner, { type: 'market', price: downWorst, amount: SELL.amount }, downClientId, RATE.full);
     await expect(line(down, 'builder-fee')).toHaveText(at(normal));
     await expect(await confirmAndSign(page, down)).toContainText('Filled on the venue.');
     await postedOnce(owner, await chargedAt(page, owner, downClientId, RATE.full));
@@ -380,20 +391,19 @@ test(`${J} #3 the coupon runs out during an order: that order keeps the builder 
   const { owner } = await desk(page);
 
   // A TEST limit sell resting above the book takes the coupon's last order.
-  const sheet = await reviewSell(page, { type: 'limit', price: REST.price, amount: REST.amount });
+  const { sheet } = await reviewSell(page, { type: 'limit', price: REST.price, amount: REST.amount });
   const restingId = (await line(sheet, 'client-id').innerText()).trim();
   await expect(line(sheet, 'builder-fee-discount')).toHaveAttribute('data-source', 'coupon');
   await expect(await confirmAndSign(page, sheet)).toContainText('Open on the venue.');
-  await sheet.getByRole('button', { name: 'Back' }).click();
   const spent = await couponOf(account, code);
   expect(spent).toMatchObject({ state: 'used', remaining: '0' });
   expect(spent.feeSaver.uses.map((u) => u.orderKey)).toEqual([couponOrder, restingId]);
 
   // The next order: no coupon left, so it carries the rank's rate.
-  const next = await reviewSell(page, { type: 'market', price: SELL.worst, amount: SELL.amount });
+  const { sheet: next, price: nextWorst } = await reviewSell(page, { type: 'market', amount: SELL.amount });
   const nextId = (await line(next, 'client-id').innerText()).trim();
   await expect(line(next, 'builder-fee-discount')).toHaveText('Your rank: 0.25% off our builder fee, never the venue’s');
-  const rank = await venuePreviewAt(owner, { type: 'market', price: SELL.worst, amount: SELL.amount }, nextId, RATE.rank);
+  const rank = await venuePreviewAt(owner, { type: 'market', price: nextWorst, amount: SELL.amount }, nextId, RATE.rank);
   await expect(line(next, 'builder-fee')).toHaveText(`${rank.builderFee.value.amount} ${rank.builderFee.value.asset}`);
   await expect(await confirmAndSign(page, next)).toContainText('Filled on the venue.');
   await postedOnce(owner, await chargedAt(page, owner, nextId, RATE.rank));
