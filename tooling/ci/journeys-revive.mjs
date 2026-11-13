@@ -47,6 +47,7 @@
  * Its tests: tooling/ci/journeys-revive.test.mjs.
  */
 import { downloadReport, isMainRun, JOURNEYS_FILE } from './journey-verdict.mjs';
+import { JOURNEY_TEST, journeyOf } from './journey-seal.mjs';
 import { refusalDetail } from './refusal.mjs';
 
 export const MAX_ATTEMPT = 5;
@@ -322,7 +323,7 @@ export async function mainSteps({ repo, now, io }) {
  * any more. Anything else (an `(input)` row, a step main never had red, a step still red on main) is its own and
  * stays red.
  */
-export function heldOnly({ repo, pr, run, jobs, rows, main }) {
+export function heldOnly({ repo, pr, run, jobs, rows, main, changed = null }) {
   if (pr.state !== 'open' || pr.draft || !pr.auto_merge || pr.head?.repo?.full_name !== repo)
     return { why: 'not an open armed pull request of this repository' };
   if (!run || run.head_sha !== pr.head?.sha || run.status !== 'completed' || run.conclusion !== 'failure')
@@ -334,11 +335,20 @@ export function heldOnly({ repo, pr, run, jobs, rows, main }) {
   if (Date.parse(run.created_at) >= Date.parse(main.newest.created_at))
     return { why: `its run started after main's newest run ${main.newest.run_number}` };
   const steps = rows.map(rowStep);
-  const own2 = rows.filter((_, i) => !steps[i] || !main.before.has(steps[i]));
+  // Main's: a step main was red on, or (project-state#2065 d32 (a)) a step whose journey test file main changed after
+  // this head left it (`changed`, journey ids; null: not read yet, and `needs` names the journeys to read).
+  const mains = (s) => main.before.has(s) || Boolean(changed?.has(journeyOf(s)));
+  const own2 = rows.filter((_, i) => !steps[i] || !mains(steps[i]));
+  if (own2.length && changed === null && steps.every(Boolean))
+    return { why: `its own red (${own2.join(' | ').slice(0, 200)})`, needs: [...new Set(own2.map((r) => journeyOf(rowStep(r))))].sort() };
   if (own2.length) return { why: `its own red (${own2.join(' | ').slice(0, 200)})` };
   const still = steps.filter((s) => main.now.has(s));
   if (still.length) return { why: `held by ${still.join(', ')}, still red on main's newest run ${main.newest.run_number}` };
-  return { held: true, why: `red only on ${steps.join(', ')}, which main's newest run ${main.newest.run_number} is no longer red on` };
+  const fixed = [...new Set(steps.filter((s) => !main.before.has(s)).map(journeyOf))];
+  return {
+    held: true,
+    why: `red only on ${steps.join(', ')}, which main's newest run ${main.newest.run_number} is no longer red on${fixed.length ? ` (main changed the test of ${fixed.join(', ')} since this head)` : ''}`,
+  };
 }
 
 /**
@@ -355,6 +365,12 @@ export async function heldTick({ repo, now, io }) {
   let main;
   for (const pr of await io.openPulls()) {
     if (pr.draft || !pr.auto_merge || pr.head?.repo?.full_name !== repo) continue;
+    // Held by the factory, as the pull holds it (project-state tooling/pull/next.mjs): a fresh head would only spend runs.
+    const label = (pr.labels ?? []).map((l) => l?.name ?? l).find((l) => HELD_LABELS.includes(l));
+    if (label) {
+      out.push(`#${pr.number}: labelled ${label}, left as it is`);
+      continue;
+    }
     const runs = (await io.headRuns(pr.head.sha)).sort((a, b) => b.run_number - a.run_number);
     const run = runs[0];
     if (!run || run.status !== 'completed' || run.conclusion !== 'failure') continue;
@@ -363,17 +379,44 @@ export async function heldTick({ repo, now, io }) {
     const rows = verdictReds(await io.jobLog(jobs.find((j) => j.name === JUDGE_JOB)));
     if (main === undefined) main = await mainSteps({ repo, now, io });
     if (main === null) return [...out, "main's newest journeys run has no readable verdict: nothing moved"];
-    const { held, why } = heldOnly({ repo, pr, run, jobs, rows, main });
+    let verdict = heldOnly({ repo, pr, run, jobs, rows, main });
+    if (verdict.needs?.length) {
+      // A step main never had red: main's, when main changed its journey test file since this head left main. A read
+      // that fails leaves it the pull request's own.
+      let changed = new Set();
+      try {
+        changed = await io.testsChangedSince(pr.head.sha, main.newest.head_sha, verdict.needs);
+      } catch (e) {
+        if (isRefusal(e)) throw e;
+      }
+      verdict = heldOnly({ repo, pr, run, jobs, rows, main, changed });
+    }
+    const { held, why } = verdict;
     if (!held) {
       out.push(`#${pr.number}: run ${run.run_number}: ${why}, left as it is`);
       continue;
     }
+    // A pull request that conflicts with main can't be updated by GitHub (422): only its builder can merge main.
+    const now2 = await io.pull(pr.number);
+    if (now2?.mergeable === false) {
+      out.push(`#${pr.number}: run ${run.run_number} ${why}; it conflicts with main, so GitHub can't update it: its builder merges main`);
+      continue;
+    }
     const r = await io.updateBranch(pr);
-    out.push(
-      `#${pr.number}: run ${run.run_number} ${why}; ${r.ok ? 'branch updated from main, a fresh head' : `GitHub did not update it (${r.status})`}`,
-    );
+    out.push(`#${pr.number}: run ${run.run_number} ${why}; ${r.ok ? 'branch updated from main, a fresh head' : notUpdated(r)}`);
   }
   return out;
+}
+
+/** The labels the pull holds a pull request with (project-state tooling/pull/next.mjs): the held pass leaves those. */
+export const HELD_LABELS = ['blocked', 'parked', 'design'];
+
+/** Why GitHub did not update a branch, from its answer: a 422 says a conflict or a head that moved. */
+export function notUpdated(r) {
+  const m = String(r.message ?? '');
+  if (r.status === 422 && /conflict/i.test(m)) return 'it conflicts with main, so GitHub did not update it (422): its builder merges main';
+  if (r.status === 422 && /head|sha/i.test(m)) return 'its head moved since it was read (422): the next pass reads the new head';
+  return `GitHub did not update it (${r.status}${m ? `: ${m.slice(0, 120)}` : ''})`;
 }
 
 /** The App token the held pass writes with: update a branch (contents), read pull requests and runs; workflows so a
@@ -452,7 +495,22 @@ export function githubIo(repo) {
     // A merge commit from main onto the branch; expected_head_sha so a head that moved since is not touched (422).
     updateBranch: async (pr) => {
       const r = await gh('PUT', `/repos/${repo}/pulls/${pr.number}/update-branch`, { expected_head_sha: pr.head.sha });
-      return { ok: r.status === 0 || (r.status >= 200 && r.status < 300), status: r.status };
+      return { ok: r.status === 0 || (r.status >= 200 && r.status < 300), status: r.status, message: r.json?.message };
+    },
+    // The journeys (of `ids`) whose test files on main at `mainSha` were changed by a commit `head` doesn't hold.
+    testsChangedSince: async (head, mainSha, ids) => {
+      const dir = 'apps/customer/tests/real-app';
+      const list = (await gh('GET', `/repos/${repo}/contents/${dir}?ref=${mainSha}`)).json;
+      const out = new Set();
+      for (const id of ids)
+        for (const f of (list ?? []).filter((e) => e?.type === 'file' && JOURNEY_TEST.exec(`${dir}/${e.name}`)?.[1] === id)) {
+          const last = (await gh('GET', `/repos/${repo}/commits?sha=${mainSha}&path=${encodeURIComponent(`${dir}/${f.name}`)}&per_page=1`))
+            .json?.[0];
+          if (!last?.sha) continue;
+          const c = (await gh('GET', `/repos/${repo}/compare/${last.sha}...${head}`)).json;
+          if (!['ahead', 'identical'].includes(c?.status)) out.add(id);
+        }
+      return out;
     },
   };
 }
