@@ -962,3 +962,23 @@ test('a step id two files share: the run lists both files, and a targeted run of
     'and a failure there is red',
   );
 });
+
+test('off main (a pull request run that retries): a flaky built step outside the list is green, a flaky money step still red, a real break red (d32 part (a))', () => {
+  const both = { ...money, 'J-a-01#1': true };
+  const flakyBuilt = run(report(flaky('J-a-01 #1'), bad('J-a-01 #2'), bad('J-a-02 #1')));
+  assert.deepEqual(flakyBuilt.red, [], 'a non-money flake that main would call flaky no longer turns a pull request red');
+  // Planted: the same flake on a money step keeps today's pull request rule (failed once: red).
+  const flakyMoney = run(report(flaky('J-a-01 #1'), bad('J-a-01 #2'), bad('J-a-02 #1')), { money: both });
+  assert.deepEqual(
+    flakyMoney.red.map((r) => [r.step, r.money]),
+    [['J-a-01#1', true]],
+  );
+  // Planted: a real break fails both attempts and stays red, money or not.
+  const broken = run(report(bad('J-a-01 #1'), bad('J-a-01 #2'), bad('J-a-02 #1')));
+  assert.deepEqual(
+    broken.red.map((r) => [r.step, r.why]),
+    [['J-a-01#1', 'failing, not in the baseline']],
+  );
+  // On main nothing changes: a flaky money step is a pass that is never proven (the lead's decision of 12 Nov).
+  assert.deepEqual(run(report(flaky('J-a-01 #1'), bad('J-a-01 #2'), bad('J-a-02 #1')), { money: both, onMain: true }).red, []);
+});

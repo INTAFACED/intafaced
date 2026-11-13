@@ -26,6 +26,10 @@
 # the suite outgrew one job and keeps growing.) Journey files are independent: each makes its own accounts and keeps its
 # own run file, so the plan job can split them by file.
 name: Real-app journeys
+# A run by hand says in its title what it runs (`full`, or the journey files it was given), so a pull request's run on
+# the same head can leave that out (journey-touch.mjs DISPATCH_TITLE, reusableRuns; project-state#2065 row d32 part (b)).
+# Every other run keeps GitHub's own title (an empty run-name).
+run-name: ${{ github.event_name == 'workflow_dispatch' && format('Real-app journeys by hand, {0}', github.ref != 'refs/heads/main' && inputs.journeys != '' && inputs.journeys || 'full') || '' }}
 
 on:
   # A manual run on a branch other than main may name journey files; it then runs only those (owner decision
@@ -145,6 +149,10 @@ jobs:
       count: ${{ steps.plan.outputs.count }}
       fast_plan: ${{ steps.fast.outputs.plan }}
       leave_out: ${{ steps.leave.outputs.list }}
+      # A pull request's run retries a failed test once (retry 1), except its own journey files (own) and the unbuilt
+      # tests that never passed; any other run off main, or one whose touch step gave no `own`, never retries.
+      own: ${{ steps.touch.outputs.own }}
+      retry: ${{ steps.touch.outputs.retry }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -170,7 +178,7 @@ jobs:
         with:
           node-version-file: .base/.node-version
       - name: What this run runs
-        id: touch
+        id: pick
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           EVENT: ${{ github.event_name }}
@@ -245,11 +253,47 @@ jobs:
           # journey files at the head run too, so the seal's named steps are proven without a manual run.
           named=$(SEAL="$seal" node -e 'import(process.env.SEAL).then((m) => { const left = new Set(m.exemptions(process.env.BODY).steps); const js = new Set(m.titleSteps(process.env.TITLE).filter((k) => !left.has(k)).map((k) => k.split("#")[0])); const dir = "apps/customer/tests/real-app"; const out = require("fs").readdirSync(dir).filter((f) => { const x = m.JOURNEY_TEST.exec(dir + "/" + f); return x && js.has(x[1]); }); console.log(out.sort().join(" ")); })') || full "the steps the title names couldn't be read"
           [ -n "$named" ] && echo "the title's steps are in: $named"
+          # Its own journey files (the ones it changes or names, and the title's): a pull request's run never retries
+          # them, so its own steps pass on their one attempt; every other test is retried once, as on main. A base copy
+          # of journey-touch.mjs that gives no `own` leaves the run with no retry, as before.
+          if jq -e 'has("own")' <<<"$touch" >/dev/null; then
+            own=$(jq -r --arg n "$named" '(.own + ($n | split(" ") | map(select(. != "")))) | unique | join(" ")' <<<"$touch")
+            { echo "own=$own"; echo "retry=1"; } >> "$GITHUB_OUTPUT"
+          fi
           case "$mode" in
             none) if [ -n "$named" ]; then { echo "mode=run"; echo "target=$named"; } >> "$GITHUB_OUTPUT"; else { echo "mode=none"; echo "target="; } >> "$GITHUB_OUTPUT"; fi ;;
             files) { echo "mode=run"; echo "target=$(jq -r --arg n "$named" '(.files + ($n | split(" ") | map(select(. != "")))) | unique | join(" ")' <<<"$touch")"; } >> "$GITHUB_OUTPUT" ;;
             *) { echo "mode=run"; echo "target="; } >> "$GITHUB_OUTPUT" ;;
           esac
+
+      # One journeys run per head (project-state#2065 row d32 part (b)): a pull request's run leaves out what a run by hand
+      # on its exact head already runs (the builder's run before it opened the pull request; journey-touch.mjs
+      # reusableRuns, afterReuse, the default branch's copy). The seal reads every run on the head by its report, so what is
+      # left out is judged from that run, and its red stands. Any other run, an unreadable list of runs, or a base copy
+      # with no --reuse: the pick stands.
+      - name: One journeys run per head
+        id: touch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT: ${{ github.event_name }}
+          MODE: ${{ steps.pick.outputs.mode }}
+          TARGET: ${{ steps.pick.outputs.target }}
+          OWN: ${{ steps.pick.outputs.own }}
+          RETRY: ${{ steps.pick.outputs.retry }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          { echo "own=$OWN"; echo "retry=$RETRY"; } >> "$GITHUB_OUTPUT"
+          if [ "$EVENT" = pull_request ] && [ "$MODE" = run ] && out=$(node "$GITHUB_WORKSPACE/.base/tooling/ci/journey-touch.mjs" --reuse 2>/dev/null) && jq -e '.mode == "run" or .mode == "none"' <<<"$out" >/dev/null 2>&1; then
+            why=$(jq -r '.why' <<<"$out")
+            [ -n "$why" ] && echo "::notice::$why"
+            mode=$(jq -r '.mode' <<<"$out")
+            target=$(jq -r '.target' <<<"$out")
+            if [[ "$target" =~ ^[A-Za-z0-9._\ -]*$ ]]; then
+              { echo "mode=$mode"; echo "target=$target"; } >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          { echo "mode=$MODE"; echo "target=$TARGET"; } >> "$GITHUB_OUTPUT"
 
       # Marks a hand-dispatched full run off main in the jobs API, so main-first.mjs can count them (DISPATCH_MARK).
       - name: A hand-dispatched full run
@@ -780,8 +824,13 @@ jobs:
           JOURNEY_FAIL_FAST_PLAN: ${{ needs.touch.outputs.fast_plan }}
           # The unbuilt tests a push run on main leaves out (the touch job's Leave-out plan), as Playwright's test list.
           JOURNEY_LEAVE_OUT: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' && needs.touch.outputs.leave_out || '' }}
-          # One retry of a failed test on main only (the set-aside above); a targeted run on a branch never retries.
-          JOURNEY_RETRIES: ${{ github.ref == 'refs/heads/main' && '1' || '0' }}
+          # One retry of a failed test on main (the set-aside above) and on a pull request's run (project-state#2065 row
+          # d32 part (a): another journey's flake no longer turns it red), but there never for its own journey files or
+          # the unbuilt tests that never passed (fail-fast-once.mjs), and a money step that passed only on its retry
+          # still fails it (journey-verdict.mjs). A run by hand off main never retries.
+          JOURNEY_RETRIES: ${{ (github.ref == 'refs/heads/main' || (github.event_name == 'pull_request' && needs.touch.outputs.retry == '1')) && '1' || '0' }}
+          JOURNEY_NO_RETRY_UNBUILT: ${{ github.ref != 'refs/heads/main' && '1' || '0' }}
+          JOURNEY_NO_RETRY_FILES: ${{ github.event_name == 'pull_request' && needs.touch.outputs.own || '' }}
           SHARDS: ${{ needs.touch.outputs.shards }}
           SHARD: ${{ matrix.shard }}
           TOTAL: ${{ strategy.job-total }}

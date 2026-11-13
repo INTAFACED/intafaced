@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, normalize, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -10,7 +10,10 @@ import {
   JOURNEY_CI,
   RUN_FILE,
   STACK_FILE,
+  afterReuse,
   checkoutJourneyTexts,
+  ownJourneyFiles,
+  reusableRuns,
   journeyTouch,
   namedInputs,
   namedJourneyIds,
@@ -663,7 +666,7 @@ test('real-app-journeys.yml runs on ready pull requests, tests their head, and a
 test('real-app-journeys.yml on main: the touch step decides nothing, so a push, a scheduled run or a dispatch with a journeys input keeps an empty target and the full suite', () => {
   const t = readFileSync(join(ROOT, '.github/workflows/real-app-journeys.yml'), 'utf8');
   // The touch step's own script, run as GitHub runs it.
-  const at = t.indexOf('\n        id: touch\n');
+  const at = t.indexOf('\n        id: pick\n');
   assert.ok(at > 0, 'the touch step');
   const from = t.indexOf('\n        run: |\n', at) + '\n        run: |\n'.length;
   const lines = [];
@@ -892,4 +895,113 @@ test('DOCS_READ drift, planted: a doc named in code and not listed is caught by 
   const covered = (n) => DOCS_READ.some((d) => n === d || `${n}/` === d || n.startsWith(d));
   for (const n of ['docs/new-thing.md', 'docs/ci', 'docs']) assert.equal(covered(n), false, n);
   for (const n of ['docs/roadmap', 'docs/runbooks/journey-baseline.json', 'docs/RUNNING.md']) assert.equal(covered(n), true, n);
+});
+
+// One journeys run per head (project-state#2065 row d32 part (b)).
+const byHand = (id, title, over = {}) => run(id, { event: 'workflow_dispatch', display_title: title, ...over });
+const AT_HEAD = new Set(['J-a-01.pw.mjs', 'J-b-02.pw.mjs', 'J-c-03.pw.mjs']);
+const reuse = (runs) => reusableRuns(runs, { sha: HEAD, repo: REPO, journeyFiles: AT_HEAD });
+
+test("a pull request's run leaves out the journey files a run by hand on its exact head already runs, and the rest still runs", () => {
+  const r = reuse([byHand(1, 'Real-app journeys by hand, J-a-01.pw.mjs,J-b-02.pw.mjs', { status: 'in_progress', conclusion: null })]);
+  assert.deepEqual(afterReuse('J-a-01.pw.mjs J-c-03.pw.mjs', r), {
+    target: 'J-c-03.pw.mjs',
+    mode: 'run',
+    why: '1 of its 2 journey file(s) already run by hand on this head (run 1), so this run leaves them out',
+  });
+  assert.equal(afterReuse('J-a-01.pw.mjs J-b-02.pw.mjs', r).mode, 'none');
+  // A red run by hand counts too: its red stands for this head, and the seal reads it.
+  assert.equal(
+    afterReuse('J-a-01.pw.mjs', reuse([byHand(2, 'Real-app journeys by hand, J-a-01.pw.mjs', { conclusion: 'failure' })])).mode,
+    'none',
+  );
+  // A finished full run by hand stands for the full suite and for any files.
+  const full = reuse([byHand(3, 'Real-app journeys by hand, full')]);
+  assert.equal(afterReuse('', full).mode, 'none');
+  assert.equal(afterReuse('J-a-01.pw.mjs', full).mode, 'none');
+});
+
+test('planted: nothing is left out for a run that is not a finished or targeted run by hand on this exact head', () => {
+  const same = (runs, target = 'J-a-01.pw.mjs') => assert.deepEqual(afterReuse(target, reuse(runs)), { target, mode: 'run', why: '' });
+  same([byHand(1, 'Real-app journeys by hand, J-a-01.pw.mjs', { head_sha: OLD })], undefined);
+  same([byHand(1, 'Real-app journeys by hand, J-a-01.pw.mjs', { conclusion: 'cancelled' })]);
+  same([byHand(1, 'Real-app journeys by hand, J-a-01.pw.mjs', { conclusion: 'skipped' })]);
+  same([byHand(1, 'Real-app journeys by hand, J-a-01.pw.mjs', { repository: { full_name: 'x/y' } })]);
+  same([byHand(1, 'Real-app journeys by hand, J-a-01.pw.mjs', { head_repository: { full_name: 'x/y' } })]);
+  same([byHand(1, 'Real-app journeys by hand, J-a-01.pw.mjs', { path: '.github/workflows/other.yml' })]);
+  same([run(1, { event: 'pull_request', display_title: 'Real-app journeys by hand, J-a-01.pw.mjs' })]);
+  same([byHand(1, 'Real-app journeys')]);
+  // A name that is not a journey file at the head makes the whole run count for nothing.
+  same([byHand(1, 'Real-app journeys by hand, J-a-01.pw.mjs J-zz-99.pw.mjs')]);
+  same([byHand(1, 'Real-app journeys by hand, J-a-01.pw.mjs;rm')]);
+  assert.deepEqual(
+    reusableRuns([byHand(1, 'Real-app journeys by hand, J-a-01.pw.mjs')], { sha: HEAD, repo: REPO, journeyFiles: null }).files.size,
+    0,
+  );
+  // A full run by hand still going is never reused: the pull request's run shares its group and cancels it.
+  same([byHand(1, 'Real-app journeys by hand, full', { status: 'in_progress', conclusion: null })], '');
+});
+
+test("a pull request's own journey files: the journey files it changes at its head and the ones it names", () => {
+  assert.deepEqual(
+    ownJourneyFiles(
+      ['apps/customer/tests/real-app/J-b-02.pw.mjs', 'apps/customer/tests/real-app/J-gone-09.pw.mjs', 'services/svc-x/src/a.ts'],
+      (p) => !p.includes('gone'),
+      { files: ['J-a-01.pw.mjs'] },
+    ),
+    ['J-a-01.pw.mjs', 'J-b-02.pw.mjs'],
+  );
+  assert.deepEqual(ownJourneyFiles(['services/svc-x/src/a.ts']), []);
+});
+
+test("real-app-journeys.yml's one-run-per-head step: off a pull request, or when the base copy can't reuse, the pick stands", () => {
+  const t = readFileSync(join(ROOT, '.github/workflows/real-app-journeys.yml'), 'utf8');
+  const at = t.indexOf('\n        id: touch\n');
+  assert.ok(at > 0 && t.indexOf('\n        id: pick\n') < at, 'the step comes after the pick');
+  const from = t.indexOf('\n        run: |\n', at) + '\n        run: |\n'.length;
+  const lines = [];
+  for (const l of t.slice(from).split('\n')) {
+    if (l !== '' && !l.startsWith('          ')) break;
+    lines.push(l.slice(10));
+  }
+  const dir = execFileSync('mktemp', ['-d'], { encoding: 'utf8' }).trim();
+  try {
+    const step = (env) => {
+      const out = join(dir, `out-${Math.random().toString(36).slice(2)}`);
+      execFileSync('bash', ['-c', lines.join('\n')], {
+        encoding: 'utf8',
+        env: { PATH: process.env.PATH, GITHUB_OUTPUT: out, GITHUB_WORKSPACE: dir, ...env },
+      });
+      return Object.fromEntries(
+        readFileSync(out, 'utf8')
+          .split('\n')
+          .filter(Boolean)
+          .map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]),
+      );
+    };
+    const pick = { MODE: 'run', TARGET: 'J-a-01.pw.mjs', OWN: 'J-a-01.pw.mjs', RETRY: '1' };
+    assert.deepEqual(step({ ...pick, EVENT: 'push' }), { own: 'J-a-01.pw.mjs', retry: '1', mode: 'run', target: 'J-a-01.pw.mjs' });
+    // No base copy of journey-touch.mjs here (as on the run of the pull request that adds --reuse): the pick stands.
+    assert.deepEqual(step({ ...pick, EVENT: 'pull_request' }), { own: 'J-a-01.pw.mjs', retry: '1', mode: 'run', target: 'J-a-01.pw.mjs' });
+    // A base copy that says a run by hand covers it: nothing runs here.
+    const base = join(dir, '.base/tooling/ci');
+    mkdirSync(base, { recursive: true });
+    const says = (json) => writeFileSync(join(base, 'journey-touch.mjs'), `console.log(${JSON.stringify(JSON.stringify(json))})`);
+    says({ target: '', mode: 'none', why: 'covered' });
+    assert.deepEqual(step({ ...pick, EVENT: 'pull_request' }), { own: 'J-a-01.pw.mjs', retry: '1', mode: 'none', target: '' });
+    // Planted: a target that is not journey file names never reaches the outputs; the pick stands.
+    says({ target: 'J-a-01.pw.mjs\nmode=none', mode: 'run', why: '' });
+    assert.deepEqual(step({ ...pick, EVENT: 'pull_request' }), { own: 'J-a-01.pw.mjs', retry: '1', mode: 'run', target: 'J-a-01.pw.mjs' });
+    says({ target: '', mode: 'full', why: '' });
+    assert.deepEqual(step({ ...pick, EVENT: 'pull_request' }), { own: 'J-a-01.pw.mjs', retry: '1', mode: 'run', target: 'J-a-01.pw.mjs' });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  // The shards retry only on main or on a pull request's run whose touch step gave its own files.
+  assert.match(
+    t,
+    /JOURNEY_RETRIES: \$\{\{ \(github\.ref == 'refs\/heads\/main' \|\| \(github\.event_name == 'pull_request' && needs\.touch\.outputs\.retry == '1'\)\) && '1' \|\| '0' \}\}/,
+  );
+  assert.match(t, /JOURNEY_NO_RETRY_FILES: \$\{\{ github\.event_name == 'pull_request' && needs\.touch\.outputs\.own \|\| '' \}\}/);
+  assert.match(t, /\nrun-name: \$\{\{ github\.event_name == 'workflow_dispatch' && format\('Real-app journeys by hand, \{0\}'/);
 });
