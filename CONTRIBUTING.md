@@ -16,6 +16,8 @@ Branch names: `feat/<scope>-<what>`, `fix/<scope>-<what>`, `chore/<what>`, `docs
 
 Nobody works in the main checkout. Each branch gets its own directory, its own `node_modules` and its own dev server, so two agents can never edit the same files by accident.
 
+A T3 agent is already in the worktree T3 made for it: work there, and never run `pnpm wt` or `git worktree add`. The commands below are for everyone else.
+
 ```bash
 pnpm wt feat/svc-identity-rank-events   # create a worktree and install dependencies
 pnpm wt:list                            # what exists
