@@ -124,6 +124,7 @@ import { SqlLiveRunStore } from './quant/live-run/sql-store.js';
 import { OwnAgentTrading } from './venue/own-agent-trading.js';
 import { SqlAllowanceStore } from './venue/own-agent-allowance-store.js';
 import { createOwnAgentPolicy } from './venue/own-agent-policy-client.js';
+import { createFeeSaverClient } from './venue/fee-saver-client.js';
 import { SqlAgentConnectionStore } from './venue/agent-connection-store.js';
 import { createAgentKeyReader } from './venue/agent-key-read-client.js';
 import { SqlVenueSellQuoteStore, VenueSellQuotes } from './venue/venue-sell-quotes.js';
@@ -511,6 +512,9 @@ const testListingSeeds = userVenueUrls.map(
         ),
     }),
 );
+const feeSaverCoupons = env.CAMPAIGNS_URL.trim()
+  ? createFeeSaverClient(env.CAMPAIGNS_URL.trim(), env.INTERNAL_SERVICE_SECRET, outS2s)
+  : null;
 const userVenueDoors = userVenueUrls.map(
   (url, i) =>
     new UserVenueDoor({
@@ -529,6 +533,19 @@ const userVenueDoors = userVenueUrls.map(
       // J-cex-spot-17: the builder-fee version in force when an order is prepared, by venue and market group.
       builderFeesAt: async (at) => (await builderFeesAt(sql, at)).book,
       now: () => new Date(),
+      // J-campaigns-09 #2 #3: the rank's discount and a fee-saver coupon on our builder fee; either unreadable is skipped.
+      feeDiscounts: {
+        rankBps: async (userId) => {
+          try {
+            return (await perks.perksOf(userId)).feeDiscountBps;
+          } catch {
+            return null;
+          }
+        },
+        coupons: feeSaverCoupons,
+        skipped: (what, userId, orderKey) =>
+          process.stderr.write(`${JSON.stringify({ level: 'warn', msg: 'trade.builder_fee_discount_skipped', what, userId, orderKey })}\n`),
+      },
     }),
 );
 const userVenue = userVenueDoors[0] ?? null;
@@ -1749,6 +1766,7 @@ registerPrivateRest(app, {
   orderHistory: (principal, input) => trade.orderHistory(principal, input),
   getOrder: (principal, orderId) => trade.getOrder(principal, orderId),
   orderFills: (principal, orderId, limit) => trade.fillsForOrder(principal, orderId, limit),
+  ordersFills: (principal, orderIds) => trade.everyFillOfOrders(principal, orderIds),
   orderAmendments: (principal, orderId) => trade.orderAmendments(principal, orderId),
   orderQueue: (principal, orderId) =>
     readQueuePosition(
