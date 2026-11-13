@@ -290,7 +290,7 @@ test(`${J} #6 trades a pair whose rule the venue doesn't publish, or where the o
       await desk.getByRole('tab', { name: 'Market', exact: true }).click();
       await buyForm(desk).getByRole('textbox', { name: 'Amount' }).fill('1');
       await expect(buyForm(desk).locator('[data-code="trade.slippage_cap_unset"]')).toHaveText(
-        'Market orders are closed: the price protection that bounds them is not set.',
+        'Market orders are closed: protection not set, so nothing bounds the price they fill at.',
       );
       await expect(buyForm(desk).getByRole('button', { name: `Buy ${ruledBase}` })).toBeDisabled();
       expect(second.requests).toHaveLength(0);
