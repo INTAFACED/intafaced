@@ -1044,6 +1044,7 @@ registerAffiliateProducerPayout(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   s2s: doorS2s,
   freeze,
+  accounts: auth,
   accruals,
   accrualTierLaw,
   programmeDepth,

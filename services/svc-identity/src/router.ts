@@ -104,6 +104,7 @@ import {
   planAffiliatePayout,
   postAffiliatePayout,
 } from './affiliates/payout-engine.js';
+import { beneficiariesWhoCannotReceive } from './affiliates/account-standing.js';
 import { describeAffiliatesPolicy } from './affiliates/affiliates-policy.js';
 import { AffiliateProgrammeDepthUnsetError, requireProgrammeDepth } from './affiliates/programme-depth.js';
 import { ReferralError } from './affiliates/referral-tree.js';
@@ -4514,12 +4515,16 @@ export function createIdentityRouter(
               );
             }
             const frozen = await freeze.frozenIds();
+            const payRows = input.beneficiaryId ? rows.filter((r) => r.beneficiaryId === input.beneficiaryId) : rows;
+            // The account itself, not only the programme's freeze: a frozen or closed account takes no credit.
+            const cannotReceive = await beneficiariesWhoCannotReceive(auth, payRows);
 
             const plan = planAffiliatePayout({
               feeEventId,
-              rows: input.beneficiaryId ? rows.filter((r) => r.beneficiaryId === input.beneficiaryId) : rows,
+              rows: payRows,
               law: accrualTierLaw,
               frozenBeneficiaryIds: frozen,
+              cannotReceiveBeneficiaryIds: cannotReceive,
               maxTierDepth,
             });
 
