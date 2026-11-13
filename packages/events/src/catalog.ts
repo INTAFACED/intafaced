@@ -105,6 +105,21 @@ export const userCreated = defineEvent(
   'A sovereign account exists.',
 );
 
+/**
+ * A referral attached (CM-referral-01, CM-referral-02): `userId` was brought by `referrerId`, once and for good (a second
+ * attach is refused before this is sent). Published by svc-identity after the edge commits, business key
+ * `identity.referral.created:<userId>`; svc-campaigns keeps the invitee once by `userId` and tracks their progress under
+ * the referral programme live at `attachedAt`. No personal detail rides on the bus.
+ */
+export const referralCreated = defineEvent(
+  'identity',
+  'referral',
+  'created',
+  1,
+  z.object({ userId: userIdSchema, referrerId: userIdSchema, attachedAt: z.string().datetime({ offset: true }) }).strict(),
+  'A referral edge was recorded: the invitee, their referrer and when. Consumers dedupe on userId.',
+);
+
 export const kycApproved = defineEvent(
   'identity',
   'kyc',
@@ -2025,12 +2040,36 @@ export const payWithdrawalStatusUpdated = defineEvent(
   'A customer withdrawal moved to a new status (requested, held, broadcast, settled, failed and the rest of ENGINE W-1). One event per move; deduplicated by (withdrawalId, seq).',
 );
 
+// ── academy: a moderator deleted a learner's discussion posts (AC-rooms-02, J-academy-18) ─
+
+/**
+ * A moderator deleted one of a learner's posts in a course discussion, or every post of theirs in one course, with a
+ * reason. svc-academy keeps the event row and sends this once the bus is reachable (its outbox); svc-notify tells the
+ * author in their notification tray. One event per moderation event: consumers dedupe on eventId. Who reported the post
+ * never rides here. No money moves.
+ */
+export const academyDiscussionPostDeleted = defineEvent(
+  'academy',
+  'discussion_post',
+  'deleted',
+  1,
+  z.object({
+    eventId: z.string().guid(),
+    authorId: userIdSchema,
+    courseTitle: z.string().min(1).max(200),
+    posts: z.number().int().positive(),
+    reason: z.string().min(1).max(500),
+  }),
+  "A moderator deleted a learner's discussion post, or every post of theirs in one course, with a reason. One event per moderation event; deduplicated by eventId.",
+);
+
 // ── The registry ─────────────────────────────────────────────────────────────
 
 export const EVENT_CATALOG = {
   xpEarned,
   rankUpdated,
   userCreated,
+  referralCreated,
   kycApproved,
   kycSubmitted,
   kycRejected,
@@ -2105,6 +2144,7 @@ export const EVENT_CATALOG = {
   p2pTradeReminderSent,
   p2pOfferPaused,
   p2pTraderPosted,
+  academyDiscussionPostDeleted,
   p2pRemarkCaseOpened,
   p2pChatMessageSent,
   p2pDisputeEscalated,

@@ -176,6 +176,14 @@ export const en = {
     other:
       'You removed the last payment method for {count} of your ads, so they are paused. Add a payment method they can be paid with, then resume them from My offers.',
   },
+  'notify.academy.discussion_post.deleted.title': {
+    one: 'A moderator deleted your post',
+    other: 'A moderator deleted your posts',
+  },
+  'notify.academy.discussion_post.deleted.body': {
+    one: 'A moderator deleted {count} of your posts in the {course} discussion. The reason given: {reason}',
+    other: 'A moderator deleted {count} of your posts in the {course} discussion. The reason given: {reason}',
+  },
   'notify.p2p.trader.posted.title': 'A trader you follow posted an ad',
   'notify.p2p.trader.posted.body': 'A trader you follow posted a new {asset} ad in {fiatCurrency}. Open their ads to see it.',
   'notify.p2p.remark_case.opened.title': 'A payment-note remark was reported',

@@ -1354,6 +1354,10 @@ export const addMoneyRequests = bank.table('add_money_requests', {
   ledgerTxId: text('ledger_tx_id'),
   // Migration 20261111102441: the partner's pay-in reference when the partner credited it (J-wallet-01 #3).
   partnerPayInRef: text('partner_pay_in_ref'),
+  // Migration 20261112122912: when the partner said a credited payment was sent back, and the partner's reference for the
+  // return (J-bank-02 #7).
+  returnedAt: tstz('returned_at'),
+  returnRef: text('return_ref'),
 });
 
 /**

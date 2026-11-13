@@ -92,6 +92,8 @@ export type RequestOptions = {
    * A 401 with one of these codes does not sign the person out; any other 401 follows the normal path.
    */
   keepSessionFor?: readonly string[];
+  /** Let this one small write finish after the page is left (a saved draft sent as the person navigates away). */
+  keepalive?: boolean;
 };
 export type RestOptions = RequestOptions & {
   method?: 'GET' | 'POST' | 'DELETE' | 'PUT' | 'PATCH';
@@ -201,6 +203,7 @@ export function createApiClient(
         headers,
         credentials: options.credentials ?? 'same-origin',
         signal: controller.signal,
+        ...(requestOptions.keepalive ? { keepalive: true } : {}),
         ...(input === undefined ? {} : { body: JSON.stringify(input) }),
       });
       let body: unknown;

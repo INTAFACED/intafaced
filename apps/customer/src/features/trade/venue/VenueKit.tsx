@@ -201,6 +201,8 @@ export function heldKeys(owner: string) {
   };
   return {
     get: (clientOrderId: string): string | undefined => read()[clientOrderId] ?? memory.get(clientOrderId),
+    /** The client ids this page placed, oldest first. */
+    ids: (): string[] => [...new Set([...Object.keys(read()), ...memory.keys()])],
     set(clientOrderId: string, key: string) {
       memory.set(clientOrderId, key);
       try {
@@ -571,22 +573,27 @@ export function FillsTable({ fills, test, symbol }: { fills: AsOf<VenueFill[]> |
 
 /**
  * The open orders the venue lists, and the orders this page cancelled (read back by client id), each with Cancel. A
- * repeated cancel uses the same key, so it is the same action and reports the venue's first answer.
+ * repeated cancel uses the same key, so it is the same action and reports the venue's first answer. An order this page
+ * placed that has since filled stays listed as the venue reads it, Filled, with nothing left to cancel.
  */
 export function OrdersTable({
   orders,
   test,
   onCancel,
   cancelled,
+  filled = [],
 }: {
   orders: AsOf<VenueOrder[]> | null;
   test: boolean;
   onCancel: (order: VenueOrder) => void;
   cancelled: VenueOrder[];
+  filled?: VenueOrder[];
 }) {
   const { t } = venueCopy.useCopy();
   const open = orders?.value ?? [];
-  const rows = [...open, ...cancelled.filter((c) => !open.some((o) => o.venueClientOrderId === c.venueClientOrderId))];
+  const listed = (o: VenueOrder, rows: VenueOrder[]) => rows.some((r) => r.venueClientOrderId === o.venueClientOrderId);
+  const rows = [...open, ...cancelled.filter((c) => !listed(c, open))];
+  rows.push(...filled.filter((f) => f.status === 'filled' && !listed(f, rows)));
   return (
     <div data-testid="venue-open-orders">
       <TestMark test={test} />
@@ -616,7 +623,7 @@ export function OrdersTable({
               </td>
               <td data-cell="status">{word(t, 'status', o.status)}</td>
               <td>
-                {o.venueClientOrderId ? (
+                {o.venueClientOrderId && o.status !== 'filled' ? (
                   <Button variant="secondary" onClick={() => onCancel(o)}>
                     {o.status === 'canceled' ? t('Cancel again') : t('Cancel')}
                   </Button>

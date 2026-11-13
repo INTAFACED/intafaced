@@ -141,6 +141,8 @@ describe("a person's own agent trading their venue sub-account under an allowanc
       store: actions,
       stepUp: noStepUp,
       builder: { address: '0x00000000000000000000000000000000000000b1', feeBps: a('1') },
+      // Blank: an agent's market order carries the owner's agent bound as its worst price, never the spot protection.
+      slippageCapBps: null,
       listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
       now: () => new Date(),
     });

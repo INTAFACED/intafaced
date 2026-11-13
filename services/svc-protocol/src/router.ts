@@ -106,7 +106,13 @@ import { MAX_DECIMALS, MAX_NAME_BYTES, MAX_SYMBOL_BYTES, MAX_WHOLE_SUPPLY, parse
 import { loadInternalSmartAccountsPackage } from './audit/pipeline.js';
 import { loadAuditRegistry } from './audit/registry.js';
 import { loadProductAudits } from './audit/products.js';
-import { createAddressReportsRouter, createAddressRiskRouter, type AddressRiskDeps } from './address-risk/router.js';
+import {
+  createAddressReportsRouter,
+  createAddressRiskRouter,
+  createComplianceRouter,
+  type AddressRiskDeps,
+  type ComplianceDeps,
+} from './address-risk/router.js';
 import type { AddressRiskStore } from './address-risk/risk.js';
 import { listSessions } from './session/list.js';
 import { protocolSessionsListInputSchema, protocolSessionsListSchema } from '@intafaced/contracts/protocol-sessions';
@@ -545,6 +551,8 @@ export interface ProtocolRouterDeps {
   addressBook?: Omit<AddressBookDeps, 'chainId'>;
   /** The address risk card's label store and the scam report queue (D-developer-compliance-01). Absent = not wired. */
   addressRisk?: Omit<AddressRiskDeps, 'chainId'>;
+  /** The operator compliance queue over the same tables; absent, every `compliance.*` call fails as a server error. */
+  compliance?: Omit<ComplianceDeps, 'chainId' | 'now'>;
   /**
    * The venue wallet connection (J-wallet-09): a signed-in person's own wallet, connected by its signature. Absent = not
    * wired: every setting reads blank and connecting refuses by name.
@@ -583,6 +591,12 @@ const unwiredAddressRiskStore: AddressRiskStore = {
   labels: () => Promise.reject(new Error('address risk store is not wired')),
   openReportCount: () => Promise.reject(new Error('address risk store is not wired')),
   insertReport: () => Promise.reject(new Error('address risk store is not wired')),
+};
+
+const unwiredComplianceStore: ComplianceDeps['store'] = {
+  queue: () => Promise.reject(new Error('compliance store is not wired')),
+  ask: () => Promise.reject(new Error('compliance store is not wired')),
+  approve: () => Promise.reject(new Error('compliance store is not wired')),
 };
 
 /** Never reached with a setting: an unwired representation has none, so it refuses `compliance.representation_unset` first. */
@@ -1327,6 +1341,11 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
     addressBook: createAddressBookRouter(addressBookDeps),
     addressRisk: createAddressRiskRouter(addressRiskDeps),
     addressReports: createAddressReportsRouter(addressRiskDeps),
+    compliance: createComplianceRouter({
+      chainId: () => chain.config.chainId,
+      store: deps.compliance?.store ?? unwiredComplianceStore,
+      now: () => new Date(),
+    }),
     // ── Venue wallet connection (J-wallet-09): src/venue-wallet/router.ts ──
     venueWallet: createVenueWalletRouter(venueWalletDeps),
     // ── Embedded self-custody wallet (J-wallet-22): src/embedded-wallet/router.ts ──

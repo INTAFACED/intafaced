@@ -934,6 +934,7 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
     rankUpdated: { userId: uid(), rank: 2, previousRank: 1, xp: '100' },
     userCreated: { userId: uid(), handle: 'sovereign' },
     kycApproved: { userId: uid(), tier: 'basic', jurisdiction: 'SG' },
+    referralCreated: { userId: uid(), referrerId: uid(), attachedAt: ts() },
     kycSubmitted: { userId: uid(), caseId: uid(), version: 1, previousCaseId: null, submittedAt: ts() },
     kycRejected: { userId: uid(), caseId: uid(), version: 2, reasonCode: 'doc_blurry', rejectedAt: ts() },
     kycInfoRequested: { userId: uid(), caseId: uid(), version: 2, reasonCode: 'need_address', requestedAt: ts() },
@@ -1445,6 +1446,7 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
     p2pTradeFiatSent: { tradeId: uid(), buyerId: uid(), sellerId: uid(), markedAt: ts() },
     p2pTradeReminderSent: { tradeId: uid(), n: 1, buyerId: uid(), sellerId: uid(), remindedAt: ts() },
     p2pOfferPaused: { instrumentId: uid(), makerId: uid(), methodId: 'sepa', offerIds: [uid()], reason: 'method_removed', pausedAt: ts() },
+    academyDiscussionPostDeleted: { eventId: uid(), authorId: uid(), courseTitle: 'TEST course', posts: 1, reason: 'TEST off-topic' },
     p2pTraderPosted: {
       offerId: uid(),
       traderId: uid(),

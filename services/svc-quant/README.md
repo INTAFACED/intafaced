@@ -40,6 +40,10 @@ through the runtime API only. If the isolate cannot boot, the procedure refuses
 | `disclosure.accept`      | session or allow-listed service                           | `{ strategyId, strategyVersion, disclosureVersion }`                                      | one stored acceptance under `quant.disclose:<id>:v<n>:<d>`                                       |
 | `ops.disclosure.publish` | `admin:write`                                             | `{ text, reason, idempotencyKey }`                                                        | the next version; the wording is owner content                                                   |
 | `ops.disclosure.counts`  | `admin:read`                                              | —                                                                                         | versions and acceptance counts, no accounts or wording                                           |
+| `lifecycle.get`          | session or allow-listed service                           | `{ strategyId, strategyVersion }`                                                         | stage, stage rows, gate decisions and every gate check as it reads now; writes nothing           |
+| `lifecycle.promote`      | session or allow-listed service                           | `{ strategyId, strategyVersion, seq }`                                                    | paper to candidate: one decision row and, approved, one stage row; blank criterion refuses       |
+| `ops.criteria.get`       | `admin:read`                                              | —                                                                                         | each owner criterion (gate and out-of-sample) with its value and whether operator or boot set it |
+| `ops.criteria.set`       | `admin:write`                                             | `{ name, value, toBoot?, reason, idempotencyKey }`                                        | one criterion; blank is not set; `toBoot` puts the boot value back; audit row with actor, reason |
 | `ops.runCounts`          | `admin:read`                                              | `{ from, to }`                                                                            | counts by kind and outcome, `asOf`                                                               |
 | `backtest.report`        | session                                                   | `{ runId }`                                                                               | print document: parameters, statistics, charts, coverage, warnings, labels                       |
 | `result.share.get`       | session                                                   | `{ runId }`                                                                               | link count and whether one is active; no token                                                   |
@@ -47,6 +51,19 @@ through the runtime API only. If the isolate cannot boot, the procedure refuses
 | `result.share.revoke`    | session                                                   | `{ runId }`                                                                               | the active link stops opening; the key is kept                                                   |
 | `result.share.embed`     | session                                                   | `{ runId, token }`                                                                        | iframe snippet, or `quant.embed_origins_unset` when the origin list is blank                     |
 | `result.share.public`    | `publicJurisdictionProcedure('quant','fiat')`, no session | `{ token }`                                                                               | the result with its simulation label; revoked and unknown are both not found                     |
+
+## Lifecycle and the promotion gate (AL-lifecycle-01)
+
+A version's stage is its newest stored stage row; before it has one it is derived from its own stored runs (`draft`,
+`backtested`, `validated` with a computed `passed` out-of-sample verdict, `paper` with a paper run). `lifecycle.promote`
+asks the gate to move a version from `paper` to `candidate`. The gate reads only this account's stored bar backtests and
+paper runs of that exact version and the owner's stored criteria (`gate.paperMinutes`, `gate.maxDrawdownPercent`), never
+a request field and never a Preview room. A blank criterion refuses `quant.gate_criteria_unset` naming it and writes
+nothing. Otherwise the decision is one `quant.gate_decisions` row and, when approved, one `quant.strategy_stages` row,
+in one transaction under `quant.stage:<id>:v<n>:paper:candidate:<seq>` (`seq`: the decisions the screen read); the same
+key reads its first answer back, and a version already past `paper` refuses `quant.stage_transition_invalid`. A new
+version starts again at `draft`. The out-of-sample criteria a new backtest is judged by are the operator's stored value
+when one is set (`ops.criteria.set`), else the boot value (`QUANT_OOS_*`). No money moves; nothing here goes live.
 
 ## Per-account library (customer contract)
 
@@ -127,6 +144,24 @@ HTTP: `GET /health` (process liveness) · `GET /ready` — process `ready: true`
 This service holds no balances and posts no ledger transactions. The internal
 book is paper: starting cash is a caller-supplied decimal string, marks are
 fixture prices, PnL is computed from fills in that run.
+
+## Paper orders (AL-orders-01, AL-orders-02, AL-orders-03)
+
+A sandbox run's `oms` places orders on the paper book, never the ledger: `buy` and `sell` (market), `limitBuy` and
+`limitSell` (symbol, qty, limit, time in force `gtc` or `ioc`), `cancel(id)`, `setPyramiding(n)` and
+`reverse(symbol, signedTarget)`. Each call returns `{ id, status, reason }` to the strategy, and the run's `events` list
+every order's events in order: `new`, `accepted`, `filled`, `rejected`, `cancel_pending`, `cancelled`.
+
+- A quantity of zero or less is `rejected` with `quantity invalid`; a bad limit `price invalid`; an unknown time in
+  force `time in force invalid`.
+- Pre-trade checks: a buy whose notional plus fee is more than the free cash (cash less what resting buys hold) is
+  `insufficient cash`, with `notional`, `fee` and `cash` on the event; a sell is checked against the position less what
+  resting sells hold (`exceeds position`); a sell with nothing held is `no short rule` (spot paper has none).
+- Pyramiding `n` refuses an entry past the `n`th in one position with `limit hit`; a flat position counts from one again.
+- A reversal is two legs, each checked on its own: the close, then the open on the other side.
+- After the script, resting limits meet a TEST price path once (`TEST_TICKS`, returned as `ticks` labelled TEST): a
+  buy fills at a tick at or below its limit, a sell at or above. It is a fixture, never a feed.
+- The fee is `QUANT_PAPER_FEE_BPS`, an owner value. Blank refuses every order `quant.paper_fee_unset`.
 
 ## Kill-switch
 

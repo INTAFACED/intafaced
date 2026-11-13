@@ -90,6 +90,21 @@ export const isJudgeDown = (job) =>
  * job is skipped by its `if:` (0 steps; head e1d3ad61, run 42803694870), so the newest run on a head may hold no review.
  */
 export const reviewRan = (job) => job?.name === REVIEW_JOB && job?.conclusion !== 'skipped' && (job?.steps ?? []).length > 0;
+/**
+ * A seal on a pull request that has already merged has nothing left to judge: it can't merge again or be reopened.
+ * Such seals ran, red, in 12 of the 66 failed seals from 04:46 to 13:54 UTC on 12 Nov 2026: an older red seal re-run
+ * by the green verdict that merged the pull request (clearOlderReds), or an edit just after the merge, judged it
+ * seconds later, when GitHub had already emptied the CI review run's `pull_requests` (so its PASS no longer counted,
+ * passedRun) and the named steps' check refused a closed pull request. Given the pull request as read now and the
+ * pull requests GitHub lists on `sha` (`/commits/{sha}/pulls`): the line that says so, or null when it isn't merged,
+ * its head is not `sha`, or another open pull request has this head (a green check on the commit would count for that
+ * one too). Pure.
+ */
+export function mergedNothingToSeal(pull, sha, onSha) {
+  if (!pull?.merged_at || pull?.head?.sha !== sha || !Array.isArray(onSha)) return null;
+  if (onSha.some((p) => p?.state === 'open' && Number(p?.number) !== Number(pull.number))) return null;
+  return `#${pull.number} merged at ${pull.merged_at}; a merged pull request has nothing left to seal`;
+}
 /** The only base a review counts for: a review of a pull request into another branch reviewed another diff. */
 export const REVIEW_BASE = 'main';
 const SHA40 = /^[0-9a-f]{40}$/;
@@ -943,6 +958,10 @@ async function main() {
   // main (the seal doesn't re-run on a retarget; the CI review does, and re-runs a red seal when it passes).
   const pull = PR_NUMBER ? await api(`/repos/${REPO}/pulls/${PR_NUMBER}`, GH_TOKEN) : null;
   const branch = String(pull?.head?.ref ?? '') || undefined;
+  if (PR_NUMBER && pull?.merged_at) {
+    const merged = mergedNothingToSeal(pull, HEAD_SHA, await api(`/repos/${REPO}/commits/${HEAD_SHA}/pulls?per_page=100`, GH_TOKEN));
+    if (merged) return console.log(merged);
+  }
   if (PR_NUMBER && pull?.base?.ref !== REVIEW_BASE) {
     console.error(
       `::error title=Not into ${REVIEW_BASE}::The seal passes only a pull request into ${REVIEW_BASE}; this one's base is ${pull?.base?.ref ?? 'unreadable'}. Point it at ${REVIEW_BASE}, then re-run this seal.`,

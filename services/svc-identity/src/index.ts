@@ -22,6 +22,7 @@ import { AuthService } from './auth/auth-service.js';
 import { parseStaffTestRoster } from '@intafaced/auth';
 import { createPayMerchantEmailInviteClaimer } from './auth/merchant-email-invite-claim.js';
 import { openIdentityMail } from './auth/local-mail.js';
+import { openIdentitySms } from './auth/local-sms.js';
 import { withAntiPhishingCode } from './profile/anti-phishing-mail.js';
 import { PlaceDoor } from './auth/place-door.js';
 import { founderEnrolmentConfig } from './auth/founder-enrolment.js';
@@ -40,6 +41,8 @@ import { ReferralService } from './affiliates/referral-service.js';
 import { ShareService } from './affiliates/share-service.js';
 import { parseShareTagHitsPerIpMinute, parseShareTagKey } from './affiliates/share-tag.js';
 import { ReferralRebindService } from './affiliates/referral-rebind.js';
+import { PartnerApplicationService, parsePartnerMinQualified, parsePartnerReapplyDays } from './affiliates/partner-application.js';
+import { parseProgrammeDepth } from './affiliates/programme-depth.js';
 import {
   ReferralLapseService,
   lapseSweepStatusLine,
@@ -161,6 +164,7 @@ import { installApiKeyProductExchange, requestProductAls } from './auth/auth-ser
 import { installApiKeyAccountExchange } from './auth/bind-api-key-account.js';
 import { bootKycVault } from './kyc/boot-vault.js';
 import { parseKycDocKey } from './kyc/document-crypto.js';
+import { TradingChecksDesk, parseSanctionsPersonsList } from './kyc/trading-checks.js';
 import { identityReadyHonesty } from './ready-honesty.js';
 import { SqlActionApprovalStore } from './auth/action-approval-store.js';
 import { ActionApprovalService } from './auth/action-approval-service.js';
@@ -418,6 +422,12 @@ const transportMail = openIdentityMail({
   transport: env.IDENTITY_MAIL_TRANSPORT,
   outboxPath: env.IDENTITY_LOCAL_MAIL_OUTBOX,
 });
+// Texted codes: the LOCAL-TEST outbox file in dev and test only, as for mail; unset, a phone link answers vendor.sms.
+const sms = openIdentitySms({
+  appEnv: process.env.APP_ENV,
+  transport: env.IDENTITY_SMS_TRANSPORT,
+  outboxPath: env.IDENTITY_LOCAL_SMS_OUTBOX,
+});
 // Mails to an account's own address carry the anti-phishing code its owner set.
 const antiPhishingMailKey = antiPhishingKey(parseTotpSecretKey(env.IDENTITY_TOTP_SECRET_KEY));
 // Security notices carry a one-time freeze link (freeze-link.ts); the anti-phishing code goes on last.
@@ -469,6 +479,8 @@ auth.useSignUpPolicy({
   requestMax: env.IDENTITY_SIGNUP_REQUEST_MAX,
   requestWindowSeconds: env.IDENTITY_SIGNUP_REQUEST_WINDOW_SECONDS,
   closedCountries: env.IDENTITY_SIGNUP_CLOSED_COUNTRIES,
+  // The date of birth is kept sealed under the KYC document key for the trading checks; unset, it is not kept.
+  birthDateKey: parseKycDocKey(env.IDENTITY_KYC_DOC_KEY),
 });
 // Sign-in by a mailed code uses the same outbox and relay. Any blank number refuses every code sign-in the same way.
 auth.useLoginCodePolicy({
@@ -507,7 +519,21 @@ auth.useFounderSessionScopes(env.IDENTITY_FOUNDER_SESSION_SCOPES);
 // non-blank roster refuses boot anywhere else (identity.staff_test_roster_refused). Blank is no roster: no staff scopes.
 auth.useStaffTestRoster(parseStaffTestRoster(env.IDENTITY_STAFF_TEST_ROSTER, process.env.APP_ENV));
 
-const referral = new ReferralService(sql);
+/**
+ * Each referral edge is announced once it commits (`identity.referral.created`, keyed by the invitee): svc-campaigns
+ * tracks the invitee's progress from it (CM-referral-02). A failed announcement never undoes the attach; it is logged.
+ */
+const referral = new ReferralService(sql, undefined, async (edge) => {
+  try {
+    await bus.publish(
+      'referralCreated',
+      { userId: edge.userId, referrerId: edge.referrerId, attachedAt: edge.attributedAt.toISOString() },
+      { idempotencyKey: `identity.referral.created:${edge.userId}` },
+    );
+  } catch (err) {
+    app.log.error({ err, userId: edge.userId }, 'identity.referral.created could not be announced');
+  }
+});
 /** One-tap share tags (RC-campaigns-06): a blank key or visit limit refuses by name; malformed ones stop the service. */
 const share = new ShareService(sql, {
   tagKey: parseShareTagKey(env.IDENTITY_SHARE_TAG_KEY),
@@ -518,6 +544,12 @@ const signInChallenge = new SignInChallengeService(sql, parseSignInChallengePoli
 const referralCodes = new ReferralCodeService(sql, parseReferralCodeLength(env.IDENTITY_REFERRAL_CODE_LENGTH));
 const referralAttachWindowSeconds = parseAttachWindowSeconds(env.IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS);
 const referralLapsePeriodSeconds = parseLapsePeriodSeconds(env.IDENTITY_REFERRAL_LAPSE_PERIOD_SECONDS);
+const programmeDepth = parseProgrammeDepth(env.IDENTITY_PARTNER_PROGRAMME_DEPTH);
+const partnerApplications = new PartnerApplicationService(sql, {
+  minQualifiedInvitees: parsePartnerMinQualified(env.IDENTITY_PARTNER_MIN_QUALIFIED_INVITEES),
+  reapplyDays: parsePartnerReapplyDays(env.IDENTITY_PARTNER_REAPPLY_DAYS),
+  programmeDepth,
+});
 const referralLapseSweepSeconds = parseLapseSweepSeconds(env.IDENTITY_REFERRAL_LAPSE_SWEEP_SECONDS);
 const referralLapse = new ReferralLapseService(sql, { periodSeconds: referralLapsePeriodSeconds });
 const freeze = new FreezeService(sql);
@@ -547,6 +579,13 @@ const kycProfile = new KycProfileDesk(sql, parseKycDocKey(env.IDENTITY_KYC_DOC_K
   uploadCaps: kycUploadCaps,
   vault: vault?.kycDocs,
   submit: (input) => auth.submitKyc(input),
+});
+// The trading checks (J-cex-spot-01 #3, OWNER 258 (4)): legal name, country and the sanctions screen; no ID document.
+const tradingChecks = new TradingChecksDesk(sql, {
+  key: parseKycDocKey(env.IDENTITY_KYC_DOC_KEY),
+  list: parseSanctionsPersonsList(env.IDENTITY_SANCTIONS_PERSONS_LIST, process.env.APP_ENV),
+  capabilities: kycCapabilityMap,
+  kycTier: (userId, tx) => auth.kycTier(userId, tx),
 });
 // Proof of address (I-kyc-compliance-11): the owner's rule and lists; the file goes to the vault under the same caps.
 const kycPoa = new KycPoaDesk(sql, {
@@ -720,6 +759,7 @@ export const appRouter = mergeRouters(
     kycRejectReasons: parseKycRejectReasons(env.IDENTITY_KYC_REJECT_REASONS),
     kycCapabilityReasons,
     kycProfile,
+    tradingChecks,
     kycPoa,
     kycSelfie,
     social,
@@ -728,6 +768,8 @@ export const appRouter = mergeRouters(
     referralCodes,
     referralAttachWindowSeconds,
     referralRebind: new ReferralRebindService(sql, actionApprovals, { attachWindowSeconds: referralAttachWindowSeconds }),
+    partnerApplications,
+    programmeDepth,
     referralLapse,
     freeze,
     accruals,
@@ -861,7 +903,7 @@ export const appRouter = mergeRouters(
   ),
   createPasskeyManageRouter(sql, securityStepUp, { maxPerAccount: env.PASSKEY_MAX_PER_ACCOUNT }),
   createFactorStatusRouter(sql),
-  createSigninMethodsRouter(sql, securityStepUp, { wallet: auth.walletConfig(), social }),
+  createSigninMethodsRouter(sql, securityStepUp, { wallet: auth.walletConfig(), social, phone: { sms } }),
   createWorkItemsRouter(sql),
   createServerTimeRouter(),
   createSelfFreezeLiftRouter(selfFreezeLift, securityStepUp),
@@ -983,6 +1025,7 @@ registerAffiliateProducerAccrue(app, {
   freeze,
   accruals,
   accrualTierLaw,
+  programmeDepth,
   activity: referralLapse,
 });
 
@@ -1003,6 +1046,7 @@ registerAffiliateProducerPayout(app, {
   freeze,
   accruals,
   accrualTierLaw,
+  programmeDepth,
   ledger,
   // Accrue already installed retainRawBody on this instance.
   installRawBody: false,

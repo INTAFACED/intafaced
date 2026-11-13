@@ -77,6 +77,24 @@ describe('the add-money tracker', () => {
     expect(html).not.toContain('Waiting');
   });
 
+  it('returned: the credit stays shown, and the return says it was taken out once, as the partner reported, with when', () => {
+    const html = renderToStaticMarkup(
+      <TrackerSteps
+        request={request({
+          status: 'returned',
+          creditedAt: '2026-11-04T10:01:00.000Z',
+          creditedAmount: '12.345678',
+          returnedAt: '2026-11-04T11:00:00.000Z',
+        })}
+      />,
+    );
+    expect(states(html)).toEqual(['created:done', 'opened:done', 'pending:done', 'credited:done']);
+    expect(html).toContain('Returned by the partner');
+    expect(html).toContain('Credited: 12.345678 USDT');
+    expect(html).toMatch(/Returned: 12\.345678 USDT was sent back and taken out of your balance once, as the partner reported, .+\./);
+    expect(renderToStaticMarkup(<TrackerSteps request={request()} />)).not.toContain('tracker-returned');
+  });
+
   it('reads the new states, and refuses a credited amount that is a number', () => {
     expect(
       bankReads['addMoney.request'].parse(request({ status: 'credited', creditedAmount: '20', creditedAt: '2026-11-04T10:01:00.000Z' }))

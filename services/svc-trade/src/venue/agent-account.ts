@@ -21,7 +21,14 @@ import {
   type VenueSignature,
 } from '@intafaced/venue-contracts';
 import { agentAddressFor } from './agent-key.js';
-import { netFunding, type AgentAccountRecord, type AgentAccountStore, type AgentMoveRecord } from './agent-account-store.js';
+import {
+  netFunding,
+  NO_LIMITS,
+  type AgentAccountLimits,
+  type AgentAccountRecord,
+  type AgentAccountStore,
+  type AgentMoveRecord,
+} from './agent-account-store.js';
 import type { UserVenueDoor } from './user-venue-door.js';
 
 /**
@@ -75,6 +82,12 @@ export type AgentAccountCode =
   | 'agents.account_close_move_pending'
   | 'agents.account_request_invalid'
   | 'agents.account_venue_no_sub_accounts'
+  // The person's own per-order, leverage and daily-loss caps (#16 #17 #18).
+  | 'agents.limit_ceiling_unset'
+  | 'agents.limit_above_ceiling'
+  | 'agents.order_size_cap_exceeded'
+  | 'agents.leverage_cap_exceeded'
+  | 'agents.daily_loss_cap_reached'
   // The assistant's connection and orders (agent-orders.ts, J-agents-21 #6 #7 #10).
   | 'agents.key_unknown'
   | 'agents.key_revoked'
@@ -83,9 +96,11 @@ export type AgentAccountCode =
   | 'agents.key_read_unavailable'
   | 'agents.key_already_connected'
   | 'agents.key_not_connected'
+  // The person revoked the assistant (#12): our copy of the account's venue agent key signs nothing more.
+  | 'agents.agent_revoked'
   | 'agents.order_needs_agent_key'
   | 'agents.order_request_invalid'
-  | 'agents.order_perp_not_yet'
+  | 'agents.order_leverage_unknown'
   | 'agents.order_cap_exceeded'
   | 'agents.order_cap_refused'
   | 'agents.order_bound_unset'
@@ -118,9 +133,17 @@ export interface AgentAccountValues {
   readonly keySeed: string | null;
   /** The drain bounds every agent order is held to before the agent key signs (agent-cap.ts). */
   readonly bounds: AgentDrainBounds;
+  /**
+   * The ceilings of the person's own caps (#16): the per-order cap's is the owner's largest agent order
+   * (`bounds.maxOrderNotional`); these are the leverage cap's (`TRADE_AGENT_MAX_LEVERAGE`, whole times) and the daily-loss
+   * cap's (`TRADE_AGENT_MAX_DAILY_LOSS`). Blank refuses setting that cap.
+   */
+  readonly limitCeilings: { readonly maxLeverage: number | null; readonly maxDailyLoss: Amount | null };
 }
 
 export const AGENT_ACCOUNT_STEP_UP_SCOPE = 'trade.step_up.venue.agentAccount' as const;
+/** The step-up that connects one of the person's agent keys to one of their agent accounts (J-agents-21 #6). */
+export const AGENT_CONNECT_STEP_UP_SCOPE = 'trade.step_up.venue.agentConnect' as const;
 
 export interface AgentAccountsDeps {
   readonly door: UserVenueDoor;
@@ -133,7 +156,7 @@ export interface AgentAccountsDeps {
 /** What the wallet is asked to sign next, if anything. */
 export interface NextSignature {
   readonly actionKey: string;
-  readonly step: 'open_sub_account' | 'approve_agent' | 'move_in' | 'move_out';
+  readonly step: 'open_sub_account' | 'approve_agent' | 'move_in' | 'move_out' | 'revoke_agent';
   readonly prepared: PreparedVenueAction;
   /** True when this action was signed and sent and its answer is not yet known: re-send it, never sign a new one. */
   readonly signed: boolean;
@@ -155,6 +178,8 @@ export interface AgentAccountView {
   readonly name: string;
   readonly asset: string;
   readonly cap: Amount;
+  /** The person's own per-order, leverage and daily-loss caps (#16); `null` is not set. */
+  readonly limits: { readonly maxOrderNotional: Amount | null; readonly maxLeverage: string | null; readonly maxDailyLoss: Amount | null };
   readonly agentAddress: string;
   /** The person's moves in less moves out, as the cap counts them. */
   readonly netFunding: Amount;
@@ -232,6 +257,12 @@ export class AgentAccounts {
         maxOrderNotional: v.bounds.maxOrderNotional === null ? null : formatAmount(v.bounds.maxOrderNotional),
         worstPriceBps: v.bounds.worstPriceBps === null ? null : formatAmount(v.bounds.worstPriceBps),
         markets: v.bounds.markets,
+      },
+      // The ceilings of the person's own caps (#16); `null` is blank and refuses setting that cap.
+      limitCeilings: {
+        maxOrderNotional: v.bounds.maxOrderNotional === null ? null : formatAmount(v.bounds.maxOrderNotional),
+        maxLeverage: v.limitCeilings.maxLeverage === null ? null : String(v.limitCeilings.maxLeverage),
+        maxDailyLoss: v.limitCeilings.maxDailyLoss === null ? null : formatAmount(v.limitCeilings.maxDailyLoss),
       },
     };
   }
@@ -319,6 +350,7 @@ export class AgentAccounts {
       name: `assistant-${accountId.replace(/-/g, '').slice(-12)}`,
       asset: v.asset,
       cap,
+      limits: NO_LIMITS,
       agentAddress: agentAddressFor(v.keySeed, principal.userId, accountId),
       fundAmount: fund,
       status: 'opening',
@@ -562,6 +594,11 @@ export class AgentAccounts {
       name: a.name,
       asset: a.asset,
       cap: a.cap,
+      limits: {
+        maxOrderNotional: a.limits.maxOrderNotional,
+        maxLeverage: a.limits.maxLeverage === null ? null : String(a.limits.maxLeverage),
+        maxDailyLoss: a.limits.maxDailyLoss,
+      },
       agentAddress: a.agentAddress,
       netFunding: net,
       room,
@@ -718,6 +755,67 @@ export class AgentAccounts {
   }
 
   /**
+   * #16: set the person's own per-order size cap, leverage cap and daily-loss cap, each given as a string. Each must be
+   * above zero and at most the owner's ceiling for it (the per-order cap's is the owner's largest agent order): one past
+   * it refuses `agents.limit_above_ceiling` naming the cap and the ceiling, and a blank ceiling `agents.limit_ceiling_unset`;
+   * either way nothing is written. A cap left out stays as it was. Written under the account's row lock; moves nothing.
+   */
+  async setLimits(
+    principal: Principal,
+    accountId: string,
+    req: { maxOrderNotional?: unknown; maxLeverage?: unknown; maxDailyLoss?: unknown },
+  ): Promise<AgentAccountView> {
+    assertPerson(principal);
+    const a = await this.account(principal, accountId);
+    const v = this.deps.values;
+    const given = (['maxOrderNotional', 'maxLeverage', 'maxDailyLoss'] as const).filter((k) => req[k] !== undefined);
+    if (given.length === 0) invalid('name at least one of maxOrderNotional, maxLeverage and maxDailyLoss');
+    const within = (limit: string, value: Amount, ceiling: Amount | null, unit: string) => {
+      if (ceiling === null) {
+        throw new AgentAccountError(
+          'agents.limit_ceiling_unset',
+          `the owner has published no ceiling for an agent account's ${limit}, so it can't be set`,
+          422,
+          { limit },
+        );
+      }
+      if (compare(value, ceiling) > 0) {
+        throw new AgentAccountError(
+          'agents.limit_above_ceiling',
+          `a ${limit} of ${formatAmount(value)} ${unit} is above the owner's ceiling of ${formatAmount(ceiling)} ${unit}`,
+          422,
+          { limit, ceiling: formatAmount(ceiling) },
+        );
+      }
+    };
+    const patch: { -readonly [K in keyof AgentAccountLimits]?: AgentAccountLimits[K] } = {};
+    if (req.maxOrderNotional !== undefined) {
+      const value = positive(req.maxOrderNotional, 'maxOrderNotional');
+      within('per-order size cap', value, v.bounds.maxOrderNotional, a.asset);
+      patch.maxOrderNotional = value;
+    }
+    if (req.maxLeverage !== undefined) {
+      const text = typeof req.maxLeverage === 'string' ? req.maxLeverage.trim() : '';
+      if (!/^[1-9][0-9]{0,2}$/.test(text)) invalid('maxLeverage must be a whole number of times, as a string ("2" is 2x)');
+      const ceiling = v.limitCeilings.maxLeverage;
+      within('leverage cap', parseAmount(text), ceiling === null ? null : parseAmount(String(ceiling)), 'x');
+      patch.maxLeverage = Number(text);
+    }
+    if (req.maxDailyLoss !== undefined) {
+      const value = positive(req.maxDailyLoss, 'maxDailyLoss');
+      within('daily-loss cap', value, v.limitCeilings.maxDailyLoss, a.asset);
+      patch.maxDailyLoss = value;
+    }
+    await this.deps.store.lockedUpdate(a.userId, a.accountId, async (locked) => {
+      if (locked.status !== 'open') {
+        throw new AgentAccountError('agents.account_not_open', `agent account ${locked.accountId} is ${locked.status}`, 409);
+      }
+      return { limits: { ...locked.limits, ...patch } };
+    });
+    return this.advance(principal, accountId);
+  }
+
+  /**
    * #13 #14: close. Refused, naming it, while the venue's record shows an open position, a resting order, a balance, or
    * a move still waiting. Closing moves nothing; the empty sub-account stays under the person's wallet.
    */
@@ -792,6 +890,8 @@ export function parseAgentAccountValues(env: {
   TRADE_AGENT_MAX_ORDER_NOTIONAL?: string;
   TRADE_AGENT_WORST_PRICE_BPS?: string;
   TRADE_AGENT_MARKETS?: string;
+  TRADE_AGENT_MAX_LEVERAGE?: string;
+  TRADE_AGENT_MAX_DAILY_LOSS?: string;
 }): AgentAccountValues {
   const amount = (name: string, raw: string | undefined): Amount | null => {
     const text = (raw ?? '').trim();
@@ -814,6 +914,9 @@ export function parseAgentAccountValues(env: {
     if (bps !== null && compare(bps, parseAmount('10000')) >= 0) throw new Error('TRADE_AGENT_WORST_PRICE_BPS must be below 10000');
     return bps;
   };
+  const leverage = (env.TRADE_AGENT_MAX_LEVERAGE ?? '').trim();
+  if (leverage !== '' && !/^[1-9][0-9]{0,2}$/.test(leverage))
+    throw new Error(`TRADE_AGENT_MAX_LEVERAGE must be a whole number of times, got ${JSON.stringify(leverage)}`);
   return {
     ceiling: amount('TRADE_AGENT_ACCOUNT_CEILING', env.TRADE_AGENT_ACCOUNT_CEILING),
     asset: asset === '' ? null : asset,
@@ -822,6 +925,10 @@ export function parseAgentAccountValues(env: {
       maxOrderNotional: amount('TRADE_AGENT_MAX_ORDER_NOTIONAL', env.TRADE_AGENT_MAX_ORDER_NOTIONAL),
       worstPriceBps: belowWholeMark(amount('TRADE_AGENT_WORST_PRICE_BPS', env.TRADE_AGENT_WORST_PRICE_BPS)),
       markets: list,
+    },
+    limitCeilings: {
+      maxLeverage: leverage === '' ? null : Number(leverage),
+      maxDailyLoss: amount('TRADE_AGENT_MAX_DAILY_LOSS', env.TRADE_AGENT_MAX_DAILY_LOSS),
     },
   };
 }
