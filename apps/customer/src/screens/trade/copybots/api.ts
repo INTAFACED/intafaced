@@ -153,6 +153,7 @@ export const gridBotSchema = z.object({
   upperPrice: decimalSchema,
   gridCount: z.number(),
   investment: decimalSchema,
+  reinitCount: z.number(),
   status: z.enum(['initializing', 'running', 'paused_range', 'initialization_failed', 'stopped']),
   statusReason: z.string().nullable(),
   reserve: z.object({ key: z.string(), asset: z.string(), amount: decimalSchema, releasedAt: z.string().nullable() }).nullable(),
@@ -206,6 +207,20 @@ export const gridWithdrawalSchema = z.object({
   appliedAt: z.string(),
 });
 export type GridWithdrawal = z.infer<typeof gridWithdrawalSchema>;
+/** A quote top-up as it was applied (trade.bots.grid.topUp, CB-bots-04). */
+export const gridTopUpSchema = z.object({
+  topUpId: z.string(),
+  botId: z.string(),
+  asset: z.string(),
+  amount: decimalSchema,
+  investmentBefore: decimalSchema,
+  investmentAfter: decimalSchema,
+  freeBefore: decimalSchema,
+  appliedAt: z.string(),
+  bot: gridBotSchema,
+});
+export type GridTopUpRequest = { botId: string; requestId: string; asset: string; amount: string };
+export type GridModifyRequest = { botId: string; trailing: boolean; shiftLimitPercent: string; minGridCount: number | null };
 export type GridWithdrawRequest = {
   botId: string;
   requestId: string;
@@ -338,6 +353,10 @@ export function createRoomApi(api: ApiClient) {
     gridGet: (botId: string, signal?: AbortSignal) => api.query('trade', 'bots.grid.get', { botId }, gridBotSchema, { signal }),
     gridList: (signal?: AbortSignal) => api.query('trade', 'bots.grid.list', undefined, z.array(gridBotSchema), { signal }),
     gridStop: (botId: string) => api.mutate('trade', 'bots.grid.stop', { botId }, gridBotSchema),
+    gridTopUpFree: (botId: string, signal?: AbortSignal) =>
+      api.query('trade', 'bots.grid.topUpFree', { botId }, z.object({ asset: z.string(), free: decimalSchema }), { signal }),
+    gridTopUp: (input: GridTopUpRequest) => api.mutate('trade', 'bots.grid.topUp', input, gridTopUpSchema),
+    gridModify: (input: GridModifyRequest) => api.mutate('trade', 'bots.grid.modify', input, gridBotSchema),
     gridWithdraw: (input: GridWithdrawRequest) => api.mutate('trade', 'bots.grid.withdrawProfit', input, gridWithdrawalSchema),
     studio: (signal?: AbortSignal) =>
       api.query('quant', 'studio.list', { limit: 50 }, z.object({ strategies: z.array(studioStrategySchema) }), { signal }),

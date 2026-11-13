@@ -23,6 +23,8 @@ export const WALLET_SECTIONS = {
   sessionKeys: '/wallet/session-keys',
   accounts: '/wallet/accounts',
   safety: '/wallet/safety',
+  /** Any public address's holdings and history, read with nothing about the person (J-dex-protocol-06 #5 #6). */
+  tracker: '/wallet/track',
   /** The person's own wallet connected to their account for venue trading (J-wallet-09). */
   venue: '/wallet/venue',
   /** The person's own embedded self-custody wallet, made with a passkey and no seed phrase (J-wallet-22). */
@@ -49,6 +51,10 @@ export interface Web3Route {
   pool?: 'detail';
   /** One contract's page by its address: source status, proxy, Read and Write (D-explorer-06). */
   contract?: true;
+  /** One token the connected wallet holds, with its entry price (J-dex-protocol-06 #3). */
+  walletToken?: true;
+  /** One convention the wallet portfolio follows, in plain words (J-dex-protocol-06 #2). */
+  walletConvention?: true;
   /** An address page, the account's watched addresses, one block by height or one transaction by hash. */
   explorer?: 'address' | 'watchlist' | 'block' | 'tx';
   /** The liquidity rooms (D-liquidity-01..04): a new pool, adding to one pool, the wallet's positions, one position. */
@@ -85,6 +91,8 @@ export const WEB3_ROUTES: readonly Web3Route[] = [
   { path: '/dex/orders', room: 'dex', orders: true },
   ...(Object.entries(WALLET_SECTIONS) as [WalletSection, string][]).map(([wallet, path]) => ({ path, room: 'wallet' as const, wallet })),
   { path: '/wallet/groups/:groupId', room: 'wallet', walletGroup: true },
+  { path: '/wallet/tokens/:token', room: 'wallet', walletToken: true, param: { name: 'token', shape: ADDRESS_SHAPE } },
+  { path: '/wallet/conventions/:convention', room: 'wallet', walletConvention: true },
   { path: '/wallet/claim/:linkId', room: 'wallet', walletClaim: true, param: { name: 'linkId', shape: ADDRESS_SHAPE } },
   { path: '/chain', room: 'chain', tab: 'status' },
   { path: '/chain/blocks', room: 'chain', tab: 'blocks' },
