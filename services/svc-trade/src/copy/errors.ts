@@ -88,7 +88,8 @@ export type CopyErrorCode =
   | 'trade.copy_lead_balance_threshold_unset'
   | 'trade.copy_lead_venue_account_missing'
   | 'trade.copy_lead_venue_unreadable'
-  | 'trade.copy_lead_balance_below';
+  | 'trade.copy_lead_balance_below'
+  | 'trade.copy_venue_account_not_open';
 
 /**
  * Closed set for the customer desk and blank-law refusals.
