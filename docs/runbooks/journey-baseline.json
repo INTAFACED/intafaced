@@ -1057,20 +1057,6 @@
       "why": "J-copy-bots-otc-13 #2 as a support operator is blocked: the founder console has no non-founder staff login, so no support operator can sign in to look a customer up. #2 above runs as founder a."
     },
     {
-      "step": "J-copy-bots-otc-15#1",
-      "file": "apps/customer/tests/real-app/J-copy-bots-otc-15.pw.mjs",
-      "state": "unbuilt",
-      "money": true,
-      "why": "{\"error\":{\"message\":\"No procedure found on path \\\"bots.createGrid\\\"\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"TRPCError: No procedure found on path \\\"bots.createGrid\\\"\\n    a"
-    },
-    {
-      "step": "J-copy-bots-otc-15#2",
-      "file": "apps/customer/tests/real-app/J-copy-bots-otc-15.pw.mjs",
-      "state": "unbuilt",
-      "money": true,
-      "why": "J-copy-bots-otc-15: an earlier step made no botId, so this step has nothing to act on"
-    },
-    {
       "step": "J-copy-bots-otc-15#3",
       "file": "apps/customer/tests/real-app/J-copy-bots-otc-15.pw.mjs",
       "state": "unbuilt",
