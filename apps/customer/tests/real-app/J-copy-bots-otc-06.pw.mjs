@@ -13,6 +13,8 @@ import { copiedOrders, followOnScreen, leadFill, listLeader, openFollow } from '
 // (UNBUILT):
 // - #1: money activity has no fee-share row per copied fill (copying through the venue door, where our builder fee is
 //   earned, is not built; the TEST book has no builder fee).
+// - #3: the earnings panel is built, but its fee-share facts need #1's fills to have recorded a share, so it fails at
+//   the first missing total.
 const J = 'J-copy-bots-otc-06';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const UNBUILT = { timeout: 5_000 };
@@ -113,10 +115,14 @@ test(`${J} #3 as a lead opens the earnings panel: the profit-share refusal text 
   const panel = page.getByRole('region', { name: 'Your earnings' });
   await expect(panel).toBeVisible();
   await expect(panel).toContainText('Leaders are paid a share of the trading fee only, never a share of profit.');
-  // The fee-share facts: what was earned per asset (or that none is recorded), the share of our fee, and one history
-  // row per recorded fee share, each with its fill.
-  const earned = earnings.totals.length ? earnings.totals.map((x) => `${x.amount} ${x.assetId}`).join(', ') : 'None recorded';
-  expect(ungroup(await panel.innerText())).toMatch(new RegExp(`Fee share earned\\s*${earned.replace(/[.]/g, '\\.')}`));
+  // The fee-share facts: what was earned on the copied fills of #1, as a USDT total and one history row per recorded fee
+  // share, each with its fill. #1's fills must have recorded a share (UNBUILT until copying earns our builder fee).
+  const usdt = earnings.totals.find((x) => x.assetId === 'USDT');
+  expect(usdt, `${J}: no fee share is recorded for the lead's copied fills, so there are no fee-share facts to show`).toBeTruthy();
+  expect(toUnits(usdt.amount)).toBeGreaterThan(0n);
+  const rows = earnings.items.filter((x) => x.assetId === 'USDT');
+  expect(rows.reduce((a, x) => a + toUnits(x.amount), 0n)).toBe(toUnits(usdt.amount));
+  expect(ungroup(await panel.innerText())).toMatch(new RegExp(`Fee share earned\\s*${usdt.amount.replace(/[.]/g, '\\.')} USDT`));
   await expect(panel).toContainText('Leader’s share of the fee');
   await expect(panel).toContainText(/Profit share\s*Not offered/);
   const history = panel.getByRole('table', { name: 'Fee share history' }).locator('tbody tr:not([data-slot="table-empty-row"])');
