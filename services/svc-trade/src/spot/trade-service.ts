@@ -430,6 +430,12 @@ export interface PlaceOrderInput {
    * platform token, on a person's own spot order, when the owner's schedule publishes its terms (fee-ifc.ts).
    */
   feeCurrency?: string;
+  /**
+   * Internal: set only by the spot position close (`close-position.ts`), never accepted from REST. A close is a CLOSE,
+   * which limit-only keeps, so its market order is not refused there; it still goes to the engine as a reduce-only
+   * IOC limit at its protection price, funded before it is sent (#4591).
+   */
+  positionClose?: boolean;
   /** Internal binding for the cancel/replace saga; never accepted from REST. */
   replacementOf?: string;
   replacementRequestHash?: string;
