@@ -19,6 +19,8 @@
  *     (project-state's passedSteps needs every test of a step to pass). A new test of a step changes its journey's file,
  *     so it never meets a step already left out;
  *   - its file is not serial (its steps run as one group in order, and leaving one out would run the next without it);
+ *   - every test after it in its file is left out too: only a file's tail goes, since a later test may use what an earlier
+ *     one made (journeyState, a module variable) in a file that is not serial (run 4788, 13 Nov 2026);
  *   - its file keeps at least one step in the run (the file's first step stays when all of it would go), so the run
  *     still holds every journey file and the verdict never reads it as short of a file (journey-verdict.mjs `missing`).
  * The daily scheduled run, every pull request's run, a targeted run and a run by hand leave nothing out, and without a
@@ -48,7 +50,7 @@ export function reportTests(report) {
       const tests = spec.tests ?? [];
       const passed = tests.length > 0 && tests.every((t) => t.status === 'expected' || t.status === 'flaky');
       const failed = tests.some((t) => t.status === 'unexpected');
-      out.push({ file: spec.file ?? file, titles: [...titles, spec.title], title: spec.title, failed, passed });
+      out.push({ file: spec.file ?? file, titles: [...titles, spec.title], title: spec.title, line: spec.line, failed, passed });
     }
     for (const child of suite?.suites ?? []) walk(child, file, [...titles, child.title]);
   };
@@ -133,6 +135,27 @@ export function planLeaveOut({ baseline, runs = [], log = [], history = null, is
   const byFile = new Map();
   for (const t of all) byFile.set(t.file, [...(byFile.get(t.file) ?? []), t]);
   for (const ts of byFile.values()) if (ts.every((t) => keys.has(stepKey(t.title)))) keys.delete(stepKey(ts[0].title));
+  // Only a file's tail goes: a test is left out only when every test after it in its file is left out too, since a later
+  // test may act on what an earlier one made (journeyState, a module variable) even when the file is not serial. Run 4788
+  // on main (43387754252, 13 Nov 2026) left out J-copy-bots-otc-06 #1 and #3, and #2 #4 #5 #6, which passed in the five
+  // finished main runs before it, failed with "an earlier step made no follower". Source order is the spec's line, or the
+  // report's order when a test has none. Repeated until nothing changes, as bringing one step back can expose another.
+  for (const ts of byFile.values()) {
+    const lined = ts.every((t) => Number.isFinite(t.line));
+    const ordered = [...ts].sort((a, b) => (lined ? a.line - b.line : 0) || a.order - b.order);
+    for (let changed = true; changed;) {
+      changed = false;
+      let keptAfter = false;
+      for (const t of [...ordered].reverse()) {
+        const key = stepKey(t.title);
+        if (!keys.has(key)) keptAfter = true;
+        else if (keptAfter) {
+          keys.delete(key);
+          changed = true;
+        }
+      }
+    }
+  }
   return all.filter((t) => keys.has(stepKey(t.title))).map((t) => ({ file: t.file, titles: t.titles, key: stepKey(t.title) }));
 }
 
