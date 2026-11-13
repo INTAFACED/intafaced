@@ -243,7 +243,9 @@ test(`${J} #7 places a TWAP with a client algo id, amends, cancels and reads: on
       path: '/api/v1/algo',
       body: { ...body, clientAlgoId: `${body.clientAlgoId}-r` },
     });
+    // A key without trade write is refused for that scope by name.
     expect(readOnly.status, JSON.stringify(readOnly.body).slice(0, 300)).toBe(403);
+    expect(readOnly.body.intafacedCode, JSON.stringify(readOnly.body).slice(0, 300)).toBe('scope.denied');
     // The read-only key made no parent: the list holds what it held, plus the waiting TWAP.
     const after = await call('GET', '/api/v1/algo?limit=500');
     expect(after.body.rows.map((row) => row.id).sort()).toEqual([...list.body.rows.map((row) => row.id), waiting.body.id].sort());
