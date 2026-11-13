@@ -874,7 +874,7 @@ export class GridService {
       }
     }
     if (input.trailing || (min !== null && min !== undefined)) {
-      throw new GridError('Trailing a grid is not built yet; the grid keeps its range', 'trade.bots_grid_trailing_not_built');
+      throw new GridError('Trailing a grid is not built; the grid keeps its range', 'trade.bots_grid_trailing_not_built');
     }
     return this.view(bot);
   }

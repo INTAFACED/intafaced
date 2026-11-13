@@ -478,8 +478,8 @@ const GRID: Readonly<Record<string, Words>> = {
     body: 'Enter a minimum no larger than this grid’s grid count, shown above. Nothing was changed.',
   },
   'trade.bots_grid_trailing_not_built': {
-    title: 'Trailing isn’t built yet',
-    body: 'Your settings passed every check, but a grid can’t trail the price yet. It keeps its range. Nothing was changed.',
+    title: 'Trailing isn’t built',
+    body: 'Your settings passed every check, but a grid can’t trail the price. It keeps its range. Nothing was changed.',
   },
   'trade.grid_unavailable': {
     title: 'Grid bots aren’t available right now',
