@@ -48,7 +48,7 @@ export function LeadDesk({ api }: { api: RoomApi }) {
   const earned = data
     ? data.totals.length > 0
       ? data.totals.map((x) => `${displayAmount(x.amount)} ${x.assetId}`).join(', ')
-      : t('None recorded yet')
+      : t('None recorded')
     : null;
 
   return (
@@ -82,7 +82,7 @@ export function LeadDesk({ api }: { api: RoomApi }) {
             emptyState={
               <EmptyState
                 size="inline"
-                title={t('No fee share yet')}
+                title={t('No fee share recorded')}
                 reason={t('A row appears here for each copied fill whose trading fee you share.')}
               />
             }

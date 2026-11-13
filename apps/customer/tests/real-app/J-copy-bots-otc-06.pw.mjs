@@ -115,7 +115,7 @@ test(`${J} #3 as a lead opens the earnings panel: the profit-share refusal text 
   await expect(panel).toContainText('Leaders are paid a share of the trading fee only, never a share of profit.');
   // The fee-share facts: what was earned per asset (or that none is recorded), the share of our fee, and one history
   // row per recorded fee share, each with its fill.
-  const earned = earnings.totals.length ? earnings.totals.map((x) => `${x.amount} ${x.assetId}`).join(', ') : 'None recorded yet';
+  const earned = earnings.totals.length ? earnings.totals.map((x) => `${x.amount} ${x.assetId}`).join(', ') : 'None recorded';
   expect(ungroup(await panel.innerText())).toMatch(new RegExp(`Fee share earned\\s*${earned.replace(/[.]/g, '\\.')}`));
   await expect(panel).toContainText('Leader’s share of the fee');
   await expect(panel).toContainText(/Profit share\s*Not offered/);
