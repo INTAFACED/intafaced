@@ -19,6 +19,8 @@
  *      head's seal or an older red seal re-run beside it on the same head.
  *   6. Main first (item 3): Real-app journeys holds a run off main back while main's jobs wait for runners, in a step
  *      of the touch job that never runs on main and can't fail the run, inside the job's time limit.
+ *   7. Main bisect: a journeys revert, confirm or settle gets one group per red commit and broken steps, so two breaks in
+ *      one main run never wait behind or replace each other, and the same break dispatched twice still shares one.
  * Planted faults at the bottom prove each rule fails on the shape it forbids. Run by tooling/scripts/tooling-tests.mjs.
  */
 import assert from 'node:assert/strict';
@@ -483,6 +485,26 @@ export function mainFirstProblems(text) {
   return problems;
 }
 
+// ---- rule 7: one main bisect per break ------------------------------------------------------------------------------
+
+const bisectRun = (inputs) => ({ github: { event_name: 'workflow_dispatch', ref: 'refs/heads/main' }, inputs });
+
+/** Problems with rule 7 in main-bisect.yml's text, or []. */
+export function bisectProblems(text) {
+  const problems = [];
+  const group = (i) => resolve(text, bisectRun({ base: 'main', bad: 'b'.repeat(40), confirm: '', ...i }))?.group;
+  for (const confirm of ['', 'true', 'settle']) {
+    const a = group({ journeys: 'J-a-01#2', confirm });
+    const b = group({ journeys: 'J-b-02#8', confirm });
+    if (!a || a === b) problems.push(`two breaks on one commit share a group (confirm '${confirm}'): ${a}`);
+    if (a !== group({ journeys: 'J-a-01#2', confirm })) problems.push(`the same break gets two groups (confirm '${confirm}')`);
+  }
+  if (group({ journeys: 'J-a-01#2' }) === group({ journeys: 'J-a-01#2', confirm: 'true' }))
+    problems.push('a revert and its confirm share a group');
+  if (resolve(text, bisectRun({ journeys: 'J-a-01#2', base: 'main', bad: 'b' }))?.cancel) problems.push('a bisect can be cancelled');
+  return problems;
+}
+
 // ---- the workflows on this tree ------------------------------------------------------------------------------------
 
 test('every workflow a pull request triggers keeps only the newest run per pull request (or is a named exception)', () => {
@@ -512,6 +534,10 @@ test("CI merge seal: a push cancels the older head's seal; edits, reopens and re
 
 test("Real-app journeys: a run off main waits for main's jobs to get runners, and never fails or holds main", () => {
   assert.deepEqual(mainFirstProblems(read('real-app-journeys.yml')), []);
+});
+
+test('Main bisect: two breaks on one main commit each get their own group, and a bisect is never cancelled', () => {
+  assert.deepEqual(bisectProblems(read('main-bisect.yml')), []);
 });
 
 // ---- planted faults ------------------------------------------------------------------------------------------------
@@ -690,4 +716,15 @@ test('planted: a main-first step that runs on main, can fail the run, outlives i
   assert.notEqual(renamed, t);
   assert.ok(mainFirstProblems(renamed).some((p) => /What this run runs/.test(p)));
   assert.match(mainFirstProblems(t.replace("- name: Main's journeys first", '- name: Something else'))[0], /no step/);
+});
+
+test("planted: yesterday's main bisect group (one per red commit, steps only on a settle) fails rule 7", () => {
+  const old = read('main-bisect.yml').replace(
+    /^  group: .*$/m,
+    "  group: ${{ inputs.journeys != '' && format('main-bisect-journeys{0}-{1}-{2}{3}', inputs.confirm == 'true' && '-confirm' || inputs.confirm == 'settle' && '-settle' || '', inputs.base, inputs.bad, inputs.confirm == 'settle' && format('-{0}', inputs.journeys) || '') || 'main-bisect' }}",
+  );
+  assert.deepEqual(bisectProblems(old), [
+    "two breaks on one commit share a group (confirm ''): main-bisect-journeys-main-" + 'b'.repeat(40),
+    "two breaks on one commit share a group (confirm 'true'): main-bisect-journeys-confirm-main-" + 'b'.repeat(40),
+  ]);
 });
