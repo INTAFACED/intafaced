@@ -89,13 +89,17 @@ export function revokeOrgKey(api: ApiClient, orgId: string, keyId: string, reaso
   );
 }
 
-export type Preset = 'read' | 'trade' | 'custom';
+export type Preset = 'read' | 'trade' | 'lead' | 'copy' | 'custom';
 
 /** The scopes a preset ticks, from those this sign-in may put on a key. */
 export function presetScopes(preset: Exclude<Preset, 'custom'>, offered: readonly ApiKeyScopeEntry[]): string[] {
   const allowed = offered.filter((entry) => entry.onKey);
   if (preset === 'read') return allowed.filter((entry) => entry.access === 'read').map((entry) => entry.scope);
-  return allowed.filter((entry) => entry.scope === 'trade:read' || entry.scope === 'trade:write').map((entry) => entry.scope);
+  // A lead key and a copier key (J-copy-bots-otc-07) also place orders, so each carries trade:read and trade:write.
+  const extra = preset === 'lead' ? 'copy:lead' : preset === 'copy' ? 'copy:follow' : null;
+  return allowed
+    .filter((entry) => entry.scope === 'trade:read' || entry.scope === 'trade:write' || entry.scope === extra)
+    .map((entry) => entry.scope);
 }
 
 /** One address per line; blank lines dropped. The service checks each one. */
@@ -239,6 +243,8 @@ const REFUSALS = new Set<string>([
   'identity.key_expiry_invalid',
   'identity.key_cap_unset',
   'identity.key_signing_unset',
+  'identity.key_lead_not_approved',
+  'identity.key_lead_check_unavailable',
   'identity.key_cap_reached',
   'identity.key_request_conflict',
   'identity.key_account_required',

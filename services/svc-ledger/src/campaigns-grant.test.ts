@@ -3,13 +3,15 @@ import { LEDGER_POST_ALLOWLIST, grantFor, modulesFor } from './caller-allowlist.
 import { LEDGER_DOOR_CALLERS } from './door-callers.js';
 
 describe('svc-campaigns ledger grant (J-campaigns-02, J-campaigns-03)', () => {
-  it('may post rewardPay and sweepFeesToRewards in the token module, the locked reward recipes in campaigns, and nothing else', () => {
+  it('may post rewardPay and sweepFeesToRewards in the token module, the locked reward recipes and the launch Owe leg (budget funding, rewardOwe) in campaigns, and nothing else', () => {
     expect(LEDGER_POST_ALLOWLIST['svc-campaigns']).toEqual({
       rewardPay: { module: 'token', cite: 'services/svc-campaigns/src/payouts.ts' },
       sweepFeesToRewards: { module: 'token', cite: 'services/svc-campaigns/src/payouts.ts' },
       campaignRewardLock: { module: 'campaigns', cite: 'services/svc-campaigns/src/payouts.ts' },
       campaignRewardUnlock: { module: 'campaigns', cite: 'services/svc-campaigns/src/payouts.ts' },
       campaignRewardForfeit: { module: 'campaigns', cite: 'services/svc-campaigns/src/payouts.ts' },
+      campaignBudgetFund: { module: 'campaigns', cite: 'services/svc-campaigns/src/payouts.ts' },
+      rewardOwe: { module: 'campaigns', cite: 'services/svc-campaigns/src/payouts.ts' },
     });
     expect(grantFor('svc-campaigns', 'rewardPay')?.module).toBe('token');
     expect(grantFor('svc-campaigns', 'deposit')).toBeUndefined();

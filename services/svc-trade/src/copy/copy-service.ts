@@ -13,6 +13,7 @@
  * laws refuse at the door. Pause/stop/detach never call flatten.
  */
 
+import { listSettlements, reconcileSettlements, sqlSettlementOversight } from './settlement-oversight.js';
 import { NO_PAUSES, mirrorPausedReason, type PauseSnapshot } from './platform-pauses.js';
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, type Amount, type LedgerClient } from '@intafaced/ledger-client';
@@ -134,7 +135,22 @@ import type { LeaderEventsPage } from './leader-events.js';
 import type { UpsertLeaderListingInput } from './leader-listing.js';
 import { CopyCloseError } from './copy-close-errors.js';
 import { copyCloseAttemptKey, copyCloseKey, type CopyClosePort } from './copy-close.js';
-import { copiedPositionWire, sellableInMarket, sqlCopiedPositions, type ReadCopiedPositions } from './copied-positions.js';
+import {
+  copiedMarketPositions,
+  copiedPositionWire,
+  sellableInMarket,
+  sqlCopiedPositions,
+  type ReadCopiedPositions,
+} from './copied-positions.js';
+import {
+  LEAD_EARNINGS_PAGE_MAX,
+  presentLeadEarnings,
+  presentLeadLevel,
+  refuseLeadMaxRatio,
+  refuseLeadProfitShare,
+  sqlLeadFeeShares,
+  type ReadLeadFeeShares,
+} from './lead-desk.js';
 import { COPY_SKIP_LOG_LIMIT, asCopySkipReason, copySkipReasonFor, isCopySkipRefusal, recordCopySkip } from './skip-log.js';
 
 /** Settled follower fill fee — `fills.fee_amount`, never a notional×bps invent. */
@@ -258,6 +274,8 @@ export interface CopyServiceOptions {
    * Absent → unrealised P&L is null with trade.mark_unavailable.
    */
   lookupMark?: (marketId: string) => Promise<AlgoQuotedMark | null>;
+  /** A lead's own settled fee-share rows (lead-desk.ts). Omitted → from `sql`, else the earnings panel refuses. */
+  leadFeeShares?: ReadLeadFeeShares;
   /** Operator-published leader directory. Omitted → in-memory, empty until an operator writes. */
   directory?: LeaderDirectory;
   /** Owner wording for each lead-page metric. Omitted → unpublished, every metric reads "not set". */
@@ -378,6 +396,7 @@ export class CopyService {
   private readonly readResultFigure: ((follow: CopyFollow) => Promise<{ figure: Amount | null; missing: string | null }>) | null;
   private readonly gridUnusedReserves: (userId: string, asset: string) => Promise<Amount>;
   private readonly copiedPositionsPort: ReadCopiedPositions | null;
+  private readonly leadFeeShares: ReadLeadFeeShares | null;
   private readonly copyClose: CopyClosePort | null;
   private readonly stepUp: StepUpCheck | null;
   private readonly notices: CopyNotices;
@@ -406,6 +425,7 @@ export class CopyService {
     this.readResultFigure = options.readResultFigure ?? null;
     this.gridUnusedReserves = options.gridUnusedReserves ?? (async () => 0n);
     this.copiedPositionsPort = options.copiedPositions ?? (options.sql ? sqlCopiedPositions(options.sql) : null);
+    this.leadFeeShares = options.leadFeeShares ?? (options.sql ? sqlLeadFeeShares(options.sql) : null);
     this.copyClose = options.copyClose ?? null;
     this.stepUp = options.stepUp ?? null;
     this.notices = options.notices ?? NO_COPY_NOTICES;
@@ -1012,11 +1032,46 @@ export class CopyService {
     };
   }
 
+  /** Finance's settlement oversight (CB-ops-02): the newest lead fee shares, each judged against the ledger and the venue. */
+  async opsSettlements() {
+    return listSettlements(this.settlementDeps(), this.now());
+  }
+
+  /** Reconcile one window (CB-ops-02). A blank window refuses. Read only. */
+  async opsReconcileSettlements(window: string | null | undefined) {
+    return reconcileSettlements(this.settlementDeps(), this.now(), window);
+  }
+
+  /** One follow's position accounting for finance (CB-copy-pro-share-01): its fee shares, judged, and its copied positions. */
+  async opsFollowAccounting(followId: string) {
+    const id = requireCopyFollowId(followId);
+    const follow = await this.store.getFollow(id);
+    if (!follow) throw new CopyError('Follow not found', 'trade.copy_not_following');
+    const [shares, positions] = await Promise.all([
+      listSettlements(this.settlementDeps(), this.now(), id),
+      this.readCopiedPositions(follow),
+    ]);
+    return {
+      followId: follow.followId,
+      leaderId: follow.leaderId,
+      followerId: follow.followerId,
+      createdAt: follow.createdAt.toISOString(),
+      feeShares: shares.rows,
+      positions: positions.map(copiedPositionWire),
+      asOf: shares.asOf,
+    };
+  }
+
+  private settlementDeps() {
+    if (!this.sql) throw new CopyError('Settlement oversight needs the copy tables', 'trade.copy_unavailable');
+    return sqlSettlementOversight(this.sql, this.ledger);
+  }
+
   /** The caller's copied positions on one follow, newest first (CB-copy-09/10). */
   async copiedPositions(principal: Principal, input: { followId: string }) {
     const follow = await this.requireOwnedFollow(this.store, principal, input.followId);
     const positions = await this.readCopiedPositions(follow);
-    return { positions: positions.map(copiedPositionWire) };
+    return { positions: positions.map(copiedPositionWire), markets: copiedMarketPositions(positions) };
   }
 
   /**
@@ -1892,6 +1947,36 @@ export class CopyService {
   async observeFollowerFill(notice: CopyMirrorFillNotice): Promise<void> {
     if (!this.sql) return;
     await observeCopyMirrorFill(this.sql, this.mirrorEvents, notice, this.now());
+  }
+
+  /**
+   * The caller's own lead earnings (J-copy-bots-otc-06 #3): their settled fee-share rows, newest first, with the sum per
+   * asset and the profit-share refusal sentence. No profit, loss or return figure.
+   */
+  async leadEarnings(principal: Principal, input: { limit: number }) {
+    requireScope(principal, 'trade:read');
+    if (!this.leadFeeShares) throw new CopyError('lead earnings are not mounted', 'trade.copy_unavailable');
+    const limit = input.limit;
+    if (!Number.isInteger(limit) || limit < 1 || limit > LEAD_EARNINGS_PAGE_MAX) {
+      throw new CopyError(`limit must be a whole number from 1 to ${LEAD_EARNINGS_PAGE_MAX}`, 'trade.copy_limit_missing');
+    }
+    return presentLeadEarnings(this.feeShareLaw, await this.leadFeeShares(principal.userId, limit));
+  }
+
+  /** The caller's own lead level (J-copy-bots-otc-06 #5): not set while the owner's thresholds are blank; no ratio. */
+  async leadLevel(principal: Principal) {
+    requireScope(principal, 'trade:read');
+    return presentLeadLevel(await this.directory.listingIdentity(principal.userId));
+  }
+
+  /** A profit pre-deduction or profit-share ratio (J-copy-bots-otc-06 #4): refused for every caller, nothing written. */
+  setProfitShare(): never {
+    return refuseLeadProfitShare();
+  }
+
+  /** A maximum ratio (J-copy-bots-otc-06 #5): refused for every caller, nothing written. */
+  setMaxRatio(): never {
+    return refuseLeadMaxRatio();
   }
 
   /** Forbidden surfaces — explicit refuse for honesty tests. */
