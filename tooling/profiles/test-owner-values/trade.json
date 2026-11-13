@@ -71,6 +71,11 @@
       "value": "60",
       "note": "TEST wait of 60 seconds before a rejected lead applicant may apply again, so J-copy-bots-otc-10 #4 sees the wait refuse and then end on the real clock."
     },
+    "TRADE_POOL_WHITELIST_BATCH_MAX": {
+      "service": "trade",
+      "value": "20",
+      "note": "TEST whitelist batch limit of 20 people per import, the reference's figure, so J-copy-bots-otc-10 #6 reads a set limit on the founders' desk. Not an owner decision."
+    },
     "TRADE_SIGNAL_MAX_ALERT_AGE_SECONDS": {
       "service": "trade",
       "value": "20",

@@ -23,6 +23,12 @@ const REAPPLY_WAIT_MS =
       .TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS.value,
   ) * 1000;
 
+/** The whitelist batch limit per import, as the stack's TEST profile sets it. */
+const BATCH_LIMIT = Number(
+  JSON.parse(readFileSync(new URL('../../../../tooling/profiles/test-owner-values/trade.json', import.meta.url), 'utf8')).values
+    .TRADE_POOL_WHITELIST_BATCH_MAX.value,
+);
+
 test.describe.configure({ mode: 'default' });
 
 const queue = (page) => tableIn(page, 'Lead applications');
@@ -324,9 +330,8 @@ test(`${J} #6 opens pooled masters and the pool whitelist: master applications f
   await page.getByRole('tab', { name: 'Whitelists' }).click();
   const panel = page.getByRole('tabpanel', { name: 'Whitelists' });
   await expect(panel).toContainText('Batch limit');
-  await expect(panel).toContainText(
-    pooled.whitelists.batchLimit === null ? 'Not set by the owner' : `${pooled.whitelists.batchLimit} people per import`,
-  );
+  expect(pooled.whitelists.batchLimit, "svc-trade reads the stack's TEST batch limit").toBe(BATCH_LIMIT);
+  await expect(panel).toContainText(`${BATCH_LIMIT} people per import`);
   await expect(tableIn(panel, 'Pool whitelists')).toBeVisible();
   await expect(panel.getByText('No whitelists: no pool exists.')).toBeVisible();
 });
