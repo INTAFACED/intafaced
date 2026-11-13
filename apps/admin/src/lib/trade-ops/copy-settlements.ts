@@ -7,7 +7,7 @@ export type HeldReason = 'settle_unfinished' | 'ledger_post_missing' | 'ledger_a
 
 /** The words a held row shows, one per reason (svc-trade `HELD_REASON_TEXT`). */
 export const HELD_REASON_TEXT: Record<HeldReason, string> = {
-  settle_unfinished: 'The settle started and did not finish; nothing is owed on it yet.',
+  settle_unfinished: 'The settle started and did not finish, so nothing is owed on it.',
   ledger_post_missing: 'The ledger has no post under the key.',
   ledger_amount_differs: 'The ledger post is a different amount from the share.',
   venue_not_reported: 'The venue reports no builder fee for this fill.',

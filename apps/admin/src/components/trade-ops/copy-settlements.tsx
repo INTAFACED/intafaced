@@ -163,7 +163,7 @@ export function CopySettlements({ read }: { read: Outcome<SettlementList> }) {
         {read.kind !== 'ok' ? (
           <OutcomeNotice outcome={read} />
         ) : read.data.rows.length === 0 ? (
-          <p className="text-sm text-fg-2">No lead fee share has been settled yet.</p>
+          <p className="text-sm text-fg-2">No lead fee share has been settled.</p>
         ) : (
           <>
             <p className="text-sm text-fg-2" data-counts="">

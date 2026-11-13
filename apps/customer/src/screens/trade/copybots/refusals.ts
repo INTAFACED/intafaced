@@ -46,6 +46,10 @@ const COPY: Readonly<Record<string, Words>> = {
     body: 'Leaders aren’t ranked by how much they earned, so there are no top lists or trending boards. Every listed leader is shown in the order they were listed.',
   },
   'trade.copy_settle_refused': { title: 'Fee share was not settled', body: 'Nothing was charged beyond the normal trading fee.' },
+  'trade.copy_settlement_window_required': {
+    title: 'Choose a window',
+    body: 'A settlement reconcile needs a time window. Nothing was read.',
+  },
   'trade.copy_leader_fill_not_found': { title: 'That leader trade wasn’t found', body: 'It may be too old, or it isn’t one you can copy.' },
   'trade.copy_auto_mirror_place_socket': {
     title: 'Automatic copying is switched off',
