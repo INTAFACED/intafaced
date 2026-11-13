@@ -45,7 +45,7 @@ async function tryLeadKey(page, name) {
   await page.getByRole('button', { name: 'Create with a passkey', exact: true }).click();
 }
 
-/** The lead's BTC/USDT orders, open and closed, as the exchange holds them, read through the lead's own sign-in. */
+/** An account's BTC/USDT orders, open and closed, as the exchange holds them, read through its own sign-in. */
 async function ordersOf(who) {
   const mine = await api(who);
   const open = await mine.get('/api/v1/orders/open?symbol=BTC%2FUSDT&limit=100');
@@ -64,7 +64,17 @@ test(`${J} #1 as a follower tries to mint a lead-scope key: refused until the ac
   await tryLeadKey(page, 'lead-bot');
   await expect(page.getByRole('alert').filter({ hasText: 'A lead trading key is only for an approved lead.' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Your new key' })).toHaveCount(0);
-  // Refused by identity itself, not only on the page: no key was made.
+  // Refused by identity itself, not only on the page: the same create sent straight to identity through Edge, with the
+  // follower's own sign-in, answers the typed refusal, and no key was made.
+  const direct = await (
+    await api(follower.who)
+  ).post('/api/identity/trpc/developerKeys.create', {
+    name: 'lead-bot-direct',
+    scopes: ['trade:read', 'trade:write', 'copy:lead'],
+    requestId: `${J}-1-direct-${process.env.JOURNEY_RUN_ID ?? 'local'}`,
+  });
+  expect(direct.status, JSON.stringify(direct.body)).toBe(403);
+  expect(identityCode(direct.body), JSON.stringify(direct.body)).toBe('identity.key_lead_not_approved');
   expect(await storedKeys(follower.who)).toEqual([]);
 
   // Until: once the account is listed as a lead, the same form makes the key.
@@ -118,17 +128,22 @@ test(`${J} #2 as an approved lead mints a lead key; a delegate can't mint one`, 
 test(`${J} #3 calls the lead API with a non-lead key: refused by scope`, async ({ browser }) => {
   test.setTimeout(300_000);
   const trader = await keyHolder(browser, 'jck3');
+  expect(fund(trader.who.email, 'USDT', '500').tx).toBeTruthy();
   const key = await makeKey(trader.page, { name: 'trade-bot', preset: 'Trade' });
   await trader.page.context().close();
+  const clientOrderId = `${J}-3-${process.env.JOURNEY_RUN_ID ?? 'local'}`;
+  const { body: book } = await bestPrices('BTC/USDT');
   const res = await withKey(key, {
     method: 'POST',
     path: '/api/v1/copy/lead/orders',
-    body: { symbol: 'BTC/USDT', type: 'limit', side: 'buy', amount: '0.001', price: '1', clientOrderId: `${J}-3` },
+    body: { symbol: 'BTC/USDT', type: 'limit', side: 'buy', amount: '0.001', price: book.bids[0][0], clientOrderId },
   });
   expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(403);
   expect(res.body.intafacedCode, JSON.stringify(res.body)).toBe('scope.denied');
   expect(res.body.message).toBe('Scope "copy:lead" is required');
   expect(codeOf(res.body)).toBe('PermissionDenied');
+  // Nothing was placed: the trader holds no order under that id, open or closed.
+  expect((await ordersOf(trader.who)).filter((o) => o.clientOrderId === clientOrderId)).toEqual([]);
 });
 
 test(`${J} #4 opens a position through the lead API on a listed instrument, then an unlisted one: one runs, one refused`, async () => {
