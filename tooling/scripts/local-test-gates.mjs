@@ -878,7 +878,7 @@ async function signInOne(ctx, op, saveSteps) {
     op,
     /** Second-factor session token (what a signed-in operator holds). */
     token: loginToken,
-    /** Same session, plus the operator scope. Short-lived. */
+    /** Same session with `admin:compliance` alone (which also grants `admin:read`). Short-lived. */
     async complianceToken() {
       return mintOperatorToken(ctx, op);
     },
@@ -899,8 +899,8 @@ async function signInOne(ctx, op, saveSteps) {
     async tradeOpsToken() {
       return mintOperatorToken(ctx, op, ['admin:read', 'admin:write']);
     },
-    /** Same session as compliance: the trade desk's VIP application review also needs `admin:compliance`. */
-    async complianceToken() {
+    /** Same session with `admin:write` and `admin:compliance`: what svc-trade's VIP review and trial grant check. */
+    async vipReviewToken() {
       return mintOperatorToken(ctx, op, ['admin:read', 'admin:write', 'admin:compliance']);
     },
     /** Same session with the CRM scopes svc-ops checks before it asks identity whether the caller is a founder. */
@@ -2337,7 +2337,7 @@ export async function reviewVipApplication(ctx, { applicationId, decision, reaso
     'trade',
     'admin.vipApplications.review',
     { ...body, approvalId: ids.approvalId, operationId: ids.operationId },
-    await pair.a.complianceToken(),
+    await pair.a.vipReviewToken(),
   );
 }
 
@@ -2359,7 +2359,7 @@ export async function grantVipTrial(ctx, { applicationId, reason, sessions = nul
       'trade',
       'admin.vipApplications.grantTrial',
       { ...body, approvalId: 'none-proposed', operationId: 'none-proposed' },
-      await pair.a.complianceToken(),
+      await pair.a.vipReviewToken(),
     );
   }
   const ids = await twoPerson(ctx, pair, {
@@ -2375,7 +2375,7 @@ export async function grantVipTrial(ctx, { applicationId, reason, sessions = nul
     'trade',
     'admin.vipApplications.grantTrial',
     { ...body, approvalId: ids.approvalId, operationId: ids.operationId },
-    await pair.a.complianceToken(),
+    await pair.a.vipReviewToken(),
   );
 }
 
