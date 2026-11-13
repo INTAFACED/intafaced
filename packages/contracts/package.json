@@ -410,6 +410,10 @@
       "types": "./dist/academy-certificates.d.ts",
       "default": "./dist/academy-certificates.js"
     },
+    "./academy-cert-designs": {
+      "types": "./dist/academy-cert-designs.d.ts",
+      "default": "./dist/academy-cert-designs.js"
+    },
     "./academy-courses": {
       "types": "./dist/academy-courses.d.ts",
       "default": "./dist/academy-courses.js"

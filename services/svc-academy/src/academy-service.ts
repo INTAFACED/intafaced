@@ -52,6 +52,7 @@ import { CourseRelease } from './curriculum/course-release.js';
 import { CourseItemRules } from './curriculum/course-item-rules.js';
 import { CourseGradebook } from './curriculum/course-gradebook.js';
 import { GradeReports } from './curriculum/grade-reports.js';
+import { CertDesigns } from './certs/designs.js';
 import { LearnerSummaries } from './analytics/learner-summaries.js';
 import { ReportTasks } from './analytics/report-tasks.js';
 import { PeerReviews, type GetObjectFn } from './curriculum/peer-review.js';
@@ -109,6 +110,7 @@ import type {
   AcademyCertIssue,
   AcademyCertIssueRule,
   AcademyCertRevocation,
+  AcademyIssuedCertDesign,
   AcademySetCertIssueRuleInput,
   AcademyProgramme,
   AcademyProgrammeCourseState,
@@ -336,6 +338,8 @@ export interface AcademyServiceOptions {
   graderLeaseSeconds?: number;
   /** AC-assignments-04: learner rows one grade report holds (`ACADEMY_GRADE_REPORT_ROWS`). Unset, a report refuses. */
   gradeReportRows?: number;
+  /** AC-certificates-03: issued certificates the staff list shows and one export holds (`ACADEMY_CERT_ISSUED_ROWS`). Unset, both refuse. */
+  certIssuedRows?: number;
   /** AC-analytics-01: learners one page of summaries shows (`ACADEMY_LEARNER_SUMMARIES_PAGE_SIZE`). Unset, the read refuses. */
   learnerSummariesPageSize?: number;
   /** AC-analytics-02: report tasks one list shows (`ACADEMY_REPORT_TASKS_PAGE_SIZE`). Unset, the list refuses. */
@@ -490,6 +494,8 @@ export class AcademyService {
   readonly courseItemRules: CourseItemRules;
   readonly courseGradebook: CourseGradebook;
   readonly gradeReports: GradeReports;
+  /** AC-certificates-03: certificate designs, the issued list and its stored exports. The router calls it directly. */
+  readonly certDesigns: CertDesigns;
   /** AC-analytics-01: per-learner summaries for the founder console. */
   readonly learnerSummaries: LearnerSummaries;
   /** AC-analytics-02: the reports centre's tasks and their sweep. */
@@ -570,6 +576,11 @@ export class AcademyService {
     this.courseItemRules = new CourseItemRules(sql);
     this.courseGradebook = new CourseGradebook(sql);
     this.gradeReports = new GradeReports(sql, this.courseGradebook, this.options.gradeReportRows ?? null);
+    this.certDesigns = new CertDesigns(
+      sql,
+      () => this.certs().map((c) => ({ id: c.id, title: c.title })),
+      this.options.certIssuedRows ?? null,
+    );
     this.learnerSummaries = new LearnerSummaries(sql, this.options.learnerSummariesPageSize ?? null);
     this.reportTasks = new ReportTasks(sql, {
       pageSize: this.options.reportTasksPageSize ?? null,
@@ -3146,11 +3157,15 @@ export class AcademyService {
     return grant;
   }
 
-  /** The one write of a certificate grant: a new serial, and nothing when the learner already holds this certificate. */
+  /**
+   * The one write of a certificate grant: a new serial, and nothing when the learner already holds this certificate. The
+   * grant keeps the design revision active as it is written (AC-certificates-03), so a later edit never changes what it prints.
+   */
   private insertCertGrant(grant: CertGrantRecord) {
     return this.sql<Array<{ user_id: string; cert_id: string; granted_at: Date; idempotency_key: string; public_id: string }>>`
-      INSERT INTO academy.cert_grants (user_id, cert_id, granted_at, idempotency_key, public_id)
-      VALUES (${grant.userId}, ${grant.certId}, ${grant.grantedAt}, ${grant.idempotencyKey}, ${randomPublicId()})
+      INSERT INTO academy.cert_grants (user_id, cert_id, granted_at, idempotency_key, public_id, design_revision)
+      VALUES (${grant.userId}, ${grant.certId}, ${grant.grantedAt}, ${grant.idempotencyKey}, ${randomPublicId()},
+              (SELECT active_revision FROM academy.cert_designs WHERE cert_id = ${grant.certId}))
       ON CONFLICT (user_id, cert_id) DO NOTHING
       RETURNING user_id, cert_id, granted_at, idempotency_key, public_id
     `;
@@ -3450,16 +3465,28 @@ export class AcademyService {
   async myCertGrants(
     userId: string,
     requested?: number,
-  ): Promise<Array<CertGrantRecord & { publicId: string; status: 'valid' | 'revoked' }>> {
+  ): Promise<Array<CertGrantRecord & { publicId: string; status: 'valid' | 'revoked'; design: AcademyIssuedCertDesign | null }>> {
     const limit = assertMyCertsListLimit(requested);
     const rows = await this.sql<
-      Array<{ user_id: string; cert_id: string; granted_at: Date; idempotency_key: string; public_id: string; status: string }>
+      Array<{
+        user_id: string;
+        cert_id: string;
+        granted_at: Date;
+        idempotency_key: string;
+        public_id: string;
+        status: string;
+        design_revision: number | null;
+      }>
     >`
-      SELECT user_id, cert_id, granted_at, idempotency_key, public_id, status FROM academy.cert_grants
+      SELECT user_id, cert_id, granted_at, idempotency_key, public_id, status, design_revision FROM academy.cert_grants
        WHERE user_id = ${userId}
        ORDER BY granted_at DESC
        LIMIT ${limit}
     `;
+    // AC-certificates-03: each certificate prints the design revision it was issued under, never a later edit.
+    const printed = await this.certDesigns.printed(
+      rows.flatMap((r) => (r.design_revision === null ? [] : [{ certId: r.cert_id, revision: r.design_revision }])),
+    );
     return rows.map((r) => ({
       userId: r.user_id,
       certId: r.cert_id,
@@ -3467,6 +3494,7 @@ export class AcademyService {
       idempotencyKey: r.idempotency_key,
       publicId: r.public_id,
       status: r.status === 'revoked' ? ('revoked' as const) : ('valid' as const),
+      design: r.design_revision === null ? null : (printed.get(`${r.cert_id}:${r.design_revision}`) ?? null),
     }));
   }
 

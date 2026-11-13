@@ -54,6 +54,10 @@ const graderLease = () => (process.env.LOCAL_STACK_ACADEMY_GRADER_LEASE === 'off
 // leaves it blank, so the "report limit not set" refusal can be seen too.
 const reportRows = () => (process.env.LOCAL_STACK_ACADEMY_REPORT_ROWS === 'off' ? {} : { ACADEMY_GRADE_REPORT_ROWS: '500' });
 
+// LOCAL TEST issued certificate list and export size (a TEST owner value): 500 rows (J-academy-17 #4).
+// `LOCAL_STACK_ACADEMY_CERT_ISSUED_ROWS=off` leaves it blank, so the "limit not set" refusal can be seen too.
+const certIssuedRows = () => (process.env.LOCAL_STACK_ACADEMY_CERT_ISSUED_ROWS === 'off' ? {} : { ACADEMY_CERT_ISSUED_ROWS: '500' });
+
 // LOCAL TEST quiz curve file size (a TEST owner value): 64 KiB (J-academy-13 #5). `LOCAL_STACK_ACADEMY_BULK_LIMIT=off`
 // leaves it blank, so the "limit not set" refusal can be seen too.
 const bulkLimit = () => (process.env.LOCAL_STACK_ACADEMY_BULK_LIMIT === 'off' ? {} : { ACADEMY_BULK_FILE_MAX_BYTES: '65536' });
@@ -138,6 +142,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     ...grantAuditPage(),
     ...graderLease(),
     ...reportRows(),
+    ...certIssuedRows(),
     ...bulkLimit(),
     ...staffLimits(),
     ...certSweep(),

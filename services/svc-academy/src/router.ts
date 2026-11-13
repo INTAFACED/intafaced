@@ -182,6 +182,7 @@ import {
   academyMediaSchema,
   academySetItemCaptionsInputSchema,
   academySetItemCaptionsResultSchema,
+  academyIssuedCertDesignSchema,
 } from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { DualControlError } from './dual-control.js';
@@ -196,6 +197,7 @@ import { AcademyError } from './errors.js';
 import { learnerDeskProcedures } from './learners/learner-desk-router.js';
 import { teamProcedures, reportDiscussionProcedure } from './team/team-router.js';
 import { gradeReportProcedures } from './curriculum/grade-reports-router.js';
+import { certDesignProcedures } from './certs/designs-router.js';
 import { analyticsProcedures } from './analytics/analytics-router.js';
 import { courseEmailProcedures, staffEnrolmentProcedures } from './learners/staff-enrolment-router.js';
 import { relatedItems } from './curriculum/related.js';
@@ -695,6 +697,8 @@ const certGrantOut = z.object({
   publicId: z.string().regex(/^[0-9a-f]{32}$/),
   /** `revoked` once staff revoked it (AC-certificates-03); the public check then says revoked too. */
   status: z.enum(['valid', 'revoked']).optional(),
+  /** AC-certificates-03: the design revision this certificate prints, or null when it was issued before any was active. */
+  design: academyIssuedCertDesignSchema.nullable().optional(),
 });
 /**
  * Stage-2 XP outcome on a grant.
@@ -3346,6 +3350,7 @@ export function createAcademyRouter(
 
     admin: router({
       ...gradeReportProcedures(academy.gradeReports),
+      ...certDesignProcedures(academy.certDesigns),
       ...analyticsProcedures(academy.learnerSummaries, academy.reportTasks),
       ...learnerDeskProcedures(academy, guard),
       ...teamProcedures(academy, guard),
