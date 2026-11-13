@@ -130,10 +130,16 @@ jobs:
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
           PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }} # the test judge runs only for this repository's own
-        # Its imports, look-baselines.mjs (what a look baseline is) and judged-paths.mjs (what the test judge rules on), come
-        # from main the same way.
+          # What tells main-bisect's automatic revert (test-diff-guard.mjs autoRevert): its branch, author, commit count and head.
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
+          PR_COMMITS: ${{ github.event.pull_request.commits }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        # Its imports, look-baselines.mjs (what a look baseline is), judged-paths.mjs (what the test judge rules on) and
+        # exact-revert.mjs (what an exact revert is), come from main the same way.
         run: |
-          for f in test-diff-guard.mjs look-baselines.mjs judged-paths.mjs; do
+          for f in test-diff-guard.mjs look-baselines.mjs judged-paths.mjs exact-revert.mjs; do
             if git cat-file -e "origin/main:tooling/ci/$f" 2>/dev/null; then
               git show "origin/main:tooling/ci/$f" > "$RUNNER_TEMP/$f"
             else
@@ -276,6 +282,7 @@ jobs:
       - run: node tooling/ci/journeys-revert-probe.mjs --self-test
       - run: node tooling/ci/test-shards.mjs --self-test
       - run: node tooling/ci/test-diff-guard.mjs --self-test
+      - run: node tooling/ci/exact-revert.mjs --self-test
       - run: node tooling/ci/look-drift.mjs --self-test
       - run: node tooling/ci/cross-package-reads.mjs --self-test
       - run: node tooling/ci/boundary-scan.mjs --self-test

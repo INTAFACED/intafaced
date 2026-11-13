@@ -563,6 +563,8 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       return sim.agents(account(body));
     case '/order-by-client-id':
       return sim.orderByClientId(account(body), str(body, 'venueClientOrderId'));
+    case '/order-signer':
+      return sim.orderSigner(account(body), str(body, 'venueClientOrderId'));
     case '/fills': {
       const since = body.since;
       if (!(since instanceof Date)) throw new VenueWireError('since is required (an ISO time)');
