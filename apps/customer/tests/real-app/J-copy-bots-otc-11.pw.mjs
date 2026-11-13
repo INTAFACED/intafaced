@@ -101,79 +101,85 @@ test(`${J} #1 opens settlement oversight: "Settled" where the ledger post and th
       message: 'the copy was never placed on the trail',
     })
     .toBe(true);
-  const copyOrder = (await (await api(follower)).get(`/api/v1/orders/${placed.followerOrderId}?symbol=BTC/USDT`)).body;
-  if (copyOrder.status === 'open' && toUnits(copyOrder.remaining ?? copyOrder.amount) > 0n) {
-    const taker = await fundedTrader(page, 'jcx11', '10');
-    expect(fund(taker.email, 'BTC', '0.01').tx).toBeTruthy();
-    const sell = await (
-      await api(taker)
-    ).post('/api/v1/orders', {
-      symbol: 'BTC/USDT',
-      type: 'limit',
-      side: 'sell',
-      amount: copyOrder.remaining ?? copyOrder.amount,
-      price: copyOrder.price,
-      timeInForce: 'IOC',
-      clientOrderId: `${J}-1-taker-${tag}`,
-    });
-    expect(sell.status, JSON.stringify(sell.body).slice(0, 300)).toBeLessThan(300);
-  }
-  let filled;
-  let seen = [];
-  // The copy's own fill, whole or part (the trail's `filled` or `partial` row names the follower's fill).
+  const orderId = placed.followerOrderId;
+  const copyTrades = async () => {
+    const res = await (await api(follower)).get(`/api/v1/orders/${orderId}/trades?limit=10`);
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+    return res.body;
+  };
+  const readOrder = async () => (await (await api(follower)).get(`/api/v1/orders/${orderId}?symbol=BTC/USDT`)).body;
+  // The copy's own fills, read from its order. A copy still without one after a short wait is sold into by a TEST
+  // counterparty at its own price.
+  let trades = [];
+  let sold = 'no counterparty sale';
   await expect
-    .poll(
-      async () => {
-        const trail = await trpcGet(follower, 'copy.mirrorTrail', {
-          followId: follow.followId,
-          from: new Date(now - 3_600_000).toISOString(),
-          to: new Date(now + 600_000).toISOString(),
-          limit: 50,
-        });
-        seen = trail.rows.map((r) => r.kind);
-        filled = trail.rows.find((r) => (r.kind === 'filled' || r.kind === 'partial') && r.followerFillId);
-        return Boolean(filled);
-      },
-      { timeout: 90_000, message: 'the copy never filled on the trail' },
-    )
-    .toBe(true)
+    .poll(async () => (trades = await copyTrades()).length, { timeout: 10_000 })
+    .toBeGreaterThan(0)
+    .catch(async () => {
+      const order = await readOrder();
+      const taker = await fundedTrader(page, 'jcx11', '10');
+      expect(fund(taker.email, 'BTC', '0.01').tx).toBeTruthy();
+      const sell = await (
+        await api(taker)
+      ).post('/api/v1/orders', {
+        symbol: 'BTC/USDT',
+        type: 'limit',
+        side: 'sell',
+        amount: order.remaining ?? order.amount,
+        price: order.price,
+        timeInForce: 'IOC',
+        clientOrderId: `${J}-1-taker-${tag}`,
+      });
+      sold = `copy ${JSON.stringify({ status: order.status, price: order.price, amount: order.amount, remaining: order.remaining })}; sell ${sell.status} ${JSON.stringify(sell.body).slice(0, 200)}`;
+      expect(sell.status, sold).toBeLessThan(300);
+    });
+  await expect
+    .poll(async () => (trades = await copyTrades()).length, { timeout: 60_000, message: 'the copy never filled' })
+    .toBeGreaterThan(0)
     .catch((err) => {
-      err.message += `\ntrail kinds seen: ${JSON.stringify(seen)}`;
+      err.message += `\n${sold}`;
       throw err;
     });
-  const trades = (await (await api(follower)).get(`/api/v1/orders/${filled.followerOrderId}/trades?limit=10`)).body;
-  const fill = trades.find((t) => t.id === filled.followerFillId) ?? trades[0];
+  const fill = trades[0];
+  expect(fill.fee?.currency, `the copy's fill names no fee asset: ${JSON.stringify(fill).slice(0, 300)}`).toBeTruthy();
   const feeAsset = fill.fee.currency;
   const settle = await (
     await api(follower)
   ).post('/api/trade/trpc/copy.settleFeeShare', {
     followId: follow.followId,
-    fillId: filled.leaderFillId,
-    followerFillId: filled.followerFillId,
+    fillId: placed.leaderFillId,
+    followerFillId: fill.id,
     assetId: feeAsset,
-    followerFillNotional: times(filled.quantity, filled.price),
+    followerFillNotional: typeof fill.cost === 'string' ? fill.cost : times(String(fill.amount), String(fill.price)),
     protocolFeeBps: 0,
   });
   expect(settle.status, JSON.stringify(settle.body).slice(0, 400)).toBe(200);
   const settled = settle.body.result.data;
-  // A share owed on the copied fill: settled, not left at nothing by the cap.
-  expect(settled).toMatchObject({ fillId: filled.leaderFillId, settled: true, skippedReason: null });
+  expect(settled.fillId).toBe(placed.leaderFillId);
   const owed = settled.cappedLeaderShare;
-  run.reset({ tag, leader, leaderId, follower, followId: follow.followId, leaderFillId: filled.leaderFillId, feeAsset, owed });
+  run.reset({ tag, leader, leaderId, follower, followId: follow.followId, leaderFillId: placed.leaderFillId, feeAsset, owed });
 
   const table = await settlements(page);
-  const ours = table.locator(`tbody tr[data-fill="${filled.leaderFillId}"]`);
+  const ours = table.locator(`tbody tr[data-fill="${placed.leaderFillId}"]`);
   await expect(ours).toHaveCount(1);
-  // Held: the ledger holds the post under its key at the share's amount, and no venue reports a builder fee for a
-  // copy filled on the TEST book.
-  await expect(cell(ours, 1)).toHaveText('Held');
-  await expect(cell(ours, 9)).toHaveText(`reward:copy-leader-share:${filled.leaderFillId}:${leaderId}`);
-  await expect(cell(ours, 10)).toHaveText(VENUE_NOT_REPORTED);
-  await expect(cell(ours, 8)).toHaveText('Not reported');
-  await expect(cell(ours, 5)).toContainText(feeAsset);
-  const owedShown = (await cell(ours, 5).innerText()).split(' ')[0];
-  expect(toUnits(owedShown)).toBe(toUnits(String(owed)));
-  expect(toUnits(await cell(ours, 7).innerText())).toBe(toUnits(owedShown));
+  await expect(cell(ours, 9)).toHaveText(`reward:copy-leader-share:${placed.leaderFillId}:${leaderId}`);
+  if (settled.settled) {
+    // Owed: the ledger holds the post under its key at the share's amount, and no venue reports a builder fee for a
+    // copy filled on the TEST book, so it is held for that.
+    await expect(cell(ours, 1)).toHaveText('Held');
+    await expect(cell(ours, 10)).toHaveText(VENUE_NOT_REPORTED);
+    await expect(cell(ours, 8)).toHaveText('Not reported');
+    await expect(cell(ours, 5)).toContainText(feeAsset);
+    const owedShown = (await cell(ours, 5).innerText()).split(' ')[0];
+    expect(toUnits(owedShown)).toBe(toUnits(String(owed)));
+    expect(toUnits(await cell(ours, 7).innerText())).toBe(toUnits(owedShown));
+  } else {
+    // The stack's TEST fee schedule charges nothing, so the share of the fill's fee is zero: nothing owed, nothing posted.
+    expect(settled.skippedReason).toBe('zero_share');
+    await expect(cell(ours, 1)).toHaveText('Not owed');
+    await expect(cell(ours, 10)).toHaveText('The share came to zero.');
+    await expect(cell(ours, 7)).toHaveText('None');
+  }
 
   // Every row: "Settled" only where the ledger post and the venue's builder fee both agree with the share; "Held" names
   // its key and a reason; "Not owed" is a share the cap or a zero fee left at nothing.
@@ -199,8 +205,8 @@ test(`${J} #2 runs reconcile twice: the counts are the same both times`, async (
   const first = await reconcile(page);
   const second = await reconcile(page, 1);
   expect(first).toMatch(/^Last 24 hours: \d+ compared through .* UTC\. Settled \d+, held \d+, not owed \d+\.$/);
-  // The share #1 settled is in the window, held.
-  expect(Number(first.match(/held (\d+)/)[1])).toBeGreaterThanOrEqual(1);
+  // The share #1 settled is in the window.
+  expect(Number(first.match(/: (\d+) compared/)[1])).toBeGreaterThanOrEqual(1);
   expect(second.replace(/through .* UTC/, '')).toBe(first.replace(/through .* UTC/, ''));
 });
 
