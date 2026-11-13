@@ -112,6 +112,12 @@ export function createAddMoneyRouter(bank: Pick<BankServices, 'addMoney'>, guard
               .trim()
               .regex(/^0x[0-9a-fA-F]{40}$/)
               .optional(),
+            /** That wallet's EIP-191 signature over the request's own message (`walletDeliveryMessage`), proving it is theirs. */
+            walletSignature: z
+              .string()
+              .trim()
+              .regex(/^0x[0-9a-fA-F]{130}$/)
+              .optional(),
           })
           .strict(),
       )

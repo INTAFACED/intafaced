@@ -51,6 +51,19 @@ const METHOD_KEYS = {
   wallet_pay: 'method_wallet_pay',
 } as const;
 
+/**
+ * The exact text the person signs with their wallet to have a purchase delivered to it: svc-bank's
+ * `walletDeliveryMessage`, which checks the signature against this same text.
+ */
+export function walletDeliveryMessage(requestId: string, walletAddress: string): string {
+  return [
+    'INTAFACED buy to wallet',
+    `Request: ${requestId.toLowerCase()}`,
+    `Wallet: ${walletAddress.toLowerCase()}`,
+    'Signing this proves you control this wallet, so a purchase can be delivered to it. It moves no funds and approves nothing else.',
+  ].join('\n');
+}
+
 function amountOk(value: string) {
   return decimalSchema.safeParse(value.trim()).success && parseAmount(value.trim()) > 0n;
 }
@@ -347,6 +360,7 @@ export function AddMoney() {
   const { api, profiles } = useSession();
   const wallet = useWallet();
   const [deliver, setDeliver] = useState<Deliver>('balance');
+  const [unsigned, setUnsigned] = useState(false);
   // The connected wallet's address, only while connected: buying to it names it on the request.
   const walletAddress = wallet.status === 'connected' ? wallet.address : null;
   const currencies = useBankRead('currencies.list', { profile: profiles.active });
@@ -413,6 +427,18 @@ export function AddMoney() {
     if (!ask || !option) return;
     if (deliver === 'wallet' && !walletAddress) return;
     setBusy(true);
+    setUnsigned(false);
+    // The wallet proves it is the person's: it signs this request's own message, and the bank checks the signer.
+    let walletSignature: string | null = null;
+    if (deliver === 'wallet' && walletAddress) {
+      const signed = await wallet.sign({ kind: 'message', message: walletDeliveryMessage(requestId, walletAddress) });
+      if (signed.status !== 'signed') {
+        setBusy(false);
+        setUnsigned(true);
+        return;
+      }
+      walletSignature = signed.signature;
+    }
     const result = await api.mutate(
       'bank',
       'addMoney.start',
@@ -421,7 +447,7 @@ export function AddMoney() {
         ...ask,
         method: option.method,
         ...(option.quote ? { quoteId: option.quote.quoteId } : {}),
-        ...(deliver === 'wallet' && walletAddress ? { walletAddress } : {}),
+        ...(deliver === 'wallet' && walletAddress && walletSignature ? { walletAddress, walletSignature } : {}),
       },
       addMoneyRequestSchema,
     );
@@ -558,6 +584,7 @@ export function AddMoney() {
                 <p>{t('ownership')}</p>
               </div>
             )}
+            {deliver === 'wallet' && walletAddress && <p data-testid="add-money-sign-note">{t('deliverSign')}</p>}
             {option.method === 'pay_by_bank' && <p>{t('redirect')}</p>}
             {(option.method === 'card' || option.method === 'wallet_pay') && <p>{t('hostedCard')}</p>}
             <div className="actions">
@@ -565,6 +592,11 @@ export function AddMoney() {
                 {redirecting ? t('redirecting') : busy ? t('working') : t('ask')}
               </Button>
             </div>
+            {unsigned && (
+              <p className="money-caption" role="status" data-testid="add-money-unsigned">
+                {t('deliverUnsigned')}
+              </p>
+            )}
             {outcome && <Answer outcome={outcome} />}
           </div>
         </DepthPanel>

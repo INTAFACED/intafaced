@@ -4,7 +4,7 @@ vi.mock('../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../shared/preferences')>();
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
-import { TrackerSteps } from './AddMoney';
+import { TrackerSteps, walletDeliveryMessage } from './AddMoney';
 import { addMoneyRequestSchema, bankReads, type AddMoneyRequest } from './contracts';
 
 /** J-bank-02 #3, #5: one add-money request from created to credited, each step with when, and the amount credited. */
@@ -43,6 +43,18 @@ const states = (html: string) => [...html.matchAll(/data-step="(\w+)" data-state
 
 describe('the add-money tracker', () => {
   describe('bought to the wallet (J-dex-protocol-05 #4)', () => {
+    it('the message to sign is the one svc-bank checks, byte for byte', () => {
+      // The same literal as svc-bank's add-money.db.test.ts: a change on one side alone breaks a test.
+      expect(walletDeliveryMessage('AAAAAAAA-0000-4000-8000-000000000000', '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266')).toBe(
+        [
+          'INTAFACED buy to wallet',
+          'Request: aaaaaaaa-0000-4000-8000-000000000000',
+          'Wallet: 0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266',
+          'Signing this proves you control this wallet, so a purchase can be delivered to it. It moves no funds and approves nothing else.',
+        ].join('\n'),
+      );
+    });
+
     const WALLET = '0x00000000000000000000000000000000000ab0b5';
     const TX = `0x${'ab'.repeat(32)}`;
 

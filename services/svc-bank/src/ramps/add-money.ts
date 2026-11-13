@@ -39,7 +39,11 @@
  * once. A request not credited cannot be returned (`bank.ramp_conflict`), and a balance that no longer holds the amount
  * refuses before anything moves; the request stays credited.
  *
- * TO A WALLET (J-dex-protocol-05 #4). A request may name the person's own wallet address instead of a balance here. The
+ * TO A WALLET (J-dex-protocol-05 #4). A request may name the person's own wallet address instead of a balance here. Before
+ * anything is kept, the person proves they control it, signing `walletDeliveryMessage` (the request id and the address)
+ * with that wallet; a signature from any other key, or none, refuses `bank.wallet_delivery_unproven`. The owner's
+ * destination sanctions list must clear the address, as for every crypto destination outside INTAFACED: a listed
+ * address, or any while the list is unset, refuses with the list's own code. Both are asked again on a replay. The
  * partner is told that address when it opens the payment, and it delivers the purchase there on chain itself: INTAFACED
  * holds none of it and the ledger posts nothing. Its "paid" for such a request must carry the on-chain transfer it made
  * (`deliveryTx`); the request then reads `delivered` with when and that hash, and nothing is credited anywhere here. A
@@ -58,6 +62,7 @@ import type { OnrampMethod } from './customer-ports.js';
 import type { CustomerOnrampView, OnrampQuoteView } from './customer-ramps.js';
 import type { OnrampPartner } from './payin-sim.js';
 import { paidByFor, type PartnerPurchaseCustody } from '../partner/partner-purchases.js';
+import { recoverPersonalSignAddress } from './wallet-ownership.js';
 import type { RampService } from './ramp-service.js';
 
 /** The order the chooser shows the ways to pay. */
@@ -152,6 +157,7 @@ interface RequestRow {
   returned_at: Date | null;
   return_ref: string | null;
   wallet_address: string | null;
+  wallet_signature: string | null;
   delivered_at: Date | null;
   delivery_tx: string | null;
 }
@@ -166,6 +172,21 @@ export interface AddMoneyInput {
   readonly quoteId?: string | undefined;
   /** The person's own wallet the partner delivers to (an EVM address), instead of a balance here. */
   readonly walletAddress?: string | undefined;
+  /** The wallet's EIP-191 signature over `walletDeliveryMessage(requestId, walletAddress)`. Required with a wallet. */
+  readonly walletSignature?: string | undefined;
+}
+
+/**
+ * The exact text a person signs with their wallet to have a purchase delivered to it (J-dex-protocol-05 #4): it names the
+ * request and the wallet (both lower case) and says nothing moves. The customer app builds the same text.
+ */
+export function walletDeliveryMessage(requestId: string, walletAddress: string): string {
+  return [
+    'INTAFACED buy to wallet',
+    `Request: ${requestId.toLowerCase()}`,
+    `Wallet: ${walletAddress.toLowerCase()}`,
+    'Signing this proves you control this wallet, so a purchase can be delivered to it. It moves no funds and approves nothing else.',
+  ].join('\n');
 }
 
 type Kept = { status: 'opening'; quoteId: string } | { status: 'refused'; code: BankErrorCode };
@@ -175,7 +196,7 @@ export class AddMoneyService {
     private readonly sql: Sql,
     private readonly ramps: Pick<
       RampService,
-      'onrampQuote' | 'onrampQuoteOf' | 'onrampCreate' | 'customerOnrampsByIds' | 'onrampStandInFor'
+      'onrampQuote' | 'onrampQuoteOf' | 'onrampCreate' | 'customerOnrampsByIds' | 'onrampStandInFor' | 'screenWallet'
     >,
     /** Who credits a paid request: the ledger, and the partner that opened it. No partner refuses both partner calls. */
     private readonly credit: {
@@ -218,7 +239,24 @@ export class AddMoneyService {
       // Postgres hands uuids back in lower case; compare the same way.
       quoteId: input.quoteId?.toLowerCase(),
       walletAddress: walletOf(input.walletAddress),
+      walletSignature: input.walletSignature?.trim().toLowerCase(),
     };
+    if (asked.walletAddress !== undefined) {
+      // The person controls the wallet: it signed this request's own message. Asked before anything is read or kept.
+      const signer = asked.walletSignature
+        ? recoverPersonalSignAddress(walletDeliveryMessage(asked.requestId, asked.walletAddress), asked.walletSignature)
+        : null;
+      if (signer !== asked.walletAddress) {
+        throw new BankError(
+          'The wallet to deliver to must sign this request to prove it is yours. Nothing was asked for or kept',
+          'bank.wallet_delivery_unproven',
+        );
+      }
+      // The owner's destination sanctions list clears it, or nothing is kept (a blank list refuses every address).
+      this.ramps.screenWallet(asked.walletAddress);
+    } else if (asked.walletSignature !== undefined) {
+      throw new BankError('A wallet signature came with no wallet to deliver to', 'bank.validation_failed');
+    }
     const prior = await this.row(input.requestId);
     if (prior) return this.settle(same(prior, userId, asked));
 
@@ -480,14 +518,15 @@ export class AddMoneyService {
   private async keep(userId: string, asked: AddMoneyInput, kept: Kept): Promise<RequestRow> {
     const rows = await this.sql<RequestRow[]>`
       INSERT INTO bank.add_money_requests (
-        id, user_id, asset_id, amount, method, country, rail, status, refusal_code, quote_id, wallet_address
+        id, user_id, asset_id, amount, method, country, rail, status, refusal_code, quote_id, wallet_address, wallet_signature
       )
       VALUES (
         ${asked.requestId}::uuid, ${userId}, ${asked.assetId}, ${asked.amount}::numeric, ${asked.method}, ${asked.country},
         ${railFor(asked.method)}, ${kept.status},
         ${kept.status === 'refused' ? kept.code : null},
         ${kept.status === 'opening' ? kept.quoteId : null}::uuid,
-        ${asked.walletAddress ?? null}
+        ${asked.walletAddress ?? null},
+        ${asked.walletAddress ? (asked.walletSignature ?? null) : null}
       )
       ON CONFLICT (id) DO NOTHING
       RETURNING *

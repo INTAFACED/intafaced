@@ -21,6 +21,10 @@ import { CRYPTO_LEDGER_PROGRAMME, NO_RAMP_PROGRAMME } from './rails.js';
 import { onrampSim } from './onramp-sim.js';
 import { PAYIN_SIM_RAIL, payinSim } from './payin-sim.js';
 import { TEST_PURCHASE_HOLD_DAYS, testPartner as testPartnerBank } from '../partner/test-partner.js';
+import { secp256k1 } from '@noble/curves/secp256k1.js';
+import { keccak_256 } from '@noble/hashes/sha3.js';
+import { walletDeliveryMessage } from './add-money.js';
+import { destinationSanctions, memorySanctions } from './sanctions-list.js';
 
 const SECRET = 'bank-add-money-edge-secret-long-enough';
 const ADA = '11111111-1111-4111-8111-111111111111';
@@ -544,27 +548,97 @@ describe('add money (J-bank-02)', () => {
     });
 
     describe("to the person's own wallet (J-dex-protocol-05 #4)", () => {
-      const WALLET = '0x00000000000000000000000000000000000Ab0b5';
+      // Well-known public development keys (the first two accounts of common local EVM chains). They hold nothing; TEST only.
+      const KEY = 'ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
+      const WALLET = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
+      const STRANGER_KEY = '59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d';
       const TX = `0x${'ab'.repeat(32)}`;
+      const clearList = memorySanctions([{ network: '*', address: '0x00000000000000000000000000000000005a1c7d' }]);
+
+      /** What a wallet's `personal_sign` returns: the EIP-191 digest signed, as `r || s || v` with v 27/28. */
+      function personalSign(message: string, keyHex: string): string {
+        const encoder = new TextEncoder();
+        const body = encoder.encode(message);
+        const prefix = encoder.encode(`\x19Ethereum Signed Message:\n${body.length}`);
+        const joined = new Uint8Array(prefix.length + body.length);
+        joined.set(prefix);
+        joined.set(body, prefix.length);
+        const recovered = secp256k1.sign(keccak_256(joined), Buffer.from(keyHex, 'hex'), { prehash: false, format: 'recovered' });
+        const out = new Uint8Array(65);
+        out.set(recovered.subarray(1), 0);
+        out[64] = recovered[0]! + 27;
+        return `0x${Buffer.from(out).toString('hex')}`;
+      }
+
+      function wiredTo(userId: string, payments?: OnrampPaymentPort, sanctions = clearList) {
+        const ramps = { onrampStandIn: rates, sanctions, ...(payments ? { onrampPayments: payments } : {}) };
+        const bank: BankServices = createBankServices(sql, ledger, memoryLedgerHistory(ledger), { ramps, onrampPartner: partner });
+        return { bank, caller: as(userId, ramps, { onrampPartner: partner }) };
+      }
 
       async function toWallet(userId: string, payments?: OnrampPaymentPort) {
-        const bank: BankServices = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-          ramps: { onrampStandIn: rates, ...(payments ? { onrampPayments: payments } : {}) },
-          onrampPartner: partner,
-        });
-        const caller = as(userId, { onrampStandIn: rates, ...(payments ? { onrampPayments: payments } : {}) }, { onrampPartner: partner });
+        const { bank, caller } = wiredTo(userId, payments);
         const { methods } = await caller.addMoney.methods(nl);
         const quote = methods.find((m) => m.method === 'pay_by_bank')!.quote!;
         const requestId = randomUUID();
+        const walletSignature = personalSign(walletDeliveryMessage(requestId, WALLET), KEY);
         const request = await caller.addMoney.start({
           requestId,
           ...nl,
           method: 'pay_by_bank',
           quoteId: quote.quoteId,
           walletAddress: WALLET,
+          walletSignature,
         });
         return { caller, bank, quote, request };
       }
+
+      it('the message names the request and the wallet in lower case and says nothing moves', () => {
+        expect(walletDeliveryMessage('AAAAAAAA-0000-4000-8000-000000000000', WALLET)).toBe(
+          [
+            'INTAFACED buy to wallet',
+            'Request: aaaaaaaa-0000-4000-8000-000000000000',
+            `Wallet: ${WALLET.toLowerCase()}`,
+            'Signing this proves you control this wallet, so a purchase can be delivered to it. It moves no funds and approves nothing else.',
+          ].join('\n'),
+        );
+      });
+
+      it('a wallet the person has not signed for, or signed for another request, is refused before anything is kept', async () => {
+        const { caller } = wiredTo(ADA);
+        const requestId = randomUUID();
+        const base = { requestId, ...nl, method: 'pay_by_bank' as const, walletAddress: WALLET };
+        for (const walletSignature of [
+          undefined,
+          personalSign(walletDeliveryMessage(requestId, WALLET), STRANGER_KEY),
+          personalSign(walletDeliveryMessage(randomUUID(), WALLET), KEY),
+        ]) {
+          const refused = await caller.addMoney
+            .start({ ...base, ...(walletSignature ? { walletSignature } : {}) })
+            .catch((e: unknown) => e);
+          expect(codeOf(refused)).toBe('bank.wallet_delivery_unproven');
+        }
+        expect(await sql`SELECT 1 FROM bank.add_money_requests`).toHaveLength(0);
+        expect(await sql`SELECT 1 FROM bank.customer_onramps`).toHaveLength(0);
+        nothingPosted();
+      });
+
+      it('a wallet the sanctions list names, or any while the list is unset, is refused before anything is kept', async () => {
+        const listed = memorySanctions([{ network: '*', address: WALLET }]);
+        const codes: unknown[] = [];
+        for (const sanctions of [listed, destinationSanctions(() => undefined)]) {
+          const { caller } = wiredTo(ADA, undefined, sanctions);
+          const requestId = randomUUID();
+          const walletSignature = personalSign(walletDeliveryMessage(requestId, WALLET), KEY);
+          const refused = await caller.addMoney
+            .start({ requestId, ...nl, method: 'pay_by_bank', walletAddress: WALLET, walletSignature })
+            .catch((e: unknown) => e);
+          codes.push(codeOf(refused));
+        }
+        expect(codes).toEqual(['bank.destination_sanctions_listed', 'bank.destination_sanctions_unset']);
+        expect(await sql`SELECT 1 FROM bank.add_money_requests`).toHaveLength(0);
+        nothingPosted();
+      });
 
       it('tells the partner the wallet, keeps it in lower case, and the TEST page names it; nothing is posted', async () => {
         const told: (string | undefined)[] = [];
@@ -641,7 +715,7 @@ describe('add money (J-bank-02)', () => {
       });
 
       it('refuses a wallet that is not an address before keeping anything', async () => {
-        const caller = as(ADA, { onrampStandIn: rates }, { onrampPartner: partner });
+        const { caller } = wiredTo(ADA);
         const bad = await caller.addMoney
           .start({ requestId: randomUUID(), ...nl, method: 'pay_by_bank', walletAddress: `0x${'0'.repeat(40)}` })
           .catch((e: unknown) => e);

@@ -526,6 +526,14 @@ export class RampService {
     return createOnramp(this.customerDeps(), input);
   }
 
+  /**
+   * Buy to wallet (J-dex-protocol-05 #4): the owner's destination sanctions list must clear the wallet, on any network,
+   * as for every other crypto destination outside INTAFACED. A listed address, or any while the list is unset, refuses.
+   */
+  screenWallet(address: string): void {
+    assertNotSanctioned(this.sanctions, null, address);
+  }
+
   /** One of the customer's own on-ramp quotes as stored, expired or not. */
   onrampQuoteOf(userId: string, quoteId: string): Promise<OnrampQuoteView> {
     return onrampQuoteOf(this.customerDeps(), userId, quoteId);

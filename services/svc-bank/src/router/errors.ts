@@ -462,6 +462,7 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.add_money_request_missing': 'NOT_FOUND',
   'bank.onramp_paid_mismatch': 'CONFLICT',
   'bank.onramp_delivery_missing': 'CONFLICT',
+  'bank.wallet_delivery_unproven': 'FORBIDDEN',
   'bank.offramp_fee_unset': 'PRECONDITION_FAILED',
   'bank.offramp_fee_inconsistent': 'PRECONDITION_FAILED',
   'bank.deposit_custody_unset': 'PRECONDITION_FAILED',

@@ -83,6 +83,9 @@ const en = {
   step_delivered: 'Delivered to your wallet',
   deliveredTo: 'Delivered to {address}',
   deliveryTx: 'Transfer on chain',
+  deliverUnsigned:
+    'Your wallet did not sign, so nothing was asked for. To buy to your wallet, sign the message it shows: it proves the wallet is yours and moves nothing.',
+  deliverSign: 'You sign a message in your wallet first, to prove it is yours. It moves nothing.',
 } as const;
 
 const es: Record<keyof typeof en, string> = {
@@ -170,6 +173,9 @@ const es: Record<keyof typeof en, string> = {
   step_delivered: 'Entregado en tu monedero',
   deliveredTo: 'Entregado en {address}',
   deliveryTx: 'Transferencia en la cadena',
+  deliverUnsigned:
+    'Tu monedero no firmó, así que no se pidió nada. Para comprar a tu monedero, firma el mensaje que muestra: prueba que el monedero es tuyo y no mueve nada.',
+  deliverSign: 'Primero firmas un mensaje en tu monedero para probar que es tuyo. No mueve nada.',
 };
 
 const fr: Record<keyof typeof en, string> = {
@@ -258,6 +264,9 @@ const fr: Record<keyof typeof en, string> = {
   step_delivered: 'Livré à votre portefeuille',
   deliveredTo: 'Livré à {address}',
   deliveryTx: 'Transfert sur la chaîne',
+  deliverUnsigned:
+    'Votre portefeuille n’a pas signé, donc rien n’a été demandé. Pour acheter vers votre portefeuille, signez le message qu’il affiche : il prouve que le portefeuille est à vous et ne déplace rien.',
+  deliverSign: 'Vous signez d’abord un message dans votre portefeuille pour prouver qu’il est à vous. Rien ne bouge.',
 };
 
 export const addMoneyCopy = defineCopy('customer.money.addMoney', en, { es, fr });

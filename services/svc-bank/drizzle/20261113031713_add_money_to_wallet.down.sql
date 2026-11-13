@@ -18,6 +18,7 @@ ALTER TABLE "bank"."add_money_requests" ADD CONSTRAINT "add_money_requests_statu
   )
 );
 ALTER TABLE "bank"."add_money_requests" DROP CONSTRAINT IF EXISTS "add_money_requests_wallet_ck";
+ALTER TABLE "bank"."add_money_requests" DROP COLUMN IF EXISTS "wallet_signature";
 ALTER TABLE "bank"."add_money_requests" DROP COLUMN IF EXISTS "delivery_tx";
 ALTER TABLE "bank"."add_money_requests" DROP COLUMN IF EXISTS "delivered_at";
 ALTER TABLE "bank"."add_money_requests" DROP COLUMN IF EXISTS "wallet_address";

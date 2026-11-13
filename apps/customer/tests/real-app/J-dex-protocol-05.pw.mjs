@@ -632,7 +632,13 @@ test(`${J} #4 opens Buy to wallet in the ramps: the partner's purchase lands in 
   await page.getByTestId('method-pay_by_bank').getByRole('radio').check();
   await page.getByRole('button', { name: 'Continue' }).click();
   const { url } = await stackCtx();
-  await page.getByTestId('add-money-confirm').getByRole('button', { name: 'Ask for this payment' }).click();
+  const confirm = page.getByTestId('add-money-confirm');
+  await expect(confirm.getByTestId('add-money-sign-note')).toContainText('to prove it is yours');
+  await confirm.getByRole('button', { name: 'Ask for this payment' }).click();
+  // The wallet proves it is the person's: the plain-words sheet shows the message, and the TEST wallet signs it.
+  const sheet = page.locator('[data-sheet="sign"]');
+  await expect(sheet).toContainText(`Wallet: ${owner}`);
+  await sheet.getByRole('button', { name: 'Continue in wallet' }).click();
   // The partner's page names the wallet the purchase goes to: the partner was told it.
   await page.waitForURL((at) => at.href.startsWith(`${url('bank')}/test/payin-sim/pay/`));
   await expect(page.getByTestId('payin-sim-label')).toContainText(/^TEST\b/);

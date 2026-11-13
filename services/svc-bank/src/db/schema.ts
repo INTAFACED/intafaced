@@ -1363,6 +1363,8 @@ export const addMoneyRequests = bank.table('add_money_requests', {
   walletAddress: text('wallet_address'),
   deliveredAt: tstz('delivered_at'),
   deliveryTx: text('delivery_tx'),
+  // The person's EIP-191 signature over the request id and the wallet, proving they control it.
+  walletSignature: text('wallet_signature'),
 });
 
 /**
