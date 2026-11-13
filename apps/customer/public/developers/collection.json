@@ -2036,6 +2036,18 @@
           }
         },
         {
+          "name": "createLeadOrder",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/copy/lead/orders",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "copy", "lead", "orders"]
+            }
+          }
+        },
+        {
           "name": "fetchRfqExport",
           "request": {
             "method": "GET",

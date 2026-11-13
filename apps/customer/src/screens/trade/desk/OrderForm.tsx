@@ -2,6 +2,7 @@ import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type { BalanceEntry } from '../../../data/derive';
 import { useDataEnv } from '../../../data/hooks';
 import { useSession } from '../../../features/session/session';
+import { TradingHoldReason } from '../../../features/account/TradingHoldReason';
 import { usePreferences } from '../../../shared/preferences';
 import { fitsPlaces } from '../../../features/account/trading-settings';
 import { draftSchema, isStopType, type Draft, type Preview, type TradeApi } from '../../../features/trade/trade-api';
@@ -131,6 +132,7 @@ function RefusalNote({ failure, onRetry, onDismiss }: { failure: Failure; onRetr
       ) : null}
       <p className="dk-note-title">{title}</p>
       <p>{body}</p>
+      {failure.tradingHold ? <TradingHoldReason /> : null}
       {action ? (
         <a className="dk-link" href={action.href}>
           {action.label}
