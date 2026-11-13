@@ -219,12 +219,12 @@ test(`${J} #7 places a TWAP with a client algo id, amends, cancels and reads: on
     expect(read.body).toMatchObject({ id, totalQty: body.totalQty, limitPrice: body.limitPrice });
     // A TWAP with a trigger price waits for the trigger, as on the screen: a buy trigger far above the book places
     // nothing; after more than one slice interval it is still active and waiting, with no slice placed or missed.
-    // The first parent's opening slice may have lifted the ask, so the limit is measured from the book of this moment.
-    const fresh = (await bestPrices()).ask;
-    const triggerPrice = String((toUnits(fresh) * 2n) / ONE);
+    // A trigger parent's slice price band is measured from its trigger price (as on the screen), so its limit sits 1%
+    // over the trigger.
+    const triggerPrice = String((toUnits(ask) * 2n) / ONE);
     const waiting = await call('POST', '/api/v1/algo', {
       ...body,
-      limitPrice: String((toUnits(fresh) * 101n) / 100n / ONE + 1n),
+      limitPrice: String((toUnits(triggerPrice) * 101n) / 100n / ONE + 1n),
       durationMs: 300_000,
       sliceIntervalMs: 30_000,
       triggerPrice,
