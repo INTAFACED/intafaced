@@ -1749,6 +1749,7 @@ registerPrivateRest(app, {
   orderHistory: (principal, input) => trade.orderHistory(principal, input),
   getOrder: (principal, orderId) => trade.getOrder(principal, orderId),
   orderFills: (principal, orderId, limit) => trade.fillsForOrder(principal, orderId, limit),
+  ordersFills: (principal, orderIds) => trade.everyFillOfOrders(principal, orderIds),
   orderAmendments: (principal, orderId) => trade.orderAmendments(principal, orderId),
   orderQueue: (principal, orderId) =>
     readQueuePosition(
