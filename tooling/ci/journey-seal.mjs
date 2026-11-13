@@ -1664,10 +1664,9 @@ export const isRelayRun = (jobs) => (jobs ?? []).some((j) => j?.name === RELAY_J
  *   - `rerun` its seal job (an edit or an arming after a verdict: judged again on the pull request and inputs as they are);
  *   - `start` it whole (no verdict yet, every input finished: what the edit's or arming's own run sealed before);
  *   - `done`: nothing to do (no verdict yet and an input is still going, whose end starts it and reads the pull request
- *     as it is then; the push's seal is still waiting for its inputs or deciding, and reads it later; an arming while the
- *     push's seal is judging);
+ *     as it is then; the push's seal is still waiting for its inputs or deciding, and reads it later);
  *   - `here`: seal in this run, as before (no push's run on the head, a newer run with no jobs yet, or its seal is
- *     judging now and may have read the title or body before this edit). Fails closed: the caller seals here on any error too. Pure.
+ *     judging now and may have read the pull request or an input before this edit or arming; review R4 on #8225). Fails closed: the caller seals here on any error too. Pure.
  */
 export function relayStep({ action, runs, jobsByRun = new Map(), going = null }) {
   const mine = (runs ?? []).filter((r) => r?.event === 'pull_request_target').sort((a, b) => b.id - a.id);
@@ -1691,11 +1690,9 @@ export function relayStep({ action, runs, jobsByRun = new Map(), going = null })
   if (seal && seal.status !== 'completed') {
     if ((seal.steps ?? []).some((s) => s?.name === WAIT_STEP && s?.status !== 'completed'))
       return { act: 'done', msg: `the seal in run ${runId} is still waiting for its inputs and reads the pull request as it is then` };
-    if (action === 'auto_merge_enabled')
-      return { act: 'done', msg: `the seal in run ${runId} is judging now, and reads the inputs as they are` };
     return {
       act: 'here',
-      msg: `the seal in run ${runId} is judging and may have read the title and body before this edit, so this run seals`,
+      msg: `the seal in run ${runId} is judging and may have read the pull request or an input before this event, so this run seals`,
     };
   }
   if (verdict) {

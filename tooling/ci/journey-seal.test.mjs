@@ -2628,7 +2628,7 @@ const pushJobs = (seal) => [
 const sealJob = (status, conclusion, steps = []) => ({ id: 9, name: 'CI merge seal', status, conclusion, steps });
 const sealRun = (id, status = 'completed') => ({ id, event: 'pull_request_target', status, head_sha: 'a'.repeat(40) });
 
-test("d32 5a relayStep: an edit after a verdict re-runs the push run's seal; an arming then changes nothing", () => {
+test("d32 5a relayStep: an edit or an arming after a verdict re-runs the push run's seal", () => {
   const jobs = new Map([
     ['20', relayJobs()],
     ['10', pushJobs(sealJob('completed', 'failure'))],
@@ -2678,6 +2678,11 @@ test('d32 5a relayStep: it seals here when it cannot be sure the push run reads 
   ]);
   assert.equal(
     relayStep({ action: 'edited', runs: [sealRun(10, 'in_progress')], jobsByRun: new Map([['10', pushJobs(judging)]]) }).act,
+    'here',
+  );
+  // Review R4 on #8225: an arming while it judges seals here too.
+  assert.equal(
+    relayStep({ action: 'auto_merge_enabled', runs: [sealRun(10, 'in_progress')], jobsByRun: new Map([['10', pushJobs(judging)]]) }).act,
     'here',
   );
   // Still in its wait: it reads the title after this edit.
