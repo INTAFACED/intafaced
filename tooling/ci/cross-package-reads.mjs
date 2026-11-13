@@ -239,7 +239,9 @@ export function scriptReads(root, pkg, dirs, globalDeps = []) {
 }
 
 const CODE_FILE = /\.(?:[cm]?[jt]sx?|json)$/;
-const IMPORT_SPEC = /(?:\bfrom\s*|\bimport\s*\(?\s*|\brequire\s*\(\s*|<reference\s+path\s*=\s*)['"`]((?:\.\.?\/)+[^'"`\s]+)['"`]/g;
+const IMPORT_SPEC = /(?:\bfrom\s*|\bimport\s*\(?\s*|\brequire\s*\(\s*)['"`]((?:\.\.?\/)+[^'"`\s]+)['"`]/g;
+/** A triple-slash reference is a comment, so it is matched before comments are stripped (review R2 of round 2). */
+const REFERENCE_PATH = /^\s*\/\/\/\s*<reference\s+path\s*=\s*['"]((?:\.\.?\/)+[^'"\s]+)['"]/gm;
 
 function* walkCode(dir) {
   for (const e of readdirSync(dir, { withFileTypes: true })) {
@@ -262,21 +264,35 @@ function inTsconfig(cfg, rel) {
  * packages/ui's look-codemod.test.ts imports tooling/scripts/look-codemod.mjs, typed by its .d.mts sibling). Per task:
  * build compiles tsconfig.json's files, typecheck every tsconfig*.json's. Each read becomes `$TURBO_ROOT$/<stem>.*`
  * (the module and its type siblings) and, for an extensionless import, `$TURBO_ROOT$/<stem>/**`; an outside file's own
- * relative imports are followed. Reads into node_modules, outside the repo or into globalDependencies are not added.
+ * relative imports are followed, and a package one of them imports joins the reader's reads. A non-script file (JSON)
+ * is hashed as itself; `/// <reference path>` counts as an import. Reads into node_modules, outside the repo or into
+ * globalDependencies are not added.
  */
 export function outsideImports(root, pkg, dirs, globalDeps = []) {
   const out = Object.fromEntries(CACHED_TASKS.map((t) => [t, new Set()]));
+  const reads = Object.fromEntries(CACHED_TASKS.map((t) => [t, new Set()]));
   const cfgs = readdirSync(join(root, pkg.dir))
     .filter((f) => /^tsconfig.*\.json$/.test(f))
     .map((f) => ({ f, cfg: looseJson(readFileSync(join(root, pkg.dir, f), 'utf8')) }));
-  const inWorkspace = (t) => [...dirs].some((d) => t === d || t.startsWith(`${d}/`));
-  const follow = (fromFile, text, into, seen) => {
-    for (const m of stripComments(text).matchAll(IMPORT_SPEC)) {
-      const target = posix.normalize(posix.join(posix.dirname(fromFile), m[1]));
-      if (target.startsWith('..') || target.split('/').includes('node_modules') || inWorkspace(target)) continue;
+  const workspaceDir = (t) => [...dirs].find((d) => t === d || t.startsWith(`${d}/`));
+  // `pkgDirs` collects packages an outside file imports back into: the reader's hash must cover them too.
+  const follow = (fromFile, text, into, seen, pkgDirs, fromOutside) => {
+    const specs = [...stripComments(text).matchAll(IMPORT_SPEC), ...text.matchAll(REFERENCE_PATH)].map((m) => m[1]);
+    for (const spec of specs) {
+      const target = posix.normalize(posix.join(posix.dirname(fromFile), spec));
+      if (target.startsWith('..') || target.split('/').includes('node_modules')) continue;
+      const ws = workspaceDir(target);
+      if (ws) {
+        if (fromOutside && ws !== pkg.dir) pkgDirs.add(ws);
+        continue;
+      }
       if (globalDeps.includes(target)) continue;
       const ext = posix.extname(target);
-      const stem = /^\.[cm]?[jt]sx?$/.test(ext) ? target.slice(0, -ext.length) : target;
+      if (ext && !/^\.[cm]?[jt]sx?$/.test(ext)) {
+        into.add(`$TURBO_ROOT$/${target}`); // JSON and other data: the file itself
+        continue;
+      }
+      const stem = ext ? target.slice(0, -ext.length) : target;
       into.add(`$TURBO_ROOT$/${stem}.*`);
       if (!ext) into.add(`$TURBO_ROOT$/${stem}/**`);
       if (seen.has(stem)) continue;
@@ -286,7 +302,7 @@ export function outsideImports(root, pkg, dirs, globalDeps = []) {
       for (const f of readdirSync(base)) {
         if (!f.startsWith(`${posix.basename(stem)}.`) || !CODE_FILE.test(f)) continue;
         const rel = posix.join(posix.dirname(stem), f);
-        follow(rel, readFileSync(join(root, rel), 'utf8'), into, seen);
+        follow(rel, readFileSync(join(root, rel), 'utf8'), into, seen, pkgDirs, true);
       }
     }
   };
@@ -297,10 +313,15 @@ export function outsideImports(root, pkg, dirs, globalDeps = []) {
       : CACHED_TASKS;
     if (!tasks.length) continue;
     const found = new Set();
-    follow(`${pkg.dir}/${inPkg}`, readFileSync(file, 'utf8'), found, new Set());
-    for (const t of tasks) for (const i of found) out[t].add(i);
+    const back = new Set();
+    // `back`: packages imported only through an outside file (the reader's own reads are the scan's edges).
+    follow(`${pkg.dir}/${inPkg}`, readFileSync(file, 'utf8'), found, new Set(), back, false);
+    for (const t of tasks) {
+      for (const i of found) out[t].add(i);
+      for (const d of back) reads[t].add(d);
+    }
   }
-  return out;
+  return { inputs: out, reads };
 }
 
 /** The `<package>#<task>` entries turbo.json must hold so that each task's hash covers what it reads. */
@@ -332,17 +353,22 @@ export function turboReadInputs(root = ROOT) {
     unhashed.push(...scripts.unhashed.map((u) => ({ ...u, owner: pkg.name })));
     for (const task of CACHED_TASKS) {
       if (!pkg.scripts[task]) continue;
-      const reads = new Set(scripts.reads[task]);
+      const reads = new Set([...scripts.reads[task], ...outside.reads[task]]);
       if (task === 'typecheck' || buildCompilesTests(root, pkg)) for (const d of testReads[pkg.dir] ?? []) reads.add(d);
       // The reader's own dependency tree is in its hash already (turbo folds in every dependency task's hash).
       const own = closure(pkg.dir).add(pkg.dir);
       const extra = new Set();
       for (const d of reads) for (const x of [d, ...closure(d)]) if (!own.has(x)) extra.add(x);
-      if (!extra.size && !outside[task].size) continue;
+      if (!extra.size && !outside.inputs[task].size) continue;
       const { inputs = ['$TURBO_DEFAULT$'], ...generic } = turbo.tasks[task];
       entries[`${pkg.name}#${task}`] = {
         ...generic,
-        inputs: [...inputs, ...[...extra].sort().map((d) => `$TURBO_ROOT$/${d}/**`), ...[...outside[task]].sort(), ...IGNORED_INPUTS],
+        inputs: [
+          ...inputs,
+          ...[...extra].sort().map((d) => `$TURBO_ROOT$/${d}/**`),
+          ...[...outside.inputs[task]].sort(),
+          ...IGNORED_INPUTS,
+        ],
       };
     }
   }
@@ -467,6 +493,26 @@ function turboSelfTest() {
       'outside import and its type import hashed; a runtime URL is not; excluded tests leave build alone',
     );
     eq(Boolean(checkTurbo(root, { tracked }).entries['@t/q#build']), false, 'build skips tests its tsconfig excludes');
+    // Planted faults 5 to 7 (review round 2): a JSON import, a triple-slash reference, and an outside file that imports
+    // back into a package the reader does not depend on.
+    put(
+      'services/q/src/d.test.ts',
+      '/// <reference path="../../../tooling/s/ref.d.ts" />\nimport data from \'../../../tooling/s/data.json\';',
+    );
+    put('tooling/s/y.d.mts', "export type { Z } from '../../packages/dep2/src/z.js';\nexport declare const y: number;");
+    eq(checkTurbo(root, { tracked }).problems, ['@t/q#typecheck differs from what its reads need'], 'faults 5 to 7 fail');
+    writeTurbo(root);
+    eq(
+      checkTurbo(root, { tracked }).entries['@t/q#typecheck'].inputs.filter((i) => i.includes('tooling') || i.includes('dep2')),
+      [
+        '$TURBO_ROOT$/packages/dep2/**',
+        '$TURBO_ROOT$/tooling/s/data.json',
+        '$TURBO_ROOT$/tooling/s/ref.d.*',
+        '$TURBO_ROOT$/tooling/s/x.*',
+        '$TURBO_ROOT$/tooling/s/y.*',
+      ],
+      'JSON hashed as itself, reference followed, package imported back covered',
+    );
     // Planted fault 3: a tracked file under an ignored output dir, and a script path nothing hashes.
     eq(checkTurbo(root, { tracked: ['services/p/dist/x.js'] }).problems.length, 1, 'tracked file left out of the hash fails');
     pkg('services/q', '@t/q', {}, { typecheck: 'node ../../tooling/x.mjs && tsc --noEmit' });
@@ -474,7 +520,7 @@ function turboSelfTest() {
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
-  console.log('✓ cross-package-reads --self-test: turbo inputs OK (known-good passes, 5 planted faults fail)');
+  console.log('✓ cross-package-reads --self-test: turbo inputs OK (known-good passes, 8 planted faults fail)');
 }
 
 function selfTest() {
