@@ -113,16 +113,16 @@ async function openLong(page, size, extra = async () => {}) {
   }
   await sheet.getByRole('button', { name: 'Open long' }).click();
   await continueInWallet(page);
-  await expect(sheet.getByTestId('venue-outcome').first()).toContainText('Filled on the venue.', { timeout: 15_000 });
+  await expect(sheet.getByTestId('venue-outcome').last()).toContainText('Filled on the venue.', { timeout: 15_000 });
   return sheet;
 }
 
 /** The position's protection dialog, from its row on the Positions table. */
 async function protect(page) {
   await row(page)
-    .getByRole('button', { name: `Protect ${SYMBOL}` })
+    .getByRole('button', { name: `Exit orders ${SYMBOL}` })
     .click();
-  const dialog = page.getByRole('dialog', { name: `Protect ${SYMBOL}` });
+  const dialog = page.getByRole('dialog', { name: `Exit orders for ${SYMBOL}` });
   await expect(dialog).toBeVisible();
   return dialog;
 }
@@ -133,7 +133,7 @@ async function arm(page, dialog, kind, source, fields) {
   await dialog.getByRole('button', { name: source, exact: true }).click();
   for (const [label, value] of fields) await dialog.getByRole('textbox', { name: label, exact: true }).fill(value);
   const sent = page.waitForResponse((r) => r.url().endsWith('/api/v1/venue/protections') && r.request().method() === 'POST');
-  await dialog.getByRole('button', { name: 'Arm protection' }).click();
+  await dialog.getByRole('button', { name: 'Arm exit order' }).click();
   return sent;
 }
 
@@ -147,7 +147,7 @@ async function armOnVenue(page, dialog, kind, source, fields) {
   return answer.request().postDataJSON();
 }
 
-const listed = (dialog) => dialog.getByRole('region', { name: 'Protections on this position' });
+const listed = (dialog) => dialog.getByRole('region', { name: 'Exit orders on this position' });
 const item = (dialog, clientOrderId) => listed(dialog).locator(`li[data-client-order-id="${clientOrderId}"]`);
 
 test(`${J} #1 sets a stop loss and a take profit for the whole position: both rest on the venue as its trigger orders, shown armed with their trigger and source`, async ({
@@ -179,7 +179,7 @@ test(`${J} #1 sets a stop loss and a take profit for the whole position: both re
   const m = await market();
   expect(m.triggerSources).toEqual(['mark', 'last']);
   const dialog = await protect(page);
-  await expect(listed(dialog)).toContainText('No protection on this position.');
+  await expect(listed(dialog)).toContainText('No exit order on this position.');
   await dialog.getByRole('button', { name: 'Take profit', exact: true }).click();
   await dialog.getByRole('button', { name: 'Mark', exact: true }).click();
   await expect(dialog.getByTestId('protection-where')).toHaveText(VENUE_LABEL);
@@ -255,15 +255,15 @@ test(`${J} #3 sets a part take profit: the size it covers and the remainder show
   const dialog = await protect(page);
   await dialog.getByRole('button', { name: 'Take profit', exact: true }).click();
   await dialog.getByRole('textbox', { name: 'Size to close', exact: true }).fill('0.4');
-  await expect(dialog.getByTestId('protection-covers')).toHaveText('Covers 0.4 of 1; 0.6 not covered by it');
+  await expect(dialog.getByTestId('protection-covers')).toHaveText('Closes 0.4 of 1; 0.6 stays open');
   const part = await armOnVenue(page, dialog, 'Take profit', 'Mark', [
     ['Size to close', '0.4'],
     ['Trigger price', '3150'],
   ]);
   const li = item(dialog, part.clientOrderId);
   await expect(li).toContainText('Take profit for 0.4: Armed');
-  await expect(li).toContainText('Covers 0.4 of 1; 0.6 not covered by it');
-  await expect(item(dialog, state().sl)).toContainText('Covers the whole position');
+  await expect(li).toContainText('Closes 0.4 of 1; 0.6 stays open');
+  await expect(item(dialog, state().sl)).toContainText('Closes the whole position');
   const onVenue = (await openOrders(owner)).find((o) => o.trigger && o.trigger.price === '3150');
   expect(onVenue).toMatchObject({ reduceOnly: true, trigger: { role: 'take_profit', state: 'waiting' } });
   expect(sameDecimal(onVenue.amount, '0.4')).toBe(true);
@@ -316,7 +316,7 @@ test(`${J} #5 places a stop market, a stop limit and a trailing stop with a trig
   const { owner } = await desk(page);
   const dialog = await protect(page);
   // A stop market judged on the last trade, and a stop limit judged on the mark: kinds the venue offers, resting there.
-  const market = await armOnVenue(page, dialog, 'Stop market', 'Last trade', [
+  const stopMarket = await armOnVenue(page, dialog, 'Stop market', 'Last trade', [
     ['Size to close', '0.2'],
     ['Trigger price', '2800'],
   ]);
@@ -326,7 +326,7 @@ test(`${J} #5 places a stop market, a stop limit and a trailing stop with a trig
     ['Limit price', '2780'],
   ]);
   for (const [p, kind, source] of [
-    [market, 'Stop market', 'last traded price'],
+    [stopMarket, 'Stop market', 'last traded price'],
     [limit, 'Stop limit', 'mark price'],
   ]) {
     const li = item(dialog, p.clientOrderId);
@@ -554,6 +554,7 @@ test(`${J} #8 uses reduce-only and a linked take profit and stop loss: reduce-on
   const before = await positionOf(owner);
   expect(before, 'the long #7 left open').toMatchObject({ side: 'long' });
   // A linked pair on part of the position: an entry of 0.5 with a take profit and a stop loss attached to it.
+  const earlier = new Set((await openOrders(owner)).map((o) => o.venueOrderId));
   const sheet = await openLong(page, '0.5', async (ticket) => {
     await ticket.getByRole('textbox', { name: 'Take profit (optional)' }).fill('3100');
     await ticket.getByRole('textbox', { name: 'Stop loss (optional)' }).fill('2950');
@@ -566,8 +567,10 @@ test(`${J} #8 uses reduce-only and a linked take profit and stop loss: reduce-on
   await sheet.getByRole('button', { name: 'Back', exact: true }).click();
   const held = await positionOf(owner);
   expect(fromUnits(toUnits(held.size))).toBe(fromUnits(toUnits(before.size) + toUnits('0.5')));
-  const attached = (await openOrders(owner)).filter((o) => o.parentClientOrderId && o.trigger?.state === 'waiting');
+  // The two trigger orders this entry carries, attached to it: none of the orders resting before it.
+  const attached = (await openOrders(owner)).filter((o) => !earlier.has(o.venueOrderId) && o.parentClientOrderId);
   expect(attached).toHaveLength(2);
+  expect(new Set(attached.map((o) => o.parentClientOrderId)).size).toBe(1);
   const entryCloid = attached[0].parentClientOrderId;
   const pair = async () => (await protections(owner)).filter((p) => p.parentClientOrderId === entryCloid);
   expect((await pair()).map((p) => [p.kind, p.status, p.quantity]).sort()).toEqual([
@@ -616,7 +619,7 @@ test(`${J} #8 uses reduce-only and a linked take profit and stop loss: reduce-on
     return review;
   };
   const closed = await reduce(fromUnits(toUnits(left.size)));
-  await expect(closed.getByTestId('venue-outcome').first()).toContainText('Filled on the venue.', { timeout: 15_000 });
+  await expect(closed.getByTestId('venue-outcome').last()).toContainText('Filled on the venue.', { timeout: 15_000 });
   expect(await positionOf(owner)).toBeNull();
   await closed.getByRole('button', { name: 'Back', exact: true }).click();
 
