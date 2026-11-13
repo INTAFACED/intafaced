@@ -167,6 +167,13 @@ export interface SimMarketConfig {
   /** The largest order size (base) and notional (quote) at start; absent is `null` (not reported). TEST figures. */
   readonly maxOrderQty?: Amount | null;
   readonly maxOrderNotional?: Amount | null;
+  /**
+   * The venue's published smallest order value (quote), price band (scaled bps around the middle of its own book) and
+   * most open orders per account, at start; absent is `null` (not published, and not enforced). TEST figures.
+   */
+  readonly minOrderNotional?: Amount | null;
+  readonly priceBandBps?: Amount | null;
+  readonly maxOpenOrders?: number | null;
   /** Who lists the market, as the venue publishes it. Unset: not published. */
   readonly listedBy?: UserVenueListing;
   /** The venue's published oracle and mark-price rules and trading hours, in its words. Unset: not published. */
@@ -323,6 +330,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   private readonly offHours = new Map<string, { closedMark: Amount; reopensAt: Date | null }>();
   private readonly accounts = new Map<string, AccountState>();
   private readonly submitted = new Map<string, Map<string, SubmittedRecord>>(); // account → nonce → record
+  /** TEST: who signed each order the venue accepted, as recovered from its bytes (account → client order id → signer). */
+  private readonly orderSigners = new Map<string, Map<string, VenueSigner>>();
   /** TEST: per account, how many more submits lose their answer (`loseAnswersOn`). */
   private readonly lostAnswers = new Map<string, number>();
   private readonly resting = new Map<string, OrderState[]>(); // symbol → resting orders
@@ -340,7 +349,14 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   /** Each market's own state and largest order, changed by the TEST controls. */
   private readonly marketState = new Map<
     string,
-    { status: UserVenueMarketStatus | null; maxOrderQty: Amount | null; maxOrderNotional: Amount | null }
+    {
+      status: UserVenueMarketStatus | null;
+      maxOrderQty: Amount | null;
+      maxOrderNotional: Amount | null;
+      minOrderNotional: Amount | null;
+      priceBandBps: Amount | null;
+      maxOpenOrders: number | null;
+    }
   >();
   /** Each market's deployer cap on its open interest (base units; `null`: none set), for a market that reports one. */
   private readonly openInterestCaps = new Map<string, Amount | null>();
@@ -381,6 +397,9 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         status: market.status === undefined ? 'trading' : market.status,
         maxOrderQty: market.maxOrderQty ?? null,
         maxOrderNotional: market.maxOrderNotional ?? null,
+        minOrderNotional: market.minOrderNotional ?? null,
+        priceBandBps: market.priceBandBps ?? null,
+        maxOpenOrders: market.maxOpenOrders ?? null,
       });
       if (market.openInterestCap !== undefined) this.openInterestCaps.set(market.symbol, market.openInterestCap);
     }
@@ -401,6 +420,9 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       status: market.status === undefined ? 'trading' : market.status,
       maxOrderQty: market.maxOrderQty ?? null,
       maxOrderNotional: market.maxOrderNotional ?? null,
+      minOrderNotional: market.minOrderNotional ?? null,
+      priceBandBps: market.priceBandBps ?? null,
+      maxOpenOrders: market.maxOpenOrders ?? null,
     });
     if (market.openInterestCap !== undefined) this.openInterestCaps.set(market.symbol, market.openInterestCap);
   }
@@ -515,12 +537,27 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     this.openInterestCaps.set(symbol, cap);
   }
 
-  /** TEST control: the market's largest order size and notional (`null`: not reported). Changes no order. */
-  setMarketLimits(symbol: string, limits: { maxOrderQty: Amount | null; maxOrderNotional: Amount | null }): void {
+  /**
+   * TEST control: the market's largest order size and notional, and its smallest order value, price band and open-order
+   * cap (`null`: not reported). A rule left out is kept as it is. Changes no order.
+   */
+  setMarketLimits(
+    symbol: string,
+    limits: {
+      maxOrderQty?: Amount | null;
+      maxOrderNotional?: Amount | null;
+      minOrderNotional?: Amount | null;
+      priceBandBps?: Amount | null;
+      maxOpenOrders?: number | null;
+    },
+  ): void {
     this.market(symbol);
     const state = this.marketState.get(symbol)!;
-    state.maxOrderQty = limits.maxOrderQty;
-    state.maxOrderNotional = limits.maxOrderNotional;
+    if (limits.maxOrderQty !== undefined) state.maxOrderQty = limits.maxOrderQty;
+    if (limits.maxOrderNotional !== undefined) state.maxOrderNotional = limits.maxOrderNotional;
+    if (limits.minOrderNotional !== undefined) state.minOrderNotional = limits.minOrderNotional;
+    if (limits.priceBandBps !== undefined) state.priceBandBps = limits.priceBandBps;
+    if (limits.maxOpenOrders !== undefined) state.maxOpenOrders = limits.maxOpenOrders;
   }
 
   // ── test controls (the simulator's own levers; never part of UserVenue) ──
@@ -745,6 +782,9 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       status: this.marketState.get(m.symbol)!.status,
       maxOrderQty: this.marketState.get(m.symbol)!.maxOrderQty,
       maxOrderNotional: this.marketState.get(m.symbol)!.maxOrderNotional,
+      minOrderNotional: this.marketState.get(m.symbol)!.minOrderNotional,
+      priceBandBps: this.marketState.get(m.symbol)!.priceBandBps,
+      maxOpenOrders: this.marketState.get(m.symbol)!.maxOpenOrders,
       builderFeeCapBps: m.builderFeeCapBps ?? { known: false },
       listedBy: published(m.listedBy),
       oracleRule: published(m.oracleRule),
@@ -1136,6 +1176,12 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
 
     const outcome = this.apply(prepared);
     this.assertNoNegativeBalance();
+    if (prepared.intent.kind === 'place_order' && outcome.definite && outcome.accepted && recovered) {
+      const signers = this.orderSigners.get(key) ?? new Map<string, VenueSigner>();
+      this.orderSigners.set(key, signers);
+      const cloid = venueClientOrderId(this.venue.id, prepared.intent.clientOrderKey);
+      if (!signers.has(cloid)) signers.set(cloid, { role: prepared.signer.role, address: recovered });
+    }
     byNonce.set(prepared.nonce, { digest, outcome });
     if (this.switches.loseAnswers > 0) {
       this.switches.loseAnswers -= 1;
@@ -1168,6 +1214,15 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       .sort((a, b) => a.seq - b.seq)
       .map((o) => o.order);
     return this.asOf(open);
+  }
+
+  /**
+   * TEST only: who signed the order this account placed under `cloid`, the address recovered from the signed bytes
+   * when the venue accepted it, and whether it signed as the owner or as an agent. `null` when no such order was placed.
+   */
+  orderSigner(account: UserVenueAccount, cloid: string): AsOf<VenueSigner | null> {
+    this.up();
+    return this.asOf(this.orderSigners.get(accountKey(account))?.get(cloid) ?? null);
   }
 
   async orderByClientId(account: UserVenueAccount, cloid: string): Promise<AsOf<UserVenueOrder | null>> {
@@ -1444,6 +1499,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       refuse(this.venue.id, 'venue_rejected', `size is not a multiple of the lot size on ${market.symbol}`);
     if (intent.price % market.tickSize !== ZERO)
       refuse(this.venue.id, 'venue_rejected', `price is not a multiple of the tick size on ${market.symbol}`);
+    this.checkPublishedRules(state, market, intent);
     if (market.kind === 'perpetual') {
       if (intent.reduceOnly && intent.type !== 'market' && intent.timeInForce !== 'IOC') {
         refuse(this.venue.id, 'not_offered', 'a resting reduce-only order is not offered on the TEST simulator: close with IOC or market');
@@ -1856,6 +1912,54 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   /** One fee line on `basis`, the same rounding `fill` charges. */
   private feeOn(basis: Amount, feeBps: Amount): Amount {
     return div(mul(basis, feeBps, QUOTE_ROUND), BPS, QUOTE_ROUND);
+  }
+
+  /**
+   * The venue's own published rules (J-cex-spot-04), each enforced only while it is published: the smallest order value,
+   * the price band around the middle of the venue's own book (the one side it has when the other is empty; no band
+   * applies to an empty book), and the most open orders one account may hold. The words name the rule and its figure.
+   */
+  private checkPublishedRules(state: AccountState, market: SimMarketConfig, intent: PlaceUserOrderIntent): void {
+    const own = this.marketState.get(market.symbol)!;
+    const quote = market.quoteAsset;
+    if (own.minOrderNotional !== null && compare(mul(intent.amount, intent.price, 'floor'), own.minOrderNotional) < 0) {
+      refuse(
+        this.venue.id,
+        'order_below_venue_min',
+        `the order's value is below the smallest order on ${market.symbol}, ${formatAmount(own.minOrderNotional)} ${quote}`,
+      );
+    }
+    if (own.priceBandBps !== null && intent.type === 'limit') {
+      let bid: Amount | null = null;
+      let ask: Amount | null = null;
+      for (const o of this.bookOf(market.symbol)) {
+        if (o.order.side === 'buy' && (bid === null || compare(o.order.price, bid) > 0)) bid = o.order.price;
+        if (o.order.side === 'sell' && (ask === null || compare(o.order.price, ask) < 0)) ask = o.order.price;
+      }
+      const reference = bid !== null && ask !== null ? div(add(bid, ask), parseAmount('2'), 'floor') : (bid ?? ask);
+      if (reference !== null) {
+        const reach = div(mul(reference, own.priceBandBps, 'floor'), BPS, 'floor');
+        const low = sub(reference, reach);
+        const high = add(reference, reach);
+        if (compare(intent.price, low) < 0 || compare(intent.price, high) > 0) {
+          refuse(
+            this.venue.id,
+            'price_outside_venue_band',
+            `${market.symbol} takes limit prices from ${formatAmount(low)} to ${formatAmount(high)} ${quote} right now (within ${formatAmount(own.priceBandBps)} bps of ${formatAmount(reference)})`,
+          );
+        }
+      }
+    }
+    if (own.maxOpenOrders !== null) {
+      const open = [...state.orders.values()].filter(isLive).length;
+      if (open >= own.maxOpenOrders) {
+        refuse(
+          this.venue.id,
+          'open_orders_above_venue_cap',
+          `this account has ${open} open orders and ${this.venue.displayName} allows ${own.maxOpenOrders}`,
+        );
+      }
+    }
   }
 
   private bookOf(symbol: string): OrderState[] {

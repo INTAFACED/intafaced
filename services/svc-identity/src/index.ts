@@ -22,6 +22,7 @@ import { AuthService } from './auth/auth-service.js';
 import { parseStaffTestRoster } from '@intafaced/auth';
 import { createPayMerchantEmailInviteClaimer } from './auth/merchant-email-invite-claim.js';
 import { openIdentityMail } from './auth/local-mail.js';
+import { openIdentitySms } from './auth/local-sms.js';
 import { withAntiPhishingCode } from './profile/anti-phishing-mail.js';
 import { PlaceDoor } from './auth/place-door.js';
 import { founderEnrolmentConfig } from './auth/founder-enrolment.js';
@@ -40,6 +41,8 @@ import { ReferralService } from './affiliates/referral-service.js';
 import { ShareService } from './affiliates/share-service.js';
 import { parseShareTagHitsPerIpMinute, parseShareTagKey } from './affiliates/share-tag.js';
 import { ReferralRebindService } from './affiliates/referral-rebind.js';
+import { PartnerApplicationService, parsePartnerMinQualified, parsePartnerReapplyDays } from './affiliates/partner-application.js';
+import { parseProgrammeDepth } from './affiliates/programme-depth.js';
 import {
   ReferralLapseService,
   lapseSweepStatusLine,
@@ -419,6 +422,12 @@ const transportMail = openIdentityMail({
   transport: env.IDENTITY_MAIL_TRANSPORT,
   outboxPath: env.IDENTITY_LOCAL_MAIL_OUTBOX,
 });
+// Texted codes: the LOCAL-TEST outbox file in dev and test only, as for mail; unset, a phone link answers vendor.sms.
+const sms = openIdentitySms({
+  appEnv: process.env.APP_ENV,
+  transport: env.IDENTITY_SMS_TRANSPORT,
+  outboxPath: env.IDENTITY_LOCAL_SMS_OUTBOX,
+});
 // Mails to an account's own address carry the anti-phishing code its owner set.
 const antiPhishingMailKey = antiPhishingKey(parseTotpSecretKey(env.IDENTITY_TOTP_SECRET_KEY));
 // Security notices carry a one-time freeze link (freeze-link.ts); the anti-phishing code goes on last.
@@ -510,21 +519,7 @@ auth.useFounderSessionScopes(env.IDENTITY_FOUNDER_SESSION_SCOPES);
 // non-blank roster refuses boot anywhere else (identity.staff_test_roster_refused). Blank is no roster: no staff scopes.
 auth.useStaffTestRoster(parseStaffTestRoster(env.IDENTITY_STAFF_TEST_ROSTER, process.env.APP_ENV));
 
-/**
- * Each referral edge is announced once it commits (`identity.referral.created`, keyed by the invitee): svc-campaigns
- * tracks the invitee's progress from it (CM-referral-02). A failed announcement never undoes the attach; it is logged.
- */
-const referral = new ReferralService(sql, undefined, async (edge) => {
-  try {
-    await bus.publish(
-      'referralCreated',
-      { userId: edge.userId, referrerId: edge.referrerId, attachedAt: edge.attributedAt.toISOString() },
-      { idempotencyKey: `identity.referral.created:${edge.userId}` },
-    );
-  } catch (err) {
-    app.log.error({ err, userId: edge.userId }, 'identity.referral.created could not be announced');
-  }
-});
+const referral = new ReferralService(sql);
 /** One-tap share tags (RC-campaigns-06): a blank key or visit limit refuses by name; malformed ones stop the service. */
 const share = new ShareService(sql, {
   tagKey: parseShareTagKey(env.IDENTITY_SHARE_TAG_KEY),
@@ -535,6 +530,12 @@ const signInChallenge = new SignInChallengeService(sql, parseSignInChallengePoli
 const referralCodes = new ReferralCodeService(sql, parseReferralCodeLength(env.IDENTITY_REFERRAL_CODE_LENGTH));
 const referralAttachWindowSeconds = parseAttachWindowSeconds(env.IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS);
 const referralLapsePeriodSeconds = parseLapsePeriodSeconds(env.IDENTITY_REFERRAL_LAPSE_PERIOD_SECONDS);
+const programmeDepth = parseProgrammeDepth(env.IDENTITY_PARTNER_PROGRAMME_DEPTH);
+const partnerApplications = new PartnerApplicationService(sql, {
+  minQualifiedInvitees: parsePartnerMinQualified(env.IDENTITY_PARTNER_MIN_QUALIFIED_INVITEES),
+  reapplyDays: parsePartnerReapplyDays(env.IDENTITY_PARTNER_REAPPLY_DAYS),
+  programmeDepth,
+});
 const referralLapseSweepSeconds = parseLapseSweepSeconds(env.IDENTITY_REFERRAL_LAPSE_SWEEP_SECONDS);
 const referralLapse = new ReferralLapseService(sql, { periodSeconds: referralLapsePeriodSeconds });
 const freeze = new FreezeService(sql);
@@ -753,6 +754,8 @@ export const appRouter = mergeRouters(
     referralCodes,
     referralAttachWindowSeconds,
     referralRebind: new ReferralRebindService(sql, actionApprovals, { attachWindowSeconds: referralAttachWindowSeconds }),
+    partnerApplications,
+    programmeDepth,
     referralLapse,
     freeze,
     accruals,
@@ -826,6 +829,11 @@ export const appRouter = mergeRouters(
       symbolCap: env.IDENTITY_WATCHLIST_SYMBOL_CAP ?? null,
       savedScreenCap: env.IDENTITY_SAVED_SCREEN_CAP ?? null,
     },
+    deskLayouts: {
+      layoutCap: env.IDENTITY_DESK_LAYOUT_CAP ?? null,
+      restoreCap: env.IDENTITY_DESK_LAYOUT_RESTORE_CAP ?? null,
+      restoreDays: env.IDENTITY_DESK_LAYOUT_RESTORE_DAYS ?? null,
+    },
   }),
   createMembershipRouter(env.IDENTITY_MEMBERSHIP_TIERS),
   createOAuthRouter(
@@ -886,7 +894,7 @@ export const appRouter = mergeRouters(
   ),
   createPasskeyManageRouter(sql, securityStepUp, { maxPerAccount: env.PASSKEY_MAX_PER_ACCOUNT }),
   createFactorStatusRouter(sql),
-  createSigninMethodsRouter(sql, securityStepUp, { wallet: auth.walletConfig(), social }),
+  createSigninMethodsRouter(sql, securityStepUp, { wallet: auth.walletConfig(), social, phone: { sms } }),
   createWorkItemsRouter(sql),
   createServerTimeRouter(),
   createSelfFreezeLiftRouter(selfFreezeLift, securityStepUp),
@@ -1008,6 +1016,7 @@ registerAffiliateProducerAccrue(app, {
   freeze,
   accruals,
   accrualTierLaw,
+  programmeDepth,
   activity: referralLapse,
 });
 
@@ -1028,6 +1037,7 @@ registerAffiliateProducerPayout(app, {
   freeze,
   accruals,
   accrualTierLaw,
+  programmeDepth,
   ledger,
   // Accrue already installed retainRawBody on this instance.
   installRawBody: false,
