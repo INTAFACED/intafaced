@@ -33,6 +33,31 @@ const FILE = /^J-[a-z0-9-]+\.pw\.mjs$/;
 const STEP = /^J-[a-z0-9-]+-\d+#\d+$/;
 const STEP_TITLE = /^(J-[a-z0-9-]+-\d+)\s+#(\d+)\b/;
 
+/**
+ * Whether a commit's own Real-app journeys run leaves tests out (`workflowText`: its .github/workflows/real-app-journeys.yml):
+ * it runs the leave-out planner. A probe of such a commit leaves out what the red run left out (JOURNEY_LEAVE_OUT_FILE,
+ * main-bisect.yml's step "The red run's leave-out list"), as that run did: on 13 Nov 2026 run 4788 left out
+ * J-copy-bots-otc-06 #1 and #3, its #2, #4, #5 and #6 failed for want of them, and the probes, which ran the file whole,
+ * found that 233e1c4 "passes: nothing reproduces", so #8225 was never reverted. A commit before the planner runs every
+ * test, as its push runs did. Pure.
+ */
+export const leavesOut = (workflowText) => /\bnode tooling\/scripts\/journey-leave-out\.mjs\b/.test(String(workflowText ?? ''));
+
+/** The leave-out list file for a probe of `sha`, or '' (no list, an empty one, or a commit whose run left nothing out). */
+function leaveOutFor(sha) {
+  const file = process.env.JOURNEY_LEAVE_OUT_FILE;
+  if (!file || !existsSync(file) || !readFileSync(file, 'utf8').trim()) return '';
+  const r = spawnSync('git', ['show', `${sha}:.github/workflows/real-app-journeys.yml`], { encoding: 'utf8' });
+  const on = r.status === 0 && leavesOut(r.stdout);
+  const n = readFileSync(file, 'utf8')
+    .split('\n')
+    .filter((l) => l.trim()).length;
+  console.log(
+    `probe ${sha.slice(0, 10)}: ${on ? `leaves out the red run's ${n} tests, as its own push run would` : 'runs every test: its journeys run had no leave-out'}`,
+  );
+  return on ? file : '';
+}
+
 /** First bad index (oldest first) with commits[last] assumed bad; returns the culprit and whether it was probed. */
 export function firstBad(commits, isBad) {
   let lo = -1;
@@ -166,7 +191,8 @@ function main(mode = null) {
   const isBad = (sha) => {
     rmSync(JOURNEY_REPORT, { force: true });
     console.log(`::group::probe ${sha.slice(0, 10)}`);
-    const r = spawnSync('bash', [PROBE_SH, sha], { stdio: 'inherit', env: { ...process.env, JOURNEY_FILES: files.join(' ') } });
+    const env = { ...process.env, JOURNEY_FILES: files.join(' '), JOURNEY_LEAVE_OUT_FILE: leaveOutFor(sha) };
+    const r = spawnSync('bash', [PROBE_SH, sha], { stdio: 'inherit', env });
     console.log('::endgroup::');
     if (r.status !== 0) throw new Error(`the stack did not start on ${sha.slice(0, 10)} (exit ${r.status}), so the search stops`);
     const report = existsSync(JOURNEY_REPORT) ? JSON.parse(readFileSync(JOURNEY_REPORT, 'utf8')) : null;
@@ -264,7 +290,16 @@ function selfTest() {
   eq(decideCulprit(c, res('P', 'P', 'F', 'F')).culprit, null, 'a missing result: no one is blamed');
   eq(decideCulprit([c[0]], res('F')).culprit, c[0], 'a lone candidate that fails is blamed');
   eq(decideCulprit([c[0]], res('P')).culprit, null, 'a lone candidate that passes is not');
-  console.log('✓ journeys-revert-probe --self-test OK (29 fixtures)');
+  const wf = (planner) =>
+    `jobs:\n  touch:\n    steps:\n      - run: |\n${planner ? '          node tooling/scripts/journey-leave-out.mjs --log x > y\n' : ''}          echo done\n`;
+  eq(
+    [leavesOut(wf(true)), leavesOut(wf(false)), leavesOut(''), leavesOut(null)],
+    [true, false, false, false],
+    'a commit leaves out only when its own run plans it',
+  );
+  // Planted: the paths list naming the planner's files is not the planner running.
+  eq(leavesOut("paths:\n  - 'tooling/scripts/journey-leave-out*.mjs'\n"), false, 'a paths entry is not the planner');
+  console.log('✓ journeys-revert-probe --self-test OK (32 fixtures)');
 }
 
 if (process.argv.includes('--self-test')) selfTest();

@@ -203,6 +203,7 @@ jobs:
         point: ${{ fromJSON(needs.revert-find.outputs.points) }}
     permissions:
       contents: read
+      actions: read # the red run's leave-out list
     env:
       INTAFACED_SANCTIONS_REGIONS: ${{ secrets.INTAFACED_SANCTIONS_REGIONS }}
       INTAFACED_SANCTIONS_LIST_SOURCE: ${{ secrets.INTAFACED_SANCTIONS_LIST_SOURCE }}
@@ -223,6 +224,20 @@ jobs:
       # The search checks out older commits; keep the probe (from this workflow's commit) out of the way.
       - name: Keep the probe outside the checkout
         run: cp tooling/ci/journeys-revert-probe.mjs tooling/ci/journeys-revert-probe.sh "$RUNNER_TEMP/"
+      # The red run's leave-out list (real-app-journeys.yml keeps it on a push run on main), read here with the token: the
+      # probe runs old commits' code and gets none. A probe applies it only on a commit whose own run leaves tests out
+      # (journeys-revert-probe.mjs leavesOut). Without the list nothing is left out, as before.
+      - name: The red run's leave-out list
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RED_RUN: ${{ inputs.red_run }}
+        run: |
+          if [[ "$RED_RUN" =~ ^[0-9]+$ ]] && gh run download "$RED_RUN" -R "$GITHUB_REPOSITORY" -n real-app-journeys-leave-out -D "$RUNNER_TEMP/red-leave-out"; then
+            echo "JOURNEY_LEAVE_OUT_FILE=$RUNNER_TEMP/red-leave-out/leave-out.txt" >> "$GITHUB_ENV"
+            echo "run $RED_RUN left out $(grep -c . "$RUNNER_TEMP/red-leave-out/leave-out.txt" || true) tests"
+          else
+            echo "::notice::run $RED_RUN kept no leave-out list (not a push run on main, or before it kept one): nothing is left out"
+          fi
       - name: Fetch the base
         env:
           BASE: ${{ inputs.base }}
@@ -316,6 +331,7 @@ jobs:
     timeout-minutes: 60 # one probe: about 10 minutes
     permissions:
       contents: read
+      actions: read # the red run's leave-out list
     outputs:
       passes: ${{ steps.probe.outputs.back }}
     env:
@@ -338,6 +354,20 @@ jobs:
       # The run checks out the good commit; keep the probe (from this workflow's commit) out of the way.
       - name: Keep the probe outside the checkout
         run: cp tooling/ci/journeys-revert-probe.mjs tooling/ci/journeys-revert-probe.sh "$RUNNER_TEMP/"
+      # The red run's leave-out list (real-app-journeys.yml keeps it on a push run on main), read here with the token: the
+      # probe runs old commits' code and gets none. A probe applies it only on a commit whose own run leaves tests out
+      # (journeys-revert-probe.mjs leavesOut). Without the list nothing is left out, as before.
+      - name: The red run's leave-out list
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RED_RUN: ${{ inputs.red_run }}
+        run: |
+          if [[ "$RED_RUN" =~ ^[0-9]+$ ]] && gh run download "$RED_RUN" -R "$GITHUB_REPOSITORY" -n real-app-journeys-leave-out -D "$RUNNER_TEMP/red-leave-out"; then
+            echo "JOURNEY_LEAVE_OUT_FILE=$RUNNER_TEMP/red-leave-out/leave-out.txt" >> "$GITHUB_ENV"
+            echo "run $RED_RUN left out $(grep -c . "$RUNNER_TEMP/red-leave-out/leave-out.txt" || true) tests"
+          else
+            echo "::notice::run $RED_RUN kept no leave-out list (not a push run on main, or before it kept one): nothing is left out"
+          fi
       - name: Fetch the base
         env:
           BASE: ${{ inputs.base }}
@@ -387,6 +417,7 @@ jobs:
     timeout-minutes: 40 # one journey file on a fresh stack: about 15 minutes
     permissions:
       contents: read
+      actions: read # the red run's leave-out list
     outputs:
       back: ${{ steps.probe.outputs.back }}
       steps: ${{ steps.files.outputs.steps }}
@@ -418,6 +449,20 @@ jobs:
         run: node tooling/ci/journeys-revert.mjs confirm-files
       - name: Keep the probe outside the checkout
         run: cp tooling/ci/journeys-revert-probe.mjs tooling/ci/journeys-revert-probe.sh "$RUNNER_TEMP/"
+      # The red run's leave-out list (real-app-journeys.yml keeps it on a push run on main), read here with the token: the
+      # probe runs old commits' code and gets none. A probe applies it only on a commit whose own run leaves tests out
+      # (journeys-revert-probe.mjs leavesOut). Without the list nothing is left out, as before.
+      - name: The red run's leave-out list
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RED_RUN: ${{ inputs.red_run }}
+        run: |
+          if [[ "$RED_RUN" =~ ^[0-9]+$ ]] && gh run download "$RED_RUN" -R "$GITHUB_REPOSITORY" -n real-app-journeys-leave-out -D "$RUNNER_TEMP/red-leave-out"; then
+            echo "JOURNEY_LEAVE_OUT_FILE=$RUNNER_TEMP/red-leave-out/leave-out.txt" >> "$GITHUB_ENV"
+            echo "run $RED_RUN left out $(grep -c . "$RUNNER_TEMP/red-leave-out/leave-out.txt" || true) tests"
+          else
+            echo "::notice::run $RED_RUN kept no leave-out list (not a push run on main, or before it kept one): nothing is left out"
+          fi
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
       - name: Put pnpm next to node
         run: ln -sf "$(command -v pnpm)" "$(dirname "$(command -v node)")/pnpm"
