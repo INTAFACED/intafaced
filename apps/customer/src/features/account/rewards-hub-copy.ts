@@ -54,6 +54,7 @@ const en = {
   status_owed: 'Owed',
   why_owed:
     'Owed to you by INTAFACED since {when}. It is not in your wallet and is not part of any balance: INTAFACED has no way to pay rewards to wallets today, so it has not been paid.',
+  why_owed_withheld: 'Owed to you by INTAFACED, and not paid while your account is not active ({reason}). It is not in your wallet.',
   why_owed_held:
     'Owed to you by INTAFACED. The campaign’s review hold ends in {left}, on {when}; it is paid to your connected wallet after that. It is not in your wallet now.',
   why_ceiling:
@@ -118,6 +119,7 @@ const es: { [K in keyof typeof en]: string } = {
   status_owed: 'Adeudada',
   why_owed:
     'INTAFACED te la adeuda desde el {when}. No está en tu monedero ni forma parte de ningún saldo: INTAFACED no tiene hoy forma de pagar recompensas a monederos, así que no se ha pagado.',
+  why_owed_withheld: 'INTAFACED te la adeuda, y no se paga mientras tu cuenta no esté activa ({reason}). No está en tu monedero.',
   why_owed_held:
     'INTAFACED te la adeuda. La retención de revisión de la campaña termina en {left}, el {when}; después se paga a tu monedero conectado. Ahora no está en tu monedero.',
   why_ceiling:
@@ -184,6 +186,8 @@ const fr: { [K in keyof typeof en]: string } = {
   status_owed: 'Due',
   why_owed:
     'INTAFACED vous la doit depuis le {when}. Elle n’est ni dans votre portefeuille ni dans aucun solde : INTAFACED n’a aujourd’hui aucun moyen de verser des récompenses aux portefeuilles, elle n’a donc pas été versée.',
+  why_owed_withheld:
+    'INTAFACED vous la doit, et elle n’est pas versée tant que votre compte n’est pas actif ({reason}). Elle n’est pas dans votre portefeuille.',
   why_owed_held:
     'INTAFACED vous la doit. La période de vérification de la campagne se termine dans {left}, le {when} ; elle est ensuite versée à votre portefeuille connecté. Elle n’est pas dans votre portefeuille maintenant.',
   why_ceiling:

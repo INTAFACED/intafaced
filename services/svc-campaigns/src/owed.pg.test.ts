@@ -234,7 +234,7 @@ if (!db) {
       expect(await reconciles()).toBe(parseAmount('10'));
     });
 
-    it('owes a held reward at its claim: it reads on hold until the hold ends, then owed; the hold release leaves it alone', async () => {
+    it('owes a held reward at its claim: it reads on hold until the hold ends, then owed and released for payment once', async () => {
       await seedRewardsEngine('50');
       const c = await joined({ tasks: { ...STEPS, holdSeconds: 3600 } });
       await complete(c.id);
@@ -245,9 +245,52 @@ if (!db) {
       expect(mine.rewards[0]!.status).toBe('on_hold');
       expect(mine.totals).toEqual([{ status: 'on_hold', asset: 'USDC', amount: '10', count: 1 }]);
       clock = new Date(Date.now() + 2 * HOUR);
+      const posts = wire.mode.posts.length;
       expect(await tasks.releaseHolds()).toBe(0);
+      await tasks.releaseHolds();
       mine = await tasks.myRewards({ accountId: ME });
-      expect(mine.rewards[0]).toMatchObject({ status: 'owed', state: 'owed' });
+      expect(mine.rewards[0]).toMatchObject({ status: 'owed', state: 'owed', reason: PAYOUT_UNAVAILABLE });
+      const attempts = (await tasks.progress({ campaignId: c.id, accountId: ME })).reward!.attempts;
+      expect(attempts.filter((a) => a.outcome === 'released')).toHaveLength(1);
+      expect(attempts.filter((a) => a.outcome === 'withheld')).toEqual([]);
+      // The hold-end check posts nothing: the reward was owed once, at its claim.
+      expect(wire.mode.posts.length).toBe(posts);
+      expect(await reconciles()).toBe(parseAmount('10'));
+    });
+
+    it('withholds the payment of an owed reward whose account is frozen when its hold ends: it stays owed, nothing moves, and it is released once the account is active', async () => {
+      await seedRewardsEngine('50');
+      const c = await joined({ tasks: { ...STEPS, holdSeconds: 3600 } });
+      await complete(c.id);
+      const claimed = await tasks.claim({ campaignId: c.id, accountId: ME });
+      expect(claimed.reward.state).toBe('owed');
+      const posts = [...wire.mode.posts];
+      const engine = (await book.balance(rewardsEngine('USDC'))).amount;
+      // Frozen during the hold.
+      people.set(ME, { ...person(ME), status: 'frozen' });
+      clock = new Date(Date.now() + 2 * HOUR);
+      await tasks.releaseHolds();
+      await tasks.releaseHolds();
+      let reward = (await tasks.progress({ campaignId: c.id, accountId: ME })).reward!;
+      expect(reward).toMatchObject({ state: 'owed', reason: 'account.frozen', ledgerTxId: null });
+      expect(reward.attempts.filter((a) => a.outcome === 'withheld')).toEqual([
+        expect.objectContaining({ outcome: 'withheld', reason: 'account.frozen' }),
+      ]);
+      expect(reward.attempts.filter((a) => a.outcome === 'released')).toEqual([]);
+      expect((await tasks.myRewards({ accountId: ME })).rewards[0]).toMatchObject({ status: 'owed', reason: 'account.frozen' });
+      // Nothing posted at the hold end, and nothing left our book: still owed, exactly once, to no customer balance.
+      expect(wire.mode.posts).toEqual(posts);
+      expect((await book.balance(rewardsEngine('USDC'))).amount).toBe(engine);
+      expect(await reconciles()).toBe(parseAmount('10'));
+      // Active again: released for payment once, on the next pass, and later passes add nothing.
+      people.set(ME, person(ME));
+      await tasks.releaseHolds();
+      await tasks.releaseHolds();
+      reward = (await tasks.progress({ campaignId: c.id, accountId: ME })).reward!;
+      expect(reward).toMatchObject({ state: 'owed', reason: PAYOUT_UNAVAILABLE });
+      expect(reward.attempts.filter((a) => a.outcome === 'released')).toHaveLength(1);
+      expect(reward.attempts.filter((a) => a.outcome === 'withheld')).toHaveLength(1);
+      expect(wire.mode.posts).toEqual(posts);
       expect(await reconciles()).toBe(parseAmount('10'));
     });
 

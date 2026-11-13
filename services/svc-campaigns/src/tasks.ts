@@ -24,7 +24,7 @@ import type { CampaignParticipant } from '@intafaced/contracts';
 import { CampaignsError } from './codes.js';
 import { effectiveState, outsideWindow } from './campaigns.js';
 import type { ParticipantSource } from './participants.js';
-import { owesReward, type PayoutSaga } from './payouts.js';
+import { PAYOUT_UNAVAILABLE, owesReward, type PayoutSaga } from './payouts.js';
 import type { MarketNames } from './markets.js';
 import { NO_STREAK, streakOf } from './streaks.js';
 import { evaluateFormula, namesRead, parseFormula } from './formula.js';
@@ -659,7 +659,8 @@ export class TaskService {
       return { reward: await this.record(made.intent), created: made.created };
     }
     const holdUntil = holdSeconds > 0 && !served ? new Date(now.getTime() + holdSeconds * 1000) : null;
-    // A reward INTAFACED owes is owed at its claim; its hold only delays the payment to the customer's own wallet.
+    // A reward INTAFACED owes is owed at its claim; its hold only delays the payment to the customer's own wallet, and
+    // the account check at hold end (checkOwedHolds) gates that payment.
     if (holdUntil && !owesReward({ form: terms.form, asset: row.reward_asset ?? '' })) {
       const held = await this.write(row, input.accountId, key, 'held', null, holdUntil, terms);
       return { reward: await this.record(held.intent), created: held.created };
@@ -708,7 +709,46 @@ export class TaskService {
         released += 1;
       }
     }
+    await this.checkOwedHolds(now, limit);
     return released;
+  }
+
+  /**
+   * The same account check at the end of an owed reward's hold. A USDC reward INTAFACED owes is owed at its claim (the
+   * launch Money line: "a held reward is owed"), so its hold delays only the payment, and the check at hold end gates
+   * the payment, never the debt. An account that is active then: the reward is released for payment, once (a
+   * `released` line). Any other: it stays owed and its payment is withheld with reason `account.<status>` (one
+   * `withheld` line per status it is found in), and it is checked again on each pass until the account is active.
+   * Nothing posts here, so nothing can move or be paid twice. An account identity cannot read waits for the next pass.
+   */
+  private async checkOwedHolds(now: Date, limit: number): Promise<void> {
+    const due = await this.sql<{ reward_key: string; account_id: string; reason: string | null }[]>`
+      SELECT i.reward_key, i.account_id, i.reason FROM campaigns.reward_intents i
+      WHERE i.state = 'owed' AND i.hold_until IS NOT NULL AND i.hold_until <= ${now}
+        AND NOT EXISTS (SELECT 1 FROM campaigns.redemption_attempts a WHERE a.reward_key = i.reward_key AND a.outcome = 'released')
+      ORDER BY i.updated_at, i.reward_key LIMIT ${limit}`;
+    for (const { reward_key: key, account_id: accountId, reason: was } of due) {
+      const who = await this.participants.read(accountId);
+      if (!who) {
+        await this.sql`UPDATE campaigns.reward_intents SET updated_at = now() WHERE reward_key = ${key} AND state = 'owed'`;
+        continue;
+      }
+      const active = who.status === 'active';
+      const reason = active ? PAYOUT_UNAVAILABLE : `account.${who.status}`;
+      if (!active && was === reason) {
+        await this.sql`UPDATE campaigns.reward_intents SET updated_at = now() WHERE reward_key = ${key} AND state = 'owed'`;
+        continue;
+      }
+      await transaction(this.sql, async (tx) => {
+        const changed = await tx`
+          UPDATE campaigns.reward_intents SET reason = ${reason}, updated_at = now()
+          WHERE reward_key = ${key} AND state = 'owed' AND reason IS NOT DISTINCT FROM ${was}`;
+        if (changed.count === 0) return;
+        await tx`
+          INSERT INTO campaigns.redemption_attempts (reward_key, outcome, reason)
+          VALUES (${key}, ${active ? 'released' : 'withheld'}, ${active ? null : reason})`;
+      });
+    }
   }
 
   /**
@@ -936,7 +976,8 @@ export class TaskService {
       return { reward: await this.record(made.intent), created: made.created };
     }
     const until = holdSeconds > 0 && !served ? new Date(now.getTime() + holdSeconds * 1000) : null;
-    // A reward INTAFACED owes is owed at its claim; its hold only delays the payment to the customer's own wallet.
+    // A reward INTAFACED owes is owed at its claim; its hold only delays the payment to the customer's own wallet, and
+    // the account check at hold end (checkOwedHolds) gates that payment.
     if (until && !owesReward({ form: terms.form, asset: terms0.asset })) {
       const held = await this.write(row, account.account_id, key, 'held', null, until, terms, period);
       return { reward: await this.record(held.intent), created: held.created };

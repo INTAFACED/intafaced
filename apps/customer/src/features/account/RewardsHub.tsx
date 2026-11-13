@@ -187,6 +187,7 @@ function owedWhy(r: MyReward, t: T, when: (iso: string) => string, left: (second
   if (r.state === 'owed') {
     const holdLeft = r.holdUntil ? (new Date(r.holdUntil).getTime() - Date.now()) / 1000 : 0;
     if (r.holdUntil && holdLeft > 0) return t('why_owed_held', { left: left(holdLeft), when: when(r.holdUntil) });
+    if (r.reason?.startsWith('account.')) return t('why_owed_withheld', { reason: r.reason });
     return t('why_owed', { when: when(r.owed?.at ?? r.createdAt) });
   }
   if (r.state === 'pending_retry' && r.reason?.startsWith('ledger.reward_ceiling_')) return t('why_ceiling', { reason: r.reason });
