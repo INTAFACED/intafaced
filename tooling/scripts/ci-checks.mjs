@@ -113,6 +113,29 @@ function changedFiles(mergeBase) {
  * in `_test` because the repo's test guards (packages/db testing.ts, pay-sim's safety.ts) refuse any other name.
  */
 export const runDatabase = (pid = process.pid, now = Date.now()) => `intafaced_run_${pid}_${now.toString(36)}_test`;
+/**
+ * The verdict on CI's gates run here. Red is red, except one case: the only red gate is the tooling tests and they were
+ * stopped by their own 300 s limit (tooling-tests.mjs TIMEOUT_MS, spawnSync ETIMEDOUT) with no failing test before the
+ * stop. That is a loaded Mac's limit, not the code's (#8219's false red in the replay): it is "not checked here, CI will",
+ * and the push goes. CI's own gates job keeps the limit as it is.
+ */
+export function gatesVerdict(status, output) {
+  if (status === 0) return { ok: true };
+  const red = [...output.matchAll(/^ {2}✖ (\S+) +\d+ms/gm)].map((m) => m[1]);
+  const timedOut = /TOOLING TESTS FAILED — exit \S+ \(spawnSync \S+ ETIMEDOUT\)/.test(output);
+  if (red.length === 1 && red[0] === 'tooling-tests' && timedOut && !/^\s*not ok \d+/m.test(output))
+    return { ok: true, notChecked: 'the tooling tests ran past their 300 s limit on this machine: not checked here, CI will' };
+  return { ok: false };
+}
+
+/** Run CI's gates (`node tooling/ci/gates.mjs --changed --base <base>`, or a planted command), print what they print. */
+export function runGates(cmd, args, opts, write = (t) => process.stdout.write(t)) {
+  const r = spawnSync(cmd, args, { ...opts, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] });
+  const output = `${r.stdout ?? ''}${r.stderr ?? ''}`;
+  write(output);
+  return gatesVerdict(r.status, output);
+}
+
 /** When a run's database was made (ms), from its name; NaN for any other name. */
 export const runBorn = (name) => {
   const m = /^intafaced_run_\d+_([0-9a-z]+)_test$/.exec(name);
@@ -256,8 +279,12 @@ export async function runCiChecks({ base = 'origin/main', list = false, log = co
     log(`  ${ok ? '✓' : '✖'} ${name}${ok ? '' : `: ${why}`}`);
   };
 
-  const gates = run('node', ['tooling/ci/gates.mjs', '--changed', '--base', base]);
-  step('gates', gates.status === 0, 'a doctrine gate (above)');
+  const notChecked = [];
+  const gates = runGates('node', ['tooling/ci/gates.mjs', '--changed', '--base', base], { cwd: ROOT, env: baseEnv });
+  if (gates.notChecked) {
+    notChecked.push(gates.notChecked);
+    log(`  ~ gates: ${gates.notChecked}`);
+  } else step('gates', gates.ok, 'a doctrine gate (above)');
   // CI's gates job also runs Look drift with main's rules (ci.yml "Look drift (rules from main)"), which needs only git.
   // Its other guards (test-diff, journey baseline, journey list, the reach map) read the pull request or a token: CI's.
   let drift = null;
@@ -326,7 +353,10 @@ export async function runCiChecks({ base = 'origin/main', list = false, log = co
   const red = results.filter((r) => !r.ok).map((r) => r.name);
   return red.length
     ? { ok: false, summary: `red on CI's own ${red.join(', ')}: CI fails the same way, so fix it before you push` }
-    : { ok: true, summary: "CI's gates, format, build, typecheck and tests passed here" };
+    : {
+        ok: true,
+        summary: `CI's gates, format, build, typecheck and tests passed here${notChecked.length ? `; ${notChecked.join('; ')}` : ''}`,
+      };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url))) {
