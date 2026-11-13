@@ -495,6 +495,35 @@ export function rewindCopyCursor(secrets, followId, fillId) {
   return { followId, handle: account[0], cursorAt: at, cursorFill: fill || null };
 }
 
+/**
+ * LOCAL TEST: the one statement that moves a follow's copied orders back one day, as if they had been copied the owner
+ * day before (J-copy-bots-otc-02 #3: a daily cap resumes the next owner day). Only the copy records' own time moves
+ * (`trade.copy_mirrored_fills.created_at`); nothing posts and no balance changes. Waiting for a real day boundary in a
+ * run is not possible.
+ */
+export function copyAgeDaySql(followId) {
+  if (!COPY_REWIND_FOLLOW_ID.test(followId ?? '')) throw new Error('usage: local-test-gates.mjs copy-age-day <followId>');
+  return `UPDATE trade.copy_mirrored_fills SET created_at = created_at - interval '1 day'
+   WHERE follow_id = '${followId}'
+  RETURNING fill_id, created_at::text`;
+}
+
+/** Runs copyAgeDaySql for a follow whose follower is a LOCAL TEST journey account; anything else is refused. */
+export function ageCopyDay(secrets, followId) {
+  const sql = copyAgeDaySql(followId);
+  const [follower] = psqlRead(secrets, 'svc_trade', `SELECT follower_id FROM trade.copy_follows WHERE follow_id = '${followId}'`);
+  if (!follower) throw new Error(`no copy follow ${followId}`);
+  if (!/^[0-9a-f-]{36}$/i.test(follower[0])) throw new Error(`copy follow ${followId} has no account id`);
+  const [account] = psqlRead(
+    secrets,
+    'svc_identity',
+    `SELECT handle::text FROM identity.users WHERE id = '${follower[0]}'::uuid AND email LIKE '%@local-test.invalid'`,
+  );
+  if (!account) throw new Error(`copy-age-day refuses ${followId}: its follower is not a LOCAL TEST journey account`);
+  const rows = psqlRead(secrets, 'svc_trade', sql).filter((row) => row.length === 2);
+  return { followId, handle: account[0], moved: rows.length };
+}
+
 export function pendingKycCount(secrets) {
   return Number(psqlRead(secrets, 'svc_identity', `SELECT count(*) FROM identity.kyc_records WHERE status = 'pending'`)[0][0]);
 }
@@ -3474,6 +3503,9 @@ async function main() {
     } else if (cmd === 'copy-rewind') {
       const r = rewindCopyCursor(ctx.secrets, process.argv[3], process.argv[4]);
       say(`  copy      ${r.followId} (${r.handle}) cursor now ${r.cursorAt} ${r.cursorFill ?? '(no fill)'} (LOCAL TEST)`);
+    } else if (cmd === 'copy-age-day') {
+      const r = ageCopyDay(ctx.secrets, process.argv[3]);
+      say(`  copy      ${r.followId} (${r.handle}) ${r.moved} copied order(s) moved back one day (LOCAL TEST)`);
     } else if (cmd === 'chart-class') {
       // chart-class <SYMBOL> <dataClass>: one market's data class on the local stack, through the same two-person approval.
       const [symbol, dataClass] = process.argv.slice(3);

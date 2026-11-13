@@ -59,6 +59,7 @@ import {
   presentCopyControlAck,
   requireCopyFollowId,
   requireNewCopyIntentAllowed,
+  copyFollowHoldsLeader,
 } from './copy-lifecycle.js';
 import {
   assertCopyRegionAllowed,
@@ -790,7 +791,7 @@ export class CopyService {
     if (maxPerDay !== undefined) copyOwnerDay(this.ownerDay, this.now());
 
     for (const f of await this.store.listFollowsByFollower(principal.userId)) {
-      if (f.leaderId === leaderId) {
+      if (f.leaderId === leaderId && copyFollowHoldsLeader(f)) {
         throw new CopyError('Already following this leader', 'trade.copy_already_following');
       }
     }

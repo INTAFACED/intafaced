@@ -3,7 +3,12 @@ import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client
 import { CopyError } from './errors.js';
 import { drawdownDecision, mirrorOccupiesConcurrencySlot } from './follow-limits-extra.js';
 import { canonicalizeCopyFillId } from './fee-share.js';
-import { followRelationshipState, parseCopyRelationshipState, type CopyRelationshipState } from './copy-lifecycle.js';
+import {
+  copyFollowHoldsLeader,
+  followRelationshipState,
+  parseCopyRelationshipState,
+  type CopyRelationshipState,
+} from './copy-lifecycle.js';
 import { copyReserveKey, type CopyCursor, type CopyEnvelope, type CopyFollow } from './follows.js';
 import { parseAlgoPlaceGrant } from '../algo/durable-principal.js';
 import { dropFollowSessionKey, overlayFollowSessionKey, persistFollowSessionKey } from './session-key.js';
@@ -14,7 +19,7 @@ export function isPgUniqueViolation(err: unknown): boolean {
 }
 
 /**
- * Unique `(follower_id, leader_id)` is the durable already-following gate.
+ * Unique `(follower_id, leader_id)` among live (ACTIVE or PAUSED) follows is the durable already-following gate.
  * Concurrent follows can both pass the list check; the index must not leak a
  * raw 23505 onto the wire (same honesty as fill-sequence-conflict).
  */
@@ -438,7 +443,13 @@ export class MemoryCopyFollowStore implements CopyFollowStore {
 
   async saveFollow(follow: CopyFollow, exposure: Amount = 0n): Promise<void> {
     for (const existing of this.follows.values()) {
-      if (existing.followerId === follow.followerId && existing.leaderId === follow.leaderId && existing.followId !== follow.followId) {
+      if (
+        existing.followerId === follow.followerId &&
+        existing.leaderId === follow.leaderId &&
+        existing.followId !== follow.followId &&
+        copyFollowHoldsLeader(existing) &&
+        copyFollowHoldsLeader(follow)
+      ) {
         throw new CopyError('Already following this leader', 'trade.copy_already_following');
       }
     }

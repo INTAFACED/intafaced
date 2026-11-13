@@ -20,6 +20,7 @@ import {
   makeContext,
   matchingPayloadHash,
   bankPayloadHash,
+  copyAgeDaySql,
   copyCursorRewindSql,
   copyRewindRows,
   fraudListingFields,
@@ -810,6 +811,17 @@ for (const [args, usage] of [
   const printed = [['follow-1', '2026-10-30 13:49:58.875+00', ''], ['UPDATE 1']];
   assert.deepEqual(copyRewindRows(printed), [['follow-1', '2026-10-30 13:49:58.875+00', '']]);
   assert.deepEqual(copyRewindRows([['UPDATE 0']]), [], 'no follow matched: no row, so the command refuses');
+}
+
+// copy-age-day moves only the named follow's copy records back one day; anything else is refused.
+{
+  const sql = copyAgeDaySql('follow-1');
+  assert.ok(sql.includes("WHERE follow_id = 'follow-1'"), 'only that follow');
+  assert.ok(sql.includes("SET created_at = created_at - interval '1 day'"), 'its copies move back exactly one day');
+  assert.ok(sql.startsWith('UPDATE trade.copy_mirrored_fills'), 'only the copy records move: no balance or ledger table');
+  for (const followId of ["x'; DROP TABLE trade.copy_follows; --", '', undefined]) {
+    assert.throws(() => copyAgeDaySql(followId), /usage: local-test-gates.mjs copy-age-day/);
+  }
 }
 
 // The sealed cookie opens only as the console opens it: same key, same cookie name and origin in the AAD.

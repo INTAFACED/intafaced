@@ -160,6 +160,42 @@ describe('sizing mode (CB-copy-05)', () => {
     );
     expect(again.sizingMode).toBe('smart_sync');
   });
+
+  it('a stopped or left follow keeps its row and no longer holds the leader; an active or paused one still does', async () => {
+    const ctx = await setup({ leaderUsdt: '3000' });
+    const first = await ctx.copy.startFollow(principal(), start());
+    await expect(ctx.copy.startFollow(principal(), start({ clientRequestId: 'rules-start-0003' }))).rejects.toMatchObject({
+      code: 'trade.copy_already_following',
+    });
+    await ctx.copy.pause(principal(), { followId: first.followId });
+    await expect(ctx.copy.startFollow(principal(), start({ clientRequestId: 'rules-start-0004' }))).rejects.toMatchObject({
+      code: 'trade.copy_already_following',
+    });
+    // Stop (close-only, as the screen's Stop does): the follow stays listed and can never copy a new trade again.
+    await ctx.copy.resume(principal(), { followId: first.followId });
+    await ctx.copy.stop(principal(), { followId: first.followId, closeOnly: true });
+    const second = await ctx.copy.startFollow(
+      principal(),
+      start({ sizingMode: 'smart_sync', fixedOrderSize: undefined, clientRequestId: 'rules-start-0005' }),
+    );
+    expect(second).toMatchObject({ sizingMode: 'smart_sync' });
+    expect(second.followId).not.toBe(first.followId);
+    const rows = await ctx.store.listFollowsByFollower(FOLLOWER);
+    expect(rows.map((f) => [f.followId, f.relationshipState ?? 'ACTIVE']).sort()).toEqual(
+      [
+        [first.followId, 'CLOSE_ONLY'],
+        [second.followId, 'ACTIVE'],
+      ].sort(),
+    );
+    // The new follow holds the leader again; leaving it (detach) frees the leader for a third.
+    await expect(ctx.copy.startFollow(principal(), start({ clientRequestId: 'rules-start-0006' }))).rejects.toMatchObject({
+      code: 'trade.copy_already_following',
+    });
+    await ctx.copy.detach(principal(), { followId: second.followId });
+    await expect(ctx.copy.startFollow(principal(), start({ clientRequestId: 'rules-start-0007' }))).resolves.toMatchObject({
+      sizingMode: 'fixed_amount',
+    });
+  });
 });
 
 describe('minimum investment (CB-copy-06)', () => {

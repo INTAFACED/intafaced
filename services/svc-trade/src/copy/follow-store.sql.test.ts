@@ -145,6 +145,22 @@ describe('SqlCopyFollowStore fee-share claim-before-post', () => {
     expect(loaded?.followId).toBe(FOLLOW_A);
   });
 
+  it('one live follow per follower and leader: a stopped or left one keeps its row and frees the leader', async () => {
+    const store = new SqlCopyFollowStore(db!.sql);
+    await store.saveFollow(follow(FOLLOW_A, LEADER));
+    await expect(store.saveFollow(follow(FOLLOW_B, LEADER))).rejects.toMatchObject({ code: 'trade.copy_already_following' });
+    await store.saveFollow({ ...follow(FOLLOW_A, LEADER), relationshipState: 'PAUSED' });
+    await expect(store.saveFollow(follow(FOLLOW_B, LEADER))).rejects.toMatchObject({ code: 'trade.copy_already_following' });
+    await store.saveFollow({ ...follow(FOLLOW_A, LEADER), relationshipState: 'CLOSE_ONLY' });
+    await store.saveFollow(follow(FOLLOW_B, LEADER));
+    expect((await store.getFollow(FOLLOW_A))?.relationshipState).toBe('CLOSE_ONLY');
+    expect((await store.getFollow(FOLLOW_B))?.relationshipState ?? 'ACTIVE').toBe('ACTIVE');
+    // The stopped one can never come back alongside the live one.
+    await expect(store.saveFollow({ ...follow(FOLLOW_A, LEADER), relationshipState: 'ACTIVE' })).rejects.toMatchObject({
+      code: 'trade.copy_already_following',
+    });
+  });
+
   it('permitted_markets is stored as a JSON array and reads back, so the follow can mirror its markets', async () => {
     const store = new SqlCopyFollowStore(db!.sql);
     const base = follow(FOLLOW_A, LEADER);

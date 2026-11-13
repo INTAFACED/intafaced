@@ -1,6 +1,6 @@
 // World: book, gates
 import { test, expect } from './journey.mjs';
-import { api, journeyState, tool } from './stack.mjs';
+import { EDGE, ORIGIN, api, journeyState, tool, toolAwaited } from './stack.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 import { copiedOrders, followOnScreen, leadFill, listLeader, openFollow, takeBest, weekAhead, wizardAtLimits } from './copy.mjs';
 
@@ -10,6 +10,9 @@ import { copiedOrders, followOnScreen, leadFill, listLeader, openFollow, takeBes
 // leader's trades are its own real fills on the TEST book; the follower's copies, skips and limits are read back from
 // svc-trade. The failure count before auto-unfollow is the stack's TEST copy value.
 // The minimum investment and the owner day are the stack's TEST values (tooling/profiles/test-owner-values/trade.json).
+// #2 restarts svc-trade once with the minimum blank (`LOCAL_STACK_TRADE_COPY_MIN_INVESTMENT=off`) and puts it back.
+// #3 moves the follow's copied orders back one day through the stack's LOCAL TEST `local-test-gates.mjs copy-age-day`
+// (only the copy records' own time; nothing posts), as a run can't wait for a real owner day to begin.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
 // - #4: no take-profit, total-loss limit or equity trailing stop on Edit limits.
 // - #5: no copy-existing-positions switch and no slippage limit on Edit limits.
@@ -37,6 +40,38 @@ async function skips(who, followId) {
   const { status, body } = await (await api(who)).get(trpc('copy.skipLog', { followId }));
   expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
   return body.result.data.items;
+}
+
+/** The follower's follows as the service lists them. */
+async function myFollows(who) {
+  const { status, body } = await (await api(who)).get(trpc('copy.listMyFollows', { limit: 100 }));
+  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  return body.result.data;
+}
+
+/** Restart trade with the copy minimum investment blank (`blank`) or as the TEST profile sets it (`set`). */
+async function copyMinimum(value) {
+  const before = process.env.LOCAL_STACK_TRADE_COPY_MIN_INVESTMENT;
+  if (value === 'blank') process.env.LOCAL_STACK_TRADE_COPY_MIN_INVESTMENT = 'off';
+  else delete process.env.LOCAL_STACK_TRADE_COPY_MIN_INVESTMENT;
+  try {
+    await toolAwaited('local-test-stack.mjs', 'restart', 'trade');
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_TRADE_COPY_MIN_INVESTMENT;
+    else process.env.LOCAL_STACK_TRADE_COPY_MIN_INVESTMENT = before;
+  }
+  // A restart outlasts Edge's idle timeout: drop the closed kept-alive sockets before the next write (as in J-copy-bots-otc-01).
+  for (let i = 0, live = 0; i < 20 && live < 3; i++) {
+    try {
+      await fetch(`${EDGE}/api/v1/orderbook/${encodeURIComponent('BTC/USDT')}?limit=1`, { headers: { origin: ORIGIN } }).then((r) =>
+        r.arrayBuffer(),
+      );
+      live += 1;
+    } catch (error) {
+      if (error?.cause?.code !== 'UND_ERR_SOCKET') throw error;
+      live = 0;
+    }
+  }
 }
 
 /** The follow #1 made, opened on My follows; with none made, the step stops here and says so. */
@@ -110,6 +145,22 @@ test(`${J} #1 chooses a sizing mode: smart sync and fixed amount offered, multip
   const kept = await (await api(follower)).get(trpc('copy.listMyFollows', { limit: 100 }));
   expect(kept.status, JSON.stringify(kept.body).slice(0, 300)).toBe(200);
   expect(kept.body.result.data.find((f) => f.followId === followId)?.sizingMode).toBe('fixed_amount');
+  await page.keyboard.press('Escape');
+
+  // A new follow after stopping may use another mode: the smart-sync follow is stopped on screen, and the same leader
+  // is followed again with a fixed amount.
+  const stopping = await openFollow(page, otherRef);
+  await stopping.getByRole('button', { name: 'Stop', exact: true }).click();
+  const stopped = page.waitForResponse((r) => r.url().includes('copy.stop'));
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Stop', exact: true }).click();
+  expect((await stopped).status()).toBe(200);
+  const refollowId = await followOnScreen(page, follower, otherRef, { perOrder: '50', total: '50', fixed: '20' });
+  expect(refollowId).not.toBe(synced.followId);
+  const both = (await myFollows(follower)).filter((f) => [synced.followId, refollowId].includes(f.followId));
+  expect(Object.fromEntries(both.map((f) => [f.followId === refollowId ? 'new' : 'stopped', f.sizingMode]))).toEqual({
+    stopped: 'smart_sync',
+    new: 'fixed_amount',
+  });
 });
 
 test(`${J} #2 sets a per-contract cap, a daily cap, a minimum investment and a leverage limit: no leverage field on a spot follow`, async ({
@@ -120,7 +171,7 @@ test(`${J} #2 sets a per-contract cap, a daily cap, a minimum investment and a l
   await detail.getByRole('button', { name: 'Edit limits' }).click();
   await detail.getByLabel('Most per contract (USDT)').fill('25');
   await detail.getByLabel('Most per day (USDT)').fill('100');
-  // The owner's minimum is shown; with it blank the follow refuses (svc-trade follow-rules.test.ts, as no stack runs blank).
+  // The owner's minimum is shown.
   await expect(detail.getByText(/Minimum investment: [\d.]+ USDT/)).toBeVisible();
   // A spot follow has no leverage to limit, so no field asks for one.
   await expect(detail.getByLabel(/Leverage/)).toHaveCount(0);
@@ -139,9 +190,34 @@ test(`${J} #2 sets a per-contract cap, a daily cap, a minimum investment and a l
   await wizard.getByRole('button', { name: 'Next' }).click();
   await expect(wizard.getByText(/The minimum investment is [\d.]+ USDT/)).toBeVisible();
   await expect(wizard.getByRole('button', { name: 'Start copying' })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+
+  // A blank minimum refuses the follow: trade restarted with no minimum, a valid follow of the third leader is refused by
+  // name and nothing is followed; the TEST minimum is put back after.
+  await copyMinimum('blank');
+  try {
+    await signIn(page, state('follower'));
+    const blank = await wizardAtLimits(page, thirdRef);
+    await expect(blank.getByText('The platform hasn’t set a minimum investment, so no copy can start.')).toBeVisible();
+    await blank.getByLabel('Most per order (USDT)').fill('50');
+    await blank.getByLabel('Most in total (USDT)').fill('50');
+    await blank.getByLabel('Fixed amount per copied order (USDT)').fill('20');
+    await blank.getByLabel('Permission ends').fill(weekAhead());
+    await blank.getByRole('button', { name: 'Next' }).click();
+    const answer = page.waitForResponse((res) => res.url().includes('copy.follow'));
+    await blank.getByRole('button', { name: 'Start copying' }).click();
+    const res = await answer;
+    const body = await res.json();
+    expect(res.status(), JSON.stringify(body).slice(0, 300)).not.toBe(200);
+    expect(JSON.stringify(body)).toContain('trade.copy_min_not_set');
+    await expect(blank.getByText('Copy trading has no minimum investment set')).toBeVisible();
+    expect((await myFollows(state('follower'))).filter((f) => f.leaderRef === thirdRef)).toEqual([]);
+  } finally {
+    await copyMinimum('set');
+  }
 });
 
-test(`${J} #3 a lead order past the per-contract cap: refused with the cap code, while orders on other contracts still copy`, async ({
+test(`${J} #3 a lead order past the per-contract cap: refused with the cap code, other contracts still copy; the daily cap resumes the next owner day`, async ({
   page,
 }) => {
   test.setTimeout(180_000);
@@ -154,6 +230,25 @@ test(`${J} #3 a lead order past the per-contract cap: refused with the cap code,
   await signIn(page, follower);
   const detail = await myFollow(page);
   await expect(copiedOrders(detail).filter({ hasText: 'ETH/USDT' })).toHaveCount(1);
+  await expect(copiedOrders(detail).filter({ hasText: 'BTC/USDT' })).toHaveCount(1);
+
+  // The daily cap: the most per contract cleared and the most per day set to what is already copied today (BTC 20 and
+  // ETH 20), so the leader's next BTC buy is skipped with the daily reason.
+  await detail.getByRole('button', { name: 'Edit limits' }).click();
+  await detail.getByLabel('Most per contract (USDT)').fill('');
+  await detail.getByLabel('Most per day (USDT)').fill('40');
+  await detail.getByRole('button', { name: 'Save changes' }).click();
+  await expect(detail).toContainText(/Most per day\s*40 USDT/);
+  await takeBest(leader, 'buy', '0.001', `${J}-3-btc3-${tag}`);
+  await expect.poll(async () => (await skips(follower, followId)).map((s) => s.reason), { timeout: 60_000 }).toContain('daily_cap');
+  expect((await skips(follower, followId)).filter((s) => s.reason === 'per_contract_cap')).toHaveLength(1);
+
+  // The next owner day: today's copies moved back one day, the leader's next BTC buy copies again.
+  expect(tool('local-test-gates.mjs', 'copy-age-day', followId)).toMatch(/[1-9]\d* copied order\(s\) moved back one day/);
+  await takeBest(leader, 'buy', '0.001', `${J}-3-btc4-${tag}`);
+  const after = await myFollow(page);
+  await expect(copiedOrders(after).filter({ hasText: 'BTC/USDT' })).toHaveCount(2, { timeout: 60_000 });
+  expect((await skips(follower, followId)).filter((s) => s.reason === 'daily_cap')).toHaveLength(1);
 });
 
 test(`${J} #4 sets stop-loss, take-profit, total-loss limit and equity trailing stop: loosening a stop-loss is refused`, async ({
