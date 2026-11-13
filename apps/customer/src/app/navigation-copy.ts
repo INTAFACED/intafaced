@@ -365,6 +365,8 @@ const messages = {
   'Your agent': 'Your agent',
   'Build an agent of your own': 'Build an agent of your own',
   'An agent of your own': 'An agent of your own',
+  'Agent run': 'Agent run',
+  'A background run of an agent session': 'A background run of an agent session',
   'Token governance': 'Token governance',
   'Governance proposal': 'Governance proposal',
   'Token economy': 'Token economy',

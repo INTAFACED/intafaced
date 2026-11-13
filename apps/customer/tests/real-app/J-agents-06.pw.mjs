@@ -9,9 +9,9 @@ import { signIn, signUp } from './desk.mjs';
 // result. Email, SMS and push show their vendor notice (vendor.email, vendor.sms, vendor.push); the inbox row is written.
 // Two background runs: #1 starts a short one that #2 reads when it has finished; #3 starts a long one (many steps) that
 // #3 to #6 pause, resume and stop while it is still going. #7 is another person trying the first run's id.
-// Every step is written; none is built yet, so each fails at its first missing part, quickly (UNBUILT):
-// - opening a session is refused for a standard account ("agents:execute"), and there are no background runs, run
-//   pages, pause, resume or stop (AG-sessions-04, AG-control-01).
+// A background run takes at most the steps the person sets; each step is one metered engine call on the session, shown
+// "Call in progress" from its start until its reply is stored. The run's page (/agents/runs/<id>) reads it again every
+// second while it is still going.
 const J = 'J-agents-06';
 const agents = agentsRun(J);
 
@@ -21,13 +21,16 @@ const main = (page) => page.getByRole('main');
 const workspace = (page) => main(page).getByRole('region', { name: 'Session workspace' });
 const runPage = (page) => main(page).getByRole('region', { name: 'Run' });
 
-/** Starts a background run in a new session and keeps its id in the run file under `key`. */
-async function startInBackground(page, key, question) {
+/** Starts a background run of at most `steps` steps in a new session, telling the person by `notice`, and keeps its id in
+ * the run file under `key`. */
+async function startInBackground(page, key, question, { steps = '1', notice = 'In the app only' } = {}) {
   await openNavigatorSession(page, agents);
   await workspace(page)
     .getByRole('textbox', { name: /^Ask the agent/ })
     .fill(question);
   await workspace(page).getByRole('checkbox', { name: 'Run in the background' }).check();
+  await workspace(page).getByRole('textbox', { name: 'Most steps' }).fill(steps);
+  await workspace(page).getByRole('combobox', { name: 'Tell me when it finishes' }).selectOption({ label: notice });
   await workspace(page).getByRole('button', { name: 'Run' }).click();
   const runId = await workspace(page).getByTestId('run-id').innerText();
   expect(runId).toMatch(/^[0-9a-f-]{36}$/);
@@ -53,7 +56,8 @@ test(`${J} starts: a verified TEST account with a metered Navigator session open
 test(`${J} #1 starts a run as a background run and leaves the screen: a run id and a status; the run goes on without the page`, async ({
   page,
 }) => {
-  await startInBackground(page, 'shortRun', 'TEST: list the markets');
+  // Email is chosen: the stack has no mail vendor, so #2 sees its notice and the inbox row still appears.
+  await startInBackground(page, 'shortRun', 'TEST: list the markets', { notice: 'By email too' });
   await expect(workspace(page).getByTestId('run-status')).toHaveText(/Queued|Running/);
   await page.goto('/home');
   // Away from the page, the run still moves on.
@@ -65,25 +69,37 @@ test(`${J} #2 receives the finish notice: an inbox row and a run page with the r
   page,
 }) => {
   await signIn(page, agents.account());
-  await page.goto('/home');
-  await page.getByRole('button', { name: /^Notifications/ }).click();
+  // The notice is written once the run has finished; the inbox is opened afresh until its row is there.
+  await expect(async () => {
+    await page.goto('/home');
+    await page.getByRole('button', { name: /^Notifications/ }).click();
+    await expect(page.getByRole('dialog', { name: /Notifications/ }).getByRole('link', { name: /Your agent run finished/ })).toBeVisible({
+      timeout: 2_000,
+    });
+  }).toPass({ timeout: 30_000 });
   await page
     .getByRole('dialog', { name: /Notifications/ })
     .getByRole('link', { name: /Your agent run finished/ })
-    .click(UNBUILT);
+    .first()
+    .click();
+  await expect(page).toHaveURL(new RegExp(`/agents/runs/${agents.run.read().shortRun}$`));
   await expect(runPage(page).getByTestId('run-status')).toHaveText('Completed');
-  await expect(runPage(page).getByRole('region', { name: 'Reply' })).not.toBeEmpty();
+  const result = runPage(page).getByRole('region', { name: 'Reply' }).getByRole('paragraph');
+  await expect(result).not.toHaveText('No reply yet.');
+  await expect(result).not.toBeEmpty();
   await expect(runPage(page).getByRole('note').filter({ hasText: 'vendor.email' })).toBeVisible();
 });
 
 test(`${J} #3 pauses a running run: no further step starts and a new request gets the paused code`, async ({ page }) => {
-  await startInBackground(page, 'longRun', 'TEST: check every market one by one and summarise each');
+  // Long enough to still be going while #3 to #5 pause, resume and stop it.
+  await startInBackground(page, 'longRun', 'TEST: check every market one by one and summarise each', { steps: '60' });
   await openRun(page, 'longRun');
   await runPage(page).getByRole('button', { name: 'Pause' }).click();
   await expect(runPage(page).getByTestId('run-status')).toHaveText('Paused');
   const steps = await tableIn(runPage(page), 'Steps').getByRole('row').count();
   await page.waitForTimeout(5_000);
   await expect(tableIn(runPage(page), 'Steps').getByRole('row')).toHaveCount(steps);
+  await runPage(page).getByRole('textbox', { name: 'Ask the run more' }).fill('TEST: and the next market');
   await runPage(page).getByRole('button', { name: 'Ask more' }).click();
   await expect(runPage(page).getByRole('alert')).toContainText('agents.run.paused');
 });
@@ -102,7 +118,7 @@ test(`${J} #5 stops a run while a tool call is in flight: the call finishes and 
   page,
 }) => {
   await openRun(page, 'longRun');
-  await expect(tableIn(runPage(page), 'Steps').getByRole('row').last()).toContainText('Tool call in progress');
+  await expect(tableIn(runPage(page), 'Steps').getByRole('row').last()).toContainText('Call in progress');
   await runPage(page).getByRole('button', { name: 'Stop' }).click();
   await expect(runPage(page).getByTestId('run-status')).toHaveText('Stopped');
   await expect(tableIn(runPage(page), 'Steps').getByRole('row').last()).toContainText('Finished after stop');

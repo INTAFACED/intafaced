@@ -132,6 +132,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, testChain }) => ({
     // LOCAL TEST background test runs of an own agent, slow enough to be quarantined mid-run (J-agents-14 #3).
     AGENTS_BACKGROUND_TEST_STEPS: testValue('AGENTS_BACKGROUND_TEST_STEPS'),
     AGENTS_BACKGROUND_STEP_MS: testValue('AGENTS_BACKGROUND_STEP_MS'),
+    AGENTS_SESSION_RUN_MAX_STEPS: testValue('AGENTS_SESSION_RUN_MAX_STEPS'),
     // LOCAL TEST managed baseline for own agents' tools (J-agents-05 #1). `LOCAL_STACK_AGENTS_POLICY_BASELINE=off` leaves
     // it blank, so every own-agent tool call refuses agents.baseline_value_unset.
     ...(process.env.LOCAL_STACK_AGENTS_POLICY_BASELINE === 'off' ? {} : { AGENTS_POLICY_BASELINE: testValue('AGENTS_POLICY_BASELINE') }),

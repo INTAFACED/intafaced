@@ -39,6 +39,7 @@ import { createAgentsRouter, type AgentsRouter } from './router.js';
 import { parseTierLaws } from './tier-laws.js';
 import { parseReasons, purgeExpiredTranscripts } from './oplog/routes.js';
 import { advanceBackgroundRuns } from './own/background.js';
+import { advanceSessionRuns, publishCompletedRuns } from './runs/background.js';
 import { createIdentityLinkedWallets, paymentMethodFunds } from './own/payment-method.js';
 import { createChainBalance } from './chain-balance.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
@@ -255,6 +256,7 @@ const appRouter = createAgentsRouter({
   meteringEnabled: env.AGENTS_METERING_ENABLED,
   fleet: { registryLimit: env.AGENTS_REGISTRY_LIST_LIMIT ?? null },
   ownBackground: { steps: env.AGENTS_BACKGROUND_TEST_STEPS ?? null, stepMs: env.AGENTS_BACKGROUND_STEP_MS ?? null },
+  sessionRuns: { maxSteps: env.AGENTS_SESSION_RUN_MAX_STEPS ?? null, stepMs: env.AGENTS_BACKGROUND_STEP_MS ?? null },
   opsLog: {
     reasons: parseReasons(env.AGENTS_LOG_READ_REASONS),
     limit: env.AGENTS_OPS_ACTIONS_LIMIT ?? null,
@@ -373,6 +375,28 @@ if (env.AGENTS_BACKGROUND_STEP_MS) {
       });
   }, env.AGENTS_BACKGROUND_STEP_MS);
   backgroundTimer.unref();
+}
+
+// Background runs of sessions take their steps on the same period, and every finished one is announced once
+// (AG-sessions-04, J-agents-06). Blank leaves the ticker off, and a new background run refuses agents.session_run_unset.
+if (env.AGENTS_BACKGROUND_STEP_MS && env.AGENTS_SESSION_RUN_MAX_STEPS) {
+  const stepMs = env.AGENTS_BACKGROUND_STEP_MS;
+  let advancing = false;
+  const sessionRunTimer = setInterval(
+    () => {
+      if (advancing) return;
+      advancing = true;
+      advanceSessionRuns(sql, runtime, stepMs)
+        .catch((err: unknown) => app.log.warn({ err }, 'background session runs did not advance'))
+        .then(() => publishCompletedRuns(sql, bus))
+        .catch((err: unknown) => app.log.warn({ err }, 'finished background runs not announced'))
+        .finally(() => {
+          advancing = false;
+        });
+    },
+    Math.min(stepMs, 500),
+  );
+  sessionRunTimer.unref();
 }
 
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {

@@ -330,6 +330,10 @@
       "types": "./dist/agents-onchain.d.ts",
       "default": "./dist/agents-onchain.js"
     },
+    "./agents-runs": {
+      "types": "./dist/agents-runs.d.ts",
+      "default": "./dist/agents-runs.js"
+    },
     "./agents-usage-limits": {
       "types": "./dist/agents-usage-limits.d.ts",
       "default": "./dist/agents-usage-limits.js"
