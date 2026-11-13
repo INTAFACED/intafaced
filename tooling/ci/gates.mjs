@@ -316,6 +316,8 @@ export const NOT_GATES = {
     "not a gate: real-app-journeys.yml's `Main's journeys first` job, which defers a Real-app journeys run off main while a main run's jobs wait for runners, without holding a runner: the deferred run selects no journeys and ends, and the `release` job re-runs it when main's planner finishes (a hand-dispatched full run is also deferred while 2 others hold runners; INTAFACED/project-state#1574 item 3). It reads GitHub's Actions API, so a laptop verify has no input; ci.yml runs its `--self-test`.",
   'node-version.test.mjs':
     'not a gate: the node:test file of the one Node version (U4): the root .node-version is read by every actions/setup-node step through node-version-file, no workflow hard-codes node-version, and it satisfies engines.node and matches the node images the Dockerfiles ship, with planted faults for each. tooling-tests.mjs runs it with every other tooling test.',
+  'main-trust-steps.test.mjs':
+    "not a gate: the node:test file of main-trust.yml's post-merge job: every step after the compare step runs when that step fails (`!cancelled()`), so a 403 there no longer skips the journeys revert (run 4591, 13 Nov), with planted faults. tooling-tests.mjs runs it with every other tooling test.",
   'workflow-concurrency.test.mjs':
     "not a gate: the node:test file of the workflows' concurrency shape (one run per pull request; a main journeys run never cancelled and in one group, OWNER 206; a superseded branch journeys run cancelled), with planted faults for each. tooling-tests.mjs runs it with every other tooling test.",
   'journey-verdict.mjs':
@@ -340,6 +342,10 @@ export const NOT_GATES = {
     "runs from real-app-journeys.yml's scoreboard job (\"Merge the shards\"): downloads the run's shard reports, waits for the reset of a spent API budget (at most twice, never past the job's time) instead of carrying on with none, fails the step by name on any refusal, and prints the token's core budget before and after. Needs the run's own artifacts and token, so a laptop verify has no input; its tests are shard-download.test.mjs.",
   'shard-download.test.mjs':
     'not a gate: the node:test file of shard-download.mjs (run 4084 replayed: a spent budget is waited out until its reset; the waits are bounded and never pass the job; a refusal is never retried; a dropped connection is; no shard artifact at all is left to the next step). tooling-tests.mjs runs it with every other tooling test.',
+  'refusal.mjs':
+    "not a gate: a helper that journeys-revive.mjs and main-trust.mjs call when GitHub refuses a request (403 or 429), to keep GitHub's own reason (its message, rate-limit headers, retry-after and request id) in the stop line and the issue; the refusal is still a stop, never retried. Its tests are refusal.test.mjs.",
+  'refusal.test.mjs':
+    'not a gate: the node:test file of refusal.mjs (a secondary limit, a spent primary limit and a missing permission each name themselves; a body that is not JSON is kept short on one line; the longer stop line is still a refusal). tooling-tests.mjs runs it with every other tooling test.',
   'journeys-revive.test.mjs':
     'not a gate: the node:test file of journeys-revive.mjs (a finished main run with no report is re-run; one with a report, one still going, a cancelled, green, pull request or old run is left alone; the waits space the tries; the attempts are bounded and the run is then named once; a refused re-run is named at once; 11 Nov replayed; a pull request run red only on the inputs it reads from main is re-run once main is back and one red on its own work is not, bounded per head; a refusal stops the pass). tooling-tests.mjs runs it with every other tooling test.',
   'post-merge-trust.mjs':
