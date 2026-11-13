@@ -1,5 +1,6 @@
 // The pre-push hook on planted repos: a worktree with no node_modules (here or in the main checkout) pushes with one
-// line instead of being refused; formatting still refuses when prettier is there; a direct push to main is still refused.
+// line instead of being refused; formatting still refuses when prettier is there; a direct push to main is still refused;
+// CI's checks run on every push and a red one refuses it, and they never see the hook's GIT_* variables.
 // Each case is a throwaway repo holding the real .githooks/pre-push, pushing to a local bare remote.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -12,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const git = (cwd, ...a) => execFileSync('git', a, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 
-function plant({ prettier = null } = {}) {
+function plant({ prettier = null, ciChecks = 'process.exit(0);' } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'pre-push-'));
   const remote = join(dir, 'remote.git');
   const work = join(dir, 'work');
@@ -25,6 +26,8 @@ function plant({ prettier = null } = {}) {
   chmodSync(join(work, '.githooks', 'pre-push'), 0o755);
   mkdirSync(join(work, 'tooling', 'scripts'), { recursive: true });
   writeFileSync(join(work, 'tooling', 'scripts', 'truth-check.mjs'), 'process.exit(0);\n');
+  // CI's checks (tooling/scripts/ci-checks.mjs), planted: the real one builds and tests the whole repo.
+  writeFileSync(join(work, 'tooling', 'scripts', 'ci-checks.mjs'), `${ciChecks}\n`);
   writeFileSync(join(work, '.gitignore'), 'node_modules\n');
   writeFileSync(join(work, 'README.md'), 'base\n');
   git(work, 'add', '-A');
@@ -47,7 +50,7 @@ function plant({ prettier = null } = {}) {
     const r = spawnSync('git', ['push', 'origin', `HEAD:refs/heads/${ref}`], { cwd: work, encoding: 'utf8' });
     return { code: r.status, out: `${r.stdout}${r.stderr}` };
   };
-  return { push, done: () => rmSync(dir, { recursive: true, force: true }) };
+  return { push, work, done: () => rmSync(dir, { recursive: true, force: true }) };
 }
 
 test('no node_modules here or in the main checkout: one line, the push goes through', () => {
@@ -88,6 +91,43 @@ test('a direct push to main is still refused', () => {
     const r = p.push('main');
     assert.notEqual(r.code, 0, r.out);
     assert.match(r.out, /Direct push to main refused/);
+  } finally {
+    p.done();
+  }
+});
+
+test("a red from CI's checks refuses the push", () => {
+  const p = plant({ prettier: 'exit 0', ciChecks: "console.log('planted red'); process.exit(1);" });
+  try {
+    const r = p.push();
+    assert.notEqual(r.code, 0, r.out);
+    assert.match(r.out, /planted red/);
+    assert.match(r.out, /CI's checks failed here — push refused/);
+  } finally {
+    p.done();
+  }
+});
+
+test("CI's checks never see the hook's GIT_* variables (a tooling test's temp repo once wrote into the real repo)", () => {
+  const leak =
+    "const g = Object.keys(process.env).filter((k) => k.startsWith('GIT_')); if (g.length) { console.log('leaked ' + g); process.exit(1); }";
+  const p = plant({ prettier: 'exit 0', ciChecks: leak });
+  try {
+    const r = p.push();
+    assert.equal(r.code, 0, r.out);
+  } finally {
+    p.done();
+  }
+});
+
+test('a push that only deletes a branch runs no checks', () => {
+  const p = plant({ prettier: 'exit 0', ciChecks: "console.log('ran'); process.exit(1);" });
+  try {
+    // The branch exists on the remote (pushed here without the hook), so the delete reaches the hook.
+    git(p.work, 'push', '-q', '--no-verify', 'origin', 'HEAD:refs/heads/gone');
+    const r = spawnSync('git', ['push', 'origin', ':refs/heads/gone'], { cwd: p.work, encoding: 'utf8' });
+    assert.equal(r.status, 0, `${r.stdout}${r.stderr}`);
+    assert.doesNotMatch(`${r.stdout}${r.stderr}`, /\bran\b/);
   } finally {
     p.done();
   }
