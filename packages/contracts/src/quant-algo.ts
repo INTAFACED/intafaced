@@ -693,6 +693,45 @@ export const quantQuotaProfileSchema = z.object({
 });
 
 /**
+ * Compute tiers (RC-algo-dev-05, an extension of AL-limits-01). A tier is published on a quota profile: its limits are
+ * that profile's, plus two owner values, how fresh the data a run reads is (whole seconds behind the exchange's own
+ * prices) and its execution priority class (a higher class starts first). Either may be blank, read "not set". A tier
+ * is a name, not a price: pricing, billing and moving to a tier are not here; an operator assigns the profile.
+ */
+export const quantTierSchema = z.object({
+  profile: z.string(),
+  dataFreshnessSeconds: quotaWhole.nullable(),
+  priorityClass: quotaWhole.nullable(),
+  limits: z.array(z.object({ resource: quantQuotaResourceSchema, limit: quotaWhole.nullable() })),
+  setAt: z.string(),
+});
+export type QuantTier = z.infer<typeof quantTierSchema>;
+
+/** `tier.list`: every published tier by profile name, and the profile that applies to the caller (null: none). */
+export const quantTierListSchema = z.object({
+  current: z.object({ profile: z.string(), source: z.enum(['assigned', 'default']) }).nullable(),
+  tiers: z.array(quantTierSchema),
+});
+export type QuantTierList = z.infer<typeof quantTierListSchema>;
+
+/** `ops.tier.set`: publishes or withdraws the tier on one profile, with its two owner values and a reason. Keyed by the screen. */
+export const quantTierSetInputSchema = z.object({
+  profile: quotaProfileName,
+  dataFreshnessSeconds: z.string().max(18).nullable(),
+  priorityClass: z.string().max(18).nullable(),
+  published: z.boolean(),
+  reason: z.string().max(500),
+  idempotencyKey: z.string().trim().min(1).max(128),
+});
+export const quantTierSetOutputSchema = z.object({
+  profile: z.string(),
+  dataFreshnessSeconds: quotaWhole.nullable(),
+  priorityClass: quotaWhole.nullable(),
+  published: z.boolean(),
+  setAt: z.string(),
+});
+
+/**
  * Paper runs on the exchange's own prices (AL-live-01). A paper run keeps going until it is stopped; its fills,
  * position and equity are derived on every read from the exchange's own closed candles since it started, by the same
  * engine and costs as a backtest. Our own venue data is the only feed that starts; an outside market feed is listed and

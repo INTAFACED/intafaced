@@ -13,6 +13,8 @@ function refuse(code: typeof QUANT_DATABASE_URL_UNSET | typeof QUANT_DATABASE_PO
     limits: async () => fail(),
     set: async () => fail(),
     assign: async () => fail(),
+    tiers: async () => fail(),
+    setTier: async () => fail(),
   };
 }
 

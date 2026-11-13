@@ -18,6 +18,7 @@ import type { AccrualTierLaw } from './commission-rate-law.js';
 import { UNPUBLISHED_ACCRUAL_TIER_LAW } from './commission-rate-law.js';
 import { AFFILIATE_PRODUCER_SOURCE_BY_SERVICE, type AffiliateProducerService } from './producer-accrue.js';
 import { assertPayoutRateProvenance, planAffiliatePayout, postAffiliatePayout } from './payout-engine.js';
+import { AffiliateProgrammeDepthUnsetError, requireProgrammeDepth } from './programme-depth.js';
 
 export const AFFILIATE_PRODUCER_PAYOUT_PATH = '/internal/affiliates/payout';
 
@@ -30,6 +31,8 @@ export type AffiliateProducerPayoutDeps = {
   readonly freeze: { frozenIds(): Promise<ReadonlySet<string>> };
   readonly accruals: AccrualStore;
   readonly accrualTierLaw: AccrualTierLaw | undefined;
+  /** The partner programme depth (RC-campaigns-07). Undefined (blank) refuses every payout. */
+  readonly programmeDepth: number | undefined;
   readonly ledger: Pick<LedgerClient, 'post'> | undefined;
   /**
    * Isolated tests need this (same reason accrue installs it). Production
@@ -81,6 +84,8 @@ export function registerAffiliateProducerPayout(app: FastifyInstance, deps: Affi
     const law = deps.accrualTierLaw ?? UNPUBLISHED_ACCRUAL_TIER_LAW;
 
     try {
+      // Depth first: nothing is paid under a programme whose reach nobody set.
+      const maxTierDepth = requireProgrammeDepth(deps.programmeDepth);
       assertPayoutRateProvenance([], law);
 
       if (!deps.ledger) {
@@ -98,6 +103,7 @@ export function registerAffiliateProducerPayout(app: FastifyInstance, deps: Affi
         rows,
         law,
         frozenBeneficiaryIds: frozen,
+        maxTierDepth,
       });
       const receipt = await postAffiliatePayout(deps.ledger, plan);
       return reply.code(200).send({
@@ -110,6 +116,9 @@ export function registerAffiliateProducerPayout(app: FastifyInstance, deps: Affi
         idempotencyKeys: receipt.idempotencyKeys,
       });
     } catch (err) {
+      if (err instanceof AffiliateProgrammeDepthUnsetError) {
+        return reply.code(412).send({ error: err.message, code: err.code });
+      }
       if (err instanceof AffiliatePayoutRefuseError) {
         return reply.code(httpStatus(err.code)).send({
           error: err.message,

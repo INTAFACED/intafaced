@@ -179,6 +179,10 @@ const COPY: Readonly<Record<string, Words>> = {
     title: 'Not enough free balance',
     body: 'The most in total is more than you have free after your other copies. Lower it, or add funds. Nothing was followed or held.',
   },
+  'trade.copy_venue_account_not_open': {
+    title: 'Choose one of your open agent accounts',
+    body: 'Copying on the venue places each copy on one of your own open agent accounts, in the asset these markets settle in. Nothing was followed.',
+  },
   'trade.copy_market_quote_mixed': {
     title: 'Markets settle in different assets',
     body: 'Choose markets that settle in the same asset, so one amount can be set aside. Nothing was followed.',

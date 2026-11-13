@@ -91,7 +91,8 @@ export type CopyErrorCode =
   | 'trade.copy_below_min_investment'
   | 'trade.copy_day_not_set'
   | 'trade.copy_market_cap_reached'
-  | 'trade.copy_daily_cap_reached';
+  | 'trade.copy_daily_cap_reached'
+  | 'trade.copy_venue_account_not_open';
 
 /**
  * Closed set for the customer desk and blank-law refusals.
