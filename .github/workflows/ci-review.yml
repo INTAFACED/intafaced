@@ -178,7 +178,7 @@ jobs:
             CLAUDE_CODE_OAUTH_TOKEN="placeholder-the-api-refuses"
           fi
           if [ -f "$dir/skip-reviewer" ]; then
-            echo "the diff step already decided (too large to review even in parts)"
+            echo "the diff step already decided (an exact automatic revert, or too large to review even in parts)"
             exec node "$GITHUB_WORKSPACE/tooling/ci/ci-review.mjs" read "$dir"
           fi
           if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
