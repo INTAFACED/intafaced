@@ -78,6 +78,8 @@ export const JOURNEY_CI = [
   'tooling/ci/review-marker.mjs',
   'tooling/ci/workflow-concurrency.test.mjs',
   'tooling/ci/factory-switch.mjs',
+  // The seal's scripts word a spent API budget with it (judge down).
+  'tooling/ci/api-budget.mjs',
   // real-app-journeys.yml's `Main's journeys first` job runs it.
   'tooling/ci/main-first.mjs',
   // Main trust's post-merge job runs it after each journeys run on main, and main-bisect.yml's journeys revert jobs.
