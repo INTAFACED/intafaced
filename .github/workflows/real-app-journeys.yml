@@ -26,6 +26,10 @@
 # the suite outgrew one job and keeps growing.) Journey files are independent: each makes its own accounts and keeps its
 # own run file, so the plan job can split them by file.
 name: Real-app journeys
+# A run by hand says in its title what it runs (`full`, or the journey files it was given), so a pull request's run on
+# the same head can leave out the journey files a targeted one runs (journey-touch.mjs DISPATCH_TITLE, reusableRuns; project-state#2065 row d32 part (b)).
+# Every other run keeps GitHub's own title (an empty run-name).
+run-name: ${{ github.event_name == 'workflow_dispatch' && format('Real-app journeys by hand, {0}', github.ref != 'refs/heads/main' && inputs.journeys != '' && inputs.journeys || 'full') || '' }}
 
 on:
   # A manual run on a branch other than main may name journey files; it then runs only those (owner decision
@@ -170,7 +174,7 @@ jobs:
         with:
           node-version-file: .base/.node-version
       - name: What this run runs
-        id: touch
+        id: pick
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           EVENT: ${{ github.event_name }}
@@ -250,6 +254,33 @@ jobs:
             files) { echo "mode=run"; echo "target=$(jq -r --arg n "$named" '(.files + ($n | split(" ") | map(select(. != "")))) | unique | join(" ")' <<<"$touch")"; } >> "$GITHUB_OUTPUT" ;;
             *) { echo "mode=run"; echo "target="; } >> "$GITHUB_OUTPUT" ;;
           esac
+
+      # One journeys run per head (project-state#2065 row d32 part (b)): a pull request's targeted run leaves out the
+      # journey files a targeted run by hand on its exact head already runs (the builder's run before it opened the pull
+      # request; journey-touch.mjs reusableRuns, afterReuse, the default branch's copy). A full run is never narrowed, and
+      # a full run by hand stands in for nothing. The seal reads every run on the head by its report, so what is left out is
+      # judged from that run, and its red stands. Any other run, an unreadable list of runs, or a base copy with no
+      # --reuse: the pick stands.
+      - name: One journeys run per head
+        id: touch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT: ${{ github.event_name }}
+          MODE: ${{ steps.pick.outputs.mode }}
+          TARGET: ${{ steps.pick.outputs.target }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "$EVENT" = pull_request ] && [ "$MODE" = run ] && out=$(node "$GITHUB_WORKSPACE/.base/tooling/ci/journey-touch.mjs" --reuse 2>/dev/null) && jq -e '.mode == "run" or .mode == "none"' <<<"$out" >/dev/null 2>&1; then
+            why=$(jq -r '.why' <<<"$out")
+            [ -n "$why" ] && echo "::notice::$why"
+            mode=$(jq -r '.mode' <<<"$out")
+            target=$(jq -r '.target' <<<"$out")
+            if [[ "$target" =~ ^[A-Za-z0-9._\ -]*$ ]]; then
+              { echo "mode=$mode"; echo "target=$target"; } >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          { echo "mode=$MODE"; echo "target=$TARGET"; } >> "$GITHUB_OUTPUT"
 
       # Marks a hand-dispatched full run off main in the jobs API, so main-first.mjs can count them (DISPATCH_MARK).
       - name: A hand-dispatched full run
@@ -729,6 +760,9 @@ jobs:
       # With the stack's custody switch off (the launch build's, OWNER 288), our own order book is off, so its TEST market
       # maker and its chart history are not started (local-test-market.mjs, CUSTODY_ON_ONLY): the gates still open and
       # verify, and launch journeys trade at the TEST venue.
+      # The history goes only on the markets journeys read the past of (`--markets journeys`, HISTORY_SYMBOLS in
+      # local-test-market.mjs, which local-test-market-history.test.mjs keeps whole): four of six markets, 149 s against 193 s
+      # measured on one shard on 13 Nov, a saving every shard makes (project-state #2065 row d37).
       - name: Open the TEST markets, write TEST chart history, start the TEST market maker
         run: |
           node tooling/scripts/local-test-stack.mjs restart matching
@@ -746,7 +780,7 @@ jobs:
           done
           node tooling/scripts/local-test-market.mjs stop
           node tooling/scripts/local-test-gates.mjs verify
-          node tooling/scripts/local-test-market.mjs history
+          node tooling/scripts/local-test-market.mjs history --markets journeys
           node tooling/scripts/local-test-market.mjs
 
       # Labelled TEST rows (earn pools, loan products, a TEST P2P method) so those rooms show working, after the gates

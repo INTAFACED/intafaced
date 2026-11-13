@@ -45,6 +45,8 @@
  *   node tooling/ci/journey-touch.mjs --files a b c          (named paths)
  *   node tooling/ci/journey-touch.mjs --json --files-from f  (one path a line; JSON { mode, full, files }; real-app-journeys.yml's plan)
  *   … --reach                                                 (product paths by the touched-journeys map; GH_TOKEN for its age)
+ *   node tooling/ci/journey-touch.mjs --reuse               (env TARGET, HEAD_SHA: the target less what runs by hand on
+ *                                                              that head already run; real-app-journeys.yml's reuse step)
  *   … --title <t> --branch <b>                                (the journeys the pull request names; with --reach, the
  *                                                              env's TITLE and GITHUB_HEAD_REF when not given, which is
  *                                                              how real-app-journeys.yml's touch step passes them)
@@ -88,6 +90,8 @@ export const JOURNEY_CI = [
   'tooling/ci/factory-builder.mjs',
   // journeys-revert.mjs reads its test and job lists (the revert on main for CI reds).
   'tooling/ci/bisect-main.mjs',
+  // journeys-revert.mjs refresh tells main-bisect's revert by its branch and author.
+  'tooling/ci/exact-revert.mjs',
   // Reached through the seal's imports (review-marker.mjs) and the test-infra action; journey-touch.test.mjs finds them.
   'tooling/ci/assert-test-db-env.mjs',
   'tooling/ci/look-baselines.mjs',
@@ -293,6 +297,55 @@ export function journeyTouch(paths, atHead = () => true, reach = null, named = n
   return because && !full.length ? { ...out, reach: because } : out;
 }
 
+/** A run by hand's title (real-app-journeys.yml `run-name`): the journeys it was given, or `full`. */
+export const DISPATCH_TITLE = /^Real-app journeys by hand, (.+)$/;
+const JOURNEY_FILE_NAME = /^[A-Za-z0-9._-]+\.pw\.mjs$/;
+/** A shard job of the journeys run (real-app-journeys.yml `journeys` job). */
+export const SHARD_JOB = /^Journeys \(shard \d+ of \d+\)$/;
+
+/**
+ * One journeys run per head (project-state#2065 row d32 part (b)): the journey files that targeted runs by hand of this
+ * workflow on the pull request's exact head (the builder's run before it opened the pull request) already run, so the
+ * pull request's own run leaves them out. A run counts when it is this repository's, dispatched by hand on `sha`, and
+ * targeted: its title (DISPATCH_TITLE) names journey files, each a journey file at the head (`journeyFiles`, a Set; null:
+ * none counts). A full run by hand never counts: it may be deferred and run nothing for now (main-first.mjs), it fails
+ * fast on unbuilt steps where a pull request's run keeps the ordinary limits, and one still going is cancelled by the
+ * pull request's run, which shares its concurrency group. A targeted run still going counts (the seal waits for it); a
+ * finished one counts only when its shards ran (`ranShards`, a Set of run ids with a finished shard job), never when it
+ * was cancelled or skipped or stopped before its shards. The seal still reads every run on the head by its report
+ * (journey-seal.mjs), so a red there stands. Returns Map(file → run id).
+ */
+export function reusableRuns(runs, { sha, repo, journeyFiles, ranShards, workflow = '.github/workflows/real-app-journeys.yml' }) {
+  const files = new Map();
+  for (const r of runs ?? []) {
+    if (r?.event !== 'workflow_dispatch' || r?.head_sha !== sha || r?.path !== workflow) continue;
+    if (r?.repository?.full_name !== repo || r?.head_repository?.full_name !== repo) continue;
+    if (r.status === 'completed' && (['cancelled', 'skipped'].includes(r.conclusion) || !ranShards?.has(r.id))) continue;
+    const m = DISPATCH_TITLE.exec(String(r.display_title ?? ''));
+    if (!m || m[1] === 'full') continue;
+    const names = m[1].split(/[\s,]+/).filter(Boolean);
+    if (!journeyFiles || !names.length || !names.every((f) => JOURNEY_FILE_NAME.test(f) && journeyFiles.has(f))) continue;
+    for (const f of names) if (!files.has(f)) files.set(f, r.id);
+  }
+  return files;
+}
+
+/**
+ * What a pull request's run runs after leaving out the journey files `reused` (reusableRuns) already runs on its head.
+ * `target`: the touch job's journey file names separated by spaces; '' (the full suite) is never narrowed. Returns
+ * { target, mode: 'run'|'none', why }.
+ */
+export function afterReuse(target, reused) {
+  const want = String(target ?? '')
+    .split(/\s+/)
+    .filter(Boolean);
+  const rest = want.filter((f) => !reused.has(f));
+  if (!want.length || rest.length === want.length) return { target: want.join(' '), mode: 'run', why: '' };
+  const ids = [...new Set(want.filter((f) => reused.has(f)).map((f) => reused.get(f)))];
+  const why = `${want.length - rest.length} of its ${want.length} journey file(s) already run by hand on this head (run ${ids.join(', ')}), so this run leaves them out`;
+  return rest.length ? { target: rest.join(' '), mode: 'run', why } : { target: '', mode: 'none', why: `${why} and runs nothing` };
+}
+
 /** The .mjs files directly in a checkout's real-app folder, name to text, or null when they can't be read. */
 export function checkoutJourneyTexts(root = '.') {
   try {
@@ -357,8 +410,40 @@ function runCreated() {
   return Date.now();
 }
 
+/** --reuse: the pull request run's target after reusableRuns (env TARGET, HEAD_SHA, GITHUB_REPOSITORY, GH_TOKEN), as
+ *  JSON { target, mode, why }. Any read that fails leaves the target as it was (never fewer journeys). */
+function reuseMain() {
+  const target = process.env.TARGET ?? '';
+  const sha = process.env.HEAD_SHA ?? '';
+  const repo = process.env.GITHUB_REPOSITORY || 'INTAFACED/intafaced';
+  let out = { target, mode: 'run', why: '' };
+  try {
+    if (!/^[0-9a-f]{40}$/.test(sha)) throw new Error('no head');
+    const runs = JSON.parse(
+      ghApi(`repos/${repo}/actions/workflows/real-app-journeys.yml/runs?head_sha=${sha}&event=workflow_dispatch&per_page=100`),
+    ).workflow_runs;
+    // A finished run counts only when a shard of it finished (reusableRuns); one jobs read per such run.
+    const ranShards = new Set();
+    for (const r of runs ?? [])
+      if (
+        r?.event === 'workflow_dispatch' &&
+        r?.head_sha === sha &&
+        r?.status === 'completed' &&
+        DISPATCH_TITLE.test(String(r.display_title ?? ''))
+      ) {
+        const jobs = JSON.parse(ghApi(`repos/${repo}/actions/runs/${Number(r.id)}/jobs?per_page=100`)).jobs ?? [];
+        if (jobs.some((j) => SHARD_JOB.test(String(j?.name)) && ['success', 'failure'].includes(j?.conclusion))) ranShards.add(r.id);
+      }
+    out = afterReuse(target, reusableRuns(runs, { sha, repo, journeyFiles: checkoutJourneyFiles(), ranShards }));
+  } catch (e) {
+    out.why = `the runs by hand on this head couldn't be read (${printable(e.message).slice(0, 200)}), so nothing is left out`;
+  }
+  console.log(JSON.stringify(out));
+}
+
 async function main() {
   const args = process.argv.slice(2);
+  if (args[0] === '--reuse') return reuseMain();
   let paths;
   let atHead = (p) => existsSync(p);
   const b = args.indexOf('--base');

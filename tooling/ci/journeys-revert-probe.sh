@@ -26,7 +26,7 @@ for _ in $(seq 1 30); do
 done
 node tooling/scripts/local-test-market.mjs stop
 node tooling/scripts/local-test-gates.mjs verify
-node tooling/scripts/local-test-market.mjs history
+node tooling/scripts/local-test-market.mjs history --markets journeys
 node tooling/scripts/local-test-market.mjs
 LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs apply --state "$LOCAL_STACK_STATE"
 traded=0
