@@ -136,20 +136,21 @@ test(`${J} #4 asks to withdraw grid funds by API: refused, no key or bot can wit
   expect(before.status, JSON.stringify(before.body).slice(0, 300)).toBe(200);
   const usdt = await balance('USDT');
   const btc = await balance('BTC');
-  // The trade key and the read-only key both ask; each is refused by name, and the answer sends the person to the
-  // venue with their own wallet.
-  for (const key of [state('key'), state('readKey')]) {
-    const res = await withKey(key, {
-      method: 'POST',
-      path: `/api/v1/bots/grid/${id}/withdraw`,
-      body: { requestId: `${J}-4`, asset: 'USDT', amount: '1' },
-    });
-    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(403);
-    expect(res.body.intafacedCode).toBe('trade.api_withdraw_not_allowed');
-    expect(res.body.message).toMatch(/No API key or bot can withdraw/);
-    expect(res.body.message).toMatch(/from the venue with your own wallet/);
-    expect(res.body.data?.withdrawBy).toBe('own_wallet_signature');
-  }
+  // The trade key asks: refused by name, and the answer sends the person to the venue with their own wallet.
+  const res = await call('POST', `/api/v1/bots/grid/${id}/withdraw`, { requestId: `${J}-4`, asset: 'USDT', amount: '1' });
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(403);
+  expect(res.body.intafacedCode, JSON.stringify(res.body).slice(0, 300)).toBe('trade.api_withdraw_not_allowed');
+  expect(res.body.message).toMatch(/No API key or bot can withdraw/);
+  expect(res.body.message).toMatch(/from the venue with your own wallet/);
+  expect(res.body.data?.withdrawBy).toBe('own_wallet_signature');
+  // The read-only key may not write at all: refused for its scope.
+  const readOnly = await withKey(state('readKey'), {
+    method: 'POST',
+    path: `/api/v1/bots/grid/${id}/withdraw`,
+    body: { requestId: `${J}-4-r`, asset: 'USDT', amount: '1' },
+  });
+  expect(readOnly.status, JSON.stringify(readOnly.body).slice(0, 300)).toBe(403);
+  expect(readOnly.body.intafacedCode, JSON.stringify(readOnly.body).slice(0, 300)).toBe('scope.denied');
   // Nothing moves: the bot reads back as it was, and the person's balances are unchanged.
   const after = await call('GET', `/api/v1/bots/grid/${id}`);
   expect(after.body).toEqual(before.body);
@@ -218,9 +219,12 @@ test(`${J} #7 places a TWAP with a client algo id, amends, cancels and reads: on
     expect(read.body).toMatchObject({ id, totalQty: body.totalQty, limitPrice: body.limitPrice });
     // A TWAP with a trigger price waits for the trigger, as on the screen: a buy trigger far above the book places
     // nothing; after more than one slice interval it is still active and waiting, with no slice placed or missed.
-    const triggerPrice = String((toUnits(ask) * 2n) / ONE);
+    // The first parent's opening slice may have lifted the ask, so the limit is measured from the book of this moment.
+    const fresh = (await bestPrices()).ask;
+    const triggerPrice = String((toUnits(fresh) * 2n) / ONE);
     const waiting = await call('POST', '/api/v1/algo', {
       ...body,
+      limitPrice: String((toUnits(fresh) * 101n) / 100n / ONE + 1n),
       durationMs: 300_000,
       sliceIntervalMs: 30_000,
       triggerPrice,

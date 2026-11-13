@@ -6,7 +6,7 @@
  *   GET  /api/v1/bots/grid/:id            scope: trade:read + jurisdiction
  *   POST /api/v1/bots/grid                scope: trade:write + jurisdiction(module=trade)  (idempotent on clientId)
  *   POST /api/v1/bots/grid/:id/stop       scope: trade:write + jurisdiction  (settlement `keep`: the base bought stays)
- *   POST /api/v1/bots/grid/:id/withdraw   any key: refused 403 `trade.api_withdraw_not_allowed`, and nothing moves
+ *   POST /api/v1/bots/grid/:id/withdraw   scope: trade:write + jurisdiction, then refused 403 `trade.api_withdraw_not_allowed`
  *
  * The spot grid is neutral: `direction` may be left out or be `neutral`; long and short refuse
  * `trade.grid_direction_not_built`. A stop keeps what the bot bought (`settlement: keep`, the default); selling it back
@@ -15,7 +15,8 @@
  * the refusal's data as `data`. A scope, auth or trade refusal answers as every other private route does.
  *
  * No API key and no bot can withdraw (J-copy-bots-otc-19 #4): a withdrawal is the person's own wallet signature at the
- * venue. The withdraw door answers every signed-in key, whatever its scopes, with that refusal and reaches no service.
+ * venue. A key that may trade gets that refusal by name; a key that may not is refused for its scope first, as on every
+ * write. Neither reaches the grid service, so nothing moves.
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
@@ -158,8 +159,8 @@ export function attachGridRestRoutes(app: FastifyInstance, grid: GridService | u
   });
 
   app.post<{ Params: { id: string } }>('/api/v1/bots/grid/:id/withdraw', privateWrite, async (req, reply) => {
-    // Signed in is all this asks: every key, whatever its scopes, gets the same refusal, and no service is called.
-    if (!deps.requirePrincipal(req, reply)) return;
+    // The write door's own rules first, then the refusal: no service is called, so nothing moves.
+    if (!admit(req, reply, 'trade:write')) return;
     return refuse(
       reply,
       new GridError(

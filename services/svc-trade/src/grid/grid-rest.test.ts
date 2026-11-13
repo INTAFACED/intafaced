@@ -148,25 +148,23 @@ describe('the grid bot public API (J-copy-bots-otc-19 #1, #4)', () => {
     ]);
   });
 
-  it('a withdrawal is refused for every key, whatever its scopes, with the wallet named, and reaches no service', async () => {
-    for (const scopes of [undefined, ['trade:read'], ['trade:read', 'trade:write']]) {
-      const { grid, calls } = fakeGrid();
-      await mount(grid, scopes ? { principal: { ...OWNER, scopes } as unknown as Principal } : {});
-      const res = await app.inject({
-        method: 'POST',
-        url: '/api/v1/bots/grid/bot-1/withdraw',
-        payload: { requestId: 'withdraw-0001', asset: 'USDT', amount: '10', stepUpApprovalId: 'su-1' },
-      });
-      expect(res.statusCode).toBe(403);
-      expect(res.json()).toEqual({
-        code: 'PermissionDenied',
-        message: 'No API key or bot can withdraw. Withdraw from the venue with your own wallet: you sign it there. Nothing was moved.',
-        intafacedCode: 'trade.api_withdraw_not_allowed',
-        data: { withdrawBy: 'own_wallet_signature', botId: 'bot-1' },
-      });
-      expect(calls).toEqual([]);
-      await app.close();
-    }
+  it('a withdrawal by a key that may trade is refused by name, with the wallet named, and reaches no service', async () => {
+    const { grid, calls } = fakeGrid();
+    await mount(grid);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/bots/grid/bot-1/withdraw',
+      payload: { requestId: 'withdraw-0001', asset: 'USDT', amount: '10', stepUpApprovalId: 'su-1' },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toEqual({
+      code: 'PermissionDenied',
+      message: 'No API key or bot can withdraw. Withdraw from the venue with your own wallet: you sign it there. Nothing was moved.',
+      intafacedCode: 'trade.api_withdraw_not_allowed',
+      data: { withdrawBy: 'own_wallet_signature', botId: 'bot-1' },
+    });
+    expect(calls).toEqual([]);
+    await app.close();
     await mount(fakeGrid().grid, { principal: null });
     const anonymous = await app.inject({ method: 'POST', url: '/api/v1/bots/grid/bot-1/withdraw', payload: {} });
     expect(anonymous.statusCode).toBe(401);
@@ -194,6 +192,9 @@ describe('the grid bot public API (J-copy-bots-otc-19 #1, #4)', () => {
     const write = await app.inject({ method: 'POST', url: '/api/v1/bots/grid/bot-1/stop', payload: { settlement: 'keep' } });
     expect(write.statusCode).toBe(403);
     expect(write.json()).toMatchObject({ code: 'PermissionDenied', intafacedCode: 'scope.denied' });
+    const withdraw = await app.inject({ method: 'POST', url: '/api/v1/bots/grid/bot-1/withdraw', payload: { requestId: 'withdraw-0002' } });
+    expect(withdraw.statusCode).toBe(403);
+    expect(withdraw.json()).toMatchObject({ code: 'PermissionDenied', intafacedCode: 'scope.denied' });
     await app.close();
     await mount(grid, { allowed: false });
     const read = await app.inject({ method: 'GET', url: '/api/v1/bots/grid' });
