@@ -88,6 +88,8 @@ export const JOURNEY_CI = [
   'tooling/ci/factory-builder.mjs',
   // journeys-revert.mjs reads its test and job lists (the revert on main for CI reds).
   'tooling/ci/bisect-main.mjs',
+  // journeys-revert.mjs refresh tells main-bisect's revert by its branch and author.
+  'tooling/ci/exact-revert.mjs',
   // Reached through the seal's imports (review-marker.mjs) and the test-infra action; journey-touch.test.mjs finds them.
   'tooling/ci/assert-test-db-env.mjs',
   'tooling/ci/look-baselines.mjs',
