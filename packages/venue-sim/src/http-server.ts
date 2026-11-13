@@ -59,10 +59,14 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *        /test/lose-answers {account,count}               the account's next `count` submits apply, answer not definite
  *        /test/expire-agent {account,agentAddress}        the agent's expiry passes now (it stays listed, expired)
  *        /test/market-status {symbol,status}             the market's own state: trading|halted|cancel_only|delisted|null
- *        /test/market-limits {symbol,maxOrderQty,maxOrderNotional}   decimal strings, or null for "not reported"
+ *        /test/market-limits {symbol,maxOrderQty?,maxOrderNotional?,minOrderNotional?,priceBandBps?,maxOpenOrders?}
+ *                                                         decimal strings (the cap a whole number), or null for "not
+ *                                                         reported"; a key left out keeps that rule
  *        /test/market-fees {symbol,makerFeeBps,takerFeeBps}   decimal bps, or null for "not published"
- *        /test/market-add {symbol,baseAsset,quoteAsset,maxOrderQty,maxOrderNotional}   one more TEST cash spot market,
- *                                                         tick 0.1, lot 0.001, no ladder; refused if already listed
+ *        /test/market-add {symbol,baseAsset,quoteAsset,maxOrderQty,maxOrderNotional,minOrderNotional?,priceBandBps?,
+ *                          maxOpenOrders?}               one more TEST cash spot market, tick 0.1, lot 0.001, no ladder,
+ *                                                         TEST_SPOT_RULES unless named (null: not published); refused
+ *                                                         if already listed
  *        /test/feed {symbol,state: 'live'|'stale'}        an oracle market's feed goes stale (the oracle stops) or live
  *        /test/session {symbol,state: 'open'|'off_hours',published?}  a stock perpetual's home market closes (the
  *                                                         venue's off-hours mode applies) or opens again; `published:
@@ -76,6 +80,19 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *
  * TEST ONLY: `startTestVenueServer` refuses to start unless APP_ENV is exactly `dev` or `test`, and binds loopback.
  */
+
+/**
+ * The rules the TEST venue publishes on its cash spot markets (J-cex-spot-04 #2): the smallest order value, a price band
+ * around the middle of its own book, and the most open orders one account may hold, in the shape a real venue publishes
+ * them (Hyperliquid publishes a 10-unit quote minimum on spot and 1000 open orders per account by default). TEST figures,
+ * set loose so no journey's TEST order on the shared markets meets them: 1 USDC, 95% (9500 bps) of the book's middle,
+ * 1000 orders. A journey that proves the rules lists a market of its own (`/test/market-add`) with its own figures.
+ */
+export const TEST_SPOT_RULES = {
+  minOrderNotional: parseAmount('1'),
+  priceBandBps: parseAmount('9500'),
+  maxOpenOrders: 1000,
+} as const;
 
 /** The venue itself as the lister of its own markets (the BTC markets). */
 const VENUE_LISTED = { kind: 'venue', name: 'TEST venue simulator' } as const;
@@ -107,6 +124,7 @@ export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
     maxOrderNotional: parseAmount('100000000'),
     // TEST: the venue's own cap on a builder fee, 1% on spot (the figure Hyperliquid publishes for its builder codes).
     builderFeeCapBps: { known: true, value: parseAmount('100') },
+    ...TEST_SPOT_RULES,
   },
   {
     symbol: 'BTC-PERP',
@@ -153,6 +171,7 @@ export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
     maxOrderNotional: parseAmount('2000000'),
     // TEST: the same spot builder-fee cap as BTC-USDC.
     builderFeeCapBps: { known: true, value: parseAmount('100') },
+    ...TEST_SPOT_RULES,
   },
 
   {
@@ -616,6 +635,8 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       return sim.agents(account(body));
     case '/order-by-client-id':
       return sim.orderByClientId(account(body), str(body, 'venueClientOrderId'));
+    case '/order-signer':
+      return sim.orderSigner(account(body), str(body, 'venueClientOrderId'));
     case '/fills': {
       const since = body.since;
       if (!(since instanceof Date)) throw new VenueWireError('since is required (an ISO time)');
@@ -776,7 +797,15 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
         if (typeof v !== 'bigint') throw new VenueWireError(`${k} is a decimal string or null`);
         return v as Amount;
       };
-      sim.setMarketLimits(str(body, 'symbol'), { maxOrderQty: limit('maxOrderQty'), maxOrderNotional: limit('maxOrderNotional') });
+      // The published rules (J-cex-spot-04): a key left out keeps the rule as it is, null takes it away.
+      const rule = (k: string): Amount | null | undefined => (k in body ? limit(k) : undefined);
+      sim.setMarketLimits(str(body, 'symbol'), {
+        maxOrderQty: rule('maxOrderQty'),
+        maxOrderNotional: rule('maxOrderNotional'),
+        minOrderNotional: rule('minOrderNotional'),
+        priceBandBps: rule('priceBandBps'),
+        maxOpenOrders: 'maxOpenOrders' in body ? openOrdersCap(body.maxOpenOrders) : undefined,
+      });
       return { ok: true, label: 'TEST' };
     }
     case '/test/market-add': {
@@ -811,12 +840,24 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
         maxOrderNotional: cap('maxOrderNotional'),
         // TEST: the same spot builder-fee cap as BTC-USDC.
         builderFeeCapBps: { known: true, value: parseAmount('100') },
+        // The published rules: TEST_SPOT_RULES unless the body names its own (null: not published).
+        minOrderNotional: 'minOrderNotional' in body ? cap('minOrderNotional') : TEST_SPOT_RULES.minOrderNotional,
+        priceBandBps: 'priceBandBps' in body ? cap('priceBandBps') : TEST_SPOT_RULES.priceBandBps,
+        maxOpenOrders: 'maxOpenOrders' in body ? openOrdersCap(body.maxOpenOrders) : TEST_SPOT_RULES.maxOpenOrders,
       });
       return { ok: true, symbol, label: 'TEST' };
     }
     default:
       return undefined;
   }
+}
+
+/** A TEST open-order cap from a body: a whole number above zero, or null for "not published". */
+function openOrdersCap(v: unknown): number | null {
+  if (v === null) return null;
+  if (typeof v !== 'number' || !Number.isInteger(v) || v <= 0)
+    throw new VenueWireError('maxOpenOrders is a whole number above zero, or null');
+  return v;
 }
 
 /** The HTTP handler for one simulator. Bodies are capped at 1 MiB. */

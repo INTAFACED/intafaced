@@ -50,6 +50,9 @@ const AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   'ask',
   'maxOrderQty',
   'maxOrderNotional',
+  // UserVenueMarket's smallest order value and price band (J-cex-spot-04), null where the venue publishes none
+  'minOrderNotional',
+  'priceBandBps',
   // UserVenueOpenInterest (J-derivatives-27 #8): the deployer's cap, null where it sets none
   'capSize',
   // UserVenueMarketEvent (J-derivatives-27 #9 #10)
@@ -93,6 +96,8 @@ const NULLABLE_AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   'ask',
   'maxOrderQty',
   'maxOrderNotional',
+  'minOrderNotional',
+  'priceBandBps',
   'capSize',
 ]);
 

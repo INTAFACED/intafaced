@@ -240,6 +240,8 @@ import { SqlMirrorEventLog } from './copy/mirror-events.js';
 import { sqlLeaderDirectory } from './copy/leader-directory.js';
 import { createCopyClosePort } from './copy/copy-close.js';
 import { createFollowerFlattenPort } from './copy/follower-flatten-port.js';
+import { sqlCopiedPositions } from './copy/copied-positions.js';
+import { VenueCopy, SqlVenueFollowStore, isVenueLeaderFillId, sqlPlacedMirrors } from './copy/venue-copy.js';
 import { parseCopyPlaceMirrorFlag, type PlaceFollowerOrderPort } from './copy/auto-mirror-place.js';
 import { createJobHost } from './futures/job-host.js';
 import { SqlMarketLifecycleAuthority, SqlMarketLifecycleEvidenceStore, assertNoLocalTestLifecycleRows } from './market-lifecycle.js';
@@ -678,7 +680,47 @@ const platformPauses = new PlatformPauseDesk({
 });
 const readPlatformPauses = () => platformPauses.snapshot();
 trade.bindPlatformPauses(readPlatformPauses);
+// Copy trading on the venue (J-copy-bots-otc-03): a follow bound to the follower's own agent account copies there, its
+// leader's fills read from the venue and each copy and close placed by that account's agent permission. Off with the door.
+const venueCopy =
+  userVenue && agentOrders
+    ? new VenueCopy({
+        venue: () => userVenue.venue(),
+        orders: agentOrders,
+        accounts: agentAccountStore,
+        actions: userVenueStore,
+        bindings: new SqlVenueFollowStore(sql),
+        copyStore,
+        placedMirrors: sqlPlacedMirrors(sql),
+        slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
+      })
+    : null;
+/** The venue copy desk when this follow copies on the venue, else null (the follow keeps the paths below). */
+const onVenue = async (followId: string | undefined) =>
+  venueCopy && followId && (await venueCopy.isVenueFollow(followId)) ? venueCopy : null;
+const engineCopyClose = createCopyClosePort({
+  sql,
+  placeFollowerOrder,
+  slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
+  loadMarket: (symbol) => trade.marketBySymbol(symbol),
+  bestBid: copyBestBid,
+});
+const engineFlatten = createFollowerFlattenPort({
+  sql,
+  ledger,
+  store: copyStore,
+  placeFollowerOrder,
+  slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
+  loadMarket: (symbol) => trade.marketBySymbol(symbol),
+  bestBid: copyBestBid,
+});
+const engineCopiedPositions = sqlCopiedPositions(sql);
 const copy = new CopyService(ledger, {
+  ...(venueCopy ? { venueFollows: venueCopy } : {}),
+  copiedPositions: async (input) => {
+    const v = await onVenue(input.followId);
+    return (v ? await v.positions(input) : null) ?? engineCopiedPositions(input);
+  },
   stepUp,
   platformPauses: readPlatformPauses,
   notices: busCopyNotices(bus),
@@ -690,30 +732,35 @@ const copy = new CopyService(ledger, {
   minTier: copyMinTier,
   store: copyStore,
   directory: leaderDirectory,
-  placeFollowerOrder,
-  flattenCopyPosition: createFollowerFlattenPort({
-    sql,
-    ledger,
-    store: copyStore,
-    placeFollowerOrder,
-    slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
-    loadMarket: (symbol) => trade.marketBySymbol(symbol),
-    bestBid: copyBestBid,
-  }),
-  copyClose: createCopyClosePort({
-    sql,
-    placeFollowerOrder,
-    slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
-    loadMarket: (symbol) => trade.marketBySymbol(symbol),
-    bestBid: copyBestBid,
-  }),
+  placeFollowerOrder: async (principal, input) => {
+    const v = await onVenue(input.followId);
+    return v ? v.placeMirror(principal, input) : placeFollowerOrder(principal, input);
+  },
+  flattenCopyPosition: async (principal, input) => {
+    const v = await onVenue(input.followId);
+    return (v ? await v.flatten(principal, input) : null) ?? engineFlatten(principal, input);
+  },
+  copyClose: venueCopy
+    ? {
+        latest: async (followId, closeKey) =>
+          (await onVenue(followId)) ? venueCopy.closePort().latest(followId, closeKey) : engineCopyClose.latest(followId, closeKey),
+        resume: async (principal, record) =>
+          (await onVenue(record.followId)) ? venueCopy.closePort().resume(principal, record) : engineCopyClose.resume(principal, record),
+        place: async (principal, input) =>
+          (await onVenue(input.followId)) ? venueCopy.closePort().place(principal, input) : engineCopyClose.place(principal, input),
+      }
+    : engineCopyClose,
   inspectMarket: async (symbol) => {
     const market = await trade.marketBySymbol(symbol);
-    return market ? { paper: market.paper, lotSize: market.lotSize } : null;
+    if (market) return { paper: market.paper, lotSize: market.lotSize };
+    // A venue market (a venue follow's copy): its lot from the venue's own list.
+    return venueCopy ? venueCopy.inspectMarket(symbol).catch(() => null) : null;
   },
   // The copy driver's read: the leader's own live spot fills after the follow began, oldest first.
   // Fill times are compared at millisecond precision, the precision the cursor keeps, so a fill is never read twice.
-  listLeaderFillsSince: async (leaderId, after, limit) => {
+  listLeaderFillsSince: async (leaderId, after, limit, followId) => {
+    const v = await onVenue(followId);
+    if (v) return v.leaderFillsSince(leaderId, after, limit);
     const rows = await sql<Array<{ id: string; symbol: string; created_at: Date }>>`
       SELECT f.id, m.symbol, f.created_at
         FROM trade.fills f
@@ -746,7 +793,8 @@ const copy = new CopyService(ledger, {
     if (bid === null || ask === null || bid <= 0n || ask <= 0n) return null;
     return { marketId, price: (bid + ask) / 2n, asOf: new Date(), quality: 'mid' as const };
   },
-  lookupLeaderFill: async (fillId) => {
+  lookupLeaderFill: async (fillId, leaderId) => {
+    if (isVenueLeaderFillId(fillId)) return venueCopy && leaderId ? venueCopy.leaderFill(fillId, leaderId) : null;
     const id = canonicalizeCopyFillId(fillId);
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)) {
       return null;

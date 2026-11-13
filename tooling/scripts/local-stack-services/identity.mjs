@@ -61,7 +61,21 @@ export async function confirmLocalFounderEmails({ STATE, marker, edgeUrl, say })
   }
 }
 
-export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORIGIN, identityFounderEnv }) => ({
+/**
+ * `LOCAL_STACK_IDENTITY_SCREENING=unset` on a start or restart runs identity alone with no blocked list at all, as a build
+ * is before the owner sets one: the caller's list is left out (never replaced by a value of this script's), the unsigned
+ * rows are kept out, and the fail-closed refusal stays on, so sign-up's "the list is not set" can be seen (J-identity-01
+ * #9). It only ever makes identity stricter.
+ */
+function screeningSwitch(env) {
+  if (process.env.LOCAL_STACK_IDENTITY_SCREENING !== 'unset') return env;
+  const out = { ...env, INTAFACED_UNSIGNED_SANCTIONS_ROWS: 'off', INTAFACED_SCREENING_FAIL_CLOSED: 'on' };
+  delete out.INTAFACED_SANCTIONS_REGIONS;
+  delete out.INTAFACED_SANCTIONS_LIST_SOURCE;
+  return out;
+}
+
+const service = ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORIGIN, identityFounderEnv }) => ({
   name: 'identity',
   env: () => ({
     ...c('svc-identity', PORTS.identity),
@@ -344,3 +358,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     ...identityFounderEnv(),
   }),
 });
+
+export default (deps) => {
+  const def = service(deps);
+  return { ...def, env: () => screeningSwitch(def.env()) };
+};
