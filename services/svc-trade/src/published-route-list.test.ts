@@ -13,8 +13,8 @@ const SRC = new URL('./', import.meta.url);
 const ROUTE_LIST = new URL('./published-routes.txt', import.meta.url);
 
 const FIX =
-  'a route changed: give it its row in REST_REFERENCE (apps/customer/src/features/developers/developers-reference.ts), ' +
-  'then rewrite the list with `WRITE_ROUTE_LIST=1 pnpm --filter @intafaced/customer exec vitest run src/features/developers/developers-reference.test.ts`';
+  "a route changed: give it its row in the customer app's REST_REFERENCE (features/developers/developers-reference.ts), " +
+  'then rewrite this list by running that app’s developers-reference test with WRITE_ROUTE_LIST=1';
 
 describe('the published route list', () => {
   it('names every /api/v1 route svc-trade registers, with its access and scopes, and no route it does not', () => {
