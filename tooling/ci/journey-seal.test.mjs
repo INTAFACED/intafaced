@@ -42,6 +42,9 @@ import {
   JOURNEYS_WORKFLOW,
   SEAL,
   getTried,
+  RELAY_JOB,
+  isRelayRun,
+  relayStep,
 } from './journey-seal.mjs';
 
 const REPO = 'INTAFACED/intafaced';
@@ -1713,7 +1716,10 @@ test('review 7552-R2: a reopen leaves an older red seal run on the head; the re-
  *  seal`, so a skipped run never reports under the seal's name (probe intafaced#7679). */
 function sealJobSkipProblems(text) {
   const job = text.split('\n  seal:\n')[1] ?? '';
-  const cond = "github.run_attempt != '1' || needs.now.result != 'success' || needs.now.outputs.now == 'true'";
+  // A push's run seals when its `now` job says so or failed; an edit's or an arming's when its relay job says `here` or
+  // failed (INTAFACED/project-state#2065 d32 part 5a); any re-run attempt always seals.
+  const cond =
+    "github.run_attempt != '1' || (needs.relay.result == 'skipped' && (needs.now.result != 'success' || needs.now.outputs.now == 'true')) || (needs.relay.result != 'skipped' && (needs.relay.result != 'success' || needs.relay.outputs.here == 'true'))";
   const ifs = [...job.matchAll(/\n {4}if: ([^\n]*)/g)].map((m) => m[1].trim());
   const name = /\n {4}name: ([^\n]*)/.exec(job)?.[1]?.trim() ?? '';
   const out = [];
@@ -1722,8 +1728,11 @@ function sealJobSkipProblems(text) {
     out.push(`the seal job's if: must be \`!cancelled() && (${cond})\` (a failed decision seals at once), not \`${ifs[0]}\``);
   if (name !== `\${{ (${cond}) && 'CI merge seal' || 'CI merge seal waits for CI, the CI review and the journeys it needs' }}`)
     out.push(`a skippable seal job needs its name as the same expression, never a static name: \`${name}\``);
-  if (!/\n {2}now:\n {4}name: [^\n]+\n {4}if: github\.run_attempt == '1'\n/.test(text))
-    out.push('the `now` job must ask on a first attempt only');
+  const relayEvent = "(github.event.action == 'auto_merge_enabled' || (github.event.action == 'edited' && !github.event.changes.base))";
+  if (!text.includes(`\n  now:\n    name: Does the seal wait for its inputs\n    if: github.run_attempt == '1' && !${relayEvent}\n`))
+    out.push('the `now` job must ask on a first attempt only, of a push, an open, a reopen or a retarget');
+  if (!text.includes(`\n  relay:\n    name: ${RELAY_JOB}\n    if: github.run_attempt == '1' && ${relayEvent}\n`))
+    out.push('the `relay` job must run on the first attempt of an edit (not a retarget) or an arming only');
   return out;
 }
 
@@ -1738,9 +1747,13 @@ test('review 7552-R1: merge-seal.yml seals a pull request retargeted to main (ed
     /static name/,
   );
   // Planted: without `needs.now.result != 'success'`, a decision that errored would skip the seal instead of sealing now.
-  assert.match(sealJobSkipProblems(text.replaceAll(" || needs.now.result != 'success'", '')).join(), /failed decision/);
+  assert.match(sealJobSkipProblems(text.replaceAll("needs.now.result != 'success' || ", '')).join(), /failed decision/);
   // Planted: a `now` job on every attempt would let a re-run skip again, so the seal would never give its verdict.
-  assert.match(sealJobSkipProblems(text.replace("    if: github.run_attempt == '1'\n", '')).join(), /first attempt only/);
+  assert.match(sealJobSkipProblems(text.replace("    if: github.run_attempt == '1' && !(", '    if: !(')).join(), /first attempt only/);
+  // Planted (d32 part 5a): a relay that failed must seal here; without `needs.relay.result != 'success'` it would skip.
+  assert.match(sealJobSkipProblems(text.replaceAll("needs.relay.result != 'success' || ", '')).join(), /failed decision/);
+  // Planted: a relay on a retarget would leave a pull request retargeted to main with no push's run to judge it.
+  assert.match(sealJobSkipProblems(text.replaceAll(' && !github.event.changes.base))', '))')).join(), /first attempt only|relay/);
   assert.match(text, /branches: \[main\]/);
   assert.doesNotMatch(text.replace('reopened, edited', 'reopened'), /reopened, edited/);
 });
@@ -2596,4 +2609,124 @@ test('merged: a seal on a pull request that already merged passes, unless anothe
     io: { ...io(), pullsOn: async () => [...mine, { number: 8, state: 'open' }] },
   });
   assert.equal(shared.ok, false, 'planted: another open PR on the head still fails');
+});
+
+// ---- d32 part 5a (INTAFACED/project-state#2065): one seal run per head gives the verdicts --------------------------
+
+// A skipped seal job's check carries its name expression's raw text (probe intafaced#7679), which isWaitingSeal reads.
+const WAITING_NAME =
+  "${{ (github.run_attempt != '1') && 'CI merge seal' || 'CI merge seal waits for CI, the CI review and the journeys it needs' }}";
+const relayJobs = (conclusion = 'success') => [
+  { id: 1, name: RELAY_JOB, status: 'completed', conclusion },
+  { id: 2, name: WAITING_NAME, status: 'completed', conclusion: 'skipped' },
+];
+const pushJobs = (seal) => [
+  { id: 3, name: 'Does the seal wait for its inputs', status: 'completed', conclusion: 'success' },
+  { id: 4, name: RELAY_JOB, status: 'completed', conclusion: 'skipped' },
+  seal ?? { id: 5, name: WAITING_NAME, status: 'completed', conclusion: 'skipped' },
+];
+const sealJob = (status, conclusion, steps = []) => ({ id: 9, name: 'CI merge seal', status, conclusion, steps });
+const sealRun = (id, status = 'completed') => ({ id, event: 'pull_request_target', status, head_sha: 'a'.repeat(40) });
+
+test("d32 5a relayStep: an edit or an arming after a verdict re-runs the push run's seal", () => {
+  const jobs = new Map([
+    ['20', relayJobs()],
+    ['10', pushJobs(sealJob('completed', 'failure'))],
+  ]);
+  const runs = [sealRun(10), sealRun(20)];
+  assert.deepEqual(
+    { ...relayStep({ action: 'edited', runs, jobsByRun: jobs }), msg: undefined },
+    { act: 'rerun', runId: '10', jobId: '9', msg: undefined },
+  );
+  // Review R1 on #8225: an arming after a verdict re-judges too, since inputs re-run while unarmed are never re-sealed.
+  assert.equal(relayStep({ action: 'auto_merge_enabled', runs, jobsByRun: jobs }).act, 'rerun');
+  // The relay run (20) is newer but never the one judged.
+  assert.equal(relayStep({ action: 'edited', runs, jobsByRun: new Map([['20', relayJobs()]]) }).act, 'jobs');
+});
+
+test('d32 5a relayStep: no verdict yet, it starts the push run only once every input has finished', () => {
+  const jobs = new Map([['10', pushJobs()]]);
+  const runs = [sealRun(10)];
+  assert.equal(relayStep({ action: 'auto_merge_enabled', runs, jobsByRun: jobs }).act, 'going');
+  assert.equal(relayStep({ action: 'auto_merge_enabled', runs, jobsByRun: jobs, going: ['CI run 1 (in_progress)'] }).act, 'done');
+  assert.deepEqual(relayStep({ action: 'auto_merge_enabled', runs, jobsByRun: jobs, going: [] }).act, 'start');
+  assert.deepEqual(relayStep({ action: 'edited', runs, jobsByRun: jobs, going: [] }).act, 'start');
+  // The push's run still deciding (its `now` job running) reads the pull request as it is now.
+  const deciding = [{ id: 3, name: 'Does the seal wait for its inputs', status: 'in_progress', conclusion: null }];
+  assert.equal(relayStep({ action: 'edited', runs: [sealRun(10, 'in_progress')], jobsByRun: new Map([['10', deciding]]) }).act, 'done');
+});
+
+test('d32 5a relayStep: it seals here when it cannot be sure the push run reads this edit (fails closed)', () => {
+  // No push's run on the head.
+  assert.equal(relayStep({ action: 'edited', runs: [], jobsByRun: new Map() }).act, 'here');
+  // Review R2 on #8225: a newer run with no jobs yet (an arming's, just queued) is never taken for the push's run.
+  assert.equal(
+    relayStep({
+      action: 'edited',
+      runs: [sealRun(10), sealRun(30, 'queued')],
+      jobsByRun: new Map([
+        ['30', []],
+        ['10', pushJobs(sealJob('completed', 'success'))],
+      ]),
+    }).act,
+    'here',
+  );
+  // The push's seal is judging now (past its wait), so it may have read the old title.
+  const judging = sealJob('in_progress', null, [
+    { name: 'Wait for CI, the CI review and the journeys this change needs', status: 'completed' },
+    { name: 'Require the named journey steps on this exact head', status: 'in_progress' },
+  ]);
+  assert.equal(
+    relayStep({ action: 'edited', runs: [sealRun(10, 'in_progress')], jobsByRun: new Map([['10', pushJobs(judging)]]) }).act,
+    'here',
+  );
+  // Review R4 on #8225: an arming while it judges seals here too.
+  assert.equal(
+    relayStep({ action: 'auto_merge_enabled', runs: [sealRun(10, 'in_progress')], jobsByRun: new Map([['10', pushJobs(judging)]]) }).act,
+    'here',
+  );
+  // Still in its wait: it reads the title after this edit.
+  const waiting = sealJob('in_progress', null, [
+    { name: 'Wait for CI, the CI review and the journeys this change needs', status: 'in_progress' },
+  ]);
+  assert.equal(
+    relayStep({ action: 'edited', runs: [sealRun(10, 'in_progress')], jobsByRun: new Map([['10', pushJobs(waiting)]]) }).act,
+    'done',
+  );
+  // Planted: a relay that treated a judging seal as waiting would let an earlier green stand for a new title.
+  assert.notEqual(
+    relayStep({ action: 'edited', runs: [sealRun(10, 'in_progress')], jobsByRun: new Map([['10', pushJobs(judging)]]) }).act,
+    'done',
+  );
+  // A verdict whose run is still finishing can't be re-run now.
+  assert.equal(
+    relayStep({
+      action: 'edited',
+      runs: [sealRun(10, 'in_progress')],
+      jobsByRun: new Map([['10', pushJobs(sealJob('completed', 'success'))]]),
+    }).act,
+    'here',
+  );
+});
+
+test('d32 5a recheckStep: a relay run is passed over, never started, and its own seal (when it sealed here) still counts', () => {
+  const runs = [sealRun(20), sealRun(10)];
+  // The relay run 20 holds only a skipped seal: the push run 10's verdict is re-run.
+  const jobs = new Map([
+    ['20', relayJobs()],
+    ['10', pushJobs(sealJob('completed', 'success'))],
+  ]);
+  assert.deepEqual(recheckStep(runs, jobs, 'pull_request_target'), { act: 'rerun', runId: '10', jobId: '9' });
+  // No verdict anywhere: the push run is started, never the relay run.
+  const none = new Map([
+    ['20', relayJobs()],
+    ['10', pushJobs()],
+  ]);
+  assert.equal(recheckStep(runs, none, 'pull_request_target').runId, '10');
+  // A relay run that sealed here is an ordinary verdict run.
+  const here = new Map([['20', [{ id: 1, name: RELAY_JOB, status: 'completed', conclusion: 'success' }, sealJob('completed', 'failure')]]]);
+  assert.deepEqual(recheckStep(runs, here, 'pull_request_target'), { act: 'rerun', runId: '20', jobId: '9' });
+  // Planted: without isRelayRun the relay run 20 would be started whole and give a second verdict on the head.
+  assert.equal(isRelayRun(relayJobs()), true);
+  assert.equal(isRelayRun(pushJobs()), false);
 });

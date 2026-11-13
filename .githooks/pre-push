@@ -69,13 +69,11 @@ MSG
       exit 1
     fi
   fi
-elif command -v pnpm >/dev/null 2>&1; then
-  if ! (CDPATH= cd -- "$TOP" && pnpm format:check); then
-    echo "✖ pnpm format:check failed — refuse push." >&2
-    exit 1
-  fi
 else
-  echo "warn: no prettier binary found; skipping format:check on push" >&2
+  # No prettier here or in the main checkout (a fresh worktree before its install): skip, never refuse. CI's format
+  # check still runs on the push. Was a fallback to `pnpm format:check`, which fails without node_modules and so refused
+  # the first push in 12 of 20 sampled builder threads (project-state garden stake-02; the lead on #2065, 13 Nov).
+  echo "format:check — no prettier in this worktree; skipped (pnpm install --frozen-lockfile --prefer-offline); CI checks it" >&2
 fi
 
 # Local agent-rule drift check. Not a GitHub workflow. Stdin stays with the loop below.

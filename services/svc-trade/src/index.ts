@@ -37,6 +37,7 @@ import { createLedgerClient } from './ledger-client.js';
 import { createLedgerPages } from './statements/ledger-history.js';
 import { StatementExports } from './statements/statement-export.js';
 import { registerClosureCheck } from './closure/closure-check.js';
+import { registerTrackRecord } from './signals/track-record.js';
 import { leadOrderGate, registerLeadCheck } from './copy/lead-api.js';
 import { readSupportOrder, registerSupportOrderRead } from './support/order-read.js';
 import { subscribeMatchingEvents, type MatchedFillsSink } from './events.js';
@@ -324,6 +325,8 @@ const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 })
 installRouteInventory(app, { edgeSecret: env.EDGE_PRINCIPAL_SECRET, edgeTrust: edgeTrustFromEnv(env), serviceName: env.SERVICE_NAME });
 retainRawBody(app);
 registerClosureCheck(app, { sql, secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s });
+// A signal provider's own fills, for svc-market's provider criteria (CB-bots-api-signal-05).
+registerTrackRecord(app, { sql, secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s });
 registerSupportOrderRead(app, { read: (orderId) => readSupportOrder(sql, orderId), secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s });
 // Matching's depth read carries no timestamp, so the read time is the observation time: the book was read from the
 // live engine at this moment. A stale, one-sided or thin book still gives no mark.
@@ -529,6 +532,7 @@ const userVenueDoors = userVenueUrls.map(
       stepUp,
       builder: parseBuilderFee(env.TRADE_USER_VENUE_BUILDER_ADDRESS, env.TRADE_USER_VENUE_BUILDER_FEE_BPS),
       slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
+      spreadLimitBps: env.TRADE_MARKET_SPREAD_LIMIT_BPS,
       ordersPageMax: parseOrdersPageMax(env.TRADE_USER_VENUE_ORDERS_PAGE_MAX),
       // J-cex-spot-17: the builder-fee version in force when an order is prepared, by venue and market group.
       builderFeesAt: async (at) => (await builderFeesAt(sql, at)).book,
@@ -1758,6 +1762,7 @@ installCollarPlace(TradeService);
 installComboPlace(TradeService);
 registerPrivateRest(app, {
   userVenueSlippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
+  userVenueSpreadLimitBps: env.TRADE_MARKET_SPREAD_LIMIT_BPS,
   edgeSecret: env.EDGE_PRINCIPAL_SECRET,
   edgeTrust: edgeTrustFromEnv(env),
   serviceName: env.SERVICE_NAME,
