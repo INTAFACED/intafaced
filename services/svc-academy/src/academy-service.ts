@@ -152,7 +152,14 @@ import {
   type CertPerkOutcome,
   type CertPerkPlaneStatus,
 } from './certs/perk-plane.js';
-import { getCurriculumItem, hasCurriculumSlug, itemType, listCurriculum, type CurriculumPath } from './curriculum/catalog.js';
+import {
+  curriculumSpineSize,
+  getCurriculumItem,
+  hasCurriculumSlug,
+  itemType,
+  listCurriculum,
+  type CurriculumPath,
+} from './curriculum/catalog.js';
 import { curriculumBodyForLocale, curriculumI18nStrategyLine } from './curriculum/i18n-strategy.js';
 import { PROGRAMME_CATALOG, programmeBySlug, unmetPrerequisites, type ProgrammeDefinition } from './curriculum/programmes.js';
 import { getVideoSpineItem, listVideoSpine, type VideoSpineEntry } from './video/catalog.js';
@@ -682,6 +689,56 @@ export class AcademyService {
       VALUES (${input.roomId}, ${input.userId}, ${input.hostId}, ${input.expiresAt ?? null})
       ON CONFLICT (room_id, user_id) DO UPDATE SET expires_at = EXCLUDED.expires_at
     `;
+  }
+
+  // ── A specialist room's pinned lessons (RC-academy-06) ─────────────────────
+
+  /**
+   * Pin a curriculum lesson to a room page. The host's call, and only theirs.
+   *
+   * The lesson must be in the catalogue: a pin naming a slug nobody can open
+   * would put a dead link on the room page. Pinning a lesson already pinned
+   * keeps its first place, so a retried pin moves nothing.
+   */
+  async pinLesson(input: { roomId: string; hostId: string; itemSlug: string }): Promise<void> {
+    const room = await this.room(input.roomId);
+    this.assertHost(room.hostId, input.hostId, 'room');
+    if (!hasCurriculumSlug(input.itemSlug)) {
+      throw new AcademyError(`There is no lesson "${input.itemSlug}" to pin`, 'academy.curriculum_not_found');
+    }
+    await this.sql`
+      INSERT INTO academy.room_pinned_lessons (room_id, item_slug, position, pinned_by)
+      SELECT ${input.roomId}, ${input.itemSlug},
+             COALESCE((SELECT MAX(position) + 1 FROM academy.room_pinned_lessons WHERE room_id = ${input.roomId}), 0),
+             ${input.hostId}
+      ON CONFLICT (room_id, item_slug) DO NOTHING
+    `;
+  }
+
+  /** Take a lesson off a room page. The host's call; unpinning one not pinned changes nothing. */
+  async unpinLesson(input: { roomId: string; hostId: string; itemSlug: string }): Promise<void> {
+    const room = await this.room(input.roomId);
+    this.assertHost(room.hostId, input.hostId, 'room');
+    await this.sql`DELETE FROM academy.room_pinned_lessons WHERE room_id = ${input.roomId} AND item_slug = ${input.itemSlug}`;
+  }
+
+  /**
+   * The lessons pinned to a room, in the order pinned, as the catalogue
+   * describes them. A pin is unique per lesson and names a catalogue slug, so
+   * a room never holds more pins than the catalogue has lessons: that is the
+   * page size. A pin whose lesson has left the catalogue is not shown.
+   */
+  async pinnedLessons(roomId: string): Promise<ReturnType<typeof listCurriculum>> {
+    const rows = await this.sql<{ item_slug: string }[]>`
+      SELECT item_slug FROM academy.room_pinned_lessons WHERE room_id = ${roomId}
+       ORDER BY position ASC, pinned_at ASC
+       LIMIT ${curriculumSpineSize()}
+    `;
+    const bySlug = new Map(listCurriculum().map((item) => [item.slug, item]));
+    return rows.flatMap((row) => {
+      const item = bySlug.get(row.item_slug);
+      return item ? [item] : [];
+    });
   }
 
   // ── Sessions ───────────────────────────────────────────────────────────────
