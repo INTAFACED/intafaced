@@ -44,7 +44,7 @@ async function restricted(page, prefix) {
   const who = person(prefix);
   await signUpInBrowser(page, who);
   restrictTrading(who.handle);
-  lifts.push(who.handle);
+  lifts.add(who.handle);
   return who;
 }
 
@@ -83,8 +83,11 @@ async function sendOrder(page) {
   return sent;
 }
 
-const lifts = [];
+// Each account once: a restore runs identity's two-person approval, so a repeat only costs time.
+const lifts = new Set();
 test.afterAll(() => {
+  // One restore per restricted account, each a proposal, an approval and the change: more than the default hook time.
+  test.setTimeout(300_000);
   // Leave no journey account restricted if a test stopped before its own lift.
   for (const handle of lifts) {
     try {
@@ -164,7 +167,7 @@ test(`${J} #2 opens a refusal on any screen: the same reason wording everywhere`
   // A verified person with TEST USDT, so an order reaches the trading check: the restriction is what refuses it.
   const who = await fundedTrader(page, 'apw', '100');
   restrictTrading(who.handle);
-  lifts.push(who.handle);
+  lifts.add(who.handle);
   await openDesk(page, who);
   const answer = await sendOrder(page);
   expect(answer.status()).toBe(403);
@@ -283,7 +286,6 @@ test(`${J} #4 gets a decision, upheld: the restriction stays with a reason and a
   test.setTimeout(180_000);
   // Upheld: the restriction stays, the page gives the reason in the owner's words, and a notice is mailed.
   const kept = await restricted(page, 'apu');
-  lifts.push(kept.handle);
   const keptClient = await api(kept);
   await fileAppeal(page, 'TEST: please look again.');
   // The founder who set the restriction cannot decide its appeal: identity refuses that person by name (and its approver).
@@ -320,7 +322,6 @@ test(`${J} #4 gets a decision, lifted: the restriction is released through four 
   // The lift runs through the restore's four-eyes approval with the appeal as its reason, the restriction is released,
   // the page says so in the owner's words, and a notice is mailed.
   const freed = await restricted(page, 'apl');
-  lifts.push(freed.handle);
   const freedClient = await api(freed);
   await fileAppeal(page, 'TEST: the review should clear me.');
   // The person who set the restriction cannot lift it through its appeal either: identity refuses them by name.
