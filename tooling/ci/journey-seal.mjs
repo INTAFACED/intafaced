@@ -1526,7 +1526,7 @@ export const CI_WORKFLOW = 'ci.yml';
  * version; merge-seal.yml's runs on pull_request_target from the default branch, so its job and scripts are main's
  * whatever a pull request changes (R3 C3 piece 2, OWNER 242). Each workflow's newest run on a head counts, and each
  * must pass (probe #7547, 8 Nov 2026: a red ci.yml job blocked beside a green probe workflow's), so the default branch's
- * seal decides even when a pull request edits its own; an older run of the same workflow is not read (probe #<PROBE>).
+ * seal decides even when a pull request edits its own; an older run of the same workflow is not read (probe #8246).
  */
 export const SEAL_WORKFLOWS = [
   { workflow: CI_WORKFLOW, event: 'pull_request' },
@@ -1676,7 +1676,7 @@ export function recheckStep(runs, jobsByRun = new Map(), event = 'pull_request')
     if (!jobsByRun.has(runId)) return { act: 'jobs', runId, msg: `reading run ${runId}'s jobs` };
     const seal = (jobsByRun.get(runId) ?? []).filter((j) => j?.name === SEAL).sort((a, b) => b.id - a.id)[0];
     // merge-seal.yml: GitHub reads the required check from the newest run of a workflow on the head alone (probe
-    // intafaced#<PROBE>, 13 Nov 2026; #8225 stopped every merge for an hour by leaving its verdict on an older run). So the
+    // intafaced#8246, 13 Nov 2026; #8225 stopped every merge for an hour by leaving its verdict on an older run). So the
     // newest run decides: one that finished without its seal (it waited for its inputs, or was cancelled before its jobs)
     // is started, never passed over for an older run's verdict, which GitHub no longer reads.
     if (event === 'pull_request_target' && run.status === 'completed' && (!seal || seal.conclusion === 'skipped'))

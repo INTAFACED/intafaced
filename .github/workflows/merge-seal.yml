@@ -7,9 +7,10 @@ name: CI merge seal
 # ci.yml keeps a job that judges CI's own jobs, named `CI merge seal` only on a merge queue's commit, which
 # pull_request_target never reaches; on a pull request it is `CI jobs`, so it never answers for this check. Every Actions
 # workflow's newest run on a head counts and each must pass (probe #7547: a red ci.yml job blocked beside a green job
-# of another workflow). Within this workflow GitHub reads the newest run on the head alone (probe #<PROBE>, 13 Nov 2026:
-# an older run's green did not count while the newest held no `CI merge seal`; #8225 stopped merges that way), so the
-# verdict is always given in the newest run (journey-seal.mjs recheckStep) and an older run is never re-run.
+# of another workflow). Within this workflow GitHub reads the newest run on the head alone (probe #8246, 13 Nov 2026:
+# the pull request stayed CLEAN while an older run's seal was re-running; and #8231 waited 27 minutes on an older run's
+# green until its newest held a `CI merge seal`, which is how #8225 stopped every merge), so the verdict is always given
+# in the newest run (journey-seal.mjs recheckStep) and an older run is never re-run.
 #
 # One verdict per head, once its inputs have finished (INTAFACED/project-state#1574, 9 Nov 2026). A push, open, reopen,
 # edit or arming starts a run whose first attempt asks whether to seal now (the `now` job). Usually it waits: the seal

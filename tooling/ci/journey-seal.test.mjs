@@ -1680,7 +1680,7 @@ test("rerunSealJob reads merge-seal.yml's pull_request_target runs when asked, a
 });
 
 test('planted (#8225): an armed head whose newest seal run holds no `CI merge seal` gets it there, never on an older run', async () => {
-  // GitHub reads the required check from the newest run of merge-seal.yml on a head alone (probe intafaced#<PROBE>): #8225
+  // GitHub reads the required check from the newest run of merge-seal.yml on a head alone (probe intafaced#8246): #8225
   // left its verdict on the push run (31) while an edit's or an arming's run (32) held only a skipped seal, whose check run
   // is named by its expression's raw text, and every armed pull request then waited on a missing check.
   const waits = "${{ (github.run_attempt != '1' || needs.now.outputs.now == 'true') && 'CI merge seal' || 'CI merge seal waits' }}";
