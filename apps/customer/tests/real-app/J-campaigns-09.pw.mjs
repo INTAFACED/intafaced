@@ -137,9 +137,23 @@ async function openVouchers(page) {
   return wallet;
 }
 
+/** The venue desk, signed in with the TEST wallet connected; a page that already has the wallet opens the desk again. */
+const wallets = new WeakMap();
 const desk = async (page) => {
   const s = state();
-  const wallet = await openVenueDesk(page, s.account, DESK, s.walletKey);
+  let wallet = wallets.get(page);
+  if (!wallet) {
+    wallet = await openVenueDesk(page, s.account, DESK, s.walletKey);
+    wallets.set(page, wallet);
+  } else {
+    await page.goto(DESK);
+    await expect(page.getByTestId('venue-header')).toBeVisible({ timeout: 30_000 });
+    const address = page.getByTestId('venue-wallet-address');
+    const connect = page.getByRole('button', { name: 'Connect TEST Wallet' });
+    await expect(connect.or(address)).toBeVisible();
+    if (await connect.isVisible()) await connect.click();
+    await expect(address).toHaveText(wallet.address);
+  }
   return { ...s, wallet, owner: wallet.address };
 };
 const line = (sheet, name) => sheet.locator(`[data-line="${name}"]`);
