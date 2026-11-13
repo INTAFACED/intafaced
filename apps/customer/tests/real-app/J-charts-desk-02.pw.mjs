@@ -34,6 +34,8 @@ const feedLine = (page) => page.getByTestId('chart-feed').first();
 const source = (page) => page.getByTestId('chart-source').first();
 const host = (page) => page.getByTestId('cw').getByTestId('wc-host').first();
 const tradeButton = (page) => page.locator('button[data-testid="cw-link"]').first();
+/** The chart page's own market control, labelled "Market" in its header. */
+const marketControl = (page) => page.getByLabel('Market', { exact: true }).first();
 
 /** The owner values for one market, from svc-trade's public read (the chart reads the same route). */
 async function ownerValues(symbol = BTC) {
@@ -234,11 +236,11 @@ test.describe(`${J} #4 on our own outage, opened after svc-trade has stopped`, (
     expect(await newestTradeMs(ETH), 'no ETH trade landed while the chart read it').toBe(lastTrade);
     // Then on BTC/USDT, the stack's own outage: svc-trade, which serves every chart read, stops. Nothing in the browser is
     // changed. The person then opens ETH/USDT from the chart's own market control, with the feed already stopped.
-    await page.getByLabel('Choose a market').first().selectOption(BTC);
+    await marketControl(page).selectOption(BTC);
     await expect(host(page)).toBeVisible();
     try {
       tool('local-test-stack.mjs', 'stop', 'trade');
-      await page.getByLabel('Choose a market').first().selectOption(ETH);
+      await marketControl(page).selectOption(ETH);
       await expect(page).toHaveURL(/ETH-USDT/);
       // Our own stream's outage reads Down (the journey's Outside line), not Stale, not an unread market state.
       await expect(chip(page)).toHaveAttribute('data-status', 'down', { timeout: 60_000 });
