@@ -1077,9 +1077,9 @@ export function createIdentityRouter(
      */
     waitlist?: WaitlistService;
     /**
-     * Per-caller budget for `users.resolveHandle`. Defaults to 30 per minute,
-     * process-local. Injected so tests can pin the clock and a shared store can
-     * replace it later.
+     * Per-caller budget for the people lookups (`resolveHandle`, `payeeCard`,
+     * `searchPayees`), 30 per minute. index.ts wires the shared Postgres one
+     * (`PgHandleLookupLimiter`); absent, a process-local one serves light tests.
      */
     handleLookupLimiter?: HandleLookupLimiterPort;
     /**

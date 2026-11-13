@@ -58,6 +58,7 @@ import { parseDmaHierarchyLawJson } from './orgs/dma-hierarchy.js';
 import { createLedgerClient } from './ledger-client.js';
 import { assertArgon2Available, argon2Available, parseBreachedPasswords, useBreachedPasswords } from './auth/passwords.js';
 import { createIdentityRouter } from './router.js';
+import { PgHandleLookupLimiter } from './handle-lookup.js';
 import { createTradeIdentityAuthRouter } from './auth/trade-identity-auth-router.js';
 import { assertStaffSessionLive, createSqlTradeIdentityStore } from './auth/trade-identity-auth.js';
 import { gateFrozenSubAccount } from './auth/sub-account-place-gate.js';
@@ -252,6 +253,13 @@ await sql`SELECT 1 FROM users LIMIT 1`.catch(() => {
 await sql`SELECT consecutive_failures FROM auth_attempts LIMIT 0`.catch(() => {
   throw new Error(
     'identity schema is out of date: auth_attempts (with consecutive_failures) is missing — apply drizzle/0027_auth_attempt_lockouts.sql before starting svc-identity',
+  );
+});
+
+// The shared people-lookup budget (#4689): without its table every lookup would fail, not the start.
+await sql`SELECT hits FROM handle_lookup_budget LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: handle_lookup_budget is missing — apply drizzle/20261113152845_handle_lookup_budget.sql before starting svc-identity',
   );
 });
 
@@ -733,6 +741,8 @@ const social = new SocialSignin(sql, { providers: new Map(), flowTtlSeconds: env
 export const appRouter = mergeRouters(
   createIdentityRouter(auth, rank, {
     registrationOpen: env.REGISTRATION_OPEN,
+    // One budget per person across every replica and restart (#4689).
+    handleLookupLimiter: new PgHandleLookupLimiter(sql),
     // The code-less register door is for the dev and test stacks' own tools only.
     directRegister: isExplicitDevOrTest(process.env.APP_ENV),
     signInChallenge,

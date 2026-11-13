@@ -10,6 +10,7 @@ import { createTestDb } from './fixture-truncate.testkit.js';
 import { AuthService } from './auth/auth-service.js';
 import { RankService } from './rank/rank-service.js';
 import { createIdentityRouter } from './router.js';
+import { PgHandleLookupLimiter } from './handle-lookup.js';
 
 /**
  * Pay-by-@handle lookup against real Postgres: the SQL is what decides "exact"
@@ -134,6 +135,61 @@ if (!available) {
       const me = await signUp('Whoami_Now');
       const out = await (await as(me)).me();
       expect(out).toEqual({ userId: me, handle: 'Whoami_Now', emailVerified: false });
+    });
+  });
+  describe('the shared people-lookup budget (real Postgres, #4689)', () => {
+    const limit = { max: 3, windowMs: 60_000 };
+
+    async function replicaAs(userId: string, now: () => Date) {
+      const replica = createIdentityRouter(auth, rank, {
+        registrationOpen: true,
+        handleLookupLimiter: new PgHandleLookupLimiter(db.sql, limit, now),
+      });
+      const { token } = await issueAccessToken(
+        { userId, sessionId: '55555555-5555-4555-8555-555555555555', scopes: [...SESSION_SCOPES], tier: 'none', mfa: true },
+        tokenConfig,
+      );
+      const ctx: Context = { principal: await verifyAccessToken(token, tokenConfig), service: null, region: 'DE', requestId: 'r' };
+      return replica.createCaller(ctx);
+    }
+
+    it('gives one person one budget across two replicas, and a new window refills it', async () => {
+      const me = await signUp('Budget_Owner');
+      await signUp('Budget_Target');
+      let t = new Date('2026-11-13T10:00:00Z').getTime();
+      const now = () => new Date(t);
+      const a = await replicaAs(me, now);
+      const b = await replicaAs(me, now);
+      await a.users.resolveHandle({ handle: 'budget_target' });
+      await b.users.resolveHandle({ handle: 'budget_target' });
+      await a.users.resolveHandle({ handle: 'budget_target' });
+      for (const api of [a, b]) {
+        await expect(api.users.resolveHandle({ handle: 'budget_target' })).rejects.toMatchObject({ code: 'TOO_MANY_REQUESTS' });
+      }
+      // A refused lookup is not counted: the row still says 3.
+      const [row] = await db.sql<{ hits: number }[]>`SELECT hits FROM handle_lookup_budget WHERE user_id = ${me}`;
+      expect(row?.hits).toBe(3);
+      t += 60_000;
+      await expect(b.users.resolveHandle({ handle: 'budget_target' })).resolves.toMatchObject({ found: true });
+      const [after] = await db.sql<{ hits: number }[]>`SELECT hits FROM handle_lookup_budget WHERE user_id = ${me}`;
+      expect(after?.hits).toBe(1);
+    });
+
+    it('lets at most the budget through when lookups arrive at once from several replicas', async () => {
+      const me = await signUp('Burst_Caller');
+      const now = () => new Date('2026-11-13T11:00:00Z');
+      const limiters = [0, 1, 2].map(() => new PgHandleLookupLimiter(db.sql, limit, now));
+      const taken = await Promise.all(Array.from({ length: 12 }, (_, i) => limiters[i % 3]!.tryTake(me)));
+      expect(taken.filter(Boolean)).toHaveLength(3);
+    });
+
+    it('keeps one person’s budget apart from another’s', async () => {
+      const one = await signUp('Budget_One');
+      const two = await signUp('Budget_Two');
+      const limiter = new PgHandleLookupLimiter(db.sql, limit, () => new Date('2026-11-13T12:00:00Z'));
+      for (let i = 0; i < 3; i++) expect(await limiter.tryTake(one)).toBe(true);
+      expect(await limiter.tryTake(one)).toBe(false);
+      expect(await limiter.tryTake(two)).toBe(true);
     });
   });
 }

@@ -12,12 +12,12 @@
  *   · one answer for every miss — the router returns `{ found: false }` for
  *     malformed, unknown, frozen and closed handles alike.
  *
- * The limiter is process-local on purpose: svc-identity has no shared limiter
- * today (svc-edge's per-IP one is the only other). With N replicas the real
- * budget is N x max per window, which still makes a harvest of the handle space
- * impractical. A Postgres-backed one can implement `HandleLookupLimiterPort`
- * later without touching the router.
+ * The running service uses `PgHandleLookupLimiter`: one row per person in
+ * `handle_lookup_budget`, so every replica and every restart shares the one
+ * budget (#4689). A process-local `HandleLookupLimiter` would give a person N
+ * budgets on N replicas; it stays for router tests that pin the clock.
  */
+import type { Sql } from 'postgres';
 
 /** Same shape as registration: 3-32 letters, numbers or underscores. */
 export const HANDLE_PATTERN = /^[a-zA-Z0-9_]{3,32}$/;
@@ -68,6 +68,42 @@ export class HandleLookupLimiter implements HandleLookupLimiterPort {
     for (const [id, times] of this.hits) {
       if (times.every((t) => t <= since)) this.hits.delete(id);
     }
+  }
+}
+
+/**
+ * Shared fixed window in Postgres, keyed by person. One atomic upsert takes a
+ * lookup: a new or expired window starts at 1, a live one under the limit adds
+ * 1, and a full one matches no row, so nothing is written and the lookup is
+ * refused. The database serialises takes on the row, so lookups fired at once
+ * from several replicas never exceed `max` per window between them.
+ */
+export class PgHandleLookupLimiter implements HandleLookupLimiterPort {
+  constructor(
+    private readonly sql: Sql,
+    private readonly limit: HandleLookupLimit = DEFAULT_HANDLE_LOOKUP_LIMIT,
+    /** Tests pin the clock; absent, the database's own clock decides, the same on every replica. */
+    private readonly now?: () => Date,
+  ) {}
+
+  async tryTake(callerId: string): Promise<boolean> {
+    const at = this.now ? this.now().toISOString() : null;
+    const windowSeconds = this.limit.windowMs / 1000;
+    const rows = await this.sql<{ hits: number }[]>`
+      WITH t AS (SELECT COALESCE(${at}::timestamptz, now()) AS at)
+      INSERT INTO handle_lookup_budget AS b (user_id, window_started_at, hits)
+      SELECT ${callerId}::uuid, t.at, 1 FROM t
+      ON CONFLICT (user_id) DO UPDATE SET
+        window_started_at = CASE
+          WHEN b.window_started_at <= EXCLUDED.window_started_at - make_interval(secs => ${windowSeconds}) THEN EXCLUDED.window_started_at
+          ELSE b.window_started_at END,
+        hits = CASE
+          WHEN b.window_started_at <= EXCLUDED.window_started_at - make_interval(secs => ${windowSeconds}) THEN 1
+          ELSE b.hits + 1 END
+      WHERE b.window_started_at <= EXCLUDED.window_started_at - make_interval(secs => ${windowSeconds})
+         OR b.hits < ${this.limit.max}
+      RETURNING b.hits`;
+    return rows.length === 1;
   }
 }
 
