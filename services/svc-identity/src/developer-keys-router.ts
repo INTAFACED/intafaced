@@ -56,6 +56,8 @@ export const DEVELOPER_KEY_STATUS: Record<DeveloperKeyError['code'], TRPCError['
   'identity.key_cap_reached': 'PRECONDITION_FAILED',
   'identity.key_request_conflict': 'CONFLICT',
   'identity.key_signing_unset': 'PRECONDITION_FAILED',
+  'identity.key_lead_not_approved': 'FORBIDDEN',
+  'identity.key_lead_check_unavailable': 'PRECONDITION_FAILED',
   'identity.key_not_found': 'NOT_FOUND',
   'identity.key_not_live': 'PRECONDITION_FAILED',
   'identity.key_revoke_reason_invalid': 'BAD_REQUEST',

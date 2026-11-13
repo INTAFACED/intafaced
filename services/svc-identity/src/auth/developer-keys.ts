@@ -47,6 +47,7 @@ import { signsByDefault } from './api-key-signs-by-default.js';
 import { DeveloperTeamError, manageRefusalOf, seatOf, type DeveloperSeat } from './developer-team.js';
 import { expireApiKey, ExpireApiKeyError } from './expire-api-key.js';
 import { MintApiKeyPasskeyError, requireVerifiedPasskey } from './mint-api-key-passkey.js';
+import type { LeadCheck } from './lead-key-check.js';
 
 export type DeveloperKeyRefusal =
   | 'auth.scope_empty'
@@ -61,6 +62,8 @@ export type DeveloperKeyRefusal =
   | 'identity.key_cap_reached'
   | 'identity.key_request_conflict'
   | 'identity.key_signing_unset'
+  | 'identity.key_lead_not_approved'
+  | 'identity.key_lead_check_unavailable'
   | 'identity.key_not_found'
   | 'identity.key_not_live'
   | 'identity.key_revoke_reason_invalid'
@@ -298,6 +301,8 @@ export type DeveloperKeysDeps = {
   portfolioKeyCap?: number | null;
   /** The developer roles the owner published (`parseDeveloperRoles`). Null or absent: `roles not set`, and only an organisation's owner makes its keys. */
   developerRoles?: readonly DeveloperRole[] | null;
+  /** svc-trade's answer to "is this account an approved lead" (`lead-key-check.ts`). Absent: a `copy:lead` key refuses as unavailable. */
+  leadCheck?: LeadCheck;
   now?: () => Date;
 };
 
@@ -383,6 +388,15 @@ async function assertUnderCap(deps: DeveloperKeysDeps, userId: string, sql: Sql)
   }
 }
 
+async function assertApprovedLead(deps: DeveloperKeysDeps, userId: string): Promise<void> {
+  const answer = deps.leadCheck ? await deps.leadCheck(userId) : 'unavailable';
+  if (answer === 'lead') return;
+  if (answer === 'not_lead') {
+    throw new DeveloperKeyError('A lead trading key is only for an approved lead', 'identity.key_lead_not_approved');
+  }
+  throw new DeveloperKeyError('Whether this account is an approved lead could not be checked', 'identity.key_lead_check_unavailable');
+}
+
 export async function createDeveloperKey(
   deps: DeveloperKeysDeps,
   caller: Caller,
@@ -404,6 +418,8 @@ export async function createDeveloperKey(
     if (twin) return twin;
     throw err;
   }
+  // A lead key (J-copy-bots-otc-07 #1 #2) only for an approved lead, asked of svc-trade before the factor is spent.
+  if (checked.scopes.includes('copy:lead')) await assertApprovedLead(deps, caller.userId);
   const signs = signsByDefault(checked.scopes);
   if (signs && (!deps.signingEncKey || deps.signingWindowSeconds == null)) {
     throw new DeveloperKeyError('Keys that place orders sign every request, and signing is not set up', 'identity.key_signing_unset');

@@ -29,6 +29,8 @@ export const API_KEY_CREATE_REFUSALS = [
   'identity.key_cap_reached',
   'identity.key_request_conflict',
   'identity.key_signing_unset',
+  'identity.key_lead_not_approved',
+  'identity.key_lead_check_unavailable',
   'identity.key_account_required',
   'identity.key_account_denied',
   'identity.key_org_denied',
