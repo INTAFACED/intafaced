@@ -899,8 +899,11 @@ async function signInOne(ctx, op, saveSteps) {
     async tradeOpsToken() {
       return mintOperatorToken(ctx, op, ['admin:read', 'admin:write']);
     },
-    /** Same session with `admin:write` and `admin:compliance`: what svc-trade's VIP review and trial grant check. */
-    async vipReviewToken() {
+    /**
+     * Same session with `admin:write` and `admin:compliance`: a compliance decision that also changes something. svc-trade's
+     * VIP review and trial grant check both, and an appeal lift runs identity's restore, which checks `admin:write`.
+     */
+    async complianceWriteToken() {
       return mintOperatorToken(ctx, op, ['admin:read', 'admin:write', 'admin:compliance']);
     },
     /** Same session with the CRM scopes svc-ops checks before it asks identity whether the caller is a founder. */
@@ -2337,7 +2340,7 @@ export async function reviewVipApplication(ctx, { applicationId, decision, reaso
     'trade',
     'admin.vipApplications.review',
     { ...body, approvalId: ids.approvalId, operationId: ids.operationId },
-    await pair.a.vipReviewToken(),
+    await pair.a.complianceWriteToken(),
   );
 }
 
@@ -2359,7 +2362,7 @@ export async function grantVipTrial(ctx, { applicationId, reason, sessions = nul
       'trade',
       'admin.vipApplications.grantTrial',
       { ...body, approvalId: 'none-proposed', operationId: 'none-proposed' },
-      await pair.a.vipReviewToken(),
+      await pair.a.complianceWriteToken(),
     );
   }
   const ids = await twoPerson(ctx, pair, {
@@ -2375,7 +2378,7 @@ export async function grantVipTrial(ctx, { applicationId, reason, sessions = nul
     'trade',
     'admin.vipApplications.grantTrial',
     { ...body, approvalId: ids.approvalId, operationId: ids.operationId },
-    await pair.a.vipReviewToken(),
+    await pair.a.complianceWriteToken(),
   );
 }
 
@@ -3098,7 +3101,7 @@ export async function appealDecide(ctx, handle, decision, reasonCode, flag) {
   // The decider's session carries compliance (the decision) and the operator scope (the restore it runs).
   const staff = appeal.restriction === 'staff_freeze';
   const decider = flag === '--as-restrictor' ? founders.a : staff ? founders.b : ops.a;
-  const deciderToken = await decider.complianceToken();
+  const deciderToken = await decider.complianceWriteToken();
   const ids = { appealId: appeal.id, decision, reasonCode, expectedVersion: appeal.version };
   if (flag === '--as-restrictor') {
     const res = await ctx.edge.mutate('identity', 'accountAppeal.decide', { ...ids, decision: 'uphold' }, deciderToken);
