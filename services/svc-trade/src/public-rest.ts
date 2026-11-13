@@ -70,6 +70,11 @@ export interface PublicRestDeps {
   /** Listed markets page. Limit required at GET /markets — never invent 50. */
   markets(limit: number): Promise<Market[]>;
   marketBySymbol(symbol: string): Promise<Market | null>;
+  /**
+   * The published fee schedule's regular-tier maker/taker bps per listed symbol, the rates fills charge (#4679).
+   * Null: no schedule is published. A symbol missing from the map has a row that refuses. Absent: rates are null.
+   */
+  publishedFeeRates?(markets: readonly Market[]): Promise<ReadonlyMap<string, { makerBps: number; takerBps: number }> | null>;
   /** Charts owner values (C-ops-04). Absent: the owner-values read refuses, it never answers with a default. */
   chartOwnerValues?: ChartOwnerValuesPublicReader;
   /**
@@ -420,6 +425,11 @@ export function presentCcxtMarket(
     readonly pairRules?: PairRules | null;
     readonly pairHalt?: PairHalt | null;
     readonly maintenance?: UpcomingMaintenance;
+    /**
+     * The published schedule's regular-tier rates for this market, the ones fills charge (#4679). Null or absent: none
+     * is published or the row refuses, and the listing says null rather than the listing row's own bps.
+     */
+    readonly feeRates?: { readonly makerBps: number; readonly takerBps: number } | null;
   } = {},
 ) {
   const tick = formatAmount(market.tickSize);
@@ -527,8 +537,8 @@ export function presentCcxtMarket(
     pairRules: flags.pairRules ?? null,
     /** Operator circuit-breaker state; null when unread. `refusesAllOrders` true means no order is accepted. */
     pairHalt: flags.pairHalt ?? null,
-    taker: bpsToRate(market.takerBps),
-    maker: bpsToRate(market.makerBps),
+    taker: flags.feeRates ? bpsToRate(flags.feeRates.takerBps) : (null as string | null),
+    maker: flags.feeRates ? bpsToRate(flags.feeRates.makerBps) : (null as string | null),
     contractSize: isFutures && market.contractSize != null ? formatAmount(market.contractSize) : (null as string | null),
     expiry: listedExpiry ? listedExpiry.getTime() : (null as number | null),
     expiryDatetime: listedExpiry ? listedExpiry.toISOString() : (null as string | null),
@@ -860,6 +870,15 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
       }
     };
     const board = deps.maintenanceBoard ? await deps.maintenanceBoard() : null;
+    // The rates fills charge, from the published schedule. A failed read shows null rates, never the listing row's.
+    let feeRates: ReadonlyMap<string, { makerBps: number; takerBps: number }> | null = null;
+    if (deps.publishedFeeRates) {
+      try {
+        feeRates = await deps.publishedFeeRates(markets);
+      } catch (err) {
+        req.log.warn({ err }, 'GET /api/v1/markets: fee schedule read failed; taker/maker null');
+      }
+    }
     const presented = await Promise.all(
       markets.map(async (m) =>
         presentCcxtMarket(m, ts, {
@@ -869,6 +888,7 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
           lifecycle: deps.lifecycleForMarket ? await deps.lifecycleForMarket(m) : null,
           pairRules: await rulesFor(m),
           pairHalt: !rulesFailed && batchedRisk ? (batchedRisk.get(m.id)?.halt ?? null) : null,
+          feeRates: feeRates?.get(m.symbol) ?? null,
         }),
       ),
     );

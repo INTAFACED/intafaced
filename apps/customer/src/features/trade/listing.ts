@@ -22,7 +22,7 @@ export const positive = decimalSchema.refine((value) => parseAmount(value) > 0n,
 export const listingSchema = marketSchema.extend({
   orderable: z.boolean(),
   precision: z.object({ price: positive, amount: positive }),
-  taker: decimalSchema,
-  maker: decimalSchema,
+  taker: decimalSchema.nullable(),
+  maker: decimalSchema.nullable(),
 });
 export type Listing = z.infer<typeof listingSchema>;

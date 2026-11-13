@@ -72,7 +72,7 @@ import { createReverseService } from './futures/reverse.js';
 import { listCallerLiquidations, listFundingPayments, loadPositionLiquidation, readFuturesTickerFacts } from './futures/futures-reads.js';
 import { listFuturesExecutions } from './futures/futures-executions.js';
 import { listPayoutsForUser } from './futures/futures-payouts.js';
-import { registerPrivateRest } from './private-rest.js';
+import { presentAccountFees, registerPrivateRest } from './private-rest.js';
 import { bindExpireAt, installGtdGttPlace } from './spot/gtd-gtt-place.js';
 import { bindReduceOnly, installReduceOnlyPlace } from './spot/reduce-only-place.js';
 import { attachBoundClosePosition } from './spot/close-position.js';
@@ -1408,6 +1408,11 @@ app.get('/ready', async (_req, reply) => {
 registerPublicRest(app, {
   markets: (limit) => trade.markets(limit),
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
+  publishedFeeRates: async (markets) => {
+    const schedule = await feeScheduleAt(sql, feeSchedule, new Date());
+    if (schedule.published !== true) return null;
+    return new Map(Object.entries(presentAccountFees(markets, schedule)).map(([symbol, row]) => [symbol, row]));
+  },
   chartOwnerValues: chartOwnerValuesPublicReader(sql),
   depth: (marketId, limit) => matching.depth(marketId, limit),
   publicTape: (marketId, limit, sinceMs) => trade.publicTape(marketId, limit, sinceMs),
@@ -1594,6 +1599,10 @@ registerSpotOrderPreviewRest(app, {
   feeScheduleNow: () => feeScheduleAt(sql, feeSchedule, new Date()),
   feeDiscountBps: async (userId) => (await perks.perksOf(userId)).feeDiscountBps,
   feeTier: (userId) => trade.feeTierAt(userId),
+  availableBalance: async (userId, assetId) =>
+    (await ledger.balances('user', userId))
+      .filter((row) => row.account.kind === 'available' && row.account.assetId === assetId)
+      .reduce((sum, row) => sum + row.amount, 0n),
 });
 registerFeeTierRest(app, {
   edgeSecret: env.EDGE_PRINCIPAL_SECRET,

@@ -23,7 +23,8 @@ export function bpsText(bps: string | null): string | null {
 }
 
 /** A fee ratio as a percent: "0.001" is "0.1%", "0.0025" is "0.25%". Unknown or malformed input is null. */
-export function ratioPercent(ratio: string): string | null {
+export function ratioPercent(ratio: string | null): string | null {
+  if (ratio === null) return null;
   const value = dec(ratio);
   if (value === null || value < 0n) return null;
   return `${str(value * 100n)}%`;
