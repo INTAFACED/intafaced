@@ -17,10 +17,7 @@ name: CI merge seal
 # could pass a seal job of its own while this one waits (one that touches .github/, sealNow) seals at once, as before.
 # Before this the seal was red from every push until a re-run: 375 of 510 runs ended red in the 24 h to 10:00 UTC on
 # 9 Nov, and one run reached 7 attempts.
-# One seal run per head gives the verdicts, the push's (INTAFACED/project-state#2065 d32 part 5a): an edit of the title or
-# body and an arming run only the `relay` job, which re-runs or starts the push run's seal (journey-seal.mjs relayStep),
-# so one trigger is one verdict, not one per seal run on the head.
-# An older red verdict left on the head (a reopen, or an edit sealed in its own run) is re-run in place by the green verdict after it (the seal
+# An older red verdict left on the head (an edit, a reopen) is re-run in place by the green verdict after it (the seal
 # job's last step, journey-seal.mjs --clear-older), and by the factory switch on a flip.
 on:
   pull_request_target:
@@ -62,7 +59,7 @@ jobs:
   # could pass a seal of its own while this one waits (sealNow). Any error here fails this job, and the seal then runs at once.
   now:
     name: Does the seal wait for its inputs
-    if: github.run_attempt == '1' && !(github.event.action == 'auto_merge_enabled' || (github.event.action == 'edited' && !github.event.changes.base))
+    if: github.run_attempt == '1'
     runs-on: ubuntu-latest
     timeout-minutes: 5 # healthy run: seconds
     permissions:
@@ -84,46 +81,14 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: node tooling/ci/journey-seal.mjs --seal-now
-  # An edit of the title or body, or an arming, gives no verdict in a run of its own: this job passes it to the head's
-  # push run (journey-seal.mjs relayStep, RELAY_JOB; INTAFACED/project-state#2065 d32 part 5a: one verdict per finished
-  # input, not one per seal run on the head). After a verdict an edit re-runs that run's seal, which judges the title and body as they are now; with no
-  # verdict yet the push's run is started once every input has finished, or left to the last input's end. Every head so
-  # keeps one seal run with verdicts, and one trigger gives one verdict. This run seals itself (`here`) when there is no
-  # push's run to pass it to, or that seal is judging now and may have read the old title; and on any error here.
-  relay:
-    name: Pass an edit or an arming to this head's seal
-    if: github.run_attempt == '1' && (github.event.action == 'auto_merge_enabled' || (github.event.action == 'edited' && !github.event.changes.base))
-    runs-on: ubuntu-latest
-    timeout-minutes: 5 # healthy run: seconds
-    permissions:
-      contents: read # the default branch's scripts
-      actions: write # read the seal runs on the head; re-run or start the push run's seal
-      pull-requests: read # the pull request, its changed files and title
-    outputs:
-      here: ${{ steps.relay.outputs.here }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.repository.default_branch }}
-          persist-credentials: false
-      - name: Pass it to the push's seal, or seal here
-        id: relay
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          RUN_ID: ${{ github.run_id }}
-          ACTION: ${{ github.event.action }}
-        run: node tooling/ci/journey-seal.mjs --relay
   seal:
     # `CI merge seal` whenever the job runs. A skipped job counts as passing a required check (review 7552-R6), so its
     # name is an expression: GitHub names a skipped job's check run with the expression's raw text, never `CI merge seal`
     # (probe intafaced#7679, 9 Nov 2026), and a re-run attempt is named by the expression's value. So a waiting seal is
     # no check at all, and a missing required check blocks the merge.
-    name: ${{ (github.run_attempt != '1' || (needs.relay.result == 'skipped' && (needs.now.result != 'success' || needs.now.outputs.now == 'true')) || (needs.relay.result != 'skipped' && (needs.relay.result != 'success' || needs.relay.outputs.here == 'true'))) && 'CI merge seal' || 'CI merge seal waits for CI, the CI review and the journeys it needs' }}
-    needs: [now, relay]
-    if: ${{ !cancelled() && (github.run_attempt != '1' || (needs.relay.result == 'skipped' && (needs.now.result != 'success' || needs.now.outputs.now == 'true')) || (needs.relay.result != 'skipped' && (needs.relay.result != 'success' || needs.relay.outputs.here == 'true'))) }}
+    name: ${{ (github.run_attempt != '1' || needs.now.result != 'success' || needs.now.outputs.now == 'true') && 'CI merge seal' || 'CI merge seal waits for CI, the CI review and the journeys it needs' }}
+    needs: [now]
+    if: ${{ !cancelled() && (github.run_attempt != '1' || needs.now.result != 'success' || needs.now.outputs.now == 'true') }}
     runs-on: ubuntu-latest
     # healthy run: seconds once its inputs have finished; up to 60 minutes waiting for them, checking every 5 (journey-seal.mjs WAIT_POLLS)
     # and up to 20 more for the CI review (tooling/ci/review-marker.mjs)
