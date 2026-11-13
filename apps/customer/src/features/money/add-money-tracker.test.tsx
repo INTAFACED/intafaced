@@ -42,6 +42,33 @@ const request = (patch: Partial<AddMoneyRequest> = {}): AddMoneyRequest =>
 const states = (html: string) => [...html.matchAll(/data-step="(\w+)" data-state="(\w+)"/g)].map((m) => `${m[1]}:${m[2]}`);
 
 describe('the add-money tracker', () => {
+  describe('bought to the wallet (J-dex-protocol-05 #4)', () => {
+    const WALLET = '0x00000000000000000000000000000000000ab0b5';
+    const TX = `0x${'ab'.repeat(32)}`;
+
+    it('waiting: the last step is the delivery to the wallet, which names the address, and nothing is credited', () => {
+      const html = renderToStaticMarkup(<TrackerSteps request={request({ walletAddress: WALLET })} />);
+      expect(states(html)).toEqual(['created:done', 'opened:done', 'pending:done', 'credited:todo']);
+      expect(html).toContain('Delivered to your wallet');
+      expect(html).toContain(`Your wallet: ${WALLET}`);
+      expect(html).toContain('data-state="waiting"');
+      expect(html).not.toContain('tracker-credited');
+    });
+
+    it('delivered: every step done, the address and the partner’s transfer on chain, and nothing credited here', () => {
+      const html = renderToStaticMarkup(
+        <TrackerSteps
+          request={request({ status: 'delivered', walletAddress: WALLET, deliveredAt: '2026-11-04T10:01:00.000Z', deliveryTx: TX })}
+        />,
+      );
+      expect(states(html)).toEqual(['created:done', 'opened:done', 'pending:done', 'credited:done']);
+      expect(html).toContain(`Delivered to ${WALLET}`);
+      expect(html).toContain(`href="/chain/tx/${TX}"`);
+      expect(html).not.toContain('tracker-credited');
+      expect(html).not.toContain('Credited');
+    });
+  });
+
   it('pending: created, sent to the page and pending are done, credited not yet, and nothing credited is shown', () => {
     const html = renderToStaticMarkup(<TrackerSteps request={request()} />);
     expect(states(html)).toEqual(['created:done', 'opened:done', 'pending:done', 'credited:todo']);

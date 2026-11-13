@@ -516,7 +516,13 @@ export class RampService {
    * Idempotent by `onrampId`. Stores the partner instruction and does not credit the ledger.
    * A blank partner refuses `bank.fiat_ramp_socket` before any row.
    */
-  onrampCreate(input: { userId: string; onrampId: string; quoteId: string; method: OnrampMethod }): Promise<CustomerOnrampView> {
+  onrampCreate(input: {
+    userId: string;
+    onrampId: string;
+    quoteId: string;
+    method: OnrampMethod;
+    walletAddress?: string;
+  }): Promise<CustomerOnrampView> {
     return createOnramp(this.customerDeps(), input);
   }
 

@@ -543,6 +543,113 @@ describe('add money (J-bank-02)', () => {
       expect(await caller.addMoney.request({ requestId: request.requestId })).toMatchObject(creditedView);
     });
 
+    describe("to the person's own wallet (J-dex-protocol-05 #4)", () => {
+      const WALLET = '0x00000000000000000000000000000000000Ab0b5';
+      const TX = `0x${'ab'.repeat(32)}`;
+
+      async function toWallet(userId: string, payments?: OnrampPaymentPort) {
+        const bank: BankServices = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
+          ramps: { onrampStandIn: rates, ...(payments ? { onrampPayments: payments } : {}) },
+          onrampPartner: partner,
+        });
+        const caller = as(userId, { onrampStandIn: rates, ...(payments ? { onrampPayments: payments } : {}) }, { onrampPartner: partner });
+        const { methods } = await caller.addMoney.methods(nl);
+        const quote = methods.find((m) => m.method === 'pay_by_bank')!.quote!;
+        const requestId = randomUUID();
+        const request = await caller.addMoney.start({
+          requestId,
+          ...nl,
+          method: 'pay_by_bank',
+          quoteId: quote.quoteId,
+          walletAddress: WALLET,
+        });
+        return { caller, bank, quote, request };
+      }
+
+      it('tells the partner the wallet, keeps it in lower case, and the TEST page names it; nothing is posted', async () => {
+        const told: (string | undefined)[] = [];
+        const spy: OnrampPaymentPort = {
+          ...partner.payments,
+          open: async (input) => {
+            told.push(input.walletAddress);
+            return partner.payments.open(input);
+          },
+        };
+        const { bank, request } = await toWallet(ADA, spy);
+        expect(told).toEqual([WALLET.toLowerCase()]);
+        expect(request).toMatchObject({ status: 'opened', walletAddress: WALLET.toLowerCase(), deliveredAt: null, deliveryTx: null });
+        const page = await bank.addMoney.opened(request.requestId);
+        expect(page.request.walletAddress).toBe(WALLET.toLowerCase());
+        nothingPosted();
+      });
+
+      it('paid with its on-chain transfer is delivered once, crediting nothing anywhere here', async () => {
+        const { caller, bank, quote, request } = await toWallet(ADA);
+        await bank.addMoney.approved(request.requestId);
+        const paid = {
+          requestId: request.requestId,
+          paidAmount: quote.payAmount,
+          payCurrency: 'EUR',
+          deliveryTx: TX.toUpperCase().replace('0X', '0x'),
+        };
+        const first = await bank.addMoney.paid(paid);
+        expect(first).toMatchObject({ status: 'delivered', deliveryTx: TX, creditedAt: null, creditedAmount: null, creditedBy: null });
+        expect(first.deliveredAt).not.toBeNull();
+        const [second, third] = await Promise.all([bank.addMoney.paid(paid), bank.addMoney.paid(paid)]);
+        expect(second).toEqual(first);
+        expect(third).toEqual(first);
+        // Invariant: the ledger posts nothing and the person holds nothing here; the purchase is in their wallet.
+        nothingPosted();
+        expect(await available(ADA)).toBe(0n);
+        const { onramp: _o, ...seen } = first;
+        expect(await caller.addMoney.request({ requestId: request.requestId })).toMatchObject(seen);
+      });
+
+      it('paid without the transfer, or with no hash, is refused and changes nothing', async () => {
+        const { caller, bank, quote, request } = await toWallet(ADA);
+        const base = { requestId: request.requestId, paidAmount: quote.payAmount, payCurrency: 'EUR' };
+        for (const bad of [base, { ...base, deliveryTx: '0x1234' }]) {
+          expect(((await bank.addMoney.paid(bad).catch((e: unknown) => e)) as { code?: string }).code).toBe('bank.onramp_delivery_missing');
+        }
+        expect(await caller.addMoney.request({ requestId: request.requestId })).toMatchObject({ status: 'opened', deliveredAt: null });
+        nothingPosted();
+      });
+
+      it('another transfer for a delivered purchase, or a transfer for a balance request, is a conflict', async () => {
+        const { bank, quote, request } = await toWallet(ADA);
+        const paid = { requestId: request.requestId, paidAmount: quote.payAmount, payCurrency: 'EUR', deliveryTx: TX };
+        await bank.addMoney.paid(paid);
+        const other = await bank.addMoney.paid({ ...paid, deliveryTx: `0x${'cd'.repeat(32)}` }).catch((e: unknown) => e);
+        expect((other as { code?: string }).code).toBe('bank.ramp_conflict');
+        const balance = await opened(BOB);
+        const wrong = await balance.bank.addMoney
+          .paid({ requestId: balance.request.requestId, paidAmount: balance.quote.payAmount, payCurrency: 'EUR', deliveryTx: TX })
+          .catch((e: unknown) => e);
+        expect((wrong as { code?: string }).code).toBe('bank.ramp_conflict');
+        expect((await balance.caller.addMoney.request({ requestId: balance.request.requestId })).status).toBe('opened');
+        nothingPosted();
+      });
+
+      it('a delivered purchase is never returned here, and the same id for a balance is a conflict', async () => {
+        const { caller, bank, quote, request } = await toWallet(ADA);
+        await bank.addMoney.paid({ requestId: request.requestId, paidAmount: quote.payAmount, payCurrency: 'EUR', deliveryTx: TX });
+        const back = await bank.addMoney.returned({ requestId: request.requestId }).catch((e: unknown) => e);
+        expect((back as { code?: string }).code).toBe('bank.ramp_conflict');
+        const again = await caller.addMoney.start({ requestId: request.requestId, ...nl, method: 'pay_by_bank' }).catch((e: unknown) => e);
+        expect(codeOf(again)).toBe('bank.ramp_conflict');
+        nothingPosted();
+      });
+
+      it('refuses a wallet that is not an address before keeping anything', async () => {
+        const caller = as(ADA, { onrampStandIn: rates }, { onrampPartner: partner });
+        const bad = await caller.addMoney
+          .start({ requestId: randomUUID(), ...nl, method: 'pay_by_bank', walletAddress: `0x${'0'.repeat(40)}` })
+          .catch((e: unknown) => e);
+        expect(codeOf(bad)).toBe('bank.ramp_invalid_destination');
+        expect(await sql`SELECT 1 FROM bank.add_money_requests`).toHaveLength(0);
+      });
+    });
+
     it('a crash after the credit and before the row said so catches up on the next paid, crediting nothing twice', async () => {
       const { bank, quote, request } = await opened(ADA);
       const paid = { requestId: request.requestId, paidAmount: quote.payAmount, payCurrency: 'EUR' };

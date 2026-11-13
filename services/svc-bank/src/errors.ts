@@ -438,6 +438,7 @@ export type BankErrorCode =
   | 'bank.add_money_request_missing'
   /** The partner said a pay-in was paid in another amount or currency than the payment it opened. Nothing is credited. */
   | 'bank.onramp_paid_mismatch'
+  | 'bank.onramp_delivery_missing'
   /**
    * Crypto off-ramp has no published fee schedule. Zero is not assumed.
    * Kind fiat still refuses `bank.fiat_ramp_socket` before this.

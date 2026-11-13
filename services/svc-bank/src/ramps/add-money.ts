@@ -39,6 +39,14 @@
  * once. A request not credited cannot be returned (`bank.ramp_conflict`), and a balance that no longer holds the amount
  * refuses before anything moves; the request stays credited.
  *
+ * TO A WALLET (J-dex-protocol-05 #4). A request may name the person's own wallet address instead of a balance here. The
+ * partner is told that address when it opens the payment, and it delivers the purchase there on chain itself: INTAFACED
+ * holds none of it and the ledger posts nothing. Its "paid" for such a request must carry the on-chain transfer it made
+ * (`deliveryTx`); the request then reads `delivered` with when and that hash, and nothing is credited anywhere here. A
+ * paid without the transfer is refused (`bank.onramp_delivery_missing`) and changes nothing; the same paid again answers
+ * as it stands; another hash for a delivered request is `bank.ramp_conflict`. A delivered request is never returned
+ * here: what reached a wallet the person holds is theirs. A balance request given a transfer is `bank.ramp_conflict`.
+ *
  * The request id is the customer's business key: asking again with the same id and the same terms is the same request,
  * and with other terms is `bank.ramp_conflict`. A quote the customer accepted must be theirs and on the request's own
  * terms; one that has already expired is refused (`bank.onramp_quote_expired`) and keeps nothing.
@@ -79,7 +87,7 @@ const railRefusal = (err: unknown): BankErrorCode | null => (err instanceof Bank
 const finalRefusal = (err: unknown): BankErrorCode | null =>
   railRefusal(err) ?? (err instanceof BankError && err.code === 'bank.onramp_quote_expired' ? err.code : null);
 
-export type AddMoneyStatus = 'opening' | 'refused' | 'opened' | 'pending' | 'credited' | 'returned';
+export type AddMoneyStatus = 'opening' | 'refused' | 'opened' | 'pending' | 'credited' | 'returned' | 'delivered';
 
 export interface AddMoneyMethodView {
   readonly method: OnrampMethod;
@@ -115,6 +123,11 @@ export interface AddMoneyRequestView {
   readonly creditedBy: 'ledger' | 'partner' | null;
   /** When the partner said the payment was sent back and the credit was taken out once; null unless returned. */
   readonly returnedAt: string | null;
+  /** The person's own wallet the partner delivers the purchase to, or null when it is added to a balance here. */
+  readonly walletAddress: string | null;
+  /** When the partner delivered the purchase to the wallet, and its on-chain transfer; null until delivered. */
+  readonly deliveredAt: string | null;
+  readonly deliveryTx: string | null;
 }
 
 interface RequestRow {
@@ -138,6 +151,9 @@ interface RequestRow {
   partner_pay_in_ref: string | null;
   returned_at: Date | null;
   return_ref: string | null;
+  wallet_address: string | null;
+  delivered_at: Date | null;
+  delivery_tx: string | null;
 }
 
 export interface AddMoneyInput {
@@ -148,6 +164,8 @@ export interface AddMoneyInput {
   readonly country: string;
   /** A quote the customer already accepted. Without one the request asks the rate source itself. */
   readonly quoteId?: string | undefined;
+  /** The person's own wallet the partner delivers to (an EVM address), instead of a balance here. */
+  readonly walletAddress?: string | undefined;
 }
 
 type Kept = { status: 'opening'; quoteId: string } | { status: 'refused'; code: BankErrorCode };
@@ -199,6 +217,7 @@ export class AddMoneyService {
       country: input.country.trim().toUpperCase(),
       // Postgres hands uuids back in lower case; compare the same way.
       quoteId: input.quoteId?.toLowerCase(),
+      walletAddress: walletOf(input.walletAddress),
     };
     const prior = await this.row(input.requestId);
     if (prior) return this.settle(same(prior, userId, asked));
@@ -275,7 +294,13 @@ export class AddMoneyService {
    * The partner says the money arrived: credit the quote's receive amount once, through the deposit recipe. What it says
    * was paid must be the payment it opened. A request already credited answers as it stands, and credits nothing again.
    */
-  async paid(input: { requestId: string; paidAmount: string; payCurrency: string }): Promise<AddMoneyRequestView> {
+  async paid(input: {
+    requestId: string;
+    paidAmount: string;
+    payCurrency: string;
+    /** The on-chain transfer the partner delivered a wallet request with. Only a wallet request carries one. */
+    deliveryTx?: string | undefined;
+  }): Promise<AddMoneyRequestView> {
     const { ledger, partner } = this.wired();
     const { row, onramp } = await this.partnerRow(partner, input.requestId);
     let paid: bigint;
@@ -288,6 +313,13 @@ export class AddMoneyService {
       throw new BankError(
         `The partner says ${input.paidAmount} ${input.payCurrency} was paid; the payment it opened is ${onramp.payAmount} ${onramp.payCurrency}. Nothing was credited`,
         'bank.onramp_paid_mismatch',
+      );
+    }
+    if (row.wallet_address !== null) return this.delivered(row, onramp, input.deliveryTx);
+    if (input.deliveryTx !== undefined) {
+      throw new BankError(
+        'This request adds to a balance here, not to a wallet; the partner delivers nothing on chain for it',
+        'bank.ramp_conflict',
       );
     }
     if (row.status === 'credited') return this.withOnramp(row, onramp);
@@ -370,6 +402,37 @@ export class AddMoneyService {
     return this.withOnramp(rows[0] ?? (await this.row(row.id)) ?? row, onramp);
   }
 
+  /**
+   * A wallet request the partner says it paid out: it delivered the purchase to the wallet with this on-chain transfer.
+   * Nothing is credited or posted here. The same transfer again answers as it stands; another one is a conflict.
+   */
+  private async delivered(row: RequestRow, onramp: CustomerOnrampView, deliveryTx: string | undefined): Promise<AddMoneyRequestView> {
+    if (deliveryTx === undefined) {
+      throw new BankError(
+        'The partner delivers this purchase to the person’s wallet, so its paid must name the on-chain transfer. Nothing changed',
+        'bank.onramp_delivery_missing',
+      );
+    }
+    const tx = deliveryTx.toLowerCase();
+    if (!/^0x[0-9a-f]{64}$/.test(tx)) {
+      throw new BankError('The partner named a delivery that is not a transaction hash. Nothing changed', 'bank.onramp_delivery_missing');
+    }
+    if (row.status === 'delivered') {
+      if (row.delivery_tx !== tx) throw new BankError('This purchase was already delivered with another transfer', 'bank.ramp_conflict');
+      return this.withOnramp(row, onramp);
+    }
+    const rows = await this.sql<RequestRow[]>`
+      UPDATE bank.add_money_requests SET status = 'delivered', delivered_at = now(), delivery_tx = ${tx}
+       WHERE id = ${row.id}::uuid AND status IN ('opened', 'pending')
+      RETURNING *
+    `;
+    const now = rows[0] ?? (await this.row(row.id)) ?? row;
+    if (now.status === 'delivered' && now.delivery_tx !== tx) {
+      throw new BankError('This purchase was already delivered with another transfer', 'bank.ramp_conflict');
+    }
+    return this.withOnramp(now, onramp);
+  }
+
   private wired(): { ledger: Pick<LedgerClient, 'post'>; partner: OnrampPartner } {
     const partner = this.credit?.partner;
     if (!this.credit || !partner) {
@@ -416,12 +479,15 @@ export class AddMoneyService {
   /** Write the request once. A request already written under this id must be this customer's, on the same terms. */
   private async keep(userId: string, asked: AddMoneyInput, kept: Kept): Promise<RequestRow> {
     const rows = await this.sql<RequestRow[]>`
-      INSERT INTO bank.add_money_requests (id, user_id, asset_id, amount, method, country, rail, status, refusal_code, quote_id)
+      INSERT INTO bank.add_money_requests (
+        id, user_id, asset_id, amount, method, country, rail, status, refusal_code, quote_id, wallet_address
+      )
       VALUES (
         ${asked.requestId}::uuid, ${userId}, ${asked.assetId}, ${asked.amount}::numeric, ${asked.method}, ${asked.country},
         ${railFor(asked.method)}, ${kept.status},
         ${kept.status === 'refused' ? kept.code : null},
-        ${kept.status === 'opening' ? kept.quoteId : null}::uuid
+        ${kept.status === 'opening' ? kept.quoteId : null}::uuid,
+        ${asked.walletAddress ?? null}
       )
       ON CONFLICT (id) DO NOTHING
       RETURNING *
@@ -436,7 +502,13 @@ export class AddMoneyService {
     if (row.status !== 'opening' || !row.quote_id) return this.one(row);
     let next: { status: 'opened'; onrampId: string } | { status: 'refused'; code: BankErrorCode };
     try {
-      const onramp = await this.ramps.onrampCreate({ userId: row.user_id, onrampId: row.id, quoteId: row.quote_id, method: row.method });
+      const onramp = await this.ramps.onrampCreate({
+        userId: row.user_id,
+        onrampId: row.id,
+        quoteId: row.quote_id,
+        method: row.method,
+        ...(row.wallet_address ? { walletAddress: row.wallet_address } : {}),
+      });
       next = { status: 'opened', onrampId: onramp.onrampId };
     } catch (err) {
       const code = finalRefusal(err);
@@ -484,7 +556,20 @@ function view(row: RequestRow, onramps: ReadonlyMap<string, CustomerOnrampView>)
     creditedAmount: row.credited_amount === null ? null : formatAmount(parseAmount(row.credited_amount)),
     creditedBy: row.status !== 'credited' && row.status !== 'returned' ? null : row.partner_pay_in_ref ? 'partner' : 'ledger',
     returnedAt: row.returned_at?.toISOString() ?? null,
+    walletAddress: row.wallet_address,
+    deliveredAt: row.delivered_at?.toISOString() ?? null,
+    deliveryTx: row.delivery_tx,
   };
+}
+
+/** The wallet a request names, as stored (lower case), or undefined for a balance here. Not an EVM address refuses. */
+function walletOf(raw: string | undefined): string | undefined {
+  if (raw === undefined) return undefined;
+  const address = raw.trim().toLowerCase();
+  if (!/^0x[0-9a-f]{40}$/.test(address) || /^0x0{40}$/.test(address)) {
+    throw new BankError('The wallet to deliver to must be an EVM address', 'bank.ramp_invalid_destination');
+  }
+  return address;
 }
 
 /** The stored request, if it is this customer's and was asked on the same terms. Anything else is a conflict. */
@@ -495,7 +580,8 @@ function same(row: RequestRow, userId: string, asked: AddMoneyInput): RequestRow
     parseAmount(row.amount) === parseAmount(asked.amount) &&
     row.method === asked.method &&
     row.country === asked.country &&
-    (asked.quoteId === undefined || row.quote_id === null || row.quote_id === asked.quoteId);
+    (asked.quoteId === undefined || row.quote_id === null || row.quote_id === asked.quoteId) &&
+    row.wallet_address === (asked.walletAddress ?? null);
   if (!matches) throw new BankError('This request id is already used on other terms', 'bank.ramp_conflict');
   return row;
 }

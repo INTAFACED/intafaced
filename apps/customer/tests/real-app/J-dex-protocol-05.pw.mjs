@@ -1,7 +1,16 @@
 // World: restart
 import fs from 'node:fs';
 import path from 'node:path';
-import { createPublicClient, decodeFunctionData, encodeFunctionData, formatUnits, http, parseAbi } from 'viem';
+import {
+  createPublicClient,
+  createWalletClient,
+  decodeFunctionData,
+  defineChain,
+  encodeFunctionData,
+  formatUnits,
+  http,
+  parseAbi,
+} from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { CHAIN_ID, TOKEN_A, TOKEN_B, UNBUILT, connectWallet, dexRun, fundOnTestChain, testChain } from './dex.mjs';
@@ -26,7 +35,12 @@ import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs
 // A withdrawal needs a fresh second factor (`trade.step_up.venue.withdraw`), so #3 adds an authenticator app first. Money: the user's wallet signs each venue deposit and withdrawal; the
 // ledger posts nothing, read before and after.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - the bank ramps have no "Buy to wallet" route (D-bridge-chain-02);
+// - #4 buys TEST USDC to the wallet on the bank's Add money page (/bank/ramps/new, "Deliver to: My wallet"), through the
+//   stack's TEST pay-in stand-in. This test plays the TEST partner's side, as J-bank-02 does: it says the payment was
+//   paid through the partner's signed job door, and it delivers the purchase itself on the TEST chain, from a TEST wallet
+//   of its own funded there, as TEST USD (the TEST chain's stand-in for USDC, as the TEST venue's deposit route names it).
+//   Money: the ledger posts nothing for a purchase delivered to the wallet, read before and after; the wallet's TEST USD
+//   is read from the TEST chain itself;
 // - /protocol/rails has no route table, burn, attestation or mint tracking (D-bridge-chain-03), and no cross-chain
 //   review sheet (RC-dex-protocol-04);
 // - there is no asset link review or contract-read docs (D-bridge-chain-04);
@@ -112,6 +126,78 @@ async function openRails(page) {
   await page.goto('/protocol/rails');
   await expect(rails(page)).toBeVisible(UNBUILT);
   return wallet;
+}
+
+// ── buy to wallet (#4) ───────────────────────────────────────────────────────────────────────────────────────────────
+
+let jobCtx;
+const stackCtx = () =>
+  (jobCtx ??= import('../../../../tooling/scripts/local-test-gates.mjs').then((gates) => gates.makeContext({ log: () => {} })));
+
+/** The next authenticator code of the app #3 added, kept in the run so no code is used twice. */
+async function stepCode() {
+  const { totp } = await totpLib();
+  const now = account.run.read();
+  const next = await nextCode(totp, now.secret, now.step);
+  account.run.write({ step: next.step });
+  return next.code;
+}
+
+/** One of the person's own add-money requests, as svc-bank answers it. */
+async function addMoneyRequest(signedIn, requestId) {
+  const input = encodeURIComponent(JSON.stringify({ requestId }));
+  const { status, body } = await (await signedIn()).get(`/api/bank/trpc/addMoney.request?input=${input}`);
+  if (status !== 200) throw new Error(`addMoney.request refused: ${status} ${JSON.stringify(body).slice(0, 300)}`);
+  return body.result.data;
+}
+
+/** The TEST pay-in partner says a payment was paid, through its signed job door, as the partner would. */
+async function partnerPaid(body) {
+  const ctx = await stackCtx();
+  const raw = JSON.stringify(body);
+  const res = await fetch(`${ctx.url('bank')}/internal/jobs/payin-sim/paid`, {
+    method: 'POST',
+    redirect: 'error',
+    headers: {
+      'content-type': 'application/json',
+      ...ctx.contracts.serviceAuthHeadersForBody('local-test-stack', ctx.secrets.internal, raw),
+    },
+    body: raw,
+    signal: AbortSignal.timeout(30_000),
+  });
+  const answer = await res.json().catch(() => null);
+  if (res.status !== 200) throw new Error(`payin-sim/paid refused: ${res.status} ${JSON.stringify(answer).slice(0, 300)}`);
+  return answer;
+}
+
+/**
+ * The TEST partner's delivery: `units` of TEST USD sent on the TEST chain to `to` from a TEST wallet of the partner's own,
+ * funded there for this run. Returns the mined transfer's hash.
+ */
+async function partnerDelivers(to, units) {
+  let { partnerKey } = account.run.read();
+  if (!partnerKey) {
+    partnerKey = testWalletKey();
+    fundOnTestChain(privateKeyToAccount(partnerKey).address, 'venue');
+    account.run.write({ partnerKey });
+  }
+  const gate = testChain().gateUrl;
+  const chain = defineChain({
+    id: CHAIN_ID,
+    name: 'LOCAL TEST chain',
+    nativeCurrency: { name: 'TEST ETH', symbol: 'TESTETH', decimals: 18 },
+    rpcUrls: { default: { http: [gate] } },
+  });
+  const sender = createWalletClient({ account: privateKeyToAccount(partnerKey), chain, transport: http(gate) });
+  const hash = await sender.writeContract({
+    address: TEST_USD,
+    abi: parseAbi(['function transfer(address to, uint256 amount) returns (bool)']),
+    functionName: 'transfer',
+    args: [to, units],
+  });
+  const receipt = await createPublicClient({ chain, transport: http(gate) }).waitForTransactionReceipt({ hash, timeout: 60_000 });
+  expect(receipt.status, 'the TEST partner’s delivery on the TEST chain').toBe('success');
+  return hash;
 }
 
 // ── the venue account room (#1 to #3) ────────────────────────────────────────────────────────────────────────────────
@@ -520,17 +606,62 @@ test(`${J} #3 withdraws from the venue to the wallet: destination is the connect
   }
 });
 
-test(`${J} #4 opens Buy to wallet in the bank ramps: the purchase lands in the wallet address, not the exchange balance`, async ({
-  page,
-}) => {
-  test.setTimeout(120_000);
-  await person(page);
+test(`${J} #4 opens Buy to wallet in the ramps: the partner's purchase lands in the wallet address`, async ({ page }) => {
+  test.setTimeout(300_000);
+  const { who } = venueState();
+  const signedIn = async () => api(who, account.run.read().secret ? { totpCode: await stepCode() } : {});
+  // TEST setup: the account holds USDC as a currency to buy, as the person adds one on the Bank Overview.
+  const added = await (await signedIn()).post('/api/bank/trpc/currencies.add', { assetId: 'USDC' });
+  expect(added.status, `currencies.add: ${JSON.stringify(added.body).slice(0, 300)}`).toBe(200);
+  const ledgerBefore = await (await signedIn()).balances();
+  await signIn(page, who);
   const wallet = await connectWallet(page, dex, { tokens: [TOKEN_A] });
+  const owner = wallet.address.toLowerCase();
+  const before = await chainUsd(wallet.address);
+
   await page.goto('/bank/ramps/new');
   const deliver = page.getByRole('radiogroup', { name: 'Deliver to' });
-  await deliver.getByRole('radio', { name: 'My wallet' }).check(UNBUILT);
-  await expect(page.getByTestId('ramp-destination')).toContainText(new RegExp(wallet.address, 'i'));
-  await expect(page.getByTestId('ramp-destination')).not.toContainText('Exchange balance');
+  await deliver.getByRole('radio', { name: 'My wallet' }).check();
+  const destination = page.getByTestId('ramp-destination');
+  await expect(destination).toContainText(new RegExp(wallet.address, 'i'));
+  await expect(destination).not.toContainText('Exchange balance');
+  await page.getByLabel('Add to').selectOption('USDC');
+  await page.getByLabel('Amount').fill('3');
+  await page.getByLabel('Country you pay from').fill('NL');
+  await page.getByRole('button', { name: 'See ways to pay' }).click();
+  await page.getByTestId('method-pay_by_bank').getByRole('radio').check();
+  await page.getByRole('button', { name: 'Continue' }).click();
+  const { url } = await stackCtx();
+  await page.getByTestId('add-money-confirm').getByRole('button', { name: 'Ask for this payment' }).click();
+  // The partner's page names the wallet the purchase goes to: the partner was told it.
+  await page.waitForURL((at) => at.href.startsWith(`${url('bank')}/test/payin-sim/pay/`));
+  await expect(page.getByTestId('payin-sim-label')).toContainText(/^TEST\b/);
+  await expect(page.getByTestId('payin-sim-deliver-to')).toHaveText(`Delivered to the wallet ${owner}`);
+  const requestId = decodeURIComponent(new URL(page.url()).pathname.split('/').pop());
+  const asked = await addMoneyRequest(signedIn, requestId);
+  expect(asked).toMatchObject({ status: 'opened', assetId: 'USDC', amount: '3', walletAddress: owner, deliveryTx: null });
+  await page.getByRole('button', { name: 'Approve payment' }).click();
+  await page.waitForURL((at) => at.pathname === '/bank/ramps/new' && at.searchParams.get('request') === requestId);
+  const tracker = page.getByTestId('add-money-tracker');
+  await expect(tracker).toHaveAttribute('data-status', 'pending');
+  await expect(page.getByTestId('tracker-delivery')).toHaveAttribute('data-state', 'waiting');
+  await expect(page.getByTestId('tracker-delivery')).toContainText(owner);
+
+  // The TEST partner delivers the purchase to that address on the TEST chain, then says it was paid with that transfer.
+  const hash = await partnerDelivers(wallet.address, 3_000_000n);
+  const paid = await partnerPaid({ requestId, paidAmount: asked.onramp.payAmount, payCurrency: 'EUR', deliveryTx: hash });
+  expect(paid).toMatchObject({ requestId, status: 'delivered', walletAddress: owner, deliveryTx: hash, creditedAmount: null });
+  await expect(tracker).toHaveAttribute('data-status', 'delivered');
+  await expect(tracker).toContainText('Delivered to your wallet');
+  await expect(page.getByTestId('tracker-delivery')).toHaveText(new RegExp(`Delivered to ${owner}`));
+  await expect(page.getByTestId('tracker-delivery-tx')).toHaveAttribute('href', `/chain/tx/${hash}`);
+  // It landed in the wallet address: the TEST chain itself says the wallet holds 3 TEST USD more.
+  expect(await chainUsd(wallet.address)).toBe(before + 3_000_000n);
+  // Once: the partner saying paid again is the same delivery, and nothing more moves.
+  expect(await partnerPaid({ requestId, paidAmount: asked.onramp.payAmount, payCurrency: 'EUR', deliveryTx: hash })).toEqual(paid);
+  expect(await chainUsd(wallet.address)).toBe(before + 3_000_000n);
+  // The ledger posts nothing for a purchase delivered to the wallet: INTAFACED holds none of it.
+  expect(await (await signedIn()).balances()).toEqual(ledgerBefore);
 });
 
 test(`${J} #5 opens the rails room with the route table blank: the full layout, the blocker for unset routes with its owner-decision label, no route offered`, async ({

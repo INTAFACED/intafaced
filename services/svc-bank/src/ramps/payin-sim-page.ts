@@ -32,8 +32,12 @@ function page(partner: OnrampPartner, request: AddMoneyRequestView, returnUrl: s
 <main data-testid="payin-sim-page">
 <h1>TEST payment page</h1>
 <p data-testid="payin-sim-label">${escape(partner.label)}</p>
-<p data-testid="payin-sim-amount">Pay ${escape(pay)} to add ${escape(request.amount)} ${escape(request.assetId)}</p>
-${action}
+<p data-testid="payin-sim-amount">${
+    request.walletAddress
+      ? `Pay ${escape(pay)} to buy ${escape(request.amount)} ${escape(request.assetId)}`
+      : `Pay ${escape(pay)} to add ${escape(request.amount)} ${escape(request.assetId)}`
+  }</p>
+${request.walletAddress ? `<p data-testid="payin-sim-deliver-to">Delivered to the wallet ${escape(request.walletAddress)}</p>\n` : ''}${action}
 <p><a href="${escape(returnUrl)}">Back without paying</a></p>
 </main>
 </body>

@@ -185,6 +185,11 @@ export const payinPaidBody = z
     requestId: z.string().uuid(),
     paidAmount: z.string().regex(/^\d+(\.\d{1,18})?$/),
     payCurrency: z.string().regex(/^[A-Z]{3,16}$/),
+    /** The on-chain transfer the partner delivered a wallet request with (J-dex-protocol-05 #4). */
+    deliveryTx: z
+      .string()
+      .regex(/^0x[0-9a-fA-F]{64}$/)
+      .optional(),
   })
   .strict();
 

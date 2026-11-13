@@ -1358,6 +1358,11 @@ export const addMoneyRequests = bank.table('add_money_requests', {
   // return (J-bank-02 #7).
   returnedAt: tstz('returned_at'),
   returnRef: text('return_ref'),
+  // Migration 20261113031713: buy to wallet (J-dex-protocol-05 #4). The person's own wallet the partner delivers the
+  // purchase to, when it is not added to a balance here, and when and with which on-chain transfer the partner delivered.
+  walletAddress: text('wallet_address'),
+  deliveredAt: tstz('delivered_at'),
+  deliveryTx: text('delivery_tx'),
 });
 
 /**
