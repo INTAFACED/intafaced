@@ -1,7 +1,7 @@
 // World: book
 import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { api, journeyState, toUnits } from './stack.mjs';
+import { api, fund, journeyState, toUnits } from './stack.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 import { copiedOrders, followOnScreen, leadFill, listLeader, openFollow, userIdOf } from './copy.mjs';
 
@@ -83,7 +83,44 @@ test(`${J} #1 opens settlement oversight: "Settled" where the ledger post and th
   const follow = (Array.isArray(follows) ? follows : follows.items).find((f) => f.leaderRef === leaderRef);
   expect(follow, 'the follower has a follow of this lead').toBeTruthy();
   const now = Date.now();
+  // The copy is a limit buy at the lead's price; once the TEST maker requotes it can rest. A TEST counterparty sells into
+  // it at its own price, so the copy has a fill of its own to settle a fee share on.
+  const trailNow = async () =>
+    (
+      await trpcGet(follower, 'copy.mirrorTrail', {
+        followId: follow.followId,
+        from: new Date(now - 3_600_000).toISOString(),
+        to: new Date(now + 600_000).toISOString(),
+        limit: 50,
+      })
+    ).rows;
+  let placed;
+  await expect
+    .poll(async () => Boolean((placed = (await trailNow()).find((r) => r.kind === 'placed' && r.followerOrderId))), {
+      timeout: 30_000,
+      message: 'the copy was never placed on the trail',
+    })
+    .toBe(true);
+  const copyOrder = (await (await api(follower)).get(`/api/v1/orders/${placed.followerOrderId}?symbol=BTC/USDT`)).body;
+  if (copyOrder.status === 'open' && toUnits(copyOrder.remaining ?? copyOrder.amount) > 0n) {
+    const taker = await fundedTrader(page, 'jcx11', '10');
+    expect(fund(taker.email, 'BTC', '0.01').tx).toBeTruthy();
+    const sell = await (
+      await api(taker)
+    ).post('/api/v1/orders', {
+      symbol: 'BTC/USDT',
+      type: 'limit',
+      side: 'sell',
+      amount: copyOrder.remaining ?? copyOrder.amount,
+      price: copyOrder.price,
+      timeInForce: 'IOC',
+      clientOrderId: `${J}-1-taker-${tag}`,
+    });
+    expect(sell.status, JSON.stringify(sell.body).slice(0, 300)).toBeLessThan(300);
+  }
   let filled;
+  let seen = [];
+  // The copy's own fill, whole or part (the trail's `filled` or `partial` row names the follower's fill).
   await expect
     .poll(
       async () => {
@@ -93,12 +130,17 @@ test(`${J} #1 opens settlement oversight: "Settled" where the ledger post and th
           to: new Date(now + 600_000).toISOString(),
           limit: 50,
         });
-        filled = trail.rows.find((r) => r.kind === 'filled' && r.followerFillId);
+        seen = trail.rows.map((r) => r.kind);
+        filled = trail.rows.find((r) => (r.kind === 'filled' || r.kind === 'partial') && r.followerFillId);
         return Boolean(filled);
       },
-      { timeout: 30_000, message: 'the copy never filled on the trail' },
+      { timeout: 90_000, message: 'the copy never filled on the trail' },
     )
-    .toBe(true);
+    .toBe(true)
+    .catch((err) => {
+      err.message += `\ntrail kinds seen: ${JSON.stringify(seen)}`;
+      throw err;
+    });
   const trades = (await (await api(follower)).get(`/api/v1/orders/${filled.followerOrderId}/trades?limit=10`)).body;
   const fill = trades.find((t) => t.id === filled.followerFillId) ?? trades[0];
   const feeAsset = fill.fee.currency;
@@ -170,7 +212,7 @@ test(`${J} #3 runs reconcile with the window blank: refused`, async ({ page }) =
   await page.getByLabel('Window').selectOption({ label: 'Choose a window' });
   await page.getByRole('button', { name: 'Reconcile' }).click();
   // svc-trade refuses the blank window by name; the console shows its words and its code.
-  const alert = page.getByRole('alert');
+  const alert = page.getByRole('region', { name: 'Reconcile' }).getByRole('alert');
   await expect(alert).toHaveAttribute('data-refusal', 'trade.copy_settlement_window_required');
   await expect(alert).toHaveText('Choose a window to reconcile. Reference trade.copy_settlement_window_required');
   // Nothing was reconciled: the last run is still the one before, and no run was added.
