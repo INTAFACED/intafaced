@@ -409,6 +409,16 @@ jobs:
             cat "$RUNNER_TEMP/leave-out.txt"
             echo "LEAVE_OUT_END"
           } >> "$GITHUB_OUTPUT"
+      # The list kept with the run, so main-bisect's probes leave out what this run left out (journeys-revert-probe.mjs
+      # leavesOut): a break made by leaving a test out then reproduces, and its merge is reverted.
+      - name: Keep the leave-out list
+        if: ${{ !cancelled() && steps.leave.outcome == 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: real-app-journeys-leave-out
+          path: ${{ runner.temp }}/leave-out.txt
+          retention-days: 14
+          if-no-files-found: warn
       - name: Targeted run has its plan
         if: ${{ !cancelled() && env.PLANS == 'true' && steps.first.outputs.deferred != 'true' && steps.touch.outputs.target != '' && steps.plan.outputs.shards == '' }}
         run: |
