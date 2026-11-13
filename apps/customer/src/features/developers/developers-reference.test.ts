@@ -1,10 +1,10 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { describe, expect, it, vi } from 'vitest';
 vi.mock('../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../shared/preferences')>();
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
+import { developerFiles } from './developers-files';
 import { DOCS_PAGES, llmsTxt, markdownOf } from './developers-markdown';
 import { SECTIONS } from './developers-model';
 import {
@@ -26,9 +26,8 @@ import {
 } from './developers-reference';
 
 const repo = (path: string) => readFileSync(new URL(`../../../../../${path}`, import.meta.url), 'utf8');
-const publicDir = new URL('../../../public/developers/', import.meta.url);
-const WRITE = process.env.WRITE_DEVELOPER_DOCS === '1';
 
+const ROUTE_LIST = new URL('./rest-routes.txt', import.meta.url);
 const TRADE_SRC = new URL('../../../../../services/svc-trade/src/', import.meta.url);
 
 type Declared = { method: string; path: string; access: string; scopes: string[]; file: string };
@@ -110,7 +109,13 @@ describe('the published route list matches what the services really mount', () =
     // Every registration resolved to a real /api/v1 path; none is left as a variable name.
     for (const route of declared) expect(route.path, `${route.method} ${route.path} in ${route.file}`).toMatch(/^\/api\/v1\//);
     const ours = REST_REFERENCE.map((route) => declarationKey({ ...route, scopes: scopesOf(route) }));
-    expect(ours).toHaveLength(187);
+    // The whole list, pinned in its own file one route per line, sorted: as strict as an exact count (a route that
+    // leaves both the service and the reference still fails here), and two changes adding different routes edit
+    // different lines. `WRITE_ROUTE_LIST=1` rewrites it after a deliberate change.
+    const listed = [...ours].sort();
+    if (process.env.WRITE_ROUTE_LIST === '1') writeFileSync(ROUTE_LIST, `${listed.join('\n')}\n`);
+    const pinned = readFileSync(ROUTE_LIST, 'utf8').split('\n').filter(Boolean);
+    expect(listed, 'rest-routes.txt: run WRITE_ROUTE_LIST=1 after a deliberate route change').toEqual(pinned);
     expect(new Set(ours).size).toBe(ours.length);
     expect([...ours].sort()).toEqual([...new Set(declared.map(declarationKey))].sort());
   });
@@ -297,39 +302,19 @@ describe('the machine-readable files', () => {
   });
 
   /**
-   * Each file exactly as it is committed: generated, then put through the repo's own Prettier settings for its type, so
-   * `prettier --check` passes on a fresh write. A text file Prettier has no parser for (llms.txt) is kept as generated.
-   * `WRITE_DEVELOPER_DOCS=1` writes them.
+   * The files the build writes into `dist/developers/` and `vite dev` serves (vite.config.ts `developerDocs`), as
+   * generated from the route list, the copy and the host table. They are not committed, so there is no copy to drift.
    */
-  const files: Record<string, string> = {};
-  beforeAll(async () => {
-    const prettier = await import('prettier');
-    const generated: Record<string, string> = {
-      'openapi.json': JSON.stringify(openApiDocument()),
-      'collection.json': JSON.stringify(requestCollection()),
-      'llms.txt': llmsTxt(),
-      ...Object.fromEntries(DOCS_PAGES.map((page) => [`${page.slug}.md`, markdownOf(page)])),
-    };
-    for (const [name, body] of Object.entries(generated)) {
-      const filepath = fileURLToPath(new URL(name, publicDir));
-      const info = await prettier.getFileInfo(filepath);
-      files[name] = info.inferredParser ? await prettier.format(body, { ...(await prettier.resolveConfig(filepath)), filepath }) : body;
-    }
-    if (WRITE) {
-      mkdirSync(publicDir, { recursive: true });
-      for (const [name, body] of Object.entries(files)) writeFileSync(new URL(name, publicDir), body);
-    }
-  });
+  const files = developerFiles();
 
-  it('serves every file exactly as generated from the route list, the copy and the host table', () => {
+  it('generates every file from the route list, the copy and the host table', () => {
     expect(Object.keys(files).sort()).toEqual(
       ['collection.json', 'llms.txt', 'openapi.json', ...DOCS_PAGES.map((page) => `${page.slug}.md`)].sort(),
     );
-    for (const [name, body] of Object.entries(files)) {
-      const file = new URL(name, publicDir);
-      expect(existsSync(file), `${name}: run WRITE_DEVELOPER_DOCS=1`).toBe(true);
-      expect(readFileSync(file, 'utf8'), `${name}: run WRITE_DEVELOPER_DOCS=1`).toBe(body);
-    }
+    expect(JSON.parse(files['openapi.json']!)).toEqual(openApiDocument());
+    expect(JSON.parse(files['collection.json']!)).toEqual(requestCollection());
+    expect(files['llms.txt']).toBe(llmsTxt());
+    for (const page of DOCS_PAGES) expect(files[`${page.slug}.md`]).toBe(markdownOf(page));
   });
 
   it('gives every written page of the portal a markdown variant, except the live pages', () => {
