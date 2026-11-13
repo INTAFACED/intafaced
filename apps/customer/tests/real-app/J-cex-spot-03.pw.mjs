@@ -44,6 +44,7 @@ const ONE = toUnits('1');
 
 // Our own engine's fill-or-kill and good-till-date (BTC/USDT, TEST USDT on the ledger), as main proved them before this
 // file moved to the venue: the venue offers neither, so #5 and #7 keep that proof unchanged beside the venue's refusal.
+// #5's words now say fill-or-kill is listed as not offered by this venue (Nino's decision, project-state #2260).
 const ENGINE_FUNDED = '60000';
 const engineTab = (page, name) => page.locator('[role=tab]', { hasText: new RegExp(`^${name}$`) });
 async function enginePickTif(page, label) {
@@ -491,7 +492,7 @@ test(`${J} #4 sends an immediate-or-cancel buy with nothing to match: it ends wi
   await notOfferedSignsNothing(page, wallet);
 });
 
-test(`${J} #5 sends a fill-or-kill buy bigger than the book: nothing fills, the resting sells stay; on the venue, which offers no fill-or-kill, it is listed disabled with "not offered by this venue" and nothing is signed`, async ({
+test(`${J} #5 picks fill-or-kill for a buy bigger than the book: the venue can fill part of an order, so fill-or-kill is listed disabled with "not offered by this venue" and nothing is signed or sent (the owner's choice, project-state #2260); our own engine's fill-or-kill still fills nothing`, async ({
   page,
   browser,
 }) => {
