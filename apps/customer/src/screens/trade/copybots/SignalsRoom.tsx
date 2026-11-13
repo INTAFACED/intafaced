@@ -124,7 +124,7 @@ function PublishSignal() {
 
   const c = criteria.data;
   return (
-    <Page>
+    <Page landmark={false}>
       <PageHeader title={t('Publish a signal')} description={t('Share your trade signals with subscribers, free or for a monthly fee.')} />
       <SignalsNav active="publish" />
       <PageSection title={t('Provider criteria')} headingLevel={2} actions={<Freshness live={criteria} staleAfterMs={600_000} />}>
@@ -218,7 +218,7 @@ function SignalsHub({ view }: { view: 'list' | 'mine' | 'earnings' }) {
   const { t } = roomCopy.useCopy();
   const title = view === 'mine' ? t('My signals') : view === 'earnings' ? t('Signal earnings') : t('Signals');
   return (
-    <Page>
+    <Page landmark={false}>
       <PageHeader
         title={title}
         description={t('Trade signals from vetted providers. Free or a monthly fee; never a share of your profit.')}

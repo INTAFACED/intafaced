@@ -1,15 +1,17 @@
 // World: restart, stack
+import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { signUp, verify } from './desk.mjs';
+import { signIn, signUp, verify } from './desk.mjs';
 import { EDGE, ORIGIN, api, fromUnits, journeyState, tool, toUnits } from './stack.mjs';
 import { signedHeaders } from './developer.mjs';
 import { confirmStepUp, restorePasskey, testPasskey } from './p2p.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 
 // J-agents-21, in the running app (docs/roadmap/journeys.json): I let my own AI assistant trade on a capped account I
-// can revoke. This file holds the steps built so far (#1 #3 #4 #5 #8 #9 #10 #12 #13 #14 #16 #17 #18 #19), one test per step,
+// can revoke. This file holds the steps built so far (#1 #3 #4 #5 #8 #9 #10 #11 #12 #13 #14 #16 #17 #18 #19 #7), one test per step,
 // titled "J-agents-21 #<n>", run in order by one signed-in, verified TEST person with one TEST wallet key (kept in this
 // run's state) on the stack's TEST venue simulator (tooling/scripts/local-test-venue.mjs). Every figure the TEST venue
 // reports is TEST.
@@ -25,8 +27,16 @@ import { testWalletKey } from './test-wallet.mjs';
 // API (identity's developerKeys.create with the TEST passkey, then the connection with step-up): a labelled TEST
 // stand-in for #6's Connect screen, which is a later piece. #13 closes against the perp the assistant opened in #8.
 //
-// Not here, under the passing/unbuilt rule: #2 and #6 (the Connect your assistant screen), #7 (the MCP server's order
-// tool), #11 (the connection's log) and #15 (the founder's desk) are later pieces.
+// #7 runs last, on the second agent account: the assistant runs the MCP server (packages/assistant-mcp) as its own
+// process over stdio with the agent key, and buys TEST spot through its order tool. Not on the first account, because
+// the venue takes a spot buy's fee in BTC, and BTC left under one lot would keep #14's close refused. #18 left the
+// second account at its daily-loss cap, so the person first sets that cap back to TEST 25.
+//
+// #11 reads the connection's Activity through the API, as the connection's screen (a later piece, a design change) will:
+// every call the assistant made with the first key in #8 #9 #10, kept by the request id Edge answered each with.
+//
+// Not here, under the passing/unbuilt rule: #2 and #6 (the Connect your assistant screen) and #15 (the founder's desk)
+// are later pieces.
 //
 // #19 acts on the second agent account (#16), with two more agent keys the person makes with end dates through identity's
 // API (the same TEST stand-in): the venue's longest agent permission is the TEST venue's own declaration (GET /venue).
@@ -384,9 +394,12 @@ async function assistantKey(which = 'first') {
   return assistantKey(which);
 }
 
-/** One call to Edge as the assistant: its agent key, each request signed with the key's signing secret. */
+/**
+ * One call to Edge as the assistant: its agent key, each request signed with the key's signing secret. Every call is
+ * kept in this run's state by the request id Edge answered it with, under its key, so #11 knows every call made so far.
+ */
 async function asAssistant(method, route, body, which = 'first') {
-  const { agentKey, agentSecret } = await assistantKey(which);
+  const { agentKey, agentKeyId, agentSecret } = await assistantKey(which);
   const raw = body === undefined ? undefined : JSON.stringify(body);
   const res = await fetch(`${EDGE}${route}`, {
     method,
@@ -398,6 +411,10 @@ async function asAssistant(method, route, body, which = 'first') {
     },
     body: raw,
   });
+  const requestId = res.headers.get('x-request-id');
+  expect(requestId, `${method} ${route}: Edge answered with no x-request-id`).toBeTruthy();
+  const made = run.read().calls ?? {};
+  run.write({ calls: { ...made, [agentKeyId]: [...(made[agentKeyId] ?? []), { requestId, method, route }] } });
   const text = await res.text();
   let parsed;
   try {
@@ -547,6 +564,74 @@ test(`${J} #10 The assistant places an order costing more than the agent account
   expect(res.body.refusal.detail).toContain('margin');
   // Nothing locked, and the main venue account never drawn: both accounts, the position and our ledger as they were.
   expect(await everything(session)).toEqual(before);
+});
+
+test(`${J} #11 Opens the connection's Activity: one row per call so far, refused ones included, each with time, tool, outcome and order id; the export holds the same rows`, async () => {
+  test.setTimeout(120_000);
+  const { session } = await person();
+  const { agentKeyId } = await assistantKey();
+  // Every call the assistant made with this key so far (#8 #9 #10), as Edge answered each: oldest first.
+  const made = run.read().calls?.[agentKeyId] ?? [];
+  expect(made.length, 'the assistant made no calls before #11').toBeGreaterThanOrEqual(6);
+
+  const view = body200(await session.get(`${BASE}/connections/${agentKeyId}/activity`));
+  expect(view).toMatchObject({ keyId: agentKeyId, accountId: state().accountId });
+  // One row per call so far, refused ones included, newest first, and no other.
+  expect(view.rows.map((r) => r.requestId)).toEqual([...made].reverse().map((c) => c.requestId));
+  const started = new Date(Date.now() - 60 * 60_000).getTime();
+  for (const row of view.rows) {
+    // Time: when the call was answered, in this run.
+    expect(Number.isNaN(Date.parse(row.at)), JSON.stringify(row)).toBe(false);
+    expect(Date.parse(row.at) > started && Date.parse(row.at) <= Date.now(), JSON.stringify(row)).toBe(true);
+    // Tool, and outcome.
+    const call = made.find((c) => c.requestId === row.requestId);
+    expect(row.tool).toBe(call.route === '/api/v1/venue/agent/orders' ? 'place_order' : `${call.method} ${call.route.split('?')[0]}`);
+    expect(['accepted', 'refused', 'failed']).toContain(row.outcome);
+  }
+  const byOrder = (id) => view.rows.filter((r) => r.order?.clientOrderId === id);
+
+  // #8's perp: accepted, with its order id, the venue's own id as the venue reports it.
+  const [opened] = byOrder('perp-open');
+  expect(opened).toMatchObject({ tool: 'place_order', outcome: 'accepted', status: 200, code: null });
+  const record = body200(
+    await session.get(`/api/v1/venue/orders/by-key?actionKey=${encodeURIComponent(`agent:order:${agentKeyId}:perp-open`)}`),
+  );
+  expect(opened.order.venueOrderId).toBe(record.order?.venueOrderId ?? null);
+  // #9's four calls: each refused, 403, no order.
+  const refusedRoutes = made.slice(-5, -1).map((c) => c.requestId);
+  const nine = view.rows.filter((r) => refusedRoutes.includes(r.requestId));
+  expect(nine).toHaveLength(4);
+  for (const row of nine) expect(row).toMatchObject({ outcome: 'refused', status: 403, order: null });
+  // #10's order past what the account holds: refused with the venue's code, naming its order.
+  const [tooBig] = byOrder('perp-too-big');
+  expect(tooBig).toMatchObject({
+    tool: 'place_order',
+    outcome: 'refused',
+    status: 422,
+    code: 'trade.venue.insufficient_balance',
+    order: { clientOrderId: 'perp-too-big', venueOrderId: null },
+  });
+
+  // The export holds the same rows, in the same order.
+  const file = await session.get(`${BASE}/connections/${agentKeyId}/activity?format=csv`);
+  expect(file.status).toBe(200);
+  expect(typeof file.body).toBe('string');
+  const lines = file.body.trimEnd().split('\n');
+  expect(lines[0]).toBe('Time,Tool,Outcome,Status,Code,Order id,Venue order id,Request id');
+  expect(lines.slice(1)).toEqual(
+    view.rows.map((r) =>
+      [
+        r.at,
+        r.tool,
+        { accepted: 'Accepted', refused: 'Refused', failed: 'Failed' }[r.outcome],
+        String(r.status),
+        r.code ?? '',
+        r.order?.clientOrderId ?? '',
+        r.order?.venueOrderId ?? '',
+        r.requestId,
+      ].join(','),
+    ),
+  );
 });
 
 test(`${J} #12 Revokes the assistant while it has a resting TEST order: the next call with the key refuses auth.api_key_revoked; the resting order is cancelled once on the venue; our copy of the venue agent key is dropped and the wallet is asked to sign the venue's revoke; the perp position stays in the agent account`, async () => {
@@ -1011,4 +1096,149 @@ test(`${J} #19 Connects the assistant with an expiry longer than the venue allow
   const wait = Date.parse(endsAt) + 2_000 - Date.now();
   if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
   refused(await call(), 401, 'auth.api_key_expired');
+});
+
+// ── #7: the assistant's order through the MCP server (packages/assistant-mcp) ─────────────────────────────────────────
+
+/** The MCP server's source, run by Node as it is (type stripping), as the assistant runs it on its own machine. */
+const MCP_SERVER = fileURLToPath(new URL('../../../../packages/assistant-mcp/src/server.ts', import.meta.url));
+
+/**
+ * The assistant's own MCP client: the server as its own process over stdio, with the agent key in its environment and
+ * nothing else of ours, one JSON-RPC message per line each way.
+ */
+function mcpClient({ agentKey, agentSecret }) {
+  const child = spawn(process.execPath, [MCP_SERVER], {
+    env: {
+      PATH: process.env.PATH ?? '',
+      INTAFACED_API_URL: EDGE,
+      INTAFACED_AGENT_KEY: agentKey,
+      INTAFACED_AGENT_SIGNING_SECRET: agentSecret ?? '',
+    },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  const waiting = new Map();
+  let buffer = '';
+  let stderr = '';
+  child.stderr.on('data', (c) => (stderr += c.toString()));
+  child.stdout.on('data', (c) => {
+    buffer += c.toString();
+    for (let at = buffer.indexOf('\n'); at >= 0; at = buffer.indexOf('\n')) {
+      const message = JSON.parse(buffer.slice(0, at));
+      buffer = buffer.slice(at + 1);
+      waiting.get(message.id)?.(message);
+      waiting.delete(message.id);
+    }
+  });
+  let next = 0;
+  return {
+    request(method, params) {
+      const id = (next += 1);
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`no answer to ${method} from the MCP server; stderr: ${stderr}`)), 60_000);
+        waiting.set(id, (message) => {
+          clearTimeout(timer);
+          resolve(message);
+        });
+        child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`);
+      });
+    },
+    notify(method, params) {
+      child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method, ...(params ? { params } : {}) })}\n`);
+    },
+    close() {
+      child.kill();
+    },
+  };
+}
+
+test(`${J} #7 The assistant buys TEST spot through the MCP server's order tool: the fill is on the agent's venue account, as the venue reports it; /trade/orders shows the order tagged "by your assistant"; the main venue account is unchanged`, async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  const { session } = await person();
+  const { second, account } = state();
+  const { agentKeyId, agentKey, agentSecret } = await assistantKey('second');
+  const sub = await acct(owner(), second.subAccount);
+  // #18 left this account at its daily-loss cap for today; the person sets the cap back to TEST 25 (under the owner's
+  // ceiling, as in #16), so the assistant may order again. Nothing moves.
+  expect(same(body200(await session.post(`${BASE}/${second.accountId}/limits`, { maxDailyLoss: '25' })).limits.maxDailyLoss, '25')).toBe(
+    true,
+  );
+  const before = await everything(session, second.subAccount);
+  const since = new Date(Date.now() - 1_000).toISOString();
+  const btcOf = (balances) => balances.find((b) => b.asset === 'BTC') ?? { total: '0', free: '0', locked: '0' };
+
+  // The assistant's MCP client: the server over stdio, its one order tool, and a TEST market buy of 0.0005 BTC-USDC
+  // (30.05 USDC at its worst price, under the per-order cap of 50).
+  const mcp = mcpClient({ agentKey, agentSecret });
+  let placed;
+  try {
+    const init = await mcp.request('initialize', {
+      protocolVersion: '2025-06-18',
+      capabilities: {},
+      clientInfo: { name: 'TEST assistant', version: '0' },
+    });
+    expect(init.result?.capabilities?.tools, JSON.stringify(init)).toBeTruthy();
+    mcp.notify('notifications/initialized');
+    const listed = await mcp.request('tools/list', {});
+    expect(listed.result.tools.map((t) => t.name)).toEqual(['place_order']);
+    placed = await mcp.request('tools/call', {
+      name: 'place_order',
+      arguments: {
+        clientOrderId: 'mcp-spot-buy',
+        symbol: 'BTC-USDC',
+        side: 'buy',
+        type: 'market',
+        amount: '0.0005',
+        price: '60100',
+        timeInForce: 'IOC',
+      },
+    });
+  } finally {
+    mcp.close();
+  }
+  expect(placed.result?.isError, JSON.stringify(placed).slice(0, 600)).toBe(false);
+  const answer = placed.result.structuredContent;
+  expect(answer).toMatchObject({
+    state: 'accepted',
+    origin: `agent:${agentKeyId}`,
+    account: { owner: owner(), subAccount: second.subAccount },
+  });
+  const cloid = answer.order.venueClientOrderId;
+  expect(cloid).toBeTruthy();
+
+  // The fill is on the agent's venue account, as the venue reports it: its order filled there, its fills there, and the
+  // sub-account's BTC rose by exactly what filled less the venue's fee in BTC, its USDC fell by exactly what was paid.
+  const venueOrder = (await venue('/order-by-client-id', { account: sub, venueClientOrderId: cloid })).value;
+  expect(venueOrder).toMatchObject({ symbol: 'BTC-USDC', side: 'buy', status: 'filled' });
+  expect(same(venueOrder.filled, '0.0005')).toBe(true);
+  const fills = (await venue('/fills', { account: sub, since })).value.filter((f) => f.venueClientOrderId === cloid);
+  expect(fills.length > 0).toBe(true);
+  let gotBtc = 0n;
+  let paidUsdc = 0n;
+  for (const f of fills) {
+    expect([f.symbol, f.side, f.feeAsset]).toEqual(['BTC-USDC', 'buy', 'BTC']);
+    gotBtc += toUnits(f.amount) - toUnits(f.venueFee) - toUnits(f.builderFee);
+    paidUsdc += (toUnits(f.amount) * toUnits(f.price)) / 10n ** 18n;
+  }
+  const after = await everything(session, second.subAccount);
+  expect(toUnits(btcOf(after.sub).total) - toUnits(btcOf(before.sub).total)).toBe(gotBtc);
+  expect(toUnits(usdcOf(before.sub).total) - toUnits(usdcOf(after.sub).total)).toBe(paidUsdc);
+  // The main venue account is unchanged, as the venue reports it, and so is the person's balance with us.
+  expect(after.main).toEqual(before.main);
+  expect(after.mainPositions).toEqual(before.mainPositions);
+  expect(after.ledger).toEqual(before.ledger);
+
+  // /trade/orders shows the order tagged "by your assistant", with the venue's market, side and amount.
+  await signIn(page, account);
+  await page.goto('/trade/orders');
+  const list = page.getByTestId('assistant-orders');
+  await expect(list.getByRole('heading', { name: 'Orders by your assistant' })).toBeVisible();
+  const row = list.locator(`tr[data-venue-client-order-id="${cloid}"]`);
+  await expect(row).toHaveCount(1);
+  await expect(row.locator('td').nth(0)).toHaveText('BTC-USDC');
+  await expect(row.locator('td').nth(1)).toHaveText('Buy');
+  await expect(row.locator('td').nth(5)).toHaveText('Filled');
+  await expect(row.locator('[data-placed-by="assistant"]')).toHaveText('by your assistant');
 });

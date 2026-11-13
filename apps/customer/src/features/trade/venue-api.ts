@@ -178,6 +178,30 @@ export const venueOrderSchema = z.object({
 });
 export type VenueOrder = z.infer<typeof venueOrderSchema>;
 
+/**
+ * One order the person's door kept, read back from the venue (`GET /venue/orders`): `origin` is `agent:<keyId>` when their
+ * own assistant placed it with its agent key (J-agents-21 #7), and `order` is the venue's record once it accepted it.
+ */
+export const venueKeptOrderSchema = z.object({
+  actionKey: z.string(),
+  venueClientOrderId: z.string().nullable(),
+  origin: z.string().nullable(),
+  state: z.enum(['accepted', 'unknown', 'refused', 'not_sent']),
+  order: venueOrderSchema.nullable(),
+  asOf: isoTime.nullable(),
+});
+export type VenueKeptOrder = z.infer<typeof venueKeptOrderSchema>;
+export const venueOrderPageSchema = z.object({ orders: z.array(venueKeptOrderSchema), nextCursor: z.string().nullable() });
+
+/** The person's agent accounts (J-agents-21): the wallet that owns each and its venue sub-account. */
+export const agentAccountRowSchema = z.object({
+  accountId: z.string(),
+  status: z.string(),
+  owner: z.string(),
+  subAccount: z.string().nullable(),
+});
+export type AgentAccountRow = z.infer<typeof agentAccountRowSchema>;
+
 export const venueFillSchema = z.object({
   fillId: z.string(),
   venueClientOrderId: z.string().nullable(),
@@ -569,6 +593,10 @@ export function venueApi(api: ApiClient) {
     balances: (owner: string, signal?: AbortSignal, subAccount?: string) =>
       read('/balances', asOf(z.array(venueBalanceSchema)), { owner, subAccount }, signal),
     openOrders: (owner: string, signal?: AbortSignal) => read('/orders/open', asOf(z.array(venueOrderSchema)), { owner }, signal),
+    /** The orders this person's door kept on the owner's accounts, oldest first, a page at a time (J-agents-21 #7). */
+    keptOrders: (owner: string, cursor?: string, signal?: AbortSignal) => read('/orders', venueOrderPageSchema, { owner, cursor }, signal),
+    /** The person's agent accounts, each with its owner wallet and venue sub-account (J-agents-21). */
+    agentAccounts: (signal?: AbortSignal) => read('/agent-accounts', z.object({ accounts: z.array(agentAccountRowSchema) }), {}, signal),
     orderByClientId: (owner: string, clientOrderId: string, signal?: AbortSignal) =>
       read('/orders/by-client-id', asOf(venueOrderSchema.nullable()), { owner, clientOrderId }, signal),
     fills: (owner: string, since: string, signal?: AbortSignal) => read('/fills', asOf(z.array(venueFillSchema)), { owner, since }, signal),

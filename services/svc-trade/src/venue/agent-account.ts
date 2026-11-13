@@ -98,6 +98,8 @@ export type AgentAccountCode =
   | 'agents.key_expiry_above_venue_max'
   | 'agents.venue_agent_expiry_max_unknown'
   | 'agents.key_not_connected'
+  // The connection's Activity (agent-order-calls.ts, #11): identity's call log of the key could not be read just now.
+  | 'agents.activity_read_unavailable'
   // The person revoked the assistant (#12): our copy of the account's venue agent key signs nothing more.
   | 'agents.agent_revoked'
   | 'agents.order_needs_agent_key'
