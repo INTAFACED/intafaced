@@ -2693,11 +2693,6 @@ export class P2pService {
   }
 
   /**
-   * P-ads-merchant-08: an ad whose maker is offline, or on a schedule outside every window, takes no order; it is off
-   * the board for the same reason. Refuses `p2p.maker_offline` with when the maker's hours open again (null when
-   * offline with no schedule). Orders already open are not touched.
-   */
-  /**
    * #4689. The ad's maker is the other side of the order and is not the caller, so the edge's frozen/closed check on
    * the caller never covers them. A frozen, closed or unknown maker refuses `p2p.counterparty_unavailable`, one code
    * for all three; an unanswered check refuses `p2p.counterparty_unverifiable`. Either way nothing is reserved.
@@ -2718,6 +2713,11 @@ export class P2pService {
     }
   }
 
+  /**
+   * P-ads-merchant-08: an ad whose maker is offline, or on a schedule outside every window, takes no order; it is off
+   * the board for the same reason. Refuses `p2p.maker_offline` with when the maker's hours open again (null when
+   * offline with no schedule). Orders already open are not touched.
+   */
   private async assertMakerPresent(db: Sql, makerId: string, takerId: string | null): Promise<void> {
     if (takerId !== null && takerId === makerId) return;
     const [row] = await db<Array<{ on_board: boolean }>>`SELECT p2p.maker_on_board(${makerId}, now()) AS on_board`;
