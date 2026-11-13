@@ -192,7 +192,7 @@ export class MemoryLeadOwnStore implements LeadOwnStore {
     return row ? { removedAt: row.at } : null;
   }
   async insertRemovalUnderLimit(
-    row: { key: string; leaderId: string; at: Date },
+    row: { key: string; leaderId: string; followId: string; followerId: string; reason: string | null; at: Date },
     limit: number,
     dayStart: Date,
   ): Promise<'inserted' | 'exists' | 'limit'> {
