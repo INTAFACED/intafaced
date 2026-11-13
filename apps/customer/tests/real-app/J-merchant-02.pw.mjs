@@ -177,8 +177,9 @@ test(`${J} #1 starts onboarding and fills the business step: a saved draft that 
 
   // "A saved draft that survives leaving": the business step, filled and left (the personal home, then a sign-out with the
   // browser's storage cleared and a fresh sign-in), opens again with what was typed, before any account exists.
+  // The draft saved above loads after the step opens. Typing before it arrives can land behind it (a fill's select-all
+  // runs on the empty field, then the draft fills it, then the text is typed after it), so the step is read loaded first.
   await page.goto('/pay/onboarding/business');
-  // The draft saved above comes back on its own; typing before it lands would add to it, not replace it.
   await expectBusinessDraft();
   await fillBusiness();
   page.once('dialog', (dialog) => dialog.accept());
