@@ -23,6 +23,7 @@ import type { CopyFollow } from './follows.js';
 import {
   InMemoryVenueFollowStore,
   VenueCopy,
+  VenueCopyRefusal,
   parseVenueLeaderFillId,
   venueFlattenKey,
   venueMirrorKey,
@@ -353,6 +354,34 @@ describe('copy trading on the venue (TEST venue)', { timeout: 120_000 }, () => {
       }),
     ).rejects.toMatchObject({ code: 'trade.copy_close_unavailable' });
     expect(await actions.find(FOLLOWER, closeKey)).toBeNull();
+  });
+
+  it("names the venue's own refusal of a close by its code (trade.venue.<code>), never a bare failure", async () => {
+    const since = new Date(Date.now() - 1);
+    await leaderBuys('0.002', 1);
+    await copyNewFills(since);
+    const [position] = (await desk.positions({ followId: FOLLOW, followerId: FOLLOWER }))!;
+    const closeKey = copyCloseKey(FOLLOW, position!.leaderFillId, null);
+    // More than the sub-account holds: the venue refuses it, and nothing sells.
+    const sellsBefore = (await subFills()).filter((f) => f.side === 'sell');
+    const refused = await desk
+      .closePort()
+      .place(principal(FOLLOWER), {
+        closeKey,
+        followId: FOLLOW,
+        followerId: FOLLOWER,
+        leaderFillId: position!.leaderFillId,
+        symbol: position!.symbol,
+        baseAsset: position!.baseAsset,
+        qty: position!.open * 4n,
+      })
+      .then(
+        () => null,
+        (err: unknown) => err,
+      );
+    expect(refused).toBeInstanceOf(VenueCopyRefusal);
+    expect((refused as VenueCopyRefusal).code).toMatch(/^trade\.venue\.[a-z_]+$/);
+    expect((await subFills()).filter((f) => f.side === 'sell')).toEqual(sellsBefore);
   });
 
   it("refuses to bind a follow to an agent account that is not the follower's own open one", async () => {

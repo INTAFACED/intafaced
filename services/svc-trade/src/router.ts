@@ -63,6 +63,7 @@ import { convertHistoryProcedures } from './convert/convert-history-router.js';
 import { convertHistoryTrpcError } from './convert/convert-history.js';
 import { deskTrpcError } from './desk/errors.js';
 import { copyCloseTrpcError } from './copy/copy-close-errors.js';
+import { VenueCopyRefusal } from './copy/venue-copy.js';
 import { algoDeskProcedures, optionsDeskProcedures, rfqHistoryProcedures, scaleProcedures } from './desk/procedures.js';
 import { presentAlgo, presentAlgoDesk, presentScheduleHonesty } from './algo/present.js';
 import { algoCreateInputSchema } from './algo/create-input.js';
@@ -507,6 +508,10 @@ export function toTrpcError(err: unknown): TRPCError {
   if (desk) return desk;
   const copyClose = copyCloseTrpcError(err);
   if (copyClose) return copyClose;
+  // The venue's own refusal of a copy close on the follower's agent account (J-copy-bots-otc-03): its code and words.
+  if (err instanceof VenueCopyRefusal) {
+    return new TRPCError({ code: err.unavailable ? 'SERVICE_UNAVAILABLE' : 'BAD_REQUEST', message: err.message, cause: err });
+  }
   // Identity's step-up codes (a copy close-all) reach the person unchanged: confirm again (403), or identity could not
   // check it (503).
   if (err instanceof StepUpCheckError) {

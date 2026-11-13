@@ -543,11 +543,12 @@ async function venueStart(page) {
   // permission and the move in (J-agents-21 #3's own path).
   const session = await api(follower);
   const passkey = await testPasskey(session);
-  run.write({ passkey: passkey.saved() });
   const owner = followerKey.address.toLowerCase();
   const accountId = randomUUID();
   const fields = { accountId, owner, asset: 'USDC', cap: '200', fund: '150' };
   const stepUpApprovalId = await confirmStepUp(session, passkey, { ...STEP_UP_AGENT, target: accountId, amount: '150', fields });
+  // Saved after its use: #4 answers with the counter past this assertion's, as identity requires.
+  run.write({ passkey: passkey.saved() });
   let view = ok(await session.post('/api/v1/venue/agent-accounts', { ...fields, stepUpApprovalId }));
   for (let i = 0; view.next && i < 5; i += 1) {
     view = ok(
@@ -657,7 +658,10 @@ test(`${J} #3 opens Positions and closes one order, then a part larger than open
   const screenBody = await (await onScreen).json();
   const answers = [screenBody, byApi.body].map((body) => body?.result?.data?.orderId ?? refusalCode({ body }));
   const closeKeys = answers.filter((a) => a && a.startsWith('copy.close:'));
-  expect(closeKeys.length, `neither close sent an order: ${JSON.stringify(answers)}`).toBeGreaterThan(0);
+  expect(
+    closeKeys.length,
+    `neither close sent an order: ${JSON.stringify(answers)} ${JSON.stringify([screenBody, byApi.body]).slice(0, 1500)}`,
+  ).toBeGreaterThan(0);
   for (const a of answers) expect(['trade.copy_position_closed', closeKeys[0]]).toContain(a);
   const closeKey = closeKeys[0];
   // The close's key names the follow and the leader fill the position was copied from.

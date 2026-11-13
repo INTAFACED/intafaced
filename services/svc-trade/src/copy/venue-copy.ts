@@ -27,10 +27,17 @@
 import type { Principal } from '@intafaced/auth';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { mul } from '@intafaced/ledger-client/money';
-import { isTestVenue, type UserVenue, type UserVenueAccount, type UserVenueFill, type UserVenueOrder } from '@intafaced/venue-contracts';
+import {
+  isTestVenue,
+  VenueRefusalError,
+  type UserVenue,
+  type UserVenueAccount,
+  type UserVenueFill,
+  type UserVenueOrder,
+} from '@intafaced/venue-contracts';
 import type { Sql } from 'postgres';
 import type { AgentAccountRecord, AgentAccountStore } from '../venue/agent-account-store.js';
-import type { AgentOrders } from '../venue/agent-orders.js';
+import { AgentVenueRefusal, type AgentOrders } from '../venue/agent-orders.js';
 import type { PreparedActionStore, StoredVenueAction } from '../venue/prepared-action-store.js';
 import type { PlaceFollowerOrderInput } from './auto-mirror-place.js';
 import { CopyCloseError } from './copy-close-errors.js';
@@ -43,6 +50,27 @@ import { fenceNewIntent } from './follower-flatten-port.js';
 import type { CopyCursor } from './follows.js';
 
 // ── the binding ──────────────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The venue's own refusal of a copy close, in its words and under its own code (`trade.venue.<code>`), so the person
+ * reads why nothing closed instead of a bare failure. `venue_down` stays a 503: the outcome is to try again.
+ */
+export class VenueCopyRefusal extends Error {
+  readonly code: string;
+  readonly unavailable: boolean;
+  constructor(refusal: { code: string; detail: string }, venueName: string) {
+    super(`${venueName} refused the close: ${refusal.detail}`);
+    this.name = 'VenueCopyRefusal';
+    this.code = `trade.venue.${refusal.code}`;
+    this.unavailable = refusal.code === 'venue_down';
+  }
+}
+
+function asVenueCopyRefusal(err: unknown, venueName: string): unknown {
+  if (err instanceof AgentVenueRefusal) return new VenueCopyRefusal(err.refusal, err.venueName);
+  if (err instanceof VenueRefusalError) return new VenueCopyRefusal(err.refusal, venueName);
+  return err;
+}
 
 export interface VenueFollowBinding {
   readonly followId: string;
@@ -412,6 +440,14 @@ export class VenueCopy {
   }
 
   private async sendClose(principal: Principal, b: Bound, key: string, symbol: string, qty: Amount): Promise<string> {
+    try {
+      return await this.sendCloseOnce(principal, b, key, symbol, qty);
+    } catch (err) {
+      throw asVenueCopyRefusal(err, b.venue.venue.displayName);
+    }
+  }
+
+  private async sendCloseOnce(principal: Principal, b: Bound, key: string, symbol: string, qty: Amount): Promise<string> {
     const stored = await this.deps.actions.find(principal.userId, key);
     if (stored?.prepared.intent.kind === 'place_order') {
       const i = stored.prepared.intent;
@@ -520,7 +556,7 @@ export class VenueCopy {
           timeInForce: 'IOC',
         });
       } catch (err) {
-        if (placed.length === 0) throw err;
+        if (placed.length === 0) throw asVenueCopyRefusal(err, b.venue.venue.displayName);
         return { orderIds: placed, refuse: 'partial' };
       }
       placed.push(key);
