@@ -692,6 +692,8 @@ test(`${J} #9 presses one-tap reverse: one reviewed close and open in the opposi
     const again = await me.post('/api/v1/venue/submit', sent);
     expect(again.status, JSON.stringify(again.body).slice(0, 300)).toBe(200);
     expect(again.body.actionKey).toBe(sent.actionKey);
+    // A replay: the door answers the first outcome it stored and sends nothing to the venue.
+    expect(again.body.replayed).toBe(true);
     expect(again.body.outcome, JSON.stringify(again.body).slice(0, 300)).toMatchObject({ definite: true, accepted: true });
   }
   for (const key of keys) expect(await fillsOf(owner, cloidOf(venueId, key))).toHaveLength(1);
