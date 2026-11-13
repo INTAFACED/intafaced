@@ -3221,7 +3221,7 @@
     "/api/v1/bots/grid/{id}/withdraw": {
       "post": {
         "operationId": "withdrawGridProfit",
-        "summary": "Withdraw a grid bot’s profit; needs a step-up approval made in the calling session (403 identity.step_up_required without one)",
+        "summary": "Refused for every key (403 trade.api_withdraw_not_allowed): no API key or bot can withdraw; you withdraw from the venue with your own wallet, and nothing moves",
         "tags": ["spot"],
         "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
         "security": [{ "apiKey": [] }],
