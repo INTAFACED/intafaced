@@ -136,17 +136,14 @@ jobs:
           PR_AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
           PR_COMMITS: ${{ github.event.pull_request.commits }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        # Its imports, look-baselines.mjs (what a look baseline is), judged-paths.mjs (what the test judge rules on) and
-        # exact-revert.mjs (what an exact revert is), come from main the same way.
+        # Main's copy runs in a worktree of main, so every import it has is main's too (rules-from-main.test.mjs).
         run: |
-          for f in test-diff-guard.mjs look-baselines.mjs judged-paths.mjs exact-revert.mjs; do
-            if git cat-file -e "origin/main:tooling/ci/$f" 2>/dev/null; then
-              git show "origin/main:tooling/ci/$f" > "$RUNNER_TEMP/$f"
-            else
-              cp "tooling/ci/$f" "$RUNNER_TEMP/$f"
-            fi
-          done
-          node "$RUNNER_TEMP/test-diff-guard.mjs"
+          guard=tooling/ci/test-diff-guard.mjs
+          if git cat-file -e "origin/main:$guard" 2>/dev/null; then
+            git worktree add --detach "$RUNNER_TEMP/diff-rules" origin/main
+            guard="$RUNNER_TEMP/diff-rules/$guard"
+          fi
+          node "$guard"
 
       # The journeys baseline's rules (docs/runbooks/regression-issue-state.md), from main like the guard above: a step
       # that passed on main is never added as unbuilt, only a pass on main takes a step off, and the file is rewritten
@@ -236,12 +233,12 @@ jobs:
       - name: Look drift (rules from main)
         if: github.event_name == 'pull_request' && !cancelled()
         run: |
-          if git cat-file -e origin/main:tooling/ci/look-drift.mjs 2>/dev/null; then
-            git show origin/main:tooling/ci/look-drift.mjs > "$RUNNER_TEMP/look-drift.mjs"
-          else
-            cp tooling/ci/look-drift.mjs "$RUNNER_TEMP/look-drift.mjs"
+          lint=tooling/ci/look-drift.mjs
+          if git cat-file -e "origin/main:$lint" 2>/dev/null; then
+            git worktree add --detach "$RUNNER_TEMP/drift-rules" origin/main
+            lint="$RUNNER_TEMP/drift-rules/$lint"
           fi
-          node "$RUNNER_TEMP/look-drift.mjs"
+          node "$lint"
 
       # The per-service Definition of Done (`pnpm gate`) used to be its own
       # `dod` job: a second runner and a second install for a two-second
