@@ -127,9 +127,20 @@ export function CopiedPositions({ follow, api, guard }: { follow: Follow; api: R
     },
   ];
   if (resource.status === 'failed') return <RefusalNote failure={resource.failure} retry={reload} />;
+  const reportedBy = rows?.find((r) => r.reportedBy)?.reportedBy ?? null;
   return (
     <>
       {tooMuch ? <InfoNote tone="warn">{t('That is more than is open.')}</InfoNote> : null}
+      {reportedBy ? (
+        <InfoNote>
+          <span data-testid="copied-positions-source">
+            {t(reportedBy.test ? 'TEST · As {venue} reports them, at {time}.' : 'As {venue} reports them, at {time}.', {
+              venue: reportedBy.venue,
+              time: new Date(reportedBy.asOf).toLocaleTimeString(),
+            })}
+          </span>
+        </InfoNote>
+      ) : null}
       <Table
         label={t('Copied positions')}
         columns={columns}
