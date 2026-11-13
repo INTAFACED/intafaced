@@ -145,6 +145,13 @@
     margin-block-end: var(--if-space-2);
     font-size: var(--if-text-base);
   }
+  /* The kit's base reset strips native controls (appearance: none), which leaves a radio with no size; the fee choices keep the browser's own. */
+  .cb-choice input[type='radio'] {
+    appearance: auto;
+    inline-size: 1rem;
+    block-size: 1rem;
+    margin: 0;
+  }
   .cb-choice .cb-hint {
     grid-column: 2;
     color: var(--if-fg-2);
