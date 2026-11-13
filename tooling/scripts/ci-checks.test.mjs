@@ -93,3 +93,9 @@ const CENSUS_RULE_TESTS = [
 test('every rule test the census saw CI fail on is picked from the real tree', () => {
   for (const f of CENSUS_RULE_TESTS) assert.ok(ruleTest(f, readFileSync(ROOT + f, 'utf8')), f);
 });
+
+test("the checks never inherit a hook's GIT_* variables (a tooling test's temp repo wrote into the real one)", () => {
+  const text = readFileSync(new URL('./ci-checks.mjs', import.meta.url), 'utf8');
+  assert.match(text, /filter\(\(\[k\]\) => !k\.startsWith\('GIT_'\)\)/);
+  assert.match(readFileSync(ROOT + '.githooks/pre-push', 'utf8'), /GIT_\[A-Z_\]\*\\\)=\.\*\/\\1\/p'\); do unset "\$v"; done/);
+});

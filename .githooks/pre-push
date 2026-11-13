@@ -138,7 +138,10 @@ if [ -z "${CI:-}" ] && grep -qv ' 0000000000000000000000000000000000000000 ' "$P
   if ! git diff --quiet HEAD 2>/dev/null; then
     echo "note: uncommitted changes; CI's checks below include them, the push does not" >&2
   fi
-  if ! (CDPATH= cd -- "$TOP" && node tooling/scripts/ci-checks.mjs) </dev/null; then
+  # git sets GIT_DIR and friends for a hook; the checks' own git calls and the tooling tests' temp repos must not
+  # inherit them (they did: 25 tooling tests red inside the hook, green outside it).
+  if ! (for v in $(env | sed -n 's/^\(GIT_[A-Z_]*\)=.*/\1/p'); do unset "$v"; done
+        CDPATH= cd -- "$TOP" && node tooling/scripts/ci-checks.mjs) </dev/null; then
     cat >&2 <<'MSG'
 
   ✖ CI's checks failed here — push refused. CI fails the same way.

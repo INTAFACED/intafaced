@@ -140,7 +140,7 @@ function prepareDatabase(env, actionText, run) {
   );
   if (Number(String(count.stdout).trim()) !== expected)
     return `intafaced_test has ${String(count.stdout).trim() || 'no'} of ${expected} service schemas after the bootstrap`;
-  const probe = run('node', ['tooling/ci/assert-test-db-env.mjs'], { env: { ...process.env, ...env } });
+  const probe = run('node', ['tooling/ci/assert-test-db-env.mjs'], { env: { ...pg, ...env } });
   return probe.status === 0 ? null : 'tooling/ci/assert-test-db-env.mjs refused the test database URLs (above)';
 }
 
@@ -173,7 +173,10 @@ export async function runCiChecks({ base = 'origin/main', list = false, log = co
 
   const node = ciNode(readFileSync(join(ROOT, '.node-version'), 'utf8'));
   if (node.error) return { ok: false, summary: node.error };
-  const baseEnv = node.bin ? { ...process.env, PATH: `${node.bin}:${process.env.PATH}` } : process.env;
+  // Never hand a hook's GIT_DIR, GIT_INDEX_FILE or GIT_WORK_TREE to the checks: tooling tests that make their own temp
+  // repos then wrote into the real one (13 Nov: core.bare = true and a test user in intafaced's shared git config).
+  const clean = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_')));
+  const baseEnv = node.bin ? { ...clean, PATH: `${node.bin}:${clean.PATH}` } : clean;
   const run = (cmd, args, opts = {}) =>
     spawnSync(cmd, args, { cwd: ROOT, stdio: 'inherit', ...opts, env: opts.env ? { ...opts.env, PATH: baseEnv.PATH } : baseEnv });
 
@@ -245,7 +248,7 @@ export async function runCiChecks({ base = 'origin/main', list = false, log = co
       for (const { name, directory, targets } of plan) {
         const t = run('pnpm', ['exec', 'vitest', 'related', '--run', '--passWithNoTests', ...targets], {
           cwd: join(ROOT, directory),
-          env: { ...process.env, ...env, TZ: 'UTC', FORCE_COLOR: process.env.FORCE_COLOR ?? '0' },
+          env: { ...baseEnv, ...env, TZ: 'UTC', FORCE_COLOR: process.env.FORCE_COLOR ?? '0' },
         });
         if (t.status !== 0) red.push(name);
       }
