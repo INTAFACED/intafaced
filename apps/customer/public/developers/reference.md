@@ -227,6 +227,7 @@ No deposit or custodial withdrawal route is on the trading API: withdrawals are 
 | `GET /api/v1/account/market-lifecycle/:symbol`                  | `fetchAccountMarketLifecycle` | trade:read                    |
 | `GET /api/v1/convert/export`                                    | `fetchConvertExport`          | trade:read                    |
 | `GET /api/v1/copy/export`                                       | `fetchCopyExport`             | trade:read                    |
+| `POST /api/v1/copy/lead/orders`                                 | `createLeadOrder`             | trade:write + copy:lead       |
 | `GET /api/v1/rfq/export`                                        | `fetchRfqExport`              | trade:read                    |
 | `GET /api/v1/vip/applications`                                  | `fetchVipApplications`        | trade:read                    |
 | `POST /api/v1/vip/applications`                                 | `applyForVip`                 | trade:write                   |

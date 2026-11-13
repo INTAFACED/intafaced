@@ -85,6 +85,11 @@ type Book = {
 class MemorySubAccountAuth {
   readonly books = new Map<string, Book>();
 
+  /** Every account is active here: the affiliate payout's account check (#4689) is tested in producer-payout.test.ts. */
+  async accountState(userId: string) {
+    return { userId, status: 'active' as const, kycTier: 'basic' as const, archived: false };
+  }
+
   async createSubAccount(userId: string, label: string, purpose?: string): Promise<{ id: string }> {
     const id = randomUUID();
     this.books.set(id, {
