@@ -729,6 +729,9 @@ jobs:
       # With the stack's custody switch off (the launch build's, OWNER 288), our own order book is off, so its TEST market
       # maker and its chart history are not started (local-test-market.mjs, CUSTODY_ON_ONLY): the gates still open and
       # verify, and launch journeys trade at the TEST venue.
+      # The history goes only on the markets journeys read the past of (`--markets journeys`, HISTORY_SYMBOLS in
+      # local-test-market.mjs, which local-test-market-history.test.mjs keeps whole): four of six markets, 149 s against 193 s
+      # on 13 Nov, on every shard (project-state #2065 row d37).
       - name: Open the TEST markets, write TEST chart history, start the TEST market maker
         run: |
           node tooling/scripts/local-test-stack.mjs restart matching
@@ -746,7 +749,7 @@ jobs:
           done
           node tooling/scripts/local-test-market.mjs stop
           node tooling/scripts/local-test-gates.mjs verify
-          node tooling/scripts/local-test-market.mjs history
+          node tooling/scripts/local-test-market.mjs history --markets journeys
           node tooling/scripts/local-test-market.mjs
 
       # Labelled TEST rows (earn pools, loan products, a TEST P2P method) so those rooms show working, after the gates
