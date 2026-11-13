@@ -682,8 +682,8 @@ test("planted: a red main never had, whose test main didn't change, or whose rea
   assert.deepEqual(still.calls.updated, []);
 });
 
-test('a pull request the pull holds (blocked, parked, design) is left as it is, as #8157 (parked) should have been', async () => {
-  for (const name of ['blocked', 'parked', 'design']) {
+test('a pull request the pull holds (blocked, parked, design, factory-fix) is left as it is, as #8157 (parked) should have been', async () => {
+  for (const name of ['blocked', 'parked', 'design', 'factory-fix']) {
     const { io, calls } = heldIo({
       main: [RED_MAIN, GREEN_MAIN],
       prs: [{ pr: heldPull({ labels: [{ name }] }), run: heldPrRun(), rows: CAMPAIGN_ROWS }],

@@ -409,7 +409,7 @@ export async function heldTick({ repo, now, io }) {
 }
 
 /** The labels the pull holds a pull request with (project-state tooling/pull/next.mjs): the held pass leaves those. */
-export const HELD_LABELS = ['blocked', 'parked', 'design'];
+export const HELD_LABELS = ['blocked', 'parked', 'design', 'factory-fix'];
 
 /** Why GitHub did not update a branch, from its answer: a 422 says a conflict or a head that moved. */
 export function notUpdated(r) {
