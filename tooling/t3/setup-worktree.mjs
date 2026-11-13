@@ -18,7 +18,9 @@ mkdirSync(dir, { recursive: true });
 writeFileSync(running, `${process.pid}\n`);
 
 let detail = '';
-process.on('uncaughtExceptionMonitor', (e) => { detail = e.stack ?? String(e); });
+process.on('uncaughtExceptionMonitor', (e) => {
+  detail = e.stack ?? String(e);
+});
 process.on('exit', (code) => {
   if (code === 0) writeFileSync(done, '');
   else writeFileSync(failed, `Setup exited with code ${code}.\n${detail}\n`);
@@ -28,20 +30,38 @@ process.on('exit', (code) => {
 let child;
 let cancelled;
 for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
-  process.on(sig, () => { cancelled = sig; if (child) child.kill(sig); else process.exit(1); });
+  process.on(sig, () => {
+    cancelled = sig;
+    if (child) child.kill(sig);
+    else process.exit(1);
+  });
 }
 
 // The lockfile as it is (a stale one fails rather than being rewritten), from the shared store where it can,
 // at low priority so it never crowds out the agents already working; stdin closed so no prompt can hang it.
 child = spawn('nice', ['-n', '10', 'pnpm', 'install', '--frozen-lockfile', '--prefer-offline'], {
-  cwd: worktree, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, CI: '1' },
+  cwd: worktree,
+  stdio: ['ignore', 'pipe', 'pipe'],
+  env: { ...process.env, CI: '1' },
 });
 let tail = '';
-for (const [from, to] of [[child.stdout, process.stdout], [child.stderr, process.stderr]]) {
+for (const [from, to] of [
+  [child.stdout, process.stdout],
+  [child.stderr, process.stderr],
+]) {
   from.setEncoding('utf8');
-  from.on('data', (s) => { to.write(s); tail = (tail + s).slice(-8000); });
+  from.on('data', (s) => {
+    to.write(s);
+    tail = (tail + s).slice(-8000);
+  });
 }
-const status = await new Promise((resolve) => { child.on('error', (e) => { tail += String(e); resolve(1); }); child.on('close', resolve); });
+const status = await new Promise((resolve) => {
+  child.on('error', (e) => {
+    tail += String(e);
+    resolve(1);
+  });
+  child.on('close', resolve);
+});
 child = undefined;
 if (status !== 0 || cancelled) {
   detail = cancelled ? `Cancelled by ${cancelled}.` : tail.trimEnd().split('\n').slice(-30).join('\n');
