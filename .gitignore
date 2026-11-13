@@ -102,3 +102,6 @@ services/*/.data/
 
 # The developer docs files are generated at build time (apps/customer vite.config.ts developerDocs), never committed.
 apps/customer/public/developers/
+
+# T3 worktree setup markers (tooling/t3/setup-worktree.mjs)
+.t3/
