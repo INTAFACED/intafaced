@@ -250,15 +250,22 @@ test(`${J} #9 opens the permissioned pool onboarding checklist: a checklist miss
   await onboarding.getByRole('button', { name: 'Open the checklist' }).click();
   const pending = row(onboarding, 'Onboarding', POOL);
   await expect(pending).toContainText('Checker address missing');
-  // Neither the opener nor a second person can approve it, with a reason given.
+  // Neither the opener nor a second person can approve it: svc-protocol refuses by name, and it stays open.
+  const refusal = 'This checklist cannot be approved while it is missing: checker address. Nothing was approved.';
   await onboarding.getByLabel('Approval reason').fill(`LOCAL TEST ${J} approval`);
-  await expect(pending.getByRole('button', { name: 'Approve' })).toBeDisabled();
+  await pending.getByRole('button', { name: 'Approve' }).click();
+  await expect(onboarding.getByRole('alert')).toHaveText(refusal);
+  await expect(pending).toContainText('Checker address missing');
   const second = await trust(b, 'Permissioned pools');
   await second.getByLabel('Approval reason').fill(`LOCAL TEST ${J} approval`);
   const seen = row(second, 'Onboarding', POOL);
   await expect(seen).toContainText('Checker address missing');
-  await expect(seen.getByRole('button', { name: 'Approve' })).toBeDisabled();
-  await expect(seen).not.toContainText('Approved');
+  await seen.getByRole('button', { name: 'Approve' }).click();
+  await expect(second.getByRole('alert')).toHaveText(refusal);
+  await b.reload();
+  const after = row(await trust(b, 'Permissioned pools'), 'Onboarding', POOL);
+  await expect(after).toContainText('Checker address missing');
+  await expect(after).not.toContainText('Approved');
 });
 
 test(`${J} #12 opens the audit and disclosure room: each product row says "External audit: not done" until the owner records a report; a blank policy shows its refusal`, async ({

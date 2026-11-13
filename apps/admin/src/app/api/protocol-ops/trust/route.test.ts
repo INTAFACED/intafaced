@@ -167,10 +167,22 @@ describe('POST /api/protocol-ops/trust: tiers and onboarding', () => {
     });
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => trpcErr(409, 'protocol.onboarding.incomplete')),
+      vi.fn(async () =>
+        Response.json(
+          {
+            error: {
+              message:
+                'protocol.onboarding.incomplete: This checklist cannot be approved while it is missing: checker address. Nothing was approved.',
+              code: -32603,
+              data: { code: 'CONFLICT', httpStatus: 409, cause: { code: 'protocol.onboarding.incomplete' } },
+            },
+          },
+          { status: 409 },
+        ),
+      ),
     );
     expect(await (await POST(post({ op: 'onboarding-approve', checklistId: REVIEW, reason: 'TEST' }))).json()).toMatchObject({
-      message: expect.stringMatching(/cannot be approved/),
+      message: 'This checklist cannot be approved while it is missing: checker address. Nothing was approved.',
     });
   });
 });

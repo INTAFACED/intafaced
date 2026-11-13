@@ -440,7 +440,7 @@ type ChecklistField = (typeof CHECKLIST_FIELDS)[number][0];
 
 /**
  * Permissioned pool onboarding (D-liquidity-07, J-dex-protocol-30 #9): a checklist with any item blank cannot be approved,
- * and the person who opened it cannot approve it. svc-protocol refuses both; the button only says so first.
+ * and the person who opened it cannot approve it. svc-protocol refuses both, and the desk shows its refusal.
  */
 function PermissionedPools({ read, reload }: { read: TrustRead['onboarding']; reload: () => void }) {
   const { busy, problem, send } = useSend(reload);
@@ -522,8 +522,7 @@ function PermissionedPools({ read, reload }: { read: TrustRead['onboarding']; re
                     <button
                       type="button"
                       className="adm-btn"
-                      disabled={busy || c.missing.length > 0 || reason.trim() === ''}
-                      title={c.missing.length > 0 ? 'A checklist with a blank item cannot be approved.' : undefined}
+                      disabled={busy || reason.trim() === ''}
                       onClick={() => void send({ op: 'onboarding-approve', checklistId: c.id, reason })}
                     >
                       Approve

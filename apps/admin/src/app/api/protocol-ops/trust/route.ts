@@ -75,6 +75,13 @@ export async function GET(request: Request) {
   );
 }
 
+/** svc-protocol's own words for a checklist refusal, which name the blank items; the desk's words for the rest. */
+function refusalWords(code: string | null, message: string): string {
+  const prefix = 'protocol.onboarding.incomplete: ';
+  if (code === 'protocol.onboarding.incomplete' && message.startsWith(prefix)) return message.slice(prefix.length);
+  return trustRefusalWords(code) ?? 'svc-protocol refused this.';
+}
+
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -166,10 +173,7 @@ export async function POST(request: Request) {
         403,
       );
     case 'refused':
-      return answer(
-        { ok: false, code: result.refusal.code, message: trustRefusalWords(result.refusal.code) ?? 'svc-protocol refused this.' },
-        409,
-      );
+      return answer({ ok: false, code: result.refusal.code, message: refusalWords(result.refusal.code, result.refusal.message) }, 409);
     case 'not_built':
       return answer({ ok: false, code: 'not_built', message: 'svc-protocol does not serve this on this deployment.' }, 501);
     case 'invalid':
