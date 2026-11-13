@@ -445,6 +445,23 @@ const schema = serviceEnvSchema
       /** Owner setting: how often the lapse sweep runs, in whole seconds. NO DEFAULT. Blank leaves the sweep timer off. */
       IDENTITY_REFERRAL_LAPSE_SWEEP_SECONDS: z.string().optional(),
       /**
+       * Owner setting: how many qualified invitees (people introduced directly whose verification was approved) a person
+       * needs to apply as an affiliate partner (CM-referral-05, J-campaigns-07 #1). NO DEFAULT. Blank refuses the eligibility
+       * read and every application (`partner.eligibility_unset`), writing nothing. Parsed by `parsePartnerMinQualified`.
+       */
+      IDENTITY_PARTNER_MIN_QUALIFIED_INVITEES: z.string().optional(),
+      /**
+       * Owner setting: how many days after a rejection a person may apply again as a partner (J-campaigns-07 #3). NO
+       * DEFAULT. Blank refuses a rejection (`partner.reapply_unset`), leaving the application open.
+       */
+      IDENTITY_PARTNER_REAPPLY_DAYS: z.string().optional(),
+      /**
+       * Owner setting: the partner programme depth, 1 to 5 levels of a sub-tree (RC-campaigns-07, J-campaigns-07 #4). NO
+       * DEFAULT. Blank refuses every commission accrual, dry-run and payout and the partner sub-tree
+       * (`affiliate.programme_depth_unset`). Parsed by `parseProgrammeDepth`; malformed stops the service.
+       */
+      IDENTITY_PARTNER_PROGRAMME_DEPTH: z.string().optional(),
+      /**
        * Owner setting: how many waiting entries one waitlist wave releases (RC-campaigns-03, J-campaigns-20 #3). NO DEFAULT.
        * Blank refuses every release (`drop.wave_unset`) and releases nobody. Parsed at start by `parseWaveSize`.
        */
@@ -756,6 +773,22 @@ const schema = serviceEnvSchema
       }, z.string().optional()),
       /** Absolute file path for the local-outbox transport. Required when that transport is selected. */
       IDENTITY_LOCAL_MAIL_OUTBOX: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return typeof v === 'string' ? v.trim() : v;
+      }, z.string().optional()),
+      /**
+       * Text-message transport. Blank / unset → unwired; a phone sign-in link refuses `vendor.sms`. `local-outbox` is the
+       * only implemented transport and is refused at boot unless APP_ENV is exactly dev or test. Any other name refuses at
+       * boot. No SMS provider is configured here.
+       */
+      IDENTITY_SMS_TRANSPORT: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return typeof v === 'string' ? v.trim() : v;
+      }, z.string().optional()),
+      /** Absolute file path for the local-outbox text transport. Required when that transport is selected. */
+      IDENTITY_LOCAL_SMS_OUTBOX: z.preprocess((v) => {
         if (v === undefined || v === null) return undefined;
         if (typeof v === 'string' && v.trim() === '') return undefined;
         return typeof v === 'string' ? v.trim() : v;

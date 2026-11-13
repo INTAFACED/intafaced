@@ -1582,7 +1582,7 @@ export class AuthService {
   }
 
   /**
-   * The password checked, whatever the account's state: counted on the lockout first, the same answer for an unknown name
+   * The password checked, whatever the account's state (named by its handle, its email or the phone it signs in with): counted on the lockout first, the same answer for an unknown name
    * and a wrong password, and the counter cleared once it verified. The caller decides what the state allows.
    */
   private async verifyFirstFactor(input: { identifier: string; password: string }): Promise<{
@@ -1603,7 +1603,8 @@ export class AuthService {
         webauthn_creds: unknown;
       }>
     >`SELECT id, password_hash, status, totp_secret, passkey_second_step, webauthn_creds FROM users
-      WHERE handle = ${input.identifier} OR email = ${input.identifier}`;
+      WHERE handle = ${input.identifier} OR email = ${input.identifier}
+         OR id = (SELECT user_id FROM signin_phones WHERE phone = ${signinPhone(input.identifier)})`;
     const user = rows[0];
     // Reserve the password guess BEFORE verifying it (see attempt-lockout.ts). Unknown
     // identifiers have no row and keep answering `invalid_credentials`. A locked
@@ -4217,4 +4218,14 @@ function mapWebAuthnError(err: unknown): AuthError {
     return new AuthError(err.message, 'auth.webauthn_invalid');
   }
   return new AuthError('Invalid WebAuthn response', 'auth.webauthn_invalid');
+}
+
+/**
+ * A typed phone number in the form sign-in phones are stored in (`+` and digits), so "+49 151 2345-678" finds the number
+ * linked as "+491512345678"; anything that is not a phone number gives a value no row holds.
+ */
+export function signinPhone(identifier: string): string {
+  const trimmed = identifier.trim();
+  if (!/^\+[0-9 ()-]+$/.test(trimmed)) return '';
+  return `+${trimmed.replace(/\D/g, '')}`;
 }
