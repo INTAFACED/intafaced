@@ -194,6 +194,11 @@ No deposit or custodial withdrawal route is on the trading API: withdrawals are 
 | `POST /api/v1/venue/own-agents/:agentId/allowances/:id/submit`  | `ownAgentAllowanceSubmit`     | trade:write                   |
 | `POST /api/v1/venue/own-agents/:agentId/allowances/:id/abandon` | `ownAgentAllowanceAbandon`    | trade:write                   |
 | `POST /api/v1/venue/own-agents/:agentId/allowances/:id/revoke`  | `ownAgentAllowanceRevoke`     | trade:write                   |
+| `GET /api/v1/venue/protections`                                 | `venueProtections`            | trade:read                    |
+| `POST /api/v1/venue/protections`                                | `venueProtectionCreate`       | trade:write                   |
+| `DELETE /api/v1/venue/protections/:id`                          | `venueProtectionCancel`       | trade:write                   |
+| `GET /api/v1/venue/protection-agent`                            | `venueProtectionAgent`        | trade:read                    |
+| `POST /api/v1/venue/protection-agent/prepare`                   | `venueProtectionAgentPrepare` | trade:write                   |
 | `GET /api/v1/quant/live-runs`                                   | `liveRuns`                    | trade:read                    |
 | `POST /api/v1/quant/live-runs`                                  | `liveRunStart`                | trade:write                   |
 | `GET /api/v1/quant/live-runs/:id`                               | `liveRun`                     | trade:read                    |

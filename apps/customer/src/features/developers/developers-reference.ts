@@ -1238,6 +1238,49 @@ export const REST_REFERENCE: readonly RestRoute[] = [
       'Revoke the allowance: our copy of the agent key is dropped and the next order refused at once; the answer is the venue’s revoke for your wallet to sign',
   },
   {
+    name: 'venueProtections',
+    method: 'GET',
+    path: '/api/v1/venue/protections',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      'A position’s protections on your own venue account: the venue’s trigger orders and the stops our engine runs, each with where it rests, its trigger and source, and its state',
+  },
+  {
+    name: 'venueProtectionCreate',
+    method: 'POST',
+    path: '/api/v1/venue/protections',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      'Protect a position: a take profit, stop loss, stop market or stop limit the venue takes answers its unsigned trigger order for your wallet; a trailing stop or an index stop is armed on our engine (201) under your agent permission',
+  },
+  {
+    name: 'venueProtectionCancel',
+    method: 'DELETE',
+    path: '/api/v1/venue/protections/:id',
+    product: 'accounts',
+    access: 'private',
+    summary: 'Cancel a stop on our engine that has not fired; nothing is sent to the venue',
+  },
+  {
+    name: 'venueProtectionAgent',
+    method: 'GET',
+    path: '/api/v1/venue/protection-agent',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      'The agent key our engine signs your stops with, and whether your venue account lists it approved; it can trade, never withdraw',
+  },
+  {
+    name: 'venueProtectionAgentPrepare',
+    method: 'POST',
+    path: '/api/v1/venue/protection-agent/prepare',
+    product: 'accounts',
+    access: 'private',
+    summary: 'The unsigned approval of that agent key, for your wallet to sign and send through /api/v1/venue/submit',
+  },
+  {
     name: 'liveRuns',
     method: 'GET',
     path: '/api/v1/quant/live-runs',

@@ -179,7 +179,7 @@ test(`${J} #1 sets a stop loss and a take profit for the whole position: both re
   const m = await market();
   expect(m.triggerSources).toEqual(['mark', 'last']);
   const dialog = await protect(page);
-  await expect(listed(dialog)).toContainText('No protection on this position yet.');
+  await expect(listed(dialog)).toContainText('No protection on this position.');
   await dialog.getByRole('button', { name: 'Take profit', exact: true }).click();
   await dialog.getByRole('button', { name: 'Mark', exact: true }).click();
   await expect(dialog.getByTestId('protection-where')).toHaveText(VENUE_LABEL);

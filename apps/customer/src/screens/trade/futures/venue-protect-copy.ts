@@ -42,7 +42,7 @@ export const venueProtectCopy = defineCopy('trade.futures.venue.protect', {
   'Agent approved': 'Approved on the venue.',
   'Agent checking': 'Reading the venue’s agents…',
   'Listed title': 'Protections on this position',
-  'Listed empty': 'No protection on this position yet.',
+  'Listed empty': 'No protection on this position.',
   status_armed: 'Armed',
   status_triggered: 'Triggered',
   status_filled: 'Filled',

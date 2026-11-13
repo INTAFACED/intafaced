@@ -1723,6 +1723,59 @@
           }
         },
         {
+          "name": "venueProtections",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/venue/protections", "host": ["{{baseUrl}}"], "path": ["api", "v1", "venue", "protections"] }
+          }
+        },
+        {
+          "name": "venueProtectionCreate",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/venue/protections", "host": ["{{baseUrl}}"], "path": ["api", "v1", "venue", "protections"] }
+          }
+        },
+        {
+          "name": "venueProtectionCancel",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/protections/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "protections", ":id"],
+              "variable": [{ "key": "id", "value": "" }]
+            }
+          }
+        },
+        {
+          "name": "venueProtectionAgent",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/protection-agent",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "protection-agent"]
+            }
+          }
+        },
+        {
+          "name": "venueProtectionAgentPrepare",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/venue/protection-agent/prepare",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "venue", "protection-agent", "prepare"]
+            }
+          }
+        },
+        {
           "name": "liveRuns",
           "request": {
             "method": "GET",
