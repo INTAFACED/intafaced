@@ -223,8 +223,8 @@ test(`${J} #3 manages alerts: each shows its market, side, exact price and statu
     await expect(row.getByTestId('nf-body').first()).toHaveText(`At or below ${price} USDT`);
     await expect(row).toHaveAttribute('data-status', status);
     await expect(row.locator('.nf-pill')).toHaveText(statusWords);
-    // A cancel for an active one only.
-    await expect(row.getByRole('button', { name: 'Cancel the alert on BTC/USDT' })).toHaveCount(status === 'active' ? 1 : 0);
+    // A cancel for an active one; a stopped one is still open and keeps its cancel; a cancelled one has none left.
+    await expect(row.getByRole('button', { name: 'Cancel the alert on BTC/USDT' })).toHaveCount(status === 'cancelled' ? 0 : 1);
   };
   // List: each row shows its market, side, exact price and status, as the service holds them after a reload.
   await checkRow('TEST dip', low, 'active', 'Active');
