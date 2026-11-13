@@ -317,3 +317,33 @@ test('no-random-request-key: a random key fires directly, in a template and thro
   assert.ok(!has(out, 'apps/customer/src/screens/x/Held.tsx', 'garden(no-random-request-key)'), out.join('\n'));
   assert.ok(!has(out, 'services/svc-x/src/c.ts', 'garden(no-random-request-key)'), out.join('\n'));
 });
+
+// The regex duplicate ratchet's own self-test cases (tooling/ci/boundary-scan.mjs), on the rules that replaced it.
+import { duplicateHits } from './duplicate-rules.js';
+
+test('the four duplicate kinds count what the regex ratchet counted', () => {
+  const n = (path, text) => Object.fromEntries(Object.entries(duplicateHits(path, text)).map(([k, v]) => [k, v.length]));
+  assert.deepEqual(n('services/svc-x/src/a.ts', 'const SCALE = 10n ** 18n; a * b / SCALE'), { 'no-local-scale': 1 });
+  assert.deepEqual(n('packages/ledger-client/src/money.ts', 'const SCALE = 10n ** 18n;'), {}, 'ledger-client owns the scale');
+  assert.deepEqual(n('services/svc-x/src/a.ts', 'const x = r.result?.data; const y = result.data;'), { 'no-hand-trpc-unwrap': 2 });
+  assert.deepEqual(n('services/svc-x/src/a.ts', "s.padEnd(18, '0')"), { 'no-hand-decimal-parse': 1 });
+  assert.deepEqual(n('services/svc-x/src/a.ts', 'await fetch(url);'), { 'no-fetch-without-timeout': 1 });
+  assert.deepEqual(n('services/svc-x/src/a.ts', 'await fetch(url, { signal: AbortSignal.timeout(5000) });'), {});
+  assert.deepEqual(n('apps/customer/src/a.ts', 'const SCALE = 10n ** 18n;'), {}, 'apps were never counted');
+  assert.deepEqual(n('services/svc-x/src/a.test.ts', 'await fetch(url);'), {}, 'nor tests');
+  assert.deepEqual(n('services/svc-x/src/a.ts', '// 10n ** 18n in a comment\nconst a = 1;'), {});
+});
+
+test('the duplicate rules report through the linter, on the line', { skip: !existsSync(OXLINT) && 'no node_modules' }, () => {
+  const out = lint({
+    'services/svc-x/src/a.ts': 'export const a = 1;\nexport const SCALE = 10n ** 18n;\nexport const g = () => fetch("x");\n',
+  });
+  assert.ok(
+    out.some((l) => l.startsWith('services/svc-x/src/a.ts:2:') && l.includes('garden(no-local-scale)')),
+    out.join('\n'),
+  );
+  assert.ok(
+    out.some((l) => l.startsWith('services/svc-x/src/a.ts:3:') && l.includes('garden(no-fetch-without-timeout)')),
+    out.join('\n'),
+  );
+});
