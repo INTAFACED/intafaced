@@ -195,9 +195,9 @@ export const GATES = [
       'or a workspace dependency cycle, an import or disk read that climbs into another service, SQL against another ' +
       'service’s schema (any tag, string or .unsafe), a ledger entry, hand-built LedgerClient or /trpc/post outside ' +
       'ledger-client and svc-ledger, a balance-like column (also via ADD COLUMN or a drizzle schema), and a randomUUID, ' +
-      'Date.now or Math.random idempotency key (also through a variable or on the next line). A duplicate ratchet ' +
-      '(tooling/ci/duplicate-ratchet.json) lets local 10n ** 18n scales, result?.data unwraps, padEnd parsers and ' +
-      'timeout-less fetch calls only shrink. Exceptions are named with a reason in tooling/ci/boundary-allow.json.',
+      'Date.now or Math.random idempotency key (also through a variable or on the next line). Its old duplicate ratchet ' +
+      '(local scales, result?.data unwraps, padEnd parsers, timeout-less fetch) is held by lint-ratchet below. Exceptions ' +
+      'are named with a reason in tooling/ci/boundary-allow.json.',
   },
   {
     id: 'workspace',
@@ -278,6 +278,16 @@ export const GATES = [
       'Measured, not assumed — the first version of money.property.test.ts caught 3 of these 6 mutants, and a ' +
       'mulBps that ignores the caller, a parseAmount that truncates over-precision, and a proRata that pays the ' +
       'SMALLEST remainders all survived eighteen green properties. 6 planted defects, all must die.',
+  },
+  {
+    id: 'lint-ratchet',
+    script: 'tooling/ci/lint-ratchet.mjs',
+    doctrine: 'one linter, as a count that can only fall',
+    why:
+      "lints the files a change touches at the merge base and at the head with MAIN's .oxlintrc.json and garden plugin, " +
+      "and fails when a rule's count rises. No baseline file: main is the baseline, so a moved function does not fail. A rule " +
+      'prints only for its first 7 days (tooling/lint/ratchet.json); the rules that replaced deleted source-reading tests and ' +
+      'the old regex duplicate ratchet enforce at once, so what those checks guarded never lapses. A few seconds.',
   },
   {
     id: 'empty-denominator',
@@ -361,6 +371,8 @@ export const NOT_GATES = {
     'PR-only guard: needs the PR’s docs/roadmap/journeys.json against that of the main its checkout was built on (its merge base with origin/main, so main moving on after GitHub made the merge is not read as a drop) and, when something is dropped, the PR body, so a laptop verify has no input. CI runs main’s copy from the `gates` job, so a PR cannot loosen the rules it is judged by. It refuses a journey or step on main dropped from journeys.json or its live count without a `Journey-retired: J-bank-13 #2 (OWNER <n>)` body line, a step slice id not in docs/roadmap/slices.json, and a docs/ROADMAP.md other than what main’s roadmap.mjs builds (OWNER 1; intafaced #7438). Its tests are journey-list-guard.test.mjs.',
   'journey-list-guard.test.mjs':
     'not a gate: the node:test file of journey-list-guard.mjs, its planted cases (a dropped journey, a dropped step, a newly parked step, an unknown slice id, a regenerated ROADMAP.md hiding a drop, a stale ROADMAP.md and a retirement line without an OWNER number each fail; main’s list passes; a merge built on an older main passes after main adds a journey, and still fails when it drops one of its own base’s). tooling-tests.mjs runs it with every other tooling test.',
+  'lint-ratchet.test.mjs':
+    "not a gate: the node:test file of lint-ratchet.mjs, its planted pull requests in a throwaway repository (a rise fails and names the rule, a rise paid for in the same file passes, a rule switched off in the pull request's own config still fails, a moved function passes, a new rule only prints, a rule that replaced a deleted test enforces at once). The tooling tests run it.",
   'test-diff-guard.mjs':
     'PR-only guard: needs the PR diff against origin/main and the PR body, so a laptop verify has no input. CI runs main’s copy of it from the `gates` job, so a PR cannot loosen the rules it is judged by. It covers unit tests, the browser harnesses and look sweeps (`*.pw.mjs`; a changed journey step file `J-*.pw.mjs` on a pull request the test judge runs for is the judge’s, `judged-paths.mjs` leftToJudge) and look baselines (`look-baselines/<room>/*.png`, which need a `Baseline-change: <room>` line and the independent review). `node tooling/ci/test-diff-guard.mjs --self-test` checks the matcher.',
   'look-drift.mjs':

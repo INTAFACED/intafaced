@@ -3,6 +3,7 @@
 // (project-state garden stake-01 part A); the local check (stake-02) prints its findings.
 import { copyRules } from './copy-rules.js';
 import { moneyRules } from './money-rules.js';
+import { duplicateRules } from './duplicate-rules.js';
 
 const TEST_FILE = /(\.(test|spec|testkit)\.[cm]?[jt]sx?$)|(\.pw\.[cm]?[jt]s$)|(\/(test|tests|__tests__)\/)/u;
 const isTest = (context) => TEST_FILE.test(context.filename ?? context.getFilename());
@@ -176,5 +177,6 @@ export default {
     'no-wait-for-timeout': noWaitForTimeout,
     ...copyRules,
     ...moneyRules,
+    ...duplicateRules,
   },
 };

@@ -26,11 +26,9 @@
  *   M-key     no `randomUUID()`, `Date.now()` or `Math.random()` inside an `idempotencyKey` expression, including one
  *             that spans lines or goes through a local variable, in service or ledger-client code.
  *
- * DUPLICATE RATCHET (counts only shrink; baseline in tooling/ci/duplicate-ratchet.json, rewrite with --write-baseline)
- *   R-scale   local `10n ** 18n` scale constants outside packages/ledger-client (use its money.ts).
- *   R-unwrap  hand-rolled tRPC reply unwraps (`result?.data`) in services (use contracts `unwrapTrpcData`).
- *   R-parse   hand-rolled decimal parsers (`.padEnd(n, '0')`) outside packages/ledger-client.
- *   R-fetch   service files that call `fetch(` and never set a timeout or signal.
+ * The duplicate kinds this scan once counted against a committed baseline (local 10n ** 18n scales, result?.data unwraps,
+ * padEnd parsers, timeout-less fetch) are lint rules now (garden/no-local-scale, no-hand-trpc-unwrap, no-hand-decimal-parse,
+ * no-fetch-without-timeout), held per rule by tooling/ci/lint-ratchet.mjs.
  *
  * Known limits (a regex scan, not a parser): a SQL string built by concatenation, a second table after a comma in FROM,
  * a key made by destructuring, a default parameter, a reassigned variable or a function other than randomUUID, Date.now and
@@ -43,7 +41,7 @@
  *   node tooling/ci/boundary-scan.mjs
  *   node tooling/ci/boundary-scan.mjs --self-test
  */
-import { readdirSync, readFileSync, existsSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 const ROOT = process.cwd();
@@ -65,7 +63,6 @@ const SKIP_DIRS = new Set([
 const SOURCE = /\.(?:[cm]?[jt]sx?)$/;
 const TEST = /\.(?:test|spec|fixture)\.(?:[cm]?[jt]sx?)$/;
 export const ALLOW_FILE = 'tooling/ci/boundary-allow.json';
-export const RATCHET_FILE = 'tooling/ci/duplicate-ratchet.json';
 
 export function stripComments(src) {
   return src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:'"`\\])\/\/[^\n]*/g, '$1');
@@ -306,7 +303,6 @@ function packageDeps(root) {
 export function scan(root = ROOT) {
   const schemas = loadSchemas(root);
   const findings = [...packageDeps(root), ...workspaceCycles(root)];
-  const duplicates = {};
   let files = 0;
   for (const group of GROUPS) {
     const base = join(root, group);
@@ -323,10 +319,6 @@ export function scan(root = ROOT) {
           .join('/');
         const text = readFileSync(f, 'utf8');
         findings.push(...checkSource(text, { rel, group, service }, schemas));
-        if (group !== 'apps') {
-          const c = countDuplicates(text, rel);
-          if (KINDS.some((k) => c[k] > 0)) duplicates[rel] = Object.fromEntries(KINDS.filter((k) => c[k] > 0).map((k) => [k, c[k]]));
-        }
         if (group === 'services' && d !== 'svc-ledger' && rel.endsWith('/src/db/schema.ts')) findings.push(...checkSchemaTs(text, { rel }));
       }
       const drizzle = join(dir, 'drizzle');
@@ -338,42 +330,7 @@ export function scan(root = ROOT) {
       }
     }
   }
-  return { findings, files, schemas: schemas.length, duplicates };
-}
-
-/** Duplicate counts in one source text (comment lines are not counted). `rel` decides which kinds apply. */
-export function countDuplicates(text, rel) {
-  const out = { scale: 0, unwrap: 0, parse: 0, fetch: 0 };
-  const code = stripComments(text);
-  const inLedgerClient = rel.startsWith('packages/ledger-client/');
-  const count = (re) => (code.match(re) ?? []).length;
-  if (!inLedgerClient) {
-    out.scale = count(/\b10n\s*\*\*\s*18n\b/g);
-    out.parse = count(/\.padEnd\(\s*[\w.]+\s*,\s*['"]0['"]\s*\)/g);
-  }
-  if (rel.startsWith('services/')) {
-    out.unwrap = count(/\bresult\??\.data\b/g);
-    if (!/AbortSignal|timeoutMs|\bsignal\s*[:,}]|timeout/i.test(code)) out.fetch = count(/(?<![.\w])(?:globalThis\.)?fetch\(/g);
-  }
-  return out;
-}
-
-const KINDS = ['scale', 'unwrap', 'parse', 'fetch'];
-const KIND_RULE = { scale: 'R-scale', unwrap: 'R-unwrap', parse: 'R-parse', fetch: 'R-fetch' };
-
-/** Compares counts to the baseline: a rise or a new file fails; a fall passes, so lowering the baseline is optional. */
-export function compareRatchet(files, baseline) {
-  const problems = [];
-  const seen = new Set([...Object.keys(files), ...Object.keys(baseline)]);
-  for (const f of [...seen].sort()) {
-    for (const k of KINDS) {
-      const now = files[f]?.[k] ?? 0;
-      const was = baseline[f]?.[k] ?? 0;
-      if (now > was)
-        problems.push({ rule: KIND_RULE[k], file: f, detail: `${now} (baseline ${was}): new duplicate, use the canonical module` });
-    }
-  }
-  return problems;
+  return { findings, files, schemas: schemas.length };
 }
 
 const key = (f) => `${f.rule} ${f.file} ${f.detail}`;
@@ -479,17 +436,6 @@ function selfTest() {
   );
   eq(t("readFileSync(join(__dirname, '..', 'svc-trade', 'a.ts'))"), ['B-reads'], 'service reads a sibling service from disk');
   eq(t("readFileSync(join(__dirname, 'svc-pay.txt'))"), [], 'own name is fine');
-  // evasion 6 (a local scale constant) is the ratchet: it may not grow.
-  eq(Object.values(countDuplicates('const SCALE = 10n ** 18n; a * b / SCALE', 'services/svc-x/src/a.ts')), [1, 0, 0, 0], 'scale counted');
-  eq(countDuplicates('const SCALE = 10n ** 18n;', 'packages/ledger-client/src/money.ts').scale, 0, 'ledger-client owns the scale');
-  eq(countDuplicates('const x = r.result?.data; const y = result.data;', 'services/svc-x/src/a.ts').unwrap, 2, 'unwraps counted');
-  eq(countDuplicates("s.padEnd(18, '0')", 'services/svc-x/src/a.ts').parse, 1, 'padEnd parser counted');
-  eq(countDuplicates('await fetch(url);', 'services/svc-x/src/a.ts').fetch, 1, 'fetch without timeout');
-  eq(countDuplicates('await fetch(url, { signal: AbortSignal.timeout(5000) });', 'services/svc-x/src/a.ts').fetch, 0, 'fetch with timeout');
-  eq(compareRatchet({ a: { scale: 2 } }, { a: { scale: 1 } }).length, 1, 'ratchet rises fail');
-  eq(compareRatchet({ a: { scale: 1 } }, { a: { scale: 2 } }), [], 'ratchet falls pass without a baseline edit');
-  eq(compareRatchet({ b: { fetch: 1 } }, {}).length, 1, 'new file fails');
-  eq(compareRatchet({ a: { scale: 1 } }, { a: { scale: 1 } }), [], 'ratchet holds');
   eq(
     findCycles(
       new Map([
@@ -558,15 +504,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     selfTest();
     process.exit(0);
   }
-  const { findings, files, schemas, duplicates } = scan();
-  if (process.argv.includes('--write-baseline')) {
-    writeFileSync(
-      join(ROOT, RATCHET_FILE),
-      JSON.stringify({ files: Object.fromEntries(Object.entries(duplicates).sort(([a], [b]) => a.localeCompare(b))) }, null, 2) + '\n',
-    );
-    console.log(`wrote ${RATCHET_FILE}: ${Object.keys(duplicates).length} file(s)`);
-    process.exit(0);
-  }
+  const { findings, files, schemas } = scan();
   if (files === 0 || schemas === 0) {
     console.error(
       `\n✖ BOUNDARY SCAN FAILED — scope is EMPTY (${files} source file(s), ${schemas} service schema(s)). A scan of nothing is not a pass.\n`,
@@ -574,9 +512,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     process.exit(1);
   }
   const allow = existsSync(join(ROOT, ALLOW_FILE)) ? JSON.parse(readFileSync(join(ROOT, ALLOW_FILE), 'utf8')).allow : [];
-  const baseline = existsSync(join(ROOT, RATCHET_FILE)) ? JSON.parse(readFileSync(join(ROOT, RATCHET_FILE), 'utf8')).files : {};
   const { open: openFindings, stale } = applyAllow(findings, allow);
-  const open = [...openFindings, ...compareRatchet(duplicates, baseline)];
+  const open = openFindings;
   // A stale allow entry is a fix nobody recorded: it warns, naming the line to delete (owner decision 2026-10-27).
   for (const a of stale) {
     const msg = `stale in ${ALLOW_FILE}: [${a.rule}] ${a.file} matches nothing; delete it.`;
@@ -587,7 +524,5 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     for (const f of open) console.error(`  [${f.rule}] ${f.file}\n    → ${f.detail}\n`);
     process.exit(1);
   }
-  console.log(
-    `✓ boundary-scan clean — ${files} source file(s), ${schemas} service schema(s), ${allow.length} allowed exception(s), ${Object.keys(baseline).length} file(s) in the duplicate ratchet`,
-  );
+  console.log(`✓ boundary-scan clean — ${files} source file(s), ${schemas} service schema(s), ${allow.length} allowed exception(s)`);
 }
