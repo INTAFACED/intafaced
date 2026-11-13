@@ -145,6 +145,8 @@ type VoucherRow = {
   revision: number;
   face_asset: string;
   face_amount: string;
+  kind: CampaignVoucher['kind'];
+  fee_discount_bps: number | null;
   state: CampaignVoucher['state'];
   issued_by: string;
   claim_by: Date | null;
@@ -158,6 +160,9 @@ const toVoucher = (v: VoucherRow): CampaignVoucher => ({
   code: v.code,
   revision: v.revision,
   face: { asset: v.face_asset, amount: decimalOf(v.face_amount) },
+  kind: v.kind,
+  feeSaver:
+    v.kind === 'fee_saver' && v.fee_discount_bps !== null ? { discountBps: v.fee_discount_bps, orders: Number(v.face_amount) } : null,
   state: v.state,
   issuedBy: v.issued_by,
   issuedAt: v.created_at.toISOString(),
@@ -250,7 +255,10 @@ const isParked = (type: CampaignType) => (PARKED_CAMPAIGN_TYPES as readonly stri
 export function gateOf(row: CampaignRow, timeZone: string | null): CampaignGate['missing'] {
   const missing: CampaignGate['missing'] = [];
   if (isParked(row.type)) missing.push({ code: 'owner.decision', field: 'type' });
-  if (!row.budget_asset || row.budget_limit === null) missing.push({ code: 'campaigns.budget_unset', field: 'budget' });
+  // A fee-saver coupon campaign moves no value (ENGINE VC-9): it has no reward pot to draw and no reward to pay, so neither
+  // is asked for; its terms are its vouchers' discount and orders, which the definition cannot leave blank.
+  const feeSaver = row.type === 'voucher' && Boolean(row.vouchers?.feeSaver);
+  if (!feeSaver && (!row.budget_asset || row.budget_limit === null)) missing.push({ code: 'campaigns.budget_unset', field: 'budget' });
   if (!row.participation) missing.push({ code: 'campaigns.rules_unset', field: 'participation' });
   else if (row.participation.regionScope === 'listed' && !row.participation.restrictedRegions?.length) {
     missing.push({ code: 'campaigns.region_list_unset', field: 'restrictedRegions' });
@@ -262,7 +270,7 @@ export function gateOf(row: CampaignRow, timeZone: string | null): CampaignGate[
   }
   // A welcome campaign gives a reward per task, each of which may be blank ("not set"; that task's claim refuses).
   const welcome = row.type === 'welcome';
-  if (!welcome && (!row.reward_asset || row.reward_amount === null)) {
+  if (!welcome && !feeSaver && (!row.reward_asset || row.reward_amount === null)) {
     missing.push({ code: 'campaigns.reward_unset', field: 'reward' });
   }
   const rewardAssets = welcome ? (row.tasks?.steps ?? []).flatMap((s) => (s.reward ? [s.reward.asset] : [])) : [row.reward_asset];
@@ -614,7 +622,8 @@ function parseVoucherWindow(type: CampaignType, input: NonNullable<CampaignDefin
   if (claimBy && useBy && useBy < claimBy) {
     throw new CampaignsError('campaigns.voucher_window_invalid', 'A voucher’s use-by cannot be before its claim-by');
   }
-  return { claimBy: claimBy ? iso(claimBy) : null, useBy: useBy ? iso(useBy) : null };
+  const feeSaver = input.feeSaver ? { discountBps: input.feeSaver.discountBps, orders: input.feeSaver.orders } : null;
+  return { claimBy: claimBy ? iso(claimBy) : null, useBy: useBy ? iso(useBy) : null, ...(feeSaver ? { feeSaver } : {}) };
 }
 
 /**
@@ -1155,9 +1164,15 @@ export class CampaignService {
           `A campaign that is ${ended ? 'ended' : state} issues no voucher: it must be approved and not ended`,
         );
       }
-      if (!row.reward_asset || row.reward_amount === null) {
+      const feeSaver = row.vouchers?.feeSaver ?? null;
+      if (!feeSaver && (!row.reward_asset || row.reward_amount === null)) {
         throw new CampaignsError('campaigns.reward_unset', 'The live revision has no reward, so a voucher would have no face value');
       }
+      // A fee-saver's face is its orders; it keeps the discount of the revision it was issued under, as a cash voucher
+      // keeps its reward.
+      const face = feeSaver
+        ? { asset: 'ORDERS', amount: String(feeSaver.orders) }
+        : { asset: row.reward_asset!, amount: row.reward_amount! };
       await tx`SELECT pg_advisory_xact_lock(hashtext(${`voucher:code:${code}`}))`;
       const [elsewhere] = await tx<{ id: string }[]>`
         SELECT id FROM campaigns.vouchers WHERE code = ${code} AND campaign_id <> ${row.id} LIMIT 1`;
@@ -1172,10 +1187,11 @@ export class CampaignService {
           ON CONFLICT (campaign_id, revision) DO NOTHING`;
       }
       const [made] = await tx<VoucherRow[]>`
-        INSERT INTO campaigns.vouchers (id, campaign_id, code, issue_key, revision, face_asset, face_amount, issued_by, claim_by,
-          use_by)
-        VALUES (${`vch_${randomUUID()}`}, ${row.id}, ${code}, ${key}, ${row.revision}, ${row.reward_asset}, ${row.reward_amount},
-          ${input.actor}, ${row.vouchers?.claimBy ?? null}, ${row.vouchers?.useBy ?? null})
+        INSERT INTO campaigns.vouchers (id, campaign_id, code, issue_key, revision, face_asset, face_amount, kind, fee_discount_bps,
+          issued_by, claim_by, use_by)
+        VALUES (${`vch_${randomUUID()}`}, ${row.id}, ${code}, ${key}, ${row.revision}, ${face.asset}, ${face.amount},
+          ${feeSaver ? 'fee_saver' : 'cash'}, ${feeSaver?.discountBps ?? null}, ${input.actor}, ${row.vouchers?.claimBy ?? null},
+          ${row.vouchers?.useBy ?? null})
         ON CONFLICT (issue_key) DO NOTHING
         RETURNING *`;
       if (!made) {
