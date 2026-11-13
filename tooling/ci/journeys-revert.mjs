@@ -499,18 +499,24 @@ export function journeysOf(steps) {
 }
 
 /**
- * What goes on each failing journey's break issue: the revert's link and `regression`, or, when the red traces to no
- * single merge, why and `main-unknown-red` (a builder takes only that while it is open: project-state BUILDER.md). Pure.
+ * What goes on each failing journey's break issue: the revert's link and `regression`; when the culprit's `git revert`
+ * conflicts (`conflict`: its pull request's link or sha), that and `regression`, for the culprit is named but nothing is
+ * resolved by hand (the programme lead's rule, 13 Nov 2026); or, when the red traces to no single merge, why and
+ * `main-unknown-red` (a builder takes only that while it is open: project-state BUILDER.md). Pure.
  */
-export function breakIssueNotes({ steps, revertUrl, reason, redRunUrl }) {
+export function breakIssueNotes({ steps, revertUrl, conflict, reason, redRunUrl }) {
+  const named = Boolean(revertUrl || conflict);
   return journeysOf(steps).map((journey) => ({
     title: `${BREAK_ISSUE_PREFIX}${journey}`,
-    labels: revertUrl ? ['regression'] : [UNKNOWN_LABEL],
+    labels: named ? ['regression'] : [UNKNOWN_LABEL],
     // Only a traced red opens its issue: an untraced one may be the stack's own, and main-unknown-red stops every builder.
-    opens: Boolean(revertUrl),
-    body: revertUrl
-      ? `The revert on main opened ${revertUrl} for this break ([red run](${redRunUrl})). When it merges and the steps pass again on main, this issue closes itself.\n\n<!-- steps: ${steps.filter((s) => s.split('#')[0] === journey).join(', ')} -->\n_Posted by tooling/ci/journeys-revert.mjs._`
-      : `The revert on main traced this red ([red run](${redRunUrl})) to no single merge: ${reason}. Nothing was reverted, so a person or a builder finds the cause.\n\n_Posted by tooling/ci/journeys-revert.mjs._`,
+    opens: named,
+    body:
+      conflict && !revertUrl
+        ? `The revert on main traced this break ([red run](${redRunUrl})) to ${conflict}, but its \`git revert\` conflicts with main, so no revert was opened and none is resolved by hand: fix it forward. When the steps pass again on main, this issue closes itself.\n\n<!-- steps: ${steps.filter((s) => s.split('#')[0] === journey).join(', ')} -->\n_Posted by tooling/ci/journeys-revert.mjs._`
+        : revertUrl
+          ? `The revert on main opened ${revertUrl} for this break ([red run](${redRunUrl})). When it merges and the steps pass again on main, this issue closes itself.\n\n<!-- steps: ${steps.filter((s) => s.split('#')[0] === journey).join(', ')} -->\n_Posted by tooling/ci/journeys-revert.mjs._`
+          : `The revert on main traced this red ([red run](${redRunUrl})) to no single merge: ${reason}. Nothing was reverted, so a person or a builder finds the cause.\n\n_Posted by tooling/ci/journeys-revert.mjs._`,
   }));
 }
 
@@ -702,8 +708,13 @@ async function openRevert(env, revoke) {
     } catch {
       execFileSync('git', ['revert', '--abort'], { stdio: 'ignore' });
       await comment(
-        `The ${what} [run ${env.RED_RUN}](${runUrl}) on \`${env.BASE}\` failed ${stepText}, and the revert on main found this pull request's commit \`${sha.slice(0, 10)}\` as the cause. Its revert doesn't apply cleanly on \`${env.BASE}\`, so no revert was opened. Fix it forward or revert it by hand.\n\n_Posted by tooling/ci/journeys-revert.mjs._`,
+        `The ${what} [run ${env.RED_RUN}](${runUrl}) on \`${env.BASE}\` failed ${stepText}, and the revert on main found this pull request's commit \`${sha.slice(0, 10)}\` as the cause. Its revert doesn't apply cleanly on \`${env.BASE}\`, so no revert was opened, and none is resolved by hand: fix it forward. Each broken journey's issue is marked \`regression\`.\n\n_Posted by tooling/ci/journeys-revert.mjs._`,
       );
+      if (kind === 'journeys' && !dry) {
+        const conflict = pr ? `#${pr.number} (\`${sha.slice(0, 10)}\`)` : `\`${sha.slice(0, 10)}\``;
+        const notes = breakIssueNotes({ steps, conflict, redRunUrl: runUrl });
+        summary(['', ...(await noteBreakIssues(env.ISSUES_TOKEN, repo, notes).catch((e) => [`- Break issue not noted: ${e.message}`]))]);
+      }
       return summary([`Journeys revert: \`git revert ${sha.slice(0, 10)}\` doesn't apply cleanly; commented instead.`]);
     }
     if (dry) {
@@ -909,6 +920,18 @@ function selfTest() {
   );
   eq(untraced[0].body.includes('no commit between them can reach J-b-02'), true, 'the note says why');
   eq(untraced[0].opens, false, 'an untraced red opens no issue: main-unknown-red stops every builder');
+  const conflicted = breakIssueNotes({ steps: ['J-c-03#4'], conflict: '#7 (`abcdef0123`)', redRunUrl: 'u' });
+  eq(
+    conflicted.map((n) => [n.labels, n.opens]),
+    [[['regression'], true]],
+    "a revert that conflicts: the journey's issue is a regression, opened",
+  );
+  eq(
+    conflicted[0].body.includes('#7') && conflicted[0].body.includes('conflicts') && !conflicted[0].body.includes('revert it by hand'),
+    true,
+    'it names the culprit and the conflict',
+  );
+  eq(conflicted[0].body.includes('<!-- steps: J-c-03#4 -->'), true, 'the issue names its steps, so main trust can close it');
   // fix-01, act on the job: an early start, once; the break back when its journey passes alone on main's head.
   eq(
     [shardOf('Journeys (shard 17 of 32)'), shardOf('real-app-journeys-shard-3'), shardOf('Journeys revert'), shardOf('real-app-journeys')],
@@ -1112,7 +1135,7 @@ function selfTest() {
     [1, 5],
     "only main's runs still going on another commit than the revert's are weighed",
   );
-  console.log('✓ journeys-revert --self-test OK (70 fixtures)');
+  console.log('✓ journeys-revert --self-test OK (73 fixtures)');
 }
 
 async function selfTestRevoke() {

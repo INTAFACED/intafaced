@@ -73,6 +73,7 @@ import { apiSecurityHeaders, securityHeaders } from '../../apps/customer/deploym
 import { APEX_DESCRIPTOR_PATH, APEX_PRODUCT } from '../../apps/customer/deployment/host-dispatch.mjs';
 import { anvilBin, chainRecordPath, chainStatus, CHAIN_PORTS, GATE_URL, runSeedScript, TEST_CHAIN_ID } from './local-test-chain.mjs';
 import { reduceMaps } from './journey-reach.mjs';
+import { runMvnSync } from './mvn-run.mjs';
 import { marketStatus } from './local-test-market.mjs';
 import { serveRailStatements } from './local-test-rail-statements.mjs';
 import { serveTestVenue, testVenueChainId, userVenueCount, userVenueSwitchOn } from './local-test-venue.mjs';
@@ -1147,10 +1148,11 @@ function ensureFixJar(rebuild) {
   const tc = ensureToolchain(javaTools());
   const logPath = path.join(P.logs, 'build-fix.log');
   const fd = fs.openSync(logPath, 'a', 0o600);
-  const r = spawnSync(tc.MVN, ['-q', '-B', `-Dmaven.repo.local=${tc.MAVEN_REPO}`, '-DskipTests', 'package'], {
+  const r = runMvnSync(tc.MVN, ['-q', '-B', `-Dmaven.repo.local=${tc.MAVEN_REPO}`, '-DskipTests', 'package'], {
     cwd: FIX_ROOT,
     env: { ...baseEnv(), JAVA_HOME: tc.JAVA_HOME, PATH: `${path.join(tc.JAVA_HOME, 'bin')}:${PNPM_PATH}` },
-    stdio: ['ignore', fd, fd],
+    out: (attempt) => fs.writeSync(fd, `${attempt.stdout ?? ''}${attempt.stderr ?? ''}`),
+    log: (line) => (fs.writeSync(fd, `${line}\n`), say(`  ${line}`)),
   });
   fs.closeSync(fd);
   if (r.status !== 0 || !fs.existsSync(FIX_JAR)) fail(`svc-fix did not build (see ${logPath})`);
