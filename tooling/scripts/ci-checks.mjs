@@ -21,8 +21,11 @@
  *     over the changed files), build (`turbo run build <build filters>`), typecheck (`turbo run typecheck <filters>`),
  *     tests (`vitest related --run` in each package CI's test job selects: the test files whose imports reach a changed
  *     file or its built twin in dist/, plus every test of the package that walks the source tree, which nothing imports).
- * Left out, and said so in the output: the NATS bus, Redis and the EVM chains (their suites run in CI), and the rest of
- * CI's unit selection (the test files no change reaches). Clocks are UTC, as on CI's runners. A pass here is an early
+ *     Each package's own `test` script runs as CI's `pnpm test` runs it (svc-fix's Maven tests, sbe-codec's jar, a tsc
+ *     first), its `vitest run` narrowed to those files.
+ * Left out, and said so in the output: the NATS bus, Redis and the EVM chains (their suites run in CI; a chain suite is
+ * excluded by name when no chain answers on 8545 here), and the rest of CI's unit selection (the test files no change
+ * reaches). Clocks are UTC, as on CI's runners. A pass here is an early
  * copy of CI's verdict, never a replacement for it.
  *
  *   node tooling/scripts/ci-checks.mjs                  the branch against its merge-base with origin/main
@@ -30,7 +33,7 @@
  *   node tooling/scripts/ci-checks.mjs --list           print what would run, run nothing
  */
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -113,6 +116,67 @@ function changedFiles(mergeBase) {
  * in `_test` because the repo's test guards (packages/db testing.ts, pay-sim's safety.ts) refuse any other name.
  */
 export const runDatabase = (pid = process.pid, now = Date.now()) => `intafaced_run_${pid}_${now.toString(36)}_test`;
+
+/**
+ * Run fn holding a lock every run on this machine shares (a directory, made atomically). CI's bootstrap script grants on
+ * roles every run shares, and two runs granting at once fail with "tuple concurrently updated" (3 runs at once in the
+ * replay, 13 Nov). A lock older than staleMs is a killed run's and is taken over.
+ */
+export function withLock(dir, fn, { waitMs = 20 * 60_000, staleMs = 15 * 60_000 } = {}) {
+  const pause = new Int32Array(new SharedArrayBuffer(4));
+  const until = Date.now() + waitMs;
+  for (;;) {
+    try {
+      mkdirSync(dir);
+      break;
+    } catch (e) {
+      if (e.code !== 'EEXIST') throw e;
+      try {
+        if (Date.now() - statSync(dir).mtimeMs > staleMs) rmSync(dir, { recursive: true, force: true });
+      } catch {
+        /* released meanwhile */
+      }
+      if (Date.now() > until) throw new Error(`waited ${Math.round(waitMs / 60_000)} minutes for ${dir}`);
+      Atomics.wait(pause, 0, 0, 250);
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * CI's Postgres (postgres:16-alpine, musl) sorts text byte by byte, as collation C does; a Mac's en_US.UTF-8 doesn't
+ * ('default' before 'Rig-A'), so a test's ORDER BY reads differently here (svc-mining-pool reads.db.test, #8211's
+ * replay, 13 Nov). Every test database is made from template1, so template1 must collate as C. Null when it does.
+ */
+export function collationProblem(datcollate) {
+  return String(datcollate).trim() === 'C'
+    ? null
+    : `this Postgres's template1 collates ${String(datcollate).trim() || '(unknown)'}, CI's C, so tests that sort text read differently here. ` +
+        `Make it CI's (template1 holds nothing of its own): psql -d postgres -c "ALTER DATABASE template1 IS_TEMPLATE false" -c "DROP DATABASE template1" -c "CREATE DATABASE template1 TEMPLATE template0 LOCALE 'C' IS_TEMPLATE true"`;
+}
+
+/** Tests that need CI's EVM chain (CI starts anvil on 8545 and 8546): they fail by design with no chain. */
+export const NEEDS_CHAIN = /\b(REQUIRE_EVM_CHAIN|PROTOCOL_RPC_URL|INDEXER_RPC_URL|INDEXER_REORG_RPC_URL)\b|127\.0\.0\.1:854[56]/;
+
+/**
+ * A package's own `test` script, as CI's `pnpm test` runs it (svc-fix's Maven tests, sbe-codec's jar, a tsc first), with
+ * its `vitest run` narrowed to `vitest related --run` over targets and the left-out files excluded. A script with no
+ * `vitest run` runs whole. Returns the shell command.
+ */
+export function packageTestCommand(script, targets, exclude = []) {
+  const q = (s) => `'${String(s).replaceAll("'", `'\\''`)}'`;
+  const narrowed = `vitest related --run --passWithNoTests --maxWorkers=2 ${exclude.map((f) => `--exclude ${q(f)}`).join(' ')} ${targets.map(q).join(' ')}`;
+  if (!/(^|&&\s*)vitest run\b/.test(script)) return script;
+  return script
+    .split(/\s*&&\s*/)
+    .map((part) => (/^vitest run\b/.test(part) ? `${narrowed} ${part.slice('vitest run'.length).trim()}`.trim() : part))
+    .join(' && ');
+}
+
 /**
  * The verdict on CI's gates run here. Red is red, except one case: the only red gate is the tooling tests and they were
  * stopped by their own 300 s limit (tooling-tests.mjs TIMEOUT_MS, spawnSync ETIMEDOUT) with no failing test before the
@@ -170,16 +234,23 @@ function prepareDatabase(env, actionText, run, cleanEnv, log) {
   const psql = (sql, dbname = 'postgres') =>
     spawnSync('psql', ['-d', dbname, '-v', 'ON_ERROR_STOP=1', '-tAc', sql], { env: pg, encoding: 'utf8' });
   const drop = () => psql(`DROP DATABASE IF EXISTS "${db}" WITH (FORCE)`);
-  // Leftovers of runs that were killed before their drop (older than a day, so no live run is touched).
-  const old = psql("SELECT datname FROM pg_database WHERE datname LIKE 'intafaced\\_run\\_%\\_test'");
-  for (const name of String(old.stdout).split('\n').filter(Boolean)) {
-    const born = runBorn(name);
-    if (Number.isFinite(born) && Date.now() - born > 24 * 3600_000) psql(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`);
+  const collate = psql("SELECT datcollate FROM pg_database WHERE datname = 'template1'");
+  if (collate.status === 0) {
+    const problem = collationProblem(collate.stdout);
+    if (problem) return { error: problem };
   }
   const script = readFileSync(join(ROOT, BOOTSTRAP), 'utf8').replaceAll('intafaced_test', db);
-  const boot = run('bash', ['-c', script], {
-    env: { ...pg, POSTGRES_USER: pg.PGUSER, POSTGRES_DB: 'postgres' },
-    stdio: ['ignore', 'ignore', 'pipe'],
+  const boot = withLock(join(realpathSync(tmpdir()), 'intafaced-ci-checks-db.lock'), () => {
+    // Leftovers of runs that were killed before their drop (older than a day, so no live run is touched).
+    const old = psql("SELECT datname FROM pg_database WHERE datname LIKE 'intafaced\\_run\\_%\\_test'");
+    for (const name of String(old.stdout).split('\n').filter(Boolean)) {
+      const born = runBorn(name);
+      if (Number.isFinite(born) && Date.now() - born > 24 * 3600_000) psql(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`);
+    }
+    return run('bash', ['-c', script], {
+      env: { ...pg, POSTGRES_USER: pg.PGUSER, POSTGRES_DB: 'postgres' },
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
   });
   if (boot.status !== 0) {
     drop();
@@ -262,11 +333,34 @@ export async function runCiChecks({ base = 'origin/main', list = false, log = co
   const tested = flags.full || flags.affected ? turboPackages('test', filters, baseEnv) : [];
   if (tested === null) return { ok: false, summary: 'turbo could not list the packages CI would test' };
   const twins = withBuiltTwins(files).map((f) => join(ROOT, f));
+  // CI starts an EVM chain (anvil on 8545); a builder's machine usually has none, and those suites fail by design
+  // without one. With no chain answering here they are left to CI, by name.
+  const chain = spawnSync(
+    'curl',
+    [
+      '-s',
+      '--max-time',
+      '2',
+      '-H',
+      'content-type: application/json',
+      '-d',
+      '{"jsonrpc":"2.0","id":1,"method":"eth_chainId"}',
+      'http://127.0.0.1:8545',
+    ],
+    { encoding: 'utf8' },
+  );
+  const hasChain = chain.status === 0 && /"result"/.test(chain.stdout);
+  const leftToCi = [];
   const plan = tested.map(({ name, directory }) => {
     const own = git(['ls-files', directory]).split('\n').filter(Boolean);
-    const rules = own.filter((f) => IS_VITEST_FILE.test(f) && ruleTest(f, readFileSync(join(ROOT, f), 'utf8'))).map((f) => join(ROOT, f));
-    return { name, directory, targets: [...twins, ...rules] };
+    const tests = own.filter((f) => IS_VITEST_FILE.test(f)).map((f) => ({ f, text: readFileSync(join(ROOT, f), 'utf8') }));
+    const rules = tests.filter(({ f, text }) => ruleTest(f, text)).map(({ f }) => join(ROOT, f));
+    const exclude = hasChain ? [] : tests.filter(({ text }) => NEEDS_CHAIN.test(text)).map(({ f }) => f.slice(directory.length + 1));
+    leftToCi.push(...exclude.map((f) => `${directory}/${f}`));
+    const script = JSON.parse(readFileSync(join(ROOT, directory, 'package.json'), 'utf8')).scripts?.test ?? 'vitest run';
+    return { name, directory, targets: [...twins, ...rules], command: packageTestCommand(script, [...twins, ...rules], exclude) };
   });
+  if (leftToCi.length) log(`  left to CI (they need its EVM chain; none answers on 127.0.0.1:8545 here): ${leftToCi.join(', ')}`);
   if (list) {
     for (const p of plan) log(`  ${p.name}: related to ${twins.length} changed files, plus ${p.targets.length - twins.length} rule tests`);
     return { ok: true, summary: `${plan.length} packages` };
@@ -293,7 +387,11 @@ export async function runCiChecks({ base = 'origin/main', list = false, log = co
   } catch {
     /* main has none: the head's own, as CI does */
   }
-  const driftScript = drift ? join(mkdtempSync(join(tmpdir(), 'look-drift-')), 'look-drift.mjs') : join(ROOT, 'tooling/ci/look-drift.mjs');
+  // A real path: look-drift.mjs runs only when import.meta.url is file://<argv[1]>, and the Mac's tmpdir is a symlink
+  // (/var → /private/var), so through it the script did nothing and exited 0 (the replay's #7972 miss, 13 Nov).
+  const driftScript = drift
+    ? join(realpathSync(mkdtempSync(join(tmpdir(), 'look-drift-'))), 'look-drift.mjs')
+    : join(ROOT, 'tooling/ci/look-drift.mjs');
   if (drift) writeFileSync(driftScript, drift);
   const look = existsSync(driftScript) ? run('node', [driftScript], { env: { ...baseEnv, GUARD_BASE: mergeBase } }) : { status: 0 };
   step('look drift', look.status === 0, 'a look baseline changed (above)');
@@ -335,9 +433,10 @@ export async function runCiChecks({ base = 'origin/main', list = false, log = co
     } else {
       const red = [];
       try {
-        for (const { name, directory, targets } of plan) {
-          // Two workers a run: CI's runner is 4 cores for one run; here several builders share one Mac.
-          const t = run('pnpm', ['exec', 'vitest', 'related', '--run', '--passWithNoTests', '--maxWorkers=2', ...targets], {
+        for (const { name, directory, command } of plan) {
+          // The package's own test script, as CI's `pnpm test` runs it, its vitest narrowed (packageTestCommand). Two
+          // workers a run: CI's runner is 4 cores for one run; here several builders share one Mac.
+          const t = run('pnpm', ['exec', 'sh', '-c', command], {
             cwd: join(ROOT, directory),
             env: { ...baseEnv, ...runEnv, TZ: 'UTC', FORCE_COLOR: process.env.FORCE_COLOR ?? '0' },
           });

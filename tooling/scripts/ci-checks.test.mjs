@@ -4,10 +4,12 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { NEEDS_CHAIN, collationProblem, packageTestCommand, withLock } from './ci-checks.mjs';
 import {
   LOCAL_KEYS,
   ciNode,
@@ -165,4 +167,62 @@ test('a planted failing tooling test refuses, timeout or not; so does any other 
   assert.equal(another.v.ok, false, 'another red gate beside the timeout is red');
   const manifest = gatesRun(['✖ GATE MANIFEST BROKEN', TIMEOUT_LINE]);
   assert.equal(manifest.v.ok, false);
+});
+
+test("each package's own test script runs as CI's pnpm test runs it, its vitest narrowed", () => {
+  const t = ['/r/a.ts'];
+  // svc-fix: Maven's tests first, then vitest.
+  assert.match(
+    packageTestCommand('node scripts/run-mvn.mjs test && vitest run', t),
+    /^node scripts\/run-mvn\.mjs test && vitest related --run --passWithNoTests --maxWorkers=2 +'\/r\/a\.ts'$/,
+  );
+  // sbe-codec: a step after vitest still runs; vitest's own flags are kept.
+  assert.match(
+    packageTestCommand('node scripts/run-mvn.mjs test && vitest run --passWithNoTests && node scripts/linked-roundtrip.mjs', t),
+    /^node scripts\/run-mvn\.mjs test && vitest related --run .*'\/r\/a\.ts' --passWithNoTests && node scripts\/linked-roundtrip\.mjs$/,
+  );
+  // mobile: no vitest, the whole script.
+  assert.equal(packageTestCommand('node ./scripts/build-wrap.mjs --check', t), 'node ./scripts/build-wrap.mjs --check');
+  // Excluded files and quoting.
+  assert.match(packageTestCommand('vitest run', ["/r/it's.ts"], ['src/x.test.ts']), /--exclude 'src\/x\.test\.ts' '\/r\/it'\\''s\.ts'$/);
+});
+
+test('the chain suites CI starts anvil for are the ones left to CI when no chain answers here', () => {
+  for (const f of [
+    'services/svc-protocol/src/amm/router-v2-onchain.test.ts',
+    'services/svc-protocol/src/liquidity/liquidity-onchain.test.ts',
+  ])
+    if (existsSync(ROOT + f)) assert.ok(NEEDS_CHAIN.test(readFileSync(ROOT + f, 'utf8')), f);
+  assert.ok(!NEEDS_CHAIN.test('const url = process.env.TEST_DATABASE_URL; // 127.0.0.1:5432'));
+});
+
+test("the database bootstrap holds one lock across runs; a killed run's stale lock is taken over", () => {
+  const dir = join(mkdtempSync(join(tmpdir(), 'lock-')), 'l');
+  // Another run holds it: this one waits, then gives up rather than racing.
+  mkdirSync(dir);
+  assert.throws(() => withLock(dir, () => 'ran', { waitMs: 600 }), /waited/);
+  // Held past staleMs: taken over, and released after.
+  utimesSync(dir, new Date(Date.now() - 60_000), new Date(Date.now() - 60_000));
+  assert.equal(
+    withLock(dir, () => 'ran', { waitMs: 2000, staleMs: 30_000 }),
+    'ran',
+  );
+  assert.ok(!existsSync(dir), 'released');
+  assert.equal(
+    withLock(dir, () => 'again'),
+    'again',
+  );
+});
+
+test("look drift runs main's script from a real path (the Mac's tmpdir is a symlink, through which it did nothing)", () => {
+  const dir = mkdtempSync(join(tmpdir(), 'drift-'));
+  writeFileSync(join(dir, 'g.mjs'), 'if (import.meta.url === `file://${process.argv[1]}`) process.exit(3);\n');
+  assert.equal(spawnSync(process.execPath, [join(realpathSync(dir), 'g.mjs')]).status, 3, 'through the real path it runs');
+  const text = readFileSync(new URL('./ci-checks.mjs', import.meta.url), 'utf8');
+  assert.match(text, /realpathSync\(mkdtempSync\(join\(tmpdir\(\), 'look-drift-'\)\)\)/);
+});
+
+test("test databases collate as CI's (C): a Mac's en_US.UTF-8 template1 is named, with the fix", () => {
+  assert.equal(collationProblem('C\n'), null);
+  assert.match(collationProblem('en_US.UTF-8'), /collates en_US\.UTF-8, CI's C.*LOCALE 'C' IS_TEMPLATE true/);
 });
