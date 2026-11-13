@@ -131,6 +131,9 @@ describe("the pay-in stand-in's page", () => {
     creditedAmount: null,
     creditedBy: null,
     returnedAt: null,
+    walletAddress: null,
+    deliveredAt: null,
+    deliveryTx: null,
   });
 
   function mounted(status: AddMoneyRequestView['status'], approvedCalls: string[] = []) {
