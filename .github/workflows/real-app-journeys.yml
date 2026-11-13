@@ -746,7 +746,9 @@ jobs:
           done
           node tooling/scripts/local-test-market.mjs stop
           node tooling/scripts/local-test-gates.mjs verify
+          nproc; (vmstat 5 > "$RUNNER_TEMP/vmstat.log" &) ; date -u +%T
           node tooling/scripts/local-test-market.mjs history
+          date -u +%T; pkill vmstat || true; cat "$RUNNER_TEMP/vmstat.log"
           node tooling/scripts/local-test-market.mjs
 
       # Labelled TEST rows (earn pools, loan products, a TEST P2P method) so those rooms show working, after the gates
