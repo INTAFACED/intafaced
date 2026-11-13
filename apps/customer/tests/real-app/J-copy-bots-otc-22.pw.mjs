@@ -227,8 +227,16 @@ test(`${J} #5 archives the signal: the listing withdraws and existing subscriber
   expect((await listed()).some((s) => s.id === monthly.id)).toBe(false);
   await page.goto('/trade/bots/signals');
   await expect(page.getByRole('table', { name: 'Published signals' })).not.toContainText(monthly.title);
-  const late = await (await api(sub.who)).post('/api/market/trpc/purchase', { listingId: monthly.listingId, purchaseId: randomUUID() });
-  expect(late.status).toBeGreaterThanOrEqual(400);
+  // A new buyer, never subscribed, finds no Market listing and cannot buy: the refusal is the withdrawal's, not a repeat purchase's.
+  const newcomerPage = await (await browser.newContext()).newPage();
+  const newcomer = await signUp(newcomerPage, 'jcsn');
+  await verify(newcomerPage, newcomer);
+  expect(fund(newcomer.email, 'USDT', '50').tx).toBeTruthy();
+  const client = await api(newcomer);
+  const shown = await client.get(query('listing', { listingId: monthly.listingId }));
+  expect({ status: shown.status, code: codeOf(shown) }).toEqual({ status: 404, code: 'market.listing_not_found' });
+  const late = await client.post('/api/market/trpc/purchase', { listingId: monthly.listingId, purchaseId: randomUUID() });
+  expect({ status: late.status, code: codeOf(late) }).toEqual({ status: 404, code: 'market.listing_not_found' });
   // The subscriber keeps the period they paid for, to the same second.
   const after = await accessOf(sub.who, monthly.listingId);
   expect(after).toMatchObject({ granted: true, accessUntil: before.accessUntil });
