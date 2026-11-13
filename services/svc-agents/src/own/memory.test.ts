@@ -244,6 +244,17 @@ if (!available) {
       expect(JSON.stringify(run.memory)).not.toContain('DE89');
       expect(run.log.find((row) => row.step === 'not_remembered')?.text).toBe('agents.memory_item_refused');
       expect(await items()).toBe(0);
+      // Nor is it kept as the question: the run, its reply and its log hold the refusal code instead.
+      expect(JSON.stringify(run)).not.toContain('DE89');
+      const stored = await sql`SELECT ask, reply, log_json FROM agents.own_agent_test_runs WHERE id = ${run.id}`;
+      expect(JSON.stringify(stored)).not.toContain('DE89');
+      expect(run.ask).toBe('agents.memory_item_refused');
+      // The same request again is that run, and with memory off the account number is still never kept.
+      expect((await ask(person, id, 'memory:refuse:0001', 'TEST: remember my account number DE89 3704 0044 0532 0130 00')).id).toBe(run.id);
+      await person.own.memory.setEnabled({ id, enabled: false });
+      const off = await ask(person, id, 'memory:refuse:0002', 'remember my IBAN DE89 3704 0044 0532 0130 00');
+      expect(off.memory?.outcome).toBe('off');
+      expect(JSON.stringify(off)).not.toContain('DE89');
     });
   });
 

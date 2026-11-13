@@ -16,7 +16,7 @@ import { OWN_TOOL_DOORS, OWN_TOOLS, OwnAgentRefusal } from './catalog.js';
 import { OwnConsentStore, OwnRuleStore, stricter, type PolicyBaseline, type RuleChoice } from './guardrails.js';
 import { readOwnCaps } from './limits.js';
 import { decideApproval, guardedEngineRun } from './content-guard.js';
-import { runMemoryOf, OwnMemoryStore, type MemoryDecision } from './memory.js';
+import { decideMemory, runMemoryOf, OwnMemoryStore, withheldAsk, type MemoryDecision } from './memory.js';
 
 /**
  * DRY RUNS OF A PERSON'S OWN AGENT (AG-spend-04; J-agents-04 #3).
@@ -277,7 +277,15 @@ export class OwnTestRunStore {
     liveEngine: OwnAgentLiveEngine,
     extras: EngineRunExtras = {},
   ): Promise<OwnAgentTestRun> {
-    const call: Call = { kind: 'engine_run', ask, content: optionalText(extras.content), outputSchema: optionalText(extras.outputSchema) };
+    // A request to remember an account number, key, secret or balance is never kept as text, not even as the question:
+    // the run stores, answers and logs the refusal code in its place.
+    const kept = withheldAsk(ask) ?? ask;
+    const call: Call = {
+      kind: 'engine_run',
+      ask: kept,
+      content: optionalText(extras.content),
+      outputSchema: optionalText(extras.outputSchema),
+    };
     const memory = new OwnMemoryStore(this.sql);
     return this.once(
       ownerId,
@@ -285,9 +293,8 @@ export class OwnTestRunStore {
       requestId,
       call,
       async () => {
-        const { decideMemory } = await import('./memory.js');
         const { memory_enabled } = await memory.controls(ownerId, agentId);
-        return testEngineRun(ask, liveEngine, this.assetId, { ...extras, memory: decideMemory(ask, memory_enabled) });
+        return testEngineRun(kept, liveEngine, this.assetId, { ...extras, memory: decideMemory(ask, memory_enabled) });
       },
       // The item is written in the run's own transaction, keyed by the run: a run is stored with its item or not at all.
       async (tx, row) => {

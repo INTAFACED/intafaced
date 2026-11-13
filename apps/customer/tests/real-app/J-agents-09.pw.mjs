@@ -119,6 +119,8 @@ test(`${J} #4 asks the agent to remember an account number: the item is refused`
   await expect(memoryOutcome(page)).toHaveRole('alert');
   await expect(memoryOutcome(page)).toContainText('agents.memory_item_refused');
   await expect(memoryOutcome(page)).not.toContainText('DE89');
+  // Nor is it kept as the run's question or log.
+  await expect(testPanel(page)).not.toContainText('DE89');
   await openOwnAgent(page, agents, 'Memory');
   await expect(memory(page).getByRole('row')).toHaveCount(rows);
   await expect(memory(page)).not.toContainText('DE89');

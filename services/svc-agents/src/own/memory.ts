@@ -63,6 +63,18 @@ export function memoryItemRefused(text: string): boolean {
   );
 }
 
+/** The code a run keeps in place of a question asking it to remember something it may never keep. */
+export const WITHHELD_ASK = 'agents.memory_item_refused';
+
+/**
+ * The text a run keeps in place of the person's question, when that question asks it to remember an account number, a
+ * key, a secret or a balance (whether memory is on or off); null when the question may be kept as asked.
+ */
+export function withheldAsk(ask: string): string | null {
+  const text = rememberRequest(ask);
+  return text !== null && (text.length > MEMORY_ITEM_MAX || memoryItemRefused(text)) ? WITHHELD_ASK : null;
+}
+
 /** What a run does with a question, before anything is stored: no request, off, refused, or the item to write. */
 export type MemoryDecision =
   | { readonly kind: 'none' }
