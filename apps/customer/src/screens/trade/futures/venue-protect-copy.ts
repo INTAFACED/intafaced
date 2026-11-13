@@ -56,6 +56,7 @@ export const venueProtectCopy = defineCopy('trade.futures.venue.protect', {
   'Item failed': 'Failed: {failure}.',
   'Item still open': 'Nothing was closed: the position is still {size} {base} {side}.',
   'Item cancelled closed': 'Cancelled: the position it closed is gone.',
+  'Item cancelled linked': 'Cancelled: its linked take profit or stop loss filled first.',
   'Item cancelled': 'Cancelled.',
   'Item attached': 'Attached to its entry order.',
   Cancel: 'Cancel',

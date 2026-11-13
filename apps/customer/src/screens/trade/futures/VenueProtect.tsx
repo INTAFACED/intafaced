@@ -309,7 +309,15 @@ function ProtectionItem({
           {position ? <p>{t('Item still open', { size: canonical(position.size), base, side: sideWords(t, position.side) })}</p> : null}
         </>
       ) : null}
-      {p.status === 'cancelled' ? <p>{p.cancelReason === 'position_closed' ? t('Item cancelled closed') : t('Item cancelled')}</p> : null}
+      {p.status === 'cancelled' ? (
+        <p>
+          {p.cancelReason === 'position_closed'
+            ? t('Item cancelled closed')
+            : p.cancelReason === 'linked'
+              ? t('Item cancelled linked')
+              : t('Item cancelled')}
+        </p>
+      ) : null}
       {live && (p.restsOn === 'engine' || p.actionKey) ? (
         <Button variant="secondary" onClick={() => void cancel()}>
           {t('Cancel')}

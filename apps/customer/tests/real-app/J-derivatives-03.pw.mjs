@@ -549,45 +549,79 @@ test(`${J} #8 uses reduce-only and a linked take profit and stop loss: reduce-on
   test.setTimeout(300_000);
   const { owner } = await desk(page);
   await setMark(MARK);
-  // A linked pair on the long #7 left open: the stop loss fills, and the take profit is cancelled with the position.
-  const dialog = await protect(page);
-  const tp = await armOnVenue(page, dialog, 'Take profit', 'Mark', [
-    ['Size to close', '1'],
-    ['Trigger price', '3100'],
+  await testVenue('/test/seed', {});
+  const before = await positionOf(owner);
+  expect(before, 'the long #7 left open').toMatchObject({ side: 'long' });
+  // A linked pair on part of the position: an entry of 0.5 with a take profit and a stop loss attached to it.
+  const sheet = await openLong(page, '0.5', async (ticket) => {
+    await ticket.getByRole('textbox', { name: 'Take profit (optional)' }).fill('3100');
+    await ticket.getByRole('textbox', { name: 'Stop loss (optional)' }).fill('2950');
+  });
+  await continueInWallet(page);
+  await continueInWallet(page);
+  await expect(sheet.getByTestId('venue-attached')).toHaveText('Take profit and stop loss set on the 0.5 this order filled', {
+    timeout: 15_000,
+  });
+  await sheet.getByRole('button', { name: 'Back', exact: true }).click();
+  const held = await positionOf(owner);
+  expect(fromUnits(toUnits(held.size))).toBe(fromUnits(toUnits(before.size) + toUnits('0.5')));
+  const attached = (await openOrders(owner)).filter((o) => o.parentClientOrderId && o.trigger?.state === 'waiting');
+  expect(attached).toHaveLength(2);
+  const entryCloid = attached[0].parentClientOrderId;
+  const pair = async () => (await protections(owner)).filter((p) => p.parentClientOrderId === entryCloid);
+  expect((await pair()).map((p) => [p.kind, p.status, p.quantity]).sort()).toEqual([
+    ['stop_loss', 'armed', '0.5'],
+    ['take_profit', 'armed', '0.5'],
   ]);
-  const sl = await armOnVenue(page, dialog, 'Stop loss', 'Mark', [
-    ['Size to close', '1'],
-    ['Trigger price', '2950'],
-  ]);
+  // The mark falls through the stop loss: it fills its 0.5, the venue cancels its linked take profit, and the rest of
+  // the position stays open, so the take profit was cancelled by the link, not by the position closing.
   await setMark('2940');
   const [tpRead, slRead] = await until(
     async () => {
-      const all = await protections(owner);
-      return [all.find((p) => p.clientOrderId === tp.clientOrderId), all.find((p) => p.clientOrderId === sl.clientOrderId)];
+      const both = await pair();
+      return [both.find((p) => p.kind === 'take_profit'), both.find((p) => p.kind === 'stop_loss')];
     },
-    ([t, s]) => s?.status === 'filled' && t?.status === 'cancelled',
+    ([t, l]) => l?.status === 'filled' && t?.status === 'cancelled',
     'the linked pair',
   );
-  expect(tpRead).toMatchObject({ status: 'cancelled', cancelReason: 'position_closed' });
+  expect(tpRead).toMatchObject({ status: 'cancelled', cancelReason: 'linked' });
   expect(await fillsOf(owner, slRead.venueClientOrderId)).toHaveLength(1);
   expect(await fillsOf(owner, tpRead.venueClientOrderId)).toHaveLength(0);
-  expect(await positionOf(owner)).toBeNull();
-  await expect(item(dialog, tp.clientOrderId)).toContainText('Cancelled: the position it closed is gone.', { timeout: 15_000 });
+  const left = await positionOf(owner);
+  expect(left).toMatchObject({ side: 'long' });
+  expect(fromUnits(toUnits(left.size))).toBe(fromUnits(toUnits(before.size)));
+  const dialog = await protect(page);
+  await expect(item(dialog, tpRead.clientOrderId)).toContainText('Cancelled: its linked take profit or stop loss filled first.', {
+    timeout: 15_000,
+  });
   await page.keyboard.press('Escape');
 
-  // Reduce-only with no position to reduce: the venue refuses it, naming why, and nothing opens.
+  // Reduce-only closes what is open: a reduce-only short of the rest fills and the position is gone.
   await setMark(MARK);
   const ticket = page.getByTestId('venue-ticket');
-  await ticket.getByRole('button', { name: 'Short', exact: true }).click();
-  await ticket.getByRole('button', { name: 'Market', exact: true }).click();
-  await ticket.getByRole('textbox', { name: 'Size (ETH)' }).fill('0.5');
-  await ticket.getByRole('textbox', { name: 'Worst price (slippage limit)' }).fill('2900');
-  await ticket.getByRole('checkbox', { name: 'Reduce-only' }).check();
-  await ticket.getByRole('button', { name: 'Review short' }).click();
-  const sheet = page.getByTestId('venue-review');
-  await sheet.getByRole('button', { name: 'Open short' }).click();
-  await continueInWallet(page);
-  await expect(sheet.getByTestId('venue-outcome').first()).toContainText('reduce-only order would open or grow a position', {
+  const reduce = async (size) => {
+    await ticket.getByRole('button', { name: 'Short', exact: true }).click();
+    await ticket.getByRole('button', { name: 'Market', exact: true }).click();
+    await ticket.getByRole('textbox', { name: 'Size (ETH)' }).fill(size);
+    await ticket.getByRole('textbox', { name: 'Worst price (slippage limit)' }).fill('2900');
+    // A reduce-only exit carries no take profit or stop loss of its own.
+    await ticket.getByRole('textbox', { name: 'Take profit (optional)' }).fill('');
+    await ticket.getByRole('textbox', { name: 'Stop loss (optional)' }).fill('');
+    await ticket.getByRole('checkbox', { name: 'Reduce-only' }).check();
+    await ticket.getByRole('button', { name: 'Review short' }).click();
+    const review = page.getByTestId('venue-review');
+    await review.getByRole('button', { name: 'Open short' }).click();
+    await continueInWallet(page);
+    return review;
+  };
+  const closed = await reduce(fromUnits(toUnits(left.size)));
+  await expect(closed.getByTestId('venue-outcome').first()).toContainText('Filled on the venue.', { timeout: 15_000 });
+  expect(await positionOf(owner)).toBeNull();
+  await closed.getByRole('button', { name: 'Back', exact: true }).click();
+
+  // Reduce-only with no position to reduce: the venue refuses it, naming why, and nothing opens.
+  const refused = await reduce('0.5');
+  await expect(refused.getByTestId('venue-outcome').first()).toContainText('reduce-only order would open or grow a position', {
     timeout: 15_000,
   });
   expect(await positionOf(owner)).toBeNull();
@@ -611,7 +645,12 @@ test(`${J} #9 presses one-tap reverse: one reviewed close and open in the opposi
   await expect(review).toContainText('This venue takes one order per signature: you sign the close, then the open.');
   const signedBefore = wallet.requests.length;
   const prepares = [];
-  page.on('request', (r) => r.method() === 'POST' && r.url().endsWith('/api/v1/venue/prepare') && prepares.push(r.postDataJSON()));
+  const submits = [];
+  page.on('request', (r) => {
+    if (r.method() !== 'POST') return;
+    if (r.url().endsWith('/api/v1/venue/prepare')) prepares.push(r.postDataJSON());
+    if (r.url().endsWith('/api/v1/venue/submit')) submits.push(r.postDataJSON());
+  });
   // Two presses in the same moment: one reverse.
   await review.getByRole('button', { name: 'Sign the reverse' }).evaluate((b) => {
     b.click();
@@ -637,4 +676,26 @@ test(`${J} #9 presses one-tap reverse: one reviewed close and open in the opposi
   expect(sameDecimal(position.size, '1')).toBe(true);
   const { id: venueId } = await venueInfo();
   for (const key of keys) expect(await fillsOf(owner, cloidOf(venueId, key))).toHaveLength(1);
+  expect(submits).toHaveLength(2);
+
+  // The same reverse sent to the server again, as a retry would: each leg prepared again under its key answers the same
+  // action, already signed, and each signed leg submitted again answers its first outcome. The venue places nothing new.
+  const me = await api(state().account);
+  const ordersBefore = await openOrders(owner);
+  for (const sent of [close, open]) {
+    const again = await me.post('/api/v1/venue/prepare', sent);
+    expect(again.status, JSON.stringify(again.body).slice(0, 300)).toBe(200);
+    expect(again.body).toMatchObject({ reused: true, signed: true });
+  }
+  for (const sent of submits) {
+    const again = await me.post('/api/v1/venue/submit', sent);
+    expect(again.status, JSON.stringify(again.body).slice(0, 300)).toBe(200);
+    expect(again.body.actionKey).toBe(sent.actionKey);
+    expect(again.body.outcome, JSON.stringify(again.body).slice(0, 300)).toMatchObject({ definite: true, accepted: true });
+  }
+  for (const key of keys) expect(await fillsOf(owner, cloidOf(venueId, key))).toHaveLength(1);
+  expect(await openOrders(owner)).toEqual(ordersBefore);
+  const still = await positionOf(owner);
+  expect(still).toMatchObject({ side: 'short' });
+  expect(sameDecimal(still.size, '1')).toBe(true);
 });

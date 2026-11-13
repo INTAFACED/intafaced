@@ -572,11 +572,14 @@ const ownAgentTrading = userVenue
   : null;
 // A position's protections on the person's own venue account (J-derivatives-03): the venue's trigger orders through the
 // door, and our engine for the kinds the venue lacks, signed by the protection key the person approved. Off with the door.
+const protectionTier = createLiveTierClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
 const venueProtections = userVenue
   ? new VenueProtections({
       door: userVenue,
       store: new SqlEngineProtectionStore(sql),
       keySeed: env.TRADE_AGENT_KEY_SEED,
+      // The person's level from identity before each order the engine sends (fails closed: nothing is sent).
+      liveTier: (userId) => protectionTier.tierOf(userId),
       now: () => new Date(),
     })
   : null;

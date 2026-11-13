@@ -1949,6 +1949,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       if (remaining === ZERO) this.release(side, 'filled');
       // A protection attached to this entry arms on what the entry has filled, never on more (`normalTpsl`).
       if (!o.reduceOnly) this.armChildren(side);
+      // One leg of a pair attached to the same entry fills: the venue cancels the other (`linked`), part filled or whole.
+      else if (side.parent) this.cancelLinked(side);
 
       if (builderFee > ZERO) {
         const b = side.builderFee!.builder.toLowerCase();
@@ -1991,6 +1993,14 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     for (const o of [...state.orders.values()]) {
       if (o === except || o.order.symbol !== symbol || !o.order.reduceOnly || !isLive(o)) continue;
       this.release(o, 'canceled', 'position_closed');
+    }
+  }
+
+  /** The other waiting trigger orders attached to the same entry as `leg`, cancelled `linked` once `leg` has filled. */
+  private cancelLinked(leg: OrderState): void {
+    for (const o of [...leg.account.orders.values()]) {
+      if (o === leg || o.parent !== leg.parent || !isLive(o) || o.order.trigger?.state !== 'waiting') continue;
+      this.release(o, 'canceled', 'linked');
     }
   }
 
@@ -2287,7 +2297,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   }
 
   /** End an order's remaining lock exactly once. */
-  private release(order: OrderState, status: UserVenueOrder['status'], cancelReason: 'position_closed' | null = null): void {
+  private release(order: OrderState, status: UserVenueOrder['status'], cancelReason: 'position_closed' | 'linked' | null = null): void {
     const o = order.order;
     if (o.locked !== ZERO) {
       const balance = this.lockBalance(order.account, order.marginAccount, o.lockedAsset);

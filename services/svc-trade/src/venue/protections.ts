@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { keccak256, toHex, type TypedDataDefinition } from 'viem';
 import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
 import { add, compare, div, formatAmount, max, min, mul, parseAmount, sub, ZERO, type Amount } from '@intafaced/ledger-client/money';
-import type { Principal } from '@intafaced/auth';
+import { AuthError, type Principal } from '@intafaced/auth';
 import {
   VenueRefusalError,
   type PlaceUserOrderIntent,
@@ -12,7 +12,7 @@ import {
   type VenueSubmitOutcome,
 } from '@intafaced/venue-contracts';
 import type { EngineProtection, EngineProtectionStore } from './protection-store.js';
-import type { PreparedAnswer, UserVenueDoor, VenueOrderByKey } from './user-venue-door.js';
+import { assertTradingLevel, type PreparedAnswer, type UserVenueDoor, type VenueOrderByKey } from './user-venue-door.js';
 
 /**
  * A POSITION'S PROTECTIONS ON THE PERSON'S OWN VENUE ACCOUNT (J-derivatives-03; D-orders-04, D-orders-05).
@@ -125,6 +125,11 @@ export interface ProtectionsDeps {
   readonly store: EngineProtectionStore;
   /** `TRADE_AGENT_KEY_SEED`: the owner's secret the protection key derives from. Blank refuses every engine stop. */
   readonly keySeed: string;
+  /**
+   * The person's verification level as identity holds it now (signals/live-tier.ts), read before each order our engine
+   * sends, so a stop never trades on a level the person no longer has. Null, or a read that fails, sends nothing.
+   */
+  readonly liveTier: ((userId: string) => Promise<Principal['tier']>) | null;
   readonly now: () => Date;
 }
 
@@ -161,13 +166,16 @@ function worstPrice(side: 'buy' | 'sell', from: Amount, tick: Amount): Amount {
 
 const sourceWords = (s: ProtectionSource) => (s === 'mark' ? 'mark price' : s === 'last' ? 'last traded price' : 'index price');
 
-/** A principal for the engine acting on one person's own venue account: their user id, trading scopes only. */
-function engineActor(userId: string): Principal {
+/**
+ * A principal for the engine acting on one person's own venue account: their user id, trading scopes only, and their
+ * level exactly as identity answered it for this order, never one made up here. A read by key takes `none`.
+ */
+function engineActor(userId: string, tier: Principal['tier']): Principal {
   return {
     sub: userId,
     userId,
     scopes: ['trade:read', 'trade:write'],
-    tier: 'basic',
+    tier,
     mfa: false,
     expiresAt: new Date(Date.now() + 60_000),
   } as unknown as Principal;
@@ -321,6 +329,8 @@ export class VenueProtections {
       return { restsOn: 'venue', actionKey: answer.actionKey, prepared: answer.prepared, reused: answer.reused };
     }
 
+    // The order our engine sends later is a new order: the person's level is checked here as the door checks it.
+    assertTradingLevel(principal, 'place_order');
     const agent = await this.agent(principal, account.owner);
     if (!agent.approved) {
       throw new ProtectionError(
@@ -370,7 +380,9 @@ export class VenueProtections {
     }
     for (const row of await this.deps.store.listForOwner(principal.userId, account.owner)) {
       const fired =
-        row.status === 'fired' || row.status === 'failed' ? await this.deps.door.orderByKey(engineActor(row.userId), fireKey(row)) : null;
+        row.status === 'fired' || row.status === 'failed'
+          ? await this.deps.door.orderByKey(engineActor(row.userId, 'none'), fireKey(row))
+          : null;
       out.push(engineView(row, fired?.order ?? null));
     }
     return out;
@@ -441,10 +453,9 @@ export class VenueProtections {
 
   /** The one reduce-only market order of a claimed stop, signed by the protection key, stored before it is sent. */
   private async send(row: EngineProtection, known?: UserVenueMarket): Promise<void> {
-    const actor = engineActor(row.userId);
     const now = this.deps.now();
     const key = fireKey(row);
-    const read = await this.deps.door.orderByKey(actor, key).catch(() => null);
+    const read = await this.deps.door.orderByKey(engineActor(row.userId, 'none'), key).catch(() => null);
     if (read && read.state === 'accepted' && read.order) return this.settle(row, read.order, null);
     if (read && read.state === 'refused') return this.settle(row, null, read.refusal?.detail ?? 'the venue refused the order');
     const account: UserVenueAccount = { venueId: row.venueId, owner: row.owner, subAccount: null };
@@ -467,12 +478,22 @@ export class VenueProtections {
       clientOrderKey: key,
       builderFee: null,
     };
+    // The person's level now, from identity: a read that fails sends nothing and leaves the stop claimed, sent on a later
+    // pass under the same key; a level below trading is refused by the door, and the stop fails in its words.
+    if (!this.deps.liveTier) throw new Error('the verification level cannot be read here, so our engine sends no order');
+    const actor = engineActor(row.userId, await this.deps.liveTier(row.userId));
     const signer = this.protectionKey(row.userId, row.owner);
-    const answer = await this.deps.door.prepare(actor, {
-      owner: row.owner,
-      signer: { role: 'agent', address: signer.address.toLowerCase() },
-      intent,
-    });
+    let answer: PreparedAnswer;
+    try {
+      answer = await this.deps.door.prepare(actor, {
+        owner: row.owner,
+        signer: { role: 'agent', address: signer.address.toLowerCase() },
+        intent,
+      });
+    } catch (err) {
+      if (err instanceof AuthError) return this.settle(row, null, `your verification level no longer allows an order (${err.message})`);
+      throw err;
+    }
     const signature = await signer.signTypedData(answer.prepared.typedData as TypedDataDefinition);
     let outcome: VenueSubmitOutcome;
     try {

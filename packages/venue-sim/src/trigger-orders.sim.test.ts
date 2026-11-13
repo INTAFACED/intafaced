@@ -294,6 +294,32 @@ describe('TEST venue simulator: trigger orders (J-derivatives-03)', { timeout: 6
     expect(await byKey(w, 'order:trigger-trader:child')).toMatchObject({ status: 'filled', filled: a('0.5') });
   });
 
+  it('#8 a linked pair on part of the position: one leg fills, the venue cancels the other as linked, and the rest stays open', async () => {
+    const w = await long();
+    // An entry of 0.5 on top of the long 1, with a take profit and a stop loss attached to it.
+    await w.run(order({ side: 'buy', reduceOnly: false, amount: a('0.5'), price: a('3010'), clientOrderKey: 'order:trigger-trader:e8' }));
+    await w.run(
+      tp('3100', { amount: a('0.5'), parentClientOrderKey: 'order:trigger-trader:e8', clientOrderKey: 'order:trigger-trader:tp8' }),
+    );
+    await w.run(
+      sl('2950', {
+        amount: a('0.5'),
+        price: a('2850'),
+        parentClientOrderKey: 'order:trigger-trader:e8',
+        clientOrderKey: 'order:trigger-trader:sl8',
+      }),
+    );
+    expect(await position(w)).toMatchObject({ side: 'long', size: a('1.5') });
+    w.sim.setMark(ETH, a('2940'));
+    expect(await byKey(w, 'order:trigger-trader:sl8')).toMatchObject({ status: 'filled', filled: a('0.5') });
+    expect(await byKey(w, 'order:trigger-trader:tp8')).toMatchObject({ status: 'canceled', cancelReason: 'linked', locked: ZERO });
+    expect(await position(w)).toMatchObject({ side: 'long', size: a('1') });
+    // The cancelled leg never fires: the mark at its price closes nothing more.
+    w.sim.setMark(ETH, a('3100'));
+    expect(await fillsOf(w, 'order:trigger-trader:tp8')).toHaveLength(0);
+    expect(await position(w)).toMatchObject({ side: 'long', size: a('1') });
+  });
+
   it('a cancelled trigger order never fires, and its lock returns', async () => {
     const w = await long();
     await w.run(tp('3100', { clientOrderKey: 'order:trigger-trader:cancel-me' }));

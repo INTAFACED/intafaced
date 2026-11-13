@@ -582,9 +582,10 @@ export interface UserVenueOrder {
   readonly parentClientOrderId?: string | null;
   /**
    * Why the venue cancelled it, where it says: `position_closed` when the position it closed is gone (a trigger order
-   * or a reduce-only order is cancelled with it, so the other leg of a pair never fires on nothing).
+   * or a reduce-only order is cancelled with it, so the other leg of a pair never fires on nothing); `linked` when the
+   * other trigger order attached to the same entry filled first, so this one never closes what that one already did.
    */
-  readonly cancelReason?: 'position_closed' | null;
+  readonly cancelReason?: 'position_closed' | 'linked' | null;
 }
 
 /**

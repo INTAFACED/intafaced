@@ -70,6 +70,12 @@ describe('venue protections (J-derivatives-03)', { timeout: 60_000 }, () => {
   let p: VenueProtections;
   let n = 0;
   const id = (tag: string) => `${tag}-${(n += 1)}`;
+  /** What identity answers for the person's level now: a level, or a read that fails. */
+  let identity: Principal['tier'] | 'unreadable' = 'basic';
+  const liveTier = async () => {
+    if (identity === 'unreadable') throw new Error('TEST: identity is down');
+    return identity;
+  };
 
   /** Prepare through the door as the person and sign in their wallet. */
   async function send(prepared: { actionKey: string; prepared: PreparedVenueAction }) {
@@ -90,8 +96,9 @@ describe('venue protections (J-derivatives-03)', { timeout: 60_000 }, () => {
       ordersPageMax: 100,
       now: () => new Date(),
     } as never);
+    identity = 'basic';
     store = new InMemoryEngineProtectionStore();
-    p = new VenueProtections({ door, store, keySeed: 'intafaced unit TEST protection seed', now: () => new Date() });
+    p = new VenueProtections({ door, store, keySeed: 'intafaced unit TEST protection seed', liveTier, now: () => new Date() });
   });
 
   /** A TEST long of `size` ETH on the person's venue account: funded, 5x, our builder fee approved, bought at market. */
@@ -226,7 +233,7 @@ describe('venue protections (J-derivatives-03)', { timeout: 60_000 }, () => {
     expect((await p.list(person, owner)).find((v) => v.id === made.protection.id)).toMatchObject({ currentTrigger: '3050' });
     // The mark falls past it: two workers in the same moment; one claims it, and one order is sent.
     sim.setMark(ETH, a('3040'));
-    const other = new VenueProtections({ door, store, keySeed: 'intafaced unit TEST protection seed', now: () => new Date() });
+    const other = new VenueProtections({ door, store, keySeed: 'intafaced unit TEST protection seed', liveTier, now: () => new Date() });
     const [x, y] = await Promise.all([p.tick(), other.tick()]);
     expect(x.fired + y.fired).toBe(1);
     const done = (await p.list(person, owner)).find((v) => v.id === made.protection.id)!;
@@ -264,5 +271,44 @@ describe('venue protections (J-derivatives-03)', { timeout: 60_000 }, () => {
     sim.setMark(ETH, a('2900'));
     await p.tick();
     expect(await store.get(USER, made.protection.id)).toMatchObject({ status: 'cancelled', cancelReason: 'position_closed' });
+  });
+
+  it("our engine sends an order only on the person's level as identity holds it now, never one of its own", async () => {
+    await flat();
+    await long('1');
+    await send(await p.prepareAgent(person, owner)).catch(() => undefined);
+    // Arming checks the level as the door checks a new order: a person below trading arms nothing.
+    const below = { ...person, tier: 'none' } as unknown as Principal;
+    await expect(p.create(below, base({ kind: 'trailing_stop', trailingDistance: '20' }))).rejects.toMatchObject({
+      code: 'tier.insufficient',
+    });
+    expect(store.rows.size).toBe(0);
+    const account = await door.account(owner);
+    const fills = async () => (await sim.fills(account, new Date(0))).value.length;
+    // Identity can't be read when it crosses: nothing is sent, the stop stays claimed, and it is sent once identity answers.
+    const first = await p.create(person, base({ kind: 'stop_market', triggerSource: 'index', triggerPrice: '2900' }));
+    if (first.restsOn !== 'engine') throw new Error('expected the engine');
+    const before = await fills();
+    identity = 'unreadable';
+    sim.setIndex(ETH, a('2890'));
+    await p.tick();
+    expect((await store.get(USER, first.protection.id))!.status).toBe('firing');
+    expect(await fills()).toBe(before);
+    // The person's level has dropped below trading since they armed it: the door refuses, nothing is sent, it fails in words.
+    identity = 'none';
+    await p.tick();
+    const failed = (await store.get(USER, first.protection.id))!;
+    expect(failed.status).toBe('failed');
+    expect(failed.failure).toMatch(/^your verification level no longer allows an order/);
+    expect(await fills()).toBe(before);
+    expect((await sim.positions(account)).value.find((x) => x.symbol === ETH)).toMatchObject({ size: a('1') });
+    // Back at basic, a new stop fires as before.
+    identity = 'basic';
+    sim.setIndex(ETH, a('3000'));
+    const second = await p.create(person, base({ kind: 'stop_market', triggerSource: 'index', triggerPrice: '2900' }));
+    if (second.restsOn !== 'engine') throw new Error('expected the engine');
+    sim.setIndex(ETH, a('2890'));
+    await p.tick();
+    expect((await store.get(USER, second.protection.id))!.status).toBe('fired');
   });
 });
