@@ -11,10 +11,10 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createTestDatabase, type TestDatabase } from '@intafaced/db';
+import { createTestDatabase, type TestDatabase, resolveTestDatabaseUrl } from '@intafaced/db';
 import { afterAll, describe, expect, it } from 'vitest';
 
-const URL = process.env.TEST_DATABASE_URL ?? 'postgres://Nitro@127.0.0.1:5432/intafaced_test';
+const URL = resolveTestDatabaseUrl(undefined, 'postgres://intafaced_ops:intafaced_ops@localhost:5433/intafaced_test');
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', 'drizzle');
 const readSql = (name: string) => readFileSync(join(drizzle, name), 'utf8');

@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { BASE_PERKS } from '@intafaced/contracts';
 import { parseAmount } from '@intafaced/ledger-client/money';
-import { createTestDatabase, type TestDatabase } from '@intafaced/db';
+import { createTestDatabase, type TestDatabase, resolveTestDatabaseUrl } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { AcademyService } from './academy-service.js';
 import { AcademyError } from './errors.js';
@@ -20,7 +20,7 @@ import { LiveKitStreamProvider, NullStreamProvider, type StreamProvider } from '
 const SESSION_ID = '11111111-1111-4111-8111-111111111111';
 const HOST_ID = '22222222-2222-4222-8222-222222222222';
 const ROOM_ID = '33333333-3333-4333-8333-333333333333';
-const TEST_URL = process.env.TEST_DATABASE_URL ?? 'postgres://Nitro@127.0.0.1:5432/intafaced_test';
+const TEST_URL = resolveTestDatabaseUrl(undefined, 'postgres://intafaced_ops:intafaced_ops@localhost:5433/intafaced_test');
 const here = dirname(fileURLToPath(import.meta.url));
 const migrations = [readFileSync(join(here, '..', 'drizzle', '0000_academy_init.sql'), 'utf8')];
 
