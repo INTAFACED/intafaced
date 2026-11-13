@@ -502,6 +502,7 @@ const messages = {
   'The list of countries where copy trading is offered has not been approved':
     'The list of countries where copy trading is offered has not been approved',
   'The most per order is {cap} {asset}': 'The most per order is {cap} {asset}',
+  'The most you can add now is {amount} {asset}.': 'The most you can add now is {amount} {asset}.',
   'The price moved past your slippage limit': 'The price moved past your slippage limit',
   'The same as trading alone': 'The same as trading alone',
   'The same trading fee as trading alone': 'The same trading fee as trading alone',

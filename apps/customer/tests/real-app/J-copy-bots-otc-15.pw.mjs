@@ -110,12 +110,15 @@ test(`${J} #1 tops up the quote by TEST 50: the investment rises by 50 and the g
   const held = buysBefore.reduce((sum, o) => sum + toUnits(o.holdAmount), 0n);
   const free = toUnits(available) - (toUnits(bot.reserve.amount) - held);
   expect(free > 0n, `free ${fromUnits(free)}`).toBe(true);
+  // Before any refusal the sheet states the figure and no over-the-limit line.
+  await expect(sheet.getByTestId('grid-topup-free')).toHaveText(`Free to add: ${grouped(fromUnits(free))} USDT`);
+  await expect(sheet.getByTestId('grid-topup-over')).toHaveCount(0);
   const over = await send('USDT', fromUnits(free + toUnits('1')));
   expect(over.status).toBe(400);
   expect(codeOf(over.body)).toBe('trade.bots_grid_topup_exceeds_free');
   await expect(sheet.getByRole('alert')).toContainText('More than you have free');
-  // The sheet names the free figure, read from the service: the same one the refusal was checked against.
-  await expect(sheet.getByTestId('grid-topup-free')).toHaveText(`Free to add: ${grouped(fromUnits(free))} USDT`);
+  // The refusal names the free figure, read from the service: the same one the top-up was checked against.
+  await expect(sheet.getByTestId('grid-topup-over')).toHaveText(`The most you can add now is ${grouped(fromUnits(free))} USDT.`);
   expect(await getBot(trader, bot.botId)).toMatchObject({ investment: '500', reinitCount: 0 });
 
   // The quote top-up by TEST 50.
@@ -245,10 +248,14 @@ test(`${J} #7 copies a lead's grid bot: the same range and a snapshot id; later 
   await page.getByRole('dialog').getByRole('button', { name: 'Copy grid' }).click();
   const copied = (await (await answer).json()).result.data;
   expect([copied.lowerPrice, copied.upperPrice]).toEqual([leadBot.lowerPrice, leadBot.upperPrice]);
-  expect(copied.snapshotId).toBeTruthy();
-  await (
+  expect(copied.snapshotId).toMatch(/^[\w:.-]{8,}$/);
+  expect(copied.snapshotId).not.toBe(leadBot.botId);
+  const edited = await (
     await api(lead)
   ).post('/api/trade/trpc/bots.modifyGrid', { botId: leadBot.botId, upperPrice: fromUnits(toUnits(leadBot.upperPrice) + toUnits('100')) });
+  expect(edited.status, JSON.stringify(edited.body).slice(0, 300)).toBe(200);
+  // The lead's grid took the edit, and the copy kept the range it was copied with.
+  expect((await getBot(lead, leadBot.botId)).upperPrice).toBe(fromUnits(toUnits(leadBot.upperPrice) + toUnits('100')));
   expect((await getBot(trader, copied.botId)).upperPrice).toBe(leadBot.upperPrice);
 });
 

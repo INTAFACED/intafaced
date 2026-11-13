@@ -117,6 +117,11 @@ export function GridTopUp({ bot, api, onDone }: { bot: GridBot; api: ReturnType<
               </p>
             ) : null}
             {failure ? <RefusalNote failure={failure} /> : null}
+            {failure?.code === 'trade.bots_grid_topup_exceeds_free' && free !== null ? (
+              <p className="cb-note-body" data-testid="grid-topup-over">
+                {t('The most you can add now is {amount} {asset}.', { amount: displayAmount(free), asset: bot.quoteAsset })}
+              </p>
+            ) : null}
           </div>
         </DialogContent>
       </Dialog>
