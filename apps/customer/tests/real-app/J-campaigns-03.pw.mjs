@@ -540,7 +540,9 @@ test(`${J} #3 watches a held reward when its release time passes: paid once to t
     const frozenUntil = new Date(second.reward.holdUntil).getTime();
     expect(Date.now(), 'the freeze must be on before the hold ends').toBeLessThan(frozenUntil);
     await page.waitForTimeout(Math.max(0, frozenUntil - Date.now()) + 12_000);
-    // The hold ended with posting frozen: its payment was refused by the freeze, so it stays owed, nothing paid.
+    // The hold ended with posting frozen: the payment is refused by the freeze before anything is sent, so it stays owed
+    // and nothing is paid. The reason is the freeze's own (the Pay leg records it; before a payment is due an owed reward
+    // reads campaigns.reward_payout_unavailable).
     const heldBack = (await progressOf(me, frozenHold.id)).reward;
     expect(heldBack).toMatchObject({ state: 'owed', reason: 'ledger.frozen', payout: null });
     const refused = heldBack.attempts.filter((a) => a.outcome === 'refused');
@@ -613,8 +615,14 @@ test(`${J} #4 fails the condition on a locked reward: it shows forfeited once an
 test(`${J} #5 tries to spend or withdraw a reward that is still owed: the screen explains it is owed by INTAFACED and not yet in the wallet; nothing is sent`, async ({
   page,
 }) => {
-  test.setTimeout(180_000);
-  const { me, owedId } = state('me', 'owedId');
+  test.setTimeout(240_000);
+  const { me } = state('me', 'fees');
+  // Its own owed reward, with a day's hold so it is never paid during the run (#2 and #3 wait for theirs to be paid).
+  const still = await liveCampaign(`TEST owed, held a day ${tag}`, { holdSeconds: 86_400 });
+  await completeAll(me, [still.id]);
+  await call(me, 'POST', 'tasks.claim', { campaignId: still.id });
+  await expect.poll(async () => (await progressOf(me, still.id)).reward.state, { timeout: 60_000 }).toBe('owed');
+  const owedId = still.id;
   const before = (await progressOf(me, owedId)).reward;
   expect(before.state).toBe('owed');
   await signIn(page, me);
