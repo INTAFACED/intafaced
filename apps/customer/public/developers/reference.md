@@ -85,6 +85,7 @@ Every trading REST route and WebSocket stream, under its product, with the permi
 | ----------------------------------------------- | -------------------------------------------------------------- | ----------------------------------------------------- |
 | `GET /api/v1/funding-rate/:symbol`              | `fetchFundingRate`                                             | public; with a key trade:read                         |
 | `GET /api/v1/futures/order-types`               | `fetchFuturesOrderTypes`                                       | public; with a key trade:read                         |
+| `GET /api/v1/futures/margin-modes`              | `fetchFuturesMarginModes`                                      | public; with a key trade:read                         |
 | `GET /api/v1/funding-history/:symbol`           | `fetchFundingRateHistory`                                      | public; with a key trade:read                         |
 | `GET /api/v1/futures/ticker`                    | `fetchFuturesTicker`                                           | public; with a key trade:read                         |
 | `GET /api/v1/futures/tiers`                     | `fetchLeverageTiers`                                           | public; with a key trade:read                         |
