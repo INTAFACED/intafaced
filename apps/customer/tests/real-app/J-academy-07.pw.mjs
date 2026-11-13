@@ -251,8 +251,12 @@ test(`${J} #1 a paid course with no price set shows without a price, and Enrol r
   // The service refuses the same, by name, whoever asks.
   const me = await learner();
   const enrol = await me.post('/api/academy/trpc/enrolCourse', { slug: run.unpriced.slug, track: 'certificate' });
-  expect(enrol.status).not.toBe(200);
+  // Enrol's own refusal names the reason: the certificate track is closed because no price is set.
+  expect(enrol.status).toBe(412);
   expect(codeOf(enrol)).toBe('academy.enrolment_closed');
+  expect(enrol.body.error.message).toContain('track=certificate reason=no_price');
+  const terms = (await learnerQuery('courseEnrolment', { slug: run.unpriced.slug })).body.result.data;
+  expect(terms.tracks.find((row) => row.track === 'certificate')).toMatchObject({ free: false, closed: 'no_price' });
   const buy = await me.post('/api/academy/trpc/buyCourse', { slug: run.unpriced.slug, wallet: privateKeyToAccount(run.walletKey).address });
   expect(codeOf(buy)).toBe('academy.price_unset');
   expect(await purchaseRows(run.unpriced.id)).toHaveLength(0);
@@ -311,10 +315,11 @@ test(`${J} #4 Buy asks the wallet to sign one payment to INTAFACED; the grant ap
   expect(codeOf(refusedWallet)).toBe('academy.wallet_not_linked');
   expect(await purchaseRows(run.priced.id)).toHaveLength(0);
 
-  // Rejected in the wallet: nothing was bought, and no purchase is left.
+  // Rejected in the wallet itself (code 4001): nothing was bought, and no purchase is left.
+  wallet.rejectNextSend();
   await buy.click();
   await expect(signSheet(page)).toBeVisible();
-  await signSheet(page).getByRole('button', { name: 'Cancel' }).click();
+  await signSheet(page).getByRole('button', { name: 'Continue in wallet' }).click();
   await expect(panel.getByText('Your wallet rejected the payment, so nothing was bought.')).toBeVisible();
   expect(transferSends(wallet)).toHaveLength(0);
   expect((await purchaseView(run.priced.slug)).purchase).toBeNull();
@@ -416,14 +421,20 @@ test(`${J} #5 a second Buy or a lost reply is still one purchase and no second s
   // The person says they rejected it; Buy again asks the wallet once, even when pressed twice.
   await panel.getByRole('button', { name: 'I rejected it in my wallet' }).click();
   await expect(panel.getByTestId('academy-purchase-state')).toHaveCount(0);
-  // The report of the sent payment never reaches Academy: it finds the payment on the chain itself and settles it.
-  await page.route('**/api/academy/trpc/submitCoursePayment**', (route) => route.abort('connectionreset'));
+  // The answer to the payment report is lost after Academy stored it: the screen re-reads, and the payment is settled once.
+  let reported = 0;
+  await page.route('**/api/academy/trpc/submitCoursePayment**', async (route) => {
+    reported += 1;
+    await route.fetch();
+    await route.abort('connectionreset');
+  });
   await panel.getByRole('button', { name: 'Buy', exact: true }).dblclick();
   await expect(signSheet(page)).toHaveCount(1);
   await signSheet(page).getByRole('button', { name: 'Continue in wallet' }).click();
   await expect.poll(() => transferSends(wallet).length).toBe(1);
   await expect.poll(() => transferSends(wallet)[0].hash ?? null).not.toBeNull();
   const hash = transferSends(wallet)[0].hash.toLowerCase();
+  await expect.poll(() => reported).toBe(1);
   await page.unroute('**/api/academy/trpc/submitCoursePayment**');
   await expect
     .poll(async () => (await purchaseView(slug)).purchase?.state, { timeout: 60_000, message: 'Academy found the payment on the chain' })
