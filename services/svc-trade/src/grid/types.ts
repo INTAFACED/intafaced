@@ -28,6 +28,8 @@ export interface GridBot {
   readonly investment: Amount;
   /** The plan fixed at create (grid/plan.ts). */
   readonly levels: readonly GridLevelPlan[];
+  /** How many times a top-up re-planned the levels (CB-bots-04): one per applied top-up, never on a replay. */
+  readonly reinitCount: number;
   readonly status: GridStatus;
   readonly statusReason: string | null;
   readonly placeGrant: AlgoPlaceGrant;
@@ -107,3 +109,26 @@ export interface GridWithdrawal {
 }
 
 export const gridWithdrawalKey = (botId: string, requestId: string): string => `bots.grid.withdraw:${botId}:${requestId}`;
+
+/**
+ * One applied quote top-up (CB-bots-04; J-copy-bots-otc-15 #1): it raised the bot's investment and its reserve row by
+ * `amount` and re-planned the levels once, under the owner's reserve lock. It posts no ledger row: the reserve is a limit
+ * row, and every level order still takes its own order hold. `freeBefore` is the owner's free quote, less every other
+ * reserve, that the amount was checked against. Business key `bots.grid.topup:<botId>:<requestId>`.
+ */
+export interface GridTopUp {
+  readonly topUpId: string;
+  readonly botId: string;
+  readonly userId: string;
+  readonly requestId: string;
+  /** sha256 of bot, asset and amount: the same key with a different body is a conflict, never a second top-up. */
+  readonly requestHash: string;
+  readonly asset: string;
+  readonly amount: Amount;
+  readonly investmentBefore: Amount;
+  readonly investmentAfter: Amount;
+  readonly freeBefore: Amount;
+  readonly appliedAt: Date;
+}
+
+export const gridTopUpKey = (botId: string, requestId: string): string => `bots.grid.topup:${botId}:${requestId}`;
