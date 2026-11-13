@@ -64,6 +64,7 @@ import { convertHistoryProcedures } from './convert/convert-history-router.js';
 import { convertHistoryTrpcError } from './convert/convert-history.js';
 import { deskTrpcError } from './desk/errors.js';
 import { copyCloseTrpcError } from './copy/copy-close-errors.js';
+import { VenueCopyRefusal } from './copy/venue-copy.js';
 import { algoDeskProcedures, optionsDeskProcedures, rfqHistoryProcedures, scaleProcedures } from './desk/procedures.js';
 import { presentAlgo, presentAlgoDesk, presentScheduleHonesty } from './algo/present.js';
 import { algoCreateInputSchema } from './algo/create-input.js';
@@ -508,6 +509,10 @@ export function toTrpcError(err: unknown): TRPCError {
   if (desk) return desk;
   const copyClose = copyCloseTrpcError(err);
   if (copyClose) return copyClose;
+  // The venue's own refusal of a copy close on the follower's agent account (J-copy-bots-otc-03): its code and words.
+  if (err instanceof VenueCopyRefusal) {
+    return new TRPCError({ code: err.unavailable ? 'SERVICE_UNAVAILABLE' : 'BAD_REQUEST', message: err.message, cause: err });
+  }
   // Identity's step-up codes (a copy close-all) reach the person unchanged: confirm again (403), or identity could not
   // check it (503).
   if (err instanceof StepUpCheckError) {
@@ -1700,6 +1705,11 @@ export function createTradeRouter(
             clientRequestId: z.string().min(8).max(120),
             /** Quote amount each copied order uses. Omitted means no fixed size. */
             fixedOrderSize: decimal.optional(),
+            /**
+             * One of the follower's own open agent accounts: the follow then copies on the venue, each copy a venue order
+             * on that account placed by its agent permission, and nothing is held from a balance of ours (venue-copy.ts).
+             */
+            agentAccountId: z.string().uuid().optional(),
             leaderSettings: z
               .object({
                 maxAllocation: decimal.optional(),
@@ -1718,7 +1728,10 @@ export function createTradeRouter(
               logRefusalSpec('trade.copy_jurisdiction_blank');
               throw new CopyError(COPY_JURISDICTION_RESIDUAL, 'trade.copy_jurisdiction_blank', COPY_JURISDICTION_RESIDUAL);
             }
-            return copy.startFollow(ctx.principal, input);
+            const { agentAccountId, ...rest } = input;
+            return agentAccountId
+              ? copy.startVenueFollow(ctx.principal, { ...rest, agentAccountId: agentAccountId.toLowerCase() })
+              : copy.startFollow(ctx.principal, rest);
           }),
         ),
 
@@ -1918,7 +1931,9 @@ export function createTradeRouter(
         .input(
           z.object({
             followId: z.string().min(1).max(64),
-            positionId: z.string().min(1).max(64),
+            // A venue follow's position id is its copy's venue order key (`copy-mirror:<followId>:<client order id>`),
+            // up to the door's 200-character business key.
+            positionId: z.string().min(1).max(200),
             qty: z.string().min(1).max(64).optional(),
           }),
         )

@@ -13,6 +13,7 @@ import { ReferralService } from './referrals.js';
 import { createParticipantClient } from './participants.js';
 import { PayoutSaga } from './payouts.js';
 import { TaskService } from './tasks.js';
+import { createVenueDepositSource } from './venue-deposits.js';
 import { VoucherService } from './vouchers.js';
 import { DropService } from './drops.js';
 import { env } from './env.js';
@@ -57,7 +58,18 @@ const ledger =
 const reconcileAfterSeconds = env.CAMPAIGNS_RECONCILE_AFTER_SECONDS ?? null;
 const saga = ledger ? new PayoutSaga({ sql, ledger, reconcileAfterSeconds }) : null;
 const markets = env.TRADE_URL ? createMarketNames({ tradeUrl: env.TRADE_URL }) : null;
+// The welcome deposit task's reads (J-campaigns-04 #2): the person's connected wallets and the venue's deposits.
+const venueDeposits =
+  env.PROTOCOL_URL && env.TRADE_URL && env.INTERNAL_SERVICE_SECRET
+    ? createVenueDepositSource({
+        protocolUrl: env.PROTOCOL_URL,
+        tradeUrl: env.TRADE_URL,
+        internalSecret: env.INTERNAL_SERVICE_SECRET,
+        ...(s2sKey ? { s2s: s2sKey } : {}),
+      })
+    : null;
 const tasks = new TaskService({
+  venueDeposits,
   sql,
   participants,
   saga,
@@ -167,8 +179,9 @@ async function attachBus(): Promise<void> {
   }
 }
 /**
- * The welcome checklist (CM-rewards-hub-03): each account's sign-up opens its window, and its first verification, crypto
- * deposit and spot fill tick its tasks. Each event is kept once, by account and kind, so a redelivery is a no-op. These
+ * The welcome checklist (CM-rewards-hub-03): each account's sign-up opens its window, and its first verification and
+ * spot fill tick its tasks. Its deposit task is read from the venue, not the bus (J-campaigns-04 #2; tasks.ts
+ * `readWelcomeDeposit`): a credit svc-pay posts to an account in our book is not a deposit into the person's venue account. Each event is kept once, by account and kind, so a redelivery is a no-op. These
  * read `identity`'s stream too, so they attach on their own: if that stream is missing they are tried again, and task
  * progress and earning rules above keep running.
  */
@@ -193,13 +206,6 @@ async function attachWelcome(connected: JetStreamEventBus): Promise<void> {
         });
       },
       { durable: 'campaigns-welcome-kyc-approved' },
-    );
-    await connected.subscribe(
-      'payDepositCreditPosted',
-      async (deposit) => {
-        await tasks.onWelcomeEvent({ userId: deposit.userId, event: 'pay.deposit', eventId: deposit.depositId, at: deposit.creditedAt });
-      },
-      { durable: 'campaigns-welcome-deposit-credited' },
     );
     await connected.subscribe(
       'fillSettled',
@@ -292,6 +298,7 @@ if (!participantsWired) {
   app.log.warn('IDENTITY_URL or INTERNAL_SERVICE_SECRET is unset: campaigns with exclusions or a region list read unread');
 }
 if (!markets) app.log.warn('TRADE_URL is unset: a task step that names a market counts no fill');
+if (!venueDeposits) app.log.warn('PROTOCOL_URL, TRADE_URL or INTERNAL_SERVICE_SECRET is unset: the welcome deposit task reads unread');
 if (!saga)
   app.log.warn(
     'LEDGER_URL or INTERNAL_SERVICE_SECRET is unset: every claim refuses campaigns.reward_saga_unwired and no earning rule pays',

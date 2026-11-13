@@ -130,6 +130,7 @@ if (!available) {
         passkeys: 0,
         wallets: [],
         providers: [],
+        phone: null,
       });
     });
 
@@ -226,6 +227,126 @@ if (!available) {
       expect(await codeOf(who.api.linkSigninMethod({ method: 'sms_code', clientRequestId: 'r', phone: '07700' }))).toBeUndefined();
       expect(stepUps).toEqual([]);
       expect(await who.api.signinMethods()).toMatchObject({ wallets: [], providers: [] });
+    });
+
+    describe('a phone number to sign in with, texted through the LOCAL-TEST transport', () => {
+      const texts: Array<{ phone: string; code: string }> = [];
+      const sms = { send: async (m: { phone: string; code: string }) => void texts.push({ phone: m.phone, code: m.code }) };
+      let clock = new Date('2026-11-12T10:00:00Z');
+      const phoneRouter = createSigninMethodsRouter(db.sql, stepUp, { wallet: walletConfig, social, phone: { sms, now: () => clock } });
+      const phoneCaller = (userId: string) =>
+        phoneRouter.createCaller({
+          principal: { userId, sid: 'sid-1', scopes: ['identity:read', 'identity:write'], mfa: false },
+          service: null,
+          region: 'DE',
+          requestId: 'req-phone',
+        } as unknown as Context);
+      const later = (ms: number) => (clock = new Date(clock.getTime() + ms));
+      const PHONE = '+447700900123';
+      beforeEach(() => {
+        texts.length = 0;
+        clock = new Date();
+      });
+
+      it('texts a code, links the number only after the code and the step-up, and signs in with it and the password', async () => {
+        const who = await person();
+        const api = phoneCaller(who.userId);
+        expect(await api.linkSigninMethod({ method: 'sms_code', clientRequestId: 'r', phone: PHONE })).toMatchObject({ phone: null });
+        expect(texts).toHaveLength(1);
+        expect(texts[0]!.phone).toBe(PHONE);
+        expect(texts[0]!.code).toMatch(/^\d{6}$/);
+        const code = texts[0]!.code;
+        // A right code alone asks for the step-up and links nothing.
+        expect(await codeOf(api.linkSigninMethod({ method: 'sms_code', clientRequestId: 'r', phone: PHONE, code }))).toBe(
+          'identity.step_up_required',
+        );
+        expect((await api.signinMethods()).phone).toBeNull();
+        const linked = await api.linkSigninMethod({ method: 'sms_code', clientRequestId: 'r', phone: PHONE, code, stepUpApprovalId: 'ok' });
+        expect(linked.phone).toBe(PHONE);
+        expect(stepUps).toEqual([{ scope: 'identity.step_up.link_method', fields: { method: 'sms_code', clientRequestId: 'r' } }]);
+        // The code is spent: the same one again is refused.
+        expect(
+          await codeOf(api.linkSigninMethod({ method: 'sms_code', clientRequestId: 'r', phone: PHONE, code, stepUpApprovalId: 'ok' })),
+        ).toBe('identity.method_already_linked');
+        // The number names the account at sign-in, typed with spaces too; a wrong password and an unknown number read the same.
+        const session = await auth.login({ identifier: '+44 7700 900123', password: PASSWORD });
+        expect(session.userId).toBe(who.userId);
+        const refusal = async (identifier: string, password: string) =>
+          ((await auth.login({ identifier, password }).catch((e: unknown) => e)) as { code?: string }).code;
+        expect(await refusal(PHONE, `${PASSWORD}-wrong`)).toBe('auth.invalid_credentials');
+        expect(await refusal('+447700900999', PASSWORD)).toBe('auth.invalid_credentials');
+        // It is a name, not a way in: it never counts toward the last way in, and removing it leaves the password.
+        const removed = await api.unlinkSigninMethod({ method: 'sms_code', clientRequestId: 'u', stepUpApprovalId: 'ok' });
+        expect(removed).toMatchObject({ phone: null, password: true });
+        expect(await refusal(PHONE, PASSWORD)).toBe('auth.invalid_credentials');
+      });
+
+      it('locks a code after five wrong ones, refuses a code for another number, and voids an older code', async () => {
+        const who = await person();
+        const api = phoneCaller(who.userId);
+        await api.linkSigninMethod({ method: 'sms_code', clientRequestId: 'r', phone: PHONE });
+        const right = texts[0]!.code;
+        const wrong = right === '000000' ? '111111' : '000000';
+        expect(await codeOf(api.linkSigninMethod({ method: 'sms_code', clientRequestId: 'r', phone: '+447700900124', code: right }))).toBe(
+          'identity.phone_code_invalid',
+        );
+        for (let i = 0; i < 4; i++) {
+          expect(await codeOf(api.linkSigninMethod({ method: 'sms_code', clientRequestId: 'r', phone: PHONE, code: wrong }))).toBe(
+            'identity.phone_code_invalid',
+          );
+        }
+        expect(await codeOf(api.linkSigninMethod({ method: 'sms_code', clientRequestId: 'r', phone: PHONE, code: wrong }))).toBe(
+          'identity.phone_code_locked',
+        );
+        expect(
+          await codeOf(
+            api.linkSigninMethod({ method: 'sms_code', clientRequestId: 'r', phone: PHONE, code: right, stepUpApprovalId: 'ok' }),
+          ),
+        ).toBe('identity.phone_code_invalid');
+        // A new code too soon is refused; after the wait a new one is texted and the old one no longer works.
+        expect(await codeOf(api.linkSigninMethod({ method: 'sms_code', clientRequestId: 'r', phone: PHONE }))).toBe(
+          'identity.phone_code_too_soon',
+        );
+        later(31_000);
+        await api.linkSigninMethod({ method: 'sms_code', clientRequestId: 'r', phone: PHONE });
+        later(31_000);
+        await api.linkSigninMethod({ method: 'sms_code', clientRequestId: 'r', phone: PHONE });
+        const [, older, newest] = texts.map((t) => t.code);
+        if (older !== newest) {
+          expect(
+            await codeOf(
+              api.linkSigninMethod({ method: 'sms_code', clientRequestId: 'r', phone: PHONE, code: older!, stepUpApprovalId: 'ok' }),
+            ),
+          ).toBe('identity.phone_code_invalid');
+        }
+        expect(
+          (await api.linkSigninMethod({ method: 'sms_code', clientRequestId: 'r', phone: PHONE, code: newest!, stepUpApprovalId: 'ok' }))
+            .phone,
+        ).toBe(PHONE);
+        expect(stepUps).toHaveLength(1);
+      });
+
+      it('refuses a number another account signs in with, and a frozen account', async () => {
+        const first = await person();
+        const second = await person();
+        await phoneCaller(first.userId).linkSigninMethod({ method: 'sms_code', clientRequestId: 'r', phone: PHONE });
+        await phoneCaller(first.userId).linkSigninMethod({
+          method: 'sms_code',
+          clientRequestId: 'r',
+          phone: PHONE,
+          code: texts[0]!.code,
+          stepUpApprovalId: 'ok',
+        });
+        expect(await codeOf(phoneCaller(second.userId).linkSigninMethod({ method: 'sms_code', clientRequestId: 'r', phone: PHONE }))).toBe(
+          'identity.method_taken',
+        );
+        expect(texts).toHaveLength(1);
+        await db.sql`UPDATE users SET status = 'frozen' WHERE id = ${second.userId}`;
+        expect(
+          await codeOf(phoneCaller(second.userId).linkSigninMethod({ method: 'sms_code', clientRequestId: 'r', phone: '+447700900125' })),
+        ).toBe('auth.account_frozen');
+        expect(texts).toHaveLength(1);
+      });
     });
 
     it('answers a provider link with the switched-off provider', async () => {

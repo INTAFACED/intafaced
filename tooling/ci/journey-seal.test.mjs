@@ -2302,13 +2302,15 @@ test('an automatic revert runs the journeys that failed on main and the reverted
   no({ commits: [{ commit: { message: `Revert "x"\n\nThis reverts commit ${'d'.repeat(40)}.` } }] }, 'reverts another commit');
   no({ culprit: null }, 'the reverted commit unread');
   no({ paths: [...paths, 'services/svc-ledger/src/post.ts'] }, 'a file the reverted commit did not change');
-  no(
-    {
-      paths: [...paths, 'tooling/scripts/local-test-market.mjs'],
-      culprit: { sha: SHA, files: [...paths, 'tooling/scripts/local-test-market.mjs'].map((filename) => ({ filename })) },
-    },
-    'shared journey setup',
-  );
+  // intafaced #8149: shared journey setup the reverted commit changed is undone with it, back to what main proved.
+  const shared = autoRevertScope({
+    ...ok,
+    paths: [...paths, 'tooling/scripts/local-test-market.mjs'],
+    culprit: { sha: SHA, files: [...paths, 'tooling/scripts/local-test-market.mjs'].map((filename) => ({ filename })) },
+  });
+  assert.equal(shared.ok, true, 'shared journey setup the reverted commit changed keeps the revert narrow');
+  assert.deepEqual(shared.files, v.files, "the same journeys: the failing ones and the reverted change's own");
+  no({ paths: [...paths, 'tooling/scripts/local-test-market.mjs'] }, 'shared journey setup the reverted commit did not change');
   no({ pull: { ...pull, body: '' }, paths: ['services/svc-bank/src/cards.ts'], culpritTitle: '' }, 'no journey named');
   // sealPull judges the narrow files, and names them; a forged revert gets the ordinary scope.
   const io = (p) => ({

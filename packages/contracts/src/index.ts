@@ -172,6 +172,7 @@ export * from './academy-staff-enrolment.js';
 export * from './identity-learner-card.js';
 export * from './academy-course-gradebook.js';
 export * from './academy-grade-reports.js';
+export * from './academy-analytics.js';
 export * from './bank-card-funds.js';
 export * from './asset-registry.js';
 export * from './market-listing-categories.js';
