@@ -1362,9 +1362,10 @@ export function createIdentityRouter(
        * frozen, closed and undiscoverable (to anyone but their owner) handles
        * all answer `{ found: false }`; a per-caller
        * budget (30/min) refuses bulk probing with 429. Sessions only: an API
-       * key may not probe the handle space.
+       * key may not probe the handle space. The token must carry `identity:read`,
+       * so a narrow token (svc-ws mints a `trade:read`-only one on recovery) cannot.
        */
-      resolveHandle: protectedProcedure
+      resolveHandle: scopedProcedure('identity:read')
         .input(z.object({ handle: z.string().max(64) }))
         .output(
           z.discriminatedUnion('found', [
@@ -1397,9 +1398,9 @@ export function createIdentityRouter(
        * The payee card for an account a handle lookup or a pay code has already named (J-pay-01 #2): the name the person
        * chose for their profile (null when none) and the month they joined (the member badge). Keyed by the user id
        * those answers carry, so it is no way to find anyone. A frozen, closed or unknown account, and one that turned
-       * "find me by my handle" off (to anyone but its owner), answer `{ found: false }`. Sessions only.
+       * "find me by my handle" off (to anyone but its owner), answer `{ found: false }`. Sessions with `identity:read` only.
        */
-      payeeCard: protectedProcedure
+      payeeCard: scopedProcedure('identity:read')
         .input(z.object({ userId: z.string().guid() }))
         .output(
           z.discriminatedUnion('found', [
@@ -1419,10 +1420,10 @@ export function createIdentityRouter(
 
       /**
        * Find a person by exact email or exact phone. Same budget and the same
-       * miss as `resolveHandle`. A hit requires that person's consent flag.
+       * miss as `resolveHandle`, and the same `identity:read` gate. A hit requires that person's consent flag.
        * The email and the phone are never in the answer.
        */
-      searchPayees: protectedProcedure
+      searchPayees: scopedProcedure('identity:read')
         .input(
           z
             .object({
