@@ -39,7 +39,16 @@ export type GridErrorCode =
   | 'trade.bots_withdraw_conflict'
   | 'trade.grid_request_invalid'
   | 'trade.grid_direction_not_built'
-  | 'trade.grid_settlement_not_built';
+  | 'trade.grid_settlement_not_built'
+  | 'trade.bots_grid_topup_amount_invalid'
+  | 'trade.bots_grid_topup_quote_only'
+  | 'trade.bots_grid_topup_exceeds_free'
+  | 'trade.bots_grid_topup_conflict'
+  | 'trade.bots_grid_trailing_shift_limit_required'
+  | 'trade.bots_grid_trailing_shift_limit_invalid'
+  | 'trade.bots_grid_min_count_invalid'
+  | 'trade.bots_grid_min_count_above_count'
+  | 'trade.bots_grid_trailing_not_built';
 
 /** Codes the tRPC door answers as NOT_FOUND / CONFLICT; every other grid code is BAD_REQUEST. */
 export const GRID_NOT_FOUND_CODES: ReadonlySet<GridErrorCode> = new Set(['trade.grid_not_found', 'trade.grid_market_not_found']);
@@ -48,6 +57,7 @@ export const GRID_CONFLICT_CODES: ReadonlySet<GridErrorCode> = new Set([
   'trade.grid_not_running',
   'trade.bots_withdraw_reserve_released',
   'trade.bots_withdraw_conflict',
+  'trade.bots_grid_topup_conflict',
 ]);
 
 export class GridError extends Error {
