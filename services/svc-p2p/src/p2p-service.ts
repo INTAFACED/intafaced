@@ -186,6 +186,7 @@ import {
   type MismatchReport,
 } from './amount-mismatch.js';
 import { railMismatch, type PaymentRail, type RailMismatch } from './rail-validate.js';
+import { CounterpartyStateUnavailableError, type CounterpartyStatePort } from './counterparty-state.js';
 import {
   ADVERTISER_TERMS_SETTING,
   AdvertiserTermsError,
@@ -255,6 +256,9 @@ export type P2pErrorCode =
   // P-ads-merchant-08: a presence schedule that is not a valid week, and a bulk action naming no ads or too many.
   | 'p2p.schedule_invalid'
   | 'p2p.maker_offline'
+  // #4689: the ad's maker is frozen, closed or unknown to identity (one code for all three), or identity could not say.
+  | 'p2p.counterparty_unavailable'
+  | 'p2p.counterparty_unverifiable'
   | 'p2p.bulk_scope_invalid'
   | 'p2p.edit_quota_reached'
   | 'p2p.offer_unfunded'
@@ -896,6 +900,12 @@ export interface P2pServiceOptions {
    * in it `p2p.config_unset`.
    */
   postingThresholds?: PostingThresholds;
+  /**
+   * #4689. Whether the ad's maker may be the other side of a new order (svc-identity's account status). `index.ts`
+   * always passes it, where no IDENTITY_URL refuses every take `p2p.counterparty_unverifiable`; omitted is a service
+   * built without it (tests).
+   */
+  counterpartyState?: CounterpartyStatePort;
 }
 
 /**
@@ -1498,6 +1508,7 @@ export class P2pService {
   private readonly sellBalanceAtPost: boolean;
   private readonly adContentRules: AdContentRules;
   private readonly postingThresholds: PostingThresholds | undefined;
+  private readonly counterpartyState: CounterpartyStatePort | undefined;
   private tradingEnabled: boolean;
 
   /**
@@ -1544,6 +1555,7 @@ export class P2pService {
     this.sellBalanceAtPost = options.sellBalanceAtPost === true;
     this.adContentRules = options.adContentRules ?? { status: 'absent' };
     this.postingThresholds = options.postingThresholds;
+    this.counterpartyState = options.counterpartyState;
   }
 
   /**
@@ -2685,6 +2697,27 @@ export class P2pService {
    * the board for the same reason. Refuses `p2p.maker_offline` with when the maker's hours open again (null when
    * offline with no schedule). Orders already open are not touched.
    */
+  /**
+   * #4689. The ad's maker is the other side of the order and is not the caller, so the edge's frozen/closed check on
+   * the caller never covers them. A frozen, closed or unknown maker refuses `p2p.counterparty_unavailable`, one code
+   * for all three; an unanswered check refuses `p2p.counterparty_unverifiable`. Either way nothing is reserved.
+   */
+  private async assertCounterpartyMayTrade(makerId: string, takerId: string): Promise<void> {
+    if (!this.counterpartyState || makerId === takerId) return;
+    let status;
+    try {
+      status = await this.counterpartyState.statusOf(makerId);
+    } catch (err) {
+      if (err instanceof CounterpartyStateUnavailableError) {
+        throw new P2pError('This ad cannot be checked right now; nothing was held. Try again shortly', 'p2p.counterparty_unverifiable');
+      }
+      throw err;
+    }
+    if (status !== 'active') {
+      throw new P2pError('This ad cannot take orders; nothing was held', 'p2p.counterparty_unavailable');
+    }
+  }
+
   private async assertMakerPresent(db: Sql, makerId: string, takerId: string | null): Promise<void> {
     if (takerId !== null && takerId === makerId) return;
     const [row] = await db<Array<{ on_board: boolean }>>`SELECT p2p.maker_on_board(${makerId}, now()) AS on_board`;
@@ -3274,6 +3307,8 @@ export class P2pService {
     // missing offer mid-take. Take still refuses with the uniform message when
     // the destination is gone; get/list stay honest for strangers.
     const preview = await this.loadOfferRaw(input.offerId);
+    // #4689: before anything is reserved, and outside the transaction (a network call must not hold the offer lock).
+    await this.assertCounterpartyMayTrade(preview.makerId, input.takerId);
     const referencePrice =
       preview.priceType === 'float' ? ((await this.referencePrices?.price(preview.asset, preview.fiatCurrency)) ?? null) : null;
 

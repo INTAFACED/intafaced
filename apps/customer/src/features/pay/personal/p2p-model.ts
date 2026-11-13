@@ -404,6 +404,9 @@ export const DEFINITE_TAKE_CODES: ReadonlySet<string> = new Set([
   'p2p.share_link_revoked',
   // P-ads-merchant-08: the ad's maker is away; refused before anything is reserved.
   'p2p.maker_offline',
+  // #4689: the ad's maker may not trade, or identity could not say; refused before anything is reserved.
+  'p2p.counterparty_unavailable',
+  'p2p.counterparty_unverifiable',
   'p2p.self_trade',
   'p2p.blocked',
   'p2p.take_refused',
@@ -501,6 +504,8 @@ export function takeFailureKind(failure: { reason: string; code?: string; status
     case 'p2p.share_link_revoked':
     // P-ads-merchant-08: the maker went offline, or out of their hours, while the order was being placed.
     case 'p2p.maker_offline':
+    // #4689: the ad's maker may not trade (frozen, closed or unknown).
+    case 'p2p.counterparty_unavailable':
       return 'unavailable';
     case 'p2p.blocked':
       return 'blocked';
