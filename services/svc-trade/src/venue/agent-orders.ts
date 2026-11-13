@@ -106,6 +106,11 @@ export interface AgentConnectionView {
   readonly accountId: string;
   readonly subAccount: string | null;
   readonly connectedAt: Date;
+  /**
+   * #19: the key's end date, as identity holds it: `null` when it has none; after it, every call with the key is refused
+   * at the door. Unknown (`known: false`) only when identity could not be asked just now.
+   */
+  readonly expiry: { readonly known: true; readonly expiresAt: Date | null } | { readonly known: false };
 }
 
 /** #12: the assistant revoked. */
@@ -249,8 +254,10 @@ export class AgentOrders {
         { scopes: key.scopes },
       );
     }
+    const expiresAt = key.expiresAt ? new Date(key.expiresAt) : null;
     const existing = await this.deps.connections.active(keyId);
-    if (existing) return this.connectedOrRefused(existing, principal.userId, id, account);
+    if (existing) return this.connectedOrRefused(existing, principal.userId, id, account, expiresAt);
+    if (expiresAt !== null) await this.withinVenueAgentMax(expiresAt);
     await this.deps.stepUp.require({
       scope: AGENT_CONNECT_STEP_UP_SCOPE,
       userId: principal.userId,
@@ -266,24 +273,70 @@ export class AgentOrders {
       createdAt: this.deps.now(),
       endedAt: null,
     });
-    return this.connectedOrRefused(stored, principal.userId, id, account);
+    return this.connectedOrRefused(stored, principal.userId, id, account, expiresAt);
   }
 
-  private connectedOrRefused(c: AgentConnectionRecord, userId: string, accountId: string, a: AgentAccountRecord): AgentConnectionView {
+  /**
+   * #19: a key with an end date is connected only when the venue lets an agent permission last that long, counted from
+   * now. Later than the venue's maximum refuses naming it; a venue that declares no maximum refuses every dated key.
+   * Checked before step-up is spent, so a refused connect spends nothing.
+   */
+  private async withinVenueAgentMax(expiresAt: Date): Promise<void> {
+    const venue = (await this.deps.door.venue()).venue;
+    const maxMs = venue.agentValidityMaxMs;
+    if (maxMs === undefined || !Number.isSafeInteger(maxMs) || maxMs <= 0) {
+      throw new AgentAccountError(
+        'agents.venue_agent_expiry_max_unknown',
+        `${venue.displayName} declares no longest agent permission, so a key with an end date can't be connected; make the key without one or try another venue`,
+        422,
+        { venue: venue.displayName },
+      );
+    }
+    const latest = new Date(this.deps.now().getTime() + maxMs);
+    if (expiresAt.getTime() > latest.getTime()) {
+      const days = maxMs / 86_400_000;
+      const max = Number.isInteger(days) ? `${days} days` : `${Math.floor(maxMs / 1000)} seconds`;
+      throw new AgentAccountError(
+        'agents.key_expiry_above_venue_max',
+        `${venue.displayName} lets an agent permission last at most ${max}; this key ends ${expiresAt.toISOString()}, after the latest allowed end date ${latest.toISOString()}`,
+        422,
+        { venue: venue.displayName, maxDays: days, latestExpiresAt: latest.toISOString(), expiresAt: expiresAt.toISOString() },
+      );
+    }
+  }
+
+  private connectedOrRefused(
+    c: AgentConnectionRecord,
+    userId: string,
+    accountId: string,
+    a: AgentAccountRecord,
+    expiresAt: Date | null,
+  ): AgentConnectionView {
     if (c.userId !== userId || c.accountId !== accountId) {
       throw new AgentAccountError('agents.key_already_connected', `API key ${c.keyId} already trades another agent account`, 409);
     }
-    return { keyId: c.keyId, accountId: c.accountId, subAccount: a.subAccount, connectedAt: c.createdAt };
+    return {
+      keyId: c.keyId,
+      accountId: c.accountId,
+      subAccount: a.subAccount,
+      connectedAt: c.createdAt,
+      expiry: { known: true, expiresAt },
+    };
   }
 
-  /** The person's keys that trade an agent account. */
+  /** The person's keys that trade an agent account, each with its end date as identity holds it (#19). */
   async connections(principal: Principal): Promise<readonly AgentConnectionView[]> {
     assertPerson(principal);
     const rows = await this.deps.connections.listActive(principal.userId);
     const out: AgentConnectionView[] = [];
     for (const c of rows) {
       const a = await this.deps.accounts.find(principal.userId, c.accountId);
-      out.push({ keyId: c.keyId, accountId: c.accountId, subAccount: a?.subAccount ?? null, connectedAt: c.createdAt });
+      const key = await this.deps.keys.read(principal.userId, c.keyId);
+      const expiry: AgentConnectionView['expiry'] =
+        key?.state === 'found' && key.expiresAt !== undefined
+          ? { known: true, expiresAt: key.expiresAt === null ? null : new Date(key.expiresAt) }
+          : { known: false };
+      out.push({ keyId: c.keyId, accountId: c.accountId, subAccount: a?.subAccount ?? null, connectedAt: c.createdAt, expiry });
     }
     return out;
   }

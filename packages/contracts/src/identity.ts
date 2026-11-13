@@ -405,6 +405,8 @@ export const agentKeyReadSchema = z.discriminatedUnion('state', [
       scopes: z.array(z.string().min(1).max(64)).max(200),
       /** Revoked, or past its end date. */
       revoked: z.boolean(),
+      /** The key's end date (ISO), `null` when it has none (J-agents-21 #19). Absent from an identity built before it. */
+      expiresAt: z.string().datetime().nullable().optional(),
     })
     .strict(),
   z.object({ state: z.literal('none') }).strict(),
