@@ -29,8 +29,8 @@ export function hunksOf(diff) {
       return m === undefined || m === '/dev/null' ? null : m.replace(/^[ab]\//, '');
     };
     const head = /^diff --git a\/(.+) b\/(.+)$/m.exec(s);
-    const oldPath = /^--- /m.test(s) ? path(/^--- (.+)$/m) : head?.[1] ?? null;
-    const newPath = /^\+\+\+ /m.test(s) ? path(/^\+\+\+ (.+)$/m) : head?.[2] ?? null;
+    const oldPath = /^--- /m.test(s) ? path(/^--- (.+)$/m) : (head?.[1] ?? null);
+    const newPath = /^\+\+\+ /m.test(s) ? path(/^\+\+\+ (.+)$/m) : (head?.[2] ?? null);
     const key = `${oldPath}\0${newPath}`;
     if (out.has(key)) return null;
     const hunks = [];
@@ -99,7 +99,9 @@ export function revertTreeMatches(read, { culprit, head }) {
     const parents = read(['rev-list', '--parents', '-n', '1', head]).trim().split(' ');
     const cParents = read(['rev-list', '--parents', '-n', '1', culprit]).trim().split(' ');
     if (parents.length !== 2 || cParents.length !== 2) return false;
-    const tree = read(['merge-tree', '--write-tree', `--merge-base=${culprit}`, parents[1], cParents[1]]).trim().split('\n')[0];
+    const tree = read(['merge-tree', '--write-tree', `--merge-base=${culprit}`, parents[1], cParents[1]])
+      .trim()
+      .split('\n')[0];
     return /^[0-9a-f]{40}$/.test(tree) && tree === read(['rev-parse', `${head}^{tree}`]).trim();
   } catch {
     return false;
@@ -175,12 +177,18 @@ function selfTest() {
   ].join('\n');
   eq(exactReverse(revert, culprit), true, 'the revert undoes every hunk');
   // #8138: a later merge added a line beside the culprit's, so a context line and the hunks' places differ.
-  const moved = revert.replace('@@ -3,7 +3,6 @@ x\n import a;', '@@ -4,7 +4,6 @@ x\n import z;').replace('@@ -41,5 +40,4 @@', '@@ -43,5 +42,4 @@');
-  eq(exactReverse(moved, culprit), false, 'context changed around it: the diff alone can\'t tell (revertTreeMatches can)');
+  const moved = revert
+    .replace('@@ -3,7 +3,6 @@ x\n import a;', '@@ -4,7 +4,6 @@ x\n import z;')
+    .replace('@@ -41,5 +40,4 @@', '@@ -43,5 +42,4 @@');
+  eq(exactReverse(moved, culprit), false, "context changed around it: the diff alone can't tell (revertTreeMatches can)");
   // Planted faults: anything that is not the undo of a changed line.
   eq(exactReverse(revert.replace('-expect(d).toBe(1n);', '-expect(d).toBeTruthy();'), culprit), false, 'a changed line that differs');
-  eq(exactReverse(revert.replace(' j();\n k();', ' j();\n-k();'), culprit), false, 'one more line removed (a context line turned into a change)');
-  eq(exactReverse(revert.replace(" i();\n-expect", " i();\n+evil();\n-expect"), culprit), false, 'a line added');
+  eq(
+    exactReverse(revert.replace(' j();\n k();', ' j();\n-k();'), culprit),
+    false,
+    'one more line removed (a context line turned into a change)',
+  );
+  eq(exactReverse(revert.replace(' i();\n-expect', ' i();\n+evil();\n-expect'), culprit), false, 'a line added');
   eq(exactReverse(revert.slice(0, revert.indexOf('diff --git a/t.test.ts')), culprit), false, 'a file left out');
   eq(exactReverse(`${revert}diff --git a/z.ts b/z.ts\n--- a/z.ts\n+++ b/z.ts\n@@ -1 +1 @@\n-a\n+b\n`, culprit), false, 'a file added');
   eq(exactReverse(revert.replace('@@ -41,5 +40,4 @@', '@@ -2,5 +1,4 @@'), culprit), false, 'hunks out of order');
@@ -189,27 +197,57 @@ function selfTest() {
   // revertTreeMatches, in a real repository: #8138's case, then a hand-made "revert" that removes the same line elsewhere.
   const dir = mkdtempSync(join(tmpdir(), 'exact-revert-'));
   try {
-    const g = (...args) => execFileSync('git', ['-C', dir, '-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    const g = (...args) =>
+      execFileSync('git', ['-C', dir, '-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
     const put = (text) => writeFileSync(join(dir, 'a.mjs'), `${text.join('\n')}\n`);
     const lines = ['import a;', 'import b;', 'import c;', '', "test('#1', () => {", '  x();', '});', "test('#7', () => {", '  x();', '});'];
     g('init', '-q');
     put(lines);
     g('add', '.');
     g('commit', '-qm', 'base');
-    put([...lines.slice(0, 3), 'import d;', ...lines.slice(3, 6), '  expect(x).toBe(1n);', ...lines.slice(6, 9), '  expect(x).toBe(1n);', ...lines.slice(9)]);
+    put([
+      ...lines.slice(0, 3),
+      'import d;',
+      ...lines.slice(3, 6),
+      '  expect(x).toBe(1n);',
+      ...lines.slice(6, 9),
+      '  expect(x).toBe(1n);',
+      ...lines.slice(9),
+    ]);
     g('commit', '-qam', 'culprit');
     const culpritSha = g('rev-parse', 'HEAD').trim();
-    const later = [lines[0], 'import e;', ...lines.slice(1, 3), 'import d;', ...lines.slice(3, 6), '  expect(x).toBe(1n);', ...lines.slice(6, 9), '  expect(x).toBe(1n);', ...lines.slice(9)];
+    const later = [
+      lines[0],
+      'import e;',
+      ...lines.slice(1, 3),
+      'import d;',
+      ...lines.slice(3, 6),
+      '  expect(x).toBe(1n);',
+      ...lines.slice(6, 9),
+      '  expect(x).toBe(1n);',
+      ...lines.slice(9),
+    ];
     put(later);
     g('commit', '-qam', 'a later merge beside it');
     const mainSha = g('rev-parse', 'HEAD').trim();
     g('revert', '--no-edit', culpritSha);
     const read = (args) => g(...args);
-    eq(revertTreeMatches(read, { culprit: culpritSha, head: g('rev-parse', 'HEAD').trim() }), true, "git's own revert, with main changed beside it");
+    eq(
+      revertTreeMatches(read, { culprit: culpritSha, head: g('rev-parse', 'HEAD').trim() }),
+      true,
+      "git's own revert, with main changed beside it",
+    );
     g('reset', '-q', '--hard', mainSha);
     put(later.filter((l, k) => l !== 'import d;' && k !== later.lastIndexOf('  expect(x).toBe(1n);')));
     g('commit', '-qam', 'by hand: the same line removed from another test');
-    eq(revertTreeMatches(read, { culprit: culpritSha, head: g('rev-parse', 'HEAD').trim() }), false, 'planted fault: the line removed under #7, not #1');
+    eq(
+      revertTreeMatches(read, { culprit: culpritSha, head: g('rev-parse', 'HEAD').trim() }),
+      false,
+      'planted fault: the line removed under #7, not #1',
+    );
     eq(revertTreeMatches(read, { culprit: culpritSha, head: mainSha }), false, 'a commit that is no revert');
     eq(revertTreeMatches(read, { culprit: 'f'.repeat(40), head: mainSha }), false, 'an unknown culprit');
   } finally {

@@ -779,7 +779,11 @@ async function cmdDiff(dir) {
         diff: r.text,
         get: getText,
         git: (args) =>
-          execFileSync('git', ['-C', process.env.GITHUB_WORKSPACE ?? '.', ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 256 * 1024 * 1024 }),
+          execFileSync('git', ['-C', process.env.GITHUB_WORKSPACE ?? '.', ...args], {
+            encoding: 'utf8',
+            stdio: ['ignore', 'pipe', 'pipe'],
+            maxBuffer: 256 * 1024 * 1024,
+          }),
       }),
     }),
   );

@@ -414,17 +414,27 @@ function selfTest() {
   const H = 'd'.repeat(40);
   const was = 'diff --git a/t.test.ts b/t.test.ts\n--- a/t.test.ts\n+++ b/t.test.ts\n@@ -1,2 +1,3 @@\n a\n+expect(x).toBe(1);\n b\n';
   const back = 'diff --git a/t.test.ts b/t.test.ts\n--- a/t.test.ts\n+++ b/t.test.ts\n@@ -1,3 +1,2 @@\n a\n-expect(x).toBe(1);\n b\n';
-  const pr = { ref: `revert/auto-${C.slice(0, 10)}`, author: 'intafaced-mac-agents[bot]', authorType: 'Bot', commits: '1', headRepo: 'o/r', repo: 'o/r', headSha: H };
-  const reader = ({ diff = back, msg = `Revert x\n\nThis reverts commit ${C}.\n`, onMain = true, parents = `${C} p` } = {}) => (args) => {
-    if (args[0] === 'log') return msg;
-    if (args[0] === 'rev-list') return parents;
-    if (args[0] === 'merge-base') {
-      if (!onMain) throw new Error('not an ancestor');
-      return '';
-    }
-    if (args[0] === 'diff') return args[2] === `${C}^` ? was : diff;
-    throw new Error(`unexpected git ${args.join(' ')}`);
+  const pr = {
+    ref: `revert/auto-${C.slice(0, 10)}`,
+    author: 'intafaced-mac-agents[bot]',
+    authorType: 'Bot',
+    commits: '1',
+    headRepo: 'o/r',
+    repo: 'o/r',
+    headSha: H,
   };
+  const reader =
+    ({ diff = back, msg = `Revert x\n\nThis reverts commit ${C}.\n`, onMain = true, parents = `${C} p` } = {}) =>
+    (args) => {
+      if (args[0] === 'log') return msg;
+      if (args[0] === 'rev-list') return parents;
+      if (args[0] === 'merge-base') {
+        if (!onMain) throw new Error('not an ancestor');
+        return '';
+      }
+      if (args[0] === 'diff') return args[2] === `${C}^` ? was : diff;
+      throw new Error(`unexpected git ${args.join(' ')}`);
+    };
   eq(autoRevert(pr, 'origin/main', reader()), C, 'an automatic revert by every proof');
   eq(autoRevert({ ...pr, author: 'someone' }, 'origin/main', reader()), null, 'not opened by the App');
   eq(autoRevert({ ...pr, authorType: 'User' }, 'origin/main', reader()), null, 'not a Bot');
@@ -434,8 +444,16 @@ function selfTest() {
   eq(autoRevert(pr, 'origin/main', reader({ msg: 'no revert line' })), null, 'its commit says no revert');
   eq(autoRevert(pr, 'origin/main', reader({ onMain: false })), null, 'the commit is not on main');
   eq(autoRevert(pr, 'origin/main', reader({ parents: `${C} p q` })), null, 'a merge commit');
-  eq(autoRevert(pr, 'origin/main', reader({ diff: back.replace('-expect(x).toBe(1);', '-expect(x).toBe(2);') })), null, 'planted fault: not exactly its reverse');
-  eq(autoRevert(pr, 'origin/main', reader({ diff: `${back}diff --git a/y.ts b/y.ts\n--- a/y.ts\n+++ b/y.ts\n@@ -1 +1 @@\n-a\n+b\n` })), null, 'planted fault: one more file');
+  eq(
+    autoRevert(pr, 'origin/main', reader({ diff: back.replace('-expect(x).toBe(1);', '-expect(x).toBe(2);') })),
+    null,
+    'planted fault: not exactly its reverse',
+  );
+  eq(
+    autoRevert(pr, 'origin/main', reader({ diff: `${back}diff --git a/y.ts b/y.ts\n--- a/y.ts\n+++ b/y.ts\n@@ -1 +1 @@\n-a\n+b\n` })),
+    null,
+    'planted fault: one more file',
+  );
   console.log('✓ test-diff-guard --self-test OK (73 fixtures)');
 }
 
