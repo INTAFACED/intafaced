@@ -22,7 +22,7 @@ export const PRODUCTS: readonly Product[] = ['general', 'spot', 'derivatives', '
 export type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 /** The scope the edge asks a key for on a method. */
 export type MethodScope = 'trade:read' | 'trade:write';
-export type Scope = MethodScope | 'admin:read';
+export type Scope = MethodScope | 'admin:read' | 'copy:lead';
 /** Who may call a route, as its registration declares: anyone, a signed caller, or another service only. */
 export type Access = 'public' | 'private' | 'internal';
 
@@ -1386,6 +1386,15 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     summary: 'This account’s copy-trading history as a CSV file',
   },
   {
+    name: 'createLeadOrder',
+    method: 'POST',
+    path: '/api/v1/copy/lead/orders',
+    product: 'accounts',
+    access: 'private',
+    alsoNeeds: ['copy:lead'],
+    summary: 'Place an order as an approved copy-trading lead, on an instrument your lead listing names; then as Place an order',
+  },
+  {
     name: 'fetchRfqExport',
     method: 'GET',
     path: '/api/v1/rfq/export',
@@ -1558,7 +1567,7 @@ export const routeLine = (route: Pick<RestRoute, 'method' | 'path'>) => `${route
 
 /** The permission-to-endpoint table: one row per scope a key can hold, with every route a key with it may call. */
 export function permissionTable(): { scope: Scope; routes: RestRoute[] }[] {
-  return (['trade:read', 'trade:write'] as const).map((scope) => ({
+  return (['trade:read', 'trade:write', 'copy:lead'] as const).map((scope) => ({
     scope,
     routes: REST_REFERENCE.filter((route) => !neverOnAKey(route) && scopesOf(route).includes(scope)),
   }));

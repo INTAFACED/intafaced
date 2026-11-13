@@ -4,7 +4,7 @@ import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, Failure, Field, Loading } from '../../shared/ui';
 import { useSession } from '../session/session';
-import { apiKeysCopy as copy, type ApiKeysCopyKey, type ApiKeysPlainKey } from './api-keys-copy';
+import { apiKeysCopy as copy, type ApiKeysPlainKey } from './api-keys-copy';
 import { KeySafety } from './ApiKeys';
 import type { Subaccount } from './subaccount-guards';
 import {
@@ -22,14 +22,14 @@ import {
 } from './developer-keys-api';
 
 const PRESETS: readonly Preset[] = ['read', 'trade', 'lead', 'copy', 'custom'];
-const PRESET_LABEL: Record<Preset, ApiKeysCopyKey> = {
+const PRESET_LABEL: Record<Preset, ApiKeysPlainKey> = {
   read: 'presetRead',
   trade: 'presetTrade',
   lead: 'presetLead',
   copy: 'presetCopy',
   custom: 'presetCustom',
 };
-const PRESET_SUMMARY: Record<Preset, ApiKeysCopyKey> = {
+const PRESET_SUMMARY: Record<Preset, ApiKeysPlainKey> = {
   read: 'presetSummaryRead',
   trade: 'presetSummaryTrade',
   lead: 'presetSummaryLead',
@@ -204,7 +204,7 @@ export function ApiKeyCreate() {
     }
   }
 
-  const summary: ApiKeysCopyKey = PRESET_SUMMARY[preset];
+  const summary = PRESET_SUMMARY[preset];
   return (
     <div className="api-keys" lang={languageFor('formTitle')}>
       <header className="api-keys__head">

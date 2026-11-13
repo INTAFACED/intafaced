@@ -110,7 +110,7 @@ describe('the published route list matches what the services really mount', () =
     // Every registration resolved to a real /api/v1 path; none is left as a variable name.
     for (const route of declared) expect(route.path, `${route.method} ${route.path} in ${route.file}`).toMatch(/^\/api\/v1\//);
     const ours = REST_REFERENCE.map((route) => declarationKey({ ...route, scopes: scopesOf(route) }));
-    expect(ours).toHaveLength(176);
+    expect(ours).toHaveLength(177);
     expect(new Set(ours).size).toBe(ours.length);
     expect([...ours].sort()).toEqual([...new Set(declared.map(declarationKey))].sort());
   });
@@ -268,7 +268,8 @@ describe('the machine-readable files', () => {
     const rows = permissionTable();
     const staff = ['GET /api/v1/admin/orders/open', 'GET /api/v1/admin/fees'];
     const keyCallable = REST_REFERENCE.filter((route) => route.access !== 'internal' && !staff.includes(routeLine(route)));
-    expect(rows.map((row) => row.scope)).toEqual(['trade:read', 'trade:write']);
+    expect(rows.map((row) => row.scope)).toEqual(['trade:read', 'trade:write', 'copy:lead']);
+    expect(rows[2]!.routes.map(routeLine)).toEqual(['POST /api/v1/copy/lead/orders']);
     expect([...rows[0]!.routes, ...rows[1]!.routes].map(routeLine).sort()).toEqual(keyCallable.map(routeLine).sort());
     expect(rows[1]!.routes.map(routeLine)).toContain('POST /api/v1/orders');
     expect(rows.flatMap((row) => row.routes).map(routeLine)).not.toContain('POST /api/v1/outcomes/settle');
