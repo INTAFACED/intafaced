@@ -154,6 +154,7 @@ jobs:
       files: ${{ steps.find.outputs.files }}
       steps: ${{ steps.find.outputs.steps }}
       unknown: ${{ steps.find.outputs.unknown }}
+      points: ${{ steps.plan.outputs.points }}
     steps:
       # This workflow's own commit, never the red one: the red commit is only read through git.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -173,19 +174,31 @@ jobs:
           RED_RUN: ${{ inputs.red_run }}
           BASE: ${{ inputs.base }}
         run: node tooling/ci/journeys-revert.mjs find
+      # The probe legs: each candidate on its own runner at once, or one binary search past MAX_LEGS.
+      - name: Plan the probes
+        id: plan
+        if: steps.find.outputs.probe == 'true'
+        env:
+          CANDIDATES: ${{ steps.find.outputs.candidates }}
+        run: node tooling/ci/journeys-revert-probe.mjs plan
 
-  # Commits that can reach the failing journeys, even one: run those journey files on them by binary search, each probe on a
-  # fresh stack set up as a Real-app journeys shard sets it up. Old commits run as code here, so no GitHub token.
-  revert-probe:
+  # Commits that can reach the failing journeys, even one: run those journey files on each of them at once, one runner
+  # per candidate, each on a fresh stack set up as a Real-app journeys shard sets it up (past MAX_LEGS candidates, one
+  # leg runs the binary search). One probe's time instead of one per halving: a 7-candidate search took 3 probes of about
+  # 20 minutes plus the culprit's (13 Nov 2026). Old commits run as code here, so no GitHub token; each leg leaves its
+  # result as an artifact for revert-probe.
+  revert-probe-leg:
     name: 'Journeys revert: probe the candidates'
     needs: revert-find
     if: needs.revert-find.outputs.probe == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 300 # about 20 minutes a probe; 200 commits take at most 9 probes
+    timeout-minutes: 300 # one candidate: about 20 minutes; the one search leg: 200 commits take at most 9 probes
+    strategy:
+      fail-fast: false
+      matrix:
+        point: ${{ fromJSON(needs.revert-find.outputs.points) }}
     permissions:
       contents: read
-    outputs:
-      culprit: ${{ steps.probe.outputs.culprit }}
     env:
       INTAFACED_SANCTIONS_REGIONS: ${{ secrets.INTAFACED_SANCTIONS_REGIONS }}
       INTAFACED_SANCTIONS_LIST_SOURCE: ${{ secrets.INTAFACED_SANCTIONS_LIST_SOURCE }}
@@ -236,15 +249,57 @@ jobs:
         timeout-minutes: 15
         uses: ./.github/actions/browser
       - name: Probe
-        id: probe
         env:
+          POINT: ${{ matrix.point }}
           CANDIDATES: ${{ needs.revert-find.outputs.candidates }}
           FILES: ${{ needs.revert-find.outputs.files }}
           STEPS: ${{ needs.revert-find.outputs.steps }}
-        run: PROBE_SH="$RUNNER_TEMP/journeys-revert-probe.sh" node "$RUNNER_TEMP/journeys-revert-probe.mjs"
+          RESULT_FILE: ${{ runner.temp }}/probe-result/result.json
+        run: PROBE_SH="$RUNNER_TEMP/journeys-revert-probe.sh" node "$RUNNER_TEMP/journeys-revert-probe.mjs" leg
+      - name: Keep the result
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: journeys-revert-probe-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/probe-result/result.json
+          if-no-files-found: ignore
+          retention-days: 3
       - name: Stop the stack
         if: always()
         run: node tooling/scripts/local-test-stack.mjs stop || true
+
+  # The culprit from every leg's result (journeys-revert-probe.mjs decide): the oldest commit of the failing run that ends
+  # at the red commit, whose commit before passes. A leg that couldn't run next to that run, or the red commit passing,
+  # blames no one. It reads only the legs' JSON, never their code.
+  revert-probe:
+    name: 'Journeys revert: name the culprit from the probes'
+    needs: [revert-find, revert-probe-leg]
+    if: ${{ !cancelled() && needs.revert-find.outputs.probe == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10 # healthy run: seconds
+    permissions:
+      contents: read
+      actions: read # the legs' result artifacts
+    outputs:
+      culprit: ${{ steps.decide.outputs.culprit }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      # No result found blames no one: decide reads a missing result as "not probed".
+      - name: Get the legs' results
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh run download "$GITHUB_RUN_ID" -R "$GITHUB_REPOSITORY" -p 'journeys-revert-probe-*' -D "$RUNNER_TEMP/probes" || echo "::warning::no probe result could be read"
+      - name: Name the culprit
+        id: decide
+        env:
+          CANDIDATES: ${{ needs.revert-find.outputs.candidates }}
+          RESULTS_DIR: ${{ runner.temp }}/probes
+        run: node tooling/ci/journeys-revert-probe.mjs decide
 
   # The control, beside the probe: the failing journey files on the last commit where they passed (good), on the same
   # kind of runner and stack. A red that is the runner's or the world's, not a merge's (a new runner image, ubuntu-26.04's
