@@ -180,6 +180,13 @@ export async function runCiChecks({ base = 'origin/main', list = false, log = co
   const run = (cmd, args, opts = {}) =>
     spawnSync(cmd, args, { cwd: ROOT, stdio: 'inherit', ...opts, env: opts.env ? { ...opts.env, PATH: baseEnv.PATH } : baseEnv });
 
+  // A fresh worktree has no node_modules (12 of 20 sampled builder threads pushed before installing; #8165). CI's jobs
+  // start with the same install, so this does too rather than refusing.
+  if (!existsSync(join(ROOT, 'node_modules', '.bin', 'turbo'))) {
+    log('  no node_modules here: pnpm install --frozen-lockfile --prefer-offline (as CI does first)');
+    if (run('pnpm', ['install', '--frozen-lockfile', '--prefer-offline']).status !== 0)
+      return { ok: false, summary: 'pnpm install --frozen-lockfile failed (above); CI installs the same way' };
+  }
   const edges = readEdges();
   const filters = affectedFilters(files, edges, mergeBase).map((f) => `--filter=${f}`);
   const buildArgs = buildFilters(files, edges, mergeBase).map((f) => `--filter=${f}`);
