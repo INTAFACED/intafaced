@@ -135,7 +135,7 @@ const messages = {
   assistantLoading: 'Reading your assistant’s orders',
   assistantNone: 'Your assistant hasn’t placed an order.',
   assistantOff: 'Trading on your own venue account isn’t on here, so no assistant can trade and there are no orders to show.',
-  assistantMore: 'Only the first {count} orders are read here.',
+  assistantMore: 'Only your first {count} orders on these accounts were read, so later orders by your assistant may be missing.',
   byAssistant: 'by your assistant',
   colMarket: 'Market',
   colSide: 'Side',

@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // here. The list only reads: nothing here signs, sends or cancels.
 
 const OWNER = '0x1111111111111111111111111111111111111111';
+const OTHER = '0x2222222222222222222222222222222222222222';
 const KEY = '7f6c1f2e-0d3b-4f4a-9a51-1b2c3d4e5f60';
 const order = (over: object = {}) => ({
   venueOrderId: '901',
@@ -112,18 +113,20 @@ describe('Orders by your assistant', () => {
   });
 
   it('reads every page of each wallet once, and says when it stops at its page limit', async () => {
-    venue.agentAccounts.mockResolvedValue(accounts(OWNER, OWNER.toUpperCase().replace('0X', '0x')));
-    venue.keptOrders.mockImplementation(async (_owner: string, cursor?: string) => ({
+    venue.agentAccounts.mockResolvedValue(accounts(OWNER, OWNER.toUpperCase().replace('0X', '0x'), OTHER));
+    venue.keptOrders.mockImplementation(async (owner: string, cursor?: string) => ({
       ok: true,
       data: {
-        orders: [kept({ actionKey: `agent:order:${KEY}:${cursor ?? 'first'}` })],
+        orders: [kept({ actionKey: `agent:order:${KEY}:${owner}:${cursor ?? 'first'}` })],
         nextCursor: `c${Number((cursor ?? 'c0').slice(1)) + 1}`,
       },
     }));
     const view = await show();
-    expect(venue.keptOrders).toHaveBeenCalledTimes(ASSISTANT_ORDER_PAGES);
-    expect(view.querySelectorAll('tbody tr')).toHaveLength(ASSISTANT_ORDER_PAGES);
-    expect(view.textContent).toContain(`Only the first ${ASSISTANT_ORDER_PAGES} orders are read here.`);
+    // One wallet read once however its address is written, and a second wallet read as well: each to the page limit.
+    expect(venue.keptOrders).toHaveBeenCalledTimes(2 * ASSISTANT_ORDER_PAGES);
+    expect(new Set(venue.keptOrders.mock.calls.map((c) => c[0]))).toEqual(new Set([OWNER, OTHER]));
+    expect(view.querySelectorAll('tbody tr')).toHaveLength(2 * ASSISTANT_ORDER_PAGES);
+    expect(view.textContent).toContain(`Only your first ${2 * ASSISTANT_ORDER_PAGES} orders on these accounts were read`);
   });
 
   it('says the assistant has placed nothing, and names a refused, unknown or unsent order in words', async () => {

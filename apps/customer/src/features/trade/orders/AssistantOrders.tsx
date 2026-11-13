@@ -16,7 +16,7 @@ type State =
   | { status: 'failed'; failure: Refusal }
   | { status: 'ready'; rows: VenueKeptOrder[]; partial: number | null };
 
-/** The assistant's orders among what the door kept: those whose origin names an agent key, newest first. */
+/** The assistant's orders among what the door kept on one wallet's accounts: those whose origin names an agent key, newest first. */
 export function assistantOrders(kept: readonly VenueKeptOrder[]): VenueKeptOrder[] {
   return kept.filter((o) => o.origin?.startsWith('agent:')).reverse();
 }
@@ -60,13 +60,15 @@ export function AssistantOrders({ t, revision }: { t: OrdersT; revision: number 
       const accounts = await venue.agentAccounts(controller.signal);
       if (!accounts.ok) return accounts.code === 'trade.user_venue_off' ? { status: 'off' } : { status: 'failed', failure: accounts };
       const owners = [...new Set(accounts.data.accounts.map((a) => a.owner.toLowerCase()))];
-      const kept: VenueKeptOrder[] = [];
+      // Wallet by wallet, each wallet's newest first: the door's record gives an order's keep order, not a time to merge by.
+      const rows: VenueKeptOrder[] = [];
       let partial: number | null = null;
       for (const owner of owners) {
+        const kept: VenueKeptOrder[] = [];
         let cursor: string | undefined;
         for (let page = 0; ; page += 1) {
           if (page === ASSISTANT_ORDER_PAGES) {
-            partial = kept.length;
+            partial = (partial ?? 0) + kept.length;
             break;
           }
           const read = await venue.keptOrders(owner, cursor, controller.signal);
@@ -75,8 +77,9 @@ export function AssistantOrders({ t, revision }: { t: OrdersT; revision: number 
           if (!read.data.nextCursor) break;
           cursor = read.data.nextCursor;
         }
+        rows.push(...assistantOrders(kept));
       }
-      return { status: 'ready', rows: assistantOrders(kept), partial };
+      return { status: 'ready', rows, partial };
     })().then((next) => {
       if (!controller.signal.aborted) setState(next);
     });
