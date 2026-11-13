@@ -40,8 +40,8 @@
  *        (the tooling tests read the workflows too); every other gate runs as always. `--base <ref>` compares against
  *        another ref (a stacked branch). An unreadable diff runs everything. CI and main never pass the flag: they
  *        keep the full run (U4, project-state #1574).
- *   Outside CI (no `CI` variable), every run then also runs tooling/scripts/rule-tests.mjs: the unit tests that walk the
- *   tree, of the packages the branch's diff reaches, which an affected vitest run never selects and CI's unit run does.
+ *   Outside CI (no `CI` variable), every run then also runs tooling/scripts/ci-tests.mjs: CI's own unit selection for
+ *   the branch's diff, with CI's test database (REQUIRE_POSTGRES=1), so a builder runs one command before a push.
  */
 import { readdirSync, existsSync, readFileSync } from 'node:fs';
 import { join, basename, resolve } from 'node:path';
@@ -604,20 +604,20 @@ async function main() {
     }
   }
 
-  // A builder's machine also runs the rule tests its diff reaches (tooling/scripts/rule-tests.mjs): the copy rules, pins
-  // and inventories that walk the tree, which no file imports, so an affected vitest run never selects them and CI's unit
-  // run is where they went red (31 of 98 journey PRs' first heads, project-state #2065 row d22). Not in CI, whose unit
-  // job runs every one of them, and not a GATES entry, so CI's gate list and its empty-tree census are unchanged.
+  // A builder's machine then runs CI's own unit selection for its diff (tooling/scripts/ci-tests.mjs): the packages,
+  // database and commands of CI's `Tests (changed)` job, read from CI's files. The builder's guess at them missed CI's
+  // red on 31 of 98 journey PRs' first heads (project-state #2065, d22 and d32 part 1). Not in CI, whose test job is
+  // the real run, and not a GATES entry, so CI's gate list and its empty-tree census are unchanged.
   if (!process.env.CI) {
     const started = process.hrtime.bigint();
-    const { runRuleTests } = await import('../scripts/rule-tests.mjs');
-    const res = await runRuleTests({ base, log: (line) => console.log(line) });
+    const { runCiTests } = await import('../scripts/ci-tests.mjs');
+    const res = await runCiTests({ base, log: (line) => console.log(line) });
     const ms = Number((process.hrtime.bigint() - started) / 1000000n);
     totalMs += ms;
     const gate = {
-      id: 'rule-tests',
-      doctrine: 'CI unit run, early',
-      why: 'the tests that walk the tree, of the packages this branch reaches; CI fails on the same tests',
+      id: 'ci-tests',
+      doctrine: "CI's unit run, before the push",
+      why: "CI's Tests (changed) job, run here with its packages, its database and its commands",
     };
     console.log(`  ${res.ok ? '✓' : '✖'} ${gate.id.padEnd(22)} ${String(ms).padStart(5)}ms  ${gate.doctrine}\n      ${res.summary}`);
     if (!res.ok) failed.push({ gate, output: res.summary });
