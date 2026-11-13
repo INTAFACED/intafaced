@@ -30,16 +30,20 @@ const trpc = (procedure, input) =>
   `/api/academy/trpc/${procedure}${input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`}`;
 const data = (res) => res.body?.result?.data;
 
-/** Staff act through Academy's admin door as founder A, the same door the console uses. */
+/**
+ * Staff act through Academy's admin door as founder A, the same door the console uses. The sign-in is made once; each call
+ * mints its own operator token, which lives 300 seconds (local-test-gates.mjs mintOperatorToken), because #1 to #5 take
+ * longer than that and a token kept from #1 was refused in #5 (#8183).
+ */
 let staffDoor;
 async function staff(kind, procedure, input) {
   staffDoor ??= (async () => {
     const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
     const ctx = await gates.makeContext({ log: () => {} });
-    const sessions = await gates.approverSessions(ctx);
-    return { ctx, token: await sessions.a.tradeOpsToken() };
+    return { ctx, founder: (await gates.approverSessions(ctx)).a };
   })();
-  const { ctx, token } = await staffDoor;
+  const { ctx, founder } = await staffDoor;
+  const token = await founder.tradeOpsToken();
   const res =
     kind === 'query' ? await ctx.edge.query('academy', procedure, input, token) : await ctx.edge.mutate('academy', procedure, input, token);
   expect(res.status, res.text.slice(0, 300)).toBe(200);
