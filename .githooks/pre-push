@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# Refuse direct push to main + require format:check before any push.
+# Refuse direct push to main + require format:check before any push + CI's checks here (ci-checks.mjs).
 # Safety net only — --no-verify bypasses; real enforcement is branch protection (needs Pro).
 #
 # P1: format:check covers tooling/scripts/*.mjs (what red-trunked main via #471).
@@ -98,6 +98,10 @@ fi
 protected="main"
 remote_ref_prefix="refs/heads/"
 
+# The refs this push sends, kept for the checks below the loop (git gives them once, on stdin).
+PUSHED=$(mktemp)
+cat > "$PUSHED"
+
 while read -r local_ref _local_sha remote_ref _remote_sha; do
   branch="${remote_ref#$remote_ref_prefix}"
 
@@ -118,8 +122,34 @@ while read -r local_ref _local_sha remote_ref _remote_sha; do
       git push --no-verify
 
 MESSAGE
+    rm -f "$PUSHED"
     exit 1
   fi
-done
+done < "$PUSHED"
+
+# CI's own checks, here, before the push (tooling/scripts/ci-checks.mjs): its gates, format, build, typecheck and the
+# tests a change reaches, on CI's Node and with CI's test database. A push that only deletes a branch has nothing to
+# check. A push of a commit that is not HEAD, or with uncommitted changes, is checked as the working tree and says so.
+if [ -z "${CI:-}" ] && grep -qv ' 0000000000000000000000000000000000000000 ' "$PUSHED"; then
+  HEAD_SHA=$(git rev-parse HEAD)
+  if grep -v ' 0000000000000000000000000000000000000000 ' "$PUSHED" | awk '{print $2}' | grep -qvx "$HEAD_SHA"; then
+    echo "note: this push sends a commit that is not HEAD; CI's checks below ran on HEAD's working tree" >&2
+  fi
+  if ! git diff --quiet HEAD 2>/dev/null; then
+    echo "note: uncommitted changes; CI's checks below include them, the push does not" >&2
+  fi
+  if ! (CDPATH= cd -- "$TOP" && node tooling/scripts/ci-checks.mjs) </dev/null; then
+    cat >&2 <<'MSG'
+
+  ✖ CI's checks failed here — push refused. CI fails the same way.
+
+    Fix what is named above and push again.
+
+MSG
+    rm -f "$PUSHED"
+    exit 1
+  fi
+fi
+rm -f "$PUSHED"
 
 exit 0

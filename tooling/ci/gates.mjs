@@ -40,8 +40,6 @@
  *        (the tooling tests read the workflows too); every other gate runs as always. `--base <ref>` compares against
  *        another ref (a stacked branch). An unreadable diff runs everything. CI and main never pass the flag: they
  *        keep the full run (U4, project-state #1574).
- *   Outside CI (no `CI` variable), every run then also runs tooling/scripts/ci-tests.mjs: CI's own unit selection for
- *   the branch's diff, with CI's test database (REQUIRE_POSTGRES=1), so a builder runs one command before a push.
  */
 import { readdirSync, existsSync, readFileSync } from 'node:fs';
 import { join, basename, resolve } from 'node:path';
@@ -337,7 +335,7 @@ export const NOT_GATES = {
   'journeys-revert.mjs':
     'runs from main-trust.yml (trigger) and main-bisect.yml (find, open): when a journey step that passed on main fails outright, it finds the one pull request that broke it (the commits whose files reach the failing journeys, proven by the probe) and opens its revert with squash auto-merge through the normal seal, never more than one per red and never a revert of a revert. Needs a token, a red run and the factory App key, so a laptop verify has no input. `node tooling/ci/journeys-revert.mjs --self-test` checks the break rule, the narrowing and the refusals and is wired in the `changes` job of ci.yml.',
   'journeys-revert-probe.mjs':
-    'runs from main-bisect.yml when several commits can reach the failing journeys: a binary search that runs those journey files on each probed commit on a fresh local test stack (journeys-revert-probe.sh). Needs the stack, so a laptop verify has no input. `node tooling/ci/journeys-revert-probe.mjs --self-test` checks the search and the report reading and is wired in the `changes` job of ci.yml.',
+    'runs from main-bisect.yml when commits can reach the failing journeys: with at most 16 candidates, each one is probed at once on its own runner and fresh local test stack (journeys-revert-probe.sh) and `decide` names the oldest commit of the failing run that ends at the red one; past 16, one runner runs the binary search. Needs the stack, so a laptop verify has no input. `node tooling/ci/journeys-revert-probe.mjs --self-test` checks the search and the report reading and is wired in the `changes` job of ci.yml.',
   'journeys-revive.mjs':
     "runs from main-trust.yml's `revive` job, hourly and after each CI run on main (`main`: the main pass only, since GitHub's cron here fires late or never): a Real-app journeys run on main that finished with no report.json (it died before its tests ran) has its failed jobs re-run with growing waits (30 min to 4 h), five attempts at most, then one issue names it; then (and from the post-merge job after each main journeys run) an open pull request's journeys run red only because its verdict couldn't read main's inputs is re-run once main is back (no main re-run going, the baseline's named run has its report, a run the rows name has finished, and the API budget has room after a rate limit), twice per head at most. It changes no verdict: a verdict still fails closed on a report it can't read, and skips a finished main run that kept none (journey-verdict.mjs readHistory). Needs a GitHub token and main's runs, so a laptop verify has no input; its tests are journeys-revive.test.mjs.",
   'shard-download.mjs':
@@ -532,9 +530,9 @@ export function changedSinceMain(cwd = ROOT, base = 'origin/main') {
  */
 const RUN_AS_SCRIPT = process.argv[1] !== undefined && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url));
 
-if (RUN_AS_SCRIPT) await main();
+if (RUN_AS_SCRIPT) main();
 
-async function main() {
+function main() {
   const changedOnly = process.argv.includes('--changed');
   // `--base <ref>` for a branch stacked on another (default origin/main).
   const baseAt = process.argv.indexOf('--base');
@@ -602,25 +600,6 @@ async function main() {
       failed.push({ gate, output });
       console.log(`  ✖ ${gate.id.padEnd(22)} ${String(ms).padStart(5)}ms  ${gate.doctrine}`);
     }
-  }
-
-  // A builder's machine then runs CI's own unit selection for its diff (tooling/scripts/ci-tests.mjs): the packages,
-  // database and commands of CI's `Tests (changed)` job, read from CI's files. The builder's guess at them missed CI's
-  // red on 31 of 98 journey PRs' first heads (project-state #2065, d22 and d32 part 1). Not in CI, whose test job is
-  // the real run, and not a GATES entry, so CI's gate list and its empty-tree census are unchanged.
-  if (!process.env.CI) {
-    const started = process.hrtime.bigint();
-    const { runCiTests } = await import('../scripts/ci-tests.mjs');
-    const res = await runCiTests({ base, log: (line) => console.log(line) });
-    const ms = Number((process.hrtime.bigint() - started) / 1000000n);
-    totalMs += ms;
-    const gate = {
-      id: 'ci-tests',
-      doctrine: "CI's unit run, before the push",
-      why: "CI's Tests (changed) job, run here with its packages, its database and its commands",
-    };
-    console.log(`  ${res.ok ? '✓' : '✖'} ${gate.id.padEnd(22)} ${String(ms).padStart(5)}ms  ${gate.doctrine}\n      ${res.summary}`);
-    if (!res.ok) failed.push({ gate, output: res.summary });
   }
 
   for (const { gate, output } of advisoryNoise) {
