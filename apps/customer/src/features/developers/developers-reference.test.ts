@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 vi.mock('../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../shared/preferences')>();
@@ -27,6 +27,7 @@ import {
 
 const repo = (path: string) => readFileSync(new URL(`../../../../../${path}`, import.meta.url), 'utf8');
 
+const ROUTE_LIST = new URL('./rest-routes.txt', import.meta.url);
 const TRADE_SRC = new URL('../../../../../services/svc-trade/src/', import.meta.url);
 
 type Declared = { method: string; path: string; access: string; scopes: string[]; file: string };
@@ -108,9 +109,13 @@ describe('the published route list matches what the services really mount', () =
     // Every registration resolved to a real /api/v1 path; none is left as a variable name.
     for (const route of declared) expect(route.path, `${route.method} ${route.path} in ${route.file}`).toMatch(/^\/api\/v1\//);
     const ours = REST_REFERENCE.map((route) => declarationKey({ ...route, scopes: scopesOf(route) }));
-    // A floor, not an exact count: adding a route never edits this line, so two changes that each add one never
-    // conflict here. Removing routes means lowering it on purpose. The list itself is pinned by the equality below.
-    expect(ours.length).toBeGreaterThanOrEqual(187);
+    // The whole list, pinned in its own file one route per line, sorted: as strict as an exact count (a route that
+    // leaves both the service and the reference still fails here), and two changes adding different routes edit
+    // different lines. `WRITE_ROUTE_LIST=1` rewrites it after a deliberate change.
+    const listed = [...ours].sort();
+    if (process.env.WRITE_ROUTE_LIST === '1') writeFileSync(ROUTE_LIST, `${listed.join('\n')}\n`);
+    const pinned = readFileSync(ROUTE_LIST, 'utf8').split('\n').filter(Boolean);
+    expect(listed, 'rest-routes.txt: run WRITE_ROUTE_LIST=1 after a deliberate route change').toEqual(pinned);
     expect(new Set(ours).size).toBe(ours.length);
     expect([...ours].sort()).toEqual([...new Set(declared.map(declarationKey))].sort());
   });
