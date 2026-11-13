@@ -330,10 +330,6 @@ export async function automaticRevert({ repo, pull, diff, get, git }) {
   return revertTreeMatches(git, { culprit, head: pull.head }) ? culprit : null;
 }
 
-/** What the reviewer is told above the diff of an automatic revert, from the job's code. */
-export const revertNote = (culprit) =>
-  `Trusted fact from the job's code (ci-review.mjs automaticRevert), not from the author: this pull request is main-bisect's automatic revert, opened by ${AUTO_REVERT_AUTHOR} from a ${REVERT_BRANCH_PREFIX} branch, and it is exactly the reverse of commit ${culprit}, which main contains: every changed line of every file undone, in order, and nothing else changed (its diff is that commit's undone, or its head is exactly what git revert of that commit makes on its parent, so a context line may read differently where main changed it since). Its tests return to main's tests from before that commit.`;
-
 /** The structured answer the reviewer must give (the reviewer CLI, -p --json-schema). */
 export const VERDICT_SCHEMA = {
   type: 'object',
@@ -645,8 +641,9 @@ export async function indexHead(dir) {
  * carries the review's first part, is the first call's prompt, and that answer must carry both parts (COMBINED_SCHEMA).
  * A diff over MAX_DIFF_BYTES is reviewed in parts (splitDiff): the first in `<dir>`, each other in `<dir>/parts/<n>`, one
  * call each, and readVerdicts makes the review FAIL when any part's is. A diff splitDiff can't part is a FAIL for both
- * parts, without the reviewer. `revertOf` (automaticRevert) is told to the reviewer above every part, and decides the
- * test part as a PASS: an exact revert returns the tests to main's from before the reverted commit.
+ * parts, without the reviewer. `revertOf` (automaticRevert) decides both parts as a PASS without the reviewer: an exact
+ * revert puts back code main already held and this review already passed, so it has nothing to ask (the programme lead's
+ * rule, 13 Nov 2026: the seal passes such a pull request on its exactness, typecheck and build, and its narrow journeys run).
  */
 export async function writeReviewInputs(
   dir,
@@ -660,8 +657,7 @@ export async function writeReviewInputs(
   const own = (sec) => parseDiff(sec).some((f) => judgedFile(f.path) || (f.oldPath && judgedFile(f.oldPath)));
   const split = bytes > MAX_DIFF_BYTES ? splitDiff(diff, MAX_DIFF_BYTES, MAX_PARTS, own) : { parts: [diff] };
   const parts = split.parts ?? [diff];
-  const note = (k) =>
-    [revertOf ? revertNote(revertOf) : '', parts.length > 1 ? partNote(parts, k, bytes) : ''].filter(Boolean).join('\n\n');
+  const note = (k) => (parts.length > 1 ? partNote(parts, k, bytes) : '');
   // The review's first part is exactly the compare diff it read (all of it, when it fits one call); the test part keeps
   // its own inputs after it.
   const lead = reviewSection({
@@ -672,25 +668,26 @@ export async function writeReviewInputs(
     stepWords: true,
     note: note(1),
   });
-  let testsSaid;
   if (revertOf) {
+    const why = `not judged: the exact revert of ${revertOf} puts back code main held before it (ci-review.mjs automaticRevert)`;
     mkdirSync(tests, { recursive: true });
     writeFileSync(join(tests, 'head.txt'), head);
-    const why = `not judged: the exact revert of ${revertOf} returns the tests to main's from before it (ci-review.mjs automaticRevert)`;
     writeFileSync(join(tests, 'verdict.json'), JSON.stringify({ head, verdict: 'PASS', lines: [], findings: [why] }));
     writeFileSync(join(tests, 'skip-judge'), '1');
-    testsSaid = why;
-  } else
-    testsSaid = await writeInputs(tests, {
-      src,
-      base,
-      head,
-      pr,
-      loadWords,
-      brief: testsBrief(testsBriefText),
-      lead,
-      reviewDiff: parts[0],
-    });
+    writeFileSync(join(dir, 'verdict.json'), JSON.stringify({ head, verdict: 'PASS', findings: [why] }));
+    writeFileSync(join(dir, 'skip-reviewer'), '1');
+    return `${why}: PASS for the review and the test part without asking the reviewer`;
+  }
+  const testsSaid = await writeInputs(tests, {
+    src,
+    base,
+    head,
+    pr,
+    loadWords,
+    brief: testsBrief(testsBriefText),
+    lead,
+    reviewDiff: parts[0],
+  });
   if (split.tooLarge) {
     // Too large to judge even in parts: a FAIL for this head, written here, so the reviewer never sees a cut diff.
     const finding = `the diff is ${bytes} bytes, over ${MAX_DIFF_BYTES}, and can't be reviewed in parts (${split.tooLarge}); it can't be reviewed whole; split the pull request`;
