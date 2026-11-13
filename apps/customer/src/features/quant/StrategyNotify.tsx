@@ -94,12 +94,13 @@ export function StrategyChannels({ strategy }: { strategy: QuantStrategyDetail }
               </p>
               <fieldset>
                 <legend>{t('channelsTitle')}</legend>
-                <label>
-                  <input type="checkbox" checked disabled /> {t('inappAlways')}
+                <label className="quant-check-line">
+                  <input className="quant-run-check" type="checkbox" checked disabled /> {t('inappAlways')}
                 </label>
                 {CHOICES.map((channel) => (
-                  <label key={channel}>
+                  <label key={channel} className="quant-check-line">
                     <input
+                      className="quant-run-check"
                       type="checkbox"
                       checked={chosen.has(channel)}
                       onChange={(event) => {

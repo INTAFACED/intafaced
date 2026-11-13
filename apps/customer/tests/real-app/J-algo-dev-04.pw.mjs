@@ -209,7 +209,7 @@ test(`${J} #2 sets cash TEST and an empty holdings list, keeps the own-exchange 
     await expect(view.getByTestId('quant-paper-position')).toHaveAttribute('data-qty', after.position.qty, { timeout: 1_000 });
     await expect(view.getByTestId('quant-paper-equity')).toHaveAttribute('data-equity', after.totals.endEquity, { timeout: 1_000 });
   }).toPass({ timeout: 90_000 });
-  await expect(view.getByRole('table', { name: 'Paper fills' })).toBeVisible();
+  await expect(view.getByRole('region', { name: 'Paper fills' }).getByRole('table')).toBeVisible();
   expect(after.claimLabel).toBe(LABEL);
 
   // Each fill is at the open of a closed bar of our exchange's own BTC/USDT tape, after the start: never an earlier price.
@@ -386,7 +386,9 @@ test(`${J} #6 adds a fill alert with a message template, then changes a strategy
 
   // A parameter change in Studio: a new version; the alert stays as it was, on version 1.
   await page.goto('/quant/studio');
+  // Studio keeps the strategy it last saved open on this device; otherwise open it from the library once it has read it.
   const open = page.getByRole('button', { name: `Open ${NAME}` });
+  await expect(open.or(page.getByText('Open in the form')).first()).toBeVisible();
   if (await open.isVisible()) await open.click();
   await expect(page.getByLabel('Strategy name')).toHaveValue(NAME);
   await page.getByTestId('quant-signal-builder').getByLabel('Slow average (bars)').fill('3');
