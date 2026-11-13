@@ -558,7 +558,7 @@ test('planted 4 (theo-01 part 2): a named stack-file pull request seals on the l
   assert.equal(asRevert.ok, false, 'a revert is judged as it was before this part');
 });
 
-// A root deploy file (compose, .env.example, the Dockerfile): `pnpm local:stack` never reads one, so a named journey build
+// A root deploy file (compose, .env.example): `pnpm local:stack` never reads one, so a named journey build
 // that adds its service's env there runs the journeys that name it, like a stack file; unnamed, it stays full.
 const COMPOSE = 'docker-compose.apps.yml';
 const READS_COMPOSE = new Map([
@@ -566,8 +566,8 @@ const READS_COMPOSE = new Map([
   ['J-home-ia-11.pw.mjs', "const COMPOSE = ['docker-compose.yml', 'docker-compose.apps.yml']; read('.env.example');"],
 ]);
 
-test('ROOT_DEPLOY_FILE: the root compose files, .env.example and the Dockerfile, and nothing wider', () => {
-  for (const p of ['docker-compose.yml', COMPOSE, 'docker-compose.outreach.yml', '.env.example', 'Dockerfile']) {
+test('ROOT_DEPLOY_FILE: the root compose files and .env.example, and nothing wider', () => {
+  for (const p of ['docker-compose.yml', COMPOSE, 'docker-compose.outreach.yml', '.env.example']) {
     assert.equal(ROOT_DEPLOY_FILE.test(p), true, p);
     assert.deepEqual({ kind: pathKind(p).kind, stack: pathKind(p).stack }, { kind: 'full', stack: true }, p);
   }
@@ -577,6 +577,7 @@ test('ROOT_DEPLOY_FILE: the root compose files, .env.example and the Dockerfile,
     'turbo.json',
     '.env',
     '.env.tester.local',
+    'Dockerfile', // J-home-ia-11 builds the app image from it without naming it, so it stays full
     'apps/edge/Dockerfile',
     'infra/docker-compose.yml',
     'docker-compose.yml.bak',

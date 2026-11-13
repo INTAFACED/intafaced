@@ -189,13 +189,14 @@ export function namedInputs({ ids, journeyFiles, map, importers = null }) {
  *  name, isn't one. */
 export const STACK_FILE = /^tooling\/(?:scripts\/local-stack-services\/[a-z0-9-]+\.mjs|profiles\/test-owner-values\/[a-z0-9-]+\.json)$/;
 
-/** A root deploy file the journeys stack never starts from: `pnpm local:stack` reads no compose file, .env.example or
- *  Dockerfile (deploys and the tester profile do), and a journey that reads one names it (J-home-ia-11 reads both compose
- *  files and .env.example). A journey build adds its service's env here beside its stack file, and one of them was in 35 of
- *  41 journey-build runs on 12-13 Nov 2026 that ran the full suite. So a named pull request treats it like a stack file: it
- *  runs the journeys that name it (stackImporters); without a name it stays full, and main's full run judges the rest
+/** A root deploy file the journeys stack never starts from: `pnpm local:stack` reads no compose file or .env.example
+ *  (deploys and the tester profile do), and a journey that reads one names it (J-home-ia-11 reads both compose files and
+ *  .env.example). The Dockerfile is not one: J-home-ia-11 builds the app image without naming it, so it stays full. A
+ *  journey build adds its service's env here beside its stack file, and one of them was in 34 of 41 journey-build runs
+ *  on 12-13 Nov 2026 that ran the full suite. So a named pull request treats it like a stack file: it runs the journeys
+ *  that name it (stackImporters); without a name it stays full, and main's full run judges the rest
  *  (project-state#2344 row d55). */
-export const ROOT_DEPLOY_FILE = /^(?:docker-compose[^/]*\.ya?ml|\.env\.example|Dockerfile)$/;
+export const ROOT_DEPLOY_FILE = /^(?:docker-compose[^/]*\.ya?ml|\.env\.example)$/;
 
 /** Text with a path split over `'a', 'b'` arguments or a line of comment joined up, so each spelling reads as one path. */
 const joinedPaths = (t) =>
