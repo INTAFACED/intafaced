@@ -201,6 +201,12 @@ const schema = serviceEnvSchema
       ACADEMY_GRADE_REPORT_ROWS: blankAsUnset(z.coerce.number().int().min(1).max(100_000)),
 
       /**
+       * AC-certificates-03: how many issued certificates the staff list shows and one export of it may hold. Blank / unset
+       * is unpublished: the list and an export refuse `academy.report_limit_unset`.
+       */
+      ACADEMY_CERT_ISSUED_ROWS: blankAsUnset(z.coerce.number().int().min(1).max(100_000)),
+
+      /**
        * AC-analytics-01: how many learners one page of the founder console's learner summaries shows, at most the
        * Academy's list ceiling (200). Blank / unset is unpublished: the read refuses `academy.learner_summaries_list_limit_unset`.
        */

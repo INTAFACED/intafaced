@@ -55,6 +55,10 @@ const graderLease = () => (process.env.LOCAL_STACK_ACADEMY_GRADER_LEASE === 'off
 // leaves it blank, so the "report limit not set" refusal can be seen too.
 const reportRows = () => (process.env.LOCAL_STACK_ACADEMY_REPORT_ROWS === 'off' ? {} : { ACADEMY_GRADE_REPORT_ROWS: '500' });
 
+// LOCAL TEST issued certificate list and export size (a TEST owner value): 500 rows (J-academy-17 #4).
+// `LOCAL_STACK_ACADEMY_CERT_ISSUED_ROWS=off` leaves it blank, so the "limit not set" refusal can be seen too.
+const certIssuedRows = () => (process.env.LOCAL_STACK_ACADEMY_CERT_ISSUED_ROWS === 'off' ? {} : { ACADEMY_CERT_ISSUED_ROWS: '500' });
+
 // LOCAL TEST quiz curve file size (a TEST owner value): 64 KiB (J-academy-13 #5). `LOCAL_STACK_ACADEMY_BULK_LIMIT=off`
 // leaves it blank, so the "limit not set" refusal can be seen too.
 const bulkLimit = () => (process.env.LOCAL_STACK_ACADEMY_BULK_LIMIT === 'off' ? {} : { ACADEMY_BULK_FILE_MAX_BYTES: '65536' });
@@ -115,6 +119,10 @@ const coursePayments = (testChain) => {
   };
 };
 
+// LOCAL TEST room size ceiling (a TEST owner value): a host may open a room of up to 500 seats, so a host can open the
+// specialist rooms J-academy-19 #4 reads. `LOCAL_STACK_ACADEMY_ROOM_CAPACITY=off` leaves it blank (createRoom refuses).
+const roomCapacity = () => (process.env.LOCAL_STACK_ACADEMY_ROOM_CAPACITY === 'off' ? {} : { ACADEMY_MAX_ROOM_CAPACITY: '500' });
+
 // LOCAL TEST learner summaries page size and report task list size (TEST owner values): 50 each (J-academy-16 #2, #3).
 // `LOCAL_STACK_ACADEMY_LEARNER_SUMMARIES=off` leaves the summaries' page size blank, so its refusal can be seen too.
 const analyticsPages = () => ({
@@ -163,12 +171,14 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, testChain }) => ({
     ...grantAuditPage(),
     ...graderLease(),
     ...reportRows(),
+    ...certIssuedRows(),
     ...bulkLimit(),
     ...staffLimits(),
     ...certSweep(),
     ...programmeMax(),
     ...postLimits(),
     ...verifyRate(),
+    ...roomCapacity(),
     ...analyticsPages(),
     ...reportsCentre(),
     ...roleLimit(),

@@ -178,6 +178,7 @@ const academy = new AcademyService(
     topicsListLimit: env.ACADEMY_TOPICS_LIST_LIMIT,
     graderLeaseSeconds: env.ACADEMY_GRADER_LEASE_SECONDS,
     gradeReportRows: env.ACADEMY_GRADE_REPORT_ROWS,
+    certIssuedRows: env.ACADEMY_CERT_ISSUED_ROWS,
     learnerSummariesPageSize: env.ACADEMY_LEARNER_SUMMARIES_PAGE_SIZE,
     reportTasksPageSize: env.ACADEMY_REPORT_TASKS_PAGE_SIZE,
     reportCentreRetentionMinutes: env.ACADEMY_REPORT_CENTRE_RETENTION_MINUTES,
