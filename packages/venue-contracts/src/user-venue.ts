@@ -474,12 +474,6 @@ export type VenueRefusalCode =
   | 'market_delisted'
   /** The order is larger than the venue's own largest order size or notional for the market. */
   | 'order_above_venue_max'
-  /** The order's value is below the venue's smallest order value for the market (`UserVenueMarket.minOrderNotional`). */
-  | 'order_below_venue_min'
-  /** A limit price outside the venue's price band around its reference price (`UserVenueMarket.priceBandBps`). */
-  | 'price_outside_venue_band'
-  /** The account already holds the most open orders the venue allows (`UserVenueMarket.maxOpenOrders`). */
-  | 'open_orders_above_venue_cap'
   /**
    * An opening order would take the market's open interest past the cap its deployer set
    * (`UserVenueMarket.openInterest.capSize`). The detail names the cap; nothing is signed.
@@ -875,23 +869,6 @@ export interface UserVenueMarket {
   readonly maxOrderQty: Amount | null;
   /** The venue's largest order notional in the quote asset, or `null` when it does not report one. */
   readonly maxOrderNotional: Amount | null;
-  /**
-   * The venue's smallest order value in the quote asset (price times size), or `null` when it publishes none. An order
-   * below it is refused `order_below_venue_min`. Never a guessed floor: on a spot market our door refuses an order while
-   * this is `null` (`trade.venue_rule_unpublished`, J-cex-spot-04 #6).
-   */
-  readonly minOrderNotional: Amount | null;
-  /**
-   * The venue's price band in bps (scaled, as `builderFeeCapBps`): a limit price further than this from the venue's
-   * reference price (the middle of its own book, or the one side it has) is refused `price_outside_venue_band`; `null`
-   * when the venue publishes no band.
-   */
-  readonly priceBandBps: Amount | null;
-  /**
-   * The most open orders the venue lets one account hold, or `null` when it publishes none. An order past it is refused
-   * `open_orders_above_venue_cap`.
-   */
-  readonly maxOpenOrders: number | null;
   /**
    * The most builder fee the venue lets any builder attach to an order on this market, in bps of notional (scaled, as
    * `maxFeeBps`), as the venue publishes it; `known: false` when it publishes none. An order carrying more is refused

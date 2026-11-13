@@ -43,7 +43,7 @@ import {
   type ActionResult,
   type VenueAccount,
 } from '../../../features/trade/venue/VenueKit';
-import { builderApproved, carriesBuilderFee } from '../../../features/trade/venue/VenueReview';
+import { bpsPercent, builderApproved, carriesBuilderFee } from '../../../features/trade/venue/VenueReview';
 import { SubAccountsPanel } from '../../../features/trade/venue/SubAccounts';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
 import { tradeAccess } from '../markets/TradeAccess';
@@ -66,7 +66,6 @@ import {
 import { placesOf } from './text';
 import { zoneName } from './time';
 import { spotVenueCopy } from './venue-copy';
-import { VenueMarketRules } from './VenueMarketRules';
 import {
   HeldDraft,
   depositTransfer,
@@ -76,7 +75,6 @@ import {
   shortAddress,
   slippageLimit,
   ticketProblem,
-  unpublishedRules,
   withdrawStep,
   type DepositRoute,
   type TicketFields,
@@ -275,7 +273,6 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
       {owner ? (
         <SubAccountsPanel owner={owner} balances={account.balances.data} test={status.test} run={run} onMoved={account.reload} />
       ) : null}
-      <VenueMarketRules market={market} venueName={status.venue.displayName} />
       <Tabs value={type} onValueChange={(value) => setType(value as VenueOrderType)} data-testid="dk-order" className="dk-panel dk-order">
         <div className="dk-order-head">
           <TabsList className="dk-tabs" aria-label={t('Order type')}>
@@ -661,16 +658,6 @@ function VenueSideForm({
           <p className="dk-note">{t('Checking verification')}</p>
         ) : access === 'unread' ? (
           <p className="dk-note">{t('Verification unread')}</p>
-        ) : issue === 'rule_unpublished' ? (
-          <p className="dk-note dk-note--bad" role="alert" data-code="trade.venue_rule_unpublished">
-            {t('Rule unpublished', {
-              venue: status.venue.displayName,
-              symbol: market.symbol,
-              rules: unpublishedRules(market)
-                .map((rule) => t(rule === 'min' ? 'Rule name min' : rule === 'band' ? 'Rule name band' : 'Rule name cap'))
-                .join(', '),
-            })}
-          </p>
         ) : !owner ? (
           <p className="dk-note">{t('Connect to trade')}</p>
         ) : issue === 'no_cap' && type === 'market' ? (
@@ -897,6 +884,16 @@ export function VenueReviewRows({
             )}
           </dd>
         </div>
+        {carries && p.feeDiscount ? (
+          <div>
+            <dt>{v('Builder fee discount')}</dt>
+            <dd className="numeric" data-line="builder-fee-discount" data-source={p.feeDiscount.source}>
+              {p.feeDiscount.source === 'coupon'
+                ? v('Builder discount coupon', { code: p.feeDiscount.code, pct: bpsPercent(p.feeDiscount.bps) })
+                : v('Builder discount rank', { pct: bpsPercent(p.feeDiscount.bps) })}
+            </dd>
+          </div>
+        ) : null}
         <div>
           <dt>{t('Fee role')}</dt>
           <dd data-line="role">{word(v, 'role', p.role)}</dd>

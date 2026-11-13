@@ -126,6 +126,11 @@ const schema = serviceEnvSchema
        */
       AGENTS_URL: z.string().default(''),
       /**
+       * svc-campaigns' address, for a person's fee-saver coupon on our builder fee (J-campaigns-09 #2 #3). Blank: no
+       * coupon is asked for, and every venue order carries the rank's rate or the builder fee in force.
+       */
+      CAMPAIGNS_URL: z.string().default(''),
+      /**
        * svc-quant's address, for the strategy version a live run trades (J-algo-dev-07; src/quant/live-run/). Read as the
        * person, with their own edge-signed principal passed on. Blank: every live start refuses quant.live_plan_unavailable.
        */
