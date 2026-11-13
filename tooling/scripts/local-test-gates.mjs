@@ -3069,13 +3069,19 @@ export async function tradingRestrict(ctx, handle, action, reasonCode) {
  * LOCAL TEST: a staff close of one journey account (J-identity-14 #3), through identity's own four-eyes closure control
  * as the founder console runs it (J-ops-console-04 #7): founder a reads the closure version, proposes the close over that
  * version, reason code and reason, founder b approves, and founder a runs it once. `final` is the close staff make today:
- * the account stays closed, and sign-in names it. `grace` (a close with a grace date) is not built yet and refuses here.
+ * the account stays closed, and sign-in names it. `grace <days>` is a staff close with a grace date (J-identity-14 #1):
+ * the approval also binds the days, and until the date the account may sign in and withdraw but not trade.
  * Only `@local-test.invalid` accounts.
  */
-export async function accountClose(ctx, handle, kind, reasonCode) {
-  if (!/^[a-z0-9_]{3,32}$/i.test(handle ?? '') || !['final', 'grace'].includes(kind) || !/^[a-z][a-z0-9_]{1,63}$/.test(reasonCode ?? ''))
+export async function accountClose(ctx, handle, kind, reasonCode, daysArg) {
+  const graceDays = kind === 'grace' ? Number(daysArg) : undefined;
+  if (
+    !/^[a-z0-9_]{3,32}$/i.test(handle ?? '') ||
+    !['final', 'grace'].includes(kind) ||
+    !/^[a-z][a-z0-9_]{1,63}$/.test(reasonCode ?? '') ||
+    (kind === 'grace' ? !/^[1-9][0-9]?$/.test(daysArg ?? '') : daysArg !== undefined)
+  )
     throw new Error('usage: local-test-gates.mjs account-close <handle> final <reasonCode> | grace <reasonCode> <days>');
-  if (kind === 'grace') throw new Error('account-close: a staff close with a grace date is not built yet (J-identity-14 #1)');
   const { users } = listAccountsAndTiers(ctx.secrets);
   const user = users.find((u) => u.handle === handle);
   if (!user || !user.email.endsWith('@local-test.invalid')) throw new Error(`account-close: ${handle} is not a journey account`);
@@ -3089,17 +3095,33 @@ export async function accountClose(ctx, handle, kind, reasonCode) {
     targetService: 'svc-identity',
     targetId: user.id,
     expectedVersion,
-    payloadHash: identityPayloadHash(user.id, { action: 'close', reasonCode, reason }),
+    payloadHash: identityPayloadHash(user.id, {
+      action: 'close',
+      reasonCode,
+      ...(graceDays !== undefined ? { graceDays: String(graceDays) } : {}),
+      reason,
+    }),
     policyVersion: 'v1',
   });
   const res = await ctx.edge.mutate(
     'identity',
     'accountControls.closure',
-    { requestId: crypto.randomUUID(), userId: user.id, action: 'close', reasonCode, reason, expectedVersion, approvalId },
+    {
+      requestId: crypto.randomUUID(),
+      userId: user.id,
+      action: 'close',
+      reasonCode,
+      reason,
+      ...(graceDays !== undefined ? { graceDays } : {}),
+      expectedVersion,
+      approvalId,
+    },
     founders.a.token,
   );
   const after = data(res)?.after;
-  const ok = res.status === 200 && after?.status === 'closed';
+  // A grace close leaves the account open until the date, with the date on file; a final close closes it now.
+  const ok =
+    res.status === 200 && (graceDays !== undefined ? after?.status !== 'closed' && !!after?.graceUntil : after?.status === 'closed');
   return { handle, ok, why: ok ? 'closed' : `${res.status} ${refusalText(res)}` };
 }
 
@@ -3410,7 +3432,7 @@ async function main() {
       const r = await appealDecide(ctx, process.argv[3], process.argv[4], process.argv[5], process.argv[6]);
       say(`  ${r.ok ? 'OK     ' : 'REFUSED'} ${r.handle} appeal ${r.decision}: ${r.why}`);
     } else if (cmd === 'account-close') {
-      const r = await accountClose(ctx, process.argv[3], process.argv[4], process.argv[5]);
+      const r = await accountClose(ctx, process.argv[3], process.argv[4], process.argv[5], process.argv[6]);
       say(`  ${r.ok ? 'OK     ' : 'REFUSED'} ${r.handle} account close: ${r.why}`);
     } else if (cmd === 'trading-restrict') {
       const r = await tradingRestrict(ctx, process.argv[3], process.argv[4], process.argv[5]);

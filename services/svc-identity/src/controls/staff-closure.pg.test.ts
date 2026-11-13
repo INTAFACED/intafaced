@@ -314,5 +314,82 @@ if (!available) {
         reopenable: false,
       });
     });
+
+    describe('a staff close with a grace date (J-identity-14 #1)', () => {
+      const grace = (expectedVersion = '0', graceDays = 14): AccountClosureInput =>
+        ({ ...close(expectedVersion, 'other'), graceDays }) as AccountClosureInput;
+      const approvedGrace = async (input: AccountClosureInput & { graceDays?: number }) => ({
+        ...input,
+        approvalId: await approvedClosure(db.sql, {
+          requesterId: id(first),
+          approverId: id(second),
+          userId: input.userId,
+          action: 'close',
+          reasonCode: 'other',
+          reason: input.reason,
+          expectedVersion: input.expectedVersion,
+          ...(input.graceDays !== undefined ? { graceDays: input.graceDays } : {}),
+        }),
+      });
+      const row = async () =>
+        (
+          await db.sql<Array<{ status: string; closed_reason: string | null; grace: Date | null; sessions: string }>>`
+          SELECT status, closed_reason, close_grace_until AS grace,
+            (SELECT count(*)::text FROM sessions s WHERE s.user_id = users.id AND NOT s.revoked) AS sessions
+          FROM users WHERE id = ${target}`
+        )[0]!;
+
+      it('keeps the account open until the date, with its code and date on file, and an approval binds the days', async () => {
+        // An approval for a final close never spends on a grace close.
+        const finalApproval = { ...grace(), approvalId: await approve(first, id(second), close('0', 'other')) };
+        expect(await controls.closure(first, finalApproval)).toMatchObject({
+          outcome: 'refused',
+          code: 'identity.close_approval_mismatch',
+        });
+        // Balances or open products do not stop it: the grace is for withdrawing them, so no check runs now.
+        blockers = [{ code: 'balance.open', count: 1 }];
+        const at = (await db.sql<Array<{ at: Date }>>`SELECT now() AS at`)[0]!.at;
+        const result = await controls.closure(first, await approvedGrace(grace()));
+        expect(result).toMatchObject({ outcome: 'changed', after: { status: 'active', closedBy: 'staff', closeReasonCode: 'other' } });
+        expect(checks).toEqual([]);
+        const stored = await row();
+        expect(stored).toMatchObject({ status: 'active', closed_reason: 'other', sessions: '1' });
+        const days = (stored.grace!.getTime() - at.getTime()) / 86_400_000;
+        expect(days).toBeGreaterThan(13.99);
+        expect(days).toBeLessThan(14.01);
+        expect(result.outcome === 'changed' && result.after.graceUntil).toBe(stored.grace!.toISOString());
+        // Already closing: a second close refuses.
+        expect(await controls.closure(first, await approvedGrace(grace('1')))).toMatchObject({
+          outcome: 'refused',
+          code: 'identity.close_already_closed',
+        });
+      });
+
+      it('the job closes it after the date only once nothing is open, and a repeat changes nothing', async () => {
+        expect(await controls.closure(first, await approvedGrace(grace()))).toMatchObject({ outcome: 'changed' });
+        // Before the date nothing is due.
+        expect(await controls.finalizeGraceClosures(10)).toEqual({ closed: [], held: [] });
+        await db.sql`UPDATE users SET close_grace_until = now() - interval '1 second' WHERE id = ${target}`;
+        // Something left open: the account stays in grace, still signed in, so nothing is stranded.
+        blockers = [{ code: 'balance.open', count: 1 }];
+        expect(await controls.finalizeGraceClosures(10)).toEqual({
+          closed: [],
+          held: [{ userId: target, code: 'identity.close_blocked', blockers: [{ code: 'balance.open', count: 1 }] }],
+        });
+        expect(await row()).toMatchObject({ status: 'active', sessions: '1' });
+        // The checks unreadable: held too.
+        controls.useClosureChecks(async () => ({ ok: false }));
+        expect((await controls.finalizeGraceClosures(10)).held).toEqual([{ userId: target, code: 'identity.close_check_unavailable' }]);
+        controls.useClosureChecks(async () => ({ ok: true, blockers: [] }));
+        expect(await controls.finalizeGraceClosures(10)).toEqual({ closed: [target], held: [] });
+        expect(await row()).toMatchObject({ status: 'closed', closed_reason: 'other', grace: null, sessions: '0' });
+        expect(await controls.closureState(first, { userId: target })).toMatchObject({
+          status: 'closed',
+          closedBy: 'staff',
+          graceUntil: null,
+        });
+        expect(await controls.finalizeGraceClosures(10)).toEqual({ closed: [], held: [] });
+      });
+    });
   });
 }

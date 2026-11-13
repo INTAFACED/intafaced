@@ -155,6 +155,12 @@ export type AccountControlResult = z.infer<typeof accountControlResultSchema>;
  * staff closed with `customer_request`. A close for any other reason (fraud, negative balance, bank reason, other) stays
  * closed. No money moves here; the balance at close is the closure sweep's, and a close refuses while the closure checks
  * report open products or balances.
+ *
+ * A close with `graceDays` (J-identity-14 #1) is a staff close with a grace date: identity keeps the account open to sign
+ * in and withdraw until `graceUntil` (the database clock at the close plus that many days), refuses every fresh trade
+ * from the close on, and skips the open-products-and-balances check, since the grace is for withdrawing what is left.
+ * After the date, identity's grace closure job closes it as an ordinary staff close once the closure checks come back
+ * clean; while they report anything open, the account stays in grace (withdraw yes, trade no), so no funds are stranded.
  */
 export const accountCloseReasonCodes = ['fraud', 'negative_balance', 'bank_reason', 'customer_request', 'other'] as const;
 export const accountCloseReasonCodeSchema = z.enum(accountCloseReasonCodes);
@@ -170,6 +176,8 @@ export const accountClosureInputSchema = z.discriminatedUnion('action', [
       action: z.literal('close'),
       reasonCode: accountCloseReasonCodeSchema,
       reason: closureReason,
+      /** A grace close: days until the account closes, during which it may withdraw but not trade. */
+      graceDays: z.number().int().min(1).max(90).optional(),
       expectedVersion: version,
       approvalId: z.string().trim().min(1).max(128).optional(),
     })
@@ -187,7 +195,11 @@ export const accountClosureInputSchema = z.discriminatedUnion('action', [
 ]);
 export type AccountClosureInput = z.infer<typeof accountClosureInputSchema>;
 
-/** `closedBy`: who closed it, `customer` (the closure flow, or staff with `customer_request`) or `staff`; null while open. */
+/**
+ * `closedBy`: who closed it, `customer` (the closure flow, or staff with `customer_request`) or `staff`; null while open.
+ * `graceUntil`: a staff close with a grace date not yet finalised (status still `active`); absent in records written
+ * before grace closes existed.
+ */
 export const accountClosureStateSchema = z
   .object({
     userId: id,
@@ -196,6 +208,7 @@ export const accountClosureStateSchema = z
     closedBy: z.enum(['customer', 'staff']).nullable(),
     closeReasonCode: accountCloseReasonCodeSchema.nullable(),
     reopenable: z.boolean(),
+    graceUntil: timestamp.nullable().optional(),
   })
   .strict();
 export type AccountClosureState = z.infer<typeof accountClosureStateSchema>;
