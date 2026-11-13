@@ -545,6 +545,10 @@
     "./agents-team": {
       "types": "./dist/agents-team.d.ts",
       "default": "./dist/agents-team.js"
+    },
+    "./pay-deposit-freezes": {
+      "types": "./dist/pay-deposit-freezes.d.ts",
+      "default": "./dist/pay-deposit-freezes.js"
     }
   },
   "scripts": {
