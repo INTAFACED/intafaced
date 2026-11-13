@@ -15,11 +15,18 @@ const JOURNEYS = join(ROOT, 'apps/customer/tests/real-app');
 /** A journey source reads a market's past when it reads charts, candles or the public tape. */
 const READS_PAST = /candle|ohlcv|kline|chart|tape|\/trades\//i;
 
-/** The default spot markets a journey source names, when that source reads a market's past. */
+/**
+ * The default spot markets a journey source names, when that source reads a market's past: as `ETH/BTC`, or as a route
+ * or test id writes it (`ETH-BTC`, `eth-btc`). A market a journey only finds at run time (the first listed market with
+ * bars) is not named and needs no entry: it takes a market that has history.
+ */
 export function pastMarketsRead(src, symbols = DEFAULT_SYMBOLS) {
   if (!READS_PAST.test(src)) return [];
   const spot = symbols.filter((s) => !s.includes(':'));
-  return spot.filter((s) => new RegExp(`(^|[^A-Z/])${s.replace('/', '\\/')}(?![A-Z:/])`).test(src));
+  return spot.filter((s) => {
+    const [base, quote] = s.split('/');
+    return new RegExp(`(^|[^A-Za-z])${base}[/-]${quote}(?![A-Za-z:/-])`, 'i').test(src);
+  });
 }
 
 /** The markets journey files read the past of and history leaves out, as "file: market". */
@@ -53,4 +60,6 @@ test('a journey charting a market history leaves out is named (planted fault)', 
   assert.deepEqual(historySymbolsJourneysRead(planted), ['J-planted.pw.mjs: ETH/BTC']);
   assert.deepEqual(historySymbolsJourneysRead([['J-trades-only.pw.mjs', "await buy('ETH/BTC');"]]), [], 'trading a market reads no past');
   assert.deepEqual(pastMarketsRead("chart of 'BTC/USDT:USDT'"), [], 'the perpetual is not the spot market');
+  assert.deepEqual(pastMarketsRead("await page.goto('/charts/eth-btc')"), ['ETH/BTC'], 'a route names the market too');
+  assert.deepEqual(pastMarketsRead("getByTestId('chart-ETH-USDC')"), ['ETH/USDC'], 'so does a test id');
 });
