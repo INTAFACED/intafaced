@@ -303,6 +303,6 @@ test(`${J} #7 stops leading with an open spot position, then after closing it: r
   panel = await leadDesk(page, 'Listing', {});
   await expect(panel).toContainText('Delisted');
   await expect(panel).toContainText('Approved: you no longer lead');
-  const profile = await (await api(state('follower'))).get(trpc('copy.leaderProfile', { leaderRef }));
+  const profile = await (await api(state('follower'))).get(trpc('copy.leaderProfile', { leaderRef: leadRef }));
   expect(profile.status, JSON.stringify(profile.body).slice(0, 300)).toBe(404);
 });
