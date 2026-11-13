@@ -1526,7 +1526,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     product: 'spot',
     access: 'private',
     summary:
-      'Withdraw a grid bot’s profit; needs a step-up approval made in the calling session (403 identity.step_up_required without one)',
+      'Refused for every key (403 trade.api_withdraw_not_allowed): no API key or bot can withdraw; you withdraw from the venue with your own wallet, and nothing moves',
   },
   {
     name: 'fetchAlgoOrders',
