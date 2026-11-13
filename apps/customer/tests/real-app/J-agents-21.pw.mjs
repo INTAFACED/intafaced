@@ -904,7 +904,7 @@ test(`${J} #18 The agent account's loss for the day reaches the daily-loss cap: 
 });
 
 /** #19: the person makes an agent key with an end date, through identity's API with the TEST passkey, as assistantKey does. */
-async function datedAgentKey(session, passkey, name, expiresAt) {
+async function datedAgentKey(session, passkey, tag, name, expiresAt) {
   const options = await session.post('/api/identity/trpc/auth.stepUpOptions', {});
   const challenge = options.body?.result?.data?.challenge;
   expect(challenge, JSON.stringify(options.body).slice(0, 300)).toBeTruthy();
@@ -913,7 +913,7 @@ async function datedAgentKey(session, passkey, name, expiresAt) {
     scopes: ['trade:read', 'trade:write'],
     kind: 'agent',
     expiresAt,
-    requestId: `${J}:${name}:${expiresAt}`,
+    requestId: `${J}:${run.read().second.accountId}:${tag}-key`,
     factorProof: { webauthn: await passkey.assertion(challenge) },
   });
   run.write({ passkey: passkey.saved() });
@@ -937,6 +937,7 @@ test(`${J} #19 Connects the assistant with an expiry longer than the venue allow
   const tooLong = await datedAgentKey(
     session,
     passkey,
+    'too-long',
     'TEST assistant (too long)',
     new Date(Date.now() + maxMs + 86_400_000).toISOString(),
   );
@@ -952,7 +953,7 @@ test(`${J} #19 Connects the assistant with an expiry longer than the venue allow
 
   // A valid one, ending in a minute: connected, and its expiry date shown on the connection and in the list.
   const endsAt = new Date(Date.now() + 60_000).toISOString();
-  const valid = await datedAgentKey(session, passkey, 'TEST assistant (dated)', endsAt);
+  const valid = await datedAgentKey(session, passkey, 'dated', 'TEST assistant (dated)', endsAt);
   const fields = { keyId: valid.keyId, accountId: second.accountId };
   const stepUpApprovalId = await confirmStepUp(session, passkey, {
     scope: 'trade.step_up.venue.agentConnect',
