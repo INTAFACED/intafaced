@@ -241,7 +241,7 @@ export function scriptReads(root, pkg, dirs, globalDeps = []) {
 const CODE_FILE = /\.(?:[cm]?[jt]sx?|json)$/;
 const IMPORT_SPEC = /(?:\bfrom\s*|\bimport\s*\(?\s*|\brequire\s*\(\s*)['"`]((?:\.\.?\/)+[^'"`\s]+)['"`]/g;
 /** A triple-slash reference is a comment, so it is matched before comments are stripped (review R2 of round 2). */
-const REFERENCE_PATH = /^\s*\/\/\/\s*<reference\s+path\s*=\s*['"]((?:\.\.?\/)+[^'"\s]+)['"]/gm;
+const REFERENCE_PATH = /^\s*\/\/\/\s*<reference\s+path\s*=\s*['"]([^'"\s]+)['"]/gm; // file-relative, ./ or not
 
 function* walkCode(dir) {
   for (const e of readdirSync(dir, { withFileTypes: true })) {
@@ -475,6 +475,7 @@ function turboSelfTest() {
     // Planted fault 4: a test imports a file outside every package, whose types import another (review of 13 Nov 2026).
     put('tooling/s/x.mjs', 'export const x = 1;');
     put('tooling/s/x.d.mts', "export { y as x } from './y.mjs';");
+    put('tooling/s/ref.d.ts', '/// <reference path="ref2.d.ts" />');
     put('tooling/s/y.d.mts', 'export declare const y: number;');
     put('services/q/tsconfig.test.json', '{ "include": ["src/**/*"], "exclude": ["dist"] }');
     put(
@@ -508,10 +509,11 @@ function turboSelfTest() {
         '$TURBO_ROOT$/packages/dep2/**',
         '$TURBO_ROOT$/tooling/s/data.json',
         '$TURBO_ROOT$/tooling/s/ref.d.*',
+        '$TURBO_ROOT$/tooling/s/ref2.d.*',
         '$TURBO_ROOT$/tooling/s/x.*',
         '$TURBO_ROOT$/tooling/s/y.*',
       ],
-      'JSON hashed as itself, reference followed, package imported back covered',
+      'JSON hashed as itself, reference followed (a bare sibling name too), package imported back covered',
     );
     // Planted fault 3: a tracked file under an ignored output dir, and a script path nothing hashes.
     eq(checkTurbo(root, { tracked: ['services/p/dist/x.js'] }).problems.length, 1, 'tracked file left out of the hash fails');
