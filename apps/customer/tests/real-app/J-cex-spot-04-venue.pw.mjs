@@ -11,8 +11,9 @@ import { openVenueDesk, sameDecimal, testDeposit, testVenue, venueBalance, venue
 // J-cex-spot-04 #2 and #6, in the running app (docs/roadmap/journeys.json), on the stack's outside TEST venue: at launch a
 // pair's rules are the venue's own (CUSTODY-DELTA: "Rules now come from the venue"), so the person reads them as the
 // venue publishes them, with the venue named, and a rule the venue does not publish, or a protection the owner has left
-// blank, refuses in words instead of defaulting. One test per step, titled "J-cex-spot-04 #<n>"; steps 1, 3, 4, 5 and 7
-// are in J-cex-spot-04.pw.mjs.
+// blank, refuses in words instead of defaulting. One test per step, titled "J-cex-spot-04 #<n>". J-cex-spot-04.pw.mjs
+// holds every step on today's desk, #2 and #6 included (its market Info list and the owner's blank band and cap), so
+// both tests count for those two steps.
 //
 // Each step trades a TEST spot market of its own: a fresh symbol the TEST venue lists by its `/test/market-add` control
 // with the rules the step needs, listed for INTAFACED by svc-trade's two-person door as setup (as J-cex-spot-16 does),
