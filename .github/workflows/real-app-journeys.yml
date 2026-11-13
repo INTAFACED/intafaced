@@ -731,7 +731,7 @@ jobs:
       # verify, and launch journeys trade at the TEST venue.
       # The history goes only on the markets journeys read the past of (`--markets journeys`, HISTORY_SYMBOLS in
       # local-test-market.mjs, which local-test-market-history.test.mjs keeps whole): four of six markets, 149 s against 193 s
-      # on 13 Nov, on every shard (project-state #2065 row d37).
+      # measured on one shard on 13 Nov, a saving every shard makes (project-state #2065 row d37).
       - name: Open the TEST markets, write TEST chart history, start the TEST market maker
         run: |
           node tooling/scripts/local-test-stack.mjs restart matching
