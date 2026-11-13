@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import {
   DOCS_READ,
   JOURNEY_CI,
+  ROOT_DEPLOY_FILE,
   RUN_FILE,
   STACK_FILE,
   afterReuse,
@@ -555,6 +556,73 @@ test('planted 4 (theo-01 part 2): a named stack-file pull request seals on the l
     verdict: short4,
   });
   assert.equal(asRevert.ok, false, 'a revert is judged as it was before this part');
+});
+
+// A root deploy file (compose, .env.example, the Dockerfile): `pnpm local:stack` never reads one, so a named journey build
+// that adds its service's env there runs the journeys that name it, like a stack file; unnamed, it stays full.
+const COMPOSE = 'docker-compose.apps.yml';
+const READS_COMPOSE = new Map([
+  ...IMPORTS,
+  ['J-home-ia-11.pw.mjs', "const COMPOSE = ['docker-compose.yml', 'docker-compose.apps.yml']; read('.env.example');"],
+]);
+
+test('ROOT_DEPLOY_FILE: the root compose files, .env.example and the Dockerfile, and nothing wider', () => {
+  for (const p of ['docker-compose.yml', COMPOSE, 'docker-compose.outreach.yml', '.env.example', 'Dockerfile']) {
+    assert.equal(ROOT_DEPLOY_FILE.test(p), true, p);
+    assert.deepEqual({ kind: pathKind(p).kind, stack: pathKind(p).stack }, { kind: 'full', stack: true }, p);
+  }
+  for (const p of [
+    'pnpm-lock.yaml',
+    'package.json',
+    'turbo.json',
+    '.env',
+    '.env.tester.local',
+    'apps/edge/Dockerfile',
+    'infra/docker-compose.yml',
+    'docker-compose.yml.bak',
+    'Dockerfile.dev',
+  ]) {
+    assert.equal(ROOT_DEPLOY_FILE.test(p), false, p);
+    assert.equal(pathKind(p).stack, undefined, p);
+  }
+});
+
+test('journeyTouch, root deploy file: a named build runs the journeys naming it; unnamed, a root build file beside it, or unread journeys stay full', () => {
+  const importers = (ps) => stackImporters(ps, READS_COMPOSE);
+  const named = namedInputs({ ids: ['J-bank-13'], journeyFiles: HEAD_FILES, map: ALWAYS_MAP, importers });
+  const t = journeyTouch([...product, COMPOSE, '.env.example', STACK], () => true, null, named);
+  assert.equal(t.mode, 'files');
+  assert.deepEqual(t.files, ['J-agents-12.pw.mjs', 'J-bank-13.pw.mjs', 'J-home-ia-11.pw.mjs', 'J-wallet-05.pw.mjs']);
+  assert.deepEqual(t.stack, ['.env.example', COMPOSE, STACK]);
+  // Planted: the journey that reads the compose file is in the list (it would be missed if the file ran none).
+  assert.ok(t.files.includes('J-home-ia-11.pw.mjs'));
+  assert.equal(journeyTouch([...product, COMPOSE], () => true, null, null).mode, 'full', 'no name');
+  assert.equal(journeyTouch([...product, COMPOSE, 'pnpm-lock.yaml'], () => true, null, named).mode, 'full', 'a root build file');
+  assert.equal(
+    journeyTouch([...product, COMPOSE, 'tooling/scripts/local-test-stack.mjs'], () => true, null, named).mode,
+    'full',
+    'stack-wide setup',
+  );
+  const blind = namedInputs({ ids: ['J-bank-13'], journeyFiles: HEAD_FILES, map: ALWAYS_MAP });
+  assert.equal(journeyTouch([...product, COMPOSE], () => true, null, blind).mode, 'full', 'journey texts unreadable');
+});
+
+test('planted 5: a named build changing a root deploy file seals on its list, and is held when the journey reading it is missing or red', async () => {
+  const title = 'svc-bank: cards (J-bank-13 #1)';
+  const states = { 'J-bank-13#1': 'passed' };
+  const ran = ['J-bank-13.pw.mjs', 'J-agents-12.pw.mjs', 'J-home-ia-11.pw.mjs'];
+  const io = { ...namedIo, journeyTexts: async () => READS_COMPOSE };
+  const opts = { title, files: [...product, COMPOSE], runs: [run(1)], io };
+  const good = await seal({ ...opts, reports: { 1: { states, ran } }, verdict: async () => clean });
+  assert.equal(good.ok, true, good.lines.join('\n'));
+  const short = await seal({ ...opts, reports: { 1: { states, ran: ran.slice(0, 2) } }, verdict: async () => clean });
+  assert.equal(short.ok, false, 'a run without the journey reading the compose file is held');
+  assert.match(short.lines.join('\n'), /ran J-home-ia-11\.pw\.mjs/);
+  const broke = await seal({ ...opts, reports: { 1: { states, ran } }, verdict: async () => red('J-home-ia-11#1') });
+  assert.equal(broke.ok, false, 'breaking the journey that reads it holds it');
+  const short4 = async () => ({ ...clean, missing: ['J-bank-14.pw.mjs'] });
+  const unnamed = await seal({ ...opts, title: 'svc-bank: cards', reports: { 1: { states: {}, ran } }, verdict: short4 });
+  assert.equal(unnamed.ok, false, 'unnamed: the full run is still needed');
 });
 
 test('the seal still needs every titled step passing: a clean full run with a titled step red fails', async () => {
