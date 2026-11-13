@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { parseAmount, type Amount } from '@intafaced/ledger-client/money';
+import { compare, parseAmount, ZERO, type Amount } from '@intafaced/ledger-client/money';
 import {
   VenueRefusalError,
   VenueWireError,
@@ -53,8 +53,9 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *        /test/settle-withdrawals, /test/set-mark {symbol,price}   the mark moves; a trigger order it crosses fires
  *        /test/set-index {symbol,price}                   a perpetual's TEST index (oracle) price, as the venue publishes it
  *        /test/pull-ladder {symbol,side: 'bid'|'ask'}     the TEST makers cancel that side of the market's seeded ladder
+ *        /test/ladder-mid {symbol,price}               the TEST makers rest that market's seeded ladder again around price (its mid)
  *        /test/fills {since}                              every account's fills since a time, with its account
- *        /test/seed                                       TEST makers rest a two-sided ladder on BTC-USDC, BTC-PERP, XAU-PERP,
+ *        /test/seed                                       TEST makers rest a two-sided ladder on BTC-USDC, BTC-PERP, ETH-PERP, XAU-PERP,
  *                                                         XSTK-PERP and XSTD-PERP
  *        /test/lose-answers {account,count}               the account's next `count` submits apply, answer not definite
  *        /test/expire-agent {account,agentAddress}        the agent's expiry passes now (it stays listed, expired)
@@ -368,6 +369,9 @@ async function makerRun(sim: TestVenueSimulator, name: string, intent: VenueInte
     throw new Error(`TEST seed: ${name} ${intent.kind} was not accepted: ${JSON.stringify(encodeVenueWire(outcome))}`);
 }
 
+/** A market's ladder mid moved by `/test/ladder-mid`, so a later `/test/seed` rests it around the same price. */
+const ladderMids = new WeakMap<TestVenueSimulator, Map<string, Amount>>();
+
 /** The ladder size each simulator was first seeded with, so `/test/seed` puts back the same ladder. */
 const seededLevelSize = new WeakMap<TestVenueSimulator, string>();
 
@@ -413,9 +417,10 @@ export async function seedTestVenue(
       }
       const ladder = SEED_LADDERS[market.symbol];
       if (!ladder) throw new Error(`TEST seed: no ladder for ${market.symbol}`);
+      const mid = ladderMids.get(sim)?.get(market.symbol) ?? ladder.mid;
       for (let level = 1; level <= SEED_LEVELS; level += 1) {
         const offset = ladder.step * BigInt(level);
-        const price = side === 'bid' ? ladder.mid - offset : ladder.mid + offset;
+        const price = side === 'bid' ? mid - offset : mid + offset;
         // A level the maker still rests is kept. One the venue cancelled (a deployer's halt, a split) rests again under a
         // new key, since a client order id names one order for good.
         const base = `order:test-maker-${name}:seed:${market.symbol}:${level}`;
@@ -448,6 +453,22 @@ export async function seedTestVenue(
 }
 
 /**
+ * TEST control: the TEST makers cancel both sides of a market's seeded ladder and rest it again around `mid`, so a book
+ * follows a TEST mark that moved far (a fill no longer has to cross the old prices). Signed cancels and orders, as any
+ * trader's; `/test/seed` keeps the new mid until it is moved again.
+ */
+export async function moveTestLadder(sim: TestVenueSimulator, symbol: string, mid: Amount): Promise<number> {
+  if (!LADDER_SYMBOLS.has(symbol)) throw new VenueWireError(`${symbol} has no TEST ladder`);
+  if (compare(mid, ZERO) <= 0) throw new VenueWireError('price must be above zero');
+  await pullTestLadder(sim, symbol, 'bid');
+  await pullTestLadder(sim, symbol, 'ask');
+  const mids = ladderMids.get(sim) ?? new Map<string, Amount>();
+  mids.set(symbol, mid);
+  ladderMids.set(sim, mids);
+  return (await seedTestVenue(sim)).orders;
+}
+
+/**
  * TEST control: the TEST makers cancel their seeded ladder on one side of a market (`bid`: every resting buy), so an
  * order that needs the other side finds no one; `/test/seed` rests it again. Signed cancels, as any trader's.
  */
@@ -460,7 +481,8 @@ export async function pullTestLadder(sim: TestVenueSimulator, symbol: string, si
     if (order.symbol !== symbol || order.venueClientOrderId === null) continue;
     const key = [...Array(SEED_LEVELS).keys()]
       .map((i) => `order:test-maker-${side}:seed:${symbol}:${i + 1}`)
-      .flatMap((base) => [base, ...[...Array(20).keys()].map((n) => `${base}:again-${n + 1}`)])
+      // A level rested again after each move or pull (`seedTestVenue`), up to 200 times in one stack's life.
+      .flatMap((base) => [base, ...[...Array(200).keys()].map((n) => `${base}:again-${n + 1}`)])
       .find((k) => venueClientOrderId(sim.venue.id, k) === order.venueClientOrderId);
     if (!key) continue;
     await makerRun(sim, side, { kind: 'cancel_order', symbol, clientOrderKey: key });
@@ -687,6 +709,11 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       if (typeof price !== 'bigint') throw new VenueWireError('price is required (a decimal string)');
       sim.setIndex(str(body, 'symbol'), price as Amount);
       return { ok: true, label: 'TEST' };
+    }
+    case '/test/ladder-mid': {
+      const price = body.price;
+      if (typeof price !== 'bigint') throw new VenueWireError('price is required (a decimal string)');
+      return { ok: true, rested: await moveTestLadder(sim, str(body, 'symbol'), price as Amount), label: 'TEST' };
     }
     case '/test/pull-ladder': {
       const side = body.side;

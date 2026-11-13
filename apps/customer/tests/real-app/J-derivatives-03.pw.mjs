@@ -43,7 +43,13 @@ test.afterAll(async () => {
 async function putBack() {
   await testVenue('/test/set-mark', { symbol: SYMBOL, price: MARK });
   await testVenue('/test/set-index', { symbol: SYMBOL, price: MARK });
-  await testVenue('/test/seed', {});
+  await ladderAt(MARK);
+}
+
+/** The TEST makers' ETH-PERP ladder rested around `price`, so the book follows a mark this file moved (packages/venue-sim). */
+async function ladderAt(price) {
+  const moved = await testVenue('/test/ladder-mid', { symbol: SYMBOL, price });
+  expect(moved.status, JSON.stringify(moved.body)).toBe(200);
 }
 
 async function setMark(price) {
@@ -68,6 +74,8 @@ const market = async () => (await testVenue('/markets', {})).body.value.find((m)
 const positionOf = async (owner) => (await venueRecord(owner, '/positions')).value.find((p) => p.symbol === SYMBOL) ?? null;
 const openOrders = async (owner) => (await venueRecord(owner, '/open-orders')).value.filter((o) => o.symbol === SYMBOL);
 const since = () => new Date(Date.now() - 3_600_000).toISOString();
+/** What the venue filled of one order, however many fills it took: a market order can cross several TEST levels. */
+const filledOf = async (owner, cloid) => fromUnits((await fillsOf(owner, cloid)).reduce((sum, f) => sum + toUnits(f.amount), 0n));
 const fillsOf = async (owner, cloid) =>
   (await venueRecord(owner, '/fills', { since: since() })).value.filter((f) => f.venueClientOrderId === cloid);
 /** The venue's client order id of a business key, as the venue derives it (venue-contracts `venueClientOrderId`). */
@@ -438,18 +446,29 @@ test(`${J} #6 the mark crosses the trigger: the venue fires it once and the posi
   // The mark crosses 3200: the take profits at 3100, 3150 and 3200 are crossed. The venue fires each once, in the
   // order they were placed, for no more than the position still holds, until it is closed; then every other leg is
   // cancelled with it.
+  // The book follows the mark (a TEST oracle price): the makers' ladder rests around 3250 before the mark gets there.
+  await ladderAt('3250');
   await setMark('3250');
   await expect.poll(async () => await positionOf(owner), { timeout: 15_000 }).toBeNull();
   const venueOnes = (await protections(owner)).filter((p) => p.restsOn === 'venue');
   const fired = venueOnes.filter((p) => p.status === 'filled');
   expect(fired.map((p) => p.kind).every((k) => k === 'take_profit')).toBe(true);
   let sold = 0n;
+  const firedFills = new Map();
   for (const p of fired) {
+    // Once: one reduce-only sell order each on the venue, filled across the levels it crossed.
+    const order = (await venueRecord(owner, '/order-by-client-id', { venueClientOrderId: p.venueClientOrderId })).value;
+    expect(order, `${p.clientOrderId} fired once`).toMatchObject({
+      side: 'sell',
+      reduceOnly: true,
+      status: 'filled',
+      trigger: { state: 'triggered' },
+    });
     const fills = await fillsOf(owner, p.venueClientOrderId);
-    // Once: one reduce-only sell each, on the venue.
-    expect(fills.length, `${p.clientOrderId} fired once`).toBe(1);
-    expect(fills[0].side).toBe('sell');
-    sold += toUnits(fills[0].amount);
+    expect(fills.length > 0 && fills.every((f) => f.side === 'sell')).toBe(true);
+    expect(await filledOf(owner, p.venueClientOrderId)).toBe(fromUnits(toUnits(order.filled)));
+    firedFills.set(p.venueClientOrderId, fills.length);
+    sold += toUnits(order.filled);
   }
   // It closed the position on the venue, and no more: what the venue sold is what was open.
   expect(fromUnits(sold)).toBe(fromUnits(toUnits(before.size)));
@@ -459,12 +478,12 @@ test(`${J} #6 the mark crosses the trigger: the venue fires it once and the posi
   expect((await openOrders(owner)).filter((o) => o.trigger)).toEqual([]);
   // The mark crossing again fires nothing more.
   await setMark('3300');
-  for (const p of fired) expect(await fillsOf(owner, p.venueClientOrderId)).toHaveLength(1);
+  for (const p of fired) expect(await fillsOf(owner, p.venueClientOrderId)).toHaveLength(firedFills.get(p.venueClientOrderId));
 
   // On our engine: a new long of 1 and a trailing stop of 50 under the agent permission, judged on the mark, with two
   // trade workers running. The mark rises to 3350 and falls to 3290, past its trigger (3300): it is sent once.
   await setMark(MARK);
-  await testVenue('/test/seed', {});
+  await ladderAt(MARK);
   await page.goto(DESK);
   await expect(page.getByTestId('venue-wallet-address')).toBeVisible({ timeout: 30_000 });
   const sheet = await openLong(page, '1');
@@ -482,6 +501,8 @@ test(`${J} #6 the mark crosses the trigger: the venue fires it once and the posi
     await expect
       .poll(async () => (await protections(owner)).find((p) => p.id === stop.id)?.currentTrigger, { timeout: 20_000 })
       .toBe('3300');
+    // The book follows the mark down to 3290, past the trigger (3300).
+    await ladderAt('3290');
     await setMark('3290');
     const done = await until(
       async () => (await protections(owner)).find((p) => p.id === stop.id),
@@ -495,14 +516,15 @@ test(`${J} #6 the mark crosses the trigger: the venue fires it once and the posi
     expect(done.venueClientOrderId).toBe(cloidOf(venueId, key));
     await new Promise((r) => setTimeout(r, 4_000));
     const fills = await fillsOf(owner, done.venueClientOrderId);
-    expect(fills).toHaveLength(1);
-    expect(fills[0]).toMatchObject({ side: 'sell' });
-    expect(sameDecimal(fills[0].amount, '1')).toBe(true);
+    expect(fills.length > 0 && fills.every((f) => f.side === 'sell')).toBe(true);
+    expect(sameDecimal(await filledOf(owner, done.venueClientOrderId), '1')).toBe(true);
     const order = (await venueRecord(owner, '/order-by-client-id', { venueClientOrderId: done.venueClientOrderId })).value;
     expect(order).toMatchObject({ reduceOnly: true, type: 'market', status: 'filled' });
     expect(await positionOf(owner)).toBeNull();
   } finally {
     tool('local-test-stack.mjs', 'second-worker', 'trade', 'stop');
+    await setMark(MARK);
+    await ladderAt(MARK);
   }
 });
 
@@ -510,7 +532,7 @@ test(`${J} #7 a triggered order fails: the failure reason in words and what happ
   test.setTimeout(300_000);
   const { owner } = await desk(page);
   await setMark(MARK);
-  await testVenue('/test/seed', {});
+  await ladderAt(MARK);
   const sheet = await openLong(page, '1');
   await sheet.getByRole('button', { name: 'Back', exact: true }).click();
   const dialog = await protect(page);
@@ -540,7 +562,7 @@ test(`${J} #7 a triggered order fails: the failure reason in words and what happ
     await expect(li).toContainText(`Failed: ${order.trigger.failure}.`);
     await expect(li).toContainText('Nothing was closed: the position is still 1 ETH long.');
   } finally {
-    await testVenue('/test/seed', {});
+    await ladderAt(MARK);
   }
 });
 
@@ -550,7 +572,7 @@ test(`${J} #8 uses reduce-only and a linked take profit and stop loss: reduce-on
   test.setTimeout(300_000);
   const { owner } = await desk(page);
   await setMark(MARK);
-  await testVenue('/test/seed', {});
+  await ladderAt(MARK);
   const before = await positionOf(owner);
   expect(before, 'the long #7 left open').toMatchObject({ side: 'long' });
   // A linked pair on part of the position: an entry of 0.5 with a take profit and a stop loss attached to it.
@@ -589,7 +611,7 @@ test(`${J} #8 uses reduce-only and a linked take profit and stop loss: reduce-on
     'the linked pair',
   );
   expect(tpRead).toMatchObject({ status: 'cancelled', cancelReason: 'linked' });
-  expect(await fillsOf(owner, slRead.venueClientOrderId)).toHaveLength(1);
+  expect(sameDecimal(await filledOf(owner, slRead.venueClientOrderId), '0.5')).toBe(true);
   expect(await fillsOf(owner, tpRead.venueClientOrderId)).toHaveLength(0);
   const left = await positionOf(owner);
   expect(left).toMatchObject({ side: 'long' });
@@ -637,7 +659,7 @@ test(`${J} #9 presses one-tap reverse: one reviewed close and open in the opposi
   test.setTimeout(300_000);
   const { owner, wallet } = await desk(page);
   await setMark(MARK);
-  await testVenue('/test/seed', {});
+  await ladderAt(MARK);
   const opened = await openLong(page, '1');
   await opened.getByRole('button', { name: 'Back', exact: true }).click();
   await row(page)
@@ -679,7 +701,12 @@ test(`${J} #9 presses one-tap reverse: one reviewed close and open in the opposi
   expect(position).toMatchObject({ side: 'short' });
   expect(sameDecimal(position.size, '1')).toBe(true);
   const { id: venueId } = await venueInfo();
-  for (const key of keys) expect(await fillsOf(owner, cloidOf(venueId, key))).toHaveLength(1);
+  // Once each: the close and the open each filled their 1, however many TEST levels they crossed.
+  const legFills = {};
+  for (const key of keys) {
+    expect(sameDecimal(await filledOf(owner, cloidOf(venueId, key)), '1')).toBe(true);
+    legFills[key] = await fillsOf(owner, cloidOf(venueId, key));
+  }
   expect(submits).toHaveLength(2);
 
   // The same reverse sent to the server again, as a retry would: each leg prepared again under its key answers the same
@@ -699,7 +726,7 @@ test(`${J} #9 presses one-tap reverse: one reviewed close and open in the opposi
     expect(again.body.replayed).toBe(true);
     expect(again.body.outcome, JSON.stringify(again.body).slice(0, 300)).toMatchObject({ definite: true, accepted: true });
   }
-  for (const key of keys) expect(await fillsOf(owner, cloidOf(venueId, key))).toHaveLength(1);
+  for (const key of keys) expect(await fillsOf(owner, cloidOf(venueId, key))).toEqual(legFills[key]);
   expect(await openOrders(owner)).toEqual(ordersBefore);
   const still = await positionOf(owner);
   expect(still).toMatchObject({ side: 'short' });

@@ -3,7 +3,7 @@ import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { parseAmount, ZERO } from '@intafaced/ledger-client/money';
 import { venueClientOrderId, type PlaceUserOrderIntent, type UserVenueAccount, type VenueIntent } from '@intafaced/venue-contracts';
-import { TEST_VENUE_MARKETS, pullTestLadder, seedTestVenue } from './http-server.js';
+import { TEST_VENUE_MARKETS, moveTestLadder, pullTestLadder, seedTestVenue } from './http-server.js';
 import type { TestVenueTypedData } from './signing.js';
 import { TestVenueSimulator, crossed } from './simulator.js';
 
@@ -318,6 +318,21 @@ describe('TEST venue simulator: trigger orders (J-derivatives-03)', { timeout: 6
     w.sim.setMark(ETH, a('3100'));
     expect(await fillsOf(w, 'order:trigger-trader:tp8')).toHaveLength(0);
     expect(await position(w)).toMatchObject({ side: 'long', size: a('1') });
+  });
+
+  it('the TEST ladder moved to the mark: a take profit far above the old book closes at the new prices', async () => {
+    const w = await long();
+    await w.run(tp('3200', { price: a('3040'), clientOrderKey: 'order:trigger-trader:tp-far' }));
+    // Its worst price (3040) is above every bid of the old book (best 2999): the book moves with the mark first.
+    expect(await moveTestLadder(w.sim, ETH, a('3250'))).toBeGreaterThan(0);
+    w.sim.setMark(ETH, a('3250'));
+    expect(await byKey(w, 'order:trigger-trader:tp-far')).toMatchObject({ status: 'filled', filled: a('1'), averagePrice: a('3249') });
+    expect(await position(w)).toBeUndefined();
+    // A later seed keeps the moved mid, and moving it back rests the ladder around 3000 again.
+    await seedTestVenue(w.sim);
+    await moveTestLadder(w.sim, ETH, a('3000'));
+    const opened = await w.run(order({ side: 'buy', reduceOnly: false, price: a('3010'), clientOrderKey: 'order:trigger-trader:back' }));
+    expect(opened).toMatchObject({ accepted: true, order: { status: 'filled', averagePrice: a('3001') } });
   });
 
   it('a cancelled trigger order never fires, and its lock returns', async () => {
