@@ -13,6 +13,7 @@ import { createOrderRequestSchema, type CreateOrderRequest } from '@intafaced/ex
 import {
   ZERO,
   add,
+  div,
   formatAmount,
   mul,
   parseAmount,
@@ -269,6 +270,11 @@ export interface PrivateRestDeps {
   getOrder(principal: Principal, orderId: string): Promise<OrderRecord>;
   /** One of the caller's orders' fills, oldest first; another person's order is not found. Unset mounts a typed 503. */
   orderFills?(principal: Principal, orderId: string, limit: number): Promise<FillRecord[]>;
+  /**
+   * Every fill of several of the caller's orders, keyed by order id, so an order's `cost`, `average` and `fee` are what
+   * its fills paid (#4677). Unset: the order wire keeps its price × filled estimate.
+   */
+  ordersFills?(principal: Principal, orderIds: readonly string[]): Promise<ReadonlyMap<string, readonly FillRecord[]>>;
   /** Every amend and replace of one order, oldest first. Unset mounts a typed 503, never an empty list. */
   orderAmendments?(principal: Principal, orderId: string): Promise<OrderAmendment[]>;
   /** My place in the queue for one of my own resting orders (spot/queue-position.ts). Unwired: a typed 503. */
@@ -588,8 +594,10 @@ export function toCcxtOrderStatus(status: OrderStatus): 'open' | 'closed' | 'can
  * limit price and without loaded fills the cost is unknown — return null.
  * Never invent a confident "0", and never price the sell at the floor.
  */
-export function presentCcxtOrderCost(order: OrderRecord, fills?: readonly Pick<FillRecord, 'quoteAmount'>[]): string | null {
+export function presentCcxtOrderCost(order: OrderRecord, fills?: readonly Pick<FillRecord, 'quoteAmount'>[] | null): string | null {
   if (order.filledQty === 0n) return '0';
+  // The fills were to be read and the read failed: the paid amount is unknown, never the estimate below.
+  if (fills === null) return null;
   if (fills !== undefined) {
     let total: Amount = ZERO;
     for (const f of fills) total = add(total, f.quoteAmount);
@@ -601,9 +609,62 @@ export function presentCcxtOrderCost(order: OrderRecord, fills?: readonly Pick<F
 }
 
 /**
- * CCXT `Order` shape (decimal strings). Fees/trades omitted on list/get unless
- * the fill set is loaded elsewhere — bots re-fetch fills via account/trades.
- * Pass `fills` when loaded so `cost` is Σ quote (true notional), not null.
+ * What an order's fills paid (#4677): `cost` Σ quote, `average` cost ÷ filled, `fee` Σ fee when every fill paid it in
+ * one asset (else null, with each asset's sum in `fees`). Fills that do not add up to the order's filled quantity (a
+ * fill not yet landed) state nothing: all null, never a partial sum. `null` fills (a failed read) state nothing too.
+ */
+export function presentCcxtOrderPaid(
+  order: OrderRecord,
+  fills: readonly Pick<FillRecord, 'qty' | 'quoteAmount' | 'feeAsset' | 'feeAmount'>[] | null,
+): {
+  cost: string | null;
+  average: string | null;
+  fee: { cost: string; currency: string } | null;
+  fees: { cost: string; currency: string }[] | null;
+} {
+  if (order.filledQty === 0n) return { cost: '0', average: null, fee: null, fees: [] };
+  if (fills === null) return { cost: null, average: null, fee: null, fees: null };
+  let qty: Amount = ZERO;
+  let cost: Amount = ZERO;
+  const feeByAsset = new Map<string, Amount>();
+  for (const f of fills) {
+    qty = add(qty, f.qty);
+    cost = add(cost, f.quoteAmount);
+    feeByAsset.set(f.feeAsset, add(feeByAsset.get(f.feeAsset) ?? ZERO, f.feeAmount));
+  }
+  if (qty !== order.filledQty) return { cost: null, average: null, fee: null, fees: null };
+  const fees = [...feeByAsset].map(([currency, amount]) => ({ cost: formatAmount(amount), currency }));
+  return { cost: formatAmount(cost), average: formatAmount(div(cost, qty)), fee: fees.length === 1 ? fees[0]! : null, fees };
+}
+
+/**
+ * The caller's fills of these orders, read once, so the wire states what each order paid (#4677). No reader: undefined
+ * (the wire keeps its estimate). A failed read states nothing rather than failing the orders read: each filled order's
+ * cost, average and fee read null.
+ */
+async function withPaid(
+  deps: PrivateRestDeps,
+  principal: Principal,
+  orders: readonly OrderRecord[],
+  log: { warn: (obj: object, msg: string) => void },
+) {
+  const filled = orders.filter((o) => o.filledQty !== 0n).map((o) => o.id);
+  const fills =
+    deps.ordersFills && filled.length > 0
+      ? await deps.ordersFills(principal, filled).catch((err: unknown) => {
+          log.warn({ err, orders: filled.length }, 'order fills read failed; the orders read states no cost');
+          return null;
+        })
+      : undefined;
+  return <W extends object>(order: OrderRecord, wire: W): W => {
+    if (fills === undefined || order.filledQty === 0n) return wire;
+    return { ...wire, ...presentCcxtOrderPaid(order, fills === null ? null : (fills.get(order.id) ?? [])) };
+  };
+}
+
+/**
+ * CCXT `Order` shape (decimal strings). `trades` stays empty: bots read fills via orders/:id/trades. The order reads
+ * lay what the fills paid over `cost`, `average` and `fee` (`withPaid`); without fills `cost` is the price × filled estimate.
  */
 /** A bare `stopPx` on a limit body would reach the engine with no stored trigger; the one door is `type: stop_limit`. */
 function hasRawStopPx(body: unknown): boolean {
@@ -1481,9 +1542,10 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const withStop = await withStopTriggers(deps, orders);
       const withExit = await withOcoExit(deps, orders);
       const withHeld = await withHold(deps, orders, req.log);
+      const withPaidOf = await withPaid(deps, principal, orders, req.log);
       for (const order of orders) {
         const symbol = await symbolForOrder(order, symbolByMarket, deps.marketById);
-        wire.push({ ...withHeld(order, withExit(order, withStop(order, presentCcxtOrder(order, symbol)))), serverTime });
+        wire.push({ ...withHeld(order, withExit(order, withStop(order, withPaidOf(order, presentCcxtOrder(order, symbol))))), serverTime });
       }
       return reply.code(200).send(wire);
     } catch (err) {
@@ -1548,9 +1610,10 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const withStop = await withStopTriggers(deps, orders);
       const withExit = await withOcoExit(deps, orders);
       const withHeld = await withHold(deps, orders, req.log);
+      const withPaidOf = await withPaid(deps, principal, orders, req.log);
       for (const order of orders) {
         const symbol = await symbolForOrder(order, symbolByMarket, deps.marketById);
-        wire.push(withHeld(order, withExit(order, withStop(order, presentCcxtOrder(order, symbol)))));
+        wire.push(withHeld(order, withExit(order, withStop(order, withPaidOf(order, presentCcxtOrder(order, symbol))))));
       }
       return reply.code(200).send(wire);
     } catch (err) {
@@ -3059,7 +3122,8 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const market = await deps.marketById(order.marketId);
       const symbol = market?.symbol ?? parsed.data.symbol;
       // An OTO entry answers with its attached close, as every read of it does.
-      const wire = (await withOcoExit(deps, [order]))(order, presentCcxtOrder(order, symbol));
+      const withPaidOf = await withPaid(deps, principal, [order], req.log);
+      const wire = (await withOcoExit(deps, [order]))(order, withPaidOf(order, presentCcxtOrder(order, symbol)));
       if (stopTrigger) return reply.code(201).send({ ...wire, type: stopKind, stopPrice: stopTrigger, triggered: null });
       return reply.code(201).send(stored ? { ...wire, displayQty: stored } : wire);
     } catch (err) {
@@ -3433,7 +3497,8 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         const withStop = await withStopTriggers(deps, [order]);
         const withExit = await withOcoExit(deps, [order]);
         const withHeld = await withHold(deps, [order], req.log);
-        return reply.code(200).send(withHeld(order, withExit(order, withStop(order, presentCcxtOrder(order, symbol)))));
+        const withPaidOf = await withPaid(deps, principal, [order], req.log);
+        return reply.code(200).send(withHeld(order, withExit(order, withStop(order, withPaidOf(order, presentCcxtOrder(order, symbol))))));
       } catch (err) {
         const sent = sendDomainError(reply, err);
         if (sent) return sent;
@@ -3455,7 +3520,8 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         const withStop = await withStopTriggers(deps, [order]);
         const withExit = await withOcoExit(deps, [order]);
         const withHeld = await withHold(deps, [order], req.log);
-        return reply.code(200).send(withHeld(order, withExit(order, withStop(order, presentCcxtOrder(order, symbol)))));
+        const withPaidOf = await withPaid(deps, principal, [order], req.log);
+        return reply.code(200).send(withHeld(order, withExit(order, withStop(order, withPaidOf(order, presentCcxtOrder(order, symbol))))));
       } catch (err) {
         const sent = sendDomainError(reply, err);
         if (sent) return sent;
@@ -3477,7 +3543,8 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const withStop = await withStopTriggers(deps, [order]);
       const withExit = await withOcoExit(deps, [order]);
       const withHeld = await withHold(deps, [order], req.log);
-      return reply.code(200).send(withHeld(order, withExit(order, withStop(order, presentCcxtOrder(order, symbol)))));
+      const withPaidOf = await withPaid(deps, principal, [order], req.log);
+      return reply.code(200).send(withHeld(order, withExit(order, withStop(order, withPaidOf(order, presentCcxtOrder(order, symbol))))));
     } catch (err) {
       const sent = sendDomainError(reply, err);
       if (sent) return sent;
@@ -3570,7 +3637,8 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const withStop = await withStopTriggers(deps, [order]);
       const withExit = await withOcoExit(deps, [order]);
       const withHeld = await withHold(deps, [order], req.log);
-      return reply.code(200).send(withHeld(order, withExit(order, withStop(order, presentCcxtOrder(order, symbol)))));
+      const withPaidOf = await withPaid(deps, principal, [order], req.log);
+      return reply.code(200).send(withHeld(order, withExit(order, withStop(order, withPaidOf(order, presentCcxtOrder(order, symbol))))));
     } catch (err) {
       const sent = sendDomainError(reply, err);
       if (sent) return sent;
