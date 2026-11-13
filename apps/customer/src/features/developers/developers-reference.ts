@@ -437,6 +437,14 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     summary: 'Order types, time in force and flags per futures market',
   },
   {
+    name: 'fetchFuturesMarginModes',
+    method: 'GET',
+    path: '/api/v1/futures/margin-modes',
+    product: 'derivatives',
+    access: 'public',
+    summary: 'Futures margin modes, whether each is offered, and the typed refusal of each that is not',
+  },
+  {
     name: 'fetchFundingRateHistory',
     method: 'GET',
     path: '/api/v1/funding-history/:symbol',
