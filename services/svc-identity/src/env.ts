@@ -492,6 +492,26 @@ const schema = serviceEnvSchema
         return v;
       }, z.coerce.number().int().min(1).max(50).optional()),
       /**
+       * Owner-published saved desk layout limits (C-workspace-02): layouts per account, deleted layouts kept for restoring,
+       * and the days a deleted layout can be restored in. Blank / unset → unpublished; a write that needs one refuses
+       * (`identity.desk_layout_*`). Never a default: the stack sets labelled TEST values only.
+       */
+      IDENTITY_DESK_LAYOUT_CAP: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(100).optional()),
+      IDENTITY_DESK_LAYOUT_RESTORE_CAP: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(200).optional()),
+      IDENTITY_DESK_LAYOUT_RESTORE_DAYS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(3650).optional()),
+      /**
        * Signing key for pay QR codes and payment links (PP-send-request-11), at least 32 characters. Blank / unset →
        * not set up: issuing and resolving a code both refuse `identity.qr_key_unset`. A `local-test:` key is the local
        * stack's TEST key and is refused at boot unless APP_ENV is exactly dev or test (profile/pay-qr.ts).
@@ -773,6 +793,22 @@ const schema = serviceEnvSchema
       }, z.string().optional()),
       /** Absolute file path for the local-outbox transport. Required when that transport is selected. */
       IDENTITY_LOCAL_MAIL_OUTBOX: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return typeof v === 'string' ? v.trim() : v;
+      }, z.string().optional()),
+      /**
+       * Text-message transport. Blank / unset → unwired; a phone sign-in link refuses `vendor.sms`. `local-outbox` is the
+       * only implemented transport and is refused at boot unless APP_ENV is exactly dev or test. Any other name refuses at
+       * boot. No SMS provider is configured here.
+       */
+      IDENTITY_SMS_TRANSPORT: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return typeof v === 'string' ? v.trim() : v;
+      }, z.string().optional()),
+      /** Absolute file path for the local-outbox text transport. Required when that transport is selected. */
+      IDENTITY_LOCAL_SMS_OUTBOX: z.preprocess((v) => {
         if (v === undefined || v === null) return undefined;
         if (typeof v === 'string' && v.trim() === '') return undefined;
         return typeof v === 'string' ? v.trim() : v;

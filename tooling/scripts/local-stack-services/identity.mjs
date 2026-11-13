@@ -61,7 +61,21 @@ export async function confirmLocalFounderEmails({ STATE, marker, edgeUrl, say })
   }
 }
 
-export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORIGIN, identityFounderEnv }) => ({
+/**
+ * `LOCAL_STACK_IDENTITY_SCREENING=unset` on a start or restart runs identity alone with no blocked list at all, as a build
+ * is before the owner sets one: the caller's list is left out (never replaced by a value of this script's), the unsigned
+ * rows are kept out, and the fail-closed refusal stays on, so sign-up's "the list is not set" can be seen (J-identity-01
+ * #9). It only ever makes identity stricter.
+ */
+function screeningSwitch(env) {
+  if (process.env.LOCAL_STACK_IDENTITY_SCREENING !== 'unset') return env;
+  const out = { ...env, INTAFACED_UNSIGNED_SANCTIONS_ROWS: 'off', INTAFACED_SCREENING_FAIL_CLOSED: 'on' };
+  delete out.INTAFACED_SANCTIONS_REGIONS;
+  delete out.INTAFACED_SANCTIONS_LIST_SOURCE;
+  return out;
+}
+
+const service = ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORIGIN, identityFounderEnv }) => ({
   name: 'identity',
   env: () => ({
     ...c('svc-identity', PORTS.identity),
@@ -102,6 +116,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     ...(process.env.LOCAL_STACK_IDENTITY_MAIL === 'off'
       ? {}
       : { IDENTITY_MAIL_TRANSPORT: 'local-outbox', IDENTITY_LOCAL_MAIL_OUTBOX: path.join(STATE, 'email-outbox.log') }),
+    // LOCAL TEST ONLY: texted codes (a phone to sign in with, J-identity-02 #1) go to a LOCAL-TEST outbox file beside the
+    // mail one, never to a phone; refused at boot outside APP_ENV dev or test. No SMS provider is connected.
+    IDENTITY_SMS_TRANSPORT: 'local-outbox',
+    IDENTITY_LOCAL_SMS_OUTBOX: path.join(STATE, 'sms-outbox.log'),
     IDENTITY_EMAIL_CONFIRM_TTL_SECONDS: '600',
     IDENTITY_EMAIL_CONFIRM_RATE_MAX: '5',
     IDENTITY_EMAIL_CONFIRM_RATE_WINDOW_SECONDS: '3600',
@@ -233,6 +251,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     IDENTITY_WATCHLIST_LIST_CAP: '10',
     IDENTITY_WATCHLIST_SYMBOL_CAP: '100',
     IDENTITY_SAVED_SCREEN_CAP: '10',
+    // Saved desk layout limits (C-workspace-02): explicit LOCAL TEST values, not owner limits (the owner has not
+    // published them; blank refuses every write that needs one). 10 layouts, 20 deleted layouts kept for 7 days.
+    IDENTITY_DESK_LAYOUT_CAP: '10',
+    IDENTITY_DESK_LAYOUT_RESTORE_CAP: '20',
+    IDENTITY_DESK_LAYOUT_RESTORE_DAYS: '7',
     // The closure checks a close runs first (customer closure and the console's staff close): svc-bank, svc-trade and
     // svc-p2p answer for their own open products and balances, signed with this stack's shared service secret.
     IDENTITY_CLOSURE_BANK_URL: urlOf('bank'),
@@ -340,3 +363,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     ...identityFounderEnv(),
   }),
 });
+
+export default (deps) => {
+  const def = service(deps);
+  return { ...def, env: () => screeningSwitch(def.env()) };
+};

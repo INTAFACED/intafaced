@@ -85,6 +85,7 @@ Every trading REST route and WebSocket stream, under its product, with the permi
 | ----------------------------------------------- | -------------------------------------------------------------- | ----------------------------------------------------- |
 | `GET /api/v1/funding-rate/:symbol`              | `fetchFundingRate`                                             | public; with a key trade:read                         |
 | `GET /api/v1/futures/order-types`               | `fetchFuturesOrderTypes`                                       | public; with a key trade:read                         |
+| `GET /api/v1/futures/margin-modes`              | `fetchFuturesMarginModes`                                      | public; with a key trade:read                         |
 | `GET /api/v1/funding-history/:symbol`           | `fetchFundingRateHistory`                                      | public; with a key trade:read                         |
 | `GET /api/v1/futures/ticker`                    | `fetchFuturesTicker`                                           | public; with a key trade:read                         |
 | `GET /api/v1/futures/tiers`                     | `fetchLeverageTiers`                                           | public; with a key trade:read                         |
@@ -194,6 +195,14 @@ No deposit or custodial withdrawal route is on the trading API: withdrawals are 
 | `POST /api/v1/venue/own-agents/:agentId/allowances/:id/submit`  | `ownAgentAllowanceSubmit`     | trade:write                   |
 | `POST /api/v1/venue/own-agents/:agentId/allowances/:id/abandon` | `ownAgentAllowanceAbandon`    | trade:write                   |
 | `POST /api/v1/venue/own-agents/:agentId/allowances/:id/revoke`  | `ownAgentAllowanceRevoke`     | trade:write                   |
+| `GET /api/v1/quant/live-runs`                                   | `liveRuns`                    | trade:read                    |
+| `POST /api/v1/quant/live-runs`                                  | `liveRunStart`                | trade:write                   |
+| `GET /api/v1/quant/live-runs/:id`                               | `liveRun`                     | trade:read                    |
+| `POST /api/v1/quant/live-runs/:id/submit`                       | `liveRunSubmit`               | trade:write                   |
+| `POST /api/v1/quant/live-runs/:id/stop`                         | `liveRunStop`                 | trade:write                   |
+| `POST /api/v1/quant/live-runs/:id/liquidate`                    | `liveRunLiquidate`            | trade:write                   |
+| `POST /api/v1/quant/live-runs/:id/orders`                       | `liveRunOrder`                | trade:write                   |
+| `POST /api/v1/quant/live-runs/:id/test/kill-process`            | `liveRunTestKill`             | trade:write                   |
 | `POST /api/v1/venue/own-agents/:agentId/orders/preview`         | `ownAgentOrderPreview`        | trade:write                   |
 | `POST /api/v1/venue/own-agents/:agentId/orders`                 | `ownAgentOrder`               | trade:write                   |
 | `GET /api/v1/venue/own-agents/:agentId/orders`                  | `ownAgentOrders`              | trade:read                    |
