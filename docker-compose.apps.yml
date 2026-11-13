@@ -645,6 +645,9 @@ services:
       # Worst price a market BUY may be funded at, above the best ask.
       # Empty = refuse market-buy hold (`trade.slippage_cap_unset`). Never invent 200.
       TRADE_MARKET_SLIPPAGE_CAP_BPS: ${TRADE_MARKET_SLIPPAGE_CAP_BPS:-}
+      # Widest venue spread (bps of the best bid) a venue spot market order is sent at.
+      # Empty = refuse every venue spot market order (`trade.spread_limit_unset`). Never invented.
+      TRADE_MARKET_SPREAD_LIMIT_BPS: ${TRADE_MARKET_SPREAD_LIMIT_BPS:-}
       # MAY A FUTURES MARKET ACCEPT AN ORDER? Default `false`, and the default is
       # the decision this line exists to make explicit rather than leave to a zod
       # schema nobody reads at deploy time.

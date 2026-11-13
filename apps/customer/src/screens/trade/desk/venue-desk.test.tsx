@@ -5,7 +5,12 @@ import type { AsOf, OrderIntent, VenueMarket, VenueOrder, VenuePreview, VenueUp 
 import { VenueReviewRows, VenueVerifyDesk, WithdrawalLine } from './VenueSpotDesk';
 import {
   HeldDraft,
+  amountForValue,
   depositTransfer,
+  offeredTif,
+  tagProblem,
+  valueOf,
+  venueSelfTrade,
   intentOf,
   refusedAtHeldWorst,
   shortAddress,
@@ -209,6 +214,81 @@ describe('the review’s lines are the venue’s', () => {
       />,
     );
     expect(text(html)).toMatch(/Our builder fee 1\.2 USDC · Not signed/);
+  });
+});
+
+describe('J-cex-spot-03: market by spend, every time in force, self-trade, tag and unit', () => {
+  it('a spend sizes the most whole lots whose cost at the worst price stays within it', () => {
+    // 100 / 60300.2 = 0.0016583… → 0.00165 at a 0.00001 lot; 0.00166 × 60300.2 would pass 100.
+    expect(amountForValue('100', '60300.2', '0.00001')).toBe('0.00165');
+    expect(amountForValue('100', '60300.2', '0.0001')).toBe('0.0016');
+    expect(amountForValue('1', '60300.2', '0.0001')).toBeNull();
+    expect(amountForValue('', '60300.2', '0.0001')).toBeNull();
+    expect(amountForValue('100', null, '0.0001')).toBeNull();
+    expect(valueOf('0.001', '30000')).toBe('30');
+  });
+
+  it('a limit carries the picked time in force; a market order stays IOC', () => {
+    const key = new HeldDraft(OWNER, MARKET.symbol, () => 1).keyFor(limitBuy);
+    expect(intentOf({ ...limitBuy, tif: 'IOC' }, MARKET, null, key, true)?.timeInForce).toBe('IOC');
+    expect(intentOf({ ...limitBuy, tif: 'ALO' }, MARKET, null, key, true)?.timeInForce).toBe('ALO');
+    expect(intentOf({ ...limitBuy, type: 'market', tif: 'ALO' }, MARKET, '60300.2', key, true)?.timeInForce).toBe('IOC');
+  });
+
+  it('a changed time in force is a new order with a new key', () => {
+    const draft = new HeldDraft(OWNER, MARKET.symbol, () => 1);
+    const gtc = draft.keyFor(limitBuy);
+    expect(draft.keyFor({ ...limitBuy, tif: 'IOC' })).not.toBe(gtc);
+  });
+
+  it('only what the venue offers can be picked: FOK and GTD are not offered by the TEST venue', () => {
+    expect(offeredTif(MARKET, 'GTC')).toBe('GTC');
+    expect(offeredTif(MARKET, 'ALO')).toBe('ALO');
+    expect(offeredTif(MARKET, 'FOK')).toBeNull();
+    expect(offeredTif(MARKET, 'GTD')).toBeNull();
+  });
+
+  it('the self-trade rule is the venue’s own, or none where it publishes none', () => {
+    expect(venueSelfTrade({ selfTrade: { known: true, value: 'cancel_resting' } })).toBe('cancel_resting');
+    expect(venueSelfTrade({ selfTrade: { known: false } })).toBeNull();
+    expect(venueSelfTrade({})).toBeNull();
+  });
+
+  it('a tag is optional, up to 32 plain characters', () => {
+    expect(tagProblem('')).toBe(false);
+    expect(tagProblem('desk-run_1.a')).toBe(false);
+    expect(tagProblem('x'.repeat(33))).toBe(true);
+    expect(tagProblem('<b>')).toBe(true);
+  });
+
+  it('the review shows a market order’s price protection in words, the venue’s self-trade rule and the tag', () => {
+    const market = intentOf({ ...limitBuy, type: 'market' }, MARKET, '60300.2', 'order:0xowner:btc-usdc:abc2', true)!;
+    const html = renderToStaticMarkup(
+      <VenueReviewRows
+        intent={market}
+        preview={preview()}
+        status={{ builder: null, test: true }}
+        approved={null}
+        protectionBps="50"
+        selfTrade="cancel_resting"
+        tag="desk-1"
+      />,
+    );
+    const shown = text(html);
+    expect(shown).toContain('Price protection You won’t pay more than 60,300.2 USDC per BTC (50 bps above the best ask)');
+    expect(shown).toContain('If it meets my own order Cancel my resting order');
+    expect(shown).toContain('Tag desk-1');
+    const sell = renderToStaticMarkup(
+      <VenueReviewRows
+        intent={{ ...market, side: 'sell' }}
+        preview={preview()}
+        status={{ builder: null, test: true }}
+        approved={null}
+        protectionBps="50"
+      />,
+    );
+    expect(text(sell)).toContain('You won’t sell for less than 60,300.2 USDC per BTC (50 bps below the best bid)');
+    expect(text(sell)).toContain('If it meets my own order not published by this venue');
   });
 });
 
