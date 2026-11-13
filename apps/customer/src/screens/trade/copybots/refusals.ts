@@ -468,7 +468,47 @@ const GRID: Readonly<Record<string, Words>> = {
     title: 'A stop keeps what the bot bought',
     body: 'Selling the bought coins when the bot stops isn’t built. Stop it and keep them.',
   },
+  'trade.api_withdraw_not_allowed': {
+    title: 'No API key or bot can withdraw',
+    body: 'Withdraw from the venue with your own wallet: you sign it there. Nothing was moved.',
+  },
   'trade.grid_not_running': { title: 'This grid bot has already stopped', body: 'Refresh to see its final state.' },
+  'trade.bots_grid_topup_amount_invalid': {
+    title: 'Enter an amount to top up',
+    body: 'The amount must be a number above zero. Nothing was changed.',
+  },
+  'trade.bots_grid_topup_quote_only': {
+    title: 'A grid is topped up in its quote coin only',
+    body: 'A grid invests the coin it buys with, the one its investment is shown in. Choose that coin. Nothing was changed.',
+  },
+  'trade.bots_grid_topup_exceeds_free': {
+    title: 'More than you have free',
+    body: 'A top-up can use only what is free after your other bots and copies, shown as Free to add. Lower the amount. Nothing was changed.',
+  },
+  'trade.bots_grid_topup_conflict': {
+    title: 'That request was already used for a different top-up',
+    body: 'Close this and start again. Nothing more was added.',
+  },
+  'trade.bots_grid_trailing_shift_limit_required': {
+    title: 'Enter a shift limit.',
+    body: 'Trailing needs a shift limit: how far, in percent, the grid may move in all. Nothing was changed.',
+  },
+  'trade.bots_grid_trailing_shift_limit_invalid': {
+    title: 'The shift limit is out of range',
+    body: 'Enter a percent above 0 and at most 100. Nothing was changed.',
+  },
+  'trade.bots_grid_min_count_invalid': {
+    title: 'The minimum grid count must be a whole number',
+    body: 'Enter a whole number of at least 2. Nothing was changed.',
+  },
+  'trade.bots_grid_min_count_above_count': {
+    title: 'The minimum can’t be more than the grid count.',
+    body: 'Enter a minimum no larger than this grid’s grid count, shown above. Nothing was changed.',
+  },
+  'trade.bots_grid_trailing_not_built': {
+    title: 'Trailing isn’t built',
+    body: 'Your settings passed every check, but a grid can’t trail the price. It keeps its range. Nothing was changed.',
+  },
   'trade.grid_unavailable': {
     title: 'Grid bots aren’t available right now',
     body: 'The grid service isn’t switched on here. Nothing was created.',

@@ -57,13 +57,10 @@ import {
   welcomeClaimInputSchema,
   welcomeClaimResultSchema,
   welcomeListInputSchema,
-  myInviteesInputSchema,
-  myInviteesSchema,
 } from '@intafaced/contracts/campaigns-catalogue';
 import type { CampaignService } from './campaigns.js';
 import { CampaignsError } from './codes.js';
 import type { DropService } from './drops.js';
-import type { ReferralService } from './referrals.js';
 import type { TaskService } from './tasks.js';
 import type { VoucherService } from './vouchers.js';
 import { refuseTgeClaim } from './tge.js';
@@ -133,8 +130,6 @@ const STATUS: Record<CampaignsRefusalCode | CampaignRefusalCode, TRPCError['code
   'campaigns.customer_limit_reached': 'CONFLICT',
   'campaigns.redemption_limit_reached': 'CONFLICT',
   'campaigns.welcome_none': 'NOT_FOUND',
-  'campaigns.referral_invalid': 'BAD_REQUEST',
-  'campaigns.criteria_unset': 'PRECONDITION_FAILED',
   'owner.decision': 'PRECONDITION_FAILED',
   'campaigns.window_unset': 'PRECONDITION_FAILED',
   'campaigns.timezone_unset': 'BAD_REQUEST',
@@ -181,13 +176,7 @@ const opsProcedure = scopedProcedure('campaigns:ops', guard).use(({ ctx, next })
   return next();
 });
 
-export function createCampaignsRouter(
-  drops: DropService,
-  campaigns: CampaignService,
-  tasks: TaskService,
-  vouchers: VoucherService,
-  referrals?: ReferralService,
-) {
+export function createCampaignsRouter(drops: DropService, campaigns: CampaignService, tasks: TaskService, vouchers: VoucherService) {
   return router({
     health: publicProcedure
       .output(z.object({ ok: z.literal(true), service: z.literal('svc-campaigns') }))
@@ -210,24 +199,6 @@ export function createCampaignsRouter(
         .query(async ({ ctx, input }) => {
           try {
             return await campaigns.get({ id: input.id, accountId: ctx.principal!.userId });
-          } catch (err) {
-            mapError(err);
-          }
-        }),
-    }),
-
-    referral: router({
-      /**
-       * The caller's own invitees (CM-referral-02): each one's place, when they joined, each step done or not and their
-       * state, never who they are. The account is the signed principal's.
-       */
-      invitees: scopedProcedure('campaigns:read', guard)
-        .input(myInviteesInputSchema)
-        .output(myInviteesSchema)
-        .query(async ({ ctx }) => {
-          try {
-            if (!referrals) throw new CampaignsError('campaigns.store_unwired', 'Referral progress is not wired');
-            return await referrals.myInvitees({ referrerId: ctx.principal!.userId });
           } catch (err) {
             mapError(err);
           }

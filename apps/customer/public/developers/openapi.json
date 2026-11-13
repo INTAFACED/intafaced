@@ -863,6 +863,23 @@
         }
       }
     },
+    "/api/v1/futures/margin-modes": {
+      "get": {
+        "operationId": "fetchFuturesMarginModes",
+        "summary": "Futures margin modes, whether each is offered, and the typed refusal of each that is not",
+        "tags": ["derivatives"],
+        "security": [{}, { "apiKey": [] }],
+        "x-access": "public",
+        "x-scopes": ["trade:read"],
+        "x-signed-out": null,
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "403": { "description": "An API key without trade:read (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
     "/api/v1/funding-history/{symbol}": {
       "get": {
         "operationId": "fetchFundingRateHistory",
@@ -3091,6 +3108,26 @@
         }
       }
     },
+    "/api/v1/copy/lead/orders": {
+      "post": {
+        "operationId": "createLeadOrder",
+        "summary": "Place an order as an approved copy-trading lead, on an instrument your lead listing names; then as Place an order",
+        "tags": ["accounts"],
+        "security": [{ "apiKey": [] }],
+        "x-access": "private",
+        "x-scopes": ["trade:write", "copy:lead"],
+        "x-signed-out": { "status": 401, "field": "intafacedCode", "code": "auth.required" },
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "401": { "description": "No credential, or one that did not verify (401 with intafacedCode auth.required)" },
+          "403": {
+            "description": "An API key without trade:write and copy:lead (PermissionDenied, scope.denied); the body links the permission table"
+          },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
     "/api/v1/rfq/export": {
       "get": {
         "operationId": "fetchRfqExport",
@@ -3184,7 +3221,7 @@
     "/api/v1/bots/grid/{id}/withdraw": {
       "post": {
         "operationId": "withdrawGridProfit",
-        "summary": "Withdraw a grid bot’s profit; needs a step-up approval made in the calling session (403 identity.step_up_required without one)",
+        "summary": "Refused for every key (403 trade.api_withdraw_not_allowed): no API key or bot can withdraw; you withdraw from the venue with your own wallet, and nothing moves",
         "tags": ["spot"],
         "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
         "security": [{ "apiKey": [] }],

@@ -260,6 +260,12 @@ export class LeaderDirectory {
     return row ? { leaderRef: row.leaderRef, displayName: row.displayName } : null;
   }
 
+  /** The lead API's read (`copy/lead-api.ts`): a leader's listing state and the instruments it names, or null. */
+  async leadListing(leaderUserId: string): Promise<{ readonly state: CopyLeaderListingState; readonly assets: readonly string[] } | null> {
+    const row = await this.backend.getByUser(leaderUserId, false);
+    return row ? { state: row.state, assets: [...row.assets] } : null;
+  }
+
   async leaderStatus(leaderUserId: string): Promise<CopyLeaderCustomerStatus> {
     return customerStatus((await this.listingIdentity(leaderUserId))?.state);
   }

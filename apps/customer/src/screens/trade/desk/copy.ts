@@ -18,6 +18,8 @@ const messages = {
   'Pair favourite remove': 'Remove {pair} from favorites',
   'Choose a market': 'Choose a market',
   'Last price': 'Last price',
+  'Test market': 'TEST',
+  'Test market title': 'TEST: this market’s prices are test prices, not a live market.',
   '24h low': '24h low',
   '24h high': '24h high',
   '24h volume': '24h volume ({asset})',
