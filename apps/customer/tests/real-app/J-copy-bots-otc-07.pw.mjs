@@ -110,7 +110,13 @@ test(`${J} #2 as an approved lead mints a lead key; a delegate can't mint one`, 
   await lead.page.getByLabel('I have stored this key somewhere safe').check();
   await lead.page.getByRole('button', { name: 'Done' }).click();
   const before = (await storedKeys(lead.who)).length;
-  for (const door of ['developerKeys.create', 'apiKeys.create']) {
+  // Each create door answers its own typed refusal: the key form's door refuses anything but a person signed in on a
+  // device, and the older door refuses a key minting a key.
+  const refusals = {
+    'developerKeys.create': (body) => expect(identityCode(body), JSON.stringify(body)).toBe('identity.delegated_refused'),
+    'apiKeys.create': (body) => expect(body?.error?.message, JSON.stringify(body)).toBe('A delegate cannot grant further'),
+  };
+  for (const [door, refused] of Object.entries(refusals)) {
     const res = await fetch(`${EDGE}/api/identity/trpc/${door}`, {
       method: 'POST',
       headers: { origin: ORIGIN, authorization: `Bearer ${delegate}`, 'content-type': 'application/json' },
@@ -118,7 +124,7 @@ test(`${J} #2 as an approved lead mints a lead key; a delegate can't mint one`, 
     });
     const body = await res.json();
     expect(res.status, `${door}: ${JSON.stringify(body)}`).toBe(403);
-    expect(identityCode(body), `${door}: ${JSON.stringify(body)}`).toMatch(/^(identity\.delegated_refused|auth\.delegate_cannot_grant)$/);
+    refused(body);
   }
   expect((await storedKeys(lead.who)).length).toBe(before);
   run.write({ lead: lead.who, leadRef, leadKey: key });
