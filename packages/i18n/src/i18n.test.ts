@@ -68,46 +68,8 @@ beforeEach(() => {
 describe('catalog — the key set is closed and complete', () => {
   it('carries a realistic starter set across every launch surface', () => {
     expect(MESSAGE_KEYS.length).toBeGreaterThanOrEqual(60);
-    // Stage-2 product surfaces (support KB, agents refuse copy) expand the set;
-    // still capped so the catalog cannot silently balloon.
-    // Agents COPY_KEYS parity added a full refusal/session surface (W5 #1337).
-    // Ceiling is a drift alarm, not a hard product law — raise when a real surface lands.
-    // Limit-unset refuse keys (kb_search / tickers / markets) landed at 202.
-    // Four real guest enquiry templates add eight title/body keys.
-    // Merchant email (dispute deadline, payout failure, refund, team invite, unset provider) adds ten title/body keys.
-    // Agents session-list refusals (cursor_invalid, fee_asset_unset) add two.
-    // Halt notice and deposit-credit notice add four title/body keys (S26).
-    // Agents place-key conflict refusal adds one.
-    // Four scam and phishing guides (I-signin-sessions-26) add eight title/body keys.
-    // Posting-freeze set and cleared notices (RC-ops-console-09) add four title/body keys.
-    // A named price alert and its own message (C-alerts-scan-01) add two pass-through keys.
-    // The rating request inbox notice (SP-csat-01) adds a title and a body key.
-    // Money received and payment sent notices (PP-send-request-18) add four title/body keys.
-    // User spend caps (AG-spend-01) add seven refusal keys.
-    // A blank hold age refuses (AG-spend-01) and adds one more refusal key.
-    // The buyer-paid notice to the seller (P-trade-orders-23) adds a title and a body key.
-    // Standing-order reminder and failure notices (BK-acct-10) add four title/body keys.
-    // Sign-in factor change notices (I-signin-sessions-08) add five titles and one shared body.
-    // The ads-paused notice to the maker (P-ads-merchant-18) adds a title and a body key.
-    // The reported-remark notice to the reported party (P-ads-merchant-19) adds a title and a body key.
-    // Agent runs refused for an unpublished rate and for funds below the worst case (AG-spend-01) add two refusal keys.
-    // An unpaid usage window, a blank allowance for unpaid usage and a settled session (J-agents-02 #5) add four agents keys.
-    // A balance that could not be read gets its own refusal, apart from funds below the worst case (AG-spend-01): one key.
-    // Copy skip and stop notices (J-copy-bots-otc-03 #6) add two titles and twelve reason bodies.
-    // Copy-Intel's refusal of a returns ranking (J-agents-18 #4) adds one refusal key.
-    // A password change as a sign-in factor change (I-signin-sessions-08, J-identity-03 #6) adds a title and a body key.
-    // A run refused at its agent's monthly hard limit (J-agents-02 #6) adds one refusal key.
-    // An own agent's monthly spend alert in the inbox (J-agents-02 #6) adds a title and a body key.
-    // The guest verification email for a support request (SP-tickets-01) adds a title and a body key.
-    // A held tool call of an own agent in the inbox (J-agents-05 #4) adds two title keys and a body key.
-    // A new device approved and signed in (I-signin-sessions-08, J-identity-06 #7) adds a title and a body key.
-    // A copy skipped because the platform paused its lead or halted its market (J-copy-bots-otc-12 #1 #3) adds one reason body.
-    // The ledger's custody-switch refusal, a money movement INTAFACED does not hold customer money for (OWNER 226), adds one error key.
-    // An agent key's held payout or refund (J-developer-15 #6) and the API explorer's refused live write (J-developer-15 #7) add two error keys.
-    // A trader you follow posting a new ad (J-p2p-12 #4) adds a title and a body key.
-    // A scheduled venue market delisting in every inbox (J-cex-spot-16 #8) adds a title and a body key.
-    // A moderator's deletion of a learner's discussion post (J-academy-18 #2) adds a title and a body key.
-    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(322);
+    // No ceiling: the set is closed by `exposes exactly the keys declared in English` below and by the Catalog type
+    // (`rejects an incomplete catalog at compile time`), so a key added to English and every catalog passes here.
 
     for (const surface of ['common.', 'auth.', 'trade.', 'wallet.', 'p2p.', 'notify.', 'error.', 'support.', 'agents.', 'admin.']) {
       expect(

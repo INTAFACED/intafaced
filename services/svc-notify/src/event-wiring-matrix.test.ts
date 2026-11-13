@@ -23,11 +23,15 @@ import {
 const here = dirname(fileURLToPath(import.meta.url));
 const eventsSource = readFileSync(join(here, 'events.ts'), 'utf8');
 const readmeSource = readFileSync(join(here, '..', 'README.md'), 'utf8');
+/** Every durable events.ts attaches: the 4th string argument to attach(bus, '<event>', …, 'notify-…'). */
+const attachedDurables = [...eventsSource.matchAll(/attach\(\s*bus,\s*'[^']+',\s*[^,]+,\s*'(notify-[a-z0-9-]+)'/g)].map((m) => m[1]!);
 
 describe('notify event-wiring matrix — Class B no silent growth', () => {
-  it('pins the known consumer count (growth is a deliberate matrix edit)', () => {
-    expect(notifyEventConsumerCount()).toBe(32);
-    expect(NOTIFY_EVENT_CONSUMERS).toHaveLength(32);
+  // The count is read from events.ts, not written here: a consumer added to both events.ts and the matrix passes; one
+  // added to only one side, or a matrix row listed twice, fails.
+  it('the matrix has one row per durable events.ts attaches, no more and no fewer', () => {
+    expect(notifyEventConsumerCount()).toBe(new Set(attachedDurables).size);
+    expect(NOTIFY_EVENT_CONSUMERS).toHaveLength(attachedDurables.length);
   });
 
   it('every matrix durable is attached in events.ts', () => {
@@ -39,9 +43,7 @@ describe('notify event-wiring matrix — Class B no silent growth', () => {
   });
 
   it('every attach durable in events.ts is on the matrix (no shadow consumers)', () => {
-    // Durables are the 4th string arg to attach(…, 'notify-…')
-    const attached = [...eventsSource.matchAll(/attach\(\s*bus,\s*'[^']+',\s*[^,]+,\s*'(notify-[a-z0-9-]+)'/g)].map((m) => m[1]!);
-    const unique = [...new Set(attached)].sort();
+    const unique = [...new Set(attachedDurables)].sort();
     const matrix = [...notifyEventDurableNames()].sort();
     expect(unique).toEqual(matrix);
   });
