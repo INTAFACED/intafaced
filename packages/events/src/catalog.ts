@@ -105,21 +105,6 @@ export const userCreated = defineEvent(
   'A sovereign account exists.',
 );
 
-/**
- * A referral attached (CM-referral-01, CM-referral-02): `userId` was brought by `referrerId`, once and for good (a second
- * attach is refused before this is sent). Published by svc-identity after the edge commits, business key
- * `identity.referral.created:<userId>`; svc-campaigns keeps the invitee once by `userId` and tracks their progress under
- * the referral programme live at `attachedAt`. No personal detail rides on the bus.
- */
-export const referralCreated = defineEvent(
-  'identity',
-  'referral',
-  'created',
-  1,
-  z.object({ userId: userIdSchema, referrerId: userIdSchema, attachedAt: z.string().datetime({ offset: true }) }).strict(),
-  'A referral edge was recorded: the invitee, their referrer and when. Consumers dedupe on userId.',
-);
-
 export const kycApproved = defineEvent(
   'identity',
   'kyc',
@@ -2103,7 +2088,6 @@ export const EVENT_CATALOG = {
   xpEarned,
   rankUpdated,
   userCreated,
-  referralCreated,
   kycApproved,
   kycSubmitted,
   kycRejected,
