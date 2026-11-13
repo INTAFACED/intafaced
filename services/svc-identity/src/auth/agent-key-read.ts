@@ -24,6 +24,7 @@ export async function readAgentKey(sql: Sql, userId: string, keyId: string): Pro
     kind: row.kind === 'agent' ? 'agent' : 'personal',
     scopes: [...(row.scopes ?? [])].sort(),
     revoked: row.revoked || apiKeyExpired(row.expires_at),
+    expiresAt: row.expires_at ? row.expires_at.toISOString() : null,
   };
 }
 
