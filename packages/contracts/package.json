@@ -66,6 +66,10 @@
       "types": "./dist/protocol-swap.d.ts",
       "default": "./dist/protocol-swap.js"
     },
+    "./protocol-portfolio": {
+      "types": "./dist/protocol-portfolio.d.ts",
+      "default": "./dist/protocol-portfolio.js"
+    },
     "./protocol-liquidity": {
       "types": "./dist/protocol-liquidity.d.ts",
       "default": "./dist/protocol-liquidity.js"

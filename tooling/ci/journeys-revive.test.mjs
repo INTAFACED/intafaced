@@ -11,11 +11,14 @@ import {
   WAIT_MINUTES,
   candidates,
   decide,
+  heldOnly,
+  heldTick,
   isRefusal,
   issueTitle,
   mainInputOnly,
   prCandidates,
   prTick,
+  rowStep,
   tick,
   verdictReds,
 } from './journeys-revive.mjs';
@@ -417,4 +420,210 @@ test('lazy (after each CI run on main): a run inside its wait is not read, a lar
   assert.deepEqual(calls.checked, [3], 'only the run whose artifact is small is downloaded');
   assert.deepEqual(calls.rerun, [3]);
   assert.equal(lines.length, 1);
+});
+
+// ── heldTick: pull requests held by main's reds that main has since lost ──
+// The planted case is 12-13 Nov 2026: main red on J-campaigns-01 #2 #3 #6 #7 (issue #8137, culprit #8113) from 15:45 UTC,
+// and #8165's run 4494 red on those steps only, inherited; the money steps among them stop every pull request.
+
+const H_NOW = Date.parse('2026-11-13T03:00:00Z');
+const PR_SHA = '2d7ee0975485a5bcd801451a0e8439bc1b10aaaf';
+const verdictLog = (rows) =>
+  [
+    '2026-11-13T00:10:00.0000000Z ## Verdict',
+    `2026-11-13T00:10:00.0000000Z Failing or missing steps: 426; outside the list or against its rules: **${rows.length}**.`,
+    '2026-11-13T00:10:00.0000000Z ',
+    ...rows.map((r) => `2026-11-13T00:10:00.0000000Z - ${r}`),
+    '2026-11-13T00:10:00.0000000Z ',
+    '2026-11-13T00:10:00.0000000Z ### Set aside by the machine: 4',
+  ].join('\n');
+const CAMPAIGN_ROWS = [
+  'J-campaigns-01#2: failing, not in the baseline',
+  'J-campaigns-01#3 (money): failing, not in the baseline',
+  'J-campaigns-01#6 (money): failing, not in the baseline',
+  'J-campaigns-01#7: failing, not in the baseline',
+];
+const judgeJobs = (red) => [
+  { id: 1, name: 'Journeys (shard 1 of 32)', conclusion: 'success', steps: [] },
+  {
+    id: 2,
+    name: 'Real-app journeys',
+    conclusion: red ? 'failure' : 'success',
+    steps: [{ name: 'Verdict against the list of steps not built yet', conclusion: red ? 'failure' : 'success' }],
+  },
+];
+const heldMainRun = (id, n, created, conclusion) => ({
+  id,
+  run_number: n,
+  head_branch: 'main',
+  head_repository: { full_name: REPO },
+  repository: { full_name: REPO },
+  head_sha: String(id).padEnd(40, '0'),
+  event: 'push',
+  path: '.github/workflows/real-app-journeys.yml',
+  status: 'completed',
+  conclusion,
+  run_attempt: 1,
+  created_at: created,
+});
+const heldPrRun = (over = {}) => ({
+  id: 43332027270,
+  run_number: 4494,
+  head_sha: PR_SHA,
+  event: 'pull_request',
+  status: 'completed',
+  conclusion: 'failure',
+  run_attempt: 1,
+  created_at: '2026-11-12T23:49:00Z',
+  ...over,
+});
+const heldPull = (over = {}) => ({
+  number: 8165,
+  state: 'open',
+  draft: false,
+  auto_merge: { merge_method: 'squash' },
+  head: { sha: PR_SHA, repo: { full_name: REPO } },
+  ...over,
+});
+
+/** main: [{ run, rows }] (newest last is fine; heldTick sorts); prs: [{ pr, run, rows, jobs? }]. */
+function heldIo({ main, prs, update = 202 }) {
+  const calls = { updated: [], logs: [] };
+  const logs = new Map();
+  const jobsOf = new Map();
+  for (const m of main) {
+    jobsOf.set(
+      m.run.id,
+      judgeJobs(m.rows.length > 0).map((j) => ({ ...j, id: m.run.id * 10 + j.id })),
+    );
+    logs.set(m.run.id * 10 + 2, verdictLog(m.rows));
+  }
+  for (const p of prs) {
+    jobsOf.set(
+      p.run.id,
+      (p.jobs ?? judgeJobs(true)).map((j) => ({ ...j, id: p.run.id * 10 + j.id })),
+    );
+    logs.set(p.run.id * 10 + 2, p.log ?? verdictLog(p.rows));
+  }
+  return {
+    calls,
+    io: {
+      listRuns: async () => main.map((m) => m.run),
+      openPulls: async () => prs.map((p) => p.pr),
+      headRuns: async (sha) => prs.filter((p) => p.run.head_sha === sha).map((p) => p.run),
+      jobs: async (r) => jobsOf.get(r.id),
+      jobLog: async (j) => (calls.logs.push(j.id), logs.get(j.id) ?? ''),
+      updateBranch: async (pr) => (calls.updated.push(pr.number), { ok: update >= 200 && update < 300, status: update }),
+    },
+  };
+}
+const RED_MAIN = { run: heldMainRun(43288342173, 4487, '2026-11-12T19:15:47Z', 'failure'), rows: CAMPAIGN_ROWS };
+const GREEN_MAIN = { run: heldMainRun(43400000000, 4600, '2026-11-13T02:00:00Z', 'success'), rows: [] };
+
+test('rowStep reads the step of a verdict row, money or not, and nothing from an (input) row', () => {
+  assert.equal(rowStep('J-campaigns-01#3 (money): failing, not in the baseline'), 'J-campaigns-01#3');
+  assert.equal(rowStep('J-charts-desk-04#2: failing, not in the baseline'), 'J-charts-desk-04#2');
+  assert.equal(rowStep("(input) (money): the pass history couldn't be read: x"), null);
+});
+
+test('main has lost the reds a pull request was held by: its branch is updated from main, once', async () => {
+  const { io, calls } = heldIo({ main: [RED_MAIN, GREEN_MAIN], prs: [{ pr: heldPull(), run: heldPrRun(), rows: CAMPAIGN_ROWS }] });
+  const lines = await heldTick({ repo: REPO, now: H_NOW, io });
+  assert.deepEqual(calls.updated, [8165]);
+  assert.match(
+    lines[0],
+    /#8165: run 4494 red only on J-campaigns-01#2, J-campaigns-01#3, J-campaigns-01#6, J-campaigns-01#7, .* 4600 is no longer red on; branch updated from main/,
+  );
+});
+
+test('main still red on the steps: nothing moves', async () => {
+  const stillRed = { run: heldMainRun(43337933887, 4527, '2026-11-13T00:33:00Z', 'failure'), rows: CAMPAIGN_ROWS };
+  const { io, calls } = heldIo({ main: [RED_MAIN, stillRed], prs: [{ pr: heldPull(), run: heldPrRun(), rows: CAMPAIGN_ROWS }] });
+  const lines = await heldTick({ repo: REPO, now: H_NOW, io });
+  assert.deepEqual(calls.updated, []);
+  assert.match(lines[0], /still red on main's newest run 4527/);
+});
+
+test('a pull request red on a step of its own stays red, even beside the inherited ones', async () => {
+  const rows = [...CAMPAIGN_ROWS, 'J-academy-16#5 (money): failing, not in the baseline'];
+  const { io, calls } = heldIo({ main: [RED_MAIN, GREEN_MAIN], prs: [{ pr: heldPull(), run: heldPrRun(), rows }] });
+  const lines = await heldTick({ repo: REPO, now: H_NOW, io });
+  assert.deepEqual(calls.updated, []);
+  assert.match(lines[0], /its own red \(J-academy-16#5/);
+});
+
+test('a red shard, a draft, an unarmed pull request or a fork is left as it is', async () => {
+  const shardRed = [{ id: 1, name: 'Journeys (shard 1 of 32)', conclusion: 'failure', steps: [] }, ...judgeJobs(true).slice(1)];
+  for (const p of [
+    { pr: heldPull(), run: heldPrRun(), rows: CAMPAIGN_ROWS, jobs: shardRed },
+    { pr: heldPull({ draft: true }), run: heldPrRun(), rows: CAMPAIGN_ROWS },
+    { pr: heldPull({ auto_merge: null }), run: heldPrRun(), rows: CAMPAIGN_ROWS },
+    { pr: heldPull({ head: { sha: PR_SHA, repo: { full_name: 'someone/fork' } } }), run: heldPrRun(), rows: CAMPAIGN_ROWS },
+  ]) {
+    const { io, calls } = heldIo({ main: [RED_MAIN, GREEN_MAIN], prs: [p] });
+    await heldTick({ repo: REPO, now: H_NOW, io });
+    assert.deepEqual(calls.updated, []);
+  }
+});
+
+test('bounded: a run started after main recovered (the fresh head) is never updated again', async () => {
+  const fresh = heldPrRun({ id: 43400000100, run_number: 4610, created_at: '2026-11-13T02:10:00Z' });
+  const { io, calls } = heldIo({ main: [RED_MAIN, GREEN_MAIN], prs: [{ pr: heldPull(), run: fresh, rows: CAMPAIGN_ROWS }] });
+  const lines = await heldTick({ repo: REPO, now: H_NOW, io });
+  assert.deepEqual(calls.updated, []);
+  assert.match(lines[0], /started after main's newest run 4600/);
+});
+
+test("main's newest run with no readable verdict moves nothing", async () => {
+  const dead = { run: heldMainRun(43400000000, 4600, '2026-11-13T02:00:00Z', 'failure'), rows: [] };
+  const { io, calls } = heldIo({ main: [RED_MAIN, dead], prs: [{ pr: heldPull(), run: heldPrRun(), rows: CAMPAIGN_ROWS }] });
+  // A dead run's log has no verdict summary.
+  io.jobLog = async () => 'no summary here';
+  const lines = await heldTick({ repo: REPO, now: H_NOW, io });
+  assert.deepEqual(calls.updated, []);
+  assert.match(lines.at(-1), /no readable verdict: nothing moved/);
+});
+
+test('a refused update (403) stops the pass, never retried', async () => {
+  const { io, calls } = heldIo({
+    main: [RED_MAIN, GREEN_MAIN],
+    prs: [
+      { pr: heldPull(), run: heldPrRun(), rows: CAMPAIGN_ROWS },
+      {
+        pr: heldPull({ number: 8152, head: { sha: 'b'.repeat(40), repo: { full_name: REPO } } }),
+        run: heldPrRun({ id: 2, run_number: 4495, head_sha: 'b'.repeat(40) }),
+        rows: CAMPAIGN_ROWS,
+      },
+    ],
+  });
+  io.updateBranch = async (pr) => {
+    calls.updated.push(pr.number);
+    throw new Error(`GitHub 403 on PUT /repos/${REPO}/pulls/${pr.number}/update-branch: stopping, not retrying`);
+  };
+  await assert.rejects(heldTick({ repo: REPO, now: H_NOW, io }), (e) => isRefusal(e));
+  assert.deepEqual(calls.updated, [8165]);
+});
+
+test('a conflict GitHub will not update (422) is named and the pass goes on', async () => {
+  const { io, calls } = heldIo({
+    main: [RED_MAIN, GREEN_MAIN],
+    prs: [{ pr: heldPull(), run: heldPrRun(), rows: CAMPAIGN_ROWS }],
+    update: 422,
+  });
+  const lines = await heldTick({ repo: REPO, now: H_NOW, io });
+  assert.deepEqual(calls.updated, [8165]);
+  assert.match(lines[0], /GitHub did not update it \(422\)/);
+});
+
+test('heldOnly is false for a pull request whose head moved past its run', () => {
+  const main = { newest: GREEN_MAIN.run, now: new Set(), before: new Set(CAMPAIGN_ROWS.map(rowStep)) };
+  const r = heldOnly({
+    repo: REPO,
+    pr: heldPull({ head: { sha: 'c'.repeat(40), repo: { full_name: REPO } } }),
+    run: heldPrRun(),
+    jobs: judgeJobs(true),
+    rows: CAMPAIGN_ROWS,
+    main,
+  });
+  assert.equal(r.held, undefined);
 });

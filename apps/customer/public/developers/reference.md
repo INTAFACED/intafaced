@@ -85,6 +85,7 @@ Every trading REST route and WebSocket stream, under its product, with the permi
 | ----------------------------------------------- | -------------------------------------------------------------- | ----------------------------------------------------- |
 | `GET /api/v1/funding-rate/:symbol`              | `fetchFundingRate`                                             | public; with a key trade:read                         |
 | `GET /api/v1/futures/order-types`               | `fetchFuturesOrderTypes`                                       | public; with a key trade:read                         |
+| `GET /api/v1/futures/margin-modes`              | `fetchFuturesMarginModes`                                      | public; with a key trade:read                         |
 | `GET /api/v1/funding-history/:symbol`           | `fetchFundingRateHistory`                                      | public; with a key trade:read                         |
 | `GET /api/v1/futures/ticker`                    | `fetchFuturesTicker`                                           | public; with a key trade:read                         |
 | `GET /api/v1/futures/tiers`                     | `fetchLeverageTiers`                                           | public; with a key trade:read                         |
@@ -221,6 +222,7 @@ No deposit or custodial withdrawal route is on the trading API: withdrawals are 
 | `GET /api/v1/account/market-lifecycle/:symbol`                  | `fetchAccountMarketLifecycle` | trade:read                    |
 | `GET /api/v1/convert/export`                                    | `fetchConvertExport`          | trade:read                    |
 | `GET /api/v1/copy/export`                                       | `fetchCopyExport`             | trade:read                    |
+| `POST /api/v1/copy/lead/orders`                                 | `createLeadOrder`             | trade:write + copy:lead       |
 | `GET /api/v1/rfq/export`                                        | `fetchRfqExport`              | trade:read                    |
 | `GET /api/v1/vip/applications`                                  | `fetchVipApplications`        | trade:read                    |
 | `POST /api/v1/vip/applications`                                 | `applyForVip`                 | trade:write                   |

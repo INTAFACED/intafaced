@@ -30,16 +30,19 @@ const trpc = (procedure, input) =>
   `/api/academy/trpc/${procedure}${input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`}`;
 const data = (res) => res.body?.result?.data;
 
-/** Staff act through Academy's admin door as founder A, the same door the console uses. */
+/**
+ * Staff act through Academy's admin door as founder A, the same door the console uses. The sign-in is kept for the
+ * file; the access token is minted per call, since it lives 300 s and this file can run longer than that.
+ */
 let staffDoor;
 async function staff(kind, procedure, input) {
   staffDoor ??= (async () => {
     const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
     const ctx = await gates.makeContext({ log: () => {} });
-    const sessions = await gates.approverSessions(ctx);
-    return { ctx, token: await sessions.a.tradeOpsToken() };
+    return { ctx, sessions: await gates.approverSessions(ctx) };
   })();
-  const { ctx, token } = await staffDoor;
+  const { ctx, sessions } = await staffDoor;
+  const token = await sessions.a.tradeOpsToken();
   const res =
     kind === 'query' ? await ctx.edge.query('academy', procedure, input, token) : await ctx.edge.mutate('academy', procedure, input, token);
   expect(res.status, res.text.slice(0, 300)).toBe(200);
