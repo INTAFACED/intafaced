@@ -64,11 +64,7 @@ const TABS = ['Leaders', 'Futures', 'Spot', 'Bots', 'Signal', 'My follows', 'Rul
 test(`${J} #1 opens Copy trading: every tab, an empty tab says so with no placeholder row, the desk state is read`, async ({ page }) => {
   const follower = await signUp(page, 'jcf');
   await verify(page, follower);
-  // The follower's own TEST wallet, and TEST USDC in its own account on the venue (the step's start).
-  const walletKey = testWalletKey();
-  const owner = privateKeyToAccount(walletKey).address.toLowerCase();
-  run.reset({ follower, tag: Date.now().toString(36), walletKey, owner });
-  await testDeposit(owner, 'USDC', '1000', depositRef('follower'));
+  run.reset({ follower, tag: Date.now().toString(36) });
   await signIn(page, follower);
 
   await page.goto('/trade/copy');
@@ -323,9 +319,9 @@ const venueStart = (over = {}) => ({
 });
 
 async function fillLimits(wizard, { perOrder, total, fixed }) {
-  await wizard.getByLabel('Most per order (USDT)').fill(perOrder);
-  await wizard.getByLabel('Most in total (USDT)').fill(total);
-  await wizard.getByLabel('Fixed amount per copied order (USDT)').fill(fixed);
+  await wizard.getByLabel('Most per order (USDC)').fill(perOrder);
+  await wizard.getByLabel('Most in total (USDC)').fill(total);
+  await wizard.getByLabel('Fixed amount per copied order (USDC)').fill(fixed);
   await wizard.getByLabel('Permission ends').fill(weekAhead());
 }
 
@@ -334,6 +330,11 @@ test(`${J} #5 presses Start copying: below the copy verification level, under a 
 }) => {
   // Signing up and funding a new account takes most of a minute, and the country-list restart two more.
   test.setTimeout(420_000);
+  // The follower's own TEST wallet, and TEST USDC in its own account on the venue (the journey's start), for #6 to #8.
+  const walletKey = testWalletKey();
+  const owner = privateKeyToAccount(walletKey).address.toLowerCase();
+  run.write({ walletKey, owner });
+  await testDeposit(owner, 'USDC', '1000', depositRef('follower'));
   // Verified at basic, which opens the copy room, but the TEST copy level is full.
   const unverified = await signUp(page, 'jcn');
   await page.goto('/verification');
@@ -553,7 +554,8 @@ test(`${J} #7 enters a fixed amount and starts: zero, above the per-order cap an
   await expect(
     wizard.getByText(new RegExp(`more than the 1,?000 USDC free that ${venue.displayName} reports for your account, as of `)),
   ).toBeVisible();
-  await fillLimits(wizard, { perOrder: '50', total: '200', fixed: '20' });
+  // The fixed amount is the follow's cap: no copy may go past 20 USDC, each copy or in total.
+  await fillLimits(wizard, { perOrder: '20', total: '20', fixed: '20' });
   await wizard.getByRole('button', { name: 'Next' }).click();
   await expect(wizard.getByRole('region', { name: 'Copy permission' })).toContainText(
     'can place and cancel orders there and can never withdraw',
@@ -568,23 +570,51 @@ test(`${J} #7 enters a fixed amount and starts: zero, above the per-order cap an
   expect((await venueRecord(owner, '/agents')).value, 'a rejected signature grants nothing on the venue').toEqual([]);
   const asked = wallet.requests.length;
 
-  // Signed: the follow is active with the amounts as its limits, on the follower's own venue account.
+  // Signed, but the answer to sending the signature is lost on the way back: the venue has the permission, the screen
+  // does not know it. A second press of Start copying is the same request, under the same key: it returns the same
+  // follow, now active, and asks the wallet for nothing more.
+  const starts = [];
+  const onStart = (res) => {
+    if (res.url().includes('copy.venue.start')) starts.push(res.json().catch(() => null));
+  };
+  page.on('response', onStart);
+  let lost;
+  const answerLost = new Promise((resolve) => (lost = resolve));
+  await page.route('**/copy.venue.submit**', async (route) => {
+    await route.fetch();
+    await route.abort('connectionreset');
+    lost();
+  });
   await wizard.getByRole('button', { name: 'Start copying' }).click();
   await continueInWallet(page);
-  await expect(page).toHaveURL(/tab=follows/);
+  await answerLost;
+  await expect(wizard.getByRole('button', { name: 'Start copying' })).toBeEnabled();
+  await expect(page).not.toHaveURL(/tab=follows/);
   expect(wallet.requests.length, 'the wallet was asked for one signature').toBe(asked + 1);
+  await page.unroute('**/copy.venue.submit**');
+  await wizard.getByRole('button', { name: 'Start copying' }).click();
+  await expect(page).toHaveURL(/tab=follows/);
+  page.off('response', onStart);
+  expect(wallet.requests.length, 'the second press asked the wallet for nothing').toBe(asked + 1);
+  const pressed = (await Promise.all(starts)).map((b) => b?.result?.data);
+  expect(pressed, 'two presses after the rejection reached the service').toHaveLength(2);
+  expect(pressed[1].followId, 'the second press with the same key is the same follow').toBe(pressed[0].followId);
+  expect(pressed[1].status).toBe('active');
   const signedData = JSON.parse(wallet.requests.at(-1).params[1]);
   const row = page.getByRole('grid', { name: 'My follows' }).getByRole('rowgroup').nth(1).getByRole('row');
   await expect(row).toHaveCount(1);
   await row.first().getByRole('button', { name: 'Manage' }).click();
   const detail = page.getByRole('dialog');
-  await expect(detail).toContainText('200 USDC');
   await expect(detail).toContainText('20 USDC');
-  const [spot] = await myFollows(me);
+  const follows = await myFollows(me);
+  expect(follows, 'one follow from the two presses').toHaveLength(1);
+  const [spot] = follows;
+  expect(spot.followId).toBe(pressed[0].followId);
   expect(spot.leaderRef).toBe(state('spotRef'));
   expect(spot.relationshipState).toBe('ACTIVE');
-  expect(spot.maxAggregateExposure, 'the cap').toBe('200');
-  expect(spot.fixedOrderSize).toBe('20');
+  expect(spot.fixedOrderSize, 'the fixed amount').toBe('20');
+  expect(spot.maxNotionalPerOrder, 'the fixed amount is the cap on each copy').toBe('20');
+  expect(spot.maxAggregateExposure, 'the fixed amount is the cap in total').toBe('20');
   // Nothing is held by INTAFACED: no reserve, and the venue balance is exactly what it was.
   expect(spot.reserve ?? null, 'no reserve is held').toBeNull();
   await expect(detail.getByText('Reserved for this copy').locator('..')).toContainText('Not set');
