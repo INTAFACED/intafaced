@@ -270,7 +270,8 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
       setPending(pendingStore.list());
       setFound(null);
     } else {
-      const wasPending = answer.clientOrderId ? pendingStore?.list().find((p) => p.clientOrderId === answer.clientOrderId) : undefined;
+      const answeredId = answer.kind === 'outcome' ? answer.clientOrderId : null;
+      const wasPending = answeredId ? pendingStore?.list().find((p) => p.clientOrderId === answeredId) : undefined;
       if (answer.kind === 'outcome' && wasPending && pendingStore) {
         // The same order sent again was answered definitely: it is named as the look-up names it, and the draft let go.
         pendingStore.remove(wasPending.clientOrderId);
