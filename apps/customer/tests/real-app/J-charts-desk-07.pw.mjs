@@ -199,16 +199,16 @@ test(`${J} #4 opens the same account on another device; the layout and its autos
           .sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left)
           .map((node) => node.getAttribute('data-widget')),
       );
-    // A fresh device opens Classic in its own order: what it shows after Open came from the account.
-    await expect(otherDesk).toHaveAttribute('data-preset', 'classic');
-    await expect.poll(otherIds).toEqual(['markets', 'chart', 'book']);
+    // A fresh device has no arrangement of its own (Classic is markets, chart, book): it opens the account's layout in
+    // use, "Scalp", with the change autosaved on the first device, the swapped order this device never arranged.
+    await expect.poll(otherIds).toEqual(swapped);
     await second.getByRole('button', { name: 'Layouts' }).click();
     const list = second.getByRole('dialog', { name: 'Desk layout' });
     const scalp = list.getByRole('listitem').filter({ has: second.getByText('Scalp', { exact: true }) });
     await expect(scalp).toHaveCount(1);
     await expect(scalp).toContainText('BTC/USDT');
     await scalp.getByRole('button', { name: 'Open' }).click();
-    // The layout with its autosaved change: the swapped order this device never arranged.
+    // Opened from the list on this device, it is the same: the layout with its autosaved change.
     await expect.poll(otherIds).toEqual(swapped);
   } finally {
     await other.close();
