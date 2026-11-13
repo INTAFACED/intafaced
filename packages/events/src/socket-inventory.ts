@@ -76,7 +76,6 @@ export const EVENT_BUS_MATRIX = {
   rankUpdated: { kind: 'live' },
   userCreated: { kind: 'live' },
   kycApproved: { kind: 'live' },
-  referralCreated: { kind: 'live' },
   kycSubmitted: { kind: 'socket', socketClass: 'A' },
   kycRejected: { kind: 'socket', socketClass: 'A' },
   kycInfoRequested: { kind: 'socket', socketClass: 'A' },

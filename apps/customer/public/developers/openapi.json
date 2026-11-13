@@ -881,6 +881,23 @@
         }
       }
     },
+    "/api/v1/futures/margin-modes": {
+      "get": {
+        "operationId": "fetchFuturesMarginModes",
+        "summary": "Futures margin modes, whether each is offered, and the typed refusal of each that is not",
+        "tags": ["derivatives"],
+        "security": [{}, { "apiKey": [] }],
+        "x-access": "public",
+        "x-scopes": ["trade:read"],
+        "x-signed-out": null,
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "403": { "description": "An API key without trade:read (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
     "/api/v1/funding-history/{symbol}": {
       "get": {
         "operationId": "fetchFundingRateHistory",

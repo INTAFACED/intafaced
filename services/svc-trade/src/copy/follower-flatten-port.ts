@@ -263,7 +263,7 @@ export async function protectionFloor(
 }
 
 /** STOP_NEW fence without revoking the session key. Detach revokes, and only after every market places. */
-async function fenceNewIntent(store: CopyFollowStore, followId: string): Promise<void> {
+export async function fenceNewIntent(store: CopyFollowStore, followId: string): Promise<void> {
   const follow = await store.getFollow(followId);
   if (!follow) {
     throw new CopyError('Follow not found', 'trade.copy_not_following');
