@@ -76,9 +76,6 @@ describe('user-venue wire', () => {
       status: 'trading',
       maxOrderQty: null,
       maxOrderNotional: null,
-      minOrderNotional: parseAmount('10'),
-      priceBandBps: null,
-      maxOpenOrders: 1000,
       builderFeeCapBps: { known: false },
       listedBy: { known: true, value: { kind: 'hip3', name: 'TEST deployer' } },
       // Text that reads like a number stays text: a rule is never money.
@@ -127,8 +124,6 @@ describe('user-venue wire', () => {
     const json = JSON.parse(JSON.stringify(encodeVenueWire(market)));
     // The strip's figures travel as decimal strings and an ISO time (J-derivatives-01 #4); a negative rate keeps its sign.
     expect(json.mark).toEqual({ known: true, value: '2650.1' });
-    // The published rules (J-cex-spot-04): a decimal string, a null for a rule not published, a whole-number cap.
-    expect([json.minOrderNotional, json.priceBandBps, json.maxOpenOrders]).toEqual(['10', null, 1000]);
     expect(json.funding.value).toEqual({ rate: '-0.0000125', intervalSeconds: 3600, nextFundingAt: '2026-11-09T11:00:00.000Z' });
     expect(json.feed.value.lastOracleUpdateAt).toBe('2026-11-09T10:00:00.000Z');
     expect(json.oracleRule).toEqual({ known: true, value: '3' });

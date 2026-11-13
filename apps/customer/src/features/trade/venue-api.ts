@@ -74,14 +74,6 @@ export const venueMarketSchema = z.object({
   maxLeverageBps: z.number().int().positive().nullable(),
   tickSize: decimalSchema,
   lotSize: decimalSchema,
-  // The venue's published smallest order value (quote), price band (bps around the middle of its book) and open-order
-  // cap per account, each null where the venue publishes none (J-cex-spot-04). Absent from an older door: not published.
-  minOrderNotional: decimalSchema.nullable().optional(),
-  priceBandBps: decimalSchema.nullable().optional(),
-  maxOpenOrders: z.number().int().positive().nullable().optional(),
-  // The venue's largest order, null where it reports none.
-  maxOrderQty: decimalSchema.nullable().optional(),
-  maxOrderNotional: decimalSchema.nullable().optional(),
   makerFeeBps: maybeKnown(signedDecimalSchema),
   takerFeeBps: maybeKnown(signedDecimalSchema),
   // The venue's own published words for the market, each "not published" where the venue gives none (J-derivatives-21).
