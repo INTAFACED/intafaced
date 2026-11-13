@@ -31,6 +31,8 @@ export interface AgentConnectionStore {
   latest(keyId: string): Promise<AgentConnectionRecord | null>;
   /** End the key's active connection at `at`; an ended one stays as it ended. Returns the newest connection. */
   end(keyId: string, at: Date): Promise<AgentConnectionRecord | null>;
+  /** The founder's desk (#15): every person's connections, ended or not, newest first, at most `limit`. */
+  listAll(limit: number): Promise<readonly AgentConnectionRecord[]>;
 }
 
 export class InMemoryAgentConnectionStore implements AgentConnectionStore {
@@ -60,6 +62,10 @@ export class InMemoryAgentConnectionStore implements AgentConnectionStore {
     const i = this.rows.findIndex((r) => r.keyId === keyId && r.endedAt === null);
     if (i >= 0) this.rows[i] = { ...this.rows[i]!, endedAt: at };
     return this.latest(keyId);
+  }
+
+  async listAll(limit: number) {
+    return [...this.rows].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || a.keyId.localeCompare(b.keyId)).slice(0, limit);
   }
 }
 
@@ -120,5 +126,12 @@ export class SqlAgentConnectionStore implements AgentConnectionStore {
       UPDATE trade.user_venue_agent_connections SET ended_at = GREATEST(${at}::timestamptz, created_at)
       WHERE key_id = ${keyId} AND ended_at IS NULL`;
     return this.latest(keyId);
+  }
+
+  async listAll(limit: number) {
+    const rows = await this.sql<Row[]>`
+      SELECT ${this.sql.unsafe(COLUMNS)} FROM trade.user_venue_agent_connections
+      ORDER BY created_at DESC, key_id LIMIT ${limit}`;
+    return rows.map(recordOf);
   }
 }
