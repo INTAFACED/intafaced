@@ -1177,6 +1177,15 @@ export const REST_REFERENCE: readonly RestRoute[] = [
       'Connect one of your agent API keys to this agent account, from your own sign-in after step-up, never from a key; a key already connected elsewhere is refused',
   },
   {
+    name: 'venueAgentRevoke',
+    method: 'POST',
+    path: '/api/v1/venue/agent-accounts/connections/:keyId/revoke',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      "Revoke your assistant, from your own sign-in: its key places nothing more, its resting orders are cancelled once, our copy of its venue agent key is dropped, and your wallet signs the venue's revoke; open positions stay",
+  },
+  {
     name: 'venueAgentOrder',
     method: 'POST',
     path: '/api/v1/venue/agent/orders',
@@ -1227,6 +1236,74 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     access: 'private',
     summary:
       'Revoke the allowance: our copy of the agent key is dropped and the next order refused at once; the answer is the venue’s revoke for your wallet to sign',
+  },
+  {
+    name: 'liveRuns',
+    method: 'GET',
+    path: '/api/v1/quant/live-runs',
+    product: 'accounts',
+    access: 'private',
+    summary: 'Your live strategy runs, newest first: strategy, version, state and why a run stopped',
+  },
+  {
+    name: 'liveRunStart',
+    method: 'POST',
+    path: '/api/v1/quant/live-runs',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      'Start a saved order-block strategy live on one of your own venue sub-accounts; a blank restart-attempt, state-on-restart or cap setting is refused with the field named, and the answer is the agent permission for your wallet to sign',
+  },
+  {
+    name: 'liveRun',
+    method: 'GET',
+    path: '/api/v1/quant/live-runs/:id',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      'One live run: state, safeguards (restarts, state kept or dropped), its orders read back by client order id, your sub-account as the venue reports it with its as-of time, and the log',
+  },
+  {
+    name: 'liveRunSubmit',
+    method: 'POST',
+    path: '/api/v1/quant/live-runs/:id/submit',
+    product: 'accounts',
+    access: 'private',
+    summary: 'Send your wallet’s signature of the run’s agent permission to the venue; the run goes live once the venue lists it',
+  },
+  {
+    name: 'liveRunStop',
+    method: 'POST',
+    path: '/api/v1/quant/live-runs/:id/stop',
+    product: 'accounts',
+    access: 'private',
+    summary: 'Stop the run: its open venue orders are cancelled and the position is kept; the same seq again changes nothing',
+  },
+  {
+    name: 'liveRunLiquidate',
+    method: 'POST',
+    path: '/api/v1/quant/live-runs/:id/liquidate',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      'Liquidate the run: stop it, then one reduce-only order per position under algo:liquidate:<run>:<seq>; the run ends flat; refused with the freeze reason while your account is frozen',
+  },
+  {
+    name: 'liveRunOrder',
+    method: 'POST',
+    path: '/api/v1/quant/live-runs/:id/orders',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      'A manual order for a running strategy under its next seq; the same seq again is the same order; refused without the live-control grant',
+  },
+  {
+    name: 'liveRunTestKill',
+    method: 'POST',
+    path: '/api/v1/quant/live-runs/:id/test/kill-process',
+    product: 'accounts',
+    access: 'private',
+    summary: 'TEST venue only: stop the run’s process heartbeat, so the supervisor reconciles and restarts it within its attempt limit',
   },
   {
     name: 'ownAgentOrderPreview',

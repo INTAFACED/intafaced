@@ -112,11 +112,15 @@ import { registerFeeTierRest } from './spot/fee-tier-rest.js';
 import { registerVipRest } from './spot/vip-rest.js';
 import { installRouteInventory } from './route-inventory.js';
 import { HttpUserVenue } from './venue/http-user-venue.js';
+import { registerInternalVenueDeposits } from './venue/internal-deposits.js';
 import { SqlPreparedActionStore } from './venue/prepared-action-store.js';
 import { UserVenueDoor, UserVenueDoorError, parseBuilderFee, parseOrdersPageMax } from './venue/user-venue-door.js';
 import { AgentAccounts, parseAgentAccountValues } from './venue/agent-account.js';
 import { SqlAgentAccountStore } from './venue/agent-account-store.js';
 import { AgentOrders } from './venue/agent-orders.js';
+import { LiveRuns, parseLiveRunValues } from './quant/live-run/live-runs.js';
+import { createIdentityFreezeRead, createQuantStrategySource } from './quant/live-run/ports.js';
+import { SqlLiveRunStore } from './quant/live-run/sql-store.js';
 import { OwnAgentTrading } from './venue/own-agent-trading.js';
 import { SqlAllowanceStore } from './venue/own-agent-allowance-store.js';
 import { createOwnAgentPolicy } from './venue/own-agent-policy-client.js';
@@ -528,6 +532,8 @@ const userVenueDoors = userVenueUrls.map(
 const userVenue = userVenueDoors[0] ?? null;
 const userVenueRouter =
   userVenueDoors.length > 0 ? new UserVenueRouter({ doors: userVenueDoors, store: userVenueStore, now: () => new Date() }) : null;
+// The primary venue's deposits for one wallet, read by svc-campaigns' welcome checklist (J-campaigns-04 #2 #3).
+registerInternalVenueDeposits(app, { door: userVenue, secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s });
 // J-agents-21's agent account beside the door: off with it. Its owner values are read even when blank (each refuses).
 const agentAccountStore = new SqlAgentAccountStore(sql);
 const agentAccountValues = parseAgentAccountValues(env);
@@ -565,6 +571,30 @@ const ownAgentTrading = userVenue
       now: () => new Date(),
     })
   : null;
+// Live strategy runs on the person's own venue sub-account (J-algo-dev-07): their rows here, the strategy version read
+// from svc-quant as the person, the owner's freeze read from svc-identity. Off with the door; TRADE_QUANT_LIVE not `on`
+// refuses every start. The supervisor watches every running run's heartbeat and recovers a dead process.
+const liveRunTier = createLiveTierClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
+const liveRuns = userVenue
+  ? new LiveRuns({
+      door: userVenue,
+      store: new SqlLiveRunStore(sql),
+      values: parseLiveRunValues(
+        {
+          TRADE_QUANT_LIVE: env.TRADE_QUANT_LIVE,
+          TRADE_QUANT_LIVE_HEARTBEAT_MS: env.TRADE_QUANT_LIVE_HEARTBEAT_MS,
+          APP_ENV: process.env.APP_ENV,
+        },
+        { asset: agentAccountValues.asset, keySeed: agentAccountValues.keySeed, bounds: agentAccountValues.bounds },
+      ),
+      strategies: env.QUANT_URL.trim() ? createQuantStrategySource(env.QUANT_URL.trim()) : null,
+      freeze: createIdentityFreezeRead(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s),
+      // Read on every supervisor pass: a run never trades on the tier it started with (signals/live-tier.ts, as an alert).
+      liveTier: (userId) => liveRunTier.tierOf(userId),
+      now: () => new Date(),
+    })
+  : null;
+liveRuns?.supervise();
 // Convert's sell quotes priced by the venue on the customer's own venue account (J-cex-spot-17 #8), on the primary
 // venue's door. Off with the door.
 const venueSellQuotes = userVenue
@@ -1845,6 +1875,7 @@ registerPrivateRest(app, {
   agentAccounts,
   agentOrders,
   ownAgentTrading,
+  liveRuns,
   venueSellQuotes,
   algo: trade,
   rfqExport: (principal, query) => trade.rfqExport(principal, query),
