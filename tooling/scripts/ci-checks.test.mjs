@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { LOCAL_KEYS, ciNode, ciSchemaProof, ciTestEnv, ruleTest, withBuiltTwins } from './ci-checks.mjs';
+import { LOCAL_KEYS, ciNode, ciSchemaProof, ciTestEnv, isolate, ruleTest, runDatabase, withBuiltTwins } from './ci-checks.mjs';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const ACTION = readFileSync(ROOT + '.github/actions/test-infra/action.yml', 'utf8');
@@ -98,4 +98,22 @@ test("the checks never inherit a hook's GIT_* variables (a tooling test's temp r
   const text = readFileSync(new URL('./ci-checks.mjs', import.meta.url), 'utf8');
   assert.match(text, /filter\(\(\[k\]\) => !k\.startsWith\('GIT_'\)\)/);
   assert.match(readFileSync(ROOT + '.githooks/pre-push', 'utf8'), /GIT_\[A-Z_\]\*\\\)=\.\*\/\\1\/p'\); do unset "\$v"; done/);
+});
+
+test('each run gets its own database: every TEST_DATABASE_URL points at it, nothing else changes', () => {
+  const { env } = ciTestEnv(ACTION);
+  const db = runDatabase(4242, 1794550000000);
+  assert.match(db, /^intafaced_test_run_4242_[0-9a-z]+$/);
+  const out = isolate(env, db);
+  for (const [k, v] of Object.entries(out))
+    if (k.startsWith('TEST_DATABASE_URL') && env[k].endsWith('/intafaced_test')) assert.ok(v.endsWith(`/${db}`), k);
+  assert.equal(out.TEST_DATABASE_URL_SUPPORT_ADMIN, env.TEST_DATABASE_URL_SUPPORT_ADMIN, 'the admin URL (database postgres) is left alone');
+  assert.equal(out.REQUIRE_POSTGRES, '1');
+  assert.notEqual(runDatabase(1, 1), runDatabase(2, 1), 'two runs never share one');
+});
+
+test("CI's bootstrap script names the database it makes, so a run can make its own from the same text", () => {
+  const script = readFileSync(ROOT + 'tooling/infra/postgres-init/02-intafaced-test-db.sh', 'utf8');
+  assert.match(script, /CREATE DATABASE intafaced_test OWNER/);
+  assert.match(script, /--dbname intafaced_test/);
 });

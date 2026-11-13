@@ -30,7 +30,8 @@
  *   node tooling/scripts/ci-checks.mjs --list           print what would run, run nothing
  */
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -107,41 +108,71 @@ function changedFiles(mergeBase) {
   return [...new Set((tracked + '\n' + untracked).split('\n').filter(Boolean))].sort();
 }
 
-/** Bring the local test database to CI's shape (idempotent), then prove it as CI does. Returns an error or null. */
-function prepareDatabase(env, actionText, run) {
+/** The database name a run uses in place of CI's (`intafaced_test`): its own, so runs never share tables or locks. */
+export const runDatabase = (pid = process.pid, now = Date.now()) => `intafaced_test_run_${pid}_${now.toString(36)}`;
+
+/**
+ * CI's test environment pointed at this run's own database (CI's runner has a fresh Postgres per job; a shared one here
+ * had stale tables owned by another role, lock waits between runs, and leftovers from killed runs).
+ */
+export function isolate(env, db) {
+  const out = {};
+  for (const [k, v] of Object.entries(env)) out[k] = k.startsWith('TEST_DATABASE_URL') ? v.replace(/\/intafaced_test$/, `/${db}`) : v;
+  return out;
+}
+
+/**
+ * Make this run's database the way CI makes intafaced_test, with CI's own bootstrap script (its text, with the database
+ * name changed), then prove it as CI does. Returns { error } or { drop } (a function that removes the database).
+ */
+function prepareDatabase(env, actionText, run, cleanEnv, log) {
   const url = new URL(env.TEST_DATABASE_URL);
+  const db = url.pathname.slice(1);
   const pg = {
-    ...process.env,
+    ...cleanEnv,
     PGHOST: url.hostname,
     PGPORT: url.port || '5432',
     PGUSER: decodeURIComponent(url.username),
     PGPASSWORD: decodeURIComponent(url.password),
-    PGCONNECT_TIMEOUT: '5',
+    PGCONNECT_TIMEOUT: '30',
   };
-  const boot = run('bash', [BOOTSTRAP], {
+  const psql = (sql, dbname = 'postgres') =>
+    spawnSync('psql', ['-d', dbname, '-v', 'ON_ERROR_STOP=1', '-tAc', sql], { env: pg, encoding: 'utf8' });
+  const drop = () => psql(`DROP DATABASE IF EXISTS "${db}" WITH (FORCE)`);
+  // Leftovers of runs that were killed before their drop (older than a day, so no live run is touched).
+  const old = psql("SELECT datname FROM pg_database WHERE datname LIKE 'intafaced_test_run_%'");
+  for (const name of String(old.stdout).split('\n').filter(Boolean)) {
+    const born = parseInt(name.split('_').pop(), 36);
+    if (Number.isFinite(born) && Date.now() - born > 24 * 3600_000) psql(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`);
+  }
+  const script = readFileSync(join(ROOT, BOOTSTRAP), 'utf8').replaceAll('intafaced_test', db);
+  const boot = run('bash', ['-c', script], {
     env: { ...pg, POSTGRES_USER: pg.PGUSER, POSTGRES_DB: 'postgres' },
     stdio: ['ignore', 'ignore', 'pipe'],
   });
-  if (boot.status !== 0)
-    return (
-      `the test database at ${url.host} is not reachable or not bootstrapped (${String(boot.stderr ?? '')
-        .trim()
-        .slice(0, 200)}). ` +
-      `CI's tests need Postgres 16 there with the role ${pg.PGUSER} (CI's test credentials, in ${ACTION}); on the Mac: brew services start postgresql@16`
-    );
+  if (boot.status !== 0) {
+    drop();
+    return {
+      error:
+        `the test database at ${url.host} is not reachable or could not be made (${String(boot.stderr ?? '')
+          .trim()
+          .slice(0, 200)}). ` +
+        `CI's tests need Postgres 16 there with the role ${pg.PGUSER} (CI's test credentials, in ${ACTION}); on the Mac: brew services start postgresql@16`,
+    };
+  }
+  log(`  test database: ${db} (this run's own, made by ${BOOTSTRAP}; dropped at the end)`);
   const { expected, inList } = ciSchemaProof(actionText);
-  const count = spawnSync(
-    'psql',
-    ['-d', url.pathname.slice(1), '-tAc', `SELECT count(*) FROM pg_namespace WHERE nspname IN (${inList});`],
-    {
-      env: pg,
-      encoding: 'utf8',
-    },
-  );
-  if (Number(String(count.stdout).trim()) !== expected)
-    return `intafaced_test has ${String(count.stdout).trim() || 'no'} of ${expected} service schemas after the bootstrap`;
+  const count = psql(`SELECT count(*) FROM pg_namespace WHERE nspname IN (${inList});`, db);
+  if (Number(String(count.stdout).trim()) !== expected) {
+    drop();
+    return { error: `${db} has ${String(count.stdout).trim() || 'no'} of ${expected} service schemas after the bootstrap` };
+  }
   const probe = run('node', ['tooling/ci/assert-test-db-env.mjs'], { env: { ...pg, ...env } });
-  return probe.status === 0 ? null : 'tooling/ci/assert-test-db-env.mjs refused the test database URLs (above)';
+  if (probe.status !== 0) {
+    drop();
+    return { error: 'tooling/ci/assert-test-db-env.mjs refused the test database URLs (above)' };
+  }
+  return { drop };
 }
 
 /** The packages a turbo filter set selects for a task (turbo --dry), as { name, directory }. */
@@ -193,7 +224,9 @@ export async function runCiChecks({ base = 'origin/main', list = false, log = co
   const actionText = readFileSync(join(ROOT, ACTION), 'utf8');
   const { env, skipped } = ciTestEnv(actionText);
   log(`  CI's checks on Node ${node.want}: ${filters.join(' ')}`);
-  log(`  left to CI: ${skipped.join(', ')}; and the test files no change reaches`);
+  log(
+    `  left to CI: ${skipped.join(', ')}; the test files no change reaches; the guards that read the pull request (test-diff, journey baseline, journey list, reach map); the deployment tests and the tooling tests that need a full build`,
+  );
 
   const tested = flags.full || flags.affected ? turboPackages('test', filters, baseEnv) : [];
   if (tested === null) return { ok: false, summary: 'turbo could not list the packages CI would test' };
@@ -217,6 +250,18 @@ export async function runCiChecks({ base = 'origin/main', list = false, log = co
 
   const gates = run('node', ['tooling/ci/gates.mjs', '--changed', '--base', base]);
   step('gates', gates.status === 0, 'a doctrine gate (above)');
+  // CI's gates job also runs Look drift with main's rules (ci.yml "Look drift (rules from main)"), which needs only git.
+  // Its other guards (test-diff, journey baseline, journey list, the reach map) read the pull request or a token: CI's.
+  let drift = null;
+  try {
+    drift = git(['show', 'origin/main:tooling/ci/look-drift.mjs']);
+  } catch {
+    /* main has none: the head's own, as CI does */
+  }
+  const driftScript = drift ? join(mkdtempSync(join(tmpdir(), 'look-drift-')), 'look-drift.mjs') : join(ROOT, 'tooling/ci/look-drift.mjs');
+  if (drift) writeFileSync(driftScript, drift);
+  const look = existsSync(driftScript) ? run('node', [driftScript], { env: { ...baseEnv, GUARD_BASE: mergeBase } }) : { status: 0 };
+  step('look drift', look.status === 0, 'a look baseline changed (above)');
 
   const pattern = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).scripts['format:check']?.match(/\{([^}]+)\}/);
   if (!pattern) step('format', false, "package.json's format:check changed shape: run `pnpm format:check`");
@@ -241,23 +286,30 @@ export async function runCiChecks({ base = 'origin/main', list = false, log = co
     const types = run('pnpm', ['turbo', 'run', 'typecheck', '--continue', '--output-logs=errors-only', ...filters]);
     step('typecheck', types.status === 0, 'type errors (above)');
 
-    const dbError = prepareDatabase(env, actionText, run);
-    if (dbError) step('tests', false, dbError);
+    const runEnv = isolate(env, runDatabase());
+    const db = prepareDatabase(runEnv, actionText, run, baseEnv, log);
+    if (db.error) step('tests', false, db.error);
     // CI's test job builds its own packages without the apps (their tests run from source), so an app's red build
     // still leaves the tests to run, as there.
     else if (
       build.status !== 0 &&
       run('pnpm', ['turbo', 'run', 'build', '--output-logs=errors-only', ...filters, '--filter=!./apps/*']).status !== 0
-    )
+    ) {
+      db.drop();
       step('tests', false, 'not run: they need the build of the packages they test, which failed');
-    else {
+    } else {
       const red = [];
-      for (const { name, directory, targets } of plan) {
-        const t = run('pnpm', ['exec', 'vitest', 'related', '--run', '--passWithNoTests', ...targets], {
-          cwd: join(ROOT, directory),
-          env: { ...baseEnv, ...env, TZ: 'UTC', FORCE_COLOR: process.env.FORCE_COLOR ?? '0' },
-        });
-        if (t.status !== 0) red.push(name);
+      try {
+        for (const { name, directory, targets } of plan) {
+          // Two workers a run: CI's runner is 4 cores for one run; here several builders share one Mac.
+          const t = run('pnpm', ['exec', 'vitest', 'related', '--run', '--passWithNoTests', '--maxWorkers=2', ...targets], {
+            cwd: join(ROOT, directory),
+            env: { ...baseEnv, ...runEnv, TZ: 'UTC', FORCE_COLOR: process.env.FORCE_COLOR ?? '0' },
+          });
+          if (t.status !== 0) red.push(name);
+        }
+      } finally {
+        db.drop();
       }
       step('tests', red.length === 0, `red in ${red.join(', ')} (above)`);
     }
