@@ -22,6 +22,8 @@ export interface EngineProtection {
   readonly trailingDistance: Amount | null;
   readonly bestPrice: Amount | null;
   readonly agentAddress: string;
+  /** The region of the request that armed it, checked again with the person's live level before each order is sent. */
+  readonly region: string;
   readonly status: EngineProtectionStatus;
   readonly failure: string | null;
   readonly cancelReason: string | null;
@@ -107,6 +109,7 @@ type Row = {
   trailing_distance: string | null;
   best_price: string | null;
   agent_address: string;
+  region: string;
   status: EngineProtectionStatus;
   failure: string | null;
   cancel_reason: string | null;
@@ -132,6 +135,7 @@ function fromRow(r: Row): EngineProtection {
     trailingDistance: amountOrNull(r.trailing_distance),
     bestPrice: amountOrNull(r.best_price),
     agentAddress: r.agent_address,
+    region: r.region,
     status: r.status,
     failure: r.failure,
     cancelReason: r.cancel_reason,
@@ -149,10 +153,10 @@ export class SqlEngineProtectionStore implements EngineProtectionStore {
     await this.sql`
       INSERT INTO trade.user_venue_engine_protections
         (id, user_id, venue_id, owner, client_key, symbol, kind, side, quantity, trigger_source, trigger_price,
-         trailing_distance, best_price, agent_address, status, created_at, updated_at)
+         trailing_distance, best_price, agent_address, region, status, created_at, updated_at)
       VALUES (${p.id}, ${p.userId}, ${p.venueId}, ${p.owner}, ${p.clientKey}, ${p.symbol}, ${p.kind}, ${p.side},
         ${formatAmount(p.quantity)}, ${p.triggerSource}, ${fmt(p.triggerPrice)}, ${fmt(p.trailingDistance)}, ${fmt(p.bestPrice)},
-        ${p.agentAddress}, ${p.status}, ${p.createdAt}, ${p.createdAt})
+        ${p.agentAddress}, ${p.region}, ${p.status}, ${p.createdAt}, ${p.createdAt})
       ON CONFLICT (user_id, client_key) DO NOTHING`;
     const rows = await this.sql<Row[]>`
       SELECT * FROM trade.user_venue_engine_protections WHERE user_id = ${p.userId} AND client_key = ${p.clientKey}`;

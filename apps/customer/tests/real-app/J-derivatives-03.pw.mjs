@@ -490,7 +490,8 @@ test(`${J} #6 the mark crosses the trigger: the venue fires it once and the posi
       30_000,
     );
     // Sent once: one reduce-only order under its one key, one fill, and the position closed on the venue.
-    const key = `protection:fire:${stop.id}`;
+    // Its business key: the person's venue account and their own client order id for the stop.
+    const key = `protection:fire:${owner.toLowerCase()}:${stop.clientOrderId}`;
     expect(done.venueClientOrderId).toBe(cloidOf(venueId, key));
     await new Promise((r) => setTimeout(r, 4_000));
     const fills = await fillsOf(owner, done.venueClientOrderId);

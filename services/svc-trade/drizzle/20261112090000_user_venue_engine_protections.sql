@@ -4,7 +4,7 @@
 -- A kind the venue does not take (a trailing stop, or a stop judged on the venue's index price) is held here and judged
 -- by our engine on the venue's own published prices. When it fires, our engine sends one reduce-only market order on the
 -- person's own venue account, signed by the venue agent key the person approved for it in their own wallet (the agent
--- permission), under the business key `protection:fire:<id>`. Nothing here is a balance and nothing is posted: the venue
+-- permission), under the business key `protection:fire:<owner>:<client_key>`. Nothing here is a balance and nothing is posted: the venue
 -- holds the position and the margin. A row is never deleted; it moves armed → firing → fired | failed | cancelled once.
 
 CREATE TABLE IF NOT EXISTS trade.user_venue_engine_protections (
@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS trade.user_venue_engine_protections (
   -- A trailing stop's best price seen since it armed, on its source: the trigger trails it by the distance.
   best_price numeric(78, 18),
   agent_address text NOT NULL,
+  -- The region of the request that armed it: the engine checks trading from it again, with the live level, before it sends.
+  region text NOT NULL,
   status text NOT NULL CONSTRAINT user_venue_engine_protections_status_ck CHECK (status IN ('armed', 'firing', 'fired', 'failed', 'cancelled')),
   failure text,
   cancel_reason text,
@@ -53,6 +55,7 @@ BEGIN
      OR NEW.side IS DISTINCT FROM OLD.side OR NEW.quantity IS DISTINCT FROM OLD.quantity
      OR NEW.trigger_source IS DISTINCT FROM OLD.trigger_source OR NEW.trigger_price IS DISTINCT FROM OLD.trigger_price
      OR NEW.trailing_distance IS DISTINCT FROM OLD.trailing_distance OR NEW.created_at IS DISTINCT FROM OLD.created_at
+     OR NEW.region IS DISTINCT FROM OLD.region
      OR OLD.status IN ('fired', 'failed', 'cancelled') THEN
     RAISE EXCEPTION 'trade.user_venue_engine_protections: only a live protection changes, and only its state.' USING ERRCODE = 'restrict_violation';
   END IF;

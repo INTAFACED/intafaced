@@ -582,6 +582,8 @@ const venueProtections = userVenue
       keySeed: env.TRADE_AGENT_KEY_SEED,
       // The person's level from identity before each order the engine sends (fails closed: nothing is sent).
       liveTier: (userId) => protectionTier.tierOf(userId),
+      // The person's own freeze from identity before each order the engine sends (fails closed: nothing is sent).
+      freeze: createIdentityFreezeRead(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s),
       now: () => new Date(),
     })
   : null;

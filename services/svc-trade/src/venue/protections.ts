@@ -3,6 +3,9 @@ import { keccak256, toHex, type TypedDataDefinition } from 'viem';
 import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
 import { add, compare, div, formatAmount, max, min, mul, parseAmount, sub, ZERO, type Amount } from '@intafaced/ledger-client/money';
 import { AuthError, type Principal } from '@intafaced/auth';
+import { JurisdictionError } from '@intafaced/contracts';
+import type { AccountFreezeRead } from '../quant/live-run/ports.js';
+import { assertPlaceEligible } from '../spot/place-eligibility.js';
 import {
   VenueRefusalError,
   type PlaceUserOrderIntent,
@@ -26,7 +29,7 @@ import { assertTradingLevel, type PreparedAnswer, type UserVenueDoor, type Venue
  * position: every order here is reduce-only, and the venue refuses one that would.
  *
  * Crash points (whose funds are stranded?): none. Before the wallet signs, nothing exists on the venue. An engine stop is
- * claimed (`armed` → `firing`) by exactly one worker; its order is stored under `protection:fire:<id>` before it is sent,
+ * claimed (`armed` → `firing`) by exactly one worker; its order is stored under `protection:fire:<owner>:<clientOrderId>` before it is sent,
  * the venue's client order id derives from that key, and a worker that crashes after the claim sends the same order again
  * on its next pass, which the venue takes once. The funds only ever sit on the person's own venue account.
  */
@@ -130,6 +133,11 @@ export interface ProtectionsDeps {
    * sends, so a stop never trades on a level the person no longer has. Null, or a read that fails, sends nothing.
    */
   readonly liveTier: ((userId: string) => Promise<Principal['tier']>) | null;
+  /**
+   * The person's own account freeze (J-wallet-13), svc-identity's read every service that acts for the person uses
+   * (quant/live-run/ports.ts), read before each order our engine sends. Null, or a read that fails, sends nothing.
+   */
+  readonly freeze: AccountFreezeRead | null;
   readonly now: () => Date;
 }
 
@@ -220,7 +228,7 @@ export class VenueProtections {
     });
   }
 
-  async create(principal: Principal, req: ProtectionRequest): Promise<ProtectionCreated> {
+  async create(principal: Principal, req: ProtectionRequest, region = ''): Promise<ProtectionCreated> {
     if (typeof req.kind !== 'string' || !KINDS.has(req.kind))
       bad('kind must be take_profit, stop_loss, stop_market, stop_limit or trailing_stop');
     const kind = req.kind as ProtectionKind;
@@ -355,6 +363,7 @@ export class VenueProtections {
       trailingDistance,
       bestPrice: kind === 'trailing_stop' ? price : null,
       agentAddress: agent.agentAddress,
+      region,
       status: 'armed',
       failure: null,
       cancelReason: null,
@@ -481,7 +490,21 @@ export class VenueProtections {
     // The person's level now, from identity: a read that fails sends nothing and leaves the stop claimed, sent on a later
     // pass under the same key; a level below trading is refused by the door, and the stop fails in its words.
     if (!this.deps.liveTier) throw new Error('the verification level cannot be read here, so our engine sends no order');
-    const actor = engineActor(row.userId, await this.deps.liveTier(row.userId));
+    if (!this.deps.freeze) throw new Error('the account freeze cannot be read here, so our engine sends no order');
+    const tier = await this.deps.liveTier(row.userId);
+    // The person's own freeze, read now: a frozen account gets no order from our engine, and the stop fails saying so.
+    if (await this.deps.freeze.frozen(row.userId))
+      return this.settle(row, null, 'your account is frozen, so our engine sent no order and nothing was closed');
+    // Trading from the region it was armed in, judged again on the level identity holds now, as a signed-in order is.
+    try {
+      assertPlaceEligible({ tier, region: row.region });
+    } catch (err) {
+      if (err instanceof AuthError) return this.settle(row, null, `your verification level no longer allows an order (${err.message})`);
+      if (err instanceof JurisdictionError)
+        return this.settle(row, null, `trading is no longer allowed for this account (${err.message}), so nothing was sent`);
+      throw err;
+    }
+    const actor = engineActor(row.userId, tier);
     const signer = this.protectionKey(row.userId, row.owner);
     let answer: PreparedAnswer;
     try {
@@ -524,7 +547,8 @@ export class VenueProtections {
   }
 }
 
-const fireKey = (row: EngineProtection) => `protection:fire:${row.id}`;
+/** The business key of the one order a stop sends: the person's venue account and their own client order id. */
+const fireKey = (row: EngineProtection) => `protection:fire:${row.owner}:${row.clientKey}`;
 
 function engineView(row: EngineProtection, order: UserVenueOrder | null): ProtectionView {
   const trailing = row.kind === 'trailing_stop' && row.bestPrice !== null && row.trailingDistance !== null;

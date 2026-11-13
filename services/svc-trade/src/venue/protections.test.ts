@@ -8,6 +8,7 @@ import { venueClientOrderId, type PreparedVenueAction } from '@intafaced/venue-c
 import { seedTestVenue, startTestVenueServer, type TestVenueSimulator, type TestVenueTypedData } from '@intafaced/venue-sim';
 import { HttpUserVenue } from './http-user-venue.js';
 import { InMemoryPreparedActionStore } from './prepared-action-store.js';
+import { MemoryFreezeRead } from '../quant/live-run/ports.js';
 import { InMemoryEngineProtectionStore } from './protection-store.js';
 import { ENGINE_LABEL, ProtectionError, VENUE_LABEL, VenueProtections } from './protections.js';
 import { UserVenueDoor } from './user-venue-door.js';
@@ -32,6 +33,8 @@ const person = {
 const wallet = privateKeyToAccount(keccak256(toHex('intafaced TEST wallet svc-trade protections')));
 const owner = wallet.address.toLowerCase();
 const BUILDER = '0x00000000000000000000000000000000000000b3';
+/** The region of the request that arms a stop: one where trading is open. */
+const REGION = 'DE';
 
 async function signed(prepared: PreparedVenueAction) {
   const t = prepared.typedData as TestVenueTypedData;
@@ -72,6 +75,8 @@ describe('venue protections (J-derivatives-03)', { timeout: 60_000 }, () => {
   const id = (tag: string) => `${tag}-${(n += 1)}`;
   /** What identity answers for the person's level now: a level, or a read that fails. */
   let identity: Principal['tier'] | 'unreadable' = 'basic';
+  /** The person's own account freeze, as identity answers it. */
+  let freeze = new MemoryFreezeRead();
   const liveTier = async () => {
     if (identity === 'unreadable') throw new Error('TEST: identity is down');
     return identity;
@@ -97,8 +102,9 @@ describe('venue protections (J-derivatives-03)', { timeout: 60_000 }, () => {
       now: () => new Date(),
     } as never);
     identity = 'basic';
+    freeze = new MemoryFreezeRead();
     store = new InMemoryEngineProtectionStore();
-    p = new VenueProtections({ door, store, keySeed: 'intafaced unit TEST protection seed', liveTier, now: () => new Date() });
+    p = new VenueProtections({ door, store, keySeed: 'intafaced unit TEST protection seed', liveTier, freeze, now: () => new Date() });
   });
 
   /** A TEST long of `size` ETH on the person's venue account: funded, 5x, our builder fee approved, bought at market. */
@@ -174,7 +180,7 @@ describe('venue protections (J-derivatives-03)', { timeout: 60_000 }, () => {
   it('a take profit rests on the venue as its trigger order, signed by the wallet, and is listed with the venue order id', async () => {
     await flat();
     await long('1');
-    const made = await p.create(person, base({ kind: 'take_profit', triggerPrice: '3100' }));
+    const made = await p.create(person, base({ kind: 'take_profit', triggerPrice: '3100' }), REGION);
     expect(made.restsOn).toBe('venue');
     if (made.restsOn !== 'venue') throw new Error('unreachable');
     expect(made.prepared.intent).toMatchObject({ kind: 'place_order', reduceOnly: true, trigger: { role: 'take_profit', source: 'mark' } });
@@ -194,7 +200,7 @@ describe('venue protections (J-derivatives-03)', { timeout: 60_000 }, () => {
   it('refuses a take profit on the wrong side of the mark in words, a field a kind does not take, an exit that would enlarge, and more than the position', async () => {
     await flat();
     await long('1');
-    const wrong = await refused(p.create(person, base({ kind: 'take_profit', triggerPrice: '2950' })));
+    const wrong = await refused(p.create(person, base({ kind: 'take_profit', triggerPrice: '2950' }), REGION));
     expect(wrong).toMatchObject({ code: 'trade.protection_wrong_side', status: 400 });
     expect(wrong.message).toBe('That price is on the wrong side of the mark price (now 3000): it must be above it. Nothing was saved.');
     for (const [kind, fields] of [
@@ -203,12 +209,14 @@ describe('venue protections (J-derivatives-03)', { timeout: 60_000 }, () => {
       ['trailing_stop', { trailingDistance: '10', triggerPrice: '2900' }],
       ['take_profit', { triggerPrice: '3100', trailingDistance: '10' }],
     ] as const) {
-      expect(await refused(p.create(person, base({ kind, ...fields })))).toMatchObject({ code: 'trade.conditional_field_unsupported' });
+      expect(await refused(p.create(person, base({ kind, ...fields }), REGION))).toMatchObject({
+        code: 'trade.conditional_field_unsupported',
+      });
     }
-    expect(await refused(p.create(person, base({ kind: 'stop_market', side: 'buy', triggerPrice: '3100' })))).toMatchObject({
+    expect(await refused(p.create(person, base({ kind: 'stop_market', side: 'buy', triggerPrice: '3100' }), REGION))).toMatchObject({
       code: 'trade.conditional_would_increase',
     });
-    expect(await refused(p.create(person, base({ kind: 'stop_loss', quantity: '2', triggerPrice: '2900' })))).toMatchObject({
+    expect(await refused(p.create(person, base({ kind: 'stop_loss', quantity: '2', triggerPrice: '2900' }), REGION))).toMatchObject({
       code: 'trade.protection_above_position',
     });
     expect(store.rows.size).toBe(0);
@@ -217,14 +225,14 @@ describe('venue protections (J-derivatives-03)', { timeout: 60_000 }, () => {
   it('a trailing stop needs the agent permission, then runs on our engine; crossed, two workers send it once and it closes the position', async () => {
     await flat();
     await long('1');
-    expect(await refused(p.create(person, base({ kind: 'trailing_stop', trailingDistance: '50' })))).toMatchObject({
+    expect(await refused(p.create(person, base({ kind: 'trailing_stop', trailingDistance: '50' }), REGION))).toMatchObject({
       code: 'trade.protection_agent_unapproved',
       status: 409,
     });
     const approval = await p.prepareAgent(person, owner);
     expect((await send(approval)).outcome).toMatchObject({ accepted: true });
     expect(await p.agent(person, owner)).toMatchObject({ approved: true });
-    const made = await p.create(person, base({ kind: 'trailing_stop', trailingDistance: '50' }));
+    const made = await p.create(person, base({ kind: 'trailing_stop', trailingDistance: '50' }), REGION);
     if (made.restsOn !== 'engine') throw new Error('expected the engine');
     expect(made.protection).toMatchObject({ restsOn: 'engine', label: ENGINE_LABEL, status: 'armed', currentTrigger: '2950' });
     // The mark rises: the trigger trails it.
@@ -233,13 +241,20 @@ describe('venue protections (J-derivatives-03)', { timeout: 60_000 }, () => {
     expect((await p.list(person, owner)).find((v) => v.id === made.protection.id)).toMatchObject({ currentTrigger: '3050' });
     // The mark falls past it: two workers in the same moment; one claims it, and one order is sent.
     sim.setMark(ETH, a('3040'));
-    const other = new VenueProtections({ door, store, keySeed: 'intafaced unit TEST protection seed', liveTier, now: () => new Date() });
+    const other = new VenueProtections({
+      door,
+      store,
+      keySeed: 'intafaced unit TEST protection seed',
+      liveTier,
+      freeze,
+      now: () => new Date(),
+    });
     const [x, y] = await Promise.all([p.tick(), other.tick()]);
     expect(x.fired + y.fired).toBe(1);
     const done = (await p.list(person, owner)).find((v) => v.id === made.protection.id)!;
     expect(done).toMatchObject({ status: 'filled' });
     const account = await door.account(owner);
-    const cloid = venueClientOrderId(account.venueId, `protection:fire:${made.protection.id}`);
+    const cloid = venueClientOrderId(account.venueId, `protection:fire:${owner}:${made.protection.clientOrderId}`);
     expect((await sim.fills(account, new Date(0))).value.filter((f) => f.venueClientOrderId === cloid)).toHaveLength(1);
     expect((await sim.positions(account)).value.find((x2) => x2.symbol === ETH)).toBeUndefined();
     // A later pass sends nothing more.
@@ -251,7 +266,7 @@ describe('venue protections (J-derivatives-03)', { timeout: 60_000 }, () => {
     await flat();
     await long('1');
     await send(await p.prepareAgent(person, owner)).catch(() => undefined);
-    const made = await p.create(person, base({ kind: 'stop_market', triggerSource: 'index', triggerPrice: '2900' }));
+    const made = await p.create(person, base({ kind: 'stop_market', triggerSource: 'index', triggerPrice: '2900' }), REGION);
     if (made.restsOn !== 'engine') throw new Error('expected the engine');
     sim.setMark(ETH, a('2800'));
     await p.tick();
@@ -265,7 +280,7 @@ describe('venue protections (J-derivatives-03)', { timeout: 60_000 }, () => {
     await flat();
     await long('1');
     await send(await p.prepareAgent(person, owner)).catch(() => undefined);
-    const made = await p.create(person, base({ kind: 'trailing_stop', trailingDistance: '20' }));
+    const made = await p.create(person, base({ kind: 'trailing_stop', trailingDistance: '20' }), REGION);
     if (made.restsOn !== 'engine') throw new Error('expected the engine');
     await flat();
     sim.setMark(ETH, a('2900'));
@@ -279,14 +294,14 @@ describe('venue protections (J-derivatives-03)', { timeout: 60_000 }, () => {
     await send(await p.prepareAgent(person, owner)).catch(() => undefined);
     // Arming checks the level as the door checks a new order: a person below trading arms nothing.
     const below = { ...person, tier: 'none' } as unknown as Principal;
-    await expect(p.create(below, base({ kind: 'trailing_stop', trailingDistance: '20' }))).rejects.toMatchObject({
+    await expect(p.create(below, base({ kind: 'trailing_stop', trailingDistance: '20' }), REGION)).rejects.toMatchObject({
       code: 'tier.insufficient',
     });
     expect(store.rows.size).toBe(0);
     const account = await door.account(owner);
     const fills = async () => (await sim.fills(account, new Date(0))).value.length;
     // Identity can't be read when it crosses: nothing is sent, the stop stays claimed, and it is sent once identity answers.
-    const first = await p.create(person, base({ kind: 'stop_market', triggerSource: 'index', triggerPrice: '2900' }));
+    const first = await p.create(person, base({ kind: 'stop_market', triggerSource: 'index', triggerPrice: '2900' }), REGION);
     if (first.restsOn !== 'engine') throw new Error('expected the engine');
     const before = await fills();
     identity = 'unreadable';
@@ -305,10 +320,48 @@ describe('venue protections (J-derivatives-03)', { timeout: 60_000 }, () => {
     // Back at basic, a new stop fires as before.
     identity = 'basic';
     sim.setIndex(ETH, a('3000'));
-    const second = await p.create(person, base({ kind: 'stop_market', triggerSource: 'index', triggerPrice: '2900' }));
+    const second = await p.create(person, base({ kind: 'stop_market', triggerSource: 'index', triggerPrice: '2900' }), REGION);
     if (second.restsOn !== 'engine') throw new Error('expected the engine');
     sim.setIndex(ETH, a('2890'));
     await p.tick();
     expect((await store.get(USER, second.protection.id))!.status).toBe('fired');
+  });
+
+  it("a frozen account, a freeze that can't be read, or a region where trading has closed: our engine sends nothing", async () => {
+    await flat();
+    await long('1');
+    await send(await p.prepareAgent(person, owner)).catch(() => undefined);
+    const account = await door.account(owner);
+    const fills = async () => (await sim.fills(account, new Date(0))).value.length;
+    const before = await fills();
+    const stop = await p.create(person, base({ kind: 'stop_market', triggerSource: 'index', triggerPrice: '2900' }), REGION);
+    if (stop.restsOn !== 'engine') throw new Error('expected the engine');
+    // The freeze can't be read when it crosses: nothing is sent, and the stop stays claimed.
+    freeze.down = true;
+    sim.setIndex(ETH, a('2890'));
+    await p.tick();
+    expect((await store.get(USER, stop.protection.id))!.status).toBe('firing');
+    expect(await fills()).toBe(before);
+    // The person has frozen their own account: nothing is sent, and the stop fails saying so.
+    freeze.down = false;
+    freeze.frozenUsers.add(USER);
+    await p.tick();
+    expect(await store.get(USER, stop.protection.id)).toMatchObject({
+      status: 'failed',
+      failure: 'your account is frozen, so our engine sent no order and nothing was closed',
+    });
+    expect(await fills()).toBe(before);
+    // Armed from a region where trading is closed (recorded at arming, KP): checked again before sending, nothing is sent.
+    freeze.frozenUsers.clear();
+    sim.setIndex(ETH, a('3000'));
+    const closed = await p.create(person, base({ kind: 'stop_market', triggerSource: 'index', triggerPrice: '2900' }), 'KP');
+    if (closed.restsOn !== 'engine') throw new Error('expected the engine');
+    sim.setIndex(ETH, a('2890'));
+    await p.tick();
+    const failed = (await store.get(USER, closed.protection.id))!;
+    expect(failed.status).toBe('failed');
+    expect(failed.failure).toMatch(/^trading is no longer allowed for this account/);
+    expect(await fills()).toBe(before);
+    expect((await sim.positions(account)).value.find((x) => x.symbol === ETH)).toMatchObject({ size: a('1') });
   });
 });

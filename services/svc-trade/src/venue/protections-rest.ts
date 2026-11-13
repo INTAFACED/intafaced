@@ -24,7 +24,12 @@ import { refusedAgentKey, venueRefusalReply, type UserVenueRestDeps } from './us
 
 export const PROTECTIONS_PATH = '/api/v1/venue/protections';
 
-export function attachProtectionRoutes(app: FastifyInstance, protections: VenueProtections | null, deps: UserVenueRestDeps): void {
+export function attachProtectionRoutes(
+  app: FastifyInstance,
+  protections: VenueProtections | null,
+  // The request's region, recorded on an engine stop: the engine checks trading from it again before it sends.
+  deps: UserVenueRestDeps & { readonly regionOf?: (req: FastifyRequest) => string },
+): void {
   async function admit(req: FastifyRequest, reply: FastifyReply, scope: Scope): Promise<Principal | null> {
     const principal = deps.requirePrincipal(req, reply);
     if (!principal) return null;
@@ -79,7 +84,7 @@ export function attachProtectionRoutes(app: FastifyInstance, protections: VenueP
     // A stop armed on our engine is made here (201); a venue trigger order is made only once the wallet signs it (200).
     return answer(
       reply,
-      (p) => p.create(principal, raw(req)),
+      (p) => p.create(principal, raw(req), deps.regionOf?.(req) ?? ''),
       (v) => ((v as { restsOn?: string }).restsOn === 'engine' ? 201 : 200),
     );
   });

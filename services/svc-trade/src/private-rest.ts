@@ -1397,7 +1397,12 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     agentKeyConfined,
     regionOf: (req) => contextFrom(req).region,
   });
-  attachProtectionRoutes(app, deps.venueProtections ?? null, { requirePrincipal, requireTradeJurisdiction, agentKeyConfined });
+  attachProtectionRoutes(app, deps.venueProtections ?? null, {
+    requirePrincipal,
+    requireTradeJurisdiction,
+    agentKeyConfined,
+    regionOf: (req) => contextFrom(req).region,
+  });
 
   // Mounted only while futures orders go through the book; otherwise the conditional-orders refusal answers the path.
   if (deps.futuresOrders) {
