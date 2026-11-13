@@ -477,6 +477,10 @@ test(`${J} #8 starts a trading session and places two orders: one approval after
 
     // ── Two orders, signed by the session key, with no second prompt ────────────────────────────────────────────────
     const ordersBefore = (await testVenue('/open-orders', { account: await venueAccount(address) })).value.length;
+    // A resting TEST buy inside the TEST venue's published price band (95% around its BTC-USDC book's middle, 60000):
+    // the venue refuses a limit price outside it (`price_outside_venue_band`), so the ticket names its market and price.
+    await panel.getByLabel(/^Market\b/).selectOption('BTC-USDC');
+    await panel.getByLabel('Limit price', { exact: true }).fill('59000');
     for (const n of [1, 2]) {
       await panel.getByRole('button', { name: 'Place order' }).click();
       await expect(panel.locator('[data-session-orders] li')).toHaveCount(n, { timeout: 20_000 });
@@ -575,7 +579,7 @@ test(`${J} #8 starts a trading session and places two orders: one approval after
           side: 'buy',
           type: 'limit',
           amount: '0.001',
-          price: '1000',
+          price: '59000',
           timeInForce: 'GTC',
           reduceOnly: false,
           clientOrderKey: `order:${client.userId}:j-wallet-22-8:revoked`,

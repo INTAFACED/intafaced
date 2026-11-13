@@ -23,6 +23,13 @@ export const SCOPES = [
   'trade:write',
   'trade:withdraw',
 
+  // Copy trading by API key (J-copy-bots-otc-07). `copy:lead` places a lead's orders through the lead API and reads
+  // its own lead feeds; svc-identity mints it on a key only for an approved lead (a listing in the `listed` state),
+  // and svc-trade checks the listing again on every lead order. `copy:follow` starts, amends, stops and lists the
+  // caller's own follows, as the web does. Neither moves money off the platform.
+  'copy:lead',
+  'copy:follow',
+
   // Pay
   'pay:read',
   'pay:write',
@@ -283,6 +290,8 @@ const SESSION_SCOPE_LIST = [
   'ledger:read',
   'trade:read',
   'trade:write',
+  'copy:lead',
+  'copy:follow',
   'p2p:read',
   'p2p:write',
   'token:read',
