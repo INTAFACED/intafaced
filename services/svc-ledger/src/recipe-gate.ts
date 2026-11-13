@@ -1075,6 +1075,23 @@ function extraShapePosts(): Array<{ name: RecipeName; post: PostRequest }> {
       }),
     },
     {
+      // svc-market's signal subscription, paid by card through the card partner (J-copy-bots-otc-21 #2): the listing's
+      // price is earned in the market module, then the partner's settlement lands in our reserve at that partner.
+      name: 'chargeEarn',
+      post: recipes.chargeEarn({ module: 'market', saleId: 'sale-test', userId: U, assetId: 'USDC', price: { perUnit: AMT }, units: 1n }),
+    },
+    {
+      name: 'chargeCollect',
+      post: recipes.chargeCollect({
+        module: 'market',
+        userId: U,
+        to: { kind: 'partner-reserve', partnerId: 'test' },
+        paymentId: 'settle-test',
+        assetId: 'USDC',
+        amount: AMT,
+      }),
+    },
+    {
       name: 'partnerFeeEarn',
       // Shape sample only, never posted: a TEST rate, because the owner's rate is unset and Earn refuses without one.
       post: recipes.partnerFeeEarn({

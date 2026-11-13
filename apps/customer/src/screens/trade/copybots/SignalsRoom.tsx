@@ -82,7 +82,7 @@ export function SignalsRoom() {
         ) : listings.status === 'error' && listings.failure ? (
           <RefusalNote failure={listings.failure} retry={listings.reload} />
         ) : (listings.data ?? []).length === 0 ? (
-          <EmptyState size="inline" title={t('No signals are listed yet')} reason={t('A signal appears here when a provider lists one.')} />
+          <EmptyState size="inline" title={t('No signals are listed')} reason={t('A signal appears here when a provider lists one.')} />
         ) : (
           <div className="cb-stack">
             {(listings.data ?? []).map((listing) => (
@@ -100,7 +100,7 @@ export function SignalsRoom() {
                 ) : listing.payment?.status === 'declined' ? (
                   <p>{t('The card partner did not take the payment. Nothing was charged.')}</p>
                 ) : listing.payment ? (
-                  <p>{t('Payment not finished yet. Buy access again to finish it; you are never charged twice.')}</p>
+                  <p>{t('The payment is not finished. Buy access again to finish it; you are never charged twice.')}</p>
                 ) : null}
                 <div className="cb-action-row">
                   {!listing.access ? (

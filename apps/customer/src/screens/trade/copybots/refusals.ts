@@ -270,7 +270,7 @@ const BOTS: Readonly<Record<string, Words>> = {
     body: 'A signal bot runs only from a signal you bought access to. Nothing was created.',
   },
   'market.signal_price_unset': {
-    title: 'This signal has no price yet',
+    title: 'This signal has no price',
     body: 'The provider has not set a price, so it can’t be bought. Nothing was charged.',
   },
   'market.signal_payment_partner_unset': {

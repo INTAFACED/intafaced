@@ -293,7 +293,7 @@ const messages = {
   'No price available right now': 'No price available right now',
   'No recurring-order service exists. Use Convert for a single trade.':
     'No recurring-order service exists. Use Convert for a single trade.',
-  'No signals are listed yet': 'No signals are listed yet',
+  'No signals are listed': 'No signals are listed',
   'No trades on record': 'No trades on record',
   None: 'None',
   'None set': 'None set',
@@ -358,8 +358,8 @@ const messages = {
   'Paused: the price is outside the range': 'Paused: the price is outside the range',
   'Pay once by card. The card partner takes the payment; you are charged once, however often you press Buy.':
     'Pay once by card. The card partner takes the payment; you are charged once, however often you press Buy.',
-  'Payment not finished yet. Buy access again to finish it; you are never charged twice.':
-    'Payment not finished yet. Buy access again to finish it; you are never charged twice.',
+  'The payment is not finished. Buy access again to finish it; you are never charged twice.':
+    'The payment is not finished. Buy access again to finish it; you are never charged twice.',
   Performance: 'Performance',
   'Permission ends': 'Permission ends',
   'Pick a bot, set its size and limits, see what it will cost before it starts, and stop it any time.':
