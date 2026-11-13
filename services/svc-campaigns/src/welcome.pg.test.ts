@@ -9,7 +9,8 @@ import type { CampaignDefinitionInput, CampaignTasks } from '@intafaced/contract
 import { CampaignService } from './campaigns.js';
 import { CampaignsError } from './codes.js';
 import { PayoutSaga } from './payouts.js';
-import { TaskService, rewardKeyOf, welcomePeriodOf } from './tasks.js';
+import { TaskService, firstCountingDeposit, rewardKeyOf, welcomePeriodOf } from './tasks.js';
+import type { VenueDepositRead, VenueDepositSource } from './venue-deposits.js';
 
 /**
  * The welcome checklist against real Postgres and the in-memory reference ledger (CM-rewards-hub-03, J-campaigns-04).
@@ -241,7 +242,13 @@ if (!db) {
       const mine = await tasks.welcomeChecklist({ accountId: ME });
       expect(mine.campaign?.id).toBe(c.id);
       expect(new Date(mine.window!.closesAt!).getTime() - new Date(mine.window!.opensAt).getTime()).toBe(7 * 24 * HOUR);
-      expect(await tasks.welcomeChecklist({ accountId: LATE })).toEqual({ campaign: null, signedUpAt: null, window: null, tasks: [] });
+      expect(await tasks.welcomeChecklist({ accountId: LATE })).toEqual({
+        campaign: null,
+        signedUpAt: null,
+        window: null,
+        tasks: [],
+        deposit: null,
+      });
       expect(await code(tasks.welcomeClaim({ accountId: LATE, event: 'identity.verified' }))).toBe('campaigns.welcome_none');
     });
 
@@ -431,6 +438,133 @@ if (!db) {
       await signUp(LATE);
       await happen(LATE, 'trade.fill');
       expect(await db.sql`SELECT 1 FROM campaigns.welcome_events WHERE account_id = ${LATE}`).toHaveLength(0);
+    });
+  });
+
+  // J-campaigns-04 #2 #3: the deposit task is read from the venue, from the wallets the person connected.
+  describe('welcome deposit read from the venue (Postgres)', () => {
+    const WALLET = '0x00000000000000000000000000000000000000a1';
+    let wallets: Map<string, string[] | null>;
+    let venue: Map<string, VenueDepositRead | null>;
+    let paid: Map<string, bigint>;
+    let reads: number;
+    const source: VenueDepositSource = {
+      wallets: async () => wallets.get(ME)!,
+      deposits: async (owner) => {
+        reads += 1;
+        return venue.has(owner) ? venue.get(owner)! : { venueId: 'test-venue', asOf: now().toISOString(), deposits: [] };
+      },
+    };
+    const deposit = (ref: string, amount: string, at: string, status = 'credited', asset = 'USDC') => ({
+      depositRef: ref,
+      asset,
+      amount,
+      status: status as 'credited',
+      seenAt: at,
+    });
+    const venueSays = (...deposits: ReturnType<typeof deposit>[]) =>
+      venue.set(WALLET, { venueId: 'test-venue', asOf: now().toISOString(), deposits });
+    const depositTask = async () => {
+      const list = await tasks.welcomeChecklist({ accountId: ME });
+      return { task: list.tasks.find((t) => t.event === 'pay.deposit')!, deposit: list.deposit };
+    };
+
+    beforeEach(async () => {
+      await db.sql`TRUNCATE campaigns.redemption_attempts, campaigns.reward_intents, campaigns.welcome_events,
+        campaigns.welcome_accounts, campaigns.pot_fundings, campaigns.audit_log, campaigns.campaigns CASCADE`;
+      people = new Map([[ME, person(ME)]]);
+      book = new MemoryLedger();
+      clock = null;
+      wallets = new Map([[ME, [WALLET]]]);
+      venue = new Map();
+      paid = new Map();
+      reads = 0;
+      tasks = new TaskService({
+        sql: db.sql,
+        participants,
+        saga: new PayoutSaga({ sql: db.sql, ledger: book, reconcileAfterSeconds: 1 }),
+        markets: null,
+        timeZone: () => 'UTC',
+        rollbackWindowSeconds: 86_400,
+        venueDeposits: source,
+        rewardsPaidTo: async (wallet) => paid.get(wallet) ?? 0n,
+        now,
+      });
+      await live();
+      await signUp(ME);
+    });
+
+    it('ticks once from the venue’s credited USDC deposit, at the time the venue saw it; read again it changes nothing', async () => {
+      expect((await depositTask()).task.state).toBe('open');
+      const at = ago(10_000);
+      venueSays(deposit('84532:0xaa:0', '25', ago(20_000), 'confirming'), deposit('84532:0xbb:0', '25', at));
+      const first = await depositTask();
+      expect(first.task).toMatchObject({ state: 'done', doneAt: at });
+      expect(first.deposit).toMatchObject({ source: 'read' });
+      const [row] = await db.sql<{ event_id: string }[]>`
+        SELECT event_id FROM campaigns.welcome_events WHERE account_id = ${ME} AND event = 'pay.deposit'`;
+      expect(row!.event_id).toBe('venue-deposit:test-venue:84532:0xbb:0');
+      // The venue reports the same deposit again, and a later one: the task stays ticked once, at the same moment.
+      venueSays(deposit('84532:0xbb:0', '25', at), deposit('84532:0xcc:0', '5', ago(1_000)));
+      expect((await depositTask()).task).toEqual(first.task);
+      expect(await db.sql`SELECT 1 FROM campaigns.welcome_events WHERE account_id = ${ME} AND event = 'pay.deposit'`).toHaveLength(1);
+      // Every look reads the venue again (the same fact delivered again): the tick stays the first one.
+      const before = reads;
+      const again = await depositTask();
+      expect(reads).toBe(before + 1);
+      expect(again.task).toEqual(first.task);
+      expect(again.deposit).toMatchObject({ source: 'read' });
+    });
+
+    it('counts a deposit only above what we paid that wallet as rewards', async () => {
+      paid.set(WALLET, parseAmount('6'));
+      venueSays(deposit('84532:0x01:0', '6', ago(30_000)));
+      expect((await depositTask()).task.state).toBe('open');
+      expect(await code(tasks.welcomeClaim({ accountId: ME, event: 'pay.deposit' }))).toBe('campaigns.tasks_incomplete');
+      // Money of their own on top: the deposit that takes the sum past what we paid is the one that counts.
+      const at = ago(10_000);
+      venueSays(deposit('84532:0x01:0', '6', ago(30_000)), deposit('84532:0x02:0', '0.000001', at));
+      expect((await depositTask()).task).toMatchObject({ state: 'done', doneAt: at });
+    });
+
+    it('never counts a deposit from before sign-up, one not credited, or one in another asset', async () => {
+      venueSays(
+        deposit('84532:0x10:0', '50', ago(3 * HOUR)),
+        deposit('84532:0x11:0', '50', ago(5_000), 'not_credited'),
+        deposit('84532:0x12:0', '50', ago(5_000), 'credited', 'BTC'),
+      );
+      expect((await depositTask()).task.state).toBe('open');
+      expect(await db.sql`SELECT 1 FROM campaigns.welcome_events WHERE account_id = ${ME}`).toHaveLength(0);
+    });
+
+    it('says no wallet when none is connected, and unread when the wallets or the venue cannot be read; nothing changes', async () => {
+      wallets.set(ME, []);
+      expect((await depositTask()).deposit).toEqual({ source: 'no_wallet', asOf: null });
+      wallets.set(ME, null);
+      expect((await depositTask()).deposit).toEqual({ source: 'unread', asOf: null });
+      wallets.set(ME, [WALLET]);
+      venue.set(WALLET, null);
+      const unread = await depositTask();
+      expect(unread.deposit).toEqual({ source: 'unread', asOf: null });
+      expect(unread.task.state).toBe('open');
+      expect(await db.sql`SELECT 1 FROM campaigns.welcome_events WHERE account_id = ${ME}`).toHaveLength(0);
+    });
+
+    it('a claim reads the venue first, so a deposit credited since the page was read can be claimed', async () => {
+      await fundPot('10');
+      venueSays(deposit('84532:0x20:0', '25', ago(5_000)));
+      const claimed = await tasks.welcomeClaim({ accountId: ME, event: 'pay.deposit' });
+      expect(claimed).toMatchObject({ created: true, reward: { amount: '2' } });
+    });
+  });
+
+  describe('firstCountingDeposit', () => {
+    const d = (ref: string, amount: string, seenAt: string) => ({ depositRef: ref, asset: 'USDC', amount, status: 'credited', seenAt });
+    it('picks the deposit that takes the sum past what we paid, in the order the venue saw them', () => {
+      const list = [d('b', '3', '2026-11-12T00:00:02Z'), d('a', '3', '2026-11-12T00:00:01Z')];
+      expect(firstCountingDeposit(list, 0n)?.depositRef).toBe('a');
+      expect(firstCountingDeposit(list, parseAmount('3'))?.depositRef).toBe('b');
+      expect(firstCountingDeposit(list, parseAmount('6'))).toBeNull();
     });
   });
 }

@@ -648,6 +648,138 @@ describe("the assistant's trade path on its agent account (TEST venue)", () => {
     expect(await total(main(), 'USDC')).toBe(before.main);
   });
 
+  // ── #12: the person revokes the assistant ───────────────────────────────────────────────────────────────────
+
+  describe('#12 revoke', () => {
+    /** A connected assistant with one filled buy (a holding) and one buy resting below the book. */
+    async function withResting() {
+      const c = await connected();
+      await orders.place(assistant(c.keyId), buy('held-1', '0.0005'));
+      const resting = await orders.place(assistant(c.keyId), { ...buy('rest-1', '0.0002', '50000'), timeInForce: 'GTC' });
+      expect((await sim.openOrders(c.sub)).value.map((o) => o.venueClientOrderId)).toEqual([resting.order?.venueClientOrderId]);
+      return { ...c, resting };
+    }
+
+    it("ends the connection, cancels the assistant's resting order once, drops our agent key and asks the wallet to sign the venue's revoke", async () => {
+      const { keyId, sub, account, resting } = await withResting();
+      const btc = await total(sub, 'BTC');
+      const view = await orders.revoke(person, keyId);
+      expect(view).toMatchObject({ keyId, accountId: account.accountId, subAccount: sub.subAccount, agentKeyDropped: true, test: true });
+      expect(view.cancels).toEqual([
+        {
+          orderKey: agentOrderKey(keyId, 'rest-1'),
+          venueClientOrderId: resting.order?.venueClientOrderId,
+          symbol: 'BTC-USDC',
+          state: 'cancelled',
+        },
+      ]);
+      // Cancelled on the venue; the holding stays, and the venue still lists the agent until the wallet signs.
+      expect((await sim.openOrders(sub)).value).toEqual([]);
+      expect((await sim.orderByClientId(sub, resting.order!.venueClientOrderId!)).value?.status).toBe('canceled');
+      expect(await total(sub, 'BTC')).toBe(btc);
+      expect(view.agent).toEqual({ address: account.agentAddress, onVenue: true });
+      expect(view.next).toMatchObject({ actionKey: `agent:account:${account.accountId}:revoke`, step: 'revoke_agent', signed: false });
+      expect(view.next!.prepared.intent).toEqual({ kind: 'revoke_agent', agentAddress: account.agentAddress });
+      expect(view.next!.prepared.signer).toEqual({ role: 'owner', address: owner });
+      expect(view.next!.prepared.account.subAccount).toBe(sub.subAccount);
+      // From here the key places nothing, and the person's list of connections is empty.
+      expect((await refusedAs(orders.place(assistant(keyId), buy('after-1', '0.0001')))).code).toBe('agents.key_not_connected');
+      expect(await orders.connections(person)).toEqual([]);
+
+      // The wallet signs the venue's revoke: the venue no longer lists the agent, and nothing is left to sign.
+      const done = await orders.revoke(person, keyId, { actionKey: view.next!.actionKey, signature: await sign(view.next!.prepared) });
+      expect(done.agent.onVenue).toBe(false);
+      expect(done.next).toBeNull();
+      expect((await sim.agents(sub)).value.map((x) => x.address.toLowerCase())).not.toContain(account.agentAddress);
+      expect(await total(sub, 'BTC')).toBe(btc);
+    });
+
+    it('a repeat sends nothing new: the same cancel, the same stored revoke, never a second signature', async () => {
+      const { keyId } = await withResting();
+      const first = await orders.revoke(person, keyId);
+      const cancelKey = `agent:revoke:${keyId}:cancel:${agentOrderKey(keyId, 'rest-1')}`;
+      const signed = await door.stored(person, cancelKey);
+      const again = await orders.revoke(person, keyId);
+      expect(again.cancels).toEqual(first.cancels);
+      expect(again.endedAt).toEqual(first.endedAt);
+      expect(again.next?.prepared.digest).toBe(first.next?.prepared.digest);
+      expect(await door.stored(person, cancelKey)).toEqual(signed);
+      expect(await actions.listByPrefix(USER, `agent:revoke:${keyId}:`)).toHaveLength(1);
+    });
+
+    it("leaves the person's own order on the agent account as it is", async () => {
+      const { keyId, sub, account } = await withResting();
+      const own = await door.prepare(
+        person,
+        {
+          owner,
+          subAccount: sub.subAccount,
+          signer: { role: 'owner', address: owner },
+          intent: {
+            kind: 'place_order',
+            symbol: 'BTC-USDC',
+            side: 'buy',
+            type: 'limit',
+            amount: a('0.0002'),
+            price: a('49000'),
+            timeInForce: 'GTC',
+            reduceOnly: false,
+            clientOrderKey: `order:${account.accountId}:own`,
+            builderFee: null,
+          },
+        },
+        { agentAccount: true },
+      );
+      await door.submit(person, own.actionKey, await sign(own.prepared), { agentAccount: true });
+      const view = await orders.revoke(person, keyId);
+      expect(view.cancels.map((c) => c.orderKey)).toEqual([agentOrderKey(keyId, 'rest-1')]);
+      expect((await sim.openOrders(sub)).value.map((o) => o.venueClientOrderId)).toEqual([own.prepared.venueClientOrderId]);
+    });
+
+    it('once revoked, another key on the same account places nothing and no key can be connected to it', async () => {
+      const { keyId, account } = await withResting();
+      const second = uuid('beef');
+      keys.add(second, USER, 'agent', ['trade:read', 'trade:write']);
+      await orders.connect(person, account.accountId, { keyId: second, stepUpApprovalId: 'ok' });
+      await orders.revoke(person, keyId);
+      const e = await refusedAs(orders.place(assistant(second), buy('second-1', '0.0001')));
+      expect([e.code, e.status]).toEqual(['agents.agent_revoked', 409]);
+      const third = uuid('beef');
+      keys.add(third, USER, 'agent', ['trade:read', 'trade:write']);
+      expect((await refusedAs(orders.connect(person, account.accountId, { keyId: third, stepUpApprovalId: 'ok' }))).code).toBe(
+        'agents.agent_revoked',
+      );
+    });
+
+    it("is the person's own: refused from an API key, and for a key that trades no account of theirs", async () => {
+      const { keyId } = await connected();
+      await expect(orders.revoke(assistant(keyId), keyId)).rejects.toBeInstanceOf(AuthError);
+      const stranger = { ...person, userId: OTHER_USER, sub: OTHER_USER } as Principal;
+      expect((await refusedAs(orders.revoke(stranger, keyId))).code).toBe('agents.key_not_connected');
+      expect((await refusedAs(orders.revoke(person, uuid('beef')))).code).toBe('agents.key_not_connected');
+      // Nothing ended: the assistant still trades.
+      expect(await orders.connections(person)).toHaveLength(1);
+      // A signature for anything but this revoke's own action is refused before anything is sent.
+      expect((await refusedAs(orders.revoke(person, keyId, { actionKey: 'agent:account:x:create', signature: {} as never }))).code).toBe(
+        'agents.account_action_unknown',
+      );
+    });
+
+    it('a crash after the cancel reached the venue, before its answer, is finished by the same call: cancelled once', async () => {
+      const { keyId, sub, resting } = await withResting();
+      submitFault = 'lost_after_send';
+      await expect(orders.revoke(person, keyId)).rejects.toMatchObject({ refusal: { code: 'venue_down' } });
+      // The connection ended first, so the key placed nothing in between; our key is not yet dropped.
+      expect(await orders.connections(person)).toEqual([]);
+      expect(await door.stored(person, `agent:account:${(await connections.latest(keyId))!.accountId}:revoke`)).toBeNull();
+      const view = await orders.revoke(person, keyId);
+      expect(view.agentKeyDropped).toBe(true);
+      expect((await sim.openOrders(sub)).value).toEqual([]);
+      expect((await sim.orderByClientId(sub, resting.order!.venueClientOrderId!)).value?.status).toBe('canceled');
+      expect(view.cancels).toHaveLength(1);
+    });
+  });
+
   // ── #9: the connected key reaches nothing but its own order route ────────────────────────────────────────────
 
   it('#9: confined() is true only for an API key connected to an agent account of its own person', async () => {
