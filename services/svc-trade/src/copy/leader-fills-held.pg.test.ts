@@ -2,7 +2,9 @@
  * The lead's own stop check reads what a leader holds (J-copy-bots-otc-05 #7, CB-copy-18), against Postgres.
  *
  * Promise: a buy whose fee was taken in the base asset leaves the leader holding its quantity less that fee; selling
- * exactly that closes the position, so a lead can stop leading. The public trade history still shows the gross buy.
+ * exactly that closes the position, so a lead can stop leading. A remainder smaller than the market's smallest sellable
+ * quantity can never be sold, so it is no open position; one lot or more still is. The public trade history still shows
+ * the gross buy.
  */
 import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -10,7 +12,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
-import { pairLeaderTrades, readLeaderOrderFills } from './leader-profile.js';
+import { formatAmount, parseAmount } from '@intafaced/ledger-client';
+import { pairLeaderTrades, readLeaderOrderFills, readSpotSellableFloors, sellableOpen } from './leader-profile.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -79,5 +82,31 @@ describe('a leader’s held spot position', () => {
     expect(held.map((t) => ({ state: t.state, qty: t.qty, closedQty: t.closedQty }))).toEqual([
       { state: 'open', qty: '0.002', closedQty: '0.001' },
     ]);
+  });
+  it('leaves out a remainder under one lot, which can never be sold, and keeps a whole lot open', async () => {
+    const [market] = await db.sql<Array<{ lot_size: string; min_qty: string }>>`
+      SELECT lot_size::text AS lot_size, min_qty::text AS min_qty FROM trade.markets WHERE id = ${spot}`;
+    const floors = await readSpotSellableFloors(db.sql);
+    const lot = parseAmount(market!.lot_size);
+    const min = parseAmount(market!.min_qty);
+    expect(floors.get('BTC/USDT')).toBe(lot > min ? lot : min);
+
+    // The lead sold every whole lot a BTC-fee buy left them: under one lot is left.
+    const dust = randomUUID();
+    await filled(dust, 'buy', '0.001', '50', 'BTC', '0.000001', 5);
+    await filled(dust, 'sell', '0.00099', '49.5', 'USDT', '0.0495', 6);
+    const dustTrades = pairLeaderTrades(await readLeaderOrderFills(db.sql, dust, { held: true }));
+    expect(dustTrades.filter((t) => t.state === 'open')).toHaveLength(1);
+    expect(sellableOpen(dustTrades, floors)).toEqual([]);
+
+    // A whole sellable floor left unsold is a position the lead can close, so it stays open.
+    const whole = randomUUID();
+    const floor = floors.get('BTC/USDT')!;
+    await filled(whole, 'buy', formatAmount(floor * 3n), '50', 'USDT', '0.05', 7);
+    await filled(whole, 'sell', formatAmount(floor * 2n), '30', 'USDT', '0.03', 8);
+    expect(sellableOpen(pairLeaderTrades(await readLeaderOrderFills(db.sql, whole, { held: true })), floors)).toHaveLength(1);
+
+    // A market with no published floor keeps its row open: fail closed.
+    expect(sellableOpen(dustTrades, new Map())).toHaveLength(1);
   });
 });

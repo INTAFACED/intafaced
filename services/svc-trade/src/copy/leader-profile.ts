@@ -345,3 +345,31 @@ export async function readLeaderOrderFills(sql: Sql, leaderUserId: string, opts:
 export function leaderTradesLimit(value: number | undefined | null): number {
   return publishedCopyPageLimit(value, 'trade.copy_leader_trades_limit_unset', 'leaderTrades');
 }
+
+/**
+ * The lead's still-open spot positions for the stop check (J-copy-bots-otc-05 #7, CB-copy-18): pairs what the leader
+ * holds (`readLeaderOrderFills` with `held`), then leaves out a remainder smaller than its market's smallest sellable
+ * quantity (the larger of the lot size and the minimum quantity). Such a remainder can never be sold, so it is not a
+ * position the leader could close. A market not found keeps its row open: fail closed, never guess it is flat.
+ */
+export function sellableOpen(trades: readonly LeaderTrade[], smallest: ReadonlyMap<string, Amount>): LeaderTrade[] {
+  return trades.filter((trade) => {
+    if (trade.state !== 'open') return false;
+    const floor = smallest.get(trade.symbol);
+    if (floor === undefined) return true;
+    return sub(parseAmount(trade.qty), parseAmount(trade.closedQty)) >= floor;
+  });
+}
+
+/** Each live spot market's smallest sellable quantity: the larger of its lot size and its minimum quantity. */
+export async function readSpotSellableFloors(sql: Sql): Promise<Map<string, Amount>> {
+  const rows = await sql<Array<{ symbol: string; lot_size: string; min_qty: string }>>`
+    SELECT symbol, lot_size::text AS lot_size, min_qty::text AS min_qty FROM trade.markets WHERE kind = 'spot' AND paper = false`;
+  return new Map(
+    rows.map((row) => {
+      const lot = parseAmount(row.lot_size);
+      const min = parseAmount(row.min_qty);
+      return [row.symbol, lot > min ? lot : min] as const;
+    }),
+  );
+}

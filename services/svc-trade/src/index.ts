@@ -238,7 +238,7 @@ import { SqlCopyFollowStore } from './copy/follow-store.js';
 import { SqlMirrorEventLog } from './copy/mirror-events.js';
 import { sqlLeaderDirectory } from './copy/leader-directory.js';
 import { LeadOwnDesk, SqlLeadOwnStore, parseLeadLevels, parseLeadRemovalDailyLimit } from './copy/lead-own-desk.js';
-import { pairLeaderTrades, readLeaderOrderFills } from './copy/leader-profile.js';
+import { pairLeaderTrades, readLeaderOrderFills, readSpotSellableFloors, sellableOpen } from './copy/leader-profile.js';
 import { createCopyClosePort } from './copy/copy-close.js';
 import { createFollowerFlattenPort } from './copy/follower-flatten-port.js';
 import { sqlCopiedPositions } from './copy/copied-positions.js';
@@ -905,7 +905,8 @@ export const appRouter = createTradeRouter(
     follows: copyStore,
     directory: leaderDirectory,
     copiedPositions: sqlCopiedPositions(sql),
-    leaderTrades: async (leaderUserId) => pairLeaderTrades(await readLeaderOrderFills(sql, leaderUserId, { held: true })),
+    leaderTrades: async (leaderUserId) =>
+      sellableOpen(pairLeaderTrades(await readLeaderOrderFills(sql, leaderUserId, { held: true })), await readSpotSellableFloors(sql)),
     now: () => new Date(),
     removalDailyLimit: parseLeadRemovalDailyLimit(env.TRADE_COPY_LEAD_REMOVAL_DAILY_LIMIT),
     levels: parseLeadLevels(env.TRADE_COPY_LEAD_LEVELS),
