@@ -94,7 +94,12 @@ export function backgroundRunRoutes(deps: AgentsRouterDeps, kit: RunRouteKit) {
       .input(z.object({ runId: z.string().guid(), text: z.string().trim().min(1).max(20_000) }).strict())
       .output(sessionRunSchema)
       .mutation(({ ctx, input }) =>
-        guard(() => typed(async () => found(await store().askMore(input.runId, ctx.principal.userId, input.text)))),
+        guard(() =>
+          typed(async () => {
+            if (settings.maxSteps === null) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'agents.session_run_unset' });
+            return found(await store().askMore(input.runId, ctx.principal.userId, input.text, settings.maxSteps));
+          }),
+        ),
       ),
 
     /** Stops the run; pressed again, the first stop's answer is returned with `repeated`. */

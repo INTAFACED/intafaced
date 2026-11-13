@@ -34,6 +34,8 @@ const migrations = readdirSync(drizzleDir)
 
 const USER = '41414141-4141-4141-8141-414141414141';
 const OTHER = '42424242-4242-4242-8242-424242424242';
+/** A person with no funds, so a stop's settlement is refused by the ledger. */
+const UNFUNDED = '44444444-4444-4444-8444-444444444444';
 const SECRET = 'an-agents-background-run-db-test-secret';
 const TABLE = parseRoutingTable({
   routes: [
@@ -293,6 +295,39 @@ if (!available) {
       expect((await me.run.background.get({ runId: run.runId })).steps).toHaveLength(2);
       // A stopped run takes no more changes.
       await expect(me.run.background.resume({ runId: run.runId })).rejects.toMatchObject({ code: 'CONFLICT', message: 'agents.run.ended' });
+    });
+
+    it('a stop whose window the ledger refuses for funds names it unpaid, charges nothing, and a second stop returns the same', async () => {
+      const broke = as(UNFUNDED);
+      const session = await broke.session.open({ agentId: 'probe' });
+      const run = await broke.run.background.start({
+        sessionId: session.id,
+        requestId: 'background:db:unpaid',
+        task: 'plan',
+        ask: 'TEST: check each market',
+        steps: 3,
+        notice: 'inapp',
+      });
+      await tick(); // step 1 in flight
+      await tick(); // step 1 done, step 2 in flight
+      const stopped = await broke.run.background.stop({ runId: run.runId });
+      expect(stopped.run.state).toBe('stopped');
+      expect(stopped.run.steps.map((s) => s.state)).toEqual(['done', 'done_after_stop']);
+      expect(stopped.run.stop).toMatchObject({ unpaid: 'agents.window_unpaid', billed: '0', settlements: [] });
+      expect(await house()).toBe('0');
+      const twice = await broke.run.background.stop({ runId: run.runId });
+      expect(twice.repeated).toBe(true);
+      expect(twice.run.stop).toEqual(stopped.run.stop);
+      expect(await house()).toBe('0');
+    });
+
+    it('a follow-up never grows a run past the most steps allowed', async () => {
+      const { me, run } = await begin(10, 'background:db:cap');
+      await expect(me.run.background.askMore({ runId: run.runId, text: 'TEST: one more' })).rejects.toMatchObject({
+        code: 'CONFLICT',
+        message: 'agents.session_run_steps_over',
+      });
+      expect((await me.run.background.get({ runId: run.runId })).stepsTotal).toBe(10);
     });
 
     it("another person's run id is not found for every read and change", async () => {

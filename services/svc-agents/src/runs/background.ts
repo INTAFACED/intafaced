@@ -94,7 +94,7 @@ function view(run: RunRow, steps: StepRow[]): SessionRun {
 
 /** A change the run's state does not allow, by its own typed code. */
 export class SessionRunConflict extends Error {
-  constructor(readonly code: 'agents.run.paused' | 'agents.run.ended') {
+  constructor(readonly code: 'agents.run.paused' | 'agents.run.ended' | 'agents.session_run_steps_over') {
     super(code);
     this.name = 'SessionRunConflict';
   }
@@ -237,10 +237,13 @@ export class SessionRunStore {
     });
   }
 
-  /** One more request to a running run: one more step, with the follow-up in its messages. Refused while paused. */
-  async askMore(runId: string, userId: string, text: string): Promise<SessionRun | null> {
+  /** One more request to a running run: one more step, with the follow-up in its messages. Refused while paused, and
+   * past the most steps allowed. */
+  async askMore(runId: string, userId: string, text: string, maxSteps: number): Promise<SessionRun | null> {
     return this.change(runId, userId, async (tx, run) => {
       if (run.state === 'paused') throw new SessionRunConflict('agents.run.paused');
+      // A follow-up is one more step, and the run never grows past the most steps the owner allows.
+      if (run.steps_total + 1 > maxSteps) throw new SessionRunConflict('agents.session_run_steps_over');
       await tx`
         UPDATE agents.session_background_runs
            SET follow_ups = follow_ups || ${tx.json([text])}::jsonb, steps_total = steps_total + 1, updated_at = now()
@@ -274,29 +277,27 @@ export class SessionRunStore {
     return { run: (await this.get(runId, userId))!, repeated: outcome.repeated };
   }
 
-  /** Settles the session's open windows. A window the ledger refuses for funds stays sealed and unpaid, and is named. */
+  /**
+   * Settles the session's open windows one by one. A window the ledger refuses for funds stays sealed and unpaid and is
+   * named; the windows paid before it are kept in the answer, so what was billed is never under-reported.
+   */
   private async settle(sessionId: string): Promise<StopResult> {
     const stoppedAt = new Date().toISOString();
-    try {
-      const results = await this.runtime.settleSession(sessionId);
-      let billed: Amount = 0n;
-      for (const r of results) billed += r.amount;
-      return {
-        stoppedAt,
-        billed: formatAmount(billed),
-        assetId: this.feeAssetId,
-        settlements: results.map((r) => ({
-          windowId: r.windowId,
-          amount: formatAmount(r.amount),
-          chargeKey: r.chargeKey,
-          settled: r.settled,
-        })),
-        unpaid: null,
-      };
-    } catch (err) {
-      if (!(err instanceof InsufficientFundsError)) throw err;
-      return { stoppedAt, billed: '0', assetId: this.feeAssetId, settlements: [], unpaid: 'agents.window_unpaid' };
+    const settlements: StopResult['settlements'] = [];
+    let billed: Amount = 0n;
+    let unpaid: string | null = null;
+    for (const windowId of await this.runtime.openWindowIds(sessionId)) {
+      try {
+        const r = await this.runtime.settleWindow(sessionId, windowId);
+        billed += r.amount;
+        settlements.push({ windowId: r.windowId, amount: formatAmount(r.amount), chargeKey: r.chargeKey, settled: r.settled });
+      } catch (err) {
+        if (!(err instanceof InsufficientFundsError)) throw err;
+        unpaid = 'agents.window_unpaid';
+        break;
+      }
     }
+    return { stoppedAt, billed: formatAmount(billed), assetId: this.feeAssetId, settlements, unpaid };
   }
 
   private async change(runId: string, userId: string, fn: (tx: Sql, run: RunRow) => Promise<void>): Promise<SessionRun | null> {
