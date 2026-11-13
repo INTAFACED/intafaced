@@ -20,9 +20,9 @@ import { setPartner, withPartner } from './partner.mjs';
 // pay as a second TEST person, who starts with nothing and whose bank money is held at the stack's TEST partner bank
 // (`testPartner.set({ custody: 'off' })`, the launch model, OWNER 226): the partner credits the balance once, the app
 // reads it back, and the ledger posts nothing for them. #7 has the partner send #3's payment back, taken out of the
-// balance once, as the partner reports. The first person's 50 USDT stays as #4 to #8 read it. #8 runs on the stack's TEST plan, which publishes a TEST overdraft fee (a plan that allows a negative balance);
-// no overdraft engine exists in this build, so the bank names it switched off and a payment to another person for more
-// than the balance is refused with that rule, at the review and by the bank itself, and nothing moves.
+// balance once, as the partner reports. The first person's 50 USDT stays as #4 to #7 read it. #8 runs on the stack's
+// TEST plan, which publishes a TEST overdraft fee (a plan that allows a negative balance): the payer, whose money the TEST partner holds, pays 10 USDT more than the partner reports into a second account of theirs,
+// and the partner refuses it with its own figure (`bank.partner_insufficient_funds`), and nothing moves.
 const J = 'J-bank-02';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const WAYS = [
@@ -744,99 +744,65 @@ test(`${J} #7 reads incoming payments: when each arrived, that it is available, 
   }
 });
 
-test(`${J} #8 pays another person more than the bank holds on a plan that allows a negative balance: refused with the plan's rule, and nothing moves`, async ({
+test(`${J} #8 pays more than the bank holds on a plan that allows a negative balance: the partner holding the money refuses it, and nothing moves`, async ({
   page,
 }) => {
   test.setTimeout(300_000);
-  const who = person();
-  const payee = payer();
-  // TEST setup: the payee goes back on the payer's own book (#3 put their bank money at the partner), so this is one
-  // payment the bank can make or refuse; a payment between the two books is refused before any balance is read.
-  await setPartner(payee, { custody: 'on' });
-  const api = await session(who);
-  const theirs = await session(payee, { withCode: false });
-  const mainOf = async (doors) =>
-    (await doors.query('spaces.list', { limit: 50 })).data.find((s) => s.kind === 'primary' && s.assetId === 'USDT');
-  const main = await mainOf(api);
-  expect(main.balance).toBe('50');
-  // A payee with no USDT space on this book holds none of it.
-  const payeeHolds = async () => (await mainOf(theirs))?.balance ?? '0';
-  const payeeBefore = await payeeHolds();
+  // The payer's bank money is held at the stack's TEST partner bank since #3 (`custody: 'off'`, the launch model, OWNER
+  // 226), so the partner, not the ledger, is the bank that holds it and the one that says yes or no to a payment from it.
+  const who = payer();
+  const api = await session(who, { withCode: false });
+  const spaceOf = async (id) => (await api.query('spaces.list', { limit: 50 })).data.find((s) => s.id === id);
 
-  // The plan allows a negative balance: the owner's TEST terms publish an overdraft fee. No overdraft engine exists in
-  // this build, so the bank names it switched off rather than claim a negative balance it cannot book.
+  // The plan allows a negative balance: the owner's TEST terms publish an overdraft fee.
   const terms = await api.query('accounts.features', undefined);
-  expect(terms).toMatchObject({
-    ok: true,
-    data: { tier: 'TEST base tier', overdraftFee: '1', overdraftBlocker: 'bank.overdraft_switched_off' },
-  });
-  const rule =
-    'Your plan, TEST base tier, allows a negative balance at an overdraft fee of 1 USDT, but the overdraft is switched off in this build: the bank does not book a balance below zero. Asking to pay more than you hold is refused and nothing moves.';
+  expect(terms).toMatchObject({ ok: true, data: { tier: 'TEST base tier', overdraftFee: '1' } });
 
-  await signInWithCode(page, who);
+  // What the partner holds for the payer, as the partner reports it; the app shows the same figure.
+  const held = await partnerUsdt(who);
+  const main = (await api.query('spaces.list', { limit: 50 })).data.find((s) => s.kind === 'primary' && s.assetId === 'USDT');
+  expect(toUnits(main.balance)).toBe(held);
+  // A second USDT account of the payer's, at the same partner, to pay into.
+  const opened = await api.mutate('spaces.create', { assetId: 'USDT', name: 'TEST over the balance' });
+  expect(opened.ok, JSON.stringify(opened.body ?? '').slice(0, 300)).toBe(true);
+  const pot = opened.data.id;
+  expect((await spaceOf(pot)).balance).toBe('0');
+  const ledgerStart = await ledgerOf(who);
+  const asked = fromUnits(held + toUnits('10'));
+
+  // In the app: paying 10 USDT more than the partner holds is refused at the review, with the partner's figure.
+  await signIn(page, who);
   await page.goto('/bank/transfers');
-  const planRule = page.getByTestId('plan-rule');
-  await expect(planRule).toContainText(rule);
-  await expect(planRule).toContainText('Reference: bank.overdraft_switched_off');
   const sent = [];
-  page.on(
-    'request',
-    (req) => req.method() === 'POST' && /\/api\/(bank|identity)\/trpc\/(transfers|stepUp)\./.test(req.url()) && sent.push(req.url()),
-  );
-
-  // The person pays another person 60 USDT from the 50 USDT the bank holds for them.
+  page.on('request', (req) => req.method() === 'POST' && /\/api\/bank\/trpc\/transfers\./.test(req.url()) && sent.push(req.url()));
   await page.getByLabel('From your space').selectOption(main.id);
-  await page.getByLabel('Destination').selectOption({ label: 'Another person' });
-  await page.getByPlaceholder('@handle').fill(payee.handle);
-  await page.getByRole('button', { name: 'Find' }).click();
-  await expect(page.getByText(`Paying @${payee.handle}`)).toBeVisible();
+  await page.getByLabel('Destination').selectOption({ label: 'One of my accounts' });
   await page.getByRole('button', { name: 'Continue' }).click();
   const dialog = page.getByRole('dialog');
-  await dialog.getByLabel(/Amount \(USDT\)/).fill('60');
+  await dialog.getByLabel('To which of your accounts').selectOption(pot);
+  await dialog.getByLabel(/Amount \(USDT\)/).fill(asked);
   await dialog.getByRole('button', { name: 'Review' }).click();
-  // Refused at the review with the shortfall and the plan's rule; no code is asked for and nothing is sent.
-  await expect(dialog).toContainText(
-    `The amount exceeds the available quantity in this space. This is 10 USDT more than this space holds (50 USDT). ${rule} Reference: bank.overdraft_switched_off`,
-  );
-  await expect(dialog.getByTestId('step-up-confirm')).toHaveCount(0);
+  await expect(dialog).toContainText(`This is 10 USDT more than this space holds (${fromUnits(held)} USDT).`);
   expect(sent).toEqual([]);
 
-  // The bank refuses the same payment itself, after the person confirms it is them: its own figures, nothing posted.
-  const found = await api.identity.query('users.resolveHandle', { handle: payee.handle });
-  expect(found).toMatchObject({ ok: true, data: { found: true, self: false } });
-  const toUserId = found.data.userId;
-  const transferId = `jb2-8-${payee.handle}`;
-  const fields = { transferId, fromSpaceId: main.id, toUserId, assetId: 'USDT', amount: '60' };
-  const pay = async () => {
-    const begun = await api.identity.mutate('stepUp.begin', {
-      scope: 'bank.step_up.transfers.toUser',
-      purpose: 'transfers.toUser',
-      target: toUserId,
-      amount: '60',
-      fields,
-    });
-    expect(begun.ok, JSON.stringify(begun.body ?? '').slice(0, 300)).toBe(true);
-    const done = await api.identity.mutate('stepUp.complete', { challengeId: begun.data.challengeId, totpCode: await codeFor() });
-    expect(done.ok, JSON.stringify(done.body ?? '').slice(0, 300)).toBe(true);
-    return api.mutate('transfers.toUser', {
-      transferId,
-      fromSpaceId: main.id,
-      toUserId,
-      amount: '60',
-      stepUpApprovalId: done.data.stepUpApprovalId,
-    });
-  };
+  // The same payment sent to the bank reaches the partner, and the partner refuses it with its own figure.
+  const transferId = `jb2-8-over-${who.handle}`;
+  const pay = () => api.mutate('transfers.create', { transferId, fromSpaceId: main.id, toSpaceId: pot, amount: asked });
+  const partnerSays = `The partner reports ${fromUnits(held)} USDT in this account, less than ${asked}. Nothing was moved.`;
   const refused = await pay();
-  expect(refused, JSON.stringify(refused.body ?? refused).slice(0, 600)).toMatchObject({ ok: false, status: 400 });
-  expect(refused.body?.error?.data?.cause?.code).toBe('bank.insufficient_funds');
-  expect(refused.body?.error?.data?.spend).toMatchObject({ assetId: 'USDT', available: '50' });
+  expect(refused, JSON.stringify(refused.body ?? refused).slice(0, 600)).toMatchObject({ ok: false, status: 409 });
+  expect(refused.body?.error?.data?.cause?.code).toBe('bank.partner_insufficient_funds');
+  expect(refused.body?.error?.message).toBe(partnerSays);
   // Asking again is refused the same way: never a second attempt that lands.
   const again = await pay();
-  expect(again.body?.error?.data?.cause?.code).toBe('bank.insufficient_funds');
+  expect(again).toMatchObject({ ok: false, status: 409 });
+  expect(again.body?.error?.data?.cause?.code).toBe('bank.partner_insufficient_funds');
+  expect(again.body?.error?.message).toBe(partnerSays);
 
-  // Nothing moved: the payer's balance never went below zero, the payee got nothing, and no payment is listed.
-  expect((await mainOf(api)).balance).toBe('50');
-  expect(await payeeHolds()).toBe(payeeBefore);
-  const out = await api.query('transfers.list', { limit: 50 });
-  expect(out.ok && out.data.items.filter((item) => item.kind === 'transfer_out')).toEqual([]);
+  // Nothing moved: the partner still holds the same for the payer and never went below zero, the other account got
+  // nothing, and the ledger posted nothing.
+  expect(await partnerUsdt(who)).toBe(held);
+  expect(toUnits((await spaceOf(main.id)).balance)).toBe(held);
+  expect((await spaceOf(pot)).balance).toBe('0');
+  expect(await ledgerOf(who)).toEqual(ledgerStart);
 });
