@@ -125,7 +125,7 @@ export function BotsRoom({ path }: { path: string }) {
 function ParkedBotRoom({ title, reason }: { title: string; reason: string }) {
   const { t } = roomCopy.useCopy();
   return (
-    <Page width="full" className="cb-page">
+    <Page width="full" className="cb-page" landmark={false}>
       <ModeNav active="bots" />
       <PageHeader title={t(title as 'Spot grid')} description={t('This bot can’t be set up here.')} />
       <EmptyState
@@ -455,7 +455,7 @@ function BotsHub({ path }: { path: string }) {
 
   const schedulerOff = policy.data !== null && !policy.data.capability.jobsEnabled;
   return (
-    <Page width="full" className="cb-page">
+    <Page width="full" className="cb-page" landmark={false}>
       <ModeNav active="bots" />
       <PageHeader
         title={t('Bots')}
