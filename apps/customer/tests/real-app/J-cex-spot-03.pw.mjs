@@ -1,8 +1,21 @@
 // World: book, gates, restart, stack
 import { randomBytes } from 'node:crypto';
 import { test, expect } from './journey.mjs';
-import { api, fromUnits, journeyState, restartWith, toUnits } from './stack.mjs';
-import { confirm, deskPath, reviewSheet, signUp, verify } from './desk.mjs';
+import { ORIGIN, api, bestPrices, fromUnits, fund, journeyState, restartWith, toUnits } from './stack.mjs';
+import {
+  awayBid as engineAwayBid,
+  confirm,
+  deskPath,
+  fundedTrader,
+  held,
+  openDesk,
+  openOrders as engineOpenOrders,
+  placements,
+  previewed,
+  reviewSheet,
+  signUp,
+  verify,
+} from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import {
   continueInWallet,
@@ -28,6 +41,46 @@ const run = journeyState(`${J}-venue-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 /** The journey stack's owner market price protection: TEST 50 bps (tooling/scripts/local-stack-services/trade.mjs). */
 const PROTECTION_BPS = 50n;
 const ONE = toUnits('1');
+
+// Our own engine's fill-or-kill and good-till-date (BTC/USDT, TEST USDT on the ledger), as main proved them before this
+// file moved to the venue: the venue offers neither, so #5 and #7 keep that proof unchanged beside the venue's refusal.
+const ENGINE_FUNDED = '60000';
+const engineTab = (page, name) => page.locator('[role=tab]', { hasText: new RegExp(`^${name}$`) });
+async function enginePickTif(page, label) {
+  await page.getByRole('combobox', { name: 'Time in force' }).click();
+  await page.getByRole('option', { name: label, exact: true }).click();
+}
+/** A local "date and time" field value for `ms`, as the person would type it. */
+function localField(ms) {
+  const at = new Date(ms);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}T${pad(at.getHours())}:${pad(at.getMinutes())}`;
+}
+/** A limit buy on our engine's desk with the picked time in force, reviewed and confirmed. Returns the order body sent. */
+async function engineLimitBuy(page, { tif, price, amount }) {
+  const sent = placements(page);
+  await engineTab(page, 'Limit').click();
+  await enginePickTif(page, tif);
+  await buyForm(page).getByRole('textbox', { name: 'Price' }).fill(price);
+  await previewed(page, () => buyForm(page).getByRole('textbox', { name: 'Amount' }).fill(amount));
+  await buyForm(page).getByRole('button', { name: 'Buy BTC' }).click();
+  await expect(reviewSheet(page)).toContainText(tif);
+  await confirm(page, 'buy');
+  await expect.poll(() => sent.length).toBe(1);
+  return sent[0];
+}
+/** The TEST USDT trader on our engine, in its own browser context: made once in this run, then signed in again. */
+async function engineDesk(browser) {
+  const context = await browser.newContext({ baseURL: ORIGIN });
+  const page = await context.newPage();
+  let who = run.read().engine;
+  if (!who) {
+    who = await fundedTrader(page, 'js3e', ENGINE_FUNDED);
+    run.write({ engine: who });
+  }
+  await openDesk(page, who);
+  return { page, who, context };
+}
 
 test.describe.configure({ mode: 'default' });
 venueForThisFile(test);
@@ -159,6 +212,17 @@ async function reviewLimit(page, side, price, amount) {
 
 /** Confirms the open review and signs once in the wallet; returns the client id the door prepared. */
 async function confirmAndSign(page, wallet, side) {
+  const sheet = reviewSheet(page);
+  // A spot sell carries our builder fee: until the wallet has approved it, the review asks for that approval first and
+  // Confirm sell waits (J-cex-spot-01 #11). The approval is one signature of its own.
+  const approve = sheet.getByRole('button', { name: 'Approve our builder fee in your wallet' });
+  if (side === 'sell' && (await approve.count()) > 0) {
+    const before = wallet.requests.length;
+    await approve.click();
+    await continueInWallet(page);
+    await expect.poll(() => wallet.requests.length, { timeout: 20_000 }).toBe(before + 1);
+    await expect(sheet.getByRole('button', { name: 'Confirm sell' })).toBeEnabled({ timeout: 20_000 });
+  }
   const prepared = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/prepare' && r.request().method() === 'POST');
   const asked = wallet.requests.length;
   await confirm(page, side);
@@ -417,9 +481,41 @@ test(`${J} #4 sends an immediate-or-cancel buy with nothing to match: it ends wi
   await notOfferedSignsNothing(page, wallet);
 });
 
-test(`${J} #5 tries a fill-or-kill buy bigger than the book: the venue doesn't offer it, so it is listed disabled with "not offered by this venue", nothing is signed, nothing fills and the resting sells are untouched`, async ({
+test(`${J} #5 sends a fill-or-kill buy bigger than the book: nothing fills, the resting sells stay; on the venue, which offers no fill-or-kill, it is listed disabled with "not offered by this venue" and nothing is signed`, async ({
   page,
+  browser,
 }) => {
+  test.setTimeout(240_000);
+  // On our engine, as main proved it: a fill-or-kill bigger than the book fills nothing and the resting sells stay.
+  {
+    const { page: enginePage, who, context } = await engineDesk(browser);
+    const { ask, body } = await bestPrices();
+    // Every sell at or under the best ask's price, plus every sell the depth read returns (the TEST ladder is a few levels
+    // a side), and one lot more. The TEST market maker places its new ladder before it cancels the old one, so for a
+    // moment both rest and the new one can put a whole ladder at or under this ask; even then the book cannot fill this.
+    const atAsk = body.asks.filter(([p]) => toUnits(p) <= toUnits(ask)).reduce((sum, [, size]) => sum + toUnits(size), 0n);
+    const allAsks = body.asks.reduce((sum, [, size]) => sum + toUnits(size), 0n);
+    const amount = fromUnits(atAsk + allAsks + toUnits('0.001'));
+    // The hold must fit, or the order is refused for funds and never reaches the fill-or-kill rule this step is about.
+    const cost = (toUnits(ask) * toUnits(amount)) / toUnits('1');
+    const freeUsdt = toUnits((await (await api(who)).balances()).USDT.free);
+    if (cost > freeUsdt) fund(who.email, 'USDT', fromUnits(((cost - freeUsdt) / toUnits('1')) * toUnits('1') + toUnits('100')));
+    const before = await (await api(who)).balances();
+    await openDesk(enginePage, who);
+    const sent = await engineLimitBuy(enginePage, { tif: 'Fill or kill', price: ask, amount });
+    expect(sent).toMatchObject({ type: 'limit', timeInForce: 'FOK', postOnly: false });
+    await expect(buyForm(enginePage)).toContainText('Fill-or-kill order not placed');
+    await expect(buyForm(enginePage)).toContainText('nothing was traded');
+    const after = await (await api(who)).balances();
+    expect(after.USDT.total).toBe(before.USDT.total);
+    expect(after.BTC?.total).toBe(before.BTC?.total);
+    expect(held(after, 'USDT')).toBe(0n);
+    expect((await bestPrices()).body.asks.length).toBeGreaterThan(0);
+    await context.close();
+  }
+
+  // On the venue: it offers no fill-or-kill, so it is listed disabled, nothing is signed, nothing fills and the venue's
+  // resting sells are untouched, level for level.
   const { wallet, owner } = await desk(page);
   const before = { usdc: await venueBalance(owner, 'USDC'), btc: await venueBalance(owner, 'BTC') };
   const book = async () => (await testVenue('/book', { symbol: VENUE_SPOT, depth: 50 })).body.value.asks;
@@ -427,7 +523,6 @@ test(`${J} #5 tries a fill-or-kill buy bigger than the book: the venue doesn't o
   expect(asksBefore.length, 'TEST sells rest on the venue').toBeGreaterThan(0);
   const { missingTifs } = await notOfferedSignsNothing(page, wallet);
   expect(missingTifs, 'the TEST venue offers no fill-or-kill').toContain('FOK');
-  // Nothing was placed or filled, and the resting sells are as they were, level for level.
   expect(await openOrders(owner)).toEqual([]);
   expect(await book()).toEqual(asksBefore);
   expect(await venueBalance(owner, 'USDC')).toMatchObject({ total: before.usdc.total, locked: before.usdc.locked });
@@ -476,14 +571,59 @@ test(`${J} #6 sends a post-only buy that would cross, then one that rests: the f
   expect(toUnits((await venueBalance(owner, 'USDC')).locked)).toBe(0n);
 });
 
-test(`${J} #7 picks good-till-date: the venue doesn't offer it, so it is listed disabled with "not offered by this venue", no expiry is asked and nothing is signed`, async ({
+test(`${J} #7 picks good-till-date: the review shows the chosen expiry, a past time sends nothing, and at the expiry the order shows expired and its hold comes back; on the venue, which offers no good-till-date, it is listed disabled with "not offered by this venue" and nothing is signed`, async ({
   page,
+  browser,
 }) => {
+  test.setTimeout(300_000);
+  // On our engine, as main proved it.
+  {
+    const { page: enginePage, who, context } = await engineDesk(browser);
+    const sent = placements(enginePage);
+    await engineTab(enginePage, 'Limit').click();
+    await enginePickTif(enginePage, 'Good till date');
+    const price = await engineAwayBid(90);
+    await buyForm(enginePage).getByRole('textbox', { name: 'Price' }).fill(price);
+    await buyForm(enginePage).getByRole('textbox', { name: 'Amount' }).fill('0.001');
+    const expires = enginePage.getByLabel('Expires');
+    await expires.fill(localField(Date.now() - 3600_000));
+    await expect(enginePage.getByText('Pick a time in the future.')).toBeVisible();
+    await expect(buyForm(enginePage).getByRole('button', { name: 'Buy BTC' })).toBeDisabled();
+
+    // The next whole minute at least 60 seconds away: the field is to the minute.
+    const at = Math.ceil((Date.now() + 60_000) / 60_000) * 60_000;
+    await previewed(enginePage, () => expires.fill(localField(at)));
+    await buyForm(enginePage).getByRole('button', { name: 'Buy BTC' }).click();
+    const review = reviewSheet(enginePage);
+    await expect(review).toContainText('Good till date');
+    // The review's Expires row is the time that was picked, as this browser writes it.
+    const picked = await enginePage.evaluate((ms) => new Date(ms).toLocaleString(), at);
+    await expect(review.locator('div', { has: enginePage.locator('dt', { hasText: /^Expires$/ }) }).locator('dd')).toHaveText(picked);
+    await confirm(enginePage, 'buy');
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ timeInForce: 'GTD', expireAt: new Date(at).toISOString() });
+    const orders = await engineOpenOrders(who);
+    expect(orders).toHaveLength(1);
+    expect(held(await (await api(who)).balances(), 'USDT')).toBe((toUnits(price) * toUnits('0.001')) / toUnits('1'));
+
+    // At the expiry the order leaves the book on its own and the hold is released, once.
+    await expect.poll(async () => (await engineOpenOrders(who)).length, { timeout: 150_000, intervals: [2000] }).toBe(0);
+    expect(Date.now()).toBeGreaterThanOrEqual(at);
+    await expect.poll(async () => held(await (await api(who)).balances(), 'USDT'), { timeout: 20_000 }).toBe(0n);
+    const { status, body } = await (await api(who)).get(`/api/v1/orders/${orders[0].id}?symbol=BTC%2FUSDT`);
+    expect(status).toBe(200);
+    expect(body.status).toBe('expired');
+    await enginePage.reload();
+    await engineTab(enginePage, 'Order history').click();
+    await expect(enginePage.getByTestId('dk-bottom-body').locator('table tbody tr').first()).toContainText(/Expired/i);
+    await context.close();
+  }
+
+  // On the venue: it offers no good-till-date, so it is listed disabled, no expiry is asked and nothing is signed.
   const { wallet, owner } = await desk(page);
   const before = await venueBalance(owner, 'USDC');
   const { missingTifs } = await notOfferedSignsNothing(page, wallet);
   expect(missingTifs, 'the TEST venue offers no good-till-date').toContain('GTD');
-  // The picker stays on what the venue offers, so no expiry is asked for and no order is made.
   await expect(tifTrigger(page)).not.toHaveText(/Good till date/);
   await expect(page.getByRole('textbox', { name: /expir/i })).toHaveCount(0);
   expect(await openOrders(owner)).toEqual([]);
@@ -559,7 +699,11 @@ test(`${J} #9 adds a client tag and types the order in value: the tag shows on t
   const form = buyForm(page);
   await orderTab(page, 'Limit').click();
   await pickTif(page, 'Good till cancelled');
-  const price = await awayBid();
+  // One tick above the venue's best bid (still under its ask): the order rests, and a sell at its price meets it first.
+  const { bid, ask } = await venueBook(VENUE_SPOT);
+  const tick = toUnits(m.tickSize);
+  expect(ask - bid >= 2n * tick, 'the TEST book has room above its best bid').toBe(true);
+  const price = fromUnits(bid + tick);
   await form.getByRole('textbox', { name: 'Price' }).fill(price);
   // The unit flag on BTC: Amount is the typed field and Total follows it.
   await expect(form.getByRole('textbox', { name: 'Amount' })).toBeEditable();
