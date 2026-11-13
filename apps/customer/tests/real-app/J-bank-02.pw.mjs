@@ -106,14 +106,33 @@ async function codeFor() {
   return code;
 }
 
-/** Signs in in the browser with the password and the next authenticator code (after #6 set one up). */
+/**
+ * Signs in in the browser with the password and the next authenticator code (after #6 set one up). A code identity
+ * refuses as `auth.mfa_invalid` is tried once more, at a step after any identity can hold (`stepAfterRefusal`), as the
+ * stack's own operator sign-in does, and both steps are logged; a second refusal fails the step. MFA is not loosened:
+ * every code sent is a real, unused step (failure it prevents: main run 43462377596, #8's sign-in refused once).
+ */
 async function signInWithCode(page, who) {
-  const totpCode = await codeFor();
-  await page.goto('/login');
-  if (totpCode) await page.fill('input[name=totp]', totpCode);
-  await page.fill('input[name=identifier]', who.email);
-  await page.fill('input[name=password]', who.password);
-  await page.getByRole('button', { name: /^sign in$/i }).click();
+  const attempt = async () => {
+    const totpCode = await codeFor();
+    await page.goto('/login');
+    if (totpCode) await page.fill('input[name=totp]', totpCode);
+    await page.fill('input[name=identifier]', who.email);
+    await page.fill('input[name=password]', who.password);
+    const answered = page.waitForResponse((res) => new URL(res.url()).pathname.endsWith('/auth.login'));
+    await page.getByRole('button', { name: /^sign in$/i }).click();
+    const res = await answered;
+    return res.ok() ? null : JSON.stringify(await res.json().catch(() => null)).includes('auth.mfa_invalid');
+  };
+  const refused = await attempt();
+  const { secret, step } = run.read();
+  if (refused && secret) {
+    const current = Math.floor(Date.now() / 30_000);
+    console.log(`${J}: identity refused TOTP step ${step} at step ${current} (auth.mfa_invalid); signing in once more at the next window`);
+    const { stepAfterRefusal } = await import('../../../../tooling/scripts/local-test-gates.mjs');
+    run.reset({ ...run.read(), step: stepAfterRefusal(step, current) });
+    await attempt();
+  }
   await expect(page).not.toHaveURL(/\/login/);
 }
 
