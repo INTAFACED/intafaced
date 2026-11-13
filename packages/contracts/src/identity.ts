@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { API_KEY_CALL_LIMIT_MAX, apiKeyCallSchema } from './api-keys.js';
 
 /**
  * IDENTITY CONTRACT — the reference example of the zod-first pattern (§3).
@@ -412,6 +413,23 @@ export const agentKeyReadSchema = z.discriminatedUnion('state', [
   z.object({ state: z.literal('none') }).strict(),
 ]);
 export type AgentKeyRead = z.infer<typeof agentKeyReadSchema>;
+
+/**
+ * One of a person's own API keys' call log (DV-keys-06), as svc-trade reads it for the assistant connection's Activity
+ * (J-agents-21 #11): every call the edge answered for the key, accepted and refused, newest first. Asked with the
+ * person's id, so anyone else's key answers `none`, as a key that does not exist does. Only the services identity lists
+ * may ask. Never a body, a header value, the key or the caller's address. Nothing is written.
+ */
+export const AGENT_KEY_CALLS_PATH = '/internal/agent-keys/calls' as const;
+export const agentKeyCallsRequestSchema = z
+  .object({ userId: z.string().guid(), keyId: z.string().guid(), limit: z.number().int().min(1).max(API_KEY_CALL_LIMIT_MAX) })
+  .strict();
+export type AgentKeyCallsRequest = z.infer<typeof agentKeyCallsRequestSchema>;
+export const agentKeyCallsSchema = z.discriminatedUnion('state', [
+  z.object({ state: z.literal('found'), keyId: z.string().guid(), asOf: z.string().datetime(), calls: z.array(apiKeyCallSchema) }).strict(),
+  z.object({ state: z.literal('none') }).strict(),
+]);
+export type AgentKeyCalls = z.infer<typeof agentKeyCallsSchema>;
 /** The step-up door for an unlock request (see `CUSTOMER_STEP_UP_DOORS`). Locking needs none: it only takes power away. */
 export const SECURITY_LOCK_UNLOCK_STEP_UP_SCOPE = 'identity.step_up.security_lock_unlock' as const;
 export const SECURITY_LOCK_UNLOCK_STEP_UP_PURPOSE = 'account.securityLock.unlock' as const;

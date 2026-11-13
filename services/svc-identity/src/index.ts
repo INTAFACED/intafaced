@@ -33,7 +33,7 @@ import { registerApiKeyOwnershipRoute } from './auth/api-key-ownership-route.js'
 import { registerServiceMailRoute } from './auth/service-mail.js';
 import { registerWalletSignatureVerifyRoute, signingAccount, verifyWalletSignature } from './auth/wallet-signature-verify.js';
 import { linkedWallets, registerLinkedWalletsRoute } from './auth/linked-wallets.js';
-import { readAgentKey, registerAgentKeyReadRoute } from './auth/agent-key-read.js';
+import { readAgentKey, readAgentKeyCalls, registerAgentKeyCallsRoute, registerAgentKeyReadRoute } from './auth/agent-key-read.js';
 import { registerTrustedDeviceReadRoute } from './auth/trusted-device-read.js';
 import { assertProdTotpKey, assertSigningEncKey, parseTotpSecretKey } from './auth/totp-crypto.js';
 import { RankService } from './rank/rank-service.js';
@@ -1140,6 +1140,14 @@ registerLinkedWalletsRoute(app, {
 /** One of a person's own API keys, for svc-trade's agent-account binding (agent-key-read.ts, J-agents-21 #6). */
 registerAgentKeyReadRoute(app, {
   read: (userId, keyId) => readAgentKey(sql, userId, keyId),
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  bodyBind: env.INTERNAL_SERVICE_BODY_BIND,
+  ...(doorS2s ? { s2s: doorS2s } : {}),
+});
+
+/** One of a person's own API keys' call log, for svc-trade's assistant Activity (agent-key-read.ts, J-agents-21 #11). */
+registerAgentKeyCallsRoute(app, {
+  read: (userId, keyId, limit) => readAgentKeyCalls(sql, userId, keyId, limit),
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   bodyBind: env.INTERNAL_SERVICE_BODY_BIND,
   ...(doorS2s ? { s2s: doorS2s } : {}),
