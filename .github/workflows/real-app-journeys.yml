@@ -78,6 +78,7 @@ on:
       - 'tooling/scripts/roadmap.mjs'
       - 'tooling/scripts/journey-shards*.mjs'
       - 'tooling/scripts/journey-fail-fast.mjs'
+      - 'tooling/scripts/journey-leave-out*.mjs'
       - 'docs/runbooks/journey-baseline.json'
       - '.github/workflows/real-app-journeys.yml'
 
@@ -143,6 +144,7 @@ jobs:
       matrix: ${{ steps.plan.outputs.matrix }}
       count: ${{ steps.plan.outputs.count }}
       fast_plan: ${{ steps.fast.outputs.plan }}
+      leave_out: ${{ steps.leave.outputs.list }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -303,20 +305,27 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           got=0
-          for id in $(gh run list --repo "$GITHUB_REPOSITORY" --workflow real-app-journeys.yml --branch main --status completed --limit 100 --json databaseId,conclusion --jq '.[] | select(.conclusion != "cancelled") | .databaseId'); do
+          # Each run's head is kept beside its report (head_sha), for the leave-out plan's history.
+          while read -r id sha; do
             gh run download "$id" --repo "$GITHUB_REPOSITORY" --name real-app-journeys --dir "$RUNNER_TEMP/last/$id" 2>/dev/null || continue
+            echo "$sha" > "$RUNNER_TEMP/last/$id/head_sha"
+            # The newest run's stored pass history (journey-verdict.mjs HISTORY_ARTIFACT), which the leave-out plan reads.
+            if [ "$got" = 0 ] && [ "$GITHUB_REF" = refs/heads/main ] && [ "$GITHUB_EVENT_NAME" = push ]; then
+              gh run download "$id" --repo "$GITHUB_REPOSITORY" --name real-app-journeys-pass-history --dir "$RUNNER_TEMP/history" 2>/dev/null || true
+            fi
             echo "timings from run $id"
             got=$((got + 1))
             [ "$got" -ge 3 ] && break
-          done
+          done < <(gh run list --repo "$GITHUB_REPOSITORY" --workflow real-app-journeys.yml --branch main --status completed --limit 100 --json databaseId,conclusion,headSha --jq '.[] | select(.conclusion != "cancelled") | "\(.databaseId) \(.headSha)"')
           # The two newest finished scheduled runs too: they keep the ordinary limits, so a test built since the baseline
           # passes there (the fail-fast plan below leaves it out). Kept apart, so the shard plan reads the last runs as before.
-          for id in $(gh run list --repo "$GITHUB_REPOSITORY" --workflow real-app-journeys.yml --branch main --event schedule --status completed --limit 10 --json databaseId,conclusion --jq '.[] | select(.conclusion != "cancelled") | .databaseId'); do
+          while read -r id sha; do
             gh run download "$id" --repo "$GITHUB_REPOSITORY" --name real-app-journeys --dir "$RUNNER_TEMP/scheduled/$id" 2>/dev/null || continue
+            echo "$sha" > "$RUNNER_TEMP/scheduled/$id/head_sha"
             echo "fail-fast reads the scheduled run $id"
             sched=$((${sched:-0} + 1))
             [ "$sched" -ge 2 ] && break
-          done
+          done < <(gh run list --repo "$GITHUB_REPOSITORY" --workflow real-app-journeys.yml --branch main --event schedule --status completed --limit 10 --json databaseId,conclusion,headSha --jq '.[] | select(.conclusion != "cancelled") | "\(.databaseId) \(.headSha)"')
       - name: Plan
         id: plan
         if: ${{ !cancelled() && env.PLANS == 'true' && steps.touch.outputs.mode != 'none' && steps.first.outputs.deferred != 'true' }}
@@ -346,6 +355,29 @@ jobs:
           reports=()
           for f in "$RUNNER_TEMP"/last/*/report.json "$RUNNER_TEMP"/scheduled/*/report.json; do [ -f "$f" ] && reports+=(--report "$f"); done
           echo "plan=$(node tooling/scripts/journey-fail-fast.mjs --plan "${reports[@]}")" >> "$GITHUB_OUTPUT"
+      # The tests a push run on main leaves out (tooling/scripts/journey-leave-out.mjs; project-state#2065 d32 part 5a):
+      # unbuilt steps that never passed on main (the pass history), failed in a run read above, and that no commit since
+      # names or changes. Best
+      # effort: without it nothing is left out. Only a full run on a push to main; the daily scheduled run, a pull
+      # request's, a targeted and a hand-dispatched run leave nothing out.
+      - name: Leave-out plan
+        id: leave
+        if: ${{ !cancelled() && github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.touch.outputs.mode != 'none' && steps.first.outputs.deferred != 'true' }}
+        continue-on-error: true
+        run: |
+          node --test tooling/scripts/journey-leave-out.test.mjs
+          git fetch --no-tags --quiet --deepen=400 origin
+          git log --format='@%H%x09%s' --name-only -n 400 HEAD > "$RUNNER_TEMP/leave-log.txt"
+          runs=()
+          for d in "$RUNNER_TEMP"/last/* "$RUNNER_TEMP"/scheduled/*; do
+            [ -f "$d/report.json" ] && [ -f "$d/head_sha" ] && runs+=(--run "$d/report.json" "$(cat "$d/head_sha")")
+          done
+          node tooling/scripts/journey-leave-out.mjs --log "$RUNNER_TEMP/leave-log.txt" --history "$RUNNER_TEMP/history/pass-history.json" "${runs[@]}" > "$RUNNER_TEMP/leave-out.txt"
+          {
+            echo "list<<LEAVE_OUT_END"
+            cat "$RUNNER_TEMP/leave-out.txt"
+            echo "LEAVE_OUT_END"
+          } >> "$GITHUB_OUTPUT"
       - name: Targeted run has its plan
         if: ${{ !cancelled() && env.PLANS == 'true' && steps.first.outputs.deferred != 'true' && steps.touch.outputs.target != '' && steps.plan.outputs.shards == '' }}
         run: |
@@ -727,6 +759,8 @@ jobs:
           # targeted run, where a builder proves a step, keeps them too.
           JOURNEY_FAIL_FAST: ${{ env.JOURNEYS_TARGET == '' && github.event_name != 'schedule' && github.event_name != 'pull_request' && '1' || '0' }}
           JOURNEY_FAIL_FAST_PLAN: ${{ needs.touch.outputs.fast_plan }}
+          # The unbuilt tests a push run on main leaves out (the touch job's Leave-out plan), as Playwright's test list.
+          JOURNEY_LEAVE_OUT: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' && needs.touch.outputs.leave_out || '' }}
           # One retry of a failed test on main only (the set-aside above); a targeted run on a branch never retries.
           JOURNEY_RETRIES: ${{ github.ref == 'refs/heads/main' && '1' || '0' }}
           SHARDS: ${{ needs.touch.outputs.shards }}
@@ -747,8 +781,14 @@ jobs:
             echo "$JOURNEY_FILES" | tr ' ' '\n'
             export JOURNEY_FILES
           fi
+          leave=()
+          if [ -n "$JOURNEY_LEAVE_OUT" ]; then
+            printf '%s\n' "$JOURNEY_LEAVE_OUT" > "$RUNNER_TEMP/leave-out.txt"
+            leave=(--test-list-invert "$RUNNER_TEMP/leave-out.txt")
+            echo "leaves out $(grep -c . "$RUNNER_TEMP/leave-out.txt") unbuilt tests (tooling/scripts/journey-leave-out.mjs)"
+          fi
           code=0
-          pnpm exec playwright test --config "$config" --trace off "${split[@]}" || code=$?
+          pnpm exec playwright test --config "$config" --trace off "${split[@]}" "${leave[@]}" || code=$?
           # Playwright's own limit ended the journeys: name it the way Main trust's post-merge job finds a time limit, so
           # it opens the time-limit issue that says to split the shards further. The shard stays red (Main trust reads
           # the limit from a red job's annotations).

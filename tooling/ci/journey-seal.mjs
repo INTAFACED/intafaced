@@ -1644,6 +1644,75 @@ export function sealNow({ files, headCi, going, verdict = false }) {
 }
 
 /**
+ * One seal run per head gives the verdicts: the run of the push (an open, a push, a reopen or a retarget to main).
+ * An edit of the title or body and an arming start a run too (merge-seal.yml), but its first job, RELAY_JOB, passes the
+ * event to the push's run instead of judging in a run of its own (INTAFACED/project-state#2065, d32 part 5a). Before this every such run became a seal run of its own on the head, every one of which must
+ * pass (probe #7547), so one input's end re-ran each of them and a green one re-ran the older reds: since the one-verdict
+ * change (#8026) to 04:00 UTC on 13 Nov, 391 verdicts on 266 finished CI runs, 49 of them a second verdict from the same
+ * trigger within 90 seconds.
+ */
+export const RELAY_JOB = "Pass an edit or an arming to this head's seal";
+
+/** Whether a merge-seal.yml run is an edit's or an arming's relay run: its RELAY_JOB ran (or is running). */
+export const isRelayRun = (jobs) => (jobs ?? []).some((j) => j?.name === RELAY_JOB && j?.conclusion !== 'skipped');
+
+/**
+ * What an edit's or an arming's run does (RELAY_JOB), given `action` (`edited` or `auto_merge_enabled`), the other
+ * merge-seal.yml pull_request_target `runs` on the head, `jobsByRun` (latest-attempt jobs, read as asked: act `jobs`),
+ * and `going` (inputsGoing's lines, or null until read: act `going`). The push's run is the newest that is not a relay.
+ * Acts:
+ *   - `rerun` its seal job (an edit after a verdict: the verdict is judged again on the title and body as they are now);
+ *   - `start` it whole (no verdict yet, every input finished: what the edit's or arming's own run sealed before);
+ *   - `done`: nothing to do (no verdict yet and an input is still going, whose end starts it and reads the pull request
+ *     as it is then; the push's seal is still waiting for its inputs or deciding, and reads it later; an arming when a
+ *     verdict is already there, since arming changes nothing a seal judges);
+ *   - `here`: seal in this run, as before (no push's run on the head, or its seal is judging now and may have read the
+ *     title or body before this edit). Fails closed: the caller seals here on any error too. Pure.
+ */
+export function relayStep({ action, runs, jobsByRun = new Map(), going = null }) {
+  const mine = (runs ?? []).filter((r) => r?.event === 'pull_request_target').sort((a, b) => b.id - a.id);
+  let push = null;
+  for (const run of mine) {
+    const id = String(run.id);
+    if (!jobsByRun.has(id)) return { act: 'jobs', runId: id };
+    if (!isRelayRun(jobsByRun.get(id))) {
+      push = run;
+      break;
+    }
+  }
+  if (!push) return { act: 'here', msg: 'no run of a push on this head to pass it to, so this run seals' };
+  const runId = String(push.id);
+  const jobs = jobsByRun.get(runId) ?? [];
+  const seal = jobs.filter((j) => j?.name === SEAL).sort((a, b) => b.id - a.id)[0];
+  const verdict = seal?.status === 'completed' && ['success', 'failure'].includes(seal?.conclusion);
+  if (seal && seal.status !== 'completed') {
+    if ((seal.steps ?? []).some((s) => s?.name === WAIT_STEP && s?.status !== 'completed'))
+      return { act: 'done', msg: `the seal in run ${runId} is still waiting for its inputs and reads the pull request as it is then` };
+    if (action === 'auto_merge_enabled')
+      return { act: 'done', msg: `the seal in run ${runId} is judging; arming changes nothing it judges` };
+    return {
+      act: 'here',
+      msg: `the seal in run ${runId} is judging and may have read the title and body before this edit, so this run seals`,
+    };
+  }
+  if (verdict) {
+    if (action === 'auto_merge_enabled')
+      return { act: 'done', msg: `run ${runId} already gave its verdict (${seal.conclusion}); arming changes nothing a seal judges` };
+    if (push.status !== 'completed')
+      return { act: 'here', msg: `run ${runId} is still finishing, so its seal can't be re-run now and this run seals` };
+    return { act: 'rerun', runId, jobId: String(seal.id), msg: `re-judging run ${runId}'s verdict on the edited title and body` };
+  }
+  // No verdict on the push's run: still deciding, waiting for its inputs, or a seal that was cancelled.
+  if (push.status !== 'completed')
+    return { act: 'done', msg: `run ${runId} is deciding whether to seal now; it reads the pull request as it is now` };
+  if (going === null) return { act: 'going', runId };
+  if (going.length) return { act: 'done', msg: `waiting for ${going.join(', ')}; the last one's end starts the seal in run ${runId}` };
+  if (seal) return { act: 'rerun', runId, jobId: String(seal.id), msg: `run ${runId}'s seal ended ${seal.conclusion}; judging again` };
+  if (jobs.some(isWaitingSeal)) return { act: 'start', runId, msg: `every input has finished; starting the seal in run ${runId}` };
+  return { act: 'here', msg: `run ${runId} holds no seal job, so this run seals` };
+}
+
+/**
  * ci.yml's seal steps that read what a re-check or the CI review changes (the named steps, the review). Since 9 Nov 2026
  * ci.yml runs them only on a merge queue's commit; on a pull request they are merge-seal.yml's alone, the default
  * branch's copy (INTAFACED/project-state#1574). A head whose own ci.yml predates that still runs them in ci.yml's seal.
@@ -1674,6 +1743,9 @@ export function recheckStep(runs, jobsByRun = new Map(), event = 'pull_request')
     const runId = String(run.id);
     if (!jobsByRun.has(runId)) return { act: 'jobs', runId, msg: `reading run ${runId}'s jobs` };
     const seal = (jobsByRun.get(runId) ?? []).filter((j) => j?.name === SEAL).sort((a, b) => b.id - a.id)[0];
+    // An edit's or an arming's run that only relayed to the push's run (isRelayRun) holds no verdict and is never started:
+    // the push's run is the one that judges (relayStep).
+    if (!seal && isRelayRun(jobsByRun.get(runId))) continue;
     // A skipped seal holds no verdict, so the run before it decides (merge-seal.yml's job is never skipped; this guards an
     // older run or a future skip).
     if (seal?.status === 'completed' && seal?.conclusion === 'skipped') continue;
@@ -1694,7 +1766,9 @@ export function recheckStep(runs, jobsByRun = new Map(), event = 'pull_request')
   }
   // No verdict yet: the newest run whose first attempt waits for its inputs is started (re-run whole), once they have.
   const read = prs.filter((r) => jobsByRun.has(String(r.id)));
-  const waiting = read.find((r) => r.status === 'completed' && jobsByRun.get(String(r.id)).some(isWaitingSeal));
+  const waiting = read.find(
+    (r) => r.status === 'completed' && !isRelayRun(jobsByRun.get(String(r.id))) && jobsByRun.get(String(r.id)).some(isWaitingSeal),
+  );
   if (waiting) return { act: 'start', runId: String(waiting.id), msg: `run ${waiting.id} waits for its inputs` };
   if (read.some((r) => jobsByRun.get(String(r.id)).some((j) => j?.name === 'CI jobs')))
     return { act: 'done', msg: "ci.yml's job on this head is `CI jobs`, not a seal; merge-seal.yml's seal decides" };
@@ -2097,6 +2171,53 @@ async function clearOlderStep({ repo, token }) {
 }
 
 /**
+ * RELAY_JOB (`--relay`): an edit's or an arming's run passes the event to the head's push run (relayStep), and writes
+ * `here=true` to GITHUB_OUTPUT when this run must seal itself. Any error fails the job, and the seal then runs here.
+ */
+async function relayRunStep({ repo, token }) {
+  const { HEAD_SHA, PR_NUMBER, RUN_ID, ACTION, GITHUB_OUTPUT } = process.env;
+  if (!SHA40.test(HEAD_SHA ?? '') || !/^\d+$/.test(PR_NUMBER ?? '') || !/^\d+$/.test(RUN_ID ?? ''))
+    throw new Error('--relay needs HEAD_SHA, PR_NUMBER and RUN_ID');
+  const get = (path) => api(path, token);
+  const out = (here, msg) => {
+    console.log(`${here ? 'seals here' : 'relayed'}: ${msg}`);
+    if (GITHUB_OUTPUT) writeFileSync(GITHUB_OUTPUT, `here=${here}\n`, { flag: 'a' });
+  };
+  const pull = await get(`/repos/${repo}/pulls/${PR_NUMBER}`);
+  if (pull?.state !== 'open' || pull?.head?.sha !== HEAD_SHA)
+    return out(false, `#${PR_NUMBER} is no longer open on ${HEAD_SHA.slice(0, 10)}; its newer head's own seal reads it`);
+  const listed = (
+    await get(`/repos/${repo}/actions/workflows/merge-seal.yml/runs?head_sha=${HEAD_SHA}&event=pull_request_target&per_page=100`)
+  )?.workflow_runs;
+  if (!Array.isArray(listed)) throw new Error(`merge-seal.yml runs on ${HEAD_SHA}: not a list`);
+  const runs = listed.filter((r) => r?.head_sha === HEAD_SHA && String(r.id) !== RUN_ID);
+  const jobsByRun = new Map();
+  let going = null;
+  for (;;) {
+    const step = relayStep({ action: ACTION, runs, jobsByRun, going });
+    if (step.act === 'jobs') {
+      const jobs = (await get(`/repos/${repo}/actions/runs/${step.runId}/jobs?filter=latest&per_page=100`))?.jobs;
+      if (!Array.isArray(jobs)) throw new Error(`run ${step.runId}'s jobs: not a list`);
+      jobsByRun.set(step.runId, jobs);
+      continue;
+    }
+    if (step.act === 'going') {
+      going = await readGoing({ get, repo, sha: HEAD_SHA, pulls: [pull] });
+      continue;
+    }
+    if (step.act === 'here') return out(true, step.msg);
+    if (step.act === 'done') return out(false, step.msg);
+    const path = step.act === 'start' ? `/actions/runs/${step.runId}/rerun` : `/actions/jobs/${step.jobId}/rerun`;
+    const { status, message = '' } = await poster(token)(`/repos/${repo}${path}`);
+    // Already running: something else is judging the push's run now, and it may have read the title and body before this
+    // edit, so this run seals, as before.
+    if (status === 403 && /already running/i.test(message)) return out(true, `run ${step.runId} is already re-running (${message})`);
+    if (status !== 201) throw new Error(`could not ${step.act} the seal of run ${step.runId}: HTTP ${status} ${message}`);
+    return out(false, step.msg);
+  }
+}
+
+/**
  * `--recheck`, the last job of each seal input (START_JOB, `FINISHED` naming the input): the open pull requests with
  * auto-merge armed on `SHA` that the input judges (recheckTargets), each with its seal started or re-run once every input
  * on the head has finished. A head no such pull request is on is left alone.
@@ -2203,6 +2324,7 @@ async function main() {
   if (process.argv.includes('--seal-now')) return sealNowStep({ repo: REPO, token: GH_TOKEN });
   if (process.argv.includes('--clear-older')) return clearOlderStep({ repo: REPO, token: GH_TOKEN });
   if (process.argv.includes('--wait-inputs')) return waitInputsStep({ repo: REPO, token: GH_TOKEN });
+  if (process.argv.includes('--relay')) return relayRunStep({ repo: REPO, token: GH_TOKEN });
   const io = makeIo(REPO, GH_TOKEN);
   // The journeys run's planner (real-app-journeys.yml) reads an automatic revert's narrow scope from the same rule.
   const scopeAt = process.argv.indexOf('--auto-revert-scope');
