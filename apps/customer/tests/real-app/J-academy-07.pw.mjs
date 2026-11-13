@@ -7,7 +7,8 @@ import { test, expect } from './journey.mjs';
 import { CHAIN_ID, TOKEN_USD, connectWallet, fundOnTestChain, testChain } from './dex.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { api } from './stack.mjs';
-import { testWalletKey } from './test-wallet.mjs';
+import { installTestWallet, testWalletKey } from './test-wallet.mjs';
+import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
 
 // J-academy-07, in the running app (docs/roadmap/journeys.json): buy a paid course and get access. One test per step,
 // titled "J-academy-07 #<n>", run in order by one verified TEST learner with a TEST wallet of this run's own, connected to
@@ -201,6 +202,7 @@ const transferSends = (wallet) => wallet.sends.filter((s) => s.method === 'eth_s
 
 test(`${J} starts signed in, verified, with a connected TEST wallet holding TEST USD; a published course has a priced certificate track`, async ({
   page,
+  browser,
 }) => {
   test.setTimeout(240_000);
   expect(testChain().chain, 'the stack runs its LOCAL TEST chain').toBe('running');
@@ -211,6 +213,23 @@ test(`${J} starts signed in, verified, with a connected TEST wallet holding TEST
   const address = privateKeyToAccount(run.walletKey).address;
   fundOnTestChain(address, 'venue');
   expect(await usdOf(address)).toBeGreaterThanOrEqual(PRICE_UNITS * 2n);
+  // The wallet is the learner's own: linked to their account by its own signature and a passkey confirmation, as
+  // J-agents-02 #4 links one (Security, Sign-in methods). Only a linked wallet may pay for a purchase.
+  const passkeyContext = await browser.newContext({ baseURL: PASSKEY_ORIGIN });
+  try {
+    const linking = await passkeyContext.newPage();
+    await virtualAuthenticator(linking);
+    const linked = await installTestWallet(linking, { chainId: CHAIN_ID, privateKey: run.walletKey });
+    await signIn(linking, run.who);
+    await addPasskey(linking);
+    const card = linking.getByTestId('security__signin-methods');
+    const walletsRow = card.getByRole('listitem', { name: 'Wallets', exact: true });
+    await walletsRow.getByRole('button', { name: 'Link a wallet' }).click();
+    await card.getByRole('form', { name: 'Confirm it is you' }).getByRole('button', { name: 'Confirm with a passkey' }).click();
+    await expect(walletsRow.getByTitle(linked.address)).toBeVisible();
+  } finally {
+    await passkeyContext.close();
+  }
   run.unpriced = await staffCourse('unpriced', { price: PRICE, withdrawPrice: true });
   run.priced = await staffCourse('priced', { price: PRICE });
   run.second = await staffCourse('second', { price: PRICE });
@@ -284,6 +303,13 @@ test(`${J} #4 Buy asks the wallet to sign one payment to INTAFACED; the grant ap
   const payer = privateKeyToAccount(run.walletKey).address.toLowerCase();
   const { root, panel, wallet } = await openCourse(page, run.priced.slug);
   const buy = panel.getByRole('button', { name: 'Buy', exact: true });
+
+  // A wallet that is not linked to this account cannot be named as the payer: nobody's payment counts for another.
+  const notMine = privateKeyToAccount(testWalletKey()).address;
+  const refusedWallet = await (await learner()).post('/api/academy/trpc/buyCourse', { slug: run.priced.slug, wallet: notMine });
+  expect(refusedWallet.status).toBe(403);
+  expect(codeOf(refusedWallet)).toBe('academy.wallet_not_linked');
+  expect(await purchaseRows(run.priced.id)).toHaveLength(0);
 
   // Rejected in the wallet: nothing was bought, and no purchase is left.
   await buy.click();

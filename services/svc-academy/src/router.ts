@@ -1042,11 +1042,13 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.second_founder_required':
     case 'academy.grant_expired':
     case 'academy.payment_required':
+    case 'academy.wallet_not_linked':
       return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
 
     case 'academy.price_unset':
     case 'academy.payments_off':
     case 'academy.refund_sender_unset':
+    case 'academy.wallet_unread':
     case 'academy.role_limit_unset':
     case 'academy.role_limit_reached':
     case 'academy.course_outline_empty':

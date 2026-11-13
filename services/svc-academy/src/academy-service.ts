@@ -518,7 +518,10 @@ export class AcademyService {
     this.lessonRecords = new LessonRecords(sql, this.courseRecords, this.options.lessonImportMaxBytes ?? null);
     this.learnHub = new LearnHub(sql, this.options.topicsListLimit ?? null);
     this.coursePreview = new CoursePreview(sql);
-    this.coursePurchases = new CoursePurchases(sql, options.purchases ?? { settings: null, chain: null, ledger: null, refunds: null });
+    this.coursePurchases = new CoursePurchases(
+      sql,
+      options.purchases ?? { settings: null, chain: null, ledger: null, refunds: null, wallets: null },
+    );
     this.courseLearners = new CourseLearners(sql, this.coursePreview, this.coursePurchases);
     this.courseMedia = new CourseMedia(
       sql,

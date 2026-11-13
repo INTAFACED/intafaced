@@ -16,6 +16,7 @@ import type { PaymentChain, TransferFact, TxFact } from './chain.js';
 import { CoursePurchases, type PaymentSettings } from './course-purchases.js';
 import { purchaseLedger } from './purchase-ledger.js';
 import type { RefundSend, RefundSender } from './refund-signer.js';
+import type { LinkedWalletsPort } from './linked-wallets.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -110,6 +111,14 @@ class FakeRefunds implements RefundSender {
 let chain: FakeChain;
 let ledger: FakeLedger;
 let refunds: FakeRefunds;
+/** Identity's linked wallets as the test sets them: the learner L links WALLET; null is identity unread. */
+let links: Map<string, string[]> | null;
+const wallets: LinkedWalletsPort = {
+  read: async (userId) =>
+    links === null
+      ? null
+      : { state: 'usable', wallets: (links.get(userId) ?? []).map((address) => ({ address, linkedAt: NOW.toISOString() })) },
+};
 let purchases: CoursePurchases;
 let learners: CourseLearners;
 
@@ -134,7 +143,7 @@ async function paidCourse(price: string | null = '2.5', asset = 'USDC') {
 }
 
 const make = (settings: PaymentSettings | null = SETTINGS) => {
-  purchases = new CoursePurchases(db.sql, { settings, chain, ledger: purchaseLedger(ledger.client), refunds });
+  purchases = new CoursePurchases(db.sql, { settings, chain, ledger: purchaseLedger(ledger.client), refunds, wallets });
   learners = new CourseLearners(db.sql, new CoursePreview(db.sql), purchases);
 };
 const pay = (hash = PAY, amount = 2_500_000n, from = WALLET, to = RECEIVER) => chain.mine(hash, [{ from, to, amount }]);
@@ -150,6 +159,7 @@ beforeEach(async () => {
   chain = new FakeChain();
   ledger = new FakeLedger();
   refunds = new FakeRefunds();
+  links = new Map([[L, [WALLET]]]);
   make();
 });
 
@@ -172,6 +182,32 @@ describe('course purchases', () => {
     expect((await learners.terms({ userId: L, slug: 'perps-101' })).tracks[1]!.closed).toBe('payments_off');
     await expect(purchases.buy({ userId: L, slug: 'perps-101', wallet: WALLET })).rejects.toMatchObject({ code: 'academy.payments_off' });
     expect(await rows()).toHaveLength(0);
+  });
+
+  it("a payer must be the buyer's own linked wallet: another person's payment is never counted for someone else", async () => {
+    await paidCourse();
+    const B = '66666666-6666-4666-8666-666666666666';
+    // B names L's wallet: refused, so no intent of B's can ever match L's transfer.
+    await expect(purchases.buy({ userId: B, slug: 'perps-101', wallet: WALLET })).rejects.toMatchObject({
+      code: 'academy.wallet_not_linked',
+    });
+    expect(await rows()).toHaveLength(0);
+    // L pays; the reconciler counts it for L only, and B has nothing to claim it with.
+    await purchases.buy({ userId: L, slug: 'perps-101', wallet: WALLET });
+    pay();
+    chain.head += 1n;
+    await purchases.reconcile();
+    expect(await rows()).toEqual([{ purchase_key: KEY, state: 'posted', tx_hash: PAY }]);
+    await expect(purchases.submitPayment({ userId: B, key: KEY, txHash: PAY })).rejects.toMatchObject({
+      code: 'academy.purchase_not_found',
+    });
+    // A wallet linked to nobody, an inactive account, and identity unread all refuse, and open nothing.
+    await expect(purchases.buy({ userId: B, slug: 'perps-101', wallet: OTHER.slice(0, 42) })).rejects.toMatchObject({
+      code: 'academy.wallet_not_linked',
+    });
+    links = null;
+    await expect(purchases.buy({ userId: B, slug: 'perps-101', wallet: WALLET })).rejects.toMatchObject({ code: 'academy.wallet_unread' });
+    expect(await rows()).toHaveLength(1);
   });
 
   it('enrolling on the paid track needs a recorded purchase', async () => {
@@ -466,7 +502,7 @@ describe('course purchases', () => {
 
   it('with no refund signer, a refund refuses by name and nothing changes', async () => {
     await paidCourse();
-    purchases = new CoursePurchases(db.sql, { settings: SETTINGS, chain, ledger: purchaseLedger(ledger.client), refunds: null });
+    purchases = new CoursePurchases(db.sql, { settings: SETTINGS, chain, ledger: purchaseLedger(ledger.client), refunds: null, wallets });
     await expect(purchases.refund({ key: KEY, reason: 'r', actorId: STAFF })).rejects.toMatchObject({
       code: 'academy.refund_sender_unset',
     });

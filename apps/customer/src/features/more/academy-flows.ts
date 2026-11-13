@@ -205,7 +205,9 @@ export type RefusalKey =
   | 'refPaymentRequired'
   | 'refPaymentsOff'
   | 'refPurchaseNotFound'
-  | 'refWalletInvalid';
+  | 'refWalletInvalid'
+  | 'refWalletNotLinked'
+  | 'refWalletUnread';
 
 /** Which sentence words a typed Academy refusal, or null when Academy did not type it (a dropped connection, a sign-in problem). */
 export function academyRefusalKey(failure: Pick<Failure, 'code' | 'message'>): RefusalKey | null {
@@ -271,6 +273,10 @@ export function academyRefusalKey(failure: Pick<Failure, 'code' | 'message'>): R
       return 'refPurchaseNotFound';
     case 'academy.wallet_invalid':
       return 'refWalletInvalid';
+    case 'academy.wallet_not_linked':
+      return 'refWalletNotLinked';
+    case 'academy.wallet_unread':
+      return 'refWalletUnread';
     case 'academy.window_invalid':
       return 'refItemNotOpen';
     case 'academy.not_released_yet':

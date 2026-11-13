@@ -21,6 +21,7 @@ import { createQuizAddressResolver } from './curriculum/course-quizzes.js';
 import { rpcPaymentChain } from './purchases/chain.js';
 import { createAcademyLedgerClient, purchaseLedger } from './purchases/purchase-ledger.js';
 import { httpRefundSender } from './purchases/refund-signer.js';
+import { createIdentityLinkedWallets } from './purchases/linked-wallets.js';
 
 // §9 — register the TracerProvider before the first span is created.
 // `@opentelemetry/api` alone is a no-op: without this call every span in
@@ -157,6 +158,7 @@ const purchases = {
   chain: paymentSettings && env.ACADEMY_PAYMENT_RPC_URL ? rpcPaymentChain(env.ACADEMY_PAYMENT_RPC_URL) : null,
   ledger: env.LEDGER_URL ? purchaseLedger(createAcademyLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, s2sKey)) : null,
   refunds: env.ACADEMY_REFUND_SIGNER_URL ? httpRefundSender(env.ACADEMY_REFUND_SIGNER_URL) : null,
+  wallets: createIdentityLinkedWallets(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey),
 };
 
 const academy = new AcademyService(

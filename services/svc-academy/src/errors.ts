@@ -215,6 +215,8 @@ export type AcademyErrorCode =
   | 'academy.purchase_state'
   /** J-academy-07: the wallet address or chain transaction given is not a valid one. */
   | 'academy.wallet_invalid'
+  | 'academy.wallet_not_linked'
+  | 'academy.wallet_unread'
   /** J-academy-07: no refund signer is set, so INTAFACED cannot send a refund and nothing is sent. */
   | 'academy.refund_sender_unset'
   /** The course's outline is empty, so it is not published. */
@@ -513,6 +515,8 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.purchase_not_found',
   'academy.purchase_state',
   'academy.wallet_invalid',
+  'academy.wallet_not_linked',
+  'academy.wallet_unread',
   'academy.refund_sender_unset',
   'academy.course_outline_empty',
   'academy.courses_list_limit_unset',

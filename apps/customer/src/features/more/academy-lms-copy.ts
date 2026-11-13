@@ -536,6 +536,9 @@ const en = {
   refPaymentsOff: 'Course payments are switched off, so this track cannot be bought.',
   refPurchaseNotFound: 'There is no such purchase of yours.',
   refWalletInvalid: 'That wallet address or transaction is not a valid one.',
+  refWalletNotLinked:
+    'Pay from a wallet linked to your own account. Link this wallet in Security, under Sign-in methods, then press Buy again.',
+  refWalletUnread: 'Your linked wallets cannot be read right now, so nothing was bought. Try again in a moment.',
   courseLeave: 'Leave course',
   courseLeaving: 'Leaving…',
   courseLeaveNote: 'Your progress is kept if you enrol again.',
@@ -1226,6 +1229,9 @@ const es: Record<keyof typeof en, string> = {
   refPaymentsOff: 'Los pagos de cursos están desactivados, así que esta modalidad no se puede comprar.',
   refPurchaseNotFound: 'No tienes ninguna compra así.',
   refWalletInvalid: 'Esa dirección de cartera o transacción no es válida.',
+  refWalletNotLinked:
+    'Paga desde una cartera vinculada a tu propia cuenta. Vincula esta cartera en Seguridad, en Métodos de inicio de sesión, y vuelve a pulsar Comprar.',
+  refWalletUnread: 'Ahora no se pueden leer tus carteras vinculadas, así que no se ha comprado nada. Inténtalo de nuevo en un momento.',
   courseLeave: 'Abandonar el curso',
   courseLeaving: 'Abandonando…',
   courseLeaveNote: 'Tu progreso se conserva si vuelves a inscribirte.',
@@ -1917,6 +1923,9 @@ const fr: Record<keyof typeof en, string> = {
   refPaymentsOff: 'Les paiements de cours sont désactivés : cette formule ne peut pas être achetée.',
   refPurchaseNotFound: 'Vous n’avez aucun achat de ce type.',
   refWalletInvalid: 'Cette adresse de portefeuille ou cette transaction n’est pas valide.',
+  refWalletNotLinked:
+    'Payez depuis un portefeuille lié à votre propre compte. Liez ce portefeuille dans Sécurité, sous Méthodes de connexion, puis appuyez de nouveau sur Acheter.',
+  refWalletUnread: 'Vos portefeuilles liés ne peuvent pas être lus pour le moment, donc rien n’a été acheté. Réessayez dans un instant.',
   courseLeave: 'Quitter le cours',
   courseLeaving: 'Départ…',
   courseLeaveNote: 'Votre progression est conservée si vous vous réinscrivez.',

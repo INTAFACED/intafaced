@@ -29,6 +29,7 @@ import { canonicalPrice } from '../curriculum/courses.js';
 import { ChainUnreadError, isAddress, isTxHash, toBaseUnits, transferCalldata, type PaymentChain, type TransferFact } from './chain.js';
 import { POST_DEADLINE_SECONDS, type PostAnswer, type PurchaseLedger, type PurchasePost } from './purchase-ledger.js';
 import type { RefundSender } from './refund-signer.js';
+import type { LinkedWalletsPort } from './linked-wallets.js';
 
 /** The owner's payment settings: all of them, or course payments are off. */
 export interface PaymentSettings {
@@ -45,6 +46,8 @@ export interface CoursePurchaseDeps {
   readonly chain: PaymentChain | null;
   readonly ledger: PurchaseLedger | null;
   readonly refunds: RefundSender | null;
+  /** Identity's linked wallets: a payer must be one of the buyer's own. Without it nothing is sold. */
+  readonly wallets: LinkedWalletsPort | null;
 }
 
 type Db = Sql | TransactionSql;
@@ -100,7 +103,7 @@ export class CoursePurchases {
 
   /** Whether course payments are set up: every owner value, the chain node and the ledger. */
   get paymentsOn(): boolean {
-    return this.deps.settings !== null && this.deps.chain !== null && this.deps.ledger !== null;
+    return this.deps.settings !== null && this.deps.chain !== null && this.deps.ledger !== null && this.deps.wallets !== null;
   }
 
   /** Whether a priced course can be sold with these settings (its price is in the payment token's asset). */
@@ -148,6 +151,7 @@ export class CoursePurchases {
       throw new AcademyError('academy.payments_off course payments are not set up, so nothing is sold', 'academy.payments_off');
     const settings = this.deps.settings!;
     const chain = this.deps.chain!;
+    await this.assertOwnWallet(input.userId, wallet);
 
     let latest = await this.latest(this.sql, course.id, input.userId);
     if (latest) latest = await this.reconcileRow(latest);
@@ -195,6 +199,19 @@ export class CoursePurchases {
       to: settings.token,
       data: transferCalldata(settings.receiver, amount),
     });
+  }
+
+  /**
+   * The payer is the buyer's own wallet: one their account linked by its own signature in identity, and an address links
+   * to one account only. Without this, anyone could name another person's wallet and have that person's payment counted
+   * for their own purchase. Unread, nothing is opened.
+   */
+  private async assertOwnWallet(userId: string, wallet: string): Promise<void> {
+    const linked = await this.deps.wallets!.read(userId);
+    if (linked === null)
+      throw new AcademyError('academy.wallet_unread the wallets linked to this account cannot be read now', 'academy.wallet_unread');
+    if (linked.state !== 'usable' || !linked.wallets.some((w) => w.address === wallet))
+      throw new AcademyError('academy.wallet_not_linked pay from a wallet linked to your own account', 'academy.wallet_not_linked');
   }
 
   /** The wallet sent the payment: its hash is stored on the intent, then read against the chain. */
