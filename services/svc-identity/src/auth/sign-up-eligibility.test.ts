@@ -26,6 +26,7 @@ function input(over: Partial<SignUpStart> = {}): SignUpStart {
     email: 'eligible@example.test',
     password: 'not-checked-here',
     country: 'DE',
+    usPerson: false,
     dateOfBirth: '1990-01-01',
     accountType: 'individual',
     ...over,
@@ -102,6 +103,50 @@ describe('sign-up residence and citizenship (Hyperliquid terms 1.6, OWNER 258)',
     expect(codeOf({ country: 'DE' })).toBe('identity.screening_unset');
     expect(codeOf({ country: 'CA' })).toBe('identity.screening_unset');
     expect(codeOf({ country: 'DE', nationality: 'US' })).toBe('identity.screening_unset');
+  });
+});
+
+describe('J-identity-01 #9: the blocked region says why, and the US-person question is answered by the person', () => {
+  const refusal = (over: Partial<SignUpStart>): SignUpError => {
+    try {
+      assertEligible(DEPS, input(over), NOW);
+    } catch (e) {
+      if (e instanceof SignUpError) return e;
+      throw e;
+    }
+    throw new Error('allowed');
+  };
+
+  it('a blocked province or territory is refused with its own reason, by either authority', () => {
+    expect(refusal({ country: 'CA', subdivision: 'CA-ON' })).toMatchObject({
+      code: 'identity.region_blocked',
+      message: 'Ontario, Canada is not served at launch.',
+    });
+    expect(refusal({ country: 'UA', subdivision: 'UA-43' })).toMatchObject({
+      code: 'identity.region_blocked',
+      message: 'TEST fixture subdivision row',
+    });
+  });
+
+  it('a US person is refused from their own answer, wherever they live, where the US is blocked', () => {
+    const us = refusal({ country: 'DE', usPerson: true });
+    expect(us.code).toBe('identity.us_person_blocked');
+    expect(us.message).toBe(
+      'We cannot open accounts for US persons (US citizens, green-card holders and US residents, wherever they live). The United States is not served at launch.',
+    );
+    expect(refusal({ country: 'CA', subdivision: 'CA-QC', usPerson: true }).code).toBe('identity.us_person_blocked');
+    expect(codeOf({ country: 'DE', usPerson: false })).toBe('allowed');
+  });
+
+  it('an unanswered US-person question is refused, never taken as no', () => {
+    expect(codeOf({ country: 'DE', usPerson: undefined })).toBe('identity.us_person_unanswered');
+    expect(codeOf({ country: 'DE', usPerson: 'no' as unknown as boolean })).toBe('identity.us_person_unanswered');
+  });
+
+  it('a blank list refuses before the US-person question is read', () => {
+    delete process.env.INTAFACED_SANCTIONS_REGIONS;
+    expect(codeOf({ country: 'DE', usPerson: undefined })).toBe('identity.screening_unset');
+    expect(codeOf({ country: 'DE', usPerson: true })).toBe('identity.screening_unset');
   });
 });
 
