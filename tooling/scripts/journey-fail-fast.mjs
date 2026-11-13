@@ -130,38 +130,6 @@ export function noRetryForFailFast(tests, plan, isSerialFile) {
   return n;
 }
 
-/**
- * A pull request's run retries a failed test once, as main does (project-state#2065 row d32 part (a): a full run on a pull
- * request went red on another journey's flake that main's own retry clears, as #8222 did on J-copy-bots-otc-15), but
- * never a test the retry would only blur:
- *   - every test in the journey files the pull request itself changes or names (`JOURNEY_NO_RETRY_FILES`, file names
- *     separated by spaces, from the touch job's `own`): its own steps still have to pass on their one attempt;
- *   - every test the fail-fast plan expects to fail (`JOURNEY_NO_RETRY_UNBUILT=1`): an unbuilt step that never passed,
- *     whose retry fails again (noRetryForFailFast), without the fail-fast run's shorter waits.
- * The env failFastSteps reads for that plan (JOURNEY_FAIL_FAST forced on only for the plan, never for journey.mjs's waits).
- */
-export const retryPlanEnv = (env = process.env) => (env.JOURNEY_NO_RETRY_UNBUILT === '1' ? { ...env, JOURNEY_FAIL_FAST: '1' } : env);
-
-/** The journey file names whose tests get no retry (JOURNEY_NO_RETRY_FILES), as a Set; only `<name>.pw.mjs` names count. */
-export const ownFiles = (env = process.env) =>
-  new Set(
-    String(env.JOURNEY_NO_RETRY_FILES ?? '')
-      .split(/[\s,]+/)
-      .filter((f) => /^[A-Za-z0-9._-]+\.pw\.mjs$/.test(f)),
-  );
-
-/** No retry for each test in `files` (a Set of journey file names), the whole file, serial or not. Returns how many. */
-export function noRetryForOwn(tests, files) {
-  let n = 0;
-  if (!files.size) return n;
-  for (const t of tests)
-    if (t.retries > 0 && files.has(path.basename(String(t.location?.file ?? '')))) {
-      t.retries = 0;
-      n += 1;
-    }
-  return n;
-}
-
 // The planner: node tooling/scripts/journey-fail-fast.mjs --plan [--report <report.json>]... prints the plan as JSON, or
 // nothing when no report was read.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

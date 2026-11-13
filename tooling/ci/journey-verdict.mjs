@@ -339,12 +339,9 @@ export function judge({
   // that passes on its retry is a pass with a `flaky` issue, money step or not"). It is never proven from this run
   // (notProven), and on main it is listed for its one `flaky` issue unless a set-aside already tracks it. A step that
   // fails both attempts still fails.
-  // Off main (a pull request's run, which retries a failed test once since project-state#2065 row d32 part (a)), a money
-  // step that passed only on its retry still fails: the retry clears a flake in another journey's built step, never a
-  // money step, whose check on a pull request stays exactly as it was before pull requests retried (failed once: red).
   const failing = new Set(
     Object.entries(newest.states)
-      .filter(([k, s]) => s === 'failed' || (s === 'flaky' && !onMain && (money[k] ?? true)))
+      .filter(([, s]) => s === 'failed')
       .map(([k]) => k),
   );
   const flakySteps = onMain
