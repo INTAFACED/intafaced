@@ -78,6 +78,8 @@ import {
 } from './amm/fee-relay.js';
 import { priceTokens, type PriceSetting } from './amm/prices.js';
 import { createTokensRouter } from './amm/tokens-router.js';
+import { createPortfolioRouter } from './amm/portfolio-router.js';
+import { portfolioChain } from './amm/portfolio.js';
 import { contractChain, createContractSourceRouter, type ContractChain } from './contract-source/router.js';
 import { createBridgeRouter } from './bridge/router.js';
 import { bridgeRoutesLoader } from './bridge/routes.js';
@@ -1563,6 +1565,21 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
       ),
       factory: () => deps.ammFactoryAddress(),
       quoteToken: () => deps.tokensQuoteToken?.() ?? null,
+      toTrpcError,
+    }),
+
+    portfolio: createPortfolioRouter({
+      chain: portfolioChain(
+        tokenLogsChain(
+          chain,
+          () => chain.client,
+          () => chain.config.rpcUrl,
+        ),
+        () => chain.client,
+        () => chain.config.rpcUrl,
+      ),
+      factory: () => deps.ammFactoryAddress(),
+      priceSetting: () => deps.priceSetting?.() ?? null,
       toTrpcError,
     }),
 
