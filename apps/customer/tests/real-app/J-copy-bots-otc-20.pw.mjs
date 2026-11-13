@@ -17,7 +17,8 @@ import { testDeposit, testVenue, venueAccount, venueForThisFile, venueInfo } fro
 // The step's market, BTCUSDT, is a TEST cash spot market BTC-USDT this file adds to the TEST venue (its
 // `/test/market-add` control) and that two TEST operators list through svc-trade's two-person door, as setup; it rests
 // no book, so an alert's IOC is accepted and fills nothing. Every figure the TEST venue reports is TEST.
-// #4 and #5 read the person's position on the venue: TEST BTC the file deposits to their venue account. #6 relies on the
+// #4 and #5 read the person's position on the venue: TEST BTC the file deposits to their venue account, and for #5's
+// reversal a TEST long on BTC-PERP (a TEST listing of the stack) the person's wallet opens on its own venue account. #6 relies on the
 // stack's TEST failure count of 3 (tooling/profiles/test-owner-values/trade.json). Steps that are written but not built
 // yet fail at their first missing part, quickly (UNBUILT):
 // - #8: the venue spot desk has no chart yet to stage an order from, nor the outside broker link's refusal.
@@ -52,8 +53,8 @@ async function alert(url, body) {
   return { status: res.status, body: await res.json().catch(() => null) };
 }
 
-const intents = async (who) => {
-  const res = await (await api(who)).get(trpc('signals.intents', { webhookId: state('webhookId') }));
+const intents = async (who, webhookId = state('webhookId')) => {
+  const res = await (await api(who)).get(trpc('signals.intents', { webhookId }));
   expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
   return res.body.result.data.items;
 };
@@ -297,27 +298,147 @@ test(`${J} #4 sends an amount of 50 percent of position: the order is planned as
   expect(held.body).toMatchObject({ actionKey, reused: true, signed: false });
 });
 
+/** The step's perpetual for a reversal: BTC-PERP, a TEST listing of the stack (TRADE_USER_VENUE_TEST_LISTINGS). */
+const PERP = 'BTC-PERP';
+/** TEST figures on BTC-PERP (lot 0.0001, tick 1, TEST mark 60000): the long held, its worst buy, a reversal's worst sell. */
+const PERP_HELD = '0.002';
+const PERP_BUY_WORST = '63000';
+const PERP_SELL_WORST = '50000';
+
+/** The person's wallet signs one action on its own venue account on the TEST venue directly, as the wallet would. */
+async function ownVenueAction(intent) {
+  const account = await venueAccount(owner);
+  const prepared = await testVenue('/prepare', { account, signer: { role: 'owner', address: owner }, intent });
+  expect(prepared.status, JSON.stringify(prepared.body).slice(0, 300)).toBe(200);
+  const t = prepared.body.typedData;
+  const signature = await key.signTypedData({ domain: t.domain, types: t.types, primaryType: t.primaryType, message: t.message });
+  const sent = await testVenue('/submit', {
+    prepared: prepared.body,
+    signature: { digest: prepared.body.digest, signature, signedBy: owner },
+  });
+  expect(sent.status, JSON.stringify(sent.body).slice(0, 300)).toBe(200);
+  expect(sent.body.accepted, JSON.stringify(sent.body).slice(0, 300)).toBe(true);
+  return sent.body;
+}
+
+/** The venue's own record of the person's BTC-PERP position, or undefined when flat. */
+async function perpPosition() {
+  const { status, body } = await testVenue('/positions', { account: await venueAccount(owner) });
+  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  return body.value.find((p) => p.symbol === PERP && Number(p.size) !== 0);
+}
+
 test(`${J} #5 sends a reversal, then a message with no side: one close and one open planned; the missing side refused by field`, async () => {
+  test.setTimeout(180_000);
   const trader = state('trader');
+  // Setup: a second webhook of the person's, on the perpetual BTC-PERP, and a TEST long there that the person's wallet
+  // opens on its own venue account (1x isolated, TEST USDC deposited), so there is a position to reverse.
+  const created = await (
+    await api(trader)
+  ).post('/api/trade/trpc/signals.webhooks.create', {
+    symbol: PERP,
+    venueOwner: owner,
+    clientRequestId: `${J}:${RUN}:perp:${Date.now().toString(36)}`,
+  });
+  expect(created.status, JSON.stringify(created.body).slice(0, 300)).toBe(200);
+  const perpHook = created.body.result.data;
+  expect(perpHook).toMatchObject({ symbol: PERP, state: 'active' });
+  expect(perpHook.token, 'the new webhook shows its token once').toBeTruthy();
+  const perpUrl = new URL(perpHook.path, state('url')).toString();
+  await testDeposit(owner, 'USDC', '1000', `84532:${keccak256(toHex(`${J} ${RUN} ${owner} perp ${perpHook.webhookId}`))}:0`);
+  // Opened once per run: a rerun of this step finds the long already held, and reverses that.
+  if (!(await perpPosition())) {
+    await ownVenueAction({ kind: 'update_leverage', symbol: PERP, leverageBps: 10_000, marginMode: 'isolated' });
+    await ownVenueAction({
+      kind: 'place_order',
+      symbol: PERP,
+      side: 'buy',
+      type: 'market',
+      amount: PERP_HELD,
+      price: PERP_BUY_WORST,
+      timeInForce: 'IOC',
+      reduceOnly: false,
+      clientOrderKey: `own:${J}:${RUN}:perp-long:${perpHook.webhookId}`,
+      builderFee: null,
+    });
+  }
+  const long = await perpPosition();
+  expect(long, 'the venue holds the TEST long to reverse').toMatchObject({ side: 'long' });
+  const held = long.size;
+
+  // The reversal: one close of the whole long and one open the other way, both planned, each under its own key.
   const alertId = `${J}-5-${Date.now().toString(36)}`;
-  const reversed = await alert(state('url'), { ...base({ alertId }), side: 'reverse', amount: AMOUNT, price: PRICE });
-  const closeKey = `signal-order:${state('webhookId')}:${alertId}:close`;
-  const openKey = `signal-order:${state('webhookId')}:${alertId}`;
-  // BTC-USDT is cash spot: the close sells the whole 0.002 held, and the open the other way (a short) is planned and
-  // refused by its own code, since spot holds no short (CB-bots-api-signal-02's failure branch: no reopen).
-  expect(reversed.status, JSON.stringify(reversed.body).slice(0, 400)).toBe(207);
+  const reversal = {
+    token: perpHook.token,
+    alertId,
+    time: new Date().toISOString(),
+    side: 'reverse',
+    amount: AMOUNT,
+    price: PERP_SELL_WORST,
+  };
+  const reversed = await alert(perpUrl, reversal);
+  const closeKey = `signal-order:${perpHook.webhookId}:${alertId}:close`;
+  const openKey = `signal-order:${perpHook.webhookId}:${alertId}`;
+  expect(reversed.status, JSON.stringify(reversed.body).slice(0, 400)).toBe(200);
   expect(reversed.body.intents).toEqual([
     expect.objectContaining({ action: 'close', side: 'sell', status: 'prepared', actionKey: closeKey }),
+    expect.objectContaining({ action: 'open', side: 'sell', status: 'prepared', actionKey: openKey }),
+  ]);
+  const planned = (await intents(trader, perpHook.webhookId)).filter((i) => i.alertId === alertId);
+  expect(planned.map((i) => [i.action, i.side, i.status, i.actionKey])).toEqual([
+    ['close', 'sell', 'prepared', closeKey],
+    ['open', 'sell', 'prepared', openKey],
+  ]);
+  expect(planned[0]).toMatchObject({ sizing: { kind: 'position_percent', value: '100' } });
+  expect(Number(planned[0].quantity), 'the close is the whole long the venue holds').toBe(Number(held));
+  expect(planned[1]).toMatchObject({ quantity: AMOUNT, sizing: { kind: 'quantity', value: AMOUNT } });
+  // The door holds each planned order under its own key, prepared and not signed: the close reduce-only, the open not.
+  const order = (side, amount, reduceOnly, clientOrderKey) => ({
+    kind: 'place_order',
+    symbol: PERP,
+    side,
+    type: 'market',
+    amount,
+    price: PERP_SELL_WORST,
+    timeInForce: 'IOC',
+    reduceOnly,
+    clientOrderKey,
+    builderFee: null,
+  });
+  for (const [intent, actionKey] of [
+    [order('sell', planned[0].quantity, true, closeKey), closeKey],
+    [order('sell', AMOUNT, false, openKey), openKey],
+  ]) {
+    const held = await prepare(trader, intent);
+    expect(held.status, JSON.stringify(held.body).slice(0, 300)).toBe(200);
+    expect(held.body).toMatchObject({ actionKey, reused: true, signed: false });
+  }
+  // Nothing is sent until the wallet signs: the long is still held as it was.
+  expect((await perpPosition())?.size).toBe(held);
+  // The same reversal again: the stored result, still one close and one open.
+  expect(await alert(perpUrl, reversal)).toEqual(reversed);
+  expect((await intents(trader, perpHook.webhookId)).filter((i) => i.alertId === alertId)).toHaveLength(2);
+
+  // The failure branch on cash spot (CB-bots-api-signal-02: "leaves the close and reports the open as refused (no
+  // reopen)"): BTC-USDT holds no short, so the close sells the whole 0.002 held and the open is refused by its own code.
+  const spotId = `${J}-5s-${Date.now().toString(36)}`;
+  const spot = await alert(state('url'), { ...base({ alertId: spotId }), side: 'reverse', amount: AMOUNT, price: PRICE });
+  expect(spot.status, JSON.stringify(spot.body).slice(0, 400)).toBe(207);
+  expect(spot.body.intents).toEqual([
+    expect.objectContaining({
+      action: 'close',
+      side: 'sell',
+      status: 'prepared',
+      actionKey: `signal-order:${state('webhookId')}:${spotId}:close`,
+    }),
     expect.objectContaining({ action: 'open', side: 'sell', status: 'refused', code: 'trade.signal_short_not_offered', actionKey: null }),
   ]);
-  const planned = (await intents(trader)).filter((i) => i.alertId === alertId);
-  // One close and one open, each its own intent row.
-  expect(planned.map((i) => i.action)).toEqual(['close', 'open']);
-  expect(planned[0]).toMatchObject({ status: 'prepared', actionKey: closeKey, quantity: '0.002' });
-  expect(planned[1]).toMatchObject({ status: 'refused', code: 'trade.signal_short_not_offered' });
-  // The same reversal again: the stored result, still one close and one open.
-  expect(await alert(state('url'), { ...base({ alertId }), side: 'reverse', amount: AMOUNT, price: PRICE })).toEqual(reversed);
-  expect((await intents(trader)).filter((i) => i.alertId === alertId)).toHaveLength(2);
+  const spotRows = (await intents(trader)).filter((i) => i.alertId === spotId);
+  expect(spotRows.map((i) => [i.action, i.status])).toEqual([
+    ['close', 'prepared'],
+    ['open', 'refused'],
+  ]);
+  expect(spotRows[0]).toMatchObject({ quantity: '0.002' });
 
   const noSideId = `${J}-5b-${Date.now().toString(36)}`;
   const noSide = await alert(state('url'), { ...base({ alertId: noSideId }), amount: AMOUNT, price: PRICE });
