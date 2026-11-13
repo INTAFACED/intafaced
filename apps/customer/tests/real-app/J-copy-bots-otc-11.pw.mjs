@@ -163,29 +163,34 @@ test(`${J} #1 opens settlement oversight: "Settled" where the ledger post and th
   const ours = table.locator(`tbody tr[data-fill="${placed.leaderFillId}"]`);
   await expect(ours).toHaveCount(1);
   await expect(cell(ours, 9)).toHaveText(`reward:copy-leader-share:${placed.leaderFillId}:${leaderId}`);
-  if (settled.settled) {
-    // Owed: the ledger holds the post under its key at the share's amount, and no venue reports a builder fee for a
-    // copy filled on the TEST book, so it is held for that.
-    await expect(cell(ours, 1)).toHaveText('Held');
-    await expect(cell(ours, 10)).toHaveText(VENUE_NOT_REPORTED);
-    await expect(cell(ours, 8)).toHaveText('Not reported');
-    await expect(cell(ours, 5)).toContainText(feeAsset);
-    const owedShown = (await cell(ours, 5).innerText()).split(' ')[0];
-    expect(toUnits(owedShown)).toBe(toUnits(String(owed)));
-    expect(toUnits(await cell(ours, 7).innerText())).toBe(toUnits(owedShown));
-  } else {
-    // The stack's TEST fee schedule charges nothing, so the share of the fill's fee is zero: nothing owed, nothing posted.
-    expect(settled.skippedReason).toBe('zero_share');
-    await expect(cell(ours, 1)).toHaveText('Not owed');
-    await expect(cell(ours, 10)).toHaveText('The share came to zero.');
-    await expect(cell(ours, 7)).toHaveText('None');
-  }
+  // A share owed on the copied fill. The stack's TEST fee schedule charges nothing (`test-zero-fee`), so the share of
+  // the fill's fee comes to zero and nothing is owed: then this step cannot be shown here, and fails by name.
+  expect(
+    settled,
+    `the copy's fee share was not owed (${settled.skippedReason}); a zero fee leaves nothing to settle or hold`,
+  ).toMatchObject({ settled: true, skippedReason: null });
+  // Held: the ledger holds the post under its key at the share's amount, and no venue reports a builder fee for a copy
+  // filled on the TEST book.
+  await expect(cell(ours, 1)).toHaveText('Held');
+  await expect(cell(ours, 10)).toHaveText(VENUE_NOT_REPORTED);
+  await expect(cell(ours, 8)).toHaveText('Not reported');
+  await expect(cell(ours, 5)).toContainText(feeAsset);
+  const owedShown = (await cell(ours, 5).innerText()).split(' ')[0];
+  expect(toUnits(owedShown)).toBe(toUnits(String(owed)));
+  expect(toUnits(await cell(ours, 7).innerText())).toBe(toUnits(owedShown));
+  await expect(
+    table
+      .locator('tbody tr')
+      .filter({ hasText: /Settled|Held/ })
+      .first(),
+  ).toBeVisible();
 
   // Every row: "Settled" only where the ledger post and the venue's builder fee both agree with the share; "Held" names
   // its key and a reason; "Not owed" is a share the cap or a zero fee left at nothing.
   for (const row of await table.locator('tbody tr').all()) {
     const status = await cell(row, 1).innerText();
     expect(['Settled', 'Held', 'Not owed']).toContain(status);
+    if (status === 'Not owed') await expect(cell(row, 7)).toHaveText('None');
     if (status === 'Settled') {
       expect(toUnits(await cell(row, 7).innerText())).toBe(toUnits((await cell(row, 5).innerText()).split(' ')[0]));
       expect(toUnits((await cell(row, 8).innerText()).split(' ')[0])).toBe(toUnits((await cell(row, 6).innerText()).split(' ')[0]));
