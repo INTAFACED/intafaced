@@ -188,13 +188,20 @@ test(`${J} #2 sets a per-contract cap, a daily cap, a minimum investment and a l
   await detail.getByRole('button', { name: 'Edit limits' }).click();
   await detail.getByLabel('Most per contract (USDT)').fill('25');
   await detail.getByLabel('Most per day (USDT)').fill('100');
-  // The owner's minimum is shown.
-  await expect(detail.getByText(/Minimum investment: [\d.]+ USDT/)).toBeVisible();
+  // The owner's minimum is shown: the stack's TEST value, 10 USDT (tooling/profiles/test-owner-values/trade.json), as
+  // the service publishes it.
+  const desk = await (await api(state('follower'))).get(trpc('copy.deskStatus'));
+  expect(desk.status, JSON.stringify(desk.body).slice(0, 300)).toBe(200);
+  expect(desk.body.result.data.minInvestment).toBe('10');
+  await expect(detail.getByText('Minimum investment: 10 USDT')).toBeVisible();
   // A spot follow has no leverage to limit, so no field asks for one.
   await expect(detail.getByLabel(/Leverage/)).toHaveCount(0);
   await detail.getByRole('button', { name: 'Save changes' }).click();
   await expect(detail).toContainText(/Most per contract\s*25 USDT/);
   await expect(detail).toContainText(/Most per day\s*100 USDT/);
+  // Both caps are the follow's own, as the service keeps them.
+  const saved = (await myFollows(state('follower'))).find((f) => f.followId === state('followId'));
+  expect({ maxPerMarket: saved?.maxPerMarket, maxPerDay: saved?.maxPerDay }).toEqual({ maxPerMarket: '25', maxPerDay: '100' });
   // A follow below the minimum is refused on the wizard before anything is sent.
   const third = await fundedTrader(page, 'jcl2c', '100');
   const thirdRef = await listLeader(third, `Journey Limits C ${state('tag')}`);
@@ -205,9 +212,27 @@ test(`${J} #2 sets a per-contract cap, a daily cap, a minimum investment and a l
   await wizard.getByLabel('Fixed amount per copied order (USDT)').fill('1');
   await wizard.getByLabel('Permission ends').fill(weekAhead());
   await wizard.getByRole('button', { name: 'Next' }).click();
-  await expect(wizard.getByText(/The minimum investment is [\d.]+ USDT/)).toBeVisible();
+  await expect(wizard.getByText('The minimum investment is 10 USDT')).toBeVisible();
   await expect(wizard.getByRole('button', { name: 'Start copying' })).toHaveCount(0);
   await page.keyboard.press('Escape');
+
+  // A leverage limit sent for this spot follow anyway is refused by name, and nothing is followed.
+  const levered = await (
+    await api(state('follower'))
+  ).post('/api/trade/trpc/copy.follow', {
+    leaderRef: thirdRef,
+    region: 'DE',
+    permittedMarkets: ['BTC/USDT'],
+    maxNotionalPerOrder: '50',
+    maxAggregateExposure: '50',
+    fixedOrderSize: '20',
+    maxLeverage: '3',
+    expiresAt: new Date(Date.now() + 7 * 24 * 3600_000).toISOString(),
+    clientRequestId: `${J}-2-lev-${state('tag')}`,
+  });
+  expect(levered.status, JSON.stringify(levered.body).slice(0, 300)).not.toBe(200);
+  expect(JSON.stringify(levered.body)).toContain('trade.copy_leverage_unsupported');
+  expect((await myFollows(state('follower'))).filter((f) => f.leaderRef === thirdRef)).toEqual([]);
 
   // A blank minimum refuses the follow: trade restarted with no minimum, a valid follow of the third leader is refused by
   // name and nothing is followed; the TEST minimum is put back after.
