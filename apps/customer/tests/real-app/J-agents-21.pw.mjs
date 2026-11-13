@@ -9,7 +9,7 @@ import { confirmStepUp, restorePasskey, testPasskey } from './p2p.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 
 // J-agents-21, in the running app (docs/roadmap/journeys.json): I let my own AI assistant trade on a capped account I
-// can revoke. This file holds the steps built so far (#1 #3 #4 #5 #8 #9 #10 #12 #13 #14 #16 #17 #18), one test per step,
+// can revoke. This file holds the steps built so far (#1 #3 #4 #5 #8 #9 #10 #12 #13 #14 #16 #17 #18 #19), one test per step,
 // titled "J-agents-21 #<n>", run in order by one signed-in, verified TEST person with one TEST wallet key (kept in this
 // run's state) on the stack's TEST venue simulator (tooling/scripts/local-test-venue.mjs). Every figure the TEST venue
 // reports is TEST.
@@ -26,7 +26,10 @@ import { testWalletKey } from './test-wallet.mjs';
 // stand-in for #6's Connect screen, which is a later piece. #13 closes against the perp the assistant opened in #8.
 //
 // Not here, under the passing/unbuilt rule: #2 and #6 (the Connect your assistant screen), #7 (the MCP server's order
-// tool), #11 (the connection's log), #15 (the founder's desk) and #19 (the key's expiry) are later pieces.
+// tool), #11 (the connection's log) and #15 (the founder's desk) are later pieces.
+//
+// #19 acts on the second agent account (#16), with two more agent keys the person makes with end dates through identity's
+// API (the same TEST stand-in): the venue's longest agent permission is the TEST venue's own declaration (GET /venue).
 //
 // #12's Revoke is the person's own two calls, as the connection's screen (a later piece, a design change) will send
 // them: identity switches the API key off (developerKeys.revoke), and svc-trade revokes the assistant on the agent
@@ -898,4 +901,113 @@ test(`${J} #18 The agent account's loss for the day reaches the daily-loss cap: 
   );
   // Open positions untouched: the perp stays as it was, nothing is cancelled, and nothing moved anywhere.
   expect(await everything(session, second.subAccount)).toEqual(before);
+});
+
+/** #19: the person makes an agent key with an end date, through identity's API with the TEST passkey, as assistantKey does. */
+async function datedAgentKey(session, passkey, name, expiresAt) {
+  const options = await session.post('/api/identity/trpc/auth.stepUpOptions', {});
+  const challenge = options.body?.result?.data?.challenge;
+  expect(challenge, JSON.stringify(options.body).slice(0, 300)).toBeTruthy();
+  const made = await session.post('/api/identity/trpc/developerKeys.create', {
+    name,
+    scopes: ['trade:read', 'trade:write'],
+    kind: 'agent',
+    expiresAt,
+    requestId: `${J}:${name}:${expiresAt}`,
+    factorProof: { webauthn: await passkey.assertion(challenge) },
+  });
+  run.write({ passkey: passkey.saved() });
+  expect(made.status, JSON.stringify(made.body).slice(0, 300)).toBe(200);
+  const { record, key, signingSecret } = made.body.result.data;
+  expect(record).toMatchObject({ kind: 'agent', scopes: ['trade:read', 'trade:write'] });
+  return { keyId: record.id, key, signingSecret };
+}
+
+test(`${J} #19 Connects the assistant with an expiry longer than the venue allows, then with a valid one: the first is refused naming the venue's maximum; the second shows its expiry date; after that date the key's calls are refused`, async () => {
+  test.setTimeout(300_000);
+  const { session, passkey } = await person();
+  const { second } = state();
+  const venueInfo = (await venue('/venue')).venue;
+  const maxMs = venueInfo.agentValidityMaxMs;
+  expect(Number.isSafeInteger(maxMs) && maxMs > 0, 'the TEST venue declares its longest agent permission').toBe(true);
+  const maxDays = maxMs / 86_400_000;
+
+  // An expiry a day longer than the venue allows: refused naming the venue's maximum, before any step-up is asked, and
+  // nothing connected.
+  const tooLong = await datedAgentKey(
+    session,
+    passkey,
+    'TEST assistant (too long)',
+    new Date(Date.now() + maxMs + 86_400_000).toISOString(),
+  );
+  const longRes = refused(
+    await session.post(`${BASE}/${second.accountId}/connections`, { keyId: tooLong.keyId }),
+    422,
+    'agents.key_expiry_above_venue_max',
+  );
+  expect(longRes.maxDays).toBe(maxDays);
+  expect(longRes.message).toContain(`at most ${maxDays} days`);
+  expect(longRes.message).toContain(venueInfo.displayName);
+  expect(body200(await session.get(`${BASE}/connections`)).connections.map((c) => c.keyId)).not.toContain(tooLong.keyId);
+
+  // A valid one, ending in a minute: connected, and its expiry date shown on the connection and in the list.
+  const endsAt = new Date(Date.now() + 60_000).toISOString();
+  const valid = await datedAgentKey(session, passkey, 'TEST assistant (dated)', endsAt);
+  const fields = { keyId: valid.keyId, accountId: second.accountId };
+  const stepUpApprovalId = await confirmStepUp(session, passkey, {
+    scope: 'trade.step_up.venue.agentConnect',
+    purpose: 'venue.agentConnect',
+    target: valid.keyId,
+    fields,
+  });
+  run.write({ passkey: passkey.saved() });
+  const connected = body200(await session.post(`${BASE}/${second.accountId}/connections`, { keyId: valid.keyId, stepUpApprovalId }));
+  expect(connected).toMatchObject({ keyId: valid.keyId, accountId: second.accountId, expiry: { known: true } });
+  expect(new Date(connected.expiry.expiresAt).toISOString()).toBe(endsAt);
+  const row = body200(await session.get(`${BASE}/connections`)).connections.find((c) => c.keyId === valid.keyId);
+  expect(row?.expiry?.known).toBe(true);
+  expect(new Date(row.expiry.expiresAt).toISOString()).toBe(endsAt);
+
+  // Before that date the key reaches the assistant's order route: refused there by the account's own daily-loss cap (#18),
+  // which is the trade service answering, not the door.
+  const order = {
+    clientOrderId: 'dated-next',
+    symbol: 'BTC-PERP',
+    side: 'buy',
+    type: 'market',
+    amount: '0.0001',
+    price: '60100',
+    timeInForce: 'IOC',
+    leverage: '2',
+  };
+  const call = async () => {
+    const raw = JSON.stringify(order);
+    const route = '/api/v1/venue/agent/orders';
+    const res = await fetch(`${EDGE}${route}`, {
+      method: 'POST',
+      headers: {
+        origin: ORIGIN,
+        authorization: `Bearer ${valid.key}`,
+        'content-type': 'application/json',
+        ...(valid.signingSecret ? signedHeaders(valid.signingSecret, { method: 'POST', path: route, body: raw }) : {}),
+      },
+      body: raw,
+    });
+    const text = await res.text();
+    let body;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      body = text;
+    }
+    return { status: res.status, body };
+  };
+  const before = await call();
+  expect(Date.now() < Date.parse(endsAt), 'the call before the end date was made before it').toBe(true);
+  refused(before, 422, 'agents.daily_loss_cap_reached');
+
+  // After that date the key's calls are refused.
+  const wait = Date.parse(endsAt) + 2_000 - Date.now();
+  if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+  refused(await call(), 401, 'auth.api_key_expired');
 });

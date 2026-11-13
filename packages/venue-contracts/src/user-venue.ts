@@ -988,6 +988,13 @@ export interface UserVenueDescriptor extends VenueDescriptor {
    * that declares none has its figures refused (`venueFigure` throws), never given a silent default.
    */
   readonly figureStaleAfterMs?: number;
+  /**
+   * The longest an agent permission with an end date may last on this venue, from the moment it is approved (J-agents-21
+   * #19): an assistant's key that ends later than this is refused at connect, naming it. A venue that declares none has
+   * every dated key refused (`agents.venue_agent_expiry_max_unknown`), never given a silent default. A permission with no
+   * end date is the venue's own `validUntil: null` and is not bounded by this.
+   */
+  readonly agentValidityMaxMs?: number;
 }
 
 /** True for the TEST simulator and any testnet or partner sandbox. */
