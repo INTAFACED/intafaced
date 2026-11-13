@@ -105,8 +105,11 @@ jobs:
         run: node tooling/ci/post-merge-trust.mjs
       # A journey step that passed in the run before and failed outright in this one on main: start the journeys revert
       # (main-bisect.yml), which finds the pull request that broke it and opens its revert (tooling/ci/journeys-revert.mjs).
+      # It runs even when the step above failed: the next run compares with this one, so a break this run shows first is
+      # never started again (run 4591 on 13 Nov: the step above stopped on a GitHub 403 and this one was skipped).
+      # main-trust-steps.test.mjs holds it.
       - name: Start the journeys revert on a confirmed break
-        if: github.event.workflow_run.name == 'Real-app journeys'
+        if: ${{ !cancelled() && github.event.workflow_run.name == 'Real-app journeys' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           WORKFLOW_ID: ${{ github.event.workflow_run.workflow_id }}
@@ -116,7 +119,7 @@ jobs:
       # Main's report is back (or was never gone): re-run the open pull requests' journeys runs that are red only because
       # their verdict couldn't read main's inputs (tooling/ci/journeys-revive.mjs prTick), so they follow main within minutes.
       - name: Re-run pull requests red only on main's inputs
-        if: github.event.workflow_run.name == 'Real-app journeys'
+        if: ${{ !cancelled() && github.event.workflow_run.name == 'Real-app journeys' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node tooling/ci/journeys-revive.mjs prs
