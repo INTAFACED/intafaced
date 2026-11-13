@@ -137,6 +137,26 @@
     padding: 0;
     border: 0;
   }
+  .cb-choice {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0 var(--if-space-2-5);
+    align-items: center;
+    margin-block-end: var(--if-space-2);
+    font-size: var(--if-text-base);
+  }
+  /* The kit's base reset strips native controls (appearance: none), which leaves a radio with no size; the fee choices keep the browser's own. */
+  .cb-choice input[type='radio'] {
+    appearance: auto;
+    inline-size: 1rem;
+    block-size: 1rem;
+    margin: 0;
+  }
+  .cb-choice .cb-hint {
+    grid-column: 2;
+    color: var(--if-fg-2);
+    font-size: var(--if-text-xs);
+  }
   .cb-checklist {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));

@@ -47,6 +47,7 @@
  * Its tests: tooling/ci/journeys-revive.test.mjs.
  */
 import { downloadReport, isMainRun, JOURNEYS_FILE } from './journey-verdict.mjs';
+import { refusalDetail } from './refusal.mjs';
 
 export const MAX_ATTEMPT = 5;
 /** Minutes to wait after attempt n ended before asking for attempt n + 1. */
@@ -401,7 +402,8 @@ async function gh(method, path, body, raw = false) {
   const text = await res.text();
   // AGENTS.md's one exception: "already running" on a re-run only means a re-run is in progress.
   if (res.status === 403 && /already running/i.test(text)) return { status: 403, json: null, alreadyRunning: true };
-  if (res.status === 403 || res.status === 429) throw new Error(`GitHub ${res.status} on ${method} ${path}: stopping, not retrying`);
+  if (res.status === 403 || res.status === 429)
+    throw new Error(`GitHub ${res.status} on ${method} ${path}: stopping, not retrying${refusalDetail(res.headers, text)}`);
   if (method === 'GET' && !res.ok) throw new Error(`GitHub ${res.status} on GET ${path}`);
   if (raw) return { status: res.status, text };
   return { status: res.status, json: text ? JSON.parse(text) : null };

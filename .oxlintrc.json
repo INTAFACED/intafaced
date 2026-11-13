@@ -1,0 +1,28 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["eslint", "typescript", "unicorn", "oxc", "react"],
+  "jsPlugins": ["./tooling/lint/oxlint-plugin-garden/index.js"],
+  "categories": {
+    "correctness": "warn"
+  },
+  "ignorePatterns": ["**/vendor/**", "**/dist/**", "**/build/**", "**/.next/**", "**/coverage/**", "**/out/**"],
+  "rules": {
+    "garden/no-local-helper": "off",
+    "garden/no-double-cast": "error",
+    "garden/require-suppression-reason": "error",
+    "garden/no-real-clock-wait-in-tests": "error",
+    "garden/no-wait-for-timeout": "error",
+    "typescript/no-explicit-any": "error",
+    "react-hooks/exhaustive-deps": "error",
+    "react/refs": "off",
+    "react/jsx-key": "off",
+    "react/set-state-in-effect": "off",
+    "react/purity": "off",
+    "react/immutability": "off",
+    "react/globals": "off",
+    "react/use-memo": "off",
+    "react/preserve-manual-memoization": "off",
+    "react/static-components": "off",
+    "react/incompatible-library": "off"
+  }
+}

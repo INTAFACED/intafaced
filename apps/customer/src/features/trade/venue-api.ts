@@ -74,14 +74,6 @@ export const venueMarketSchema = z.object({
   maxLeverageBps: z.number().int().positive().nullable(),
   tickSize: decimalSchema,
   lotSize: decimalSchema,
-  // The venue's published smallest order value (quote), price band (bps around the middle of its book) and open-order
-  // cap per account, each null where the venue publishes none (J-cex-spot-04). Absent from an older door: not published.
-  minOrderNotional: decimalSchema.nullable().optional(),
-  priceBandBps: decimalSchema.nullable().optional(),
-  maxOpenOrders: z.number().int().positive().nullable().optional(),
-  // The venue's largest order, null where it reports none.
-  maxOrderQty: decimalSchema.nullable().optional(),
-  maxOrderNotional: decimalSchema.nullable().optional(),
   makerFeeBps: maybeKnown(signedDecimalSchema),
   takerFeeBps: maybeKnown(signedDecimalSchema),
   // The venue's own published words for the market, each "not published" where the venue gives none (J-derivatives-21).
@@ -120,8 +112,11 @@ export const venueMarketSchema = z.object({
   contractSize: maybeKnown(decimalSchema),
   mark: maybeKnown(decimalSchema),
   funding: maybeKnown(z.object({ rate: signedDecimalSchema, intervalSeconds: z.number().int().positive(), nextFundingAt: isoTime })),
+  // The venue's own self-trade rule (J-cex-spot-03 #8); absent from an older door: read as not published.
+  selfTrade: maybeKnown(z.enum(['cancel_resting', 'cancel_new', 'cancel_both'])).optional(),
 });
 export type VenueMarket = z.infer<typeof venueMarketSchema>;
+export type VenueSelfTradeMode = 'cancel_resting' | 'cancel_new' | 'cancel_both';
 /** A perpetual's funding as the venue publishes it (J-derivatives-01 #4). */
 export type VenueFunding = Extract<VenueMarket['funding'], { known: true }>['value'];
 /** A deployer's halt or a split that settled a market's positions, as the venue reports it (J-derivatives-27 #9 #10). */
@@ -155,7 +150,11 @@ export type VenueSession = Extract<VenueMarket['session'], { known: true }>['val
 export const venueBestPricesSchema = z.object({ symbol: z.string(), bid: decimalSchema.nullable(), ask: decimalSchema.nullable() });
 export type VenueBestPrices = z.infer<typeof venueBestPricesSchema>;
 /** The venue's best prices with the owner's market price protection (TRADE_MARKET_SLIPPAGE_CAP_BPS) svc-trade adds: blank is not known. */
-export const venueBestPricesReadSchema = asOf(venueBestPricesSchema).extend({ slippageCapBps: maybeKnown(decimalSchema) });
+export const venueBestPricesReadSchema = asOf(venueBestPricesSchema).extend({
+  slippageCapBps: maybeKnown(decimalSchema),
+  // The owner's spread limit for a spot market order (J-cex-spot-03 #2); absent from an older door: read as not set.
+  spreadLimitBps: maybeKnown(decimalSchema).optional(),
+});
 
 export const venueBalanceSchema = z.object({ asset: z.string(), free: decimalSchema, locked: decimalSchema, total: decimalSchema });
 export type VenueBalance = z.infer<typeof venueBalanceSchema>;
@@ -232,6 +231,14 @@ export const venuePreviewSchema = z.object({
   role: z.enum(['maker', 'taker']),
   venueFee: maybeKnown(assetAmount),
   builderFee: maybeKnown(assetAmount),
+  // What lowered our builder fee on this order (J-campaigns-09 #2): a fee-saver coupon or the rank, the larger of the two.
+  feeDiscount: z
+    .union([
+      z.object({ source: z.literal('coupon'), bps: z.number().int(), code: z.string(), voucherId: z.string() }),
+      z.object({ source: z.literal('rank'), bps: z.number().int() }),
+    ])
+    .nullable()
+    .optional(),
   // What fills now against the venue's book, and at what average price (the venue's word; not a quote).
   fill: maybeKnown(z.object({ amount: decimalSchema, averagePrice: decimalSchema.nullable() })).optional(),
   perpetual: z

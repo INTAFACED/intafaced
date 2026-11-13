@@ -6,7 +6,14 @@ import type { PlaceUserOrderIntent, PreparedVenueAction, UserVenueMarket, VenueI
 import { TradeError } from '../spot/types.js';
 import { InMemoryPreparedActionStore } from './prepared-action-store.js';
 import { UserVenueRouter } from './venue-router.js';
-import { UserVenueDoor, UserVenueDoorError, marketProtectionBound, type ConnectedUserVenue } from './user-venue-door.js';
+import {
+  UserVenueDoor,
+  UserVenueDoorError,
+  marketProtectionBound,
+  requireMarketSpreadLimitBps,
+  spreadTooWide,
+  type ConnectedUserVenue,
+} from './user-venue-door.js';
 import { attachUserVenueRoutes } from './user-venue-rest.js';
 import { listedTestStore } from './venue-listing-store.js';
 import { StoreVenueRoutingGate } from './venue-listing.js';
@@ -43,10 +50,6 @@ const MARKET: UserVenueMarket = {
   status: null,
   maxOrderQty: null,
   maxOrderNotional: null,
-  // TEST: published rules, so the door takes the order (J-cex-spot-04 #6).
-  minOrderNotional: a('1'),
-  priceBandBps: a('9500'),
-  maxOpenOrders: 1000,
   builderFeeCapBps: { known: false },
   listedBy: { known: false },
   oracleRule: { known: false },
@@ -63,9 +66,6 @@ const MARKET: UserVenueMarket = {
 };
 
 const PERP: UserVenueMarket = { ...MARKET, symbol: 'BTC-PERP', kind: 'perpetual', marginModes: ['cross'], maxLeverageBps: 100_000 };
-/** A spot market whose venue publishes no smallest order value and no band (J-cex-spot-04 #6), and a perpetual with none. */
-const BARE: UserVenueMarket = { ...MARKET, symbol: 'BAR-USDC', baseAsset: 'BAR', minOrderNotional: null, priceBandBps: null };
-const BARE_PERP: UserVenueMarket = { ...PERP, symbol: 'BAR-PERP', minOrderNotional: null, priceBandBps: null, maxOpenOrders: null };
 
 /** A TEST venue that records what it was asked to preview and prepare, with a book the test sets. */
 function stubVenue(best: { bid: Amount | null; ask: Amount | null }) {
@@ -74,7 +74,7 @@ function stubVenue(best: { bid: Amount | null; ask: Amount | null }) {
   const at = () => new Date();
   const venue = {
     venue: { id: venueId, displayName: 'stub TEST venue', kind: 'external-dex', sequencedDepth: true, proofLevel: 'simulator' },
-    markets: async () => ({ venueId, value: [MARKET, PERP, BARE, BARE_PERP], asOf: at() }),
+    markets: async () => ({ venueId, value: [MARKET, PERP], asOf: at() }),
     bestPrices: async (symbol: string) => ({ venueId, value: { symbol, ...best }, asOf: at() }),
     preview: async () => {
       asked.previews += 1;
@@ -99,7 +99,14 @@ function stubVenue(best: { bid: Amount | null; ask: Amount | null }) {
   return { venue, asked };
 }
 
-function door(slippageCapBps: number | null, best = { bid: a('59990') as Amount | null, ask: a('60010') as Amount | null }) {
+/** A labelled TEST spread limit, wide of the stub's 20-wide book (3.3 bps of its bid). */
+const TEST_SPREAD_LIMIT_BPS = 100;
+
+function door(
+  slippageCapBps: number | null,
+  best = { bid: a('59990') as Amount | null, ask: a('60010') as Amount | null },
+  spreadLimitBps: number | null = TEST_SPREAD_LIMIT_BPS,
+) {
   const { venue, asked } = stubVenue(best);
   const d = new UserVenueDoor({
     connect: async () => venue,
@@ -108,9 +115,10 @@ function door(slippageCapBps: number | null, best = { bid: a('59990') as Amount 
     stepUp: { require: async () => ({ stepUpEventId: 'x', consumedAt: null, replayed: false }) },
     builder: { address: '0x00000000000000000000000000000000000000b1', feeBps: a('1') },
     slippageCapBps,
+    spreadLimitBps,
     now: () => new Date(),
     // Our listing shows the one market these orders use (J-cex-spot-16).
-    listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP', 'BAR-USDC', 'BAR-PERP'], 'stub')),
+    listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'], 'stub')),
   });
   return { d, asked };
 }
@@ -147,6 +155,35 @@ describe('marketProtectionBound: the same rounding as the desk', () => {
     expect(marketProtectionBound('sell', { bid: a('59990'), ask: a('60010') }, 50, a('1'))).toBe(a('59690'));
     expect(marketProtectionBound('buy', { bid: a('1'), ask: null }, 50, a('1'))).toBeNull();
     expect(marketProtectionBound('sell', { bid: null, ask: a('1') }, 50, a('1'))).toBeNull();
+  });
+});
+
+describe('the owner spread limit (J-cex-spot-03 #2)', () => {
+  it('spreadTooWide: the ask further above the bid than the limit, in bps of the bid; a missing side is never within', () => {
+    // 59990 → 60010 is 20 wide: 3.33 bps of the bid.
+    expect(spreadTooWide({ bid: a('59990'), ask: a('60010') }, 4)).toBe(false);
+    expect(spreadTooWide({ bid: a('59990'), ask: a('60010') }, 3)).toBe(true);
+    expect(spreadTooWide({ bid: a('10000'), ask: a('10001') }, 1)).toBe(false);
+    expect(spreadTooWide({ bid: null, ask: a('1') }, 1)).toBe(false);
+  });
+
+  it('blank spread limit: a market order refuses trade.spread_limit_unset ("protection not set") on preview and prepare; the venue is never asked', async () => {
+    const { d, asked } = door(50, undefined, null);
+    expect(await refusal(() => d.preview(principal, owner, order()))).toBe('trade.spread_limit_unset');
+    expect(await refusal(() => d.prepare(principal, { owner, signer, intent: order() }))).toBe('trade.spread_limit_unset');
+    expect(asked).toEqual({ previews: 0, prepares: 0 });
+    expect(() => requireMarketSpreadLimitBps(null)).toThrow(/protection not set/);
+    expect(() => requireMarketSpreadLimitBps(0)).toThrow(/protection not set/);
+  });
+
+  it('a spread wider than the limit refuses trade.venue.spread_too_wide; nothing is prepared; a limit order is not touched', async () => {
+    const { d, asked } = door(50, { bid: a('59990'), ask: a('60010') }, 3);
+    expect(await refusal(() => d.preview(principal, owner, order()))).toBe('trade.venue.spread_too_wide');
+    expect(await refusal(() => d.prepare(principal, { owner, signer, intent: order() }))).toBe('trade.venue.spread_too_wide');
+    expect(asked).toEqual({ previews: 0, prepares: 0 });
+    expect(await refusal(() => d.preview(principal, owner, order({ type: 'limit', price: a('59000'), timeInForce: 'GTC' })))).toBe(
+      'passed',
+    );
   });
 });
 
@@ -226,6 +263,7 @@ describe('POST /api/v1/venue/preview and /prepare answer the protection refusals
         requirePrincipal: () => principal,
         requireTradeJurisdiction: () => true,
         slippageCapBps: cap,
+        spreadLimitBps: TEST_SPREAD_LIMIT_BPS,
       },
     );
     await app.ready();
@@ -253,32 +291,5 @@ describe('POST /api/v1/venue/preview and /prepare answer the protection refusals
     });
     expect(res.statusCode).toBe(422);
     expect(res.json()).toMatchObject({ code: 'InvalidOrder', intafacedCode: 'trade.venue.price_outside_protection' });
-  });
-});
-
-describe('the door takes a spot order only against rules the venue publishes (J-cex-spot-04 #6)', () => {
-  it('a spot market with no published smallest order value or band refuses trade.venue_rule_unpublished on preview and prepare, naming each; the venue is never asked', async () => {
-    const { d, asked } = door(50);
-    const limit = order({ symbol: 'BAR-USDC', type: 'limit', timeInForce: 'GTC', price: a('59000') });
-    expect(await refusal(() => d.preview(principal, owner, limit))).toBe('trade.venue_rule_unpublished');
-    expect(await refusal(() => d.prepare(principal, { owner, signer, intent: limit }))).toBe('trade.venue_rule_unpublished');
-    // The alert's own worst price skips the owner's protection, never the venue's rules.
-    expect(await refusal(() => d.prepare(principal, { owner, signer, intent: limit }, { ownWorstPrice: true }))).toBe(
-      'trade.venue_rule_unpublished',
-    );
-    const words = await d.preview(principal, owner, limit).catch((e: Error) => e.message);
-    expect(words).toBe(
-      "stub TEST venue publishes no smallest order value, no price band for BAR-USDC, so this order can't be checked against it; nothing was prepared",
-    );
-    expect(asked).toEqual({ previews: 0, prepares: 0 });
-  });
-
-  it('the same order on a spot market that publishes all three passes, and a perpetual is not held to the spot rules', async () => {
-    const { d, asked } = door(50);
-    expect(await refusal(() => d.preview(principal, owner, order({ type: 'limit', timeInForce: 'GTC', price: a('59000') })))).toBe(
-      'passed',
-    );
-    expect(await refusal(() => d.preview(principal, owner, order({ symbol: 'BAR-PERP', price: a('62000') })))).toBe('passed');
-    expect(asked.previews).toBe(2);
   });
 });
