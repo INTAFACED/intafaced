@@ -1670,7 +1670,8 @@ export const ciSealReads = (job) =>
 export function recheckStep(runs, jobsByRun = new Map(), event = 'pull_request') {
   const prs = (runs ?? []).filter((r) => r?.event === event).sort((a, b) => b.id - a.id);
   if (!prs.length) return { act: 'done', msg: 'CI has not run on this head; its seal will read the steps itself' };
-  // The newest run that has a seal job decides; a run that finished with none (cancelled before its jobs) is passed over.
+  // merge-seal.yml: its newest run decides (below). ci.yml: the newest run that has a seal job decides; a run that
+  // finished with none (cancelled before its jobs) is passed over.
   for (const run of prs) {
     const runId = String(run.id);
     if (!jobsByRun.has(runId)) return { act: 'jobs', runId, msg: `reading run ${runId}'s jobs` };
@@ -2069,7 +2070,8 @@ async function recheck({ repo, token }) {
     return console.log(
       `no open pull request with auto-merge armed on ${SHA} needs its seal re-run (${FINISHED || 'an edit'}); the seal is left as it is`,
     );
-  // Each seal on the head, ci.yml's and the default branch's (SEAL_WORKFLOWS); every one must pass, so each is re-run.
+  // Each seal on the head, ci.yml's and the default branch's (SEAL_WORKFLOWS); each workflow's newest run must pass, so each
+  // workflow's newest seal is re-run.
   // Read again just before a re-run: the head may have moved while a running seal was waited out (rerunBlocker).
   const outcomes = [];
   // After CI finished, ci.yml's own seal ran in that same run after its needs, so only the default branch's seal is
