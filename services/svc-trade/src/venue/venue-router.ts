@@ -403,6 +403,30 @@ export class UserVenueRouter {
     };
   }
 
+  /**
+   * Send every due good-till-date cancel (J-cex-spot-03 #7; user-venue-door.ts `OUR GOOD-TILL-DATE`), each on the venue it
+   * was prepared for, at most `limit` a sweep. Each row is its own: a venue that is down is tried again on the next sweep,
+   * and one row that fails never holds the rows behind it. Returns how many were sent and the rows that failed.
+   */
+  async sweepGoodTillDate(limit = 100): Promise<{ sent: number; failed: Array<{ actionKey: string; message: string }> }> {
+    const due = await this.deps.store.dueGoodTillDate(this.deps.now(), limit);
+    let sent = 0;
+    const failed: Array<{ actionKey: string; message: string }> = [];
+    for (const row of due) {
+      try {
+        const d = await this.door(row.prepared.venueId);
+        if (d.connectedVenueId !== null && d.connectedVenueId !== row.prepared.venueId) continue;
+        if (await d.sendDueGoodTillDate(row)) sent += 1;
+        this.observe(row.prepared.venueId, true, null);
+      } catch (err) {
+        if (err instanceof VenueRefusalError && err.refusal.code === 'venue_down')
+          this.observe(row.prepared.venueId, false, err.refusal.detail);
+        failed.push({ actionKey: row.businessKey, message: err instanceof Error ? err.message : String(err) });
+      }
+    }
+    return { sent, failed };
+  }
+
   /** Send a stored action on the venue it was prepared for (found from the stored action), never on another. */
   /** The door of the venue a stored action was prepared for; the primary one when no action has that key. */
   async doorOfAction(principal: Principal, actionKey: string): Promise<UserVenueDoor> {

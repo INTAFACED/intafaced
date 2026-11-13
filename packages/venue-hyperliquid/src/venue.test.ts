@@ -626,6 +626,22 @@ describe('outcome classification', () => {
     expect(!none.definite || none.accepted ? null : none.refusal.code).toBe('unknown_order');
   });
 
+  it('a cancel sent later (our good-till-date) is signed with its send time as its nonce, and the next action draws near the clock', async () => {
+    const fake = fakeVenue();
+    const venue = venueWith(fake);
+    const sendAt = '1794500000000';
+    const cancel: VenueIntent = { kind: 'cancel_order', symbol: 'ETH-PERP', clientOrderKey: 'order:test-user:desk:gtd', sendAt };
+    const prepared = await venue.prepare(account, ownerSigner, cancel);
+    expect(prepared.nonce).toBe(sendAt);
+    expect((prepared.typedData as L1TypedData).message.connectionId).toBe(
+      actionHash({ type: 'cancelByCloid', cancels: [{ asset: 1, cloid: prepared.venueClientOrderId! }] }, null, BigInt(sendAt)),
+    );
+    const next = await venue.prepare(account, ownerSigner, { ...cancel, clientOrderKey: 'order:test-user:desk:gtd2', sendAt: null });
+    expect(next.nonce).not.toBe(sendAt);
+    expect(BigInt(next.nonce) < BigInt(sendAt)).toBe(true);
+    await expect(venue.prepare(account, ownerSigner, { ...cancel, sendAt: '12' })).rejects.toThrow(/epoch milliseconds/);
+  });
+
   it('a cancel the venue answered "success" is accepted, even when the read-back finds nothing yet', async () => {
     const fake = fakeVenue();
     fake.info.orderStatus = () => ({ status: 'unknownOid' });

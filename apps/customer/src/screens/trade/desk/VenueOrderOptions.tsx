@@ -1,9 +1,18 @@
-import type { VenueMarket, VenueSelfTradeMode, VenueTimeInForce } from '../../../features/trade/venue-api';
+import type { GoodTillDate, VenueMarket, VenueSelfTradeMode } from '../../../features/trade/venue-api';
 import { word } from '../../../features/trade/venue/VenueKit';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
 import { Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './deps';
 import { spotVenueCopy } from './venue-copy';
-import { OTHER_ORDER_TYPES, SELF_TRADE_MODES, TIME_IN_FORCE_NAMES, offeredTif, venueSelfTrade, type TimeInForceName } from './venue-desk';
+import {
+  OTHER_ORDER_TYPES,
+  SELF_TRADE_MODES,
+  TIME_IN_FORCE_NAMES,
+  offeredTif,
+  ourGoodTillDate,
+  venueSelfTrade,
+  type DeskTif,
+  type TimeInForceName,
+} from './venue-desk';
 
 // The venue spot desk's order options (J-cex-spot-03): every order type, time in force and self-trade rule the desk
 // names, each the venue offers on the market pickable, the rest listed disabled with "not offered by this venue". A
@@ -27,24 +36,23 @@ export function NotOfferedTypes({ market }: { market: VenueMarket }) {
 }
 
 /** A label for a time in force: its name, with "not offered by this venue" where the venue doesn't take it. */
-function tifLabel(v: ReturnType<typeof venueCopy.useCopy>['t'], market: VenueMarket, name: TimeInForceName): string {
+function tifLabel(
+  v: ReturnType<typeof venueCopy.useCopy>['t'],
+  t: ReturnType<typeof spotVenueCopy.useCopy>['t'],
+  market: VenueMarket,
+  name: TimeInForceName,
+): string {
+  // Our good-till-date says whose it is: the venue offers none, and our service cancels at the expiry.
+  if (name === 'GTD' && ourGoodTillDate(market)) return t('GTD ours');
   const shown = word(v, 'tif', name);
   return offeredTif(market, name) ? shown : `${shown} · ${v('Not offered')}`;
 }
 
 /** Time in force for a limit order, picked once for both tickets. */
-export function VenueTifSelect({
-  market,
-  tif,
-  onTif,
-}: {
-  market: VenueMarket;
-  tif: VenueTimeInForce;
-  onTif: (next: VenueTimeInForce) => void;
-}) {
+export function VenueTifSelect({ market, tif, onTif }: { market: VenueMarket; tif: DeskTif; onTif: (next: DeskTif) => void }) {
   const { t } = spotVenueCopy.useCopy();
   const v = venueCopy.useCopy().t;
-  const items = Object.fromEntries(TIME_IN_FORCE_NAMES.map((name) => [name, tifLabel(v, market, name)]));
+  const items = Object.fromEntries(TIME_IN_FORCE_NAMES.map((name) => [name, tifLabel(v, t, market, name)]));
   return (
     <div className="dk-tif dk-opt" data-testid="venue-tif">
       <span className="dk-tif-label" id="venue-tif-label">
@@ -133,5 +141,58 @@ export function UnitFlag({
         </Button>
       ))}
     </div>
+  );
+}
+
+/** Our good-till-date's expiry, in the device's local time (J-cex-spot-03 #7). */
+export function VenueExpiryInput({ value, onValue }: { value: string; onValue: (next: string) => void }) {
+  const { t } = spotVenueCopy.useCopy();
+  return (
+    <label className="dk-tif dk-opt" data-testid="venue-expiry">
+      <span className="dk-tif-label">{t('Expires at')}</span>
+      <input
+        type="datetime-local"
+        step={1}
+        className="dk-expiry-input"
+        value={value}
+        onChange={(event) => onValue(event.target.value)}
+        aria-label={t('Expires at')}
+        aria-describedby="venue-expiry-note"
+      />
+      <span className="dk-opt-note" id="venue-expiry-note">
+        {t('Expiry note')}
+      </span>
+    </label>
+  );
+}
+
+/** The person's good-till-date orders on this market: each expiry, and what our cancel at it did. */
+export function GoodTillDates({ rows, clock }: { rows: GoodTillDate[]; clock: (iso: string) => string }) {
+  const { t } = spotVenueCopy.useCopy();
+  if (rows.length === 0) return null;
+  return (
+    <section aria-label={t('GTD orders')} data-testid="venue-gtd" className="form-stack">
+      <h3 className="dk-tab-title">{t('GTD orders')}</h3>
+      <ul>
+        {rows.map((g) => {
+          const time = clock(g.expiresAt);
+          const text =
+            g.state === 'scheduled'
+              ? t('GTD scheduled', { time })
+              : g.state === 'due'
+                ? t('GTD due', { time })
+                : g.state === 'expired'
+                  ? t('GTD expired', { time })
+                  : g.state === 'not_open'
+                    ? t('GTD not open', { time })
+                    : t('GTD failed', { time, detail: g.refusal?.detail ?? '' });
+          return (
+            <li key={g.actionKey} data-client-order-id={g.venueClientOrderId ?? ''} data-state={g.state} data-expires-at={g.expiresAt}>
+              {text}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }

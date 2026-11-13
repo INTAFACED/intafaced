@@ -25,10 +25,11 @@ import {
   type VenueSignature,
   type VenueSigner,
   type VenueSubmitOutcome,
+  SEND_AT_RE,
 } from '@intafaced/venue-contracts';
 import { requireMarketSlippageCapBps } from '../spot/risk.js';
 import { TradeError } from '../spot/types.js';
-import type { PreparedActionStore, StoredVenueAction } from './prepared-action-store.js';
+import { GTD_KEY_PREFIX, type PreparedActionStore, type StoredVenueAction } from './prepared-action-store.js';
 import { VenueRouteRefusal, type ListedVenueMarket, type VenueRouteRefusalCode, type VenueRoutingGate } from './venue-listing.js';
 import { BuilderFeeVersionError, builderFeeOf, type BuilderFeeBook } from './builder-fee-versions.js';
 import type { FeeSaverSource } from './fee-saver-client.js';
@@ -207,7 +208,60 @@ export type UserVenueDoorCode =
   | 'trade.venue_sell_quote_market_unknown'
   | 'trade.venue_sell_quote_not_spot'
   | 'trade.venue_sell_quote_key_reused'
+  // Our good-till-date (J-cex-spot-03 #7, project-state #2260).
+  | 'trade.gtd_expiry_past'
+  | 'trade.gtd_owner_signs'
+  | 'trade.gtd_after_order'
+  | 'trade.gtd_not_due'
+  | 'trade.gtd_not_scheduled'
   | VenueRouteRefusalCode;
+
+/**
+ * OUR GOOD-TILL-DATE (J-cex-spot-03 #7; Nino's decision on project-state #2260, 13 Nov 2026: "Build good-till-date").
+ * The venue offers no good-till-date, so the order goes to the venue good-till-cancelled and our service cancels it at the
+ * time the person picked. We hold no key that can cancel on their account, so the cancel is signed by their own wallet
+ * BEFORE the order, with the expiry as its nonce (user-venue.ts `sendAt`: the venue's nonce window is relative to when
+ * the action lands, so it is valid when we send it at the expiry):
+ *
+ *   1. prepare `cancel_order` with `sendAt` (stored under `gtd:<clientOrderKey>`): refused if the time has passed
+ *      (`trade.gtd_expiry_past`), if an agent key would sign it (`trade.gtd_owner_signs`: a session key can end before
+ *      the expiry, and its signature with it), or if that order was already signed (`trade.gtd_after_order`: the cancel
+ *      always exists before the order can be sent, so a crash between the two never leaves an order with no expiry);
+ *   2. `schedule` stores the wallet's signature and sends nothing;
+ *   3. the order is prepared, signed and sent as any order;
+ *   4. the sweep (venue-router.ts `sweepGoodTillDate`) sends each due cancel at its time; `submit` refuses it before then
+ *      (`trade.gtd_not_due`). A cancel of an order already filled or cancelled is answered by the venue and changes nothing.
+ *
+ * The venue is the record of the order, its lock and its cancel; the ledger posts nothing.
+ */
+export interface GoodTillDate {
+  readonly actionKey: string;
+  readonly clientOrderKey: string;
+  readonly venueClientOrderId: string | null;
+  readonly symbol: string;
+  /** ISO time of the expiry. */
+  readonly expiresAt: string;
+  /**
+   * `scheduled`: before the expiry; `due`: the expiry passed and the cancel is being sent; `expired`: our cancel at the
+   * expiry cancelled the order; `not_open`: at the expiry the order was no longer open (filled, cancelled, or never
+   * placed), so nothing was cancelled; `failed`: the venue refused the cancel for another reason (`refusal`), and the
+   * order may still be open.
+   */
+  readonly state: 'scheduled' | 'due' | 'expired' | 'not_open' | 'failed';
+  readonly refusal: VenueRefusal | null;
+  readonly answeredAt: string | null;
+}
+
+export interface ScheduledAnswer {
+  readonly actionKey: string;
+  readonly expiresAt: string;
+  /** True when the signature was already stored: nothing changed. */
+  readonly replayed: boolean;
+}
+
+function sendAtOf(intent: VenueIntent): string | null {
+  return intent.kind === 'cancel_order' && typeof intent.sendAt === 'string' ? intent.sendAt : null;
+}
 
 /**
  * The trading session's keys (J-wallet-22 #8, D-venue-09; src/venue/session-key.ts): the owner's `approve_agent` for a
@@ -869,7 +923,8 @@ export class UserVenueDoor {
     let key: string | null | undefined;
     if (intent.kind === 'place_order') key = intent.clientOrderKey;
     else if (intent.kind === 'withdraw') key = intent.withdrawalKey;
-    else if (intent.kind === 'cancel_order') key = actionKey ?? `cancel:${intent.clientOrderKey}`;
+    else if (intent.kind === 'cancel_order')
+      key = intent.sendAt != null ? `${GTD_KEY_PREFIX}${intent.clientOrderKey}` : (actionKey ?? `cancel:${intent.clientOrderKey}`);
     else if (intent.kind === 'sub_account_transfer' || intent.kind === 'market_margin_transfer') key = intent.moveKey;
     else if (intent.kind === 'create_sub_account') key = intent.subAccountKey;
     else key = actionKey;
@@ -931,6 +986,14 @@ export class UserVenueDoor {
         409,
       );
     }
+    if (key.startsWith(GTD_KEY_PREFIX) !== (sendAtOf(intent) !== null)) {
+      throw new UserVenueDoorError(
+        `the key prefix ${GTD_KEY_PREFIX} is for a good-till-date's cancel (cancel_order with sendAt) only`,
+        'trade.venue_action_key_reserved',
+        409,
+      );
+    }
+    if (intent.kind === 'cancel_order' && intent.sendAt != null) await this.assertGoodTillDate(principal, req.signer, intent);
     // An agent key (a session key) never signs a withdrawal or an approval: refused here, before a step-up is spent or
     // the venue is asked, as the venue would refuse it (user-venue.ts `assertSignerMaySign`).
     if (req.signer.role === 'agent' && OWNER_ONLY_INTENTS.has(intent.kind)) {
@@ -1115,6 +1178,14 @@ export class UserVenueDoor {
     assertDoorMay(row.prepared.intent.kind, caller, key);
     assertLiveRunKey(key, caller);
     assertInteractive(principal, row.prepared.intent.kind);
+    const sendAt = sendAtOf(row.prepared.intent);
+    if (sendAt !== null && Number(sendAt) > this.deps.now().getTime()) {
+      throw new UserVenueDoorError(
+        `${key} is sent by our service at the expiry, ${new Date(Number(sendAt)).toISOString()}; nothing was sent`,
+        'trade.gtd_not_due',
+        409,
+      );
+    }
     // An action is only ever sent to the venue it was prepared for: with several venues behind the router, a key stored
     // for another venue is that venue's door's to send (venue-router.ts), never this one's.
     // The id last connected, never a fresh connect: a venue down now still answers a signed key with its read-back below.
@@ -1171,14 +1242,14 @@ export class UserVenueDoor {
       );
     }
     try {
-      return { ...(await this.send(principal, key, row, signature)), replayed };
+      return { ...(await this.send(principal.userId, key, row, signature)), replayed };
     } finally {
       await this.deps.store.releaseSend(principal.userId, key);
     }
   }
 
   private async send(
-    principal: Principal,
+    userId: string,
     key: string,
     row: StoredVenueAction,
     signature: VenueSignature,
@@ -1189,7 +1260,7 @@ export class UserVenueDoor {
     if (!row.signature) {
       assertSignatureMatches(row.prepared, signature);
       await assertSignatureRecovers(row.prepared, signature);
-      signed = await this.deps.store.signOnce(principal.userId, key, signature, this.deps.now());
+      signed = await this.deps.store.signOnce(userId, key, signature, this.deps.now());
     }
     const p = signed.prepared;
     const readBackOf = (o: VenueSubmitOutcome) =>
@@ -1209,8 +1280,134 @@ export class UserVenueDoor {
       throw error;
     }
     // A definite outcome already recorded is never replaced by a not-definite one: that is the answer.
-    const outcome = await this.deps.store.recordOutcome(principal.userId, key, answered, this.deps.now());
+    const outcome = await this.deps.store.recordOutcome(userId, key, answered, this.deps.now());
     return { actionKey: key, outcome, readBack: readBackOf(outcome) };
+  }
+
+  private async assertGoodTillDate(principal: Principal, signer: VenueSigner, intent: VenueIntent & { kind: 'cancel_order' }) {
+    const sendAt = intent.sendAt ?? '';
+    if (!SEND_AT_RE.test(sendAt)) invalid('sendAt is the expiry in epoch milliseconds');
+    if (Number(sendAt) <= this.deps.now().getTime()) {
+      throw new UserVenueDoorError('the expiry has already passed, so nothing is signed or sent', 'trade.gtd_expiry_past', 400);
+    }
+    if (signer.role !== 'owner') {
+      throw new UserVenueDoorError(
+        "a good-till-date's cancel is signed by your wallet, not a session key, so it stays valid if the session ends before the expiry",
+        'trade.gtd_owner_signs',
+        403,
+      );
+    }
+    const order = await this.deps.store.find(principal.userId, intent.clientOrderKey);
+    if (order?.signature) {
+      throw new UserVenueDoorError(
+        `the order ${intent.clientOrderKey} was already signed; its expiry is signed before the order, never after`,
+        'trade.gtd_after_order',
+        409,
+      );
+    }
+  }
+
+  /**
+   * Store the wallet's signature of a good-till-date's cancel and send nothing: our service sends it at the expiry. The
+   * same signature again is the stored answer. An expiry that has passed by now is refused and nothing is stored.
+   */
+  async schedule(principal: Principal, actionKey: string, signature: VenueSignature): Promise<ScheduledAnswer> {
+    const key = (actionKey ?? '').trim();
+    const row = await this.deps.store.find(principal.userId, key);
+    const sendAt = row ? sendAtOf(row.prepared.intent) : null;
+    if (!row || sendAt === null || !key.startsWith(GTD_KEY_PREFIX)) {
+      throw new UserVenueDoorError(
+        `no good-till-date cancel under ${JSON.stringify(key)}: prepare it first`,
+        'trade.gtd_not_scheduled',
+        404,
+      );
+    }
+    const expiresAt = new Date(Number(sendAt)).toISOString();
+    if (row.signature) return { actionKey: key, expiresAt, replayed: true };
+    if (Number(sendAt) <= this.deps.now().getTime()) {
+      throw new UserVenueDoorError('the expiry has already passed, so nothing is signed or sent', 'trade.gtd_expiry_past', 400);
+    }
+    if (
+      !signature ||
+      typeof signature.signature !== 'string' ||
+      typeof signature.digest !== 'string' ||
+      typeof signature.signedBy !== 'string'
+    ) {
+      invalid('signature must be { digest, signature, signedBy }');
+    }
+    assertSignatureMatches(row.prepared, signature);
+    await assertSignatureRecovers(row.prepared, signature);
+    await this.deps.store.signOnce(principal.userId, key, signature, this.deps.now());
+    return { actionKey: key, expiresAt, replayed: false };
+  }
+
+  /**
+   * Send one due good-till-date cancel the sweep found (venue-router.ts), on this door's venue. Held by the send claim, so
+   * a person's own submit at the same moment never races it. Returns false when another request holds the claim.
+   */
+  async sendDueGoodTillDate(row: StoredVenueAction): Promise<boolean> {
+    const at = this.deps.now();
+    const sendAt = sendAtOf(row.prepared.intent);
+    if (!row.signature || sendAt === null || Number(sendAt) > at.getTime()) return false;
+    if (!(await this.deps.store.claimSend(row.userId, row.businessKey, at, new Date(at.getTime() + SEND_CLAIM_MS)))) return false;
+    try {
+      await this.send(row.userId, row.businessKey, row, row.signature);
+      return true;
+    } catch (err) {
+      // The venue refused the signed cancel before applying it (a refusal, not an outage): that is its definite answer,
+      // recorded so the person sees it (`failed`) and it is not sent again every sweep.
+      if (err instanceof VenueRefusalError && err.refusal.code !== 'venue_down') {
+        await this.deps.store.recordOutcome(
+          row.userId,
+          row.businessKey,
+          { definite: true, accepted: false, refusal: err.refusal, asOf: this.deps.now() },
+          this.deps.now(),
+        );
+        return true;
+      }
+      throw err;
+    } finally {
+      await this.deps.store.releaseSend(row.userId, row.businessKey);
+    }
+  }
+
+  /** This person's good-till-date orders on one venue account, newest expiry first: each expiry and what became of it. */
+  async goodTillDates(principal: Principal, owner: string): Promise<readonly GoodTillDate[]> {
+    const account = await this.account(owner);
+    const now = this.deps.now().getTime();
+    const rows = await this.deps.store.listByPrefix(principal.userId, GTD_KEY_PREFIX);
+    const out: GoodTillDate[] = [];
+    for (const row of rows) {
+      const p = row.prepared;
+      const sendAt = sendAtOf(p.intent);
+      if (!row.signature || sendAt === null || p.intent.kind !== 'cancel_order') continue;
+      if (p.venueId !== account.venueId || p.account.owner.toLowerCase() !== account.owner || p.account.subAccount !== account.subAccount)
+        continue;
+      const o = row.lastOutcome;
+      let state: GoodTillDate['state'] = Number(sendAt) > now ? 'scheduled' : 'due';
+      let refusal: VenueRefusal | null = null;
+      if (o?.definite && o.accepted) {
+        // A venue answers a repeat cancel with the cancelled order: when the person's own cancel was accepted first, the
+        // order was not open at the expiry, and ours cancelled nothing.
+        const own = await this.deps.store.find(principal.userId, `cancel:${p.intent.clientOrderKey}`);
+        const ownFirst = own?.lastOutcome?.definite && own.lastOutcome.accepted && own.lastOutcome.asOf.getTime() <= o.asOf.getTime();
+        state = ownFirst ? 'not_open' : 'expired';
+      } else if (o?.definite && !o.accepted) {
+        refusal = o.refusal;
+        state = o.refusal.code === 'order_final' || o.refusal.code === 'unknown_order' ? 'not_open' : 'failed';
+      }
+      out.push({
+        actionKey: row.businessKey,
+        clientOrderKey: p.intent.clientOrderKey,
+        venueClientOrderId: p.venueClientOrderId,
+        symbol: p.intent.symbol,
+        expiresAt: new Date(Number(sendAt)).toISOString(),
+        state,
+        refusal,
+        answeredAt: o?.definite ? o.asOf.toISOString() : null,
+      });
+    }
+    return out.sort((x, y) => (x.expiresAt < y.expiresAt ? 1 : x.expiresAt > y.expiresAt ? -1 : 0));
   }
 
   /** One order sent through this door, read by its key: the venue's record, or `unknown` until the venue answers. */

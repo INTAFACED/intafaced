@@ -238,4 +238,43 @@ describe('SqlPreparedActionStore on Postgres (trade.user_venue_actions)', () => 
     expect([...rates]).toEqual([['0x0301', parseAmount('0.5')]]);
     expect((await store.builderFeeOrders('test-venue-sim', [])).size).toBe(0);
   });
+
+  it('finds the good-till-date cancels that are due: signed, at or past their time, unanswered for good and unclaimed (J-cex-spot-03 #7)', async () => {
+    const store = new SqlPreparedActionStore(db!.sql);
+    const gtd = (n: string, sendAt: number): PreparedVenueAction => ({
+      ...prepared(String(sendAt), '60000'),
+      intent: { kind: 'cancel_order', symbol: 'BTC-USDC', clientOrderKey: `order:${USER}:gtd:${n}`, sendAt: String(sendAt) },
+      builderFee: null,
+      digest: `0xgtd${n}`,
+    });
+    const t = Date.UTC(2026, 10, 13, 5, 0, 0);
+    const sig = (n: string) => ({ digest: `0xgtd${n}`, signature: '0xsig', signedBy: OWNER });
+    for (const [n, at, signed] of [
+      ['due-late', t - 2000, true],
+      ['due', t - 1000, true],
+      ['later', t + 60_000, true],
+      ['unsigned', t - 5000, false],
+      ['answered', t - 3000, true],
+    ] as const) {
+      await store.insertOnce(USER, `gtd:order:${USER}:gtd:${n}`, gtd(n, at), new Date(t - 100_000));
+      if (signed) await store.signOnce(USER, `gtd:order:${USER}:gtd:${n}`, sig(n), new Date(t - 90_000));
+    }
+    await store.recordOutcome(
+      USER,
+      `gtd:order:${USER}:gtd:answered`,
+      { definite: true, accepted: true, venueRef: '1', order: null, asOf: new Date(t - 2500) },
+      new Date(t - 2500),
+    );
+    const keys = async () => (await store.dueGoodTillDate(new Date(t), 10)).map((r) => r.businessKey);
+    expect(await keys()).toEqual([`gtd:order:${USER}:gtd:due-late`, `gtd:order:${USER}:gtd:due`]);
+    // A not-definite answer leaves it due; a send claim held by another request hides it until the claim runs out.
+    await store.recordOutcome(USER, `gtd:order:${USER}:gtd:due`, { definite: false, reason: 'timeout' }, new Date(t));
+    expect(await store.claimSend(USER, `gtd:order:${USER}:gtd:due-late`, new Date(t), new Date(t + 30_000))).toBe(true);
+    expect(await keys()).toEqual([`gtd:order:${USER}:gtd:due`]);
+    expect((await store.dueGoodTillDate(new Date(t + 61_000), 10)).map((r) => r.businessKey)).toEqual([
+      `gtd:order:${USER}:gtd:due-late`,
+      `gtd:order:${USER}:gtd:due`,
+      `gtd:order:${USER}:gtd:later`,
+    ]);
+  });
 });

@@ -17,6 +17,8 @@
  *   POST /api/v1/venue/convert/sell-quote   { owner, symbol, amount, quoteKey }   the venue's price for a sell (J-cex-spot-17 #8)
  *   POST /api/v1/venue/prepare   { owner, signer, intent, actionKey?, stepUpApprovalId? }
  *   POST /api/v1/venue/submit    { actionKey, signature }    sent on the venue the action was prepared for
+ *   POST /api/v1/venue/schedule  { actionKey, signature }    a good-till-date's cancel: stored, sent by us at the expiry
+ *   GET  /api/v1/venue/good-till-date?owner=           this person's good-till-date orders: each expiry and what became of it
  *   GET  /api/v1/venue/markets/:symbol/venues?owner=&side=   every configured venue for the market (J-derivatives-28 #1)
  *   POST /api/v1/venue/route-preview { owner, intent }       the venue chosen for the order, and why (#2, #4)
  *   GET  /api/v1/venue/orders?owner=&cursor=&limit=      this person's orders on the account, oldest first, a page at a time
@@ -541,6 +543,27 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
       null,
       (v) => (v as { replayed?: boolean }).replayed === true,
     );
+  });
+
+  // Our good-till-date (J-cex-spot-03 #7): the wallet's signed cancel is stored and sent by our service at the expiry.
+  app.post('/api/v1/venue/schedule', privateWrite, async (req, reply) => {
+    const principal = await admit(req, reply, 'trade:write');
+    if (!principal) return;
+    const b = bodyOr<{ actionKey?: string; signature?: VenueSignature }>(req, reply);
+    if (!b) return;
+    return answer(
+      reply,
+      async (_d, r) =>
+        (await r.doorOfAction(principal, b.actionKey ?? '')).schedule(principal, b.actionKey ?? '', b.signature as VenueSignature),
+      null,
+      (v) => (v as { replayed?: boolean }).replayed === true,
+    );
+  });
+
+  app.get<{ Querystring: Query }>('/api/v1/venue/good-till-date', privateRead, async (req, reply) => {
+    const principal = await admit(req, reply, 'trade:read');
+    if (!principal) return;
+    return answer(reply, async (d) => d.goodTillDates(principal, req.query.owner ?? ''), req.query.venueId);
   });
 
   app.get<{ Querystring: Query }>('/api/v1/venue/orders', privateRead, async (req, reply) => {

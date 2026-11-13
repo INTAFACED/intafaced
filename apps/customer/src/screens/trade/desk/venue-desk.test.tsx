@@ -8,6 +8,8 @@ import {
   amountForValue,
   depositTransfer,
   offeredTif,
+  ourGoodTillDate,
+  draftSignature,
   tagProblem,
   valueOf,
   venueSelfTrade,
@@ -192,6 +194,18 @@ describe('the review’s lines are the venue’s', () => {
     expect(shown).toContain('TEST');
   });
 
+  it('our good-till-date shows as ours, with the expiry and that the wallet signs the cancel first', () => {
+    const at = '2026-11-13T07:30:00.000Z';
+    const html = renderToStaticMarkup(
+      <VenueReviewRows intent={intent} preview={preview()} status={{ builder: null, test: true }} approved={null} expiresAt={at} />,
+    );
+    const shown = text(html);
+    expect(shown).toContain('Time in force Good till date · cancelled by us at the expiry');
+    expect(html).toContain(`data-expires-at="${at}"`);
+    expect(shown).toMatch(/Expires \S+ \S+ 2026, \d{1,2}:30:00/);
+    expect(shown).toContain('We send the cancel your wallet signs now at this time.');
+  });
+
   it('asks no builder-fee approval on a known zero, even with the fee published and nothing approved', () => {
     const html = renderToStaticMarkup(
       <VenueReviewRows
@@ -241,11 +255,30 @@ describe('J-cex-spot-03: market by spend, every time in force, self-trade, tag a
     expect(draft.keyFor({ ...limitBuy, tif: 'IOC' })).not.toBe(gtc);
   });
 
-  it('only what the venue offers can be picked: FOK and GTD are not offered by the TEST venue', () => {
+  it('only what the venue offers can be picked: FOK is not offered by the TEST venue; GTD is ours where it takes GTC (project-state #2260)', () => {
     expect(offeredTif(MARKET, 'GTC')).toBe('GTC');
     expect(offeredTif(MARKET, 'ALO')).toBe('ALO');
     expect(offeredTif(MARKET, 'FOK')).toBeNull();
-    expect(offeredTif(MARKET, 'GTD')).toBeNull();
+    // Nino's decision on project-state #2260: we build good-till-date (our service cancels at the expiry), so it is
+    // offered wherever the venue takes good till cancelled, and named as ours.
+    expect(offeredTif(MARKET, 'GTD')).toBe('GTD');
+    expect(ourGoodTillDate(MARKET)).toBe(true);
+    expect(offeredTif({ timeInForce: ['IOC'] }, 'GTD')).toBeNull();
+    expect(ourGoodTillDate({ timeInForce: ['GTC', 'GTD'] })).toBe(false);
+  });
+
+  it('our good-till-date: rests GTC on the venue, needs an expiry, and refuses a past one before anything is asked', () => {
+    const now = Date.UTC(2026, 10, 13, 6, 0, 0);
+    const gtd: TicketFields = { ...limitBuy, tif: 'GTD', expiresAt: new Date(now + 90_000).toISOString() };
+    expect(ticketProblem(gtd, MARKET, null, true, now)).toBeNull();
+    expect(intentOf(gtd, MARKET, null, 'order:x:y:gtd', true)).toMatchObject({ timeInForce: 'GTC', clientOrderKey: 'order:x:y:gtd' });
+    expect(ticketProblem({ ...gtd, expiresAt: '' }, MARKET, null, true, now)).toBe('expiry');
+    expect(ticketProblem({ ...gtd, expiresAt: 'soon' }, MARKET, null, true, now)).toBe('expiry');
+    expect(ticketProblem({ ...gtd, expiresAt: new Date(now - 1).toISOString() }, MARKET, null, true, now)).toBe('expiry_past');
+    expect(ticketProblem({ ...gtd, expiresAt: new Date(now).toISOString() }, MARKET, null, true, now)).toBe('expiry_past');
+    // A changed expiry is a different order: a new key, so a new signed cancel.
+    expect(draftSignature(gtd)).not.toBe(draftSignature({ ...gtd, expiresAt: new Date(now + 120_000).toISOString() }));
+    expect(draftSignature(gtd)).not.toBe(draftSignature({ ...limitBuy, tif: 'GTC' }));
   });
 
   it('the self-trade rule is the venue’s own, or none where it publishes none', () => {

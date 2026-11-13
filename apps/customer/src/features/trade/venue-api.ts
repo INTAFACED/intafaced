@@ -367,6 +367,22 @@ export const submitAnswerSchema = z.object({
 });
 export type SubmitAnswer = z.infer<typeof submitAnswerSchema>;
 
+/** A good-till-date's cancel stored for our service to send at the expiry (POST /api/v1/venue/schedule). */
+export const scheduledAnswerSchema = z.object({ actionKey: z.string(), expiresAt: isoTime, replayed: z.boolean() });
+
+/** One good-till-date order: its expiry and what became of it (GET /api/v1/venue/good-till-date). */
+export const goodTillDateSchema = z.object({
+  actionKey: z.string(),
+  clientOrderKey: z.string(),
+  venueClientOrderId: z.string().nullable(),
+  symbol: z.string(),
+  expiresAt: isoTime,
+  state: z.enum(['scheduled', 'due', 'expired', 'not_open', 'failed']),
+  refusal: refusalSchema.nullable(),
+  answeredAt: isoTime.nullable(),
+});
+export type GoodTillDate = z.infer<typeof goodTillDateSchema>;
+
 /** The signature this page made for one prepared action, kept in memory only. */
 export interface KeptSignature {
   digest: string;
@@ -422,7 +438,8 @@ export interface OrderIntent {
 }
 export type VenueIntent =
   | OrderIntent
-  | { kind: 'cancel_order'; symbol: string; clientOrderKey: string }
+  // `sendAt`: our good-till-date's cancel, signed now and sent by our service at the expiry (epoch ms; J-cex-spot-03 #7).
+  | { kind: 'cancel_order'; symbol: string; clientOrderKey: string; sendAt?: string }
   | { kind: 'update_leverage'; symbol: string; leverageBps: number; marginMode: VenueMarginMode }
   | { kind: 'approve_builder_fee'; builder: string; maxFeeBps: string }
   | { kind: 'withdraw'; asset: string; amount: string; destination: string; withdrawalKey: string }
@@ -462,6 +479,8 @@ export const keys = {
   order: (owner: string, symbol: string, draft: string) => `order:${part(owner)}:${part(symbol)}:${draft}`,
   close: (owner: string, symbol: string, draft: string) => `close:${part(owner)}:${part(symbol)}:${draft}`,
   cancel: (clientOrderKey: string) => `cancel:${clientOrderKey}`,
+  /** Our good-till-date's cancel of an order (svc-trade stores it under this key, user-venue-door.ts). */
+  gtd: (clientOrderKey: string) => `gtd:${clientOrderKey}`,
   /** The person's own sub-account, by its name: a second press opens the same one (user-venue-door.ts OWN_SUB_ACCOUNT_PREFIX). */
   ownSubAccount: (owner: string, name: string) => `own:sub-account:${part(owner)}:${part(name.trim())}`,
   /** One move between the main account and an own sub-account, by its reviewed draft (OWN_MOVE_PREFIX). */
@@ -605,6 +624,9 @@ export function venueApi(api: ApiClient) {
       }),
     submit: (actionKey: string, signature: { digest: string; signature: string; signedBy: string }) =>
       write('/submit', submitAnswerSchema, { actionKey, signature }),
+    schedule: (actionKey: string, signature: { digest: string; signature: string; signedBy: string }) =>
+      write('/schedule', scheduledAnswerSchema, { actionKey, signature }),
+    goodTillDates: (owner: string, signal?: AbortSignal) => read('/good-till-date', z.array(goodTillDateSchema), { owner }, signal),
   };
 }
 export type VenueApi = ReturnType<typeof venueApi>;

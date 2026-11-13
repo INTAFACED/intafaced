@@ -154,7 +154,24 @@ export interface CancelUserOrderIntent {
   readonly kind: 'cancel_order';
   readonly symbol: string;
   readonly clientOrderKey: string;
+  /**
+   * A cancel signed now and sent later, at this time (epoch milliseconds, digits): our good-till-date on a venue that
+   * offers none (J-cex-spot-03 #7, project-state #2260). The venue builds the action with this time as its nonce, so
+   * the signature is valid when it is sent at that time: a venue's nonce window is relative to when the action lands
+   * (Hyperliquid, "Nonces and API wallets": within (T - 2 days, T + 1 day) of the block time), never to when it was
+   * signed. Absent, the nonce is drawn as for any other action.
+   */
+  readonly sendAt?: string | null;
 }
+
+/** A `sendAt` is epoch milliseconds in digits. */
+export const SEND_AT_RE = /^[1-9]\d{12}$/;
+/**
+ * The venue's nonce window around the time an action lands (Hyperliquid, "Nonces and API wallets", read 13 Nov 2026):
+ * a nonce must be within (T - 2 days, T + 1 day) of the block time T.
+ */
+export const NONCE_WINDOW_PAST_MS = 2 * 24 * 60 * 60 * 1000;
+export const NONCE_WINDOW_FUTURE_MS = 24 * 60 * 60 * 1000;
 
 export interface WithdrawIntent {
   readonly kind: 'withdraw';

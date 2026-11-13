@@ -13,6 +13,9 @@ import {
  * signature once it is given, so a second prepare of the key returns this action and a re-submit re-sends these bytes.
  * `trade.user_venue_actions` (drizzle/20261108192135_user_venue_actions.sql). Nothing here is a balance.
  */
+/** The key prefix of our good-till-date's cancels: `gtd:<clientOrderKey>` (J-cex-spot-03 #7). */
+export const GTD_KEY_PREFIX = 'gtd:';
+
 export interface StoredVenueAction {
   readonly userId: string;
   readonly businessKey: string;
@@ -34,6 +37,12 @@ export interface PreparedActionStore {
    * outcome now stored (the earlier definite one when it was kept).
    */
   recordOutcome(userId: string, businessKey: string, outcome: VenueSubmitOutcome, at: Date): Promise<VenueSubmitOutcome>;
+  /**
+   * Our good-till-date's cancels that are due (J-cex-spot-03 #7): signed, stored under `gtd:`, with a send time at or
+   * before `at`, not yet answered for good by the venue, and not being sent by another request now. Oldest send time
+   * first, at most `limit`, across every person: what the door's sweep sends.
+   */
+  dueGoodTillDate(at: Date, limit: number): Promise<readonly StoredVenueAction[]>;
   /** Every action of this person whose business key starts with `prefix` (the session keys of one venue account, say). Unordered. */
   listByPrefix(userId: string, prefix: string): Promise<readonly StoredVenueAction[]>;
   /** Every `approve_agent` this person ever prepared for `agentAddress`, under any key, on any venue account. */
@@ -252,6 +261,21 @@ export class InMemoryPreparedActionStore implements PreparedActionStore {
       .slice(0, limit);
   }
 
+  async dueGoodTillDate(at: Date, limit: number) {
+    const due: StoredVenueAction[] = [];
+    for (const row of this.rows.values()) {
+      const intent = row.prepared.intent;
+      if (intent.kind !== 'cancel_order' || !row.businessKey.startsWith(GTD_KEY_PREFIX) || !row.signature) continue;
+      if (row.lastOutcome?.definite) continue;
+      if (!intent.sendAt || Number(intent.sendAt) > at.getTime()) continue;
+      const claim = this.claims.get(this.id(row.userId, row.businessKey));
+      if (claim !== undefined && claim > at.getTime()) continue;
+      due.push(row);
+    }
+    due.sort((x, y) => Number((x.prepared.intent as { sendAt: string }).sendAt) - Number((y.prepared.intent as { sendAt: string }).sendAt));
+    return due.slice(0, limit);
+  }
+
   async listByPrefix(userId: string, prefix: string) {
     return [...this.rows.values()].filter((r) => r.userId === userId && r.businessKey.startsWith(prefix));
   }
@@ -398,6 +422,20 @@ export class SqlPreparedActionStore implements PreparedActionStore {
         AND prepared->'account'->>'owner' = ${account.owner}
         AND (${after === null} OR (created_at, business_key) > (${after?.createdAt ?? new Date(0)}, ${after?.businessKey ?? ''}))
       ORDER BY created_at, business_key
+      LIMIT ${limit}`;
+    return rows.map(fromRow);
+  }
+
+  async dueGoodTillDate(at: Date, limit: number) {
+    // `business_key LIKE 'gtd:%'`: the prefix holds no wildcard, and the partial index (user_venue_actions_gtd_due_idx)
+    // is written with the same predicate.
+    const rows = await this.sql<Row[]>`
+      SELECT user_id, business_key, created_at, prepared, signature, last_outcome FROM trade.user_venue_actions
+      WHERE kind = 'cancel_order' AND business_key LIKE 'gtd:%' AND signature IS NOT NULL
+        AND (last_outcome IS NULL OR last_outcome->>'definite' IS DISTINCT FROM 'true')
+        AND (prepared #>> '{intent,sendAt}')::bigint <= ${at.getTime()}
+        AND (sending_until IS NULL OR sending_until <= ${at})
+      ORDER BY (prepared #>> '{intent,sendAt}')::bigint, user_id, business_key
       LIMIT ${limit}`;
     return rows.map(fromRow);
   }

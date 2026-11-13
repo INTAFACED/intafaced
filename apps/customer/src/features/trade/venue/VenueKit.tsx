@@ -404,8 +404,33 @@ export function useVenueActions(owner: string | null) {
     },
     [owner, venue, run, submitSigned],
   );
-  return { run, resend };
+  /**
+   * Our good-till-date's cancel (J-cex-spot-03 #7): prepared with the expiry as `sendAt`, signed by the wallet, and stored
+   * by svc-trade, which sends it at the expiry. Nothing is sent now. Done before the order is signed, so an order never
+   * reaches the venue without its expiry. A key already signed (a reopened page) is not signed again.
+   */
+  const scheduleExpiry = useCallback(
+    async (intent: Extract<VenueIntent, { kind: 'cancel_order' }>): Promise<ScheduleResult> => {
+      if (!owner) return { kind: 'wallet_failed', message: '' };
+      const prepared = await venue.prepare({ owner, intent });
+      if (!prepared.ok) return { kind: 'refused', code: prepared.code, message: prepared.message, beforeWallet: true };
+      const p = prepared.data.prepared;
+      if (prepared.data.signed) return { kind: 'scheduled', actionKey: prepared.data.actionKey };
+      const signed = await wallet.sign({ kind: 'typedData', typedData: walletTypedData(p.typedData) });
+      if (signed.status === 'rejected') return { kind: 'rejected' };
+      if (signed.status !== 'signed') return { kind: 'wallet_failed', message: signed.status === 'failed' ? signed.message : '' };
+      const stored = await venue.schedule(prepared.data.actionKey, { digest: p.digest, signature: signed.signature, signedBy: owner });
+      if (!stored.ok) return { kind: 'refused', code: stored.code, message: stored.message, beforeWallet: false };
+      return { kind: 'scheduled', actionKey: stored.data.actionKey };
+    },
+    [owner, venue, wallet],
+  );
+  return { run, resend, scheduleExpiry };
 }
+
+/** What became of a good-till-date's cancel: stored for the expiry, or why not (then no order is sent). */
+export type ScheduleResult =
+  { kind: 'scheduled'; actionKey: string } | Extract<ActionResult, { kind: 'refused' | 'rejected' | 'wallet_failed' }>;
 
 /** The words for one action's result. An order's outcome names its status on the venue. */
 export function outcomeText(t: T, result: ActionResult): string {

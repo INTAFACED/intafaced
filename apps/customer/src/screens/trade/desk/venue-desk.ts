@@ -43,13 +43,21 @@ export function slippageLimit(side: VenueSide, best: VenueBestPrices | null, bps
   return limit > 0n ? formatAmount(limit) : null;
 }
 
+/**
+ * A limit's time in force on the desk: the venue's own, or `GTD`, our good-till-date (J-cex-spot-03 #7, project-state
+ * #2260): sent to the venue good till cancelled, and cancelled by our service at the expiry.
+ */
+export type DeskTif = VenueTimeInForce | 'GTD';
+
 /** What the ticket holds for one side. `tif` is a limit's time in force (good till cancelled when absent). */
 export interface TicketFields {
   side: VenueSide;
   type: VenueOrderType;
   price: string;
   amount: string;
-  tif?: VenueTimeInForce;
+  tif?: DeskTif;
+  /** A good-till-date's expiry, as an ISO time; empty or unparseable is no expiry. */
+  expiresAt?: string;
 }
 
 /**
@@ -59,9 +67,21 @@ export interface TicketFields {
 export const TIME_IN_FORCE_NAMES = ['GTC', 'IOC', 'FOK', 'ALO', 'GTD'] as const;
 export type TimeInForceName = (typeof TIME_IN_FORCE_NAMES)[number];
 
-/** The venue's own offer of `name` on `market`: the time in force it takes, or null when it offers none by that name. */
-export function offeredTif(market: Pick<VenueMarket, 'timeInForce'>, name: TimeInForceName): VenueTimeInForce | null {
-  return (market.timeInForce as readonly string[]).includes(name) ? (name as VenueTimeInForce) : null;
+/**
+ * The offer of `name` on `market`: the venue's own time in force, or null when it offers none by that name. Good till
+ * date is ours wherever the venue takes good till cancelled (our service cancels at the expiry); a venue's own GTD would
+ * be listed by name here first.
+ */
+export function offeredTif(market: Pick<VenueMarket, 'timeInForce'>, name: TimeInForceName): DeskTif | null {
+  const venue = market.timeInForce as readonly string[];
+  if (venue.includes(name)) return name as VenueTimeInForce;
+  if (name === 'GTD' && venue.includes('GTC')) return 'GTD';
+  return null;
+}
+
+/** True when the desk's GTD on `market` is ours (the venue offers none by that name). */
+export function ourGoodTillDate(market: Pick<VenueMarket, 'timeInForce'>): boolean {
+  return !(market.timeInForce as readonly string[]).includes('GTD') && offeredTif(market, 'GTD') === 'GTD';
 }
 
 /** Order types the desk names beside limit and market; a type the venue does not list is shown disabled. */
@@ -108,16 +128,34 @@ export function tagProblem(tag: string): boolean {
 }
 
 /** Why the ticket is not an order yet, or null when it is one the venue can be asked about. */
-export type TicketProblem = 'amount' | 'price' | 'amount_step' | 'price_step' | 'no_book' | 'no_cap';
+export type TicketProblem = 'amount' | 'price' | 'amount_step' | 'price_step' | 'no_book' | 'no_cap' | 'expiry' | 'expiry_past';
 
 /** `capSet` false: the owner's protection is blank, so a market order is refused (`trade.slippage_cap_unset`). */
-export function ticketProblem(fields: TicketFields, market: VenueMarket, worst: string | null, capSet = true): TicketProblem | null {
+export function ticketProblem(
+  fields: TicketFields,
+  market: VenueMarket,
+  worst: string | null,
+  capSet = true,
+  nowMs = Date.now(),
+): TicketProblem | null {
   if (!fields.amount.trim() || !isDecimal(fields.amount)) return 'amount';
   if (!onStep(fields.amount, market.lotSize)) return 'amount_step';
   if (fields.type === 'market') return !capSet ? 'no_cap' : worst === null ? 'no_book' : null;
   if (!fields.price.trim() || !isDecimal(fields.price)) return 'price';
   if (!onStep(fields.price, market.tickSize)) return 'price_step';
+  if (fields.tif === 'GTD') {
+    const at = expiryMs(fields.expiresAt);
+    if (at === null) return 'expiry';
+    if (at <= nowMs) return 'expiry_past';
+  }
   return null;
+}
+
+/** A good-till-date's expiry in epoch milliseconds, or null when there is none. */
+export function expiryMs(expiresAt: string | undefined): number | null {
+  if (!expiresAt?.trim()) return null;
+  const at = Date.parse(expiresAt);
+  return Number.isFinite(at) ? at : null;
 }
 
 function isDecimal(value: string): boolean {
@@ -146,7 +184,8 @@ export function intentOf(
     type: fields.type,
     amount: canonicalDecimal(fields.amount),
     price: canonicalDecimal(limit ? fields.price : worst!),
-    timeInForce: limit ? (fields.tif ?? 'GTC') : 'IOC',
+    // Our good-till-date rests on the venue good till cancelled; our service cancels it at the expiry.
+    timeInForce: limit ? (fields.tif === 'GTD' || !fields.tif ? 'GTC' : fields.tif) : 'IOC',
     reduceOnly: false,
     clientOrderKey,
     builderFee: null,
@@ -157,7 +196,10 @@ export function intentOf(
 export function draftSignature(fields: TicketFields): string {
   const tidy = (v: string) => (isDecimal(v) ? canonicalDecimal(v) : v.trim());
   const limit = fields.type === 'limit';
-  return [fields.side, fields.type, limit ? tidy(fields.price) : '', tidy(fields.amount), limit ? (fields.tif ?? 'GTC') : ''].join('|');
+  const expiry = limit && fields.tif === 'GTD' ? String(expiryMs(fields.expiresAt) ?? '') : '';
+  return [fields.side, fields.type, limit ? tidy(fields.price) : '', tidy(fields.amount), limit ? (fields.tif ?? 'GTC') : '', expiry].join(
+    '|',
+  );
 }
 
 /** The order key (and a market order's worst price) held until the order changes or gets a definite answer. */

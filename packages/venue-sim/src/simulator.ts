@@ -1,6 +1,9 @@
 import { createHash } from 'node:crypto';
 import { add, compare, div, formatAmount, max, min, mul, parseAmount, sub, ZERO, type Amount } from '@intafaced/ledger-client/money';
 import {
+  NONCE_WINDOW_FUTURE_MS,
+  NONCE_WINDOW_PAST_MS,
+  SEND_AT_RE,
   VenueRefusalError,
   assertSignatureMatches,
   assertSignerMaySign,
@@ -942,9 +945,16 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         ? { builder: intent.builderFee.builder.toLowerCase(), feeBps: intent.builderFee.feeBps }
         : null;
 
-    // Strictly increasing, and near the clock in microseconds, as a venue's nonce window expects.
-    this.lastNonce = Math.max(this.lastNonce + 1, this.clock().getTime() * 1000);
-    const nonce = String(this.lastNonce);
+    // Strictly increasing, and near the clock in microseconds, as a venue's nonce window expects. A cancel sent later (our
+    // good-till-date, user-venue.ts `sendAt`) is built with its send time as its nonce and never moves the counter.
+    const sendAt = intent.kind === 'cancel_order' ? (intent.sendAt ?? null) : null;
+    if (sendAt !== null && !SEND_AT_RE.test(sendAt)) refuse(this.venue.id, 'venue_rejected', `sendAt ${sendAt} is not epoch milliseconds`);
+    let nonce: string;
+    if (sendAt !== null) nonce = String(Number(sendAt) * 1000);
+    else {
+      this.lastNonce = Math.max(this.lastNonce + 1, this.clock().getTime() * 1000);
+      nonce = String(this.lastNonce);
+    }
     const typedData = buildTypedData(this.venue.id, account, signer, intent, nonce, this.chainId);
     return {
       venueId: this.venue.id,
@@ -1136,6 +1146,18 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       return seen.outcome;
     }
 
+    // The venue's nonce window (Hyperliquid, "Nonces and API wallets"): a nonce must be within (T - 2 days, T + 1 day) of
+    // the time the action lands. This venue's nonces are microseconds. Outside it, nothing is applied.
+    const landsUs = this.clock().getTime() * 1000;
+    const nonceUs = Number(prepared.nonce);
+    if (!(nonceUs > landsUs - NONCE_WINDOW_PAST_MS * 1000 && nonceUs < landsUs + NONCE_WINDOW_FUTURE_MS * 1000)) {
+      return {
+        definite: true,
+        accepted: false,
+        refusal: { venueId: this.venue.id, code: 'nonce_rejected', detail: 'the nonce is outside the window around the time it lands' },
+        asOf: this.clock(),
+      };
+    }
     const outcome = this.apply(prepared);
     this.assertNoNegativeBalance();
     if (prepared.intent.kind === 'place_order' && outcome.definite && outcome.accepted && recovered) {

@@ -173,7 +173,9 @@ async function notOfferedSignsNothing(page, wallet) {
     await button.click({ force: true });
   }
   const TIF_NAMES = { FOK: 'Fill or kill', GTD: 'Good till date' };
-  const missingTifs = Object.keys(TIF_NAMES).filter((x) => !m.timeInForce.includes(x));
+  // Good till date is ours wherever the venue takes good till cancelled (project-state #2260): not "not offered".
+  const ours = { GTD: m.timeInForce.includes('GTC') };
+  const missingTifs = Object.keys(TIF_NAMES).filter((x) => !m.timeInForce.includes(x) && !ours[x]);
   await orderTab(page, 'Limit').click();
   const before = await tifTrigger(page).innerText();
   await tifTrigger(page).click();
@@ -596,7 +598,7 @@ test(`${J} #6 sends a post-only buy that would cross, then one that rests: the f
   expect(toUnits((await venueBalance(owner, 'USDC')).locked)).toBe(0n);
 });
 
-test(`${J} #7 picks good-till-date: the review shows the chosen expiry, a past time sends nothing, and at the expiry the order shows expired and its hold comes back; on the venue, which offers no good-till-date, it is listed disabled with "not offered by this venue" and nothing is signed`, async ({
+test(`${J} #7 picks good-till-date with an expiry, then a past time: the review shows the expiry, a past time sends nothing, and at the expiry the unfilled order shows expired and the venue's lock is released; on the venue, which has no good-till-date of its own, ours rests the order good till cancelled and our service cancels it at the expiry (project-state #2260); types the venue doesn't offer sign nothing`, async ({
   page,
   browser,
 }) => {
@@ -644,15 +646,71 @@ test(`${J} #7 picks good-till-date: the review shows the chosen expiry, a past t
     await context.close();
   }
 
-  // On the venue: it offers no good-till-date, so it is listed disabled, no expiry is asked and nothing is signed.
+  // On the venue: it has no good-till-date of its own, so ours (Nino's decision, project-state #2260). The wallet signs the
+  // cancel first, with the expiry as its nonce; the order rests good till cancelled; our service sends the cancel at the
+  // expiry, and the venue releases the lock.
   const { wallet, owner } = await desk(page);
+  const m = await market();
+  expect(m.timeInForce, 'the TEST venue has no good-till-date of its own').not.toContain('GTD');
+  expect(m.timeInForce, 'and takes good till cancelled, which ours rests as').toContain('GTC');
+  await notOfferedSignsNothing(page, wallet);
   const before = await venueBalance(owner, 'USDC');
-  const { missingTifs } = await notOfferedSignsNothing(page, wallet);
-  expect(missingTifs, 'the TEST venue offers no good-till-date').toContain('GTD');
-  await expect(tifTrigger(page)).not.toHaveText(/Good till date/);
-  await expect(page.getByRole('textbox', { name: /expir/i })).toHaveCount(0);
-  expect(await openOrders(owner)).toEqual([]);
+  const sent = writes(page);
+  const asked = wallet.requests.length;
+  const ours = 'Good till date · cancelled by us at the expiry';
+  await pickTif(page, ours);
+  const expiry = page.getByTestId('venue-expiry').getByLabel('Expires at');
+  const price = await awayBid();
+  const amount = '0.001';
+  await buyForm(page).getByRole('textbox', { name: 'Price' }).fill(price);
+  await buyForm(page).getByRole('textbox', { name: 'Amount' }).fill(amount);
+
+  // The next whole minute at least 60 seconds away (the time typed to the minute): the review shows it.
+  const at = Math.ceil((Date.now() + 60_000) / 60_000) * 60_000;
+  await expiry.fill(localField(at));
+  await buyForm(page).getByRole('button', { name: 'Buy BTC' }).click();
+  const review = reviewSheet(page);
+  await expect(line(review, 'tif')).toHaveText(ours);
+  await expect(line(review, 'expiry')).toHaveAttribute('data-expires-at', new Date(at).toISOString());
+  await review.getByRole('button', { name: 'Cancel' }).click();
+  await expect(review).toHaveCount(0);
+
+  // A past time: refused on the ticket, and nothing is prepared, signed or sent.
+  await expiry.fill(localField(Date.now() - 3600_000));
+  await expect(buyForm(page).locator('[data-code="trade.gtd_expiry_past"]')).toBeVisible();
+  await expect(buyForm(page).getByRole('button', { name: 'Buy BTC' })).toBeDisabled();
+  await page.waitForTimeout(500);
+  expect(sent, 'a past expiry sends nothing').toEqual([]);
+  expect(wallet.requests.length, 'and the wallet is asked for nothing').toBe(asked);
+
+  // Back to the future time: confirmed, the wallet signs the cancel, then the order.
+  await expiry.fill(localField(at));
+  await buyForm(page).getByRole('button', { name: 'Buy BTC' }).click();
+  await expect(line(reviewSheet(page), 'expiry')).toHaveAttribute('data-expires-at', new Date(at).toISOString());
+  const scheduled = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/schedule' && r.request().method() === 'POST');
+  await confirm(page, 'buy');
+  await continueInWallet(page);
+  const stored = await scheduled;
+  expect(stored.status(), 'the cancel at the expiry is stored before the order is signed').toBe(200);
+  expect((await stored.json()).expiresAt).toBe(new Date(at).toISOString());
+  await continueInWallet(page);
+  await expect.poll(() => wallet.requests.length, { timeout: 20_000 }).toBe(asked + 2);
+  await expect.poll(async () => (await openOrders(owner)).length, { timeout: 20_000 }).toBe(1);
+  const [resting] = await openOrders(owner);
+  expect(resting).toMatchObject({ side: 'buy', status: 'open', timeInForce: 'GTC' });
+  const lock = mul(toUnits(price), toUnits(amount));
+  expect(toUnits((await venueBalance(owner, 'USDC')).locked) - toUnits(before.locked)).toBe(lock);
+  const row = page.getByTestId('venue-gtd').locator(`li[data-client-order-id="${resting.venueClientOrderId}"]`);
+  await expect(row).toHaveAttribute('data-state', 'scheduled', { timeout: 20_000 });
+  expect(Date.now(), 'still before the expiry').toBeLessThan(at);
+
+  // At the expiry: our service sends the cancel, the order shows expired and the venue's lock is released, once.
+  await expect.poll(async () => (await openOrders(owner)).length, { timeout: 150_000, intervals: [2000] }).toBe(0);
+  expect(Date.now()).toBeGreaterThanOrEqual(at);
+  expect(await orderOf(owner, resting.venueClientOrderId)).toMatchObject({ status: 'canceled' });
   expect(await venueBalance(owner, 'USDC')).toMatchObject({ total: before.total, locked: before.locked });
+  await expect(row).toHaveAttribute('data-state', 'expired', { timeout: 30_000 });
+  await expect(row).toContainText('Expired');
 });
 
 test(`${J} #8 chooses the self-trade mode and crosses their own resting order: the venue's own rule cancels the resting one; the modes it can't do are listed disabled and sign nothing`, async ({

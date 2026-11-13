@@ -83,7 +83,18 @@ function world() {
     now += 1000;
     return { prepared, outcome };
   };
-  return { sim, wallet, agent, otherWallet, trader, other, run, tick: () => (now += 1000) };
+  return {
+    sim,
+    wallet,
+    agent,
+    otherWallet,
+    trader,
+    other,
+    run,
+    tick: () => (now += 1000),
+    advance: (ms: number) => (now += ms),
+    now: () => now,
+  };
 }
 
 function order(
@@ -955,8 +966,10 @@ describe('TEST venue simulator: council round 3 follow-ups', () => {
     const intent = order('BTC-USDC', 'buy', '50000', '0.01', 'order:t:r3', { builderFee: { builder: '0xb11de4', feeBps: a('5') } });
     const first = await w.run(w.wallet, w.trader, intent);
     await w.run(w.wallet, w.trader, { kind: 'approve_builder_fee', builder: '0xb11de4', maxFeeBps: a('1') });
-    const typedData = buildTypedData(w.sim.venue.id, w.trader, w.wallet.signer, intent, `${first.prepared.nonce}9`);
-    const resend = { ...first.prepared, nonce: `${first.prepared.nonce}9`, typedData, digest: digestOf(typedData) };
+    // A fresh nonce for the same order, still inside the venue's nonce window (a digit appended would be ten times the time).
+    const fresh = String(BigInt(first.prepared.nonce) + 1n);
+    const typedData = buildTypedData(w.sim.venue.id, w.trader, w.wallet.signer, intent, fresh);
+    const resend = { ...first.prepared, nonce: fresh, typedData, digest: digestOf(typedData) };
     const again = await w.sim.submit(resend, await w.wallet.sign(resend));
     expect(again.definite && again.accepted && again.order?.status).toBe('open');
     expect((await w.sim.openOrders(w.trader)).value.length).toBe(1);
@@ -971,5 +984,67 @@ describe('TEST venue simulator: council round 3 follow-ups', () => {
     await expect(w.run(w.wallet, w.trader, { kind: 'approve_builder_fee', builder: '0xb11de4', maxFeeBps: a('1') })).rejects.toThrow(
       /TEST simulator invariant/,
     );
+  });
+});
+
+describe('TEST venue simulator: a cancel sent later, our good-till-date (J-cex-spot-03 #7)', () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const cancelAt = (key: string, sendAt: number): VenueIntent => ({
+    kind: 'cancel_order',
+    symbol: 'BTC-USDC',
+    clientOrderKey: key,
+    sendAt: String(sendAt),
+  });
+
+  it('is built with its send time as its nonce, signed now, and cancels the order when sent at that time; the lock comes back once', async () => {
+    const w = world();
+    w.sim.deposit(w.trader, 'USDC', a('1000'), 'chain:t:gtd1');
+    const sendAt = w.now() + 90_000;
+    const cancel = await w.sim.prepare(w.trader, w.wallet.signer, cancelAt('order:t:gtd1', sendAt));
+    expect(cancel.nonce).toBe(String(sendAt * 1000));
+    const signed = await w.wallet.sign(cancel);
+    const placed = await w.run(w.wallet, w.trader, order('BTC-USDC', 'buy', '50000', '0.01', 'order:t:gtd1'));
+    expect(placed.outcome.definite && placed.outcome.accepted && placed.outcome.order?.status).toBe('open');
+    expect((await w.sim.balances(w.trader)).value.find((b) => b.asset === 'USDC')?.locked).not.toBe(ZERO);
+    w.advance(90_000);
+    const sent = await w.sim.submit(cancel, signed);
+    expect(sent.definite && sent.accepted && sent.order?.status).toBe('canceled');
+    const usdc = (await w.sim.balances(w.trader)).value.find((b) => b.asset === 'USDC')!;
+    expect(usdc.locked).toEqual(ZERO);
+    expect(usdc.free).toEqual(a('1000'));
+  });
+
+  it('never moves the nonce counter: the next action is near the clock, not after the send time', async () => {
+    const w = world();
+    await w.sim.prepare(w.trader, w.wallet.signer, cancelAt('order:t:gtd2', w.now() + 10 * DAY));
+    const next = await w.sim.prepare(w.trader, w.wallet.signer, order('BTC-USDC', 'buy', '50000', '0.01', 'order:t:gtd2'));
+    expect(Number(next.nonce)).toBeLessThan((w.now() + 1000) * 1000);
+  });
+
+  it('is refused nonce_rejected, and nothing applied, when sent more than a day before its time or more than two days after', async () => {
+    const w = world();
+    w.sim.deposit(w.trader, 'USDC', a('1000'), 'chain:t:gtd3');
+    await w.run(w.wallet, w.trader, order('BTC-USDC', 'buy', '50000', '0.01', 'order:t:gtd3'));
+    const early = await w.sim.prepare(w.trader, w.wallet.signer, cancelAt('order:t:gtd3', w.now() + DAY + 60_000));
+    const tooEarly = await w.sim.submit(early, await w.wallet.sign(early));
+    expect(!tooEarly.accepted && tooEarly.definite && tooEarly.refusal.code).toBe('nonce_rejected');
+    const late = await w.sim.prepare(w.trader, w.wallet.signer, cancelAt('order:t:gtd3', w.now() + 60_000));
+    const lateSig = await w.wallet.sign(late);
+    w.advance(2 * DAY + 120_000);
+    const tooLate = await w.sim.submit(late, lateSig);
+    expect(!tooLate.accepted && tooLate.definite && tooLate.refusal.code).toBe('nonce_rejected');
+    expect((await w.sim.openOrders(w.trader)).value.map((o) => o.status)).toEqual(['open']);
+  });
+
+  it('refuses a send time that is not epoch milliseconds', async () => {
+    const w = world();
+    await expect(
+      w.sim.prepare(w.trader, w.wallet.signer, {
+        kind: 'cancel_order',
+        symbol: 'BTC-USDC',
+        clientOrderKey: 'order:t:gtd4',
+        sendAt: 'soon',
+      }),
+    ).rejects.toThrow(/epoch milliseconds/);
   });
 });

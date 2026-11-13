@@ -31,6 +31,7 @@ import {
   type VenueSigner,
   type VenueSubmitOutcome,
   type VenueTimeInForce,
+  SEND_AT_RE,
 } from '@intafaced/venue-contracts';
 import { assertSigningAgrees, SigningCrossCheckError } from './cross-check.js';
 import type { MsgpackValue } from './msgpack.js';
@@ -706,7 +707,12 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
       }
     }
     // Strictly increasing milliseconds near the clock, per signer: the venue keeps the highest nonces per signer and refuses a reused one.
-    const nonce = await this.nonceSource.next(signer.address, this.clock().getTime());
+    // A cancel sent later (our good-till-date) is built with its send time as its nonce, never drawn from the source: the
+    // venue checks the nonce window when the action lands, which is that time (user-venue.ts `sendAt`).
+    const sendAt = intent.kind === 'cancel_order' ? (intent.sendAt ?? null) : null;
+    if (sendAt !== null && !SEND_AT_RE.test(sendAt))
+      throw refusal(this.venue.id, 'venue_rejected', `sendAt ${sendAt} is not epoch milliseconds`);
+    const nonce = sendAt ?? (await this.nonceSource.next(signer.address, this.clock().getTime()));
     if (!/^\d+$/.test(nonce)) throw new Error(`nonce source returned ${nonce}, not a millisecond nonce`);
     const built = await this.build(account, intent, nonce);
     return {

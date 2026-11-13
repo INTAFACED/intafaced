@@ -620,6 +620,26 @@ liveRuns?.supervise();
 const venueSellQuotes = userVenue
   ? new VenueSellQuotes({ door: userVenue, store: new SqlVenueSellQuoteStore(sql), now: () => new Date() })
   : null;
+// Our good-till-date (J-cex-spot-03 #7): each cancel the owner's wallet signed is sent at its expiry, checked every 5 s.
+if (userVenueRouter) {
+  let sweeping = false;
+  setInterval(() => {
+    if (sweeping) return;
+    sweeping = true;
+    userVenueRouter
+      .sweepGoodTillDate()
+      .then(({ failed }) => {
+        for (const f of failed)
+          process.stderr.write(
+            `${JSON.stringify({ level: 'warn', msg: 'trade.venue_gtd.send_failed', actionKey: f.actionKey, message: f.message })}\n`,
+          );
+      })
+      .catch((err: unknown) =>
+        process.stderr.write(`${JSON.stringify({ level: 'warn', msg: 'trade.venue_gtd.sweep_failed', message: String(err) })}\n`),
+      )
+      .finally(() => (sweeping = false));
+  }, 5_000).unref();
+}
 // A delisting notice the bus did not take when it was written is sent again (the consumer files it once).
 setInterval(() => {
   for (const seed of testListingSeeds) void seed.retry();

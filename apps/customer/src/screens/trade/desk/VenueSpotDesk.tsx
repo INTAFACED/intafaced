@@ -15,13 +15,13 @@ import {
   draftId,
   keys,
   type AsOf,
+  type GoodTillDate,
   type OrderIntent,
   type VenueBalance,
   type VenueMarket,
   type VenueOrder,
   type VenuePreview,
   type VenueSelfTradeMode,
-  type VenueTimeInForce,
   type VenueUp,
   type VenueWithdrawal,
 } from '../../../features/trade/venue-api';
@@ -69,7 +69,7 @@ import {
 import { placesOf } from './text';
 import { zoneName } from './time';
 import { spotVenueCopy } from './venue-copy';
-import { NotOfferedTypes, UnitFlag, VenueSelfTradeSelect, VenueTifSelect } from './VenueOrderOptions';
+import { GoodTillDates, NotOfferedTypes, UnitFlag, VenueExpiryInput, VenueSelfTradeSelect, VenueTifSelect } from './VenueOrderOptions';
 import {
   HeldDraft,
   amountForValue,
@@ -78,6 +78,7 @@ import {
   venueSelfTrade,
   depositTransfer,
   draftSignature,
+  expiryMs,
   intentOf,
   refusedAtHeldWorst,
   shortAddress,
@@ -85,6 +86,7 @@ import {
   ticketProblem,
   withdrawStep,
   type DepositRoute,
+  type DeskTif,
   type TicketFields,
   type VenueOrderType,
   type VenueSide,
@@ -210,10 +212,19 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
   const owner = useOwner();
   const venue = useVenueApi();
   const account = useVenueAccount(owner);
-  const { run } = useVenueActions(owner);
+  const { run, scheduleExpiry } = useVenueActions(owner);
+  const clock = useClock();
   const access = useTradeAccess();
   const [type, setType] = useState<VenueOrderType>('limit');
-  const [tif, setTif] = useState<VenueTimeInForce>('GTC');
+  const [tif, setTif] = useState<DeskTif>('GTC');
+  // A good-till-date's expiry as the person typed it (the device's local time), and as an ISO time.
+  const [expiryInput, setExpiryInput] = useState('');
+  const expiresAt = expiryInput ? toIso(expiryInput) : '';
+  const gtds = usePolled(
+    (signal) => (owner ? venue.goodTillDates(owner, signal) : Promise.resolve(null)),
+    `gtd:${owner ?? ''}`,
+    VENUE_POLL_MS,
+  );
   const [tab, setTab] = useState<'open' | 'history' | 'positions'>('open');
   const [lastResult, setLastResult] = useState<ActionResult | null>(null);
   const [cancelledKeys, setCancelledKeys] = useState<Array<{ key: string; clientOrderId: string }>>([]);
@@ -301,6 +312,7 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
         </div>
         <div className="dk-order-opts">
           {type === 'limit' ? <VenueTifSelect market={market} tif={tif} onTif={setTif} /> : null}
+          {type === 'limit' && tif === 'GTD' ? <VenueExpiryInput value={expiryInput} onValue={setExpiryInput} /> : null}
           <VenueSelfTradeSelect market={market} />
         </div>
         <TabsPanel value={type} className="dk-order-body">
@@ -311,6 +323,8 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
                 side={side}
                 type={type}
                 tif={tif}
+                expiresAt={expiresAt}
+                scheduleExpiry={scheduleExpiry}
                 protectionBps={cap?.known ? cap.value : null}
                 market={market}
                 status={status}
@@ -342,6 +356,7 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
             filled={filled}
             tagOf={tagOf}
           />
+          <GoodTillDates rows={gtdRows(gtds.data, market.symbol)} clock={clock} />
         </TabsPanel>
         <TabsPanel value="history">
           <FillsTable fills={account.fills.data} test={status.test} symbol={market.symbol} tagOf={tagOf} />
@@ -499,6 +514,8 @@ function VenueSideForm({
   side,
   type,
   tif,
+  expiresAt,
+  scheduleExpiry,
   protectionBps,
   market,
   status,
@@ -513,7 +530,10 @@ function VenueSideForm({
   side: VenueSide;
   type: VenueOrderType;
   /** A limit order's time in force, picked once for both tickets. */
-  tif: VenueTimeInForce;
+  tif: DeskTif;
+  /** A good-till-date's expiry (ISO), picked once for both tickets; empty is none. */
+  expiresAt: string;
+  scheduleExpiry: ReturnType<typeof useVenueActions>['scheduleExpiry'];
   /** The owner's market price protection in bps, or null when blank. */
   protectionBps: string | null;
   market: VenueMarket;
@@ -539,7 +559,7 @@ function VenueSideForm({
   const [tag, setTag] = useState('');
   const [sent, setSent] = useState<OrderIntent | null>(null);
   const [live, setLive] = useState<Live | null>(null);
-  const [review, setReview] = useState<{ intent: OrderIntent; preview: AsOf<VenuePreview> } | null>(null);
+  const [review, setReview] = useState<{ intent: OrderIntent; preview: AsOf<VenuePreview>; expiresAt: string | null } | null>(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ActionResult | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
@@ -568,7 +588,7 @@ function VenueSideForm({
   // The price a value is sized at: a limit's own price, or a market order's worst price (so a buy's lock stays within it).
   const sizedAt = type === 'limit' ? price.trim() || null : worst;
   const sizedAmount = unit === 'quote' ? (amountForValue(value, sizedAt, market.lotSize) ?? '') : amount;
-  const fields: TicketFields = { side, type, price, amount: sizedAmount, tif };
+  const fields: TicketFields = { side, type, price, amount: sizedAmount, tif, expiresAt };
   const issue = ticketProblem(fields, market, worst, capSet);
   // A market order's worst price is held with its key (HeldDraft.hold): the intent sent under one key never changes.
   const held = draft && issue === null ? draft.hold(fields, worst) : null;
@@ -611,10 +631,11 @@ function VenueSideForm({
     setProblem(null);
     setResult(null);
     const fresh = live && live.signature === signature && live.state === 'ok' ? live.preview : null;
-    if (fresh) return setReview({ intent, preview: fresh });
+    const gtd = type === 'limit' && tif === 'GTD' ? expiresAt : null;
+    if (fresh) return setReview({ intent, preview: fresh, expiresAt: gtd });
     const answer = await venue.preview(owner, intent);
     if (!answer.ok) return setProblem(v('Outcome refused', { detail: answer.message }));
-    setReview({ intent, preview: answer.data });
+    setReview({ intent, preview: answer.data, expiresAt: gtd });
   }
 
   async function confirm() {
@@ -625,6 +646,23 @@ function VenueSideForm({
     setReview(null);
     setBusy(true);
     setSent(sent);
+    // Our good-till-date: the cancel at the expiry is signed and stored first; no order is sent without it.
+    const expiry = gtdOf(review);
+    if (expiry !== null) {
+      const stored = await scheduleExpiry({
+        kind: 'cancel_order',
+        symbol: sent.symbol,
+        clientOrderKey: sent.clientOrderKey,
+        sendAt: String(expiry),
+      });
+      if (stored.kind !== 'scheduled') {
+        sending.current = false;
+        setBusy(false);
+        setResult(stored);
+        if (stored.kind === 'refused') setProblem(t('Expiry refused', { detail: stored.message }));
+        return;
+      }
+    }
     const answer = await run(sent);
     sending.current = false;
     setBusy(false);
@@ -753,6 +791,12 @@ function VenueSideForm({
           <p className="dk-note dk-note--bad" role="alert">
             {t('Tag bad')}
           </p>
+        ) : issue === 'expiry' ? (
+          <p className="dk-note">{t('Expiry missing')}</p>
+        ) : issue === 'expiry_past' ? (
+          <p className="dk-note dk-note--bad" role="alert" data-code="trade.gtd_expiry_past">
+            {t('Expiry past')}
+          </p>
         ) : issue === 'no_book' ? (
           <p className="dk-note">{t('No book side')}</p>
         ) : issue === 'amount_step' && amount ? (
@@ -795,6 +839,7 @@ function VenueSideForm({
               protectionBps={protectionBps}
               selfTrade={venueSelfTrade(market)}
               tag={tag.trim()}
+              expiresAt={review.expiresAt}
             />
             {carriesBuilderFee(review.preview.value.builderFee) && builderApproved(account, status) === false ? (
               <Button variant="secondary" size={40} onClick={() => void approve()}>
@@ -973,6 +1018,7 @@ export function VenueReviewRows({
   protectionBps = null,
   selfTrade = null,
   tag = '',
+  expiresAt = null,
 }: {
   intent: OrderIntent;
   preview: AsOf<VenuePreview>;
@@ -984,6 +1030,8 @@ export function VenueReviewRows({
   selfTrade?: VenueSelfTradeMode | null;
   /** The person's own tag on the order, or blank. */
   tag?: string;
+  /** Our good-till-date's expiry (ISO), or null for any other order. */
+  expiresAt?: string | null;
 }) {
   const { t } = spotVenueCopy.useCopy();
   const v = venueCopy.useCopy().t;
@@ -1039,8 +1087,16 @@ export function VenueReviewRows({
         </div>
         <div>
           <dt>{t('Time in force')}</dt>
-          <dd data-line="tif">{word(v, 'tif', intent.timeInForce)}</dd>
+          <dd data-line="tif">{expiresAt ? t('GTD ours') : word(v, 'tif', intent.timeInForce)}</dd>
         </div>
+        {expiresAt ? (
+          <div>
+            <dt>{t('Expiry review')}</dt>
+            <dd data-line="expiry" data-expires-at={expiresAt}>
+              {clock(expiresAt)} <span className="muted">{t('Expiry review note')}</span>
+            </dd>
+          </div>
+        ) : null}
         {intent.type === 'market' ? (
           <div>
             <dt>{t('Worst price review')}</dt>
@@ -1361,4 +1417,20 @@ function useCancelledOrders(owner: string | null, cancelled: Array<{ key: string
     return { ok: true as const, data: rows };
   }, `cancelled:${owner}:${ids}`);
   return useMemo(() => (read.resource.status === 'ready' ? read.resource.data : []), [read.resource]);
+}
+
+/** A `datetime-local` value (the device's local time) as an ISO time, or '' when it names no time. */
+function toIso(local: string): string {
+  const at = Date.parse(local);
+  return Number.isFinite(at) ? new Date(at).toISOString() : '';
+}
+
+/** The review's good-till-date expiry in epoch ms, or null for any other order. */
+function gtdOf(review: { expiresAt: string | null }): number | null {
+  return review.expiresAt ? expiryMs(review.expiresAt) : null;
+}
+
+/** This market's good-till-date orders, newest expiry first (svc-trade answers them so). */
+function gtdRows(rows: GoodTillDate[] | null, symbol: string): GoodTillDate[] {
+  return (rows ?? []).filter((g) => g.symbol === symbol);
 }
