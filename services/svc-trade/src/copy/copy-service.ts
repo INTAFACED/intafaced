@@ -178,7 +178,8 @@ export type LeaderFill = {
 };
 
 /** Production wires `trade.fills`. Absent or missing fill row → refuse-closed. */
-export type LookupLeaderFillPort = (fillId: string) => Promise<LeaderFill | null>;
+/** One leader fill by its id; `leaderId` is the follow's leader, whose own accounts the fill must be on. */
+export type LookupLeaderFillPort = (fillId: string, leaderId?: string) => Promise<LeaderFill | null>;
 
 /** One copied order on a follow, as its follower sees it. */
 export type CopyPosition = {
@@ -200,6 +201,8 @@ export type ListLeaderFillsSincePort = (
   leaderId: string,
   after: CopyCursor,
   limit: number,
+  /** The follow the driver reads for: a follow that copies on the venue reads the leader's venue fills. */
+  followId?: string,
 ) => Promise<ReadonlyArray<{ readonly fillId: string; readonly marketId: string; readonly at: Date }>>;
 
 const LEADER_FILL_MISSING = 'Leader fill not found — refuse rather than invent observation from caller qty/notional';
@@ -285,6 +288,17 @@ export interface CopyServiceOptions {
   copiedPositions?: ReadCopiedPositions;
   /** A follower's close of one copied position (CB-copy-10). Absent → copy.closePosition refuses. */
   copyClose?: CopyClosePort;
+  /**
+   * Copy trading on the venue (venue-copy.ts): binds a venue follow to the follower's own agent account and reads its
+   * copies from the venue. Absent → copy.startVenueFollow refuses `trade.copy_unavailable`.
+   */
+  venueFollows?: VenueFollowsPort;
+}
+
+/** What CopyService asks of the venue copy desk (venue-copy.ts `VenueCopy`). */
+export interface VenueFollowsPort {
+  bind(followerId: string, followId: string, accountId: string, quoteAsset: string, at: Date): Promise<void>;
+  copiedOrders(followId: string, followerId: string): Promise<CopyPosition[] | null>;
 }
 
 type FollowRef = { followId: string };
@@ -385,6 +399,7 @@ export class CopyService {
   private readonly copyClose: CopyClosePort | null;
   private readonly stepUp: StepUpCheck | null;
   private readonly notices: CopyNotices;
+  private readonly venueFollows: VenueFollowsPort | null;
 
   constructor(
     private readonly ledger: LedgerClient,
@@ -413,6 +428,7 @@ export class CopyService {
     this.copyClose = options.copyClose ?? null;
     this.stepUp = options.stepUp ?? null;
     this.notices = options.notices ?? NO_COPY_NOTICES;
+    this.venueFollows = options.venueFollows ?? null;
     // Read like TRADE_COPY_PLACE_MIRROR above; env.ts declares it. Invalid JSON fails boot.
     this.metricDefinitions = options.metricDefinitions ?? UNPUBLISHED_COPY_METRIC_DEFINITIONS;
     this.minTier = options.minTier ?? null;
@@ -535,7 +551,7 @@ export class CopyService {
 
         const price = copyLimitPriceFromPlan(prior.qty, prior.notional);
         const once = await store.runPlaceMirrorOnce(follow.followId, prior.fillId, async () => {
-          const leaderFill = this.lookupLeaderFill ? await this.lookupLeaderFill(prior.fillId) : null;
+          const leaderFill = this.lookupLeaderFill ? await this.lookupLeaderFill(prior.fillId, follow.leaderId) : null;
           assertCopySlippage({
             capBps: follow.envelope.maxSlippageBps,
             followerPrice: price,
@@ -713,6 +729,46 @@ export class CopyService {
   }
 
   /**
+   * Start copying on the venue (J-copy-bots-otc-03; the venue form of startFollow, OWNER 226). The same gates as
+   * startFollow (country list, the owner's copy tier, sub-account), then the follow is bound to one of the follower's own
+   * open agent accounts before it is saved: every copy is then a venue order on that account's sub-account, placed by
+   * the agent permission the follower's wallet signed, and nothing is held from a balance of ours. The fixed amount and
+   * the most in total stay the follow's caps, held before the agent key signs. The same clientRequestId returns the
+   * follow it already made.
+   */
+  async startVenueFollow(
+    principal: Principal,
+    input: Parameters<CopyService['follow']>[1] & { readonly clientRequestId: string; readonly agentAccountId: string },
+  ) {
+    if (!this.venueFollows) throw new CopyError('Copy trading on the venue is not connected here', 'trade.copy_unavailable');
+    let region: string;
+    try {
+      region = assertCopyRegionAllowed(this.jurisdictionLaw, input.region);
+    } catch (err) {
+      this.blankLawRefusal(err);
+    }
+    assertMayFollow(principal, this.minTier);
+    const leaderId = await this.directory.resolveLeaderId(input.leaderId, input.leaderRef);
+    const followId = copyFollowIdFor(principal.userId, leaderId, input.clientRequestId);
+    const already = await this.store.getFollow(followId);
+    if (already) {
+      if (already.followerId !== principal.userId) throw new CopyError('Follow not found', 'trade.copy_not_following');
+      return this.presentFollow(already);
+    }
+    const asset = copyQuoteAsset(input.permittedMarkets);
+    const venueFollows = this.venueFollows;
+    return this.follow(principal, input, {
+      followId,
+      leaderId,
+      region,
+      reserveAsset: null,
+      beforeSave: async () => {
+        await venueFollows.bind(principal.userId, followId, input.agentAccountId, asset, this.now());
+      },
+    });
+  }
+
+  /**
    * The follow write without startFollow's gates (tier, reserve). The router mounts only startFollow; this
    * stays callable for the unit tests of the envelope and lifecycle. Without `admitted` no reserve is held and the id
    * is random, so two direct follows of one leader race to the unique (follower, leader) row as before.
@@ -747,7 +803,8 @@ export class CopyService {
       readonly followId: string;
       readonly leaderId: string;
       readonly region: string;
-      readonly reserveAsset: string;
+      /** Null for a follow that copies on the venue: nothing is held from a balance of ours. */
+      readonly reserveAsset: string | null;
       readonly beforeSave: (store: CopyFollowStore, follow: CopyFollow) => Promise<void>;
     },
   ) {
@@ -814,7 +871,7 @@ export class CopyService {
       feeShareKilled: false,
       relationshipState: 'ACTIVE',
       // The reserve is the most in total after the leader's limits, which can only lower what startFollow checked.
-      ...(admitted
+      ...(admitted?.reserveAsset
         ? { reserve: { asset: admitted.reserveAsset, amount: envelope.maxAggregateExposure, heldAt: this.now(), releasedAt: null } }
         : {}),
     };
@@ -889,7 +946,7 @@ export class CopyService {
       });
       return;
     }
-    const fills = await this.listLeaderFillsSince!(follow.leaderId, follow.copyCursor, limit);
+    const fills = await this.listLeaderFillsSince!(follow.leaderId, follow.copyCursor, limit, follow.followId);
     for (const fill of fills) {
       if (follow.envelope.permittedMarkets.includes(fill.marketId) && !(await this.store.getPlacedMirror(follow.followId, fill.fillId))) {
         try {
@@ -1057,6 +1114,8 @@ export class CopyService {
    */
   async followPositions(principal: Principal, input: { followId: string }): Promise<{ positions: CopyPosition[] }> {
     const follow = await this.requireOwnedFollow(this.store, principal, input.followId);
+    const onVenue = this.venueFollows ? await this.venueFollows.copiedOrders(follow.followId, follow.followerId) : null;
+    if (onVenue) return { positions: onVenue };
     if (!this.sql) throw new CopyError('Copied orders need the spot tables', 'trade.copy_unavailable');
     const rows = await this.sql<
       Array<{
@@ -1533,7 +1592,7 @@ export class CopyService {
     if (!this.lookupLeaderFill) {
       throw new CopyError(LEADER_FILL_MISSING, 'trade.copy_leader_fill_not_found');
     }
-    const fill = await this.lookupLeaderFill(fillId);
+    const fill = await this.lookupLeaderFill(fillId, follow.leaderId);
     if (!fill) {
       throw new CopyError(LEADER_FILL_MISSING, 'trade.copy_leader_fill_not_found');
     }

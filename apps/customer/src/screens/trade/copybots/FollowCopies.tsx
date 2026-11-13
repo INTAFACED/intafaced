@@ -153,6 +153,7 @@ export function CopiedPositions({ follow, api, guard }: { follow: Follow; api: R
     { id: 'funding', header: t('Funding'), value: (r) => (r.funding === null ? t('Not set') : displayAmount(r.funding)) },
   ];
   if (resource.status === 'failed') return <RefusalNote failure={resource.failure} retry={reload} />;
+  const reportedBy = rows?.find((r) => r.reportedBy)?.reportedBy ?? null;
   return (
     <>
       <Table
@@ -167,6 +168,16 @@ export function CopiedPositions({ follow, api, guard }: { follow: Follow; api: R
         }
       />
       {tooMuch ? <InfoNote tone="warn">{t('That is more than is open.')}</InfoNote> : null}
+      {reportedBy ? (
+        <InfoNote>
+          <span data-testid="copied-positions-source">
+            {t(reportedBy.test ? 'TEST · As {venue} reports them, at {time}.' : 'As {venue} reports them, at {time}.', {
+              venue: reportedBy.venue,
+              time: new Date(reportedBy.asOf).toLocaleTimeString(),
+            })}
+          </span>
+        </InfoNote>
+      ) : null}
       <Table
         label={t('Copied positions')}
         columns={columns}

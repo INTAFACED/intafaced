@@ -237,6 +237,8 @@ export const copiedPositionSchema = z.object({
   closing: decimalSchema,
   status: z.enum(['buying', 'open', 'closing', 'closed']),
   placedAt: z.string(),
+  /** On a follow that copies on the venue: every figure is the venue's own, read at `asOf`. */
+  reportedBy: z.object({ venue: z.string(), test: z.boolean(), asOf: z.string() }).optional(),
 });
 export type CopiedPosition = z.infer<typeof copiedPositionSchema>;
 /** One market's copied position by average entry (J-copy-bots-otc-06 #2). A spot position has no funding: null. */
