@@ -9,8 +9,8 @@
  */
 export type DeclaredRoute = { method: string; path: string; access: string; scopes: string[]; file: string };
 
-/** A file the walkers pass in: every svc-trade source but tests and test harnesses. */
-export const isRouteSource = (file: string) => file.endsWith('.ts') && !file.endsWith('.test.ts') && !file.endsWith('.test-harness.ts');
+/** Of the .ts files the walkers find, the ones to read: all but tests and test harnesses. */
+export const isRouteSource = (file: string) => !file.endsWith('.test.ts') && !file.endsWith('.test-harness.ts');
 
 export function tradeDeclarations(files: readonly { file: string; text: string }[]): DeclaredRoute[] {
   const sources = files.map(({ file, text }) => ({
@@ -47,6 +47,6 @@ export function tradeDeclarations(files: readonly { file: string; text: string }
   return declared;
 }
 
-/** One line of the published route list (apps/customer/src/features/developers/rest-routes.txt). */
+/** One line of the published route list (published-routes.txt, beside this file). */
 export const declarationKey = (route: { method: string; path: string; access: string; scopes: readonly string[] }) =>
   `${route.method} ${route.path} ${route.access} ${route.scopes.join('+')}`;

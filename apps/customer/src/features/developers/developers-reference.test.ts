@@ -32,13 +32,13 @@ import {
 
 const repo = (path: string) => readFileSync(new URL(`../../../../../${path}`, import.meta.url), 'utf8');
 
-const ROUTE_LIST = new URL('./rest-routes.txt', import.meta.url);
+const ROUTE_LIST = new URL('../../../../../services/svc-trade/src/published-routes.txt', import.meta.url);
 const TRADE_SRC = new URL('../../../../../services/svc-trade/src/', import.meta.url);
 
 /** svc-trade's sources, walked here; the parser is svc-trade's own, which its published-route-list.test.ts also runs. */
 function tradeDeclarations() {
   const files = (readdirSync(TRADE_SRC, { recursive: true }) as string[])
-    .filter(isRouteSource)
+    .filter((file) => file.endsWith('.ts') && isRouteSource(file))
     .map((file) => ({ file, text: readFileSync(new URL(file, TRADE_SRC), 'utf8') }));
   return parseTradeDeclarations(files);
 }
@@ -79,7 +79,7 @@ describe('the published route list matches what the services really mount', () =
     const listed = [...ours].sort();
     if (process.env.WRITE_ROUTE_LIST === '1') writeFileSync(ROUTE_LIST, `${listed.join('\n')}\n`);
     const pinned = readFileSync(ROUTE_LIST, 'utf8').split('\n').filter(Boolean);
-    expect(listed, 'rest-routes.txt: run WRITE_ROUTE_LIST=1 after a deliberate route change').toEqual(pinned);
+    expect(listed, 'services/svc-trade/src/published-routes.txt: run WRITE_ROUTE_LIST=1 after a deliberate route change').toEqual(pinned);
     expect(new Set(ours).size).toBe(ours.length);
     expect([...ours].sort()).toEqual([...new Set(declared.map(declarationKey))].sort());
   });
