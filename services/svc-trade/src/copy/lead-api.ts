@@ -10,7 +10,7 @@
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { verifyServiceRequest, type ServiceAuthMode, type ServiceVerifier } from '@intafaced/contracts';
-import type { Principal } from '@intafaced/auth';
+import { hasScope, type Principal } from '@intafaced/auth';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -87,6 +87,14 @@ export function leadOrderGate(read: LeadListingRead) {
 
 export type LeadOrderGate = ReturnType<typeof leadOrderGate>;
 
+/** Edge's `scopeRefuseBody('trade', 'copy:lead')`: the body a key without the lead scope gets on the trade door. */
+export const LEAD_SCOPE_REFUSAL = {
+  code: 'PermissionDenied',
+  message: 'Scope "copy:lead" is required',
+  intafacedCode: 'scope.denied',
+  docs: '/developers/permissions',
+} as const;
+
 /** Sends a lead refusal, or answers false so the ordinary order handler runs. */
 export async function refuseLeadOrder(
   gate: LeadOrderGate | undefined,
@@ -94,6 +102,12 @@ export async function refuseLeadOrder(
   body: unknown,
   reply: FastifyReply,
 ): Promise<boolean> {
+  // The handler's own scope check, whatever the caller: a key, a sub-account token or a session that does not hold
+  // `copy:lead` is refused here as Edge refuses a missing scope (route inventory's key gate asks keys the same).
+  if (!hasScope(principal.scopes, 'copy:lead')) {
+    await reply.code(403).send(LEAD_SCOPE_REFUSAL);
+    return true;
+  }
   if (!gate) {
     await reply
       .code(503)
