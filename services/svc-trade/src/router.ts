@@ -589,6 +589,7 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'trade.copy_jurisdiction_blank':
       case 'trade.copy_law_blank':
       case 'trade.copy_settle_refused':
+      case 'trade.copy_settlement_window_required':
       case 'trade.copy_leader_fill_not_found':
       case 'trade.copy_auto_mirror_place_socket':
       case 'trade.copy_place_disabled':
@@ -2073,6 +2074,36 @@ export function createTradeRouter(
           reject: scopedProcedure('admin:write', { module: 'trade' })
             .input(z.object({ applicationId: z.string().uuid(), reason: z.string().min(3).max(500) }).strict())
             .mutation(({ ctx, input }) => lead((desk) => desk.reject(ctx.principal, input))),
+        }),
+
+        /**
+         * Finance's settlement oversight (CB-ops-02, CB-copy-pro-share-01): every lead fee share judged against its ledger
+         * posts and the builder fee the venue reported, a reconcile of one window, and one follow's position accounting.
+         * Read only.
+         */
+        settlements: router({
+          list: scopedProcedure('admin:read', { module: 'trade' }).query(() =>
+            guard(async () => {
+              if (!copy) throw new CopyError('Copy trading is not available', 'trade.copy_unavailable');
+              return copy.opsSettlements();
+            }),
+          ),
+          reconcile: scopedProcedure('admin:read', { module: 'trade' })
+            .input(z.object({ window: z.string().max(16).nullable() }).strict())
+            .query(({ input }) =>
+              guard(async () => {
+                if (!copy) throw new CopyError('Copy trading is not available', 'trade.copy_unavailable');
+                return copy.opsReconcileSettlements(input.window);
+              }),
+            ),
+          follow: scopedProcedure('admin:read', { module: 'trade' })
+            .input(z.object({ followId: z.string().min(1).max(64) }).strict())
+            .query(({ input }) =>
+              guard(async () => {
+                if (!copy) throw new CopyError('Copy trading is not available', 'trade.copy_unavailable');
+                return copy.opsFollowAccounting(input.followId);
+              }),
+            ),
         }),
 
         /** Operator writes need `admin:write`, the trade operator desk's write scope. */
