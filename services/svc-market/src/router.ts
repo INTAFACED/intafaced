@@ -736,9 +736,29 @@ export function createMarketRouter(
     listed: publicProcedure
       .input(z.object({ limit: z.number().int().positive().max(50).optional() }).optional())
       .output(z.array(publicVendorOut))
-      .query(async ({ input }) => {
+      .query(async ({ input, signal }) => {
         try {
-          return await vendors.listedVendors({ limit: input?.limit });
+          return await vendors.listedVendors({ limit: input?.limit, signal });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /**
+     * The same directory, one page at a time, with where the next page resumes.
+     *
+     * `nextCursor: null` is the only "there are no more listed vendors". A page
+     * shorter than `limit` with a cursor means this request checked as many
+     * candidates as one page may (`LISTED_CANDIDATE_FACTOR`) and the rest are
+     * behind the cursor — newer eligible vendors are never hidden behind older
+     * ineligible ones. A closed connection aborts the pending stake reads.
+     */
+    listedPage: publicProcedure
+      .input(z.object({ limit: z.number().int().positive().max(50).optional(), cursor: z.string().guid().optional() }).optional())
+      .output(z.object({ vendors: z.array(publicVendorOut), nextCursor: z.string().guid().nullable() }))
+      .query(async ({ input, signal }) => {
+        try {
+          return await vendors.listedVendorsPage({ limit: input?.limit, cursor: input?.cursor, signal });
         } catch (err) {
           mapError(err);
         }
