@@ -1661,13 +1661,13 @@ export const isRelayRun = (jobs) => (jobs ?? []).some((j) => j?.name === RELAY_J
  * merge-seal.yml pull_request_target `runs` on the head, `jobsByRun` (latest-attempt jobs, read as asked: act `jobs`),
  * and `going` (inputsGoing's lines, or null until read: act `going`). The push's run is the newest that is not a relay.
  * Acts:
- *   - `rerun` its seal job (an edit after a verdict: the verdict is judged again on the title and body as they are now);
+ *   - `rerun` its seal job (an edit or an arming after a verdict: judged again on the pull request and inputs as they are);
  *   - `start` it whole (no verdict yet, every input finished: what the edit's or arming's own run sealed before);
  *   - `done`: nothing to do (no verdict yet and an input is still going, whose end starts it and reads the pull request
- *     as it is then; the push's seal is still waiting for its inputs or deciding, and reads it later; an arming when a
- *     verdict is already there, since arming changes nothing a seal judges);
- *   - `here`: seal in this run, as before (no push's run on the head, or its seal is judging now and may have read the
- *     title or body before this edit). Fails closed: the caller seals here on any error too. Pure.
+ *     as it is then; the push's seal is still waiting for its inputs or deciding, and reads it later; an arming while the
+ *     push's seal is judging);
+ *   - `here`: seal in this run, as before (no push's run on the head, a newer run with no jobs yet, or its seal is
+ *     judging now and may have read the title or body before this edit). Fails closed: the caller seals here on any error too. Pure.
  */
 export function relayStep({ action, runs, jobsByRun = new Map(), going = null }) {
   const mine = (runs ?? []).filter((r) => r?.event === 'pull_request_target').sort((a, b) => b.id - a.id);
@@ -1683,24 +1683,32 @@ export function relayStep({ action, runs, jobsByRun = new Map(), going = null })
   if (!push) return { act: 'here', msg: 'no run of a push on this head to pass it to, so this run seals' };
   const runId = String(push.id);
   const jobs = jobsByRun.get(runId) ?? [];
+  // A run not yet expanded into jobs can't be told from a relay run (review R2 on #8225): this run seals.
+  if (!jobs.length && push.status !== 'completed')
+    return { act: 'here', msg: `run ${runId} has no jobs yet, so it can't be told from a relay run and this run seals` };
   const seal = jobs.filter((j) => j?.name === SEAL).sort((a, b) => b.id - a.id)[0];
   const verdict = seal?.status === 'completed' && ['success', 'failure'].includes(seal?.conclusion);
   if (seal && seal.status !== 'completed') {
     if ((seal.steps ?? []).some((s) => s?.name === WAIT_STEP && s?.status !== 'completed'))
       return { act: 'done', msg: `the seal in run ${runId} is still waiting for its inputs and reads the pull request as it is then` };
     if (action === 'auto_merge_enabled')
-      return { act: 'done', msg: `the seal in run ${runId} is judging; arming changes nothing it judges` };
+      return { act: 'done', msg: `the seal in run ${runId} is judging now, and reads the inputs as they are` };
     return {
       act: 'here',
       msg: `the seal in run ${runId} is judging and may have read the title and body before this edit, so this run seals`,
     };
   }
   if (verdict) {
-    if (action === 'auto_merge_enabled')
-      return { act: 'done', msg: `run ${runId} already gave its verdict (${seal.conclusion}); arming changes nothing a seal judges` };
+    // An arming re-judges too (review R1 on #8225): an input's re-check touches only armed pull requests (armed), so an
+    // input re-run while the pull request was unarmed may have changed what the verdict read.
     if (push.status !== 'completed')
       return { act: 'here', msg: `run ${runId} is still finishing, so its seal can't be re-run now and this run seals` };
-    return { act: 'rerun', runId, jobId: String(seal.id), msg: `re-judging run ${runId}'s verdict on the edited title and body` };
+    return {
+      act: 'rerun',
+      runId,
+      jobId: String(seal.id),
+      msg: `re-judging run ${runId}'s verdict on the pull request and its inputs as they are now`,
+    };
   }
   // No verdict on the push's run: still deciding, waiting for its inputs, or a seal that was cancelled.
   if (push.status !== 'completed')

@@ -13,7 +13,8 @@
  *   - it ran and failed in one of those runs, and no commit on main after the newest such run names its journey in its
  *     subject or changes a file of its journey (apps/customer/tests/real-app/J-x-NN*.pw.mjs). So the moment a builder's
  *     pull request for it merges (its title names the steps), and whenever its test file changes, it runs again; and
- *     since the runs read are the last three, a test left out from three runs in a row runs again in the fourth;
+ *     otherwise it stays out while a run read still shows it failing: the last three push runs, or the two newest
+ *     finished scheduled runs, which leave nothing out (so at the latest after a scheduled run that passes it);
  *   - every test of its step is left out with it, so a step never turns green with one of its tests missing
  *     (project-state's passedSteps needs every test of a step to pass). A new test of a step changes its journey's file,
  *     so it never meets a step already left out;

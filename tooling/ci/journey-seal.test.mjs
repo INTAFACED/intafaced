@@ -2638,7 +2638,8 @@ test("d32 5a relayStep: an edit after a verdict re-runs the push run's seal; an 
     { ...relayStep({ action: 'edited', runs, jobsByRun: jobs }), msg: undefined },
     { act: 'rerun', runId: '10', jobId: '9', msg: undefined },
   );
-  assert.equal(relayStep({ action: 'auto_merge_enabled', runs, jobsByRun: jobs }).act, 'done');
+  // Review R1 on #8225: an arming after a verdict re-judges too, since inputs re-run while unarmed are never re-sealed.
+  assert.equal(relayStep({ action: 'auto_merge_enabled', runs, jobsByRun: jobs }).act, 'rerun');
   // The relay run (20) is newer but never the one judged.
   assert.equal(relayStep({ action: 'edited', runs, jobsByRun: new Map([['20', relayJobs()]]) }).act, 'jobs');
 });
@@ -2650,13 +2651,26 @@ test('d32 5a relayStep: no verdict yet, it starts the push run only once every i
   assert.equal(relayStep({ action: 'auto_merge_enabled', runs, jobsByRun: jobs, going: ['CI run 1 (in_progress)'] }).act, 'done');
   assert.deepEqual(relayStep({ action: 'auto_merge_enabled', runs, jobsByRun: jobs, going: [] }).act, 'start');
   assert.deepEqual(relayStep({ action: 'edited', runs, jobsByRun: jobs, going: [] }).act, 'start');
-  // The push's run still deciding reads the pull request as it is now.
-  assert.equal(relayStep({ action: 'edited', runs: [sealRun(10, 'in_progress')], jobsByRun: new Map([['10', []]]) }).act, 'done');
+  // The push's run still deciding (its `now` job running) reads the pull request as it is now.
+  const deciding = [{ id: 3, name: 'Does the seal wait for its inputs', status: 'in_progress', conclusion: null }];
+  assert.equal(relayStep({ action: 'edited', runs: [sealRun(10, 'in_progress')], jobsByRun: new Map([['10', deciding]]) }).act, 'done');
 });
 
 test('d32 5a relayStep: it seals here when it cannot be sure the push run reads this edit (fails closed)', () => {
   // No push's run on the head.
   assert.equal(relayStep({ action: 'edited', runs: [], jobsByRun: new Map() }).act, 'here');
+  // Review R2 on #8225: a newer run with no jobs yet (an arming's, just queued) is never taken for the push's run.
+  assert.equal(
+    relayStep({
+      action: 'edited',
+      runs: [sealRun(10), sealRun(30, 'queued')],
+      jobsByRun: new Map([
+        ['30', []],
+        ['10', pushJobs(sealJob('completed', 'success'))],
+      ]),
+    }).act,
+    'here',
+  );
   // The push's seal is judging now (past its wait), so it may have read the old title.
   const judging = sealJob('in_progress', null, [
     { name: 'Wait for CI, the CI review and the journeys this change needs', status: 'completed' },
