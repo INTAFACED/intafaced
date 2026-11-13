@@ -14,7 +14,7 @@ import { Freshness, InfoNote, RefusalNote } from './parts';
 export const MODE_WORD: Record<LeaderMode, string> = { spot: 'Spot', futures: 'Futures', bot: 'Bots', signal: 'Signal' };
 
 /** The ranked boards other exchanges show. Each one is asked for, and the service's refusal is shown as it comes. */
-const RANKINGS: readonly { label: string; ask: { category: string } | { trending: true } }[] = [
+export const RANKINGS: readonly { label: string; ask: { category: string } | { trending: true } }[] = [
   { label: 'Top return', ask: { category: 'top_return' } },
   { label: 'Most copied', ask: { category: 'most_copied' } },
   { label: 'Trending', ask: { trending: true } },

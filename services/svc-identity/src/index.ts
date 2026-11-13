@@ -154,6 +154,7 @@ import { installApiKeyRequestSignExchange, parseRequestSignWindow } from './auth
 import { createRequestSigningPolicyRouter } from './request-signing-policy-router.js';
 import { createApiKeyRequestSignRouter } from './api-key-request-sign-router.js';
 import { createDeveloperKeysRouter } from './developer-keys-router.js';
+import { httpLeadCheck } from './auth/lead-key-check.js';
 import { parseApiKeyCapByTier, parsePortfolioKeyCap, parseApiKeyIdleExpirySeconds, passkeyMintRule } from './auth/developer-keys.js';
 import { parseDeveloperRoles } from './auth/developer-team.js';
 import { installApiKeyRateExchange, parseRatePolicy } from './auth/api-rate-limits.js';
@@ -795,6 +796,12 @@ export const appRouter = mergeRouters(
     mayMint: passkeyMintRule(sql),
     signingEncKey,
     signingWindowSeconds: requestSignWindowSeconds,
+    // svc-trade's base URL, the same one the closure check uses: trade answers both questions.
+    leadCheck: httpLeadCheck({
+      url: env.IDENTITY_CLOSURE_TRADE_URL,
+      secret: closureSecret,
+      ...(outS2s ? { s2s: { signer: outS2s.signer, mode: outS2s.mode } } : {}),
+    }),
   }),
   createApiRateLimitsRouter(sql, ratePolicy),
   createDeveloperSandboxesRouter({

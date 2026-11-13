@@ -95,6 +95,8 @@ export type AgentAccountCode =
   | 'agents.key_scope_not_trade'
   | 'agents.key_read_unavailable'
   | 'agents.key_already_connected'
+  | 'agents.key_expiry_above_venue_max'
+  | 'agents.venue_agent_expiry_max_unknown'
   | 'agents.key_not_connected'
   // The person revoked the assistant (#12): our copy of the account's venue agent key signs nothing more.
   | 'agents.agent_revoked'

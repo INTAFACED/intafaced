@@ -1,7 +1,6 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
-import { StepUpCheckError } from '@intafaced/contracts';
 import { GridError } from './errors.js';
 import { attachGridRestRoutes } from './grid-rest.js';
 import type { GridBotView, GridService } from './grid-service.js';
@@ -149,21 +148,26 @@ describe('the grid bot public API (J-copy-bots-otc-19 #1, #4)', () => {
     ]);
   });
 
-  it("a withdrawal without a step-up answers identity's refusal (403 identity.step_up_required)", async () => {
-    const { grid, calls } = fakeGrid({
-      withdrawProfit: async () => {
-        throw new StepUpCheckError('Confirm this with your passkey or authenticator code first', 'identity.step_up_required');
-      },
-    });
+  it('a withdrawal by a key that may trade is refused by name, with the wallet named, and reaches no service', async () => {
+    const { grid, calls } = fakeGrid();
     await mount(grid);
     const res = await app.inject({
       method: 'POST',
       url: '/api/v1/bots/grid/bot-1/withdraw',
-      payload: { requestId: 'withdraw-0001', asset: 'USDT', amount: '10' },
+      payload: { requestId: 'withdraw-0001', asset: 'USDT', amount: '10', stepUpApprovalId: 'su-1' },
     });
     expect(res.statusCode).toBe(403);
-    expect(res.json()).toMatchObject({ code: 'PermissionDenied', intafacedCode: 'identity.step_up_required' });
-    expect(calls).toEqual([['withdrawProfit', [{ botId: 'bot-1', requestId: 'withdraw-0001', asset: 'USDT', amount: '10' }]]]);
+    expect(res.json()).toEqual({
+      code: 'PermissionDenied',
+      message: 'No API key or bot can withdraw. Withdraw from the venue with your own wallet: you sign it there. Nothing was moved.',
+      intafacedCode: 'trade.api_withdraw_not_allowed',
+      data: { withdrawBy: 'own_wallet_signature', botId: 'bot-1' },
+    });
+    expect(calls).toEqual([]);
+    await app.close();
+    await mount(fakeGrid().grid, { principal: null });
+    const anonymous = await app.inject({ method: 'POST', url: '/api/v1/bots/grid/bot-1/withdraw', payload: {} });
+    expect(anonymous.statusCode).toBe(401);
   });
 
   it('a write from a region that may not trade, or with no principal, reaches no service call', async () => {
@@ -185,9 +189,12 @@ describe('the grid bot public API (J-copy-bots-otc-19 #1, #4)', () => {
   it('a key without trade:write is refused scope.denied, and a read from a region that may not trade is refused, as in the web', async () => {
     const { grid, calls } = fakeGrid();
     await mount(grid, { principal: { ...OWNER, scopes: ['trade:read'] } as unknown as Principal });
-    const write = await app.inject({ method: 'POST', url: '/api/v1/bots/grid/bot-1/withdraw', payload: { requestId: 'withdraw-0002' } });
+    const write = await app.inject({ method: 'POST', url: '/api/v1/bots/grid/bot-1/stop', payload: { settlement: 'keep' } });
     expect(write.statusCode).toBe(403);
     expect(write.json()).toMatchObject({ code: 'PermissionDenied', intafacedCode: 'scope.denied' });
+    const withdraw = await app.inject({ method: 'POST', url: '/api/v1/bots/grid/bot-1/withdraw', payload: { requestId: 'withdraw-0002' } });
+    expect(withdraw.statusCode).toBe(403);
+    expect(withdraw.json()).toMatchObject({ code: 'PermissionDenied', intafacedCode: 'scope.denied' });
     await app.close();
     await mount(grid, { allowed: false });
     const read = await app.inject({ method: 'GET', url: '/api/v1/bots/grid' });
@@ -195,24 +202,27 @@ describe('the grid bot public API (J-copy-bots-otc-19 #1, #4)', () => {
     expect(calls).toEqual([]);
   });
 
-  it('carries the refusal data the web carries: what a withdrawal may take', async () => {
+  it('carries the refusal data the web carries: what the balance leaves free for a new bot', async () => {
     const { grid } = fakeGrid({
-      withdrawProfit: async () => {
-        throw new GridError('More than the profit', 'trade.bots_withdraw_exceeds_profit', { available: '1.5' });
+      create: async () => {
+        throw new GridError('Investment 300 USDT is more than the 1.5 USDT free', 'trade.grid_reserve_exceeds_balance', {
+          asset: 'USDT',
+          free: '1.5',
+        });
       },
     });
     await mount(grid);
     const res = await app.inject({
       method: 'POST',
-      url: '/api/v1/bots/grid/bot-1/withdraw',
-      payload: { requestId: 'withdraw-0003', asset: 'USDT', amount: '10', stepUpApprovalId: 'su-1' },
+      url: '/api/v1/bots/grid',
+      payload: { clientId: 'grid-req-0005', symbol: 'BTC/USDT', lowerPrice: '90', upperPrice: '110', grids: 10, investment: '300' },
     });
     expect(res.statusCode).toBe(400);
     expect(res.json()).toEqual({
       code: 'BadRequest',
-      message: 'More than the profit',
-      intafacedCode: 'trade.bots_withdraw_exceeds_profit',
-      data: { available: '1.5' },
+      message: 'Investment 300 USDT is more than the 1.5 USDT free',
+      intafacedCode: 'trade.grid_reserve_exceeds_balance',
+      data: { asset: 'USDT', free: '1.5' },
     });
   });
 
