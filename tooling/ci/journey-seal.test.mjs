@@ -1719,7 +1719,10 @@ test('planted (#8225): an armed head whose newest seal run holds no `CI merge se
   assert.deepEqual((await go([{ id: 320, name: SEAL, status: 'completed', conclusion: 'success' }])).posted, ['jobs/320/rerun']);
   // A newest run still deciding is waited for, never passed over.
   runs[2].status = 'in_progress';
-  assert.equal(recheckStep(runs, new Map([['32', [{ id: 320, name: waits, status: 'completed', conclusion: 'skipped' }]]]), 'pull_request_target').act, 'wait');
+  assert.equal(
+    recheckStep(runs, new Map([['32', [{ id: 320, name: waits, status: 'completed', conclusion: 'skipped' }]]]), 'pull_request_target').act,
+    'wait',
+  );
 });
 
 /** Problems with merge-seal.yml's seal job skipping, or []: it may skip only a first attempt whose `now` job decided,
