@@ -75,8 +75,11 @@ on:
 permissions: {}
 
 concurrency:
-  # The unit-test bisect keeps its one group; each journeys red gets its own, so one red never replaces another's.
-  group: ${{ inputs.journeys != '' && format('main-bisect-journeys{0}-{1}-{2}{3}', inputs.confirm == 'true' && '-confirm' || inputs.confirm == 'settle' && '-settle' || '', inputs.base, inputs.bad, inputs.confirm == 'settle' && format('-{0}', inputs.journeys) || '') || 'main-bisect' }}
+  # The unit-test bisect keeps its one group; each journeys red gets its own, keyed on its steps too, so one red never
+  # waits behind or replaces another's. Two breaks in one main run (J-cex-spot-17#8 and J-wallet-22#8 on 11e685d27,
+  # 13 Nov) shared a group: the second waited behind the first one's probe, and a third would have cancelled it.
+  # workflow-concurrency.test.mjs rule 7 holds it.
+  group: ${{ inputs.journeys != '' && format('main-bisect-journeys{0}-{1}-{2}-{3}', inputs.confirm == 'true' && '-confirm' || inputs.confirm == 'settle' && '-settle' || '', inputs.base, inputs.bad, inputs.journeys) || 'main-bisect' }}
   cancel-in-progress: false
 
 jobs:
