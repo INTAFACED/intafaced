@@ -105,6 +105,7 @@ import {
   postAffiliatePayout,
 } from './affiliates/payout-engine.js';
 import { describeAffiliatesPolicy } from './affiliates/affiliates-policy.js';
+import { AffiliateProgrammeDepthUnsetError, requireProgrammeDepth } from './affiliates/programme-depth.js';
 import { ReferralError } from './affiliates/referral-tree.js';
 import { AffiliateMembersLimitUnsetError, type ReferralService } from './affiliates/referral-service.js';
 import { ShareError } from './affiliates/share-service.js';
@@ -112,6 +113,12 @@ import type { ShareService } from './affiliates/share-service.js';
 import { SESSION_KEY_PATTERN, SHARE_SURFACES } from './affiliates/share-tag.js';
 import type { ReferralCodeService } from './affiliates/referral-code.js';
 import type { RebindRequest, ReferralRebindService } from './affiliates/referral-rebind.js';
+import {
+  PARTNER_REJECT_CATEGORIES,
+  PartnerError,
+  type PartnerApplication,
+  type PartnerApplicationService,
+} from './affiliates/partner-application.js';
 import type { ReferralLapse, ReferralLapseService } from './affiliates/referral-lapse.js';
 import { attachWindowStatus } from './affiliates/attach-window.js';
 import { FreezeError } from './affiliates/freeze-store.js';
@@ -360,6 +367,25 @@ export function toTrpcError(err: unknown): TRPCError {
     }
   }
 
+  if (err instanceof PartnerError) {
+    switch (err.code) {
+      case 'partner.eligibility_unset':
+      case 'partner.reapply_unset':
+        return new TRPCError({ code: 'PRECONDITION_FAILED', message: `${err.message} [${err.code}]`, cause: err });
+      case 'partner.not_eligible':
+      case 'partner.not_partner':
+      case 'partner.self_decision':
+        return new TRPCError({ code: 'FORBIDDEN', message: `${err.message} [${err.code}]`, cause: err });
+      case 'partner.reapply_too_soon':
+      case 'partner.not_open':
+        return new TRPCError({ code: 'CONFLICT', message: `${err.message} [${err.code}]`, cause: err });
+      case 'partner.not_found':
+        return new TRPCError({ code: 'NOT_FOUND', message: `${err.message} [${err.code}]`, cause: err });
+      case 'partner.invalid':
+        return new TRPCError({ code: 'BAD_REQUEST', message: `${err.message} [${err.code}]`, cause: err });
+    }
+  }
+
   if (err instanceof ShareError) {
     switch (err.code) {
       case 'share.unknown':
@@ -393,6 +419,10 @@ export function toTrpcError(err: unknown): TRPCError {
 
   if (err instanceof CommissionError) {
     return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
+  }
+
+  if (err instanceof AffiliateProgrammeDepthUnsetError) {
+    return new TRPCError({ code: 'PRECONDITION_FAILED', message: `${err.message} [${err.code}]`, cause: err });
   }
 
   if (err instanceof AccrualRateRefuseError) {
@@ -646,6 +676,7 @@ function signUpTrpcError(err: unknown): TRPCError {
       return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
     case 'identity.underage':
     case 'identity.region_blocked':
+    case 'identity.us_person_blocked':
       return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
     case 'auth.handle_taken':
     case 'auth.email_taken':
@@ -891,6 +922,43 @@ function operatorRebind(r: RebindRequest): z.infer<typeof rebindForOperator> {
   return { ...customerRebind(r), userId: r.userId, decidedBy: r.decidedBy };
 }
 
+/**
+ * What the person sees of their own partner application (CM-referral-05). An approval shows its reason; a rejection
+ * shows its category and the reapply date, never the operator's notes or name.
+ */
+const partnerForCustomer = z.object({
+  applicationId: z.string().uuid(),
+  state: z.enum(['submitted', 'approved', 'rejected']),
+  qualifiedCount: z.number().int().nonnegative(),
+  requiredCount: z.number().int().positive(),
+  approvalReason: z.string().nullable(),
+  rejectCategory: z.enum(PARTNER_REJECT_CATEGORIES).nullable(),
+  reapplyAt: z.string().nullable(),
+  createdAt: z.string(),
+  decidedAt: z.string().nullable(),
+});
+const partnerForOperator = partnerForCustomer.extend({
+  userId: z.string().uuid(),
+  decidedBy: z.string().uuid().nullable(),
+  decisionReason: z.string().nullable(),
+});
+function customerPartner(a: PartnerApplication): z.infer<typeof partnerForCustomer> {
+  return {
+    applicationId: a.id,
+    state: a.state,
+    qualifiedCount: a.qualifiedCount,
+    requiredCount: a.requiredCount,
+    approvalReason: a.state === 'approved' ? a.decisionReason : null,
+    rejectCategory: a.rejectCategory,
+    reapplyAt: iso(a.reapplyAt),
+    createdAt: a.createdAt.toISOString(),
+    decidedAt: iso(a.decidedAt),
+  };
+}
+function operatorPartner(a: PartnerApplication): z.infer<typeof partnerForOperator> {
+  return { ...customerPartner(a), userId: a.userId, decidedBy: a.decidedBy, decisionReason: a.decisionReason };
+}
+
 export function createIdentityRouter(
   auth: AuthService,
   rank: RankService,
@@ -949,6 +1017,8 @@ export function createIdentityRouter(
     referralCodes?: ReferralCodeService;
     /** Reviewed referrer change (CM-referral-01 RF-3). Absent → the rebind doors refuse closed. */
     referralRebind?: ReferralRebindService;
+    /** Partner applications (CM-referral-05, J-campaigns-07). Absent → the partner doors refuse closed. */
+    partnerApplications?: PartnerApplicationService;
     /** Referral lapse after the owner's inactivity period (CM-referral-01 RF-4). Absent → the lapse doors refuse closed. */
     referralLapse?: ReferralLapseService;
     /**
@@ -965,6 +1035,11 @@ export function createIdentityRouter(
      * Default unpublished — never invent a rate.
      */
     accrualTierLaw?: AccrualTierLaw;
+    /**
+     * The partner programme depth, 1..5 (RC-campaigns-07, `IDENTITY_PARTNER_PROGRAMME_DEPTH`). NO DEFAULT: undefined
+     * refuses every accrual, dry-run, payout and partner sub-tree with `affiliate.programme_depth_unset`.
+     */
+    programmeDepth?: number;
     /**
      * Slice C payout rail. Narrow on purpose — `post` is the only capability an
      * affiliate payout needs, and a wider handle here would let this service
@@ -1064,6 +1139,7 @@ export function createIdentityRouter(
   const freeze = options.freeze;
   const accruals = options.accruals;
   const accrualTierLaw = options.accrualTierLaw ?? UNPUBLISHED_ACCRUAL_TIER_LAW;
+  const programmeDepth = options.programmeDepth;
   const ledger = options.ledger;
   const kycDocs = options.kycDocs;
   const bindKycProviderRef = options.bindKycProviderRef;
@@ -1090,6 +1166,13 @@ export function createIdentityRouter(
       throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Referral tree is not configured' });
     }
     return referral;
+  }
+
+  function requirePartners(): PartnerApplicationService {
+    if (!options.partnerApplications) {
+      throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Partner applications are not configured' });
+    }
+    return options.partnerApplications;
   }
 
   function requireReferralRebind(): ReferralRebindService {
@@ -1491,6 +1574,8 @@ export function createIdentityRouter(
             subdivision: z.string().trim().min(4).max(6).optional(),
             /** Country of citizenship (ISO 3166-1 alpha-2) or an ISO 3166-2 subdivision. */
             nationality: z.string().trim().min(2).max(6).optional(),
+            /** A US citizen, green-card holder or US resident, wherever they live. Left out is refused by the service, never read as no. */
+            usPerson: z.boolean().optional(),
             dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date of birth must be YYYY-MM-DD'),
             accountType: z.enum(ACCOUNT_TYPES),
             referrerId: z.string().guid().optional(),
@@ -3903,6 +3988,109 @@ export function createIdentityRouter(
         }),
 
       /**
+       * Partner eligibility (J-campaigns-07 #1): my qualified invitees against the owner's required count. A blank count
+       * refuses with `partner.eligibility_unset`; nothing is recorded by reading it.
+       */
+      partnerEligibility: scopedProcedure('identity:read')
+        .output(
+          z.object({ requiredCount: z.number().int().positive(), qualifiedCount: z.number().int().nonnegative(), eligible: z.boolean() }),
+        )
+        .query(async ({ ctx }) => {
+          try {
+            return await requirePartners().eligibility(ctx.principal.userId);
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /** Files my partner application (J-campaigns-07 #2). Pressing twice files one; an open or approved one comes back. */
+      applyPartner: scopedProcedure('identity:write')
+        .input(z.object({}).strict().optional())
+        .output(partnerForCustomer)
+        .mutation(async ({ ctx }) => {
+          try {
+            return customerPartner(await requirePartners().apply(ctx.principal.userId));
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /** My latest partner application, or null. */
+      myPartnerApplication: scopedProcedure('identity:read')
+        .output(partnerForCustomer.nullable())
+        .query(async ({ ctx }) => {
+          try {
+            const a = await requirePartners().latestOf(ctx.principal.userId);
+            return a ? customerPartner(a) : null;
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /** Partner applications waiting for an operator, oldest first. Operator session with a second factor. */
+      partnerQueue: scopedProcedure('admin:compliance')
+        .input(z.object({ limit: z.number().int().min(1).max(100) }))
+        .output(z.array(partnerForOperator))
+        .query(async ({ ctx, input }) => {
+          try {
+            requireMfa(ctx.principal);
+            return (await requirePartners().queue(input.limit)).map(operatorPartner);
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /**
+       * An operator approves or rejects a partner application with a reason (J-campaigns-07 #3). A rejection names a
+       * category and sets the reapply date from the owner's wait. The applicant can never decide their own.
+       */
+      decidePartner: scopedProcedure('admin:compliance')
+        .input(
+          z.object({
+            applicationId: z.string().uuid(),
+            decision: z.enum(['approve', 'reject']),
+            reason: z.string().min(3).max(500),
+            category: z.enum(PARTNER_REJECT_CATEGORIES).optional(),
+          }),
+        )
+        .output(partnerForOperator)
+        .mutation(async ({ ctx, input }) => {
+          try {
+            requireMfa(ctx.principal);
+            return operatorPartner(
+              await requirePartners().decide(ctx.principal.userId, input.applicationId, input.decision, input.reason, input.category),
+            );
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /**
+       * My own sub-tree as an approved partner (J-campaigns-07 #4): the people below me, level by level to the programme
+       * depth; anyone deeper is counted, never named. Blank depth refuses with `affiliate.programme_depth_unset`.
+       */
+      mySubTree: scopedProcedure('identity:read')
+        .output(
+          z.object({
+            depth: z.number().int().positive(),
+            members: z.array(z.object({ handle: z.string(), level: z.number().int().positive(), joinedAt: z.string() })),
+            beyondDepth: z.number().int().nonnegative(),
+          }),
+        )
+        .query(async ({ ctx }) => {
+          try {
+            const tree = await requirePartners().subTree(ctx.principal.userId);
+            return {
+              depth: tree.depth,
+              members: tree.members.map((m) => ({ handle: m.handle, level: m.level, joinedAt: m.joinedAt.toISOString() })),
+              beyondDepth: tree.beyondDepth,
+            };
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /**
        * Where this person's referral relationship stands against the owner's inactivity period (J-campaigns-05 #7): the
        * date it ends without a fee event, and their latest ended relationship. A blank period reads `unset`; no end date
        * is invented.
@@ -4305,7 +4493,8 @@ export function createIdentityRouter(
         )
         .mutation(async ({ ctx, input }) => {
           try {
-            // Rate law first — before store, ledger, or field validation.
+            // Programme depth, then rate law — before store, ledger, or field validation.
+            const maxTierDepth = requireProgrammeDepth(programmeDepth);
             assertPayoutRateProvenance([], accrualTierLaw);
 
             const feeEventId = input.feeEventId?.trim() ?? '';
@@ -4334,6 +4523,7 @@ export function createIdentityRouter(
               rows: input.beneficiaryId ? rows.filter((r) => r.beneficiaryId === input.beneficiaryId) : rows,
               law: accrualTierLaw,
               frozenBeneficiaryIds: frozen,
+              maxTierDepth,
             });
 
             if (input.dryRun === true) {
@@ -4432,6 +4622,7 @@ export function createIdentityRouter(
         )
         .query(async ({ input }) => {
           try {
+            const maxDepth = requireProgrammeDepth(programmeDepth);
             const parent = await requireReferral().loadParentMap();
             const frozen = await requireFreeze().frozenIds();
             const fee = {
@@ -4448,6 +4639,7 @@ export function createIdentityRouter(
               law: accrualTierLaw,
               frozenBeneficiaryIds: frozen,
               simulationTiers: input.tiers,
+              maxDepth,
               mode: 'dryRun',
             });
             return {
@@ -4527,6 +4719,7 @@ export function createIdentityRouter(
         )
         .mutation(async ({ input }) => {
           try {
+            const maxDepth = requireProgrammeDepth(programmeDepth);
             const parent = await requireReferral().loadParentMap();
             const frozen = await requireFreeze().frozenIds();
             const store = requireAccruals();
@@ -4544,6 +4737,7 @@ export function createIdentityRouter(
               law: accrualTierLaw,
               frozenBeneficiaryIds: frozen,
               simulationTiers: input.tiers,
+              maxDepth,
               mode: 'durable',
             });
             const inserted = await store.saveRows(out.rows);

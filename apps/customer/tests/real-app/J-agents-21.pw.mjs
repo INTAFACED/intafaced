@@ -9,7 +9,7 @@ import { confirmStepUp, restorePasskey, testPasskey } from './p2p.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 
 // J-agents-21, in the running app (docs/roadmap/journeys.json): I let my own AI assistant trade on a capped account I
-// can revoke. This file holds the steps built so far (#1 #3 #4 #5 #8 #9 #10 #13 #14 #16 #17 #18), one test per step,
+// can revoke. This file holds the steps built so far (#1 #3 #4 #5 #8 #9 #10 #12 #13 #14 #16 #17 #18), one test per step,
 // titled "J-agents-21 #<n>", run in order by one signed-in, verified TEST person with one TEST wallet key (kept in this
 // run's state) on the stack's TEST venue simulator (tooling/scripts/local-test-venue.mjs). Every figure the TEST venue
 // reports is TEST.
@@ -26,8 +26,11 @@ import { testWalletKey } from './test-wallet.mjs';
 // stand-in for #6's Connect screen, which is a later piece. #13 closes against the perp the assistant opened in #8.
 //
 // Not here, under the passing/unbuilt rule: #2 and #6 (the Connect your assistant screen), #7 (the MCP server's order
-// tool), #11 #12 (the connection's log and revoke), #15 (the founder's desk) and #19 (the key's expiry) are later
-// pieces.
+// tool), #11 (the connection's log), #15 (the founder's desk) and #19 (the key's expiry) are later pieces.
+//
+// #12's Revoke is the person's own two calls, as the connection's screen (a later piece, a design change) will send
+// them: identity switches the API key off (developerKeys.revoke), and svc-trade revokes the assistant on the agent
+// account (POST /api/v1/venue/agent-accounts/connections/:keyId/revoke), then the wallet signs the venue's revoke.
 //
 // #14 closes the first agent account, so #16, #17 and #18 act on a second one the person opens the same way (cap TEST 200,
 // funded 100), with a second assistant key connected to it by the same TEST stand-in.
@@ -541,6 +544,98 @@ test(`${J} #10 The assistant places an order costing more than the agent account
   expect(res.body.refusal.detail).toContain('margin');
   // Nothing locked, and the main venue account never drawn: both accounts, the position and our ledger as they were.
   expect(await everything(session)).toEqual(before);
+});
+
+test(`${J} #12 Revokes the assistant while it has a resting TEST order: the next call with the key refuses auth.api_key_revoked; the resting order is cancelled once on the venue; our copy of the venue agent key is dropped and the wallet is asked to sign the venue's revoke; the perp position stays in the agent account`, async () => {
+  test.setTimeout(240_000);
+  const { session } = await person();
+  const { accountId, subAccount } = state();
+  const { agentKeyId } = await assistantKey();
+  const sub = await acct(owner(), subAccount);
+  const agentAddress = body200(await session.get(`${BASE}/${accountId}`)).agentAddress;
+  // The perp the assistant opened in #8 is open on the agent account.
+  const positions = (await venue('/positions', { account: sub })).value;
+  expect(positions).toHaveLength(1);
+  expect(positions[0]).toMatchObject({ symbol: 'BTC-PERP', side: 'long' });
+
+  // The assistant rests a TEST limit buy of 0.0002 BTC at 50000, below the book, on the agent account.
+  const rest = body200(
+    await asAssistant('POST', '/api/v1/venue/agent/orders', {
+      clientOrderId: 'revoke-rest',
+      symbol: 'BTC-USDC',
+      side: 'buy',
+      type: 'limit',
+      amount: '0.0002',
+      price: '50000',
+      timeInForce: 'GTC',
+    }),
+  );
+  expect(rest).toMatchObject({ state: 'accepted', origin: `agent:${agentKeyId}`, account: { owner: owner(), subAccount } });
+  const cloid = rest.order.venueClientOrderId;
+  expect((await venue('/open-orders', { account: sub })).value.map((o) => [o.venueClientOrderId, o.status])).toEqual([[cloid, 'open']]);
+  const lockedBefore = toUnits(usdcOf((await venue('/balances', { account: sub })).value).locked);
+  // The venue lists the agent permission behind the assistant's key on the agent account.
+  expect((await venue('/agents', { account: sub })).value.map((x) => x.address.toLowerCase())).toContain(agentAddress);
+
+  // The person revokes the assistant: identity switches its API key off, and the assistant is revoked on the agent account.
+  const off = await session.post('/api/identity/trpc/developerKeys.revoke', { keyId: agentKeyId });
+  expect(off.status, JSON.stringify(off.body).slice(0, 300)).toBe(200);
+  expect(off.body.result.data.record).toMatchObject({ id: agentKeyId, revoked: true });
+  const revoked = body200(await session.post(`${BASE}/connections/${agentKeyId}/revoke`, {}));
+  expect(revoked).toMatchObject({ keyId: agentKeyId, accountId, subAccount });
+
+  // The next call with the key refuses auth.api_key_revoked, at the door, before anything is placed.
+  const next = await asAssistant('POST', '/api/v1/venue/agent/orders', {
+    clientOrderId: 'after-revoke',
+    symbol: 'BTC-USDC',
+    side: 'buy',
+    type: 'limit',
+    amount: '0.0002',
+    price: '50000',
+    timeInForce: 'GTC',
+  });
+  expect(next.status, JSON.stringify(next.body).slice(0, 300)).toBe(401);
+  expect(next.body.intafacedCode).toBe('auth.api_key_revoked');
+  refused(
+    await session.get(`/api/v1/venue/orders/by-key?actionKey=${encodeURIComponent(`agent:order:${agentKeyId}:after-revoke`)}`),
+    404,
+    'trade.venue_action_unknown',
+  );
+
+  // The resting order is cancelled on the venue, once: the venue's record says canceled, nothing rests, and its lock is
+  // released; the revoke names that one cancel.
+  expect(revoked.cancels).toEqual([
+    { orderKey: `agent:order:${agentKeyId}:revoke-rest`, venueClientOrderId: cloid, symbol: 'BTC-USDC', state: 'cancelled' },
+  ]);
+  expect((await venue('/order-by-client-id', { account: sub, venueClientOrderId: cloid })).value).toMatchObject({ status: 'canceled' });
+  expect((await venue('/open-orders', { account: sub })).value).toEqual([]);
+  expect(toUnits(usdcOf((await venue('/balances', { account: sub })).value).locked) < lockedBefore).toBe(true);
+
+  // Our copy of the venue agent key is dropped, and the wallet is asked to sign the venue's revoke of that agent: the
+  // person's own wallet, on the agent account.
+  expect(revoked.agentKeyDropped).toBe(true);
+  expect(revoked.agent).toEqual({ address: agentAddress, onVenue: true });
+  expect(revoked.next).toMatchObject({ step: 'revoke_agent', actionKey: `agent:account:${accountId}:revoke`, signed: false });
+  expect(revoked.next.prepared.intent).toEqual({ kind: 'revoke_agent', agentAddress });
+  expect(revoked.next.prepared.signer).toEqual({ role: 'owner', address: owner() });
+  expect(revoked.next.prepared.account).toMatchObject({ owner: owner(), subAccount });
+  const signed = body200(
+    await session.post(`${BASE}/connections/${agentKeyId}/revoke`, {
+      actionKey: revoked.next.actionKey,
+      signature: await sign(revoked.next.prepared),
+    }),
+  );
+  expect(signed.agent).toEqual({ address: agentAddress, onVenue: false });
+  expect(signed.next).toBeNull();
+  expect((await venue('/agents', { account: sub })).value.map((x) => x.address.toLowerCase())).not.toContain(agentAddress);
+
+  // Once: the revoke again sends nothing more, and still names the one cancel.
+  const again = body200(await session.post(`${BASE}/connections/${agentKeyId}/revoke`, {}));
+  expect(again.cancels).toEqual(revoked.cancels);
+  expect(again.next).toBeNull();
+
+  // The perp position stays in the agent account, as the venue reports it.
+  expect((await venue('/positions', { account: sub })).value).toEqual(positions);
 });
 
 test(`${J} #13 Presses Close agent account while the perp is still open: refused, naming the open position; nothing changes`, async () => {
