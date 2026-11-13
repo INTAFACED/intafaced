@@ -18,6 +18,8 @@
  *   RESEAL   the review is in but the seal stayed red and the sign-off workflow could not re-run it: re-run it once.
  *   RED      the lines say what failed.
  *   SUPERSEDED  a newer push to the PR cancelled this head's run.
+ *   JUDGE DOWN  every red check stopped on GitHub's spent hourly API budget (api-budget.mjs): nothing to fix; re-run
+ *               them once after the reset, never a push (project-state AGENTS.md, "How work flows" 7).
  *
  * Before the verdict, a STALE line names any run on the head whose current attempt started more than three hours after the
  * run was made: a re-run tests the merge commit made then, against main as it was then (30 Oct: #6831, #6832 and #6834
@@ -32,6 +34,7 @@
  */
 import { fileURLToPath } from 'node:url';
 import { ghJson, makeGh } from '../scripts/gate-gh.mjs';
+import { BUDGET_MARK, BUDGET_TITLE, isBudgetText } from './api-budget.mjs';
 
 const SEAL = 'CI merge seal';
 const REVIEW_STATUS = 'Independent review';
@@ -172,6 +175,16 @@ export function latestPerName(checks) {
 }
 
 /**
+ * A red check stopped on the spent hourly API budget alone: it has error lines (annotationLine) and every one says so
+ * (api-budget.mjs). One line of its own beside them (a test that failed, a step not proven) keeps it a plain red.
+ */
+export function budgetRed(anns = []) {
+  const said = anns.filter((a) => annotationLine(a));
+  const isBudget = (a) => a.title === BUDGET_TITLE || String(a.message ?? '').includes(BUDGET_MARK) || isBudgetText(a.message);
+  return said.length > 0 && said.every(isBudget);
+}
+
+/**
  * The verdict and its lines.
  * @param {{ sha: string, checks: Array<{id:number,name:string,status:string,conclusion:string|null}>,
  *   annotations: Record<number, object[]>, failedSteps: Record<number, string[]>,
@@ -239,7 +252,13 @@ export function summarize({ sha, checks: all, annotations, failedSteps, statuses
     others.every(
       (c) => c.conclusion === 'cancelled' && (annotations[c.id] ?? []).some((a) => /higher priority waiting request/.test(a.message ?? '')),
     );
+  // Every red stopped on the budget (none of its own beside it): a judge down, never a red to push for.
+  const budgetOnly = red.length > 0 && redStatuses.length === 0 && red.every((c) => budgetRed(annotations[c.id]));
   if (superseded) out.push("SUPERSEDED: a newer push cancelled this head's run; read the PR's current head instead.");
+  else if (budgetOnly)
+    out.push(
+      "JUDGE DOWN: GitHub's hourly API budget was spent when these checks ran, so they stopped before judging. Nothing to fix in the code and nothing to push: re-run the failed jobs once after the reset the lines name (`gh run rerun <run> --failed`).",
+    );
   else if (redStatuses.length > 0 || others.length > 0 || (seal && !sealOnlyReview)) out.push('RED: fix what the lines above name.');
   else if (red.length === 0 && running.length === 0)
     out.push(sealSeen ? 'GREEN: every check passed on this head.' : `RUNNING: the "${SEAL}" has not reported on this head yet.`);
@@ -478,6 +497,59 @@ function selfTest() {
   assert(clean(orphanLines([pr], { [pr.headSha]: null }, now)), 'a head with no CI run says nothing');
   const unread = orphanLines([pr], {}, now);
   assert(unread.length === 1 && unread[0].startsWith('UNREAD   the CI runs of #6832'), 'an unread head is named, never passed as fine');
+  // A check stopped on the spent API budget (api-budget.mjs) is a judge down, never a red to push for.
+  {
+    const spent = fail("gate-file-guard: judge down: GitHub's hourly API budget is spent: nothing to fix", {
+      title: 'judge down: GitHub API budget',
+    });
+    const sealSpent = fail(
+      "GET /repos/o/r/pulls/1: HTTP 403; judge down: GitHub's hourly API budget is spent until 03:20 UTC: nothing to fix; the seal fails closed",
+      { title: 'judge down: GitHub API budget' },
+    );
+    const base = { sha, statuses: [], failedSteps: {}, runs: {} };
+    const both = summarize({
+      ...base,
+      checks: [red(1, 'Gate-file guard'), red(2, SEAL), ok(3, 'CI')],
+      annotations: { 1: [fail('Process completed with exit code 3.'), spent], 2: [sealSpent] },
+    });
+    assert(last(both).startsWith('JUDGE DOWN:'), 'every red on the spent budget is JUDGE DOWN');
+    const ghText = summarize({
+      ...base,
+      checks: [red(1, 'Gate-file guard')],
+      annotations: { 1: [fail('gh: API rate limit exceeded for installation. If you reach out to GitHub Support')] },
+    });
+    assert(last(ghText).startsWith('JUDGE DOWN:'), "gh's own rate-limit words are JUDGE DOWN too");
+    const mixed = summarize({
+      ...base,
+      checks: [red(1, 'Gate-file guard'), red(2, 'CI')],
+      annotations: { 1: [spent], 2: [fail('FAIL src/a.test.ts > adds')] },
+    });
+    assert(last(mixed).startsWith('RED:'), 'a budget red beside a red of its own stays RED');
+    const inOne = summarize({
+      ...base,
+      checks: [red(2, SEAL)],
+      annotations: { 2: [sealSpent, fail('touched journeys: not proven on this head')] },
+    });
+    assert(last(inOne).startsWith('RED:'), 'a check with a line of its own beside the budget line stays RED');
+    const refused = summarize({
+      ...base,
+      checks: [red(1, SEAL)],
+      annotations: { 1: [fail('GET /repos/o/r/pulls/1: HTTP 403; the seal fails closed')] },
+    });
+    assert(last(refused).startsWith('RED:'), 'a 403 that is not the budget stays RED');
+    const secondary = summarize({
+      ...base,
+      checks: [red(1, SEAL)],
+      annotations: { 1: [fail('You have exceeded a secondary rate limit')] },
+    });
+    assert(last(secondary).startsWith('RED:'), 'a secondary rate limit stays RED');
+    const silent = summarize({
+      ...base,
+      checks: [red(1, 'Gate-file guard')],
+      annotations: { 1: [fail('Process completed with exit code 3.')] },
+    });
+    assert(last(silent).startsWith('RED:'), 'a red with no error line is never called JUDGE DOWN');
+  }
   console.log('why-red self-test ok');
 }
 
