@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import type { AgentKeyCalls } from '@intafaced/contracts';
+import { StepUpCheckError } from '@intafaced/contracts';
+import { VenueRefusalError, VenueWireError } from '@intafaced/venue-contracts';
 import { AgentAccountError } from './agent-account.js';
+import { refusalCodeOf } from './agent-account-rest.js';
+import { AgentVenueRefusal } from './agent-orders.js';
+import { UserVenueDoorError } from './user-venue-door.js';
 import { InMemoryAgentConnectionStore } from './agent-connection-store.js';
 import { AgentActivity, InMemoryAgentOrderCallStore, activityCsv, outcomeOf } from './agent-order-calls.js';
 
@@ -220,5 +225,18 @@ describe('AgentActivity (J-agents-21 #11)', () => {
     expect(lines.slice(1).map((l) => l.split(',').at(-1))).toEqual(view.rows.map((r) => r.requestId));
     expect(lines[1]).toBe('2026-11-13T10:00:04.000Z,place_order,Refused,422,,,,r4');
     expect(lines[4]).toBe("2026-11-13T10:00:01.000Z,place_order,Accepted,200,,buy-1,'=v-9,r1");
+  });
+});
+
+describe('refusalCodeOf (J-agents-21 #11): the code a refused order call is answered with is the code its Activity row keeps', () => {
+  it('names the same intafacedCode the reply sends, for every refusal the order route answers', () => {
+    const refusal = { venueId: 'test-venue-sim', code: 'insufficient_balance', detail: 'not enough margin' } as const;
+    expect(refusalCodeOf(new AgentAccountError('agents.order_cap_exceeded', 'x', 422))).toBe('agents.order_cap_exceeded');
+    expect(refusalCodeOf(new AgentVenueRefusal(refusal as never, 'TEST venue', 'k'))).toBe('trade.venue.insufficient_balance');
+    expect(refusalCodeOf(new VenueRefusalError({ ...refusal, code: 'unknown_market' } as never))).toBe('trade.venue.unknown_market');
+    expect(refusalCodeOf(new UserVenueDoorError('x', 'idempotency.conflict', 409))).toBe('idempotency.conflict');
+    expect(refusalCodeOf(new StepUpCheckError('x', 'identity.step_up_unavailable' as never))).toBe('identity.step_up_unavailable');
+    expect(refusalCodeOf(new VenueWireError('bad'))).toBe('trade.venue_request_invalid');
+    expect(refusalCodeOf(new Error('boom'))).toBeNull();
   });
 });

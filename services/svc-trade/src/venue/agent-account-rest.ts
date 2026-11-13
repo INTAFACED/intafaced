@@ -34,7 +34,8 @@
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { requireScope, type Principal, type Scope } from '@intafaced/auth';
-import { VenueWireError, decodeVenueWire, encodeVenueWire, type VenueSignature } from '@intafaced/venue-contracts';
+import { StepUpCheckError } from '@intafaced/contracts';
+import { VenueRefusalError, VenueWireError, decodeVenueWire, encodeVenueWire, type VenueSignature } from '@intafaced/venue-contracts';
 import { privateRead, privateWrite } from '../route-inventory.js';
 import { AgentAccountError, type AgentAccounts } from './agent-account.js';
 import { AgentVenueRefusal, type AgentOrders } from './agent-orders.js';
@@ -48,7 +49,8 @@ export const AGENT_ORDERS_PATH = '/api/v1/venue/agent/orders';
 export function agentAccountReply(reply: FastifyReply, err: unknown) {
   if (err instanceof AgentAccountError) {
     return reply.code(err.status).send({
-      code: err.status === 404 ? 'NotFound' : err.status === 400 ? 'BadRequest' : 'InvalidOrder',
+      code:
+        err.status === 404 ? 'NotFound' : err.status === 400 ? 'BadRequest' : err.status === 503 ? 'ExchangeNotAvailable' : 'InvalidOrder',
       message: err.message,
       intafacedCode: err.code,
       ...err.detail,
@@ -66,6 +68,14 @@ export function agentAccountReply(reply: FastifyReply, err: unknown) {
     });
   }
   return venueRefusalReply(reply, err);
+}
+
+/** The `intafacedCode` `agentAccountReply` answers `err` with, for the Activity's row (#11); `null` when it names none. */
+export function refusalCodeOf(err: unknown): string | null {
+  if (err instanceof AgentAccountError || err instanceof UserVenueDoorError || err instanceof StepUpCheckError) return err.code;
+  if (err instanceof AgentVenueRefusal || err instanceof VenueRefusalError) return `trade.venue.${err.refusal.code}`;
+  if (err instanceof VenueWireError) return 'trade.venue_request_invalid';
+  return null;
 }
 
 export function attachAgentAccountRoutes(
@@ -221,15 +231,7 @@ export function attachAgentAccountRoutes(
       await recordOrderCall(req, principal, { clientOrderId, venueOrderId: view.order?.venueOrderId ?? null, code: null });
       return reply.code(view.state === 'accepted' ? 200 : 202).send(encodeVenueWire(view));
     } catch (error) {
-      const code =
-        error instanceof AgentAccountError
-          ? error.code
-          : error instanceof AgentVenueRefusal
-            ? `trade.venue.${error.refusal.code}`
-            : error instanceof UserVenueDoorError
-              ? error.code
-              : null;
-      await recordOrderCall(req, principal, { clientOrderId, venueOrderId: null, code });
+      await recordOrderCall(req, principal, { clientOrderId, venueOrderId: null, code: refusalCodeOf(error) });
       return agentAccountReply(reply, error);
     }
   });
