@@ -81,6 +81,7 @@ import { RUN_FILE, journeyTouch, namedInputs, namedJourneyIds, pathKind, printab
 import { SUBSCRIBES, builtMap, loadMap, newerMap, runsBehind } from './journey-reach-map.mjs';
 import { groupPulls, isJudgeDown, mergedNothingToSeal, requiredChecks, reviewRan } from './review-marker.mjs';
 import { DEFER_MARK, TOUCH_JOB } from './main-first.mjs';
+import { httpMessage, titleFor } from './api-budget.mjs';
 
 export const JOURNEYS_WORKFLOW = '.github/workflows/real-app-journeys.yml';
 const SHA40 = /^[0-9a-f]{40}$/;
@@ -646,7 +647,7 @@ async function api(path, token, { raw = false } = {}) {
     headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json' },
     redirect: 'follow',
   });
-  if (!res.ok) throw new Error(`GET ${path}: HTTP ${res.status}`);
+  if (!res.ok) throw new Error(httpMessage(path, res));
   return raw ? Buffer.from(await res.arrayBuffer()) : res.json();
 }
 
@@ -2387,6 +2388,6 @@ async function main() {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href)
   main().catch((e) => {
-    console.error(`::error title=Named journey steps unreadable::${e.message}; the seal fails closed`);
+    console.error(`::error title=${titleFor(e.message, 'Named journey steps unreadable')}::${e.message}; the seal fails closed`);
     process.exit(1);
   });

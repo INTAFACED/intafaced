@@ -49,6 +49,7 @@ import {
 import { roomOf } from './look-baselines.mjs';
 import { AUTO_REVERT_AUTHOR, AUTO_REVERT_BRANCH } from './journey-seal.mjs';
 import { exactReverse, revertTreeMatches } from './exact-revert.mjs';
+import { isBudgetResponse, budgetLine, titleFor } from './api-budget.mjs';
 
 /** The largest diff one reviewer call is given; a larger one is reviewed in parts of at most this size (splitDiff). */
 export const MAX_DIFF_BYTES = 400_000;
@@ -478,7 +479,10 @@ async function getText(path, accept) {
     signal: AbortSignal.timeout(60_000),
   });
   const text = await res.text();
-  if (res.status === 403 || res.status === 429) throw new Error(`GitHub ${res.status} on GET ${path}: stopping, not retrying`);
+  if (res.status === 403 || res.status === 429)
+    throw new Error(
+      `GitHub ${res.status} on GET ${path}: stopping, not retrying${isBudgetResponse(res) ? `; ${budgetLine(res.headers.get('x-ratelimit-reset'))}` : ''}`,
+    );
   return { status: res.status, text };
 }
 
@@ -882,6 +886,7 @@ async function main() {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href)
   main().catch((e) => {
-    console.error(`::error::ci-review: ${e.message}`);
+    const title = titleFor(e.message, '');
+    console.error(`::error${title ? ` title=${title}` : ''}::ci-review: ${e.message}`);
     process.exit(1);
   });
