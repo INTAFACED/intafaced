@@ -316,6 +316,7 @@ test(`${J} #3 adds text at the chosen point, with the font size and colour chose
   // waited for on the canvas, and both must land.
   await expect.poll(async () => (await paintedText())?.font ?? '').toMatch(/(^|\s)18px\s/);
   const down = await token('--if-down');
+  expect(down, 'the Down colour token').not.toBe('');
   await expect.poll(async () => (await paintedText())?.colour ?? '').toBe(down);
   await expect(pointText(row)).toHaveText(stored);
 });
