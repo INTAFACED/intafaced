@@ -35,7 +35,7 @@ const source = (page) => page.getByTestId('chart-source').first();
 const host = (page) => page.getByTestId('cw').getByTestId('wc-host').first();
 const tradeButton = (page) => page.locator('button[data-testid="cw-link"]').first();
 /** The chart page's own market control, labelled "Market" in its header. */
-const marketControl = (page) => page.getByLabel('Market', { exact: true }).first();
+const marketControl = (page) => page.getByTestId('cw-market').first();
 
 /** The owner values for one market, from svc-trade's public read (the chart reads the same route). */
 async function ownerValues(symbol = BTC) {

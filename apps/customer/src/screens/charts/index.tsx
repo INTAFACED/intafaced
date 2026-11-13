@@ -47,7 +47,7 @@ function MarketSelect({
   return (
     <label className="cw-select">
       <span>{label}</span>
-      <select value={value} onChange={(event) => onChoose(event.target.value)}>
+      <select data-testid="cw-market" value={value} onChange={(event) => onChoose(event.target.value)}>
         {markets.map((market) => (
           <option key={market.symbol} value={market.symbol}>
             {market.symbol}
