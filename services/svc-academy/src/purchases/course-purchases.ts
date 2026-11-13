@@ -267,12 +267,15 @@ export class CoursePurchases {
     return this.staffRead(input.key);
   }
 
-  /** Every open purchase, read against the chain and the ledger once. Errors stay on their row; the next pass retries. */
-  async reconcile(limit = 100): Promise<number> {
+  /**
+   * Every open purchase, read against the chain and the ledger once. One row's error does not stop the others: it is
+   * reported to `onError` with the purchase key, the row stays where it is, and the next pass retries it.
+   */
+  async reconcile(limit = 100, onError: (key: string, err: unknown) => void = () => undefined): Promise<number> {
     const rows = await this.sql<PurchaseRow[]>`
       SELECT * FROM academy.course_purchases WHERE state IN ${this.sql(OPEN_STATES)} ORDER BY updated_at LIMIT ${limit}
     `;
-    for (const row of rows) await this.reconcileRow(row).catch(() => undefined);
+    for (const row of rows) await this.reconcileRow(row).catch((err: unknown) => onError(row.purchase_key, err));
     return rows.length;
   }
 
@@ -331,7 +334,11 @@ export class CoursePurchases {
         UPDATE academy.course_purchases SET state = 'submitted', tx_hash = ${transfer.txHash}, updated_at = now()
          WHERE id = ${row.id} AND state = 'awaiting_signature'
         RETURNING *
-      `.catch(() => [] as PurchaseRow[]);
+      `.catch((err: unknown) => {
+        // Another purchase took this hash between the read and the write: it is not this payment. Anything else stops.
+        if ((err as { code?: string }).code === '23505') return [] as PurchaseRow[];
+        throw err;
+      });
       return moved ?? (await this.reread(row));
     }
     return row;

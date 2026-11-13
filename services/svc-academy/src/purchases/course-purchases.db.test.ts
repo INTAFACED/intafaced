@@ -311,6 +311,21 @@ describe('course purchases', () => {
     expect(await grants()).toEqual([]);
   });
 
+  it('one purchase whose read fails is reported with its key; the others still move', async () => {
+    await paidCourse();
+    await purchases.buy({ userId: L, slug: 'perps-101', wallet: WALLET });
+    await purchases.submitPayment({ userId: L, key: KEY, txHash: PAY });
+    const broken = chain.transaction.bind(chain);
+    chain.transaction = async () => {
+      throw new Error('the node answered nonsense');
+    };
+    const failed: string[] = [];
+    expect(await purchases.reconcile(100, (key) => failed.push(key))).toBe(1);
+    expect(failed).toEqual([KEY]);
+    chain.transaction = broken;
+    expect((await rows())[0]!.state).toBe('submitted');
+  });
+
   it('an unreadable node is not "no payment": the purchase stays where it was', async () => {
     await paidCourse();
     await purchases.buy({ userId: L, slug: 'perps-101', wallet: WALLET });

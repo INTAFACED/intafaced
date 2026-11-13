@@ -2641,9 +2641,9 @@ export class AcademyService {
     return this.coursePurchases.refund(input);
   }
 
-  /** Every open purchase, read against the chain and the ledger once. */
-  reconcileCoursePurchases() {
-    return this.coursePurchases.reconcile();
+  /** Every open purchase, read against the chain and the ledger once; a row's error goes to `onError` with its key. */
+  reconcileCoursePurchases(onError?: (key: string, err: unknown) => void) {
+    return this.coursePurchases.reconcile(100, onError);
   }
 
   /** AC-videos-02: an item's uploads, captions and the owner's upload limits. */

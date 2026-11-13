@@ -344,7 +344,9 @@ const purchaseSweep =
     : setInterval(() => {
         if (reconciling) return;
         reconciling = academy
-          .reconcileCoursePurchases()
+          .reconcileCoursePurchases((key, err) =>
+            app.log.error({ err, key }, 'purchase reconcile failed on one purchase; the next pass retries it'),
+          )
           .then(
             () => undefined,
             (err: unknown) => app.log.error({ err }, 'purchase reconcile failed; the next pass retries'),

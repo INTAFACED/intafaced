@@ -165,7 +165,7 @@ function expectPrice(tx) {
   expect(tx.postings.length).toBeGreaterThanOrEqual(2);
   for (const p of tx.postings) {
     expect(p.assetId).toBe(ASSET);
-    expect(Number.isNaN(Number(p.amount))).toBe(false);
+    expect(p.amount).toMatch(/^\d+(\.\d+)?$/);
     expect(p.amount.replace(/\.?0+$/, '')).toBe(PRICE);
   }
 }
