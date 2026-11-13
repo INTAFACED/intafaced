@@ -53,88 +53,79 @@ export function LeadDesk({ api }: { api: RoomApi }) {
 
   return (
     <>
-      <section aria-label={t('Your earnings')}>
-        <PageSection title={t('Your earnings')} headingLevel={2}>
-          {earnings.status === 'error' && earnings.failure ? <RefusalNote failure={earnings.failure} retry={earnings.reload} /> : null}
-          <InfoNote>{data?.profitShare ?? t('Leaders are paid a share of the trading fee only, never a share of profit.')}</InfoNote>
-          <KeyValue
-            items={[
-              { label: t('Fee share earned'), value: earned },
-              {
-                label: t('Leader’s share of the fee'),
-                value: data
-                  ? data.leaderShareBps === null
-                    ? t('Not approved')
-                    : (bpsText(data.leaderShareBps) ?? t('Not approved'))
-                  : null,
-              },
-              { label: t('Profit share'), value: t('Not offered') },
-            ]}
-          />
-          <Table
-            label={t('Fee share history')}
-            columns={columns}
-            rows={data?.items ?? []}
-            getRowId={(r) => `${r.followId}:${r.fillId}`}
-            status={earnings.status === 'loading' ? 'loading' : earnings.status === 'error' ? 'error' : 'ready'}
-            onRetry={earnings.reload}
-            minWidth={720}
-            emptyState={
-              <EmptyState
-                size="inline"
-                title={t('No fee share recorded')}
-                reason={t('A row appears here for each copied fill whose trading fee you share.')}
-              />
-            }
-          />
-          <form
-            className="cb-action-row"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void askShare();
-            }}
-          >
-            <Field label={t('Profit share, %')}>
-              <Input kind="decimal" value={percent} onValueChange={setPercent} precision={18} autoComplete="off" />
-            </Field>
-            <Button type="submit" variant="secondary">
-              {t('Set a profit share')}
-            </Button>
-          </form>
-          {shareRefusal ? <RefusalNote failure={shareRefusal} /> : null}
-        </PageSection>
-      </section>
-
-      <section aria-label={t('Your level')}>
-        <PageSection title={t('Your level')} headingLevel={2}>
-          {level.status === 'error' && level.failure ? <RefusalNote failure={level.failure} retry={level.reload} /> : null}
-          <KeyValue
-            items={[
-              {
-                label: t('Level'),
-                value: level.data ? (level.data.level ?? t('Not set: the platform has not published level thresholds')) : null,
-              },
-              { label: t('Listing'), value: level.data ? (level.data.leaderRef ?? t('You are not a listed leader')) : null },
-            ]}
-          />
-          <p className="muted">{t('Maximum ratio: not set by the platform')}</p>
-          <form
-            className="cb-action-row"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void askRatio();
-            }}
-          >
-            <Field label={t('Maximum ratio')}>
-              <Input kind="decimal" value={ratio} onValueChange={setRatio} precision={18} autoComplete="off" />
-            </Field>
-            <Button type="submit" variant="secondary">
-              {t('Set a maximum ratio')}
-            </Button>
-          </form>
-          {ratioRefusal ? <RefusalNote failure={ratioRefusal} /> : null}
-        </PageSection>
-      </section>
+      <PageSection title={t('Your earnings')} headingLevel={2}>
+        {earnings.status === 'error' && earnings.failure ? <RefusalNote failure={earnings.failure} retry={earnings.reload} /> : null}
+        <InfoNote>{data?.profitShare ?? t('Leaders are paid a share of the trading fee only, never a share of profit.')}</InfoNote>
+        <KeyValue
+          items={[
+            { label: t('Fee share earned'), value: earned },
+            {
+              label: t('Leader’s share of the fee'),
+              value: data ? (data.leaderShareBps === null ? t('Not approved') : (bpsText(data.leaderShareBps) ?? t('Not approved'))) : null,
+            },
+            { label: t('Profit share'), value: t('Not offered') },
+          ]}
+        />
+        <Table
+          label={t('Fee share history')}
+          columns={columns}
+          rows={data?.items ?? []}
+          getRowId={(r) => `${r.followId}:${r.fillId}`}
+          status={earnings.status === 'loading' ? 'loading' : earnings.status === 'error' ? 'error' : 'ready'}
+          onRetry={earnings.reload}
+          minWidth={720}
+          emptyState={
+            <EmptyState
+              size="inline"
+              title={t('No fee share recorded')}
+              reason={t('A row appears here for each copied fill whose trading fee you share.')}
+            />
+          }
+        />
+        <form
+          className="cb-action-row"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void askShare();
+          }}
+        >
+          <Field label={t('Profit share, %')}>
+            <Input kind="decimal" value={percent} onValueChange={setPercent} precision={18} autoComplete="off" />
+          </Field>
+          <Button type="submit" variant="secondary">
+            {t('Set a profit share')}
+          </Button>
+        </form>
+        {shareRefusal ? <RefusalNote failure={shareRefusal} /> : null}
+      </PageSection>
+      <PageSection title={t('Your level')} headingLevel={2}>
+        {level.status === 'error' && level.failure ? <RefusalNote failure={level.failure} retry={level.reload} /> : null}
+        <KeyValue
+          items={[
+            {
+              label: t('Level'),
+              value: level.data ? (level.data.level ?? t('Not set: the platform has not published level thresholds')) : null,
+            },
+            { label: t('Listing'), value: level.data ? (level.data.leaderRef ?? t('You are not a listed leader')) : null },
+          ]}
+        />
+        <p className="muted">{t('Maximum ratio: not set by the platform')}</p>
+        <form
+          className="cb-action-row"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void askRatio();
+          }}
+        >
+          <Field label={t('Maximum ratio')}>
+            <Input kind="decimal" value={ratio} onValueChange={setRatio} precision={18} autoComplete="off" />
+          </Field>
+          <Button type="submit" variant="secondary">
+            {t('Set a maximum ratio')}
+          </Button>
+        </form>
+        {ratioRefusal ? <RefusalNote failure={ratioRefusal} /> : null}
+      </PageSection>
     </>
   );
 }
