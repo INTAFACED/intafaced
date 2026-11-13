@@ -342,7 +342,7 @@ function TokenTiers({ tokens, read, reload }: { tokens: TrustRead['tokens']; rea
       {subject && (
         <form
           className="dk-stack"
-          aria-label={setting ? 'Tier request' : 'Tier removal'}
+          aria-label={setting ? 'Second approval request' : 'Removal request'}
           onSubmit={(e) => {
             e.preventDefault();
             void send(setting ? { op: 'tier-ask', token: setting, tier, reason } : { op: 'tier-remove', token: removing, reason }).then(
