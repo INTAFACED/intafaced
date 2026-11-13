@@ -238,7 +238,9 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
   const filled = useFilledOrders(owner, filledIds, account.openOrders.data?.value ?? null, cancelledKeys);
   // The owner's market price protection, as svc-trade answers it with the venue's best prices; blank refuses a market order.
   const cap = best.data?.slippageCapBps ?? null;
-  const capSet = cap?.known === true;
+  // A market order needs both owner values: the price protection and the spread limit. Either blank: "protection not set".
+  const spreadSet = best.data?.spreadLimitBps?.known === true;
+  const capSet = cap?.known === true && spreadSet;
 
   const fee = (m: VenueMarket['makerFeeBps']) => (m.known ? v('Fee bps', { bps: m.value }) : v('Not known'));
   const feeLine = v('Fee line spot', {
@@ -744,7 +746,7 @@ function VenueSideForm({
         ) : !owner ? (
           <p className="dk-note">{t('Connect to trade')}</p>
         ) : issue === 'no_cap' && type === 'market' ? (
-          <p className="dk-note" data-code="trade.slippage_cap_unset">
+          <p className="dk-note" data-code={protectionBps !== null ? 'trade.spread_limit_unset' : 'trade.slippage_cap_unset'}>
             {t('No price protection')}
           </p>
         ) : tagBad ? (

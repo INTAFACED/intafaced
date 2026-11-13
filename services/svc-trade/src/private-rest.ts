@@ -211,6 +211,8 @@ export interface PrivateRestDeps {
   userVenue?: UserVenueRouter | null;
   /** The owner's market price protection, TRADE_MARKET_SLIPPAGE_CAP_BPS (null when blank), as `/venue/best-prices` answers it. */
   userVenueSlippageCapBps?: number | null;
+  /** The owner's spread limit for a venue spot market order, TRADE_MARKET_SPREAD_LIMIT_BPS (null when blank). */
+  userVenueSpreadLimitBps?: number | null;
   /** J-agents-21's agent account beside the door (src/venue/agent-account.ts); null when the door is off. */
   agentAccounts?: AgentAccounts | null;
   /** The assistant's trade path on its agent account (J-agents-21 #6 #7 #10). Off with the door. */
@@ -1378,6 +1380,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       return decision.allowed ? null : { code: decision.code, message: decision.reason };
     },
     slippageCapBps: deps.userVenueSlippageCapBps ?? null,
+    spreadLimitBps: deps.userVenueSpreadLimitBps ?? null,
     sellQuotes: deps.venueSellQuotes ?? null,
     agentKeyConfined,
   });

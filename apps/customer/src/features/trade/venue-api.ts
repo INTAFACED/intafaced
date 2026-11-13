@@ -150,7 +150,11 @@ export type VenueSession = Extract<VenueMarket['session'], { known: true }>['val
 export const venueBestPricesSchema = z.object({ symbol: z.string(), bid: decimalSchema.nullable(), ask: decimalSchema.nullable() });
 export type VenueBestPrices = z.infer<typeof venueBestPricesSchema>;
 /** The venue's best prices with the owner's market price protection (TRADE_MARKET_SLIPPAGE_CAP_BPS) svc-trade adds: blank is not known. */
-export const venueBestPricesReadSchema = asOf(venueBestPricesSchema).extend({ slippageCapBps: maybeKnown(decimalSchema) });
+export const venueBestPricesReadSchema = asOf(venueBestPricesSchema).extend({
+  slippageCapBps: maybeKnown(decimalSchema),
+  // The owner's spread limit for a spot market order (J-cex-spot-03 #2); absent from an older door: read as not set.
+  spreadLimitBps: maybeKnown(decimalSchema).optional(),
+});
 
 export const venueBalanceSchema = z.object({ asset: z.string(), free: decimalSchema, locked: decimalSchema, total: decimalSchema });
 export type VenueBalance = z.infer<typeof venueBalanceSchema>;

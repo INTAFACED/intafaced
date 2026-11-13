@@ -1,7 +1,7 @@
-// World: book, gates, restart, stack
+// World: book, market, gates, restart, stack
 import { randomBytes } from 'node:crypto';
 import { test, expect } from './journey.mjs';
-import { ORIGIN, api, bestPrices, fromUnits, fund, journeyState, restartWith, toUnits } from './stack.mjs';
+import { ORIGIN, api, bestPrices, fromUnits, fund, journeyState, restartWith, toUnits, tool } from './stack.mjs';
 import {
   awayBid as engineAwayBid,
   confirm,
@@ -240,23 +240,29 @@ async function awayBid() {
   return fromUnits((bid / 2n / ONE) * ONE);
 }
 
-/** The trade lane restarted with the owner's price protection blank (or put back), the venue door kept on. */
-function protection(on) {
+/**
+ * The owner values a venue spot market order needs, each blanked on a restart (tooling/scripts/local-stack-services/
+ * trade.mjs): the price protection and the spread limit. Either blank refuses with "protection not set".
+ */
+const PRICE_PROTECTION = { env: 'LOCAL_STACK_TRADE_SLIPPAGE_CAP', code: 'trade.slippage_cap_unset' };
+const SPREAD_LIMIT = { env: 'LOCAL_STACK_TRADE_SPREAD_LIMIT', code: 'trade.spread_limit_unset' };
+
+/** The trade lane restarted with one owner value blank (or put back), the venue door kept on. */
+function ownerValue(setting, on) {
   const before = process.env.LOCAL_STACK_USER_VENUE;
   process.env.LOCAL_STACK_USER_VENUE = 'on';
   try {
-    restartWith('trade', 'LOCAL_STACK_TRADE_SLIPPAGE_CAP', on);
+    restartWith('trade', setting.env, on);
   } finally {
     if (before === undefined) delete process.env.LOCAL_STACK_USER_VENUE;
     else process.env.LOCAL_STACK_USER_VENUE = before;
   }
 }
 
-/** With the owner's protection blank: the market ticket on `side` is off with the true reason, and nothing is sent. */
-async function marketOffWithoutProtection(earlier, side) {
-  test.setTimeout(480_000);
+/** With one owner value blank: the market ticket on `side` is off with the true reason, and nothing is sent. */
+async function marketOffWithoutProtection(earlier, side, setting = PRICE_PROTECTION) {
   try {
-    protection(false);
+    ownerValue(setting, false);
     // A fresh page after the restart, as the person would open it.
     const page = await earlier.context().newPage();
     const { wallet, owner, account } = await desk(page);
@@ -265,7 +271,7 @@ async function marketOffWithoutProtection(earlier, side) {
     const form = side === 'buy' ? buyForm(page) : sellForm(page);
     await orderTab(page, 'Market').click();
     await form.getByRole('textbox', { name: 'Amount' }).fill('0.001');
-    const note = form.locator('[data-code="trade.slippage_cap_unset"]');
+    const note = form.locator(`[data-code="${setting.code}"]`);
     await expect(note).toContainText('protection not set', { timeout: 30_000 });
     const button = form.getByRole('button', { name: side === 'buy' ? 'Buy BTC' : 'Sell BTC' });
     await expect(button).toBeDisabled();
@@ -290,12 +296,12 @@ async function marketOffWithoutProtection(earlier, side) {
       },
     });
     expect(refused.status, JSON.stringify(refused.body)).toBeGreaterThanOrEqual(400);
-    expect(JSON.stringify(refused.body)).toContain('trade.slippage_cap_unset');
+    expect(JSON.stringify(refused.body)).toContain(setting.code);
     await page.waitForTimeout(500);
     expect(sent).toEqual([]);
     expect(wallet.requests.length).toBe(asked);
   } finally {
-    protection(true);
+    ownerValue(setting, true);
   }
 }
 
@@ -404,8 +410,11 @@ test(`${J} #2 reviews the market buy: the fee and the price protection show befo
   // The ledger posts nothing.
   expect(await (await api(account)).balances()).toEqual(ledgerBefore);
 
-  // With the protection blank, the market buy is refused with "protection not set" and nothing is sent.
-  await marketOffWithoutProtection(page, 'buy');
+  // With the price protection blank, and then the spread limit blank, the market buy is refused with "protection not set"
+  // and nothing is sent.
+  test.setTimeout(900_000);
+  await marketOffWithoutProtection(page, 'buy', PRICE_PROTECTION);
+  await marketOffWithoutProtection(page, 'buy', SPREAD_LIMIT);
 });
 
 test(`${J} #3 asks for a market sell: offered where the protection is published, it fills no lower than it; with no protection the control is off with a true reason`, async ({
@@ -451,7 +460,8 @@ test(`${J} #3 asks for a market sell: offered where the protection is published,
   expect(toUnits(after.btc.locked)).toBe(0n);
 
   // Where no protection is published, the market sell is off with that reason.
-  await marketOffWithoutProtection(page, 'sell');
+  test.setTimeout(600_000);
+  await marketOffWithoutProtection(page, 'sell', PRICE_PROTECTION);
 });
 
 test(`${J} #4 sends an immediate-or-cancel buy with nothing to match: it ends without resting, says nothing traded, and the venue's lock is released; types the venue doesn't offer sign nothing`, async ({
@@ -502,7 +512,21 @@ test(`${J} #5 sends a fill-or-kill buy bigger than the book: nothing fills, the 
     if (cost > freeUsdt) fund(who.email, 'USDT', fromUnits(((cost - freeUsdt) / toUnits('1')) * toUnits('1') + toUnits('100')));
     const before = await (await api(who)).balances();
     await openDesk(enginePage, who);
-    const sent = await engineLimitBuy(enginePage, { tif: 'Fill or kill', price: ask, amount });
+    // The TEST maker's quotes held where they rest (local-test-market.mjs hold), so the resting sells can be compared level
+    // for level after the order; released however the step ends.
+    tool('local-test-market.mjs', 'hold', 'BTC/USDT');
+    let asksBefore;
+    let asksAfter;
+    let sent;
+    try {
+      asksBefore = (await bestPrices()).body.asks;
+      sent = await engineLimitBuy(enginePage, { tif: 'Fill or kill', price: ask, amount });
+      await expect(buyForm(enginePage)).toContainText('Fill-or-kill order not placed');
+      asksAfter = (await bestPrices()).body.asks;
+    } finally {
+      tool('local-test-market.mjs', 'release', 'BTC/USDT');
+    }
+    expect(asksAfter, 'the resting sells stay, level for level').toEqual(asksBefore);
     expect(sent).toMatchObject({ type: 'limit', timeInForce: 'FOK', postOnly: false });
     await expect(buyForm(enginePage)).toContainText('Fill-or-kill order not placed');
     await expect(buyForm(enginePage)).toContainText('nothing was traded');

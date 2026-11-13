@@ -176,6 +176,8 @@ export type UserVenueDoorCode =
   | 'trade.venue_builder_fee_changed'
   | 'trade.venue_action_unknown'
   | 'trade.venue.price_outside_protection'
+  // A venue market order on a book whose spread is wider than the owner's spread limit (J-cex-spot-03 #2).
+  | 'trade.venue.spread_too_wide'
   | 'trade.venue_agent_account_only'
   | 'trade.venue_action_other_venue'
   | 'trade.venue_unknown'
@@ -340,6 +342,12 @@ export interface UserVenueDoorDeps {
    * worst price past the bound refuses `trade.venue.price_outside_protection`. Never a default.
    */
   readonly slippageCapBps: number | null;
+  /**
+   * The owner's spread limit for a spot market order in basis points (TRADE_MARKET_SPREAD_LIMIT_BPS), or null/absent when
+   * blank: blank refuses `trade.spread_limit_unset`, and a venue spread wider than it refuses `trade.venue.spread_too_wide`,
+   * on preview and on prepare, before anything is prepared. Never a default.
+   */
+  readonly spreadLimitBps?: number | null;
   /** The builder-fee book of the fee schedule version in force at `at` (null: none, the boot `builder` fee applies). */
   readonly builderFeesAt?: (at: Date) => Promise<BuilderFeeBook | null>;
   readonly now: () => Date;
@@ -347,6 +355,22 @@ export interface UserVenueDoorDeps {
   readonly listings: VenueRoutingGate;
   /** Owner value: the largest page of `GET /api/v1/venue/orders`. Null (blank) refuses every list. */
   readonly ordersPageMax?: number | null;
+}
+
+/** The owner's spread limit, or `trade.spread_limit_unset` ("protection not set") when blank or not an integer 1–5000. */
+export function requireMarketSpreadLimitBps(bps: number | null | undefined): number {
+  if (bps == null || !Number.isInteger(bps) || bps < 1 || bps > 5000)
+    throw new TradeError(
+      'protection not set: the owner spread limit for a market order (TRADE_MARKET_SPREAD_LIMIT_BPS) is unset; place a limit order',
+      'trade.spread_limit_unset',
+    );
+  return bps;
+}
+
+/** The venue's best ask is further above its best bid than `limitBps` of the bid. A missing side is never "within". */
+export function spreadTooWide(best: Pick<VenueBestPrices, 'bid' | 'ask'>, limitBps: number): boolean {
+  if (best.bid === null || best.ask === null || best.bid <= 0n) return false;
+  return (best.ask - best.bid) * 10_000n > best.bid * BigInt(limitBps);
 }
 
 /**
@@ -573,8 +597,16 @@ export class UserVenueDoor {
     const market = await this.market(venue, intent.symbol);
     if (market.kind !== 'spot') return;
     const cap = requireMarketSlippageCapBps(this.deps.slippageCapBps);
+    const spreadLimit = requireMarketSpreadLimitBps(this.deps.spreadLimitBps);
     if (typeof intent.price !== 'bigint') invalid('a market order carries its worst price as a decimal string');
     const best = venue.bestPrices ? (await venue.bestPrices(intent.symbol)).value : null;
+    if (best && spreadTooWide(best, spreadLimit)) {
+      throw new UserVenueDoorError(
+        `the venue's spread on ${intent.symbol} (bid ${formatAmount(best.bid!)}, ask ${formatAmount(best.ask!)}) is wider than the owner's spread limit of ${spreadLimit} bps; no market order is prepared, place a limit order`,
+        'trade.venue.spread_too_wide',
+        422,
+      );
+    }
     const bound = best ? marketProtectionBound(intent.side, best, cap, market.tickSize) : null;
     if (bound === null) {
       throw new TradeError(
