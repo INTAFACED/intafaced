@@ -30,7 +30,7 @@ interface Row {
   readonly cap: string | null;
   readonly accountStatus: string | null;
   readonly balance: Known<string>;
-  readonly keyState: 'live' | 'revoked' | 'unknown';
+  readonly keyState: 'live' | 'revoked' | 'missing' | 'unknown';
   readonly lastAction: Known<{ at: string; method: string; path: string; status: number } | null>;
   readonly quarantine: Quarantine | null;
 }
@@ -58,7 +58,7 @@ interface Audit {
   readonly handlesUnread: boolean;
 }
 
-const KEY_WORD: Record<Row['keyState'], string> = { live: 'Live', revoked: 'Revoked', unknown: 'Not read' };
+const KEY_WORD: Record<Row['keyState'], string> = { live: 'Live', revoked: 'Revoked', missing: 'Not found', unknown: 'Not read' };
 const WORDS: Record<string, string> = {
   'agents.desk_reason_required': 'A reason is required.',
   'agents.desk_request_invalid': 'This request is not valid. Try again.',

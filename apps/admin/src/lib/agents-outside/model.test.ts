@@ -17,6 +17,12 @@ describe('parseOutsideAction (J-agents-21 #15)', () => {
     });
   });
 
+  it('a reason under 3 characters is null, so it is refused before identity revokes anything', () => {
+    expect(parseOutsideAction({ action: 'quarantine', keyId: KEY, reason: 'ab', requestId: 'agents-outside:q:1' })).toMatchObject({
+      reason: null,
+    });
+  });
+
   it('passes a missing reason on as null, so the services refuse it by their own code', () => {
     expect(parseOutsideAction({ action: 'quarantine', keyId: KEY, reason: '  ', requestId: 'agents-outside:q:1' })).toMatchObject({
       reason: null,

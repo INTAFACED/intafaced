@@ -153,4 +153,16 @@ describe('AgentDesk (J-agents-21 #15)', () => {
     expect(audit.rows).toHaveLength(0);
     expect(await connections.active(KEY)).not.toBeNull();
   });
+
+  it('names the person of one key, by its newest connection, for the console to revoke at identity', async () => {
+    const { desk } = await setup();
+    expect(await desk.connection(KEY.toUpperCase())).toEqual({ keyId: KEY, userId: USER, accountId: ACCOUNT });
+    await expect(desk.connection(OTHER_KEY)).rejects.toMatchObject({ code: 'agents.key_not_connected' });
+    await expect(desk.connection('nope')).rejects.toMatchObject({ code: 'agents.desk_request_invalid' });
+  });
+
+  it('reads a key identity has no record of as missing, apart from a revoked one', async () => {
+    const { desk } = await setup({ keys: { read: async () => ({ state: 'none' }) } });
+    expect((await desk.connections()).rows[0]?.keyState).toBe('missing');
+  });
 });

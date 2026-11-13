@@ -60,8 +60,8 @@ export interface AgentDeskConnectionRow {
   readonly accountStatus: string | null;
   /** The agent account's total in its asset, as the venue reports it. */
   readonly balance: AgentDeskKnown<string>;
-  /** `live`, `revoked` (or past its end date), `unknown` when identity could not be asked. */
-  readonly keyState: 'live' | 'revoked' | 'unknown';
+  /** `live`, `revoked` (or past its end date), `missing` when identity has no such key, `unknown` when it could not be asked. */
+  readonly keyState: 'live' | 'revoked' | 'missing' | 'unknown';
   /** The key's newest call, as the edge logged it. `null`: no call yet. */
   readonly lastAction: AgentDeskKnown<{
     readonly at: string;
@@ -144,13 +144,22 @@ export class AgentDesk {
       cap: account ? formatAmount(account.cap) : null,
       accountStatus: account?.status ?? null,
       balance,
-      keyState: key === null ? 'unknown' : key.state === 'found' && !key.revoked ? 'live' : 'revoked',
+      keyState: key === null ? 'unknown' : key.state === 'none' ? 'missing' : key.revoked ? 'revoked' : 'live',
       lastAction:
         calls === null
           ? { known: false }
           : { known: true, value: newest && { at: newest.at, method: newest.method, path: newest.path, status: newest.status } },
       quarantine: q ? quarantineView(q) : null,
     };
+  }
+
+  /** The key's newest connection and whose it is, or the typed refusal: what the console revokes at identity first. */
+  async connection(keyIdRaw: string): Promise<{ readonly keyId: string; readonly userId: string; readonly accountId: string }> {
+    const keyId = keyIdRaw.trim().toLowerCase();
+    if (!UUID_RE.test(keyId)) throw new AgentAccountError('agents.desk_request_invalid', 'keyId must be a UUID', 400);
+    const c = await this.deps.connections.latest(keyId);
+    if (!c) throw new AgentAccountError('agents.key_not_connected', `API key ${keyId} trades no agent account`, 404);
+    return { keyId: c.keyId, userId: c.userId, accountId: c.accountId };
   }
 
   /**

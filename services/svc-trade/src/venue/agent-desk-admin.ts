@@ -28,6 +28,9 @@ export function agentDeskAdminRouter(desk?: AgentDesk | null) {
     agentDesk: router({
       connections: scopedProcedure('admin:read').query(() => ready().connections().catch(fail)),
       audit: scopedProcedure('admin:read').query(() => ready().audit().catch(fail)),
+      connection: scopedProcedure('admin:read')
+        .input(z.object({ keyId: z.string().max(64) }).strict())
+        .query(({ input }) => ready().connection(input.keyId).catch(fail)),
       quarantine: scopedProcedure('admin:write')
         .input(z.object({ keyId: z.string().max(64), reason: z.string().max(600), requestId: z.string().max(256) }).strict())
         .mutation(({ ctx, input }) => ready().quarantine(ctx.principal, input).catch(fail)),

@@ -35,7 +35,7 @@ const isRow = (v: unknown): v is Json =>
   nullableString(v.cap) &&
   nullableString(v.accountStatus) &&
   isKnown(v.balance) &&
-  (v.keyState === 'live' || v.keyState === 'revoked' || v.keyState === 'unknown') &&
+  (v.keyState === 'live' || v.keyState === 'revoked' || v.keyState === 'missing' || v.keyState === 'unknown') &&
   isKnown(v.lastAction) &&
   isQuarantine(v.quarantine);
 
@@ -48,6 +48,8 @@ const isAuditRow = (v: unknown): v is Json =>
 const parseAudit = (raw: unknown): Json | null =>
   isObject(raw) && Array.isArray(raw.rows) && raw.rows.every(isAuditRow) && Number.isInteger(raw.limit) ? raw : null;
 const parseAny = (raw: unknown): Json | null => (isObject(raw) ? raw : null);
+const parseOwner = (raw: unknown): { keyId: string; userId: string } | null =>
+  isObject(raw) && isString(raw.keyId) && isString(raw.userId) ? { keyId: raw.keyId, userId: raw.userId } : null;
 
 export async function runOutside(ctx: FounderCallContext, action: OutsideAction): Promise<FleetAnswer> {
   switch (action.action) {
@@ -70,17 +72,15 @@ export async function runOutside(ctx: FounderCallContext, action: OutsideAction)
     }
     case 'quarantine': {
       if (action.reason === null) return { kind: 'refused', code: 'agents.desk_reason_required', status: 400 };
-      // The person the key belongs to, from svc-trade's own record of the connection, never from the browser.
-      const listed = await founderCall(ctx, 'trade', 'admin.agentDesk.connections', 'GET', undefined, parseConnections);
-      if (listed.kind !== 'ok') return refusalOf(listed);
-      const row = (listed.data.rows as Json[]).find((r) => r.keyId === action.keyId);
-      if (!row) return { kind: 'refused', code: 'agents.key_not_connected', status: 404 };
+      // The person the key belongs to, from svc-trade's own record of the key's connection, never from the browser.
+      const owner = await founderCall(ctx, 'trade', 'admin.agentDesk.connection', 'GET', { keyId: action.keyId }, parseOwner);
+      if (owner.kind !== 'ok') return refusalOf(owner);
       const revoked = await founderCall(
         ctx,
         'identity',
         'apiKeyOps.revoke',
         'POST',
-        { userId: row.userId, keyId: action.keyId, reason: action.reason, clientRequestId: action.requestId },
+        { userId: owner.data.userId, keyId: action.keyId, reason: action.reason, clientRequestId: action.requestId },
         parseAny,
       );
       if (revoked.kind !== 'ok') return refusalOf(revoked);
