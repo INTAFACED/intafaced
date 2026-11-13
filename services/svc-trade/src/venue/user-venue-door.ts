@@ -112,6 +112,17 @@ export const AGENT_ACCOUNT_INTENTS: ReadonlySet<VenueIntent['kind']> = new Set<V
 /** How the agent account (agent-account.ts) calls the door for its own actions. */
 export interface DoorCaller {
   readonly agentAccount?: boolean;
+  /** Set only by a live strategy run (src/quant/live-run/live-runs.ts): its actions are stored under `algo:` keys. */
+  readonly liveRun?: boolean;
+}
+
+/** A live strategy run's keys (`algo:order:`, `algo:liquidate:`, `algo:stop:`, `algo:deploy:`): only the run stores or sends one. */
+export const LIVE_RUN_KEY_PREFIX = 'algo:';
+
+function assertLiveRunKey(key: string, caller: DoorCaller | undefined): void {
+  if (key.startsWith(LIVE_RUN_KEY_PREFIX) && !caller?.liveRun) {
+    throw new UserVenueDoorError(`the key ${key} belongs to a live strategy run`, 'trade.venue_live_run_only', 403);
+  }
 }
 
 /**
@@ -158,7 +169,7 @@ export const VENUE_WITHDRAW_STEP_UP_SCOPE = 'trade.step_up.venue.withdraw' as co
 
 /** Identity's step-up request id is at most 128 characters. */
 const STEP_UP_REQUEST_ID_MAX = 128;
-const BUSINESS_KEY_RE = /^[a-z][a-z0-9-]*:.+$/;
+const BUSINESS_KEY_RE = /^[a-z][a-z0-9.-]*:.+$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ADDRESS_RE = /^0x[0-9a-f]{40}$/;
 
@@ -177,6 +188,7 @@ export type UserVenueDoorCode =
   | 'trade.venue_action_unknown'
   | 'trade.venue.price_outside_protection'
   | 'trade.venue_agent_account_only'
+  | 'trade.venue_live_run_only'
   | 'trade.venue_action_other_venue'
   | 'trade.venue_unknown'
   | 'trade.venue_action_key_reserved'
@@ -786,6 +798,7 @@ export class UserVenueDoor {
     if (intent.kind === 'place_order') assertPlaceIntent(intent);
     const key = this.businessKey(intent, req.actionKey);
     assertDoorMay(intent.kind, caller, key);
+    assertLiveRunKey(key, caller);
     // The person's own sub-account keys are for its two intents only, never another action's.
     if (key.startsWith('own:') && !isOwnSubAccountKey(intent.kind, key)) {
       throw new UserVenueDoorError(
@@ -970,12 +983,18 @@ export class UserVenueDoor {
     return this.deps.store.find(principal.userId, actionKey);
   }
 
+  /** Every stored action of this person under keys starting `prefix`: what a revoke reads the assistant's orders by (#12). */
+  async storedByPrefix(principal: Principal, prefix: string): Promise<readonly StoredVenueAction[]> {
+    return this.deps.store.listByPrefix(principal.userId, prefix);
+  }
+
   async submit(principal: Principal, actionKey: string, signature: VenueSignature, caller?: DoorCaller): Promise<SubmitAnswer> {
     const key = (actionKey ?? '').trim();
     const row = await this.deps.store.find(principal.userId, key);
     if (!row)
       throw new UserVenueDoorError(`no prepared action under ${JSON.stringify(key)}: prepare it first`, 'trade.venue_action_unknown', 404);
     assertDoorMay(row.prepared.intent.kind, caller, key);
+    assertLiveRunKey(key, caller);
     assertInteractive(principal, row.prepared.intent.kind);
     // An action is only ever sent to the venue it was prepared for: with several venues behind the router, a key stored
     // for another venue is that venue's door's to send (venue-router.ts), never this one's.

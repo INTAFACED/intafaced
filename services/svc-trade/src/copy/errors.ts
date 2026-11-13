@@ -84,6 +84,7 @@ export type CopyErrorCode =
   | 'trade.copy_lead_application_not_found'
   | 'trade.copy_lead_reapply_wait_unset'
   | 'trade.copy_lead_reapply_wait'
+  | 'trade.copy_venue_account_not_open'
   // The lead's own desk (CB-copy-13, CB-copy-15, CB-copy-18; J-copy-bots-otc-05).
   | 'trade.copy_lead_not_leading'
   | 'trade.copy_lead_not_listed'

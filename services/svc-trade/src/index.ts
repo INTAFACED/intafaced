@@ -111,11 +111,15 @@ import { registerFeeTierRest } from './spot/fee-tier-rest.js';
 import { registerVipRest } from './spot/vip-rest.js';
 import { installRouteInventory } from './route-inventory.js';
 import { HttpUserVenue } from './venue/http-user-venue.js';
+import { registerInternalVenueDeposits } from './venue/internal-deposits.js';
 import { SqlPreparedActionStore } from './venue/prepared-action-store.js';
 import { UserVenueDoor, UserVenueDoorError, parseBuilderFee, parseOrdersPageMax } from './venue/user-venue-door.js';
 import { AgentAccounts, parseAgentAccountValues } from './venue/agent-account.js';
 import { SqlAgentAccountStore } from './venue/agent-account-store.js';
 import { AgentOrders } from './venue/agent-orders.js';
+import { LiveRuns, parseLiveRunValues } from './quant/live-run/live-runs.js';
+import { createIdentityFreezeRead, createQuantStrategySource } from './quant/live-run/ports.js';
+import { SqlLiveRunStore } from './quant/live-run/sql-store.js';
 import { OwnAgentTrading } from './venue/own-agent-trading.js';
 import { SqlAllowanceStore } from './venue/own-agent-allowance-store.js';
 import { createOwnAgentPolicy } from './venue/own-agent-policy-client.js';
@@ -233,10 +237,11 @@ import { SqlCopyFollowStore } from './copy/follow-store.js';
 import { SqlMirrorEventLog } from './copy/mirror-events.js';
 import { sqlLeaderDirectory } from './copy/leader-directory.js';
 import { LeadOwnDesk, SqlLeadOwnStore, parseLeadLevels, parseLeadRemovalDailyLimit } from './copy/lead-own-desk.js';
-import { sqlCopiedPositions } from './copy/copied-positions.js';
 import { pairLeaderTrades, readLeaderOrderFills } from './copy/leader-profile.js';
 import { createCopyClosePort } from './copy/copy-close.js';
 import { createFollowerFlattenPort } from './copy/follower-flatten-port.js';
+import { sqlCopiedPositions } from './copy/copied-positions.js';
+import { VenueCopy, SqlVenueFollowStore, isVenueLeaderFillId, sqlPlacedMirrors } from './copy/venue-copy.js';
 import { parseCopyPlaceMirrorFlag, type PlaceFollowerOrderPort } from './copy/auto-mirror-place.js';
 import { createJobHost } from './futures/job-host.js';
 import { SqlMarketLifecycleAuthority, SqlMarketLifecycleEvidenceStore, assertNoLocalTestLifecycleRows } from './market-lifecycle.js';
@@ -528,6 +533,8 @@ const userVenueDoors = userVenueUrls.map(
 const userVenue = userVenueDoors[0] ?? null;
 const userVenueRouter =
   userVenueDoors.length > 0 ? new UserVenueRouter({ doors: userVenueDoors, store: userVenueStore, now: () => new Date() }) : null;
+// The primary venue's deposits for one wallet, read by svc-campaigns' welcome checklist (J-campaigns-04 #2 #3).
+registerInternalVenueDeposits(app, { door: userVenue, secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s });
 // J-agents-21's agent account beside the door: off with it. Its owner values are read even when blank (each refuses).
 const agentAccountStore = new SqlAgentAccountStore(sql);
 const agentAccountValues = parseAgentAccountValues(env);
@@ -565,6 +572,30 @@ const ownAgentTrading = userVenue
       now: () => new Date(),
     })
   : null;
+// Live strategy runs on the person's own venue sub-account (J-algo-dev-07): their rows here, the strategy version read
+// from svc-quant as the person, the owner's freeze read from svc-identity. Off with the door; TRADE_QUANT_LIVE not `on`
+// refuses every start. The supervisor watches every running run's heartbeat and recovers a dead process.
+const liveRunTier = createLiveTierClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
+const liveRuns = userVenue
+  ? new LiveRuns({
+      door: userVenue,
+      store: new SqlLiveRunStore(sql),
+      values: parseLiveRunValues(
+        {
+          TRADE_QUANT_LIVE: env.TRADE_QUANT_LIVE,
+          TRADE_QUANT_LIVE_HEARTBEAT_MS: env.TRADE_QUANT_LIVE_HEARTBEAT_MS,
+          APP_ENV: process.env.APP_ENV,
+        },
+        { asset: agentAccountValues.asset, keySeed: agentAccountValues.keySeed, bounds: agentAccountValues.bounds },
+      ),
+      strategies: env.QUANT_URL.trim() ? createQuantStrategySource(env.QUANT_URL.trim()) : null,
+      freeze: createIdentityFreezeRead(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s),
+      // Read on every supervisor pass: a run never trades on the tier it started with (signals/live-tier.ts, as an alert).
+      liveTier: (userId) => liveRunTier.tierOf(userId),
+      now: () => new Date(),
+    })
+  : null;
+liveRuns?.supervise();
 // Convert's sell quotes priced by the venue on the customer's own venue account (J-cex-spot-17 #8), on the primary
 // venue's door. Off with the door.
 const venueSellQuotes = userVenue
@@ -618,7 +649,47 @@ const platformPauses = new PlatformPauseDesk({
 });
 const readPlatformPauses = () => platformPauses.snapshot();
 trade.bindPlatformPauses(readPlatformPauses);
+// Copy trading on the venue (J-copy-bots-otc-03): a follow bound to the follower's own agent account copies there, its
+// leader's fills read from the venue and each copy and close placed by that account's agent permission. Off with the door.
+const venueCopy =
+  userVenue && agentOrders
+    ? new VenueCopy({
+        venue: () => userVenue.venue(),
+        orders: agentOrders,
+        accounts: agentAccountStore,
+        actions: userVenueStore,
+        bindings: new SqlVenueFollowStore(sql),
+        copyStore,
+        placedMirrors: sqlPlacedMirrors(sql),
+        slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
+      })
+    : null;
+/** The venue copy desk when this follow copies on the venue, else null (the follow keeps the paths below). */
+const onVenue = async (followId: string | undefined) =>
+  venueCopy && followId && (await venueCopy.isVenueFollow(followId)) ? venueCopy : null;
+const engineCopyClose = createCopyClosePort({
+  sql,
+  placeFollowerOrder,
+  slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
+  loadMarket: (symbol) => trade.marketBySymbol(symbol),
+  bestBid: copyBestBid,
+});
+const engineFlatten = createFollowerFlattenPort({
+  sql,
+  ledger,
+  store: copyStore,
+  placeFollowerOrder,
+  slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
+  loadMarket: (symbol) => trade.marketBySymbol(symbol),
+  bestBid: copyBestBid,
+});
+const engineCopiedPositions = sqlCopiedPositions(sql);
 const copy = new CopyService(ledger, {
+  ...(venueCopy ? { venueFollows: venueCopy } : {}),
+  copiedPositions: async (input) => {
+    const v = await onVenue(input.followId);
+    return (v ? await v.positions(input) : null) ?? engineCopiedPositions(input);
+  },
   stepUp,
   platformPauses: readPlatformPauses,
   notices: busCopyNotices(bus),
@@ -630,30 +701,35 @@ const copy = new CopyService(ledger, {
   minTier: copyMinTier,
   store: copyStore,
   directory: leaderDirectory,
-  placeFollowerOrder,
-  flattenCopyPosition: createFollowerFlattenPort({
-    sql,
-    ledger,
-    store: copyStore,
-    placeFollowerOrder,
-    slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
-    loadMarket: (symbol) => trade.marketBySymbol(symbol),
-    bestBid: copyBestBid,
-  }),
-  copyClose: createCopyClosePort({
-    sql,
-    placeFollowerOrder,
-    slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
-    loadMarket: (symbol) => trade.marketBySymbol(symbol),
-    bestBid: copyBestBid,
-  }),
+  placeFollowerOrder: async (principal, input) => {
+    const v = await onVenue(input.followId);
+    return v ? v.placeMirror(principal, input) : placeFollowerOrder(principal, input);
+  },
+  flattenCopyPosition: async (principal, input) => {
+    const v = await onVenue(input.followId);
+    return (v ? await v.flatten(principal, input) : null) ?? engineFlatten(principal, input);
+  },
+  copyClose: venueCopy
+    ? {
+        latest: async (followId, closeKey) =>
+          (await onVenue(followId)) ? venueCopy.closePort().latest(followId, closeKey) : engineCopyClose.latest(followId, closeKey),
+        resume: async (principal, record) =>
+          (await onVenue(record.followId)) ? venueCopy.closePort().resume(principal, record) : engineCopyClose.resume(principal, record),
+        place: async (principal, input) =>
+          (await onVenue(input.followId)) ? venueCopy.closePort().place(principal, input) : engineCopyClose.place(principal, input),
+      }
+    : engineCopyClose,
   inspectMarket: async (symbol) => {
     const market = await trade.marketBySymbol(symbol);
-    return market ? { paper: market.paper, lotSize: market.lotSize } : null;
+    if (market) return { paper: market.paper, lotSize: market.lotSize };
+    // A venue market (a venue follow's copy): its lot from the venue's own list.
+    return venueCopy ? venueCopy.inspectMarket(symbol).catch(() => null) : null;
   },
   // The copy driver's read: the leader's own live spot fills after the follow began, oldest first.
   // Fill times are compared at millisecond precision, the precision the cursor keeps, so a fill is never read twice.
-  listLeaderFillsSince: async (leaderId, after, limit) => {
+  listLeaderFillsSince: async (leaderId, after, limit, followId) => {
+    const v = await onVenue(followId);
+    if (v) return v.leaderFillsSince(leaderId, after, limit);
     const rows = await sql<Array<{ id: string; symbol: string; created_at: Date }>>`
       SELECT f.id, m.symbol, f.created_at
         FROM trade.fills f
@@ -686,7 +762,8 @@ const copy = new CopyService(ledger, {
     if (bid === null || ask === null || bid <= 0n || ask <= 0n) return null;
     return { marketId, price: (bid + ask) / 2n, asOf: new Date(), quality: 'mid' as const };
   },
-  lookupLeaderFill: async (fillId) => {
+  lookupLeaderFill: async (fillId, leaderId) => {
+    if (isVenueLeaderFillId(fillId)) return venueCopy && leaderId ? venueCopy.leaderFill(fillId, leaderId) : null;
     const id = canonicalizeCopyFillId(fillId);
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)) {
       return null;
@@ -1854,6 +1931,7 @@ registerPrivateRest(app, {
   agentAccounts,
   agentOrders,
   ownAgentTrading,
+  liveRuns,
   venueSellQuotes,
   algo: trade,
   rfqExport: (principal, query) => trade.rfqExport(principal, query),
