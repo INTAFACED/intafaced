@@ -1929,7 +1929,9 @@ export function createTradeRouter(
         .input(
           z.object({
             followId: z.string().min(1).max(64),
-            positionId: z.string().min(1).max(64),
+            // A venue follow's position id is its copy's venue order key (`copy-mirror:<followId>:<client order id>`),
+            // up to the door's 200-character business key.
+            positionId: z.string().min(1).max(200),
             qty: z.string().min(1).max(64).optional(),
           }),
         )
