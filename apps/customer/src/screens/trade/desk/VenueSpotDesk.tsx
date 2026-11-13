@@ -270,9 +270,14 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
       setPending(pendingStore.list());
       setFound(null);
     } else {
-      if (answer.kind === 'outcome' && answer.clientOrderId && pendingStore) {
-        pendingStore.remove(answer.clientOrderId);
+      const wasPending = answer.clientOrderId ? pendingStore?.list().find((p) => p.clientOrderId === answer.clientOrderId) : undefined;
+      if (answer.kind === 'outcome' && wasPending && pendingStore) {
+        // The same order sent again was answered definitely: it is named as the look-up names it, and the draft let go.
+        pendingStore.remove(wasPending.clientOrderId);
         setPending(pendingStore.list());
+        setSettledKeys((now) => [...now, wasPending.key]);
+        const status = answer.outcome.accepted ? answer.outcome.order?.status : undefined;
+        if (status) setFound(t('Pending found', { id: wasPending.clientOrderId, status: word(v, 'status', status) }));
       }
       setLastResult(answer);
     }

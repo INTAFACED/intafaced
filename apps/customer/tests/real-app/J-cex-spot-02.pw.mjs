@@ -112,12 +112,12 @@ async function ledgerView(who) {
 }
 
 /**
- * TEST setup, not a step (the Starts line): a verified account, this run's TEST wallet key, and TEST 1,000 USDC in its
- * own venue account by the TEST venue's deposit control (keyed by a chain-transfer-shaped reference).
+ * TEST setup, not a step (the Starts line), made at the start of #1: a verified account, this run's TEST wallet key, and
+ * TEST 1,000 USDC in its own venue account by the TEST venue's deposit control (keyed by a chain-transfer-shaped
+ * reference). Made in #1, never in a beforeAll: a worker that restarts after a failed step would run a beforeAll again and
+ * replace the account the later steps act as.
  */
-test.beforeAll(async ({ browser }) => {
-  if (process.env.JOURNEY_RUN_ID && run.read().account) return;
-  test.setTimeout(300_000);
+async function startsLine(browser) {
   const page = await browser.newPage();
   try {
     const account = await signUp(page, 'js2v');
@@ -130,12 +130,14 @@ test.beforeAll(async ({ browser }) => {
   } finally {
     await page.close();
   }
-});
+}
 
 test(`${J} #1 reviews and places a limit buy: one open venue order carrying the client order id the desk minted for that reviewed draft`, async ({
   page,
+  browser,
 }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(420_000);
+  await startsLine(browser);
   const s = state();
   const wallet = await openVenueDesk(page, s.account, DESK, s.walletKey);
   const owner = ownerOf(s);
@@ -537,6 +539,23 @@ async function freshListedMarket(tag) {
   return { symbol, base };
 }
 
+/**
+ * Another venue desk in the same signed-in page, its TEST wallet already installed (a page takes it once). The desk may
+ * restore the still-authorised wallet on its own, so Connect is pressed only while no address shows.
+ */
+async function deskAgain(page, wallet, path) {
+  await page.goto(path);
+  await expect(page.getByTestId('venue-header')).toBeVisible({ timeout: 30_000 });
+  const address = page.getByTestId('venue-wallet-address');
+  const connect = page.getByRole('button', { name: 'Connect TEST Wallet' });
+  await expect(async () => {
+    if (await address.isVisible()) return;
+    await connect.click({ timeout: 2_000 });
+    await expect(address).toBeVisible({ timeout: 5_000 });
+  }).toPass({ timeout: 30_000 });
+  await expect(address).toHaveText(wallet.address);
+}
+
 /** On the desk for `symbol`: a TEST limit buy at 10 placed and signed, resting on the venue; returns its venue record. */
 async function restingBuy(page, wallet, owner, symbol, base) {
   await page.locator('[role=tab]', { hasText: /^Limit$/ }).click();
@@ -599,7 +618,7 @@ test(`${J} #8 places a TEST order on a market the venue or our operator has halt
 
   // Halted by the venue.
   const byVenue = await freshListedMarket('V');
-  let wallet = await openVenueDesk(page, s.account, `/trade/spot/${byVenue.symbol}`, s.walletKey);
+  const wallet = await openVenueDesk(page, s.account, `/trade/spot/${byVenue.symbol}`, s.walletKey);
   const earlierV = await restingBuy(page, wallet, owner, byVenue.symbol, byVenue.base);
   expect((await testVenue('/test/market-status', { symbol: byVenue.symbol, status: 'halted' })).status).toBe(200);
   try {
@@ -622,7 +641,7 @@ test(`${J} #8 places a TEST order on a market the venue or our operator has halt
 
   // Halted by our operators: two of them stop routing new orders to the market.
   const byUs = await freshListedMarket('O');
-  wallet = await openVenueDesk(page, s.account, `/trade/spot/${byUs.symbol}`, s.walletKey);
+  await deskAgain(page, wallet, `/trade/spot/${byUs.symbol}`);
   const earlierO = await restingBuy(page, wallet, owner, byUs.symbol, byUs.base);
   await operatorsWrite(byUs.symbol, 'trade.venue_routing_set', 'routingSet', { routing: 'stop' }, '1');
   await page.reload();
