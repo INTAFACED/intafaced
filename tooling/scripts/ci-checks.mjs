@@ -220,14 +220,26 @@ export async function runCiChecks({ base = 'origin/main', list = false, log = co
   if (!flags.full && !flags.affected) {
     step('build, typecheck, tests', true);
   } else {
+    // A build rewrites some tracked files (next's next-env.d.ts); put back each one the build changed, so the builder's
+    // tree is as it was and the next run doesn't read the build's edits as the builder's.
+    const dirty = () => new Set(git(['diff', '--name-only']).split('\n').filter(Boolean));
+    const before = dirty();
     const build = run('pnpm', ['turbo', 'run', 'build', '--output-logs=errors-only', ...buildArgs]);
+    const touched = [...dirty()].filter((f) => !before.has(f));
+    if (touched.length) git(['checkout', '--', ...touched]);
     step('build', build.status === 0, 'the build failed (above)');
     const types = run('pnpm', ['turbo', 'run', 'typecheck', '--continue', '--output-logs=errors-only', ...filters]);
     step('typecheck', types.status === 0, 'type errors (above)');
 
     const dbError = prepareDatabase(env, actionText, run);
     if (dbError) step('tests', false, dbError);
-    else if (build.status !== 0) step('tests', false, 'not run: they need the build, which failed');
+    // CI's test job builds its own packages without the apps (their tests run from source), so an app's red build
+    // still leaves the tests to run, as there.
+    else if (
+      build.status !== 0 &&
+      run('pnpm', ['turbo', 'run', 'build', '--output-logs=errors-only', ...filters, '--filter=!./apps/*']).status !== 0
+    )
+      step('tests', false, 'not run: they need the build of the packages they test, which failed');
     else {
       const red = [];
       for (const { name, directory, targets } of plan) {
