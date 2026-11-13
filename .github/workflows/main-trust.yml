@@ -31,6 +31,10 @@ name: Main trust
 # head; a red of its own stays red, and a refusal from GitHub stops it and opens one issue. (Failure it prevents: main's
 # run was green at 23:50 UTC on 11 Nov and the open pull requests stayed red until a person re-ran six of them.)
 #
+# After each Real-app journeys run on main (`held`): an open, armed pull request red only on steps main was red on and is
+# no longer red on gets its branch updated from main, once per main recovery, so it runs again on its own and merges if it
+# is otherwise green; a red of its own stays red.
+#
 # Ends: with each run of the workflows it follows (workflow_run): one run per finished run of theirs on main, so it
 # stops only when they do, and they never end on their own; `revive` runs on the hourly timer and ends never. A stop
 # disables it until the lift (project-state handover/STOP.md).
@@ -146,6 +150,38 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FACTORY_APP_KEY: ${{ secrets.INTAFACED_APP_KEY }}
         run: node tooling/ci/journeys-revert.mjs refresh
+
+  # After each Real-app journeys run on main ends: an open, armed pull request whose journeys run was red only on steps main
+  # was red on, and main's newest run is no longer red on, gets its branch updated from main (a merge commit, never a
+  # force-push), so its checks, journeys and seal run on a head that holds the fix and it merges if it is otherwise green.
+  # A re-run can't: it keeps its old merge commit, which still holds the break. (Failure it prevents: main red on
+  # J-campaigns-01 from 15:45 UTC on 12 Nov held 11 armed pull requests, and each waited for a person to update it.)
+  # An App token: a branch updated with GITHUB_TOKEN starts no workflow. Its key is INTAFACED_APP_KEY in `ci-review`,
+  # which allows main alone, as main-bisect.yml's revert-open. See tooling/ci/journeys-revive.mjs heldTick.
+  held:
+    name: Bring pull requests held by main's lost reds onto a fresh head
+    if: >-
+      github.event.workflow_run.name == 'Real-app journeys' &&
+      (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch' ||
+      github.event.workflow_run.event == 'schedule')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15 # healthy run: a verdict log read per armed red pull request and per red main run of the last day
+    environment: ci-review
+    permissions:
+      contents: read
+      issues: write # name a refusal; the App token keeps its own scope
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - name: Update the branches of pull requests held only by reds main has lost
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FACTORY_APP_KEY: ${{ secrets.INTAFACED_APP_KEY }}
+        run: node tooling/ci/journeys-revive.mjs held
 
   # Also after each CI run on main (one per merge): GitHub's cron in this repository fires hours late or not at all
   # (no `schedule` run of this file from #8010's merge at 23:47 UTC on 11 Nov to 02:33 UTC on 12 Nov, three ticks due;
