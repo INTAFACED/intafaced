@@ -159,6 +159,7 @@ export * from './preview-refusal.js';
 export * from './academy-articles.js';
 export * from './academy-catalogue.js';
 export * from './academy-certificates.js';
+export * from './academy-cert-designs.js';
 export * from './academy-courses.js';
 export * from './academy-programmes.js';
 export * from './academy-discussion.js';

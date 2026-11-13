@@ -354,6 +354,14 @@
       "types": "./dist/protocol-tokens.d.ts",
       "default": "./dist/protocol-tokens.js"
     },
+    "./desk-layouts-preferences": {
+      "types": "./dist/desk-layouts-preferences.d.ts",
+      "default": "./dist/desk-layouts-preferences.js"
+    },
+    "./chart-templates-preferences": {
+      "types": "./dist/chart-templates-preferences.d.ts",
+      "default": "./dist/chart-templates-preferences.js"
+    },
     "./protocol-watch-preferences": {
       "types": "./dist/protocol-watch-preferences.d.ts",
       "default": "./dist/protocol-watch-preferences.js"
@@ -409,6 +417,10 @@
     "./academy-certificates": {
       "types": "./dist/academy-certificates.d.ts",
       "default": "./dist/academy-certificates.js"
+    },
+    "./academy-cert-designs": {
+      "types": "./dist/academy-cert-designs.d.ts",
+      "default": "./dist/academy-cert-designs.js"
     },
     "./academy-courses": {
       "types": "./dist/academy-courses.d.ts",
