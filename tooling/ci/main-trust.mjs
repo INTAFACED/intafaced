@@ -237,6 +237,14 @@ function selfTest() {
     'a failed Doctrine gates job is probed by its command; a job with no probe is left to its test files',
   );
   eq(probedJobs([{ name: 'Doctrine gates', conclusion: 'success' }]), [], 'a green job is not probed');
+  eq(
+    probedJobs([
+      { name: 'Typecheck & build', conclusion: 'failure' },
+      { name: 'Tests (2/16)', conclusion: 'failure' },
+    ]),
+    ['Typecheck & build'],
+    "main's build red (run 42828463480, 10 Nov) starts the bisect by its own command",
+  );
   eq(decide({ conclusion: 'failure', attempt: 2 }), 'real-red', 'second red is real');
   eq(decide({ conclusion: 'success', attempt: 2 }), 'green-after-rerun', 'green after re-run');
   eq(decide({ conclusion: 'success', attempt: 1 }), 'green', 'plain green');
@@ -355,7 +363,7 @@ async function selfTestPaths() {
     ],
     'a flaky unit test opens "Flaky on main" as flaky-test, kept when the owner cannot be assigned',
   );
-  console.log('✓ main-trust --self-test OK (19 fixtures)');
+  console.log('✓ main-trust --self-test OK (20 fixtures)');
 }
 
 async function main() {
