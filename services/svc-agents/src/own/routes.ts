@@ -88,6 +88,8 @@ import {
   type OwnTemplate,
 } from './catalog.js';
 import { OwnLimitsStore, readOwnCaps } from './limits.js';
+import type { Cadence } from './automation.js';
+import { ownAutomationRouter } from './automation-routes.js';
 import { OwnAgentStore, type OwnAgentView } from './store.js';
 import { OwnPaymentMethodStore, type LinkedWalletsPort } from './payment-method.js';
 import { ownUsageLimitsRouter } from './usage-limits-routes.js';
@@ -293,8 +295,11 @@ export interface OwnToolDeps {
   readonly background?: BackgroundSettings | null;
   /** Identity's list of the person's linked wallets, for the agent's payment method (J-agents-02 #4); absent reads unread. */
   readonly linkedWallets?: LinkedWalletsPort | null;
+  /** The owner's cadence values for schedules (AG-sessions-02); blank refuses a new schedule agents.schedule_cadence_unset. */
+  readonly cadence?: Cadence | null;
 }
 const NO_TOOL_DEPS: OwnToolDeps = { baseline: {} };
+const NO_CADENCE: Cadence = { minIntervalMinutes: null, dailyLimit: null };
 
 /** A whole number as the person typed it, or undefined so the door refuses it as unset rather than guessing one. */
 /** A tool's door answered with its own refusal reason; nothing was read. */
@@ -406,6 +411,8 @@ export function ownRouter(
   }
 
   return router({
+    /** The agent's schedules and event triggers (AG-sessions-02): each occurrence or event is at most one metered run. */
+    ...ownAutomationRouter(sql, { feeAssetId: run?.feeAssetId ?? null, cadence: tooling.cadence ?? NO_CADENCE }),
     /** The templates and the tools a draft may be given, with the ones that move money marked so they can be refused. */
     catalogue: scopedProcedure('agents:read', { module: 'agents' })
       .output(ownAgentCatalogueSchema)

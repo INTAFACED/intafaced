@@ -877,3 +877,114 @@ export const ownAgentReviewCheckSchema = z.object({
   engine: z.enum(OWN_AGENT_ASSISTANT_ENGINES).nullable(),
 });
 export type OwnAgentReviewCheck = z.infer<typeof ownAgentReviewCheckSchema>;
+
+/**
+ * Schedules and event triggers of a person's own agent (AG-sessions-02, J-agents-07 #1 to #4). A schedule runs the agent
+ * once, or again every interval the person set; a trigger runs it when one of the person's own events arrives. Each
+ * occurrence or event is at most one run, metered against the person's caps for the agent like any run. A blank cap per
+ * run is kept blank: every occurrence of it is skipped `agents.schedule_blocked`, with its reason shown.
+ */
+export const OWN_AGENT_SCHEDULE_REPEATS = ['once', 'repeat'] as const;
+export const OWN_AGENT_SCHEDULE_STATES = ['active', 'completed', 'cancelled'] as const;
+export const OWN_AGENT_AUTO_RUN_STATES = ['claimed', 'ran', 'skipped', 'refused', 'failed'] as const;
+/** The events a trigger may start from: subjects declared in packages/events that name their owner. */
+export const OWN_AGENT_TRIGGER_SUBJECTS = ['trade.fill.settled'] as const;
+export const OWN_AGENT_TRIGGER_STATES = ['active', 'cancelled'] as const;
+export const OWN_AGENT_AUTOMATION_LIMITS = { ask: 2000, list: 50 } as const;
+
+/** One occurrence of a schedule, or one event of a trigger: at most one run, keyed by its business key. */
+export const ownAgentAutoRunSchema = z.object({
+  id: z.string().uuid(),
+  runKey: z.string(),
+  ordinal: z.number().int().nullable(),
+  eventId: z.string().nullable(),
+  dueAt: z.string(),
+  state: z.enum(OWN_AGENT_AUTO_RUN_STATES),
+  /** The refusal or skip code: `agents.schedule_blocked` for a skip, the run's own refusal code for a refused run. */
+  code: z.string().nullable(),
+  /** Why an occurrence was skipped (`agents.schedule.cap_per_run_unset`, `agents.spend.cap_unset`, ...), or null. */
+  reasonCode: z.string().nullable(),
+  sessionId: z.string().uuid().nullable(),
+  /** How many runs of the agent this occurrence made, read from the agent's own run record: never more than one. */
+  runs: z.number().int().min(0),
+  /** How many workers woke for this occurrence. */
+  wakes: z.number().int().min(1),
+  cost: z.string().nullable(),
+  assetId: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type OwnAgentAutoRun = z.infer<typeof ownAgentAutoRunSchema>;
+
+export const ownAgentScheduleSchema = z.object({
+  id: z.string().uuid(),
+  agentId: z.string().uuid(),
+  repeat: z.enum(OWN_AGENT_SCHEDULE_REPEATS),
+  intervalMinutes: z.number().int().nullable(),
+  perRunCap: z.string().nullable(),
+  ask: z.string(),
+  state: z.enum(OWN_AGENT_SCHEDULE_STATES),
+  /** When the next occurrence is due; null once the schedule is completed or cancelled: nothing further runs. */
+  nextDueAt: z.string().nullable(),
+  createdAt: z.string(),
+  recent: z.array(ownAgentAutoRunSchema),
+});
+export type OwnAgentSchedule = z.infer<typeof ownAgentScheduleSchema>;
+
+/** The owner's cadence values, as this deployment has them; blank refuses a new schedule `agents.schedule_cadence_unset`. */
+export const ownAgentCadenceSchema = z.object({
+  minIntervalMinutes: z.number().int().nullable(),
+  dailyLimit: z.number().int().nullable(),
+});
+export type OwnAgentCadence = z.infer<typeof ownAgentCadenceSchema>;
+
+export const ownAgentSchedulesSchema = z.object({
+  cadence: ownAgentCadenceSchema,
+  schedules: z.array(ownAgentScheduleSchema),
+});
+export type OwnAgentSchedules = z.infer<typeof ownAgentSchedulesSchema>;
+
+/**
+ * `own.schedules.create` input, as the person typed it. A repeating schedule with a blank interval refuses
+ * `agents.schedule.min_interval_unset` and stores nothing; one below the owner's minimum refuses
+ * `agents.schedule.interval_below_minimum`. The same create key again is the same schedule.
+ */
+export const ownAgentScheduleCreateSchema = z.object({
+  id: z.string().min(1).max(64),
+  createKey: z.string().min(8).max(200),
+  repeat: z.enum(OWN_AGENT_SCHEDULE_REPEATS),
+  intervalMinutes: z.string().max(16),
+  perRunCap: z.string().max(64),
+  ask: z.string().max(OWN_AGENT_AUTOMATION_LIMITS.ask),
+});
+
+/** One delivery of an event to a trigger: the first runs, a redelivery of the same event id is ignored. */
+export const ownAgentTriggerDeliverySchema = z.object({
+  eventId: z.string(),
+  envelopeId: z.string(),
+  redelivered: z.boolean(),
+  receivedAt: z.string(),
+});
+export type OwnAgentTriggerDelivery = z.infer<typeof ownAgentTriggerDeliverySchema>;
+
+export const ownAgentTriggerSchema = z.object({
+  id: z.string().uuid(),
+  agentId: z.string().uuid(),
+  subject: z.enum(OWN_AGENT_TRIGGER_SUBJECTS),
+  perRunCap: z.string().nullable(),
+  ask: z.string(),
+  state: z.enum(OWN_AGENT_TRIGGER_STATES),
+  createdAt: z.string(),
+  runs: z.array(ownAgentAutoRunSchema),
+  deliveries: z.array(ownAgentTriggerDeliverySchema),
+});
+export type OwnAgentTrigger = z.infer<typeof ownAgentTriggerSchema>;
+
+/** `own.triggers.create` input. A subject not offered refuses `agents.trigger_subject_invalid`. */
+export const ownAgentTriggerCreateSchema = z.object({
+  id: z.string().min(1).max(64),
+  createKey: z.string().min(8).max(200),
+  subject: z.string().max(200),
+  perRunCap: z.string().max(64),
+  ask: z.string().max(OWN_AGENT_AUTOMATION_LIMITS.ask),
+});

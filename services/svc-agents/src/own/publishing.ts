@@ -59,6 +59,11 @@ export const OWN_AGENT_CHILD_TABLES = [
   'own_agent_eval_runs',
   'own_agent_eval_cases',
   'own_agent_background_runs',
+  // A delivery names its trigger and a run its schedule or trigger, so both go before them.
+  'own_agent_trigger_deliveries',
+  'own_agent_auto_runs',
+  'own_agent_triggers',
+  'own_agent_schedules',
 ] as const;
 
 /** Whether an account exists and is active, as identity answers; unread is any answer that is not a clear one. */
