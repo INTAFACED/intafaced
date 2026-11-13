@@ -176,7 +176,6 @@
       "outputs": [],
       "inputs": [
         "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/apps/admin/**",
         "$TURBO_ROOT$/packages/connect-data-lake/**",
         "$TURBO_ROOT$/packages/db/**",
         "$TURBO_ROOT$/packages/events/**",
@@ -203,7 +202,6 @@
       "outputs": ["dist/**", ".next/**", "!.next/cache/**"],
       "inputs": [
         "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/apps/admin/**",
         "$TURBO_ROOT$/packages/connect-data-lake/**",
         "$TURBO_ROOT$/packages/db/**",
         "$TURBO_ROOT$/packages/events/**",

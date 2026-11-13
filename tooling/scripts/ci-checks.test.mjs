@@ -93,15 +93,13 @@ test('a rule test walks a folder and reads the source it finds; one file read by
 });
 
 // The census (project-state #2065 row d22): the rule-test files CI's unit run failed on in journey PRs' first heads.
+// Three left the list when they became lint rules (garden/no-promise-copy, garden/no-hand-schema).
 const CENSUS_RULE_TESTS = [
   'apps/customer/src/app/contracts-subpaths.test.ts',
   'apps/customer/src/features/developers/developers-reference.test.ts',
   'apps/customer/src/features/pay/portal/copy-lint.test.ts',
   'apps/customer/src/features/pay/portal/no-founder-admin.test.ts',
-  'apps/customer/src/screens/trade/copy-no-yet.test.ts',
   'apps/customer/src/screens/trade/copybots/refusals.test.ts',
-  'apps/customer/src/shared/copy-promises.test.ts',
-  'apps/customer/src/shared/no-new-hand-schemas.test.ts',
   'packages/ledger-client/src/recipes/live-path-inventory.test.ts',
 ];
 

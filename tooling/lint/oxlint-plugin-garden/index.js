@@ -1,6 +1,9 @@
 // oxlint JS plugin: the weeds INTAFACED is known to grow. Plain ESM, no dependencies.
 // Loaded by the root .oxlintrc.json ("jsPlugins"), rules "garden/<name>". Advice only: nothing in CI runs it yet
 // (project-state garden stake-01 part A); the local check (stake-02) prints its findings.
+import { copyRules } from './copy-rules.js';
+import { moneyRules } from './money-rules.js';
+
 const TEST_FILE = /(\.(test|spec|testkit)\.[cm]?[jt]sx?$)|(\.pw\.[cm]?[jt]s$)|(\/(test|tests|__tests__)\/)/u;
 const isTest = (context) => TEST_FILE.test(context.filename ?? context.getFilename());
 
@@ -171,5 +174,7 @@ export default {
     'require-suppression-reason': requireSuppressionReason,
     'no-real-clock-wait-in-tests': noRealClockWaitInTests,
     'no-wait-for-timeout': noWaitForTimeout,
+    ...copyRules,
+    ...moneyRules,
   },
 };
