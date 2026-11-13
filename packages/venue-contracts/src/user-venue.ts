@@ -1110,7 +1110,7 @@ export function hasSubAccountReads(venue: UserVenue): venue is UserVenue & UserV
 // ════════════════════════════════════════════════════════════════════════════
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const BUSINESS_KEY_RE = /^[a-z][a-z0-9-]*:.+$/;
+const BUSINESS_KEY_RE = /^[a-z][a-z0-9.-]*:.+$/;
 
 /**
  * Map a business key to the venue's 128-bit client order id (`0x` + 32 hex,
