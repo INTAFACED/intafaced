@@ -193,33 +193,69 @@ test(`${J} #3 manages alerts: each shows its market, side, exact price and statu
   const at = await lastText();
   const low = testPrice(50, at);
   const mid = testPrice(60, at);
+  // BTC/USDT's id, as the form's own market list holds it, to tie the service's alerts to the market the row shows.
+  const btc = await marketSelect()
+    .locator('option', { hasText: /^BTC\/USDT$/ })
+    .getAttribute('value');
+  expect(btc, 'the form offers BTC/USDT').toBeTruthy();
   await createAlert({ condition: 'At or below', price: low, name: 'TEST dip' });
   await createAlert({ condition: 'At or below', price: mid, name: 'TEST pullback' });
-  // Each row: the market (as its name when it has none, here in the condition's quote), side, exact price, status.
-  for (const [name, price] of [
-    ['TEST dip', low],
-    ['TEST pullback', mid],
-  ]) {
-    await expect(rowWith(name)).toContainText(`At or below ${price} USDT`);
-    await expect(rowWith(name)).toHaveAttribute('data-status', 'active');
-    await expect(rowWith(name).getByRole('button', { name: 'Cancel the alert on BTC/USDT' })).toBeVisible();
-  }
+  /** The service's own list, read by the reloaded page, and the alert named `name` in it. */
+  const storedAfterReload = async (name) => {
+    const listed = await answerAfterNavigation(
+      page,
+      (r) => /notify\.alerts\b/.test(r.url()) && r.request().method() === 'GET' && r.ok(),
+      () => page.reload(),
+    );
+    await expect(marketSelect()).toBeEnabled();
+    return alertNamed(await listed.json(), name);
+  };
+  /** One row, as the person reads it and as the service holds it: market, side, exact price, status. */
+  const checkRow = async (name, price, status, statusWords) => {
+    const stored = await storedAfterReload(name);
+    expect(stored, `the service lists ${name}`).toBeTruthy();
+    expect(stored).toMatchObject({ marketId: btc, condition: 'less_than', status });
+    expect(cents(stored.targetPrice), `${name}'s stored price ${stored.targetPrice}`).toBe(cents(price));
+    const row = rowWith(name);
+    await expect(row).toHaveCount(1);
+    await expect(row.getByTestId('nf-title')).toHaveText(name);
+    await expect(row.getByTestId('alert-market'), `${name}'s market, shown in its row`).toHaveText('BTC/USDT');
+    await expect(row.getByTestId('nf-body').first()).toHaveText(`At or below ${price} USDT`);
+    await expect(row).toHaveAttribute('data-status', status);
+    await expect(row.locator('.nf-pill')).toHaveText(statusWords);
+    // A cancel for an active one; a stopped one is still open and keeps its cancel; a cancelled one has none left.
+    await expect(row.getByRole('button', { name: 'Cancel the alert on BTC/USDT' })).toHaveCount(status === 'cancelled' ? 0 : 1);
+  };
+  // List: each row shows its market, side, exact price and status, as the service holds them after a reload.
+  await checkRow('TEST dip', low, 'active', 'Active');
+  await checkRow('TEST pullback', mid, 'active', 'Active');
   // Sorted by price, low to high: the dip, the pullback, then the breakout from #1.
   await page.getByTestId('alerts-find').getByLabel('Sort by').selectOption({ label: 'Price, low to high' });
   await expect(rows().getByTestId('nf-title')).toHaveText(['TEST dip', 'TEST pullback', 'TEST breakout']);
-  // Edit: the pullback's name; the list shows the change.
+  // Newest first puts the pullback (made last of the three) at the top and the breakout from #1 last.
+  await page.getByTestId('alerts-find').getByLabel('Sort by').selectOption({ label: 'Newest first' });
+  await expect(rows().getByTestId('nf-title')).toHaveText(['TEST pullback', 'TEST dip', 'TEST breakout']);
+  // Edit: the pullback's name; the service holds the new name after a reload, and the old one is gone.
   await rowWith('TEST pullback').getByRole('button', { name: 'Edit the alert on BTC/USDT' }).click();
   const edit = page.getByTestId('alert-edit');
   await edit.getByLabel('Name (optional)').fill('TEST deeper pullback');
   await edit.getByRole('button', { name: 'Save changes' }).click();
   await expect(rowWith('TEST deeper pullback')).toHaveCount(1);
-  // Stop, then resume.
-  const pullback = rowWith('TEST deeper pullback');
-  await pullback.getByRole('button', { name: 'Pause the alert on BTC/USDT' }).click();
-  await expect(pullback).toHaveAttribute('data-status', 'stopped');
-  await expect(pullback).toContainText('Stopped');
-  await pullback.getByRole('button', { name: 'Resume the alert on BTC/USDT' }).click();
-  await expect(pullback).toHaveAttribute('data-status', 'active');
+  await checkRow('TEST deeper pullback', mid, 'active', 'Active');
+  expect(await storedAfterReload('TEST pullback'), 'the old name is gone from the service').toBeNull();
+  await expect(
+    rows()
+      .getByTestId('nf-title')
+      .filter({ hasText: /^TEST pullback$/ }),
+  ).toHaveCount(0);
+  // Stop: stopped, as the service holds it after a reload.
+  await rowWith('TEST deeper pullback').getByRole('button', { name: 'Pause the alert on BTC/USDT' }).click();
+  await expect(rowWith('TEST deeper pullback')).toHaveAttribute('data-status', 'stopped');
+  await checkRow('TEST deeper pullback', mid, 'stopped', 'Stopped');
+  // Resume: active again, as the service holds it after a reload.
+  await rowWith('TEST deeper pullback').getByRole('button', { name: 'Resume the alert on BTC/USDT' }).click();
+  await expect(rowWith('TEST deeper pullback')).toHaveAttribute('data-status', 'active');
+  await checkRow('TEST deeper pullback', mid, 'active', 'Active');
   // The Active filter lists the three active alerts.
   await page.getByTestId('alerts-find').getByLabel('Show').selectOption({ label: 'Active' });
   await expect(rows()).toHaveCount(3);
@@ -229,12 +265,12 @@ test(`${J} #3 manages alerts: each shows its market, side, exact price and statu
   await dip.getByRole('button', { name: 'Cancel the alert on BTC/USDT' }).click();
   await dip.getByRole('button', { name: 'Yes, cancel it' }).click();
   await expect(dip).toHaveAttribute('data-status', 'cancelled');
-  await expect(dip.getByRole('button', { name: 'Cancel the alert on BTC/USDT' })).toHaveCount(0);
-  // Delete it after the confirmation: it leaves the list, and stays gone after a reload.
-  await dip.getByRole('button', { name: 'Delete the alert on BTC/USDT' }).click();
-  await dip.getByRole('button', { name: 'Yes, delete it' }).click();
+  await checkRow('TEST dip', low, 'cancelled', 'Cancelled');
+  // Delete it after the confirmation: it leaves the list, and the service no longer holds it after a reload.
+  await rowWith('TEST dip').getByRole('button', { name: 'Delete the alert on BTC/USDT' }).click();
+  await rowWith('TEST dip').getByRole('button', { name: 'Yes, delete it' }).click();
   await expect(rowWith('TEST dip')).toHaveCount(0);
-  await page.reload();
+  expect(await storedAfterReload('TEST dip'), 'the service no longer holds the deleted alert').toBeNull();
   await expect(rowWith('TEST dip')).toHaveCount(0);
   await expect(rows()).toHaveCount(2);
 });
