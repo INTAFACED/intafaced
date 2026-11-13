@@ -67,12 +67,14 @@ async function openPublish(page) {
 
 /** Fills the publish form: a title, a description, USDT, and the fee model with its price and period when given. */
 async function fill(page, { title, fee, price, days }) {
-  await form(page).getByLabel('Title').fill(title);
-  await form(page).getByLabel('Description').fill('TEST signal on the local test stack. Not real advice.');
-  await form(page).getByLabel('Asset').fill('USDT');
+  // Each field by its own textbox: a fee model's hint ("in one asset") also carries a field's word.
+  const box = (name) => form(page).getByRole('textbox', { name: new RegExp(`^${name}\\b`) });
+  await box('Title').fill(title);
+  await box('Description').fill('TEST signal on the local test stack. Not real advice.');
+  await box('Asset').fill('USDT');
   await form(page).getByRole('radio', { name: fee }).check();
-  if (price !== undefined) await form(page).getByLabel('Price').fill(price);
-  if (days !== undefined) await form(page).getByLabel('Period, days').fill(days);
+  if (price !== undefined) await box('Price').fill(price);
+  if (days !== undefined) await box('Period, days').fill(days);
 }
 
 /** A TEST buyer, verified and funded with TEST USDT, who buys one period of `listingId` through the Market's purchase door. */
