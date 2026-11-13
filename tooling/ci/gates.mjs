@@ -432,6 +432,8 @@ export const NOT_GATES = {
     'reports how far behind origin/main a checkout is, so any board that prints numbers can declare its own staleness (#958). A library, not a check — it asserts nothing and cannot fail. Extracted from thrift-preflight when thrift was deleted 2026-08-07; the staleness half never had anything to do with spend.',
   'look-baselines.mjs':
     'a library, not a scan: the one definition of a look baseline (`look-baselines/<room>/…`) that test-diff-guard.mjs (the room must be named) and review-marker.mjs (the independent review is required) both import, so the two cannot disagree.',
+  'exact-revert.mjs':
+    'a library, not a scan: the one rule for an exact revert (a diff that undoes one commit and nothing else), with no imports, that ci-review.mjs (automaticRevert, what the reviewer is told) and test-diff-guard.mjs (autoRevert, checks 1-5 skip main-bisect\'s revert) both import, so the two cannot disagree. `node tooling/ci/exact-revert.mjs --self-test` runs in the `changes` job.',
   'judged-paths.mjs':
     'a library, not a scan: the one list of the paths the test judge rules on (`JUDGE_PATHS`, `judgedFile`), with no imports, that test-judge.mjs (which changes need its verdict) and test-diff-guard.mjs (which changes it leaves to the judge) both import, so the two cannot disagree; its `leftToJudge` is the one rule for which changes the guard leaves to the judge (the CI review’s test part).',
   'judged-paths.test.mjs':

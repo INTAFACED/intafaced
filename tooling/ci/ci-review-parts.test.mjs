@@ -258,7 +258,32 @@ test("automaticRevert: only main-bisect's own revert, exactly the reverse of a c
     return p.endsWith(CULPRIT) && accept === 'application/vnd.github.v3.diff' ? { ...r, text: shared(CULPRIT_DIFF) } : r;
   };
   assert.equal(exactReverse(shared(REVERT_DIFF), shared(CULPRIT_DIFF)), true);
-  assert.equal(await automaticRevert({ repo: 'o/r', pull: PULL, diff: shared(REVERT_DIFF), get: sharedGet }), null, 'shared journey setup');
+  assert.equal(await automaticRevert({ repo: 'o/r', pull: PULL, diff: shared(REVERT_DIFF), get: sharedGet }), CULPRIT, 'shared journey setup the commit changed: its reverse restores the setup proved before it (#8149)');
+  // #8138: main changed the context since, so the diff alone can't tell; the job's git says whether the head is exactly
+  // `git revert` of the commit on its parent. A git that answers another tree, or can't fetch, is no proof.
+  const moved = REVERT_DIFF.replace(/^ /m, ' // a line main changed since\n ');
+  assert.equal(exactReverse(moved, CULPRIT_DIFF), false);
+  const fakeGit = ({ tree = 'a'.repeat(40), fetch = true } = {}) => {
+    const asked = [];
+    const git = (args) => {
+      asked.push(args[0]);
+      if (args[0] === 'fetch') {
+        if (!fetch) throw new Error('fetch failed');
+        return '';
+      }
+      if (args[0] === 'rev-list') return `${args.at(-1)} ${'b'.repeat(40)}\n`;
+      if (args[0] === 'merge-tree') return `${'a'.repeat(40)}\n`;
+      if (args[0] === 'rev-parse') return `${tree}\n`;
+      throw new Error(`unexpected git ${args[0]}`);
+    };
+    return { git, asked };
+  };
+  const ok = fakeGit();
+  assert.equal(await automaticRevert({ repo: 'o/r', pull: PULL, diff: moved, get: revertApi().get, git: ok.git }), CULPRIT, 'git revert on its parent makes the head');
+  assert.deepEqual(ok.asked, ['fetch', 'rev-list', 'rev-list', 'merge-tree', 'rev-parse']);
+  assert.equal(await automaticRevert({ repo: 'o/r', pull: PULL, diff: moved, get: revertApi().get, git: fakeGit({ tree: 'c'.repeat(40) }).git }), null, 'planted: the head is not that revert');
+  assert.equal(await automaticRevert({ repo: 'o/r', pull: PULL, diff: moved, get: revertApi().get, git: fakeGit({ fetch: false }).git }), null, 'planted: nothing fetched');
+  assert.equal(await automaticRevert({ repo: 'o/r', pull: PULL, diff: moved, get: revertApi().get }), null, 'no git: the diff alone decides');
   await none(PULL, REVERT_DIFF.replace('+  expect(a).toBe(1n);', '+  expect(a).toBeTruthy();'));
   await none(PULL, REVERT_DIFF, { status: 'diverged' });
   await none(PULL, REVERT_DIFF, { diffStatus: 404 });
