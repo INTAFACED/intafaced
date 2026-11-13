@@ -116,6 +116,8 @@ describe('D26-P2-12 tip re-prove — identity money doors', () => {
       registrationOpen: true,
       accruals: store,
       accrualTierLaw: publishedLaw,
+      // TEST programme depth (RC-campaigns-07): blank refuses every payout before the rate law.
+      programmeDepth: 5,
       ledger,
       freeze: { frozenIds: async () => new Set<string>() } as unknown as FreezeService,
     });
@@ -140,6 +142,8 @@ describe('D26-P2-12 tip re-prove — identity money doors', () => {
       registrationOpen: true,
       accruals: store,
       accrualTierLaw: publishedLaw,
+      // TEST programme depth (RC-campaigns-07): blank refuses every payout before the rate law.
+      programmeDepth: 5,
       ledger,
       freeze: { frozenIds: async () => new Set<string>() } as unknown as FreezeService,
     });

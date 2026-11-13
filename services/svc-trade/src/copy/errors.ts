@@ -86,7 +86,8 @@ export type CopyErrorCode =
   | 'trade.copy_lead_reapply_wait'
   | 'trade.pool_master_name_invalid'
   | 'trade.pool_master_style_invalid'
-  | 'trade.pool_master_application_open';
+  | 'trade.pool_master_application_open'
+  | 'trade.copy_venue_account_not_open';
 
 /**
  * Closed set for the customer desk and blank-law refusals.
