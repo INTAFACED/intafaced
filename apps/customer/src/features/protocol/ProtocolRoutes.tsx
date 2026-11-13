@@ -6,6 +6,7 @@ import { WalletRoom } from './wallet/WalletRoom';
 import { VenueWalletRoom } from './venue-wallet/VenueWalletRoom';
 import { EmbeddedWalletRoom } from './embedded-wallet/EmbeddedWalletRoom';
 import { ClaimPage } from './wallet/ClaimPage';
+import { ConventionPage, HoldingPage } from './wallet/PortfolioPanel';
 import { TokenPage } from './tokens/TokenPage';
 import { TokensRoom } from './tokens/TokensRoom';
 import { NewPool } from './liquidity/NewPool';
@@ -66,6 +67,12 @@ export function ProtocolRoutes({ path }: { path: string }) {
     if (id === undefined || !ADDRESS_SHAPE.test(id)) return <NotFoundRoute path={path} />;
     return <ClaimPage id={id} />;
   }
+  if (route.walletToken) {
+    const token = safeDecode(params.token);
+    if (token === undefined || !ADDRESS_SHAPE.test(token)) return <NotFoundRoute path={path} />;
+    return <HoldingPage token={token} />;
+  }
+  if (route.walletConvention) return <ConventionPage id={safeDecode(params.convention) ?? ''} />;
   if (route.walletGroup) return <WalletRoom section="addressBook" groupId={safeDecode(params.groupId) ?? ''} />;
   if (route.pending) {
     const { param } = route.pending;
