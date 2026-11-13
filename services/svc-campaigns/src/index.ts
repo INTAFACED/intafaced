@@ -4,6 +4,7 @@ import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/a
 import { edgeTrustFromEnv } from '@intafaced/config';
 import { createEdgeContext, s2sFromEnv } from '@intafaced/contracts';
 import { JetStreamEventBus } from '@intafaced/events';
+import { parseAmount } from '@intafaced/ledger-client';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 import { CampaignService, parseTimeZone } from './campaigns.js';
 import { parseRuleLimit } from './rules.js';
@@ -55,7 +56,13 @@ const campaigns = new CampaignService({ sql, timeZone: () => timeZone, participa
 const ledger =
   env.LEDGER_URL && env.INTERNAL_SERVICE_SECRET ? createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : null;
 const reconcileAfterSeconds = env.CAMPAIGNS_RECONCILE_AFTER_SECONDS ?? null;
-const saga = ledger ? new PayoutSaga({ sql, ledger, reconcileAfterSeconds }) : null;
+const ceilingOf = (raw: string | undefined) => (raw === undefined ? null : parseAmount(raw));
+// The owner's reward ceiling (OWNER 288). Blank stays blank: every Owe refuses `ledger.reward_ceiling_unset`.
+const rewardCeiling = {
+  perCampaign: ceilingOf(env.CAMPAIGNS_REWARD_CEILING_PER_CAMPAIGN),
+  total: ceilingOf(env.CAMPAIGNS_REWARD_CEILING_TOTAL),
+};
+const saga = ledger ? new PayoutSaga({ sql, ledger, reconcileAfterSeconds, rewardCeiling }) : null;
 const markets = env.TRADE_URL ? createMarketNames({ tradeUrl: env.TRADE_URL }) : null;
 // The welcome deposit task's reads (J-campaigns-04 #2): the person's connected wallets and the venue's deposits.
 const venueDeposits =

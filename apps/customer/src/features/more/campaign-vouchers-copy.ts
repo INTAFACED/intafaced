@@ -43,6 +43,7 @@ const en = {
   reward_settling: 'settling',
   reward_qualified: 'waiting to be paid',
   reward_posting: 'being paid',
+  reward_owed: 'owed by INTAFACED, not in your wallet',
   reward_posted: 'paid',
   reward_pending_funding: 'still open, waiting for the reward pot to be funded',
   reward_pending_retry: 'still open, payments are paused on the platform',

@@ -70,6 +70,8 @@ export const LEDGER_POST_ALLOWLIST = {
     campaignRewardLock: g('campaigns', 'services/svc-campaigns/src/payouts.ts'),
     campaignRewardUnlock: g('campaigns', 'services/svc-campaigns/src/payouts.ts'),
     campaignRewardForfeit: g('campaigns', 'services/svc-campaigns/src/payouts.ts'),
+    campaignBudgetFund: g('campaigns', 'services/svc-campaigns/src/payouts.ts'),
+    rewardOwe: g('campaigns', 'services/svc-campaigns/src/payouts.ts'),
   },
   'svc-identity': {
     rewardPay: g('token', 'services/svc-identity/src/affiliates/payout-engine.ts'),
