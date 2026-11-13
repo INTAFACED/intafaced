@@ -19,7 +19,8 @@ import { EDGE, tool } from './stack.mjs';
 //      every chart read, is then stopped on the stack and ETH/USDT opened again from the chart's market control, so the
 //      market opens with its feed already stopped. svc-trade is started again afterwards. No route is changed in the browser.
 //   #5 real: the TEST label follows the lifecycle's own local-test evidence marker (the stack marks BTC/USDT as TEST).
-//   #6 real stream: BTC/USDT on the 1m interval (pinned through the chart's own control), the bars move with trades, and
+//   #6 real stream: BTC/USDT on the 1m interval (pinned through the chart's own control, read once its 1m bars are drawn);
+//      after a new trade lands on the public tape the newest bar reaches its minute and what it shows changes, and
 //      the longest main-thread task over a 10 s stream window is at or under the owner's render budget (renderBudgetMs,
 //      a TEST value set by `local-test-gates.mjs charts`). No route is changed.
 const J = 'J-charts-desk-02';
@@ -323,15 +324,40 @@ test(`${J} #6 keeps drawing while ticks stream: the bars move, the frame counter
       window.__longTasks = null;
     }
   });
+  // The TEST maker crosses BTC/USDT about every 48 s (local-test-market.mjs crossesOn: every sixth 8 s cycle), so waiting
+  // for the next trade can take most of a minute on its own; the step gets room for that plus its 10 s stream window.
+  test.setTimeout(180_000);
   await openChart(page);
-  // Pin the 1m interval through the chart's own control: the close moves with trades on a 1m bar.
+  // Pin the 1m interval through the chart's own control: the close moves with trades on a 1m bar. The bars are read only
+  // once the 1m candles have answered and been drawn, so the 15m bars the chart opened on never count as a move.
+  const oneMinute = page.waitForResponse((res) => {
+    if (!/\/ohlcv\/BTC%2FUSDT\?/.test(res.url()) || !res.ok()) return false;
+    const query = new URL(res.url()).searchParams;
+    // The recent bars the chart polls, not an older page of history (which carries `since`).
+    return query.get('timeframe') === '1m' && !query.has('since');
+  });
   await page.getByRole('group', { name: 'Chart intervals' }).getByRole('button', { name: '1m', exact: true }).click();
   await expect(page.getByRole('group', { name: 'Chart intervals' }).getByRole('button', { name: '1m', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true',
   );
-  const first = await host(page).getAttribute('data-last');
-  await expect.poll(async () => host(page).getAttribute('data-last'), { timeout: 70_000, intervals: [2_000] }).not.toBe(first);
+  const oneMinuteRows = await (await oneMinute).json();
+  expect(oneMinuteRows.length, 'the 1m candle route answered with bars').toBeGreaterThan(0);
+  const newestRowMs = oneMinuteRows[oneMinuteRows.length - 1][0];
+  await expect.poll(async () => Number(await host(page).getAttribute('data-last'))).toBeGreaterThanOrEqual(newestRowMs);
+  // What the newest bar shows: its time and its open, high, low and close in the legend (no hover: the newest bar).
+  const legendText = page.getByTestId('chart-legend').first();
+  const drawnBar = async () => `${await host(page).getAttribute('data-last')} ${await legendText.innerText()}`;
+  const before = await drawnBar();
+  const lastTradeBefore = await newestTradeMs(BTC);
+  // Ticks stream: a new BTC/USDT trade lands on the public tape after the bars were read.
+  await expect
+    .poll(() => newestTradeMs(BTC), { message: 'a new BTC/USDT trade on the public tape', timeout: 100_000, intervals: [2_000] })
+    .toBeGreaterThan(lastTradeBefore);
+  const tradeBar = Math.floor((await newestTradeMs(BTC)) / 60_000) * 60_000;
+  // The bars move with it: the newest bar is the trade's minute or later, and what it shows has changed.
+  await expect.poll(async () => Number(await host(page).getAttribute('data-last')), { timeout: 30_000 }).toBeGreaterThanOrEqual(tradeBar);
+  await expect.poll(drawnBar, { timeout: 30_000 }).not.toBe(before);
   // The stream window: only the long tasks inside these 10 s count.
   await page.evaluate(() => {
     window.__longTasks = [];
