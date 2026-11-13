@@ -146,6 +146,8 @@ test(`${J} #1 chooses a sizing mode: smart sync and fixed amount offered, multip
   const res = await answer;
   expect(res.status(), (await res.text()).slice(0, 300)).toBe(200);
   const synced = (await res.json()).result.data;
+  // The room records the answer and moves to My follows; leaving before then would leave its write unconfirmed.
+  await expect(page).toHaveURL(/tab=follows/);
   expect(synced.sizingMode).toBe('smart_sync');
   expect(synced.smartSync).toEqual({ followerTotal: '50' });
   const syncedDetail = await openFollow(page, otherRef);
@@ -278,8 +280,20 @@ test(`${J} #3 a lead order past the per-contract cap: refused with the cap code,
   // ETH 20), so the leader's next BTC buy is skipped with the daily reason.
   await detail.getByRole('button', { name: 'Edit limits' }).click();
   await detail.getByLabel('Most per contract (USDT)').fill('');
+  await expect(detail.getByLabel('Most per contract (USDT)')).toHaveValue('');
   await detail.getByLabel('Most per day (USDT)').fill('40');
+  const amended = page.waitForResponse((r) => r.url().includes('copy.amendFollow'));
   await detail.getByRole('button', { name: 'Save changes' }).click();
+  const amend = await amended;
+  const sentAmend = amend.request().postData() ?? '';
+  expect(amend.status(), `${sentAmend} -> ${(await amend.text()).slice(0, 300)}`).toBe(200);
+  expect(JSON.parse(sentAmend), 'Save sends the cleared cap as blank').toMatchObject({ maxPerMarket: '', maxPerDay: '40' });
+  const kept = (await myFollows(follower)).find((f) => f.followId === followId);
+  expect({ maxPerMarket: kept?.maxPerMarket, maxPerDay: kept?.maxPerDay }, `sent ${sentAmend}`).toEqual({
+    maxPerMarket: null,
+    maxPerDay: '40',
+  });
+  await expect(detail).toContainText(/Most per contract\s*Not set/);
   await expect(detail).toContainText(/Most per day\s*40 USDT/);
   // A real owner day: trade restarted with the owner day moved so the next day begins at a whole UTC minute about six
   // minutes from now. The leader's next BTC buy before then is skipped with the daily reason; once that day has begun,

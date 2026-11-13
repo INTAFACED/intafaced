@@ -289,7 +289,7 @@ function CopiedOrders({ follow, api }: { follow: Follow; api: RoomApi }) {
  * Edit limits on a follow (J-copy-bots-otc-02). The sizing mode is shown as chosen and stays locked: a change is sent and
  * the service refuses it by name, so the screen never claims a lock it doesn't hold. A cap left blank clears it.
  */
-function EditLimits({
+export function EditLimits({
   follow,
   api,
   guard,
