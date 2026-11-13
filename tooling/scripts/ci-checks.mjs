@@ -150,13 +150,27 @@ export function withLock(dir, fn, { waitMs = 20 * 60_000, staleMs = 15 * 60_000 
 /**
  * CI's Postgres (postgres:16-alpine, musl) sorts text byte by byte, as collation C does; a Mac's en_US.UTF-8 doesn't
  * ('default' before 'Rig-A'), so a test's ORDER BY reads differently here (svc-mining-pool reads.db.test, #8211's
- * replay, 13 Nov). Every test database is made from template1, so template1 must collate as C. Null when it does.
+ * replay, 13 Nov). This run's own database is made collating C (bootstrapScript). The suites' own databases
+ * (packages/db createTestDatabase) are made from template1, which this can't reach: a template1 that isn't C is a
+ * warning, never a refused push (a machine setting is not a fault in the push). Null when it is C.
  */
-export function collationProblem(datcollate) {
+export function collationWarning(datcollate) {
   return String(datcollate).trim() === 'C'
     ? null
-    : `this Postgres's template1 collates ${String(datcollate).trim() || '(unknown)'}, CI's C, so tests that sort text read differently here. ` +
-        `Make it CI's (template1 holds nothing of its own): psql -d postgres -c "ALTER DATABASE template1 IS_TEMPLATE false" -c "DROP DATABASE template1" -c "CREATE DATABASE template1 TEMPLATE template0 LOCALE 'C' IS_TEMPLATE true"`;
+    : `this Postgres's template1 collates ${String(datcollate).trim() || '(unknown)'}, CI's C: a test that sorts text may read differently here than in CI. ` +
+        `To match CI (template1 holds nothing of its own): psql -d postgres -c "ALTER DATABASE template1 IS_TEMPLATE false" -c "DROP DATABASE template1" -c "CREATE DATABASE template1 TEMPLATE template0 LOCALE 'C' IS_TEMPLATE true"`;
+}
+
+/**
+ * CI's bootstrap script (its text) for this run's database: CI's name replaced, and the database made collating C, as
+ * CI's postgres:16-alpine sorts. Throws when the script's CREATE DATABASE line changed shape.
+ */
+export function bootstrapScript(text, db) {
+  const create = "'CREATE DATABASE intafaced_test OWNER intafaced'";
+  if (!text.includes(create)) throw new Error(`${BOOTSTRAP}: its CREATE DATABASE line changed shape`);
+  return text
+    .replace(create, "'CREATE DATABASE intafaced_test OWNER intafaced TEMPLATE template0 LC_COLLATE ''C'' LC_CTYPE ''C'''")
+    .replaceAll('intafaced_test', db);
 }
 
 /** Tests that need CI's EVM chain (CI starts anvil on 8545 and 8546): they fail by design with no chain. */
@@ -235,11 +249,14 @@ function prepareDatabase(env, actionText, run, cleanEnv, log) {
     spawnSync('psql', ['-d', dbname, '-v', 'ON_ERROR_STOP=1', '-tAc', sql], { env: pg, encoding: 'utf8' });
   const drop = () => psql(`DROP DATABASE IF EXISTS "${db}" WITH (FORCE)`);
   const collate = psql("SELECT datcollate FROM pg_database WHERE datname = 'template1'");
-  if (collate.status === 0) {
-    const problem = collationProblem(collate.stdout);
-    if (problem) return { error: problem };
+  const warning = collate.status === 0 ? collationWarning(collate.stdout) : null;
+  if (warning) log(`  ⚠ ${warning}`);
+  let script;
+  try {
+    script = bootstrapScript(readFileSync(join(ROOT, BOOTSTRAP), 'utf8'), db);
+  } catch (e) {
+    return { error: e.message };
   }
-  const script = readFileSync(join(ROOT, BOOTSTRAP), 'utf8').replaceAll('intafaced_test', db);
   const boot = withLock(join(realpathSync(tmpdir()), 'intafaced-ci-checks-db.lock'), () => {
     // Leftovers of runs that were killed before their drop (older than a day, so no live run is touched).
     const old = psql("SELECT datname FROM pg_database WHERE datname LIKE 'intafaced\\_run\\_%\\_test'");

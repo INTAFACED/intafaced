@@ -9,7 +9,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, utimesS
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { NEEDS_CHAIN, collationProblem, packageTestCommand, withLock } from './ci-checks.mjs';
+import { NEEDS_CHAIN, bootstrapScript, collationWarning, packageTestCommand, withLock } from './ci-checks.mjs';
 import {
   LOCAL_KEYS,
   ciNode,
@@ -222,7 +222,15 @@ test("look drift runs main's script from a real path (the Mac's tmpdir is a syml
   assert.match(text, /realpathSync\(mkdtempSync\(join\(tmpdir\(\), 'look-drift-'\)\)\)/);
 });
 
-test("test databases collate as CI's (C): a Mac's en_US.UTF-8 template1 is named, with the fix", () => {
-  assert.equal(collationProblem('C\n'), null);
-  assert.match(collationProblem('en_US.UTF-8'), /collates en_US\.UTF-8, CI's C.*LOCALE 'C' IS_TEMPLATE true/);
+test("this run's database collates as CI's (C); a template1 that doesn't is a warning, never a refusal", () => {
+  const text = readFileSync(ROOT + 'tooling/infra/postgres-init/02-intafaced-test-db.sh', 'utf8');
+  const out = bootstrapScript(text, 'intafaced_run_1_a_test');
+  assert.ok(
+    out.includes("'CREATE DATABASE intafaced_run_1_a_test OWNER intafaced TEMPLATE template0 LC_COLLATE ''C'' LC_CTYPE ''C'''"),
+    'CREATE DATABASE collating C',
+  );
+  assert.doesNotMatch(out, /intafaced_test\b/);
+  assert.throws(() => bootstrapScript(text.replace('OWNER intafaced', 'OWNER someone'), 'x_test'), /changed shape/);
+  assert.equal(collationWarning('C\n'), null);
+  assert.match(collationWarning('en_US.UTF-8'), /collates en_US\.UTF-8, CI's C/);
 });
