@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 // /trade/bots whenever the room had drawn before the check ran (#8228).
 const src = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SHELLS = new Set(['app/Shell.tsx', 'app/Web3Shell.tsx', 'features/public/PublicRoutes.tsx']);
-const UI_PAGE = /import\s*\{([^}]*)\}\s*from\s*'@intafaced\/ui'/g;
+const UI_PAGE = /import\s*\{([^}]*)\}\s*from\s*['"]@intafaced\/ui['"]/g;
 
 function sources(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -31,7 +31,7 @@ function pageNames(text: string): string[] {
 
 /** Opening tags of a component, props in braces kept whole so an arrow's `>` does not end the tag. */
 function openingTags(text: string, name: string): string[] {
-  return [...text.matchAll(new RegExp(`<${name}\\b(?:[^>{]|\\{[^}]*\\})*>`, 'g'))].map(([tag]) => tag);
+  return [...text.matchAll(new RegExp(`<${name}\\b(?:[^>{]|\\{(?:[^{}]|\\{[^{}]*\\})*\\})*>`, 'g'))].map(([tag]) => tag);
 }
 
 describe('one main landmark per customer page', () => {
@@ -57,5 +57,8 @@ describe('one main landmark per customer page', () => {
     const text = 'import { Badge, Page as Kit } from \'@intafaced/ui\';\nconst a = <Kit width="full" onX={() => 1 > 0}>x</Kit>;';
     expect(pageNames(text)).toEqual(['Kit']);
     expect(openingTags(text, 'Kit')).toEqual(['<Kit width="full" onX={() => 1 > 0}>']);
+    const quoted = 'import { Page } from "@intafaced/ui";\nconst b = <Page style={{ gap: 1 }} landmark={false}>x</Page>;';
+    expect(pageNames(quoted)).toEqual(['Page']);
+    expect(openingTags(quoted, 'Page')).toEqual(['<Page style={{ gap: 1 }} landmark={false}>']);
   });
 });
