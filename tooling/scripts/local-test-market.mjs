@@ -1321,7 +1321,7 @@ export function laterEdgeBudget(prev, next) {
  * time per order, not Edge, set the pace. Two per request makes three lanes: more side by side, while 2520 requests stay
  * well inside Edge's budget (one per request, six lanes, would send 5040 and end waiting for Edge's window).
  */
-export const HISTORY_MARKETS_PER_REQUEST = 2;
+export const HISTORY_MARKETS_PER_REQUEST = 1;
 
 /**
  * The waits before each new try of a tape trade a service refused as unavailable (failure it prevents: on 10 Nov,
