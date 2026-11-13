@@ -343,7 +343,7 @@ test(`${J} #4 Buy asks the wallet to sign one payment to INTAFACED; the grant ap
     const waiting = panel.getByTestId('academy-purchase-state');
     await expect(waiting).toHaveAttribute('data-state', 'submitted', { timeout: 20_000 });
     await expect(waiting).toHaveAttribute('data-grant', 'none');
-    await expect(waiting).toContainText('Payment sent. Waiting for the network to confirm it');
+    await expect(waiting).toContainText('Payment sent. The network is confirming it');
     await expect(panel.getByTestId('academy-purchase-tx')).toHaveText(run.payment);
     const pending = await purchaseView(run.priced.slug);
     run.key = pending.purchase.key;
