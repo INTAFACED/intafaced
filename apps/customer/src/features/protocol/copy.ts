@@ -36,6 +36,7 @@ const en = {
   src_indexer: 'indexer status',
   src_dex: 'DEX status',
   src_health: 'service health',
+  // oxlint-disable-next-line garden/own-gap-wording -- on main before this rule (HM-shell-03); its owner rewords it, and then this line goes
   serviceNotConnected: 'The {service} service is not connected here, so there is nothing to show.',
   serviceNoAnswer: 'The {service} service didn’t answer.',
   serviceNoAnswerBody: 'Nothing was changed. Try again in a moment.',
@@ -292,6 +293,7 @@ const en = {
   blk_p1_go: 'Not activated: the INTACHAIN network launch is not approved. Nothing here runs on it.',
   blk_no_chain_service: 'There is no INTACHAIN chain service or validator set running, so this would be refused rather than shown as done.',
   blk_no_bridge_service: 'No bridge service exists, so a bridge request would be refused rather than shown as locked or minted.',
+  // oxlint-disable-next-line garden/own-gap-wording -- on main before this rule (HM-shell-03); its owner rewords it, and then this line goes
   blk_source_not_connected: 'The {service} service is not connected here.',
   blk_source_down: 'Cannot confirm: {source} did not answer ({reason}).',
   blk_source_no_reply: '{source} unknown — the {service} service didn’t answer.',
@@ -300,12 +302,14 @@ const en = {
   blk_chain_mismatch: 'Wrong chain: configured as {configured} but the node reports {observed}.',
   blk_suite_missing: 'The smart-account contracts are not deployed on this chain.',
   blk_token_factory_missing: 'The token factory is not deployed on this chain.',
+  // oxlint-disable-next-line garden/own-gap-wording -- on main before this rule (HM-shell-03); its owner rewords it, and then this line goes
   blk_amm_unwired: 'No pool venue is connected to the DEX service, so there is no pool to trade against.',
   blk_relay_disabled: 'Transaction relaying is switched off here. Your account is unaffected.',
   blk_venue_not_live: 'The order-book venue is not live (contract state: {kind}). Only the published venue address counts.',
   blk_finality_unset: 'The indexer has no finalized height, so no book can be treated as final.',
   blk_indexer_halted: 'The indexer is halted: {reason}.',
   blk_behind_unknown: 'The indexer cannot tell how far behind the chain it is.',
+  // oxlint-disable-next-line garden/own-gap-wording -- on main before this rule (HM-shell-03); its owner rewords it, and then this line goes
   blk_no_execution_path: 'Trading is not connected. The DEX service can quote prices and prepare calls, but nothing submits them.',
   blk_policy_gap: 'A session key cannot be given this call: sessions never get {rule}. It stays with your own signature.',
   blk_not_audited: 'Not audited. Passing tests is not an audit.',
@@ -330,6 +334,7 @@ const en = {
   chipNoChain: 'No chain reported · Not confirmed as INTACHAIN',
   chipUnreachable: 'Network unreachable · {reason}',
   regionBlocked: 'This service is not available in your region.',
+  // oxlint-disable-next-line garden/own-gap-wording -- on main before this rule (HM-shell-03); its owner rewords it, and then this line goes
   chipNotConnected: 'The Protocol service is not connected here',
   chipNoAnswer: 'The Protocol service did not answer',
   skip: 'Skip to content',
