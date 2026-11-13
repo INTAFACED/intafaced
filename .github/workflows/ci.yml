@@ -136,10 +136,13 @@ jobs:
           PR_AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
           PR_COMMITS: ${{ github.event.pull_request.commits }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        # Its imports, look-baselines.mjs (what a look baseline is), judged-paths.mjs (what the test judge rules on) and
-        # exact-revert.mjs (what an exact revert is), come from main the same way.
+          # Check 7 reads this pull request's earlier heads' failed Tests jobs (actions: read above).
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # Its imports, look-baselines.mjs (what a look baseline is), judged-paths.mjs (what the test judge rules on),
+        # exact-revert.mjs (what an exact revert is), protected-tests.mjs and its money-skip-inventory.mjs (which tests
+        # keep every protection), come from main the same way.
         run: |
-          for f in test-diff-guard.mjs look-baselines.mjs judged-paths.mjs exact-revert.mjs; do
+          for f in test-diff-guard.mjs look-baselines.mjs judged-paths.mjs exact-revert.mjs protected-tests.mjs money-skip-inventory.mjs; do
             if git cat-file -e "origin/main:tooling/ci/$f" 2>/dev/null; then
               git show "origin/main:tooling/ci/$f" > "$RUNNER_TEMP/$f"
             else

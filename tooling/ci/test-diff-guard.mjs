@@ -27,6 +27,16 @@
  *   Test-change: <the reason a reviewer can check>
  * which turns the failure into a printed notice. The reviewer sees both. A Test-change line never covers 6.
  *
+ * Only protected tests keep 2 and 3 as failures (protected-tests.mjs: money, custody, sign-in, permissions, database
+ * suites and every `*.pw.mjs`). Elsewhere a deleted test file or a lower assertion count is a notice printed into the
+ * job summary that needs no line: a test may be deleted or rewritten when what it guarded is still guarded, by a type,
+ * a lint rule, another test or a journey step, and the pull request names which, and the CI review (REVIEW.md item 3)
+ * reads that name. 1, 4, 5 and 6 are unchanged everywhere.
+ *
+ *   7. a test file deleted or loosened (deleted, or any of 1-5 found in it) that failed in a `Tests (…)` job on an
+ *      earlier head of the same pull request. Never to get green: a failing test is fixed or its failure explained,
+ *      not removed. No line clears 7, and when the earlier heads cannot be read it fails rather than pass unseen.
+ *
  * Every run prints each changed test file's assertion count change, so a locator-only rewrite can show it kept them.
  *
  * main-bisect's automatic revert (a `revert/auto-<sha10>` branch the factory App opened, one commit that says it reverts
@@ -46,6 +56,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { judgeRunsFor, leftToJudge } from './judged-paths.mjs';
 import { BASELINE, roomOf } from './look-baselines.mjs';
+import { protectedTest } from './protected-tests.mjs';
 
 const TEST_FILE = /(?:\.(?:test|spec)\.(?:[cm]?[jt]sx?)$|\.pw\.mjs$|\/__tests__\/)/;
 const BROWSER_TEST = /\.pw\.mjs$/;
@@ -91,9 +102,11 @@ export function judge(changes, { judgeRuns = false } = {}) {
       continue;
     }
     if (!TEST_FILE.test(c.path)) continue;
+    // Outside the protected tests a deletion or a lower assertion count is a notice (`free`), not a failure.
+    const free = !protectedTest(c.path);
     if (c.status === 'D') {
       if (BROWSER_TEST.test(c.path)) problems.push({ path: c.path, why: 'journey or harness file deleted' });
-      else if (c.sourceExists) problems.push({ path: c.path, why: 'test file deleted while the code it tests still exists' });
+      else if (c.sourceExists) problems.push({ path: c.path, why: 'test file deleted while the code it tests still exists', free });
       continue;
     }
     for (const l of c.added) {
@@ -106,6 +119,7 @@ export function judge(changes, { judgeRuns = false } = {}) {
         problems.push({
           path: c.path,
           why: `${lost} fewer assertion(s) than before (${count(c.removed)} removed, ${count(c.added)} added)`,
+          free,
         });
       const strongGone = c.removed.filter((l) => STRONG_MATCHER.test(l)).length;
       const weakIn = c.added.filter((l) => WEAK_MATCHER.test(l)).length;
@@ -141,6 +155,87 @@ function toleranceRaised(path, removed, added) {
       if (after[i] > was[i + (was.length - after.length)]) return `${key} ${was[i + (was.length - after.length)]} → ${after[i]}`;
   }
   return null;
+}
+
+/**
+ * The test files a `Tests (…)` job log says failed: vitest's ` FAIL  <file relative to its package> …` lines, with the
+ * packages from turbo's `Failed: <pkg>#test, …` line. Escape codes and the runner's timestamps are stripped first.
+ * @returns {{ packages: string[], files: string[] }}
+ */
+export function failedInLog(log) {
+  const packages = new Set();
+  const files = new Set();
+  for (const raw of String(log ?? '').split('\n')) {
+    const l = raw.replace(/\x1b\[[0-9;]*m/g, '').replace(/^\d{4}-\d\d-\d\dT[\d:.]+Z ?/, '');
+    const failed = /^\s*Failed:\s+(.+)$/.exec(l);
+    if (failed) for (const t of failed[1].split(/[\s,]+/)) if (t.endsWith('#test')) packages.add(t.slice(0, -5).replace(/^@[^/]+\//, ''));
+    const fail = /(?:^|[: ])FAIL {2}(\S+)/.exec(l);
+    if (fail && TEST_FILE.test(fail[1])) files.add(fail[1].replace(/^\.\//, ''));
+  }
+  return { packages: [...packages], files: [...files] };
+}
+
+/** Whether repository path `path` is one of the failed files (package-relative) in one of the failed packages. */
+export function failedEarlier(path, failures) {
+  for (const f of failures) {
+    if (!(path === f.file || path.endsWith(`/${f.file}`))) continue;
+    const root = path.slice(0, path.length - f.file.length);
+    // A log with no `Failed:` line names no package: then the file name alone decides (it can only fail more).
+    if (f.packages.length === 0 || f.packages.some((p) => root.endsWith(`/${p}/`) || root === `${p}/`)) return f;
+  }
+  return null;
+}
+
+/**
+ * Check 7: each test file the pull request deletes or loosens that failed on an earlier head. `loosened` are the
+ * changed test paths with a deletion or a finding; `failures` come from earlierFailures().
+ */
+export function gotGreen(loosened, failures) {
+  const out = [];
+  for (const path of loosened) {
+    const f = failedEarlier(path, failures);
+    if (f)
+      out.push({
+        path,
+        why: `deleted or loosened after it failed on an earlier head (${f.sha.slice(0, 10)}, ${f.job}): fix the test or explain its failure, never remove it to get green`,
+      });
+  }
+  return out;
+}
+
+/**
+ * The failed test files of every earlier head of this pull request: the CI workflow's pull_request runs on its branch
+ * from its head repository, other than the current head, newest 20, and in each the failed `Tests (…)` jobs' logs.
+ * `api(path)` returns parsed JSON for a REST path; `text(path)` a log's text. Either throws on a refusal, which the
+ * caller turns into a failure.
+ */
+export async function earlierFailures({ repo, headRepo = repo, branch, headSha }, { api, text }) {
+  const runs =
+    (await api(`/repos/${repo}/actions/workflows/ci.yml/runs?branch=${encodeURIComponent(branch)}&event=pull_request&per_page=20`))
+      .workflow_runs ?? [];
+  const out = [];
+  for (const run of runs) {
+    if (run.head_sha === headSha || run.head_repository?.full_name !== headRepo) continue;
+    const jobs = (await api(`/repos/${repo}/actions/runs/${run.id}/jobs?per_page=100`)).jobs ?? [];
+    for (const job of jobs) {
+      if (!/^Tests \(/.test(job.name) || job.conclusion !== 'failure') continue;
+      const { packages, files } = failedInLog(await text(`/repos/${repo}/actions/jobs/${job.id}/logs`));
+      for (const file of files) out.push({ sha: run.head_sha, job: job.name, packages, file });
+    }
+  }
+  return out;
+}
+
+/** A REST reader on GITHUB_TOKEN; a refusal or a limit throws with the exact status, never retried. */
+function restReader(token) {
+  const get = async (path) => {
+    const res = await fetch(`https://api.github.com${path}`, {
+      headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28' },
+    });
+    if (!res.ok) throw new Error(`GitHub ${res.status} ${res.statusText} on ${path}`);
+    return res;
+  };
+  return { api: async (p) => (await get(p)).json(), text: async (p) => (await get(p)).text() };
 }
 
 /** The rooms a PR body names on `Baseline-change: <room> — <why>` lines. */
@@ -226,7 +321,7 @@ function collect(base) {
   });
 }
 
-function selfTest() {
+async function selfTest() {
   const t = (c) => judge([{ path: 'a/x.test.ts', status: 'M', removed: [], added: [], sourceExists: true, ...c }]);
   const eq = (got, want, m) => {
     if (got !== want) throw new Error(`${m}: got ${got}, want ${want}`);
@@ -454,11 +549,122 @@ function selfTest() {
     null,
     'planted fault: one more file',
   );
-  console.log('✓ test-diff-guard --self-test OK (73 fixtures)');
+  await protectedSelfTest(eq);
+  console.log('✓ test-diff-guard --self-test OK (99 fixtures)');
+}
+
+/** Planted cases for the protected tests (protected-tests.mjs) and check 7. */
+async function protectedSelfTest(eq) {
+  const blocking = (changes, opts) => judge(changes, opts).filter((p) => !p.free).length;
+  const freed = (changes, opts) => judge(changes, opts).filter((p) => p.free).length;
+  const del = (path) => [{ path, status: 'D', removed: [], added: [], sourceExists: true }];
+  const fewer = (path) => [{ path, status: 'M', removed: ["  it('x', () => { expect(a).toBe(1); });"], added: [], sourceExists: true }];
+  // Planted: a placeholder test deleted outside the protected tests passes with no line, as a notice.
+  eq(blocking(del('apps/customer/src/screens/home/home-card.test.tsx')), 0, 'placeholder file deleted, not protected: no failure');
+  eq(freed(del('apps/customer/src/screens/home/home-card.test.tsx')), 1, 'placeholder file deleted, not protected: a notice');
+  eq(blocking(fewer('packages/i18n/src/keys.test.ts')), 0, 'a case removed, not protected: no failure');
+  // Planted: protected tests fail as today.
+  eq(blocking(fewer('services/svc-academy/src/paper/real-money-ban.money.test.ts')), 1, 'a *.money.test.ts case removed: fails as today');
+  eq(blocking(del('services/svc-academy/src/paper/real-money-ban.money.test.ts')), 1, 'a *.money.test.ts file deleted: fails as today');
+  eq(blocking(fewer('services/svc-ledger/src/posting.test.ts')), 1, 'a money root (MONEY_PATH_ROOTS): fails as today');
+  eq(blocking(fewer('services/svc-tax/src/a.db.test.ts')), 1, 'a *.db.test.ts: fails as today');
+  eq(blocking(fewer('services/svc-tax/src/a.pg.test.ts')), 1, 'a *.pg.test.ts: fails as today');
+  eq(blocking(fewer('services/svc-identity/src/x.test.ts')), 1, 'svc-identity: fails as today');
+  eq(blocking(fewer('packages/auth/src/x.test.ts')), 1, 'packages/auth: fails as today');
+  eq(blocking(fewer('apps/customer/src/features/public/AuthForm.test.tsx')), 1, 'a sign-in test by name: fails as today');
+  eq(blocking(fewer('apps/admin/src/lib/operator-access.test.ts')), 1, 'a permissions test by name: fails as today');
+  eq(blocking(fewer('apps/admin/src/lib/custody-ops/model.test.ts')), 1, 'a custody test by folder: fails as today');
+  eq(blocking(fewer('apps/customer/src/features/protocol/wallet/SessionKeysPanel.test.tsx')), 1, 'camelCase split: SessionKeys');
+  eq(blocking(del('apps/customer/src/screens/home/home.pw.mjs')), 1, 'a harness deleted: fails as today');
+  eq(
+    blocking([
+      {
+        path: 'apps/customer/tests/real-app/J-x-01.pw.mjs',
+        status: 'M',
+        removed: ['  await expect(a).toBeVisible();'],
+        added: [],
+        sourceExists: true,
+      },
+    ]),
+    1,
+    'a journey test edit, no judge job: fails as today',
+  );
+  eq(
+    blocking([{ path: 'apps/customer/tests/real-app/J-x-01.pw.mjs', status: 'D', removed: [], added: [], sourceExists: false }], {
+      judgeRuns: true,
+    }),
+    1,
+    'a journey test deleted: fails as today',
+  );
+  // Unchanged outside the protected tests: a skip, a weaker matcher.
+  eq(
+    blocking([{ ...fewer('packages/i18n/src/keys.test.ts')[0], removed: [], added: ["  it.skip('x', () => {})"] }]),
+    1,
+    'skip added anywhere: fails',
+  );
+  eq(
+    blocking([
+      { ...fewer('packages/i18n/src/keys.test.ts')[0], removed: ['  expect(a).toEqual(1);'], added: ['  expect(a).toBeDefined();'] },
+    ]),
+    1,
+    'weaker matcher anywhere: fails',
+  );
+  // Check 7: the log reader and the match.
+  const log = [
+    '2026-11-13T05:17:14.7515515Z \x1b[31m FAIL \x1b[39m src/edge-trust.test.ts [ src/edge-trust.test.ts ]',
+    '2026-11-13T05:17:14.7523672Z  FAIL  src/engine/checks.test.ts > checks > refuses a stale bar',
+    '2026-11-13T05:17:20.0000000Z  Failed:    @intafaced/svc-quant#test',
+    '2026-11-13T05:17:20.0000000Z  FAIL  is the word in a sentence about nothing',
+  ].join('\n');
+  const read = failedInLog(log);
+  eq(read.packages.join(), 'svc-quant', 'failed packages read');
+  eq(read.files.sort().join(), 'src/edge-trust.test.ts,src/engine/checks.test.ts', 'failed files read');
+  const failures = read.files.map((file) => ({ sha: 'a'.repeat(40), job: 'Tests (changed)', packages: read.packages, file }));
+  eq(gotGreen(['services/svc-quant/src/edge-trust.test.ts'], failures).length, 1, 'planted: deleted after it failed: fails');
+  eq(gotGreen(['services/svc-tax/src/edge-trust.test.ts'], failures).length, 0, 'same name, another package: not this failure');
+  eq(gotGreen(['services/svc-quant/src/engine/bars.test.ts'], failures).length, 0, 'a test that did not fail: no finding');
+  // earlierFailures reads only earlier heads of this branch from the head repository, and only failed Tests jobs.
+  const H = 'h'.repeat(40);
+  const api = async (path) => {
+    if (path.includes('/workflows/ci.yml/runs'))
+      return {
+        workflow_runs: [
+          { id: 1, head_sha: H, head_repository: { full_name: 'o/r' } },
+          { id: 2, head_sha: 'a'.repeat(40), head_repository: { full_name: 'o/r' } },
+          { id: 3, head_sha: 'b'.repeat(40), head_repository: { full_name: 'fork/r' } },
+        ],
+      };
+    if (path.endsWith('/runs/2/jobs?per_page=100'))
+      return {
+        jobs: [
+          { id: 20, name: 'Tests (changed)', conclusion: 'failure' },
+          { id: 21, name: 'Doctrine gates', conclusion: 'failure' },
+          { id: 22, name: 'Tests (3/16)', conclusion: 'success' },
+        ],
+      };
+    throw new Error(`unexpected ${path}`);
+  };
+  const text = async (path) => {
+    if (path.endsWith('/jobs/20/logs')) return log;
+    throw new Error(`unexpected ${path}`);
+  };
+  const got = await earlierFailures({ repo: 'o/r', branch: 'x', headSha: H }, { api, text });
+  eq(got.length, 2, 'earlier failures: one failed Tests job on one earlier head');
+  let refused = '';
+  await earlierFailures(
+    { repo: 'o/r', branch: 'x', headSha: H },
+    {
+      api: async () => {
+        throw new Error('GitHub 403 Forbidden');
+      },
+      text,
+    },
+  ).catch((e) => (refused = e.message));
+  eq(refused, 'GitHub 403 Forbidden', 'a refusal is thrown, never read as no failures');
 }
 
 if (process.argv.includes('--self-test')) {
-  selfTest();
+  await selfTest();
   process.exit(0);
 }
 
@@ -494,7 +700,47 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     console.log(
       `main-bisect's automatic revert of ${reverted.slice(0, 10)}: its diff undoes exactly that commit, which main holds, so checks 1-5 don't judge it (its tests return to main's from before it)`,
     );
-  const problems = reverted ? [] : judge(changes, { judgeRuns });
+  const found = reverted ? [] : judge(changes, { judgeRuns });
+  // Outside the protected tests a deletion or a lower assertion count is printed into the job summary, needing no line.
+  const notes = found.filter((p) => p.free);
+  const problems = found.filter((p) => !p.free);
+  for (const n of notes) console.log(`ℹ ${n.path}\n    → ${n.why} (not a protected test: the pull request names what still guards it)`);
+  if (notes.length && process.env.GITHUB_STEP_SUMMARY) {
+    const { appendFileSync } = await import('node:fs');
+    appendFileSync(
+      process.env.GITHUB_STEP_SUMMARY,
+      `## Tests deleted or with fewer assertions (not protected tests)\n\nThe pull request names, by a rule id, a test path or a step id, what still guards each; the CI review reads it.\n\n${notes.map((n) => `- \`${n.path}\`: ${n.why}`).join('\n')}\n`,
+    );
+  }
+  // Check 7: a test deleted or loosened after it failed on an earlier head of this pull request. No line clears it.
+  const loosened = reverted
+    ? []
+    : [...new Set([...changes.filter((c) => c.status === 'D' && TEST_FILE.test(c.path)).map((c) => c.path), ...found.map((p) => p.path)])];
+  let green = [];
+  if (loosened.length && process.env.PR_HEAD_REF && process.env.GITHUB_REPOSITORY) {
+    try {
+      const failures = await earlierFailures(
+        {
+          repo: process.env.GITHUB_REPOSITORY,
+          headRepo: process.env.PR_HEAD_REPO || process.env.GITHUB_REPOSITORY,
+          branch: process.env.PR_HEAD_REF,
+          headSha: process.env.PR_HEAD_SHA,
+        },
+        restReader(process.env.GH_TOKEN || process.env.GITHUB_TOKEN || ''),
+      );
+      green = gotGreen(loosened, failures);
+      console.log(
+        `earlier heads read: ${new Set(failures.map((f) => f.sha)).size} with a failed Tests job; ${green.length} deleted or loosened test(s) failed there`,
+      );
+    } catch (e) {
+      green = [
+        {
+          path: loosened[0],
+          why: `could not read this pull request's earlier heads to check a deleted or loosened test did not fail there: ${e.message}`,
+        },
+      ];
+    }
+  }
   const baselines = judgeBaselines(changes, body);
   for (const n of baselines.notices) console.log(`⚠ ${n.path}\n    → ${n.why}`);
   const esc = (t) => String(t).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
@@ -506,8 +752,13 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   };
   const declared = DECLARED.test(body);
   // GitHub keeps 10 annotations per step: the test findings the Test-change line does not cover come first.
-  annotate([...(declared ? [] : problems), ...baselines.problems]);
+  annotate([...green, ...(declared ? [] : problems), ...baselines.problems]);
   let failed = false;
+  if (green.length > 0) {
+    console.error(`\n✖ test-diff-guard FAILED — ${green.length} test(s) removed or loosened after failing (no line clears this)\n`);
+    for (const p of green) console.error(`  ${p.path}\n    → ${p.why}\n`);
+    failed = true;
+  }
   if (baselines.problems.length > 0) {
     console.error(`\n✖ test-diff-guard FAILED — ${baselines.problems.length} unnamed baseline change(s)\n`);
     for (const p of baselines.problems) console.error(`  ${p.path}\n    → ${p.why}\n`);
@@ -517,7 +768,12 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     failed = true;
   }
   if (problems.length === 0) {
-    if (!failed) console.log('✓ test-diff-guard clean — no test was deleted, skipped or weakened');
+    if (!failed)
+      console.log(
+        notes.length
+          ? `✓ test-diff-guard clean — ${notes.length} notice(s) above on tests that are not protected, none on a protected test`
+          : '✓ test-diff-guard clean — no test was deleted, skipped or weakened',
+      );
     process.exit(failed ? 1 : 0);
   }
   const head = declared
