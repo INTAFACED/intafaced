@@ -68,6 +68,7 @@ if (!available) {
   const sealKey = randomBytes(32);
   let signingEncKey: Buffer | null = sealKey;
   let signingWindowSeconds: number | null = 300;
+  let leadAnswer: 'lead' | 'not_lead' | 'unavailable' | null = 'not_lead';
   let n = 0;
   const unique = () => `dk${process.pid}${++n}`;
 
@@ -76,6 +77,7 @@ if (!available) {
     passkeyRule = false;
     signingEncKey = sealKey;
     signingWindowSeconds = 300;
+    leadAnswer = 'not_lead';
     await db.truncateAll();
     await rank.seedTiers();
   });
@@ -98,6 +100,10 @@ if (!available) {
       },
       get signingWindowSeconds() {
         return signingWindowSeconds;
+      },
+      get leadCheck() {
+        const answer = leadAnswer;
+        return answer === null ? undefined : async () => answer;
       },
       mayMint: async (userId, factor) => {
         if (passkeyRule) await passkeyMintRule(db.sql)(userId, factor);
@@ -270,6 +276,39 @@ if (!available) {
         SELECT require_signature FROM api_keys WHERE id = ${reader.record.id}
       `;
       expect(readRow!.require_signature).toBe(false);
+    });
+
+    it('a copy:lead key only for an approved lead, as svc-trade answers; refused before the factor is spent otherwise (J-copy-bots-otc-07 #1 #2)', async () => {
+      for (const [answer, code] of [
+        ['not_lead', 'identity.key_lead_not_approved'],
+        ['unavailable', 'identity.key_lead_check_unavailable'],
+        [null, 'identity.key_lead_check_unavailable'],
+      ] as const) {
+        leadAnswer = answer;
+        const s = await register();
+        const c = await caller(s);
+        const p = await proof(s);
+        await expect(
+          c.developerKeys.create({ ...ask(s.userId, 'lead', { scopes: ['trade:read', 'trade:write', 'copy:lead'] }), factorProof: p }),
+        ).rejects.toMatchObject({ message: expect.stringContaining(`[${code}]`) });
+        expect(await keysOf(s.userId)).toHaveLength(0);
+        expect(await db.sql`SELECT 1 FROM pay_step_up_proofs WHERE proof_id = ${p.proofId} AND consumed_at IS NULL`).toHaveLength(1);
+      }
+      leadAnswer = 'lead';
+      const s = await register();
+      const made = await (
+        await caller(s)
+      ).developerKeys.create({
+        ...ask(s.userId, 'lead', { scopes: ['trade:read', 'trade:write', 'copy:lead'] }),
+        factorProof: await proof(s),
+      });
+      expect(made.record.scopes).toEqual(expect.arrayContaining(['copy:lead']));
+      // A key without the lead scope never asks.
+      leadAnswer = 'unavailable';
+      const plain = await (
+        await caller(s)
+      ).developerKeys.create({ ...ask(s.userId, 'reader', { scopes: ['trade:read'] }), factorProof: await proof(s) });
+      expect(plain.record.scopes).toEqual(['trade:read']);
     });
 
     it('refuses a key that may place orders while signing is not set up, before the factor is spent', async () => {

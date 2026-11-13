@@ -1,4 +1,4 @@
-// World: market, gates
+// World: market, restart, gates
 // Market: live
 import { test, expect } from './journey.mjs';
 import { EDGE, tool } from './stack.mjs';
@@ -15,8 +15,9 @@ import { EDGE, tool } from './stack.mjs';
 //      restarted on BTC/USDT only, so no ETH trade happens for longer than the boundary, then restarted on every market.
 //   #3 real: BTC/USDT is halted with the gates' `halt` (matching's own book halt) and resumed afterwards. The chart reads
 //      that halt from /api/v1/market-halt. No interception.
-//   #4 INTERCEPTED (intercepted 503): the candle route (/api/v1/ohlcv) answers 503 after the chart has loaded. The stack has
-//      no way to stop only the candle feed without stopping svc-trade itself, which is not cleared.
+//   #4 real: ETH/USDT is kept quiet (the TEST maker trades BTC/USDT only) and read once on its chart; svc-trade, which serves
+//      every chart read, is then stopped on the stack and ETH/USDT opened again from the chart's market control, so the
+//      market opens with its feed already stopped. svc-trade is started again afterwards. No route is changed in the browser.
 //   #5 real: the TEST label follows the lifecycle's own local-test evidence marker (the stack marks BTC/USDT as TEST).
 //   #6 real stream: BTC/USDT on the 1m interval (pinned through the chart's own control), the bars move with trades, and
 //      the longest main-thread task over a 10 s stream window is at or under the owner's render budget (renderBudgetMs,
@@ -33,6 +34,8 @@ const feedLine = (page) => page.getByTestId('chart-feed').first();
 const source = (page) => page.getByTestId('chart-source').first();
 const host = (page) => page.getByTestId('cw').getByTestId('wc-host').first();
 const tradeButton = (page) => page.locator('button[data-testid="cw-link"]').first();
+/** The chart page's own market control, labelled "Market" in its header. */
+const marketControl = (page) => page.getByTestId('cw-market').first();
 
 /** The owner values for one market, from svc-trade's public read (the chart reads the same route). */
 async function ownerValues(symbol = BTC) {
@@ -207,43 +210,64 @@ test.describe(`${J} #3 on a halted market (a real matching halt)`, () => {
   });
 });
 
-test(`${J} #4 opens a market whose feed has stopped (intercepted 503): Stale or Down with the last trade time, never a frozen price shown as live`, async ({
-  page,
-}) => {
-  // INTERCEPTED (see the header): the candle feed answers 503 after the chart has loaded. Nothing else is changed.
-  await openChart(page);
-  await expect(chip(page)).toHaveAttribute('data-status', /live|delayed/, { timeout: 30_000 });
-  await page.route('**/api/v1/ohlcv/**', (route) =>
-    route.fulfill({ status: 503, json: { code: 'ExchangeNotAvailable', message: 'stopped' } }),
-  );
-  await expect(chip(page)).toHaveAttribute('data-status', /^(stale|down)$/, { timeout: 45_000 });
-  await expect(banner(page)).toHaveAttribute('data-kind', /^(stale|down)$/);
-  // The last tick's time: the newest trade on the public tape, in the viewer's clock (to the minute, as the banner writes it).
-  await expect
-    .poll(
-      async () => {
-        const asOf = await page.evaluate(
-          (ms) =>
-            new Intl.DateTimeFormat('en-GB', {
-              day: 'numeric',
-              month: 'short',
-              year: 'numeric',
-              hour: '2-digit',
-              minute: '2-digit',
-              hourCycle: 'h23',
-            }).format(ms),
-          await newestTradeMs(BTC),
-        );
-        return (
-          ((await banner(page).textContent()) ?? '').includes(`Last trade ${asOf}.`) ||
-          `banner: ${await banner(page).textContent()}; tape: ${asOf}`
-        );
-      },
-      { timeout: 30_000, intervals: [1_000] },
-    )
-    .toBe(true);
-  await expect(feedLine(page)).toContainText(/Feed (stale|down)/);
-  await expect(chip(page)).not.toHaveAttribute('data-status', 'live');
+test.describe(`${J} #4 on our own outage, opened after svc-trade has stopped`, () => {
+  let makerWasRunning = false;
+  test.beforeAll(() => {
+    // ETH/USDT's newest trade must not move while the test reads it: the TEST market maker trades BTC/USDT only from here.
+    test.setTimeout(300_000);
+    makerWasRunning = /^test market: (ok|STALE)/.test(maker('status'));
+    tool('local-test-market.mjs', 'stop');
+    tool('local-test-market.mjs', 'start', '--markets', BTC);
+  });
+  test.afterAll(() => {
+    test.setTimeout(300_000);
+    tool('local-test-market.mjs', 'stop');
+    if (makerWasRunning) tool('local-test-market.mjs', 'start');
+  });
+
+  test(`${J} #4 opens a market whose feed has stopped: Down with the last trade time, never a frozen price shown as live`, async ({
+    page,
+  }) => {
+    test.setTimeout(300_000);
+    // The newest ETH/USDT trade, which no longer moves. The person has seen this market earlier in the session.
+    const lastTrade = await newestTradeMs(ETH);
+    await openChart(page, ETH_CHART);
+    await expect(chip(page)).toContainText(/Last trade \d+ s ago/, { timeout: 30_000 });
+    expect(await newestTradeMs(ETH), 'no ETH trade landed while the chart read it').toBe(lastTrade);
+    // Then on BTC/USDT, the stack's own outage: svc-trade, which serves every chart read, stops. Nothing in the browser is
+    // changed. The person then opens ETH/USDT from the chart's own market control, with the feed already stopped.
+    await marketControl(page).selectOption(BTC);
+    await expect(host(page)).toBeVisible();
+    try {
+      tool('local-test-stack.mjs', 'stop', 'trade');
+      await marketControl(page).selectOption(ETH);
+      await expect(page).toHaveURL(/ETH-USDT/);
+      // Our own stream's outage reads Down (the journey's Outside line), not Stale, not an unread market state.
+      await expect(chip(page)).toHaveAttribute('data-status', 'down', { timeout: 60_000 });
+      await expect(chip(page)).toContainText('Down');
+      await expect(banner(page)).toHaveAttribute('data-kind', 'down');
+      const asOf = await page.evaluate(
+        (ms) =>
+          new Intl.DateTimeFormat('en-GB', {
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            hourCycle: 'h23',
+          }).format(ms),
+        lastTrade,
+      );
+      await expect(banner(page)).toContainText(`Last trade ${asOf}.`);
+      await expect(feedLine(page)).toContainText('Feed down');
+      // Never shown as live while it stays stopped.
+      await page.waitForTimeout(5_000);
+      await expect(chip(page)).toHaveAttribute('data-status', 'down');
+      await expect(chip(page)).not.toContainText('Real-time');
+    } finally {
+      tool('local-test-stack.mjs', 'start', '--only', 'trade');
+    }
+  });
 });
 
 test(`${J} #5 opens a TEST market: a TEST label on the chart title row, named by the lifecycle's own marker`, async ({ page }) => {
@@ -272,6 +296,11 @@ test(`${J} #5 opens a TEST market: a TEST label on the chart title row, named by
     };
   });
   expect(row).toEqual({ sameRow: true, onTitleLine: true, afterTitle: true });
+  // And the price header: the market's header on its trading desk, where its last price is shown, carries the TEST label too.
+  await page.goto('/trade/spot/BTC-USDT');
+  const header = page.getByTestId('dk-ticker');
+  await expect(header.getByTestId('dk-last')).toBeVisible({ timeout: 30_000 });
+  await expect(header.getByText('TEST', { exact: true })).toBeVisible();
 });
 
 test(`${J} #6 keeps drawing while ticks stream: the bars move, the frame counter advances, and no task holds the page past the render budget`, async ({

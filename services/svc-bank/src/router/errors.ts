@@ -3,7 +3,7 @@ import { TRPCError } from '@intafaced/contracts';
 import { InsufficientFundsError, LedgerError } from '@intafaced/ledger-client';
 import { DualControlError } from '../dual-control.js';
 import { ActionApprovalConsumeError } from '../action-approval-consume.js';
-import { BankError, type BankErrorCode } from '../errors.js';
+import { BankError, LedgerFrozenRefusal, type BankErrorCode } from '../errors.js';
 import { userFacingBankMessage } from '../user-copy.js';
 
 /**
@@ -659,6 +659,10 @@ export function toTrpcError(err: unknown): TRPCError {
     // precisely the one whose message nobody vetted, so it gets the generic answer.
     if (!Object.hasOwn(BANK_ERROR_STATUS, err.code)) return opaqueFailure(err, `bank.error:${String(err.code)}`);
     return new TRPCError({ code: BANK_ERROR_STATUS[err.code], message: publicDoorWireMessage(err), cause: err });
+  }
+  if (err instanceof LedgerFrozenRefusal) {
+    // The posting freeze, proved not posted: the ledger's own code and nothing else, never the book's internals.
+    return new TRPCError({ code: 'PRECONDITION_FAILED', message: 'ledger.frozen', cause: err });
   }
   if (err instanceof LedgerError) {
     // NOT `err.message`. `InsufficientFundsError` is handled above because it
