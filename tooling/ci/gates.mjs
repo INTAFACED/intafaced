@@ -40,6 +40,8 @@
  *        (the tooling tests read the workflows too); every other gate runs as always. `--base <ref>` compares against
  *        another ref (a stacked branch). An unreadable diff runs everything. CI and main never pass the flag: they
  *        keep the full run (U4, project-state #1574).
+ *   Outside CI (no `CI` variable), every run then also runs tooling/scripts/rule-tests.mjs: the unit tests that walk the
+ *   tree, of the packages the branch's diff reaches, which an affected vitest run never selects and CI's unit run does.
  */
 import { readdirSync, existsSync, readFileSync } from 'node:fs';
 import { join, basename, resolve } from 'node:path';
@@ -530,9 +532,9 @@ export function changedSinceMain(cwd = ROOT, base = 'origin/main') {
  */
 const RUN_AS_SCRIPT = process.argv[1] !== undefined && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url));
 
-if (RUN_AS_SCRIPT) main();
+if (RUN_AS_SCRIPT) await main();
 
-function main() {
+async function main() {
   const changedOnly = process.argv.includes('--changed');
   // `--base <ref>` for a branch stacked on another (default origin/main).
   const baseAt = process.argv.indexOf('--base');
@@ -600,6 +602,25 @@ function main() {
       failed.push({ gate, output });
       console.log(`  ✖ ${gate.id.padEnd(22)} ${String(ms).padStart(5)}ms  ${gate.doctrine}`);
     }
+  }
+
+  // A builder's machine also runs the rule tests its diff reaches (tooling/scripts/rule-tests.mjs): the copy rules, pins
+  // and inventories that walk the tree, which no file imports, so an affected vitest run never selects them and CI's unit
+  // run is where they went red (31 of 98 journey PRs' first heads, project-state #2065 row d22). Not in CI, whose unit
+  // job runs every one of them, and not a GATES entry, so CI's gate list and its empty-tree census are unchanged.
+  if (!process.env.CI) {
+    const started = process.hrtime.bigint();
+    const { runRuleTests } = await import('../scripts/rule-tests.mjs');
+    const res = await runRuleTests({ base, log: (line) => console.log(line) });
+    const ms = Number((process.hrtime.bigint() - started) / 1000000n);
+    totalMs += ms;
+    const gate = {
+      id: 'rule-tests',
+      doctrine: 'CI unit run, early',
+      why: 'the tests that walk the tree, of the packages this branch reaches; CI fails on the same tests',
+    };
+    console.log(`  ${res.ok ? '✓' : '✖'} ${gate.id.padEnd(22)} ${String(ms).padStart(5)}ms  ${gate.doctrine}\n      ${res.summary}`);
+    if (!res.ok) failed.push({ gate, output: res.summary });
   }
 
   for (const { gate, output } of advisoryNoise) {
