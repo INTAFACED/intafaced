@@ -5,6 +5,8 @@ import { AlgoHome } from './AlgoHome';
 import { BacktestRoom } from './BacktestRoom';
 import { StrategiesRoom } from './StrategiesRoom';
 import { StrategyPage } from './StrategyPage';
+import { LiveRun, LiveRuns } from './LiveRun';
+import { liveRunCopy } from './live-run-copy';
 import { EditorRoom, OptimiseRoom, TesterRoom } from './PreviewRooms';
 import { previewCopy } from './preview-copy';
 import { strategyPageCopy } from './strategy-page-copy';
@@ -38,6 +40,22 @@ export function quantRoute(
       title: strategyPageCopy.t('roomTitle'),
       description: strategyPageCopy.t('description'),
       content: <StrategyPage key={`${userId ?? 'anonymous'}:${strategyId}`} strategyId={strategyId} paper={paper} />,
+    };
+  }
+  // A live strategy run on the person's own venue sub-account (J-algo-dev-07), and the list of them.
+  if (pathname === '/quant/live') {
+    return {
+      title: liveRunCopy.t('listTitle'),
+      description: liveRunCopy.t('description'),
+      content: <LiveRuns key={userId ?? 'anonymous'} />,
+    };
+  }
+  const live = /^\/quant\/live\/([0-9a-fA-F-]{36})$/.exec(pathname);
+  if (live) {
+    return {
+      title: liveRunCopy.t('roomTitle'),
+      description: liveRunCopy.t('description'),
+      content: <LiveRun key={`${userId ?? 'anonymous'}:${live[1]}`} runId={live[1]!.toLowerCase()} />,
     };
   }
   // The Preview rooms (AL-order-01): full layouts on TEST sample data; every engine action is refused by name.
