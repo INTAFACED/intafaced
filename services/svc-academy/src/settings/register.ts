@@ -51,6 +51,7 @@ export interface SettingsEnv {
   readonly ACADEMY_GRANT_AUDIT_PAGE_SIZE?: number | undefined;
   readonly ACADEMY_GRADER_LEASE_SECONDS?: number | undefined;
   readonly ACADEMY_GRADE_REPORT_ROWS?: number | undefined;
+  readonly ACADEMY_CERT_ISSUED_ROWS?: number | undefined;
   readonly ACADEMY_LEARNER_SUMMARIES_PAGE_SIZE?: number | undefined;
   readonly ACADEMY_REPORT_TASKS_PAGE_SIZE?: number | undefined;
   readonly ACADEMY_REPORT_CENTRE_RETENTION_MINUTES?: number | undefined;
@@ -245,6 +246,13 @@ export function settingsRegister(env: SettingsEnv): readonly SettingRow[] {
     {
       key: 'grade_report_rows',
       state: state(positiveInt(env.ACADEMY_GRADE_REPORT_ROWS)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.report_limit_unset',
+    },
+    {
+      key: 'cert_issued_rows',
+      state: state(positiveInt(env.ACADEMY_CERT_ISSUED_ROWS)),
       store: 'env',
       readOnly: false,
       refusalCode: 'academy.report_limit_unset',

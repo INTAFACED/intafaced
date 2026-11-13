@@ -154,6 +154,7 @@ import { installApiKeyRequestSignExchange, parseRequestSignWindow } from './auth
 import { createRequestSigningPolicyRouter } from './request-signing-policy-router.js';
 import { createApiKeyRequestSignRouter } from './api-key-request-sign-router.js';
 import { createDeveloperKeysRouter } from './developer-keys-router.js';
+import { httpLeadCheck } from './auth/lead-key-check.js';
 import { parseApiKeyCapByTier, parsePortfolioKeyCap, parseApiKeyIdleExpirySeconds, passkeyMintRule } from './auth/developer-keys.js';
 import { parseDeveloperRoles } from './auth/developer-team.js';
 import { installApiKeyRateExchange, parseRatePolicy } from './auth/api-rate-limits.js';
@@ -519,21 +520,7 @@ auth.useFounderSessionScopes(env.IDENTITY_FOUNDER_SESSION_SCOPES);
 // non-blank roster refuses boot anywhere else (identity.staff_test_roster_refused). Blank is no roster: no staff scopes.
 auth.useStaffTestRoster(parseStaffTestRoster(env.IDENTITY_STAFF_TEST_ROSTER, process.env.APP_ENV));
 
-/**
- * Each referral edge is announced once it commits (`identity.referral.created`, keyed by the invitee): svc-campaigns
- * tracks the invitee's progress from it (CM-referral-02). A failed announcement never undoes the attach; it is logged.
- */
-const referral = new ReferralService(sql, undefined, async (edge) => {
-  try {
-    await bus.publish(
-      'referralCreated',
-      { userId: edge.userId, referrerId: edge.referrerId, attachedAt: edge.attributedAt.toISOString() },
-      { idempotencyKey: `identity.referral.created:${edge.userId}` },
-    );
-  } catch (err) {
-    app.log.error({ err, userId: edge.userId }, 'identity.referral.created could not be announced');
-  }
-});
+const referral = new ReferralService(sql);
 /** One-tap share tags (RC-campaigns-06): a blank key or visit limit refuses by name; malformed ones stop the service. */
 const share = new ShareService(sql, {
   tagKey: parseShareTagKey(env.IDENTITY_SHARE_TAG_KEY),
@@ -809,6 +796,12 @@ export const appRouter = mergeRouters(
     mayMint: passkeyMintRule(sql),
     signingEncKey,
     signingWindowSeconds: requestSignWindowSeconds,
+    // svc-trade's base URL, the same one the closure check uses: trade answers both questions.
+    leadCheck: httpLeadCheck({
+      url: env.IDENTITY_CLOSURE_TRADE_URL,
+      secret: closureSecret,
+      ...(outS2s ? { s2s: { signer: outS2s.signer, mode: outS2s.mode } } : {}),
+    }),
   }),
   createApiRateLimitsRouter(sql, ratePolicy),
   createDeveloperSandboxesRouter({
@@ -842,6 +835,11 @@ export const appRouter = mergeRouters(
       listCap: env.IDENTITY_WATCHLIST_LIST_CAP ?? null,
       symbolCap: env.IDENTITY_WATCHLIST_SYMBOL_CAP ?? null,
       savedScreenCap: env.IDENTITY_SAVED_SCREEN_CAP ?? null,
+    },
+    deskLayouts: {
+      layoutCap: env.IDENTITY_DESK_LAYOUT_CAP ?? null,
+      restoreCap: env.IDENTITY_DESK_LAYOUT_RESTORE_CAP ?? null,
+      restoreDays: env.IDENTITY_DESK_LAYOUT_RESTORE_DAYS ?? null,
     },
   }),
   createMembershipRouter(env.IDENTITY_MEMBERSHIP_TIERS),
@@ -1044,6 +1042,7 @@ registerAffiliateProducerPayout(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   s2s: doorS2s,
   freeze,
+  accounts: auth,
   accruals,
   accrualTierLaw,
   programmeDepth,
