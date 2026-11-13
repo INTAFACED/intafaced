@@ -916,7 +916,8 @@ const CULPRIT_PULL = /^Revert #(\d+), which turned the Real-app journeys red \(r
  * and main's full journeys run after the merge is what guards main afterwards (it bisects and reverts again if red).
  * Null when the pull request is not on a `revert/auto-<sha10>` branch; `{ ok: false, why }` when it is but any check
  * fails, so it gets the ordinary scope: opened by the factory App from this repository, exactly one commit whose message
- * says it reverts the commit the branch names, no file outside that commit's, no shared journey setup, and at least one
+ * says it reverts the commit the branch names, no file outside that commit's (shared journey setup included: its reverse
+ * restores what main proved before that commit, intafaced #8149), and at least one
  * journey file named. `commits`: GET /pulls/n/commits; `culprit`: GET /commits/<sha> (or null); `culpritTitle`: the
  * culprit pull request's title (or ''); `journeyFiles`: the head's journey file names.
  */
@@ -933,7 +934,6 @@ export function autoRevertScope({ pull, repo, paths, commits, culprit, culpritTi
   const own = new Set(pullFilePaths(culprit.files));
   const outside = paths.filter((f) => !own.has(f));
   if (outside.length) return no(`it changes ${outside.length} file(s) the reverted commit didn't`);
-  if (paths.some(isSharedSetup)) return no('it changes shared journey setup');
   const failing = /^- Failing: (.+)$/m.exec(String(pull?.body ?? '').replace(/\r/g, ''))?.[1] ?? '';
   const journeys = new Set([
     ...[...failing.matchAll(/`(J-[a-z][a-z0-9-]*-\d+) #\d+`/g)].map((m) => m[1]),

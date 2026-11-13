@@ -8,6 +8,7 @@ import { Button, Field, Panel } from '../../shared/ui';
 import { Details, Limit, Read, Select, type ActionControls } from './common';
 import { SessionMedia } from './SessionMedia';
 import { RoomNotes } from './AcademyRoomNotes';
+import { ROOM_KINDS, RoomCalendar, RoomKindFilter, RoomPinnedLessons, pinnedLessonSchema } from './AcademyRoomPage';
 const uuid = z.string().guid(),
   room = z.object({
     id: uuid,
@@ -36,6 +37,7 @@ export function AcademyRooms({ action }: { action: ActionControls }) {
     { userId } = useSession();
   const [selected, setSelected] = useState(''),
     [limit, setLimit] = useState(50),
+    [kindFilter, setKindFilter] = useState(''),
     [slug, setSlug] = useState(''),
     [name, setName] = useState(''),
     [kind, setKind] = useState('general'),
@@ -48,11 +50,20 @@ export function AcademyRooms({ action }: { action: ActionControls }) {
     [expires, setExpires] = useState(''),
     [sceneId, setSceneId] = useState(''),
     [seat, setSeat] = useState('');
-  const rooms = useResource((signal) => api.query('academy', 'rooms', { limit }, z.array(room), { signal }), `rooms:${userId}:${limit}`),
+  const rooms = useResource(
+      (signal) => api.query('academy', 'rooms', { limit, ...(kindFilter ? { kind: kindFilter } : {}) }, z.array(room), { signal }),
+      `rooms:${userId}:${limit}:${kindFilter}`,
+    ),
     detail = useResource(
       (signal) =>
         selected
-          ? api.query('academy', 'room', { roomId: selected, limit }, z.object({ room, sessions: z.array(session) }), { signal })
+          ? api.query(
+              'academy',
+              'room',
+              { roomId: selected, limit },
+              z.object({ room, sessions: z.array(session), pinnedLessons: z.array(pinnedLessonSchema) }),
+              { signal },
+            )
           : Promise.resolve({ ok: true as const, data: null }),
       `room:${userId}:${selected}:${limit}`,
     );
@@ -60,6 +71,7 @@ export function AcademyRooms({ action }: { action: ActionControls }) {
     <div className="more-columns">
       <div>
         <Panel title={copyText('academyrooms.learning.rooms')}>
+          <RoomKindFilter value={kindFilter} onChange={setKindFilter} />
           <Read resource={rooms.resource} retry={rooms.reload} empty={copyText('academyrooms.no.learning.rooms.are.open')}>
             {(rows) => (
               <>
@@ -108,6 +120,14 @@ export function AcademyRooms({ action }: { action: ActionControls }) {
                     ]}
                   />
                   <RoomNotes room={data.room} sessions={data.sessions} userId={userId} />
+                  <RoomPinnedLessons
+                    roomId={data.room.id}
+                    lessons={data.pinnedLessons}
+                    isHost={data.room.hostId === userId}
+                    action={action}
+                    done={detail.reload}
+                  />
+                  <RoomCalendar sessions={data.sessions} />
                   {data.sessions.map((s) => (
                     <article key={s.id} className="more-session">
                       <h3>{s.title}</h3>
@@ -376,12 +396,7 @@ export function AcademyRooms({ action }: { action: ActionControls }) {
         >
           <Field label={copyText('academyrooms.room.name')} value={name} onChange={(e) => setName(e.target.value)} maxLength={120} />
           <Field label={copyText('academyrooms.room.slug')} value={slug} onChange={(e) => setSlug(e.target.value)} maxLength={64} />
-          <Select
-            label={copyText('academyrooms.room.kind')}
-            value={kind}
-            onChange={setKind}
-            options={['general', 'futures', 'options', 'meme_war_room', 'forex', 'defi_lab', 'merchant_clinic']}
-          />
+          <Select label={copyText('academyrooms.room.kind')} value={kind} onChange={setKind} options={ROOM_KINDS} />
           <Select label={copyText('academyrooms.room.access')} value={access} onChange={setAccess} options={['free', 'staked', 'invite']} />
           <Field
             label={copyText('academyrooms.room.capacity')}
