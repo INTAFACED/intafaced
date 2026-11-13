@@ -34,7 +34,7 @@
  */
 import { fileURLToPath } from 'node:url';
 import { ghJson, makeGh } from '../scripts/gate-gh.mjs';
-import { BUDGET_MARK, BUDGET_TITLE, isBudgetText } from './api-budget.mjs';
+import { BUDGET_TITLE } from './api-budget.mjs';
 
 const SEAL = 'CI merge seal';
 const REVIEW_STATUS = 'Independent review';
@@ -180,7 +180,8 @@ export function latestPerName(checks) {
  */
 export function budgetRed(anns = []) {
   const said = anns.filter((a) => annotationLine(a));
-  const isBudget = (a) => a.title === BUDGET_TITLE || String(a.message ?? '').includes(BUDGET_MARK) || isBudgetText(a.message);
+  // By the title our own checks write alone: a test failure that quotes GitHub's words is the change's own red (review R1).
+  const isBudget = (a) => a.title === BUDGET_TITLE;
   return said.length > 0 && said.every(isBudget);
 }
 
@@ -257,7 +258,7 @@ export function summarize({ sha, checks: all, annotations, failedSteps, statuses
   if (superseded) out.push("SUPERSEDED: a newer push cancelled this head's run; read the PR's current head instead.");
   else if (budgetOnly)
     out.push(
-      "JUDGE DOWN: GitHub's hourly API budget was spent when these checks ran, so they stopped before judging. Nothing to fix in the code and nothing to push: re-run the failed jobs once after the reset the lines name (`gh run rerun <run> --failed`).",
+      "JUDGE DOWN: GitHub's hourly API budget was spent when these checks ran, so they stopped before judging. Nothing to fix in the code and nothing to push: re-run the failed jobs once after the reset (the lines name it when GitHub said; it comes within the hour): `gh run rerun <run> --failed`.",
     );
   else if (redStatuses.length > 0 || others.length > 0 || (seal && !sealOnlyReview)) out.push('RED: fix what the lines above name.');
   else if (red.length === 0 && running.length === 0)
@@ -515,10 +516,10 @@ function selfTest() {
     assert(last(both).startsWith('JUDGE DOWN:'), 'every red on the spent budget is JUDGE DOWN');
     const ghText = summarize({
       ...base,
-      checks: [red(1, 'Gate-file guard')],
-      annotations: { 1: [fail('gh: API rate limit exceeded for installation. If you reach out to GitHub Support')] },
+      checks: [red(1, 'Tests (1/16)')],
+      annotations: { 1: [fail('AssertionError: expected "gh: API rate limit exceeded for installation" to equal "ok"')] },
     });
-    assert(last(ghText).startsWith('JUDGE DOWN:'), "gh's own rate-limit words are JUDGE DOWN too");
+    assert(last(ghText).startsWith('RED:'), "a test failure that quotes GitHub's words is the change's own red");
     const mixed = summarize({
       ...base,
       checks: [red(1, 'Gate-file guard'), red(2, 'CI')],

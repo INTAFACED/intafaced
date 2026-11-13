@@ -47,5 +47,4 @@ export function httpMessage(path, res, detail = '') {
 }
 
 /** An annotation title: BUDGET_TITLE when the message says the budget was spent, else the caller's own. */
-export const titleFor = (message, fallback) =>
-  String(message ?? '').includes(BUDGET_MARK) || isBudgetText(message) ? BUDGET_TITLE : fallback;
+export const titleFor = (message, fallback) => (String(message ?? '').includes(BUDGET_MARK) ? BUDGET_TITLE : fallback);
