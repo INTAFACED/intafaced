@@ -336,6 +336,8 @@ open has no client idempotency key — see audit residual).
 
 ### Token buyback IOC buy (J-dex-protocol-17)
 
+`GET /internal/track-record/:userId` (`src/signals/track-record.ts`) answers a signal provider's own record for svc-market's provider criteria (J-copy-bots-otc-22): `{ userId, fills, firstFillAt, asOf }`, counted from `trade.fills`. Only `svc-market` may call it (`403 trade.track_record_forbidden` otherwise); an unreadable count is `503 trade.track_record_unavailable`, never zero.
+
 `POST /internal/buyback/ioc-buy` (`src/spot/buyback-door.ts`) places the token buyback's one IOC limit buy. It takes body-bound service auth, and only `svc-token` may call it; any other service gets `403 trade.buyback_forbidden`. The body is `{ symbol, qty, price, clientOrderId }` in decimal strings, with svc-token's run id as `clientOrderId`. The answer is `{ orderId, status, filledQty, heldQuote, spentQuote, releasedQuote }`.
 
 - **Whose money:** the rewards engine's, never a person's. svc-token sweeps the fee share first (`sweepFeesToRewards`). The hold is `buybackOrderHold`, each fill `buybackTakerFill` and the remainder `buybackOrderHoldRelease`. An unfunded hold is refused by the ledger and leaves no row.
