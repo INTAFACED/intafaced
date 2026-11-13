@@ -464,6 +464,16 @@
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
       ]
     },
+    "@intafaced/svc-notify#typecheck": {
+      "dependsOn": ["^build"],
+      "outputs": [],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/tooling/scripts/local-test-notice.*",
+        "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
+        "!$TURBO_ROOT$/**/*.tsbuildinfo"
+      ]
+    },
     "@intafaced/svc-p2p#typecheck": {
       "dependsOn": ["^build"],
       "outputs": [],
@@ -510,6 +520,7 @@
         "$TURBO_ROOT$/packages/portfolio-view/**",
         "$TURBO_ROOT$/packages/ui/**",
         "$TURBO_ROOT$/services/svc-ledger/**",
+        "$TURBO_ROOT$/tooling/scripts/seed-futures-test-listing.*",
         "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
       ]
@@ -531,6 +542,7 @@
         "$TURBO_ROOT$/packages/ledger-client/**",
         "$TURBO_ROOT$/packages/money-math/**",
         "$TURBO_ROOT$/packages/safe-regex/**",
+        "$TURBO_ROOT$/tooling/scripts/look-codemod.*",
         "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
       ]
