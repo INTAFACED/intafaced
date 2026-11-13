@@ -164,11 +164,19 @@ test(`${J} #2 runs reconcile twice: the counts are the same both times`, async (
 
 test(`${J} #3 runs reconcile with the window blank: refused`, async ({ page }) => {
   await settlements(page);
+  // One run with a window first, so a refused press can be seen to add nothing.
+  await page.getByLabel('Window').selectOption({ label: 'Last 24 hours' });
+  const before = await reconcile(page);
   await page.getByLabel('Window').selectOption({ label: 'Choose a window' });
   await page.getByRole('button', { name: 'Reconcile' }).click();
-  await expect(page.getByRole('alert')).toHaveText('Choose a window to reconcile.');
-  // Nothing was reconciled: no counts appear.
-  await expect(page.getByRole('status', { name: 'Reconcile result' })).toHaveCount(0);
+  // svc-trade refuses the blank window by name; the console shows its words and its code.
+  const alert = page.getByRole('alert');
+  await expect(alert).toHaveAttribute('data-refusal', 'trade.copy_settlement_window_required');
+  await expect(alert).toHaveText('Choose a window to reconcile. Reference trade.copy_settlement_window_required');
+  // Nothing was reconciled: the last run is still the one before, and no run was added.
+  const result = page.getByRole('status', { name: 'Reconcile result' });
+  await expect(result.locator('[data-reconcile-latest]')).toHaveText(before);
+  await expect(result.getByRole('list', { name: 'Earlier runs' })).toHaveCount(0);
 });
 
 test(`${J} #4 opens a follow's position accounting: oversight links to the fee-share and position rows`, async ({ page }) => {

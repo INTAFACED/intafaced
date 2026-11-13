@@ -8,8 +8,6 @@ import {
   HELD_REASON_TEXT,
   SETTLEMENT_WINDOWS,
   STATUS_LABEL,
-  WINDOW_REQUIRED,
-  isSettlementWindow,
   parseReconcileResult,
   reconcileLine,
   type FollowAccounting,
@@ -86,7 +84,6 @@ function Reconcile() {
   const [window, setWindow] = useState('');
   const [runs, setRuns] = useState<ReconcileResult[]>([]);
   const [last, setLast] = useState<Outcome<unknown> | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   return (
     <section aria-label="Reconcile" className="flex flex-col gap-2 border border-line p-3">
@@ -111,14 +108,10 @@ function Reconcile() {
           disabled={busy}
           className="border border-line px-2 text-sm"
           onClick={async () => {
-            setError(null);
             setLast(null);
-            if (!isSettlementWindow(window)) {
-              setError(WINDOW_REQUIRED);
-              return;
-            }
             setBusy(true);
-            const outcome = await tradeOpsAction('copy-settlements', { action: 'reconcile', window });
+            // A blank window goes to svc-trade as it is: the service refuses it by name, and that refusal is shown.
+            const outcome = await tradeOpsAction('copy-settlements', { action: 'reconcile', window: window || null });
             setBusy(false);
             const result = outcome.kind === 'ok' ? parseReconcileResult(outcome.data) : null;
             if (result) setRuns((prev) => [...prev, result]);
@@ -128,12 +121,13 @@ function Reconcile() {
           Reconcile
         </button>
       </div>
-      {error ? (
-        <p role="alert" className="text-sm text-fg">
-          {error}
+      {last?.kind === 'refused' ? (
+        <p role="alert" className="text-sm text-fg" data-refusal={last.code}>
+          {last.message} Reference {last.code}
         </p>
+      ) : last ? (
+        <OutcomeNotice outcome={last} />
       ) : null}
-      {last ? <OutcomeNotice outcome={last} /> : null}
       {runs.length > 0 ? (
         <div role="status" aria-label="Reconcile result" className="flex flex-col gap-1 text-sm">
           <p data-reconcile-latest="" data-compared={runs.at(-1)!.counts.compared} data-held={runs.at(-1)!.counts.held}>
