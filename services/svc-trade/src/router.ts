@@ -56,6 +56,7 @@ import { logRefusalSpec } from './refusal-spec-log.js';
 import { describeCopyPolicy } from './copy/copy-policy.js';
 import { ListMyFollowsLimitUnsetError, publishedListMyFollowsLimit, type CopyService } from './copy/copy-service.js';
 import { publishedCopyPageLimit, refuseLeaderDirectoryRanking } from './copy/leader-listing.js';
+import { refusePnlLinkedCopyFee } from './copy/fee-share.js';
 import { describeFuturesPolicy } from './futures/futures-policy.js';
 import { isPremarket } from './futures/premarket.js';
 import { describeOptionsPolicy } from './spot/options-policy.js';
@@ -589,6 +590,7 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'trade.copy_jurisdiction_blank':
       case 'trade.copy_law_blank':
       case 'trade.copy_settle_refused':
+      case 'trade.copy_settlement_window_required':
       case 'trade.copy_leader_fill_not_found':
       case 'trade.copy_auto_mirror_place_socket':
       case 'trade.copy_place_disabled':
@@ -1939,6 +1941,42 @@ export function createTradeRouter(
           }),
         ),
 
+      /** The caller's own lead earnings: settled fee-share rows and their sum per asset; never a profit figure (J-copy-bots-otc-06 #3). */
+      leadEarnings: scopedProcedure('trade:read', { module: 'trade' })
+        .input(z.object({ limit: z.number() }))
+        .query(({ ctx, input }) =>
+          guard(async () => {
+            if (!copy) throw new CopyError('lead earnings are not mounted', 'trade.copy_unavailable');
+            return copy.leadEarnings(ctx.principal, input);
+          }),
+        ),
+
+      /** The caller's own lead level: not set while the owner's thresholds are blank; the maximum ratio is never set (J-copy-bots-otc-06 #5). */
+      leadLevel: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) =>
+        guard(async () => {
+          if (!copy) throw new CopyError('lead level is not mounted', 'trade.copy_unavailable');
+          return copy.leadLevel(ctx.principal);
+        }),
+      ),
+
+      /** A profit pre-deduction or profit-share ratio: refused `trade.copy_pnl_fee_forbidden` whatever is sent (J-copy-bots-otc-06 #4). */
+      setProfitShare: scopedProcedure('trade:write', { module: 'trade' })
+        .input(z.unknown())
+        .mutation(() =>
+          guard(async () => {
+            refusePnlLinkedCopyFee();
+          }),
+        ),
+
+      /** A maximum ratio: refused `trade.copy_pnl_fee_forbidden` whatever is sent (J-copy-bots-otc-06 #5). */
+      setMaxRatio: scopedProcedure('trade:write', { module: 'trade' })
+        .input(z.unknown())
+        .mutation(() =>
+          guard(async () => {
+            refusePnlLinkedCopyFee();
+          }),
+        ),
+
       /** Close one copied position, whole or by an amount (CB-copy-10). Once per close. */
       closeCopiedPosition: scopedProcedure('trade:write', { module: 'trade' })
         .input(
@@ -2067,6 +2105,36 @@ export function createTradeRouter(
         /** Pooled masters on the founders' desk (CB-copy-pro-share-11, -06, -09, -03): applications, whitelists, takeovers, levels. */
         pooledDesk: router({
           read: scopedProcedure('admin:read', { module: 'trade' }).query(({ ctx }) => pooled((desk) => desk.desk(ctx.principal))),
+        }),
+
+        /**
+         * Finance's settlement oversight (CB-ops-02, CB-copy-pro-share-01): every lead fee share judged against its ledger
+         * posts and the builder fee the venue reported, a reconcile of one window, and one follow's position accounting.
+         * Read only.
+         */
+        settlements: router({
+          list: scopedProcedure('admin:read', { module: 'trade' }).query(() =>
+            guard(async () => {
+              if (!copy) throw new CopyError('Copy trading is not available', 'trade.copy_unavailable');
+              return copy.opsSettlements();
+            }),
+          ),
+          reconcile: scopedProcedure('admin:read', { module: 'trade' })
+            .input(z.object({ window: z.string().max(16).nullable() }).strict())
+            .query(({ input }) =>
+              guard(async () => {
+                if (!copy) throw new CopyError('Copy trading is not available', 'trade.copy_unavailable');
+                return copy.opsReconcileSettlements(input.window);
+              }),
+            ),
+          follow: scopedProcedure('admin:read', { module: 'trade' })
+            .input(z.object({ followId: z.string().min(1).max(64) }).strict())
+            .query(({ input }) =>
+              guard(async () => {
+                if (!copy) throw new CopyError('Copy trading is not available', 'trade.copy_unavailable');
+                return copy.opsFollowAccounting(input.followId);
+              }),
+            ),
         }),
 
         /** Operator writes need `admin:write`, the trade operator desk's write scope. */
