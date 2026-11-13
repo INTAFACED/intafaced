@@ -24,6 +24,8 @@ git worktree remove <worktree-path>     # when your task is merged or handed off
 
 `pnpm wt` creates the worktree in a `<checkout-folder>-worktrees` folder beside the main checkout (`tooling/scripts/worktree.mjs`); for the Sovereign checkout that is `sovereign-worktrees`. Open your editor or agent in the worktree, not in the main checkout.
 
+A worktree T3 makes is installed for you in the background (`t3.json`, `tooling/t3/setup-worktree.mjs`), with its markers in the worktree's gitignored `.t3` folder. While `setup-running` there names a live process, wait for it and do not run `pnpm install` yourself. It ends with `setup-done`, or `setup-failed` with the install's last lines. With no marker at all, setup never ran there: run `pnpm install` yourself.
+
 Remove only your own worktree, never with `--force`. Never delete a branch. Never run `pnpm wt:rm`, `pnpm wt:gc:apply` or `orca worktree rm`; they delete branches or force-remove.
 
 ---
