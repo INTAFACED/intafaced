@@ -145,6 +145,10 @@ const academy = new AcademyService(
     graderLeaseSeconds: env.ACADEMY_GRADER_LEASE_SECONDS,
     gradeReportRows: env.ACADEMY_GRADE_REPORT_ROWS,
     certIssuedRows: env.ACADEMY_CERT_ISSUED_ROWS,
+    learnerSummariesPageSize: env.ACADEMY_LEARNER_SUMMARIES_PAGE_SIZE,
+    reportTasksPageSize: env.ACADEMY_REPORT_TASKS_PAGE_SIZE,
+    reportCentreRetentionMinutes: env.ACADEMY_REPORT_CENTRE_RETENTION_MINUTES,
+    reportSweepSeconds: env.ACADEMY_REPORT_SWEEP_SECONDS,
     bulkFileMaxBytes: env.ACADEMY_BULK_FILE_MAX_BYTES,
     bulkEnrolRows: env.ACADEMY_BULK_ENROL_ROWS,
     bulkEmailInactiveDays: env.ACADEMY_BULK_EMAIL_INACTIVE_DAYS,
@@ -294,14 +298,38 @@ const certSweep =
           });
       }, env.ACADEMY_CERT_ISSUE_SWEEP_SECONDS * 1000);
 certSweep?.unref();
+
+/**
+ * AC-analytics-02: the report sweep runs requested reports (academy/report-tasks.ts). One sweep at a time. Blank
+ * interval, no sweep, and report requests refuse `academy.report_sweep_unset`.
+ */
+let reporting: Promise<void> | null = null;
+const reportSweep =
+  env.ACADEMY_REPORT_SWEEP_SECONDS === undefined
+    ? null
+    : setInterval(() => {
+        if (reporting) return;
+        reporting = academy.reportTasks
+          .sweep()
+          .then(
+            () => undefined,
+            (err: unknown) => app.log.error({ err }, 'report sweep failed; the next one retries'),
+          )
+          .finally(() => {
+            reporting = null;
+          });
+      }, env.ACADEMY_REPORT_SWEEP_SECONDS * 1000);
+reportSweep?.unref();
 app.log.info({ port: env.HTTP_PORT, stream: stream.id, xp: certXp.id, trpc: true }, 'svc-academy ready');
 
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     void (async () => {
       if (certSweep) clearInterval(certSweep);
+      if (reportSweep) clearInterval(reportSweep);
       // A sweep under way finishes before the pool closes, so no issue is cut off between its grant and its cleanup.
       await sweeping;
+      await reporting;
       await app.close();
       await bus?.close();
       await sql.end({ timeout: 5 });

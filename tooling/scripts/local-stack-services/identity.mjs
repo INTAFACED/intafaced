@@ -102,6 +102,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     ...(process.env.LOCAL_STACK_IDENTITY_MAIL === 'off'
       ? {}
       : { IDENTITY_MAIL_TRANSPORT: 'local-outbox', IDENTITY_LOCAL_MAIL_OUTBOX: path.join(STATE, 'email-outbox.log') }),
+    // LOCAL TEST ONLY: texted codes (a phone to sign in with, J-identity-02 #1) go to a LOCAL-TEST outbox file beside the
+    // mail one, never to a phone; refused at boot outside APP_ENV dev or test. No SMS provider is connected.
+    IDENTITY_SMS_TRANSPORT: 'local-outbox',
+    IDENTITY_LOCAL_SMS_OUTBOX: path.join(STATE, 'sms-outbox.log'),
     IDENTITY_EMAIL_CONFIRM_TTL_SECONDS: '600',
     IDENTITY_EMAIL_CONFIRM_RATE_MAX: '5',
     IDENTITY_EMAIL_CONFIRM_RATE_WINDOW_SECONDS: '3600',
@@ -322,6 +326,17 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     // (referral.lapse_period_unset); a blank cadence leaves the sweep timer off.
     IDENTITY_REFERRAL_LAPSE_PERIOD_SECONDS: testValue('IDENTITY_REFERRAL_LAPSE_PERIOD_SECONDS'),
     IDENTITY_REFERRAL_LAPSE_SWEEP_SECONDS: testValue('IDENTITY_REFERRAL_LAPSE_SWEEP_SECONDS'),
+    // LOCAL TEST partner programme (J-campaigns-07), same profile: the qualified invitee count, the reapply wait and the
+    // programme depth. `LOCAL_STACK_IDENTITY_PARTNER_ELIGIBILITY=off` on a start or restart leaves the count blank, so
+    // partner.eligibility_unset can be seen (#1); `LOCAL_STACK_IDENTITY_PARTNER_DEPTH=off` leaves the depth blank, so the
+    // sub-tree, accrual and payout refuse with affiliate.programme_depth_unset (#4). A plain restart puts both back.
+    ...(process.env.LOCAL_STACK_IDENTITY_PARTNER_ELIGIBILITY === 'off'
+      ? {}
+      : { IDENTITY_PARTNER_MIN_QUALIFIED_INVITEES: testValue('IDENTITY_PARTNER_MIN_QUALIFIED_INVITEES') }),
+    IDENTITY_PARTNER_REAPPLY_DAYS: testValue('IDENTITY_PARTNER_REAPPLY_DAYS'),
+    ...(process.env.LOCAL_STACK_IDENTITY_PARTNER_DEPTH === 'off'
+      ? {}
+      : { IDENTITY_PARTNER_PROGRAMME_DEPTH: testValue('IDENTITY_PARTNER_PROGRAMME_DEPTH') }),
     // LOCAL TEST waitlist wave size (J-campaigns-20 #3), same profile. Blank refuses every release (drop.wave_unset).
     IDENTITY_WAITLIST_WAVE_SIZE: testValue('IDENTITY_WAITLIST_WAVE_SIZE'),
     // LOCAL TEST founder pair only: local_test_founder_a / local_test_founder_b from

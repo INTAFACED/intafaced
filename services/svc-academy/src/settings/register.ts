@@ -30,6 +30,9 @@ export interface SettingRow {
     | AcademyErrorCode
     | 'academy.prize_pool_unset'
     | 'academy.report_limit_unset'
+    | 'academy.learner_summaries_list_limit_unset'
+    | 'academy.report_tasks_list_limit_unset'
+    | 'academy.report_sweep_unset'
     | 'academy.inactivity_period_unset'
     | 'academy.report_retention_unset'
     | 'academy.ambassador_pay.rates_unset'
@@ -49,6 +52,10 @@ export interface SettingsEnv {
   readonly ACADEMY_GRADER_LEASE_SECONDS?: number | undefined;
   readonly ACADEMY_GRADE_REPORT_ROWS?: number | undefined;
   readonly ACADEMY_CERT_ISSUED_ROWS?: number | undefined;
+  readonly ACADEMY_LEARNER_SUMMARIES_PAGE_SIZE?: number | undefined;
+  readonly ACADEMY_REPORT_TASKS_PAGE_SIZE?: number | undefined;
+  readonly ACADEMY_REPORT_CENTRE_RETENTION_MINUTES?: number | undefined;
+  readonly ACADEMY_REPORT_SWEEP_SECONDS?: number | undefined;
   readonly ACADEMY_BULK_FILE_MAX_BYTES?: number | undefined;
   readonly ACADEMY_BULK_ENROL_ROWS?: number | undefined;
   readonly ACADEMY_BULK_EMAIL_INACTIVE_DAYS?: number | undefined;
@@ -249,6 +256,35 @@ export function settingsRegister(env: SettingsEnv): readonly SettingRow[] {
       store: 'env',
       readOnly: false,
       refusalCode: 'academy.report_limit_unset',
+    },
+    {
+      key: 'learner_summaries_page_size',
+      state: state(positiveInt(env.ACADEMY_LEARNER_SUMMARIES_PAGE_SIZE)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.learner_summaries_list_limit_unset',
+    },
+    {
+      key: 'report_tasks_page_size',
+      state: state(positiveInt(env.ACADEMY_REPORT_TASKS_PAGE_SIZE)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.report_tasks_list_limit_unset',
+    },
+    {
+      key: 'report_centre_retention',
+      state: state(positiveInt(env.ACADEMY_REPORT_CENTRE_RETENTION_MINUTES)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.report_retention_unset',
+    },
+    {
+      // Blank runs no sweep, so a requested report would never run: requests refuse.
+      key: 'report_sweep',
+      state: state(positiveInt(env.ACADEMY_REPORT_SWEEP_SECONDS)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.report_sweep_unset',
     },
     {
       key: 'bulk_file_max_bytes',

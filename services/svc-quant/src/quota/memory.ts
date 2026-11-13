@@ -1,6 +1,14 @@
 import { QUANT_IDEMPOTENCY_CONFLICT, QuantError } from '../errors.js';
 import type { AccountCounts } from './counts.js';
-import { judgeNeeds, type AppliedProfile, type QuotaGate, type QuotaLimitRow, type QuotaRepository, type QuotaResource } from './quota.js';
+import {
+  judgeNeeds,
+  type AppliedProfile,
+  type QuotaGate,
+  type QuotaLimitRow,
+  type QuotaRepository,
+  type QuotaResource,
+  type TierRow,
+} from './quota.js';
 
 /**
  * In-memory quota store for unit tests. Production passes Postgres, where the count and the write share one
@@ -18,6 +26,7 @@ export function createMemoryQuota(options: {
   const now = options.now ?? (() => new Date());
   const limits = new Map<string, Map<QuotaResource, QuotaLimitRow>>();
   const assignments = new Map<string, string>();
+  const tiers = new Map<string, TierRow & { published: boolean }>();
   const writes = new Map<string, { action: string; request: string; response: unknown }>();
 
   function applied(accountId: string): AppliedProfile | null {
@@ -65,6 +74,32 @@ export function createMemoryQuota(options: {
       assignments.set(input.accountId, input.profile);
       const response = { accountId: input.accountId, profile: input.profile, assignedAt: now().toISOString() };
       writes.set(input.idempotencyKey, { action: 'assign', request, response });
+      return response;
+    },
+    async tiers() {
+      return [...tiers.values()]
+        .filter((row) => row.published)
+        .sort((a, b) => (a.profile < b.profile ? -1 : a.profile > b.profile ? 1 : 0))
+        .map(({ published: _published, ...row }) => row);
+    },
+    async setTier(input) {
+      const request = JSON.stringify([
+        input.profile,
+        input.dataFreshnessSeconds?.toString() ?? null,
+        input.priorityClass?.toString() ?? null,
+        input.published,
+      ]);
+      const prior = replay<Awaited<ReturnType<QuotaRepository['setTier']>>>(input.idempotencyKey, 'tier', request);
+      if (prior) return prior;
+      const response = {
+        profile: input.profile,
+        dataFreshnessSeconds: input.dataFreshnessSeconds,
+        priorityClass: input.priorityClass,
+        published: input.published,
+        setAt: now().toISOString(),
+      };
+      tiers.set(input.profile, response);
+      writes.set(input.idempotencyKey, { action: 'tier', request, response });
       return response;
     },
   };

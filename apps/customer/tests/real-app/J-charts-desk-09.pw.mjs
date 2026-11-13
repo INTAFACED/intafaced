@@ -391,8 +391,34 @@ test(`${J} #6 reads the trigger log: when it fired, at what price, in the person
   const shownMinutes = Number(m[2]) * 60 + Number(m[3]);
   const nowMinutes = nowThere.getUTCHours() * 60 + nowThere.getUTCMinutes();
   expect((nowMinutes - shownMinutes + 1440) % 1440).toBeLessThanOrEqual(5);
-  // The retention window the service keeps the log for.
-  await expect(log).toContainText(/Kept for \d+ days\./);
+  // The log as the service answers it to the reloaded page: its retention window and this alert's entry.
+  const triggersRead = await answerAfterNavigation(
+    page,
+    (r) => /notify\.alertTriggers\b/.test(r.url()) && r.ok(),
+    () => page.reload(),
+  );
+  const answer = await (await triggersRead).json();
+  const logData = (Array.isArray(answer) ? answer[0] : answer).result.data;
+  const days = logData.retentionDays;
+  expect(Number.isInteger(days) && days > 0, `the service keeps the log for a whole number of days (${days})`).toBe(true);
+  // The window shown is the service's own, to the day.
+  await expect(log.locator('.nf-note')).toHaveText(`Kept for ${days} days.`);
+  // The entry the page shows is the service's: the same mark, and the time it names is the entry's own firing time.
+  const entries = logData.items.filter((t) => cents(String(t.targetPrice)) === cents(target));
+  expect(entries, `one entry for the alert at ${target}`).toHaveLength(1);
+  const [entry] = entries;
+  expect(cents(String(entry.markPrice)), `entry mark ${entry.markPrice}`).toBe(cents(mark));
+  expect(when.trim()).toBe(`Triggered ${inUtc8(Date.parse(entry.firedAt))}`);
+  // Every entry the log answers lies inside that window, none older than its days and none in the future.
+  const now = Date.now();
+  expect(logData.items.length, 'the log holds entries').toBeGreaterThan(0);
+  for (const t of logData.items) {
+    const age = now - Date.parse(t.firedAt);
+    expect(age, `entry fired at ${t.firedAt} is inside the ${days}-day window`).toBeLessThanOrEqual(days * 86_400_000);
+    expect(age, `entry fired at ${t.firedAt} is not in the future`).toBeGreaterThan(-60_000);
+  }
+  // And the page lists exactly the entries the service answered, each named once.
+  await expect(log.getByTestId('alert-trigger')).toHaveCount(logData.items.length);
   // The alert itself reads triggered, with the same time.
   const row = rowWith('TEST fires');
   await expect(row).toHaveAttribute('data-status', 'fired');
@@ -562,8 +588,18 @@ async function addToWatchlist(symbol) {
   await expect(watchlists().locator(`tr[data-symbol="${symbol}"]`)).toBeVisible();
 }
 
+/** Every alert in a `notify.alerts` reply, wherever the reply's wrapping puts the list. */
+function alertsIn(body, out = []) {
+  if (Array.isArray(body)) for (const item of body) alertsIn(item, out);
+  else if (body && typeof body === 'object') {
+    if (typeof body.targetPrice === 'string' && typeof body.marketId === 'string' && typeof body.createdAt === 'string') out.push(body);
+    else for (const value of Object.values(body)) alertsIn(value, out);
+  }
+  return out;
+}
+
 test(`${J} #7 creates one alert for every market in a watchlist; a market added later is picked up on the next sweep`, async () => {
-  test.setTimeout(5 * SWEEP_MS);
+  test.setTimeout(7 * SWEEP_MS);
   // A watchlist on the account, kept beside the chart: ETH/USDT, then BTC/USDT.
   await addToWatchlist('ETH/USDT');
   await addToWatchlist('BTC/USDT');
@@ -597,15 +633,39 @@ test(`${J} #7 creates one alert for every market in a watchlist; a market added 
   await expect(rule).toHaveAttribute('data-status', 'active');
   await expect(rule).toContainText(`At or above ${level} · ETH/USDT, BTC/USDT`);
 
-  // A market added to the list later: the next sweep gives it the same alert, once.
+  // A market added to the list later: the next sweep gives it the same alert, once. The add is made right after a sweep
+  // has finished, so it lands well inside one sweep interval and "the next sweep" is the next one svc-notify finishes.
+  const sweptFirst = await lastSweepAt();
+  await expect.poll(lastSweepAt, { timeout: SWEEP_MS + 15_000, intervals: [1_000] }).not.toBe(sweptFirst);
+  const before = await lastSweepAt();
   await addToWatchlist('IFC/USDT');
-  const addedAt = Date.now();
+  // Still before the next sweep: the list's new market has no alert yet, so nothing but a sweep can add it.
   await page.goto(ALERTS);
-  await expect(async () => {
-    await page.reload();
-    await expect(ruleRows()).toHaveCount(3, { timeout: 2_000 });
-  }).toPass({ timeout: 2 * SWEEP_MS + 30_000, intervals: [5_000] });
-  expect(Date.now() - addedAt, 'picked up within one sweep interval and the page reload after it').toBeLessThan(2 * SWEEP_MS + 30_000);
+  await expect(marketSelect()).toBeEnabled();
+  await expect(ruleRows()).toHaveCount(2);
+  expect(await lastSweepAt(), 'no sweep ran between the add and that read').toBe(before);
+  // The next sweep finishes.
+  await expect.poll(lastSweepAt, { timeout: SWEEP_MS + 15_000, intervals: [1_000] }).not.toBe(before);
+  const next = await lastSweepAt();
+  // Read right after that one sweep, before another can run: the service now holds three alerts of the rule, and the
+  // one for the added market was made by that sweep (after the sweep before it, no later than its end).
+  const listed = await answerAfterNavigation(
+    page,
+    (r) => /notify\.alerts\b/.test(r.url()) && r.request().method() === 'GET' && r.ok(),
+    () => page.reload(),
+  );
+  const ofRule = alertsIn(await (await listed).json()).filter((a) => cents(a.targetPrice) === cents(level));
+  expect(await lastSweepAt(), 'read before the sweep after it').toBe(next);
+  expect(ofRule, 'one alert per market of the list').toHaveLength(3);
+  const added = ofRule.filter((a) => Date.parse(a.createdAt) > Date.parse(before));
+  expect(added, 'exactly one alert made since the sweep before the add').toHaveLength(1);
+  // On a market of its own: the two first alerts' markets are the list's first two, so this one is the added market.
+  const earlier = ofRule.filter((a) => a !== added[0]).map((a) => a.marketId);
+  expect(new Set(earlier).size, 'the first two alerts are on two markets').toBe(2);
+  expect(earlier, `the new alert's market (${added[0].marketId}) is not one of the first two`).not.toContain(added[0].marketId);
+  expect(Date.parse(added[0].createdAt), `made by the sweep that finished at ${next}`).toBeLessThanOrEqual(Date.parse(next));
+  expect(added[0].status).toBe('active');
+  await expect(ruleRows()).toHaveCount(3);
   expect(await marketsOfRule()).toEqual(['BTC/USDT', 'ETH/USDT', 'IFC/USDT']);
   await expect(ruleRows().filter({ has: page.getByTestId('nf-title').getByText('IFC/USDT', { exact: true }) })).toHaveAttribute(
     'data-status',

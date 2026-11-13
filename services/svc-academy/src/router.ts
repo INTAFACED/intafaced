@@ -198,6 +198,7 @@ import { learnerDeskProcedures } from './learners/learner-desk-router.js';
 import { teamProcedures, reportDiscussionProcedure } from './team/team-router.js';
 import { gradeReportProcedures } from './curriculum/grade-reports-router.js';
 import { certDesignProcedures } from './certs/designs-router.js';
+import { analyticsProcedures } from './analytics/analytics-router.js';
 import { courseEmailProcedures, staffEnrolmentProcedures } from './learners/staff-enrolment-router.js';
 import { relatedItems } from './curriculum/related.js';
 import { searchPublicCurriculum } from './curriculum/public-catalogue.js';
@@ -3328,6 +3329,7 @@ export function createAcademyRouter(
     admin: router({
       ...gradeReportProcedures(academy.gradeReports),
       ...certDesignProcedures(academy.certDesigns),
+      ...analyticsProcedures(academy.learnerSummaries, academy.reportTasks),
       ...learnerDeskProcedures(academy, guard),
       ...teamProcedures(academy, guard),
       ...staffEnrolmentProcedures(academy.staffEnrolment),
@@ -4086,6 +4088,8 @@ export function createAcademyRouter(
           z.object({
             from: z.string(),
             to: z.string(),
+            /** The first UTC day the service recorded learning activity on; an earlier day is `metric_not_recorded`. */
+            recordingSince: z.string(),
             days: z.array(
               z.object({
                 date: z.string(),
