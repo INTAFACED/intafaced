@@ -258,6 +258,12 @@ export interface VenueCopyDeps {
   readonly store: VenueCopyStore;
   /** The agent key secret (`TRADE_AGENT_KEY_SEED`); blank refuses every start. */
   readonly keySeed: string | null;
+  /**
+   * The follower's account admission (freeze, restriction, screening) for one copy, as a delegated child of the follow's
+   * admitted start (`copy.mirror` under `copy.follow:<id>`), the same check every TEST-book copy order passes. It runs
+   * before every signature and every re-send, so a follower frozen or flagged after the follow began gets no copy.
+   */
+  readonly admitCopy: (principal: Principal, businessId: string, payload: unknown, followId: string) => Promise<unknown>;
   readonly now: () => Date;
 }
 
@@ -569,6 +575,22 @@ export class VenueCopy {
       );
     }
     const key = `${COPY_VENUE_MIRROR_PREFIX}${input.clientOrderId.replace(/^copy-mirror:/, '')}`;
+    // Admitted before the key signs or a signed copy is sent again: a refusal here sends nothing.
+    await this.deps.admitCopy(
+      principal,
+      `order:${key}`,
+      {
+        followId: f.followId,
+        owner: f.owner,
+        agentAddress: f.agentAddress,
+        symbol: input.symbol ?? null,
+        side: input.side,
+        qty: formatAmount(input.qty),
+        price: formatAmount(input.price),
+        clientOrderKey: key,
+      },
+      f.followId,
+    );
     const venue = await this.deps.door.venue();
     const stored = await this.deps.door.stored(principal, key);
     let signature = stored?.signature ?? null;

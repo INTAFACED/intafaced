@@ -725,7 +725,15 @@ const copy = new CopyService(ledger, {
 });
 trade.bindCopyMirrorFill((notice) => copy.observeFollowerFill(notice));
 venueCopy = userVenue
-  ? new VenueCopy({ copy, door: userVenue, store: venueCopyStore, keySeed: agentAccountValues.keySeed, now: () => new Date() })
+  ? new VenueCopy({
+      copy,
+      door: userVenue,
+      store: venueCopyStore,
+      keySeed: agentAccountValues.keySeed,
+      admitCopy: (principal, businessId, payload, followId) =>
+        trade.admitAccountOperation(principal, 'copy.mirror', businessId, payload, `copy.follow:${followId}`),
+      now: () => new Date(),
+    })
   : null;
 // The spot grid bot (CB-bots-02, -05, -10): its reserve and level rows are svc-trade's own; its orders go through the
 // trade service's place path as delegated children of the bot's admitted start.

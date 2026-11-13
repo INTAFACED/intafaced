@@ -15,6 +15,7 @@ import {
 } from '@intafaced/venue-contracts';
 import { startTestVenueServer, type TestVenueSimulator, type TestVenueTypedData } from '@intafaced/venue-sim';
 import { readyTestAdmission } from '../controls/test-admission.js';
+import { TradingControlError } from '../controls/trading-controls.js';
 import { HttpUserVenue } from '../venue/http-user-venue.js';
 import { InMemoryPreparedActionStore } from '../venue/prepared-action-store.js';
 import { UserVenueDoor } from '../venue/user-venue-door.js';
@@ -68,6 +69,9 @@ async function refusedAs(promise: Promise<unknown>): Promise<CopyError> {
 }
 
 describe("copy trading on the follower's own venue account (TEST venue)", () => {
+  /** Followers whose account is frozen, and the copies the admission port let through. */
+  const frozen = new Set<string>();
+  const admitted: string[] = [];
   let server: http.Server;
   let sim: TestVenueSimulator;
   let url: string;
@@ -133,8 +137,11 @@ describe("copy trading on the follower's own venue account (TEST venue)", () => 
     });
     store = new InMemoryVenueCopyStore();
     let vc: VenueCopy | null = null;
+    const admission = readyTestAdmission();
+    frozen.clear();
+    admitted.length = 0;
     copy = new CopyService(new MemoryLedger(), {
-      accountAdmission: readyTestAdmission(),
+      accountAdmission: admission,
       feeShareLaw: fee,
       jurisdictionLaw: jur,
       minTier: 'full',
@@ -144,7 +151,24 @@ describe("copy trading on the follower's own venue account (TEST venue)", () => 
       listLeaderFillsSince: (leaderId, after, limit) => vc!.listLeaderFillsSince(leaderId, after, limit),
       lookupLeaderFill: (fillId) => vc!.lookupLeaderFill(fillId),
     });
-    vc = new VenueCopy({ copy, door, store, keySeed: SEED, now: () => new Date() });
+    vc = new VenueCopy({
+      copy,
+      door,
+      store,
+      keySeed: SEED,
+      // The production wiring's shape (index.ts): a delegated child of the follow's admitted start; a frozen account refuses.
+      admitCopy: async (principal, businessId, payload, followId) => {
+        if (frozen.has(principal.userId)) throw new TradingControlError('auth.account_frozen');
+        const parent = await admission.original(principal.userId, `copy.follow:${followId}`);
+        if (!parent?.grantId) throw new TradingControlError('auth.credential_denied');
+        admitted.push(businessId);
+        return admission.admit(principal, 'copy.mirror', businessId, payload, {
+          parentBusinessId: `copy.follow:${followId}`,
+          parentGrantId: parent.grantId,
+        });
+      },
+      now: () => new Date(),
+    });
     venueCopy = vc;
     await store.setLead({
       leaderUserId: LEADER,
@@ -304,6 +328,18 @@ describe("copy trading on the follower's own venue account (TEST venue)", () => 
       (await sim.openOrders(main(owner))).value.length +
         new Set((await sim.fills(main(owner), new Date(0))).value.map((f) => f.venueClientOrderId)).size,
     ).toBe(1);
+  });
+
+  it('admits every copy as the follow’s delegated child, and a follower frozen after the follow began gets no copy', async () => {
+    const done = await followSigned();
+    frozen.add(follower.userId);
+    await leadBuys('0.001', 'frozen');
+    const swept = await copy.runMirrorSweep();
+    expect(swept.placed).toBe(0);
+    expect((await sim.openOrders(main(owner))).value).toEqual([]);
+    expect((await sim.fills(main(owner), new Date(0))).value).toEqual([]);
+    expect(admitted, 'no copy was admitted').toEqual([]);
+    expect(await copy.placedMirrors(follower, done.followId)).toEqual([]);
   });
 
   it('a copy whose answer was lost is read back by its key on the next sweep and never sent twice', async () => {
