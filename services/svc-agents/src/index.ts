@@ -41,6 +41,7 @@ import { parseReasons, purgeExpiredTranscripts } from './oplog/routes.js';
 import { advanceBackgroundRuns } from './own/background.js';
 import { createIdentityLinkedWallets, paymentMethodFunds } from './own/payment-method.js';
 import { createChainBalance } from './chain-balance.js';
+import { retentionPeriods } from './own/memory.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 
 // §9 — register the TracerProvider before the first span is created.
@@ -241,6 +242,13 @@ const appRouter = createAgentsRouter({
   ownLinkedWallets: linkedWallets,
   ownAssistantModel: env.AGENTS_OWN_ASSISTANT_MODEL ?? null,
   ownApprovalTtlSeconds: env.AGENTS_APPROVAL_TTL_SECONDS ?? null,
+  ownRetention: retentionPeriods({
+    action_log: env.AGENTS_RETENTION_ACTION_LOG_DAYS,
+    memory: env.AGENTS_RETENTION_MEMORY_DAYS,
+    transcripts: env.AGENTS_RETENTION_TRANSCRIPTS_DAYS,
+    approvals: env.AGENTS_RETENTION_APPROVALS_DAYS,
+    usage: env.AGENTS_RETENTION_USAGE_DAYS,
+  }),
   navigatorOnchainSigner: env.AGENTS_NAVIGATOR_ONCHAIN_SIGNER ?? null,
   navigatorTrading: {
     sender: env.AGENTS_NAVIGATOR_ONCHAIN_SENDER_URL ? httpNavigatorSender(env.AGENTS_NAVIGATOR_ONCHAIN_SENDER_URL) : null,

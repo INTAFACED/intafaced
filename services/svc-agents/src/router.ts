@@ -79,6 +79,7 @@ import { opsLogRouter, parseReasons, type OpsLogSettings } from './oplog/routes.
 import { fleetRouter, type FleetSettings } from './fleet/control.js';
 import type { BackgroundSettings } from './own/background.js';
 import type { LinkedWalletsPort } from './own/payment-method.js';
+import type { RetentionPeriods } from './own/memory.js';
 
 /**
  * The internal tRPC surface (§1: "Fastify + tRPC (internal) / REST (public)").
@@ -370,6 +371,8 @@ export interface AgentsRouterDeps {
   readonly ownAssistantModel?: string | null;
   /** Owner value: how long an own agent's held call waits for the person, in seconds (AG-approvals-01). Blank refuses holding. */
   readonly ownApprovalTtlSeconds?: number | null;
+  /** The owner's retention periods in days (AG-guardrails-04); a kind left out is "not set". */
+  readonly ownRetention?: RetentionPeriods;
   /** AGENTS_REVIEWER_MODEL: the automatic reviewer's model (AG-approvals-02); blank sends every call to the person. */
   readonly ownReviewerModel?: string | null;
   /**
@@ -4100,6 +4103,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
       tokenLifetimeMinutes: deps.ownTokenLifetimeMinutes ?? null,
       assistantModel: deps.ownAssistantModel ?? null,
       approvalTtlSeconds: deps.ownApprovalTtlSeconds ?? null,
+      retention: deps.ownRetention ?? {},
       reviewerModel: deps.ownReviewerModel ?? null,
       background: deps.ownBackground ?? null,
       linkedWallets: deps.ownLinkedWallets ?? null,

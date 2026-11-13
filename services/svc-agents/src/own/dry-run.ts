@@ -1,10 +1,11 @@
-import type { Sql } from 'postgres';
+import type { Sql, TransactionSql } from 'postgres';
 import type {
   OwnAgentAnalytics,
   OwnAgentDryRunCheck,
   OwnAgentDryRunEffect,
   OwnAgentHolds,
   OwnAgentLiveEngine,
+  OwnAgentRunMemory,
   OwnAgentTestLogRow,
   OwnAgentTestGuard,
   OwnAgentTestRun,
@@ -15,6 +16,7 @@ import { OWN_TOOL_DOORS, OWN_TOOLS, OwnAgentRefusal } from './catalog.js';
 import { OwnConsentStore, OwnRuleStore, stricter, type PolicyBaseline, type RuleChoice } from './guardrails.js';
 import { readOwnCaps } from './limits.js';
 import { decideApproval, guardedEngineRun } from './content-guard.js';
+import { runMemoryOf, OwnMemoryStore, type MemoryDecision } from './memory.js';
 
 /**
  * DRY RUNS OF A PERSON'S OWN AGENT (AG-spend-04; J-agents-04 #3).
@@ -92,10 +94,11 @@ interface TestRunRow {
   output_schema: string | null;
   guard_json: OwnAgentTestGuard | null;
   draft_json: OwnAgentValuePayload | null;
+  memory_json: OwnAgentRunMemory | null;
   created_at: Date;
 }
 const TEST_RUN_COLUMNS =
-  'id, request_id, kind, tool, input_json, checks_json, effect_json, ask, reply, live_engine, log_json, content, output_schema, guard_json, draft_json, created_at';
+  'id, request_id, kind, tool, input_json, checks_json, effect_json, ask, reply, live_engine, log_json, content, output_schema, guard_json, draft_json, memory_json, created_at';
 
 /** An engine run kept before the guards existed read no outside content and met no schema: it answered. */
 const UNGUARDED: OwnAgentTestGuard = { content: null, outcome: 'answered', code: null, approval: null };
@@ -122,6 +125,7 @@ const testRunView = (row: TestRunRow, assetId: string): OwnAgentTestRun => {
       content: row.content,
       outputSchema: row.output_schema,
       guard: row.guard_json ?? UNGUARDED,
+      memory: row.memory_json ?? null,
     };
   }
   return { ...base, kind: row.kind, tool: row.tool!, input: row.input_json!, checks: row.checks_json!, effect: row.effect_json! };
@@ -154,6 +158,7 @@ type Stored =
       outputSchema: string | null;
       guard: OwnAgentTestGuard;
       drafted: OwnAgentValuePayload | null;
+      memory: OwnAgentRunMemory | null;
     };
 
 /**
@@ -173,7 +178,12 @@ export function testValueTool(tool: string): DryRunOutcome {
 }
 
 /** What one test engine run reads beside the question: outside content and an output schema, each optional. */
-export type EngineRunExtras = { readonly content?: string | null; readonly outputSchema?: string | null };
+export type EngineRunExtras = {
+  readonly content?: string | null;
+  readonly outputSchema?: string | null;
+  /** What the run does with a request to remember (AG-builder-02); absent is none. */
+  readonly memory?: MemoryDecision;
+};
 
 /** Optional text as stored: absent or blank is none. */
 const optionalText = (text: string | null | undefined): string | null =>
@@ -200,6 +210,15 @@ export function testEngineRun(
   const { guard, reply, drafted } = guardedEngineRun({ ask, content, outputSchema });
   const middle: OwnAgentTestLogRow =
     guard.outcome === 'blocked' ? { step: 'blocked', text: guard.code!, label: 'TEST' } : { step: 'answered', text: reply, label: 'TEST' };
+  // A blocked run runs nothing, so it remembers nothing either. The remember step is a row of the run's own log.
+  const memory = guard.outcome === 'blocked' ? null : runMemoryOf(extras.memory ?? { kind: 'none' });
+  const remembered: OwnAgentTestLogRow[] = memory
+    ? [
+        memory.outcome === 'remembered'
+          ? { step: 'remembered', text: memory.text!, label: 'TEST' }
+          : { step: 'not_remembered', text: memory.code!, label: 'TEST' },
+      ]
+    : [];
   return {
     kind: 'engine_run',
     ask,
@@ -209,7 +228,8 @@ export function testEngineRun(
     outputSchema,
     guard,
     drafted,
-    log: [{ step: 'asked', text: ask, label: 'TEST' }, middle, { step: 'billed', text: `0 ${assetId}`, label: 'TEST' }],
+    memory,
+    log: [{ step: 'asked', text: ask, label: 'TEST' }, middle, ...remembered, { step: 'billed', text: `0 ${assetId}`, label: 'TEST' }],
   };
 }
 
@@ -258,7 +278,29 @@ export class OwnTestRunStore {
     extras: EngineRunExtras = {},
   ): Promise<OwnAgentTestRun> {
     const call: Call = { kind: 'engine_run', ask, content: optionalText(extras.content), outputSchema: optionalText(extras.outputSchema) };
-    return this.once(ownerId, agentId, requestId, call, async () => testEngineRun(ask, liveEngine, this.assetId, extras));
+    const memory = new OwnMemoryStore(this.sql);
+    return this.once(
+      ownerId,
+      agentId,
+      requestId,
+      call,
+      async () => {
+        const { decideMemory } = await import('./memory.js');
+        const { memory_enabled } = await memory.controls(ownerId, agentId);
+        return testEngineRun(ask, liveEngine, this.assetId, { ...extras, memory: decideMemory(ask, memory_enabled) });
+      },
+      // The item is written in the run's own transaction, keyed by the run: a run is stored with its item or not at all.
+      async (tx, row) => {
+        if (row.memory_json?.outcome !== 'remembered') return row;
+        const itemId = await memory.write(tx, ownerId, agentId, row.id, row.memory_json.text!);
+        const updated = await tx<TestRunRow[]>`
+          UPDATE agents.own_agent_test_runs SET memory_json = ${tx.json({ ...row.memory_json, itemId } as never)}
+           WHERE id = ${row.id}
+          RETURNING ${tx.unsafe(TEST_RUN_COLUMNS)}
+        `;
+        return updated[0]!;
+      },
+    );
   }
 
   /**
@@ -299,6 +341,7 @@ export class OwnTestRunStore {
     requestId: string,
     call: Call,
     make: () => Promise<Stored>,
+    after?: (tx: TransactionSql, row: TestRunRow) => Promise<TestRunRow>,
   ): Promise<OwnAgentTestRun> {
     const key = `agents:test-run:${agentId}:${requestId}`;
     const stored = await this.find(ownerId, key);
@@ -320,6 +363,7 @@ export class OwnTestRunStore {
             outputSchema: made.outputSchema,
             guard: made.guard,
             drafted: made.drafted,
+            memory: made.memory,
           }
         : {
             tool: made.tool,
@@ -334,20 +378,25 @@ export class OwnTestRunStore {
             outputSchema: null,
             guard: null,
             drafted: null,
+            memory: null,
           };
-    const inserted = await this.sql<TestRunRow[]>`
-      INSERT INTO agents.own_agent_test_runs
-        (agent_id, owner_id, request_id, request_key, kind, tool, input_json, checks_json, effect_json, ask, reply, live_engine, log_json,
-         content, output_schema, guard_json, draft_json, created_at)
-      VALUES (${agentId}, ${ownerId}, ${requestId}, ${key}, ${made.kind}, ${run.tool}, ${json(run.input)}, ${json(run.checks)},
-              ${json(run.effect)}, ${run.ask}, ${run.reply}, ${run.liveEngine}, ${json(run.log ? run.log.map((row) => ({ ...row })) : null)},
-              ${run.content}, ${run.outputSchema}, ${json(run.guard)}, ${json(run.drafted)}, clock_timestamp())
-      ON CONFLICT (owner_id, request_key) DO NOTHING
-      RETURNING ${this.sql.unsafe(TEST_RUN_COLUMNS)}
-    `;
+    const written = await this.sql.begin(async (tx) => {
+      const inserted = await tx<TestRunRow[]>`
+        INSERT INTO agents.own_agent_test_runs
+          (agent_id, owner_id, request_id, request_key, kind, tool, input_json, checks_json, effect_json, ask, reply, live_engine, log_json,
+           content, output_schema, guard_json, draft_json, memory_json, created_at)
+        VALUES (${agentId}, ${ownerId}, ${requestId}, ${key}, ${made.kind}, ${run.tool}, ${json(run.input)}, ${json(run.checks)},
+                ${json(run.effect)}, ${run.ask}, ${run.reply}, ${run.liveEngine}, ${json(run.log ? run.log.map((row) => ({ ...row })) : null)},
+                ${run.content}, ${run.outputSchema}, ${json(run.guard)}, ${json(run.drafted)}, ${json(run.memory)}, clock_timestamp())
+        ON CONFLICT (owner_id, request_key) DO NOTHING
+        RETURNING ${tx.unsafe(TEST_RUN_COLUMNS)}
+      `;
+      if (!inserted[0]) return null;
+      return after ? after(tx, inserted[0]) : inserted[0];
+    });
     // Another test run under this key committed first: it is this request's, or the key was reused for another.
-    if (!inserted[0]) return this.replayed((await this.find(ownerId, key))!, call);
-    return testRunView(inserted[0], this.assetId);
+    if (!written) return this.replayed((await this.find(ownerId, key))!, call);
+    return testRunView(written as TestRunRow, this.assetId);
   }
 
   /** The agent's test runs, newest first. */

@@ -69,10 +69,7 @@ const en = {
   page_Rules: 'Rules',
   page_Permissions: 'Permissions',
   page_Memory: 'Memory',
-  parked_Memory: 'Agent memory is not built (AG-builder-02), so this agent keeps nothing between sessions.',
   page_Privacy: 'Privacy',
-  parked_Privacy:
-    'Data controls and the retention statement are not built (AG-guardrails-04). This draft has never run, so it holds no data from a run.',
   page_Access: 'Access',
   page_Allowance: 'Allowance',
   page_Schedules: 'Schedules',
@@ -369,10 +366,7 @@ const es = {
   page_Rules: 'Reglas',
   page_Permissions: 'Permisos',
   page_Memory: 'Memoria',
-  parked_Memory: 'La memoria del agente no está construida (AG-builder-02), así que este agente no guarda nada entre sesiones.',
   page_Privacy: 'Privacidad',
-  parked_Privacy:
-    'Los controles de datos y la declaración de conservación no están construidos (AG-guardrails-04). Este borrador nunca se ha ejecutado, así que no guarda datos de ninguna ejecución.',
   page_Access: 'Acceso',
   page_Allowance: 'Asignación',
   page_Schedules: 'Horarios',
@@ -677,10 +671,7 @@ const fr = {
   page_Rules: 'Règles',
   page_Permissions: 'Autorisations',
   page_Memory: 'Mémoire',
-  parked_Memory: 'La mémoire de l’agent n’est pas construite (AG-builder-02) ; cet agent ne garde rien d’une session à l’autre.',
   page_Privacy: 'Confidentialité',
-  parked_Privacy:
-    'Les contrôles des données et la déclaration de conservation ne sont pas construits (AG-guardrails-04). Ce brouillon n’a jamais tourné ; il ne détient aucune donnée d’exécution.',
   page_Access: 'Accès',
   page_Allowance: 'Allocation',
   page_Schedules: 'Planifications',
