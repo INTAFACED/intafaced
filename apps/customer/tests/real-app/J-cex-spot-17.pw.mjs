@@ -890,7 +890,11 @@ test(`${J} #8 reads sell quotes and partner buy fees: a finance read of venue se
     expect(venueQuoted.status, JSON.stringify(venueQuoted.body).slice(0, 400)).toBe(200);
     const vq = venueQuoted.body;
     // The TEST venue's own answer for the same sell on the same account, read from the venue directly, not through us.
-    const tick = (await testVenue('/markets', {})).value.find((m) => m.symbol === VENUE_SPOT).tickSize;
+    // Priced at the lowest resting bid, so the preview walks every bid the book holds, and the order's value clears the
+    // venue's smallest order (a tick-priced market order is refused order_below_venue_min, J-cex-spot-04, #8198).
+    const bids = (await testVenue('/book', { symbol: VENUE_SPOT, depth: 50 })).value.bids;
+    expect(bids.length, 'the TEST makers rest bids on the book').toBeGreaterThan(0);
+    const lowestBid = bids[bids.length - 1].price;
     const venueOwn = (
       await testVenue('/preview', {
         account: { venueId, owner: wallet.address, subAccount: null },
@@ -900,7 +904,7 @@ test(`${J} #8 reads sell quotes and partner buy fees: a finance read of venue se
           side: 'sell',
           type: 'market',
           amount: SELL,
-          price: tick,
+          price: lowestBid,
           timeInForce: 'IOC',
           reduceOnly: false,
           clientOrderKey: `convert-quote:${client.userId}:${quoteKey}`,
