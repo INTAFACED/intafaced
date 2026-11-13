@@ -29,6 +29,7 @@ function state(key) {
 
 const trpcQuery = (service, proc) => `/api/${service}/trpc/${proc}`;
 const data = (res) => res.body?.result?.data;
+const isBotCreate = (r) => r.request().method() === 'POST' && new URL(r.url()).pathname === trpcQuery('trade', 'signals.bots.create');
 
 const listing = (page) => page.getByRole('article', { name: state('title') });
 const signalBotRows = (page) =>
@@ -66,7 +67,12 @@ test(`${J} #1 tries to create a signal bot from an unpurchased listing: refused 
   await signals(page);
   await expect(listing(page)).toBeVisible();
   await expect(listing(page)).toContainText(`${PRICE} USDC`);
+  // The refusal is the service's own: the create request reaches svc-trade, which answers 403 market.access_required.
+  const refused = page.waitForResponse((r) => isBotCreate(r));
   await listing(page).getByRole('button', { name: 'Create a bot' }).click();
+  const answer = await refused;
+  expect(answer.status()).toBe(403);
+  expect((await answer.json()).error?.data?.cause?.code).toBe('market.access_required');
   await expect(listing(page).getByRole('alert')).toHaveText(/Buy access to this signal first/);
   // Refused before anything was written: the person has no signal bot.
   const bots = await (await api(trader)).get(trpcQuery('trade', 'signals.bots.list'));
@@ -89,7 +95,9 @@ test(`${J} #2 purchases the listing with the TEST partner card, then creates the
   await expect(listing(page)).toContainText('TEST partner card');
   await expect(listing(page).getByRole('button', { name: 'Buy access' })).toHaveCount(0);
 
-  // One payment: paid once, by card, through the TEST partner card. Buying again answers the same payment.
+  // One payment: paid once, by card, through the TEST partner card. The step takes the TEST partner card or a
+  // wallet-signed payment; this journey pays by the card, the one way the stack offers. Buying again answers the same
+  // payment.
   const payments = data(await me.get(trpcQuery('market', 'signals.payments')));
   const mine = payments.filter((p) => p.listingId === state('listingId'));
   expect(mine).toHaveLength(1);
@@ -101,13 +109,27 @@ test(`${J} #2 purchases the listing with the TEST partner card, then creates the
   // INTAFACED keeps no prepaid balance: nothing was posted to the buyer's own ledger.
   expect((await me.get('/api/v1/ledger?limit=200')).body?.entries?.length ?? 0).toBe(ledgerBefore);
 
-  // Create a bot pressed twice, with the one key this visit holds: one bot.
+  // Create a bot pressed twice, with the one key this visit holds: every create request the page sends carries that
+  // one key, and every answer is the same one bot.
+  const creates = [];
+  page.on('response', (r) => {
+    if (isBotCreate(r)) creates.push(r);
+  });
   await listing(page).getByRole('button', { name: 'Create a bot' }).dblclick();
   await expect(listing(page).getByRole('status')).toContainText('The bot was created');
   await listing(page).getByRole('button', { name: 'Create a bot' }).click();
   await expect(listing(page).getByRole('status')).toContainText('The bot was created');
+  await expect.poll(() => creates.length).toBeGreaterThanOrEqual(2);
+  const sent = creates.map((r) => r.request().postDataJSON());
+  const answered = await Promise.all(creates.map(async (r) => ({ status: r.status(), bot: data({ body: await r.json() }) })));
+  expect(new Set(sent.map((b) => b.clientBotId)).size).toBe(1);
+  expect(sent.every((b) => b.listingId === state('listingId'))).toBe(true);
+  expect(answered.every((a) => a.status === 200)).toBe(true);
+  expect(new Set(answered.map((a) => a.bot.botId)).size).toBe(1);
+  expect(answered[0].bot).toMatchObject({ listingId: state('listingId'), clientBotId: sent[0].clientBotId });
   const bots = data(await me.get(trpcQuery('trade', 'signals.bots.list'))).filter((b) => b.listingId === state('listingId'));
   expect(bots).toHaveLength(1);
+  expect(bots[0].botId).toBe(answered[0].bot.botId);
   await page.goto('/trade/bots?tab=mine');
   await expect(signalBotRows(page)).toHaveCount(1);
 });
