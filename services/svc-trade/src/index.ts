@@ -37,6 +37,7 @@ import { createLedgerClient } from './ledger-client.js';
 import { createLedgerPages } from './statements/ledger-history.js';
 import { StatementExports } from './statements/statement-export.js';
 import { registerClosureCheck } from './closure/closure-check.js';
+import { leadOrderGate, registerLeadCheck } from './copy/lead-api.js';
 import { readSupportOrder, registerSupportOrderRead } from './support/order-read.js';
 import { subscribeMatchingEvents, type MatchedFillsSink } from './events.js';
 import { FUTURES_PRICE_BAND_UNSET, parsePriceBand, perpetualFeeRates } from './futures/matched-order-plan.js';
@@ -458,6 +459,8 @@ const placeFollowerOrder: PlaceFollowerOrderPort = async (principal, input) => {
   return { orderId: order.id };
 };
 const leaderDirectory = sqlLeaderDirectory(sql, { now: () => new Date(), feeShareLaw: copyFeeShareLaw });
+// svc-identity asks this before it mints a `copy:lead` key (J-copy-bots-otc-07 #1 #2).
+registerLeadCheck(app, { read: (userId) => leaderDirectory.leadListing(userId), secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s });
 // The grid's reserve rows: a copy follow subtracts them, as a grid create subtracts the follows' (one reserve lock).
 const gridStore = new SqlGridStore(sql);
 // The best bid a follower's sell is floored against: top of book, or null when the book has none.
@@ -1914,6 +1917,7 @@ registerPrivateRest(app, {
   convertExport: (principal, query) => trade.convertExport(principal, query),
   convert: trade,
   copyExport: (principal, query) => copy.exportMirrorTrail(principal, query),
+  leadOrderGate: leadOrderGate((userId) => leaderDirectory.leadListing(userId)),
   grid,
   userVenue: userVenueRouter,
   agentAccounts,

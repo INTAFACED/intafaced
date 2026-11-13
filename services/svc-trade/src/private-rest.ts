@@ -3,6 +3,7 @@ import { requireScope, tradeTier, type Principal } from '@intafaced/auth';
 import { attachConvertExportRoute } from './convert/convert-history-rest.js';
 import { attachConvertRestRoutes, type ConvertRestPort } from './convert/convert-rest.js';
 import { attachStatementRoutes, type StatementRestDeps } from './statements/statement-rest.js';
+import { refuseLeadOrder, type LeadOrderGate } from './copy/lead-api.js';
 import { attachCopyExportRoute } from './copy/copy-export-rest.js';
 import { attachAlgoRestRoutes, type AlgoRestPort } from './algo/algo-rest.js';
 import { attachRfqExportRoute } from './otc/rfq-history-rest.js';
@@ -207,6 +208,8 @@ export interface PrivateRestDeps {
   /** D-ops-01 gated list. Absent: the route answers 503 `trade.gated_list_unmounted`. */
   gatedList?: (subject: GatedListSubject) => Promise<readonly GatedContract[]>;
   copyExport?(principal: Principal, query: { followId?: string; from?: string; to?: string }): Promise<string>;
+  /** The lead API's own check before the ordinary order path (`copy/lead-api.ts`). Absent: the lead API answers 503. */
+  leadOrderGate?: LeadOrderGate;
   /** The spot grid bot service behind `/api/v1/bots/grid` (J-copy-bots-otc-19). Omitted: every grid door answers 503. */
   grid?: GridService;
   /** The B1 user-venue door; `null` or absent when TRADE_USER_VENUE_URL is unset (status answers `{ enabled: false }`). */
@@ -2916,7 +2919,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     return reply.code(200).send({ atomic: false, results });
   });
 
-  app.post('/api/v1/orders', privateWrite, async (req, reply) => {
+  const placeOrderRoute = async (req: FastifyRequest, reply: FastifyReply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
     if (!requireTradeJurisdiction(req, reply, principal)) return;
@@ -3067,6 +3070,16 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       if (sent) return sent;
       throw err;
     }
+  };
+  app.post('/api/v1/orders', privateWrite, placeOrderRoute);
+
+  // The lead API (J-copy-bots-otc-07 #4): a key carrying `copy:lead` places a lead order. It must still be a listed
+  // lead and the symbol must be on its listing; then it is the ordinary order path above, tier and region gate included.
+  app.post('/api/v1/copy/lead/orders', privateWith('trade:write', 'copy:lead'), async (req, reply) => {
+    const principal = requirePrincipal(req, reply);
+    if (!principal) return;
+    if (await refuseLeadOrder(deps.leadOrderGate, principal, req.body, reply)) return;
+    return placeOrderRoute(req, reply);
   });
 
   /**
