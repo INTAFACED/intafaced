@@ -35,6 +35,7 @@
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { CI_WORKFLOW, otherSeals, recheckStep, SEAL, SEAL_WORKFLOWS } from './journey-seal.mjs';
+import { httpMessage, titleFor } from './api-budget.mjs';
 
 export const SWITCH_BRANCH = 'factory-switch';
 export const SWITCH_FILE = 'FACTORY';
@@ -60,7 +61,7 @@ export async function readSwitch({ repo, token, fetchImpl = fetch }) {
     // No token, no header: the repository is public, so a tokenless read (the builder's gate) is a plain read.
     headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), accept: 'application/vnd.github.raw' },
   });
-  if (!res.ok) throw new Error(`GET ${path}: HTTP ${res.status}`);
+  if (!res.ok) throw new Error(httpMessage(path, res));
   return res.text();
 }
 
@@ -70,7 +71,7 @@ export async function switchProblem(opts) {
     const v = judgeSwitch(await readSwitch(opts));
     return v.pass ? null : { title: 'Factory paused', why: `${v.why}, so nothing merges (owner decision 2026-11-07)` };
   } catch (e) {
-    return { title: 'Factory switch unreadable', why: `${e.message}; the seal fails closed, so nothing merges` };
+    return { title: titleFor(e.message, 'Factory switch unreadable'), why: `${e.message}; the seal fails closed, so nothing merges` };
   }
 }
 
@@ -170,7 +171,7 @@ function apiFor(token) {
   return {
     async get(path) {
       const res = await fetch(`https://api.github.com${path}`, { headers });
-      if (!res.ok) throw new Error(`GET ${path}: HTTP ${res.status}`);
+      if (!res.ok) throw new Error(httpMessage(path, res));
       return res.json();
     },
     async post(path) {
@@ -204,6 +205,6 @@ async function main() {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href)
   main().catch((e) => {
-    console.error(`::error title=Factory switch failed::${e.message}`);
+    console.error(`::error title=${titleFor(e.message, 'Factory switch failed')}::${e.message}`);
     process.exit(1);
   });
