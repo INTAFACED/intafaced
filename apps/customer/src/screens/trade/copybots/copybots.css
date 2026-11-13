@@ -121,6 +121,16 @@
     color: var(--if-fg);
     font-size: var(--if-text-base);
   }
+  /* The app resets native inputs to appearance: none, which leaves a radio with no size: keep the browser's own (as
+     pay's stranger rule does). Without it the sizing choice in the wizard and on Edit limits can't be seen or pressed. */
+  .cb-check input[type='radio'] {
+    appearance: auto;
+    flex: none;
+    inline-size: 1rem;
+    block-size: 1rem;
+    margin: 0;
+    accent-color: var(--if-lime);
+  }
   .cb-dialog {
     max-width: 560px;
     max-height: calc(100vh - 120px);
