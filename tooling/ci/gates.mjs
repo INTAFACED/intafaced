@@ -183,7 +183,8 @@ export const GATES = [
       'affected-test selection follows the workspace graph, and a test that reads another package’s files without ' +
       'declaring it is invisible to that graph: change the other package and the test is not selected. MAINRED3 was ' +
       'exactly that — a svc-trade change broke an apps/customer test that reads svc-trade. Every cross-package read must ' +
-      'be declared in tooling/ci/test-read-edges.json.',
+      'be declared in tooling/ci/test-read-edges.json. The same reads are hidden from turbo’s cache key, so it also fails when ' +
+      'turbo.json’s generated <package>#typecheck / #build inputs miss one: a cached pass must never replay after a read package changed.',
   },
   {
     id: 'boundary',

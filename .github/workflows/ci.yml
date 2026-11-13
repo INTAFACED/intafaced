@@ -323,6 +323,17 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # turbo's local cache, kept between runs, so a package whose inputs did not change is not built or typechecked
+      # again. A hit can't hide a red: turbo never caches a failed task, and turbo.json's generated <package>#<task>
+      # inputs make each hash cover the other packages its tests import (tooling/ci/cross-package-reads.mjs, run by the
+      # Doctrine gates, fails when they are missing). A run restores the newest cache of any branch it can read (its own,
+      # then main) and saves only the entries this run's tasks used, so it never grows past one run's worth.
+      - name: Restore turbo's cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .turbo/cache
+          key: turbo-build-${{ runner.os }}-${{ github.sha }}
+          restore-keys: turbo-build-${{ runner.os }}-
       # Same selection as the tests (tooling/ci/ci-affected.mjs): a run-everything change (and every push to main)
       # builds and typechecks the whole repo; any other change builds and typechecks the changed packages and their
       # dependents, turbo's ^build covering their dependencies, plus what a selected reader's tests read (--build-filters:
@@ -330,6 +341,7 @@ jobs:
       # repo took 3m50s to build plus 5m50s to typecheck, the slowest job of a PR run.
       - name: Build
         env:
+          TURBO_RUN_SUMMARY: true
           FULL: ${{ needs.changes.outputs.full }}
           AFFECTED: ${{ needs.changes.outputs.affected }}
         run: |
@@ -344,6 +356,7 @@ jobs:
           } 2>&1 | tee "$RUNNER_TEMP/build.log"
       - name: Typecheck
         env:
+          TURBO_RUN_SUMMARY: true
           FULL: ${{ needs.changes.outputs.full }}
           AFFECTED: ${{ needs.changes.outputs.affected }}
         run: |
@@ -356,6 +369,27 @@ jobs:
             pnpm turbo run typecheck "${filters[@]}"
           else echo "docs only: nothing to typecheck"; fi
           } 2>&1 | tee -a "$RUNNER_TEMP/build.log"
+      # Keeps only the cache entries this run's tasks named (.turbo/runs: every task's hash, hit or miss), then saves them
+      # under this commit. A docs-only run ran no task and saves nothing.
+      - name: Keep only this run's cache entries
+        id: turbo-prune
+        run: |
+          node -e '
+            const fs = require("fs");
+            const runs = fs.existsSync(".turbo/runs") ? fs.readdirSync(".turbo/runs") : [];
+            const keep = new Set(runs.flatMap((f) => JSON.parse(fs.readFileSync(".turbo/runs/" + f, "utf8")).tasks.map((t) => t.hash)));
+            const files = fs.existsSync(".turbo/cache") ? fs.readdirSync(".turbo/cache") : [];
+            let dropped = 0;
+            for (const f of files) if (!keep.has(f.split(/[-.]/)[0])) (fs.rmSync(".turbo/cache/" + f, { recursive: true }), dropped++);
+            console.log(`turbo cache: ${keep.size} task hash(es) this run, ${files.length - dropped} file(s) kept, ${dropped} dropped`);
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `tasks=${keep.size}\n`);
+          '
+      - name: Save turbo's cache
+        if: steps.turbo-prune.outputs.tasks != '0'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .turbo/cache
+          key: turbo-build-${{ runner.os }}-${{ github.sha }}
       # The Customer app's deployment tests (nginx config, env validation, the security headers and the built
       # index.html's scripts) are node:test files outside vitest, and need the build above. They run whenever this job
       # built the Customer app.
