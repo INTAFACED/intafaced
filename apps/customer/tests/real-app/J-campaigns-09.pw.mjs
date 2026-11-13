@@ -1,8 +1,9 @@
 // World: book, restart
 import { randomBytes } from 'node:crypto';
+import path from 'node:path';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { api, fromUnits, journeyState, tool, toUnits } from './stack.mjs';
+import { ROOT, api, fromUnits, journeyState, tool, toUnits } from './stack.mjs';
 import { reviewSheet, signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import {
@@ -194,10 +195,19 @@ async function confirmAndSign(page, sheet) {
   return outcome;
 }
 
-const fillsOf = async (owner, clientId) =>
-  (await venueRecord(owner, '/fills', { since: new Date(Date.now() - 3_600_000).toISOString() })).value.filter(
-    (f) => f.venueClientOrderId === clientId,
+/** The venue's own client order id for one of our order keys (venue-contracts `venueClientOrderId`, as built for the stack). */
+async function cloidOf(key) {
+  const { venueClientOrderId } = await import(path.join(ROOT, 'packages/venue-contracts/dist/user-venue.js'));
+  return venueClientOrderId((await venueInfo()).id, key);
+}
+
+/** The venue's fills of the order our key `clientKey` names. */
+const fillsOf = async (owner, clientKey) => {
+  const cloid = await cloidOf(clientKey);
+  return (await venueRecord(owner, '/fills', { since: new Date(Date.now() - 3_600_000).toISOString() })).value.filter(
+    (f) => f.venueClientOrderId === cloid,
   );
+};
 
 /** The venue's builder fee on a fill at `rateBps` of its quote notional, rounded up as the venue rounds (to 18 places). */
 function builderFeeAt(fill, rateBps) {
@@ -211,7 +221,7 @@ function builderFeeAt(fill, rateBps) {
 async function chargedAt(page, owner, clientId, rateBps) {
   const fills = await fillsOf(owner, clientId);
   expect(fills.length, `the venue filled ${clientId}`).toBeGreaterThan(0);
-  await page.getByTestId('venue-bottom').getByRole('button', { name: 'Trade history' }).click();
+  await page.getByTestId('venue-bottom').getByRole('tab', { name: 'Trade history' }).click();
   for (const f of fills) {
     const expected = builderFeeAt(f, rateBps);
     const charged = toUnits(f.builderFee);
@@ -430,7 +440,7 @@ test(`${J} #3 the coupon runs out during an order: that order keeps the builder 
     builderFee: null,
   });
   expect(bought.definite && bought.accepted, JSON.stringify(bought)).toBe(true);
-  const order = (await venueRecord(owner, '/order-by-client-id', { venueClientOrderId: restingId })).value;
+  const order = (await venueRecord(owner, '/order-by-client-id', { venueClientOrderId: await cloidOf(restingId) })).value;
   expect(order.status).toBe('filled');
   await desk(page);
   const fills = await chargedAt(page, owner, restingId, RATE.coupon);
