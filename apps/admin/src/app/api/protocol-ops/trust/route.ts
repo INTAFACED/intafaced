@@ -1,7 +1,12 @@
 import {
   ADDRESS_LABEL_KINDS,
+  HUMAN_TOKEN_TIERS,
   protocolComplianceReportsOutputSchema,
   protocolComplianceReviewSchema,
+  protocolOnboardingChecklistSchema,
+  protocolOnboardingOutputSchema,
+  protocolTokenTierSchema,
+  protocolTokenTiersOutputSchema,
 } from '@intafaced/contracts/protocol-address-risk';
 import { protocolAuditProductsSchema } from '@intafaced/contracts/protocol-blockers';
 import { tokensListOutputSchema } from '@intafaced/contracts/protocol-tokens';
@@ -14,8 +19,9 @@ import { trustRefusalWords } from '@/lib/protocol-trust/model';
 
 /**
  * The Protocol trust desk (J-dex-protocol-30) as the signed-in founder: GET reads svc-protocol's compliance queue, its
- * token list and its audit rows; POST asks for a label or approves one (`compliance.labels.ask` / `.approve`). The
- * second reviewer must be a different person, which svc-protocol enforces. A reply that never arrived is reported as
+ * token list, its audit rows, the human token tiers and the permissioned pool checklists; POST asks for or approves a
+ * label or a tier, removes a tier, and opens or approves a checklist (`compliance.*`). The second person must be a
+ * different person, which svc-protocol enforces. A reply that never arrived is reported as
  * unknown, never as failed, and is never sent again on its own.
  */
 export const dynamic = 'force-dynamic';
@@ -49,10 +55,12 @@ export async function GET(request: Request) {
   if (disabled) return disabled;
   const session = await adminBffSession(request);
   if (session instanceof Response) return session;
-  const [reports, tokens, audit] = await Promise.all([
+  const [reports, tokens, audit, tiers, onboarding] = await Promise.all([
     founderCall(session, 'protocol', 'compliance.reports.list', 'GET', undefined, parseWith(protocolComplianceReportsOutputSchema)),
     founderCall(session, 'protocol', 'tokens.list', 'GET', { window: '24h' }, parseWith(tokensListOutputSchema)),
     founderCall(session, 'protocol', 'auditProducts', 'GET', undefined, parseWith(protocolAuditProductsSchema)),
+    founderCall(session, 'protocol', 'compliance.tiers.list', 'GET', undefined, parseWith(protocolTokenTiersOutputSchema)),
+    founderCall(session, 'protocol', 'compliance.onboarding.list', 'GET', undefined, parseWith(protocolOnboardingOutputSchema)),
   ]);
   return answer(
     {
@@ -60,11 +68,14 @@ export async function GET(request: Request) {
       reports: part(reports, 'report queue'),
       tokens: part(tokens, 'token list'),
       audit: part(audit, 'audit rows'),
+      tiers: part(tiers, 'token tiers'),
+      onboarding: part(onboarding, 'pool onboarding checklists'),
     },
     200,
   );
 }
 
+const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function POST(request: Request) {
@@ -80,24 +91,71 @@ export async function POST(request: Request) {
   }
   const invalid = () =>
     answer({ ok: false, code: 'admin.request_invalid', message: 'That request was not accepted. Nothing was sent.' }, 400);
+  const text = (v: unknown, max: number): string | null => {
+    if (typeof v !== 'string') return null;
+    const t = v.trim();
+    return t.length === 0 || t.length > max ? null : t;
+  };
+  const addr = (v: unknown): string | null | undefined =>
+    v === null || v === undefined || v === '' ? null : typeof v === 'string' && ADDRESS.test(v.trim()) ? v.trim() : undefined;
   let procedure: string;
-  let input: Record<string, string>;
+  let input: Record<string, string | null>;
+  let schema: Parameters<typeof parseWith<unknown>>[0] = protocolComplianceReviewSchema;
   if (raw.op === 'ask') {
-    const reason = typeof raw.reason === 'string' ? raw.reason.trim() : '';
+    const reason = text(raw.reason, 500);
     if (typeof raw.reportId !== 'string' || !UUID.test(raw.reportId)) return invalid();
-    if (!(ADDRESS_LABEL_KINDS as readonly unknown[]).includes(raw.kind) || reason.length === 0 || reason.length > 500) return invalid();
+    if (!(ADDRESS_LABEL_KINDS as readonly unknown[]).includes(raw.kind) || reason === null) return invalid();
     procedure = 'compliance.labels.ask';
     input = { reportId: raw.reportId, kind: raw.kind as string, reason };
   } else if (raw.op === 'approve') {
     if (typeof raw.reviewId !== 'string' || !UUID.test(raw.reviewId)) return invalid();
     procedure = 'compliance.labels.approve';
     input = { reviewId: raw.reviewId };
+  } else if (raw.op === 'tier-ask') {
+    const reason = text(raw.reason, 500);
+    const token = addr(raw.token);
+    if (!token || !(HUMAN_TOKEN_TIERS as readonly unknown[]).includes(raw.tier) || reason === null) return invalid();
+    procedure = 'compliance.tiers.ask';
+    input = { token, tier: raw.tier as string, reason };
+    schema = protocolTokenTierSchema;
+  } else if (raw.op === 'tier-approve') {
+    if (typeof raw.requestId !== 'string' || !UUID.test(raw.requestId)) return invalid();
+    procedure = 'compliance.tiers.approve';
+    input = { requestId: raw.requestId };
+    schema = protocolTokenTierSchema;
+  } else if (raw.op === 'tier-remove') {
+    const reason = text(raw.reason, 500);
+    const token = addr(raw.token);
+    if (!token || reason === null) return invalid();
+    procedure = 'compliance.tiers.remove';
+    input = { token, reason };
+    schema = protocolTokenTierSchema;
+  } else if (raw.op === 'onboarding-open') {
+    const pool = text(raw.pool, 120);
+    const [tokenContract, checkerAddress, wrapperAddress] = [addr(raw.tokenContract), addr(raw.checkerAddress), addr(raw.wrapperAddress)];
+    if (pool === null || tokenContract === undefined || checkerAddress === undefined || wrapperAddress === undefined) return invalid();
+    procedure = 'compliance.onboarding.open';
+    input = {
+      pool,
+      legalEntity: text(raw.legalEntity, 200),
+      tokenContract,
+      checkerAddress,
+      wrapperAddress,
+      routingRegistration: text(raw.routingRegistration, 200),
+    };
+    schema = protocolOnboardingChecklistSchema;
+  } else if (raw.op === 'onboarding-approve') {
+    const reason = text(raw.reason, 500);
+    if (typeof raw.checklistId !== 'string' || !UUID.test(raw.checklistId) || reason === null) return invalid();
+    procedure = 'compliance.onboarding.approve';
+    input = { checklistId: raw.checklistId, reason };
+    schema = protocolOnboardingChecklistSchema;
   } else return invalid();
 
-  const result = await founderCall(session, 'protocol', procedure, 'POST', input, parseWith(protocolComplianceReviewSchema));
+  const result = await founderCall(session, 'protocol', procedure, 'POST', input, parseWith(schema));
   switch (result.kind) {
     case 'ok':
-      return answer({ ok: true, review: result.data }, 200);
+      return answer({ ok: true, result: result.data }, 200);
     case 'forbidden':
       return answer(
         {

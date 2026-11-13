@@ -27,6 +27,17 @@ const review = {
   askedAt: '2026-11-12T00:00:00.000Z',
   decidedAt: null,
 };
+const TOKEN = '0x00000000000000000000000000000000000a11ce';
+const tier = {
+  token: TOKEN,
+  tier: null,
+  priorTier: null,
+  reason: null,
+  since: null,
+  requesterId: null,
+  approverId: null,
+  pending: { id: REVIEW, tier: 'verified', reason: 'TEST', requesterId: ctx.session.userId, askedAt: '2026-11-13T00:00:00.000Z' },
+};
 const post = (body: unknown) =>
   new Request('http://admin.example/api/protocol-ops/trust', {
     method: 'POST',
@@ -47,7 +58,7 @@ describe('POST /api/protocol-ops/trust', () => {
     const fn = vi.fn(async (_u: string, _i?: RequestInit) => Response.json({ result: { data: review } }));
     vi.stubGlobal('fetch', fn);
     const res = await POST(post({ op: 'ask', reportId: REPORT, kind: 'phishing', reason: ' TEST ' }));
-    expect(await res.json()).toEqual({ ok: true, review });
+    expect(await res.json()).toEqual({ ok: true, result: review });
     const [url, init] = fn.mock.calls[0]!;
     expect(url).toBe('http://edge:4000/api/protocol/trpc/compliance.labels.ask');
     expect(JSON.parse(String(init!.body))).toEqual({ reportId: REPORT, kind: 'phishing', reason: 'TEST' });
@@ -64,6 +75,14 @@ describe('POST /api/protocol-ops/trust', () => {
       { op: 'ask', reportId: REPORT, kind: 'phishing', reason: '  ' },
       { op: 'approve', reviewId: 1 },
       { op: 'delete', reviewId: REVIEW },
+      { op: 'tier-ask', token: '0x12', tier: 'verified', reason: 'TEST' },
+      { op: 'tier-ask', token: TOKEN, tier: 'trusted', reason: 'TEST' },
+      { op: 'tier-ask', token: TOKEN, tier: 'verified', reason: ' ' },
+      { op: 'tier-approve', requestId: 'x' },
+      { op: 'tier-remove', token: TOKEN },
+      { op: 'onboarding-open', pool: ' ', checkerAddress: null },
+      { op: 'onboarding-open', pool: 'TEST pool', checkerAddress: 'not an address' },
+      { op: 'onboarding-approve', checklistId: REVIEW, reason: '' },
     ]) {
       const res = await POST(post(body));
       expect(res.status).toBe(400);
@@ -88,6 +107,74 @@ describe('POST /api/protocol-ops/trust', () => {
   });
 });
 
+describe('POST /api/protocol-ops/trust: tiers and onboarding', () => {
+  it('asks for a tier, removes one with its reason, and opens a checklist with blank items as null', async () => {
+    const fn = vi.fn(async (_u: string, _i?: RequestInit) => Response.json({ result: { data: tier } }));
+    vi.stubGlobal('fetch', fn);
+    expect(await (await POST(post({ op: 'tier-ask', token: TOKEN, tier: 'verified', reason: ' TEST ' }))).json()).toEqual({
+      ok: true,
+      result: tier,
+    });
+    await POST(post({ op: 'tier-remove', token: TOKEN, reason: 'TEST gone' }));
+    const checklist = {
+      id: REVIEW,
+      pool: 'TEST pool',
+      legalEntity: 'TEST Ltd',
+      tokenContract: null,
+      checkerAddress: null,
+      wrapperAddress: null,
+      routingRegistration: null,
+      missing: ['tokenContract', 'checkerAddress', 'wrapperAddress', 'routingRegistration'],
+      status: 'open',
+      openedBy: ctx.session.userId,
+      approvedBy: null,
+      approvalReason: null,
+      openedAt: '2026-11-13T00:00:00.000Z',
+      approvedAt: null,
+    };
+    fn.mockImplementation(async () => Response.json({ result: { data: checklist } }));
+    expect(
+      await (await POST(post({ op: 'onboarding-open', pool: 'TEST pool', legalEntity: 'TEST Ltd', checkerAddress: '' }))).json(),
+    ).toEqual({
+      ok: true,
+      result: checklist,
+    });
+    const calls = fn.mock.calls.map(([u, i]) => [u.split('/trpc/')[1], JSON.parse(String(i!.body))]);
+    expect(calls).toEqual([
+      ['compliance.tiers.ask', { token: TOKEN, tier: 'verified', reason: 'TEST' }],
+      ['compliance.tiers.remove', { token: TOKEN, reason: 'TEST gone' }],
+      [
+        'compliance.onboarding.open',
+        {
+          pool: 'TEST pool',
+          legalEntity: 'TEST Ltd',
+          tokenContract: null,
+          checkerAddress: null,
+          wrapperAddress: null,
+          routingRegistration: null,
+        },
+      ],
+    ]);
+  });
+
+  it('words the refusals: the same approver, and a checklist with a blank item', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => trpcErr(409, 'protocol.tiers.same_approver')),
+    );
+    expect(await (await POST(post({ op: 'tier-approve', requestId: REVIEW }))).json()).toMatchObject({
+      message: expect.stringMatching(/different person/),
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => trpcErr(409, 'protocol.onboarding.incomplete')),
+    );
+    expect(await (await POST(post({ op: 'onboarding-approve', checklistId: REVIEW, reason: 'TEST' }))).json()).toMatchObject({
+      message: expect.stringMatching(/cannot be approved/),
+    });
+  });
+});
+
 describe('GET /api/protocol-ops/trust', () => {
   it('names each read that failed and shows no rows for it', async () => {
     vi.stubGlobal(
@@ -102,5 +189,7 @@ describe('GET /api/protocol-ops/trust', () => {
     expect(body.reports).toEqual({ ok: true, data: { asOf: '2026-11-12T00:00:00.000Z', chainId: 84532, reports: [] } });
     expect(body.tokens).toMatchObject({ ok: false, message: expect.stringMatching(/token list/) });
     expect(body.audit).toMatchObject({ ok: false, message: expect.stringMatching(/audit rows/) });
+    expect(body.tiers).toMatchObject({ ok: false, message: expect.stringMatching(/token tiers/) });
+    expect(body.onboarding).toMatchObject({ ok: false, message: expect.stringMatching(/onboarding/) });
   });
 });
