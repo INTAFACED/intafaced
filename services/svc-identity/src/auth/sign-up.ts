@@ -46,6 +46,8 @@ export type SignUpErrorCode =
   | 'identity.country_invalid'
   | 'identity.region_blocked'
   | 'identity.subdivision_required'
+  | 'identity.us_person_unanswered'
+  | 'identity.us_person_blocked'
   | 'identity.screening_unset'
   | 'identity.signup_expired'
   | 'identity.signup_code_invalid'
@@ -111,6 +113,11 @@ export interface SignUpStart {
   readonly subdivision?: string | undefined;
   /** Country of citizenship (ISO 3166-1 alpha-2), or an ISO 3166-2 subdivision. Screened against the sanctions list only. */
   readonly nationality?: string | undefined;
+  /**
+   * The person's own answer: a US citizen, green-card holder or US resident, wherever they live. Required: an unanswered
+   * question is refused (`identity.us_person_unanswered`), never taken as no. Not kept; only read at the door.
+   */
+  readonly usPerson?: boolean | undefined;
   /** `YYYY-MM-DD`. Checked against the owner's minimum age; kept only sealed (`birthDateKey`). */
   readonly dateOfBirth: string;
   readonly accountType: AccountType;
@@ -251,15 +258,38 @@ export function assertEligible(deps: Pick<SignUpDeps, 'minAgeYears' | 'closedCou
   // country first, so a paused screening list or a whole-country block answers before anyone is asked for a province.
   // A country with a subdivision blocked on its own (Ontario in Canada) then needs the subdivision, or the bare
   // country would let an Ontario resident through.
+  // A region either authority blocks is refused with that block's own reason ("Ontario, Canada is not served at
+  // launch."), so the person reads why; the owner's per-country switch carries none and keeps its general sentence.
+  const refused = (decision: { code: string; reason: string }) =>
+    paused(decision.code)
+      ? pausedError()
+      : new SignUpError(decision.reason.trim() || 'We cannot open accounts for this country right now.', 'identity.region_blocked');
   if (closed(subdivision ?? country)) throw blocked();
   const home = access(country);
-  if (!home.allowed) throw paused(home.code) ? pausedError() : blocked();
+  if (!home.allowed) throw refused(home);
   if (!subdivision && hasSubdivisionRows(country)) {
     throw new SignUpError('Choose the state or province you live in.', 'identity.subdivision_required');
   }
   if (subdivision) {
     const residence = access(subdivision);
-    if (!residence.allowed) throw paused(residence.code) ? pausedError() : blocked();
+    if (!residence.allowed) throw refused(residence);
+  }
+
+  // The US-person question (a US citizen, green-card holder or US resident, wherever they live), read from the person's
+  // own answer. Unanswered is refused, never taken as no. A yes is refused where the owner's lists block the US; where
+  // they do not, it passes.
+  if (typeof input.usPerson !== 'boolean') {
+    throw new SignUpError('Answer whether you are a US person before we can open an account.', 'identity.us_person_unanswered');
+  }
+  if (input.usPerson) {
+    const us = access('US');
+    if (!us.allowed) {
+      if (paused(us.code)) throw pausedError();
+      throw new SignUpError(
+        `We cannot open accounts for US persons (US citizens, green-card holders and US residents, wherever they live). ${us.reason.trim()}`.trim(),
+        'identity.us_person_blocked',
+      );
+    }
   }
 
   // Citizenship, wherever the person lives: the owner's sign-up off switch, the per-country switch with the identity
