@@ -104,7 +104,14 @@ test(`${J} #1 opens /trade/futures: the full desk with the contracts the venue l
     const ticket = page.getByTestId('venue-ticket');
     await ticket.getByRole('textbox', { name: 'Size (BTC)' }).fill(OPEN.size);
     await ticket.getByRole('textbox', { name: 'Worst price (slippage limit)' }).fill(OPEN.worst);
+    // The control's refusal is typed: the door answers the venue's own code, and the desk shows its words.
+    const refusal = page.waitForResponse(
+      (r) => r.request().method() === 'POST' && new URL(r.url()).pathname.startsWith('/api/v1/venue/') && r.status() >= 400,
+    );
     await ticket.getByRole('button', { name: 'Review long' }).click();
+    const refused = await refusal;
+    expect(refused.status()).toBe(503);
+    expect(await refused.json()).toMatchObject({ code: 'ExchangeNotAvailable', intafacedCode: 'trade.venue.venue_down' });
     await expect(ticket.getByRole('alert')).toContainText('is down (TEST switch)');
     await expect(page.getByTestId('venue-review')).toHaveCount(0);
   } finally {
