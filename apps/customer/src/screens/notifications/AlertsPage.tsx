@@ -881,6 +881,12 @@ export default function AlertsPage() {
                         <span data-testid="nf-title" className="nf-title">
                           {alert.name ? alert.name : kind ? `${name} · ${kind}` : name}
                         </span>
+                        {/* A named alert's title is its name, so its market is shown on its own line. */}
+                        {alert.name ? (
+                          <span data-testid="alert-market" className="nf-body nf-body--wrap">
+                            {kind ? `${name} · ${kind}` : name}
+                          </span>
+                        ) : null}
                         <span data-testid="nf-body" className="nf-body nf-body--wrap">
                           {copy.t('condition', {
                             side: conditionWords(alert.condition ?? (alert.direction === 'below' ? 'less_than' : 'greater_than')),
