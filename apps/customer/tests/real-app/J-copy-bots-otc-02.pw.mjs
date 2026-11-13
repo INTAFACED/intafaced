@@ -11,8 +11,8 @@ import { copiedOrders, followOnScreen, leadFill, listLeader, openFollow, takeBes
 // svc-trade. The failure count before auto-unfollow is the stack's TEST copy value.
 // The minimum investment and the owner day are the stack's TEST values (tooling/profiles/test-owner-values/trade.json).
 // #2 restarts svc-trade once with the minimum blank (`LOCAL_STACK_TRADE_COPY_MIN_INVESTMENT=off`) and puts it back.
-// #3 moves the follow's copied orders back one day through the stack's LOCAL TEST `local-test-gates.mjs copy-age-day`
-// (only the copy records' own time; nothing posts), as a run can't wait for a real owner day to begin.
+// #3 restarts svc-trade with the TEST owner day moved so a day begins a few minutes later
+// (`LOCAL_STACK_TRADE_COPY_DAY_START_UTC_OFFSET_MINUTES`), waits for that day to begin, and puts the TEST value back.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
 // - #4: no take-profit, total-loss limit or equity trailing stop on Edit limits.
 // - #5: no copy-existing-positions switch and no slippage limit on Edit limits.
@@ -49,16 +49,20 @@ async function myFollows(who) {
   return body.result.data;
 }
 
-/** Restart trade with the copy minimum investment blank (`blank`) or as the TEST profile sets it (`set`). */
-async function copyMinimum(value) {
-  const before = process.env.LOCAL_STACK_TRADE_COPY_MIN_INVESTMENT;
-  if (value === 'blank') process.env.LOCAL_STACK_TRADE_COPY_MIN_INVESTMENT = 'off';
-  else delete process.env.LOCAL_STACK_TRADE_COPY_MIN_INVESTMENT;
+/** Restart trade with the given `LOCAL_STACK_TRADE_*` switches (a value, or undefined for the TEST profile's own). */
+async function restartTrade(switches) {
+  const before = Object.fromEntries(Object.keys(switches).map((k) => [k, process.env[k]]));
+  for (const [k, v] of Object.entries(switches)) {
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
   try {
     await toolAwaited('local-test-stack.mjs', 'restart', 'trade');
   } finally {
-    if (before === undefined) delete process.env.LOCAL_STACK_TRADE_COPY_MIN_INVESTMENT;
-    else process.env.LOCAL_STACK_TRADE_COPY_MIN_INVESTMENT = before;
+    for (const [k, v] of Object.entries(before)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
   }
   // A restart outlasts Edge's idle timeout: drop the closed kept-alive sockets before the next write (as in J-copy-bots-otc-01).
   for (let i = 0, live = 0; i < 20 && live < 3; i++) {
@@ -72,6 +76,19 @@ async function copyMinimum(value) {
       live = 0;
     }
   }
+}
+
+/** Restart trade with the copy minimum investment blank (`blank`) or as the TEST profile sets it (`set`). */
+const copyMinimum = (value) => restartTrade({ LOCAL_STACK_TRADE_COPY_MIN_INVESTMENT: value === 'blank' ? 'off' : undefined });
+
+/**
+ * The owner-day offset (minutes from UTC, -720 to 840) whose day begins at the UTC minute `at`: local midnight for that
+ * offset is `at`, so the offset is minus `at`'s minute of the UTC day, wrapped into the allowed range.
+ */
+function ownerDayStartingAt(at) {
+  const minute = at.getUTCHours() * 60 + at.getUTCMinutes();
+  const offset = -minute;
+  return offset < -720 ? offset + 1440 : offset;
 }
 
 /** The follow #1 made, opened on My follows; with none made, the step stops here and says so. */
@@ -220,7 +237,7 @@ test(`${J} #2 sets a per-contract cap, a daily cap, a minimum investment and a l
 test(`${J} #3 a lead order past the per-contract cap: refused with the cap code, other contracts still copy; the daily cap resumes the next owner day`, async ({
   page,
 }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(720_000);
   const [leader, follower, followId, tag] = ['leader', 'follower', 'followId', 'tag'].map(state);
   // The leader buys BTC worth more than the follower's 25 USDT per-contract cap at 20 a copy, twice; then ETH once.
   await takeBest(leader, 'buy', '0.001', `${J}-3-btc1-${tag}`);
@@ -239,16 +256,28 @@ test(`${J} #3 a lead order past the per-contract cap: refused with the cap code,
   await detail.getByLabel('Most per day (USDT)').fill('40');
   await detail.getByRole('button', { name: 'Save changes' }).click();
   await expect(detail).toContainText(/Most per day\s*40 USDT/);
-  await takeBest(leader, 'buy', '0.001', `${J}-3-btc3-${tag}`);
-  await expect.poll(async () => (await skips(follower, followId)).map((s) => s.reason), { timeout: 60_000 }).toContain('daily_cap');
-  expect((await skips(follower, followId)).filter((s) => s.reason === 'per_contract_cap')).toHaveLength(1);
+  // A real owner day: trade restarted with the owner day moved so the next day begins at a whole UTC minute about six
+  // minutes from now. The leader's next BTC buy before then is skipped with the daily reason; once that day has begun,
+  // the leader's next BTC buy copies again. The TEST owner day is put back after.
+  const dayStarts = new Date(Math.ceil((Date.now() + 6 * 60_000) / 60_000) * 60_000);
+  await restartTrade({ LOCAL_STACK_TRADE_COPY_DAY_START_UTC_OFFSET_MINUTES: String(ownerDayStartingAt(dayStarts)) });
+  try {
+    expect(Date.now(), `trade restarted too late: the owner day begins at ${dayStarts.toISOString()}`).toBeLessThan(
+      dayStarts.getTime() - 90_000,
+    );
+    await takeBest(leader, 'buy', '0.001', `${J}-3-btc3-${tag}`);
+    await expect.poll(async () => (await skips(follower, followId)).map((s) => s.reason), { timeout: 60_000 }).toContain('daily_cap');
+    expect(Date.now(), 'the daily-cap skip came before the next owner day').toBeLessThan(dayStarts.getTime());
+    expect((await skips(follower, followId)).filter((s) => s.reason === 'per_contract_cap')).toHaveLength(1);
 
-  // The next owner day: today's copies moved back one day, the leader's next BTC buy copies again.
-  expect(tool('local-test-gates.mjs', 'copy-age-day', followId)).toMatch(/[1-9]\d* copied order\(s\) moved back one day/);
-  await takeBest(leader, 'buy', '0.001', `${J}-3-btc4-${tag}`);
-  const after = await myFollow(page);
-  await expect(copiedOrders(after).filter({ hasText: 'BTC/USDT' })).toHaveCount(2, { timeout: 60_000 });
-  expect((await skips(follower, followId)).filter((s) => s.reason === 'daily_cap')).toHaveLength(1);
+    await page.waitForTimeout(Math.max(0, dayStarts.getTime() - Date.now()) + 5_000);
+    await takeBest(leader, 'buy', '0.001', `${J}-3-btc4-${tag}`);
+    const after = await myFollow(page);
+    await expect(copiedOrders(after).filter({ hasText: 'BTC/USDT' })).toHaveCount(2, { timeout: 60_000 });
+    expect((await skips(follower, followId)).filter((s) => s.reason === 'daily_cap')).toHaveLength(1);
+  } finally {
+    await restartTrade({ LOCAL_STACK_TRADE_COPY_DAY_START_UTC_OFFSET_MINUTES: undefined });
+  }
 });
 
 test(`${J} #4 sets stop-loss, take-profit, total-loss limit and equity trailing stop: loosening a stop-loss is refused`, async ({
