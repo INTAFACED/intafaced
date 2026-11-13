@@ -905,7 +905,7 @@ export const appRouter = createTradeRouter(
     follows: copyStore,
     directory: leaderDirectory,
     copiedPositions: sqlCopiedPositions(sql),
-    leaderTrades: async (leaderUserId) => pairLeaderTrades(await readLeaderOrderFills(sql, leaderUserId)),
+    leaderTrades: async (leaderUserId) => pairLeaderTrades(await readLeaderOrderFills(sql, leaderUserId, { held: true })),
     now: () => new Date(),
     removalDailyLimit: parseLeadRemovalDailyLimit(env.TRADE_COPY_LEAD_REMOVAL_DAILY_LIMIT),
     levels: parseLeadLevels(env.TRADE_COPY_LEAD_LEVELS),

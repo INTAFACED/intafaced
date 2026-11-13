@@ -272,8 +272,11 @@ test(`${J} #7 stops leading with an open spot position, then after closing it: r
   await expect(panel.getByRole('alert').filter({ hasText: 'Close your open positions first' })).toBeVisible();
   expect(await read(state('lead'), 'copy.lead.listing')).toMatchObject({ leaderRef: leadRef, state: 'listed', stop: null });
 
-  // The lead sells what #1 bought: no spot position is left open.
-  await takeBest(state('lead'), 'sell', '0.001', `${J}-7-close-${state('tag')}`);
+  // The lead sells what #1 bought, all of it: the buy's fee was taken in BTC, so less than 0.001 is held. No spot
+  // position is left open.
+  const btc = (await (await api(state('lead'))).balances()).BTC?.free;
+  expect(btc, 'the lead holds no BTC from the buy in #1').toBeTruthy();
+  await takeBest(state('lead'), 'sell', btc, `${J}-7-close-${state('tag')}`);
   panel = await leadDesk(page, 'Listing', {});
   await panel.getByRole('button', { name: 'Stop leading' }).click();
   await expect(panel).toContainText('Review pending');

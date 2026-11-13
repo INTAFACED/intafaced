@@ -283,8 +283,13 @@ export function pageLeaderTrades(trades: readonly LeaderTrade[], after: LeaderTr
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** The leader's most recent orders on live spot books, oldest first, each with its fills summed and its bracket. */
-export async function readLeaderOrderFills(sql: Sql, leaderUserId: string): Promise<LeaderOrderFills[]> {
+/**
+ * The leader's most recent orders on live spot books, oldest first, each with its fills summed and its bracket.
+ * `held` counts a buy as what the leader received: its quantity less a fee taken in the base asset, so a leader who
+ * sells everything a buy left them holds no open position (the lead's own stop check, CB-copy-18). Without it, a buy is
+ * its gross quantity, as the public trade history shows it.
+ */
+export async function readLeaderOrderFills(sql: Sql, leaderUserId: string, opts: { held?: boolean } = {}): Promise<LeaderOrderFills[]> {
   if (!UUID.test(leaderUserId)) return [];
   const rows = await sql<
     Array<{
@@ -303,7 +308,12 @@ export async function readLeaderOrderFills(sql: Sql, leaderUserId: string): Prom
            b.take_profit::text AS take_profit, b.stop_loss::text AS stop_loss
       FROM (
         SELECT f.order_id, m.symbol, f.side::text AS side,
-               sum(f.qty)::text AS qty, sum(f.quote_amount)::text AS quote,
+               ${
+                 opts.held
+                   ? sql`sum(CASE WHEN f.side = 'buy' AND f.fee_asset = m.base_asset THEN f.qty - f.fee_amount ELSE f.qty END)::text AS qty`
+                   : sql`sum(f.qty)::text AS qty`
+               },
+               sum(f.quote_amount)::text AS quote,
                min(f.ts) AS first_at, max(f.ts) AS last_at
           FROM trade.fills f
           JOIN trade.markets m ON m.id = f.market_id

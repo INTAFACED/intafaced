@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
-import { Badge, Button, EmptyState, KeyValue, PageSection, Table, Tabs, TabsList, TabsPanel, TabsTab } from '@intafaced/ui';
+import { Badge, Button, Checkbox, EmptyState, KeyValue, PageSection, Table, Tabs, TabsList, TabsPanel, TabsTab } from '@intafaced/ui';
 import type { TableColumn } from '@intafaced/ui';
 import type { ApiClient } from '../../../shared/api';
 import { displayAmount } from '../../../shared/money';
@@ -179,13 +179,12 @@ export function LeadOwnDesk({ api, tab: requested, setTab }: { api: ApiClient; t
       width: 64,
       cell: (r) =>
         r.state === 'DETACHED' ? null : (
-          <input
-            type="checkbox"
+          <Checkbox
             aria-label={t('Pick {copier}', { copier: copierName(r.followId) })}
             checked={picked.has(r.followId)}
-            onChange={(e) => {
+            onCheckedChange={(on) => {
               const next = new Set(picked);
-              if (e.target.checked) next.add(r.followId);
+              if (on === true) next.add(r.followId);
               else next.delete(r.followId);
               setPicked(next);
             }}
