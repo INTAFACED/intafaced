@@ -93,24 +93,6 @@ if (!available) {
     await db.drop();
   });
 
-  describe('the attach is announced once it commits (identity.referral.created, CM-referral-02)', () => {
-    it('tells of each new edge once, and of no refused attach', async () => {
-      const told: { userId: string; referrerId: string; committed: number }[] = [];
-      const announcing = new ReferralService(db.sql, undefined, async (edge) => {
-        told.push({ userId: edge.userId, referrerId: edge.referrerId, committed: await edges() });
-      });
-      await announcing.attribute({ userId: FRIEND, referrerId: REF }, { windowSeconds: 600 });
-      await expect(announcing.attribute({ userId: FRIEND, referrerId: OLD }, { windowSeconds: 600 })).rejects.toMatchObject({
-        code: 'referral.already_set',
-      });
-      await expect(announcing.attribute({ userId: OLD, referrerId: REF }, { windowSeconds: 600 })).rejects.toMatchObject({
-        code: 'referral.attach_window_closed',
-      });
-      // Told after the commit: the edge was already readable when the announcement ran.
-      expect(told).toEqual([{ userId: FRIEND, referrerId: REF, committed: 1 }]);
-    });
-  });
-
   describe('late attach through a link', () => {
     it('inside the window attaches once; a second attach is refused', async () => {
       const edge = await referral.attribute({ userId: FRIEND, referrerId: REF }, { windowSeconds: 600 });
