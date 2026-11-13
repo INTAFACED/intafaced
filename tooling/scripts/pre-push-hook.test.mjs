@@ -12,6 +12,9 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const git = (cwd, ...a) => execFileSync('git', a, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+// The hook skips CI's checks when CI is set (CI runs them itself), so each push here runs as on a builder's machine,
+// even when this file runs inside CI, unless a case sets CI itself.
+const BUILDER = Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== 'CI'));
 
 function plant({ prettier = null, ciChecks = 'process.exit(0);' } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'pre-push-'));
@@ -46,8 +49,8 @@ function plant({ prettier = null, ciChecks = 'process.exit(0);' } = {}) {
   writeFileSync(join(work, 'src', 'a.ts'), 'export const a = 1;\n');
   git(work, 'add', '-A');
   git(work, 'commit', '-q', '-m', 'change');
-  const push = (ref = 'feat') => {
-    const r = spawnSync('git', ['push', 'origin', `HEAD:refs/heads/${ref}`], { cwd: work, encoding: 'utf8' });
+  const push = (ref = 'feat', env = BUILDER) => {
+    const r = spawnSync('git', ['push', 'origin', `HEAD:refs/heads/${ref}`], { cwd: work, encoding: 'utf8', env });
     return { code: r.status, out: `${r.stdout}${r.stderr}` };
   };
   return { push, work, done: () => rmSync(dir, { recursive: true, force: true }) };
@@ -108,6 +111,17 @@ test("a red from CI's checks refuses the push", () => {
   }
 });
 
+test("in CI the hook leaves CI's checks to CI", () => {
+  const p = plant({ prettier: 'exit 0', ciChecks: "console.log('ran'); process.exit(1);" });
+  try {
+    const r = p.push('feat', { ...BUILDER, CI: 'true' });
+    assert.equal(r.code, 0, r.out);
+    assert.doesNotMatch(r.out, /\bran\b/);
+  } finally {
+    p.done();
+  }
+});
+
 test("CI's checks never see the hook's GIT_* variables (a tooling test's temp repo once wrote into the real repo)", () => {
   const leak =
     "const g = Object.keys(process.env).filter((k) => k.startsWith('GIT_')); if (g.length) { console.log('leaked ' + g); process.exit(1); }";
@@ -125,7 +139,7 @@ test('a push that only deletes a branch runs no checks', () => {
   try {
     // The branch exists on the remote (pushed here without the hook), so the delete reaches the hook.
     git(p.work, 'push', '-q', '--no-verify', 'origin', 'HEAD:refs/heads/gone');
-    const r = spawnSync('git', ['push', 'origin', ':refs/heads/gone'], { cwd: p.work, encoding: 'utf8' });
+    const r = spawnSync('git', ['push', 'origin', ':refs/heads/gone'], { cwd: p.work, encoding: 'utf8', env: BUILDER });
     assert.equal(r.status, 0, `${r.stdout}${r.stderr}`);
     assert.doesNotMatch(`${r.stdout}${r.stderr}`, /\bran\b/);
   } finally {
