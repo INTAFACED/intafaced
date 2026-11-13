@@ -1751,6 +1751,11 @@ export class TradeService {
     return reads.everyFillOfOrder(this.internal, principal, orderId);
   }
 
+  /** Every fill of several owned orders in one read, keyed by order id (the order reads' cost: #4677). */
+  async everyFillOfOrders(principal: Principal, orderIds: readonly string[]): Promise<Map<string, FillRecord[]>> {
+    return reads.everyFillOfOrders(this.internal, principal, orderIds);
+  }
+
   async findOrder(orderId: string): Promise<OrderRecord | null> {
     const rows = await this.sql<OrderRow[]>`SELECT * FROM trade.orders WHERE id = ${orderId}`;
     const row = rows[0];
