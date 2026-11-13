@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { LOCAL_KEYS, ciNode, ciSchemaProof, ciTestEnv, isolate, ruleTest, runDatabase, withBuiltTwins } from './ci-checks.mjs';
+import { LOCAL_KEYS, ciNode, ciSchemaProof, ciTestEnv, isolate, ruleTest, runBorn, runDatabase, withBuiltTwins } from './ci-checks.mjs';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const ACTION = readFileSync(ROOT + '.github/actions/test-infra/action.yml', 'utf8');
@@ -103,7 +103,9 @@ test("the checks never inherit a hook's GIT_* variables (a tooling test's temp r
 test('each run gets its own database: every TEST_DATABASE_URL points at it, nothing else changes', () => {
   const { env } = ciTestEnv(ACTION);
   const db = runDatabase(4242, 1794550000000);
-  assert.match(db, /^intafaced_test_run_4242_[0-9a-z]+$/);
+  assert.match(db, /^intafaced_run_4242_[0-9a-z]+_test$/, "ends in _test: the repo's test guards refuse any other name");
+  assert.equal(runBorn(db), 1794550000000);
+  assert.ok(Number.isNaN(runBorn('intafaced_test')), "CI's own database is never taken for a leftover");
   const out = isolate(env, db);
   for (const [k, v] of Object.entries(out))
     if (k.startsWith('TEST_DATABASE_URL') && env[k].endsWith('/intafaced_test')) assert.ok(v.endsWith(`/${db}`), k);

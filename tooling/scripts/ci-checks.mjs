@@ -108,8 +108,16 @@ function changedFiles(mergeBase) {
   return [...new Set((tracked + '\n' + untracked).split('\n').filter(Boolean))].sort();
 }
 
-/** The database name a run uses in place of CI's (`intafaced_test`): its own, so runs never share tables or locks. */
-export const runDatabase = (pid = process.pid, now = Date.now()) => `intafaced_test_run_${pid}_${now.toString(36)}`;
+/**
+ * The database name a run uses in place of CI's (`intafaced_test`): its own, so runs never share tables or locks. It ends
+ * in `_test` because the repo's test guards (packages/db testing.ts, pay-sim's safety.ts) refuse any other name.
+ */
+export const runDatabase = (pid = process.pid, now = Date.now()) => `intafaced_run_${pid}_${now.toString(36)}_test`;
+/** When a run's database was made (ms), from its name; NaN for any other name. */
+export const runBorn = (name) => {
+  const m = /^intafaced_run_\d+_([0-9a-z]+)_test$/.exec(name);
+  return m ? parseInt(m[1], 36) : NaN;
+};
 
 /**
  * CI's test environment pointed at this run's own database (CI's runner has a fresh Postgres per job; a shared one here
@@ -140,9 +148,9 @@ function prepareDatabase(env, actionText, run, cleanEnv, log) {
     spawnSync('psql', ['-d', dbname, '-v', 'ON_ERROR_STOP=1', '-tAc', sql], { env: pg, encoding: 'utf8' });
   const drop = () => psql(`DROP DATABASE IF EXISTS "${db}" WITH (FORCE)`);
   // Leftovers of runs that were killed before their drop (older than a day, so no live run is touched).
-  const old = psql("SELECT datname FROM pg_database WHERE datname LIKE 'intafaced_test_run_%'");
+  const old = psql("SELECT datname FROM pg_database WHERE datname LIKE 'intafaced\\_run\\_%\\_test'");
   for (const name of String(old.stdout).split('\n').filter(Boolean)) {
-    const born = parseInt(name.split('_').pop(), 36);
+    const born = runBorn(name);
     if (Number.isFinite(born) && Date.now() - born > 24 * 3600_000) psql(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`);
   }
   const script = readFileSync(join(ROOT, BOOTSTRAP), 'utf8').replaceAll('intafaced_test', db);
