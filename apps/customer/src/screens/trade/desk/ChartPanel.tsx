@@ -28,15 +28,8 @@ import { placesOf } from './text';
 import { MarketRulesList } from './MarketRules';
 import { zoneName } from './time';
 import { flowCopy } from './order-flow-copy';
-
-type Mode = 'candles' | 'line';
-const isSetting = (value: unknown): value is { interval: ChartInterval; mode: Mode } =>
-  typeof value === 'object' &&
-  value !== null &&
-  'interval' in value &&
-  'mode' in value &&
-  [...CHART_INTERVALS, ...MORE_INTERVALS].includes((value as { interval: ChartInterval }).interval) &&
-  ((value as { mode: Mode }).mode === 'candles' || (value as { mode: Mode }).mode === 'line');
+import { FEATURESETS, describeFeatureset } from '../../charts/featureset';
+import { CHART_SETTING_DEFAULT, CHART_SETTING_KEY, isChartSetting, type ChartSetting } from './chart-setting';
 
 interface Props {
   market: DeskMarket;
@@ -47,21 +40,22 @@ interface Props {
   onToggleDom?: () => void;
   /** Buy and Sell on the chart with the live spread (J-charts-desk-14 #5), laid over the chart. */
   trade?: ReactNode;
+  /** An interval asked for from outside the panel (a saved layout opened); each new nonce is applied once. */
+  requestedInterval?: { interval: ChartInterval; nonce: number } | null;
 }
 
 const intervalLabel = (interval: ChartInterval) => (interval === '1d' ? '1D' : interval === '1w' ? '1W' : interval);
 
 /** Centre top (UI-SPEC 5.7): Chart and Info tabs, interval toolbar, candles or line, full screen. */
-export const ChartPanel = memo(function ChartPanel({ market, openOrders, fills, domOpen, onToggleDom, trade }: Props) {
+export const ChartPanel = memo(function ChartPanel({ market, openOrders, fills, domOpen, onToggleDom, trade, requestedInterval }: Props) {
   const { t } = deskCopy.useCopy();
   const flow = flowCopy.useCopy();
   const { timeZone } = usePreferences();
-  const [setting, setSetting] = useDeviceSetting<{ interval: ChartInterval; mode: Mode }>(
-    'trade-desk-chart',
-    { interval: '15m', mode: 'candles' },
-    isSetting,
-  );
+  const [setting, setSetting] = useDeviceSetting<ChartSetting>(CHART_SETTING_KEY, CHART_SETTING_DEFAULT, isChartSetting);
   const { interval, mode } = setting;
+  useEffect(() => {
+    if (requestedInterval) setSetting((current) => ({ ...current, interval: requestedInterval.interval }));
+  }, [requestedInterval?.nonce]); // eslint-disable-line react-hooks/exhaustive-deps
   const [tab, setTab] = useState<'chart' | 'info'>('chart');
   const [full, setFull] = useState(false);
   const panel = useRef<HTMLDivElement>(null);
@@ -137,6 +131,7 @@ export const ChartPanel = memo(function ChartPanel({ market, openOrders, fills, 
       value={tab}
       onValueChange={(value) => setTab(value as 'chart' | 'info')}
       data-testid="dk-chart"
+      data-featureset={describeFeatureset(FEATURESETS['spot-desk'])}
       className="dk-panel dk-chart"
       ref={panel}
     >
