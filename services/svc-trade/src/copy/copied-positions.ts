@@ -47,6 +47,8 @@ export type CopiedPosition = {
   readonly closing: Amount;
   readonly status: CopiedPositionStatus;
   readonly placedAt: Date;
+  /** Set on a follow that copies on the venue (venue-copy.ts): every figure here is the venue's own, read at `asOf`. */
+  readonly reportedBy?: { readonly venue: string; readonly test: boolean; readonly asOf: Date };
 };
 
 export type CopiedPositionInputs = {
@@ -233,5 +235,8 @@ export function copiedPositionWire(position: CopiedPosition) {
     closing: formatAmount(position.closing),
     status: position.status,
     placedAt: position.placedAt.toISOString(),
+    ...(position.reportedBy
+      ? { reportedBy: { venue: position.reportedBy.venue, test: position.reportedBy.test, asOf: position.reportedBy.asOf.toISOString() } }
+      : {}),
   };
 }

@@ -50,6 +50,7 @@ const en = {
   section_sessionKeys: 'Session keys',
   section_accounts: 'Accounts',
   section_safety: 'Safety',
+  section_tracker: 'Track an address',
   section_claimLinks: 'Claim links',
   section_venue: 'Venue account',
   section_embedded: 'My wallet',

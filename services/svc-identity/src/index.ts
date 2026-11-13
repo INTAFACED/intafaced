@@ -519,21 +519,7 @@ auth.useFounderSessionScopes(env.IDENTITY_FOUNDER_SESSION_SCOPES);
 // non-blank roster refuses boot anywhere else (identity.staff_test_roster_refused). Blank is no roster: no staff scopes.
 auth.useStaffTestRoster(parseStaffTestRoster(env.IDENTITY_STAFF_TEST_ROSTER, process.env.APP_ENV));
 
-/**
- * Each referral edge is announced once it commits (`identity.referral.created`, keyed by the invitee): svc-campaigns
- * tracks the invitee's progress from it (CM-referral-02). A failed announcement never undoes the attach; it is logged.
- */
-const referral = new ReferralService(sql, undefined, async (edge) => {
-  try {
-    await bus.publish(
-      'referralCreated',
-      { userId: edge.userId, referrerId: edge.referrerId, attachedAt: edge.attributedAt.toISOString() },
-      { idempotencyKey: `identity.referral.created:${edge.userId}` },
-    );
-  } catch (err) {
-    app.log.error({ err, userId: edge.userId }, 'identity.referral.created could not be announced');
-  }
-});
+const referral = new ReferralService(sql);
 /** One-tap share tags (RC-campaigns-06): a blank key or visit limit refuses by name; malformed ones stop the service. */
 const share = new ShareService(sql, {
   tagKey: parseShareTagKey(env.IDENTITY_SHARE_TAG_KEY),
@@ -842,6 +828,11 @@ export const appRouter = mergeRouters(
       listCap: env.IDENTITY_WATCHLIST_LIST_CAP ?? null,
       symbolCap: env.IDENTITY_WATCHLIST_SYMBOL_CAP ?? null,
       savedScreenCap: env.IDENTITY_SAVED_SCREEN_CAP ?? null,
+    },
+    deskLayouts: {
+      layoutCap: env.IDENTITY_DESK_LAYOUT_CAP ?? null,
+      restoreCap: env.IDENTITY_DESK_LAYOUT_RESTORE_CAP ?? null,
+      restoreDays: env.IDENTITY_DESK_LAYOUT_RESTORE_DAYS ?? null,
     },
   }),
   createMembershipRouter(env.IDENTITY_MEMBERSHIP_TIERS),
