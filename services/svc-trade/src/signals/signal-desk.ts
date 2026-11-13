@@ -410,11 +410,15 @@ export class SignalDesk {
     return rows.map(webhookView);
   }
 
-  /** One webhook's intents, oldest first. Another person's webhook reads as not found. */
+  /**
+   * One webhook's intents, oldest first. A reversal's two rows share one time, so its close is listed before its open,
+   * in the order they are prepared. Another person's webhook reads as not found.
+   */
   async intents(principal: Principal, webhookId: string): Promise<{ items: SignalIntentView[] }> {
     const hook = await this.owned(principal, webhookId);
     const rows = await this.ports.sql<IntentRow[]>`
-      SELECT * FROM trade.signal_intents WHERE webhook_id = ${hook.id} ORDER BY created_at ASC, id ASC LIMIT ${LIST_MAX * 5}`;
+      SELECT * FROM trade.signal_intents WHERE webhook_id = ${hook.id}
+      ORDER BY created_at ASC, CASE WHEN action = 'close' THEN 0 ELSE 1 END ASC, id ASC LIMIT ${LIST_MAX * 5}`;
     return { items: rows.map(intentView) };
   }
 

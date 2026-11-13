@@ -516,7 +516,7 @@ test(`${J} #7 points an alert at the notification URL: one notice appears, and n
   const wrong = await alert(notifyUrl, { ...body, alertId: `${J}-7-wrong`, token: state('token') });
   expect([wrong.status, wrong.body?.code]).toEqual([403, 'trade.signal_auth_failed']);
   await page.goto('/notifications');
-  await expect(page.getByRole('article').filter({ hasText: message })).toHaveCount(1, { timeout: 30_000 });
+  await expect(page.getByTestId('nf-row').filter({ hasText: message })).toHaveCount(1, { timeout: 30_000 });
   // No order: nothing planned or prepared for the alert, nothing resting and nothing filled on the venue.
   expect(await intents(trader)).toEqual(intentsBefore);
   expect(await venueOpenOrders(trader)).toEqual(openBefore);
