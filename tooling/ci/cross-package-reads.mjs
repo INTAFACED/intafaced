@@ -21,11 +21,19 @@
  * i18n are read by nearly everything, and read back) and turbo rejects cycles.
  * A reader that already lists the package in package.json needs no edge.
  *
+ * The same reads are hidden from turbo's cache key: turbo hashes a task from its own package's files and its declared
+ * dependencies, so a cached `typecheck` of a reader would replay a pass after a package its tests import changed. The
+ * plain run therefore also fails when turbo.json's `<reader>#typecheck` / `#build` inputs differ from what these reads
+ * need (turboReadInputs below); `--write-turbo` rewrites them.
+ *
  *   node tooling/ci/cross-package-reads.mjs
+ *   node tooling/ci/cross-package-reads.mjs --write-turbo
  *   node tooling/ci/cross-package-reads.mjs --self-test
  */
-import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs';
-import { join, relative, sep, dirname, resolve } from 'node:path';
+import { readdirSync, readFileSync, writeFileSync, existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { join, relative, sep, dirname, resolve, posix } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 
 const ROOT = process.cwd();
 const WORKSPACE_GLOBS = ['apps', 'services', 'packages'];
@@ -33,7 +41,7 @@ const SKIP_DIRS = new Set(['node_modules', 'dist', '.next', '.turbo', 'coverage'
 export const EDGES_FILE = 'tooling/ci/test-read-edges.json';
 const TEST_FILE = /\.(?:test|spec)\.(?:[cm]?[jt]sx?)$/;
 
-/** @returns {Map<string, {dir:string, name:string, deps:Set<string>}>} keyed by dir (posix, repo-relative) */
+/** @returns {Map<string, {dir:string, name:string, deps:Set<string>, scripts:Record<string,string>}>} keyed by dir (posix, repo-relative) */
 export function loadPackages(root = ROOT) {
   const out = new Map();
   for (const group of WORKSPACE_GLOBS) {
@@ -47,7 +55,7 @@ export function loadPackages(root = ROOT) {
       for (const k of ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']) {
         for (const n of Object.keys(json[k] ?? {})) deps.add(n);
       }
-      out.set(`${group}/${d}`, { dir: `${group}/${d}`, name: json.name, deps });
+      out.set(`${group}/${d}`, { dir: `${group}/${d}`, name: json.name, deps, scripts: json.scripts ?? {} });
     }
   }
   return out;
@@ -140,6 +148,248 @@ export function detectedEdges(root = ROOT) {
   return out;
 }
 
+/** Every read: the declared edges plus what the scan finds. The affected-test selection (ci-affected.mjs) uses this too. */
+export function allEdges(root = ROOT) {
+  const out = {};
+  for (const src of [loadEdges(root), detectedEdges(root)])
+    for (const [reader, reads] of Object.entries(src)) out[reader] = [...new Set([...(out[reader] ?? []), ...reads])];
+  return out;
+}
+
+// ── TURBO'S HASH COVERS EVERY READ ───────────────────────────────────────────
+// turbo.json's `<package>#build` and `<package>#typecheck` entries belong to this section: it writes them and checks them.
+export const TURBO_FILE = 'turbo.json';
+export const CACHED_TASKS = ['typecheck', 'build'];
+/**
+ * turbo 2.11 hashes every file an explicit `$TURBO_ROOT$` input matches, .gitignore or not (measured 13 Nov 2026: a file
+ * in an ignored dist/ changed the hash), so build output and installs are left out by name. checkTurbo fails if any
+ * tracked file sits under one of them, since that file would then be missing from the hash.
+ */
+export const IGNORED_SEGMENTS = ['node_modules', 'dist', '.next', '.turbo', 'coverage'];
+const IGNORED_INPUTS = [`!$TURBO_ROOT$/**/{${IGNORED_SEGMENTS.join(',')}}/**`, '!$TURBO_ROOT$/**/*.tsbuildinfo'];
+const REL_PATH = /(?:\.\.\/)+[A-Za-z0-9._@/-]*/g;
+
+/** tsconfig is JSONC: comments and trailing commas, skipped outside strings only (a glob like "src/**\/*" holds `/*`). */
+function looseJson(text) {
+  let out = '';
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === '"') {
+      let j = i + 1;
+      while (j < text.length && text[j] !== '"') j += text[j] === '\\' ? 2 : 1;
+      out += text.slice(i, j + 1);
+      i = j;
+    } else if (c === '/' && text[i + 1] === '/') i = text.indexOf('\n', i) === -1 ? text.length : text.indexOf('\n', i) - 1;
+    else if (c === '/' && text[i + 1] === '*') i = text.indexOf('*/', i + 2) === -1 ? text.length : text.indexOf('*/', i + 2) + 1;
+    else out += c;
+  }
+  return JSON.parse(out.replace(/,(\s*[}\]])/g, '$1'));
+}
+
+function globRegex(glob) {
+  const g = glob.replace(/^\.\//, '').replace(/\/$/, '');
+  let re = '';
+  for (let i = 0; i < g.length; i++) {
+    const c = g[i];
+    if (c === '*' && g[i + 1] === '*') {
+      re += g[i + 2] === '/' ? '(?:.*/)?' : '.*';
+      i += g[i + 2] === '/' ? 2 : 1;
+    } else if (c === '*') re += '[^/]*';
+    else if (c === '?') re += '[^/]';
+    else re += c.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+  }
+  return new RegExp(`^${re}(?:/.*)?$`);
+}
+
+/** True when the package's build can type its test files: some test file is not excluded by its tsconfig.json. */
+export function buildCompilesTests(root, pkg) {
+  const tsconfig = join(root, pkg.dir, 'tsconfig.json');
+  if (!existsSync(tsconfig)) return true;
+  const exclude = (looseJson(readFileSync(tsconfig, 'utf8')).exclude ?? []).map(globRegex);
+  for (const file of walk(join(root, pkg.dir))) {
+    const rel = relative(join(root, pkg.dir), file).split(sep).join('/');
+    if (!exclude.some((re) => re.test(rel))) return true;
+  }
+  return false;
+}
+
+/**
+ * Packages a task reads through its own script or a tsconfig (`node ../svc-ledger/ensure-workspace-types.mjs`), per
+ * task, and paths outside every package that turbo would not hash.
+ */
+export function scriptReads(root, pkg, dirs, globalDeps = []) {
+  const reads = Object.fromEntries(CACHED_TASKS.map((t) => [t, new Set()]));
+  const unhashed = [];
+  const tsconfigs = readdirSync(join(root, pkg.dir))
+    .filter((f) => /^tsconfig.*\.json$/.test(f))
+    .map((f) => readFileSync(join(root, pkg.dir, f), 'utf8'))
+    .join('\n');
+  for (const task of CACHED_TASKS) {
+    if (!pkg.scripts[task]) continue;
+    for (const m of `${pkg.scripts[task]}\n${tsconfigs}`.matchAll(REL_PATH)) {
+      const target = posix.normalize(`${pkg.dir}/${m[0]}`).replace(/\/$/, '');
+      if (target === '.' || target.startsWith('..') || WORKSPACE_GLOBS.includes(target)) continue;
+      const dir = [...dirs].find((d) => target === d || target.startsWith(`${d}/`));
+      if (dir) {
+        if (dir !== pkg.dir) reads[task].add(dir);
+      } else if (!globalDeps.includes(target)) unhashed.push({ task, path: target });
+    }
+  }
+  return { reads, unhashed };
+}
+
+/** The `<package>#<task>` entries turbo.json must hold so that each task's hash covers what it reads. */
+export function turboReadInputs(root = ROOT) {
+  const pkgs = loadPackages(root);
+  const dirs = new Set(pkgs.keys());
+  const byName = new Map([...pkgs.values()].map((p) => [p.name, p.dir]));
+  const turbo = JSON.parse(readFileSync(join(root, TURBO_FILE), 'utf8'));
+  const closure = (dir) => {
+    const seen = new Set();
+    const stack = [dir];
+    while (stack.length) {
+      for (const n of pkgs.get(stack.pop()).deps) {
+        const d = byName.get(n);
+        if (d && !seen.has(d)) {
+          seen.add(d);
+          stack.push(d);
+        }
+      }
+    }
+    return seen;
+  };
+  const testReads = allEdges(root);
+  const entries = {};
+  const unhashed = [];
+  for (const pkg of [...pkgs.values()].sort((a, b) => a.name.localeCompare(b.name))) {
+    const scripts = scriptReads(root, pkg, dirs, turbo.globalDependencies ?? []);
+    unhashed.push(...scripts.unhashed.map((u) => ({ ...u, owner: pkg.name })));
+    for (const task of CACHED_TASKS) {
+      if (!pkg.scripts[task]) continue;
+      const reads = new Set(scripts.reads[task]);
+      if (task === 'typecheck' || buildCompilesTests(root, pkg)) for (const d of testReads[pkg.dir] ?? []) reads.add(d);
+      // The reader's own dependency tree is in its hash already (turbo folds in every dependency task's hash).
+      const own = closure(pkg.dir).add(pkg.dir);
+      const extra = new Set();
+      for (const d of reads) for (const x of [d, ...closure(d)]) if (!own.has(x)) extra.add(x);
+      if (!extra.size) continue;
+      const { inputs = ['$TURBO_DEFAULT$'], ...generic } = turbo.tasks[task];
+      entries[`${pkg.name}#${task}`] = {
+        ...generic,
+        inputs: [...inputs, ...[...extra].sort().map((d) => `$TURBO_ROOT$/${d}/**`), ...IGNORED_INPUTS],
+      };
+    }
+  }
+  return { entries, unhashed, turbo };
+}
+
+const OWNED_KEY = new RegExp(`#(?:${CACHED_TASKS.join('|')})$`);
+
+/** Problems: an entry missing, stale or extra in turbo.json; a script path turbo cannot hash; a tracked file left out by IGNORED_INPUTS. */
+export function checkTurbo(root = ROOT, { tracked } = {}) {
+  const { entries, unhashed, turbo } = turboReadInputs(root);
+  const problems = [];
+  const have = Object.fromEntries(Object.entries(turbo.tasks).filter(([k]) => OWNED_KEY.test(k)));
+  for (const key of new Set([...Object.keys(entries), ...Object.keys(have)])) {
+    if (!have[key])
+      problems.push(`${key} is missing: its hash leaves out ${entries[key].inputs.filter((i) => i.startsWith('$TURBO_ROOT$')).join(', ')}`);
+    else if (!entries[key]) problems.push(`${key} is in turbo.json but reads nothing outside its own dependencies`);
+    else if (JSON.stringify(have[key]) !== JSON.stringify(entries[key])) problems.push(`${key} differs from what its reads need`);
+  }
+  for (const u of unhashed) problems.push(`${u.owner} ${u.task} names ${u.path}, which no package or globalDependencies entry covers`);
+  const files = tracked ?? trackedFiles(root);
+  const leftOut = files.filter(
+    (f) =>
+      f.endsWith('.tsbuildinfo') ||
+      f
+        .split('/')
+        .slice(0, -1)
+        .some((s) => IGNORED_SEGMENTS.includes(s)),
+  );
+  for (const f of leftOut) problems.push(`${f} is tracked but the generated inputs leave it out (IGNORED_SEGMENTS)`);
+  return { problems, entries, turbo };
+}
+
+function trackedFiles(root) {
+  return execFileSync('git', ['ls-files', '-z', '--', ...WORKSPACE_GLOBS], { cwd: root, encoding: 'utf8', maxBuffer: 1 << 28 })
+    .split('\0')
+    .filter(Boolean);
+}
+
+export function writeTurbo(root = ROOT) {
+  const { entries, turbo } = turboReadInputs(root);
+  const kept = Object.fromEntries(Object.entries(turbo.tasks).filter(([k]) => !OWNED_KEY.test(k)));
+  turbo.tasks = { ...kept, ...entries };
+  writeFileSync(join(root, TURBO_FILE), `${JSON.stringify(turbo, null, 2)}\n`);
+  return Object.keys(entries).length;
+}
+
+function turboSelfTest() {
+  const root = mkdtempSync(join(tmpdir(), 'turbo-reads-'));
+  const put = (path, body) => {
+    mkdirSync(dirname(join(root, path)), { recursive: true });
+    writeFileSync(join(root, path), typeof body === 'string' ? body : JSON.stringify(body));
+  };
+  const pkg = (dir, name, deps = {}, scripts = { typecheck: 'tsc --noEmit', build: 'tsc' }) =>
+    put(`${dir}/package.json`, { name, dependencies: deps, scripts });
+  try {
+    put(TURBO_FILE, {
+      globalDependencies: ['tooling/ci/test-typecheck.mjs'],
+      tasks: { build: { dependsOn: ['^build'], outputs: ['dist/**'] }, typecheck: { dependsOn: ['^build'], outputs: [] } },
+    });
+    pkg(
+      'apps/r',
+      '@t/r',
+      { '@t/lib': '*' },
+      { typecheck: 'tsc --noEmit && node ../../tooling/ci/test-typecheck.mjs', build: 'next build' },
+    );
+    pkg('services/p', '@t/p', { '@t/dep2': '*', '@t/lib': '*' });
+    pkg('packages/lib', '@t/lib');
+    pkg('packages/dep2', '@t/dep2');
+    pkg('services/q', '@t/q', {}, { typecheck: 'node ../p/ensure.mjs && tsc --noEmit', build: 'tsc' });
+    put('services/q/tsconfig.json', '{ "exclude": ["src/**/*.test.ts", "dist"] }');
+    put('services/q/src/a.test.ts', "import { x } from '../../../packages/lib/src/x';");
+    put('apps/r/src/a.test.ts', "import { x } from '../../../services/p/src/x';");
+    const tracked = ['apps/r/src/a.test.ts'];
+    const eq = (a, b, m) => {
+      if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error(`${m}: ${JSON.stringify(a)}`);
+    };
+    writeTurbo(root);
+    const { problems, entries } = checkTurbo(root, { tracked });
+    eq(problems, [], 'known-good tree passes');
+    eq(
+      entries['@t/r#typecheck'].inputs.slice(0, 3),
+      ['$TURBO_DEFAULT$', '$TURBO_ROOT$/packages/dep2/**', '$TURBO_ROOT$/services/p/**'],
+      'read + its deps, minus own',
+    );
+    eq(entries['@t/r#typecheck'].dependsOn, ['^build'], 'generic task copied');
+    eq(Boolean(entries['@t/r#build']), true, 'a build that types its tests covers the reads');
+    eq(
+      Object.keys(entries).filter((k) => k.startsWith('@t/q')),
+      ['@t/q#typecheck'],
+      'script read covered; excluded tests leave build alone',
+    );
+    // Planted fault 1: an input dropped from turbo.json.
+    const t = JSON.parse(readFileSync(join(root, TURBO_FILE), 'utf8'));
+    t.tasks['@t/r#typecheck'].inputs = t.tasks['@t/r#typecheck'].inputs.filter((i) => !i.includes('services/p'));
+    writeFileSync(join(root, TURBO_FILE), JSON.stringify(t));
+    eq(checkTurbo(root, { tracked }).problems, ['@t/r#typecheck differs from what its reads need'], 'dropped input fails');
+    writeTurbo(root);
+    // Planted fault 2: a new test read that turbo.json does not carry yet.
+    put('packages/lib/src/b.test.ts', "readFileSync('services/p/src/x.ts')");
+    eq(checkTurbo(root, { tracked }).problems.length, 2, 'new read fails until --write-turbo');
+    writeTurbo(root);
+    eq(checkTurbo(root, { tracked }).problems, [], 'rewritten tree passes');
+    // Planted fault 3: a tracked file under an ignored output dir, and a script path nothing hashes.
+    eq(checkTurbo(root, { tracked: ['services/p/dist/x.js'] }).problems.length, 1, 'tracked file left out of the hash fails');
+    pkg('services/q', '@t/q', {}, { typecheck: 'node ../../tooling/x.mjs && tsc --noEmit' });
+    eq(checkTurbo(root, { tracked }).problems.length, 2, 'unhashed script path fails');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+  console.log('✓ cross-package-reads --self-test: turbo inputs OK (known-good passes, 4 planted faults fail)');
+}
+
 function selfTest() {
   const dirs = new Set(['services/svc-a', 'services/svc-b', 'packages/lib']);
   const t = (text, fileDir = 'services/svc-a/src') => [...referencedDirs(text, fileDir, 'services/svc-a', dirs)].sort();
@@ -153,11 +403,16 @@ function selfTest() {
   eq(t("readFileSync('services/svc-a/src/x.ts')"), [], 'own package ignored');
   eq(t("import x from '../helpers'"), [], 'plain relative import ignored');
   console.log('✓ cross-package-reads --self-test OK (6 fixtures)');
+  turboSelfTest();
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   if (process.argv.includes('--self-test')) {
     selfTest();
+    process.exit(0);
+  }
+  if (process.argv.includes('--write-turbo')) {
+    console.log(`✓ ${TURBO_FILE}: ${writeTurbo()} generated <package>#<task> entries written; run prettier on it`);
     process.exit(0);
   }
   const { problems, files, packages } = scan();
@@ -180,5 +435,16 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     for (const p of stale) console.error(`  ${p.file}\n    → names ${p.dir}, which is not a workspace package\n`);
     process.exit(1);
   }
-  console.log(`✓ cross-package-reads clean — ${files} test file(s) across ${packages} package(s)`);
+  const turbo = checkTurbo();
+  if (turbo.problems.length) {
+    console.error(
+      `\n✖ CROSS-PACKAGE READ SCAN FAILED — turbo's cache key would miss ${turbo.problems.length} read(s); a cached pass could hide a red\n`,
+    );
+    for (const p of turbo.problems) console.error(`  ${p}`);
+    console.error(`\n  Fix: node tooling/ci/cross-package-reads.mjs --write-turbo && pnpm exec prettier --write ${TURBO_FILE}\n`);
+    process.exit(1);
+  }
+  console.log(
+    `✓ cross-package-reads clean — ${files} test file(s) across ${packages} package(s); ${TURBO_FILE} covers every read (${Object.keys(turbo.entries).length} entries)`,
+  );
 }
