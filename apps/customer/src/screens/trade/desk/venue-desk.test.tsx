@@ -33,6 +33,10 @@ const MARKET: VenueMarket = {
   maxLeverageBps: null,
   tickSize: '0.1',
   lotSize: '0.00001',
+  // TEST: the venue publishes each rule a spot order is checked against (J-cex-spot-04).
+  minOrderNotional: '10',
+  priceBandBps: '9500',
+  maxOpenOrders: 1000,
   makerFeeBps: { known: true, value: '1' },
   takerFeeBps: { known: true, value: '3.5' },
   listedBy: { known: false },

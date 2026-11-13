@@ -313,7 +313,10 @@ export const campaignWindowsSchema = z.object({
  * Bus events a task step can complete from. `trade.fill`: a spot fill svc-trade settled for the account. A welcome
  * checklist (CM-rewards-hub-03) also has `identity.verified`, a verification tier svc-identity granted
  * (`identity.kyc.approved`), and `pay.deposit`, a crypto deposit svc-pay credited (`pay.deposit_credit.posted`); a
- * credit funded by a bonus, a trial fund or a gift is no deposit and never sends that event.
+ * credit funded by a bonus, a trial fund or a gift is no deposit and never sends that event. In a welcome checklist,
+ * `pay.deposit` is read from the venue instead (J-campaigns-04 #2): a USDC deposit from a wallet the person connected
+ * into the venue account it owns, as the venue reports it credited, counted only above what INTAFACED has paid that
+ * wallet as rewards.
  */
 export const TASK_EVENTS = ['trade.fill', 'identity.verified', 'pay.deposit'] as const;
 export type TaskEvent = (typeof TASK_EVENTS)[number];
@@ -923,6 +926,12 @@ export const welcomeChecklistSchema = z.object({
       record: rewardRecordSchema.nullable(),
     }),
   ),
+  /**
+   * How the deposit task was read from the venue just now (J-campaigns-04 #2): `read` (with the venue's as-of time when
+   * it was read now), `unread` (the venue or the connected wallets could not be read: nothing changed, and it is never
+   * "no deposit"), or `no_wallet` (no wallet is connected, so there is no venue account to read). Null: no deposit task.
+   */
+  deposit: z.object({ source: z.enum(['read', 'unread', 'no_wallet']), asOf: iso.nullable() }).nullable(),
 });
 export type WelcomeChecklist = z.infer<typeof welcomeChecklistSchema>;
 export const welcomeListInputSchema = z.object({}).strict();

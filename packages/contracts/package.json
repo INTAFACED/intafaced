@@ -410,6 +410,10 @@
       "types": "./dist/academy-certificates.d.ts",
       "default": "./dist/academy-certificates.js"
     },
+    "./academy-cert-designs": {
+      "types": "./dist/academy-cert-designs.d.ts",
+      "default": "./dist/academy-cert-designs.js"
+    },
     "./academy-courses": {
       "types": "./dist/academy-courses.d.ts",
       "default": "./dist/academy-courses.js"
@@ -445,6 +449,10 @@
     "./academy-grade-reports": {
       "types": "./dist/academy-grade-reports.d.ts",
       "default": "./dist/academy-grade-reports.js"
+    },
+    "./academy-analytics": {
+      "types": "./dist/academy-analytics.d.ts",
+      "default": "./dist/academy-analytics.js"
     },
     "./academy-course-messages": {
       "types": "./dist/academy-course-messages.d.ts",

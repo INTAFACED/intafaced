@@ -52,6 +52,9 @@ import { CourseRelease } from './curriculum/course-release.js';
 import { CourseItemRules } from './curriculum/course-item-rules.js';
 import { CourseGradebook } from './curriculum/course-gradebook.js';
 import { GradeReports } from './curriculum/grade-reports.js';
+import { CertDesigns } from './certs/designs.js';
+import { LearnerSummaries } from './analytics/learner-summaries.js';
+import { ReportTasks } from './analytics/report-tasks.js';
 import { PeerReviews, type GetObjectFn } from './curriculum/peer-review.js';
 import { AssignmentGrading } from './curriculum/grading.js';
 import { LearnHub } from './curriculum/learn-hub.js';
@@ -107,6 +110,7 @@ import type {
   AcademyCertIssue,
   AcademyCertIssueRule,
   AcademyCertRevocation,
+  AcademyIssuedCertDesign,
   AcademySetCertIssueRuleInput,
   AcademyProgramme,
   AcademyProgrammeCourseState,
@@ -150,7 +154,14 @@ import {
   type CertPerkOutcome,
   type CertPerkPlaneStatus,
 } from './certs/perk-plane.js';
-import { getCurriculumItem, hasCurriculumSlug, itemType, listCurriculum, type CurriculumPath } from './curriculum/catalog.js';
+import {
+  curriculumSpineSize,
+  getCurriculumItem,
+  hasCurriculumSlug,
+  itemType,
+  listCurriculum,
+  type CurriculumPath,
+} from './curriculum/catalog.js';
 import { curriculumBodyForLocale, curriculumI18nStrategyLine } from './curriculum/i18n-strategy.js';
 import { PROGRAMME_CATALOG, programmeBySlug, unmetPrerequisites, type ProgrammeDefinition } from './curriculum/programmes.js';
 import { getVideoSpineItem, listVideoSpine, type VideoSpineEntry } from './video/catalog.js';
@@ -327,6 +338,16 @@ export interface AcademyServiceOptions {
   graderLeaseSeconds?: number;
   /** AC-assignments-04: learner rows one grade report holds (`ACADEMY_GRADE_REPORT_ROWS`). Unset, a report refuses. */
   gradeReportRows?: number;
+  /** AC-certificates-03: issued certificates the staff list shows and one export holds (`ACADEMY_CERT_ISSUED_ROWS`). Unset, both refuse. */
+  certIssuedRows?: number;
+  /** AC-analytics-01: learners one page of summaries shows (`ACADEMY_LEARNER_SUMMARIES_PAGE_SIZE`). Unset, the read refuses. */
+  learnerSummariesPageSize?: number;
+  /** AC-analytics-02: report tasks one list shows (`ACADEMY_REPORT_TASKS_PAGE_SIZE`). Unset, the list refuses. */
+  reportTasksPageSize?: number;
+  /** AC-analytics-02: minutes a finished reports-centre file is served (`ACADEMY_REPORT_CENTRE_RETENTION_MINUTES`). Unset, a request refuses. */
+  reportCentreRetentionMinutes?: number;
+  /** AC-analytics-02: seconds between report sweeps (`ACADEMY_REPORT_SWEEP_SECONDS`). Unset, no sweep runs and a request refuses. */
+  reportSweepSeconds?: number;
   /** AC-quizzes-04: bytes one quiz curve file may hold (`ACADEMY_BULK_FILE_MAX_BYTES`). Unset, a curve upload refuses. */
   bulkFileMaxBytes?: number;
   /** AC-enrolment-03: addresses one bulk enrolment upload holds (`ACADEMY_BULK_ENROL_ROWS`). Unset, an upload refuses. */
@@ -335,7 +356,7 @@ export interface AcademyServiceOptions {
   bulkEmailInactiveDays?: number;
   /** AC-analytics-02: hours a learner export is kept (`ACADEMY_REPORT_RETENTION_HOURS`). Unset, a request refuses. */
   reportRetentionHours?: number;
-  /** AC-analytics-02: learner rows one export holds (`ACADEMY_LEARNER_EXPORT_ROWS`). Unset, a request refuses. */
+  /** AC-analytics-02: learner rows one export or reports-centre report holds (`ACADEMY_LEARNER_EXPORT_ROWS`). Unset, a request refuses. */
   learnerExportRows?: number;
   /** AC-articles-01: how many topics a list shows (`ACADEMY_TOPICS_LIST_LIMIT`). Unset, the list refuses. */
   topicsListLimit?: number;
@@ -473,6 +494,12 @@ export class AcademyService {
   readonly courseItemRules: CourseItemRules;
   readonly courseGradebook: CourseGradebook;
   readonly gradeReports: GradeReports;
+  /** AC-certificates-03: certificate designs, the issued list and its stored exports. The router calls it directly. */
+  readonly certDesigns: CertDesigns;
+  /** AC-analytics-01: per-learner summaries for the founder console. */
+  readonly learnerSummaries: LearnerSummaries;
+  /** AC-analytics-02: the reports centre's tasks and their sweep. */
+  readonly reportTasks: ReportTasks;
 
   constructor(
     private readonly sql: Sql,
@@ -549,6 +576,18 @@ export class AcademyService {
     this.courseItemRules = new CourseItemRules(sql);
     this.courseGradebook = new CourseGradebook(sql);
     this.gradeReports = new GradeReports(sql, this.courseGradebook, this.options.gradeReportRows ?? null);
+    this.certDesigns = new CertDesigns(
+      sql,
+      () => this.certs().map((c) => ({ id: c.id, title: c.title })),
+      this.options.certIssuedRows ?? null,
+    );
+    this.learnerSummaries = new LearnerSummaries(sql, this.options.learnerSummariesPageSize ?? null);
+    this.reportTasks = new ReportTasks(sql, {
+      pageSize: this.options.reportTasksPageSize ?? null,
+      retentionMinutes: this.options.reportCentreRetentionMinutes ?? null,
+      rowLimit: this.options.learnerExportRows ?? null,
+      sweepSeconds: this.options.reportSweepSeconds ?? null,
+    });
     this.team = new CourseTeam(sql, this.options.customRoleLimit ?? null);
     this.moderation = new DiscussionModeration(
       sql,
@@ -661,6 +700,56 @@ export class AcademyService {
       VALUES (${input.roomId}, ${input.userId}, ${input.hostId}, ${input.expiresAt ?? null})
       ON CONFLICT (room_id, user_id) DO UPDATE SET expires_at = EXCLUDED.expires_at
     `;
+  }
+
+  // ── A specialist room's pinned lessons (RC-academy-06) ─────────────────────
+
+  /**
+   * Pin a curriculum lesson to a room page. The host's call, and only theirs.
+   *
+   * The lesson must be in the catalogue: a pin naming a slug nobody can open
+   * would put a dead link on the room page. Pinning a lesson already pinned
+   * keeps its first place, so a retried pin moves nothing.
+   */
+  async pinLesson(input: { roomId: string; hostId: string; itemSlug: string }): Promise<void> {
+    const room = await this.room(input.roomId);
+    this.assertHost(room.hostId, input.hostId, 'room');
+    if (!hasCurriculumSlug(input.itemSlug)) {
+      throw new AcademyError(`There is no lesson "${input.itemSlug}" to pin`, 'academy.curriculum_not_found');
+    }
+    await this.sql`
+      INSERT INTO academy.room_pinned_lessons (room_id, item_slug, position, pinned_by)
+      SELECT ${input.roomId}, ${input.itemSlug},
+             COALESCE((SELECT MAX(position) + 1 FROM academy.room_pinned_lessons WHERE room_id = ${input.roomId}), 0),
+             ${input.hostId}
+      ON CONFLICT (room_id, item_slug) DO NOTHING
+    `;
+  }
+
+  /** Take a lesson off a room page. The host's call; unpinning one not pinned changes nothing. */
+  async unpinLesson(input: { roomId: string; hostId: string; itemSlug: string }): Promise<void> {
+    const room = await this.room(input.roomId);
+    this.assertHost(room.hostId, input.hostId, 'room');
+    await this.sql`DELETE FROM academy.room_pinned_lessons WHERE room_id = ${input.roomId} AND item_slug = ${input.itemSlug}`;
+  }
+
+  /**
+   * The lessons pinned to a room, in the order pinned, as the catalogue
+   * describes them. A pin is unique per lesson and names a catalogue slug, so
+   * a room never holds more pins than the catalogue has lessons: that is the
+   * page size. A pin whose lesson has left the catalogue is not shown.
+   */
+  async pinnedLessons(roomId: string): Promise<ReturnType<typeof listCurriculum>> {
+    const rows = await this.sql<{ item_slug: string }[]>`
+      SELECT item_slug FROM academy.room_pinned_lessons WHERE room_id = ${roomId}
+       ORDER BY position ASC, pinned_at ASC
+       LIMIT ${curriculumSpineSize()}
+    `;
+    const bySlug = new Map(listCurriculum().map((item) => [item.slug, item]));
+    return rows.flatMap((row) => {
+      const item = bySlug.get(row.item_slug);
+      return item ? [item] : [];
+    });
   }
 
   // ── Sessions ───────────────────────────────────────────────────────────────
@@ -3068,11 +3157,15 @@ export class AcademyService {
     return grant;
   }
 
-  /** The one write of a certificate grant: a new serial, and nothing when the learner already holds this certificate. */
+  /**
+   * The one write of a certificate grant: a new serial, and nothing when the learner already holds this certificate. The
+   * grant keeps the design revision active as it is written (AC-certificates-03), so a later edit never changes what it prints.
+   */
   private insertCertGrant(grant: CertGrantRecord) {
     return this.sql<Array<{ user_id: string; cert_id: string; granted_at: Date; idempotency_key: string; public_id: string }>>`
-      INSERT INTO academy.cert_grants (user_id, cert_id, granted_at, idempotency_key, public_id)
-      VALUES (${grant.userId}, ${grant.certId}, ${grant.grantedAt}, ${grant.idempotencyKey}, ${randomPublicId()})
+      INSERT INTO academy.cert_grants (user_id, cert_id, granted_at, idempotency_key, public_id, design_revision)
+      VALUES (${grant.userId}, ${grant.certId}, ${grant.grantedAt}, ${grant.idempotencyKey}, ${randomPublicId()},
+              (SELECT active_revision FROM academy.cert_designs WHERE cert_id = ${grant.certId}))
       ON CONFLICT (user_id, cert_id) DO NOTHING
       RETURNING user_id, cert_id, granted_at, idempotency_key, public_id
     `;
@@ -3372,16 +3465,28 @@ export class AcademyService {
   async myCertGrants(
     userId: string,
     requested?: number,
-  ): Promise<Array<CertGrantRecord & { publicId: string; status: 'valid' | 'revoked' }>> {
+  ): Promise<Array<CertGrantRecord & { publicId: string; status: 'valid' | 'revoked'; design: AcademyIssuedCertDesign | null }>> {
     const limit = assertMyCertsListLimit(requested);
     const rows = await this.sql<
-      Array<{ user_id: string; cert_id: string; granted_at: Date; idempotency_key: string; public_id: string; status: string }>
+      Array<{
+        user_id: string;
+        cert_id: string;
+        granted_at: Date;
+        idempotency_key: string;
+        public_id: string;
+        status: string;
+        design_revision: number | null;
+      }>
     >`
-      SELECT user_id, cert_id, granted_at, idempotency_key, public_id, status FROM academy.cert_grants
+      SELECT user_id, cert_id, granted_at, idempotency_key, public_id, status, design_revision FROM academy.cert_grants
        WHERE user_id = ${userId}
        ORDER BY granted_at DESC
        LIMIT ${limit}
     `;
+    // AC-certificates-03: each certificate prints the design revision it was issued under, never a later edit.
+    const printed = await this.certDesigns.printed(
+      rows.flatMap((r) => (r.design_revision === null ? [] : [{ certId: r.cert_id, revision: r.design_revision }])),
+    );
     return rows.map((r) => ({
       userId: r.user_id,
       certId: r.cert_id,
@@ -3389,6 +3494,7 @@ export class AcademyService {
       idempotencyKey: r.idempotency_key,
       publicId: r.public_id,
       status: r.status === 'revoked' ? ('revoked' as const) : ('valid' as const),
+      design: r.design_revision === null ? null : (printed.get(`${r.cert_id}:${r.design_revision}`) ?? null),
     }));
   }
 

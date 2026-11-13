@@ -1,7 +1,7 @@
 import { AuthError, requireMfa } from '@intafaced/auth';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
-import { publicProcedure, router, scopedProcedure } from '@intafaced/contracts';
+import { forwardedPrincipalHeaders, publicProcedure, router, scopedProcedure } from '@intafaced/contracts';
 import {
   dropClaimInputSchema,
   dropClaimResultSchema,
@@ -269,7 +269,7 @@ export function createCampaignsRouter(drops: DropService, campaigns: CampaignSer
           .output(welcomeChecklistSchema)
           .query(async ({ ctx }) => {
             try {
-              return await tasks.welcomeChecklist({ accountId: ctx.principal!.userId });
+              return await tasks.welcomeChecklist({ accountId: ctx.principal!.userId, forwarded: forwardedPrincipalHeaders(ctx) });
             } catch (err) {
               mapError(err);
             }
@@ -280,7 +280,11 @@ export function createCampaignsRouter(drops: DropService, campaigns: CampaignSer
           .output(welcomeClaimResultSchema)
           .mutation(async ({ ctx, input }) => {
             try {
-              return await tasks.welcomeClaim({ accountId: ctx.principal!.userId, event: input.event });
+              return await tasks.welcomeClaim({
+                accountId: ctx.principal!.userId,
+                event: input.event,
+                forwarded: forwardedPrincipalHeaders(ctx),
+              });
             } catch (err) {
               mapError(err);
             }

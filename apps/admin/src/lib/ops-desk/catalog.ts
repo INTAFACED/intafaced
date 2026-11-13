@@ -1554,6 +1554,16 @@ const academySections: readonly DeskSection[] = [
         why: 'The featured article as staff chose it, and the topic list courses are filed under.',
       },
       {
+        href: '/academy-ops/catalogue/analytics',
+        label: 'Academy numbers',
+        why: 'Lesson reads, completions and certificates by day, and a summary of each learner, as svc-academy counts them.',
+      },
+      {
+        href: '/academy-ops/catalogue/report-centre',
+        label: 'Reports centre',
+        why: 'Request a learners report, watch it run, abort it, download its file with its hash, and delete it.',
+      },
+      {
         href: '/academy-ops/catalogue/moderation',
         label: 'Moderation',
         why: 'Discussion posts learners reported, deleting one with a reason, and every moderation action taken.',
@@ -1591,7 +1601,19 @@ const academySections: readonly DeskSection[] = [
     ],
     unavailable: [],
     disabledActions: [],
-    links: [{ href: '/academy-ops/grants', label: 'Grants', why: 'Who was granted which certificate, and when.' }],
+    links: [
+      {
+        href: '/academy-ops/certificates/designs',
+        label: 'Designs',
+        why: 'What each certificate prints: draft a design, activate it, and see which revision issued certificates keep.',
+      },
+      {
+        href: '/academy-ops/certificates/issued',
+        label: 'Issued',
+        why: 'Every issued certificate counted by status, with stored exports.',
+      },
+      { href: '/academy-ops/grants', label: 'Grants', why: 'Who was granted which certificate, and when.' },
+    ],
   },
   {
     id: 'programmes',
