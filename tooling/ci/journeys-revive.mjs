@@ -42,6 +42,8 @@
  *   node tooling/ci/journeys-revive.mjs        main runs, then pull requests (GITHUB_REPOSITORY, GH_TOKEN; DRY_RUN=1 writes nothing)
  *   node tooling/ci/journeys-revive.mjs prs    pull requests only
  *   node tooling/ci/journeys-revive.mjs main   main runs only (after each CI run on main: GitHub's cron here runs late or never)
+ *   node tooling/ci/journeys-revive.mjs held   open armed pull requests held only by main's reds that main has since lost
+ *                                              get a fresh head (heldTick; FACTORY_APP_KEY, after each journeys run on main)
  * Its tests: tooling/ci/journeys-revive.test.mjs.
  */
 import { downloadReport, isMainRun, JOURNEYS_FILE } from './journey-verdict.mjs';
@@ -273,6 +275,113 @@ export async function prTick({ repo, now, io }) {
   return out;
 }
 
+// ── Pull requests held by main's reds that main has since lost ────────────
+/** At most this many of main's red runs in the window are read for the steps main was red on. */
+export const HELD_MAIN_RUNS = 12;
+/** The step a verdict row is about (`J-campaigns-01#3 (money): failing, …` → `J-campaigns-01#3`), or null for an
+ *  `(input)` row or a row in another shape. */
+export const rowStep = (row) => /^(J-[A-Za-z0-9-]+#\d+[a-z]?)(?: \(money\))?: /.exec(String(row))?.[1] ?? null;
+
+/**
+ * Main's newest finished journeys run (not cancelled or skipped) and the steps it is red on, with every earlier red
+ * main run's steps in the window: `before`, the steps main was red on; `now`, the steps it is red on today. null when
+ * main's newest run has no readable verdict summary or an `(input)` row (it can't say what main has).
+ */
+export async function mainSteps({ repo, now, io }) {
+  const since = now - WINDOW_HOURS * 3600_000;
+  const done = (await io.listRuns())
+    .filter((r) => isMainRun(r, repo) && r.status === 'completed' && !['cancelled', 'skipped'].includes(r.conclusion))
+    .filter((r) => Date.parse(r.created_at) >= since)
+    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at) || b.run_number - a.run_number);
+  if (!done.length) return null;
+  const stepsOf = async (r) => {
+    const jobs = await io.jobs(r);
+    const judge = jobs.find((j) => j.name === JUDGE_JOB);
+    const rows = judge ? verdictReds(await io.jobLog(judge)) : null;
+    if (!rows || rows.some((x) => !rowStep(x))) return null;
+    return new Set(rows.map(rowStep));
+  };
+  const newest = done[0];
+  const nowSteps = await stepsOf(newest);
+  if (!nowSteps) return null;
+  const before = new Set();
+  for (const r of done
+    .slice(1)
+    .filter((x) => x.conclusion !== 'success')
+    .slice(0, HELD_MAIN_RUNS))
+    for (const s of (await stepsOf(r)) ?? []) before.add(s);
+  return { newest, now: nowSteps, before };
+}
+
+/**
+ * Whether an open pull request is held only by main's reds that main has since lost: { held, why } (why for the log).
+ * `pr` is GitHub's pull request, `run` the newest journeys run on its head, `rows` that run's verdict reds, `main`
+ * mainSteps(). Held: armed (auto-merge on), not a draft, a branch of this repository; its run finished red only on the
+ * verdict step (ownRed) and before main's newest run started; every red row a step main was red on and is not red on
+ * any more. Anything else (an `(input)` row, a step main never had red, a step still red on main) is its own and
+ * stays red.
+ */
+export function heldOnly({ repo, pr, run, jobs, rows, main }) {
+  if (pr.state !== 'open' || pr.draft || !pr.auto_merge || pr.head?.repo?.full_name !== repo)
+    return { why: 'not an open armed pull request of this repository' };
+  if (!run || run.head_sha !== pr.head?.sha || run.status !== 'completed' || run.conclusion !== 'failure')
+    return { why: 'its head has no finished red journeys run' };
+  const own = ownRed(jobs);
+  if (own) return { why: `its own red (${own})` };
+  if (!rows?.length) return { why: 'its own red (no verdict summary in the log)' };
+  if (!main) return { why: "main's newest run has no readable verdict" };
+  if (Date.parse(run.created_at) >= Date.parse(main.newest.created_at))
+    return { why: `its run started after main's newest run ${main.newest.run_number}` };
+  const steps = rows.map(rowStep);
+  const own2 = rows.filter((_, i) => !steps[i] || !main.before.has(steps[i]));
+  if (own2.length) return { why: `its own red (${own2.join(' | ').slice(0, 200)})` };
+  const still = steps.filter((s) => main.now.has(s));
+  if (still.length) return { why: `held by ${still.join(', ')}, still red on main's newest run ${main.newest.run_number}` };
+  return { held: true, why: `red only on ${steps.join(', ')}, which main's newest run ${main.newest.run_number} is no longer red on` };
+}
+
+/**
+ * One pass after each Real-app journeys run on main ends: every open, armed pull request held only by main's reds that
+ * main has since lost is brought onto a fresh head (the branch updated from main, a merge commit, never a force-push),
+ * so its own checks, journeys and seal run again on code that holds the fix and it merges if it is otherwise green. A
+ * re-run can't do this: it keeps its old merge commit, which still holds the break, and a run made before a change to
+ * CI fails on main's newer guard (fix-01's read of 13 Nov 2026, 01:10 UTC). Bounded: the update gives the pull request a
+ * new head, whose run is newer than main's run, so it is acted on at most once per main recovery. `io` adds to prTick's:
+ * openPulls(), updateBranch(pr) -> { ok, status }. A refused request (403, 429) throws and stops the pass.
+ */
+export async function heldTick({ repo, now, io }) {
+  const out = [];
+  let main;
+  for (const pr of await io.openPulls()) {
+    if (pr.draft || !pr.auto_merge || pr.head?.repo?.full_name !== repo) continue;
+    const runs = (await io.headRuns(pr.head.sha)).sort((a, b) => b.run_number - a.run_number);
+    const run = runs[0];
+    if (!run || run.status !== 'completed' || run.conclusion !== 'failure') continue;
+    const jobs = await io.jobs(run);
+    if (ownRed(jobs)) continue;
+    const rows = verdictReds(await io.jobLog(jobs.find((j) => j.name === JUDGE_JOB)));
+    if (main === undefined) main = await mainSteps({ repo, now, io });
+    if (main === null) return [...out, "main's newest journeys run has no readable verdict: nothing moved"];
+    const { held, why } = heldOnly({ repo, pr, run, jobs, rows, main });
+    if (!held) {
+      out.push(`#${pr.number}: run ${run.run_number}: ${why}, left as it is`);
+      continue;
+    }
+    const r = await io.updateBranch(pr);
+    out.push(
+      `#${pr.number}: run ${run.run_number} ${why}; ${r.ok ? 'branch updated from main, a fresh head' : `GitHub did not update it (${r.status})`}`,
+    );
+  }
+  return out;
+}
+
+/** The App token the held pass writes with: update a branch (contents), read pull requests and runs; workflows so a
+ *  merge from main that carries main's own workflow changes is not refused. */
+export const HELD_TOKEN = {
+  repositories: ['intafaced'],
+  permissions: { actions: 'read', contents: 'write', pull_requests: 'write', workflows: 'write' },
+};
+
 // ── GitHub ─────────────────────────────────────────────────────────────────
 async function gh(method, path, body, raw = false) {
   if (process.env.DRY_RUN === '1' && method !== 'GET') {
@@ -337,6 +446,12 @@ export function githubIo(repo) {
     // GET /rate_limit spends no budget.
     budget: async () => (await gh('GET', '/rate_limit')).json.resources.core,
     jobLog: async (job) => (await gh('GET', `/repos/${repo}/actions/jobs/${job.id}/logs`, undefined, true)).text,
+    openPulls: async () => (await gh('GET', `/repos/${repo}/pulls?state=open&per_page=100`)).json,
+    // A merge commit from main onto the branch; expected_head_sha so a head that moved since is not touched (422).
+    updateBranch: async (pr) => {
+      const r = await gh('PUT', `/repos/${repo}/pulls/${pr.number}/update-branch`, { expected_head_sha: pr.head.sha });
+      return { ok: r.status === 0 || (r.status >= 200 && r.status < 300), status: r.status };
+    },
   };
 }
 
@@ -360,12 +475,25 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     process.exit(1);
   }
   const io = githubIo(repo);
+  const issuesToken = process.env.GH_TOKEN;
   const mode = process.argv[2] ?? 'all';
-  if (!['all', 'main', 'prs'].includes(mode)) {
-    console.error(`✖ journeys-revive: unknown mode ${mode} (all, main or prs)`);
+  if (!['all', 'main', 'prs', 'held'].includes(mode)) {
+    console.error(`✖ journeys-revive: unknown mode ${mode} (all, main, prs or held)`);
     process.exit(1);
   }
   (async () => {
+    if (mode === 'held') {
+      // An App token: a branch updated with GITHUB_TOKEN starts no workflow, so its checks and seal would never run.
+      if (process.env.DRY_RUN !== '1') {
+        if (!process.env.FACTORY_APP_KEY) throw new Error('FACTORY_APP_KEY is required for held');
+        const { mintToken } = await import('./factory-builder.mjs');
+        process.env.GH_TOKEN = await mintToken({ pem: process.env.FACTORY_APP_KEY, repo, spec: HELD_TOKEN });
+        console.log(`::add-mask::${process.env.GH_TOKEN}`);
+      }
+      const lines = await heldTick({ repo, now: Date.now(), io });
+      console.log(lines.length ? lines.join('\n') : 'no open armed pull request is held by a red main has since lost');
+      return;
+    }
     if (mode !== 'prs') {
       const lines = await tick({ repo, now: Date.now(), io, lazy: mode === 'main' });
       console.log(lines.length ? lines.join('\n') : 'every finished journeys run on main in the window has a report');
@@ -375,6 +503,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     console.log(lines.length ? lines.join('\n') : 'no pull request journeys run in the window is red only on the verdict');
   })().catch(async (e) => {
     console.error(`✖ journeys-revive: ${e.message}`);
+    process.env.GH_TOKEN = issuesToken; // the held pass's App token can't write issues
     if (isRefusal(e)) await nameRefusal(io, e);
     process.exit(1);
   });

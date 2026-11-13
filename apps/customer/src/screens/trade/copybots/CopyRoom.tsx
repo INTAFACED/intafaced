@@ -25,14 +25,15 @@ import { bpsText, deskState } from './desk';
 import { FollowWizard } from './FollowWizard';
 import { FollowDetail, STATE_TONE, quoteAsset, stateWord, type Follow } from './FollowDetail';
 import { useWriteGuard } from './guard';
+import { LeadDesk, Leaderboard } from './LeadDesk';
 import { LeaderDirectory } from './LeaderDirectory';
-import { LeadDesk } from './LeadDesk';
+import { LeadOwnDesk } from './LeadOwnDesk';
 import { LeaderPage } from './LeaderPage';
 import { useLive } from './live';
 import { AccountBadge, Freshness, InfoNote, ModeNav, PendingBanner, RefusalNote } from './parts';
 
-type TabId = 'leaders' | 'futures' | 'spot' | 'bots' | 'signal' | 'follows' | 'rules';
-const TABS: readonly TabId[] = ['leaders', 'futures', 'spot', 'bots', 'signal', 'follows', 'rules'];
+type TabId = 'leaders' | 'futures' | 'spot' | 'bots' | 'signal' | 'leaderboard' | 'follows' | 'lead' | 'rules';
+const TABS: readonly TabId[] = ['leaders', 'futures', 'spot', 'bots', 'signal', 'leaderboard', 'follows', 'lead', 'rules'];
 /** The directory tabs and the market each one lists. Leaders lists every market. */
 const TAB_MODE: Partial<Record<TabId, LeaderMode | null>> = {
   leaders: null,
@@ -223,7 +224,7 @@ export function CopyRoom({ path }: { path: string }) {
             </Button>
           }
         />
-        <LeadDesk api={transport} tab={requested} setTab={(id) => navigate(`/trade/copy?lead=1&tab=${id}`, true)} />
+        <LeadOwnDesk api={transport} tab={requested} setTab={(id) => navigate(`/trade/copy?lead=1&tab=${id}`, true)} />
       </Page>
     );
   }
@@ -291,7 +292,9 @@ export function CopyRoom({ path }: { path: string }) {
           <TabsTab value="spot">{t('Spot')}</TabsTab>
           <TabsTab value="bots">{t('Bots')}</TabsTab>
           <TabsTab value="signal">{t('Signal')}</TabsTab>
+          <TabsTab value="leaderboard">{t('Leaderboard')}</TabsTab>
           <TabsTab value="follows">{t('My follows')}</TabsTab>
+          <TabsTab value="lead">{t('My lead')}</TabsTab>
           <TabsTab value="rules">{t('Rules')}</TabsTab>
         </TabsList>
 
@@ -379,6 +382,21 @@ export function CopyRoom({ path }: { path: string }) {
               )}
             </InfoNote>
           </PageSection>
+        </TabsPanel>
+
+        <TabsPanel value="leaderboard">{tab === 'leaderboard' ? <Leaderboard api={api} /> : null}</TabsPanel>
+
+        <TabsPanel value="lead">
+          {tab !== 'lead' ? null : !session ? (
+            <EmptyState
+              variant="refused"
+              reason={t('Sign in to see what you earn as a leader.')}
+              title={t('You are signed out')}
+              action={{ label: t('Sign in'), href: '/login?redirect=%2Ftrade%2Fcopy%3Ftab%3Dlead' }}
+            />
+          ) : (
+            <LeadDesk api={api} />
+          )}
         </TabsPanel>
 
         <TabsPanel value="rules">
