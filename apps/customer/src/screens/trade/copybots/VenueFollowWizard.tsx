@@ -76,6 +76,9 @@ export function VenueFollowWizard({
   const [requestKey, setRequestKey] = useState('');
   const [failure, setFailure] = useState<Failure | null>(null);
   const [busy, setBusy] = useState(false);
+  // While the wallet asks, its own "Check before you sign" sheet is the only thing on screen: this modal would hide it from
+  // the accessibility tree and block pointer input to it. The wizard keeps its state and comes back once the wallet answers.
+  const [signing, setSigning] = useState(false);
   const [touched, setTouched] = useState(false);
   const state = deskState(desk);
   useEffect(() => {
@@ -159,7 +162,8 @@ export function VenueFollowWizard({
     let current = start;
     for (let i = 0; current.next && i < 3 && owner; i += 1) {
       const p = current.next.prepared;
-      const signed = await wallet.sign({ kind: 'typedData', typedData: walletTypedData(p.typedData) });
+      setSigning(true);
+      const signed = await wallet.sign({ kind: 'typedData', typedData: walletTypedData(p.typedData) }).finally(() => setSigning(false));
       if (signed.status !== 'signed') {
         await api.venueFollowAbandon(current.followId);
         // That request has ended; pressing Start copying again is a new request, with its own key.
@@ -223,7 +227,7 @@ export function VenueFollowWizard({
   const share = bpsText(desk?.leaderShareBps ?? null);
   return (
     <Dialog
-      open={open}
+      open={open && !signing}
       onOpenChange={(next) => {
         onOpenChange(next);
         if (!next) reset();

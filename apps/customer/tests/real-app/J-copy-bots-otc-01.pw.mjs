@@ -326,8 +326,11 @@ async function fillLimits(wizard, { perOrder, total, fixed }) {
 }
 
 test(`${J} #5 presses Start copying: below the copy verification level, under a blank country list and as a sub-account, each refused by name, and nothing is followed`, async ({
-  page,
+  page: first,
 }) => {
+  // The person below the copy level uses this page with their own TEST wallet; the follower then gets a new page in the
+  // same browser, so the follower's own wallet is the one the wizard connects.
+  let page = first;
   // Signing up and funding a new account takes most of a minute, and the country-list restart two more.
   test.setTimeout(420_000);
   // The follower's own TEST wallet, and TEST USDC in its own account on the venue (the journey's start), for #6 to #8.
@@ -365,6 +368,8 @@ test(`${J} #5 presses Start copying: below the copy verification level, under a 
   await expect(page.getByText('You aren’t following anyone')).toBeVisible();
   expect((await venueBalance(unverifiedOwner, 'USDC')).free, 'the venue balance is untouched').toBe('1000');
   expect((await venueRecord(unverifiedOwner, '/agents')).value, 'no copy permission was asked for').toEqual([]);
+
+  page = await first.context().newPage();
 
   // A blank country list refuses every follow, a verified person's too, and writes nothing. The follower's venue account
   // holds TEST USDC (#1), so the wizard's own free-balance check passes and the press reaches the service.
