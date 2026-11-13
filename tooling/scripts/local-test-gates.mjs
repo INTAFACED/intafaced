@@ -3066,6 +3066,44 @@ export async function tradingRestrict(ctx, handle, action, reasonCode) {
 }
 
 /**
+ * LOCAL TEST: a staff close of one journey account (J-identity-14 #3), through identity's own four-eyes closure control
+ * as the founder console runs it (J-ops-console-04 #7): founder a reads the closure version, proposes the close over that
+ * version, reason code and reason, founder b approves, and founder a runs it once. `final` is the close staff make today:
+ * the account stays closed, and sign-in names it. `grace` (a close with a grace date) is not built yet and refuses here.
+ * Only `@local-test.invalid` accounts.
+ */
+export async function accountClose(ctx, handle, kind, reasonCode) {
+  if (!/^[a-z0-9_]{3,32}$/i.test(handle ?? '') || !['final', 'grace'].includes(kind) || !/^[a-z][a-z0-9_]{1,63}$/.test(reasonCode ?? ''))
+    throw new Error('usage: local-test-gates.mjs account-close <handle> final <reasonCode> | grace <reasonCode> <days>');
+  if (kind === 'grace') throw new Error('account-close: a staff close with a grace date is not built yet (J-identity-14 #1)');
+  const { users } = listAccountsAndTiers(ctx.secrets);
+  const user = users.find((u) => u.handle === handle);
+  if (!user || !user.email.endsWith('@local-test.invalid')) throw new Error(`account-close: ${handle} is not a journey account`);
+  const founders = await approverSessions(ctx);
+  const state = await ctx.edge.query('identity', 'accountControls.closureState', { userId: user.id }, founders.a.token);
+  const expectedVersion = data(state)?.version;
+  if (!expectedVersion) throw new Error(`account-close: closure state refused (${state.status}): ${refusalText(state)}`);
+  const reason = 'LOCAL TEST journey staff close';
+  const { approvalId } = await twoPerson(ctx, founders, {
+    actionType: 'identity.account_close',
+    targetService: 'svc-identity',
+    targetId: user.id,
+    expectedVersion,
+    payloadHash: identityPayloadHash(user.id, { action: 'close', reasonCode, reason }),
+    policyVersion: 'v1',
+  });
+  const res = await ctx.edge.mutate(
+    'identity',
+    'accountControls.closure',
+    { requestId: crypto.randomUUID(), userId: user.id, action: 'close', reasonCode, reason, expectedVersion, approvalId },
+    founders.a.token,
+  );
+  const after = data(res)?.after;
+  const ok = res.status === 200 && after?.status === 'closed';
+  return { handle, ok, why: ok ? 'closed' : `${res.status} ${refusalText(res)}` };
+}
+
+/**
  * LOCAL TEST: decide one journey account's open appeal (I-account-lifecycle-12, J-identity-14 #4). Identity refuses the
  * restriction's actor and its approver (`trading-restrict` runs as founder a with founder b's approval), so the stack's
  * test operator a decides, with a code from the TEST decision reason list. A lift also takes the trading restore's
@@ -3371,6 +3409,9 @@ async function main() {
     } else if (cmd === 'appeal-decide') {
       const r = await appealDecide(ctx, process.argv[3], process.argv[4], process.argv[5], process.argv[6]);
       say(`  ${r.ok ? 'OK     ' : 'REFUSED'} ${r.handle} appeal ${r.decision}: ${r.why}`);
+    } else if (cmd === 'account-close') {
+      const r = await accountClose(ctx, process.argv[3], process.argv[4], process.argv[5]);
+      say(`  ${r.ok ? 'OK     ' : 'REFUSED'} ${r.handle} account close: ${r.why}`);
     } else if (cmd === 'trading-restrict') {
       const r = await tradingRestrict(ctx, process.argv[3], process.argv[4], process.argv[5]);
       say(`  ${r.ok ? 'OK     ' : 'REFUSED'} ${r.handle} trading ${r.action}: ${r.why}`);
@@ -3510,7 +3551,7 @@ async function main() {
       say(JSON.stringify(await status(ctx), null, 2));
     } else {
       die(
-        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | deposit-terms | withdrawal-limits | withdraw-terms | withdraw-limit <tier> <assetId> unset|test | withdraw-fee <networkId> unset|test | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | p2p | verify | kyc-reject <handle> <reasonCode> | kyc-capability-off <handle> <capability> <reasonCode> | trading-restrict <handle> restrict [<reasonCode>] | restore | halt <SYMBOL> | resume <SYMBOL> | posting-freeze on|off | age <handle> <seconds> | scoped-session --without <scope> | status',
+        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | deposit-terms | withdrawal-limits | withdraw-terms | withdraw-limit <tier> <assetId> unset|test | withdraw-fee <networkId> unset|test | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | p2p | verify | kyc-reject <handle> <reasonCode> | kyc-capability-off <handle> <capability> <reasonCode> | trading-restrict <handle> restrict [<reasonCode>] | restore | account-close <handle> final <reasonCode> | halt <SYMBOL> | resume <SYMBOL> | posting-freeze on|off | age <handle> <seconds> | scoped-session --without <scope> | status',
         2,
       );
     }

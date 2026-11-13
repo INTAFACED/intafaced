@@ -37,6 +37,7 @@ import { createLedgerClient } from './ledger-client.js';
 import { createLedgerPages } from './statements/ledger-history.js';
 import { StatementExports } from './statements/statement-export.js';
 import { registerClosureCheck } from './closure/closure-check.js';
+import { leadOrderGate, registerLeadCheck } from './copy/lead-api.js';
 import { readSupportOrder, registerSupportOrderRead } from './support/order-read.js';
 import { subscribeMatchingEvents, type MatchedFillsSink } from './events.js';
 import { FUTURES_PRICE_BAND_UNSET, parsePriceBand, perpetualFeeRates } from './futures/matched-order-plan.js';
@@ -123,6 +124,7 @@ import { SqlLiveRunStore } from './quant/live-run/sql-store.js';
 import { OwnAgentTrading } from './venue/own-agent-trading.js';
 import { SqlAllowanceStore } from './venue/own-agent-allowance-store.js';
 import { createOwnAgentPolicy } from './venue/own-agent-policy-client.js';
+import { createFeeSaverClient } from './venue/fee-saver-client.js';
 import { SqlAgentConnectionStore } from './venue/agent-connection-store.js';
 import { createAgentKeyReader } from './venue/agent-key-read-client.js';
 import { SqlVenueSellQuoteStore, VenueSellQuotes } from './venue/venue-sell-quotes.js';
@@ -458,6 +460,8 @@ const placeFollowerOrder: PlaceFollowerOrderPort = async (principal, input) => {
   return { orderId: order.id };
 };
 const leaderDirectory = sqlLeaderDirectory(sql, { now: () => new Date(), feeShareLaw: copyFeeShareLaw });
+// svc-identity asks this before it mints a `copy:lead` key (J-copy-bots-otc-07 #1 #2).
+registerLeadCheck(app, { read: (userId) => leaderDirectory.leadListing(userId), secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s });
 // The grid's reserve rows: a copy follow subtracts them, as a grid create subtracts the follows' (one reserve lock).
 const gridStore = new SqlGridStore(sql);
 // The best bid a follower's sell is floored against: top of book, or null when the book has none.
@@ -508,6 +512,9 @@ const testListingSeeds = userVenueUrls.map(
         ),
     }),
 );
+const feeSaverCoupons = env.CAMPAIGNS_URL.trim()
+  ? createFeeSaverClient(env.CAMPAIGNS_URL.trim(), env.INTERNAL_SERVICE_SECRET, outS2s)
+  : null;
 const userVenueDoors = userVenueUrls.map(
   (url, i) =>
     new UserVenueDoor({
@@ -527,6 +534,19 @@ const userVenueDoors = userVenueUrls.map(
       // J-cex-spot-17: the builder-fee version in force when an order is prepared, by venue and market group.
       builderFeesAt: async (at) => (await builderFeesAt(sql, at)).book,
       now: () => new Date(),
+      // J-campaigns-09 #2 #3: the rank's discount and a fee-saver coupon on our builder fee; either unreadable is skipped.
+      feeDiscounts: {
+        rankBps: async (userId) => {
+          try {
+            return (await perks.perksOf(userId)).feeDiscountBps;
+          } catch {
+            return null;
+          }
+        },
+        coupons: feeSaverCoupons,
+        skipped: (what, userId, orderKey) =>
+          process.stderr.write(`${JSON.stringify({ level: 'warn', msg: 'trade.builder_fee_discount_skipped', what, userId, orderKey })}\n`),
+      },
     }),
 );
 const userVenue = userVenueDoors[0] ?? null;
@@ -1748,6 +1768,7 @@ registerPrivateRest(app, {
   orderHistory: (principal, input) => trade.orderHistory(principal, input),
   getOrder: (principal, orderId) => trade.getOrder(principal, orderId),
   orderFills: (principal, orderId, limit) => trade.fillsForOrder(principal, orderId, limit),
+  ordersFills: (principal, orderIds) => trade.everyFillOfOrders(principal, orderIds),
   orderAmendments: (principal, orderId) => trade.orderAmendments(principal, orderId),
   orderQueue: (principal, orderId) =>
     readQueuePosition(
@@ -1916,6 +1937,7 @@ registerPrivateRest(app, {
   convertExport: (principal, query) => trade.convertExport(principal, query),
   convert: trade,
   copyExport: (principal, query) => copy.exportMirrorTrail(principal, query),
+  leadOrderGate: leadOrderGate((userId) => leaderDirectory.leadListing(userId)),
   grid,
   userVenue: userVenueRouter,
   agentAccounts,

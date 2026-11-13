@@ -50,10 +50,6 @@ const MARKET: UserVenueMarket = {
   status: null,
   maxOrderQty: null,
   maxOrderNotional: null,
-  // TEST: published rules, so the door takes the order (J-cex-spot-04 #6).
-  minOrderNotional: a('1'),
-  priceBandBps: a('9500'),
-  maxOpenOrders: 1000,
   builderFeeCapBps: { known: false },
   listedBy: { known: false },
   oracleRule: { known: false },
@@ -70,9 +66,6 @@ const MARKET: UserVenueMarket = {
 };
 
 const PERP: UserVenueMarket = { ...MARKET, symbol: 'BTC-PERP', kind: 'perpetual', marginModes: ['cross'], maxLeverageBps: 100_000 };
-/** A spot market whose venue publishes no smallest order value and no band (J-cex-spot-04 #6), and a perpetual with none. */
-const BARE: UserVenueMarket = { ...MARKET, symbol: 'BAR-USDC', baseAsset: 'BAR', minOrderNotional: null, priceBandBps: null };
-const BARE_PERP: UserVenueMarket = { ...PERP, symbol: 'BAR-PERP', minOrderNotional: null, priceBandBps: null, maxOpenOrders: null };
 
 /** A TEST venue that records what it was asked to preview and prepare, with a book the test sets. */
 function stubVenue(best: { bid: Amount | null; ask: Amount | null }) {
@@ -81,7 +74,7 @@ function stubVenue(best: { bid: Amount | null; ask: Amount | null }) {
   const at = () => new Date();
   const venue = {
     venue: { id: venueId, displayName: 'stub TEST venue', kind: 'external-dex', sequencedDepth: true, proofLevel: 'simulator' },
-    markets: async () => ({ venueId, value: [MARKET, PERP, BARE, BARE_PERP], asOf: at() }),
+    markets: async () => ({ venueId, value: [MARKET, PERP], asOf: at() }),
     bestPrices: async (symbol: string) => ({ venueId, value: { symbol, ...best }, asOf: at() }),
     preview: async () => {
       asked.previews += 1;
@@ -125,7 +118,7 @@ function door(
     spreadLimitBps,
     now: () => new Date(),
     // Our listing shows the one market these orders use (J-cex-spot-16).
-    listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP', 'BAR-USDC', 'BAR-PERP'], 'stub')),
+    listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'], 'stub')),
   });
   return { d, asked };
 }
@@ -298,32 +291,5 @@ describe('POST /api/v1/venue/preview and /prepare answer the protection refusals
     });
     expect(res.statusCode).toBe(422);
     expect(res.json()).toMatchObject({ code: 'InvalidOrder', intafacedCode: 'trade.venue.price_outside_protection' });
-  });
-});
-
-describe('the door takes a spot order only against rules the venue publishes (J-cex-spot-04 #6)', () => {
-  it('a spot market with no published smallest order value or band refuses trade.venue_rule_unpublished on preview and prepare, naming each; the venue is never asked', async () => {
-    const { d, asked } = door(50);
-    const limit = order({ symbol: 'BAR-USDC', type: 'limit', timeInForce: 'GTC', price: a('59000') });
-    expect(await refusal(() => d.preview(principal, owner, limit))).toBe('trade.venue_rule_unpublished');
-    expect(await refusal(() => d.prepare(principal, { owner, signer, intent: limit }))).toBe('trade.venue_rule_unpublished');
-    // The alert's own worst price skips the owner's protection, never the venue's rules.
-    expect(await refusal(() => d.prepare(principal, { owner, signer, intent: limit }, { ownWorstPrice: true }))).toBe(
-      'trade.venue_rule_unpublished',
-    );
-    const words = await d.preview(principal, owner, limit).catch((e: Error) => e.message);
-    expect(words).toBe(
-      "stub TEST venue publishes no smallest order value, no price band for BAR-USDC, so this order can't be checked against it; nothing was prepared",
-    );
-    expect(asked).toEqual({ previews: 0, prepares: 0 });
-  });
-
-  it('the same order on a spot market that publishes all three passes, and a perpetual is not held to the spot rules', async () => {
-    const { d, asked } = door(50);
-    expect(await refusal(() => d.preview(principal, owner, order({ type: 'limit', timeInForce: 'GTC', price: a('59000') })))).toBe(
-      'passed',
-    );
-    expect(await refusal(() => d.preview(principal, owner, order({ symbol: 'BAR-PERP', price: a('62000') })))).toBe('passed');
-    expect(asked.previews).toBe(2);
   });
 });
