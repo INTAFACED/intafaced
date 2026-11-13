@@ -674,7 +674,12 @@ test(`${J} #3 opens Positions and closes one order, then a part larger than open
   expect(order, 'the venue has no order under the close key').toBeTruthy();
   expect(order).toMatchObject({ side: 'sell', symbol: VSYMBOL });
   expect(sameUnits(order.amount, target.open)).toBe(true);
-  expect((await onVenue('/agents', owner, subAccount)).length).toBe(1);
+  const agents = await onVenue('/agents', owner, subAccount);
+  expect(agents.length).toBe(1);
+  // The venue's record of who signed it: the sub-account's agent key, as an agent, never the person's wallet.
+  const signer = await onVenue('/order-signer', owner, subAccount, { venueClientOrderId: cloid });
+  expect(signer).toEqual({ role: 'agent', address: agents[0].address.toLowerCase() });
+  expect(signer.address).not.toBe(owner);
   expect(await onVenue('/order-by-client-id', owner, null, { venueClientOrderId: cloid })).toBeNull();
   // The position reads closed as the venue reports it: its close's fills sold exactly what was open, and nothing else sold.
   await expect

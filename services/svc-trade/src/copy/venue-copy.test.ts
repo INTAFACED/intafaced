@@ -296,6 +296,10 @@ describe('copy trading on the venue (TEST venue)', { timeout: 120_000 }, () => {
     expect(stored.prepared.signer).toMatchObject({ role: 'agent' });
     expect(stored.prepared.account.subAccount).toBe(sub.subAccount);
     const cloid = stored.prepared.venueClientOrderId!;
+    // The venue's own record of who signed the close: the sub-account's listed agent key, never the owner's wallet.
+    const [agent] = (await sim.agents(sub)).value;
+    expect(sim.orderSigner(sub, cloid).value).toEqual({ role: 'agent', address: agent!.address.toLowerCase() });
+    expect(sim.orderSigner(main(followerKey.address), cloid).value).toBeNull();
     const sold = (await subFills()).filter((f) => f.venueClientOrderId === cloid && f.side === 'sell');
     expect(sold.reduce((s, f) => s + f.amount, 0n)).toBe(position!.open);
     // Asked again under the same key: the venue's record is read back, nothing is sent twice.

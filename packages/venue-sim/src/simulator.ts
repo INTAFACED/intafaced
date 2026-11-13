@@ -323,6 +323,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   private readonly offHours = new Map<string, { closedMark: Amount; reopensAt: Date | null }>();
   private readonly accounts = new Map<string, AccountState>();
   private readonly submitted = new Map<string, Map<string, SubmittedRecord>>(); // account → nonce → record
+  /** TEST: who signed each order the venue accepted, as recovered from its bytes (account → client order id → signer). */
+  private readonly orderSigners = new Map<string, Map<string, VenueSigner>>();
   /** TEST: per account, how many more submits lose their answer (`loseAnswersOn`). */
   private readonly lostAnswers = new Map<string, number>();
   private readonly resting = new Map<string, OrderState[]>(); // symbol → resting orders
@@ -1134,6 +1136,12 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
 
     const outcome = this.apply(prepared);
     this.assertNoNegativeBalance();
+    if (prepared.intent.kind === 'place_order' && outcome.definite && outcome.accepted && recovered) {
+      const signers = this.orderSigners.get(key) ?? new Map<string, VenueSigner>();
+      this.orderSigners.set(key, signers);
+      const cloid = venueClientOrderId(this.venue.id, prepared.intent.clientOrderKey);
+      if (!signers.has(cloid)) signers.set(cloid, { role: prepared.signer.role, address: recovered });
+    }
     byNonce.set(prepared.nonce, { digest, outcome });
     if (this.switches.loseAnswers > 0) {
       this.switches.loseAnswers -= 1;
@@ -1166,6 +1174,15 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       .sort((a, b) => a.seq - b.seq)
       .map((o) => o.order);
     return this.asOf(open);
+  }
+
+  /**
+   * TEST only: who signed the order this account placed under `cloid`, the address recovered from the signed bytes
+   * when the venue accepted it, and whether it signed as the owner or as an agent. `null` when no such order was placed.
+   */
+  orderSigner(account: UserVenueAccount, cloid: string): AsOf<VenueSigner | null> {
+    this.up();
+    return this.asOf(this.orderSigners.get(accountKey(account))?.get(cloid) ?? null);
   }
 
   async orderByClientId(account: UserVenueAccount, cloid: string): Promise<AsOf<UserVenueOrder | null>> {
