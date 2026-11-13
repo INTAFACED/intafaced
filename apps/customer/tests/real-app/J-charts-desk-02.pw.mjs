@@ -324,9 +324,10 @@ test(`${J} #6 keeps drawing while ticks stream: the bars move, the frame counter
       window.__longTasks = null;
     }
   });
-  // The TEST maker crosses BTC/USDT about every 48 s (local-test-market.mjs crossesOn: every sixth 8 s cycle), so waiting
-  // for the next trade can take most of a minute on its own; the step gets room for that plus its 10 s stream window.
-  test.setTimeout(180_000);
+  // The TEST maker crosses BTC/USDT every sixth loop cycle, about 96 s apart and more under load (a gap over 136 s seen
+  // on CI, #6638; see #1), so the wait for the next trade spans more than two such gaps, as #1's does, and the step gets
+  // room for that, the bar reads and its 10 s stream window.
+  test.setTimeout(360_000);
   await openChart(page);
   // Pin the 1m interval through the chart's own control: the close moves with trades on a 1m bar. The bars are read only
   // once the 1m candles have answered and been drawn, so the 15m bars the chart opened on never count as a move.
@@ -352,7 +353,7 @@ test(`${J} #6 keeps drawing while ticks stream: the bars move, the frame counter
   const lastTradeBefore = await newestTradeMs(BTC);
   // Ticks stream: a new BTC/USDT trade lands on the public tape after the bars were read.
   await expect
-    .poll(() => newestTradeMs(BTC), { message: 'a new BTC/USDT trade on the public tape', timeout: 100_000, intervals: [2_000] })
+    .poll(() => newestTradeMs(BTC), { message: 'a new BTC/USDT trade on the public tape', timeout: 240_000, intervals: [2_000] })
     .toBeGreaterThan(lastTradeBefore);
   const tradeBar = Math.floor((await newestTradeMs(BTC)) / 60_000) * 60_000;
   // The bars move with it: the newest bar is the trade's minute or later, and what it shows has changed.
