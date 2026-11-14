@@ -124,13 +124,22 @@ for (const [net, prefix] of [
   blocked.addSubnet(net, prefix, 'ipv6');
 }
 
+/**
+ * IPv4 carried in IPv6 (compatible, mapped, translated). Kept apart from `blocked`, because a BlockList also matches a plain IPv4
+ * address against these: it is checked only for an IPv6 address embeddedIpv4 could not unwrap, which is refused.
+ */
+const carriesIpv4 = new BlockList();
+carriesIpv4.addSubnet('::', 96, 'ipv6');
+carriesIpv4.addSubnet('::ffff:0:0', 96, 'ipv6');
+carriesIpv4.addSubnet('::ffff:0:0:0', 96, 'ipv6');
+
 const loopback = new BlockList();
 loopback.addSubnet('127.0.0.0', 8, 'ipv4');
 loopback.addAddress('::1', 'ipv6');
 
-/** An IPv4 address carried inside IPv6 (`::ffff:10.0.0.1`, `::10.0.0.1`), or null. */
+/** An IPv4 address carried inside IPv6 (`::ffff:10.0.0.1`, `::ffff:0:10.0.0.1`, `::10.0.0.1`), or null. */
 function embeddedIpv4(address: string): string | null {
-  const m = /^::(?:ffff:)?(\d+\.\d+\.\d+\.\d+)$/i.exec(address);
+  const m = /^::(?:ffff:(?:0:)?)?(\d+\.\d+\.\d+\.\d+)$/i.exec(address);
   if (m) return m[1]!;
   const hex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.exec(address);
   if (!hex) return null;
@@ -145,6 +154,7 @@ export function addressAllowed(address: string, testLoopback: boolean): boolean 
   const ip = v4 ?? address;
   const family = isIP(ip) === 4 ? 'ipv4' : isIP(ip) === 6 ? 'ipv6' : null;
   if (family === null) return false;
+  if (family === 'ipv6' && carriesIpv4.check(ip, 'ipv6') && !loopback.check(ip, 'ipv6')) return false;
   if (testLoopback && loopback.check(ip, family)) return true;
   return !blocked.check(ip, family);
 }

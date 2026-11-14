@@ -142,6 +142,14 @@ describe('addressAllowed', () => {
       expect(addressAllowed(a, false), a).toBe(false);
     }
   });
+
+  it('reads an IPv4 address carried in IPv6 in every form, and refuses one it cannot unwrap', () => {
+    for (const a of ['::ffff:10.0.0.1', '::10.0.0.1', '::ffff:0:10.0.0.1', '::ffff:a00:1', '0:0:0:0:0:ffff:a00:1', '::ffff:0:a00:1']) {
+      expect(addressAllowed(a, false), a).toBe(false);
+    }
+    expect(addressAllowed('::ffff:93.184.216.34', false)).toBe(true);
+    expect(addressAllowed('::ffff:0:93.184.216.34', false)).toBe(true);
+  });
 });
 
 describe('causeOfStatus', () => {

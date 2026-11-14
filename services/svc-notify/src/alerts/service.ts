@@ -447,15 +447,17 @@ export class AlertService {
       triggers.map((t) => ({ alertId: t.alertId, seq: t.seq })),
     );
     const hookOf = new Map(hooks.map((h) => [`${h.alertId}:${h.seq}`, h]));
-    const out = new Map<string, AlertTriggerDelivery>();
-    for (const t of triggers) {
-      const channels =
-        t.notificationId && typeof this.notify.deliveriesFor === 'function'
-          ? await this.notify.deliveriesFor(userId, t.notificationId)
-          : [];
-      out.set(`${t.alertId}:${t.seq}`, { channels, webhook: hookOf.get(`${t.alertId}:${t.seq}`) ?? null });
-    }
-    return out;
+    // Each firing's channel records, read together rather than one after another (the page holds up to its limit of firings).
+    const channelsOf = await Promise.all(
+      triggers.map((t) =>
+        t.notificationId && typeof this.notify.deliveriesFor === 'function' ? this.notify.deliveriesFor(userId, t.notificationId) : [],
+      ),
+    );
+    return new Map(
+      triggers.map(
+        (t, i) => [`${t.alertId}:${t.seq}`, { channels: channelsOf[i]!, webhook: hookOf.get(`${t.alertId}:${t.seq}`) ?? null }] as const,
+      ),
+    );
   }
 
   /** The market's symbol (`BTC/USDT`) from the market list the marks read, or its id when the list cannot say. Kept for a minute. */
