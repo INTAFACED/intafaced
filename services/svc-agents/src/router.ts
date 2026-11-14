@@ -58,6 +58,8 @@ import { envCoachGrounding, runCoachSession, type CoachGrounding } from './coach
 import { describeCoachPolicy } from './coach/policy.js';
 import { coachRunRoutes } from './coach/router.js';
 import { runRoutes } from './runs/routes.js';
+import { backgroundRunRoutes } from './runs/background-routes.js';
+import type { SessionRunSettings } from './runs/background.js';
 import { sessionEventsRoute } from './runs/session-events.js';
 import type { RunStore } from './runs/store.js';
 import { NO_TIER_LAWS, type TierLaws } from './tier-laws.js';
@@ -318,6 +320,8 @@ export interface AgentsRouterDeps {
   readonly ownBackground?: BackgroundSettings;
   /** The owner's cadence values for own agents' schedules (AG-sessions-02). Absent is blank: a new schedule refuses. */
   readonly ownCadence?: Cadence;
+  /** Background runs of a person's sessions (AG-sessions-04, J-agents-06). Absent is blank: a new one refuses. */
+  readonly sessionRuns?: SessionRunSettings;
   /** Identity's list of a person's linked wallets, for an own agent's payment method (J-agents-02 #4). */
   readonly ownLinkedWallets?: LinkedWalletsPort | null;
   readonly gateway: ModelGateway;
@@ -933,7 +937,10 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
       events: sessionEventsRoute(deps, { guard, ownedSession }),
     }),
 
-    run: router(runRoutes(deps, { guard, executeProcedure, ownedSession })),
+    run: router({
+      ...runRoutes(deps, { guard, executeProcedure, ownedSession }),
+      background: router(backgroundRunRoutes(deps, { guard, executeProcedure, ownedSession })),
+    }),
 
     usage: router({
       /** What the current window would cost if it settled now. Bills nothing. */

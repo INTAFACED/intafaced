@@ -1,6 +1,6 @@
 // The pre-push hook on planted repos: a worktree with no node_modules (here or in the main checkout) pushes with one
 // line instead of being refused; formatting still refuses when prettier is there; a direct push to main is still refused;
-// CI's checks run on every push and a red one refuses it, and they never see the hook's GIT_* variables.
+// CI's checks (tooling/scripts/ci-checks.mjs) never run here: they run on GitHub, on the branch and then on the PR.
 // Each case is a throwaway repo holding the real .githooks/pre-push, pushing to a local bare remote.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -12,8 +12,8 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const git = (cwd, ...a) => execFileSync('git', a, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-// The hook skips CI's checks when CI is set (CI runs them itself), so each push here runs as on a builder's machine,
-// even when this file runs inside CI, unless a case sets CI itself.
+// The hook prints its pointer to GitHub's branch run only when CI is unset, so each push here runs as on a builder's
+// machine, even when this file runs inside CI.
 const BUILDER = Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== 'CI'));
 
 function plant({ prettier = null, ciChecks = 'process.exit(0);' } = {}) {
@@ -99,36 +99,13 @@ test('a direct push to main is still refused', () => {
   }
 });
 
-test("a red from CI's checks refuses the push", () => {
-  const p = plant({ prettier: 'exit 0', ciChecks: "console.log('planted red'); process.exit(1);" });
-  try {
-    const r = p.push();
-    assert.notEqual(r.code, 0, r.out);
-    assert.match(r.out, /planted red/);
-    assert.match(r.out, /CI's checks failed here — push refused/);
-  } finally {
-    p.done();
-  }
-});
-
-test("in CI the hook leaves CI's checks to CI", () => {
+test("CI's checks never run here: a red planted in them leaves the push alone, and the hook names GitHub's branch run", () => {
   const p = plant({ prettier: 'exit 0', ciChecks: "console.log('ran'); process.exit(1);" });
   try {
-    const r = p.push('feat', { ...BUILDER, CI: 'true' });
-    assert.equal(r.code, 0, r.out);
-    assert.doesNotMatch(r.out, /\bran\b/);
-  } finally {
-    p.done();
-  }
-});
-
-test("CI's checks never see the hook's GIT_* variables (a tooling test's temp repo once wrote into the real repo)", () => {
-  const leak =
-    "const g = Object.keys(process.env).filter((k) => k.startsWith('GIT_')); if (g.length) { console.log('leaked ' + g); process.exit(1); }";
-  const p = plant({ prettier: 'exit 0', ciChecks: leak });
-  try {
     const r = p.push();
     assert.equal(r.code, 0, r.out);
+    assert.doesNotMatch(r.out, /\bran\b/);
+    assert.match(r.out, /gh workflow run ci\.yml -R INTAFACED\/intafaced --ref <branch>/);
   } finally {
     p.done();
   }
@@ -141,7 +118,7 @@ test('a push that only deletes a branch runs no checks', () => {
     git(p.work, 'push', '-q', '--no-verify', 'origin', 'HEAD:refs/heads/gone');
     const r = spawnSync('git', ['push', 'origin', ':refs/heads/gone'], { cwd: p.work, encoding: 'utf8', env: BUILDER });
     assert.equal(r.status, 0, `${r.stdout}${r.stderr}`);
-    assert.doesNotMatch(`${r.stdout}${r.stderr}`, /\bran\b/);
+    assert.doesNotMatch(`${r.stdout}${r.stderr}`, /\bran\b|gh workflow run/);
   } finally {
     p.done();
   }

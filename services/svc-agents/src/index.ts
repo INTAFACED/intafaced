@@ -41,6 +41,7 @@ import { parseReasons, purgeExpiredTranscripts } from './oplog/routes.js';
 import { advanceBackgroundRuns } from './own/background.js';
 import { deliverTriggerEvent, tickSchedules, type AutoRunDeps } from './own/automation.js';
 import { OWN_RUN_TASK, ownGuardrail } from './own/routes.js';
+import { advanceSessionRuns, publishCompletedRuns } from './runs/background.js';
 import { createIdentityLinkedWallets, paymentMethodFunds } from './own/payment-method.js';
 import { createChainBalance } from './chain-balance.js';
 import { retentionPeriods } from './own/memory.js';
@@ -272,6 +273,7 @@ const appRouter = createAgentsRouter({
   fleet: { registryLimit: env.AGENTS_REGISTRY_LIST_LIMIT ?? null },
   ownBackground: { steps: env.AGENTS_BACKGROUND_TEST_STEPS ?? null, stepMs: env.AGENTS_BACKGROUND_STEP_MS ?? null },
   ownCadence,
+  sessionRuns: { maxSteps: env.AGENTS_SESSION_RUN_MAX_STEPS ?? null, stepMs: env.AGENTS_BACKGROUND_STEP_MS ?? null },
   opsLog: {
     reasons: parseReasons(env.AGENTS_LOG_READ_REASONS),
     limit: env.AGENTS_OPS_ACTIONS_LIMIT ?? null,
@@ -431,6 +433,27 @@ await bus.subscribe(
   },
   { durable: 'agents-own-trigger-fill-settled' },
 );
+// Background runs of sessions take their steps on the same period, and every finished one is announced once
+// (AG-sessions-04, J-agents-06). Blank leaves the ticker off, and a new background run refuses agents.session_run_unset.
+if (env.AGENTS_BACKGROUND_STEP_MS && env.AGENTS_SESSION_RUN_MAX_STEPS) {
+  const stepMs = env.AGENTS_BACKGROUND_STEP_MS;
+  let advancing = false;
+  const sessionRunTimer = setInterval(
+    () => {
+      if (advancing) return;
+      advancing = true;
+      advanceSessionRuns(sql, runtime, stepMs)
+        .catch((err: unknown) => app.log.warn({ err }, 'background session runs did not advance'))
+        .then(() => publishCompletedRuns(sql, bus))
+        .catch((err: unknown) => app.log.warn({ err }, 'finished background runs not announced'))
+        .finally(() => {
+          advancing = false;
+        });
+    },
+    Math.min(stepMs, 500),
+  );
+  sessionRunTimer.unref();
+}
 
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {

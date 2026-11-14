@@ -335,7 +335,10 @@ const schema = serviceEnvSchema
       AGENTS_REGISTRY_LIST_LIMIT: blankAsAbsent(z.coerce.number().int().min(1).max(500).optional()),
       /** Steps one background test run of an own agent takes, 1 to 10000 (AG-control-02). Blank refuses agents.background_unset. */
       AGENTS_BACKGROUND_TEST_STEPS: blankAsAbsent(z.coerce.number().int().min(1).max(10000).optional()),
-      /** Milliseconds one background step takes, 200 to 600000: the ticker's period. Blank refuses agents.background_unset. */
+      /**
+       * Milliseconds one background step takes, 200 to 600000: the tickers' period, for own agents' test runs and sessions'
+       * background runs alike. Blank refuses agents.background_unset and agents.session_run_unset.
+       */
       AGENTS_BACKGROUND_STEP_MS: blankAsAbsent(z.coerce.number().int().min(200).max(600000).optional()),
       // ── Schedules and event triggers of own agents (AG-sessions-02) ─────────
       /**
@@ -353,6 +356,8 @@ const schema = serviceEnvSchema
        */
       AGENTS_SCHEDULE_TICK_MS: blankAsAbsent(z.coerce.number().int().min(500).max(3_600_000).optional()),
       AGENTS_SCHEDULE_WORKERS: blankAsAbsent(z.coerce.number().int().min(1).max(8).optional()),
+      /** The most steps one background run of a session may be asked to take, 1 to 1000 (AG-sessions-04). Blank refuses agents.session_run_unset. */
+      AGENTS_SESSION_RUN_MAX_STEPS: blankAsAbsent(z.coerce.number().int().min(1).max(1000).optional()),
       /**
        * Days an executed engine call's prompt text is kept for a transcript read; 0 keeps none. Blank keeps none and a
        * transcript read refuses agents.transcript_retention_unset.

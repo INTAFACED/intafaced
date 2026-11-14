@@ -1316,6 +1316,14 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
       tool: 'support.ticket.comment',
       expiresAt: '2026-11-05T21:00:00.000Z',
     },
+    agentRunCompleted: {
+      runId: uid(),
+      userId: uid(),
+      sessionId: uid(),
+      agentId: 'navigator',
+      notice: 'email',
+      finishedAt: '2026-11-14T09:00:00.000Z',
+    },
     personalRequestCreated: {
       requestId: uid(),
       payerUserId: uid(),

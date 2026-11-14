@@ -323,7 +323,6 @@ export function WorkbenchChart({
     const width = range ? Math.max(20, range.to - range.from) : 120;
     api.timeScale().setVisibleLogicalRange({ from: focus.index - width / 2, to: focus.index + width / 2 });
     // Only a new ask moves the view; a new series (style, scheme) keeps where the person is.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus]);
 
   /** Keyboard: arrows pan by ten bars, + and - zoom around the right edge, Home shows the newest bars again (chart-keys.ts). */
