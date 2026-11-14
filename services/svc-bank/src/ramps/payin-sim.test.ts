@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import { describe, expect, it } from 'vitest';
 import { BankError } from '../errors.js';
 import type { AddMoneyRequestView, AddMoneyService } from './add-money.js';
-import { PayinSimRefusedError, onrampPartnerFor, parsePayinSim, payinSim, payinSimReference } from './payin-sim.js';
+import { PayinSimRefusedError, onrampPartnerFor, parsePayinSim, payinSim, payinSimDelivery, payinSimReference } from './payin-sim.js';
 import { registerPayinSimPage } from './payin-sim-page.js';
 
 const CATALOGUE = JSON.stringify({ label: 'TEST pay-in stand-in', methods: ['pay_by_bank'] });
@@ -10,6 +10,9 @@ const PAGE = 'http://127.0.0.1:14999';
 const BACK = 'http://127.0.0.1:3210/bank/ramps/new';
 const ID = '33333333-3333-4333-8333-333333333333';
 const config = { catalogueJson: CATALOGUE, pageUrl: PAGE, returnUrl: BACK };
+const DELIVER = 'http://127.0.0.1:14535/payin-deliver';
+const WALLET = '0x1111111111111111111111111111111111111111';
+const TX = `0x${'ab'.repeat(32)}`;
 
 describe('the add-money pay-in stand-in', () => {
   it('is off by default', () => {
@@ -93,11 +96,35 @@ describe('the add-money pay-in stand-in', () => {
       expect(() => onrampPartnerFor('payin-sim', { ...config, ...urls }, { APP_ENV: 'dev' })).toThrow(PayinSimRefusedError);
     }
   });
+
+  it('delivers only through a loopback delivery address, and has no delivery without one', () => {
+    expect(onrampPartnerFor('payin-sim', config, { APP_ENV: 'test' })!.deliver).toBeUndefined();
+    expect(onrampPartnerFor('payin-sim', { ...config, deliverUrl: DELIVER }, { APP_ENV: 'test' })!.deliver).toBeTypeOf('function');
+    for (const deliverUrl of ['https://partner.example.com/deliver', 'not a url', `${DELIVER}?to=elsewhere`]) {
+      expect(() => onrampPartnerFor('payin-sim', { ...config, deliverUrl }, { APP_ENV: 'test' })).toThrow(PayinSimRefusedError);
+    }
+  });
+
+  it("the TEST partner's delivery posts the wallet, asset and amount, and answers the transfer's hash or fails", async () => {
+    const sent: { url: string; body: unknown }[] = [];
+    const answering = (status: number, body: unknown) =>
+      (async (url: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+        sent.push({ url: String(url), body: JSON.parse(String(init?.body)) });
+        return new Response(JSON.stringify(body), { status });
+      }) as typeof fetch;
+    const input = { to: WALLET, assetId: 'USDC', amount: '3' };
+    expect(await payinSimDelivery(new URL(DELIVER), answering(200, { hash: TX }))(input)).toBe(TX);
+    expect(sent).toEqual([{ url: DELIVER, body: { to: WALLET, asset: 'USDC', amount: '3' } }]);
+    await expect(payinSimDelivery(new URL(DELIVER), answering(502, { error: 'payin.send_failed' }))(input)).rejects.toThrow(
+      /did not deliver/,
+    );
+    await expect(payinSimDelivery(new URL(DELIVER), answering(200, { hash: 'not a hash' }))(input)).rejects.toThrow(/did not deliver/);
+  });
 });
 
 describe("the pay-in stand-in's page", () => {
   const partner = payinSim(parsePayinSim(CATALOGUE)!, new URL(PAGE), new URL(BACK));
-  const view = (status: AddMoneyRequestView['status']): AddMoneyRequestView => ({
+  const view = (status: AddMoneyRequestView['status'], walletAddress: string | null = null): AddMoneyRequestView => ({
     requestId: ID,
     assetId: 'USDT',
     amount: '20',
@@ -131,23 +158,69 @@ describe("the pay-in stand-in's page", () => {
     creditedAmount: null,
     creditedBy: null,
     returnedAt: null,
+    walletAddress,
+    deliveredAt: null,
+    deliveryTx: null,
   });
 
-  function mounted(status: AddMoneyRequestView['status'], approvedCalls: string[] = []) {
+  function mounted(
+    status: AddMoneyRequestView['status'],
+    approvedCalls: string[] = [],
+    { using = partner, wallet = null as string | null, approvedNow = true, paidCalls = [] as unknown[] } = {},
+  ) {
     const app = Fastify();
-    const addMoney: Pick<AddMoneyService, 'opened' | 'approved'> = {
+    const addMoney: Pick<AddMoneyService, 'opened' | 'approved' | 'paid'> = {
       opened: async (id) => {
         if (id !== ID) throw new BankError('No add-money request has that id', 'bank.add_money_request_missing');
         return { request: view(status), returnUrl: partner.returnUrl(id) };
       },
       approved: async (id) => {
         approvedCalls.push(id);
-        return { request: view('pending'), returnUrl: partner.returnUrl(id) };
+        return { request: view('pending', wallet), returnUrl: partner.returnUrl(id), approvedNow };
+      },
+      paid: async (input) => {
+        paidCalls.push(input);
+        return view('delivered', wallet);
       },
     };
-    registerPayinSimPage(app, addMoney, partner);
+    registerPayinSimPage(app, addMoney, using);
     return app;
   }
+
+  /** The stand-in with a delivery that records each call and answers TX. */
+  function delivering(calls: unknown[]) {
+    return payinSim(parsePayinSim(CATALOGUE)!, new URL(PAGE), new URL(BACK), async (input) => {
+      calls.push(input);
+      return TX;
+    });
+  }
+  const approve = (app: ReturnType<typeof mounted>) =>
+    app.inject({
+      method: 'POST',
+      url: `/test/payin-sim/pay/${ID}/approve`,
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      payload: '',
+    });
+
+  it('approving a wallet purchase sends the payer back, then the TEST partner delivers it once and says paid with that transfer', async () => {
+    const delivered: unknown[] = [];
+    const paid: unknown[] = [];
+    const res = await approve(mounted('opened', [], { using: delivering(delivered), wallet: WALLET, paidCalls: paid }));
+    expect(res.statusCode).toBe(303);
+    await expect.poll(() => paid.length).toBe(1);
+    expect(delivered).toEqual([{ to: WALLET, assetId: 'USDT', amount: '20' }]);
+    expect(paid).toEqual([{ requestId: ID, paidAmount: '41', payCurrency: 'EUR', deliveryTx: TX }]);
+  });
+
+  it('delivers nothing for a purchase already approved, nor for one added to a balance here', async () => {
+    const delivered: unknown[] = [];
+    const paid: unknown[] = [];
+    await approve(mounted('pending', [], { using: delivering(delivered), wallet: WALLET, approvedNow: false, paidCalls: paid }));
+    await approve(mounted('opened', [], { using: delivering(delivered), wallet: null, paidCalls: paid }));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(delivered).toEqual([]);
+    expect(paid).toEqual([]);
+  });
 
   it('shows the payment it opened, labelled TEST, with an approve button and a way back', async () => {
     const res = await mounted('opened').inject({ method: 'GET', url: `/test/payin-sim/pay/${ID}` });

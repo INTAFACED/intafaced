@@ -136,17 +136,14 @@ jobs:
           PR_AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
           PR_COMMITS: ${{ github.event.pull_request.commits }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        # Its imports, look-baselines.mjs (what a look baseline is), judged-paths.mjs (what the test judge rules on) and
-        # exact-revert.mjs (what an exact revert is), come from main the same way.
+        # Main's copy runs in a worktree of main, so every import it has is main's too (rules-from-main.test.mjs).
         run: |
-          for f in test-diff-guard.mjs look-baselines.mjs judged-paths.mjs exact-revert.mjs; do
-            if git cat-file -e "origin/main:tooling/ci/$f" 2>/dev/null; then
-              git show "origin/main:tooling/ci/$f" > "$RUNNER_TEMP/$f"
-            else
-              cp "tooling/ci/$f" "$RUNNER_TEMP/$f"
-            fi
-          done
-          node "$RUNNER_TEMP/test-diff-guard.mjs"
+          guard=tooling/ci/test-diff-guard.mjs
+          if git cat-file -e "origin/main:$guard" 2>/dev/null; then
+            git worktree add --detach "$RUNNER_TEMP/diff-rules" origin/main
+            guard="$RUNNER_TEMP/diff-rules/$guard"
+          fi
+          node "$guard"
 
       # The journeys baseline's rules (docs/runbooks/regression-issue-state.md), from main like the guard above: a step
       # that passed on main is never added as unbuilt, only a pass on main takes a step off, and the file is rewritten
@@ -172,7 +169,7 @@ jobs:
       # by main's copy of the builder in a worktree of main, and compared byte for byte, so a hand-edited map, or one built
       # from hand-picked runs, fails (`verify`, tooling/ci/journey-reach-map.mjs; the Touched-journeys map workflow builds
       # one). A manual CI run on a branch checks its committed map the same way (never on main, where a map built before
-      # main last moved would turn a manual run red). It does nothing when the pull request leaves the map alone. Main's
+      # main last moved would turn a manual run red). It does nothing when the pull request, or the branch since it left main, leaves the map alone. Main's
       # copy is fetched fresh from the repository's URL into a ref of its own (the pull request's base commit, or main for
       # a manual run), never read from origin/main, which code the pull request ran earlier in this job could move
       # (review 7578-R1 #4); and it is always main's builder (the fallback to the PR copy is gone, review 7578-R1 #2).
@@ -185,6 +182,14 @@ jobs:
           REPO_URL: https://github.com/${{ github.repository }}
         run: |
           map=tooling/ci/journey-reach-map.json
+          # A manual run on a branch judges the branch's own change, as its pull request will: a branch that leaves the map
+          # as it was where it left main is not judged on main's map (every branch run went red on it, 14 Nov). Read before
+          # the shallow fetch below, which cuts main's history and with it the merge-base. The pull request's run still
+          # judges the map from its base commit, whatever this advisory run reads.
+          if [ "$EVENT" = workflow_dispatch ] && mb=$(git merge-base origin/main HEAD) && git diff --quiet "$mb" HEAD -- "$map"; then
+            echo "the branch leaves $map as it was on main"
+            exit 0
+          fi
           if [ "$EVENT" = pull_request ]; then
             git fetch --no-tags --depth=1 "$REPO_URL" "$BASE_SHA"
             base="$BASE_SHA"
@@ -236,12 +241,12 @@ jobs:
       - name: Look drift (rules from main)
         if: github.event_name == 'pull_request' && !cancelled()
         run: |
-          if git cat-file -e origin/main:tooling/ci/look-drift.mjs 2>/dev/null; then
-            git show origin/main:tooling/ci/look-drift.mjs > "$RUNNER_TEMP/look-drift.mjs"
-          else
-            cp tooling/ci/look-drift.mjs "$RUNNER_TEMP/look-drift.mjs"
+          lint=tooling/ci/look-drift.mjs
+          if git cat-file -e "origin/main:$lint" 2>/dev/null; then
+            git worktree add --detach "$RUNNER_TEMP/drift-rules" origin/main
+            lint="$RUNNER_TEMP/drift-rules/$lint"
           fi
-          node "$RUNNER_TEMP/look-drift.mjs"
+          node "$lint"
 
       # The per-service Definition of Done (`pnpm gate`) used to be its own
       # `dod` job: a second runner and a second install for a two-second
@@ -323,6 +328,17 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # turbo's local cache, kept between runs, so a package whose inputs did not change is not built or typechecked
+      # again. A hit can't hide a red: turbo never caches a failed task, and turbo.json's generated <package>#<task>
+      # inputs make each hash cover the other packages its tests import (tooling/ci/cross-package-reads.mjs, run by the
+      # Doctrine gates, fails when they are missing). A run restores the newest cache of any branch it can read (its own,
+      # then main) and saves only the entries this run's tasks used, so it never grows past one run's worth.
+      - name: Restore turbo's cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .turbo/cache
+          key: turbo-build-${{ runner.os }}-${{ github.sha }}
+          restore-keys: turbo-build-${{ runner.os }}-
       # Same selection as the tests (tooling/ci/ci-affected.mjs): a run-everything change (and every push to main)
       # builds and typechecks the whole repo; any other change builds and typechecks the changed packages and their
       # dependents, turbo's ^build covering their dependencies, plus what a selected reader's tests read (--build-filters:
@@ -330,6 +346,7 @@ jobs:
       # repo took 3m50s to build plus 5m50s to typecheck, the slowest job of a PR run.
       - name: Build
         env:
+          TURBO_RUN_SUMMARY: true
           FULL: ${{ needs.changes.outputs.full }}
           AFFECTED: ${{ needs.changes.outputs.affected }}
         run: |
@@ -344,6 +361,7 @@ jobs:
           } 2>&1 | tee "$RUNNER_TEMP/build.log"
       - name: Typecheck
         env:
+          TURBO_RUN_SUMMARY: true
           FULL: ${{ needs.changes.outputs.full }}
           AFFECTED: ${{ needs.changes.outputs.affected }}
         run: |
@@ -356,6 +374,27 @@ jobs:
             pnpm turbo run typecheck "${filters[@]}"
           else echo "docs only: nothing to typecheck"; fi
           } 2>&1 | tee -a "$RUNNER_TEMP/build.log"
+      # Keeps only the cache entries this run's tasks named (.turbo/runs: every task's hash, hit or miss), then saves them
+      # under this commit. A docs-only run ran no task and saves nothing.
+      - name: Keep only this run's cache entries
+        id: turbo-prune
+        run: |
+          node -e '
+            const fs = require("fs");
+            const runs = fs.existsSync(".turbo/runs") ? fs.readdirSync(".turbo/runs") : [];
+            const keep = new Set(runs.flatMap((f) => JSON.parse(fs.readFileSync(".turbo/runs/" + f, "utf8")).tasks.map((t) => t.hash)));
+            const files = fs.existsSync(".turbo/cache") ? fs.readdirSync(".turbo/cache") : [];
+            let dropped = 0;
+            for (const f of files) if (!keep.has(f.split(/[-.]/)[0])) (fs.rmSync(".turbo/cache/" + f, { recursive: true }), dropped++);
+            console.log(`turbo cache: ${keep.size} task hash(es) this run, ${files.length - dropped} file(s) kept, ${dropped} dropped`);
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `tasks=${keep.size}\n`);
+          '
+      - name: Save turbo's cache
+        if: steps.turbo-prune.outputs.tasks != '0'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .turbo/cache
+          key: turbo-build-${{ runner.os }}-${{ github.sha }}
       # The Customer app's deployment tests (nginx config, env validation, the security headers and the built
       # index.html's scripts) are node:test files outside vitest, and need the build above. They run whenever this job
       # built the Customer app.

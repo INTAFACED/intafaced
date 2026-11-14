@@ -6,12 +6,14 @@ import {
   type AsOf,
   type MaybeKnown,
   type VenueBuilderTotals,
+  type UserVenueBuilderClaim,
   type PlaceUserOrderIntent,
   type PreparedVenueAction,
   type UserVenue,
   type UserVenueAccount,
   type UserVenueAgent,
   type UserVenueBalance,
+  type UserVenueArrival,
   type UserVenueDeposit,
   type UserVenueDepositRoute,
   type UserVenueDescriptor,
@@ -294,6 +296,10 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
     return this.read('/deposits', { account });
   }
 
+  arrivals(account: UserVenueAccount): Promise<AsOf<readonly UserVenueArrival[]>> {
+    return this.read('/arrivals', { account });
+  }
+
   builderFeeApproval(account: UserVenueAccount, builder: string): Promise<AsOf<Amount>> {
     return this.read('/builder-fee-approval', { account, builder });
   }
@@ -301,6 +307,11 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
   /** The TEST venue's own builder-fee totals for `builder` (OWNER 288 1e). */
   builderTotals(builder: string): Promise<AsOf<MaybeKnown<VenueBuilderTotals>>> {
     return this.read('/builder-totals', { builder });
+  }
+
+  /** The TEST venue's own record of each claim of our builder fees (J-derivatives-17). */
+  builderClaims(builder: string): Promise<AsOf<readonly UserVenueBuilderClaim[]>> {
+    return this.read('/builder-claims', { builder });
   }
 
   agents(account: UserVenueAccount): Promise<AsOf<readonly UserVenueAgent[]>> {

@@ -182,6 +182,13 @@ export const NOTIFY_EVENT_CONSUMERS: readonly NotifyConsumerRow[] = [
       'Inbox row agents.approval.requested for the owner of an own agent whose tool call waits for their approval, naming the action and linking to the Approvals inbox, once per request',
   },
   {
+    event: 'agentRunCompleted',
+    durable: 'notify-agent-run-completed',
+    subject: 'intafaced.agents.run.completed',
+    effect:
+      'Inbox row agents.run.completed for the person whose background agent run finished, linking to the run and its result, once per run; the email, SMS or push they asked for gets its delivery row even when no vendor is set',
+  },
+  {
     event: 'bankScheduledReminder',
     durable: 'notify-bank-scheduled-reminder',
     subject: 'intafaced.bank.scheduled_reminder.triggered',

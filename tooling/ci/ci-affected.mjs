@@ -18,8 +18,8 @@
  * `push:main` and a merge queue's commit (`merge_group`, what main becomes) always classify as full (the trunk seal).
  */
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
-import { detectedEdges } from './cross-package-reads.mjs';
+import { writeFileSync } from 'node:fs';
+import { allEdges, detectedEdges } from './cross-package-reads.mjs';
 
 /** Run-everything list: a change here can break a consumer in any package, so the whole suite runs. */
 export const FULL_TRIGGERS = [
@@ -77,14 +77,9 @@ const isDoc = (file) => file.startsWith('docs/') || file.endsWith('.md');
  * dependents graph cannot see those reads, so the reader is selected whenever a package it reads changes.
  */
 export function readEdges() {
-  let declared = {};
-  try {
-    declared = JSON.parse(readFileSync(new URL('./test-read-edges.json', import.meta.url), 'utf8')).edges ?? {};
-  } catch {
-    /* no declared edges */
-  }
-  // Reads the scan finds count too, so a test that reads another package needs no edge-list entry to be selected.
-  return mergeEdges(declared, detectedEdges());
+  // Reads the scan finds count too, so a test that reads another package needs no edge-list entry to be selected. The
+  // same function feeds turbo.json's generated inputs (cross-package-reads.mjs turboReadInputs), so the two agree.
+  return allEdges();
 }
 
 export function mergeEdges(a, b) {
