@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * CI'S CHECKS, ON A BUILDER'S MACHINE, BEFORE THE PUSH (the pre-push hook runs this; .githooks/pre-push).
+ * CI'S CHECKS, ON A BUILDER'S MACHINE, BY HAND, TO DIAGNOSE A RED. The pre-push hook ran this until CI's checks moved
+ * to GitHub's branch run before the pull request (.githooks/pre-push says why).
  *
  * Why: a builder's checks before a push were a guess at CI's: the vitest files it picked near its change, on a Node that
  * isn't CI's, with no database, so every database suite skipped. Of 98 journey pull requests, 31 first heads were red on
