@@ -412,6 +412,23 @@ export function citedOwnerItems(diff) {
   return [...items];
 }
 
+/**
+ * The project-state decided rows a diff's added lines of the brief cite ("project-state row d74"), in order, or []:
+ * OWNER.md closed as history at item 303, so a later decision of the owner's is recorded in project-state
+ * `open-list/decided/dN.md`, which quotes his words (intafaced #8265, CI review FAIL on 3e9000de: no OWNER.md item holds
+ * the 12 Nov test sentence, so the route could never pass it).
+ */
+export function citedRows(diff) {
+  const rows = new Set();
+  let inBrief = false;
+  for (const l of String(diff).split('\n')) {
+    if (l.startsWith('diff --git ')) inBrief = l.endsWith(` b/${BRIEF_PATH}`);
+    if (!inBrief || !l.startsWith('+') || l.startsWith('+++ ')) continue;
+    for (const m of l.matchAll(/\bproject-state row d(\d{1,4})\b/g)) rows.add(`d${Number(m[1])}`);
+  }
+  return [...rows];
+}
+
 /** Each cited item's text in OWNER.md (from its "N. " line to the next item or heading), or null when it has none. */
 export function ownerItems(text, numbers) {
   const lines = String(text).split('\n');
@@ -429,12 +446,19 @@ export function ownerItems(text, numbers) {
  * The trusted block the review is given with a diff that changes the brief: the cited items as the job read them from
  * project-state OWNER.md, so a new entry's quote is checked against the owner's own record, never taken on its form.
  */
-export function ownerRecordSection({ items, ref }) {
-  const body = [...items].map(([n, t]) =>
-    t === null ? `Item ${n}: OWNER.md has no item ${n}.` : t.replace(/^(BEGIN|END) OWNER RECORD/gm, '$1 OWNER RECORD (quoted)'),
-  );
+export function ownerRecordSection({ items, ref, rows = new Map() }) {
+  const quoted = (t) => t.replace(/^(BEGIN|END) OWNER RECORD/gm, '$1 OWNER RECORD (quoted)');
+  const body = [
+    ...[...items].map(([n, t]) => (t === null ? `Item ${n}: OWNER.md has no item ${n}.` : quoted(t))),
+    ...[...rows].map(([r, t]) =>
+      t === null ? `Row ${r}: project-state has no row ${r}.` : `Row ${r} (project-state open-list/decided/${r}.md):\n${quoted(t.trim())}`,
+    ),
+  ];
+  const cites = [items.size ? `items ${[...items.keys()].join(', ')}` : '', rows.size ? `rows ${[...rows.keys()].join(', ')}` : '']
+    .filter(Boolean)
+    .join(' and ');
   return [
-    `The owner's record. The job read the items the diff's added lines of this brief cite from project-state OWNER.md at ${ref} (trusted input, private: never repeat it beyond the words the diff itself quotes). The diff cites ${items.size === 0 ? 'no item' : `items ${[...items.keys()].join(', ')}`}.`,
+    `The owner's record. The job read the items${rows.size ? ' and rows' : ''} the diff's added lines of this brief cite from project-state OWNER.md${rows.size ? ' and open-list/decided/' : ''} at ${ref} (trusted input, private: never repeat it beyond the words the diff itself quotes). The diff cites ${cites || 'no item'}.`,
     'BEGIN OWNER RECORD',
     ...body,
     'END OWNER RECORD',
@@ -442,14 +466,23 @@ export function ownerRecordSection({ items, ref }) {
 }
 
 /** OWNER.md from project-state's default branch, with the commit it was read at (the token reads project-state). */
-export async function readOwnerRecord(token, get = getText) {
+export async function readOwnerRecord(token, get = getText, rows = []) {
   const repo = 'INTAFACED/project-state';
   const ref = await get(`/repos/${repo}/commits/main`, 'application/vnd.github.sha', token);
   if (ref.status !== 200 || !SHA40.test(ref.text.trim())) throw new Error(`could not read project-state's main: HTTP ${ref.status}`);
   const sha = ref.text.trim();
   const r = await get(`/repos/${repo}/contents/OWNER.md?ref=${sha}`, 'application/vnd.github.raw', token);
   if (r.status !== 200 || r.text.trim() === '') throw new Error(`could not read project-state OWNER.md: HTTP ${r.status}`);
-  return { text: r.text, ref: sha };
+  // A cited row, at the same commit; one that isn't there is no record, which blocks the entry (REVIEW.md's route).
+  const read = new Map();
+  for (const row of rows) {
+    if (!/^d\d{1,4}$/.test(row)) throw new Error(`not a row: ${row}`);
+    const f = await get(`/repos/${repo}/contents/open-list/decided/${row}.md?ref=${sha}`, 'application/vnd.github.raw', token);
+    if (f.status === 404) read.set(row, null);
+    else if (f.status !== 200) throw new Error(`could not read project-state row ${row}: HTTP ${f.status}`);
+    else read.set(row, f.text.trim() === '' ? null : f.text);
+  }
+  return { text: r.text, ref: sha, rows: read };
 }
 
 /** The prompt: the brief from the default branch, then the diff fenced as untrusted data. */
@@ -734,14 +767,19 @@ export async function writeReviewInputs(
   // A diff that adds to the brief: the owner items it cites, read from his record, follow the brief as trusted input.
   let reviewBrief = briefText;
   const cited = citedOwnerItems(diff);
-  if (cited.length > 0 && !revertOf) {
-    if (!loadOwner) throw new Error(`the diff cites OWNER items ${cited.join(', ')} and the job can't read the owner's record`);
-    const { text, ref } = await loadOwner();
+  const citedRowIds = citedRows(diff);
+  if ((cited.length > 0 || citedRowIds.length > 0) && !revertOf) {
+    if (!loadOwner) {
+      const what = [cited.length ? `OWNER items ${cited.join(', ')}` : '', citedRowIds.length ? `rows ${citedRowIds.join(', ')}` : ''];
+      throw new Error(`the diff cites ${what.filter(Boolean).join(' and ')} and the job can't read the owner's record`);
+    }
+    const { text, ref, rows: readRows = new Map() } = await loadOwner(citedRowIds);
     const items = ownerItems(text, cited);
-    reviewBrief = `${briefText.trim()}\n\n${ownerRecordSection({ items, ref })}`;
+    const rows = new Map(citedRowIds.map((r) => [r, readRows.get(r) ?? null]));
+    reviewBrief = `${briefText.trim()}\n\n${ownerRecordSection({ items, ref, rows })}`;
     // What the diff doesn't already make public never reaches the public log (readVerdicts).
     const open = shingles([diff]);
-    const own = [...shingles([...items.values()].filter((t) => t !== null))].filter((x) => !open.has(x));
+    const own = [...shingles([...items.values(), ...rows.values()].filter((t) => t !== null))].filter((x) => !open.has(x));
     writeFileSync(join(dir, OWNER_SHINGLES), JSON.stringify(own));
   }
   writeFileSync(join(dir, 'head.txt'), head);
@@ -864,13 +902,13 @@ async function cmdDiff(dir) {
       reviewBrief: readFileSync(new URL('./ci-review/REVIEW.md', import.meta.url), 'utf8'),
       testsBrief: readFileSync(JUDGE_BRIEF, 'utf8'),
       images,
-      loadOwner: () => {
+      loadOwner: (rows) => {
         const t = process.env.PROJECT_STATE_READ_TOKEN;
         if (!t)
           throw new Error(
             "the ci-review environment has no PROJECT_STATE_READ_TOKEN secret, so the owner's record is unreadable and nothing is decided",
           );
-        return readOwnerRecord(t);
+        return readOwnerRecord(t, getText, rows);
       },
       revertOf: await automaticRevert({
         repo,

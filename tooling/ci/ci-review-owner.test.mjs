@@ -10,6 +10,7 @@ import { join } from 'node:path';
 import {
   BRIEF_PATH,
   citedOwnerItems,
+  citedRows,
   ownerItems,
   ownerRecordSection,
   readOwnerRecord,
@@ -159,4 +160,71 @@ test("a finding that repeats the record's private words is withheld; one that re
   assert.equal(verdict, 'FAIL', 'a withheld finding keeps its blocking');
   assert.equal(findings[0], quoted);
   assert.equal(findings[1], "(finding withheld: it repeated the owner's record)");
+});
+
+// A decision after OWNER.md closed at item 303 is a project-state row (open-list/decided/dN.md): intafaced #8265's CI
+// review FAILed on 3e9000de because the route read OWNER.md alone, and no item holds the 12 Nov test sentence.
+const ROW =
+  'Decided: a test may go when what it guarded is still guarded.\nHis words (12 Nov, his card): "the private row quote only the job reads".';
+const ROW_ENTRY = '- **2026-11-12, a test may go** (project-state row d74, his card: "the private row quote").';
+
+test("the brief diff's added lines cite project-state rows; other files and plain words cite none", () => {
+  assert.deepEqual(citedRows(file(BRIEF_PATH, [ROW_ENTRY, 'and project-state row d7, again project-state row d74'])), ['d74', 'd7']);
+  assert.deepEqual(citedRows(file('docs/other.md', ['project-state row d74'])), []);
+  assert.deepEqual(citedRows(file(BRIEF_PATH, ['row d74 alone is not a citation'])), []);
+  assert.deepEqual(citedRows(file(BRIEF_PATH, ['project-state row d74'], '-')), [], 'a removed line cites nothing');
+});
+
+test('readOwnerRecord reads each cited row at the same commit; a missing row is no record; another error stops', async () => {
+  const calls = [];
+  const get = (rowStatus) => async (path) => {
+    calls.push(path);
+    if (path.includes('/commits/main')) return { status: 200, text: REF };
+    if (path.includes('/OWNER.md')) return { status: 200, text: OWNER };
+    if (path.includes('/d74.md')) return { status: rowStatus, text: rowStatus === 200 ? ROW : '' };
+    return { status: 404, text: '' };
+  };
+  const got = await readOwnerRecord('t', get(200), ['d74', 'd99']);
+  assert.ok(calls.includes(`/repos/INTAFACED/project-state/contents/open-list/decided/d74.md?ref=${REF}`));
+  assert.equal(got.rows.get('d74'), ROW);
+  assert.equal(got.rows.get('d99'), null);
+  await assert.rejects(readOwnerRecord('t', get(500), ['d74']), /could not read project-state row d74: HTTP 500/);
+  await assert.rejects(readOwnerRecord('t', get(200), ['../OWNER']), /not a row/);
+});
+
+test('a diff citing a row gives the reviewer that row as trusted input; a missing row is named as missing', async () => {
+  const dir = tmp();
+  const diff = file(BRIEF_PATH, [ROW_ENTRY, 'and project-state row d99']);
+  let asked;
+  await writeReviewInputs(dir, {
+    diff,
+    base: BASE,
+    head: HEAD,
+    pr: 7,
+    src: srcOf(diff),
+    loadWords: never,
+    ...briefs,
+    loadOwner: async (rows) => {
+      asked = rows;
+      return {
+        text: OWNER,
+        ref: REF,
+        rows: new Map([
+          ['d74', ROW],
+          ['d99', null],
+        ]),
+      };
+    },
+  });
+  assert.deepEqual(asked, ['d74', 'd99'], 'the loader is asked for the cited rows');
+  const [trusted] = readFileSync(join(dir, 'prompt.txt'), 'utf8').split('\nBEGIN UNTRUSTED DIFF\n');
+  assert.match(trusted, /\nBEGIN OWNER RECORD\n[^]*Row d74 \(project-state open-list\/decided\/d74\.md\):\nDecided: a test may go/);
+  assert.match(trusted, /Row d99: project-state has no row d99\./);
+  assert.match(trusted, /The diff cites rows d74, d99\./);
+  const own = JSON.parse(readFileSync(join(dir, 'owner-shingles.json'), 'utf8'));
+  assert.ok(own.length > 0, "the row's private words are guarded from the public log");
+  await assert.rejects(
+    writeReviewInputs(tmp(), { diff, base: BASE, head: HEAD, pr: 7, src: srcOf(diff), loadWords: never, ...briefs }),
+    /cites rows d74, d99 and the job can't read the owner's record/,
+  );
 });
