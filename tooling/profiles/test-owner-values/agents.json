@@ -130,6 +130,11 @@
       "service": "agents",
       "value": "2",
       "note": "LOCAL TEST count of due-run workers that wake together each tick, so a journey sees two workers wake for one occurrence and one run (J-agents-07 #2). Not an owner decision."
+    },
+    "AGENTS_RESEARCH_UNCERTAINTY_SCALE": {
+      "service": "agents",
+      "value": "TEST low,TEST medium,TEST high",
+      "note": "LOCAL TEST uncertainty scale of a Navigator research answer, lowest first (J-agents-10 #4). Not an owner decision (blank in production refuses agents.uncertainty_scale_unset)."
     }
   }
 }

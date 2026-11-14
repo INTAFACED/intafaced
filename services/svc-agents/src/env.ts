@@ -359,6 +359,12 @@ const schema = serviceEnvSchema
       /** The most steps one background run of a session may be asked to take, 1 to 1000 (AG-sessions-04). Blank refuses agents.session_run_unset. */
       AGENTS_SESSION_RUN_MAX_STEPS: blankAsAbsent(z.coerce.number().int().min(1).max(1000).optional()),
       /**
+       * Owner value: the uncertainty scale a research answer's level is read from (RC-agents-09), comma-separated labels,
+       * lowest first, at least two. Blank refuses every Navigator answer about a market with
+       * agents.uncertainty_scale_unset before the engine runs; nothing is charged.
+       */
+      AGENTS_RESEARCH_UNCERTAINTY_SCALE: blankAsAbsent(z.string().trim().min(1).optional()),
+      /**
        * Days an executed engine call's prompt text is kept for a transcript read; 0 keeps none. Blank keeps none and a
        * transcript read refuses agents.transcript_retention_unset.
        */

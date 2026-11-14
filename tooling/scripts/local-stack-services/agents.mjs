@@ -133,6 +133,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, testChain }) => ({
     AGENTS_BACKGROUND_TEST_STEPS: testValue('AGENTS_BACKGROUND_TEST_STEPS'),
     AGENTS_BACKGROUND_STEP_MS: testValue('AGENTS_BACKGROUND_STEP_MS'),
     AGENTS_SESSION_RUN_MAX_STEPS: testValue('AGENTS_SESSION_RUN_MAX_STEPS'),
+    // LOCAL TEST uncertainty scale of a Navigator research answer (J-agents-10 #4); production leaves it blank and an answer
+    // about a market refuses agents.uncertainty_scale_unset before the engine.
+    AGENTS_RESEARCH_UNCERTAINTY_SCALE: testValue('AGENTS_RESEARCH_UNCERTAINTY_SCALE'),
     // LOCAL TEST managed baseline for own agents' tools (J-agents-05 #1). `LOCAL_STACK_AGENTS_POLICY_BASELINE=off` leaves
     // it blank, so every own-agent tool call refuses agents.baseline_value_unset.
     ...(process.env.LOCAL_STACK_AGENTS_POLICY_BASELINE === 'off' ? {} : { AGENTS_POLICY_BASELINE: testValue('AGENTS_POLICY_BASELINE') }),
