@@ -59,17 +59,8 @@ export const RECIPE_MATRIX = {
   },
   tradeFillMakerRebate: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/spot/trade-service/fills.ts' },
   builderFeeEarn: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/builder-fee/builder-fee-poster.ts' },
-  builderFeeReceive: {
-    kind: 'socket',
-    socket: '§13',
-    reason: "§13 — waits for the venue adapter's read of the builder's claim record; see docs/adr/2026-11-10-launch-money-model.md, rule 5",
-  },
-  ownFundsMove: {
-    kind: 'socket',
-    socket: '§13',
-    reason:
-      '§13 — our own money moving between named outside places (our builder account at a venue, our reserve at a partner, our treasury wallet), keyed on the chain transaction or the partner statement line. No production writer: collected fees stay at the venue until the float and the claim schedule are set (docs/adr/2026-11-10-launch-money-model.md, rule 1). The recipe-gate catalog samples it and does not ledger.post.',
-  },
+  builderFeeReceive: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/builder-fee/builder-fee-collect.ts' },
+  ownFundsMove: { kind: 'live', module: 'treasury', proof: 'services/svc-trade/src/builder-fee/own-funds-sweep.ts' },
   campaignBudgetFund: { kind: 'live', module: 'campaigns', proof: 'services/svc-campaigns/src/payouts.ts' },
   rewardOwe: { kind: 'live', module: 'campaigns', proof: 'services/svc-campaigns/src/payouts.ts' },
   rewardPayOut: {

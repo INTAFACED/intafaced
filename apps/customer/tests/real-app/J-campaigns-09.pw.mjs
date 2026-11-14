@@ -199,7 +199,7 @@ async function venuePreviewAt(owner, { type, price, amount }, clientOrderKey, fe
         timeInForce: type === 'limit' ? 'GTC' : 'IOC',
         reduceOnly: false,
         clientOrderKey,
-        builderFee: { builder: '0x7e57000000000000000000000000000000000b1d', feeBps },
+        builderFee: { builder: '0x116d8f7751e72306d499dd61ae826e46a726c632', feeBps },
       },
     })
   ).value;

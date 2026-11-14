@@ -500,6 +500,20 @@ export interface VenueBuilderTotal {
   readonly unclaimed: Amount;
 }
 
+/**
+ * One claim of builder fees, as the venue itself records it (J-derivatives-17; launch money model, rule 5): the venue paid
+ * `amount` of the builder's earned fees into the builder's own account at the venue. `claimId` is the venue's own id for
+ * it, so a claim read twice is one claim.
+ */
+export interface UserVenueBuilderClaim {
+  readonly claimId: string;
+  /** The builder address the venue paid, lowercase. */
+  readonly builder: string;
+  readonly asset: string;
+  readonly amount: Amount;
+  readonly claimedAt: Date;
+}
+
 export interface UserVenueBalance {
   readonly asset: string;
   /** Free to trade or withdraw. */
@@ -589,6 +603,11 @@ export interface UserVenueWithdrawal {
    * shown as "not known", never as 0.
    */
   readonly networkFee: MaybeKnown<Amount>;
+  /**
+   * The chain transaction that paid a `done` withdrawal, lowercase, when the venue reports it. Absent when it does not:
+   * never made up, and a reader that needs it waits (J-campaigns-03: a move of our own funds is keyed by it).
+   */
+  readonly txHash?: string;
 }
 
 /**
@@ -1095,6 +1114,11 @@ export interface UserVenue {
    * does not read them; the recon then reads the venue's totals as not known.
    */
   builderTotals?(builder: string): Promise<AsOf<MaybeKnown<VenueBuilderTotals>>>;
+  /**
+   * Every claim of builder fees the venue records for `builder`, oldest first (J-derivatives-17: "the venue records each
+   * claim of our builder fees"). Absent on an adapter that does not read the claim record; nothing is then collected.
+   */
+  builderClaims?(builder: string): Promise<AsOf<readonly UserVenueBuilderClaim[]>>;
   agents(account: UserVenueAccount): Promise<AsOf<readonly UserVenueAgent[]>>;
   /**
    * The account's leverage setting on `symbol`, or `null` when none is set
