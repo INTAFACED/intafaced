@@ -203,14 +203,24 @@ test(`${J} #5 Recent activity lists the three newest movements to the last digit
   for (let i = 0; i < 3; i++) await expect(rows.nth(i).getByTestId('home-activity__kind')).toHaveText(/^(Deposit|Welcome funds)$/);
   await expect(list.getByRole('link', { name: 'See all' })).toHaveAttribute('href', '/money/activity');
 
-  // A row opens that movement's own record.
-  const href = await rows.nth(0).getAttribute('href');
-  expect(href).toMatch(/^\/money\/activity\/.+/);
-  await rows.nth(0).click();
-  await expect(page).toHaveURL(href);
-  // The record it opens is that movement's own (its record number is the row's id).
-  await expect(page.locator('main')).toContainText(decodeURIComponent(href.slice('/money/activity/'.length)));
-  await expect(page.locator('main')).toContainText('USDT');
+  // Each row opens that movement's own record: three different links, each landing on the record its id names.
+  const assets = ['USDT', 'EUR', 'BTC'];
+  const hrefs = [];
+  for (let i = 0; i < 3; i++) hrefs.push(await rows.nth(i).getAttribute('href'));
+  for (const href of hrefs) expect(href).toMatch(/^\/money\/activity\/.+/);
+  expect(new Set(hrefs).size).toBe(3);
+  for (let i = 0; i < 3; i++) {
+    if (i > 0) {
+      await page.goto('/');
+      await expect(rows).toHaveCount(3);
+    }
+    await expect(rows.nth(i)).toHaveAttribute('href', hrefs[i]);
+    await rows.nth(i).click();
+    await expect(page).toHaveURL(hrefs[i]);
+    // The record it opens is that movement's own (its record number is the row's id), in the row's asset.
+    await expect(page.locator('main')).toContainText(decodeURIComponent(hrefs[i].slice('/money/activity/'.length)));
+    await expect(page.locator('main')).toContainText(assets[i]);
+  }
 
   // A new, verified account with nothing in it has nothing to list, and says so instead of showing sample rows.
   const fresh = await browser.newContext({ baseURL: 'http://127.0.0.1:3210', viewport: { width: 1440, height: 900 } });
