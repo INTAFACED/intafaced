@@ -293,6 +293,17 @@ const schema = serviceEnvSchema
        */
       AGENTS_APPROVAL_TTL_SECONDS: blankAsAbsent(z.coerce.number().int().min(1).max(604_800).optional()),
       /**
+       * Owner values (legal and owner decisions, LD-agent-16): how long svc-agents keeps each kind of record about a
+       * person's own agent, in whole days, 1 to 36500 (AG-guardrails-04). The agent's Privacy page shows each one; a blank
+       * one reads "not set", and a write that needs it refuses agents.retention_unset (keeping transcripts needs the
+       * transcript period). None is ever defaulted.
+       */
+      AGENTS_RETENTION_ACTION_LOG_DAYS: blankAsAbsent(z.coerce.number().int().min(1).max(36_500).optional()),
+      AGENTS_RETENTION_MEMORY_DAYS: blankAsAbsent(z.coerce.number().int().min(1).max(36_500).optional()),
+      AGENTS_RETENTION_TRANSCRIPTS_DAYS: blankAsAbsent(z.coerce.number().int().min(1).max(36_500).optional()),
+      AGENTS_RETENTION_APPROVALS_DAYS: blankAsAbsent(z.coerce.number().int().min(1).max(36_500).optional()),
+      AGENTS_RETENTION_USAGE_DAYS: blankAsAbsent(z.coerce.number().int().min(1).max(36_500).optional()),
+      /**
        * The public EVM address of the Navigator's on-chain signer (RC-agents-01): the session key a person may grant the
        * Navigator on their smart account. An address only, never a key. Blank refuses every navigator.onchain route with
        * rail.crypto (no signer is configured); a malformed value stops the boot.

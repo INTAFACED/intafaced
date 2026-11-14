@@ -527,7 +527,7 @@ export type OwnAgentLiveEngine = (typeof OWN_AGENT_LIVE_ENGINES)[number];
 
 /** One row of a test run's log, in the order it happened; every row is labelled TEST. */
 export const ownAgentTestLogRowSchema = z.object({
-  step: z.enum(['asked', 'answered', 'blocked', 'decided', 'billed']),
+  step: z.enum(['asked', 'answered', 'blocked', 'decided', 'remembered', 'not_remembered', 'billed']),
   text: z.string(),
   label: z.literal('TEST'),
 });
@@ -559,6 +559,84 @@ export const ownAgentTestGuardSchema = z.object({
   approval: ownAgentValuePayloadSchema.nullable(),
 });
 export type OwnAgentTestGuard = z.infer<typeof ownAgentTestGuardSchema>;
+
+/**
+ * THE AGENT'S MEMORY (AG-builder-02; J-agents-09 #1-#4). A run writes a remembered item only through an explicit
+ * `remember` step the person sees in the run's log, never by copying a transcript:
+ * - `remembered`: the item was written, with this run as its source;
+ * - `off`: the person switched memory off for this agent, so nothing was written;
+ * - `refused`: the item looked like an account number, a key, a secret or a balance, refused `agents.memory_item_refused`,
+ *   and nothing was written. The refused text is never echoed back.
+ */
+export const OWN_AGENT_MEMORY_OUTCOMES = ['remembered', 'off', 'refused'] as const;
+export const ownAgentRunMemorySchema = z.object({
+  outcome: z.enum(OWN_AGENT_MEMORY_OUTCOMES),
+  /** The item written, when it was. */
+  itemId: z.string().uuid().nullable(),
+  text: z.string().nullable(),
+  code: z.string().nullable(),
+});
+export type OwnAgentRunMemory = z.infer<typeof ownAgentRunMemorySchema>;
+
+/** One remembered item: its text and the run that remembered it. Only the agent's owner ever reads it. */
+export const ownAgentMemoryItemSchema = z.object({
+  id: z.string().uuid(),
+  text: z.string(),
+  sourceRunId: z.string().uuid(),
+  createdAt: z.string(),
+});
+export type OwnAgentMemoryItem = z.infer<typeof ownAgentMemoryItemSchema>;
+
+/** `own.memory.get`: whether the agent remembers between runs for this person, and what it remembers, newest first. */
+export const ownAgentMemorySchema = z.object({
+  enabled: z.boolean(),
+  items: z.array(ownAgentMemoryItemSchema),
+});
+export type OwnAgentMemory = z.infer<typeof ownAgentMemorySchema>;
+
+export const ownAgentMemoryClearSchema = z.object({ id: z.string().min(1).max(64), itemId: z.string().uuid() });
+export const ownAgentMemorySetEnabledSchema = z.object({ id: z.string().min(1).max(64), enabled: z.boolean() });
+
+/**
+ * WHAT IS KEPT AND FOR HOW LONG (AG-guardrails-04; J-agents-09 #5). Each kind of record svc-agents keeps for a person's
+ * agent, with the owner's retention period in days, or null when the owner has stored none: the page reads "not set",
+ * and a write that needs the period refuses `agents.retention_unset`. No period is ever invented.
+ */
+export const OWN_AGENT_RETENTION_KINDS = ['action_log', 'memory', 'transcripts', 'approvals', 'usage'] as const;
+export type OwnAgentRetentionKind = (typeof OWN_AGENT_RETENTION_KINDS)[number];
+export const ownAgentPrivacySchema = z.object({
+  periods: z.array(z.object({ kind: z.enum(OWN_AGENT_RETENTION_KINDS), days: z.number().int().positive().nullable() })),
+  /** Whether the person keeps the full text of the agent's runs; on only while a transcript period is set. */
+  keepTranscripts: z.boolean(),
+  memoryEnabled: z.boolean(),
+});
+export type OwnAgentPrivacy = z.infer<typeof ownAgentPrivacySchema>;
+export const ownAgentKeepTranscriptsSchema = z.object({ id: z.string().min(1).max(64), keep: z.boolean() });
+
+/**
+ * SHARING THE AGENT WITH ITS CO-OWNERS, AND THE PRIVACY CHECK FIRST (AG-guardrails-04; J-agents-09 #6). The check lists
+ * the private context a share would make visible to the agent's co-owners; a share that exposes any of it is refused
+ * `agents.privacy.confirm_required` until the person confirms it. Nothing is shared before then.
+ */
+export const OWN_AGENT_SHARE_EXPOSURES = ['transcripts', 'memory'] as const;
+export const ownAgentShareCheckInputSchema = z.object({
+  id: z.string().min(1).max(64),
+  includeTranscripts: z.boolean(),
+  includeMemory: z.boolean(),
+});
+export const ownAgentShareCheckSchema = z.object({
+  exposes: z.array(z.enum(OWN_AGENT_SHARE_EXPOSURES)),
+  coOwners: z.number().int().nonnegative(),
+});
+export type OwnAgentShareCheck = z.infer<typeof ownAgentShareCheckSchema>;
+export const ownAgentShareSetSchema = ownAgentShareCheckInputSchema.extend({ confirmed: z.boolean() });
+export const ownAgentShareSchema = z.object({
+  shared: z.boolean(),
+  includeTranscripts: z.boolean(),
+  includeMemory: z.boolean(),
+  sharedAt: z.string().nullable(),
+});
+export type OwnAgentShare = z.infer<typeof ownAgentShareSchema>;
 
 const testRunBase = {
   id: z.string().uuid(),
@@ -607,6 +685,8 @@ export const ownAgentTestRunSchema = z.discriminatedUnion('kind', [
     /** The output schema the reply had to meet, or null. */
     outputSchema: z.string().nullable(),
     guard: ownAgentTestGuardSchema,
+    /** What the run did with a request to remember something (AG-builder-02), or null when it asked for none. */
+    memory: ownAgentRunMemorySchema.nullable(),
   }),
 ]);
 export type OwnAgentTestRun = z.infer<typeof ownAgentTestRunSchema>;

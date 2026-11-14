@@ -64,6 +64,8 @@ export const OWN_AGENT_CHILD_TABLES = [
   'own_agent_auto_runs',
   'own_agent_triggers',
   'own_agent_schedules',
+  'own_agent_memory',
+  'own_agent_data_controls',
 ] as const;
 
 /** Whether an account exists and is active, as identity answers; unread is any answer that is not a clear one. */
