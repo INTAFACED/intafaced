@@ -882,7 +882,20 @@ export type RewardState = (typeof REWARD_STATES)[number];
 /** One line of the redemption log: every attempt, with its outcome and typed reason. */
 export const redemptionAttemptSchema = z.object({
   at: iso,
-  outcome: z.enum(['held', 'released', 'qualified', 'owed', 'paid', 'posted', 'locked', 'unlocked', 'refused', 'unknown', 'withheld', 'forfeited']),
+  outcome: z.enum([
+    'held',
+    'released',
+    'qualified',
+    'owed',
+    'paid',
+    'posted',
+    'locked',
+    'unlocked',
+    'refused',
+    'unknown',
+    'withheld',
+    'forfeited',
+  ]),
   reason: z.string().nullable(),
 });
 export type RedemptionAttempt = z.infer<typeof redemptionAttemptSchema>;

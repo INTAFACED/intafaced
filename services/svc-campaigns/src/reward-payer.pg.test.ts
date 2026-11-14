@@ -63,7 +63,13 @@ const VENUE = 'test-venue-sim';
 
 const people = new Map<string, CampaignParticipant>();
 const participants = { read: async (userId: string) => people.get(userId) ?? null };
-const person = (userId: string): CampaignParticipant => ({ userId, accountType: 'individual', region: 'DE', status: 'active', kycTier: 'full' });
+const person = (userId: string): CampaignParticipant => ({
+  userId,
+  accountType: 'individual',
+  region: 'DE',
+  status: 'active',
+  kycTier: 'full',
+});
 
 const STEPS: CampaignTasks = {
   steps: [{ title: 'TEST buy BTC', event: 'trade.fill', market: null, side: 'buy', count: 1, streakDays: null }],
@@ -175,7 +181,9 @@ let seeds = 0;
 async function seed(engine: string, wallet: string) {
   const ref = `seed-${(seeds += 1)}`;
   await book.post(recipes.deposit({ userId: FUNDER, assetId: 'USDC', amount: parseAmount(engine), rail: 'test', railRef: ref }));
-  await book.post(recipes.feeCharge({ chargeId: ref, userId: FUNDER, module: 'trade', mode: 'asset', assetId: 'USDC', amount: parseAmount(engine) }));
+  await book.post(
+    recipes.feeCharge({ chargeId: ref, userId: FUNDER, module: 'trade', mode: 'asset', assetId: 'USDC', amount: parseAmount(engine) }),
+  );
   await book.post(recipes.sweepFeesToRewards({ windowId: ref, sourceModule: 'trade', assetId: 'USDC', amount: parseAmount(engine) }));
   await fundWallet(wallet);
 }
@@ -183,7 +191,9 @@ async function seed(engine: string, wallet: string) {
 async function fundWallet(amount: string) {
   const ref = `move-${(seeds += 1)}`;
   const a = parseAmount(amount);
-  await book.post(recipes.builderFeeEarn({ venueId: VENUE, venueAccount: '0xowner', fillId: `f-${ref}`, assetId: 'USDC', amount: a, userId: FUNDER }));
+  await book.post(
+    recipes.builderFeeEarn({ venueId: VENUE, venueAccount: '0xowner', fillId: `f-${ref}`, assetId: 'USDC', amount: a, userId: FUNDER }),
+  );
   await book.post(recipes.builderFeeReceive({ venueId: VENUE, claimId: ref, assetId: 'USDC', amount: a }));
   await book.post(
     recipes.ownFundsMove({
@@ -210,7 +220,8 @@ async function claimed(over: Partial<CampaignDefinitionInput> = {}) {
 }
 
 const recordOf = async (key: string) => (await tasks.myRewards({ accountId: ME })).rewards.find((r) => r.rewardKey === key)!;
-const ourPlace = async () => (await book.balance(ownFundsPlaceAccount({ kind: 'treasury-wallet', walletId: WALLET.walletId }, 'USDC'))).amount;
+const ourPlace = async () =>
+  (await book.balance(ownFundsPlaceAccount({ kind: 'treasury-wallet', walletId: WALLET.walletId }, 'USDC'))).amount;
 
 /** The invariant (see the file's comment). `funded` is what was moved to our wallet in all. */
 async function reconciles(funded: string) {
@@ -221,16 +232,28 @@ async function reconciles(funded: string) {
     const key = ledgerRewardId(r.campaign_id, r.reward_key);
     const amount = parseAmount(r.amount);
     expect((await book.balance(rewardOwedAccount(key))).amount, r.reward_key).toBe(r.state === 'owed' ? amount : 0n);
-    const sent = world.transfers.filter((t) => t.from === OURS && t.to === r.pay_to_wallet && t.units === unitsOf(amount, 6));
-    const bookings = wire.mode.posts.filter((k) => k.startsWith(`campaigns:reward-paid:${key}:`));
+    const [payment] = await db!.sql<{ chain_tx: string | null; paid_tx_id: string | null }[]>`
+      SELECT chain_tx, paid_tx_id FROM campaigns.reward_payments WHERE reward_key = ${r.reward_key}`;
+    const sent = world.transfers.filter((t) => t.hash === payment?.chain_tx);
     if (r.state === 'paid') {
-      expect(sent, r.reward_key).toHaveLength(1);
-      expect(new Set(bookings), r.reward_key).toEqual(new Set([`campaigns:reward-paid:${key}:${sent[0]!.hash}`]));
+      // One transfer from our wallet to the wallet recorded at the claim, for exactly the reward, booked under its hash.
+      expect(sent, r.reward_key).toEqual([expect.objectContaining({ from: OURS, to: r.pay_to_wallet, units: unitsOf(amount, 6) })]);
+      const booked = await book.getTxByKey(`campaigns:reward-paid:${sent[0]!.hash}`);
+      expect(booked?.id, r.reward_key).toBe(payment!.paid_tx_id);
+      expect(booked?.meta).toMatchObject({ rewardId: key, toWallet: r.pay_to_wallet });
       paidUnits += sent[0]!.units;
     } else {
-      expect(bookings, r.reward_key).toEqual([]);
+      expect(sent, r.reward_key).toEqual([]);
     }
   }
+  // Every booking of a payment is one of the transfers, each once.
+  const bookings = [...new Set(wire.mode.posts.filter((k) => k.startsWith('campaigns:reward-paid:')))];
+  expect(bookings.sort()).toEqual(
+    world.transfers
+      .filter((t) => t.from === OURS)
+      .map((t) => `campaigns:reward-paid:${t.hash}`)
+      .sort(),
+  );
   expect(world.transfers.filter((t) => t.from === OURS).reduce((n, t) => n + t.units, 0n)).toBe(paidUnits);
   // Our wallet's place in the book (negative: ours is there) came back by exactly what was paid.
   expect(-(await ourPlace())).toBe(parseAmount(funded) - paidUnits * 10n ** 12n);

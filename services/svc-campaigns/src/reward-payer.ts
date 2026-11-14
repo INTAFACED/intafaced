@@ -1,6 +1,14 @@
 import type postgres from 'postgres';
 import { transaction } from '@intafaced/db';
-import { LedgerError, REWARD_ASSET, classifyPostOutcome, parseAmount, recipes, type Amount, type LedgerClient } from '@intafaced/ledger-client';
+import {
+  LedgerError,
+  REWARD_ASSET,
+  classifyPostOutcome,
+  parseAmount,
+  recipes,
+  type Amount,
+  type LedgerClient,
+} from '@intafaced/ledger-client';
 import { ledgerRewardId } from './payouts.js';
 
 /**
@@ -194,7 +202,7 @@ export class RewardPayer {
     for (const p of open) {
       try {
         if (await this.settle(p)) paid += 1;
-      } catch {
+      } catch (err) {
         // A chain read that failed: this payment is looked at again next pass, the others still are.
       }
     }
@@ -259,7 +267,6 @@ export class RewardPayer {
       );
       txId = tx.id;
     } catch (err) {
-      if (process.env.DEBUG_PAYER) console.error('book failed', err);
       const reason = err instanceof LedgerError ? err.code : 'ledger.answer_lost';
       const refused = err instanceof LedgerError && classifyPostOutcome(err) === 'refused';
       if (p.reason !== reason) {

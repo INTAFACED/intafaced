@@ -59,7 +59,12 @@ export function testRewardChain(opts: { rpcUrl: string; token: string; chainId: 
     },
     async find(from, to, units, fromBlock) {
       const logs = await rpc<{ data: string; transactionHash?: string; removed?: boolean }[]>('eth_getLogs', [
-        { address: token, fromBlock: `0x${fromBlock.toString(16)}`, toBlock: 'latest', topics: [TRANSFER_TOPIC, topicOf(from), topicOf(to)] },
+        {
+          address: token,
+          fromBlock: `0x${fromBlock.toString(16)}`,
+          toBlock: 'latest',
+          topics: [TRANSFER_TOPIC, topicOf(from), topicOf(to)],
+        },
       ]);
       return logs.filter((l) => !l.removed && l.transactionHash && BigInt(l.data) === units).map((l) => l.transactionHash!);
     },

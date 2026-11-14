@@ -14,6 +14,10 @@ BEGIN
 END $$;
 DROP TABLE IF EXISTS campaigns.reward_payments;
 ALTER TABLE campaigns.reward_intents DROP CONSTRAINT IF EXISTS reward_intents_paid_ck;
+ALTER TABLE campaigns.reward_intents DROP CONSTRAINT IF EXISTS reward_intents_posted_ck;
+ALTER TABLE campaigns.reward_intents ADD CONSTRAINT reward_intents_posted_ck CHECK (
+  (state <> 'posted' OR ledger_tx_id IS NOT NULL)
+  AND (ledger_tx_id IS NULL OR state = 'posted' OR (state = 'forfeited' AND settle = 'forfeit')));
 ALTER TABLE campaigns.reward_intents DROP CONSTRAINT IF EXISTS reward_intents_pay_to_ck;
 ALTER TABLE campaigns.reward_intents DROP CONSTRAINT IF EXISTS reward_intents_state_ck;
 ALTER TABLE campaigns.reward_intents ADD CONSTRAINT reward_intents_state_ck CHECK (state IN ('held', 'qualified', 'posting',

@@ -44,6 +44,11 @@ CREATE TABLE IF NOT EXISTS campaigns.reward_payments (
 );
 CREATE INDEX IF NOT EXISTS reward_payments_open_idx ON campaigns.reward_payments (state) WHERE state IN ('sending', 'sent');
 
+-- A paid reward's ledger transaction is its payment's booking (`rewardPayOut`), so `ledger_tx_id` may be set on `paid` too.
+ALTER TABLE campaigns.reward_intents DROP CONSTRAINT IF EXISTS reward_intents_posted_ck;
+ALTER TABLE campaigns.reward_intents ADD CONSTRAINT reward_intents_posted_ck CHECK (
+  (state <> 'posted' OR ledger_tx_id IS NOT NULL)
+  AND (ledger_tx_id IS NULL OR state IN ('posted', 'paid') OR (state = 'forfeited' AND settle = 'forfeit')));
 -- A paid reward names its payment's ledger transaction, was owed first, and is a paid-form reward.
 ALTER TABLE campaigns.reward_intents ADD CONSTRAINT reward_intents_paid_ck CHECK (
   state <> 'paid' OR (owe_tx_id IS NOT NULL AND ledger_tx_id IS NOT NULL AND paid_at IS NOT NULL AND paid_chain_tx IS NOT NULL
