@@ -67,11 +67,29 @@ async function spaces(who) {
 }
 const main = (rows) => rows.find((s) => s.kind === 'primary' && s.assetId === 'USDT');
 
+const PARTNER_BANK = 'TEST partner bank';
+
+/**
+ * The journey's start at the TEST partner bank: the person's bank money held there (`custody: 'off'`) and TEST 100 USDT
+ * paid in there under one fund id, the partner's figure and no ledger post. The TEST partner keeps its book in memory, so
+ * a svc-bank restart empties it (svc-bank `partner/test-partner.ts`); #2 and #4 restart svc-bank before anything has
+ * moved, and put this same start back after each restart. Within one svc-bank process the same fund id pays in once.
+ */
+async function atPartner(who) {
+  const own = await bank(who);
+  const held = await own.mutate('testPartner.set', { custody: 'off' });
+  expect(held, JSON.stringify(held.body ?? {}).slice(0, 300)).toMatchObject({ ok: true });
+  const funded = await own.mutate('testPartner.fund', { fundId: `jb01-${who.email}`.slice(0, 64), assetId: 'USDT', amount: '100' });
+  expect(funded, JSON.stringify(funded.body ?? {}).slice(0, 300)).toMatchObject({ ok: true, data: { balance: '100' } });
+  expect(main(await spaces(who))).toMatchObject({ balance: '100', ledgerAccount: null, heldAt: { label: PARTNER_BANK } });
+}
+
 /**
  * Runs `fn` with svc-bank restarted on one owner value blank (`LOCAL_STACK_BANK_<NAME>=off`,
- * tooling/scripts/local-stack-services/bank.mjs), and restarts it on the TEST value after, even when `fn` fails.
+ * tooling/scripts/local-stack-services/bank.mjs), and restarts it on the TEST value after, even when `fn` fails. After
+ * each restart `who`'s start at the TEST partner is put back (`atPartner`).
  */
-async function withBankValueBlank(key, fn) {
+async function withBankValueBlank(key, who, fn) {
   const restart = (value) => {
     const before = process.env[key];
     if (value === undefined) delete process.env[key];
@@ -85,13 +103,14 @@ async function withBankValueBlank(key, fn) {
   };
   restart('off');
   try {
+    await atPartner(who);
     return await fn();
   } finally {
     restart(undefined);
+    await atPartner(who);
   }
 }
 const named = (rows, name) => rows.find((s) => s.kind === 'named' && s.name === name);
-const PARTNER_BANK = 'TEST partner bank';
 /** The ledger's USDT figures for `who`, in units: their bank money is the partner's, so these never change. */
 async function ledgerUsdt(who) {
   const row = (await (await api(who)).balances()).USDT;
@@ -102,11 +121,7 @@ test(`${J} #1 opens /bank and sees its own Overview with the Bank rooms`, async 
   const who = await signUp(page, 'jbk');
   await verify(page, who);
   // The person's bank money is held at the TEST partner bank and paid in there: nothing is posted to the ledger.
-  const own = await bank(who);
-  expect((await own.mutate('testPartner.set', { custody: 'off' })).ok).toBe(true);
-  const funded = await own.mutate('testPartner.fund', { fundId: `jb01-${who.email}`.slice(0, 64), assetId: 'USDT', amount: '100' });
-  expect(funded, JSON.stringify(funded.body ?? {}).slice(0, 300)).toMatchObject({ ok: true, data: { balance: '100' } });
-  expect(main(await spaces(who))).toMatchObject({ balance: '100', ledgerAccount: null, heldAt: { label: PARTNER_BANK } });
+  await atPartner(who);
   run.reset({ who, ledger: await ledgerUsdt(who) });
 
   await signIn(page, who);
@@ -142,7 +157,7 @@ test(`${J} #2 reads the account panel: the published TEST terms, and with the ow
 
   // With the owner's terms table blank: the bank refuses by its code, and the panel says the terms are not published,
   // shows that code, and claims no fee or fee-free account.
-  await withBankValueBlank('LOCAL_STACK_BANK_ACCOUNT_TERMS', async () => {
+  await withBankValueBlank('LOCAL_STACK_BANK_ACCOUNT_TERMS', who, async () => {
     expect(await (await bank(who)).query('accounts.features', {})).toMatchObject({ ok: false, code: 'bank.account_terms_unset' });
     await page.goto('/bank');
     const unset = page.getByTestId('failure').filter({ hasText: 'Terms not published' });
@@ -236,7 +251,7 @@ test(`${J} #4 creates a space, and at the TEST limit of ${LIMIT} the create is r
   await expect(paused).toHaveCount(0);
 
   // With the owner's space limit blank: the create is refused, saying the limit is not set, and no space is made.
-  await withBankValueBlank('LOCAL_STACK_BANK_SPACE_LIMIT', async () => {
+  await withBankValueBlank('LOCAL_STACK_BANK_SPACE_LIMIT', who, async () => {
     const before = (await spaces(who)).length;
     expect(await (await bank(who)).mutate('spaces.create', { assetId: 'USDT', name: 'No limit TEST' })).toMatchObject({
       ok: false,
