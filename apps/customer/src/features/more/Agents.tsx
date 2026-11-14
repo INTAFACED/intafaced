@@ -1,4 +1,5 @@
 import { copy, t as copyText, Text } from './copy';
+import { agentConnectCopy } from './agent-connect-copy';
 import { agentSessionCopy as sessionCopy } from './agents-session-copy';
 import { usePreferences } from '../../shared/preferences';
 import './agents-session.css';
@@ -16,6 +17,9 @@ import { agentsCatalogueCopy } from './agents-catalogue-copy';
 import { costRange, runCosts, SESSION_AGENT_IDS } from './agents-catalogue';
 import { preservePaperHref } from './trade-context';
 import { navigatorAskResultSchema, type NavigatorOrder } from '@intafaced/contracts/agents-onchain';
+import { BackgroundRunStart } from './AgentRun';
+import { ResearchProvenance, ResearchReply } from './ResearchProvenance';
+import { researchProvenanceSchema, type ResearchProvenance as ResearchProvenanceShape } from '@intafaced/contracts/agents-research';
 import { NavigatorCapLine, NavigatorOrderView, NavigatorOrders, NavigatorTradeRefusalView, useNavigatorTrading } from './NavigatorOrders';
 const uuid = z.string().guid();
 const routeSchema = z.object({
@@ -139,7 +143,13 @@ export function Agents({ paper = false }: { paper?: boolean }) {
     [activeRecord, setActive] = useState<z.infer<typeof sessionSchema> | null>(null),
     [task, setTask] = useState(''),
     [ask, setAsk] = useState(''),
-    [reply, setReply] = useState<{ text: string; cost: string; assetId: string; metered: boolean } | null>(null),
+    [reply, setReply] = useState<{
+      text: string;
+      cost: string;
+      assetId: string;
+      metered: boolean;
+      provenance: ResearchProvenanceShape | null;
+    } | null>(null),
     [limit, setLimit] = useState(50),
     [coachAsk, setCoachAsk] = useState(''),
     [coachQuery, setCoachQuery] = useState(''),
@@ -155,7 +165,8 @@ export function Agents({ paper = false }: { paper?: boolean }) {
     // nothing and signs nothing.
     [placed, setPlaced] = useState<NavigatorOrder | null>(null),
     [askFailure, setAskFailure] = useState<Extract<ApiResult<unknown>, { ok: false }> | null>(null),
-    [ordersRevision, setOrdersRevision] = useState(0);
+    [ordersRevision, setOrdersRevision] = useState(0),
+    [background, setBackground] = useState(false);
   const navigatorTrading = useNavigatorTrading(ordersRevision);
   const trading = navigatorTrading.resource.status === 'ready' ? navigatorTrading.resource.data : null;
   const [selectNotKept, setSelectNotKept] = useState(false);
@@ -457,6 +468,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
               assetId: z.string(),
               metered: z.boolean(),
               action: actionSchema,
+              provenance: researchProvenanceSchema.nullable(),
             })
             .refine(
               (row) =>
@@ -900,38 +912,49 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                   />
                   {agent === 'navigator' ? <NavigatorCapLine trading={trading} /> : null}
                   <TextArea label={agentsCatalogueCopy.t('askAgent')} value={ask} onChange={setAsk} maxLength={200000} />
-                  <Button
-                    disabled={action.disabled || active.status !== 'open' || !ask.trim() || !selectedRoute}
-                    onClick={() => {
-                      if (!selectedRoute || !defs) return;
-                      const requestId = crypto.randomUUID();
-                      setPlaced(null);
-                      setAskFailure(null);
-                      if (agent !== 'navigator') return stageRun(requestId, selectedRoute, defs, active);
-                      // The service first sees whether the ask names a trade. Inside the cap the person signed it places
-                      // the order with no approval asked; above it, or to move money out, it refuses by name and signs
-                      // nothing. Neither calls the engine or charges. Any other ask goes on to the ordinary run.
-                      const expectedAsk = { ...currentContext.current };
-                      const session = active;
-                      void api
-                        .mutate('agents', 'navigator.ask', { sessionId: session.id, requestId, text: ask }, navigatorAskResultSchema)
-                        .then((res) => {
-                          if (!contextMatches(expectedAsk)) return;
-                          if (!res.ok) {
-                            setOrdersRevision((n) => n + 1);
-                            return setAskFailure(res);
-                          }
-                          if (res.data.kind === 'order') {
-                            setPlaced(res.data.order);
-                            setOrdersRevision((n) => n + 1);
-                            return;
-                          }
-                          stageRun(requestId, selectedRoute, defs, session);
-                        });
-                    }}
-                  >
-                    {agentsCatalogueCopy.t('run')}
-                  </Button>
+                  <BackgroundRunStart
+                    key={active.id}
+                    sessionId={active.id}
+                    task={selectedRoute?.task}
+                    ask={ask}
+                    disabled={action.disabled || active.status !== 'open'}
+                    background={background}
+                    onBackground={setBackground}
+                  />
+                  {background ? null : (
+                    <Button
+                      disabled={action.disabled || active.status !== 'open' || !ask.trim() || !selectedRoute}
+                      onClick={() => {
+                        if (!selectedRoute || !defs) return;
+                        const requestId = crypto.randomUUID();
+                        setPlaced(null);
+                        setAskFailure(null);
+                        if (agent !== 'navigator') return stageRun(requestId, selectedRoute, defs, active);
+                        // The service first sees whether the ask names a trade. Inside the cap the person signed it places
+                        // the order with no approval asked; above it, or to move money out, it refuses by name and signs
+                        // nothing. Neither calls the engine or charges. Any other ask goes on to the ordinary run.
+                        const expectedAsk = { ...currentContext.current };
+                        const session = active;
+                        void api
+                          .mutate('agents', 'navigator.ask', { sessionId: session.id, requestId, text: ask }, navigatorAskResultSchema)
+                          .then((res) => {
+                            if (!contextMatches(expectedAsk)) return;
+                            if (!res.ok) {
+                              setOrdersRevision((n) => n + 1);
+                              return setAskFailure(res);
+                            }
+                            if (res.data.kind === 'order') {
+                              setPlaced(res.data.order);
+                              setOrdersRevision((n) => n + 1);
+                              return;
+                            }
+                            stageRun(requestId, selectedRoute, defs, session);
+                          });
+                      }}
+                    >
+                      {agentsCatalogueCopy.t('run')}
+                    </Button>
+                  )}
                   {askFailure ? (
                     agent === 'navigator' ? (
                       <NavigatorTradeRefusalView failure={askFailure} trading={trading} />
@@ -949,7 +972,15 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                         'agents',
                         'run.complete',
                         { sessionId: active.id, requestId: row.requestId, task: row.task, messages: [{ role: 'user', content: row.ask }] },
-                        z.object({ cost: decimalSchema, text: z.string(), assetId: z.string(), metered: z.boolean() }).passthrough(),
+                        z
+                          .object({
+                            cost: decimalSchema,
+                            text: z.string(),
+                            assetId: z.string(),
+                            metered: z.boolean(),
+                            provenance: researchProvenanceSchema.nullable(),
+                          })
+                          .passthrough(),
                       );
                       // Answered: the first try never reached the engine, so this is the run and its own cost.
                       if (res.ok) {
@@ -959,7 +990,13 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                             entry.requestId === row.requestId ? { ...entry, status: 'completed', cost: res.data.cost, code: null } : entry,
                           ),
                         );
-                        setReply({ text: res.data.text, cost: res.data.cost, assetId: res.data.assetId, metered: res.data.metered });
+                        setReply({
+                          text: res.data.text,
+                          cost: res.data.cost,
+                          assetId: res.data.assetId,
+                          metered: res.data.metered,
+                          provenance: res.data.provenance,
+                        });
                       } else if (res.code === 'agents.request_id_replay') setRunNote('same');
                       else
                         setRuns((current) =>
@@ -972,10 +1009,15 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                     <>
                       <section role="region" aria-label={agentsCatalogueCopy.t('reply')}>
                         <h3>{agentsCatalogueCopy.t('reply')}</h3>
-                        <p data-testid="more-body" className="more-body" lang="und">
-                          {reply.text}
-                        </p>
+                        {reply.provenance ? (
+                          <ResearchReply text={reply.text} provenance={reply.provenance} />
+                        ) : (
+                          <p data-testid="more-body" className="more-body" lang="und">
+                            {reply.text}
+                          </p>
+                        )}
                       </section>
+                      {reply.provenance ? <ResearchProvenance provenance={reply.provenance} /> : null}
                       <p className="muted">
                         {reply.metered
                           ? copyText('agents.metered.cost', { value1: reply.cost, value2: reply.assetId })
@@ -1123,6 +1165,9 @@ export function Agents({ paper = false }: { paper?: boolean }) {
           </a>
           <a className="text-link" href="/support">
             <Text k="agents.open.support" />
+          </a>
+          <a className="text-link" href="/agents/connect">
+            <agentConnectCopy.Copy k="title" />
           </a>
         </Panel>
       )}

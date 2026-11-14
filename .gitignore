@@ -99,3 +99,10 @@ docs/OWNER-SETTINGS.md
 # A running service's own state files, where a relative default puts them (the local stack points them at its
 # state folder instead, #7463).
 services/*/.data/
+
+# The developer docs files are generated at build time (apps/customer vite.config.ts developerDocs), never committed.
+apps/customer/public/developers/
+
+# Where T3 worktree setup markers used to be; they are under node_modules/.t3-setup now (tooling/t3/setup-worktree.mjs).
+# Kept ignored so older worktrees that still hold the folder stay clean.
+.t3/

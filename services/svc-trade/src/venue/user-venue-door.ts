@@ -188,7 +188,8 @@ export type UserVenueDoorCode =
   | 'trade.venue_builder_fee_changed'
   | 'trade.venue_action_unknown'
   | 'trade.venue.price_outside_protection'
-  | 'trade.venue_rule_unpublished'
+  // A venue market order on a book whose spread is wider than the owner's spread limit (J-cex-spot-03 #2).
+  | 'trade.venue.spread_too_wide'
   | 'trade.venue_agent_account_only'
   | 'trade.venue_live_run_only'
   | 'trade.venue_action_other_venue'
@@ -354,6 +355,12 @@ export interface UserVenueDoorDeps {
    * worst price past the bound refuses `trade.venue.price_outside_protection`. Never a default.
    */
   readonly slippageCapBps: number | null;
+  /**
+   * The owner's spread limit for a spot market order in basis points (TRADE_MARKET_SPREAD_LIMIT_BPS), or null/absent when
+   * blank: blank refuses `trade.spread_limit_unset`, and a venue spread wider than it refuses `trade.venue.spread_too_wide`,
+   * on preview and on prepare, before anything is prepared. Never a default.
+   */
+  readonly spreadLimitBps?: number | null;
   /** The builder-fee book of the fee schedule version in force at `at` (null: none, the boot `builder` fee applies). */
   readonly builderFeesAt?: (at: Date) => Promise<BuilderFeeBook | null>;
   readonly now: () => Date;
@@ -398,6 +405,22 @@ export function discountedBuilderFee(feeBps: Amount, discountBps: number): Amoun
   const off = BigInt(Math.min(discountBps, 10_000));
   const lowered = (feeBps * (10_000n - off)) / 10_000n;
   return lowered - (lowered % TENTH_BPS);
+}
+
+/** The owner's spread limit, or `trade.spread_limit_unset` ("protection not set") when blank or not an integer 1–5000. */
+export function requireMarketSpreadLimitBps(bps: number | null | undefined): number {
+  if (bps == null || !Number.isInteger(bps) || bps < 1 || bps > 5000)
+    throw new TradeError(
+      'protection not set: the owner spread limit for a market order (TRADE_MARKET_SPREAD_LIMIT_BPS) is unset; place a limit order',
+      'trade.spread_limit_unset',
+    );
+  return bps;
+}
+
+/** The venue's best ask is further above its best bid than `limitBps` of the bid. A missing side is never "within". */
+export function spreadTooWide(best: Pick<VenueBestPrices, 'bid' | 'ask'>, limitBps: number): boolean {
+  if (best.bid === null || best.ask === null || best.bid <= 0n) return false;
+  return (best.ask - best.bid) * 10_000n > best.bid * BigInt(limitBps);
 }
 
 /**
@@ -624,8 +647,16 @@ export class UserVenueDoor {
     const market = await this.market(venue, intent.symbol);
     if (market.kind !== 'spot') return;
     const cap = requireMarketSlippageCapBps(this.deps.slippageCapBps);
+    const spreadLimit = requireMarketSpreadLimitBps(this.deps.spreadLimitBps);
     if (typeof intent.price !== 'bigint') invalid('a market order carries its worst price as a decimal string');
     const best = venue.bestPrices ? (await venue.bestPrices(intent.symbol)).value : null;
+    if (best && spreadTooWide(best, spreadLimit)) {
+      throw new UserVenueDoorError(
+        `the venue's spread on ${intent.symbol} (bid ${formatAmount(best.bid!)}, ask ${formatAmount(best.ask!)}) is wider than the owner's spread limit of ${spreadLimit} bps; no market order is prepared, place a limit order`,
+        'trade.venue.spread_too_wide',
+        422,
+      );
+    }
     const bound = best ? marketProtectionBound(intent.side, best, cap, market.tickSize) : null;
     if (bound === null) {
       throw new TradeError(
@@ -641,28 +672,6 @@ export class UserVenueDoor {
         422,
       );
     }
-  }
-
-  /**
-   * A new spot order is taken only on a market whose venue publishes the rules it is checked against (J-cex-spot-04 #6):
-   * its smallest order value, its price band and its open-order cap. One the venue does not publish refuses
-   * `trade.venue_rule_unpublished`, naming each missing rule, before anything is prepared: the door never stands in a
-   * default of its own. The venue enforces each published rule itself and refuses in its own words.
-   */
-  private async assertRulesPublished(venue: UserVenue, intent: PlaceUserOrderIntent): Promise<void> {
-    const market = await this.market(venue, intent.symbol);
-    if (market.kind !== 'spot') return;
-    const missing = [
-      market.minOrderNotional == null ? 'smallest order value' : null,
-      market.priceBandBps == null ? 'price band' : null,
-      market.maxOpenOrders == null ? 'open-order cap' : null,
-    ].filter((x): x is string => x !== null);
-    if (missing.length === 0) return;
-    throw new UserVenueDoorError(
-      `${venue.venue.displayName} publishes no ${missing.join(', no ')} for ${intent.symbol}, so this order can't be checked against it; nothing was prepared`,
-      'trade.venue_rule_unpublished',
-      422,
-    );
   }
 
   /** Our builder address on the venue: the owner value, or null when it is blank. */
@@ -811,7 +820,6 @@ export class UserVenueDoor {
     // The winning discount as it stands: a coupon is named, never taken, by a preview.
     const { intent: priced, discount } = await this.withFeeDiscount(principal, withFee, intent.clientOrderKey, 'quote');
     const account = await this.account(owner);
-    await this.assertRulesPublished(venue, withFee);
     await this.assertMarketProtection(venue, withFee);
     const answered = await venue.preview(account, priced);
     return { ...answered, value: { ...answered.value, feeDiscount: discount } };
@@ -1002,7 +1010,6 @@ export class UserVenueDoor {
 
     // A new market order is bounded before the venue is asked to prepare it. A stored one was bounded when it was
     // prepared, and its retry returns those same bytes, so a moved book never changes the intent sent for a key.
-    if (finalIntent.kind === 'place_order') await this.assertRulesPublished(venue, finalIntent);
     if (finalIntent.kind === 'place_order' && !opts.ownWorstPrice) await this.assertMarketProtection(venue, finalIntent);
     // Only an order every check admitted takes a coupon. It keeps the builder fee it is signed with: a coupon used up
     // later never reprices it (J-campaigns-09 #3).

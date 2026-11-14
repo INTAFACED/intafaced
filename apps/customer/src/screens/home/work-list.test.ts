@@ -14,7 +14,15 @@ import {
 const config = (over: Partial<HomeConfig> = {}) =>
   ({
     state: 'ready',
-    config: { workListCap: 5, workListOrder: null, searchResultCap: null, noticeStripLimit: null, revision: 1, ...over },
+    config: {
+      workListCap: 5,
+      workListOrder: null,
+      searchResultCap: null,
+      noticeStripLimit: null,
+      recentActivityLimit: null,
+      revision: 1,
+      ...over,
+    },
   }) as const;
 
 const verify: WorkItem = {

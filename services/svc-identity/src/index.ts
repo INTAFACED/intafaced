@@ -31,9 +31,10 @@ import { fetchOwnerPayScopes } from './auth/owner-pay-scopes.js';
 import { fetchPayStepUpGrant } from './auth/pay-step-up-grant.js';
 import { registerApiKeyOwnershipRoute } from './auth/api-key-ownership-route.js';
 import { registerServiceMailRoute } from './auth/service-mail.js';
+import { registerRotationRequestRoutes } from './auth/key-rotation-requests.js';
 import { registerWalletSignatureVerifyRoute, signingAccount, verifyWalletSignature } from './auth/wallet-signature-verify.js';
 import { linkedWallets, registerLinkedWalletsRoute } from './auth/linked-wallets.js';
-import { readAgentKey, registerAgentKeyReadRoute } from './auth/agent-key-read.js';
+import { readAgentKey, readAgentKeyCalls, registerAgentKeyCallsRoute, registerAgentKeyReadRoute } from './auth/agent-key-read.js';
 import { registerTrustedDeviceReadRoute } from './auth/trusted-device-read.js';
 import { assertProdTotpKey, assertSigningEncKey, parseTotpSecretKey } from './auth/totp-crypto.js';
 import { RankService } from './rank/rank-service.js';
@@ -58,6 +59,7 @@ import { parseDmaHierarchyLawJson } from './orgs/dma-hierarchy.js';
 import { createLedgerClient } from './ledger-client.js';
 import { assertArgon2Available, argon2Available, parseBreachedPasswords, useBreachedPasswords } from './auth/passwords.js';
 import { createIdentityRouter } from './router.js';
+import { PgHandleLookupLimiter } from './handle-lookup.js';
 import { createTradeIdentityAuthRouter } from './auth/trade-identity-auth-router.js';
 import { assertStaffSessionLive, createSqlTradeIdentityStore } from './auth/trade-identity-auth.js';
 import { gateFrozenSubAccount } from './auth/sub-account-place-gate.js';
@@ -159,6 +161,7 @@ import { parseApiKeyCapByTier, parsePortfolioKeyCap, parseApiKeyIdleExpirySecond
 import { parseDeveloperRoles } from './auth/developer-team.js';
 import { installApiKeyRateExchange, parseRatePolicy } from './auth/api-rate-limits.js';
 import { createApiRateLimitsRouter } from './api-rate-limits-router.js';
+import { parseRotateOverlapMaxSeconds } from './auth/developer-key-rotate.js';
 import { createDeveloperSandboxesRouter } from './developer-sandboxes-router.js';
 import { parseSandboxBaseUrl, parseSandboxCapByTier } from './auth/developer-sandboxes.js';
 import { installApiKeyProductExchange, requestProductAls } from './auth/auth-service-product.js';
@@ -183,7 +186,7 @@ import { SubAccountDeleteService } from './sub-accounts/sub-account-delete.js';
 import { SubAccountEditService } from './sub-accounts/sub-account-edit.js';
 import { AntiPhishingService, antiPhishingKey } from './profile/anti-phishing.js';
 import { SubAccountFeatureService, parseFeatureEligibility } from './sub-accounts/sub-account-features.js';
-import { registerClosureFinalize } from './closure/closure-job.js';
+import { registerClosureFinalize, registerGraceClosureFinalize } from './closure/closure-job.js';
 import { createClosureOpsRouter } from './closure/closure-ops-router.js';
 import { AccountClosureService } from './closure/closure-service.js';
 import { SqlWaitlistStore } from './waitlist/waitlist-store.js';
@@ -252,6 +255,13 @@ await sql`SELECT 1 FROM users LIMIT 1`.catch(() => {
 await sql`SELECT consecutive_failures FROM auth_attempts LIMIT 0`.catch(() => {
   throw new Error(
     'identity schema is out of date: auth_attempts (with consecutive_failures) is missing — apply drizzle/0027_auth_attempt_lockouts.sql before starting svc-identity',
+  );
+});
+
+// The shared people-lookup budget (#4689): without its table every lookup would fail, not the start.
+await sql`SELECT hits FROM handle_lookup_budget LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: handle_lookup_budget is missing — apply drizzle/20261113152845_handle_lookup_budget.sql before starting svc-identity',
   );
 });
 
@@ -733,6 +743,8 @@ const social = new SocialSignin(sql, { providers: new Map(), flowTtlSeconds: env
 export const appRouter = mergeRouters(
   createIdentityRouter(auth, rank, {
     registrationOpen: env.REGISTRATION_OPEN,
+    // One budget per person across every replica and restart (#4689).
+    handleLookupLimiter: new PgHandleLookupLimiter(sql),
     // The code-less register door is for the dev and test stacks' own tools only.
     directRegister: isExplicitDevOrTest(process.env.APP_ENV),
     signInChallenge,
@@ -793,6 +805,7 @@ export const appRouter = mergeRouters(
     portfolioKeyCap: parsePortfolioKeyCap(env.IDENTITY_PORTFOLIO_KEYS_MAX),
     developerRoles: parseDeveloperRoles(env.IDENTITY_DEVELOPER_ROLES),
     idleExpirySeconds: parseApiKeyIdleExpirySeconds(env.IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS),
+    rotateOverlapMaxSeconds: parseRotateOverlapMaxSeconds(env.IDENTITY_API_KEY_ROTATE_OVERLAP_MAX_SECONDS),
     mayMint: passkeyMintRule(sql),
     signingEncKey,
     signingWindowSeconds: requestSignWindowSeconds,
@@ -1038,6 +1051,7 @@ registerBusinessDirectoryRoutes(app, {
 registerHolderNameCheck(app, { internalSecret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s, details: customerDetails });
 
 registerClosureFinalize(app, { secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s, closure });
+registerGraceClosureFinalize(app, { secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s, controls: founderControls });
 registerAffiliateProducerPayout(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   s2s: doorS2s,
@@ -1103,6 +1117,14 @@ app.get<{ Params: { subAccountId: string } }>('/internal/sub-accounts/:subAccoun
   return gated.body;
 });
 
+/** A key's own rotation request, through svc-trade's REST door (key-rotation-requests.ts, J-developer-07 #3). */
+registerRotationRequestRoutes(app, {
+  sql,
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  bodyBind: env.INTERNAL_SERVICE_BODY_BIND,
+  ...(doorS2s ? { s2s: doorS2s } : {}),
+});
+
 /** Mail another service asks identity to send to a customer's own proved address (service-mail.ts). */
 registerServiceMailRoute(app, {
   queue: (input) => auth.queueServiceMail(input),
@@ -1130,6 +1152,14 @@ registerLinkedWalletsRoute(app, {
 /** One of a person's own API keys, for svc-trade's agent-account binding (agent-key-read.ts, J-agents-21 #6). */
 registerAgentKeyReadRoute(app, {
   read: (userId, keyId) => readAgentKey(sql, userId, keyId),
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  bodyBind: env.INTERNAL_SERVICE_BODY_BIND,
+  ...(doorS2s ? { s2s: doorS2s } : {}),
+});
+
+/** One of a person's own API keys' call log, for svc-trade's assistant Activity (agent-key-read.ts, J-agents-21 #11). */
+registerAgentKeyCallsRoute(app, {
+  read: (userId, keyId, limit) => readAgentKeyCalls(sql, userId, keyId, limit),
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   bodyBind: env.INTERNAL_SERVICE_BODY_BIND,
   ...(doorS2s ? { s2s: doorS2s } : {}),

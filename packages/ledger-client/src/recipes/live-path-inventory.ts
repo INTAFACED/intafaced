@@ -59,11 +59,7 @@ export const RECIPE_MATRIX = {
   },
   tradeFillMakerRebate: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/spot/trade-service/fills.ts' },
   builderFeeEarn: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/builder-fee/builder-fee-poster.ts' },
-  builderFeeReceive: {
-    kind: 'socket',
-    socket: '§13',
-    reason: "§13 — waits for the venue adapter's read of the builder's claim record; see docs/adr/2026-11-10-launch-money-model.md, rule 5",
-  },
+  builderFeeReceive: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/builder-fee/builder-fee-collect.ts' },
   ownFundsMove: {
     kind: 'socket',
     socket: '§13',

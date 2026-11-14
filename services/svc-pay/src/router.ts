@@ -73,6 +73,7 @@ import { PAY_MERCHANT_DECIDE_KYB, kybApprovalFields, loadKybDecisionBinding } fr
 import { ControlError } from './control/errors.js';
 import { toTrpcError as controlToTrpcError } from './namespaces/control-errors.js';
 import { PayError, type PayService } from './payment-service.js';
+import { openingTxIdFromDetail } from './payment-service/internal.js';
 import { merchantFeeView, type MerchantStarterFee } from './starter-fee.js';
 import { DestinationKindError } from './payout-destination.js';
 import {
@@ -125,6 +126,9 @@ import { PostgresFraudReviewQueue, type DurableReviewCase } from './fraud/review
 import {
   defaultDisputeCaseStore,
   DisputeCaseError,
+  refuseChargebackOpeningPostedShortfallUnfunded,
+  refuseChargebackPlanConflict,
+  refuseChargebackShortfallUnfunded,
   refuseChargebackUncovered,
   type ChargebackLedgerRefuse,
   type DisputeCaseStore,
@@ -2021,7 +2025,23 @@ export function createPayRouter(
                     cause: e,
                   });
                 }
-                throw e;
+                // The refusals the webhook door records as a case (postChargebackOpenOrRefuse): the dispute exists either
+                // way. An opening that already posted before the shortfall was refused moved the merchant's money, so the
+                // case must name that transaction; a later lost or closed outcome books the shortfall once.
+                const ref = { disputeId: input.disputeId, paymentId: input.paymentId };
+                if (e instanceof PayError && e.code === 'pay.chargeback_plan_conflict') {
+                  ledgerRefuse = refuseChargebackPlanConflict(ref);
+                } else if (e instanceof PayError && e.code === 'pay.chargeback_shortfall_unfunded') {
+                  const openingTxId = openingTxIdFromDetail(e.detail);
+                  if (openingTxId) {
+                    posted = { txId: openingTxId };
+                    ledgerRefuse = refuseChargebackOpeningPostedShortfallUnfunded(ref);
+                  } else {
+                    ledgerRefuse = refuseChargebackShortfallUnfunded(ref);
+                  }
+                } else {
+                  throw e;
+                }
               }
             }
             const ledgerPost = posted?.txId?.trim() ? { txId: posted.txId.trim() } : undefined;

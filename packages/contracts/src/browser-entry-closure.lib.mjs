@@ -121,6 +121,13 @@ export function dependencyFacts(source, fileName = 'module.ts') {
   return { specifiers, unresolved };
 }
 
+/** A subpath's target as Node picks it: its own key first (null closes it), else the one `./*` pattern, `*` filled in. */
+export function exportTarget(exports, sub) {
+  if (Object.hasOwn(exports, sub)) return pickExport(exports[sub]);
+  const star = pickExport(exports['./*']);
+  return star && sub.startsWith('./') ? star.replaceAll('*', sub.slice(2)) : null;
+}
+
 function pickExport(value) {
   if (typeof value === 'string') return value;
   if (Array.isArray(value)) {
@@ -154,7 +161,7 @@ function esmFile(spec, viaRequire) {
   const root = packageRoot(viaRequire);
   if (!root?.json.exports) return viaRequire;
   const sub = spec === root.json.name ? '.' : `.${spec.slice(root.json.name.length)}`;
-  const target = pickExport(root.json.exports[sub]);
+  const target = exportTarget(root.json.exports, sub);
   if (!target || target.includes('*')) return viaRequire;
   const file = resolve(root.dir, target);
   return existsSync(file) ? file : viaRequire;
