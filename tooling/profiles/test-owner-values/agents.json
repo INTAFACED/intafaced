@@ -110,6 +110,26 @@
       "service": "agents",
       "value": "100",
       "note": "LOCAL TEST bound, in basis points, on how far a Navigator trade's fill may fall short of the pool's quote (J-agents-19 #4). Part of AGENTS_NAVIGATOR_ONCHAIN_MARKET on the stack. Not an owner decision; production leaves the market blank and every trade ask refuses agents.navigator_market_unset."
+    },
+    "AGENTS_SCHEDULE_MIN_INTERVAL_MINUTES": {
+      "service": "agents",
+      "value": "1",
+      "note": "LOCAL TEST shortest interval of a repeating schedule of an own agent, in minutes, so a journey sees a schedule run and then, cancelled, run no more within a step (J-agents-07 #2 #4). Not an owner decision; production stays blank and a new schedule refuses agents.schedule_cadence_unset."
+    },
+    "AGENTS_SCHEDULE_DAILY_LIMIT": {
+      "service": "agents",
+      "value": "100",
+      "note": "LOCAL TEST number of occurrences one schedule or trigger of an own agent may run in a UTC day (J-agents-07). Not an owner decision; production stays blank and a new schedule refuses agents.schedule_cadence_unset."
+    },
+    "AGENTS_SCHEDULE_TICK_MS": {
+      "service": "agents",
+      "value": "2000",
+      "note": "LOCAL TEST period of the due-run workers of own agents schedules (J-agents-07 #2). Not an owner decision; production leaves it blank and scheduled runs stay off."
+    },
+    "AGENTS_SCHEDULE_WORKERS": {
+      "service": "agents",
+      "value": "2",
+      "note": "LOCAL TEST count of due-run workers that wake together each tick, so a journey sees two workers wake for one occurrence and one run (J-agents-07 #2). Not an owner decision."
     }
   }
 }

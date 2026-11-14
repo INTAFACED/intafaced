@@ -340,7 +340,15 @@ export type OwnRefusalCode =
   | 'agents.output.schema_unsupported'
   | 'agents.payment_method.wallet_not_linked'
   | 'agents.payment_method.account_inactive'
-  | 'agents.payment_method.wallets_unread';
+  | 'agents.payment_method.wallets_unread'
+  | 'agents.schedule_cadence_unset'
+  | 'agents.schedule.min_interval_unset'
+  | 'agents.schedule.interval_invalid'
+  | 'agents.schedule.interval_below_minimum'
+  | 'agents.schedule.ask_blank'
+  | 'agents.schedule.not_found'
+  | 'agents.trigger_subject_invalid'
+  | 'agents.trigger.not_found';
 
 export class OwnAgentRefusal extends Error {
   constructor(

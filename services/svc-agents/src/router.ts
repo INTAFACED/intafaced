@@ -80,6 +80,7 @@ import { teamRouter } from './team/routes.js';
 import { opsLogRouter, parseReasons, type OpsLogSettings } from './oplog/routes.js';
 import { fleetRouter, type FleetSettings } from './fleet/control.js';
 import type { BackgroundSettings } from './own/background.js';
+import type { Cadence } from './own/automation.js';
 import type { LinkedWalletsPort } from './own/payment-method.js';
 import type { RetentionPeriods } from './own/memory.js';
 
@@ -317,6 +318,8 @@ export interface AgentsRouterDeps {
   readonly fleet?: FleetSettings;
   /** Background test runs of own agents (AG-control-02). Absent is blank: a new background run refuses. */
   readonly ownBackground?: BackgroundSettings;
+  /** The owner's cadence values for own agents' schedules (AG-sessions-02). Absent is blank: a new schedule refuses. */
+  readonly ownCadence?: Cadence;
   /** Background runs of a person's sessions (AG-sessions-04, J-agents-06). Absent is blank: a new one refuses. */
   readonly sessionRuns?: SessionRunSettings;
   /** Identity's list of a person's linked wallets, for an own agent's payment method (J-agents-02 #4). */
@@ -4114,6 +4117,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
       reviewerModel: deps.ownReviewerModel ?? null,
       background: deps.ownBackground ?? null,
       linkedWallets: deps.ownLinkedWallets ?? null,
+      cadence: deps.ownCadence ?? null,
     }),
     /** A business team's agent roles, pool, projects, runs and usage (AG-governance-01). Membership is svc-bank's, read per call. */
     team: teamRouter({ sql, membership: deps.teamMembership, feeAssetId, runtime }),

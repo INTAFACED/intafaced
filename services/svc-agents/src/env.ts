@@ -340,6 +340,22 @@ const schema = serviceEnvSchema
        * background runs alike. Blank refuses agents.background_unset and agents.session_run_unset.
        */
       AGENTS_BACKGROUND_STEP_MS: blankAsAbsent(z.coerce.number().int().min(200).max(600000).optional()),
+      // ── Schedules and event triggers of own agents (AG-sessions-02) ─────────
+      /**
+       * Owner values: the shortest interval a person's repeating schedule may have, in whole minutes, and how many
+       * occurrences of one schedule or trigger may run in a UTC day. Either blank refuses a new schedule with
+       * agents.schedule_cadence_unset, and an occurrence or event with the daily limit blank is skipped
+       * agents.schedule_blocked: nothing runs on a guess.
+       */
+      AGENTS_SCHEDULE_MIN_INTERVAL_MINUTES: blankAsAbsent(z.coerce.number().int().min(1).max(525_600).optional()),
+      AGENTS_SCHEDULE_DAILY_LIMIT: blankAsAbsent(z.coerce.number().int().min(1).max(10_000).optional()),
+      /**
+       * The due-run workers: how often they wake, in milliseconds, and how many wake together each time (each reads what
+       * is due before any claims, and the occurrence row's business key keeps one run). Blank tick leaves scheduled runs
+       * off: nothing is claimed or run on a clock.
+       */
+      AGENTS_SCHEDULE_TICK_MS: blankAsAbsent(z.coerce.number().int().min(500).max(3_600_000).optional()),
+      AGENTS_SCHEDULE_WORKERS: blankAsAbsent(z.coerce.number().int().min(1).max(8).optional()),
       /** The most steps one background run of a session may be asked to take, 1 to 1000 (AG-sessions-04). Blank refuses agents.session_run_unset. */
       AGENTS_SESSION_RUN_MAX_STEPS: blankAsAbsent(z.coerce.number().int().min(1).max(1000).optional()),
       /**

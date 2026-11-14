@@ -39,6 +39,7 @@ import { AllowancePage } from './AgentAllowance';
 import { ReviewerPanel } from './AgentReviewer';
 import { agentGuardrailsCopy } from './agent-guardrails-copy';
 import { EvaluationsPage } from './AgentEvaluations';
+import { SchedulesPage, TriggersPage } from './AgentAutomation';
 import { AnalyticsPage, RunsPage, TestPanel } from './AgentTestRuns';
 import { AssistantPanel, IdentityPage } from './AgentIdentity';
 import { MemoryPage, PrivacyPage, ShareWithCoOwners } from './AgentMemory';
@@ -601,6 +602,10 @@ export function OwnAgentPage({ id }: { id: string }) {
               <Usage agent={agent} />
             ) : page === 'Evaluations' ? (
               <EvaluationsPage agent={agent} />
+            ) : page === 'Schedules' ? (
+              <SchedulesPage agent={agent} />
+            ) : page === 'Triggers' ? (
+              <TriggersPage agent={agent} />
             ) : page === 'Sharing' ? (
               <>
                 <SharingPage agent={agent} />
@@ -620,16 +625,8 @@ export function OwnAgentPage({ id }: { id: string }) {
                   setPage('Runs');
                 }}
               />
-            ) : page === 'Privacy' ? (
-              <PrivacyPage agent={agent} />
             ) : (
-              <Panel title={t(`page_${page as (typeof PAGES)[number]}`)}>
-                <p role="note">
-                  {t(
-                    `parked_${page as Exclude<(typeof PAGES)[number], 'Build' | 'Limits' | 'Test' | 'Runs' | 'Usage' | 'Rules' | 'Permissions' | 'Evaluations' | 'Analytics' | 'Sharing' | 'Identity' | 'Access' | 'Allowance' | 'Memory' | 'Privacy'>}`,
-                  )}
-                </p>
-              </Panel>
+              <PrivacyPage agent={agent} />
             )}
           </div>
         );
