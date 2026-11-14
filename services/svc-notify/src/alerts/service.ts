@@ -39,8 +39,21 @@ import {
   type AlertEditState,
   type AlertExtra,
   type AlertFrequency,
+  ALERT_OUT_CHANNELS,
+  type AlertOutChannel,
 } from './types.js';
 import { createDarkWhaleMarkSource } from './whale-mark.js';
+import {
+  checkWebhookUrl,
+  MemoryAlertWebhookStore,
+  NO_WEBHOOK_POLICY,
+  systemResolve,
+  type AlertWebhookPolicy,
+  type AlertWebhookStore,
+  type Resolve,
+  type WebhookDelivery,
+} from './webhook.js';
+import type { DeliveryRecord } from '../channel-store.js';
 import {
   AlertKindUnpublishedError,
   AlertPortfolioUnpublishedError,
@@ -384,7 +397,34 @@ export function quotaLimitError(err: unknown): unknown {
   );
 }
 
+/**
+ * Where an alert goes besides the in-app row (J-charts-desk-10): the webhook record, the owner's webhook policy, and the resolver
+ * a webhook URL is checked with. With none passed, no webhook can be saved (the ports are blank) and nothing is queued.
+ */
+export type AlertDeliveryDeps = {
+  readonly webhooks: AlertWebhookStore;
+  readonly policy: AlertWebhookPolicy;
+  readonly resolve?: Resolve;
+};
+
+/** One firing's delivery: each channel's row from the fan-out, and the webhook's record when the alert had one. */
+export type AlertTriggerDelivery = {
+  readonly channels: readonly DeliveryRecord[];
+  readonly webhook: WebhookDelivery | null;
+};
+
+/** The out-of-app channels a create or edit stores: those offered for alerts, each once. Anything else is refused by name. */
+export function assertAlertChannels(channels: readonly string[] | null | undefined): readonly AlertOutChannel[] | null {
+  if (channels === undefined || channels === null) return null;
+  for (const c of channels) {
+    if (!(ALERT_OUT_CHANNELS as readonly string[]).includes(c)) throw new AlertValidationError('alert.channel_invalid', `channel=${c}`);
+  }
+  return ALERT_OUT_CHANNELS.filter((c) => channels.includes(c));
+}
+
 export class AlertService {
+  private labels: { at: number; byId: ReadonlyMap<string, string> } | null = null;
+
   constructor(
     private readonly store: AlertStore,
     private readonly marks: MarkSource,
@@ -392,7 +432,41 @@ export class AlertService {
     private readonly whaleMarks: MarkSource = createDarkWhaleMarkSource(),
     private readonly limits: AlertLimits = NO_ALERT_LIMITS,
     private readonly triggerLog: AlertTriggerLog = new MemoryAlertTriggerLog(),
+    private readonly delivery: AlertDeliveryDeps = { webhooks: new MemoryAlertWebhookStore(), policy: NO_WEBHOOK_POLICY },
   ) {}
+
+  /** The owner's webhook policy as the alerts page publishes it. */
+  webhookPolicy(): AlertWebhookPolicy {
+    return this.delivery.policy;
+  }
+
+  /** What happened to each firing on each channel and on its webhook. Firings with no inbox row have no channel rows. */
+  async triggerDeliveries(userId: string, triggers: readonly AlertTrigger[]): Promise<ReadonlyMap<string, AlertTriggerDelivery>> {
+    const hooks = await this.delivery.webhooks.listFor(
+      userId,
+      triggers.map((t) => ({ alertId: t.alertId, seq: t.seq })),
+    );
+    const hookOf = new Map(hooks.map((h) => [`${h.alertId}:${h.seq}`, h]));
+    const out = new Map<string, AlertTriggerDelivery>();
+    for (const t of triggers) {
+      const channels =
+        t.notificationId && typeof this.notify.deliveriesFor === 'function'
+          ? await this.notify.deliveriesFor(userId, t.notificationId)
+          : [];
+      out.set(`${t.alertId}:${t.seq}`, { channels, webhook: hookOf.get(`${t.alertId}:${t.seq}`) ?? null });
+    }
+    return out;
+  }
+
+  /** The market's symbol (`BTC/USDT`) from the market list the marks read, or its id when the list cannot say. Kept for a minute. */
+  private async marketLabel(marketId: string, at: Date): Promise<string> {
+    if (!this.marks.marketIdsBySymbol) return marketId;
+    if (!this.labels || at.getTime() - this.labels.at > 60_000) {
+      const bySymbol = await this.marks.marketIdsBySymbol().catch(() => null);
+      if (bySymbol) this.labels = { at: at.getTime(), byId: new Map([...bySymbol].map(([symbol, id]) => [id, symbol] as const)) };
+    }
+    return this.labels?.byId.get(marketId) ?? marketId;
+  }
 
   /** The person's trigger log, newest first. Refuses while the owner has not set how long it is kept. */
   async triggers(
@@ -423,6 +497,8 @@ export class AlertService {
     const expiresAt = assertAlertExpiry(input.expiresAt, this.limits, now);
     const extras = assertAlertExtras(input.extras, this.limits);
     const frequency = assertAlertFrequency(input.frequency, input.condition ?? 'greater_than', this.limits);
+    const channels = assertAlertChannels(input.channels);
+    const webhookUrl = await checkWebhookUrl(input.webhookUrl, this.delivery.policy, this.delivery.resolve ?? systemResolve);
     // Only price alerts have a quota setting. A blank one refuses the create, as every other blank owner limit does.
     let maxOpen: number | undefined;
     if (kind === 'price') {
@@ -443,6 +519,8 @@ export class AlertService {
         expiresAt,
         extras,
         frequency,
+        channels,
+        webhookUrl,
         ...(maxOpen !== undefined ? { maxOpen } : {}),
       });
     } catch (err) {
@@ -510,6 +588,9 @@ export class AlertService {
         expiresAt,
         extras,
         frequency,
+        // A watchlist alert follows the person's notification settings: no per-alert channels and no webhook.
+        channels: null,
+        webhookUrl: null,
       })),
       maxOpen: this.limits.maxActivePrice,
     };
@@ -881,6 +962,18 @@ export class AlertService {
       const reachedInbox = created.notification !== null || created.dispatch !== null;
       if (reachedInbox) {
         notificationId = created.notification?.id ?? null;
+        // The webhook's delivery is written before the alert is counted or marked fired, keyed by the firing, so a retry after a
+        // crash finds it and posts nothing new. The worker posts it (webhook.ts).
+        if (alert.webhookUrl) {
+          await this.delivery.webhooks.enqueue({
+            alertId: alert.id,
+            seq,
+            userId: alert.userId,
+            url: alert.webhookUrl,
+            body: await this.webhookBody(alert, outcome.markPrice, at, seq),
+            at,
+          });
+        }
         // Logged after the inbox has it and before the watch is counted or marked fired: a crash between the two retries and
         // the (alert id, number) key makes the second record a no-op. A blank retention writes no log; the alert fires regardless.
         if (this.limits.triggerLogDays !== null) {
@@ -899,15 +992,40 @@ export class AlertService {
     return { outcome, notificationId };
   }
 
+  /** What the webhook receives: the alert's own facts and the mark that fired it, nothing more. */
+  private async webhookBody(alert: PriceAlert, markPrice: string, at: Date, seq: number): Promise<Record<string, unknown>> {
+    return {
+      type: 'alert.fired',
+      alertId: alert.id,
+      fireNumber: seq,
+      kind: alert.kind,
+      market: await this.marketLabel(alert.marketId, at),
+      marketId: alert.marketId,
+      condition: alert.condition,
+      targetPrice: alert.targetPrice,
+      markPrice,
+      source: alert.source,
+      firedAt: at.toISOString(),
+      name: alert.name,
+      message: alert.message ? renderAlertMessage(alert.message, alert, markPrice, at) : null,
+    };
+  }
+
   private async fireNotification(alert: PriceAlert, markPrice: string, at: Date, repeatNumber: number | null): Promise<CreateResult> {
     const copy = FIRE_COPY[alert.kind];
+    // A price alert's stock body names the market by its symbol and the time it fired, so an email holds all three facts.
+    const stockBody = alert.kind === 'price' ? 'notify.alert.price.fired.body' : copy.bodyKey;
     return this.notify.create({
       userId: alert.userId,
       kind: copy.kind,
       // The person's own name and message replace the stock copy when they wrote them.
       titleKey: alert.name ? 'notify.alert.price.crossed.named.title' : copy.titleKey,
-      bodyKey: alert.message ? 'notify.alert.price.crossed.message.body' : copy.bodyKey,
+      bodyKey: alert.message ? 'notify.alert.price.crossed.message.body' : stockBody,
+      // The channels the person chose for this alert are the whole out-of-app choice; an older alert follows their settings.
+      ...(alert.channels !== null ? { askedChannels: alert.channels, onlyAsked: true } : {}),
       params: {
+        market: await this.marketLabel(alert.marketId, at),
+        firedAt: `${at.toISOString().slice(0, 19).replace('T', ' ')} UTC`,
         alertId: alert.id,
         alertKind: alert.kind,
         marketId: alert.marketId,

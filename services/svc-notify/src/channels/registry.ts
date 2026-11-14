@@ -9,6 +9,7 @@ import {
 import { InAppChannel, UnconfiguredChannel } from './gateway.js';
 import { EmailChannel, PushChannel, SmsChannel } from './adapters.js';
 import { TestMerchantEmlChannel } from '../merchant-email/merchant-email.js';
+import { TestOutboxEmailChannel, testEmailOutbox } from './test-outbox.js';
 import { socketIdForChannel, type NotifyChannelSocketId } from './mountain-vs-sockets.js';
 
 /**
@@ -67,6 +68,9 @@ export interface ChannelEnv {
    */
   readonly NOTIFY_MERCHANT_EMAIL_TEST?: string | undefined;
   readonly NOTIFY_MERCHANT_EMAIL_TEST_DIR?: string | undefined;
+  /** The TEST email stand-in's file (test-outbox.ts). Used only when the email gateway URL and token are both blank. */
+  readonly NOTIFY_EMAIL_TEST_OUTBOX?: string | undefined;
+  readonly APP_ENV?: string | undefined;
 }
 
 /** Env var names per channel. Reported to operators verbatim, so they are data. */
@@ -273,6 +277,14 @@ export function channelsFromEnv(env: ChannelEnv, fetchImpl: typeof fetch = fetch
       const dir = env.NOTIFY_MERCHANT_EMAIL_TEST_DIR?.trim();
       if (dir) {
         channels.push(new TestMerchantEmlChannel(dir));
+        continue;
+      }
+    }
+
+    if (id === 'email' && !url && !token) {
+      const outbox = testEmailOutbox(env.NOTIFY_EMAIL_TEST_OUTBOX, env.APP_ENV);
+      if (outbox) {
+        channels.push(new TestOutboxEmailChannel(outbox));
         continue;
       }
     }
