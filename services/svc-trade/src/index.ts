@@ -129,6 +129,8 @@ import { createFeeSaverClient } from './venue/fee-saver-client.js';
 import { SqlAgentConnectionStore } from './venue/agent-connection-store.js';
 import { createAgentKeyCallReader, createAgentKeyReader } from './venue/agent-key-read-client.js';
 import { AgentActivity, SqlAgentOrderCallStore } from './venue/agent-order-calls.js';
+import { AgentDesk } from './venue/agent-desk.js';
+import { SqlAgentDeskAuditStore } from './venue/agent-desk-store.js';
 import { SqlVenueSellQuoteStore, VenueSellQuotes } from './venue/venue-sell-quotes.js';
 import { UserVenueRouter, parseUserVenueUrls } from './venue/venue-router.js';
 import { routingReport } from './venue/routing-report.js';
@@ -594,6 +596,19 @@ const agentActivity = userVenue
       now: () => new Date(),
     })
   : null;
+// The founder's desk over every outside assistant connection (J-agents-21 #15): read and quarantined as the founder
+// through svc-edge (admin.agentDesk.*). Off with the door.
+const agentDesk = userVenue
+  ? new AgentDesk({
+      connections: agentConnectionStore,
+      accounts: agentAccountStore,
+      audit: new SqlAgentDeskAuditStore(sql),
+      keys: createAgentKeyReader(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s),
+      calls: createAgentKeyCallReader(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s),
+      venue: () => userVenue.venue(),
+      now: () => new Date(),
+    })
+  : null;
 // A person's own agent trading their venue sub-account under an allowance (J-agents-08 #3 to #7): the allowance and
 // its draws here, the agent's rules and access asked of svc-agents through its own gate. Off with the door; with
 // AGENTS_URL blank every grant and order refuses agents.policy_unavailable.
@@ -931,6 +946,7 @@ export const appRouter = createTradeRouter(
   // svc-tax reads a person's own venue spot trading for their profit and loss (J-cex-spot-01 #11); off: the door is off.
   { venue: userVenue ? () => userVenue.venue() : null, store: new SqlPreparedActionStore(sql) },
   signalDesk,
+  agentDesk,
 );
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({
