@@ -189,16 +189,6 @@ export class EvmChainSource implements ChainSource {
   readonly venue: Address;
   readonly client: PublicClient;
 
-  /**
-   * Memoised only on SUCCESS, and only for the chain id.
-   *
-   * A cached FAILURE would mean an indexer that started before its chain came up
-   * never recovered. And the chain id is the one property an endpoint cannot
-   * change without becoming a different endpoint — unlike the venue's code, which
-   * is re-read every pass for the reason in the class header.
-   */
-  #chainIdVerified = false;
-
   /** D-explorer-03. Each Transfer emitter's symbol, name and decimals, read once per process. */
   readonly #tokens: TokenMetaReader;
 
@@ -279,7 +269,6 @@ export class EvmChainSource implements ChainSource {
           `${this.chainId}. Refusing: a read model labelled with the wrong chain cannot be detected afterwards.`,
       );
     }
-    this.#chainIdVerified = true;
     return observed;
   }
 

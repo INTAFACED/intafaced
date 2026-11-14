@@ -1464,6 +1464,22 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     summary: 'The listing state of one market as this account meets it',
   },
   {
+    name: 'requestApiKeyRotation',
+    method: 'POST',
+    path: '/api/v1/account/api-key/rotation',
+    product: 'accounts',
+    access: 'private',
+    summary: 'The calling key asks for its own rotation; a different person on the account approves it',
+  },
+  {
+    name: 'approveApiKeyRotation',
+    method: 'POST',
+    path: '/api/v1/account/api-key/rotation/approve',
+    product: 'accounts',
+    access: 'private',
+    summary: 'Approve a rotation request. A key never approves its own: refused identity.rotation_self_approval',
+  },
+  {
     name: 'fetchConvertExport',
     method: 'GET',
     path: '/api/v1/convert/export',

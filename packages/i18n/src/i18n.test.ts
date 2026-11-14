@@ -109,8 +109,9 @@ describe('catalog — the key set is closed and complete', () => {
     // A moderator's deletion of a learner's discussion post (J-academy-18 #2) adds a title and a body key.
     // A finished background run of an agent session in the inbox (J-agents-06 #2) adds a title and a body key.
     // A price alert's body naming its market by symbol and the time it fired (J-charts-desk-10 #5) adds one body key.
+    // An API key revoked on an operator's leaked-key report (J-developer-07 #6) adds a title and a body key.
     // A research answer refused for no source or no published uncertainty scale (J-agents-10 #4) adds two refusal keys.
-    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(327);
+    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(329);
 
     for (const surface of ['common.', 'auth.', 'trade.', 'wallet.', 'p2p.', 'notify.', 'error.', 'support.', 'agents.', 'admin.']) {
       expect(
