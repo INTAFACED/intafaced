@@ -216,7 +216,7 @@ export const quantTemplateListingSchema = z.object({
 export const QUANT_FILL_TIMINGS = ['next_open'] as const;
 export const QUANT_FEE_ROLES = ['taker', 'maker'] as const;
 /** Why an order a strategy placed did not fill. Every one is listed in the result; none is dropped silently. */
-export const QUANT_BACKTEST_REJECT_REASONS = ['insufficient_cash', 'no_size', 'unfilled_at_window_end'] as const;
+export const QUANT_BACKTEST_REJECT_REASONS = ['insufficient_cash', 'no_size', 'unfilled_at_window_end', 'reduce_only'] as const;
 /**
  * The modelling choices a run made, listed on its result so the reader sees them (ENGINE BT-5 "the run says so").
  * `long_only` and `averages_over_traded_bars` hold for every run; the rest are listed only when they applied.
@@ -231,6 +231,7 @@ export const QUANT_BACKTEST_ASSUMPTIONS = [
   'stop_out_before_exits',
   'margin_level_at_bar_low',
   'loss_beyond_margin',
+  'equity_stop_at_bar_low',
 ] as const;
 
 /**
@@ -244,6 +245,22 @@ export const quantAccountRulesSchema = z.object({
   stopOutPercent: z.string().nullable(),
 });
 export type QuantAccountRules = z.infer<typeof quantAccountRulesSchema>;
+/**
+ * The policy a strategy's equity-stop floor applies once equity falls below it (AL-risk-01): reduce-only refuses every
+ * new entry and leaves an open position to its own exits; close-out also places one order that closes the position.
+ */
+export const QUANT_EQUITY_STOP_POLICIES = ['reduce_only', 'close_out'] as const;
+export type QuantEquityStopPolicy = (typeof QUANT_EQUITY_STOP_POLICIES)[number];
+/** The equity stop on a backtest: the bar it fired on, the policy it applied, and equity at that bar's low. */
+export const quantRiskEventSchema = z.object({
+  ts: z.string(),
+  kind: z.literal('equity_stop'),
+  mode: z.enum(QUANT_EQUITY_STOP_POLICIES),
+  floor: z.string(),
+  equity: z.string(),
+});
+export type QuantRiskEvent = z.infer<typeof quantRiskEventSchema>;
+
 export const QUANT_MARGIN_EVENTS = ['margin_call', 'stop_out'] as const;
 /**
  * A margin call or stop-out on a backtest, at the bar price that reached its level (the bar's open when it gapped past),
@@ -347,7 +364,7 @@ export type QuantCheck = z.infer<typeof quantCheckSchema>;
 export const quantBacktestTradeSchema = z.object({
   ts: z.string(),
   side: z.enum(['buy', 'sell']),
-  reason: z.enum(['signal', 'stop_loss', 'take_profit', 'stop_out']),
+  reason: z.enum(['signal', 'stop_loss', 'take_profit', 'stop_out', 'close_out']),
   qty: decimalText,
   barPrice: decimalText,
   price: decimalText,
@@ -520,6 +537,8 @@ export const quantBacktestResultSchema = z.object({
   account: quantAccountRulesSchema.extend({ leverage: z.string() }).nullable(),
   /** Margin calls and stop-outs, in the order they happened. */
   marginEvents: z.array(quantMarginEventSchema),
+  /** The risk screen's equity stop (AL-risk-01): recorded once, at the first bar whose low took equity below the floor. */
+  riskEvents: z.array(quantRiskEventSchema),
   /**
    * The same rules and costs run again from one bar after the window opens, to show how much the result leans on where
    * it starts. Null when it was not made; the `bar_offset` check says why (too few bars, or a run stored before it).
@@ -836,6 +855,55 @@ export const quantNotifySetInputSchema = z.object({
   strategyId: z.string().min(1).max(128),
   channels: z.array(z.string().max(20)).max(8),
 });
+
+/**
+ * A strategy's risk screen (AL-risk-01). Every cap is the developer's own and starts blank; a blank cap stays blank and is
+ * never assumed. The trading switch is off by default, turns on only with every cap set (a refusal names each blank one,
+ * `quant.risk_cap_unset`), and holds only for the version it was turned on for: any new version reads it off again.
+ */
+export const QUANT_RISK_CAPS = ['depositPercent', 'maxPositionNotional', 'maxDailyLoss', 'equityFloor'] as const;
+export type QuantRiskCap = (typeof QUANT_RISK_CAPS)[number];
+export const quantRiskCapsSchema = z.object({
+  /** The share of the account's deposit the strategy may use, in percent above 0 and up to 100. */
+  depositPercent: z.string().nullable(),
+  /** The largest notional one position may reach, in the strategy's quote currency. */
+  maxPositionNotional: z.string().nullable(),
+  /** The most the strategy may lose in one UTC day, in the strategy's quote currency. */
+  maxDailyLoss: z.string().nullable(),
+  /** The equity-stop floor, in the strategy's quote currency: below it the floor policy applies. */
+  equityFloor: z.string().nullable(),
+});
+export type QuantRiskCaps = z.infer<typeof quantRiskCapsSchema>;
+export const quantRiskScreenSchema = z.object({
+  strategyId: z.string(),
+  caps: quantRiskCapsSchema,
+  /** What the equity-stop floor does when equity falls below it: reduce-only unless close-out is chosen. */
+  floorPolicy: z.enum(QUANT_EQUITY_STOP_POLICIES),
+  /** The caps still blank, in screen order. The trading switch refuses while any is listed. */
+  unset: z.array(z.enum(QUANT_RISK_CAPS)),
+  trading: z.object({
+    /** On only while it was turned on for the strategy's newest version. */
+    on: z.boolean(),
+    /** The version it was last turned on for, or null when it never was. */
+    version: z.number().int().positive().nullable(),
+    /** True when it was on for an older version and a newer version turned it off. */
+    offByNewVersion: z.boolean(),
+  }),
+  latestVersion: z.number().int().positive(),
+  updatedAt: z.string().nullable(),
+});
+export type QuantRiskScreen = z.infer<typeof quantRiskScreenSchema>;
+export const quantRiskSetInputSchema = z.object({
+  strategyId: z.string().min(1).max(128),
+  caps: z.object({
+    depositPercent: z.string().max(40),
+    maxPositionNotional: z.string().max(40),
+    maxDailyLoss: z.string().max(40),
+    equityFloor: z.string().max(40),
+  }),
+  floorPolicy: z.string().max(20),
+});
+export const quantRiskTradingInputSchema = z.object({ strategyId: z.string().min(1).max(128), on: z.boolean() });
 
 /**
  * A fill alert (AL-alerts-01): one strategy version, the fill event, and a message template. The template may name only

@@ -1,4 +1,5 @@
 // World: none
+// Market: live
 import { test, expect } from './journey.mjs';
 import { journeyState } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
@@ -337,6 +338,7 @@ test(`${J} #7 leaves the risk screen's deposit-percentage cap blank and tries th
     if ((await cap.getAttribute('data-cap')) !== 'depositPercent') await cap.fill('10');
   }
   await screen.getByRole('button', { name: 'Save caps' }).click();
+  await expect(screen.getByTestId('quant-risk-note')).toHaveText('Caps saved.');
   await trading.click();
   await expect(screen.getByTestId('quant-risk-refusal')).toContainText('Deposit-percentage cap');
   await expect(trading).toHaveAttribute('aria-checked', 'false');
@@ -346,6 +348,7 @@ test(`${J} #7 leaves the risk screen's deposit-percentage cap blank and tries th
   // With the cap set the switch turns on; a new version of the strategy turns it off again.
   await page.getByTestId('quant-risk-screen').getByLabel('Deposit-percentage cap').fill('10');
   await page.getByTestId('quant-risk-screen').getByRole('button', { name: 'Save caps' }).click();
+  await expect(page.getByTestId('quant-risk-note')).toHaveText('Caps saved.');
   await page.getByTestId('quant-risk-screen').getByRole('switch', { name: 'Trading' }).click();
   await expect(page.getByTestId('quant-risk-screen').getByRole('switch', { name: 'Trading' })).toHaveAttribute('aria-checked', 'true');
   await page.goto('/quant/strategies');
@@ -372,6 +375,7 @@ test(`${J} #8 lets equity fall below the equity-stop floor: the strategy turns r
     await screen.getByLabel('Equity-stop floor').fill('999.99');
     await screen.getByRole('combobox', { name: 'When the floor is hit' }).selectOption(policy);
     await screen.getByRole('button', { name: 'Save caps' }).click();
+    await expect(screen.getByTestId('quant-risk-note')).toHaveText('Caps saved.');
     return backtest(page, name, window);
   }
 

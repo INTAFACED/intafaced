@@ -69,6 +69,10 @@ export const QUANT_PAPER_CASH_UNSET = 'quant.paper_cash_unset' as const;
 export const QUANT_PAPER_FEE_UNSET = 'quant.paper_fee_unset' as const;
 export const QUANT_PAPER_LIST_LIMIT_UNSET = 'quant.paper_list_limit_unset' as const;
 export const QUANT_NOTIFY_CHANNEL_UNAVAILABLE = 'quant.notify_channel_unavailable' as const;
+/** A risk cap still blank when the trading switch is turned on (AL-risk-01): the switch stays off, nothing is assumed. */
+export const QUANT_RISK_CAP_UNSET = 'quant.risk_cap_unset' as const;
+/** A risk cap or floor policy that does not read as one (AL-risk-01): nothing is saved. */
+export const QUANT_RISK_CAP_INVALID = 'quant.risk_cap_invalid' as const;
 export const QUANT_ALERT_TEMPLATE_INVALID = 'alert.template_invalid' as const;
 /** A promotion gate criterion the owner has not set (AL-lifecycle-01): promotion is blocked and nothing is written. */
 export const QUANT_GATE_CRITERIA_UNSET = 'quant.gate_criteria_unset' as const;
@@ -150,6 +154,8 @@ export type QuantCode =
   | typeof QUANT_PAPER_LIST_LIMIT_UNSET
   | typeof QUANT_NOTIFY_CHANNEL_UNAVAILABLE
   | typeof QUANT_ALERT_TEMPLATE_INVALID
+  | typeof QUANT_RISK_CAP_UNSET
+  | typeof QUANT_RISK_CAP_INVALID
   | typeof QUANT_GATE_CRITERIA_UNSET
   | typeof QUANT_STAGE_TRANSITION_INVALID
   | typeof QUANT_CRITERIA_REASON_UNSET
