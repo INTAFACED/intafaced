@@ -512,6 +512,7 @@ test(`${J} #6 the mark crosses the trigger: the venue fires it once and the posi
       .toBe('3300');
     // The book follows the mark down to 3290, past the trigger (3300).
     await ladderAt('3290');
+    const crossedAt = new Date(Date.now() - 1_000).toISOString();
     await setMark('3290');
     const done = await until(
       async () => (await protections(owner)).find((p) => p.id === stop.id),
@@ -529,6 +530,13 @@ test(`${J} #6 the mark crosses the trigger: the venue fires it once and the posi
     expect(sameDecimal(await filledOf(owner, done.venueClientOrderId), '1')).toBe(true);
     const order = (await venueRecord(owner, '/order-by-client-id', { venueClientOrderId: done.venueClientOrderId })).value;
     expect(order).toMatchObject({ reduceOnly: true, type: 'market', status: 'filled' });
+    // Once across the person's whole venue account, with both workers running: every fill on it since the mark crossed
+    // is that one order's, and no other order of the person's is open on the market.
+    const sinceCross = (await venueRecord(owner, '/fills', { since: crossedAt })).value;
+    expect(sinceCross.length > 0, 'fills since the cross').toBe(true);
+    expect([...new Set(sinceCross.map((f) => f.venueClientOrderId))]).toEqual([done.venueClientOrderId]);
+    expect(fromUnits(sinceCross.reduce((sum, f) => sum + toUnits(f.amount), 0n))).toBe(fromUnits(toUnits('1')));
+    expect(await openOrders(owner)).toEqual([]);
     expect(await positionOf(owner)).toBeNull();
   } finally {
     tool('local-test-stack.mjs', 'second-worker', 'trade', 'stop');
