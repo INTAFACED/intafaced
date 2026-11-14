@@ -39,6 +39,7 @@ import { GetStarted } from './GetStarted';
 import { LearnStrip } from './LearnStrip';
 import { RecentActivity } from './RecentActivity';
 import { useRecentActivityLimit } from './recent-activity-limit';
+import { HomeStanding, useLaunchVenue } from './HomeStanding';
 import { WorkList } from './WorkList';
 import { TotalFigure, TotalUnitNote } from './TotalFigure';
 import { HOME_LINKS } from './links';
@@ -252,6 +253,8 @@ function HomeSimple() {
   const { userId } = useSession();
   const activity = useActivity();
   const activityLimit = useRecentActivityLimit();
+  // The launch model (OWNER 226): with the user-venue door on, the total is where the person stands, as Assets shows it.
+  const launch = useLaunchVenue();
   const { favorites, isFavorite, toggle } = useFavorites(userId);
   const favoriting = useMemo(() => ({ isFavorite, toggle }), [isFavorite, toggle]);
 
@@ -339,14 +342,15 @@ function HomeSimple() {
             <CustomiseHome home={home} mode="simple" />
           </div>
 
-          <Balance portfolio={portfolio} hidden={hideBalances} />
+          {launch ? <HomeStanding status={launch} hidden={hideBalances} /> : <Balance portfolio={portfolio} hidden={hideBalances} />}
           <ActionPills loading={portfolio.status === 'loading'} mode={actionMode} />
           {main.map((id) => {
             switch (id) {
               case 'work':
                 return <WorkList key={id} hidden={hideBalances} onShown={setNeedsYou} />;
               case 'holdings':
-                return portfolio.status === 'loading' ? (
+                // On the launch model the holdings are the parts of the total above, each read from its own source.
+                return launch ? null : portfolio.status === 'loading' ? (
                   // the sphere's section keeps its place while the holdings load (no split, no figures), so it doesn't
                   // arrive late and push the rows below it down
                   <Fragment key={id}>
@@ -408,7 +412,7 @@ function HomeSimple() {
           <aside data-testid="home-side" className="home-side">
             {side.map((id) =>
               id === 'your-crypto' ? (
-                portfolio.status === 'loading' ? (
+                launch ? null : portfolio.status === 'loading' ? (
                   <YourCryptoSkeleton key={id} />
                 ) : portfolio.status === 'ready' || portfolio.status === 'empty' ? (
                   <YourCrypto key={id} holdings={portfolio.status === 'ready' ? portfolio.data.holdings : []} hidden={hideBalances} />

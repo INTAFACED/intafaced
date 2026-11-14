@@ -52,6 +52,8 @@ import { HOME_LINKS } from './links';
 import { TotalFigure, TotalUnitNote } from './TotalFigure';
 import { RecentActivity } from './RecentActivity';
 import { useRecentActivityLimit } from './recent-activity-limit';
+import { HomeStanding, useLaunchVenue } from './HomeStanding';
+import type { VenueUp } from '../../features/trade/venue-api';
 import { WorkList } from './WorkList';
 import { GetStarted } from './GetStarted';
 import { useStartedTile } from './started-data';
@@ -200,11 +202,14 @@ function Summary({
   orders,
   hidden,
   actionMode,
+  launch,
 }: {
   portfolio: Loadable<HomePortfolio>;
   orders: OpenOrders;
   hidden: boolean;
   actionMode: ActionMode;
+  /** The launch model (OWNER 226): with the user-venue door on, the total is where the person stands, as Assets shows it. */
+  launch: VenueUp | null;
 }) {
   const { t } = homeCopy.useCopy();
   const { t: tp } = proCopy.useCopy();
@@ -230,6 +235,18 @@ function Summary({
       )}
     </div>
   );
+
+  if (launch)
+    return (
+      <section data-testid="hp-summary" className="hp-summary" aria-label={tp('Home summary')}>
+        <div className="hp-total">
+          {label}
+          <div data-testid="hp-total__figure" className="hp-total__figure">
+            <HomeStanding status={launch} hidden={hidden} pro />
+          </div>
+        </div>
+      </section>
+    );
 
   if (portfolio.status === 'loading')
     return (
@@ -608,6 +625,7 @@ export function HomePro() {
   const markets = useMarkets();
   const activity = useActivity();
   const activityLimit = useRecentActivityLimit();
+  const launch = useLaunchVenue();
   const home = useHomeLayout();
   const tiles = shownTiles(home.layout, 'pro');
   const started = useStartedTile(portfolio, tiles.includes('started'));
@@ -638,7 +656,7 @@ export function HomePro() {
       <div className="hp-toolbar">
         <CustomiseHome home={home} mode="pro" />
       </div>
-      <Summary portfolio={portfolio} orders={orders} hidden={hideBalances} actionMode={actionMode} />
+      <Summary portfolio={portfolio} orders={orders} hidden={hideBalances} actionMode={actionMode} launch={launch} />
       {tiles.map((id) => {
         switch (id) {
           case 'started':
@@ -650,7 +668,8 @@ export function HomePro() {
           case 'work':
             return <WorkList key={id} hidden={hideBalances} className="hp-panel hp-work" testId="hp-work" onShown={setNeedsYou} />;
           case 'holdings':
-            return showAssets ? <Assets key={id} portfolio={portfolio} hidden={hideBalances} /> : null;
+            // On the launch model the holdings are the parts of the total, each read from its own source.
+            return showAssets && !launch ? <Assets key={id} portfolio={portfolio} hidden={hideBalances} /> : null;
           case 'activity':
             return (
               <RecentActivity
