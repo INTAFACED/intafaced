@@ -9,6 +9,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const calls: Array<{ kind: string; target: string; body?: unknown }> = [];
 let doorOff = false;
 let connected = false;
+/** The wallet: connected or not, and whether the venue's abandon answers. */
+let walletOn = false;
+let abandonAnswers = true;
+const OPENING_NEXT = {
+  actionKey: 'agent:account:x:create',
+  step: 'open_sub_account',
+  signed: false,
+  prepared: { digest: '0x01', typedData: { domain: { name: 'TEST venue', chainId: 1 }, types: { A: [] }, primaryType: 'A', message: {} } },
+};
 
 const ACCOUNT = {
   accountId: '11111111-1111-4111-8111-111111111111',
@@ -39,12 +48,31 @@ vi.mock('../session/session', () => {
       calls.push({ kind: opts.method ?? 'GET', target: path, body: opts.body });
       if (doorOff) return { ok: false, reason: 'not_mounted', message: 'off', code: 'trade.user_venue_off' };
       if (path === '/venue/agent-accounts/terms') return { ok: true, data: { ceiling: '1000.00', asset: 'USDC' } };
-      if (path === '/venue/agent-accounts') return { ok: true, data: { accounts: [ACCOUNT] } };
+      if (path === '/venue/agent-accounts' && opts.method !== 'POST') return { ok: true, data: { accounts: [ACCOUNT] } };
       if (path === '/venue/agent-accounts/connections')
         return {
           ok: true,
           data: { connections: connected ? [{ keyId: KEY_ID, accountId: ACCOUNT.accountId, subAccount: ACCOUNT.subAccount }] : [] },
         };
+      if (path === '/venue/agent-accounts' && opts.method === 'POST') {
+        const ask = opts.body as { accountId: string; owner: string };
+        return {
+          ok: true,
+          data: {
+            ...ACCOUNT,
+            accountId: ask.accountId,
+            owner: ask.owner,
+            status: 'opening',
+            subAccount: null,
+            balances: null,
+            next: OPENING_NEXT,
+          },
+        };
+      }
+      if (path.endsWith('/abandon'))
+        return abandonAnswers
+          ? { ok: true, data: { ...ACCOUNT, status: 'abandoned', subAccount: null, balances: null } }
+          : { ok: false, reason: 'unreachable', message: 'Gateway error', code: 'trade.venue_unreachable' };
       if (path === `/venue/agent-accounts/${ACCOUNT.accountId}/connections`) {
         connected = true;
         return { ok: true, data: { keyId: KEY_ID, accountId: ACCOUNT.accountId, subAccount: ACCOUNT.subAccount } };
@@ -80,7 +108,10 @@ vi.mock('../money/StepUpConfirm', () => ({
   ),
 }));
 vi.mock('../protocol/wallet/WalletProvider', () => ({
-  useWallet: () => ({ status: 'disconnected', address: null, sign: async () => ({ status: 'rejected' }) }),
+  useWallet: () =>
+    walletOn
+      ? { status: 'connected', address: '0x00000000000000000000000000000000000000AA', sign: async () => ({ status: 'rejected' }) }
+      : { status: 'disconnected', address: null, sign: async () => ({ status: 'rejected' }) },
 }));
 
 const { AgentConnect } = await import('./AgentConnect');
@@ -111,6 +142,8 @@ describe('Connect your assistant (J-agents-21 #2, #6)', () => {
     calls.length = 0;
     doorOff = false;
     connected = false;
+    walletOn = false;
+    abandonAnswers = true;
   });
 
   it('says what the assistant can and cannot do, the owner ceiling, and offers Create agent account', async () => {
@@ -144,6 +177,39 @@ describe('Connect your assistant (J-agents-21 #2, #6)', () => {
     expect(host.querySelector('[data-testid="agent-connect__create"] [role=alert]')?.textContent).toContain('Connect the wallet');
     expect(calls.slice(before).filter((c) => c.kind === 'POST')).toEqual([]);
   });
+
+  it.each([
+    [true, 'Nothing moved and no account was made.'],
+    [false, 'could not be ended just now'],
+  ])(
+    'a rejected signature while the account opens ends it (abandon answers: %s), and never says more than it knows',
+    async (answers, words) => {
+      walletOn = true;
+      abandonAnswers = answers;
+      const host = await render();
+      await click(button(host, 'Create agent account'));
+      const form = host.querySelector('[data-testid="agent-connect__create"] form') as HTMLFormElement;
+      (form.querySelector('input[name=cap]') as HTMLInputElement).value = '200';
+      (form.querySelector('input[name=fund]') as HTMLInputElement).value = '150.0';
+      await act(async () => form.requestSubmit());
+      await settle();
+      const confirm = button(host, 'TEST confirm');
+      expect(confirm.dataset.scope).toBe('trade.step_up.venue.agentAccount');
+      await click(confirm);
+      const create = calls.find((c) => c.kind === 'POST' && c.target === '/venue/agent-accounts')?.body as Record<string, unknown>;
+      expect(create).toMatchObject({
+        owner: '0x00000000000000000000000000000000000000aa',
+        asset: 'USDC',
+        cap: '200',
+        fund: '150',
+        stepUpApprovalId: 'approval-1',
+      });
+      await settle();
+      expect(calls.some((c) => c.target.endsWith('/submit'))).toBe(false);
+      expect(calls.some((c) => c.target === `/venue/agent-accounts/${String(create.accountId)}/abandon`)).toBe(true);
+      expect(host.querySelector('[data-testid="agent-connect__create"] [role=alert]')?.textContent).toContain(words);
+    },
+  );
 
   it('refuses a withdraw scope at create, then binds a trade-only agent key and shows its secret and MCP setup once', async () => {
     const host = await render();

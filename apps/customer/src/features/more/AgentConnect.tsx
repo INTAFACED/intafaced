@@ -119,16 +119,20 @@ export function AgentConnect() {
   const { t } = copy.useCopy();
   const { api, userId } = useSession();
   const { resource, reload } = useResource((signal) => readRoom(api, signal), `agent-connect:${userId}`);
+  // A read again after a create or a connect keeps the last read on screen, so the room's own messages stay.
+  const last = useRef<Ready | null>(null);
+  if (resource.status === 'ready') last.current = resource.data;
+  const data = resource.status === 'ready' ? resource.data : resource.status === 'loading' ? last.current : null;
 
   return (
     <div className="form-stack" data-testid="agent-connect">
       <a className="text-link" href="/agents">
         {t('back')}
       </a>
-      <CanCannot terms={resource.status === 'ready' && !resource.data.off ? resource.data.terms : null} />
-      {resource.status === 'loading' && <Loading label={t('loading')} />}
+      <CanCannot terms={data && !data.off ? data.terms : null} />
+      {resource.status === 'loading' && !data && <Loading label={t('loading')} />}
       {resource.status === 'failed' && <Failure result={resource.failure} retry={reload} />}
-      {resource.status === 'ready' && resource.data.off && (
+      {data?.off && (
         <Panel title={t('accountsTitle')} data-testid="agent-connect__accounts">
           <p className="muted" role="status">
             {t('doorOff')}
@@ -136,7 +140,7 @@ export function AgentConnect() {
           <Button disabled>{t('create')}</Button>
         </Panel>
       )}
-      {resource.status === 'ready' && !resource.data.off && <Room data={resource.data} reload={reload} />}
+      {data && !data.off && <Room data={data} reload={reload} />}
     </div>
   );
 }
@@ -289,7 +293,9 @@ function CreateAccount({ terms, reload }: { terms: AgentTerms; reload: () => voi
       const signed = await wallet.sign({ kind: 'typedData', typedData });
       if (signed.status !== 'signed') {
         if (signed.status === 'rejected' && view.status === 'opening') {
-          await abandonAgentAccount(api, view.accountId);
+          const ended = await abandonAgentAccount(api, view.accountId);
+          // Nothing was signed, so nothing moved either way; only an ended account is "no account made".
+          if (!ended.ok) return setMessage({ text: t('rejectedNotEnded', { message: refusalText(t, ended) }), failed: true });
           return setMessage({ text: t('rejected'), failed: true });
         }
         const reason = signed.status === 'failed' ? signed.message : signed.status;
@@ -303,6 +309,8 @@ function CreateAccount({ terms, reload }: { terms: AgentTerms; reload: () => voi
       if (!sent.ok) return setMessage({ text: refusalText(t, sent), failed: true });
       view = sent.data;
     }
+    // Created means open with nothing left to sign: anything else says what the venue still waits on.
+    if (view.next || view.status !== 'open') return setMessage({ text: t('notFinished'), failed: true });
     const total = venueTotal(view) ?? '0';
     setMessage({ text: t('created', { balance: total, cap: view.cap, asset: view.asset }), failed: false });
   }
