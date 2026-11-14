@@ -542,6 +542,11 @@ const messages = {
   'Live runs': 'Live runs',
   'Strategies trading your own venue sub-accounts': 'Strategies trading your own venue sub-accounts',
   'Live run': 'Live run',
+  'Shared with me': 'Shared with me',
+  'Strategies other people shared with you': 'Strategies other people shared with you',
+  'Shared strategy': 'Shared strategy',
+  'A strategy someone shared with you, under the permission they gave':
+    'A strategy someone shared with you, under the permission they gave',
   'Stop, liquidate or recover a strategy trading your own venue sub-account':
     'Stop, liquidate or recover a strategy trading your own venue sub-account',
   'Versions, release notes and the code each run used': 'Versions, release notes and the code each run used',
@@ -942,6 +947,11 @@ export const navigationCopy: ReturnType<typeof defineCopy<typeof messages>> = de
     'Live runs': 'Ejecuciones en vivo',
     'Strategies trading your own venue sub-accounts': 'Estrategias que operan en tus propias subcuentas del mercado',
     'Live run': 'Ejecución en vivo',
+    'Shared with me': 'Compartidas conmigo',
+    'Strategies other people shared with you': 'Estrategias que otras personas compartieron contigo',
+    'Shared strategy': 'Estrategia compartida',
+    'A strategy someone shared with you, under the permission they gave':
+      'Una estrategia que alguien compartió contigo, con el permiso que te dio',
     'Stop, liquidate or recover a strategy trading your own venue sub-account':
       'Detén, liquida o recupera una estrategia que opera en tu propia subcuenta del mercado',
     'Versions, release notes and the code each run used': 'Versiones, notas de versión y el código que usó cada ejecución',
@@ -1347,6 +1357,10 @@ export const navigationCopy: ReturnType<typeof defineCopy<typeof messages>> = de
     'Live runs': 'Exécutions en direct',
     'Strategies trading your own venue sub-accounts': 'Stratégies qui négocient sur vos propres sous-comptes de la plateforme',
     'Live run': 'Exécution en direct',
+    'Shared with me': 'Partagées avec moi',
+    'Strategies other people shared with you': 'Les stratégies que d’autres personnes ont partagées avec vous',
+    'Shared strategy': 'Stratégie partagée',
+    'A strategy someone shared with you, under the permission they gave': 'Une stratégie partagée avec vous, avec la permission accordée',
     'Stop, liquidate or recover a strategy trading your own venue sub-account':
       'Arrêtez, liquidez ou relancez une stratégie qui négocie sur votre propre sous-compte de la plateforme',
     'Versions, release notes and the code each run used': 'Versions, notes de version et le code de chaque exécution',
