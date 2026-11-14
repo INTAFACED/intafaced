@@ -219,8 +219,36 @@ test(`${J} #1 opens the overview: KPIs, redemption trends, top campaigns and ale
   expect(todayShown).toBe(todayDirect);
   expect(todayShown).toBeGreaterThan(0);
   // Top campaigns: the running campaigns with the most rewards and redemptions, each figure counted.
+  // Each shown figure equals a direct count of that campaign's rows, the rows run from most to fewest, at most five
+  // are shown, and no running campaign left out has more than the last one shown.
   const top = page.getByTestId('watch-top-row');
-  expect(await top.count()).toBeGreaterThan(0);
+  const perCampaign = new Map(
+    (
+      await withDb(
+        (sql) => sql`SELECT c.id,
+          (SELECT count(*)::int FROM campaigns.reward_intents i WHERE i.campaign_id = c.id AND i.state NOT IN ('failed', 'forfeited', 'withheld')) AS redemptions,
+          (SELECT count(*)::int FROM campaigns.participations p WHERE p.campaign_id = c.id) AS participants
+          FROM campaigns.campaigns c WHERE c.state IN ('scheduled', 'active', 'paused', 'ended', 'closed')`,
+      )
+    ).map((r) => [r.id, r]),
+  );
+  const shownTop = [];
+  for (const row of await top.all()) {
+    const id = await row.getAttribute('data-campaign-id');
+    const cells = row.locator('td');
+    shownTop.push({ id, redemptions: Number(await cells.nth(2).innerText()), participants: Number(await cells.nth(3).innerText()) });
+  }
+  expect(shownTop.length).toBe(Math.min(5, perCampaign.size));
+  for (const t of shownTop) {
+    const d = perCampaign.get(t.id);
+    expect(d, `top campaign ${t.id} is a running campaign`).toBeTruthy();
+    expect(t, `top campaign ${t.id}`).toEqual({ id: t.id, redemptions: d.redemptions, participants: d.participants });
+  }
+  for (let i = 1; i < shownTop.length; i += 1)
+    expect(shownTop[i - 1].redemptions, 'top campaigns run from most to fewest').toBeGreaterThanOrEqual(shownTop[i].redemptions);
+  const lastShown = shownTop.at(-1).redemptions;
+  for (const [id, d] of perCampaign)
+    if (!shownTop.some((t) => t.id === id)) expect(d.redemptions, `left-out campaign ${id}`).toBeLessThanOrEqual(lastShown);
   // Alerts: both thresholds are blank, read "not set", and switching one on is refused by name; nothing is stored.
   const alerts = page.getByRole('region', { name: 'Alerts' });
   for (const [kind, setting] of [
