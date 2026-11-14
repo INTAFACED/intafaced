@@ -288,9 +288,11 @@ export const accountClosureResultSchema = z
     }
     if (result.outcome === 'changed') {
       const closed = result.action === 'close';
+      // A grace close (J-identity-14 #1) is a close that keeps the status open until its date: it counts as closing.
+      const closing = (state: AccountClosureState) => state.status === 'closed' || !!state.graceUntil;
       const coherent =
-        (result.after.status === 'closed') === closed &&
-        (result.before.status === 'closed') !== closed &&
+        closing(result.after) === closed &&
+        closing(result.before) !== closed &&
         version.safeParse(result.before.version).success &&
         version.safeParse(result.after.version).success &&
         BigInt(result.after.version) === BigInt(result.before.version) + 1n &&

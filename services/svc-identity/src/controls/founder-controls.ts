@@ -1243,7 +1243,7 @@ export class FounderControls {
           if (input.action === 'close' && grace !== null) {
             // Sessions stay, so the person can sign in and withdraw until the date; `OperationIdentityDecisions.decide`
             // refuses every fresh trade from now on. The date is the database clock at the close plus the days.
-            await tx`UPDATE users SET closed_reason = ${input.reasonCode}, close_grace_until = ${clock!.at} + make_interval(days => ${grace}::int), identity_control_version = identity_control_version + 1, updated_at = now() WHERE id = ${targetId}`;
+            await tx`UPDATE users SET closed_reason = ${input.reasonCode}, close_grace_until = ${clock!.at}::timestamptz + make_interval(days => ${grace}::int), identity_control_version = identity_control_version + 1, updated_at = now() WHERE id = ${targetId}`;
           } else if (input.action === 'close') {
             await tx`UPDATE users SET status = 'closed', closed_reason = ${input.reasonCode}, closed_from_frozen = (status = 'frozen'), identity_control_version = identity_control_version + 1, updated_at = now() WHERE id = ${targetId}`;
             await tx`UPDATE sessions SET revoked = true WHERE user_id = ${targetId} AND revoked = false`;

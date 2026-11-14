@@ -28,6 +28,10 @@ const WINDOW_DAYS = OWNER_VALUES.IDENTITY_APPEAL_WINDOW_DAYS.value;
 // A closure reason from identity's fixed closure list, and the words the status page gives it.
 const CLOSE_REASON = { code: 'other', words: 'another reason' };
 const GRACE_DAYS = 14;
+/** The bank's withdrawal guard, asked as the address form asks it before any code: may this person send to this address? */
+const WITHDRAW_TO = '0x52908400098527886E0F7030069857D2E4169EE7';
+const withdrawalCheck = (session) =>
+  session.get(`/api/bank/trpc/ramps.destinations.check?input=${encodeURIComponent(JSON.stringify({ ref: WITHDRAW_TO }))}`);
 
 function person(prefix = 'ap') {
   const handle = `${prefix}${Date.now().toString(36)}${randomBytes(2).toString('hex')}`;
@@ -206,6 +210,10 @@ test(`${J} #1 signs in to a restricted account: the status page shows the state,
   expect(record.canStill).toContain('withdraw_to_address');
   expect(record.canStill).toContain('sign_in');
   expect(record.cannot).toEqual([{ action: 'trade', kind: 'closed' }]);
+  // Withdraw: the bank's withdrawal guard still lets the person go on to send to an address until the date.
+  const withdraw = await withdrawalCheck(closingClient);
+  expect(withdraw.status, JSON.stringify(withdraw.body).slice(0, 300)).toBe(200);
+  expect(withdraw.body.result.data.address).toBe('ok');
   // Not trade: an order sent from the desk is refused by identity's trading check, and nothing rests.
   await openDesk(page, closing);
   const answer = await sendOrder(page);
