@@ -1,8 +1,8 @@
 // World: restart
 import { createHash } from 'node:crypto';
 import { test, expect } from './journey.mjs';
-import { ADMIN } from './admin.mjs';
-import { api, journeyState, tool } from './stack.mjs';
+import { ADMIN, founderSignIn } from './admin.mjs';
+import { ORIGIN, api, journeyState, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { staffSignIn } from './staff.mjs';
 
@@ -390,4 +390,266 @@ test(`${J} #4 the issued list and its export agree, with zero counts and an empt
     expect(lines.filter((l) => l[2] === c.certId && l[3] === 'revoked')).toHaveLength(c.revoked);
   }
   expect(lines.some((l) => l[0] === run.read().publicId && l[3] === 'revoked')).toBe(true);
+});
+
+// ─── #5 to #7: issue rules, an exception, a revoke and a course team role (AC-certificates-02, AC-roles-01) ───────────
+// Revoke and exception are two-founder actions, and so is a team role change: the stack's TEST founder A asks on the
+// console, founder B approves (or confirms) on their own console, then A runs it. The compliance member's session holds
+// no `admin:write`, so it reads (#1 to #4) and the founders act. The Foundations issue rule is shared: #5 sets it to
+// delayed and puts it back to manual before it ends, as #1 does for automatic.
+
+const DELAY_MINUTES = 1;
+
+/** A founder on the console, in a context of its own. */
+async function founderConsole(browser, key) {
+  const context = await browser.newContext({ baseURL: ADMIN, viewport: { width: 1440, height: 1000 } });
+  const page = await context.newPage();
+  await founderSignIn(page, key);
+  return page;
+}
+
+/** A verified TEST learner on Foundations, signed in, with every required item but `leave` done through their own API. */
+async function learner(browser, prefix, leave) {
+  const tab = await (await browser.newContext({ baseURL: ORIGIN })).newPage();
+  const who = await signUp(tab, prefix);
+  await verify(tab, who);
+  await signIn(tab, who);
+  await tab.goto(`/academy/learning/course/${COURSE}`);
+  await tab.locator('[data-academy-enrol]').getByRole('button', { name: 'Enrol now', exact: true }).click();
+  await expect(tab.getByText(/^You are enrolled on the Free track since /)).toBeVisible();
+  const session = await api(who);
+  const items = (await read(who, 'certDefinitions')).find((row) => row.id === CERT).requiredItemSlugs;
+  for (const itemSlug of items.slice(0, items.length - leave)) {
+    const done = await session.post(trpc('markCurriculumComplete'), { itemSlug });
+    expect(done.status, JSON.stringify(done.body).slice(0, 300)).toBe(200);
+  }
+  return { tab, who, session, userId: session.userId, items };
+}
+
+const myCert = async (who) => (await read(who, 'myCerts', { limit: 50 })).find((row) => row.certId === CERT) ?? null;
+
+/**
+ * One two-founder desk action on the console: A asks with the reason and the typed phrase, B pastes the packet on their
+ * own console and approves it, A runs it. `desk(page)` finds the action's desk on a page; `open(page)` shows it there.
+ */
+async function twoFounders(browser, a, { path, desk, open = async () => {}, reason, phrase, ask }) {
+  const mine = desk(a);
+  await mine.getByLabel(/^Why /).fill(reason);
+  await mine.getByLabel(/to confirm$/).fill(phrase);
+  await mine.getByRole('button', { name: ask }).click();
+  await expect(mine.getByTestId('packet-made')).toBeVisible({ timeout: 60_000 });
+  const packet = (await mine.getByLabel('Request packet').inputValue()).trim();
+  const b = await founderConsole(browser, 'b');
+  await b.goto(path);
+  await open(b);
+  const theirs = desk(b);
+  await theirs.getByLabel('Request packet').fill(packet);
+  await expect(theirs.getByTestId('packet-summary')).toContainText(reason);
+  await theirs.getByLabel(/to approve or run it$/).fill(phrase);
+  await theirs.getByRole('button', { name: 'Approve this request' }).click();
+  await expect(theirs.getByTestId('step-reply')).toContainText('Approved.');
+  await b.context().close();
+  await mine.getByLabel(/to approve or run it$/).fill(phrase);
+  await mine.getByRole('button', { name: 'Run the approved request' }).click();
+  await expect(mine.getByTestId('step-reply')).toContainText('svc-academy answered', { timeout: 60_000 });
+}
+
+test(`${J} #5 a delay rule holds automatic issue until the wait has passed, and an exception for one learner shows its reason`, async ({
+  browser,
+}) => {
+  test.setTimeout(420_000);
+  const a = await founderConsole(browser, 'a');
+  await a.goto('/academy-ops/certificates/designs');
+  const rule = designCard(a).getByTestId('cert-issue-rule');
+  await expect(rule.getByTestId('cert-issue-rule-now')).toBeVisible({ timeout: 60_000 });
+  try {
+    // A delayed rule with the wait left blank refuses by name; with the wait it saves, and the card says what it is.
+    await rule.getByLabel('Issue rule', { exact: true }).selectOption('delayed');
+    await rule.getByLabel('Delay in minutes').fill('');
+    await rule.getByLabel('Issue rule reason').fill(`TEST ${J}: a delay with no wait`);
+    await rule.getByRole('button', { name: 'Save issue rule' }).click();
+    await expect(outcome(a)).toHaveAttribute('data-code', 'academy.cert_delay_unset');
+    await expect(outcome(a)).toContainText('The delay is blank');
+    const card = designCard(a).getByTestId('cert-issue-rule');
+    await card.getByLabel('Issue rule', { exact: true }).selectOption('delayed');
+    await card.getByLabel('Delay in minutes').fill(String(DELAY_MINUTES));
+    await card.getByLabel('Issue rule reason').fill(`TEST ${J}: hold certificates for a minute`);
+    await card.getByRole('button', { name: 'Save issue rule' }).click();
+    await expect(outcome(a)).toContainText(/^Done: issue rule revision \d+: issued after the wait, 1 minute after the course is complete$/);
+    await expect(designCard(a).getByTestId('cert-issue-rule')).toHaveAttribute('data-mode', 'delayed');
+    await expect(designCard(a).getByTestId('cert-issue-rule-now')).toContainText(/: delayed, 1 minute after the course is complete\.$/);
+    expect(await staffRead('admin.certIssueRule', { certId: CERT })).toMatchObject({ mode: 'delayed', delayMinutes: DELAY_MINUTES });
+
+    // A learner finishes the course: automatic issue waits for the delay, so they hold no certificate yet.
+    const waiting = await learner(browser, 'ja17w', 1);
+    const finished = await waiting.session.post(trpc('markCurriculumComplete'), { itemSlug: waiting.items.at(-1) });
+    expect(finished.status, JSON.stringify(finished.body).slice(0, 300)).toBe(200);
+    const finishedAt = Date.now();
+    expect(await myCert(waiting.who)).toBeNull();
+    await waiting.tab.goto('/academy/certificates');
+    const sheet = waiting.tab.locator(`[data-certificate="${CERT}"]`);
+    await expect(sheet).toHaveAttribute('data-state', 'issuing');
+    await expect(sheet.getByTestId('certificate-issue')).toContainText(/^Issued automatically on .+, after the 1-minute wait\.$/);
+
+    // An exception for a second learner, who has done only the first item, with a reason, approved by a second founder.
+    const excepted = await learner(browser, 'ja17x', Number.POSITIVE_INFINITY);
+    const one = await excepted.session.post(trpc('markCurriculumComplete'), { itemSlug: excepted.items[0] });
+    expect(one.status, JSON.stringify(one.body).slice(0, 300)).toBe(200);
+    expect(await myCert(excepted.who)).toBeNull();
+    const reason = `TEST ${J}: finished the course on paper before it moved online`;
+    await a.goto('/academy-ops/certificates/issued');
+    const exception = (page) => page.getByTestId('cert-exception');
+    await exception(a).getByLabel('Learner’s user id').fill(excepted.userId);
+    await exception(a).getByLabel('Certificate id').fill(CERT);
+    await twoFounders(browser, a, {
+      path: '/academy-ops/certificates/issued',
+      desk: exception,
+      reason,
+      phrase: `ISSUE CERTIFICATE ${excepted.userId.slice(0, 8)}`,
+      ask: 'Ask a second founder to approve the exception',
+    });
+    await expect(exception(a).getByTestId('step-reply')).toContainText(`issued to ${excepted.userId} as an exception`);
+
+    // The learner holds it without every item, and the exception shows its reason on the issued list and in the audit.
+    const held = await myCert(excepted.who);
+    expect(held, 'the exception issued the certificate').not.toBeNull();
+    await a.reload();
+    const row = a.getByTestId('issued-list').locator(`tr[data-public-id="${held.publicId}"]`);
+    await expect(row).toContainText(excepted.userId, { timeout: 60_000 });
+    await expect(row.getByTestId('issued-exception')).toHaveText(reason);
+    const founderA = (await founders()).sessions.a.op.userId;
+    const audit = (await staffRead('admin.grantAudit', { certificate: CERT })).items.filter((l) => l.accountId === excepted.userId);
+    expect(audit).toEqual([expect.objectContaining({ kind: 'certificate_granted', source: 'exception', actorId: founderA, reason })]);
+    await a.goto('/academy-ops/grants');
+    const line = a
+      .getByTestId('read-academy.grant-audit')
+      .getByRole('row')
+      .filter({ hasText: excepted.userId })
+      .filter({ hasText: 'Certificate issued as an exception' });
+    await expect(line).toHaveCount(1, { timeout: 60_000 });
+    await expect(line).toContainText(reason);
+    await excepted.tab.context().close();
+
+    // The wait passes and the sweep issues the waiting learner's certificate, once, no sooner than the delay.
+    await expect
+      .poll(async () => (await myCert(waiting.who))?.publicId ?? null, { timeout: (DELAY_MINUTES * 60 + 90) * 1000, intervals: [5000] })
+      .not.toBeNull();
+    const issued = await myCert(waiting.who);
+    expect(Date.parse(issued.grantedAt) - finishedAt).toBeGreaterThanOrEqual(DELAY_MINUTES * 60_000 - 5_000);
+    run.write({ waitingCode: issued.publicId, waitingId: waiting.userId, exceptedId: excepted.userId });
+    await waiting.tab.reload();
+    await expect(sheet).toHaveAttribute('data-state', 'earned');
+    await waiting.tab.context().close();
+  } finally {
+    await setIssueRule('manual');
+    await a.context().close();
+  }
+});
+
+test(`${J} #6 revoking a certificate with a reason: the verify page shows revoked and the revoke is in the grant audit`, async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(300_000);
+  const { waitingCode, waitingId } = run.read();
+  expect(waitingCode, '#5 left an issued certificate to revoke').toBeTruthy();
+  await page.goto(`${ORIGIN}/academy/certificates/verify/${waitingCode}`);
+  const answer = page.locator(`[data-certificate-verify="${waitingCode}"]`);
+  await expect(answer.getByTestId('verify-status')).toHaveText('Valid');
+
+  const reason = `TEST ${J}: issued to the wrong account`;
+  const a = await founderConsole(browser, 'a');
+  await a.goto('/academy-ops/certificates/issued');
+  const open = async (p) => {
+    await p
+      .getByTestId('issued-list')
+      .locator(`tr[data-public-id="${waitingCode}"]`)
+      .getByRole('button', { name: `Revoke ${waitingCode.slice(0, 8)}` })
+      .click();
+  };
+  await expect(a.getByTestId('issued-list')).toBeVisible({ timeout: 60_000 });
+  await open(a);
+  const desk = (p) => p.locator(`[data-testid="cert-revoke"][data-public-id="${waitingCode}"]`);
+  await twoFounders(browser, a, {
+    path: '/academy-ops/certificates/issued',
+    open,
+    desk,
+    reason,
+    phrase: `REVOKE CERTIFICATE ${waitingCode.slice(0, 8)}`,
+    ask: 'Ask a second founder to approve the revoke',
+  });
+  await expect(desk(a).getByTestId('step-reply')).toContainText(`certificate ${waitingCode} is revoked`);
+  await a.reload();
+  const row = a.getByTestId('issued-list').locator(`tr[data-public-id="${waitingCode}"]`);
+  await expect(row.locator('[data-status]')).toHaveAttribute('data-status', 'revoked', { timeout: 60_000 });
+  await a.context().close();
+
+  // The public verify page says revoked.
+  await page.reload();
+  await expect(answer.getByTestId('verify-status')).toHaveText('Revoked');
+
+  // The revoke is in the grant audit, newest first, with the founder who ran it and the reason, as compliance reads it.
+  const founderA = (await founders()).sessions.a.op.userId;
+  await staffSignIn(page, browser, 'compliance');
+  await page.goto(`${ADMIN}/academy-ops/grants`);
+  const lines = page.getByTestId('read-academy.grant-audit').getByRole('row').filter({ hasText: waitingId });
+  await expect(lines.first()).toContainText('Certificate revoked', { timeout: 60_000 });
+  await expect(lines.first()).toContainText(founderA);
+  await expect(lines.first()).toContainText(reason);
+  const stored = (await staffRead('admin.grantAudit', { certificate: CERT })).items.filter((l) => l.accountId === waitingId);
+  expect(stored.map((l) => l.kind)).toEqual(['certificate_revoked', 'certificate_granted']);
+  expect(stored[0]).toMatchObject({ actorId: founderA, reason });
+});
+
+test(`${J} #7 one founder changes a course team role, and it waits until a second founder confirms`, async ({ browser }) => {
+  test.setTimeout(240_000);
+  const { exceptedId } = run.read();
+  expect(exceptedId, '#5 left a learner to give a role to').toBeTruthy();
+  const stamp = Date.now().toString(36);
+  const course = await staff('admin.createCourse', {
+    slug: `test-j17-${stamp}`,
+    title: `TEST ${J} course ${stamp}`,
+    summary: 'TEST A course whose team changes.',
+    thumbnailUrl: null,
+    pricing: 'free',
+    price: null,
+    priceAsset: null,
+  });
+  const role = 'moderator';
+  const rolesPage = `/academy-ops/ambassadors/roles?courseId=${course.id}`;
+  const change = (p) => p.locator(`[data-change][data-holder="${exceptedId}"][data-role="${role}"]`);
+  const holder = (p) => p.locator(`[data-testid="team-holders"] [data-holder="${exceptedId}"][data-role="${role}"]`);
+  const result = (p) => p.getByTestId('course-desk-outcome');
+
+  // Founder A gives the learner the moderator role: it waits, and the learner holds nothing yet.
+  const a = await founderConsole(browser, 'a');
+  await a.goto(rolesPage);
+  await a.getByLabel('Account id', { exact: true }).fill(exceptedId);
+  await a.getByLabel('Role', { exact: true }).selectOption(role);
+  await a.getByLabel('Why', { exact: true }).fill(`TEST ${J}: moderates the course discussion`);
+  await a.getByRole('button', { name: 'Propose the change' }).click();
+  await expect(result(a)).toContainText('Done: role change proposed; it waits for a second founder');
+  await expect(change(a)).toHaveAttribute('data-state', 'pending');
+  await expect(change(a)).toContainText('waiting for a second founder');
+  await expect(holder(a)).toHaveCount(0);
+  // The founder who proposed it cannot confirm it.
+  await change(a).getByRole('button', { name: 'Confirm' }).click();
+  await expect(result(a)).toHaveAttribute('data-code', 'academy.second_founder_required');
+  await expect(change(a)).toHaveAttribute('data-state', 'pending');
+  await expect(holder(a)).toHaveCount(0);
+  await a.context().close();
+
+  // Founder B confirms it: now it takes effect, and the change names both founders.
+  const b = await founderConsole(browser, 'b');
+  await b.goto(rolesPage);
+  await change(b).getByRole('button', { name: 'Confirm' }).click();
+  await expect(result(b)).toContainText('Done: role change confirmed');
+  await expect(change(b)).toHaveAttribute('data-state', 'confirmed');
+  await expect(holder(b)).toBeVisible();
+  const { sessions } = await founders();
+  await expect(change(b)).toContainText(`Proposed by ${sessions.a.op.userId}`);
+  await expect(change(b)).toContainText(`confirmed by ${sessions.b.op.userId}`);
+  const team = await staffRead('admin.courseTeam', { courseId: course.id });
+  expect(team.holders.filter((h) => h.accountId === exceptedId).map((h) => h.role)).toEqual([role]);
+  await b.context().close();
 });

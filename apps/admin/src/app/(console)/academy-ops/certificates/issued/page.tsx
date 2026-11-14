@@ -11,5 +11,5 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ c
   const founder = await requireFounderPage();
   const asked = (await searchParams).certificate;
   const certificate = asked && CERT_ID.test(asked) ? asked : null;
-  return <AcademyIssuedCerts initial={await loadIssuedCerts(founder, certificate)} />;
+  return <AcademyIssuedCerts initial={await loadIssuedCerts(founder, certificate)} userId={founder.session.userId} />;
 }

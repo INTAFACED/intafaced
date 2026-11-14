@@ -164,21 +164,24 @@ is never invented.
 
 ### Certifications → XP (`academy.certs`)
 
-| Procedure                  | Scope           | Purpose                                                                                             |
-| -------------------------- | --------------- | --------------------------------------------------------------------------------------------------- |
-| `certDefinitions`          | `academy:read`  | Code-seeded certs and the curriculum slugs each requires                                            |
-| `enrollCertPath`           | `academy:write` | Enrol the caller on a path                                                                          |
-| `markCurriculumComplete`   | `academy:write` | Mark one curriculum item complete (idempotent)                                                      |
-| `grantCert`                | `academy:write` | Grant the caller's cert when complete, **publish XP**, then **real identity perks or refuse**       |
-| `myCerts` / `certProgress` | `academy:read`  | What the caller has earned, and what is missing                                                     |
-| `certXpPlane`              | `academy:read`  | Is this process publishing awards, under which module/action, at what value                         |
-| `certPerkPlane`            | `academy:read`  | Perks via identity rank only; invent perk money refuse-closed (D26-P1-C1)                           |
-| `certPerkIntent`           | `admin:write`   | Attempt invent cert→perk money — always refuse, never amounts                                       |
-| `admin.setCertIssueRule`   | `admin:write`   | How one certificate is issued: `manual`, `automatic` or `delayed` (with the delay), reason required |
-| `admin.certIssueRule`      | `admin:read`    | One certificate's stored issue rule, or null when staff have set none                               |
-| `admin.revokeCert`         | `admin:write`   | Revoke one issued certificate by its public code, under two-person approval (`academy.cert.revoke`) |
+| Procedure                  | Scope           | Purpose                                                                                                                          |
+| -------------------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `certDefinitions`          | `academy:read`  | Code-seeded certs and the curriculum slugs each requires                                                                         |
+| `enrollCertPath`           | `academy:write` | Enrol the caller on a path                                                                                                       |
+| `markCurriculumComplete`   | `academy:write` | Mark one curriculum item complete (idempotent)                                                                                   |
+| `grantCert`                | `academy:write` | Grant the caller's cert when complete, **publish XP**, then **real identity perks or refuse**                                    |
+| `myCerts` / `certProgress` | `academy:read`  | What the caller has earned, and what is missing                                                                                  |
+| `certXpPlane`              | `academy:read`  | Is this process publishing awards, under which module/action, at what value                                                      |
+| `certPerkPlane`            | `academy:read`  | Perks via identity rank only; invent perk money refuse-closed (D26-P1-C1)                                                        |
+| `certPerkIntent`           | `admin:write`   | Attempt invent cert→perk money — always refuse, never amounts                                                                    |
+| `admin.setCertIssueRule`   | `admin:write`   | How one certificate is issued: `manual`, `automatic` or `delayed` (with the delay), reason required                              |
+| `admin.certIssueRule`      | `admin:read`    | One certificate's stored issue rule, or null when staff have set none                                                            |
+| `admin.revokeCert`         | `admin:write`   | Revoke one issued certificate by its public code, under two-person approval (`academy.cert.revoke`)                              |
+| `admin.grantCertException` | `admin:write`   | Issue one learner a certificate without every required item, with a reason, under two-person approval (`academy.cert.exception`) |
 
 **Issue rules (AC-certificates-02, J-academy-05 #1).** A certificate with no rule, or a `manual` one, is claimed by the learner with `grantCert` once complete, as before. `automatic` issues it when the last required item is recorded (the completion stays recorded whatever the issue does). `delayed` writes one pending row (`cert_issue_pending`) when the learner first stands complete, due the delay after the later of their last completion and the rule's revision (a requirement that is an assessment pass counts from when it is settled); the issue sweep (`ACADEMY_CERT_ISSUE_SWEEP_SECONDS`, blank = no sweep, and a delayed rule then refuses `academy.cert_sweep_unset`) issues it once due, and so does the learner's own `certProgress` read, which is also the recovery path when a process stopped between a completion and its issue. A claim before the wait ends refuses `academy.cert_not_due`; an Undo drops the wait at once and a rule switched back to `manual` drops every wait. A delayed rule with no delay refuses `academy.cert_delay_unset`. `certProgress` answers `issue: { mode, delayMinutes, issuesAt }`. Each rule change is a revision with a history row (`cert_issue_rule_events`: actor, reason). Issuing publishes the same XP award as a claim and never posts to the ledger.
+
+**Exceptions (AC-certificates-02, J-academy-17 #5).** `admin.grantCertException {userId, certId, reason}` consumes an identity two-person approval for action `academy.cert.exception` with payload `{userId, certId, reason}`, then writes the learner's one ordinary grant of that certificate (key `cert:<account>:<cert>`, the active design revision) and one `cert_exceptions` row naming who proposed and approved it, the operator who carried it out, the reason and the time, and publishes the XP the certificate is worth as any grant does. The issued list (`exceptionReason`) and the grant audit (`source: exception`, with who and why) show it. A repeat answers with the first record; an unpublished certificate (`academy.cert_not_found`), one the learner holds (`academy.cert_already_granted`) or one revoked (`academy.cert_revoked`) refuses before the approval is consumed.
 
 **Revocation (AC-certificates-03, J-academy-05 #4).** `admin.revokeCert {publicId, reason}` consumes an identity two-person approval for action `academy.cert.revoke` with payload `{publicId, reason}`, then turns the grant `revoked` and writes one `cert_revocations` row naming who proposed and who approved it (from identity's approval), the operator who carried it out, the reason and the time. The public `certVerify` and the holder's `myCerts` then say `revoked`, and a claim refuses `academy.cert_revoked` (the grant row stays). A repeat, or an unknown code (`academy.cert_not_found`), is answered before the approval is consumed, so neither spends the two people's approval. Revoking does not take back the XP already published to identity for the grant, nor any rank perks that XP brought, and never posts to the ledger.
 

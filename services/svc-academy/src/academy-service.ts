@@ -111,6 +111,7 @@ import type {
   AcademyCertIssue,
   AcademyCertIssueRule,
   AcademyCertRevocation,
+  AcademyCertException,
   AcademyIssuedCertDesign,
   AcademySetCertIssueRuleInput,
   AcademyProgramme,
@@ -444,6 +445,28 @@ const revocationRecord = (r: RevocationRow): AcademyCertRevocation => ({
   revokedBy: r.revoked_by,
   reason: r.reason,
   revokedAt: r.revoked_at,
+});
+
+const EXCEPTION_COLUMNS = ['public_id', 'user_id', 'cert_id', 'proposed_by', 'approved_by', 'granted_by', 'reason', 'granted_at'] as const;
+type ExceptionRow = {
+  public_id: string;
+  user_id: string;
+  cert_id: string;
+  proposed_by: string;
+  approved_by: string;
+  granted_by: string;
+  reason: string;
+  granted_at: Date;
+};
+const exceptionRecord = (r: ExceptionRow): AcademyCertException => ({
+  publicId: r.public_id,
+  userId: r.user_id,
+  certId: r.cert_id,
+  proposedBy: r.proposed_by,
+  approvedBy: r.approved_by,
+  grantedBy: r.granted_by,
+  reason: r.reason,
+  grantedAt: r.granted_at,
 });
 
 /** The caller's own due date: staff's later date for them when there is one, else everyone's (J-academy-14 #5). */
@@ -3295,6 +3318,79 @@ export class AcademyService {
       `;
       return revocationRecord(rows[0]!);
     });
+  }
+
+  /**
+   * AC-certificates-02: the exception already recorded for this learner and certificate, or null when none is. Read
+   * before a two-person approval is spent, so a repeat, an unknown certificate, or a learner who already holds it costs
+   * nobody's approval: an unpublished certificate is `academy.cert_not_found`, a held one `academy.cert_already_granted`,
+   * a revoked one `academy.cert_revoked`.
+   */
+  async certException(userId: string, certId: string, tx: Sql = this.sql): Promise<AcademyCertException | null> {
+    if (!this.certDefinition(certId)) {
+      this.refuseUnpublishedPath(certId);
+      throw new AcademyError('Unknown certification', 'academy.cert_not_found');
+    }
+    const rows = await tx<ExceptionRow[]>`
+      SELECT ${tx(EXCEPTION_COLUMNS)} FROM academy.cert_exceptions WHERE user_id = ${userId} AND cert_id = ${certId}
+    `;
+    if (rows[0]) return exceptionRecord(rows[0]);
+    const [grant] = await tx<Array<{ status: string }>>`
+      SELECT status FROM academy.cert_grants WHERE user_id = ${userId} AND cert_id = ${certId}
+    `;
+    if (grant?.status === 'revoked') throw new AcademyError(`academy.cert_revoked cert=${certId}`, 'academy.cert_revoked');
+    if (grant) throw new AcademyError(`academy.cert_already_granted cert=${certId}`, 'academy.cert_already_granted');
+    return null;
+  }
+
+  /**
+   * AC-certificates-02: staff issue one learner a certificate without every required item, with a reason, once two
+   * people approved it (the router consumes identity's approval and passes who proposed and who approved it). The grant
+   * is the learner's one ordinary grant, keyed like any other (`cert:<account>:<cert>`), keeping the active design
+   * revision; one exception record names who proposed, approved and carried it out, and why. The XP it is worth is then
+   * published as for any grant (its business key makes a repeat a no-op at identity). A repeat answers with the first
+   * record and writes nothing. No money moves.
+   */
+  async grantCertException(input: {
+    userId: string;
+    certId: string;
+    reason: string;
+    proposedBy: string;
+    approvedBy: string;
+    operatorId: string;
+    now?: Date;
+  }): Promise<AcademyCertException> {
+    const reason = input.reason.trim();
+    if (reason.length === 0 || reason.length > 500) throw new AcademyError('An exception needs a reason', 'academy.cert_invalid');
+    const now = input.now ?? new Date();
+    const record = await transaction(this.sql, async (tx) => {
+      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`cert-exception:${input.userId}:${input.certId}`}, 0))`;
+      const recorded = await this.certException(input.userId, input.certId, tx);
+      if (recorded) return recorded;
+      const [grant] = await tx<Array<{ public_id: string }>>`
+        INSERT INTO academy.cert_grants (user_id, cert_id, granted_at, idempotency_key, public_id, design_revision)
+        VALUES (${input.userId}, ${input.certId}, ${now}, ${certIdempotencyKey(input.userId, input.certId)}, ${randomPublicId()},
+                (SELECT active_revision FROM academy.cert_designs WHERE cert_id = ${input.certId}))
+        RETURNING public_id
+      `;
+      const rows = await tx<ExceptionRow[]>`
+        INSERT INTO academy.cert_exceptions (public_id, user_id, cert_id, proposed_by, approved_by, granted_by, reason, granted_at)
+        VALUES (${grant!.public_id}, ${input.userId}, ${input.certId}, ${input.proposedBy}, ${input.approvedBy},
+                ${input.operatorId}, ${reason}, ${now})
+        RETURNING ${tx(EXCEPTION_COLUMNS)}
+      `;
+      return exceptionRecord(rows[0]!);
+    });
+    // The grant is the durable fact; the XP is its consequence, published after, as `grantCert` does.
+    const grant = await this.existingGrant(input.userId, input.certId);
+    if (grant && grant.status === 'valid') {
+      try {
+        await this.certXp.publishCertXp(grant);
+      } catch (err) {
+        console.error({ err, certId: input.certId }, 'exception XP publish failed; the next claim read re-publishes it');
+      }
+    }
+    return record;
   }
 
   /** The stored issue rule of one certificate, or null when staff have set none. */

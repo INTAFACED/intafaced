@@ -60,6 +60,8 @@ import {
   academyCertIssueSchema,
   academyCertIdSchema,
   academyCertRevocationSchema,
+  academyCertExceptionSchema,
+  academyGrantCertExceptionInputSchema,
   academyRevokeCertInputSchema,
   academyItemVideoSchema,
   academySetItemVideoInputSchema,
@@ -3931,6 +3933,35 @@ export function createAcademyRouter(
               reason: input.reason,
             });
             return academy.revokeCert({ publicId: input.publicId, reason: input.reason, ...pair, operatorId: ctx.principal!.userId });
+          }),
+        ),
+
+      /**
+       * AC-certificates-02: issue one learner a certificate without every required item, with a reason, under two-person
+       * approval (`academy.cert.exception`, payload `{userId, certId, reason}`). The grant audit and the issued list then
+       * show it with the reason.
+       */
+      grantCertException: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyGrantCertExceptionInputSchema)
+        .output(academyCertExceptionSchema)
+        .mutation(({ input, ctx }) =>
+          guard(async () => {
+            // A repeat answers with the first record, and an unknown or already-held certificate refuses, before the two
+            // people's approval is spent.
+            const recorded = await academy.certException(input.userId, input.certId);
+            if (recorded) return recorded;
+            const pair = await consumeApprovalPair(ctx.principal, approvals, input, 'academy.cert.exception', {
+              userId: input.userId,
+              certId: input.certId,
+              reason: input.reason,
+            });
+            return academy.grantCertException({
+              userId: input.userId,
+              certId: input.certId,
+              reason: input.reason,
+              ...pair,
+              operatorId: ctx.principal!.userId,
+            });
           }),
         ),
 
