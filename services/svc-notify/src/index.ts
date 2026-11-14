@@ -52,6 +52,7 @@ import { createNotifyRouter, type NotifyRouter } from './router.js';
 import { subscribeNotificationEvents } from './events.js';
 import { ALERT_SWEEP_INTERVAL_MS, AlertService, type AlertSweepReport } from './alerts/service.js';
 import { runAlertSweepPass } from './alerts/sweep-driver.js';
+import { AlertOpsReader } from './alerts/ops-health.js';
 import { PostgresAlertStore } from './alerts/store.js';
 import { PostgresWatchRuleStore, WatchRuleService } from './alerts/watch-rules.js';
 import { PostgresAlertTriggerLog } from './alerts/trigger-log.js';
@@ -427,6 +428,8 @@ const statusPageDeps = {
   maintenance,
   publicOrigin: env.NOTIFY_PUBLIC_ORIGIN ?? null,
 };
+// The founder console's alert engine read (J-charts-desk-18 #3 #4): counts of this service's own rows.
+alerts.attachOpsReader(new AlertOpsReader(sql));
 export const appRouter = createNotifyRouter(
   notify,
   alerts,

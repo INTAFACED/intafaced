@@ -28,6 +28,18 @@ export const DESK_ROOMS: readonly DeskRoom[] = [
     job: 'The trading rulebook customers read: versions, history, and a new version with a second founder.',
   },
   {
+    id: 'charts-metrics',
+    href: '/trade-ops/charts/metrics',
+    label: 'Charts metrics',
+    job: 'Chart opens, alerts, saved layouts and indicator use: real counts, or what is missing to count them.',
+  },
+  {
+    id: 'alert-engine',
+    href: '/trade-ops/alerts',
+    label: 'Alert engine',
+    job: 'Evaluation lag, firings today, and alert deliveries and failures per channel.',
+  },
+  {
     id: 'charts-settings',
     href: '/trade-ops/charts/settings',
     label: 'Charts settings',
