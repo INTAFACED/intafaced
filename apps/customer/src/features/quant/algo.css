@@ -72,9 +72,10 @@
 }
 
 @media print {
-  /* Everything outside the report's own branch takes no room, so no blank page prints after it. */
+  /* Everything outside the report's own branch takes no room, so no blank page prints after it. Important, because an
+     element's own inline display (a portal or overlay root) would otherwise keep it on paper. */
   body:has(.quant-report-document) *:not(:has(.quant-report-document)):not(.quant-report-document, .quant-report-document *) {
-    display: none;
+    display: none !important;
   }
 
   /* Important, because another room's print sheet hides every element with an important rule while it is loaded. */

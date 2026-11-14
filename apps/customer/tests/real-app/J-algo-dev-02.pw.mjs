@@ -1,4 +1,4 @@
-// World: none
+// World: restart
 // Market: live
 import { test, expect } from './journey.mjs';
 import { journeyState, restartWithSetting, toUnits } from './stack.mjs';
@@ -421,7 +421,9 @@ test(`${J} #6 presses Print: parameters, statistics, charts and labels on paper 
     return {
       top: doc.getBoundingClientRect().top + window.scrollY,
       height: doc.getBoundingClientRect().height,
-      shown: outside.filter((el) => el.getClientRects().length > 0).map((el) => el.tagName + (el.className ? `.${el.className}` : '')),
+      shown: outside
+        .filter((el) => el.getClientRects().length > 0)
+        .map((el) => `${el.tagName}#${el.id}.${el.className} style="${el.getAttribute('style') ?? ''}" ${el.textContent.slice(0, 60)}`),
       breaks: [...doc.querySelectorAll('section')].map((section) => getComputedStyle(section).breakInside),
     };
   });
