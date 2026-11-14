@@ -124,7 +124,9 @@ fi
 # (J-campaigns-03 and J-agents-01 on 14 Nov, each a push spent on garden/no-promise-copy in a copy file). It needs this
 # worktree's oxlint; without it (before the install) it is skipped, never refused, and CI still runs it.
 if [ -x "$TOP/node_modules/.bin/oxlint" ] && [ -f "$TOP/tooling/ci/lint-ratchet.mjs" ]; then
-  if ! (CDPATH= cd -- "$TOP" && node tooling/ci/lint-ratchet.mjs) </dev/null; then
+  # --rules-ref: this hook runs on the Mac against origin/main; without it, under GITHUB_ACTIONS (its own tests in CI)
+  # the gate fetches the repository's main, which shares no history with a test's planted repository.
+  if ! (CDPATH= cd -- "$TOP" && node tooling/ci/lint-ratchet.mjs --rules-ref origin/main) </dev/null; then
     cat >&2 <<'MSG'
 
   ✖ lint-ratchet failed — push refused.
