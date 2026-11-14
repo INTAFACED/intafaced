@@ -72,6 +72,7 @@ export async function installTestWallet(page, { chainId, tokens = [], privateKey
   const requests = [];
   const sends = [];
   let rejectNext = false;
+  let rejectNextSend = false;
   let otherKeyNext = false;
   /** Runs once before the next send it matches, then the send goes on: another trader's transaction landing first. */
   let beforeSend = null;
@@ -96,6 +97,11 @@ export async function installTestWallet(page, { chainId, tokens = [], privateKey
   // A transaction the page asks to send is kept, so a test can read what was built. With no TEST chain it is never sent;
   // with one, an eth_sendTransaction on that chain is signed here (the key never enters the browser) and sent.
   await page.exposeFunction('__testWalletSend', async (onChain, method, params) => {
+    if (rejectNextSend) {
+      // Refused in the wallet before anything is signed or sent, so nothing is kept in `sends`.
+      rejectNextSend = false;
+      return { error: { code: 4001, message: 'User rejected the request.' } };
+    }
     const entry = { method, params };
     sends.push(entry);
     if (!node || onChain !== chainId || method !== 'eth_sendTransaction') return { unanswered: true };
@@ -220,6 +226,10 @@ export async function installTestWallet(page, { chainId, tokens = [], privateKey
     /** The next signature request is refused the way a person pressing Reject in the wallet refuses it (code 4001). */
     rejectNext: () => {
       rejectNext = true;
+    },
+    /** The next transaction the page asks to send is refused the way a person pressing Reject in the wallet refuses it (code 4001). */
+    rejectNextSend: () => {
+      rejectNextSend = true;
     },
     /** The next message is signed by another, throwaway key while the wallet still names its own address. */
     signWithOtherKeyNext: () => {

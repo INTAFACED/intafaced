@@ -19,9 +19,11 @@ import { edgeEnvSchema, internalServiceEnvSchema, loadEnv, s2sEnvSchema, service
  *   · svc-identity's `/internal/rank/:userId/perks` — how the service knows who
  *     may open a room (§4.1 `lobbyHostRights`).
  *
- * There is no LEDGER_URL, and that absence is the design: `academy` is
- * `custodial: false` and this process holds no credential that could reach
- * anything which moves value.
+ * `academy` is `custodial: false`: it holds no customer money. Its one ledger
+ * door (LEDGER_URL, J-academy-07) posts only INTAFACED's own money, the course
+ * revenue a buyer's wallet paid to INTAFACED's receiving address and its refund
+ * (`academyPurchase`, `academyPurchaseRefund`), each once the chain shows it.
+ * This process holds no key: a refund is sent by the owner's refund signer.
  */
 const MIME_TYPE = /^[a-z]+\/[a-z0-9.+-]+$/;
 /** A comma-separated list; blank is unset. */
@@ -409,6 +411,44 @@ const schema = serviceEnvSchema
         (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
         z.union([z.undefined(), z.coerce.number().int().min(1).max(86_400)]),
       ),
+
+      // ── Course payments from the buyer's own wallet (J-academy-07, AC-commerce-01) ─────────
+      // Owner values. The chain node a payment is read from, the chain it must be on, the token the price is paid in
+      // (its asset name on the ledger and its decimals), INTAFACED's own receiving address, and how many confirmations a
+      // payment needs before it is recorded. All seven or none: with any one blank, a paid track stays closed
+      // `payments_off` and Buy refuses `academy.payments_off`; nothing is sold and nothing is made up.
+      ACADEMY_PAYMENT_RPC_URL: blankAsUnset(z.string().url()),
+      ACADEMY_PAYMENT_CHAIN_ID: blankAsUnset(z.coerce.number().int().min(1).max(2_147_483_647)),
+      ACADEMY_PAYMENT_TOKEN_ADDRESS: blankAsUnset(
+        z
+          .string()
+          .trim()
+          .regex(/^0x[0-9a-fA-F]{40}$/, 'a 0x token address'),
+      ),
+      ACADEMY_PAYMENT_TOKEN_DECIMALS: blankAsUnset(z.coerce.number().int().min(0).max(36)),
+      ACADEMY_PAYMENT_ASSET: blankAsUnset(
+        z
+          .string()
+          .trim()
+          .regex(/^[A-Z0-9]{2,12}$/, 'an asset code'),
+      ),
+      ACADEMY_PAYMENT_RECEIVER: blankAsUnset(
+        z
+          .string()
+          .trim()
+          .regex(/^0x[0-9a-fA-F]{40}$/, "INTAFACED's receiving address"),
+      ),
+      ACADEMY_PAYMENT_CONFIRMATIONS: blankAsUnset(z.coerce.number().int().min(1).max(1000)),
+      /**
+       * Where a refund is sent from INTAFACED's own funds: the signer that holds the receiving address's key and sends one
+       * token transfer per refund key, answering the same transaction for the same key. Blank: a refund refuses
+       * `academy.refund_sender_unset` and nothing is sent. This service holds no key.
+       */
+      ACADEMY_REFUND_SIGNER_URL: blankAsUnset(z.string().url()),
+      /** svc-ledger, for the purchase and refund posts (`academyPurchase`, `academyPurchaseRefund`). Blank: Buy refuses `academy.payments_off`. */
+      LEDGER_URL: blankAsUnset(z.string().url()),
+      /** How often the reconciler reads open purchases against the chain and the ledger. Blank: only a read reconciles. */
+      ACADEMY_PURCHASE_RECONCILE_SECONDS: blankAsUnset(z.coerce.number().int().min(1).max(3600)),
     }),
   );
 
