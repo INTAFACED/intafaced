@@ -396,6 +396,11 @@ export function CardCashback() {
           </p>
           {c.unpaid !== '0' && <p>{t('cashbackUnpaid', { amount: c.unpaid, asset: c.assetId })}</p>}
           {c.refused !== '0' && <p>{t('cashbackRefused', { amount: c.refused, asset: c.assetId })}</p>}
+          {c.toWallet !== '0' && (
+            <p data-testid="card-cashback-wallet" data-owed={c.toWallet}>
+              {t('cashbackToWallet', { amount: c.toWallet, asset: c.assetId })} <a href="/uc/promotion">{t('cashbackToWalletLink')}</a>
+            </p>
+          )}
           {c.simulated && <p className="money-caption">{t('cashbackSimulated')}</p>}
         </>
       ) : (

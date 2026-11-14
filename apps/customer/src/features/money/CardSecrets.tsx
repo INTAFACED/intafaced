@@ -23,7 +23,7 @@ import './bank-depth.css';
 
 type CardRecord = z.infer<typeof cardSchema>;
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
-type Offered = { details: boolean; pin: boolean; wallet: boolean; test: boolean };
+type Offered = { details: boolean; pin: boolean; wallet: boolean; test: boolean; walletNotOffered: boolean };
 
 export function useSecretsOffered(): Offered | null {
   const read = useBankRead('cards.secretsOffered', undefined);
@@ -273,10 +273,12 @@ export function CardWalletPanel({ card, offered }: { card: CardRecord; offered: 
   const depth = cardDepthCopy.useCopy().t;
   const read = useBankRead('cards.walletTokens', { cardId: card.id }, Boolean(offered?.wallet));
   if (!offered?.wallet) {
+    // The partner's own no reads as the partner's; otherwise no issuer that adds cards to phone wallets is connected.
+    const reason = offered?.walletNotOffered ? depth('walletNotOffered') : depth('walletReason');
     return (
-      <div className="actions">
-        <DisabledAction label={depth('walletApple')} reason={depth('walletReason')} />
-        <DisabledAction label={depth('walletGoogle')} reason={depth('walletReason')} />
+      <div className="actions" data-testid="card-wallets" data-offered={offered?.walletNotOffered ? 'not-by-partner' : 'no-issuer'}>
+        <DisabledAction label={depth('walletApple')} reason={reason} />
+        <DisabledAction label={depth('walletGoogle')} reason={reason} />
       </div>
     );
   }

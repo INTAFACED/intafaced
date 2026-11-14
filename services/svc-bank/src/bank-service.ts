@@ -1,4 +1,4 @@
-import { testPartnerCustody, testPartnerPurchases, type TestPartner } from './partner/test-partner.js';
+import { testPartnerCustody, testPartnerDirectDebits, testPartnerPurchases, type TestPartner } from './partner/test-partner.js';
 import type { PartnerPurchaseCustody } from './partner/partner-purchases.js';
 import {
   bankCustodyLayer,
@@ -7,7 +7,7 @@ import {
   type PartnerCustody,
   type PostingFreeze,
 } from './partner/partner-bank.js';
-import { moneyHeldBy } from './partner/test-partner.js';
+import { assertPartnerOffers, moneyHeldBy } from './partner/test-partner.js';
 import { freezeGuardedCardHolds, testPartnerCardHolds } from './cards/partner-card-holds.js';
 import { NOTHING_REPORTED } from './cards/partner-terms.js';
 import { AssetPauseService } from './ops/asset-pause.js';
@@ -493,6 +493,10 @@ export function createBankServices(
     ...(options.cards ?? {}),
     heldBy: options.cards?.heldBy ?? ((userId) => moneyHeldBy(options.testPartner, userId, custodyLayer)),
     partnerHolds,
+    // The TEST partner's own "not offered" switch for phone wallets (J-bank-13 #8); no partner, the issuer alone decides.
+    assertWalletOffered:
+      options.cards?.assertWalletOffered ??
+      (options.testPartner ? (userId: string) => assertPartnerOffers(options.testPartner, userId, 'phone_wallet') : null),
     onCaptureSettled: options.cards?.onCaptureSettled ?? ((event) => autoInvest.applyRoundUp(event)),
     // A card linked to a shared pot: every change of its status is a line in the pot's log, in the card's transaction.
     onStatusChanged: options.cards?.onStatusChanged ?? ((tx, change) => sharedPots.noteCardStatus(tx, change)),
@@ -568,7 +572,13 @@ export function createBankServices(
     options.holdCancelHours !== undefined ? options.holdCancelHours : process.env[BANK_GLOBAL_HOLD_CANCEL_HOURS_ENV],
   );
   globalSend.screenWith((sendId) => globalHolds.screen(sendId));
-  const directDebits = new DirectDebitService(sql, ledger, spaces, options.directDebitScheme ?? unsetDirectDebitScheme);
+  const directDebits = new DirectDebitService(
+    sql,
+    ledger,
+    spaces,
+    options.directDebitScheme ?? unsetDirectDebitScheme,
+    testPartnerDirectDebits(options.testPartner),
+  );
 
   const recovery = new RecoveryClaimService(sql, ledger, spaces, options.identityRecovery ?? unconfiguredIdentityRecovery());
 

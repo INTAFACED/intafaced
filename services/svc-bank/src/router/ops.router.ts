@@ -790,7 +790,7 @@ export function createOpsRouter(c: BankRouterContext) {
           // pay is a fact an operator needs on the day it happens — the same
           // reasoning as `runRiskSweep.refused`.
           cashback: z.object({
-            status: z.enum(['none', 'paid', 'refused']),
+            status: z.enum(['none', 'paid', 'owed', 'refused']),
             amount: amountString,
             reason: z.string().optional(),
           }),
@@ -842,6 +842,7 @@ export function createOpsRouter(c: BankRouterContext) {
               status: result.cashback.status,
               amount: formatAmount(result.cashback.amount),
               ...(result.cashback.status === 'refused' ? { reason: result.cashback.reason } : {}),
+              ...(result.cashback.status === 'owed' && result.cashback.reason ? { reason: result.cashback.reason } : {}),
             },
             roundUp: {
               status: result.roundUp.status,

@@ -334,6 +334,8 @@ export type BankErrorCode =
   | 'bank.card_dispute_partner_unset'
   /** The card partner answered a provisional credit with another amount than the one asked; nothing was recorded. */
   | 'bank.card_dispute_partner_mismatch'
+  | 'bank.card_dispute_rules_unset'
+  | 'bank.card_dispute_evidence_closed'
   /** Cards are not offered to residents of the country given. */
   | 'bank.card_not_eligible'
   /** The person already holds as many active cards of this kind as the programme allows. */

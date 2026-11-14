@@ -57,6 +57,11 @@ export function testRewardChain(opts: { rpcUrl: string; token: string; chainId: 
       if (!r) return null;
       return r.status === '0x1';
     },
+    async networkFee(hash) {
+      const r = await rpc<{ gasUsed?: string; effectiveGasPrice?: string } | null>('eth_getTransactionReceipt', [hash]);
+      if (!r?.gasUsed || !r.effectiveGasPrice) return null;
+      return BigInt(r.gasUsed) * BigInt(r.effectiveGasPrice);
+    },
     async find(from, to, units, fromBlock) {
       const logs = await rpc<{ data: string; transactionHash?: string; removed?: boolean }[]>('eth_getLogs', [
         {

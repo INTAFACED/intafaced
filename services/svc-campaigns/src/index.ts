@@ -197,6 +197,7 @@ async function attachBus(): Promise<void> {
     );
     bus = connected;
     void attachWelcome(connected);
+    void attachCardCashback(connected);
   } catch (err) {
     app.log.error({ err }, 'svc-campaigns could not attach to trade.fill.settled: task progress waits, trying again');
     await connected?.close().catch(() => undefined);
@@ -247,6 +248,38 @@ async function attachWelcome(connected: JetStreamEventBus): Promise<void> {
     if (!stopping && bus === connected) {
       welcomeRetry = setTimeout(() => void attachWelcome(connected), BUS_RETRY_MS);
       welcomeRetry.unref();
+    }
+  }
+}
+/**
+ * Cashback earned on card spend the card partner holds (J-bank-13 #7): svc-bank announces it once per authorisation, and
+ * an earning rule on `bank.card_cashback.earned` owes it in USDC and the payer pays it to the person's own wallet. Keyed
+ * by the authorisation, so a redelivery owes nothing twice. It reads `bank`'s stream, so it attaches on its own and is
+ * tried again if that stream is missing; everything above keeps running.
+ */
+let cashbackRetry: NodeJS.Timeout | null = null;
+async function attachCardCashback(connected: JetStreamEventBus): Promise<void> {
+  try {
+    await connected.subscribe(
+      'bankCardCashbackEarned',
+      async (earned) => {
+        if (!saga) app.log.warn({ authorizationId: earned.authorizationId }, 'earning skipped: campaigns.reward_saga_unwired');
+        await tasks.onEarningEvent({
+          trigger: 'bank.card_cashback.earned',
+          eventId: earned.authorizationId,
+          userId: earned.userId,
+          at: earned.earnedAt,
+          values: { amount: earned.spend, cashback: earned.cashback },
+          assets: { amount: earned.assetId, cashback: earned.assetId },
+        });
+      },
+      { durable: 'campaigns-earn-card-cashback' },
+    );
+  } catch (err) {
+    app.log.error({ err }, 'svc-campaigns could not attach bank.card_cashback.earned: card cashback waits, trying again');
+    if (!stopping && bus === connected) {
+      cashbackRetry = setTimeout(() => void attachCardCashback(connected), BUS_RETRY_MS);
+      cashbackRetry.unref();
     }
   }
 }
@@ -342,6 +375,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       clearInterval(voucherExpiry);
       if (busRetry) clearTimeout(busRetry);
       if (welcomeRetry) clearTimeout(welcomeRetry);
+      if (cashbackRetry) clearTimeout(cashbackRetry);
       await app.close();
       await bus?.close();
       await sql.end({ timeout: 2 });

@@ -1390,6 +1390,17 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
       reasonCode: 'ledger.insufficient_funds',
       failedAt: ts(),
     },
+    bankCardCashbackEarned: {
+      authorizationId: uid(),
+      cardId: uid(),
+      userId: uid(),
+      spend: '4',
+      cashback: '0.04',
+      assetId: 'USDC',
+      tier: 'none',
+      rateBps: 100,
+      earnedAt: ts(),
+    },
     p2pOfferCreated: {
       offerId: uid(),
       makerId: uid(),

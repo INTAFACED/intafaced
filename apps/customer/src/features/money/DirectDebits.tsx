@@ -35,6 +35,10 @@ function reasonOf(t: Copy, code: string | null): string {
   switch (code) {
     case 'bank.insufficient_funds':
       return t('reason_insufficient');
+    case 'bank.partner_insufficient_funds':
+      return t('reason_insufficient_partner');
+    case 'test_partner.dd_mandate_blocked':
+      return t('reason_blocked_partner');
     case 'bank.dd_mandate_blocked':
       return t('reason_blocked');
     case 'bank.dd_account_unavailable':
@@ -128,7 +132,7 @@ function RefundCell({ row, onRefund }: { row: DirectDebitCollection; onRefund: (
         </>
       );
     default:
-      return <>{t('refundNone')}</>;
+      return <>{row.status === 'failed' ? t('refundFailed') : t('refundNone')}</>;
   }
 }
 
@@ -156,7 +160,17 @@ function CollectionTable({ rows, onRefund }: { rows: readonly DirectDebitCollect
                   <td lang="und">{row.creditorName}</td>
                   <td className="numeric">{amount(row.amount, row.assetId)}</td>
                   <td>{date(row.dueAt)}</td>
-                  <td>{t(`status_${row.status}`)}</td>
+                  <td>
+                    {t(`status_${row.status}`)}
+                    {row.partnerMoveId && (
+                      <>
+                        {' '}
+                        <small className="muted" data-testid="dd-partner-move">
+                          {t('partnerMove', { id: row.partnerMoveId })}
+                        </small>
+                      </>
+                    )}
+                  </td>
                   <td>
                     {row.failureCode ? (
                       <>
@@ -204,7 +218,10 @@ function ToggleDialog({ row, onDone, onCancel }: { row: DirectDebitMandate; onDo
       setBusy(false);
       if (!answer.ok) return setError(refusal(t, answer));
       const late = answer.data.tooLate.map((one) => t('tooLate', { id: one.collectionId })).join(' ');
-      return onDone(`${t('blocked', { creditor: row.creditorName, count: String(answer.data.rejected.length) })}${late ? ` ${late}` : ''}`);
+      const sent = answer.data.sentTo ? `${t('blockSent', { partner: answer.data.sentTo })} ` : '';
+      return onDone(
+        `${sent}${t('blocked', { creditor: row.creditorName, count: String(answer.data.rejected.length) })}${late ? ` ${late}` : ''}`,
+      );
     }
     const answer = await api.mutate('bank', 'directDebits.unblock', input, directDebitWrites.unblock);
     setBusy(false);

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type postgres from 'postgres';
 import { transaction } from '@intafaced/db';
 import { POST_DEADLINE_SECONDS } from './ledger-client.js';
@@ -68,10 +69,28 @@ const referenceOf = (rewardKey: string) => rewardKey.replace(/[^A-Za-z0-9_:-]/g,
  * campaign as `rewardOwe` requires (a voucher's key names the voucher, not the campaign) and keeps every segment of the
  * reward key, so two rewards never share one.
  */
-export const ledgerRewardId = (campaignId: string, rewardKey: string) => `campaign:${campaignId}:${referenceOf(rewardKey)}`;
+export const ledgerRewardId = (campaignId: string, rewardKey: string) => {
+  const head = `campaign:${campaignId}:`;
+  return `${head}${boundedReference(rewardKey, OWE_KEY_MAX - OWE_KEY_PREFIX.length - head.length)}`;
+};
 
 /** The claim decision a budget funding is keyed by: the whole reward key, as one reference. */
-export const fundingDecisionOf = (rewardKey: string) => `claim-${referenceOf(rewardKey)}`;
+export const fundingDecisionOf = (rewardKey: string) => `claim-${boundedReference(rewardKey, DECISION_MAX - 'claim-'.length)}`;
+
+/** The ledger's limits: a decision reference is at most 128 characters, a post key at most 200 (`reward-owed.ts`). */
+const DECISION_MAX = 128;
+const OWE_KEY_MAX = 200;
+const OWE_KEY_PREFIX = 'campaigns:owe:';
+
+/**
+ * The reward key as one reference that fits `room` characters. A key that fits is written whole, as before, so every
+ * reward already owed keeps its keys. A longer one (an earning rule's long name, a UUID event id such as a card
+ * authorisation's) is written as `h-` and the SHA-256 of the whole key: still one per reward, and the same on every retry.
+ */
+function boundedReference(rewardKey: string, room: number): string {
+  const whole = referenceOf(rewardKey);
+  return whole.length <= room ? whole : `h-${createHash('sha256').update(rewardKey).digest('hex')}`;
+}
 
 /** A `posting` row is taken again only once its attempt can no longer be waiting on the ledger. */
 const inFlightAfter = (reconcileAfterSeconds: number | null) => Math.max(reconcileAfterSeconds ?? 0, POST_DEADLINE_SECONDS);
