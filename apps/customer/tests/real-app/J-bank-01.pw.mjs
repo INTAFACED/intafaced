@@ -111,6 +111,12 @@ async function withBankValueBlank(key, who, fn) {
   }
 }
 const named = (rows, name) => rows.find((s) => s.kind === 'named' && s.name === name);
+/** The spaces as facts: the partner's `asOf` says when it was asked, which every read changes, so it is left out. */
+const withoutReadTime = (rows) =>
+  rows.map(({ heldAt, ...space }) => ({
+    ...space,
+    heldAt: heldAt && { ...heldAt, asOf: undefined, figure: heldAt.figure && { ...heldAt.figure, asOf: undefined } },
+  }));
 /** The ledger's USDT figures for `who`, in units: their bank money is the partner's, so these never change. */
 async function ledgerUsdt(who) {
   const row = (await (await api(who)).balances()).USDT;
@@ -463,7 +469,8 @@ test(`${J} #7 switches to a business profile: every bank read carries it, and a 
     const res = await api[kind](procedure, input);
     expect(res, procedure).toMatchObject({ ok: false, status: 403, code: 'bank.profile_not_held' });
   }
-  expect(await spaces(who)).toEqual(before);
+  // Nothing on the account changed: every space and figure is the same, read apart from when the partner was asked.
+  expect(withoutReadTime(await spaces(who))).toEqual(withoutReadTime(before));
 
   // Back to Personal: the account's own terms and money are there again.
   await page.getByRole('button', { name: 'Account menu' }).click();
