@@ -34,6 +34,8 @@ async function developer(page) {
 /** Saves a new signal-rules strategy on 1 minute bars of BTC/USDT at version 1. Every figure is a TEST simulation input. */
 async function saveSignalStrategy(page, name, { stopLoss = '', takeProfit = '', size = '0.01' } = {}) {
   await page.goto('/quant/studio');
+  // The form shows once Studio has read what it needs; only then can its Start a new strategy button be looked for.
+  await expect(page.getByLabel('Strategy name')).toBeVisible();
   const fresh = page.getByRole('button', { name: 'Start a new strategy' });
   if (await fresh.isVisible()) await fresh.click();
   await page.getByLabel('Strategy name').fill(name);
@@ -172,28 +174,38 @@ test(`${J} #3 attaches a take profit and a stop loss and runs a bar that hits bo
   const STOP = '0.001';
   const TARGET = '0.001';
   await saveSignalStrategy(page, 'TEST both exits', { stopLoss: STOP, takeProfit: TARGET });
-  const window = await tapeWindow(60);
-  const room = await backtest(page, 'TEST both exits', window);
-
-  // Each exit is paired with the entry before it; a bar that reached both its stop loss and its take profit must
-  // exit by the stop loss, so an exit of either kind on such a bar is collected and judged.
-  const bars = new Map((await closedBarsSince(window.from)).map(([at, open, high, low]) => [at, { open, high, low }]));
-  await view(room, 'Orders and trades');
-  const rows = await room
-    .getByTestId('quant-bar-trade')
-    .evaluateAll((els) =>
-      els.map((el) => ({ ts: el.dataset.ts, side: el.dataset.side, cells: [...el.querySelectorAll('td')].map((td) => td.textContent) })),
-    );
-  const both = [];
-  for (let i = 1; i < rows.length; i++) {
-    const [entry, exit] = [rows[i - 1], rows[i]];
-    if (entry.side !== 'buy' || exit.side !== 'sell' || !['Stop loss', 'Take profit'].includes(exit.cells[2])) continue;
-    const bar = bars.get(Date.parse(exit.ts));
-    if (!bar) continue;
-    const entered = Number(entry.cells[5]);
-    const target = entered * (1 + Number(TARGET) / 100);
-    const stop = entered * (1 - Number(STOP) / 100);
-    if (bar.high >= target && bar.low <= stop) both.push({ exit, stop, bar });
+  // The TEST tape's older bars are seeded with two trades each, so a bar can only reach both levels once the live market
+  // has traded through one; the run is taken again on the newest window, a minute later each time, until a held bar
+  // reached both (each window is its own run key). Every check below is made on that run.
+  const deadline = Date.now() + 12 * 60_000;
+  let room;
+  let rows = [];
+  let both = [];
+  for (;;) {
+    const window = await tapeWindow(60);
+    room = await backtest(page, 'TEST both exits', window);
+    // Each exit is paired with the entry before it; a bar that reached both its stop loss and its take profit must
+    // exit by the stop loss, so an exit of either kind on such a bar is collected and judged.
+    const bars = new Map((await closedBarsSince(window.from)).map(([at, open, high, low]) => [at, { open, high, low }]));
+    await view(room, 'Orders and trades');
+    rows = await room
+      .getByTestId('quant-bar-trade')
+      .evaluateAll((els) =>
+        els.map((el) => ({ ts: el.dataset.ts, side: el.dataset.side, cells: [...el.querySelectorAll('td')].map((td) => td.textContent) })),
+      );
+    both = [];
+    for (let i = 1; i < rows.length; i++) {
+      const [entry, exit] = [rows[i - 1], rows[i]];
+      if (entry.side !== 'buy' || exit.side !== 'sell' || !['Stop loss', 'Take profit'].includes(exit.cells[2])) continue;
+      const bar = bars.get(Date.parse(exit.ts));
+      if (!bar) continue;
+      const entered = Number(entry.cells[5]);
+      const target = entered * (1 + Number(TARGET) / 100);
+      const stop = entered * (1 - Number(STOP) / 100);
+      if (bar.high >= target && bar.low <= stop) both.push({ exit, stop, bar });
+    }
+    if (both.length || Date.now() > deadline) break;
+    await page.waitForTimeout(60_000);
   }
   expect(both.length, 'no bar in the window reached both the stop loss and the take profit of an open position').toBeGreaterThan(0);
 
