@@ -140,6 +140,7 @@ function stubServices(): Stub {
   const auth = {
     submitKyc: record('submitKyc', () => kycRecord()),
     listKycRecords: record('listKycRecords', () => [kycRecord()]),
+    kycTradingOnly: record('kycTradingOnly', () => false),
     listPendingKyc: record('listPendingKyc', () => [kycRecord()]),
     listKycCases: record('listKycCases', () => []),
     assertKycRejectable: record('assertKycRejectable', () => undefined),
@@ -149,6 +150,12 @@ function stubServices(): Stub {
     deactivateKycCapability: record('deactivateKycCapability', () => capabilitiesRead),
     getKycRecord: record('getKycRecord', () => kycRecord()),
     kycTier: record('kycTier', () => 'none' as const),
+    accountState: record('accountState', (userId: string) => ({
+      userId,
+      status: 'active' as const,
+      kycTier: 'basic' as const,
+      archived: false,
+    })),
     approveKycRecord: record('approveKycRecord', () =>
       kycRecord({ status: 'approved', reviewedBy: OPERATOR, reviewedAt: new Date('2026-07-28T09:00:00.000Z') }),
     ),
@@ -1623,6 +1630,7 @@ describe('affiliates admin tree read (Stage spine, non-pay)', () => {
       registrationOpen: true,
       referral,
       freeze,
+      programmeDepth: 5,
       actionApprovals: stubActionApprovals(CONFIRM_KYC),
     });
   }
@@ -1932,13 +1940,33 @@ describe('affiliates.payout on the mount', () => {
     return ledger;
   }
 
-  async function mounted(opts: { law?: typeof publishedLaw | undefined; ledger?: MemoryLedger } = {}) {
+  async function mounted(
+    opts: {
+      law?: typeof publishedLaw | undefined;
+      ledger?: MemoryLedger;
+      depth?: number | undefined;
+      /** Account status of one beneficiary; everyone else is active. */
+      account?: { userId: string; status: 'frozen' | 'closed' };
+    } = {},
+  ) {
     const store = new MemoryAccrualStore();
     await store.saveRows([accrualRow(), accrualRow({ beneficiaryId: BENE1, hop: 1, rate: '0.07', commissionAmount: '7' })]);
-    const r = createIdentityRouter(stub.auth, stub.rank, {
+    const account = opts.account;
+    const auth = account
+      ? (Object.assign(Object.create(stub.auth) as AuthService, {
+          accountState: async (userId: string) => ({
+            userId,
+            status: userId === account.userId ? account.status : ('active' as const),
+            kycTier: 'basic' as const,
+            archived: false,
+          }),
+        }) as AuthService)
+      : stub.auth;
+    const r = createIdentityRouter(auth, stub.rank, {
       registrationOpen: true,
       accruals: store,
       accrualTierLaw: opts.law,
+      programmeDepth: 'depth' in opts ? opts.depth : 5,
       ledger: opts.ledger,
       freeze: { frozenIds: async () => new Set<string>() } as unknown as FreezeService,
       actionApprovals: stubActionApprovals(CONFIRM),
@@ -1951,6 +1979,19 @@ describe('affiliates.payout on the mount', () => {
   it('payout IS mounted — it appears on the same router index.ts registers', async () => {
     const { router: r } = await mounted();
     expect(Object.keys(r._def.procedures)).toContain('affiliates.payout');
+  });
+
+  it('a blank programme depth (RC-campaigns-07) refuses payout, even with published rates, and moves nothing', async () => {
+    const ledger = await fundedLedger();
+    const { router: r } = await mounted({ law: publishedLaw, ledger, depth: undefined });
+    const api = r.createCaller(await ctx(['admin:write'], { userId: OPERATOR }));
+    for (const dryRun of [true, false]) {
+      const err = await api.affiliates.payout({ feeEventId: FEE_EVT, dryRun }).catch((e: unknown) => e);
+      expect(codeOf(err)).toBe('PRECONDITION_FAILED');
+      expect((err as { cause?: { code?: string } }).cause?.code).toBe('affiliate.programme_depth_unset');
+    }
+    expect(await bal(ledger, houseFees('identity', ASSET_U))).toBe('100');
+    expect(await bal(ledger, userAvailable(BENE0, ASSET_U))).toBe('0');
   });
 
   it('reaching payout with no published rate refuses by CODE and moves nothing', async () => {
@@ -1983,6 +2024,26 @@ describe('affiliates.payout on the mount', () => {
     // Not `affiliate.payout.invalid` — the rate gate ran first, on zero rows.
     expect((err as { cause?: { code?: string } }).cause?.code).toBe('affiliate.payout.rates_unset');
   });
+
+  // #4689: the account itself, not only the programme's freeze. One frozen or closed node stops the whole tree.
+  for (const status of ['frozen', 'closed'] as const) {
+    it(`a ${status} beneficiary account refuses the payout, dry run included, and moves nothing`, async () => {
+      const ledger = await fundedLedger();
+      const { router: r } = await mounted({ law: publishedLaw, ledger, account: { userId: BENE1, status } });
+      const api = r.createCaller(await ctx(['admin:write'], { userId: OPERATOR }));
+      for (const dryRun of [true, false]) {
+        const err = await api.affiliates
+          .payout({ feeEventId: FEE_EVT, dryRun, approvalId: 'appr-1', operationId: 'op-1' })
+          .catch((e: unknown) => e);
+        expect(codeOf(err)).toBe('PRECONDITION_FAILED');
+        expect((err as { cause?: { code?: string } }).cause?.code).toBe('affiliate.payout.beneficiary_cannot_receive');
+      }
+      expect(await bal(ledger, houseFees('identity', ASSET_U))).toBe('100');
+      expect(await bal(ledger, userAvailable(BENE0, ASSET_U))).toBe('0');
+      expect(await bal(ledger, userAvailable(BENE1, ASSET_U))).toBe('0');
+      expect(await bal(ledger, rewardsEngine(ASSET_U))).toBe('0');
+    });
+  }
 
   it('with a published rate the route pays the whole tree, and balances prove it', async () => {
     const ledger = await fundedLedger();
@@ -2112,7 +2173,7 @@ describe('affiliates.accrue / accrueDryRun under rate authority (D26-P1-O2)', ()
     tiers: [{ hop: 0, rate: '0.130' }],
   };
 
-  function mounted(opts: { law?: typeof publishedLaw | undefined } = {}) {
+  function mounted(opts: { law?: typeof publishedLaw | undefined; depth?: number | undefined } = {}) {
     const parent = new Map<string, string>([[PAYER, BENE0]]);
     const referral = {
       loadParentMap: async () => parent,
@@ -2145,6 +2206,7 @@ describe('affiliates.accrue / accrueDryRun under rate authority (D26-P1-O2)', ()
       freeze,
       accruals: store,
       accrualTierLaw: opts.law,
+      programmeDepth: 'depth' in opts ? opts.depth : 5,
       actionApprovals: stubActionApprovals(CONFIRM_KYC),
     });
     return { store, router: r };
@@ -2154,6 +2216,18 @@ describe('affiliates.accrue / accrueDryRun under rate authority (D26-P1-O2)', ()
     const { router: r } = mounted();
     expect(Object.keys(r._def.procedures)).toContain('affiliates.accrue');
     expect(Object.keys(r._def.procedures)).toContain('affiliates.accrueDryRun');
+  });
+
+  it('a blank programme depth (RC-campaigns-07) refuses accrual, dry-run or durable, before the rate law; nothing stored', async () => {
+    const { store, router: r } = mounted({ law: publishedLaw, depth: undefined });
+    const api = r.createCaller(await ctx(['admin:read', 'admin:write'], { userId: OPERATOR }));
+    const fee = { feeEventId: FEE, userId: PAYER, feeAmount: '100', asset: 'USDT' };
+    for (const call of [() => api.affiliates.accrueDryRun(fee), () => api.affiliates.accrue(fee)]) {
+      const err = await call().catch((e: unknown) => e);
+      expect(codeOf(err)).toBe('PRECONDITION_FAILED');
+      expect((err as { cause?: { code?: string } }).cause?.code).toBe('affiliate.programme_depth_unset');
+    }
+    expect(await store.listByFeeEvent(FEE)).toEqual([]);
   });
 
   it('accrueDryRun with unpublished law and no tiers refuses rates_unset', async () => {

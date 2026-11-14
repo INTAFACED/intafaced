@@ -1,0 +1,14 @@
+{
+  "printOnlyDays": 7,
+  "enforceFromStart": [
+    "garden/no-promise-copy",
+    "garden/pay-portal-copy",
+    "garden/own-gap-wording",
+    "garden/no-local-scale",
+    "garden/no-hand-decimal-parse",
+    "garden/no-hand-trpc-unwrap",
+    "garden/no-fetch-without-timeout"
+  ],
+  "enforceAddedFromStart": ["garden/no-hand-schema", "garden/no-screen-literal"],
+  "started": {}
+}

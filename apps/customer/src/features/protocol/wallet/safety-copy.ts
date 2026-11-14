@@ -7,7 +7,8 @@ import { defineCopy } from '../../../shared/i18n';
 const en = {
   // Accounts
   subAccountsTitle: 'Sub-accounts',
-  subAccountsNote: 'This wallet and its smart account on this network. Your wallet signs for both; we hold no key.',
+  subAccountsNote:
+    'This wallet, its smart account on this network, and its own sub-accounts on the trading venue. Your wallet signs for all of them; we hold no key.',
   accountsWrongNetwork: 'Your wallet is on another network. Switch it to this network to see its accounts here.',
   hdr_account: 'Account',
   hdr_address: 'Address',
@@ -19,7 +20,15 @@ const en = {
   accountNotDeployed: 'Not deployed: it is created the first time you use it',
   accountFactoryUnset: 'Not available: the smart account factory is not deployed on this network.',
   accountReading: 'Reading the network…',
-  custodialNote: 'Exchange sub-accounts are a separate thing and are not offered, so there is nothing to open for them here.',
+  hdr_name: 'Name',
+  venueSubsTitle: 'Venue sub-accounts',
+  venueSubsOn: 'Your own sub-accounts on {venue}, as the venue lists them for this wallet.',
+  venueSubsNone: 'This wallet has no sub-account on {venue}.',
+  venueSubsSignIn: "Sign in to see this wallet's sub-accounts on the trading venue.",
+  venueSubsChecking: 'Checking the trading venue…',
+  venueSubsOff: 'The trading venue is switched off in this build, so no venue sub-account can be read.',
+  venueSubsDown: 'The trading venue did not answer, so its sub-accounts cannot be read: {detail}',
+  custodialNote: "INTAFACED keeps no sub-account of its own for you: the venue sub-accounts above are your own venue account's.",
   multisigTitle: 'Multi-signature accounts',
   multisigNote:
     'A shared account needs a set number of its signers to approve each action, each with their own wallet. No one can approve for another signer.',

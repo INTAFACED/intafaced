@@ -21,6 +21,10 @@ import { CRYPTO_LEDGER_PROGRAMME, NO_RAMP_PROGRAMME } from './rails.js';
 import { onrampSim } from './onramp-sim.js';
 import { PAYIN_SIM_RAIL, payinSim } from './payin-sim.js';
 import { TEST_PURCHASE_HOLD_DAYS, testPartner as testPartnerBank } from '../partner/test-partner.js';
+import { secp256k1 } from '@noble/curves/secp256k1.js';
+import { keccak_256 } from '@noble/hashes/sha3.js';
+import { walletDeliveryMessage } from './add-money.js';
+import { destinationSanctions, memorySanctions } from './sanctions-list.js';
 
 const SECRET = 'bank-add-money-edge-secret-long-enough';
 const ADA = '11111111-1111-4111-8111-111111111111';
@@ -510,8 +514,10 @@ describe('add money (J-bank-02)', () => {
       const first = await bank.addMoney.approved(request.requestId);
       expect(first.returnUrl).toBe(`http://127.0.0.1:3210/bank/ramps/new?request=${request.requestId}`);
       expect(first.request).toMatchObject({ status: 'pending', creditedAt: null });
+      expect(first.approvedNow).toBe(true);
       const again = await bank.addMoney.approved(request.requestId);
       expect(again.request).toEqual(first.request);
+      expect(again.approvedNow).toBe(false);
       // The customer's own read says the same (the router shows the customer's fields only).
       const { onramp: _approvedOnramp, ...approvedView } = first.request;
       expect(await caller.addMoney.request({ requestId: request.requestId })).toMatchObject(approvedView);
@@ -541,6 +547,183 @@ describe('add money (J-bank-02)', () => {
       expect(ledger.reconcile()).toEqual({ ok: true });
       const { onramp: _creditedOnramp, ...creditedView } = first;
       expect(await caller.addMoney.request({ requestId: request.requestId })).toMatchObject(creditedView);
+    });
+
+    describe("to the person's own wallet (J-dex-protocol-05 #4)", () => {
+      // Well-known public development keys (the first two accounts of common local EVM chains). They hold nothing; TEST only.
+      const KEY = 'ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
+      const WALLET = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
+      const STRANGER_KEY = '59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d';
+      const TX = `0x${'ab'.repeat(32)}`;
+      const clearList = memorySanctions([{ network: '*', address: '0x00000000000000000000000000000000005a1c7d' }]);
+
+      /** What a wallet's `personal_sign` returns: the EIP-191 digest signed, as `r || s || v` with v 27/28. */
+      function personalSign(message: string, keyHex: string): string {
+        const encoder = new TextEncoder();
+        const body = encoder.encode(message);
+        const prefix = encoder.encode(`\x19Ethereum Signed Message:\n${body.length}`);
+        const joined = new Uint8Array(prefix.length + body.length);
+        joined.set(prefix);
+        joined.set(body, prefix.length);
+        const recovered = secp256k1.sign(keccak_256(joined), Buffer.from(keyHex, 'hex'), { prehash: false, format: 'recovered' });
+        const out = new Uint8Array(65);
+        out.set(recovered.subarray(1), 0);
+        out[64] = recovered[0]! + 27;
+        return `0x${Buffer.from(out).toString('hex')}`;
+      }
+
+      function wiredTo(userId: string, payments?: OnrampPaymentPort, sanctions = clearList) {
+        const ramps = { onrampStandIn: rates, sanctions, ...(payments ? { onrampPayments: payments } : {}) };
+        const bank: BankServices = createBankServices(sql, ledger, memoryLedgerHistory(ledger), { ramps, onrampPartner: partner });
+        return { bank, caller: as(userId, ramps, { onrampPartner: partner }) };
+      }
+
+      async function toWallet(userId: string, payments?: OnrampPaymentPort) {
+        const { bank, caller } = wiredTo(userId, payments);
+        const { methods } = await caller.addMoney.methods(nl);
+        const quote = methods.find((m) => m.method === 'pay_by_bank')!.quote!;
+        const requestId = randomUUID();
+        const walletSignature = personalSign(walletDeliveryMessage(requestId, WALLET), KEY);
+        const request = await caller.addMoney.start({
+          requestId,
+          ...nl,
+          method: 'pay_by_bank',
+          quoteId: quote.quoteId,
+          walletAddress: WALLET,
+          walletSignature,
+        });
+        return { caller, bank, quote, request };
+      }
+
+      it('the message names the request and the wallet in lower case and says nothing moves', () => {
+        expect(walletDeliveryMessage('AAAAAAAA-0000-4000-8000-000000000000', WALLET)).toBe(
+          [
+            'INTAFACED buy to wallet',
+            'Request: aaaaaaaa-0000-4000-8000-000000000000',
+            `Wallet: ${WALLET.toLowerCase()}`,
+            'Signing this proves you control this wallet, so a purchase can be delivered to it. It moves no funds and approves nothing else.',
+          ].join('\n'),
+        );
+      });
+
+      it('a wallet the person has not signed for, or signed for another request, is refused before anything is kept', async () => {
+        const { caller } = wiredTo(ADA);
+        const requestId = randomUUID();
+        const base = { requestId, ...nl, method: 'pay_by_bank' as const, walletAddress: WALLET };
+        for (const walletSignature of [
+          undefined,
+          personalSign(walletDeliveryMessage(requestId, WALLET), STRANGER_KEY),
+          personalSign(walletDeliveryMessage(randomUUID(), WALLET), KEY),
+        ]) {
+          const refused = await caller.addMoney
+            .start({ ...base, ...(walletSignature ? { walletSignature } : {}) })
+            .catch((e: unknown) => e);
+          expect(codeOf(refused)).toBe('bank.wallet_delivery_unproven');
+        }
+        expect(await sql`SELECT 1 FROM bank.add_money_requests`).toHaveLength(0);
+        expect(await sql`SELECT 1 FROM bank.customer_onramps`).toHaveLength(0);
+        nothingPosted();
+      });
+
+      it('a wallet the sanctions list names, or any while the list is unset, is refused before anything is kept', async () => {
+        const listed = memorySanctions([{ network: '*', address: WALLET }]);
+        const codes: unknown[] = [];
+        for (const sanctions of [listed, destinationSanctions(() => undefined)]) {
+          const { caller } = wiredTo(ADA, undefined, sanctions);
+          const requestId = randomUUID();
+          const walletSignature = personalSign(walletDeliveryMessage(requestId, WALLET), KEY);
+          const refused = await caller.addMoney
+            .start({ requestId, ...nl, method: 'pay_by_bank', walletAddress: WALLET, walletSignature })
+            .catch((e: unknown) => e);
+          codes.push(codeOf(refused));
+        }
+        expect(codes).toEqual(['bank.destination_sanctions_listed', 'bank.destination_sanctions_unset']);
+        expect(await sql`SELECT 1 FROM bank.add_money_requests`).toHaveLength(0);
+        nothingPosted();
+      });
+
+      it('tells the partner the wallet, keeps it in lower case, and the TEST page names it; nothing is posted', async () => {
+        const told: (string | undefined)[] = [];
+        const spy: OnrampPaymentPort = {
+          ...partner.payments,
+          open: async (input) => {
+            told.push(input.walletAddress);
+            return partner.payments.open(input);
+          },
+        };
+        const { bank, request } = await toWallet(ADA, spy);
+        expect(told).toEqual([WALLET.toLowerCase()]);
+        expect(request).toMatchObject({ status: 'opened', walletAddress: WALLET.toLowerCase(), deliveredAt: null, deliveryTx: null });
+        const page = await bank.addMoney.opened(request.requestId);
+        expect(page.request.walletAddress).toBe(WALLET.toLowerCase());
+        nothingPosted();
+      });
+
+      it('paid with its on-chain transfer is delivered once, crediting nothing anywhere here', async () => {
+        const { caller, bank, quote, request } = await toWallet(ADA);
+        await bank.addMoney.approved(request.requestId);
+        const paid = {
+          requestId: request.requestId,
+          paidAmount: quote.payAmount,
+          payCurrency: 'EUR',
+          deliveryTx: TX.toUpperCase().replace('0X', '0x'),
+        };
+        const first = await bank.addMoney.paid(paid);
+        expect(first).toMatchObject({ status: 'delivered', deliveryTx: TX, creditedAt: null, creditedAmount: null, creditedBy: null });
+        expect(first.deliveredAt).not.toBeNull();
+        const [second, third] = await Promise.all([bank.addMoney.paid(paid), bank.addMoney.paid(paid)]);
+        expect(second).toEqual(first);
+        expect(third).toEqual(first);
+        // Invariant: the ledger posts nothing and the person holds nothing here; the purchase is in their wallet.
+        nothingPosted();
+        expect(await available(ADA)).toBe(0n);
+        const { onramp: _o, ...seen } = first;
+        expect(await caller.addMoney.request({ requestId: request.requestId })).toMatchObject(seen);
+      });
+
+      it('paid without the transfer, or with no hash, is refused and changes nothing', async () => {
+        const { caller, bank, quote, request } = await toWallet(ADA);
+        const base = { requestId: request.requestId, paidAmount: quote.payAmount, payCurrency: 'EUR' };
+        for (const bad of [base, { ...base, deliveryTx: '0x1234' }]) {
+          expect(((await bank.addMoney.paid(bad).catch((e: unknown) => e)) as { code?: string }).code).toBe('bank.onramp_delivery_missing');
+        }
+        expect(await caller.addMoney.request({ requestId: request.requestId })).toMatchObject({ status: 'opened', deliveredAt: null });
+        nothingPosted();
+      });
+
+      it('another transfer for a delivered purchase, or a transfer for a balance request, is a conflict', async () => {
+        const { bank, quote, request } = await toWallet(ADA);
+        const paid = { requestId: request.requestId, paidAmount: quote.payAmount, payCurrency: 'EUR', deliveryTx: TX };
+        await bank.addMoney.paid(paid);
+        const other = await bank.addMoney.paid({ ...paid, deliveryTx: `0x${'cd'.repeat(32)}` }).catch((e: unknown) => e);
+        expect((other as { code?: string }).code).toBe('bank.ramp_conflict');
+        const balance = await opened(BOB);
+        const wrong = await balance.bank.addMoney
+          .paid({ requestId: balance.request.requestId, paidAmount: balance.quote.payAmount, payCurrency: 'EUR', deliveryTx: TX })
+          .catch((e: unknown) => e);
+        expect((wrong as { code?: string }).code).toBe('bank.ramp_conflict');
+        expect((await balance.caller.addMoney.request({ requestId: balance.request.requestId })).status).toBe('opened');
+        nothingPosted();
+      });
+
+      it('a delivered purchase is never returned here, and the same id for a balance is a conflict', async () => {
+        const { caller, bank, quote, request } = await toWallet(ADA);
+        await bank.addMoney.paid({ requestId: request.requestId, paidAmount: quote.payAmount, payCurrency: 'EUR', deliveryTx: TX });
+        const back = await bank.addMoney.returned({ requestId: request.requestId }).catch((e: unknown) => e);
+        expect((back as { code?: string }).code).toBe('bank.ramp_conflict');
+        const again = await caller.addMoney.start({ requestId: request.requestId, ...nl, method: 'pay_by_bank' }).catch((e: unknown) => e);
+        expect(codeOf(again)).toBe('bank.ramp_conflict');
+        nothingPosted();
+      });
+
+      it('refuses a wallet that is not an address before keeping anything', async () => {
+        const { caller } = wiredTo(ADA);
+        const bad = await caller.addMoney
+          .start({ requestId: randomUUID(), ...nl, method: 'pay_by_bank', walletAddress: `0x${'0'.repeat(40)}` })
+          .catch((e: unknown) => e);
+        expect(codeOf(bad)).toBe('bank.ramp_invalid_destination');
+        expect(await sql`SELECT 1 FROM bank.add_money_requests`).toHaveLength(0);
+      });
     });
 
     it('a crash after the credit and before the row said so catches up on the next paid, crediting nothing twice', async () => {
@@ -597,6 +780,71 @@ describe('add money (J-bank-02)', () => {
             .catch((e: unknown) => e),
         ),
       ).toBe('bank.add_money_request_missing');
+      nothingPosted();
+    });
+
+    it('a bank transfer it gives bank details for opens with its own TEST reference and account, posting nothing (J-bank-02 #2)', async () => {
+      const transfers = payinSim(
+        {
+          label: 'TEST pay-in stand-in',
+          methods: ['pay_by_bank'],
+          bankTransfer: { accountName: 'TEST pay-in stand-in account', accountRef: 'NL91 ABNA 0417 1643 00' },
+        },
+        new URL('http://127.0.0.1:14999'),
+        new URL('http://127.0.0.1:3210/bank/ramps/new'),
+      );
+      const caller = as(ADA, { onrampStandIn: rates }, { onrampPartner: transfers });
+      const { methods } = await caller.addMoney.methods(nl);
+      const offered = methods.find((m) => m.method === 'bank_transfer')!;
+      expect(offered.payStandIn).toBe('TEST pay-in stand-in');
+      const requestId = randomUUID();
+      const row = await caller.addMoney.start({ requestId, ...nl, method: 'bank_transfer', quoteId: offered.quote!.quoteId });
+      expect(row).toMatchObject({
+        status: 'opened',
+        onramp: {
+          partnerRail: PAYIN_SIM_RAIL,
+          hostedUrl: null,
+          bankInstructions: {
+            reference: `TEST-${requestId.replace(/-/g, '').slice(0, 12).toUpperCase()}`,
+            accountName: 'TEST pay-in stand-in account',
+            accountRef: 'NL91ABNA0417164300',
+          },
+        },
+      });
+      // Asking again is the same request with the same reference: nothing opened twice.
+      const again = await caller.addMoney.start({ requestId, ...nl, method: 'bank_transfer', quoteId: offered.quote!.quoteId });
+      expect(again.onramp).toEqual(row.onramp);
+      nothingPosted();
+    });
+
+    it('a payment the custodial layer credited on the ledger is never taken back here: refused, and the ledger posts nothing more', async () => {
+      const { bank, quote, request } = await opened(ADA);
+      await bank.addMoney.paid({ requestId: request.requestId, paidAmount: quote.payAmount, payCurrency: 'EUR' });
+      const err = await bank.addMoney.returned({ requestId: request.requestId }).catch((e: unknown) => e);
+      expect((err as { code?: string }).code).toBe('bank.ramp_conflict');
+      expect(ledger.journal().map((tx) => tx.reason)).toEqual(['deposit.credited']);
+      expect(await available(ADA)).toBe(parseAmount(quote.amount));
+      expect((await bank.addMoney.opened(request.requestId)).request).toMatchObject({ status: 'credited', returnedAt: null });
+    });
+
+    it('a request not credited, refused or unknown is never returned, and nothing moves', async () => {
+      const { caller, bank, request } = await opened(ADA);
+      const refused = await caller.addMoney.start({
+        requestId: randomUUID(),
+        assetId: 'USDT',
+        amount: '20',
+        country: 'DE',
+        method: 'card',
+      });
+      for (const id of [request.requestId, refused.requestId]) {
+        expect(((await bank.addMoney.returned({ requestId: id }).catch((e: unknown) => e)) as { code?: string }).code).toBe(
+          'bank.ramp_conflict',
+        );
+      }
+      expect(((await bank.addMoney.returned({ requestId: randomUUID() }).catch((e: unknown) => e)) as { code?: string }).code).toBe(
+        'bank.add_money_request_missing',
+      );
+      expect((await bank.addMoney.opened(request.requestId)).request).toMatchObject({ status: 'opened', returnedAt: null });
       nothingPosted();
     });
 
@@ -683,6 +931,63 @@ describe('add money (J-bank-02)', () => {
         expect(await caller.addMoney.request({ requestId: request.requestId })).toMatchObject({ status: 'opened', creditedBy: null });
         tp.set(ADA, { down: false });
         expect(await bank.addMoney.paid(paid)).toMatchObject({ status: 'credited', creditedBy: 'partner' });
+        nothingPosted();
+      });
+
+      it('returned is taken back at the partner once, its hold goes, and the ledger posts nothing (J-bank-02 #7)', async () => {
+        const { tp, bank, caller } = atPartner();
+        tp.fund(ADA, { fundId: 'fund-ada-50r', assetId: 'USDT', amount: parseAmount('50') });
+        const { methods } = await caller.addMoney.methods(nl);
+        const quote = methods.find((m) => m.method === 'pay_by_bank')!.quote!;
+        const request = await caller.addMoney.start({ requestId: randomUUID(), ...nl, method: 'pay_by_bank', quoteId: quote.quoteId });
+        await bank.addMoney.paid({ requestId: request.requestId, paidAmount: quote.payAmount, payCurrency: 'EUR' });
+        const first = await bank.addMoney.returned({ requestId: request.requestId });
+        expect(first).toMatchObject({ status: 'returned', creditedBy: 'partner', creditedAmount: quote.amount });
+        const [second, third] = await Promise.all([
+          bank.addMoney.returned({ requestId: request.requestId }),
+          bank.addMoney.returned({ requestId: request.requestId }),
+        ]);
+        expect(second).toEqual(first);
+        expect(third).toEqual(first);
+        nothingPosted();
+        // Invariant: the partner's balance is back to what it held before the purchase, and it holds nothing back of it.
+        expect((await tp.bank.balance({ userId: ADA, assetId: 'USDT', spaceId: null })).amount).toBe(parseAmount('50'));
+        const holds = await caller.partnerHolds();
+        if (!holds.held) throw new Error('ADA is held at the partner');
+        expect(holds.holds).toEqual([]);
+      });
+
+      it('a crash after the partner took it back and before the row said so catches up, taken back once', async () => {
+        const { tp, bank, caller } = atPartner();
+        tp.fund(ADA, { fundId: 'fund-ada-50c', assetId: 'USDT', amount: parseAmount('50') });
+        const { methods } = await caller.addMoney.methods(nl);
+        const quote = methods.find((m) => m.method === 'pay_by_bank')!.quote!;
+        const request = await caller.addMoney.start({ requestId: randomUUID(), ...nl, method: 'pay_by_bank', quoteId: quote.quoteId });
+        await bank.addMoney.paid({ requestId: request.requestId, paidAmount: quote.payAmount, payCurrency: 'EUR' });
+        await bank.addMoney.returned({ requestId: request.requestId });
+        await sql`
+          UPDATE bank.add_money_requests SET status = 'credited', returned_at = NULL, return_ref = NULL
+           WHERE id = ${request.requestId}::uuid
+        `;
+        expect(await bank.addMoney.returned({ requestId: request.requestId })).toMatchObject({ status: 'returned' });
+        expect((await tp.bank.balance({ userId: ADA, assetId: 'USDT', spaceId: null })).amount).toBe(parseAmount('50'));
+        nothingPosted();
+      });
+
+      it('the partner down takes nothing back and leaves it credited, for its next returned', async () => {
+        const { tp, bank, caller } = atPartner();
+        const { methods } = await caller.addMoney.methods(nl);
+        const quote = methods.find((m) => m.method === 'pay_by_bank')!.quote!;
+        const request = await caller.addMoney.start({ requestId: randomUUID(), ...nl, method: 'pay_by_bank', quoteId: quote.quoteId });
+        await bank.addMoney.paid({ requestId: request.requestId, paidAmount: quote.payAmount, payCurrency: 'EUR' });
+        tp.set(ADA, { down: true });
+        expect(((await bank.addMoney.returned({ requestId: request.requestId }).catch((e: unknown) => e)) as { code?: string }).code).toBe(
+          'bank.partner_unavailable',
+        );
+        expect(await caller.addMoney.request({ requestId: request.requestId })).toMatchObject({ status: 'credited', returnedAt: null });
+        tp.set(ADA, { down: false });
+        // Back up, the partner's next returned takes it back once.
+        expect(await bank.addMoney.returned({ requestId: request.requestId })).toMatchObject({ status: 'returned' });
         nothingPosted();
       });
 

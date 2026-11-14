@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import { requireFounderPage } from '@/lib/founder-page';
 import { requireModulePage } from '@/lib/module-page-guard';
 import { Failed } from '@/components/academy-courses-desk';
+import { EnrolmentNav } from '@/components/academy-enrolment-desk';
 import { findLearner, loadLearners } from '@/lib/academy/learners-server';
 import { ACADEMY_LEARNER_TAG_PATTERN } from '@intafaced/contracts/academy-learner-desk';
 
@@ -29,6 +30,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ q
   return (
     <section className="dk-stack" aria-labelledby="h-learners" data-testid="learners-desk">
       <h2 id="h-learners">Learners</h2>
+      <EnrolmentNav />
       <form className="dk-row" role="search" aria-label="Find a learner" method="get">
         <label>
           Whole email or handle

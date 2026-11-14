@@ -36,6 +36,10 @@ import {
  * TRADE_URL reaches svc-trade's public market list, to name the market a fill's id points at. Unset: a step that names
  * a market counts no fill (logged); a step for any market still counts.
  *
+ * PROTOCOL_URL (with TRADE_URL and INTERNAL_SERVICE_SECRET) reaches svc-protocol's connected wallets, read for the person
+ * with their own edge-signed principal, and svc-trade's read of the venue's deposits, for the welcome checklist's deposit task (J-campaigns-04 #2). Unset: that task reads `unread`
+ * and never ticks; the other tasks are unchanged.
+ *
  * NATS_URL is the bus task progress is read from (`trade.fill.settled`). Unreachable at boot: the service runs, logs and
  * tries again every 15 seconds; JetStream keeps the events for the durable consumer once it attaches.
  *
@@ -44,9 +48,19 @@ import {
  * `campaigns.reconcile_unset`. CAMPAIGNS_ROLLBACK_WINDOW_SECONDS (owner value) is the rollback window every reward record
  * shows; blank reads "not set". A value-moving rollback needs a reversing recipe that does not exist, so none is offered.
  *
+ * CAMPAIGNS_REWARD_CEILING_PER_CAMPAIGN and CAMPAIGNS_REWARD_CEILING_TOTAL (owner values, OWNER 288: "USDC, with a
+ * ceiling. Until you set one it is zero"): the most INTAFACED may owe in USDC rewards, per campaign and in all. Either
+ * blank: every USDC reward refuses `ledger.reward_ceiling_unset` and stays open, nothing owed. NO DEFAULT.
+ *
  * CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ACCOUNT, CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ADDRESS and CAMPAIGNS_VOUCHER_ATTEMPT_WINDOW_SECONDS
  * (owner values, CM-eligibility-rules-04): how many voucher code checks and claims one account, and one source address,
  * may make in the window. Any blank: every check and claim refuses `campaigns.attempt_limit_unset`. NO DEFAULT.
+ *
+ * The watch desk's owner values (J-campaigns-17). CAMPAIGNS_CODE_BATCH_MAX: the most codes one batch generate or CSV
+ * import makes; blank refuses both `campaigns.code_batch_limit_unset`. CAMPAIGNS_EXPORT_LINK_SECONDS: how long an export's
+ * download link works; blank refuses every export `campaigns.export_validity_unset`. CAMPAIGNS_ALERT_BUDGET_LEFT_PERCENT and
+ * CAMPAIGNS_ALERT_REDEMPTIONS_PER_HOUR: the two alert thresholds; blank reads "not set" and the alert refuses to be switched
+ * on `campaigns.alert_threshold_unset`. NO DEFAULT for any of them.
  */
 const blankAsAbsent = <T extends z.ZodTypeAny>(inner: T) =>
   z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), inner);
@@ -71,11 +85,29 @@ const schema = baseEnvSchema
       INTERNAL_SERVICE_SECRET: blankAsAbsent(z.string().min(32).optional()),
       LEDGER_URL: blankAsAbsent(z.string().url().optional()),
       TRADE_URL: blankAsAbsent(z.string().url().optional()),
+      /** svc-protocol, for the connected wallets the welcome deposit task reads (J-campaigns-04). Unset: it reads unread. */
+      PROTOCOL_URL: blankAsAbsent(z.string().url().optional()),
       CAMPAIGNS_RECONCILE_AFTER_SECONDS: blankAsAbsent(z.coerce.number().int().min(1).max(86_400).optional()),
+      CAMPAIGNS_REWARD_CEILING_PER_CAMPAIGN: blankAsAbsent(
+        z
+          .string()
+          .regex(/^(0|[1-9]\d{0,19})(\.\d{1,18})?$/)
+          .optional(),
+      ),
+      CAMPAIGNS_REWARD_CEILING_TOTAL: blankAsAbsent(
+        z
+          .string()
+          .regex(/^(0|[1-9]\d{0,19})(\.\d{1,18})?$/)
+          .optional(),
+      ),
       CAMPAIGNS_ROLLBACK_WINDOW_SECONDS: blankAsAbsent(z.coerce.number().int().min(1).max(31_536_000).optional()),
       CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ACCOUNT: blankAsAbsent(z.coerce.number().int().min(1).max(1_000_000).optional()),
       CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ADDRESS: blankAsAbsent(z.coerce.number().int().min(1).max(1_000_000).optional()),
       CAMPAIGNS_VOUCHER_ATTEMPT_WINDOW_SECONDS: blankAsAbsent(z.coerce.number().int().min(1).max(31_536_000).optional()),
+      CAMPAIGNS_CODE_BATCH_MAX: blankAsAbsent(z.coerce.number().int().min(1).max(20_000).optional()),
+      CAMPAIGNS_EXPORT_LINK_SECONDS: blankAsAbsent(z.coerce.number().int().min(1).max(604_800).optional()),
+      CAMPAIGNS_ALERT_BUDGET_LEFT_PERCENT: blankAsAbsent(z.coerce.number().int().min(1).max(99).optional()),
+      CAMPAIGNS_ALERT_REDEMPTIONS_PER_HOUR: blankAsAbsent(z.coerce.number().int().min(1).max(10_000_000).optional()),
     }),
   );
 

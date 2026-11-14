@@ -244,7 +244,11 @@ export function rewardPayOut(input: RewardPayOutInput): PostRequest {
   requirePositive('reward payment amount', input.amount);
   const place = ownFundsPlaceAccount(input.from, assetId);
   return {
-    idempotencyKey: requireKey(`campaigns:reward-paid:${input.rewardId}:${chainTx}`),
+    // Keyed by the chain transaction alone (the money model's "keyed by the chain transaction"): one transfer books one
+    // payment, so the same transaction can never be booked against a second reward (the ledger refuses the same key with
+    // another body). The reward is in the entries and the meta. A reward id with the transaction would pass the key's
+    // 200 characters for a campaign task reward (`campaign:<uuid>:task-<uuid>-<uuid>-once`).
+    idempotencyKey: requireKey(`campaigns:reward-paid:${chainTx}`),
     module: MODULE,
     reason: 'campaigns.reward.paid_out',
     meta: { rewardId: input.rewardId, from: place.ownerId, toWallet: input.toWallet, chainTx },

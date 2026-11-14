@@ -79,6 +79,21 @@ export const rooms = academy.table(
   (t) => [uniqueIndex('rooms_slug_idx').on(t.slug), index('rooms_kind_idx').on(t.kind, t.access)],
 );
 
+/** RC-academy-06: lessons a room's host pins to the room page, in the order pinned (the lesson is a curriculum slug). */
+export const roomPinnedLessons = academy.table(
+  'room_pinned_lessons',
+  {
+    roomId: uuid('room_id')
+      .notNull()
+      .references(() => rooms.id, { onDelete: 'cascade' }),
+    itemSlug: text('item_slug').notNull(),
+    position: integer('position').notNull(),
+    pinnedBy: uuid('pinned_by').notNull(),
+    pinnedAt: tstz('pinned_at').notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.roomId, t.itemSlug] }), index('room_pinned_lessons_order_idx').on(t.roomId, t.position)],
+);
+
 /**
  * An invitation to an `invite` room.
  *
@@ -493,6 +508,18 @@ export const courseStarts = academy.table('course_starts', {
   setAt: tstz('set_at').notNull(),
 });
 
+/** AC-enrolment-01: a course's seat cap, enrolment window and visibility, set by staff with a reason (no row: none). */
+export const courseEnrolmentTerms = academy.table('course_enrolment_terms', {
+  path: text('path').primaryKey(),
+  seatCap: integer('seat_cap'),
+  opensAt: tstz('opens_at'),
+  closesAt: tstz('closes_at'),
+  visibility: text('visibility').notNull().default('published'),
+  reason: text('reason').notNull(),
+  setBy: uuid('set_by').notNull(),
+  setAt: tstz('set_at').notNull(),
+});
+
 export const itemExtensions = academy.table(
   'item_extensions',
   {
@@ -840,6 +867,7 @@ export const schema = {
   itemExtensions,
   featuredItems,
   courseStarts,
+  courseEnrolmentTerms,
   learningState,
   learningActiveDays,
   learningTouches,

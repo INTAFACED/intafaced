@@ -47,5 +47,16 @@ export default defineConfig({
     include: ['src/**/*.test.ts'],
     environment: 'node',
     fileParallelism: false,
+    /**
+     * The same budget every other Postgres-backed service gives itself
+     * (svc-bank, svc-trade, svc-identity, ...). The escrow suite's beforeEach
+     * TRUNCATEs the schema and seeds 28 payout destinations; that takes ~0.2 s,
+     * but on a loaded CI runner it once stalled past vitest's 10 s default
+     * (#8309). A timed-out hook keeps running underneath the next test, whose
+     * own seed then collides with it (`p2p.instrument_slot_taken`), so one
+     * stall cost two reds. No assertion changes; only the wait for Postgres.
+     */
+    testTimeout: 30_000,
+    hookTimeout: 30_000,
   },
 });

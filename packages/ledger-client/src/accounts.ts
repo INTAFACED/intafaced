@@ -413,6 +413,18 @@ export function treasuryWallet(walletId: string, assetId: string): AccountRef {
   return { ownerType: 'treasury', ownerId: `treasury-wallet:${walletId}`, assetId, kind: 'available' };
 }
 
+/**
+ * WHAT WE HAVE PAID OUT AS A COST OF MOVING OUR OWN FUNDS (launch money model, rule 4): a venue's withdrawal fee, or the
+ * network fee taken from what arrived, read from the outside record of one move (`ownFundsMove` `costs`). A boundary like
+ * an own-funds place, but not one: its negative balance is exactly what we have paid `paidTo` in that kind of cost, money
+ * that is no longer ours anywhere. Never a customer's, and never moved again.
+ */
+export const OWN_FUNDS_COST_PREFIX = 'own-funds-cost:';
+
+export function ownFundsCostAccount(kind: 'venue-withdrawal-fee' | 'network-fee', paidTo: string, assetId: string): AccountRef {
+  return { ownerType: 'treasury', ownerId: `${OWN_FUNDS_COST_PREFIX}${kind}:${paidTo}`, assetId, kind: 'available' };
+}
+
 /** The `ownerId` prefixes of every own-funds place. A place is a `treasury` account whose `ownerId` starts with one. */
 export const OWN_FUNDS_PLACE_PREFIXES = ['venue-builder-account:', 'partner-reserve:', 'treasury-wallet:'] as const;
 

@@ -57,7 +57,7 @@ export interface StudyDef {
   aliases: readonly string[];
   inputs: readonly InputDef[];
   /** What the study reads besides the loaded bars. */
-  needs: 'bars' | 'tape' | 'higher' | 'served';
+  needs: 'bars' | 'tape' | 'higher' | 'funding' | 'served';
 }
 
 export const RATING_SIGNALS = [
@@ -227,7 +227,7 @@ export const STUDIES: readonly StudyDef[] = [
     category: 'derivatives',
     aliases: ['funding', 'funding rate', 'perpetual'],
     inputs: [],
-    needs: 'served',
+    needs: 'funding',
   },
   {
     kind: 'on-chain',

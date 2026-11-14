@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { decimalSchema, parseAmount } from '../../shared/money';
 import { Button, Failure, Field, Loading } from '../../shared/ui';
+import { useWallet } from '../protocol/wallet/WalletProvider';
 import { useSession } from '../session/session';
 import { addMoneyCopy } from './add-money-copy';
 import { date, funds, useBankRead } from './components';
@@ -16,9 +17,14 @@ import './bank-depth.css';
  * refused, in the list below, and nothing is charged or added. A way to pay a partner opens as a hosted page sends the
  * person to the page the partner answered with; coming back (`?request=<id>`), the tracker follows that request from
  * created to credited, reading the bank until it is credited. Every figure is the service's own string.
+ *
+ * Buy to wallet (J-dex-protocol-05 #4): "Deliver to" chooses the exchange balance or the person's own connected wallet.
+ * For the wallet the request names its address, the partner delivers the purchase there on chain, and nothing is
+ * credited here; the tracker's last step is the partner's delivery, with the address and its on-chain transfer.
  */
 
 type Ask = { assetId: string; amount: string; country: string };
+type Deliver = 'balance' | 'wallet';
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 
 const EXPIRED = 'bank.onramp_quote_expired';
@@ -44,6 +50,19 @@ const METHOD_KEYS = {
   card: 'method_card',
   wallet_pay: 'method_wallet_pay',
 } as const;
+
+/**
+ * The exact text the person signs with their wallet to have a purchase delivered to it: svc-bank's
+ * `walletDeliveryMessage`, which checks the signature against this same text.
+ */
+export function walletDeliveryMessage(requestId: string, walletAddress: string): string {
+  return [
+    'INTAFACED buy to wallet',
+    `Request: ${requestId.toLowerCase()}`,
+    `Wallet: ${walletAddress.toLowerCase()}`,
+    'Signing this proves you control this wallet, so a purchase can be delivered to it. It moves no funds and approves nothing else.',
+  ].join('\n');
+}
 
 function amountOk(value: string) {
   return decimalSchema.safeParse(value.trim()).success && parseAmount(value.trim()) > 0n;
@@ -82,7 +101,11 @@ function Method({ row, chosen, onChoose }: { row: AddMoneyOption; chosen: boolea
           {row.payStandIn ? t('standInPriced', { label: row.standIn }) : t('standIn', { label: row.standIn })}
         </small>
       )}
-      {row.quote && row.payStandIn && <small className="muted">{t('payStandIn', { label: row.payStandIn })}</small>}
+      {row.quote && row.payStandIn && (
+        <small className="muted">
+          {t(row.method === 'bank_transfer' ? 'payStandInTransfer' : 'payStandIn', { label: row.payStandIn })}
+        </small>
+      )}
       {row.blocker && (
         <small className="muted">
           {feeUnknown ? t('feeNotKnown') : t('railOff', { rail: row.rail })} {t('reference', { code: row.blocker })}
@@ -126,6 +149,7 @@ function Outcome({ request }: { request: AddMoneyRequest }) {
   return (
     <div role="status" data-testid="add-money-opened">
       <h3>{t('openedTitle')}</h3>
+      {onramp?.bankInstructions && <p data-testid="add-money-ownership">{t('ownership')}</p>}
       {onramp?.bankInstructions && (
         <dl className="bd-facts">
           <Fact label={t('payReference')}>
@@ -159,12 +183,35 @@ function stepState(request: AddMoneyRequest, step: (typeof STEPS)[number]): 'don
   return later.some((next) => reachedAt(request, next)) ? 'skipped' : 'todo';
 }
 
-/** When the request reached each step, or null while it has not. */
+/** When the request reached each step, or null while it has not. A wallet purchase's last step is its delivery. */
 function reachedAt(request: AddMoneyRequest, step: (typeof STEPS)[number]): string | null {
   if (step === 'created') return request.createdAt;
   if (step === 'opened') return request.openedAt;
   if (step === 'pending') return request.pendingAt;
-  return request.creditedAt;
+  return request.walletAddress ? request.deliveredAt : request.creditedAt;
+}
+
+/** The person's wallet a purchase goes to, and once delivered, the partner's transfer on chain. */
+function Delivery({ request }: { request: AddMoneyRequest }) {
+  const { t } = addMoneyCopy.useCopy();
+  if (!request.walletAddress) return null;
+  return (
+    <p className="money-caption" data-testid="tracker-delivery" data-state={request.deliveryTx ? 'delivered' : 'waiting'}>
+      <span lang="und" dir="ltr">
+        {request.deliveryTx
+          ? t('deliveredTo', { address: request.walletAddress })
+          : `${t('deliverWalletAddress')}: ${request.walletAddress}`}
+      </span>
+      {request.deliveryTx && (
+        <>
+          {' · '}
+          <a className="text-link" href={`/chain/tx/${request.deliveryTx}`} data-testid="tracker-delivery-tx">
+            {t('deliveryTx')}
+          </a>
+        </>
+      )}
+    </p>
+  );
 }
 
 /** Where one request stands, step by step, with when each happened and what was credited. */
@@ -181,7 +228,7 @@ export function TrackerSteps({ request }: { request: AddMoneyRequest }) {
           const state = stepState(request, step);
           return (
             <li key={step} data-testid="tracker-step" data-step={step} data-state={state}>
-              <strong>{t(STEP_KEYS[step])}</strong>{' '}
+              <strong>{t(step === 'credited' && request.walletAddress ? 'step_delivered' : STEP_KEYS[step])}</strong>{' '}
               <small className="muted">{at ? date(at, true) : state === 'skipped' ? t('stepSkipped') : t('stepNotYet')}</small>
             </li>
           );
@@ -190,9 +237,15 @@ export function TrackerSteps({ request }: { request: AddMoneyRequest }) {
       <p className="money-caption" data-testid="tracker-receive">
         {t('trackerAmount')}: <span dir="ltr">{funds(request.onramp?.amount ?? request.amount, request.assetId)}</span>
       </p>
+      <Delivery request={request} />
       {request.creditedAmount && (
         <p data-testid="tracker-credited">
           <span dir="ltr">{t('creditedAmount', { amount: funds(request.creditedAmount, request.assetId) })}</span>
+        </p>
+      )}
+      {request.returnedAt && request.creditedAmount && (
+        <p data-testid="tracker-returned">
+          {t('returnedAmount', { amount: funds(request.creditedAmount, request.assetId), time: date(request.returnedAt, true) })}
         </p>
       )}
     </>
@@ -219,7 +272,8 @@ function Tracker({ requestId, onSettled }: { requestId: string; onSettled: () =>
         failures = 0;
         setRequest(result.data);
         setFailure(null);
-        if (result.data.status === 'credited' || result.data.status === 'refused') {
+        const final = ['credited', 'returned', 'refused', 'delivered'];
+        if (final.includes(result.data.status)) {
           onSettled();
           return;
         }
@@ -257,6 +311,8 @@ function Tracker({ requestId, onSettled }: { requestId: string; onSettled: () =>
 
 function StatusWord({ request }: { request: AddMoneyRequest }) {
   const { t } = addMoneyCopy.useCopy();
+  if (request.status === 'delivered') return <>{t('status_delivered')}</>;
+  if (request.status === 'returned') return <>{t('status_returned')}</>;
   if (request.status === 'credited') return <>{t('status_credited')}</>;
   if (request.status === 'pending') return <>{t('status_pending')}</>;
   if (request.status === 'opened') return <>{t('status_opened')}</>;
@@ -302,6 +358,11 @@ function Requests() {
 export function AddMoney() {
   const { t } = addMoneyCopy.useCopy();
   const { api, profiles } = useSession();
+  const wallet = useWallet();
+  const [deliver, setDeliver] = useState<Deliver>('balance');
+  const [unsigned, setUnsigned] = useState(false);
+  // The connected wallet's address, only while connected: buying to it names it on the request.
+  const walletAddress = wallet.status === 'connected' ? wallet.address : null;
   const currencies = useBankRead('currencies.list', { profile: profiles.active });
   const assets = currencies.resource.status === 'ready' ? currencies.resource.data.currencies.map((c) => c.assetId) : [];
   const [assetId, setAssetId] = useState('');
@@ -348,6 +409,13 @@ export function AddMoney() {
     setOutcome(null);
   }
 
+  function deliverTo(next: Deliver) {
+    setDeliver(next);
+    // Another destination is other terms: a new request.
+    setRequestId(crypto.randomUUID());
+    setOutcome(null);
+  }
+
   function choose(next: AddMoneyMethod) {
     setMethod(next);
     // A new choice is a new request; asking again for the same choice keeps the same id, so a retry is the same request.
@@ -357,11 +425,30 @@ export function AddMoney() {
 
   async function start() {
     if (!ask || !option) return;
+    if (deliver === 'wallet' && !walletAddress) return;
     setBusy(true);
+    setUnsigned(false);
+    // The wallet proves it is the person's: it signs this request's own message, and the bank checks the signer.
+    let walletSignature: string | null = null;
+    if (deliver === 'wallet' && walletAddress) {
+      const signed = await wallet.sign({ kind: 'message', message: walletDeliveryMessage(requestId, walletAddress) });
+      if (signed.status !== 'signed') {
+        setBusy(false);
+        setUnsigned(true);
+        return;
+      }
+      walletSignature = signed.signature;
+    }
     const result = await api.mutate(
       'bank',
       'addMoney.start',
-      { requestId, ...ask, method: option.method, ...(option.quote ? { quoteId: option.quote.quoteId } : {}) },
+      {
+        requestId,
+        ...ask,
+        method: option.method,
+        ...(option.quote ? { quoteId: option.quote.quoteId } : {}),
+        ...(deliver === 'wallet' && walletAddress && walletSignature ? { walletAddress, walletSignature } : {}),
+      },
       addMoneyRequestSchema,
     );
     setBusy(false);
@@ -400,6 +487,48 @@ export function AddMoney() {
               </select>
               <small>{t('assetHint')}</small>
             </label>
+            <fieldset className="bd-stack" aria-label={t('deliverTo')}>
+              <span>{t('deliverTo')}</span>
+              <div className="bd-choice-row" role="radiogroup" aria-label={t('deliverTo')}>
+                <label className={`bd-choice ${deliver === 'balance' ? 'bd-choice--on' : ''}`}>
+                  <input
+                    type="radio"
+                    name="add-money-deliver"
+                    value="balance"
+                    checked={deliver === 'balance'}
+                    onChange={() => deliverTo('balance')}
+                  />
+                  <strong>{t('deliverBalance')}</strong>
+                </label>
+                <label className={`bd-choice ${deliver === 'wallet' ? 'bd-choice--on' : ''}`}>
+                  <input
+                    type="radio"
+                    name="add-money-deliver"
+                    value="wallet"
+                    checked={deliver === 'wallet'}
+                    disabled={!walletAddress}
+                    onChange={() => deliverTo('wallet')}
+                  />
+                  <strong>{t('deliverWallet')}</strong>
+                </label>
+              </div>
+              <p className="money-caption" data-testid="ramp-destination" data-deliver={deliver}>
+                {deliver === 'wallet' && walletAddress ? (
+                  <>
+                    {t('deliverWalletAddress')}:{' '}
+                    <span lang="und" dir="ltr">
+                      {walletAddress}
+                    </span>
+                    . {t('deliverWalletNote')}
+                  </>
+                ) : (
+                  <>
+                    {t('deliverBalance')}. {t('deliverBalanceNote')}
+                    {!walletAddress && <> {t('deliverNoWallet')}</>}
+                  </>
+                )}
+              </p>
+            </fieldset>
             <Field
               label={t('amount')}
               inputMode="decimal"
@@ -455,13 +584,19 @@ export function AddMoney() {
                 <p>{t('ownership')}</p>
               </div>
             )}
+            {deliver === 'wallet' && walletAddress && <p data-testid="add-money-sign-note">{t('deliverSign')}</p>}
             {option.method === 'pay_by_bank' && <p>{t('redirect')}</p>}
             {(option.method === 'card' || option.method === 'wallet_pay') && <p>{t('hostedCard')}</p>}
             <div className="actions">
-              <Button onClick={() => void start()} disabled={busy || redirecting}>
+              <Button onClick={() => void start()} disabled={busy || redirecting || (deliver === 'wallet' && !walletAddress)}>
                 {redirecting ? t('redirecting') : busy ? t('working') : t('ask')}
               </Button>
             </div>
+            {unsigned && (
+              <p className="money-caption" role="status" data-testid="add-money-unsigned">
+                {t('deliverUnsigned')}
+              </p>
+            )}
             {outcome && <Answer outcome={outcome} />}
           </div>
         </DepthPanel>
