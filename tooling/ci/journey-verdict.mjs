@@ -74,7 +74,15 @@ export const BASELINE_PATH = 'docs/runbooks/journey-baseline.json';
 export const JOURNEYS_FILE = 'real-app-journeys.yml';
 export const JOURNEYS_ARTIFACT = 'real-app-journeys';
 export const LEDGER_CLIENT = '@intafaced/ledger-client';
-/** More finished runs on main than this since the baseline's named run: red, and the baseline is rewritten. */
+/**
+ * More finished runs on main than this that one verdict must download (since the baseline's named run, not covered by
+ * the newest stored pass history; toDownload): red, and the baseline is rewritten. It bounds what one verdict spends:
+ * two API calls and a report download per run read. Until 14 Nov 2026 it counted every run since the named run, which
+ * the stored history (12 Nov) made a count of age rather than of cost: run 1719's baseline passed 150 runs on 14 Nov
+ * 05:12 UTC and every verdict went red on that input alone (intafaced PR #8295, run 43557297708). What still grows
+ * with every run since the named run: the list of runs (one call per 100, ghPages stops at 20 pages, 2000 runs) and
+ * the stored file (one entry per run with a report).
+ */
 export const HISTORY_MAX = 150;
 /** How long the machine sets a flaky step aside, from the first run on main where it was flaky. */
 export const SET_ASIDE_DAYS = 7;
@@ -601,6 +609,11 @@ export function findStored(runs, readFile, { lookback = STORED_LOOKBACK, refusal
  * readHistory's { reports, skipped } with each report reduced to the steps it passed, plus `entries` (each run's entry,
  * for the next file) and `read` (the run numbers downloaded).
  */
+/** The runs historyThrough would download: every run the stored file does not hold at the attempt it finished on
+ *  (a run with no report is never in a file, so it counts each time). With no stored file, every run. */
+export function toDownload(runs, stored) {
+  return runs.filter((r) => stored?.runs[String(r.id)]?.attempt !== attemptOf(r));
+}
 export function historyThrough(runs, { stored, read }) {
   const entries = {};
   const downloaded = [];
@@ -775,18 +788,21 @@ export function fetchInputs({
     shas[namedRun.run_number] = namedRun.head_sha;
     const runs = historyRuns(all, { repo, namedCreated: namedRun.created_at, thisCreated: run.created_at, thisId: run.id });
     for (const r of runs) shas[r.run_number] = r.head_sha;
-    if (runs.length > HISTORY_MAX)
+    // The newest stored pass history, looked for among every run on main: its entries are per run, so the newest
+    // covers the most. The cap counts what is left to download among every run on main (toDownload), so a run off
+    // main is held to the same bound as main's own.
+    const stored = findStored(runs, readStored);
+    const left = toDownload(runs, stored).length;
+    if (left > HISTORY_MAX)
       throw new Error(
-        `${runs.length} finished runs on main since run ${baseline.run.number}, more than ${HISTORY_MAX}: rewrite the baseline from a newer run`,
+        `${left} of ${runs.length} finished runs on main since run ${baseline.run.number} are not in a stored pass history, more than ${HISTORY_MAX}: rewrite the baseline from a newer run`,
       );
-    // Off main, only main's runs on commits this run's head contains (branchRuns). The stored file is still looked for
-    // among all of them: its entries are per run, so the newest covers the most.
+    // Off main, only main's runs on commits this run's head contains (branchRuns).
     const own = branchRuns(runs, { run, repo, compare });
     leftOut = own.left;
     if (own.kept) log(`pass history: every run on main is read, ${own.kept}`);
-    // The newest stored pass history, then only the runs it doesn't cover (historyThrough). A finished run that kept
-    // no report is skipped (readHistory), only in the history: the named run must have one.
-    const stored = findStored(runs, readStored);
+    // Then only the runs the stored history doesn't cover (historyThrough). A finished run that kept no report is
+    // skipped (readHistory), only in the history: the named run must have one.
     const history = historyThrough(own.runs, {
       stored,
       read: (r) => {
