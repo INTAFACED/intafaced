@@ -24,10 +24,10 @@ export const spineSchema = z.object({
 });
 export type Spine = z.infer<typeof spineSchema>;
 
-/** A real spot market with its rules and the listing's fee rates (decimal fractions: 0.001 = 10 bps). */
+/** A real spot market with its rules and the published fee rates (decimal fractions: 0.001 = 10 bps); null: none published. */
 export interface ExecMarket extends DeskMarket {
-  taker: Decimal;
-  maker: Decimal;
+  taker: Decimal | null;
+  maker: Decimal | null;
 }
 
 const SPINE_INTERVAL_MS = 300_000;

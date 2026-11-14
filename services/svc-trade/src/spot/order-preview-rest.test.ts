@@ -135,6 +135,7 @@ function appWith(input: {
   stopLimitEnabled?: boolean;
   matchingHalt?: (marketId: string) => Promise<{ market: boolean; venue: boolean }>;
   operatorRisk?: SpotOrderPreviewRestDeps['operatorRisk'];
+  availableBalance?: SpotOrderPreviewRestDeps['availableBalance'];
 }) {
   const app = Fastify();
   const bestAsk = input.bestAsk;
@@ -177,6 +178,7 @@ function appWith(input: {
     ...(input.feeDiscountBps ? { feeDiscountBps: input.feeDiscountBps } : {}),
     ...(input.matchingHalt ? { matchingHalt: input.matchingHalt } : {}),
     ...(input.operatorRisk ? { operatorRisk: input.operatorRisk } : {}),
+    ...(input.availableBalance ? { availableBalance: input.availableBalance } : {}),
   });
   return { app, submit, ledgerPost };
 }
@@ -1019,5 +1021,80 @@ describe('POST /api/v1/orders/preview: the operator limits place enforces (J-cex
       asked = true;
     });
     expect(asked).toBe(false);
+  });
+});
+
+describe('POST /api/v1/orders/preview: the market-sell fee and the balance the hold needs (#4679)', () => {
+  const preview = async (payload: Record<string, unknown>, over: Parameters<typeof appWith>[0] = {}) => {
+    const { app, submit, ledgerPost } = appWith({ slippageCapBps: 200, bestBid: parseAmount('100'), ...over });
+    const response = await app.inject({ method: 'POST', url: SPOT_ORDER_PREVIEW_PATH, headers: headers(), payload });
+    await app.close();
+    expect(submit).not.toHaveBeenCalled();
+    expect(ledgerPost).not.toHaveBeenCalled();
+    expect(response.statusCode, response.body).toBe(200);
+    return response.json();
+  };
+  const sell = { symbol: MARKET.symbol, side: 'sell', type: 'market', amount: '2' };
+
+  it('a market sell names its fee in the quote asset, figured at the best bid (the most its proceeds can be)', async () => {
+    const res = await preview(sell);
+    // Floor 100 - 200 bps = 98; the fee is figured at the bid: 100 * 2 = 200 quote, 2 bps ceil = 0.04.
+    expect(res.protectionPrice).toBe('98');
+    expect(res).toMatchObject({ feeRole: 'taker', feeBps: 2, estimatedFee: '0.04', feeAsset: 'fixture-quote', orderable: true });
+  });
+
+  it('a market sell with no bid refuses trade.no_reference_price and shows no fee', async () => {
+    const res = await preview(sell, { bestBid: null });
+    expect(res.orderable).toBe(false);
+    expect(res.estimatedFee).toBeNull();
+    expect(res.refusals.map((r: { code: string }) => r.code)).toContain('trade.no_reference_price');
+  });
+
+  it('an order whose hold exceeds the available balance is refused before Confirm, naming both amounts', async () => {
+    const asked: string[] = [];
+    const res = await preview(limitBuy, {
+      availableBalance: async (userId, assetId) => {
+        asked.push(`${userId}:${assetId}`);
+        return parseAmount('199.99');
+      },
+    });
+    expect(asked).toEqual([`${USER}:fixture-quote`]);
+    expect(res.holdAmount).toBe('200');
+    expect(res.orderable).toBe(false);
+    expect(res.refusals).toContainEqual({
+      code: 'ledger.insufficient_funds',
+      field: 'holdAmount',
+      message: 'this order holds 200 fixture-quote and 199.99 is available',
+      data: { holdAmount: '200', available: '199.99', asset: 'fixture-quote' },
+    });
+  });
+
+  it('an order whose hold fits exactly passes; a sell checks its base asset', async () => {
+    const buy = await preview(limitBuy, { availableBalance: async () => parseAmount('200') });
+    expect(buy.orderable).toBe(true);
+    const asked: string[] = [];
+    const sold = await preview(sell, {
+      availableBalance: async (_userId, assetId) => {
+        asked.push(assetId);
+        return parseAmount('1.99');
+      },
+    });
+    expect(asked).toEqual(['fixture-base']);
+    expect(sold.orderable).toBe(false);
+    expect(sold.refusals.map((r: { code: string }) => r.code)).toContain('ledger.insufficient_funds');
+  });
+
+  it('a balance that cannot be read is said, never taken as enough', async () => {
+    const res = await preview(limitBuy, {
+      availableBalance: async () => {
+        throw new Error('ledger down');
+      },
+    });
+    expect(res.orderable).toBe(false);
+    expect(res.refusals).toContainEqual({
+      code: 'trade.balance_unavailable',
+      field: 'holdAmount',
+      message: 'your available balance could not be read',
+    });
   });
 });
