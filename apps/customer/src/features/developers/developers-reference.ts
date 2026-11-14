@@ -1194,6 +1194,15 @@ export const REST_REFERENCE: readonly RestRoute[] = [
       "Revoke your assistant, from your own sign-in: its key places nothing more, its resting orders are cancelled once, our copy of its venue agent key is dropped, and your wallet signs the venue's revoke; open positions stay",
   },
   {
+    name: 'venueAgentActivity',
+    method: 'GET',
+    path: '/api/v1/venue/agent-accounts/connections/:keyId/activity',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      "Your assistant connection's Activity, from your own sign-in: one row per call made with its key, refused ones included, newest first, each with its time, tool, outcome and order id; format=csv exports the same rows",
+  },
+  {
     name: 'venueAgentOrder',
     method: 'POST',
     path: '/api/v1/venue/agent/orders',
@@ -1453,6 +1462,22 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     product: 'accounts',
     access: 'private',
     summary: 'The listing state of one market as this account meets it',
+  },
+  {
+    name: 'requestApiKeyRotation',
+    method: 'POST',
+    path: '/api/v1/account/api-key/rotation',
+    product: 'accounts',
+    access: 'private',
+    summary: 'The calling key asks for its own rotation; a different person on the account approves it',
+  },
+  {
+    name: 'approveApiKeyRotation',
+    method: 'POST',
+    path: '/api/v1/account/api-key/rotation/approve',
+    product: 'accounts',
+    access: 'private',
+    summary: 'Approve a rotation request. A key never approves its own: refused identity.rotation_self_approval',
   },
   {
     name: 'fetchConvertExport',

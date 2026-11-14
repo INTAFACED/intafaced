@@ -76,6 +76,12 @@ export interface VenueSigner {
 
 export type VenueTimeInForce = 'GTC' | 'IOC' | 'ALO';
 
+/**
+ * What the venue does when a new order would trade against the same account's own resting order (J-cex-spot-03 #8):
+ * cancel the resting one, cancel the new one, or cancel both. A venue applies its own rule; none is chosen per order.
+ */
+export type VenueSelfTradeMode = 'cancel_resting' | 'cancel_new' | 'cancel_both';
+
 export interface PlaceUserOrderIntent {
   readonly kind: 'place_order';
   readonly symbol: string;
@@ -443,12 +449,6 @@ export type VenueRefusalCode =
   | 'market_delisted'
   /** The order is larger than the venue's own largest order size or notional for the market. */
   | 'order_above_venue_max'
-  /** The order's value is below the venue's smallest order value for the market (`UserVenueMarket.minOrderNotional`). */
-  | 'order_below_venue_min'
-  /** A limit price outside the venue's price band around its reference price (`UserVenueMarket.priceBandBps`). */
-  | 'price_outside_venue_band'
-  /** The account already holds the most open orders the venue allows (`UserVenueMarket.maxOpenOrders`). */
-  | 'open_orders_above_venue_cap'
   /**
    * An opening order would take the market's open interest past the cap its deployer set
    * (`UserVenueMarket.openInterest.capSize`). The detail names the cap; nothing is signed.
@@ -824,23 +824,6 @@ export interface UserVenueMarket {
   /** The venue's largest order notional in the quote asset, or `null` when it does not report one. */
   readonly maxOrderNotional: Amount | null;
   /**
-   * The venue's smallest order value in the quote asset (price times size), or `null` when it publishes none. An order
-   * below it is refused `order_below_venue_min`. Never a guessed floor: on a spot market our door refuses an order while
-   * this is `null` (`trade.venue_rule_unpublished`, J-cex-spot-04 #6).
-   */
-  readonly minOrderNotional: Amount | null;
-  /**
-   * The venue's price band in bps (scaled, as `builderFeeCapBps`): a limit price further than this from the venue's
-   * reference price (the middle of its own book, or the one side it has) is refused `price_outside_venue_band`; `null`
-   * when the venue publishes no band.
-   */
-  readonly priceBandBps: Amount | null;
-  /**
-   * The most open orders the venue lets one account hold, or `null` when it publishes none. An order past it is refused
-   * `open_orders_above_venue_cap`.
-   */
-  readonly maxOpenOrders: number | null;
-  /**
    * The most builder fee the venue lets any builder attach to an order on this market, in bps of notional (scaled, as
    * `maxFeeBps`), as the venue publishes it; `known: false` when it publishes none. An order carrying more is refused
    * `builder_fee_above_cap`, and our builder-fee versions are never written above it (J-cex-spot-17 #3).
@@ -872,6 +855,11 @@ export interface UserVenueMarket {
   readonly contractSize: MaybeKnown<Amount>;
   readonly mark: MaybeKnown<Amount>;
   readonly funding: MaybeKnown<UserVenueFunding>;
+  /**
+   * The venue's own self-trade rule on this market, as it publishes it, or `known: false` (absent from an older venue:
+   * not published). Never our guess of what the venue does.
+   */
+  readonly selfTrade?: MaybeKnown<VenueSelfTradeMode>;
 }
 
 /** One settled funding interval as the venue published it: when it settled and its signed rate per interval. */
@@ -988,6 +976,13 @@ export interface UserVenueDescriptor extends VenueDescriptor {
    * that declares none has its figures refused (`venueFigure` throws), never given a silent default.
    */
   readonly figureStaleAfterMs?: number;
+  /**
+   * The longest an agent permission with an end date may last on this venue, from the moment it is approved (J-agents-21
+   * #19): an assistant's key that ends later than this is refused at connect, naming it. A venue that declares none has
+   * every dated key refused (`agents.venue_agent_expiry_max_unknown`), never given a silent default. A permission with no
+   * end date is the venue's own `validUntil: null` and is not bounded by this.
+   */
+  readonly agentValidityMaxMs?: number;
 }
 
 /** True for the TEST simulator and any testnet or partner sandbox. */

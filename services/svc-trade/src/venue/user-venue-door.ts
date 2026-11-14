@@ -31,6 +31,7 @@ import { TradeError } from '../spot/types.js';
 import type { PreparedActionStore, StoredVenueAction } from './prepared-action-store.js';
 import { VenueRouteRefusal, type ListedVenueMarket, type VenueRouteRefusalCode, type VenueRoutingGate } from './venue-listing.js';
 import { BuilderFeeVersionError, builderFeeOf, type BuilderFeeBook } from './builder-fee-versions.js';
+import type { FeeSaverSource } from './fee-saver-client.js';
 
 /**
  * THE USER-VENUE DOOR (B1; project-state #1789 item 2): the signed-in customer's own account on a user-signed venue,
@@ -187,7 +188,8 @@ export type UserVenueDoorCode =
   | 'trade.venue_builder_fee_changed'
   | 'trade.venue_action_unknown'
   | 'trade.venue.price_outside_protection'
-  | 'trade.venue_rule_unpublished'
+  // A venue market order on a book whose spread is wider than the owner's spread limit (J-cex-spot-03 #2).
+  | 'trade.venue.spread_too_wide'
   | 'trade.venue_agent_account_only'
   | 'trade.venue_live_run_only'
   | 'trade.venue_action_other_venue'
@@ -353,6 +355,12 @@ export interface UserVenueDoorDeps {
    * worst price past the bound refuses `trade.venue.price_outside_protection`. Never a default.
    */
   readonly slippageCapBps: number | null;
+  /**
+   * The owner's spread limit for a spot market order in basis points (TRADE_MARKET_SPREAD_LIMIT_BPS), or null/absent when
+   * blank: blank refuses `trade.spread_limit_unset`, and a venue spread wider than it refuses `trade.venue.spread_too_wide`,
+   * on preview and on prepare, before anything is prepared. Never a default.
+   */
+  readonly spreadLimitBps?: number | null;
   /** The builder-fee book of the fee schedule version in force at `at` (null: none, the boot `builder` fee applies). */
   readonly builderFeesAt?: (at: Date) => Promise<BuilderFeeBook | null>;
   readonly now: () => Date;
@@ -360,6 +368,59 @@ export interface UserVenueDoorDeps {
   readonly listings: VenueRoutingGate;
   /** Owner value: the largest page of `GET /api/v1/venue/orders`. Null (blank) refuses every list. */
   readonly ordersPageMax?: number | null;
+  /**
+   * What lowers our builder fee on one person's order (J-campaigns-09 #2 #3): their rank's `feeDiscountBps` (svc-identity)
+   * and a fee-saver coupon (svc-campaigns). Absent: every order carries the builder fee in force.
+   */
+  readonly feeDiscounts?: BuilderFeeDiscounts;
+}
+
+/**
+ * The two discounts on our builder fee. Each is a fraction OF the fee in basis points (5000 is half of it), never of the
+ * venue's fee. `rankBps` answers null when the rank cannot be read (that discount is skipped and logged); `coupons` is
+ * null when svc-campaigns is not wired (no coupon is asked for). svc-campaigns unreachable: the whole discount is skipped
+ * and logged and the order carries the normal builder fee in force. A discount that cannot be read is never guessed.
+ */
+export interface BuilderFeeDiscounts {
+  readonly rankBps: (userId: string) => Promise<number | null>;
+  readonly coupons: FeeSaverSource | null;
+  readonly skipped?: (what: 'rank' | 'coupon', userId: string, orderKey: string) => void;
+}
+
+/** What priced our builder fee on an order: the winning discount and where it came from (`null`: none applied). */
+export type BuilderFeeDiscount =
+  | { readonly source: 'coupon'; readonly bps: number; readonly code: string; readonly voucherId: string }
+  | { readonly source: 'rank'; readonly bps: number }
+  | null;
+
+/** A tenth of a basis point, scaled: the finest builder fee a venue takes (Hyperliquid's `f`). */
+const TENTH_BPS = parseAmount('0.1');
+
+/**
+ * Our builder fee less `discountBps` of it, floored to a tenth of a basis point: the discount never charges more than it
+ * promises, and the venue takes the rate it is given.
+ */
+export function discountedBuilderFee(feeBps: Amount, discountBps: number): Amount {
+  if (!Number.isInteger(discountBps) || discountBps <= 0) return feeBps;
+  const off = BigInt(Math.min(discountBps, 10_000));
+  const lowered = (feeBps * (10_000n - off)) / 10_000n;
+  return lowered - (lowered % TENTH_BPS);
+}
+
+/** The owner's spread limit, or `trade.spread_limit_unset` ("protection not set") when blank or not an integer 1–5000. */
+export function requireMarketSpreadLimitBps(bps: number | null | undefined): number {
+  if (bps == null || !Number.isInteger(bps) || bps < 1 || bps > 5000)
+    throw new TradeError(
+      'protection not set: the owner spread limit for a market order (TRADE_MARKET_SPREAD_LIMIT_BPS) is unset; place a limit order',
+      'trade.spread_limit_unset',
+    );
+  return bps;
+}
+
+/** The venue's best ask is further above its best bid than `limitBps` of the bid. A missing side is never "within". */
+export function spreadTooWide(best: Pick<VenueBestPrices, 'bid' | 'ask'>, limitBps: number): boolean {
+  if (best.bid === null || best.ask === null || best.bid <= 0n) return false;
+  return (best.ask - best.bid) * 10_000n > best.bid * BigInt(limitBps);
 }
 
 /**
@@ -586,8 +647,16 @@ export class UserVenueDoor {
     const market = await this.market(venue, intent.symbol);
     if (market.kind !== 'spot') return;
     const cap = requireMarketSlippageCapBps(this.deps.slippageCapBps);
+    const spreadLimit = requireMarketSpreadLimitBps(this.deps.spreadLimitBps);
     if (typeof intent.price !== 'bigint') invalid('a market order carries its worst price as a decimal string');
     const best = venue.bestPrices ? (await venue.bestPrices(intent.symbol)).value : null;
+    if (best && spreadTooWide(best, spreadLimit)) {
+      throw new UserVenueDoorError(
+        `the venue's spread on ${intent.symbol} (bid ${formatAmount(best.bid!)}, ask ${formatAmount(best.ask!)}) is wider than the owner's spread limit of ${spreadLimit} bps; no market order is prepared, place a limit order`,
+        'trade.venue.spread_too_wide',
+        422,
+      );
+    }
     const bound = best ? marketProtectionBound(intent.side, best, cap, market.tickSize) : null;
     if (bound === null) {
       throw new TradeError(
@@ -603,28 +672,6 @@ export class UserVenueDoor {
         422,
       );
     }
-  }
-
-  /**
-   * A new spot order is taken only on a market whose venue publishes the rules it is checked against (J-cex-spot-04 #6):
-   * its smallest order value, its price band and its open-order cap. One the venue does not publish refuses
-   * `trade.venue_rule_unpublished`, naming each missing rule, before anything is prepared: the door never stands in a
-   * default of its own. The venue enforces each published rule itself and refuses in its own words.
-   */
-  private async assertRulesPublished(venue: UserVenue, intent: PlaceUserOrderIntent): Promise<void> {
-    const market = await this.market(venue, intent.symbol);
-    if (market.kind !== 'spot') return;
-    const missing = [
-      market.minOrderNotional == null ? 'smallest order value' : null,
-      market.priceBandBps == null ? 'price band' : null,
-      market.maxOpenOrders == null ? 'open-order cap' : null,
-    ].filter((x): x is string => x !== null);
-    if (missing.length === 0) return;
-    throw new UserVenueDoorError(
-      `${venue.venue.displayName} publishes no ${missing.join(', no ')} for ${intent.symbol}, so this order can't be checked against it; nothing was prepared`,
-      'trade.venue_rule_unpublished',
-      422,
-    );
   }
 
   /** Our builder address on the venue: the owner value, or null when it is blank. */
@@ -762,7 +809,7 @@ export class UserVenueDoor {
     }
   }
 
-  async preview(_principal: Principal, owner: string, intent: VenueIntent) {
+  async preview(principal: Principal, owner: string, intent: VenueIntent) {
     if (intent?.kind !== 'place_order') invalid('preview takes an order intent (kind place_order)');
     assertPlaceIntent(intent);
     const venue = await this.venue();
@@ -770,10 +817,51 @@ export class UserVenueDoor {
     // then our builder fee, then our listing, routing state, dates and largest order.
     const withFee = await this.withBuilderFee(venue, intent);
     await this.admitPlace(venue.venue.id, withFee);
+    // The winning discount as it stands: a coupon is named, never taken, by a preview.
+    const { intent: priced, discount } = await this.withFeeDiscount(principal, withFee, intent.clientOrderKey, 'quote');
     const account = await this.account(owner);
-    await this.assertRulesPublished(venue, withFee);
     await this.assertMarketProtection(venue, withFee);
-    return venue.preview(account, withFee);
+    const answered = await venue.preview(account, priced);
+    return { ...answered, value: { ...answered.value, feeDiscount: discount } };
+  }
+
+  /**
+   * Our builder fee on `intent` less the winning discount (J-campaigns-09 #2 #3): the larger of the person's rank discount
+   * and their best fee-saver coupon, never both. `quote` names the coupon and takes nothing; `take` takes one use of it for
+   * this order key, only when it beats the rank, once (the same key again is the same use); `read` reprices a stored
+   * order with the use it already took. No coupon: the rank's rate. svc-campaigns down (or unwired with none answered):
+   * the winning rate cannot be known, so the discount is skipped and logged and the order carries the normal builder fee
+   * in force ("if the campaigns service is down the order carries the normal builder fee", J-campaigns-09 #2).
+   */
+  private async withFeeDiscount(
+    principal: Principal,
+    intent: PlaceUserOrderIntent,
+    orderKey: string,
+    mode: 'quote' | 'take' | 'read',
+  ): Promise<{ intent: PlaceUserOrderIntent; discount: BuilderFeeDiscount }> {
+    const d = this.deps.feeDiscounts;
+    if (!d || !intent.builderFee) return { intent, discount: null };
+    const rank = await d.rankBps(principal.userId).catch(() => null);
+    if (rank === null) d.skipped?.('rank', principal.userId, orderKey);
+    const rankBps = rank ?? 0;
+    let coupon = null as Awaited<ReturnType<FeeSaverSource['ask']>>;
+    if (d.coupons) {
+      const ask = mode === 'take' ? 'quote' : mode;
+      coupon = await d.coupons.ask(principal.userId, orderKey, ask);
+      // A coupon that beats the rank is taken for this order; one that does not is left for another.
+      if (mode === 'take' && coupon && coupon.discountBps > rankBps) coupon = await d.coupons.ask(principal.userId, orderKey, 'take');
+      if (coupon === undefined) {
+        d.skipped?.('coupon', principal.userId, orderKey);
+        return { intent, discount: null };
+      }
+    }
+    let discount: BuilderFeeDiscount = rankBps > 0 ? { source: 'rank', bps: rankBps } : null;
+    if (coupon && coupon.discountBps > rankBps) {
+      discount = { source: 'coupon', bps: coupon.discountBps, code: coupon.code, voucherId: coupon.voucherId };
+    }
+    if (!discount) return { intent, discount };
+    const feeBps = discountedBuilderFee(intent.builderFee.feeBps, discount.bps);
+    return { intent: { ...intent, builderFee: { ...intent.builderFee, feeBps } }, discount };
   }
 
   /** The key the action is stored under: the intent's own business key where it has one. */
@@ -910,7 +998,11 @@ export class UserVenueDoor {
     }
 
     const existing = await this.deps.store.find(principal.userId, key);
-    if (existing) return this.reuse(existing, account, signer, finalIntent);
+    if (existing) {
+      // A stored order is repriced with the coupon use it already took, never a new one.
+      if (finalIntent.kind === 'place_order') finalIntent = (await this.withFeeDiscount(principal, finalIntent, key, 'read')).intent;
+      return this.reuse(existing, account, signer, finalIntent);
+    }
     if (finalIntent.kind === 'sub_account_transfer' && key.startsWith(OWN_MOVE_PREFIX)) {
       await this.assertOwnSubAccount(principal, venue, account, finalIntent.subAccount);
     }
@@ -918,8 +1010,10 @@ export class UserVenueDoor {
 
     // A new market order is bounded before the venue is asked to prepare it. A stored one was bounded when it was
     // prepared, and its retry returns those same bytes, so a moved book never changes the intent sent for a key.
-    if (finalIntent.kind === 'place_order') await this.assertRulesPublished(venue, finalIntent);
     if (finalIntent.kind === 'place_order' && !opts.ownWorstPrice) await this.assertMarketProtection(venue, finalIntent);
+    // Only an order every check admitted takes a coupon. It keeps the builder fee it is signed with: a coupon used up
+    // later never reprices it (J-campaigns-09 #3).
+    if (finalIntent.kind === 'place_order') finalIntent = (await this.withFeeDiscount(principal, finalIntent, key, 'take')).intent;
 
     const prepared = await venue.prepare(account, signer, finalIntent);
     const stored = await this.deps.store.insertOnce(principal.userId, key, prepared, this.deps.now());

@@ -17,10 +17,10 @@ import {
   type LedgerClient,
 } from '@intafaced/ledger-client';
 
-import { closeSpotPosition, installClosePosition } from './close-position.js';
+import { CloseNotFundedError, closeSpotPosition, installClosePosition } from './close-position.js';
 import { READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor, PUBLISHED_TEST_FEE_SCHEDULE } from './testing.js';
-import type { EngineSubmitResult } from './matching-client.js';
-import type { MatchingCloseRequest } from './matching-close.js';
+import type { EngineSubmitRequest } from './matching-client.js';
+import { decideMarketAction, type MarketLifecyclePort } from '../market-lifecycle.js';
 import type { Market } from './types.js';
 
 installClosePosition(TradeService);
@@ -63,35 +63,15 @@ async function openH8aAdmin(): Promise<{ url: string; stop: () => Promise<void> 
 const ALICE = '11111111-1111-4111-8111-111111111111';
 const BOB = '22222222-2222-4222-8222-222222222222';
 
-class StubMatchingClose extends StubMatching {
-  readonly closed: Array<{ marketId: string; request: MatchingCloseRequest }> = [];
-  closeScript: ((marketId: string, request: MatchingCloseRequest) => EngineSubmitResult) | null = null;
+/** Matching as the close sees it: the signed net it reads, then the reduce-only order it is sent. */
+class StubMatchingNet extends StubMatching {
+  readonly net = new Map<string, string>();
+  readonly netReads: Array<{ marketId: string; accountId: string }> = [];
 
-  async closePosition(marketId: string, request: MatchingCloseRequest): Promise<EngineSubmitResult> {
-    this.closed.push({ marketId, request });
-    if (this.closeScript) return this.closeScript(marketId, request);
-    return {
-      accepted: false,
-      sequence: null,
-      fills: [],
-      resting: null,
-      rejected: { code: 'position_flat', message: 'account is flat on this book; the engine does not invent a mark' },
-      cancellations: [],
-      triggered: [],
-    };
+  async netPosition(marketId: string, accountId: string) {
+    this.netReads.push({ marketId, accountId });
+    return amt(this.net.get(accountId) ?? '0');
   }
-}
-
-function flatResult(): EngineSubmitResult {
-  return {
-    accepted: false,
-    sequence: null,
-    fills: [],
-    resting: null,
-    rejected: { code: 'position_flat', message: 'account is flat on this book; the engine does not invent a mark' },
-    cancellations: [],
-    triggered: [],
-  };
 }
 
 describe('H8a money suite is not skip-green', () => {
@@ -120,14 +100,14 @@ describe('svc-trade close-position (H8a PG-hard)', () => {
     await adminStop();
   }, 30_000);
 
-  describe('close-position through matching flatten', () => {
+  describe('close-position: hold first, then a protected reduce-only order (#4591)', () => {
     let ledger: MemoryLedger;
-    let matching: StubMatchingClose;
+    let matching: StubMatchingNet;
     let trade: TradeService;
     let btcusdt: Market;
 
-    async function fund(userId: string, assetId: string, amount: string) {
-      await ledger.post(
+    async function fund(userId: string, assetId: string, amount: string, into: { post: LedgerClient['post'] } = ledger) {
+      await into.post(
         recipes.deposit({
           userId,
           assetId,
@@ -141,27 +121,34 @@ describe('svc-trade close-position (H8a PG-hard)', () => {
     const heldFor = async (userId: string, assetId: string, orderId: string) =>
       formatAmount((await ledger.balance(orderHoldAccount(userId, assetId, orderId))).amount);
     const postsWithReason = (reason: string) => ledger.journal().filter((tx) => tx.reason === reason);
+    const rowsFor = (clientOrderId: string) =>
+      sql<Array<{ id: string; status: string; type: string; price: string | null; qty: string; protection_price: string | null }>>`
+        SELECT id, status::text, type::text, price::text, qty::text, protection_price::text
+          FROM trade.orders WHERE client_order_id = ${clientOrderId}`;
 
-    // #4591: a market close row carries no price (orders_price_shape_ck); the executed price lives on the fill.
-    async function expectMarketRowWithoutPrice(orderId: string, fillPrices: number[]) {
-      const rows = await sql<Array<{ type: string; price: string | null }>>`
-        SELECT type::text, price::text FROM trade.orders WHERE id = ${orderId}`;
-      expect(rows[0]).toEqual({ type: 'market', price: null });
-      const fills = await sql<Array<{ price: string }>>`
-        SELECT price::text FROM trade.fills WHERE order_id = ${orderId} ORDER BY price`;
-      expect(fills.map((f) => Number(f.price))).toEqual(fillPrices);
+    function service(over: { ledger?: LedgerClient; lifecycle?: MarketLifecyclePort; capBps?: number | null } = {}) {
+      return new TradeService(sql, over.ledger ?? ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
+        feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
+        marketLifecycle: over.lifecycle ?? READY_MARKET_LIFECYCLE,
+        spotEnabled: true,
+        ...(over.capBps === null ? {} : { marketSlippageCapBps: over.capBps ?? 200 }),
+      });
+    }
+
+    /** What the engine was sent for one close, and the close's own hold at that moment. */
+    function watchSubmit(assetId: string) {
+      const seen: Array<{ request: EngineSubmitRequest; heldAtSubmit: string }> = [];
+      matching.onSubmit = async (request) => {
+        seen.push({ request, heldAtSubmit: await heldFor(ALICE, assetId, request.orderId) });
+      };
+      return seen;
     }
 
     beforeEach(async () => {
       await sql`TRUNCATE trade.order_replace_requests, trade.fills, trade.orders, trade.markets RESTART IDENTITY CASCADE`;
       ledger = new MemoryLedger();
-      matching = new StubMatchingClose();
-      trade = new TradeService(sql, ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
-        feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
-        marketLifecycle: READY_MARKET_LIFECYCLE,
-        spotEnabled: true,
-        marketSlippageCapBps: 200,
-      });
+      matching = new StubMatchingNet();
+      trade = service();
       btcusdt = await trade.listMarket({
         symbol: 'BTC/USDT',
         baseAsset: 'BTC',
@@ -176,37 +163,29 @@ describe('svc-trade close-position (H8a PG-hard)', () => {
       });
     });
 
-    it('refuses flatten when the owner protection floor is unpublished', async () => {
-      const bare = new TradeService(sql, ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
-        feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
-        marketLifecycle: READY_MARKET_LIFECYCLE,
-        spotEnabled: true,
-      });
+    it('refuses when the owner protection floor is unpublished, before reading the position or sending anything', async () => {
+      matching.net.set(ALICE, '1');
       await expect(
-        closeSpotPosition(bare, principalFor(ALICE), { marketId: btcusdt.id, clientOrderId: 'close-unset' }),
+        closeSpotPosition(service({ capBps: null }), principalFor(ALICE), { marketId: btcusdt.id, clientOrderId: 'close-unset' }),
       ).rejects.toMatchObject({ code: 'trade.protection_unset' });
-      expect(matching.closed).toHaveLength(0);
-    });
-
-    it('refuses a flat book — no ledger post, no invented mark', async () => {
-      matching.closeScript = () => flatResult();
-      await expect(
-        closeSpotPosition(trade, principalFor(ALICE), {
-          marketId: btcusdt.id,
-          clientOrderId: 'close-flat',
-        }),
-      ).rejects.toMatchObject({ code: 'trade.position_flat' });
-      expect(matching.closed).toHaveLength(1);
-      expect(matching.closed[0]?.request).not.toHaveProperty('qty');
-      expect(matching.closed[0]?.request).not.toHaveProperty('price');
-      expect(matching.closed[0]?.request).not.toHaveProperty('side');
+      expect(matching.netReads).toHaveLength(0);
+      expect(matching.submitted).toHaveLength(0);
       expect(postsWithReason('order.hold')).toHaveLength(0);
-      expect(postsWithReason('order.hold.released')).toHaveLength(0);
-      const rows = await sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM trade.orders`;
-      expect(rows[0]?.n).toBe('0');
     });
 
-    it('flattens through matching close and settles the engine fill — no invented mark', async () => {
+    it('refuses a flat book: no row, no ledger post, nothing sent to the engine', async () => {
+      await expect(
+        closeSpotPosition(trade, principalFor(ALICE), { marketId: btcusdt.id, clientOrderId: 'close-flat' }),
+      ).rejects.toMatchObject({
+        code: 'trade.position_flat',
+      });
+      expect(matching.netReads).toEqual([{ marketId: btcusdt.id, accountId: ALICE }]);
+      expect(matching.submitted).toHaveLength(0);
+      expect(postsWithReason('order.hold')).toHaveLength(0);
+      expect(await sql`SELECT 1 FROM trade.orders`).toHaveLength(0);
+    });
+
+    it('closes a long: holds the base before the engine, sends a reduce-only sell floored at the cap, settles the fill', async () => {
       await fund(BOB, 'USDT', '100');
       const maker = await trade.placeOrder(principalFor(BOB), {
         marketId: btcusdt.id,
@@ -216,54 +195,34 @@ describe('svc-trade close-position (H8a PG-hard)', () => {
         price: amt('100'),
         clientOrderId: 'bob-bid',
       });
-      expect(maker.status).toBe('open');
-
       await fund(ALICE, 'BTC', '2');
-      matching.closeScript = (_marketId, request) => ({
-        accepted: true,
-        sequence: 2,
-        fills: [
-          {
-            sequence: 3,
-            makerOrderId: maker.id,
-            makerAccountId: BOB,
-            takerOrderId: request.orderId,
-            takerAccountId: ALICE,
-            takerSide: 'sell',
-            price: '100',
-            qty: '1',
-          },
-        ],
-        resting: null,
-        rejected: null,
-        cancellations: [],
-        triggered: [],
-      });
+      matching.net.set(ALICE, '1');
+      matching.bids = [['100', '1']];
+      matching.scriptFills([{ makerOrderId: maker.id, makerAccountId: BOB, price: '100', qty: '1' }]);
+      const seen = watchSubmit('BTC');
 
-      const order = await closeSpotPosition(trade, principalFor(ALICE), {
-        marketId: btcusdt.id,
-        clientOrderId: 'close-long',
-      });
+      const order = await closeSpotPosition(trade, principalFor(ALICE), { marketId: btcusdt.id, clientOrderId: 'close-long' });
 
-      expect(matching.closed).toHaveLength(1);
-      expect(matching.closed[0]?.marketId).toBe(btcusdt.id);
-      expect(matching.closed[0]?.request.accountId).toBe(ALICE);
-      expect(matching.closed[0]?.request).not.toHaveProperty('qty');
-      expect(matching.closed[0]?.request).not.toHaveProperty('price');
-      expect(order.status).toBe('filled');
-      expect(order.side).toBe('sell');
+      // Funded before the engine saw it: the whole 1 BTC was held when the order was sent.
+      expect(seen).toHaveLength(1);
+      expect(seen[0]!.heldAtSubmit).toBe('1');
+      // The engine got a reduce-only IOC sell for the exact net, priced no lower than bid - 2% (#4591 c).
+      expect(seen[0]!.request).toMatchObject({ side: 'sell', qty: '1', type: 'limit', tif: 'IOC', price: '98', reduceOnly: true });
+      expect(order).toMatchObject({ side: 'sell', type: 'market', status: 'filled', price: null });
       expect(formatAmount(order.qty)).toBe('1');
       expect(await heldFor(ALICE, 'BTC', order.id)).toBe('0');
-      expect(order.type).toBe('market');
-      expect(order.price).toBeNull();
-      await expectMarketRowWithoutPrice(order.id, [100]);
-      // The flatten row stores its lifecycle proof as a JSON object, not the text of one.
-      const proof = await sql<Array<{ kind: string; action: string | null }>>`
-        SELECT jsonb_typeof(lifecycle_proof) AS kind, lifecycle_proof->>'action' AS action FROM trade.orders WHERE id = ${order.id}`;
-      expect(proof[0]).toEqual({ kind: 'object', action: 'PLACE' });
+      expect(await avail(ALICE, 'BTC')).toBe('1');
+      // A market row stores no price (orders_price_shape_ck); the executed price lives on the fill.
+      const row = (await rowsFor('close-long'))[0]!;
+      expect(row).toMatchObject({ type: 'market', price: null });
+      expect(Number(row.protection_price)).toBe(98);
+      expect(
+        (await sql<Array<{ price: string }>>`SELECT price::text FROM trade.fills WHERE order_id = ${order.id}`).map((f) => Number(f.price)),
+      ).toEqual([100]);
+      expect(ledger.reconcile()).toEqual({ ok: true });
     });
 
-    it('releases leftover hold through recipes.orderHoldRelease', async () => {
+    it("keeps the order's own qty and releases the leftover hold, whatever else the engine cancelled (#4591 b)", async () => {
       await fund(BOB, 'USDT', '100');
       const maker = await trade.placeOrder(principalFor(BOB), {
         marketId: btcusdt.id,
@@ -273,14 +232,15 @@ describe('svc-trade close-position (H8a PG-hard)', () => {
         price: amt('100'),
         clientOrderId: 'bob-bid-partial',
       });
-
       await fund(ALICE, 'BTC', '3');
-      matching.closeScript = (_marketId, request) => ({
+      matching.net.set(ALICE, '2');
+      matching.bids = [['100', '1']];
+      matching.script1((request, next) => ({
         accepted: true,
-        sequence: 4,
+        sequence: next(),
         fills: [
           {
-            sequence: 5,
+            sequence: next(),
             makerOrderId: maker.id,
             makerAccountId: BOB,
             takerOrderId: request.orderId,
@@ -293,31 +253,25 @@ describe('svc-trade close-position (H8a PG-hard)', () => {
         resting: null,
         rejected: null,
         cancellations: [
-          {
-            orderId: request.orderId,
-            accountId: ALICE,
-            remainingQty: '1',
-            sequence: 6,
-            reason: 'ioc_remainder',
-          },
+          // A self-trade-prevention pull of some other order: it used to be summed into the close's qty.
+          { orderId: '99999999-9999-4999-8999-999999999999', accountId: ALICE, remainingQty: '5', sequence: next(), reason: 'stp' },
+          { orderId: request.orderId, accountId: ALICE, remainingQty: '1', sequence: next(), reason: 'ioc_remainder' },
         ],
         triggered: [],
-      });
+      }));
 
-      const order = await closeSpotPosition(trade, principalFor(ALICE), {
-        marketId: btcusdt.id,
-        clientOrderId: 'close-leftover',
-      });
+      const order = await closeSpotPosition(trade, principalFor(ALICE), { marketId: btcusdt.id, clientOrderId: 'close-leftover' });
 
       expect(formatAmount(order.qty)).toBe('2');
+      expect(formatAmount(order.filledQty)).toBe('1');
+      expect(Number((await rowsFor('close-leftover'))[0]!.qty)).toBe(2);
       expect(await heldFor(ALICE, 'BTC', order.id)).toBe('0');
       expect(await avail(ALICE, 'BTC')).toBe('2');
       expect(postsWithReason('order.hold.released')).toHaveLength(1);
-      expect(order.price).toBeNull();
-      await expectMarketRowWithoutPrice(order.id, [100]);
+      expect(ledger.reconcile()).toEqual({ ok: true });
     });
 
-    it('short flatten BUY across two fill prices holds the exact notional and settles both fills', async () => {
+    it('closes a short: holds protection x qty in quote before the engine, caps the buy, settles every level and releases the rest', async () => {
       await fund(BOB, 'BTC', '2');
       const ask1 = await trade.placeOrder(principalFor(BOB), {
         marketId: btcusdt.id,
@@ -332,61 +286,79 @@ describe('svc-trade close-position (H8a PG-hard)', () => {
         side: 'sell',
         type: 'limit',
         qty: amt('1'),
-        price: amt('110'),
+        price: amt('101'),
         clientOrderId: 'bob-ask-2',
       });
       await fund(ALICE, 'USDT', '1000');
-      matching.closeScript = (_marketId, request) => ({
-        accepted: true,
-        sequence: 7,
-        fills: [
-          {
-            sequence: 8,
-            makerOrderId: ask1.id,
-            makerAccountId: BOB,
-            takerOrderId: request.orderId,
-            takerAccountId: ALICE,
-            takerSide: 'buy',
-            price: '100',
-            qty: '1',
-          },
-          {
-            sequence: 9,
-            makerOrderId: ask2.id,
-            makerAccountId: BOB,
-            takerOrderId: request.orderId,
-            takerAccountId: ALICE,
-            takerSide: 'buy',
-            price: '110',
-            qty: '1',
-          },
-        ],
-        resting: null,
-        rejected: null,
-        cancellations: [],
-        triggered: [],
-      });
+      matching.net.set(ALICE, '-2');
+      matching.asks = [['100', '1']];
+      matching.scriptFills([
+        { makerOrderId: ask1.id, makerAccountId: BOB, price: '100', qty: '1' },
+        { makerOrderId: ask2.id, makerAccountId: BOB, price: '101', qty: '1' },
+      ]);
+      const seen = watchSubmit('USDT');
 
       const order = await closeSpotPosition(trade, principalFor(ALICE), { marketId: btcusdt.id, clientOrderId: 'close-short' });
 
-      expect(order.side).toBe('buy');
-      expect(order.status).toBe('filled');
+      // Best ask 100 + 2% = 102: the engine may not fill above it, and 102 x 2 was held before it was asked.
+      expect(seen[0]!.request).toMatchObject({ side: 'buy', qty: '2', type: 'limit', tif: 'IOC', price: '102', reduceOnly: true });
+      expect(seen[0]!.heldAtSubmit).toBe('204');
+      expect(order).toMatchObject({ side: 'buy', status: 'filled', type: 'market', price: null });
       expect(formatAmount(order.filledQty)).toBe('2');
-      expect(order.price).toBeNull();
-      // The hold is the sum of ceil(price x qty) over both fills (100 + 110), not first price x total qty (200).
-      const held = await sql<Array<{ hold_amount: string }>>`SELECT hold_amount::text FROM trade.orders WHERE id = ${order.id}`;
-      expect(Number(held[0]?.hold_amount)).toBe(210);
-      const holdPosts = postsWithReason('order.hold').filter((tx) => tx.entries.some((e) => Number(formatAmount(e.amount)) === 210));
-      expect(holdPosts.length).toBeGreaterThan(0);
-      await expectMarketRowWithoutPrice(order.id, [100, 110]);
-      // Both fills settled in the ledger: Alice paid 210 USDT and holds nothing; she received the BTC.
-      expect(await avail(ALICE, 'USDT')).toBe('790');
+      const fills = await sql<Array<{ price: string }>>`SELECT price::text FROM trade.fills WHERE order_id = ${order.id} ORDER BY price`;
+      expect(fills.map((f) => Number(f.price))).toEqual([100, 101]);
+      // Both fills settled (100 + 101); the 3 left of the hold went back.
+      expect(await avail(ALICE, 'USDT')).toBe('799');
       expect(await heldFor(ALICE, 'USDT', order.id)).toBe('0');
       expect(await avail(ALICE, 'BTC')).not.toBe('0');
       expect(ledger.reconcile()).toEqual({ ok: true });
     });
 
-    it('keeps the close row and the hold when order.hold throws ECONNRESET after booking', async () => {
+    it('a BUY close the account cannot fund is refused before the engine: no fill, no row, nothing held (#4591 a)', async () => {
+      await fund(ALICE, 'USDT', '50');
+      matching.net.set(ALICE, '-1');
+      matching.asks = [['100', '1']];
+
+      const err = await closeSpotPosition(trade, principalFor(ALICE), { marketId: btcusdt.id, clientOrderId: 'close-poor' }).catch(
+        (e: unknown) => e,
+      );
+
+      expect(err).toBeInstanceOf(CloseNotFundedError);
+      expect(matching.submitted).toHaveLength(0);
+      expect(await rowsFor('close-poor')).toEqual([]);
+      expect(await avail(ALICE, 'USDT')).toBe('50');
+      expect(ledger.journal().filter((tx) => tx.reason === 'order.hold')).toHaveLength(0);
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
+    it('a hold the ledger refuses by name sends nothing and leaves no row', async () => {
+      const inner = new MemoryLedger();
+      const client: LedgerClient = {
+        post: async (req) => {
+          if (req.reason === 'order.hold') throw new LedgerError('insufficient funds', 'ledger.insufficient_funds');
+          return inner.post(req);
+        },
+        balance: (ref) => inner.balance(ref),
+        balances: (ownerType, ownerId) => inner.balances(ownerType, ownerId),
+        getTx: (id) => inner.getTx(id),
+        getTxByKey: (key) => inner.getTxByKey(key),
+      };
+      await fund(ALICE, 'BTC', '2', inner);
+      matching.net.set(ALICE, '1');
+      matching.bids = [['100', '1']];
+
+      const err = await closeSpotPosition(service({ ledger: client }), principalFor(ALICE), {
+        marketId: btcusdt.id,
+        clientOrderId: 'close-refused',
+      }).catch((e: unknown) => e);
+
+      expect(err).toBeInstanceOf(CloseNotFundedError);
+      expect((err as CloseNotFundedError).ledger.code).toBe('ledger.insufficient_funds');
+      expect(matching.submitted).toHaveLength(0);
+      expect(await rowsFor('close-refused')).toEqual([]);
+    });
+
+    it('a hold reply lost after booking keeps the row and the hold, sends nothing, and the retry finishes the close once', async () => {
       const inner = new MemoryLedger();
       let armed = false;
       const client: LedgerClient = {
@@ -405,21 +377,8 @@ describe('svc-trade close-position (H8a PG-hard)', () => {
           return inner.getTxByKey(key);
         },
       };
-      const local = new TradeService(sql, client, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
-        feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
-        marketLifecycle: READY_MARKET_LIFECYCLE,
-        spotEnabled: true,
-        marketSlippageCapBps: 200,
-      });
-      await inner.post(
-        recipes.deposit({
-          userId: BOB,
-          assetId: 'USDT',
-          amount: amt('100'),
-          rail: 'test',
-          railRef: `bob-close-lost:${Math.random()}`,
-        }),
-      );
+      const local = service({ ledger: client });
+      await fund(BOB, 'USDT', '100', inner);
       const maker = await local.placeOrder(principalFor(BOB), {
         marketId: btcusdt.id,
         side: 'buy',
@@ -428,62 +387,34 @@ describe('svc-trade close-position (H8a PG-hard)', () => {
         price: amt('100'),
         clientOrderId: 'bob-close-lost',
       });
-      await inner.post(
-        recipes.deposit({
-          userId: ALICE,
-          assetId: 'BTC',
-          amount: amt('2'),
-          rail: 'test',
-          railRef: `alice-close-lost:${Math.random()}`,
-        }),
-      );
-      matching.closeScript = (_marketId, request) => ({
-        accepted: true,
-        sequence: 2,
-        fills: [
-          {
-            sequence: 3,
-            makerOrderId: maker.id,
-            makerAccountId: BOB,
-            takerOrderId: request.orderId,
-            takerAccountId: ALICE,
-            takerSide: 'sell',
-            price: '100',
-            qty: '1',
-          },
-        ],
-        resting: null,
-        rejected: null,
-        cancellations: [],
-        triggered: [],
-      });
-      armed = true;
-      await expect(closeSpotPosition(local, principalFor(ALICE), { marketId: btcusdt.id, clientOrderId: 'close-lost' })).rejects.toThrow(
-        /ECONNRESET/,
-      );
-
-      const rows = await sql<Array<{ id: string; status: string }>>`
-        SELECT id, status::text FROM trade.orders WHERE client_order_id = 'close-lost'
-      `;
-      expect(rows).toEqual([{ id: rows[0]!.id, status: 'recovery_required' }]);
-      expect(formatAmount((await inner.balance(orderHoldAccount(ALICE, 'BTC', rows[0]!.id))).amount)).toBe('1');
-      expect(inner.journal().filter((tx) => tx.reason === 'order.hold' && tx.idempotencyKey === `order.hold:${rows[0]!.id}`)).toHaveLength(
-        1,
-      );
-      expect(inner.journal().filter((tx) => tx.reason === 'order.hold.released' && tx.idempotencyKey.includes(rows[0]!.id))).toHaveLength(
-        0,
-      );
-
-      // The hold is readable again. A hold_unknown close would be submitted; recovery_required must not be.
-      armed = false;
+      await fund(ALICE, 'BTC', '2', inner);
+      matching.net.set(ALICE, '1');
+      matching.bids = [['100', '1']];
+      matching.scriptFills([{ makerOrderId: maker.id, makerAccountId: BOB, price: '100', qty: '1' }]);
       const before = matching.submitted.length;
-      await local.sweepHoldUnknown();
-      expect(matching.submitted.slice(before).filter((call) => call.request.orderId === rows[0]!.id)).toHaveLength(0);
-      expect(await sql`SELECT status::text FROM trade.orders WHERE id = ${rows[0]!.id}`).toEqual([{ status: 'recovery_required' }]);
+      armed = true;
+
+      await expect(
+        closeSpotPosition(local, principalFor(ALICE), { marketId: btcusdt.id, clientOrderId: 'close-lost' }),
+      ).rejects.toMatchObject({
+        code: 'trade.hold_unknown',
+      });
+      const rows = await rowsFor('close-lost');
+      expect(rows.map((r) => r.status)).toEqual(['hold_unknown']);
+      expect(formatAmount((await inner.balance(orderHoldAccount(ALICE, 'BTC', rows[0]!.id))).amount)).toBe('1');
+      // Nothing reached the engine while the hold was unknown.
+      expect(matching.submitted.length).toBe(before);
+
+      armed = false;
+      const order = await closeSpotPosition(local, principalFor(ALICE), { marketId: btcusdt.id, clientOrderId: 'close-lost' });
+      expect(order.id).toBe(rows[0]!.id);
+      expect(order.status).toBe('filled');
+      expect(matching.submitted.slice(before).map((c) => c.request.orderId)).toEqual([order.id]);
+      expect(inner.journal().filter((tx) => tx.idempotencyKey === `order.hold:${order.id}`)).toHaveLength(1);
+      expect(inner.reconcile()).toEqual({ ok: true });
     });
 
-    it('a refused hold after the engine flattened keeps the close row for recovery and never repeats the flatten', async () => {
-      // Bob rests a bid; Alice holds no BTC, so the sell-side flatten hold is a definite shortfall.
+    it('a retry of a finished close returns the same row and never sends a second order', async () => {
       await fund(BOB, 'USDT', '100');
       const maker = await trade.placeOrder(principalFor(BOB), {
         marketId: btcusdt.id,
@@ -491,124 +422,72 @@ describe('svc-trade close-position (H8a PG-hard)', () => {
         type: 'limit',
         qty: amt('1'),
         price: amt('100'),
-        clientOrderId: 'bob-bid-l17',
+        clientOrderId: 'bob-bid-retry',
       });
-      matching.closeScript = (_marketId, request) => ({
-        accepted: true,
-        sequence: 2,
-        fills: [
-          {
-            sequence: 3,
-            makerOrderId: maker.id,
-            makerAccountId: BOB,
-            takerOrderId: request.orderId,
-            takerAccountId: ALICE,
-            takerSide: 'sell',
-            price: '100',
-            qty: '1',
-          },
-        ],
-        resting: null,
-        rejected: null,
-        cancellations: [],
-        triggered: [],
-      });
+      await fund(ALICE, 'BTC', '1');
+      matching.net.set(ALICE, '1');
+      matching.bids = [['100', '1']];
+      matching.scriptFills([{ makerOrderId: maker.id, makerAccountId: BOB, price: '100', qty: '1' }]);
+      const first = await closeSpotPosition(trade, principalFor(ALICE), { marketId: btcusdt.id, clientOrderId: 'close-retry' });
+      const sent = matching.submitted.length;
 
-      await expect(
-        closeSpotPosition(trade, principalFor(ALICE), { marketId: btcusdt.id, clientOrderId: 'close-l17' }),
-      ).rejects.toBeInstanceOf(LedgerError);
+      matching.net.set(ALICE, '0');
+      const again = await closeSpotPosition(trade, principalFor(ALICE), { marketId: btcusdt.id, clientOrderId: 'close-retry' });
 
-      // The engine already printed the fill against Bob's order. The row stays, so that fill can be settled or unwound.
-      expect(matching.closed).toHaveLength(1);
-      const rows = await sql<Array<{ id: string; status: string; recovery_reason: string | null }>>`
-        SELECT id, status::text, recovery_reason FROM trade.orders WHERE client_order_id = 'close-l17'`;
-      expect(rows).toEqual([{ id: rows[0]!.id, status: 'recovery_required', recovery_reason: 'SUBMIT_UNKNOWN' }]);
-
-      // A retry with the same business key returns that row. It does not flatten a second time.
-      const again = await closeSpotPosition(trade, principalFor(ALICE), { marketId: btcusdt.id, clientOrderId: 'close-l17' });
-      expect(again.id).toBe(rows[0]!.id);
-      expect(matching.closed).toHaveLength(1);
+      expect(again.id).toBe(first.id);
+      expect(again.status).toBe('filled');
+      expect(matching.submitted.length).toBe(sent);
+      expect(postsWithReason('order.hold').filter((tx) => tx.idempotencyKey === `order.hold:${first.id}`)).toHaveLength(1);
     });
 
-    it('keeps the close row for recovery when the hold post is a ledger.insufficient_funds LedgerError', async () => {
-      const inner = new MemoryLedger();
-      let armed = false;
-      const client: LedgerClient = {
-        post: async (req) => {
-          if (armed && req.reason === 'order.hold') {
-            throw new LedgerError('insufficient funds', 'ledger.insufficient_funds');
-          }
-          return inner.post(req);
-        },
-        balance: (ref) => inner.balance(ref),
-        balances: (ownerType, ownerId) => inner.balances(ownerType, ownerId),
-        getTx: (id) => inner.getTx(id),
-        getTxByKey: (key) => inner.getTxByKey(key),
-      };
-      const local = new TradeService(sql, client, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
-        feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
-        marketLifecycle: READY_MARKET_LIFECYCLE,
-        spotEnabled: true,
-        marketSlippageCapBps: 200,
-      });
-      await inner.post(
-        recipes.deposit({
-          userId: BOB,
-          assetId: 'USDT',
-          amount: amt('100'),
-          rail: 'test',
-          railRef: `bob-close-refused:${Math.random()}`,
-        }),
-      );
-      await local.placeOrder(principalFor(BOB), {
-        marketId: btcusdt.id,
-        side: 'buy',
-        type: 'limit',
-        qty: amt('1'),
-        price: amt('100'),
-        clientOrderId: 'bob-close-refused',
-      });
-      await inner.post(
-        recipes.deposit({
-          userId: ALICE,
-          assetId: 'BTC',
-          amount: amt('2'),
-          rail: 'test',
-          railRef: `alice-close-refused:${Math.random()}`,
-        }),
-      );
-      matching.closeScript = (_marketId, request) => ({
-        accepted: true,
-        sequence: 4,
-        fills: [
-          {
-            sequence: 5,
-            makerOrderId: 'unused',
-            makerAccountId: BOB,
-            takerOrderId: request.orderId,
-            takerAccountId: ALICE,
-            takerSide: 'sell',
-            price: '100',
-            qty: '1',
-          },
-        ],
+    it('a position that shrank before the engine is refused by its reduce-only check, and the hold is released', async () => {
+      await fund(ALICE, 'BTC', '2');
+      matching.net.set(ALICE, '2');
+      matching.bids = [['100', '1']];
+      matching.script1(() => ({
+        accepted: false,
+        sequence: null,
+        fills: [],
         resting: null,
-        rejected: null,
+        rejected: { code: 'would_increase_position', message: 'reduce-only refuses a qty that would increase the position' },
         cancellations: [],
         triggered: [],
-      });
-      armed = true;
+      }));
+
+      const order = await closeSpotPosition(trade, principalFor(ALICE), { marketId: btcusdt.id, clientOrderId: 'close-moved' });
+
+      expect(order.status).toBe('rejected');
+      expect(await heldFor(ALICE, 'BTC', order.id)).toBe('0');
+      expect(await avail(ALICE, 'BTC')).toBe('2');
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
+    it('a limit-only market still takes a close (CLOSE stays allowed), while a plain market order is refused', async () => {
+      const limitOnly: MarketLifecyclePort = {
+        snapshot: (market, options) => ({ ...READY_MARKET_LIFECYCLE.snapshot(market, options), state: 'LIMIT_ONLY' }) as never,
+        admit: (snapshot, action) => decideMarketAction(snapshot, action),
+      };
+      const local = service({ lifecycle: limitOnly });
+      await fund(ALICE, 'BTC', '2');
+      matching.bids = [['100', '1']];
 
       await expect(
-        closeSpotPosition(local, principalFor(ALICE), { marketId: btcusdt.id, clientOrderId: 'close-refused' }),
-      ).rejects.toMatchObject({ code: 'ledger.insufficient_funds' });
+        local.placeOrder(principalFor(ALICE), {
+          marketId: btcusdt.id,
+          side: 'sell',
+          type: 'market',
+          qty: amt('1'),
+          clientOrderId: 'plain-mkt',
+        }),
+      ).rejects.toMatchObject({ code: 'trade.mode_limit_only' });
 
-      // The engine printed the flatten before the hold, so the row stays recoverable instead of vanishing (it used to be deleted).
-      expect(await sql`SELECT status::text FROM trade.orders WHERE client_order_id = 'close-refused'`).toEqual([
-        { status: 'recovery_required' },
-      ]);
-      expect(inner.journal().filter((tx) => tx.reason === 'order.hold')).toHaveLength(1);
-      expect(inner.journal().filter((tx) => tx.reason === 'order.hold.released')).toHaveLength(0);
+      matching.net.set(ALICE, '1');
+      matching.scriptFills([], { cancelRemainder: '1' });
+      const order = await closeSpotPosition(local, principalFor(ALICE), { marketId: btcusdt.id, clientOrderId: 'close-limit-only' });
+      expect(order.side).toBe('sell');
+      expect(matching.submitted.at(-1)!.request).toMatchObject({ orderId: order.id, reduceOnly: true, type: 'limit', price: '98' });
+      expect(await heldFor(ALICE, 'BTC', order.id)).toBe('0');
+      expect(await avail(ALICE, 'BTC')).toBe('2');
     });
   });
 });

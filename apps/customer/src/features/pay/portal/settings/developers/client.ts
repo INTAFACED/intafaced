@@ -36,11 +36,12 @@ export const developersApi = ({ query, mutate, identityQuery, identityMutate }: 
         signal,
       ),
     ),
-  endpointCreate: (url: string) => mutate('merchantOps.webhooks.create', { url }, s.createdEndpointSchema),
+  endpointCreate: (url: string, eventTypes: readonly string[]) =>
+    mutate('merchantOps.webhooks.create', { url, eventTypes: [...eventTypes] }, s.createdEndpointSchema),
   endpointUpdate: (endpointId: string, url: string) => mutate('merchantOps.webhooks.update', { endpointId, url }, s.endpointSchema),
   endpointDisable: (endpointId: string) => mutate('merchantOps.webhooks.disable', { endpointId }, s.endpointSchema),
-  endpointRotate: (endpointId: string, requestId: string) =>
-    mutate('merchantOps.webhooks.rotateSecret', { endpointId, requestId }, s.rotatedEndpointSchema),
+  endpointRotate: (endpointId: string, requestId: string, overlapSeconds = 0) =>
+    mutate('merchantOps.webhooks.rotateSecret', { endpointId, requestId, overlapSeconds }, s.rotatedEndpointSchema),
   deliveriesList: async (
     cursor: string | undefined,
     filter: { endpointId?: string; status?: string; from?: string; to?: string },
@@ -66,4 +67,11 @@ export const developersApi = ({ query, mutate, identityQuery, identityMutate }: 
   deliveryRetry: (deliveryId: string, requestId: string) =>
     mutate('merchantOps.webhooks.deliveries.retry', { deliveryId, requestId }, s.retriedSchema),
   webhookHealth: (signal?: AbortSignal) => query('merchantOps.webhooks.health', {}, s.healthSchema, signal),
+  deliveryAttempts: (deliveryId: string, signal?: AbortSignal) =>
+    query('merchantOps.webhooks.deliveries.attempts', { deliveryId }, s.attemptsSchema, signal),
+  deliveriesRecover: (endpointId: string, since: string, requestId: string) =>
+    mutate('merchantOps.webhooks.deliveries.recover', { endpointId, since, requestId }, s.recoveredSchema),
+  webhookPolicy: (signal?: AbortSignal) => query('merchantOps.webhooks.policy', {}, s.policySchema, signal),
+  webhookCatalogue: (signal?: AbortSignal) => query('merchantOps.webhooks.catalogue', {}, s.catalogueSchema, signal),
+  webhookGuide: (signal?: AbortSignal) => query('merchantOps.webhooks.guide', {}, s.guideSchema, signal),
 });

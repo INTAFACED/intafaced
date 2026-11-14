@@ -1,7 +1,15 @@
 // TEST DATA ONLY. Nothing here is a real key, address, secret or event.
+import { createHmac } from 'node:crypto';
 import { NOT_MINE, DAY, iso, ok, page, refuse } from '../../mock/shared.mjs';
 
 const WEBHOOK_ROLES = new Set(['owner', 'admin', 'developer']);
+const EVENT_TYPES = ['payment.authorized', 'payment.captured', 'payment.refunded', 'payment.failed'];
+const VECTOR = {
+  secret: 'whsec_TEST_stand_in_example',
+  timestamp: '1767225600',
+  body: '{"id":"payment.captured:TEST-payment-1","type":"payment.captured"}',
+};
+const sign = (secret, ts, body) => createHmac('sha256', secret).update(`${ts}.${body}`).digest('hex');
 
 /** API keys, request signing, webhook endpoints and their deliveries. Identity procedures have no `merchantOps.` prefix. */
 export function createDevelopersMock(ctx) {
@@ -59,6 +67,7 @@ export function createDevelopersMock(ctx) {
             status: 'active',
             disabledReason: null,
             consecutiveFailures: 0,
+            eventTypes: ['payment.captured', 'payment.refunded'],
             createdAt: iso(now - 30 * DAY),
             updatedAt: iso(now - 2 * DAY),
           },
@@ -171,13 +180,15 @@ export function createDevelopersMock(ctx) {
         }
         case 'merchantOps.webhooks.create': {
           if (!canManage()) return refuse(route, 403, 'pay.team_role_forbidden');
-          if (!input.url.startsWith('https://')) return refuse(route, 400, 'pay.webhook_url_invalid');
+          if (!input.url.startsWith('https://')) return refuse(route, 400, 'pay.webhook_url_https_required');
+          if (!input.eventTypes?.length) return refuse(route, 400, 'pay.webhook_event_types_required');
           const endpoint = {
             id: `TEST-endpoint-${dev.endpoints.length + 1}`,
             url: input.url,
             status: 'active',
             disabledReason: null,
             consecutiveFailures: 0,
+            eventTypes: input.eventTypes,
             createdAt: iso(Date.now()),
             updatedAt: iso(Date.now()),
           };
@@ -203,6 +214,7 @@ export function createDevelopersMock(ctx) {
           dev.rotations ??= new Set();
           const again = dev.rotations.has(input.requestId);
           dev.rotations.add(input.requestId);
+          if (!again && input.overlapSeconds > 0) e.previousSecretUntil = iso(Date.now() + input.overlapSeconds * 1000);
           return ok(route, { endpoint: e, secret: again ? null : secret(`${e.id}-new`), rotated: !again });
         }
         case 'merchantOps.webhooks.deliveries.list': {
@@ -218,10 +230,63 @@ export function createDevelopersMock(ctx) {
         case 'merchantOps.webhooks.deliveries.retry': {
           const d = dev.deliveries.find((x) => x.id === input.deliveryId);
           if (!d) return refuse(route, 404, 'pay.webhook_delivery_not_found');
-          if (d.status !== 'failed' && d.status !== 'dead') return refuse(route, 409, 'pay.webhook_retry_not_failed');
-          Object.assign(d, { status: 'pending', attempts: 0, lastStatusCode: null });
+          if (d.status === 'pending') return refuse(route, 409, 'pay.webhook_resend_already_queued');
+          Object.assign(d, { status: 'pending', lastStatusCode: null });
           return ok(route, { retried: true, delivery: d });
         }
+        case 'merchantOps.webhooks.deliveries.attempts': {
+          const d = dev.deliveries.find((x) => x.id === input.deliveryId);
+          if (!d) return refuse(route, 404, 'pay.webhook_delivery_not_found');
+          return ok(route, {
+            deliveryId: d.id,
+            attempts: Array.from({ length: d.attempts }, (_, i) => {
+              const last = i === d.attempts - 1;
+              const good = last && d.status === 'delivered';
+              return {
+                attemptNo: i + 1,
+                at: iso(Date.parse(d.createdAt) + i * 60_000),
+                outcome: good ? 'delivered' : 'failed',
+                statusCode: good ? 200 : 500,
+                error: null,
+                durationMs: 100 + i,
+                resend: false,
+              };
+            }),
+          });
+        }
+        case 'merchantOps.webhooks.deliveries.recover': {
+          if (!canManage()) return refuse(route, 403, 'pay.team_role_forbidden');
+          dev.recoveries ??= new Map();
+          if (dev.recoveries.has(input.requestId)) return ok(route, { recovered: false, queued: dev.recoveries.get(input.requestId) });
+          const due = dev.deliveries.filter(
+            (d) => d.endpointId === input.endpointId && (d.status === 'failed' || d.status === 'dead') && d.createdAt >= input.since,
+          );
+          for (const d of due) Object.assign(d, { status: 'pending', lastStatusCode: null });
+          dev.recoveries.set(input.requestId, due.length);
+          return ok(route, { recovered: true, queued: due.length });
+        }
+        case 'merchantOps.webhooks.policy':
+          return ok(route, {
+            endpointCap: 10,
+            overlapMaxSeconds: 600,
+            resendWindowSeconds: 7 * 86_400,
+            retryScheduleSeconds: [5, 10, 20],
+            resendRate: { maxPerWindow: 20, windowMs: 3_600_000 },
+          });
+        case 'merchantOps.webhooks.catalogue':
+          return ok(route, {
+            events: EVENT_TYPES.map((type) => ({ type, summary: `TEST ${type}`, payloadSchema: { type: 'object' } })),
+            ordering: 'TEST: order by createdAt.',
+            duplicates: 'TEST: drop repeats by id.',
+          });
+        case 'merchantOps.webhooks.guide':
+          return ok(route, {
+            headers: { timestamp: 'X-Intafaced-Timestamp', signature: 'X-Intafaced-Signature', eventId: 'X-Intafaced-Event-Id' },
+            algorithm: 'TEST: HMAC-SHA256 over timestamp.body.',
+            toleranceSeconds: 300,
+            senderIps: ['203.0.113.50'],
+            vector: { ...VECTOR, signature: sign(VECTOR.secret, VECTOR.timestamp, VECTOR.body) },
+          });
         case 'merchantOps.webhooks.health': {
           const count = (id, status) => dev.deliveries.filter((d) => d.endpointId === id && d.status === status).length;
           return ok(route, {
@@ -235,6 +300,7 @@ export function createDevelopersMock(ctx) {
                 delivered: count(e.id, 'delivered'),
                 failed: count(e.id, 'failed'),
                 dead: count(e.id, 'dead'),
+                unknown: count(e.id, 'unknown'),
               },
               lastDeliveredAt: dev.deliveries.find((d) => d.endpointId === e.id && d.deliveredAt)?.deliveredAt ?? null,
             })),

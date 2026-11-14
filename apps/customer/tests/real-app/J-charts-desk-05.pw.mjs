@@ -312,8 +312,12 @@ test(`${J} #3 adds text at the chosen point, with the font size and colour chose
   await row.getByLabel('Text colour').selectOption({ label: 'Down' });
   await expect(row).toHaveAttribute('data-size', '18');
   await expect(row).toHaveAttribute('data-tone', 'down');
+  // The size and the colour are two choices, so the chart may paint the new size a frame before the new colour: each is
+  // waited for on the canvas, and both must land.
   await expect.poll(async () => (await paintedText())?.font ?? '').toMatch(/(^|\s)18px\s/);
-  expect((await paintedText()).colour).toBe(await token('--if-down'));
+  const down = await token('--if-down');
+  expect(down, 'the Down colour token').not.toBe('');
+  await expect.poll(async () => (await paintedText())?.colour ?? '').toBe(down);
   await expect(pointText(row)).toHaveText(stored);
 });
 
