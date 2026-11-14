@@ -63,12 +63,7 @@ export const RECIPE_MATRIX = {
   ownFundsMove: { kind: 'live', module: 'treasury', proof: 'services/svc-trade/src/builder-fee/own-funds-sweep.ts' },
   campaignBudgetFund: { kind: 'live', module: 'campaigns', proof: 'services/svc-campaigns/src/payouts.ts' },
   rewardOwe: { kind: 'live', module: 'campaigns', proof: 'services/svc-campaigns/src/payouts.ts' },
-  rewardPayOut: {
-    kind: 'socket',
-    socket: '§13',
-    reason:
-      "§13 — a reward we owe paid in USDC from one of our own-funds places to the customer's own wallet, keyed by the chain transaction. No production writer and no grant until rewards can be owed (docs/adr/2026-11-10-launch-money-model.md, rule 1). The recipe-gate catalog samples it and does not ledger.post.",
-  },
+  rewardPayOut: { kind: 'live', module: 'campaigns', proof: 'services/svc-campaigns/src/reward-payer.ts' },
   feeShareBudgetFund: {
     kind: 'socket',
     socket: '§13',

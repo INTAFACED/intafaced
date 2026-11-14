@@ -304,7 +304,11 @@ export function createCampaignsRouter(
         .output(taskClaimResultSchema)
         .mutation(async ({ ctx, input }) => {
           try {
-            return await tasks.claim({ campaignId: input.campaignId, accountId: ctx.principal!.userId });
+            return await tasks.claim({
+              campaignId: input.campaignId,
+              accountId: ctx.principal!.userId,
+              forwarded: forwardedPrincipalHeaders(ctx),
+            });
           } catch (err) {
             mapError(err);
           }
@@ -346,7 +350,7 @@ export function createCampaignsRouter(
         .output(myRewardsSchema)
         .query(async ({ ctx }) => {
           try {
-            return await tasks.myRewards({ accountId: ctx.principal!.userId });
+            return await tasks.myRewards({ accountId: ctx.principal!.userId, forwarded: forwardedPrincipalHeaders(ctx) });
           } catch (err) {
             mapError(err);
           }
