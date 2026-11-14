@@ -1101,6 +1101,18 @@ function extraShapePosts(): Array<{ name: RecipeName; post: PostRequest }> {
       }),
     },
     {
+      // Collected by the person's partner into our own money at that partner (svc-agents meter.ts, J-agents-01).
+      name: 'chargeCollect',
+      post: recipes.chargeCollect({
+        module: 'agents',
+        userId: U,
+        to: { kind: 'partner-reserve', partnerId: 'test' },
+        paymentId: 'partner-payment-test',
+        assetId: 'USDC',
+        amount: AMT,
+      }),
+    },
+    {
       name: 'partnerFeeEarn',
       // Shape sample only, never posted: a TEST rate, because the owner's rate is unset and Earn refuses without one.
       post: recipes.partnerFeeEarn({
