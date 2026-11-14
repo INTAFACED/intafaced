@@ -182,6 +182,14 @@ jobs:
           REPO_URL: https://github.com/${{ github.repository }}
         run: |
           map=tooling/ci/journey-reach-map.json
+          # A manual run on a branch judges the branch's own change, as its pull request will: a branch that leaves the map
+          # as it was where it left main is not judged on main's map (every branch run went red on it, 14 Nov). Read before
+          # the shallow fetch below, which cuts main's history and with it the merge-base. The pull request's run still
+          # judges the map from its base commit, whatever this advisory run reads.
+          if [ "$EVENT" = workflow_dispatch ] && mb=$(git merge-base origin/main HEAD) && git diff --quiet "$mb" HEAD -- "$map"; then
+            echo "the branch leaves $map as it was on main"
+            exit 0
+          fi
           if [ "$EVENT" = pull_request ]; then
             git fetch --no-tags --depth=1 "$REPO_URL" "$BASE_SHA"
             base="$BASE_SHA"
@@ -191,13 +199,6 @@ jobs:
           fi
           if [ "$EVENT" = pull_request ] && git diff --quiet "$base" HEAD -- "$map"; then
             echo "the pull request leaves $map alone"
-            exit 0
-          fi
-          # A manual run on a branch judges the branch's own change, as its pull request will: a branch that leaves the map
-          # as it was where it left main is not judged on main's map (every branch run went red on it, 14 Nov). Main's
-          # history is in this full checkout, so the merge-base is read against the ref just fetched.
-          if [ "$EVENT" = workflow_dispatch ] && git diff --quiet "$(git merge-base "$base" HEAD)" HEAD -- "$map"; then
-            echo "the branch leaves $map as it was on main"
             exit 0
           fi
           git worktree add --detach "$RUNNER_TEMP/reach-base" "$base"
