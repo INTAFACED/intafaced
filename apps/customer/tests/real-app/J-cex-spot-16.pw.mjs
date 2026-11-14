@@ -3,7 +3,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { approverSessions, makeContext, twoPerson } from '../../../../tooling/scripts/local-test-gates.mjs';
-import { api, journeyState } from './stack.mjs';
+import { api, journeyState, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
@@ -306,6 +306,18 @@ async function customerMarket(client, symbol) {
   return res.body.value.find((m) => m.symbol === symbol);
 }
 
+/**
+ * The TEST venue's own record of `symbol` (its `/markets` read), straight from the TEST venue on loopback, never through
+ * our door: the state and largest order the desk's "venue's own" cells and the customer's read must equal.
+ */
+async function venueMarket(owner, symbol) {
+  const own = (await venueRecord(owner, '/markets')).value.find((m) => m.symbol === symbol);
+  expect(own, `the TEST venue's own record lists ${symbol}`).toBeTruthy();
+  return own;
+}
+/** The desk's label for a venue's own state (apps/admin venue markets room). */
+const VENUE_STATE_LABEL = { trading: 'Trading', halted: 'Halted' };
+
 /** The customer's ledger balances: a routing state, a limit or a delisting posts nothing to them. */
 const ledgerBalances = async (client) => JSON.stringify(await client.balances());
 
@@ -318,7 +330,8 @@ test(`${J} #1 reviews which venue markets to show: shown only with a second appr
   const symbol = await freshMarket('L');
   const c = customer();
   const client = await api(c.account);
-  // The venue lists it; we do not show it until two founders list it.
+  // The venue lists it (its own record, read from the venue); we do not show it until two founders list it.
+  expect((await venueMarket(c.owner, symbol)).status).toBe('trading');
   expect(await customerMarket(client, symbol)).toBeUndefined();
   expect((await deskRow(symbol))?.listing).toBeNull();
 
@@ -371,6 +384,10 @@ test(`${J} #1 reviews which venue markets to show: shown only with a second appr
     expect(shown?.listing).toMatchObject({ version: 1, routing: 'show', open: true, delisted: false });
     expect(Date.parse(shown.listing.opensAt)).toBe(Date.parse(opensAt));
     expect(shown.status).toBe('trading');
+    // The venue's own state beside our listing is the venue's own record, on the desk and in the customer's read.
+    const venueOwn = await venueMarket(c.owner, symbol);
+    expect(shown.status).toBe(venueOwn.status);
+    await expect(marketRow(a.page, symbol).locator('[data-cell=venue-status]')).toHaveText(VENUE_STATE_LABEL[venueOwn.status]);
     const row = await deskRow(symbol);
     expect(row.listing).toMatchObject({ version: 1, proposerId: a.founder.userId, approverId });
   } finally {
@@ -386,7 +403,9 @@ test(`${J} #2 proposes a routing state for a market: a proposal waiting for a se
   await listByApi(symbol);
   // The venue's own state, set by its TEST control, so the desk shows two different states side by side.
   expect((await testVenue('/test/market-status', { symbol, status: 'halted' })).status).toBe(200);
-  const client = await api(customer().account);
+  const c = customer();
+  expect((await venueMarket(c.owner, symbol)).status).toBe('halted');
+  const client = await api(c.account);
   const a = await room(browser, 'a');
   try {
     const row = marketRow(a.page, symbol);
@@ -418,6 +437,11 @@ test(`${J} #2 proposes a routing state for a market: a proposal waiting for a se
     const shown = await customerMarket(client, symbol);
     expect(shown.listing.routing).toBe('close_only');
     expect(shown.status).toBe('halted');
+    // The venue's own state beside ours is the venue's own record, which our routing state did not move.
+    const venueOwn = await venueMarket(c.owner, symbol);
+    expect(venueOwn.status).toBe('halted');
+    expect(shown.status).toBe(venueOwn.status);
+    await expect(row.locator('[data-cell=venue-status]')).toHaveText(VENUE_STATE_LABEL[venueOwn.status]);
     expect((await deskRow(symbol)).listing).toMatchObject({ version: 2, change: 'routing', routing: 'close_only', approverId });
   } finally {
     await a.close();
@@ -451,6 +475,10 @@ test(`${J} #3 the proposer tries to approve their own proposal: refused with the
     );
     expect(trpcData(still)).toMatchObject({ status: 'PENDING', approverId: null });
     expect((await deskRow(symbol)).listing).toMatchObject({ version: 1, routing: 'show' });
+    // And the venue's own record of the market is as it was: still trading, beside our unchanged state on the desk.
+    const venueOwn = await venueMarket(customer().owner, symbol);
+    expect(venueOwn.status).toBe('trading');
+    await expect(marketRow(a.page, symbol).locator('[data-cell=venue-status]')).toHaveText(VENUE_STATE_LABEL[venueOwn.status]);
   } finally {
     await a.close();
   }
@@ -581,6 +609,14 @@ test(`${J} #6 edits our own per-pair limits for routed orders: edit proposes and
     expect(limits).toMatchObject({ version: 1, proposerId: a.founder.userId, approverId });
     expect(sameDecimal(limits.maxOrderQty, '2') && sameDecimal(limits.maxOrderNotional, '100')).toBe(true);
     expect(approverId).not.toBe(a.founder.userId);
+    // Never above the venue's: the venue's own record of its largest order, read from the venue, is what the desk shows
+    // as the venue's and what ours sits under.
+    const venueOwnMarket = await venueMarket(c.owner, symbol);
+    expect(sameDecimal(venueOwnMarket.maxOrderQty, VENUE_MAX.qty) && sameDecimal(venueOwnMarket.maxOrderNotional, VENUE_MAX.notional)).toBe(
+      true,
+    );
+    expect(toUnits(limits.maxOrderQty) <= toUnits(venueOwnMarket.maxOrderQty)).toBe(true);
+    expect(toUnits(limits.maxOrderNotional) <= toUnits(venueOwnMarket.maxOrderNotional)).toBe(true);
   } finally {
     await a.close();
   }
