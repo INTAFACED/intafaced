@@ -36,6 +36,28 @@ function toWire(req: PostRequest) {
 }
 
 describe('recipe-gate', () => {
+  it('accepts the agent usage charge as svc-agents posts it: earned, then collected into our money at the partner (J-agents-01)', () => {
+    const earned = recipes.chargeEarn({
+      module: 'agents',
+      saleId: '22222222-2222-4222-8222-222222222222.2026-11-15#0012',
+      userId: USER,
+      assetId: 'USDT',
+      price: { perUnit: amt('0.0123') },
+      units: 1n,
+    });
+    const collected = recipes.chargeCollect({
+      module: 'agents',
+      userId: USER,
+      to: { kind: 'partner-reserve', partnerId: 'test' },
+      paymentId: 'test-partner-move-0a1b2c3d4e5f-000000000001',
+      assetId: 'USDT',
+      amount: amt('0.0123'),
+    });
+    expect(recipeCandidates(toWire(earned))).toEqual(['chargeEarn']);
+    expect(recipeCandidates(toWire(collected))).toEqual(['chargeCollect']);
+    expect(() => assertKnownRecipePost(toWire(collected))).not.toThrow();
+  });
+
   it('samples every registry recipe so the allowlist cannot silently drop one', () => {
     expect(unsampledRecipeNames()).toEqual([]);
   });

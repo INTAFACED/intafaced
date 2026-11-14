@@ -87,6 +87,15 @@ export const QUANT_TEAM_MEMBER_INVALID = 'quant.team_member_invalid' as const;
 /** A support grant length outside the screen's bounds. */
 export const QUANT_GRANT_INVALID = 'quant.grant_invalid' as const;
 
+/** The platform's live switch is off (`live.enabled` blank): every live deploy refuses before anything is written. */
+export const QUANT_LIVE_DISABLED = 'quant.live_disabled' as const;
+/** A version the live runner cannot trade in this build (signal rules), named at the compile check. */
+export const QUANT_LIVE_PLAN_UNSUPPORTED = 'quant.live_plan_unsupported' as const;
+/** An order type a live deploy refuses (a stop loss or take profit), named at the compile check. */
+export const QUANT_LIVE_ORDER_TYPE_UNSUPPORTED = 'trade.order_type_unsupported' as const;
+/** Live is on and the version compiles, but the funding move and the live run after it are not built here yet. */
+export const QUANT_LIVE_DEPLOY_UNAVAILABLE = 'quant.live_deploy_unavailable' as const;
+
 export type QuantCode =
   | typeof QUANT_SANDBOX_UNWIRED
   | typeof QUANT_SANDBOX_ESCAPE
@@ -168,6 +177,10 @@ export type QuantCode =
   | typeof QUANT_EDIT_LOCK_UNSET
   | typeof QUANT_TEAM_MEMBER_INVALID
   | typeof QUANT_GRANT_INVALID
+  | typeof QUANT_LIVE_DISABLED
+  | typeof QUANT_LIVE_PLAN_UNSUPPORTED
+  | typeof QUANT_LIVE_ORDER_TYPE_UNSUPPORTED
+  | typeof QUANT_LIVE_DEPLOY_UNAVAILABLE
   | 'quant.params_invalid';
 
 export class QuantError extends Error {

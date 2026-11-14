@@ -17,7 +17,7 @@ import {
 } from './fleet/guardrails.js';
 import { digestOfText, type ModelGateway } from './gateway/gateway.js';
 import type { RouteDef } from './gateway/routing.js';
-import { type SettlementResult, type UsageMeter, type UsageDayView, type UsageWindowView } from './metering/meter.js';
+import { type SettlementResult, type UsageMeter, type UsageDayView, type UsageWindowView, UsageOwedError } from './metering/meter.js';
 import { meteringOffSettlementStub, shouldMeterUsage } from './metering/product-law.js';
 import { asksForReturnsRanking, COPY_INTEL_SESSION_AGENT_ID } from './copy-intel/returns-board-refuse.js';
 import { usageCost } from './metering/pricing.js';
@@ -1254,7 +1254,8 @@ export class AgentRuntime {
     try {
       await this.settleSession(sessionId);
     } catch (err) {
-      if (!(err instanceof InsufficientFundsError)) throw err;
+      // A window the person's partner did not pay is owed the same way (launch money model, J-agents-01).
+      if (!(err instanceof InsufficientFundsError) && !(err instanceof UsageOwedError)) throw err;
       throw new AgentError(
         `A usage window of session ${sessionId} could not be paid`,
         'agents.window_unpaid',

@@ -12,6 +12,7 @@ import { ProviderError } from '../errors.js';
 import { ModelGateway } from '../gateway/gateway.js';
 import { parseRoutingTable } from '../gateway/routing.js';
 import { UsageMeter } from '../metering/meter.js';
+import { ledgerOnlyPayment, type UsagePaymentPort } from '../payment/usage-payment.js';
 import { MockModelProvider } from '../providers/mock.js';
 import { createAgentsRouter, type AgentsRouterDeps } from '../router.js';
 import { AgentRuntime, type ThinkInput } from '../runtime.js';
@@ -103,6 +104,8 @@ if (!available) {
   let runtime: AgentRuntime;
   let gateway: ModelGateway;
   let meter: UsageMeter;
+  /** How each person pays: the custodial ledger by default; a test may hand a person's money to a refusing partner. */
+  let payment: UsagePaymentPort;
   let calls: ThinkInput[];
   let lockConn: Awaited<ReturnType<typeof sql.reserve>>;
 
@@ -126,7 +129,12 @@ if (!available) {
     ledger = new MemoryLedger();
     provider = new MockModelProvider({ id: 'primary' });
     gateway = new ModelGateway([provider], TABLE);
-    meter = new UsageMeter(sql, ledger, { assetId: 'IFC', windowMinutes: 60 });
+    payment = ledgerOnlyPayment;
+    meter = new UsageMeter(sql, ledger, {
+      assetId: 'IFC',
+      windowMinutes: 60,
+      payment: { read: (u, a) => payment.read(u, a), collect: (input) => payment.collect(input) },
+    });
     const real = new AgentRuntime(sql, gateway, meter, new MemoryEventBus('svc-agents'), { feeAssetId: 'IFC', meteringEnabled: true });
     await real.registerAgent(PROBE);
     // Every engine call the run makes is seen, then made for real.
@@ -320,6 +328,49 @@ if (!available) {
       expect(twice.repeated).toBe(true);
       expect(twice.run.stop).toEqual(stopped.run.stop);
       expect(await house()).toBe('0');
+    });
+
+    it('a stop whose window the person’s partner does not pay names it unpaid, collects nothing, and a second stop returns the same (J-agents-01)', async () => {
+      let asked = 0;
+      payment = {
+        read: async () => ({ heldBy: 'partner', label: 'TEST partner bank', available: '100', asOf: new Date().toISOString() }),
+        collect: async () => {
+          asked += 1;
+          return { ok: false, reason: 'insufficient_funds' };
+        },
+      };
+      const me = as(USER);
+      const session = await me.session.open({ agentId: 'probe' });
+      const run = await me.run.background.start({
+        sessionId: session.id,
+        requestId: 'background:db:partner-unpaid',
+        task: 'plan',
+        ask: 'TEST: check each market',
+        steps: 3,
+        notice: 'inapp',
+      });
+      await tick();
+      await tick();
+      const stopped = await me.run.background.stop({ runId: run.runId });
+      expect(stopped.run.state).toBe('stopped');
+      expect(stopped.run.stop).toMatchObject({ unpaid: 'agents.window_unpaid', billed: '0', settlements: [] });
+      expect(asked).toBe(1);
+      // Earned in our book as owed, nothing collected: only the earn is posted for this window.
+      expect(
+        ledger
+          .journal()
+          .filter((t) => t.reason.startsWith('charge.'))
+          .map((t) => t.reason),
+      ).toEqual(['charge.earned']);
+      const twice = await me.run.background.stop({ runId: run.runId });
+      expect(twice.repeated).toBe(true);
+      expect(twice.run.stop).toEqual(stopped.run.stop);
+      expect(
+        ledger
+          .journal()
+          .filter((t) => t.reason.startsWith('charge.'))
+          .map((t) => t.reason),
+      ).toEqual(['charge.earned']);
     });
 
     it('a follow-up never grows a run past the most steps allowed', async () => {

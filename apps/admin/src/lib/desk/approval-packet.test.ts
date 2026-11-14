@@ -416,3 +416,28 @@ describe('identity account limit override requests', () => {
     expect(requestReason(raise)).toBe(raise.reason);
   });
 });
+
+describe('academy certificate revoke and exception requests (J-academy-17 #5 #6)', () => {
+  const publicId = '0123456789abcdef0123456789abcdef';
+  const userId = '9f8e7d6c-1111-4222-8333-444455556666';
+  const reason = 'TEST issued in error, revoke it';
+  it('are read strictly: exact keys, a 32-hex code or a uuid learner, a certificate id, and a real reason', () => {
+    expect(readDeskRequest({ kind: 'academy.cert.revoke', publicId, reason })).toEqual({ kind: 'academy.cert.revoke', publicId, reason });
+    expect(readDeskRequest({ kind: 'academy.cert.revoke', publicId: 'ABC', reason })).toBeNull();
+    expect(readDeskRequest({ kind: 'academy.cert.revoke', publicId, reason: 'short' })).toBeNull();
+    expect(readDeskRequest({ kind: 'academy.cert.revoke', publicId, reason, note: 'extra' })).toBeNull();
+    const exception = { kind: 'academy.cert.exception', userId, certId: 'foundations-v1', reason };
+    expect(readDeskRequest(exception)).toEqual(exception);
+    expect(readDeskRequest({ ...exception, userId: 'x' })).toBeNull();
+    expect(readDeskRequest({ ...exception, certId: 'Not A Cert' })).toBeNull();
+    expect(readDeskRequest({ ...exception, reason: '' })).toBeNull();
+  });
+  it('name the code or learner in the phrase, say what happens, and carry the reason', () => {
+    expect(confirmPhrase({ kind: 'academy.cert.revoke', publicId, reason })).toBe('REVOKE CERTIFICATE 01234567');
+    expect(confirmPhrase({ kind: 'academy.cert.exception', userId, certId: 'foundations-v1', reason })).toBe('ISSUE CERTIFICATE 9f8e7d6c');
+    expect(describeRequest({ kind: 'academy.cert.revoke', publicId, reason })).toContain('public check says revoked');
+    expect(describeRequest({ kind: 'academy.cert.exception', userId, certId: 'foundations-v1', reason })).toContain('as an exception');
+    expect(requestReason({ kind: 'academy.cert.revoke', publicId, reason })).toBe(reason);
+    expect(requestReason({ kind: 'academy.cert.exception', userId, certId: 'foundations-v1', reason })).toBe(reason);
+  });
+});

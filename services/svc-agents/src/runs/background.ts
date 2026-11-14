@@ -3,6 +3,7 @@ import type { EventBus } from '@intafaced/events';
 import { STEP_STATES, type RunNotice, type SessionRun, type SessionRunState, type StopResult } from '@intafaced/contracts/agents-runs';
 import { formatAmount, InsufficientFundsError, type Amount } from '@intafaced/ledger-client';
 import { AgentError } from '../errors.js';
+import { UsageOwedError } from '../metering/meter.js';
 import type { AgentRuntime } from '../runtime.js';
 
 /**
@@ -278,7 +279,8 @@ export class SessionRunStore {
   }
 
   /**
-   * Settles the session's open windows one by one. A window the ledger refuses for funds stays sealed and unpaid and is
+   * Settles the session's open windows one by one. A window the ledger refuses for funds, or the person's partner does not
+   * pay, stays sealed and unpaid and is
    * named; the windows paid before it are kept in the answer, so what was billed is never under-reported.
    */
   private async settle(sessionId: string): Promise<StopResult> {
@@ -292,7 +294,8 @@ export class SessionRunStore {
         billed += r.amount;
         settlements.push({ windowId: r.windowId, amount: formatAmount(r.amount), chargeKey: r.chargeKey, settled: r.settled });
       } catch (err) {
-        if (!(err instanceof InsufficientFundsError)) throw err;
+        // A window the person's partner did not pay is owed the same way (launch money model, J-agents-01).
+        if (!(err instanceof InsufficientFundsError) && !(err instanceof UsageOwedError)) throw err;
         unpaid = 'agents.window_unpaid';
         break;
       }

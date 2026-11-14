@@ -64,6 +64,8 @@ const sessionDetailSchema = z
         state: z.enum(['open', 'unpaid', 'settled']),
         amount: decimalSchema.nullable(),
         chargeKey: z.string().nullable(),
+        paidBy: z.enum(['ledger', 'partner']).nullable().default(null),
+        payment: z.object({ ref: z.string(), label: z.string() }).nullable().default(null),
       }),
     ),
   })
@@ -1370,7 +1372,7 @@ function SessionWindows({
   const preferences = usePreferences();
   return (
     <>
-      <DataTable headers={[t('windowId'), t('windowState'), t('windowCost'), t('chargeKey')]} label={t('usageWindows')}>
+      <DataTable headers={[t('windowId'), t('windowState'), t('windowCost'), t('chargeKey'), t('paidFrom')]} label={t('usageWindows')}>
         {detail.windows.map((window) => (
           <tr key={window.windowId}>
             <td lang="zxx">{window.windowId}</td>
@@ -1380,6 +1382,15 @@ function SessionWindows({
             </td>
             <td data-testid="charge-key" lang="zxx">
               {window.chargeKey ?? '—'}
+            </td>
+            <td data-testid="paid-from">
+              {window.payment
+                ? t('paidByPartner', { label: window.payment.label, ref: window.payment.ref })
+                : window.paidBy === 'ledger'
+                  ? t('paidByLedger')
+                  : window.state === 'unpaid'
+                    ? t('paidOwed')
+                    : '—'}
             </td>
           </tr>
         ))}

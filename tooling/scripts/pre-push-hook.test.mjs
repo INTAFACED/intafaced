@@ -1,6 +1,7 @@
 // The pre-push hook on planted repos: a worktree with no node_modules (here or in the main checkout) pushes with one
 // line instead of being refused; formatting still refuses when prettier is there; a direct push to main is still refused;
-// CI's checks (tooling/scripts/ci-checks.mjs) never run here: they run on GitHub, on the branch and then on the PR.
+// CI's checks (tooling/scripts/ci-checks.mjs) never run here: they run on GitHub, on the branch and then on the PR. A push
+// that changes a journey file runs the marked tooling tests that read journey files, and a red one refuses it.
 // Each case is a throwaway repo holding the real .githooks/pre-push, pushing to a local bare remote.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -16,7 +17,7 @@ const git = (cwd, ...a) => execFileSync('git', a, { cwd, encoding: 'utf8', stdio
 // machine, even when this file runs inside CI.
 const BUILDER = Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== 'CI'));
 
-function plant({ prettier = null, ciChecks = 'process.exit(0);' } = {}) {
+function plant({ prettier = null, ciChecks = 'process.exit(0);', base = {}, change = {} } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'pre-push-'));
   const remote = join(dir, 'remote.git');
   const work = join(dir, 'work');
@@ -33,6 +34,13 @@ function plant({ prettier = null, ciChecks = 'process.exit(0);' } = {}) {
   writeFileSync(join(work, 'tooling', 'scripts', 'ci-checks.mjs'), `${ciChecks}\n`);
   writeFileSync(join(work, '.gitignore'), 'node_modules\n');
   writeFileSync(join(work, 'README.md'), 'base\n');
+  const write = (files) => {
+    for (const [f, body] of Object.entries(files)) {
+      mkdirSync(dirname(join(work, f)), { recursive: true });
+      writeFileSync(join(work, f), body);
+    }
+  };
+  write(base);
   git(work, 'add', '-A');
   git(work, 'commit', '-q', '-m', 'base');
   git(work, 'remote', 'add', 'origin', remote);
@@ -47,6 +55,7 @@ function plant({ prettier = null, ciChecks = 'process.exit(0);' } = {}) {
   git(work, 'checkout', '-q', '-b', 'feat');
   mkdirSync(join(work, 'src'), { recursive: true });
   writeFileSync(join(work, 'src', 'a.ts'), 'export const a = 1;\n');
+  write(change);
   git(work, 'add', '-A');
   git(work, 'commit', '-q', '-m', 'change');
   const push = (ref = 'feat', env = BUILDER) => {
@@ -122,4 +131,73 @@ test('a push that only deletes a branch runs no checks', () => {
   } finally {
     p.done();
   }
+});
+
+// A planted tooling test with the hook's marker line, red or green, and a journey file to push beside it.
+const MARK = '// Before a push: runs from .githooks/pre-push when the push changes a journey file (it takes under a second).';
+const scan = (ok) => ({
+  'tooling/scripts/journey-rule.test.mjs': `${MARK}\nconsole.log('journey scan ran');\n${ok ? '' : "throw new Error('planted: a journey file breaks the rule');\n"}`,
+  // Unmarked: the slow tooling tests stay in CI.
+  'tooling/scripts/slow.test.mjs': "console.log('slow test ran'); process.exit(1);\n",
+});
+const JOURNEY = { 'apps/customer/tests/real-app/J-x-01.pw.mjs': 'export const x = 1;\n' };
+
+test('a push that changes a journey file runs the marked journey-file tests, and a red one refuses it, named', () => {
+  const p = plant({ prettier: 'exit 0', base: scan(false), change: JOURNEY });
+  try {
+    const r = p.push();
+    assert.notEqual(r.code, 0, r.out);
+    assert.match(r.out, /journey-file scans: 1 tooling test file/);
+    assert.match(r.out, /planted: a journey file breaks the rule/);
+    assert.match(r.out, /tooling test that reads every journey file failed — push refused/);
+    assert.doesNotMatch(r.out, /slow test ran/);
+  } finally {
+    p.done();
+  }
+});
+
+test('a push that changes a journey file goes through when the marked journey-file tests pass', () => {
+  const p = plant({ prettier: 'exit 0', base: scan(true), change: JOURNEY });
+  try {
+    const r = p.push();
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /journey-file scans: 1 tooling test file/);
+    assert.match(r.out, /journey scan ran/);
+    assert.doesNotMatch(r.out, /slow test ran/);
+  } finally {
+    p.done();
+  }
+});
+
+test('a push with no journey file runs no journey-file tests, even a red one', () => {
+  const p = plant({ prettier: 'exit 0', base: scan(false) });
+  try {
+    const r = p.push();
+    assert.equal(r.code, 0, r.out);
+    assert.doesNotMatch(r.out, /journey-file scans|journey scan ran/);
+  } finally {
+    p.done();
+  }
+});
+
+test('the tooling tests that read every journey file carry the marker, and each runs in seconds', () => {
+  const marked = execFileSync('git', ['grep', '-l', '-E', `^${MARK.replace(/[.()]/g, '\\$&')}`, '--', 'tooling/*.test.mjs'], {
+    cwd: ROOT,
+    encoding: 'utf8',
+  })
+    .split('\n')
+    .filter(Boolean)
+    .sort();
+  // journey-navigation.test.mjs is the rule two journey builds broke on 14 Nov, each found only by a red Doctrine gates job.
+  assert.deepEqual(marked, [
+    'tooling/scripts/journey-freeze-guard.test.mjs',
+    'tooling/scripts/journey-navigation.test.mjs',
+    'tooling/scripts/local-test-market-history.test.mjs',
+    'tooling/scripts/real-app-navigation.test.mjs',
+  ]);
+  const started = Date.now();
+  const r = spawnSync(process.execPath, ['--test', '--test-concurrency=1', ...marked], { cwd: ROOT, encoding: 'utf8' });
+  assert.equal(r.status, 0, `${r.stdout}${r.stderr}`);
+  // Measured at about 1 s on the Mac; 10 s is what a push may spend on them.
+  assert.ok(Date.now() - started < 10_000, `the journey-file tests took ${Date.now() - started} ms`);
 });

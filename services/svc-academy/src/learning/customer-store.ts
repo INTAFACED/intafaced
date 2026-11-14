@@ -644,12 +644,14 @@ export class AcademyCustomerStore {
             ORDER BY e.at DESC, e.key DESC
             LIMIT ${limit + 1})
           UNION ALL
-          (SELECT user_id, 'certificate_granted', cert_id, 'issue', NULL, NULL, granted_at, idempotency_key
-             FROM academy.cert_grants
+          (SELECT g.user_id, 'certificate_granted', g.cert_id, CASE WHEN x.public_id IS NULL THEN 'issue' ELSE 'exception' END,
+                  x.granted_by::text, x.reason, g.granted_at, g.idempotency_key
+             FROM academy.cert_grants g
+             LEFT JOIN academy.cert_exceptions x ON x.public_id = g.public_id
             WHERE ${readCerts}
-              AND (${certificate}::text IS NULL OR cert_id = ${certificate})
-              AND (${atCursor}::timestamptz IS NULL OR (granted_at, idempotency_key) < (${atCursor}::timestamptz, ${refCursor}::text))
-            ORDER BY granted_at DESC, idempotency_key DESC
+              AND (${certificate}::text IS NULL OR g.cert_id = ${certificate})
+              AND (${atCursor}::timestamptz IS NULL OR (g.granted_at, g.idempotency_key) < (${atCursor}::timestamptz, ${refCursor}::text))
+            ORDER BY g.granted_at DESC, g.idempotency_key DESC
             LIMIT ${limit + 1})
           UNION ALL
           (SELECT user_id, 'certificate_revoked', cert_id, NULL, revoked_by::text, reason, revoked_at, 'revoke:' || public_id
