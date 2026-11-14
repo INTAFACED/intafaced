@@ -48,7 +48,7 @@ type ToolEntry = OwnAgentCatalogue['tools'][number];
 
 const OWN_AGENT_PATH = /^\/agents\/([^/]{1,64})$/;
 /** The agent pages of their own under /agents/, which never name an agent. */
-const AGENT_ROOMS = new Set(['new', 'team', 'approvals']);
+const AGENT_ROOMS = new Set(['new', 'team', 'approvals', 'connect']);
 /**
  * The id an address names under /agents/, or null. Any id opens the agent's page, so one that is not the person's,
  * or not an id at all, shows the service's own "not one of yours" refusal there, never a missing route.

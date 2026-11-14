@@ -251,6 +251,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/agents': { template: 'catalogue' },
   '/agents/team': { template: 'settings' },
   '/agents/approvals': { template: 'record-list' },
+  '/agents/connect': { template: 'flow' },
   '/agents/new': { template: 'flow' },
   '/agents/runs/:runId': { template: 'reading' },
   '/agents/:agentId': { template: 'catalogue' },

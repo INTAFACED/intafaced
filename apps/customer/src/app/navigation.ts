@@ -1069,6 +1069,14 @@ export const rooms: readonly Room[] = [
     area: 'more',
     hidden: true,
   },
+  {
+    path: '/agents/connect',
+    title: 'Connect your assistant',
+    description: 'Let your own AI assistant trade on a capped account',
+    door: 'More',
+    area: 'more',
+    hidden: true,
+  },
   { path: '/agents/new', title: 'New agent', description: 'Build an agent of your own', door: 'More', area: 'more', hidden: true },
   {
     path: '/agents/runs/:runId',
