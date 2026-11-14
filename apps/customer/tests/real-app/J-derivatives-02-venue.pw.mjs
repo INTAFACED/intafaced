@@ -104,9 +104,9 @@ test(`${J} #2 reads the tier table: the venue's published tiers and maintenance 
 
   // The desk's tier table is those tiers, row for row: where each starts, its most leverage and its maintenance rate.
   const panel = page.getByTestId('venue-tiers');
-  await expect(panel.getByRole('heading')).toContainText(`Margin tiers on ${displayName}`);
+  await expect(panel.getByRole('heading', { level: 2 })).toContainText(`Margin tiers on ${displayName}`);
   await expect(panel.getByTestId('venue-test').first()).toHaveText('TEST');
-  const table = panel.getByRole('table', { name: `Margin tiers ${SYMBOL}` });
+  const table = panel.getByRole('region', { name: `Margin tiers ${SYMBOL}` }).getByRole('table');
   await expect(table).toBeVisible();
   const rows = table.locator('tr[data-tier]');
   await expect(rows).toHaveCount(tiers.length);
@@ -150,8 +150,8 @@ test(`${J} #3 opens Collateral: what the venue accepts as margin with its haircu
   expect(others.map((b) => b.asset)).toContain('BTC');
 
   const panel = page.getByTestId('venue-collateral');
-  await expect(panel.getByRole('heading')).toContainText(`What ${displayName} takes as margin`);
-  const table = panel.getByRole('table', { name: `Margin ${displayName} takes on ${SYMBOL}` });
+  await expect(panel.getByRole('heading', { level: 2 })).toContainText(`What ${displayName} takes as margin`);
+  const table = panel.getByRole('region', { name: `Margin ${displayName} takes on ${SYMBOL}` }).getByRole('table');
   await expect(table.locator('tr[data-asset]')).toHaveCount(taken.length);
   let power = 0n;
   for (const c of taken) {
