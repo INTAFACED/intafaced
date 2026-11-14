@@ -108,7 +108,7 @@ describe('the add-money pay-in stand-in', () => {
   it("the TEST partner's delivery posts the wallet, asset and amount, and answers the transfer's hash or fails", async () => {
     const sent: { url: string; body: unknown }[] = [];
     const answering = (status: number, body: unknown) =>
-      (async (url: URL | RequestInfo, init?: RequestInit) => {
+      (async (url: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
         sent.push({ url: String(url), body: JSON.parse(String(init?.body)) });
         return new Response(JSON.stringify(body), { status });
       }) as typeof fetch;
