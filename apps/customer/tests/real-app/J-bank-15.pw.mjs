@@ -182,7 +182,7 @@ test(`${J} #1 opens the charge and presses Dispute this charge: a prefilled form
   const ineligible = shown.getByRole('list', { name: 'These cannot be disputed' }).getByRole('listitem');
   await expect(ineligible).toHaveText([
     'A declined payment: nothing was taken.',
-    'A payment that has not settled yet.',
+    'A payment that is still pending.',
     'A payment the merchant refunded in full.',
     'A payment that is disputed already.',
     'A payment older than the card partner’s window.',
