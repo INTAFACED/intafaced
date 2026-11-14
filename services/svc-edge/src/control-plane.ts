@@ -205,6 +205,8 @@ export function registerKillSwitchGuard(app: FastifyInstance, killSwitches: Kill
  * Does not invent sanctions content (Class X).
  */
 export function registerGeoBlockGuard(app: FastifyInstance): void {
+  // Refusals this process has made, so the log shows how often the door closes.
+  let refusals = 0;
   app.addHook('onRequest', async (req, reply) => {
     const pathname = resolvedPathname(req.url);
     if (pathname === null) return;
@@ -219,12 +221,17 @@ export function registerGeoBlockGuard(app: FastifyInstance): void {
     const decision = evaluateGeoBlock({ region: region.region });
     if (decision.allowed) return;
 
+    refusals += 1;
+    // The reason code and a count, NEVER the region: on a hit the caller's
+    // region is one entry of the `INTAFACED_SANCTIONS_REGIONS` secret, and
+    // Edge's log reaches public CI job logs.
     req.log.warn(
       {
         path: pathname,
         code: decision.code,
+        reason: decision.reason,
         declaration: decision.screeningDeclaration,
-        region: decision.region,
+        refusals,
       },
       'edge: refused — geo-block / empty screening',
     );
