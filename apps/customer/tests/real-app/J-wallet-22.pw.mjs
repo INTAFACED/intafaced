@@ -3,7 +3,7 @@ import { generateKeyPairSync } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
-import { api, journeyState, restartWith, signOutBrowser } from './stack.mjs';
+import { api, journeyState, restartWith, signOutBrowser, tool } from './stack.mjs';
 import { PASSKEY_ORIGIN, virtualAuthenticator } from './identity-factors.mjs';
 import { venueForThisFile, venueInfo, venueRecord } from './venue.mjs';
 
@@ -357,19 +357,28 @@ test(`${J} #7 asks for a signature while the provider is down: refused with the 
   const { who, address, credential } = walletState();
   await device(page, [credential]);
   await disconnectVenue(who, address);
-  // The provider stops answering this device: every call to it fails as a refused connection does.
+  // Every call the page makes to the provider, and how the stack answered it.
   const tried = [];
-  await page.route('**/__test-wallet-provider/**', (route) => {
-    tried.push(new URL(route.request().url()).pathname);
-    return route.abort('connectionrefused');
+  page.on('response', (r) => {
+    const p = new URL(r.url()).pathname;
+    if (p.startsWith('/__test-wallet-provider/')) tried.push([p, r.status()]);
   });
   await openRoom(page, who);
-  await page.getByRole('button', { name: 'Connect to the venue' }).click();
-  await expect(page.getByText('Your wallet provider is not answering', { exact: true })).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByText(`${PROVIDER} is not answering. Nothing was made, signed or sent. Try again in a moment.`)).toBeVisible();
-  await expect(page.getByText('wallet.embedded_provider_down')).toBeVisible();
-  // It stopped at the provider's first call: nothing was signed, and no connection was asked for.
-  expect(tried).toEqual(['/__test-wallet-provider/client/challenge']);
+  await expect(panel(page).locator('[data-embedded-address]')).toHaveText(address);
+  // The provider goes down on the stack: its process (local-test-stack.mjs `test-wallet-provider`) is stopped, so the
+  // page's provider path finds nothing behind it. It is started again after, with its state file (the wallet) kept.
+  tool('local-test-stack.mjs', 'stop', 'test-wallet-provider');
+  try {
+    await page.getByRole('button', { name: 'Connect to the venue' }).click();
+    await expect(page.getByText('Your wallet provider is not answering', { exact: true })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText(`${PROVIDER} is not answering. Nothing was made, signed or sent. Try again in a moment.`)).toBeVisible();
+    await expect(page.getByText('wallet.embedded_provider_down')).toBeVisible();
+  } finally {
+    tool('local-test-stack.mjs', 'start', '--only', 'test-wallet-provider');
+  }
+  // It stopped at the provider's first call, which found the provider gone: nothing was signed, and no connection was
+  // asked for.
+  expect(tried).toEqual([['/__test-wallet-provider/client/challenge', 502]]);
   expect(await venueConnections(who)).toEqual([]);
   // The venue's own record: nothing was sent to it, no key given, no order, no deposit.
   expect(await onVenue(address), 'nothing signed or sent reaches the venue').toEqual(NOTHING_ON_VENUE);
