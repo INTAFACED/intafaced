@@ -172,7 +172,7 @@ test(`${J} #1 adds an http address to a live endpoint: https-required; an https 
   await add.getByLabel('Endpoint address').fill(privateName);
   await add.getByRole('button', { name: 'Add endpoint' }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Add endpoint' }).click();
-  await expect(page.getByText('its name leads to a private address')).toBeVisible();
+  await expect(page.getByText('its name leads to a private address').first()).toBeVisible();
   const listed = (await hooksRead('list', { limit: 50 })).items.map((e) => e.url);
   expect(
     listed.filter((u) => u.includes('receiver.example.com')),
@@ -522,7 +522,7 @@ test(`${J} #10 resends one event and recovers missed ones from /pay/developer/de
     const old = page.getByRole('row').filter({ hasText: 'payment.captured' }).last();
     await old.getByRole('button', { name: 'Send again' }).click();
     await page.getByRole('dialog').getByRole('button', { name: 'Send again' }).click();
-    await expect(page.getByText('That is too long ago to send again.')).toBeVisible();
+    await expect(page.getByText('That is too long ago to send again.').first()).toBeVisible();
     expect(await attemptsOf(flaky.deliveryId)).toHaveLength(3);
   } finally {
     restartWithSetting('pay', 'LOCAL_STACK_PAY_WEBHOOK_RESEND_WINDOW', null);
