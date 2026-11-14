@@ -807,6 +807,12 @@ test('14 Nov, #8320: a named change to local-test-stack.mjs runs the named journ
   const real = checkoutJourneyTexts(ROOT);
   for (const f of CANARY) assert.ok(real.has(f), `${f}: a canary journey file at this checkout`);
   assert.deepEqual(stackImporters([STACK_CANARY], real), [...CANARY].sort());
+  // A canary journey split over files (J-home-ia-01 #1 to #3 live in J-home-ia-01-venue.pw.mjs since #8310) runs whole:
+  // the verdict reads a missing step as red when its baseline file ran (#8320, run 43600611635).
+  const ids = new Set(CANARY.map((f) => f.replace(/\.pw\.mjs$/, '')));
+  const split = [...real.keys()].filter((f) => [...ids].some((id) => f.startsWith(`${id}-`) && f.endsWith('.pw.mjs')));
+  assert.ok(split.includes('J-home-ia-01-venue.pw.mjs'), 'the venue file is a sibling at this checkout');
+  for (const f of split) assert.ok(stackImporters([STACK_CANARY], real).includes(f), `${f}: a canary journey's other file runs with it`);
 });
 
 test('planted: what still runs the full suite after the four paths narrow', () => {
