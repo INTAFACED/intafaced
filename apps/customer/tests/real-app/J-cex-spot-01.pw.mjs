@@ -544,12 +544,23 @@ const VENUE_BUY = '0.1';
 /** A TEST top-up by the venue's TEST deposit control (never our ledger): a 0.1 BTC buy locks more than #4's 1,000. */
 const VENUE_TOP_UP = '6000';
 
-/** One tick above the venue's best bid: a buy there rests, and is first in line for a crossing sell. */
+/**
+ * One tick above the venue's best bid: a buy there rests, and is first in line for a crossing sell. The best bid and ask
+ * are the venue's whole book, every account's resting orders, not only its seeded makers': a bid another file's TEST
+ * trader left resting above the makers' (J-campaigns-03 leaves one at 59990) would otherwise sit ahead of this buy and
+ * take #8's sell (#8380).
+ */
 async function venueTopBid() {
   const { body } = await testVenue('/markets', {});
   const market = body.value.find((m) => m.symbol === VENUE_SPOT);
   expect(market, JSON.stringify(body).slice(0, 300)).toBeTruthy();
-  const { bid, ask } = await venueBook(VENUE_SPOT);
+  const book = await testVenue('/book', { symbol: VENUE_SPOT, depth: 1 });
+  expect(book.status, JSON.stringify(book.body).slice(0, 300)).toBe(200);
+  const [top] = book.body.value.bids;
+  const [low] = book.body.value.asks;
+  expect(top && low, `the TEST venue has a two-sided book on ${VENUE_SPOT}`).toBeTruthy();
+  const bid = toUnits(top.price);
+  const ask = toUnits(low.price);
   const price = bid + toUnits(market.tickSize);
   expect(price < ask, `no room between bid ${fromUnits(bid)} and ask ${fromUnits(ask)}`).toBe(true);
   return fromUnits(price);
