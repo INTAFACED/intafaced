@@ -23,7 +23,7 @@ import { CampaignService } from './campaigns.js';
 import { PAYOUT_UNAVAILABLE, PayoutSaga, ledgerRewardId } from './payouts.js';
 import { FROZEN, NO_WALLET, PAYMENT_NOT_TAKEN, RewardPayer, WALLET_SHORT, unitsOf, type RewardChain } from './reward-payer.js';
 import { TaskService } from './tasks.js';
-import type { VenueDepositSource } from './venue-deposits.js';
+import type { VenueDepositRead, VenueDepositSource } from './venue-deposits.js';
 
 /**
  * Paying an owed reward to the customer's own wallet (J-campaigns-03 #2 #3, #8195) against real Postgres, the in-memory
@@ -173,7 +173,7 @@ let clock: Date | null;
 let connected: string[] | null;
 
 /** The venue's own deposits into each wallet's venue account (J-campaigns-02 #1); a wallet missing here is unread. */
-let venue = new Map<string, { depositRef: string; asset: string; amount: string; status: string; seenAt: string }[]>();
+let venue = new Map<string, VenueDepositRead['deposits']>();
 const wallets: VenueDepositSource = {
   wallets: async (forwarded) => (Object.keys(forwarded).length > 0 ? connected : null),
   deposits: async (owner) => {

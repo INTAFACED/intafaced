@@ -316,7 +316,7 @@ const fr = {
   why_wallet_short:
     'Le portefeuille de récompenses d’INTAFACED ne peut pas la couvrir pour le moment : rien n’a été envoyé ; elle est versée une fois dès que possible.',
   why_frozen: 'Les paiements sont suspendus sur la plateforme : rien n’a été envoyé ; elle est versée une fois à leur reprise.',
-  why_waiting: 'Elle est versée une fois à votre portefeuille connecté.',
+  why_waiting: 'INTAFACED vous la doit : elle est versée à votre portefeuille connecté, une seule fois.',
   connectWallet: 'Connecter un portefeuille',
   paidTo: 'Versée à {wallet} le {when}.',
   chainTx: 'Transaction sur la chaîne {tx}',

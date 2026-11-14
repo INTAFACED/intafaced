@@ -329,6 +329,7 @@ async function paidOnce(who, campaignId, wallet) {
 
 test(`${J} #1 does the first step by its real event, a deposit of TEST USDC from the wallet into the venue account: progress shows 1 of 3, the deposit read from the venue; the same event delivered twice changes nothing`, async ({
   page,
+  browser,
 }) => {
   test.setTimeout(420_000);
   run.reset({});
@@ -344,10 +345,13 @@ test(`${J} #1 does the first step by its real event, a deposit of TEST USDC from
   const walletKey = walletKeyOf(me);
   const wallet = privateKeyToAccount(walletKey).address.toLowerCase();
   fundOnTestChain(wallet, 'venue');
-  await openVenue(page, me, walletKey);
-  await connectAndSign(page);
+  // The TEST wallet is installed once per page, so each wallet visit has its own browser context.
+  const walletPage = async () => (await browser.newContext()).newPage();
+  const connecting = await walletPage();
+  await openVenue(connecting, me, walletKey);
+  await connectAndSign(connecting);
   expect((await connections(me)).map((c) => [c.address.toLowerCase(), c.status])).toEqual([[wallet, 'live']]);
-  await signOutBrowser(page.context());
+  await connecting.context().close();
   const campaign = await liveCampaign(`TEST three steps ${tag}`, THREE_STEPS);
   run.write({ me, walletKey, wallet, campaignId: campaign.id });
 
@@ -364,17 +368,19 @@ test(`${J} #1 does the first step by its real event, a deposit of TEST USDC from
   await expect(page.getByTestId('task-step').nth(0)).toHaveAttribute('data-complete', 'false');
 
   // The person deposits from their own wallet into their venue account: they sign it in the wallet.
-  const signer = await openVenue(page, me, walletKey);
-  await connectedNow(page);
-  await page.getByRole('region', { name: 'Venue actions' }).getByLabel('Amount').fill(DEPOSIT);
-  await venueAction(page, 'Deposit TEST USDC').click();
-  await sheet(page).getByRole('button', { name: 'Continue in wallet' }).click();
+  const depositing = await walletPage();
+  const signer = await openVenue(depositing, me, walletKey);
+  await connectedNow(depositing);
+  await depositing.getByRole('region', { name: 'Venue actions' }).getByLabel('Amount').fill(DEPOSIT);
+  await venueAction(depositing, 'Deposit TEST USDC').click();
+  await sheet(depositing).getByRole('button', { name: 'Continue in wallet' }).click();
   await expect.poll(() => signer.sends.length).toBe(1);
   expect(signer.sends[0].method).toBe('eth_sendTransaction');
-  await expect(page.getByTestId('venue-deposit')).toBeVisible();
+  await expect(depositing.getByTestId('venue-deposit')).toBeVisible();
   // The TEST venue credits after 3 confirmations, and the stack's anvil mines a block per transaction only.
   await mineBlocks(2);
-  await expect(page.getByTestId('venue-deposit')).toHaveText(`The venue credited ${DEPOSIT} TEST USDC.`, { timeout: 60_000 });
+  await expect(depositing.getByTestId('venue-deposit')).toHaveText(`The venue credited ${DEPOSIT} TEST USDC.`, { timeout: 60_000 });
+  await depositing.context().close();
 
   // The venue's own record of the deposit: the step counts from it, at the moment the venue saw it.
   const venueRead = await (await api(me)).get(`/api/v1/venue/deposits?owner=${wallet}`);
