@@ -297,6 +297,13 @@ const bank = createBankServices(sql, ledger, history, {
       simulatorPays: cardSimCashbackFor(env.BANK_CARD_SIM_CASHBACK, { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV }),
     },
     /**
+     * Cashback earned on a partner-held capture (J-bank-13 #7) is handed to the rewards programme on the bus, once per
+     * authorisation; svc-campaigns owes it in USDC and pays it to the person's own wallet. Publishing moves no value.
+     */
+    cashbackEarned: async (earned) => {
+      await bus.publish('bankCardCashbackEarned', { ...earned }, { idempotencyKey: `bank.card_cashback:${earned.authorizationId}` });
+    },
+    /**
      * THE JIT CONVERSION RATE (§18), and what this wiring does NOT claim.
      *
      * The same read of svc-trade's public ticker the loan book marks against —
