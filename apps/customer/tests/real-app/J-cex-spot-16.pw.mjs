@@ -475,10 +475,14 @@ test(`${J} #3 the proposer tries to approve their own proposal: refused with the
     );
     expect(trpcData(still)).toMatchObject({ status: 'PENDING', approverId: null });
     expect((await deskRow(symbol)).listing).toMatchObject({ version: 1, routing: 'show' });
-    // And the venue's own record of the market is as it was: still trading, beside our unchanged state on the desk.
+    // And the venue's own record of the market is as it was: still trading, beside our unchanged state on the desk
+    // (A is back in the Markets room, from Freezes & approvals).
     const venueOwn = await venueMarket(customer().owner, symbol);
     expect(venueOwn.status).toBe('trading');
-    await expect(marketRow(a.page, symbol).locator('[data-cell=venue-status]')).toHaveText(VENUE_STATE_LABEL[venueOwn.status]);
+    await a.page.goto(`${ADMIN}/trade-ops/markets`);
+    const row = marketRow(a.page, symbol);
+    await expect(row).toHaveAttribute('data-routing', 'show', { timeout: 30_000 });
+    await expect(row.locator('[data-cell=venue-status]')).toHaveText(VENUE_STATE_LABEL[venueOwn.status]);
   } finally {
     await a.close();
   }
