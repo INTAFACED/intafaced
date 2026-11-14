@@ -426,7 +426,8 @@ test(`${J} #4 lets the connection expire: every signed action refuses until the 
   await expect(page.getByText('protocol.venue_connection_expired')).toHaveCount(0);
   await expect(page.getByText('Your wallet must sign again')).toHaveCount(0);
   await sheet(page).getByRole('button', { name: 'Cancel' }).click();
-  await expect(page.getByText('You cancelled the signature')).toBeVisible();
+  await expect(page.getByText('You cancelled in the wallet')).toBeVisible();
+  await expect(page.getByText('Nothing was signed or sent.')).toBeVisible();
   expect(wallet.sends).toEqual([]);
   expect((await onVenue(address)).usdc).toMatchObject({ free: deposited, locked: '0' });
 });
