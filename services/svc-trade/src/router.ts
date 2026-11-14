@@ -1,4 +1,6 @@
 import { builderFeeAdminRouter, type BuilderFeeReconReader } from './builder-fee/builder-fee-admin.js';
+import { agentDeskAdminRouter } from './venue/agent-desk-admin.js';
+import type { AgentDesk } from './venue/agent-desk.js';
 import { z } from 'zod';
 import { gridRouter } from './grid/router.js';
 import type { GridService } from './grid/grid-service.js';
@@ -909,6 +911,7 @@ export function createTradeRouter(
   builderFees?: BuilderFeeReconReader,
   venueActivity?: OwnVenueActivityDeps,
   signals?: SignalDesk,
+  agentDesk?: AgentDesk | null,
 ) {
   const placeAttempts = new PlaceAttemptBook();
   /** The lead desk's refusals carry their code at the end of the message, where the console reads it. */
@@ -954,7 +957,12 @@ export function createTradeRouter(
   const pauseScope = z.object({ kind: z.enum(['lead', 'bot_type', 'symbol']), value: z.string().trim().min(1).max(80) }).strict();
   return router({
     accountControls: tradingControlsRouter(controls),
-    admin: mergeRouters(tradeOpsAdminRouter(admin), insuranceAdminRouter(insuranceTopups), builderFeeAdminRouter(builderFees)),
+    admin: mergeRouters(
+      tradeOpsAdminRouter(admin),
+      insuranceAdminRouter(insuranceTopups),
+      builderFeeAdminRouter(builderFees),
+      agentDeskAdminRouter(agentDesk),
+    ),
     /** `support.tradeSummary`: read-only, svc-support only (D-ops-06). The case check is svc-support's; this door audits the read. */
     support: supportTradeSummaryRouter(supportSummary),
     /** `venue.ownActivity`: a person's own venue spot trading, svc-tax only (J-cex-spot-01 #11). Read-only. */

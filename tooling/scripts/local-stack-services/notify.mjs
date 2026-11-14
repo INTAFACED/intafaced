@@ -45,6 +45,18 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     NOTIFY_ALERT_FREQUENCIES: 'every_crossing',
     NOTIFY_ALERT_BURST_WINDOW_MINUTES: '10',
     NOTIFY_ALERT_BURST_MAX_TRIGGERS: '5',
+    // LOCAL TEST only (J-charts-desk-10): the alert webhook ports and resend schedule, the labelled values in
+    // tooling/profiles/test-owner-values/notify.json, and the loopback switch, since the journey's endpoint is on this machine.
+    // Production has neither value until the owner sets them: a webhook cannot be saved, and nothing is resent.
+    NOTIFY_ALERT_WEBHOOK_PORTS: '443,14590',
+    NOTIFY_ALERT_WEBHOOK_RETRY_SECONDS: '5,5,5',
+    NOTIFY_ALERT_WEBHOOK_TEST_LOOPBACK: 'on',
+    // LOCAL_STACK_NOTIFY_EMAIL=on (a journey's restart only, J-charts-desk-10 #5): the TEST email stand-in writes every email,
+    // labelled TEST, to a file in this stack's state folder. Off, as in production with no email gateway, email refuses honestly.
+    // A person confirms their address with a code the stand-in writes there, so the code key is set with it, and only then.
+    ...(process.env.LOCAL_STACK_NOTIFY_EMAIL === 'on'
+      ? { NOTIFY_EMAIL_TEST_OUTBOX: path.join(STATE, 'notify-mail-outbox.log'), NOTIFY_VERIFY_CODE_PEPPER: secrets.notifyVerifyCode }
+      : {}),
     // LOCAL TEST only: the page of svc-trade's market list the alert marks read (trade's own cap). Unset, every live
     // quote refuses notify.markets_list_limit_unset and no alert can fire on the stack.
     NOTIFY_MARKETS_LIST_LIMIT: '500',

@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { fundedTrader, openDesk, reviewLimit, signIn } from './desk.mjs';
+import { fundedTrader, openDesk, openOrders, reviewLimit, signIn } from './desk.mjs';
 import { api, mailedLines, signOutBrowser, signUpInBrowser, tool } from './stack.mjs';
 
 // J-identity-14, in the running app (docs/roadmap/journeys.json): my account is restricted and I appeal.
@@ -11,6 +11,7 @@ import { api, mailedLines, signOutBrowser, signUpInBrowser, tool } from './stack
 // than the person who restricted, and the restriction lifted or upheld with a reason the person can read. Moves no money.
 // Independent tests (OWNER 212): every clause of each step's words is checked. Where the product has no part yet, the
 // test names what the person sees and the stack tool that sets it up, so the builder has stable names to build to:
+//   local-test-gates.mjs account-close <handle> grace <reasonCode> <days>   a staff close with a grace date
 //   local-test-gates.mjs account-close <handle> final <reasonCode>          a final staff closure
 const J = 'J-identity-14';
 
@@ -24,8 +25,13 @@ function ownerReasons(setting) {
 const [TRADING_REASON] = ownerReasons('IDENTITY_TRADING_RESTRICTION_REASONS');
 const [LIFT_REASON, UPHOLD_REASON] = ownerReasons('IDENTITY_APPEAL_DECISION_REASONS');
 const WINDOW_DAYS = OWNER_VALUES.IDENTITY_APPEAL_WINDOW_DAYS.value;
-// A closure reason from identity's fixed closure list.
-const CLOSE_REASON = { code: 'other' };
+// A closure reason from identity's fixed closure list, and the words the status page gives it.
+const CLOSE_REASON = { code: 'other', words: 'another reason' };
+const GRACE_DAYS = 14;
+/** The bank's withdrawal guard, asked as the address form asks it before any code: may this person send to this address? */
+const WITHDRAW_TO = '0x52908400098527886E0F7030069857D2E4169EE7';
+const withdrawalCheck = (session) =>
+  session.get(`/api/bank/trpc/ramps.destinations.check?input=${encodeURIComponent(JSON.stringify({ ref: WITHDRAW_TO }))}`);
 
 function person(prefix = 'ap') {
   const handle = `${prefix}${Date.now().toString(36)}${randomBytes(2).toString('hex')}`;
@@ -156,10 +162,75 @@ test.afterAll(async () => {
 
 // ── The steps ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-test(`${J} #1 signs in to a restricted account: the status page shows the state, the stored reason in plain words and what is blocked; a staff close with a grace date lets me withdraw but not trade`, () => {
-  throw new Error(
-    'step #1 is not built yet: identity has no suspended state and no staff close with a grace date (I-account-lifecycle-13)',
+test(`${J} #1 signs in to a restricted account: the status page shows the state, the stored reason in plain words and what is blocked; a staff close with a grace date lets me withdraw but not trade until the date`, async ({
+  page,
+}) => {
+  test.setTimeout(360_000);
+  // Restricted: staff restricted trading with the TEST reason; the person signs in and opens the status page.
+  const who = person('apr');
+  await signUpInBrowser(page, who);
+  restrictTrading(who.handle);
+  lifts.add(who.handle);
+  await signOutBrowser(page.context());
+  await signIn(page, who);
+  await page.goto('/uc/account');
+  const status = page.getByTestId('account-status');
+  // The state.
+  await expect(status.getByTestId('account-status__state')).toHaveAttribute('data-state', 'restricted');
+  await expect(status.getByTestId('account-status__state')).toHaveText('Some actions are restricted on your account.');
+  // The stored reason code, in plain words: the owner's sentence and next step for it, never the code itself.
+  const client = await api(who);
+  const stored = (await readBack(client)).status.restrictions.filter((r) => r.kind === 'trading_restricted');
+  expect(stored.map((r) => r.owner)).toEqual([TRADING_REASON]);
+  const row = status.getByTestId('account-status__restrictions').locator('li[data-kind="trading_restricted"]');
+  await expect(row).toHaveAttribute('data-reason', TRADING_REASON.code);
+  await expect(row).toContainText(TRADING_REASON.text);
+  await expect(row).toContainText(`Next: ${TRADING_REASON.guidance}`);
+  await expect(status).not.toContainText(TRADING_REASON.code);
+  // The actions blocked.
+  await expect(status.getByTestId('account-status__cannot').locator('li')).toHaveText(['Trade']);
+
+  // A staff close with a grace date: until the date the person can withdraw but not trade, and the page says until when.
+  // A verified person holding TEST USDT, so there is something left to withdraw and an order reaches identity's check.
+  await signOutBrowser(page.context());
+  const closing = await fundedTrader(page, 'apc', '100');
+  expect(tool('local-test-gates.mjs', 'account-close', closing.handle, 'grace', CLOSE_REASON.code, String(GRACE_DAYS))).toMatch(
+    /OK .* account close: closed/,
   );
+  // The close left the person signed in: their session still reads identity.
+  const closingClient = await api(closing);
+  const record = (await readBack(closingClient)).status;
+  expect(record.state).toBe('closed');
+  const graceUntil = record.restrictions.find((r) => r.kind === 'closed')?.graceUntil;
+  expect(graceUntil, 'the close carries its grace date').toBeTruthy();
+  const days = (Date.parse(graceUntil) - Date.now()) / 86_400_000;
+  expect(days).toBeGreaterThan(GRACE_DAYS - 1);
+  expect(days).toBeLessThanOrEqual(GRACE_DAYS);
+  // Identity's own record: a send out stays open until the date, trading does not.
+  expect(record.canStill).toContain('withdraw_to_address');
+  expect(record.canStill).toContain('sign_in');
+  expect(record.cannot).toEqual([{ action: 'trade', kind: 'closed' }]);
+  // Withdraw: the bank's withdrawal guard still lets the person go on to send to an address until the date.
+  const withdraw = await withdrawalCheck(closingClient);
+  expect(withdraw.status, JSON.stringify(withdraw.body).slice(0, 300)).toBe(200);
+  expect(withdraw.body.result.data.address).toBe('ok');
+  // Not trade: an order sent from the desk is refused by identity's trading check, and nothing rests.
+  await openDesk(page, closing);
+  const answer = await sendOrder(page);
+  expect(answer.status()).toBe(403);
+  expect((await answer.json()).intafacedCode).toBe('trade.account_restricted');
+  expect(await openOrders(closing)).toEqual([]);
+  // The status page, signed in after the close: the date, the close's reason in plain words, and what is still open.
+  await page.goto('/uc/account');
+  const closingStatus = page.getByTestId('account-status');
+  await expect(closingStatus.getByTestId('account-status__state')).toHaveAttribute('data-state', 'closed');
+  await expect(closingStatus.getByTestId('account-status__state')).toHaveAttribute('data-grace-until', graceUntil);
+  await expect(closingStatus.getByTestId('account-status__state')).toContainText('you can withdraw what is left, but you cannot trade');
+  const closedRow = closingStatus.getByTestId('account-status__restrictions').locator('li[data-kind="closed"]');
+  await expect(closedRow).toContainText(`Reason: ${CLOSE_REASON.words}.`);
+  await expect(closedRow).toHaveAttribute('data-reason', CLOSE_REASON.code);
+  await expect(closingStatus.getByTestId('account-status__can')).toContainText('Start a send to a withdrawal address');
+  await expect(closingStatus.getByTestId('account-status__cannot').locator('li')).toHaveText(['Trade']);
 });
 
 test(`${J} #2 opens a refusal on any screen: the same reason wording everywhere`, async ({ page }) => {

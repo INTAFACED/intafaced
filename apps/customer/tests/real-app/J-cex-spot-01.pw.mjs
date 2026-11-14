@@ -340,9 +340,15 @@ async function connectWallet(page, wallet) {
   await expect(panel).toBeVisible();
   const connect = panel.getByRole('button', { name: `Connect ${TEST_WALLET.name}` });
   const shown = wallet.address.toLowerCase();
-  // The wallet announces itself after the panel paints: wait for either the Connect button or the connected address.
-  await expect(connect.or(panel.getByText(shown))).toBeVisible();
-  if (await connect.isVisible()) await connect.click();
+  // The wallet announces itself after the panel paints, and a still-authorised wallet is restored on its own, so the
+  // Connect button can go between seeing it and pressing it (#8287): press it only while no address is shown, and never
+  // wait on a button that has gone.
+  const address = panel.getByText(shown);
+  await expect(async () => {
+    if (await address.isVisible()) return;
+    await connect.click({ timeout: 2_000 });
+    await expect(address).toBeVisible({ timeout: 5_000 });
+  }).toPass({ timeout: 30_000 });
   await expect(panel).toContainText(shown);
   return panel;
 }

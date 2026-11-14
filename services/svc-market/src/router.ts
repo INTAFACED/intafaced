@@ -24,6 +24,16 @@ import type { ReviewsService } from './reviews/reviews-service.js';
 import { REVIEW_MEAN_ROUNDING } from './reviews/reviews-service.js';
 import { userCopy } from './user-copy.js';
 import { createStrategyListing } from './strategy/strategy-listing.js';
+import {
+  PRICE_NOT_SET,
+  PROVIDER_CRITERIA_NOT_MET,
+  PROVIDER_CRITERIA_NOT_SET,
+  PROVIDER_RECORD_UNAVAILABLE,
+  SIGNAL_KEY_CONFLICT,
+  SIGNAL_NOT_FOUND,
+  SIGNAL_TIERS,
+  type SignalPublisher,
+} from './signals/signal-publisher.js';
 import type { PerpProposalService } from './perp-proposal-service.js';
 import {
   MARKET_L3_UNAVAILABLE,
@@ -152,6 +162,15 @@ function mapError(err: unknown): never {
     const message = userCopy(err.code);
     if (err.code === 'market.vendor_not_found') throw new TRPCError({ code: 'NOT_FOUND', message, cause: err });
     if (err.code === 'market.vendor_already_applied') throw new TRPCError({ code: 'CONFLICT', message, cause: err });
+    // Signals (J-copy-bots-otc-22): criteria unset is the owner's blank; a provider short of them is refused; an
+    // unreadable trading record is ours to fix, never a pass or a fail.
+    if (err.code === PROVIDER_CRITERIA_NOT_SET || err.code === PRICE_NOT_SET) {
+      throw new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
+    }
+    if (err.code === PROVIDER_CRITERIA_NOT_MET) throw new TRPCError({ code: 'FORBIDDEN', message, cause: err });
+    if (err.code === PROVIDER_RECORD_UNAVAILABLE) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message, cause: err });
+    if (err.code === SIGNAL_NOT_FOUND) throw new TRPCError({ code: 'NOT_FOUND', message, cause: err });
+    if (err.code === SIGNAL_KEY_CONFLICT) throw new TRPCError({ code: 'CONFLICT', message, cause: err });
     if (err.code === 'market.vet_operator_required' || err.code === 'market.ops_required') {
       throw new TRPCError({ code: 'FORBIDDEN', message, cause: err });
     }
@@ -240,6 +259,35 @@ function mapError(err: unknown): never {
     throw new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
   }
   throw err;
+}
+
+export const signalOut = z.object({
+  id: z.string().guid(),
+  title: z.string(),
+  description: z.string(),
+  assetId: z.string(),
+  recommendedAmount: z.string().nullable(),
+  feeModel: z.enum(['free', 'monthly']),
+  price: z.string().nullable(),
+  periodSeconds: z.number().int().positive().nullable(),
+  listingId: z.string().guid().nullable(),
+  state: z.enum(['pending', 'published', 'archived']),
+  createdAt: z.string().datetime(),
+  archivedAt: z.string().datetime().nullable(),
+});
+
+export const signalVettingOut = z.object({
+  minTier: z.string(),
+  minFills: z.number().int(),
+  tierSeen: z.string(),
+  fillsSeen: z.number().int(),
+  firstFillAt: z.string().datetime().nullable(),
+  passedAt: z.string().datetime(),
+});
+
+function requireSignals(signals: SignalPublisher | undefined): SignalPublisher {
+  if (!signals) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'market.signals_not_wired' });
+  return signals;
 }
 
 export const listingOut = z.object({
@@ -370,6 +418,7 @@ export function createMarketRouter(
   perpProposals?: PerpProposalService,
   approvals: ActionApprovalConsumer = unwiredApprovalConsumer(),
   reviews?: ReviewsService,
+  signals?: SignalPublisher,
 ) {
   return router({
     /**
@@ -1243,6 +1292,100 @@ export function createMarketRouter(
           mapError(err);
         }
       }),
+
+    /**
+     * Signal publishing (CB-bots-api-signal-05, -06, -07; J-copy-bots-otc-22). Publish vets the provider once against
+     * the owner's criteria and answers a retried key with the first signal. Fee models are free and a monthly fee; a
+     * profit share and an automatic recurring subscription are refused by name. Earnings are per asset, settled at sale.
+     */
+    signals: router({
+      criteria: publicProcedure
+        .output(z.object({ set: z.boolean(), minTier: z.string().nullable(), minFills: z.number().int().nullable() }))
+        .query(() => {
+          const c = requireSignals(signals).criteria();
+          return c ? { set: true, minTier: c.minTier, minFills: c.minFills } : { set: false, minTier: null, minFills: null };
+        }),
+      publish: scopedProcedure('market:write', { module: 'market' })
+        .input(
+          z
+            .object({
+              publishKey: z.string().min(1).max(128),
+              title: z.string().max(120),
+              description: z.string().max(4_000),
+              assetId: z.string().max(32),
+              recommendedAmount: z.string().max(64).nullish(),
+              /** `free` or `monthly`; `profit_share` and `recurring` reach their named refusals. */
+              feeModel: z.string().min(1).max(32),
+              price: z.string().max(64).nullish(),
+              periodSeconds: z.number().int().positive().nullish(),
+            })
+            .passthrough(),
+        )
+        .output(z.object({ signal: signalOut, vetting: signalVettingOut, replayed: z.boolean() }))
+        .mutation(async ({ ctx, input }) => {
+          const publisher = requireSignals(signals);
+          try {
+            const tier = (SIGNAL_TIERS as readonly string[]).includes(ctx.principal!.tier) ? ctx.principal!.tier : 'none';
+            return await publisher.publish({ ...input, userId: ctx.principal!.userId, tier: tier as (typeof SIGNAL_TIERS)[number] });
+          } catch (err) {
+            mapError(err);
+          }
+        }),
+      archive: scopedProcedure('market:write', { module: 'market' })
+        .input(z.object({ signalId: z.string().guid() }))
+        .output(signalOut)
+        .mutation(async ({ ctx, input }) => {
+          const publisher = requireSignals(signals);
+          try {
+            return await publisher.archive({ userId: ctx.principal!.userId, signalId: input.signalId });
+          } catch (err) {
+            mapError(err);
+          }
+        }),
+      mine: scopedProcedure('market:read', { module: 'market' })
+        .input(z.object({ limit: z.number().int().positive().max(50) }))
+        .output(z.object({ signals: z.array(signalOut), vetting: signalVettingOut.nullable() }))
+        .query(async ({ ctx, input }) => {
+          const publisher = requireSignals(signals);
+          try {
+            return await publisher.mine(ctx.principal!.userId, input.limit);
+          } catch (err) {
+            mapError(err);
+          }
+        }),
+      list: publicProcedure
+        .input(z.object({ limit: z.number().int().positive().max(50) }))
+        .output(z.array(signalOut))
+        .query(async ({ input }) => {
+          const publisher = requireSignals(signals);
+          try {
+            return await publisher.catalogue(input.limit);
+          } catch (err) {
+            mapError(err);
+          }
+        }),
+      earnings: scopedProcedure('market:read', { module: 'market' })
+        .input(z.object({ from: z.string().max(64), to: z.string().max(64) }))
+        .output(
+          z.object({
+            from: z.string().datetime(),
+            to: z.string().datetime(),
+            settlement: z.literal('at_sale'),
+            assets: z.array(
+              z.object({ assetId: z.string(), gross: z.string(), commission: z.string(), net: z.string(), sales: z.number().int() }),
+            ),
+            profitShare: z.null(),
+          }),
+        )
+        .query(async ({ ctx, input }) => {
+          const publisher = requireSignals(signals);
+          try {
+            return await publisher.earnings({ userId: ctx.principal!.userId, from: input.from, to: input.to });
+          } catch (err) {
+            mapError(err);
+          }
+        }),
+    }),
 
     reviews: router({
       submit: scopedProcedure('market:write', { module: 'market' })

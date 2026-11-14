@@ -85,6 +85,13 @@ export const venueCopy = defineCopy('trade.venue', {
   tif_GTC: 'Good till cancelled',
   tif_IOC: 'Immediate or cancel',
   tif_ALO: 'Post only',
+  tif_FOK: 'Fill or kill',
+  tif_GTD: 'Good till date',
+  stp_cancel_resting: 'Cancel my resting order',
+  stp_cancel_new: 'Cancel the new order',
+  stp_cancel_both: 'Cancel both',
+  'Not published': 'not published by this venue',
+  Tag: 'Tag',
 
   // Review and signing
   Review: 'Review',

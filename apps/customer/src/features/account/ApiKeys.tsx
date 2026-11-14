@@ -7,6 +7,7 @@ import { Button, Dialog, Failure, Field, Loading } from '../../shared/ui';
 import { apiKeysCopy as copy, type ApiKeysPlainKey } from './api-keys-copy';
 import { changeRefusal, readDeveloperKeys, readKeySubaccounts, revokeDeveloperKey } from './developer-keys-api';
 import { OrgKeys } from './OrgKeys';
+import { RevokeAllKeys } from './ApiKeysRevokeAll';
 import './security.css';
 import './api-keys.css';
 
@@ -198,6 +199,13 @@ export function ApiKeys() {
                   : t('capUsed', { live: resource.data.cap.live, limit: resource.data.cap.limit })}
             </p>
           </section>
+          <RevokeAllKeys
+            liveKeys={resource.data.keys.filter((key) => stateOf(key, now) === 'stateActive').length}
+            onDone={() => {
+              setNotice(null);
+              reload();
+            }}
+          />
           {resource.data.keys.length === 0 ? (
             <p role="status">{t('empty')}</p>
           ) : (

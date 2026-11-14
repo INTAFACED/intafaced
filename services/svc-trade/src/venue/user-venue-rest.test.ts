@@ -42,6 +42,7 @@ async function mount(door: UserVenueDoor | null, slippageCapBps: number | null =
       return false;
     },
     slippageCapBps,
+    spreadLimitBps: slippageCapBps === null ? null : 100,
   });
   await app.ready();
   return app;
@@ -64,6 +65,8 @@ function door(
     },
     builder,
     slippageCapBps,
+    // A labelled TEST spread limit, wide of the TEST simulator's ladder.
+    spreadLimitBps: 100,
     now: () => new Date(),
     listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP', 'XAU-PERP', 'XSTK-PERP', 'XSTD-PERP'])),
   });
@@ -179,6 +182,7 @@ describe('/api/v1/venue/*', () => {
     expect((await app.inject({ method: 'GET', url: '/api/v1/venue/best-prices' })).statusCode).toBe(400);
     // The owner's price protection is blank here: not known, never a default.
     expect(body.slippageCapBps).toEqual({ known: false });
+    expect(body.spreadLimitBps).toEqual({ known: false });
   });
 
   it('a market buy is bounded over the wire: the best ask reaches the price protection as an Amount, not a string', async () => {
@@ -276,6 +280,7 @@ describe('/api/v1/venue/*', () => {
     const res = await app.inject({ method: 'GET', url: '/api/v1/venue/best-prices?symbol=BTC-USDC' });
     expect(res.statusCode).toBe(200);
     expect(res.json().slippageCapBps).toEqual({ known: true, value: '150' });
+    expect(res.json().spreadLimitBps).toEqual({ known: true, value: '100' });
   });
 
   it('orders refuse builder_fee_not_published (422); a withdrawal without its step-up refuses 403; a money number refuses 400', async () => {

@@ -56,6 +56,7 @@ import { journeyTouch } from './journey-touch.mjs';
 import { SUBSCRIBES, loadMap, runsBehind } from './journey-reach-map.mjs';
 import { evaluateGateFileRule } from '../scripts/gate-file-guard.mjs';
 import { parseJobs, parseTests } from './bisect-main.mjs';
+import { AUTO_REVERT_AUTHOR, AUTO_REVERT_BRANCH } from './exact-revert.mjs';
 
 const SHA = /^[0-9a-f]{40}$/;
 const STEP = /^J-[a-z0-9-]+-\d+#\d+$/;
@@ -799,6 +800,103 @@ async function openRevert(env, revoke) {
   }
 }
 
+// ── refresh: an open revert's red checks run again on main's newer rules ──────
+
+/** At most this many rebases of one revert by `refresh`: one per merge into main while its checks stay red. */
+export const REFRESH_MAX = 4;
+/** The workflows whose newest run on a revert's head decides a refresh, with the event each runs on. */
+export const REFRESH_WORKFLOWS = [
+  { file: 'ci.yml', event: 'pull_request' },
+  { file: 'ci-review.yml', event: 'pull_request_target' },
+];
+
+/**
+ * Whether `refresh` rebases this open pull request onto main, or why not. Pure. Only main-bisect's own revert (its
+ * revert/auto- branch in this repository, opened by the App as a Bot, not a draft); only when the newest run of a
+ * REFRESH_WORKFLOWS workflow on its head failed and started before main's head commit (`mainAt`, ms), with none of them
+ * still going; at most REFRESH_MAX times (`rebased`: its earlier rebases, the timeline's head_ref_force_pushed events).
+ * A re-run can't do it: a pull_request run's re-run keeps its merge commit and that commit's workflow file, so it
+ * never reads main's newer check (intafaced #8138 after #8166: its re-run guard couldn't import exact-revert.mjs).
+ */
+export function refreshWhy(pr, { repo, runs, mainAt, rebased }) {
+  const ok =
+    AUTO_REVERT_BRANCH.test(String(pr?.head?.ref ?? '')) &&
+    pr?.user?.login === AUTO_REVERT_AUTHOR &&
+    pr?.user?.type === 'Bot' &&
+    pr?.head?.repo?.full_name === repo &&
+    !pr?.draft;
+  if (!ok) return { refresh: false, why: "not main-bisect's revert" };
+  const newest = REFRESH_WORKFLOWS.map(
+    ({ file, event }) =>
+      (runs[file] ?? []).filter((r) => r.event === event && r.conclusion !== 'skipped').sort((a, b) => b.run_number - a.run_number)[0],
+  ).filter(Boolean);
+  if (newest.some((r) => r.status !== 'completed')) return { refresh: false, why: 'a check is still going' };
+  const red = newest.filter((r) => r.conclusion === 'failure');
+  if (!red.length) return { refresh: false, why: 'no check red' };
+  if (!red.some((r) => Date.parse(r.run_started_at ?? r.created_at) < mainAt))
+    return { refresh: false, why: "its checks ran after main's head" };
+  if (rebased >= REFRESH_MAX) return { refresh: false, why: `rebased ${rebased} times already, the most` };
+  return { refresh: true, why: `${red.map((r) => r.name ?? r.id).join(', ')} red before main's head` };
+}
+
+/**
+ * After each CI run on main (main-trust.yml revert-refresh): rebase each open automatic revert that refreshWhy picks
+ * onto main, with the App's token, so its head is new and every check runs again on main's rules, with no hand. GitHub
+ * refuses a rebase that conflicts; that is said, and nothing is resolved (the programme lead's rule, 13 Nov 2026). Reads
+ * go with GH_TOKEN; the App token is minted only when something is rebased, and revoked at the end.
+ */
+async function refresh(env) {
+  need(env, 'GITHUB_REPOSITORY', 'GH_TOKEN');
+  const repo = env.GITHUB_REPOSITORY;
+  const read = client(env.GH_TOKEN);
+  const lines = ['### Refresh of open automatic reverts', ''];
+  const pulls = (await read('GET', `/repos/${repo}/pulls?state=open&per_page=100`)).json ?? [];
+  const mainAt = Date.parse((await read('GET', `/repos/${repo}/commits/main`)).json?.commit?.committer?.date ?? '');
+  const picked = [];
+  for (const pr of pulls) {
+    if (!AUTO_REVERT_BRANCH.test(String(pr?.head?.ref ?? ''))) continue;
+    const runs = {};
+    for (const w of REFRESH_WORKFLOWS)
+      runs[w.file] =
+        (await read('GET', `/repos/${repo}/actions/workflows/${w.file}/runs?head_sha=${pr.head.sha}&per_page=100`)).json?.workflow_runs ??
+        [];
+    const events = (await read('GET', `/repos/${repo}/issues/${pr.number}/timeline?per_page=100`)).json ?? [];
+    const rebased = events.filter((e) => e.event === 'head_ref_force_pushed').length;
+    const d = refreshWhy(pr, { repo, runs, mainAt, rebased });
+    lines.push(`- #${pr.number}: ${d.refresh ? 'rebase' : 'left'} (${d.why})`);
+    if (d.refresh) picked.push(pr);
+  }
+  if (picked.length) {
+    if (process.env.DRY_RUN !== '1') need(env, 'FACTORY_APP_KEY');
+    const { mintToken } = await import('./factory-builder.mjs');
+    const dry = process.env.DRY_RUN === '1';
+    const token = dry ? env.GH_TOKEN : await mintToken({ pem: env.FACTORY_APP_KEY, repo, spec: REVERT_TOKEN });
+    if (token && !dry) console.log(`::add-mask::${token}`);
+    const gh = client(token);
+    try {
+      for (const pr of picked) {
+        const r = await gh('POST', `${API}/graphql`, {
+          query:
+            'mutation($id: ID!, $oid: GitObjectID!) { updatePullRequestBranch(input: { pullRequestId: $id, expectedHeadOid: $oid, updateMethod: REBASE }) { pullRequest { headRefOid } } }',
+          variables: { id: pr.node_id, oid: pr.head.sha },
+        });
+        const head = r.json?.data?.updatePullRequestBranch?.pullRequest?.headRefOid;
+        lines.push(
+          head
+            ? `- #${pr.number}: rebased onto main, head ${head.slice(0, 10)}; its checks run again`
+            : `- #${pr.number}: not rebased (${String(r.json?.errors?.[0]?.message ?? `HTTP ${r.status}`).slice(0, 200)}); a conflict is left for a fix forward, never resolved by hand`,
+        );
+      }
+    } finally {
+      if (token && !dry) {
+        const end = await fetch(`${API}/installation/token`, { method: 'DELETE', headers: { authorization: `Bearer ${token}` } });
+        lines.push(`- the App token: revoke ${end.status}`);
+      }
+    }
+  }
+  summary(lines);
+}
+
 /** How many times, and how long apart, a revoked token's refusal is asked for: about 20 s in all. */
 export const REVOKE_PROBES = [0, 1000, 2000, 3000, 5000, 8000];
 /**
@@ -920,6 +1018,60 @@ function selfTest() {
   );
   eq(untraced[0].body.includes('no commit between them can reach J-b-02'), true, 'the note says why');
   eq(untraced[0].opens, false, 'an untraced red opens no issue: main-unknown-red stops every builder');
+  // refresh (intafaced #8138 after #8166): main-bisect's red revert is rebased once per merge into main, at most REFRESH_MAX.
+  const rpr = (over = {}) => ({
+    number: 8138,
+    draft: false,
+    user: { login: 'intafaced-mac-agents[bot]', type: 'Bot' },
+    head: { ref: 'revert/auto-2481c93533', sha: 'c'.repeat(40), repo: { full_name: 'o/r' } },
+    ...over,
+  });
+  const rrun = (over = {}) => ({
+    id: 1,
+    run_number: 9,
+    event: 'pull_request',
+    status: 'completed',
+    conclusion: 'failure',
+    run_started_at: '2026-11-12T16:00:00Z',
+    ...over,
+  });
+  const rruns = (ci = {}, review = {}) => ({
+    'ci.yml': [rrun(ci)],
+    'ci-review.yml': [rrun({ id: 2, event: 'pull_request_target', conclusion: 'success', ...review })],
+  });
+  const at = { repo: 'o/r', mainAt: Date.parse('2026-11-13T00:51:39Z'), rebased: 0 };
+  eq(refreshWhy(rpr(), { ...at, runs: rruns() }).refresh, true, "#8138: its CI red before main's head: rebased");
+  eq(
+    refreshWhy(rpr(), { ...at, runs: rruns({ conclusion: 'success' }, { conclusion: 'failure' }) }).refresh,
+    true,
+    'a red CI review alone: rebased',
+  );
+  eq(refreshWhy(rpr(), { ...at, runs: rruns({ conclusion: 'success' }) }).refresh, false, 'every check green: left');
+  eq(
+    refreshWhy(rpr(), { ...at, runs: rruns({ run_started_at: '2026-11-13T01:00:00Z' }) }).refresh,
+    false,
+    "red after main's head: once per merge",
+  );
+  eq(
+    refreshWhy(rpr(), { ...at, runs: rruns({}, { status: 'in_progress', conclusion: null }) }).refresh,
+    false,
+    'a check still going: left',
+  );
+  eq(refreshWhy(rpr(), { ...at, runs: rruns(), rebased: REFRESH_MAX }).refresh, false, 'bounded: REFRESH_MAX rebases');
+  eq(
+    refreshWhy(rpr({ user: { login: 'ZenYoda3', type: 'User' } }), { ...at, runs: rruns() }).refresh,
+    false,
+    "a person's pull request: never",
+  );
+  eq(refreshWhy(rpr({ head: { ...rpr().head, repo: { full_name: 'x/y' } } }), { ...at, runs: rruns() }).refresh, false, 'a fork: never');
+  eq(refreshWhy(rpr({ head: { ...rpr().head, ref: 'fix/x' } }), { ...at, runs: rruns() }).refresh, false, 'another branch: never');
+  eq(refreshWhy(rpr({ draft: true }), { ...at, runs: rruns() }).refresh, false, 'a draft: never');
+  eq(
+    refreshWhy(rpr(), { ...at, runs: { 'ci.yml': [rrun(), rrun({ id: 3, run_number: 10, conclusion: 'success' })], 'ci-review.yml': [] } })
+      .refresh,
+    false,
+    'the newest run decides',
+  );
   const conflicted = breakIssueNotes({ steps: ['J-c-03#4'], conflict: '#7 (`abcdef0123`)', redRunUrl: 'u' });
   eq(
     conflicted.map((n) => [n.labels, n.opens]),
@@ -1135,7 +1287,7 @@ function selfTest() {
     [1, 5],
     "only main's runs still going on another commit than the revert's are weighed",
   );
-  console.log('✓ journeys-revert --self-test OK (73 fixtures)');
+  console.log('✓ journeys-revert --self-test OK (84 fixtures)');
 }
 
 async function selfTestRevoke() {
@@ -1168,6 +1320,72 @@ async function selfTestRevoke() {
   await refusedAfterRevoke(answers(), { sleep: async (ms) => slept.push(ms) });
   eq(slept, REVOKE_PROBES.filter(Boolean), 'waits between tries');
   console.log('✓ journeys-revert revoke self-test OK (6 fixtures)');
+}
+
+/** cancelDoomed's choice, on a fake GitHub whose compare answers from a commit line: P, culprit X, then M (a merge after
+ *  it), revert R, then N after the revert; Q sits on a branch off P that never took X. Only a main run holding X and not
+ *  R is cancelled. A push that is not an automatic revert never reaches it (revertMergePull above). */
+async function selfTestCancel() {
+  const eq = (got, want, m) => {
+    if (JSON.stringify(got) !== JSON.stringify(want)) throw new Error(`${m}: got ${JSON.stringify(got)} want ${JSON.stringify(want)}`);
+  };
+  const [P, X, M, R, N, Q] = ['1', '2', '3', '4', '5', '6'].map((c) => c.repeat(40));
+  const line = [P, X, M, R, N];
+  const compare = (base, head) => {
+    if (base === head) return 'identical';
+    const [b, h] = [line.indexOf(base), line.indexOf(head)];
+    if (head === Q) return base === P ? 'ahead' : 'diverged';
+    if (b < 0 || h < 0) return null; // a commit GitHub can't place: 404, no status
+    return h > b ? 'ahead' : 'behind';
+  };
+  const fake = (runs) => {
+    const cancelled = [];
+    const gh = async (method, path) => {
+      if (method === 'POST') {
+        cancelled.push(Number(/runs\/(\d+)\/cancel$/.exec(path)[1]));
+        return { status: 202, json: null };
+      }
+      const status = /[?&]status=(\w+)/.exec(path)?.[1];
+      if (status) return { status: 200, json: { workflow_runs: runs.filter((r) => r.status === status) } };
+      const [base, head] = /\/compare\/(\w+)\.\.\.(\w+)$/.exec(path).slice(1);
+      const st = compare(base, head);
+      return st ? { status: 200, json: { status: st } } : { status: 404, json: null };
+    };
+    return { gh, cancelled };
+  };
+  const run = (id, head_sha, status = 'in_progress', over = {}) => ({
+    id,
+    run_number: id,
+    head_branch: 'main',
+    event: 'push',
+    status,
+    head_sha,
+    ...over,
+  });
+  const cases = [
+    [[run(1, M)], [1], 'a run holding the culprit and not the revert is cancelled'],
+    [[run(1, X)], [1], 'a run on the culprit itself is cancelled'],
+    [[run(2, M, 'queued')], [2], 'a waiting run holding the culprit and not the revert is cancelled'],
+    [[run(3, R)], [], "the revert's own run is left"],
+    [[run(4, N)], [], 'a run already holding the revert is left'],
+    [[run(5, P)], [], 'a run from before the culprit is left'],
+    [[run(6, Q)], [], 'a run on a commit that never took the culprit is left'],
+    [[run(7, 'f'.repeat(40))], [], 'a run whose commit the compare cannot place is left'],
+    [[run(8, M, 'in_progress', { event: 'pull_request', head_branch: 'x' })], [], "a pull request's run is left"],
+    [[run(9, M, 'completed')], [], 'a finished run is left'],
+    [[run(1, M), run(4, N, 'queued'), run(5, P, 'queued')], [1], 'only the doomed run of several'],
+  ];
+  for (const [runs, want, m] of cases) {
+    const { gh, cancelled } = fake(runs);
+    const lines = await cancelDoomed(gh, 'o/r', { headSha: R, culprit: X });
+    eq(cancelled, want, m);
+    eq(
+      lines.length,
+      runs.filter((r) => r.status !== 'completed' && r.event !== 'pull_request' && r.head_sha !== R).length,
+      `${m}: a line per run weighed`,
+    );
+  }
+  console.log(`✓ journeys-revert cancel self-test OK (${cases.length} fixtures)`);
 }
 
 // ── early: as each shard of main's run ends ─────────────────────────────────
@@ -1511,10 +1729,11 @@ async function confirmFiles(env) {
   output({ files: files.join(' '), steps: parseSteps(env.STEPS).join(',') });
 }
 
-const COMMANDS = { trigger, find, open, settle, early, confirm, back, 'confirm-files': confirmFiles };
+const COMMANDS = { trigger, find, open, settle, early, confirm, back, 'confirm-files': confirmFiles, refresh };
 if (process.argv.includes('--self-test')) {
   selfTest();
   await selfTestRevoke();
+  await selfTestCancel();
 } else if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const cmd = COMMANDS[process.argv[2]];
   if (!cmd) {

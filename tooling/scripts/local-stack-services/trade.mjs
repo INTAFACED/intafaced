@@ -78,6 +78,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
     // (services/svc-trade/src/env.ts TRADE_MARKET_SLIPPAGE_CAP_BPS): 50 bps. `LOCAL_STACK_TRADE_SLIPPAGE_CAP=off` on a restart
     // leaves it blank, so J-derivatives-02 #5 sees a market open refused by name (trade.slippage_cap_unset).
     TRADE_MARKET_SLIPPAGE_CAP_BPS: process.env.LOCAL_STACK_TRADE_SLIPPAGE_CAP === 'off' ? '' : '50',
+    // LOCAL TEST, not an owner decision: the spread limit a venue spot market order is refused past (services/svc-trade/src/
+    // env.ts TRADE_MARKET_SPREAD_LIMIT_BPS): 100 bps, wide of the TEST venue's ladder. `LOCAL_STACK_TRADE_SPREAD_LIMIT=off`
+    // on a restart leaves it blank, so J-cex-spot-03 #2 sees a market order refused "protection not set".
+    TRADE_MARKET_SPREAD_LIMIT_BPS: process.env.LOCAL_STACK_TRADE_SPREAD_LIMIT === 'off' ? '' : '100',
     // The operator's Convert kill-switch, on as in production. `LOCAL_STACK_TRADE_CONVERT=off` on a restart turns it off,
     // so J-cex-spot-11 #7 sees Convert paused: every quote refuses trade.convert_disabled and the room says Use Spot.
     TRADE_CONVERT_ENABLED: process.env.LOCAL_STACK_TRADE_CONVERT === 'off' ? 'false' : 'true',
@@ -241,10 +245,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
           // J-derivatives-28: LOCAL_STACK_USER_VENUE=two adds the second TEST venue; the ticket then routes over both.
           ...(userVenueCount(process.env.LOCAL_STACK_USER_VENUE) === 2 ? { TRADE_USER_VENUE_URLS: urlOf('test-venue-b') } : {}),
           // J-cex-spot-16: the TEST markets the other venue journeys trade, listed as a LOCAL TEST seed (svc-trade
-          // venue/venue-listing.ts): the two BTC markets, J-derivatives-21's TEST gold perpetual XAU-PERP and
-          // J-derivatives-27's TEST stock perpetuals XSTK-PERP and XSTD-PERP. ETH-USDC is left unlisted, for two operators
-          // to review.
-          TRADE_USER_VENUE_TEST_LISTINGS: 'BTC-USDC,BTC-PERP,XAU-PERP,XSTK-PERP,XSTD-PERP',
+          // venue/venue-listing.ts): the two BTC markets, J-derivatives-03's TEST perpetual ETH-PERP (its trigger orders),
+          // J-derivatives-21's TEST gold perpetual XAU-PERP and J-derivatives-27's TEST stock perpetuals XSTK-PERP and
+          // XSTD-PERP. ETH-USDC is left unlisted, for two operators to review.
+          TRADE_USER_VENUE_TEST_LISTINGS: 'BTC-USDC,BTC-PERP,ETH-PERP,XAU-PERP,XSTK-PERP,XSTD-PERP',
           TRADE_USER_VENUE_BUILDER_ADDRESS: testValue('TRADE_USER_VENUE_BUILDER_ADDRESS'),
           TRADE_USER_VENUE_BUILDER_FEE_BPS:
             process.env.LOCAL_STACK_USER_VENUE_BUILDER_FEE === 'off' ? '' : testValue('TRADE_USER_VENUE_BUILDER_FEE_BPS'),
@@ -255,6 +259,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
             process.env.LOCAL_STACK_AGENT_ACCOUNT_CEILING === 'off' ? '' : testValue('TRADE_AGENT_ACCOUNT_CEILING'),
           TRADE_AGENT_ACCOUNT_ASSET: testValue('TRADE_AGENT_ACCOUNT_ASSET'),
           TRADE_AGENT_KEY_SEED: testValue('TRADE_AGENT_KEY_SEED'),
+          // J-derivatives-03: our engine judges the venue-lacking protections (a trailing stop, a stop on the index) each second.
+          TRADE_PROTECTION_ENGINE_INTERVAL_MS: '1000',
           TRADE_AGENT_MAX_ORDER_NOTIONAL: testValue('TRADE_AGENT_MAX_ORDER_NOTIONAL'),
           TRADE_AGENT_WORST_PRICE_BPS: testValue('TRADE_AGENT_WORST_PRICE_BPS'),
           TRADE_AGENT_MARKETS: testValue('TRADE_AGENT_MARKETS'),
@@ -273,6 +279,15 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
           // stops it, so a fill waits unposted and the recon lists it as a break.
           TRADE_BUILDER_FEE_POSTER: process.env.LOCAL_STACK_BUILDER_FEE_POSTER === 'off' ? 'off' : 'on',
           TRADE_BUILDER_FEE_POSTER_INTERVAL_MS: '2000',
+          // Collect (J-derivatives-17, J-campaigns-03): every 2 seconds the TEST venue's own claim record is read and each
+          // claim posts once; a claim exists only once a journey asks the TEST venue for one (`/test/builder-claim`).
+          TRADE_BUILDER_FEE_COLLECT_INTERVAL_MS: '2000',
+          // Move own funds (OWNER 288 Q4; J-campaigns-03): the labelled TEST float, schedule, rewards wallet and builder key
+          // seed, so what the TEST builder account holds above the float is swept to the TEST rewards wallet.
+          TRADE_OWN_FUNDS_FLOAT: testValue('TRADE_OWN_FUNDS_FLOAT'),
+          TRADE_OWN_FUNDS_SWEEP_INTERVAL_MS: testValue('TRADE_OWN_FUNDS_SWEEP_INTERVAL_MS'),
+          TRADE_OWN_FUNDS_WALLET: testValue('TRADE_OWN_FUNDS_WALLET'),
+          TRADE_BUILDER_KEY_SEED: testValue('TRADE_BUILDER_KEY_SEED'),
         }
       : {}),
   }),

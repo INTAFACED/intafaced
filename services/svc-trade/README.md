@@ -166,6 +166,12 @@ and a withdrawal stay open below it, so a held account never strands its own fun
 no event is sent: the venue is the record of balances, locks, fills and withdrawals.
 Venue reads are by wallet address, as on a public venue: the door does not yet bind a wallet to a user (that comes with
 B2's TEST wallet). The withdrawal step-up binds the venue account (`owner`, `subAccount`) with the amount and destination.
+A venue market order is bounded twice by owner values, on preview and on prepare: `TRADE_MARKET_SLIPPAGE_CAP_BPS` caps
+its worst price off the best price on the side it meets (blank: `trade.slippage_cap_unset`; past it:
+`trade.venue.price_outside_protection`), and `TRADE_MARKET_SPREAD_LIMIT_BPS` refuses it while the book's spread is wider
+than that share of the best bid (blank: `trade.spread_limit_unset`; wider: `trade.venue.spread_too_wide`). Never a
+default; `GET /api/v1/venue/best-prices` answers both as known or unknown, so the desk closes market orders while either is
+blank (J-cex-spot-03 #2).
 
 **Convert sell quotes on the venue (J-cex-spot-17 #8).** `POST /api/v1/venue/convert/sell-quote`
 `{ owner, symbol, amount, quoteKey }` (trade:write, as the preview) prices a spot sell by the venue's own preview of a
@@ -329,6 +335,8 @@ open has no client idempotency key — see audit residual).
 | **F8**            | seed↔seed prints never inflate public tape                                                                                           |
 
 ### Token buyback IOC buy (J-dex-protocol-17)
+
+`GET /internal/track-record/:userId` (`src/signals/track-record.ts`) answers a signal provider's own record for svc-market's provider criteria (J-copy-bots-otc-22): `{ userId, fills, firstFillAt, asOf }`, counted from `trade.fills`. Only `svc-market` may call it (`403 trade.track_record_forbidden` otherwise); an unreadable count is `503 trade.track_record_unavailable`, never zero.
 
 `POST /internal/buyback/ioc-buy` (`src/spot/buyback-door.ts`) places the token buyback's one IOC limit buy. It takes body-bound service auth, and only `svc-token` may call it; any other service gets `403 trade.buyback_forbidden`. The body is `{ symbol, qty, price, clientOrderId }` in decimal strings, with svc-token's run id as `clientOrderId`. The answer is `{ orderId, status, filledQty, heldQuote, spentQuote, releasedQuote }`.
 

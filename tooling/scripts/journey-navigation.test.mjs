@@ -4,6 +4,7 @@
 // body, or the test reads the old page's answer as the new one's. Failures it prevents, one class (project-state #2065,
 // class B): J-home-ia-06 #1 (#7452, red in 8 journeys runs from 9 to 10 Nov), J-charts-desk-09 #1 (#7919), J-wallet-04 #4
 // (#7457). Run: node tooling/scripts/journey-navigation.test.mjs
+// Before a push: runs from .githooks/pre-push when the push changes a journey file (it takes under a second).
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';

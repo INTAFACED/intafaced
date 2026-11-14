@@ -137,6 +137,7 @@ export const EVENT_BUS_MATRIX = {
   agentUsageSettled: { kind: 'socket', socketClass: 'A' },
   agentUsageAlertCrossed: { kind: 'live' },
   agentApprovalRequested: { kind: 'live' },
+  agentRunCompleted: { kind: 'live' },
   p2pOfferCreated: { kind: 'socket', socketClass: 'A' },
   p2pEscrowLocked: { kind: 'live' },
   p2pEscrowReleased: { kind: 'live' },
@@ -159,6 +160,7 @@ export const EVENT_BUS_MATRIX = {
   venueDelistingScheduled: { kind: 'live' },
   projectionUpdated: { kind: 'socket', socketClass: 'A' },
   supportTicketResolved: { kind: 'live' },
+  quantOrderFilled: { kind: 'live' },
 } as const satisfies Record<EventName, CatalogDisposition>;
 
 /**

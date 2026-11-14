@@ -84,6 +84,15 @@ export interface SettingsEnv {
   readonly ACADEMY_CERT_VERIFY_RATE_WINDOW_SECONDS?: number | undefined;
   readonly ACADEMY_AMBASSADOR_IFC_PAY_LAW_JSON?: string | undefined;
   readonly ACADEMY_AMBASSADOR_REVENUE_SHARE_LAW_JSON?: string | undefined;
+  readonly ACADEMY_PAYMENT_RPC_URL?: string | undefined;
+  readonly ACADEMY_PAYMENT_CHAIN_ID?: number | undefined;
+  readonly ACADEMY_PAYMENT_TOKEN_ADDRESS?: string | undefined;
+  readonly ACADEMY_PAYMENT_TOKEN_DECIMALS?: number | undefined;
+  readonly ACADEMY_PAYMENT_ASSET?: string | undefined;
+  readonly ACADEMY_PAYMENT_RECEIVER?: string | undefined;
+  readonly ACADEMY_PAYMENT_CONFIRMATIONS?: number | undefined;
+  readonly ACADEMY_REFUND_SIGNER_URL?: string | undefined;
+  readonly LEDGER_URL?: string | undefined;
 }
 
 const filled = (v: string | undefined): boolean => typeof v === 'string' && v.trim() !== '';
@@ -109,6 +118,30 @@ export const PENDING_OWNER_SETTINGS: readonly string[] = [
 
 export function settingsRegister(env: SettingsEnv): readonly SettingRow[] {
   const rows: SettingRow[] = [
+    {
+      // J-academy-07: the payment network, token, asset, INTAFACED's receiving address and confirmations, and the ledger.
+      key: 'course_payments',
+      state: state(
+        filled(env.ACADEMY_PAYMENT_RPC_URL) &&
+          positiveInt(env.ACADEMY_PAYMENT_CHAIN_ID) &&
+          filled(env.ACADEMY_PAYMENT_TOKEN_ADDRESS) &&
+          typeof env.ACADEMY_PAYMENT_TOKEN_DECIMALS === 'number' &&
+          filled(env.ACADEMY_PAYMENT_ASSET) &&
+          filled(env.ACADEMY_PAYMENT_RECEIVER) &&
+          positiveInt(env.ACADEMY_PAYMENT_CONFIRMATIONS) &&
+          filled(env.LEDGER_URL),
+      ),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.payments_off',
+    },
+    {
+      key: 'course_refund_signer',
+      state: state(filled(env.ACADEMY_REFUND_SIGNER_URL)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.refund_sender_unset',
+    },
     {
       key: 'room_capacity',
       state: state(positiveInt(env.ACADEMY_MAX_ROOM_CAPACITY)),

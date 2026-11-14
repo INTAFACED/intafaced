@@ -14,9 +14,15 @@
  *   - a failing step's entry is listed twice, its `money` disagrees with the money rule at this run's commit, or its
  *     state is not one the runbook allows;
  *   - an `unbuilt` step passed in a finished run on main after the baseline's named run (it was built, so a failure now
- *     is a regression); the runs up to the named run are the baseline's own claim, which its PR proved (`runsRead`);
+ *     is a regression); the runs up to the named run are the baseline's own claim, which its PR proved (`runsRead`). A
+ *     run off main (a pull request's or a branch's) is held only to main's runs on commits its head contains
+ *     (branchRuns): a step built on main after the branch was cut is not the branch's to keep passing;
  *   - a `regression` step is money, or its issue is not an open regression issue whose newest state line, by an owner,
  *     member or collaborator, is `parked` with a blocker;
+ *   - a test in a journey file with no step title (`part of #n`, `starts:`, `ends:`, `outside:`, a custodial check kept
+ *     beside a venue step) failed or was skipped after it passed on main: in the baseline's named run or in a finished
+ *     run on main since (the `unbuilt` rule, project-state #2232, the lead's call under row d69). One that never passed
+ *     tests work not built yet and stays out until it first passes. No set-aside excuses one;
  *   - an input could not be read: this run's report, the named run's report, the pass history since it, or an issue.
  *     Every unreadable input is red (fail closed), never green.
  * The workflow adds the rest: a shard with no report, and a shard job red for any reason other than its journeys failing
@@ -72,7 +78,15 @@ export const BASELINE_PATH = 'docs/runbooks/journey-baseline.json';
 export const JOURNEYS_FILE = 'real-app-journeys.yml';
 export const JOURNEYS_ARTIFACT = 'real-app-journeys';
 export const LEDGER_CLIENT = '@intafaced/ledger-client';
-/** More finished runs on main than this since the baseline's named run: red, and the baseline is rewritten. */
+/**
+ * More finished runs on main than this that one verdict must download (since the baseline's named run, not covered by
+ * the newest stored pass history; toDownload): red, and the baseline is rewritten. It bounds what one verdict spends:
+ * two API calls and a report download per run read. Until 14 Nov 2026 it counted every run since the named run, which
+ * the stored history (12 Nov) made a count of age rather than of cost: run 1719's baseline passed 150 runs on 14 Nov
+ * 05:12 UTC and every verdict went red on that input alone (intafaced PR #8295, run 43557297708). What still grows
+ * with every run since the named run: the list of runs (one call per 100, ghPages stops at 20 pages, 2000 runs) and
+ * the stored file (one entry per run with a report).
+ */
 export const HISTORY_MAX = 150;
 /** How long the machine sets a flaky step aside, from the first run on main where it was flaky. */
 export const SET_ASIDE_DAYS = 7;
@@ -113,9 +127,24 @@ export const passedAfterFailing = (t) => {
 export const testPassed = (t) => t.status === 'expected' || (t.status === 'flaky' && passedAfterFailing(t));
 /** A journey test file, as the real-app folder names them. */
 const PARTIAL_JOURNEY_FILE = /^J-[a-z0-9-]+\.pw\.mjs$/;
+/**
+ * The key of a test with no step title in a journey file: `J-x-NN#test <file> › <title>`. Its journey (the title's
+ * leading id, else the file's) comes before the `#`, as a step's does, so readers that take a step's journey from its
+ * key (journey-seal.mjs journeyOf) read it the same; a step key's `#` is followed by a number, this one's never is.
+ */
+export const TEST_KEY = '#test ';
+export const testKey = (file, title) => {
+  const id = /^(J-[a-z0-9-]+?-\d+)\b/.exec(title ?? '')?.[1] ?? /^(J-[a-z0-9-]+?-\d+)[-.]/.exec(file)?.[1] ?? file;
+  return `${id}${TEST_KEY}${file} › ${title}`;
+};
+export const isTestKey = (key) => String(key).includes(TEST_KEY);
 export function readReport(report) {
   const states = {};
   const files = {};
+  // Tests with no step title in journey files: { key: "passed"|"flaky"|"failed"|"skipped" } by the steps' rule, and
+  // each one's file (testKey). The verdict judges them once they have passed on main (judge).
+  const tests_ = {};
+  const testFiles = {};
   const retried = new Set();
   const ran = new Set();
   const partial = new Set();
@@ -137,18 +166,16 @@ export function readReport(report) {
         if (!PARTIAL_JOURNEY_FILE.test(f)) continue;
         if (tests.length && tests.every(testPassed)) partial.add(f);
         else partialFailed.add(f);
+        const k = testKey(f, spec.title);
+        const state = specState(tests);
+        const had = tests_[k];
+        tests_[k] = ['failed', 'flaky', 'passed'].find((s) => had === s || state === s) ?? 'skipped';
+        testFiles[k] = f;
         continue;
       }
       const tests = spec.tests ?? [];
       if (tests.some((t) => t.status === 'flaky')) retried.add(key);
-      const state =
-        tests.length && tests.every((t) => t.status === 'skipped')
-          ? 'skipped'
-          : tests.length && tests.every(testPassed)
-            ? tests.some((t) => t.status === 'flaky')
-              ? 'flaky'
-              : 'passed'
-            : 'failed';
+      const state = specState(tests);
       const had = states[key];
       states[key] = ['failed', 'flaky', 'passed'].find((s) => had === s || state === s) ?? 'skipped';
       const f = spec.file ?? here;
@@ -159,7 +186,18 @@ export function readReport(report) {
   };
   for (const suite of report?.suites ?? []) walk(suite, suite.file);
   for (const f of partial) if (!partialFailed.has(f) && !ran.has(f)) ran.add(f);
-  return { states, files, ran: [...ran].sort(), retried };
+  return { states, files, ran: [...ran].sort(), retried, tests: tests_, testFiles };
+}
+/** One spec's state from its tests (one per project): skipped when all skipped, passed or flaky when all passed
+ *  (testPassed), else failed. */
+function specState(tests) {
+  return tests.length && tests.every((t) => t.status === 'skipped')
+    ? 'skipped'
+    : tests.length && tests.every(testPassed)
+      ? tests.some((t) => t.status === 'flaky')
+        ? 'flaky'
+        : 'passed'
+      : 'failed';
 }
 
 /** The money rule (regression-issue-state.md "Money"; the same as project-state ready-journeys.mjs moneyRule). */
@@ -397,7 +435,22 @@ export function judge({
       }
     } else no(`state "${e.state}" is not one the baseline allows`);
   }
-  return { failing: failing.size, red, setAside: kept, flaky: flakySteps };
+  // Tests with no step title (project-state #2232): one that passed on main, in the named run or a run since, and
+  // fails or is skipped now is red, as an `unbuilt` step that passed is. One that never passed stays out. Each counts
+  // as money when its journey has a money step, or no step the money rule knows.
+  const journeyMoney = (id) => {
+    const known = Object.entries(money).filter(([k]) => k.split('#')[0] === id);
+    return !known.length || known.some(([, m]) => m);
+  };
+  let testsFailing = 0;
+  for (const [k, s] of Object.entries(newest.tests ?? {}).sort(([a], [b]) => byStep(a, b))) {
+    if (s !== 'failed' && s !== 'skipped') continue;
+    const when = PASSED_BEFORE.has(named?.tests?.[k]) ? runNo : passedSince[k];
+    if (when === undefined) continue;
+    testsFailing++;
+    red.push({ step: k, why: `a test with no step title: passed on main in run ${when}, ${s} now`, money: journeyMoney(k.split('#')[0]) });
+  }
+  return { failing: failing.size, testsFailing, red, setAside: kept, flaky: flakySteps };
 }
 
 /** A git command's exit: 0 or 1 (a plain no). Any other failure (a missing object, a shallow clone, no git) throws, so a
@@ -469,7 +522,8 @@ export const excusedSetAside = ({ setAside, onMain, incomplete }) => (onMain && 
 export function passesSince(reports) {
   const out = {};
   for (const [n, r] of reports)
-    for (const [step, s] of Object.entries(r.states)) if ((s === 'passed' || s === 'flaky') && !(out[step] >= n)) out[step] = n;
+    for (const [step, s] of [...Object.entries(r.states), ...Object.entries(r.tests ?? {})])
+      if ((s === 'passed' || s === 'flaky') && !(out[step] >= n)) out[step] = n;
   return out;
 }
 
@@ -484,6 +538,43 @@ export function historyRuns(runs, { repo, namedCreated, thisCreated, thisId }) {
     .filter((r) => r.status === 'completed' && !['cancelled', 'skipped'].includes(r.conclusion))
     .filter((r) => r.created_at > namedCreated && r.created_at < thisCreated)
     .sort((a, b) => a.run_number - b.run_number);
+}
+
+/**
+ * THE BRANCH'S OWN HISTORY. A run off main is held only to main's runs on commits its head contains: a step that passed
+ * only in main's runs after the branch was cut was built in code the branch does not have, so its failure on the
+ * branch is not a regression the branch made (intafaced #8284 at 49bd7d4, 14 Nov 2026: red only on J-agents-09 #1 to
+ * #6, built on main by #8282 after its branch was cut, and one push only to merge main). Main's own runs, and every
+ * run given no head, keep the whole history. `runs` is historyRuns() (oldest first); `compare(head, base)` is GitHub's
+ * compare of `head...base`, the commits on `base` the head lacks. One call, against the newest history run's commit:
+ * main is never rewritten, so every history run's commit is on it, and it is on the head exactly when it is not in
+ * that list. A compare that can't be read or lists less than all it counts keeps the whole history, the stricter
+ * reading, and says why (`kept`). Returns { runs, left: [run numbers left out], kept }.
+ */
+const SHA = /^[0-9a-f]{40}$/i;
+export function branchRuns(runs, { run, repo, compare }) {
+  const all = { runs, left: [], kept: null };
+  if (!runs.length || isMainRun(run, repo)) return all;
+  const head = run?.head_sha;
+  const base = runs.at(-1)?.head_sha;
+  if (!SHA.test(String(head)) || !SHA.test(String(base))) return { ...all, kept: 'the run or main has no commit to compare' };
+  let cmp;
+  try {
+    cmp = compare(head, base);
+  } catch (e) {
+    return { ...all, kept: `the compare of ${head.slice(0, 7)} with main couldn't be read (${String(e?.message).split('\n')[0]})` };
+  }
+  if (!Array.isArray(cmp?.commits) || !Number.isInteger(cmp?.total_commits) || cmp.commits.length !== cmp.total_commits)
+    return {
+      ...all,
+      kept: `the compare of ${head.slice(0, 7)} with main lists ${cmp?.commits?.length ?? 'no'} of ${cmp?.total_commits ?? '?'} commits`,
+    };
+  const lacking = new Set(cmp.commits.map((c) => String(c?.sha)));
+  return {
+    runs: runs.filter((r) => !lacking.has(r.head_sha)),
+    left: runs.filter((r) => lacking.has(r.head_sha)).map((r) => r.run_number),
+    kept: null,
+  };
 }
 
 /**
@@ -515,7 +606,8 @@ export function readHistory(runs, read) {
  * THE STORED PASS HISTORY (pass-history.json, in each main run's HISTORY_ARTIFACT). Reading main's
  * history run by run cost 208 API calls and about 10 minutes per verdict on 12 Nov 2026 (98 runs since the baseline, two
  * calls each), and the merge seal read it all again. Each main run now stores, for every history run it read and for
- * itself, the steps that passed there (passed or flaky, as passesSince counts them) and the attempt it read. A later
+ * itself, the steps that passed there (passed or flaky, as passesSince counts them; `tests`: the same for tests with no
+ * step title, since 14 Nov 2026, project-state #2232) and the attempt it read. A later
  * verdict reads the newest such file and only the runs it does not cover: a run newer than the file, a run the file read
  * at another attempt (re-run since), or one with no report (skipped again, so it can never turn every pull request red).
  * The pass history it gives is the same as reading every run: passesSince takes, per step, the newest run that passed it,
@@ -533,12 +625,20 @@ export const passedSteps = (report) =>
     .filter(([, s]) => s === 'passed' || s === 'flaky')
     .map(([step]) => step)
     .sort(byStep);
+/** The tests with no step title a report passed (passed or flaky), keyed by testKey: stored beside `passed` as `tests`.
+ *  An entry written before they were stored has no `tests`; it counts none of them as passed. */
+export const passedTests = (report) =>
+  Object.entries(report.tests ?? {})
+    .filter(([, s]) => s === 'passed' || s === 'flaky')
+    .map(([k]) => k)
+    .sort(byStep);
 export const attemptOf = (run) => Number(run.run_attempt || 1);
 /** A stored file's run entries, or null when it isn't one this code reads. */
 export function storedRuns(file) {
   if (file?.version !== HISTORY_VERSION || !file.runs || typeof file.runs !== 'object') return null;
   for (const e of Object.values(file.runs))
     if (!Number.isInteger(e?.number) || !Number.isInteger(e?.attempt) || !Array.isArray(e?.passed)) return null;
+    else if (e.tests !== undefined && !Array.isArray(e.tests)) return null;
   return file.runs;
 }
 /** The newest stored file among the newest `lookback` history runs: { from: run number, runs } or null. `readFile(run)`
@@ -562,6 +662,11 @@ export function findStored(runs, readFile, { lookback = STORED_LOOKBACK, refusal
  * readHistory's { reports, skipped } with each report reduced to the steps it passed, plus `entries` (each run's entry,
  * for the next file) and `read` (the run numbers downloaded).
  */
+/** The runs historyThrough would download: every run the stored file does not hold at the attempt it finished on
+ *  (a run with no report is never in a file, so it counts each time). With no stored file, every run. */
+export function toDownload(runs, stored) {
+  return runs.filter((r) => stored?.runs[String(r.id)]?.attempt !== attemptOf(r));
+}
 export function historyThrough(runs, { stored, read }) {
   const entries = {};
   const downloaded = [];
@@ -569,11 +674,14 @@ export function historyThrough(runs, { stored, read }) {
     const e = stored?.runs[String(r.id)];
     if (e && e.attempt === attemptOf(r)) {
       entries[r.id] = e;
-      return { states: Object.fromEntries(e.passed.map((step) => [step, 'passed'])) };
+      return {
+        states: Object.fromEntries(e.passed.map((step) => [step, 'passed'])),
+        tests: Object.fromEntries((e.tests ?? []).map((k) => [k, 'passed'])),
+      };
     }
     downloaded.push(r.run_number);
     const report = read(r);
-    if (report) entries[r.id] = { number: r.run_number, attempt: attemptOf(r), passed: passedSteps(report) };
+    if (report) entries[r.id] = { number: r.run_number, attempt: attemptOf(r), passed: passedSteps(report), tests: passedTests(report) };
     return report;
   });
   return { ...got, entries, read: downloaded };
@@ -694,7 +802,7 @@ export function rootInputs(root, baselineFile) {
  * The verdict's inputs read from GitHub, GET only: the baseline's named run's report, the pass history on main after it
  * and before the run judged (`thisRunId`, or `thisRun` when already read), and the regression issues the baseline names.
  * Returns { named, passedSince, issues, problems, shas, skipped }; `skipped` lists the history runs that finished with no
- * report (readHistory); `entries` each history run's stored entry (historyThrough), null when the history couldn't be
+ * report (readHistory); `leftOut` the history runs on commits a run off main does not contain (branchRuns); `entries` each history run's stored entry (historyThrough), null when the history couldn't be
  * read. Each input that can't be read is a problem, which is red, never
  * green. `shas` maps the run number of the named run and of each history run to its head commit (the merge seal reads
  * where a step last passed from it). `reports` caches downloaded reports by run id, so the merge seal reading several runs downloads each once.
@@ -707,6 +815,7 @@ export function fetchInputs({
   reports = new Map(),
   log = console.log,
   readStored = (r) => downloadReport(repo, r.id, HISTORY_FILE, true, { artifact: HISTORY_ARTIFACT }),
+  compare = (head, base) => ghApi(`/repos/${repo}/compare/${head}...${base}`),
 }) {
   const problems = [];
   const reportOf = (id, raw) => {
@@ -714,6 +823,7 @@ export function fetchInputs({
     return reports.get(id);
   };
   let skipped = [];
+  let leftOut = [];
   let entries = null;
   let named = null;
   let passedSince = {};
@@ -734,14 +844,22 @@ export function fetchInputs({
     shas[namedRun.run_number] = namedRun.head_sha;
     const runs = historyRuns(all, { repo, namedCreated: namedRun.created_at, thisCreated: run.created_at, thisId: run.id });
     for (const r of runs) shas[r.run_number] = r.head_sha;
-    if (runs.length > HISTORY_MAX)
-      throw new Error(
-        `${runs.length} finished runs on main since run ${baseline.run.number}, more than ${HISTORY_MAX}: rewrite the baseline from a newer run`,
-      );
-    // The newest stored pass history, then only the runs it doesn't cover (historyThrough). A finished run that kept
-    // no report is skipped (readHistory), only in the history: the named run must have one.
+    // The newest stored pass history, looked for among every run on main: its entries are per run, so the newest
+    // covers the most. The cap counts what is left to download among every run on main (toDownload), so a run off
+    // main is held to the same bound as main's own.
     const stored = findStored(runs, readStored);
-    const history = historyThrough(runs, {
+    const left = toDownload(runs, stored).length;
+    if (left > HISTORY_MAX)
+      throw new Error(
+        `${left} of ${runs.length} finished runs on main since run ${baseline.run.number} are not in a stored pass history, more than ${HISTORY_MAX}: rewrite the baseline from a newer run`,
+      );
+    // Off main, only main's runs on commits this run's head contains (branchRuns).
+    const own = branchRuns(runs, { run, repo, compare });
+    leftOut = own.left;
+    if (own.kept) log(`pass history: every run on main is read, ${own.kept}`);
+    // Then only the runs the stored history doesn't cover (historyThrough). A finished run that kept no report is
+    // skipped (readHistory), only in the history: the named run must have one.
+    const history = historyThrough(own.runs, {
       stored,
       read: (r) => {
         if (reports.has(r.id)) return reports.get(r.id);
@@ -755,7 +873,8 @@ export function fetchInputs({
       `pass history: ${history.reports.length} finished run(s) on main after run ${baseline.run.number}` +
         (stored ? `, from run ${stored.from}'s stored history` : ', no stored history found') +
         `; downloaded ${history.read.length}` +
-        (skipped.length ? `; skipped, finished with no report: run ${skipped.join(', run ')}` : ''),
+        (skipped.length ? `; skipped, finished with no report: run ${skipped.join(', run ')}` : '') +
+        (leftOut.length ? `; left out, on commits this head does not contain: run ${leftOut.join(', run ')}` : ''),
     );
     passedSince = passesSince(history.reports);
   } catch (e) {
@@ -768,7 +887,7 @@ export function fetchInputs({
       issues[n] = { problem: e.message.split('\n')[0] };
     }
   }
-  return { named, passedSince, issues, problems, shas, skipped, entries };
+  return { named, passedSince, issues, problems, shas, skipped, entries, leftOut };
 }
 
 function main() {
@@ -797,6 +916,7 @@ function main() {
   let passedSince = {};
   let issues = {};
   let skipped = [];
+  let leftOut = [];
   let entries = null;
   let thisRun = {
     number: Number(arg('--run-number') ?? process.env.GITHUB_RUN_NUMBER) || null,
@@ -804,7 +924,7 @@ function main() {
   };
   if (fetch) {
     const got = fetchInputs({ repo, baseline, thisRunId: process.env.GITHUB_RUN_ID });
-    ({ named, passedSince, issues, skipped, entries } = got);
+    ({ named, passedSince, issues, skipped, entries, leftOut = [] } = got);
     for (const why of got.problems) problem(why);
   } else {
     try {
@@ -883,6 +1003,7 @@ function main() {
         number: thisRun.number,
         attempt: Number(process.env.GITHUB_RUN_ATTEMPT || 1),
         passed: passedSteps(newest),
+        tests: passedTests(newest),
       };
     writeFileSync(arg('--history-out'), `${JSON.stringify({ version: HISTORY_VERSION, run: thisRun.number, runs })}\n`);
   }
@@ -903,7 +1024,7 @@ function main() {
           setAside: excusedSetAside({ setAside, onMain, incomplete }),
           onMain,
         })
-      : { failing: 0, red: [], setAside: [], flaky: [] };
+      : { failing: 0, testsFailing: 0, red: [], setAside: [], flaky: [] };
   verdict.red.unshift(...red);
   const asideRows = Object.entries(setAside)
     .sort(([a], [b]) => byStep(a, b))
@@ -942,7 +1063,13 @@ function main() {
           `Pass history: skipped main run ${skipped.join(', run ')}, finished with no report. A step that passed only there and fails here counts as not built yet; main's next full run catches it.`,
         ]
       : []),
-    `Failing or missing steps: ${verdict.failing}; outside the list or against its rules: **${verdict.red.length}**.`,
+    ...(leftOut.length
+      ? [
+          '',
+          `Pass history: left out main run ${leftOut.join(', run ')}, on commits this head does not contain. A step built on main after this branch was cut is not held against it; main's own runs still judge it.`,
+        ]
+      : []),
+    `Failing or missing steps: ${verdict.failing}; tests with no step title failing after a pass on main: ${verdict.testsFailing ?? 0}; outside the list or against its rules: **${verdict.red.length}**.`,
     '',
     ...(verdict.red.length
       ? verdict.red.map((r) => `- ${r.step}${r.money ? ' (money)' : ''}: ${r.why}`)
