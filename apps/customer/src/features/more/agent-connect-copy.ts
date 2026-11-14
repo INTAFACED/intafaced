@@ -62,7 +62,7 @@ const en = {
   payloadUnreadable: 'The venue sent an action your wallet cannot read, so nothing was signed or sent.',
   rejectedNotEnded:
     'You rejected the signature, so nothing moved, but the opening account could not be ended just now ({message}). It is listed above as Opening.',
-  notFinished: 'The agent account is not open yet: an action is still waiting for your wallet. It is listed above.',
+  notFinished: 'The agent account is not open: an action is waiting for your wallet. It is listed above as Opening.',
   walletFailed: 'Your wallet did not sign: {reason}. Nothing was sent.',
   created: 'Agent account open: balance {balance} {asset}, cap {cap} {asset}, as the venue reports it.',
 
