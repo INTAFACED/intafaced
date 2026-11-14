@@ -19,6 +19,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     LEDGER_URL: urlOf('ledger'),
     // svc-trade's public market list names the market a fill's id points at, for a step on one market.
     TRADE_URL: urlOf('trade'),
+    // The welcome deposit task (J-campaigns-04 #2): the person's connected wallets from svc-protocol, and the venue's
+    // deposits into their venue accounts through svc-trade's door (TRADE_URL), signed with the stack's shared secret.
+    PROTOCOL_URL: urlOf('protocol'),
     // LOCAL TEST only, labelled in tooling/profiles/test-owner-values/campaigns.json: the reconciler interval and the
     // rollback window a reward record shows. Production stays blank: no reconciler runs, and the window reads "not set".
     CAMPAIGNS_RECONCILE_AFTER_SECONDS: '5',
@@ -34,5 +37,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ACCOUNT: '20',
     CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ADDRESS: '500',
     CAMPAIGNS_VOUCHER_ATTEMPT_WINDOW_SECONDS: '3600',
+    // LOCAL TEST only, labelled in tooling/profiles/test-owner-values/campaigns.json: the most codes one batch makes or
+    // imports, and how long an export's link works (J-campaigns-17). `LOCAL_STACK_CAMPAIGNS_CODE_BATCH_MAX=off` leaves the
+    // batch limit blank, so its "not set" refusal can be seen too. The two alert thresholds stay blank, as in production:
+    // each alert reads "not set" and refuses to be switched on. Production leaves all of them blank until the owner sets them.
+    ...(process.env.LOCAL_STACK_CAMPAIGNS_CODE_BATCH_MAX === 'off' ? {} : { CAMPAIGNS_CODE_BATCH_MAX: '5' }),
+    CAMPAIGNS_EXPORT_LINK_SECONDS: '20',
   }),
 });

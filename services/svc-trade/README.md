@@ -166,6 +166,12 @@ and a withdrawal stay open below it, so a held account never strands its own fun
 no event is sent: the venue is the record of balances, locks, fills and withdrawals.
 Venue reads are by wallet address, as on a public venue: the door does not yet bind a wallet to a user (that comes with
 B2's TEST wallet). The withdrawal step-up binds the venue account (`owner`, `subAccount`) with the amount and destination.
+A venue market order is bounded twice by owner values, on preview and on prepare: `TRADE_MARKET_SLIPPAGE_CAP_BPS` caps
+its worst price off the best price on the side it meets (blank: `trade.slippage_cap_unset`; past it:
+`trade.venue.price_outside_protection`), and `TRADE_MARKET_SPREAD_LIMIT_BPS` refuses it while the book's spread is wider
+than that share of the best bid (blank: `trade.spread_limit_unset`; wider: `trade.venue.spread_too_wide`). Never a
+default; `GET /api/v1/venue/best-prices` answers both as known or unknown, so the desk closes market orders while either is
+blank (J-cex-spot-03 #2).
 
 **Convert sell quotes on the venue (J-cex-spot-17 #8).** `POST /api/v1/venue/convert/sell-quote`
 `{ owner, symbol, amount, quoteKey }` (trade:write, as the preview) prices a spot sell by the venue's own preview of a
@@ -184,6 +190,24 @@ through the door (`ownerSignedAccounts` over `trade.user_venue_actions`: owner r
 signature stored after the door checked it recovers); an account read only by address is not theirs, and an agent's
 signature names none. The fee is everything the venue charged (its fee and any builder fee), in the fee coin. Nothing is
 stored. The door off answers `{ state: 'off' }`; the venue down answers `SERVICE_UNAVAILABLE`, never an empty list.
+
+### Live strategy runs (J-algo-dev-07, `src/quant/live-run/`)
+
+A saved order-block strategy (svc-quant `studio.get`, read with the person's own forwarded session) runs live on the
+person's own venue sub-account, through an agent permission their wallet signs for that run's key only
+(`agentAddressFor(seed, userId, 'quant-live:<run>')`). The ledger posts nothing: cash, positions and fills are the venue's
+own record, read with its as-of time. Routes under `/api/v1/quant/live-runs`: `GET /`, `POST /` (start: refuses a blank
+`restartAttempts`, `statePolicy` or `cap` by name, a strategy with signal rules, an unknown sub-account), `GET /:id`,
+`POST /:id/submit` (the wallet's signature), `/stop` and `/liquidate` (keyed by the press's `seq`), `/orders` (a manual
+order under the run's next `seq`; only with the live-control grant) and `/test/kill-process` (TEST venue only).
+Client order ids are `algo:order:<run>:<seq>`, `algo:liquidate:<run>:<seq>` and `algo:stop:<run>:<seq>:<order>`; the door
+reserves the `algo:` prefix to the live run (`trade.venue_live_run_only`). A supervisor pass every half heartbeat
+(`TRADE_QUANT_LIVE_HEARTBEAT_MS`, owner value, blank refuses every start) reads the person's own freeze from svc-identity
+(frozen: cancel, stop `account_frozen`, the run's key signs nothing more), steps a live run, and recovers a dead one:
+`unknown`, then the reconciler reads its orders back by their client order ids, then a restart within the person's
+attempt limit reloading open orders and positions from the venue, or `ended` with `attempts_exhausted`. Rows:
+`trade.quant_live_runs`, `trade.quant_live_run_orders` (unique per action key; the next `seq` is taken under the run's
+row lock) and `trade.quant_live_run_events`.
 
 ### Our builder fee in the ledger (D-venue-07, J-derivatives-17)
 
@@ -311,6 +335,8 @@ open has no client idempotency key — see audit residual).
 | **F8**            | seed↔seed prints never inflate public tape                                                                                           |
 
 ### Token buyback IOC buy (J-dex-protocol-17)
+
+`GET /internal/track-record/:userId` (`src/signals/track-record.ts`) answers a signal provider's own record for svc-market's provider criteria (J-copy-bots-otc-22): `{ userId, fills, firstFillAt, asOf }`, counted from `trade.fills`. Only `svc-market` may call it (`403 trade.track_record_forbidden` otherwise); an unreadable count is `503 trade.track_record_unavailable`, never zero.
 
 `POST /internal/buyback/ioc-buy` (`src/spot/buyback-door.ts`) places the token buyback's one IOC limit buy. It takes body-bound service auth, and only `svc-token` may call it; any other service gets `403 trade.buyback_forbidden`. The body is `{ symbol, qty, price, clientOrderId }` in decimal strings, with svc-token's run id as `clientOrderId`. The answer is `{ orderId, status, filledQty, heldQuote, spentQuote, releasedQuote }`.
 

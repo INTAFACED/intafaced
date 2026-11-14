@@ -1,8 +1,10 @@
+import { attachApiKeyRotationRoutes, type ApiKeyRotationClient } from './account/api-key-rotation-rest.js';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { requireScope, tradeTier, type Principal } from '@intafaced/auth';
 import { attachConvertExportRoute } from './convert/convert-history-rest.js';
 import { attachConvertRestRoutes, type ConvertRestPort } from './convert/convert-rest.js';
 import { attachStatementRoutes, type StatementRestDeps } from './statements/statement-rest.js';
+import { refuseLeadOrder, type LeadOrderGate } from './copy/lead-api.js';
 import { attachCopyExportRoute } from './copy/copy-export-rest.js';
 import { attachAlgoRestRoutes, type AlgoRestPort } from './algo/algo-rest.js';
 import { attachRfqExportRoute } from './otc/rfq-history-rest.js';
@@ -13,6 +15,7 @@ import { createOrderRequestSchema, type CreateOrderRequest } from '@intafaced/ex
 import {
   ZERO,
   add,
+  div,
   formatAmount,
   mul,
   parseAmount,
@@ -96,7 +99,10 @@ import { privateRead, privateWith, privateWrite, publicRead } from './route-inve
 import { attachGridRestRoutes } from './grid/grid-rest.js';
 import { attachUserVenueRoutes } from './venue/user-venue-rest.js';
 import { attachAgentAccountRoutes } from './venue/agent-account-rest.js';
+import type { AgentActivity } from './venue/agent-order-calls.js';
 import { attachOwnAgentTradingRoutes } from './venue/own-agent-trading-rest.js';
+import { attachLiveRunRoutes } from './quant/live-run/rest.js';
+import type { LiveRuns } from './quant/live-run/live-runs.js';
 import type { OwnAgentTrading } from './venue/own-agent-trading.js';
 import type { AgentAccounts } from './venue/agent-account.js';
 import type { AgentOrders } from './venue/agent-orders.js';
@@ -191,6 +197,8 @@ function isSpotOrderType(type: string): type is (typeof SPOT_ORDER_TYPES)[number
 const ORDER_ID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface PrivateRestDeps {
+  /** A key's own rotation request, passed to identity (account/api-key-rotation-rest.ts, J-developer-07 #3). */
+  apiKeyRotation?: ApiKeyRotationClient;
   /** Shared EDGE_PRINCIPAL_SECRET — same value tRPC uses. */
   edgeSecret: string;
   edgeTrust?: EdgeTrust;
@@ -205,18 +213,26 @@ export interface PrivateRestDeps {
   /** D-ops-01 gated list. Absent: the route answers 503 `trade.gated_list_unmounted`. */
   gatedList?: (subject: GatedListSubject) => Promise<readonly GatedContract[]>;
   copyExport?(principal: Principal, query: { followId?: string; from?: string; to?: string }): Promise<string>;
+  /** The lead API's own check before the ordinary order path (`copy/lead-api.ts`). Absent: the lead API answers 503. */
+  leadOrderGate?: LeadOrderGate;
   /** The spot grid bot service behind `/api/v1/bots/grid` (J-copy-bots-otc-19). Omitted: every grid door answers 503. */
   grid?: GridService;
   /** The B1 user-venue door; `null` or absent when TRADE_USER_VENUE_URL is unset (status answers `{ enabled: false }`). */
   userVenue?: UserVenueRouter | null;
   /** The owner's market price protection, TRADE_MARKET_SLIPPAGE_CAP_BPS (null when blank), as `/venue/best-prices` answers it. */
   userVenueSlippageCapBps?: number | null;
+  /** The owner's spread limit for a venue spot market order, TRADE_MARKET_SPREAD_LIMIT_BPS (null when blank). */
+  userVenueSpreadLimitBps?: number | null;
   /** J-agents-21's agent account beside the door (src/venue/agent-account.ts); null when the door is off. */
   agentAccounts?: AgentAccounts | null;
   /** The assistant's trade path on its agent account (J-agents-21 #6 #7 #10). Off with the door. */
   agentOrders?: AgentOrders | null;
+  /** The assistant connection's Activity (J-agents-21 #11). Off with the door. */
+  agentActivity?: AgentActivity | null;
   /** A person's own agent trading their venue sub-account under an allowance (J-agents-08 #3 to #7). Off with the door. */
   ownAgentTrading?: OwnAgentTrading | null;
+  /** Live strategy runs (J-algo-dev-07); null with the user-venue door off. */
+  liveRuns?: LiveRuns | null;
   /** Convert's sell quotes priced by the venue (J-cex-spot-17 #8); absent with the door. */
   venueSellQuotes?: VenueSellQuotes | null;
   /** The algo engine's calls (CB-execution-08). Absent: every `/api/v1/algo` door answers 503 `trade.algo_unavailable`. */
@@ -265,6 +281,11 @@ export interface PrivateRestDeps {
   getOrder(principal: Principal, orderId: string): Promise<OrderRecord>;
   /** One of the caller's orders' fills, oldest first; another person's order is not found. Unset mounts a typed 503. */
   orderFills?(principal: Principal, orderId: string, limit: number): Promise<FillRecord[]>;
+  /**
+   * Every fill of several of the caller's orders, keyed by order id, so an order's `cost`, `average` and `fee` are what
+   * its fills paid (#4677). Unset: the order wire keeps its price × filled estimate.
+   */
+  ordersFills?(principal: Principal, orderIds: readonly string[]): Promise<ReadonlyMap<string, readonly FillRecord[]>>;
   /** Every amend and replace of one order, oldest first. Unset mounts a typed 503, never an empty list. */
   orderAmendments?(principal: Principal, orderId: string): Promise<OrderAmendment[]>;
   /** My place in the queue for one of my own resting orders (spot/queue-position.ts). Unwired: a typed 503. */
@@ -584,8 +605,10 @@ export function toCcxtOrderStatus(status: OrderStatus): 'open' | 'closed' | 'can
  * limit price and without loaded fills the cost is unknown — return null.
  * Never invent a confident "0", and never price the sell at the floor.
  */
-export function presentCcxtOrderCost(order: OrderRecord, fills?: readonly Pick<FillRecord, 'quoteAmount'>[]): string | null {
+export function presentCcxtOrderCost(order: OrderRecord, fills?: readonly Pick<FillRecord, 'quoteAmount'>[] | null): string | null {
   if (order.filledQty === 0n) return '0';
+  // The fills were to be read and the read failed: the paid amount is unknown, never the estimate below.
+  if (fills === null) return null;
   if (fills !== undefined) {
     let total: Amount = ZERO;
     for (const f of fills) total = add(total, f.quoteAmount);
@@ -597,9 +620,62 @@ export function presentCcxtOrderCost(order: OrderRecord, fills?: readonly Pick<F
 }
 
 /**
- * CCXT `Order` shape (decimal strings). Fees/trades omitted on list/get unless
- * the fill set is loaded elsewhere — bots re-fetch fills via account/trades.
- * Pass `fills` when loaded so `cost` is Σ quote (true notional), not null.
+ * What an order's fills paid (#4677): `cost` Σ quote, `average` cost ÷ filled, `fee` Σ fee when every fill paid it in
+ * one asset (else null, with each asset's sum in `fees`). Fills that do not add up to the order's filled quantity (a
+ * fill not yet landed) state nothing: all null, never a partial sum. `null` fills (a failed read) state nothing too.
+ */
+export function presentCcxtOrderPaid(
+  order: OrderRecord,
+  fills: readonly Pick<FillRecord, 'qty' | 'quoteAmount' | 'feeAsset' | 'feeAmount'>[] | null,
+): {
+  cost: string | null;
+  average: string | null;
+  fee: { cost: string; currency: string } | null;
+  fees: { cost: string; currency: string }[] | null;
+} {
+  if (order.filledQty === 0n) return { cost: '0', average: null, fee: null, fees: [] };
+  if (fills === null) return { cost: null, average: null, fee: null, fees: null };
+  let qty: Amount = ZERO;
+  let cost: Amount = ZERO;
+  const feeByAsset = new Map<string, Amount>();
+  for (const f of fills) {
+    qty = add(qty, f.qty);
+    cost = add(cost, f.quoteAmount);
+    feeByAsset.set(f.feeAsset, add(feeByAsset.get(f.feeAsset) ?? ZERO, f.feeAmount));
+  }
+  if (qty !== order.filledQty) return { cost: null, average: null, fee: null, fees: null };
+  const fees = [...feeByAsset].map(([currency, amount]) => ({ cost: formatAmount(amount), currency }));
+  return { cost: formatAmount(cost), average: formatAmount(div(cost, qty)), fee: fees.length === 1 ? fees[0]! : null, fees };
+}
+
+/**
+ * The caller's fills of these orders, read once, so the wire states what each order paid (#4677). No reader: undefined
+ * (the wire keeps its estimate). A failed read states nothing rather than failing the orders read: each filled order's
+ * cost, average and fee read null.
+ */
+async function withPaid(
+  deps: PrivateRestDeps,
+  principal: Principal,
+  orders: readonly OrderRecord[],
+  log: { warn: (obj: object, msg: string) => void },
+) {
+  const filled = orders.filter((o) => o.filledQty !== 0n).map((o) => o.id);
+  const fills =
+    deps.ordersFills && filled.length > 0
+      ? await deps.ordersFills(principal, filled).catch((err: unknown) => {
+          log.warn({ err, orders: filled.length }, 'order fills read failed; the orders read states no cost');
+          return null;
+        })
+      : undefined;
+  return <W extends object>(order: OrderRecord, wire: W): W => {
+    if (fills === undefined || order.filledQty === 0n) return wire;
+    return { ...wire, ...presentCcxtOrderPaid(order, fills === null ? null : (fills.get(order.id) ?? [])) };
+  };
+}
+
+/**
+ * CCXT `Order` shape (decimal strings). `trades` stays empty: bots read fills via orders/:id/trades. The order reads
+ * lay what the fills paid over `cost`, `average` and `fee` (`withPaid`); without fills `cost` is the price × filled estimate.
  */
 /** A bare `stopPx` on a limit body would reach the engine with no stored trigger; the one door is `type: stop_limit`. */
 function hasRawStopPx(body: unknown): boolean {
@@ -1338,6 +1414,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
   attachAlgoRestRoutes(app, deps.algo, { requirePrincipal, requireTradeJurisdiction });
   attachRfqExportRoute(app, deps.rfqExport, requirePrincipal);
   attachStatementRoutes(app, deps.statements, requirePrincipal);
+  attachApiKeyRotationRoutes(app, deps.apiKeyRotation, requirePrincipal);
 
   /**
    * Jurisdiction gate for money writes — mirrors `scopedProcedure(..., { module: 'trade' })`.
@@ -1378,11 +1455,24 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       return decision.allowed ? null : { code: decision.code, message: decision.reason };
     },
     slippageCapBps: deps.userVenueSlippageCapBps ?? null,
+    spreadLimitBps: deps.userVenueSpreadLimitBps ?? null,
     sellQuotes: deps.venueSellQuotes ?? null,
     agentKeyConfined,
   });
-  attachAgentAccountRoutes(app, deps.agentAccounts ?? null, { requirePrincipal, requireTradeJurisdiction, agentKeyConfined }, agentOrders);
+  attachAgentAccountRoutes(
+    app,
+    deps.agentAccounts ?? null,
+    { requirePrincipal, requireTradeJurisdiction, agentKeyConfined },
+    agentOrders,
+    deps.agentActivity ?? null,
+  );
   attachOwnAgentTradingRoutes(app, deps.ownAgentTrading ?? null, { requirePrincipal, requireTradeJurisdiction, agentKeyConfined });
+  attachLiveRunRoutes(app, deps.liveRuns ?? null, {
+    requirePrincipal,
+    requireTradeJurisdiction,
+    agentKeyConfined,
+    regionOf: (req) => contextFrom(req).region,
+  });
 
   // Mounted only while futures orders go through the book; otherwise the conditional-orders refusal answers the path.
   if (deps.futuresOrders) {
@@ -1471,9 +1561,10 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const withStop = await withStopTriggers(deps, orders);
       const withExit = await withOcoExit(deps, orders);
       const withHeld = await withHold(deps, orders, req.log);
+      const withPaidOf = await withPaid(deps, principal, orders, req.log);
       for (const order of orders) {
         const symbol = await symbolForOrder(order, symbolByMarket, deps.marketById);
-        wire.push({ ...withHeld(order, withExit(order, withStop(order, presentCcxtOrder(order, symbol)))), serverTime });
+        wire.push({ ...withHeld(order, withExit(order, withStop(order, withPaidOf(order, presentCcxtOrder(order, symbol))))), serverTime });
       }
       return reply.code(200).send(wire);
     } catch (err) {
@@ -1538,9 +1629,10 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const withStop = await withStopTriggers(deps, orders);
       const withExit = await withOcoExit(deps, orders);
       const withHeld = await withHold(deps, orders, req.log);
+      const withPaidOf = await withPaid(deps, principal, orders, req.log);
       for (const order of orders) {
         const symbol = await symbolForOrder(order, symbolByMarket, deps.marketById);
-        wire.push(withHeld(order, withExit(order, withStop(order, presentCcxtOrder(order, symbol)))));
+        wire.push(withHeld(order, withExit(order, withStop(order, withPaidOf(order, presentCcxtOrder(order, symbol))))));
       }
       return reply.code(200).send(wire);
     } catch (err) {
@@ -2906,7 +2998,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     return reply.code(200).send({ atomic: false, results });
   });
 
-  app.post('/api/v1/orders', privateWrite, async (req, reply) => {
+  const placeOrderRoute = async (req: FastifyRequest, reply: FastifyReply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
     if (!requireTradeJurisdiction(req, reply, principal)) return;
@@ -3049,7 +3141,8 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const market = await deps.marketById(order.marketId);
       const symbol = market?.symbol ?? parsed.data.symbol;
       // An OTO entry answers with its attached close, as every read of it does.
-      const wire = (await withOcoExit(deps, [order]))(order, presentCcxtOrder(order, symbol));
+      const withPaidOf = await withPaid(deps, principal, [order], req.log);
+      const wire = (await withOcoExit(deps, [order]))(order, withPaidOf(order, presentCcxtOrder(order, symbol)));
       if (stopTrigger) return reply.code(201).send({ ...wire, type: stopKind, stopPrice: stopTrigger, triggered: null });
       return reply.code(201).send(stored ? { ...wire, displayQty: stored } : wire);
     } catch (err) {
@@ -3057,6 +3150,16 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       if (sent) return sent;
       throw err;
     }
+  };
+  app.post('/api/v1/orders', privateWrite, placeOrderRoute);
+
+  // The lead API (J-copy-bots-otc-07 #4): a key carrying `copy:lead` places a lead order. It must still be a listed
+  // lead and the symbol must be on its listing; then it is the ordinary order path above, tier and region gate included.
+  app.post('/api/v1/copy/lead/orders', privateWith('trade:write', 'copy:lead'), async (req, reply) => {
+    const principal = requirePrincipal(req, reply);
+    if (!principal) return;
+    if (await refuseLeadOrder(deps.leadOrderGate, principal, req.body, reply)) return;
+    return placeOrderRoute(req, reply);
   });
 
   /**
@@ -3423,7 +3526,8 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         const withStop = await withStopTriggers(deps, [order]);
         const withExit = await withOcoExit(deps, [order]);
         const withHeld = await withHold(deps, [order], req.log);
-        return reply.code(200).send(withHeld(order, withExit(order, withStop(order, presentCcxtOrder(order, symbol)))));
+        const withPaidOf = await withPaid(deps, principal, [order], req.log);
+        return reply.code(200).send(withHeld(order, withExit(order, withStop(order, withPaidOf(order, presentCcxtOrder(order, symbol))))));
       } catch (err) {
         const sent = sendDomainError(reply, err);
         if (sent) return sent;
@@ -3445,7 +3549,8 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         const withStop = await withStopTriggers(deps, [order]);
         const withExit = await withOcoExit(deps, [order]);
         const withHeld = await withHold(deps, [order], req.log);
-        return reply.code(200).send(withHeld(order, withExit(order, withStop(order, presentCcxtOrder(order, symbol)))));
+        const withPaidOf = await withPaid(deps, principal, [order], req.log);
+        return reply.code(200).send(withHeld(order, withExit(order, withStop(order, withPaidOf(order, presentCcxtOrder(order, symbol))))));
       } catch (err) {
         const sent = sendDomainError(reply, err);
         if (sent) return sent;
@@ -3467,7 +3572,8 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const withStop = await withStopTriggers(deps, [order]);
       const withExit = await withOcoExit(deps, [order]);
       const withHeld = await withHold(deps, [order], req.log);
-      return reply.code(200).send(withHeld(order, withExit(order, withStop(order, presentCcxtOrder(order, symbol)))));
+      const withPaidOf = await withPaid(deps, principal, [order], req.log);
+      return reply.code(200).send(withHeld(order, withExit(order, withStop(order, withPaidOf(order, presentCcxtOrder(order, symbol))))));
     } catch (err) {
       const sent = sendDomainError(reply, err);
       if (sent) return sent;
@@ -3560,7 +3666,8 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const withStop = await withStopTriggers(deps, [order]);
       const withExit = await withOcoExit(deps, [order]);
       const withHeld = await withHold(deps, [order], req.log);
-      return reply.code(200).send(withHeld(order, withExit(order, withStop(order, presentCcxtOrder(order, symbol)))));
+      const withPaidOf = await withPaid(deps, principal, [order], req.log);
+      return reply.code(200).send(withHeld(order, withExit(order, withStop(order, withPaidOf(order, presentCcxtOrder(order, symbol))))));
     } catch (err) {
       const sent = sendDomainError(reply, err);
       if (sent) return sent;

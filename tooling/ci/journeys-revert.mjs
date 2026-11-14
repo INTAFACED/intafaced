@@ -56,6 +56,7 @@ import { journeyTouch } from './journey-touch.mjs';
 import { SUBSCRIBES, loadMap, runsBehind } from './journey-reach-map.mjs';
 import { evaluateGateFileRule } from '../scripts/gate-file-guard.mjs';
 import { parseJobs, parseTests } from './bisect-main.mjs';
+import { AUTO_REVERT_AUTHOR, AUTO_REVERT_BRANCH } from './exact-revert.mjs';
 
 const SHA = /^[0-9a-f]{40}$/;
 const STEP = /^J-[a-z0-9-]+-\d+#\d+$/;
@@ -499,18 +500,24 @@ export function journeysOf(steps) {
 }
 
 /**
- * What goes on each failing journey's break issue: the revert's link and `regression`, or, when the red traces to no
- * single merge, why and `main-unknown-red` (a builder takes only that while it is open: project-state BUILDER.md). Pure.
+ * What goes on each failing journey's break issue: the revert's link and `regression`; when the culprit's `git revert`
+ * conflicts (`conflict`: its pull request's link or sha), that and `regression`, for the culprit is named but nothing is
+ * resolved by hand (the programme lead's rule, 13 Nov 2026); or, when the red traces to no single merge, why and
+ * `main-unknown-red` (a builder takes only that while it is open: project-state BUILDER.md). Pure.
  */
-export function breakIssueNotes({ steps, revertUrl, reason, redRunUrl }) {
+export function breakIssueNotes({ steps, revertUrl, conflict, reason, redRunUrl }) {
+  const named = Boolean(revertUrl || conflict);
   return journeysOf(steps).map((journey) => ({
     title: `${BREAK_ISSUE_PREFIX}${journey}`,
-    labels: revertUrl ? ['regression'] : [UNKNOWN_LABEL],
+    labels: named ? ['regression'] : [UNKNOWN_LABEL],
     // Only a traced red opens its issue: an untraced one may be the stack's own, and main-unknown-red stops every builder.
-    opens: Boolean(revertUrl),
-    body: revertUrl
-      ? `The revert on main opened ${revertUrl} for this break ([red run](${redRunUrl})). When it merges and the steps pass again on main, this issue closes itself.\n\n<!-- steps: ${steps.filter((s) => s.split('#')[0] === journey).join(', ')} -->\n_Posted by tooling/ci/journeys-revert.mjs._`
-      : `The revert on main traced this red ([red run](${redRunUrl})) to no single merge: ${reason}. Nothing was reverted, so a person or a builder finds the cause.\n\n_Posted by tooling/ci/journeys-revert.mjs._`,
+    opens: named,
+    body:
+      conflict && !revertUrl
+        ? `The revert on main traced this break ([red run](${redRunUrl})) to ${conflict}, but its \`git revert\` conflicts with main, so no revert was opened and none is resolved by hand: fix it forward. When the steps pass again on main, this issue closes itself.\n\n<!-- steps: ${steps.filter((s) => s.split('#')[0] === journey).join(', ')} -->\n_Posted by tooling/ci/journeys-revert.mjs._`
+        : revertUrl
+          ? `The revert on main opened ${revertUrl} for this break ([red run](${redRunUrl})). When it merges and the steps pass again on main, this issue closes itself.\n\n<!-- steps: ${steps.filter((s) => s.split('#')[0] === journey).join(', ')} -->\n_Posted by tooling/ci/journeys-revert.mjs._`
+          : `The revert on main traced this red ([red run](${redRunUrl})) to no single merge: ${reason}. Nothing was reverted, so a person or a builder finds the cause.\n\n_Posted by tooling/ci/journeys-revert.mjs._`,
   }));
 }
 
@@ -702,8 +709,13 @@ async function openRevert(env, revoke) {
     } catch {
       execFileSync('git', ['revert', '--abort'], { stdio: 'ignore' });
       await comment(
-        `The ${what} [run ${env.RED_RUN}](${runUrl}) on \`${env.BASE}\` failed ${stepText}, and the revert on main found this pull request's commit \`${sha.slice(0, 10)}\` as the cause. Its revert doesn't apply cleanly on \`${env.BASE}\`, so no revert was opened. Fix it forward or revert it by hand.\n\n_Posted by tooling/ci/journeys-revert.mjs._`,
+        `The ${what} [run ${env.RED_RUN}](${runUrl}) on \`${env.BASE}\` failed ${stepText}, and the revert on main found this pull request's commit \`${sha.slice(0, 10)}\` as the cause. Its revert doesn't apply cleanly on \`${env.BASE}\`, so no revert was opened, and none is resolved by hand: fix it forward. Each broken journey's issue is marked \`regression\`.\n\n_Posted by tooling/ci/journeys-revert.mjs._`,
       );
+      if (kind === 'journeys' && !dry) {
+        const conflict = pr ? `#${pr.number} (\`${sha.slice(0, 10)}\`)` : `\`${sha.slice(0, 10)}\``;
+        const notes = breakIssueNotes({ steps, conflict, redRunUrl: runUrl });
+        summary(['', ...(await noteBreakIssues(env.ISSUES_TOKEN, repo, notes).catch((e) => [`- Break issue not noted: ${e.message}`]))]);
+      }
       return summary([`Journeys revert: \`git revert ${sha.slice(0, 10)}\` doesn't apply cleanly; commented instead.`]);
     }
     if (dry) {
@@ -786,6 +798,103 @@ async function openRevert(env, revoke) {
       else console.log(`the revert token is revoked: GitHub now refuses it (401, after ${after.tries} tries)`);
     }
   }
+}
+
+// ── refresh: an open revert's red checks run again on main's newer rules ──────
+
+/** At most this many rebases of one revert by `refresh`: one per merge into main while its checks stay red. */
+export const REFRESH_MAX = 4;
+/** The workflows whose newest run on a revert's head decides a refresh, with the event each runs on. */
+export const REFRESH_WORKFLOWS = [
+  { file: 'ci.yml', event: 'pull_request' },
+  { file: 'ci-review.yml', event: 'pull_request_target' },
+];
+
+/**
+ * Whether `refresh` rebases this open pull request onto main, or why not. Pure. Only main-bisect's own revert (its
+ * revert/auto- branch in this repository, opened by the App as a Bot, not a draft); only when the newest run of a
+ * REFRESH_WORKFLOWS workflow on its head failed and started before main's head commit (`mainAt`, ms), with none of them
+ * still going; at most REFRESH_MAX times (`rebased`: its earlier rebases, the timeline's head_ref_force_pushed events).
+ * A re-run can't do it: a pull_request run's re-run keeps its merge commit and that commit's workflow file, so it
+ * never reads main's newer check (intafaced #8138 after #8166: its re-run guard couldn't import exact-revert.mjs).
+ */
+export function refreshWhy(pr, { repo, runs, mainAt, rebased }) {
+  const ok =
+    AUTO_REVERT_BRANCH.test(String(pr?.head?.ref ?? '')) &&
+    pr?.user?.login === AUTO_REVERT_AUTHOR &&
+    pr?.user?.type === 'Bot' &&
+    pr?.head?.repo?.full_name === repo &&
+    !pr?.draft;
+  if (!ok) return { refresh: false, why: "not main-bisect's revert" };
+  const newest = REFRESH_WORKFLOWS.map(
+    ({ file, event }) =>
+      (runs[file] ?? []).filter((r) => r.event === event && r.conclusion !== 'skipped').sort((a, b) => b.run_number - a.run_number)[0],
+  ).filter(Boolean);
+  if (newest.some((r) => r.status !== 'completed')) return { refresh: false, why: 'a check is still going' };
+  const red = newest.filter((r) => r.conclusion === 'failure');
+  if (!red.length) return { refresh: false, why: 'no check red' };
+  if (!red.some((r) => Date.parse(r.run_started_at ?? r.created_at) < mainAt))
+    return { refresh: false, why: "its checks ran after main's head" };
+  if (rebased >= REFRESH_MAX) return { refresh: false, why: `rebased ${rebased} times already, the most` };
+  return { refresh: true, why: `${red.map((r) => r.name ?? r.id).join(', ')} red before main's head` };
+}
+
+/**
+ * After each CI run on main (main-trust.yml revert-refresh): rebase each open automatic revert that refreshWhy picks
+ * onto main, with the App's token, so its head is new and every check runs again on main's rules, with no hand. GitHub
+ * refuses a rebase that conflicts; that is said, and nothing is resolved (the programme lead's rule, 13 Nov 2026). Reads
+ * go with GH_TOKEN; the App token is minted only when something is rebased, and revoked at the end.
+ */
+async function refresh(env) {
+  need(env, 'GITHUB_REPOSITORY', 'GH_TOKEN');
+  const repo = env.GITHUB_REPOSITORY;
+  const read = client(env.GH_TOKEN);
+  const lines = ['### Refresh of open automatic reverts', ''];
+  const pulls = (await read('GET', `/repos/${repo}/pulls?state=open&per_page=100`)).json ?? [];
+  const mainAt = Date.parse((await read('GET', `/repos/${repo}/commits/main`)).json?.commit?.committer?.date ?? '');
+  const picked = [];
+  for (const pr of pulls) {
+    if (!AUTO_REVERT_BRANCH.test(String(pr?.head?.ref ?? ''))) continue;
+    const runs = {};
+    for (const w of REFRESH_WORKFLOWS)
+      runs[w.file] =
+        (await read('GET', `/repos/${repo}/actions/workflows/${w.file}/runs?head_sha=${pr.head.sha}&per_page=100`)).json?.workflow_runs ??
+        [];
+    const events = (await read('GET', `/repos/${repo}/issues/${pr.number}/timeline?per_page=100`)).json ?? [];
+    const rebased = events.filter((e) => e.event === 'head_ref_force_pushed').length;
+    const d = refreshWhy(pr, { repo, runs, mainAt, rebased });
+    lines.push(`- #${pr.number}: ${d.refresh ? 'rebase' : 'left'} (${d.why})`);
+    if (d.refresh) picked.push(pr);
+  }
+  if (picked.length) {
+    if (process.env.DRY_RUN !== '1') need(env, 'FACTORY_APP_KEY');
+    const { mintToken } = await import('./factory-builder.mjs');
+    const dry = process.env.DRY_RUN === '1';
+    const token = dry ? env.GH_TOKEN : await mintToken({ pem: env.FACTORY_APP_KEY, repo, spec: REVERT_TOKEN });
+    if (token && !dry) console.log(`::add-mask::${token}`);
+    const gh = client(token);
+    try {
+      for (const pr of picked) {
+        const r = await gh('POST', `${API}/graphql`, {
+          query:
+            'mutation($id: ID!, $oid: GitObjectID!) { updatePullRequestBranch(input: { pullRequestId: $id, expectedHeadOid: $oid, updateMethod: REBASE }) { pullRequest { headRefOid } } }',
+          variables: { id: pr.node_id, oid: pr.head.sha },
+        });
+        const head = r.json?.data?.updatePullRequestBranch?.pullRequest?.headRefOid;
+        lines.push(
+          head
+            ? `- #${pr.number}: rebased onto main, head ${head.slice(0, 10)}; its checks run again`
+            : `- #${pr.number}: not rebased (${String(r.json?.errors?.[0]?.message ?? `HTTP ${r.status}`).slice(0, 200)}); a conflict is left for a fix forward, never resolved by hand`,
+        );
+      }
+    } finally {
+      if (token && !dry) {
+        const end = await fetch(`${API}/installation/token`, { method: 'DELETE', headers: { authorization: `Bearer ${token}` } });
+        lines.push(`- the App token: revoke ${end.status}`);
+      }
+    }
+  }
+  summary(lines);
 }
 
 /** How many times, and how long apart, a revoked token's refusal is asked for: about 20 s in all. */
@@ -909,6 +1018,72 @@ function selfTest() {
   );
   eq(untraced[0].body.includes('no commit between them can reach J-b-02'), true, 'the note says why');
   eq(untraced[0].opens, false, 'an untraced red opens no issue: main-unknown-red stops every builder');
+  // refresh (intafaced #8138 after #8166): main-bisect's red revert is rebased once per merge into main, at most REFRESH_MAX.
+  const rpr = (over = {}) => ({
+    number: 8138,
+    draft: false,
+    user: { login: 'intafaced-mac-agents[bot]', type: 'Bot' },
+    head: { ref: 'revert/auto-2481c93533', sha: 'c'.repeat(40), repo: { full_name: 'o/r' } },
+    ...over,
+  });
+  const rrun = (over = {}) => ({
+    id: 1,
+    run_number: 9,
+    event: 'pull_request',
+    status: 'completed',
+    conclusion: 'failure',
+    run_started_at: '2026-11-12T16:00:00Z',
+    ...over,
+  });
+  const rruns = (ci = {}, review = {}) => ({
+    'ci.yml': [rrun(ci)],
+    'ci-review.yml': [rrun({ id: 2, event: 'pull_request_target', conclusion: 'success', ...review })],
+  });
+  const at = { repo: 'o/r', mainAt: Date.parse('2026-11-13T00:51:39Z'), rebased: 0 };
+  eq(refreshWhy(rpr(), { ...at, runs: rruns() }).refresh, true, "#8138: its CI red before main's head: rebased");
+  eq(
+    refreshWhy(rpr(), { ...at, runs: rruns({ conclusion: 'success' }, { conclusion: 'failure' }) }).refresh,
+    true,
+    'a red CI review alone: rebased',
+  );
+  eq(refreshWhy(rpr(), { ...at, runs: rruns({ conclusion: 'success' }) }).refresh, false, 'every check green: left');
+  eq(
+    refreshWhy(rpr(), { ...at, runs: rruns({ run_started_at: '2026-11-13T01:00:00Z' }) }).refresh,
+    false,
+    "red after main's head: once per merge",
+  );
+  eq(
+    refreshWhy(rpr(), { ...at, runs: rruns({}, { status: 'in_progress', conclusion: null }) }).refresh,
+    false,
+    'a check still going: left',
+  );
+  eq(refreshWhy(rpr(), { ...at, runs: rruns(), rebased: REFRESH_MAX }).refresh, false, 'bounded: REFRESH_MAX rebases');
+  eq(
+    refreshWhy(rpr({ user: { login: 'ZenYoda3', type: 'User' } }), { ...at, runs: rruns() }).refresh,
+    false,
+    "a person's pull request: never",
+  );
+  eq(refreshWhy(rpr({ head: { ...rpr().head, repo: { full_name: 'x/y' } } }), { ...at, runs: rruns() }).refresh, false, 'a fork: never');
+  eq(refreshWhy(rpr({ head: { ...rpr().head, ref: 'fix/x' } }), { ...at, runs: rruns() }).refresh, false, 'another branch: never');
+  eq(refreshWhy(rpr({ draft: true }), { ...at, runs: rruns() }).refresh, false, 'a draft: never');
+  eq(
+    refreshWhy(rpr(), { ...at, runs: { 'ci.yml': [rrun(), rrun({ id: 3, run_number: 10, conclusion: 'success' })], 'ci-review.yml': [] } })
+      .refresh,
+    false,
+    'the newest run decides',
+  );
+  const conflicted = breakIssueNotes({ steps: ['J-c-03#4'], conflict: '#7 (`abcdef0123`)', redRunUrl: 'u' });
+  eq(
+    conflicted.map((n) => [n.labels, n.opens]),
+    [[['regression'], true]],
+    "a revert that conflicts: the journey's issue is a regression, opened",
+  );
+  eq(
+    conflicted[0].body.includes('#7') && conflicted[0].body.includes('conflicts') && !conflicted[0].body.includes('revert it by hand'),
+    true,
+    'it names the culprit and the conflict',
+  );
+  eq(conflicted[0].body.includes('<!-- steps: J-c-03#4 -->'), true, 'the issue names its steps, so main trust can close it');
   // fix-01, act on the job: an early start, once; the break back when its journey passes alone on main's head.
   eq(
     [shardOf('Journeys (shard 17 of 32)'), shardOf('real-app-journeys-shard-3'), shardOf('Journeys revert'), shardOf('real-app-journeys')],
@@ -1112,7 +1287,7 @@ function selfTest() {
     [1, 5],
     "only main's runs still going on another commit than the revert's are weighed",
   );
-  console.log('✓ journeys-revert --self-test OK (70 fixtures)');
+  console.log('✓ journeys-revert --self-test OK (84 fixtures)');
 }
 
 async function selfTestRevoke() {
@@ -1488,7 +1663,7 @@ async function confirmFiles(env) {
   output({ files: files.join(' '), steps: parseSteps(env.STEPS).join(',') });
 }
 
-const COMMANDS = { trigger, find, open, settle, early, confirm, back, 'confirm-files': confirmFiles };
+const COMMANDS = { trigger, find, open, settle, early, confirm, back, 'confirm-files': confirmFiles, refresh };
 if (process.argv.includes('--self-test')) {
   selfTest();
   await selfTestRevoke();

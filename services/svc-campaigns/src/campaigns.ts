@@ -28,6 +28,8 @@ import {
   type ParticipationRules,
   type RewardLock,
   EARNING_TRIGGERS,
+  type EarningEvaluateInput,
+  type EarningEvaluation,
   type EarningRule,
   type EarningTrigger,
   type RuleGroup,
@@ -36,10 +38,11 @@ import {
 } from '@intafaced/contracts/campaigns-catalogue';
 import type { CampaignParticipant } from '@intafaced/contracts';
 import { formatAmount, parseAmount as parseAmount18 } from '@intafaced/ledger-client';
-import { CampaignsError } from './codes.js';
+import { CampaignsError, codeHashOf, lastFourOf, maskedCode } from './codes.js';
 import { parseWindowTime } from './drops.js';
 import type { ParticipantSource } from './participants.js';
 import { parseFormula } from './formula.js';
+import { evaluateEarning } from './points.js';
 import { checkRule, evaluateRule, tryRule, type RuleLimits } from './rules.js';
 
 /**
@@ -140,11 +143,15 @@ type ParticipationRow = { participation_key: string; campaign_id: string; revisi
 type VoucherRow = {
   id: string;
   campaign_id: string;
-  code: string;
+  /** Null for a code made in a batch or imported (J-campaigns-17): only its hash and last four are stored. */
+  code: string | null;
+  code_last4: string;
   issue_key: string;
   revision: number;
   face_asset: string;
   face_amount: string;
+  kind: CampaignVoucher['kind'];
+  fee_discount_bps: number | null;
   state: CampaignVoucher['state'];
   issued_by: string;
   claim_by: Date | null;
@@ -155,9 +162,12 @@ type VoucherRow = {
 const toVoucher = (v: VoucherRow): CampaignVoucher => ({
   id: v.id,
   campaignId: v.campaign_id,
-  code: v.code,
+  code: v.code ?? maskedCode(v.code_last4),
   revision: v.revision,
   face: { asset: v.face_asset, amount: decimalOf(v.face_amount) },
+  kind: v.kind,
+  feeSaver:
+    v.kind === 'fee_saver' && v.fee_discount_bps !== null ? { discountBps: v.fee_discount_bps, orders: Number(v.face_amount) } : null,
   state: v.state,
   issuedBy: v.issued_by,
   issuedAt: v.created_at.toISOString(),
@@ -250,7 +260,10 @@ const isParked = (type: CampaignType) => (PARKED_CAMPAIGN_TYPES as readonly stri
 export function gateOf(row: CampaignRow, timeZone: string | null): CampaignGate['missing'] {
   const missing: CampaignGate['missing'] = [];
   if (isParked(row.type)) missing.push({ code: 'owner.decision', field: 'type' });
-  if (!row.budget_asset || row.budget_limit === null) missing.push({ code: 'campaigns.budget_unset', field: 'budget' });
+  // A fee-saver coupon campaign moves no value (ENGINE VC-9): it has no reward pot to draw and no reward to pay, so neither
+  // is asked for; its terms are its vouchers' discount and orders, which the definition cannot leave blank.
+  const feeSaver = row.type === 'voucher' && Boolean(row.vouchers?.feeSaver);
+  if (!feeSaver && (!row.budget_asset || row.budget_limit === null)) missing.push({ code: 'campaigns.budget_unset', field: 'budget' });
   if (!row.participation) missing.push({ code: 'campaigns.rules_unset', field: 'participation' });
   else if (row.participation.regionScope === 'listed' && !row.participation.restrictedRegions?.length) {
     missing.push({ code: 'campaigns.region_list_unset', field: 'restrictedRegions' });
@@ -262,7 +275,7 @@ export function gateOf(row: CampaignRow, timeZone: string | null): CampaignGate[
   }
   // A welcome campaign gives a reward per task, each of which may be blank ("not set"; that task's claim refuses).
   const welcome = row.type === 'welcome';
-  if (!welcome && (!row.reward_asset || row.reward_amount === null)) {
+  if (!welcome && !feeSaver && (!row.reward_asset || row.reward_amount === null)) {
     missing.push({ code: 'campaigns.reward_unset', field: 'reward' });
   }
   const rewardAssets = welcome ? (row.tasks?.steps ?? []).flatMap((s) => (s.reward ? [s.reward.asset] : [])) : [row.reward_asset];
@@ -614,7 +627,8 @@ function parseVoucherWindow(type: CampaignType, input: NonNullable<CampaignDefin
   if (claimBy && useBy && useBy < claimBy) {
     throw new CampaignsError('campaigns.voucher_window_invalid', 'A voucher’s use-by cannot be before its claim-by');
   }
-  return { claimBy: claimBy ? iso(claimBy) : null, useBy: useBy ? iso(useBy) : null };
+  const feeSaver = input.feeSaver ? { discountBps: input.feeSaver.discountBps, orders: input.feeSaver.orders } : null;
+  return { claimBy: claimBy ? iso(claimBy) : null, useBy: useBy ? iso(useBy) : null, ...(feeSaver ? { feeSaver } : {}) };
 }
 
 /**
@@ -630,7 +644,14 @@ function parseEarning(rules: readonly EarningRule[]): EarningRule[] {
     if (seen.has(name.toLowerCase())) throw new CampaignsError('campaigns.earning_rule_name_taken', `Two earning rules are named ${name}`);
     seen.add(name.toLowerCase());
     parseFormula(r.formula, trigger.names);
-    return { name, trigger: r.trigger, minAmount: r.minAmount ?? null, formula: r.formula.trim() };
+    // An incentive is stored as before (no field), so a rule saved before effects existed reads the same.
+    return {
+      name,
+      trigger: r.trigger,
+      minAmount: r.minAmount ?? null,
+      formula: r.formula.trim(),
+      ...(r.effect === 'points' ? { effect: 'points' as const } : {}),
+    };
   });
 }
 
@@ -1140,42 +1161,22 @@ export class CampaignService {
     const code = input.code.trim().toUpperCase();
     const key = voucherKeyOf(input.campaignId, code);
     return transaction(this.sql, async (tx) => {
-      const [row] = await tx<CampaignRow[]>`SELECT * FROM campaigns.campaigns WHERE id = ${input.campaignId} FOR SHARE`;
-      if (!row) throw new CampaignsError('campaign.unknown', 'No such campaign');
       const [had] = await tx<VoucherRow[]>`SELECT * FROM campaigns.vouchers WHERE issue_key = ${key}`;
       if (had) return toVoucher(had);
-      if (row.type !== 'voucher') throw new CampaignsError('campaigns.not_voucher', 'Only a voucher campaign issues vouchers');
-      const now = this.now();
-      const state = effectiveState(row, now);
-      // An approved campaign that was never activated stays `approved` past its end, so the end time is read as well.
-      const ended = row.ends_at !== null && row.ends_at <= now;
-      if (ended || !REVISABLE.includes(state)) {
-        throw new CampaignsError(
-          'campaign.invalid_transition',
-          `A campaign that is ${ended ? 'ended' : state} issues no voucher: it must be approved and not ended`,
-        );
+      const { row, face, feeSaver } = await this.voucherTerms(tx, input.campaignId);
+      await tx`SELECT pg_advisory_xact_lock(hashtext(${`voucher:code:${codeHashOf(code)}`}))`;
+      const [elsewhere] = await tx<{ id: string; campaign_id: string }[]>`
+        SELECT id, campaign_id FROM campaigns.vouchers WHERE code_hash = ${codeHashOf(code)} LIMIT 1`;
+      if (elsewhere && elsewhere.campaign_id !== row.id) {
+        throw new CampaignsError('campaigns.voucher_code_taken', 'Another campaign already issued this code');
       }
-      if (!row.reward_asset || row.reward_amount === null) {
-        throw new CampaignsError('campaigns.reward_unset', 'The live revision has no reward, so a voucher would have no face value');
-      }
-      await tx`SELECT pg_advisory_xact_lock(hashtext(${`voucher:code:${code}`}))`;
-      const [elsewhere] = await tx<{ id: string }[]>`
-        SELECT id FROM campaigns.vouchers WHERE code = ${code} AND campaign_id <> ${row.id} LIMIT 1`;
-      if (elsewhere) throw new CampaignsError('campaigns.voucher_code_taken', 'Another campaign already issued this code');
-      // A campaign approved before revisions were recorded has no row for its live revision yet; it is recorded here from the
-      // campaign's own approval, as the first approval records it, so the voucher can name it.
-      if (row.approved_by && row.submitted_by && row.approved_revision === row.revision) {
-        await tx`
-          INSERT INTO campaigns.campaign_revisions (campaign_id, revision, definition, submitted_by, approved_by)
-          VALUES (${row.id}, ${row.revision}, ${tx.json(inputOfRow(row) as unknown as postgres.JSONValue)}, ${row.submitted_by},
-            ${row.approved_by})
-          ON CONFLICT (campaign_id, revision) DO NOTHING`;
-      }
+      if (elsewhere) throw new CampaignsError('campaigns.voucher_code_taken', 'This campaign already holds this code in a batch');
       const [made] = await tx<VoucherRow[]>`
-        INSERT INTO campaigns.vouchers (id, campaign_id, code, issue_key, revision, face_asset, face_amount, issued_by, claim_by,
-          use_by)
-        VALUES (${`vch_${randomUUID()}`}, ${row.id}, ${code}, ${key}, ${row.revision}, ${row.reward_asset}, ${row.reward_amount},
-          ${input.actor}, ${row.vouchers?.claimBy ?? null}, ${row.vouchers?.useBy ?? null})
+        INSERT INTO campaigns.vouchers (id, campaign_id, code, code_hash, code_last4, issue_key, revision, face_asset, face_amount,
+          kind, fee_discount_bps, issued_by, claim_by, use_by)
+        VALUES (${`vch_${randomUUID()}`}, ${row.id}, ${code}, ${codeHashOf(code)}, ${lastFourOf(code)}, ${key}, ${row.revision},
+          ${face.asset}, ${face.amount}, ${feeSaver ? 'fee_saver' : 'cash'}, ${feeSaver?.discountBps ?? null}, ${input.actor},
+          ${row.vouchers?.claimBy ?? null}, ${row.vouchers?.useBy ?? null})
         ON CONFLICT (issue_key) DO NOTHING
         RETURNING *`;
       if (!made) {
@@ -1187,6 +1188,46 @@ export class CampaignService {
     });
   }
 
+  /**
+   * What a voucher issued now under a campaign's live revision carries (J-campaigns-16 #9, J-campaigns-17 #3): the
+   * campaign row (read under a share lock, so an approval of the next revision waits and a voucher never mixes two
+   * revisions), its face value and fee-saver terms. Refuses a campaign that is not a voucher campaign, not approved or
+   * ended, or has no reward. A campaign approved before revisions were recorded gets its live revision's row here.
+   */
+  async voucherTerms(
+    tx: Sql,
+    campaignId: string,
+  ): Promise<{ row: CampaignRow; face: { asset: string; amount: string }; feeSaver: { discountBps: number; orders: number } | null }> {
+    const [row] = await tx<CampaignRow[]>`SELECT * FROM campaigns.campaigns WHERE id = ${campaignId} FOR SHARE`;
+    if (!row) throw new CampaignsError('campaign.unknown', 'No such campaign');
+    if (row.type !== 'voucher') throw new CampaignsError('campaigns.not_voucher', 'Only a voucher campaign issues vouchers');
+    const now = this.now();
+    const state = effectiveState(row, now);
+    // An approved campaign that was never activated stays `approved` past its end, so the end time is read as well.
+    const ended = row.ends_at !== null && row.ends_at <= now;
+    if (ended || !REVISABLE.includes(state)) {
+      throw new CampaignsError(
+        'campaign.invalid_transition',
+        `A campaign that is ${ended ? 'ended' : state} issues no voucher: it must be approved and not ended`,
+      );
+    }
+    const feeSaver = row.vouchers?.feeSaver ?? null;
+    if (!feeSaver && (!row.reward_asset || row.reward_amount === null)) {
+      throw new CampaignsError('campaigns.reward_unset', 'The live revision has no reward, so a voucher would have no face value');
+    }
+    // A fee-saver's face is its orders; it keeps the discount of the revision it was issued under, as a cash voucher
+    // keeps its reward.
+    const face = feeSaver ? { asset: 'ORDERS', amount: String(feeSaver.orders) } : { asset: row.reward_asset!, amount: row.reward_amount! };
+    if (row.approved_by && row.submitted_by && row.approved_revision === row.revision) {
+      await tx`
+        INSERT INTO campaigns.campaign_revisions (campaign_id, revision, definition, submitted_by, approved_by)
+        VALUES (${row.id}, ${row.revision}, ${tx.json(inputOfRow(row) as unknown as postgres.JSONValue)}, ${row.submitted_by},
+          ${row.approved_by})
+        ON CONFLICT (campaign_id, revision) DO NOTHING`;
+    }
+    return { row, face, feeSaver };
+  }
+
   /** A campaign's newest 500 vouchers, newest first, each with the revision it keeps. */
   async listVouchers(input: { campaignId: string }): Promise<CampaignVoucher[]> {
     const [row] = await this.sql<{ id: string }[]>`SELECT id FROM campaigns.campaigns WHERE id = ${input.campaignId}`;
@@ -1194,6 +1235,21 @@ export class CampaignService {
     const rows = await this.sql<VoucherRow[]>`
       SELECT * FROM campaigns.vouchers WHERE campaign_id = ${input.campaignId} ORDER BY created_at DESC, id DESC LIMIT ${VOUCHER_LIST_LIMIT}`;
     return rows.map(toVoucher);
+  }
+
+  /**
+   * Evaluates a campaign's earning rules on one TEST event (CM-rewards-hub-05, J-campaigns-15 #5): the rules of the edit
+   * waiting beside it when there is one, else its stored revision. Writes nothing; a points rule refuses for itself only.
+   */
+  async evaluateEarning(input: EarningEvaluateInput): Promise<EarningEvaluation> {
+    const campaign = await this.getForOps({ id: input.id });
+    const rules = campaign.pendingChange ? parseEarning(campaign.pendingChange.definition.earning ?? []) : campaign.earning;
+    const asset = campaign.pendingChange ? (campaign.pendingChange.definition.reward?.asset ?? null) : (campaign.reward?.asset ?? null);
+    return {
+      campaignId: campaign.id,
+      trigger: input.trigger,
+      results: evaluateEarning(rules, asset, input.trigger, input.values),
+    };
   }
 
   /** One campaign as operators see it, at any age; the list is the newest 200. */

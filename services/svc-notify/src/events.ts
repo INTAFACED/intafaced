@@ -12,6 +12,7 @@ import {
   copyStopped,
   agentUsageAlertCrossed,
   agentApprovalRequested,
+  agentRunCompleted,
   supportTicketResolved,
   fillSettled,
   kycApproved,
@@ -231,6 +232,7 @@ const FACTOR_CHANGED_TITLE_KEYS: Record<PayloadOf<'securityFactorChanged'>['chan
   passkey_removed: 'notify.identity.security.passkey_removed.title',
   password_changed: 'notify.identity.security.password_changed.title',
   new_device: 'notify.identity.security.new_device.title',
+  api_key_revoked: 'notify.identity.security.api_key_revoked.title',
 };
 
 /** The action kinds `intafaced.agents.action.completed` can carry. */
@@ -689,7 +691,9 @@ export async function subscribeNotificationEvents(
               ? 'notify.identity.security.password_changed.body'
               : payload.change === 'new_device'
                 ? 'notify.identity.security.new_device.body'
-                : 'notify.identity.security.factor_changed.body',
+                : payload.change === 'api_key_revoked'
+                  ? 'notify.identity.security.api_key_revoked.body'
+                  : 'notify.identity.security.factor_changed.body',
           // The business key, so Home can tell this notice from the "Needs you" item identity keys by it (new_device).
           params: { noticeKey: payload.noticeKey },
           href: '/uc/safe',
@@ -1015,6 +1019,31 @@ export async function subscribeNotificationEvents(
           sourceSubject: agentApprovalRequested.subject,
           sourceIdempotencyKey: payload.requestId,
           outOfApp: true,
+        }),
+      );
+    }),
+  );
+
+  // A background run of an agent session finished (J-agents-06 #2): svc-agents publishes it once per run, on the run id,
+  // so the person gets one inbox row however often it is sent. The row links to the run's page, where the result is; it
+  // never carries the reply. Only the channel the person asked for goes out of app, and its delivery row is recorded
+  // even when that channel has no vendor (`vendor.email` until a mail vendor is set); `inapp` writes the inbox row alone.
+  attachments.push(
+    await attach(bus, 'agentRunCompleted', agentRunCompleted.subject, 'notify-agent-run-completed', async (payload) => {
+      const asked = payload.notice === 'inapp' ? null : payload.notice;
+      nakIfRetryable(
+        await notify.create({
+          userId: payload.userId,
+          kind: 'agents.run.completed',
+          titleKey: 'notify.agents.run.completed.title',
+          bodyKey: 'notify.agents.run.completed.body',
+          params: { runId: payload.runId, agentId: payload.agentId, finishedAt: payload.finishedAt },
+          href: `/agents/runs/${payload.runId}`,
+          severity: 'info',
+          sourceSubject: agentRunCompleted.subject,
+          sourceIdempotencyKey: payload.runId,
+          outOfApp: asked !== null,
+          ...(asked ? { askedChannels: [asked] } : {}),
         }),
       );
     }),

@@ -795,6 +795,21 @@ export function registerRoutes(
     return reply.code(200).send(presentSubmit(result));
   });
 
+  // Read-only: the signed net of one account on one book, so svc-trade can size and hold a close before the engine
+  // prints it (#4591). A missing book is flat, not an error: the engine does not invent a position.
+  app.get('/markets/:marketId/positions/:accountId', async (req, reply) => {
+    try {
+      requireTradingService(req);
+    } catch (err) {
+      return authFailure(err, reply);
+    }
+    const { marketId, accountId } = req.params as { marketId: string; accountId: string };
+    if (accountId.length < 1 || accountId.length > 128) {
+      return reply.code(400).send({ code: 'BadRequest', issues: ['accountId: must be 1 to 128 characters'] });
+    }
+    return reply.code(200).send({ marketId, accountId, qty: formatAmount(engine.netPosition(marketId, accountId)) });
+  });
+
   app.patch('/markets/:marketId/orders/:orderId', async (req, reply) => {
     try {
       requireTradingService(req);
