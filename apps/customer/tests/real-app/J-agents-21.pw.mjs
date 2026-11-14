@@ -385,7 +385,16 @@ test(`${J} #6 Connects the assistant, first asking for a withdraw scope, then wi
     await form.getByLabel('Key name').fill('TEST assistant');
     await form.getByLabel('Withdraw (trade:withdraw)').check();
     await expect(form.getByLabel('Place and cancel orders (trade:write)')).toBeChecked();
+    // Identity's own answer to the create the page sent (asked tagged Agent, with the withdraw scope): refused.
+    const refusedCreate = page.waitForResponse(
+      (res) => res.url().includes('/api/identity/trpc/developerKeys.create') && res.request().method() === 'POST',
+    );
     await form.getByRole('button', { name: 'Connect with a passkey' }).click();
+    const refusedRes = await refusedCreate;
+    expect(refusedRes.request().postDataJSON()).toMatchObject({ kind: 'agent', scopes: expect.arrayContaining(['trade:withdraw']) });
+    expect(refusedRes.status()).toBe(403);
+    const refusedBody = await refusedRes.json();
+    expect(refusedBody.error?.data?.intafacedCode ?? refusedBody.error?.data?.cause?.code).toBe('auth.agent_scope_forbidden');
     await expect(page.getByTestId('agent-connect__refusal')).toContainText('auth.agent_scope_forbidden');
     expect(await listKeys()).toEqual(keysBefore);
     expect(body200(await session.get(`${BASE}/connections`)).connections).toEqual([]);
