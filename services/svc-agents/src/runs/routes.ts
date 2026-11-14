@@ -6,7 +6,7 @@ import { actionOutput, toActionOutput, type AgentsRouterDeps, type ExecuteProced
 import { RUN_STATES, RunTransitionError } from './machine.js';
 import { runRecorded } from './record.js';
 import { createRunStore, type StoredRun } from './store.js';
-import { researchProvenanceSchema } from '@intafaced/contracts/agents-research';
+import { researchProvenanceSchema, type ResearchProvenance } from '@intafaced/contracts/agents-research';
 import { buildProvenance, prepareResearch } from '../research/provenance.js';
 
 /** The run routes' builders, handed in by the agents router so the procedures here match the rest of it. */
@@ -143,6 +143,7 @@ export function runRoutes(deps: AgentsRouterDeps, kit: RunRouteKit) {
                   })
                 : null;
             const system = [input.system, research?.system].filter(Boolean).join('\n\n');
+            let provenance: ResearchProvenance | null = null;
             const { result, run } = await runRecorded(
               store(),
               {
@@ -152,7 +153,8 @@ export function runRoutes(deps: AgentsRouterDeps, kit: RunRouteKit) {
                 requestId: input.requestId,
                 task: input.task,
                 assetId: feeAssetId,
-                ...(research ? { provenanceOf: (reply: string) => buildProvenance(research, reply) } : {}),
+                // Built once, from the reply, in the write that stores it; the answer returns that same value.
+                ...(research ? { provenanceOf: (reply: string) => (provenance = buildProvenance(research, reply)) } : {}),
               },
               () =>
                 runtime.think({
@@ -174,7 +176,8 @@ export function runRoutes(deps: AgentsRouterDeps, kit: RunRouteKit) {
               assetId: feeAssetId,
               metered: result.metered,
               action: toActionOutput(result.action),
-              provenance: research ? buildProvenance(research, result.text) : null,
+              // A replayed or adopted run never reached the stored write: its provenance is built from the same reply.
+              provenance: research ? (provenance ?? buildProvenance(research, result.text)) : null,
             };
           }),
         ),
