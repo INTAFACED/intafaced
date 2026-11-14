@@ -20,6 +20,7 @@ export async function approvedClosure(
     reasonCode?: AccountCloseReasonCode;
     reason: string;
     expectedVersion: string;
+    graceDays?: number;
   },
 ): Promise<string> {
   const approvals = new ActionApprovalService(new SqlActionApprovalStore(sql), { ttlSeconds: 600 });

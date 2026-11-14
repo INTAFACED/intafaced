@@ -5,6 +5,7 @@ import { test, expect } from './journey.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { api, journeyState, restartWith, signOutBrowser, tool } from './stack.mjs';
 import { PASSKEY_ORIGIN, virtualAuthenticator } from './identity-factors.mjs';
+import { venueForThisFile, venueInfo, venueRecord } from './venue.mjs';
 
 // J-wallet-22, in the running app: I get my own wallet when I sign up, without a seed phrase. One test per step, titled
 // "J-wallet-22 #<n>", run in order by one signed-up TEST person. The provider is the stack's labelled TEST embedded-wallet
@@ -17,10 +18,12 @@ import { PASSKEY_ORIGIN, virtualAuthenticator } from './identity-factors.mjs';
 // tooling/scripts/local-stack-services/protocol.mjs), and svc-protocol and Edge once with the TEST region AA not served
 // (`LOCAL_STACK_TEST_REGION_SERVED=off`, as J-wallet-09 #1), and puts both back.
 // Money: INTAFACED moves nothing and the ledger posts nothing in this journey; the key stays with the provider.
-// #8 (one session-key approval per trading session, slice D-venue-09) runs on the stack's TEST venue door: svc-trade's
-// user-venue door (`/api/v1/venue/*`, through Edge) on the TEST venue simulator (tooling/scripts/local-test-venue.mjs),
-// switched on for that step only (trade restarts with LOCAL_STACK_USER_VENUE=on, and back off after). The venue's own
-// record (its agents and open orders) is read directly on loopback. The venue's TEST controls stand in for two outside
+// The whole file runs with the stack's TEST venue door on (venue.mjs `venueForThisFile`, as J-wallet-09): svc-trade's
+// user-venue door (`/api/v1/venue/*`, through Edge) on the TEST venue simulator (tooling/scripts/local-test-venue.mjs);
+// trade restarts with LOCAL_STACK_USER_VENUE=on before #1 and back off after the file. #2, #4, #6 and #7 read the TEST
+// venue's own record for the wallet on loopback (venue.mjs `venueRecord`), never our door: the agent keys it would accept
+// for the wallet's account, its open orders and its deposits. #8 (one session-key approval per trading session, slice
+// D-venue-09) trades there and reads the venue's agents and open orders the same way. The venue's TEST controls stand in for two outside
 // events: `/test/expire-agent` for a key's expiry passing (the venue keeps it listed, expired), and `/test/lose-answers`
 // for an approval whose answer is lost on the way back.
 const J = 'J-wallet-22';
@@ -33,6 +36,22 @@ const STATUS = '/api/protocol/trpc/embeddedWallet.status';
 
 test.describe.configure({ mode: 'default' });
 test.use({ baseURL: PASSKEY_ORIGIN });
+venueForThisFile(test);
+
+/**
+ * The TEST venue's own record for the wallet's account, read on loopback (venue.mjs): the agent keys the venue would
+ * accept to act for it, its open orders and its deposits. Empty is the venue saying nothing but the wallet's own key has
+ * ever been given any power there, and nothing was signed or sent to it.
+ */
+async function onVenue(address) {
+  const [agents, orders, deposits] = await Promise.all([
+    venueRecord(address, '/agents'),
+    venueRecord(address, '/open-orders'),
+    venueRecord(address, '/deposits'),
+  ]);
+  return { agents: agents.value, orders: orders.value, deposits: deposits.value };
+}
+const NOTHING_ON_VENUE = { agents: [], orders: [], deposits: [] };
 
 function state() {
   const s = run.read();
@@ -178,6 +197,9 @@ test(`${J} #2 creates it with a passkey: an address on the venue's network, labe
   });
   expect(JSON.stringify(wallet)).not.toMatch(/0x[0-9a-fA-F]{64}/);
   await expect(panel(page).locator('[data-embedded-wallet-id]')).toHaveText(wallet.providerWalletId);
+  // The venue's own record for the new address: an account on its network that no key but the wallet's own can act for
+  // (no agent key given), with nothing signed or sent to it yet.
+  expect(await onVenue(wallet.address), 'the venue knows no key but the wallet’s own for the new address').toEqual(NOTHING_ON_VENUE);
   run.write({ address: wallet.address, walletId: wallet.providerWalletId, credential: held[0] });
 });
 
@@ -240,10 +262,14 @@ test(`${J} #4 signs to connect it to the venue account: connected with its expir
   const expiresAt = await expires.getAttribute('datetime');
   expect(Date.parse(expiresAt)).toBeGreaterThan(Date.now());
   expect(signs).toHaveLength(1);
-  // svc-protocol's venue connection, J-wallet-09's record: this wallet's address, live, holding no key.
+  // svc-protocol's venue connection, J-wallet-09's record: this wallet's address, live, holding no key, on the chain the
+  // venue's own signatures name.
+  const { chainId } = await venueInfo();
   expect(await venueConnections(who)).toEqual([
-    { address, chainId: expect.any(Number), connectedAt: expect.any(String), expiresAt, status: 'live', holdsKey: false },
+    { address, chainId, connectedAt: expect.any(String), expiresAt, status: 'live', holdsKey: false },
   ]);
+  // The venue's own record, as J-wallet-09 #2: connecting gave no agent key for the wallet, so only its own key can act.
+  expect((await onVenue(address)).agents, 'the venue knows no agent key for the connected wallet').toEqual([]);
 });
 
 test(`${J} #5 exports the key, or adds a recovery method, with step-up: the provider's own flow after the passkey; INTAFACED never receives the key`, async ({
@@ -287,7 +313,7 @@ test(`${J} #6 signs in on a new device: the same wallet once the passkey or reco
   browser,
 }) => {
   test.setTimeout(240_000);
-  const { who, address, walletId, recovery } = walletState();
+  const { who, address, walletId, credential, recovery } = walletState();
   if (!recovery) throw new Error(`${J} #5 added no recovery passkey, so there is no new device to sign in on`);
   await disconnectVenue(who, address);
 
@@ -301,9 +327,28 @@ test(`${J} #6 signs in on a new device: the same wallet once the passkey or reco
     await page.getByRole('button', { name: 'Connect to the venue' }).click();
     await expect(page.getByText('Your passkey check did not pass', { exact: true })).toBeVisible({ timeout: 90_000 });
     expect(await venueConnections(who)).toEqual([]);
+    // Nothing from that session reached the venue: no key given, no order, no deposit.
+    expect(await onVenue(address), 'a session that has not passed the passkey check signs nothing at the venue').toEqual(NOTHING_ON_VENUE);
   } finally {
     await bare.close();
   }
+
+  // A new device with the wallet's own passkey, synced to it: the same wallet signs once its passkey check passes.
+  const synced = await browser.newContext({ baseURL: PASSKEY_ORIGIN });
+  try {
+    const page = await synced.newPage();
+    await device(page, [credential]);
+    await openRoom(page, who);
+    await expect(panel(page).locator('[data-embedded-address]')).toHaveText(address);
+    await expect(panel(page).locator('[data-embedded-wallet-id]')).toHaveText(walletId);
+    await page.getByRole('button', { name: 'Connect to the venue' }).click();
+    await expect(page.getByTestId('embedded-venue-expires')).toBeVisible({ timeout: 20_000 });
+    expect((await venueConnections(who)).map((c) => [c.address, c.status])).toEqual([[address, 'live']]);
+    expect((await onVenue(address)).agents).toEqual([]);
+  } finally {
+    await synced.close();
+  }
+  await disconnectVenue(who, address);
 
   // A new device with the recovery passkey: the same wallet signs.
   const fresh = await browser.newContext({ baseURL: PASSKEY_ORIGIN });
@@ -316,6 +361,8 @@ test(`${J} #6 signs in on a new device: the same wallet once the passkey or reco
     await page.getByRole('button', { name: 'Connect to the venue' }).click();
     await expect(page.getByTestId('embedded-venue-expires')).toBeVisible({ timeout: 20_000 });
     expect((await venueConnections(who)).map((c) => [c.address, c.status])).toEqual([[address, 'live']]);
+    // The same wallet at the venue: still no key but its own.
+    expect((await onVenue(address)).agents).toEqual([]);
   } finally {
     await fresh.close();
   }
@@ -327,20 +374,31 @@ test(`${J} #7 asks for a signature while the provider is down: refused with the 
   const { who, address, credential } = walletState();
   await device(page, [credential]);
   await disconnectVenue(who, address);
-  // The provider stops answering this device: every call to it fails as a refused connection does.
+  // Every call the page makes to the provider, and how the stack answered it.
   const tried = [];
-  await page.route('**/__test-wallet-provider/**', (route) => {
-    tried.push(new URL(route.request().url()).pathname);
-    return route.abort('connectionrefused');
+  page.on('response', (r) => {
+    const p = new URL(r.url()).pathname;
+    if (p.startsWith('/__test-wallet-provider/')) tried.push([p, r.status()]);
   });
   await openRoom(page, who);
-  await page.getByRole('button', { name: 'Connect to the venue' }).click();
-  await expect(page.getByText('Your wallet provider is not answering', { exact: true })).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByText(`${PROVIDER} is not answering. Nothing was made, signed or sent. Try again in a moment.`)).toBeVisible();
-  await expect(page.getByText('wallet.embedded_provider_down')).toBeVisible();
-  // It stopped at the provider's first call: nothing was signed, and no connection was asked for.
-  expect(tried).toEqual(['/__test-wallet-provider/client/challenge']);
+  await expect(panel(page).locator('[data-embedded-address]')).toHaveText(address);
+  // The provider goes down on the stack: its process (local-test-stack.mjs `test-wallet-provider`) is stopped, so the
+  // page's provider path finds nothing behind it. It is started again after, with its state file (the wallet) kept.
+  tool('local-test-stack.mjs', 'stop', 'test-wallet-provider');
+  try {
+    await page.getByRole('button', { name: 'Connect to the venue' }).click();
+    await expect(page.getByText('Your wallet provider is not answering', { exact: true })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText(`${PROVIDER} is not answering. Nothing was made, signed or sent. Try again in a moment.`)).toBeVisible();
+    await expect(page.getByText('wallet.embedded_provider_down')).toBeVisible();
+  } finally {
+    tool('local-test-stack.mjs', 'start', '--only', 'test-wallet-provider');
+  }
+  // It stopped at the provider's first call, which found the provider gone: nothing was signed, and no connection was
+  // asked for.
+  expect(tried).toEqual([['/__test-wallet-provider/client/challenge', 502]]);
   expect(await venueConnections(who)).toEqual([]);
+  // The venue's own record: nothing was sent to it, no key given, no order, no deposit.
+  expect(await onVenue(address), 'nothing signed or sent reaches the venue').toEqual(NOTHING_ON_VENUE);
 });
 
 /** The stack's TEST venue (local-test-stack.mjs PORTS['test-venue']). */
@@ -362,18 +420,6 @@ const venueAccount = async (owner) => ({ venueId: (await testVenue('/venue')).ve
 /** The venue's own list of agents on the person's main account. */
 const venueAgents = async (owner) => (await testVenue('/agents', { account: await venueAccount(owner) })).value;
 const unnamedAgents = async (owner) => (await venueAgents(owner)).filter((a) => a.name === '').map((a) => a.address);
-
-/** svc-trade restarted with the user-venue door switched as asked; this process's environment is put back. */
-function restartTrade(on) {
-  const before = process.env.LOCAL_STACK_USER_VENUE;
-  process.env.LOCAL_STACK_USER_VENUE = on ? 'on' : 'off';
-  try {
-    tool('local-test-stack.mjs', 'restart', 'trade');
-  } finally {
-    if (before === undefined) delete process.env.LOCAL_STACK_USER_VENUE;
-    else process.env.LOCAL_STACK_USER_VENUE = before;
-  }
-}
 
 const sessionPanel = (page) => page.locator('[data-panel="trading-session"]');
 /** Every wallet signature asked of the provider on this page: one passkey prompt each (the challenge is not one). */
@@ -411,216 +457,211 @@ test(`${J} #8 starts a trading session and places two orders: one approval after
     await verify(page, who);
     run.write({ verified: true });
   }
-  restartTrade(true);
-  try {
-    const client = await api(who);
-    // The person's venue account starts with TEST USDC, by the TEST venue's deposit control (a labelled stand-in for
-    // the deposit journey).
-    const runId = process.env.JOURNEY_RUN_ID ?? 'local';
-    await testVenue('/test/deposit', {
-      account: await venueAccount(address),
+  const client = await api(who);
+  // The person's venue account starts with TEST USDC, by the TEST venue's deposit control (a labelled stand-in for
+  // the deposit journey).
+  const runId = process.env.JOURNEY_RUN_ID ?? 'local';
+  await testVenue('/test/deposit', {
+    account: await venueAccount(address),
+    asset: 'USDC',
+    amount: '1000',
+    depositRef: `j-wallet-22:${runId}:${client.userId}:usdc`,
+  });
+
+  await device(page, [credential]);
+  const prompts = walletPrompts(page);
+  const prepares = [];
+  const submits = [];
+  const answers = [];
+  page.on('request', (r) => {
+    const p = new URL(r.url()).pathname;
+    if (p === '/api/v1/venue/prepare') prepares.push(r.postDataJSON());
+    if (p === '/api/v1/venue/submit') submits.push(r.postDataJSON());
+  });
+  page.on('response', async (r) => {
+    if (new URL(r.url()).pathname === '/api/v1/venue/submit') answers.push(await r.json().catch(() => null));
+  });
+  await openRoom(page, who);
+  const panel = sessionPanel(page);
+  await expect(panel.getByText(`Venue: ${VENUE_NAME}`)).toBeVisible({ timeout: 20_000 });
+  await expect(panel.locator('[data-venue-test-label]')).toHaveText('TEST');
+  // Our builder fee is approved once per account by the wallet (its own approval, before any order).
+  const approveFee = panel.getByRole('button', { name: 'Approve the builder fee' });
+  await expect(panel.locator('[data-builder-approved]').or(approveFee)).toBeVisible({ timeout: 20_000 });
+  if (await approveFee.isVisible()) {
+    await panel.getByRole('button', { name: 'Approve the builder fee' }).click();
+    await expect(panel.locator('[data-builder-approved]')).toBeVisible({ timeout: 30_000 });
+  }
+  await expect(
+    panel.getByText(
+      `Start a session to trade on ${VENUE_NAME}. Your wallet signs one approval, after your passkey, for a new session key made on this device. The key can place and cancel orders and can never withdraw. It ends at its expiry, when you end the session, or when you sign out.`,
+    ),
+  ).toBeVisible();
+
+  // ── One approval, after the passkey, for a fresh key with its expiry ────────────────────────────────────────────
+  prompts.length = 0;
+  const startedAt = Date.now();
+  const first = await startSession(page);
+  expect(prompts).toEqual(['/__test-wallet-provider/client/signtyped']);
+  expect(first).toMatch(/^0x[0-9a-f]{40}$/);
+  expect(first).not.toBe(address.toLowerCase());
+  await expect(panel.getByText(`Session on. Your session key can trade on ${VENUE_NAME} and can never withdraw.`)).toBeVisible();
+  const expiresAt = Date.parse(await panel.getByTestId('session-expires').getAttribute('datetime'));
+  expect(expiresAt).toBeGreaterThan(startedAt);
+  expect(expiresAt).toBeLessThanOrEqual(Date.now() + 8 * 60 * 60 * 1000);
+  // The venue's own record: the key is approved on the person's account, unnamed, with that expiry.
+  const listed = (await venueAgents(address)).find((a) => a.address === first);
+  expect(listed).toEqual({ address: first, name: '', validUntil: new Date(expiresAt).toISOString() });
+  // INTAFACED holds the address and the venue's answer, never the key.
+  const held = await heldInTab(page, client.userId);
+  expect(held.address).toBe(first);
+  const record = await client.get(`/api/v1/venue/session?owner=${address.toLowerCase()}`);
+  expect(record.status).toBe(200);
+  expect(JSON.stringify(record.body).toLowerCase()).not.toContain(held.privateKey.slice(2).toLowerCase());
+
+  // ── Two orders, signed by the session key, with no second prompt ────────────────────────────────────────────────
+  const ordersBefore = (await testVenue('/open-orders', { account: await venueAccount(address) })).value.length;
+  // A resting TEST buy inside the TEST venue's published price band (95% around its BTC-USDC book's middle, 60000):
+  // the venue refuses a limit price outside it (`price_outside_venue_band`), so the ticket names its market and price.
+  await panel.getByLabel(/^Market\b/).selectOption('BTC-USDC');
+  await panel.getByLabel('Limit price', { exact: true }).fill('59000');
+  for (const n of [1, 2]) {
+    await panel.getByRole('button', { name: 'Place order' }).click();
+    await expect(panel.locator('[data-session-orders] li')).toHaveCount(n, { timeout: 20_000 });
+  }
+  await expect(panel.getByText(`Order on ${VENUE_NAME}: open. Signed by your session key, with no passkey.`)).toBeVisible();
+  expect(prompts).toHaveLength(1);
+  const orderPrepares = prepares.filter((b) => b.intent?.kind === 'place_order');
+  expect(orderPrepares.map((b) => b.signer)).toEqual([
+    { role: 'agent', address: first },
+    { role: 'agent', address: first },
+  ]);
+  const orderKeys = orderPrepares.map((b) => b.intent.clientOrderKey);
+  expect(new Set(orderKeys).size).toBe(2);
+  for (const key of orderKeys) expect(submits.find((b) => b.actionKey === key)?.signature.signedBy).toBe(first);
+  // The venue verified each signature against the session key and holds both orders.
+  expect((await testVenue('/open-orders', { account: await venueAccount(address) })).value.length).toBe(ordersBefore + 2);
+
+  // ── The session key can never withdraw ─────────────────────────────────────────────────────────────────────────
+  const usdcBefore = (await testVenue('/balances', { account: await venueAccount(address) })).value.find((b) => b.asset === 'USDC');
+  const withdraw = await client.post('/api/v1/venue/prepare', {
+    owner: address.toLowerCase(),
+    signer: { role: 'agent', address: first },
+    intent: {
+      kind: 'withdraw',
       asset: 'USDC',
-      amount: '1000',
-      depositRef: `j-wallet-22:${runId}:${client.userId}:usdc`,
-    });
+      amount: '10',
+      destination: address.toLowerCase(),
+      withdrawalKey: `withdraw:${client.userId}:j-wallet-22-8`,
+    },
+  });
+  expect(withdraw.status).toBe(422);
+  expect(withdraw.body.intafacedCode).toBe('trade.venue.agent_not_permitted');
+  expect((await testVenue('/balances', { account: await venueAccount(address) })).value.find((b) => b.asset === 'USDC')).toEqual(
+    usdcBefore,
+  );
 
-    await device(page, [credential]);
-    const prompts = walletPrompts(page);
-    const prepares = [];
-    const submits = [];
-    const answers = [];
-    page.on('request', (r) => {
-      const p = new URL(r.url()).pathname;
-      if (p === '/api/v1/venue/prepare') prepares.push(r.postDataJSON());
-      if (p === '/api/v1/venue/submit') submits.push(r.postDataJSON());
-    });
-    page.on('response', async (r) => {
-      if (new URL(r.url()).pathname === '/api/v1/venue/submit') answers.push(await r.json().catch(() => null));
-    });
-    await openRoom(page, who);
-    const panel = sessionPanel(page);
-    await expect(panel.getByText(`Venue: ${VENUE_NAME}`)).toBeVisible({ timeout: 20_000 });
-    await expect(panel.locator('[data-venue-test-label]')).toHaveText('TEST');
-    // Our builder fee is approved once per account by the wallet (its own approval, before any order).
-    const approveFee = panel.getByRole('button', { name: 'Approve the builder fee' });
-    await expect(panel.locator('[data-builder-approved]').or(approveFee)).toBeVisible({ timeout: 20_000 });
-    if (await approveFee.isVisible()) {
-      await panel.getByRole('button', { name: 'Approve the builder fee' }).click();
-      await expect(panel.locator('[data-builder-approved]')).toBeVisible({ timeout: 30_000 });
-    }
+  // ── The expiry ends it: an order signed by the expired key is refused, and a new session is offered ─────────────
+  expect((await testVenue('/test/expire-agent', { account: await venueAccount(address), agentAddress: first })).expired).toBe(true);
+  await panel.getByRole('button', { name: 'Place order' }).click();
+  await expect(
+    panel.getByText('Your session key can no longer trade. Start a new session to keep trading. (trade.venue.signer_not_authorised)'),
+  ).toBeVisible({
+    timeout: 20_000,
+  });
+  await expect(panel.getByText('Your trading session ended at its expiry. Start a new session to keep trading.')).toBeVisible();
+  expect((await testVenue('/open-orders', { account: await venueAccount(address) })).value.length).toBe(ordersBefore + 2);
+  expect(prompts).toHaveLength(1);
+
+  // ── The next session approves a new key. Its answer is lost on the way back: read back from the venue's agents ──
+  await testVenue('/test/lose-answers', { account: await venueAccount(address), count: 1 });
+  answers.length = 0;
+  const second = await startSession(page);
+  expect(second).not.toBe(first);
+  // The approval's answer came back not definite; the room read the session back from the venue's agents and shows
+  // it on, with no second prompt.
+  expect(answers.at(-1)?.outcome).toEqual({ definite: false, reason: 'timeout' });
+  expect(prompts).toHaveLength(2);
+  expect(await unnamedAgents(address)).toEqual([second]);
+
+  // ── A second device's session replaces the first device's key; the first device says so in words ────────────────
+  const other = await browser.newContext({ baseURL: PASSKEY_ORIGIN });
+  try {
+    const b = await other.newPage();
+    await device(b, [credential]);
+    const bPrompts = walletPrompts(b);
+    await openRoom(b, who);
+    await expect(sessionPanel(b).getByText(`Venue: ${VENUE_NAME}`)).toBeVisible({ timeout: 20_000 });
+    const third = await startSession(b);
+    expect(bPrompts).toEqual(['/__test-wallet-provider/client/signtyped']);
+    expect([first, second]).not.toContain(third);
+    expect(await unnamedAgents(address)).toEqual([third]);
+    await page.reload();
     await expect(
-      panel.getByText(
-        `Start a session to trade on ${VENUE_NAME}. Your wallet signs one approval, after your passkey, for a new session key made on this device. The key can place and cancel orders and can never withdraw. It ends at its expiry, when you end the session, or when you sign out.`,
+      sessionPanel(page).getByText(
+        'Your trading session was replaced by one you started on another device. The key on this device no longer trades. Start a new session to trade here.',
       ),
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 20_000 });
+    await expect(sessionPanel(page).getByRole('button', { name: 'Start a new session' })).toBeVisible();
 
-    // ── One approval, after the passkey, for a fresh key with its expiry ────────────────────────────────────────────
-    prompts.length = 0;
-    const startedAt = Date.now();
-    const first = await startSession(page);
-    expect(prompts).toEqual(['/__test-wallet-provider/client/signtyped']);
-    expect(first).toMatch(/^0x[0-9a-f]{40}$/);
-    expect(first).not.toBe(address.toLowerCase());
-    await expect(panel.getByText(`Session on. Your session key can trade on ${VENUE_NAME} and can never withdraw.`)).toBeVisible();
-    const expiresAt = Date.parse(await panel.getByTestId('session-expires').getAttribute('datetime'));
-    expect(expiresAt).toBeGreaterThan(startedAt);
-    expect(expiresAt).toBeLessThanOrEqual(Date.now() + 8 * 60 * 60 * 1000);
-    // The venue's own record: the key is approved on the person's account, unnamed, with that expiry.
-    const listed = (await venueAgents(address)).find((a) => a.address === first);
-    expect(listed).toEqual({ address: first, name: '', validUntil: new Date(expiresAt).toISOString() });
-    // INTAFACED holds the address and the venue's answer, never the key.
-    const held = await heldInTab(page, client.userId);
-    expect(held.address).toBe(first);
-    const record = await client.get(`/api/v1/venue/session?owner=${address.toLowerCase()}`);
-    expect(record.status).toBe(200);
-    expect(JSON.stringify(record.body).toLowerCase()).not.toContain(held.privateKey.slice(2).toLowerCase());
-
-    // ── Two orders, signed by the session key, with no second prompt ────────────────────────────────────────────────
-    const ordersBefore = (await testVenue('/open-orders', { account: await venueAccount(address) })).value.length;
-    // A resting TEST buy inside the TEST venue's published price band (95% around its BTC-USDC book's middle, 60000):
-    // the venue refuses a limit price outside it (`price_outside_venue_band`), so the ticket names its market and price.
-    await panel.getByLabel(/^Market\b/).selectOption('BTC-USDC');
-    await panel.getByLabel('Limit price', { exact: true }).fill('59000');
-    for (const n of [1, 2]) {
-      await panel.getByRole('button', { name: 'Place order' }).click();
-      await expect(panel.locator('[data-session-orders] li')).toHaveCount(n, { timeout: 20_000 });
-    }
-    await expect(panel.getByText(`Order on ${VENUE_NAME}: open. Signed by your session key, with no passkey.`)).toBeVisible();
-    expect(prompts).toHaveLength(1);
-    const orderPrepares = prepares.filter((b) => b.intent?.kind === 'place_order');
-    expect(orderPrepares.map((b) => b.signer)).toEqual([
-      { role: 'agent', address: first },
-      { role: 'agent', address: first },
-    ]);
-    const orderKeys = orderPrepares.map((b) => b.intent.clientOrderKey);
-    expect(new Set(orderKeys).size).toBe(2);
-    for (const key of orderKeys) expect(submits.find((b) => b.actionKey === key)?.signature.signedBy).toBe(first);
-    // The venue verified each signature against the session key and holds both orders.
-    expect((await testVenue('/open-orders', { account: await venueAccount(address) })).value.length).toBe(ordersBefore + 2);
-
-    // ── The session key can never withdraw ─────────────────────────────────────────────────────────────────────────
-    const usdcBefore = (await testVenue('/balances', { account: await venueAccount(address) })).value.find((b) => b.asset === 'USDC');
-    const withdraw = await client.post('/api/v1/venue/prepare', {
+    // ── Ending the session revokes the key on the venue; an order signed by it is refused ─────────────────────────
+    const thirdKey = await heldInTab(b, client.userId);
+    expect(thirdKey.address).toBe(third);
+    await sessionPanel(b).getByRole('button', { name: 'End trading session' }).click();
+    await expect(
+      sessionPanel(b).getByText('You ended your trading session. Its key is revoked on the venue and is never approved again.'),
+    ).toBeVisible({ timeout: 30_000 });
+    expect(bPrompts).toHaveLength(2);
+    expect(await unnamedAgents(address)).toEqual([]);
+    expect(await heldInTab(b, client.userId)).toBeNull();
+    const after = await client.post('/api/v1/venue/prepare', {
       owner: address.toLowerCase(),
-      signer: { role: 'agent', address: first },
+      signer: { role: 'agent', address: third },
       intent: {
-        kind: 'withdraw',
-        asset: 'USDC',
-        amount: '10',
-        destination: address.toLowerCase(),
-        withdrawalKey: `withdraw:${client.userId}:j-wallet-22-8`,
+        kind: 'place_order',
+        symbol: 'BTC-USDC',
+        side: 'buy',
+        type: 'limit',
+        amount: '0.001',
+        price: '59000',
+        timeInForce: 'GTC',
+        reduceOnly: false,
+        clientOrderKey: `order:${client.userId}:j-wallet-22-8:revoked`,
+        builderFee: null,
       },
     });
-    expect(withdraw.status).toBe(422);
-    expect(withdraw.body.intafacedCode).toBe('trade.venue.agent_not_permitted');
-    expect((await testVenue('/balances', { account: await venueAccount(address) })).value.find((b) => b.asset === 'USDC')).toEqual(
-      usdcBefore,
-    );
+    expect(after.status).toBe(422);
+    expect(after.body.intafacedCode).toBe('trade.venue.signer_not_authorised');
 
-    // ── The expiry ends it: an order signed by the expired key is refused, and a new session is offered ─────────────
-    expect((await testVenue('/test/expire-agent', { account: await venueAccount(address), agentAddress: first })).expired).toBe(true);
-    await panel.getByRole('button', { name: 'Place order' }).click();
-    await expect(
-      panel.getByText('Your session key can no longer trade. Start a new session to keep trading. (trade.venue.signer_not_authorised)'),
-    ).toBeVisible({
-      timeout: 20_000,
-    });
-    await expect(panel.getByText('Your trading session ended at its expiry. Start a new session to keep trading.')).toBeVisible();
-    expect((await testVenue('/open-orders', { account: await venueAccount(address) })).value.length).toBe(ordersBefore + 2);
-    expect(prompts).toHaveLength(1);
+    // ── Signing out ends it for the device: the next sign-in has no session, and starts a new key ─────────────────
+    const fourth = await startSession(b);
+    expect(bPrompts).toHaveLength(3);
+    await signOutBrowser(other);
+    await openRoom(b, who);
+    await expect(sessionPanel(b).getByRole('button', { name: 'Start trading session' })).toBeVisible({ timeout: 20_000 });
+    await expect(sessionPanel(b).locator('[data-session-key]')).toHaveCount(0);
+    // The key the tab kept from before the sign-out is dropped, never used again.
+    await expect.poll(() => heldInTab(b, client.userId)).toBeNull();
+    const fifth = await startSession(b);
+    expect(bPrompts).toHaveLength(4);
+    expect(await unnamedAgents(address)).toEqual([fifth]);
+    const used = [first, second, third, fourth, fifth];
+    expect(new Set(used).size).toBe(5);
 
-    // ── The next session approves a new key. Its answer is lost on the way back: read back from the venue's agents ──
-    await testVenue('/test/lose-answers', { account: await venueAccount(address), count: 1 });
-    answers.length = 0;
-    const second = await startSession(page);
-    expect(second).not.toBe(first);
-    // The approval's answer came back not definite; the room read the session back from the venue's agents and shows
-    // it on, with no second prompt.
-    expect(answers.at(-1)?.outcome).toEqual({ definite: false, reason: 'timeout' });
-    expect(prompts).toHaveLength(2);
-    expect(await unnamedAgents(address)).toEqual([second]);
-
-    // ── A second device's session replaces the first device's key; the first device says so in words ────────────────
-    const other = await browser.newContext({ baseURL: PASSKEY_ORIGIN });
-    try {
-      const b = await other.newPage();
-      await device(b, [credential]);
-      const bPrompts = walletPrompts(b);
-      await openRoom(b, who);
-      await expect(sessionPanel(b).getByText(`Venue: ${VENUE_NAME}`)).toBeVisible({ timeout: 20_000 });
-      const third = await startSession(b);
-      expect(bPrompts).toEqual(['/__test-wallet-provider/client/signtyped']);
-      expect([first, second]).not.toContain(third);
-      expect(await unnamedAgents(address)).toEqual([third]);
-      await page.reload();
-      await expect(
-        sessionPanel(page).getByText(
-          'Your trading session was replaced by one you started on another device. The key on this device no longer trades. Start a new session to trade here.',
-        ),
-      ).toBeVisible({ timeout: 20_000 });
-      await expect(sessionPanel(page).getByRole('button', { name: 'Start a new session' })).toBeVisible();
-
-      // ── Ending the session revokes the key on the venue; an order signed by it is refused ─────────────────────────
-      const thirdKey = await heldInTab(b, client.userId);
-      expect(thirdKey.address).toBe(third);
-      await sessionPanel(b).getByRole('button', { name: 'End trading session' }).click();
-      await expect(
-        sessionPanel(b).getByText('You ended your trading session. Its key is revoked on the venue and is never approved again.'),
-      ).toBeVisible({ timeout: 30_000 });
-      expect(bPrompts).toHaveLength(2);
-      expect(await unnamedAgents(address)).toEqual([]);
-      expect(await heldInTab(b, client.userId)).toBeNull();
-      const after = await client.post('/api/v1/venue/prepare', {
-        owner: address.toLowerCase(),
-        signer: { role: 'agent', address: third },
-        intent: {
-          kind: 'place_order',
-          symbol: 'BTC-USDC',
-          side: 'buy',
-          type: 'limit',
-          amount: '0.001',
-          price: '59000',
-          timeInForce: 'GTC',
-          reduceOnly: false,
-          clientOrderKey: `order:${client.userId}:j-wallet-22-8:revoked`,
-          builderFee: null,
-        },
-      });
-      expect(after.status).toBe(422);
-      expect(after.body.intafacedCode).toBe('trade.venue.signer_not_authorised');
-
-      // ── Signing out ends it for the device: the next sign-in has no session, and starts a new key ─────────────────
-      const fourth = await startSession(b);
-      expect(bPrompts).toHaveLength(3);
-      await signOutBrowser(other);
-      await openRoom(b, who);
-      await expect(sessionPanel(b).getByRole('button', { name: 'Start trading session' })).toBeVisible({ timeout: 20_000 });
-      await expect(sessionPanel(b).locator('[data-session-key]')).toHaveCount(0);
-      // The key the tab kept from before the sign-out is dropped, never used again.
-      await expect.poll(() => heldInTab(b, client.userId)).toBeNull();
-      const fifth = await startSession(b);
-      expect(bPrompts).toHaveLength(4);
-      expect(await unnamedAgents(address)).toEqual([fifth]);
-      const used = [first, second, third, fourth, fifth];
-      expect(new Set(used).size).toBe(5);
-
-      // ── Never an old key again: each one is refused, and the venue's list never shows it again ────────────────────
-      for (const old of [first, second, third, fourth]) {
-        const again = await client.post('/api/v1/venue/session/start', { owner: address.toLowerCase(), agentAddress: old });
-        expect(again.status, JSON.stringify(again.body)).toBe(409);
-        expect(again.body.intafacedCode).toBe('trade.venue_session_key_reused');
-      }
-      expect(await unnamedAgents(address)).toEqual([fifth]);
-      await sessionPanel(b).getByRole('button', { name: 'End trading session' }).click();
-      await expect(
-        sessionPanel(b).getByText('You ended your trading session. Its key is revoked on the venue and is never approved again.'),
-      ).toBeVisible({
-        timeout: 30_000,
-      });
-    } finally {
-      await other.close();
+    // ── Never an old key again: each one is refused, and the venue's list never shows it again ────────────────────
+    for (const old of [first, second, third, fourth]) {
+      const again = await client.post('/api/v1/venue/session/start', { owner: address.toLowerCase(), agentAddress: old });
+      expect(again.status, JSON.stringify(again.body)).toBe(409);
+      expect(again.body.intafacedCode).toBe('trade.venue_session_key_reused');
     }
+    expect(await unnamedAgents(address)).toEqual([fifth]);
+    await sessionPanel(b).getByRole('button', { name: 'End trading session' }).click();
+    await expect(
+      sessionPanel(b).getByText('You ended your trading session. Its key is revoked on the venue and is never approved again.'),
+    ).toBeVisible({
+      timeout: 30_000,
+    });
   } finally {
-    restartTrade(false);
+    await other.close();
   }
 });
