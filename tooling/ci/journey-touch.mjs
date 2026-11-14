@@ -30,9 +30,13 @@
  *   - stack (theo-01 part 2, OWNER 296: "A change to one service's own test-stack file runs the journeys that use that
  *     file"): a named pull request's change to a service's own stack file (STACK_FILE: `local-stack-services/<service>.mjs`,
  *     `test-owner-values/<service>.json`), or to a root deploy file the stack never reads (ROOT_DEPLOY_FILE), also
- *     runs the journeys whose tests use it (stackImporters), when nothing else makes it full. Without a name, or when
- *     the journey files can't be read, it stays full, and stack-wide files (local-test-stack.mjs and the rest of
- *     SHARED_SETUP) always are;
+ *     runs the journeys whose tests use it (stackImporters), when nothing else makes it full. So do two more kinds
+ *     (project-state rows d64, d68: on 14 Nov 2026 4 of the 7 newest journey pull requests ran all 32 shards, about 35
+ *     minutes more a push, for one of these paths): a journey helper beside the journey files (HELPER, not on
+ *     STACK_HELPERS) runs the journey files that import it, and the stack itself (STACK_CANARY,
+ *     tooling/scripts/local-test-stack.mjs, which every shard boots) runs the named journeys plus the CANARY journeys
+ *     (the lead's call). Without a name, or when the journey files can't be read, each stays full, and the rest of
+ *     SHARED_SETUP always is;
  *   - files: a journey test file (`apps/customer/tests/real-app/J-<id>[-part].pw.mjs`, JOURNEY_TEST) touches the
  *     journeys in that file only. (Another run file there, a look sweep, holds no journey steps, so no report lists it:
  *     it is full.) Journey files are independent: each makes its own accounts and keeps its own run
@@ -217,6 +221,10 @@ const NONE_RULES = [
   (p) => /^[^/]+\.md$/.test(p),
   // A doc outside DOCS_READ (that list is full, and is checked first).
   (p) => p.startsWith('docs/'),
+  // The published SDKs (sdks/python): no journey, stack script or service imports or reads them; the SDK's drift test
+  // (packages/sdk-ts/src/drift.test.ts) and the generator (tooling/scripts/sdk-from-openapi.ts) are their judges.
+  // (#8321 ran all 32 shards for sdks/python/openapi/payments.openapi.json, a path no rule placed, 14 Nov 2026.)
+  (p) => p.startsWith('sdks/'),
 ];
 
 const PRODUCT = 'product code, and no map recorded from real runs says which journeys reach it yet';
@@ -259,6 +267,60 @@ export const STACK_FILE = /^tooling\/(?:scripts\/local-stack-services\/[a-z0-9-]
  *  (project-state#2344 row d55). */
 export const ROOT_DEPLOY_FILE = /^(?:docker-compose[^/]*\.ya?ml|\.env\.example)$/;
 
+/** A journey helper: a module directly in the real-app folder that is not a run file (`venue-reads.mjs`). */
+export const HELPER = /^apps\/customer\/tests\/real-app\/([A-Za-z0-9._-]+\.mjs)$/;
+
+/**
+ * The helpers that code outside the journey files runs or names: the Playwright config and its reporter, and the
+ * helpers a stack script, a script the journeys run starts, a CI file the run uses (JOURNEY_CI), the workflows or app
+ * code reach. A change to one can break any journey or the stack, so it stays full. journey-touch.test.mjs finds every
+ * helper such code names and fails when one is missing here. Any other helper, in a pull request that names a journey,
+ * runs the journey files that import it (stackImporters), and is full when a run file that is not a journey, the config,
+ * or one of these reaches it. (Failure it prevents: #8322 changed venue-reads.mjs, which two journeys import, and #8310
+ * look-fixtures.mjs; each ran all 32 shards, 14 Nov 2026.)
+ */
+export const STACK_HELPERS = [
+  'agents.mjs',
+  'clauses-v1.mjs',
+  'copy.mjs',
+  'desk.mjs',
+  'dex.mjs',
+  'fail-fast-once.mjs',
+  'journey.mjs',
+  'market.mjs',
+  'merchant.mjs',
+  'notices.mjs',
+  'p2p.mjs',
+  'real-app.playwright.config.mjs',
+  'services.mjs',
+  'stack.mjs',
+  'staff.mjs',
+  'test-wallet.mjs',
+  'venue.mjs',
+  'world-line.mjs',
+  'world-restore.mjs',
+];
+
+/** The stack every shard boots. A named pull request's change to it runs its named journeys and the CANARY journeys,
+ *  and main's full run after the merge judges the rest (OWNER 249 (3); the lead's call, 14 Nov 2026). Its siblings
+ *  (the TEST market maker, the seed, the world) stay full. */
+export const STACK_CANARY = 'tooling/scripts/local-test-stack.mjs';
+
+/**
+ * The canary: journey files that run beside a named change to the stack, about one shard (some 10 minutes of journeys)
+ * across sign-up and identity, spot trading on the TEST venue, P2P and Home's balances. Each passed every step in main's
+ * 4 newest finished full runs (43577989116, 43579219442, 43582579196, 43586501223; 14 Nov 2026). Every shard boots the
+ * whole stack, so the named journey's own shard proves it starts; these prove it still serves other areas. One missing
+ * at the head makes the change full.
+ */
+export const CANARY = ['J-cex-spot-01.pw.mjs', 'J-home-ia-01.pw.mjs', 'J-identity-01.pw.mjs', 'J-p2p-01.pw.mjs'];
+
+/** Whether a changed path is a helper that may narrow (HELPER, and not on STACK_HELPERS). */
+const narrowHelper = (p) => {
+  const m = HELPER.exec(p);
+  return Boolean(m) && !m[1].endsWith('.pw.mjs') && !STACK_HELPERS.includes(m[1]);
+};
+
 /** Text with a path split over `'a', 'b'` arguments or a line of comment joined up, so each spelling reads as one path. */
 const joinedPaths = (t) =>
   String(t)
@@ -272,9 +334,17 @@ const joinedPaths = (t) =>
  * running one too many is safe), or imports a helper in that folder that does.
  */
 export function stackImporters(paths, texts) {
-  const names = [...new Set(paths)].map((p) => String(p).replace(/^tooling\/(?:scripts|profiles)\//, ''));
+  const all = [...new Set(paths)].map(String);
+  // A helper is named by its file name (any import spelling, or a comment); the stack itself adds the canary instead.
+  const helpers = all.filter(narrowHelper).map((p) => HELPER.exec(p)[1]);
+  const canary = all.includes(STACK_CANARY);
+  const names = all
+    .filter((p) => !narrowHelper(p) && p !== STACK_CANARY)
+    .map((p) => p.replace(/^tooling\/(?:scripts|profiles)\//, ''));
   const sources = new Map([...texts].map(([f, t]) => [f, joinedPaths(t)]));
-  const reaches = new Set([...sources].filter(([, t]) => names.some((n) => t.includes(n))).map(([f]) => f));
+  const reaches = new Set(
+    [...sources].filter(([f, t]) => names.some((n) => t.includes(n)) || helpers.some((h) => f !== h && t.includes(h))).map(([f]) => f),
+  );
   const uses = new Map([...sources].map(([f, t]) => [f, [...t.matchAll(/(['"`])\.\/([A-Za-z0-9._-]+\.mjs)\1/g)].map((m) => m[2])]));
   for (let grew = true; grew;) {
     grew = false;
@@ -284,14 +354,31 @@ export function stackImporters(paths, texts) {
         grew = true;
       }
   }
-  return [...reaches].filter((f) => JOURNEY_TEST.test(`apps/customer/tests/real-app/${f}`)).sort();
+  const isJourney = (f) => JOURNEY_TEST.test(`apps/customer/tests/real-app/${f}`);
+  if (helpers.length) {
+    // A helper narrows only when journey files alone reach it: a run file that is not a journey (a look sweep, which no
+    // report lists), a helper outside code reaches (STACK_HELPERS), or a module nothing in the folder names (the config,
+    // an entry point Playwright or a script loads) among its importers makes the change full (null).
+    const named = (f) => [...sources].some(([g, t]) => g !== f && t.includes(f));
+    for (const f of reaches) {
+      if (isJourney(f) || helpers.includes(f)) continue;
+      if (f.endsWith('.pw.mjs') || STACK_HELPERS.includes(f) || !named(f)) return null;
+    }
+  }
+  const out = [...reaches].filter(isJourney);
+  if (canary) {
+    if (!CANARY.every((f) => sources.has(f))) return null;
+    out.push(...CANARY);
+  }
+  return [...new Set(out)].sort();
 }
 
 /** One path's kind: { kind: 'full', why, stack? } | { kind: 'file', file } | { kind: 'none' }. `stack`: a service's own
  *  stack file, which only a pull request that names a journey narrows (journeyTouch). */
 export function pathKind(path) {
   const k = kindOf(String(path));
-  return STACK_FILE.test(String(path)) || ROOT_DEPLOY_FILE.test(String(path)) ? { ...k, stack: true } : k;
+  const p = String(path);
+  return STACK_FILE.test(p) || ROOT_DEPLOY_FILE.test(p) || narrowHelper(p) || p === STACK_CANARY ? { ...k, stack: true } : k;
 }
 
 function kindOf(p) {
