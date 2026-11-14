@@ -24,6 +24,8 @@ const J = 'J-agents-01';
 const agents = agentsRun(J);
 /** The TEST partner bank's name for itself (svc-bank `partner/test-partner.ts` TEST_PARTNER_LABEL). */
 const PARTNER_BANK = 'TEST partner bank';
+/** #5's question: it names a market, so the platform reads that market before the engine runs (J-agents-10 #4). */
+const QUESTION = 'TEST: what moved BTC/USDT today?';
 /** What the person holds at the TEST partner at the start, in TEST USDT. */
 const AT_PARTNER = '10';
 
@@ -455,7 +457,8 @@ test(`${J} #5 presses Run and confirms the spend ceiling: a run row before the e
   const before = await ledgerBalances();
   const partnerBefore = await partnerUsdt();
   const ask = workspace(page).getByRole('textbox', { name: /^Ask the agent/ });
-  await ask.fill('Where do I place a limit order?');
+  // A question about a market, so the reply comes with findings: the market the platform read itself before the engine ran.
+  await ask.fill(QUESTION);
 
   // The stack's stand-in engine is held at its door (its hold file), so the run is read from the service itself while
   // the engine has not answered: the service's run row exists before the engine answers.
@@ -489,9 +492,29 @@ test(`${J} #5 presses Run and confirms the spend ceiling: a run row before the e
   }
   expect(first.status()).toBe(200);
   const run = (await first.json()).result.data;
-  // The reply is the engine's own answer to this request.
-  await expect(workspace(page).getByRole('region', { name: 'Reply' }).getByTestId('more-body')).toHaveText(run.text, { timeout: 60_000 });
+  // The reply is the engine's own answer to this request, sentence by sentence as the service returned it.
+  const reply = workspace(page).getByRole('region', { name: 'Reply' }).getByTestId('more-body');
+  await expect(reply).toBeVisible({ timeout: 60_000 });
   expect(run.text.trim()).not.toBe('');
+  const sentences = run.text
+    .split(/(?<=[.!?])\s+|\n+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+  await expect(reply.locator('span[lang="und"]')).toHaveText(sentences);
+  // With its findings: the one market the question names, read by the platform itself, with the figure and the time it
+  // was observed, shown with the reply and stored with the run.
+  expect(run.provenance?.sources, 'the reply carries its findings').toEqual([
+    { id: 'S1', market: 'BTC/USDT', measure: 'last_price', value: expect.stringMatching(/^\d+(\.\d+)?$/), observedAt: expect.any(String) },
+  ]);
+  const [finding] = run.provenance.sources;
+  const findings = workspace(page).getByRole('region', { name: 'Where this came from' });
+  await expect(findings.getByTestId('research-source')).toHaveCount(1);
+  await expect(findings.getByTestId('research-source')).toContainText(`[S1] BTC/USDT last traded price: ${finding.value}`);
+  await expect(findings.getByTestId('research-observed-at')).toHaveAttribute('datetime', finding.observedAt);
+  const stored = await agentsCall('run.get', { runId: run.runId }, 'GET');
+  expect(stored.status).toBe(200);
+  expect(stored.body.result.data.reply).toBe(run.text);
+  expect(stored.body.result.data.provenance.sources).toEqual(run.provenance.sources);
   // Its exact cost: the reported usage at the published rate, to the last place, shown on the row as the service billed it.
   const { cost } = await rateCardCost(run.action.task, run);
   expect(run.metered).toBe(true);
@@ -647,7 +670,7 @@ test(`${J} #7 opens session history: the run with exact usage, refusal codes as 
   // The refusal #6 caused, in words and with its code.
   const refusal = history.getByRole('listitem').filter({ hasText: 'Refused' });
   await expect(refusal).toContainText('This agent may not run that task agents.task_not_allowed');
-  await expect(selected).not.toContainText('Where do I place a limit order?');
+  await expect(selected).not.toContainText(QUESTION);
 
   await page.reload();
   await agentSection(page, 'Sessions');
