@@ -6,6 +6,7 @@ import {
   railBoundary,
   rewardsEngine,
   treasuryWallet,
+  ownFundsCostAccount,
   venueBuilderAccount,
   venueBuilderFeeReceivable,
   userAvailable,
@@ -246,6 +247,41 @@ export function runLedgerConformance(name: string, createHarness: () => Promise<
           }),
         ).rejects.toThrow(InsufficientFundsError);
         expect(formatAmount((await ledger.balance(partnerReserve('conf', 'USDT'))).amount)).toBe('0');
+      });
+
+      it('moves our own funds with their costs in one entry, and refuses the whole move past what the place holds', async () => {
+        await ledger.post(
+          recipes.builderFeeEarn({
+            venueId: 'conf-c',
+            venueAccount: '0xconf',
+            fillId: 'fc1',
+            assetId: 'USDC',
+            amount: amt('5'),
+            userId: USER_A,
+          }),
+        );
+        await ledger.post(recipes.builderFeeReceive({ venueId: 'conf-c', claimId: 'cc1', assetId: 'USDC', amount: amt('5') }));
+        const sweep = (reference: string, amount: string) =>
+          recipes.ownFundsMove({
+            from: { kind: 'venue-builder-account', venueId: 'conf-c' },
+            to: { kind: 'treasury-wallet', walletId: 'conf-c' },
+            assetId: 'USDC',
+            amount: amt(amount),
+            reference,
+            costs: [
+              { kind: 'venue-withdrawal-fee', paidTo: 'conf-c', amount: amt('1') },
+              { kind: 'network-fee', paidTo: 'conf-chain', amount: amt('0.25') },
+            ],
+          });
+        // 4 arriving plus 1.25 of costs is more than the 5 there: refused whole.
+        await expect(ledger.post(sweep('0xc-over', '4'))).rejects.toThrow(InsufficientFundsError);
+        expect(formatAmount((await ledger.balance(ownFundsCostAccount('network-fee', 'conf-chain', 'USDC'))).amount)).toBe('0');
+        const tx = await ledger.post(sweep('0xc-ok', '3.75'));
+        expect((await ledger.post(sweep('0xc-ok', '3.75'))).id).toBe(tx.id);
+        expect(formatAmount((await ledger.balance(venueBuilderAccount('conf-c', 'USDC'))).amount)).toBe('0');
+        expect(formatAmount((await ledger.balance(treasuryWallet('conf-c', 'USDC'))).amount)).toBe('-3.75');
+        expect(formatAmount((await ledger.balance(ownFundsCostAccount('venue-withdrawal-fee', 'conf-c', 'USDC'))).amount)).toBe('-1');
+        expect(formatAmount((await ledger.balance(ownFundsCostAccount('network-fee', 'conf-chain', 'USDC'))).amount)).toBe('-0.25');
       });
 
       it('never pays a reward past what the paying place holds or past what is owed for it', async () => {
