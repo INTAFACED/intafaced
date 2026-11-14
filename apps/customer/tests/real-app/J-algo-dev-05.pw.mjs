@@ -174,6 +174,7 @@ test(`${J} #3 attaches a take profit and a stop loss and runs a bar that hits bo
   const STOP = '0.001';
   const TARGET = '0.001';
   await saveSignalStrategy(page, 'TEST both exits', { stopLoss: STOP, takeProfit: TARGET });
+  console.log('DIAG-SOURCE', await page.evaluate(() => JSON.stringify(localStorage)));
   // The TEST tape's older bars are seeded with two trades each, so a bar can only reach both levels once the live market
   // has traded through one; the run is taken again on the newest window, a minute later each time, until a held bar
   // reached both (each window is its own run key). Every check below is made on that run.
@@ -204,6 +205,14 @@ test(`${J} #3 attaches a take profit and a stop loss and runs a bar that hits bo
       const stop = entered * (1 - Number(STOP) / 100);
       if (bar.high >= target && bar.low <= stop) both.push({ exit, stop, bar });
     }
+    // DIAGNOSTIC (temporary): what the run assumed and the bars around each entry.
+    await view(room, 'Summary');
+    const assumed = await room
+      .getByTestId('quant-bar-assumptions')
+      .locator('[data-assumption]')
+      .evaluateAll((els) => els.map((el) => el.getAttribute('data-assumption')));
+    const near = rows.filter((r) => r.side === 'buy').map((r) => [r.ts, r.cells[5], bars.get(Date.parse(r.ts))]);
+    console.log('DIAG', JSON.stringify({ assumed, near }));
     if (both.length || Date.now() > deadline) break;
     await page.waitForTimeout(60_000);
   }
