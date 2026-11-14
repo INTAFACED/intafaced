@@ -986,6 +986,14 @@ export const rooms: readonly Room[] = [
     hidden: true,
   },
   {
+    path: '/quant/shared/:strategyId',
+    title: 'Shared strategy',
+    description: 'A strategy someone shared with you, under the permission they gave',
+    door: 'More',
+    area: 'more',
+    hidden: true,
+  },
+  {
     path: '/quant/strategies/:strategyId',
     title: 'Strategy',
     description: 'Versions, release notes and the code each run used',
@@ -1011,6 +1019,7 @@ export const rooms: readonly Room[] = [
       ['quant/sandbox', 'Quant sandbox', 'Run strategy code on the paper book'],
       ['quant/strategies', 'Strategies', 'Your saved strategies, folders and recycle bin'],
       ['quant/studio', 'Quant Studio', 'Build and run strategies'],
+      ['quant/shared', 'Shared with me', 'Strategies other people shared with you'],
       ['quant/live', 'Live runs', 'Strategies trading your own venue sub-accounts'],
       ['quant/backtest', 'Backtest', 'Review strategy results'],
       ['quant/editor', 'Code editor', 'Preview · sample data: the strategy code editor'],

@@ -293,7 +293,12 @@ export function createCampaignsRouter(
         .output(taskProgressSchema)
         .query(async ({ ctx, input }) => {
           try {
-            return await tasks.progress({ campaignId: input.campaignId, accountId: ctx.principal!.userId });
+            // Forwarded so a deposit step reads the person's own wallets for them (J-campaigns-02 #1).
+            return await tasks.progress({
+              campaignId: input.campaignId,
+              accountId: ctx.principal!.userId,
+              forwarded: forwardedPrincipalHeaders(ctx),
+            });
           } catch (err) {
             mapError(err);
           }

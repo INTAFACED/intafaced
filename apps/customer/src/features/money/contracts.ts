@@ -758,6 +758,8 @@ export const directDebitCollectionSchema = z.object({
   status: z.enum(['upcoming', 'processing', 'collected', 'failed', 'rejected']),
   failureCode: z.string().nullable(),
   ledgerTxId: z.string().nullable(),
+  /** The partner's move that collected it, when the partner bank holds the money (OWNER 226); null otherwise. */
+  partnerMoveId: z.string().nullable().default(null),
   presentedAt: z.string(),
   settledAt: z.string().nullable(),
   failureFee: z.null(),
@@ -797,6 +799,8 @@ export const directDebitWrites = {
     mandate: directDebitMandateSchema,
     rejected: z.array(z.string()),
     tooLate: z.array(z.object({ collectionId: z.string(), code: z.literal('bank.dd_too_late') })),
+    /** The partner the block was sent to, when it holds the money; null on the custodial layer. */
+    sentTo: z.string().nullable().default(null),
   }),
   unblock: z.object({ mandate: directDebitMandateSchema }),
   requestRefund: z.object({ collection: directDebitCollectionSchema, created: z.boolean() }),
@@ -1245,6 +1249,8 @@ export const bankReads = {
       amount: money,
       status: z.string(),
       ledgerTxId: z.string().nullable(),
+      /** The partner bank's move for this occurrence when it holds the money (OWNER 226); null on the ledger path. */
+      partnerMoveId: z.string().nullable().default(null),
       rejectionCode: z.string().nullable(),
     }),
   ),

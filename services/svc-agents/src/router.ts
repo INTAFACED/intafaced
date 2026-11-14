@@ -777,6 +777,12 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
                 state: z.enum(['open', 'unpaid', 'settled']),
                 amount: z.string().nullable(),
                 chargeKey: z.string().nullable(),
+                /**
+                 * How a settled window was paid: `ledger` (the custodial fee charge), or `partner` with the partner's own
+                 * name and payment id (earned as owed, then collected from the person's payment method). Null until paid.
+                 */
+                paidBy: z.enum(['ledger', 'partner']).nullable(),
+                payment: z.object({ ref: z.string(), label: z.string() }).nullable(),
               }),
             ),
             /**
@@ -804,9 +810,12 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
                 charged_amount: string | null;
                 charge_key: string | null;
                 charge_tx_id: string | null;
+                paid_by: 'ledger' | 'partner' | null;
+                payment_ref: string | null;
+                payment_label: string | null;
               }>
             >`
-              SELECT window_id, opened_at, sealed_at, charged_amount::text, charge_key, charge_tx_id
+              SELECT window_id, opened_at, sealed_at, charged_amount::text, charge_key, charge_tx_id, paid_by, payment_ref, payment_label
                 FROM agents.usage_windows
                WHERE session_id = ${session.id}
                ORDER BY opened_at, window_id
@@ -836,6 +845,12 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
                 state: row.sealed_at === null ? ('open' as const) : row.charge_tx_id ? ('settled' as const) : ('unpaid' as const),
                 amount: row.charged_amount === null ? null : formatAmount(parseAmount(row.charged_amount)),
                 chargeKey: row.charge_key,
+                // A window paid before `paid_by` was kept was a ledger fee charge: that was the only path.
+                paidBy:
+                  row.charge_tx_id && row.sealed_at !== null && row.charged_amount !== null && parseAmount(row.charged_amount) > 0n
+                    ? (row.paid_by ?? 'ledger')
+                    : null,
+                payment: row.paid_by === 'partner' && row.payment_ref ? { ref: row.payment_ref, label: row.payment_label ?? '' } : null,
               })),
               runs: runs.map((run) => ({
                 requestId: run.request_id,

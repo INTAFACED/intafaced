@@ -577,6 +577,8 @@ export const features: readonly Feature[] = [
       '/quant/strategies',
       '/quant/strategies/:strategyId',
       '/quant/studio',
+      '/quant/shared',
+      '/quant/shared/:strategyId',
       '/quant/live',
       '/quant/live/:runId',
       '/quant/backtest',

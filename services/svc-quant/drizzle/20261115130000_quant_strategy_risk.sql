@@ -1,5 +1,5 @@
 -- svc-quant · a strategy's risk screen (AL-risk-01)
--- Reversal: 20261115120000_quant_strategy_risk.down.sql
+-- Reversal: 20261115130000_quant_strategy_risk.down.sql
 --
 -- No money, no balance, no ledger post. One row per strategy: the developer's own caps (null is blank, never assumed),
 -- the equity-stop floor's policy, and the version the trading switch was last turned on for. The switch reads on only

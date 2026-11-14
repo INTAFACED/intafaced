@@ -117,8 +117,18 @@ export const venueMarketSchema = z.object({
   index: maybeKnown(decimalSchema).optional(),
   // The venue's own self-trade rule (J-cex-spot-03 #8); absent from an older door: read as not published.
   selfTrade: maybeKnown(z.enum(['cancel_resting', 'cancel_new', 'cancel_both'])).optional(),
+  // The venue's published margin tiers, and what it takes as margin with each haircut (J-derivatives-02 #2 #3). Absent
+  // from an older door: read as not published.
+  marginTiers: maybeKnown(
+    z.array(z.object({ fromNotional: decimalSchema, maxLeverageBps: z.number().int().positive(), maintenanceRate: decimalSchema })),
+  ).optional(),
+  collateral: maybeKnown(z.array(z.object({ asset: z.string(), haircut: maybeKnown(decimalSchema) }))).optional(),
 });
 export type VenueMarket = z.infer<typeof venueMarketSchema>;
+/** One of the venue's published margin tiers (J-derivatives-02 #2). */
+export type VenueMarginTier = Extract<NonNullable<VenueMarket['marginTiers']>, { known: true }>['value'][number];
+/** One asset the venue takes as margin, with its haircut (J-derivatives-02 #3). */
+export type VenueCollateral = Extract<NonNullable<VenueMarket['collateral']>, { known: true }>['value'][number];
 export type VenueSelfTradeMode = 'cancel_resting' | 'cancel_new' | 'cancel_both';
 /** A perpetual's funding as the venue publishes it (J-derivatives-01 #4). */
 export type VenueFunding = Extract<VenueMarket['funding'], { known: true }>['value'];

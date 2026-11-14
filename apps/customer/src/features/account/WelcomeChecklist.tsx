@@ -162,7 +162,11 @@ function Tasks({
                     : task.record
                       ? task.record.state === 'posted' && task.record.postedAt
                         ? t('record_posted', { when: when(task.record.postedAt) })
-                        : t('record_open', { state: task.record.state })
+                        : task.record.state === 'paid' && task.record.payout
+                          ? t('record_paid', { wallet: task.record.payout.toWallet, when: when(task.record.payout.at) })
+                          : task.record.state === 'owed' && task.record.owed
+                            ? t('record_owed', { when: when(task.record.owed.at) })
+                            : t('record_open', { state: task.record.state })
                       : task.doneAt
                         ? t('doneAt', { when: when(task.doneAt) })
                         : t(`openWhy_${key(task.event)}`)}
@@ -179,7 +183,23 @@ function Tasks({
                           : null}
                   </span>
                 ) : null}
-                {task.record?.ledgerTxId ? (
+                {/* A paid reward's chain transaction, in the app's explorer: it left our wallet for theirs, never a balance. */}
+                {task.record?.payout ? (
+                  <>
+                    {' '}
+                    <a
+                      className="text-link"
+                      data-testid="welcome-chain-tx"
+                      data-tx={task.record.payout.chainTx}
+                      href={`/chain/tx/${encodeURIComponent(task.record.payout.chainTx)}`}
+                      lang="zxx"
+                    >
+                      {t('chainTxLink', { tx: task.record.payout.chainTx })}
+                    </a>
+                  </>
+                ) : null}
+                {/* A posted reward's transaction is in the customer's own activity; a paid one's booking is ours, not theirs. */}
+                {task.record?.ledgerTxId && task.record.state !== 'paid' ? (
                   <>
                     {' '}
                     <a

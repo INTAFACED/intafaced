@@ -1038,6 +1038,8 @@ export const QUANT_OWNER_CRITERIA = [
   'oos.minReturnPercent',
   'oos.maxDrawdownPercent',
   'oos.maxShortfallPercent',
+  /** The platform's live switch for strategies (ENGINE E-4, AL-risk-01's `quant.live`): `on`, or blank for off. */
+  'live.enabled',
 ] as const;
 export type QuantOwnerCriterion = (typeof QUANT_OWNER_CRITERIA)[number];
 export const quantCriteriaSetInputSchema = z.object({
@@ -1050,4 +1052,48 @@ export const quantCriteriaSetInputSchema = z.object({
 });
 export const quantCriteriaSchema = z.object({
   criteria: z.array(z.object({ name: z.enum(QUANT_OWNER_CRITERIA), value: z.string().nullable(), source: z.enum(['operator', 'boot']) })),
+});
+
+/**
+ * The deploy wizard's compile check (AL-live-02; J-algo-dev-06 #6): what each part of one version would place on a
+ * live deploy and whether the live runner can place it. Derived from the stored version; nothing is written.
+ */
+export const QUANT_LIVE_ORDER_SOURCES = ['block', 'signal_entry', 'stop_loss', 'take_profit'] as const;
+export const quantLiveOrderTypeSchema = z.object({
+  /** Where the order comes from: an order block, the signal rules' entry, or one of their exits. */
+  source: z.enum(QUANT_LIVE_ORDER_SOURCES),
+  /** One-based block number for a block; null otherwise. */
+  block: z.number().int().positive().nullable(),
+  type: z.enum(['market', 'stop', 'take_profit']),
+  /** The exit's percentage as stored, for a stop loss or take profit; null otherwise. */
+  percent: z.string().nullable(),
+  supported: z.boolean(),
+  /** The refusal a deploy answers for this part; null when it is supported. */
+  code: z.enum(['trade.order_type_unsupported', 'quant.live_plan_unsupported']).nullable(),
+});
+export type QuantLiveOrderType = z.infer<typeof quantLiveOrderTypeSchema>;
+export const quantLiveCheckInputSchema = z.object({
+  strategyId: z.string().min(1).max(128),
+  strategyVersion: z.number().int().positive(),
+});
+export const quantLiveCheckSchema = z.object({
+  strategyId: z.string(),
+  strategyVersion: z.number().int().positive(),
+  name: z.string(),
+  /** `blocks` or `signal`: the live runner trades order blocks only in this build. */
+  plan: z.enum(['blocks', 'signal']),
+  orderTypes: z.array(quantLiveOrderTypeSchema),
+  /** True when every part can be placed live. */
+  compiles: z.boolean(),
+  /** The platform's live switch as the owner set it now; off when blank. */
+  liveEnabled: z.boolean(),
+  asOf: z.string(),
+});
+export type QuantLiveCheck = z.infer<typeof quantLiveCheckSchema>;
+/**
+ * `live.deploy`: the wizard's Deploy. With the platform's live switch off it refuses `quant.live_disabled` before
+ * anything is read or written: no deploy intent exists. The amount is the TEST move the person's wallet would sign.
+ */
+export const quantLiveDeployInputSchema = quantLiveCheckInputSchema.extend({
+  amount: z.string().max(40),
 });

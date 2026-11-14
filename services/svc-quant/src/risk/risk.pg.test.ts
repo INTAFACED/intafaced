@@ -25,7 +25,7 @@ describe.skipIf(!ready)('strategy risk store on Postgres (AL-risk-01)', () => {
     try {
       await sql.unsafe(`DROP SCHEMA IF EXISTS "${SCHEMA}" CASCADE`);
       await sql.unsafe(`CREATE SCHEMA "${SCHEMA}"`);
-      const migration = readFileSync(join(SERVICE, 'drizzle/20261115120000_quant_strategy_risk.sql'), 'utf8').replaceAll(
+      const migration = readFileSync(join(SERVICE, 'drizzle/20261115130000_quant_strategy_risk.sql'), 'utf8').replaceAll(
         '"quant"',
         `"${SCHEMA}"`,
       );

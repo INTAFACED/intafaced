@@ -36,7 +36,8 @@ import { globalPortsFor } from './personal-pay/global-sim.js';
 import { parseSendReviewRule } from './transfers/send-review.js';
 import { readStrangerHoldDays } from './holds/received-holds.js';
 import { onrampStandInFor } from './ramps/onramp-sim.js';
-import { testPartnerAccountDetails, testPartnerFor } from './partner/test-partner.js';
+import { moneyHeldBy, testPartnerAccountDetails, testPartnerFor } from './partner/test-partner.js';
+import { registerAgentsUsagePayment } from './agents/usage-payment.js';
 import { taxEffectsFor } from './activity/tax-effects.js';
 import { cardTermsOrNone, partnerReservesRead } from './partner/reserves.js';
 import { cashOutPartnerFor } from './cash-out/payout-sim.js';
@@ -477,6 +478,18 @@ const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 })
 retainRawBody(app);
 registerClosureCheck(app, { sql, ledger, secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s });
 registerAgentsTeamMembership(app, { secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s, read: (u, b) => teamMembershipFor(sql, u, b) });
+// How a person pays for agent usage, and one payment of a sealed window, carried out by their partner (J-agents-01).
+registerAgentsUsagePayment(app, {
+  secret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
+  freeze: ledgerPostingFreeze(env.LEDGER_URL),
+  heldBy: (userId) => {
+    const held = moneyHeldBy(testPartner, userId, env.LEDGER_CUSTODY_LAYER);
+    return held === 'partner' && testPartner
+      ? { kind: 'partner', bank: testPartner.bank, partnerId: 'test' }
+      : { kind: held === 'partner' ? 'none' : held };
+  },
+});
 
 app.get('/health', async () => ({ ok: true, service: env.SERVICE_NAME }));
 app.get('/ready', async () =>
