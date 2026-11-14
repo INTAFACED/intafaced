@@ -76,6 +76,16 @@ export const QUANT_GATE_CRITERIA_UNSET = 'quant.gate_criteria_unset' as const;
 export const QUANT_STAGE_TRANSITION_INVALID = 'quant.stage_transition_invalid' as const;
 /** An operator write of an owner criterion with no reason. */
 export const QUANT_CRITERIA_REASON_UNSET = 'quant.criteria_reason_unset' as const;
+/** A teammate asked for what their permission on a shared strategy does not give (J-algo-dev-08). */
+export const QUANT_PERMISSION_DENIED = 'quant.permission_denied' as const;
+/** Another person holds the strategy's edit lock until its stored time. */
+export const QUANT_EDIT_LOCKED = 'quant.edit_locked' as const;
+/** The owner's edit lock length (`QUANT_EDIT_LOCK_SECONDS`) is blank: no lock can be taken, so no shared save. */
+export const QUANT_EDIT_LOCK_UNSET = 'quant.edit_lock_unset' as const;
+/** A collaborator who is the owner, or an id that is no account id. */
+export const QUANT_TEAM_MEMBER_INVALID = 'quant.team_member_invalid' as const;
+/** A support grant length outside the screen's bounds. */
+export const QUANT_GRANT_INVALID = 'quant.grant_invalid' as const;
 
 /** The platform's live switch is off (`live.enabled` blank): every live deploy refuses before anything is written. */
 export const QUANT_LIVE_DISABLED = 'quant.live_disabled' as const;
@@ -162,6 +172,11 @@ export type QuantCode =
   | typeof QUANT_GATE_CRITERIA_UNSET
   | typeof QUANT_STAGE_TRANSITION_INVALID
   | typeof QUANT_CRITERIA_REASON_UNSET
+  | typeof QUANT_PERMISSION_DENIED
+  | typeof QUANT_EDIT_LOCKED
+  | typeof QUANT_EDIT_LOCK_UNSET
+  | typeof QUANT_TEAM_MEMBER_INVALID
+  | typeof QUANT_GRANT_INVALID
   | typeof QUANT_LIVE_DISABLED
   | typeof QUANT_LIVE_PLAN_UNSUPPORTED
   | typeof QUANT_LIVE_ORDER_TYPE_UNSUPPORTED

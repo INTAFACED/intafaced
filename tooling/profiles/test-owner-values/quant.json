@@ -86,6 +86,11 @@
       "value": "8000",
       "note": "TEST isolate source-length ceiling, in characters, so a journey's paper strategy fits."
     },
+    "QUANT_EDIT_LOCK_SECONDS": {
+      "service": "quant",
+      "value": "45",
+      "note": "TEST length of a strategy's edit lock, in seconds, short enough that a journey sees a held lock lapse (J-algo-dev-08 #3)."
+    },
     "QUANT_PAPER_FEE_BPS": {
       "service": "quant",
       "value": "10",
