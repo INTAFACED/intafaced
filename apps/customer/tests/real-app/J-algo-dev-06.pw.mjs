@@ -1,7 +1,7 @@
 // World: none
 // Market: live
 import { test, expect } from './journey.mjs';
-import { journeyState } from './stack.mjs';
+import { api, journeyState } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { tapeWindow } from './tape.mjs';
 
@@ -12,11 +12,13 @@ import { tapeWindow } from './tape.mjs';
 // gives this journey its passing verdict, the out-of-sample criteria are set wide (TEST) and put back as they were right
 // after; the gate's own criteria are TEST values this file sets and blanks again at its end. Every figure in Algo dev is
 // simulated; nothing here moves money. Step 4 (the risk disclosure) is deferred until launch prep (owner decision
-// 2026-10-27, OWNER 87). Steps #3 (RC-algo-dev-01), #5 (AL-risk-01), #6 to #8 (AL-live-02) and #9 (AL-live-05) are not
-// built yet: each slice adds its step's test, checking every clause of the step's words against the screen it builds.
+// 2026-10-27, OWNER 87). The platform's live switch for strategies (`live.enabled`) is an owner value too: blank (off) in
+// this build, which #6 and #7 read. Steps #3 (RC-algo-dev-01), #5 (AL-risk-01), #8 (AL-live-02, live on) and #9
+// (AL-live-05) are not built yet: each slice adds its step's test, checking every clause of the step's words.
 const J = 'J-algo-dev-06';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const STRATEGY = 'TEST promotion strategy';
+const STOP_STRATEGY = 'TEST stop-loss strategy';
 
 test.describe.configure({ mode: 'default' });
 
@@ -65,7 +67,7 @@ async function criteriaDoor() {
 }
 
 /** Saves a signal-rules strategy on 1 minute bars of BTC/USDT at version 1, with every risk limit set. TEST inputs. */
-async function saveSignalStrategy(page, name) {
+async function saveSignalStrategy(page, name, { stopLoss = '' } = {}) {
   await page.goto('/quant/studio');
   const fresh = page.getByRole('button', { name: 'Start a new strategy' });
   if (await fresh.isVisible()) await fresh.click();
@@ -84,6 +86,7 @@ async function saveSignalStrategy(page, name) {
   await builder.getByLabel('Slow average (bars)').fill('2');
   await builder.getByRole('combobox', { name: /^Size each entry by/ }).selectOption('quantity');
   await builder.getByLabel('Size', { exact: true }).fill('0.01');
+  if (stopLoss) await builder.getByLabel('Stop loss (percent, optional)').fill(stopLoss);
   await page.getByRole('button', { name: 'Save to library', exact: true }).click();
   await expect(page.getByTestId('quant-save-state')).toHaveText('Saved as version 1.');
 }
@@ -123,9 +126,9 @@ async function startPaper(page) {
 }
 
 const OOS = ['oos.minTrades', 'oos.minReturnPercent', 'oos.maxDrawdownPercent', 'oos.maxShortfallPercent'];
-const GATE = ['gate.paperMinutes', 'gate.maxDrawdownPercent'];
+const GATE = ['gate.paperMinutes', 'gate.maxDrawdownPercent', 'live.enabled'];
 
-// The gate's TEST criteria go back to blank whatever happened, so no later file reads this journey's values.
+// The gate's TEST criteria and the live switch go back to blank whatever happened, so no later file reads this journey's values.
 test.afterAll(async () => {
   const door = await criteriaDoor();
   for (const name of GATE) await door.set(name, null, true);
@@ -281,4 +284,101 @@ test(`${J} #2 fixes the criteria and presses Promote again: the gate approves, o
     .getByRole('button', { name: /^Stop the paper run started / })
     .click();
   await expect(page.getByTestId('quant-paper-note')).toContainText('The paper run is stopped.');
+});
+
+/** Opens the deploy wizard from the Bots room's Paper strategies list, on the row of the strategy named `name`. */
+async function openWizard(page, name) {
+  await page.goto('/trade/bots?tab=paper');
+  const row = page.getByRole('row').filter({ hasText: name });
+  await row.getByRole('link', { name: 'Deploy live' }).click();
+  await expect(page).toHaveURL(/\/trade\/bots\/new\?from=/);
+  const wizard = page.getByTestId('quant-live-deploy');
+  await expect(wizard.getByTestId('quant-live-strategy')).toHaveText(`Strategy: ${name}`);
+  return wizard;
+}
+
+test(`${J} #6 opens the deploy wizard from the Bots room and runs the compile check: unsupported order types are named at the check (a stop order on a live deploy is refused); the wizard states, in TEST, the move from the venue account to the strategy's sub-account that the wallet will sign`, async ({
+  page,
+}) => {
+  test.setTimeout(10 * 60_000);
+  const id = strategyId();
+  const door = await criteriaDoor();
+  // Live is off in this build: the owner's switch is blank.
+  await door.set('live.enabled', null);
+  await signIn(page, developer());
+
+  // A second strategy of the same rules with a stop loss of 2 % (TEST), so the check has a stop order to name.
+  await saveSignalStrategy(page, STOP_STRATEGY, { stopLoss: '2' });
+
+  const wizard = await openWizard(page, STOP_STRATEGY);
+  await expect(wizard.getByTestId('quant-live-switch')).toHaveAttribute('data-live', 'off');
+  await wizard.getByRole('button', { name: 'Run the compile check' }).click();
+  const compile = wizard.getByTestId('quant-live-compile');
+  await expect(compile).toHaveAttribute('data-compiles', 'false');
+  const part = (source) => compile.locator(`[data-testid="quant-live-order-type"][data-source="${source}"]`);
+  // The stop loss is a stop order, refused on a live deploy, by name.
+  await expect(part('stop_loss')).toHaveAttribute('data-type', 'stop');
+  await expect(part('stop_loss')).toHaveAttribute('data-supported', 'false');
+  await expect(part('stop_loss')).toHaveAttribute('data-code', 'trade.order_type_unsupported');
+  await expect(part('stop_loss')).toContainText('Stop loss at 2 %');
+  await expect(part('stop_loss')).toContainText('Stop order');
+  await expect(part('stop_loss')).toContainText('Refused: a live deploy places no stop order');
+  // The signal rules' entry is named too: the live runner trades order blocks only in this build.
+  await expect(part('signal_entry')).toHaveAttribute('data-code', 'quant.live_plan_unsupported');
+  await expect(part('signal_entry')).toContainText('Refused: the live runner trades order blocks only in this build');
+  await expect(compile).toContainText('does not compile for live: 2 of its orders can’t be placed');
+
+  // The journey's own promoted strategy: the check names its unsupported part the same way, and no stop order.
+  const own = await openWizard(page, STRATEGY);
+  await expect(page).toHaveURL(new RegExp(`from=${encodeURIComponent(id)}$`));
+  await own.getByRole('button', { name: 'Run the compile check' }).click();
+  const ownCompile = own.getByTestId('quant-live-compile');
+  await expect(ownCompile.getByTestId('quant-live-order-type')).toHaveCount(1);
+  await expect(ownCompile.locator('[data-source="signal_entry"]')).toHaveAttribute('data-supported', 'false');
+
+  // The TEST statement of the one move the person's own wallet would sign.
+  const funding = own.getByTestId('quant-live-funding');
+  await expect(funding).toHaveText('Enter the amount your wallet will move to the strategy’s sub-account.');
+  await own.getByLabel('Amount your wallet moves (TEST USDC)').fill('25');
+  await expect(funding).toHaveText(
+    'TEST: your own wallet will sign one move of 25 TEST USDC from your venue account to this strategy’s own venue sub-account. INTAFACED moves nothing and the ledger posts nothing; the venue holds the funds.',
+  );
+});
+
+test(`${J} #7 presses Deploy while live is off: a refusal that live is disabled and no intent row exists`, async ({ page }) => {
+  test.setTimeout(10 * 60_000);
+  const id = strategyId();
+  const door = await criteriaDoor();
+  await door.set('live.enabled', null);
+  await signIn(page, developer());
+  const wizard = await openWizard(page, STRATEGY);
+  await expect(page).toHaveURL(new RegExp(`from=${encodeURIComponent(id)}$`));
+  await expect(wizard.getByTestId('quant-live-switch')).toHaveAttribute('data-live', 'off');
+  await expect(wizard.getByTestId('quant-live-switch')).toHaveText(
+    'Live trading for strategies is switched off on INTAFACED. You can run the check, and Deploy refuses until it is switched on.',
+  );
+  await wizard.getByLabel('Amount your wallet moves (TEST USDC)').fill('25');
+
+  const deploys = [];
+  page.on('response', (res) => {
+    if (res.url().includes('/trpc/live.deploy')) deploys.push(res.status());
+  });
+  await wizard.getByRole('button', { name: 'Deploy version 1' }).click();
+  const refusal = wizard.getByTestId('quant-deploy-refusal');
+  await expect(refusal).toHaveAttribute('data-code', 'quant.live_disabled');
+  await expect(refusal).toContainText(
+    'Live trading for strategies is switched off on INTAFACED, so nothing was deployed and nothing was stored.',
+  );
+  expect(deploys).toEqual([412]);
+
+  // No intent row: the person's live runs, as svc-trade stores them, hold none, and nothing was asked of the wallet.
+  const session = await api(developer());
+  const listed = await session.get('/api/v1/quant/live-runs');
+  expect(listed.status, JSON.stringify(listed.body).slice(0, 300)).toBe(200);
+  expect(listed.body.runs).toEqual([]);
+  // The version itself is as it was: still a candidate, with its one recorded decision.
+  await page.goto(`/quant/strategies/${encodeURIComponent(id)}`);
+  const life = page.getByTestId('quant-lifecycle-version');
+  await expect(life).toHaveAttribute('data-stage', 'candidate');
+  await expect(life.getByTestId('quant-gate-decisions')).toHaveAttribute('data-count', '1');
 });

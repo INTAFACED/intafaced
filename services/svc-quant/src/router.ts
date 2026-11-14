@@ -63,6 +63,10 @@ import {
   quantCriteriaSetInputSchema,
   quantLifecycleSchema,
   quantPromoteInputSchema,
+  quantLiveCheckInputSchema,
+  quantLiveCheckSchema,
+  quantLiveDeployInputSchema,
+  type QuantLiveCheck,
   quantPromoteOutputSchema,
   QUANT_OWNER_CRITERIA,
   type QuantLifecycle,
@@ -140,6 +144,10 @@ import {
   QUANT_PAPER_LIST_LIMIT_UNSET,
   QUANT_BACKTEST_RULES_REQUIRED,
   QUANT_CRITERIA_REASON_UNSET,
+  QUANT_LIVE_DISABLED,
+  QUANT_LIVE_PLAN_UNSUPPORTED,
+  QUANT_LIVE_ORDER_TYPE_UNSUPPORTED,
+  QUANT_LIVE_DEPLOY_UNAVAILABLE,
   QUANT_GATE_CRITERIA_UNSET,
   QUANT_STAGE_TRANSITION_INVALID,
   QuantError,
@@ -179,6 +187,7 @@ import { requireStudioOperator, resolveStudioAccount, STUDIO_SERVICE_ALLOWLIST }
 import { publicResultOf, reportOf } from './report/document.js';
 import type { ShareRepository } from './share/repository.js';
 import { withQuantSpan } from './tracing.js';
+import { liveCheck } from './live/check.js';
 import { createPreviewRouter } from './preview/preview.js';
 
 const simulatedStamp = z.object({
@@ -321,6 +330,8 @@ function toTrpc(err: unknown): never {
             err.code === QUANT_QUOTA_PROFILE_UNSET ||
             err.code === QUANT_GATE_CRITERIA_UNSET ||
             err.code === QUANT_STAGE_TRANSITION_INVALID ||
+            err.code === QUANT_LIVE_DISABLED ||
+            err.code === QUANT_LIVE_DEPLOY_UNAVAILABLE ||
             err.code === 'quant.venue_vault_unset'
           ? 'PRECONDITION_FAILED'
           : err.code === QUANT_DATABASE_URL_UNSET || err.code === QUANT_DATABASE_POOL_MAX_UNSET
@@ -613,6 +624,36 @@ export function createQuantRouter(deps: QuantRouterDeps) {
       asOf: new Date(now()).toISOString(),
     };
   }
+  /**
+   * The deploy wizard's compile check of one version (AL-live-02; J-algo-dev-06 #6), with the platform's live switch as
+   * the owner set it now (`live.enabled`; blank, unreadable or anything but `on` is off). Writes nothing.
+   */
+  async function liveCheckOf(accountId: string, strategyId: string, strategyVersion: number): Promise<QuantLiveCheck> {
+    const found = await strategies.get({ accountId, id: strategyId });
+    const version = found && !found.deletedAt ? found.versions.find((row) => row.version === strategyVersion) : undefined;
+    if (!found || !version) missingStrategy();
+    const reading = liveCheck(version);
+    return {
+      strategyId: found.id,
+      strategyVersion,
+      name: version.name,
+      plan: reading.plan,
+      orderTypes: reading.orderTypes,
+      compiles: reading.compiles,
+      liveEnabled: await liveSwitchOn(),
+      asOf: new Date(now()).toISOString(),
+    };
+  }
+
+  /** The platform's live switch: on only when an operator stored `on`. Any failure to read it is off. */
+  async function liveSwitchOn(): Promise<boolean> {
+    try {
+      return (await lifecycle.criteria()).some((row) => row.name === 'live.enabled' && row.value === 'on');
+    } catch {
+      return false;
+    }
+  }
+
   /** A paper run as the screen reads it, from its own strategy version. */
   async function presentPaper(accountId: string, paper: StoredPaperRun) {
     const found = await strategies.get({ accountId, id: paper.run.strategyId ?? '' });
@@ -1487,6 +1528,57 @@ export function createQuantRouter(deps: QuantRouterDeps) {
               if (!kept)
                 throw new QuantError(QUANT_STAGE_TRANSITION_INVALID, 'paper to candidate — this version already reached candidate');
               return { ...kept, lifecycle: await lifecycleOf(accountId, input.strategyId, input.strategyVersion) };
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+        ),
+    }),
+
+    live: router({
+      /** The deploy wizard's compile check of one version: what it would place live and whether it can. Writes nothing. */
+      check: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantLiveCheckInputSchema.extend(accountField))
+        .output(quantLiveCheckSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            return await liveCheckOf(accountOf(ctx, input.accountId), input.strategyId, input.strategyVersion);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      /**
+       * Deploy (AL-live-02; J-algo-dev-06 #7). With the platform's live switch off it refuses `quant.live_disabled` and
+       * nothing is written: no deploy intent, no run, nothing asked of the wallet. A version the runner can't trade
+       * refuses with the compile check's code. With live on and a version that compiles, the funding move and the live
+       * run after it are absent from this service (J-algo-dev-06 #8 builds them), so it refuses `quant.live_deploy_unavailable`
+       * and still writes nothing. No money moves on any path.
+       */
+      deploy: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantLiveDeployInputSchema.extend(accountField))
+        .output(z.never())
+        .mutation(async ({ input, ctx }) =>
+          withQuantSpan('quant.live.deploy', { language: 'none' }, async () => {
+            try {
+              const check = await liveCheckOf(accountOf(ctx, input.accountId), input.strategyId, input.strategyVersion);
+              if (!check.liveEnabled) {
+                throw new QuantError(
+                  QUANT_LIVE_DISABLED,
+                  'live trading for strategies is switched off on INTAFACED; nothing was deployed and nothing was stored',
+                );
+              }
+              const refused = check.orderTypes.find((row) => !row.supported);
+              if (refused) {
+                throw new QuantError(
+                  refused.code === 'quant.live_plan_unsupported' ? QUANT_LIVE_PLAN_UNSUPPORTED : QUANT_LIVE_ORDER_TYPE_UNSUPPORTED,
+                  `${refused.source} — a live deploy can't place it; nothing was stored`,
+                );
+              }
+              throw new QuantError(
+                QUANT_LIVE_DEPLOY_UNAVAILABLE,
+                'this build makes no funding move and starts no live run; nothing was stored',
+              );
             } catch (err) {
               toTrpc(err);
             }
