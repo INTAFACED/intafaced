@@ -15,6 +15,7 @@ import {
 } from '../step-up/money-out-fields.js';
 import { cardInactive } from '../cards/card-service.js';
 import { cardOutput, presentCard } from '../cards/card-view.js';
+import { cardholderDisputeRouter } from '../cards/cardholder-disputes.js';
 import { CARD_TIERS, DELIVERY_SPEEDS } from '../cards/card-programme.js';
 import { CARD_CATEGORIES, CARD_CONTROL_KINDS } from '../cards/card-controls.js';
 import { CARD_CUSTODY_MODES, NOT_USED_FOR_CARDS } from '../cards/partner-terms.js';
@@ -1150,6 +1151,9 @@ export function createCardsRouter(c: BankRouterContext) {
      * captured, released, or given back by the partner on expiry. `test` is true on the TEST partner card. Every null is
      * "not known", never 0. Reads only.
      */
+    /** J-bank-15: the cardholder disputes their own card charge (BK-cdisp-01). */
+    disputes: cardholderDisputeRouter(bank, guard),
+
     partnerHeld: scopedProcedure('bank:read', { module: 'bank' })
       .input(z.object({ cardId: z.string().guid(), limit: z.number().int().min(1).max(200).optional() }))
       .output(
