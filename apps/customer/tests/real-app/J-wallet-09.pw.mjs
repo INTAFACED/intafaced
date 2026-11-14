@@ -386,7 +386,7 @@ test(`${J} #4 lets the connection expire: every signed action refuses until the 
   const { who, walletKey, deposited } = state();
   if (!deposited) throw new Error(`${J} #3 made no deposit, so this step can't see that nothing moved on the venue`);
   const address = privateKeyToAccount(walletKey).address;
-  await openVenue(page, who, walletKey);
+  const wallet = await openVenue(page, who, walletKey);
   // A connection that is live now, so this step watches it expire.
   await roomSettled(page);
   if (await page.getByRole('button', { name: 'Sign again' }).isVisible()) await connectAndSign(page, 'Sign again');
@@ -417,9 +417,18 @@ test(`${J} #4 lets the connection expire: every signed action refuses until the 
   await connectAndSign(page, 'Sign again');
   const renewed = await page.getByTestId('venue-connection-expires').getAttribute('datetime');
   expect(Date.parse(renewed)).toBeGreaterThan(Date.parse(expiresAt));
-  await venueAction(page, 'Deposit TEST USDC').click();
-  await expect(page.getByText('protocol.venue_connection_expired')).toHaveCount(0);
   expect((await recorded(who)).connections.map((c) => c.status)).toEqual(['live']);
+  // The signed action now goes through to the signature: Deposit opens the plain-words sheet that asks the wallet, with
+  // no expiry refusal. The person cancels there, so nothing is sent and the venue still holds exactly #3's deposit.
+  await page.getByRole('region', { name: 'Venue actions' }).getByLabel('Amount').fill('1');
+  await venueAction(page, 'Deposit TEST USDC').click();
+  await expect(sheet(page).getByRole('button', { name: 'Continue in wallet' })).toBeVisible();
+  await expect(page.getByText('protocol.venue_connection_expired')).toHaveCount(0);
+  await expect(page.getByText('Your wallet must sign again')).toHaveCount(0);
+  await sheet(page).getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.getByText('You cancelled the signature')).toBeVisible();
+  expect(wallet.sends).toEqual([]);
+  expect((await onVenue(address)).usdc).toMatchObject({ free: deposited, locked: '0' });
 });
 
 /** Presses Withdraw for `amount`, confirms with a fresh authenticator code, and continues to the wallet. */
