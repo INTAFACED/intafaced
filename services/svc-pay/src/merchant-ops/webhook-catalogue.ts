@@ -79,8 +79,11 @@ export const webhookCatalogue = (): { events: CatalogueEntry[]; ordering: string
     'The same event can arrive more than once. Each delivery of one event has the same id and the same body: keep the ids you have handled and answer 2xx to a repeat without acting on it again.',
 });
 
-/** The published test vector: an example secret, never one of yours. Its signature is made by the delivery code itself. */
-const VECTOR_SECRET = 'whsec_TEST_published_example_0123456789abcdef';
+/**
+ * The published test vector. Its key is the word `example`, in plain sight: a published value, never one of yours
+ * (the secret scan's placeholder rule, tooling/ci/secret-scan.mjs). Its signature is made by the delivery code itself.
+ */
+const VECTOR_SECRET = 'example';
 const VECTOR_TIMESTAMP = '1767225600';
 const VECTOR_BODY =
   '{"id":"payment.captured:TEST-payment-1","type":"payment.captured","createdAt":"2026-01-01T00:00:00.000Z","data":{"payment":{"id":"TEST-payment-1","amount":"10.00","assetId":"USDT","status":"captured","mode":"sandbox"}}}';

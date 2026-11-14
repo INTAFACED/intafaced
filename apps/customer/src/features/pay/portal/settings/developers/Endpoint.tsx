@@ -24,6 +24,8 @@ export function EndpointPage({ api, endpointId, canManage }: { api: SettingsBApi
   const { t } = c.useCopy();
   const found = useResource((signal) => api.endpointsList(undefined, '', endpointId, signal), `dev:endpoint:${endpointId}`);
   const health = useResource((signal) => api.webhookHealth(signal), 'dev:endpoint:health');
+  // Held here, above the reload: a new secret is shown once, and reloading the endpoint after a roll must not lose it.
+  const [revealed, setRevealed] = useState<Revealed>(null);
   return (
     <Gate resource={found.resource} retry={found.reload}>
       {(page) => {
@@ -34,6 +36,8 @@ export function EndpointPage({ api, endpointId, canManage }: { api: SettingsBApi
             endpoint={row}
             health={health.resource.status === 'ready' ? health.resource.data : null}
             canManage={canManage}
+            revealed={revealed}
+            setRevealed={setRevealed}
             reload={() => {
               found.reload();
               health.reload();
@@ -62,15 +66,21 @@ export function EndpointView({
   health,
   canManage,
   reload,
+  revealed: heldRevealed,
+  setRevealed: setHeldRevealed,
 }: {
   api: SettingsBApi;
   endpoint: EndpointRow;
   health: Health | null;
   canManage: boolean;
   reload: () => void;
+  revealed?: Revealed;
+  setRevealed?: (next: Revealed) => void;
 }) {
   const { t } = c.useCopy();
-  const [revealed, setRevealed] = useState<Revealed>(null);
+  const [ownRevealed, setOwnRevealed] = useState<Revealed>(null);
+  const revealed = setHeldRevealed ? (heldRevealed ?? null) : ownRevealed;
+  const setRevealed = setHeldRevealed ?? setOwnRevealed;
   const mine = health?.endpoints.find((e) => e.endpointId === endpoint.id);
   return (
     <div className="stack">

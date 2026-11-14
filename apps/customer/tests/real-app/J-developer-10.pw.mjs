@@ -185,7 +185,7 @@ test(`${J} #2 adds an endpoint when the cap is blank: cap-unset; with a cap the 
   await withPayValueOff('LOCAL_STACK_PAY_WEBHOOK_CAP', async () => {
     await page.goto(WEBHOOKS);
     await expect(page.getByTestId('webhook-cap-unset')).toHaveText(
-      'INTAFACED has not set how many endpoints a business may have, so none can be added yet.',
+      'INTAFACED has not set how many endpoints a business may have, so none can be added. Endpoints you already have keep working.',
     );
     const refused = await refusal(() =>
       hooks('create', { url: 'https://receiver-jd10.example.com/hook', eventTypes: ['payment.captured'] }),
