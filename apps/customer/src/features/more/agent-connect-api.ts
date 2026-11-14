@@ -18,11 +18,16 @@ import type { StepUpBegin } from '../account/security-step-up';
 
 const decimal = z.string().regex(/^-?[0-9]+(\.[0-9]+)?$/);
 
+export const agentPermissionSchema = z.object({ venue: z.string(), reach: z.enum(['own_account_only', 'owner_accounts']) }).passthrough();
+export type AgentPermission = z.infer<typeof agentPermissionSchema>;
+
 export const agentTermsSchema = z
   .object({
     /** The owner's ceiling for any agent account's cap; null is blank and refuses every create. */
     ceiling: decimal.nullable(),
     asset: z.string().nullable(),
+    /** How far the agent permission the wallet signs reaches on the venue (J-agents-21 #3); null when not read. */
+    agentPermission: agentPermissionSchema.nullable().optional(),
   })
   .passthrough();
 export type AgentTerms = z.infer<typeof agentTermsSchema>;
@@ -60,6 +65,7 @@ export const agentAccountSchema = z
       .nullable(),
     next: agentNextSchema.nullable(),
     test: z.boolean().optional(),
+    agentPermission: agentPermissionSchema.optional(),
   })
   .passthrough();
 export type AgentAccount = z.infer<typeof agentAccountSchema>;

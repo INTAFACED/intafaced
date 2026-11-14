@@ -21,6 +21,7 @@ import type { ModelProvider } from './providers/provider.js';
 import { AgentRuntime } from './runtime.js';
 import { UserSpendStore } from './spend/store.js';
 import { createHttpTeamMembershipPort } from './team/membership.js';
+import { createHttpUsagePaymentPort, ledgerOnlyPayment } from './payment/usage-payment.js';
 import { registerProductAgentsAtBoot } from './fleet/boot-register.js';
 import { registerCoachAgent } from './coach/coach-run.js';
 import { registerCatalogueOnlyAgents } from './fleet/catalogue-only.js';
@@ -143,7 +144,14 @@ const s2s = s2sFromEnv(env, 'svc-agents');
 const s2sKey = s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined;
 const ledger = createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, s2sKey);
 
+// How each person pays for usage (J-agents-01, OWNER 226): svc-bank says whether their partner holds their money and
+// collects a sealed window from it. No BANK_URL keeps everyone on the custodial ledger charge, as before.
+const usagePayment = env.BANK_URL
+  ? createHttpUsagePaymentPort({ bankUrl: env.BANK_URL, internalSecret: env.INTERNAL_SERVICE_SECRET, ...(s2sKey ? { s2s: s2sKey } : {}) })
+  : ledgerOnlyPayment;
+
 const meter = new UsageMeter(sql, ledger, {
+  payment: usagePayment,
   assetId: env.AGENTS_FEE_ASSET_ID,
   windowMinutes: env.AGENTS_USAGE_WINDOW_MINUTES,
   affiliateAccrue: env.IDENTITY_URL ? createAffiliateAccrueClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : undefined,
@@ -174,7 +182,17 @@ const runtime = new AgentRuntime(sql, gateway, meter, bus, {
   // payment method is a linked wallet, that wallet's balance of the payment token as the chain reports it (J-agents-02 #4).
   funds: paymentMethodFunds({
     sql,
-    ledger: async (userId, assetId) => (await ledger.balance(userAvailable(userId, assetId))).amount,
+    // A person whose partner holds their money is covered by what the partner reports (an unknown figure is unread,
+    // never 0); one with no payment method has nothing to pay with; everyone else reads the ledger, as before.
+    ledger: async (userId, assetId) => {
+      const held = await usagePayment.read(userId, assetId);
+      if (held.heldBy === 'none') return 0n;
+      if (held.heldBy === 'partner') {
+        if (held.available === null) throw new Error('the partner has not reported this balance');
+        return parseAmount(held.available);
+      }
+      return (await ledger.balance(userAvailable(userId, assetId))).amount;
+    },
     wallets: linkedWallets,
     chain: paymentChain,
   }),

@@ -128,6 +128,18 @@ export const FEE_REVENUE_PATHS = {
     recipe: 'chargeEarn',
     note: 'A charge a customer owes us (agent usage, a course, a subscription) → houseFees(<module>), owed by them on a charge receivable until a Collect at one of our own-funds places; price unset refuses (launch money model, OWNER 288).',
   },
+  'academy.purchase.posted': {
+    kind: 'recipe',
+    recipe: 'academyPurchase',
+    feeModule: 'academy',
+    note: "A paid Academy course bought from the buyer's own wallet, posted once the payment is confirmed on chain at one of our own-funds places → houseFees(academy); keyed academy:purchase:<course>:<userId>:<n> (J-academy-07).",
+  },
+  'academy.purchase.refunded': {
+    kind: 'recipe',
+    recipe: 'academyPurchaseRefund',
+    feeModule: 'academy',
+    note: 'A staff refund of one Academy purchase, the exact reverse: houseFees(academy) down and the own-funds place back toward zero; refused above what the place holds (J-academy-07).',
+  },
   'launch.partner_fee_earned': {
     kind: 'recipe',
     recipe: 'partnerFeeEarn',
@@ -298,6 +310,8 @@ export const RECIPES_TOUCHING_HOUSE_FEES = [
   'builderFeeEarn',
   'feeShareBudgetFund',
   'chargeEarn',
+  'academyPurchase',
+  'academyPurchaseRefund',
   'partnerFeeEarn',
   'merchantFeeEarn',
   'feeGiveBackOwe',

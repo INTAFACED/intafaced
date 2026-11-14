@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { baseEnvSchema, edgeEnvSchema, httpEnvSchema, loadEnv, otelEnvSchema } from '@intafaced/config';
+import { baseEnvSchema, edgeEnvSchema, httpEnvSchema, loadEnv, natsEnvSchema, otelEnvSchema } from '@intafaced/config';
 
 /**
  * svc-quant environment.
@@ -23,6 +23,7 @@ function blankable<T extends z.ZodTypeAny>(inner: T) {
 const schema = baseEnvSchema
   .merge(httpEnvSchema)
   .merge(otelEnvSchema)
+  .merge(natsEnvSchema)
   .merge(edgeEnvSchema)
   .merge(
     z.object({

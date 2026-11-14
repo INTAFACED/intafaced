@@ -28,6 +28,8 @@ import {
   quantTemplateDetailSchema,
   quantTemplateIdSchema,
   quantTemplateListOutputSchema,
+  quantTemplateListingInputSchema,
+  quantTemplateListingSchema,
   quantTemplatePublishInputSchema,
   quantTemplateVersionSchema,
   router,
@@ -51,6 +53,12 @@ import {
   quantPaperListSchema,
   quantPaperRunSchema,
   quantPaperStartInputSchema,
+  QUANT_ALERT_LIST_MAX,
+  quantAlertCreateInputSchema,
+  quantAlertListSchema,
+  quantAlertSchema,
+  quantNotifySetInputSchema,
+  quantNotifySettingsSchema,
   quantCriteriaSchema,
   quantCriteriaSetInputSchema,
   quantLifecycleSchema,
@@ -140,6 +148,9 @@ import { createMemoryLifecycleRepository } from './lifecycle/memory-repository.j
 import type { LifecycleRepository } from './lifecycle/repository.js';
 import { evaluateGate, GATE_CRITERION_NAMES, gateCriteriaOf, OWNER_CRITERION_FORMAT, verdictCriteriaOf } from './lifecycle/gate.js';
 import { paperKey, paperSettingsOf, paperView } from './paper/view.js';
+import { openNotifyRepository } from './notify/open.js';
+import type { NotifyRepository, StoredAlert } from './notify/repository.js';
+import { alertKey, checkChannels, checkTemplate } from './notify/rules.js';
 import type { StoredPaperRun } from './runs/types.js';
 import { createMemoryQuota } from './quota/memory.js';
 import { parseLimit, parseWhole, type QuotaRepository } from './quota/quota.js';
@@ -482,6 +493,11 @@ export interface QuantRouterDeps extends SandboxDeps {
    */
   readonly quota?: QuotaRepository;
   /**
+   * Strategy notification channels and fill alerts (AL-live-06, AL-alerts-01). Omitted refuses by naming the missing
+   * database; unit tests pass the in-memory store.
+   */
+  readonly notify?: NotifyRepository;
+  /**
    * The lifecycle store (AL-lifecycle-01): stage rows, gate decisions and the owner criteria an operator sets at
    * runtime. Omitted in unit tests: an in-memory store with nothing set.
    */
@@ -522,6 +538,18 @@ const accountField = { accountId: z.string().guid().optional() };
 const writeKeyField = { idempotencyKey: z.string().optional().nullable() };
 const clientIdField = { clientStrategyId: z.string().optional().nullable() };
 
+/** A stored alert as the screen reads it. */
+function alertView(row: StoredAlert) {
+  return {
+    alertId: row.id,
+    strategyId: row.strategyId,
+    strategyVersion: row.strategyVersion,
+    event: 'fill' as const,
+    template: row.template,
+    createdAt: row.createdAt,
+  };
+}
+
 export function createQuantRouter(deps: QuantRouterDeps) {
   const strategies = deps.strategies ?? openStrategyRepository({}).repository;
   const runs = deps.runs ?? createMemoryRunRepository('runResultCap' in deps ? deps.runResultCap : RUN_RESULT_MAX_BYTES);
@@ -533,6 +561,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
   const disclosure = deps.disclosure ?? openDisclosureRepository({}).repository;
   const templates = deps.templates ?? openTemplateRepository({}).repository;
   const quota = deps.quota ?? createMemoryQuota({ defaultProfile: null }).repository;
+  const notify = deps.notify ?? openNotifyRepository({}).repository;
   const lifecycle = deps.lifecycle ?? createMemoryLifecycleRepository();
 
   /**
@@ -1129,6 +1158,91 @@ export function createQuantRouter(deps: QuantRouterDeps) {
               }),
               asOf: new Date().toISOString(),
             };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+    }),
+
+    /**
+     * A strategy's notification channels (AL-live-06). In-app is always on; email, SMS and push are kept and go out through
+     * svc-notify, refused there by name while the platform has no sender. A webhook or chat app refuses
+     * `quant.notify_channel_unavailable` and nothing is saved. Another account's strategy is not found.
+     */
+    notify: router({
+      get: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ strategyId: z.string().min(1).max(128), ...accountField }))
+        .output(quantNotifySettingsSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const found = await strategies.get({ accountId, id: input.strategyId });
+            if (!found || found.deletedAt) missingStrategy();
+            const saved = await notify.settings({ accountId, strategyId: found.id });
+            return {
+              strategyId: found.id,
+              channels: saved ? [...saved.channels] : ['inapp' as const],
+              updatedAt: saved?.updatedAt ?? null,
+            };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+      set: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantNotifySetInputSchema.extend(accountField))
+        .output(quantNotifySettingsSchema)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const found = await strategies.get({ accountId, id: input.strategyId });
+            if (!found || found.deletedAt) missingStrategy();
+            const channels = checkChannels(input.channels);
+            const saved = await notify.saveSettings({ accountId, strategyId: found.id, channels });
+            return { strategyId: found.id, channels: [...saved.channels], updatedAt: saved.updatedAt };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+    }),
+
+    /**
+     * Fill alerts (AL-alerts-01): one strategy version and a message template from allow-listed fields. The alert keeps
+     * the version, never the parameters, so a later change to the strategy leaves it as it was. The server announces each
+     * fill once, with no browser open (`notify/sweep.ts`). An unknown field refuses `alert.template_invalid`.
+     */
+    alert: router({
+      list: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ strategyId: z.string().min(1).max(128), ...accountField }))
+        .output(quantAlertListSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const found = await strategies.get({ accountId, id: input.strategyId });
+            if (!found || found.deletedAt) missingStrategy();
+            const rows = await notify.alerts({ accountId, strategyId: found.id, limit: QUANT_ALERT_LIST_MAX });
+            return { alerts: rows.map(alertView) };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+      create: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantAlertCreateInputSchema.extend(accountField))
+        .output(quantAlertSchema)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const found = await strategies.get({ accountId, id: input.strategyId });
+            if (!found || found.deletedAt) missingStrategy();
+            const key = alertKey(found.id, accountId, input.ordinal);
+            const version = found.versions.find((row) => row.version === input.strategyVersion);
+            if (!version) throw new QuantError(QUANT_VERSION_NOT_FOUND, `version ${input.strategyVersion} not found`);
+            const template = checkTemplate(input.template);
+            const existing = await notify.alerts({ accountId, strategyId: found.id, limit: QUANT_ALERT_LIST_MAX });
+            if (existing.length >= QUANT_ALERT_LIST_MAX && !existing.some((row) => row.key === key)) {
+              throw new QuantError('quant.params_invalid', `alerts — a strategy holds at most ${QUANT_ALERT_LIST_MAX} alerts`);
+            }
+            const saved = await notify.createAlert({ accountId, strategyId: found.id, strategyVersion: version.version, template, key });
+            return alertView(saved);
           } catch (err) {
             toTrpc(err);
           }
@@ -2318,6 +2432,26 @@ export function createQuantRouter(deps: QuantRouterDeps) {
                   idempotencyKey: input.idempotencyKey,
                 });
                 return { ...published };
+              } catch (err) {
+                toTrpc(err);
+              }
+            }),
+          ),
+
+        /** Withdraws a starter template from the list or restores it. Its versions stay; the row records who, why and when. */
+        listing: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
+          .input(quantTemplateListingInputSchema)
+          .output(quantTemplateListingSchema)
+          .mutation(async ({ input, ctx }) =>
+            withQuantSpan('quant.ops.template.listing', { language: 'none' }, async () => {
+              try {
+                return await templates.setListed({
+                  id: input.id,
+                  listed: input.listed,
+                  reason: input.reason,
+                  setBy: ctx.principal.userId,
+                  idempotencyKey: input.idempotencyKey,
+                });
               } catch (err) {
                 toTrpc(err);
               }

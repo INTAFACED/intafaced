@@ -192,6 +192,23 @@ export const quantTemplatePublishInputSchema = z.object({
 export type QuantTemplatePublishInput = z.infer<typeof quantTemplatePublishInputSchema>;
 
 /**
+ * `ops.template.listing`: an operator withdraws a starter template from the list (`listed: false`) or restores it
+ * (`listed: true`), with a reason for the audit row. Its published versions are never touched.
+ */
+export const quantTemplateListingInputSchema = z.object({
+  id: quantTemplateIdSchema,
+  listed: z.boolean(),
+  reason: z.string().trim().min(1).max(500),
+  idempotencyKey: z.string().trim().min(1).max(128),
+});
+export type QuantTemplateListingInput = z.infer<typeof quantTemplateListingInputSchema>;
+export const quantTemplateListingSchema = z.object({
+  id: quantTemplateIdSchema,
+  listed: z.boolean(),
+  setAt: z.string(),
+});
+
+/**
  * How a backtest fills a signal. The engine reads a signal on a bar's close and fills it at the open of the next bar
  * that trades (ENGINE BT-2, BT-4), so a fill never uses the price the signal was read from. No default: the person
  * chooses it, so the form says what it means.
@@ -794,6 +811,64 @@ export const quantPaperRunSchema = quantPaperRunSummarySchema.extend({
   claimLabel: z.literal('Paper — not live performance'),
 });
 export type QuantPaperRun = z.infer<typeof quantPaperRunSchema>;
+
+/**
+ * A strategy's notification channels (AL-live-06). In-app notices are always on: the notification centre is ours. Email,
+ * SMS and push go out through svc-notify, which refuses by name (`vendor.email`, `vendor.sms`, `vendor.push`) while the
+ * platform has no sender, and the notice still appears in the app. A user webhook and chat apps have no sender in this
+ * build: choosing one refuses `quant.notify_channel_unavailable` and nothing is saved.
+ */
+export const QUANT_NOTIFY_CHANNELS = ['inapp', 'email', 'sms', 'push'] as const;
+export type QuantNotifyChannel = (typeof QUANT_NOTIFY_CHANNELS)[number];
+/** Channels listed so the person sees them, each refused as unavailable: no outbound sender exists for them. */
+export const QUANT_NOTIFY_UNAVAILABLE_CHANNELS = ['webhook', 'chat'] as const;
+
+export const quantNotifySettingsSchema = z.object({
+  strategyId: z.string(),
+  /** The channels chosen, `inapp` always first. */
+  channels: z.array(z.enum(QUANT_NOTIFY_CHANNELS)),
+  /** When they were last saved, or null when this strategy still has the default (in-app only). */
+  updatedAt: z.string().nullable(),
+});
+export type QuantNotifySettings = z.infer<typeof quantNotifySettingsSchema>;
+
+export const quantNotifySetInputSchema = z.object({
+  strategyId: z.string().min(1).max(128),
+  channels: z.array(z.string().max(20)).max(8),
+});
+
+/**
+ * A fill alert (AL-alerts-01): one strategy version, the fill event, and a message template. The template may name only
+ * the allow-listed fields in braces; anything else refuses `alert.template_invalid`. The alert stores the version, never
+ * a copy of the parameters, so changing the strategy never changes an existing alert: a new version needs its own.
+ */
+export const QUANT_ALERT_FIELDS = ['strategy', 'version', 'symbol', 'side', 'qty', 'price', 'time'] as const;
+export type QuantAlertField = (typeof QUANT_ALERT_FIELDS)[number];
+export const QUANT_ALERT_TEMPLATE_MAX = 280;
+export const QUANT_ALERT_LIST_MAX = 20;
+
+export const quantAlertSchema = z.object({
+  alertId: z.string(),
+  strategyId: z.string(),
+  strategyVersion: z.number().int().positive(),
+  event: z.literal('fill'),
+  template: z.string(),
+  createdAt: z.string(),
+});
+export type QuantAlert = z.infer<typeof quantAlertSchema>;
+
+/**
+ * `alert.create`. The key is `quant.alert:<strategyId>:<account>:<ordinal>`, where the ordinal is the count of the
+ * strategy's alerts the screen read when the form opened: a retry after a lost reply reads the same alert.
+ */
+export const quantAlertCreateInputSchema = z.object({
+  strategyId: z.string().min(1).max(128),
+  strategyVersion: z.number().int().positive(),
+  template: z.string().max(QUANT_ALERT_TEMPLATE_MAX * 2),
+  ordinal: z.number().int().nonnegative(),
+});
+
+export const quantAlertListSchema = z.object({ alerts: z.array(quantAlertSchema) });
 
 /**
  * The strategy lifecycle and its promotion gate (AL-lifecycle-01, ENGINE section 9). A version's stage is its newest

@@ -36,6 +36,12 @@ const en = {
 
   createTitle: 'Create agent account',
   create: 'Create agent account',
+  reachOwn:
+    'On {venue}, the permission your wallet signs lets the assistant trade this agent account and nothing else, so {venue} itself holds it to your cap.',
+  reachOthers:
+    'On {venue}, the permission your wallet signs also lets the assistant act for your other accounts there. Our policy check is then the only limit on its orders.',
+  reachUnknown:
+    'We could not read from the venue how far the permission your wallet signs reaches, so take it that it can act for your other accounts there too.',
   createIntro:
     'A sub-account under your wallet on the venue. Your wallet signs opening it, the agent permission for it, and the move in from your main venue account.',
   cap: 'Cap ({asset})',
