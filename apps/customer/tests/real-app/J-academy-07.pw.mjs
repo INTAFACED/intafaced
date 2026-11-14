@@ -492,10 +492,11 @@ test(`${J} #7 staff with the refund permission refund: INTAFACED sends the TEST 
   const before = await usdOf(payer);
   const refunding = data(await staff('mutate', 'admin.refundCoursePurchase', { key: run.key, reason: REFUND_REASON }, { as: 'b' }));
   expect(refunding).toMatchObject({ key: run.key, state: 'refunding', refund: { reason: REFUND_REASON } });
-  // A second press is the same refund, never a second send.
+  // A second press answers with the same refund, never a second one: same key, same reason; the one send is counted below.
   const twice = await staff('mutate', 'admin.refundCoursePurchase', { key: run.key, reason: REFUND_REASON }, { as: 'b' });
-  expect(twice.status).toBe(409);
-  expect(codeOf(twice)).toBe('academy.purchase_state');
+  expect(twice.status).toBe(200);
+  expect(data(twice)).toMatchObject({ key: run.key, refund: { reason: REFUND_REASON } });
+  expect(['refunding', 'refunded']).toContain(data(twice).state);
 
   const { panel, root } = await openCourse(page, run.priced.slug);
   const state = panel.getByTestId('academy-purchase-state');
