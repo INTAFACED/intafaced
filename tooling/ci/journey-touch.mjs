@@ -251,7 +251,23 @@ export function namedInputs({ ids, journeyFiles, importers = null }) {
   const want = new Set(ids);
   const files = [...journeyFiles].filter((f) => want.has(JOURNEY_TEST.exec(`apps/customer/tests/real-app/${f}`)?.[1])).sort();
   if (!files.length) return null;
-  return { ids: [...ids], files, ...(importers ? { importers } : {}) };
+  return { ids: [...ids], files, journeyFiles, ...(importers ? { importers } : {}) };
+}
+
+/**
+ * Every journey file at the head of each journey `files` selects (`journeyFiles`, a Set; null: `files` as given). A
+ * journey's steps may sit in more than one file (`J-home-ia-01.pw.mjs` and `J-home-ia-01-venue.pw.mjs`), and a targeted
+ * run's verdict counts a step that passed in the baseline's run as missing when its file did not run, so a selection
+ * that names one file of a journey runs them all. (Failure it prevents: on 14 Nov 2026 #8320's run took the canary's
+ * J-home-ia-01.pw.mjs alone, and J-home-ia-01 #1 #2 #3, in J-home-ia-01-venue.pw.mjs since #8310, read as missing money
+ * steps: red for a change that did not touch them.)
+ */
+export function withSiblings(files, journeyFiles) {
+  const list = [...new Set(files)];
+  if (!journeyFiles) return list.sort();
+  const idOf = (f) => JOURNEY_TEST.exec(`apps/customer/tests/real-app/${f}`)?.[1];
+  const ids = new Set(list.map(idOf).filter(Boolean));
+  return [...new Set([...list, ...[...journeyFiles].filter((f) => ids.has(idOf(f)))])].sort();
 }
 
 /** A service's own stack file: what `local:stack` starts that one service with. A test file beside them, or any other
@@ -457,7 +473,8 @@ export function journeyTouch(paths, atHead = () => true, reach = null, named = n
     byName = `${byName ? `${byName}; ` : ''}it names ${named.ids.join(', ')}, so its ${stack.length} stack file(s) run ${named.files.join(', ')} and the ${importers.length} journey file(s) using them`;
   } else full.push(...stack);
   full.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-  const list = [...files].sort();
+  // Every file of each journey selected, when the head's journey files are known (withSiblings).
+  const list = withSiblings(files, named?.journeyFiles ?? reach?.journeyFiles ?? null);
   const out = { mode: full.length ? 'full' : list.length ? 'files' : 'none', full, files: list };
   if (byName && !full.length)
     return { ...out, named: printable(byName), ...(importers ? { stack: stack.map((x) => x.path), importers } : {}) };
