@@ -1,6 +1,6 @@
 import type postgres from 'postgres';
 import { transaction } from '@intafaced/db';
-import { formatAmount, parseAmount } from '@intafaced/ledger-client';
+import { REWARD_ASSET, formatAmount, parseAmount } from '@intafaced/ledger-client';
 import {
   REWARD_STATUS_OF,
   type CampaignTasks,
@@ -24,8 +24,9 @@ import type { CampaignParticipant } from '@intafaced/contracts';
 import { CampaignsError } from './codes.js';
 import { effectiveState, outsideWindow } from './campaigns.js';
 import type { ParticipantSource } from './participants.js';
-import type { PayoutSaga } from './payouts.js';
+import { PAYOUT_UNAVAILABLE, owesReward, type PayoutSaga } from './payouts.js';
 import type { MarketNames } from './markets.js';
+import type { VenueDepositSource } from './venue-deposits.js';
 import { NO_STREAK, streakOf } from './streaks.js';
 import { evaluateFormula, namesRead, parseFormula } from './formula.js';
 
@@ -91,6 +92,11 @@ type IntentRow = {
   locked_at: Date | null;
   lock_until: Date | null;
   settle: 'unlock' | 'forfeit' | null;
+  owe_tx_id: string | null;
+  owed_at: Date | null;
+  pay_to_wallet: string | null;
+  paid_at: Date | null;
+  paid_chain_tx: string | null;
 };
 
 /** What a locked row shows: its campaign's lock terms and how many unlock-step fills counted so far. */
@@ -100,7 +106,7 @@ type AttemptRow = { reward_key: string; outcome: RedemptionAttempt['outcome']; r
 
 type FundingRow = {
   reference: string;
-  source_module: 'trade';
+  source_module: PotFunding['sourceModule'];
   asset: string;
   amount: string;
   state: PotFunding['state'];
@@ -153,6 +159,12 @@ export const PERIOD_ONCE = 'once';
 export const MY_REWARDS_LIMIT = 200;
 /** Seconds after a lock ends that a fill made inside it may still arrive and count, before the reward forfeits. */
 export const LOCK_FILL_GRACE_SECONDS = 60;
+
+/** A reward's plain status: an owed reward whose hold has not ended reads `on_hold`, as a held one does. */
+export function statusOf(state: RewardRecord['state'], holdUntil: Date | null, now: Date): MyRewards['rewards'][number]['status'] {
+  if (state === 'owed' && holdUntil && holdUntil > now) return 'on_hold';
+  return REWARD_STATUS_OF[state];
+}
 
 export const rewardKeyOf = (campaignId: string, accountId: string, period: string) => `task:${campaignId}:${accountId}:${period}`;
 
@@ -308,7 +320,43 @@ export interface TaskServiceOptions {
   timeZone: () => string | null;
   /** Owner value: the rollback window shown on every reward record. Null reads "not set". */
   rollbackWindowSeconds: number | null;
+  /**
+   * The welcome deposit task's reads (J-campaigns-04 #2): the person's connected wallets and the venue's deposits into
+   * their venue accounts. Null while svc-protocol or svc-trade is not configured: the deposit task reads `unread`.
+   */
+  venueDeposits?: VenueDepositSource | null;
+  /**
+   * What INTAFACED has paid this wallet as rewards, in USDC, from our payout records. A deposit counts only above it, so
+   * reward money sent back ticks nothing. Absent: no reward is paid to a wallet in this build, so nothing is.
+   */
+  rewardsPaidTo?: (wallet: string) => Promise<bigint>;
   now?: () => Date;
+}
+
+/** The asset a welcome deposit is counted in: USDC, deposited from the person's own wallet into their venue account. */
+export const WELCOME_DEPOSIT_ASSET = 'USDC';
+
+/** How the welcome deposit task was read just now. */
+export type WelcomeDepositSource = { source: 'read' | 'unread' | 'no_wallet'; asOf: string | null };
+
+/**
+ * The first venue deposit that counts for the welcome task, or null: credited USDC deposits into the wallet's venue
+ * account, in the order the venue saw them, counted only once their sum passes what we have paid that wallet as
+ * rewards. Pure: the same deposits and payouts always pick the same deposit.
+ */
+export function firstCountingDeposit(
+  deposits: readonly { depositRef: string; asset: string; amount: string; status: string; seenAt: string }[],
+  paidToWallet: bigint,
+): { depositRef: string; seenAt: Date } | null {
+  const credited = deposits
+    .filter((d) => d.status === 'credited' && d.asset === WELCOME_DEPOSIT_ASSET && !Number.isNaN(Date.parse(d.seenAt)))
+    .sort((a, b) => Date.parse(a.seenAt) - Date.parse(b.seenAt) || a.depositRef.localeCompare(b.depositRef));
+  let sum = 0n;
+  for (const d of credited) {
+    sum += parseAmount(d.amount);
+    if (sum > paidToWallet) return { depositRef: d.depositRef, seenAt: new Date(d.seenAt) };
+  }
+  return null;
 }
 
 export class TaskService {
@@ -318,6 +366,8 @@ export class TaskService {
   private readonly markets: MarketNames | null;
   private readonly timeZone: () => string | null;
   private readonly rollbackWindowSeconds: number | null;
+  private readonly venueDeposits: VenueDepositSource | null;
+  private readonly rewardsPaidTo: (wallet: string) => Promise<bigint>;
   private readonly now: () => Date;
 
   constructor(options: TaskServiceOptions) {
@@ -327,6 +377,8 @@ export class TaskService {
     this.markets = options.markets;
     this.timeZone = options.timeZone;
     this.rollbackWindowSeconds = options.rollbackWindowSeconds;
+    this.venueDeposits = options.venueDeposits ?? null;
+    this.rewardsPaidTo = options.rewardsPaidTo ?? (async () => 0n);
     this.now = options.now ?? (() => new Date());
   }
 
@@ -444,7 +496,9 @@ export class TaskService {
     };
     let earned = 0;
     for (const row of live) {
-      for (const rule of row.earning.filter((r) => r.trigger === event.trigger)) {
+      // A points rule gives nothing while the owner question is open (J-campaigns-15 #5): no point is stored, and the
+      // campaign's other rules still pay for the event.
+      for (const rule of row.earning.filter((r) => r.trigger === event.trigger && r.effect !== 'points')) {
         if (rule.minAmount !== null && values.amount! < parseAmount(rule.minAmount)) continue;
         const formula = parseFormula(rule.formula, names);
         const read = namesRead(formula);
@@ -607,7 +661,38 @@ export class TaskService {
    * Claims the caller's reward once. A second claim, or one sent again after a lost reply, returns the first intent as it
    * stands now (`created: false`) and posts nothing new.
    */
-  async claim(input: { campaignId: string; accountId: string }): Promise<TaskClaimResult> {
+  async claim(input: { campaignId: string; accountId: string; forwarded?: Record<string, string> }): Promise<TaskClaimResult> {
+    const result = await this.claimOnce(input);
+    if (await this.recordPayTo(input.accountId, input.forwarded ?? {})) {
+      return { reward: await this.record((await this.intent(result.reward.rewardKey))!), created: result.created };
+    }
+    return result;
+  }
+
+  /**
+   * Notes the wallet an owed reward is paid to: the first wallet the person has connected (svc-protocol's record, read for
+   * them during their own request), on each of their USDC rewards that has none yet and is not paid or closed. A reward
+   * keeps the wallet it was given; nothing here pays. Returns whether any reward was given one. Unread or no wallet:
+   * nothing changes, and the payer says the reward waits for a connected wallet.
+   */
+  async recordPayTo(accountId: string, forwarded: Record<string, string>): Promise<boolean> {
+    if (!this.venueDeposits || Object.keys(forwarded).length === 0) return false;
+    const [open] = await this.sql<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM campaigns.reward_intents
+      WHERE account_id = ${accountId} AND form = 'paid' AND asset = ${REWARD_ASSET} AND pay_to_wallet IS NULL
+        AND state NOT IN ('paid', 'failed', 'forfeited')`;
+    if (!open || open.n === 0) return false;
+    const wallets = await this.venueDeposits.wallets(forwarded);
+    const wallet = wallets?.find((w) => /^0x[0-9a-f]{40}$/.test(w));
+    if (!wallet) return false;
+    const set = await this.sql`
+      UPDATE campaigns.reward_intents SET pay_to_wallet = ${wallet}, updated_at = now()
+      WHERE account_id = ${accountId} AND form = 'paid' AND asset = ${REWARD_ASSET} AND pay_to_wallet IS NULL
+        AND state NOT IN ('paid', 'failed', 'forfeited')`;
+    return set.count > 0;
+  }
+
+  private async claimOnce(input: { campaignId: string; accountId: string }): Promise<TaskClaimResult> {
     const key = rewardKeyOf(input.campaignId, input.accountId, PERIOD_ONCE);
     const existing = await this.intent(key);
     // A reward withheld while the account was not active is looked at again on a later claim; any other stands.
@@ -650,11 +735,14 @@ export class TaskService {
       const made = await this.write(row, input.accountId, key, 'withheld', `account.${who.status}`, null, terms);
       return { reward: await this.record(made.intent), created: made.created };
     }
-    if (holdSeconds > 0 && !served) {
-      const held = await this.write(row, input.accountId, key, 'held', null, new Date(now.getTime() + holdSeconds * 1000), terms);
+    const holdUntil = holdSeconds > 0 && !served ? new Date(now.getTime() + holdSeconds * 1000) : null;
+    // A reward INTAFACED owes is owed at its claim; its hold only delays the payment to the customer's own wallet, and
+    // the account check at hold end (checkOwedHolds) gates that payment.
+    if (holdUntil && !owesReward({ form: terms.form, asset: row.reward_asset ?? '' })) {
+      const held = await this.write(row, input.accountId, key, 'held', null, holdUntil, terms);
       return { reward: await this.record(held.intent), created: held.created };
     }
-    const made = await this.write(row, input.accountId, key, 'qualified', null, null, terms);
+    const made = await this.write(row, input.accountId, key, 'qualified', null, holdUntil, terms);
     if (made.created) await this.saga.attempt(key);
     return { reward: await this.record((await this.intent(key))!), created: made.created };
   }
@@ -698,14 +786,55 @@ export class TaskService {
         released += 1;
       }
     }
+    await this.checkOwedHolds(now, limit);
     return released;
+  }
+
+  /**
+   * The same account check at the end of an owed reward's hold. A USDC reward INTAFACED owes is owed at its claim (the
+   * launch Money line: "a held reward is owed"), so its hold delays only the payment, and the check at hold end gates
+   * the payment, never the debt. An account that is active then: the reward is released for payment, once (a
+   * `released` line). Any other: it stays owed and its payment is withheld with reason `account.<status>` (one
+   * `withheld` line per status it is found in), and it is checked again on each pass until the account is active.
+   * Nothing posts here, so nothing can move or be paid twice. An account identity cannot read waits for the next pass.
+   */
+  private async checkOwedHolds(now: Date, limit: number): Promise<void> {
+    const due = await this.sql<{ reward_key: string; account_id: string; reason: string | null }[]>`
+      SELECT i.reward_key, i.account_id, i.reason FROM campaigns.reward_intents i
+      WHERE i.state = 'owed' AND i.hold_until IS NOT NULL AND i.hold_until <= ${now}
+        AND NOT EXISTS (SELECT 1 FROM campaigns.redemption_attempts a WHERE a.reward_key = i.reward_key AND a.outcome = 'released')
+      ORDER BY i.updated_at, i.reward_key LIMIT ${limit}`;
+    for (const { reward_key: key, account_id: accountId, reason: was } of due) {
+      const who = await this.participants.read(accountId);
+      if (!who) {
+        await this.sql`UPDATE campaigns.reward_intents SET updated_at = now() WHERE reward_key = ${key} AND state = 'owed'`;
+        continue;
+      }
+      const active = who.status === 'active';
+      const reason = active ? PAYOUT_UNAVAILABLE : `account.${who.status}`;
+      if (!active && was === reason) {
+        await this.sql`UPDATE campaigns.reward_intents SET updated_at = now() WHERE reward_key = ${key} AND state = 'owed'`;
+        continue;
+      }
+      await transaction(this.sql, async (tx) => {
+        const changed = await tx`
+          UPDATE campaigns.reward_intents SET reason = ${reason}, updated_at = now()
+          WHERE reward_key = ${key} AND state = 'owed' AND reason IS NOT DISTINCT FROM ${was}`;
+        if (changed.count === 0) return;
+        await tx`
+          INSERT INTO campaigns.redemption_attempts (reward_key, outcome, reason)
+          VALUES (${key}, ${active ? 'released' : 'withheld'}, ${active ? null : reason})`;
+      });
+    }
   }
 
   /**
    * Every reward of one account, newest first, with its campaign's name and plain status, and the totals by status and
    * asset summed from those rows (CM-rewards-hub-01). The account is the caller's principal, never a field.
    */
-  async myRewards(input: { accountId: string }): Promise<MyRewards> {
+  async myRewards(input: { accountId: string; forwarded?: Record<string, string> }): Promise<MyRewards> {
+    await this.recordPayTo(input.accountId, input.forwarded ?? {});
+    const now = this.now();
     const [rows, groups] = await Promise.all([
       this.sql<(IntentRow & { campaign_name: string })[]>`
         SELECT i.*, i.amount::text AS amount, c.name AS campaign_name
@@ -713,19 +842,21 @@ export class TaskService {
         WHERE i.account_id = ${input.accountId}
         ORDER BY i.created_at DESC, i.reward_key LIMIT ${MY_REWARDS_LIMIT}`,
       // The totals count every reward, not only the listed ones.
-      this.sql<{ state: RewardRecord['state']; asset: string; amount: string; n: number }[]>`
-        SELECT state, asset, sum(amount)::text AS amount, count(*)::int AS n FROM campaigns.reward_intents
-        WHERE account_id = ${input.accountId} GROUP BY state, asset`,
+      this.sql<{ state: RewardRecord['state']; asset: string; amount: string; n: number; holding: boolean }[]>`
+        SELECT state, asset, sum(amount)::text AS amount, count(*)::int AS n,
+          (state = 'owed' AND hold_until IS NOT NULL AND hold_until > ${now}) AS holding
+        FROM campaigns.reward_intents
+        WHERE account_id = ${input.accountId} GROUP BY state, asset, holding`,
     ]);
     const [attempts, locks] = await Promise.all([this.attemptsOf(rows.map((r) => r.reward_key)), this.locksOf(rows)]);
     const rewards = rows.map((r) => ({
       ...this.toRecord(r, attempts.get(r.reward_key) ?? [], locks.get(r.reward_key)),
       campaignName: r.campaign_name,
-      status: REWARD_STATUS_OF[r.state],
+      status: statusOf(r.state, r.hold_until, now),
     }));
     const sums = new Map<string, { status: MyRewards['totals'][number]['status']; asset: string; units: bigint; count: number }>();
     for (const g of groups) {
-      const status = REWARD_STATUS_OF[g.state];
+      const status = g.holding ? 'on_hold' : REWARD_STATUS_OF[g.state];
       const k = `${status}:${g.asset}`;
       const line = sums.get(k) ?? { status, asset: g.asset, units: 0n, count: 0 };
       line.units += parseAmount(g.amount);
@@ -831,9 +962,10 @@ export class TaskService {
   }
 
   /** The caller's welcome checklist: its window and each task's state, reward and claimed record. */
-  async welcomeChecklist(input: { accountId: string }): Promise<WelcomeChecklist> {
+  async welcomeChecklist(input: { accountId: string; forwarded?: Record<string, string> }): Promise<WelcomeChecklist> {
     const found = await this.welcomeOf(input.accountId);
-    if (!found) return { campaign: null, signedUpAt: null, window: null, tasks: [] };
+    if (!found) return { campaign: null, signedUpAt: null, window: null, tasks: [], deposit: null };
+    const deposit = await this.readWelcomeDeposit(found, input.forwarded ?? {});
     const { account, campaign, events } = found;
     const keys = campaign.tasks.steps.map((s) => rewardKeyOf(campaign.id, account.account_id, welcomePeriodOf(s.event)));
     const intents = await this.sql<IntentRow[]>`
@@ -870,16 +1002,64 @@ export class TaskService {
         state: window.state,
       },
       tasks,
+      deposit,
     };
+  }
+
+  /**
+   * The welcome deposit task, read from the venue (J-campaigns-04 #2 #3): the venue's own deposits into the venue
+   * accounts of the wallets this person connected, from sign-up on, read for the person during their own request
+   * (`forwarded`, their edge-signed principal). The first that counts (`firstCountingDeposit`) is
+   * kept as the task's event, under the venue's own id for the transfer, so the same deposit read again, or redelivered,
+   * changes nothing. INTAFACED keeps no copy of the venue's list and the ledger posts nothing for a deposit. A read that
+   * fails changes nothing and says `unread`, never "no deposit". `found.events` is updated in place.
+   */
+  private async readWelcomeDeposit(
+    found: NonNullable<Awaited<ReturnType<TaskService['welcomeOf']>>>,
+    forwarded: Record<string, string>,
+  ): Promise<WelcomeDepositSource | null> {
+    const { account, campaign, events } = found;
+    if (!campaign.tasks.steps.some((s) => s.event === 'pay.deposit')) return null;
+    // Read on every look, ticked or not: the venue's record is the fact, and reading it again (its redelivery here) keeps
+    // the first deposit that counted (`onWelcomeEvent` keeps the earliest), so it never moves or ticks twice.
+    if (!this.venueDeposits) return { source: 'unread', asOf: null };
+    const wallets = await this.venueDeposits.wallets(forwarded);
+    if (wallets === null) return { source: 'unread', asOf: null };
+    if (wallets.length === 0) return { source: 'no_wallet', asOf: null };
+    let unread = false;
+    let asOf: string | null = null;
+    for (const wallet of wallets) {
+      const read = await this.venueDeposits.deposits(wallet);
+      if (!read) {
+        unread = true;
+        continue;
+      }
+      if (asOf === null || read.asOf > asOf) asOf = read.asOf;
+      const since = read.deposits.filter((d) => Date.parse(d.seenAt) >= account.signed_up_at.getTime());
+      const first = firstCountingDeposit(since, await this.rewardsPaidTo(wallet));
+      if (!first) continue;
+      await this.onWelcomeEvent({
+        userId: account.account_id,
+        event: 'pay.deposit',
+        eventId: `venue-deposit:${read.venueId}:${first.depositRef}`,
+        at: first.seenAt.toISOString(),
+      });
+      const [kept] = await this.sql<{ occurred_at: Date }[]>`
+        SELECT occurred_at FROM campaigns.welcome_events WHERE account_id = ${account.account_id} AND event = 'pay.deposit'`;
+      if (kept) events.set('pay.deposit', kept.occurred_at);
+      return { source: 'read', asOf: read.asOf };
+    }
+    return { source: unread ? 'unread' : 'read', asOf };
   }
 
   /**
    * Claims one welcome task once, inside the window, under `task:<campaign>:<account>:welcome:<event>`. A second claim,
    * or one sent again after a lost reply, returns the first (`created: false`). After the window nothing is written.
    */
-  async welcomeClaim(input: { accountId: string; event: TaskEvent }): Promise<TaskClaimResult> {
+  async welcomeClaim(input: { accountId: string; event: TaskEvent; forwarded?: Record<string, string> }): Promise<TaskClaimResult> {
     const found = await this.welcomeOf(input.accountId);
     if (!found) throw new CampaignsError('campaigns.welcome_none', 'Your account has no welcome checklist');
+    if (input.event === 'pay.deposit') await this.readWelcomeDeposit(found, input.forwarded ?? {});
     const { account, campaign, events } = found;
     const step = campaign.tasks.steps.find((s) => s.event === input.event);
     if (!step) throw new CampaignsError('campaigns.tasks_invalid', 'This welcome checklist has no such task');
@@ -922,12 +1102,14 @@ export class TaskService {
       const made = await this.write(row, account.account_id, key, 'withheld', `account.${who.status}`, null, terms, period);
       return { reward: await this.record(made.intent), created: made.created };
     }
-    if (holdSeconds > 0 && !served) {
-      const until = new Date(now.getTime() + holdSeconds * 1000);
+    const until = holdSeconds > 0 && !served ? new Date(now.getTime() + holdSeconds * 1000) : null;
+    // A reward INTAFACED owes is owed at its claim; its hold only delays the payment to the customer's own wallet, and
+    // the account check at hold end (checkOwedHolds) gates that payment.
+    if (until && !owesReward({ form: terms.form, asset: terms0.asset })) {
       const held = await this.write(row, account.account_id, key, 'held', null, until, terms, period);
       return { reward: await this.record(held.intent), created: held.created };
     }
-    const made = await this.write(row, account.account_id, key, 'qualified', null, null, terms, period);
+    const made = await this.write(row, account.account_id, key, 'qualified', null, until, terms, period);
     if (made.created) await this.saga.attempt(key);
     return { reward: await this.record((await this.intent(key))!), created: made.created };
   }
@@ -969,7 +1151,7 @@ export class TaskService {
   /** One operator asks for a sweep of earned fees into the reward pot. The reference is the business key. */
   async requestFunding(input: {
     reference: string;
-    sourceModule: 'trade';
+    sourceModule: PotFunding['sourceModule'];
     asset: string;
     amount: unknown;
     actor: string;
@@ -1111,6 +1293,11 @@ export class TaskService {
       state: row.state,
       reason: row.reason,
       ledgerTxId: row.ledger_tx_id,
+      owed: row.owe_tx_id && row.owed_at ? { txId: row.owe_tx_id, at: iso(row.owed_at) } : null,
+      payout:
+        row.state === 'paid' && row.paid_chain_tx && row.pay_to_wallet && row.paid_at
+          ? { chainTx: row.paid_chain_tx, toWallet: row.pay_to_wallet, at: iso(row.paid_at) }
+          : null,
       createdAt: iso(row.created_at),
       postedAt: row.posted_at ? iso(row.posted_at) : null,
       holdUntil: row.hold_until ? iso(row.hold_until) : null,

@@ -52,11 +52,15 @@ import { CourseRelease } from './curriculum/course-release.js';
 import { CourseItemRules } from './curriculum/course-item-rules.js';
 import { CourseGradebook } from './curriculum/course-gradebook.js';
 import { GradeReports } from './curriculum/grade-reports.js';
+import { CertDesigns } from './certs/designs.js';
+import { LearnerSummaries } from './analytics/learner-summaries.js';
+import { ReportTasks } from './analytics/report-tasks.js';
 import { PeerReviews, type GetObjectFn } from './curriculum/peer-review.js';
 import { AssignmentGrading } from './curriculum/grading.js';
 import { LearnHub } from './curriculum/learn-hub.js';
 import { CoursePreview } from './curriculum/course-preview.js';
 import { CourseLearners } from './curriculum/course-learners.js';
+import { CoursePurchases, type CoursePurchaseDeps } from './purchases/course-purchases.js';
 import type { VideoStorageConfig } from './video/storage.js';
 import { CourseStarts } from './curriculum/course-start.js';
 import { courseClosedReason, CourseTermsStore, type CourseVisibility } from './curriculum/course-terms.js';
@@ -107,6 +111,7 @@ import type {
   AcademyCertIssue,
   AcademyCertIssueRule,
   AcademyCertRevocation,
+  AcademyIssuedCertDesign,
   AcademySetCertIssueRuleInput,
   AcademyProgramme,
   AcademyProgrammeCourseState,
@@ -117,6 +122,8 @@ import { academyProgrammeCertId, ACADEMY_CURRICULUM_PATHS } from '@intafaced/con
 import { CertIssueRules, issueDueAt } from './certs/issue-rules.js';
 import { ProgrammeRecords } from './curriculum/programme-records.js';
 import { CourseDiscussion } from './curriculum/discussion.js';
+import { DiscussionModeration, type ModerationNoticePublisher } from './curriculum/moderation.js';
+import { CourseTeam } from './team/course-team.js';
 import { CourseMessages } from './curriculum/course-messages.js';
 import { normaliseHolderName } from './certs/holder-name.js';
 import { PROGRAMME_SLUGS, type ProgrammeSlug } from './curriculum/programmes.js';
@@ -148,9 +155,16 @@ import {
   type CertPerkOutcome,
   type CertPerkPlaneStatus,
 } from './certs/perk-plane.js';
-import { getCurriculumItem, hasCurriculumSlug, itemType, listCurriculum, type CurriculumPath } from './curriculum/catalog.js';
+import {
+  curriculumSpineSize,
+  getCurriculumItem,
+  hasCurriculumSlug,
+  itemType,
+  listCurriculum,
+  type CurriculumPath,
+} from './curriculum/catalog.js';
 import { curriculumBodyForLocale, curriculumI18nStrategyLine } from './curriculum/i18n-strategy.js';
-import { type ProgrammeDefinition } from './curriculum/programmes.js';
+import { PROGRAMME_CATALOG, programmeBySlug, unmetPrerequisites, type ProgrammeDefinition } from './curriculum/programmes.js';
 import { getVideoSpineItem, listVideoSpine, type VideoSpineEntry } from './video/catalog.js';
 import { VideoTracks, type VideoTrack } from './video/tracks.js';
 import { AcademyCustomerStore } from './learning/customer-store.js';
@@ -177,6 +191,7 @@ import type { StakeSource } from './stake-source.js';
 import { isConstructed, type StreamCredential, type StreamProvider } from './stream/provider.js';
 import { withAcademySpan } from './tracing.js';
 import { LearnerDesk, requireReason } from './learners/learner-desk.js';
+import { StaffEnrolment } from './learners/staff-enrolment.js';
 
 /**
  * ACADEMY LOBBIES (§8.3, §XIII "live session lobbies, capacity tiers").
@@ -298,6 +313,8 @@ const toSession = (row: SessionRow): SessionRecord => {
 };
 
 export interface AcademyServiceOptions {
+  /** J-academy-07: course payments from the buyer's own wallet. Absent or with any part blank, nothing is sold. */
+  purchases?: CoursePurchaseDeps;
   /**
    * Owner-published operational ceiling. Undefined = unpublished —
    * createRoom refuses `academy.room_capacity_unset`. Never invent 5000.
@@ -324,8 +341,26 @@ export interface AcademyServiceOptions {
   graderLeaseSeconds?: number;
   /** AC-assignments-04: learner rows one grade report holds (`ACADEMY_GRADE_REPORT_ROWS`). Unset, a report refuses. */
   gradeReportRows?: number;
+  /** AC-certificates-03: issued certificates the staff list shows and one export holds (`ACADEMY_CERT_ISSUED_ROWS`). Unset, both refuse. */
+  certIssuedRows?: number;
+  /** AC-analytics-01: learners one page of summaries shows (`ACADEMY_LEARNER_SUMMARIES_PAGE_SIZE`). Unset, the read refuses. */
+  learnerSummariesPageSize?: number;
+  /** AC-analytics-02: report tasks one list shows (`ACADEMY_REPORT_TASKS_PAGE_SIZE`). Unset, the list refuses. */
+  reportTasksPageSize?: number;
+  /** AC-analytics-02: minutes a finished reports-centre file is served (`ACADEMY_REPORT_CENTRE_RETENTION_MINUTES`). Unset, a request refuses. */
+  reportCentreRetentionMinutes?: number;
+  /** AC-analytics-02: seconds between report sweeps (`ACADEMY_REPORT_SWEEP_SECONDS`). Unset, no sweep runs and a request refuses. */
+  reportSweepSeconds?: number;
   /** AC-quizzes-04: bytes one quiz curve file may hold (`ACADEMY_BULK_FILE_MAX_BYTES`). Unset, a curve upload refuses. */
   bulkFileMaxBytes?: number;
+  /** AC-enrolment-03: addresses one bulk enrolment upload holds (`ACADEMY_BULK_ENROL_ROWS`). Unset, an upload refuses. */
+  bulkEnrolRows?: number;
+  /** AC-notifications-02: days without learning that leave a learner out of a course email. Unset, a send refuses. */
+  bulkEmailInactiveDays?: number;
+  /** AC-analytics-02: hours a learner export is kept (`ACADEMY_REPORT_RETENTION_HOURS`). Unset, a request refuses. */
+  reportRetentionHours?: number;
+  /** AC-analytics-02: learner rows one export or reports-centre report holds (`ACADEMY_LEARNER_EXPORT_ROWS`). Unset, a request refuses. */
+  learnerExportRows?: number;
   /** AC-articles-01: how many topics a list shows (`ACADEMY_TOPICS_LIST_LIMIT`). Unset, the list refuses. */
   topicsListLimit?: number;
   /** Stage-1 tournament ladder kill-switch (`ACADEMY_TOURNAMENT_ENABLED`). */
@@ -355,6 +390,12 @@ export interface AcademyServiceOptions {
   certIssueSweepSeconds?: number;
   /** AC-programmes-01: owner-set courses per learning programme (`ACADEMY_PROGRAMME_MAX_COURSES`). Undefined: a save with courses refuses. */
   programmeMaxCourses?: number;
+  /** AC-roles-01: owner-set number of custom roles (`ACADEMY_CUSTOM_ROLE_LIMIT`). Undefined: creating one refuses. */
+  customRoleLimit?: number;
+  /** AC-rooms-02: where a deleted post's author notice goes; undefined or null leaves it waiting in the outbox. */
+  moderationNotices?: ModerationNoticePublisher | null;
+  /** AC-rooms-02: logs a notice the bus did not take (it stays waiting). */
+  onModerationNoticeError?: (err: unknown, eventId: string) => void;
   /** AC-rooms-01: owner-set characters per discussion post (`ACADEMY_POST_MAX_CHARS`). Undefined: posting refuses. */
   postMaxChars?: number;
   /** AC-rooms-01: owner-set bytes per post image (`ACADEMY_POST_IMAGE_MAX_BYTES`). Undefined: a post with an image refuses. */
@@ -416,6 +457,8 @@ function dueFor(dueAt: Date | null, extendedUntil: Date | null): { dueAt: string
 export class AcademyService {
   /** J-academy-14: the staff desk for one learner. */
   readonly learners: LearnerDesk;
+  /** J-academy-15: staff enrolment, invitations, course email and learner exports. */
+  readonly staffEnrolment: StaffEnrolment;
   private readonly customer: AcademyCustomerStore;
   private readonly assessments: AssessmentRepository;
   private readonly release: ReleaseAccess;
@@ -429,6 +472,7 @@ export class AcademyService {
   private readonly learnHub: LearnHub;
   private readonly coursePreview: CoursePreview;
   private readonly courseLearners: CourseLearners;
+  private readonly coursePurchases: CoursePurchases;
   private readonly courseStarts: CourseStarts;
   private readonly courseTerms: CourseTermsStore;
   private readonly plannerStore: PlannerStore;
@@ -437,6 +481,10 @@ export class AcademyService {
   private readonly programmeRecords: ProgrammeRecords;
   /** AC-rooms-01: course discussions. The router calls it directly; it decides nothing about any other record. */
   readonly discussion: CourseDiscussion;
+  /** AC-roles-01: course team roles, custom roles and the per-course permission check. */
+  readonly team: CourseTeam;
+  /** AC-rooms-02: reports, the moderation queue and deleting posts with a reason. */
+  readonly moderation: DiscussionModeration;
   /** AC-rooms-04: conversations with course teams. The router calls it directly. */
   readonly courseMessages: CourseMessages;
   /** AC-quizzes-01: quizzes on the items of a course staff made. The router calls it directly (AC-quizzes-02: its own attempts). */
@@ -450,6 +498,12 @@ export class AcademyService {
   readonly courseItemRules: CourseItemRules;
   readonly courseGradebook: CourseGradebook;
   readonly gradeReports: GradeReports;
+  /** AC-certificates-03: certificate designs, the issued list and its stored exports. The router calls it directly. */
+  readonly certDesigns: CertDesigns;
+  /** AC-analytics-01: per-learner summaries for the founder console. */
+  readonly learnerSummaries: LearnerSummaries;
+  /** AC-analytics-02: the reports centre's tasks and their sweep. */
+  readonly reportTasks: ReportTasks;
 
   constructor(
     private readonly sql: Sql,
@@ -477,7 +531,11 @@ export class AcademyService {
     this.lessonRecords = new LessonRecords(sql, this.courseRecords, this.options.lessonImportMaxBytes ?? null);
     this.learnHub = new LearnHub(sql, this.options.topicsListLimit ?? null);
     this.coursePreview = new CoursePreview(sql);
-    this.courseLearners = new CourseLearners(sql, this.coursePreview);
+    this.coursePurchases = new CoursePurchases(
+      sql,
+      options.purchases ?? { settings: null, chain: null, ledger: null, refunds: null, wallets: null },
+    );
+    this.courseLearners = new CourseLearners(sql, this.coursePreview, this.coursePurchases);
     this.courseMedia = new CourseMedia(
       sql,
       this.options.mediaStorage ?? null,
@@ -498,6 +556,22 @@ export class AcademyService {
     this.peerReviews = new PeerReviews(sql, this.courseAssignments, this.options.mediaStorage ?? null, this.options.assignmentGet);
     this.courseStarts = new CourseStarts(sql);
     this.courseTerms = new CourseTermsStore(sql);
+    this.staffEnrolment = new StaffEnrolment(
+      sql,
+      {
+        bulkEnrolRows: this.options.bulkEnrolRows ?? null,
+        inactiveDays: this.options.bulkEmailInactiveDays ?? null,
+        reportRetentionHours: this.options.reportRetentionHours ?? null,
+        exportRows: this.options.learnerExportRows ?? null,
+      },
+      {
+        terms: (path) => this.courseTerms.read(path),
+        unmetPrerequisites: async (userId, path) => {
+          const def = programmeBySlug(this.options.programmeCatalog ?? PROGRAMME_CATALOG, path);
+          return def ? unmetPrerequisites(def, await this.customer.activePathSlugs(userId)) : [];
+        },
+      },
+    );
     this.plannerStore = new PlannerStore(sql, this.options.plannerTodoLimit ?? null);
     this.videoTracks = new VideoTracks(sql);
     this.issueRules = new CertIssueRules(sql);
@@ -510,6 +584,25 @@ export class AcademyService {
     this.courseItemRules = new CourseItemRules(sql);
     this.courseGradebook = new CourseGradebook(sql);
     this.gradeReports = new GradeReports(sql, this.courseGradebook, this.options.gradeReportRows ?? null);
+    this.certDesigns = new CertDesigns(
+      sql,
+      () => this.certs().map((c) => ({ id: c.id, title: c.title })),
+      this.options.certIssuedRows ?? null,
+    );
+    this.learnerSummaries = new LearnerSummaries(sql, this.options.learnerSummariesPageSize ?? null);
+    this.reportTasks = new ReportTasks(sql, {
+      pageSize: this.options.reportTasksPageSize ?? null,
+      retentionMinutes: this.options.reportCentreRetentionMinutes ?? null,
+      rowLimit: this.options.learnerExportRows ?? null,
+      sweepSeconds: this.options.reportSweepSeconds ?? null,
+    });
+    this.team = new CourseTeam(sql, this.options.customRoleLimit ?? null);
+    this.moderation = new DiscussionModeration(
+      sql,
+      this.team,
+      this.options.moderationNotices ?? null,
+      this.options.onModerationNoticeError,
+    );
     this.discussion = new CourseDiscussion(sql, {
       postMaxChars: this.options.postMaxChars ?? null,
       imageMaxBytes: this.options.postImageMaxBytes ?? null,
@@ -615,6 +708,56 @@ export class AcademyService {
       VALUES (${input.roomId}, ${input.userId}, ${input.hostId}, ${input.expiresAt ?? null})
       ON CONFLICT (room_id, user_id) DO UPDATE SET expires_at = EXCLUDED.expires_at
     `;
+  }
+
+  // ── A specialist room's pinned lessons (RC-academy-06) ─────────────────────
+
+  /**
+   * Pin a curriculum lesson to a room page. The host's call, and only theirs.
+   *
+   * The lesson must be in the catalogue: a pin naming a slug nobody can open
+   * would put a dead link on the room page. Pinning a lesson already pinned
+   * keeps its first place, so a retried pin moves nothing.
+   */
+  async pinLesson(input: { roomId: string; hostId: string; itemSlug: string }): Promise<void> {
+    const room = await this.room(input.roomId);
+    this.assertHost(room.hostId, input.hostId, 'room');
+    if (!hasCurriculumSlug(input.itemSlug)) {
+      throw new AcademyError(`There is no lesson "${input.itemSlug}" to pin`, 'academy.curriculum_not_found');
+    }
+    await this.sql`
+      INSERT INTO academy.room_pinned_lessons (room_id, item_slug, position, pinned_by)
+      SELECT ${input.roomId}, ${input.itemSlug},
+             COALESCE((SELECT MAX(position) + 1 FROM academy.room_pinned_lessons WHERE room_id = ${input.roomId}), 0),
+             ${input.hostId}
+      ON CONFLICT (room_id, item_slug) DO NOTHING
+    `;
+  }
+
+  /** Take a lesson off a room page. The host's call; unpinning one not pinned changes nothing. */
+  async unpinLesson(input: { roomId: string; hostId: string; itemSlug: string }): Promise<void> {
+    const room = await this.room(input.roomId);
+    this.assertHost(room.hostId, input.hostId, 'room');
+    await this.sql`DELETE FROM academy.room_pinned_lessons WHERE room_id = ${input.roomId} AND item_slug = ${input.itemSlug}`;
+  }
+
+  /**
+   * The lessons pinned to a room, in the order pinned, as the catalogue
+   * describes them. A pin is unique per lesson and names a catalogue slug, so
+   * a room never holds more pins than the catalogue has lessons: that is the
+   * page size. A pin whose lesson has left the catalogue is not shown.
+   */
+  async pinnedLessons(roomId: string): Promise<ReturnType<typeof listCurriculum>> {
+    const rows = await this.sql<{ item_slug: string }[]>`
+      SELECT item_slug FROM academy.room_pinned_lessons WHERE room_id = ${roomId}
+       ORDER BY position ASC, pinned_at ASC
+       LIMIT ${curriculumSpineSize()}
+    `;
+    const bySlug = new Map(listCurriculum().map((item) => [item.slug, item]));
+    return rows.flatMap((row) => {
+      const item = bySlug.get(row.item_slug);
+      return item ? [item] : [];
+    });
   }
 
   // ── Sessions ───────────────────────────────────────────────────────────────
@@ -2543,6 +2686,37 @@ export class AcademyService {
     return this.courseLearners.leave({ ...input, now: input.now ?? new Date() });
   }
 
+  /** J-academy-07: a course's price, how it can be paid, and the caller's own latest purchase. */
+  coursePurchase(input: { userId: string; slug: string }) {
+    return this.coursePurchases.view(input);
+  }
+
+  /** J-academy-07: Buy. Stores the intent first; asks the wallet to sign only on the answer that opened it. */
+  buyCourse(input: { userId: string; slug: string; wallet: string }) {
+    return this.coursePurchases.buy(input);
+  }
+
+  submitCoursePayment(input: { userId: string; key: string; txHash: string }) {
+    return this.coursePurchases.submitPayment(input);
+  }
+
+  abandonCoursePurchase(input: { userId: string; key: string }) {
+    return this.coursePurchases.abandon(input);
+  }
+
+  staffCoursePurchase(key: string) {
+    return this.coursePurchases.staffRead(key);
+  }
+
+  refundCoursePurchase(input: { key: string; reason: string; actorId: string }) {
+    return this.coursePurchases.refund(input);
+  }
+
+  /** Every open purchase, read against the chain and the ledger once; a row's error goes to `onError` with its key. */
+  reconcileCoursePurchases(onError?: (key: string, err: unknown) => void) {
+    return this.coursePurchases.reconcile(100, onError);
+  }
+
   /** AC-videos-02: an item's uploads, captions and the owner's upload limits. */
   itemMedia(itemId: string, now: Date = new Date()) {
     return this.courseMedia.itemMedia(itemId, now);
@@ -3022,11 +3196,15 @@ export class AcademyService {
     return grant;
   }
 
-  /** The one write of a certificate grant: a new serial, and nothing when the learner already holds this certificate. */
+  /**
+   * The one write of a certificate grant: a new serial, and nothing when the learner already holds this certificate. The
+   * grant keeps the design revision active as it is written (AC-certificates-03), so a later edit never changes what it prints.
+   */
   private insertCertGrant(grant: CertGrantRecord) {
     return this.sql<Array<{ user_id: string; cert_id: string; granted_at: Date; idempotency_key: string; public_id: string }>>`
-      INSERT INTO academy.cert_grants (user_id, cert_id, granted_at, idempotency_key, public_id)
-      VALUES (${grant.userId}, ${grant.certId}, ${grant.grantedAt}, ${grant.idempotencyKey}, ${randomPublicId()})
+      INSERT INTO academy.cert_grants (user_id, cert_id, granted_at, idempotency_key, public_id, design_revision)
+      VALUES (${grant.userId}, ${grant.certId}, ${grant.grantedAt}, ${grant.idempotencyKey}, ${randomPublicId()},
+              (SELECT active_revision FROM academy.cert_designs WHERE cert_id = ${grant.certId}))
       ON CONFLICT (user_id, cert_id) DO NOTHING
       RETURNING user_id, cert_id, granted_at, idempotency_key, public_id
     `;
@@ -3326,16 +3504,28 @@ export class AcademyService {
   async myCertGrants(
     userId: string,
     requested?: number,
-  ): Promise<Array<CertGrantRecord & { publicId: string; status: 'valid' | 'revoked' }>> {
+  ): Promise<Array<CertGrantRecord & { publicId: string; status: 'valid' | 'revoked'; design: AcademyIssuedCertDesign | null }>> {
     const limit = assertMyCertsListLimit(requested);
     const rows = await this.sql<
-      Array<{ user_id: string; cert_id: string; granted_at: Date; idempotency_key: string; public_id: string; status: string }>
+      Array<{
+        user_id: string;
+        cert_id: string;
+        granted_at: Date;
+        idempotency_key: string;
+        public_id: string;
+        status: string;
+        design_revision: number | null;
+      }>
     >`
-      SELECT user_id, cert_id, granted_at, idempotency_key, public_id, status FROM academy.cert_grants
+      SELECT user_id, cert_id, granted_at, idempotency_key, public_id, status, design_revision FROM academy.cert_grants
        WHERE user_id = ${userId}
        ORDER BY granted_at DESC
        LIMIT ${limit}
     `;
+    // AC-certificates-03: each certificate prints the design revision it was issued under, never a later edit.
+    const printed = await this.certDesigns.printed(
+      rows.flatMap((r) => (r.design_revision === null ? [] : [{ certId: r.cert_id, revision: r.design_revision }])),
+    );
     return rows.map((r) => ({
       userId: r.user_id,
       certId: r.cert_id,
@@ -3343,6 +3533,7 @@ export class AcademyService {
       idempotencyKey: r.idempotency_key,
       publicId: r.public_id,
       status: r.status === 'revoked' ? ('revoked' as const) : ('valid' as const),
+      design: r.design_revision === null ? null : (printed.get(`${r.cert_id}:${r.design_revision}`) ?? null),
     }));
   }
 

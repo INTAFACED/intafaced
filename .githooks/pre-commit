@@ -1,0 +1,17 @@
+#!/bin/sh
+#
+# The cheap part of CI's checks, on every commit: format:check's prettier over the staged files (package.json's
+# format:check names the extensions). The slower part (gates, build, typecheck, tests) runs on GitHub (.githooks/pre-push
+# says how). --no-verify skips it; CI's Format job still runs.
+[ -n "${CI:-}" ] && exit 0
+TOP=$(git rev-parse --show-toplevel)
+PRETTIER="$TOP/node_modules/.bin/prettier"
+[ -x "$PRETTIER" ] || { echo "pre-commit: no prettier in node_modules (pnpm install); format left to the push and CI" >&2; exit 0; }
+EXTS=$(node -e "const s=require('$TOP/package.json').scripts['format:check']||'';const m=s.match(/\{([^}]+)\}/);process.stdout.write(m?m[1].split(',').join('|'):'')")
+[ -n "$EXTS" ] || { echo "pre-commit: package.json's format:check changed shape; run pnpm format:check" >&2; exit 1; }
+FILES=$(git diff --cached --name-only --diff-filter=ACMR | grep -E "\.($EXTS)\$" || true)
+[ -z "$FILES" ] && exit 0
+if ! (cd "$TOP" && echo "$FILES" | tr '\n' '\0' | xargs -0 "$PRETTIER" --check); then
+  printf "\n  ✖ format: prettier --write the files above, add them, and commit again.\n\n" >&2
+  exit 1
+fi

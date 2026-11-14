@@ -51,10 +51,10 @@
  * a journeys run executes or reads needs no run. (Failure it prevents: #7415 changed product code, merged on its own
  * steps and broke J-copy-bots-otc-01 #1 on main on 7 Nov 2026, so builders ran the full suite on nearly every branch by
  * hand. The seal now says exactly which run each pull request needs, and a builder runs that one.) A pull request whose
- * title or branch names a journey with a file at its head is held, for its product code, to that journey, its changed
- * journey files and the map's always-run list (namedSealInputs, journey-touch.mjs namedInputs: theo-01 part 1,
- * project-state#2065, OWNER 296), the same list its journeys run was given; main's full run after the merge judges the
- * rest and a red main is reverted (OWNER 249 (3)). A service's own stack file in such a pull request adds the journeys
+ * title or branch names a journey with a file at its head is held, for its product code, to that journey and its changed
+ * journey files (namedSealInputs, journey-touch.mjs namedInputs: theo-01 part 1, project-state#2065, OWNER 296), the
+ * same list its journeys run was given, and no longer to the map's always-run list (project-state#2332, 14 Nov 2026);
+ * main's full run after the merge judges the rest and a red main is reverted (OWNER 249 (3)). A service's own stack file in such a pull request adds the journeys
  * that use it, to the run and to this list (theo-01 part 2, OWNER 296). Every other full path still needs the full run.
  *
  * A red step a pull request's run inherited from main stops only a pull request in its area (splitInherited; owner
@@ -79,8 +79,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { JOURNEYS_ARTIFACT, fetchInputs, isMainRun, judge, manifestsAt, readReport, rootInputs } from './journey-verdict.mjs';
 import { RUN_FILE, journeyTouch, namedInputs, namedJourneyIds, pathKind, printable, stackImporters } from './journey-touch.mjs';
 import { SUBSCRIBES, builtMap, loadMap, newerMap, runsBehind } from './journey-reach-map.mjs';
-import { groupPulls, isJudgeDown, requiredChecks, reviewRan } from './review-marker.mjs';
+import { groupPulls, isJudgeDown, mergedNothingToSeal, requiredChecks, reviewRan } from './review-marker.mjs';
 import { DEFER_MARK, TOUCH_JOB } from './main-first.mjs';
+import { httpMessage, titleFor } from './api-budget.mjs';
 
 export const JOURNEYS_WORKFLOW = '.github/workflows/real-app-journeys.yml';
 const SHA40 = /^[0-9a-f]{40}$/;
@@ -646,7 +647,7 @@ async function api(path, token, { raw = false } = {}) {
     headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json' },
     redirect: 'follow',
   });
-  if (!res.ok) throw new Error(`GET ${path}: HTTP ${res.status}`);
+  if (!res.ok) throw new Error(httpMessage(path, res));
   return raw ? Buffer.from(await res.arrayBuffer()) : res.json();
 }
 
@@ -669,6 +670,8 @@ export function makeIo(repo, token) {
   const file = JOURNEYS_WORKFLOW.split('/').pop();
   return {
     pull: (n) => api(`/repos/${repo}/pulls/${n}`, token),
+    // The pull requests GitHub lists on a commit, open or not (mergedNothingToSeal).
+    pullsOn: (sha) => api(`/repos/${repo}/commits/${sha}/pulls?per_page=100`, token),
     // An automatic revert's commits (it must hold one) and the commit it reverts (autoRevertScope).
     pullCommits: (n) => api(`/repos/${repo}/pulls/${n}/commits?per_page=2`, token),
     commit: (sha) => api(`/repos/${repo}/commits/${sha}?per_page=300`, token),
@@ -814,7 +817,11 @@ export function fullVerdict({ repo, report, run, inputs, read = fetchInputs }) {
   for (const { step } of v.red) {
     const n = got.passedSince?.[step];
     lastPass[step] =
-      n !== undefined ? (got.shas?.[n] ?? '') : got.named.states?.[step] === 'passed' ? String(baseline?.run?.sha ?? '') : null;
+      n !== undefined
+        ? (got.shas?.[n] ?? '')
+        : got.named.states?.[step] === 'passed' || got.named.tests?.[step] === 'passed'
+          ? String(baseline?.run?.sha ?? '')
+          : null;
   }
   return { red: [...red, ...v.red], failing: v.failing, missing, lastPass };
 }
@@ -914,7 +921,8 @@ const CULPRIT_PULL = /^Revert #(\d+), which turned the Real-app journeys red \(r
  * and main's full journeys run after the merge is what guards main afterwards (it bisects and reverts again if red).
  * Null when the pull request is not on a `revert/auto-<sha10>` branch; `{ ok: false, why }` when it is but any check
  * fails, so it gets the ordinary scope: opened by the factory App from this repository, exactly one commit whose message
- * says it reverts the commit the branch names, no file outside that commit's, no shared journey setup, and at least one
+ * says it reverts the commit the branch names, no file outside that commit's (shared journey setup included: its reverse
+ * restores what main proved before that commit, intafaced #8149), and at least one
  * journey file named. `commits`: GET /pulls/n/commits; `culprit`: GET /commits/<sha> (or null); `culpritTitle`: the
  * culprit pull request's title (or ''); `journeyFiles`: the head's journey file names.
  */
@@ -931,7 +939,6 @@ export function autoRevertScope({ pull, repo, paths, commits, culprit, culpritTi
   const own = new Set(pullFilePaths(culprit.files));
   const outside = paths.filter((f) => !own.has(f));
   if (outside.length) return no(`it changes ${outside.length} file(s) the reverted commit didn't`);
-  if (paths.some(isSharedSetup)) return no('it changes shared journey setup');
   const failing = /^- Failing: (.+)$/m.exec(String(pull?.body ?? '').replace(/\r/g, ''))?.[1] ?? '';
   const journeys = new Set([
     ...[...failing.matchAll(/`(J-[a-z][a-z0-9-]*-\d+) #\d+`/g)].map((m) => m[1]),
@@ -1273,8 +1280,7 @@ async function runMap(io, head) {
 
 /**
  * What a pull request that names a journey runs (journey-touch.mjs namedInputs, theo-01 part 1), as its journeys run
- * worked it out: the journeys its title or branch names, with a file at the head, and the always-run list of the map
- * that run chose. Null when it names none, or when the head's journey files can't be read (then the other rules decide,
+ * worked it out: the journeys its title or branch names, with a file at the head. Null when it names none, or when the head's journey files can't be read (then the other rules decide,
  * which never ask fewer journeys).
  */
 export async function namedSealInputs({ io, pull, head }) {
@@ -1299,7 +1305,6 @@ export async function namedSealInputs({ io, pull, head }) {
   return namedInputs({
     ids,
     journeyFiles,
-    map: await runMap(io, head),
     importers: texts ? (stack) => stackImporters(stack, texts) : null,
   });
 }
@@ -1364,6 +1369,10 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
   if (!SHA40.test(head)) return { ok: false, lines: [`#${number}: its head could not be read`] };
   if (sha && head !== sha)
     return { ok: false, lines: [`#${number}: its head is now ${head}, not ${sha}; the newer head gets its own seal run`] };
+  if (requireOpen && pull.merged_at && io.pullsOn) {
+    const merged = mergedNothingToSeal(pull, head, await io.pullsOn(head));
+    if (merged) return { ok: true, lines: [merged] };
+  }
   if (requireOpen && pull.state !== 'open') return { ok: false, lines: [`#${number}: is ${pull.state}`] };
   const paths = await io.files(number);
   const texts = new Map();
@@ -1385,7 +1394,7 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
   // GitHub's Revert button (revertOf) undoes a change and adds none, so only shared setup still holds it to a run: a red
   // main is fixed or undone within 2 hours (project-state OWNER 180), as judgeSteps and judgeTouched let it.
   const reverting = revertOf({ title: pull.title, body: pull.body, repo });
-  // A pull request that names a journey is judged on it, its changed journey files and the always-run list, as its run
+  // A pull request that names a journey is judged on it and its changed journey files, as its run
   // was given them (namedSealInputs); else product code goes to the map or the full run.
   const stack = paths.filter((p) => pathKind(p).stack);
   const named =
@@ -1517,9 +1526,9 @@ export const CI_WORKFLOW = 'ci.yml';
 /**
  * Every workflow that holds a `CI merge seal` job, with the event it runs on. ci.yml's runs in the pull request's own
  * version; merge-seal.yml's runs on pull_request_target from the default branch, so its job and scripts are main's
- * whatever a pull request changes (R3 C3 piece 2, OWNER 242). Every Actions job named `CI merge seal` on a head must
- * pass (probe #7547, 8 Nov 2026: a red one blocked though a green one finished last), so the default branch's seal
- * decides even when a pull request edits its own; and each seal is re-run in place, since an older red run blocks.
+ * whatever a pull request changes (R3 C3 piece 2, OWNER 242). Each workflow's newest run on a head counts, and each
+ * must pass (probe #7547, 8 Nov 2026: a red ci.yml job blocked beside a green probe workflow's), so the default branch's
+ * seal decides even when a pull request edits its own; an older run of the same workflow is not read (probe #8246).
  */
 export const SEAL_WORKFLOWS = [
   { workflow: CI_WORKFLOW, event: 'pull_request' },
@@ -1648,7 +1657,7 @@ export const PR_READ_STEPS = new Set(['Require the named journey steps on this e
  * Whether a re-check or the CI review re-runs ci.yml's seal job `job` (its jobs-API object, with `steps`): only when it
  * is red on a PR_READ_STEPS step, which only an older ci.yml on the head runs. Red on CI's own jobs, a re-run reads the
  * same jobs, and as a new attempt of the CI run it would start another re-check when it ends (the loop of #1574). Green,
- * merge-seal.yml's re-run decides: every `CI merge seal` on the head must pass (probe #7547). Pure.
+ * merge-seal.yml's re-run decides. Pure.
  */
 export const ciSealReads = (job) =>
   job?.conclusion !== 'success' && (job?.steps ?? []).some((s) => PR_READ_STEPS.has(s?.name) && s?.conclusion === 'failure');
@@ -1663,13 +1672,19 @@ export const ciSealReads = (job) =>
 export function recheckStep(runs, jobsByRun = new Map(), event = 'pull_request') {
   const prs = (runs ?? []).filter((r) => r?.event === event).sort((a, b) => b.id - a.id);
   if (!prs.length) return { act: 'done', msg: 'CI has not run on this head; its seal will read the steps itself' };
-  // The newest run that has a seal job decides; a run that finished with none (cancelled before its jobs) is passed over.
+  // merge-seal.yml: its newest run decides (below). ci.yml: the newest run that has a seal job decides; a run that
+  // finished with none (cancelled before its jobs) is passed over.
   for (const run of prs) {
     const runId = String(run.id);
     if (!jobsByRun.has(runId)) return { act: 'jobs', runId, msg: `reading run ${runId}'s jobs` };
     const seal = (jobsByRun.get(runId) ?? []).filter((j) => j?.name === SEAL).sort((a, b) => b.id - a.id)[0];
-    // A skipped seal holds no verdict, so the run before it decides (merge-seal.yml's job is never skipped; this guards an
-    // older run or a future skip).
+    // merge-seal.yml: GitHub reads the required check from the newest run of a workflow on the head alone (probe
+    // intafaced#8246, 13 Nov 2026; #8225 stopped every merge for an hour by leaving its verdict on an older run). So the
+    // newest run decides: one that finished without its seal (it waited for its inputs, or was cancelled before its jobs)
+    // is started, never passed over for an older run's verdict, which GitHub no longer reads.
+    if (event === 'pull_request_target' && run.status === 'completed' && (!seal || seal.conclusion === 'skipped'))
+      return { act: 'start', runId, msg: `run ${runId}, the newest seal run on this head, has no verdict` };
+    // ci.yml: a skipped seal holds no verdict, so the run before it decides.
     if (seal?.status === 'completed' && seal?.conclusion === 'skipped') continue;
     if (!seal || ['queued', 'waiting', 'pending', 'requested'].includes(seal.status)) {
       if (run.status === 'completed') continue;
@@ -1724,22 +1739,6 @@ export function rerunBlocker({ sha, pulls, headRuns, event = 'pull_request' }) {
       msg: `CI run ${going.map((r) => `${r.id} (${r.status})`).join(', ')} on this head is still going; a re-run now would join its concurrency group and cancel it`,
     };
   return null;
-}
-
-/**
- * The seal jobs of the other finished runs of one workflow on a head (`runs`, the newest `skip`ped): a close and reopen,
- * or the same head pushed twice, leaves an older seal run beside the newest, and every `CI merge seal` on a head must
- * pass (probe #7547), so each red one is re-run too (review 7552-R2). The newest seal job per run.
- */
-export async function otherSeals({ repo, runs, skip, event, get }) {
-  const out = [];
-  for (const run of (runs ?? []).filter((r) => r?.event === event && r?.status === 'completed' && String(r.id) !== String(skip))) {
-    const jobs = (await get(`/repos/${repo}/actions/runs/${run.id}/jobs?filter=latest&per_page=100`))?.jobs;
-    if (!Array.isArray(jobs)) throw new Error(`run ${run.id}'s jobs: not a list`);
-    const seal = jobs.filter((j) => j?.name === SEAL && j?.status === 'completed').sort((a, b) => b.id - a.id)[0];
-    if (seal && seal.conclusion !== 'skipped') out.push({ runId: String(run.id), seal });
-  }
-  return out;
 }
 
 /**
@@ -1798,17 +1797,7 @@ export async function rerunSealJob({
       // AGENTS.md "Check, then merge" 6: the one 403 that only means wait. Any other 403 or 429 stops and is reported.
       if (status === 403 && /already running/i.test(message)) return `run ${step.runId} is already re-running (${message})`;
       if (status !== 201) throw new Error(`could not re-run the seal job ${step.jobId} of run ${step.runId}: HTTP ${status} ${message}`);
-      let said2 = `re-ran the seal job ${step.jobId} of run ${step.runId}`;
-      for (const o of await otherSeals({ repo, runs, skip: step.runId, event, get })) {
-        if (o.seal.conclusion === 'success') continue;
-        if (workflow === CI_WORKFLOW && !ciSealReads(o.seal)) continue;
-        const r = await post(`/repos/${repo}/actions/jobs/${o.seal.id}/rerun`);
-        if (r.status === 403 && /already running/i.test(r.message ?? '')) continue;
-        if (r.status !== 201)
-          throw new Error(`could not re-run the older red seal job ${o.seal.id} of run ${o.runId}: HTTP ${r.status} ${r.message ?? ''}`);
-        said2 += `; and the older red seal job ${o.seal.id} of run ${o.runId}`;
-      }
-      return said2;
+      return `re-ran the seal job ${step.jobId} of run ${step.runId}`;
     }
     if (poll >= SEAL_POLLS)
       throw new Error(`${step.msg} after ${(SEAL_POLLS * SEAL_POLL_MS) / 60_000} min; re-run the seal once it finishes`);
@@ -2056,41 +2045,6 @@ const poster = (token) => async (path) => {
 };
 
 /**
- * The older red seals a green verdict on `sha` re-runs (merge-seal.yml's last step, `--clear-older`): every
- * `CI merge seal` on a head must pass (probe #7547), so a red left by an earlier run on the same head (an edit, a reopen,
- * a push before the title named the right steps) would block a head that now passes. Each such job of merge-seal.yml's
- * other runs there is re-run, and judges again what this one just judged. A re-run that also passes re-runs no other
- * green, and one that fails re-runs nothing, so it ends. ci.yml's own red seals on a branch cut before 9 Nov 2026 13:50
- * UTC are left to the inputs' re-check (ciSealReads): re-running one starts that CI run again. Returns the lines said.
- */
-export async function clearOlderReds({ repo, sha, self, get, post }) {
-  const runs = (await get(`/repos/${repo}/actions/workflows/merge-seal.yml/runs?head_sha=${sha}&event=pull_request_target&per_page=100`))
-    ?.workflow_runs;
-  if (!Array.isArray(runs)) throw new Error(`merge-seal.yml runs on ${sha}: not a list`);
-  const out = [];
-  const mine = runs.filter((r) => r?.head_sha === sha);
-  for (const o of await otherSeals({ repo, runs: mine, skip: self, event: 'pull_request_target', get })) {
-    if (o.seal.conclusion === 'success') continue;
-    const r = await post(`/repos/${repo}/actions/jobs/${o.seal.id}/rerun`);
-    if (r.status === 403 && /already running/i.test(r.message ?? '')) {
-      out.push(`run ${o.runId}'s seal is already re-running`);
-      continue;
-    }
-    if (r.status !== 201)
-      throw new Error(`could not re-run the older red seal job ${o.seal.id} of run ${o.runId}: HTTP ${r.status} ${r.message ?? ''}`);
-    out.push(`re-ran the older red seal job ${o.seal.id} of run ${o.runId}`);
-  }
-  return out.length ? out : ['no older red seal on this head'];
-}
-
-async function clearOlderStep({ repo, token }) {
-  const { HEAD_SHA, RUN_ID } = process.env;
-  if (!SHA40.test(HEAD_SHA ?? '') || !/^\d+$/.test(RUN_ID ?? '')) throw new Error('--clear-older needs HEAD_SHA and RUN_ID');
-  for (const l of await clearOlderReds({ repo, sha: HEAD_SHA, self: RUN_ID, get: (path) => api(path, token), post: poster(token) }))
-    console.log(l);
-}
-
-/**
  * `--recheck`, the last job of each seal input (START_JOB, `FINISHED` naming the input): the open pull requests with
  * auto-merge armed on `SHA` that the input judges (recheckTargets), each with its seal started or re-run once every input
  * on the head has finished. A head no such pull request is on is left alone.
@@ -2118,7 +2072,8 @@ async function recheck({ repo, token }) {
     return console.log(
       `no open pull request with auto-merge armed on ${SHA} needs its seal re-run (${FINISHED || 'an edit'}); the seal is left as it is`,
     );
-  // Each seal on the head, ci.yml's and the default branch's (SEAL_WORKFLOWS); every one must pass, so each is re-run.
+  // Each seal on the head, ci.yml's and the default branch's (SEAL_WORKFLOWS); each workflow's newest run must pass, so each
+  // workflow's newest seal is re-run.
   // Read again just before a re-run: the head may have moved while a running seal was waited out (rerunBlocker).
   const outcomes = [];
   // After CI finished, ci.yml's own seal ran in that same run after its needs, so only the default branch's seal is
@@ -2195,7 +2150,6 @@ async function main() {
   }
   if (process.argv.includes('--recheck')) return recheck({ repo: REPO, token: GH_TOKEN });
   if (process.argv.includes('--seal-now')) return sealNowStep({ repo: REPO, token: GH_TOKEN });
-  if (process.argv.includes('--clear-older')) return clearOlderStep({ repo: REPO, token: GH_TOKEN });
   if (process.argv.includes('--wait-inputs')) return waitInputsStep({ repo: REPO, token: GH_TOKEN });
   const io = makeIo(REPO, GH_TOKEN);
   // The journeys run's planner (real-app-journeys.yml) reads an automatic revert's narrow scope from the same rule.
@@ -2254,6 +2208,6 @@ async function main() {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href)
   main().catch((e) => {
-    console.error(`::error title=Named journey steps unreadable::${e.message}; the seal fails closed`);
+    console.error(`::error title=${titleFor(e.message, 'Named journey steps unreadable')}::${e.message}; the seal fails closed`);
     process.exit(1);
   });

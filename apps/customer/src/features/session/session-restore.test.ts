@@ -509,6 +509,40 @@ describe('server-ended sessions and boot outages', () => {
     expect(calls).toHaveLength(3);
     controller.stop();
   });
+  it('a boot outage asks again on its own with growing pauses, keeping Retry on screen, and restores when identity answers', async () => {
+    // Identity is out for two boot flights (two calls each), then answers: nobody presses Retry (J-pay-03 #6, #8318).
+    const { controller, calls } = build((n) => (n <= 4 ? new Response('', { status: 503 }) : ok(session('back'))));
+    await controller.start();
+    expect(calls).toHaveLength(2);
+    expect(controller.getState()).toEqual({ session: null, restoring: false, restoreFailed: true, notice: null });
+    await vi.advanceTimersByTimeAsync(4_900);
+    expect(calls).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(calls).toHaveLength(4);
+    // Still out: the panel never flips to loading or to "Sign in"; the next pause is longer.
+    expect(controller.getState()).toEqual({ session: null, restoring: false, restoreFailed: true, notice: null });
+    await vi.advanceTimersByTimeAsync(9_800);
+    expect(calls).toHaveLength(4);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(calls).toHaveLength(5);
+    expect(controller.getState()).toMatchObject({ session: { accessToken: 'back' }, restoring: false, restoreFailed: false });
+    controller.stop();
+  });
+  it('a stopped controller, or one signed in meanwhile, asks no more after a boot outage', async () => {
+    const stopped = build(() => new Response('', { status: 503 }));
+    await stopped.controller.start();
+    stopped.controller.stop();
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(stopped.calls).toHaveLength(2);
+
+    const signedIn = build(() => new Response('', { status: 503 }));
+    await signedIn.controller.start();
+    signedIn.controller.commit(session('from-sign-in', 900_000));
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(signedIn.calls).toHaveLength(2);
+    expect(signedIn.controller.getState().session?.accessToken).toBe('from-sign-in');
+    signedIn.controller.stop();
+  });
 });
 
 describe('tabs talking over the session channel', () => {

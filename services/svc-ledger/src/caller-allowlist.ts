@@ -34,6 +34,11 @@ type Grants = Partial<Record<RecipeName, RecipeGrant>>;
 const g = (module: string, cite: string): RecipeGrant => ({ module, cite });
 
 export const LEDGER_POST_ALLOWLIST = {
+  'svc-academy': {
+    // A paid course bought from the buyer's own wallet, and its staff refund (J-academy-07): both legs are our own.
+    academyPurchase: g('academy', 'services/svc-academy/src/purchases/purchase-ledger.ts'),
+    academyPurchaseRefund: g('academy', 'services/svc-academy/src/purchases/purchase-ledger.ts'),
+  },
   'svc-agents': {
     feeCharge: g('agents', 'services/svc-agents/src/metering/meter.ts'),
   },
@@ -70,6 +75,9 @@ export const LEDGER_POST_ALLOWLIST = {
     campaignRewardLock: g('campaigns', 'services/svc-campaigns/src/payouts.ts'),
     campaignRewardUnlock: g('campaigns', 'services/svc-campaigns/src/payouts.ts'),
     campaignRewardForfeit: g('campaigns', 'services/svc-campaigns/src/payouts.ts'),
+    campaignBudgetFund: g('campaigns', 'services/svc-campaigns/src/payouts.ts'),
+    rewardOwe: g('campaigns', 'services/svc-campaigns/src/payouts.ts'),
+    rewardPayOut: g('campaigns', 'services/svc-campaigns/src/reward-payer.ts'),
   },
   'svc-identity': {
     rewardPay: g('token', 'services/svc-identity/src/affiliates/payout-engine.ts'),
@@ -109,7 +117,9 @@ export const LEDGER_POST_ALLOWLIST = {
     merchantProceedsPayoutHold: g('pay', 'services/svc-pay/src/settlement-ledger.ts'),
     merchantProceedsPayoutReverse: g('pay', 'services/svc-pay/src/settlement-ledger.ts'),
     merchantProceedsPayoutSettle: g('pay', 'services/svc-pay/src/settlement-ledger.ts'),
+    merchantFeeEarn: g('pay', 'services/svc-pay/src/payment-service/lifecycle.ts'),
     merchantSettlement: g('pay', 'services/svc-pay/src/payment-service/settlement.ts'),
+    partnerFeeEarn: g('pay', 'services/svc-pay/src/payment-service/lifecycle.ts'),
     paymentCapture: g('pay', 'services/svc-pay/src/payment-service/lifecycle.ts'),
     paymentRefund: g('pay', 'services/svc-pay/src/payment-service/refunds.ts'),
     paymentRefundReverse: g('pay', 'services/svc-pay/src/payment-service/refunds.ts'),
@@ -129,6 +139,7 @@ export const LEDGER_POST_ALLOWLIST = {
   'svc-trade': {
     builderFeeEarn: g('trade', 'services/svc-trade/src/builder-fee/builder-fee-poster.ts'),
     builderFeeReceive: g('trade', 'services/svc-trade/src/builder-fee/builder-fee-collect.ts'),
+    ownFundsMove: g('treasury', 'services/svc-trade/src/builder-fee/own-funds-sweep.ts'),
     buybackOrderHold: g('trade', 'services/svc-trade/src/spot/trade-service/buyback.ts'),
     buybackOrderHoldRelease: g('trade', 'services/svc-trade/src/spot/buyback-order.ts'),
     buybackTakerFill: g('trade', 'services/svc-trade/src/spot/trade-service/fills.ts'),

@@ -1906,7 +1906,7 @@ describe('personal bill pay and global send', () => {
       expect(lock).toMatchObject({ rate: '2', receiveAmount: '80' });
       const nl = { ...body, recipientId: dutch.id, country: 'NL', idempotencyKey: `send-${randomUUID()}`, quoteId: lock.quoteId };
       await expect(me.global.send(nl)).rejects.toMatchObject({
-        cause: { code: 'bank.global_payout_uncovered', blocker: 'socket.psp-partners' },
+        cause: { code: 'bank.global_payout_uncovered', blocker: 'rail.bank' },
       });
       expect(transfers(ledger)).toHaveLength(0);
       expect(await balance()).toBe(parseAmount('100'));

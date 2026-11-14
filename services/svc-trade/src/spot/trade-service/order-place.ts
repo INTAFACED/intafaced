@@ -153,7 +153,12 @@ export async function placeOrderInner(
   // cannot create new value and remains recoverable during an authority
   // outage. A fresh PLACE/PLACE_POST_ONLY must have explicit authority,
   // dossier, session, risk, and matching readiness evidence.
-  const lifecycleProof = await svc.assertLifecycleAction(market, tif === 'PO' ? 'PLACE_POST_ONLY' : 'PLACE', orderType);
+  // A position close passes no order type: limit-only keeps CLOSE, and the close is protection-priced like any market order.
+  const lifecycleProof = await svc.assertLifecycleAction(
+    market,
+    tif === 'PO' ? 'PLACE_POST_ONLY' : 'PLACE',
+    input.positionClose === true ? undefined : orderType,
+  );
 
   // The per-kind half of the kill-switch. `TRADE_SPOT_ENABLED` is the spot
   // plane's switch and stays exactly that — it does not halt futures, and
