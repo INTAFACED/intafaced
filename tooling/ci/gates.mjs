@@ -549,6 +549,9 @@ export function changedSinceMain(cwd = ROOT, base = 'origin/main') {
  * Behaviour when run directly (`node tooling/ci/gates.mjs`, `pnpm gates`, the
  * `gates` job in ci.yml) is unchanged — `main()` is called immediately below.
  */
+/** The most of one gate's output kept: the tooling tests' passing TAP alone is over 1 MB. */
+export const GATE_OUTPUT_MAX = 64 * 1024 * 1024;
+
 const RUN_AS_SCRIPT = process.argv[1] !== undefined && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url));
 
 if (RUN_AS_SCRIPT) main();
@@ -591,6 +594,8 @@ function main() {
       output = execFileSync(process.execPath, [join(ROOT, gate.script), ...(gate.args ?? [])], {
         encoding: 'utf8',
         cwd: ROOT,
+        // The default 1 MB cut the tooling tests' output before its `not ok` lines (CI run 43623577056, 14 Nov).
+        maxBuffer: GATE_OUTPUT_MAX,
       });
     } catch (err) {
       ok = false;
