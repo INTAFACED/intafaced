@@ -118,6 +118,7 @@ export const EVENT_BUS_MATRIX = {
   personalDisputeUpdated: { kind: 'socket', socketClass: 'A' },
   bankScheduledReminder: { kind: 'live' },
   bankScheduledFailed: { kind: 'live' },
+  bankCardCashbackEarned: { kind: 'live' },
   blueprintCreated: { kind: 'live' },
   blueprintDeleted: { kind: 'live' },
   crewMemberCreated: { kind: 'broken_promise', socketClass: 'B' },
