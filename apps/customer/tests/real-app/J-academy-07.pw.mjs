@@ -250,12 +250,12 @@ test(`${J} #1 a paid course with no price set shows without a price, and Enrol r
   await expect(panel.getByRole('button', { name: 'Buy', exact: true })).toBeDisabled();
   // The service refuses the same, by name, whoever asks.
   const me = await learner();
-  const enrol = await me.post('/api/academy/trpc/enrolCourse', { slug: run.unpriced.slug, track: 'certificate' });
+  const enrol = await me.post('/api/academy/trpc/enrolAuthoredCourse', { slug: run.unpriced.slug, track: 'certificate' });
   // Enrol's own refusal names the reason: the certificate track is closed because no price is set.
   expect(enrol.status).toBe(412);
   expect(codeOf(enrol)).toBe('academy.enrolment_closed');
   expect(enrol.body.error.message).toContain('track=certificate reason=no_price');
-  const terms = (await learnerQuery('courseEnrolment', { slug: run.unpriced.slug })).body.result.data;
+  const terms = (await learnerQuery('authoredCourseEnrolment', { slug: run.unpriced.slug })).body.result.data;
   expect(terms.tracks.find((row) => row.track === 'certificate')).toMatchObject({ free: false, closed: 'no_price' });
   const buy = await me.post('/api/academy/trpc/buyCourse', { slug: run.unpriced.slug, wallet: privateKeyToAccount(run.walletKey).address });
   expect(codeOf(buy)).toBe('academy.price_unset');
@@ -288,15 +288,15 @@ test(`${J} #2 a priced course shows the price, the free and paid track differenc
 test(`${J} #3 Enrol now on the paid track with no purchase is a typed refusal that payment is required`, async ({ page }) => {
   const { root } = await openCourse(page, run.priced.slug);
   await root.getByRole('radio', { name: 'Certificate track' }).check();
-  const answered = page.waitForResponse((res) => res.url().includes('/api/academy/trpc/enrolCourse'));
+  const answered = page.waitForResponse((res) => res.url().includes('/api/academy/trpc/enrolAuthoredCourse'));
   await root.getByRole('button', { name: 'Enrol now' }).click();
   expect((await answered).status()).toBe(403);
   await expect(root.getByText('Payment is required: buy the certificate track before you enrol on it.')).toBeVisible();
   const me = await learner();
-  const enrol = await me.post('/api/academy/trpc/enrolCourse', { slug: run.priced.slug, track: 'certificate' });
+  const enrol = await me.post('/api/academy/trpc/enrolAuthoredCourse', { slug: run.priced.slug, track: 'certificate' });
   expect(enrol.status).toBe(403);
   expect(codeOf(enrol)).toBe('academy.payment_required');
-  const terms = await learnerQuery('courseEnrolment', { slug: run.priced.slug });
+  const terms = await learnerQuery('authoredCourseEnrolment', { slug: run.priced.slug });
   expect(terms.body.result.data.enrolment).toBeNull();
 });
 
@@ -357,7 +357,7 @@ test(`${J} #4 Buy asks the wallet to sign one payment to INTAFACED; the grant ap
     await page.waitForTimeout(5_000); // more than two reconcile rounds: still not counted
     expect((await purchaseView(run.priced.slug)).purchase).toMatchObject({ state: 'submitted', grant: null });
     expect(await ledgerTrace(run.key)).toEqual({ found: false, businessKey: run.key });
-    const enrol = await (await learner()).post('/api/academy/trpc/enrolCourse', { slug: run.priced.slug, track: 'certificate' });
+    const enrol = await (await learner()).post('/api/academy/trpc/enrolAuthoredCourse', { slug: run.priced.slug, track: 'certificate' });
     expect(codeOf(enrol)).toBe('academy.payment_required');
     await chainRpc('evm_mine');
   });
@@ -520,9 +520,9 @@ test(`${J} #7 staff with the refund permission refund: INTAFACED sends the TEST 
   expect((await usdOf(payer)) - before).toBe(PRICE_UNITS);
 
   // The grant ended: the paid track's enrolment closed, and enrolling again needs a new purchase.
-  const terms = await learnerQuery('courseEnrolment', { slug: run.priced.slug });
+  const terms = await learnerQuery('authoredCourseEnrolment', { slug: run.priced.slug });
   expect(terms.body.result.data.enrolment).toBeNull();
-  const enrol = await (await learner()).post('/api/academy/trpc/enrolCourse', { slug: run.priced.slug, track: 'certificate' });
+  const enrol = await (await learner()).post('/api/academy/trpc/enrolAuthoredCourse', { slug: run.priced.slug, track: 'certificate' });
   expect(codeOf(enrol)).toBe('academy.payment_required');
   await expect(root.getByRole('radio', { name: 'Certificate track' })).toBeVisible();
 
