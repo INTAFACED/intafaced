@@ -783,6 +783,14 @@ export function manifestsAt(root) {
   return manifests;
 }
 
+/** The set-aside's money guard (setAsideGuard) as a checkout at `root` holds it: what a `flaky` issue's
+ *  `<!-- money-flaky: STEP -->` mark is read from (project-state's pull ranks a money flake ahead of journey builds). */
+export function moneyGuardAt(root) {
+  const journeys = json(join(root, 'docs/roadmap/journeys.json'));
+  const slices = json(join(root, 'docs/roadmap/slices.json'));
+  return setAsideGuard({ journeys, slices, money: moneyRule({ journeys, slices, manifests: manifestsAt(root) }) });
+}
+
 /** The baseline and the money rule as a checkout at `root` holds them (the run's own commit; for the merge seal, the
  *  default branch's copy). */
 export function rootInputs(root, baselineFile) {
@@ -1048,6 +1056,8 @@ function main() {
         step,
         file: newest?.files[step] ?? null,
         owner: owners[step.split('#')[0]] ? `the ${owners[step.split('#')[0]]} area` : null,
+        // The set-aside's money guard: a money step's issue carries the `money-flaky` mark (unknown means money).
+        money: guard[step] ?? true,
         run: thisRun,
       })),
     };
