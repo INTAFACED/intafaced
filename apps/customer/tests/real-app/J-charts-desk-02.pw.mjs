@@ -1,7 +1,7 @@
-// World: market, restart, gates
+// World: book, market, restart, gates
 // Market: live
 import { test, expect } from './journey.mjs';
-import { EDGE, tool } from './stack.mjs';
+import { EDGE, api, otherTrader, tool } from './stack.mjs';
 
 // J-charts-desk-02, in the running app (docs/roadmap/journeys.json): a person tells whether the data on a chart is live,
 // delayed, stale, halted or test. One test per step, titled "J-charts-desk-02 #<n>". Expected values are worked from
@@ -19,9 +19,11 @@ import { EDGE, tool } from './stack.mjs';
 //      every chart read, is then stopped on the stack and ETH/USDT opened again from the chart's market control, so the
 //      market opens with its feed already stopped. svc-trade is started again afterwards. No route is changed in the browser.
 //   #5 real: the TEST label follows the lifecycle's own local-test evidence marker (the stack marks BTC/USDT as TEST).
-//   #6 real stream: BTC/USDT on the 1m interval (pinned through the chart's own control), the bars move with trades, and
-//      the longest main-thread task over a 10 s stream window is at or under the owner's render budget (renderBudgetMs,
-//      a TEST value set by `local-test-gates.mjs charts`). No route is changed.
+//   #6 real stream: BTC/USDT on the 1m interval (pinned through the chart's own control, read once its 1m bars are drawn);
+//      the stack's TEST taker sends a small market buy or sell every 400 ms for the window, so trades stream fast; the
+//      newest bar reaches the newest trade's minute and what it shows changes, and the longest main-thread task over the
+//      10 s stream window is at or under the owner's render budget (renderBudgetMs, a TEST value set by
+//      `local-test-gates.mjs charts`). No route is changed.
 const J = 'J-charts-desk-02';
 const CHART = '/charts/BTC-USDT';
 const ETH_CHART = '/charts/ETH-USDT';
@@ -323,39 +325,91 @@ test(`${J} #6 keeps drawing while ticks stream: the bars move, the frame counter
       window.__longTasks = null;
     }
   });
+  test.setTimeout(180_000);
   await openChart(page);
-  // Pin the 1m interval through the chart's own control: the close moves with trades on a 1m bar.
+  // Pin the 1m interval through the chart's own control: the close moves with trades on a 1m bar. The bars are read only
+  // once the 1m candles have answered and been drawn, so the 15m bars the chart opened on never count as a move.
+  const oneMinute = page.waitForResponse((res) => {
+    if (!/\/ohlcv\/BTC%2FUSDT\?/.test(res.url()) || !res.ok()) return false;
+    const query = new URL(res.url()).searchParams;
+    // The recent bars the chart polls, not an older page of history (which carries `since`).
+    return query.get('timeframe') === '1m' && !query.has('since');
+  });
   await page.getByRole('group', { name: 'Chart intervals' }).getByRole('button', { name: '1m', exact: true }).click();
   await expect(page.getByRole('group', { name: 'Chart intervals' }).getByRole('button', { name: '1m', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true',
   );
-  const first = await host(page).getAttribute('data-last');
-  await expect.poll(async () => host(page).getAttribute('data-last'), { timeout: 70_000, intervals: [2_000] }).not.toBe(first);
-  // The stream window: only the long tasks inside these 10 s count.
-  await page.evaluate(() => {
-    window.__longTasks = [];
-  });
-  await page.waitForTimeout(10_000);
-  const tasks = await page.evaluate(() => window.__longTasks);
-  expect(tasks, 'the browser reports long tasks (PerformanceObserver longtask)').not.toBeNull();
-  const worst = Math.max(0, ...tasks);
-  expect(worst, `longest main-thread task in the 10 s stream window, ms (budget ${budget} ms)`).toBeLessThanOrEqual(budget);
-  // The page is not frozen: the frame counter keeps advancing.
-  const frames = await page.evaluate(
-    () =>
-      new Promise((resolve) => {
-        let count = 0;
-        const end = performance.now() + 1_000;
-        const tick = () => {
-          count += 1;
-          if (performance.now() < end) requestAnimationFrame(tick);
-          else resolve(count);
-        };
-        requestAnimationFrame(tick);
-      }),
-  );
-  expect(frames).toBeGreaterThan(5);
+  const oneMinuteRows = await (await oneMinute).json();
+  expect(oneMinuteRows.length, 'the 1m candle route answered with bars').toBeGreaterThan(0);
+  const newestRowMs = oneMinuteRows[oneMinuteRows.length - 1][0];
+  await expect.poll(async () => Number(await host(page).getAttribute('data-last'))).toBeGreaterThanOrEqual(newestRowMs);
+  // What the newest bar shows: its time and its open, high, low and close in the legend (no hover: the newest bar).
+  const legendText = page.getByTestId('chart-legend').first();
+  const drawnBar = async () => `${await host(page).getAttribute('data-last')} ${await legendText.innerText()}`;
+  const before = await drawnBar();
+  const lastTradeBefore = await newestTradeMs(BTC);
+
+  // Ticks stream fast: the stack's other TEST trader (its taker account) sends a small market buy, then a sell, against
+  // the TEST maker's book every 400 ms, through the same front door, so real trades land on the tape all through the
+  // window. The TEST maker alone crosses BTC/USDT only about every 96 s, which would leave the window idle.
+  const taker = await api(otherTrader());
+  let streaming = true;
+  const sent = [];
+  const stream = (async () => {
+    for (let i = 0; streaming; i += 1) {
+      const side = i % 2 === 0 ? 'buy' : 'sell';
+      const res = await taker.post('/api/v1/orders', {
+        symbol: BTC,
+        type: 'market',
+        side,
+        amount: '0.0002',
+        clientOrderId: `${J}-6-${side}-${Date.now()}-${i}`,
+      });
+      sent.push(res);
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    }
+  })();
+  try {
+    // The stream window: only the long tasks inside these 10 s count.
+    await page.evaluate(() => {
+      window.__longTasks = [];
+    });
+    await page.waitForTimeout(10_000);
+    const tasks = await page.evaluate(() => window.__longTasks);
+    expect(tasks, 'the browser reports long tasks (PerformanceObserver longtask)').not.toBeNull();
+    const worst = Math.max(0, ...tasks);
+    expect(worst, `longest main-thread task in the 10 s stream window, ms (budget ${budget} ms)`).toBeLessThanOrEqual(budget);
+    // The page is not frozen while the ticks still stream: the frame counter keeps advancing.
+    const frames = await page.evaluate(
+      () =>
+        new Promise((resolve) => {
+          let count = 0;
+          const end = performance.now() + 1_000;
+          const tick = () => {
+            count += 1;
+            if (performance.now() < end) requestAnimationFrame(tick);
+            else resolve(count);
+          };
+          requestAnimationFrame(tick);
+        }),
+    );
+    expect(frames).toBeGreaterThan(5);
+  } finally {
+    streaming = false;
+    await stream;
+  }
+  // The window really streamed: every order was taken, and the public tape holds the trades it made.
+  for (const res of sent) expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBeLessThan(300);
+  expect(sent.length, 'orders sent in the stream window').toBeGreaterThanOrEqual(10);
+  const tape = await fetch(`${EDGE}/api/v1/trades/${encodeURIComponent(BTC)}?limit=200`);
+  expect(tape.status).toBe(200);
+  const streamed = (await tape.json()).filter((row) => row.timestamp > lastTradeBefore);
+  expect(streamed.length, 'BTC/USDT trades on the public tape during the stream window').toBeGreaterThanOrEqual(10);
+  // The bars moved with them: the newest bar is the newest trade's minute or later, and what it shows has changed.
+  const tradeBar = Math.floor(Math.max(...streamed.map((row) => row.timestamp)) / 60_000) * 60_000;
+  await expect.poll(async () => Number(await host(page).getAttribute('data-last')), { timeout: 30_000 }).toBeGreaterThanOrEqual(tradeBar);
+  await expect.poll(drawnBar, { timeout: 30_000 }).not.toBe(before);
   // A key press moves the chart (the pan key) and the page keeps answering.
   await host(page).focus();
   await page.keyboard.press('ArrowLeft');

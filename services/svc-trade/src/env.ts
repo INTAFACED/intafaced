@@ -204,6 +204,15 @@ const schema = serviceEnvSchema
       TRADE_MARKET_SLIPPAGE_CAP_BPS: z.string().default('').transform(parseOwnerIntegerEnv),
 
       /**
+       * The owner's spread limit for a spot market order on the user's venue, in basis points of the venue's best bid
+       * (J-cex-spot-03 #2): a market order is refused while the venue's best ask is further than this above its best bid.
+       *
+       * NO DEFAULT. Blank / unset / non-integer → null; a venue spot market order then refuses
+       * `trade.spread_limit_unset` ("protection not set"), on preview and on prepare. Never invented.
+       */
+      TRADE_MARKET_SPREAD_LIMIT_BPS: z.string().default('').transform(parseOwnerIntegerEnv),
+
+      /**
        * Cancel-all-after timeouts the owner publishes, in seconds, comma separated (for example "10,30,60").
        *
        * NO DEFAULT. Blank / unset / any non-integer entry → null; arming refuses `trade.cancel_all_after_unset`.

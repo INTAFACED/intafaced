@@ -37,6 +37,7 @@ import { createLedgerClient } from './ledger-client.js';
 import { createLedgerPages } from './statements/ledger-history.js';
 import { StatementExports } from './statements/statement-export.js';
 import { registerClosureCheck } from './closure/closure-check.js';
+import { registerTrackRecord } from './signals/track-record.js';
 import { leadOrderGate, registerLeadCheck } from './copy/lead-api.js';
 import { readSupportOrder, registerSupportOrderRead } from './support/order-read.js';
 import { subscribeMatchingEvents, type MatchedFillsSink } from './events.js';
@@ -126,7 +127,10 @@ import { SqlAllowanceStore } from './venue/own-agent-allowance-store.js';
 import { createOwnAgentPolicy } from './venue/own-agent-policy-client.js';
 import { createFeeSaverClient } from './venue/fee-saver-client.js';
 import { SqlAgentConnectionStore } from './venue/agent-connection-store.js';
-import { createAgentKeyReader } from './venue/agent-key-read-client.js';
+import { createAgentKeyCallReader, createAgentKeyReader } from './venue/agent-key-read-client.js';
+import { AgentActivity, SqlAgentOrderCallStore } from './venue/agent-order-calls.js';
+import { AgentDesk } from './venue/agent-desk.js';
+import { SqlAgentDeskAuditStore } from './venue/agent-desk-store.js';
 import { SqlVenueSellQuoteStore, VenueSellQuotes } from './venue/venue-sell-quotes.js';
 import { UserVenueRouter, parseUserVenueUrls } from './venue/venue-router.js';
 import { routingReport } from './venue/routing-report.js';
@@ -324,6 +328,8 @@ const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 })
 installRouteInventory(app, { edgeSecret: env.EDGE_PRINCIPAL_SECRET, edgeTrust: edgeTrustFromEnv(env), serviceName: env.SERVICE_NAME });
 retainRawBody(app);
 registerClosureCheck(app, { sql, secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s });
+// A signal provider's own fills, for svc-market's provider criteria (CB-bots-api-signal-05).
+registerTrackRecord(app, { sql, secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s });
 registerSupportOrderRead(app, { read: (orderId) => readSupportOrder(sql, orderId), secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s });
 // Matching's depth read carries no timestamp, so the read time is the observation time: the book was read from the
 // live engine at this moment. A stale, one-sided or thin book still gives no mark.
@@ -529,6 +535,7 @@ const userVenueDoors = userVenueUrls.map(
       stepUp,
       builder: parseBuilderFee(env.TRADE_USER_VENUE_BUILDER_ADDRESS, env.TRADE_USER_VENUE_BUILDER_FEE_BPS),
       slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
+      spreadLimitBps: env.TRADE_MARKET_SPREAD_LIMIT_BPS,
       ordersPageMax: parseOrdersPageMax(env.TRADE_USER_VENUE_ORDERS_PAGE_MAX),
       // J-cex-spot-17: the builder-fee version in force when an order is prepared, by venue and market group.
       builderFeesAt: async (at) => (await builderFeesAt(sql, at)).book,
@@ -567,14 +574,38 @@ const agentAccounts = userVenue
   : null;
 // The assistant's trade path on its agent account (J-agents-21 #6 #7 #10): one capped signer per agent key, in this
 // process. Off with the door. Identity is asked, through its own door, that a key is the person's own agent key.
+const agentConnectionStore = new SqlAgentConnectionStore(sql);
 const agentOrders = userVenue
   ? new AgentOrders({
       door: userVenue,
       accounts: agentAccountStore,
-      connections: new SqlAgentConnectionStore(sql),
+      connections: agentConnectionStore,
       keys: createAgentKeyReader(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s),
       stepUp,
       values: agentAccountValues,
+      now: () => new Date(),
+    })
+  : null;
+// The assistant connection's Activity (J-agents-21 #11): identity's call log of the key, read through its own door, with
+// what svc-trade answered each call of the assistant's order route. Off with the door.
+const agentActivity = userVenue
+  ? new AgentActivity({
+      connections: agentConnectionStore,
+      calls: createAgentKeyCallReader(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s),
+      log: new SqlAgentOrderCallStore(sql),
+      now: () => new Date(),
+    })
+  : null;
+// The founder's desk over every outside assistant connection (J-agents-21 #15): read and quarantined as the founder
+// through svc-edge (admin.agentDesk.*). Off with the door.
+const agentDesk = userVenue
+  ? new AgentDesk({
+      connections: agentConnectionStore,
+      accounts: agentAccountStore,
+      audit: new SqlAgentDeskAuditStore(sql),
+      keys: createAgentKeyReader(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s),
+      calls: createAgentKeyCallReader(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s),
+      venue: () => userVenue.venue(),
       now: () => new Date(),
     })
   : null;
@@ -915,6 +946,7 @@ export const appRouter = createTradeRouter(
   // svc-tax reads a person's own venue spot trading for their profit and loss (J-cex-spot-01 #11); off: the door is off.
   { venue: userVenue ? () => userVenue.venue() : null, store: new SqlPreparedActionStore(sql) },
   signalDesk,
+  agentDesk,
 );
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({
@@ -1758,6 +1790,7 @@ installCollarPlace(TradeService);
 installComboPlace(TradeService);
 registerPrivateRest(app, {
   userVenueSlippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
+  userVenueSpreadLimitBps: env.TRADE_MARKET_SPREAD_LIMIT_BPS,
   edgeSecret: env.EDGE_PRINCIPAL_SECRET,
   edgeTrust: edgeTrustFromEnv(env),
   serviceName: env.SERVICE_NAME,
@@ -1940,6 +1973,7 @@ registerPrivateRest(app, {
   userVenue: userVenueRouter,
   agentAccounts,
   agentOrders,
+  agentActivity,
   ownAgentTrading,
   liveRuns,
   venueSellQuotes,

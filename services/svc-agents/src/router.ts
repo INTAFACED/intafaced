@@ -58,6 +58,8 @@ import { envCoachGrounding, runCoachSession, type CoachGrounding } from './coach
 import { describeCoachPolicy } from './coach/policy.js';
 import { coachRunRoutes } from './coach/router.js';
 import { runRoutes } from './runs/routes.js';
+import { backgroundRunRoutes } from './runs/background-routes.js';
+import type { SessionRunSettings } from './runs/background.js';
 import { sessionEventsRoute } from './runs/session-events.js';
 import type { RunStore } from './runs/store.js';
 import { NO_TIER_LAWS, type TierLaws } from './tier-laws.js';
@@ -78,7 +80,9 @@ import { teamRouter } from './team/routes.js';
 import { opsLogRouter, parseReasons, type OpsLogSettings } from './oplog/routes.js';
 import { fleetRouter, type FleetSettings } from './fleet/control.js';
 import type { BackgroundSettings } from './own/background.js';
+import type { Cadence } from './own/automation.js';
 import type { LinkedWalletsPort } from './own/payment-method.js';
+import type { RetentionPeriods } from './own/memory.js';
 
 /**
  * The internal tRPC surface (§1: "Fastify + tRPC (internal) / REST (public)").
@@ -314,6 +318,10 @@ export interface AgentsRouterDeps {
   readonly fleet?: FleetSettings;
   /** Background test runs of own agents (AG-control-02). Absent is blank: a new background run refuses. */
   readonly ownBackground?: BackgroundSettings;
+  /** The owner's cadence values for own agents' schedules (AG-sessions-02). Absent is blank: a new schedule refuses. */
+  readonly ownCadence?: Cadence;
+  /** Background runs of a person's sessions (AG-sessions-04, J-agents-06). Absent is blank: a new one refuses. */
+  readonly sessionRuns?: SessionRunSettings;
   /** Identity's list of a person's linked wallets, for an own agent's payment method (J-agents-02 #4). */
   readonly ownLinkedWallets?: LinkedWalletsPort | null;
   readonly gateway: ModelGateway;
@@ -370,6 +378,8 @@ export interface AgentsRouterDeps {
   readonly ownAssistantModel?: string | null;
   /** Owner value: how long an own agent's held call waits for the person, in seconds (AG-approvals-01). Blank refuses holding. */
   readonly ownApprovalTtlSeconds?: number | null;
+  /** The owner's retention periods in days (AG-guardrails-04); a kind left out is "not set". */
+  readonly ownRetention?: RetentionPeriods;
   /** AGENTS_REVIEWER_MODEL: the automatic reviewer's model (AG-approvals-02); blank sends every call to the person. */
   readonly ownReviewerModel?: string | null;
   /**
@@ -927,7 +937,10 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
       events: sessionEventsRoute(deps, { guard, ownedSession }),
     }),
 
-    run: router(runRoutes(deps, { guard, executeProcedure, ownedSession })),
+    run: router({
+      ...runRoutes(deps, { guard, executeProcedure, ownedSession }),
+      background: router(backgroundRunRoutes(deps, { guard, executeProcedure, ownedSession })),
+    }),
 
     usage: router({
       /** What the current window would cost if it settled now. Bills nothing. */
@@ -4100,9 +4113,11 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
       tokenLifetimeMinutes: deps.ownTokenLifetimeMinutes ?? null,
       assistantModel: deps.ownAssistantModel ?? null,
       approvalTtlSeconds: deps.ownApprovalTtlSeconds ?? null,
+      retention: deps.ownRetention ?? {},
       reviewerModel: deps.ownReviewerModel ?? null,
       background: deps.ownBackground ?? null,
       linkedWallets: deps.ownLinkedWallets ?? null,
+      cadence: deps.ownCadence ?? null,
     }),
     /** A business team's agent roles, pool, projects, runs and usage (AG-governance-01). Membership is svc-bank's, read per call. */
     team: teamRouter({ sql, membership: deps.teamMembership, feeAssetId, runtime }),

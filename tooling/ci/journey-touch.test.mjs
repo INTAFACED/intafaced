@@ -2,15 +2,19 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, normalize, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   DOCS_READ,
+  FACTORY_SCRIPTS,
   JOURNEY_CI,
+  ROOT_DEPLOY_FILE,
   RUN_FILE,
   STACK_FILE,
+  afterReuse,
   checkoutJourneyTexts,
+  reusableRuns,
   journeyTouch,
   namedInputs,
   namedJourneyIds,
@@ -199,6 +203,198 @@ test('drift: every tooling/ci and .github file the journeys run executes or read
 test('drift, planted: a CI file outside JOURNEY_CI is none, so the drift check above would catch an import of it', () => {
   assert.equal(pathKind('tooling/ci/new-helper.mjs').kind, 'none');
   assert.equal(JOURNEY_CI.includes('tooling/ci/new-helper.mjs'), false);
+});
+
+// ---- Factory scripts and git hooks (FACTORY_SCRIPTS, .githooks): what no journeys run reaches ----
+
+/** A file's text with its comment lines and trailing comments removed (a name in a comment executes nothing). */
+const codeOf = (f, text) =>
+  /\.(m?[jt]sx?|cjs|mts|ya?ml|sh)$/.test(f) || !/\.[a-z]+$/i.test(f)
+    ? text
+        .split('\n')
+        .map((l) =>
+          l
+            .replace(/^\s*(\/\/|\*|\/\*|#).*$/, '')
+            .replace(/\s\/\/.*$/, '')
+            .replace(/\s#\s.*$/, ''),
+        )
+        .join('\n')
+    : text;
+
+/** Whether `text` reaches the tooling/scripts file `s`: by its path below tooling/scripts or its file name. */
+const names = (text, s) => {
+  const rel = s.slice('tooling/scripts/'.length);
+  const esc = (x) => x.replace(/[.]/g, '\\.');
+  return new RegExp(`(?<![\\w.-])(${esc(rel)}|${esc(rel.split('/').pop())})(?![\\w-])`).test(text);
+};
+
+/**
+ * Every tooling/scripts file the journeys run, the stack or the app's build can reach, from the repository itself. The
+ * roots: the journeys workflow and its actions, every app, service and package file that is not a unit test (the
+ * journey files and their helpers, the apps' and services' sources, configs and package.json scripts, which the app's
+ * build runs), the root build and deploy files, the stack's environment (tooling/profiles, tooling/infra), the CI files
+ * JOURNEY_CI lists and the stack's shared setup. A script is reached when a root's code (comments left out) names it by
+ * its path below tooling/scripts or its file name, or runs a root `pnpm` script whose command names it (pnpm's install
+ * scripts and each script's pre and post scripts included); a reached script is followed in turn.
+ */
+let reachedOnce;
+function scriptsReached() {
+  reachedOnce ??= scanScripts();
+  return reachedOnce;
+}
+
+function scanScripts(read = (f) => readFileSync(join(ROOT, f), 'utf8')) {
+  const all = execFileSync('git', ['ls-files'], { cwd: ROOT, encoding: 'utf8', maxBuffer: 1e8 }).split('\n').filter(Boolean);
+  const scripts = all.filter((f) => f.startsWith('tooling/scripts/'));
+  const unit = (f) => /\.(test|spec)\.[cm]?[jt]sx?$/.test(f) && !f.startsWith('apps/customer/tests/real-app/');
+  const roots = all.filter(
+    (f) =>
+      f === JOURNEYS_WORKFLOW ||
+      f.startsWith('.github/actions/') ||
+      (/^(apps|services|packages)\//.test(f) && !unit(f)) ||
+      /^(turbo\.json|pnpm-workspace\.yaml|docker-compose[^/]*\.ya?ml|Dockerfile[^/]*|\.env\.example)$/.test(f) ||
+      /^tooling\/(profiles|infra)\//.test(f) ||
+      JOURNEY_CI.includes(f) ||
+      isSharedSetup(f),
+  );
+  // One pass a file: every script's path below tooling/scripts and its file name in one pattern (what `names` matches).
+  const byName = new Map();
+  for (const sc of scripts)
+    for (const n of [sc.slice('tooling/scripts/'.length), sc.split('/').pop()]) byName.set(n, [...(byName.get(n) ?? []), sc]);
+  const alt = [...byName.keys()].sort((a, b) => b.length - a.length).map((n) => n.replace(/[.]/g, '\\.'));
+  const anyName = new RegExp(`(?<![\\w.-])(${alt.join('|')})(?![\\w-])`, 'g');
+  const pnpm = JSON.parse(read('package.json')).scripts ?? {};
+  const queue = [...roots];
+  const runScript = (n) => {
+    for (const k of [`pre${n}`, n, `post${n}`]) if (pnpm[k]) queue.push(`pnpm:${k}`);
+  };
+  for (const n of ['preinstall', 'install', 'postinstall', 'prepare']) runScript(n);
+  const reached = new Map();
+  const seen = new Set();
+  while (queue.length) {
+    const f = queue.shift();
+    if (seen.has(f)) continue;
+    seen.add(f);
+    let text;
+    try {
+      text = f.startsWith('pnpm:') ? pnpm[f.slice(5)] : statSync(join(ROOT, f)).isFile() ? codeOf(f, read(f)) : '';
+      // The list itself names its entries and runs none of them.
+      if (f === 'tooling/ci/journey-touch.mjs') text = text.replace(/export const FACTORY_SCRIPTS = \[[^\]]*\];/, '');
+    } catch {
+      text = '';
+    }
+    for (const m of text.matchAll(anyName))
+      for (const sc of byName.get(m[1]))
+        if (!reached.has(sc)) {
+          reached.set(sc, f);
+          queue.push(sc);
+        }
+    for (const m of text.matchAll(/\bpnpm(?:\s+-\S+)*(?:\s+run)?(?:\s+-\S+)*\s+([\w:.][\w:.-]*)/g)) runScript(m[1]);
+  }
+  return { reached, seen };
+}
+
+test('FACTORY_SCRIPTS: nothing the journeys run, the stack or the app build reaches any of them, so they run no journeys', () => {
+  const { reached, seen } = scriptsReached();
+  assert.ok(seen.size > 1000, `followed the journeys run, the stack and the app sources (${seen.size})`);
+  // Sanity: the scan finds what the run is known to use.
+  for (const s of [
+    'tooling/scripts/local-test-stack.mjs',
+    'tooling/scripts/roadmap.mjs',
+    'tooling/scripts/journey-fund.mjs',
+    'tooling/scripts/local-founder-seed.mjs',
+    'tooling/scripts/owner-settings.mjs',
+  ])
+    assert.ok(reached.has(s), `the scan reaches ${s}`);
+  const wrong = FACTORY_SCRIPTS.filter((s) => reached.has(s)).map((s) => `${s} (reached from ${reached.get(s)})`);
+  assert.deepEqual(wrong, [], 'a listed factory script is reached by the journeys run, the stack or the app build');
+  for (const s of FACTORY_SCRIPTS) {
+    assert.ok(existsSync(join(ROOT, s)), `${s} exists`);
+    assert.ok(!/\.d\.[cm]?ts$|\/fixtures\//.test(s), `${s}: type declarations and fixtures stay full`);
+    assert.equal(pathKind(s).kind, 'none', s);
+  }
+});
+
+test('FACTORY_SCRIPTS, planted: a script the run reaches, a new script and the app build’s inputs stay full', () => {
+  // The same matcher catches a reach in code and ignores a name in a comment.
+  assert.equal(names(codeOf('a.mjs', "import { x } from '../../tooling/scripts/ci-checks.mjs';"), 'tooling/scripts/ci-checks.mjs'), true);
+  assert.equal(names(codeOf('a.mjs', "spawn('node', [join(dir, 'ci-checks.mjs')]);"), 'tooling/scripts/ci-checks.mjs'), true);
+  assert.equal(names(codeOf('a.yml', 'run: node tooling/scripts/ci-checks.mjs'), 'tooling/scripts/ci-checks.mjs'), true);
+  assert.equal(
+    names(codeOf('a.ts', ' * the pre-push hook picks (tooling/scripts/ci-checks.mjs `ruleTest`).'), 'tooling/scripts/ci-checks.mjs'),
+    false,
+  );
+  assert.equal(names(codeOf('a.ts', "x('my-ci-checks.mjs')"), 'tooling/scripts/ci-checks.mjs'), false);
+  for (const p of [
+    'tooling/scripts/local-test-stack.mjs',
+    'tooling/scripts/journey-fund.mjs',
+    'tooling/scripts/journey-fund.d.mts', // the app's type check reads it
+    'tooling/scripts/look-codemod.mjs', // writes app sources
+    'tooling/scripts/sdk-from-openapi.ts', // writes app sources
+    'tooling/scripts/fixtures/fail-fast-retries/plain.pw.mjs',
+    'tooling/scripts/new-tool.mjs', // new and unlisted: full until shown unreached
+    'tooling/scripts/ci-checks.mjs.bak',
+  ])
+    assert.equal(pathKind(p).kind, 'full', p);
+});
+
+test('git hooks run no journeys: nothing the journeys run executes commits, pushes or reads .githooks', () => {
+  const { seen } = scriptsReached();
+  const hits = [];
+  for (const f of seen) {
+    if (f.startsWith('pnpm:') || !/\.(m?[jt]sx?|cjs|mts|ya?ml|sh)$/.test(f) || !existsSync(join(ROOT, f))) continue;
+    const code = codeOf(f, readFileSync(join(ROOT, f), 'utf8'));
+    if (
+      /\.githooks|\bgit(\s+(-C|-c)\s+\S+|\s+--?[\w-]+(=\S+)?)*\s+(commit|push)\b|['"`]git['"`]\s*,\s*\[[^\]]*['"`](commit|push)['"`]/.test(
+        code,
+      )
+    )
+      hits.push(f);
+  }
+  // `prepare` points git at .githooks on install; the hooks then run only on a commit or a push. The known ones are
+  // outside a pull request's journeys run, so running its journeys would not exercise a hook either: journeys-revert.mjs
+  // pushes a revert branch only in main-bisect.yml after a red main run (its `early` step in the journeys workflow
+  // starts that workflow by the API), factory-builder.mjs pushes with --no-verify from the factory's own jobs (and names
+  // `git push failed` in a message), and journey-touch.mjs is this rule.
+  const KNOWN = ['tooling/ci/factory-builder.mjs', 'tooling/ci/journey-touch.mjs', 'tooling/ci/journeys-revert.mjs'];
+  assert.deepEqual(hits.sort(), KNOWN, 'a file the journeys run executes commits, pushes or reads a git hook');
+  assert.match(readFileSync(join(ROOT, 'tooling/ci/factory-builder.mjs'), 'utf8'), /'push', '-q', '--no-verify'/);
+  const wf = readFileSync(join(ROOT, JOURNEYS_WORKFLOW), 'utf8');
+  assert.deepEqual(
+    [...new Set([...wf.matchAll(/journeys-revert\.mjs (\w+)/g)].map((m) => m[1]))],
+    ['early'],
+    'the journeys run starts the revert, never pushes it',
+  );
+  // The proof covers the commit and push hooks only: a hook git runs on a checkout or a merge would run in the journeys
+  // run after install, so a new hook name fails here until it is shown never to fire there.
+  assert.deepEqual(readdirSync(join(ROOT, '.githooks')).sort(), ['pre-commit', 'pre-push'], 'only the commit and push hooks exist');
+  assert.equal(pathKind('.githooks/pre-push').kind, 'none');
+  assert.equal(pathKind('.githooks/pre-commit').kind, 'none');
+});
+
+test('a factory-only pull request (#8284’s file set) runs no journeys; app code or a journey file beside it still runs them', () => {
+  const factory = [
+    '.githooks/pre-commit',
+    '.githooks/pre-push',
+    '.github/workflows/ci.yml',
+    'AGENTS.md',
+    'tooling/scripts/ci-checks.mjs',
+    'tooling/scripts/ci-checks.test.mjs',
+    'tooling/scripts/pre-push-hook.test.mjs',
+  ];
+  assert.deepEqual(journeyTouch(factory), { mode: 'none', full: [], files: [] });
+  const app = journeyTouch([...factory, 'apps/customer/src/features/more/Support.tsx']);
+  assert.equal(app.mode, 'full', 'app code beside factory files needs the full run');
+  assert.deepEqual(
+    app.full.map((x) => x.path),
+    ['apps/customer/src/features/more/Support.tsx'],
+  );
+  const journey = journeyTouch([...factory, 'apps/customer/tests/real-app/J-bank-13.pw.mjs']);
+  assert.deepEqual([journey.mode, journey.files], ['files', ['J-bank-13.pw.mjs']], 'a journey file beside them runs that journey');
+  const helper = journeyTouch([...factory, 'apps/customer/tests/real-app/journey.mjs']);
+  assert.equal(helper.mode, 'full', 'a journey helper beside them needs the full run');
+  const stack = journeyTouch([...factory, 'tooling/scripts/local-test-stack.mjs']);
+  assert.equal(stack.mode, 'full', 'the stack beside them needs the full run');
 });
 
 // ---- The touched-journeys verdict (journey-seal.mjs judgeTouchedRun) ----
@@ -555,6 +751,74 @@ test('planted 4 (theo-01 part 2): a named stack-file pull request seals on the l
   assert.equal(asRevert.ok, false, 'a revert is judged as it was before this part');
 });
 
+// A root deploy file (compose, .env.example): `pnpm local:stack` never reads one, so a named journey build
+// that adds its service's env there runs the journeys that name it, like a stack file; unnamed, it stays full.
+const COMPOSE = 'docker-compose.apps.yml';
+const READS_COMPOSE = new Map([
+  ...IMPORTS,
+  ['J-home-ia-11.pw.mjs', "const COMPOSE = ['docker-compose.yml', 'docker-compose.apps.yml']; read('.env.example');"],
+]);
+
+test('ROOT_DEPLOY_FILE: the root compose files and .env.example, and nothing wider', () => {
+  for (const p of ['docker-compose.yml', COMPOSE, 'docker-compose.outreach.yml', '.env.example']) {
+    assert.equal(ROOT_DEPLOY_FILE.test(p), true, p);
+    assert.deepEqual({ kind: pathKind(p).kind, stack: pathKind(p).stack }, { kind: 'full', stack: true }, p);
+  }
+  for (const p of [
+    'pnpm-lock.yaml',
+    'package.json',
+    'turbo.json',
+    '.env',
+    '.env.tester.local',
+    'Dockerfile', // J-home-ia-11 builds the app image from it without naming it, so it stays full
+    'apps/edge/Dockerfile',
+    'infra/docker-compose.yml',
+    'docker-compose.yml.bak',
+    'Dockerfile.dev',
+  ]) {
+    assert.equal(ROOT_DEPLOY_FILE.test(p), false, p);
+    assert.equal(pathKind(p).stack, undefined, p);
+  }
+});
+
+test('journeyTouch, root deploy file: a named build runs the journeys naming it; unnamed, a root build file beside it, or unread journeys stay full', () => {
+  const importers = (ps) => stackImporters(ps, READS_COMPOSE);
+  const named = namedInputs({ ids: ['J-bank-13'], journeyFiles: HEAD_FILES, map: ALWAYS_MAP, importers });
+  const t = journeyTouch([...product, COMPOSE, '.env.example', STACK], () => true, null, named);
+  assert.equal(t.mode, 'files');
+  assert.deepEqual(t.files, ['J-agents-12.pw.mjs', 'J-bank-13.pw.mjs', 'J-home-ia-11.pw.mjs', 'J-wallet-05.pw.mjs']);
+  assert.deepEqual(t.stack, ['.env.example', COMPOSE, STACK]);
+  // Planted: the journey that reads the compose file is in the list (it would be missed if the file ran none).
+  assert.ok(t.files.includes('J-home-ia-11.pw.mjs'));
+  assert.equal(journeyTouch([...product, COMPOSE], () => true, null, null).mode, 'full', 'no name');
+  assert.equal(journeyTouch([...product, COMPOSE, 'pnpm-lock.yaml'], () => true, null, named).mode, 'full', 'a root build file');
+  assert.equal(
+    journeyTouch([...product, COMPOSE, 'tooling/scripts/local-test-stack.mjs'], () => true, null, named).mode,
+    'full',
+    'stack-wide setup',
+  );
+  const blind = namedInputs({ ids: ['J-bank-13'], journeyFiles: HEAD_FILES, map: ALWAYS_MAP });
+  assert.equal(journeyTouch([...product, COMPOSE], () => true, null, blind).mode, 'full', 'journey texts unreadable');
+});
+
+test('planted 5: a named build changing a root deploy file seals on its list, and is held when the journey reading it is missing or red', async () => {
+  const title = 'svc-bank: cards (J-bank-13 #1)';
+  const states = { 'J-bank-13#1': 'passed' };
+  const ran = ['J-bank-13.pw.mjs', 'J-agents-12.pw.mjs', 'J-home-ia-11.pw.mjs'];
+  const io = { ...namedIo, journeyTexts: async () => READS_COMPOSE };
+  const opts = { title, files: [...product, COMPOSE], runs: [run(1)], io };
+  const good = await seal({ ...opts, reports: { 1: { states, ran } }, verdict: async () => clean });
+  assert.equal(good.ok, true, good.lines.join('\n'));
+  const short = await seal({ ...opts, reports: { 1: { states, ran: ran.slice(0, 2) } }, verdict: async () => clean });
+  assert.equal(short.ok, false, 'a run without the journey reading the compose file is held');
+  assert.match(short.lines.join('\n'), /ran J-home-ia-11\.pw\.mjs/);
+  const broke = await seal({ ...opts, reports: { 1: { states, ran } }, verdict: async () => red('J-home-ia-11#1') });
+  assert.equal(broke.ok, false, 'breaking the journey that reads it holds it');
+  const short4 = async () => ({ ...clean, missing: ['J-bank-14.pw.mjs'] });
+  const unnamed = await seal({ ...opts, title: 'svc-bank: cards', reports: { 1: { states: {}, ran } }, verdict: short4 });
+  assert.equal(unnamed.ok, false, 'unnamed: the full run is still needed');
+});
+
 test('the seal still needs every titled step passing: a clean full run with a titled step red fails', async () => {
   const v = await seal({
     title: 'svc-bank: cards (J-bank-13 #1 #2)',
@@ -580,6 +844,35 @@ test("GitHub's Revert form of a product change needs no run; a revert of shared 
     false,
     'a Revert title without GitHub’s body line is no revert',
   );
+});
+
+test('the seal: a factory-only pull request (#8284’s file set) merges with no journeys run; app code or a journey file beside it is held', async () => {
+  const factory = [
+    '.githooks/pre-commit',
+    '.githooks/pre-push',
+    '.github/workflows/ci.yml',
+    'AGENTS.md',
+    'tooling/scripts/ci-checks.mjs',
+    'tooling/scripts/ci-checks.test.mjs',
+    'tooling/scripts/pre-push-hook.test.mjs',
+  ];
+  assert.equal((await seal({ files: factory, runs: [], reports: {} })).ok, true, 'factory files alone need no journeys run');
+  const app = [...factory, 'services/svc-bank/src/cards.ts'];
+  assert.equal((await seal({ files: app, runs: [], reports: {} })).ok, false, 'planted: app code beside them needs its run');
+  assert.equal((await seal({ files: app, runs: [run(1)], reports: { 1: partial } })).ok, false, 'and a partial run is not it');
+  assert.equal((await seal({ files: app, runs: [run(1)], reports: { 1: fullRun } })).ok, true, 'a clean full run seals it');
+  const journey = [...factory, 'apps/customer/tests/real-app/J-bank-13.pw.mjs'];
+  const title = 'test(journeys): J-bank-13 #1';
+  const own = { states: { 'J-bank-13#1': 'passed', 'J-bank-13#2': 'passed' }, ran: ['J-bank-13.pw.mjs'] };
+  assert.equal(
+    (await seal({ title, files: journey, runs: [], reports: {} })).ok,
+    false,
+    'planted: a journey file beside them needs its run',
+  );
+  const sealed = await seal({ title, files: journey, runs: [run(1)], reports: { 1: own } });
+  assert.equal(sealed.ok, true, sealed.lines.join('\n'));
+  const fixture = [...factory, 'apps/customer/tests/real-app/world-restore.mjs'];
+  assert.equal((await seal({ files: fixture, runs: [run(1)], reports: { 1: partial } })).ok, false, 'a journey helper needs the full run');
 });
 
 // ---- U4 C3 piece 1: a pull request runs what it touches, with no dispatch ----
@@ -663,7 +956,7 @@ test('real-app-journeys.yml runs on ready pull requests, tests their head, and a
 test('real-app-journeys.yml on main: the touch step decides nothing, so a push, a scheduled run or a dispatch with a journeys input keeps an empty target and the full suite', () => {
   const t = readFileSync(join(ROOT, '.github/workflows/real-app-journeys.yml'), 'utf8');
   // The touch step's own script, run as GitHub runs it.
-  const at = t.indexOf('\n        id: touch\n');
+  const at = t.indexOf('\n        id: pick\n');
   assert.ok(at > 0, 'the touch step');
   const from = t.indexOf('\n        run: |\n', at) + '\n        run: |\n'.length;
   const lines = [];
@@ -892,4 +1185,103 @@ test('DOCS_READ drift, planted: a doc named in code and not listed is caught by 
   const covered = (n) => DOCS_READ.some((d) => n === d || `${n}/` === d || n.startsWith(d));
   for (const n of ['docs/new-thing.md', 'docs/ci', 'docs']) assert.equal(covered(n), false, n);
   for (const n of ['docs/roadmap', 'docs/runbooks/journey-baseline.json', 'docs/RUNNING.md']) assert.equal(covered(n), true, n);
+});
+
+// One journeys run per head (project-state#2065 row d32 part (b)).
+const byHand = (id, title, over = {}) => run(id, { event: 'workflow_dispatch', display_title: title, ...over });
+const AT_HEAD = new Set(['J-a-01.pw.mjs', 'J-b-02.pw.mjs', 'J-c-03.pw.mjs']);
+const reuse = (runs, ranShards = new Set(runs.map((r) => r.id))) =>
+  reusableRuns(runs, { sha: HEAD, repo: REPO, journeyFiles: AT_HEAD, ranShards });
+
+test("a pull request's run leaves out the journey files a targeted run by hand on its exact head already runs, and the rest still runs", () => {
+  const r = reuse([byHand(1, 'Real-app journeys by hand, J-a-01.pw.mjs,J-b-02.pw.mjs', { status: 'in_progress', conclusion: null })]);
+  assert.deepEqual(afterReuse('J-a-01.pw.mjs J-c-03.pw.mjs', r), {
+    target: 'J-c-03.pw.mjs',
+    mode: 'run',
+    why: '1 of its 2 journey file(s) already run by hand on this head (run 1), so this run leaves them out',
+  });
+  assert.equal(afterReuse('J-a-01.pw.mjs J-b-02.pw.mjs', r).mode, 'none');
+  // A finished red run by hand counts too: its red stands for this head, and the seal reads it.
+  assert.equal(
+    afterReuse('J-a-01.pw.mjs', reuse([byHand(2, 'Real-app journeys by hand, J-a-01.pw.mjs', { conclusion: 'failure' })])).mode,
+    'none',
+  );
+});
+
+test('planted: nothing is left out for a full run, or a run by hand that ran no shard, is cancelled, or is not on this exact head', () => {
+  const same = (runs, target = 'J-a-01.pw.mjs', ranShards) =>
+    assert.deepEqual(afterReuse(target, reuse(runs, ranShards)), { target, mode: 'run', why: '' });
+  // The full suite is never narrowed, and a full run by hand stands in for nothing: it may have been deferred and run
+  // nothing (main-first.mjs), and it fails fast where a pull request's run keeps the ordinary limits.
+  same([byHand(1, 'Real-app journeys by hand, J-a-01.pw.mjs')], '');
+  same([byHand(1, 'Real-app journeys by hand, full')]);
+  same([byHand(1, 'Real-app journeys by hand, full')], '');
+  // A finished run whose shards never ran (its touch job failed, or it stopped before them).
+  same([byHand(1, 'Real-app journeys by hand, J-a-01.pw.mjs')], 'J-a-01.pw.mjs', new Set());
+  same([byHand(1, 'Real-app journeys by hand, J-a-01.pw.mjs', { head_sha: OLD })]);
+  same([byHand(1, 'Real-app journeys by hand, J-a-01.pw.mjs', { conclusion: 'cancelled' })]);
+  same([byHand(1, 'Real-app journeys by hand, J-a-01.pw.mjs', { conclusion: 'skipped' })]);
+  same([byHand(1, 'Real-app journeys by hand, J-a-01.pw.mjs', { repository: { full_name: 'x/y' } })]);
+  same([byHand(1, 'Real-app journeys by hand, J-a-01.pw.mjs', { head_repository: { full_name: 'x/y' } })]);
+  same([byHand(1, 'Real-app journeys by hand, J-a-01.pw.mjs', { path: '.github/workflows/other.yml' })]);
+  same([run(1, { event: 'pull_request', display_title: 'Real-app journeys by hand, J-a-01.pw.mjs' })]);
+  same([byHand(1, 'Real-app journeys')]);
+  // A name that is not a journey file at the head makes the whole run count for nothing.
+  same([byHand(1, 'Real-app journeys by hand, J-a-01.pw.mjs J-zz-99.pw.mjs')]);
+  same([byHand(1, 'Real-app journeys by hand, J-a-01.pw.mjs;rm')]);
+  assert.equal(
+    reusableRuns([byHand(1, 'Real-app journeys by hand, J-a-01.pw.mjs')], {
+      sha: HEAD,
+      repo: REPO,
+      journeyFiles: null,
+      ranShards: new Set([1]),
+    }).size,
+    0,
+  );
+});
+
+test("real-app-journeys.yml's one-run-per-head step: off a pull request, or when the base copy can't reuse, the pick stands", () => {
+  const t = readFileSync(join(ROOT, '.github/workflows/real-app-journeys.yml'), 'utf8');
+  const at = t.indexOf('\n        id: touch\n');
+  assert.ok(at > 0 && t.indexOf('\n        id: pick\n') < at, 'the step comes after the pick');
+  const from = t.indexOf('\n        run: |\n', at) + '\n        run: |\n'.length;
+  const lines = [];
+  for (const l of t.slice(from).split('\n')) {
+    if (l !== '' && !l.startsWith('          ')) break;
+    lines.push(l.slice(10));
+  }
+  const dir = execFileSync('mktemp', ['-d'], { encoding: 'utf8' }).trim();
+  try {
+    const step = (env) => {
+      const out = join(dir, `out-${Math.random().toString(36).slice(2)}`);
+      execFileSync('bash', ['-c', lines.join('\n')], {
+        encoding: 'utf8',
+        env: { PATH: process.env.PATH, GITHUB_OUTPUT: out, GITHUB_WORKSPACE: dir, ...env },
+      });
+      return Object.fromEntries(
+        readFileSync(out, 'utf8')
+          .split('\n')
+          .filter(Boolean)
+          .map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]),
+      );
+    };
+    const pick = { MODE: 'run', TARGET: 'J-a-01.pw.mjs' };
+    assert.deepEqual(step({ ...pick, EVENT: 'push' }), { mode: 'run', target: 'J-a-01.pw.mjs' });
+    // No base copy of journey-touch.mjs here (as on the run of the pull request that adds --reuse): the pick stands.
+    assert.deepEqual(step({ ...pick, EVENT: 'pull_request' }), { mode: 'run', target: 'J-a-01.pw.mjs' });
+    // A base copy that says a run by hand covers it: nothing runs here.
+    const base = join(dir, '.base/tooling/ci');
+    mkdirSync(base, { recursive: true });
+    const says = (json) => writeFileSync(join(base, 'journey-touch.mjs'), `console.log(${JSON.stringify(JSON.stringify(json))})`);
+    says({ target: '', mode: 'none', why: 'covered' });
+    assert.deepEqual(step({ ...pick, EVENT: 'pull_request' }), { mode: 'none', target: '' });
+    // Planted: a target that is not journey file names never reaches the outputs; the pick stands.
+    says({ target: 'J-a-01.pw.mjs\nmode=none', mode: 'run', why: '' });
+    assert.deepEqual(step({ ...pick, EVENT: 'pull_request' }), { mode: 'run', target: 'J-a-01.pw.mjs' });
+    says({ target: '', mode: 'full', why: '' });
+    assert.deepEqual(step({ ...pick, EVENT: 'pull_request' }), { mode: 'run', target: 'J-a-01.pw.mjs' });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  assert.match(t, /\nrun-name: \$\{\{ github\.event_name == 'workflow_dispatch' && format\('Real-app journeys by hand, \{0\}'/);
 });

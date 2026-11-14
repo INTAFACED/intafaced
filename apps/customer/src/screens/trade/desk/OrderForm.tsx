@@ -345,7 +345,7 @@ function SideForm({
     type,
     tif,
     expireAt,
-  ]); // eslint-disable-line react-hooks/exhaustive-deps
+  ]);
   const key = draft
     ? `${draft.symbol}|${draft.side}|${draft.type}|${draft.amount}|${draft.price ?? ''}|${draft.stopPrice ?? ''}|${tif}|${draft.expireAt ?? ''}`
     : 'none';

@@ -27,9 +27,10 @@
  *     after a merge, a red main is reverted"). A product pull request that names no journey keeps the rules above;
  *   - stack (theo-01 part 2, OWNER 296: "A change to one service's own test-stack file runs the journeys that use that
  *     file"): a named pull request's change to a service's own stack file (STACK_FILE: `local-stack-services/<service>.mjs`,
- *     `test-owner-values/<service>.json`) also runs the journeys whose tests use it (stackImporters), when nothing else
- *     makes it full. Without a name, or when the journey files can't be read, it stays full, and stack-wide files
- *     (local-test-stack.mjs and the rest of SHARED_SETUP) always are;
+ *     `test-owner-values/<service>.json`), or to a root deploy file the stack never reads (ROOT_DEPLOY_FILE), also
+ *     runs the journeys whose tests use it (stackImporters), when nothing else makes it full. Without a name, or when
+ *     the journey files can't be read, it stays full, and stack-wide files (local-test-stack.mjs and the rest of
+ *     SHARED_SETUP) always are;
  *   - files: a journey test file (`apps/customer/tests/real-app/J-<id>[-part].pw.mjs`, JOURNEY_TEST) touches the
  *     journeys in that file only. (Another run file there, a look sweep, holds no journey steps, so no report lists it:
  *     it is full.) Journey files are independent: each makes its own accounts and keeps its own run
@@ -38,13 +39,18 @@
  *   - none: a path no journeys run executes or reads: another workflow under .github (not real-app-journeys.yml, not
  *     .github/actions), a CI check under tooling/ci that the journeys run does not use (JOURNEY_CI lists the ones it
  *     does; journey-touch.test.mjs fails when an import or a reference from the journeys run reaches one not listed),
- *     and a unit test (`*.test.*`, `*.spec.*`).
+ *     a unit test (`*.test.*`, `*.spec.*`), a git hook under .githooks (git runs it on a commit or a push, which no
+ *     journeys run makes), and a factory script under tooling/scripts that nothing the journeys run, the stack or the
+ *     app's build executes, imports or names (FACTORY_SCRIPTS; journey-touch.test.mjs fails when anything there reaches
+ *     one, so a script the run starts using comes off the list or turns its pull request red).
  * A path that matches none of the rules is full.
  *
  *   node tooling/ci/journey-touch.mjs --base origin/main     (this checkout's branch against a base; prints what to run)
  *   node tooling/ci/journey-touch.mjs --files a b c          (named paths)
  *   node tooling/ci/journey-touch.mjs --json --files-from f  (one path a line; JSON { mode, full, files }; real-app-journeys.yml's plan)
  *   … --reach                                                 (product paths by the touched-journeys map; GH_TOKEN for its age)
+ *   node tooling/ci/journey-touch.mjs --reuse               (env TARGET, HEAD_SHA: the target less what runs by hand on
+ *                                                              that head already run; real-app-journeys.yml's reuse step)
  *   … --title <t> --branch <b>                                (the journeys the pull request names; with --reach, the
  *                                                              env's TITLE and GITHUB_HEAD_REF when not given, which is
  *                                                              how real-app-journeys.yml's touch step passes them)
@@ -78,6 +84,8 @@ export const JOURNEY_CI = [
   'tooling/ci/review-marker.mjs',
   'tooling/ci/workflow-concurrency.test.mjs',
   'tooling/ci/factory-switch.mjs',
+  // The seal's scripts word a spent API budget with it (judge down).
+  'tooling/ci/api-budget.mjs',
   // real-app-journeys.yml's `Main's journeys first` job runs it.
   'tooling/ci/main-first.mjs',
   // Main trust's post-merge job runs it after each journeys run on main, and main-bisect.yml's journeys revert jobs.
@@ -88,6 +96,8 @@ export const JOURNEY_CI = [
   'tooling/ci/factory-builder.mjs',
   // journeys-revert.mjs reads its test and job lists (the revert on main for CI reds).
   'tooling/ci/bisect-main.mjs',
+  // journeys-revert.mjs refresh tells main-bisect's revert by its branch and author.
+  'tooling/ci/exact-revert.mjs',
   // Reached through the seal's imports (review-marker.mjs) and the test-infra action; journey-touch.test.mjs finds them.
   'tooling/ci/assert-test-db-env.mjs',
   'tooling/ci/look-baselines.mjs',
@@ -119,6 +129,62 @@ export const DOCS_READ = [
   'docs/THREAT-MODEL-BLUEPRINT-ATTESTATIONS.md',
 ];
 
+/**
+ * The scripts under tooling/scripts that no journeys run executes or reads: builders' and agents' tools on the Mac (the
+ * pre-push checks, the review before a push, worktrees, GitHub setup) and unit tests of scripts. Every other file under
+ * tooling/scripts stays full, a new one included, until it is shown unreached and listed here. journey-touch.test.mjs
+ * proves each entry from the repository: no relative import, script name, `pnpm` script or path in the journeys
+ * workflow, its actions, the journey files and their helpers, the CI files JOURNEY_CI lists, the stack's shared setup,
+ * the stack's environment (tooling/profiles, tooling/infra) or any app, service or package file (the app's build
+ * included) reaches it, through any chain of scripts. Type declarations (`.d.mts`, read by the app's type check),
+ * code generators of app sources and test fixtures stay off the list. (Failure it prevents: intafaced #8284, a change
+ * to the pre-push hook and its checks, paid a full journeys run of about 39 minutes per push on 14 Nov 2026, and factory
+ * pull requests paid 6,011 job-minutes of journey runs since 13 Nov, project-state#2332.)
+ */
+export const FACTORY_SCRIPTS = [
+  'tooling/scripts/agent-models.test.mjs',
+  'tooling/scripts/agent-pr.mjs',
+  'tooling/scripts/ci-checks.mjs',
+  'tooling/scripts/ci-checks.test.mjs',
+  'tooling/scripts/fleet-tip-image.mjs',
+  'tooling/scripts/journey-baseline-guard.test.mjs',
+  'tooling/scripts/journey-clauses-v1.test.mjs',
+  'tooling/scripts/journey-fail-fast-retries.test.mjs',
+  'tooling/scripts/journey-freeze-guard.test.mjs',
+  'tooling/scripts/journey-navigation.test.mjs',
+  'tooling/scripts/journey-reach.test.mjs',
+  'tooling/scripts/journey-world.test.mjs',
+  'tooling/scripts/local-founder-seed.test.mjs',
+  'tooling/scripts/local-tester-seed.test.mjs',
+  'tooling/scripts/main-journeys-time.mjs',
+  'tooling/scripts/main-journeys-time.test.mjs',
+  'tooling/scripts/matching-ledger-load-test.mjs',
+  'tooling/scripts/mvn-run.test.mjs',
+  'tooling/scripts/order-path-cx8-boot.test.mjs',
+  'tooling/scripts/owner-settings.test.mjs',
+  'tooling/scripts/pre-push-hook.test.mjs',
+  'tooling/scripts/purge-charting-library-history.sh',
+  'tooling/scripts/real-app-navigation.test.mjs',
+  'tooling/scripts/real-app-services.test.mjs',
+  'tooling/scripts/real-app-tool-error.test.mjs',
+  'tooling/scripts/redesign-shots.mjs',
+  'tooling/scripts/redesign-shots.test.mjs',
+  'tooling/scripts/review-before-push.mjs',
+  'tooling/scripts/review-before-push.test.mjs',
+  'tooling/scripts/roadmap.test.mjs',
+  'tooling/scripts/runtime-safety.test.mjs',
+  'tooling/scripts/services-map.mjs',
+  'tooling/scripts/services-map.test.mjs',
+  'tooling/scripts/setup-github.mjs',
+  'tooling/scripts/sync-github-issues.mjs',
+  'tooling/scripts/tracker.mjs',
+  'tooling/scripts/truth-check.mjs',
+  'tooling/scripts/truth-check.test.mjs',
+  'tooling/scripts/try-it.mjs',
+  'tooling/scripts/try-it.test.mjs',
+  'tooling/scripts/worktree-gc.mjs',
+];
+
 const FULL_RULES = [
   [
     /^tooling\/scripts\//,
@@ -139,6 +205,9 @@ const FULL_RULES = [
 
 const NONE_RULES = [
   (p) => p.startsWith('.github/') && !/^\.github\/(workflows\/real-app-journeys\.yml|actions\/)/.test(p),
+  // A git hook: git runs it on a commit or a push, and nothing the journeys run executes commits, pushes or reads it
+  // (journey-touch.test.mjs).
+  (p) => p.startsWith('.githooks/'),
   (p) => p.startsWith('tooling/ci/') && !JOURNEY_CI.includes(p),
   (p) => /^(apps|services|packages)\//.test(p) && /\.(test|spec)\.[cm]?[jt]sx?$/.test(p) && !p.startsWith('apps/customer/tests/real-app/'),
   // Markdown at the repository root (AGENTS.md, CLAUDE.md, CONTRIBUTING.md, README.md): no journey, stack script or
@@ -182,6 +251,15 @@ export function namedInputs({ ids, journeyFiles, map, importers = null }) {
  *  name, isn't one. */
 export const STACK_FILE = /^tooling\/(?:scripts\/local-stack-services\/[a-z0-9-]+\.mjs|profiles\/test-owner-values\/[a-z0-9-]+\.json)$/;
 
+/** A root deploy file the journeys stack never starts from: `pnpm local:stack` reads no compose file or .env.example
+ *  (deploys and the tester profile do), and a journey that reads one names it (J-home-ia-11 reads both compose files and
+ *  .env.example). The Dockerfile is not one: J-home-ia-11 builds the app image without naming it, so it stays full. A
+ *  journey build adds its service's env here beside its stack file, and one of them was in 34 of 41 journey-build runs
+ *  on 12-13 Nov 2026 that ran the full suite. So a named pull request treats it like a stack file: it runs the journeys
+ *  that name it (stackImporters); without a name it stays full, and main's full run judges the rest
+ *  (project-state#2344 row d55). */
+export const ROOT_DEPLOY_FILE = /^(?:docker-compose[^/]*\.ya?ml|\.env\.example)$/;
+
 /** Text with a path split over `'a', 'b'` arguments or a line of comment joined up, so each spelling reads as one path. */
 const joinedPaths = (t) =>
   String(t)
@@ -214,7 +292,7 @@ export function stackImporters(paths, texts) {
  *  stack file, which only a pull request that names a journey narrows (journeyTouch). */
 export function pathKind(path) {
   const k = kindOf(String(path));
-  return STACK_FILE.test(String(path)) ? { ...k, stack: true } : k;
+  return STACK_FILE.test(String(path)) || ROOT_DEPLOY_FILE.test(String(path)) ? { ...k, stack: true } : k;
 }
 
 function kindOf(p) {
@@ -227,6 +305,7 @@ function kindOf(p) {
       why: 'a run file that holds no journey steps (a look sweep), which no report lists, so only a clean full run shows it broke nothing',
     };
   if (JOURNEY_CI.includes(p)) return { kind: 'full', why: 'a check the journeys run uses (JOURNEY_CI)' };
+  if (FACTORY_SCRIPTS.includes(p)) return { kind: 'none' };
   for (const [re, why] of FULL_RULES) if (re.test(p)) return { kind: 'full', why };
   if (NONE_RULES.some((r) => r(p))) return { kind: 'none' };
   if (/^(apps|services|packages)\//.test(p)) return { kind: 'full', why: PRODUCT, product: true };
@@ -293,6 +372,55 @@ export function journeyTouch(paths, atHead = () => true, reach = null, named = n
   return because && !full.length ? { ...out, reach: because } : out;
 }
 
+/** A run by hand's title (real-app-journeys.yml `run-name`): the journeys it was given, or `full`. */
+export const DISPATCH_TITLE = /^Real-app journeys by hand, (.+)$/;
+const JOURNEY_FILE_NAME = /^[A-Za-z0-9._-]+\.pw\.mjs$/;
+/** A shard job of the journeys run (real-app-journeys.yml `journeys` job). */
+export const SHARD_JOB = /^Journeys \(shard \d+ of \d+\)$/;
+
+/**
+ * One journeys run per head (project-state#2065 row d32 part (b)): the journey files that targeted runs by hand of this
+ * workflow on the pull request's exact head (the builder's run before it opened the pull request) already run, so the
+ * pull request's own run leaves them out. A run counts when it is this repository's, dispatched by hand on `sha`, and
+ * targeted: its title (DISPATCH_TITLE) names journey files, each a journey file at the head (`journeyFiles`, a Set; null:
+ * none counts). A full run by hand never counts: it may be deferred and run nothing for now (main-first.mjs), it fails
+ * fast on unbuilt steps where a pull request's run keeps the ordinary limits, and one still going is cancelled by the
+ * pull request's run, which shares its concurrency group. A targeted run still going counts (the seal waits for it); a
+ * finished one counts only when its shards ran (`ranShards`, a Set of run ids with a finished shard job), never when it
+ * was cancelled or skipped or stopped before its shards. The seal still reads every run on the head by its report
+ * (journey-seal.mjs), so a red there stands. Returns Map(file → run id).
+ */
+export function reusableRuns(runs, { sha, repo, journeyFiles, ranShards, workflow = '.github/workflows/real-app-journeys.yml' }) {
+  const files = new Map();
+  for (const r of runs ?? []) {
+    if (r?.event !== 'workflow_dispatch' || r?.head_sha !== sha || r?.path !== workflow) continue;
+    if (r?.repository?.full_name !== repo || r?.head_repository?.full_name !== repo) continue;
+    if (r.status === 'completed' && (['cancelled', 'skipped'].includes(r.conclusion) || !ranShards?.has(r.id))) continue;
+    const m = DISPATCH_TITLE.exec(String(r.display_title ?? ''));
+    if (!m || m[1] === 'full') continue;
+    const names = m[1].split(/[\s,]+/).filter(Boolean);
+    if (!journeyFiles || !names.length || !names.every((f) => JOURNEY_FILE_NAME.test(f) && journeyFiles.has(f))) continue;
+    for (const f of names) if (!files.has(f)) files.set(f, r.id);
+  }
+  return files;
+}
+
+/**
+ * What a pull request's run runs after leaving out the journey files `reused` (reusableRuns) already runs on its head.
+ * `target`: the touch job's journey file names separated by spaces; '' (the full suite) is never narrowed. Returns
+ * { target, mode: 'run'|'none', why }.
+ */
+export function afterReuse(target, reused) {
+  const want = String(target ?? '')
+    .split(/\s+/)
+    .filter(Boolean);
+  const rest = want.filter((f) => !reused.has(f));
+  if (!want.length || rest.length === want.length) return { target: want.join(' '), mode: 'run', why: '' };
+  const ids = [...new Set(want.filter((f) => reused.has(f)).map((f) => reused.get(f)))];
+  const why = `${want.length - rest.length} of its ${want.length} journey file(s) already run by hand on this head (run ${ids.join(', ')}), so this run leaves them out`;
+  return rest.length ? { target: rest.join(' '), mode: 'run', why } : { target: '', mode: 'none', why: `${why} and runs nothing` };
+}
+
 /** The .mjs files directly in a checkout's real-app folder, name to text, or null when they can't be read. */
 export function checkoutJourneyTexts(root = '.') {
   try {
@@ -357,8 +485,40 @@ function runCreated() {
   return Date.now();
 }
 
+/** --reuse: the pull request run's target after reusableRuns (env TARGET, HEAD_SHA, GITHUB_REPOSITORY, GH_TOKEN), as
+ *  JSON { target, mode, why }. Any read that fails leaves the target as it was (never fewer journeys). */
+function reuseMain() {
+  const target = process.env.TARGET ?? '';
+  const sha = process.env.HEAD_SHA ?? '';
+  const repo = process.env.GITHUB_REPOSITORY || 'INTAFACED/intafaced';
+  let out = { target, mode: 'run', why: '' };
+  try {
+    if (!/^[0-9a-f]{40}$/.test(sha)) throw new Error('no head');
+    const runs = JSON.parse(
+      ghApi(`repos/${repo}/actions/workflows/real-app-journeys.yml/runs?head_sha=${sha}&event=workflow_dispatch&per_page=100`),
+    ).workflow_runs;
+    // A finished run counts only when a shard of it finished (reusableRuns); one jobs read per such run.
+    const ranShards = new Set();
+    for (const r of runs ?? [])
+      if (
+        r?.event === 'workflow_dispatch' &&
+        r?.head_sha === sha &&
+        r?.status === 'completed' &&
+        DISPATCH_TITLE.test(String(r.display_title ?? ''))
+      ) {
+        const jobs = JSON.parse(ghApi(`repos/${repo}/actions/runs/${Number(r.id)}/jobs?per_page=100`)).jobs ?? [];
+        if (jobs.some((j) => SHARD_JOB.test(String(j?.name)) && ['success', 'failure'].includes(j?.conclusion))) ranShards.add(r.id);
+      }
+    out = afterReuse(target, reusableRuns(runs, { sha, repo, journeyFiles: checkoutJourneyFiles(), ranShards }));
+  } catch (e) {
+    out.why = `the runs by hand on this head couldn't be read (${printable(e.message).slice(0, 200)}), so nothing is left out`;
+  }
+  console.log(JSON.stringify(out));
+}
+
 async function main() {
   const args = process.argv.slice(2);
+  if (args[0] === '--reuse') return reuseMain();
   let paths;
   let atHead = (p) => existsSync(p);
   const b = args.indexOf('--base');
@@ -403,7 +563,7 @@ async function main() {
     map = newerMap(built, loadMap());
     reach = { map, behind: behindFromApi(map), journeyFiles: checkoutJourneyFiles(), subscribes: subscribesIn() };
   }
-  const texts = paths.some((p) => STACK_FILE.test(p)) ? checkoutJourneyTexts() : null;
+  const texts = paths.some((p) => pathKind(p).stack) ? checkoutJourneyTexts() : null;
   const named = namedInputs({
     ids,
     journeyFiles: checkoutJourneyFiles(),

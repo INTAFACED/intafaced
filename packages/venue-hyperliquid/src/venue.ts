@@ -524,6 +524,8 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
       contractSize: { known: false },
       mark: { known: false },
       funding: { known: false },
+      // Its self-trade rule is not read from the venue by this adapter: not known, never guessed.
+      selfTrade: { known: false },
     }));
     return this.asOf(list);
   }
