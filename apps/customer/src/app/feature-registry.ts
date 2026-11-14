@@ -630,7 +630,14 @@ export const features: readonly Feature[] = [
   {
     id: 'promotions-dividends',
     label: 'Promotions, Invitations, Dividends',
-    paths: ['/uc/promotion', '/uc/promotion/mycards', '/uc/promotion/mypromotion', '/uc/invitingmining', '/uc/paydividends'],
+    paths: [
+      '/uc/promotion',
+      '/uc/promotion/mycards',
+      '/uc/promotion/mypromotion',
+      '/uc/promotion/points',
+      '/uc/invitingmining',
+      '/uc/paydividends',
+    ],
     status: 'blocked',
     reason: 'Not redesigned / no contract',
     unlock: 'redesign later',

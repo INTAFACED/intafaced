@@ -316,6 +316,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/uc/promotion': { template: 'overview' },
   '/uc/promotion/mycards': { template: 'record-list' },
   '/uc/promotion/mypromotion': { template: 'record-list' },
+  '/uc/promotion/points': { template: 'overview' },
   '/uc/invitingmining': { template: 'catalogue' },
   '/uc/paydividends': { template: 'record-list' },
   '/ops': 'operator',

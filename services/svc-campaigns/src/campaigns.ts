@@ -28,6 +28,8 @@ import {
   type ParticipationRules,
   type RewardLock,
   EARNING_TRIGGERS,
+  type EarningEvaluateInput,
+  type EarningEvaluation,
   type EarningRule,
   type EarningTrigger,
   type RuleGroup,
@@ -40,6 +42,7 @@ import { CampaignsError } from './codes.js';
 import { parseWindowTime } from './drops.js';
 import type { ParticipantSource } from './participants.js';
 import { parseFormula } from './formula.js';
+import { evaluateEarning } from './points.js';
 import { checkRule, evaluateRule, tryRule, type RuleLimits } from './rules.js';
 
 /**
@@ -639,7 +642,14 @@ function parseEarning(rules: readonly EarningRule[]): EarningRule[] {
     if (seen.has(name.toLowerCase())) throw new CampaignsError('campaigns.earning_rule_name_taken', `Two earning rules are named ${name}`);
     seen.add(name.toLowerCase());
     parseFormula(r.formula, trigger.names);
-    return { name, trigger: r.trigger, minAmount: r.minAmount ?? null, formula: r.formula.trim() };
+    // An incentive is stored as before (no field), so a rule saved before effects existed reads the same.
+    return {
+      name,
+      trigger: r.trigger,
+      minAmount: r.minAmount ?? null,
+      formula: r.formula.trim(),
+      ...(r.effect === 'points' ? { effect: 'points' as const } : {}),
+    };
   });
 }
 
@@ -1213,6 +1223,21 @@ export class CampaignService {
   }
 
   /** One campaign as operators see it, at any age; the list is the newest 200. */
+  /**
+   * Evaluates a campaign's earning rules on one TEST event (CM-rewards-hub-05, J-campaigns-15 #5): the rules of the edit
+   * waiting beside it when there is one, else its stored revision. Writes nothing; a points rule refuses for itself only.
+   */
+  async evaluateEarning(input: EarningEvaluateInput): Promise<EarningEvaluation> {
+    const campaign = await this.getForOps({ id: input.id });
+    const rules = campaign.pendingChange ? parseEarning(campaign.pendingChange.definition.earning ?? []) : campaign.earning;
+    const asset = campaign.pendingChange ? (campaign.pendingChange.definition.reward?.asset ?? null) : (campaign.reward?.asset ?? null);
+    return {
+      campaignId: campaign.id,
+      trigger: input.trigger,
+      results: evaluateEarning(rules, asset, input.trigger, input.values),
+    };
+  }
+
   async getForOps(input: { id: string }): Promise<Campaign> {
     const [row] = await this.sql<CampaignRow[]>`SELECT * FROM campaigns.campaign_rows WHERE id = ${input.id}`;
     if (!row) throw new CampaignsError('campaign.unknown', 'No such campaign');

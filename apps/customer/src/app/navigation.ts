@@ -1222,6 +1222,12 @@ export const rooms: readonly Room[] = [
   { path: '/uc/promotion', title: 'Promotions', description: 'Referral activity', area: 'person' },
   { path: '/uc/promotion/mycards', title: 'Promotion cards', description: 'Your promotion cards', area: 'person' },
   { path: '/uc/promotion/mypromotion', title: 'My promotions', description: 'Referral activity', area: 'person' },
+  {
+    path: '/uc/promotion/points',
+    title: 'Points programme',
+    description: 'Points wallet, expiry, catalogue and conversion',
+    area: 'person',
+  },
   { path: '/uc/invitingmining', title: 'Invitations', description: 'Your invitation activity', area: 'person' },
   { path: '/uc/paydividends', title: 'Dividend records', description: 'Your dividend history', area: 'person' },
   { path: '/uc/trade', title: 'Trading settings', description: 'Personal trade settings', area: 'person', alias: '/view' },
