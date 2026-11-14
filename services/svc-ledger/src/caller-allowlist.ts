@@ -34,6 +34,11 @@ type Grants = Partial<Record<RecipeName, RecipeGrant>>;
 const g = (module: string, cite: string): RecipeGrant => ({ module, cite });
 
 export const LEDGER_POST_ALLOWLIST = {
+  'svc-academy': {
+    // A paid course bought from the buyer's own wallet, and its staff refund (J-academy-07): both legs are our own.
+    academyPurchase: g('academy', 'services/svc-academy/src/purchases/purchase-ledger.ts'),
+    academyPurchaseRefund: g('academy', 'services/svc-academy/src/purchases/purchase-ledger.ts'),
+  },
   'svc-agents': {
     feeCharge: g('agents', 'services/svc-agents/src/metering/meter.ts'),
   },
