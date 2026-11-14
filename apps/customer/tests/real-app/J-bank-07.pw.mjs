@@ -27,7 +27,8 @@ import { withPartner } from './partner.mjs';
 // 2, 3 and 6 run on it, every move between spaces and into the shared pot is one partner move, and the ledger posts
 // nothing for it. Step 4 (the sorter, from a payment by another person, and the bills pot's bill to another person) and
 // step 5 (instant-access savings) are not yet made at the partner (a send to a person and a savings deposit refuse there,
-// `bank.partner_path_not_built`), so they still run on a second TEST person whose money is on the ledger. Steps 1
+// `bank.partner_path_not_built`), so they still run on a second TEST person whose money is on the ledger. The TEST card
+// partner holds card money in USDC only, so step 3's card and round-up are in USDC, into a USDC pot at the partner. Steps 1
 // and 2 (BK-pots-02): a space with a goal whose progress is exact, rounded down and capped, changed and cleared on the
 // space's own page; then a lock that refuses every debit by name, a standing order that records the lock as its reason,
 // and an early unlock that waits out the bank's window. Step 3 (BK-pots-02): a standing order and a card round-up made on
@@ -55,6 +56,7 @@ const J = 'J-bank-07';
 const POT = 'Holiday TEST';
 const BILLS = 'Bills TEST';
 const SAVINGS = 'Rainy day TEST';
+const CHANGE = 'Spare change TEST';
 const WAIT_HOURS = 24;
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const PARTNER_BANK = 'TEST partner bank';
@@ -432,27 +434,45 @@ test(`${J} #3 money flows into the space on its own: a standing order and a card
   await expect(order).toContainText('5 USDT, every week');
   const orderId = await order.getAttribute('data-id');
 
-  // A card round-up to the next TEST 1, into this space, made on the same page.
+  // The TEST card partner holds card money in USDC only (BANK_CARD_SIM_PARTNER_JSON, TEST 30 USDC spendable), so the
+  // card and its round-up are in USDC: TEST 10 USDC paid in at the partner bank, a USDC pot for the spare change, and a
+  // round-up to the next TEST 1 into it, made on that pot's own page.
+  const usdc = await api.mutate('testPartner.fund', { fundId: `jb07-usdc-${who.email}`.slice(0, 64), assetId: 'USDC', amount: '10' });
+  expect(usdc, JSON.stringify(usdc.body ?? {}).slice(0, 300)).toMatchObject({ ok: true });
+  if (!named(await spaces(who), CHANGE)) {
+    const made = await api.mutate('spaces.create', { assetId: 'USDC', name: CHANGE });
+    expect(made.ok, JSON.stringify(made.body ?? {}).slice(0, 300)).toBe(true);
+  }
+  const change = named(await spaces(who), CHANGE);
+  expect(change).toMatchObject({ assetId: 'USDC', ledgerAccount: null, heldAt: { label: PARTNER_BANK } });
+  const usdcMain = () => spaces(who).then((rows) => rows.find((r) => r.kind === 'primary' && r.assetId === 'USDC'));
+  const changeBefore = change.balance;
+  const usdcBefore = (await usdcMain()).balance;
+  await page.goto(`/bank/spaces?space=${change.id}`);
+  await expect(inflows).toContainText('No card round-up goes into this space.');
   await confirm(await act(page, 'Add round-up', (d) => d.getByLabel(/^Round up to the next/).fill('1')));
   await close(page);
   const roundUp = inflows.getByTestId('space-inflow-roundup');
   await expect(roundUp).toHaveCount(1);
-  await expect(roundUp).toContainText('Each card payment rounded up to the next 1 USDT');
+  await expect(roundUp).toContainText('Each card payment rounded up to the next 1 USDC');
   await expect(roundUp).toContainText('Active');
 
-  // A TEST card payment of 4.30 on the TEST card partner, which holds the card money (its own TEST book): authorised,
-  // then captured. The spare 0.70 moves into the space with the capture, as one partner bank move.
+  // A TEST card payment of 4.30 USDC at the TEST card partner, which holds the card money in its own TEST book:
+  // authorised, then captured. The spare 0.70 moves into the pot with the capture, as one partner bank move.
   const cardId = randomUUID();
-  const issued = await api.mutate('cards.issue', { cardId, assetId: 'USDT', perAuthorizationLimit: '50', cardType: 'virtual' });
+  const issued = await api.mutate('cards.issue', { cardId, assetId: 'USDC', perAuthorizationLimit: '50' });
   expect(issued.ok, JSON.stringify(issued.body ?? {}).slice(0, 300)).toBe(true);
   const payment = { cardId, authorizationRef: `jb07-${randomUUID()}`, amount: '4.3' };
   const held = await cardEvent('bank.card_authorize', 'ops.cardAuthorize', payment);
   expect(held).toMatchObject({ decision: 'approved', declineCode: null });
   const captured = await cardEvent('bank.card_capture', 'ops.cardCapture', payment);
   expect(captured).toMatchObject({ heldBy: 'partner', captureLedgerTxId: null });
-  expect(captured.roundUp).toMatchObject({ status: 'settled', amount: '0.7', spaceId: pot });
+  expect(captured.roundUp).toMatchObject({ status: 'settled', amount: '0.7', spaceId: change.id });
   expect(captured.roundUp.ledgerTxId).toBeUndefined();
   expect(captured.roundUp.partnerMoveId).toBeTruthy();
+  // Landed once: the pot gained 0.7 from the USDC account at the partner bank; the 4.30 left the card partner's book.
+  expect(toUnits(named(await spaces(who), CHANGE).balance)).toBe(toUnits(changeBefore) + toUnits('0.7'));
+  expect(toUnits((await usdcMain()).balance)).toBe(toUnits(usdcBefore) - toUnits('0.7'));
 
   // The standing order's first run, once its time has come.
   await expect
@@ -470,29 +490,36 @@ test(`${J} #3 money flows into the space on its own: a standing order and a card
   expect(orderRun).toMatchObject({ status: 'settled', ledgerTxId: null });
   expect(orderRun.partnerMoveId).toBeTruthy();
 
-  // Each landed once: the space gained 5.7 from the account at the partner bank (the order's 5 and the round-up's 0.7);
-  // the 4.30 itself left the TEST card partner's own book, not the account.
+  // The order landed once: the space gained 5 from the account at the partner bank, and the round-up's 0.7 stayed in
+  // its own pot.
   const after = await spaces(who);
-  expect(toUnits(named(after, POT).balance)).toBe(toUnits(before.balance) + toUnits('5.7'));
-  expect(toUnits(main(after).balance)).toBe(toUnits(mainBefore) - toUnits('5.7'));
+  expect(toUnits(named(after, POT).balance)).toBe(toUnits(before.balance) + toUnits('5'));
+  expect(toUnits(main(after).balance)).toBe(toUnits(mainBefore) - toUnits('5'));
+  expect(toUnits(named(after, CHANGE).balance)).toBe(toUnits(changeBefore) + toUnits('0.7'));
   await ledgerUnchanged(who, run.read().ledger);
 
-  // The space's own statement, this month so far: the order's run and the round-up, once each, and nothing else's lines.
-  await page.goto(`/bank/spaces?space=${pot}`);
-  const statement = selected.getByRole('form', { name: 'Space statement' });
-  await expect(statement.getByLabel('Format')).toHaveValue('csv');
-  const [download] = await Promise.all([
-    page.waitForEvent('download'),
-    statement.getByRole('button', { name: 'Download space statement' }).click(),
-  ]);
-  const csv = readFileSync(await download.path(), 'utf8').replace(/^\uFEFF/, '');
-  const [header, ...lines] = csv.trim().split('\r\n');
-  expect(header.split(',')[4]).toBe('Amount');
-  const amounts = lines.map((line) => line.split(','));
-  expect(amounts.every((cells) => cells[6] === POT)).toBe(true);
-  expect(amounts.filter((cells) => cells[4] === '5')).toHaveLength(1);
-  expect(amounts.filter((cells) => cells[4] === '0.7')).toHaveLength(1);
-  await expect(statement.getByRole('status')).toContainText(`${lines.length} lines`);
+  // Each pot's own statement, this month so far: the order's run in the space, the round-up in the spare-change pot, once
+  // each, and nothing else's lines.
+  const statementOf = async (spaceId, name) => {
+    await page.goto(`/bank/spaces?space=${spaceId}`);
+    const statement = selected.getByRole('form', { name: 'Space statement' });
+    await expect(statement.getByLabel('Format')).toHaveValue('csv');
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      statement.getByRole('button', { name: 'Download space statement' }).click(),
+    ]);
+    const csv = readFileSync(await download.path(), 'utf8').replace(/^\uFEFF/, '');
+    const [header, ...lines] = csv.trim().split('\r\n');
+    expect(header.split(',')[4]).toBe('Amount');
+    const cells = lines.map((line) => line.split(','));
+    expect(cells.every((row) => row[6] === name)).toBe(true);
+    await expect(statement.getByRole('status')).toContainText(`${lines.length} lines`);
+    return cells;
+  };
+  const potLines = await statementOf(pot, POT);
+  expect(potLines.filter((cells) => cells[4] === '5')).toHaveLength(1);
+  const changeLines = await statementOf(change.id, CHANGE);
+  expect(changeLines.filter((cells) => cells[4] === '0.7')).toHaveLength(1);
 });
 
 test(`${J} #4 sets an income sorter: one over 100% is refused, and a TEST 100 payment from another person splits 60 and 40, once`, async ({
