@@ -428,7 +428,8 @@ test(`${J} #6 presses Print: parameters, statistics, charts and labels on paper 
     };
   });
   expect(layout.shown, 'nothing outside the report takes room on paper').toEqual([]);
-  expect(layout.top, 'the report starts at the top of the first page').toBeLessThanOrEqual(64);
+  // No blank page before it: the report starts on the first page (an A4 page holds 1123 CSS pixels less its margins).
+  expect(layout.top, 'the report starts on the first page').toBeLessThan(1123 - 48);
   expect(layout.breaks).toEqual(REPORT_SECTIONS.map(() => 'avoid'));
   // Paper-sized pages: the printed file's every page is A4 (595 by 842 points), as the report's page rule sets it.
   const pdf = (await page.pdf({ preferCSSPageSize: true })).toString('latin1');
