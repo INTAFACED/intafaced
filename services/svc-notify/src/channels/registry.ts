@@ -223,12 +223,13 @@ export class ChannelRegistry {
    *
    * A gateway with URL+token and the switch on is `channel.unprobed` — this
    * process never POSTs at boot. Same class as P2P `moderationConfigured` ≠
-   * reachable.
+   * reachable. The TEST email stand-in has no gateway to probe: it writes a file on this machine, so it is available as inapp
+   * is (J-charts-desk-10 #5: a person confirms their address through it).
    */
   private doorReason(channel: NotificationChannel): RefusalCode | null {
     const blocked = this.blockedReason(channel);
     if (blocked !== null) return blocked;
-    if (channel.channel !== 'inapp') return 'channel.unprobed';
+    if (channel.channel !== 'inapp' && !(channel instanceof TestOutboxEmailChannel)) return 'channel.unprobed';
     return null;
   }
 

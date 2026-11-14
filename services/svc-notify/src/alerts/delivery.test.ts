@@ -264,6 +264,9 @@ describe('the TEST email stand-in', () => {
     const registry = channelsFromEnv({ NOTIFY_EMAIL_TEST_OUTBOX: file, APP_ENV: 'test' } as never);
     const email = registry.get('email');
     expect(email.unavailableReason).toBeNull();
+    // Nothing to probe: the person can add and confirm an address through it, as the settings page reads this status.
+    expect(registry.status().find((c) => c.channel === 'email')).toMatchObject({ configured: true, available: true, reason: null });
+    expect(registry.status().find((c) => c.channel === 'push')).toMatchObject({ configured: false, available: false });
     await email.deliver({
       notificationId: 'n1',
       userId: USER,
