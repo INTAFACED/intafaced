@@ -616,21 +616,45 @@ test(`${J} #5 claims after the window closed: the claim-expired state, and the r
 test(`${J} #6 opens My Rewards and the connected wallet's activity: the reward owed, then paid once to the connected wallet, with its chain reference matching the reward record; the wallet shows the incoming transfer as the chain reports it`, async ({
   page,
 }) => {
-  test.setTimeout(240_000);
-  const { me, campaignId, chainTx, wallet, walletKey } = state('me', 'campaignId', 'chainTx', 'wallet', 'walletKey');
-  const { reward, receipt } = await paidOnce(me, campaignId, wallet);
-  expect(reward.payout.chainTx).toBe(chainTx);
+  test.setTimeout(300_000);
+  const { me, wallet, walletKey } = state('me', 'wallet', 'walletKey');
+  // A reward seen on My Rewards while it is owed, then paid: a fresh one-step campaign whose short review hold keeps it
+  // owed long enough to look at (the pot and our rewards wallet were funded in #3).
+  const hold = await liveCampaign(`TEST owed then paid ${tag}`, ONE_TRADE({ kycGate: 'full', holdSeconds: 30 }));
+  await call(me, 'POST', 'participation.join', { campaignId: hold.id });
+  await trade(me, 'buy');
+  await waitForProgress(me, hold.id, 1);
+  await call(me, 'POST', 'tasks.claim', { campaignId: hold.id });
+  await expect.poll(async () => (await progressOf(me, hold.id)).reward.state, { timeout: 30_000 }).toBe('owed');
   await signIn(page, me);
+  const owedHub = await openHub(page);
+  const owedRow = hubRow(owedHub, hold.id);
+  // Owed: INTAFACED owes it, it is in no wallet yet, and the row carries no chain transaction.
+  await expect(owedRow).toHaveCount(1);
+  await expect(owedRow).toHaveAttribute('data-status', 'on_hold');
+  await expect(owedRow.getByTestId('reward-amount')).toHaveText(`${REWARD} ${ASSET}`);
+  await expect(owedRow.getByTestId('reward-why')).toContainText('Owed to you by INTAFACED.');
+  await expect(owedRow.getByTestId('reward-why')).toContainText('it is paid to your connected wallet after that');
+  await expect(owedRow.getByTestId('reward-chain-tx')).toHaveCount(0);
+
+  // Then paid once to the connected wallet: the same row now carries the payment's chain transaction, the record's.
+  await expect.poll(async () => (await progressOf(me, hold.id)).reward.state, { timeout: 120_000 }).toBe('paid');
+  await page.waitForTimeout(6_000);
+  const { reward, receipt } = await paidOnce(me, hold.id, wallet);
+  const chainTx = reward.payout.chainTx;
+  expect(Date.parse(reward.owed.at)).toBeLessThan(Date.parse(reward.payout.at));
   const hub = await openHub(page);
-  const row = hubRow(hub, campaignId);
+  const row = hubRow(hub, hold.id);
   await expect(row).toHaveCount(1);
   await expect(row).toHaveAttribute('data-status', 'paid');
   await expect(row.getByTestId('reward-amount')).toHaveText(`${REWARD} ${ASSET}`);
-  // Owed, then paid: the owe comes first, the payment after it, once each.
-  expect(Date.parse(reward.owed.at)).toBeLessThanOrEqual(Date.parse(reward.payout.at));
   await expect(row.getByTestId('reward-why')).toContainText('Paid to your connected wallet');
   await expect(row.getByTestId('reward-chain-tx')).toHaveAttribute('data-tx', chainTx);
   await expect(row.getByTestId('reward-chain-tx')).toHaveAttribute('href', `/chain/tx/${chainTx}`);
+  // The rewards from #3 and #4 are listed once each too, each paid with its own chain transaction.
+  const { campaignId, chainTx: firstTx } = state('campaignId', 'chainTx');
+  await expect(hubRow(hub, campaignId)).toHaveAttribute('data-status', 'paid');
+  await expect(hubRow(hub, campaignId).getByTestId('reward-chain-tx')).toHaveAttribute('data-tx', firstTx);
 
   // The wallet's own activity, read from the chain's index: one incoming TEST USD transfer under the same transaction.
   await installTestWallet(page, { chainId: CHAIN_ID, privateKey: walletKey, rpcUrl: testChain().gateUrl });
@@ -652,7 +676,7 @@ test(`${J} #6 opens My Rewards and the connected wallet's activity: the reward o
 test(`${J} #7 opens the redemption log of the reward: the outcome, failure reason if any, the chain reference once paid, and the rollback window, which closes when the reward is paid`, async ({
   page,
 }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(240_000);
   const { me, campaignId, chainTx, other, noWalletId } = state('me', 'campaignId', 'chainTx', 'other', 'noWalletId');
   await signIn(page, me);
   await openCampaign(page, campaignId);
@@ -675,6 +699,28 @@ test(`${J} #7 opens the redemption log of the reward: the outcome, failure reaso
   await expect(rollback).toHaveAttribute('data-open', 'false');
   await expect(rollback).toContainText('closed when the reward was paid to your wallet, on');
   await expect(rollback).toHaveAttribute('data-code', 'campaigns.reclaim_unavailable');
+
+  // A failure reason, in the log itself: a reward past INTAFACED's TEST reward ceiling (100 USDC a campaign) is refused
+  // by the ledger, and its log line names the ledger's reason; it stays open and is never paid.
+  const over = await liveCampaign(`TEST over the ceiling ${tag}`, ONE_TRADE({ kycGate: 'full' }), {
+    budget: { asset: ASSET, limit: '200' },
+    reward: { asset: ASSET, amount: '101' },
+  });
+  await call(me, 'POST', 'participation.join', { campaignId: over.id });
+  await trade(me, 'buy');
+  await waitForProgress(me, over.id, 1);
+  await call(me, 'POST', 'tasks.claim', { campaignId: over.id });
+  await expect
+    .poll(async () => (await progressOf(me, over.id)).reward.attempts.some((a) => a.outcome === 'refused'), { timeout: 30_000 })
+    .toBe(true);
+  await openCampaign(page, over.id);
+  const overLog = page.getByRole('region', { name: 'Redemption log' });
+  const refused = overLog.locator('[data-testid="redemption-attempt"][data-outcome="refused"]').first();
+  await expect(refused).toContainText('Refused, still open');
+  await expect(refused.getByTestId('redemption-reason')).toHaveText('ledger.reward_ceiling_exceeded');
+  await expect(refused.getByTestId('redemption-chain-tx')).toHaveText('—');
+  await expect(overLog.locator('[data-outcome="paid"]')).toHaveCount(0);
+  expect((await progressOf(me, over.id)).reward).toMatchObject({ reason: 'ledger.reward_ceiling_exceeded', payout: null });
 
   // A reward not paid yet keeps its window open until it is paid, and its log names why nothing was sent.
   await signOutBrowser(page.context());
