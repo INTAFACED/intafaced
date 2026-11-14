@@ -336,11 +336,21 @@ export class CertDesigns {
 
   private async issuedRowsOf(db: Db, certificate: string | null, limit: number) {
     const rows = await db<
-      Array<{ public_id: string; user_id: string; cert_id: string; status: string; granted_at: Date; design_revision: number | null }>
+      Array<{
+        public_id: string;
+        user_id: string;
+        cert_id: string;
+        status: string;
+        granted_at: Date;
+        design_revision: number | null;
+        exception_reason: string | null;
+      }>
     >`
-      SELECT public_id, user_id, cert_id, status, granted_at, design_revision FROM academy.cert_grants
-       WHERE ${certificate}::text IS NULL OR cert_id = ${certificate}
-       ORDER BY granted_at DESC, public_id
+      SELECT g.public_id, g.user_id, g.cert_id, g.status, g.granted_at, g.design_revision, x.reason AS exception_reason
+        FROM academy.cert_grants g
+        LEFT JOIN academy.cert_exceptions x ON x.public_id = g.public_id
+       WHERE ${certificate}::text IS NULL OR g.cert_id = ${certificate}
+       ORDER BY g.granted_at DESC, g.public_id
        LIMIT ${limit}
     `;
     return rows.map((r) => ({
@@ -350,6 +360,7 @@ export class CertDesigns {
       status: r.status === 'revoked' ? ('revoked' as const) : ('valid' as const),
       grantedAt: r.granted_at.toISOString(),
       designRevision: r.design_revision,
+      exceptionReason: r.exception_reason,
     }));
   }
 
