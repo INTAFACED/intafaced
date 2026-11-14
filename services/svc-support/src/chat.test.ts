@@ -14,6 +14,9 @@ import {
   type ChatTicketDesk,
 } from './chat.js';
 import type { StaffMember } from './desk-staff.js';
+import { NO_CHAT_MAIL, SUPPORT_CHAT_EMAIL_UNPROVED, type ChatMailPort } from './chat-email.js';
+import { SupportError } from './support-service.js';
+import type { ServiceMailRequest } from '@intafaced/contracts';
 
 // SP-chat-01 (J-support-public-05): the chat's rules, on the memory book. The Postgres book is in chat.pg.test.ts.
 
@@ -35,7 +38,11 @@ function staff(availability: StaffMember['availability'], userId = AGENT): Staff
   };
 }
 
-function world(overrides: Partial<ChatSettings> = {}, profiles: Record<string, 'individual' | 'business'> = {}) {
+function world(
+  overrides: Partial<ChatSettings> = {},
+  profiles: Record<string, 'individual' | 'business'> = {},
+  mail: ChatMailPort = NO_CHAT_MAIL,
+) {
   const tickets: SupportTicket[] = [];
   const desk = {
     members: [staff('online')],
@@ -78,6 +85,7 @@ function world(overrides: Partial<ChatSettings> = {}, profiles: Record<string, '
     settings,
     async () => null,
     () => now,
+    mail,
   );
   return { chat, book, desk, tickets, tick: (ms: number) => (now = new Date(now.getTime() + ms)) };
 }
@@ -359,8 +367,107 @@ describe('review fixes', () => {
   });
 });
 
+/** A mailbox like identity's: one mail per key, a repeat answers the first. */
+function mailbox() {
+  const sent: ServiceMailRequest[] = [];
+  const ids = new Map<string, string>();
+  const port: ChatMailPort = {
+    async send(request) {
+      if (!ids.has(request.key)) {
+        ids.set(request.key, randomUUID());
+        sent.push(request);
+      }
+      return { mailId: ids.get(request.key)! };
+    },
+  };
+  return { port, sent };
+}
+
 describe('continue by email', () => {
-  it('there is no mailbox in this build: it names vendor.email and the chat stays open', async () => {
+  it('with a mailbox, the signed-in owner’s chat is mailed to their own address once a day, and the chat stays open', async () => {
+    const box = mailbox();
+    const { chat, tick } = world({}, {}, box.port);
+    const { session } = await chat.open(ALICE, { clientKey: key(), message: 'hello' });
+    const answer = await chat.continueByEmail({ userId: ALICE }, session.id);
+    expect(answer).toMatchObject({ status: 'emailed', session: { id: session.id } });
+    expect(box.sent).toEqual([
+      {
+        key: `support-chat-email:${session.id}:2026-11-07`,
+        userId: ALICE,
+        purpose: 'support-chat-email',
+        token: session.id,
+        detail: 'support chat',
+        expiresAt: '2026-11-14T00:00:00.000Z',
+      },
+    ]);
+    // Asking again the same day asks under the same key: the mailbox sends nothing more.
+    await chat.continueByEmail({ userId: ALICE }, session.id);
+    expect(box.sent).toHaveLength(1);
+    tick(86_400_000);
+    await chat.continueByEmail({ userId: ALICE }, session.id);
+    expect(box.sent.map((m) => m.key)).toEqual([
+      `support-chat-email:${session.id}:2026-11-07`,
+      `support-chat-email:${session.id}:2026-11-08`,
+    ]);
+    await expect(
+      chat.send({ userId: ALICE }, { sessionId: session.id, clientMessageId: 'm-000002', body: 'still here' }),
+    ).resolves.toBeTruthy();
+  });
+
+  it('after the switch, each agent reply is mailed into the thread once, under its own key', async () => {
+    const box = mailbox();
+    const { chat } = world({}, {}, box.port);
+    const { session } = await chat.open(ALICE, { clientKey: key(), message: 'hello' });
+    await chat.accept(AGENT, session.id);
+    // Before the switch a reply is not mailed.
+    await chat.reply(AGENT, { sessionId: session.id, clientMessageId: 'r-000001', body: 'one moment' });
+    expect(box.sent).toEqual([]);
+    expect((await chat.continueByEmail({ userId: ALICE }, session.id)).status).toBe('emailed');
+    const reply = await chat.reply(AGENT, { sessionId: session.id, clientMessageId: 'r-000002', body: 'here is your answer' });
+    // The same reply sent again (a lost answer) stores one message and asks for the same mail.
+    await chat.reply(AGENT, { sessionId: session.id, clientMessageId: 'r-000002', body: 'here is your answer' });
+    expect(box.sent.map((m) => [m.key, m.detail])).toEqual([
+      [`support-chat-email:${session.id}:2026-11-07`, 'support chat'],
+      [`support-chat-email:${session.id}:reply:${reply.id}`, `reply ${reply.seq}`],
+    ]);
+    expect(box.sent[1]).toMatchObject({ userId: ALICE, purpose: 'support-chat-email', token: session.id });
+  });
+
+  it('a guest, or a page holding only the chat token, is never mailed: it names vendor.email', async () => {
+    const box = mailbox();
+    const { chat } = world({}, {}, box.port);
+    const guest = await chat.open(null, { clientKey: key(), prechat: { name: 'A', email: 'a@b.invalid' }, message: 'hello' });
+    expect(await chat.continueByEmail({ userId: null, accessToken: guest.accessToken }, guest.session.id)).toMatchObject({
+      status: 'not_connected',
+      code: 'vendor.email',
+    });
+    const mine = await chat.open(ALICE, { clientKey: key(), message: 'hello' });
+    expect(await chat.continueByEmail({ userId: null, accessToken: mine.accessToken }, mine.session.id)).toMatchObject({
+      status: 'not_connected',
+    });
+    expect(box.sent).toEqual([]);
+  });
+
+  it('a mailbox that answers none connected names vendor.email; an unproved address refuses by name', async () => {
+    const { chat } = world({}, {}, { send: async () => null });
+    const { session } = await chat.open(ALICE, { clientKey: key(), message: 'hello' });
+    expect(await chat.continueByEmail({ userId: ALICE }, session.id)).toMatchObject({ status: 'not_connected', code: 'vendor.email' });
+    const unproved = world(
+      {},
+      {},
+      {
+        send: async () => {
+          throw new SupportError('no confirmed address', SUPPORT_CHAT_EMAIL_UNPROVED);
+        },
+      },
+    );
+    const other = await unproved.chat.open(ALICE, { clientKey: key(), message: 'hello' });
+    await expect(unproved.chat.continueByEmail({ userId: ALICE }, other.session.id)).rejects.toMatchObject({
+      code: SUPPORT_CHAT_EMAIL_UNPROVED,
+    });
+  });
+
+  it('there is no mailbox wired: it names vendor.email and the chat stays open', async () => {
     const { chat } = world();
     const { session } = await chat.open(ALICE, { clientKey: key(), message: 'hello' });
     expect(await chat.continueByEmail({ userId: ALICE }, session.id)).toMatchObject({ status: 'not_connected', code: 'vendor.email' });

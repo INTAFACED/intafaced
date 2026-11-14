@@ -36,13 +36,14 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *   POST /markets {account|null}, /preview {account,intent}, /prepare {account,signer,intent},
  *        /submit {prepared,signature}, /balances|/open-orders|/positions|/agents {account},
  *        /order-by-client-id {account,venueClientOrderId}, /fills {account,since}, /withdrawal {account,nonce}, /deposits {account},
- *        /builder-fee-approval {account,builder}, /leverage {account,symbol}, /book {symbol,depth},
+ *        /builder-fee-approval {account,builder}, /builder-totals {builder}, /builder-claims {builder},
+ *        /leverage {account,symbol}, /book {symbol,depth},
  *        /sub-accounts {account}, /transfer {account,nonce}   (UserVenueSubAccountReads, on the main account)
  *        /market-margin {account,symbol}                  the owner's balance in a market deployer's own margin account
  *        /settlements {account,since}                     the account's settlements in a deployer's halt or a split
  *   TEST controls (never part of UserVenue):
  *   POST /test/deposit {account,asset,amount,depositRef}   idempotent by depositRef
- *        /test/switches {venueDown?,unlistPerpetuals?,withdrawalFee?,networkFee?,depositExplorerTxUrl?}   each fee a MaybeKnown<Amount>
+ *        /test/switches {venueDown?,unlistPerpetuals?,declaredAgentPermissionReach?,withdrawalFee?,networkFee?,depositExplorerTxUrl?}   each fee a MaybeKnown<Amount>
  *        /test/account-switches {owner,down?,loseAnswers?,failAfterSend?,submitDelayMs?}   one owner's account only, so a journey can
  *                                                         take the venue away from its own person and no one else's:
  *                                                         `down` refuses every call on that owner's account venue_down;
@@ -51,6 +52,7 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *                                                         submits and answers each HTTP 500; `submitDelayMs` holds each submit
  *                                                         that long (at most 10 s) before the venue applies it
  *        /test/settle-withdrawals, /test/set-mark {symbol,price}
+ *        /test/builder-claim {builder}                     the builder claims every unclaimed builder fee into its own account
  *        /test/fills {since}                              every account's fills since a time, with its account
  *        /test/seed                                       TEST makers rest a two-sided ladder on BTC-USDC, BTC-PERP, XAU-PERP,
  *                                                         XSTK-PERP and XSTD-PERP
@@ -544,6 +546,11 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       return sim.preview(account(body), body.intent as PlaceUserOrderIntent);
     case '/best-prices':
       return sim.bestPrices(str(body, 'symbol'));
+    case '/funding-history': {
+      const since = body.since;
+      if (!(since instanceof Date)) throw new VenueWireError('since is required (an ISO time)');
+      return sim.fundingHistory(str(body, 'symbol'), since);
+    }
     case '/prepare':
       return sim.prepare(account(body), body.signer as VenueSigner, body.intent as VenueIntent);
     case '/submit':
@@ -558,6 +565,8 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       return sim.agents(account(body));
     case '/order-by-client-id':
       return sim.orderByClientId(account(body), str(body, 'venueClientOrderId'));
+    case '/order-signer':
+      return sim.orderSigner(account(body), str(body, 'venueClientOrderId'));
     case '/fills': {
       const since = body.since;
       if (!(since instanceof Date)) throw new VenueWireError('since is required (an ISO time)');
@@ -567,10 +576,14 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       return sim.withdrawal(account(body), str(body, 'nonce'));
     case '/deposits':
       return sim.deposits(account(body));
+    case '/arrivals':
+      return sim.arrivals(account(body));
     case '/builder-fee-approval':
       return sim.builderFeeApproval(account(body), str(body, 'builder'));
     case '/builder-totals':
       return sim.builderTotals(str(body, 'builder'));
+    case '/builder-claims':
+      return sim.builderClaims(str(body, 'builder'));
     case '/leverage':
       return sim.leverage(account(body), str(body, 'symbol'));
     case '/sub-accounts':
@@ -594,6 +607,12 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       if (typeof body.venueDown === 'boolean') sim.switches.venueDown = body.venueDown;
       if (typeof body.unlistPerpetuals === 'boolean') sim.switches.unlistPerpetuals = body.unlistPerpetuals;
       if (typeof body.builderTotalsUnknown === 'boolean') sim.switches.builderTotalsUnknown = body.builderTotalsUnknown;
+      if (body.declaredAgentPermissionReach !== undefined) {
+        const reach = body.declaredAgentPermissionReach;
+        if (reach !== 'own_account_only' && reach !== 'owner_accounts')
+          throw new VenueWireError("declaredAgentPermissionReach must be 'own_account_only' or 'owner_accounts'");
+        sim.declareAgentPermissionReach(reach);
+      }
       if (body.withdrawalFee !== undefined) sim.switches.withdrawalFee = maybeKnownAmount(body.withdrawalFee, 'withdrawalFee');
       if (body.networkFee !== undefined) sim.switches.networkFee = maybeKnownAmount(body.networkFee, 'networkFee');
       if (body.depositExplorerTxUrl === null || typeof body.depositExplorerTxUrl === 'string') {
@@ -606,6 +625,7 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
         venueDown: sim.switches.venueDown,
         unlistPerpetuals: sim.switches.unlistPerpetuals,
         builderTotalsUnknown: sim.switches.builderTotalsUnknown,
+        declaredAgentPermissionReach: sim.venue.agentPermissionReach,
         withdrawalFee: sim.switches.withdrawalFee,
         networkFee: sim.switches.networkFee,
         depositExplorerTxUrl: sim.switches.depositExplorerTxUrl,
@@ -614,6 +634,8 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
     }
     case '/test/account-switches':
       return { ...setAccountSwitches(sim, body), label: 'TEST' };
+    case '/test/builder-claim':
+      return { claims: sim.claimBuilderFees(str(body, 'builder')), label: 'TEST' };
     case '/test/settle-withdrawals':
       return { settled: sim.settleWithdrawals(), label: 'TEST' };
     case '/test/set-mark': {

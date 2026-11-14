@@ -181,3 +181,83 @@ describe('POST /markets/:marketId/positions/close', () => {
     await app.close();
   });
 });
+
+function get(app: FastifyInstance, url: string, service = 'svc-trade') {
+  return app.inject({ method: 'GET', url, headers: serviceAuthHeadersForBody(service, SECRET, '') });
+}
+
+describe('GET /markets/:marketId/positions/:accountId (#4591: svc-trade sizes and funds a close before sending it)', () => {
+  it('refuses an unauthenticated or non-trade read', async () => {
+    const engine = new MatchingEngine({ journal: new MemoryJournal(), bus: new MemoryEventBus('svc-matching'), snapshotEvery: 0 });
+    const app = await mount(engine);
+    const anon = await app.inject({ method: 'GET', url: `/markets/${MARKET}/positions/desk` });
+    expect(anon.statusCode).toBe(401);
+    const other = await get(app, `/markets/${MARKET}/positions/desk`, 'svc-execution');
+    expect(other.statusCode).toBe(403);
+    await app.close();
+  });
+
+  it('reads flat for a book that does not exist, then the signed net of each side, and a reduce-only order for the net closes it', async () => {
+    const journal = new MemoryJournal();
+    const engine = new MatchingEngine({ journal, bus: new MemoryEventBus('svc-matching'), snapshotEvery: 0 });
+    const app = await mount(engine);
+
+    const none = await get(app, `/markets/${MARKET}/positions/desk`);
+    expect(none.statusCode).toBe(200);
+    expect(none.json()).toEqual({ marketId: MARKET, accountId: 'desk', qty: '0' });
+    expect(engine.hasMarket(MARKET)).toBe(false);
+    expect(journal.length).toBe(0);
+
+    await post(
+      app,
+      `/markets/${MARKET}/orders`,
+      submitBody({ orderId: '22222222-2222-4222-8222-222222222222', accountId: 'mm', side: 'sell', qty: '2', price: '100' }),
+    );
+    await post(
+      app,
+      `/markets/${MARKET}/orders`,
+      submitBody({ orderId: '11111111-1111-4111-8111-111111111111', accountId: 'desk', side: 'buy', qty: '2', price: '100' }),
+    );
+    expect((await get(app, `/markets/${MARKET}/positions/desk`)).json().qty).toBe('2');
+    expect((await get(app, `/markets/${MARKET}/positions/mm`)).json().qty).toBe('-2');
+
+    await post(
+      app,
+      `/markets/${MARKET}/orders`,
+      submitBody({ orderId: '33333333-3333-4333-8333-333333333333', accountId: 'liq', side: 'buy', qty: '2', price: '100' }),
+    );
+    // More than the position is refused by the reduce-only check, so a close sized from a stale read cannot open a short.
+    const tooMuch = await post(
+      app,
+      `/markets/${MARKET}/orders`,
+      submitBody({
+        orderId: '44444444-4444-4444-8444-444444444444',
+        accountId: 'desk',
+        side: 'sell',
+        qty: '3',
+        price: '98',
+        tif: 'IOC',
+        reduceOnly: true,
+      }),
+    );
+    expect(tooMuch.json()).toMatchObject({ accepted: false, rejected: { code: 'would_increase_position' } });
+    // The close svc-trade now sends: a reduce-only IOC limit for the net at its protection floor.
+    const close = await post(
+      app,
+      `/markets/${MARKET}/orders`,
+      submitBody({
+        orderId: '55555555-5555-4555-8555-555555555555',
+        accountId: 'desk',
+        side: 'sell',
+        qty: '2',
+        price: '98',
+        tif: 'IOC',
+        reduceOnly: true,
+      }),
+    );
+    expect(close.json()).toMatchObject({ accepted: true });
+    expect(close.json().fills[0]).toMatchObject({ qty: '2', price: '100', takerSide: 'sell' });
+    expect((await get(app, `/markets/${MARKET}/positions/desk`)).json().qty).toBe('0');
+    await app.close();
+  });
+});

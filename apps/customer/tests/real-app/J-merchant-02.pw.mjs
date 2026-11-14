@@ -122,6 +122,12 @@ test(`${J} #1 starts onboarding and fills the business step: a saved draft that 
     await page.getByLabel('Contact email *').fill(owner.email);
   };
   const createButton = page.locator('form').getByRole('button', { name: 'Create my account' });
+  const expectBusinessDraft = async () => {
+    await expect(page.getByLabel('Legal business name *')).toHaveValue('TEST Draft Ltd');
+    await expect(page.getByLabel('Country code *')).toHaveValue('DE');
+    await expect(page.getByLabel('Type of business *')).toHaveValue('online shop');
+    await expect(page.getByLabel('Contact email *')).toHaveValue(owner.email);
+  };
 
   // With no starting fee published, the first step refuses to open an account: the room says why and the button stays
   // off, and the service refuses a create sent straight to it with its code. No account exists afterwards.
@@ -159,18 +165,30 @@ test(`${J} #1 starts onboarding and fills the business step: a saved draft that 
     expect(create.status).toBe(412);
     expect(create.typed).toBe('pay.starter_fee_unpublished');
     expect((await payCall('merchant.me')).data).toBeNull();
-    // The room asks before a reload drops what was typed; the owner leaves anyway, and the cleared form shows the reload ran.
+    // Leaving and coming back: what was typed on the business step is still there, and the step still refuses.
     page.once('dialog', (dialog) => dialog.accept());
     await page.reload();
-    await expect(page.getByLabel('Legal business name *')).toHaveValue('');
+    await expectBusinessDraft();
     await expect(page.getByText('Opening new accounts isn’t possible here. INTAFACED has not set the starting fee')).toBeVisible();
     await expect(page.getByText('Your merchant account exists.')).toHaveCount(0);
   } finally {
     payStarterFee(true);
   }
 
-  // The stack's TEST starting fee published again: the same step opens the account.
+  // "A saved draft that survives leaving": the business step, filled and left (the personal home, then a sign-out with the
+  // browser's storage cleared and a fresh sign-in), opens again with what was typed, before any account exists.
+  // The draft saved above loads after the step opens. Typing before it arrives can land behind it (a fill's select-all
+  // runs on the empty field, then the draft fills it, then the text is typed after it), so the step is read loaded first.
   await page.goto('/pay/onboarding/business');
+  await expectBusinessDraft();
+  await fillBusiness();
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.goto('/home');
+  await forgetSession(page);
+  await signInWithCode(page, owner, '/pay/onboarding/business');
+  await expectBusinessDraft();
+
+  // The stack's TEST starting fee published again: the same step opens the account.
   await fillBusiness();
   await expect(page.getByText('Opening new accounts isn’t possible here')).toHaveCount(0);
   const created = page.waitForResponse((r) => r.url().includes('merchant.create') && r.request().method() === 'POST');

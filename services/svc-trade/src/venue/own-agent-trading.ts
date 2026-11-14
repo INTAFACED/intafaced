@@ -140,6 +140,8 @@ export interface AllowanceView {
   readonly agentAddress: string;
   /** Whether the venue's own record still lists the agent permission on the sub-account. */
   readonly permissionOnVenue: boolean;
+  /** Whether this service holds a signer for the allowance's agent key now. False once revoked: our copy is dropped and signs nothing more. */
+  readonly agentKeyHeld: boolean;
   readonly revokedAt: Date | null;
   readonly next: AllowanceNext | null;
   /** The venue's refusal of the agent permission, when the allowance was abandoned for one. */
@@ -426,6 +428,7 @@ export class OwnAgentTrading {
       endsAt: a.endsAt,
       agentAddress: a.agentAddress,
       permissionOnVenue: onVenue,
+      agentKeyHeld: this.signers.has(a.agentAddress),
       revokedAt: a.revokedAt,
       next,
       refusal,
@@ -724,7 +727,9 @@ export class OwnAgentTrading {
         await this.deps.door.prepare(
           principal,
           { owner: a.owner, subAccount: a.subAccount, signer: { role: 'agent', address: a.agentAddress }, intent },
-          { agentAccount: true },
+          // The order's worst price is already the owner's agent bound against the book (`terms`), so the door's own
+          // spot protection is not applied on top of it.
+          { agentAccount: true, ownWorstPrice: true },
         )
       ).prepared;
     } catch (error) {

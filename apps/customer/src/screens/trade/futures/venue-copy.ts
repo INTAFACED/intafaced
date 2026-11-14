@@ -55,6 +55,10 @@ export const futuresVenueCopy = defineCopy('trade.futures.venue', {
   'Contract on venue': '{symbol} · {venue}',
   'No contract': 'No futures contract is listed',
   'No contract reason': '{venue} lists no perpetual contract for this account.',
+  // J-derivatives-01 #2: each contract open or blocked for this account, with every reason (svc-trade's gated list).
+  'Gated list': 'Which contracts you may open',
+  'Gated open': 'Open for your account',
+  'Gated blocked': 'Blocked for your account',
   'Contract strip': 'Contract',
   Family: 'Family',
   family_perpetual: 'Perpetual',

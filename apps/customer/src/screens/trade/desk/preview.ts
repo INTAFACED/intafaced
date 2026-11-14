@@ -11,7 +11,8 @@ import type { RefusalContext } from '../../../data';
 import type { RefusalCopy } from '../../../data/types';
 
 /** What the person is told when a call failed. `network` means we do not know the outcome of what was sent. */
-export type Failure = { kind: 'refusal'; copy: RefusalCopy } | { kind: 'network' };
+/** `tradingHold`: the refusal is a trading hold on this account, so the note adds its stored reason (J-identity-14 #2). */
+export type Failure = { kind: 'refusal'; copy: RefusalCopy; tradingHold?: true } | { kind: 'network' };
 
 /** Refusals that count new resting orders. The order check judges a new order, but a replacement takes the slot its
  * original frees (the service never caps it), so an edit reads the check without them. */
@@ -58,7 +59,8 @@ export function previewFailure(preview: Preview, context: RefusalContext, tickSi
 }
 
 export function refusalFailure(code: string | null | undefined, context: RefusalContext): Failure {
-  return { kind: 'refusal', copy: refusalCopy(code ?? 'unknown', context) };
+  const copy = refusalCopy(code ?? 'unknown', context);
+  return classifyRefusal(code) === 'tradingOnHold' ? { kind: 'refusal', copy, tradingHold: true } : { kind: 'refusal', copy };
 }
 
 /**

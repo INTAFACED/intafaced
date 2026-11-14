@@ -11,7 +11,7 @@ import { lineTotals, signStatement, statementCsv, statementLines, statementPdf, 
  *
  * `report` (PF-statements-01) chooses what the file holds: `statement` and
  * `ledger` every posted line, `trades` only trade lines and fee lines (a
- * fill's own fee is taken from what it delivers, so its line is net of it). `balances`, a holding snapshot at a past date, needs a
+ * fill's own fee is its own fee line beside the fill, which shows what the fill delivered; activity-service `withOwnFee`). `balances`, a holding snapshot at a past date, needs a
  * past-balance read the ledger does not offer yet and refuses
  * `bank.statement_balances_unavailable`.
  */

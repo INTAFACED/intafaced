@@ -16,6 +16,11 @@ const baseSettingsApi = ({ query, mutate, list, confirmDestinationStepUp }: Port
       { mode: 'gateway', pricing: { feeBps }, settlementPrefs: { businessDetails }, ...names },
       p.merchantCreatedSchema,
     ),
+  /** The business step's draft, kept by svc-pay for the signed-in person before an account exists (J-merchant-02 #1). */
+  onboardingDraft: (signal?: AbortSignal) => query('merchant.onboardingDraft', {}, p.onboardingDraftSchema, signal),
+  /** `seq` rises with each change, so the service keeps the newest; sent keepalive so a save made while leaving lands. */
+  saveOnboardingDraft: (fields: p.OnboardingDraftFields, seq: number) =>
+    mutate('merchant.saveOnboardingDraft', { fields, seq }, p.onboardingDraftSchema, { keepalive: true }),
   submitKyb: (merchantId: string, kybRef: string) => mutate('merchant.submitKyb', { merchantId, kybRef }, p.kybSubmitSchema),
   /** Confirms the destination with the owner's code or passkey, then saves it with that single-use approval. */
   setPayoutDestination: async (merchantId: string, railId: string, kind: string, ref: string, proof: DestinationProof) => {

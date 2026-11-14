@@ -188,6 +188,8 @@ export const SECURITY_FACTOR_CHANGES = [
   'passkey_removed',
   'password_changed',
   'new_device',
+  // An API key revoked by an operator because a leaked copy was reported (DV-keys-05, J-developer-07 #6).
+  'api_key_revoked',
 ] as const;
 
 export const securityFactorChanged = defineEvent(
@@ -1001,6 +1003,29 @@ export const agentApprovalRequested = defineEvent(
     expiresAt: z.string().datetime(),
   }),
   'An own agent’s tool call waits for its owner’s approval. Published once per request, so the owner is told once.',
+);
+
+/**
+ * A background run of a person's agent session took its last step (AG-sessions-04, J-agents-06 #2). svc-notify writes
+ * the inbox row, once per run, linking to the run's page with its result, and tries the out-of-app channel the person
+ * asked for, whose delivery is recorded even when no vendor is set. Carries ids and the channel only, never the reply.
+ */
+export const agentRunCompleted = defineEvent(
+  'agents',
+  'run',
+  'completed',
+  1,
+  z.object({
+    /** The background run, and its business key: one notice per run, however often it is sent. */
+    runId: z.string().guid(),
+    userId: userIdSchema,
+    sessionId: z.string().guid(),
+    agentId: z.string().min(1).max(120),
+    /** The out-of-app channel the person asked to be told on; `inapp` asks for the inbox row alone. */
+    notice: z.enum(['inapp', 'email', 'sms', 'push']),
+    finishedAt: z.string().datetime(),
+  }),
+  'A background run of an agent session finished. Published once per run, so the person is told once.',
 );
 
 // ── p2p (§6.2) ───────────────────────────────────────────────────────────────
@@ -2025,6 +2050,29 @@ export const payWithdrawalStatusUpdated = defineEvent(
   'A customer withdrawal moved to a new status (requested, held, broadcast, settled, failed and the rest of ENGINE W-1). One event per move; deduplicated by (withdrawalId, seq).',
 );
 
+// ── academy: a moderator deleted a learner's discussion posts (AC-rooms-02, J-academy-18) ─
+
+/**
+ * A moderator deleted one of a learner's posts in a course discussion, or every post of theirs in one course, with a
+ * reason. svc-academy keeps the event row and sends this once the bus is reachable (its outbox); svc-notify tells the
+ * author in their notification tray. One event per moderation event: consumers dedupe on eventId. Who reported the post
+ * never rides here. No money moves.
+ */
+export const academyDiscussionPostDeleted = defineEvent(
+  'academy',
+  'discussion_post',
+  'deleted',
+  1,
+  z.object({
+    eventId: z.string().guid(),
+    authorId: userIdSchema,
+    courseTitle: z.string().min(1).max(200),
+    posts: z.number().int().positive(),
+    reason: z.string().min(1).max(500),
+  }),
+  "A moderator deleted a learner's discussion post, or every post of theirs in one course, with a reason. One event per moderation event; deduplicated by eventId.",
+);
+
 // ── The registry ─────────────────────────────────────────────────────────────
 
 export const EVENT_CATALOG = {
@@ -2094,6 +2142,7 @@ export const EVENT_CATALOG = {
   agentUsageSettled,
   agentUsageAlertCrossed,
   agentApprovalRequested,
+  agentRunCompleted,
   p2pOfferCreated,
   p2pEscrowLocked,
   p2pEscrowReleased,
@@ -2105,6 +2154,7 @@ export const EVENT_CATALOG = {
   p2pTradeReminderSent,
   p2pOfferPaused,
   p2pTraderPosted,
+  academyDiscussionPostDeleted,
   p2pRemarkCaseOpened,
   p2pChatMessageSent,
   p2pDisputeEscalated,

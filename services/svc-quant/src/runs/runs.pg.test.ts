@@ -83,6 +83,7 @@ describe('quant run records, detail, clone, claim, and the operator list', () =>
   const app = createQuantRouter({
     wired: true,
     venueVaultSet: false,
+    paperFeeBps: '0',
     limits,
     lake,
     strategies: createPostgresStrategyRepository(sql, SCHEMA),

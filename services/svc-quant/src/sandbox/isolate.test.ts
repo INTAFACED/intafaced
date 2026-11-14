@@ -15,6 +15,7 @@ function book() {
   return createPaperBook({
     startingCash: '10000',
     venueVaultSet: false,
+    feeBps: '0',
     marks: { 'BTC-USD': '50000' },
   });
 }

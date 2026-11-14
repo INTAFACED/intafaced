@@ -1,5 +1,5 @@
 import type { PayWithdrawalAddressesPort } from '@intafaced/contracts';
-import { parseAmount } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { PAR_ASSETS } from '../portfolio/valuation.js';
 import type { SpaceRecord } from '../spaces/space-service.js';
 import { classify, directionOf, type ActivityKind, type EntryDirection } from './activity-kind.js';
@@ -106,6 +106,11 @@ export interface LedgerPageEntry {
   readonly orderId?: string | null;
   /** A withdrawal line's own `<withdrawal id>:<attempt>`, else null. Absent until svc-ledger sends it. */
   readonly withdrawalId?: string | null;
+  /**
+   * On the owner's receiving line of a fill, the fee the ledger took from it (the line's `amount` is net of it), else null.
+   * Absent from an older ledger: the line then stays one net line.
+   */
+  readonly fee?: string | null;
 }
 
 export interface LedgerPageRequest {
@@ -354,6 +359,23 @@ function accountOf(item: Pick<ActivityItem, 'id' | 'txId'>): string | null {
   if (rest.startsWith('u:')) return 'main';
   const m = /^s:([^:]+):/.exec(rest);
   return m ? m[1]! : null;
+}
+
+/**
+ * A fill's fee as its own figure (J-portfolio-11 #3). The ledger books a fill's fee out of what that side receives, so the
+ * receiving line it posts on the customer's account is net of it, and the fee itself sits on the house's fee account. When
+ * the ledger names that fee (`fee` > 0 on the receiving line), the line is shown as what the fill delivered (net + fee) and
+ * the fee as its own `fee` line out, in the same asset, of the same transaction and order: the two sum to the ledger's own
+ * entry, so every total over the feed is unchanged. The fee line's id is the fill line's id with `:fee`, stable across reads.
+ * No fee, a zero fee, or a ledger that does not send one: the line stays the one net line it is.
+ */
+function withOwnFee(line: ActivityItem, fee: string | null | undefined): ActivityItem[] {
+  if (typeof fee !== 'string' || line.direction !== 'in') return [line];
+  const taken = parseAmount(fee);
+  if (taken <= 0n) return [line];
+  const { purchase: _purchase, ...rest } = line;
+  const feeLine: ActivityItem = { ...rest, id: `${line.id}:fee`, kind: 'fee', direction: 'out', amount: formatAmount(taken) };
+  return [{ ...line, amount: formatAmount(parseAmount(line.amount) + taken) }, feeLine];
 }
 
 /**
@@ -808,13 +830,13 @@ export class ActivityService {
     }
 
     const seen = new Map<string, number>();
-    const items: ActivityItem[] = taken.map(({ entry, queue }) => {
+    const items: ActivityItem[] = taken.flatMap(({ entry, queue }) => {
       const dir = directionOf(entry.direction);
       const own = (transferHalves.get(entry.txId) ?? 0) >= 2;
       const base = `${entry.txId}:${queue.owner.key}:${entry.assetId}:${dir}`;
       const n = seen.get(base) ?? 0;
       seen.set(base, n + 1);
-      return {
+      const line: ActivityItem = {
         id: n === 0 ? base : `${base}#${n}`,
         kind: own
           ? 'space_move'
@@ -829,6 +851,7 @@ export class ActivityService {
         ...(typeof entry.orderId === 'string' && entry.orderId !== '' ? { orderId: entry.orderId } : {}),
         ...(isPurchase(entry, dir) ? { purchase: true as const } : {}),
       };
+      return withOwnFee(line, entry.fee);
     });
 
     const wanted = [...new Set(items.filter((i) => i.kind === 'transfer_in' || i.kind === 'transfer_out').map((i) => i.txId))];

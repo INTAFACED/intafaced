@@ -12,8 +12,10 @@ import type { Context } from '@intafaced/contracts';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
 import {
+  LedgerError,
   MemoryLedger,
   formatAmount,
+  stampPostAttempts,
   parseAmount,
   recipes,
   subAccountAvailable,
@@ -24,6 +26,8 @@ import { createBankRouter } from '../router.js';
 import { createBankServices, memoryLedgerHistory, memoryRecipientState, type BankServices } from '../bank-service.js';
 import { accountForSpace } from '../spaces/space-service.js';
 import { PersonalPayService } from './personal-pay.js';
+import { LedgerFrozenRefusal } from '../errors.js';
+import { toTrpcError } from '../router/errors.js';
 import type { LedgerHistoryPages } from '../activity/activity-service.js';
 import { memoryPartyHandles } from './party-handles.js';
 import { eventPersonalRequestNotices, type RequestCreatedNotice } from './request-notices.js';
@@ -821,6 +825,65 @@ describe('personal send and request (Postgres)', () => {
     expect(paid.status).toBe('paid');
     expect(paid.ledgerTxId).toBe(booked?.id);
     expect(ledger.journal().filter((tx) => tx.idempotencyKey.startsWith('bank.transfer.p2p:'))).toHaveLength(1);
+  });
+
+  it('J-identity-14 #2: the posting freeze, proved not posted, refuses as ledger.frozen; nothing reserved, nothing moved, and a send after the freeze posts once', async () => {
+    await ready();
+    const primary = await bank.spaces.ensurePrimary(ADA, 'USDT');
+    const transferId = 'frozen-send';
+    let frozen = true;
+    const personal = new PersonalPayService(
+      db.sql,
+      { getTx: (id) => ledger.getTx(id), getTxByKey: (key) => ledger.getTxByKey(key), balance: (ref) => ledger.balance(ref) },
+      {
+        transferToUser: async (input) => {
+          if (!frozen) return bank.transfers.transferToUser(input);
+          // What the ledger answers under the freeze: one attempt, refused before anything is booked.
+          const refusal = new LedgerError('Ledger posting is frozen: LOCAL TEST', 'ledger.frozen');
+          stampPostAttempts(refusal, 1);
+          throw refusal;
+        },
+      },
+      bank.spaces,
+      { handles: memoryPartyHandles({ [ADA]: 'ada', [BOB]: 'bob' }) },
+    );
+    const sendInput = { actorUserId: ADA, transferId, fromSpaceId: primary.id, toUserId: BOB, amount: parseAmount('5') as Amount };
+    const before = await available(ADA);
+
+    const refused = await personal.send(sendInput).catch((err: unknown) => err);
+    expect(refused).toBeInstanceOf(LedgerFrozenRefusal);
+    expect((refused as LedgerFrozenRefusal).code).toBe('ledger.frozen');
+    // On the wire: a definite 412 with the ledger's code, never an unknown outcome or the book's internals.
+    const wire = toTrpcError(refused);
+    expect({ code: wire.code, message: wire.message }).toEqual({ code: 'PRECONDITION_FAILED', message: 'ledger.frozen' });
+    expect(await db.sql`SELECT 1 FROM bank.personal_transfers WHERE transfer_id = ${transferId}`).toHaveLength(0);
+    expect(await available(ADA)).toBe(before);
+    expect(ledger.journal().filter((tx) => tx.idempotencyKey.startsWith('bank.transfer.p2p:'))).toHaveLength(0);
+
+    // A freeze refusal that proves nothing (no single attempt) stays an unknown: the reservation is kept.
+    const unproved = new PersonalPayService(
+      db.sql,
+      { getTx: (id) => ledger.getTx(id), getTxByKey: (key) => ledger.getTxByKey(key), balance: (ref) => ledger.balance(ref) },
+      {
+        transferToUser: async () => {
+          throw new LedgerError('Ledger posting is frozen: LOCAL TEST', 'ledger.frozen');
+        },
+      },
+      bank.spaces,
+      { handles: memoryPartyHandles({ [ADA]: 'ada', [BOB]: 'bob' }) },
+    );
+    const unknown = await unproved.send({ ...sendInput, transferId: 'frozen-unproved' }).catch((err: unknown) => err);
+    expect(unknown).toBeInstanceOf(LedgerError);
+    expect(toTrpcError(unknown).code).toBe('INTERNAL_SERVER_ERROR');
+    expect(await db.sql`SELECT status FROM bank.personal_transfers WHERE transfer_id = 'frozen-unproved'`).toEqual([
+      { status: 'reserved' },
+    ]);
+
+    // The freeze lifts: the same send posts once.
+    frozen = false;
+    const sent = await personal.send(sendInput);
+    expect(sent.status).toBe('posted');
+    expect(ledger.journal().filter((tx) => tx.idempotencyKey === `bank.transfer.p2p:${transferId}:0`)).toHaveLength(1);
   });
 
   it('refuses a session that lacks the procedure scope', async () => {

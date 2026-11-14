@@ -37,8 +37,12 @@ const LIVE_ROOMS = [
   '/agents/:id',
   // The Approvals inbox, where a person decides a held call of their own agent (J-agents-05 #4).
   '/agents/approvals',
+  // A background run of an agent session, with its result, when it finished (J-agents-06 #2).
+  '/agents/runs/:id',
   // The P2P board filtered to one maker, where a followed trader's new ad is (J-p2p-12 #4).
   '/p2p?makerId=:id',
+  // The Academy Rooms tab, where a learner reaches their course discussions (J-academy-18 #2).
+  '/academy/rooms',
 ];
 
 /** Detail rows IA-SPEC 2.3, 2.4, 2.6 and 2.9 give to bank, cex-spot, pay and agents. The app falls back to the nearest list room until they exist. */

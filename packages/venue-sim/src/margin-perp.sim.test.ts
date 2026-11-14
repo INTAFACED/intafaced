@@ -103,7 +103,7 @@ describe("TEST venue simulator: a market on its deployer's own margin account (J
     // USDC on the main account does not margin this market.
     expect(await w.run(open())).toMatchObject({
       accepted: false,
-      refusal: { code: 'insufficient_balance', detail: `free USDC in ${MARGIN} does not cover what this order locks` },
+      refusal: { code: 'insufficient_balance', detail: `free USDC in ${MARGIN} does not cover the margin and fees this order locks` },
     });
     // The owner's signed move puts collateral in, and nothing leaves the venue.
     expect(await w.run(move('300'))).toMatchObject({ accepted: true });

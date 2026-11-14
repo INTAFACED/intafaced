@@ -6,12 +6,14 @@ import {
   type AsOf,
   type MaybeKnown,
   type VenueBuilderTotals,
+  type UserVenueBuilderClaim,
   type PlaceUserOrderIntent,
   type PreparedVenueAction,
   type UserVenue,
   type UserVenueAccount,
   type UserVenueAgent,
   type UserVenueBalance,
+  type UserVenueArrival,
   type UserVenueDeposit,
   type UserVenueDepositRoute,
   type UserVenueDescriptor,
@@ -30,6 +32,7 @@ import {
   type VenueBook,
   type VenueOrderPreview,
   type VenueBestPrices,
+  type VenueFundingRow,
   type VenueRefusal,
   type VenueSignature,
   type VenueSigner,
@@ -235,6 +238,10 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
     return this.read('/best-prices', { symbol });
   }
 
+  fundingHistory(symbol: string, since: Date): Promise<AsOf<readonly VenueFundingRow[]>> {
+    return this.read('/funding-history', { symbol, since });
+  }
+
   /** A lost prepare sends nothing to sign, so it is `venue_down` and safe to ask again. */
   prepare(account: UserVenueAccount, signer: VenueSigner, intent: VenueIntent): Promise<PreparedVenueAction> {
     return this.read('/prepare', { account, signer, intent });
@@ -289,6 +296,10 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
     return this.read('/deposits', { account });
   }
 
+  arrivals(account: UserVenueAccount): Promise<AsOf<readonly UserVenueArrival[]>> {
+    return this.read('/arrivals', { account });
+  }
+
   builderFeeApproval(account: UserVenueAccount, builder: string): Promise<AsOf<Amount>> {
     return this.read('/builder-fee-approval', { account, builder });
   }
@@ -296,6 +307,11 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
   /** The TEST venue's own builder-fee totals for `builder` (OWNER 288 1e). */
   builderTotals(builder: string): Promise<AsOf<MaybeKnown<VenueBuilderTotals>>> {
     return this.read('/builder-totals', { builder });
+  }
+
+  /** The TEST venue's own record of each claim of our builder fees (J-derivatives-17). */
+  builderClaims(builder: string): Promise<AsOf<readonly UserVenueBuilderClaim[]>> {
+    return this.read('/builder-claims', { builder });
   }
 
   agents(account: UserVenueAccount): Promise<AsOf<readonly UserVenueAgent[]>> {

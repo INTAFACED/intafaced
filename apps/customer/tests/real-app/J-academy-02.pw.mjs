@@ -35,6 +35,15 @@ async function enrolments(who) {
 }
 
 const enrolBlock = (page) => page.locator('[data-academy-enrol]');
+/** The Seats value on a course page's enrol block, found by its own label. */
+const seatsOf = (block) => block.locator('dt', { hasText: /^Seats$/ }).locator('xpath=following-sibling::dd[1]');
+
+/** Academy's own terms of enrolling in a course, read with the learner's session. */
+async function termsOf(who, slug) {
+  const res = await (await api(who)).get(`/api/academy/trpc/courseEnrolment?input=${encodeURIComponent(JSON.stringify({ slug }))}`);
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  return res.body.result.data;
+}
 
 test(`${J} #1 a course page offers Enrol now on the free track, with the start date, seats not set and the paid track closed in words`, async ({
   page,
@@ -50,17 +59,105 @@ test(`${J} #1 a course page offers Enrol now on the free track, with the start d
   const block = enrolBlock(page);
   await expect(block).toHaveAttribute('data-academy-enrol', first);
   await expect(block.getByText('Self-paced: the course opens when you enrol.')).toBeVisible();
-  await expect(block.locator('dd').nth(1)).toHaveText('Not set');
+  await expect(seatsOf(block)).toHaveText('Not set');
   await expect(block.getByRole('radio', { name: /Free track/ })).toBeChecked();
   await expect(block.getByRole('radio', { name: /Certificate track/ })).toBeDisabled();
   await expect(block.getByText('No price is set for this track, so it is closed for enrolment.')).toBeVisible();
   // Nothing is open to close the course: no cap, no window, published. A closed course would say why here instead.
   await expect(block.getByText(/closed for enrolment/)).toHaveCount(1);
+  // Academy's own answer says the same: no cap and no seats count, the course open, the free track open and the
+  // certificate track closed for no price.
+  expect(await termsOf(who, first)).toMatchObject({
+    seatCap: null,
+    seatsRemaining: null,
+    closed: null,
+    tracks: [
+      { track: 'audit', free: true, closed: null },
+      { track: 'certificate', free: false, closed: 'no_price' },
+    ],
+  });
 
   await block.getByRole('button', { name: 'Enrol now', exact: true }).click();
   await expect(block.getByText(/^You are enrolled on the Free track since /)).toBeVisible();
   await expect(block.getByRole('button', { name: 'Enrol now', exact: true })).toHaveCount(0);
   expect((await enrolments(who)).filter((row) => row.pathSlug === first)).toHaveLength(1);
+
+  // Seats only when a cap exists, and a closed course says why in words. Staff set each condition on the third course
+  // (nobody in this run is enrolled in it until #4) through Academy's admin door, one at a time, and take it off again.
+  const third = (await courses())[2];
+  expect(third, 'a third published course is needed for the cap and closed reasons').toBeTruthy();
+  const terms = () => termsOf(who, third);
+  const reason = `TEST ${J}`;
+  const day = 24 * 3600_000;
+  const page3 = async () => {
+    await page.goto(`/academy/learning/course/${third}`);
+    await expect(enrolBlock(page)).toHaveAttribute('data-academy-enrol', third);
+    return enrolBlock(page);
+  };
+  const seats = seatsOf;
+  try {
+    // A cap: the remaining seats under it, as Academy counts them.
+    await setSeatCap(third, 3, reason);
+    const capped = await terms();
+    expect(capped.seatCap).toBe(3);
+    expect(capped.closed).toBeNull();
+    await expect(seats(await page3())).toHaveText(`${capped.seatsRemaining} of 3 left`);
+
+    // Full: a cap of the seats already taken (one other TEST learner enrols first), so none is left.
+    const other = await (await page.context().browser().newContext()).newPage();
+    const otherWho = await signUp(other, 'ja2o');
+    await verify(other, otherWho);
+    const enrolled = await (await api(otherWho)).post('/api/academy/trpc/enrolCourse', { slug: third, track: 'audit' });
+    expect(enrolled.status, JSON.stringify(enrolled.body).slice(0, 300)).toBe(200);
+    await other.context().close();
+    const taken = capped.seatCap - capped.seatsRemaining + 1;
+    await setSeatCap(third, taken, reason);
+    expect(await terms()).toMatchObject({ seatCap: taken, seatsRemaining: 0, closed: 'full' });
+    let closed = await page3();
+    await expect(seats(closed)).toHaveText(`0 of ${taken} left`);
+    await expect(closed.getByText('Every seat is taken, so the course is closed for enrolment.')).toBeVisible();
+    await expect(closed.getByRole('button', { name: 'Enrol now', exact: true })).toBeDisabled();
+    await setSeatCap(third, null, reason);
+
+    // The enrolment window, not started and ended.
+    for (const [window, why, words] of [
+      [
+        { opensAt: new Date(Date.now() + 7 * day).toISOString(), closesAt: null },
+        'window_not_started',
+        'The enrolment window has not started.',
+      ],
+      [
+        { opensAt: new Date(Date.now() - 14 * day).toISOString(), closesAt: new Date(Date.now() - 7 * day).toISOString() },
+        'window_ended',
+        'The enrolment window has ended.',
+      ],
+    ]) {
+      await setEnrolmentWindow(third, window, reason);
+      expect((await terms()).closed).toBe(why);
+      closed = await page3();
+      await expect(closed.getByText(words)).toBeVisible();
+      await expect(closed.getByRole('button', { name: 'Enrol now', exact: true })).toBeDisabled();
+    }
+    await setEnrolmentWindow(third, { opensAt: null, closesAt: null }, reason);
+
+    // Hidden and unpublished.
+    for (const [visibility, words] of [
+      ['hidden', 'This course is hidden, so it is closed for enrolment.'],
+      ['unpublished', 'This course is unpublished, so it is closed for enrolment.'],
+    ]) {
+      await setVisibility(third, visibility, reason);
+      expect((await terms()).closed).toBe(visibility);
+      closed = await page3();
+      await expect(closed.getByText(words)).toBeVisible();
+      await expect(closed.getByRole('button', { name: 'Enrol now', exact: true })).toBeDisabled();
+    }
+  } finally {
+    await setVisibility(third, 'published', reason);
+    await setEnrolmentWindow(third, { opensAt: null, closesAt: null }, reason);
+    await setSeatCap(third, null, reason);
+  }
+  // With everything taken off, the third course is open again with no cap.
+  expect(await terms()).toMatchObject({ seatCap: null, seatsRemaining: null, closed: null });
 });
 
 test(`${J} #2 pressing Enrol now twice with the reply lost sends one request, records one enrolment, and the page reads it back`, async ({
@@ -101,11 +198,12 @@ async function syllabusRows(slug) {
   });
   const body = await res.json();
   expect(res.status, JSON.stringify(body).slice(0, 300)).toBe(200);
-  return body.result.data.syllabus.map((row) => ({ slug: row.slug, kind: row.kind }));
+  return body.result.data.syllabus.map((row) => ({ slug: row.slug, kind: row.kind, type: row.type }));
 }
 /** The courses' items, as their public course pages list them. */
 const syllabus = async (slug) => (await syllabusRows(slug)).map((row) => row.slug);
-const KIND_LABEL = { playbook: 'Playbook', workbook: 'Workbook', lesson: 'Lesson' };
+/** What an item is to the learner in a course outline, in the outline's own words. */
+const TYPE_LABEL = { lesson: 'Lesson', quiz: 'Quiz', assignment: 'Assignment' };
 
 const myCourse = (page, slug) => page.locator(`[data-my-learning-section] [data-my-course="${slug}"]`);
 
@@ -137,7 +235,31 @@ async function staff(procedure, input) {
 }
 
 const setPrerequisites = (itemSlug, prerequisites) => staff('admin.setItemPrerequisites', { itemSlug, prerequisites });
+const setQuiz = (slug, quiz) => staff('admin.setQuiz', { slug, quiz, reason: `${J} TEST quiz` });
+/** A TEST quiz staff publish on one item for #6, and take down at the end. */
+const TEST_QUIZ = {
+  passMark: 1,
+  attemptLimit: null,
+  timeLimitSeconds: null,
+  reviewMode: 'score_only',
+  questions: [
+    {
+      id: 'q1',
+      prompt: 'TEST: what does a limit order fix?',
+      points: 1,
+      choices: [
+        { id: 'a', text: 'TEST: the worst price' },
+        { id: 'b', text: 'TEST: the size of the book' },
+      ],
+      correctChoiceId: 'a',
+    },
+  ],
+};
 const setCourseStart = (slug, startsAt) => staff('admin.setCourseStart', { slug, startsAt, reason: `TEST ${J}` });
+// The staff doors #1 needs to set a seat cap, an enrolment window and a course's visibility (not in svc-academy yet).
+const setSeatCap = (slug, seatCap, reason) => staff('admin.setCourseSeatCap', { slug, seatCap, reason });
+const setEnrolmentWindow = (slug, window, reason) => staff('admin.setCourseEnrolmentWindow', { slug, ...window, reason });
+const setVisibility = (slug, visibility, reason) => staff('admin.setCourseVisibility', { slug, visibility, reason });
 
 test(`${J} #4 a course that starts next week takes the enrolment, shows its date, and holds its items until then`, async ({ page }) => {
   const { who } = state('who');
@@ -239,15 +361,30 @@ test(`${J} #5 Learning shows My learning by state with real progress, and Start 
   await expect(page.locator(`[data-my-learning-section="in_progress"] [data-my-course="${third}"]`)).toHaveCount(0);
 });
 
-test(`${J} #6 Start course opens the first open item with the outline: typed items, a locked one with its reason, Next skipping it`, async ({
+test(`${J} #6 Start course opens the first open item with the outline: items typed as lesson, quiz or assignment, a locked one with its reason, Next and Previous skipping it`, async ({
   page,
 }) => {
   const { who, second } = state('who', 'second');
-  const rows = await syllabusRows(second);
-  const items = rows.map((row) => row.slug);
+  const before = await syllabusRows(second);
+  const items = before.map((row) => row.slug);
   expect(items.length, 'the course needs four items to lock the third').toBeGreaterThanOrEqual(4);
+  // Staff publish a TEST quiz on a later reading item, so the course holds a lesson, a quiz and an assignment (its workbook).
+  const quizItem = before.findLast((row, i) => i >= 3 && row.kind !== 'workbook')?.slug;
+  expect(quizItem, 'the course needs a reading item after the third to carry the TEST quiz').toBeTruthy();
+  expect(
+    before.some((row) => row.kind === 'workbook'),
+    'the course needs its workbook, the assignment',
+  ).toBe(true);
+  await setQuiz(quizItem, TEST_QUIZ);
   await setPrerequisites(items[2], [items[1]]);
   try {
+    const rows = await syllabusRows(second);
+    // Academy holds each item as a lesson, a quiz or an assignment, and this course has each of the three.
+    expect([...new Set(rows.map((row) => row.type))].sort()).toEqual(['assignment', 'lesson', 'quiz']);
+    expect(rows.find((row) => row.slug === quizItem)?.type).toBe('quiz');
+    for (const row of rows)
+      expect(row.type, row.slug).toBe(row.slug === quizItem ? 'quiz' : row.kind === 'workbook' ? 'assignment' : 'lesson');
+
     await signIn(page, who);
     await page.goto('/academy/learning');
     await myCourse(page, second).getByRole('link', { name: 'Start course' }).click();
@@ -255,14 +392,18 @@ test(`${J} #6 Start course opens the first open item with the outline: typed ite
     const outline = page.locator(`[data-academy-outline="${second}"]`);
     await expect(outline.locator('[data-outline-item]')).toHaveCount(items.length);
     await expect(outline.locator(`[data-outline-item="${items[0]}"] a`)).toHaveAttribute('aria-current', 'page');
-    // Each item is typed as what it is, not one of several labels.
-    for (const { slug, kind } of rows)
-      await expect(outline.locator(`[data-outline-item="${slug}"] [data-testid="academy-lms-meta"]`)).toContainText(KIND_LABEL[kind]);
+    // Each item is typed in the outline as Academy holds it: a lesson, a quiz or an assignment, never one of the content kinds.
+    for (const { slug, type } of rows) {
+      const meta = outline.locator(`[data-outline-item="${slug}"] [data-testid="academy-lms-meta"]`);
+      await expect(meta.locator('[data-item-type]')).toHaveText(TYPE_LABEL[type]);
+      await expect(meta.locator('[data-item-type]')).toHaveAttribute('data-item-type', type);
+    }
+    await expect(outline.getByText(/^(Playbook|Workbook)$/)).toHaveCount(0);
     const locked = outline.locator(`[data-outline-item="${items[2]}"]`);
     await expect(locked).toHaveAttribute('data-outline-state', 'locked');
     await expect(locked.getByRole('link')).toHaveCount(0);
-    const before = await outline.locator(`[data-outline-item="${items[1]}"] a`).innerText();
-    await expect(locked).toContainText(`Locked: complete ${before} first.`);
+    const needed = await outline.locator(`[data-outline-item="${items[1]}"] a`).innerText();
+    await expect(locked).toContainText(`Locked: complete ${needed} first.`);
     await expect(outline.getByText('This is the first item you can open.')).toBeVisible();
 
     await outline.getByRole('link', { name: 'Next', exact: true }).click();
@@ -273,8 +414,11 @@ test(`${J} #6 Start course opens the first open item with the outline: typed ite
     await expect(outline.getByText('Locked items skipped: 1')).toBeVisible();
     await outline.getByRole('link', { name: 'Previous', exact: true }).click();
     await expect(page).toHaveURL(`/academy/${items[1]}`);
+    // Previous skipped the locked item too, and says so.
+    await expect(outline.getByText('Locked items skipped: 1')).toBeVisible();
   } finally {
     await setPrerequisites(items[2], []);
+    await setQuiz(quizItem, null);
   }
 });
 
