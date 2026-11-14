@@ -439,20 +439,9 @@ test(`${J} #3 the owner copies the full address, the QR and the payment button; 
   const stallId = (await page.getByTestId('pp-facts').getByTestId('pp-mono').first().textContent())?.trim();
   const stallSent = await stallCreate;
 
-  // Turned off with a message: the link's page and a customer opening it both show it.
-  await page.goto(`/pay/links/${stallId}`);
-  await expect(page.locator('dl[data-testid="pp-facts"]')).toContainText('Your own web page: https://shop.example/thanks');
-  await page.getByLabel('Message for customers').fill('TEST Sold out until Monday');
-  await page.getByRole('button', { name: 'Deactivate link' }).click();
-  const off = page.getByRole('dialog');
-  await expect(off).toContainText('TEST Sold out until Monday');
-  await off.getByRole('button', { name: 'Deactivate link' }).click();
-  await expect(page.locator('dl[data-testid="pp-facts"]')).toContainText('TEST Sold out until Monday');
-  await expect(page.getByText('Deactivated').first()).toBeVisible();
-  expect(refused).toEqual([]);
-
   // svc-pay refuses an http after-payment page itself, by name, and stores nothing: the same create request as the stall's,
   // with its own key and label and the page's address as plain http, as a client that skips the form would send it.
+  // Sent before the page reloads, while the session the stall's request carried is still the page's own.
   const stallBody = JSON.parse(stallSent.postData() ?? '{}');
   const httpLabel = `TEST Plain-http stall ${Date.now().toString(36)}`;
   const httpBody = JSON.parse(JSON.stringify(stallBody).replaceAll('https://shop.example/thanks', 'http://shop.example/thanks'));
@@ -474,6 +463,19 @@ test(`${J} #3 the owner copies the full address, the QR and the payment button; 
   expect(plain.text).toContain('pay.link_redirect_not_https');
   expect(plain.text).toContain('Nothing was stored.');
   expect(plain.text).not.toContain(httpLabel);
+
+  // Turned off with a message: the link's page and a customer opening it both show it.
+  await page.goto(`/pay/links/${stallId}`);
+  await expect(page.locator('dl[data-testid="pp-facts"]')).toContainText('Your own web page: https://shop.example/thanks');
+  await page.getByLabel('Message for customers').fill('TEST Sold out until Monday');
+  await page.getByRole('button', { name: 'Deactivate link' }).click();
+  const off = page.getByRole('dialog');
+  await expect(off).toContainText('TEST Sold out until Monday');
+  await off.getByRole('button', { name: 'Deactivate link' }).click();
+  await expect(page.locator('dl[data-testid="pp-facts"]')).toContainText('TEST Sold out until Monday');
+  await expect(page.getByText('Deactivated').first()).toBeVisible();
+  // The one refusal is the plain-http create above; the owner's own calls were all accepted.
+  expect(refused).toEqual(['400 merchant.createLink']);
 
   const payer = await browser.newContext();
   try {
