@@ -463,9 +463,25 @@ export function walkedMid(walk, { still, shift, tick }) {
   return shiftedMid(still ? walk.current() : walk.next(), shift, tick);
 }
 
-/** Whether test_taker crosses `symbol` this cycle: never on a still cycle; otherwise on its turn (`crossesOn`) when the market crosses and quotes rest (exported for tests). */
-export function takerCrosses({ still, cross, rested, cycle, symbol }) {
-  return !still && cross !== false && rested > 0 && crossesOn(cycle, symbol);
+/**
+ * Whether test_taker crosses `symbol` this cycle: never on a still cycle; otherwise, when the market crosses and quotes
+ * rest, on its turn (`crossesOn`) or when its last crossing was in an earlier UTC minute (`missedMinute`) (exported for
+ * tests).
+ */
+export function takerCrosses({ still, cross, rested, cycle, symbol, nowMs = Date.now(), lastCrossMs }) {
+  return !still && cross !== false && rested > 0 && (crossesOn(cycle, symbol) || missedMinute(lastCrossMs, nowMs));
+}
+
+/**
+ * Whether a market that has crossed has not crossed yet in the current UTC minute (exported for tests), so every live
+ * minute gets a trade and so a closed 1m bar while a cycle takes under a minute. The turn alone is every sixth cycle,
+ * and a cycle is its 8 s wait plus its own work: on a loaded journeys runner a cycle took about 16 s, so BTC/USDT traded
+ * about every 2 minutes and half the 1m bars had no trade. (Failure it prevents: main's run 43634063912, shard 37, cycles
+ * of 16 to 35 s; J-algo-dev-04 #2's paper run, which needs four traded 1m bars to fill a crossing of its averages, had
+ * no fill in 12 minutes, and #3 then failed on the run the failed try left behind, #8390 and #8399.)
+ */
+export function missedMinute(lastCrossMs, nowMs = Date.now()) {
+  return Number.isFinite(lastCrossMs) && Math.floor(nowMs / 60_000) > Math.floor(lastCrossMs / 60_000);
 }
 
 /** Whether a cycle record of the running maker shows `still` (true or false) in a cycle started after `askedAt` (exported for tests). */
@@ -1006,6 +1022,8 @@ async function runLoop(opts, home) {
   let counter = 0;
   let cycle = 0;
   const crossings = new Map();
+  /** When each market's newest crossing was placed (ms), for `missedMinute`. */
+  const crossedAt = new Map();
   /** The maker's resting quote ids per market, from the cycle before. */
   const quoted = new Map();
   /** The maker's resting quotes per market from the cycle before, with their sides and prices (`placingOrder`). */
@@ -1187,7 +1205,7 @@ async function runLoop(opts, home) {
         );
         if (newShift) log(`${m.symbol} TEST PRICE shift ${shift} bps quoted`);
         done[m.symbol] = { held: false, resting: rested, ladder: ladder.length, shiftBps: shift === undefined ? null : String(shift) };
-        if (takerCrosses({ still: stillCycle, cross: cfg.cross, rested, cycle, symbol: m.symbol })) {
+        if (takerCrosses({ still: stillCycle, cross: cfg.cross, rested, cycle, symbol: m.symbol, lastCrossMs: crossedAt.get(m.symbol) })) {
           // Alternate per market (failure it prevents: every symbol here has the same name length, so a
           // side picked from cycle and name parity was always "buy", drained the taker's quote asset, and
           // every crossing then failed with 400 ledger.insufficient_funds).
@@ -1211,6 +1229,7 @@ async function runLoop(opts, home) {
           crossings.set(m.symbol, turn);
           const r = await place(taker, m, side, best.price, best.amount, 'IOC');
           const why = r.status === 201 ? '' : ` (${(r.json?.intafacedCode ?? r.json?.code ?? r.text).toString().slice(0, 120)})`;
+          if (r.status === 201) crossedAt.set(m.symbol, Date.now());
           log(`${m.symbol} crossing trade by test_taker: ${side} ${best.amount} @ ${best.price} -> HTTP ${r.status}${why}`);
         }
       }
