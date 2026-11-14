@@ -139,6 +139,9 @@ async function payment(tag) {
   return paid.id;
 }
 
+/** The deliveries room's endpoint filter. A select's name carries its chosen option ("Endpoint All endpoints"). */
+const endpointFilter = () => page.getByRole('search').getByLabel(/^Endpoint/);
+
 /** svc-pay restarted with one LOCAL TEST webhook value blank, `run`, then put back. */
 async function withPayValueOff(envKey, run) {
   restartWith('pay', envKey, false);
@@ -436,7 +439,7 @@ test(`${J} #10 resends one event and recovers missed ones from /pay/developer/de
   await expect(page.getByTestId('webhook-policy')).toContainText(
     'If your system does not accept an event we try again after 5, 10, 20 seconds.',
   );
-  await page.getByLabel('Endpoint', { exact: true }).first().selectOption({ value: flaky.id });
+  await endpointFilter().selectOption({ value: flaky.id });
   // Every later step's payment reached this endpoint too; #7's is the oldest (the list is newest first).
   const row = page.getByRole('row').filter({ hasText: 'payment.captured' }).last();
   await row.getByRole('button', { name: 'Details of payment.captured' }).click();
@@ -461,7 +464,7 @@ test(`${J} #10 resends one event and recovers missed ones from /pay/developer/de
   expect(attempts.map((a) => `${a.outcome}:${a.resend}`)).toEqual(['failed:false', 'delivered:false', 'delivered:true']);
   expect(postsTo('flaky', flaky.paymentId)).toHaveLength(3);
   await page.reload();
-  await page.getByLabel('Endpoint', { exact: true }).first().selectOption({ value: flaky.id });
+  await endpointFilter().selectOption({ value: flaky.id });
   await page
     .getByRole('row')
     .filter({ hasText: 'payment.captured' })
@@ -518,7 +521,7 @@ test(`${J} #10 resends one event and recovers missed ones from /pay/developer/de
     expect(outside.status).toBe(412);
     expect(outside.body).toContain('pay.webhook_resend_outside_window');
     await page.goto(DELIVERIES);
-    await page.getByLabel('Endpoint', { exact: true }).first().selectOption({ value: flaky.id });
+    await endpointFilter().selectOption({ value: flaky.id });
     const old = page.getByRole('row').filter({ hasText: 'payment.captured' }).last();
     await old.getByRole('button', { name: 'Send again' }).click();
     await page.getByRole('dialog').getByRole('button', { name: 'Send again' }).click();
