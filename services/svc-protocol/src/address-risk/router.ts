@@ -4,6 +4,10 @@ import {
   protocolComplianceLabelAskInputSchema,
   protocolComplianceReportsOutputSchema,
   protocolComplianceReviewSchema,
+  protocolNameTagApproveInputSchema,
+  protocolNameTagRequestInputSchema,
+  protocolNameTagRequestSchema,
+  protocolNameTagsOutputSchema,
   protocolOnboardingApproveInputSchema,
   protocolOnboardingChecklistSchema,
   protocolOnboardingOpenInputSchema,
@@ -21,12 +25,15 @@ import {
 import { approveLabel, askLabel, ComplianceRefusedError, readQueue, type ComplianceStore } from './compliance.js';
 import {
   approveChecklist,
+  approveNameTag,
   approveTier,
   askTier,
   openChecklist,
   readChecklists,
+  readNameTags,
   readTiers,
   removeTier,
+  requestNameTag,
   TrustDeskRefusedError,
   type TrustDeskStore,
 } from './trust-desk.js';
@@ -97,7 +104,7 @@ export function createAddressReportsRouter(deps: AddressRiskDeps) {
 export interface ComplianceDeps {
   chainId: () => number;
   store: ComplianceStore;
-  /** Token tiers and permissioned pool onboarding (J-dex-protocol-30 #4 #9). */
+  /** Token tiers, name tags and permissioned pool onboarding (J-dex-protocol-30 #4 #7 #9). */
   trustDesk: TrustDeskStore;
   now: () => Date;
 }
@@ -216,6 +223,37 @@ export function createComplianceRouter(deps: ComplianceDeps) {
         .mutation(async ({ ctx, input }) => {
           try {
             return await approveChecklist(deps.trustDesk, { ...input, chainId: deps.chainId(), approverId: ctx.principal.userId });
+          } catch (err) {
+            throw complianceTrpc(err);
+          }
+        }),
+    }),
+    nameTags: router({
+      list: scopedProcedure('admin:read', operatorGuards)
+        .output(protocolNameTagsOutputSchema)
+        .query(async () => {
+          try {
+            return await readNameTags(deps.trustDesk, deps.chainId(), deps.now());
+          } catch (err) {
+            throw complianceTrpc(err);
+          }
+        }),
+      request: scopedProcedure('admin:write', operatorGuards)
+        .input(protocolNameTagRequestInputSchema)
+        .output(protocolNameTagRequestSchema)
+        .mutation(async ({ ctx, input }) => {
+          try {
+            return await requestNameTag(deps.trustDesk, { ...input, chainId: deps.chainId(), requesterId: ctx.principal.userId });
+          } catch (err) {
+            throw complianceTrpc(err);
+          }
+        }),
+      approve: scopedProcedure('admin:write', operatorGuards)
+        .input(protocolNameTagApproveInputSchema)
+        .output(protocolNameTagRequestSchema)
+        .mutation(async ({ ctx, input }) => {
+          try {
+            return await approveNameTag(deps.trustDesk, { ...input, chainId: deps.chainId(), approverId: ctx.principal.userId });
           } catch (err) {
             throw complianceTrpc(err);
           }

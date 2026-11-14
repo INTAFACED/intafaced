@@ -124,6 +124,8 @@ const migrations = [
   '20261029051500_pay_business_category_standard.sql',
   // openCheckoutSession reads the business's payment methods (M-adv-payments-core-11). Empty here: the default offer.
   '20261024233504_pay_checkout_methods.sql',
+  // Every payment says whose custody its money is in, and the business's own receiving wallet (J-merchant-04).
+  '20261114093115_pay_merchant_own_wallet_acceptance.sql',
 ].map((f) => readFileSync(join(here, '..', 'drizzle', f), 'utf8'));
 
 const SECRET = 'svc-pay-test-secret-at-least-32-characters';

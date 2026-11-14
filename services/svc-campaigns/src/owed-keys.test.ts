@@ -14,6 +14,11 @@ const KEYS = [
   `task:${CAMPAIGN}:${ACCOUNT}:once`,
   `task:${CAMPAIGN}:${ACCOUNT}:welcome:identity.verified`,
   `task:${CAMPAIGN}:${ACCOUNT}:earn:${encodeURIComponent('TEST rule')}:fill-1`,
+  // An earning event keyed by a UUID, as a card authorisation's cashback is (J-bank-13 #7): too long to write whole.
+  `task:${CAMPAIGN}:${ACCOUNT}:earn:${encodeURIComponent('Card cashback')}:d48b7f99-198e-425a-bd11-237af8c89b12`,
+  `task:${CAMPAIGN}:${ACCOUNT}:earn:${encodeURIComponent('Card cashback')}:e48b7f99-198e-425a-bd11-237af8c89b12`,
+  // The longest rule name an earning rule may have (80 characters).
+  `task:${CAMPAIGN}:${ACCOUNT}:earn:${encodeURIComponent('R'.repeat(80))}:d48b7f99-198e-425a-bd11-237af8c89b12`,
   `voucher:${VOUCHER_A}:${ACCOUNT}:1`,
   `voucher:${VOUCHER_B}:${ACCOUNT}:1`,
   `voucher:${VOUCHER_A}:${ACCOUNT}:2`,
@@ -41,5 +46,11 @@ describe('owed reward keys', () => {
       expect(fund.idempotencyKey.length, key).toBeLessThanOrEqual(200);
       expect(owe.idempotencyKey, key).toBe(`campaigns:owe:${ledgerRewardId(CAMPAIGN, key)}`);
     }
+  });
+
+  it('keep the keys of a reward that fits whole exactly as before, so a reward already owed books under its first keys', () => {
+    const key = `task:${CAMPAIGN}:${ACCOUNT}:welcome:identity.verified`;
+    expect(fundingDecisionOf(key)).toBe(`claim-task-${CAMPAIGN}-${ACCOUNT}-welcome-identity_verified`);
+    expect(ledgerRewardId(CAMPAIGN, key)).toBe(`campaign:${CAMPAIGN}:task-${CAMPAIGN}-${ACCOUNT}-welcome-identity_verified`);
   });
 });

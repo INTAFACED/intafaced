@@ -4,6 +4,7 @@ import { test, expect } from './journey.mjs';
 import { DEVICE_KEY, EDGE, ORIGIN, ROOT, fund, journeyState, mailedLines, toUnits, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
+import { keptSession } from '../../../../tooling/scripts/kept-session.mjs';
 import { TEST_WITHDRAW_NETWORK_RULES } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { LOCAL_TEST_SANCTIONED_ADDRESS } from '../../../../tooling/scripts/local-stack-services/bank.mjs';
 
@@ -95,35 +96,60 @@ async function confirmItsMe(page) {
   await dialog.getByRole('button', { name: 'Confirm' }).click();
 }
 
+const sessions = new Map();
+/** The journey's person's kept session, one per account. */
+function personSession(email, signIn) {
+  if (!sessions.has(email)) sessions.set(email, keptSession(signIn));
+  return sessions.get(email);
+}
+
 /**
  * The customer's own reads through Edge: the journey's person, signed in with the password and an authenticator code, or
  * another person with no second factor (`who` from signUp), signed in with the password.
  */
 async function customerApi(who) {
   const person = who ?? account().account;
-  const login = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
-    method: 'POST',
-    headers: { origin: ORIGIN, 'content-type': 'application/json' },
-    body: JSON.stringify({
-      deviceKey: DEVICE_KEY,
-      identifier: person.email,
-      password: person.password,
-      ...(who ? {} : { totpCode: await freshCode() }),
-    }),
-  }).then((res) => res.json());
-  const token = login?.result?.data?.accessToken;
-  if (!token) throw new Error(`sign-in refused: ${JSON.stringify(login).slice(0, 300)}`);
-  const get = async (route) => {
-    const res = await fetch(`${EDGE}${route}`, { headers: { origin: ORIGIN, authorization: `Bearer ${token}` } });
-    return { status: res.status, body: await res.json() };
-  };
-  const post = async (route, body, bearer = token) => {
-    const res = await fetch(`${EDGE}${route}`, {
+  const signIn = async () => {
+    const login = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
       method: 'POST',
-      headers: { origin: ORIGIN, 'content-type': 'application/json', authorization: `Bearer ${bearer}` },
-      body: JSON.stringify(body),
+      headers: { origin: ORIGIN, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        deviceKey: DEVICE_KEY,
+        identifier: person.email,
+        password: person.password,
+        ...(who ? {} : { totpCode: await freshCode() }),
+      }),
+    }).then((res) => res.json());
+    const token = login?.result?.data?.accessToken;
+    if (!token) throw new Error(`sign-in refused: ${JSON.stringify(login).slice(0, 300)}`);
+    return token;
+  };
+  // The journey's person reads on one kept session (tooling/scripts/kept-session.mjs), so each step's reads no longer
+  // wait for a new authenticator step; every code the step is about (a sign-in, a step-up, a confirm) is still fresh.
+  const session = personSession(person.email, signIn);
+  /** Sends with the session's token, and once more on a new sign-in if that token is refused as signed out. */
+  const withSession = async (send) => {
+    const res = await send(await session());
+    if (res.status !== 401) return res;
+    session.drop();
+    return send(await session());
+  };
+  const get = (route) =>
+    withSession(async (token) => {
+      const res = await fetch(`${EDGE}${route}`, { headers: { origin: ORIGIN, authorization: `Bearer ${token}` } });
+      return { status: res.status, body: await res.json() };
     });
-    return { status: res.status, body: await res.json().catch(() => null) };
+  const post = async (route, body, bearer) => {
+    const send = async (token) => {
+      const res = await fetch(`${EDGE}${route}`, {
+        method: 'POST',
+        headers: { origin: ORIGIN, 'content-type': 'application/json', authorization: `Bearer ${token}` },
+        body: JSON.stringify(body),
+      });
+      return { status: res.status, body: await res.json().catch(() => null) };
+    };
+    // A token the step passes (a step-up's) is sent as it is: its refusal is what the step reads.
+    return bearer ? send(bearer) : withSession(send);
   };
   return {
     /** A send straight to svc-pay with the given token: the session's own unless a step-up token is passed. */

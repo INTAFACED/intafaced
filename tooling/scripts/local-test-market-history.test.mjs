@@ -1,6 +1,7 @@
 // HISTORY_SYMBOLS, the markets `local-test-market.mjs history` writes past trades on, must hold every spot market whose
 // past a journey reads. (Failure it prevents: a journey that charts a market history leaves out would read an empty
 // chart and fail on the stack, not on the app.)
+// Before a push: runs from .githooks/pre-push when the push changes a journey file (it takes under a second).
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';

@@ -83,6 +83,11 @@ describe('POST /api/protocol-ops/trust', () => {
       { op: 'onboarding-open', pool: ' ', checkerAddress: null },
       { op: 'onboarding-open', pool: 'TEST pool', checkerAddress: 'not an address' },
       { op: 'onboarding-approve', checklistId: REVIEW, reason: '' },
+      { op: 'nametag-request', address: '0x12', tag: 'TEST', reason: 'TEST' },
+      { op: 'nametag-request', address: TOKEN, tag: ' ', reason: 'TEST' },
+      { op: 'nametag-request', address: TOKEN, tag: 'x'.repeat(61), reason: 'TEST' },
+      { op: 'nametag-request', address: TOKEN, tag: 'TEST', reason: '' },
+      { op: 'nametag-approve', requestId: 'x' },
     ]) {
       const res = await POST(post(body));
       expect(res.status).toBe(400);

@@ -208,6 +208,7 @@ function EngineRun({ agent }: { agent: OwnAgent }) {
             </dd>
           </dl>
           <GuardOutcome agentId={agent.id} run={ran} onDecided={setRan} />
+          {ran.memory ? <MemoryOutcome memory={ran.memory} /> : null}
           {replyShown(ran) ? (
             <section role="region" aria-label={t('replyTitle')}>
               <h4>{t('replyTitle')}</h4>
@@ -421,9 +422,10 @@ function DryRun({ agent, catalogue }: { agent: OwnAgent; catalogue: Catalogue })
 const LISTS = ['live', 'test'] as const;
 
 /** The Runs page: live runs and test runs, each its own tab, never mixed. `live` is the live runs list. */
-export function RunsPage({ agent, live }: { agent: OwnAgent; live: ReactNode }) {
+export function RunsPage({ agent, live, focusRun = null }: { agent: OwnAgent; live: ReactNode; focusRun?: string | null }) {
   const { t } = agentTestRunsCopy.useCopy();
-  const [list, setList] = useState<(typeof LISTS)[number]>('live');
+  // Opened from a remembered item's source run: the test runs, with that run marked.
+  const [list, setList] = useState<(typeof LISTS)[number]>(focusRun ? 'test' : 'live');
   return (
     <TabList
       label={t('runsTabs')}
@@ -439,13 +441,13 @@ export function RunsPage({ agent, live }: { agent: OwnAgent; live: ReactNode }) 
           {live}
         </div>
       ) : (
-        <TestRuns agent={agent} />
+        <TestRuns agent={agent} focusRun={focusRun} />
       )}
     </TabList>
   );
 }
 
-function TestRuns({ agent }: { agent: OwnAgent }) {
+function TestRuns({ agent, focusRun }: { agent: OwnAgent; focusRun: string | null }) {
   const api = useApi();
   const { t } = agentTestRunsCopy.useCopy();
   const tools = agentGuardrailsCopy.useCopy().t;
@@ -460,10 +462,10 @@ function TestRuns({ agent }: { agent: OwnAgent }) {
           <>
             <DataTable
               label={t('testRunsTitle')}
-              headers={[t('colWhen'), t('colKind'), t('colTested'), t('colEffect'), t('colCost'), t('colLabel')]}
+              headers={[t('colWhen'), t('colKind'), t('colTested'), t('colEffect'), t('colLog'), t('colCost'), t('colLabel')]}
             >
               {rows.map((row) => (
-                <tr key={row.id} data-run-id={row.id}>
+                <tr key={row.id} id={`test-run-${row.id}`} data-run-id={row.id} aria-current={row.id === focusRun ? 'true' : undefined}>
                   <td>{new Date(row.createdAt).toLocaleString()}</td>
                   <td>{t(`kind_${row.kind}`)}</td>
                   <td>
@@ -474,6 +476,15 @@ function TestRuns({ agent }: { agent: OwnAgent }) {
                         : toolWords(tools, row.tool)}
                   </td>
                   <td>{t(row.kind === 'engine_run' ? `guard_${row.guard.outcome}` : `outcome_${row.effect.kind}`)}</td>
+                  <td data-testid="test-run-log">
+                    {row.kind === 'engine_run'
+                      ? row.log
+                          .map((entry) =>
+                            entry.step === 'remembered' ? `${t('step_remembered')}: ${entry.text}` : t(`step_${entry.step}`),
+                          )
+                          .join(' · ')
+                      : '—'}
+                  </td>
                   <td data-testid="test-run-cost">
                     {row.cost} {row.assetId}
                   </td>
@@ -527,5 +538,21 @@ export function AnalyticsPage({ agent }: { agent: OwnAgent }) {
       </Read>
       <p role="note">{t('analyticsParked')}</p>
     </Panel>
+  );
+}
+
+/** What an engine run did with a request to remember (AG-builder-02): kept, memory off, or refused with its code. */
+function MemoryOutcome({ memory }: { memory: NonNullable<Extract<OwnAgentTestRun, { kind: 'engine_run' }>['memory']> }) {
+  const { t } = agentTestRunsCopy.useCopy();
+  if (memory.outcome === 'refused')
+    return (
+      <p role="alert" data-testid="memory-outcome">
+        {t('memoryRefused')} <code lang="zxx">{memory.code}</code>
+      </p>
+    );
+  return (
+    <p role="status" data-testid="memory-outcome">
+      {memory.outcome === 'off' ? t('memoryOff') : t('memoryRemembered', { text: memory.text ?? '' })}
+    </p>
   );
 }

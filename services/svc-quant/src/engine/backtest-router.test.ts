@@ -538,3 +538,86 @@ describe('simulated margin account (AL-backtest-02)', () => {
     expect(await a.backtest.result({ runId: margin.runId })).toEqual(margin);
   });
 });
+
+describe('risk screen (AL-risk-01)', () => {
+  const CAPS = { depositPercent: '10', maxPositionNotional: '500', maxDailyLoss: '50', equityFloor: '900' };
+
+  it('starts with every cap blank and trading off; a blank cap refuses the switch by name and it stays off', async () => {
+    const { a, b } = setup();
+    const strategy = await saved(a);
+    const fresh = await a.risk.get({ strategyId: strategy.id });
+    expect(fresh).toMatchObject({
+      caps: { depositPercent: null, maxPositionNotional: null, maxDailyLoss: null, equityFloor: null },
+      floorPolicy: 'reduce_only',
+      unset: ['depositPercent', 'maxPositionNotional', 'maxDailyLoss', 'equityFloor'],
+      trading: { on: false, version: null, offByNewVersion: false },
+      latestVersion: 1,
+    });
+    await a.risk.set({ strategyId: strategy.id, caps: { ...CAPS, depositPercent: ' ' }, floorPolicy: '' });
+    await expect(a.risk.trading({ strategyId: strategy.id, on: true })).rejects.toThrow(
+      /^quant\.risk_cap_unset — trading stays off — still blank: Deposit-percentage cap$/,
+    );
+    expect((await a.risk.get({ strategyId: strategy.id })).trading.on).toBe(false);
+    await expect(b.risk.get({ strategyId: strategy.id })).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    await expect(b.risk.trading({ strategyId: strategy.id, on: true })).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  it('refuses a cap that is not an amount above 0, a deposit share over 100 and an unknown policy, saving nothing', async () => {
+    const { a } = setup();
+    const strategy = await saved(a);
+    for (const caps of [
+      { ...CAPS, maxDailyLoss: '0' },
+      { ...CAPS, equityFloor: '-1' },
+      { ...CAPS, depositPercent: '100.01' },
+    ]) {
+      await expect(a.risk.set({ strategyId: strategy.id, caps, floorPolicy: '' })).rejects.toThrow(/^quant\.risk_cap_invalid/);
+    }
+    await expect(a.risk.set({ strategyId: strategy.id, caps: CAPS, floorPolicy: 'liquidate' })).rejects.toThrow(
+      /^quant\.risk_cap_invalid — floor policy/,
+    );
+    expect((await a.risk.get({ strategyId: strategy.id })).updatedAt).toBeNull();
+  });
+
+  it('turns on with every cap set, only for that version: a new version, or clearing a cap, turns it off again', async () => {
+    const { a } = setup();
+    const strategy = await saved(a);
+    await a.risk.set({ strategyId: strategy.id, caps: CAPS, floorPolicy: 'close_out' });
+    const on = await a.risk.trading({ strategyId: strategy.id, on: true });
+    expect(on.trading).toEqual({ on: true, version: 1, offByNewVersion: false });
+    expect(on).toMatchObject({ unset: [], floorPolicy: 'close_out', caps: CAPS });
+
+    await a.studio.update({
+      name: 'cross',
+      blocks: [],
+      modules: { ...RULES, signal: { ...RULES.signal, slow: '3' } },
+      risk: { maxDrawdown: '500', maxNotional: '10000', kill: '100' },
+      cash: '1000',
+      environment: 'paper',
+      id: strategy.id,
+      idempotencyKey: `studio.update:${strategy.id}:v2`,
+    });
+    const after = await a.risk.get({ strategyId: strategy.id });
+    expect(after.latestVersion).toBe(2);
+    expect(after.trading).toEqual({ on: false, version: 1, offByNewVersion: true });
+
+    expect((await a.risk.trading({ strategyId: strategy.id, on: true })).trading.on).toBe(true);
+    const cleared = await a.risk.set({ strategyId: strategy.id, caps: { ...CAPS, maxDailyLoss: '' }, floorPolicy: 'close_out' });
+    expect(cleared.trading.on).toBe(false);
+    expect(cleared.unset).toEqual(['maxDailyLoss']);
+  });
+
+  it("applies the strategy's equity-stop floor to its bar backtests, as part of the run key", async () => {
+    const { a } = setup();
+    const strategy = await saved(a);
+    const plain = await a.backtest.start(request(strategy.id));
+    expect(plain.riskEvents).toEqual([]);
+    await a.risk.set({ strategyId: strategy.id, caps: { ...CAPS, equityFloor: '999.99' }, floorPolicy: 'close_out' });
+    const floored = await a.backtest.start(request(strategy.id));
+    expect(floored.runKey).not.toBe(plain.runKey);
+    expect(floored.riskEvents).toHaveLength(1);
+    expect(floored.riskEvents[0]).toMatchObject({ kind: 'equity_stop', mode: 'close_out', floor: '999.99' });
+    expect(floored.trades.filter((t) => t.reason === 'close_out')).toHaveLength(1);
+    expect(floored.totals.openQty).toBe('0');
+    expect(floored.assumptions).toContain('equity_stop_at_bar_low');
+  });
+});
