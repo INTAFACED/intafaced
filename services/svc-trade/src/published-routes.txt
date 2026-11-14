@@ -111,6 +111,8 @@ GET /api/v1/venue/withdrawals/:nonce private trade:read
 GET /api/v1/vip/applications private trade:read
 PATCH /api/v1/algo/:id private trade:write
 PATCH /api/v1/orders/:id private trade:write
+POST /api/v1/account/api-key/rotation private trade:write
+POST /api/v1/account/api-key/rotation/approve private trade:write
 POST /api/v1/algo private trade:write
 POST /api/v1/algo/:id/cancel private trade:write
 POST /api/v1/bots/grid private trade:write
