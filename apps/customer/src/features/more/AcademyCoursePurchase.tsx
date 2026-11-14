@@ -57,13 +57,14 @@ function PurchasePanel({ slug, onSettled }: { slug: string; onSettled?: (() => v
   const state = (ready ?? last)?.purchase?.state ?? null;
   // Keep reading while the chain or the ledger has yet to answer; tell the page once access changed. The state seen last
   // is kept even while it moves, so a purchase first seen moving (a refund already sending) still tells the page when it
-  // settles.
+  // settles. The first read of a purchase tells the page too: reading it moves it on the service (a refund it finds
+  // confirmed ends access there), so the page's own reads sent beside it may be from before.
   const seenState = useRef<string | null>(null);
   useEffect(() => {
     const before = seenState.current;
     seenState.current = state;
     const moving = state !== null && MOVING.has(state);
-    if (before !== null && before !== state && !moving) onSettled?.();
+    if (state !== null && before !== state && !moving) onSettled?.();
     if (moving) {
       const timer = setTimeout(read.reload, POLL_MS);
       return () => clearTimeout(timer);
