@@ -363,9 +363,13 @@ test(`${J} #9 opens the positions room: entry, mark, unrealised result, margin, 
   await expect(row.locator('[data-cell="mark"]')).toHaveText(p.markPrice);
   await expect(row.locator('[data-cell="unrealised"]')).toHaveText(p.unrealisedPnl);
   await expect(row.locator('[data-cell="margin"]')).toHaveText(p.margin);
-  await expect(row.locator('[data-cell="leverage"]')).toHaveText('10x Isolated');
+  // The leverage and margin mode as the venue reports them: 10x isolated, set in #5 and #6.
+  expect(p.leverageBps).toBe(100_000);
+  expect(p.marginMode).toBe('isolated');
+  await expect(row.locator('[data-cell="leverage"]')).toHaveText(`${p.leverageBps / 10_000}x Isolated`);
   await expect(row.locator('[data-cell="liquidation"]')).toHaveText(p.liquidationPrice.known ? p.liquidationPrice.value : 'not known');
-  await expect(room.getByTestId('venue-as-of')).toContainText('As of');
+  // The as-of line names a time (en-GB medium date and time, e.g. "As of 14 Nov 2026, 12:20:33"), not only the words.
+  await expect(room.getByTestId('venue-as-of')).toHaveText(/^As of \d{1,2} [A-Z][a-z]{2,3} \d{4}, \d{2}:\d{2}:\d{2}$/);
   await expect(room.getByTestId('venue-test').first()).toHaveText('TEST');
 });
 
