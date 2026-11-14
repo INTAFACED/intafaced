@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 import { existsSync, readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
 import { signUp } from './desk.mjs';
-import { EDGE, ORIGIN, restartWithSetting, stackFile } from './stack.mjs';
+import { EDGE, ORIGIN, api, restartWithSetting, stackFile } from './stack.mjs';
 
 // J-charts-desk-10, in the running app (docs/roadmap/journeys.json): where a price alert reaches the person. One test per step,
 // titled "J-charts-desk-10 #<n>", run in order on one TEST account in one browser. The alert engine is the stack's own svc-notify,
@@ -264,6 +264,20 @@ test(`${J} #5 with the TEST email stand-in set, an alert fires: one email labell
       'It goes to the address you confirmed in notification settings.',
     );
     const target = await createFiringAlert({ percent: 123, email: true });
+    // The person's own "check now" (notify.evaluateAlert, as the trade desk's alert list sends it), three at once: the alert's
+    // level is above the market, so each asks for the same alert to fire, racing each other and the sweep.
+    const me = await api(who);
+    const listed = await me.get(`/api/notify/trpc/notify.alerts?input=${encodeURIComponent(JSON.stringify({ limit: 20 }))}`);
+    expect(listed.status).toBe(200);
+    const alertId = listed.body.result.data.items.find((a) => a.targetPrice === target && a.status !== 'cancelled')?.id;
+    expect(alertId, 'the saved alert is listed').toBeTruthy();
+    const evaluate = async () => {
+      const res = await me.post('/api/notify/trpc/notify.evaluateAlert', { id: alertId });
+      expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+      return res.body.result.data.outcome;
+    };
+    // Each may answer that the mark met the level; what counts is what was written and sent, read below: one firing, one email.
+    for (const outcome of await Promise.all([evaluate(), evaluate(), evaluate()])) expect(['fire', 'refuse']).toContain(outcome.kind);
     const row = await firing(target);
     await expect(row.locator('[data-testid="alert-trigger-channel"][data-channel="email"]')).toHaveText(
       'Email: handed to the delivery service.',
@@ -278,8 +292,10 @@ test(`${J} #5 with the TEST email stand-in set, an alert fires: one email labell
     expect(mail.text).toContain(target);
     expect(mail.text).toMatch(/at \d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC\./);
 
-    // A second firing of the same alert sends none: the sweeps after it pass, and asking for the alert to be evaluated again
-    // does not fire it a second time.
+    // A second firing of the same alert sends none: asked to fire again once it has fired, it refuses, and the sweeps after it
+    // pass it by.
+    const again = await Promise.all([evaluate(), evaluate()]);
+    for (const outcome of again) expect(outcome).toMatchObject({ kind: 'refuse', code: 'alert.not_active' });
     const firedSweep = await lastSweepAt();
     await expect.poll(async () => await lastSweepAt(), { timeout: SWEEP_MS + 30_000, intervals: [2_000] }).not.toBe(firedSweep);
     await page.getByTestId('alerts-log-refresh').click();
@@ -289,6 +305,8 @@ test(`${J} #5 with the TEST email stand-in set, an alert fires: one email labell
         .filter({ hasText: `At or below ${target}.` }),
     ).toHaveCount(1);
     expect(alertMail(), 'still one email for the one firing').toHaveLength(1);
+    await page.goto('/notifications');
+    await expect(page.getByTestId('nf-row').filter({ hasText: `BTC/USDT crossed below ${target}` }), 'one inbox row').toHaveCount(1);
     // #4's spent schedule, minutes on: no fifth send to the failing endpoint.
     expect(
       posts.filter((p) => p.path.startsWith('/down/')),

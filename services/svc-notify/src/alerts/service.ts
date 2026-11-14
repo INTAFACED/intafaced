@@ -13,7 +13,7 @@
 
 import type { CreateResult, NotifyService } from '../notify-service.js';
 import { acceptAlertMark, outOfAppRequiredRefusal } from './accepted-mark.js';
-import { canonicalDecimalString, isValidPositivePrice } from './decimal.js';
+import { isValidPositivePrice } from './decimal.js';
 import {
   evaluatePortfolioAlert,
   evaluatePriceAlert,
@@ -1042,7 +1042,9 @@ export class AlertService {
       href: `/markets/${alert.marketId}`,
       severity: 'action',
       sourceSubject: copy.sourceSubject,
-      sourceIdempotencyKey: repeatNumber === null ? `${alert.id}:${canonicalDecimalString(markPrice)}` : `${alert.id}:n${repeatNumber}`,
+      // A one-shot alert fires once, whatever mark each racing evaluation read: its firing's key is the alert itself, so a sweep
+      // and a "check now" at different marks write one notification and send one email (J-charts-desk-10 #5).
+      sourceIdempotencyKey: repeatNumber === null ? `${alert.id}:once` : `${alert.id}:n${repeatNumber}`,
     });
   }
 
