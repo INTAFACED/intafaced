@@ -120,6 +120,8 @@ import { wireVenueAgents } from './venue/agents-wire.js';
 import { LiveRuns, parseLiveRunValues } from './quant/live-run/live-runs.js';
 import { createIdentityFreezeRead, createQuantStrategySource } from './quant/live-run/ports.js';
 import { SqlLiveRunStore } from './quant/live-run/sql-store.js';
+import { VenueProtections } from './venue/protections.js';
+import { SqlEngineProtectionStore } from './venue/protection-store.js';
 import { routingReport } from './venue/routing-report.js';
 import { wireBuilderFees } from './builder-fee/wire.js';
 import { VenueRefusalError, isTestVenue } from '@intafaced/venue-contracts';
@@ -476,6 +478,39 @@ const { agentAccountStore, agentAccountValues, agentAccounts, agentOrders, agent
   stepUp,
   outS2s,
 });
+// A position's protections on the person's own venue account (J-derivatives-03): the venue's trigger orders through the
+// door, and our engine for the kinds the venue lacks, signed by the protection key the person approved. Off with the door.
+const protectionTier = createLiveTierClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
+const venueProtections = userVenue
+  ? new VenueProtections({
+      door: userVenue,
+      store: new SqlEngineProtectionStore(sql),
+      keySeed: env.TRADE_AGENT_KEY_SEED,
+      // The person's level from identity before each order the engine sends (fails closed: nothing is sent).
+      liveTier: (userId) => protectionTier.tierOf(userId),
+      // The person's own freeze from identity before each order the engine sends (fails closed: nothing is sent).
+      freeze: createIdentityFreezeRead(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s),
+      now: () => new Date(),
+    })
+  : null;
+const protectionEngineMs = /^\d+$/.test(env.TRADE_PROTECTION_ENGINE_INTERVAL_MS.trim())
+  ? Number(env.TRADE_PROTECTION_ENGINE_INTERVAL_MS.trim())
+  : 0;
+if (venueProtections && protectionEngineMs > 0) {
+  let busy = false;
+  setInterval(() => {
+    if (busy) return;
+    busy = true;
+    venueProtections
+      .tick()
+      .catch((err: unknown) =>
+        process.stderr.write(`${JSON.stringify({ level: 'warn', msg: 'trade.protection_engine.tick_failed', message: String(err) })}\n`),
+      )
+      .finally(() => {
+        busy = false;
+      });
+  }, protectionEngineMs).unref();
+}
 // Live strategy runs on the person's own venue sub-account (J-algo-dev-07): their rows here, the strategy version read
 // from svc-quant as the person, the owner's freeze read from svc-identity. Off with the door; TRADE_QUANT_LIVE not `on`
 // refuses every start. The supervisor watches every running run's heartbeat and recovers a dead process.
@@ -1731,6 +1766,7 @@ registerPrivateRest(app, {
   agentOrders,
   agentActivity,
   ownAgentTrading,
+  venueProtections,
   liveRuns,
   venueSellQuotes,
   algo: trade,

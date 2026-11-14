@@ -101,6 +101,8 @@ import { attachUserVenueRoutes } from './venue/user-venue-rest.js';
 import { attachAgentAccountRoutes } from './venue/agent-account-rest.js';
 import type { AgentActivity } from './venue/agent-order-calls.js';
 import { attachOwnAgentTradingRoutes } from './venue/own-agent-trading-rest.js';
+import { attachProtectionRoutes } from './venue/protections-rest.js';
+import type { VenueProtections } from './venue/protections.js';
 import { attachLiveRunRoutes } from './quant/live-run/rest.js';
 import type { LiveRuns } from './quant/live-run/live-runs.js';
 import type { OwnAgentTrading } from './venue/own-agent-trading.js';
@@ -231,6 +233,8 @@ export interface PrivateRestDeps {
   agentActivity?: AgentActivity | null;
   /** A person's own agent trading their venue sub-account under an allowance (J-agents-08 #3 to #7). Off with the door. */
   ownAgentTrading?: OwnAgentTrading | null;
+  /** A position's protections on the person's own venue account (J-derivatives-03); off with the door. */
+  venueProtections?: VenueProtections | null;
   /** Live strategy runs (J-algo-dev-07); null with the user-venue door off. */
   liveRuns?: LiveRuns | null;
   /** Convert's sell quotes priced by the venue (J-cex-spot-17 #8); absent with the door. */
@@ -1468,6 +1472,12 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
   );
   attachOwnAgentTradingRoutes(app, deps.ownAgentTrading ?? null, { requirePrincipal, requireTradeJurisdiction, agentKeyConfined });
   attachLiveRunRoutes(app, deps.liveRuns ?? null, {
+    requirePrincipal,
+    requireTradeJurisdiction,
+    agentKeyConfined,
+    regionOf: (req) => contextFrom(req).region,
+  });
+  attachProtectionRoutes(app, deps.venueProtections ?? null, {
     requirePrincipal,
     requireTradeJurisdiction,
     agentKeyConfined,
