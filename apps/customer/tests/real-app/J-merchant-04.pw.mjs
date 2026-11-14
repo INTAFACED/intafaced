@@ -5,6 +5,7 @@ import { HDKey, hdKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { ROOT, journeyState, restartWithSetting, tool } from './stack.mjs';
 import { forgetSession } from './identity-factors.mjs';
+import { scanQr } from './qr-read.mjs';
 import { businessReadyPerson, openBusiness, refusedPayCalls, signInWithCode, verifiedBusiness } from './merchant.mjs';
 import { answerAfterNavigation } from './navigation.mjs';
 
@@ -403,7 +404,10 @@ test(`${J} #3 the owner copies the full address, the QR and the payment button; 
   await address.getByRole('button', { name: 'Copy link address' }).click();
   await expect(address.getByRole('status').filter({ hasText: 'Copied' })).toBeVisible();
   expect(await clipboard()).toBe(href);
-  await expect(address.getByRole('img', { name: 'QR code for the link address' })).toBeVisible();
+  // The QR code, read as a camera reads it, is that same full address.
+  const qr = address.getByRole('img', { name: 'QR code for the link address' });
+  await expect(qr).toBeVisible();
+  expect(await scanQr(qr), 'the drawn QR code scans to the link address').toBe(href);
 
   // The payment button's code carries the same full address and the link's label.
   const button = page
@@ -425,6 +429,7 @@ test(`${J} #3 the owner copies the full address, the QR and the payment button; 
   await expect(page.getByText('Use an address that starts with https://.', { exact: false })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Create link' })).toBeDisabled();
   await pageAddress.fill('https://shop.example/thanks');
+  const stallCreate = page.waitForRequest((request) => request.url().includes('merchant.createLink') && request.method() === 'POST');
   await page.getByRole('button', { name: 'Create link' }).click();
   const review = page.getByRole('dialog');
   await expect(review).toContainText('Your own web page: https://shop.example/thanks');
@@ -432,6 +437,7 @@ test(`${J} #3 the owner copies the full address, the QR and the payment button; 
   await expect(page.getByRole('heading', { name: 'Your link is ready' })).toBeVisible();
   const stallAddress = await page.getByTestId('link-address').getByRole('link', { name: 'Open the link' }).getAttribute('href');
   const stallId = (await page.getByTestId('pp-facts').getByTestId('pp-mono').first().textContent())?.trim();
+  const stallSent = await stallCreate;
 
   // Turned off with a message: the link's page and a customer opening it both show it.
   await page.goto(`/pay/links/${stallId}`);
@@ -444,6 +450,30 @@ test(`${J} #3 the owner copies the full address, the QR and the payment button; 
   await expect(page.locator('dl[data-testid="pp-facts"]')).toContainText('TEST Sold out until Monday');
   await expect(page.getByText('Deactivated').first()).toBeVisible();
   expect(refused).toEqual([]);
+
+  // svc-pay refuses an http after-payment page itself, by name, and stores nothing: the same create request as the stall's,
+  // with its own key and label and the page's address as plain http, as a client that skips the form would send it.
+  const stallBody = JSON.parse(stallSent.postData() ?? '{}');
+  const httpLabel = `TEST Plain-http stall ${Date.now().toString(36)}`;
+  const httpBody = JSON.parse(JSON.stringify(stallBody).replaceAll('https://shop.example/thanks', 'http://shop.example/thanks'));
+  Object.assign(httpBody.json ?? httpBody, { label: httpLabel, idempotencyKey: `j-merchant-04-http-${Date.now()}` });
+  expect(JSON.stringify(httpBody)).toContain('http://shop.example/thanks');
+  const stallHeaders = Object.fromEntries(
+    Object.entries(await stallSent.allHeaders()).filter(
+      ([name]) => !name.startsWith(':') && !['cookie', 'content-length', 'host'].includes(name),
+    ),
+  );
+  const plain = await page.evaluate(
+    async ({ url, data, headers }) => {
+      const response = await fetch(url, { method: 'POST', body: data, headers, credentials: 'include' });
+      return { status: response.status, text: await response.text() };
+    },
+    { url: stallSent.url(), data: JSON.stringify(httpBody), headers: stallHeaders },
+  );
+  expect(plain.status).toBe(400);
+  expect(plain.text).toContain('pay.link_redirect_not_https');
+  expect(plain.text).toContain('Nothing was stored.');
+  expect(plain.text).not.toContain(httpLabel);
 
   const payer = await browser.newContext();
   try {
