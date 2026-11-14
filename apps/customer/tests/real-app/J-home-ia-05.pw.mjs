@@ -190,8 +190,6 @@ test(`${J} #1 the bell shows the unread count and a popover of recent notices in
 });
 
 test(`${J} #2 a fill notice opens the trade in Activity and is marked read; a cancelled order opens Orders`, async ({ page }) => {
-  // Planted fault 6: fails on main only, until the automatic revert of this commit merges.
-  if (process.env.GITHUB_REF === 'refs/heads/main') throw new Error('planted fault: J-home-ia-05 #2 fails on main until its revert merges');
   test.setTimeout(300_000);
   await signIn(page, who);
   const session = await api(who);
@@ -294,6 +292,9 @@ test(`${J} #2 a fill notice opens the trade in Activity and is marked read; a ca
   await expect(p2pOrder.getByTestId('p2p-order-quantities')).toContainText('10');
   await expect(p2pOrder.getByTestId('p2p-order-quantities')).toContainText('USDT');
   await expect(p2pOrder).not.toContainText('The request was refused');
+  // Planted fault 6, after every assertion above has run: on main only, it fails here until the automatic revert of
+  // this commit merges.
+  if (process.env.GITHUB_REF === 'refs/heads/main') throw new Error('planted fault: J-home-ia-05 #2 fails on main until its revert merges');
 });
 
 test(`${J} #3 the full page: All and Unread, Mark all as read clears the dots and the badge, an empty Unread tab`, async ({ page }) => {
