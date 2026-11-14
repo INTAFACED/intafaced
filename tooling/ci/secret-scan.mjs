@@ -531,15 +531,22 @@ const isAttributeNameField = (key, value) => key === 'key' && ATTRIBUTE_NAME_VAL
  * letter words joined by dashes, then `${{ runner.os }}`, `${{ runner.arch }}` and `${{ hashFiles(...) }}`
  * expressions, at least one of them a hashFiles, and every hashFiles argument a file this repo tracks. A
  * digit-bearing or mixed-case literal, any other expression, or a credential written as a hashFiles "path" is
- * still a finding.
+ * still a finding. `${{ github.sha }}` (the public commit id) counts as the identifying part like a hashFiles, for a
+ * cache saved once per commit (turbo's cache, ci.yml); and `restore-keys:` may be the same words and runner
+ * expressions ending in `-`, the prefix the cache action matches. No other expression, and nothing outside `.github/`.
  */
 const CACHE_KEY_RUNNER = String.raw`\$\{\{\s*runner\.(?:os|arch)\s*\}\}`;
 const CACHE_KEY_HASH = String.raw`\$\{\{\s*hashFiles\(([^)]*)\)\s*\}\}`;
+const CACHE_KEY_SHA = String.raw`\$\{\{\s*github\.sha\s*\}\}`;
+const CACHE_KEY_ID = String.raw`(?:${CACHE_KEY_HASH}|${CACHE_KEY_SHA})`;
 const CACHE_KEY_VALUE = new RegExp(
-  String.raw`^[a-z]+(?:-[a-z]+)*(?:-${CACHE_KEY_RUNNER})*-${CACHE_KEY_HASH}(?:-(?:${CACHE_KEY_RUNNER}|${CACHE_KEY_HASH}))*$`,
+  String.raw`^[a-z]+(?:-[a-z]+)*(?:-${CACHE_KEY_RUNNER})*-${CACHE_KEY_ID}(?:-(?:${CACHE_KEY_RUNNER}|${CACHE_KEY_ID}))*$`,
 );
+const CACHE_RESTORE_PREFIX = new RegExp(String.raw`^[a-z]+(?:-[a-z]+)*(?:-${CACHE_KEY_RUNNER})*-$`);
 const isCacheKeyField = (rel, key, value) => {
-  if (key !== 'key' || !rel.startsWith('.github/') || !CACHE_KEY_VALUE.test(value.trim())) return false;
+  if (!rel.startsWith('.github/')) return false;
+  if (key === 'restore-keys') return CACHE_RESTORE_PREFIX.test(value.trim());
+  if (key !== 'key' || !CACHE_KEY_VALUE.test(value.trim())) return false;
   const args = [...value.matchAll(new RegExp(CACHE_KEY_HASH, 'g'))].flatMap((m) => m[1].split(','));
   return args.every((arg) => {
     const path = /^\s*'([^']+)'\s*$/.exec(arg)?.[1];

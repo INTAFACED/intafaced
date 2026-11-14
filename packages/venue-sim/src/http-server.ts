@@ -36,7 +36,8 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *   POST /markets {account|null}, /preview {account,intent}, /prepare {account,signer,intent},
  *        /submit {prepared,signature}, /balances|/open-orders|/positions|/agents {account},
  *        /order-by-client-id {account,venueClientOrderId}, /fills {account,since}, /withdrawal {account,nonce}, /deposits {account},
- *        /builder-fee-approval {account,builder}, /leverage {account,symbol}, /book {symbol,depth},
+ *        /builder-fee-approval {account,builder}, /builder-totals {builder}, /builder-claims {builder},
+ *        /leverage {account,symbol}, /book {symbol,depth},
  *        /sub-accounts {account}, /transfer {account,nonce}   (UserVenueSubAccountReads, on the main account)
  *        /market-margin {account,symbol}                  the owner's balance in a market deployer's own margin account
  *        /settlements {account,since}                     the account's settlements in a deployer's halt or a split
@@ -54,6 +55,7 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *        /test/set-index {symbol,price}                   a perpetual's TEST index (oracle) price, as the venue publishes it
  *        /test/pull-ladder {symbol,side: 'bid'|'ask'}     the TEST makers cancel that side of the market's seeded ladder
  *        /test/ladder-mid {symbol,price}               the TEST makers rest that market's seeded ladder again around price (its mid)
+ *        /test/builder-claim {builder}                     the builder claims every unclaimed builder fee into its own account
  *        /test/fills {since}                              every account's fills since a time, with its account
  *        /test/seed                                       TEST makers rest a two-sided ladder on BTC-USDC, BTC-PERP, ETH-PERP, XAU-PERP,
  *                                                         XSTK-PERP and XSTD-PERP
@@ -649,10 +651,14 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       return sim.withdrawal(account(body), str(body, 'nonce'));
     case '/deposits':
       return sim.deposits(account(body));
+    case '/arrivals':
+      return sim.arrivals(account(body));
     case '/builder-fee-approval':
       return sim.builderFeeApproval(account(body), str(body, 'builder'));
     case '/builder-totals':
       return sim.builderTotals(str(body, 'builder'));
+    case '/builder-claims':
+      return sim.builderClaims(str(body, 'builder'));
     case '/leverage':
       return sim.leverage(account(body), str(body, 'symbol'));
     case '/sub-accounts':
@@ -696,6 +702,8 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
     }
     case '/test/account-switches':
       return { ...setAccountSwitches(sim, body), label: 'TEST' };
+    case '/test/builder-claim':
+      return { claims: sim.claimBuilderFees(str(body, 'builder')), label: 'TEST' };
     case '/test/settle-withdrawals':
       return { settled: sim.settleWithdrawals(), label: 'TEST' };
     case '/test/set-mark': {

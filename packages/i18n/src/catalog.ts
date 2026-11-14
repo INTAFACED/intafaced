@@ -202,6 +202,9 @@ export const en = {
   'notify.identity.security.new_device.title': 'New device sign-in',
   'notify.identity.security.new_device.body':
     'A new device was approved and signed in to your account. If this was not you, open Security, remove the device, sign out everywhere and contact Support.',
+  'notify.identity.security.api_key_revoked.title': 'API key revoked',
+  'notify.identity.security.api_key_revoked.body':
+    'One of your API keys was revoked because a copy of it was reported found where it should not be. Programs using it are now refused. Make a new key in Security and keep it out of code you share.',
   'notify.identity.security.factor_changed.body':
     'A way to sign in to your account changed. If this was not you, open Security, sign out everywhere and contact Support.',
   'notify.identity.rank.updated.title': 'Rank updated',
@@ -218,6 +221,8 @@ export const en = {
   'notify.agents.approval.requested.comment.title': 'Your agent wants to send a comment',
   'notify.agents.approval.requested.title': 'Your agent wants to use a tool that needs your approval',
   'notify.agents.approval.requested.body': 'It waits for your approval in the Approvals inbox. Nothing runs until you approve it.',
+  'notify.agents.run.completed.title': 'Your agent run finished',
+  'notify.agents.run.completed.body': 'Open the run to read its result.',
   'notify.pay.request_created.title': 'Payment request',
   'notify.pay.request_created.body': '{payeeHandle} asked you for {amount} {assetId}.',
   'notify.pay.request_paid.title': 'Request paid',
@@ -290,6 +295,8 @@ export const en = {
   // v22.alerts — fire path uses these keys; missing catalog fell back to the key string.
   'notify.alert.price.crossed.title': 'Price alert',
   'notify.alert.price.crossed.body': '{marketId} crossed {direction} {targetPrice} (mark {markPrice}).',
+  // J-charts-desk-10: the market by its symbol and the time it fired, so an email holds the alert's market, level and time.
+  'notify.alert.price.fired.body': '{market} crossed {direction} {targetPrice} (mark {markPrice}) at {firedAt}.',
   // An alert the person named or wrote a message for shows their own words; the service renders placeholders before it sends.
   'notify.alert.price.crossed.named.title': '{name}',
   'notify.alert.price.crossed.message.body': '{message}',
@@ -389,6 +396,10 @@ export const en = {
   'agents.refused.log_mine_limit_unset': 'Refused: a page size is required for your activity log — none was given.',
   'agents.refused.cursor_invalid': 'Refused: that page cursor is not valid — ask for the list again from the start.',
   'agents.refused.fee_asset_unset': 'Refused: the fee asset for settled usage is unset, so spend cannot be labelled.',
+  'agents.refused.provenance_missing':
+    'Refused: {market} could not be read, so an answer about it would have no source. Nothing was run and nothing was charged.',
+  'agents.refused.uncertainty_scale_unset':
+    'Refused: no uncertainty scale is published for research answers yet. Nothing was run and nothing was charged.',
   'agents.refused.kb_search_limit_unset': 'Refused: a page size is required to search support knowledge — none was given.',
   'agents.refused.overage_grace_exceeded':
     'Refused: {owed} {asset} of earlier usage is still unpaid, more than the {grace} {asset} allowed unpaid, so this run did not start. It is retried on its same charge before each run; add funds if your balance is short.',

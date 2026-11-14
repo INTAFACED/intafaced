@@ -59,6 +59,8 @@ function desk(now = () => new Date('2026-11-10T03:00:00.000Z'), slippageCapBps: 
     // A Convert sell previews a market order, which the owner's price protection bounds: a labelled TEST value, the
     // widest the setting takes, so the venue's own preview decides every figure here.
     slippageCapBps,
+    // The owner's spread limit on a market order: a labelled TEST value; the simulator's book sits well inside it.
+    spreadLimitBps: 100,
   });
   const store = new MemoryVenueSellQuoteStore();
   return { quotes: new VenueSellQuotes({ door, store, now }), store };

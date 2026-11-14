@@ -360,6 +360,11 @@
       "service": "identity",
       "value": "2",
       "note": "TEST: the partner programme reaches two levels of a sub-tree, so a third-level invitee is counted and not shown (J-campaigns-07 #4)."
+    },
+    "IDENTITY_API_KEY_ROTATE_OVERLAP_MAX_SECONDS": {
+      "service": "identity",
+      "value": "300",
+      "note": "TEST: a rotated key may keep working beside its replacement for up to five minutes, so J-developer-07 can rotate with a 60-second overlap. `LOCAL_STACK_IDENTITY_KEY_ROTATE_OVERLAP_MAX=off` on a restart leaves it blank, so an overlap above 0 is refused (J-developer-07 #1)."
     }
   }
 }

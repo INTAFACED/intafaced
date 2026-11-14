@@ -97,6 +97,12 @@ export interface VenueTrigger {
   readonly role: 'take_profit' | 'stop_loss';
 }
 
+/**
+ * What the venue does when a new order would trade against the same account's own resting order (J-cex-spot-03 #8):
+ * cancel the resting one, cancel the new one, or cancel both. A venue applies its own rule; none is chosen per order.
+ */
+export type VenueSelfTradeMode = 'cancel_resting' | 'cancel_new' | 'cancel_both';
+
 export interface PlaceUserOrderIntent {
   readonly kind: 'place_order';
   readonly symbol: string;
@@ -525,6 +531,20 @@ export interface VenueBuilderTotal {
   readonly unclaimed: Amount;
 }
 
+/**
+ * One claim of builder fees, as the venue itself records it (J-derivatives-17; launch money model, rule 5): the venue paid
+ * `amount` of the builder's earned fees into the builder's own account at the venue. `claimId` is the venue's own id for
+ * it, so a claim read twice is one claim.
+ */
+export interface UserVenueBuilderClaim {
+  readonly claimId: string;
+  /** The builder address the venue paid, lowercase. */
+  readonly builder: string;
+  readonly asset: string;
+  readonly amount: Amount;
+  readonly claimedAt: Date;
+}
+
 export interface UserVenueBalance {
   readonly asset: string;
   /** Free to trade or withdraw. */
@@ -635,6 +655,11 @@ export interface UserVenueWithdrawal {
    * shown as "not known", never as 0.
    */
   readonly networkFee: MaybeKnown<Amount>;
+  /**
+   * The chain transaction that paid a `done` withdrawal, lowercase, when the venue reports it. Absent when it does not:
+   * never made up, and a reader that needs it waits (J-campaigns-03: a move of our own funds is keyed by it).
+   */
+  readonly txHash?: string;
 }
 
 /**
@@ -683,6 +708,21 @@ export interface UserVenueDeposit {
   readonly seenAt: Date;
   /** The transfer on the network's explorer, as the venue links it; `null` when the network has no explorer. */
   readonly explorerUrl: string | null;
+}
+
+/**
+ * One credit of coins into an account from outside it, as the venue records it (J-portfolio-02 #6): a deposit, or a
+ * transfer in from another address. Its cost is not known to the venue; INTAFACED keeps no copy and the ledger posts
+ * nothing.
+ */
+export interface UserVenueArrival {
+  /** The venue's own id for the credit (a deposit's `depositRef`): the same credit always has the same id. */
+  readonly arrivalId: string;
+  readonly kind: 'deposit' | 'transfer_in';
+  readonly asset: string;
+  readonly amount: Amount;
+  /** The venue's own time for the credit. */
+  readonly arrivedAt: Date;
 }
 
 /** The venue's id for one on-chain deposit: the same transfer always gives the same id, so a replay credits nothing. */
@@ -908,6 +948,12 @@ export interface UserVenueMarket {
   readonly triggerSources?: readonly VenueTriggerSource[];
   /** The venue's published index (oracle) price for the market now, or `known: false` where it publishes none. */
   readonly index?: MaybeKnown<Amount>;
+
+  /**
+   * The venue's own self-trade rule on this market, as it publishes it, or `known: false` (absent from an older venue:
+   * not published). Never our guess of what the venue does.
+   */
+  readonly selfTrade?: MaybeKnown<VenueSelfTradeMode>;
 }
 
 /** One settled funding interval as the venue published it: when it settled and its signed rate per interval. */
@@ -1024,6 +1070,13 @@ export interface UserVenueDescriptor extends VenueDescriptor {
    * that declares none has its figures refused (`venueFigure` throws), never given a silent default.
    */
   readonly figureStaleAfterMs?: number;
+  /**
+   * The longest an agent permission with an end date may last on this venue, from the moment it is approved (J-agents-21
+   * #19): an assistant's key that ends later than this is refused at connect, naming it. A venue that declares none has
+   * every dated key refused (`agents.venue_agent_expiry_max_unknown`), never given a silent default. A permission with no
+   * end date is the venue's own `validUntil: null` and is not bounded by this.
+   */
+  readonly agentValidityMaxMs?: number;
 }
 
 /** True for the TEST simulator and any testnet or partner sandbox. */
@@ -1122,6 +1175,12 @@ export interface UserVenue {
    */
   deposits?(account: UserVenueAccount): Promise<AsOf<readonly UserVenueDeposit[]>>;
   /**
+   * The coins credited to this account from outside it (a deposit, or a transfer from another address), oldest first, as
+   * the venue records them (J-portfolio-02 #6). Not a fill and not a move between the person's own accounts. Optional: a
+   * venue whose adapter does not read them leaves it out, and a coin that arrived that way stays unknown in the lot book.
+   */
+  arrivals?(account: UserVenueAccount): Promise<AsOf<readonly UserVenueArrival[]>>;
+  /**
    * The owner's balance in the margin account a market's deployer keeps for it (`UserVenueMarket.marginAccount`), read on
    * the main account. A market with none refuses `not_offered`. Absent on an adapter that does not read it.
    */
@@ -1136,6 +1195,11 @@ export interface UserVenue {
    * does not read them; the recon then reads the venue's totals as not known.
    */
   builderTotals?(builder: string): Promise<AsOf<MaybeKnown<VenueBuilderTotals>>>;
+  /**
+   * Every claim of builder fees the venue records for `builder`, oldest first (J-derivatives-17: "the venue records each
+   * claim of our builder fees"). Absent on an adapter that does not read the claim record; nothing is then collected.
+   */
+  builderClaims?(builder: string): Promise<AsOf<readonly UserVenueBuilderClaim[]>>;
   agents(account: UserVenueAccount): Promise<AsOf<readonly UserVenueAgent[]>>;
   /**
    * The account's leverage setting on `symbol`, or `null` when none is set

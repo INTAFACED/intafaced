@@ -28,6 +28,7 @@
  *   node tooling/scripts/local-test-market.mjs history [--bars 210] [--step-minutes 15] [--trades-per-bar 2]
  *                                    on a FRESH stack, with the market stopped: real TEST trades now, then moved into the
  *                                    past (fill times only) so charts have history. Skips any market that already traded.
+ *                                    --markets journeys: only HISTORY_SYMBOLS, the markets journeys read the past of.
  *
  * What it does, every few seconds, for each published market it has a TEST PRICE for:
  *   1. moves a deterministic, seedable synthetic price (integer arithmetic, no float money);
@@ -489,7 +490,17 @@ export function bookMid(book) {
   }
 }
 
-const DEFAULT_SYMBOLS = ['BTC/USDT', 'BTC/USDC', 'ETH/USDT', 'ETH/USDC', 'IFC/USDT', 'ETH/BTC', 'BTC/USDT:USDT'];
+export const DEFAULT_SYMBOLS = ['BTC/USDT', 'BTC/USDC', 'ETH/USDT', 'ETH/USDC', 'IFC/USDT', 'ETH/BTC', 'BTC/USDT:USDT'];
+/**
+ * The markets `history --markets journeys` writes past trades on (the journeys shards and the revert probe): the spot
+ * markets whose charts, candles or tape a journey reads (local-test-market-history.test.mjs fails when a journey that
+ * reads them names a market missing here). The tape is about 5040 real TEST orders through the stack and most of a
+ * journeys shard's boot: on 13 Nov, on main 233e1c4773 with only this changed, CI run 43391038048 wrote six markets in
+ * 193 s and run 43391059746 these four in 149 s. ETH/BTC and ETH/USDC keep their live TEST market maker trades; no
+ * journey reads their past. One market per request instead (six lanes, run 43392547118) was slower: 6.1 minutes for the
+ * step against 4.6. Without --markets, history still writes every default market (the try-it stack's charts).
+ */
+export const HISTORY_SYMBOLS = Object.freeze(['BTC/USDT', 'BTC/USDC', 'ETH/USDT', 'IFC/USDT']);
 // Funded to this level by `local:fund` (real ledger deposits, LOCAL-TEST- rail refs); the taker gets a tenth.
 const FUND_TO = {
   USDT: '1000000',
@@ -865,7 +876,8 @@ function parseArgs(argv) {
     if (a === '--seed') opts.seed = argv[++i];
     else if (a === '--interval') opts.seconds = Number(argv[++i]);
     else if (a === '--levels') opts.levels = Number(argv[++i]);
-    else if (a === '--markets') opts.symbols = argv[++i] === 'all' ? Object.keys(TEST_PRICES) : argv[i].split(',');
+    else if (a === '--markets')
+      opts.symbols = argv[++i] === 'all' ? Object.keys(TEST_PRICES) : argv[i] === 'journeys' ? [...HISTORY_SYMBOLS] : argv[i].split(',');
     else if (a === '--edge-url') opts.edge = argv[++i];
     else if (a === '--foreground') opts.foreground = true;
     else if (a === '--bars') opts.bars = Number(argv[++i]);

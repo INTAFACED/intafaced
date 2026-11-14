@@ -7,12 +7,15 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   JOURNEY_DIR,
+  MAIN_MAX_SHARDS,
   MAX_SHARDS,
+  MIN_TARGET_MINUTES,
   TARGETED_MAX_SHARDS,
   UNTIMED_STEP_MS,
   estimateDurations,
   freshFiles,
   fileDurations,
+  fullPlan,
   journeyFiles,
   longestDurations,
   planCovers,
@@ -220,6 +223,29 @@ test('the planner as the workflow calls it with no report plans the full suite a
   const shards = JSON.parse(run);
   assert.equal(shards.length, MAX_SHARDS, `${shards.length} shards`);
   assert.deepEqual(shards.flatMap((s) => s.split(' ')).sort(), journeyFiles(JOURNEY_DIR));
+});
+
+// Main's run aims each shard at the floor, up to its own ceiling, so a break is named as its shorter shard ends; every
+// other full run (a pull request's, a manual run on a branch) keeps the longest-file target and MAX_SHARDS.
+test('a run on main plans 10-minute shards up to 64; any other full run keeps the longest-file target and 32', () => {
+  const min = 60_000;
+  const durations = new Map([['a', 26 * min]]);
+  assert.deepEqual(fullPlan(durations, true), { target: MIN_TARGET_MINUTES * min, max: MAIN_MAX_SHARDS });
+  assert.deepEqual(fullPlan(durations, false), { target: 16 * min, max: MAX_SHARDS });
+  assert.equal(MAIN_MAX_SHARDS, 64);
+  const plan = (args) =>
+    JSON.parse(
+      execFileSync(process.execPath, ['tooling/scripts/journey-shards.mjs', '--shards', 'auto', ...args], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }),
+    );
+  const main = plan(['--main']);
+  // With no report every step counts UNTIMED_STEP_MS: more shards than any other full run gets, never past main's ceiling.
+  assert.ok(main.length > MAX_SHARDS && main.length <= MAIN_MAX_SHARDS, `${main.length} shards`);
+  assert.deepEqual(main.flatMap((s) => s.split(' ')).sort(), journeyFiles(JOURNEY_DIR));
+  // --only wins: a targeted run is never main's, so --main never lifts its cap.
+  assert.ok(plan(['--main', '--only', 'J-wallet-05']).length <= TARGETED_MAX_SHARDS);
 });
 
 test('the shard count keeps each shard near the target, within its floor and ceiling', () => {

@@ -8,12 +8,14 @@ import {
   type AsOf,
   type MaybeKnown,
   type VenueBuilderTotals,
+  type UserVenueBuilderClaim,
   type PlaceUserOrderIntent,
   type PreparedVenueAction,
   type UserVenue,
   type UserVenueAccount,
   type UserVenueAgent,
   type UserVenueBalance,
+  type UserVenueArrival,
   type UserVenueDeposit,
   type UserVenueDescriptor,
   type UserVenueFeed,
@@ -217,6 +219,12 @@ export interface SimMarketConfig {
  */
 export const TEST_VENUE_FIGURE_STALE_AFTER_MS = 60_000;
 
+/**
+ * TEST: the longest an agent permission with an end date may last on the TEST venue (J-agents-21 #19), 180 days. A real
+ * venue's adapter declares its own; this TEST value stands in on test stacks only.
+ */
+export const TEST_VENUE_AGENT_VALIDITY_MAX_MS = 180 * 24 * 60 * 60 * 1000;
+
 export interface SimSwitches {
   venueDown: boolean;
   /** The venue's builder totals read as not known (OWNER 288 1e), as on a venue that publishes none. */
@@ -262,6 +270,8 @@ interface AccountState {
   readonly builderApprovals: Map<string, Amount>;
   readonly agents: Map<string, UserVenueAgent>;
   readonly deposits: Set<string>;
+  /** Every credit from outside the account (a deposit), oldest first: the venue's own record of it (J-portfolio-02 #6). */
+  readonly arrivals: UserVenueArrival[];
   readonly leverage: Map<string, { leverageBps: number; marginMode: VenueMarginMode }>;
   /** Main account only: its sub-accounts, by venue id. */
   readonly subAccounts: Map<string, UserVenueSubAccount>;
@@ -348,6 +358,9 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   private fillCounter = 0;
   /** Builder fees charged, by builder address and fee asset: the venue's own builder totals (OWNER 288 1e). */
   private readonly builderEarned = new Map<string, Map<string, Amount>>();
+  /** Builder fee claims, by builder address, oldest first: the venue's own claim record (J-derivatives-17). */
+  private readonly builderClaimRecord = new Map<string, UserVenueBuilderClaim[]>();
+  private builderClaimCounter = 0;
   private venueOrderCounter = 0;
   /** Each market's own state and largest order, changed by the TEST controls. */
   private readonly marketState = new Map<
@@ -376,6 +389,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       sequencedDepth: true,
       proofLevel: 'simulator',
       figureStaleAfterMs: TEST_VENUE_FIGURE_STALE_AFTER_MS,
+      agentValidityMaxMs: TEST_VENUE_AGENT_VALIDITY_MAX_MS,
     };
     this.clock = options.clock;
     this.chainId = testVenueDomain(options.chainId ?? TEST_VENUE_CHAIN_ID).chainId;
@@ -576,7 +590,14 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     state.deposits.add(depositRef);
     const balance = this.balance(state, asset);
     balance.free = add(balance.free, amount);
+    state.arrivals.push({ arrivalId: depositRef, kind: 'deposit', asset, amount, arrivedAt: this.clock() });
     return true;
+  }
+
+  /** The coins credited to this account from outside it, oldest first (J-portfolio-02 #6): each deposit it credited. */
+  async arrivals(account: UserVenueAccount): Promise<AsOf<readonly UserVenueArrival[]>> {
+    this.up();
+    return this.asOf([...this.account(account).arrivals]);
   }
 
   /**
@@ -746,7 +767,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
    * Settle one pending withdrawal: `done` (the chain confirmed it) or `failed` (the venue returns the amount and its fee
    * to free). False when it is not pending (already settled, or unknown): settling twice changes nothing.
    */
-  settleWithdrawal(account: UserVenueAccount, nonce: string, outcome: 'done' | 'failed'): boolean {
+  settleWithdrawal(account: UserVenueAccount, nonce: string, outcome: 'done' | 'failed', txHash?: string): boolean {
     const state = this.account(account);
     const withdrawal = state.withdrawals.get(nonce);
     if (!withdrawal || withdrawal.status !== 'pending') return false;
@@ -754,7 +775,12 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       const balance = this.balance(state, withdrawal.asset);
       balance.free = add(balance.free, add(withdrawal.amount, this.withdrawalFeeCharged.get(`${state.key}#${nonce}`) ?? ZERO));
     }
-    state.withdrawals.set(nonce, { ...withdrawal, status: outcome });
+    // The chain transaction that paid it, when a chain payer settled it (chain-deposits.ts); a TEST settle names none.
+    state.withdrawals.set(nonce, {
+      ...withdrawal,
+      status: outcome,
+      ...(outcome === 'done' && txHash ? { txHash: txHash.toLowerCase() } : {}),
+    });
     return true;
   }
 
@@ -796,6 +822,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       funding: m.funding ? { known: true, value: this.fundingOf(m.funding) } : { known: false },
       triggerSources: m.kind === 'perpetual' ? (m.triggerSources ?? []) : [],
       index: published(m.kind === 'perpetual' ? this.indexes.get(m.symbol) : undefined),
+      // The simulator's own rule (`place`): an order that would cross this account's own resting order cancels the resting one.
+      selfTrade: { known: true, value: 'cancel_resting' },
     }));
     return this.asOf(list);
   }
@@ -1267,8 +1295,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
 
   /**
    * The TEST venue's own builder-fee totals for `builder` (OWNER 288 1e): every builder fee it charged on a fill that
-   * carried that builder, per fee asset. No builder claims here, so all of it is unclaimed. The `builderTotalsUnknown`
-   * switch answers not known.
+   * carried that builder, per fee asset, and what of it the builder has not claimed (`claimBuilderFees`). The
+   * `builderTotalsUnknown` switch answers not known.
    */
   async builderTotals(builder: string): Promise<AsOf<MaybeKnown<VenueBuilderTotals>>> {
     this.up();
@@ -1276,8 +1304,51 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     const b = builder.toLowerCase();
     const assets = [...(this.builderEarned.get(b) ?? new Map<string, Amount>()).entries()]
       .sort(([x], [y]) => x.localeCompare(y))
-      .map(([asset, earned]) => ({ asset, earned, unclaimed: earned }));
+      .map(([asset, earned]) => ({ asset, earned, unclaimed: sub(earned, this.builderClaimed(b, asset)) }));
     return this.asOf({ known: true, value: { builder: b, assets } });
+  }
+
+  /** Every builder fee claim the TEST venue records for `builder`, oldest first. */
+  async builderClaims(builder: string): Promise<AsOf<readonly UserVenueBuilderClaim[]>> {
+    this.up();
+    return this.asOf([...(this.builderClaimRecord.get(builder.toLowerCase()) ?? [])]);
+  }
+
+  /**
+   * TEST control: `builder` claims every builder fee it has not claimed yet, one claim per fee asset, paid into the
+   * builder's own main account at this venue (free to withdraw). Returns the claims it made; nothing unclaimed makes
+   * none. Never part of `UserVenue`.
+   */
+  claimBuilderFees(builder: string): readonly UserVenueBuilderClaim[] {
+    this.up();
+    const b = builder.toLowerCase();
+    if (!/^0x[0-9a-f]{40}$/.test(b)) refuse(this.venue.id, 'venue_rejected', 'builder must be a 0x address');
+    const made: UserVenueBuilderClaim[] = [];
+    const record = this.builderClaimRecord.get(b) ?? [];
+    for (const [asset, earned] of [...(this.builderEarned.get(b) ?? new Map<string, Amount>()).entries()].sort(([x], [y]) =>
+      x.localeCompare(y),
+    )) {
+      const unclaimed = sub(earned, this.builderClaimed(b, asset));
+      if (compare(unclaimed, ZERO) <= 0) continue;
+      this.builderClaimCounter += 1;
+      const claim = {
+        claimId: `sim-builder-claim-${this.builderClaimCounter}`,
+        builder: b,
+        asset,
+        amount: unclaimed,
+        claimedAt: this.clock(),
+      };
+      const balance = this.balance(this.account({ venueId: this.venue.id, owner: b, subAccount: null }), asset);
+      balance.free = add(balance.free, unclaimed);
+      record.push(claim);
+      made.push(claim);
+    }
+    this.builderClaimRecord.set(b, record);
+    return made;
+  }
+
+  private builderClaimed(builder: string, asset: string): Amount {
+    return (this.builderClaimRecord.get(builder) ?? []).filter((c) => c.asset === asset).reduce((n, c) => add(n, c.amount), ZERO);
   }
 
   async leverage(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueLeverage | null>> {
@@ -1444,6 +1515,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         builderApprovals: new Map(),
         agents: new Map(),
         deposits: new Set(),
+        arrivals: [],
         leverage: new Map(),
         subAccounts: new Map(),
         transfers: new Map(),

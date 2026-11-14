@@ -64,10 +64,18 @@
   border-radius: var(--if-r-sm);
 }
 
-/* The printable report (AL-report-03): printing while it is open prints the report alone, without the app around it. */
+/* The printable report (AL-report-03): printing while it is open prints the report alone, without the app around it,
+   on A4 pages, with no section split across two pages. */
+@page {
+  size: A4;
+  margin: 1.5rem;
+}
+
 @media print {
-  body:has(.quant-report-document) * {
-    visibility: hidden;
+  /* Everything outside the report's own branch takes no room, so no blank page prints after it. Important, because an
+     element's own inline display (a portal or overlay root) would otherwise keep it on paper. */
+  body:has(.quant-report-document) *:not(:has(.quant-report-document)):not(.quant-report-document, .quant-report-document *) {
+    display: none !important;
   }
 
   /* Important, because another room's print sheet hides every element with an important rule while it is loaded. */
@@ -76,10 +84,8 @@
     visibility: visible !important;
   }
 
-  body:has(.quant-report-document) .quant-report-document {
-    position: absolute;
-    inset-block-start: 0;
-    inset-inline: 0;
+  .quant-report-document section {
+    break-inside: avoid;
   }
 
   .quant-report-document .quant-no-print {

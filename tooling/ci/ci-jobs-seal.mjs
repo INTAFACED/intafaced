@@ -19,6 +19,7 @@
  */
 import { SHARD_COUNT, classify, sealNeeded, shardMatrix } from './ci-affected.mjs';
 import { START_JOB, pullFiles } from './journey-seal.mjs';
+import { httpMessage, titleFor } from './api-budget.mjs';
 
 export const CI_WORKFLOW_PATH = '.github/workflows/ci.yml';
 
@@ -85,7 +86,7 @@ async function api(path, token) {
   const res = await fetch(`https://api.github.com${path}`, {
     headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28' },
   });
-  if (!res.ok) throw new Error(`GET ${path}: HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);
+  if (!res.ok) throw new Error(httpMessage(path, res, (await res.text()).slice(0, 200)));
   return res.json();
 }
 
@@ -131,7 +132,7 @@ async function main() {
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   main().catch((e) => {
-    console.error(`::error title=CI merge seal::${e.message}`);
+    console.error(`::error title=${titleFor(e.message, 'CI merge seal')}::${e.message}`);
     process.exit(1);
   });
 }

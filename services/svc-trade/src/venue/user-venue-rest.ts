@@ -78,6 +78,8 @@ export interface UserVenueRestDeps {
    * (`trade.slippage_cap_unset`). Never a default.
    */
   slippageCapBps?: number | null;
+  /** The owner's spread limit for a spot market order (TRADE_MARKET_SPREAD_LIMIT_BPS), or null when blank, as `best-prices` answers it. */
+  spreadLimitBps?: number | null;
   /** Convert's sell quotes priced by the venue (J-cex-spot-17 #8); absent, the route answers the door's own refusal. */
   sellQuotes?: VenueSellQuotes | null;
   /**
@@ -274,7 +276,12 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
         throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: 'this venue publishes no book' });
       const best = await venue.bestPrices(req.query.symbol);
       const cap = deps.slippageCapBps ?? null;
-      return { ...best, slippageCapBps: cap === null ? { known: false } : { known: true, value: String(cap) } };
+      const spread = deps.spreadLimitBps ?? null;
+      return {
+        ...best,
+        slippageCapBps: cap === null ? { known: false } : { known: true, value: String(cap) },
+        spreadLimitBps: spread === null ? { known: false } : { known: true, value: String(spread) },
+      };
     });
   });
 
