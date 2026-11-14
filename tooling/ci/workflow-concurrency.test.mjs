@@ -545,8 +545,8 @@ test('Main bisect: two breaks on one main commit each get their own group, and a
 const drop = (text) => text.replace(/^concurrency:\n(?:[ #].*\n|\n)*/m, '');
 
 test('planted: a pull-request workflow without its concurrency group fails rule 1', () => {
-  assert.ok(concurrency(read('look-gate.yml')), 'look-gate.yml has a group to remove');
-  assert.match(prProblems('look-gate.yml', drop(read('look-gate.yml')))[0], /no top-level concurrency group/);
+  assert.ok(concurrency(read('gate-file-guard.yml')), 'gate-file-guard.yml has a group to remove');
+  assert.match(prProblems('gate-file-guard.yml', drop(read('gate-file-guard.yml')))[0], /no top-level concurrency group/);
 });
 
 test('planted: a pull-request workflow that never cancels, or keys on the base ref, fails rule 1', () => {
