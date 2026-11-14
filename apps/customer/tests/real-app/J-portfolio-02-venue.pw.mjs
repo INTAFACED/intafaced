@@ -222,6 +222,23 @@ test(`${J} #6 sells coins that arrived from outside: the lot's cost is unknown u
   await expect(main.locator('[data-figure="realised"]')).toHaveText('Not known');
   await expect(btc.locator('[data-col="cost"]')).toHaveText('Not known');
 
+  // With balances hidden (the eye on Money) the quantity inside that sentence is masked too, as every figure on the page is.
+  const eye = async (name) => {
+    await page.goto('/money');
+    const written = page.waitForResponse((res) => res.url().includes('preferences.set') && res.request().method() === 'POST');
+    await page.getByRole('button', { name }).first().click();
+    expect((await written).status()).toBe(200);
+  };
+  await eye('Hide balances');
+  try {
+    const hidden = await pnl(page);
+    await expect(hidden.locator('tr[data-sale]').filter({ hasText: 'BTC' }).first().locator('[data-effect="unknown-share"]')).toHaveText(
+      'Unknown share: •••• BTC sold with no cost',
+    );
+  } finally {
+    await eye('Show balances');
+  }
+
   // The venue's own record is untouched by any of it: the price is the person's note in the indicator, nothing moved.
   expect(fromUnits(toUnits((await venueBalance(owner, 'BTC')).total))).toBe(LEFT);
 });
