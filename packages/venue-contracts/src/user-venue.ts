@@ -76,6 +76,12 @@ export interface VenueSigner {
 
 export type VenueTimeInForce = 'GTC' | 'IOC' | 'ALO';
 
+/**
+ * What the venue does when a new order would trade against the same account's own resting order (J-cex-spot-03 #8):
+ * cancel the resting one, cancel the new one, or cancel both. A venue applies its own rule; none is chosen per order.
+ */
+export type VenueSelfTradeMode = 'cancel_resting' | 'cancel_new' | 'cancel_both';
+
 export interface PlaceUserOrderIntent {
   readonly kind: 'place_order';
   readonly symbol: string;
@@ -494,6 +500,20 @@ export interface VenueBuilderTotal {
   readonly unclaimed: Amount;
 }
 
+/**
+ * One claim of builder fees, as the venue itself records it (J-derivatives-17; launch money model, rule 5): the venue paid
+ * `amount` of the builder's earned fees into the builder's own account at the venue. `claimId` is the venue's own id for
+ * it, so a claim read twice is one claim.
+ */
+export interface UserVenueBuilderClaim {
+  readonly claimId: string;
+  /** The builder address the venue paid, lowercase. */
+  readonly builder: string;
+  readonly asset: string;
+  readonly amount: Amount;
+  readonly claimedAt: Date;
+}
+
 export interface UserVenueBalance {
   readonly asset: string;
   /** Free to trade or withdraw. */
@@ -849,6 +869,18 @@ export interface UserVenueMarket {
   readonly contractSize: MaybeKnown<Amount>;
   readonly mark: MaybeKnown<Amount>;
   readonly funding: MaybeKnown<UserVenueFunding>;
+  /**
+   * The venue's own self-trade rule on this market, as it publishes it, or `known: false` (absent from an older venue:
+   * not published). Never our guess of what the venue does.
+   */
+  readonly selfTrade?: MaybeKnown<VenueSelfTradeMode>;
+}
+
+/** One settled funding interval as the venue published it: when it settled and its signed rate per interval. */
+export interface VenueFundingRow {
+  readonly fundingAt: Date;
+  /** A signed scaled fraction of notional per interval (as `UserVenueFunding.rate`), never a percent. */
+  readonly rate: Amount;
 }
 
 /**
@@ -958,6 +990,13 @@ export interface UserVenueDescriptor extends VenueDescriptor {
    * that declares none has its figures refused (`venueFigure` throws), never given a silent default.
    */
   readonly figureStaleAfterMs?: number;
+  /**
+   * The longest an agent permission with an end date may last on this venue, from the moment it is approved (J-agents-21
+   * #19): an assistant's key that ends later than this is refused at connect, naming it. A venue that declares none has
+   * every dated key refused (`agents.venue_agent_expiry_max_unknown`), never given a silent default. A permission with no
+   * end date is the venue's own `validUntil: null` and is not bounded by this.
+   */
+  readonly agentValidityMaxMs?: number;
 }
 
 /** True for the TEST simulator and any testnet or partner sandbox. */
@@ -992,6 +1031,14 @@ export interface UserVenue {
    * does not list. Optional: a venue that publishes no book leaves it out, and a market order then has no worst price.
    */
   bestPrices?(symbol: string): Promise<AsOf<VenueBestPrices>>;
+
+  /**
+   * The funding rates this venue published for the perpetual `symbol` at each settled interval since `since`, oldest
+   * first, no account (J-charts-desk-04 #6: a chart's funding study). Refuses `unknown_market` for a symbol it does not
+   * list and `not_offered` for a market with no published funding. Optional: a venue (or an adapter) that does not read
+   * its funding history leaves it out, and the chart then refuses the study by name.
+   */
+  fundingHistory?(symbol: string, since: Date): Promise<AsOf<readonly VenueFundingRow[]>>;
 
   // ── signed actions ─────────────────────────────────────────────────────
   /**
@@ -1062,6 +1109,11 @@ export interface UserVenue {
    * does not read them; the recon then reads the venue's totals as not known.
    */
   builderTotals?(builder: string): Promise<AsOf<MaybeKnown<VenueBuilderTotals>>>;
+  /**
+   * Every claim of builder fees the venue records for `builder`, oldest first (J-derivatives-17: "the venue records each
+   * claim of our builder fees"). Absent on an adapter that does not read the claim record; nothing is then collected.
+   */
+  builderClaims?(builder: string): Promise<AsOf<readonly UserVenueBuilderClaim[]>>;
   agents(account: UserVenueAccount): Promise<AsOf<readonly UserVenueAgent[]>>;
   /**
    * The account's leverage setting on `symbol`, or `null` when none is set
@@ -1095,7 +1147,7 @@ export function hasSubAccountReads(venue: UserVenue): venue is UserVenue & UserV
 // ════════════════════════════════════════════════════════════════════════════
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const BUSINESS_KEY_RE = /^[a-z][a-z0-9-]*:.+$/;
+const BUSINESS_KEY_RE = /^[a-z][a-z0-9.-]*:.+$/;
 
 /**
  * Map a business key to the venue's 128-bit client order id (`0x` + 32 hex,

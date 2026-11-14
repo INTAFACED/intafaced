@@ -15,6 +15,7 @@ import {
   type AcademyDiscussionPostKind,
   type AcademyDiscussionTopic,
 } from '@intafaced/contracts/academy-discussion';
+import { academyReportDiscussionPostResultSchema } from '@intafaced/contracts/academy-team';
 import type { ApiResult } from '../../shared/api';
 import { usePreferences } from '../../shared/preferences';
 import { useResource, type Resource } from '../../shared/resource';
@@ -448,6 +449,7 @@ export function AcademyDiscussionThread({ courseSlug, postId }: { courseSlug: st
                       {post.liked ? t('discussionLiked') : t('discussionLike')}
                     </Button>
                   </div>
+                  {post.author.kind !== 'you' && <ReportForm postId={post.id} />}
                 </div>
               </Panel>
               <Panel title={t('discussionRepliesTitle')}>
@@ -513,6 +515,64 @@ export function AcademyDiscussionThread({ courseSlug, postId }: { courseSlug: st
         })()
       )}
     </div>
+  );
+}
+
+/**
+ * Report a post to the course's moderators with a reason (AC-rooms-02). One report per account per post: a second one
+ * changes nothing and says so. Reporting does not promise a takedown, and the author never learns who reported.
+ */
+function ReportForm({ postId }: { postId: string }) {
+  const api = useApi();
+  const { t } = copy.useCopy();
+  const id = useId();
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState('');
+  const [sending, setSending] = useState(false);
+  const [outcome, setOutcome] = useState<Outcome | null>(null);
+  const [first, setFirst] = useState(true);
+  const send = async () => {
+    setSending(true);
+    setOutcome(null);
+    const sent = await api.mutate('academy', 'reportDiscussionPost', { postId, reason }, academyReportDiscussionPostResultSchema);
+    setSending(false);
+    if (sent.ok) {
+      setFirst(sent.data.reported);
+      setOutcome({ kind: 'done' });
+    } else setOutcome(sent.reason === 'uncertain' ? { kind: 'uncertain' } : { kind: 'refused', failure: sent });
+  };
+  if (!open)
+    return (
+      <div className="academy-lms-meta">
+        <Button variant="secondary" onClick={() => setOpen(true)}>
+          {t('discussionReport')}
+        </Button>
+      </div>
+    );
+  return (
+    <form
+      className="academy-lms-stack"
+      data-testid="discussion-report-form"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void send();
+      }}
+    >
+      <label className="field" htmlFor={`${id}-why`}>
+        <span>{t('discussionReportWhy')}</span>
+        <textarea id={`${id}-why`} value={reason} rows={2} required maxLength={500} onChange={(event) => setReason(event.target.value)} />
+      </label>
+      <Button type="submit" disabled={sending}>
+        {t('discussionReportSend')}
+      </Button>
+      {outcome && (
+        <OutcomeLine
+          outcome={outcome}
+          done={first ? t('discussionReported') : t('discussionReportedBefore')}
+          testId="discussion-report-outcome"
+        />
+      )}
+    </form>
   );
 }
 

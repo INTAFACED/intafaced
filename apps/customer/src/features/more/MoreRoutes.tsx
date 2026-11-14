@@ -8,6 +8,10 @@ import { NewAgent, OwnAgentPage, OwnAgentTitle, ownAgentId } from './AgentBuilde
 import { agentBuilderCopy } from './agent-builder-copy';
 import { AgentsTeam } from './AgentsTeam';
 import { AgentApprovals } from './AgentApprovals';
+import { AgentConnect } from './AgentConnect';
+import { agentConnectCopy } from './agent-connect-copy';
+import { AgentRunPage, agentRunId } from './AgentRun';
+import { agentRunCopy } from './agent-run-copy';
 import { agentApprovalsCopy } from './agent-approvals-copy';
 import { agentsTeamCopy } from './agents-team-copy';
 import { Blueprint } from './Blueprint';
@@ -83,9 +87,17 @@ function MoreRooms({ path }: { path: string }) {
     title = copyText('moreroutes.agents');
     description = copyText('moreroutes.permissions.bounded.engine.sessions.and.your.activity');
     content = <Agents paper={paper} />;
+  } else if (p === '/agents/connect') {
+    title = <agentConnectCopy.Copy k="title" />;
+    description = <agentConnectCopy.Copy k="description" />;
+    content = <AgentConnect />;
   } else if (p === '/agents/new') {
     title = agentBuilderCopy.t('newAgent');
     content = <NewAgent />;
+  } else if (agentRunId(p)) {
+    const runId = agentRunId(p)!;
+    title = agentRunCopy.t('title');
+    content = <AgentRunPage key={runId} runId={runId} />;
   } else if (ownAgentId(p)) {
     const id = ownAgentId(p)!;
     title = <OwnAgentTitle id={id} />;

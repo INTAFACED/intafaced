@@ -23,6 +23,7 @@ import {
   type Source,
 } from './blockers';
 import { protocolCopy as copy } from './copy';
+import { AssetLinkReview, VenueReadDocs } from './venue/AssetLink';
 import { ContractsPanel, type ChainRef, NetworkPanel, SupportedNetworksPanel } from './NetworkPanels';
 import { ChainHome } from './explorer/ChainHome';
 import { BlocksList } from './explorer/pages';
@@ -552,7 +553,14 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
         </Panel>
       </>
     );
-  else if (slug === 'protocol' && tab === 'contracts') body = <ContractsPanel chain={chainRef} t={t} />;
+  else if (slug === 'protocol' && tab === 'contracts')
+    body = (
+      <>
+        <ContractsPanel chain={chainRef} t={t} />
+        <AssetLinkReview api={api} t={t} />
+        <VenueReadDocs api={api} t={t} />
+      </>
+    );
   else if (slug === 'protocol' && tab === 'rails')
     body = (
       <Panel title={t('railsTitle')}>

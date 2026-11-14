@@ -15,8 +15,8 @@
 # project-state OWNER 225 and 227). A run on main retries a failed test once (JOURNEY_RETRIES); a test that fails and then
 # passes on the same commit ends "flaky", and the verdict sets its step aside for 7 days, a list each main run keeps in
 # its own artifact (set-aside.json) for the next: it still runs and is shown, it isn't counted as proven, and its failure
-# doesn't turn main red. A money step that is flaky is never set aside or proven: it stays red, opens a `flaky` issue,
-# and the merge seal holds only the pull requests in its area (project-state OWNER 278). (Failure it prevents: with no retry and no way to set a test
+# doesn't turn main red. A step that is flaky and not set aside, a money step included, is a pass that is never proven
+# and opens a `flaky` issue (the programme lead's decision of 12 Nov 2026 under project-state OWNER 296 and 297). (Failure it prevents: with no retry and no way to set a test
 # aside, one flaky test turned main red, or a red was left standing and read as noise.) The cost: each failed test runs
 # twice; the failed tests of runs 1635, 1636 and 1639 took 83 to 102 journey-minutes of a run, spread over its shards.
 #
@@ -26,6 +26,10 @@
 # the suite outgrew one job and keeps growing.) Journey files are independent: each makes its own accounts and keeps its
 # own run file, so the plan job can split them by file.
 name: Real-app journeys
+# A run by hand says in its title what it runs (`full`, or the journey files it was given), so a pull request's run on
+# the same head can leave out the journey files a targeted one runs (journey-touch.mjs DISPATCH_TITLE, reusableRuns; project-state#2065 row d32 part (b)).
+# Every other run keeps GitHub's own title (an empty run-name).
+run-name: ${{ github.event_name == 'workflow_dispatch' && format('Real-app journeys by hand, {0}', github.ref != 'refs/heads/main' && inputs.journeys != '' && inputs.journeys || 'full') || '' }}
 
 on:
   # A manual run on a branch other than main may name journey files; it then runs only those (owner decision
@@ -78,6 +82,7 @@ on:
       - 'tooling/scripts/roadmap.mjs'
       - 'tooling/scripts/journey-shards*.mjs'
       - 'tooling/scripts/journey-fail-fast.mjs'
+      - 'tooling/scripts/journey-leave-out*.mjs'
       - 'docs/runbooks/journey-baseline.json'
       - '.github/workflows/real-app-journeys.yml'
 
@@ -143,6 +148,7 @@ jobs:
       matrix: ${{ steps.plan.outputs.matrix }}
       count: ${{ steps.plan.outputs.count }}
       fast_plan: ${{ steps.fast.outputs.plan }}
+      leave_out: ${{ steps.leave.outputs.list }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -168,7 +174,7 @@ jobs:
         with:
           node-version-file: .base/.node-version
       - name: What this run runs
-        id: touch
+        id: pick
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           EVENT: ${{ github.event_name }}
@@ -249,6 +255,33 @@ jobs:
             *) { echo "mode=run"; echo "target="; } >> "$GITHUB_OUTPUT" ;;
           esac
 
+      # One journeys run per head (project-state#2065 row d32 part (b)): a pull request's targeted run leaves out the
+      # journey files a targeted run by hand on its exact head already runs (the builder's run before it opened the pull
+      # request; journey-touch.mjs reusableRuns, afterReuse, the default branch's copy). A full run is never narrowed, and
+      # a full run by hand stands in for nothing. The seal reads every run on the head by its report, so what is left out is
+      # judged from that run, and its red stands. Any other run, an unreadable list of runs, or a base copy with no
+      # --reuse: the pick stands.
+      - name: One journeys run per head
+        id: touch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT: ${{ github.event_name }}
+          MODE: ${{ steps.pick.outputs.mode }}
+          TARGET: ${{ steps.pick.outputs.target }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "$EVENT" = pull_request ] && [ "$MODE" = run ] && out=$(node "$GITHUB_WORKSPACE/.base/tooling/ci/journey-touch.mjs" --reuse 2>/dev/null) && jq -e '.mode == "run" or .mode == "none"' <<<"$out" >/dev/null 2>&1; then
+            why=$(jq -r '.why' <<<"$out")
+            [ -n "$why" ] && echo "::notice::$why"
+            mode=$(jq -r '.mode' <<<"$out")
+            target=$(jq -r '.target' <<<"$out")
+            if [[ "$target" =~ ^[A-Za-z0-9._\ -]*$ ]]; then
+              { echo "mode=$mode"; echo "target=$target"; } >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          { echo "mode=$MODE"; echo "target=$TARGET"; } >> "$GITHUB_OUTPUT"
+
       # Marks a hand-dispatched full run off main in the jobs API, so main-first.mjs can count them (DISPATCH_MARK).
       - name: A hand-dispatched full run
         if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main' && env.JOURNEYS_TARGET == ''
@@ -288,7 +321,8 @@ jobs:
       # The plan (tooling/scripts/journey-shards.mjs): the journey files split across the shards by their times in the
       # last finished runs on main, so the shards end together (Playwright's own --shard split by count left one shard 33
       # minutes behind the shortest in run 338), in as many shards as keep each near the longest journey file's time less
-      # the spread of a shard's setup, 10 to 25 minutes of journeys (8 to 48 shards). The plan is checked to run every
+      # the spread of a shard's setup, 10 to 25 minutes of journeys (8 to 32 shards); on main 10 minutes, up to 64 shards,
+      # so a break is named as its shorter shard ends (MAIN_MAX_SHARDS says why). The plan is checked to run every
       # journey file exactly once before it is used. If planning fails for any reason the run falls back to 8 shards and
       # Playwright's split, so a broken planner never stops a run; journeys past a shard's limit then count as not run and
       # the time-limit issue names the shards. A targeted run (JOURNEYS_TARGET) never falls back: a name that is not a
@@ -303,20 +337,27 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           got=0
-          for id in $(gh run list --repo "$GITHUB_REPOSITORY" --workflow real-app-journeys.yml --branch main --status completed --limit 100 --json databaseId,conclusion --jq '.[] | select(.conclusion != "cancelled") | .databaseId'); do
+          # Each run's head is kept beside its report (head_sha), for the leave-out plan's history.
+          while read -r id sha; do
             gh run download "$id" --repo "$GITHUB_REPOSITORY" --name real-app-journeys --dir "$RUNNER_TEMP/last/$id" 2>/dev/null || continue
+            echo "$sha" > "$RUNNER_TEMP/last/$id/head_sha"
+            # The newest run's stored pass history (journey-verdict.mjs HISTORY_ARTIFACT), which the leave-out plan reads.
+            if [ "$got" = 0 ] && [ "$GITHUB_REF" = refs/heads/main ] && [ "$GITHUB_EVENT_NAME" = push ]; then
+              gh run download "$id" --repo "$GITHUB_REPOSITORY" --name real-app-journeys-pass-history --dir "$RUNNER_TEMP/history" 2>/dev/null || true
+            fi
             echo "timings from run $id"
             got=$((got + 1))
             [ "$got" -ge 3 ] && break
-          done
+          done < <(gh run list --repo "$GITHUB_REPOSITORY" --workflow real-app-journeys.yml --branch main --status completed --limit 100 --json databaseId,conclusion,headSha --jq '.[] | select(.conclusion != "cancelled") | "\(.databaseId) \(.headSha)"')
           # The two newest finished scheduled runs too: they keep the ordinary limits, so a test built since the baseline
           # passes there (the fail-fast plan below leaves it out). Kept apart, so the shard plan reads the last runs as before.
-          for id in $(gh run list --repo "$GITHUB_REPOSITORY" --workflow real-app-journeys.yml --branch main --event schedule --status completed --limit 10 --json databaseId,conclusion --jq '.[] | select(.conclusion != "cancelled") | .databaseId'); do
+          while read -r id sha; do
             gh run download "$id" --repo "$GITHUB_REPOSITORY" --name real-app-journeys --dir "$RUNNER_TEMP/scheduled/$id" 2>/dev/null || continue
+            echo "$sha" > "$RUNNER_TEMP/scheduled/$id/head_sha"
             echo "fail-fast reads the scheduled run $id"
             sched=$((${sched:-0} + 1))
             [ "$sched" -ge 2 ] && break
-          done
+          done < <(gh run list --repo "$GITHUB_REPOSITORY" --workflow real-app-journeys.yml --branch main --event schedule --status completed --limit 10 --json databaseId,conclusion,headSha --jq '.[] | select(.conclusion != "cancelled") | "\(.databaseId) \(.headSha)"')
       - name: Plan
         id: plan
         if: ${{ !cancelled() && env.PLANS == 'true' && steps.touch.outputs.mode != 'none' && steps.first.outputs.deferred != 'true' }}
@@ -329,6 +370,7 @@ jobs:
           for f in "$RUNNER_TEMP"/last/*/report.json; do [ -f "$f" ] && reports+=(--report "$f"); done
           only=()
           [ -n "$JOURNEYS_TARGET" ] && only=(--only "$JOURNEYS_TARGET")
+          [ "$GITHUB_REF" = refs/heads/main ] && only+=(--main)
           shards=$(node tooling/scripts/journey-shards.mjs --shards auto "${reports[@]}" "${only[@]}")
           {
             echo "shards=$shards"
@@ -346,6 +388,39 @@ jobs:
           reports=()
           for f in "$RUNNER_TEMP"/last/*/report.json "$RUNNER_TEMP"/scheduled/*/report.json; do [ -f "$f" ] && reports+=(--report "$f"); done
           echo "plan=$(node tooling/scripts/journey-fail-fast.mjs --plan "${reports[@]}")" >> "$GITHUB_OUTPUT"
+      # The tests a push run on main leaves out (tooling/scripts/journey-leave-out.mjs; project-state#2065 d32 part 5a):
+      # unbuilt steps that never passed on main (the pass history), failed in a run read above, and that no commit since
+      # names or changes. Best
+      # effort: without it nothing is left out. Only a full run on a push to main; the daily scheduled run, a pull
+      # request's, a targeted and a hand-dispatched run leave nothing out.
+      - name: Leave-out plan
+        id: leave
+        if: ${{ !cancelled() && github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.touch.outputs.mode != 'none' && steps.first.outputs.deferred != 'true' }}
+        continue-on-error: true
+        run: |
+          node --test tooling/scripts/journey-leave-out.test.mjs
+          git fetch --no-tags --quiet --deepen=400 origin
+          git log --format='@%H%x09%s' --name-only -n 400 HEAD > "$RUNNER_TEMP/leave-log.txt"
+          runs=()
+          for d in "$RUNNER_TEMP"/last/* "$RUNNER_TEMP"/scheduled/*; do
+            [ -f "$d/report.json" ] && [ -f "$d/head_sha" ] && runs+=(--run "$d/report.json" "$(cat "$d/head_sha")")
+          done
+          node tooling/scripts/journey-leave-out.mjs --log "$RUNNER_TEMP/leave-log.txt" --history "$RUNNER_TEMP/history/pass-history.json" "${runs[@]}" > "$RUNNER_TEMP/leave-out.txt"
+          {
+            echo "list<<LEAVE_OUT_END"
+            cat "$RUNNER_TEMP/leave-out.txt"
+            echo "LEAVE_OUT_END"
+          } >> "$GITHUB_OUTPUT"
+      # The list kept with the run, so main-bisect's probes leave out what this run left out (journeys-revert-probe.mjs
+      # leavesOut): a break made by leaving a test out then reproduces, and its merge is reverted.
+      - name: Keep the leave-out list
+        if: ${{ !cancelled() && steps.leave.outcome == 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: real-app-journeys-leave-out
+          path: ${{ runner.temp }}/leave-out.txt
+          retention-days: 14
+          if-no-files-found: warn
       - name: Targeted run has its plan
         if: ${{ !cancelled() && env.PLANS == 'true' && steps.first.outputs.deferred != 'true' && steps.touch.outputs.target != '' && steps.plan.outputs.shards == '' }}
         run: |
@@ -622,31 +697,50 @@ jobs:
         uses: ./.github/actions/browser
 
       # The run's one build (the build job), with its stamp in this shard's stack state, taken as late as possible so the
-      # setup above runs beside the build. It waits for that job at most 10 minutes, asking every 20 s (about 3 asks per
-      # shard on a healthy run); an answer that fails is asked again, and a run with no such job (in any attempt) stops at
-      # once. Best effort: without the build (the job failed or is late), or when the stamp does not vouch for this
-      # checkout, `start` builds as before.
-      - name: Take the run's build
+      # setup above runs beside the build. It waits for that job at most 10 minutes, asking every 60 s; an answer that
+      # fails is asked again, and a run with no such job (in any attempt) stops at once. Best effort: without the build
+      # (the job failed or is late), or when the stamp does not vouch for this checkout, `start` builds as before.
+      # Why 60 s and actions/download-artifact (row d25 of project-state #2065): every shard asks the workflow token's API,
+      # which the seals, the CI review, the gate guards and Main trust share at 15,000 calls an hour. Asking every 20 s,
+      # then `gh run download`, cost about 4,900 calls in the hour to 03:20 UTC on 13 Nov (597 shards, 110 s mean wait),
+      # a third of that budget, and the hour ran out at 03:19. download-artifact reads this run's own artifact through
+      # the runner's artifact service, which spends no API call.
+      - name: Wait for the run's build
+        id: build
         continue-on-error: true
         timeout-minutes: 12
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           state=""
-          for _ in $(seq 1 30); do
+          for _ in $(seq 1 11); do
             if jobs=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?filter=all&per_page=100"); then
               # The newest attempt's build job (a re-run of failed jobs carries the passed one over).
               state=$(jq -r '[.jobs[] | select(.name == "Build the stack once")] | sort_by(.run_attempt) | last | if . == null then "none" else "\(.status) \(.conclusion)" end' <<<"$jobs")
               case "$state" in completed\ * | none) break ;; esac
             fi
-            sleep 20
+            sleep 60
           done
           echo "build job: ${state:-not read}"
           if [ "$state" != "completed success" ]; then
             echo "::warning::no build from this run (${state:-not read}); this shard builds the stack itself"
             exit 0
           fi
-          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name real-app-journeys-build --dir "$RUNNER_TEMP/stack-build"
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+      - name: Download the run's build
+        id: build-download
+        if: steps.build.outputs.ready == 'true'
+        continue-on-error: true
+        timeout-minutes: 5
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: real-app-journeys-build
+          path: ${{ runner.temp }}/stack-build
+      - name: Take the run's build
+        if: steps.build-download.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 5
+        run: |
           tar -xf "$RUNNER_TEMP/stack-build/outputs.tar"
           mkdir -p "$LOCAL_STACK_STATE"
           chmod 700 "$LOCAL_STACK_STATE"
@@ -678,6 +772,9 @@ jobs:
       # With the stack's custody switch off (the launch build's, OWNER 288), our own order book is off, so its TEST market
       # maker and its chart history are not started (local-test-market.mjs, CUSTODY_ON_ONLY): the gates still open and
       # verify, and launch journeys trade at the TEST venue.
+      # The history goes only on the markets journeys read the past of (`--markets journeys`, HISTORY_SYMBOLS in
+      # local-test-market.mjs, which local-test-market-history.test.mjs keeps whole): four of six markets, 149 s against 193 s
+      # measured on one shard on 13 Nov, a saving every shard makes (project-state #2065 row d37).
       - name: Open the TEST markets, write TEST chart history, start the TEST market maker
         run: |
           node tooling/scripts/local-test-stack.mjs restart matching
@@ -695,7 +792,7 @@ jobs:
           done
           node tooling/scripts/local-test-market.mjs stop
           node tooling/scripts/local-test-gates.mjs verify
-          node tooling/scripts/local-test-market.mjs history
+          node tooling/scripts/local-test-market.mjs history --markets journeys
           node tooling/scripts/local-test-market.mjs
 
       # Labelled TEST rows (earn pools, loan products, a TEST P2P method) so those rooms show working, after the gates
@@ -727,6 +824,8 @@ jobs:
           # targeted run, where a builder proves a step, keeps them too.
           JOURNEY_FAIL_FAST: ${{ env.JOURNEYS_TARGET == '' && github.event_name != 'schedule' && github.event_name != 'pull_request' && '1' || '0' }}
           JOURNEY_FAIL_FAST_PLAN: ${{ needs.touch.outputs.fast_plan }}
+          # The unbuilt tests a push run on main leaves out (the touch job's Leave-out plan), as Playwright's test list.
+          JOURNEY_LEAVE_OUT: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' && needs.touch.outputs.leave_out || '' }}
           # One retry of a failed test on main only (the set-aside above); a targeted run on a branch never retries.
           JOURNEY_RETRIES: ${{ github.ref == 'refs/heads/main' && '1' || '0' }}
           SHARDS: ${{ needs.touch.outputs.shards }}
@@ -747,8 +846,14 @@ jobs:
             echo "$JOURNEY_FILES" | tr ' ' '\n'
             export JOURNEY_FILES
           fi
+          leave=()
+          if [ -n "$JOURNEY_LEAVE_OUT" ]; then
+            printf '%s\n' "$JOURNEY_LEAVE_OUT" > "$RUNNER_TEMP/leave-out.txt"
+            leave=(--test-list-invert "$RUNNER_TEMP/leave-out.txt")
+            echo "leaves out $(grep -c . "$RUNNER_TEMP/leave-out.txt") unbuilt tests (tooling/scripts/journey-leave-out.mjs)"
+          fi
           code=0
-          pnpm exec playwright test --config "$config" --trace off "${split[@]}" || code=$?
+          pnpm exec playwright test --config "$config" --trace off "${split[@]}" "${leave[@]}" || code=$?
           # Playwright's own limit ended the journeys: name it the way Main trust's post-merge job finds a time limit, so
           # it opens the time-limit issue that says to split the shards further. The shard stays red (Main trust reads
           # the limit from a red job's annotations).

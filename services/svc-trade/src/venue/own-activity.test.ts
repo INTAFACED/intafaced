@@ -64,6 +64,8 @@ describe('venue.ownActivity against the TEST simulator', () => {
       store,
       stepUp: approve,
       builder: { address: '0x00000000000000000000000000000000000000b1', feeBps: a('1') },
+      // Blank: these orders are limits, which the owner's market price protection never bounds.
+      slippageCapBps: null,
       now: () => new Date(),
       listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
     });

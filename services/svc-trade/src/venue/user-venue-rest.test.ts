@@ -3,10 +3,10 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
+import { parseAmount } from '@intafaced/ledger-client/money';
 import type { Principal } from '@intafaced/auth';
 import { StepUpCheckError } from '@intafaced/contracts';
-import { startTestVenueServer, type TestVenueTypedData } from '@intafaced/venue-sim';
-import { parseAmount } from '@intafaced/ledger-client/money';
+import { startTestVenueServer, type TestVenueSimulator, type TestVenueTypedData } from '@intafaced/venue-sim';
 import { HttpUserVenue } from './http-user-venue.js';
 import { listedTestStore } from './venue-listing-store.js';
 import { StoreVenueRoutingGate } from './venue-listing.js';
@@ -22,8 +22,9 @@ const owner = key.address.toLowerCase();
 let app: FastifyInstance;
 let server: http.Server;
 let url: string;
+let sim: TestVenueSimulator;
 beforeAll(async () => {
-  ({ server, url } = await startTestVenueServer({ host: '127.0.0.1', port: 0, appEnv: 'test', chainId: 84532 }));
+  ({ server, url, sim } = await startTestVenueServer({ host: '127.0.0.1', port: 0, appEnv: 'test', chainId: 84532 }));
 });
 afterAll(async () => new Promise<void>((r) => server.close(() => r())));
 afterEach(async () => app?.close());
@@ -41,12 +42,17 @@ async function mount(door: UserVenueDoor | null, slippageCapBps: number | null =
       return false;
     },
     slippageCapBps,
+    spreadLimitBps: slippageCapBps === null ? null : 100,
   });
   await app.ready();
   return app;
 }
 
-function door(withdrawStepUp: 'approve' | 'required' = 'approve', builder: BuilderFeeValue | null = null) {
+function door(
+  withdrawStepUp: 'approve' | 'required' = 'approve',
+  slippageCapBps: number | null = null,
+  builder: BuilderFeeValue | null = null,
+) {
   return new UserVenueDoor({
     connect: () => HttpUserVenue.connect({ baseUrl: url, timeoutMs: 2000 }),
     appEnv: 'test',
@@ -58,19 +64,33 @@ function door(withdrawStepUp: 'approve' | 'required' = 'approve', builder: Build
       },
     },
     builder,
+    slippageCapBps,
+    // A labelled TEST spread limit, wide of the TEST simulator's ladder.
+    spreadLimitBps: 100,
     now: () => new Date(),
     listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP', 'XAU-PERP', 'XSTK-PERP', 'XSTD-PERP'])),
   });
 }
 
 describe('/api/v1/venue/*', () => {
-  it('unverified: the best prices refuse with the trade jurisdiction, as the market list does', async () => {
+  it('unverified: every route but status refuses with the trade jurisdiction, market data included', async () => {
     await mount(door(), 50, false);
+    expect((await app.inject({ method: 'GET', url: '/api/v1/venue/status' })).statusCode).toBe(200);
     for (const path of ['/api/v1/venue/markets', '/api/v1/venue/best-prices?symbol=BTC-USDC']) {
       const res = await app.inject({ method: 'GET', url: path });
       expect(res.statusCode).toBe(403);
       expect(res.json().intafacedCode).toBe('denied.kyc_required');
     }
+    const balances = await app.inject({ method: 'GET', url: `/api/v1/venue/balances?owner=${owner}` });
+    expect(balances.statusCode).toBe(403);
+    expect(balances.json().intafacedCode).toBe('denied.kyc_required');
+    const preview = await app.inject({
+      method: 'POST',
+      url: '/api/v1/venue/preview',
+      payload: { owner, intent: { kind: 'place_order', symbol: 'BTC-USDC', side: 'buy', type: 'limit', size: '0.001', price: '1000' } },
+    });
+    expect(preview.statusCode).toBe(403);
+    expect(preview.json().intafacedCode).toBe('denied.kyc_required');
   });
 
   it('off: status is { enabled: false } and every other route refuses trade.user_venue_off', async () => {
@@ -162,6 +182,97 @@ describe('/api/v1/venue/*', () => {
     expect((await app.inject({ method: 'GET', url: '/api/v1/venue/best-prices' })).statusCode).toBe(400);
     // The owner's price protection is blank here: not known, never a default.
     expect(body.slippageCapBps).toEqual({ known: false });
+    expect(body.spreadLimitBps).toEqual({ known: false });
+  });
+
+  it('a market buy is bounded over the wire: the best ask reaches the price protection as an Amount, not a string', async () => {
+    // Another TEST trader rests an ask on the venue itself, so the book has the side a market buy meets.
+    const maker = privateKeyToAccount(keccak256(toHex('intafaced TEST wallet svc-trade venue rest maker')));
+    const account = { venueId: sim.venue.id, owner: maker.address.toLowerCase(), subAccount: null };
+    sim.deposit(account, 'BTC', parseAmount('1'), 'chain:rest-maker:1');
+    const ask = {
+      kind: 'place_order',
+      symbol: 'BTC-USDC',
+      side: 'sell',
+      type: 'limit',
+      amount: parseAmount('0.1'),
+      price: parseAmount('60000'),
+      timeInForce: 'GTC',
+      reduceOnly: false,
+      clientOrderKey: 'order:rest-maker:1',
+      builderFee: null,
+    } as const;
+    const prepared = await sim.prepare(account, { role: 'owner', address: account.owner }, ask);
+    const t = prepared.typedData as TestVenueTypedData;
+    const signature = await maker.signTypedData({ domain: t.domain, types: t.types, primaryType: t.primaryType, message: t.message });
+    expect(await sim.submit(prepared, { digest: prepared.digest, signature, signedBy: account.owner })).toMatchObject({ accepted: true });
+
+    await mount(door('approve', 50), 50);
+    const buy = (worst: string) => ({
+      kind: 'place_order',
+      symbol: 'BTC-USDC',
+      side: 'buy',
+      type: 'market',
+      amount: '0.01',
+      price: worst,
+      timeInForce: 'IOC',
+      reduceOnly: false,
+      clientOrderKey: `order:${USER.userId}:rest:market`,
+      builderFee: null,
+    });
+    // 50 bps over the 60000 ask is 60300: at the bound the preview answers; past it, the typed refusal.
+    const inside = await app.inject({ method: 'POST', url: '/api/v1/venue/preview', payload: { owner, intent: buy('60300') } });
+    expect(inside.statusCode, inside.body).toBe(200);
+    const outside = await app.inject({ method: 'POST', url: '/api/v1/venue/preview', payload: { owner, intent: buy('60301') } });
+    expect(outside.statusCode, outside.body).toBe(422);
+    expect(outside.json().intafacedCode).toBe('trade.venue.price_outside_protection');
+  });
+
+  it('funding-history is public: no sign-in or verification; the listed perpetual on the asset, rates as decimal strings', async () => {
+    app = Fastify();
+    const router = new UserVenueRouter({ doors: [door()], store: new InMemoryPreparedActionStore(), now: () => new Date() });
+    attachUserVenueRoutes(app, router, {
+      // Signed out: every private route would refuse here; this one never asks.
+      requirePrincipal: (_req, reply) => {
+        void reply.code(401).send({ code: 'AuthenticationError', message: 'signed out', intafacedCode: 'auth.required' });
+        return null;
+      },
+      requireTradeJurisdiction: () => false,
+      slippageCapBps: null,
+    });
+    await app.ready();
+    const since = new Date(Date.now() - 3 * 3_600_000).toISOString();
+    const res = await app.inject({ method: 'GET', url: `/api/v1/venue/funding-history?base=btc&since=${encodeURIComponent(since)}` });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body).toMatchObject({ symbol: 'BTC-PERP', intervalSeconds: 3600, test: true });
+    expect(body.value.length).toBeGreaterThanOrEqual(2);
+    for (const row of body.value) {
+      expect(row.rate).toBe('0.0000125');
+      expect(Date.parse(row.fundingAt) % 3_600_000).toBe(0);
+      expect(Date.parse(row.fundingAt)).toBeGreaterThanOrEqual(Date.parse(since));
+    }
+    // An asset with no listed perpetual, and a bad request, are refused by name; the private routes still refuse.
+    const eth = await app.inject({ method: 'GET', url: `/api/v1/venue/funding-history?base=ETH&since=${encodeURIComponent(since)}` });
+    expect(eth.statusCode).toBe(422);
+    expect(eth.json().intafacedCode).toBe('trade.venue.not_offered');
+    expect((await app.inject({ method: 'GET', url: '/api/v1/venue/funding-history?base=BTC' })).json().intafacedCode).toBe(
+      'trade.venue_request_invalid',
+    );
+    expect((await app.inject({ method: 'GET', url: '/api/v1/venue/markets' })).statusCode).toBe(401);
+  });
+
+  it('funding-history refuses not_offered on a listed perpetual with no published funding, and when the door is off', async () => {
+    await mount(door());
+    const since = encodeURIComponent(new Date(Date.now() - 3_600_000).toISOString());
+    const gold = await app.inject({ method: 'GET', url: `/api/v1/venue/funding-history?base=XAU&since=${since}` });
+    expect(gold.statusCode).toBe(422);
+    expect(gold.json().intafacedCode).toBe('trade.venue.not_offered');
+    await app.close();
+    await mount(null);
+    const off = await app.inject({ method: 'GET', url: `/api/v1/venue/funding-history?base=BTC&since=${since}` });
+    expect(off.statusCode).toBe(404);
+    expect(off.json().intafacedCode).toBe('trade.user_venue_off');
   });
 
   it("best-prices carries the owner's market price protection as svc-trade holds it", async () => {
@@ -169,6 +280,7 @@ describe('/api/v1/venue/*', () => {
     const res = await app.inject({ method: 'GET', url: '/api/v1/venue/best-prices?symbol=BTC-USDC' });
     expect(res.statusCode).toBe(200);
     expect(res.json().slippageCapBps).toEqual({ known: true, value: '150' });
+    expect(res.json().spreadLimitBps).toEqual({ known: true, value: '100' });
   });
 
   it('orders refuse builder_fee_not_published (422); a withdrawal without its step-up refuses 403; a money number refuses 400', async () => {
@@ -221,7 +333,7 @@ describe('/api/v1/venue/*', () => {
 
   it("J-derivatives-21: markets carry the venue's listing, rules and feed; a leverage above the cap is trade.venue.leverage_above_cap naming it; a stale feed is trade.venue.feed_stale", async () => {
     // A TEST builder fee, so a perp order is not refused builder_fee_not_published first.
-    await mount(door('approve', { address: '0x7e57000000000000000000000000000000000b1d', feeBps: parseAmount('0.5') }));
+    await mount(door('approve', null, { address: '0x7e57000000000000000000000000000000000b1d', feeBps: parseAmount('0.5') }));
     const markets = await app.inject({ method: 'GET', url: '/api/v1/venue/markets' });
     expect(markets.statusCode).toBe(200);
     const xau = markets.json().value.find((m: { symbol: string }) => m.symbol === 'XAU-PERP');
@@ -297,7 +409,7 @@ describe('/api/v1/venue/*', () => {
   });
 
   it("J-derivatives-27: a stock perpetual carries the venue's home-market session; off hours an opening market order is trade.venue.market_off_hours in the venue's words", async () => {
-    await mount(door('approve', { address: '0x7e57000000000000000000000000000000000b1d', feeBps: parseAmount('0.5') }));
+    await mount(door('approve', null, { address: '0x7e57000000000000000000000000000000000b1d', feeBps: parseAmount('0.5') }));
     const read = async () =>
       (await app.inject({ method: 'GET', url: '/api/v1/venue/markets' }))
         .json()
@@ -355,7 +467,7 @@ describe('/api/v1/venue/*', () => {
   });
 
   it("J-derivatives-27 #7 #8: a market's own margin account is read on the main account and funded by the owner's signed move; an open past the deployer's open-interest cap is trade.venue.open_interest_above_cap naming it", async () => {
-    await mount(door('approve', { address: '0x7e57000000000000000000000000000000000b1d', feeBps: parseAmount('0.5') }));
+    await mount(door('approve', null, { address: '0x7e57000000000000000000000000000000000b1d', feeBps: parseAmount('0.5') }));
     const venueId = ((await (await fetch(`${url}/venue`)).json()) as { venue: { id: string } }).venue.id;
     const control = (path: string, body: unknown) =>
       fetch(`${url}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });

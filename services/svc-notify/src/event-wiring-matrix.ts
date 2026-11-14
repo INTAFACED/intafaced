@@ -78,6 +78,12 @@ export const NOTIFY_EVENT_CONSUMERS: readonly NotifyConsumerRow[] = [
     effect: 'Inbox row for the seller when the buyer marks paid',
   },
   {
+    event: 'academyDiscussionPostDeleted',
+    durable: 'notify-academy-discussion-post-deleted',
+    subject: 'intafaced.academy.discussion_post.deleted',
+    effect: 'Inbox row for the author when a moderator deleted their discussion post with a reason',
+  },
+  {
     event: 'p2pTraderPosted',
     durable: 'notify-p2p-trader-posted',
     subject: 'intafaced.p2p.trader.posted',
@@ -174,6 +180,13 @@ export const NOTIFY_EVENT_CONSUMERS: readonly NotifyConsumerRow[] = [
     subject: 'intafaced.agents.approval.requested',
     effect:
       'Inbox row agents.approval.requested for the owner of an own agent whose tool call waits for their approval, naming the action and linking to the Approvals inbox, once per request',
+  },
+  {
+    event: 'agentRunCompleted',
+    durable: 'notify-agent-run-completed',
+    subject: 'intafaced.agents.run.completed',
+    effect:
+      'Inbox row agents.run.completed for the person whose background agent run finished, linking to the run and its result, once per run; the email, SMS or push they asked for gets its delivery row even when no vendor is set',
   },
   {
     event: 'bankScheduledReminder',

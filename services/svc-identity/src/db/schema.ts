@@ -75,6 +75,8 @@ export const users = identity.table(
     closedReason: text('closed_reason'),
     /** Closed while staff-frozen (0068): a reopen returns it frozen. */
     closedFromFrozen: boolean('closed_from_frozen').notNull().default(false),
+    /** A staff close with a grace date (J-identity-14 #1): until then the account withdraws but does not trade. */
+    closeGraceUntil: timestamp('close_grace_until', { withTimezone: true }),
     /** Staff archive of a closed account (J-ops-console-04 #10): set once with its reason code, never cleared. */
     archivedAt: timestamp('archived_at', { withTimezone: true }),
     archiveReason: text('archive_reason'),
@@ -467,6 +469,8 @@ export const apiKeys = identity.table(
     revokeReason: text('revoke_reason'),
     /** The key's own refill per minute once a reviewer granted a higher limit (J-developer-06 #6); null: on its tier. */
     rateRefillPerMinuteGranted: integer('rate_refill_per_minute_granted'),
+    /** The key this one replaced in a rotation (J-developer-07 #1); a key is replaced at most once. */
+    rotatedFrom: uuid('rotated_from'),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex('api_keys_hash_idx').on(t.keyHash), index('api_keys_user_idx').on(t.userId, t.revoked)],

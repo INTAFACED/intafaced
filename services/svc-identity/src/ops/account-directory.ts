@@ -8,6 +8,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import type { Context } from '@intafaced/contracts';
+import { TRADING_CHECKS_REVIEWER } from '../kyc/trading-checks.js';
 
 export const IDENTITY_ACCOUNT_SEARCH_UNSET = 'identity.account_search_unset' as const;
 export const IDENTITY_HANDLE_PREFIX_SHORT = 'identity.handle_prefix_short' as const;
@@ -160,7 +161,7 @@ export async function searchAccounts(
            u.email::text AS email,
            COALESCE((
              SELECT k.tier::text FROM kyc_records k
-             WHERE k.user_id = u.id AND k.status = 'approved' AND (k.expires_at IS NULL OR k.expires_at > now())
+             WHERE k.user_id = u.id AND k.status = 'approved' AND k.reviewed_by IS DISTINCT FROM ${TRADING_CHECKS_REVIEWER} AND (k.expires_at IS NULL OR k.expires_at > now())
              ORDER BY CASE k.tier WHEN 'institutional' THEN 3 WHEN 'full' THEN 2 WHEN 'basic' THEN 1 ELSE 0 END DESC
              LIMIT 1
            ), 'none') AS kyc_tier,

@@ -19,6 +19,13 @@ const world = vi.hoisted(() => ({
 const api = {
   query: (_service: string, procedure: string, input: unknown) => {
     world.asked.push({ kind: 'query', procedure, input });
+    // The call log's read (J-developer-08): no calls yet, unless a test queued its own answer.
+    if (procedure === 'developerKeys.calls' && !world.queries[procedure]) {
+      return Promise.resolve({
+        ok: true,
+        data: { keyId: (input as { keyId: string }).keyId, asOf: '2026-11-07T08:00:00.000Z', calls: [] },
+      });
+    }
     const queue = world.queries[procedure] ?? [];
     return Promise.resolve(queue.length > 1 ? queue.shift() : queue[0]);
   },
@@ -104,7 +111,8 @@ const buttons = (pattern: RegExp, within: ParentNode = host) =>
 beforeEach(() => {
   host = document.createElement('div');
   document.body.append(host);
-  world.queries = {};
+  // No key has asked for its own rotation unless a test says so.
+  world.queries = { 'developerKeys.rotationRequest': [{ ok: true, data: { request: null } }] };
   world.mutate = [];
   world.asked = [];
   world.assertions = 0;
@@ -186,7 +194,7 @@ describe('the key list', () => {
     ];
     world.mutate = [{ ok: true, data: { changed: true, record: live } }];
     await render(<ApiKeys />);
-    await act(async () => buttons(/Revoke/)[0]!.click());
+    await act(async () => buttons(/^Revoke$/)[0]!.click());
     const dialog = host.querySelector('dialog')!;
     expect(dialog.querySelector('h2')!.textContent).toBe('Revoke this key');
     // One button in the sheet matches /Revoke/, so a loose match finds exactly it.
@@ -208,7 +216,7 @@ describe('the key list', () => {
     world.queries['developerKeys.list'] = [list([live])];
     world.mutate = [{ ok: false, reason: 'refused', status: 404, code: 'identity.key_not_found', message: 'gone' }];
     await render(<ApiKeys />);
-    await act(async () => buttons(/Revoke/)[0]!.click());
+    await act(async () => buttons(/^Revoke$/)[0]!.click());
     await act(async () => host.querySelector<HTMLFormElement>('dialog form')!.requestSubmit());
     await settleUntil(shows('This key is not on your account.'));
     expect(world.asked.find((a) => a.kind === 'mutate')!.input).toEqual({ keyId: KEY });
@@ -219,7 +227,7 @@ describe('the key list', () => {
     world.queries['developerKeys.list'] = [list([live]), list([live])];
     world.mutate = [{ ok: true, data: { changed: true, record: live } }];
     await render(<ApiKeys />);
-    await act(async () => buttons(/Revoke/)[0]!.click());
+    await act(async () => buttons(/^Revoke$/)[0]!.click());
     const field = () => host.querySelector<HTMLInputElement>('dialog input[name="reason"]')!;
     expect(field().maxLength).toBe(-1);
     field().value = '\u{1F511}'.repeat(201);
@@ -244,7 +252,7 @@ describe('the key list', () => {
     world.queries['developerKeys.list'] = [list([live])];
     world.mutate = [{ ok: false, reason: 'uncertain', message: 'lost' }];
     await render(<ApiKeys />);
-    await act(async () => buttons(/Revoke/)[0]!.click());
+    await act(async () => buttons(/^Revoke$/)[0]!.click());
     await act(async () => host.querySelector<HTMLFormElement>('dialog form')!.requestSubmit());
     await settleUntil(shows('We could not confirm that the key was revoked.'));
     expect(world.asked.filter((a) => a.procedure === 'developerKeys.list')).toHaveLength(2);
@@ -314,6 +322,27 @@ describe('the key detail', () => {
     expect(host.textContent).toContain('Works through 2026-12-01 (UTC)');
   });
 
+  it("shows a key's own rotation request and approves it with a passkey, sending only the request id", async () => {
+    const requestId = '2d8e4f3a-5b6c-4d7e-8f9a-0b1c2d3e4f5a';
+    world.queries['developerKeys.get'] = [detail(live)];
+    world.queries['developerKeys.rotationRequest'] = [
+      { ok: true, data: { request: { requestId, keyId: KEY, overlapSeconds: 0, createdAt: '2026-11-07T10:00:00.000Z' } } },
+    ];
+    world.mutate = [{ ok: false, reason: 'uncertain', message: 'lost' }];
+    await render(<ApiKeyDetail keyId={KEY} />);
+    await settleUntil(shows('Rotation request'));
+    const region = host.querySelector('section[aria-labelledby="api-keys__rotation-request"]')!;
+    expect(region.textContent).toContain('The old key stops working as soon as you approve.');
+    await act(async () => buttons(/^Approve the rotation$/, region)[0]!.click());
+    await settleUntil(() => world.asked.some((a) => a.kind === 'mutate'));
+    expect(world.assertions).toBe(1);
+    expect(world.asked.find((a) => a.kind === 'mutate')).toMatchObject({
+      procedure: 'developerKeys.approveRotation',
+      input: { requestId, factorProof: { webauthn: { id: 'cred' } } },
+    });
+    expect(world.asked).toContainEqual({ kind: 'query', procedure: 'developerKeys.rotationRequest', input: { keyId: KEY } });
+  });
+
   it('asks for a day before sending anything', async () => {
     world.queries['developerKeys.get'] = [detail(live)];
     await render(<ApiKeyDetail keyId={KEY} />);
@@ -362,5 +391,79 @@ describe('the idle period and who revoked a key', () => {
     const rows = [...host.querySelectorAll('tbody tr')];
     expect(rows[0]!.textContent).toContain('Revoked by our team during account recovery');
     expect(rows[1]!.textContent).toContain('Revoked automatically: the key was never issued');
+  });
+});
+
+describe("the key's call log (J-developer-08)", () => {
+  const calls = [
+    {
+      requestId: 'req-outside',
+      method: 'GET',
+      path: '/api/v1/account/balance',
+      status: 401,
+      outsideIpList: true,
+      at: '2026-11-12T08:00:02.000Z',
+    },
+    { requestId: 'req-denied', method: 'POST', path: '/api/v1/orders', status: 403, outsideIpList: false, at: '2026-11-12T08:00:01.000Z' },
+    {
+      requestId: 'req-ok',
+      method: 'GET',
+      path: '/api/v1/account/balance',
+      status: 200,
+      outsideIpList: false,
+      at: '2026-11-12T08:00:00.000Z',
+    },
+  ];
+  const log = (rows: typeof calls, asOf: string) => ({ ok: true, data: { keyId: KEY, asOf, calls: rows } });
+  const table = () => host.querySelector<HTMLTableElement>('table[aria-labelledby="api-key-call-log"]');
+  const rows = () => [...(table()?.querySelectorAll('tbody tr') ?? [])] as HTMLTableRowElement[];
+
+  it('shows each call with its status and request id, flags the one from outside the IP list, and an as-of time', async () => {
+    world.queries['developerKeys.get'] = [detail(live)];
+    world.queries['developerKeys.calls'] = [log(calls, '2026-11-12T09:00:00.000Z')];
+    await render(<ApiKeyDetail keyId={KEY} />);
+    await settleUntil(() => rows().length === 3);
+    expect(document.getElementById('api-key-call-log')?.textContent).toBe('Call log');
+    expect(rows().map((r) => [r.dataset.requestId, r.dataset.status])).toEqual([
+      ['req-outside', '401'],
+      ['req-denied', '403'],
+      ['req-ok', '200'],
+    ]);
+    expect(rows()[0]!.textContent).toContain('Outside the IP list');
+    expect(rows()[1]!.textContent).toContain('POST /api/v1/orders');
+    expect(rows()[1]!.textContent).not.toContain('Outside the IP list');
+    expect(host.querySelector('[data-testid="api-keys__calls-as-of"] time')?.getAttribute('datetime')).toBe('2026-11-12T09:00:00.000Z');
+    expect(world.asked.find((a) => a.procedure === 'developerKeys.calls')?.input).toEqual({ keyId: KEY, limit: 100 });
+  });
+
+  it('Refresh reads again with the status and days chosen, and the as-of time moves', async () => {
+    world.queries['developerKeys.get'] = [detail(live)];
+    world.queries['developerKeys.calls'] = [log(calls, '2026-11-12T09:00:00.000Z'), log([calls[1]!], '2026-11-12T09:00:05.000Z')];
+    await render(<ApiKeyDetail keyId={KEY} />);
+    await settleUntil(() => rows().length === 3);
+    const form = table()!.closest('section')!.querySelector('form')!;
+    form.querySelector<HTMLSelectElement>('select[name="status"]')!.value = '403';
+    form.querySelector<HTMLInputElement>('input[name="from"]')!.value = '2026-11-12';
+    form.querySelector<HTMLInputElement>('input[name="to"]')!.value = '2026-11-12';
+    await act(async () => form.requestSubmit());
+    await settleUntil(() => rows().length === 1);
+    expect(rows()[0]!.dataset.requestId).toBe('req-denied');
+    expect(host.querySelector('[data-testid="api-keys__calls-as-of"] time')?.getAttribute('datetime')).toBe('2026-11-12T09:00:05.000Z');
+    expect(world.asked.filter((a) => a.procedure === 'developerKeys.calls').at(-1)?.input).toEqual({
+      keyId: KEY,
+      limit: 100,
+      status: 403,
+      from: '2026-11-12',
+      to: '2026-11-12',
+    });
+  });
+
+  it("someone else's key shows the refusal and no call log", async () => {
+    world.queries['developerKeys.get'] = [
+      { ok: false, reason: 'refused', code: 'identity.key_not_found', message: 'not found [identity.key_not_found]', status: 404 },
+    ];
+    await render(<ApiKeyDetail keyId={KEY} />);
+    expect(table()).toBeNull();
+    expect(world.asked.some((a) => a.procedure === 'developerKeys.calls')).toBe(false);
   });
 });

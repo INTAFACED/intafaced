@@ -695,7 +695,7 @@ export const addMoneyRequestSchema = z.object({
   method: z.enum(ADD_MONEY_METHODS),
   country: z.string(),
   rail: z.enum(['rail.bank', 'rail.card']),
-  status: z.enum(['opening', 'refused', 'opened', 'pending', 'credited']),
+  status: z.enum(['opening', 'refused', 'opened', 'pending', 'credited', 'returned', 'delivered']),
   refusalCode: z.string().nullable(),
   onramp: z
     .object({
@@ -718,6 +718,13 @@ export const addMoneyRequestSchema = z.object({
   creditedAt: z.string().nullable().default(null),
   // What the ledger credited: the quote's receive amount, never anything else. Null until credited.
   creditedAmount: money.nullable().default(null),
+  // When the partner said the payment was sent back and the credit was taken out once; null unless it was returned.
+  returnedAt: z.string().nullable().default(null),
+  // Buy to wallet (J-dex-protocol-05 #4): the person's own wallet the partner delivers to, or null for a balance here; when
+  // it delivered and its on-chain transfer, null until then. Nothing is credited here for a wallet purchase.
+  walletAddress: z.string().nullable().default(null),
+  deliveredAt: z.string().nullable().default(null),
+  deliveryTx: z.string().nullable().default(null),
 });
 export type AddMoneyRequest = z.infer<typeof addMoneyRequestSchema>;
 /** svc-bank `bank.linkedAccounts.*` (J-bank-02 #6): the person's own accounts at other banks, each with its state. */
