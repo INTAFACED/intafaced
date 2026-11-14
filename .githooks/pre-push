@@ -93,6 +93,32 @@ MSG
   exit 1
 fi
 
+# The tooling tests that read every journey file, when this push changes one. They take under a second together, and a
+# journey file that breaks one is otherwise first seen as a red Doctrine gates job minutes after the push (J-merchant-01
+# and J-algo-dev-03 on 14 Nov, each a push spent on journey-navigation.test.mjs). A test joins by its marker line;
+# the slow tooling tests stay in CI.
+JOURNEY_SCAN_MARK='^// Before a push: runs from .githooks/pre-push when the push changes a journey file'
+SCAN_BASE=$(git merge-base HEAD origin/main 2>/dev/null || true)
+if [ -n "$SCAN_BASE" ] && git diff --name-only "$SCAN_BASE" HEAD 2>/dev/null | grep -qE '^apps/[^/]+/tests/real-app/'; then
+  SCANS=$(CDPATH= cd -- "$TOP" && grep -rlE --include='*.test.mjs' --exclude-dir=node_modules "$JOURNEY_SCAN_MARK" tooling 2>/dev/null | sort)
+  if [ -n "$SCANS" ]; then
+    echo "journey-file scans: $(echo "$SCANS" | wc -l | tr -d ' ') tooling test file(s)"
+    # A push made inside a node test (pre-push-hook.test.mjs) would hand node's test context on, and `node --test`
+    # would then skip every file and pass; the scan always runs as its own test run.
+    # shellcheck disable=SC2086 # one path per word; no tooling test path holds a space
+    if ! (CDPATH= cd -- "$TOP" && env -u NODE_TEST_CONTEXT node --test --test-concurrency=1 $SCANS) </dev/null; then
+      cat >&2 <<'MSG'
+
+  ✖ a tooling test that reads every journey file failed — push refused.
+
+    The failed test and its message are above. CI's Doctrine gates job runs the same test and would fail the same way.
+
+MSG
+      exit 1
+    fi
+  fi
+fi
+
 protected="main"
 remote_ref_prefix="refs/heads/"
 
@@ -128,8 +154,9 @@ done < "$PUSHED"
 # CI's checks (gates, build, typecheck, tests) run on GitHub, not here: on the branch before the pull request
 # (`gh workflow run ci.yml --ref <branch>`, which prints the run's URL), then on the pull request. On the Mac they took
 # 13 to 91 minutes a push under three builders and 8 of 17 tries ended for reasons outside the change; GitHub runs them
-# in 9 to 20. This hook keeps only what takes seconds: formatting of the pushed files, the agent-rule check and the
-# refusal of main. `node tooling/scripts/ci-checks.mjs` still runs CI's checks here by hand, to diagnose a red.
+# in 9 to 20. This hook keeps only what takes seconds: formatting of the pushed files, the agent-rule check, the
+# tooling tests that read journey files (when one is pushed) and the refusal of main. `node tooling/scripts/ci-checks.mjs`
+# still runs CI's checks here by hand, to diagnose a red.
 if [ -z "${CI:-}" ] && grep -qv ' 0000000000000000000000000000000000000000 ' "$PUSHED"; then
   echo "CI's checks run on GitHub: gh workflow run ci.yml -R INTAFACED/intafaced --ref <branch>, before the pull request" >&2
 fi
