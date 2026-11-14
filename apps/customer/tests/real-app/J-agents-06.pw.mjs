@@ -172,7 +172,18 @@ test(`${J} #6 presses Stop again: the first result is returned`, async ({ page }
   const door = await api(agents.account());
   const balancesBefore = await door.balances();
   await openRun(page, 'longRun');
+  // The second Stop goes to svc-agents, which answers with the first stop's result and says it is a repeat.
+  const answer = page.waitForResponse(
+    (res) => res.url().includes('/api/agents/trpc/run.background.stop') && res.request().method() === 'POST',
+  );
   await runPage(page).getByRole('button', { name: 'Stop' }).click();
+  const second = await answer;
+  expect(second.status()).toBe(200);
+  const { repeated, run } = (await second.json()).result.data;
+  expect(repeated).toBe(true);
+  expect(run.state).toBe('stopped');
+  expect(run.stop).toEqual(stopResult);
+  expect(run.steps).toHaveLength(stoppedSteps);
   await expect(runPage(page).getByRole('status')).toContainText('Already stopped: the first result is shown.');
   // The first stop's result, exactly: the same settlement, nothing settled or charged again, no step run.
   const again = await ownRun('longRun');
