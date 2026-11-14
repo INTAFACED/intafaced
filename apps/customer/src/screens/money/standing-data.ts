@@ -14,8 +14,7 @@ import { useWallet } from '../../features/protocol/wallet/WalletProvider';
 import { usePolled } from '../../features/protocol/wallet/use-polled';
 import { useResource } from '../../shared/resource';
 import { useVenueApi } from '../../features/trade/venue/VenueKit';
-import { spaceSchema } from '../../features/money/client';
-import { formatAmount, parseAmount } from '../../shared/money';
+import { decimalSchema, formatAmount, parseAmount } from '../../shared/money';
 import { readWallet, venueRows, type NodeRead, type VenueRow, type WalletRead, type WalletToken } from './where-it-sits';
 import { standing, type PartRead } from './standing';
 
@@ -60,6 +59,19 @@ export function useVenueRead(owner: string) {
   );
 }
 
+/**
+ * The part of svc-bank's `spaces.list` row the partner read needs: the asset, the balance and whose figure it is. Kept here
+ * rather than reusing Money's full schema, so Home does not load Money's copy catalog with every page (core-imports test).
+ */
+const partnerSpaceSchema = z.object({
+  assetId: z.string(),
+  balance: decimalSchema,
+  heldAt: z
+    .object({ label: z.string(), asOf: z.string().datetime({ offset: true }) })
+    .nullable()
+    .optional(),
+});
+
 /** What the partner holds for the person: every space it holds, by asset, with the partner's oldest time among them. */
 export type PartnerRead =
   { state: 'reading' } | { state: 'unread' } | { state: 'none' } | (Extract<PartRead, { state: 'read' }> & { label: string });
@@ -67,7 +79,7 @@ export type PartnerRead =
 export function usePartnerRead(): PartnerRead {
   const { api, userId } = useSession();
   const read = usePolled(
-    (signal) => api.query('bank', 'spaces.list', { limit: 200 }, z.array(spaceSchema), { signal }),
+    (signal) => api.query('bank', 'spaces.list', { limit: 200 }, z.array(partnerSpaceSchema), { signal }),
     `standing:partner:${userId}`,
     READ_EVERY_MS,
   );
