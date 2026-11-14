@@ -125,6 +125,9 @@ export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain, CUSTOMER_ORIGIN, 
       // LOCAL TEST only: the TEST chain's trading venue (seed-test-chain.ts ensureVenueParts), so a wallet's venue deposit
       // and withdraw build against a real SovereignVenue. Production stays blank and refuses protocol.venue_unset.
       ...(chain?.venue ? { PROTOCOL_VENUE_ADDRESS: chain.venue } : {}),
+      // LOCAL TEST only: the TEST chain's lending market (seed-test-chain.ts ensureLendingParts), so a wallet's lending
+      // position is read from a real IsolatedLendingMarket. Production stays blank and refuses protocol.lending_market_unset.
+      ...(chain?.lendingMarket ? { PROTOCOL_LENDING_MARKET_ADDRESS: chain.lendingMarket } : {}),
       // LOCAL TEST only: the TEST chain's smart account factory and implementation (seed-test-chain.ts ensureAccountParts),
       // so a wallet's smart account and its session keys are real on the TEST chain. With no chain both stay zero.
       ...(chain?.accountFactory && chain?.accountImplementation
