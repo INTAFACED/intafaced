@@ -561,6 +561,8 @@ export type TradeErrorCode =
    * out of 1–5000. Never invent 200.
    */
   | 'trade.slippage_cap_unset'
+  /** Venue spot market order refused: TRADE_MARKET_SPREAD_LIMIT_BPS blank / non-integer / out of 1–5000. */
+  | 'trade.spread_limit_unset'
   | 'trade.slippage_tolerance_invalid'
   /**
    * Market sell or flatten with no owner protection floor. Preview and place

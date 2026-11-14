@@ -42,7 +42,7 @@ const defaults = {
   alerts: () => alertList(),
   activity: () => establishedActivity(),
   // Needs you: Home's owner values (svc-ops) and each owner's items, empty for an account with nothing owed.
-  homeConfig: () => ({ workListCap: 5, workListOrder: null, searchResultCap: null, revision: 1 }),
+  homeConfig: () => ({ workListCap: 5, workListOrder: null, searchResultCap: null, recentActivityLimit: 3, revision: 1 }),
   'work:identity': () => ({ items: [] }),
   'work:bank': () => ({ items: [] }),
   'work:pay': () => ({ items: [] }),

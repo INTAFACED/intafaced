@@ -124,6 +124,36 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node tooling/ci/journeys-revive.mjs prs
 
+  # After each CI run on main (one per merge): an open automatic revert whose CI or CI review went red before this merge
+  # is rebased onto main by the App, so every check runs again on main's newer rules with no hand (journeys-revert.mjs
+  # refresh; intafaced #8138 stayed red after #8166 changed the checks that refused it). A re-run can't do it: it keeps
+  # the run's merge commit and that commit's workflow file. At most REFRESH_MAX rebases per revert; a conflict is left.
+  revert-refresh:
+    name: Rebase an open automatic revert whose checks are red
+    if: github.event.workflow_run.name == 'CI' && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10 # healthy run: seconds
+    # An App token: a branch updated with GITHUB_TOKEN starts no workflow. The App's key is INTAFACED_APP_KEY in the
+    # `ci-review` environment, which allows main alone (as main-bisect.yml revert-open).
+    environment: ci-review
+    permissions:
+      contents: read
+      actions: read # the revert's runs
+      pull-requests: read # the open pull requests
+      issues: read # a revert's timeline: how many times it was rebased
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - name: Rebase each open automatic revert whose checks are red
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FACTORY_APP_KEY: ${{ secrets.INTAFACED_APP_KEY }}
+        run: node tooling/ci/journeys-revert.mjs refresh
+
   # After each Real-app journeys run on main ends: an open, armed pull request whose journeys run was red only on steps main
   # was red on, and main's newest run is no longer red on, gets its branch updated from main (a merge commit, never a
   # force-push), so its checks, journeys and seal run on a head that holds the fix and it merges if it is otherwise green.

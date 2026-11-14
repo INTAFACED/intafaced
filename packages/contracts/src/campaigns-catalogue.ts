@@ -83,6 +83,19 @@ export const CAMPAIGN_REFUSAL_CODES = [
   'campaigns.attempt_limit_reached',
   'campaigns.window_unset',
   'campaigns.welcome_none',
+  // J-campaigns-17: the operator's watch desk, code batches and exports (campaigns-watch.ts).
+  'campaigns.alert_threshold_unset',
+  'campaigns.code_batch_limit_unset',
+  'campaigns.code_batch_limit_exceeded',
+  'campaigns.code_import_duplicate',
+  'campaigns.code_batch_unknown',
+  'campaigns.code_batch_reference_taken',
+  'campaigns.voucher_unknown',
+  'campaigns.voucher_deactivated',
+  'campaigns.export_validity_unset',
+  'campaigns.export_unknown',
+  'campaigns.export_not_ready',
+  'campaigns.export_expired',
   'owner.decision',
 ] as const;
 export type CampaignRefusalCode = (typeof CAMPAIGN_REFUSAL_CODES)[number];
@@ -269,9 +282,64 @@ export const earningRuleSchema = z
     /** The condition on the event: its amount is at least this; null: any amount. */
     minAmount: campaignDecimal.nullable().default(null),
     formula: z.string().trim().min(1).max(200),
+    /**
+     * What the rule gives. Absent: an incentive, the formula's answer in the campaign's reward asset. `points`: that many
+     * points of the points programme. A points effect saves, but it waits for the owner's answer to whether INTAFACED runs
+     * a points programme whose points have value or convert to cash: evaluating it refuses `owner.decision` for that rule
+     * only, and a live event gives nothing for it, while the campaign's other rules evaluate and pay as before.
+     */
+    effect: z.enum(['incentive', 'points']).optional(),
   })
   .strict();
 export type EarningRule = z.infer<typeof earningRuleSchema>;
+export type EarningEffect = NonNullable<EarningRule['effect']>;
+
+/**
+ * Evaluate a campaign's earning rules on one TEST event the operator types (CM-rewards-hub-05 preview and test): what each
+ * rule would give for it, writing nothing. `values` are the trigger's names (`amount`, `fee`, `qty`), each a decimal
+ * string in the campaign's reward asset; a name the trigger does not have refuses `campaigns.formula_invalid`.
+ */
+export const earningEvaluateInputSchema = z
+  .object({
+    id,
+    trigger: z.string().max(64),
+    values: z.record(z.string().max(16), campaignDecimal),
+  })
+  .strict();
+export type EarningEvaluateInput = z.infer<typeof earningEvaluateInputSchema>;
+
+/** One rule's answer to the TEST event: what it would give, why it gives nothing, or the refusal for its effect alone. */
+export const earningEvaluationResultSchema = z.discriminatedUnion('outcome', [
+  z.object({
+    outcome: z.literal('gives'),
+    rule: z.string(),
+    effect: z.literal('incentive'),
+    amount: campaignDecimal,
+    asset: asset.nullable(),
+  }),
+  z.object({
+    outcome: z.literal('nothing'),
+    rule: z.string(),
+    effect: z.enum(['incentive', 'points']),
+    /** `other_trigger`: the rule answers another event; `below_condition`: the amount is under its minimum; `zero`: it works out to nothing. */
+    reason: z.enum(['other_trigger', 'below_condition', 'zero']),
+  }),
+  z.object({
+    outcome: z.literal('refused'),
+    rule: z.string(),
+    effect: z.literal('points'),
+    code: z.literal('owner.decision'),
+    question: z.string(),
+  }),
+]);
+export type EarningEvaluationResult = z.infer<typeof earningEvaluationResultSchema>;
+
+export const earningEvaluationSchema = z.object({
+  campaignId: id,
+  trigger: z.string(),
+  results: z.array(earningEvaluationResultSchema),
+});
+export type EarningEvaluation = z.infer<typeof earningEvaluationSchema>;
 
 /**
  * Who can take part (CM-eligibility-rules-01, ENGINE EL-1 to EL-3). Exclusions read svc-identity: `business` is the
@@ -1058,3 +1126,64 @@ export const feeSaverAnswerSchema = z.object({
     .nullable(),
 });
 export type FeeSaverAnswer = z.infer<typeof feeSaverAnswerSchema>;
+
+// ── Points programme (CM-rewards-hub-04, J-campaigns-15) ───────────────────────────────────────────────────────────
+
+/**
+ * The owner question the points programme waits on, in plain words. Until the owner answers it, every press that would
+ * earn, spend, expire, release, redeem or convert points refuses `owner.decision` naming it, and no points are stored.
+ */
+export const POINTS_OWNER_QUESTION =
+  'Whether INTAFACED runs a points programme whose points have value or convert to cash. Until the owner answers, no points are earned, kept, redeemed or converted.';
+
+/** A programme's lifecycle (ENGINE LC-1 to LC-4), in order. */
+export const POINTS_LIFECYCLE = ['draft', 'active', 'paused', 'ended'] as const;
+export type PointsLifecycleStage = (typeof POINTS_LIFECYCLE)[number];
+
+/** How points would expire: never, a rolling horizon from each earning, a calendar date, or after inactivity. */
+export const POINTS_EXPIRY_MODES = ['never', 'rolling', 'calendar', 'inactivity'] as const;
+export type PointsExpiryMode = (typeof POINTS_EXPIRY_MODES)[number];
+
+/**
+ * The benefits the catalogue offers for points: a fee-saver coupon (part of our builder fee off venue orders,
+ * J-campaigns-09), a voucher in the reward asset (J-campaigns-08) and a place in a limited drop (J-campaigns-20). Their
+ * prices in points, stock and per-person limits are owner values.
+ */
+export const POINTS_CATALOGUE_ITEMS = ['fee_saver', 'cash_voucher', 'drop_place'] as const;
+export type PointsCatalogueItem = (typeof POINTS_CATALOGUE_ITEMS)[number];
+
+/** A whole number of points, as a string. */
+const points = z.string().regex(/^(0|[1-9]\d{0,19})$/);
+
+/**
+ * The points programme as a signed-in customer reads it. Every number is null while it is not kept or not set: no
+ * balance, member count, horizon, price, stock, limit, rate or minimum is ever filled in. `blocker` names the owner
+ * question while it is open.
+ */
+export const pointsProgrammeSchema = z.object({
+  blocker: z.object({ code: z.literal('owner.decision'), question: z.string() }).nullable(),
+  lifecycle: z.object({ stages: z.array(z.enum(POINTS_LIFECYCLE)), current: z.enum(POINTS_LIFECYCLE).nullable() }),
+  /** The caller's own points wallet: null while no points are kept. */
+  wallet: z.object({ available: points.nullable(), pending: points.nullable(), expiring: points.nullable() }),
+  /** How many customers take part: null while the programme does not run. */
+  members: z.object({ count: z.number().int().min(0).nullable() }),
+  expiry: z.object({
+    current: z.enum(POINTS_EXPIRY_MODES).nullable(),
+    modes: z.array(z.object({ mode: z.enum(POINTS_EXPIRY_MODES), horizonSeconds: z.number().int().positive().nullable() })),
+  }),
+  /** The caller's points waiting to become available, each with when it would; none while no points are kept. */
+  pending: z.array(z.object({ id, points, availableAt: iso })),
+  catalogue: z.array(
+    z.object({
+      id: z.enum(POINTS_CATALOGUE_ITEMS),
+      pricePoints: points.nullable(),
+      stock: z.number().int().min(0).nullable(),
+      perPersonLimit: z.number().int().positive().nullable(),
+    }),
+  ),
+  conversion: z.object({ rate: campaignDecimal.nullable(), asset: asset.nullable(), minimumPoints: points.nullable() }),
+});
+export type PointsProgramme = z.infer<typeof pointsProgrammeSchema>;
+
+export const pointsRedeemInputSchema = z.object({ itemId: z.enum(POINTS_CATALOGUE_ITEMS) }).strict();
+export const pointsConvertInputSchema = z.object({}).strict();

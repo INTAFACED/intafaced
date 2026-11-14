@@ -14,7 +14,7 @@ import {
   type VoucherRedemption,
   type VoucherValidation,
 } from '@intafaced/contracts/campaigns-catalogue';
-import { CampaignsError } from './codes.js';
+import { CampaignsError, codeHashOf, maskedCode } from './codes.js';
 import { ELIGIBILITY_REFUSAL, effectiveState, type CampaignService } from './campaigns.js';
 import type { ParticipantSource } from './participants.js';
 import type { PayoutSaga } from './payouts.js';
@@ -50,7 +50,9 @@ type Sql = postgres.Sql;
 type VoucherCampaignRow = {
   id: string;
   campaign_id: string;
-  code: string;
+  /** Null for a code made in a batch or imported: only its hash and last four characters are stored. */
+  code: string | null;
+  code_last4: string;
   state: MyVoucher['state'];
   face_asset: string;
   face_amount: string;
@@ -105,7 +107,7 @@ const USED = (sql: Sql) => sql`
       AND i.state NOT IN ('failed', 'forfeited', 'withheld')), 0) END)::text`;
 
 const SELECT_VOUCHER = (sql: Sql) => sql`
-  SELECT v.id, v.campaign_id, v.code, v.state, v.face_asset, v.face_amount::text AS face_amount, v.kind, v.fee_discount_bps,
+  SELECT v.id, v.campaign_id, v.code, v.code_last4, v.state, v.face_asset, v.face_amount::text AS face_amount, v.kind, v.fee_discount_bps,
     ${USED(sql)} AS used_amount, v.claim_by, v.use_by, v.claimed_by, v.claimed_at, v.expired_at,
     c.name AS campaign_name, c.state AS campaign_state, c.starts_at, c.ends_at, c.participation
   FROM campaigns.vouchers v JOIN campaigns.campaigns c ON c.id = v.campaign_id`;
@@ -228,6 +230,10 @@ export class VoucherService {
         }
         return { key, created: false, withheld: false };
       }
+      // An operator deactivated it (J-campaigns-17 #5): it pays nothing more, whatever is left on it.
+      if (v.state === 'deactivated') {
+        throw new CampaignsError('campaigns.voucher_deactivated', 'This voucher was deactivated, so it cannot be used');
+      }
       if (v.state === 'expired' || !v.use_by || v.use_by <= this.now()) {
         throw new CampaignsError('campaigns.voucher_expired', 'This voucher’s use-by has passed');
       }
@@ -313,12 +319,19 @@ export class VoucherService {
   async feeSaver(input: FeeSaverAskInput): Promise<FeeSaverAnswer> {
     return transaction(this.sql, async (tx) => {
       if (input.mode === 'take') await tx`SELECT pg_advisory_xact_lock(hashtext(${`fee-saver:${input.accountId}`}))`;
-      const [taken] = await tx<{ voucher_id: string; code: string; discount_bps: number; sequence: number }[]>`
-        SELECT u.voucher_id, v.code, u.discount_bps, u.sequence
+      const [taken] = await tx<{ voucher_id: string; code: string | null; code_last4: string; discount_bps: number; sequence: number }[]>`
+        SELECT u.voucher_id, v.code, v.code_last4, u.discount_bps, u.sequence
         FROM campaigns.fee_saver_uses u JOIN campaigns.vouchers v ON v.id = u.voucher_id
         WHERE u.account_id = ${input.accountId} AND u.order_key = ${input.orderKey}`;
       if (taken) {
-        return { coupon: { voucherId: taken.voucher_id, code: taken.code, discountBps: taken.discount_bps, sequence: taken.sequence } };
+        return {
+          coupon: {
+            voucherId: taken.voucher_id,
+            code: taken.code ?? maskedCode(taken.code_last4),
+            discountBps: taken.discount_bps,
+            sequence: taken.sequence,
+          },
+        };
       }
       if (input.mode === 'read') return { coupon: null };
       const now = this.now();
@@ -333,7 +346,14 @@ export class VoucherService {
       });
       if (!best) return { coupon: null };
       if (input.mode === 'quote') {
-        return { coupon: { voucherId: best.id, code: best.code, discountBps: best.fee_discount_bps!, sequence: null } };
+        return {
+          coupon: {
+            voucherId: best.id,
+            code: best.code ?? maskedCode(best.code_last4),
+            discountBps: best.fee_discount_bps!,
+            sequence: null,
+          },
+        };
       }
       // Under the account's lock every take of this account's coupons is one at a time, so the count cannot move under us.
       const sequence = Number(parseAmount(best.used_amount) / parseAmount('1')) + 1;
@@ -348,7 +368,9 @@ export class VoucherService {
         INSERT INTO campaigns.audit_log (actor, action, target, detail)
         VALUES (${input.accountId}, 'campaign.voucher.fee_saver_take', ${best.campaign_id},
           ${tx.json({ voucher: best.id, orderKey: input.orderKey, sequence, discountBps: best.fee_discount_bps })})`;
-      return { coupon: { voucherId: best.id, code: best.code, discountBps: best.fee_discount_bps!, sequence } };
+      return {
+        coupon: { voucherId: best.id, code: best.code ?? maskedCode(best.code_last4), discountBps: best.fee_discount_bps!, sequence },
+      };
     });
   }
 
@@ -433,8 +455,8 @@ export class VoucherService {
 
   /** Every claim check, in order; anything about a code the caller may not claim is the one generic refusal. */
   private async claimable(raw: string, accountId: string): Promise<VoucherCampaignRow> {
-    const code = raw.trim().toUpperCase();
-    const rows = await this.sql<VoucherCampaignRow[]>`${SELECT_VOUCHER(this.sql)} WHERE v.code = ${code} LIMIT 2`;
+    // Looked up by its hash: a code made in a batch or imported has no plain text to match (J-campaigns-17).
+    const rows = await this.sql<VoucherCampaignRow[]>`${SELECT_VOUCHER(this.sql)} WHERE v.code_hash = ${codeHashOf(raw)} LIMIT 2`;
     const now = this.now();
     const [v] = rows;
     if (!v || rows.length > 1 || v.state !== 'published' || effectiveState({ ...v, state: v.campaign_state }, now) !== 'active') {
@@ -518,11 +540,13 @@ function toMine(v: VoucherCampaignRow, redemptions: VoucherRedemption[], now: Da
   const expired = v.state === 'expired' || (used < face && v.use_by !== null && v.use_by <= now);
   return {
     id: v.id,
-    code: v.code,
+    code: v.code ?? maskedCode(v.code_last4),
     campaignId: v.campaign_id,
     campaignName: v.campaign_name,
     // Read from the sum, so a redemption the ledger refused gives its part back to the voucher.
-    state: expired ? 'expired' : used === 0n ? 'claimed' : used >= face ? 'used' : 'partially_used',
+    // A deactivated voucher reads deactivated, whatever it used (J-campaigns-17 #5).
+    state:
+      v.state === 'deactivated' ? 'deactivated' : expired ? 'expired' : used === 0n ? 'claimed' : used >= face ? 'used' : 'partially_used',
     face: { asset: v.face_asset, amount: formatAmount(face) },
     used: formatAmount(used),
     remaining: formatAmount(face - used),

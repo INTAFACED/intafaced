@@ -469,6 +469,8 @@ export const apiKeys = identity.table(
     revokeReason: text('revoke_reason'),
     /** The key's own refill per minute once a reviewer granted a higher limit (J-developer-06 #6); null: on its tier. */
     rateRefillPerMinuteGranted: integer('rate_refill_per_minute_granted'),
+    /** The key this one replaced in a rotation (J-developer-07 #1); a key is replaced at most once. */
+    rotatedFrom: uuid('rotated_from'),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex('api_keys_hash_idx').on(t.keyHash), index('api_keys_user_idx').on(t.userId, t.revoked)],

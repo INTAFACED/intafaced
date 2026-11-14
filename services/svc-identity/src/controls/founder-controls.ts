@@ -458,10 +458,15 @@ export class FounderControls {
     return this.consumeIdentityApproval(tx, want);
   }
 
+  /**
+   * Who is acting, and may they. A command locks the rows it reads (`forUpdate`, the default), so nothing changes them
+   * before it writes. A pure read passes `forUpdate: false` and reads one snapshot without taking a lock.
+   */
   private async actor(
     tx: Sql,
     context: Context,
     targetId?: string,
+    { forUpdate = true }: { forUpdate?: boolean } = {},
   ): Promise<{ refusal: 'operator.denied' | 'mfa.required' | null; users: UserRow[] }> {
     const principal = context.principal;
     if (
@@ -477,15 +482,16 @@ export class FounderControls {
       return { refusal: 'operator.denied', users: [] };
     if (!principal.mfa) return { refusal: 'mfa.required', users: [] };
     const ids = [...new Set([principal.userId, ...(targetId ? [targetId] : [])])].sort();
+    const lock = tx.unsafe(forUpdate ? ' FOR UPDATE' : '');
     const sessions = await tx<
       SessionRow[]
-    >`SELECT id, user_id, revoked, mfa, expires_at FROM sessions WHERE user_id IN ${tx(ids)} ORDER BY id FOR UPDATE`;
+    >`SELECT id, user_id, revoked, mfa, expires_at FROM sessions WHERE user_id IN ${tx(ids)} ORDER BY id${lock}`;
     const users = await tx<
       UserRow[]
-    >`SELECT id, status, identity_control_version::text, archived_at, totp_enrolled_at, totp_secret, webauthn_creds FROM users WHERE id IN ${tx(ids)} ORDER BY id FOR UPDATE`;
+    >`SELECT id, status, identity_control_version::text, archived_at, totp_enrolled_at, totp_secret, webauthn_creds FROM users WHERE id IN ${tx(ids)} ORDER BY id${lock}`;
     const [entitlement] = await tx<
       EntitlementRow[]
-    >`SELECT user_id, enabled, version::text, changed_at FROM founder_operator_entitlements WHERE user_id = ${principal.userId} FOR UPDATE`;
+    >`SELECT user_id, enabled, version::text, changed_at FROM founder_operator_entitlements WHERE user_id = ${principal.userId}${lock}`;
     return {
       refusal: founderActorRefusal(
         context,
@@ -1013,16 +1019,21 @@ export class FounderControls {
     return this.checkedOperator(context, context.principal.userId);
   }
 
+  /**
+   * The founder console asks this on every page and every change. It is a read: one snapshot (repeatable read), with no
+   * founder-controls lock and no row locks, so a command or sign-in holding the lock or the founder's rows never stalls
+   * the console (#8299: this read waited 12.7 s on a lock, and the console's 5 s gate refused a founder's save). A change
+   * committed after the snapshot is seen by the next read; every command still re-checks its actor under the lock.
+   */
   private async checkedOperator(context: Context, userId: string): Promise<AccountOperatorEntitlement> {
     if (!this.configured) return { userId, status: 'unconfigured' };
     try {
       return await transaction(
         this.sql,
         async (tx) => {
-          await this.lock(tx);
           // Only delegated reads accept a service with a separately verified user
           // principal. Account-change commands never accept service authority.
-          const actor = await this.actor(tx, { ...context, service: null });
+          const actor = await this.actor(tx, { ...context, service: null }, undefined, { forUpdate: false });
           if (actor.refusal) {
             const [row] = await tx<
               EntitlementRow[]
@@ -1046,7 +1057,7 @@ export class FounderControls {
             changedAt: row!.changed_at.toISOString(),
           });
         },
-        { isolation: 'read committed' },
+        { isolation: 'repeatable read' },
       );
     } catch (error) {
       if (storageError(error).code === 'identity.controls_unconfigured') return { userId, status: 'unconfigured' };
