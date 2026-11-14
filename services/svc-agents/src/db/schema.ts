@@ -261,6 +261,12 @@ export const usageWindows = agents.table(
     chargeKey: text('charge_key'),
     /** svc-ledger's transaction id — the other half of the reconciliation. */
     chargeTxId: text('charge_tx_id'),
+    /** Which path paid the window: `ledger` (the custodial fee charge) or `partner` (earned, then collected). */
+    paidBy: text('paid_by'),
+    /** The partner's own id for the payment the ledger's collect is keyed on; null unless paid by the partner. */
+    paymentRef: text('payment_ref'),
+    /** The partner's name for itself, as it reported the payment. */
+    paymentLabel: text('payment_label'),
     createdAt: createdAt(),
   },
   (t) => [
