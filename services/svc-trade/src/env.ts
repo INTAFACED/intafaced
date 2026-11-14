@@ -120,6 +120,24 @@ const schema = serviceEnvSchema
        * sub-accounts they gave the agent access to). Blank: every grant and agent order refuses agents.policy_unavailable.
        */
       AGENTS_URL: z.string().default(''),
+      /**
+       * svc-campaigns' address, for a person's fee-saver coupon on our builder fee (J-campaigns-09 #2 #3). Blank: no
+       * coupon is asked for, and every venue order carries the rank's rate or the builder fee in force.
+       */
+      CAMPAIGNS_URL: z.string().default(''),
+      /**
+       * svc-quant's address, for the strategy version a live run trades (J-algo-dev-07; src/quant/live-run/). Read as the
+       * person, with their own edge-signed principal passed on. Blank: every live start refuses quant.live_plan_unavailable.
+       */
+      QUANT_URL: z.string().default(''),
+      /** `on` lets a live strategy run start (a test stack today). Anything else: every start refuses quant.live_disabled. */
+      TRADE_QUANT_LIVE: z.string().default(''),
+      /**
+       * Owner value: the heartbeat interval a live run's process is watched by, in milliseconds (at least 200). A run with
+       * no heartbeat for this long reads unknown and goes to the reconciler. Blank refuses every start
+       * quant.heartbeat_interval_unset.
+       */
+      TRADE_QUANT_LIVE_HEARTBEAT_MS: z.string().default(''),
       /** Dedicated trading decision key; blank disables new exposure, never founder/read auth. */
       IDENTITY_ADMISSION_SECRET: z.string().default(''),
 
@@ -184,6 +202,15 @@ const schema = serviceEnvSchema
        * `protectionPriceFor` refuses `trade.slippage_cap_unset`. Never invent 200.
        */
       TRADE_MARKET_SLIPPAGE_CAP_BPS: z.string().default('').transform(parseOwnerIntegerEnv),
+
+      /**
+       * The owner's spread limit for a spot market order on the user's venue, in basis points of the venue's best bid
+       * (J-cex-spot-03 #2): a market order is refused while the venue's best ask is further than this above its best bid.
+       *
+       * NO DEFAULT. Blank / unset / non-integer → null; a venue spot market order then refuses
+       * `trade.spread_limit_unset` ("protection not set"), on preview and on prepare. Never invented.
+       */
+      TRADE_MARKET_SPREAD_LIMIT_BPS: z.string().default('').transform(parseOwnerIntegerEnv),
 
       /**
        * Cancel-all-after timeouts the owner publishes, in seconds, comma separated (for example "10,30,60").

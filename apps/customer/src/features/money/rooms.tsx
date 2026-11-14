@@ -56,6 +56,7 @@ import { SharedPots } from './SharedPots';
 import { BillsPotActions } from './BillsPot';
 import { AccountHome } from './AccountHome';
 import { AddMoney } from './AddMoney';
+import { WalletProvider } from '../protocol/wallet/WalletProvider';
 import { addMoneyCopy } from './add-money-copy';
 import { LinkedAccounts } from './LinkedAccounts';
 import { DirectDebits } from './DirectDebits';
@@ -1518,7 +1519,10 @@ function AddMoneyRoom() {
   const { t } = addMoneyCopy.useCopy();
   return (
     <BankPage room="Ramps" title={t('title')} description={t('description')}>
-      <AddMoney />
+      {/* The browser wallet's connection, so a purchase can be delivered straight to it (J-dex-protocol-05 #4). */}
+      <WalletProvider>
+        <AddMoney />
+      </WalletProvider>
     </BankPage>
   );
 }

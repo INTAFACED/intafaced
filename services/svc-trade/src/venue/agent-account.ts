@@ -95,7 +95,16 @@ export type AgentAccountCode =
   | 'agents.key_scope_not_trade'
   | 'agents.key_read_unavailable'
   | 'agents.key_already_connected'
+  | 'agents.key_expiry_above_venue_max'
+  | 'agents.venue_agent_expiry_max_unknown'
   | 'agents.key_not_connected'
+  // The connection's Activity (agent-order-calls.ts, #11): identity's call log of the key could not be read just now.
+  | 'agents.activity_read_unavailable'
+  // The person revoked the assistant (#12): our copy of the account's venue agent key signs nothing more.
+  | 'agents.agent_revoked'
+  // The founder's desk over every outside connection (agent-desk.ts, #15).
+  | 'agents.desk_reason_required'
+  | 'agents.desk_request_invalid'
   | 'agents.order_needs_agent_key'
   | 'agents.order_request_invalid'
   | 'agents.order_leverage_unknown'
@@ -154,7 +163,7 @@ export interface AgentAccountsDeps {
 /** What the wallet is asked to sign next, if anything. */
 export interface NextSignature {
   readonly actionKey: string;
-  readonly step: 'open_sub_account' | 'approve_agent' | 'move_in' | 'move_out';
+  readonly step: 'open_sub_account' | 'approve_agent' | 'move_in' | 'move_out' | 'revoke_agent';
   readonly prepared: PreparedVenueAction;
   /** True when this action was signed and sent and its answer is not yet known: re-send it, never sign a new one. */
   readonly signed: boolean;

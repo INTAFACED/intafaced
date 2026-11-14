@@ -7,6 +7,8 @@ import {
   historyRuns,
   readHistory,
   historyThrough,
+  toDownload,
+  HISTORY_MAX,
   findStored,
   storedRuns,
   passedSteps,
@@ -29,6 +31,9 @@ import {
   assertFullHistory,
   excusedSetAside,
   runIsOnMain,
+  branchRuns,
+  passedTests,
+  testKey,
 } from './journey-verdict.mjs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
@@ -100,6 +105,116 @@ test('red: an unbuilt step that passed on main after the named run fails now', (
   assert.deepEqual(passedSince, { 'J-a-01#2': 101 });
   const v = run(report(ok('J-a-01 #1'), bad('J-a-01 #2')), { passedSince });
   assert.match(v.red[0].why, /called unbuilt, but passed on main in run 101/);
+});
+
+// A run off main is held only to main's runs on commits its head contains (branchRuns). Built from intafaced #8284 at
+// 49bd7d4 (job 132308157438, 14 Nov 2026): its only reds were J-agents-09 #1 to #6, "called unbuilt, but passed on main
+// in run 4914", and run 4914 was on 0748fc0 (#8282's merge), after the branch was cut. GitHub's compare of
+// 49bd7d4...0748fc0 listed 75a6698 (run 4911) and 0748fc0 (run 4914) as the commits the head lacks.
+const sha = (c) => c.repeat(40);
+const REPO = 'INTAFACED/intafaced';
+const mainRun = (n, c) => ({
+  id: 43000 + n,
+  run_number: n,
+  head_sha: sha(c),
+  head_branch: 'main',
+  event: 'push',
+  head_repository: { full_name: REPO },
+});
+const prRun = (c) => ({
+  id: 1,
+  run_number: 4917,
+  head_sha: sha(c),
+  head_branch: 'cut-1',
+  event: 'pull_request',
+  head_repository: { full_name: REPO },
+});
+const history = [mainRun(4910, 'a'), mainRun(4911, 'b'), mainRun(4914, 'c')];
+const lacks = (...cs) => {
+  const calls = [];
+  const compare = (head, base) => {
+    calls.push([head, base]);
+    return { total_commits: cs.length, commits: cs.map((c) => ({ sha: sha(c) })) };
+  };
+  return { compare, calls };
+};
+const historyReports = {
+  4910: readReport(report(bad('J-a-01 #2'))),
+  4911: readReport(report(bad('J-a-01 #2'))),
+  4914: readReport(report(ok('J-a-01 #2'))),
+};
+const verdictOn = (runs) =>
+  run(report(ok('J-a-01 #1'), bad('J-a-01 #2')), {
+    passedSince: passesSince(runs.map((r) => [r.run_number, historyReports[r.run_number]])),
+  });
+
+test("green: a branch cut before a step was built on main is not held to main's later pass (#8284 at 49bd7d4)", () => {
+  const { compare, calls } = lacks('b', 'c');
+  const own = branchRuns(history, { run: prRun('d'), repo: REPO, compare });
+  assert.deepEqual(calls, [[sha('d'), sha('c')]], "one compare, against the newest history run's commit");
+  assert.deepEqual(own.left, [4911, 4914]);
+  assert.deepEqual(
+    own.runs.map((r) => r.run_number),
+    [4910],
+  );
+  assert.equal(own.kept, null);
+  assert.deepEqual(verdictOn(own.runs).red, []);
+  // The old reading, every run on main: red on the step the branch never had.
+  assert.match(verdictOn(history).red[0].why, /called unbuilt, but passed on main in run 4914/);
+});
+
+test('red: a branch that contains the commit whose main run passed the step, and fails it, is still red (the planted fault)', () => {
+  // #8284 after merging main (97a822c): GitHub's compare 97a822c...0748fc0 is "behind", 0 commits.
+  const own = branchRuns(history, { run: prRun('e'), repo: REPO, compare: lacks().compare });
+  assert.deepEqual(own.left, []);
+  assert.match(verdictOn(own.runs).red[0].why, /called unbuilt, but passed on main in run 4914/);
+  // Only the runs the head lacks are left out: a pass in a run it contains still binds.
+  const older = branchRuns(history, { run: prRun('f'), repo: REPO, compare: lacks('b').compare });
+  assert.deepEqual(older.left, [4911]);
+  assert.match(verdictOn(older.runs).red[0].why, /called unbuilt, but passed on main in run 4914/);
+});
+
+test("main's own runs keep the whole history, and nothing is compared", () => {
+  const { compare, calls } = lacks('b', 'c');
+  const own = branchRuns(history, { run: { ...mainRun(4917, 'd') }, repo: REPO, compare });
+  assert.deepEqual(own, { runs: history, left: [], kept: null });
+  assert.deepEqual(calls, []);
+  // A fork's branch named main is not main: it is compared like any branch.
+  const fork = branchRuns(history, { run: { ...mainRun(4917, 'd'), head_repository: { full_name: 'x/y' } }, repo: REPO, compare });
+  assert.deepEqual(fork.left, [4911, 4914]);
+});
+
+test('a compare that cannot be read, or lists less than all it counts, keeps the whole history (the stricter reading) and says why', () => {
+  const thrown = branchRuns(history, {
+    run: prRun('d'),
+    repo: REPO,
+    compare: () => {
+      throw new Error('HTTP 502: Bad Gateway');
+    },
+  });
+  assert.equal(thrown.runs, history);
+  assert.match(thrown.kept, /couldn't be read \(HTTP 502/);
+  const short = branchRuns(history, { run: prRun('d'), repo: REPO, compare: () => ({ total_commits: 300, commits: [{ sha: sha('c') }] }) });
+  assert.equal(short.runs, history);
+  assert.match(short.kept, /lists 1 of 300 commits/);
+  for (const bad of [null, {}, { commits: [] }, { total_commits: 0 }])
+    assert.equal(branchRuns(history, { run: prRun('d'), repo: REPO, compare: () => bad }).runs, history);
+  const noHead = branchRuns(history, { run: { ...prRun('d'), head_sha: undefined }, repo: REPO, compare: lacks('c').compare });
+  assert.equal(noHead.runs, history);
+  assert.match(noHead.kept, /no commit to compare/);
+  assert.deepEqual(branchRuns([], { run: prRun('d'), repo: REPO, compare: lacks('c').compare }).runs, []);
+});
+
+test("fetchInputs holds a run off main only to main's runs its head contains, and still finds the stored history among all", () => {
+  const src = readFileSync(new URL('./journey-verdict.mjs', import.meta.url), 'utf8');
+  const body = src.slice(src.indexOf('export function fetchInputs('), src.indexOf('function main()'));
+  assert.match(body, /compare = \(head, base\) => ghApi\(`\/repos\/\$\{repo\}\/compare\/\$\{head\}\.\.\.\$\{base\}`\)/);
+  assert.match(body, /const own = branchRuns\(runs, \{ run, repo, compare \}\);/);
+  assert.match(
+    body,
+    /const stored = findStored\(runs, readStored\);\s*const left = toDownload\(runs, stored\)\.length;\s*if \(left > HISTORY_MAX\)[\s\S]*const own = branchRuns/,
+    'the history cap counts what is left to download among every run on main, before a run off main is narrowed',
+  );
 });
 
 test('red: the money rule disagrees with the entry, and a step missing from journeys.json is money', () => {
@@ -282,7 +397,7 @@ test('the pass history skips a finished main run that kept no report, and still 
 test("fetchInputs reads the history with the optional reader, so only a missing artifact or a missing report.json skips, and the named run's report stays required", () => {
   const src = readFileSync(new URL('./journey-verdict.mjs', import.meta.url), 'utf8');
   const body = src.slice(src.indexOf('export function fetchInputs('), src.indexOf('function main()'));
-  assert.match(body, /historyThrough\(runs, \{[\s\S]*downloadReport\(repo, r\.id, 'report\.json', true\)/);
+  assert.match(body, /historyThrough\(own\.runs, \{[\s\S]*downloadReport\(repo, r\.id, 'report\.json', true\)/);
   assert.match(body, /named = reportOf\(baseline\.run\.id\);/);
   assert.match(body, /readReport\(raw \?\? downloadReport\(repo, id\)\)/);
 });
@@ -359,7 +474,7 @@ test("fetchInputs finds the stored history among main's own history runs and wri
   const body = src.slice(src.indexOf('export function fetchInputs('), src.indexOf('function main()'));
   assert.match(body, /readStored = \(r\) => downloadReport\(repo, r\.id, HISTORY_FILE, true, \{ artifact: HISTORY_ARTIFACT \}\)/);
   assert.match(body, /const stored = findStored\(runs, readStored\);/);
-  assert.match(body, /historyThrough\(runs, \{\s*stored,/);
+  assert.match(body, /historyThrough\(own\.runs, \{\s*stored,/);
   const main = src.slice(src.indexOf('function main()'));
   assert.match(main, /if \(arg\('--history-out'\) && onMain && entries\)/);
 });
@@ -961,4 +1076,123 @@ test('a step id two files share: the run lists both files, and a targeted run of
     ['J-w-04#7'],
     'and a failure there is red',
   );
+});
+
+test('the history cap counts runs left to download, not runs since the baseline (14 Nov 2026: 151 runs since run 1719)', () => {
+  const runs = Array.from({ length: 400 }, (_, i) => ({ id: 1000 + i, run_number: 1720 + i, run_attempt: 1 }));
+  const entry = (r, attempt = 1) => [String(r.id), { number: r.run_number, attempt, passed: [] }];
+  // A stored file holding all but the newest 3: 3 to download, however old the baseline.
+  const stored = { from: runs[396].run_number, runs: Object.fromEntries(runs.slice(0, 397).map((r) => entry(r))) };
+  assert.deepEqual(
+    toDownload(runs, stored).map((r) => r.run_number),
+    runs.slice(397).map((r) => r.run_number),
+  );
+  // A run re-run since the file read it counts; so does a run the file never held (one that kept no report).
+  const rerun = runs.map((r, i) => (i === 10 ? { ...r, run_attempt: 2 } : r));
+  delete stored.runs[String(runs[20].id)];
+  assert.deepEqual(
+    toDownload(rerun, stored).map((r) => r.run_number),
+    [runs[10], runs[20], ...runs.slice(397)].map((r) => r.run_number),
+  );
+  // No stored file: every run, so the cap still trips past HISTORY_MAX, as before.
+  assert.equal(toDownload(runs, null).length, 400);
+  assert.ok(toDownload(runs, null).length > HISTORY_MAX);
+  // The same 400 with the file: under the cap.
+  assert.ok(toDownload(runs, stored).length <= HISTORY_MAX);
+});
+
+// Tests with no step title in a journey file (project-state #2232, the lead's call under row d69). Built from intafaced
+// main's runs 4890 to 5011: J-derivatives-01's custodial checks beside its venue steps passed in every run, and 7 tests
+// of work not built yet (J-agents-12 outside:, J-pay-03 part of #1 (blocked), …) failed in every run.
+const KEEP = 'J-a-01, part of #1: our own ledger holds the margin';
+const UNBUILT = 'J-a-01 starts: from a notice nobody built';
+const k = (t) => testKey('J-a-01.pw.mjs', t);
+
+test('a test with no step title is keyed by its journey, file and title, never as a step', () => {
+  const r = readReport(report(ok('J-a-01 #1'), ok(KEEP), bad(UNBUILT), flaky('J-a-01 ends: back home')));
+  assert.deepEqual(Object.keys(r.states), ['J-a-01#1']);
+  assert.deepEqual(r.tests, { [k(KEEP)]: 'passed', [k(UNBUILT)]: 'failed', [k('J-a-01 ends: back home')]: 'flaky' });
+  assert.equal(k(KEEP).split('#')[0], 'J-a-01', "its journey is what comes before the '#', as a step's is");
+  assert.equal(testKey('J-x-07-venue.pw.mjs', 'setup: the venue').split('#')[0], 'J-x-07', "a title without an id takes the file's");
+  assert.deepEqual(
+    passedTests(r),
+    [k('J-a-01 ends: back home'), k(KEEP)].sort((a, b) => a.localeCompare(b, 'en', { numeric: true })),
+  );
+});
+
+test('red: a test with no step title that passed in the named run fails or is skipped now', () => {
+  const named2 = readReport(report(ok('J-a-01 #1'), ok(KEEP), bad(UNBUILT)));
+  for (const now of [bad(KEEP), skip(KEEP)]) {
+    const v = judge({ newest: readReport(report(ok('J-a-01 #1'), now, bad(UNBUILT))), named: named2, baseline, money });
+    assert.deepEqual(
+      v.red.map((r) => [r.step, r.why]),
+      [[k(KEEP), `a test with no step title: passed on main in run 100, ${now.tests[0].status === 'skipped' ? 'skipped' : 'failed'} now`]],
+    );
+    assert.equal(v.testsFailing, 1);
+  }
+});
+
+test('red: a test with no step title that passed on main after the named run fails now; a pass on its retry counted', () => {
+  for (const pass of [ok(KEEP), flaky(KEEP)]) {
+    const passedSince = passesSince([
+      [101, readReport(report(pass))],
+      [102, readReport(report(bad(KEEP)))],
+    ]);
+    assert.equal(passedSince[k(KEEP)], 101);
+    const v = run(report(ok('J-a-01 #1'), bad(KEEP)), { passedSince });
+    assert.deepEqual(
+      v.red.map((r) => [r.step, r.why, r.money]),
+      [[k(KEEP), 'a test with no step title: passed on main in run 101, failed now', false]],
+    );
+  }
+});
+
+test('green: a test with no step title that never passed on main stays out until it first passes', () => {
+  const passedSince = passesSince([[101, readReport(report(bad(UNBUILT)))]]);
+  const v = run(report(ok('J-a-01 #1'), bad(UNBUILT), ok(KEEP)), { passedSince });
+  assert.deepEqual(v.red, []);
+  assert.equal(v.testsFailing, 0);
+  // Retitled: the old title passed, the new one never did. Missing is no failure, so a retitle alone is not red.
+  assert.deepEqual(
+    judge({ newest: readReport(report(ok('J-a-01 #1'))), named: readReport(report(ok('J-a-01 #1'), ok(KEEP))), baseline, money }).red,
+    [],
+  );
+});
+
+test("a step's rule is unchanged by the tests beside it", () => {
+  const withTests = (...specs) => run(report(...specs, ok(KEEP), bad(UNBUILT)));
+  assert.deepEqual(withTests(ok('J-a-01 #1'), bad('J-a-01 #2'), bad('J-a-02 #1'), ok('J-a-03 #1')).red, []);
+  assert.deepEqual(
+    withTests(bad('J-a-01 #1'), bad('J-a-01 #2')).red.map((r) => [r.step, r.why]),
+    [['J-a-01#1', 'failing, not in the baseline']],
+  );
+  assert.match(withTests(bad('J-a-01 #2')).red[0].why, /passed in run 100, missing now/);
+});
+
+test("a test's money is its journey's: money when a step of it is, or no step of it is known", () => {
+  const named2 = readReport(report(ok('J-a-01 #1'), ok(KEEP)));
+  const red = (m) => judge({ newest: readReport(report(ok('J-a-01 #1'), bad(KEEP))), named: named2, baseline, money: m }).red[0].money;
+  assert.equal(red(money), false);
+  assert.equal(red({ ...money, 'J-a-01#2': true }), true);
+  assert.equal(red({ 'J-b-01#1': false }), true, 'a journey the money rule does not know is money');
+});
+
+test('the stored pass history keeps the passes of tests with no step title, and an entry from before them still reads', () => {
+  const runs = [
+    { id: 1, run_number: 101, run_attempt: 1 },
+    { id: 2, run_number: 102, run_attempt: 1 },
+  ];
+  const reports = { 1: readReport(report(ok('J-a-01 #1'), ok(KEEP))), 2: readReport(report(ok('J-a-01 #1'), bad(KEEP))) };
+  const first = historyThrough(runs, { stored: null, read: (r) => reports[r.id] });
+  assert.deepEqual(first.entries[1], { number: 101, attempt: 1, passed: ['J-a-01#1'], tests: [k(KEEP)] });
+  const stored = { from: 102, runs: storedRuns({ version: HISTORY_VERSION, runs: first.entries }) };
+  const again = historyThrough(runs, { stored, read: () => assert.fail('everything is stored') });
+  assert.deepEqual(passesSince(again.reports), passesSince(first.reports));
+  assert.equal(passesSince(again.reports)[k(KEEP)], 101);
+  // An entry written before 14 Nov 2026 has no `tests`: it reads, and counts none of them as passed.
+  const old = storedRuns({ version: HISTORY_VERSION, runs: { 1: { number: 101, attempt: 1, passed: ['J-a-01#1'] } } });
+  assert.ok(old);
+  assert.equal(storedRuns({ version: HISTORY_VERSION, runs: { 1: { number: 101, attempt: 1, passed: [], tests: 'x' } } }), null);
+  const via = historyThrough(runs.slice(0, 1), { stored: { from: 101, runs: old }, read: () => assert.fail('stored') });
+  assert.deepEqual(passesSince(via.reports), { 'J-a-01#1': 101 });
 });

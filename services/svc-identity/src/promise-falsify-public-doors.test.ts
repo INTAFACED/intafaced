@@ -85,6 +85,11 @@ type Book = {
 class MemorySubAccountAuth {
   readonly books = new Map<string, Book>();
 
+  /** Every account is active here: the affiliate payout's account check (#4689) is tested in producer-payout.test.ts. */
+  async accountState(userId: string) {
+    return { userId, status: 'active' as const, kycTier: 'basic' as const, archived: false };
+  }
+
   async createSubAccount(userId: string, label: string, purpose?: string): Promise<{ id: string }> {
     const id = randomUUID();
     this.books.set(id, {
@@ -268,6 +273,7 @@ type MoneyMountOpts = {
   accrualTierLaw?: typeof publishedLaw | undefined;
   ledger?: MemoryLedger;
   freeze?: FreezeService;
+  programmeDepth?: number | undefined;
 };
 
 /** A wired freeze service that reports nobody frozen (the set is KNOWN-empty). */
@@ -279,6 +285,8 @@ async function mountDoors(auth: MemorySubAccountAuth, money: MoneyMountOpts = {}
     actionApprovals: stubActionApprovals(),
     // The revoke door reads the money services first; these doors test ownership, so the read answers "empty".
     subAccountDelete: { assertEmpty: async () => undefined } as unknown as SubAccountDeleteService,
+    // TEST programme depth (RC-campaigns-07): blank refuses every accrual and payout before the rate law.
+    programmeDepth: 5,
     ...money,
   });
   const app = Fastify({ logger: false });
@@ -628,6 +636,28 @@ describe('D26-P2-12 spine reprove — affiliates.payout money routing over wire'
       expect(await bal(ledger, houseFees('identity', ASSET))).toBe('100');
     } finally {
       await unwired.close();
+    }
+  });
+
+  it('a blank programme depth wins over the rate law and a missing feeEventId on the wire, and moves nothing', async () => {
+    const blankDepth = await mountDoors(books, {
+      accruals: store,
+      accrualTierLaw: publishedLaw,
+      ledger,
+      freeze: noOneFrozen,
+      programmeDepth: undefined,
+    });
+    try {
+      const before = ledger.journal().length;
+      for (const input of [{}, { feeEventId: FEE_EVT }, { feeEventId: FEE_EVT, dryRun: true }]) {
+        const { statusCode, body } = await post(blankDepth, 'affiliates.payout', input, adminHeaders());
+        expect(statusCode).toBe(412);
+        expect((body.error?.data as { cause?: { code?: string } } | undefined)?.cause?.code).toBe('affiliate.programme_depth_unset');
+        expect(body.error?.message).not.toContain('feeEventId is required');
+      }
+      expect(ledger.journal().length).toBe(before);
+    } finally {
+      await blankDepth.close();
     }
   });
 

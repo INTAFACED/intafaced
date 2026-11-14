@@ -57,6 +57,9 @@ registerProcessHooks(
  * provider gets, for the same reason. The award itself is recoverable: it is
  * keyed on the grant, so granting again re-publishes it (certs/xp-publish.ts).
  *
+ * AC-rooms-02 adds a second publish: a deleted post's author notice, from the moderation outbox
+ * (`curriculum/moderation.ts`), on academy's own stream.
+ *
  * It still subscribes to nothing. `crew-events.ts` remains unmounted — a
  * consumer is a different decision from a producer, and this one is not it.
  */
@@ -98,11 +101,13 @@ const stream: StreamProvider = streamProviderFromEnv({
 });
 
 /**
- * The one publish: cert grant → `intafaced.identity.xp.earned`.
+ * Two publishes: cert grant → `intafaced.identity.xp.earned`, and a moderator's
+ * deletion → `intafaced.academy.discussion_post.deleted` (AC-rooms-02).
  *
- * `ownedStreams` is empty because academy owns no stream. `xpEarned` is declared
- * on the `identity` service, svc-identity creates that stream, and a producer
- * that also created it would be a second definition of somebody else's storage.
+ * `xpEarned` is declared on the `identity` service, svc-identity creates that
+ * stream, and a producer that also created it would be a second definition of
+ * somebody else's storage. The deletion notice is declared on `academy`, so this
+ * process owns that one stream (`ownedStreams: ['academy']`).
  *
  * A failed connect is caught, not fatal — see this file's header for why a
  * lobby must not go down with the bus, and certs/xp-publish.ts for why the
@@ -112,6 +117,7 @@ const bus = await JetStreamEventBus.connect({
   servers: env.NATS_URL,
   producer: env.SERVICE_NAME,
   streamPrefix: env.NATS_STREAM_PREFIX,
+  ownedStreams: ['academy'],
 }).catch((err: unknown) => {
   // Scheme and host only: a NATS URL may carry `user:password@`.
   console.error({ err, nats: urlForLog(env.NATS_URL) }, 'svc-academy could not reach the bus — certification XP will not be published');
@@ -138,6 +144,11 @@ const academy = new AcademyService(
     topicsListLimit: env.ACADEMY_TOPICS_LIST_LIMIT,
     graderLeaseSeconds: env.ACADEMY_GRADER_LEASE_SECONDS,
     gradeReportRows: env.ACADEMY_GRADE_REPORT_ROWS,
+    certIssuedRows: env.ACADEMY_CERT_ISSUED_ROWS,
+    learnerSummariesPageSize: env.ACADEMY_LEARNER_SUMMARIES_PAGE_SIZE,
+    reportTasksPageSize: env.ACADEMY_REPORT_TASKS_PAGE_SIZE,
+    reportCentreRetentionMinutes: env.ACADEMY_REPORT_CENTRE_RETENTION_MINUTES,
+    reportSweepSeconds: env.ACADEMY_REPORT_SWEEP_SECONDS,
     bulkFileMaxBytes: env.ACADEMY_BULK_FILE_MAX_BYTES,
     bulkEnrolRows: env.ACADEMY_BULK_ENROL_ROWS,
     bulkEmailInactiveDays: env.ACADEMY_BULK_EMAIL_INACTIVE_DAYS,
@@ -145,6 +156,21 @@ const academy = new AcademyService(
     learnerExportRows: env.ACADEMY_LEARNER_EXPORT_ROWS,
     certIssueSweepSeconds: env.ACADEMY_CERT_ISSUE_SWEEP_SECONDS,
     programmeMaxCourses: env.ACADEMY_PROGRAMME_MAX_COURSES,
+    customRoleLimit: env.ACADEMY_CUSTOM_ROLE_LIMIT,
+    // AC-rooms-02: the deleted post's author notice. With no bus it waits in the outbox and goes on a later action or boot.
+    moderationNotices: bus
+      ? {
+          publish: async (n) => {
+            await bus.publish(
+              'academyDiscussionPostDeleted',
+              { eventId: n.eventId, authorId: n.authorId, courseTitle: n.courseTitle, posts: n.posts, reason: n.reason },
+              { idempotencyKey: `academy.moderation:${n.eventId}` },
+            );
+          },
+        }
+      : null,
+    onModerationNoticeError: (err, eventId) =>
+      console.error({ err, eventId }, 'moderation notice publish failed; it waits for the next send'),
     postMaxChars: env.ACADEMY_POST_MAX_CHARS,
     postImageMaxBytes: env.ACADEMY_POST_IMAGE_MAX_BYTES,
     messageMaxChars: env.ACADEMY_MESSAGE_MAX_CHARS,
@@ -163,6 +189,9 @@ const academy = new AcademyService(
   },
   certXp,
 );
+
+// AC-rooms-02: author notices a down bus left waiting go now. A failure here leaves them waiting; the boot goes on.
+await academy.moderation.sendWaiting().catch((err: unknown) => console.error({ err }, 'moderation notices could not be sent at boot'));
 
 const actionApprovals = env.IDENTITY_URL
   ? createIdentityApprovalClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET)
@@ -269,14 +298,38 @@ const certSweep =
           });
       }, env.ACADEMY_CERT_ISSUE_SWEEP_SECONDS * 1000);
 certSweep?.unref();
+
+/**
+ * AC-analytics-02: the report sweep runs requested reports (academy/report-tasks.ts). One sweep at a time. Blank
+ * interval, no sweep, and report requests refuse `academy.report_sweep_unset`.
+ */
+let reporting: Promise<void> | null = null;
+const reportSweep =
+  env.ACADEMY_REPORT_SWEEP_SECONDS === undefined
+    ? null
+    : setInterval(() => {
+        if (reporting) return;
+        reporting = academy.reportTasks
+          .sweep()
+          .then(
+            () => undefined,
+            (err: unknown) => app.log.error({ err }, 'report sweep failed; the next one retries'),
+          )
+          .finally(() => {
+            reporting = null;
+          });
+      }, env.ACADEMY_REPORT_SWEEP_SECONDS * 1000);
+reportSweep?.unref();
 app.log.info({ port: env.HTTP_PORT, stream: stream.id, xp: certXp.id, trpc: true }, 'svc-academy ready');
 
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     void (async () => {
       if (certSweep) clearInterval(certSweep);
+      if (reportSweep) clearInterval(reportSweep);
       // A sweep under way finishes before the pool closes, so no issue is cut off between its grant and its cleanup.
       await sweeping;
+      await reporting;
       await app.close();
       await bus?.close();
       await sql.end({ timeout: 5 });

@@ -6,6 +6,11 @@
       "value": "150",
       "note": "Worst price a market buy may be funded at above the best ask."
     },
+    "TRADE_MARKET_SPREAD_LIMIT_BPS": {
+      "service": "trade",
+      "value": "100",
+      "note": "Widest venue spread a venue spot market order is sent at."
+    },
     "TRADE_CONVERT_SPREAD_BPS": {
       "service": "trade",
       "value": "25",
@@ -185,6 +190,11 @@
       "service": "trade",
       "value": "BTC-USDC,BTC-PERP",
       "note": "LOCAL TEST ONLY, not an owner decision: the markets an assistant may trade on the TEST venue. Blank refuses every agent order agents.markets_unset."
+    },
+    "TRADE_QUANT_LIVE_HEARTBEAT_MS": {
+      "service": "trade",
+      "value": "3000",
+      "note": "LOCAL TEST ONLY, not an owner decision: a live strategy run with no heartbeat for 3 seconds reads unknown and goes to the reconciler (J-algo-dev-07 #4). Blank refuses every live start quant.heartbeat_interval_unset."
     },
     "TRADE_AGENT_MAX_LEVERAGE": {
       "service": "trade",
