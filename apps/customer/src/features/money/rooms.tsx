@@ -1,5 +1,13 @@
 import { t as copyText, Text } from './copy';
 import { ComplaintRoom } from './complaint/ComplaintRoom';
+import {
+  BusinessLoanPreviewRoom,
+  CreditCardPreviewRoom,
+  LoanSchedulePreviewRoom,
+  OverdraftPreviewRoom,
+  PersonalLoanPreviewRoom,
+  RevolvingCreditPreviewRoom,
+} from './credit-previews/CreditPreviewRooms';
 import { BereavementRoom } from './bereavement/BereavementRoom';
 import { ScamReportRoom } from './scam/ScamReportRoom';
 import { CardOrderRoom } from './CardOrder';
@@ -2169,6 +2177,18 @@ export function BankRoutes({ path, search, open }: { path: string; search: strin
       return <LoanDetailRoom search={search} />;
     case '/bank/loans/apply':
       return <LoanApplyRoom search={search} open={open} />;
+    case '/bank/loans/overdraft':
+      return <OverdraftPreviewRoom />;
+    case '/bank/loans/personal':
+      return <PersonalLoanPreviewRoom />;
+    case '/bank/loans/schedule':
+      return <LoanSchedulePreviewRoom />;
+    case '/bank/cards/credit-card':
+      return <CreditCardPreviewRoom />;
+    case '/bank/cards/credit':
+      return <RevolvingCreditPreviewRoom />;
+    case '/bank/business/loan':
+      return <BusinessLoanPreviewRoom />;
     case '/bank/cards':
       return <Cards open={open} />;
     case '/bank/cards/new':

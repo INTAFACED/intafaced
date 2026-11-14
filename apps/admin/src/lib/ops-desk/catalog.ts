@@ -382,6 +382,11 @@ const bankSections: readonly DeskSection[] = [
         label: 'Card disputes',
         why: 'The dispute queue and each case are on their own pages.',
       },
+      {
+        href: '/bank-ops/cards/fraud',
+        label: 'Card fraud risk (preview)',
+        why: 'A labelled preview over TEST rows: no fraud engine exists, so no authorisation is scored.',
+      },
     ],
   },
   {

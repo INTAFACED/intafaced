@@ -1,0 +1,16 @@
+/* The credit previews (J-bank-12): engine panels are blurred sample data; the kit draws everything else. */
+.credit-preview-engine {
+  filter: blur(0.125rem);
+}
+
+.credit-preview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--lit-gap-item);
+  margin-block-start: var(--lit-gap-item);
+}
+
+.credit-preview-test {
+  color: var(--lit-text-2);
+  font-size: 0.75rem;
+}
