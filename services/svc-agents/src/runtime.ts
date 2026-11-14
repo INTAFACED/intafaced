@@ -1233,6 +1233,11 @@ export class AgentRuntime {
   }
 
   /** Settle every open window of a session. Used when a session closes. */
+  /** The session's usage windows not yet settled, in the order settleSession settles them. */
+  async openWindowIds(sessionId: string): Promise<string[]> {
+    return this.meter.openWindows(sessionId);
+  }
+
   async settleSession(sessionId: string): Promise<SettlementResult[]> {
     const windows = await this.meter.openWindows(sessionId);
     const results: SettlementResult[] = [];

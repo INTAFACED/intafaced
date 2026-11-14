@@ -166,6 +166,7 @@ export function createLedgerHistoryPages(baseUrl: string, internalSecret: string
           product?: string | null;
           orderId?: string | null;
           withdrawalId?: string | null;
+          fee?: string | null;
         }>;
         nextCursor: string | null;
       }>('/trpc/historyPage', body);
@@ -189,6 +190,9 @@ export function createLedgerHistoryPages(baseUrl: string, internalSecret: string
           ...(typeof e.orderId === 'string' && e.orderId !== '' ? { orderId: e.orderId } : {}),
           // A withdrawal line's own withdrawal id and attempt (`<id>:<n>`), allow-listed by svc-ledger. Absent elsewhere.
           ...(typeof e.withdrawalId === 'string' && e.withdrawalId !== '' ? { withdrawalId: e.withdrawalId } : {}),
+          // On the receiving line of a fill, the fee the ledger booked from it (svc-ledger history.ts "ON A FILL, THE FEE"),
+          // round-tripped like the amount so a malformed one is refused. Null or absent on every other line.
+          ...(typeof e.fee === 'string' ? { fee: formatAmount(parseAmount(e.fee)) } : e.fee === null ? { fee: null } : {}),
         })),
         nextCursor: result.nextCursor,
       };

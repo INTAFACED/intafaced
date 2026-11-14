@@ -254,6 +254,22 @@ export function groupActivity(items: readonly ActivityItem[], order: 'desc' | 'a
   return { groups };
 }
 
+/**
+ * `groupActivity` within each loaded page, the pages kept in the order they came. An order whose lines fall on two pages
+ * shows as its real lines on each, so loading the next page only adds rows below and never rewrites one already shown
+ * (J-portfolio-03 #8). `pageStarts` are the indexes in `items` where each page starts; absent or empty, it is one page.
+ */
+export function groupActivityPages(
+  items: readonly ActivityItem[],
+  pageStarts: readonly number[] | undefined,
+  order: 'desc' | 'asc' = 'desc',
+): Grouped {
+  const starts = [...new Set([0, ...(pageStarts ?? [])])].filter((at) => at >= 0 && at < items.length).sort((a, b) => a - b);
+  if (starts.length <= 1) return groupActivity(items, order);
+  const groups = starts.flatMap((start, i) => groupActivity(items.slice(start, starts[i + 1] ?? items.length), order).groups);
+  return { groups };
+}
+
 /** A row is in a coin when any of its ledger lines is in that coin, so an order's whole row stays together. */
 export function groupInAsset(group: ActivityGroup, asset: string): boolean {
   return group.lines.some((line) => line.asset === asset);

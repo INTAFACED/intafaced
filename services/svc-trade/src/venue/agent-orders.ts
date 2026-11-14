@@ -1,4 +1,4 @@
-import { add, compare, div, parseAmount, ZERO, type Amount } from '@intafaced/ledger-client/money';
+import { add, compare, div, formatAmount, mul, parseAmount, sub as minus, ZERO, type Amount } from '@intafaced/ledger-client/money';
 import { isApiKeyPrincipal, type Principal } from '@intafaced/auth';
 import type { StepUpCheck } from '@intafaced/contracts';
 import type { TypedDataDefinition } from 'viem';
@@ -6,11 +6,13 @@ import {
   AgentCapError,
   CappedAgentSigner,
   VenueRefusalError,
+  hasSubAccountReads,
   isTestVenue,
   type AgentCap,
   type AgentCapMarks,
   type PlaceUserOrderIntent,
   type PreparedVenueAction,
+  type UpdateLeverageIntent,
   type UserVenue,
   type UserVenueAccount,
   type UserVenueOrder,
@@ -18,7 +20,14 @@ import {
   type VenueSignature,
   type VenueSubmitOutcome,
 } from '@intafaced/venue-contracts';
-import { AGENT_ACCOUNT_STEP_UP_SCOPE, AgentAccountError, assertPerson, capErrorAs, type AgentAccountValues } from './agent-account.js';
+import {
+  AGENT_CONNECT_STEP_UP_SCOPE,
+  AgentAccountError,
+  assertPerson,
+  capErrorAs,
+  type AgentAccountValues,
+  type NextSignature,
+} from './agent-account.js';
 import type { AgentAccountRecord, AgentAccountStore } from './agent-account-store.js';
 import type { AgentConnectionRecord, AgentConnectionStore } from './agent-connection-store.js';
 import type { AgentKeyReader } from './agent-key-read-client.js';
@@ -26,7 +35,7 @@ import { agentKeyFor } from './agent-key.js';
 import { AGENT_ORDER_PREFIX, orderOriginOf, UserVenueDoorError, type UserVenueDoor } from './user-venue-door.js';
 
 /**
- * THE ASSISTANT'S TRADE PATH (J-agents-21 #6 #7 #10; piece 1: svc-trade). The person's own outside assistant calls our
+ * THE ASSISTANT'S TRADE PATH (J-agents-21 #6 #7 #8 #10; piece 1: svc-trade, spot; piece 2: perpetuals). The person's own outside assistant calls our
  * API with an `agent` API key the person made; the person binds that key to one of their open agent accounts; from then on
  * every order from that key is placed on that account's venue sub-account and nowhere else.
  *
@@ -36,6 +45,12 @@ import { AGENT_ORDER_PREFIX, orderOriginOf, UserVenueDoorError, type UserVenueDo
  * agent key derived for that account (agent-key.ts), which the venue lets trade that sub-account and nothing else (no
  * move, no withdrawal). The main venue account is never named: the account an order is prepared on is read from the
  * connection's agent account, never from the request.
+ *
+ * A perpetual (#8) opens isolated on the agent's venue account, at the leverage the assistant names: before the order,
+ * the agent key sets that market's leverage and isolated margin on the sub-account (`update_leverage`, held to the cap and
+ * the owner's market list like an order, sent once under `agent:leverage:<keyId>:<clientOrderId>`), unless the venue's
+ * record already shows exactly that setting. The venue then takes the margin on the sub-account and nowhere else. A
+ * reduce-only order (a close) changes no setting.
  *
  * Each order is sent once: it is stored under `agent:order:<keyId>:<clientOrderId>`, the assistant's own client order id
  * as the business key, and the venue's client order id derives from it. A retry with the same id reads the venue's record
@@ -54,6 +69,19 @@ import { AGENT_ORDER_PREFIX, orderOriginOf, UserVenueDoorError, type UserVenueDo
 export const AGENT_KEY_TRADE_SCOPES: ReadonlySet<string> = new Set(['trade:read', 'trade:write']);
 
 export const agentOrderKey = (keyId: string, clientOrderId: string) => `${AGENT_ORDER_PREFIX}${keyId}:${clientOrderId}`;
+/** The business key of the leverage setting an assistant's perpetual order needs first (#8). */
+export const agentLeverageKey = (keyId: string, clientOrderId: string) => `agent:leverage:${keyId}:${clientOrderId}`;
+/**
+ * #12: the business key of the person's own `revoke_agent` for an agent account's venue agent. Once an action is stored
+ * under it, our copy of that account's venue agent key is dropped: it signs nothing more, for any key connected to it.
+ */
+export const agentRevokeKey = (accountId: string) => `agent:account:${accountId}:revoke`;
+/** #12: the business key of the one cancel a revoke sends for one of the assistant's resting orders (its order key). */
+export const agentRevokeCancelKey = (keyId: string, orderKey: string) => `agent:revoke:${keyId}:cancel:${orderKey}`;
+const revokeCancelPrefix = (keyId: string) => `agent:revoke:${keyId}:cancel:`;
+/** 1x in basis points of 1x, the unit a venue's leverage travels in. */
+const ONE_X_BPS = 10_000;
+const LEVERAGE_RE = /^[1-9][0-9]{0,2}$/;
 export { orderOriginOf };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -78,6 +106,34 @@ export interface AgentConnectionView {
   readonly accountId: string;
   readonly subAccount: string | null;
   readonly connectedAt: Date;
+  /**
+   * #19: the key's end date, as identity holds it: `null` when it has none; after it, every call with the key is refused
+   * at the door. Unknown (`known: false`) only when identity could not be asked just now.
+   */
+  readonly expiry: { readonly known: true; readonly expiresAt: Date | null } | { readonly known: false };
+}
+
+/** #12: the assistant revoked. */
+export interface AgentRevokeView {
+  readonly keyId: string;
+  readonly accountId: string;
+  readonly subAccount: string | null;
+  /** When the connection ended: from then on the key places nothing on the account. */
+  readonly endedAt: Date;
+  /** The assistant's orders resting when it was revoked, each cancelled once on the venue, as the venue answered. */
+  readonly cancels: readonly {
+    readonly orderKey: string;
+    readonly venueClientOrderId: string | null;
+    readonly symbol: string;
+    readonly state: 'cancelled' | 'refused' | 'unknown';
+  }[];
+  /** True once our copy of the account's venue agent key is dropped: it signs nothing more. */
+  readonly agentKeyDropped: boolean;
+  /** The venue agent behind the key, and whether the venue still lists it on the agent account, as it reports it. */
+  readonly agent: { readonly address: string; readonly onVenue: boolean };
+  /** The venue's revoke of that agent, for the person's wallet to sign, until the venue no longer lists it. */
+  readonly next: NextSignature | null;
+  readonly test: boolean;
 }
 
 export interface AgentOrderView {
@@ -169,6 +225,7 @@ export class AgentOrders {
         409,
       );
     }
+    await this.notRevoked(principal, account);
     const key = await this.deps.keys.read(principal.userId, keyId);
     if (key === null) {
       throw new AgentAccountError(
@@ -197,10 +254,12 @@ export class AgentOrders {
         { scopes: key.scopes },
       );
     }
+    const expiresAt = key.expiresAt ? new Date(key.expiresAt) : null;
     const existing = await this.deps.connections.active(keyId);
-    if (existing) return this.connectedOrRefused(existing, principal.userId, id, account);
+    if (existing) return this.connectedOrRefused(existing, principal.userId, id, account, expiresAt);
+    if (expiresAt !== null) await this.withinVenueAgentMax(expiresAt);
     await this.deps.stepUp.require({
-      scope: AGENT_ACCOUNT_STEP_UP_SCOPE,
+      scope: AGENT_CONNECT_STEP_UP_SCOPE,
       userId: principal.userId,
       sessionId: principal.sid,
       approvalId: req.stepUpApprovalId,
@@ -214,26 +273,85 @@ export class AgentOrders {
       createdAt: this.deps.now(),
       endedAt: null,
     });
-    return this.connectedOrRefused(stored, principal.userId, id, account);
+    return this.connectedOrRefused(stored, principal.userId, id, account, expiresAt);
   }
 
-  private connectedOrRefused(c: AgentConnectionRecord, userId: string, accountId: string, a: AgentAccountRecord): AgentConnectionView {
+  /**
+   * #19: a key with an end date is connected only when the venue lets an agent permission last that long, counted from
+   * now. Later than the venue's maximum refuses naming it; a venue that declares no maximum refuses every dated key.
+   * Checked before step-up is spent, so a refused connect spends nothing.
+   */
+  private async withinVenueAgentMax(expiresAt: Date): Promise<void> {
+    const venue = (await this.deps.door.venue()).venue;
+    const maxMs = venue.agentValidityMaxMs;
+    if (maxMs === undefined || !Number.isSafeInteger(maxMs) || maxMs <= 0) {
+      throw new AgentAccountError(
+        'agents.venue_agent_expiry_max_unknown',
+        `${venue.displayName} declares no longest agent permission, so a key with an end date can't be connected; make the key without one or try another venue`,
+        422,
+        { venue: venue.displayName },
+      );
+    }
+    const latest = new Date(this.deps.now().getTime() + maxMs);
+    if (expiresAt.getTime() > latest.getTime()) {
+      const days = maxMs / 86_400_000;
+      const max = Number.isInteger(days) ? `${days} days` : `${Math.floor(maxMs / 1000)} seconds`;
+      throw new AgentAccountError(
+        'agents.key_expiry_above_venue_max',
+        `${venue.displayName} lets an agent permission last at most ${max}; this key ends ${expiresAt.toISOString()}, after the latest allowed end date ${latest.toISOString()}`,
+        422,
+        { venue: venue.displayName, maxDays: days, latestExpiresAt: latest.toISOString(), expiresAt: expiresAt.toISOString() },
+      );
+    }
+  }
+
+  private connectedOrRefused(
+    c: AgentConnectionRecord,
+    userId: string,
+    accountId: string,
+    a: AgentAccountRecord,
+    expiresAt: Date | null,
+  ): AgentConnectionView {
     if (c.userId !== userId || c.accountId !== accountId) {
       throw new AgentAccountError('agents.key_already_connected', `API key ${c.keyId} already trades another agent account`, 409);
     }
-    return { keyId: c.keyId, accountId: c.accountId, subAccount: a.subAccount, connectedAt: c.createdAt };
+    return {
+      keyId: c.keyId,
+      accountId: c.accountId,
+      subAccount: a.subAccount,
+      connectedAt: c.createdAt,
+      expiry: { known: true, expiresAt },
+    };
   }
 
-  /** The person's keys that trade an agent account. */
+  /** The person's keys that trade an agent account, each with its end date as identity holds it (#19). */
   async connections(principal: Principal): Promise<readonly AgentConnectionView[]> {
     assertPerson(principal);
     const rows = await this.deps.connections.listActive(principal.userId);
     const out: AgentConnectionView[] = [];
     for (const c of rows) {
       const a = await this.deps.accounts.find(principal.userId, c.accountId);
-      out.push({ keyId: c.keyId, accountId: c.accountId, subAccount: a?.subAccount ?? null, connectedAt: c.createdAt });
+      const key = await this.deps.keys.read(principal.userId, c.keyId);
+      const expiry: AgentConnectionView['expiry'] =
+        key?.state === 'found' && key.expiresAt !== undefined
+          ? { known: true, expiresAt: key.expiresAt === null ? null : new Date(key.expiresAt) }
+          : { known: false };
+      out.push({ keyId: c.keyId, accountId: c.accountId, subAccount: a?.subAccount ?? null, connectedAt: c.createdAt, expiry });
     }
     return out;
+  }
+
+  /**
+   * #9: true when `principal` is an API key connected to one of its person's agent accounts. Such a key calls the
+   * assistant's order route and nothing else on the venue door: no move, withdrawal, or read or action on any other
+   * account (user-venue-rest.ts `refusedAgentKey`).
+   */
+  async confined(principal: Principal): Promise<boolean> {
+    if (!isApiKeyPrincipal(principal) || principal.sub_account) return false;
+    const keyId = (principal.kid ?? '').toLowerCase();
+    if (!UUID_RE.test(keyId)) return false;
+    const c = await this.deps.connections.active(keyId);
+    return c !== null && c.userId === principal.userId;
   }
 
   // ── the assistant's order (#7 #10) ─────────────────────────────────────────────────────────────────────────────
@@ -261,7 +379,188 @@ export class AgentOrders {
         { accountId: c.accountId },
       );
     }
+    await this.notRevoked(principal, a);
     return { keyId, account: a as AgentAccountRecord & { subAccount: string } };
+  }
+
+  /** #12: refuses once the person revoked this account's venue agent (our copy of its key is dropped). */
+  private async notRevoked(principal: Principal, a: AgentAccountRecord): Promise<void> {
+    if (await this.deps.door.stored(principal, agentRevokeKey(a.accountId))) {
+      throw new AgentAccountError(
+        'agents.agent_revoked',
+        `the assistant on agent account ${a.accountId} was revoked; its agent key signs nothing more`,
+        409,
+        { accountId: a.accountId },
+      );
+    }
+  }
+
+  // ── the person revokes the assistant (#12) ───────────────────────────────────────────────────────────────────
+
+  /**
+   * #12: the person revokes their assistant, from their own session (never an API key). In order, each step safe to
+   * repeat, so a crash anywhere is finished by the same call again:
+   *   1. The key's connection ends: from then on the key places nothing on the agent account (identity's own revoke of
+   *      the API key, which the person's Revoke also sends, refuses its next call at the door: `auth.api_key_revoked`).
+   *   2. Each of the assistant's orders resting on the agent account's venue account is cancelled once, signed by the
+   *      agent key (a revoked cap still signs a cancel, agent-cap.ts), under `agent:revoke:<keyId>:cancel:<orderKey>`, so
+   *      a repeat re-reads the stored answer and sends nothing new. The person's own orders there are left as they are.
+   *   3. Our copy of the venue agent key is dropped: the venue's `revoke_agent` is prepared for the person's wallet and
+   *      stored under `agent:account:<accountId>:revoke`, after which that key signs nothing more (no new cancel either:
+   *      a cancel not signed before then is the person's own to make) and is let go from this process.
+   *   4. With `{ actionKey, signature }`, the wallet's signature of that revoke is sent to the venue, once.
+   * Money: nothing moves. A cancel only releases what the order had locked on the agent account; positions stay open.
+   * Crash points: none strand anything; the funds stay on the person's own sub-account under their own wallet.
+   */
+  async revoke(
+    principal: Principal,
+    keyIdRaw: string,
+    req: { actionKey?: unknown; signature?: VenueSignature } = {},
+  ): Promise<AgentRevokeView> {
+    assertPerson(principal);
+    const keyId = uuid(keyIdRaw, 'keyId');
+    const c = await this.deps.connections.latest(keyId);
+    if (!c || c.userId !== principal.userId) {
+      throw new AgentAccountError('agents.key_not_connected', `API key ${keyId} trades no agent account of this login`, 404);
+    }
+    const a = await this.deps.accounts.find(principal.userId, c.accountId);
+    if (!a || a.subAccount === null) {
+      throw new AgentAccountError('agents.account_unknown', `the agent account of API key ${keyId} is not on this login`, 404);
+    }
+    const sub: UserVenueAccount = { venueId: a.venueId, owner: a.owner, subAccount: a.subAccount };
+    const revokeKey = agentRevokeKey(a.accountId);
+    if (req.signature !== undefined && req.actionKey !== revokeKey) {
+      throw new AgentAccountError(
+        'agents.account_action_unknown',
+        `${JSON.stringify(req.actionKey ?? null)} is not this assistant's revoke; it is ${revokeKey}`,
+        404,
+      );
+    }
+    // 1. The connection ends.
+    const endedAt = c.endedAt ?? (await this.deps.connections.end(keyId, this.deps.now()))?.endedAt;
+    if (!endedAt) throw new Error(`the connection of key ${keyId} did not end`);
+
+    const venue = await this.deps.door.venue();
+    if (a.venueId !== venue.venue.id) {
+      throw new AgentAccountError('agents.account_not_open', `agent account ${a.accountId} is on ${a.venueId}, not ${venue.venue.id}`, 409);
+    }
+    // 2. The assistant's resting orders, each cancelled once, while our copy of the agent key still signs.
+    const dropped = (await this.deps.door.stored(principal, revokeKey)) !== null;
+    if (!dropped) await this.cancelResting(principal, a as AgentAccountRecord & { subAccount: string }, keyId, venue, sub);
+    // 3. Our copy of the venue agent key is dropped.
+    if (!dropped) {
+      await this.deps.door.prepare(
+        principal,
+        {
+          owner: a.owner,
+          subAccount: a.subAccount,
+          signer: { role: 'owner', address: a.owner },
+          intent: { kind: 'revoke_agent', agentAddress: a.agentAddress },
+          actionKey: revokeKey,
+        },
+        { agentAccount: true },
+      );
+    }
+    this.signers.delete(a.agentAddress);
+    this.holdingMarks.delete(a.agentAddress);
+    this.orderMarks.delete(a.agentAddress);
+    // 4. The wallet's signature of the venue's revoke, sent once.
+    if (req.signature !== undefined) await this.deps.door.submit(principal, revokeKey, req.signature, { agentAccount: true });
+
+    if (!hasSubAccountReads(venue)) throw new Error(`${venue.venue.displayName} offers no sub-account reads`);
+    const onVenue = (await venue.agents(sub)).value.some((x) => x.address.toLowerCase() === a.agentAddress);
+    const stored = await this.deps.door.stored(principal, revokeKey);
+    const cancels = (await this.deps.door.storedByPrefix(principal, revokeCancelPrefix(keyId)))
+      .slice()
+      .sort((x, y) => x.createdAt.getTime() - y.createdAt.getTime() || x.businessKey.localeCompare(y.businessKey))
+      .map((row) => {
+        const intent = row.prepared.intent;
+        const o = row.lastOutcome;
+        return {
+          orderKey: row.businessKey.slice(revokeCancelPrefix(keyId).length),
+          venueClientOrderId: row.prepared.venueClientOrderId ?? null,
+          symbol: intent.kind === 'cancel_order' ? intent.symbol : '',
+          state: o?.definite ? (o.accepted ? ('cancelled' as const) : ('refused' as const)) : ('unknown' as const),
+        };
+      });
+    return {
+      keyId,
+      accountId: a.accountId,
+      subAccount: a.subAccount,
+      endedAt,
+      cancels,
+      agentKeyDropped: stored !== null,
+      agent: { address: a.agentAddress, onVenue },
+      next:
+        stored && onVenue
+          ? { actionKey: revokeKey, step: 'revoke_agent', prepared: stored.prepared, signed: stored.signature !== null }
+          : null,
+      test: isTestVenue(venue.venue),
+    };
+  }
+
+  /** #12 step 2: cancel, once each, the assistant's orders the venue shows resting on the agent account. */
+  private async cancelResting(
+    principal: Principal,
+    a: AgentAccountRecord & { subAccount: string },
+    keyId: string,
+    venue: UserVenue,
+    sub: UserVenueAccount,
+  ): Promise<void> {
+    const resting = (await venue.openOrders(sub)).value;
+    if (resting.length === 0) return;
+    const mine = new Map(
+      (await this.deps.door.storedByPrefix(principal, `${AGENT_ORDER_PREFIX}${keyId}:`))
+        .filter((row) => row.prepared.intent.kind === 'place_order' && row.prepared.venueClientOrderId)
+        .map((row) => [row.prepared.venueClientOrderId as string, row.businessKey]),
+    );
+    const seed = this.deps.values.keySeed;
+    for (const order of resting) {
+      const orderKey = order.venueClientOrderId ? mine.get(order.venueClientOrderId) : undefined;
+      if (!orderKey) continue; // not the assistant's: the person's own order stays
+      const key = agentRevokeCancelKey(keyId, orderKey);
+      const stored = await this.deps.door.stored(principal, key);
+      if (stored?.lastOutcome?.definite) continue;
+      let signature = stored?.signature ?? null;
+      if (!signature) {
+        if (seed === null)
+          throw new AgentAccountError(
+            'agents.agent_key_unset',
+            'the agent key secret is not set (owner value blank), so the cancel is not signed',
+            422,
+          );
+        const prepared = (
+          await this.deps.door.prepare(
+            principal,
+            {
+              owner: a.owner,
+              subAccount: a.subAccount,
+              signer: { role: 'agent', address: a.agentAddress },
+              intent: { kind: 'cancel_order', symbol: order.symbol, clientOrderKey: orderKey },
+              actionKey: key,
+            },
+            { agentAccount: true },
+          )
+        ).prepared;
+        if (
+          prepared.account.subAccount !== a.subAccount ||
+          prepared.account.owner.toLowerCase() !== a.owner ||
+          prepared.signer.address.toLowerCase() !== a.agentAddress
+        ) {
+          throw new Error(`revoke cancel ${key} was prepared outside its agent sub-account; nothing is signed`);
+        }
+        const cap: AgentCap = {
+          account: sub,
+          agentAddress: a.agentAddress,
+          asset: a.asset,
+          cap: a.cap,
+          validUntil: null,
+          revokedAt: this.deps.now(),
+        };
+        ({ signature } = await this.signerFor(a, venue, seed).sign(prepared, cap));
+      }
+      await this.deps.door.submit(principal, key, signature, { agentAccount: true });
+    }
   }
 
   private signerFor(a: AgentAccountRecord, venue: UserVenue, seed: string): CappedAgentSigner {
@@ -317,9 +616,10 @@ export class AgentOrders {
   }
 
   /**
-   * #7 #10: the assistant places a spot order. Only on the connected key's own agent sub-account; held to the cap and the
-   * owner's bounds before the agent key signs; sent once under `agent:order:<keyId>:<clientOrderId>`. A venue refusal
-   * (not enough funds) is the venue's, named, and nothing is open.
+   * #7 #8 #10: the assistant places a spot or perpetual order. Only on the connected key's own agent sub-account; held to
+   * the cap and the owner's bounds before the agent key signs; sent once under `agent:order:<keyId>:<clientOrderId>`. An
+   * opening perpetual names its leverage and opens isolated (`isolatedAt`). A venue refusal (not enough funds or margin)
+   * is the venue's, named, and nothing is open.
    */
   async place(principal: Principal, req: Record<string, unknown>): Promise<AgentOrderView> {
     const { keyId, account: a } = await this.boundAccount(principal);
@@ -343,7 +643,11 @@ export class AgentOrders {
     if (!/^\S{1,64}$/.test(symbol)) orderInvalid('symbol must be a venue market symbol');
     const amount = amountOf(req.amount, 'amount');
     const price = amountOf(req.price, 'price (on a market order, the worst price accepted)');
-    if (req.reduceOnly !== undefined && req.reduceOnly !== false) orderInvalid('reduceOnly is not taken on a spot order');
+    if (req.reduceOnly !== undefined && typeof req.reduceOnly !== 'boolean') orderInvalid('reduceOnly must be true or false');
+    const reduceOnly = req.reduceOnly === true;
+    if (req.leverage !== undefined && (typeof req.leverage !== 'string' || !LEVERAGE_RE.test(req.leverage.trim())))
+      orderInvalid('leverage must be a whole number of times, as a string ("3" is 3x)');
+    const leverageBps = typeof req.leverage === 'string' ? Number(req.leverage.trim()) * ONE_X_BPS : null;
 
     const key = agentOrderKey(keyId, clientOrderId);
     const venue = await this.deps.door.venue();
@@ -364,7 +668,8 @@ export class AgentOrders {
         was.type === type &&
         was.amount === amount &&
         was.price === price &&
-        was.timeInForce === timeInForce;
+        was.timeInForce === timeInForce &&
+        was.reduceOnly === reduceOnly;
       if (!same) {
         throw new UserVenueDoorError(
           `the clientOrderId ${clientOrderId} was already used for a different order; a new order needs a new clientOrderId`,
@@ -382,13 +687,13 @@ export class AgentOrders {
         code: 'unknown_market',
         detail: `${symbol} is not listed on ${venue.venue.displayName}`,
       });
-    if (market.kind !== 'spot') {
-      throw new AgentAccountError(
-        'agents.order_perp_not_yet',
-        "an assistant's order is spot only for now; perpetuals come in a later piece",
-        422,
-      );
-    }
+    const perp = market.kind === 'perpetual';
+    if (!perp && market.kind !== 'spot') orderInvalid(`${symbol} is a ${market.kind} market; an assistant trades spot and perpetuals`);
+    if (!perp && reduceOnly) orderInvalid('reduceOnly is not taken on a spot order');
+    if (!perp && leverageBps !== null) orderInvalid('leverage is not taken on a spot order');
+    if (perp && !reduceOnly && leverageBps === null)
+      orderInvalid('an opening perpetual order names its leverage ("leverage": "3"); it opens isolated on the agent account');
+    if (perp && reduceOnly && leverageBps !== null) orderInvalid("a reduce-only order closes at the position's own leverage");
     const intent: PlaceUserOrderIntent = {
       kind: 'place_order',
       symbol,
@@ -397,10 +702,35 @@ export class AgentOrders {
       amount,
       price,
       timeInForce,
-      reduceOnly: false,
+      reduceOnly,
       clientOrderKey: key,
       builderFee: null,
     };
+    // #17: the person's own per-order size and leverage caps, before anything is set or signed.
+    this.withinAccountLimits(a, intent, leverageBps);
+    // #18: the person's daily-loss cap, from the venue's own fills on the sub-account today.
+    await this.withinDailyLoss(a, venue, sub);
+    const signer = this.signerFor(a, venue, seed);
+    const cap: AgentCap = { account: sub, agentAddress: a.agentAddress, asset: a.asset, cap: a.cap, validUntil: null, revokedAt: null };
+    // #8: an opening perpetual is isolated at the named leverage on the sub-account, set first by the agent key.
+    if (perp && leverageBps !== null) {
+      await this.refreshMarks(a, venue, sub, symbol, market.baseAsset);
+      await this.isolatedAt(
+        principal,
+        a,
+        signer,
+        cap,
+        venue,
+        sub,
+        {
+          kind: 'update_leverage',
+          symbol,
+          leverageBps,
+          marginMode: 'isolated',
+        },
+        agentLeverageKey(keyId, clientOrderId),
+      );
+    }
     let prepared: PreparedVenueAction;
     try {
       prepared = (
@@ -424,25 +754,268 @@ export class AgentOrders {
       throw new Error(`agent order ${key} was prepared outside its agent sub-account; nothing is signed`);
     }
 
-    const signer = this.signerFor(a, venue, seed);
     await this.refreshMarks(a, venue, sub, symbol, market.baseAsset);
-    const cap: AgentCap = { account: sub, agentAddress: a.agentAddress, asset: a.asset, cap: a.cap, validUntil: null, revokedAt: null };
     let signature: VenueSignature;
     try {
       ({ signature } = await signer.sign(prepared, cap));
     } catch (error) {
-      if (error instanceof AgentCapError) capErrorAs(error);
-      if (error instanceof VenueRefusalError && error.refusal.code.startsWith('agent_cap')) {
-        throw new AgentAccountError(
-          error.refusal.code === 'agent_cap_exceeded' ? 'agents.order_cap_exceeded' : 'agents.order_cap_refused',
-          error.refusal.detail,
-          422,
-          { capCode: error.refusal.code },
-        );
-      }
-      throw this.venueNamed(error, venue, key);
+      throw this.signRefusal(error, venue, key);
     }
     return this.send(principal, a, keyId, clientOrderId, key, signature, venue, false);
+  }
+
+  /**
+   * A spot order INTAFACED places for the person on one of their own open agent accounts, under the business key its
+   * caller derives (copy trading on the venue: `copy-mirror:…`, `copy.close:…`; copy/venue-copy.ts). The same path as
+   * the assistant's order: the person's own per-order and daily-loss caps, then the account's cap and the owner's bounds
+   * held by the capped signer before the agent key signs, the bytes stored before they are sent, and a retry of the key
+   * read back from the venue's record by its client order id, never signed again. Only on the account's own
+   * sub-account; the main venue account is never named.
+   */
+  async placeOnAccount(
+    principal: Principal,
+    accountId: string,
+    key: string,
+    order: { symbol: string; side: 'buy' | 'sell'; amount: Amount; price: Amount; timeInForce: 'GTC' | 'IOC' },
+  ): Promise<AgentOrderView> {
+    const seed = this.deps.values.keySeed;
+    if (seed === null)
+      throw new AgentAccountError(
+        'agents.agent_key_unset',
+        'the agent key secret is not set (owner value blank), so nothing is signed',
+        422,
+      );
+    const a = await this.deps.accounts.find(principal.userId, accountId);
+    if (!a || a.status !== 'open' || a.subAccount === null) {
+      throw new AgentAccountError(
+        'agents.account_not_open',
+        `agent account ${accountId} is ${a?.status ?? 'gone'}; nothing is placed`,
+        409,
+        {
+          accountId,
+        },
+      );
+    }
+    const account = a as AgentAccountRecord & { subAccount: string };
+    if (compare(order.amount, ZERO) <= 0 || compare(order.price, ZERO) <= 0) orderInvalid('amount and price must be above zero');
+    const venue = await this.deps.door.venue();
+    if (account.venueId !== venue.venue.id) {
+      throw new AgentAccountError(
+        'agents.account_not_open',
+        `agent account ${accountId} is on ${account.venueId}, not ${venue.venue.id}`,
+        409,
+      );
+    }
+    const sub: UserVenueAccount = { venueId: venue.venue.id, owner: account.owner, subAccount: account.subAccount };
+    const tag = key.split(':')[0] ?? 'copy';
+    const stored = await this.deps.door.stored(principal, key);
+    if (stored?.signature) {
+      const was = stored.prepared.intent;
+      if (
+        was.kind !== 'place_order' ||
+        was.symbol !== order.symbol ||
+        was.side !== order.side ||
+        was.amount !== order.amount ||
+        was.price !== order.price ||
+        was.timeInForce !== order.timeInForce
+      ) {
+        throw new UserVenueDoorError(`the key ${key} was already used for a different order`, 'idempotency.conflict', 409);
+      }
+      return this.readBackOrResend(principal, account, tag, key, key, stored.signature, venue);
+    }
+    const market = (await venue.markets(sub)).value.find((m) => m.symbol === order.symbol);
+    if (!market)
+      throw new VenueRefusalError({
+        venueId: venue.venue.id,
+        code: 'unknown_market',
+        detail: `${order.symbol} is not listed on ${venue.venue.displayName}`,
+      });
+    if (market.kind !== 'spot') orderInvalid(`${order.symbol} is a ${market.kind} market; this path places spot orders only`);
+    const intent: PlaceUserOrderIntent = {
+      kind: 'place_order',
+      symbol: order.symbol,
+      side: order.side,
+      type: 'limit',
+      amount: order.amount,
+      price: order.price,
+      timeInForce: order.timeInForce,
+      reduceOnly: false,
+      clientOrderKey: key,
+      builderFee: null,
+    };
+    this.withinAccountLimits(account, intent, null);
+    await this.withinDailyLoss(account, venue, sub);
+    const signer = this.signerFor(account, venue, seed);
+    const cap: AgentCap = {
+      account: sub,
+      agentAddress: account.agentAddress,
+      asset: account.asset,
+      cap: account.cap,
+      validUntil: null,
+      revokedAt: null,
+    };
+    let prepared: PreparedVenueAction;
+    try {
+      prepared = (
+        await this.deps.door.prepare(
+          principal,
+          { owner: account.owner, subAccount: account.subAccount, signer: { role: 'agent', address: account.agentAddress }, intent },
+          { agentAccount: true },
+        )
+      ).prepared;
+    } catch (error) {
+      throw this.venueNamed(error, venue, key);
+    }
+    if (
+      prepared.account.venueId !== sub.venueId ||
+      prepared.account.owner.toLowerCase() !== account.owner ||
+      prepared.account.subAccount !== account.subAccount ||
+      prepared.signer.role !== 'agent' ||
+      prepared.signer.address.toLowerCase() !== account.agentAddress
+    ) {
+      throw new Error(`order ${key} was prepared outside its agent sub-account; nothing is signed`);
+    }
+    await this.refreshMarks(account, venue, sub, order.symbol, market.baseAsset);
+    let signature: VenueSignature;
+    try {
+      ({ signature } = await signer.sign(prepared, cap));
+    } catch (error) {
+      throw this.signRefusal(error, venue, key);
+    }
+    return this.send(principal, account, tag, key, key, signature, venue, false);
+  }
+
+  /**
+   * #17: an order past the person's own per-order size cap (its notional, amount × price as signed, in the account's
+   * asset) or an opening perpetual past their leverage cap is refused naming the cap, before the leverage is set or the
+   * agent key signs anything. A cap not set leaves only the owner's bounds.
+   */
+  private withinAccountLimits(a: AgentAccountRecord, intent: PlaceUserOrderIntent, leverageBps: number | null): void {
+    const { maxOrderNotional, maxLeverage } = a.limits;
+    if (maxOrderNotional !== null) {
+      const notional = mul(intent.amount, intent.price, 'ceil');
+      if (compare(notional, maxOrderNotional) > 0) {
+        throw new AgentAccountError(
+          'agents.order_size_cap_exceeded',
+          `this order is ${formatAmount(notional)} ${a.asset}; your per-order size cap for this assistant is ${formatAmount(maxOrderNotional)} ${a.asset}`,
+          422,
+          { cap: formatAmount(maxOrderNotional), notional: formatAmount(notional) },
+        );
+      }
+    }
+    if (maxLeverage !== null && leverageBps !== null && leverageBps > maxLeverage * ONE_X_BPS) {
+      throw new AgentAccountError(
+        'agents.leverage_cap_exceeded',
+        `this order opens at ${leverageBps / ONE_X_BPS}x; your leverage cap for this assistant is ${maxLeverage}x`,
+        422,
+        { cap: String(maxLeverage), leverage: String(leverageBps / ONE_X_BPS) },
+      );
+    }
+  }
+
+  /**
+   * #18: once the agent account's loss for the day reaches the person's daily-loss cap, every further order from the
+   * assistant is refused naming the cap, before the leverage is set or the agent key signs anything. Open positions are
+   * left as they are: nothing is closed or cancelled.
+   *
+   * The day's loss is read from the venue's own fills on the agent sub-account since 00:00 UTC: the realised result the
+   * venue reports on each closing fill, less the venue's fee and the builder fee on every fill (a fee charged in the
+   * market's base asset is valued at that fill's price). A loss is what that comes to below zero; a gain is no loss.
+   * Unrealised results on open positions are not counted. A cap not set leaves only the owner's bounds.
+   */
+  private async withinDailyLoss(a: AgentAccountRecord, venue: UserVenue, sub: UserVenueAccount): Promise<void> {
+    const cap = a.limits.maxDailyLoss;
+    if (cap === null) return;
+    const now = this.deps.now();
+    const since = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const loss = dailyLossOf((await venue.fills(sub, since)).value, a.asset);
+    if (compare(loss, cap) >= 0) {
+      throw new AgentAccountError(
+        'agents.daily_loss_cap_reached',
+        `this agent account has lost ${formatAmount(loss)} ${a.asset} today (UTC); your daily-loss cap for this assistant is ${formatAmount(cap)} ${a.asset}, so no further order is placed today; open positions are left as they are`,
+        422,
+        { cap: formatAmount(cap), loss: formatAmount(loss), since: since.toISOString() },
+      );
+    }
+  }
+
+  /** A refusal before the agent key signs: the cap's and the bounds' own codes, else the venue's, named. */
+  private signRefusal(error: unknown, venue: UserVenue, key: string): unknown {
+    if (error instanceof AgentCapError) capErrorAs(error);
+    if (error instanceof VenueRefusalError && error.refusal.code.startsWith('agent_cap')) {
+      return new AgentAccountError(
+        error.refusal.code === 'agent_cap_exceeded' ? 'agents.order_cap_exceeded' : 'agents.order_cap_refused',
+        error.refusal.detail,
+        422,
+        { capCode: error.refusal.code },
+      );
+    }
+    return this.venueNamed(error, venue, key);
+  }
+
+  /**
+   * #8: the market's leverage and isolated margin on the agent sub-account, as `want` names them, before an opening
+   * perpetual order. Nothing is signed when the venue's record already shows exactly that. Otherwise the agent key signs
+   * `update_leverage` (held to the cap and the owner's markets first) under `key`, stored before it is sent; a retry
+   * re-sends the stored bytes, never a new signature. The order goes on only once the venue has accepted the setting.
+   */
+  private async isolatedAt(
+    principal: Principal,
+    a: AgentAccountRecord & { subAccount: string },
+    signer: CappedAgentSigner,
+    cap: AgentCap,
+    venue: UserVenue,
+    sub: UserVenueAccount,
+    want: UpdateLeverageIntent,
+    key: string,
+  ): Promise<void> {
+    const now = (await venue.leverage(sub, want.symbol)).value;
+    if (now && now.leverageBps === want.leverageBps && now.marginMode === want.marginMode) return;
+    let signature = (await this.deps.door.stored(principal, key))?.signature ?? null;
+    if (!signature) {
+      let prepared: PreparedVenueAction;
+      try {
+        prepared = (
+          await this.deps.door.prepare(
+            principal,
+            { owner: a.owner, subAccount: a.subAccount, signer: { role: 'agent', address: a.agentAddress }, intent: want, actionKey: key },
+            { agentAccount: true },
+          )
+        ).prepared;
+      } catch (error) {
+        throw this.venueNamed(error, venue, key);
+      }
+      if (
+        prepared.account.venueId !== sub.venueId ||
+        prepared.account.owner.toLowerCase() !== a.owner ||
+        prepared.account.subAccount !== a.subAccount ||
+        prepared.signer.role !== 'agent' ||
+        prepared.signer.address.toLowerCase() !== a.agentAddress
+      ) {
+        throw new Error(`agent leverage ${key} was prepared outside its agent sub-account; nothing is signed`);
+      }
+      try {
+        ({ signature } = await signer.sign(prepared, cap));
+      } catch (error) {
+        throw this.signRefusal(error, venue, key);
+      }
+    }
+    let outcome: VenueSubmitOutcome;
+    try {
+      outcome = (await this.deps.door.submit(principal, key, signature, { agentAccount: true })).outcome;
+    } catch (error) {
+      throw this.venueNamed(error, venue, key);
+    }
+    const nonce = (await this.deps.door.stored(principal, key))?.prepared.nonce;
+    if (!outcome.definite) {
+      throw new AgentAccountError(
+        'agents.order_leverage_unknown',
+        `${venue.venue.displayName} has not answered the leverage setting yet; nothing was ordered. Send the same clientOrderId again`,
+        503,
+      );
+    }
+    if (nonce) signer.settle(nonce);
+    if (!outcome.accepted) throw new AgentVenueRefusal(outcome.refusal, venue.venue.displayName, key);
   }
 
   private async send(
@@ -533,4 +1106,27 @@ export class AgentOrders {
       test: isTestVenue(venue.venue),
     };
   }
+}
+
+/**
+ * #18: the loss in `asset` the venue's fills come to: their realised results less every fee, as a positive amount; zero
+ * when they come to a gain. A fee in another asset (a spot buy's fee in the base asset) is valued at the fill's price.
+ */
+export function dailyLossOf(
+  fills: readonly {
+    readonly price: Amount;
+    readonly venueFee: Amount;
+    readonly builderFee: Amount;
+    readonly feeAsset: string;
+    readonly realisedPnl: Amount | null;
+  }[],
+  asset: string,
+): Amount {
+  let result = ZERO;
+  for (const f of fills) {
+    if (f.realisedPnl !== null) result = add(result, f.realisedPnl);
+    const fees = add(f.venueFee, f.builderFee);
+    result = minus(result, f.feeAsset === asset ? fees : mul(fees, f.price, 'ceil'));
+  }
+  return compare(result, ZERO) < 0 ? minus(ZERO, result) : ZERO;
 }

@@ -55,7 +55,7 @@ export const venueCopy = defineCopy('trade.venue', {
   Status: 'Status',
   Time: 'Time',
   Role: 'Role',
-  'Venue fee': 'Venue fee',
+  'Venue fee': 'Venue’s fee',
   'Our builder fee': 'Our builder fee',
   'Fee asset': 'Fee asset',
   'Realised result': 'Realised result',
@@ -85,6 +85,13 @@ export const venueCopy = defineCopy('trade.venue', {
   tif_GTC: 'Good till cancelled',
   tif_IOC: 'Immediate or cancel',
   tif_ALO: 'Post only',
+  tif_FOK: 'Fill or kill',
+  tif_GTD: 'Good till date',
+  stp_cancel_resting: 'Cancel my resting order',
+  stp_cancel_new: 'Cancel the new order',
+  stp_cancel_both: 'Cancel both',
+  'Not published': 'not published by this venue',
+  Tag: 'Tag',
 
   // Review and signing
   Review: 'Review',
@@ -97,6 +104,9 @@ export const venueCopy = defineCopy('trade.venue', {
   'Builder approved': 'Signed, up to {bps} bps',
   'Builder approval not needed': 'Not needed: this order carries no builder fee',
   'Builder none spot buy': 'None: the venue charges no builder fee on a spot buy',
+  'Builder fee discount': 'Builder fee discount',
+  'Builder discount coupon': 'Coupon {code}: {pct}% off our builder fee, never the venue’s',
+  'Builder discount rank': 'Your rank: {pct}% off our builder fee, never the venue’s',
   'Builder not approved': 'Not signed: your wallet signs an approval of up to {bps} bps before the order',
   'Approve in wallet': 'Approve our builder fee in your wallet',
   'Confirm and sign': 'Confirm and sign',
@@ -141,4 +151,20 @@ export const venueCopy = defineCopy('trade.venue', {
   withdrawal_done: 'Done',
   withdrawal_failed: 'Failed on the venue',
   'Withdrawal fee': 'Venue withdrawal fee',
+
+  // Your own sub-accounts (J-portfolio-04 #2)
+  'Sub-accounts': 'Your sub-accounts',
+  'Sub-accounts why':
+    'A sub-account is a second account on the venue under your same wallet. Moving coins between your accounts is not a sale: each coin keeps its acquired date and cost.',
+  'Sub-accounts not offered': 'This venue offers no sub-accounts: {detail}',
+  'No sub-accounts': 'You have no sub-accounts on this venue.',
+  'Sub-account name': 'Name for a new sub-account',
+  'Open sub-account': 'Open sub-account',
+  'Sub-account': 'Sub-account',
+  'Move asset': 'Coin to move',
+  'Move amount': 'Amount to move',
+  'Move to sub-account': 'Move to sub-account',
+  'Sub-account balances': 'Balances in {name}',
+  'Enter name': 'Enter a name.',
+  'Choose sub-account': 'Choose a sub-account.',
 });

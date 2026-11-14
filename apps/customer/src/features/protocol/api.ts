@@ -1,4 +1,6 @@
 import {
+  protocolAssetLinkReviewOutputSchema,
+  protocolVenueReadsOutputSchema,
   protocolVenueBalancesOutputSchema,
   protocolVenueBuildOutputSchema,
   type ProtocolVenueBuildInput,
@@ -66,6 +68,7 @@ import {
   protocolReplacementOutputSchema,
   type ProtocolReplacementInput,
 } from '@intafaced/contracts/protocol-wallet-tx';
+import { protocolPortfolioOutputSchema } from '@intafaced/contracts/protocol-portfolio';
 import type { ApiClient } from '../../shared/api';
 
 /**
@@ -178,6 +181,10 @@ export function createProtocolApi(api: ApiClient) {
     /** The unsigned `withdraw` call; above the free amount refuses `protocol.venue_insufficient_free` naming it. */
     venueBuildWithdraw: (input: ProtocolVenueBuildInput) =>
       api.query('protocol', 'venue.buildWithdraw', input, protocolVenueBuildOutputSchema),
+    /** Whether `token` is one of the venue's own two assets, with its decimals; a read (J-dex-protocol-05 #10). */
+    assetLinkReview: (token: string) => api.query('protocol', 'venue.assetLinkReview', { token }, protocolAssetLinkReviewOutputSchema),
+    /** The venue's read-only calls with examples (the contract-read docs). */
+    venueReads: (signal?: AbortSignal) => api.query('protocol', 'venue.reads', undefined, protocolVenueReadsOutputSchema, { signal }),
     /** The claim-link escrow and its published expiry bounds, read from the contract; blank refuses by name (D-swap-12). */
     claimLinkConfig: (signal?: AbortSignal) =>
       api.query('protocol', 'claimLink.config', undefined, protocolClaimLinkConfigOutputSchema, { signal }),
@@ -193,6 +200,9 @@ export function createProtocolApi(api: ApiClient) {
     /** Every pool the network's factory lists and the tokens they trade, read from the chain. */
     ammPairs: (signal?: AbortSignal) => api.query('protocol', 'amm.pairs', undefined, protocolSwapPairsOutputSchema, { signal }),
     /** Every listed token's USD price from the pools at one block, or why it has none. */
+    /** One address's holdings, value, profit and loss and transfers, read from the chain (D-portfolio-wallet-04). */
+    portfolio: (address: string, signal?: AbortSignal) =>
+      api.query('protocol', 'portfolio.read', { address }, protocolPortfolioOutputSchema, { signal }),
     tokenPrices: (signal?: AbortSignal) => api.query('protocol', 'amm.prices', undefined, protocolTokenPricesOutputSchema, { signal }),
     /** Every token in the factory's pools with its price, growth and volume for one window, read at one block. */
     tokensList: (window: TokenWindowId, signal?: AbortSignal) =>

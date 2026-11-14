@@ -251,6 +251,11 @@ export const ENFORCED = {
     must: /scope is EMPTY/,
     note: 'walks every workspace test file; with no test file anywhere it refuses by name instead of printing clean.',
   },
+  'lint-ratchet': {
+    kind: 'guard',
+    must: /✖ lint-ratchet: (?:no merge base|cannot fetch main)/,
+    note: 'with no repository there is no merge base to lint from (and on CI no main to fetch); it refuses by name.',
+  },
   'money-property-mutation': {
     kind: 'uncaught',
     must: /ENOENT[\s\S]*money\.ts/,

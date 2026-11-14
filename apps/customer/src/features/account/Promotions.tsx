@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useSession } from '../session/session';
 import type { ApiClient } from '../../shared/api';
 import { Button, Dialog, EmptyState, Page } from '../../shared/ui';
+import { PartnerProgramme } from './PartnerProgramme';
 import { ReferralCode } from './ReferralCode';
 import { ReferralRecords } from './ReferralRecords';
 import { RewardsHub } from './RewardsHub';
@@ -49,17 +50,20 @@ type Known = {
 type Problem = 'storage' | 'locks' | 'another';
 const empty: ShareJournal = { records: [], failed: false };
 
-export type PromotionsView = 'overview' | 'link' | 'records';
+export type PromotionsView = 'overview' | 'link' | 'records' | 'points';
 /** Each promotion address opens its own section; the bare address and the invitations address show both. */
 export function promotionsViewFor(path: string): PromotionsView {
   const clean = path.split('?')[0]!.replace(/\/+$/, '');
+  if (clean === '/uc/promotion/points') return 'points';
   return clean === '/uc/promotion/mycards' ? 'link' : clean === '/uc/promotion/mypromotion' ? 'records' : 'overview';
 }
-const promotionTabs: ReadonlyArray<{ view: PromotionsView; href: string; label: 'tabOverview' | 'tabLink' | 'tabRecords' }> = [
-  { view: 'overview', href: '/uc/promotion', label: 'tabOverview' },
-  { view: 'link', href: '/uc/promotion/mycards', label: 'tabLink' },
-  { view: 'records', href: '/uc/promotion/mypromotion', label: 'tabRecords' },
-];
+const promotionTabs: ReadonlyArray<{ view: PromotionsView; href: string; label: 'tabOverview' | 'tabLink' | 'tabRecords' | 'tabPoints' }> =
+  [
+    { view: 'overview', href: '/uc/promotion', label: 'tabOverview' },
+    { view: 'link', href: '/uc/promotion/mycards', label: 'tabLink' },
+    { view: 'records', href: '/uc/promotion/mypromotion', label: 'tabRecords' },
+    { view: 'points', href: '/uc/promotion/points', label: 'tabPoints' },
+  ];
 export function PromotionTabs({ view }: { view: PromotionsView }) {
   const { t } = copy.useCopy();
   return (
@@ -562,6 +566,7 @@ export function Promotions({ path = '/uc/promotion' }: { path?: string }) {
           )}
           {view !== 'records' && <ReferralCode />}
           {view !== 'records' && <ShareSheet />}
+          {view === 'overview' && <PartnerProgramme />}
           {view !== 'link' && (
             <div id="promotion-referrals">
               <ReferralRecords />

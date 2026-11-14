@@ -1,10 +1,35 @@
 import { publicJurisdictionProcedure, router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import {
+  protocolComplianceLabelApproveInputSchema,
+  protocolComplianceLabelAskInputSchema,
+  protocolComplianceReportsOutputSchema,
+  protocolComplianceReviewSchema,
+  protocolOnboardingApproveInputSchema,
+  protocolOnboardingChecklistSchema,
+  protocolOnboardingOpenInputSchema,
+  protocolOnboardingOutputSchema,
+  protocolTierApproveInputSchema,
+  protocolTierAskInputSchema,
+  protocolTierRemoveInputSchema,
+  protocolTokenTierSchema,
+  protocolTokenTiersOutputSchema,
   protocolAddressReportInputSchema,
   protocolAddressReportReceiptSchema,
   protocolAddressRiskInputSchema,
   protocolAddressRiskSchema,
 } from '@intafaced/contracts/protocol-address-risk';
+import { approveLabel, askLabel, ComplianceRefusedError, readQueue, type ComplianceStore } from './compliance.js';
+import {
+  approveChecklist,
+  approveTier,
+  askTier,
+  openChecklist,
+  readChecklists,
+  readTiers,
+  removeTier,
+  TrustDeskRefusedError,
+  type TrustDeskStore,
+} from './trust-desk.js';
 import { AddressReportRefusedError, readAddressRisk, REPORT_DUPLICATE, submitReport, type AddressRiskStore } from './risk.js';
 
 /**
@@ -61,5 +86,140 @@ export function createAddressReportsRouter(deps: AddressRiskDeps) {
           throw toTrpc(err);
         }
       }),
+  });
+}
+
+/**
+ * `compliance.*` (D-developer-compliance-01, J-dex-protocol-30 #1 #2): the operator queue. Reading is `admin:read`;
+ * asking for and approving a label is `admin:write`, and the person is always the session's, never the input's. The
+ * second reviewer must be a different person (`protocol.compliance.same_reviewer`).
+ */
+export interface ComplianceDeps {
+  chainId: () => number;
+  store: ComplianceStore;
+  /** Token tiers and permissioned pool onboarding (J-dex-protocol-30 #4 #9). */
+  trustDesk: TrustDeskStore;
+  now: () => Date;
+}
+
+function complianceTrpc(err: unknown): TRPCError {
+  if (err instanceof ComplianceRefusedError || err instanceof TrustDeskRefusedError)
+    return new TRPCError({
+      code: err.code.endsWith('_unknown') || err.code === 'protocol.onboarding.unknown' ? 'NOT_FOUND' : 'CONFLICT',
+      message: `${err.code}: ${err.message}`,
+      cause: err,
+    });
+  return new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Protocol request failed', cause: err });
+}
+
+const operatorGuards = { module: 'protocol', plane: 'protocol' } as const;
+
+export function createComplianceRouter(deps: ComplianceDeps) {
+  return router({
+    reports: router({
+      list: scopedProcedure('admin:read', operatorGuards)
+        .output(protocolComplianceReportsOutputSchema)
+        .query(async () => {
+          try {
+            return await readQueue(deps.store, deps.chainId(), deps.now());
+          } catch (err) {
+            throw complianceTrpc(err);
+          }
+        }),
+    }),
+    labels: router({
+      ask: scopedProcedure('admin:write', operatorGuards)
+        .input(protocolComplianceLabelAskInputSchema)
+        .output(protocolComplianceReviewSchema)
+        .mutation(async ({ ctx, input }) => {
+          try {
+            return await askLabel(deps.store, { ...input, chainId: deps.chainId(), requesterId: ctx.principal.userId });
+          } catch (err) {
+            throw complianceTrpc(err);
+          }
+        }),
+      approve: scopedProcedure('admin:write', operatorGuards)
+        .input(protocolComplianceLabelApproveInputSchema)
+        .output(protocolComplianceReviewSchema)
+        .mutation(async ({ ctx, input }) => {
+          try {
+            return await approveLabel(deps.store, { ...input, chainId: deps.chainId(), approverId: ctx.principal.userId });
+          } catch (err) {
+            throw complianceTrpc(err);
+          }
+        }),
+    }),
+    tiers: router({
+      list: scopedProcedure('admin:read', operatorGuards)
+        .output(protocolTokenTiersOutputSchema)
+        .query(async () => {
+          try {
+            return await readTiers(deps.trustDesk, deps.chainId(), deps.now());
+          } catch (err) {
+            throw complianceTrpc(err);
+          }
+        }),
+      ask: scopedProcedure('admin:write', operatorGuards)
+        .input(protocolTierAskInputSchema)
+        .output(protocolTokenTierSchema)
+        .mutation(async ({ ctx, input }) => {
+          try {
+            return await askTier(deps.trustDesk, { ...input, chainId: deps.chainId(), requesterId: ctx.principal.userId });
+          } catch (err) {
+            throw complianceTrpc(err);
+          }
+        }),
+      approve: scopedProcedure('admin:write', operatorGuards)
+        .input(protocolTierApproveInputSchema)
+        .output(protocolTokenTierSchema)
+        .mutation(async ({ ctx, input }) => {
+          try {
+            return await approveTier(deps.trustDesk, { ...input, chainId: deps.chainId(), approverId: ctx.principal.userId });
+          } catch (err) {
+            throw complianceTrpc(err);
+          }
+        }),
+      remove: scopedProcedure('admin:write', operatorGuards)
+        .input(protocolTierRemoveInputSchema)
+        .output(protocolTokenTierSchema)
+        .mutation(async ({ ctx, input }) => {
+          try {
+            return await removeTier(deps.trustDesk, { ...input, chainId: deps.chainId(), actorId: ctx.principal.userId });
+          } catch (err) {
+            throw complianceTrpc(err);
+          }
+        }),
+    }),
+    onboarding: router({
+      list: scopedProcedure('admin:read', operatorGuards)
+        .output(protocolOnboardingOutputSchema)
+        .query(async () => {
+          try {
+            return await readChecklists(deps.trustDesk, deps.chainId(), deps.now());
+          } catch (err) {
+            throw complianceTrpc(err);
+          }
+        }),
+      open: scopedProcedure('admin:write', operatorGuards)
+        .input(protocolOnboardingOpenInputSchema)
+        .output(protocolOnboardingChecklistSchema)
+        .mutation(async ({ ctx, input }) => {
+          try {
+            return await openChecklist(deps.trustDesk, { ...input, chainId: deps.chainId(), openedBy: ctx.principal.userId });
+          } catch (err) {
+            throw complianceTrpc(err);
+          }
+        }),
+      approve: scopedProcedure('admin:write', operatorGuards)
+        .input(protocolOnboardingApproveInputSchema)
+        .output(protocolOnboardingChecklistSchema)
+        .mutation(async ({ ctx, input }) => {
+          try {
+            return await approveChecklist(deps.trustDesk, { ...input, chainId: deps.chainId(), approverId: ctx.principal.userId });
+          } catch (err) {
+            throw complianceTrpc(err);
+          }
+        }),
+    }),
   });
 }

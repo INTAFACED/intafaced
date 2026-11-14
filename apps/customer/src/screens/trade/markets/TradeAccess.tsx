@@ -23,6 +23,23 @@ export function tradeAccess(
   return answer.records[0]?.status === 'pending' ? { kind: 'pending' } : { kind: 'verify' };
 }
 
+/**
+ * The person's trading access, read from identity's own answer (`kyc.status`), for a desk to gate its ticket with
+ * (J-cex-spot-01 #3). Signed out or still reading is `null`; a read that failed is `unread`, which a desk refuses on.
+ */
+export function useTradeAccess(): TradeAccessState | null {
+  const { api, userId } = useSession();
+  const { resource } = useResource(
+    (signal) =>
+      userId
+        ? api.query('identity', 'kyc.status', { limit: 1 }, verificationStatus(userId, 1), { signal })
+        : Promise.resolve({ ok: true as const, data: null }),
+    `trade-access:${userId ?? 'guest'}`,
+  );
+  if (!userId || resource.status === 'loading') return null;
+  return tradeAccess(resource.status === 'ready' ? resource.data : null);
+}
+
 /** The levels the verified line can name: basic and up (below basic the door asks to verify instead). */
 const LEVEL_WORD: Record<Exclude<(typeof KYC_LADDER_LEVELS)[number], 'none'>, 'Level basic' | 'Level full' | 'Level institutional'> = {
   basic: 'Level basic',

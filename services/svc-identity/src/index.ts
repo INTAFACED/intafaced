@@ -22,6 +22,7 @@ import { AuthService } from './auth/auth-service.js';
 import { parseStaffTestRoster } from '@intafaced/auth';
 import { createPayMerchantEmailInviteClaimer } from './auth/merchant-email-invite-claim.js';
 import { openIdentityMail } from './auth/local-mail.js';
+import { openIdentitySms } from './auth/local-sms.js';
 import { withAntiPhishingCode } from './profile/anti-phishing-mail.js';
 import { PlaceDoor } from './auth/place-door.js';
 import { founderEnrolmentConfig } from './auth/founder-enrolment.js';
@@ -30,9 +31,10 @@ import { fetchOwnerPayScopes } from './auth/owner-pay-scopes.js';
 import { fetchPayStepUpGrant } from './auth/pay-step-up-grant.js';
 import { registerApiKeyOwnershipRoute } from './auth/api-key-ownership-route.js';
 import { registerServiceMailRoute } from './auth/service-mail.js';
+import { registerRotationRequestRoutes } from './auth/key-rotation-requests.js';
 import { registerWalletSignatureVerifyRoute, signingAccount, verifyWalletSignature } from './auth/wallet-signature-verify.js';
 import { linkedWallets, registerLinkedWalletsRoute } from './auth/linked-wallets.js';
-import { readAgentKey, registerAgentKeyReadRoute } from './auth/agent-key-read.js';
+import { readAgentKey, readAgentKeyCalls, registerAgentKeyCallsRoute, registerAgentKeyReadRoute } from './auth/agent-key-read.js';
 import { registerTrustedDeviceReadRoute } from './auth/trusted-device-read.js';
 import { assertProdTotpKey, assertSigningEncKey, parseTotpSecretKey } from './auth/totp-crypto.js';
 import { RankService } from './rank/rank-service.js';
@@ -40,6 +42,8 @@ import { ReferralService } from './affiliates/referral-service.js';
 import { ShareService } from './affiliates/share-service.js';
 import { parseShareTagHitsPerIpMinute, parseShareTagKey } from './affiliates/share-tag.js';
 import { ReferralRebindService } from './affiliates/referral-rebind.js';
+import { PartnerApplicationService, parsePartnerMinQualified, parsePartnerReapplyDays } from './affiliates/partner-application.js';
+import { parseProgrammeDepth } from './affiliates/programme-depth.js';
 import {
   ReferralLapseService,
   lapseSweepStatusLine,
@@ -55,6 +59,7 @@ import { parseDmaHierarchyLawJson } from './orgs/dma-hierarchy.js';
 import { createLedgerClient } from './ledger-client.js';
 import { assertArgon2Available, argon2Available, parseBreachedPasswords, useBreachedPasswords } from './auth/passwords.js';
 import { createIdentityRouter } from './router.js';
+import { PgHandleLookupLimiter } from './handle-lookup.js';
 import { createTradeIdentityAuthRouter } from './auth/trade-identity-auth-router.js';
 import { assertStaffSessionLive, createSqlTradeIdentityStore } from './auth/trade-identity-auth.js';
 import { gateFrozenSubAccount } from './auth/sub-account-place-gate.js';
@@ -151,16 +156,19 @@ import { installApiKeyRequestSignExchange, parseRequestSignWindow } from './auth
 import { createRequestSigningPolicyRouter } from './request-signing-policy-router.js';
 import { createApiKeyRequestSignRouter } from './api-key-request-sign-router.js';
 import { createDeveloperKeysRouter } from './developer-keys-router.js';
+import { httpLeadCheck } from './auth/lead-key-check.js';
 import { parseApiKeyCapByTier, parsePortfolioKeyCap, parseApiKeyIdleExpirySeconds, passkeyMintRule } from './auth/developer-keys.js';
 import { parseDeveloperRoles } from './auth/developer-team.js';
 import { installApiKeyRateExchange, parseRatePolicy } from './auth/api-rate-limits.js';
 import { createApiRateLimitsRouter } from './api-rate-limits-router.js';
+import { parseRotateOverlapMaxSeconds } from './auth/developer-key-rotate.js';
 import { createDeveloperSandboxesRouter } from './developer-sandboxes-router.js';
 import { parseSandboxBaseUrl, parseSandboxCapByTier } from './auth/developer-sandboxes.js';
 import { installApiKeyProductExchange, requestProductAls } from './auth/auth-service-product.js';
 import { installApiKeyAccountExchange } from './auth/bind-api-key-account.js';
 import { bootKycVault } from './kyc/boot-vault.js';
 import { parseKycDocKey } from './kyc/document-crypto.js';
+import { TradingChecksDesk, parseSanctionsPersonsList } from './kyc/trading-checks.js';
 import { identityReadyHonesty } from './ready-honesty.js';
 import { SqlActionApprovalStore } from './auth/action-approval-store.js';
 import { ActionApprovalService } from './auth/action-approval-service.js';
@@ -247,6 +255,13 @@ await sql`SELECT 1 FROM users LIMIT 1`.catch(() => {
 await sql`SELECT consecutive_failures FROM auth_attempts LIMIT 0`.catch(() => {
   throw new Error(
     'identity schema is out of date: auth_attempts (with consecutive_failures) is missing — apply drizzle/0027_auth_attempt_lockouts.sql before starting svc-identity',
+  );
+});
+
+// The shared people-lookup budget (#4689): without its table every lookup would fail, not the start.
+await sql`SELECT hits FROM handle_lookup_budget LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: handle_lookup_budget is missing — apply drizzle/20261113152845_handle_lookup_budget.sql before starting svc-identity',
   );
 });
 
@@ -418,6 +433,12 @@ const transportMail = openIdentityMail({
   transport: env.IDENTITY_MAIL_TRANSPORT,
   outboxPath: env.IDENTITY_LOCAL_MAIL_OUTBOX,
 });
+// Texted codes: the LOCAL-TEST outbox file in dev and test only, as for mail; unset, a phone link answers vendor.sms.
+const sms = openIdentitySms({
+  appEnv: process.env.APP_ENV,
+  transport: env.IDENTITY_SMS_TRANSPORT,
+  outboxPath: env.IDENTITY_LOCAL_SMS_OUTBOX,
+});
 // Mails to an account's own address carry the anti-phishing code its owner set.
 const antiPhishingMailKey = antiPhishingKey(parseTotpSecretKey(env.IDENTITY_TOTP_SECRET_KEY));
 // Security notices carry a one-time freeze link (freeze-link.ts); the anti-phishing code goes on last.
@@ -469,6 +490,8 @@ auth.useSignUpPolicy({
   requestMax: env.IDENTITY_SIGNUP_REQUEST_MAX,
   requestWindowSeconds: env.IDENTITY_SIGNUP_REQUEST_WINDOW_SECONDS,
   closedCountries: env.IDENTITY_SIGNUP_CLOSED_COUNTRIES,
+  // The date of birth is kept sealed under the KYC document key for the trading checks; unset, it is not kept.
+  birthDateKey: parseKycDocKey(env.IDENTITY_KYC_DOC_KEY),
 });
 // Sign-in by a mailed code uses the same outbox and relay. Any blank number refuses every code sign-in the same way.
 auth.useLoginCodePolicy({
@@ -518,6 +541,12 @@ const signInChallenge = new SignInChallengeService(sql, parseSignInChallengePoli
 const referralCodes = new ReferralCodeService(sql, parseReferralCodeLength(env.IDENTITY_REFERRAL_CODE_LENGTH));
 const referralAttachWindowSeconds = parseAttachWindowSeconds(env.IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS);
 const referralLapsePeriodSeconds = parseLapsePeriodSeconds(env.IDENTITY_REFERRAL_LAPSE_PERIOD_SECONDS);
+const programmeDepth = parseProgrammeDepth(env.IDENTITY_PARTNER_PROGRAMME_DEPTH);
+const partnerApplications = new PartnerApplicationService(sql, {
+  minQualifiedInvitees: parsePartnerMinQualified(env.IDENTITY_PARTNER_MIN_QUALIFIED_INVITEES),
+  reapplyDays: parsePartnerReapplyDays(env.IDENTITY_PARTNER_REAPPLY_DAYS),
+  programmeDepth,
+});
 const referralLapseSweepSeconds = parseLapseSweepSeconds(env.IDENTITY_REFERRAL_LAPSE_SWEEP_SECONDS);
 const referralLapse = new ReferralLapseService(sql, { periodSeconds: referralLapsePeriodSeconds });
 const freeze = new FreezeService(sql);
@@ -547,6 +576,13 @@ const kycProfile = new KycProfileDesk(sql, parseKycDocKey(env.IDENTITY_KYC_DOC_K
   uploadCaps: kycUploadCaps,
   vault: vault?.kycDocs,
   submit: (input) => auth.submitKyc(input),
+});
+// The trading checks (J-cex-spot-01 #3, OWNER 258 (4)): legal name, country and the sanctions screen; no ID document.
+const tradingChecks = new TradingChecksDesk(sql, {
+  key: parseKycDocKey(env.IDENTITY_KYC_DOC_KEY),
+  list: parseSanctionsPersonsList(env.IDENTITY_SANCTIONS_PERSONS_LIST, process.env.APP_ENV),
+  capabilities: kycCapabilityMap,
+  kycTier: (userId, tx) => auth.kycTier(userId, tx),
 });
 // Proof of address (I-kyc-compliance-11): the owner's rule and lists; the file goes to the vault under the same caps.
 const kycPoa = new KycPoaDesk(sql, {
@@ -707,6 +743,8 @@ const social = new SocialSignin(sql, { providers: new Map(), flowTtlSeconds: env
 export const appRouter = mergeRouters(
   createIdentityRouter(auth, rank, {
     registrationOpen: env.REGISTRATION_OPEN,
+    // One budget per person across every replica and restart (#4689).
+    handleLookupLimiter: new PgHandleLookupLimiter(sql),
     // The code-less register door is for the dev and test stacks' own tools only.
     directRegister: isExplicitDevOrTest(process.env.APP_ENV),
     signInChallenge,
@@ -720,6 +758,7 @@ export const appRouter = mergeRouters(
     kycRejectReasons: parseKycRejectReasons(env.IDENTITY_KYC_REJECT_REASONS),
     kycCapabilityReasons,
     kycProfile,
+    tradingChecks,
     kycPoa,
     kycSelfie,
     social,
@@ -728,6 +767,8 @@ export const appRouter = mergeRouters(
     referralCodes,
     referralAttachWindowSeconds,
     referralRebind: new ReferralRebindService(sql, actionApprovals, { attachWindowSeconds: referralAttachWindowSeconds }),
+    partnerApplications,
+    programmeDepth,
     referralLapse,
     freeze,
     accruals,
@@ -764,9 +805,16 @@ export const appRouter = mergeRouters(
     portfolioKeyCap: parsePortfolioKeyCap(env.IDENTITY_PORTFOLIO_KEYS_MAX),
     developerRoles: parseDeveloperRoles(env.IDENTITY_DEVELOPER_ROLES),
     idleExpirySeconds: parseApiKeyIdleExpirySeconds(env.IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS),
+    rotateOverlapMaxSeconds: parseRotateOverlapMaxSeconds(env.IDENTITY_API_KEY_ROTATE_OVERLAP_MAX_SECONDS),
     mayMint: passkeyMintRule(sql),
     signingEncKey,
     signingWindowSeconds: requestSignWindowSeconds,
+    // svc-trade's base URL, the same one the closure check uses: trade answers both questions.
+    leadCheck: httpLeadCheck({
+      url: env.IDENTITY_CLOSURE_TRADE_URL,
+      secret: closureSecret,
+      ...(outS2s ? { s2s: { signer: outS2s.signer, mode: outS2s.mode } } : {}),
+    }),
   }),
   createApiRateLimitsRouter(sql, ratePolicy),
   createDeveloperSandboxesRouter({
@@ -800,6 +848,11 @@ export const appRouter = mergeRouters(
       listCap: env.IDENTITY_WATCHLIST_LIST_CAP ?? null,
       symbolCap: env.IDENTITY_WATCHLIST_SYMBOL_CAP ?? null,
       savedScreenCap: env.IDENTITY_SAVED_SCREEN_CAP ?? null,
+    },
+    deskLayouts: {
+      layoutCap: env.IDENTITY_DESK_LAYOUT_CAP ?? null,
+      restoreCap: env.IDENTITY_DESK_LAYOUT_RESTORE_CAP ?? null,
+      restoreDays: env.IDENTITY_DESK_LAYOUT_RESTORE_DAYS ?? null,
     },
   }),
   createMembershipRouter(env.IDENTITY_MEMBERSHIP_TIERS),
@@ -861,7 +914,7 @@ export const appRouter = mergeRouters(
   ),
   createPasskeyManageRouter(sql, securityStepUp, { maxPerAccount: env.PASSKEY_MAX_PER_ACCOUNT }),
   createFactorStatusRouter(sql),
-  createSigninMethodsRouter(sql, securityStepUp, { wallet: auth.walletConfig(), social }),
+  createSigninMethodsRouter(sql, securityStepUp, { wallet: auth.walletConfig(), social, phone: { sms } }),
   createWorkItemsRouter(sql),
   createServerTimeRouter(),
   createSelfFreezeLiftRouter(selfFreezeLift, securityStepUp),
@@ -983,6 +1036,7 @@ registerAffiliateProducerAccrue(app, {
   freeze,
   accruals,
   accrualTierLaw,
+  programmeDepth,
   activity: referralLapse,
 });
 
@@ -1001,8 +1055,10 @@ registerAffiliateProducerPayout(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   s2s: doorS2s,
   freeze,
+  accounts: auth,
   accruals,
   accrualTierLaw,
+  programmeDepth,
   ledger,
   // Accrue already installed retainRawBody on this instance.
   installRawBody: false,
@@ -1060,6 +1116,14 @@ app.get<{ Params: { subAccountId: string } }>('/internal/sub-accounts/:subAccoun
   return gated.body;
 });
 
+/** A key's own rotation request, through svc-trade's REST door (key-rotation-requests.ts, J-developer-07 #3). */
+registerRotationRequestRoutes(app, {
+  sql,
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  bodyBind: env.INTERNAL_SERVICE_BODY_BIND,
+  ...(doorS2s ? { s2s: doorS2s } : {}),
+});
+
 /** Mail another service asks identity to send to a customer's own proved address (service-mail.ts). */
 registerServiceMailRoute(app, {
   queue: (input) => auth.queueServiceMail(input),
@@ -1087,6 +1151,14 @@ registerLinkedWalletsRoute(app, {
 /** One of a person's own API keys, for svc-trade's agent-account binding (agent-key-read.ts, J-agents-21 #6). */
 registerAgentKeyReadRoute(app, {
   read: (userId, keyId) => readAgentKey(sql, userId, keyId),
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  bodyBind: env.INTERNAL_SERVICE_BODY_BIND,
+  ...(doorS2s ? { s2s: doorS2s } : {}),
+});
+
+/** One of a person's own API keys' call log, for svc-trade's assistant Activity (agent-key-read.ts, J-agents-21 #11). */
+registerAgentKeyCallsRoute(app, {
+  read: (userId, keyId, limit) => readAgentKeyCalls(sql, userId, keyId, limit),
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   bodyBind: env.INTERNAL_SERVICE_BODY_BIND,
   ...(doorS2s ? { s2s: doorS2s } : {}),

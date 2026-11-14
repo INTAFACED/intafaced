@@ -3,7 +3,8 @@ import { randomBytes } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import { asDesk, contactChannels, deskPeople } from './help-centre.mjs';
 import { signIn, signUp } from './desk.mjs';
-import { api, EDGE, json, ORIGIN, signUpInBrowser, tool } from './stack.mjs';
+import { existsSync, readFileSync } from 'node:fs';
+import { api, EDGE, json, ORIGIN, restartWith, signUpInBrowser, stackFile, tool } from './stack.mjs';
 
 // J-support-public-05, in the running app (docs/roadmap/journeys.json): chat with a person from the site or the app,
 // signed in or as a guest, with one support agent on the desk (founder B, appointed agent; founder A is the lead). Desk
@@ -318,26 +319,91 @@ test(`${J} #6 a business customer's chat becomes a request carrying the business
   expect((await deskChat(theirs.body.result.data.session.id)).session.profileType).toBe('individual');
 });
 
-test(`${J} #7 asking to continue by email: without a mailbox the notice names vendor.email and the chat stays open`, async ({
+/** Every line of the stack's LOCAL-TEST mail outbox addressed to `email`, of any kind, oldest first, read like an inbox. */
+function mailTo(email) {
+  const file = stackFile('email-outbox.log');
+  if (!existsSync(file)) return [];
+  return readFileSync(file, 'utf8')
+    .split('\n')
+    .filter((line) => line.includes(` email=${email} `));
+}
+
+test(`${J} #7 asking to continue by email: the chat continues in the email thread; without a mailbox the notice names vendor.email`, async ({
   browser,
 }) => {
+  // Two restarts of svc-support fit in this step's own limit.
+  test.setTimeout(240_000);
+  // With a mailbox: the stack wires svc-support's mail to its LOCAL-TEST outbox (tooling/scripts/local-stack-services/support.mjs).
   await availability({ lead: 'offline', agent: 'online' });
-  const { page, room, kept } = await customerInChat(browser, 'j05em', `TEST ${J} ${RUN} #7 email me`);
-  await room.getByRole('button', { name: 'Continue by email' }).click();
-  const notice = room.getByTestId('support-chat-email-notice');
-  await expect(notice).toBeVisible();
-  await expect(notice.locator('[data-not-connected="vendor.email"]')).toContainText(
-    'Continuing this chat by email needs an email delivery provider.',
-  );
-  await expect(notice).toContainText('vendor.email');
-  // Nothing was lost: the chat is still open and takes a message.
-  await expect(room).not.toHaveAttribute('data-chat-status', 'closed');
-  const after = `TEST ${J} ${RUN} #7 still here`;
-  await room.getByLabel('Message').fill(after);
-  await room.getByRole('button', { name: 'Send' }).click();
-  await expect(room.getByTestId('support-chat-message').filter({ hasText: after })).toBeVisible();
-  expect((await deskChat(kept.sessionId)).session.status).not.toBe('closed');
-  await page.context().close();
+  const opening = `TEST ${J} ${RUN} #7 email me`;
+  const mailed = await customerInChat(browser, 'j05em', opening);
+  const before = mailTo(mailed.who.email).length;
+  const answered = mailed.page.waitForResponse((res) => res.url().includes('chatContinueByEmail'));
+  await mailed.room.getByRole('button', { name: 'Continue by email' }).click();
+  const answer = await (await answered).json();
+  // The chat moves to an email thread: the answer is `emailed`, and the room says so with no no-mailbox notice.
+  expect(answer?.result?.data?.status, JSON.stringify(answer).slice(0, 300)).toBe('emailed');
+  await expect(mailed.room.getByTestId('support-chat-email-notice')).toHaveAttribute('data-email-status', 'emailed');
+  await expect(mailed.room.locator('[data-not-connected="vendor.email"]')).toHaveCount(0);
+  // The email thread exists: a mail to this customer names this chat.
+  await expect
+    .poll(
+      () =>
+        mailTo(mailed.who.email)
+          .slice(before)
+          .filter((line) => line.includes(mailed.kept.sessionId) || line.includes(opening)).length,
+      {
+        timeout: 15_000,
+      },
+    )
+    .toBeGreaterThan(0);
+  // The chat continues in that thread: the agent's next reply reaches the customer's mail too, naming this chat and the
+  // reply's number, and the chat is still open in the app.
+  await desk('agent', 'mutation', 'chatAccept', { sessionId: mailed.kept.sessionId });
+  const later = await desk('agent', 'mutation', 'chatReply', {
+    sessionId: mailed.kept.sessionId,
+    clientMessageId: `j05:${RUN}:r7`,
+    body: `TEST ${J} ${RUN} #7 answered by email too`,
+  });
+  await expect
+    .poll(
+      () =>
+        mailTo(mailed.who.email)
+          .slice(before)
+          .filter((line) => line.includes(`chat=${mailed.kept.sessionId}`) && line.includes(` part=reply_${later.seq} `)).length,
+      { timeout: 15_000 },
+    )
+    .toBe(1);
+  await expect(
+    mailed.room.getByTestId('support-chat-message').filter({ hasText: `TEST ${J} ${RUN} #7 answered by email too` }),
+  ).toBeVisible({
+    timeout: 10_000,
+  });
+  await expect(mailed.room).not.toHaveAttribute('data-chat-status', 'closed');
+  await mailed.page.context().close();
+
+  // Without a mailbox: the notice names vendor.email, and nothing was lost.
+  restartWith('support', 'LOCAL_STACK_SUPPORT_GUEST_MAIL', false);
+  try {
+    await availability({ lead: 'offline', agent: 'online' });
+    const { page, room, kept } = await customerInChat(browser, 'j05en', `TEST ${J} ${RUN} #7 email me, no mailbox`);
+    await room.getByRole('button', { name: 'Continue by email' }).click();
+    const notice = room.getByTestId('support-chat-email-notice');
+    await expect(notice).toBeVisible();
+    await expect(notice.locator('[data-not-connected="vendor.email"]')).toContainText(
+      'Continuing this chat by email needs an email delivery provider.',
+    );
+    await expect(notice).toContainText('vendor.email');
+    await expect(room).not.toHaveAttribute('data-chat-status', 'closed');
+    const after = `TEST ${J} ${RUN} #7 still here`;
+    await room.getByLabel('Message').fill(after);
+    await room.getByRole('button', { name: 'Send' }).click();
+    await expect(room.getByTestId('support-chat-message').filter({ hasText: after })).toBeVisible();
+    expect((await deskChat(kept.sessionId)).session.status).not.toBe('closed');
+    await page.context().close();
+  } finally {
+    restartWith('support', 'LOCAL_STACK_SUPPORT_GUEST_MAIL', true);
+  }
 });
 
 test(`${J} #8 closing the chat leaves one request holding the transcript, and the chat cannot be written to`, async ({ browser }) => {

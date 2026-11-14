@@ -120,6 +120,7 @@ describe('ReleaseAccess.assertMayReadSignedOut', () => {
 describe('public course page (AC-catalogue-03)', () => {
   it('lists a card per course with published items, and opens a course with its syllabus, outcomes and no invented text', async () => {
     const caller = createAcademyRouter({
+      publicCourses: async () => listPublicCourses(),
       publicCourse: (slug: string) =>
         publicCourse(
           slug,
@@ -141,6 +142,7 @@ describe('public course page (AC-catalogue-03)', () => {
 
   it('gives the same not-found for an unknown course and a lesson slug', async () => {
     const caller = createAcademyRouter({
+      publicCourses: async () => listPublicCourses(),
       publicCourse: (slug: string) =>
         publicCourse(
           slug,

@@ -73,6 +73,7 @@ import { PAY_MERCHANT_DECIDE_KYB, kybApprovalFields, loadKybDecisionBinding } fr
 import { ControlError } from './control/errors.js';
 import { toTrpcError as controlToTrpcError } from './namespaces/control-errors.js';
 import { PayError, type PayService } from './payment-service.js';
+import { openingTxIdFromDetail } from './payment-service/internal.js';
 import { merchantFeeView, type MerchantStarterFee } from './starter-fee.js';
 import { DestinationKindError } from './payout-destination.js';
 import {
@@ -125,6 +126,9 @@ import { PostgresFraudReviewQueue, type DurableReviewCase } from './fraud/review
 import {
   defaultDisputeCaseStore,
   DisputeCaseError,
+  refuseChargebackOpeningPostedShortfallUnfunded,
+  refuseChargebackPlanConflict,
+  refuseChargebackShortfallUnfunded,
   refuseChargebackUncovered,
   type ChargebackLedgerRefuse,
   type DisputeCaseStore,
@@ -142,6 +146,7 @@ import {
 import { PAY_PUBLIC_API_BASE } from './plugins/reference-client.js';
 import { MAX_FEE_BPS } from './fee-bps-bound.js';
 import { ownMerchantRead } from './own-merchant-read.js';
+import { OnboardingDraftStore, onboardingDraftSaveInputSchema, onboardingDraftSchema } from './onboarding-draft.js';
 
 /**
  * svc-pay's internal tRPC surface (§2 — cross-service calls go through
@@ -665,6 +670,8 @@ export function createPayRouter(
               displayName: input.displayName,
               legalName: input.legalName,
             });
+            // The account is open: the business step's draft has done its job. A failed delete never fails the open.
+            if (portalSql) await new OnboardingDraftStore(portalSql).clear(userId).catch(() => undefined);
             return { id: merchant.id, userId: merchant.userId, mode: merchant.mode, feeBps: merchant.pricing.feeBps ?? null };
           }),
         ),
@@ -741,6 +748,34 @@ export function createPayRouter(
       starterFee: ownMerchantRead()
         .output(z.object({ starterFee: merchantStarterFeeSchema.nullable() }))
         .query(() => ({ starterFee })),
+
+      /**
+       * The business step's saved draft for the signed-in person (J-merchant-02 #1), or null. Kept before any account
+       * exists, so leaving the page or signing out never drops what was typed. Never another person's: keyed by session.
+       */
+      onboardingDraft: ownMerchantRead()
+        .output(onboardingDraftSchema)
+        .query(({ ctx }) =>
+          wrap(async () => {
+            const userId = ctx.principal?.userId;
+            if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+            if (!portalSql) throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: 'pay.onboarding_draft_unavailable' });
+            return new OnboardingDraftStore(portalSql).get(userId);
+          }),
+        ),
+
+      /** Saves the business step's draft for the signed-in person, newest `seq` winning. It opens no account. */
+      saveOnboardingDraft: scopedProcedure('pay:onboard', { module: 'pay' })
+        .input(onboardingDraftSaveInputSchema)
+        .output(onboardingDraftSchema)
+        .mutation(({ ctx, input }) =>
+          wrap(async () => {
+            const userId = ctx.principal?.userId;
+            if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+            if (!portalSql) throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: 'pay.onboarding_draft_unavailable' });
+            return new OnboardingDraftStore(portalSql).save(userId, input.fields, input.seq);
+          }),
+        ),
 
       /**
        * KYB stub submit — dossier reference only. Does not invent a partner decision.
@@ -1990,7 +2025,23 @@ export function createPayRouter(
                     cause: e,
                   });
                 }
-                throw e;
+                // The refusals the webhook door records as a case (postChargebackOpenOrRefuse): the dispute exists either
+                // way. An opening that already posted before the shortfall was refused moved the merchant's money, so the
+                // case must name that transaction; a later lost or closed outcome books the shortfall once.
+                const ref = { disputeId: input.disputeId, paymentId: input.paymentId };
+                if (e instanceof PayError && e.code === 'pay.chargeback_plan_conflict') {
+                  ledgerRefuse = refuseChargebackPlanConflict(ref);
+                } else if (e instanceof PayError && e.code === 'pay.chargeback_shortfall_unfunded') {
+                  const openingTxId = openingTxIdFromDetail(e.detail);
+                  if (openingTxId) {
+                    posted = { txId: openingTxId };
+                    ledgerRefuse = refuseChargebackOpeningPostedShortfallUnfunded(ref);
+                  } else {
+                    ledgerRefuse = refuseChargebackShortfallUnfunded(ref);
+                  }
+                } else {
+                  throw e;
+                }
               }
             }
             const ledgerPost = posted?.txId?.trim() ? { txId: posted.txId.trim() } : undefined;
