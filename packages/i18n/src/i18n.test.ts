@@ -108,7 +108,8 @@ describe('catalog — the key set is closed and complete', () => {
     // A scheduled venue market delisting in every inbox (J-cex-spot-16 #8) adds a title and a body key.
     // A moderator's deletion of a learner's discussion post (J-academy-18 #2) adds a title and a body key.
     // A finished background run of an agent session in the inbox (J-agents-06 #2) adds a title and a body key.
-    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(324);
+    // A price alert's body naming its market by symbol and the time it fired (J-charts-desk-10 #5) adds one body key.
+    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(325);
 
     for (const surface of ['common.', 'auth.', 'trade.', 'wallet.', 'p2p.', 'notify.', 'error.', 'support.', 'agents.', 'admin.']) {
       expect(
