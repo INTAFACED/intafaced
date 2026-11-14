@@ -21,9 +21,18 @@ import type { CampaignParticipant } from '@intafaced/contracts';
 import type { CampaignDefinitionInput, CampaignTasks } from '@intafaced/contracts/campaigns-catalogue';
 import { CampaignService } from './campaigns.js';
 import { PAYOUT_UNAVAILABLE, PayoutSaga, ledgerRewardId } from './payouts.js';
-import { FROZEN, NO_WALLET, PAYMENT_NOT_TAKEN, RewardPayer, WALLET_SHORT, unitsOf, type RewardChain } from './reward-payer.js';
+import {
+  FROZEN,
+  NO_WALLET,
+  PAYMENT_NOT_TAKEN,
+  RewardPayer,
+  WALLET_SHORT,
+  rewardsPaidToWallet,
+  unitsOf,
+  type RewardChain,
+} from './reward-payer.js';
 import { TaskService } from './tasks.js';
-import type { VenueDepositSource } from './venue-deposits.js';
+import type { VenueDeposit, VenueDepositSource } from './venue-deposits.js';
 
 /**
  * Paying an owed reward to the customer's own wallet (J-campaigns-03 #2 #3, #8195) against real Postgres, the in-memory
@@ -269,6 +278,7 @@ if (!db) {
   describe('paying owed rewards to the customer wallet (Postgres)', () => {
     beforeEach(async () => {
       await db.sql`TRUNCATE campaigns.reward_payments, campaigns.redemption_attempts, campaigns.reward_intents,
+        campaigns.welcome_events, campaigns.welcome_accounts,
         campaigns.task_progress, campaigns.task_completions, campaigns.pot_fundings, campaigns.participations,
         campaigns.eligibility_reviews, campaigns.audit_log, campaigns.campaigns CASCADE`;
       people.clear();
@@ -314,6 +324,95 @@ if (!db) {
       // Later passes send and book nothing more.
       expect(await payer.pass()).toEqual({ sent: 0, paid: 0 });
       expect((await tasks.myRewards({ accountId: ME })).totals).toEqual([{ status: 'paid', asset: 'USDC', amount: '10', count: 1 }]);
+      await reconciles('20');
+    });
+
+    it('counts what we paid a wallet from our payout records: every payment that left or may have left, never a failed one', async () => {
+      await seed('50', '40');
+      const paidTo = rewardsPaidToWallet(db.sql);
+      expect(await paidTo(MY_WALLET)).toBe(0n);
+      await claimed();
+      expect(await payer.pass()).toEqual({ sent: 1, paid: 1 });
+      // Read in any case: an address is one wallet however it is written.
+      expect(await paidTo(MY_WALLET.toUpperCase().replace('0X', '0x'))).toBe(parseAmount('10'));
+      expect(await paidTo('0x2222222222222222222222222222222222222222')).toBe(0n);
+      // A payment the chain reverted left nothing with the wallet, so it is not counted.
+      world.mode.revertNext = true;
+      await claimed();
+      await payer.pass();
+      const states = await db.sql<{ state: string }[]>`SELECT state FROM campaigns.reward_payments ORDER BY created_at`;
+      expect(states.map((r) => r.state)).toEqual(['booked', 'failed']);
+      expect(await paidTo(MY_WALLET)).toBe(parseAmount('10'));
+      await reconciles('40');
+    });
+
+    it('a welcome reward is owed at its claim, paid once to the wallet connected then, and that money deposited back never ticks the deposit task (J-campaigns-04 #3 #4)', async () => {
+      await seed('50', '20');
+      const usdc = (amount: string) => ({ asset: 'USDC', amount });
+      const s = new CampaignService({ sql: db.sql, timeZone: () => 'UTC', participants });
+      const c = await s.create({
+        definition: definition({
+          type: 'welcome',
+          reward: undefined,
+          tasks: {
+            steps: [
+              { title: 'TEST verify', event: 'identity.verified', market: null, side: null, count: 1, streakDays: null, reward: usdc('5') },
+              { title: 'TEST deposit', event: 'pay.deposit', market: null, side: null, count: 1, streakDays: null, reward: usdc('2') },
+            ],
+            claimWindowSeconds: null,
+            holdSeconds: 0,
+            lock: null,
+            kycGate: 'none',
+            welcomeWindowSeconds: 7 * 24 * 3600,
+          },
+        }),
+        actor: A,
+      });
+      await s.transition({ id: c.id, action: 'submit', revision: 1, actor: A });
+      await s.transition({ id: c.id, action: 'approve', revision: 1, actor: B });
+      await s.transition({ id: c.id, action: 'activate', revision: 1, actor: A });
+      let venue: VenueDeposit[] = [];
+      const welcome = new TaskService({
+        sql: db.sql,
+        participants,
+        saga: new PayoutSaga({ sql: db.sql, ledger: wire.ledger, reconcileAfterSeconds: 1, rewardCeiling: CEILING }),
+        markets: null,
+        timeZone: () => 'UTC',
+        rollbackWindowSeconds: 86_400,
+        venueDeposits: { ...wallets, deposits: async () => ({ venueId: VENUE, asOf: new Date().toISOString(), deposits: venue }) },
+        rewardsPaidTo: rewardsPaidToWallet(db.sql),
+      });
+      await welcome.onSignUp({ userId: ME, eventId: `user.created:${ME}`, at: new Date(Date.now() - 60_000).toISOString() });
+      await welcome.onWelcomeEvent({ userId: ME, event: 'identity.verified', eventId: 'kyc-1', at: new Date().toISOString() });
+
+      // Claimed with the wallet connected: owed from the campaign's budget, and noted to be paid to that wallet.
+      const claim = await welcome.welcomeClaim({ accountId: ME, event: 'identity.verified', forwarded: FORWARDED });
+      expect(claim).toMatchObject({ created: true, reward: { state: 'owed', amount: '5', owed: { txId: expect.any(String) } } });
+      const [intent] = await db.sql<{ pay_to_wallet: string }[]>`
+        SELECT pay_to_wallet FROM campaigns.reward_intents WHERE reward_key = ${claim.reward.rewardKey}`;
+      expect(intent!.pay_to_wallet).toBe(MY_WALLET);
+      expect(await payer.pass()).toEqual({ sent: 1, paid: 1 });
+      // Claimed again: the same reward, paid once, with its chain transaction; nothing more is sent.
+      const again = await welcome.welcomeClaim({ accountId: ME, event: 'identity.verified', forwarded: FORWARDED });
+      expect(again).toMatchObject({ created: false, reward: { rewardKey: claim.reward.rewardKey, state: 'paid' } });
+      expect(again.reward.payout).toEqual({ chainTx: world.transfers[0]!.hash, toWallet: MY_WALLET, at: expect.any(String) });
+      expect(await payer.pass()).toEqual({ sent: 0, paid: 0 });
+      expect(world.balances.get(MY_WALLET)).toBe(5_000_000n);
+
+      // The person deposits exactly the reward we paid into their venue account: the deposit task does not tick.
+      venue = [{ depositRef: '84532:0xback:0', asset: 'USDC', amount: '5', status: 'credited', seenAt: new Date().toISOString() }];
+      const list = await welcome.welcomeChecklist({ accountId: ME, forwarded: FORWARDED });
+      expect(list.deposit).toMatchObject({ source: 'read' });
+      expect(list.tasks.find((t) => t.event === 'pay.deposit')).toMatchObject({ state: 'open', doneAt: null, record: null });
+      await expect(welcome.welcomeClaim({ accountId: ME, event: 'pay.deposit', forwarded: FORWARDED })).rejects.toMatchObject({
+        code: 'campaigns.tasks_incomplete',
+      });
+      expect(await db.sql`SELECT 1 FROM campaigns.welcome_events WHERE account_id = ${ME} AND event = 'pay.deposit'`).toHaveLength(0);
+      // Money of their own on top passes what we paid: that deposit is the one that ticks it.
+      const own = new Date().toISOString();
+      venue = [...venue, { depositRef: '84532:0xown:0', asset: 'USDC', amount: '1', status: 'credited', seenAt: own }];
+      const ticked = await welcome.welcomeChecklist({ accountId: ME, forwarded: FORWARDED });
+      expect(ticked.tasks.find((t) => t.event === 'pay.deposit')).toMatchObject({ state: 'done', doneAt: own });
       await reconciles('20');
     });
 
