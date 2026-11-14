@@ -90,7 +90,11 @@ export function EndpointView({
         <Facts
           items={[
             [t('colReference'), <CopyReference key="id" value={endpoint.id} what={t('colReference')} />],
+            [t('colEvents'), endpoint.eventTypes ? endpoint.eventTypes.join(', ') : t('allEventTypes')],
             [t('colFailuresInRow'), String(endpoint.consecutiveFailures)],
+            ...(endpoint.previousSecretUntil
+              ? ([[t('colOverlapUntil'), <DateTime key="o" value={endpoint.previousSecretUntil} />]] as const)
+              : []),
             [t('colLastDelivered'), mine?.lastDeliveredAt ? <DateTime key="l" value={mine.lastDeliveredAt} /> : t('noneYet')],
             ...(endpoint.status === 'disabled'
               ? ([
@@ -110,6 +114,7 @@ export function EndpointView({
               : []),
           ]}
         />
+        {endpoint.previousSecretUntil && <p className="muted">{t('overlapNote')}</p>}
         <p className="muted">{t('queryHidden')}</p>
         <AuditPanel who={null} at={endpoint.updatedAt} />
       </PaySection>
@@ -120,7 +125,10 @@ export function EndpointView({
             api={api}
             endpointId={endpoint.id}
             canManage={canManage}
-            onSecret={(secret) => setRevealed({ title: t('endpointSecretNewTitle'), secret, what: t('endpointSecretWhat') })}
+            onSecret={(secret) => {
+              setRevealed({ title: t('endpointSecretNewTitle'), secret, what: t('endpointSecretWhat') });
+              reload();
+            }}
           />
           {endpoint.status === 'active' ? (
             <PortalReview
@@ -216,7 +224,7 @@ function RotateEndpointSecret({
   canManage,
   onSecret,
 }: {
-  api: Pick<SettingsBApi, 'endpointRotate'>;
+  api: Pick<SettingsBApi, 'endpointRotate' | 'webhookPolicy'>;
   endpointId: string;
   canManage: boolean;
   onSecret: (secret: string) => void;
@@ -225,15 +233,31 @@ function RotateEndpointSecret({
   // One id per review: if the reply is lost and the request is sent again, the secret is not rotated twice.
   const [requestId, setRequestId] = useState(newRequestId);
   const [note, setNote] = useState<string | null>(null);
+  const [overlap, setOverlap] = useState('0');
+  const policy = useResource((signal) => api.webhookPolicy(signal), 'dev:policy');
+  const max = policy.resource.status === 'ready' ? policy.resource.data.overlapMaxSeconds : undefined;
+  const seconds = /^\d+$/.test(overlap.trim()) ? Number(overlap.trim()) : null;
+  // The service is the judge (a blank maximum refuses any overlap); this only keeps an obvious typo off the wire.
+  const overlapError =
+    seconds === null ? t('overlapInvalid') : typeof max === 'number' && seconds > max ? t('overlapTooLong', { max }) : undefined;
   return (
     <>
+      <Field
+        label={t('overlapLabel')}
+        hint={typeof max === 'number' ? t('overlapHint', { max }) : max === null ? t('overlapHintUnset') : undefined}
+        inputMode="numeric"
+        value={overlap}
+        disabled={!canManage}
+        error={overlapError}
+        onChange={(e) => setOverlap(e.target.value)}
+      />
       <PortalReview
         title={t('rotateEndpointAction')}
         description={t('rotateEndpointReview')}
-        disabled={!canManage}
-        disabledReason={t('readOnlyRole')}
-        review={<p>{t('rotateEndpointEffect')}</p>}
-        perform={() => api.endpointRotate(endpointId, requestId)}
+        disabled={!canManage || Boolean(overlapError)}
+        disabledReason={canManage ? (overlapError ?? '') : t('readOnlyRole')}
+        review={<p>{seconds ? t('overlapEffect', { n: seconds }) : t('rotateEndpointEffect')}</p>}
+        perform={() => api.endpointRotate(endpointId, requestId, seconds ?? 0)}
         onConfirmed={(result) => {
           setRequestId(newRequestId());
           if (result.secret) {

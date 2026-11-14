@@ -391,7 +391,7 @@ export function createFounderMerchantReads(deps: {
             limit,
             cursor,
             endpointId: filters.endpointId,
-            status: oneOf(filters.status, ['pending', 'delivered', 'failed', 'dead']),
+            status: oneOf(filters.status, ['pending', 'delivered', 'failed', 'dead', 'unknown']),
             from: filters.from,
             to: filters.to,
           });
