@@ -52,6 +52,11 @@ export const quantSignalRulesSchema = z.object({
   }),
   sizing: z.object({ kind: z.enum(QUANT_SIZING_KINDS), value: z.string().max(40) }),
   exit: z.object({ stopLossPercent: z.string().max(40), takeProfitPercent: z.string().max(40) }),
+  /**
+   * Pyramiding (AL-orders-02): at most this many entries in one position. Optional; blank or absent means one entry,
+   * which is all the moving-average cross ever takes, since it enters only from flat.
+   */
+  pyramiding: z.string().max(12).optional(),
 });
 export type QuantSignalRules = z.infer<typeof quantSignalRulesSchema>;
 
@@ -185,6 +190,23 @@ export const quantTemplatePublishInputSchema = z.object({
   idempotencyKey: z.string().trim().min(1).max(128),
 });
 export type QuantTemplatePublishInput = z.infer<typeof quantTemplatePublishInputSchema>;
+
+/**
+ * `ops.template.listing`: an operator withdraws a starter template from the list (`listed: false`) or restores it
+ * (`listed: true`), with a reason for the audit row. Its published versions are never touched.
+ */
+export const quantTemplateListingInputSchema = z.object({
+  id: quantTemplateIdSchema,
+  listed: z.boolean(),
+  reason: z.string().trim().min(1).max(500),
+  idempotencyKey: z.string().trim().min(1).max(128),
+});
+export type QuantTemplateListingInput = z.infer<typeof quantTemplateListingInputSchema>;
+export const quantTemplateListingSchema = z.object({
+  id: quantTemplateIdSchema,
+  listed: z.boolean(),
+  setAt: z.string(),
+});
 
 /**
  * How a backtest fills a signal. The engine reads a signal on a bar's close and fills it at the open of the next bar
@@ -688,6 +710,45 @@ export const quantQuotaProfileSchema = z.object({
 });
 
 /**
+ * Compute tiers (RC-algo-dev-05, an extension of AL-limits-01). A tier is published on a quota profile: its limits are
+ * that profile's, plus two owner values, how fresh the data a run reads is (whole seconds behind the exchange's own
+ * prices) and its execution priority class (a higher class starts first). Either may be blank, read "not set". A tier
+ * is a name, not a price: pricing, billing and moving to a tier are not here; an operator assigns the profile.
+ */
+export const quantTierSchema = z.object({
+  profile: z.string(),
+  dataFreshnessSeconds: quotaWhole.nullable(),
+  priorityClass: quotaWhole.nullable(),
+  limits: z.array(z.object({ resource: quantQuotaResourceSchema, limit: quotaWhole.nullable() })),
+  setAt: z.string(),
+});
+export type QuantTier = z.infer<typeof quantTierSchema>;
+
+/** `tier.list`: every published tier by profile name, and the profile that applies to the caller (null: none). */
+export const quantTierListSchema = z.object({
+  current: z.object({ profile: z.string(), source: z.enum(['assigned', 'default']) }).nullable(),
+  tiers: z.array(quantTierSchema),
+});
+export type QuantTierList = z.infer<typeof quantTierListSchema>;
+
+/** `ops.tier.set`: publishes or withdraws the tier on one profile, with its two owner values and a reason. Keyed by the screen. */
+export const quantTierSetInputSchema = z.object({
+  profile: quotaProfileName,
+  dataFreshnessSeconds: z.string().max(18).nullable(),
+  priorityClass: z.string().max(18).nullable(),
+  published: z.boolean(),
+  reason: z.string().max(500),
+  idempotencyKey: z.string().trim().min(1).max(128),
+});
+export const quantTierSetOutputSchema = z.object({
+  profile: z.string(),
+  dataFreshnessSeconds: quotaWhole.nullable(),
+  priorityClass: quotaWhole.nullable(),
+  published: z.boolean(),
+  setAt: z.string(),
+});
+
+/**
  * Paper runs on the exchange's own prices (AL-live-01). A paper run keeps going until it is stopped; its fills,
  * position and equity are derived on every read from the exchange's own closed candles since it started, by the same
  * engine and costs as a backtest. Our own venue data is the only feed that starts; an outside market feed is listed and
@@ -750,6 +811,64 @@ export const quantPaperRunSchema = quantPaperRunSummarySchema.extend({
   claimLabel: z.literal('Paper — not live performance'),
 });
 export type QuantPaperRun = z.infer<typeof quantPaperRunSchema>;
+
+/**
+ * A strategy's notification channels (AL-live-06). In-app notices are always on: the notification centre is ours. Email,
+ * SMS and push go out through svc-notify, which refuses by name (`vendor.email`, `vendor.sms`, `vendor.push`) while the
+ * platform has no sender, and the notice still appears in the app. A user webhook and chat apps have no sender in this
+ * build: choosing one refuses `quant.notify_channel_unavailable` and nothing is saved.
+ */
+export const QUANT_NOTIFY_CHANNELS = ['inapp', 'email', 'sms', 'push'] as const;
+export type QuantNotifyChannel = (typeof QUANT_NOTIFY_CHANNELS)[number];
+/** Channels listed so the person sees them, each refused as unavailable: no outbound sender exists for them. */
+export const QUANT_NOTIFY_UNAVAILABLE_CHANNELS = ['webhook', 'chat'] as const;
+
+export const quantNotifySettingsSchema = z.object({
+  strategyId: z.string(),
+  /** The channels chosen, `inapp` always first. */
+  channels: z.array(z.enum(QUANT_NOTIFY_CHANNELS)),
+  /** When they were last saved, or null when this strategy still has the default (in-app only). */
+  updatedAt: z.string().nullable(),
+});
+export type QuantNotifySettings = z.infer<typeof quantNotifySettingsSchema>;
+
+export const quantNotifySetInputSchema = z.object({
+  strategyId: z.string().min(1).max(128),
+  channels: z.array(z.string().max(20)).max(8),
+});
+
+/**
+ * A fill alert (AL-alerts-01): one strategy version, the fill event, and a message template. The template may name only
+ * the allow-listed fields in braces; anything else refuses `alert.template_invalid`. The alert stores the version, never
+ * a copy of the parameters, so changing the strategy never changes an existing alert: a new version needs its own.
+ */
+export const QUANT_ALERT_FIELDS = ['strategy', 'version', 'symbol', 'side', 'qty', 'price', 'time'] as const;
+export type QuantAlertField = (typeof QUANT_ALERT_FIELDS)[number];
+export const QUANT_ALERT_TEMPLATE_MAX = 280;
+export const QUANT_ALERT_LIST_MAX = 20;
+
+export const quantAlertSchema = z.object({
+  alertId: z.string(),
+  strategyId: z.string(),
+  strategyVersion: z.number().int().positive(),
+  event: z.literal('fill'),
+  template: z.string(),
+  createdAt: z.string(),
+});
+export type QuantAlert = z.infer<typeof quantAlertSchema>;
+
+/**
+ * `alert.create`. The key is `quant.alert:<strategyId>:<account>:<ordinal>`, where the ordinal is the count of the
+ * strategy's alerts the screen read when the form opened: a retry after a lost reply reads the same alert.
+ */
+export const quantAlertCreateInputSchema = z.object({
+  strategyId: z.string().min(1).max(128),
+  strategyVersion: z.number().int().positive(),
+  template: z.string().max(QUANT_ALERT_TEMPLATE_MAX * 2),
+  ordinal: z.number().int().nonnegative(),
+});
+
+export const quantAlertListSchema = z.object({ alerts: z.array(quantAlertSchema) });
 
 /**
  * The strategy lifecycle and its promotion gate (AL-lifecycle-01, ENGINE section 9). A version's stage is its newest
@@ -851,6 +970,8 @@ export const QUANT_OWNER_CRITERIA = [
   'oos.minReturnPercent',
   'oos.maxDrawdownPercent',
   'oos.maxShortfallPercent',
+  /** The platform's live switch for strategies (ENGINE E-4, AL-risk-01's `quant.live`): `on`, or blank for off. */
+  'live.enabled',
 ] as const;
 export type QuantOwnerCriterion = (typeof QUANT_OWNER_CRITERIA)[number];
 export const quantCriteriaSetInputSchema = z.object({
@@ -863,4 +984,48 @@ export const quantCriteriaSetInputSchema = z.object({
 });
 export const quantCriteriaSchema = z.object({
   criteria: z.array(z.object({ name: z.enum(QUANT_OWNER_CRITERIA), value: z.string().nullable(), source: z.enum(['operator', 'boot']) })),
+});
+
+/**
+ * The deploy wizard's compile check (AL-live-02; J-algo-dev-06 #6): what each part of one version would place on a
+ * live deploy and whether the live runner can place it. Derived from the stored version; nothing is written.
+ */
+export const QUANT_LIVE_ORDER_SOURCES = ['block', 'signal_entry', 'stop_loss', 'take_profit'] as const;
+export const quantLiveOrderTypeSchema = z.object({
+  /** Where the order comes from: an order block, the signal rules' entry, or one of their exits. */
+  source: z.enum(QUANT_LIVE_ORDER_SOURCES),
+  /** One-based block number for a block; null otherwise. */
+  block: z.number().int().positive().nullable(),
+  type: z.enum(['market', 'stop', 'take_profit']),
+  /** The exit's percentage as stored, for a stop loss or take profit; null otherwise. */
+  percent: z.string().nullable(),
+  supported: z.boolean(),
+  /** The refusal a deploy answers for this part; null when it is supported. */
+  code: z.enum(['trade.order_type_unsupported', 'quant.live_plan_unsupported']).nullable(),
+});
+export type QuantLiveOrderType = z.infer<typeof quantLiveOrderTypeSchema>;
+export const quantLiveCheckInputSchema = z.object({
+  strategyId: z.string().min(1).max(128),
+  strategyVersion: z.number().int().positive(),
+});
+export const quantLiveCheckSchema = z.object({
+  strategyId: z.string(),
+  strategyVersion: z.number().int().positive(),
+  name: z.string(),
+  /** `blocks` or `signal`: the live runner trades order blocks only in this build. */
+  plan: z.enum(['blocks', 'signal']),
+  orderTypes: z.array(quantLiveOrderTypeSchema),
+  /** True when every part can be placed live. */
+  compiles: z.boolean(),
+  /** The platform's live switch as the owner set it now; off when blank. */
+  liveEnabled: z.boolean(),
+  asOf: z.string(),
+});
+export type QuantLiveCheck = z.infer<typeof quantLiveCheckSchema>;
+/**
+ * `live.deploy`: the wizard's Deploy. With the platform's live switch off it refuses `quant.live_disabled` before
+ * anything is read or written: no deploy intent exists. The amount is the TEST move the person's wallet would sign.
+ */
+export const quantLiveDeployInputSchema = quantLiveCheckInputSchema.extend({
+  amount: z.string().max(40),
 });

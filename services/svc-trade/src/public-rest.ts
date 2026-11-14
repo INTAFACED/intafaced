@@ -15,6 +15,7 @@ import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client
 import { presentAlgoCapabilityNote } from './algo/algo-capability.js';
 import { presentFuturesJobsCapabilityNote } from './futures/futures-jobs-capability.js';
 import { readTradePlanes } from './futures/plane-capabilities.js';
+import { checkMarginModeForFuturesOpen, NAMED_MARGIN_MODES } from './futures/margin-mode.js';
 import { isPremarket } from './futures/premarket.js';
 import { visibleOnPublicBoard } from './futures/futures-reads.js';
 import { badRequest, badSymbol, notSupported, toCcxtError, type CcxtErrorResponse } from './ccxt-errors.js';
@@ -765,6 +766,23 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
    * `@intafaced/contracts/spot-order-types` also draws the ticket's tabs, so a bot reads exactly what the ticket shows.
    */
   app.get('/api/v1/order-types', publicRead, async (_req, reply) => reply.code(200).send(spotOrderTypes()));
+
+  /**
+   * Futures margin modes on our own book (D-portfolio-wallet-05; J-dex-protocol-06 #7): every named mode, whether it is
+   * offered, and the typed refusal of each that is not, from the same check the open door runs
+   * (`checkMarginModeForFuturesOpen`). Isolated, Standard to the person, is the only one offered; portfolio margin
+   * refuses `trade.portfolio_margin_unset` while its owner rules are unset. A read: nothing is switched or recorded.
+   */
+  app.get('/api/v1/futures/margin-modes', publicRead, async (_req, reply) =>
+    reply.code(200).send({
+      modes: NAMED_MARGIN_MODES.map((mode) => {
+        const check = checkMarginModeForFuturesOpen(mode);
+        return check.ok
+          ? { mode, offered: true, code: null, reason: null }
+          : { mode, offered: false, code: check.code, reason: check.reason };
+      }),
+    }),
+  );
 
   /**
    * Futures order-type catalogue (D-orders-01): every type, time in force and

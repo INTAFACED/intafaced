@@ -37,6 +37,8 @@ export function SigninMethods({ revision = 0, onChanged }: { revision?: number; 
   const { api, userId } = useSession();
   const { timeZone } = usePreferences();
   const [editing, setEditing] = useState<'password' | 'phone' | null>(null);
+  /** The number a link code was just texted to, while its code is awaited. */
+  const [texted, setTexted] = useState<string | null>(null);
   const [waiting, setWaiting] = useState<Change | null>(null);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<Refusal | null>(null);
@@ -76,6 +78,7 @@ export function SigninMethods({ revision = 0, onChanged }: { revision?: number; 
     if (answer.ok) {
       setWaiting(null);
       setEditing(null);
+      setTexted(null);
       setNote(change.saved);
       reload();
       onChanged?.();
@@ -113,6 +116,30 @@ export function SigninMethods({ revision = 0, onChanged }: { revision?: number; 
       answered(change, approval.ok ? await send(change, approval.data.stepUpApprovalId) : approval);
     } finally {
       if (field instanceof HTMLInputElement) field.value = '';
+      if (mounted.current) setBusy(false);
+    }
+  }
+
+  /** Text a link code to `phone`: nothing is linked, and no confirmation is asked, until the code comes back. */
+  async function textCode(phone: string) {
+    if (busy) return;
+    clear();
+    setBusy(true);
+    try {
+      const answer = await api.mutate(
+        'identity',
+        'linkSigninMethod',
+        { method: 'sms_code', clientRequestId: crypto.randomUUID(), phone },
+        signinMethods,
+      );
+      if (!mounted.current) return;
+      if (answer.ok) {
+        setTexted(phone);
+        return setNote(t('phoneSent', { phone }));
+      }
+      if (answer.code === 'vendor.sms') return setOff({ code: 'vendor.sms', action: t('textedCodes') });
+      setFailure(answer);
+    } finally {
       if (mounted.current) setBusy(false);
     }
   }
@@ -323,9 +350,60 @@ export function SigninMethods({ revision = 0, onChanged }: { revision?: number; 
         </li>
         <li data-testid="security__row" className="security__row security__row--method" aria-label={t('phone')}>
           <div>
-            <strong>{t('phone')}</strong> <span className="muted">{t('noPhone')}</span>
+            <strong>{t('phone')}</strong>{' '}
+            {methods.phone ? (
+              <>
+                <span lang="zxx" data-testid="security__ref" className="security__ref">
+                  {methods.phone}
+                </span>{' '}
+                <span className="muted">{t('phoneLinked')}</span>
+              </>
+            ) : (
+              <span className="muted">{t('noPhone')}</span>
+            )}
           </div>
-          {editing === 'phone' ? (
+          {methods.phone ? (
+            <Button
+              variant="secondary"
+              disabled={busy}
+              aria-label={t('removePhone', { phone: methods.phone })}
+              onClick={() => void attempt(change('unlink', 'sms_code'))}
+            >
+              {t('remove')}
+            </Button>
+          ) : editing === 'phone' && texted ? (
+            <form
+              className="stack"
+              noValidate
+              onSubmit={(event: FormEvent<HTMLFormElement>) => {
+                event.preventDefault();
+                const code = String(new FormData(event.currentTarget).get('phoneCode') ?? '').trim();
+                if (!/^\d{6}$/.test(code)) return setProblem(t('phoneCodeInvalid'));
+                void attempt(change('link', 'sms_code', { phone: texted, code }, t('phoneSaved', { phone: texted })));
+              }}
+            >
+              <Field
+                label={t('phoneCodeField')}
+                name="phoneCode"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={6}
+                disabled={busy}
+                data-security-sensitive="true"
+              />
+              <div className="row">
+                <Button type="submit" disabled={busy}>
+                  {t('confirmPhone')}
+                </Button>
+                <Button variant="secondary" disabled={busy} onClick={() => void textCode(texted)}>
+                  {t('resendCode')}
+                </Button>
+                <Button variant="ghost" disabled={busy} onClick={() => (setEditing(null), setTexted(null), setWaiting(null))}>
+                  {t('cancel')}
+                </Button>
+              </div>
+            </form>
+          ) : editing === 'phone' ? (
             <form
               className="stack"
               noValidate
@@ -333,7 +411,7 @@ export function SigninMethods({ revision = 0, onChanged }: { revision?: number; 
                 event.preventDefault();
                 const phone = cleanPhone(String(new FormData(event.currentTarget).get('phone') ?? ''));
                 if (!phone) return setProblem(t('phoneInvalid'));
-                void attempt(change('link', 'sms_code', { phone }));
+                void textCode(phone);
               }}
             >
               <Field label={t('phoneField')} name="phone" type="tel" autoComplete="tel" disabled={busy} />
@@ -347,7 +425,7 @@ export function SigninMethods({ revision = 0, onChanged }: { revision?: number; 
               </div>
             </form>
           ) : (
-            <Button variant="secondary" disabled={busy} onClick={() => (clear(), setEditing('phone'))}>
+            <Button variant="secondary" disabled={busy} onClick={() => (clear(), setTexted(null), setEditing('phone'))}>
               {t('linkPhone')}
             </Button>
           )}

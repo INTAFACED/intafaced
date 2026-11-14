@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { api, fromUnits, journeyState, toUnits } from './stack.mjs';
-import { signUp, verify } from './desk.mjs';
+import { confirm, signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import {
   continueInWallet,
@@ -166,17 +166,20 @@ test(`${J} #2 moves 1 TEST BTC from the main venue account to a venue sub-accoun
       builderFee: null,
     });
     expect(rested.definite && rested.accepted, JSON.stringify(rested)).toBe(true);
-    const ticket = page.getByTestId('venue-ticket');
-    await ticket.getByRole('button', { name: 'Buy', exact: true }).click();
-    await ticket.getByRole('button', { name: 'Limit', exact: true }).click();
-    await ticket.getByRole('textbox', { name: 'Price' }).fill(buy.price);
-    await ticket.getByRole('textbox', { name: 'Amount (BTC)' }).fill(buy.amount);
-    await ticket.getByRole('button', { name: 'Review buy' }).click();
-    const sheet = page.getByTestId('venue-review');
-    await sheet.getByRole('button', { name: 'Confirm and sign' }).click();
+    // The desk's Limit buy form (the first of the buy and sell forms), reviewed once the venue's own preview answers.
+    await page.locator('[role=tab]', { hasText: /^Limit$/ }).click();
+    await page.getByRole('textbox', { name: 'Price' }).first().fill(buy.price);
+    const preview = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/preview');
+    await page.getByRole('textbox', { name: 'Amount' }).first().fill(buy.amount);
+    expect((await preview).status()).toBe(200);
+    await page.getByRole('button', { name: 'Buy BTC' }).click();
+    await confirm(page, 'buy');
     await continueInWallet(page);
-    await expect(sheet.getByTestId('venue-outcome').last()).toContainText('Filled on the venue.');
-    await sheet.getByRole('button', { name: 'Back' }).click();
+    await expect(page.getByTestId('venue-bottom').getByTestId('venue-outcome')).toContainText('Filled on the venue.');
+    // The outcome line keeps the last answer, so each buy also waits for its own fill on the venue.
+    await expect
+      .poll(async () => lotsByHand(await venueOf(owner, null, '/fills', { since: new Date(0).toISOString() })).length)
+      .toBe(i + 1);
   }
   const fills = await venueOf(owner, null, '/fills', { since: new Date(0).toISOString() });
   const lots = lotsByHand(fills);

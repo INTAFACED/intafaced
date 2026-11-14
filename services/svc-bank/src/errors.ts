@@ -438,6 +438,8 @@ export type BankErrorCode =
   | 'bank.add_money_request_missing'
   /** The partner said a pay-in was paid in another amount or currency than the payment it opened. Nothing is credited. */
   | 'bank.onramp_paid_mismatch'
+  | 'bank.onramp_delivery_missing'
+  | 'bank.wallet_delivery_unproven'
   /**
    * Crypto off-ramp has no published fee schedule. Zero is not assumed.
    * Kind fiat still refuses `bank.fiat_ramp_socket` before this.
@@ -1153,5 +1155,19 @@ export class BankError extends Error {
   ) {
     super(message);
     this.name = 'BankError';
+  }
+}
+
+/**
+ * The ledger's platform-wide posting freeze refused a personal send, and the refusal proves nothing posted
+ * (`provesPostNotCommitted`), so the reservation was abandoned (J-identity-14 #2). It reaches the customer as the
+ * ledger's own code, `ledger.frozen`, a definite refusal and never an unknown outcome, so the app says the platform is
+ * paused and never that this account is held. A freeze refusal that proves nothing stays a `LedgerError` (an unknown).
+ */
+export class LedgerFrozenRefusal extends Error {
+  readonly code = 'ledger.frozen' as const;
+  constructor(cause: unknown) {
+    super('ledger.frozen', { cause });
+    this.name = 'LedgerFrozenRefusal';
   }
 }

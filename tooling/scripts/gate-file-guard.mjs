@@ -42,6 +42,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { GitHubRefusalError, makeGh } from './gate-gh.mjs';
+import { BUDGET_TITLE, budgetLine, isBudgetText } from '../ci/api-budget.mjs';
 
 export const MARKER = '<!-- gate-file-guard -->';
 export const DEFAULT_REPO = 'Phantom-X-007/intafaced';
@@ -82,6 +83,8 @@ export const GATE_PATHS = [
   ['tooling/scripts/tooling-tests.mjs', 'which tooling tests the Doctrine gates run'],
   ['docs/runbooks/journey-baseline.json', "the steps the Real-app journeys run on main may fail, which decide that run's verdict"],
   ['docs/roadmap/journeys.json', 'the journey steps the journeys run, its verdict and the money rule read'],
+  ['.oxlintrc.json', "the lint rules the lint ratchet judges every pull request by (it reads main's copy)"],
+  ['tooling/lint/**', 'the garden lint plugin and the ratchet start dates the lint ratchet reads from main'],
   ['tooling/coverage-law-index.json', "the private law's structure, which decides coverage-check's chapter spans and blank-line refusals"],
 ];
 
@@ -200,6 +203,9 @@ async function main() {
     return result.ok ? 0 : 1;
   } catch (e) {
     console.error(`gate-file-guard: ${e.message}`);
+    // A spent hourly budget is a judge down, said where why-red.mjs reads it (an annotation), never a red of the change's own.
+    if (e instanceof GitHubRefusalError && isBudgetText(e.message))
+      console.error(`::error title=${BUDGET_TITLE}::gate-file-guard: ${budgetLine()}`);
     return e instanceof GitHubRefusalError ? 3 : 2;
   }
 }

@@ -259,11 +259,12 @@ export function personalPayError(code: string, detail?: string): PersonalPayErro
         PSP_BLOCKER,
       );
     case 'bank.global_payout_uncovered':
+      // The missing piece is the banking partner that pays out in that country: the outside rail `rail.bank`.
       return new PersonalPayError(
-        'No payout partner pays out to this destination: socket.psp-partners. Nothing was posted.',
+        'No payout partner pays out to this destination: rail.bank. Nothing was posted.',
         code,
         'PRECONDITION_FAILED',
-        PSP_BLOCKER,
+        'rail.bank',
       );
     case 'bank.global_payout_refused':
       return new PersonalPayError('The payout rail refused this send. Nothing remains posted.', code, 'PRECONDITION_FAILED', PSP_BLOCKER);

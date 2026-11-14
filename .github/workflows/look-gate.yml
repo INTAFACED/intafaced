@@ -10,9 +10,14 @@
 # judged by (the pull request's own copy runs only while main has none).
 name: Look gate
 
+# It runs on main after each merge, not on pull requests (project-state row d62, 14 Nov): nothing that decides a merge reads
+# it (the merge seal's inputs are CI, the CI review and the journeys a change needs), and on pull requests it took 3 runners
+# for a median 15 minutes on 1,587 runs in 7 days, beside the journey shards. A changed screen is still drawn and checked on
+# main's run after its merge, and by hand on any branch (workflow_dispatch).
 on:
   workflow_dispatch:
-  pull_request:
+  push:
+    branches: [main]
     paths:
       - 'apps/customer/**'
       - 'apps/admin/**'
@@ -24,8 +29,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: look-gate-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: look-gate-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
   TURBO_TELEMETRY_DISABLED: 1

@@ -51,6 +51,7 @@ const SUB_PAGES: readonly { readonly href: string; readonly label: string; reado
   { href: '/more-ops/venue-economics', label: 'Venue unit economics', keywords: ['cost'] },
   { href: '/more-ops/campaigns', label: 'Campaigns desk', keywords: ['campaign', 'builder', 'promotion', 'calendar'] },
   { href: '/more-ops/campaigns/waves', label: 'Waitlist waves', keywords: ['waitlist', 'campaigns', 'invite'] },
+  { href: '/more-ops/campaigns/watch', label: 'Campaign watch', keywords: ['campaign', 'codes', 'vouchers', 'export', 'alerts'] },
   { href: '/protocol-ops/listing', label: 'Protocol: pool and market control', keywords: ['delist', 'hide'] },
   { href: '/trade-ops/markets', label: 'Trade: markets', keywords: ['symbol', 'listing'] },
   { href: '/trade-ops/orders', label: 'Trade: orders', keywords: ['order', 'bust'] },

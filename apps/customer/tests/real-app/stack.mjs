@@ -361,6 +361,7 @@ export async function signUpInBrowser(page, who, { country = 'DE', dateOfBirth =
   await page.getByLabel('Handle').fill(who.handle);
   await page.getByLabel('Password').fill(who.password);
   await page.getByLabel('Country you live in').selectOption(country);
+  await page.getByRole('radio', { name: 'No, I am not a US person' }).check();
   await page.getByLabel('Date of birth').fill(dateOfBirth);
   await page.getByRole('button', { name: 'Create account' }).click();
   await page.getByRole('heading', { name: 'Check your email' }).waitFor();

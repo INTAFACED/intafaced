@@ -340,6 +340,18 @@ describe('public REST routes', () => {
     await app.close();
   });
 
+  it('GET /api/v1/futures/margin-modes names isolated as the one mode offered and refuses portfolio by its code, with no auth', async () => {
+    const app = await build();
+    const res = await app.inject({ method: 'GET', url: '/api/v1/futures/margin-modes' });
+    expect(res.statusCode).toBe(200);
+    const { modes } = res.json() as { modes: Array<{ mode: string; offered: boolean; code: string | null; reason: string | null }> };
+    expect(modes.filter((m) => m.offered).map((m) => m.mode)).toEqual(['isolated']);
+    expect(modes.find((m) => m.mode === 'portfolio')).toMatchObject({ offered: false, code: 'trade.portfolio_margin_unset' });
+    expect(modes.find((m) => m.mode === 'cross')).toMatchObject({ offered: false, code: 'trade.cross_margin_unsupported' });
+    for (const m of modes.filter((row) => !row.offered)) expect(m.reason).toEqual(expect.any(String));
+    await app.close();
+  });
+
   it('GET /api/v1/markets lists markets with no auth', async () => {
     const app = await build();
     const res = await app.inject({ method: 'GET', url: '/api/v1/markets?limit=50' });

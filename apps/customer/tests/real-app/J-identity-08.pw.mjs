@@ -40,6 +40,17 @@ async function atVerification(page) {
   return { who, ladder, rung: (level) => ladder.locator(`[data-testid="verification__rung"][data-level="${level}"]`) };
 }
 
+/**
+ * Open the bank's verification: /verification leads with the trading checks, and the ID and selfie steps open on this
+ * one click (trading asks for no ID document or selfie, OWNER 258 (4); J-cex-spot-01 #3).
+ */
+async function openBankVerification(page) {
+  await page
+    .getByRole('region', { name: 'Verification for the bank' })
+    .getByRole('button', { name: 'Start verification for the bank' })
+    .click();
+}
+
 /** Send the request form as it stands for `country`, through its review step. */
 async function sendRequest(page, country = 'DE') {
   await page.getByLabel('Country code').fill(country);
@@ -123,6 +134,7 @@ test(`${J} #2: guided verification resumes at the step left, a country with no d
     if (value && new URL(r.url()).pathname.startsWith('/api/identity/trpc/')) authorization = value;
   });
   await atVerification(page);
+  await openBankVerification(page);
   const guided = page.getByRole('region', { name: 'Guided verification' });
   const current = guided.getByTestId('verification__guided-steps').locator('li[aria-current="step"]');
   const cases = page.getByRole('region', { name: 'Case history' }).getByTestId('verification__case');
@@ -233,6 +245,7 @@ test(`${J} #3: with the face check switched off the selfie is kept for manual re
     });
     const page = await context.newPage();
     const { who } = await atVerification(page);
+    await openBankVerification(page);
     const selfie = page.getByTestId('verification__selfie');
     await expect(page.getByRole('heading', { name: 'Selfie and liveness' })).toBeVisible();
     await expect(selfie.getByTestId('verification__selfie-manual')).toHaveAttribute('data-face-check', 'not_connected');

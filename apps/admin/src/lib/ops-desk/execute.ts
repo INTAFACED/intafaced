@@ -53,6 +53,32 @@ export function readResidencyAnswer(raw: unknown): ResidencyAnswer | null {
   return { id: raw.id, status: raw.status };
 }
 
+interface CertRevocationAnswer {
+  readonly publicId: string;
+  readonly reason: string;
+  readonly revokedAt: string;
+}
+
+export function readCertRevocationAnswer(raw: unknown): CertRevocationAnswer | null {
+  if (!isRecord(raw) || typeof raw.publicId !== 'string' || typeof raw.reason !== 'string' || typeof raw.revokedAt !== 'string')
+    return null;
+  return { publicId: raw.publicId, reason: raw.reason, revokedAt: raw.revokedAt };
+}
+
+interface CertExceptionAnswer {
+  readonly publicId: string;
+  readonly userId: string;
+  readonly certId: string;
+  readonly reason: string;
+}
+
+export function readCertExceptionAnswer(raw: unknown): CertExceptionAnswer | null {
+  if (!isRecord(raw)) return null;
+  const { publicId, userId, certId, reason } = raw;
+  if (typeof publicId !== 'string' || typeof userId !== 'string' || typeof certId !== 'string' || typeof reason !== 'string') return null;
+  return { publicId, userId, certId, reason };
+}
+
 interface CardStatusAnswer {
   readonly cardId: string;
   readonly status: string;
@@ -322,6 +348,37 @@ export function opsExecute(ctx: FounderCallContext): ExecuteFn {
       const a = result.data;
       if (a.id !== request.id || a.status !== request.decision) return WRONG_STATE;
       return { ok: true, detail: `svc-academy answered and its returned application is ${a.status}.` };
+    }
+    if (request.kind === 'academy.cert.revoke') {
+      const result = await founderCall(
+        ctx,
+        'academy',
+        'admin.revokeCert',
+        'POST',
+        { publicId: request.publicId, reason: request.reason, ...ids },
+        readCertRevocationAnswer,
+      );
+      if (result.kind !== 'ok') return failureRefusal('svc-academy', 'academy', result);
+      const a = result.data;
+      if (a.publicId !== request.publicId) return WRONG_STATE;
+      return { ok: true, detail: `svc-academy answered: certificate ${a.publicId} is revoked, recorded ${a.revokedAt} ("${a.reason}").` };
+    }
+    if (request.kind === 'academy.cert.exception') {
+      const result = await founderCall(
+        ctx,
+        'academy',
+        'admin.grantCertException',
+        'POST',
+        { userId: request.userId, certId: request.certId, reason: request.reason, ...ids },
+        readCertExceptionAnswer,
+      );
+      if (result.kind !== 'ok') return failureRefusal('svc-academy', 'academy', result);
+      const a = result.data;
+      if (a.userId !== request.userId || a.certId !== request.certId) return WRONG_STATE;
+      return {
+        ok: true,
+        detail: `svc-academy answered: certificate ${a.certId} is issued to ${a.userId} as an exception, code ${a.publicId} ("${a.reason}").`,
+      };
     }
     if (request.kind === 'bank.card.status') {
       const result = await founderCall(

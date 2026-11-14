@@ -155,7 +155,8 @@ export async function markRequested(
   const rows = await locked(tx, record.userId, wanted);
   for (const cap of wanted) {
     const prior = rows.get(cap);
-    if (prior?.state === 'inactive' || prior?.state === 'pending') continue;
+    // An active one stays active (a trading clear's `trade_crypto` while the bank's request is reviewed).
+    if (prior?.state === 'inactive' || prior?.state === 'pending' || prior?.state === 'active') continue;
     await write(tx, record.userId, cap, prior, { state: 'pending', caseId: record.caseId, by: null, reasonCode: null, at: record.at });
   }
 }
@@ -253,11 +254,13 @@ export async function listCapabilities(
   userId: string,
   heldTier: KycTier,
   reasons: KycRejectReasons,
+  /** Capabilities held beside the level: the trading checks' clear holds trading alone (`TRADING_CAPABILITIES`). */
+  alsoHeld: readonly KycCapability[] = [],
 ): Promise<KycCapabilitiesOutput> {
   const rows = await sql<CapabilityRow[]>`
     SELECT capability, state, case_id, version, reason_code, at FROM kyc_capabilities WHERE user_id = ${userId}`;
   const byCap = new Map(rows.map((r) => [r.capability, r]));
-  const held = new Set(capabilitiesOfLevel(map, heldTier));
+  const held = new Set([...capabilitiesOfLevel(map, heldTier), ...alsoHeld.filter((cap) => lowestLevelOf(map, cap) !== null)]);
   return {
     mapped: map.size > 0,
     capabilities: KYC_CAPABILITIES.map((capability) => {

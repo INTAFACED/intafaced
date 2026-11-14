@@ -29,6 +29,11 @@
  *
  * Every run prints each changed test file's assertion count change, so a locator-only rewrite can show it kept them.
  *
+ * main-bisect's automatic revert (a `revert/auto-<sha10>` branch the factory App opened, one commit that says it reverts
+ * that commit, which main holds, and a diff that undoes exactly what that commit did: exact-revert.mjs) is not judged by
+ * 1-5: it returns the tests to main's from before that commit, which main's runs proved (autoRevert below; intafaced
+ * #8138 and #8149 were refused here for deleting the tests their culprits had added). 6 still applies to it.
+ *
  * Rules come from MAIN: CI runs the copy of this file on origin/main, never the
  * PR's copy, so a PR cannot loosen the guard it is judged by. (CI falls back to
  * the PR copy only while main has none, i.e. the PR that introduces it.)
@@ -36,6 +41,7 @@
  *   node tooling/ci/test-diff-guard.mjs                 uses origin/main, PR_BODY env
  *   node tooling/ci/test-diff-guard.mjs --self-test
  */
+import { AUTO_REVERT_AUTHOR, AUTO_REVERT_BRANCH, REVERTS_COMMIT, exactReverse, revertTreeMatches } from './exact-revert.mjs';
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { judgeRunsFor, leftToJudge } from './judged-paths.mjs';
@@ -166,6 +172,27 @@ export function assertionDeltas(changes) {
     .filter((c) => TEST_FILE.test(c.path) && c.status === 'M')
     .map((c) => ({ path: c.path, removed: count(c.removed), added: count(c.added) }))
     .filter((d) => d.removed || d.added);
+}
+
+/**
+ * The commit this pull request reverts, when it is main-bisect's automatic revert by every proof above; else null.
+ * `pr`: { ref, author, authorType, commits, headRepo, repo, headSha }; `read(args)`: git's output, throwing on a failure.
+ */
+export function autoRevert(pr, base, read) {
+  const branch = AUTO_REVERT_BRANCH.exec(String(pr?.ref ?? ''));
+  if (!branch || pr.author !== AUTO_REVERT_AUTHOR || pr.authorType !== 'Bot' || String(pr.commits) !== '1') return null;
+  if (!pr.repo || pr.headRepo !== pr.repo || !/^[0-9a-f]{40}$/.test(String(pr.headSha ?? ''))) return null;
+  try {
+    const culprit = REVERTS_COMMIT.exec(read(['log', '-1', '--format=%B', pr.headSha]))?.[1];
+    if (!culprit || !culprit.startsWith(branch[1])) return null;
+    if (read(['rev-list', '--parents', '-n', '1', culprit]).trim().split(' ').length !== 2) return null;
+    read(['merge-base', '--is-ancestor', culprit, base]);
+    const diff = read(['diff', '--no-renames', `${base}...${pr.headSha}`]);
+    const was = read(['diff', '--no-renames', `${culprit}^`, culprit]);
+    return exactReverse(diff, was) || revertTreeMatches(read, { culprit, head: pr.headSha }) ? culprit : null;
+  } catch {
+    return null;
+  }
 }
 
 function git(args) {
@@ -382,7 +409,52 @@ function selfTest() {
     2,
     'assertion delta counted',
   );
-  console.log('✓ test-diff-guard --self-test OK (62 fixtures)');
+  // main-bisect's automatic revert (intafaced #8138, #8149): every proof, and each one missing.
+  const C = 'c'.repeat(40);
+  const H = 'd'.repeat(40);
+  const was = 'diff --git a/t.test.ts b/t.test.ts\n--- a/t.test.ts\n+++ b/t.test.ts\n@@ -1,2 +1,3 @@\n a\n+expect(x).toBe(1);\n b\n';
+  const back = 'diff --git a/t.test.ts b/t.test.ts\n--- a/t.test.ts\n+++ b/t.test.ts\n@@ -1,3 +1,2 @@\n a\n-expect(x).toBe(1);\n b\n';
+  const pr = {
+    ref: `revert/auto-${C.slice(0, 10)}`,
+    author: 'intafaced-mac-agents[bot]',
+    authorType: 'Bot',
+    commits: '1',
+    headRepo: 'o/r',
+    repo: 'o/r',
+    headSha: H,
+  };
+  const reader =
+    ({ diff = back, msg = `Revert x\n\nThis reverts commit ${C}.\n`, onMain = true, parents = `${C} p` } = {}) =>
+    (args) => {
+      if (args[0] === 'log') return msg;
+      if (args[0] === 'rev-list') return parents;
+      if (args[0] === 'merge-base') {
+        if (!onMain) throw new Error('not an ancestor');
+        return '';
+      }
+      if (args[0] === 'diff') return args[2] === `${C}^` ? was : diff;
+      throw new Error(`unexpected git ${args.join(' ')}`);
+    };
+  eq(autoRevert(pr, 'origin/main', reader()), C, 'an automatic revert by every proof');
+  eq(autoRevert({ ...pr, author: 'someone' }, 'origin/main', reader()), null, 'not opened by the App');
+  eq(autoRevert({ ...pr, authorType: 'User' }, 'origin/main', reader()), null, 'not a Bot');
+  eq(autoRevert({ ...pr, ref: 'fix/x' }, 'origin/main', reader()), null, 'not a revert/auto- branch');
+  eq(autoRevert({ ...pr, commits: '2' }, 'origin/main', reader()), null, 'more than one commit');
+  eq(autoRevert({ ...pr, headRepo: 'fork/r' }, 'origin/main', reader()), null, 'from a fork');
+  eq(autoRevert(pr, 'origin/main', reader({ msg: 'no revert line' })), null, 'its commit says no revert');
+  eq(autoRevert(pr, 'origin/main', reader({ onMain: false })), null, 'the commit is not on main');
+  eq(autoRevert(pr, 'origin/main', reader({ parents: `${C} p q` })), null, 'a merge commit');
+  eq(
+    autoRevert(pr, 'origin/main', reader({ diff: back.replace('-expect(x).toBe(1);', '-expect(x).toBe(2);') })),
+    null,
+    'planted fault: not exactly its reverse',
+  );
+  eq(
+    autoRevert(pr, 'origin/main', reader({ diff: `${back}diff --git a/y.ts b/y.ts\n--- a/y.ts\n+++ b/y.ts\n@@ -1 +1 @@\n-a\n+b\n` })),
+    null,
+    'planted fault: one more file',
+  );
+  console.log('✓ test-diff-guard --self-test OK (73 fixtures)');
 }
 
 if (process.argv.includes('--self-test')) {
@@ -405,7 +477,24 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     repo: process.env.GITHUB_REPOSITORY,
   });
   if (judgeRuns) console.log("journey step files (J-*.pw.mjs) changed here are the test judge's (its verdict is required by the seal)");
-  const problems = judge(changes, { judgeRuns });
+  const reverted = autoRevert(
+    {
+      ref: process.env.PR_HEAD_REF,
+      author: process.env.PR_AUTHOR,
+      authorType: process.env.PR_AUTHOR_TYPE,
+      commits: process.env.PR_COMMITS,
+      headRepo: process.env.PR_HEAD_REPO,
+      repo: process.env.GITHUB_REPOSITORY,
+      headSha: process.env.PR_HEAD_SHA,
+    },
+    base,
+    git,
+  );
+  if (reverted)
+    console.log(
+      `main-bisect's automatic revert of ${reverted.slice(0, 10)}: its diff undoes exactly that commit, which main holds, so checks 1-5 don't judge it (its tests return to main's from before it)`,
+    );
+  const problems = reverted ? [] : judge(changes, { judgeRuns });
   const baselines = judgeBaselines(changes, body);
   for (const n of baselines.notices) console.log(`⚠ ${n.path}\n    → ${n.why}`);
   const esc = (t) => String(t).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');

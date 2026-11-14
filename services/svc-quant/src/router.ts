@@ -28,6 +28,8 @@ import {
   quantTemplateDetailSchema,
   quantTemplateIdSchema,
   quantTemplateListOutputSchema,
+  quantTemplateListingInputSchema,
+  quantTemplateListingSchema,
   quantTemplatePublishInputSchema,
   quantTemplateVersionSchema,
   router,
@@ -42,16 +44,29 @@ import {
   quantQuotaSchema,
   quantQuotaSetInputSchema,
   quantQuotaSetOutputSchema,
+  quantTierListSchema,
+  quantTierSetInputSchema,
+  quantTierSetOutputSchema,
   QUANT_QUOTA_RESOURCES,
   QUANT_PAPER_FEEDS,
   QUANT_PAPER_LIST_MAX,
   quantPaperListSchema,
   quantPaperRunSchema,
   quantPaperStartInputSchema,
+  QUANT_ALERT_LIST_MAX,
+  quantAlertCreateInputSchema,
+  quantAlertListSchema,
+  quantAlertSchema,
+  quantNotifySetInputSchema,
+  quantNotifySettingsSchema,
   quantCriteriaSchema,
   quantCriteriaSetInputSchema,
   quantLifecycleSchema,
   quantPromoteInputSchema,
+  quantLiveCheckInputSchema,
+  quantLiveCheckSchema,
+  quantLiveDeployInputSchema,
+  type QuantLiveCheck,
   quantPromoteOutputSchema,
   QUANT_OWNER_CRITERIA,
   type QuantLifecycle,
@@ -115,6 +130,7 @@ import {
   QUANT_RUN_UNFINISHED,
   QUANT_SANDBOX_MAX_OPS_UNSET,
   QUANT_SANDBOX_MAX_SOURCE_UNSET,
+  QUANT_PAPER_FEE_UNSET,
   QUANT_SANDBOX_UNWIRED,
   QUANT_SIMULATED_AS_LIVE,
   QUANT_STRATEGY_VERSION_UNSET,
@@ -128,6 +144,10 @@ import {
   QUANT_PAPER_LIST_LIMIT_UNSET,
   QUANT_BACKTEST_RULES_REQUIRED,
   QUANT_CRITERIA_REASON_UNSET,
+  QUANT_LIVE_DISABLED,
+  QUANT_LIVE_PLAN_UNSUPPORTED,
+  QUANT_LIVE_ORDER_TYPE_UNSUPPORTED,
+  QUANT_LIVE_DEPLOY_UNAVAILABLE,
   QUANT_GATE_CRITERIA_UNSET,
   QUANT_STAGE_TRANSITION_INVALID,
   QuantError,
@@ -136,9 +156,12 @@ import { createMemoryLifecycleRepository } from './lifecycle/memory-repository.j
 import type { LifecycleRepository } from './lifecycle/repository.js';
 import { evaluateGate, GATE_CRITERION_NAMES, gateCriteriaOf, OWNER_CRITERION_FORMAT, verdictCriteriaOf } from './lifecycle/gate.js';
 import { paperKey, paperSettingsOf, paperView } from './paper/view.js';
+import { openNotifyRepository } from './notify/open.js';
+import type { NotifyRepository, StoredAlert } from './notify/repository.js';
+import { alertKey, checkChannels, checkTemplate } from './notify/rules.js';
 import type { StoredPaperRun } from './runs/types.js';
 import { createMemoryQuota } from './quota/memory.js';
-import { parseLimit, type QuotaRepository } from './quota/quota.js';
+import { parseLimit, parseWhole, type QuotaRepository } from './quota/quota.js';
 import type { DisclosureRepository } from './disclosure/repository.js';
 import { openDisclosureRepository } from './disclosure/open.js';
 import type { TemplateRepository } from './templates/repository.js';
@@ -164,6 +187,7 @@ import { requireStudioOperator, resolveStudioAccount, STUDIO_SERVICE_ALLOWLIST }
 import { publicResultOf, reportOf } from './report/document.js';
 import type { ShareRepository } from './share/repository.js';
 import { withQuantSpan } from './tracing.js';
+import { liveCheck } from './live/check.js';
 import { createPreviewRouter } from './preview/preview.js';
 
 const simulatedStamp = z.object({
@@ -191,6 +215,52 @@ const fillSchema = z.object({
   venue: z.literal('internal'),
 });
 
+const rejectReason = z.enum([
+  'quantity invalid',
+  'price invalid',
+  'time in force invalid',
+  'unknown symbol',
+  'limit hit',
+  'insufficient cash',
+  'exceeds position',
+  'no short rule',
+  'unknown order',
+  'not open',
+]);
+
+/** One event of one paper order (AL-orders-01). */
+const orderEventSchema = z.object({
+  seq: z.number().int(),
+  order: z.string(),
+  kind: z.enum(['new', 'accepted', 'filled', 'rejected', 'cancel_pending', 'cancelled']),
+  type: z.enum(['market', 'limit']),
+  side: z.enum(['buy', 'sell']),
+  symbol: z.string(),
+  qty: z.string(),
+  tif: z.enum(['gtc', 'ioc']),
+  market: z.string(),
+  limit: z.string().optional(),
+  price: z.string().optional(),
+  reason: rejectReason.optional(),
+  notional: z.string().optional(),
+  fee: z.string().optional(),
+  cash: z.string().optional(),
+  position: z.string().optional(),
+  reserved: z.string().optional(),
+});
+
+/** One leg of a reversal, each checked on its own (AL-orders-02). */
+const reverseLegSchema = z.object({
+  leg: z.enum(['close', 'open']),
+  side: z.enum(['buy', 'sell']),
+  symbol: z.string(),
+  qty: z.string(),
+  checked: z.literal(true),
+  outcome: z.enum(['filled', 'refused']),
+  order: z.string(),
+  reason: rejectReason.nullable(),
+});
+
 const runOutput = z
   .object({
     ok: z.literal(true),
@@ -200,6 +270,9 @@ const runOutput = z
     pnl: z.string(),
     fills: z.array(fillSchema),
     positions: z.array(z.object({ symbol: z.string(), qty: z.string() })),
+    events: z.array(orderEventSchema),
+    legs: z.array(reverseLegSchema),
+    ticks: z.object({ label: z.literal('TEST'), path: z.record(z.string(), z.array(z.string())) }),
     venue: z.literal('internal'),
     venueVault: z.enum(['unset', 'set']),
   })
@@ -235,6 +308,7 @@ function toTrpc(err: unknown): never {
         : err.code === QUANT_SANDBOX_UNWIRED ||
             err.code === QUANT_SANDBOX_MAX_OPS_UNSET ||
             err.code === QUANT_SANDBOX_MAX_SOURCE_UNSET ||
+            err.code === QUANT_PAPER_FEE_UNSET ||
             err.code === QUANT_BACKTEST_LAKE_MISSING ||
             err.code === QUANT_BACKTEST_FILLS_MISSING ||
             err.code === QUANT_STUDIO_LIST_LIMIT_UNSET ||
@@ -256,6 +330,8 @@ function toTrpc(err: unknown): never {
             err.code === QUANT_QUOTA_PROFILE_UNSET ||
             err.code === QUANT_GATE_CRITERIA_UNSET ||
             err.code === QUANT_STAGE_TRANSITION_INVALID ||
+            err.code === QUANT_LIVE_DISABLED ||
+            err.code === QUANT_LIVE_DEPLOY_UNAVAILABLE ||
             err.code === 'quant.venue_vault_unset'
           ? 'PRECONDITION_FAILED'
           : err.code === QUANT_DATABASE_URL_UNSET || err.code === QUANT_DATABASE_POOL_MAX_UNSET
@@ -428,6 +504,11 @@ export interface QuantRouterDeps extends SandboxDeps {
    */
   readonly quota?: QuotaRepository;
   /**
+   * Strategy notification channels and fill alerts (AL-live-06, AL-alerts-01). Omitted refuses by naming the missing
+   * database; unit tests pass the in-memory store.
+   */
+  readonly notify?: NotifyRepository;
+  /**
    * The lifecycle store (AL-lifecycle-01): stage rows, gate decisions and the owner criteria an operator sets at
    * runtime. Omitted in unit tests: an in-memory store with nothing set.
    */
@@ -468,6 +549,18 @@ const accountField = { accountId: z.string().guid().optional() };
 const writeKeyField = { idempotencyKey: z.string().optional().nullable() };
 const clientIdField = { clientStrategyId: z.string().optional().nullable() };
 
+/** A stored alert as the screen reads it. */
+function alertView(row: StoredAlert) {
+  return {
+    alertId: row.id,
+    strategyId: row.strategyId,
+    strategyVersion: row.strategyVersion,
+    event: 'fill' as const,
+    template: row.template,
+    createdAt: row.createdAt,
+  };
+}
+
 export function createQuantRouter(deps: QuantRouterDeps) {
   const strategies = deps.strategies ?? openStrategyRepository({}).repository;
   const runs = deps.runs ?? createMemoryRunRepository('runResultCap' in deps ? deps.runResultCap : RUN_RESULT_MAX_BYTES);
@@ -479,6 +572,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
   const disclosure = deps.disclosure ?? openDisclosureRepository({}).repository;
   const templates = deps.templates ?? openTemplateRepository({}).repository;
   const quota = deps.quota ?? createMemoryQuota({ defaultProfile: null }).repository;
+  const notify = deps.notify ?? openNotifyRepository({}).repository;
   const lifecycle = deps.lifecycle ?? createMemoryLifecycleRepository();
 
   /**
@@ -530,6 +624,36 @@ export function createQuantRouter(deps: QuantRouterDeps) {
       asOf: new Date(now()).toISOString(),
     };
   }
+  /**
+   * The deploy wizard's compile check of one version (AL-live-02; J-algo-dev-06 #6), with the platform's live switch as
+   * the owner set it now (`live.enabled`; blank, unreadable or anything but `on` is off). Writes nothing.
+   */
+  async function liveCheckOf(accountId: string, strategyId: string, strategyVersion: number): Promise<QuantLiveCheck> {
+    const found = await strategies.get({ accountId, id: strategyId });
+    const version = found && !found.deletedAt ? found.versions.find((row) => row.version === strategyVersion) : undefined;
+    if (!found || !version) missingStrategy();
+    const reading = liveCheck(version);
+    return {
+      strategyId: found.id,
+      strategyVersion,
+      name: version.name,
+      plan: reading.plan,
+      orderTypes: reading.orderTypes,
+      compiles: reading.compiles,
+      liveEnabled: await liveSwitchOn(),
+      asOf: new Date(now()).toISOString(),
+    };
+  }
+
+  /** The platform's live switch: on only when an operator stored `on`. Any failure to read it is off. */
+  async function liveSwitchOn(): Promise<boolean> {
+    try {
+      return (await lifecycle.criteria()).some((row) => row.name === 'live.enabled' && row.value === 'on');
+    } catch {
+      return false;
+    }
+  }
+
   /** A paper run as the screen reads it, from its own strategy version. */
   async function presentPaper(accountId: string, paper: StoredPaperRun) {
     const found = await strategies.get({ accountId, id: paper.run.strategyId ?? '' });
@@ -1081,6 +1205,125 @@ export function createQuantRouter(deps: QuantRouterDeps) {
         }),
     }),
 
+    /**
+     * A strategy's notification channels (AL-live-06). In-app is always on; email, SMS and push are kept and go out through
+     * svc-notify, refused there by name while the platform has no sender. A webhook or chat app refuses
+     * `quant.notify_channel_unavailable` and nothing is saved. Another account's strategy is not found.
+     */
+    notify: router({
+      get: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ strategyId: z.string().min(1).max(128), ...accountField }))
+        .output(quantNotifySettingsSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const found = await strategies.get({ accountId, id: input.strategyId });
+            if (!found || found.deletedAt) missingStrategy();
+            const saved = await notify.settings({ accountId, strategyId: found.id });
+            return {
+              strategyId: found.id,
+              channels: saved ? [...saved.channels] : ['inapp' as const],
+              updatedAt: saved?.updatedAt ?? null,
+            };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+      set: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantNotifySetInputSchema.extend(accountField))
+        .output(quantNotifySettingsSchema)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const found = await strategies.get({ accountId, id: input.strategyId });
+            if (!found || found.deletedAt) missingStrategy();
+            const channels = checkChannels(input.channels);
+            const saved = await notify.saveSettings({ accountId, strategyId: found.id, channels });
+            return { strategyId: found.id, channels: [...saved.channels], updatedAt: saved.updatedAt };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+    }),
+
+    /**
+     * Fill alerts (AL-alerts-01): one strategy version and a message template from allow-listed fields. The alert keeps
+     * the version, never the parameters, so a later change to the strategy leaves it as it was. The server announces each
+     * fill once, with no browser open (`notify/sweep.ts`). An unknown field refuses `alert.template_invalid`.
+     */
+    alert: router({
+      list: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ strategyId: z.string().min(1).max(128), ...accountField }))
+        .output(quantAlertListSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const found = await strategies.get({ accountId, id: input.strategyId });
+            if (!found || found.deletedAt) missingStrategy();
+            const rows = await notify.alerts({ accountId, strategyId: found.id, limit: QUANT_ALERT_LIST_MAX });
+            return { alerts: rows.map(alertView) };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+      create: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantAlertCreateInputSchema.extend(accountField))
+        .output(quantAlertSchema)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const found = await strategies.get({ accountId, id: input.strategyId });
+            if (!found || found.deletedAt) missingStrategy();
+            const key = alertKey(found.id, accountId, input.ordinal);
+            const version = found.versions.find((row) => row.version === input.strategyVersion);
+            if (!version) throw new QuantError(QUANT_VERSION_NOT_FOUND, `version ${input.strategyVersion} not found`);
+            const template = checkTemplate(input.template);
+            const existing = await notify.alerts({ accountId, strategyId: found.id, limit: QUANT_ALERT_LIST_MAX });
+            if (existing.length >= QUANT_ALERT_LIST_MAX && !existing.some((row) => row.key === key)) {
+              throw new QuantError('quant.params_invalid', `alerts — a strategy holds at most ${QUANT_ALERT_LIST_MAX} alerts`);
+            }
+            const saved = await notify.createAlert({ accountId, strategyId: found.id, strategyVersion: version.version, template, key });
+            return alertView(saved);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+    }),
+
+    tier: router({
+      /**
+       * The published compute tiers (RC-algo-dev-05): each tier's data freshness, priority class and the limits of its
+       * profile, blank values null ("not set"), and the profile that applies to the caller. None published: an empty list.
+       */
+      list: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ ...accountField }).optional())
+        .output(quantTierListSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input?.accountId);
+            const [applied, published] = await Promise.all([quota.applied(accountId), quota.tiers()]);
+            const tiers = await Promise.all(
+              published.map(async (tier) => {
+                const rows = await quota.limits(tier.profile);
+                return {
+                  profile: tier.profile,
+                  dataFreshnessSeconds: tier.dataFreshnessSeconds?.toString() ?? null,
+                  priorityClass: tier.priorityClass?.toString() ?? null,
+                  limits: QUANT_QUOTA_RESOURCES.map((resource) => {
+                    const limit = rows.find((row) => row.resource === resource)?.limit ?? null;
+                    return { resource, limit: limit === null ? null : limit.toString() };
+                  }),
+                  setAt: tier.setAt,
+                };
+              }),
+            );
+            return { current: applied ? { profile: applied.name, source: applied.source } : null, tiers };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+    }),
+
     paper: router({
       /**
        * Starts a paper run of one saved signal-rules version on the exchange's own prices (AL-live-01). The key is derived
@@ -1285,6 +1528,57 @@ export function createQuantRouter(deps: QuantRouterDeps) {
               if (!kept)
                 throw new QuantError(QUANT_STAGE_TRANSITION_INVALID, 'paper to candidate — this version already reached candidate');
               return { ...kept, lifecycle: await lifecycleOf(accountId, input.strategyId, input.strategyVersion) };
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+        ),
+    }),
+
+    live: router({
+      /** The deploy wizard's compile check of one version: what it would place live and whether it can. Writes nothing. */
+      check: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantLiveCheckInputSchema.extend(accountField))
+        .output(quantLiveCheckSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            return await liveCheckOf(accountOf(ctx, input.accountId), input.strategyId, input.strategyVersion);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      /**
+       * Deploy (AL-live-02; J-algo-dev-06 #7). With the platform's live switch off it refuses `quant.live_disabled` and
+       * nothing is written: no deploy intent, no run, nothing asked of the wallet. A version the runner can't trade
+       * refuses with the compile check's code. With live on and a version that compiles, the funding move and the live
+       * run after it are absent from this service (J-algo-dev-06 #8 builds them), so it refuses `quant.live_deploy_unavailable`
+       * and still writes nothing. No money moves on any path.
+       */
+      deploy: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantLiveDeployInputSchema.extend(accountField))
+        .output(z.never())
+        .mutation(async ({ input, ctx }) =>
+          withQuantSpan('quant.live.deploy', { language: 'none' }, async () => {
+            try {
+              const check = await liveCheckOf(accountOf(ctx, input.accountId), input.strategyId, input.strategyVersion);
+              if (!check.liveEnabled) {
+                throw new QuantError(
+                  QUANT_LIVE_DISABLED,
+                  'live trading for strategies is switched off on INTAFACED; nothing was deployed and nothing was stored',
+                );
+              }
+              const refused = check.orderTypes.find((row) => !row.supported);
+              if (refused) {
+                throw new QuantError(
+                  refused.code === 'quant.live_plan_unsupported' ? QUANT_LIVE_PLAN_UNSUPPORTED : QUANT_LIVE_ORDER_TYPE_UNSUPPORTED,
+                  `${refused.source} — a live deploy can't place it; nothing was stored`,
+                );
+              }
+              throw new QuantError(
+                QUANT_LIVE_DEPLOY_UNAVAILABLE,
+                'this build makes no funding move and starts no live run; nothing was stored',
+              );
             } catch (err) {
               toTrpc(err);
             }
@@ -2165,6 +2459,32 @@ export function createQuantRouter(deps: QuantRouterDeps) {
             }
           }),
 
+        /** Publishes or withdraws the compute tier on one profile (RC-algo-dev-05). A reason is required and kept with the actor. */
+        tier: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
+          .input(quantTierSetInputSchema)
+          .output(quantTierSetOutputSchema)
+          .mutation(async ({ input, ctx }) => {
+            try {
+              const reason = quotaReason(input.reason);
+              const saved = await quota.setTier({
+                profile: input.profile,
+                dataFreshnessSeconds: parseWhole('dataFreshnessSeconds', input.dataFreshnessSeconds),
+                priorityClass: parseWhole('priorityClass', input.priorityClass),
+                published: input.published,
+                reason,
+                actor: ctx.principal.userId,
+                idempotencyKey: input.idempotencyKey,
+              });
+              return {
+                ...saved,
+                dataFreshnessSeconds: saved.dataFreshnessSeconds?.toString() ?? null,
+                priorityClass: saved.priorityClass?.toString() ?? null,
+              };
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+
         /** One profile's limits as stored. */
         profile: scopedProcedure('admin:read', { module: 'quant', plane: 'fiat' })
           .input(z.object({ profile: z.string().trim().min(1).max(80) }))
@@ -2204,6 +2524,26 @@ export function createQuantRouter(deps: QuantRouterDeps) {
                   idempotencyKey: input.idempotencyKey,
                 });
                 return { ...published };
+              } catch (err) {
+                toTrpc(err);
+              }
+            }),
+          ),
+
+        /** Withdraws a starter template from the list or restores it. Its versions stay; the row records who, why and when. */
+        listing: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
+          .input(quantTemplateListingInputSchema)
+          .output(quantTemplateListingSchema)
+          .mutation(async ({ input, ctx }) =>
+            withQuantSpan('quant.ops.template.listing', { language: 'none' }, async () => {
+              try {
+                return await templates.setListed({
+                  id: input.id,
+                  listed: input.listed,
+                  reason: input.reason,
+                  setBy: ctx.principal.userId,
+                  idempotencyKey: input.idempotencyKey,
+                });
               } catch (err) {
                 toTrpc(err);
               }

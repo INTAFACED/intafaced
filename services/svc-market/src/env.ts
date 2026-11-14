@@ -69,6 +69,20 @@ const schema = serviceEnvSchema
       MARKET_REFUND_WINDOW_SECONDS: blankAsAbsent(z.coerce.number().int().min(1).max(31_536_000).optional()),
       MARKET_RELEASE_SWEEP_SECONDS: blankAsAbsent(z.coerce.number().int().min(1).max(86_400).optional()),
       MARKET_REFUND_POLICY: blankAsAbsent(z.enum(['seller_full']).optional()),
+
+      /**
+       * svc-trade's internal address: a signal provider's own fill count (CB-bots-api-signal-05). Blank, every signal
+       * publish refuses `market.provider_record_unavailable`; no record is guessed.
+       */
+      TRADE_URL: z.string().url().optional(),
+
+      /**
+       * J-copy-bots-otc-22, the owner's signal provider criteria, with no default: the lowest verification tier a provider
+       * holds, and the fewest fills of their own orders (their track record). Either blank, every signal publish refuses
+       * `market.provider_criteria_not_set`.
+       */
+      MARKET_SIGNAL_PROVIDER_MIN_TIER: blankAsAbsent(z.enum(['basic', 'full', 'institutional']).optional()),
+      MARKET_SIGNAL_PROVIDER_MIN_FILLS: blankAsAbsent(z.coerce.number().int().min(1).max(1_000_000).optional()),
     }),
   );
 
