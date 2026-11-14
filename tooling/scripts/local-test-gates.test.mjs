@@ -270,9 +270,12 @@ assert.deepEqual(fraudListingFields({ network: 'Base', address: 'bc1Qx', listed:
   revision: '3',
   reason: 'LOCAL TEST: y',
 });
-const journey05 = readFileSync(resolve(here, '..', '..', 'apps', 'customer', 'tests', 'real-app', 'J-wallet-05.pw.mjs'), 'utf8');
+const journey05 = readFileSync(resolve(here, '..', '..', 'apps', 'customer', 'tests', 'real-app', 'wallet-withdraw.mjs'), 'utf8');
 for (const listed of TEST_FRAUD_LIST) {
-  assert.ok(journey05.includes(`FRAUD_LISTED = '${listed.address}'`), 'J-wallet-05 #2 lists another address; keep them the same');
+  assert.ok(
+    journey05.includes(`FRAUD_LISTED = '${listed.address}'`),
+    'J-wallet-05 #2 (its address in wallet-withdraw.mjs) lists another address; keep them the same',
+  );
   assert.match(listed.reason, /^LOCAL TEST: .{10,}/);
 }
 
