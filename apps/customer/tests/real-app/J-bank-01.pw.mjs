@@ -1,12 +1,14 @@
 // World: restart
 import { randomUUID } from 'node:crypto';
 import { test, expect } from './journey.mjs';
-import { DEVICE_KEY, EDGE, ORIGIN, fund, journeyState, toUnits, tool } from './stack.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, api, journeyState, toUnits, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { withPartner } from './partner.mjs';
 
 // J-bank-01, in the running app (docs/roadmap/journeys.json): I open my bank, see my accounts and spaces, and create one.
-// One test per step, titled "J-bank-01 #<n>", run in order on one TEST account funded with TEST 100 USDT. The stack
+// One test per step, titled "J-bank-01 #<n>", run in order on one TEST account whose bank money the stack's TEST partner
+// bank holds (`testPartner.set({ custody: 'off' })`, the launch model, OWNER 226), funded there with TEST 100 USDT
+// (`testPartner.fund`, the partner's figure, no ledger post). The ledger holds and posts nothing of it. The stack
 // publishes labelled TEST account terms, a TEST currency list, a TEST space limit of 5 and TEST currencies for account
 // details (tooling/scripts/local-test-stack.mjs, svc-bank). Balances are read through the person's own bank API. Step 7 opens
 // a TEST business through that API, so the person has a business profile to switch to.
@@ -89,12 +91,23 @@ async function withBankValueBlank(key, fn) {
   }
 }
 const named = (rows, name) => rows.find((s) => s.kind === 'named' && s.name === name);
+const PARTNER_BANK = 'TEST partner bank';
+/** The ledger's USDT figures for `who`, in units: their bank money is the partner's, so these never change. */
+async function ledgerUsdt(who) {
+  const row = (await (await api(who)).balances()).USDT;
+  return row ? { free: toUnits(row.free), used: toUnits(row.used), total: toUnits(row.total) } : null;
+}
 
 test(`${J} #1 opens /bank and sees its own Overview with the Bank rooms`, async ({ page }) => {
   const who = await signUp(page, 'jbk');
   await verify(page, who);
-  expect(fund(who.email, 'USDT', '100').tx).toBeTruthy();
-  run.reset({ who });
+  // The person's bank money is held at the TEST partner bank and paid in there: nothing is posted to the ledger.
+  const own = await bank(who);
+  expect((await own.mutate('testPartner.set', { custody: 'off' })).ok).toBe(true);
+  const funded = await own.mutate('testPartner.fund', { fundId: `jb01-${who.email}`.slice(0, 64), assetId: 'USDT', amount: '100' });
+  expect(funded, JSON.stringify(funded.body ?? {}).slice(0, 300)).toMatchObject({ ok: true, data: { balance: '100' } });
+  expect(main(await spaces(who))).toMatchObject({ balance: '100', ledgerAccount: null, heldAt: { label: PARTNER_BANK } });
+  run.reset({ who, ledger: await ledgerUsdt(who) });
 
   await signIn(page, who);
   await page.goto('/bank');
@@ -249,6 +262,8 @@ test(`${J} #5 moves TEST 20 from the main balance into the space, and a locked s
   const who = person();
   const before = await spaces(who);
   const trip = named(before, SPACE);
+  const ledgerBefore = await ledgerUsdt(who);
+  expect(ledgerBefore, 'the ledger is where #1 left it').toEqual(run.read().ledger);
   await signIn(page, who);
   await page.goto('/bank/transfers');
   await page.getByLabel('From your space').selectOption(main(before).id);
@@ -257,14 +272,35 @@ test(`${J} #5 moves TEST 20 from the main balance into the space, and a locked s
   await dialog.getByLabel('To which of your accounts').selectOption(trip.id);
   await dialog.getByLabel(/Amount/).fill('20');
   await dialog.getByRole('button', { name: 'Review' }).click();
+  const answered = page.waitForResponse(
+    (res) => res.request().method() === 'POST' && res.url().includes('/api/bank/trpc/transfers.create'),
+  );
   await dialog.getByRole('button', { name: 'Confirm' }).click();
-  await expect(dialog.getByText(/ledger/i).first()).toBeVisible();
+  const reply = await answered;
+  const sent = reply.request().postDataJSON();
+  const made = (await reply.json()).result.data;
+  // One partner move, keyed by the transfer id the app sent, and no ledger transaction.
+  expect(made).toMatchObject({ ledgerTxId: null, amount: '20', partnerMove: { label: PARTNER_BANK } });
+  await expect(dialog).toContainText('Partner bank move');
+  await expect(dialog).toContainText(made.partnerMove.id);
+  await expect(dialog).toContainText('None: the partner bank holds this money');
 
   const after = await spaces(who);
   expect(toUnits(main(before).balance) - toUnits(main(after).balance)).toBe(toUnits('20'));
   expect(toUnits(named(after, SPACE).balance) - toUnits(trip.balance)).toBe(toUnits('20'));
-  // The sum of the spaces is still the ledger total.
-  expect(toUnits(main(after).balance) + toUnits(named(after, SPACE).balance)).toBe(toUnits('100'));
+  for (const space of [main(after), named(after, SPACE)])
+    expect(space).toMatchObject({ ledgerAccount: null, heldAt: { label: PARTNER_BANK } });
+  // The spaces plus the main balance shown are the partner's total: the 100 it was paid in.
+  const usdt = after.filter((s) => s.assetId === 'USDT' && !s.archivedAt);
+  expect(usdt.reduce((sum, s) => sum + toUnits(s.balance), 0n)).toBe(toUnits('100'));
+  // The same transfer id again is the same move, made once: the partner answers with it and nothing moves twice.
+  const again = await (await bank(who)).mutate('transfers.create', sent);
+  expect(again).toMatchObject({ ok: true, data: { ledgerTxId: null, partnerMove: { id: made.partnerMove.id } } });
+  const twice = await spaces(who);
+  expect(main(twice).balance).toBe(main(after).balance);
+  expect(named(twice, SPACE).balance).toBe(named(after, SPACE).balance);
+  // The ledger posted nothing.
+  expect(await ledgerUsdt(who)).toEqual(ledgerBefore);
 
   // The move is in the history, on the space it went to.
   await page.goto('/money/activity');
