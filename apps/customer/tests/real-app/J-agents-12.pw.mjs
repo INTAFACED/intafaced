@@ -564,6 +564,8 @@ test(`${J} #4 retrieves the finished run: the stored reply, cost and refusal cod
     cost: kept('cost'),
     assetId: kept('assetId'),
     metered: true,
+    // An ask that names no market is not research: it carries no provenance (J-agents-10 #4).
+    provenance: null,
     refusalCodes: [],
     ...stamps,
   });
@@ -580,6 +582,8 @@ test(`${J} #4 retrieves the finished run: the stored reply, cost and refusal cod
     cost: kept('laterCost'),
     assetId: kept('assetId'),
     metered: true,
+    // An ask that names no market is not research: it carries no provenance (J-agents-10 #4).
+    provenance: null,
     refusalCodes: [],
     ...stamps,
   });
@@ -596,6 +600,7 @@ test(`${J} #4 retrieves the finished run: the stored reply, cost and refusal cod
     cost: null,
     assetId: null,
     metered: null,
+    provenance: null,
     refusalCodes: [TASK_REFUSAL.code],
     ...stamps,
   });

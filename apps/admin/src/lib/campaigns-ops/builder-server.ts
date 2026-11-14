@@ -109,7 +109,7 @@ function reply(result: FounderCallResult<Campaign | null>, what: string): { stat
 
 export type CheckedInput<T> = { ok: true; input: T } | { ok: false; why: string };
 
-const check =
+export const check =
   <T>(schema: { safeParse: (value: unknown) => { success: true; data: T } | { success: false } }, why: string) =>
   (input: unknown): CheckedInput<T> => {
     const parsed = schema.safeParse(input);
@@ -155,7 +155,7 @@ export type RuleReply<T> =
   | { readonly ok: false; readonly title: string; readonly body: string; readonly next: string; readonly code: string | null };
 
 /** A rule door's answer: the data, or the service's own sentence and code. */
-function ruleReply<T>(result: FounderCallResult<T>): { status: number; reply: RuleReply<T> } {
+export function ruleReply<T>(result: FounderCallResult<T>): { status: number; reply: RuleReply<T> } {
   if (result.kind === 'ok') return { status: 200, reply: { ok: true, data: result.data } };
   const code = result.kind === 'refused' || result.kind === 'forbidden' ? (result.refusal.code ?? null) : null;
   const status = result.kind === 'refused' ? result.refusal.status : result.kind === 'forbidden' ? 403 : 502;

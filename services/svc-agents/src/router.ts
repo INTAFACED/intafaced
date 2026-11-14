@@ -42,6 +42,7 @@ import { watchApprovalFixtures } from './merchant/watch.js';
 import { runMerchantWatchSession } from './merchant/session-run.js';
 import type { PayMetricsPort } from './merchant/pay-metrics-port.js';
 import type { SpotTickersPort } from './scanner/spot-tickers-port.js';
+import type { ResearchEnvironment } from '@intafaced/contracts/agents-research';
 import type { CopyLeaderFixturesPort } from './copy-intel/live-leader-fixtures-port.js';
 import { REFUSAL_CODES, serialiseGuardrail, toolRefusalCodes } from './fleet/guardrails.js';
 import { draftTicketComment } from './support-agent/comment-draft.js';
@@ -322,6 +323,11 @@ export interface AgentsRouterDeps {
   readonly ownCadence?: Cadence;
   /** Background runs of a person's sessions (AG-sessions-04, J-agents-06). Absent is blank: a new one refuses. */
   readonly sessionRuns?: SessionRunSettings;
+  /**
+   * Research answers' provenance (RC-agents-09): the owner's uncertainty scale (null is blank: a research answer refuses
+   * agents.uncertainty_scale_unset) and where this deployment's market data is. Absent is blank.
+   */
+  readonly research?: { readonly scale: readonly string[] | null; readonly environment: ResearchEnvironment };
   /** Identity's list of a person's linked wallets, for an own agent's payment method (J-agents-02 #4). */
   readonly ownLinkedWallets?: LinkedWalletsPort | null;
   readonly gateway: ModelGateway;

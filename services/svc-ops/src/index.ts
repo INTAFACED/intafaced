@@ -54,6 +54,7 @@ import { OpsService } from './ops-service.js';
 import { OPS_IDENTITY_UNWIRED, OPS_SUPPORT_UNWIRED, OpsError } from './codes.js';
 import { opsReadyUrlHonesty } from './ready-honesty.js';
 import { homeConfigFromEnv } from './home-config.js';
+import { valuationPricesFromEnv } from './valuation-prices.js';
 import { createEvaluationFeedClient } from './reconciliation-alerts/feed-client.js';
 import { ingestReconciliationEvaluations } from './reconciliation-alerts/ingest.js';
 import { ReconciliationAlertStore } from './reconciliation-alerts/store.js';
@@ -239,6 +240,11 @@ const appRouter = createOpsRouter(
     incidentSeverities: parseIncidentSeverities(env.OPS_INCIDENT_SEVERITIES),
     staffHolds,
     homeConfig: homeConfigFromEnv(env),
+    // A TEST price list only on a test stack (refuses to start elsewhere); blank, nothing is valued.
+    valuationPrices: valuationPricesFromEnv(env.OPS_VALUATION_TEST_PRICES, {
+      APP_ENV: process.env.APP_ENV,
+      NODE_ENV: process.env.NODE_ENV,
+    }),
     reconciliationAlerts: reconciliationAlerts ?? undefined,
     reconciliationBus: () => (reconciliationBus ? 'attached' : 'detached'),
     approvals: approvalConsumer,

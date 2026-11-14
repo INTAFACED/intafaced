@@ -789,6 +789,9 @@ const schema = serviceEnvSchema
 
       /** TEST only (J-portfolio-11 #5): a wait inside every export render. Checked against the raw APP_ENV at boot (index.ts). */
       BANK_STATEMENT_JOBS_TEST_RENDER_HOLD_MS: z.string().optional(),
+
+      /** TEST only (J-home-ia-01 #5): `on` fails every activity history read. Checked against the raw APP_ENV at boot (index.ts). */
+      BANK_ACTIVITY_TEST_FAULT: z.string().optional(),
     }),
   );
 

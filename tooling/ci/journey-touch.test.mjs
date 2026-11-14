@@ -522,24 +522,26 @@ test('planted 2: a product pull request whose run misses a journey it touches fa
 });
 
 // theo-01 part 1 (OWNER 296): a product pull request that names a journey is judged on that journey, its changed journey
-// files and the map's always-run list, the same list its run is given (journey-touch.mjs --reach with TITLE and
-// GITHUB_HEAD_REF); main's full run after the merge judges the rest.
+// files, the same list its run is given (journey-touch.mjs --reach with TITLE and GITHUB_HEAD_REF); main's full run
+// after the merge judges the rest, the map's always-run list (its `full` journeys) included (project-state#2332).
 const HEAD_FILES = new Set(['J-bank-13.pw.mjs', 'J-bank-14.pw.mjs', 'J-wallet-05.pw.mjs', 'J-agents-12.pw.mjs']);
 const ALWAYS_MAP = { mode: 'reach', full: { 'J-agents-12.pw.mjs': 'no run speaks for it', 'J-gone-01.pw.mjs': 'removed since' } };
 const namedIo = { journeyFiles: async () => HEAD_FILES, reachMap: async () => ALWAYS_MAP };
 const product = ['services/svc-bank/src/cards.ts', 'apps/customer/src/features/bank/Cards.tsx'];
 
-test('journeyTouch, named: product code runs the named journey and the always-run list; another full path or no name stays full', () => {
+test('journeyTouch, named: product code runs the named journey only, not the always-run list; another full path or no name stays full', () => {
   const named = namedInputs({
     ids: namedJourneyIds({ title: 'svc-bank: cards (J-bank-13 #1 #2)' }),
     journeyFiles: HEAD_FILES,
     map: ALWAYS_MAP,
   });
-  assert.deepEqual(named, { ids: ['J-bank-13'], files: ['J-bank-13.pw.mjs'], always: ['J-agents-12.pw.mjs'] });
+  // The map's always-run journey (J-agents-12, at the head) is not run: main's full run judges it.
+  assert.deepEqual(named, { ids: ['J-bank-13'], files: ['J-bank-13.pw.mjs'] });
   const t = journeyTouch([...product, 'apps/customer/tests/real-app/J-bank-14.pw.mjs'], () => true, null, named);
   assert.equal(t.mode, 'files');
-  assert.deepEqual(t.files, ['J-agents-12.pw.mjs', 'J-bank-13.pw.mjs', 'J-bank-14.pw.mjs']);
+  assert.deepEqual(t.files, ['J-bank-13.pw.mjs', 'J-bank-14.pw.mjs']);
   assert.match(t.named, /it names J-bank-13/);
+  assert.doesNotMatch(t.named, /always-run/);
   assert.equal(journeyTouch([...product, 'pnpm-lock.yaml'], () => true, null, named).mode, 'full', 'a root build file stays full');
   assert.equal(journeyTouch([...product, 'tooling/scripts/local-stack-services/bank.mjs'], () => true, null, named).mode, 'full');
   assert.equal(journeyTouch(product, () => true, null, null).mode, 'full', 'no name: product code is full');
@@ -551,7 +553,7 @@ test('journeyTouch, named: product code runs the named journey and the always-ru
   assert.equal(namedInputs({ ids: ['J-bank-13'], journeyFiles: null, map: ALWAYS_MAP }), null);
 });
 
-test('planted 3 (theo-01): a named-journey product pull request merges on its own journey and the always-run list, and is held when it breaks its own journey', async () => {
+test('planted 3 (theo-01): a named-journey product pull request merges on its own journey alone, and is held when it breaks its own journey', async () => {
   const title = 'svc-bank: cards (J-bank-13 #1 #2)';
   const states = { 'J-bank-13#1': 'passed', 'J-bank-13#2': 'passed' };
   const ran = ['J-bank-13.pw.mjs', 'J-agents-12.pw.mjs'];
@@ -575,8 +577,9 @@ test('planted 3 (theo-01): a named-journey product pull request merges on its ow
     io: namedIo,
   });
   assert.equal(broke.ok, false, 'a named journey it breaks holds it');
-  // The run must hold the always-run list too.
-  const short = await seal({
+  // A run of its own journey file alone seals it: the map's always-run list (J-agents-12) is not demanded
+  // (project-state#2332: 1 shard and about 10 minutes, not 8 shards and 24 to 26).
+  const own = await seal({
     title,
     files: product,
     runs: [run(1)],
@@ -584,8 +587,8 @@ test('planted 3 (theo-01): a named-journey product pull request merges on its ow
     verdict: async () => clean,
     io: namedIo,
   });
-  assert.equal(short.ok, false);
-  assert.match(short.lines.join('\n'), /ran J-agents-12\.pw\.mjs/);
+  assert.equal(own.ok, true, own.lines.join('\n'));
+  assert.doesNotMatch(own.lines.join('\n'), /J-agents-12/);
   // Named by its branch only (no steps in the title): the same.
   const byBranch = await seal({
     title: 'svc-bank: cards',
@@ -677,7 +680,7 @@ test('journeyTouch, stack (theo-01 part 2): a named change to a stack file runs 
   const named = namedInputs({ ids: ['J-bank-13'], journeyFiles: HEAD_FILES, map: ALWAYS_MAP, importers });
   const t = journeyTouch([STACK, ...product], () => true, null, named);
   assert.equal(t.mode, 'files');
-  assert.deepEqual(t.files, ['J-agents-12.pw.mjs', 'J-bank-13.pw.mjs', 'J-wallet-05.pw.mjs']);
+  assert.deepEqual(t.files, ['J-bank-13.pw.mjs', 'J-wallet-05.pw.mjs']);
   assert.deepEqual(t.stack, [STACK]);
   assert.deepEqual(t.importers, ['J-wallet-05.pw.mjs']);
   assert.match(t.named, /1 stack file\(s\) run J-bank-13\.pw\.mjs/);
@@ -786,7 +789,7 @@ test('journeyTouch, root deploy file: a named build runs the journeys naming it;
   const named = namedInputs({ ids: ['J-bank-13'], journeyFiles: HEAD_FILES, map: ALWAYS_MAP, importers });
   const t = journeyTouch([...product, COMPOSE, '.env.example', STACK], () => true, null, named);
   assert.equal(t.mode, 'files');
-  assert.deepEqual(t.files, ['J-agents-12.pw.mjs', 'J-bank-13.pw.mjs', 'J-home-ia-11.pw.mjs', 'J-wallet-05.pw.mjs']);
+  assert.deepEqual(t.files, ['J-bank-13.pw.mjs', 'J-home-ia-11.pw.mjs', 'J-wallet-05.pw.mjs']);
   assert.deepEqual(t.stack, ['.env.example', COMPOSE, STACK]);
   // Planted: the journey that reads the compose file is in the list (it would be missed if the file ran none).
   assert.ok(t.files.includes('J-home-ia-11.pw.mjs'));

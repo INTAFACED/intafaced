@@ -4,7 +4,8 @@ import type { Sql } from 'postgres';
 import type { ConversionService } from '../conversion/service.js';
 import type { ReceiptAssetPlaces } from '../merchant-ops/receipt-branding.js';
 import type { TeamEmailInviteLimit } from '../merchant-ops/team-email.js';
-import type { WebhookRetryLimit } from '../merchant-ops/webhooks.js';
+import type { WebhookRetryLimit, WebhookSettings } from '../merchant-ops/webhooks.js';
+import type { WebhookResolver } from '../webhook-url-guard.js';
 import type { ControlService } from '../control/service.js';
 import type { FounderAuthority } from '../founder-authority.js';
 import type { MetricsRuntime } from '../metrics/index.js';
@@ -97,6 +98,8 @@ export function createPayNamespaces(deps: {
   disputeFundsLedger?: Pick<LedgerClient, 'getTxByKey'>;
   webhooksAllowLocalHttp?: boolean;
   webhookRetry?: WebhookRetryLimit;
+  webhookSettings?: WebhookSettings;
+  webhookResolver?: WebhookResolver | undefined;
   teamEmailInvite?: TeamEmailInviteLimit;
   payHalts?: PayHaltsDeps;
   treasury?: FounderTreasuryDeps;
@@ -123,6 +126,8 @@ export function createPayNamespaces(deps: {
     disputeFundsLedger: deps.disputeFundsLedger,
     webhooksAllowLocalHttp: deps.webhooksAllowLocalHttp,
     webhookRetry: deps.webhookRetry,
+    webhookSettings: deps.webhookSettings,
+    webhookResolver: deps.webhookResolver,
     teamEmailInvite: deps.teamEmailInvite,
     evidence: deps.evidence,
     invoiceLinks: deps.invoiceLinks,

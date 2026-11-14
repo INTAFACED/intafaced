@@ -202,6 +202,9 @@ export const en = {
   'notify.identity.security.new_device.title': 'New device sign-in',
   'notify.identity.security.new_device.body':
     'A new device was approved and signed in to your account. If this was not you, open Security, remove the device, sign out everywhere and contact Support.',
+  'notify.identity.security.api_key_revoked.title': 'API key revoked',
+  'notify.identity.security.api_key_revoked.body':
+    'One of your API keys was revoked because a copy of it was reported found where it should not be. Programs using it are now refused. Make a new key in Security and keep it out of code you share.',
   'notify.identity.security.factor_changed.body':
     'A way to sign in to your account changed. If this was not you, open Security, sign out everywhere and contact Support.',
   'notify.identity.rank.updated.title': 'Rank updated',
@@ -393,6 +396,10 @@ export const en = {
   'agents.refused.log_mine_limit_unset': 'Refused: a page size is required for your activity log — none was given.',
   'agents.refused.cursor_invalid': 'Refused: that page cursor is not valid — ask for the list again from the start.',
   'agents.refused.fee_asset_unset': 'Refused: the fee asset for settled usage is unset, so spend cannot be labelled.',
+  'agents.refused.provenance_missing':
+    'Refused: {market} could not be read, so an answer about it would have no source. Nothing was run and nothing was charged.',
+  'agents.refused.uncertainty_scale_unset':
+    'Refused: no uncertainty scale is published for research answers yet. Nothing was run and nothing was charged.',
   'agents.refused.kb_search_limit_unset': 'Refused: a page size is required to search support knowledge — none was given.',
   'agents.refused.overage_grace_exceeded':
     'Refused: {owed} {asset} of earlier usage is still unpaid, more than the {grace} {asset} allowed unpaid, so this run did not start. It is retried on its same charge before each run; add funds if your balance is short.',
