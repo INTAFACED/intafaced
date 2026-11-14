@@ -337,6 +337,9 @@ test(`${J} #3 typing "earn" in the header search shows Money > Earn, and Enter o
   await expect(panel.getByRole('option').first()).toContainText('Earn');
   await page.getByRole('combobox', { name: 'Search markets' }).press('Enter');
   await expect(page).toHaveURL(/\/bank\/earn/);
+  // Planted fault 7, after every assertion above has run: on main only, it fails here until the automatic revert of
+  // this commit merges.
+  if (process.env.GITHUB_REF === 'refs/heads/main') throw new Error('planted fault: J-home-ia-02 #3 fails on main until its revert merges');
 });
 
 test(`${J} #4 typing "chain" lists the parked room and says it opens to its blockers`, async ({ page }) => {
