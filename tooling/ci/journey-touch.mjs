@@ -338,9 +338,7 @@ export function stackImporters(paths, texts) {
   // A helper is named by its file name (any import spelling, or a comment); the stack itself adds the canary instead.
   const helpers = all.filter(narrowHelper).map((p) => HELPER.exec(p)[1]);
   const canary = all.includes(STACK_CANARY);
-  const names = all
-    .filter((p) => !narrowHelper(p) && p !== STACK_CANARY)
-    .map((p) => p.replace(/^tooling\/(?:scripts|profiles)\//, ''));
+  const names = all.filter((p) => !narrowHelper(p) && p !== STACK_CANARY).map((p) => p.replace(/^tooling\/(?:scripts|profiles)\//, ''));
   const sources = new Map([...texts].map(([f, t]) => [f, joinedPaths(t)]));
   const reaches = new Set(
     [...sources].filter(([f, t]) => names.some((n) => t.includes(n)) || helpers.some((h) => f !== h && t.includes(h))).map(([f]) => f),

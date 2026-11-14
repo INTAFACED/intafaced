@@ -767,7 +767,7 @@ const LOOK_FIXTURES = 'apps/customer/tests/real-app/look-fixtures.mjs';
 const SDK_SPEC = 'sdks/python/openapi/payments.openapi.json';
 const HELPERS = new Map([
   ...IMPORTS,
-  ['venue-reads.mjs', "export const readVenue = () => 1;"],
+  ['venue-reads.mjs', 'export const readVenue = () => 1;'],
   ['J-cex-spot-01.pw.mjs', "import { readVenue } from './venue-reads.mjs';"],
   ['J-cex-spot-03.pw.mjs', "import { x } from './spot-chain.mjs';"],
   ['spot-chain.mjs', "export { readVenue as x } from './venue-reads.mjs';"],
@@ -820,9 +820,17 @@ test('planted: what still runs the full suite after the four paths narrow', () =
   // A helper outside code reaches, or that reaches the config, a look sweep or one of those.
   full(['apps/customer/tests/real-app/journey.mjs']);
   full(['apps/customer/tests/real-app/real-app.playwright.config.mjs']);
-  full([VENUE_READS], namedWith(new Map([...HELPERS, ['look-sweep-390.pw.mjs', "import './venue-reads.mjs';"]])), 'a look sweep imports it');
+  full(
+    [VENUE_READS],
+    namedWith(new Map([...HELPERS, ['look-sweep-390.pw.mjs', "import './venue-reads.mjs';"]])),
+    'a look sweep imports it',
+  );
   full([VENUE_READS], namedWith(new Map([...HELPERS, ['journey.mjs', "import './venue-reads.mjs';"]])), 'a stack helper imports it');
-  full([VENUE_READS], namedWith(new Map([...HELPERS, ['fixture.config.mjs', "reporter: ['./venue-reads.mjs']"]])), 'an entry point names it');
+  full(
+    [VENUE_READS],
+    namedWith(new Map([...HELPERS, ['fixture.config.mjs', "reporter: ['./venue-reads.mjs']"]])),
+    'an entry point names it',
+  );
   // The canary missing at the head.
   full([STACK_CANARY], namedWith(new Map([...HELPERS].filter(([f]) => f !== CANARY[0]))), 'a canary file removed');
   // The stack's siblings and another full path stay full.
