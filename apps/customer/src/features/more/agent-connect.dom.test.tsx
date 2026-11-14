@@ -110,11 +110,30 @@ vi.mock('../money/StepUpConfirm', () => ({
     </button>
   ),
 }));
+/** The signing network each wallet frame the room mounted was given. */
+const frames: Array<number | undefined> = [];
 vi.mock('../protocol/wallet/WalletProvider', () => ({
+  WalletProvider: ({ chainId, children }: { chainId?: number; children: unknown }) => {
+    frames.push(chainId);
+    return children;
+  },
   useWallet: () =>
     walletOn
-      ? { status: 'connected', address: '0x00000000000000000000000000000000000000AA', sign: async () => ({ status: 'rejected' }) }
-      : { status: 'disconnected', address: null, sign: async () => ({ status: 'rejected' }) },
+      ? {
+          status: 'connected',
+          address: '0x00000000000000000000000000000000000000AA',
+          chainId: 84532,
+          guard: null,
+          wallets: [],
+          problem: null,
+          disconnect: () => undefined,
+          sign: async () => ({ status: 'rejected' }),
+        }
+      : { status: 'disconnected', address: null, wallets: [], problem: null, sign: async () => ({ status: 'rejected' }) },
+}));
+vi.mock('../trade/use-venue-mode', () => ({
+  useVenueMode: () =>
+    doorOff ? { mode: 'off' } : { mode: 'on', status: { enabled: true, available: true, chainId: 84532 }, reload: () => undefined },
 }));
 
 const { AgentConnect } = await import('./AgentConnect');
@@ -195,6 +214,13 @@ describe('Connect your assistant (J-agents-21 #2, #6)', () => {
     // Still said with the step-up, before the create is sent and before any signature.
     expect(host.querySelector('[data-testid="agent-connect__reach"]')?.textContent).toContain(words);
     expect(calls.some((c) => c.kind === 'POST' && c.target === '/venue/agent-accounts')).toBe(false);
+  });
+
+  it("sits in the venue's wallet frame, on the venue's signing network, so the person's wallet can be connected and sign here", async () => {
+    frames.length = 0;
+    const host = await render();
+    expect(frames).toContain(84532);
+    expect(host.querySelector('[data-testid="agent-connect__create"] [data-testid="venue-wallet"]')).toBeTruthy();
   });
 
   it('Create agent account with no wallet connected says so and sends nothing', async () => {

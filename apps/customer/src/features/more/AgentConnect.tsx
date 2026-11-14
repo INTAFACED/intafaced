@@ -7,6 +7,8 @@ import { Button, DataTable, EmptyState, Failure, Field, Loading, Panel } from '.
 import { useSession } from '../session/session';
 import { StepUpConfirm } from '../money/StepUpConfirm';
 import { useWallet } from '../protocol/wallet/WalletProvider';
+import { useVenueMode } from '../trade/use-venue-mode';
+import { VenueFrame, WalletBar } from '../trade/venue/VenueKit';
 import type { TypedDataDocument } from '../protocol/wallet/eip1193';
 import { withDomainTypes } from '../protocol/venue-wallet/venue-account-api';
 import { endOfDayUtc } from '../account/developer-keys-api';
@@ -117,6 +119,19 @@ const stepUpWords = (t: Words, why: 'stepUpWhy' | 'connectStepUpWhy') => ({
  * Every refusal is the service's own; nothing is checked only in the browser. INTAFACED holds and moves nothing.
  */
 export function AgentConnect() {
+  // The person's wallet signs every venue action here, so the room sits in the venue's wallet frame (its signing
+  // network); with the door off or still being read there is no venue to sign for, and the room says so as before.
+  const mode = useVenueMode();
+  return mode.mode === 'on' ? (
+    <VenueFrame mode={mode}>
+      <AgentConnectRoom />
+    </VenueFrame>
+  ) : (
+    <AgentConnectRoom />
+  );
+}
+
+function AgentConnectRoom() {
   const { t } = copy.useCopy();
   const { api, userId } = useSession();
   const { resource, reload } = useResource((signal) => readRoom(api, signal), `agent-connect:${userId}`);
@@ -342,6 +357,7 @@ function CreateAccount({ terms, reload }: { terms: AgentTerms; reload: () => voi
   return (
     <section className="form-stack" data-testid="agent-connect__create" aria-labelledby="agent-connect-create">
       <h3 id="agent-connect-create">{t('createTitle')}</h3>
+      <WalletBar />
       {!formOpen && !ask && (
         <Button onClick={() => setFormOpen(true)} disabled={busy !== null}>
           {t('create')}
