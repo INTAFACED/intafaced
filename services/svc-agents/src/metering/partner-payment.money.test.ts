@@ -107,7 +107,7 @@ function partnerDoor(start: Amount) {
 const available = await postgresAvailable(URL);
 
 if (!available) {
-  describe.skip('svc-agents partner payment (Postgres unavailable — start docker compose)', () => {
+  describe.skip('svc-agents partner payment (Postgres unavailable)', () => {
     it('skipped', () => undefined);
   });
 } else {
