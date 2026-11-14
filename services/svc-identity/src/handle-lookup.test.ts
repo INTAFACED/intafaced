@@ -24,13 +24,17 @@ const FRIEND = '22222222-2222-4222-8222-222222222222';
 const HIDDEN = '33333333-3333-4333-8333-333333333333';
 const SESSION = '44444444-4444-4444-8444-444444444444';
 
-async function ctx(opts: { anonymous?: boolean; userId?: string; apiKeyId?: string } = {}): Promise<Context> {
+const OTHER_SESSION = '77777777-7777-4777-8777-777777777777';
+
+async function ctx(
+  opts: { anonymous?: boolean; userId?: string; apiKeyId?: string; sessionId?: string; scopes?: readonly string[] } = {},
+): Promise<Context> {
   if (opts.anonymous) return { principal: null, service: null, region: 'DE', requestId: 'req-1' };
   const { token } = await issueAccessToken(
     {
       userId: opts.userId ?? ME,
-      sessionId: SESSION,
-      scopes: [...SESSION_SCOPES],
+      sessionId: opts.sessionId ?? SESSION,
+      scopes: [...(opts.scopes ?? SESSION_SCOPES)],
       tier: 'none',
       mfa: true,
       ...(opts.apiKeyId ? { apiKeyId: opts.apiKeyId } : {}),
@@ -143,6 +147,41 @@ describe('identity.users.resolveHandle', () => {
     // The window slides: a minute later the first caller is served again.
     now += 60_001;
     expect(await api.users.resolveHandle({ handle: 'nobodyhere' })).toEqual({ found: false });
+  });
+
+  it('shares one budget across every session of the same person (#4688 follow-up)', async () => {
+    const { router } = setup(new HandleLookupLimiter({ max: 3, windowMs: 60_000 }, () => 5));
+    const first = router.createCaller(await ctx());
+    const second = router.createCaller(await ctx({ sessionId: OTHER_SESSION }));
+    await first.users.resolveHandle({ handle: 'nobodyhere' });
+    await first.users.resolveHandle({ handle: 'nobodyhere' });
+    await second.users.resolveHandle({ handle: 'nobodyhere' });
+    // A fresh sign-in is not a fresh budget: the fourth lookup is refused on both sessions.
+    await expect(second.users.resolveHandle({ handle: 'luffy' })).rejects.toMatchObject({ code: 'TOO_MANY_REQUESTS' });
+    await expect(first.users.resolveHandle({ handle: 'luffy' })).rejects.toMatchObject({ code: 'TOO_MANY_REQUESTS' });
+  });
+
+  it('refuses a token without identity:read (the svc-ws recovery token is trade:read only) before reading or counting', async () => {
+    const limiter = new HandleLookupLimiter({ max: 1, windowMs: 60_000 }, () => 5);
+    const take = vi.spyOn(limiter, 'tryTake');
+    const findActiveByHandle = vi.fn(async () => users.get('luffy')!);
+    const payeeCardOf = vi.fn(async () => ({ name: 'Luffy', memberSince: '2026-03', discoverable: true }));
+    const searchPayee = vi.fn(async () => ({ userId: FRIEND, handle: 'Luffy' }));
+    const auth = { findActiveByHandle, payeeCardOf, searchPayee } as unknown as AuthService;
+    const router = createIdentityRouter(auth, {} as unknown as RankService, { registrationOpen: true, handleLookupLimiter: limiter });
+    const narrow = router.createCaller(await ctx({ scopes: ['trade:read'] }));
+
+    await expect(narrow.users.resolveHandle({ handle: 'luffy' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(narrow.users.payeeCard({ userId: FRIEND })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(narrow.users.searchPayees({ email: 'luffy@example.com' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(findActiveByHandle).not.toHaveBeenCalled();
+    expect(payeeCardOf).not.toHaveBeenCalled();
+    expect(searchPayee).not.toHaveBeenCalled();
+    expect(take).not.toHaveBeenCalled();
+
+    // The same person's full session is served, and its one lookup is still unspent.
+    const session = router.createCaller(await ctx());
+    expect(await session.users.resolveHandle({ handle: 'luffy' })).toEqual({ found: true, userId: FRIEND, handle: 'Luffy', self: false });
   });
 
   it('counts malformed and unknown lookups against the budget, not only hits', async () => {

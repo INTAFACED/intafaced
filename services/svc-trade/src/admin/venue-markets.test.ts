@@ -117,6 +117,8 @@ describe('venue markets desk (J-cex-spot-16)', () => {
       store: new InMemoryPreparedActionStore(),
       stepUp: { require: async () => ({ stepUpEventId: 'x', consumedAt: null, replayed: false }) },
       builder: BUILDER,
+      // The owner's market price protection is blank: these tests place limit orders only.
+      slippageCapBps: null,
       now: () => now,
       listings: new StoreVenueRoutingGate(store),
     });
@@ -694,6 +696,8 @@ describe('venue markets desk (J-cex-spot-16)', () => {
       store: new InMemoryPreparedActionStore(),
       stepUp: { require: async () => ({ stepUpEventId: 'x', consumedAt: null, replayed: false }) },
       builder: BUILDER,
+      // The owner's market price protection is blank: these tests place limit orders only.
+      slippageCapBps: null,
       now: () => now,
       listings: new StoreVenueRoutingGate(store),
     });

@@ -24,8 +24,8 @@ import { lookMessages } from './payments/look-copy';
 import { methodsMessages } from './payments/methods-copy';
 
 /**
- * Every visible word in the merchant portal is plain business English: what happened, why, what to do next. This
- * reads every `pay.portal*` namespace, so a package's own copy file is covered the day it is written.
+ * The portal's catalogues, so the check below covers a package's own copy file the day it is listed. The word rules for
+ * these catalogues are the lint rule `garden/pay-portal-copy` (tooling/lint/oxlint-plugin-garden/copy-rules.js).
  */
 const catalogs: Record<string, Record<string, string>> = {
   'pay.portal': portalMessages,
@@ -50,34 +50,6 @@ const catalogs: Record<string, Record<string, string>> = {
   'pay.portal.checkoutMethods': methodsMessages,
 };
 
-const banned: Array<[name: string, pattern: RegExp]> = [
-  ['a work-package code', /\bW\d+[a-z]?\d?\b/],
-  ['"backend"', /\bback-?end\b/i],
-  ['"stub"', /\bstubs?\b/i],
-  ['"cursor"', /\bcursors?\b/i],
-  ['"server"', /\bservers?\b/i],
-  ['"contract"', /\bcontracts?\b/i],
-  ['"loaded"', /\bloaded\b/i],
-  ['"procedure"', /\bprocedures?\b/i],
-  ['"projection"', /\bprojections?\b/i],
-  ['"fixture"', /\bfixtures?\b/i],
-  ['"arrives"', /\barrives?\b/i],
-  ['"coming soon"', /\bcoming soon\b/i],
-  [
-    'a promise of later ("not connected yet", "available yet", "on the way", "soon"): say what is true now and what blocks it',
-    /\b(not connected yet|available yet|on the way|coming soon|soon)\b/i,
-  ],
-  ['a promise of what the person will be able to do, or a request to come back', /you(?:’|')ll be able to|check back later/i],
-  ['"soon" as a promise', /\b(?:available|here|open|live) soon\b/i],
-  [
-    'a setting described as a future ("has not set … yet", "not set up yet", "no tier yet"): say what is true now',
-    /\b(?:INTAFACED|we)\s+(?:has|have)\s+not\b[^.]*\byet\b|\bset(?!\s+aside)(?:\s+up)?\b[^.]*\byet\b|\bno tier yet\b|\b(?:switched on|published|configured)\b[^.]*\byet\b/i,
-  ],
-  ['a snake_case word', /\b[a-z]+(?:_[a-z0-9]+)+\b/],
-  ['a service code', /\bpay\.[a-z_]+/],
-];
-// Developer pages may say "webhook", "endpoint" and "API": those are their subject, so they are not on the list above.
-
 const entries = Object.entries(catalogs).flatMap(([namespace, messages]) =>
   Object.entries(messages).map(([key, text]) => [`${namespace}.${key}`, text] as const),
 );
@@ -86,40 +58,6 @@ describe('merchant portal copy', () => {
   it('reads every portal namespace', () => {
     expect(Object.keys(catalogs).length).toBeGreaterThanOrEqual(9);
     expect(entries.length).toBeGreaterThan(900);
-  });
-  it('uses no engineer words', () => {
-    const offenders: string[] = [];
-    for (const [id, text] of entries) {
-      // `{n}` and `{id}` are placeholders, not words.
-      const words = text.replace(/\{[A-Za-z]+\}/g, '');
-      for (const [name, pattern] of banned) if (pattern.test(words)) offenders.push(`${id} has ${name}: ${text}`);
-    }
-    expect(offenders).toEqual([]);
-  });
-  it('finds a banned word when there is one (the check can fail)', () => {
-    expect(banned.some(([, pattern]) => pattern.test('Loaded from the backend'))).toBe(true);
-    for (const promise of [
-      'Not connected yet',
-      'Not available yet',
-      'Invitations are on the way',
-      'We’ll try again soon',
-      'You’ll be able to see it here',
-      'Check back later.',
-      'INTAFACED has not set limits for your account yet.',
-      'Your checkout isn’t set up yet',
-      'Your account has no tier yet.',
-      'No pricing has been set for your account yet.',
-      'INTAFACED has not published any tiers to compare with yet.',
-    ])
-      expect(
-        banned.some(([, pattern]) => pattern.test(promise)),
-        promise,
-      ).toBe(true);
-    // a status is not a promise
-    expect(banned.some(([, pattern]) => pattern.test('Not paid out yet'))).toBe(false);
-    expect(banned.some(([, pattern]) => pattern.test('No refunds yet'))).toBe(false);
-    expect(banned.some(([, pattern]) => pattern.test('No limits are set on your account.'))).toBe(false);
-    expect(banned.some(([, pattern]) => pattern.test('Your payments are in the list'))).toBe(false);
   });
 });
 

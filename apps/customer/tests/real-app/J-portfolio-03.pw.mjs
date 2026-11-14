@@ -495,7 +495,12 @@ test(`${J} #4 opens an entry: its linked lines as one group with the shared refe
   const lines = await allLines(who);
   const bought = lines.find((l) => l.kind === 'trade' && l.direction === 'in' && l.asset === 'BTC');
   const group = lines.filter((l) => l.orderId === bought.orderId);
-  expect(group.map((l) => l.kind).sort()).toEqual(['order_hold', 'order_release', 'trade']);
+  expect(
+    group
+      .filter((l) => l.kind !== 'fee')
+      .map((l) => l.kind)
+      .sort(),
+  ).toEqual(['order_hold', 'order_release', 'trade']);
   // Both legs of the fill: the BTC that came in, and the USDT paid for it. A buy pays from its order's hold, so the USDT
   // leg is the hold that left the spendable balance less what was released back, and that is exactly what svc-trade's
   // fills of the order cost (the fee was taken in BTC, the asset received).
@@ -507,6 +512,15 @@ test(`${J} #4 opens an entry: its linked lines as one group with the shared refe
   const paid = fills.reduce((sum, f) => sum + toUnits(String(f.cost)), 0n);
   expect(toUnits(hold.amount) - toUnits(release.amount)).toBe(paid);
   expect(fills.every((f) => f.fee === null || f.fee.currency === 'BTC')).toBe(true);
+  // The fee is its own line in the group (J-portfolio-11 #3's fee as its own figure): BTC out, exactly what svc-trade charged
+  // on the order's fills, and the fill line is what the fills delivered before it.
+  const charged = fills.reduce((sum, f) => sum + (f.fee === null ? 0n : toUnits(String(f.fee.cost))), 0n);
+  const fee = group.filter((l) => l.kind === 'fee');
+  const feeFills = fills.filter((f) => f.fee !== null && toUnits(String(f.fee.cost)) > 0n).length;
+  expect(fee.map((l) => [l.asset, l.direction])).toEqual(Array.from({ length: feeFills }, () => ['BTC', 'out']));
+  expect(fee.reduce((sum, l) => sum + toUnits(l.amount), 0n)).toBe(charged);
+  const delivered = group.filter((l) => l.kind === 'trade').reduce((sum, l) => sum + toUnits(l.amount), 0n);
+  expect(delivered).toBe(fills.reduce((sum, f) => sum + toUnits(String(f.amount)), 0n));
 
   await openActivity(page);
   await rows(page)

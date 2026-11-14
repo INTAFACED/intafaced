@@ -119,7 +119,7 @@ export const SECTION_SPECS: Readonly<Record<FounderMerchantSection, SectionSpec>
     section: 'deliveries',
     title: 'Webhook deliveries',
     sub: 'Each event sent to an endpoint, with attempts and the last HTTP status.',
-    statuses: ['pending', 'delivered', 'failed', 'dead'],
+    statuses: ['pending', 'delivered', 'failed', 'dead', 'unknown'],
   },
   activity: { section: 'activity', title: 'Activity', sub: 'Merchant-side actions with the person who did them.', searchable: true },
   exports: {
@@ -221,6 +221,11 @@ const STATUS: Record<string, ChipSpec> = {
   disabled: chip('disabled', 'danger', 'Switched off, so no events are sent.'),
   delivered: chip('delivered', 'live', 'The endpoint accepted it.'),
   dead: chip('dead', 'danger', 'Retries are used up. It will not be sent again.'),
+  unknown: chip(
+    'unknown',
+    'warn',
+    'The last attempt timed out, so whether it arrived is not known. It is tried again once its lease ends.',
+  ),
   queued: chip('queued', 'warn', 'Waiting to start.'),
   running: chip('running', 'info', 'Being built now.'),
   ready: chip('ready', 'live', 'File is ready.'),

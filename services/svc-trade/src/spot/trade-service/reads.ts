@@ -318,6 +318,31 @@ export async function everyFillOfOrder(svc: TradeServiceInternal, principal: Pri
   return rows.map(toFill);
 }
 
+/**
+ * Every fill of several of the caller's orders, keyed by order id, in one read (the order reads' cost, average and
+ * fee: #4677). Only the caller's own fills are read; an id with none is absent from the map.
+ */
+export async function everyFillOfOrders(
+  svc: TradeServiceInternal,
+  principal: Principal,
+  orderIds: readonly string[],
+): Promise<Map<string, FillRecord[]>> {
+  requireScope(principal, 'trade:read');
+  const out = new Map<string, FillRecord[]>();
+  if (orderIds.length === 0) return out;
+  const rows = await svc.sql<FillRow[]>`
+    SELECT * FROM trade.fills WHERE order_id = ANY(${[...orderIds]}::uuid[]) AND user_id = ${principal.userId}
+     ORDER BY ts ASC, sequence ASC, id ASC
+  `;
+  for (const row of rows) {
+    const fill = toFill(row);
+    const list = out.get(fill.orderId);
+    if (list) list.push(fill);
+    else out.set(fill.orderId, [fill]);
+  }
+  return out;
+}
+
 export async function marketById(svc: TradeServiceInternal, marketId: string): Promise<Market | null> {
   const rows = await svc.sql<MarketRow[]>`
     SELECT id, symbol, base_asset, quote_asset, kind, tick_size, lot_size,

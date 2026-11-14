@@ -13,7 +13,7 @@ import {
   venueWithdrawalSchema,
   walletTypedData,
 } from './venue-api';
-import { closeWorstPrice, totalToCommit } from '../../screens/trade/futures/VenueFuturesDesk';
+import { closeMarketPrice, closeWorstPrice, totalToCommit } from '../../screens/trade/futures/VenueFuturesDesk';
 import { refuseReason } from '../protocol/wallet/eip1193';
 
 // The TEST venue simulator's payload shape (packages/venue-sim/src/signing.ts): EIP712Domain left implicit.
@@ -133,6 +133,31 @@ describe('venue client', () => {
     };
     expect(closeWorstPrice(position, '1')).toBe('57000');
     expect(closeWorstPrice({ ...position, side: 'short' }, '1')).toBe('63000');
+  });
+
+  it('bounds a market close by the owner’s price protection from the venue’s best price, as svc-trade does', () => {
+    const position = {
+      symbol: 'BTC-PERP',
+      side: 'long' as const,
+      size: '0.1',
+      entryPrice: '60010',
+      markPrice: '60000',
+      unrealisedPnl: '-1',
+      marginMode: 'isolated' as const,
+      margin: '600',
+      leverageBps: 100000,
+      liquidationPrice: { known: false as const },
+    };
+    const best = { symbol: 'BTC-PERP', bid: '60000', ask: '60010' };
+    const cap = { value: best, slippageCapBps: { known: true as const, value: '50' } };
+    // A long closes with a sell against the best bid: at least 60000 less 50 bps, down to the tick.
+    expect(closeMarketPrice(position, '1', cap)).toBe('59700');
+    // A short closes with a buy against the best ask: at most 60010 plus 50 bps, up to the tick.
+    expect(closeMarketPrice({ ...position, side: 'short' }, '1', cap)).toBe('60311');
+    // No cap, no best price on that side, or no read: the mark-based price goes, and svc-trade refuses it by name.
+    expect(closeMarketPrice(position, '1', { value: best, slippageCapBps: { known: false } })).toBe('57000');
+    expect(closeMarketPrice(position, '1', { ...cap, value: { ...best, bid: null } })).toBe('57000');
+    expect(closeMarketPrice(position, '1', null)).toBe('57000');
   });
 
   it('reads the door’s answers: status off, a prepared action, and an answer that is not definite', () => {

@@ -5,6 +5,8 @@ import { assertParentHasNoMoneyFields, FORBIDDEN_PARENT_MONEY_KEYS, presentAlgoP
 import { planTwapSlices } from './schedule.js';
 import { acceptableForAlgo, algoMarkMissing, withinPriceBand } from './mark-gate.js';
 import { TwapEngine, type TwapEnginePorts } from './twap-engine.js';
+import { MemoryTwapParentStore, type TwapParentRecord } from './parent-store.js';
+import { persistAlgoMutation } from './hydrate-on-mutate.js';
 import type { AlgoQuotedMark, CreateTwapInput } from './types.js';
 
 const LOT = parseAmount('0.001');
@@ -714,13 +716,16 @@ describe('TwapEngine.whenSaved (#7219)', () => {
       },
     });
     const parent = engine.create(USER, baseInput(), LOT);
-    await engine.tick(parent.id);
+    // The tick waits for its own save, which waits behind the held first one: start it, do not await it yet.
+    const ticking = engine.tick(parent.id);
+    await new Promise((r) => setTimeout(r, 0));
     expect(landed).toEqual([]);
     let done = false;
     const waiting = engine.whenSaved(parent.id).then(() => (done = true));
     await Promise.resolve();
     expect(done, 'nothing has landed yet').toBe(false);
     release();
+    await ticking;
     await waiting;
     const now = engine.get(parent.id)!;
     expect(landed[0]).toBe('active:0');
@@ -731,5 +736,53 @@ describe('TwapEngine.whenSaved (#7219)', () => {
   it('resolves at once for a parent with no save waiting', async () => {
     const engine = new TwapEngine(makePorts());
     await expect(engine.whenSaved('none')).resolves.toBeUndefined();
+  });
+});
+
+describe('TwapEngine: a slow queued save never leaves the store behind the engine', () => {
+  // Production wiring: onChange = store.save; tickAlgo = tick, then a direct save of the live parent. The store keeps
+  // whichever save lands last. The first queued save after create is slow; the one after it fails.
+  async function run(over: Partial<TwapEnginePorts> = {}) {
+    const ports = makePorts(over);
+    const store = new MemoryTwapParentStore(() => true);
+    let queued = 0;
+    const onChange = async (parent: TwapParentRecord['parent'], plan: TwapParentRecord['plan']) => {
+      queued += 1;
+      if (queued === 1) await new Promise((r) => setTimeout(r, 30));
+      if (queued === 2) throw new Error('db blip');
+      await store.save({ parent, plan });
+    };
+    const engine = new TwapEngine(ports, { onChange });
+    const { parent, plan } = engine.prepare(USER, baseInput(), LOT);
+    await store.save({ parent, plan });
+    engine.hydrate(parent, plan);
+    const tickAlgo = async () => {
+      const r = await engine.tick(parent.id);
+      const live = engine.get(parent.id);
+      if (live) await persistAlgoMutation(engine, store, live);
+      return r;
+    };
+    const first = await tickAlgo();
+    ports.advance(2_000);
+    const second = await tickAlgo();
+    await engine.whenSaved(parent.id);
+    await new Promise((r) => setTimeout(r, 50));
+    return { first, second, engine: engine.get(parent.id)!, stored: (await store.load(parent.id))!.parent };
+  }
+
+  it('a placed slice', async () => {
+    const { first, second, engine, stored } = await run();
+    expect([first.kind, second.kind]).toEqual(['placed', 'placed']);
+    expect(engine.nextSliceIndex).toBe(2);
+    expect(stored.nextSliceIndex).toBe(engine.nextSliceIndex);
+    expect(stored.children).toHaveLength(engine.children.length);
+  });
+
+  it('a missed slice', async () => {
+    const { first, second, engine, stored } = await run({ bestOpposingPrice: async () => null });
+    expect([first.kind, second.kind]).toEqual(['miss', 'miss']);
+    expect(engine.nextSliceIndex).toBe(2);
+    expect(stored.nextSliceIndex).toBe(engine.nextSliceIndex);
+    expect(stored.misses).toHaveLength(engine.misses.length);
   });
 });

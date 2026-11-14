@@ -19,6 +19,8 @@ import {
   judgeSteps,
   mainReference,
   splitInherited,
+  mainsOwn,
+  trackingIssue,
   redKinds,
   kindTitle,
   rangeFromCommits,
@@ -1560,54 +1562,6 @@ test('CI review: a money step red on main too is never passed over, outside ever
   assert.equal(unmarked.blocking.length, 1, 'a red not marked non-money counts as money');
 });
 
-test('OWNER 278: a money step that passed only on its retry, here and on main, stops only the pull requests in its area', async () => {
-  const why = 'failed, then passed on its retry, and a money step is never set aside: failing, not in the baseline';
-  const flakyRed = [{ step: 'J-wallet-05#3', why, money: true, retryFlaky: true }];
-  const main = () => mainRef({ red: new Map([['J-wallet-05#3', why]]) });
-  const outside = await splitInherited({
-    upTo: MAIN_SHA,
-    red: flakyRed,
-    main: main(),
-    touches: area([], ['services/svc-support/src/chat.ts']),
-    rangeOf: range(),
-  });
-  assert.deepEqual(outside.blocking, [], 'outside its journey and its break range: the lane goes on');
-  assert.equal(outside.passed.length, 1);
-  const byJourney = await splitInherited({ upTo: MAIN_SHA, red: flakyRed, main: main(), touches: area(['J-wallet-05']), rangeOf: range() });
-  assert.equal(byJourney.blocking.length, 1, 'a pull request touching its journey is stopped');
-  const byCode = await splitInherited({
-    upTo: MAIN_SHA,
-    red: flakyRed,
-    main: main(),
-    touches: area([], ['services/svc-wallet/src/fees.ts']),
-    rangeOf: range(),
-  });
-  assert.equal(byCode.blocking.length, 1, 'a pull request in its break range is stopped');
-  const shared = await splitInherited({
-    upTo: MAIN_SHA,
-    red: flakyRed,
-    main: main(),
-    touches: { ...area(), shared: true },
-    rangeOf: range(),
-  });
-  assert.equal(shared.blocking.length, 1, 'shared setup: every red counts');
-  // Planted: main failed it outright (another verdict line), so it is not the same red: it stops every pull request.
-  const outright = await splitInherited({ upTo: MAIN_SHA, red: flakyRed, main: mainRef(), touches: area(), rangeOf: range() });
-  assert.equal(outright.blocking.length, 1, 'main failed it outright: not inherited as a retry pass');
-  // Planted: failed outright here, a retry pass on main: still a money red that stops every pull request.
-  const here = await splitInherited({
-    upTo: MAIN_SHA,
-    red: [{ step: 'J-wallet-05#3', why: 'failing, not in the baseline', money: true }],
-    main: main(),
-    touches: area(),
-    rangeOf: range(),
-  });
-  assert.equal(here.blocking.length, 1, 'failed outright on this head: not passed over');
-  // Planted: a retry pass with no red on main at all is this head's own red.
-  const own = await splitInherited({ upTo: MAIN_SHA, red: flakyRed, main: mainRef({ red: new Map() }), touches: area(), rangeOf: range() });
-  assert.equal(own.blocking.length, 1, "not red on main: this head's own red stops it");
-});
-
 test('recheckTargets: after CI every open pull request on the head is re-sealed; after a journeys run only named ones (R3 C3 piece 2)', async () => {
   const { recheckTargets } = await import('./journey-seal.mjs');
   const sha = 'c'.repeat(40);
@@ -1725,33 +1679,50 @@ test("rerunSealJob reads merge-seal.yml's pull_request_target runs when asked, a
   assert.match(paths[1], /runs\/5\/jobs/, 'the pull_request_target run, not the ci.yml one');
 });
 
-test('review 7552-R2: a reopen leaves an older red seal run on the head; the re-check re-runs it with the newest', async () => {
+test('planted (#8225): an armed head whose newest seal run holds no `CI merge seal` gets it there, never on an older run', async () => {
+  // GitHub reads the required check from the newest run of merge-seal.yml on a head alone (probe intafaced#8246): #8225
+  // left its verdict on the push run (31) while an edit's or an arming's run (32) held only a skipped seal, whose check run
+  // is named by its expression's raw text, and every armed pull request then waited on a missing check.
+  const waits = "${{ (github.run_attempt != '1' || needs.now.outputs.now == 'true') && 'CI merge seal' || 'CI merge seal waits' }}";
   const runs = [
     { id: 30, event: 'pull_request_target', status: 'completed' },
     { id: 31, event: 'pull_request_target', status: 'completed' },
     { id: 32, event: 'pull_request_target', status: 'completed' },
   ];
-  const jobs = {
-    30: [{ id: 300, name: SEAL, status: 'completed', conclusion: 'failure' }],
-    31: [{ id: 310, name: SEAL, status: 'completed', conclusion: 'success' }],
-    32: [{ id: 320, name: SEAL, status: 'completed', conclusion: 'skipped' }],
+  const go = async (newest) => {
+    const jobs = {
+      30: [{ id: 300, name: SEAL, status: 'completed', conclusion: 'failure' }],
+      31: [{ id: 310, name: SEAL, status: 'completed', conclusion: 'success' }],
+      32: newest,
+    };
+    const get = async (path) => (path.includes('/runs?') ? { workflow_runs: runs } : { jobs: jobs[/runs\/(\d+)\/jobs/.exec(path)[1]] });
+    const posted = [];
+    const msg = await rerunSealJob({
+      repo: 'o/r',
+      sha: HEAD,
+      get,
+      post: async (p) => (posted.push(p.replace('/repos/o/r/actions/', '')), { status: 201 }),
+      sleep: async () => {},
+      log: () => {},
+      workflow: 'merge-seal.yml',
+      event: 'pull_request_target',
+    });
+    return { posted, msg };
   };
-  const get = async (path) => (path.includes('/runs?') ? { workflow_runs: runs } : { jobs: jobs[/runs\/(\d+)\/jobs/.exec(path)[1]] });
-  const posted = [];
-  const msg = await rerunSealJob({
-    repo: 'o/r',
-    sha: HEAD,
-    get,
-    post: async (p) => (posted.push(/jobs\/(\d+)\/rerun/.exec(p)[1]), { status: 201 }),
-    sleep: async () => {},
-    log: () => {},
-    workflow: 'merge-seal.yml',
-    event: 'pull_request_target',
-  });
-  // The skipped seal (an edit) is passed over; the newest real one (31) is re-run, and so is the older red one (30).
-  assert.deepEqual(posted, ['310', '300'], msg);
-  // Planted: without otherSeals, run 30's red seal would stay and block the head.
-  assert.ok(!posted.includes('320'), 'a skipped seal is never re-run');
+  // Its seal skipped (it waited), or no seal job at all (cancelled before its jobs): run 32 is started whole, and its
+  // second attempt is the verdict. The older runs, red or green, are never re-run: GitHub doesn't read them.
+  for (const newest of [[{ id: 320, name: waits, status: 'completed', conclusion: 'skipped' }], []]) {
+    const r = await go(newest);
+    assert.deepEqual(r.posted, ['runs/32/rerun'], r.msg);
+  }
+  // With a verdict in the newest run, that one is re-run, and only it.
+  assert.deepEqual((await go([{ id: 320, name: SEAL, status: 'completed', conclusion: 'success' }])).posted, ['jobs/320/rerun']);
+  // A newest run still deciding is waited for, never passed over.
+  runs[2].status = 'in_progress';
+  assert.equal(
+    recheckStep(runs, new Map([['32', [{ id: 320, name: waits, status: 'completed', conclusion: 'skipped' }]]]), 'pull_request_target').act,
+    'wait',
+  );
 });
 
 /** Problems with merge-seal.yml's seal job skipping, or []: it may skip only a first attempt whose `now` job decided,
@@ -1845,7 +1816,7 @@ test("#1574: ci.yml's seal is re-run only when it is red on a step only an older
   assert.deepEqual(r.posts, [], 'a green ci.yml seal is left: merge-seal.yml decides the steps and the review');
   r = await go({ 77: [sealOf({ conclusion: 'failure', steps: OLD_CI_STEPS })] });
   assert.deepEqual(r.posts, ['/repos/o/r/actions/jobs/9/rerun']);
-  // An older ci.yml run on the head, red on CI's jobs, is not re-run beside the newest (otherSeals).
+  // The newest ci.yml run on the head decides: its seal, red on the old journey step, is re-run; the older one is not.
   r = await go(
     {
       78: [sealOf({ id: 10, conclusion: 'failure', steps: OLD_CI_STEPS })],
@@ -2020,14 +1991,15 @@ test('#1574 recheckStep: a waiting first attempt is started whole; a verdict, on
   assert.deepEqual(recheckStep([run(5)], J({ 5: [nowJob, waitingJob] }), e), {
     act: 'start',
     runId: '5',
-    msg: 'run 5 waits for its inputs',
+    msg: 'run 5, the newest seal run on this head, has no verdict',
   });
-  // An edit's newer waiting run beside a push's run that already gave its verdict: the verdict is re-run, not a second one.
+  // An edit's newer waiting run beside a push's run that already gave its verdict: the newest is started, since GitHub
+  // reads the check from it alone (#8225 re-ran run 5 here, and the head waited on a missing check).
   const verdict = { id: 9, name: SEAL, status: 'completed', conclusion: 'failure' };
   assert.deepEqual(recheckStep([run(5), run(6)], J({ 6: [nowJob, waitingJob], 5: [verdict] }), e), {
-    act: 'rerun',
-    runId: '5',
-    jobId: '9',
+    act: 'start',
+    runId: '6',
+    msg: 'run 6, the newest seal run on this head, has no verdict',
   });
   // A first attempt still deciding: wait, so a seal it skips is then started (never `done`, which would strand it).
   assert.equal(recheckStep([run(5, { status: 'in_progress' })], J({ 5: [{ ...nowJob, status: 'in_progress' }] }), e).act, 'wait');
@@ -2200,65 +2172,6 @@ test("#1574 ci-jobs-seal: CI's own Start the seal job still going does not hold 
   assert.equal(going.wait, true);
 });
 
-test('#1574 clearOlderReds: a green verdict re-runs older red seals on its head, never a green one, its own, or a skipped wait', async () => {
-  const { clearOlderReds } = await import('./journey-seal.mjs');
-  const runs = [
-    { id: 10, head_sha: HEAD, event: 'pull_request_target', status: 'completed' }, // this run, green
-    { id: 9, head_sha: HEAD, event: 'pull_request_target', status: 'completed' }, // an earlier edit's red verdict
-    { id: 8, head_sha: HEAD, event: 'pull_request_target', status: 'completed' }, // a push's verdict, green
-    { id: 7, head_sha: HEAD, event: 'pull_request_target', status: 'completed' }, // a push that waited (skipped)
-    { id: 6, head_sha: 'f'.repeat(40), event: 'pull_request_target', status: 'completed' }, // another head's red
-  ];
-  const jobs = {
-    10: [{ id: 100, name: SEAL, status: 'completed', conclusion: 'success' }],
-    9: [{ id: 90, name: SEAL, status: 'completed', conclusion: 'failure' }],
-    8: [{ id: 80, name: SEAL, status: 'completed', conclusion: 'success' }],
-    7: [{ id: 70, name: "${{ (github.run_attempt != '1') && 'CI merge seal' || 'x' }}", status: 'completed', conclusion: 'skipped' }],
-    6: [{ id: 60, name: SEAL, status: 'completed', conclusion: 'failure' }],
-  };
-  const get = async (path) =>
-    path.includes('/workflows/merge-seal.yml/runs') ? { workflow_runs: runs } : { jobs: jobs[path.match(/runs\/(\d+)\/jobs/)[1]] };
-  const posts = [];
-  const post = async (path) => (posts.push(path), { status: 201 });
-  const said = await clearOlderReds({ repo: 'o/r', sha: HEAD, self: '10', get, post });
-  assert.deepEqual(posts, ['/repos/o/r/actions/jobs/90/rerun']);
-  assert.match(said.join(), /re-ran the older red seal job 90 of run 9/);
-  // Already re-running: said, not thrown. Refused otherwise: thrown, so the step is red and says why.
-  assert.match(
-    (
-      await clearOlderReds({
-        repo: 'o/r',
-        sha: HEAD,
-        self: '10',
-        get,
-        post: async () => ({ status: 403, message: 'This workflow is already running' }),
-      })
-    ).join(),
-    /already re-running/,
-  );
-  await assert.rejects(
-    clearOlderReds({ repo: 'o/r', sha: HEAD, self: '10', get, post: async () => ({ status: 403, message: 'Resource not accessible' }) }),
-    /HTTP 403/,
-  );
-  // Nothing older and red: nothing posted.
-  posts.length = 0;
-  jobs[9][0].conclusion = 'success';
-  assert.deepEqual(await clearOlderReds({ repo: 'o/r', sha: HEAD, self: '10', get, post }), ['no older red seal on this head']);
-  assert.deepEqual(posts, []);
-  // Planted: an unreadable list fails the step, never reads as nothing to clear.
-  await assert.rejects(clearOlderReds({ repo: 'o/r', sha: HEAD, self: '10', get: async () => ({}), post }), /not a list/);
-});
-
-test('#1574 merge-seal.yml: the older reds are cleared only after every verdict step passed, with the right to re-run', () => {
-  const text = readFileSync('.github/workflows/merge-seal.yml', 'utf8');
-  const seal = text.split('\n  seal:\n')[1];
-  const step = seal.slice(seal.indexOf('- name: Re-run older red seals on this head'));
-  assert.ok(seal.indexOf('- name: The factory switch says run') < seal.indexOf('- name: Re-run older red seals on this head'), 'last');
-  assert.doesNotMatch(step.split('\n        env:')[0], /\n\s+if:/, 'the default condition: every step above passed');
-  assert.match(step, /run: node tooling\/ci\/journey-seal\.mjs --clear-older/);
-  assert.match(seal, /\n      actions: write /);
-});
-
 // A GET that fails on the way, or gets GitHub's 502/503/504, is tried again; a refusal is not; the last failure stands
 // (intafaced#7707: "which reds main already had couldn't be read (fetch failed)" on two seal attempts in a row).
 test('getTried: a dropped request or a 503 is tried again, a 403 is not, and the last failure still fails closed', async () => {
@@ -2348,13 +2261,15 @@ test('an automatic revert runs the journeys that failed on main and the reverted
   no({ commits: [{ commit: { message: `Revert "x"\n\nThis reverts commit ${'d'.repeat(40)}.` } }] }, 'reverts another commit');
   no({ culprit: null }, 'the reverted commit unread');
   no({ paths: [...paths, 'services/svc-ledger/src/post.ts'] }, 'a file the reverted commit did not change');
-  no(
-    {
-      paths: [...paths, 'tooling/scripts/local-test-market.mjs'],
-      culprit: { sha: SHA, files: [...paths, 'tooling/scripts/local-test-market.mjs'].map((filename) => ({ filename })) },
-    },
-    'shared journey setup',
-  );
+  // intafaced #8149: shared journey setup the reverted commit changed is undone with it, back to what main proved.
+  const shared = autoRevertScope({
+    ...ok,
+    paths: [...paths, 'tooling/scripts/local-test-market.mjs'],
+    culprit: { sha: SHA, files: [...paths, 'tooling/scripts/local-test-market.mjs'].map((filename) => ({ filename })) },
+  });
+  assert.equal(shared.ok, true, 'shared journey setup the reverted commit changed keeps the revert narrow');
+  assert.deepEqual(shared.files, v.files, "the same journeys: the failing ones and the reverted change's own");
+  no({ paths: [...paths, 'tooling/scripts/local-test-market.mjs'] }, 'shared journey setup the reverted commit did not change');
   no({ pull: { ...pull, body: '' }, paths: ['services/svc-bank/src/cards.ts'], culpritTitle: '' }, 'no journey named');
   // sealPull judges the narrow files, and names them; a forged revert gets the ordinary scope.
   const io = (p) => ({
@@ -2502,4 +2417,142 @@ test('#7996: a deferred journeys run counts as going, never as a finished run th
   assert.deepEqual(await readGoing({ get: docs, repo: 'o/r', sha: HEAD, pulls: [{ number: 3, title: 'docs: a' }] }), []);
   // Planted: unreadable jobs fail closed.
   await assert.rejects(readGoing({ get: at([done(30)], { 30: {} }), repo: 'o/r', sha: HEAD, pulls }), /not a list/);
+});
+
+// ---- The lead's decision of 12 Nov 2026 (OWNER 296/297): a step already red on main, tracked there, is main's ----
+
+const NEW_MAIN = 'e'.repeat(40);
+const reg = (n, title, labels = ['regression'], over = {}) => ({
+  number: n,
+  state: 'open',
+  title,
+  labels: labels.map((name) => ({ name })),
+  ...over,
+});
+
+test("main's own: the tracking issue is an open regression issue for the journey or an open flaky issue for the step", () => {
+  const issues = [
+    reg(1, 'Journey broken on main: J-a-01'),
+    reg(2, 'Flaky step on main: J-b-01 #2 #5', ['flaky']),
+    reg(3, 'Flaky money step on main: J-c-01 #4', ['flaky']),
+    reg(4, 'Journey broken on main: J-d-01', []),
+    reg(5, 'Journey broken on main: J-e-01', ['regression'], { state: 'closed' }),
+    reg(6, 'Journey broken on main: J-f-01', ['regression'], { pull_request: {} }),
+    reg(7, 'Flaky step on main: J-g-01 #1', ['regression']),
+  ];
+  assert.equal(trackingIssue(issues, 'J-a-01#3')?.number, 1);
+  assert.equal(trackingIssue(issues, 'J-b-01#5')?.number, 2);
+  assert.equal(trackingIssue(issues, 'J-b-01#3'), undefined, 'a flaky issue tracks only its own steps');
+  assert.equal(trackingIssue(issues, 'J-b-01#25'), undefined);
+  assert.equal(trackingIssue(issues, 'J-c-01#4')?.number, 3);
+  assert.equal(trackingIssue(issues, 'J-d-01#1'), undefined, 'unlabelled: not tracked');
+  assert.equal(trackingIssue(issues, 'J-e-01#1'), undefined, 'closed: not tracked');
+  assert.equal(trackingIssue(issues, 'J-f-01#1'), undefined, 'a pull request is no issue');
+  assert.equal(trackingIssue(issues, 'J-g-01#1'), undefined, 'a flaky title needs the flaky label');
+  assert.equal(trackingIssue(issues, 'J-a-011#1'), undefined, 'a journey is matched whole');
+});
+
+test("main's own planted: excused only when main's newest run has it red the same way, an issue tracks it and the PR touches no test", () => {
+  const latest = mainRef({ run: mainRun(60, { head_sha: NEW_MAIN }) });
+  const issues = [reg(9, 'Journey broken on main: J-wallet-05')];
+  const go = (over = {}) =>
+    mainsOwn({ blocking: redW, latest, issues, touches: { ...area([], ['tooling/factory/x.mjs']), shared: false }, ...over });
+  const ok = go();
+  assert.deepEqual(ok.blocking, []);
+  assert.match(ok.passed[0].why, /main's: main's newest finished run 60 on eeeeeeeeee has it red too and #9 tracks it/);
+  assert.equal(go({ issues: [] }).blocking.length, 1, 'no open issue: every red counts');
+  assert.equal(go({ latest: null }).blocking.length, 1, 'no main run: every red counts');
+  assert.equal(go({ latest: { ...latest, problems: ['x'] } }).blocking.length, 1, 'main run with unreadable inputs');
+  assert.equal(go({ latest: mainRef({ red: new Map() }) }).blocking.length, 1, "green on main: the PR's own");
+  assert.equal(
+    go({ latest: mainRef({ red: new Map([['J-wallet-05#3', 'passed on its retry']]) }) }).blocking.length,
+    1,
+    "a different verdict line on main: the PR's own",
+  );
+  const red2 = [...redW, { step: 'J-bank-13#1', why: 'failing, not in the baseline', money: false }];
+  const mixed = go({ blocking: red2 });
+  assert.deepEqual(
+    mixed.blocking.map((x) => x.step),
+    ['J-bank-13#1'],
+    'every other red still counts',
+  );
+  const journey = go({ touches: { ...area(['J-wallet-05'], []), shared: false } });
+  assert.equal(journey.blocking.length, 1, "the PR touches the step's journey");
+  assert.match(journey.blocking[0].why, /#9\), but this pull request changes J-wallet-05, so it is this pull request's/);
+  for (const f of [
+    'apps/customer/tests/real-app/J-bank-13.pw.mjs',
+    'apps/customer/tests/real-app/helpers/login.mjs',
+    'apps/customer/playwright.real-app.config.ts',
+  ])
+    assert.equal(go({ touches: { ...area([], [f]), shared: false } }).blocking.length, 1, `a test file the shards read: ${f}`);
+  assert.equal(go({ touches: { ...area([], ['tooling/factory/x.mjs']), shared: true } }).blocking.length, 1, 'shared setup');
+  assert.equal(go({ blocking: [{ ...redW[0], money: true }] }).blocking.length, 1, 'a money step is never passed over (REVIEW.md item 3)');
+  assert.equal(go({ blocking: [{ step: redW[0].step, why: redW[0].why }] }).blocking.length, 1, 'unmarked counts as money');
+});
+
+test("main's own sealPull planted: main's newest run outside the head's history is red and tracked; the PR seals only then", async () => {
+  const io = ({ files, issues = [reg(9, 'Journey broken on main: J-wallet-05')], newest = dirty, mainIssues = true }) => ({
+    pull: async () => ({ state: 'open', head: { sha: HEAD }, base: { sha: MAIN_SHA }, title: 'gate: drop a folder', body: '' }),
+    runs: async () => [run(1)],
+    reportOf: reports({ 1: { ...fullRep, ran: ['J-bank-13.pw.mjs', 'J-wallet-05.pw.mjs'] }, 50: fullRep, 60: fullRep }),
+    files: async () => files,
+    text: async () => 'test(`${J} #1 opens`, async () => {}); test(`${J} #3 sends`, async () => {});',
+    verdictOf: async (_rep, r) => (r.id === 60 ? newest : r.id === 50 ? { ...clean, lastPass: {} } : dirty),
+    mainRuns: async () => [mainRun(50), mainRun(60, { head_sha: NEW_MAIN, created_at: '2026-11-12T10:00:00Z' })],
+    contains: async (sha, head) => sha === MAIN_SHA && head === HEAD,
+    mergeBase: async () => MAIN_SHA,
+    rangeOf: async () => ({ files: [], commits: 0, short: false }),
+    ...(mainIssues ? { mainIssues: async () => issues } : {}),
+  });
+  const seal = (o) => sealPull({ repo: REPO, number: 7, sha: HEAD, io: io(o) });
+  const ok = await seal({ files: ['tooling/factory/x.mjs'] });
+  assert.equal(ok.ok, true, ok.lines.join('\n'));
+  assert.match(ok.lines.join('\n'), /J-wallet-05#3 is red on this head and inherited: it is main's: main's newest finished run 60/);
+  assert.equal((await seal({ files: ['tooling/factory/x.mjs'], issues: [] })).ok, false, 'untracked on main: the PR is held');
+  assert.equal((await seal({ files: ['tooling/factory/x.mjs'], newest: { ...clean, lastPass: {} } })).ok, false, 'green on main: held');
+  assert.equal((await seal({ files: ['tooling/factory/x.mjs'], mainIssues: false })).ok, false, 'no issue reader: as before');
+  const tests = await seal({ files: ['tooling/factory/x.mjs', 'apps/customer/tests/real-app/J-bank-13.pw.mjs'] });
+  assert.equal(tests.ok, false, 'a PR that changes a test file: the step is its own');
+  const shared = await seal({ files: ['tooling/scripts/local-test-world.mjs'] });
+  assert.equal(shared.ok, false, 'shared setup: every red counts');
+  const broken = await sealPull({
+    repo: REPO,
+    number: 7,
+    sha: HEAD,
+    io: { ...io({ files: ['tooling/factory/x.mjs'] }), mainIssues: async () => Promise.reject(new Error('HTTP 502')) },
+  });
+  assert.equal(broken.ok, false, 'unreadable issues fail closed');
+});
+
+// ---- A merged pull request has nothing left to seal (12 of the 66 failed seals, 12 Nov 2026) ----
+
+test('merged: a seal on a pull request that already merged passes, unless another open pull request has its head', async () => {
+  const { mergedNothingToSeal } = await import('./review-marker.mjs');
+  const pull = { number: 7, state: 'closed', merged_at: '2026-11-12T12:19:33Z', head: { sha: HEAD } };
+  const mine = [{ number: 7, state: 'closed' }];
+  assert.match(mergedNothingToSeal(pull, HEAD, mine), /#7 merged at 2026-11-12T12:19:33Z; a merged pull request has nothing left to seal/);
+  assert.equal(mergedNothingToSeal({ ...pull, merged_at: null }, HEAD, mine), null, 'closed, not merged: as before');
+  assert.equal(mergedNothingToSeal({ ...pull, state: 'open', merged_at: null }, HEAD, mine), null, 'open: as before');
+  assert.equal(mergedNothingToSeal(pull, 'b'.repeat(40), mine), null, 'another head');
+  assert.equal(mergedNothingToSeal(pull, HEAD, [...mine, { number: 8, state: 'open' }]), null, 'another open PR on this head');
+  assert.equal(mergedNothingToSeal(pull, HEAD, [...mine, { number: 8, state: 'closed' }]) === null, false, 'a closed one is no matter');
+  assert.equal(mergedNothingToSeal(pull, HEAD, null), null, 'unreadable list: as before');
+  const io = (over = {}) => ({
+    pull: async () => ({ ...pull, title: 'x (J-a-01 #1)', body: '', base: { sha: MAIN_SHA }, ...over }),
+    pullsOn: async () => mine,
+    files: async () => {
+      throw new Error('a merged pull request is not read further');
+    },
+  });
+  const ok = await sealPull({ repo: REPO, number: 7, sha: HEAD, io: io() });
+  assert.equal(ok.ok, true, ok.lines.join('\n'));
+  const closed = await sealPull({ repo: REPO, number: 7, sha: HEAD, io: io({ merged_at: null }) });
+  assert.deepEqual(closed, { ok: false, lines: ['#7: is closed'] }, 'planted: closed without a merge still fails');
+  const shared = await sealPull({
+    repo: REPO,
+    number: 7,
+    sha: HEAD,
+    io: { ...io(), pullsOn: async () => [...mine, { number: 8, state: 'open' }] },
+  });
+  assert.equal(shared.ok, false, 'planted: another open PR on the head still fails');
 });

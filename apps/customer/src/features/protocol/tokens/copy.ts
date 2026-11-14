@@ -200,6 +200,11 @@ const en = {
   quickFollow_pending: 'Sent: {hash}. Waiting for it to be mined.',
   quickFollow_mined: 'Mined: {hash}. Your balance is read again.',
   quickFollow_reverted: 'Mined but reverted: {hash}. Nothing was swapped; the network fee was paid.',
+  scamTitle: 'Scam reports',
+  scamOne: '1 report',
+  scamMany: '{count} reports',
+  scamNote: 'Open reports people filed about this address. A count only: who reported is seen only by our compliance team.',
+  scamReading: 'Reading the reports…',
 } as const;
 
 export const tokensCopy = defineCopy('customer.protocol.tokens', en);

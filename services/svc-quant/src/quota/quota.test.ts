@@ -45,6 +45,7 @@ function setup(defaultProfile: string | null = 'TEST default') {
   const app = createQuantRouter({
     wired: true,
     venueVaultSet: false,
+    paperFeeBps: '0',
     limits: { maxOps: 5_000, maxSource: 8_000 },
     strategies: createMemoryStrategyRepository(quota.gate),
     runs: createMemoryRunRepository(RUN_RESULT_MAX_BYTES, quota.gate),
@@ -237,5 +238,63 @@ describe('quotas by plan (AL-limits-01)', () => {
     expect(() => parseQuotaSeed('{"profile":"Pro","limits":{"runs":"10"}}')).toThrow(/TEST/);
     expect(() => parseQuotaSeed('{"profile":"TEST x","limits":{"seats":"10"}}')).toThrow(/unknown resource/);
     expect(() => parseQuotaSeed('{"profile":"TEST x","limits":{"runs":"ten"}}')).toThrow(/whole number/);
+  });
+});
+
+describe('compute tiers on quota profiles (RC-algo-dev-05)', () => {
+  const tier = (
+    profile: string,
+    over: Partial<{ dataFreshnessSeconds: string | null; priorityClass: string | null; published: boolean }> = {},
+  ) => ({
+    profile,
+    dataFreshnessSeconds: '60',
+    priorityClass: '1',
+    published: true,
+    reason: 'LOCAL TEST tier',
+    idempotencyKey: `quant.tier:${profile}:${JSON.stringify(over)}`,
+    ...over,
+  });
+
+  it('lists no tier while none is published, with the profile that applies to the caller', async () => {
+    const { a } = setup();
+    expect(await a.tier.list()).toEqual({ current: { profile: 'TEST default', source: 'default' }, tiers: [] });
+    const { a: none } = setup(null);
+    expect(await none.tier.list()).toEqual({ current: null, tiers: [] });
+  });
+
+  it("lists each published tier by name with its freshness, priority class and its profile's limits; blank reads null", async () => {
+    const { a, writer, limit } = setup();
+    await limit('TEST pro', 'concurrent_runs', '10');
+    await writer.ops.quota.tier(tier('TEST pro', { dataFreshnessSeconds: '0', priorityClass: '2' }));
+    await writer.ops.quota.tier(tier('TEST default', { priorityClass: null }));
+    const { tiers } = await a.tier.list();
+    expect(tiers.map((t) => [t.profile, t.dataFreshnessSeconds, t.priorityClass])).toEqual([
+      ['TEST default', '60', null],
+      ['TEST pro', '0', '2'],
+    ]);
+    const pro = tiers[1]!;
+    expect(pro.limits.find((row) => row.resource === 'concurrent_runs')?.limit).toBe('10');
+    expect(pro.limits.find((row) => row.resource === 'strategies')?.limit).toBeNull();
+    expect(pro.limits).toHaveLength(9);
+  });
+
+  it('withdraws a tier, replays a write under its key and refuses the key for a different write', async () => {
+    const { a, writer } = setup();
+    const first = await writer.ops.quota.tier(tier('TEST pro'));
+    expect(await writer.ops.quota.tier(tier('TEST pro'))).toEqual(first);
+    await expect(writer.ops.quota.tier({ ...tier('TEST pro'), priorityClass: '9' })).rejects.toThrow(/different quota write/);
+    await writer.ops.quota.tier(tier('TEST pro', { published: false }));
+    expect((await a.tier.list()).tiers).toEqual([]);
+  });
+
+  it('refuses a tier write without a reason or with a value that is not a whole number, with no change; only an operator may write', async () => {
+    const { a, b, writer } = setup();
+    await expect(writer.ops.quota.tier({ ...tier('TEST pro'), reason: ' ' })).rejects.toThrow(
+      /quota_reason_unset|a quota change needs a reason/,
+    );
+    await expect(writer.ops.quota.tier(tier('TEST pro', { dataFreshnessSeconds: '1.5' }))).rejects.toThrow(/dataFreshnessSeconds/);
+    await expect(writer.ops.quota.tier(tier('TEST pro', { priorityClass: '-1' }))).rejects.toThrow(/priorityClass/);
+    await expect(b.ops.quota.tier(tier('TEST pro'))).rejects.toThrow();
+    expect((await a.tier.list()).tiers).toEqual([]);
   });
 });

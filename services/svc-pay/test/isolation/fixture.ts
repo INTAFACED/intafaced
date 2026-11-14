@@ -61,6 +61,9 @@ import { buildPayGuards } from '../../src/seams/registry.js';
 import { UserMoneyService } from '../../src/user-money-service.js';
 import { seedControl, type ControlSeed } from './control-seed.js';
 
+/** A TEST retry policy (the owner's value is PAY_WEBHOOK_RETRY_SCHEDULE_SECONDS): seven retries, eight attempts. */
+const TEST_RETRY_SCHEDULE = [60, 300, 1_800, 7_200, 43_200, 86_400, 86_400] as const;
+
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzleDir = join(here, '..', '..', 'drizzle');
 
@@ -286,6 +289,7 @@ function composeRouter(parts: {
       partnerTerms: (merchantId) => readPartnerTerms(parts.rails.list(), merchantId),
       webhooksAllowLocalHttp: true,
       webhookRetry: { maxPerWindow: 100, windowMs: 60_000 },
+      webhookSettings: { endpointCap: 50, overlapMaxSeconds: 3600, resendWindowSeconds: 86_400, retryScheduleSeconds: [60] },
       invoiceLinks: parts.pay,
       // W5: the same Postgres halt store the guards read, and the treasury exposure read. Limits come from an
       // EMPTY environment, as in an unconfigured deployment (no defaults). The conversion reader is the live inventory.
@@ -331,6 +335,7 @@ export async function createWorld(): Promise<World> {
 
   const outbound: Outbound[] = [];
   const webhooks = new MerchantWebhookService(new PostgresMerchantWebhookStore(sql), {
+    retryScheduleSeconds: TEST_RETRY_SCHEDULE,
     allowLocalHttp: true,
     transport: async (req) => {
       outbound.push({ url: String(req.url), body: req.body, headers: { ...req.headers } });

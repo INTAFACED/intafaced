@@ -149,6 +149,11 @@ export interface ActivityFeed {
   /** The last "load more" failed; the rows already shown are still good. */
   moreFailed: boolean;
   loadMore: () => void;
+  /**
+   * Where each loaded page starts in `items` (the first is 0). A screen that groups lines groups them within a page, so
+   * "load more" only adds rows below and never rewrites a row already shown. Absent: all of `items` is one page.
+   */
+  pageStarts?: readonly number[];
 }
 
 export interface ActivityOptions {
@@ -172,7 +177,14 @@ type State =
   | { phase: 'loading' }
   | { phase: 'refused'; code: string }
   | { phase: 'error' }
-  | { phase: 'ready'; items: ActivityItem[]; cursor: string | null; loadingMore: boolean; moreFailed: boolean };
+  | {
+      phase: 'ready';
+      items: ActivityItem[];
+      pageStarts: number[];
+      cursor: string | null;
+      loadingMore: boolean;
+      moreFailed: boolean;
+    };
 
 export function createActivityFeed(api: ApiClient, options: ActivityOptions = {}, now: () => number = Date.now): Source<ActivityFeed> {
   const limit = Math.max(1, Math.min(200, Math.trunc(options.pageSize ?? ACTIVITY_PAGE_SIZE)));
@@ -206,6 +218,7 @@ export function createActivityFeed(api: ApiClient, options: ActivityOptions = {}
             loadingMore: state.loadingMore,
             moreFailed: state.moreFailed,
             loadMore,
+            pageStarts: state.pageStarts,
           },
         };
       }
@@ -231,9 +244,12 @@ export function createActivityFeed(api: ApiClient, options: ActivityOptions = {}
       const seen = new Set(state.phase === 'ready' ? state.items.map((item) => item.id) : []);
       const fresh = result.data.items.filter((item) => !seen.has(item.id));
       asOf = now();
+      const more = state.phase === 'ready' && cursor !== null;
+      const kept = state.phase === 'ready' && more ? state : null;
       state = {
         phase: 'ready',
-        items: state.phase === 'ready' && cursor ? [...state.items, ...fresh] : fresh,
+        items: kept ? [...kept.items, ...fresh] : fresh,
+        pageStarts: kept ? (fresh.length > 0 ? [...kept.pageStarts, kept.items.length] : kept.pageStarts) : [0],
         cursor: result.data.nextCursor,
         loadingMore: false,
         moreFailed: false,

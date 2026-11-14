@@ -21,10 +21,13 @@ const MIGRATIONS = [
   '0018_notify_alert_conditions.sql',
   '0019_notify_alert_extra_conditions.sql',
   '0020_notify_alert_stopped.sql',
+  // 0022 copies the old trigger log from 0021's table, so on a fresh database it applies only after 0021.
+  '0021_notify_alert_triggers.sql',
   '0022_notify_alert_frequency.sql',
   '0026_notify_alert_burst.sql',
   '20261106031241_notify_alert_price_source.sql',
   '20261107074033_notify_watchlist_alerts.sql',
+  '20261114033918_notify_alert_delivery.sql',
 ];
 
 // Runs against a real database every time: CI provides it. Without one the suite fails, and says so.

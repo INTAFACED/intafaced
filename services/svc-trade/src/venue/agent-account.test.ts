@@ -49,6 +49,8 @@ const VALUES = parseAgentAccountValues({
   TRADE_AGENT_MAX_ORDER_NOTIONAL: '100',
   TRADE_AGENT_WORST_PRICE_BPS: '200',
   TRADE_AGENT_MARKETS: 'BTC-USDC,BTC-PERP',
+  TRADE_AGENT_MAX_LEVERAGE: '5',
+  TRADE_AGENT_MAX_DAILY_LOSS: '100',
 });
 
 function stepUp() {
@@ -114,6 +116,8 @@ describe('the agent account on the TEST venue', () => {
       stepUp: su.check,
       builder: { address: '0x00000000000000000000000000000000000000b1', feeBps: a('1') },
       listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
+      // Blank: its one market order is on a perpetual, which the owner's price protection does not bound.
+      slippageCapBps: null,
       now: () => new Date(),
     });
     accounts = new AgentAccounts({ door, store: new InMemoryAgentAccountStore(), stepUp: su.check, values, now: () => new Date() });
@@ -252,6 +256,58 @@ describe('the agent account on the TEST venue', () => {
       accounts.create(principal, { accountId: id(), owner, asset: 'USDC', cap: '600', fund: '1', stepUpApprovalId: 'x' }),
     );
     expect(c.code).toBe('agents.account_cap_above_ceiling');
+  });
+
+  it("#16: the per-order, leverage and daily-loss caps are saved under the owner's ceilings and shown with the funding cap", async () => {
+    const v = await signAll(await create200());
+    expect(v.limits).toEqual({ maxOrderNotional: null, maxLeverage: null, maxDailyLoss: null });
+    expect(accounts.terms().limitCeilings).toEqual({ maxOrderNotional: '100', maxLeverage: '5', maxDailyLoss: '100' });
+    const set = await accounts.setLimits(principal, v.accountId, { maxOrderNotional: '50', maxLeverage: '2', maxDailyLoss: '25' });
+    expect(set.limits).toEqual({ maxOrderNotional: a('50'), maxLeverage: '2', maxDailyLoss: a('25') });
+    expect(formatAmount(set.cap)).toBe('200');
+    // A cap left out stays as it was.
+    const one = await accounts.setLimits(principal, v.accountId, { maxLeverage: '3' });
+    expect(one.limits).toEqual({ maxOrderNotional: a('50'), maxLeverage: '3', maxDailyLoss: a('25') });
+    // Setting them moves nothing and asks the wallet for nothing.
+    expect(one.next).toBeNull();
+    expect(one.moves).toHaveLength(1);
+  });
+
+  it("#16: a cap above the owner's ceiling, or with the ceiling blank, is refused naming it; nothing is written", async () => {
+    const v = await signAll(await create200());
+    await accounts.setLimits(principal, v.accountId, { maxOrderNotional: '50', maxLeverage: '2', maxDailyLoss: '25' });
+    for (const [field, value, limit, ceiling] of [
+      ['maxOrderNotional', '100.01', 'per-order size cap', '100'],
+      ['maxLeverage', '6', 'leverage cap', '5'],
+      ['maxDailyLoss', '101', 'daily-loss cap', '100'],
+    ] as const) {
+      const e = await refusedAs(accounts.setLimits(principal, v.accountId, { maxOrderNotional: '40', [field]: value }));
+      expect(e.code, field).toBe('agents.limit_above_ceiling');
+      expect(e.detail, field).toEqual({ limit, ceiling });
+    }
+    expect((await accounts.advance(principal, v.accountId)).limits).toEqual({
+      maxOrderNotional: a('50'),
+      maxLeverage: '2',
+      maxDailyLoss: a('25'),
+    });
+    for (const bad of [{ maxLeverage: '1.5' }, { maxLeverage: 2 }, { maxDailyLoss: 25 }, {}]) {
+      expect((await refusedAs(accounts.setLimits(principal, v.accountId, bad))).code).toBe('agents.account_request_invalid');
+    }
+    expect((await refusedAs(accounts.setLimits(principal, v.accountId, { maxOrderNotional: '0' }))).code).toBe(
+      'agents.account_cap_invalid',
+    );
+    build(parseAgentAccountValues({ TRADE_AGENT_ACCOUNT_CEILING: '500', TRADE_AGENT_ACCOUNT_ASSET: 'USDC', TRADE_AGENT_KEY_SEED: 's' }));
+    const w = await signAll(await create200());
+    for (const field of ['maxOrderNotional', 'maxLeverage', 'maxDailyLoss'] as const) {
+      expect((await refusedAs(accounts.setLimits(principal, w.accountId, { [field]: '1' }))).code, field).toBe(
+        'agents.limit_ceiling_unset',
+      );
+    }
+  });
+
+  it("#16: caps are set only on an open account, from the person's own session", async () => {
+    const opening = await create200();
+    expect((await refusedAs(accounts.setLimits(principal, opening.accountId, { maxLeverage: '2' }))).code).toBe('agents.account_not_open');
   });
 
   it('each move is sent once under agent:move:<moveId>: a lost answer is read back from the venue, and a retry moves nothing more', async () => {
@@ -408,6 +464,11 @@ describe('the agent account on the TEST venue', () => {
     ).rejects.toMatchObject({
       code: 'scope.interactive_only',
     });
+    // Nor raise its own caps (#16).
+    const v = await signAll(await create200());
+    await expect(accounts.setLimits(keyPrincipal, v.accountId, { maxLeverage: '5' })).rejects.toMatchObject({
+      code: 'scope.interactive_only',
+    });
   });
 
   it('a JSON number is never read as money, and an asset other than the funding asset is refused', async () => {
@@ -420,6 +481,97 @@ describe('the agent account on the TEST venue', () => {
       accounts.create(principal, { accountId: id(), owner, asset: 'USDT', cap: '200', fund: '150', stepUpApprovalId: 'x' }),
     ).rejects.toMatchObject({
       code: 'agents.account_funding_asset',
+    });
+  });
+  describe("the person's own sub-account (J-portfolio-04 #2)", () => {
+    const createOwn = (name: string) =>
+      door.prepare(principal, {
+        owner,
+        signer: { role: 'owner', address: owner },
+        intent: { kind: 'create_sub_account', name, subAccountKey: `own:sub-account:${owner}:${name}` },
+      });
+    const moveOwn = (
+      subAccount: string,
+      amount: string,
+      moveKey: string,
+      direction: 'into_sub_account' | 'out_of_sub_account' = 'into_sub_account',
+    ) =>
+      door.prepare(principal, {
+        owner,
+        signer: { role: 'owner', address: owner },
+        intent: { kind: 'sub_account_transfer', subAccount, direction, asset: 'USDC', amount: a(amount), moveKey },
+      });
+    async function openOwn(name: string): Promise<string> {
+      const asked = await createOwn(name);
+      const sent = await door.submit(principal, asked.actionKey, await sign(asked.prepared));
+      expect(sent.outcome).toMatchObject({ definite: true, accepted: true });
+      return (sent.outcome as { venueRef: string }).venueRef;
+    }
+
+    it('opens one and moves into and out of it, each signed by the wallet on the main account; the venue records the move with its time', async () => {
+      const name = `TEST own ${id()}`;
+      const asked = await createOwn(name);
+      // A double press is the stored action: one wallet prompt.
+      expect((await createOwn(name)).reused).toBe(true);
+      const sent = await door.submit(principal, asked.actionKey, await sign(asked.prepared));
+      const sub = (sent.outcome as { venueRef: string }).venueRef;
+      expect((await sim.subAccounts(main())).value).toContainEqual({ subAccount: sub, name });
+      const subAccount = (): UserVenueAccount => ({ venueId: sim.venue.id, owner, subAccount: sub });
+      const before = await usdc(main());
+      const moveKey = `own:move:${owner}:${id()}`;
+      const into = await moveOwn(sub, '120', moveKey);
+      const moved = await door.submit(principal, into.actionKey, await sign(into.prepared));
+      expect(moved.outcome).toMatchObject({ definite: true, accepted: true });
+      expect(await usdc(main())).toBe(before - a('120'));
+      expect(await usdc(subAccount())).toBe(a('120'));
+      const record = (await sim.transfer(main(), into.prepared.nonce)).value!;
+      expect(record).toMatchObject({ subAccount: sub, direction: 'into_sub_account', asset: 'USDC', amount: a('120'), status: 'done' });
+      expect(record.settledAt).toBeInstanceOf(Date);
+      // Re-sent, the same bytes: the venue's first answer, nothing moves twice.
+      await door.submit(principal, into.actionKey, await sign(into.prepared));
+      expect(await usdc(subAccount())).toBe(a('120'));
+      const out = await moveOwn(sub, '20', `own:move:${owner}:${id()}`, 'out_of_sub_account');
+      await door.submit(principal, out.actionKey, await sign(out.prepared));
+      expect(await usdc(subAccount())).toBe(a('100'));
+      expect(await usdc(main())).toBe(before - a('100'));
+    });
+
+    it("refuses a move under an own key into an agent account's sub-account, before anything is stored or signed", async () => {
+      const v = await signAll(await create200());
+      const agentSub = v.subAccount!;
+      const moveKey = `own:move:${owner}:${id()}`;
+      await expect(moveOwn(agentSub, '10', moveKey)).rejects.toMatchObject({ code: 'trade.venue_sub_account_not_own' });
+      expect(await actions.find(USER, moveKey)).toBeNull();
+      // Nor one the venue never opened for this person at all.
+      await expect(moveOwn('0x00000000000000000000000000000000000000ab', '10', `own:move:${owner}:${id()}`)).rejects.toMatchObject({
+        code: 'trade.venue_sub_account_not_own',
+      });
+    });
+
+    it('a sub-account opened as your own but whose answer was lost is read back by its name, and a move into it goes on', async () => {
+      const name = `TEST lost ${id()}`;
+      const asked = await createOwn(name);
+      sim.switches.loseAnswers = 1;
+      const sent = await door.submit(principal, asked.actionKey, await sign(asked.prepared));
+      expect(sent.outcome.definite).toBe(false);
+      const sub = (await sim.subAccounts(main())).value.find((s) => s.name === name)!.subAccount;
+      const into = await moveOwn(sub, '5', `own:move:${owner}:${id()}`);
+      expect(into.prepared.intent).toMatchObject({ kind: 'sub_account_transfer', subAccount: sub });
+    });
+
+    it('an own key is for those two actions only, and a sub-account action under any other key is still refused', async () => {
+      await expect(
+        door.prepare(principal, {
+          owner,
+          signer: { role: 'owner', address: owner },
+          intent: { kind: 'approve_agent', agentAddress: '0x00000000000000000000000000000000000000e2', agentName: 'x', validUntil: null },
+          actionKey: `own:move:${owner}:${id()}`,
+        }),
+      ).rejects.toMatchObject({ code: 'trade.venue_own_key_misused' });
+      const sub = await openOwn(`TEST other ${id()}`);
+      // A move into your own sub-account under an own:sub-account key (the wrong one of the two), or under a plain key.
+      await expect(moveOwn(sub, '1', `own:sub-account:${owner}:wrong`)).rejects.toMatchObject({ code: 'trade.venue_agent_account_only' });
+      await expect(moveOwn(sub, '1', `move:${owner}:${id()}`)).rejects.toMatchObject({ code: 'trade.venue_agent_account_only' });
     });
   });
 });
@@ -446,7 +598,11 @@ describe('parseAgentAccountValues: blank is null, malformed stops the boot', () 
       asset: null,
       keySeed: null,
       bounds: { maxOrderNotional: null, worstPriceBps: null, markets: null },
+      limitCeilings: { maxLeverage: null, maxDailyLoss: null },
     });
+    expect(VALUES.limitCeilings).toEqual({ maxLeverage: 5, maxDailyLoss: a('100') });
+    expect(() => parseAgentAccountValues({ TRADE_AGENT_MAX_LEVERAGE: '2.5' })).toThrow(/whole number/);
+    expect(() => parseAgentAccountValues({ TRADE_AGENT_MAX_DAILY_LOSS: '0' })).toThrow();
     expect(VALUES.bounds.markets).toEqual(['BTC-USDC', 'BTC-PERP']);
     expect(VALUES.ceiling).toBe(a('500'));
     expect(() => parseAgentAccountValues({ TRADE_AGENT_ACCOUNT_CEILING: '-1' })).toThrow();

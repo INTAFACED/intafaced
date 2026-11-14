@@ -11,6 +11,7 @@ import { createTradeApi, type Order } from '../trade-api';
 import { appendPage, NO_PARAMS, PAGE_SIZES, readParams, toQuery, writeParams, type HistoryParams } from './history-query';
 import { ordersCopy, type OrdersT } from './orders-copy';
 import { ProductSwitch } from './FuturesOrdersRoom';
+import { AssistantOrders } from './AssistantOrders';
 import './orders.css';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
@@ -262,6 +263,7 @@ export function OrderHistoryRoom({ path }: { path: string }) {
             </>
           )
         ) : null}
+        <AssistantOrders t={t} revision={revision} />
       </div>
     </Page>
   );

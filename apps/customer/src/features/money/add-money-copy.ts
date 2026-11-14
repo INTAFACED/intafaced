@@ -69,6 +69,9 @@ const en = {
   stepNotYet: 'Waiting',
   stepSkipped: 'Not reported by the partner',
   creditedAmount: 'Credited: {amount}',
+  payStandInTransfer: 'TEST bank details from a stand-in: {label}. No real money moves.',
+  status_returned: 'Returned by the partner',
+  returnedAmount: 'Returned: {amount} was sent back and taken out of your balance once, as the partner reported, {time}.',
 } as const;
 
 const es: Record<keyof typeof en, string> = {
@@ -142,6 +145,9 @@ const es: Record<keyof typeof en, string> = {
   stepNotYet: 'En espera',
   stepSkipped: 'El socio no lo informó',
   creditedAmount: 'Abonado: {amount}',
+  payStandInTransfer: 'Datos bancarios de PRUEBA de un sustituto: {label}. No se mueve dinero real.',
+  status_returned: 'Devuelto por el socio',
+  returnedAmount: 'Devuelto: {amount} se devolvió y se retiró de tu saldo una sola vez, según informó el socio, {time}.',
 };
 
 const fr: Record<keyof typeof en, string> = {
@@ -216,6 +222,9 @@ const fr: Record<keyof typeof en, string> = {
   stepNotYet: 'À venir',
   stepSkipped: 'Non signalé par le partenaire',
   creditedAmount: 'Crédité : {amount}',
+  payStandInTransfer: 'Coordonnées bancaires de TEST d’un substitut : {label}. Aucun argent réel ne bouge.',
+  status_returned: 'Renvoyé par le partenaire',
+  returnedAmount: 'Renvoyé : {amount} a été renvoyé et retiré de votre solde une seule fois, selon le partenaire, {time}.',
 };
 
 export const addMoneyCopy = defineCopy('customer.money.addMoney', en, { es, fr });

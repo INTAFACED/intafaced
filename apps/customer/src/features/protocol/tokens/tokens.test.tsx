@@ -161,11 +161,16 @@ describe('Token page', () => {
     expect(html).toContain('Add to watchlist');
     expect(html).not.toContain('data-testid="token-price"');
     expect(html).not.toMatch(/\$\d/);
+    // The scam report count reads on its own and shows no number before its read lands.
+    expect(html).toContain('Scam reports');
+    expect(html).toContain('Reading the reports');
+    expect(html).not.toContain('data-testid="scam-reports"');
   });
   it('answers a malformed address with not found and looks nothing up', () => {
     const html = renderToStaticMarkup(<TokenPage address="0x1234" />);
     expect(html).toContain('data-code="protocol.not_found"');
     expect(html).not.toContain('Token facts');
+    expect(html).not.toContain('Scam reports');
   });
   it('says the watchlist cannot be kept when the browser keeps no site data', () => {
     vi.stubGlobal('window', {
