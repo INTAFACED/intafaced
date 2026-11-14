@@ -19,6 +19,8 @@
 //   node tooling/scripts/local-test-chain.mjs fund <address> spam     TEST Airdrop sent unasked (J-dex-protocol-04 #7)
 //   node tooling/scripts/local-test-chain.mjs fund <address> venue    TEST ETH for gas + TEST USD to deposit (J-wallet-09 #3)
 //   node tooling/scripts/local-test-chain.mjs fund <address> plain    TEST Token C, the token with no permit (J-dex-protocol-03)
+//   node tooling/scripts/local-test-chain.mjs fund <address> positions  a TEST lending collateral deposit and a TEST venue
+//                                                                        deposit, made as that address (J-dex-protocol-06 #4)
 //
 // `serve` also runs, on the same port, the Navigator's TEST signer at /navigator (J-agents-19 #4): one SmartAccount
 // executeWithSession call, sent from the Navigator's TEST session key address, impersonated on this anvil.
@@ -412,8 +414,8 @@ async function cmdGate(state, network) {
 }
 
 async function cmdFund(address, kind) {
-  if (!/^0x[0-9a-fA-F]{40}$/.test(address ?? '') || ![undefined, 'stable', 'spam', 'venue', 'plain'].includes(kind))
-    throw new Error('usage: fund <0x address> [stable|spam|venue|plain]');
+  if (!/^0x[0-9a-fA-F]{40}$/.test(address ?? '') || ![undefined, 'stable', 'spam', 'venue', 'plain', 'positions'].includes(kind))
+    throw new Error('usage: fund <0x address> [stable|spam|venue|plain|positions]');
   const status = await chainStatus();
   if (status.chain !== 'running') {
     console.error('local-test-chain.no_chain: this stack runs no TEST chain (no anvil binary), so nothing can be funded');
@@ -423,7 +425,8 @@ async function cmdFund(address, kind) {
     console.error('local-test-chain.gate_closed: the TEST chain gate is closed; open it before funding');
     process.exit(1);
   }
-  const r = runSeedScript(['fund', address, ...(kind ? [kind] : [])]);
+  // `positions` reads the lending market and venue from the chain's record.
+  const r = runSeedScript(['fund', address, ...(kind ? [kind] : []), ...(kind === 'positions' ? [chainRecordPath()] : [])]);
   console.log(r.output);
   if (r.status !== 0) process.exit(1);
 }
@@ -436,7 +439,9 @@ if (runningAsCli) {
   else if (command === 'gate') await cmdGate(arg, extra);
   else if (command === 'fund') await cmdFund(arg, extra);
   else {
-    console.error('usage: local-test-chain.mjs serve | status | gate open|closed [second] | fund <address> [stable|spam|venue|plain]');
+    console.error(
+      'usage: local-test-chain.mjs serve | status | gate open|closed [second] | fund <address> [stable|spam|venue|plain|positions]',
+    );
     process.exit(2);
   }
 }

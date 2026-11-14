@@ -333,6 +333,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/dex/tokens': { template: 'record-list' },
   '/dex/tokens/:address': { template: 'monitor' },
   '/dex/venue': { template: 'monitor' },
+  '/dex/lend': { template: 'monitor' },
   '/dex/orders': { template: 'record-list' },
   '/wallet': { template: 'monitor' },
   '/wallet/activity': { template: 'record-list' },

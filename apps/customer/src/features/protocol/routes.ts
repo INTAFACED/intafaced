@@ -88,6 +88,7 @@ export const WEB3_ROUTES: readonly Web3Route[] = [
   { path: '/dex/tokens', room: 'dex', tokens: 'list' },
   { path: '/dex/tokens/:address', room: 'dex', tokens: 'detail' },
   { path: '/dex/venue', room: 'dex', tab: 'venue' },
+  { path: '/dex/lend', room: 'dex', tab: 'lend' },
   { path: '/dex/orders', room: 'dex', orders: true },
   ...(Object.entries(WALLET_SECTIONS) as [WalletSection, string][]).map(([wallet, path]) => ({ path, room: 'wallet' as const, wallet })),
   { path: '/wallet/groups/:groupId', room: 'wallet', walletGroup: true },

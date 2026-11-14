@@ -200,6 +200,11 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
      */
     PROTOCOL_VENUE_ADDRESS: evmAddressDefaultZero,
     /**
+     * The isolated lending market (D-portfolio-wallet-04): the IsolatedLendingMarket contract on PROTOCOL_CHAIN_ID whose
+     * collateral and debt a wallet's positions list reads. NO DEFAULT: zero refuses `protocol.lending_market_unset`.
+     */
+    PROTOCOL_LENDING_MARKET_ADDRESS: evmAddressDefaultZero,
+    /**
      * Router v2 swaps (D-swap-03, D-swap-intents-01, -02): the SovereignRouterV2 contract, the SovereignPermit contract it
      * pulls standing allowances through, and the wrapped native token it wraps around a swap. NO DEFAULTS: any one zero
      * and every v2 swap procedure refuses `protocol.router_v2_unset`; the v1 pool swap is unchanged.

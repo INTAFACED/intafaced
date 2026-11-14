@@ -18,6 +18,7 @@ import { ClaimLinksPanel } from './ClaimLinksPanel';
 import { ApprovalsPanel } from './ApprovalsPanel';
 import { PermitForm } from './PermitForm';
 import { PortfolioPanel } from './PortfolioPanel';
+import { WalletPositions } from './WalletPositions';
 import { TrackerPanel } from './TrackerPanel';
 import { ReceivePanel } from './ReceivePanel';
 import { SafetyPanel } from './SafetyPanel';
@@ -130,7 +131,7 @@ export function WalletRoom({
   const overview = (
     <>
       {connectPanel}
-      <PortfolioPanel />
+      <PortfolioPanel positions={<WalletPositions />} />
       <Panel title={t('enableTitle')}>
         <p className="muted">{t('enableNote')}</p>
         <Button variant="secondary" disabled aria-disabled="true" title={t('enableBlocked')}>
