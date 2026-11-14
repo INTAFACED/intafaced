@@ -270,6 +270,44 @@ describe('course purchases', () => {
     expect(view.purchase).toMatchObject({ state: 'submitted', txHash: PAY });
   });
 
+  it('a payment sent but not yet mined when the intent was set aside is found by the reconciler once mined, and posted once', async () => {
+    await paidCourse();
+    await purchases.buy({ userId: L, slug: 'perps-101', wallet: WALLET });
+    // The wallet sent it, its answer was lost, and the learner set the intent aside before it was mined.
+    expect((await purchases.abandon({ userId: L, key: KEY })).purchase).toBeNull();
+    expect(await rows()).toEqual([{ purchase_key: KEY, state: 'abandoned', tx_hash: null }]);
+    pay();
+    chain.head += 1n;
+    await purchases.reconcile();
+    expect(await rows()).toEqual([{ purchase_key: KEY, state: 'posted', tx_hash: PAY }]);
+    expect(ledger.calls).toEqual([KEY]);
+    expect(await grants()).toEqual([{ state: 'granted', source: 'purchase' }]);
+    await purchases.reconcile();
+    expect(ledger.calls).toEqual([KEY]);
+  });
+
+  it('a reopened intent keeps its first block, so a payment sent before it was set aside is still found for it', async () => {
+    await paidCourse();
+    await purchases.buy({ userId: L, slug: 'perps-101', wallet: WALLET });
+    const [{ from_block: first }] = await db.sql<Array<{ from_block: string }>>`SELECT from_block FROM academy.course_purchases`;
+    await purchases.abandon({ userId: L, key: KEY });
+    // Blocks pass, then Buy again: one intent, the same key and the same first block.
+    chain.head += 5n;
+    const again = await purchases.buy({ userId: L, slug: 'perps-101', wallet: WALLET });
+    expect(again.request).not.toBeNull();
+    const [{ from_block: reopened }] = await db.sql<Array<{ from_block: string }>>`SELECT from_block FROM academy.course_purchases`;
+    expect(reopened).toBe(first);
+    // The first send is mined at a block before the reopen would have started: it is found and counted once.
+    chain.txs.set(PAY, {
+      block: BigInt(first) + 1n,
+      transfers: [{ from: WALLET, to: RECEIVER, amount: 2_500_000n, txHash: PAY, blockNumber: BigInt(first) + 1n }],
+    });
+    chain.head += 1n;
+    await purchases.reconcile();
+    expect(await rows()).toEqual([{ purchase_key: KEY, state: 'posted', tx_hash: PAY }]);
+    expect(ledger.calls).toEqual([KEY]);
+  });
+
   it('the grant appears only after the payment confirmed and posted, once, under the purchase key', async () => {
     await paidCourse();
     await purchases.buy({ userId: L, slug: 'perps-101', wallet: WALLET });

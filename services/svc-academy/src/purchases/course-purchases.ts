@@ -94,6 +94,11 @@ export const refundKeyOf = (course: string, userId: string, n: number) => `acade
 
 /** States that are still moving: the reconciler reads them against the chain and the ledger. */
 const OPEN_STATES = ['awaiting_signature', 'submitted', 'confirmed', 'refunding'] as const;
+/**
+ * How long the reconciler keeps searching a set-aside intent for a payment that was sent but not yet mined when it was set
+ * aside. After that, the learner's next view or Buy still searches it, from the intent's first block.
+ */
+const ABANDONED_SEARCH_DAYS = 7;
 
 export class CoursePurchases {
   constructor(
@@ -171,10 +176,11 @@ export class CoursePurchases {
 
     let opened: PurchaseRow | undefined;
     if (latest && (latest.state === 'abandoned' || latest.state === 'failed')) {
-      // The same intent, reopened: same key, its wallet and terms set again. Of two presses at once, one reopens it.
+      // The same intent, reopened: same key, its wallet and terms set again. Of two presses at once, one reopens it. Its
+      // first block is kept, so a payment sent before it was set aside, and mined since, is still found for it.
       [opened] = await this.sql<PurchaseRow[]>`
         UPDATE academy.course_purchases
-           SET state = 'awaiting_signature', payer = ${wallet}, from_block = ${fromBlock.toString()}, tx_hash = NULL,
+           SET state = 'awaiting_signature', payer = ${wallet}, tx_hash = NULL,
                price = ${course.price}, asset = ${course.price_asset!}, chain_id = ${settings.chainId}, token = ${settings.token},
                token_decimals = ${settings.decimals}, receiver = ${settings.receiver}, updated_at = ${now}
          WHERE id = ${latest.id} AND state = ${latest.state}
@@ -292,8 +298,14 @@ export class CoursePurchases {
     const rows = await this.sql<PurchaseRow[]>`
       SELECT * FROM academy.course_purchases WHERE state IN ${this.sql(OPEN_STATES)} ORDER BY updated_at LIMIT ${limit}
     `;
-    for (const row of rows) await this.reconcileRow(row).catch((err: unknown) => onError(row.purchase_key, err));
-    return rows.length;
+    // A set-aside intent is searched too: the wallet may have sent its payment before it was set aside, unmined then.
+    const setAside = await this.sql<PurchaseRow[]>`
+      SELECT * FROM academy.course_purchases
+       WHERE state = 'abandoned' AND updated_at > now() - make_interval(days => ${ABANDONED_SEARCH_DAYS})
+       ORDER BY updated_at LIMIT ${limit}
+    `;
+    for (const row of [...rows, ...setAside]) await this.reconcileRow(row).catch((err: unknown) => onError(row.purchase_key, err));
+    return rows.length + setAside.length;
   }
 
   // ── The state machine ───────────────────────────────────────────────────────────────────────────────────────────
@@ -317,6 +329,7 @@ export class CoursePurchases {
   private async step(row: PurchaseRow): Promise<PurchaseRow | null> {
     switch (row.state) {
       case 'awaiting_signature':
+      case 'abandoned':
         return this.findLostPayment(row);
       case 'submitted':
         return this.confirmPayment(row);
@@ -349,7 +362,7 @@ export class CoursePurchases {
       if (used) continue;
       const [moved] = await this.sql<PurchaseRow[]>`
         UPDATE academy.course_purchases SET state = 'submitted', tx_hash = ${transfer.txHash}, updated_at = now()
-         WHERE id = ${row.id} AND state = 'awaiting_signature'
+         WHERE id = ${row.id} AND state IN ('awaiting_signature', 'abandoned')
         RETURNING *
       `.catch((err: unknown) => {
         // Another purchase took this hash between the read and the write: it is not this payment. Anything else stops.
