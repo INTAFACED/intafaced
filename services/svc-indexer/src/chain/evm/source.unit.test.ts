@@ -180,8 +180,8 @@ function missingVenueBlock() {
   };
 }
 
-function rpcResultFor(method: string): unknown {
-  if (method === 'eth_chainId') return '0x7a69';
+function rpcResultFor(method: string, chainId: string): unknown {
+  if (method === 'eth_chainId') return chainId;
   if (method === 'eth_blockNumber') return '0x1';
   if (method === 'eth_getCode') return '0x';
   if (method === 'eth_getLogs') return [];
@@ -189,8 +189,15 @@ function rpcResultFor(method: string): unknown {
   return null;
 }
 
-async function missingVenueRpc(): Promise<{ url: string; methods: string[]; close: () => Promise<void> }> {
+async function missingVenueRpc(): Promise<{
+  url: string;
+  methods: string[];
+  /** The chain id the endpoint answers with; change it to play a proxy or fleet swap. */
+  answers: { chainId: string };
+  close: () => Promise<void>;
+}> {
   const methods: string[] = [];
+  const answers = { chainId: '0x7a69' };
   const server = createHttpServer((req, res) => {
     const chunks: Buffer[] = [];
     req.on('data', (chunk: Buffer) => chunks.push(chunk));
@@ -209,7 +216,7 @@ async function missingVenueRpc(): Promise<{ url: string; methods: string[]; clos
       const replies = (entries as Array<{ id?: unknown; method?: unknown }>).map((entry) => {
         const method = typeof entry.method === 'string' ? entry.method : 'unknown';
         methods.push(method);
-        return { jsonrpc: '2.0', id: entry.id ?? 1, result: rpcResultFor(method) };
+        return { jsonrpc: '2.0', id: entry.id ?? 1, result: rpcResultFor(method, answers.chainId) };
       });
       res.writeHead(200, { 'content-type': 'application/json', connection: 'close' });
       res.end(JSON.stringify(batch ? replies : replies[0]));
@@ -220,6 +227,7 @@ async function missingVenueRpc(): Promise<{ url: string; methods: string[]; clos
   return {
     url: `http://127.0.0.1:${address.port}`,
     methods,
+    answers,
     close: () =>
       new Promise((resolve, reject) => {
         // viem's HTTP agent keep-alives; without this, vitest waits on open
@@ -336,4 +344,23 @@ describe('assertLogsBoundToBlock · getLogs answer must match the request', () =
       expect(err).toMatchObject({ code: 'indexer.malformed_block' });
     }
   });
+});
+
+describe('EvmChainSource · the chain id is re-asked every pass, never latched', () => {
+  it('asks eth_chainId on each assertChainId() and refuses an endpoint that later answers for another chain', async () => {
+    const rpc = await missingVenueRpc();
+    try {
+      const source = new EvmChainSource({ chainId: 31337, rpcUrl: rpc.url, venue: VENUE, requestTimeoutMs: 5_000 });
+      await expect(source.assertChainId()).resolves.toBe(31337);
+      await expect(source.assertChainId()).resolves.toBe(31337);
+      expect(rpc.methods.filter((m) => m === 'eth_chainId')).toHaveLength(2);
+
+      // The same URL now answers for chain 1 (a proxy or fleet swap). A latch on the first success would miss it.
+      rpc.answers.chainId = '0x1';
+      await expect(source.assertChainId()).rejects.toMatchObject({ code: 'indexer.chain_id_mismatch' });
+      expect(rpc.methods.filter((m) => m === 'eth_chainId')).toHaveLength(3);
+    } finally {
+      await rpc.close();
+    }
+  }, 30_000);
 });

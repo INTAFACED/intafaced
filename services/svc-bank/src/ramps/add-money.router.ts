@@ -59,7 +59,7 @@ const request = z.object({
   method: z.enum(ONRAMP_METHODS),
   country: z.string(),
   rail,
-  status: z.enum(['opening', 'refused', 'opened', 'pending', 'credited']),
+  status: z.enum(['opening', 'refused', 'opened', 'pending', 'credited', 'returned']),
   refusalCode: z.string().nullable(),
   onramp: onramp.nullable(),
   createdAt: z.string(),
@@ -68,6 +68,7 @@ const request = z.object({
   creditedAt: z.string().nullable(),
   creditedAmount: z.string().nullable(),
   creditedBy: z.enum(['ledger', 'partner']).nullable(),
+  returnedAt: z.string().nullable(),
 });
 
 export function createAddMoneyRouter(bank: Pick<BankServices, 'addMoney'>, guard: <T>(fn: () => Promise<T>) => Promise<T>) {

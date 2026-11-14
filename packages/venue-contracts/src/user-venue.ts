@@ -76,6 +76,12 @@ export interface VenueSigner {
 
 export type VenueTimeInForce = 'GTC' | 'IOC' | 'ALO';
 
+/**
+ * What the venue does when a new order would trade against the same account's own resting order (J-cex-spot-03 #8):
+ * cancel the resting one, cancel the new one, or cancel both. A venue applies its own rule; none is chosen per order.
+ */
+export type VenueSelfTradeMode = 'cancel_resting' | 'cancel_new' | 'cancel_both';
+
 export interface PlaceUserOrderIntent {
   readonly kind: 'place_order';
   readonly symbol: string;
@@ -237,6 +243,24 @@ export interface SubAccountTransferIntent {
   readonly moveKey: string;
 }
 
+/**
+ * Move collateral between the owner's main account and the margin account a market's deployer keeps for it (a
+ * Hyperliquid HIP-3 deployer's own margin, apart from the main account), signed by the owner's wallet on the MAIN
+ * account. Only free balance moves, and only the collateral asset the deployer set; nothing leaves the venue.
+ */
+export interface MarketMarginTransferIntent {
+  readonly kind: 'market_margin_transfer';
+  /** A market whose deployer keeps its own margin account (`UserVenueMarket.marginAccount`). */
+  readonly symbol: string;
+  /** `into_market`: main → the market's margin account. `out_of_market`: back to the main account. */
+  readonly direction: 'into_market' | 'out_of_market';
+  readonly asset: string;
+  /** Always positive. */
+  readonly amount: Amount;
+  /** The business key of this move, e.g. `market-margin:<owner>:<symbol>:<draft>`: a retry re-sends the same bytes. */
+  readonly moveKey: string;
+}
+
 export type VenueIntent =
   | PlaceUserOrderIntent
   | UpdateLeverageIntent
@@ -247,7 +271,8 @@ export type VenueIntent =
   | ApproveAgentIntent
   | RevokeAgentIntent
   | CreateSubAccountIntent
-  | SubAccountTransferIntent;
+  | SubAccountTransferIntent
+  | MarketMarginTransferIntent;
 
 export type VenueIntentKind = VenueIntent['kind'];
 
@@ -259,12 +284,14 @@ export const OWNER_ONLY_INTENTS: ReadonlySet<VenueIntentKind> = new Set<VenueInt
   'revoke_agent',
   'create_sub_account',
   'sub_account_transfer',
+  'market_margin_transfer',
 ]);
 
 /** Actions signed on the owner's MAIN account only, never on a sub-account. */
 export const MAIN_ACCOUNT_ONLY_INTENTS: ReadonlySet<VenueIntentKind> = new Set<VenueIntentKind>([
   'create_sub_account',
   'sub_account_transfer',
+  'market_margin_transfer',
 ]);
 
 export type VenueMarginMode = 'cross' | 'isolated';
@@ -422,6 +449,11 @@ export type VenueRefusalCode =
   | 'market_delisted'
   /** The order is larger than the venue's own largest order size or notional for the market. */
   | 'order_above_venue_max'
+  /**
+   * An opening order would take the market's open interest past the cap its deployer set
+   * (`UserVenueMarket.openInterest.capSize`). The detail names the cap; nothing is signed.
+   */
+  | 'open_interest_above_cap'
   /** The agent's cap is revoked or expired: only cancels are signed. */
   | 'agent_cap_inactive'
   /** The room under the cap can't be measured (a holding with no known mark, a market in another quote). Nothing signed. */
@@ -640,6 +672,8 @@ export interface UserVenueTransfer {
   readonly amount: Amount;
   /** A move between one owner's own accounts settles at once, or the venue refuses it. */
   readonly status: 'done';
+  /** The venue's own time for the move: when the coins left one account and reached the other. */
+  readonly settledAt: Date;
 }
 
 /** Every read is a snapshot of the venue's record at the venue's own time. */
@@ -699,6 +733,62 @@ export interface UserVenueSession {
 }
 
 /**
+ * The margin account a market's deployer keeps for it, apart from the owner's main account (a Hyperliquid HIP-3
+ * deployer's own margin): its name, the collateral asset and the margin mode the deployer set. Funded only by the
+ * owner's own signed `market_margin_transfer`; orders on the market draw their margin from it.
+ */
+export interface UserVenueMarginAccountRule {
+  readonly name: string;
+  readonly collateralAsset: string;
+  readonly marginMode: VenueMarginMode;
+}
+
+/** One owner's balance in a market's own margin account, as the venue reports it (`UserVenue.marketMargin`). */
+export interface UserVenueMarketMargin extends UserVenueMarginAccountRule {
+  readonly symbol: string;
+  /** Free to move back or to post as margin. */
+  readonly free: Amount;
+  /** Locked by resting orders or used as margin on the market's positions. */
+  readonly locked: Amount;
+  readonly total: Amount;
+}
+
+/** A market's open interest as the venue reports it: the size open now, and the cap its deployer set (`null`: none). */
+export interface UserVenueOpenInterest {
+  readonly size: Amount;
+  readonly capSize: Amount | null;
+}
+
+/**
+ * The latest event the venue reports that settled a market's positions (J-derivatives-27 #9 #10): its deployer halted it,
+ * or a split in what it tracks. The venue cancelled every order on the market and settled every position at
+ * `settlementPrice` at `eventAt`; `reopenedAt` is when it took orders again, `null` while it has not.
+ */
+export interface UserVenueMarketEvent {
+  readonly kind: 'deployer_halt' | 'split';
+  readonly eventAt: Date;
+  readonly settlementPrice: Amount;
+  readonly reopenedAt: Date | null;
+  /** A split's ratio as the venue publishes it (`2` for 2 for 1), text; `null` for a halt. */
+  readonly splitRatio: string | null;
+}
+
+/** One account's settlement in a market event (`UserVenue.settlements`): its position settled and its orders cancelled. */
+export interface UserVenueSettlement {
+  readonly symbol: string;
+  readonly kind: UserVenueMarketEvent['kind'];
+  /** The settled position's side and size, or `null` when the account held none (only its orders were cancelled). */
+  readonly side: 'long' | 'short' | null;
+  readonly size: Amount;
+  readonly price: Amount;
+  /** The realised result the venue booked on the settled position (zero with no position). */
+  readonly realisedPnl: Amount;
+  /** The client order ids of the account's orders the venue cancelled (`null` for an order placed without one). */
+  readonly cancelledOrders: readonly (string | null)[];
+  readonly settledAt: Date;
+}
+
+/**
  * A perpetual's funding as the venue publishes it now: the signed rate it applies at the next settlement (a scaled
  * fraction of notional, `parseAmount('0.0001')` is one basis point; positive means longs pay shorts), how many seconds
  * lie between settlements, and when the next one is. The venue's figures, never ours.
@@ -751,6 +841,12 @@ export interface UserVenueMarket {
   readonly feed: MaybeKnown<UserVenueFeed>;
   /** Its home market's session and the venue's off-hours mode (a stock perpetual), or `known: false` for a market with none. */
   readonly session: MaybeKnown<UserVenueSession>;
+  /** The deployer's own margin account for this market, or `known: false` where orders draw on the main account. */
+  readonly marginAccount: MaybeKnown<UserVenueMarginAccountRule>;
+  /** The market's open interest and its deployer's cap (in base units), or `known: false` where the venue reports none. */
+  readonly openInterest: MaybeKnown<UserVenueOpenInterest>;
+  /** The latest halt or split that settled the market's positions, or `known: false` when the venue reports none. */
+  readonly lastEvent: MaybeKnown<UserVenueMarketEvent>;
   /**
    * The contract strip's figures (J-derivatives-01 #4), each the venue's own, `known: false` where it publishes none:
    * how many base units one contract is, the market's mark price now, and its funding (perpetuals). Never filled with
@@ -759,6 +855,18 @@ export interface UserVenueMarket {
   readonly contractSize: MaybeKnown<Amount>;
   readonly mark: MaybeKnown<Amount>;
   readonly funding: MaybeKnown<UserVenueFunding>;
+  /**
+   * The venue's own self-trade rule on this market, as it publishes it, or `known: false` (absent from an older venue:
+   * not published). Never our guess of what the venue does.
+   */
+  readonly selfTrade?: MaybeKnown<VenueSelfTradeMode>;
+}
+
+/** One settled funding interval as the venue published it: when it settled and its signed rate per interval. */
+export interface VenueFundingRow {
+  readonly fundingAt: Date;
+  /** A signed scaled fraction of notional per interval (as `UserVenueFunding.rate`), never a percent. */
+  readonly rate: Amount;
 }
 
 /**
@@ -868,6 +976,13 @@ export interface UserVenueDescriptor extends VenueDescriptor {
    * that declares none has its figures refused (`venueFigure` throws), never given a silent default.
    */
   readonly figureStaleAfterMs?: number;
+  /**
+   * The longest an agent permission with an end date may last on this venue, from the moment it is approved (J-agents-21
+   * #19): an assistant's key that ends later than this is refused at connect, naming it. A venue that declares none has
+   * every dated key refused (`agents.venue_agent_expiry_max_unknown`), never given a silent default. A permission with no
+   * end date is the venue's own `validUntil: null` and is not bounded by this.
+   */
+  readonly agentValidityMaxMs?: number;
 }
 
 /** True for the TEST simulator and any testnet or partner sandbox. */
@@ -902,6 +1017,14 @@ export interface UserVenue {
    * does not list. Optional: a venue that publishes no book leaves it out, and a market order then has no worst price.
    */
   bestPrices?(symbol: string): Promise<AsOf<VenueBestPrices>>;
+
+  /**
+   * The funding rates this venue published for the perpetual `symbol` at each settled interval since `since`, oldest
+   * first, no account (J-charts-desk-04 #6: a chart's funding study). Refuses `unknown_market` for a symbol it does not
+   * list and `not_offered` for a market with no published funding. Optional: a venue (or an adapter) that does not read
+   * its funding history leaves it out, and the chart then refuses the study by name.
+   */
+  fundingHistory?(symbol: string, since: Date): Promise<AsOf<readonly VenueFundingRow[]>>;
 
   // ── signed actions ─────────────────────────────────────────────────────
   /**
@@ -957,6 +1080,13 @@ export interface UserVenue {
    * that publishes no deposit list leaves it out, and the door refuses the read `not_offered`.
    */
   deposits?(account: UserVenueAccount): Promise<AsOf<readonly UserVenueDeposit[]>>;
+  /**
+   * The owner's balance in the margin account a market's deployer keeps for it (`UserVenueMarket.marginAccount`), read on
+   * the main account. A market with none refuses `not_offered`. Absent on an adapter that does not read it.
+   */
+  marketMargin?(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueMarketMargin>>;
+  /** The account's settlements in market events (a deployer's halt, a split) since `since`, oldest first. Absent: not read. */
+  settlements?(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueSettlement[]>>;
   /** The most the account has approved for `builder`, in bps; zero when never approved. */
   builderFeeApproval(account: UserVenueAccount, builder: string): Promise<AsOf<Amount>>;
   /**
@@ -998,7 +1128,7 @@ export function hasSubAccountReads(venue: UserVenue): venue is UserVenue & UserV
 // ════════════════════════════════════════════════════════════════════════════
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const BUSINESS_KEY_RE = /^[a-z][a-z0-9-]*:.+$/;
+const BUSINESS_KEY_RE = /^[a-z][a-z0-9.-]*:.+$/;
 
 /**
  * Map a business key to the venue's 128-bit client order id (`0x` + 32 hex,

@@ -4,6 +4,8 @@ import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import {
   MY_VOUCHERS_LIMIT,
   type CampaignLimits,
+  type FeeSaverAnswer,
+  type FeeSaverAskInput,
   type MyVoucher,
   type MyVouchers,
   type ParticipationRules,
@@ -12,7 +14,7 @@ import {
   type VoucherRedemption,
   type VoucherValidation,
 } from '@intafaced/contracts/campaigns-catalogue';
-import { CampaignsError } from './codes.js';
+import { CampaignsError, codeHashOf, maskedCode } from './codes.js';
 import { ELIGIBILITY_REFUSAL, effectiveState, type CampaignService } from './campaigns.js';
 import type { ParticipantSource } from './participants.js';
 import type { PayoutSaga } from './payouts.js';
@@ -48,10 +50,14 @@ type Sql = postgres.Sql;
 type VoucherCampaignRow = {
   id: string;
   campaign_id: string;
-  code: string;
+  /** Null for a code made in a batch or imported: only its hash and last four characters are stored. */
+  code: string | null;
+  code_last4: string;
   state: MyVoucher['state'];
   face_asset: string;
   face_amount: string;
+  kind: MyVoucher['kind'];
+  fee_discount_bps: number | null;
   used_amount: string;
   claim_by: Date | null;
   use_by: Date | null;
@@ -89,15 +95,19 @@ export const voucherRewardKeyOf = (voucherId: string, accountId: string, sequenc
 /** Owner limits on code checks and claims (CM-eligibility-rules-04); null while any of them is blank. */
 export type AttemptLimits = { perAccount: number; perAddress: number; windowSeconds: number };
 
-/** What a voucher used: its redemption intents that hold or spent value, as the campaign budget counts them. */
+/**
+ * What a voucher used: a cash voucher's redemption intents that hold or spent value, as the campaign budget counts them;
+ * a fee-saver's orders it was taken on (its face is its orders).
+ */
 const USED = (sql: Sql) => sql`
-  COALESCE((SELECT sum(i.amount) FROM campaigns.reward_intents i
+  (CASE WHEN v.kind = 'fee_saver' THEN (SELECT count(*) FROM campaigns.fee_saver_uses u WHERE u.voucher_id = v.id)::numeric
+  ELSE COALESCE((SELECT sum(i.amount) FROM campaigns.reward_intents i
     WHERE i.campaign_id = v.campaign_id AND i.account_id = v.claimed_by
       AND left(i.period, length('voucher:' || v.id || ':')) = 'voucher:' || v.id || ':'
-      AND i.state NOT IN ('failed', 'forfeited', 'withheld')), 0)::text`;
+      AND i.state NOT IN ('failed', 'forfeited', 'withheld')), 0) END)::text`;
 
 const SELECT_VOUCHER = (sql: Sql) => sql`
-  SELECT v.id, v.campaign_id, v.code, v.state, v.face_asset, v.face_amount::text AS face_amount,
+  SELECT v.id, v.campaign_id, v.code, v.code_last4, v.state, v.face_asset, v.face_amount::text AS face_amount, v.kind, v.fee_discount_bps,
     ${USED(sql)} AS used_amount, v.claim_by, v.use_by, v.claimed_by, v.claimed_at, v.expired_at,
     c.name AS campaign_name, c.state AS campaign_state, c.starts_at, c.ends_at, c.participation
   FROM campaigns.vouchers v JOIN campaigns.campaigns c ON c.id = v.campaign_id`;
@@ -142,6 +152,10 @@ export class VoucherService {
       face: { asset: v.face_asset, amount: decimalOf(v.face_amount) },
       claimBy: v.claim_by!.toISOString(),
       useBy: v.use_by!.toISOString(),
+      feeSaver:
+        v.kind === 'fee_saver' && v.fee_discount_bps !== null
+          ? { discountBps: v.fee_discount_bps, orders: Number(parseAmount(v.face_amount) / parseAmount('1')) }
+          : null,
     };
   }
 
@@ -193,9 +207,16 @@ export class VoucherService {
     if (rules?.participation) await this.refuseIneligible(rules.participation, input.accountId);
     const outcome = await transaction(this.sql, async (tx) => {
       const [v] = await tx<VoucherCampaignRow[]>`
-        SELECT v.id, v.campaign_id, v.state, v.face_asset, v.face_amount::text AS face_amount, v.use_by, v.claimed_by
+        SELECT v.id, v.campaign_id, v.state, v.face_asset, v.face_amount::text AS face_amount, v.kind, v.use_by, v.claimed_by
         FROM campaigns.vouchers v WHERE v.id = ${input.voucherId} FOR UPDATE`;
       if (!v || v.claimed_by !== input.accountId) throw new CampaignsError('campaigns.voucher_invalid', INVALID);
+      // A fee-saver pays nothing out: it is taken on an order, when svc-trade prices our builder fee.
+      if (v.kind !== 'cash') {
+        throw new CampaignsError(
+          'campaigns.voucher_not_cash',
+          'This coupon lowers our builder fee on your orders; it is not redeemed for cash',
+        );
+      }
       // Read under the voucher's lock: every redemption of it takes that lock first, so the sum cannot move under us.
       const [usage] = await tx<{ used_amount: string }[]>`
         SELECT ${USED(tx)} AS used_amount FROM campaigns.vouchers v WHERE v.id = ${v.id}`;
@@ -208,6 +229,10 @@ export class VoucherService {
           throw new CampaignsError('campaigns.voucher_sequence_invalid', `Redemption ${input.sequence} of this voucher was another amount`);
         }
         return { key, created: false, withheld: false };
+      }
+      // An operator deactivated it (J-campaigns-17 #5): it pays nothing more, whatever is left on it.
+      if (v.state === 'deactivated') {
+        throw new CampaignsError('campaigns.voucher_deactivated', 'This voucher was deactivated, so it cannot be used');
       }
       if (v.state === 'expired' || !v.use_by || v.use_by <= this.now()) {
         throw new CampaignsError('campaigns.voucher_expired', 'This voucher’s use-by has passed');
@@ -284,6 +309,72 @@ export class VoucherService {
   }
 
   /**
+   * A fee-saver coupon on one venue order (J-campaigns-09 #2 #3, CM-vouchers-coupons-02), asked by svc-trade by the
+   * order's own business key. The coupon is the caller's claimed fee-saver with an order left, before its use-by, whose
+   * campaign is active (or ended: a claimed coupon is honoured until its use-by, as a cash voucher is), the largest
+   * discount first, then the soonest use-by. `quote` names it and writes nothing. `take` takes one use of it for this order
+   * under a lock on the account: the same order key again returns the use it took, never a second, and the last use left
+   * goes to one order only. `read` returns the use this order took, or null. Nothing here moves value (ENGINE VC-9).
+   */
+  async feeSaver(input: FeeSaverAskInput): Promise<FeeSaverAnswer> {
+    return transaction(this.sql, async (tx) => {
+      if (input.mode === 'take') await tx`SELECT pg_advisory_xact_lock(hashtext(${`fee-saver:${input.accountId}`}))`;
+      const [taken] = await tx<{ voucher_id: string; code: string | null; code_last4: string; discount_bps: number; sequence: number }[]>`
+        SELECT u.voucher_id, v.code, v.code_last4, u.discount_bps, u.sequence
+        FROM campaigns.fee_saver_uses u JOIN campaigns.vouchers v ON v.id = u.voucher_id
+        WHERE u.account_id = ${input.accountId} AND u.order_key = ${input.orderKey}`;
+      if (taken) {
+        return {
+          coupon: {
+            voucherId: taken.voucher_id,
+            code: taken.code ?? maskedCode(taken.code_last4),
+            discountBps: taken.discount_bps,
+            sequence: taken.sequence,
+          },
+        };
+      }
+      if (input.mode === 'read') return { coupon: null };
+      const now = this.now();
+      const rows = await tx<VoucherCampaignRow[]>`
+        ${SELECT_VOUCHER(tx)}
+        WHERE v.claimed_by = ${input.accountId} AND v.kind = 'fee_saver' AND v.state IN ('claimed', 'partially_used')
+          AND v.use_by > ${now}
+        ORDER BY v.fee_discount_bps DESC, v.use_by ASC, v.id ASC`;
+      const best = rows.find((r) => {
+        const live = effectiveState({ ...r, state: r.campaign_state }, now);
+        return (live === 'active' || live === 'ended') && parseAmount(r.used_amount) < parseAmount(r.face_amount);
+      });
+      if (!best) return { coupon: null };
+      if (input.mode === 'quote') {
+        return {
+          coupon: {
+            voucherId: best.id,
+            code: best.code ?? maskedCode(best.code_last4),
+            discountBps: best.fee_discount_bps!,
+            sequence: null,
+          },
+        };
+      }
+      // Under the account's lock every take of this account's coupons is one at a time, so the count cannot move under us.
+      const sequence = Number(parseAmount(best.used_amount) / parseAmount('1')) + 1;
+      await tx`
+        INSERT INTO campaigns.fee_saver_uses (voucher_id, account_id, order_key, sequence, discount_bps, created_at)
+        VALUES (${best.id}, ${input.accountId}, ${input.orderKey}, ${sequence}, ${best.fee_discount_bps}, ${now})`;
+      const orders = Number(parseAmount(best.face_amount) / parseAmount('1'));
+      await tx`
+        UPDATE campaigns.vouchers SET state = ${sequence >= orders ? 'used' : 'partially_used'}, updated_at = now()
+        WHERE id = ${best.id}`;
+      await tx`
+        INSERT INTO campaigns.audit_log (actor, action, target, detail)
+        VALUES (${input.accountId}, 'campaign.voucher.fee_saver_take', ${best.campaign_id},
+          ${tx.json({ voucher: best.id, orderKey: input.orderKey, sequence, discountBps: best.fee_discount_bps })})`;
+      return {
+        coupon: { voucherId: best.id, code: best.code ?? maskedCode(best.code_last4), discountBps: best.fee_discount_bps!, sequence },
+      };
+    });
+  }
+
+  /**
    * The caller's vouchers, newest claim first, each with its redemptions. A read writes nothing: one past its use-by with
    * something left reads expired before the sweep marks it, and `expiredAt` is set once the sweep has.
    */
@@ -293,8 +384,9 @@ export class VoucherService {
       WHERE v.claimed_by = ${input.accountId}
       ORDER BY v.claimed_at DESC, v.id LIMIT ${MY_VOUCHERS_LIMIT}`;
     const redemptions = await this.redemptionsOf(rows, input.accountId);
+    const uses = await this.feeSaverUsesOf(rows);
     const now = this.now();
-    return { vouchers: rows.map((r) => toMine(r, redemptions.get(r.id) ?? [], now)) };
+    return { vouchers: rows.map((r) => toMine(r, redemptions.get(r.id) ?? [], now, uses.get(r.id) ?? [])) };
   }
 
   /**
@@ -363,8 +455,8 @@ export class VoucherService {
 
   /** Every claim check, in order; anything about a code the caller may not claim is the one generic refusal. */
   private async claimable(raw: string, accountId: string): Promise<VoucherCampaignRow> {
-    const code = raw.trim().toUpperCase();
-    const rows = await this.sql<VoucherCampaignRow[]>`${SELECT_VOUCHER(this.sql)} WHERE v.code = ${code} LIMIT 2`;
+    // Looked up by its hash: a code made in a batch or imported has no plain text to match (J-campaigns-17).
+    const rows = await this.sql<VoucherCampaignRow[]>`${SELECT_VOUCHER(this.sql)} WHERE v.code_hash = ${codeHashOf(raw)} LIMIT 2`;
     const now = this.now();
     const [v] = rows;
     if (!v || rows.length > 1 || v.state !== 'published' || effectiveState({ ...v, state: v.campaign_state }, now) !== 'active') {
@@ -390,7 +482,24 @@ export class VoucherService {
     const [row] = await this.sql<VoucherCampaignRow[]>`
       ${SELECT_VOUCHER(this.sql)} WHERE v.id = ${voucherId} AND v.claimed_by = ${accountId}`;
     if (!row) return null;
-    return toMine(row, (await this.redemptionsOf([row], accountId)).get(row.id) ?? [], this.now());
+    const uses = (await this.feeSaverUsesOf([row])).get(row.id) ?? [];
+    return toMine(row, (await this.redemptionsOf([row], accountId)).get(row.id) ?? [], this.now(), uses);
+  }
+
+  /** Each fee-saver's orders it was taken on, oldest first. */
+  private async feeSaverUsesOf(rows: readonly VoucherCampaignRow[]): Promise<Map<string, FeeSaverUse[]>> {
+    const out = new Map<string, FeeSaverUse[]>();
+    const ids = rows.filter((r) => r.kind === 'fee_saver').map((r) => r.id);
+    if (ids.length === 0) return out;
+    const found = await this.sql<{ voucher_id: string; sequence: number; order_key: string; created_at: Date }[]>`
+      SELECT voucher_id, sequence, order_key, created_at FROM campaigns.fee_saver_uses
+      WHERE voucher_id IN ${this.sql(ids)} ORDER BY voucher_id, sequence`;
+    for (const u of found) {
+      const list = out.get(u.voucher_id) ?? [];
+      list.push({ sequence: u.sequence, orderKey: u.order_key, at: u.created_at.toISOString() });
+      out.set(u.voucher_id, list);
+    }
+    return out;
   }
 
   private async redemptionsOf(rows: readonly VoucherCampaignRow[], accountId: string): Promise<Map<string, VoucherRedemption[]>> {
@@ -423,17 +532,21 @@ export class VoucherService {
   }
 }
 
-function toMine(v: VoucherCampaignRow, redemptions: VoucherRedemption[], now: Date): MyVoucher {
+type FeeSaverUse = { sequence: number; orderKey: string; at: string };
+
+function toMine(v: VoucherCampaignRow, redemptions: VoucherRedemption[], now: Date, uses: FeeSaverUse[] = []): MyVoucher {
   const face = parseAmount(v.face_amount);
   const used = parseAmount(v.used_amount);
   const expired = v.state === 'expired' || (used < face && v.use_by !== null && v.use_by <= now);
   return {
     id: v.id,
-    code: v.code,
+    code: v.code ?? maskedCode(v.code_last4),
     campaignId: v.campaign_id,
     campaignName: v.campaign_name,
     // Read from the sum, so a redemption the ledger refused gives its part back to the voucher.
-    state: expired ? 'expired' : used === 0n ? 'claimed' : used >= face ? 'used' : 'partially_used',
+    // A deactivated voucher reads deactivated, whatever it used (J-campaigns-17 #5).
+    state:
+      v.state === 'deactivated' ? 'deactivated' : expired ? 'expired' : used === 0n ? 'claimed' : used >= face ? 'used' : 'partially_used',
     face: { asset: v.face_asset, amount: formatAmount(face) },
     used: formatAmount(used),
     remaining: formatAmount(face - used),
@@ -441,5 +554,10 @@ function toMine(v: VoucherCampaignRow, redemptions: VoucherRedemption[], now: Da
     useBy: v.use_by!.toISOString(),
     expiredAt: v.expired_at ? v.expired_at.toISOString() : null,
     redemptions,
+    kind: v.kind,
+    feeSaver:
+      v.kind === 'fee_saver' && v.fee_discount_bps !== null
+        ? { discountBps: v.fee_discount_bps, orders: Number(face / parseAmount('1')), uses }
+        : null,
   };
 }

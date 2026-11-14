@@ -514,11 +514,18 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
       tradingHours: { known: false },
       feed: { known: false },
       session: { known: false },
+      // A HIP-3 deployer's own margin account and its open-interest cap are not read by this adapter yet: not known.
+      marginAccount: { known: false },
+      openInterest: { known: false },
+      // A deployer's halt or a split, with the settlement it made, is not read by this adapter yet: not known.
+      lastEvent: { known: false },
       // The contract strip's contract size, mark and funding (J-derivatives-01 #4) are not read by this adapter yet
       // (`metaAndAssetCtxs` carries mark and funding): each is not known, never guessed.
       contractSize: { known: false },
       mark: { known: false },
       funding: { known: false },
+      // Its self-trade rule is not read from the venue by this adapter: not known, never guessed.
+      selfTrade: { known: false },
     }));
     return this.asOf(list);
   }
@@ -852,6 +859,8 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
       case 'create_sub_account':
       case 'sub_account_transfer':
         throw refusal(venueId, 'not_offered', 'sub-accounts are not offered by this adapter yet');
+      case 'market_margin_transfer':
+        throw refusal(venueId, 'not_offered', "a HIP-3 deployer's own margin account is not offered by this adapter yet");
     }
   }
 

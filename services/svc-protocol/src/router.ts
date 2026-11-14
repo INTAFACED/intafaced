@@ -78,6 +78,8 @@ import {
 } from './amm/fee-relay.js';
 import { priceTokens, type PriceSetting } from './amm/prices.js';
 import { createTokensRouter } from './amm/tokens-router.js';
+import { createPortfolioRouter } from './amm/portfolio-router.js';
+import { portfolioChain } from './amm/portfolio.js';
 import { contractChain, createContractSourceRouter, type ContractChain } from './contract-source/router.js';
 import { createBridgeRouter } from './bridge/router.js';
 import { bridgeRoutesLoader } from './bridge/routes.js';
@@ -104,7 +106,13 @@ import { MAX_DECIMALS, MAX_NAME_BYTES, MAX_SYMBOL_BYTES, MAX_WHOLE_SUPPLY, parse
 import { loadInternalSmartAccountsPackage } from './audit/pipeline.js';
 import { loadAuditRegistry } from './audit/registry.js';
 import { loadProductAudits } from './audit/products.js';
-import { createAddressReportsRouter, createAddressRiskRouter, type AddressRiskDeps } from './address-risk/router.js';
+import {
+  createAddressReportsRouter,
+  createAddressRiskRouter,
+  createComplianceRouter,
+  type AddressRiskDeps,
+  type ComplianceDeps,
+} from './address-risk/router.js';
 import type { AddressRiskStore } from './address-risk/risk.js';
 import { listSessions } from './session/list.js';
 import { protocolSessionsListInputSchema, protocolSessionsListSchema } from '@intafaced/contracts/protocol-sessions';
@@ -543,6 +551,8 @@ export interface ProtocolRouterDeps {
   addressBook?: Omit<AddressBookDeps, 'chainId'>;
   /** The address risk card's label store and the scam report queue (D-developer-compliance-01). Absent = not wired. */
   addressRisk?: Omit<AddressRiskDeps, 'chainId'>;
+  /** The operator compliance queue over the same tables; absent, every `compliance.*` call fails as a server error. */
+  compliance?: Omit<ComplianceDeps, 'chainId' | 'now' | 'trustDesk'> & { trustDesk?: ComplianceDeps['trustDesk'] };
   /**
    * The venue wallet connection (J-wallet-09): a signed-in person's own wallet, connected by its signature. Absent = not
    * wired: every setting reads blank and connecting refuses by name.
@@ -581,6 +591,22 @@ const unwiredAddressRiskStore: AddressRiskStore = {
   labels: () => Promise.reject(new Error('address risk store is not wired')),
   openReportCount: () => Promise.reject(new Error('address risk store is not wired')),
   insertReport: () => Promise.reject(new Error('address risk store is not wired')),
+};
+
+const unwiredComplianceStore: ComplianceDeps['store'] = {
+  queue: () => Promise.reject(new Error('compliance store is not wired')),
+  ask: () => Promise.reject(new Error('compliance store is not wired')),
+  approve: () => Promise.reject(new Error('compliance store is not wired')),
+};
+const notWired = () => Promise.reject(new Error('trust desk store is not wired'));
+const unwiredTrustDeskStore: ComplianceDeps['trustDesk'] = {
+  tiers: notWired,
+  askTier: notWired,
+  approveTier: notWired,
+  removeTier: notWired,
+  checklists: notWired,
+  openChecklist: notWired,
+  approveChecklist: notWired,
 };
 
 /** Never reached with a setting: an unwired representation has none, so it refuses `compliance.representation_unset` first. */
@@ -1325,6 +1351,12 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
     addressBook: createAddressBookRouter(addressBookDeps),
     addressRisk: createAddressRiskRouter(addressRiskDeps),
     addressReports: createAddressReportsRouter(addressRiskDeps),
+    compliance: createComplianceRouter({
+      chainId: () => chain.config.chainId,
+      store: deps.compliance?.store ?? unwiredComplianceStore,
+      trustDesk: deps.compliance?.trustDesk ?? unwiredTrustDeskStore,
+      now: () => new Date(),
+    }),
     // ── Venue wallet connection (J-wallet-09): src/venue-wallet/router.ts ──
     venueWallet: createVenueWalletRouter(venueWalletDeps),
     // ── Embedded self-custody wallet (J-wallet-22): src/embedded-wallet/router.ts ──
@@ -1544,6 +1576,21 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
       ),
       factory: () => deps.ammFactoryAddress(),
       quoteToken: () => deps.tokensQuoteToken?.() ?? null,
+      toTrpcError,
+    }),
+
+    portfolio: createPortfolioRouter({
+      chain: portfolioChain(
+        tokenLogsChain(
+          chain,
+          () => chain.client,
+          () => chain.config.rpcUrl,
+        ),
+        () => chain.client,
+        () => chain.config.rpcUrl,
+      ),
+      factory: () => deps.ammFactoryAddress(),
+      priceSetting: () => deps.priceSetting?.() ?? null,
       toTrpcError,
     }),
 

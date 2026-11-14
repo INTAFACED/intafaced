@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { parseAmount } from '@intafaced/ledger-client';
 import { createHmac, hkdfSync } from 'node:crypto';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
@@ -38,6 +39,8 @@ interface Posted extends LedgerPageEntry {
   rowRail?: string | null;
   /** The owner's own trade order the ledger links this posting to. Sent whenever set. */
   rowOrderId?: string | null;
+  /** The fee the ledger took from this fill line. Sent whenever set. */
+  rowFee?: string | null;
   ownerType: 'user' | 'subaccount';
   ownerId: string;
   /** Position in the book: newer = larger. The real ledger pages on this. */
@@ -84,7 +87,7 @@ function fakePages(rows: Posted[], mode: { entryIds?: boolean } = {}) {
       const page = mine.slice(0, req.limit);
       const last = page[page.length - 1];
       return {
-        entries: page.map(({ txId, module, reason, direction, amount, postedAt, assetId, seq: entrySeq, rowRail, rowOrderId }) => ({
+        entries: page.map(({ txId, module, reason, direction, amount, postedAt, assetId, seq: entrySeq, rowRail, rowOrderId, rowFee }) => ({
           txId,
           module,
           reason,
@@ -94,6 +97,7 @@ function fakePages(rows: Posted[], mode: { entryIds?: boolean } = {}) {
           assetId,
           ...(mode.entryIds ? { entryId: String(entrySeq), rail: rowRail ?? null } : {}),
           ...(rowOrderId !== undefined ? { orderId: rowOrderId } : {}),
+          ...(rowFee !== undefined ? { fee: rowFee } : {}),
         })),
         nextCursor: mine.length > req.limit && last ? Buffer.from(`v2.${last.seq}`).toString('base64url') : null,
       };
@@ -265,6 +269,33 @@ describe('ActivityService: merging several owners', () => {
     expect(items).toHaveLength(2);
     expect(new Set(items.map((i) => i.id)).size).toBe(2);
     expect(items.every((i) => i.kind === 'trade')).toBe(true);
+  });
+
+  it("shows a fill's fee as its own fee line: the fill at what it delivered, the fee out, summing to the ledger's net line", async () => {
+    const { service } = build([
+      { ...post('user', ALICE, 'h1', 'order.hold', 'credit', '65.1', 'USDT', 'trade'), rowOrderId: 'o-1', rowFee: null },
+      { ...post('user', ALICE, 'f1', 'trade.fill.mm_maker', 'debit', '0.000999', 'BTC', 'trade'), rowOrderId: 'o-1', rowFee: '0.000001' },
+      // A zero fee and an older ledger that sends none: one net line each.
+      { ...post('user', ALICE, 'f2', 'trade.fill', 'debit', '0.002', 'BTC', 'trade'), rowOrderId: 'o-2', rowFee: '0' },
+      post('user', ALICE, 'f3', 'trade.fill', 'debit', '0.003', 'BTC', 'trade'),
+    ]);
+    const { items } = await service.list(ALICE, { limit: 10 });
+    expect(items.map((i) => [i.txId, i.kind, i.direction, i.asset, i.amount, i.orderId ?? null, i.purchase ?? null])).toEqual([
+      ['f3', 'trade', 'in', 'BTC', '0.003', null, true],
+      ['f2', 'trade', 'in', 'BTC', '0.002', 'o-2', true],
+      ['f1', 'trade', 'in', 'BTC', '0.001', 'o-1', true],
+      ['f1', 'fee', 'out', 'BTC', '0.000001', 'o-1', null],
+      ['h1', 'order_hold', 'out', 'USDT', '65.1', 'o-1', null],
+    ]);
+    const [fill, fee] = items.filter((i) => i.txId === 'f1');
+    expect(fee!.id).toBe(`${fill!.id}:fee`);
+    expect(new Set(items.map((i) => i.id)).size).toBe(items.length);
+    // The same ids on a second read, and the BTC lines still sum to the ledger's own entries.
+    expect((await service.list(ALICE, { limit: 10 })).items.map((i) => i.id)).toEqual(items.map((i) => i.id));
+    const btc = items
+      .filter((i) => i.asset === 'BTC')
+      .reduce((sum, i) => sum + (i.direction === 'in' ? parseAmount(i.amount) : -parseAmount(i.amount)), 0n);
+    expect(btc).toBe(parseAmount('0.005999'));
   });
 
   it('empty history is an empty page with no cursor', async () => {

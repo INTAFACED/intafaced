@@ -6,7 +6,7 @@ import { oneLine, signReceipt } from '../receipt-signing.js';
 import { accountForSpace, type SpaceService } from '../spaces/space-service.js';
 import { classifyAccount, classifyBic, type AccountKind } from './account-format.js';
 import { personalPayError, PSP_BLOCKER } from './errors.js';
-import type { Corridor, FxQuote, GlobalPorts } from './ports.js';
+import { SWIFT_CHARGES, type Corridor, type FxQuote, type GlobalPorts, type StandInPayout, type SwiftCharges } from './ports.js';
 import { forwardKey, postToRail, reverseFromRail, reverseKey } from './post.js';
 import {
   normalizeAccount,
@@ -280,6 +280,8 @@ function usableCorridor(row: Corridor): Corridor {
   if (cutOff !== null && (typeof cutOff !== 'string' || !cutOff.trim() || cutOff.length > 80)) {
     throw personalPayError('bank.global_corridors_unusable');
   }
+  const charges = row.swiftCharges ?? null;
+  if (charges !== null && !(SWIFT_CHARGES as readonly string[]).includes(charges)) throw personalPayError('bank.global_corridors_unusable');
   return {
     country,
     currency,
@@ -287,6 +289,7 @@ function usableCorridor(row: Corridor): Corridor {
     minAmount: bound(row.minAmount),
     maxAmount: bound(row.maxAmount),
     cutOffTime: cutOff === null ? null : cutOff.trim(),
+    swiftCharges: charges,
   };
 }
 
@@ -388,13 +391,21 @@ export class GlobalSendService {
     return { standIn: this.ports.standIn?.label ?? null };
   }
 
+  /** The TEST stand-in's own record of one send it paid out; refused where no stand-in answers, or it paid none. */
+  standInPayout(sendId: string): StandInPayout {
+    const record = this.ports.standIn?.payout?.(sendId) ?? null;
+    if (!record) throw personalPayError('bank.global_not_found');
+    return record;
+  }
+
   /** The catalogue, each corridor with the delivery methods a payout partner pays out on (`payoutMethods`). */
-  async corridors(): Promise<Array<Corridor & { payoutMethods: string[] }>> {
+  async corridors(): Promise<Array<Corridor & { swiftCharges: SwiftCharges | null; payoutMethods: string[] }>> {
     if (this.ports.corridors.status() !== 'live') throw personalPayError('bank.global_corridors_unset');
     const rows = await this.ports.corridors.list();
     if (!Array.isArray(rows)) throw personalPayError('bank.global_corridors_unusable');
     return rows.map(usableCorridor).map((corridor) => ({
       ...corridor,
+      swiftCharges: corridor.swiftCharges ?? null,
       payoutMethods:
         this.ports.payout.status() === 'live'
           ? corridor.deliveryMethods.filter((method) => this.paysOut(corridor.country, corridor.currency, method))

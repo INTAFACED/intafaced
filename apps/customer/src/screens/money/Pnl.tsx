@@ -731,15 +731,20 @@ function LotRows({
   const accountName = (key: string): string => {
     if (key === 'main') return t('Main account');
     if (key.startsWith('venue:')) {
-      const owner = venueAccountOf(book, key)?.owner ?? key.split(':')[2] ?? key;
-      return t('Venue account {owner}', { owner: `${owner.slice(0, 6)}…${owner.slice(-4)}` });
+      const found = venueAccountOf(book, key);
+      const owner = found?.owner ?? key.split(':')[2] ?? key;
+      const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
+      const sub = found?.subAccount ?? key.split(':')[3] ?? null;
+      if (sub) return t('Venue sub-account {owner} {sub}', { owner: short(owner), sub: short(sub) });
+      return t('Venue account {owner}', { owner: short(owner) });
     }
     const spaceId = key;
     const space = spaceOf(book, spaceId);
     if (space === null) return t('Space {name}', { name: spaceId });
     return space.archived ? t('Space archived {name}', { name: space.name }) : t('Space {name}', { name: space.name });
   };
-  const carried = book.lots.some((lot) => lot.carriedFrom !== undefined);
+  const carried = book.lots.some((lot) => lot.carriedFrom !== undefined && lot.venueAccount === undefined);
+  const carriedVenue = book.lots.some((lot) => lot.carriedFrom !== undefined && lot.venueAccount !== undefined);
   return (
     <section data-testid="money-card" className="money-card" aria-label={t('Lots')}>
       <header data-testid="money-card__head" className="money-card__head">
@@ -797,6 +802,11 @@ function LotRows({
       {carried ? (
         <p data-testid="money-note" className="money-note">
           {t('Carried rule')}
+        </p>
+      ) : null}
+      {carriedVenue ? (
+        <p data-testid="money-note" className="money-note">
+          {t('Carried rule venue')}
         </p>
       ) : null}
       {book.spaces !== undefined && book.spaces.status !== 'read' ? (

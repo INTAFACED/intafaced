@@ -17,6 +17,8 @@ import {
   type UserVenueDescriptor,
   type UserVenueFill,
   type UserVenueLeverage,
+  type UserVenueMarketMargin,
+  type UserVenueSettlement,
   type UserVenueMarket,
   type UserVenueOrder,
   type UserVenuePosition,
@@ -28,6 +30,7 @@ import {
   type VenueBook,
   type VenueOrderPreview,
   type VenueBestPrices,
+  type VenueFundingRow,
   type VenueRefusal,
   type VenueSignature,
   type VenueSigner,
@@ -233,6 +236,10 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
     return this.read('/best-prices', { symbol });
   }
 
+  fundingHistory(symbol: string, since: Date): Promise<AsOf<readonly VenueFundingRow[]>> {
+    return this.read('/funding-history', { symbol, since });
+  }
+
   /** A lost prepare sends nothing to sign, so it is `venue_down` and safe to ask again. */
   prepare(account: UserVenueAccount, signer: VenueSigner, intent: VenueIntent): Promise<PreparedVenueAction> {
     return this.read('/prepare', { account, signer, intent });
@@ -302,6 +309,16 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
 
   leverage(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueLeverage | null>> {
     return this.read('/leverage', { account, symbol });
+  }
+
+  /** The owner's balance in the margin account a market's deployer keeps for it (J-derivatives-27 #7). */
+  marketMargin(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueMarketMargin>> {
+    return this.read('/market-margin', { account, symbol });
+  }
+
+  /** The account's settlements in a deployer's halt or a split since `since` (J-derivatives-27 #9 #10). */
+  settlements(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueSettlement[]>> {
+    return this.read('/settlements', { account, since });
   }
 
   // ── UserVenueSubAccountReads (J-agents-21: the agent's sub-account and the person's moves into and out of it) ──

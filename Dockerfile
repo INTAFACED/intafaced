@@ -63,6 +63,7 @@ COPY apps/invitation/package.json            apps/invitation/
 COPY apps/mobile/package.json                apps/mobile/
 
 COPY packages/academy-ambassadors-pay/package.json packages/academy-ambassadors-pay/
+COPY packages/assistant-mcp/package.json     packages/assistant-mcp/
 COPY packages/auth/package.json              packages/auth/
 COPY packages/config/package.json            packages/config/
 COPY packages/connect-data-lake/package.json packages/connect-data-lake/

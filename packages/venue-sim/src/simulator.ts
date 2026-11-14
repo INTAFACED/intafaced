@@ -18,9 +18,14 @@ import {
   type UserVenueDescriptor,
   type UserVenueFeed,
   type UserVenueFunding,
+  type VenueFundingRow,
   type UserVenueFill,
   type UserVenueLeverage,
   type UserVenueListing,
+  type UserVenueMarginAccountRule,
+  type UserVenueMarketMargin,
+  type UserVenueMarketEvent,
+  type UserVenueSettlement,
   type UserVenueMarket,
   type UserVenueMarketStatus,
   type UserVenueOrder,
@@ -88,6 +93,21 @@ import { TEST_VENUE_CHAIN_ID, buildTypedData, digestOf, recoverSigner, testVenue
  *     above the off-hours leverage cap, and an opening limit outside the
  *     off-hours band around the last open-hours mark each refuse
  *     `market_off_hours` with the rule's words; reduce-only closes pass.
+ *
+ *   · a market with its deployer's own margin account (`marginAccount`, a
+ *     HIP-3 deployer's margin kept apart from the main account): its orders
+ *     lock, post and settle margin in that account, funded only by the
+ *     owner's signed `market_margin_transfer` (`marketMargin` reads it);
+ *   · `setOpenInterestCap(symbol, cap)` — the deployer's cap on the market's
+ *     open interest (the long size open, in base units): an opening order that
+ *     would pass it refuses `open_interest_above_cap`, naming the cap;
+ *   · `settleMarket(symbol, 'deployer_halt' | 'split')` — the market's deployer
+ *     halts it, or a split in what it tracks: every order on the market is
+ *     cancelled and every position settled at the mark, each account's
+ *     settlement recorded (`settlements`) and the event published
+ *     (`lastEvent`). A halt leaves the market `halted` until
+ *     `setMarketStatus(symbol, 'trading')` resumes it; a split reopens it at
+ *     once with its mark divided by the ratio.
  *
  * A leverage above a market's cap refuses `leverage_above_cap`, its detail
  * naming the cap (`XAU-PERP allows at most 10x`), at prepare and at submit.
@@ -175,6 +195,13 @@ export interface SimMarketConfig {
     readonly offHoursRule?: string;
     readonly reopensAfterMs?: number;
   };
+  /**
+   * Set on a market whose deployer keeps its own margin account for it (a HIP-3 deployer's margin, apart from the main
+   * account): its name, collateral asset and margin mode. Orders on it draw on that account only.
+   */
+  readonly marginAccount?: UserVenueMarginAccountRule;
+  /** The deployer's cap on the market's open interest at start, in base units; absent: no open interest is reported. */
+  readonly openInterestCap?: Amount | null;
 }
 
 /**
@@ -182,6 +209,12 @@ export interface SimMarketConfig {
  * declares its own; this TEST value stands in on test stacks only.
  */
 export const TEST_VENUE_FIGURE_STALE_AFTER_MS = 60_000;
+
+/**
+ * TEST: the longest an agent permission with an end date may last on the TEST venue (J-agents-21 #19), 180 days. A real
+ * venue's adapter declares its own; this TEST value stands in on test stacks only.
+ */
+export const TEST_VENUE_AGENT_VALIDITY_MAX_MS = 180 * 24 * 60 * 60 * 1000;
 
 export interface SimSwitches {
   venueDown: boolean;
@@ -235,6 +268,10 @@ interface AccountState {
   readonly transfers: Map<string, UserVenueTransfer>;
   /** Agent addresses revoked or replaced on this account: never approved here again. */
   readonly retiredAgents: Set<string>;
+  /** Main account only: its balance in each market deployer's own margin account, by the margin account's name. */
+  readonly marketMargins: Map<string, { free: Amount; locked: Amount }>;
+  /** Its settlements in market events (a deployer's halt, a split), oldest first. */
+  readonly settlements: UserVenueSettlement[];
 }
 
 interface OrderState {
@@ -246,6 +283,8 @@ interface OrderState {
   readonly marginMode: VenueMarginMode | null;
   /** What the order locks per unit of size: the quote notional (spot buy), 1 (spot sell), or margin plus the most fees (perp). */
   readonly lockPerUnit: Amount;
+  /** The deployer margin account the order's lock sits in (a market with `marginAccount`), or `null`: the main balances. */
+  readonly marginAccount: string | null;
 }
 
 interface PositionState {
@@ -261,6 +300,10 @@ interface SubmittedRecord {
   readonly digest: string;
   readonly outcome: VenueSubmitOutcome;
 }
+
+/** How far back the TEST funding history reaches, and its most rows per read (J-charts-desk-04 #6). TEST. */
+const FUNDING_HISTORY_MS = 24 * 3_600_000;
+const FUNDING_HISTORY_ROWS = 500;
 
 function refuse(venueId: string, code: VenueRefusalCode, detail: string): never {
   throw new VenueRefusalError({ venueId, code, detail });
@@ -286,6 +329,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   private readonly offHours = new Map<string, { closedMark: Amount; reopensAt: Date | null }>();
   private readonly accounts = new Map<string, AccountState>();
   private readonly submitted = new Map<string, Map<string, SubmittedRecord>>(); // account → nonce → record
+  /** TEST: who signed each order the venue accepted, as recovered from its bytes (account → client order id → signer). */
+  private readonly orderSigners = new Map<string, Map<string, VenueSigner>>();
   /** TEST: per account, how many more submits lose their answer (`loseAnswersOn`). */
   private readonly lostAnswers = new Map<string, number>();
   private readonly resting = new Map<string, OrderState[]>(); // symbol → resting orders
@@ -305,6 +350,10 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     string,
     { status: UserVenueMarketStatus | null; maxOrderQty: Amount | null; maxOrderNotional: Amount | null }
   >();
+  /** Each market's deployer cap on its open interest (base units; `null`: none set), for a market that reports one. */
+  private readonly openInterestCaps = new Map<string, Amount | null>();
+  /** Each market's latest halt or split that settled its positions (`settleMarket`). */
+  private readonly marketEvents = new Map<string, UserVenueMarketEvent>();
 
   constructor(options: SimOptions) {
     const id = options.id ?? 'test-venue-sim';
@@ -315,6 +364,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       sequencedDepth: true,
       proofLevel: 'simulator',
       figureStaleAfterMs: TEST_VENUE_FIGURE_STALE_AFTER_MS,
+      agentValidityMaxMs: TEST_VENUE_AGENT_VALIDITY_MAX_MS,
     };
     this.clock = options.clock;
     this.chainId = testVenueDomain(options.chainId ?? TEST_VENUE_CHAIN_ID).chainId;
@@ -341,6 +391,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         maxOrderQty: market.maxOrderQty ?? null,
         maxOrderNotional: market.maxOrderNotional ?? null,
       });
+      if (market.openInterestCap !== undefined) this.openInterestCaps.set(market.symbol, market.openInterestCap);
     }
   }
 
@@ -360,12 +411,88 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       maxOrderQty: market.maxOrderQty ?? null,
       maxOrderNotional: market.maxOrderNotional ?? null,
     });
+    if (market.openInterestCap !== undefined) this.openInterestCaps.set(market.symbol, market.openInterestCap);
   }
 
   /** TEST control: the market's own state (`null`: the venue reports none). Changes no order. */
   setMarketStatus(symbol: string, status: UserVenueMarketStatus | null): void {
     this.market(symbol);
     this.marketState.get(symbol)!.status = status;
+    // Resuming a market its deployer halted: the venue reports when it reopened.
+    const event = this.marketEvents.get(symbol);
+    if (status === 'trading' && event && event.reopenedAt === null) this.marketEvents.set(symbol, { ...event, reopenedAt: this.clock() });
+  }
+
+  /**
+   * TEST control: the market's deployer halts it (`deployer_halt`), or a split in what it tracks (`split`, by `ratio`).
+   * The venue cancels every order on the market and settles every position at the mark now, as the venue does on a
+   * HIP-3 deployer's halt: each account's margin and realised result return to where its margin was held, and each
+   * account's settlement is recorded with the orders it lost. A halt leaves the market `halted` until it is resumed; a
+   * split reopens it at once, its mark divided by the ratio. Only a perpetual with a mark.
+   */
+  settleMarket(symbol: string, kind: UserVenueMarketEvent['kind'], ratio?: Amount): UserVenueMarketEvent {
+    const market = this.market(symbol);
+    if (market.kind !== 'perpetual') refuse(this.venue.id, 'not_offered', `${symbol} is cash spot: there is no position to settle`);
+    const mark = this.marks.get(symbol);
+    if (mark === undefined) throw new Error(`TEST simulator: ${symbol} has no mark to settle at`);
+    if (kind === 'split' && (ratio === undefined || compare(ratio, ZERO) <= 0))
+      refuse(this.venue.id, 'venue_rejected', 'a split needs a ratio above zero');
+    const at = this.clock();
+    const cancelled = new Map<AccountState, (string | null)[]>();
+    for (const order of [...this.bookOf(symbol)]) {
+      this.release(order, 'canceled');
+      cancelled.set(order.account, [...(cancelled.get(order.account) ?? []), order.order.venueClientOrderId]);
+    }
+    for (const state of this.accounts.values()) {
+      const p = state.positions.get(symbol);
+      const held = p && p.size !== ZERO ? p : null;
+      const lost = cancelled.get(state) ?? [];
+      if (!held && lost.length === 0) continue;
+      let realisedPnl = ZERO;
+      if (held) {
+        // Isolated: the loss stops at the position's margin, which returns with the result to where it was held.
+        realisedPnl = max(this.pnl(held, mark, held.size), sub(ZERO, held.margin));
+        const balance = this.lockBalance(
+          state,
+          market.marginAccount?.name ?? null,
+          market.marginAccount?.collateralAsset ?? market.quoteAsset,
+        );
+        balance.locked = sub(balance.locked, held.margin);
+        balance.free = add(balance.free, add(held.margin, realisedPnl));
+      }
+      state.settlements.push({
+        symbol,
+        kind,
+        side: held ? held.side : null,
+        size: held ? held.size : ZERO,
+        price: mark,
+        realisedPnl,
+        cancelledOrders: lost,
+        settledAt: at,
+      });
+      if (held) {
+        held.size = ZERO;
+        held.margin = ZERO;
+      }
+    }
+    const event: UserVenueMarketEvent = {
+      kind,
+      eventAt: at,
+      settlementPrice: mark,
+      reopenedAt: null,
+      splitRatio: kind === 'split' ? formatAmount(ratio!) : null,
+    };
+    if (kind === 'deployer_halt') {
+      this.marketState.get(symbol)!.status = 'halted';
+      this.marketEvents.set(symbol, event);
+    } else {
+      // The split's new mark, rounded down to the market's tick; the market reopens on it at once.
+      const split = div(mark, ratio!, 'floor');
+      this.marks.set(symbol, split - (split % market.tickSize));
+      this.marketState.get(symbol)!.status = 'trading';
+      this.marketEvents.set(symbol, { ...event, reopenedAt: this.clock() });
+    }
+    return this.marketEvents.get(symbol)!;
   }
 
   /** TEST control: the trading fees this market publishes; `known: false` publishes none (the venue still charges its unpublished rate). */
@@ -384,6 +511,17 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     if (!Number.isInteger(maxLeverageBps) || maxLeverageBps < 10_000 || maxLeverageBps % 10_000 !== 0)
       refuse(this.venue.id, 'venue_rejected', `a leverage cap is a whole number of times, 1x or more (got ${maxLeverageBps} bps)`);
     this.marketsBySymbol.set(symbol, { ...market, maxLeverageBps });
+  }
+
+  /**
+   * TEST control: the deployer's cap on a market's open interest, in base units (`null`: no cap). Only on a market that
+   * reports its open interest. Changes no order or position: it bounds the next opening order.
+   */
+  setOpenInterestCap(symbol: string, cap: Amount | null): void {
+    this.market(symbol);
+    if (!this.openInterestCaps.has(symbol)) refuse(this.venue.id, 'not_offered', `${symbol} reports no open interest`);
+    if (cap !== null && compare(cap, ZERO) <= 0) refuse(this.venue.id, 'venue_rejected', 'an open-interest cap must be positive');
+    this.openInterestCaps.set(symbol, cap);
   }
 
   /** TEST control: the market's largest order size and notional (`null`: not reported). Changes no order. */
@@ -623,9 +761,16 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       tradingHours: published(m.tradingHours),
       feed: m.oracle ? { known: true, value: this.feedOf(m) } : { known: false },
       session: m.session ? { known: true, value: this.sessionOf(m) } : { known: false },
+      marginAccount: published(m.marginAccount),
+      lastEvent: published(this.marketEvents.get(m.symbol)),
+      openInterest: this.openInterestCaps.has(m.symbol)
+        ? { known: true, value: { size: this.openInterestOf(m.symbol), capSize: this.openInterestCaps.get(m.symbol) ?? null } }
+        : { known: false },
       contractSize: published(m.contractSize),
       mark: published(m.kind === 'perpetual' ? this.marks.get(m.symbol) : undefined),
       funding: m.funding ? { known: true, value: this.fundingOf(m.funding) } : { known: false },
+      // The simulator's own rule (`place`): an order that would cross this account's own resting order cancels the resting one.
+      selfTrade: { known: true, value: 'cancel_resting' },
     }));
     return this.asOf(list);
   }
@@ -641,6 +786,24 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       if (o.order.side === 'sell' && (ask === null || compare(o.order.price, ask) < 0)) ask = o.order.price;
     }
     return this.asOf({ symbol: market.symbol, bid, ask });
+  }
+
+  /**
+   * The funding the venue published on the perpetual `symbol` at each whole interval since `since`, oldest first
+   * (J-charts-desk-04 #6). TEST: the simulator's history is its configured rate at every settled interval of the last
+   * `FUNDING_HISTORY_MS` on its own clock (it settles none), capped at `FUNDING_HISTORY_ROWS` rows.
+   */
+  async fundingHistory(symbol: string, since: Date): Promise<AsOf<readonly VenueFundingRow[]>> {
+    this.up();
+    const market = this.market(symbol);
+    if (market.kind !== 'perpetual' || !market.funding) refuse(this.venue.id, 'not_offered', `${symbol} publishes no funding`);
+    const step = market.funding.intervalSeconds * 1000;
+    const now = this.clock().getTime();
+    const from = Math.max(since.getTime(), now - FUNDING_HISTORY_MS);
+    const rows: VenueFundingRow[] = [];
+    for (let t = Math.ceil(from / step) * step; t <= now && rows.length < FUNDING_HISTORY_ROWS; t += step)
+      rows.push({ fundingAt: new Date(t), rate: market.funding.rate });
+    return this.asOf(rows);
   }
 
   async book(symbol: string, depth: number): Promise<AsOf<VenueBook>> {
@@ -885,7 +1048,26 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       case 'sub_account_transfer':
         this.subAccountOf(account.owner, intent.subAccount);
         return;
+      case 'market_margin_transfer': {
+        const rule = this.marginAccountOf(intent.symbol);
+        if (intent.asset !== rule.collateralAsset)
+          refuse(this.venue.id, 'venue_rejected', `${rule.name} takes ${rule.collateralAsset} only, as its deployer set it`);
+        if (compare(intent.amount, ZERO) <= 0) refuse(this.venue.id, 'venue_rejected', 'a margin transfer must be positive');
+        return;
+      }
     }
+  }
+
+  /** The deployer's own margin account a market keeps, or `not_offered` for a market whose orders use the main account. */
+  private marginAccountOf(symbol: string): UserVenueMarginAccountRule {
+    const market = this.market(symbol);
+    if (!market.marginAccount)
+      refuse(
+        this.venue.id,
+        'not_offered',
+        `${symbol} has no margin account of its own on ${this.venue.displayName}: it uses the main account`,
+      );
+    return market.marginAccount;
   }
 
   /** The owner's sub-account `id`, or `unknown_sub_account`. */
@@ -963,6 +1145,12 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
 
     const outcome = this.apply(prepared);
     this.assertNoNegativeBalance();
+    if (prepared.intent.kind === 'place_order' && outcome.definite && outcome.accepted && recovered) {
+      const signers = this.orderSigners.get(key) ?? new Map<string, VenueSigner>();
+      this.orderSigners.set(key, signers);
+      const cloid = venueClientOrderId(this.venue.id, prepared.intent.clientOrderKey);
+      if (!signers.has(cloid)) signers.set(cloid, { role: prepared.signer.role, address: recovered });
+    }
     byNonce.set(prepared.nonce, { digest, outcome });
     if (this.switches.loseAnswers > 0) {
       this.switches.loseAnswers -= 1;
@@ -995,6 +1183,15 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       .sort((a, b) => a.seq - b.seq)
       .map((o) => o.order);
     return this.asOf(open);
+  }
+
+  /**
+   * TEST only: who signed the order this account placed under `cloid`, the address recovered from the signed bytes
+   * when the venue accepted it, and whether it signed as the owner or as an agent. `null` when no such order was placed.
+   */
+  orderSigner(account: UserVenueAccount, cloid: string): AsOf<VenueSigner | null> {
+    this.up();
+    return this.asOf(this.orderSigners.get(accountKey(account))?.get(cloid) ?? null);
   }
 
   async orderByClientId(account: UserVenueAccount, cloid: string): Promise<AsOf<UserVenueOrder | null>> {
@@ -1082,6 +1279,21 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     return this.asOf(this.account(account).transfers.get(nonce) ?? null);
   }
 
+  /** The account's settlements in market events since `since`, oldest first (J-derivatives-27 #9 #10). */
+  async settlements(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueSettlement[]>> {
+    this.up();
+    return this.asOf(this.account(account).settlements.filter((s) => s.settledAt.getTime() >= since.getTime()));
+  }
+
+  /** The owner's balance in the margin account `symbol`'s deployer keeps for it, read on the main account. */
+  async marketMargin(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueMarketMargin>> {
+    this.up();
+    if (account.subAccount !== null) refuse(this.venue.id, 'not_offered', 'a market margin account is read on the main account');
+    const rule = this.marginAccountOf(symbol);
+    const b = this.account(account).marketMargins.get(rule.name) ?? { free: ZERO, locked: ZERO };
+    return this.asOf({ symbol, ...rule, free: b.free, locked: b.locked, total: add(b.free, b.locked) });
+  }
+
   private mainOnly(account: UserVenueAccount): void {
     if (account.subAccount !== null) refuse(this.venue.id, 'not_offered', 'sub-accounts and transfers are read on the main account');
   }
@@ -1091,7 +1303,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   /** A balance below zero is money the venue made up: fail loudly, never report it. */
   private assertNoNegativeBalance(): void {
     for (const state of this.accounts.values()) {
-      for (const [asset, b] of state.balances) {
+      for (const [asset, b] of [...state.balances, ...state.marketMargins]) {
         if (compare(b.free, ZERO) < 0 || compare(b.locked, ZERO) < 0) {
           throw new Error(`TEST simulator invariant: ${state.key} ${asset} free ${b.free} locked ${b.locked}`);
         }
@@ -1209,6 +1421,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         subAccounts: new Map(),
         transfers: new Map(),
         retiredAgents: new Set(),
+        marketMargins: new Map(),
+        settlements: [],
       };
       this.accounts.set(key, state);
     }
@@ -1264,6 +1478,19 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       }
       if (!intent.reduceOnly && market.maxLeverageBps !== null && setting.leverageBps > market.maxLeverageBps)
         this.aboveCap(market, setting.leverageBps);
+      // The deployer's cap on open interest: an opening order may not take the market's open size past it.
+      const oiCap = this.openInterestCaps.get(market.symbol) ?? null;
+      if (!intent.reduceOnly && oiCap !== null) {
+        const open = this.openInterestOf(market.symbol);
+        if (compare(add(open, intent.amount), oiCap) > 0) {
+          const base = market.baseAsset;
+          refuse(
+            this.venue.id,
+            'open_interest_above_cap',
+            `${market.symbol}'s deployer caps its open interest at ${formatAmount(oiCap)} ${base}; ${formatAmount(open)} ${base} is open, so ${formatAmount(intent.amount)} ${base} more would pass the cap`,
+          );
+        }
+      }
       // The venue's own off-hours rule, while the market's home market is closed.
       this.checkOffHours(market, intent, setting.leverageBps);
       // The venue's own stale-feed rule: while the oracle is stale, only reduce-only orders are taken.
@@ -1448,10 +1675,53 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
           asset: intent.asset,
           amount: intent.amount,
           status: 'done',
+          settledAt: this.clock(),
         });
         return accepted(prepared.nonce, null);
       }
+      case 'market_margin_transfer': {
+        const rule = this.marginAccountOf(intent.symbol);
+        const into = intent.direction === 'into_market';
+        const main = this.balance(state, intent.asset);
+        const margin = this.marketMarginOf(state, rule.name);
+        const from = into ? main : margin;
+        if (compare(from.free, intent.amount) < 0) {
+          return refused(
+            'insufficient_balance',
+            `free ${intent.asset} ${into ? 'on the main account' : `in ${rule.name}`} does not cover the move (what is locked or held as margin stays)`,
+          );
+        }
+        const to = into ? margin : main;
+        from.free = sub(from.free, intent.amount);
+        to.free = add(to.free, intent.amount);
+        return accepted(prepared.nonce, null);
+      }
     }
+  }
+
+  /** The owner's balance in a deployer's margin account, made on first use. */
+  private marketMarginOf(state: AccountState, name: string): { free: Amount; locked: Amount } {
+    let b = state.marketMargins.get(name);
+    if (!b) {
+      b = { free: ZERO, locked: ZERO };
+      state.marketMargins.set(name, b);
+    }
+    return b;
+  }
+
+  /** Where an order's lock and a position's margin sit: the market's own margin account, or the main balance of `asset`. */
+  private lockBalance(state: AccountState, marginAccount: string | null, asset: string): { free: Amount; locked: Amount } {
+    return marginAccount === null ? this.balance(state, asset) : this.marketMarginOf(state, marginAccount);
+  }
+
+  /** A market's open interest: the long size open across every account (equal to the short size), in base units. */
+  private openInterestOf(symbol: string): Amount {
+    let open = ZERO;
+    for (const state of this.accounts.values()) {
+      const p = state.positions.get(symbol);
+      if (p && p.side === 'long') open = add(open, p.size);
+    }
+    return open;
   }
 
   private place(
@@ -1497,9 +1767,14 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       return refused('venue_rejected', 'post-only order would take liquidity');
 
     const { lockAsset, lockPerUnit, lockAmount } = this.orderLock(market, intent, setting, builderFee);
-    const balance = this.balance(state, lockAsset);
+    // A market with its deployer's own margin account locks there, never on the main account.
+    const marginAccount = perp && market.marginAccount ? market.marginAccount.name : null;
+    const balance = this.lockBalance(state, marginAccount, lockAsset);
     if (compare(balance.free, lockAmount) < 0)
-      return refused('insufficient_balance', `free ${lockAsset} does not cover what this order locks`);
+      return refused(
+        'insufficient_balance',
+        `free ${lockAsset}${marginAccount ? ` in ${marginAccount}` : ''} does not cover ${perp ? 'the margin and fees' : 'what'} this order locks`,
+      );
     // Self-trade prevention: this account's own resting orders that the new order would cross are cancelled now.
     for (const own of contra().filter((o) => o.account === state && crossesPrice(o))) this.release(own, 'canceled');
     balance.free = sub(balance.free, lockAmount);
@@ -1514,6 +1789,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       leverageBps: setting?.leverageBps ?? null,
       marginMode: setting?.marginMode ?? null,
       lockPerUnit,
+      marginAccount,
       order: {
         venueOrderId: `sim-${this.venueOrderCounter}`,
         venueClientOrderId: cloid,
@@ -1573,7 +1849,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     let lockAsset: string;
     let lockPerUnit: Amount;
     if (market.kind === 'perpetual') {
-      lockAsset = market.quoteAsset;
+      lockAsset = market.marginAccount?.collateralAsset ?? market.quoteAsset;
       lockPerUnit = add(this.marginPerUnit(intent, setting), feeBuffer(intent.price));
     } else if (intent.side === 'buy') {
       lockAsset = market.quoteAsset;
@@ -1683,7 +1959,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     const state = side.account;
     const o = side.order;
     const lockForQty = min(o.locked, mul(side.lockPerUnit, qty, QUOTE_ROUND));
-    const lockBalance = this.balance(state, o.lockedAsset);
+    const lockBalance = this.lockBalance(state, side.marginAccount, o.lockedAsset);
     lockBalance.locked = sub(lockBalance.locked, lockForQty);
     side.order = { ...o, locked: sub(o.locked, lockForQty) };
 
@@ -1701,7 +1977,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     }
 
     // Perpetual, isolated margin. The order's lock pays this fill's margin and fees; the rest returns to free.
-    const usdc = this.balance(state, market.quoteAsset);
+    const usdc = this.lockBalance(state, market.marginAccount?.name ?? null, market.marginAccount?.collateralAsset ?? market.quoteAsset);
     const current = state.positions.get(market.symbol);
     if (!o.reduceOnly) {
       const margin = div(mul(mul(price, qty, QUOTE_ROUND), BPS), parseAmount(String(side.leverageBps)), QUOTE_ROUND);
@@ -1773,7 +2049,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   private release(order: OrderState, status: UserVenueOrder['status']): void {
     const o = order.order;
     if (o.locked !== ZERO) {
-      const balance = this.balance(order.account, o.lockedAsset);
+      const balance = this.lockBalance(order.account, order.marginAccount, o.lockedAsset);
       balance.locked = sub(balance.locked, o.locked);
       balance.free = add(balance.free, o.locked);
     }

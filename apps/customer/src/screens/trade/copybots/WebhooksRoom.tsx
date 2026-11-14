@@ -91,7 +91,7 @@ export function WebhooksRoom() {
   ];
 
   return (
-    <Page>
+    <Page landmark={false}>
       <PageHeader
         title={t('Chart alert webhooks')}
         description={t('Turn a chart alert into an order on one venue market, ready for your wallet to sign.')}

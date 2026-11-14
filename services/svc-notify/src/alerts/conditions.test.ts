@@ -65,6 +65,8 @@ const watch = (condition: AlertCondition, lastSide: PriceAlert['lastSide'] = nul
   burstCount: 0,
   lastFiredAt: null,
   source: 'mark' as const,
+  channels: null,
+  webhookUrl: null,
 });
 const quote = (price: string) => ({ kind: 'ok' as const, price, at: NOW });
 
@@ -263,12 +265,13 @@ describe('message', () => {
     expect(inbox.items[0]!.params).toMatchObject({ name: 'Breakout', message: 'BTC-USD hit 101' });
   });
 
-  it('an alert with neither keeps the stock copy', async () => {
+  it('an alert with neither keeps the stock copy: the market and the time it fired (J-charts-desk-10 #5)', async () => {
     const { alerts, setMark, notifyStore } = rig();
     setMark('101');
     await alerts.create({ userId: 'u1', marketId: 'BTC-USD', direction: 'above', targetPrice: '100' });
     await alerts.evaluateDueAlerts(NOW);
     const inbox = await notifyStore.list({ userId: 'u1', limit: 10, unreadOnly: false });
-    expect(inbox.items[0]).toMatchObject({ titleKey: 'notify.alert.price.crossed.title', bodyKey: 'notify.alert.price.crossed.body' });
+    expect(inbox.items[0]).toMatchObject({ titleKey: 'notify.alert.price.crossed.title', bodyKey: 'notify.alert.price.fired.body' });
+    expect(inbox.items[0]!.params).toMatchObject({ market: 'BTC-USD', firedAt: expect.stringMatching(/ UTC$/) });
   });
 });

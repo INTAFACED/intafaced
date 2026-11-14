@@ -155,6 +155,9 @@ const messages = {
     'Moving coins between your main account and your spaces is not a sale. The coins keep the date and cost they had, and their lots move with them.',
   'Spaces not followed': 'Moves to and from your spaces are not shown here right now',
   'Venue account {owner}': 'Your venue account {owner}',
+  'Venue sub-account {owner} {sub}': 'Your venue sub-account {sub} under {owner}',
+  'Carried rule venue':
+    'Moving coins between your venue account and your own venue sub-account is not a sale. The coins keep the date and cost they had, and their lots move with them.',
   'In your venue account': '(in your venue account)',
   'Venue as of': 'Your venue account’s trades and coins, as the venue reported them at {time}.',
   'Venue as of TEST':

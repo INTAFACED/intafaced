@@ -107,6 +107,7 @@ const messages = {
   'Money is your everyday starting point. Trade gives you the market and the order details. Pay keeps your payments in context. More brings together learning, research and the rest of the product.':
     'Money is your everyday starting point. Trade gives you the market and the order details. Pay keeps your payments in context. More brings together learning, research and the rest of the product.',
   'Clear information comes first.': 'Clear information comes first.',
+  // oxlint-disable-next-line garden/own-gap-wording -- on main before this rule (HM-shell-03); its owner rewords it, and then this line goes
   'Available funds stay distinct from funds on hold. Missing prices stay missing. Where a service or rail is not connected, the product explains the limitation before you act.':
     'Available funds stay distinct from funds on hold. Missing prices stay missing. Where a service or rail is not connected, the product explains the limitation before you act.',
   'Create an account ↗': 'Create an account ↗',
@@ -118,9 +119,11 @@ const messages = {
   'No verified App Store or Google Play release has been provided. You can use the responsive web app on your phone.':
     'No verified App Store or Google Play release has been provided. You can use the responsive web app on your phone.',
   'Open the web app': 'Open the web app',
+  // oxlint-disable-next-line garden/own-gap-wording -- on main before this rule (HM-shell-03); its owner rewords it, and then this line goes
   'Partner intake is not connected': 'Partner intake is not connected',
   'A published partner contact or intake form is not available. This screen does not submit an application.':
     'A published partner contact or intake form is not available. This screen does not submit an application.',
+  // oxlint-disable-next-line garden/own-gap-wording -- on main before this rule (HM-shell-03); its owner rewords it, and then this line goes
   'Campaign catalogue is not connected': 'Campaign catalogue is not connected',
   'No public campaign contract or published campaign list is available. There are no invented promotions here.':
     'No promotions are published yet, and none are made up here.',
