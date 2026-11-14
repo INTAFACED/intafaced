@@ -46,6 +46,28 @@ describe('recipe-gate', () => {
     }
   });
 
+  it('accepts our fee on a hosted-checkout payment exactly as svc-pay posts it, under module pay (J-merchant-04)', () => {
+    // svc-pay payment-service/lifecycle.ts outsideCustodyFeePost: the partner on a bank payment, the business on one to its own wallet.
+    const partner = recipes.partnerFeeEarn({
+      partnerId: 'bank-transfer-sandbox',
+      module: 'pay',
+      paymentId: '11111111-1111-4111-8111-111111111111',
+      assetId: 'EUR',
+      grossAmount: amt('30'),
+      rate: { bps: 250 },
+    });
+    const merchant = recipes.merchantFeeEarn({
+      module: 'pay',
+      merchantId: USER,
+      paymentId: '11111111-1111-4111-8111-111111111111',
+      assetId: 'USDT',
+      grossAmount: amt('100'),
+      rate: { bps: 250 },
+    });
+    expect(recipeCandidates(toWire(partner))).toContain('partnerFeeEarn');
+    expect(recipeCandidates(toWire(merchant))).toContain('merchantFeeEarn');
+  });
+
   it('accepts a move of our own funds with its costs, and refuses a cost leg sent to a customer instead', () => {
     const move = (costs: Parameters<typeof recipes.ownFundsMove>[0]['costs']) =>
       recipes.ownFundsMove({

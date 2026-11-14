@@ -201,6 +201,31 @@ export class EvmLiveChain implements CryptoChainPort {
     return address;
   }
 
+  /**
+   * A business's own receiving address, watched for one payment. Not derived here and not ours: `index` is -1, and no
+   * send ever names it. Two payments are never given one address (svc-pay's address book refuses it), so a collision
+   * here is a bug and refuses.
+   */
+  async watchAddress(paymentId: string, assetId: string, address: string): Promise<string> {
+    requireAsset(this.assets, assetId);
+    if (!isAddress(address)) throw new Error('A receiving address must be an EVM address');
+    const key = `${paymentId}\0${assetId}`;
+    const existing = this.byPayment.get(key);
+    if (existing) {
+      if (existing.address.toLowerCase() !== address.toLowerCase()) throw new Error('A payment cannot be watched at two addresses');
+      return existing.address;
+    }
+    const checksummed = getAddress(address);
+    const taken = this.byAddress.get(checksummed.toLowerCase());
+    if (taken && (taken.paymentId !== paymentId || taken.assetId !== assetId)) {
+      throw new Error('Receiving address collision between two payments — refusing to watch one address for both');
+    }
+    const entry: AddressBookEntry = { paymentId, assetId, address: checksummed, index: -1 };
+    this.byPayment.set(key, entry);
+    this.byAddress.set(checksummed.toLowerCase(), entry);
+    return checksummed;
+  }
+
   async inboundTransfer(address: string): Promise<ConfirmedTransfer | null> {
     return (await this.inboundTransfers(address))[0] ?? null;
   }

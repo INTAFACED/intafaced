@@ -103,6 +103,14 @@ export async function refundInner(
         replay: completed ? { kind: 'replay', reason: 'refund_already_completed' } : FRESH,
       });
       const row = await lockPayment(tx, paymentId);
+      // Launch money model (OWNER 226): the payer's money is in the business's own wallet or with the partner, never in
+      // our book, so nothing here can send it back. Refused before any post or rail call.
+      if ((row.custody ?? 'platform') !== 'platform') {
+        throw new PayError(
+          'This payment was paid to the business’s own wallet or the partner, so a refund is sent from there. Nothing was moved.',
+          'pay.payment_not_in_our_custody',
+        );
+      }
 
       // A COMPLETED `refundId` IS A REPLAY, NOT A SECOND REFUND.
       //

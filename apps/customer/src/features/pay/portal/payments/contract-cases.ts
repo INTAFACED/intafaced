@@ -1,6 +1,8 @@
 import type { ContractPart } from '../mock-contract-kit';
 
 const merchant = '11111111-1111-4111-8111-111111111111';
+/** The stand-in's TEST wallet public key (mock/writes.mjs), from a public seed: it holds nothing anywhere. */
+const TEST_XPUB = 'xpub6DQtdq8yBjiNZxNyghkDYJLTtV4zCreP6KWyugmbRwxQ5444xkbsMmrkgj5UoR1x7T7VWcsdnF3wgiGUJ2XWQ8VDcpVZJp52RZsrMRNVACi';
 export const paymentsContract: ContractPart = {
   cases: [
     { method: 'payments', run: (p) => p.payments(merchant, '', 25) },
@@ -29,6 +31,18 @@ export const paymentsContract: ContractPart = {
           })),
         }),
     },
+    { method: 'receivingWallet', run: (p) => p.receivingWallet() },
+    {
+      method: 'saveReceivingWallet',
+      run: (p) =>
+        p.saveReceivingWallet({
+          requestId: 'c3000001-0000-4000-8000-0000000000ac',
+          expectedVersion: 0,
+          family: 'evm',
+          extendedPublicKey: TEST_XPUB,
+        }),
+    },
+    { method: 'outsideFunds', run: (p) => p.outsideFunds() },
     { method: 'previewCheckoutMethods', run: (p) => p.previewCheckoutMethods({ country: 'DE', currency: 'EUR' }) },
     { method: 'paymentPage', run: (p) => p.paymentPage(merchant, { linkId: '1c000001-0000-4000-8000-000000000001' }, undefined) },
     { method: 'subscriptions', run: (p) => p.subscriptions(merchant, 25) },
