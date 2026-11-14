@@ -102,6 +102,9 @@ export type AgentAccountCode =
   | 'agents.activity_read_unavailable'
   // The person revoked the assistant (#12): our copy of the account's venue agent key signs nothing more.
   | 'agents.agent_revoked'
+  // The founder's desk over every outside connection (agent-desk.ts, #15).
+  | 'agents.desk_reason_required'
+  | 'agents.desk_request_invalid'
   | 'agents.order_needs_agent_key'
   | 'agents.order_request_invalid'
   | 'agents.order_leverage_unknown'

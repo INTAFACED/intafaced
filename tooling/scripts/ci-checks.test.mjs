@@ -20,7 +20,7 @@ import {
   runBorn,
   runDatabase,
   runGates,
-  withBuiltTwins,
+  touchedPackages,
 } from './ci-checks.mjs';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
@@ -77,11 +77,23 @@ test("Node is CI's: .node-version's major, from Homebrew's keg when the default 
   assert.match(ciNode('lts/*', '26.3.1').error, /node-version/);
 });
 
-test("a changed source file brings its built twin, which a dependent's tests import", () => {
-  assert.deepEqual(
-    withBuiltTwins(['packages/i18n/src/en/trade.ts', 'apps/customer/src/a.tsx', 'services/svc-trade/src/x.test.ts']).sort(),
-    ['apps/customer/src/a.tsx', 'packages/i18n/dist/en/trade.js', 'packages/i18n/src/en/trade.ts', 'services/svc-trade/src/x.test.ts'],
-  );
+test("tests run in the packages holding a changed file, each on its own changes; a dependent's tests are CI's", () => {
+  const tested = [
+    { name: '@intafaced/contracts', directory: 'packages/contracts' },
+    { name: '@intafaced/svc-trade', directory: 'services/svc-trade' },
+    { name: '@intafaced/svc-trade-sim', directory: 'services/svc-trade-sim' },
+    { name: '@intafaced/svc-pay', directory: 'services/svc-pay' },
+  ];
+  const files = ['packages/contracts/src/identity.ts', 'services/svc-trade/src/x.ts', 'services/svc-trade/drizzle/1.sql', 'pnpm-lock.yaml'];
+  assert.deepEqual(touchedPackages(tested, files), [
+    { name: '@intafaced/contracts', directory: 'packages/contracts', own: ['packages/contracts/src/identity.ts'] },
+    {
+      name: '@intafaced/svc-trade',
+      directory: 'services/svc-trade',
+      own: ['services/svc-trade/src/x.ts', 'services/svc-trade/drizzle/1.sql'],
+    },
+  ]);
+  assert.deepEqual(touchedPackages(tested, ['README.md']), [], 'nothing changed in a package: no tests here');
 });
 
 test('a rule test walks a folder and reads the source it finds; one file read by name or a migrations walk is not', () => {
@@ -93,15 +105,13 @@ test('a rule test walks a folder and reads the source it finds; one file read by
 });
 
 // The census (project-state #2065 row d22): the rule-test files CI's unit run failed on in journey PRs' first heads.
+// Three left the list when they became lint rules (garden/no-promise-copy, garden/no-hand-schema).
 const CENSUS_RULE_TESTS = [
   'apps/customer/src/app/contracts-subpaths.test.ts',
   'apps/customer/src/features/developers/developers-reference.test.ts',
   'apps/customer/src/features/pay/portal/copy-lint.test.ts',
   'apps/customer/src/features/pay/portal/no-founder-admin.test.ts',
-  'apps/customer/src/screens/trade/copy-no-yet.test.ts',
   'apps/customer/src/screens/trade/copybots/refusals.test.ts',
-  'apps/customer/src/shared/copy-promises.test.ts',
-  'apps/customer/src/shared/no-new-hand-schemas.test.ts',
   'packages/ledger-client/src/recipes/live-path-inventory.test.ts',
 ];
 
