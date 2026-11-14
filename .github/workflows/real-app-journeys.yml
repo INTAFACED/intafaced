@@ -321,7 +321,8 @@ jobs:
       # The plan (tooling/scripts/journey-shards.mjs): the journey files split across the shards by their times in the
       # last finished runs on main, so the shards end together (Playwright's own --shard split by count left one shard 33
       # minutes behind the shortest in run 338), in as many shards as keep each near the longest journey file's time less
-      # the spread of a shard's setup, 10 to 25 minutes of journeys (8 to 48 shards). The plan is checked to run every
+      # the spread of a shard's setup, 10 to 25 minutes of journeys (8 to 32 shards); on main 10 minutes, up to 64 shards,
+      # so a break is named as its shorter shard ends (MAIN_MAX_SHARDS says why). The plan is checked to run every
       # journey file exactly once before it is used. If planning fails for any reason the run falls back to 8 shards and
       # Playwright's split, so a broken planner never stops a run; journeys past a shard's limit then count as not run and
       # the time-limit issue names the shards. A targeted run (JOURNEYS_TARGET) never falls back: a name that is not a
@@ -369,6 +370,7 @@ jobs:
           for f in "$RUNNER_TEMP"/last/*/report.json; do [ -f "$f" ] && reports+=(--report "$f"); done
           only=()
           [ -n "$JOURNEYS_TARGET" ] && only=(--only "$JOURNEYS_TARGET")
+          [ "$GITHUB_REF" = refs/heads/main ] && only+=(--main)
           shards=$(node tooling/scripts/journey-shards.mjs --shards auto "${reports[@]}" "${only[@]}")
           {
             echo "shards=$shards"
