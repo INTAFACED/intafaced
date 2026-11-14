@@ -10,6 +10,7 @@ import {
   MemoryLedger,
   formatAmount,
   houseFees,
+  insuranceFund,
   merchantClearing,
   merchantProceeds,
   parseAmount as amt,
@@ -1655,6 +1656,97 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       expect(bodies[0]!.entries.find((entry) => entry.direction === 'credit')?.account).toEqual(personal);
       expect(await availableOf(MERCHANT_USER)).toBe('10');
       expect(await proceedsOf(m.id)).toBe('0');
+      expect(ledger.journal().filter((tx) => tx.reason === 'pay.chargeback.opened')).toHaveLength(1);
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
+    async function operatorOpen(merchantId: string, paymentId: string, disputeId: string, amount: string) {
+      const api = await openDisputeCaller();
+      return api.fraud.openDispute({
+        disputeId,
+        paymentId,
+        merchantId,
+        amount,
+        assetId: 'USDT',
+        markPaymentDisputed: true,
+        confirmOperatorId: confirm,
+        approvalId: 'appr-1',
+        operationId: 'op-1',
+      });
+    }
+
+    it('records the dispute as refused when the house fund cannot cover the shortfall, as the webhook door does', async () => {
+      const m = await merchant();
+      card.setPartnerTerms(m.id, { shortfallCover: { known: true, who: 'house' } });
+      const payment = await cardPayment(m.id, '100');
+      await pay.capture(payment.id);
+      await settle(m.id, 'w-operator-unfunded');
+      const disputeId = `dsp-operator-unfunded-${payment.id}`;
+      const opened = await operatorOpen(m.id, payment.id, disputeId, '100');
+      expect(opened).toMatchObject({
+        disputeId,
+        ledgerWire: 'refused',
+        ledgerTxId: null,
+        ledgerRefuseCode: 'pay.chargeback_shortfall_unfunded',
+        paymentMarkedDisputed: true,
+      });
+      expect(defaultDisputeCaseStore.get(disputeId)?.ledgerRefuse?.code).toBe('pay.chargeback_shortfall_unfunded');
+      // Nothing moved: no opening, no shortfall.
+      expect(ledger.journal().some((t) => t.reason === 'pay.chargeback.opened' || t.reason.includes('shortfall'))).toBe(false);
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
+    it('records the case with the opening tx when the opening posted and the shortfall was then refused', async () => {
+      const m = await merchant(0);
+      card.setPartnerTerms(m.id, { shortfallCover: { known: true, who: 'house' } });
+      const payment = await cardPayment(m.id, '40');
+      await pay.capture(payment.id); // 40 in clearing
+      await ledger.post({
+        idempotencyKey: `test.insurance:operator-race:${payment.id}`,
+        module: 'pay',
+        reason: 'test.insurance.funded',
+        entries: [
+          { account: railBoundary('test-seed', 'USDT'), direction: 'credit', amount: amt('100') },
+          { account: insuranceFund('USDT'), direction: 'debit', amount: amt('100') },
+        ],
+      });
+      const realPost = ledger.post.bind(ledger);
+      // Another dispute spends the house fund right after this opening lands.
+      ledger.post = async (request) => {
+        const tx = await realPost(request);
+        if (request.reason === 'pay.chargeback.opened') {
+          await realPost({
+            idempotencyKey: `test.insurance.drain:operator-race:${payment.id}`,
+            module: 'pay',
+            reason: 'test.insurance.spent',
+            entries: [
+              { account: insuranceFund('USDT'), direction: 'credit', amount: amt('100') },
+              { account: railBoundary('test-spend', 'USDT'), direction: 'debit', amount: amt('100') },
+            ],
+          });
+        }
+        return tx;
+      };
+      const disputeId = `dsp-operator-race-${payment.id}`;
+      let opened: Awaited<ReturnType<typeof operatorOpen>>;
+      try {
+        opened = await operatorOpen(m.id, payment.id, disputeId, '100');
+      } finally {
+        ledger.post = realPost;
+      }
+      const openings = ledger.journal().filter((tx) => tx.reason === 'pay.chargeback.opened');
+      expect(openings).toHaveLength(1);
+      // The merchant's 40 left clearing, so the case must exist and name that transaction.
+      expect(formatAmount((await ledger.balance(merchantClearing(m.id, 'USDT'))).amount)).toBe('0');
+      expect(opened).toMatchObject({
+        disputeId,
+        ledgerWire: 'posted',
+        ledgerTxId: openings[0]!.id,
+        paymentMarkedDisputed: true,
+      });
+      expect(defaultDisputeCaseStore.get(disputeId)?.ledgerTxId).toBe(openings[0]!.id);
+      // A retry answers the same case and moves nothing more.
+      await expect(operatorOpen(m.id, payment.id, disputeId, '100')).resolves.toMatchObject({ ledgerTxId: openings[0]!.id });
       expect(ledger.journal().filter((tx) => tx.reason === 'pay.chargeback.opened')).toHaveLength(1);
       expect(ledger.reconcile()).toEqual({ ok: true });
     });

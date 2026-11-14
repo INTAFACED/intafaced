@@ -14,6 +14,7 @@ import {
 import { loadBotVerificationPolicy } from './algo/bots-verification.js';
 import { TradingControls, TradingControlError } from './controls/trading-controls.js';
 import { createLiveTradingOperator } from './controls/identity-port.js';
+import { createApiKeyRotationClient } from './account/api-key-rotation-rest.js';
 import { JetStreamEventBus } from '@intafaced/events';
 import { busCopyNotices } from './copy/copy-notices.js';
 import { assertNoLocalTestFixtures, edgeTrustFromEnv } from '@intafaced/config';
@@ -37,6 +38,8 @@ import { createLedgerClient } from './ledger-client.js';
 import { createLedgerPages } from './statements/ledger-history.js';
 import { StatementExports } from './statements/statement-export.js';
 import { registerClosureCheck } from './closure/closure-check.js';
+import { registerTrackRecord } from './signals/track-record.js';
+import { leadOrderGate, registerLeadCheck } from './copy/lead-api.js';
 import { readSupportOrder, registerSupportOrderRead } from './support/order-read.js';
 import { subscribeMatchingEvents, type MatchedFillsSink } from './events.js';
 import { FUTURES_PRICE_BAND_UNSET, parsePriceBand, perpetualFeeRates } from './futures/matched-order-plan.js';
@@ -111,16 +114,24 @@ import { registerFeeTierRest } from './spot/fee-tier-rest.js';
 import { registerVipRest } from './spot/vip-rest.js';
 import { installRouteInventory } from './route-inventory.js';
 import { HttpUserVenue } from './venue/http-user-venue.js';
+import { registerInternalVenueDeposits } from './venue/internal-deposits.js';
 import { SqlPreparedActionStore } from './venue/prepared-action-store.js';
 import { UserVenueDoor, UserVenueDoorError, parseBuilderFee, parseOrdersPageMax } from './venue/user-venue-door.js';
 import { AgentAccounts, parseAgentAccountValues } from './venue/agent-account.js';
 import { SqlAgentAccountStore } from './venue/agent-account-store.js';
 import { AgentOrders } from './venue/agent-orders.js';
+import { LiveRuns, parseLiveRunValues } from './quant/live-run/live-runs.js';
+import { createIdentityFreezeRead, createQuantStrategySource } from './quant/live-run/ports.js';
+import { SqlLiveRunStore } from './quant/live-run/sql-store.js';
 import { OwnAgentTrading } from './venue/own-agent-trading.js';
 import { SqlAllowanceStore } from './venue/own-agent-allowance-store.js';
 import { createOwnAgentPolicy } from './venue/own-agent-policy-client.js';
+import { createFeeSaverClient } from './venue/fee-saver-client.js';
 import { SqlAgentConnectionStore } from './venue/agent-connection-store.js';
-import { createAgentKeyReader } from './venue/agent-key-read-client.js';
+import { createAgentKeyCallReader, createAgentKeyReader } from './venue/agent-key-read-client.js';
+import { AgentActivity, SqlAgentOrderCallStore } from './venue/agent-order-calls.js';
+import { AgentDesk } from './venue/agent-desk.js';
+import { SqlAgentDeskAuditStore } from './venue/agent-desk-store.js';
 import { SqlVenueSellQuoteStore, VenueSellQuotes } from './venue/venue-sell-quotes.js';
 import { UserVenueRouter, parseUserVenueUrls } from './venue/venue-router.js';
 import { routingReport } from './venue/routing-report.js';
@@ -234,6 +245,8 @@ import { SqlMirrorEventLog } from './copy/mirror-events.js';
 import { sqlLeaderDirectory } from './copy/leader-directory.js';
 import { createCopyClosePort } from './copy/copy-close.js';
 import { createFollowerFlattenPort } from './copy/follower-flatten-port.js';
+import { sqlCopiedPositions } from './copy/copied-positions.js';
+import { VenueCopy, SqlVenueFollowStore, isVenueLeaderFillId, sqlPlacedMirrors } from './copy/venue-copy.js';
 import { parseCopyPlaceMirrorFlag, type PlaceFollowerOrderPort } from './copy/auto-mirror-place.js';
 import { createJobHost } from './futures/job-host.js';
 import { SqlMarketLifecycleAuthority, SqlMarketLifecycleEvidenceStore, assertNoLocalTestLifecycleRows } from './market-lifecycle.js';
@@ -316,6 +329,8 @@ const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 })
 installRouteInventory(app, { edgeSecret: env.EDGE_PRINCIPAL_SECRET, edgeTrust: edgeTrustFromEnv(env), serviceName: env.SERVICE_NAME });
 retainRawBody(app);
 registerClosureCheck(app, { sql, secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s });
+// A signal provider's own fills, for svc-market's provider criteria (CB-bots-api-signal-05).
+registerTrackRecord(app, { sql, secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s });
 registerSupportOrderRead(app, { read: (orderId) => readSupportOrder(sql, orderId), secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s });
 // Matching's depth read carries no timestamp, so the read time is the observation time: the book was read from the
 // live engine at this moment. A stale, one-sided or thin book still gives no mark.
@@ -452,6 +467,8 @@ const placeFollowerOrder: PlaceFollowerOrderPort = async (principal, input) => {
   return { orderId: order.id };
 };
 const leaderDirectory = sqlLeaderDirectory(sql, { now: () => new Date(), feeShareLaw: copyFeeShareLaw });
+// svc-identity asks this before it mints a `copy:lead` key (J-copy-bots-otc-07 #1 #2).
+registerLeadCheck(app, { read: (userId) => leaderDirectory.leadListing(userId), secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s });
 // The grid's reserve rows: a copy follow subtracts them, as a grid create subtracts the follows' (one reserve lock).
 const gridStore = new SqlGridStore(sql);
 // The best bid a follower's sell is floored against: top of book, or null when the book has none.
@@ -502,6 +519,9 @@ const testListingSeeds = userVenueUrls.map(
         ),
     }),
 );
+const feeSaverCoupons = env.CAMPAIGNS_URL.trim()
+  ? createFeeSaverClient(env.CAMPAIGNS_URL.trim(), env.INTERNAL_SERVICE_SECRET, outS2s)
+  : null;
 const userVenueDoors = userVenueUrls.map(
   (url, i) =>
     new UserVenueDoor({
@@ -516,15 +536,31 @@ const userVenueDoors = userVenueUrls.map(
       stepUp,
       builder: parseBuilderFee(env.TRADE_USER_VENUE_BUILDER_ADDRESS, env.TRADE_USER_VENUE_BUILDER_FEE_BPS),
       slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
+      spreadLimitBps: env.TRADE_MARKET_SPREAD_LIMIT_BPS,
       ordersPageMax: parseOrdersPageMax(env.TRADE_USER_VENUE_ORDERS_PAGE_MAX),
       // J-cex-spot-17: the builder-fee version in force when an order is prepared, by venue and market group.
       builderFeesAt: async (at) => (await builderFeesAt(sql, at)).book,
       now: () => new Date(),
+      // J-campaigns-09 #2 #3: the rank's discount and a fee-saver coupon on our builder fee; either unreadable is skipped.
+      feeDiscounts: {
+        rankBps: async (userId) => {
+          try {
+            return (await perks.perksOf(userId)).feeDiscountBps;
+          } catch {
+            return null;
+          }
+        },
+        coupons: feeSaverCoupons,
+        skipped: (what, userId, orderKey) =>
+          process.stderr.write(`${JSON.stringify({ level: 'warn', msg: 'trade.builder_fee_discount_skipped', what, userId, orderKey })}\n`),
+      },
     }),
 );
 const userVenue = userVenueDoors[0] ?? null;
 const userVenueRouter =
   userVenueDoors.length > 0 ? new UserVenueRouter({ doors: userVenueDoors, store: userVenueStore, now: () => new Date() }) : null;
+// The primary venue's deposits for one wallet, read by svc-campaigns' welcome checklist (J-campaigns-04 #2 #3).
+registerInternalVenueDeposits(app, { door: userVenue, secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s });
 // J-agents-21's agent account beside the door: off with it. Its owner values are read even when blank (each refuses).
 const agentAccountStore = new SqlAgentAccountStore(sql);
 const agentAccountValues = parseAgentAccountValues(env);
@@ -539,14 +575,38 @@ const agentAccounts = userVenue
   : null;
 // The assistant's trade path on its agent account (J-agents-21 #6 #7 #10): one capped signer per agent key, in this
 // process. Off with the door. Identity is asked, through its own door, that a key is the person's own agent key.
+const agentConnectionStore = new SqlAgentConnectionStore(sql);
 const agentOrders = userVenue
   ? new AgentOrders({
       door: userVenue,
       accounts: agentAccountStore,
-      connections: new SqlAgentConnectionStore(sql),
+      connections: agentConnectionStore,
       keys: createAgentKeyReader(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s),
       stepUp,
       values: agentAccountValues,
+      now: () => new Date(),
+    })
+  : null;
+// The assistant connection's Activity (J-agents-21 #11): identity's call log of the key, read through its own door, with
+// what svc-trade answered each call of the assistant's order route. Off with the door.
+const agentActivity = userVenue
+  ? new AgentActivity({
+      connections: agentConnectionStore,
+      calls: createAgentKeyCallReader(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s),
+      log: new SqlAgentOrderCallStore(sql),
+      now: () => new Date(),
+    })
+  : null;
+// The founder's desk over every outside assistant connection (J-agents-21 #15): read and quarantined as the founder
+// through svc-edge (admin.agentDesk.*). Off with the door.
+const agentDesk = userVenue
+  ? new AgentDesk({
+      connections: agentConnectionStore,
+      accounts: agentAccountStore,
+      audit: new SqlAgentDeskAuditStore(sql),
+      keys: createAgentKeyReader(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s),
+      calls: createAgentKeyCallReader(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s),
+      venue: () => userVenue.venue(),
       now: () => new Date(),
     })
   : null;
@@ -562,6 +622,30 @@ const ownAgentTrading = userVenue
       now: () => new Date(),
     })
   : null;
+// Live strategy runs on the person's own venue sub-account (J-algo-dev-07): their rows here, the strategy version read
+// from svc-quant as the person, the owner's freeze read from svc-identity. Off with the door; TRADE_QUANT_LIVE not `on`
+// refuses every start. The supervisor watches every running run's heartbeat and recovers a dead process.
+const liveRunTier = createLiveTierClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
+const liveRuns = userVenue
+  ? new LiveRuns({
+      door: userVenue,
+      store: new SqlLiveRunStore(sql),
+      values: parseLiveRunValues(
+        {
+          TRADE_QUANT_LIVE: env.TRADE_QUANT_LIVE,
+          TRADE_QUANT_LIVE_HEARTBEAT_MS: env.TRADE_QUANT_LIVE_HEARTBEAT_MS,
+          APP_ENV: process.env.APP_ENV,
+        },
+        { asset: agentAccountValues.asset, keySeed: agentAccountValues.keySeed, bounds: agentAccountValues.bounds },
+      ),
+      strategies: env.QUANT_URL.trim() ? createQuantStrategySource(env.QUANT_URL.trim()) : null,
+      freeze: createIdentityFreezeRead(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s),
+      // Read on every supervisor pass: a run never trades on the tier it started with (signals/live-tier.ts, as an alert).
+      liveTier: (userId) => liveRunTier.tierOf(userId),
+      now: () => new Date(),
+    })
+  : null;
+liveRuns?.supervise();
 // Convert's sell quotes priced by the venue on the customer's own venue account (J-cex-spot-17 #8), on the primary
 // venue's door. Off with the door.
 const venueSellQuotes = userVenue
@@ -615,7 +699,47 @@ const platformPauses = new PlatformPauseDesk({
 });
 const readPlatformPauses = () => platformPauses.snapshot();
 trade.bindPlatformPauses(readPlatformPauses);
+// Copy trading on the venue (J-copy-bots-otc-03): a follow bound to the follower's own agent account copies there, its
+// leader's fills read from the venue and each copy and close placed by that account's agent permission. Off with the door.
+const venueCopy =
+  userVenue && agentOrders
+    ? new VenueCopy({
+        venue: () => userVenue.venue(),
+        orders: agentOrders,
+        accounts: agentAccountStore,
+        actions: userVenueStore,
+        bindings: new SqlVenueFollowStore(sql),
+        copyStore,
+        placedMirrors: sqlPlacedMirrors(sql),
+        slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
+      })
+    : null;
+/** The venue copy desk when this follow copies on the venue, else null (the follow keeps the paths below). */
+const onVenue = async (followId: string | undefined) =>
+  venueCopy && followId && (await venueCopy.isVenueFollow(followId)) ? venueCopy : null;
+const engineCopyClose = createCopyClosePort({
+  sql,
+  placeFollowerOrder,
+  slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
+  loadMarket: (symbol) => trade.marketBySymbol(symbol),
+  bestBid: copyBestBid,
+});
+const engineFlatten = createFollowerFlattenPort({
+  sql,
+  ledger,
+  store: copyStore,
+  placeFollowerOrder,
+  slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
+  loadMarket: (symbol) => trade.marketBySymbol(symbol),
+  bestBid: copyBestBid,
+});
+const engineCopiedPositions = sqlCopiedPositions(sql);
 const copy = new CopyService(ledger, {
+  ...(venueCopy ? { venueFollows: venueCopy } : {}),
+  copiedPositions: async (input) => {
+    const v = await onVenue(input.followId);
+    return (v ? await v.positions(input) : null) ?? engineCopiedPositions(input);
+  },
   stepUp,
   platformPauses: readPlatformPauses,
   notices: busCopyNotices(bus),
@@ -627,30 +751,35 @@ const copy = new CopyService(ledger, {
   minTier: copyMinTier,
   store: copyStore,
   directory: leaderDirectory,
-  placeFollowerOrder,
-  flattenCopyPosition: createFollowerFlattenPort({
-    sql,
-    ledger,
-    store: copyStore,
-    placeFollowerOrder,
-    slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
-    loadMarket: (symbol) => trade.marketBySymbol(symbol),
-    bestBid: copyBestBid,
-  }),
-  copyClose: createCopyClosePort({
-    sql,
-    placeFollowerOrder,
-    slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
-    loadMarket: (symbol) => trade.marketBySymbol(symbol),
-    bestBid: copyBestBid,
-  }),
+  placeFollowerOrder: async (principal, input) => {
+    const v = await onVenue(input.followId);
+    return v ? v.placeMirror(principal, input) : placeFollowerOrder(principal, input);
+  },
+  flattenCopyPosition: async (principal, input) => {
+    const v = await onVenue(input.followId);
+    return (v ? await v.flatten(principal, input) : null) ?? engineFlatten(principal, input);
+  },
+  copyClose: venueCopy
+    ? {
+        latest: async (followId, closeKey) =>
+          (await onVenue(followId)) ? venueCopy.closePort().latest(followId, closeKey) : engineCopyClose.latest(followId, closeKey),
+        resume: async (principal, record) =>
+          (await onVenue(record.followId)) ? venueCopy.closePort().resume(principal, record) : engineCopyClose.resume(principal, record),
+        place: async (principal, input) =>
+          (await onVenue(input.followId)) ? venueCopy.closePort().place(principal, input) : engineCopyClose.place(principal, input),
+      }
+    : engineCopyClose,
   inspectMarket: async (symbol) => {
     const market = await trade.marketBySymbol(symbol);
-    return market ? { paper: market.paper, lotSize: market.lotSize } : null;
+    if (market) return { paper: market.paper, lotSize: market.lotSize };
+    // A venue market (a venue follow's copy): its lot from the venue's own list.
+    return venueCopy ? venueCopy.inspectMarket(symbol).catch(() => null) : null;
   },
   // The copy driver's read: the leader's own live spot fills after the follow began, oldest first.
   // Fill times are compared at millisecond precision, the precision the cursor keeps, so a fill is never read twice.
-  listLeaderFillsSince: async (leaderId, after, limit) => {
+  listLeaderFillsSince: async (leaderId, after, limit, followId) => {
+    const v = await onVenue(followId);
+    if (v) return v.leaderFillsSince(leaderId, after, limit);
     const rows = await sql<Array<{ id: string; symbol: string; created_at: Date }>>`
       SELECT f.id, m.symbol, f.created_at
         FROM trade.fills f
@@ -683,7 +812,8 @@ const copy = new CopyService(ledger, {
     if (bid === null || ask === null || bid <= 0n || ask <= 0n) return null;
     return { marketId, price: (bid + ask) / 2n, asOf: new Date(), quality: 'mid' as const };
   },
-  lookupLeaderFill: async (fillId) => {
+  lookupLeaderFill: async (fillId, leaderId) => {
+    if (isVenueLeaderFillId(fillId)) return venueCopy && leaderId ? venueCopy.leaderFill(fillId, leaderId) : null;
     const id = canonicalizeCopyFillId(fillId);
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)) {
       return null;
@@ -817,6 +947,7 @@ export const appRouter = createTradeRouter(
   // svc-tax reads a person's own venue spot trading for their profit and loss (J-cex-spot-01 #11); off: the door is off.
   { venue: userVenue ? () => userVenue.venue() : null, store: new SqlPreparedActionStore(sql) },
   signalDesk,
+  agentDesk,
 );
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({
@@ -1660,6 +1791,8 @@ installCollarPlace(TradeService);
 installComboPlace(TradeService);
 registerPrivateRest(app, {
   userVenueSlippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
+  userVenueSpreadLimitBps: env.TRADE_MARKET_SPREAD_LIMIT_BPS,
+  apiKeyRotation: createApiKeyRotationClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s),
   edgeSecret: env.EDGE_PRINCIPAL_SECRET,
   edgeTrust: edgeTrustFromEnv(env),
   serviceName: env.SERVICE_NAME,
@@ -1668,6 +1801,7 @@ registerPrivateRest(app, {
   orderHistory: (principal, input) => trade.orderHistory(principal, input),
   getOrder: (principal, orderId) => trade.getOrder(principal, orderId),
   orderFills: (principal, orderId, limit) => trade.fillsForOrder(principal, orderId, limit),
+  ordersFills: (principal, orderIds) => trade.everyFillOfOrders(principal, orderIds),
   orderAmendments: (principal, orderId) => trade.orderAmendments(principal, orderId),
   orderQueue: (principal, orderId) =>
     readQueuePosition(
@@ -1836,11 +1970,14 @@ registerPrivateRest(app, {
   convertExport: (principal, query) => trade.convertExport(principal, query),
   convert: trade,
   copyExport: (principal, query) => copy.exportMirrorTrail(principal, query),
+  leadOrderGate: leadOrderGate((userId) => leaderDirectory.leadListing(userId)),
   grid,
   userVenue: userVenueRouter,
   agentAccounts,
   agentOrders,
+  agentActivity,
   ownAgentTrading,
+  liveRuns,
   venueSellQuotes,
   algo: trade,
   rfqExport: (principal, query) => trade.rfqExport(principal, query),

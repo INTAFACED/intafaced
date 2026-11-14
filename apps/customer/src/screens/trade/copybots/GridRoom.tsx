@@ -25,6 +25,7 @@ import { displayAmount } from '../../../shared/money';
 import { createRoomApi, type GridBot } from './api';
 import { roomCopy } from './copy';
 import { useWriteGuard } from './guard';
+import { GridSettings, GridTopUp } from './GridManage';
 import { GridWithdraw } from './GridWithdraw';
 import { parseGridCount, previewGridPrices } from './grid-plan';
 import { useLive } from './live';
@@ -106,7 +107,7 @@ export function GridRoom({ path }: { path: string }) {
   };
 
   return (
-    <Page width="full" className="cb-page">
+    <Page width="full" className="cb-page" landmark={false}>
       <ModeNav active="bots" />
       <PageHeader
         title={t('Spot grid')}
@@ -347,6 +348,7 @@ function GridDetail({
           { label: t('Range'), value: `${displayAmount(data.lowerPrice)} – ${displayAmount(data.upperPrice)} ${data.quoteAsset}` },
           { label: t('Grids'), value: String(data.gridCount) },
           { label: t('Investment'), value: `${displayAmount(data.investment)} ${data.quoteAsset}` },
+          { label: t('Levels planned again'), value: String(data.reinitCount) },
           {
             label: t('Set aside'),
             value: data.reserve
@@ -364,6 +366,12 @@ function GridDetail({
           <Button variant="secondary" onClick={stop} disabled={guard.busy || guard.locked}>
             {t('Stop bot')}
           </Button>
+          {data.status === 'running' || data.status === 'paused_range' ? (
+            <>
+              <GridTopUp bot={data} api={api} onDone={bot.reload} />
+              <GridSettings bot={data} api={api} />
+            </>
+          ) : null}
         </div>
       ) : null}
       <Tabs value={tab} onValueChange={setTab}>

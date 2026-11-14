@@ -29,6 +29,7 @@ export type CopyErrorCode =
   | 'trade.copy_pnl_fee_forbidden'
   | 'trade.copy_ranking_forbidden'
   | 'trade.copy_settle_refused'
+  | 'trade.copy_settlement_window_required'
   | 'trade.copy_leader_fill_not_found'
   | 'trade.copy_auto_mirror_place_socket'
   | 'trade.copy_place_disabled'
@@ -83,7 +84,8 @@ export type CopyErrorCode =
   | 'trade.copy_lead_application_decided'
   | 'trade.copy_lead_application_not_found'
   | 'trade.copy_lead_reapply_wait_unset'
-  | 'trade.copy_lead_reapply_wait';
+  | 'trade.copy_lead_reapply_wait'
+  | 'trade.copy_venue_account_not_open';
 
 /**
  * Closed set for the customer desk and blank-law refusals.

@@ -281,6 +281,13 @@ const schema = serviceEnvSchema
        */
       SESSION_MAX_CONCURRENT: z.string().optional(),
       /**
+       * Owner setting: the longest a rotated key keeps working beside its replacement, in whole seconds (DV-keys-04,
+       * J-developer-07 #1). NO DEFAULT. Blank: a rotation with an overlap above 0 refuses
+       * `identity.key_rotate_overlap_unset`; an overlap of 0 still rotates. Parsed at start; anything but a whole number
+       * above 0 stops the service.
+       */
+      IDENTITY_API_KEY_ROTATE_OVERLAP_MAX_SECONDS: z.string().optional(),
+      /**
        * Owner setting: the account product tiers an operator may move an account onto (J-ops-console-04 #11). A JSON list of
        * `{ id, name, terms: { ratePercent, monthlyFee, feeAssetId, dailyLimit, clearingDays } }`, terms as decimal strings or
        * null. NO DEFAULT. Blank or invalid: `accountControls.tiers` answers `identity.account_tiers_unset` and every move
@@ -445,6 +452,23 @@ const schema = serviceEnvSchema
       /** Owner setting: how often the lapse sweep runs, in whole seconds. NO DEFAULT. Blank leaves the sweep timer off. */
       IDENTITY_REFERRAL_LAPSE_SWEEP_SECONDS: z.string().optional(),
       /**
+       * Owner setting: how many qualified invitees (people introduced directly whose verification was approved) a person
+       * needs to apply as an affiliate partner (CM-referral-05, J-campaigns-07 #1). NO DEFAULT. Blank refuses the eligibility
+       * read and every application (`partner.eligibility_unset`), writing nothing. Parsed by `parsePartnerMinQualified`.
+       */
+      IDENTITY_PARTNER_MIN_QUALIFIED_INVITEES: z.string().optional(),
+      /**
+       * Owner setting: how many days after a rejection a person may apply again as a partner (J-campaigns-07 #3). NO
+       * DEFAULT. Blank refuses a rejection (`partner.reapply_unset`), leaving the application open.
+       */
+      IDENTITY_PARTNER_REAPPLY_DAYS: z.string().optional(),
+      /**
+       * Owner setting: the partner programme depth, 1 to 5 levels of a sub-tree (RC-campaigns-07, J-campaigns-07 #4). NO
+       * DEFAULT. Blank refuses every commission accrual, dry-run and payout and the partner sub-tree
+       * (`affiliate.programme_depth_unset`). Parsed by `parseProgrammeDepth`; malformed stops the service.
+       */
+      IDENTITY_PARTNER_PROGRAMME_DEPTH: z.string().optional(),
+      /**
        * Owner setting: how many waiting entries one waitlist wave releases (RC-campaigns-03, J-campaigns-20 #3). NO DEFAULT.
        * Blank refuses every release (`drop.wave_unset`) and releases nobody. Parsed at start by `parseWaveSize`.
        */
@@ -474,6 +498,26 @@ const schema = serviceEnvSchema
         if (typeof v === 'string' && v.trim() === '') return undefined;
         return v;
       }, z.coerce.number().int().min(1).max(50).optional()),
+      /**
+       * Owner-published saved desk layout limits (C-workspace-02): layouts per account, deleted layouts kept for restoring,
+       * and the days a deleted layout can be restored in. Blank / unset → unpublished; a write that needs one refuses
+       * (`identity.desk_layout_*`). Never a default: the stack sets labelled TEST values only.
+       */
+      IDENTITY_DESK_LAYOUT_CAP: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(100).optional()),
+      IDENTITY_DESK_LAYOUT_RESTORE_CAP: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(200).optional()),
+      IDENTITY_DESK_LAYOUT_RESTORE_DAYS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(3650).optional()),
       /**
        * Signing key for pay QR codes and payment links (PP-send-request-11), at least 32 characters. Blank / unset →
        * not set up: issuing and resolving a code both refuse `identity.qr_key_unset`. A `local-test:` key is the local
@@ -756,6 +800,22 @@ const schema = serviceEnvSchema
       }, z.string().optional()),
       /** Absolute file path for the local-outbox transport. Required when that transport is selected. */
       IDENTITY_LOCAL_MAIL_OUTBOX: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return typeof v === 'string' ? v.trim() : v;
+      }, z.string().optional()),
+      /**
+       * Text-message transport. Blank / unset → unwired; a phone sign-in link refuses `vendor.sms`. `local-outbox` is the
+       * only implemented transport and is refused at boot unless APP_ENV is exactly dev or test. Any other name refuses at
+       * boot. No SMS provider is configured here.
+       */
+      IDENTITY_SMS_TRANSPORT: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return typeof v === 'string' ? v.trim() : v;
+      }, z.string().optional()),
+      /** Absolute file path for the local-outbox text transport. Required when that transport is selected. */
+      IDENTITY_LOCAL_SMS_OUTBOX: z.preprocess((v) => {
         if (v === undefined || v === null) return undefined;
         if (typeof v === 'string' && v.trim() === '') return undefined;
         return typeof v === 'string' ? v.trim() : v;
