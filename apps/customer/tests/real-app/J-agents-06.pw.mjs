@@ -104,10 +104,25 @@ test(`${J} #2 receives the finish notice: an inbox row and a run page with the r
     .click();
   await expect(page).toHaveURL(new RegExp(`/agents/runs/${agents.run.read().shortRun}$`));
   await expect(runPage(page).getByTestId('run-status')).toHaveText('Completed');
-  const result = runPage(page).getByRole('region', { name: 'Reply' }).getByRole('paragraph');
-  await expect(result).not.toHaveText('No reply yet.');
-  await expect(result).not.toBeEmpty();
+  // The result shown is the run's stored reply, the one its last step got back.
+  const stored = await ownRun('shortRun');
+  expect(stored.reply).toBe(stored.steps.at(-1).reply);
+  await expect(runPage(page).getByRole('region', { name: 'Reply' }).getByRole('paragraph')).toHaveText(stored.reply);
   await expect(runPage(page).getByRole('note').filter({ hasText: 'vendor.email' })).toBeVisible();
+  // svc-notify's own record: exactly one notice for this run, and the email asked for was refused for its unset vendor.
+  const notifyRead = async (procedure, input) => {
+    const res = await (await api(agents.account())).get(`/api/notify/trpc/${procedure}?input=${encodeURIComponent(JSON.stringify(input))}`);
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+    return res.body.result.data;
+  };
+  const notices = (await notifyRead('notify.list', { limit: 100 })).items.filter(
+    ({ kind, params }) => kind === 'agents.run.completed' && params.runId === agents.run.read().shortRun,
+  );
+  expect(notices).toHaveLength(1);
+  const deliveries = await notifyRead('notify.deliveries', { notificationId: notices[0].id });
+  expect(deliveries.filter(({ channel }) => channel === 'email').map(({ status, refusalCode }) => ({ status, refusalCode }))).toEqual([
+    { status: 'refused', refusalCode: 'channel.not_configured' },
+  ]);
 });
 
 test(`${J} #3 pauses a running run: no further step starts and a new request gets the paused code`, async ({ page }) => {
