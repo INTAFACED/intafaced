@@ -817,7 +817,11 @@ export function fullVerdict({ repo, report, run, inputs, read = fetchInputs }) {
   for (const { step } of v.red) {
     const n = got.passedSince?.[step];
     lastPass[step] =
-      n !== undefined ? (got.shas?.[n] ?? '') : got.named.states?.[step] === 'passed' ? String(baseline?.run?.sha ?? '') : null;
+      n !== undefined
+        ? (got.shas?.[n] ?? '')
+        : got.named.states?.[step] === 'passed' || got.named.tests?.[step] === 'passed'
+          ? String(baseline?.run?.sha ?? '')
+          : null;
   }
   return { red: [...red, ...v.red], failing: v.failing, missing, lastPass };
 }

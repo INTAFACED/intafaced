@@ -275,10 +275,13 @@ export function identityClosurePayloadHash(input: {
   readonly action: 'close' | 'reopen';
   readonly reasonCode?: AccountCloseReasonCode;
   readonly reason: string;
+  readonly graceDays?: number;
 }): string {
   return identityActionPayloadHash(input.userId.toLowerCase(), {
     action: input.action,
     ...(input.action === 'close' ? { reasonCode: input.reasonCode ?? '' } : {}),
+    // A grace close binds its days too, so an approval for a final close never spends on a grace close or the reverse.
+    ...(input.action === 'close' && input.graceDays !== undefined ? { graceDays: String(input.graceDays) } : {}),
     reason: input.reason.trim(),
   });
 }
@@ -1131,8 +1134,12 @@ export class FounderControls {
     // (that lock also serialises trade and pay admission). Only a close carrying an approval from a principal that can be
     // a live founder gets this far; the transaction below re-checks everything else before it uses the answer.
     const principal = context.principal;
+    // A grace close (J-identity-14 #1) leaves the account open to withdraw what is left, so it runs no closure checks: the
+    // grace closure job runs them after the date, before it closes the account.
+    const grace = input.action === 'close' ? (input.graceDays ?? null) : null;
     const mayCheck =
       input.action === 'close' &&
+      grace === null &&
       !!input.approvalId &&
       this.configured &&
       !!principal &&
@@ -1207,7 +1214,7 @@ export class FounderControls {
           if (input.action === 'close') {
             if (this.pair?.includes(targetId)) return finish(refused('identity.close_founder_forbidden', before), true);
             if (targetId === actorId) return finish(refused('identity.close_self_forbidden', before), true);
-            if (before.status === 'closed') return finish(refused('identity.close_already_closed', before), true);
+            if (before.status === 'closed' || before.graceUntil) return finish(refused('identity.close_already_closed', before), true);
           } else {
             if (before.status !== 'closed') return finish(refused('identity.reopen_not_closed', before), true);
             if (!before.reopenable) return finish(refused('identity.reopen_not_allowed', before), true);
@@ -1227,13 +1234,17 @@ export class FounderControls {
             refused(refusal === 'mismatch' ? 'identity.close_approval_mismatch' : 'identity.close_approval_consumed', before);
           const bound = await this.consumeIdentityApproval(tx, want, false);
           if (bound.refusal) return finish(approvalRefusal(bound.refusal), true);
-          if (input.action === 'close') {
+          if (input.action === 'close' && grace === null) {
             if (!checks?.ok) return finish(refused('identity.close_check_unavailable', before), true);
             if (checks.blockers.length > 0) return finish(refused('identity.close_blocked', before, checks.blockers), true);
           }
           const spent = await this.consumeIdentityApproval(tx, want);
           if (spent.refusal) return finish(approvalRefusal(spent.refusal), true);
-          if (input.action === 'close') {
+          if (input.action === 'close' && grace !== null) {
+            // Sessions stay, so the person can sign in and withdraw until the date; `OperationIdentityDecisions.decide`
+            // refuses every fresh trade from now on. The date is the database clock at the close plus the days.
+            await tx`UPDATE users SET closed_reason = ${input.reasonCode}, close_grace_until = ${clock!.at}::timestamptz + make_interval(days => ${grace}::int), identity_control_version = identity_control_version + 1, updated_at = now() WHERE id = ${targetId}`;
+          } else if (input.action === 'close') {
             await tx`UPDATE users SET status = 'closed', closed_reason = ${input.reasonCode}, closed_from_frozen = (status = 'frozen'), identity_control_version = identity_control_version + 1, updated_at = now() WHERE id = ${targetId}`;
             await tx`UPDATE sessions SET revoked = true WHERE user_id = ${targetId} AND revoked = false`;
             await tx`UPDATE api_keys SET revoked = true, revoked_at = now(), revoked_cause = 'account_closed' WHERE user_id = ${targetId} AND revoked = false`;
@@ -1285,6 +1296,64 @@ export class FounderControls {
       if (error instanceof FounderControlError) throw error;
       throw storageError(error);
     }
+  }
+
+  /**
+   * The grace closure job (J-identity-14 #1): closes each account whose staff close grace date has passed, as a final staff
+   * close does (status closed, sessions, API keys and sub-accounts revoked), once the closure checks report nothing open.
+   * While they report open products or balances, or cannot be read, the account stays in grace (it may still withdraw,
+   * and trading stays refused), so nothing is stranded; the next run tries again. Repeating a run changes nothing more.
+   */
+  async finalizeGraceClosures(limit: number): Promise<{
+    closed: string[];
+    held: Array<{
+      userId: string;
+      code: 'identity.close_blocked' | 'identity.close_check_unavailable';
+      blockers?: { code: string; count: number }[];
+    }>;
+  }> {
+    const due = await this.sql<Array<{ id: string }>>`
+      SELECT id::text AS id FROM users
+      WHERE close_grace_until IS NOT NULL AND close_grace_until <= now() AND status <> 'closed'
+      ORDER BY close_grace_until, id LIMIT ${limit}`;
+    const closed: string[] = [];
+    const held: Array<{
+      userId: string;
+      code: 'identity.close_blocked' | 'identity.close_check_unavailable';
+      blockers?: { code: string; count: number }[];
+    }> = [];
+    for (const { id } of due) {
+      // The checks call other services, so they run before the founder-controls lock, as a staff close's do.
+      const checks = await this.runClosureChecks(id);
+      if (!checks.ok) {
+        held.push({ userId: id, code: 'identity.close_check_unavailable' });
+        continue;
+      }
+      if (checks.blockers.length > 0) {
+        held.push({ userId: id, code: 'identity.close_blocked', blockers: checks.blockers.slice(0, 50).map((b) => ({ ...b })) });
+        continue;
+      }
+      const done = await transaction(
+        this.sql,
+        async (tx) => {
+          await this.lock(tx);
+          const [row] = await tx<Array<{ id: string }>>`
+            UPDATE users SET status = 'closed', closed_from_frozen = (status = 'frozen'), close_grace_until = NULL,
+              identity_control_version = identity_control_version + 1, updated_at = now()
+            WHERE id = ${id} AND close_grace_until IS NOT NULL AND close_grace_until <= now() AND status <> 'closed'
+            RETURNING id::text AS id`;
+          if (!row) return false;
+          await tx`UPDATE sessions SET revoked = true WHERE user_id = ${id} AND revoked = false`;
+          await tx`UPDATE api_keys SET revoked = true, revoked_at = now(), revoked_cause = 'account_closed' WHERE user_id = ${id} AND revoked = false`;
+          await tx`UPDATE sub_accounts SET revoked = true WHERE parent_user_id = ${id} AND revoked = false`;
+          await tx`UPDATE navigator_session_projections SET status = 'closed', published_at = now() WHERE user_id = ${id} AND status = 'open'`;
+          return true;
+        },
+        { isolation: 'read committed' },
+      );
+      if (done) closed.push(id);
+    }
+    return { closed, held };
   }
 
   async closureHistory(context: Context, raw: z.infer<typeof accountClosureHistoryInputSchema>): Promise<AccountClosureResult[]> {
@@ -1742,22 +1811,34 @@ export class FounderControls {
         closed_reason: AccountCloseReasonCode | null;
         customer_closed: boolean;
         archived: boolean;
+        close_grace_until: Date | null;
       }>
-    >`SELECT status, identity_control_version::text AS version, closed_reason,
+    >`SELECT status, identity_control_version::text AS version, closed_reason, close_grace_until,
          EXISTS (SELECT 1 FROM account_closures c WHERE c.user_id = users.id AND c.status = 'closed') AS customer_closed,
          archived_at IS NOT NULL AS archived
        FROM users WHERE id = ${userId}`;
     if (!row) return null;
     const closed = row.status === 'closed';
+    // A staff close with a grace date not yet final: still open to sign in and withdraw, with its staff code on file.
+    const closing = !closed && row.close_grace_until !== null;
     const customerClosed = closed && (row.closed_reason === 'customer_request' || (row.closed_reason === null && row.customer_closed));
     return {
       userId,
       version: row.version,
       status: row.status,
-      closedBy: closed ? (customerClosed ? 'customer' : 'staff') : null,
-      closeReasonCode: closed ? row.closed_reason : null,
+      closedBy: closed
+        ? customerClosed
+          ? 'customer'
+          : 'staff'
+        : closing
+          ? row.closed_reason === 'customer_request'
+            ? 'customer'
+            : 'staff'
+          : null,
+      closeReasonCode: closed || closing ? row.closed_reason : null,
       // An archived record is never reopened (identity.account_archived).
       reopenable: customerClosed && !row.archived,
+      graceUntil: closing ? row.close_grace_until!.toISOString() : null,
     };
   }
 

@@ -186,7 +186,7 @@ import { SubAccountDeleteService } from './sub-accounts/sub-account-delete.js';
 import { SubAccountEditService } from './sub-accounts/sub-account-edit.js';
 import { AntiPhishingService, antiPhishingKey } from './profile/anti-phishing.js';
 import { SubAccountFeatureService, parseFeatureEligibility } from './sub-accounts/sub-account-features.js';
-import { registerClosureFinalize } from './closure/closure-job.js';
+import { registerClosureFinalize, registerGraceClosureFinalize } from './closure/closure-job.js';
 import { createClosureOpsRouter } from './closure/closure-ops-router.js';
 import { AccountClosureService } from './closure/closure-service.js';
 import { SqlWaitlistStore } from './waitlist/waitlist-store.js';
@@ -1051,6 +1051,7 @@ registerBusinessDirectoryRoutes(app, {
 registerHolderNameCheck(app, { internalSecret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s, details: customerDetails });
 
 registerClosureFinalize(app, { secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s, closure });
+registerGraceClosureFinalize(app, { secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s, controls: founderControls });
 registerAffiliateProducerPayout(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   s2s: doorS2s,
