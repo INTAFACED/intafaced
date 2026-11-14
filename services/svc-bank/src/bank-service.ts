@@ -1,4 +1,4 @@
-import { testPartnerCustody, testPartnerPurchases, type TestPartner } from './partner/test-partner.js';
+import { testPartnerCustody, testPartnerDirectDebits, testPartnerPurchases, type TestPartner } from './partner/test-partner.js';
 import type { PartnerPurchaseCustody } from './partner/partner-purchases.js';
 import {
   bankCustodyLayer,
@@ -568,7 +568,13 @@ export function createBankServices(
     options.holdCancelHours !== undefined ? options.holdCancelHours : process.env[BANK_GLOBAL_HOLD_CANCEL_HOURS_ENV],
   );
   globalSend.screenWith((sendId) => globalHolds.screen(sendId));
-  const directDebits = new DirectDebitService(sql, ledger, spaces, options.directDebitScheme ?? unsetDirectDebitScheme);
+  const directDebits = new DirectDebitService(
+    sql,
+    ledger,
+    spaces,
+    options.directDebitScheme ?? unsetDirectDebitScheme,
+    testPartnerDirectDebits(options.testPartner),
+  );
 
   const recovery = new RecoveryClaimService(sql, ledger, spaces, options.identityRecovery ?? unconfiguredIdentityRecovery());
 
