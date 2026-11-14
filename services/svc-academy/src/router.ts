@@ -3927,7 +3927,11 @@ export function createAcademyRouter(
           guard(async () => {
             // A repeat answers with the first record, and an unknown code refuses, before the two people's approval is spent.
             const recorded = await academy.certRevocation(input.publicId);
-            if (recorded) return recorded;
+            if (recorded) {
+              // A repeat publishes the XP reversal again: the recovery path when the bus was down the first time.
+              await academy.settleRevokedXp(input.publicId);
+              return recorded;
+            }
             const pair = await consumeApprovalPair(ctx.principal, approvals, input, 'academy.cert.revoke', {
               publicId: input.publicId,
               reason: input.reason,

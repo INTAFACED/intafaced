@@ -3303,6 +3303,41 @@ export class AcademyService {
   }): Promise<AcademyCertRevocation> {
     const reason = input.reason.trim();
     if (reason.length === 0 || reason.length > 500) throw new AcademyError('A revoke needs a reason', 'academy.cert_invalid');
+    const record = await this.recordRevocation(input, reason);
+    await this.settleRevokedXp(input.publicId);
+    return record;
+  }
+
+  /**
+   * J-academy-17 #6: a revoked certificate's XP goes back, so the rank perks it brought stop. The award is published
+   * again first (a no-op at identity when it already landed; when it never did, award and reversal net to nothing), then
+   * the reversal, the same amount negative, keyed once per grant. Safe to repeat: a repeat revoke calls it again, which is
+   * the recovery path when the bus was down. Reported, never thrown: the revocation is the durable fact. No money moves.
+   */
+  async settleRevokedXp(publicId: string): Promise<CertXpEmitResult | null> {
+    const [row] = await this.sql<Array<{ user_id: string; cert_id: string; granted_at: Date; idempotency_key: string; status: string }>>`
+      SELECT user_id, cert_id, granted_at, idempotency_key, status FROM academy.cert_grants WHERE public_id = ${publicId}
+    `;
+    if (!row || row.status !== 'revoked') return null;
+    const grant: CertGrantRecord = {
+      userId: row.user_id,
+      certId: row.cert_id,
+      grantedAt: row.granted_at,
+      idempotencyKey: row.idempotency_key,
+    };
+    try {
+      await this.certXp.publishCertXp(grant);
+      return await this.certXp.reverseCertXp(grant);
+    } catch (err) {
+      console.error({ err, certId: row.cert_id }, 'revoked certificate XP reversal failed; a repeat revoke publishes it again');
+      return null;
+    }
+  }
+
+  private recordRevocation(
+    input: { publicId: string; proposedBy: string; approvedBy: string; operatorId: string; now?: Date },
+    reason: string,
+  ): Promise<AcademyCertRevocation> {
     return transaction(this.sql, async (tx) => {
       await tx`SELECT 1 FROM academy.cert_grants WHERE public_id = ${input.publicId} FOR UPDATE`;
       const recorded = await this.certRevocation(input.publicId, tx);

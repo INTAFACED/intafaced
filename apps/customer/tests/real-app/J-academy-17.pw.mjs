@@ -426,6 +426,37 @@ async function learner(browser, prefix, leave) {
   return { tab, who, session, userId: session.userId, items };
 }
 
+/**
+ * XP awarded through svc-identity's one award door (`rank.awardXp`, service-signed), as the modules that earn XP call it.
+ * A TEST stand-in for activity elsewhere: one key per person and purpose, so a retry awards nothing more.
+ */
+async function awardXp(userId, xpDelta, purpose) {
+  const { ctx } = await founders();
+  const raw = JSON.stringify({
+    userId,
+    sourceModule: 'local-test-stack',
+    action: 'test.xp_elsewhere',
+    xpDelta,
+    idempotencyKey: `${J}:xp-elsewhere:${userId}:${purpose}`,
+  });
+  const res = await fetch(`${ctx.url('identity')}/trpc/rank.awardXp`, {
+    method: 'POST',
+    redirect: 'error',
+    headers: {
+      'content-type': 'application/json',
+      ...ctx.contracts.serviceAuthHeadersForBody('local-test-stack', ctx.secrets.internal, raw),
+    },
+    body: raw,
+    signal: AbortSignal.timeout(30_000),
+  });
+  const body = await res.json().catch(() => null);
+  expect(res.status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  return body.result.data;
+}
+
+const rankOf = async (session) => (await session.get('/api/identity/trpc/rank.get')).body.result.data;
+const perksOf = async (session) => (await session.get('/api/identity/trpc/rank.perks')).body.result.data;
+
 const myCert = async (who) => (await read(who, 'myCerts', { limit: 50 })).find((row) => row.certId === CERT) ?? null;
 
 /**
@@ -482,6 +513,18 @@ test(`${J} #5 a delay rule holds automatic issue until the wait has passed, and 
 
     // A learner finishes the course: automatic issue waits for the delay, so they hold no certificate yet.
     const waiting = await learner(browser, 'ja17w', 1);
+    // A TEST stand-in for XP earned elsewhere: it leaves this learner exactly the certificate's published XP short of
+    // their next rank, so the certificate raises the rank and its perks, and #6 can see the revoke take them back.
+    const certXp = (await read(waiting.who, 'certXpPlane')).policies.find((row) => row.certId === CERT)?.xpDelta;
+    expect(certXp, 'the owner published an XP value for the Foundations certificate').toBeGreaterThan(0);
+    const fresh = await rankOf(waiting.session);
+    expect(fresh.nextRankAt, JSON.stringify(fresh)).not.toBeNull();
+    const topUp = Number(fresh.nextRankAt) - certXp;
+    expect(topUp, JSON.stringify({ fresh, certXp })).toBeGreaterThan(0);
+    await awardXp(fresh.userId, topUp, `${fresh.rank}`);
+    const rankBefore = await rankOf(waiting.session);
+    expect(rankBefore.nextRankAt).toBe(String(certXp));
+    const perksBefore = await perksOf(waiting.session);
     const finished = await waiting.session.post(trpc('markCurriculumComplete'), { itemSlug: waiting.items.at(-1) });
     expect(finished.status, JSON.stringify(finished.body).slice(0, 300)).toBe(200);
     const finishedAt = Date.now();
@@ -536,7 +579,15 @@ test(`${J} #5 a delay rule holds automatic issue until the wait has passed, and 
       .not.toBeNull();
     const issued = await myCert(waiting.who);
     expect(Date.parse(issued.grantedAt) - finishedAt).toBeGreaterThanOrEqual(DELAY_MINUTES * 60_000 - 5_000);
-    run.write({ waitingCode: issued.publicId, waitingId: waiting.userId, exceptedId: excepted.userId });
+    run.write({
+      waitingCode: issued.publicId,
+      waitingId: waiting.userId,
+      waitingWho: waiting.who,
+      exceptedId: excepted.userId,
+      certXp,
+      rankBefore,
+      perksBefore,
+    });
     await waiting.tab.reload();
     await expect(sheet).toHaveAttribute('data-state', 'earned');
     await waiting.tab.context().close();
@@ -546,13 +597,18 @@ test(`${J} #5 a delay rule holds automatic issue until the wait has passed, and 
   }
 });
 
-test(`${J} #6 revoking a certificate with a reason: the verify page shows revoked and the revoke is in the grant audit`, async ({
+test(`${J} #6 revoking a certificate with a reason: the verify page shows revoked, the revoke is in the grant audit, and the XP-backed perk stops`, async ({
   page,
   browser,
 }) => {
   test.setTimeout(300_000);
-  const { waitingCode, waitingId } = run.read();
+  const { waitingCode, waitingId, waitingWho, certXp, rankBefore, perksBefore } = run.read();
   expect(waitingCode, '#5 left an issued certificate to revoke').toBeTruthy();
+  // While the certificate stands, its XP holds the learner one rank up, with that rank's perks.
+  const learnerSession = await api(waitingWho);
+  await expect.poll(async () => (await rankOf(learnerSession)).rank, { timeout: 30_000 }).toBe(rankBefore.rank + 1);
+  const perksWith = await perksOf(learnerSession);
+  expect(perksWith, 'the rank the certificate brought carries perks the rank below does not').not.toEqual(perksBefore);
   await page.goto(`${ORIGIN}/academy/certificates/verify/${waitingCode}`);
   const answer = page.locator(`[data-certificate-verify="${waitingCode}"]`);
   await expect(answer.getByTestId('verify-status')).toHaveText('Valid');
@@ -599,6 +655,14 @@ test(`${J} #6 revoking a certificate with a reason: the verify page shows revoke
   const stored = (await staffRead('admin.grantAudit', { certificate: CERT })).items.filter((l) => l.accountId === waitingId);
   expect(stored.map((l) => l.kind)).toEqual(['certificate_revoked', 'certificate_granted']);
   expect(stored[0]).toMatchObject({ actorId: founderA, reason });
+
+  // The XP the certificate brought goes back, so the rank and the perk it backed stop: the learner is where they stood
+  // before the certificate, with that rank's perks.
+  await expect.poll(async () => (await rankOf(learnerSession)).rank, { timeout: 60_000 }).toBe(rankBefore.rank);
+  const after = await rankOf(learnerSession);
+  expect(BigInt(after.xp)).toBe(BigInt(rankBefore.xp));
+  expect(after.nextRankAt).toBe(String(certXp));
+  expect(await perksOf(learnerSession)).toEqual(perksBefore);
 });
 
 test(`${J} #7 one founder changes a course team role, and it waits until a second founder confirms`, async ({ browser }) => {
