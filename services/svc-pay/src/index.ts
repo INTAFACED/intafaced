@@ -463,6 +463,8 @@ const pay = new PayService(sql, ledger, rails, {
   identityAuthorityGuard: createPayfacAuthorityGuard(subMerchants),
   payoutDestinations,
   defaultFeeBps: env.PAY_DEFAULT_FEE_BPS,
+  partnerFeeBps: env.PAY_PARTNER_FEE_BPS,
+  custodyLayer: env.LEDGER_CUSTODY_LAYER,
   valueMovement: railPosture.policy,
   // NOT `railPosture.policy`. `PAY_ALLOW_SANDBOX_RAILS` relaxes the payout gate
   // for a pilot or a demo — a statement about people inside this deployment. A
@@ -786,6 +788,7 @@ export const appRouter = mergeRouters(
     catalog: { sql, imageRule: readProductImageRule(process.env) },
     checkoutBranding: { sql, logoRule: readCheckoutLogoRule(process.env) },
     checkoutMethods: { sql, rails: () => pay.checkoutMethodRails() },
+    receivingWallet: { sql },
     limits: { sql, approvals: actionApprovals, reader: withdrawalLimitReader },
     custody: {
       sql,
@@ -1329,11 +1332,12 @@ if (chain instanceof EvmLiveChain && env.PAY_CRYPTO_WATCHER_ENABLED === 'true') 
     chain,
     async () => [
       ...(
-        await sql<Array<{ id: string; currency: string }>>`
-          SELECT id, currency FROM pay.payments
-           WHERE rail_adapter = 'crypto-native' AND rail_ref IS NOT NULL AND status IN ('created', 'authorized')
+        await sql<Array<{ id: string; currency: string; address: string | null }>>`
+          SELECT p.id, p.currency, a.address FROM pay.payments p
+            LEFT JOIN pay.merchant_receive_addresses a ON a.payment_id = p.id
+           WHERE p.rail_adapter = 'crypto-native' AND p.rail_ref IS NOT NULL AND p.status IN ('created', 'authorized')
         `
-      ).map((row) => ({ paymentId: row.id, assetId: row.currency })),
+      ).map((row) => ({ paymentId: row.id, assetId: row.currency, ...(row.address ? { address: row.address } : {}) })),
       ...(await listIssuedDepositWatches(sql)),
     ],
     (msg, extra) => app.log.warn(extra ?? {}, msg),

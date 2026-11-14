@@ -576,6 +576,8 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       return sim.withdrawal(account(body), str(body, 'nonce'));
     case '/deposits':
       return sim.deposits(account(body));
+    case '/arrivals':
+      return sim.arrivals(account(body));
     case '/builder-fee-approval':
       return sim.builderFeeApproval(account(body), str(body, 'builder'));
     case '/builder-totals':

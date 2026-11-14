@@ -153,8 +153,28 @@
     },
     "TRADE_USER_VENUE_BUILDER_ADDRESS": {
       "service": "trade",
-      "value": "0x7e57000000000000000000000000000000000b1d",
-      "note": "LOCAL TEST ONLY, not an owner decision: a synthetic builder address on the TEST venue simulator (B1 user-venue door). It holds no key and receives only TEST builder fees in the simulator's memory."
+      "value": "0x116d8f7751e72306d499dd61ae826e46a726c632",
+      "note": "LOCAL TEST ONLY, not an owner decision: the builder address on the TEST venue simulator (B1 user-venue door), the one TRADE_BUILDER_KEY_SEED's TEST key signs for (J-campaigns-03: the sweep of our builder fees). It receives only TEST builder fees in the simulator's memory."
+    },
+    "TRADE_BUILDER_KEY_SEED": {
+      "service": "trade",
+      "value": "intafaced LOCAL TEST builder key seed - public, holds nothing real",
+      "note": "LOCAL TEST ONLY, a public phrase and never a secret: the seed the TEST stack's builder key derives from (src/builder-fee/wire.ts builderKeyFor), so the sweep can sign the TEST builder address's withdrawal on the TEST venue. The real seed is a secret the owner sets; blank, the sweep waits trade.builder_signer_unset."
+    },
+    "TRADE_OWN_FUNDS_FLOAT": {
+      "service": "trade",
+      "value": "2",
+      "note": "LOCAL TEST ONLY, not an owner decision (OWNER 288 Q4: the float is his): 2 TEST USDC left in our builder account at the TEST venue, which covers the TEST venue's 1 USDC withdrawal fee. Blank, the sweep waits trade.own_funds_float_unset."
+    },
+    "TRADE_OWN_FUNDS_SWEEP_INTERVAL_MS": {
+      "service": "trade",
+      "value": "3000",
+      "note": "LOCAL TEST ONLY, not an owner decision (OWNER 288 Q4: the schedule is his): a sweep run every 3 seconds on the test stack, so a journey sees a move inside its run. Blank, nothing is swept."
+    },
+    "TRADE_OWN_FUNDS_WALLET": {
+      "service": "trade",
+      "value": "test-chain:rewards=0x00000000000000000000000000000000ce510001",
+      "note": "LOCAL TEST ONLY, not an owner decision: INTAFACED's TEST rewards wallet on the stack's TEST chain (no key; svc-campaigns pays rewards from it by impersonating it on that anvil only, J-campaigns-03). Blank, the sweep waits trade.own_funds_wallet_unset."
     },
     "TRADE_USER_VENUE_BUILDER_FEE_BPS": {
       "service": "trade",

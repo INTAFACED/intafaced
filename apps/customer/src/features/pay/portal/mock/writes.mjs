@@ -9,6 +9,14 @@ import { fromU, toU } from './world.mjs';
 
 const uuid = (prefix, n) => hex(prefix, n);
 /** A TEST logo rule (100 KB), as the local stack publishes it; not an owner value. */
+/**
+ * The stand-in's TEST receiving wallet: the account key of a public TEST seed ('intafaced TEST portal stand-in wallet',
+ * keccak256, m/44'/60'/0') and its first address. It holds nothing anywhere. A key starting xprv is refused, as svc-pay does.
+ */
+const TEST_WALLET = {
+  xpub: 'xpub6DQtdq8yBjiNZxNyghkDYJLTtV4zCreP6KWyugmbRwxQ5444xkbsMmrkgj5UoR1x7T7VWcsdnF3wgiGUJ2XWQ8VDcpVZJp52RZsrMRNVACi',
+  firstAddress: '0xdA3b4a16a5CE0B576AC54e0Aa1D503df857Dc82a',
+};
 const TEST_LOGO_RULES = { logoMaxBytes: 100_000, logoTypes: ['image/png', 'image/jpeg', 'image/webp'] };
 /** The stand-in platform takes crypto and TEST bank transfers, as the local stack does; the rest name what they need. */
 const TEST_METHOD_CONNECTION = {
@@ -232,6 +240,32 @@ export function createWritesMock(ctx) {
           };
           return ok(route, { branding: { rules: TEST_LOGO_RULES, look: state.checkoutLook }, replayed: false });
         }
+        case 'merchantReceivingWallet.get':
+          return ok(
+            route,
+            state.receivingWallet ?? { set: false, family: null, extendedPublicKey: null, firstAddress: null, savedAt: null, version: 0 },
+          );
+        case 'merchantReceivingWallet.save': {
+          if (ctx.role !== 'owner' && ctx.role !== 'admin') return refuse(route, 403, 'pay.team_role_forbidden');
+          const key = String(input.extendedPublicKey ?? '').trim();
+          if (/^[xyzt]prv/i.test(key)) return refuse(route, 400, 'pay.receiving_wallet_private_key');
+          if (!key.startsWith('xpub')) return refuse(route, 400, 'pay.receiving_wallet_invalid');
+          const version = state.receivingWallet?.version ?? 0;
+          if (input.expectedVersion !== version) return refuse(route, 409, 'pay.receiving_wallet_stale');
+          state.receivingWallet = {
+            set: true,
+            family: 'evm',
+            extendedPublicKey: key,
+            // The stand-in derives nothing: its one TEST key's first address, or none for any other key.
+            firstAddress: key === TEST_WALLET.xpub ? TEST_WALLET.firstAddress : null,
+            savedAt: iso(now),
+            version: version + 1,
+          };
+          return ok(route, { wallet: state.receivingWallet, replayed: false });
+        }
+        case 'merchantReceivingWallet.outsideFunds':
+          // The stand-in's business has been paid nothing outside the book.
+          return ok(route, { rows: [] });
         case 'merchantCheckoutMethods.get':
           return ok(route, testCheckoutMethods(state));
         case 'merchantCheckoutMethods.save': {

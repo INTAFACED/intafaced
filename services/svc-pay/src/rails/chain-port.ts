@@ -68,6 +68,12 @@ export interface CryptoChainPort {
   /** Deterministic per (payment, asset) — the same payment always gets the same address. */
   acceptanceAddress(paymentId: string, assetId: string): Promise<string>;
   /**
+   * Watches an address that is not ours for one payment: a business's own receiving address (launch money model, OWNER
+   * 226), derived from the extended public key it gave. The chain reports transfers to it exactly as to an acceptance
+   * address, and nobody here can move what lands there. Returns the address as the chain will report it.
+   */
+  watchAddress(paymentId: string, assetId: string, address: string): Promise<string>;
+  /**
    * The inbound transfer to an acceptance address, if one has landed.
    *
    * Takes only the address, and the transfer says what asset arrived. The
@@ -174,6 +180,11 @@ export class MemoryChain implements CryptoChainPort {
   async acceptanceAddress(paymentId: string, assetId: string): Promise<string> {
     this.takeCallError();
     return `addr_${assetId.toLowerCase()}_${paymentId}`;
+  }
+
+  async watchAddress(_paymentId: string, _assetId: string, address: string): Promise<string> {
+    this.takeCallError();
+    return address;
   }
 
   async inboundTransfer(address: string): Promise<ConfirmedTransfer | null> {
@@ -381,6 +392,11 @@ export class UnconfiguredChain implements CryptoChainPort {
     // a chain we cannot watch is inviting them to send funds nothing is looking
     // for — the one outcome worse than declining the payment.
     throw new ChainNotConfiguredError('derive an acceptance address');
+  }
+
+  async watchAddress(): Promise<string> {
+    // The same refusal as an acceptance address: a payer must never be shown an address no chain is watching.
+    throw new ChainNotConfiguredError('watch a receiving address');
   }
 
   async inboundTransfers(): Promise<readonly ConfirmedTransfer[]> {

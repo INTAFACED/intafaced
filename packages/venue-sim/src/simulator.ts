@@ -15,6 +15,7 @@ import {
   type UserVenueAccount,
   type UserVenueAgent,
   type UserVenueBalance,
+  type UserVenueArrival,
   type UserVenueDeposit,
   type UserVenueDescriptor,
   type UserVenueFeed,
@@ -262,6 +263,8 @@ interface AccountState {
   readonly builderApprovals: Map<string, Amount>;
   readonly agents: Map<string, UserVenueAgent>;
   readonly deposits: Set<string>;
+  /** Every credit from outside the account (a deposit), oldest first: the venue's own record of it (J-portfolio-02 #6). */
+  readonly arrivals: UserVenueArrival[];
   readonly leverage: Map<string, { leverageBps: number; marginMode: VenueMarginMode }>;
   /** Main account only: its sub-accounts, by venue id. */
   readonly subAccounts: Map<string, UserVenueSubAccount>;
@@ -565,7 +568,14 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     state.deposits.add(depositRef);
     const balance = this.balance(state, asset);
     balance.free = add(balance.free, amount);
+    state.arrivals.push({ arrivalId: depositRef, kind: 'deposit', asset, amount, arrivedAt: this.clock() });
     return true;
+  }
+
+  /** The coins credited to this account from outside it, oldest first (J-portfolio-02 #6): each deposit it credited. */
+  async arrivals(account: UserVenueAccount): Promise<AsOf<readonly UserVenueArrival[]>> {
+    this.up();
+    return this.asOf([...this.account(account).arrivals]);
   }
 
   /**
@@ -725,7 +735,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
    * Settle one pending withdrawal: `done` (the chain confirmed it) or `failed` (the venue returns the amount and its fee
    * to free). False when it is not pending (already settled, or unknown): settling twice changes nothing.
    */
-  settleWithdrawal(account: UserVenueAccount, nonce: string, outcome: 'done' | 'failed'): boolean {
+  settleWithdrawal(account: UserVenueAccount, nonce: string, outcome: 'done' | 'failed', txHash?: string): boolean {
     const state = this.account(account);
     const withdrawal = state.withdrawals.get(nonce);
     if (!withdrawal || withdrawal.status !== 'pending') return false;
@@ -733,7 +743,12 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       const balance = this.balance(state, withdrawal.asset);
       balance.free = add(balance.free, add(withdrawal.amount, this.withdrawalFeeCharged.get(`${state.key}#${nonce}`) ?? ZERO));
     }
-    state.withdrawals.set(nonce, { ...withdrawal, status: outcome });
+    // The chain transaction that paid it, when a chain payer settled it (chain-deposits.ts); a TEST settle names none.
+    state.withdrawals.set(nonce, {
+      ...withdrawal,
+      status: outcome,
+      ...(outcome === 'done' && txHash ? { txHash: txHash.toLowerCase() } : {}),
+    });
     return true;
   }
 
@@ -1464,6 +1479,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         builderApprovals: new Map(),
         agents: new Map(),
         deposits: new Set(),
+        arrivals: [],
         leverage: new Map(),
         subAccounts: new Map(),
         transfers: new Map(),

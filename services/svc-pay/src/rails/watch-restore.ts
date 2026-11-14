@@ -3,6 +3,8 @@ import type { CryptoChainPort } from './chain-port.js';
 export interface OpenCryptoPayment {
   readonly paymentId: string;
   readonly assetId: string;
+  /** A business's own receiving address (launch money model): watched as given, never derived. */
+  readonly address?: string;
 }
 
 /**
@@ -11,14 +13,15 @@ export interface OpenCryptoPayment {
  * asset this chain no longer carries is logged and skipped, not allowed to block the rest.
  */
 export async function restoreOpenDepositWatches(
-  chain: Pick<CryptoChainPort, 'acceptanceAddress'>,
+  chain: Pick<CryptoChainPort, 'acceptanceAddress' | 'watchAddress'>,
   listOpen: () => Promise<readonly OpenCryptoPayment[]>,
   log: (message: string, extra?: Record<string, unknown>) => void,
 ): Promise<number> {
   let restored = 0;
   for (const open of await listOpen()) {
     try {
-      await chain.acceptanceAddress(open.paymentId, open.assetId);
+      if (open.address) await chain.watchAddress(open.paymentId, open.assetId, open.address);
+      else await chain.acceptanceAddress(open.paymentId, open.assetId);
       restored += 1;
     } catch (err) {
       log('could not restore a deposit watch', { paymentId: open.paymentId, assetId: open.assetId, error: String(err) });
