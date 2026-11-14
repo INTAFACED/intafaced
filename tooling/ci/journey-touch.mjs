@@ -27,9 +27,10 @@
  *     after a merge, a red main is reverted"). A product pull request that names no journey keeps the rules above;
  *   - stack (theo-01 part 2, OWNER 296: "A change to one service's own test-stack file runs the journeys that use that
  *     file"): a named pull request's change to a service's own stack file (STACK_FILE: `local-stack-services/<service>.mjs`,
- *     `test-owner-values/<service>.json`) also runs the journeys whose tests use it (stackImporters), when nothing else
- *     makes it full. Without a name, or when the journey files can't be read, it stays full, and stack-wide files
- *     (local-test-stack.mjs and the rest of SHARED_SETUP) always are;
+ *     `test-owner-values/<service>.json`), or to a root deploy file the stack never reads (ROOT_DEPLOY_FILE), also
+ *     runs the journeys whose tests use it (stackImporters), when nothing else makes it full. Without a name, or when
+ *     the journey files can't be read, it stays full, and stack-wide files (local-test-stack.mjs and the rest of
+ *     SHARED_SETUP) always are;
  *   - files: a journey test file (`apps/customer/tests/real-app/J-<id>[-part].pw.mjs`, JOURNEY_TEST) touches the
  *     journeys in that file only. (Another run file there, a look sweep, holds no journey steps, so no report lists it:
  *     it is full.) Journey files are independent: each makes its own accounts and keeps its own run
@@ -188,6 +189,15 @@ export function namedInputs({ ids, journeyFiles, map, importers = null }) {
  *  name, isn't one. */
 export const STACK_FILE = /^tooling\/(?:scripts\/local-stack-services\/[a-z0-9-]+\.mjs|profiles\/test-owner-values\/[a-z0-9-]+\.json)$/;
 
+/** A root deploy file the journeys stack never starts from: `pnpm local:stack` reads no compose file or .env.example
+ *  (deploys and the tester profile do), and a journey that reads one names it (J-home-ia-11 reads both compose files and
+ *  .env.example). The Dockerfile is not one: J-home-ia-11 builds the app image without naming it, so it stays full. A
+ *  journey build adds its service's env here beside its stack file, and one of them was in 34 of 41 journey-build runs
+ *  on 12-13 Nov 2026 that ran the full suite. So a named pull request treats it like a stack file: it runs the journeys
+ *  that name it (stackImporters); without a name it stays full, and main's full run judges the rest
+ *  (project-state#2344 row d55). */
+export const ROOT_DEPLOY_FILE = /^(?:docker-compose[^/]*\.ya?ml|\.env\.example)$/;
+
 /** Text with a path split over `'a', 'b'` arguments or a line of comment joined up, so each spelling reads as one path. */
 const joinedPaths = (t) =>
   String(t)
@@ -220,7 +230,7 @@ export function stackImporters(paths, texts) {
  *  stack file, which only a pull request that names a journey narrows (journeyTouch). */
 export function pathKind(path) {
   const k = kindOf(String(path));
-  return STACK_FILE.test(String(path)) ? { ...k, stack: true } : k;
+  return STACK_FILE.test(String(path)) || ROOT_DEPLOY_FILE.test(String(path)) ? { ...k, stack: true } : k;
 }
 
 function kindOf(p) {
@@ -490,7 +500,7 @@ async function main() {
     map = newerMap(built, loadMap());
     reach = { map, behind: behindFromApi(map), journeyFiles: checkoutJourneyFiles(), subscribes: subscribesIn() };
   }
-  const texts = paths.some((p) => STACK_FILE.test(p)) ? checkoutJourneyTexts() : null;
+  const texts = paths.some((p) => pathKind(p).stack) ? checkoutJourneyTexts() : null;
   const named = namedInputs({
     ids,
     journeyFiles: checkoutJourneyFiles(),
