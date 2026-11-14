@@ -83,6 +83,12 @@ function restartTrade(settings) {
   }
 }
 
+/**
+ * After a restart: the restart runs synchronously, so a keep-alive socket the TEST venue closed meanwhile is still in
+ * this process's pool until the event loop sees the close. Let it, so the next call opens a fresh one.
+ */
+const settleSockets = () => new Promise((resolve) => setTimeout(resolve, 250));
+
 let doorOn = false;
 const doorOffOnExit = () => {
   if (!doorOn) return;
@@ -271,8 +277,9 @@ test(`${J} #3 Creates an agent account with a cap of TEST 200 USDC and funds it 
     await venue('/test/switches', { declaredAgentPermissionReach: 'owner_accounts' });
     restartTrade({ LOCAL_STACK_USER_VENUE: 'on' });
     try {
-      expect((await venue('/venue')).venue.agentPermissionReach).toBe('owner_accounts');
+      await settleSockets();
       expect(body200(await session.get(`${BASE}/terms`)).agentPermission).toEqual({ venue: venueName, reach: 'owner_accounts' });
+      expect((await venue('/venue')).venue.agentPermissionReach).toBe('owner_accounts');
       await openCreate();
       await expect(reach).toHaveAttribute('data-reach', 'owner_accounts');
       await expect(reach).toHaveText(OTHERS);
@@ -281,6 +288,7 @@ test(`${J} #3 Creates an agent account with a cap of TEST 200 USDC and funds it 
     } finally {
       await venue('/test/switches', { declaredAgentPermissionReach: 'own_account_only' });
       restartTrade({ LOCAL_STACK_USER_VENUE: 'on' });
+      await settleSockets();
     }
 
     // The TEST venue as it is: it keeps an agent permission approved on a sub-account to that sub-account
