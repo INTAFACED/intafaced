@@ -83,6 +83,7 @@ export {
   ownFundsMoveKey,
   ownFundsPlaceAccount,
   type OwnFundsMoveInput,
+  type OwnFundsMoveCost,
   type OwnFundsPlace,
 } from './own-funds.js';
 export {

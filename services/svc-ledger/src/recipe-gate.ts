@@ -999,6 +999,32 @@ function extraShapePosts(): Array<{ name: RecipeName; post: PostRequest }> {
         reference: '0xtest',
       }),
     },
+    // A move with its costs from the outside record: one cost (either kind), or both.
+    {
+      name: 'ownFundsMove',
+      post: recipes.ownFundsMove({
+        from: { kind: 'venue-builder-account', venueId: 'test-venue-sim' },
+        to: { kind: 'treasury-wallet', walletId: 'test' },
+        assetId: 'USDC',
+        amount: AMT,
+        reference: '0xtest-one-cost',
+        costs: [{ kind: 'venue-withdrawal-fee', paidTo: 'test-venue-sim', amount: AMT }],
+      }),
+    },
+    {
+      name: 'ownFundsMove',
+      post: recipes.ownFundsMove({
+        from: { kind: 'venue-builder-account', venueId: 'test-venue-sim' },
+        to: { kind: 'treasury-wallet', walletId: 'test' },
+        assetId: 'USDC',
+        amount: AMT,
+        reference: '0xtest-two-costs',
+        costs: [
+          { kind: 'venue-withdrawal-fee', paidTo: 'test-venue-sim', amount: AMT },
+          { kind: 'network-fee', paidTo: 'test-chain', amount: AMT },
+        ],
+      }),
+    },
     {
       name: 'campaignBudgetFund',
       post: recipes.campaignBudgetFund({ campaignId: 'test-campaign', decisionId: 'approval-test', assetId: 'USDC', amount: AMT }),
