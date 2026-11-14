@@ -1354,6 +1354,17 @@ export const addMoneyRequests = bank.table('add_money_requests', {
   ledgerTxId: text('ledger_tx_id'),
   // Migration 20261111102441: the partner's pay-in reference when the partner credited it (J-wallet-01 #3).
   partnerPayInRef: text('partner_pay_in_ref'),
+  // Migration 20261112122912: when the partner said a credited payment was sent back, and the partner's reference for the
+  // return (J-bank-02 #7).
+  returnedAt: tstz('returned_at'),
+  returnRef: text('return_ref'),
+  // Migration 20261113031713: buy to wallet (J-dex-protocol-05 #4). The person's own wallet the partner delivers the
+  // purchase to, when it is not added to a balance here, and when and with which on-chain transfer the partner delivered.
+  walletAddress: text('wallet_address'),
+  deliveredAt: tstz('delivered_at'),
+  deliveryTx: text('delivery_tx'),
+  // The person's EIP-191 signature over the request id and the wallet, proving they control it.
+  walletSignature: text('wallet_signature'),
 });
 
 /**

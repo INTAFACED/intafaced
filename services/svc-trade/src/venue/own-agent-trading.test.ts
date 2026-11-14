@@ -141,6 +141,8 @@ describe("a person's own agent trading their venue sub-account under an allowanc
       store: actions,
       stepUp: noStepUp,
       builder: { address: '0x00000000000000000000000000000000000000b1', feeBps: a('1') },
+      // Blank: an agent's market order carries the owner's agent bound as its worst price, never the spot protection.
+      slippageCapBps: null,
       listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
       now: () => new Date(),
     });
@@ -402,8 +404,9 @@ describe("a person's own agent trading their venue sub-account under an allowanc
   it('#7: revoking ends admission at once, then asks the wallet to sign the venue revoke; an order already sent is read back', async () => {
     const v = await active();
     const first = await trading.place(person, AGENT, buy(uuid('0e')));
+    expect((await trading.list(person, AGENT))[0]).toMatchObject({ status: 'active', agentKeyHeld: true });
     const revoked = await trading.revoke(person, AGENT, v.allowanceId);
-    expect(revoked).toMatchObject({ status: 'revoked', permissionOnVenue: true });
+    expect(revoked).toMatchObject({ status: 'revoked', permissionOnVenue: true, agentKeyHeld: false });
     expect(revoked.next).toMatchObject({ step: 'revoke_agent', actionKey: allowanceRevokeKey(v.allowanceId) });
     // The next admission refuses before anything is prepared, even while the venue still lists the permission.
     const sentBefore = (await agentKeys()).length;
@@ -411,7 +414,7 @@ describe("a person's own agent trading their venue sub-account under an allowanc
     expect((await refusedAs(trading.preview(person, AGENT, buy(uuid('0e'))))).code).toBe('agents.allowance_revoked');
     expect((await agentKeys()).length).toBe(sentBefore);
     const done = await trading.submit(person, AGENT, v.allowanceId, revoked.next!.actionKey, await sign(revoked.next!.prepared));
-    expect(done).toMatchObject({ status: 'revoked', permissionOnVenue: false, next: null });
+    expect(done).toMatchObject({ status: 'revoked', permissionOnVenue: false, agentKeyHeld: false, next: null });
     expect((await sim.agents(subA)).value.map((x) => x.address.toLowerCase())).not.toContain(v.agentAddress);
     const orders = await trading.orders(person, AGENT);
     expect(orders.map((o) => [o.orderId, o.state])).toEqual([[first.orderId, 'accepted']]);

@@ -5,6 +5,8 @@
  *   GET  /api/v1/venue/markets                         the markets we list, each with `listing` (ours) beside the venue's own status
  *   GET  /api/v1/venue/gated-list                      each perpetual open or blocked for this account, every reason (J-derivatives-01 #2)
  *   GET  /api/v1/venue/best-prices?symbol=BTC-USDC         the venue's best bid and ask (a market order's worst price)
+ *   GET  /api/v1/venue/funding-history?base=BTC&since=<ISO>  public: the funding the venue published on our listed
+ *                                                      perpetual on that asset (a chart's funding study, J-charts-desk-04 #6)
  *   GET  /api/v1/venue/balances?owner=0x…              (and orders/open, positions, agents, builder-fee-approval)
  *   GET  /api/v1/venue/orders/by-client-id?owner=&clientOrderId=
  *   GET  /api/v1/venue/fills?owner=&since=<ISO>
@@ -38,7 +40,8 @@
  * the venue answers a read by key.
  *
  * Reads need trade:read, writes trade:write, and every route but `status` the trade jurisdiction (as the grid's
- * routes do). Every Amount travels as a decimal string (`encodeVenueWire`). A venue refusal answers 422 with
+ * routes do). An unverified person's desk reads the `denied.kyc_required` refusal and shows its form with Verify
+ * (J-cex-spot-01 #2), never the venue's figures. Every Amount travels as a decimal string (`encodeVenueWire`). A venue refusal answers 422 with
  * `intafacedCode: trade.venue.<code>` and the venue's `refusal` (503 for `venue_down`); a step-up refusal 403.
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
@@ -57,7 +60,7 @@ import {
   type VenueSigner,
 } from '@intafaced/venue-contracts';
 import { toCcxtError } from '../ccxt-errors.js';
-import { privateRead, privateWrite } from '../route-inventory.js';
+import { privateRead, privateWrite, publicRead } from '../route-inventory.js';
 import { UserVenueDoor, UserVenueDoorError, orderKeyOfIdempotencyKey } from './user-venue-door.js';
 import type { UserVenueRouter } from './venue-router.js';
 import { SessionKeys } from './session-key.js';
@@ -70,10 +73,13 @@ export interface UserVenueRestDeps {
   tradeAccessBlocker?: (req: FastifyRequest, principal: Principal) => { code: string; message: string } | null;
   /**
    * The owner's market price protection in basis points (TRADE_MARKET_SLIPPAGE_CAP_BPS), or null when blank, as
-   * `best-prices` answers it beside the venue's book, so a desk can bound a venue market order's worst price by it. Never
-   * a default: blank answers `{ known: false }`.
+   * `best-prices` answers it. The desk bounds a venue spot market order's worst price by it, and the door enforces the same
+   * bound on preview and prepare (UserVenueDoorDeps.slippageCapBps); blank, a spot market order refuses
+   * (`trade.slippage_cap_unset`). Never a default.
    */
   slippageCapBps?: number | null;
+  /** The owner's spread limit for a spot market order (TRADE_MARKET_SPREAD_LIMIT_BPS), or null when blank, as `best-prices` answers it. */
+  spreadLimitBps?: number | null;
   /** Convert's sell quotes priced by the venue (J-cex-spot-17 #8); absent, the route answers the door's own refusal. */
   sellQuotes?: VenueSellQuotes | null;
   /**
@@ -270,7 +276,23 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
         throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: 'this venue publishes no book' });
       const best = await venue.bestPrices(req.query.symbol);
       const cap = deps.slippageCapBps ?? null;
-      return { ...best, slippageCapBps: cap === null ? { known: false } : { known: true, value: String(cap) } };
+      const spread = deps.spreadLimitBps ?? null;
+      return {
+        ...best,
+        slippageCapBps: cap === null ? { known: false } : { known: true, value: String(cap) },
+        spreadLimitBps: spread === null ? { known: false } : { known: true, value: String(spread) },
+      };
+    });
+  });
+
+  // J-charts-desk-04 #6: public market data, as the candle and trade routes are; no account and no sign-in.
+  app.get<{ Querystring: Query & { base?: string; since?: string } }>('/api/v1/venue/funding-history', publicRead, async (req, reply) => {
+    return answer(reply, async (d) => {
+      const base = req.query.base ?? '';
+      if (!/^[A-Za-z0-9]{1,20}$/.test(base)) throw new VenueWireError('base is the asset, as BTC');
+      const since = new Date(req.query.since ?? '');
+      if (Number.isNaN(since.getTime())) throw new VenueWireError('since is required (an ISO time)');
+      return d.fundingHistory(base, since);
     });
   });
 

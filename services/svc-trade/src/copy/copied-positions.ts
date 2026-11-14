@@ -10,7 +10,7 @@
  *
  * Read only from this service's own spot tables. Never a book price, never a balance.
  */
-import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
+import { div, formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
 import { copyFlattenClientOrderId } from './follower-flatten-port.js';
 
@@ -29,6 +29,10 @@ export type CopiedBuy = {
   /** The buy order can still fill. */
   readonly live: boolean;
   readonly placedAt: Date;
+  /** Gross base filled and quote paid across the buy's fills, and how many fills: the entry. Omitted → none. */
+  readonly entryQty?: Amount;
+  readonly entryCost?: Amount;
+  readonly fills?: number;
 };
 
 /** One sell's effect: what it sold, and what it still holds on the book (or may yet sell). */
@@ -47,6 +51,12 @@ export type CopiedPosition = {
   readonly closing: Amount;
   readonly status: CopiedPositionStatus;
   readonly placedAt: Date;
+  /** The buy's fills: base filled, quote paid and how many. Absent when the reader does not know them. */
+  readonly entryQty?: Amount;
+  readonly entryCost?: Amount;
+  readonly fills?: number;
+  /** Set on a follow that copies on the venue (venue-copy.ts): every figure here is the venue's own, read at `asOf`. */
+  readonly reportedBy?: { readonly venue: string; readonly test: boolean; readonly asOf: Date };
 };
 
 export type CopiedPositionInputs = {
@@ -106,6 +116,9 @@ export function allocateCopiedPositions(input: CopiedPositionInputs): CopiedPosi
       closing: minAmount(closing, held),
       status,
       placedAt: buy.placedAt,
+      ...(buy.entryQty === undefined || buy.entryCost === undefined || buy.fills === undefined
+        ? {}
+        : { entryQty: buy.entryQty, entryCost: buy.entryCost, fills: buy.fills }),
     };
   });
   return out.sort((a, b) => b.placedAt.getTime() - a.placedAt.getTime() || cmp(b.orderId, a.orderId));
@@ -132,6 +145,9 @@ type BuyRow = {
   status: string;
   created_at: Date;
   received: string;
+  entry_qty: string;
+  entry_cost: string;
+  fills: number;
 };
 
 type SellRow = { key: string; qty: string; filled_qty: string; status: string | null };
@@ -142,7 +158,9 @@ export function sqlCopiedPositions(sql: Sql): ReadCopiedPositions {
     const buys = await sql<BuyRow[]>`
       SELECT o.id::text AS order_id, pm.fill_id AS leader_fill_id, m.symbol, m.id::text AS market_id, m.base_asset,
              m.lot_size::text AS lot_size, o.status::text AS status, pm.created_at,
-             coalesce(sum(CASE WHEN f.fee_asset = m.base_asset THEN f.qty - f.fee_amount ELSE f.qty END), 0)::text AS received
+             coalesce(sum(CASE WHEN f.fee_asset = m.base_asset THEN f.qty - f.fee_amount ELSE f.qty END), 0)::text AS received,
+             coalesce(sum(f.qty), 0)::text AS entry_qty, coalesce(sum(f.quote_amount), 0)::text AS entry_cost,
+             count(f.id)::int AS fills
         FROM trade.copy_placed_mirrors pm
         INNER JOIN trade.orders o ON o.id::text = pm.order_id AND o.user_id = ${followerId}::uuid AND o.side = 'buy'
         INNER JOIN trade.markets m ON m.id = o.market_id
@@ -180,6 +198,9 @@ export function sqlCopiedPositions(sql: Sql): ReadCopiedPositions {
         received: parseAmount(row.received),
         live: LIVE_ORDER.includes(row.status),
         placedAt: row.created_at instanceof Date ? row.created_at : new Date(row.created_at),
+        entryQty: parseAmount(row.entry_qty),
+        entryCost: parseAmount(row.entry_cost),
+        fills: Number(row.fills),
       })),
       targeted: groupSells(targetedRows),
       untargeted: groupSells(untargetedRows),
@@ -233,5 +254,39 @@ export function copiedPositionWire(position: CopiedPosition) {
     closing: formatAmount(position.closing),
     status: position.status,
     placedAt: position.placedAt.toISOString(),
+    ...(position.reportedBy
+      ? { reportedBy: { venue: position.reportedBy.venue, test: position.reportedBy.test, asOf: position.reportedBy.asOf.toISOString() } }
+      : {}),
   };
+}
+
+/**
+ * One market's copied position, by average entry (J-copy-bots-otc-06 #2; CB-copy-pro-share-01): every copied buy's fills
+ * in that market, the average entry price (quote paid over base filled, so sells never move it) and what is open.
+ * Funding is null: a spot position has no funding data, and the screen says "Not set". No fills, or any position in the
+ * market whose fills are not known → average entry and fills null, never a guess from part of them.
+ */
+export function copiedMarketPositions(positions: readonly CopiedPosition[]) {
+  const by = new Map<string, { fills: number; qty: Amount; cost: Amount; open: Amount; known: boolean }>();
+  for (const p of positions) {
+    const cur = by.get(p.symbol) ?? { fills: 0, qty: 0n, cost: 0n, open: 0n, known: true };
+    if (p.entryQty === undefined || p.entryCost === undefined || p.fills === undefined) cur.known = false;
+    else {
+      cur.fills += p.fills;
+      cur.qty += p.entryQty;
+      cur.cost += p.entryCost;
+    }
+    cur.open += p.open;
+    by.set(p.symbol, cur);
+  }
+  return [...by.entries()]
+    .sort(([a], [b]) => cmp(a, b))
+    .map(([market, m]) => ({
+      market,
+      fills: m.known ? m.fills : null,
+      filled: m.known ? formatAmount(m.qty) : null,
+      open: formatAmount(m.open),
+      averageEntry: m.known && m.qty > 0n ? formatAmount(div(m.cost, m.qty, 'half-up')) : null,
+      funding: null,
+    }));
 }

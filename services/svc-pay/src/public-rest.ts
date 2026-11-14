@@ -1339,7 +1339,7 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
         merchantId: { type: 'string', format: 'uuid' },
         eventId: { type: 'string', description: 'Merchant dedupe key (ADR §2.4).' },
         eventType: { type: 'string' },
-        status: { type: 'string', enum: ['pending', 'delivered', 'failed', 'dead'] },
+        status: { type: 'string', enum: ['pending', 'delivered', 'failed', 'dead', 'unknown'] },
         attempts: { type: 'integer' },
         nextAttemptAt: { type: 'string', format: 'date-time' },
         lastStatusCode: { type: 'integer', nullable: true },
@@ -1521,7 +1521,7 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
             required: ['merchantId'],
             properties: {
               merchantId: { type: 'string', format: 'uuid' },
-              status: { type: 'string', enum: ['pending', 'delivered', 'failed', 'dead'] },
+              status: { type: 'string', enum: ['pending', 'delivered', 'failed', 'dead', 'unknown'] },
               limit: { type: 'integer', minimum: 1, maximum: MAX_LIMIT },
             },
           },

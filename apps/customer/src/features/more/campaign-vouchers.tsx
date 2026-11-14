@@ -25,6 +25,7 @@ const CODES = [
   'campaigns.voucher_invalid',
   'campaigns.voucher_window_unset',
   'campaigns.voucher_expired',
+  'campaigns.voucher_not_cash',
   'campaigns.voucher_amount_invalid',
   'campaigns.voucher_exceeds_remaining',
   'campaigns.voucher_sequence_invalid',
@@ -128,13 +129,21 @@ export function MyVouchers() {
       </form>
       {checked ? (
         <p role="status" data-testid="voucher-validation">
-          {t('validation', {
-            amount: checked.face.amount,
-            asset: checked.face.asset,
-            campaign: checked.campaignName,
-            claimBy: when(checked.claimBy),
-            useBy: when(checked.useBy),
-          })}
+          {checked.feeSaver
+            ? t('validationFeeSaver', {
+                pct: percentOfFee(checked.feeSaver.discountBps),
+                orders: checked.feeSaver.orders,
+                campaign: checked.campaignName,
+                claimBy: when(checked.claimBy),
+                useBy: when(checked.useBy),
+              })
+            : t('validation', {
+                amount: checked.face.amount,
+                asset: checked.face.asset,
+                campaign: checked.campaignName,
+                claimBy: when(checked.claimBy),
+                useBy: when(checked.useBy),
+              })}
         </p>
       ) : null}
       {refusal ? <Refusal result={refusal} /> : null}
@@ -173,6 +182,9 @@ export function MyVouchers() {
   );
 }
 
+/** A discount in basis points of the fee as a percent of that fee: 5000 is "50". */
+const percentOfFee = (bps: number): string => String(bps / 100);
+
 function VoucherRow({
   voucher: v,
   when,
@@ -188,7 +200,8 @@ function VoucherRow({
   const { t } = campaignVouchersCopy.useCopy();
   const [amount, setAmount] = useState('');
   const [busy, setBusy] = useState(false);
-  const open = (v.state === 'claimed' || v.state === 'partially_used') && v.remaining !== '0';
+  // A fee-saver is never redeemed: it is taken on an order when our builder fee is priced.
+  const open = v.kind === 'cash' && (v.state === 'claimed' || v.state === 'partially_used') && v.remaining !== '0';
   const redeem = async () => {
     setBusy(true);
     const result = await api.mutate(
@@ -209,7 +222,33 @@ function VoucherRow({
       <td>{v.campaignName}</td>
       <td data-testid="voucher-state">{t(`state_${v.state}`)}</td>
       <td>
-        <span data-testid="voucher-remaining">{t('left', { remaining: v.remaining, face: v.face.amount, asset: v.face.asset })}</span>
+        {v.feeSaver ? (
+          <>
+            <span data-testid="voucher-kind" data-kind={v.kind}>
+              {t('kind_fee_saver')}
+            </span>{' '}
+            <span data-testid="voucher-does">
+              {t('feeSaverDoes', { pct: percentOfFee(v.feeSaver.discountBps), orders: v.feeSaver.orders })}
+            </span>{' '}
+            <span data-testid="voucher-remaining">{t('ordersLeft', { remaining: v.remaining, orders: v.feeSaver.orders })}</span>
+            {v.feeSaver.uses.length > 0 ? (
+              <ul aria-label={t('feeSaverUses')} data-testid="voucher-uses">
+                {v.feeSaver.uses.map((u) => (
+                  <li key={u.sequence} data-order-key={u.orderKey}>
+                    {t('feeSaverUse', { sequence: u.sequence, when: when(u.at) })}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </>
+        ) : (
+          <>
+            <span data-testid="voucher-kind" data-kind={v.kind}>
+              {t('kind_cash')}
+            </span>{' '}
+            <span data-testid="voucher-remaining">{t('left', { remaining: v.remaining, face: v.face.amount, asset: v.face.asset })}</span>
+          </>
+        )}
         {v.redemptions.length > 0 ? (
           <ul aria-label={t('redemptions')} data-testid="voucher-redemptions">
             {v.redemptions.map((r) => (

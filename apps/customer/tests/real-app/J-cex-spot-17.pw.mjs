@@ -10,6 +10,7 @@ import { EDGE, api, bestPrices, fromUnits, fund, otherTrader, times, toUnits } f
 import { fundedTrader, openOrders } from './desk.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { withPartner } from './partner.mjs';
+import { venueRecord } from './venue.mjs';
 
 // J-cex-spot-17, in the running app (docs/roadmap/journeys.json): finance publishes and versions fees, VIP tiers and
 // convert limits in the founder console's Fees and convert room (/trade-ops/fees). One test per step, titled
@@ -290,6 +291,28 @@ async function venueCap(client, symbol) {
   return market.builderFeeCapBps.value;
 }
 
+/** The builder-fee cap on `symbol` in the TEST venue's own market list, read from the venue on loopback, not through us. */
+async function venueOwnCap(owner, symbol) {
+  const market = (await venueRecord(owner, '/markets')).value.find((m) => m.symbol === symbol);
+  expect(market?.builderFeeCapBps, `${symbol}'s cap in the venue's own record`).toMatchObject({ known: true });
+  return market.builderFeeCapBps.value;
+}
+
+/** The fills of the customer's order (by its venue client id) in the TEST venue's own record, read on loopback. */
+async function venueOwnFillsOf(owner, venueClientOrderId, since) {
+  let fills = [];
+  await expect
+    .poll(
+      async () => {
+        fills = (await venueRecord(owner, '/fills', { since })).value.filter((f) => f.venueClientOrderId === venueClientOrderId);
+        return fills.length;
+      },
+      { timeout: 15_000 },
+    )
+    .toBeGreaterThan(0);
+  return fills;
+}
+
 /** SCHEDULE with TEST builder fees on `venueId`: BTC-USDC in a group at `spotBps`, every other market at 0.5 bps. */
 const withBuilderFees = (venueId, spotBps) => ({
   ...SCHEDULE,
@@ -398,7 +421,7 @@ test(`${J} #1 opens builder-fee versions by venue and market group: current and 
   // The venue the door reaches, and the cap it publishes on BTC-USDC, as a signed-in customer reads them through the door.
   const who = await fundedTrader(page, 'js17b', '1');
   const client = await api(who);
-  const { venueId } = await venueDoor(client);
+  const { venueId, builder } = await venueDoor(client);
   const cap = await venueCap(client, VENUE_SPOT);
   // Two TEST builder-fee versions on that venue, one after the other: BTC-USDC's group at 1.5 bps, then at 2 bps.
   const previous = await publish(withBuilderFees(venueId, '1.5'), 'TEST builder fee 1.5 bps, the previous version', {
@@ -414,6 +437,9 @@ test(`${J} #1 opens builder-fee versions by venue and market group: current and 
     await expect(caps).toHaveAttribute('data-venue', venueId);
     await expect(caps).toContainText('TEST');
     expect(cap).toBe('100');
+    // The same cap in the venue's own record, read from the TEST venue itself: the room shows the venue's figure.
+    const preview0 = testWallet(`preview ${who.handle}`).address;
+    expect(sameAmount(await venueOwnCap(preview0, VENUE_SPOT), cap), "the door's cap is the venue's own").toBe(true);
     await expect(caps.locator(`tr[data-builder-cap="${VENUE_SPOT}"] td`)).toHaveText(['spot', '1.00% (100 bps)']);
 
     // BTC-USDC's group on that venue: the current version and the one before it, each with its effective time and exact rate.
@@ -444,6 +470,14 @@ test(`${J} #1 opens builder-fee versions by venue and market group: current and 
     expect(preview.builderFee.known).toBe(true);
     expect(preview.builderFee.value.asset).toBe('USDC');
     expect(sameAmount(preview.builderFee.value.amount, builderFeeOn('90000', '0.01', '2'))).toBe(true);
+    // The venue's own preview of that order with the 2 bps the room calls current attached prices the same fee.
+    const own = (
+      await venueRecord(preview0, '/preview', {
+        intent: { ...venueSell('preview', '90000', '0.01', 'preview'), builderFee: { builder, feeBps: '2' } },
+      })
+    ).value;
+    expect(own.builderFee).toMatchObject({ known: true, value: { asset: 'USDC' } });
+    expect(sameAmount(own.builderFee.value.amount, preview.builderFee.value.amount), 'the door prices what the venue prices').toBe(true);
   } finally {
     await a.close();
   }
@@ -536,6 +570,10 @@ test(`${J} #3 proposes a complete builder-fee version; a second operator approve
     expect(venueOrderId).toBeTruthy();
     const open = await client.get(`/api/v1/venue/orders/open?owner=${wallet.address}`);
     expect(open.body.value.map((o) => o.venueOrderId)).toContain(venueOrderId);
+    // The venue's own record rests it too, read from the TEST venue itself.
+    expect((await venueRecord(wallet.address, '/open-orders')).value.map((o) => o.venueOrderId)).toContain(venueOrderId);
+    // The cap the room checks against is the one in the venue's own market list.
+    expect(sameAmount(await venueOwnCap(wallet.address, VENUE_SPOT), cap), "the door's cap is the venue's own").toBe(true);
 
     // Never above the venue's cap: a version at 1 bp over the cap the venue publishes is refused on the page, by its code,
     // and nothing is sent.
@@ -603,6 +641,10 @@ test(`${J} #3 proposes a complete builder-fee version; a second operator approve
     const [kept] = await venueFillsOf(client, wallet.address, first.prepared.venueClientOrderId, since);
     expect(kept.role).toBe('maker');
     expect(sameAmount(kept.builderFee, builderFeeOn(PRICE, AMOUNT, '2'))).toBe(true);
+    // The venue's own record of that fill, read from the TEST venue itself: charged the 2 bps it was signed with.
+    const [keptOwn] = await venueOwnFillsOf(wallet.address, first.prepared.venueClientOrderId, since);
+    expect(keptOwn).toMatchObject({ fillId: kept.fillId, role: 'maker', feeAsset: kept.feeAsset });
+    expect(sameAmount(keptOwn.builderFee, builderFeeOn(PRICE, AMOUNT, '2')), `venue's own ${keptOwn.builderFee}`).toBe(true);
 
     // An order signed after the effective time carries the new builder fee, and so does its fill.
     const second = await signAndSend(client, wallet, venueSell(wallet.address, PRICE, AMOUNT, `${tag}-2`));
@@ -610,6 +652,9 @@ test(`${J} #3 proposes a complete builder-fee version; a second operator approve
     await outsideBuy(venueId, PRICE, AMOUNT, `${tag}-2`);
     const [fresh] = await venueFillsOf(client, wallet.address, second.prepared.venueClientOrderId, since);
     expect(sameAmount(fresh.builderFee, builderFeeOn(PRICE, AMOUNT, '3'))).toBe(true);
+    const [freshOwn] = await venueOwnFillsOf(wallet.address, second.prepared.venueClientOrderId, since);
+    expect(freshOwn.fillId).toBe(fresh.fillId);
+    expect(sameAmount(freshOwn.builderFee, builderFeeOn(PRICE, AMOUNT, '3')), `venue's own ${freshOwn.builderFee}`).toBe(true);
   } finally {
     await a.close();
     await b.close();
@@ -890,10 +935,9 @@ test(`${J} #8 reads sell quotes and partner buy fees: a finance read of venue se
     expect(venueQuoted.status, JSON.stringify(venueQuoted.body).slice(0, 400)).toBe(200);
     const vq = venueQuoted.body;
     // The TEST venue's own answer for the same sell on the same account, read from the venue directly, not through us.
-    const tick = (await testVenue('/markets', {})).value.find((m) => m.symbol === VENUE_SPOT).tickSize;
+    const tick = (await venueRecord(wallet.address, '/markets')).value.find((m) => m.symbol === VENUE_SPOT).tickSize;
     const venueOwn = (
-      await testVenue('/preview', {
-        account: { venueId, owner: wallet.address, subAccount: null },
+      await venueRecord(wallet.address, '/preview', {
         intent: {
           kind: 'place_order',
           symbol: VENUE_SPOT,
@@ -954,7 +998,7 @@ test(`${J} #8 reads sell quotes and partner buy fees: a finance read of venue se
     expect(reused.status, JSON.stringify(reused.body).slice(0, 300)).toBe(409);
     expect(JSON.stringify(reused.body)).toContain('trade.venue_sell_quote_key_reused');
     // A quote sends nothing: no order of the customer's rests on the venue.
-    expect((await testVenue('/open-orders', { account: { venueId, owner: wallet.address, subAccount: null } })).value).toEqual([]);
+    expect((await venueRecord(wallet.address, '/open-orders')).value).toEqual([]);
 
     const a = await room(browser, 'a');
     try {

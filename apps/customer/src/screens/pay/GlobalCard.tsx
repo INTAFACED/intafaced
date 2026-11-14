@@ -10,6 +10,7 @@ import {
   amountProblem,
   askedField,
   canRecall,
+  corridorFor,
   destinationsFrom,
   hasLeft,
   lockDeadline,
@@ -32,7 +33,7 @@ const loading = { state: 'loading' } as const;
 const settle = <T,>(result: ApiResult<T>): Load<T> =>
   result.ok ? { state: 'ready', data: result.data } : { state: 'failed', code: result.code, message: result.message };
 
-type Say = { title: string; body: string };
+type Say = { title: string; body: string; blocker?: string };
 
 /** Refusals that mean the shown lock can no longer pay this send. */
 const QUOTE_REFUSALS = new Set([
@@ -234,6 +235,10 @@ function ReceiptPanel({ sendId, global }: { sendId: string; global: ReturnType<t
   );
 }
 
+/** The words for who bears a SWIFT send's bank charges, as the partner gave it; none given says so. */
+const swiftWord = (charges: Corridor['swiftCharges']) =>
+  charges === 'SHA' ? 'swiftSHA' : charges === 'OUR' ? 'swiftOUR' : charges === 'BEN' ? 'swiftBEN' : 'swiftUnset';
+
 /** The word for each state a send can be in: the compiler checks every state has one. */
 const STATUS_WORD = {
   submitted: 'statusSubmitted',
@@ -332,6 +337,7 @@ export function GlobalCard() {
     (signal?: AbortSignal) =>
       global.sends(signal).then((result) => {
         if (!signal?.aborted) setHistory(settle(result.ok ? { ok: true, data: result.data.items } : result));
+        return result.ok ? result.data.items : null;
       }),
     [global],
   );
@@ -363,6 +369,9 @@ export function GlobalCard() {
 
   const destinations = useMemo(() => (corridors.state === 'ready' ? destinationsFrom(corridors.data) : []), [corridors]);
   const [destKey, setDestKey] = useState('');
+  // A country typed by hand, checked against the catalogue, so a destination it lacks says so instead of being absent.
+  const [typedCountry, setTypedCountry] = useState('');
+  const [checked, setChecked] = useState<ReturnType<typeof corridorFor> | null>(null);
   const destination = destinations.find((row) => row.key === destKey) ?? null;
   const [recipientId, setRecipientId] = useState('');
   const saved = recipients.state === 'ready' ? recipients.data : [];
@@ -575,10 +584,21 @@ export function GlobalCard() {
       setProblem(g('uncertain'));
       return;
     }
-    setFailure(sayFor(result.code, result.message));
+    const said = sayFor(result.code, result.message);
+    setFailure(said);
     if (!field) setReview(null);
-    // A refusal may have kept the send's intent row, failed: the history is read again to show it.
-    void loadHistory();
+    // A refusal may have kept the send's intent row, failed: the history is read again to show it, and the outside piece
+    // the row names as missing (its blocker) is added to the notice.
+    void loadHistory().then((items) => {
+      const kept = items?.find(
+        (row) =>
+          row.status === 'failed' &&
+          row.failureCode === result.code &&
+          row.recipientId === draft.recipientId &&
+          row.amount === draft.amount,
+      );
+      if (kept?.failureBlocker && alive.current) setFailure({ ...said, blocker: kept.failureBlocker });
+    });
     // A lock the service will not pay on (ran out, used, or not for this send) is dropped: only a new quote goes on.
     if (result.code && QUOTE_REFUSALS.has(result.code)) setQuote(null);
   }
@@ -660,6 +680,39 @@ export function GlobalCard() {
                 ]
                   .filter(Boolean)
                   .join(' ')}
+              </p>
+            ) : null}
+          </div>
+          <div className="pay-field">
+            <label className="pay-field__label" htmlFor="global-country-check">
+              {g('checkLabel')}
+            </label>
+            <input
+              id="global-country-check"
+              className="pay-text"
+              type="text"
+              autoComplete="off"
+              maxLength={2}
+              value={typedCountry}
+              onChange={(event) => {
+                setTypedCountry(event.target.value);
+                setChecked(null);
+              }}
+            />
+            <Button
+              type="button"
+              variant="secondary"
+              data-testid="global-country-check"
+              disabled={!typedCountry.trim() || corridors.state !== 'ready'}
+              onClick={() => corridors.state === 'ready' && setChecked(corridorFor(corridors.data, typedCountry))}
+            >
+              {g('checkButton')}
+            </Button>
+            {checked ? (
+              <p className="pay-hint" role="note" data-testid={`global-country-${checked.state}`}>
+                {checked.state === 'bad'
+                  ? g('checkBad')
+                  : g(checked.state === 'supported' ? 'checkSupported' : 'checkUnsupported', { country: checked.country })}
               </p>
             ) : null}
           </div>
@@ -799,6 +852,12 @@ export function GlobalCard() {
               <dt>{t('quoteArrives')}</dt>
               <dd>{liveQuote ? liveQuote.eta : '—'}</dd>
             </div>
+            {destination?.method === 'swift' ? (
+              <div data-testid="global-swift-charges">
+                <dt>{g('swiftCharges')}</dt>
+                <dd>{g(swiftWord(destination.corridor.swiftCharges))}</dd>
+              </div>
+            ) : null}
           </dl>
           {liveQuote ? (
             <>
@@ -856,6 +915,7 @@ export function GlobalCard() {
         {failure ? (
           <p className="pay-problem" role="alert" data-testid="global-failure">
             {failure.title} {failure.body}
+            {failure.blocker ? <small className="pay-hint"> {g('failedNeeds', { blocker: failure.blocker })}</small> : null}
           </p>
         ) : null}
         <Button
@@ -975,7 +1035,7 @@ export function GlobalCard() {
               <li key={row.id} data-status={row.status}>
                 {g('historyLine', { amount: row.amount, asset: row.assetId, currency: row.toCurrency, status: statusWord(row.status) })}
                 {row.status === 'failed'
-                  ? ` — ${g('failedWhy')}`
+                  ? ` — ${g('failedWhy')}${row.failureBlocker ? ` ${g('failedNeeds', { blocker: row.failureBlocker })}` : ''}`
                   : row.status === 'cancelled'
                     ? ` — ${g(row.cancelledBy === 'auto' ? 'cancelledAuto' : 'cancelledByYou')}`
                     : row.status === 'returned'

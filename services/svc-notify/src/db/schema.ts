@@ -256,7 +256,29 @@ export const priceAlerts = schema.table('price_alerts', {
   burstCount: integer('burst_count').notNull().default(0),
   /** Which price the alert is evaluated against. See drizzle/20261106031241_notify_alert_price_source.sql. */
   source: text('source').$type<'mark' | 'bid' | 'ask' | 'last'>().notNull().default('mark'),
+  /** Out-of-app channels chosen for this alert; null follows the person's settings. See drizzle/20261114033918_notify_alert_delivery.sql. */
+  channels: jsonb('channels').$type<('email' | 'push')[]>(),
+  webhookUrl: text('webhook_url'),
 });
+
+/** One row per alert firing with a webhook: the body, every attempt and the next one due. See drizzle/20261114033918_notify_alert_delivery.sql. */
+export const alertWebhookDeliveries = schema.table(
+  'alert_webhook_deliveries',
+  {
+    alertId: uuid('alert_id').notNull(),
+    seq: integer('seq').notNull(),
+    userId: text('user_id').notNull(),
+    url: text('url').notNull(),
+    body: jsonb('body').$type<Record<string, unknown>>().notNull(),
+    status: text('status').$type<'pending' | 'delivered' | 'failed'>().notNull().default('pending'),
+    attempts: jsonb('attempts').$type<unknown[]>().notNull().default([]),
+    nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true, mode: 'date' }),
+    leaseUntil: timestamp('lease_until', { withTimezone: true, mode: 'date' }),
+    createdAt: createdAt(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.alertId, t.seq] })],
+);
 
 /** A watchlist alert: one price rule on every market of a watchlist, picking up later additions. See drizzle/*_notify_watchlist_alerts.sql. */
 export const watchlistAlerts = schema.table('watchlist_alerts', {

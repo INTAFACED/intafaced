@@ -82,7 +82,8 @@ export interface AuthorizedPaymentRow {
 }
 
 export interface BookedCaptureCompletion {
-  readonly ledgerTxId: string;
+  /** The ledger transaction the capture booked; null for a payment held outside our book whose fee rounds to nothing. */
+  readonly ledgerTxId: string | null;
   readonly amount: Amount;
   readonly railRef: string;
   /**

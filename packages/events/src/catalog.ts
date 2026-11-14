@@ -188,6 +188,8 @@ export const SECURITY_FACTOR_CHANGES = [
   'passkey_removed',
   'password_changed',
   'new_device',
+  // An API key revoked by an operator because a leaked copy was reported (DV-keys-05, J-developer-07 #6).
+  'api_key_revoked',
 ] as const;
 
 export const securityFactorChanged = defineEvent(
@@ -536,6 +538,40 @@ export const supportTicketResolved = defineEvent(
     resolvedAt: z.string().datetime({ offset: true }),
   }),
   'A support request was resolved. The owner can now rate it; svc-notify turns this into the rating request.',
+);
+
+/**
+ * A paper strategy run filled an order that a fill alert watches (AL-live-06, AL-alerts-01). svc-quant derives a paper
+ * run's fills from the exchange's own closed candles; its alert sweep publishes one of these per fill and alert, keyed
+ * `quant.fill:<alertId>:<runId>:<n>`, so a crash between publish and mark publishes the same `eventId` again and
+ * svc-notify, which turns it into one inbox notice, writes it once.
+ *
+ * `mode` is always `paper`: nothing here is a real order, and no notice may read as one. Carries ids, decimal strings and
+ * the message the person's own template rendered from the allow-listed fields; never source code, keys or a balance.
+ * `channels` are the out-of-app channels the person chose for this strategy; the in-app notice is written regardless.
+ */
+export const quantOrderFilled = defineEvent(
+  'quant',
+  'order',
+  'filled',
+  1,
+  z.object({
+    eventId: z.string().min(1).max(300),
+    userId: userIdSchema,
+    strategyId: z.string().min(1).max(128),
+    strategyVersion: z.number().int().positive(),
+    runId: z.string().min(1).max(128),
+    alertId: z.string().min(1).max(128),
+    mode: z.literal('paper'),
+    symbol: z.string().min(1).max(64),
+    side: z.enum(['buy', 'sell']),
+    qty: amountSchema,
+    price: amountSchema,
+    filledAt: z.string().datetime({ offset: true }),
+    message: z.string().min(1).max(600),
+    channels: z.array(z.enum(['email', 'sms', 'push'])).max(3),
+  }),
+  'A paper strategy run filled an order under a fill alert. svc-notify writes one inbox notice per event id.',
 );
 
 // ── blueprint (§7.1) ─────────────────────────────────────────────────────────
@@ -1001,6 +1037,29 @@ export const agentApprovalRequested = defineEvent(
     expiresAt: z.string().datetime(),
   }),
   'An own agent’s tool call waits for its owner’s approval. Published once per request, so the owner is told once.',
+);
+
+/**
+ * A background run of a person's agent session took its last step (AG-sessions-04, J-agents-06 #2). svc-notify writes
+ * the inbox row, once per run, linking to the run's page with its result, and tries the out-of-app channel the person
+ * asked for, whose delivery is recorded even when no vendor is set. Carries ids and the channel only, never the reply.
+ */
+export const agentRunCompleted = defineEvent(
+  'agents',
+  'run',
+  'completed',
+  1,
+  z.object({
+    /** The background run, and its business key: one notice per run, however often it is sent. */
+    runId: z.string().guid(),
+    userId: userIdSchema,
+    sessionId: z.string().guid(),
+    agentId: z.string().min(1).max(120),
+    /** The out-of-app channel the person asked to be told on; `inapp` asks for the inbox row alone. */
+    notice: z.enum(['inapp', 'email', 'sms', 'push']),
+    finishedAt: z.string().datetime(),
+  }),
+  'A background run of an agent session finished. Published once per run, so the person is told once.',
 );
 
 // ── p2p (§6.2) ───────────────────────────────────────────────────────────────
@@ -2025,6 +2084,29 @@ export const payWithdrawalStatusUpdated = defineEvent(
   'A customer withdrawal moved to a new status (requested, held, broadcast, settled, failed and the rest of ENGINE W-1). One event per move; deduplicated by (withdrawalId, seq).',
 );
 
+// ── academy: a moderator deleted a learner's discussion posts (AC-rooms-02, J-academy-18) ─
+
+/**
+ * A moderator deleted one of a learner's posts in a course discussion, or every post of theirs in one course, with a
+ * reason. svc-academy keeps the event row and sends this once the bus is reachable (its outbox); svc-notify tells the
+ * author in their notification tray. One event per moderation event: consumers dedupe on eventId. Who reported the post
+ * never rides here. No money moves.
+ */
+export const academyDiscussionPostDeleted = defineEvent(
+  'academy',
+  'discussion_post',
+  'deleted',
+  1,
+  z.object({
+    eventId: z.string().guid(),
+    authorId: userIdSchema,
+    courseTitle: z.string().min(1).max(200),
+    posts: z.number().int().positive(),
+    reason: z.string().min(1).max(500),
+  }),
+  "A moderator deleted a learner's discussion post, or every post of theirs in one course, with a reason. One event per moderation event; deduplicated by eventId.",
+);
+
 // ── The registry ─────────────────────────────────────────────────────────────
 
 export const EVENT_CATALOG = {
@@ -2068,6 +2150,7 @@ export const EVENT_CATALOG = {
   buybackExecuted,
   bankMarginCalled,
   supportTicketResolved,
+  quantOrderFilled,
   personalRequestCreated,
   personalRequestSettled,
   personalTransferPosted,
@@ -2094,6 +2177,7 @@ export const EVENT_CATALOG = {
   agentUsageSettled,
   agentUsageAlertCrossed,
   agentApprovalRequested,
+  agentRunCompleted,
   p2pOfferCreated,
   p2pEscrowLocked,
   p2pEscrowReleased,
@@ -2105,6 +2189,7 @@ export const EVENT_CATALOG = {
   p2pTradeReminderSent,
   p2pOfferPaused,
   p2pTraderPosted,
+  academyDiscussionPostDeleted,
   p2pRemarkCaseOpened,
   p2pChatMessageSent,
   p2pDisputeEscalated,

@@ -73,6 +73,7 @@ import { apiSecurityHeaders, securityHeaders } from '../../apps/customer/deploym
 import { APEX_DESCRIPTOR_PATH, APEX_PRODUCT } from '../../apps/customer/deployment/host-dispatch.mjs';
 import { anvilBin, chainRecordPath, chainStatus, CHAIN_PORTS, GATE_URL, runSeedScript, TEST_CHAIN_ID } from './local-test-chain.mjs';
 import { reduceMaps } from './journey-reach.mjs';
+import { runMvnSync } from './mvn-run.mjs';
 import { marketStatus } from './local-test-market.mjs';
 import { serveRailStatements } from './local-test-rail-statements.mjs';
 import { serveTestVenue, testVenueChainId, userVenueCount, userVenueSwitchOn } from './local-test-venue.mjs';
@@ -357,6 +358,7 @@ const SECRET_NAMES = [
   'identityFlowSubject', // identity's key for sign-up and recovery flows (address identifier and code hash)
   'identitySigninChallenge', // identity's key for sign-in challenge tokens and the per-address failure count (I-signin-sessions-30)
   'notifyStatusLink', // notify's key for the signed links in status subscription mail
+  'notifyVerifyCode', // notify's TEST key for address-confirmation codes, set only with the TEST email stand-in (LOCAL_STACK_NOTIFY_EMAIL=on)
   'notifySupportService', // svc-support's own secret for svc-notify's guest verification door (NOTIFY_SUPPORT_SERVICE_SECRET on both)
   'supportGuestAddress', // svc-support's key that seals a guest's email address (SUPPORT_GUEST_ADDRESS_KEY, 32 bytes as hex)
   'academyVideoStore', // the TEST video store's signing key, shared with academy (local-video-store.mjs)
@@ -1147,10 +1149,11 @@ function ensureFixJar(rebuild) {
   const tc = ensureToolchain(javaTools());
   const logPath = path.join(P.logs, 'build-fix.log');
   const fd = fs.openSync(logPath, 'a', 0o600);
-  const r = spawnSync(tc.MVN, ['-q', '-B', `-Dmaven.repo.local=${tc.MAVEN_REPO}`, '-DskipTests', 'package'], {
+  const r = runMvnSync(tc.MVN, ['-q', '-B', `-Dmaven.repo.local=${tc.MAVEN_REPO}`, '-DskipTests', 'package'], {
     cwd: FIX_ROOT,
     env: { ...baseEnv(), JAVA_HOME: tc.JAVA_HOME, PATH: `${path.join(tc.JAVA_HOME, 'bin')}:${PNPM_PATH}` },
-    stdio: ['ignore', fd, fd],
+    out: (attempt) => fs.writeSync(fd, `${attempt.stdout ?? ''}${attempt.stderr ?? ''}`),
+    log: (line) => (fs.writeSync(fd, `${line}\n`), say(`  ${line}`)),
   });
   fs.closeSync(fd);
   if (r.status !== 0 || !fs.existsSync(FIX_JAR)) fail(`svc-fix did not build (see ${logPath})`);
@@ -3849,13 +3852,15 @@ function canonicalAmount(amount) {
 
 /**
  * Whether `address` is the stack's own custody: a deposit address svc-pay issued, or the acceptance address it gave a
- * merchant's crypto payment (both land on rail crypto-native). The custodian's own lists of its addresses, not a ledger figure.
+ * merchant's crypto payment in our custody (both land on rail crypto-native). The custodian's own lists of its addresses, not
+ * a ledger figure. A payment paid to the business's own wallet (custody `merchant_wallet`, launch money model) is not ours.
  */
 function custodyAddress(address) {
   const secrets = readJson(P.secrets);
   const sql = `SELECT 1 FROM pay.custody_deposit_addresses WHERE lower(address) = lower(:'address')
                UNION ALL
-               SELECT 1 FROM pay.payments WHERE rail_adapter = 'crypto-native' AND lower(rail_ref) = lower(:'address')
+               SELECT 1 FROM pay.payments WHERE rail_adapter = 'crypto-native' AND custody = 'platform'
+                                            AND lower(rail_ref) = lower(:'address')
                LIMIT 1`;
   const found = psql(secrets, sql, {
     db: DB_NAME,
@@ -3888,6 +3893,49 @@ function chainRecord(movement) {
     if (err instanceof RailRecordError) fail(`refusing: the TEST chain record: ${err.message}`, 2);
     throw err;
   }
+}
+
+/**
+ * `ledger-posts <payment-id | reference>`: every transaction the stack's ledger holds under a key that ends with this
+ * payment's id, with its legs, as JSON: `{ paymentId, custody, posts: [{ key, module, reason, legs: [...] }] }`, each leg's
+ * owner, kind, asset, direction and amount. A reference is the one the payer was shown (an address, a bank reference),
+ * read from svc-pay's own payments. A journey reads it to see what the ledger booked for one payment (J-merchant-04: only
+ * our fee, once). It reads svc-pay's and svc-ledger's own tables; it writes nothing.
+ */
+function cmdLedgerPosts(rawArgs) {
+  const [given, ...extra] = rawArgs;
+  if (!given || extra.length > 0 || given.length > 200 || /\s/.test(given))
+    fail('usage: node tooling/scripts/local-test-stack.mjs ledger-posts <payment-id | reference>', 2);
+  const secrets = localFixtureSecrets();
+  const asPay = (sql, vars) => psql(secrets, sql, { db: DB_NAME, user: 'svc_pay', password: secrets.pgService, vars, tuples: true });
+  const found = asPay(
+    `SELECT id::text || ' ' || custody FROM pay.payments WHERE id::text = :'given' OR lower(rail_ref) = lower(:'given')`,
+    { given },
+  )
+    .trim()
+    .split('\n')
+    .filter(Boolean);
+  if (found.length !== 1) fail(`no single payment "${given}" in the local svc-pay database (found ${found.length})`);
+  const [paymentId, custody] = found[0].split(' ');
+  const sql = `SELECT COALESCE(json_agg(row_to_json(t) ORDER BY t.seq), '[]'::json)::text FROM (
+                 SELECT tx.seq, tx.idempotency_key AS key, tx.module, tx.reason,
+                        (SELECT json_agg(json_build_object('ownerType', a.owner_type, 'ownerId', a.owner_id, 'kind', a.kind,
+                                                           'assetId', e.asset_id, 'direction', e.direction,
+                                                           'amount', trim_scale(e.amount)::text) ORDER BY e.id)
+                           FROM ledger.ledger_entries e JOIN ledger.accounts a ON a.id = e.account_id
+                          WHERE e.tx_id = tx.id) AS legs
+                   FROM ledger.ledger_tx tx
+                  WHERE tx.idempotency_key LIKE '%:' || :'paymentId') t`;
+  const posts = psql(secrets, sql, {
+    db: DB_NAME,
+    user: 'svc_ledger',
+    password: secrets.pgService,
+    vars: { paymentId },
+    tuples: true,
+  });
+  process.stdout.write(
+    `${JSON.stringify({ paymentId, custody, posts: JSON.parse(posts.trim()).map(({ seq: _seq, ...post }) => post) })}\n`,
+  );
 }
 
 /** Guards: a chain event only ever goes to the local stack's own svc-pay. Returns the stack's crypto webhook secret. */
@@ -4286,6 +4334,7 @@ async function runCli() {
   else if (cmd === 'chain-deposit') await cmdChainDeposit(rest);
   else if (cmd === 'chain-reorg') await cmdChainReorg(rest);
   else if (cmd === 'bank-transfer') await cmdBankTransfer(rest);
+  else if (cmd === 'ledger-posts') cmdLedgerPosts(rest);
   else if (cmd === 'card-funds') await cmdCardFunds(rest);
   else if (cmd === 'card-terms') await cmdCardTerms(rest);
   else if (cmd === 'card-dispute') await cmdCardDispute(rest);
