@@ -1087,6 +1087,19 @@ function extraShapePosts(): Array<{ name: RecipeName; post: PostRequest }> {
       }),
     },
     {
+      name: 'partnerFeeEarn',
+      // The same recipe as svc-pay posts it at capture (J-merchant-04): our fee on a hosted-checkout payment the partner
+      // took, under module pay. Shape sample only, never posted.
+      post: recipes.partnerFeeEarn({
+        partnerId: 'test-partner',
+        module: 'pay',
+        paymentId: 'pay-test',
+        assetId: 'USDC',
+        grossAmount: AMT,
+        rate: { bps: 100 },
+      }),
+    },
+    {
       name: 'merchantFeeEarn',
       // Shape sample only, never posted: a TEST fee, because a blank fee refuses.
       post: recipes.merchantFeeEarn({
