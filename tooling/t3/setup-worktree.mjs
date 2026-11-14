@@ -1,14 +1,16 @@
 // T3's worktree setup (t3.json, runOnWorktreeCreate): install a new worktree once, in the background, so agents don't
 // each run their own install at the same time. Node built-ins only: it runs before node_modules exists.
-// Markers in the worktree's gitignored .t3/: `setup-running` holds this PID while it works, then `setup-done` or
-// `setup-failed` (with the install's last lines). See CONTRIBUTING.md, "Worktrees".
+// Markers in the worktree's node_modules/.t3-setup/: `setup-running` holds this PID while it works, then `setup-done` or
+// `setup-failed` (with the install's last lines). See CONTRIBUTING.md, "Worktrees". They live under node_modules/ because
+// T3's worktree cleanup ("keep when any local files") skips node_modules/ but keeps a worktree holding any other ignored
+// file, so markers in an ignored .t3/ kept every finished worktree on disk. pnpm install leaves the folder in place.
 import { spawn } from 'node:child_process';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const worktree = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const dir = join(worktree, '.t3');
+const dir = join(worktree, 'node_modules', '.t3-setup');
 const running = join(dir, 'setup-running');
 const done = join(dir, 'setup-done');
 const failed = join(dir, 'setup-failed');
