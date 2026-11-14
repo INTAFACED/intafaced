@@ -10,7 +10,7 @@ import { EDGE, ORIGIN, api, fromUnits, journeyState, tool, toUnits } from './sta
 import { signedHeaders } from './developer.mjs';
 import { browserHoldsPasskey, confirmStepUp, restorePasskey, testPasskey } from './p2p.mjs';
 import { PASSKEY_ORIGIN } from './identity-factors.mjs';
-import { testWalletKey } from './test-wallet.mjs';
+import { installTestWallet, testWalletKey } from './test-wallet.mjs';
 
 // J-agents-21, in the running app (docs/roadmap/journeys.json): I let my own AI assistant trade on a capped account I
 // can revoke. This file holds every step (#1 #2 #3 #4 #5 #6 #8 #9 #10 #11 #12 #13 #14 #16 #17 #18 #19 #7 #15), one test per step,
@@ -82,6 +82,12 @@ function restartTrade(settings) {
     }
   }
 }
+
+/**
+ * After a restart: the restart runs synchronously, so a keep-alive socket the TEST venue closed meanwhile is still in
+ * this process's pool until the event loop sees the close. Let it, so the next call opens a fresh one.
+ */
+const settleSockets = () => new Promise((resolve) => setTimeout(resolve, 250));
 
 let doorOn = false;
 const doorOffOnExit = () => {
@@ -231,43 +237,116 @@ test(`${J} #2 With the TEST ceiling back, opens Connect your assistant: what the
   expect(body200(await session.get(BASE)).accounts).toEqual([]);
 });
 
-test(`${J} #3 Creates an agent account with a cap of TEST 200 USDC and funds it with 150, with step-up: a venue sub-account under the wallet; the wallet signs the move of 150 and the agent permission; balance 150.00 as the venue reports it, cap 200.00; the main venue account falls by exactly 150.00; a rejected signature moves nothing and makes no account`, async () => {
-  test.setTimeout(300_000);
+test(`${J} #3 Creates an agent account with a cap of TEST 200 USDC and funds it with 150, with step-up: the agent's venue account (a venue sub-account, which the TEST venue offers); where the venue's agent permission would reach the person's other accounts, the app says so before the wallet is asked to sign (shown on the TEST venue switched to declare that reach), and where it reaches only the agent account the app says that; the wallet signs the move of 150 and the agent permission; balance 150.00 as the venue reports it, cap 200.00; the main venue account falls by exactly 150.00; a signature the wallet rejects moves nothing and makes no account`, async ({
+  browser,
+}) => {
+  test.setTimeout(600_000);
+  const s = state();
   const { session } = await person();
-  const passkey = await testPasskey(session);
+  let passkey = await testPasskey(session);
   run.write({ passkey: passkey.saved() });
   const ledgerBefore = await session.balances();
   const mainBefore = await venueUsdc(owner());
   const subsBefore = (await venue('/sub-accounts', { account: await acct(owner()) })).value;
-  const terms = body200(await session.get(`${BASE}/terms`));
-  expect(terms.asset).toBe('USDC');
+  const venueInfo = await venue('/venue');
+  const venueName = venueInfo.venue.displayName;
+  const OWN = `On ${venueName}, the permission your wallet signs lets the assistant trade this agent account and nothing else, so ${venueName} itself holds it to your cap.`;
+  const OTHERS = `On ${venueName}, the permission your wallet signs also lets the assistant act for your other accounts there. Our policy check is then the only limit on its orders.`;
+
+  // The person in the app on the passkey origin, their own TEST wallet in the browser and the TEST passkey in its
+  // authenticator. Every signature the page asks for goes to that wallet, which can reject it as a person would.
+  const context = await browser.newContext({ baseURL: PASSKEY_ORIGIN });
+  try {
+    const page = await context.newPage();
+    const testWallet = await installTestWallet(page, { chainId: venueInfo.chainId, privateKey: s.walletKey });
+    await browserHoldsPasskey(page, passkey.saved());
+    passkey = await restorePasskey({ ...passkey.saved(), signCount: passkey.saved().signCount + 1000 });
+    run.write({ passkey: passkey.saved() });
+    await signIn(page, s.account);
+    const createRoom = page.getByTestId('agent-connect__create');
+    const reach = createRoom.getByTestId('agent-connect__reach');
+    const openCreate = async () => {
+      await page.goto('/agents/connect');
+      await createRoom.getByRole('button', { name: 'Create agent account', exact: true }).click();
+      await expect(page.getByLabel('Cap (USDC)')).toBeVisible();
+    };
+
+    // Where the venue's agent permission would reach the person's other accounts: the TEST venue switched to declare
+    // that, and svc-trade restarted so it reads the venue afresh. The app says so with the create form, before anything
+    // is sent or signed, and that our policy check is then the only limit.
+    await venue('/test/switches', { declaredAgentPermissionReach: 'owner_accounts' });
+    restartTrade({ LOCAL_STACK_USER_VENUE: 'on' });
+    try {
+      await settleSockets();
+      expect(body200(await session.get(`${BASE}/terms`)).agentPermission).toEqual({ venue: venueName, reach: 'owner_accounts' });
+      expect((await venue('/venue')).venue.agentPermissionReach).toBe('owner_accounts');
+      await openCreate();
+      await expect(reach).toHaveAttribute('data-reach', 'owner_accounts');
+      await expect(reach).toHaveText(OTHERS);
+      expect(testWallet.requests).toEqual([]);
+      expect(body200(await session.get(BASE)).accounts).toEqual([]);
+    } finally {
+      await venue('/test/switches', { declaredAgentPermissionReach: 'own_account_only' });
+      restartTrade({ LOCAL_STACK_USER_VENUE: 'on' });
+      await settleSockets();
+    }
+
+    // The TEST venue as it is: it keeps an agent permission approved on a sub-account to that sub-account
+    // (packages/venue-sim `agentLive`), and declares so. The app reads that and says it, before the wallet is asked.
+    expect(venueInfo.venue.agentPermissionReach).toBe('own_account_only');
+    const terms = body200(await session.get(`${BASE}/terms`));
+    expect(terms.asset).toBe('USDC');
+    expect(terms.agentPermission).toEqual({ venue: venueName, reach: 'own_account_only' });
+    await openCreate();
+    await expect(reach).toHaveAttribute('data-reach', 'own_account_only');
+    await expect(reach).toHaveText(OWN);
+
+    // A signature the wallet rejects. The person connects their wallet in the room, asks for cap 200 and a first move of
+    // 150, answers step-up with the passkey (the reach is still said there), and rejects the first signature the wallet
+    // is asked for. Nothing moved and no account was made.
+    await createRoom.getByRole('button', { name: 'Connect TEST Wallet' }).click();
+    await expect(createRoom.getByTestId('venue-wallet-address')).toHaveText(owner());
+    await page.getByLabel('Cap (USDC)').fill('200');
+    await page.getByLabel('First move in (USDC)').fill('150');
+    await createRoom.locator('form').getByRole('button', { name: 'Create agent account', exact: true }).click();
+    await expect(reach).toHaveText(OWN);
+    expect(testWallet.requests).toEqual([]);
+    testWallet.rejectNext();
+    const createSent = page.waitForResponse((res) => res.url().endsWith('/venue/agent-accounts') && res.request().method() === 'POST');
+    await page.getByTestId('step-up-confirm').getByRole('button', { name: 'Use a passkey' }).click();
+    const created = await (await createSent).json();
+    // The account the create answers, before its first signature, says the same reach.
+    expect(created.agentPermission).toEqual({ venue: venueName, reach: 'own_account_only' });
+    expect(created.next).toMatchObject({ step: 'open_sub_account', signed: false });
+    const sheet = page.getByRole('dialog', { name: 'Check before you sign' });
+    await sheet.getByRole('button', { name: 'Continue in wallet' }).click();
+    await expect(createRoom.getByRole('alert').filter({ hasText: 'You rejected' })).toHaveText(
+      'You rejected the signature. Nothing moved and no account was made.',
+    );
+    expect(testWallet.requests.map((r) => r.method)).toEqual(['eth_signTypedData_v4']);
+    expect(testWallet.requests[0].signature).toBeUndefined();
+    // No account: none is listed, the venue holds no new sub-account and the main venue account is unchanged.
+    expect(body200(await session.get(BASE)).accounts).toEqual([]);
+    expect((await venue('/sub-accounts', { account: await acct(owner()) })).value).toEqual(subsBefore);
+    expect(same(await venueUsdc(owner()), mainBefore)).toBe(true);
+    // Its prepared action is never sent afterwards, even signed.
+    refused(
+      await session.post(`${BASE}/${created.accountId}/submit`, {
+        actionKey: created.next.actionKey,
+        signature: await sign(created.next.prepared),
+      }),
+      409,
+      'agents.account_not_open',
+    );
+    expect((await venue('/sub-accounts', { account: await acct(owner()) })).value).toEqual(subsBefore);
+  } finally {
+    await context.close();
+  }
 
   // Without step-up: refused, nothing made.
-  const bare = await session.post(BASE, { accountId: randomUUID(), owner: owner(), asset: 'USDC', cap: '200', fund: '150' });
-  refused(bare, 403, 'identity.step_up_required');
-  expect(body200(await session.get(BASE)).accounts).toEqual([]);
-
-  // A rejected signature: the wallet is asked to open the sub-account and the person rejects it. Nothing is sent, the
-  // person ends it, and nothing moved and no account was made.
-  const rejectedId = randomUUID();
   const fields = (accountId) => ({ accountId, owner: owner(), asset: 'USDC', cap: '200', fund: '150' });
-  const asked = body200(
-    await session.post(BASE, { ...fields(rejectedId), stepUpApprovalId: await stepUpFor(session, passkey, fields(rejectedId)) }),
-  );
-  expect(asked.status).toBe('opening');
-  expect(asked.next.step).toBe('open_sub_account');
-  const ended = body200(await session.post(`${BASE}/${rejectedId}/abandon`, {}));
-  expect(ended.status).toBe('abandoned');
-  expect(ended.subAccount).toBeNull();
-  expect((await venue('/sub-accounts', { account: await acct(owner()) })).value).toEqual(subsBefore);
-  expect(same(await venueUsdc(owner()), mainBefore)).toBe(true);
-  // Its prepared action is never sent afterwards.
-  refused(
-    await session.post(`${BASE}/${rejectedId}/submit`, { actionKey: asked.next.actionKey, signature: await sign(asked.next.prepared) }),
-    409,
-    'agents.account_not_open',
-  );
-  expect(body200(await session.get(BASE)).accounts.filter((a) => a.status === 'open')).toEqual([]);
+  refused(await session.post(BASE, fields(randomUUID())), 403, 'identity.step_up_required');
+  expect(body200(await session.get(BASE)).accounts).toEqual([]);
 
   // The account: cap 200, first funding 150, with step-up.
   const accountId = randomUUID();

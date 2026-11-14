@@ -150,6 +150,60 @@ describe('the agent account on the TEST venue', () => {
     expect((await sim.subAccounts(main())).value).toEqual(before.value);
   });
 
+  it("#3: the agent permission's reach is told before anything is signed: the TEST venue keeps it to the agent account", async () => {
+    // Read with the terms, before the person presses Create, and on the account the create answers before its first
+    // signature.
+    expect((await accounts.terms()).agentPermission).toEqual({ venue: sim.venue.displayName, reach: 'own_account_only' });
+    let v = await create200();
+    expect(v.next?.step).toBe('open_sub_account');
+    expect(v.agentPermission).toEqual({ venue: sim.venue.displayName, reach: 'own_account_only' });
+    v = await signAll(v);
+    // What the venue declared is what it does: the permission is on the agent account and not on the main account.
+    const sub = { ...main(), subAccount: v.subAccount };
+    expect((await sim.agents(sub)).value.map((x) => x.address)).toEqual([v.agentAddress]);
+    expect((await sim.agents(main())).value.map((x) => x.address)).not.toContain(v.agentAddress);
+  });
+
+  it("#3: a venue that does not declare its agent permission's reach is read as reaching the person's other accounts", async () => {
+    const undeclared = () =>
+      HttpUserVenue.connect({ baseUrl: url, timeoutMs: 2000 }).then(
+        (real) =>
+          new Proxy(real, {
+            get: (t, p, r) => (p === 'venue' ? { ...real.venue, agentPermissionReach: undefined } : Reflect.get(t, p, r)),
+          }),
+      );
+    door = new UserVenueDoor({
+      connect: undeclared,
+      appEnv: 'test',
+      store: actions,
+      stepUp: su.check,
+      builder: { address: '0x00000000000000000000000000000000000000b1', feeBps: a('1') },
+      listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
+      slippageCapBps: null,
+      now: () => new Date(),
+    });
+    accounts = new AgentAccounts({ door, store: new InMemoryAgentAccountStore(), stepUp: su.check, values: VALUES, now: () => new Date() });
+    expect((await accounts.terms()).agentPermission).toEqual({ venue: sim.venue.displayName, reach: 'owner_accounts' });
+    expect((await create200()).agentPermission.reach).toBe('owner_accounts');
+  });
+
+  it('#3: terms still answer when the venue cannot be read, with the reach not known', async () => {
+    door = new UserVenueDoor({
+      connect: () => HttpUserVenue.connect({ baseUrl: 'http://127.0.0.1:1', timeoutMs: 500 }),
+      appEnv: 'test',
+      store: actions,
+      stepUp: su.check,
+      builder: { address: '0x00000000000000000000000000000000000000b1', feeBps: a('1') },
+      listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
+      slippageCapBps: null,
+      now: () => new Date(),
+    });
+    accounts = new AgentAccounts({ door, store: new InMemoryAgentAccountStore(), stepUp: su.check, values: VALUES, now: () => new Date() });
+    const terms = await accounts.terms();
+    expect(terms.agentPermission).toBeNull();
+    expect(terms.ceiling).not.toBeNull();
+  });
+
   it('#3: create with cap 200 and fund 150: three wallet signatures; the venue shows 150 in the sub-account and 150 less on main', async () => {
     const mainBefore = await usdc(main());
     const accountId = id();
@@ -206,6 +260,8 @@ describe('the agent account on the TEST venue', () => {
     const gone = await accounts.abandon(principal, first.accountId);
     expect(gone.status).toBe('abandoned');
     expect(gone.next).toBeNull();
+    // No account: none is listed.
+    expect(await accounts.list(principal)).toEqual([]);
     expect((await sim.subAccounts(main())).value).toHaveLength(subsBefore);
     expect(await usdc(main())).toBe(mainBefore);
     // Its prepared action can never be sent afterwards.
@@ -224,6 +280,8 @@ describe('the agent account on the TEST venue', () => {
     expect(await usdc(main())).toBe(mainBefore);
     expect(await usdc({ ...main(), subAccount: v.subAccount })).toBe(a('0'));
     expect((await accounts.list(principal)).filter((x) => x.status === 'open')).toEqual([]);
+    // The sub-account the venue opened stays listed, ended, so the person sees it.
+    expect((await accounts.list(principal)).map((x) => [x.accountId, x.status])).toEqual([[v.accountId, 'abandoned']]);
   });
 
   it('#4: funding 100 more is refused agents.account_cap_exceeded naming 50 of room, before anything is prepared; nothing moves', async () => {
@@ -261,7 +319,7 @@ describe('the agent account on the TEST venue', () => {
   it("#16: the per-order, leverage and daily-loss caps are saved under the owner's ceilings and shown with the funding cap", async () => {
     const v = await signAll(await create200());
     expect(v.limits).toEqual({ maxOrderNotional: null, maxLeverage: null, maxDailyLoss: null });
-    expect(accounts.terms().limitCeilings).toEqual({ maxOrderNotional: '100', maxLeverage: '5', maxDailyLoss: '100' });
+    expect((await accounts.terms()).limitCeilings).toEqual({ maxOrderNotional: '100', maxLeverage: '5', maxDailyLoss: '100' });
     const set = await accounts.setLimits(principal, v.accountId, { maxOrderNotional: '50', maxLeverage: '2', maxDailyLoss: '25' });
     expect(set.limits).toEqual({ maxOrderNotional: a('50'), maxLeverage: '2', maxDailyLoss: a('25') });
     expect(formatAmount(set.cap)).toBe('200');
