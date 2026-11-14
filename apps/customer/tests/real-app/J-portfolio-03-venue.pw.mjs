@@ -26,7 +26,8 @@ import { otherTraderKey, otherTraderRun, testVenue, venueAccount, venueForThisFi
 // - venue: that deposit, which the venue sees and credits after its confirmations, and one TEST buy of BTC the wallet's
 //   key signs on the venue, filled against a sell another TEST trader rests there first;
 // - partner: the person's bank money moved to the TEST partner bank (`testPartner.set({ custody: 'off' })`) and TEST
-//   USDT paid in there (`testPartner.fund`).
+//   USDT paid in there (`testPartner.fund`), then TEST USDT paid out to the person's own bank account
+//   (`testPartner.spend` kind payout).
 // The ledger is read before and after: none of this is posted on it, and the list shows none of its lines.
 const J = 'J-portfolio-03';
 const SYMBOL = 'BTC-USDC';
@@ -36,6 +37,8 @@ const NETWORK = 'Base Sepolia test network';
 const DEPOSIT = '50';
 const BUY = { amount: '0.0005', price: '60100' };
 const PARTNER_IN = '25';
+/** A TEST payout from the partner account to the person's own bank account (`testPartner.spend` kind payout): a withdrawal. */
+const PARTNER_OUT = '7';
 const run = journeyState(`${J}-venue-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
 test.describe.configure({ mode: 'default' });
@@ -214,6 +217,14 @@ test.beforeAll(async ({ browser }) => {
     const funded = await session.post('/api/bank/trpc/testPartner.fund', { fundId: `pf3v-${tag}`, assetId: 'USDT', amount: PARTNER_IN });
     expect(funded.status, JSON.stringify(funded.body)).toBe(200);
     expect(funded.body.result.data).toMatchObject({ label: PARTNER_BANK, assetId: 'USDT' });
+    const paidOut = await session.post('/api/bank/trpc/testPartner.spend', {
+      spendId: `pf3v-out-${tag}`.slice(0, 64),
+      assetId: 'USDT',
+      amount: PARTNER_OUT,
+      kind: 'payout',
+    });
+    expect(paidOut.status, JSON.stringify(paidOut.body)).toBe(200);
+    expect(paidOut.body.result.data).toMatchObject({ label: PARTNER_BANK, amount: PARTNER_OUT });
     run.write({ ledgerStart, txHash: txHash.toLowerCase() });
   } finally {
     await page.close();
@@ -249,7 +260,6 @@ test(`${J} #1 opens /money/activity on the launch model: every movement from the
   expect(fills).toHaveLength(1);
   expect(deposits.map((d) => [d.txHash.toLowerCase(), d.amount, d.status])).toEqual([[txHash, DEPOSIT, 'credited']]);
   const partner = await partnerRecord(who);
-  expect(partner.length, 'the partner reports the pay-in').toBeGreaterThan(0);
   for (const line of partner) expect(line.heldAt.label).toBe(PARTNER_BANK);
 
   // Open Activity with the wallet connected.
@@ -328,10 +338,18 @@ test(`${J} #1 opens /money/activity on the launch model: every movement from the
     });
   }
   // Partner: each move it reports, named with the partner.
+  // The partner reports exactly the pay-in (a deposit) and the payout (a withdrawal) of this setup.
+  expect(partner.map((p) => [p.kind, p.direction, p.amount, p.asset]).sort()).toEqual(
+    [
+      ['deposit', 'in', PARTNER_IN, 'USDT'],
+      ['withdrawal', 'out', PARTNER_OUT, 'USDT'],
+    ].sort(),
+  );
+  const PARTNER_TITLE = { deposit: 'Deposit', withdrawal: 'Withdrawal' };
   for (const p of partner)
     await rowSays('partner', p.txId, {
-      kind: ['deposit', 'withdrawal', 'transfer_in', 'transfer_out', 'space_move', 'fee', 'earn'].includes(p.kind) ? p.kind : 'other',
-      title: p.kind === 'deposit' ? 'Deposit' : /.+/,
+      kind: p.kind,
+      title: PARTNER_TITLE[p.kind],
       amount: `${p.direction === 'in' ? '+' : '−'}${shown(p.amount)} ${p.asset}`,
       at: p.postedAt,
       label: `Your account at ${PARTNER_BANK}`,
