@@ -1,8 +1,8 @@
 #!/bin/sh
 #
 # The cheap part of CI's checks, on every commit: format:check's prettier over the staged files (package.json's
-# format:check names the extensions). The slower part (gates, build, typecheck, tests) runs on push (.githooks/pre-push,
-# tooling/scripts/ci-checks.mjs). --no-verify skips it; CI's Format job still runs.
+# format:check names the extensions). The slower part (gates, build, typecheck, tests) runs on GitHub (.githooks/pre-push
+# says how). --no-verify skips it; CI's Format job still runs.
 [ -n "${CI:-}" ] && exit 0
 TOP=$(git rev-parse --show-toplevel)
 PRETTIER="$TOP/node_modules/.bin/prettier"
