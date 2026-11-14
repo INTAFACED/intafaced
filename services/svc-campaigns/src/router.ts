@@ -51,6 +51,11 @@ import {
   taskProgressSchema,
   type CampaignRefusalCode,
   campaignVoucherSchema,
+  earningEvaluateInputSchema,
+  earningEvaluationSchema,
+  pointsConvertInputSchema,
+  pointsProgrammeSchema,
+  pointsRedeemInputSchema,
   FEE_SAVER_CALLERS,
   feeSaverAnswerSchema,
   feeSaverAskInputSchema,
@@ -66,6 +71,7 @@ import { CampaignsError } from './codes.js';
 import type { DropService } from './drops.js';
 import type { TaskService } from './tasks.js';
 import type { VoucherService } from './vouchers.js';
+import { pointsProgramme, refusePoints } from './points.js';
 import { refuseTgeClaim } from './tge.js';
 
 const guard = { module: 'campaigns', plane: 'fiat' } as const;
@@ -399,6 +405,35 @@ export function createCampaignsRouter(drops: DropService, campaigns: CampaignSer
         }),
     }),
 
+    points: router({
+      /** The points programme: its full layout, with every number blank and the owner question named while it is open. */
+      programme: scopedProcedure('campaigns:read', guard)
+        .output(pointsProgrammeSchema)
+        .query(() => pointsProgramme()),
+      /** Converting points to cash waits for the owner decision: always refuses, before anything is read or stored. */
+      convert: scopedProcedure('campaigns:write', guard)
+        .input(pointsConvertInputSchema)
+        .output(z.never())
+        .mutation(() => {
+          try {
+            refusePoints('convert');
+          } catch (err) {
+            mapError(err);
+          }
+        }),
+      /** Redeeming a catalogue reward waits for the owner decision: always refuses, before anything is read or stored. */
+      redeem: scopedProcedure('campaigns:write', guard)
+        .input(pointsRedeemInputSchema)
+        .output(z.never())
+        .mutation(() => {
+          try {
+            refusePoints('redeem');
+          } catch (err) {
+            mapError(err);
+          }
+        }),
+    }),
+
     tge: router({
       /** Always refuses by name and posts nothing: mainnet waits for the external audit, testnet for the schedule. */
       claim: scopedProcedure('campaigns:write', guard)
@@ -481,6 +516,19 @@ export function createCampaignsRouter(drops: DropService, campaigns: CampaignSer
               mapError(err);
             }
           }),
+        earning: router({
+          /** Each earning rule's answer to one TEST event; writes nothing. A points rule refuses for itself only. */
+          evaluate: opsProcedure
+            .input(earningEvaluateInputSchema)
+            .output(earningEvaluationSchema)
+            .query(async ({ input }) => {
+              try {
+                return await campaigns.evaluateEarning(input);
+              } catch (err) {
+                mapError(err);
+              }
+            }),
+        }),
         vouchers: router({
           /** A voucher campaign's vouchers, each with the revision and face value it was issued under. */
           list: opsProcedure
