@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { ohlcvSchema } from '@intafaced/exchange-contract/schemas';
 import type { SavedScreen } from '@intafaced/contracts/watchlists-preferences';
 import { RecordListTemplate, type RoomState } from '@intafaced/ui/lit/templates';
-import { Sparkline } from '@intafaced/ui';
+import { Button, Checkbox, Input, Sparkline } from '@intafaced/ui';
 import { fmtAmount, fmtPct, fmtPrice, useMarkets, useSparklines, useTickers, type TickerRow } from '../../../data';
 import { useSession } from '../../session/session';
 import { useSavedScreens, useWatchlists } from '../../watchlists/store';
@@ -289,7 +289,7 @@ export function ScreenerRoom() {
   const field = (key: BoundKey) => (
     <label key={key}>
       <span>{t(key)}</span>
-      <input type="text" inputMode="decimal" value={draft[key]} onChange={(event) => setDraft({ ...draft, [key]: event.target.value })} />
+      <Input aria-label={t(key)} value={draft[key]} onValueChange={(value) => setDraft({ ...draft, [key]: value })} />
     </label>
   );
 
@@ -318,7 +318,7 @@ export function ScreenerRoom() {
         </select>
       </label>
       {BOUNDS.map(field)}
-      <button type="submit">{t('apply')}</button>
+      <Button type="submit">{t('apply')}</Button>
       {bad ? <p role="alert">{bad}</p> : null}
       <p data-testid="screener-applied">{appliedLine}</p>
       {!signedIn ? <p>{t('signInToSave')}</p> : null}
@@ -331,12 +331,9 @@ export function ScreenerRoom() {
         <legend>{t('columns')}</legend>
         {SCREEN_COLUMNS.map((column) => (
           <label key={column}>
-            <input
-              type="checkbox"
+            <Checkbox
               checked={columns.includes(column)}
-              onChange={(event) =>
-                setColumns(event.target.checked ? orderedColumns([...columns, column]) : columns.filter((item) => item !== column))
-              }
+              onCheckedChange={(on) => setColumns(on ? orderedColumns([...columns, column]) : columns.filter((item) => item !== column))}
             />
             {column === 'change' ? t('col_change', { tf: t(`tfShort_${tf}`) }) : t(`col_${column}`)}
           </label>
@@ -354,12 +351,12 @@ export function ScreenerRoom() {
       </label>
       <p>{t('timeframeNote')}</p>
       <div role="group" aria-label={t('view')}>
-        <button type="button" aria-pressed={view === 'table'} onClick={() => setView('table')}>
+        <Button type="button" variant="secondary" size={32} aria-pressed={view === 'table'} onClick={() => setView('table')}>
           {t('viewTable')}
-        </button>
-        <button type="button" aria-pressed={view === 'chart'} onClick={() => setView('chart')}>
+        </Button>
+        <Button type="button" variant="secondary" size={32} aria-pressed={view === 'chart'} onClick={() => setView('chart')}>
           {t('viewChart')}
-        </button>
+        </Button>
       </div>
       {signedIn ? (
         <div>
@@ -377,31 +374,35 @@ export function ScreenerRoom() {
           {screens.status === 'error' ? (
             <p role="alert">
               {t('savedLoadFailed')}{' '}
-              <button type="button" onClick={screens.reload}>
+              <Button type="button" variant="secondary" size={32} onClick={screens.reload}>
                 {t('retry')}
-              </button>
+              </Button>
             </p>
           ) : null}
           <label>
             <span>{t('screenName')}</span>
-            <input type="text" value={name} maxLength={60} onChange={(event) => setName(event.target.value)} />
+            <Input aria-label={t('screenName')} value={name} maxLength={60} onValueChange={setName} />
           </label>
-          <button type="button" onClick={onSave} disabled={screens.status !== 'ready' || screens.busy}>
+          <Button type="button" variant="secondary" size={32} onClick={onSave} disabled={screens.status !== 'ready' || screens.busy}>
             {t('save')}
-          </button>
+          </Button>
           {openScreen ? (
-            <button
+            <Button
+              variant="secondary"
+              size={32}
               type="button"
               onClick={() => void store(current(openScreen.id, openScreen.name), 'updatedDone')}
               disabled={screens.status !== 'ready' || screens.busy}
             >
               {t('update', { name: openScreen.name })}
-            </button>
+            </Button>
           ) : null}
           {replacing ? (
             <div role="alertdialog" aria-label={t('replaceAsk', { name: replacing.name })}>
               <p>{t('replaceAsk', { name: replacing.name })}</p>
-              <button
+              <Button
+                variant="secondary"
+                size={32}
                 type="button"
                 onClick={() => {
                   const target = replacing;
@@ -410,10 +411,10 @@ export function ScreenerRoom() {
                 }}
               >
                 {t('replace')}
-              </button>
-              <button type="button" onClick={() => setReplacing(null)}>
+              </Button>
+              <Button type="button" variant="secondary" size={32} onClick={() => setReplacing(null)}>
                 {t('keep')}
-              </button>
+              </Button>
             </div>
           ) : null}
           {notice ? <p role="status">{notice}</p> : null}
@@ -513,9 +514,9 @@ export function ScreenerRoom() {
         filters={filtersSlot}
         tools={toolsSlot}
         export={
-          <button type="button" onClick={onExport}>
+          <Button type="button" variant="secondary" size={32} onClick={onExport}>
             {t('exportCsv')}
-          </button>
+          </Button>
         }
         summary={
           <div>
