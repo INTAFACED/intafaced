@@ -86,6 +86,23 @@ interface UpstreamResponse {
   usage?: UpstreamUsage;
 }
 
+/**
+ * One HTTP exchange whose cancellation and deadline last until its body is
+ * consumed, not just until the headers arrive. A caller abort or a stalled
+ * body after the headers must still end the call.
+ */
+interface UpstreamExchange {
+  readonly response: Response;
+  /** Aborts when the caller cancels or the deadline passes. */
+  readonly signal: AbortSignal;
+  /** Restart the deadline: a stream that keeps delivering bytes is not stalled. */
+  readonly touch: () => void;
+  /** Classify an error raised while reading the body: cancellation, timeout, or `fallback`. */
+  readonly fail: (err: unknown, fallback: () => ProviderError) => ProviderError;
+  /** Release the timer and the caller's abort listener. Safe to call twice. */
+  readonly close: () => void;
+}
+
 const STOP_REASONS: Readonly<Record<string, StopReason>> = {
   end_turn: 'end',
   stop: 'end',
@@ -207,9 +224,17 @@ export class UpstreamModelProvider implements ModelProvider {
       stream: true,
     };
 
-    const response = await this.send(this.completionsPath, body, request.signal, 'text/event-stream');
-    if (!response.body) throw new ProviderError('Upstream returned no stream body', this.id, true, response.status);
+    const exchange = await this.send(this.completionsPath, body, request.signal, 'text/event-stream');
+    try {
+      const { response } = exchange;
+      if (!response.body) throw new ProviderError('Upstream returned no stream body', this.id, true, response.status);
+      yield* this.readStream(response.body, exchange);
+    } finally {
+      exchange.close();
+    }
+  }
 
+  private async *readStream(body: ReadableStream<Uint8Array>, exchange: UpstreamExchange): AsyncIterable<StreamChunk> {
     // Start usage includes a provisional output count. Only the input count
     // belongs to the eventual completion. Output comes from cumulative final
     // usage, and message_stop confirms completion. EOF is not that confirmation.
@@ -234,34 +259,63 @@ export class UpstreamModelProvider implements ModelProvider {
       }
     };
 
-    for await (const event of readServerSentEvents(response.body, this.id)) {
-      const type = typeof event.type === 'string' ? event.type : '';
+    // The deadline is an idle deadline while the body flows: each read restarts
+    // it, so a long answer is not cut off but a stalled one is.
+    try {
+      for await (const event of readServerSentEvents(body, this.id, exchange.touch)) {
+        const type = typeof event.type === 'string' ? event.type : '';
 
-      if (type === 'error') {
-        // HTTP headers succeeded, but the completion did not. Never echo the
-        // upstream error payload or return provisional usage as a final bill.
-        throw new ProviderError('Upstream stream reported an error', this.id, true);
+        if (type === 'error') {
+          // HTTP headers succeeded, but the completion did not. Never echo the
+          // upstream error payload or return provisional usage as a final bill.
+          throw new ProviderError('Upstream stream reported an error', this.id, true);
+        }
+
+        if (type === 'content_block_delta') {
+          const delta = (event.delta ?? {}) as { text?: string };
+          if (delta.text) yield { delta: delta.text, done: false };
+          continue;
+        }
+
+        if (type === 'message_start') {
+          absorbUsage(event.usage, false);
+          const message = event.message;
+          if (message && typeof message === 'object') absorbUsage((message as { usage?: unknown }).usage, false);
+        }
+
+        if (type === 'message_delta' || type === 'message_stop') {
+          if (type === 'message_delta' || event.usage !== undefined) absorbUsage(event.usage, true);
+          const reason = (event.delta as { stop_reason?: string } | undefined)?.stop_reason;
+          if (reason) stopReason = STOP_REASONS[reason] ?? 'end';
+          if (type === 'message_stop') completed = true;
+        }
       }
-
-      if (type === 'content_block_delta') {
-        const delta = (event.delta ?? {}) as { text?: string };
-        if (delta.text) yield { delta: delta.text, done: false };
-        continue;
-      }
-
-      if (type === 'message_start') {
-        absorbUsage(event.usage, false);
-        const message = event.message;
-        if (message && typeof message === 'object') absorbUsage((message as { usage?: unknown }).usage, false);
-      }
-
-      if (type === 'message_delta' || type === 'message_stop') {
-        if (type === 'message_delta' || event.usage !== undefined) absorbUsage(event.usage, true);
-        const reason = (event.delta as { stop_reason?: string } | undefined)?.stop_reason;
-        if (reason) stopReason = STOP_REASONS[reason] ?? 'end';
-        if (type === 'message_stop') completed = true;
+    } catch (err) {
+      // A caller abort or deadline after message_stop and confirmed final usage
+      // does not undo that completion: upstream already produced and billed it,
+      // and dropping the count would lose a real charge. Anything earlier is a
+      // cancellation or a timeout, never a done frame.
+      const confirmed = completed && inputTokens !== undefined && outputTokens !== undefined;
+      if (!(confirmed && exchange.signal.aborted)) {
+        throw exchange.fail(err, () => {
+          if (err instanceof ProviderError) {
+            // The upstream answered in full and we refused what it said: a
+            // protocol refusal, not an outage.
+            this.recordSuccess();
+            return err;
+          }
+          this.recordFailure('upstream transport error');
+          return new ProviderError('Upstream stream failed in transport', this.id, true);
+        });
       }
     }
+    // Headers alone are not health: only a body read to its end resets the
+    // outage count, so an upstream that always stalls after its headers still
+    // trips the threshold.
+    this.recordSuccess();
+    // The body is finished: release the timer and listener before handing the
+    // final frame to a consumer that may never ask for more.
+    exchange.close();
 
     // A stream that never reported both counts cannot be metered. Same rule as
     // the non-streaming path: fail loudly rather than bill zero.
@@ -294,16 +348,22 @@ export class UpstreamModelProvider implements ModelProvider {
   }
 
   private async call(path: string, body: unknown, signal?: AbortSignal): Promise<unknown> {
-    const response = await this.send(path, body, signal, 'application/json');
+    const exchange = await this.send(path, body, signal, 'application/json');
     try {
-      return await response.json();
+      const parsed: unknown = await exchange.response.json();
+      this.recordSuccess();
+      return parsed;
     } catch (err) {
-      this.recordFailure('unparseable upstream response');
-      throw new ProviderError('Upstream returned a body that is not JSON', this.id, true, response.status);
+      throw exchange.fail(err, () => {
+        this.recordFailure('unparseable upstream response');
+        return new ProviderError('Upstream returned a body that is not JSON', this.id, true, exchange.response.status);
+      });
+    } finally {
+      exchange.close();
     }
   }
 
-  private async send(path: string, body: unknown, signal: AbortSignal | undefined, accept: string): Promise<Response> {
+  private async send(path: string, body: unknown, signal: AbortSignal | undefined, accept: string): Promise<UpstreamExchange> {
     // A caller who has already cancelled must not hit upstream. That cancellation
     // is not an upstream timeout and must not count toward the outage threshold.
     if (signal?.aborted) {
@@ -312,12 +372,35 @@ export class UpstreamModelProvider implements ModelProvider {
 
     const controller = new AbortController();
     let timedOut = false;
-    const timer = setTimeout(() => {
+    let closed = false;
+    const expire = () => {
       timedOut = true;
       controller.abort();
-    }, this.timeoutMs);
+    };
+    let timer = setTimeout(expire, this.timeoutMs);
     const onAbort = () => controller.abort();
     signal?.addEventListener('abort', onAbort, { once: true });
+    const close = () => {
+      if (closed) return;
+      closed = true;
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+    };
+    const touch = () => {
+      if (closed || controller.signal.aborted) return;
+      clearTimeout(timer);
+      timer = setTimeout(expire, this.timeoutMs);
+    };
+    // After the headers, the same rule as before them: the caller's abort is a
+    // cancellation and not an outage; our deadline is a retryable timeout.
+    const fail = (err: unknown, fallback: () => ProviderError): ProviderError => {
+      if (signal?.aborted) return new ProviderError('Upstream call cancelled', this.id, false);
+      if (timedOut) {
+        this.recordFailure('upstream timed out');
+        return new ProviderError('Upstream call timed out', this.id, true);
+      }
+      return fallback();
+    };
 
     const started = Date.now();
     try {
@@ -346,12 +429,12 @@ export class UpstreamModelProvider implements ModelProvider {
         throw new ProviderError(`Upstream rejected the request (status ${response.status})`, this.id, retryable, response.status);
       }
 
+      // Reachable, but not yet healthy: the body may still stall or abort.
+      // The caller of `send` records success once the body is consumed.
       this.everAttempted = true;
-      this.consecutiveFailures = 0;
-      this.lastFailure = undefined;
-      this.lastUpdate = new Date();
-      return response;
+      return { response, signal: controller.signal, touch, fail, close };
     } catch (err) {
+      close();
       if (err instanceof ProviderError) throw err;
       // The caller aborted while the call was in flight. That is a cancellation
       // even if the timer also fired, and it does not count as a failure.
@@ -362,10 +445,14 @@ export class UpstreamModelProvider implements ModelProvider {
       const aborted = timedOut || controller.signal.aborted;
       this.recordFailure(aborted ? 'upstream timed out' : 'upstream transport error');
       throw new ProviderError(aborted ? 'Upstream call timed out' : 'Upstream call failed in transport', this.id, true);
-    } finally {
-      clearTimeout(timer);
-      signal?.removeEventListener('abort', onAbort);
     }
+  }
+
+  private recordSuccess(): void {
+    this.everAttempted = true;
+    this.consecutiveFailures = 0;
+    this.lastFailure = undefined;
+    this.lastUpdate = new Date();
   }
 
   private recordFailure(reason: string): void {
@@ -395,7 +482,11 @@ export function readUsage(raw: UpstreamUsage | undefined, providerId: string, op
 }
 
 /** Minimal SSE reader: `data:` lines carrying JSON. A blank line terminates an event. */
-async function* readServerSentEvents(body: ReadableStream<Uint8Array>, providerId: string): AsyncIterable<Record<string, unknown>> {
+async function* readServerSentEvents(
+  body: ReadableStream<Uint8Array>,
+  providerId: string,
+  onBytes: () => void,
+): AsyncIterable<Record<string, unknown>> {
   const decoder = new TextDecoder();
   const reader = body.getReader();
   let buffer = '';
@@ -435,10 +526,13 @@ async function* readServerSentEvents(body: ReadableStream<Uint8Array>, providerI
     }
   };
 
+  let finished = false;
   try {
     for (;;) {
       const { done, value } = await reader.read();
+      onBytes();
       if (done) {
+        finished = true;
         buffer += decoder.decode();
         yield* pullEvents(true);
         break;
@@ -447,6 +541,9 @@ async function* readServerSentEvents(body: ReadableStream<Uint8Array>, providerI
       yield* pullEvents(false);
     }
   } finally {
+    // A consumer that stops early, a refused frame or an abort leaves the body
+    // open: cancel it so the connection is closed, not left to the upstream.
+    if (!finished) await reader.cancel().catch(() => undefined);
     reader.releaseLock();
   }
 }

@@ -114,6 +114,8 @@ export type RefusalKind =
 const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.convert_spread_unset': 'convertSpreadUnset',
   'trade.slippage_cap_unset': 'slippageCapUnset',
+  // The owner's spread limit on a venue market order is blank: market orders pause the same way.
+  'trade.spread_limit_unset': 'slippageCapUnset',
   // No published price protection for a market order: refused, never a guessed floor.
   'trade.protection_unset': 'protectionUnset',
   // The operator's price band and open-order cap: the screen fills in the edges, the cap and the count it was given.

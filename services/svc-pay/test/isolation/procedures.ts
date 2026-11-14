@@ -810,6 +810,14 @@ export const MERCHANT_PROCS: MerchantProc[] = [
     sessionOnly: true,
     input: (i) => ({ deliveryId: i.deliveryId, requestId: randomUUID() }),
   },
+  {
+    path: 'merchantOps.webhooks.deliveries.recover',
+    scope: 'pay:write',
+    own: 'ok',
+    sessionOnly: true,
+    input: (i) => ({ endpointId: i.endpointId, requestId: randomUUID(), since: new Date(Date.now() - 3_600_000).toISOString() }),
+  },
+  { path: 'merchantOps.webhooks.deliveries.attempts', scope: 'pay:read', own: 'ok', input: (i) => ({ deliveryId: i.deliveryId }) },
   // W10: while pay.b2b_ramp is off, the owner and a stranger get the same refusal. The flag check runs before any merchant lookup.
   {
     path: 'b2bRamp.status',

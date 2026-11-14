@@ -16,6 +16,7 @@ import { OrderDetailRoom } from './orders/OrderDetailRoom';
 import { OrderHistoryRoom } from './orders/OrderHistoryRoom';
 import { LeadApplyRoom } from './lead-apply/LeadApplyRoom';
 import { MarketAnalyticsRoom } from './market-analytics/MarketAnalyticsRoom';
+import { ScreenerRoom } from './screener/ScreenerRoom';
 import { FuturesOrderDetail } from './orders/FuturesOrderDetail';
 import { FuturesOrdersRoom } from './orders/FuturesOrdersRoom';
 import './trade.css';
@@ -53,6 +54,7 @@ export function TradeRoutes({ path }: { path: string }) {
   if (pathname === '/trade/news') return <NewsRoom />;
   if (pathname === '/trade/calendar') return <CalendarRoom />;
   if (pathname === '/trade/risk') return <RiskControl />;
+  if (pathname === '/trade/screener') return <ScreenerRoom />;
   if (pathname === '/copy/lead/apply') return <LeadApplyRoom />;
   const analytics = /^\/trade\/analytics\/([^/]+)$/.exec(pathname);
   if (analytics) return <MarketAnalyticsRoom pair={decodedSegment(analytics[1]!)} />;

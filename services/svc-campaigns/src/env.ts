@@ -55,6 +55,12 @@ import {
  * CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ACCOUNT, CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ADDRESS and CAMPAIGNS_VOUCHER_ATTEMPT_WINDOW_SECONDS
  * (owner values, CM-eligibility-rules-04): how many voucher code checks and claims one account, and one source address,
  * may make in the window. Any blank: every check and claim refuses `campaigns.attempt_limit_unset`. NO DEFAULT.
+ *
+ * The watch desk's owner values (J-campaigns-17). CAMPAIGNS_CODE_BATCH_MAX: the most codes one batch generate or CSV
+ * import makes; blank refuses both `campaigns.code_batch_limit_unset`. CAMPAIGNS_EXPORT_LINK_SECONDS: how long an export's
+ * download link works; blank refuses every export `campaigns.export_validity_unset`. CAMPAIGNS_ALERT_BUDGET_LEFT_PERCENT and
+ * CAMPAIGNS_ALERT_REDEMPTIONS_PER_HOUR: the two alert thresholds; blank reads "not set" and the alert refuses to be switched
+ * on `campaigns.alert_threshold_unset`. NO DEFAULT for any of them.
  */
 const blankAsAbsent = <T extends z.ZodTypeAny>(inner: T) =>
   z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), inner);
@@ -98,6 +104,10 @@ const schema = baseEnvSchema
       CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ACCOUNT: blankAsAbsent(z.coerce.number().int().min(1).max(1_000_000).optional()),
       CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ADDRESS: blankAsAbsent(z.coerce.number().int().min(1).max(1_000_000).optional()),
       CAMPAIGNS_VOUCHER_ATTEMPT_WINDOW_SECONDS: blankAsAbsent(z.coerce.number().int().min(1).max(31_536_000).optional()),
+      CAMPAIGNS_CODE_BATCH_MAX: blankAsAbsent(z.coerce.number().int().min(1).max(20_000).optional()),
+      CAMPAIGNS_EXPORT_LINK_SECONDS: blankAsAbsent(z.coerce.number().int().min(1).max(604_800).optional()),
+      CAMPAIGNS_ALERT_BUDGET_LEFT_PERCENT: blankAsAbsent(z.coerce.number().int().min(1).max(99).optional()),
+      CAMPAIGNS_ALERT_REDEMPTIONS_PER_HOUR: blankAsAbsent(z.coerce.number().int().min(1).max(10_000_000).optional()),
     }),
   );
 

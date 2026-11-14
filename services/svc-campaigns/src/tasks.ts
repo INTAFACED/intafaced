@@ -493,7 +493,9 @@ export class TaskService {
     };
     let earned = 0;
     for (const row of live) {
-      for (const rule of row.earning.filter((r) => r.trigger === event.trigger)) {
+      // A points rule gives nothing while the owner question is open (J-campaigns-15 #5): no point is stored, and the
+      // campaign's other rules still pay for the event.
+      for (const rule of row.earning.filter((r) => r.trigger === event.trigger && r.effect !== 'points')) {
         if (rule.minAmount !== null && values.amount! < parseAmount(rule.minAmount)) continue;
         const formula = parseFormula(rule.formula, names);
         const read = namesRead(formula);

@@ -358,6 +358,7 @@ const SECRET_NAMES = [
   'identityFlowSubject', // identity's key for sign-up and recovery flows (address identifier and code hash)
   'identitySigninChallenge', // identity's key for sign-in challenge tokens and the per-address failure count (I-signin-sessions-30)
   'notifyStatusLink', // notify's key for the signed links in status subscription mail
+  'notifyVerifyCode', // notify's TEST key for address-confirmation codes, set only with the TEST email stand-in (LOCAL_STACK_NOTIFY_EMAIL=on)
   'notifySupportService', // svc-support's own secret for svc-notify's guest verification door (NOTIFY_SUPPORT_SERVICE_SECRET on both)
   'supportGuestAddress', // svc-support's key that seals a guest's email address (SUPPORT_GUEST_ADDRESS_KEY, 32 bytes as hex)
   'academyVideoStore', // the TEST video store's signing key, shared with academy (local-video-store.mjs)

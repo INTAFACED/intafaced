@@ -151,7 +151,8 @@ import { setOverCapNoticeLogger } from './control/guards.js';
 import { registerCaptureReconcileRoutes } from './capture-reconcile-routes.js';
 import { setCaptureReconcileLogger } from './capture-reconcile.js';
 import { loadTeamEmailInviteLimit } from './merchant-ops/team-email.js';
-import { loadWebhookRetryLimit } from './merchant-ops/webhooks.js';
+import { loadWebhookRetryLimit, loadWebhookSettings, testDnsResolver } from './merchant-ops/webhooks.js';
+import { systemResolver } from './webhook-url-guard.js';
 import { readProductImageRule } from './catalog/image-rules.js';
 import { readCheckoutLogoRule } from './checkout-branding/logo-rules.js';
 import { registerMerchantEmailInviteRoutes } from './merchant-ops/team-email-claim-routes.js';
@@ -328,10 +329,19 @@ const checkoutRoutingProfiles = withSuccessRates(REFERENCE_RAIL_ROUTING_PROFILES
  * Durable journal — Memory alone is not multi-replica safe.
  * Does not move value; enqueue runs after money commits.
  */
+/** The owner's webhook values (J-developer-10): each blank refuses by name, none is defaulted. */
+const webhookSettings = loadWebhookSettings(process.env);
+// LOCAL TEST DNS answers for TEST names, so a journey can show a name that resolves to a private address being refused.
+if (process.env.PAY_WEBHOOK_TEST_DNS?.trim() && !isExplicitDevOrTestEnv(process.env)) {
+  throw new Error('PAY_WEBHOOK_TEST_DNS is a LOCAL TEST setting; svc-pay refuses it outside APP_ENV dev or test');
+}
+const webhookTestDns = testDnsResolver(process.env.PAY_WEBHOOK_TEST_DNS, systemResolver);
 const merchantWebhooks = new MerchantWebhookService(new PostgresMerchantWebhookStore(sql), {
   // SSRF guard: http and loopback receivers only under an EXPLICIT dev/test APP_ENV.
   // Read the raw process env, not `env.APP_ENV`, which defaults an unset value to `dev`.
   allowLocalHttp: isExplicitDevOrTestEnv(process.env),
+  // Blank: nothing is sent; deliveries wait and the dashboard says why.
+  retryScheduleSeconds: webhookSettings.retryScheduleSeconds ?? null,
 });
 
 const payoutDestinations = new MerchantPayoutDestinationStore(sql);
@@ -795,6 +805,8 @@ export const appRouter = mergeRouters(
     disputeFundsLedger: ledger,
     webhooksAllowLocalHttp: isExplicitDevOrTestEnv(process.env),
     webhookRetry: loadWebhookRetryLimit(process.env),
+    webhookSettings,
+    webhookResolver: webhookTestDns,
     teamEmailInvite,
     disputes: disputeCases,
     pay,
@@ -1074,10 +1086,19 @@ await registerPublicPayRest(app, {
 });
 
 /** Drain outbound merchant webhook deliveries (ADR §2.4 retry). */
+let webhookDrainPausedLogged = false;
 const webhookDrain = setInterval(() => {
-  void merchantWebhooks.processDue(25).catch((err) => {
-    app.log.warn({ err }, 'merchant webhook drain failed');
-  });
+  void merchantWebhooks
+    .processDue(25)
+    .then((pass) => {
+      // Said once, not every 15 seconds: the owner has not set a retry policy, so nothing is sent.
+      if (pass.paused && !webhookDrainPausedLogged)
+        app.log.warn({ code: pass.paused }, 'merchant webhooks: no retry policy set, nothing is sent');
+      webhookDrainPausedLogged = Boolean(pass.paused);
+    })
+    .catch((err) => {
+      app.log.warn({ err }, 'merchant webhook drain failed');
+    });
 }, 15_000);
 webhookDrain.unref?.();
 

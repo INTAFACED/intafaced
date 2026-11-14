@@ -210,6 +210,12 @@ export interface SimMarketConfig {
  */
 export const TEST_VENUE_FIGURE_STALE_AFTER_MS = 60_000;
 
+/**
+ * TEST: the longest an agent permission with an end date may last on the TEST venue (J-agents-21 #19), 180 days. A real
+ * venue's adapter declares its own; this TEST value stands in on test stacks only.
+ */
+export const TEST_VENUE_AGENT_VALIDITY_MAX_MS = 180 * 24 * 60 * 60 * 1000;
+
 export interface SimSwitches {
   venueDown: boolean;
   /** The venue's builder totals read as not known (OWNER 288 1e), as on a venue that publishes none. */
@@ -358,6 +364,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       sequencedDepth: true,
       proofLevel: 'simulator',
       figureStaleAfterMs: TEST_VENUE_FIGURE_STALE_AFTER_MS,
+      agentValidityMaxMs: TEST_VENUE_AGENT_VALIDITY_MAX_MS,
     };
     this.clock = options.clock;
     this.chainId = testVenueDomain(options.chainId ?? TEST_VENUE_CHAIN_ID).chainId;
@@ -762,6 +769,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       contractSize: published(m.contractSize),
       mark: published(m.kind === 'perpetual' ? this.marks.get(m.symbol) : undefined),
       funding: m.funding ? { known: true, value: this.fundingOf(m.funding) } : { known: false },
+      // The simulator's own rule (`place`): an order that would cross this account's own resting order cancels the resting one.
+      selfTrade: { known: true, value: 'cancel_resting' },
     }));
     return this.asOf(list);
   }

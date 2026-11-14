@@ -19,20 +19,23 @@ describe('/uc/promotion subroutes', () => {
     expect(promotionsViewFor('/uc/promotion/mypromotion')).toBe('records');
     expect(promotionsViewFor('/uc/promotion/mypromotion?x=1')).toBe('records');
     expect(promotionsViewFor('/uc/invitingmining')).toBe('overview');
+    expect(promotionsViewFor('/uc/promotion/points')).toBe('points');
   });
 
-  it('draws three tabs and marks only the open one as current', () => {
+  it('draws four tabs and marks only the open one as current', () => {
     for (const [view, open] of [
       ['overview', '/uc/promotion'],
       ['link', '/uc/promotion/mycards'],
       ['records', '/uc/promotion/mypromotion'],
+      ['points', '/uc/promotion/points'],
     ] as const) {
       const html = renderToString(<PromotionTabs view={view} />);
-      expect(html.match(/<a /g)?.length).toBe(3);
+      expect(html.match(/<a /g)?.length).toBe(4);
       expect(html.match(/aria-current="page"/g)?.length).toBe(1);
       expect(html).toMatch(new RegExp(`href="${open}"[^>]*aria-current="page"|aria-current="page"[^>]*href="${open}"`));
       expect(html).toContain('Invitation link');
       expect(html).toContain('Referral records');
+      expect(html).toContain('Points programme');
     }
   });
 

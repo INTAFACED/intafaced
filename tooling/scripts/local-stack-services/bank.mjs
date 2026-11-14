@@ -177,6 +177,17 @@ function statementJobs() {
   throw new Error(`LOCAL_STACK_BANK_STATEMENT_HOLD is "${asked}"; leave it unset for renders that finish, or set it to on.`);
 }
 
+/**
+ * `LOCAL_STACK_BANK_ACTIVITY_FAULT=on` on a restart fails every activity history read (a TEST fault, J-home-ia-01 #5), so a
+ * journey sees the activity list fail in the running bank while balances still answer. Unset: activity reads as normal.
+ */
+function activityFault() {
+  const asked = process.env.LOCAL_STACK_BANK_ACTIVITY_FAULT;
+  if (asked === undefined || asked === '') return {};
+  if (asked === 'on') return { BANK_ACTIVITY_TEST_FAULT: 'on' };
+  throw new Error(`LOCAL_STACK_BANK_ACTIVITY_FAULT is "${asked}"; leave it unset for activity that reads, or set it to on.`);
+}
+
 /** The account terms (BK-acct-01): the TEST base tier, or blank when the stack is asked to show them unpublished. */
 function accountTerms() {
   const asked = process.env.LOCAL_STACK_BANK_ACCOUNT_TERMS;
@@ -225,6 +236,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     // refusal can be seen too (J-wallet-02 #1).
     ...depositCustody(urlOf),
     ...statementJobs(),
+    ...activityFault(),
     // Required, no default (owner-unpublished). Inert LOCAL TEST placeholders so the service can
     // boot: the jobs they size are all switched off below, so no batch size is ever exercised.
     LOAN_QUOTE_ASSET_ID: 'USDT',

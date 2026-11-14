@@ -744,7 +744,7 @@ export const webhookDeliverySchema = z.object({
   merchantId: id,
   eventId: z.string(),
   eventType: z.string(),
-  status: z.enum(['pending', 'delivered', 'failed', 'dead']),
+  status: z.enum(['pending', 'delivered', 'failed', 'dead', 'unknown']),
   attempts: z.number().int(),
   nextAttemptAt: z.string(),
   lastStatusCode: z.number().nullable(),

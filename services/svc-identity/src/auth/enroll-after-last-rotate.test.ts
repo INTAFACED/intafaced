@@ -73,6 +73,8 @@ describe('newlyEnrolledPasskeyRotates — enroll after last unenroll', () => {
       prefix: 'ifk_live',
       mode: 'live',
       revokedKeyId: 'old',
+      // No overlap: the old key ends now.
+      endsAt: expect.any(Date),
       signingSecret: null,
     });
     await expect(
