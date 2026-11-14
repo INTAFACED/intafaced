@@ -113,7 +113,7 @@ export function SchedulesPage({ agent }: { agent: OwnAgent }) {
   const { t } = agentAutomationCopy.useCopy();
   const { data, failed, reload } = usePolled(() => api.query('agents', 'own.schedules.list', { id: agent.id }, ownAgentSchedulesSchema));
   return (
-    <Panel title={t('schedulesTitle')} role="region" aria-label={t('schedulesTitle')}>
+    <Panel title={t('schedulesTitle')}>
       <p className="muted">{t('schedulesIntro')}</p>
       {failed && !data ? <Failure result={failed} retry={reload} /> : null}
       {data ? <Schedules agent={agent} held={data} onChanged={reload} /> : failed ? null : <p className="muted">{t('loading')}</p>}
@@ -292,7 +292,7 @@ export function TriggersPage({ agent }: { agent: OwnAgent }) {
   const { t } = agentAutomationCopy.useCopy();
   const { data, failed, reload } = usePolled(() => api.query('agents', 'own.triggers.list', { id: agent.id }, triggersSchema));
   return (
-    <Panel title={t('triggersTitle')} role="region" aria-label={t('triggersTitle')}>
+    <Panel title={t('triggersTitle')}>
       <p className="muted">{t('triggersIntro')}</p>
       {failed && !data ? <Failure result={failed} retry={reload} /> : null}
       {data ? <Triggers agent={agent} held={data} onChanged={reload} /> : failed ? null : <p className="muted">{t('loading')}</p>}

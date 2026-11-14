@@ -7,6 +7,7 @@ import {
   type OwnAgentSchedule,
   type OwnAgentTrigger,
 } from '@intafaced/contracts';
+import { SUBJECT_PREFIX } from '@intafaced/events';
 import { formatAmount, MoneyError, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { AgentError, MeteredReplayError } from '../errors.js';
 import type { Guardrail } from '../fleet/guardrails.js';
@@ -536,14 +537,19 @@ export async function tickSchedules(
  * One delivery of a person's own event to their triggers on its subject. Under each trigger's row lock: the delivery is
  * recorded (a redelivery of an event id already seen is marked so), and the event's run row is written once; only the
  * delivery that wrote it runs it. The run row is the seen-set, in Postgres, so a restart never runs an event twice.
+ * `event.subject` is the bus subject as the envelope carries it (`intafaced.trade.fill.settled`); a trigger stores its
+ * subject without the bus prefix (`trade.fill.settled`).
  */
 export async function deliverTriggerEvent(
   deps: AutoRunDeps,
   event: { subject: string; userId: string; eventId: string; envelopeId: string },
 ): Promise<number> {
+  const prefix = `${SUBJECT_PREFIX}.`;
+  if (!event.subject.startsWith(prefix)) throw new Error(`deliverTriggerEvent takes a bus subject (${prefix}…), not ${event.subject}`);
+  const subject = event.subject.slice(prefix.length);
   const triggers = await deps.sql<Array<{ id: string }>>`
     SELECT id::text FROM agents.own_agent_triggers
-     WHERE subject = ${event.subject} AND owner_id = ${event.userId} AND state = 'active'
+     WHERE subject = ${subject} AND owner_id = ${event.userId} AND state = 'active'
   `;
   let ran = 0;
   for (const trigger of triggers) {

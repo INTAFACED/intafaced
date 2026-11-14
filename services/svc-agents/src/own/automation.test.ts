@@ -6,7 +6,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { assertTestDatabase, postgresAvailable } from '@intafaced/db';
-import { MemoryEventBus } from '@intafaced/events';
+import { EVENT_CATALOG, MemoryEventBus } from '@intafaced/events';
 import { MemoryLedger } from '@intafaced/ledger-client';
 import { ModelGateway } from '../gateway/gateway.js';
 import { parseRoutingTable } from '../gateway/routing.js';
@@ -339,7 +339,8 @@ if (!available) {
         perRunCap: '0.1',
         ask: 'TEST',
       });
-      const event = { subject: 'trade.fill.settled', userId: USER, eventId: 'fill-1' };
+      // The subject as the bus envelope carries it (intafaced.trade.fill.settled), as index.ts's consumer passes it.
+      const event = { subject: EVENT_CATALOG.fillSettled.subject, userId: USER, eventId: 'fill-1' };
       expect(await deliverTriggerEvent(deps, { ...event, envelopeId: 'env-1' })).toBe(1);
       expect(await deliverTriggerEvent(deps, { ...event, envelopeId: 'env-2' })).toBe(0);
       // A new process, as after a restart: the seen-set is the table.
