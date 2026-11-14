@@ -19,6 +19,9 @@ import { sourcesCopy } from './activity-sources-copy';
 
 type T = ReturnType<typeof sourcesCopy.useCopy>['t'];
 
+/** A figure exactly as its source reports it, to every place it has: a source's fee of 0.000000175 is never shown rounded. */
+const exact = (value: string) => fmtAmount(value, { places: 18 });
+
 const FILTER_WORD = {
   note: 'filter note',
   account: 'filter account',
@@ -276,14 +279,14 @@ function subOf(line: SourceLine, t: T): string | null {
     case 'trade': {
       const parts = [
         t(detail.side === 'buy' ? 'Paid {amount} {asset}' : 'Got {amount} {asset}', {
-          amount: fmtAmount(detail.quote.amount),
+          amount: exact(detail.quote.amount),
           asset: detail.quote.asset,
         }),
       ];
       if (detail.fee)
         parts.push(
           t(detail.fee.rebate ? 'Rebate {amount} {asset}' : 'Fee {amount} {asset}', {
-            amount: fmtAmount(detail.fee.amount),
+            amount: exact(detail.fee.amount),
             asset: detail.fee.asset,
           }),
         );
@@ -318,7 +321,7 @@ function LineRow({
   const up = line.direction === 'in';
   const counted = line.state === 'completed';
   const sub = subOf(line, t);
-  const amount = fmtAmount(line.amount);
+  const amount = exact(line.amount);
   return (
     <tr
       data-testid="money-act"
