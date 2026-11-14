@@ -313,7 +313,7 @@ test(`${J} #6 signs in on a new device: the same wallet once the passkey or reco
   browser,
 }) => {
   test.setTimeout(240_000);
-  const { who, address, walletId, recovery } = walletState();
+  const { who, address, walletId, credential, recovery } = walletState();
   if (!recovery) throw new Error(`${J} #5 added no recovery passkey, so there is no new device to sign in on`);
   await disconnectVenue(who, address);
 
@@ -332,6 +332,23 @@ test(`${J} #6 signs in on a new device: the same wallet once the passkey or reco
   } finally {
     await bare.close();
   }
+
+  // A new device with the wallet's own passkey, synced to it: the same wallet signs once its passkey check passes.
+  const synced = await browser.newContext({ baseURL: PASSKEY_ORIGIN });
+  try {
+    const page = await synced.newPage();
+    await device(page, [credential]);
+    await openRoom(page, who);
+    await expect(panel(page).locator('[data-embedded-address]')).toHaveText(address);
+    await expect(panel(page).locator('[data-embedded-wallet-id]')).toHaveText(walletId);
+    await page.getByRole('button', { name: 'Connect to the venue' }).click();
+    await expect(page.getByTestId('embedded-venue-expires')).toBeVisible({ timeout: 20_000 });
+    expect((await venueConnections(who)).map((c) => [c.address, c.status])).toEqual([[address, 'live']]);
+    expect((await onVenue(address)).agents).toEqual([]);
+  } finally {
+    await synced.close();
+  }
+  await disconnectVenue(who, address);
 
   // A new device with the recovery passkey: the same wallet signs.
   const fresh = await browser.newContext({ baseURL: PASSKEY_ORIGIN });
