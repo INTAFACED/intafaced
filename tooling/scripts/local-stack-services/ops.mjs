@@ -58,6 +58,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, opsOutreachEnv }) => ({
     ...(process.env.LOCAL_STACK_OPS_HOME_RECENT_ACTIVITY_LIMIT === 'off'
       ? {}
       : { OPS_HOME_RECENT_ACTIVITY_LIMIT: testValue('OPS_HOME_RECENT_ACTIVITY_LIMIT') }),
+    // The TEST price list Home and Assets value holdings with (valuation.prices, J-home-ia-01 #1 #3), off unless
+    // `LOCAL_STACK_VALUATION_PRICES=test` on a start or restart: off, no price is published and nothing is valued, as
+    // J-wallet-01 #4 reads it.
+    ...(process.env.LOCAL_STACK_VALUATION_PRICES === 'test' ? { OPS_VALUATION_TEST_PRICES: testValue('OPS_VALUATION_TEST_PRICES') } : {}),
     // Reconciliation alerts (OPS-reconciliation-03, J-ops-console-07 #8): the TEST repeat interval for in-console notices.
     // Unset, a repeat failure still counts and its notice reads ops.alert_repeat_unset. The ledger feed uses LEDGER_URL above.
     OPS_RECON_ALERT_REPEAT_SECONDS: testValue('OPS_RECON_ALERT_REPEAT_SECONDS'),

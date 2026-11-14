@@ -90,6 +90,11 @@ export const opsEnvSchema = baseEnvSchema
       OPS_HOME_SEARCH_RESULT_CAP: blankAsAbsent(z.string().optional()),
       OPS_HOME_NOTICE_STRIP_LIMIT: blankAsAbsent(z.string().optional()),
       OPS_HOME_RECENT_ACTIVITY_LIMIT: blankAsAbsent(z.string().optional()),
+      /**
+       * A TEST price list (`ASSET=usd,...`) Home and Assets value holdings with (`valuation.prices`). TEST stack only:
+       * set outside APP_ENV dev or test, svc-ops refuses to start. Blank → no price is published and nothing is valued.
+       */
+      OPS_VALUATION_TEST_PRICES: blankAsAbsent(z.string().optional()),
       /** svc-bank and svc-pay base URLs for the joint-restore watermark reads. Blank → that service reads as unavailable. */
       BANK_URL: blankAsAbsent(z.string().url().optional()),
       PAY_URL: blankAsAbsent(z.string().url().optional()),
