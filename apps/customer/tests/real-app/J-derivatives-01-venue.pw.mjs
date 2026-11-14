@@ -368,8 +368,11 @@ test(`${J} #9 opens the positions room: entry, mark, unrealised result, margin, 
   expect(p.marginMode).toBe('isolated');
   await expect(row.locator('[data-cell="leverage"]')).toHaveText(`${p.leverageBps / 10_000}x Isolated`);
   await expect(row.locator('[data-cell="liquidation"]')).toHaveText(p.liquidationPrice.known ? p.liquidationPrice.value : 'not known');
-  // The as-of line names a time (en-GB medium date and time, e.g. "As of 14 Nov 2026, 12:20:33"), not only the words.
-  await expect(room.getByTestId('venue-as-of')).toHaveText(/^As of \d{1,2} [A-Z][a-z]{2,3} \d{4}, \d{2}:\d{2}:\d{2}$/);
+  // The as-of line names a time, not only the words: en-GB medium date and time ("As of 14 Nov 2026, 12:20:33"), or the
+  // venue's own ISO time when the person's time zone can't format it (VenueKit useAsOfText; the TEST stack shows that).
+  await expect(room.getByTestId('venue-as-of')).toHaveText(
+    /^As of (\d{1,2} [A-Z][a-z]{2,3} \d{4}, \d{2}:\d{2}:\d{2}|\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z)$/,
+  );
   await expect(room.getByTestId('venue-test').first()).toHaveText('TEST');
 });
 
