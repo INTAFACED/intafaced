@@ -31,6 +31,16 @@
       "value": "1000",
       "note": "TEST: the most INTAFACED may owe in USDC rewards in all, so J-campaigns-03 can see a TEST reward owed. The owner's ceiling is zero until he sets it (OWNER 288). Not an owner decision."
     },
+    "CAMPAIGNS_REWARD_PAY_INTERVAL_MS": {
+      "service": "campaigns",
+      "value": "2000",
+      "note": "LOCAL TEST ONLY, not an owner decision: how often owed rewards are looked at for payment, every 2 seconds on the test stack so a journey sees a reward paid inside its run. Blank, no payer runs."
+    },
+    "CAMPAIGNS_REWARD_PAY_WALLET": {
+      "service": "campaigns",
+      "value": "test-chain:rewards=0x00000000000000000000000000000000ce510001",
+      "note": "LOCAL TEST ONLY, not an owner decision: INTAFACED's TEST rewards wallet on the stack's TEST chain, the same one svc-trade's sweep moves our collected TEST builder fees to (TRADE_OWN_FUNDS_WALLET). It has no key: svc-campaigns pays owed rewards from it by impersonating it on that anvil only (J-campaigns-03 #2 #3). Blank, no payer runs and an owed reward stays owed."
+    },
     "CAMPAIGNS_ROLLBACK_WINDOW_SECONDS": {
       "service": "campaigns",
       "value": "86400",

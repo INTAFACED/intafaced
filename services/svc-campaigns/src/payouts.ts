@@ -32,8 +32,8 @@ import {
  *   (`campaignBudgetFund`, keyed by this reward's claim, our decision), and then it is owed from that budget
  *   (`rewardOwe`, `campaigns:owe:<reward id>`), and the intent is `owed`. Owe is refused while the owner's reward ceiling
  *   is unset (`ledger.reward_ceiling_unset`) or would be passed (`ledger.reward_ceiling_exceeded`): both leave it
- *   `pending_retry` and nothing booked. Paying an owed reward to the customer's own wallet is a later step: nothing here
- *   sends or pays it, so an owed reward stays owed (`campaigns.reward_payout_unavailable`).
+ *   `pending_retry` and nothing booked. Paying an owed reward to the customer's own wallet is the payer's
+ *   (`reward-payer.ts`): until it pays, an owed reward stays owed (`campaigns.reward_payout_unavailable`).
  *
  * Order, every time: the intent row (and its terms) is written and committed first; then the row is moved to `posting`
  * by one conditional UPDATE, so of two attempts at once only one posts; then the post, with no transaction open; then the
@@ -54,7 +54,7 @@ export const REWARD_REASON = 'campaigns.task.reward';
 const RETRYABLE = ['qualified', 'pending_funding', 'pending_retry', 'unknown'] as const;
 const OPEN = [...RETRYABLE, 'posting'] as const;
 
-/** Why an owed reward is not in the customer's wallet yet: no payment to a customer's own wallet is built. */
+/** Why an owed reward is not in the customer's wallet yet: it has not been paid to their own wallet (`reward-payer.ts`). */
 export const PAYOUT_UNAVAILABLE = 'campaigns.reward_payout_unavailable';
 
 /** True for a reward on the launch path: paid in full, in USDC. Every other reward keeps the custodial recipes. */

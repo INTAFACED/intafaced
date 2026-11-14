@@ -1,6 +1,6 @@
 import type postgres from 'postgres';
 import { transaction } from '@intafaced/db';
-import { formatAmount, parseAmount } from '@intafaced/ledger-client';
+import { REWARD_ASSET, formatAmount, parseAmount } from '@intafaced/ledger-client';
 import {
   REWARD_STATUS_OF,
   type CampaignTasks,
@@ -94,6 +94,9 @@ type IntentRow = {
   settle: 'unlock' | 'forfeit' | null;
   owe_tx_id: string | null;
   owed_at: Date | null;
+  pay_to_wallet: string | null;
+  paid_at: Date | null;
+  paid_chain_tx: string | null;
 };
 
 /** What a locked row shows: its campaign's lock terms and how many unlock-step fills counted so far. */
@@ -658,7 +661,38 @@ export class TaskService {
    * Claims the caller's reward once. A second claim, or one sent again after a lost reply, returns the first intent as it
    * stands now (`created: false`) and posts nothing new.
    */
-  async claim(input: { campaignId: string; accountId: string }): Promise<TaskClaimResult> {
+  async claim(input: { campaignId: string; accountId: string; forwarded?: Record<string, string> }): Promise<TaskClaimResult> {
+    const result = await this.claimOnce(input);
+    if (await this.recordPayTo(input.accountId, input.forwarded ?? {})) {
+      return { reward: await this.record((await this.intent(result.reward.rewardKey))!), created: result.created };
+    }
+    return result;
+  }
+
+  /**
+   * Notes the wallet an owed reward is paid to: the first wallet the person has connected (svc-protocol's record, read for
+   * them during their own request), on each of their USDC rewards that has none yet and is not paid or closed. A reward
+   * keeps the wallet it was given; nothing here pays. Returns whether any reward was given one. Unread or no wallet:
+   * nothing changes, and the payer says the reward waits for a connected wallet.
+   */
+  async recordPayTo(accountId: string, forwarded: Record<string, string>): Promise<boolean> {
+    if (!this.venueDeposits || Object.keys(forwarded).length === 0) return false;
+    const [open] = await this.sql<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM campaigns.reward_intents
+      WHERE account_id = ${accountId} AND form = 'paid' AND asset = ${REWARD_ASSET} AND pay_to_wallet IS NULL
+        AND state NOT IN ('paid', 'failed', 'forfeited')`;
+    if (!open || open.n === 0) return false;
+    const wallets = await this.venueDeposits.wallets(forwarded);
+    const wallet = wallets?.find((w) => /^0x[0-9a-f]{40}$/.test(w));
+    if (!wallet) return false;
+    const set = await this.sql`
+      UPDATE campaigns.reward_intents SET pay_to_wallet = ${wallet}, updated_at = now()
+      WHERE account_id = ${accountId} AND form = 'paid' AND asset = ${REWARD_ASSET} AND pay_to_wallet IS NULL
+        AND state NOT IN ('paid', 'failed', 'forfeited')`;
+    return set.count > 0;
+  }
+
+  private async claimOnce(input: { campaignId: string; accountId: string }): Promise<TaskClaimResult> {
     const key = rewardKeyOf(input.campaignId, input.accountId, PERIOD_ONCE);
     const existing = await this.intent(key);
     // A reward withheld while the account was not active is looked at again on a later claim; any other stands.
@@ -798,7 +832,8 @@ export class TaskService {
    * Every reward of one account, newest first, with its campaign's name and plain status, and the totals by status and
    * asset summed from those rows (CM-rewards-hub-01). The account is the caller's principal, never a field.
    */
-  async myRewards(input: { accountId: string }): Promise<MyRewards> {
+  async myRewards(input: { accountId: string; forwarded?: Record<string, string> }): Promise<MyRewards> {
+    await this.recordPayTo(input.accountId, input.forwarded ?? {});
     const now = this.now();
     const [rows, groups] = await Promise.all([
       this.sql<(IntentRow & { campaign_name: string })[]>`
@@ -1259,6 +1294,10 @@ export class TaskService {
       reason: row.reason,
       ledgerTxId: row.ledger_tx_id,
       owed: row.owe_tx_id && row.owed_at ? { txId: row.owe_tx_id, at: iso(row.owed_at) } : null,
+      payout:
+        row.state === 'paid' && row.paid_chain_tx && row.pay_to_wallet && row.paid_at
+          ? { chainTx: row.paid_chain_tx, toWallet: row.pay_to_wallet, at: iso(row.paid_at) }
+          : null,
       createdAt: iso(row.created_at),
       postedAt: row.posted_at ? iso(row.posted_at) : null,
       holdUntil: row.hold_until ? iso(row.hold_until) : null,
