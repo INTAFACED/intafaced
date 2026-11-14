@@ -143,6 +143,20 @@ async function stepCode() {
   return next.code;
 }
 
+/**
+ * Signs in in the browser after #3 added the authenticator app: the password and the app's next code, as J-bank-02 does,
+ * since identity then asks every sign-in for the code (failure it prevents: run 43368584072, #4 stayed on /login).
+ */
+async function signInWithCode(page, who) {
+  const totpCode = account.run.read().secret ? await stepCode() : null;
+  await page.goto('/login');
+  if (totpCode) await page.fill('input[name=totp]', totpCode);
+  await page.fill('input[name=identifier]', who.email);
+  await page.fill('input[name=password]', who.password);
+  await page.getByRole('button', { name: /^sign in$/i }).click();
+  await expect(page).not.toHaveURL(/\/login/);
+}
+
 /** One of the person's own add-money requests, as svc-bank answers it. */
 async function addMoneyRequest(signedIn, requestId) {
   const input = encodeURIComponent(JSON.stringify({ requestId }));
@@ -614,7 +628,7 @@ test(`${J} #4 opens Buy to wallet in the ramps: the partner's purchase lands in 
   const added = await (await signedIn()).post('/api/bank/trpc/currencies.add', { assetId: 'USDC' });
   expect(added.status, `currencies.add: ${JSON.stringify(added.body).slice(0, 300)}`).toBe(200);
   const ledgerBefore = await (await signedIn()).balances();
-  await signIn(page, who);
+  await signInWithCode(page, who);
   const wallet = await connectWallet(page, dex, { tokens: [TOKEN_A] });
   const owner = wallet.address.toLowerCase();
   const before = await chainUsd(wallet.address);
