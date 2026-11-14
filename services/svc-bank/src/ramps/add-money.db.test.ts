@@ -514,8 +514,10 @@ describe('add money (J-bank-02)', () => {
       const first = await bank.addMoney.approved(request.requestId);
       expect(first.returnUrl).toBe(`http://127.0.0.1:3210/bank/ramps/new?request=${request.requestId}`);
       expect(first.request).toMatchObject({ status: 'pending', creditedAt: null });
+      expect(first.approvedNow).toBe(true);
       const again = await bank.addMoney.approved(request.requestId);
       expect(again.request).toEqual(first.request);
+      expect(again.approvedNow).toBe(false);
       // The customer's own read says the same (the router shows the customer's fields only).
       const { onramp: _approvedOnramp, ...approvedView } = first.request;
       expect(await caller.addMoney.request({ requestId: request.requestId })).toMatchObject(approvedView);

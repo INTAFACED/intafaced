@@ -303,9 +303,10 @@ export class AddMoneyService {
 
   /**
    * The partner's page: the payer approved the payment there. An opened request becomes `pending`; one already pending or
-   * credited answers as it stands. Answers where the partner sends the payer back. Moves no money.
+   * credited answers as it stands. Answers where the partner sends the payer back, and whether this call was the one
+   * that approved it (`approvedNow`), so the stand-in delivers a wallet purchase once. Moves no money.
    */
-  async approved(onrampId: string): Promise<{ request: AddMoneyRequestView; returnUrl: string }> {
+  async approved(onrampId: string): Promise<{ request: AddMoneyRequestView; returnUrl: string; approvedNow: boolean }> {
     const { partner } = this.wired();
     const { row, onramp } = await this.partnerRow(partner, onrampId);
     const moved =
@@ -318,7 +319,7 @@ export class AddMoneyService {
         : [];
     // Lost a race to another approve or a paid: read where it stands now.
     const now = moved[0] ?? (row.status === 'opened' ? await this.row(row.id) : row) ?? row;
-    return { request: this.withOnramp(now, onramp), returnUrl: partner.returnUrl(row.id) };
+    return { request: this.withOnramp(now, onramp), returnUrl: partner.returnUrl(row.id), approvedNow: moved.length > 0 };
   }
 
   /** The partner's own read of a payment it opened, for its page. */

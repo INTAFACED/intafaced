@@ -1,16 +1,7 @@
 // World: restart
 import fs from 'node:fs';
 import path from 'node:path';
-import {
-  createPublicClient,
-  createWalletClient,
-  decodeFunctionData,
-  defineChain,
-  encodeFunctionData,
-  formatUnits,
-  http,
-  parseAbi,
-} from 'viem';
+import { createPublicClient, decodeFunctionData, defineChain, encodeFunctionData, formatUnits, http, parseAbi } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { CHAIN_ID, TOKEN_A, TOKEN_B, UNBUILT, connectWallet, dexRun, fundOnTestChain, testChain } from './dex.mjs';
@@ -36,11 +27,11 @@ import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs
 // ledger posts nothing, read before and after.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
 // - #4 buys TEST USDC to the wallet on the bank's Add money page (/bank/ramps/new, "Deliver to: My wallet"), through the
-//   stack's TEST pay-in stand-in. This test plays the TEST partner's side, as J-bank-02 does: it says the payment was
-//   paid through the partner's signed job door, and it delivers the purchase itself on the TEST chain, from a TEST wallet
-//   of its own funded there, as TEST USD (the TEST chain's stand-in for USDC, as the TEST venue's deposit route names it).
-//   Money: the ledger posts nothing for a purchase delivered to the wallet, read before and after; the wallet's TEST USD
-//   is read from the TEST chain itself;
+//   stack's TEST pay-in stand-in. Once the payer approves, the stack's TEST partner (tooling/scripts/local-test-chain.mjs
+//   /payin-deliver, called by svc-bank's stand-in) delivers the purchase on the TEST chain from its own address, as TEST
+//   USD (the TEST chain's stand-in for USDC, as the TEST venue's deposit route names it), and the stand-in says it was
+//   paid with that transfer. The test sends nothing: it reads the transfer from the TEST chain itself. Money: the ledger
+//   posts nothing for a purchase delivered to the wallet, read before and after;
 // - /protocol/rails has no route table, burn, attestation or mint tracking (D-bridge-chain-03), and no cross-chain
 //   review sheet (RC-dex-protocol-04);
 // - there is no asset link review or contract-read docs (D-bridge-chain-04);
@@ -184,17 +175,11 @@ async function partnerPaid(body) {
   return answer;
 }
 
-/**
- * The TEST partner's delivery: `units` of TEST USD sent on the TEST chain to `to` from a TEST wallet of the partner's own,
- * funded there for this run. Returns the mined transfer's hash.
- */
-async function partnerDelivers(to, units) {
-  let { partnerKey } = account.run.read();
-  if (!partnerKey) {
-    partnerKey = testWalletKey();
-    fundOnTestChain(privateKeyToAccount(partnerKey).address, 'venue');
-    account.run.write({ partnerKey });
-  }
+/** The TEST pay-in partner's own address on the stack's TEST chain (tooling/scripts/local-test-chain.mjs PAYIN_PARTNER). */
+const PAYIN_PARTNER = '0x0000000000000000000000000000000000ba1d01';
+
+/** One delivery as the TEST chain itself records it: its receipt, its sender, and the ERC-20 transfer it made. */
+async function deliveryOnChain(hash) {
   const gate = testChain().gateUrl;
   const chain = defineChain({
     id: CHAIN_ID,
@@ -202,16 +187,17 @@ async function partnerDelivers(to, units) {
     nativeCurrency: { name: 'TEST ETH', symbol: 'TESTETH', decimals: 18 },
     rpcUrls: { default: { http: [gate] } },
   });
-  const sender = createWalletClient({ account: privateKeyToAccount(partnerKey), chain, transport: http(gate) });
-  const hash = await sender.writeContract({
-    address: TEST_USD,
-    abi: parseAbi(['function transfer(address to, uint256 amount) returns (bool)']),
-    functionName: 'transfer',
-    args: [to, units],
-  });
-  const receipt = await createPublicClient({ chain, transport: http(gate) }).waitForTransactionReceipt({ hash, timeout: 60_000 });
-  expect(receipt.status, 'the TEST partner’s delivery on the TEST chain').toBe('success');
-  return hash;
+  const client = createPublicClient({ chain, transport: http(gate) });
+  const receipt = await client.waitForTransactionReceipt({ hash, timeout: 60_000 });
+  const tx = await client.getTransaction({ hash });
+  const call = decodeFunctionData({ abi: parseAbi(['function transfer(address to, uint256 amount) returns (bool)']), data: tx.input });
+  expect(call.functionName).toBe('transfer');
+  return {
+    status: receipt.status,
+    from: tx.from.toLowerCase(),
+    token: tx.to?.toLowerCase(),
+    transfer: { to: call.args[0].toLowerCase(), amount: call.args[1] },
+  };
 }
 
 // ── the venue account room (#1 to #3) ────────────────────────────────────────────────────────────────────────────────
@@ -663,22 +649,30 @@ test(`${J} #4 opens Buy to wallet in the ramps: the partner's purchase lands in 
   await page.getByRole('button', { name: 'Approve payment' }).click();
   await page.waitForURL((at) => at.pathname === '/bank/ramps/new' && at.searchParams.get('request') === requestId);
   const tracker = page.getByTestId('add-money-tracker');
-  await expect(tracker).toHaveAttribute('data-status', 'pending');
-  await expect(page.getByTestId('tracker-delivery')).toHaveAttribute('data-state', 'waiting');
   await expect(page.getByTestId('tracker-delivery')).toContainText(owner);
 
-  // The TEST partner delivers the purchase to that address on the TEST chain, then says it was paid with that transfer.
-  const hash = await partnerDelivers(wallet.address, 3_000_000n);
-  const paid = await partnerPaid({ requestId, paidAmount: asked.onramp.payAmount, payCurrency: 'EUR', deliveryTx: hash });
-  expect(paid).toMatchObject({ requestId, status: 'delivered', walletAddress: owner, deliveryTx: hash, creditedAmount: null });
-  await expect(tracker).toHaveAttribute('data-status', 'delivered');
+  // The stack's TEST partner delivers the purchase to that address on the TEST chain, then says it was paid with that
+  // transfer: the request reads delivered, naming it, and nothing was credited here.
+  await expect(tracker).toHaveAttribute('data-status', 'delivered', { timeout: 90_000 });
+  const paid = await addMoneyRequest(signedIn, requestId);
+  expect(paid).toMatchObject({ requestId, status: 'delivered', walletAddress: owner, creditedAmount: null });
+  const hash = paid.deliveryTx;
+  expect(hash).toMatch(/^0x[0-9a-f]{64}$/i);
+  // That transfer is on the TEST chain: mined, sent by the TEST partner (not this test, not the wallet), moving
+  // 3 TEST USD to the wallet address.
+  const sent = await deliveryOnChain(hash);
+  expect(sent.status).toBe('success');
+  expect(sent.from).toBe(PAYIN_PARTNER);
+  expect(sent.from).not.toBe(owner);
+  expect(sent.token).toBe(TEST_USD);
+  expect(sent.transfer).toEqual({ to: owner, amount: 3_000_000n });
   await expect(tracker).toContainText('Delivered to your wallet');
   await expect(page.getByTestId('tracker-delivery')).toHaveText(new RegExp(`Delivered to ${owner}`));
   await expect(page.getByTestId('tracker-delivery-tx')).toHaveAttribute('href', `/chain/tx/${hash}`);
   // It landed in the wallet address: the TEST chain itself says the wallet holds 3 TEST USD more.
   expect(await chainUsd(wallet.address)).toBe(before + 3_000_000n);
   // Once: the partner saying paid again is the same delivery, and nothing more moves.
-  expect(await partnerPaid({ requestId, paidAmount: asked.onramp.payAmount, payCurrency: 'EUR', deliveryTx: hash })).toEqual(paid);
+  expect(await partnerPaid({ requestId, paidAmount: asked.onramp.payAmount, payCurrency: 'EUR', deliveryTx: hash })).toMatchObject(paid);
   expect(await chainUsd(wallet.address)).toBe(before + 3_000_000n);
   // The ledger posts nothing for a purchase delivered to the wallet: INTAFACED holds none of it.
   expect(await (await signedIn()).balances()).toEqual(ledgerBefore);

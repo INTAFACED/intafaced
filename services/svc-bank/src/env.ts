@@ -323,6 +323,12 @@ const schema = serviceEnvSchema
       BANK_PAYIN_SIM_PAGE_URL: z.string().optional(),
       /** LOCAL TEST: the customer app's loopback page the stand-in sends the payer back to. Read only with `payin-sim`. */
       BANK_PAYIN_SIM_RETURN_URL: z.string().optional(),
+      /**
+       * LOCAL TEST: the TEST partner's delivery on the stack's TEST chain (J-dex-protocol-05 #4), loopback. Set, a purchase
+       * for the buyer's own wallet is delivered there once the payer approves, and the stand-in says it paid with that
+       * transfer. Unset, a wallet purchase waits for the partner's "paid" job call. Read only with `payin-sim`.
+       */
+      BANK_PAYIN_SIM_DELIVER_URL: z.string().optional(),
 
       /**
        * MONEY-OUT STEP-UP (ADR 2026-10-14-money-out-step-up, phase 1). `off` | `required`.

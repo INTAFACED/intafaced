@@ -11,6 +11,11 @@ import type { OnrampPartner } from './payin-sim.js';
  * partner's hosted page: it shows the payment the partner opened, labelled TEST, and on "Approve payment" records that
  * the payer approved it (the request becomes `pending`) and sends the payer back to the app. It moves no money and takes
  * no sign-in, as a partner's page is not the bank's: the credit is only ever the partner's signed "paid" job call.
+ *
+ * A purchase for the buyer's own wallet (J-dex-protocol-05 #4), approved by this call: when the stand-in has a delivery
+ * address, the TEST partner then delivers it on the stack's TEST chain, after the payer is sent back, and says it was
+ * paid with that transfer, as a partner's "paid" call would. The bank posts nothing for it. A delivery that fails is
+ * logged and the request stays pending, waiting for the partner.
  */
 
 const id = z.object({ onrampId: z.string().uuid() }).strict();
@@ -45,7 +50,22 @@ ${request.walletAddress ? `<p data-testid="payin-sim-deliver-to">Delivered to th
 }
 
 /** The stand-in's page and its approve button, on this service's own address. */
-export function registerPayinSimPage(app: FastifyInstance, addMoney: Pick<AddMoneyService, 'opened' | 'approved'>, partner: OnrampPartner) {
+export function registerPayinSimPage(
+  app: FastifyInstance,
+  addMoney: Pick<AddMoneyService, 'opened' | 'approved' | 'paid'>,
+  partner: OnrampPartner,
+) {
+  /** The TEST partner delivers an approved wallet purchase, then says it was paid with that transfer. */
+  const deliver = async (request: AddMoneyRequestView) => {
+    if (!partner.deliver || !request.walletAddress || !request.onramp) return;
+    const deliveryTx = await partner.deliver({ to: request.walletAddress, assetId: request.assetId, amount: request.amount });
+    await addMoney.paid({
+      requestId: request.requestId,
+      paidAmount: request.onramp.payAmount,
+      payCurrency: request.onramp.payCurrency,
+      deliveryTx,
+    });
+  };
   const returnOrigin = new URL(partner.returnUrl('00000000-0000-4000-8000-000000000000')).origin;
   const headers = {
     'content-type': 'text/html; charset=utf-8',
@@ -75,7 +95,12 @@ export function registerPayinSimPage(app: FastifyInstance, addMoney: Pick<AddMon
       const params = id.safeParse(req.params);
       if (!params.success) return reply.code(400).send({ error: 'not a payment id', code: 'bank.validation_failed' });
       try {
-        const { returnUrl } = await addMoney.approved(params.data.onrampId);
+        const { request, returnUrl, approvedNow } = await addMoney.approved(params.data.onrampId);
+        if (approvedNow && request.walletAddress) {
+          void deliver(request).catch((err: unknown) =>
+            app.log.warn({ err, requestId: request.requestId }, 'payin-sim: the TEST partner did not deliver the wallet purchase'),
+          );
+        }
         return reply.code(303).header('location', returnUrl).send();
       } catch (err) {
         return refuse(reply, err);
