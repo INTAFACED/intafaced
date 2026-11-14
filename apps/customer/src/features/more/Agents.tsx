@@ -1,4 +1,5 @@
 import { copy, t as copyText, Text } from './copy';
+import { agentConnectCopy } from './agent-connect-copy';
 import { agentSessionCopy as sessionCopy } from './agents-session-copy';
 import { usePreferences } from '../../shared/preferences';
 import './agents-session.css';
@@ -1136,6 +1137,9 @@ export function Agents({ paper = false }: { paper?: boolean }) {
           </a>
           <a className="text-link" href="/support">
             <Text k="agents.open.support" />
+          </a>
+          <a className="text-link" href="/agents/connect">
+            <agentConnectCopy.Copy k="title" />
           </a>
         </Panel>
       )}

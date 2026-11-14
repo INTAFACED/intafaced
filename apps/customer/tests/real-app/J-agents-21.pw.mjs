@@ -8,11 +8,12 @@ import { signIn, signUp, verify } from './desk.mjs';
 import { openFounderDesk } from './agents.mjs';
 import { EDGE, ORIGIN, api, fromUnits, journeyState, tool, toUnits } from './stack.mjs';
 import { signedHeaders } from './developer.mjs';
-import { confirmStepUp, restorePasskey, testPasskey } from './p2p.mjs';
+import { browserHoldsPasskey, confirmStepUp, restorePasskey, testPasskey } from './p2p.mjs';
+import { PASSKEY_ORIGIN } from './identity-factors.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 
 // J-agents-21, in the running app (docs/roadmap/journeys.json): I let my own AI assistant trade on a capped account I
-// can revoke. This file holds the steps built so far (#1 #3 #4 #5 #8 #9 #10 #11 #12 #13 #14 #16 #17 #18 #19 #7 #15), one test per step,
+// can revoke. This file holds every step (#1 #2 #3 #4 #5 #6 #8 #9 #10 #11 #12 #13 #14 #16 #17 #18 #19 #7 #15), one test per step,
 // titled "J-agents-21 #<n>", run in order by one signed-in, verified TEST person with one TEST wallet key (kept in this
 // run's state) on the stack's TEST venue simulator (tooling/scripts/local-test-venue.mjs). Every figure the TEST venue
 // reports is TEST.
@@ -25,8 +26,9 @@ import { testWalletKey } from './test-wallet.mjs';
 //
 // The assistant (#8 #9 #10) is played by this test, calling Edge with the agent API key as an outside assistant would,
 // signing each request with the key's signing secret. Its key is made and connected to the agent account through the
-// API (identity's developerKeys.create with the TEST passkey, then the connection with step-up): a labelled TEST
-// stand-in for #6's Connect screen, which is a later piece. #13 closes against the perp the assistant opened in #8.
+// app: #6 makes it on /agents/connect (Connect your assistant) with the person's TEST passkey held by the browser's
+// virtual authenticator, and the test keeps the key and secret the page showed once. #13 closes against the perp the
+// assistant opened in #8.
 //
 // #7 runs last, on the second agent account: the assistant runs the MCP server (packages/assistant-mcp) as its own
 // process over stdio with the agent key, and buys TEST spot through its order tool. Not on the first account, because
@@ -36,13 +38,13 @@ import { testWalletKey } from './test-wallet.mjs';
 // #11 reads the connection's Activity through the API, as the connection's screen (a later piece, a design change) will:
 // every call the assistant made with the first key in #8 #9 #10, kept by the request id Edge answered each with.
 //
-// Not here, under the passing/unbuilt rule: #2 and #6 (the Connect your assistant screen) are a later piece.
+// #2 opens /agents/connect in the browser after #1 put the TEST ceiling back.
 //
 // #15 runs after #7, on the console (/more-ops/agents) as the stack's LOCAL TEST founder: the second TEST connection is
 // #7's key on the second agent account. Quarantine revokes the key at identity and ends the connection at svc-trade.
 //
 // #19 acts on the second agent account (#16), with two more agent keys the person makes with end dates through identity's
-// API (the same TEST stand-in): the venue's longest agent permission is the TEST venue's own declaration (GET /venue).
+// API (a TEST stand-in for the same Connect form, used where the step is not about the form): the venue's longest agent permission is the TEST venue's own declaration (GET /venue).
 //
 // #12's Revoke is the person's own two calls, as the connection's screen (a later piece, a design change) will send
 // them: identity switches the API key off (developerKeys.revoke), and svc-trade revokes the assistant on the agent
@@ -201,6 +203,34 @@ test(`${J} #1 With the owner's agent-account ceiling switched off for one restar
   expect(body200(await session.get(`${BASE}/terms`)).ceiling).not.toBeNull();
 });
 
+test(`${J} #2 With the TEST ceiling back, opens Connect your assistant: what the assistant can do (trade spot and perps in its own account) and what it cannot (move money, withdraw, bank, pay, cards), and a Create agent account control`, async ({
+  page,
+}) => {
+  const { session } = await person();
+  const terms = body200(await session.get(`${BASE}/terms`));
+  expect(terms.ceiling).not.toBeNull();
+  await signIn(page, state().account);
+  await page.goto('/agents/connect');
+  await expect(page.getByRole('heading', { name: 'Connect your assistant', level: 1 })).toBeVisible();
+  // What it can do: trade spot and perps, in its own account.
+  const can = page.getByTestId('agent-connect__can');
+  await expect(can.getByRole('heading', { name: 'What your assistant can do' })).toBeVisible();
+  await expect(can).toContainText('Trade spot and perps in its own agent account');
+  // What it cannot: move money, withdraw, bank, pay, cards.
+  const cannot = page.getByTestId('agent-connect__cannot');
+  await expect(cannot.getByRole('heading', { name: 'What it cannot do' })).toBeVisible();
+  await expect(cannot.getByRole('listitem')).toHaveText(['Move money between your accounts', 'Withdraw', 'Bank', 'Pay', 'Use cards']);
+  // The TEST ceiling is back: the page names it, and Create agent account is a live control.
+  await expect(page.getByTestId('agent-connect__ceiling')).toContainText(`${terms.ceiling} ${terms.asset}`);
+  const create = page.getByTestId('agent-connect__create').getByRole('button', { name: 'Create agent account', exact: true });
+  await expect(create).toBeEnabled();
+  await create.click();
+  await expect(page.getByLabel(`Cap (${terms.asset})`)).toBeVisible();
+  await expect(page.getByLabel(`First move in (${terms.asset})`)).toBeVisible();
+  // Opening the page and the form made nothing.
+  expect(body200(await session.get(BASE)).accounts).toEqual([]);
+});
+
 test(`${J} #3 Creates an agent account with a cap of TEST 200 USDC and funds it with 150, with step-up: a venue sub-account under the wallet; the wallet signs the move of 150 and the agent permission; balance 150.00 as the venue reports it, cap 200.00; the main venue account falls by exactly 150.00; a rejected signature moves nothing and makes no account`, async () => {
   test.setTimeout(300_000);
   const { session } = await person();
@@ -330,6 +360,93 @@ test(`${J} #5 Raises the cap above the owner's TEST ceiling: refused agents.acco
   expect(same(body200(await session.get(`${BASE}/${accountId}`)).cap, '200.00')).toBe(true);
 });
 
+test(`${J} #6 Connects the assistant, first asking for a withdraw scope, then with the trade scopes: the withdraw scope is refused at create auth.agent_scope_forbidden; then a key tagged Agent, bound to the agent account, with trade scopes only, its secret and the MCP setup shown once`, async ({
+  browser,
+}) => {
+  test.setTimeout(240_000);
+  const s = state();
+  const { session } = await person();
+  const listKeys = async () =>
+    body200(await session.get(`/api/identity/trpc/developerKeys.list?input=${encodeURIComponent(JSON.stringify({ limit: 200 }))}`)).result
+      .data.keys;
+  const keysBefore = await listKeys();
+  // The person in the app on the passkey origin, the browser's authenticator holding the account's TEST passkey.
+  const context = await browser.newContext({ baseURL: PASSKEY_ORIGIN });
+  try {
+    const page = await context.newPage();
+    await browserHoldsPasskey(page, s.passkey);
+    run.write({ passkey: { ...s.passkey, signCount: s.passkey.signCount + 1000 } });
+    await signIn(page, s.account);
+    await page.goto('/agents/connect');
+    const form = page.getByTestId('agent-connect__connect');
+    await expect(form.getByLabel('Agent account')).toHaveValue(s.accountId);
+
+    // First asking for a withdraw scope: refused at create, auth.agent_scope_forbidden; no key made, nothing connected.
+    await form.getByLabel('Key name').fill('TEST assistant');
+    await form.getByLabel('Withdraw (trade:withdraw)').check();
+    await expect(form.getByLabel('Place and cancel orders (trade:write)')).toBeChecked();
+    // Identity's own answer to the create the page sent (asked tagged Agent, with the withdraw scope): refused.
+    const refusedCreate = page.waitForResponse(
+      (res) => res.url().includes('/api/identity/trpc/developerKeys.create') && res.request().method() === 'POST',
+    );
+    await form.getByRole('button', { name: 'Connect with a passkey' }).click();
+    const refusedRes = await refusedCreate;
+    expect(refusedRes.request().postDataJSON()).toMatchObject({ kind: 'agent', scopes: expect.arrayContaining(['trade:withdraw']) });
+    expect(refusedRes.status()).toBe(403);
+    const refusedBody = await refusedRes.json();
+    expect(refusedBody.error?.data?.intafacedCode ?? refusedBody.error?.data?.cause?.code).toBe('auth.agent_scope_forbidden');
+    await expect(page.getByTestId('agent-connect__refusal')).toContainText('auth.agent_scope_forbidden');
+    expect(await listKeys()).toEqual(keysBefore);
+    expect(body200(await session.get(`${BASE}/connections`)).connections).toEqual([]);
+
+    // Then with the trade scopes: the key is made, and bound to the agent account after step-up with the passkey.
+    await form.getByLabel('Withdraw (trade:withdraw)').uncheck();
+    await form.getByRole('button', { name: 'Connect with a passkey' }).click();
+    await page.getByTestId('step-up-confirm').getByRole('button', { name: 'Use a passkey' }).click();
+    const shown = page.getByTestId('agent-connect__secret');
+    await expect(shown).toBeVisible();
+    await expect(shown.getByRole('alert')).toHaveText('Shown once. Copy it now: it can’t be shown again.');
+    await expect(shown.getByText('Agent', { exact: true })).toBeVisible();
+    const accountName = body200(await session.get(`${BASE}/${s.accountId}`)).name;
+    await expect(page.getByTestId('agent-connect__bound')).toHaveText(`Bound to agent account ${accountName}`);
+    await expect(page.getByTestId('agent-connect__scopes')).toHaveText('Permissions: trade:read, trade:write');
+    const agentKey = (await page.getByTestId('agent-connect__key').textContent()).trim();
+    const agentSecret = (await page.getByTestId('agent-connect__signing-secret').textContent()).trim();
+    expect(agentKey).toBeTruthy();
+    expect(agentSecret).toBeTruthy();
+    // The MCP setup: the server the assistant runs, with this key and secret.
+    const setup = JSON.parse(await page.getByTestId('agent-connect__mcp').textContent());
+    expect(setup.mcpServers.intafaced).toMatchObject({
+      command: 'node',
+      args: ['packages/assistant-mcp/src/server.ts'],
+      env: { INTAFACED_API_URL: PASSKEY_ORIGIN, INTAFACED_AGENT_KEY: agentKey, INTAFACED_AGENT_SIGNING_SECRET: agentSecret },
+    });
+
+    // As identity and svc-trade record it: one new key, tagged Agent, trade scopes only, bound to this agent account.
+    const made = (await listKeys()).filter((k) => !keysBefore.some((b) => b.id === k.id));
+    expect(made).toHaveLength(1);
+    expect(made[0]).toMatchObject({ kind: 'agent', scopes: ['trade:read', 'trade:write'], revoked: false });
+    expect(agentKey.startsWith(made[0].prefix)).toBe(true);
+    expect(body200(await session.get(`${BASE}/connections`)).connections).toEqual([
+      expect.objectContaining({ keyId: made[0].id, accountId: s.accountId, subAccount: s.subAccount }),
+    ]);
+    run.write({ agentKey, agentKeyId: made[0].id, agentSecret });
+
+    // Shown once: after Done, and after a fresh load, the page holds neither the key nor its secret.
+    await shown.getByRole('checkbox', { name: 'I have saved the key and the setup' }).check();
+    await shown.getByRole('button', { name: 'Done' }).click();
+    await expect(page.getByTestId('agent-connect__secret')).toHaveCount(0);
+    await expect(page.getByTestId('agent-connect__connections')).toContainText(accountName);
+    await page.reload();
+    await expect(page.getByTestId('agent-connect__connections')).toContainText('TEST assistant');
+    const html = await page.content();
+    expect(html).not.toContain(agentKey);
+    expect(html).not.toContain(agentSecret);
+  } finally {
+    await context.close();
+  }
+});
+
 /** The person's own wallet signs one action on the agent sub-account through the plain door. */
 async function onSubAccount(session, intent, actionKey = null, subAccount = state().subAccount) {
   const prepared = body200(
@@ -352,9 +469,9 @@ const PERP = { kind: 'place_order', symbol: 'BTC-PERP', type: 'market', amount: 
 // ── The assistant (#8 #9 #10): the test plays the person's own outside assistant, holding the agent API key ──────────
 
 /**
- * TEST stand-in for #6 (its Connect screen is a later piece): the person makes an agent key with trade scopes through
- * identity's API, answering the fresh-factor check with their TEST passkey, and connects it to the agent account with
- * step-up. Kept in this run's state; made once.
+ * The assistant's key: the first account's is the one #6 made on /agents/connect. For the second account, a TEST stand-in
+ * for the same form: the person makes an agent key with trade scopes through identity's API, answering the fresh-factor
+ * check with their TEST passkey, and connects it to the agent account with step-up. Kept in this run's state; made once.
  */
 async function assistantKey(which = 'first') {
   const s = state();
@@ -362,6 +479,7 @@ async function assistantKey(which = 'first') {
     if (!s.second) throw new Error(`${J} #16 opened no second agent account, so this step has no account to trade`);
     if (s.second.agentKey) return { ...s, ...s.second };
   } else if (s.agentKey) return s;
+  else throw new Error(`${J} #6 connected no assistant on /agents/connect, so this step has no assistant to act as`);
   const target = which === 'first' ? { accountId: s.accountId, subAccount: s.subAccount } : s.second;
   const { session, passkey } = await person();
   const options = await session.post('/api/identity/trpc/auth.stepUpOptions', {});

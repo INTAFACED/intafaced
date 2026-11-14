@@ -361,6 +361,8 @@ const messages = {
   'Launch requirements': 'Launch requirements',
   'My Launch orders': 'My Launch orders',
   'Launch project': 'Launch project',
+  'Connect your assistant': 'Connect your assistant',
+  'Let your own AI assistant trade on a capped account': 'Let your own AI assistant trade on a capped account',
   'New agent': 'New agent',
   'Your agent': 'Your agent',
   'Build an agent of your own': 'Build an agent of your own',
