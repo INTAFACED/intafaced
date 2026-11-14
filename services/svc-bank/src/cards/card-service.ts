@@ -485,6 +485,14 @@ export type RoundUpOutcome =
   | { readonly status: 'settled'; readonly amount: Amount; readonly positionId: string }
   /** Into one of the person's own spaces (BK-pots-02): the space and the own-space transfer that moved it. */
   | { readonly status: 'settled'; readonly amount: Amount; readonly spaceId: string; readonly ledgerTxId: string }
+  /** Into one of the person's own spaces the partner bank holds (OWNER 226): the partner's one move, nothing on the ledger. */
+  | {
+      readonly status: 'settled';
+      readonly amount: Amount;
+      readonly spaceId: string;
+      readonly ledgerTxId: null;
+      readonly partnerMoveId: string;
+    }
   | { readonly status: 'refused'; readonly amount: Amount; readonly reason: string };
 
 export type CaptureSettledHook = (event: {
@@ -492,6 +500,8 @@ export type CaptureSettledHook = (event: {
   assetId: string;
   authorizationId: string;
   captured: Amount;
+  /** The card partner captured it (OWNER 226): the spare change may move only where the partner bank holds the money. */
+  partnerHeld?: boolean;
 }) => Promise<RoundUpOutcome>;
 
 export interface CardServiceOptions {
@@ -2231,8 +2241,9 @@ export class CardService {
   /**
    * The partner captures what the merchant took, and gives the rest of its hold back: two instructions, each once under
    * its key, the same two steps as the custodial path. Above the hold is the partner's to refuse (J-bank-14's Money line),
-   * and it does (`bank.card_partner_capture_exceeds_hold`). Nothing posts to our ledger, so no cashback and no round-up,
-   * which both pay from our book: each reads `bank.card_partner_held`.
+   * and it does (`bank.card_partner_capture_exceeds_hold`). Nothing posts to our ledger, so no cashback, which pays from
+   * our book (`bank.card_partner_held`). A round-up into one of the person's own spaces is their own money at the partner:
+   * it is one more partner move, from the account into the space, once (J-bank-07 #3).
    */
   private async capturePartnerHeld(card: CardRecord, authorization: AuthorizationRecord, merchantAmount: Amount): Promise<CaptureResult> {
     if (merchantAmount <= 0n) {
@@ -2290,7 +2301,7 @@ export class CardService {
             figures: (released ?? captured).answer?.figures ?? null,
           },
           cashback: { status: 'refused', amount: 0n, reason: 'bank.card_partner_held' },
-          roundUp: { status: 'skipped', amount: 0n, reason: 'bank.card_partner_held' },
+          roundUp: await this.applyRoundUp(card, authorization, capturedFunding, true),
           settlement: conversion ? { assetId: conversion.settlementAssetId, amount: merchantAmount, rate: conversion.rate } : null,
         };
       },
@@ -2652,7 +2663,12 @@ export class CardService {
    * Never throws out to `capture()`: a failed round-up must not look like a
    * failed purchase. Same posture as `payCashback`.
    */
-  private async applyRoundUp(card: CardRecord, authorization: AuthorizationRecord, captured: Amount): Promise<RoundUpOutcome> {
+  private async applyRoundUp(
+    card: CardRecord,
+    authorization: AuthorizationRecord,
+    captured: Amount,
+    partnerHeld = false,
+  ): Promise<RoundUpOutcome> {
     if (!this.onCaptureSettled) return { status: 'none', amount: 0n };
     try {
       return await this.onCaptureSettled({
@@ -2660,6 +2676,7 @@ export class CardService {
         assetId: card.assetId,
         authorizationId: authorization.id,
         captured,
+        ...(partnerHeld ? { partnerHeld } : {}),
       });
     } catch (err) {
       return {

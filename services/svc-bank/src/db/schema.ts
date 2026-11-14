@@ -1531,6 +1531,8 @@ export const autoInvestRuns = bank.table(
     status: autoInvestRunStatusEnum('status').notNull().default('pending'),
     amount: amount('amount'),
     ledgerTxId: text('ledger_tx_id'),
+    /** A round-up the partner bank made (OWNER 226): its own move reference; nothing on the ledger. */
+    partnerMoveId: text('partner_move_id'),
     positionId: text('position_id'),
     rejectionCode: text('rejection_code'),
     createdAt: createdAt(),
