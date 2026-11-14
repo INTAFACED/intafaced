@@ -222,11 +222,17 @@ test(`${J} #6 sells coins that arrived from outside: the lot's cost is unknown u
   await expect(main.locator('[data-figure="realised"]')).toHaveText('Not known');
   await expect(btc.locator('[data-col="cost"]')).toHaveText('Not known');
 
-  // With balances hidden (the eye on Money) the quantity inside that sentence is masked too, as every figure on the page is.
+  // With balances hidden (the eye, the account's own choice) the quantity inside that sentence is masked too, as every
+  // figure on the page is. The eye is pressed on Home, where a venue account's wallet stays connected (as
+  // J-home-ia-01-venue does); on Money with the venue door on it was redrawn under the click (run 43613224113).
   const eye = async (name) => {
-    await page.goto('/money');
-    const written = page.waitForResponse((res) => res.url().includes('preferences.set') && res.request().method() === 'POST');
-    await page.getByRole('button', { name }).first().click();
+    await page.goto('/');
+    const button = page.getByRole('button', { name }).first();
+    await expect(button).toBeVisible({ timeout: 30_000 });
+    const written = page.waitForResponse((res) => res.url().includes('preferences.set') && res.request().method() === 'POST', {
+      timeout: 30_000,
+    });
+    await button.click({ timeout: 30_000 });
     expect((await written).status()).toBe(200);
   };
   await eye('Hide balances');
