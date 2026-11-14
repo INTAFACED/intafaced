@@ -38,6 +38,7 @@ import { Watchlist } from './Watchlist';
 import { GetStarted } from './GetStarted';
 import { LearnStrip } from './LearnStrip';
 import { RecentActivity } from './RecentActivity';
+import { useRecentActivityLimit } from './recent-activity-limit';
 import { WorkList } from './WorkList';
 import { TotalFigure, TotalUnitNote } from './TotalFigure';
 import { HOME_LINKS } from './links';
@@ -250,6 +251,7 @@ function HomeSimple() {
   const movers = useMovers(6);
   const { userId } = useSession();
   const activity = useActivity();
+  const activityLimit = useRecentActivityLimit();
   const { favorites, isFavorite, toggle } = useFavorites(userId);
   const favoriting = useMemo(() => ({ isFavorite, toggle }), [isFavorite, toggle]);
 
@@ -387,7 +389,7 @@ function HomeSimple() {
                   </section>
                 ) : null;
               case 'activity':
-                return <RecentActivity key={id} activity={activity} hidden={hideBalances} />;
+                return <RecentActivity key={id} activity={activity} limit={activityLimit} hidden={hideBalances} />;
               case 'learn':
                 return <LearnStrip key={id} />;
               default:

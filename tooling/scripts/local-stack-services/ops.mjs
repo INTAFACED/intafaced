@@ -53,6 +53,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, opsOutreachEnv }) => ({
     ...(process.env.LOCAL_STACK_OPS_HOME_NOTICE_STRIP_LIMIT === 'off'
       ? {}
       : { OPS_HOME_NOTICE_STRIP_LIMIT: testValue('OPS_HOME_NOTICE_STRIP_LIMIT') }),
+    // How many movements Home's Recent activity lists (J-home-ia-01 #5), TEST in the same profile.
+    // `LOCAL_STACK_OPS_HOME_RECENT_ACTIVITY_LIMIT=off` on a start or restart leaves it blank, so the list says "not set".
+    ...(process.env.LOCAL_STACK_OPS_HOME_RECENT_ACTIVITY_LIMIT === 'off'
+      ? {}
+      : { OPS_HOME_RECENT_ACTIVITY_LIMIT: testValue('OPS_HOME_RECENT_ACTIVITY_LIMIT') }),
     // Reconciliation alerts (OPS-reconciliation-03, J-ops-console-07 #8): the TEST repeat interval for in-console notices.
     // Unset, a repeat failure still counts and its notice reads ops.alert_repeat_unset. The ledger feed uses LEDGER_URL above.
     OPS_RECON_ALERT_REPEAT_SECONDS: testValue('OPS_RECON_ALERT_REPEAT_SECONDS'),

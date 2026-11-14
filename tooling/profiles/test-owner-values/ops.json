@@ -46,6 +46,11 @@
       "value": "3",
       "note": "TEST number of the latest announcements Home's strip shows. Not an owner decision; it only lets J-home-ia-06 #2-#4 run on the test stack, and `LOCAL_STACK_OPS_HOME_NOTICE_STRIP_LIMIT=off` leaves it blank for #1's refusal."
     },
+    "OPS_HOME_RECENT_ACTIVITY_LIMIT": {
+      "service": "ops",
+      "value": "3",
+      "note": "TEST number of the newest movements Home's Recent activity lists. Not an owner decision; it only lets J-home-ia-01 #5 run on the test stack, and `LOCAL_STACK_OPS_HOME_RECENT_ACTIVITY_LIMIT=off` leaves it blank for the list's \"not set\"."
+    },
     "OPS_RECON_ALERT_REPEAT_SECONDS": {
       "service": "ops",
       "value": "5",

@@ -51,6 +51,7 @@ import { savePreferences, usePreferences } from '../../shared/preferences';
 import { HOME_LINKS } from './links';
 import { TotalFigure, TotalUnitNote } from './TotalFigure';
 import { RecentActivity } from './RecentActivity';
+import { useRecentActivityLimit } from './recent-activity-limit';
 import { WorkList } from './WorkList';
 import { GetStarted } from './GetStarted';
 import { useStartedTile } from './started-data';
@@ -606,6 +607,7 @@ export function HomePro() {
   const orders = useOpenOrders();
   const markets = useMarkets();
   const activity = useActivity();
+  const activityLimit = useRecentActivityLimit();
   const home = useHomeLayout();
   const tiles = shownTiles(home.layout, 'pro');
   const started = useStartedTile(portfolio, tiles.includes('started'));
@@ -651,7 +653,14 @@ export function HomePro() {
             return showAssets ? <Assets key={id} portfolio={portfolio} hidden={hideBalances} /> : null;
           case 'activity':
             return (
-              <RecentActivity key={id} activity={activity} hidden={hideBalances} className="hp-panel hp-activity" testId="hp-activity" />
+              <RecentActivity
+                key={id}
+                activity={activity}
+                limit={activityLimit}
+                hidden={hideBalances}
+                className="hp-panel hp-activity"
+                testId="hp-activity"
+              />
             );
           case 'markets':
             return <MarketsPanel key={id} />;
