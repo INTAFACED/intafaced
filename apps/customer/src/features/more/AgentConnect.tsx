@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { z } from 'zod';
 import type { ApiKeyCreateOutput, ApiKeyList } from '@intafaced/contracts/api-keys';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
@@ -28,6 +29,7 @@ import {
   venueTotal,
   type AgentAccount,
   type AgentConnection,
+  type AgentNext,
   type AgentTerms,
 } from './agent-connect-api';
 import { agentConnectCopy as copy } from './agent-connect-copy';
@@ -223,6 +225,23 @@ function Room({ data, reload }: { data: Extract<Ready, { off: false }>; reload: 
   );
 }
 
+/** The EIP-712 domain the wallet reads, every field the venue sent kept as sent (a salt included). */
+const walletDomain = z
+  .object({
+    name: z.string().optional(),
+    version: z.string().optional(),
+    chainId: z.union([z.number(), z.string()]).optional(),
+    verifyingContract: z.string().optional(),
+  })
+  .passthrough();
+
+/** The venue's payload with its domain types declared, as the wallet signs it; null when its domain is not one. */
+function walletTypedData(typed: AgentNext['prepared']['typedData']): TypedDataDocument | null {
+  const withTypes = withDomainTypes(typed);
+  const domain = walletDomain.safeParse(withTypes.domain);
+  return domain.success ? { ...withTypes, domain: domain.data } : null;
+}
+
 type CreateAsk = { accountId: string; owner: string; asset: string; cap: string; fund: string };
 
 /**
@@ -265,7 +284,8 @@ function CreateAccount({ terms, reload }: { terms: AgentTerms; reload: () => voi
       const next = view.next;
       if (!alive.current) return;
       setBusy(t('signing', { step: STEP_KEY[next.step] ? t(STEP_KEY[next.step]!) : next.step }));
-      const typedData = withDomainTypes(next.prepared.typedData) as unknown as TypedDataDocument;
+      const typedData = walletTypedData(next.prepared.typedData);
+      if (!typedData) return setMessage({ text: t('payloadUnreadable'), failed: true });
       const signed = await wallet.sign({ kind: 'typedData', typedData });
       if (signed.status !== 'signed') {
         if (signed.status === 'rejected' && view.status === 'opening') {

@@ -27,7 +27,7 @@ const en = {
   colStatus: 'Status',
   colBalance: 'Balance (as the venue reports it)',
   colCap: 'Cap',
-  notOpened: 'Not opened yet',
+  notOpened: 'No venue sub-account',
   status_opening: 'Opening',
   status_open: 'Open',
   status_closed: 'Closed',
@@ -59,6 +59,7 @@ const en = {
   step_move_out: 'the move back',
   step_revoke_agent: 'the venue’s revoke',
   rejected: 'You rejected the signature. Nothing moved and no account was made.',
+  payloadUnreadable: 'The venue sent an action your wallet cannot read, so nothing was signed or sent.',
   walletFailed: 'Your wallet did not sign: {reason}. Nothing was sent.',
   created: 'Agent account open: balance {balance} {asset}, cap {cap} {asset}, as the venue reports it.',
 
