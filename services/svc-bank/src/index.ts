@@ -159,7 +159,12 @@ const assetRegistry = createLedgerAssetRegistry(env.LEDGER_URL, env.INTERNAL_SER
 /** Who takes add-money payments: unset unless the TEST stand-in was chosen, which refuses to boot outside dev/test. */
 const onrampPartner = onrampPartnerFor(
   env.BANK_ONRAMP_PARTNER,
-  { catalogueJson: env.BANK_PAYIN_SIM_JSON, pageUrl: env.BANK_PAYIN_SIM_PAGE_URL, returnUrl: env.BANK_PAYIN_SIM_RETURN_URL },
+  {
+    catalogueJson: env.BANK_PAYIN_SIM_JSON,
+    pageUrl: env.BANK_PAYIN_SIM_PAGE_URL,
+    returnUrl: env.BANK_PAYIN_SIM_RETURN_URL,
+    deliverUrl: env.BANK_PAYIN_SIM_DELIVER_URL,
+  },
   { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV },
 );
 

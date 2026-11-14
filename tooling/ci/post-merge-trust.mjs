@@ -552,7 +552,7 @@ async function timeLimitCheck({ repo, name, runId, sha, runUrl, timedOut }) {
     const body = [
       `${timedOut.map((j) => `\`${j}\``).join(', ')} hit a time limit on \`${sha.slice(0, 10)}\` ([run ${runId}](${runUrl})), so ${timedOut.length === 1 ? 'its' : 'their'} journeys did not finish and count as not passing.`,
       '',
-      'Find the step that hangs, or give the journeys more shards (MAX_SHARDS in tooling/scripts/journey-shards.mjs); never shorten or skip a journey to fit.',
+      'Find the step that hangs, or give the journeys more shards (MAIN_MAX_SHARDS for main, MAX_SHARDS elsewhere, in tooling/scripts/journey-shards.mjs); never shorten or skip a journey to fit.',
       '',
       '_Opened by tooling/ci/post-merge-trust.mjs. It closes itself on the next run where no job hits its limit._',
     ].join('\n');

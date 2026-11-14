@@ -6,8 +6,9 @@ import { test, expect } from './journey.mjs';
 import { CHAIN_ID, fundOnTestChain, testChain } from './dex.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
-import { api, journeyState, restartWith, ROOT, tool } from './stack.mjs';
+import { api, journeyState, restartWith, ROOT } from './stack.mjs';
 import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs';
+import { testVenue, venueBalance, venueForThisFile, venueRecord } from './venue.mjs';
 
 // J-wallet-09, in the running app (docs/roadmap/journeys.json): I connect my own wallet and fund my venue account from
 // it. One test per step, titled "J-wallet-09 #<n>", run in order by one signed-in TEST person with one TEST browser wallet
@@ -22,8 +23,11 @@ import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs
 // request from AA, and the person, signed in again, is refused denied.region_blocked with that region's reason in the
 // room. Both are put back after. The stack's screened regions are a repository secret, so the test plays the TEST
 // region, never one of them, and the sanctions list is never touched.
-// #3 and #5 run on the TEST venue simulator behind svc-trade's user-venue door: #3 restarts trade with
-// `LOCAL_STACK_USER_VENUE=on` (which starts the TEST venue, tooling/scripts/local-test-venue.mjs) and #5 puts it back off.
+// The whole file runs on the TEST venue simulator behind svc-trade's user-venue door: the venue fixture (venue.mjs
+// `venueForThisFile`) restarts trade with `LOCAL_STACK_USER_VENUE=on` (which starts the TEST venue,
+// tooling/scripts/local-test-venue.mjs) before #1 and puts it back off after the file. Every step reads the TEST venue's
+// own record for the wallet on loopback (venue.mjs `venueRecord`, `venueBalance`), never our door or ledger: what the
+// venue holds for it, and that the venue knows no agent key for it, which is what any key INTAFACED held would have to be.
 // The TEST venue takes deposits of the stack's TEST chain's TEST USD at its TEST deposit address and credits the sender
 // as USDC (TEST USDC), and pays withdrawals back on that chain (packages/venue-sim src/chain-deposits.ts). The run's wallet
 // is connected to the TEST chain and funded with TEST ETH for gas and 100 TEST USD (`fund <address> venue`). A withdrawal
@@ -41,14 +45,24 @@ const REGION_REASON = 'TEST region, not served at launch';
 const NO_KEY = 'INTAFACED holds no key that can move this wallet’s funds. You sign every venue action in your own wallet.';
 /** The stack's TEST chain's TEST USD (services/svc-protocol/scripts/seed-test-chain.ts TEST_TOKENS.USD), 6 decimals. */
 const TEST_USD = '0x000000000000000000000000000000000000d011';
-/** The TEST venue's own TEST controls (packages/venue-sim src/http-server.ts), on the stack's loopback port. */
-const TEST_VENUE = 'http://127.0.0.1:14560';
 /** The TEST venue's published fees (packages/venue-sim simulator.ts defaults): a 1 USDC withdrawal fee, a 0.25 network fee. */
 const VENUE_FEE = '1 TEST USDC';
 const NETWORK_FEE = '0.25 TEST USDC';
 const totpLib = () => import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'));
 
 test.describe.configure({ mode: 'default' });
+venueForThisFile(test);
+
+/**
+ * The TEST venue's own record for `address`, read on loopback (venue.mjs): its TEST USDC balance, the agent keys it
+ * would accept for the account, and the on-chain deposits it has seen. Each read carries the venue's as-of time.
+ */
+async function onVenue(address) {
+  const agents = await venueRecord(address, '/agents');
+  const deposits = await venueRecord(address, '/deposits');
+  expect(typeof agents.asOf, 'the venue answers with its as-of time').toBe('string');
+  return { usdc: await venueBalance(address, 'USDC'), agents: agents.value, deposits: deposits.value };
+}
 
 function state() {
   const s = run.read();
@@ -180,6 +194,15 @@ test(`${J} #1 opens Wallet and presses Connect: a message to sign; a wallet on t
   await sheet(page).getByRole('button', { name: 'Cancel' }).click();
   await expect(page.getByText('You cancelled the signature')).toBeVisible();
   expect((await recorded(who)).connections).toEqual([]);
+
+  // Nothing was connected on the venue either: its own record for the refused wallet and for the person's wallet, which
+  // only asked for a message, holds no agent key, no deposit and no TEST USDC.
+  for (const wallet of [LISTED, address]) {
+    const venue = await onVenue(wallet);
+    expect(venue.agents, `the venue knows no agent key for ${wallet}`).toEqual([]);
+    expect(venue.deposits).toEqual([]);
+    expect(venue.usdc).toMatchObject({ free: '0', locked: '0' });
+  }
 });
 
 test(`${J} #2 signs with the wallet: it shows connected with its expiry; INTAFACED holds no key that can move its funds`, async ({
@@ -204,6 +227,9 @@ test(`${J} #2 signs with the wallet: it shows connected with its expiry; INTAFAC
     { address, chainId: CHAIN_ID, connectedAt: expect.any(String), expiresAt, status: 'live', holdsKey: false },
   ]);
   expect(JSON.stringify(connections)).not.toMatch(/0x[0-9a-fA-F]{64}/);
+  // The venue's own record agrees: connecting approved no agent key for the wallet, so the only signer the venue accepts
+  // for its account is the wallet itself. A key INTAFACED held could act on the venue only as such an agent.
+  expect((await onVenue(address)).agents, 'the venue knows no agent key for the connected wallet').toEqual([]);
   run.write({ expiresAt });
 
   // The connection is the service's: a reload reads it back with the same expiry.
@@ -221,19 +247,6 @@ async function venueDoor(who) {
   const { status, body } = await (await api(who)).get('/api/v1/venue/status');
   if (status !== 200) throw new Error(`venue status refused: ${status} ${JSON.stringify(body).slice(0, 300)}`);
   return body;
-}
-
-/** Restarts trade with the user-venue door on (which starts the TEST venue) or off, and puts this process's env back. */
-function userVenue(on) {
-  const before = process.env.LOCAL_STACK_USER_VENUE;
-  if (on) process.env.LOCAL_STACK_USER_VENUE = 'on';
-  else delete process.env.LOCAL_STACK_USER_VENUE;
-  try {
-    tool('local-test-stack.mjs', 'restart', 'trade');
-  } finally {
-    if (before === undefined) delete process.env.LOCAL_STACK_USER_VENUE;
-    else process.env.LOCAL_STACK_USER_VENUE = before;
-  }
 }
 
 /** Mines `n` empty blocks on the stack's TEST chain (`evm_mine`, the TEST chain's own control). */
@@ -283,7 +296,7 @@ async function connectedNow(page) {
 test(`${J} #3 deposits TEST USDC from the wallet into the venue account: the user signs in the wallet; the venue credits it; the app shows the venue's figure with an as-of time; the ledger posts nothing`, async ({
   page,
 }) => {
-  // One restart of trade (and the TEST venue's start), and the venue's credit.
+  // The person's verification and the venue's credit.
   test.setTimeout(300_000);
   const { who, walletKey, verified } = state();
   const address = privateKeyToAccount(walletKey).address;
@@ -295,7 +308,6 @@ test(`${J} #3 deposits TEST USDC from the wallet into the venue account: the use
     await verify(page, who);
     run.write({ verified: true });
   }
-  if (!(await venueDoor(who)).deposit) userVenue(true);
   const door = await venueDoor(who);
   expect(door).toMatchObject({
     enabled: true,
@@ -337,7 +349,14 @@ test(`${J} #3 deposits TEST USDC from the wallet into the venue account: the use
   expect(Math.abs(Date.parse(asOf) - Date.now())).toBeLessThan(120_000);
   // The tokens left the person's own wallet on chain, to the venue: the deposit is their transfer.
   expect(onChainBefore - (await chainUsd(address))).toBe(25_000_000n);
-  // The venue's own record, read through the door, is the same figure.
+  // The venue's own record, read from the TEST venue itself, is the same figure: one credited on-chain deposit of
+  // exactly the amount, from this wallet's transfer, and that much TEST USDC free.
+  const venue = await onVenue(address);
+  expect(venue.usdc).toMatchObject({ free: DEPOSIT, locked: '0' });
+  expect(venue.deposits).toHaveLength(1);
+  expect(venue.deposits[0]).toMatchObject({ asset: 'USDC', amount: DEPOSIT, status: 'credited' });
+  expect(venue.deposits[0].txHash.toLowerCase()).toBe(String(wallet.sends[0].hash).toLowerCase());
+  // And through the door the room reads, the same.
   const read = await (await api(who)).get(`/api/v1/venue/balances?owner=${address.toLowerCase()}`);
   expect(read.body.value.find((b) => b.asset === 'USDC')).toMatchObject({ free: DEPOSIT, locked: '0' });
   // A reload reads the venue's figure again, never a figure the app kept: still exactly the deposit, credited once.
@@ -364,8 +383,10 @@ async function roomSettled(page) {
 
 test(`${J} #4 lets the connection expire: every signed action refuses until the wallet signs again`, async ({ page }) => {
   test.setTimeout(180_000);
-  const { who, walletKey } = state();
-  await openVenue(page, who, walletKey);
+  const { who, walletKey, deposited } = state();
+  if (!deposited) throw new Error(`${J} #3 made no deposit, so this step can't see that nothing moved on the venue`);
+  const address = privateKeyToAccount(walletKey).address;
+  const wallet = await openVenue(page, who, walletKey);
   // A connection that is live now, so this step watches it expire.
   await roomSettled(page);
   if (await page.getByRole('button', { name: 'Sign again' }).isVisible()) await connectAndSign(page, 'Sign again');
@@ -379,21 +400,54 @@ test(`${J} #4 lets the connection expire: every signed action refuses until the 
   await expect(page.getByRole('button', { name: 'Sign again' })).toBeVisible();
   expect((await recorded(who)).connections.map((c) => c.status)).toEqual(['expired']);
 
-  // Every signed action is refused by the service, by name, and nothing is asked of the wallet.
-  for (const action of ['Deposit TEST USDC', 'Withdraw TEST USDC']) {
-    await venueAction(page, action).click();
+  // Every signed action is refused by the service, by name, and nothing is asked of the wallet. Each action starts on a
+  // freshly loaded room with no refusal showing, so the refusal seen is that action's own: svc-protocol's answer to its
+  // own `venueWallet.authorize` call, for that action.
+  for (const [label, action] of [
+    ['Deposit TEST USDC', 'deposit'],
+    ['Withdraw TEST USDC', 'withdraw'],
+  ]) {
+    await page.reload();
+    const again = page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` });
+    await expect(page.getByRole('heading', { name: 'Connection expired' }).or(again)).toBeVisible();
+    if (await again.isVisible()) await again.click();
+    await expect(page.getByRole('heading', { name: 'Connection expired' })).toBeVisible();
+    await expect(page.getByText('protocol.venue_connection_expired')).toHaveCount(0);
+    await expect(page.getByText('Your wallet must sign again')).toHaveCount(0);
+    const authorized = page.waitForResponse(
+      (res) => res.url().includes('venueWallet.authorize') && (res.request().postData() ?? '').includes(`"${action}"`),
+    );
+    await venueAction(page, label).click();
+    const answer = await authorized;
+    expect(await answer.text(), `${action}: svc-protocol's own answer`).toContain('protocol.venue_connection_expired');
     await expect(page.getByText('Your wallet must sign again')).toBeVisible();
     await expect(page.getByText('protocol.venue_connection_expired')).toBeVisible();
     await expect(sheet(page)).toHaveCount(0);
   }
+  expect(wallet.sends).toEqual([]);
+  // Nothing moved on the venue: its own record still holds exactly #3's deposit, and no agent key.
+  const venue = await onVenue(address);
+  expect(venue.usdc).toMatchObject({ free: deposited, locked: '0' });
+  expect(venue.deposits).toHaveLength(1);
+  expect(venue.agents).toEqual([]);
 
   // Until the wallet signs again: then the connection is live with a new expiry, and the expiry refusal is gone.
   await connectAndSign(page, 'Sign again');
   const renewed = await page.getByTestId('venue-connection-expires').getAttribute('datetime');
   expect(Date.parse(renewed)).toBeGreaterThan(Date.parse(expiresAt));
-  await venueAction(page, 'Deposit TEST USDC').click();
-  await expect(page.getByText('protocol.venue_connection_expired')).toHaveCount(0);
   expect((await recorded(who)).connections.map((c) => c.status)).toEqual(['live']);
+  // The signed action now goes through to the signature: Deposit opens the plain-words sheet that asks the wallet, with
+  // no expiry refusal. The person cancels there, so nothing is sent and the venue still holds exactly #3's deposit.
+  await page.getByRole('region', { name: 'Venue actions' }).getByLabel('Amount').fill('1');
+  await venueAction(page, 'Deposit TEST USDC').click();
+  await expect(sheet(page).getByRole('button', { name: 'Continue in wallet' })).toBeVisible();
+  await expect(page.getByText('protocol.venue_connection_expired')).toHaveCount(0);
+  await expect(page.getByText('Your wallet must sign again')).toHaveCount(0);
+  await sheet(page).getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.getByText('You cancelled in the wallet')).toBeVisible();
+  await expect(page.getByText('Nothing was signed or sent.')).toBeVisible();
+  expect(wallet.sends).toEqual([]);
+  expect((await onVenue(address)).usdc).toMatchObject({ free: deposited, locked: '0' });
 });
 
 /** Presses Withdraw for `amount`, confirms with a fresh authenticator code, and continues to the wallet. */
@@ -413,25 +467,21 @@ async function withdrawWithCode(page, amount, code) {
 
 /** The TEST venue's own switch for the network fee it reports (TEST control, never part of the venue interface). */
 async function networkFeeSwitch(fee) {
-  const res = await fetch(`${TEST_VENUE}/test/switches`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ networkFee: fee }),
-  });
-  expect(res.status).toBe(200);
+  const { status } = await testVenue('/test/switches', { networkFee: fee });
+  expect(status).toBe(200);
 }
 
 test(`${J} #5 withdraws TEST USDC from the venue to the wallet: the user signs; the venue's withdrawal shows pending then done, with the venue's fee and the network fee, or "not known"`, async ({
   page,
 }) => {
-  // Four withdrawals, each with a fresh authenticator code (a new 30-second step), the venue's delay, and a restart.
+  // Four withdrawals, each with a fresh authenticator code (a new 30-second step), and the venue's delay.
   test.setTimeout(480_000);
   const { who, walletKey, deposited } = state();
   if (!deposited) throw new Error(`${J} #3 made no deposit, so there is nothing on the venue to withdraw`);
   const address = privateKeyToAccount(walletKey).address;
   const owner = address.toLowerCase();
   try {
-    if (!(await venueDoor(who)).deposit) userVenue(true);
+    expect((await venueDoor(who)).deposit, 'the venue door is on with its deposit route').toBeTruthy();
     const ledgerBefore = await (await api(who)).balances();
     const { totp } = await totpLib();
     const code = async () => {
@@ -494,12 +544,16 @@ test(`${J} #5 withdraws TEST USDC from the venue to the wallet: the user signs; 
     // The ledger posts nothing: the person's ledger balances are the same as before.
     const client = await api(who, { totpCode: await code() });
     expect(await client.balances()).toEqual(ledgerBefore);
-    // The venue's record, read through the door by its owner, is the room's figure.
+    // The venue's own record, read from the TEST venue itself, is the room's figure: 25 − (10 + 1) − (2 + 1) = 11, and
+    // still no agent key: both withdrawals were the wallet's own signatures.
+    const venue = await onVenue(address);
+    expect(venue.usdc).toMatchObject({ free: '11', locked: '0' });
+    expect(venue.agents).toEqual([]);
+    // And through the door, by its owner, the same.
     const read = await client.get(`/api/v1/venue/balances?owner=${owner}`);
     expect(read.body.value.find((b) => b.asset === 'USDC')).toMatchObject({ free: '11' });
   } finally {
+    // The TEST venue's network fee as it was; the venue fixture puts trade's door off after the file.
     await networkFeeSwitch({ known: true, value: '0.25' }).catch(() => undefined);
-    // The stack as it was: trade's user-venue door off again (the TEST venue keeps running, unreached).
-    userVenue(false);
   }
 });
