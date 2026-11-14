@@ -1,15 +1,16 @@
 // World: stack
 import { test, expect } from './journey.mjs';
 import { forgetSession } from './identity-factors.mjs';
+import { responseAfterNavigation } from './navigation.mjs';
 import { businessReadyPerson, openBusiness, refusedPayCalls, signInWithCode, verifiedBusiness } from './merchant.mjs';
 
-// J-merchant-01 step 6 in the running app: notification preferences with their change history, and Support from the
-// portal. A preference change is a write, which needs a verified business, so the founder pair approves this one. A
+// J-merchant-01 step 6 in the running app: notification preferences saved per person with their change history, and
+// Support from the portal. A preference change is a write, which needs a verified business, so the founder pair approves this one. A
 // Viewer team member of that business holds notifications.read but not notifications.manage (svc-pay
 // merchant-ops/roles.ts), so every preference is greyed for them with the reason.
 const J = 'J-merchant-01';
 
-test(`${J} #6 the owner changes a notification preference, sees who changed it and when, and reaches Support from the portal`, async ({
+test(`${J} #6 the owner changes a notification preference, saved for them alone, sees who changed it and when, and reaches Support from the portal; a Viewer reads their own preferences greyed with the reason`, async ({
   page,
 }) => {
   test.setTimeout(480_000);
@@ -96,7 +97,11 @@ test(`${J} #6 the owner changes a notification preference, sees who changed it a
 
   // The Viewer reads the same preferences, each greyed: its switch and Save cannot be used, and the row says why, naming
   // the permission they lack.
-  await page.goto('/pay/settings/notifications');
+  const { res: viewerPrefs } = await responseAfterNavigation(
+    page,
+    (r) => r.url().includes('merchantOps.notifications.preferences.list') && r.request().method() === 'GET',
+    { navigate: () => page.goto('/pay/settings/notifications') },
+  );
   const viewerRows = page.locator('li[data-testid="pp-pref"]');
   await expect(viewerRows.first()).toBeVisible();
   const count = await viewerRows.count();
@@ -107,7 +112,22 @@ test(`${J} #6 the owner changes a notification preference, sees who changed it a
     await expect(pref.getByRole('button', { name: 'Save' })).toBeDisabled();
     await expect(pref).toContainText(/notifications\.manage|manage notification/i);
   }
-  // The owner's saved change still shows, and not as the Viewer's own.
-  await expect(viewerRows.filter({ hasText: 'Export ready' }).getByRole('checkbox')).not.toBeChecked();
-  await expect(viewerRows.filter({ hasText: 'Export ready' })).not.toContainText('Last saved by You');
+  // Saved per person: the owner turned Export ready off for themself, not for the Viewer. The Viewer reads their own
+  // choices from the service, every kind on by default, none saved by anyone, and an empty history of their own.
+  expect(viewerPrefs.status, 'the Viewer reads their own preferences').toBe(200);
+  const viewerKinds = viewerPrefs.body.result.data;
+  expect(viewerKinds.find((p) => p.kind === 'export_ready')).toMatchObject({ inApp: true, updatedBy: null });
+  expect(viewerKinds.every((p) => p.inApp === true && p.updatedBy === null)).toBe(true);
+  await expect(viewerRows.filter({ hasText: 'Export ready' }).getByRole('checkbox')).toBeChecked();
+  await expect(viewerRows.filter({ hasText: 'Export ready' })).not.toContainText('Last saved');
+  await expect(historyOf(page)).toContainText('No changes yet');
+  await expect(historyOf(page)).not.toContainText('Export ready turned off');
+
+  // And the owner's own choice is still theirs after the Viewer's visit.
+  await forgetSession(page);
+  await signInWithCode(page, owner, '/pay/settings/notifications');
+  const ownerRow = page.locator('li[data-testid="pp-pref"]').filter({ hasText: 'Export ready' });
+  await expect(ownerRow.getByRole('checkbox')).not.toBeChecked();
+  await expect(ownerRow).toContainText('Last saved by You');
+  await expect(historyOf(page)).toContainText('Export ready turned off');
 });

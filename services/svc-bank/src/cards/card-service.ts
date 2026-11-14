@@ -472,7 +472,34 @@ export interface CaptureResult {
 export type CashbackOutcome =
   | { readonly status: 'none'; readonly amount: Amount }
   | { readonly status: 'paid'; readonly amount: Amount; readonly ledgerTxId: string }
+  /**
+   * Earned on a partner-held capture (launch money model): recorded once for the authorisation and handed to the rewards
+   * programme, which owes it in USDC and pays it to the person's own wallet. Never a balance here. `announced` false: the
+   * hand-over has not been taken yet (`reason` names why) and a resume of the authorisation sends it again.
+   */
+  | { readonly status: 'owed'; readonly amount: Amount; readonly announced: boolean; readonly reason?: string }
   | { readonly status: 'refused'; readonly amount: Amount; readonly reason: string };
+
+/** Cashback earned on one partner-held capture, as svc-bank hands it to the rewards programme (`bankCardCashbackEarned`). */
+export interface CardCashbackEarned {
+  readonly authorizationId: string;
+  readonly cardId: string;
+  readonly userId: string;
+  readonly spend: string;
+  readonly cashback: string;
+  readonly assetId: string;
+  readonly tier: string;
+  readonly rateBps: number;
+  readonly earnedAt: string;
+}
+
+/** Where cashback earned on a partner-held capture is handed over (the bus). Throws when it was not taken. */
+export type CardCashbackSink = (earned: CardCashbackEarned) => Promise<void>;
+
+/** No sink is wired: wallet cashback is recorded and waits, named. */
+export const CASHBACK_ANNOUNCE_UNWIRED = 'bank.cashback_announce_unwired';
+/** The sink did not take it this time; a resume sends it again under the same authorisation. */
+export const CASHBACK_ANNOUNCE_FAILED = 'bank.cashback_announce_failed';
 
 /**
  * Spare-change sweep after capture. Same reporting rule as cashback: the
@@ -564,6 +591,16 @@ export interface CardServiceOptions {
   readonly heldBy?: (userId: string) => MoneyHeldBy;
   /** The card partner that holds partner-held authorisations (today only the TEST partner card). Absent: none. */
   readonly partnerHolds?: PartnerCardHolds | null;
+  /**
+   * Where cashback earned on a partner-held capture is handed to the rewards programme (J-bank-13 #7). Absent: it is
+   * recorded and waits, `bank.cashback_announce_unwired`; nothing is credited anywhere.
+   */
+  readonly cashbackEarned?: CardCashbackSink | null;
+  /**
+   * The card partner's own answer to whether it adds this person's cards to a phone wallet (J-bank-13 #8): throws
+   * `bank.not_offered_by_partner` when it does not. Absent: the issuer's own capability alone decides, as before.
+   */
+  readonly assertWalletOffered?: ((userId: string) => void) | null;
 }
 
 /** A merchant's refund of one card payment as recorded (J-bank-14 #6): pending until the partner answers. */
@@ -629,6 +666,8 @@ export class CardService {
   private readonly spendAssets: readonly string[] | null;
   private readonly heldByOf: (userId: string) => MoneyHeldBy;
   private readonly partnerHolds: PartnerCardHolds | null;
+  private readonly cashbackEarned: CardCashbackSink | null;
+  private readonly assertWalletOffered: ((userId: string) => void) | null;
   private readonly pinTryLimit: number | null;
 
   constructor(
@@ -650,6 +689,8 @@ export class CardService {
     this.spendAssets = options.spendAssets ?? null;
     this.heldByOf = options.heldBy ?? (() => 'ledger');
     this.partnerHolds = options.partnerHolds ?? null;
+    this.cashbackEarned = options.cashbackEarned ?? null;
+    this.assertWalletOffered = options.assertWalletOffered ?? null;
     this.pinTryLimit = options.pinTryLimit ?? null;
     this.safety = new CardSafety({
       sql: this.sql,
@@ -1458,6 +1499,8 @@ export class CardService {
     const card = await this.ownedCard(input.cardId, input.userId);
     this.assertLiveSecret('wallet');
     if (!this.issuer.provisionWallet) throw new BankError(WALLET_UNSET, 'bank.card_wallet_issuer_unset');
+    // The partner that issues the card says whether it adds cards to a phone wallet; its no is refused before anything.
+    this.assertWalletOffered?.(input.userId);
     // A frozen or closed card is not added to a wallet; its tokens already there show paused (J-bank-14 #4).
     if (card.status !== 'active' || cardInactive(card)) throw new BankError('This card is not active', 'bank.card_not_active');
     const payloadHash = commandHash({ wallet: input.wallet, nonce: input.nonce });
@@ -2231,8 +2274,9 @@ export class CardService {
   /**
    * The partner captures what the merchant took, and gives the rest of its hold back: two instructions, each once under
    * its key, the same two steps as the custodial path. Above the hold is the partner's to refuse (J-bank-14's Money line),
-   * and it does (`bank.card_partner_capture_exceeds_hold`). Nothing posts to our ledger, so no cashback and no round-up,
-   * which both pay from our book: each reads `bank.card_partner_held`.
+   * and it does (`bank.card_partner_capture_exceeds_hold`). Nothing posts to our ledger. No round-up, which pays from our
+   * book (`bank.card_partner_held`). Cashback is earned at the rank tier's rate and handed to the rewards programme, which
+   * owes it and pays it to the person's own wallet (`oweWalletCashback`); it is never credited here.
    */
   private async capturePartnerHeld(card: CardRecord, authorization: AuthorizationRecord, merchantAmount: Amount): Promise<CaptureResult> {
     if (merchantAmount <= 0n) {
@@ -2275,6 +2319,7 @@ export class CardService {
               })
             : null;
         await this.closeWhenUsedUp(card);
+        const cashback = await this.oweWalletCashback(card, authorization, capturedFunding);
         return {
           authorizationId: authorization.id,
           captured: capturedFunding,
@@ -2289,7 +2334,7 @@ export class CardService {
             // can never report a completed capture as failed.
             figures: (released ?? captured).answer?.figures ?? null,
           },
-          cashback: { status: 'refused', amount: 0n, reason: 'bank.card_partner_held' },
+          cashback,
           roundUp: { status: 'skipped', amount: 0n, reason: 'bank.card_partner_held' },
           settlement: conversion ? { assetId: conversion.settlementAssetId, amount: merchantAmount, rate: conversion.rate } : null,
         };
@@ -2391,6 +2436,8 @@ export class CardService {
         });
       }
     }
+    // Cashback recorded for this capture and not yet taken by the rewards programme is handed over again, same record.
+    await this.announceWalletCashback(authorization.id);
     const report = await partner.holdState({ holdKey });
     if (!report) {
       throw new BankError(
@@ -2700,7 +2747,7 @@ export class CardService {
    * rate for the person's rank card tier, on a card funded in the table's asset. Null means no rate applies (another
    * asset, no table): nothing is earned. A tier with no published rate, or no tier read, refuses by name.
    */
-  private async cashbackRate(card: CardRecord): Promise<{ bps: number } | { refused: string }> {
+  private async cashbackRate(card: CardRecord): Promise<{ bps: number; tier?: CardTier } | { refused: string }> {
     if (card.cashbackBps > 0) return { bps: card.cashbackBps };
     const rates = this.cashbackRates;
     if (!rates || rates.assetId !== card.assetId) return { bps: 0 };
@@ -2711,7 +2758,100 @@ export class CardService {
       return { refused: err instanceof BankError ? err.code : 'bank.rank_unavailable' };
     }
     const bps = rates.rates[tier];
-    return bps === undefined ? { refused: 'bank.cashback_rate_unset' } : { bps };
+    return bps === undefined ? { refused: 'bank.cashback_rate_unset' } : { bps, tier };
+  }
+
+  /**
+   * CASHBACK ON A PARTNER-HELD CAPTURE (launch money model, OWNER 226 and 288; J-bank-13 #7). The card's money is the
+   * partner's, so nothing is credited in our book or anywhere else here: the cashback is recorded once for the
+   * authorisation (`paid_by = 'wallet'`, the rate and tier read now, never re-rated), then handed to the rewards programme,
+   * which owes it in USDC (our liability, `rewardOwe`) and pays it to the person's own wallet. If this crashes after the
+   * record and before the hand-over, nobody's money is stranded: the record waits unannounced and a resume of the
+   * authorisation sends it, and the programme owes it once by the authorisation's key.
+   */
+  private async oweWalletCashback(card: CardRecord, authorization: AuthorizationRecord, captured: Amount): Promise<CashbackOutcome> {
+    type Row = { amount: string; paid_by: string; announced_at: Date | null };
+    const read = async () =>
+      (
+        await this.sql<Row[]>`
+          SELECT amount::text AS amount, paid_by, announced_at FROM bank.card_cashback WHERE authorization_id = ${authorization.id}
+        `
+      )[0];
+    let row = await read();
+    if (!row) {
+      if (!this.rewardsIssuerConnected(card)) {
+        const tierApplies = card.cashbackBps === 0 && this.cashbackRates?.assetId === card.assetId;
+        if (card.cashbackBps <= 0 && !tierApplies) return { status: 'none', amount: 0n };
+        return { status: 'refused', amount: 0n, reason: 'bank.rewards_issuer_unset' };
+      }
+      const rate = await this.cashbackRate(card);
+      if ('refused' in rate) return { status: 'refused', amount: 0n, reason: rate.refused };
+      const amount = cashbackOn(captured, rate.bps);
+      if (amount <= 0n) return { status: 'none', amount: 0n };
+      await this.sql`
+        INSERT INTO bank.card_cashback (authorization_id, rate_bps, amount, paid_by, spend, tier)
+        VALUES (${authorization.id}, ${rate.bps}, ${formatAmount(amount)}::numeric, 'wallet', ${formatAmount(captured)}::numeric,
+          ${rate.tier ?? 'card'})
+        ON CONFLICT (authorization_id) DO NOTHING
+      `;
+      row = (await read())!;
+    }
+    if (row.paid_by !== 'wallet') return { status: 'refused', amount: parseAmount(row.amount), reason: 'bank.card_partner_held' };
+    const announced = row.announced_at !== null || (await this.announceWalletCashback(authorization.id));
+    return announced
+      ? { status: 'owed', amount: parseAmount(row.amount), announced: true }
+      : {
+          status: 'owed',
+          amount: parseAmount(row.amount),
+          announced: false,
+          reason: this.cashbackEarned ? CASHBACK_ANNOUNCE_FAILED : CASHBACK_ANNOUNCE_UNWIRED,
+        };
+  }
+
+  /** Hands one recorded, unannounced wallet cashback to the rewards programme. True once it was taken (now or before). */
+  private async announceWalletCashback(authorizationId: string): Promise<boolean> {
+    type Row = {
+      authorization_id: string;
+      card_id: string;
+      user_id: string;
+      asset_id: string;
+      amount: string;
+      spend: string;
+      tier: string;
+      rate_bps: number;
+      created_at: Date;
+      announced_at: Date | null;
+    };
+    const [row] = await this.sql<Row[]>`
+      SELECT cb.authorization_id, a.card_id, c.user_id, c.asset_id, cb.amount::text AS amount, cb.spend::text AS spend, cb.tier,
+             cb.rate_bps, cb.created_at, cb.announced_at
+        FROM bank.card_cashback cb
+        JOIN bank.card_authorizations a ON a.id = cb.authorization_id
+        JOIN bank.cards c ON c.id = a.card_id
+       WHERE cb.authorization_id = ${authorizationId} AND cb.paid_by = 'wallet'
+    `;
+    if (!row) return false;
+    if (row.announced_at) return true;
+    if (!this.cashbackEarned) return false;
+    try {
+      await this.cashbackEarned({
+        authorizationId: row.authorization_id,
+        cardId: row.card_id,
+        userId: row.user_id,
+        spend: formatAmount(parseAmount(row.spend)),
+        cashback: formatAmount(parseAmount(row.amount)),
+        assetId: row.asset_id,
+        tier: row.tier,
+        rateBps: row.rate_bps,
+        earnedAt: row.created_at.toISOString(),
+      });
+    } catch {
+      return false;
+    }
+    await this.sql`
+      UPDATE bank.card_cashback SET announced_at = now() WHERE authorization_id = ${authorizationId} AND announced_at IS NULL
+    `;
+    return true;
   }
 
   private async payCashback(card: CardRecord, authorization: AuthorizationRecord, captured: Amount): Promise<CashbackOutcome> {
@@ -2787,6 +2927,7 @@ export class CardService {
         FROM bank.card_cashback
        WHERE authorization_id = ${authorizationId}
          AND status = 'pending'
+         AND paid_by = 'ledger'
     `;
     for (const row of rows) {
       await this.postCashbackReward(card, authorizationId, row.id, parseAmount(row.amount));
@@ -2884,6 +3025,11 @@ export class CardService {
     unpaid: Amount;
     /** Earned and refused because the pot was short (`bank.cashback_pot_unfunded`); not retried. */
     refused: Amount;
+    /**
+     * Earned on partner-held spend and handed to the rewards programme, which owes it and pays it to the person's own
+     * wallet (My rewards holds whether it was paid). Never spendable here, and never in `paid`.
+     */
+    toWallet: Amount;
     payments: Array<{
       authorizationId: string;
       cardId: string;
@@ -2891,6 +3037,10 @@ export class CardService {
       status: string;
       rejectionCode: string | null;
       ledgerTxId: string | null;
+      /** `ledger`: credited by the custodial path. `wallet`: owed by INTAFACED and paid to the person's own wallet. */
+      paidBy: 'ledger' | 'wallet';
+      /** A wallet row: whether the rewards programme has taken it. */
+      announced: boolean;
     }>;
     paying: boolean;
     simulated: boolean;
@@ -2909,9 +3059,12 @@ export class CardService {
         status: string;
         rejection_code: string | null;
         ledger_tx_id: string | null;
+        paid_by: 'ledger' | 'wallet';
+        announced_at: Date | null;
       }>
     >`
-      SELECT cb.authorization_id, a.card_id, cb.amount::text AS amount, cb.status, cb.rejection_code, cb.ledger_tx_id
+      SELECT cb.authorization_id, a.card_id, cb.amount::text AS amount, cb.status, cb.rejection_code, cb.ledger_tx_id,
+             cb.paid_by, cb.announced_at
         FROM bank.card_cashback cb
         JOIN bank.card_authorizations a ON a.id = cb.authorization_id
         JOIN bank.cards c ON c.id = a.card_id
@@ -2920,10 +3073,11 @@ export class CardService {
        LIMIT 50
     `;
     // The totals over every reward record, not the 50 listed.
-    const [totals] = await this.sql<Array<{ paid: string; unpaid: string; refused: string }>>`
-      SELECT COALESCE(SUM(cb.amount) FILTER (WHERE cb.status = 'settled'), 0)::text AS paid,
-             COALESCE(SUM(cb.amount) FILTER (WHERE cb.status = 'pending'), 0)::text AS unpaid,
-             COALESCE(SUM(cb.amount) FILTER (WHERE cb.status = 'rejected'), 0)::text AS refused
+    const [totals] = await this.sql<Array<{ paid: string; unpaid: string; refused: string; to_wallet: string }>>`
+      SELECT COALESCE(SUM(cb.amount) FILTER (WHERE cb.paid_by = 'ledger' AND cb.status = 'settled'), 0)::text AS paid,
+             COALESCE(SUM(cb.amount) FILTER (WHERE cb.paid_by = 'ledger' AND cb.status = 'pending'), 0)::text AS unpaid,
+             COALESCE(SUM(cb.amount) FILTER (WHERE cb.paid_by = 'ledger' AND cb.status = 'rejected'), 0)::text AS refused,
+             COALESCE(SUM(cb.amount) FILTER (WHERE cb.paid_by = 'wallet'), 0)::text AS to_wallet
         FROM bank.card_cashback cb
         JOIN bank.card_authorizations a ON a.id = cb.authorization_id
         JOIN bank.cards c ON c.id = a.card_id
@@ -2937,6 +3091,7 @@ export class CardService {
       paid: parseAmount(totals?.paid ?? '0'),
       unpaid: parseAmount(totals?.unpaid ?? '0'),
       refused: parseAmount(totals?.refused ?? '0'),
+      toWallet: parseAmount(totals?.to_wallet ?? '0'),
       payments: rows.map((r) => ({
         authorizationId: r.authorization_id,
         cardId: r.card_id,
@@ -2944,6 +3099,8 @@ export class CardService {
         status: r.status,
         rejectionCode: r.rejection_code,
         ledgerTxId: r.ledger_tx_id,
+        paidBy: r.paid_by,
+        announced: r.announced_at !== null,
       })),
       paying,
       simulated: programme.simulated,
@@ -3404,14 +3561,33 @@ export class CardService {
    * Which of card details, PIN and phone wallets this deployment's issuer offers (J-bank-14 #3, #4), so a screen shows the
    * button or the reason. The same rule each call itself runs; reading it changes nothing.
    */
-  secretsOffered(): { details: boolean; pin: boolean; wallet: boolean; test: boolean } {
+  secretsOffered(userId?: string): {
+    details: boolean;
+    pin: boolean;
+    wallet: boolean;
+    test: boolean;
+    /** True when the card partner itself does not add this person's cards to a phone wallet ("not offered by the partner"). */
+    walletNotOffered: boolean;
+  } {
     const live = this.moduleEnabled && this.liveSecretProgramme();
+    const walletNotOffered = userId !== undefined && this.walletRefusedFor(userId);
     return {
       details: live && Boolean(this.issuer.revealCredentials),
       pin: live && Boolean(this.issuer.revealPin && this.issuer.setPin),
-      wallet: live && Boolean(this.issuer.provisionWallet),
+      wallet: live && Boolean(this.issuer.provisionWallet) && !walletNotOffered,
       test: this.secretsAreTest(),
+      walletNotOffered,
     };
+  }
+
+  private walletRefusedFor(userId: string): boolean {
+    if (!this.assertWalletOffered) return false;
+    try {
+      this.assertWalletOffered(userId);
+      return false;
+    } catch (err) {
+      return err instanceof BankError && err.code === 'bank.not_offered_by_partner';
+    }
   }
 
   private assertLiveSecret(kind: 'pan' | 'pin' | 'wallet'): void {

@@ -107,7 +107,7 @@ export function GridRoom({ path }: { path: string }) {
   };
 
   return (
-    <Page width="full" className="cb-page">
+    <Page width="full" className="cb-page" landmark={false}>
       <ModeNav active="bots" />
       <PageHeader
         title={t('Spot grid')}

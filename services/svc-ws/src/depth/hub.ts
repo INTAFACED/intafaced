@@ -233,12 +233,11 @@ export class DepthHub {
   readonly #seeding = new Map<string, Promise<void>>();
 
   #knownMarkets: ReadonlySet<string> = new Set();
-  #marketsFetchedAt = 0;
   /**
    * Last time a miss on the known-market list triggered a refresh.
-   * Separate from `#marketsFetchedAt` (timer / successful list load) so a
-   * freshly listed market still gets one refetch per window even when the
-   * cache was warmed moments ago by a different path.
+   * Not the time of the last successful list load (the poller's timer or the
+   * first-connect load): a freshly listed market still gets one refetch per
+   * window even when the cache was warmed moments ago by a different path.
    */
   #missRefreshAt = 0;
   #marketsInFlight: Promise<void> | null = null;
@@ -497,7 +496,6 @@ export class DepthHub {
       try {
         const markets = await this.#registry.markets();
         this.#knownMarkets = new Set(markets);
-        this.#marketsFetchedAt = this.#options.clock();
       } finally {
         this.#marketsInFlight = null;
       }

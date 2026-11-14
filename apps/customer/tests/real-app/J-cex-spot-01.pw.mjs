@@ -340,9 +340,15 @@ async function connectWallet(page, wallet) {
   await expect(panel).toBeVisible();
   const connect = panel.getByRole('button', { name: `Connect ${TEST_WALLET.name}` });
   const shown = wallet.address.toLowerCase();
-  // The wallet announces itself after the panel paints: wait for either the Connect button or the connected address.
-  await expect(connect.or(panel.getByText(shown))).toBeVisible();
-  if (await connect.isVisible()) await connect.click();
+  // The wallet announces itself after the panel paints, and a still-authorised wallet is restored on its own, so the
+  // Connect button can go between seeing it and pressing it (#8287): press it only while no address is shown, and never
+  // wait on a button that has gone.
+  const address = panel.getByText(shown);
+  await expect(async () => {
+    if (await address.isVisible()) return;
+    await connect.click({ timeout: 2_000 });
+    await expect(address).toBeVisible({ timeout: 5_000 });
+  }).toPass({ timeout: 30_000 });
   await expect(panel).toContainText(shown);
   return panel;
 }
@@ -538,12 +544,23 @@ const VENUE_BUY = '0.1';
 /** A TEST top-up by the venue's TEST deposit control (never our ledger): a 0.1 BTC buy locks more than #4's 1,000. */
 const VENUE_TOP_UP = '6000';
 
-/** One tick above the venue's best bid: a buy there rests, and is first in line for a crossing sell. */
+/**
+ * One tick above the venue's best bid: a buy there rests, and is first in line for a crossing sell. The best bid and ask
+ * are the venue's whole book, every account's resting orders, not only its seeded makers': a bid another file's TEST
+ * trader left resting above the makers' (J-campaigns-03 leaves one at 59990) would otherwise sit ahead of this buy and
+ * take #8's sell (#8380).
+ */
 async function venueTopBid() {
   const { body } = await testVenue('/markets', {});
   const market = body.value.find((m) => m.symbol === VENUE_SPOT);
   expect(market, JSON.stringify(body).slice(0, 300)).toBeTruthy();
-  const { bid, ask } = await venueBook(VENUE_SPOT);
+  const book = await testVenue('/book', { symbol: VENUE_SPOT, depth: 1 });
+  expect(book.status, JSON.stringify(book.body).slice(0, 300)).toBe(200);
+  const [top] = book.body.value.bids;
+  const [low] = book.body.value.asks;
+  expect(top && low, `the TEST venue has a two-sided book on ${VENUE_SPOT}`).toBeTruthy();
+  const bid = toUnits(top.price);
+  const ask = toUnits(low.price);
   const price = bid + toUnits(market.tickSize);
   expect(price < ask, `no room between bid ${fromUnits(bid)} and ask ${fromUnits(ask)}`).toBe(true);
   return fromUnits(price);

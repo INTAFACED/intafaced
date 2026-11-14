@@ -26,6 +26,7 @@ import {
   placingOrder,
   shiftQuoted,
   crossesOn,
+  missedMinute,
   quotesInTheWay,
   quotesThisCycle,
   holdTaken,
@@ -108,7 +109,8 @@ try {
   r = run(home, ['hold', 'NOPE/USDT']);
   assert.equal(r.status, 2, r.stderr);
 
-  // 4c. A hold left set by a file that never released it (a worker killed in J-cex-spot-03 #8) does not outlive the
+  // 4c. A hold left set by a file that never released it (a worker killed in J-cex-spot-08, a `market` file that holds the
+  // book; J-cex-spot-03 trades on the venue since #8140 and no longer holds it) does not outlive the
   // file: the journeys' world restore, entering the next file, clears it (world-restore.mjs restoreWorld, `unshift`).
   // Failure it prevents: a frozen BTC/USDT book for every journey file after it.
   run(home, ['hold', 'BTC/USDT']);
@@ -120,7 +122,7 @@ try {
       '--input-type=module',
       '-e',
       `const w = await import(${JSON.stringify(join(realApp, 'world-restore.mjs'))});
-       await w.enterFile(${JSON.stringify(join(realApp, 'J-cex-spot-03.pw.mjs'))});
+       await w.enterFile(${JSON.stringify(join(realApp, 'J-cex-spot-08.pw.mjs'))});
        await w.enterFile(${JSON.stringify(join(realApp, 'J-cex-spot-04.pw.mjs'))});`,
     ],
     { env: { ...process.env, HOME: home, TEST_PARALLEL_INDEX: 'hold-leak' }, encoding: 'utf8' },
@@ -778,6 +780,30 @@ assert.equal(shiftedMid(toScaled('1'), undefined, toScaled('0.0001')), toScaled(
   assert.equal(takerCrosses({ still: true, cross: undefined, rested: 6, cycle: turn, symbol: 'BTC/USDT' }), false);
   assert.equal(takerCrosses({ still: false, cross: false, rested: 6, cycle: turn, symbol: 'BTC/USDT' }), false);
   assert.equal(takerCrosses({ still: false, cross: undefined, rested: 0, cycle: turn, symbol: 'BTC/USDT' }), false);
+  // Off its turn, a market crosses when its last crossing was in an earlier UTC minute, so every live minute trades
+  // (#8390: on a loaded runner the turn alone left half the 1m bars of BTC/USDT without a trade).
+  const off = [1, 2, 3, 4, 5, 6, 7].find((c) => !crossesOn(c, 'BTC/USDT'));
+  const minute = 1_800_000_000_000 - (1_800_000_000_000 % 60_000);
+  assert.equal(missedMinute(undefined, minute + 5_000), false);
+  assert.equal(missedMinute(minute + 1_000, minute + 59_999), false);
+  assert.equal(missedMinute(minute + 59_000, minute + 60_000), true);
+  assert.equal(
+    takerCrosses({ still: false, rested: 6, cycle: off, symbol: 'BTC/USDT', nowMs: minute + 30_000, lastCrossMs: minute + 1_000 }),
+    false,
+  );
+  assert.equal(
+    takerCrosses({ still: false, rested: 6, cycle: off, symbol: 'BTC/USDT', nowMs: minute + 61_000, lastCrossMs: minute + 1_000 }),
+    true,
+  );
+  assert.equal(takerCrosses({ still: false, rested: 6, cycle: off, symbol: 'BTC/USDT', nowMs: minute + 61_000 }), false);
+  assert.equal(
+    takerCrosses({ still: true, rested: 6, cycle: off, symbol: 'BTC/USDT', nowMs: minute + 61_000, lastCrossMs: minute }),
+    false,
+  );
+  assert.equal(
+    takerCrosses({ still: false, cross: false, rested: 6, cycle: off, symbol: 'BTC/USDT', nowMs: minute + 61_000, lastCrossMs: minute }),
+    false,
+  );
   // `still` and `live` return only on a cycle of the running maker that started after the ask and runs that way.
   assert.equal(stillTaken(null, { still: true, askedAt: 1_000, pid: 7 }), false);
   assert.equal(stillTaken({ pid: 7, startedAt: 1_000, still: true }, { still: true, askedAt: 1_000, pid: 7 }), false);

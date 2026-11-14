@@ -1,9 +1,18 @@
-import { QUANT_IDEMPOTENCY_CONFLICT, QuantError } from '../errors.js';
-import { sameContent, type TemplatePublishInput, type TemplateRepository, type TemplateVersion } from './repository.js';
+import { QUANT_IDEMPOTENCY_CONFLICT, QUANT_TEMPLATE_NOT_FOUND, QuantError } from '../errors.js';
+import {
+  sameContent,
+  type TemplateListing,
+  type TemplatePublishInput,
+  type TemplateRepository,
+  type TemplateVersion,
+} from './repository.js';
 
 /** In-memory templates for router tests. Production passes Postgres. */
 export function createMemoryTemplateRepository(now: () => Date = () => new Date()): TemplateRepository {
   const rows: (TemplateVersion & { idempotencyKey: string })[] = [];
+  const listing: (TemplateListing & { idempotencyKey: string })[] = [];
+  /** The newest listing row says whether a template is listed; one with none is. */
+  const listed = (id: string) => listing.findLast((row) => row.id === id)?.listed ?? true;
   const strip = ({ idempotencyKey: _key, ...row }: TemplateVersion & { idempotencyKey: string }): TemplateVersion => row;
 
   return {
@@ -31,6 +40,7 @@ export function createMemoryTemplateRepository(now: () => Date = () => new Date(
     async list({ limit, cursor }) {
       const newest = new Map<string, TemplateVersion>();
       for (const row of rows) {
+        if (!listed(row.id)) continue;
         const held = newest.get(row.id);
         if (!held || held.version < row.version) newest.set(row.id, strip(row));
       }
@@ -39,8 +49,21 @@ export function createMemoryTemplateRepository(now: () => Date = () => new Date(
       return { templates: page, nextCursor: ordered.length > limit ? (page[page.length - 1]?.id ?? null) : null };
     },
     async get(id) {
+      if (!listed(id)) return null;
       const found = rows.filter((row) => row.id === id).map(strip);
       return found.length ? found.sort((a, b) => b.version - a.version) : null;
+    },
+    async setListed(input) {
+      const prior = listing.find((row) => row.idempotencyKey === input.idempotencyKey);
+      if (prior) {
+        if (prior.id !== input.id || prior.listed !== input.listed)
+          throw new QuantError(QUANT_IDEMPOTENCY_CONFLICT, 'idempotencyKey was used for a different listing change');
+        return { id: prior.id, listed: prior.listed, setAt: prior.setAt };
+      }
+      if (!rows.some((row) => row.id === input.id)) throw new QuantError(QUANT_TEMPLATE_NOT_FOUND, 'template not found');
+      const row = { id: input.id, listed: input.listed, setAt: now().toISOString(), idempotencyKey: input.idempotencyKey };
+      listing.push(row);
+      return { id: row.id, listed: row.listed, setAt: row.setAt };
     },
   };
 }
