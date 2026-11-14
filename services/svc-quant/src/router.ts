@@ -28,6 +28,8 @@ import {
   quantTemplateDetailSchema,
   quantTemplateIdSchema,
   quantTemplateListOutputSchema,
+  quantTemplateListingInputSchema,
+  quantTemplateListingSchema,
   quantTemplatePublishInputSchema,
   quantTemplateVersionSchema,
   router,
@@ -2318,6 +2320,26 @@ export function createQuantRouter(deps: QuantRouterDeps) {
                   idempotencyKey: input.idempotencyKey,
                 });
                 return { ...published };
+              } catch (err) {
+                toTrpc(err);
+              }
+            }),
+          ),
+
+        /** Withdraws a starter template from the list or restores it. Its versions stay; the row records who, why and when. */
+        listing: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
+          .input(quantTemplateListingInputSchema)
+          .output(quantTemplateListingSchema)
+          .mutation(async ({ input, ctx }) =>
+            withQuantSpan('quant.ops.template.listing', { language: 'none' }, async () => {
+              try {
+                return await templates.setListed({
+                  id: input.id,
+                  listed: input.listed,
+                  reason: input.reason,
+                  setBy: ctx.principal.userId,
+                  idempotencyKey: input.idempotencyKey,
+                });
               } catch (err) {
                 toTrpc(err);
               }
