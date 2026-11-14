@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { edgeEnvSchema, internalServiceEnvSchema, loadEnv, s2sEnvSchema, serviceEnvSchema } from '@intafaced/config';
+import { parseCustodyLayer } from '@intafaced/ledger-client';
 import { parseOwnerIntegerEnv } from './fee-bps-env.js';
 import { operatorCreditRailsSchema } from './operator-credit-rails-env.js';
 
@@ -90,6 +91,24 @@ const schema = serviceEnvSchema
 
       /** svc-ledger's internal address. All value movement goes through it. */
       LEDGER_URL: z.string().url().default('http://localhost:4001'),
+
+      /**
+       * The custody switch (OWNER 226), the same value svc-ledger reads, with its parser: unset or blank is `off`, any value
+       * but `on` or `off` refuses to start. Off (the launch model), a payer at hosted checkout pays the business's own wallet
+       * or the acquiring partner, and our ledger records only our fee; on, the custodial layer takes the payment into our
+       * custody and books it to the business's clearing, as before.
+       */
+      LEDGER_CUSTODY_LAYER: z
+        .string()
+        .optional()
+        .transform((raw, ctx) => {
+          try {
+            return parseCustodyLayer(raw);
+          } catch (err) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: err instanceof Error ? err.message : String(err) });
+            return z.NEVER;
+          }
+        }),
 
       /**
        * Webhook signing secret for the chain watcher that feeds `crypto-native`.

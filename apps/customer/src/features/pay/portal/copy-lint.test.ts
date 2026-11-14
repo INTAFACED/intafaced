@@ -22,6 +22,7 @@ import { w3cMessages } from './w3c-copy';
 import { catalogMessages } from './catalog/copy';
 import { lookMessages } from './payments/look-copy';
 import { methodsMessages } from './payments/methods-copy';
+import { walletMessages } from './payments/wallet-copy';
 
 /**
  * The portal's catalogues, so the check below covers a package's own copy file the day it is listed. The word rules for
@@ -48,6 +49,7 @@ const catalogs: Record<string, Record<string, string>> = {
   'pay.portal.catalog': catalogMessages,
   'pay.portal.checkoutLook': lookMessages,
   'pay.portal.checkoutMethods': methodsMessages,
+  'pay.portal.receivingWallet': walletMessages,
 };
 
 const entries = Object.entries(catalogs).flatMap(([namespace, messages]) =>

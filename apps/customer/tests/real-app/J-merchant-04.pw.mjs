@@ -1,7 +1,9 @@
 // World: stack
 import path from 'node:path';
+import { keccak256, toBytes } from 'viem';
+import { HDKey, hdKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { ROOT, journeyState, tool } from './stack.mjs';
+import { ROOT, journeyState, restartWithSetting, tool } from './stack.mjs';
 import { forgetSession } from './identity-factors.mjs';
 import { businessReadyPerson, openBusiness, refusedPayCalls, signInWithCode, verifiedBusiness } from './merchant.mjs';
 import { answerAfterNavigation } from './navigation.mjs';
@@ -9,10 +11,84 @@ import { answerAfterNavigation } from './navigation.mjs';
 // J-merchant-04, in the running app (docs/roadmap/journeys.json): share a payment link and get paid at hosted checkout.
 // One test per step, titled "J-merchant-04 #<n>", run in order on one verified TEST business. #1 makes the owner and
 // the business; the later steps sign the owner in again. The payer opens the link in a browser with no INTAFACED session.
+//
+// On the launch money model (OWNER 226): svc-pay runs with the custodial layer off for this file, so a payer's crypto goes
+// straight to an address of the business's own TEST wallet and a bank transfer to the TEST partner bank, the business
+// sees that money as the chain or the partner reports it, and our ledger books only our own fee on each payment, once,
+// under the payment's key (read from svc-ledger's own tables with `local-test-stack.mjs ledger-posts`).
 const J = 'J-merchant-04';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
 test.describe.configure({ mode: 'default' });
+
+/** svc-pay as at launch for this file only: custody off, switched back on the way out (the stack's own default is on). */
+const PAY_CUSTODY = 'LOCAL_STACK_PAY_CUSTODY_LAYER';
+test.beforeAll(() => {
+  test.setTimeout(240_000);
+  restartWithSetting('pay', PAY_CUSTODY, 'off');
+});
+test.afterAll(() => {
+  test.setTimeout(240_000);
+  restartWithSetting('pay', PAY_CUSTODY, null);
+});
+
+/**
+ * The business's own TEST wallet: an account key (m/44'/60'/0') from a seed that is public and new each run, so it holds
+ * nothing anywhere and its addresses are this run's alone. The business gives svc-pay only its public key.
+ */
+function wallet(seed) {
+  const master = HDKey.fromMasterSeed(toBytes(keccak256(toBytes(seed))));
+  return { master, account: master.derive("m/44'/60'/0'") };
+}
+/**
+ * The index of `address` on the business's own TEST wallet, derived here from the wallet's private side as the wallet
+ * itself does, or -1 when the wallet has no such address (the money would not be the business's).
+ */
+function ownWalletIndex(address) {
+  const { master } = wallet(journey().walletSeed);
+  for (let addressIndex = 0; addressIndex < 64; addressIndex++)
+    if (hdKeyToAccount(master, { addressIndex }).address === address) return addressIndex;
+  return -1;
+}
+
+/** The stack's TEST fee for a new business (pay.mjs PAY_MERCHANT_STARTER_FEE_BPS: 250 bps), never a real price. */
+const TEST_FEE_BPS = 250n;
+/** Our fee on `gross` (a decimal string) at the TEST rate, rounded down to the ledger's 18 places, as the recipe does. */
+function testFee(gross) {
+  const [whole, frac = ''] = gross.split('.');
+  const units = ((BigInt(whole) * 10n ** 18n + BigInt(frac.padEnd(18, '0'))) * TEST_FEE_BPS) / 10_000n;
+  const w = units / 10n ** 18n;
+  const f = (units % 10n ** 18n).toString().padStart(18, '0').replace(/0+$/, '');
+  return f ? `${w}.${f}` : `${w}`;
+}
+
+/**
+ * What the ledger booked for the payment the payer was shown `reference` for, from svc-ledger's own tables: exactly our fee,
+ * once, under the payment's key, owed to us by the business (`merchant`) or by the partner (`partner`), and no leg on any
+ * customer's or the business's own account.
+ */
+function expectOnlyOurFee(reference, gross, assetId, owedBy) {
+  const read = JSON.parse(tool('local-test-stack.mjs', 'ledger-posts', reference));
+  expect(read.custody).toBe(owedBy === 'merchant' ? 'merchant_wallet' : 'partner');
+  const fee = testFee(gross);
+  const key =
+    owedBy === 'merchant' ? `merchant-fee:earned:pay:${read.paymentId}` : `partner-fee:earned:bank-transfer-sandbox:${read.paymentId}`;
+  expect(read.posts.map((p) => p.key)).toEqual([key]);
+  const [post] = read.posts;
+  expect(post.reason).toBe(owedBy === 'merchant' ? 'merchant_fee.earned' : 'partner_fee.earned');
+  // Two legs of exactly our fee, on INTAFACED's own accounts only: our fee income, and what the business or the partner
+  // owes us. No leg touches the payer's money or a balance of the business's.
+  const owed = owedBy === 'merchant' ? `charge-receivable:pay.${journey().merchantId}` : 'partner-fee-receivable:bank-transfer-sandbox';
+  expect(
+    post.legs
+      .map(({ ownerType, ownerId, assetId: a, amount }) => ({ ownerType, ownerId, assetId: a, amount }))
+      .sort((x, y) => x.ownerType.localeCompare(y.ownerType)),
+  ).toEqual([
+    { ownerType: 'house', ownerId: 'fees:pay', assetId, amount: fee },
+    { ownerType: 'treasury', ownerId: owed, assetId, amount: fee },
+  ]);
+  return read;
+}
 
 /** What #1 left: the owner (with its authenticator secret) and the business. */
 function journey() {
@@ -129,6 +205,35 @@ test(`${J} #1 the owner sets up hosted checkout once: defaults with Save, an ove
   await expect(look.getByTestId('checkout-look-state')).toHaveText(/Last saved:/);
   await expect(preview.getByRole('img', { name: 'Your logo' })).toHaveAttribute('src', `data:image/png;base64,${PNG.toString('base64')}`);
   expect(refused).toEqual([]);
+
+  // Where crypto payments go: no wallet yet, so the checkout says it cannot take crypto. A private key is refused and
+  // nothing is kept; the wallet's own public key is saved, and its first address is the one the wallet itself derives.
+  const seed = `intafaced TEST ${J} wallet ${process.env.JOURNEY_RUN_ID ?? 'local'} ${Date.now()}`;
+  run.write({ walletSeed: seed });
+  const { master, account } = wallet(seed);
+  const walletSection = page
+    .locator('section[data-testid="pay-section"]')
+    .filter({ has: page.getByRole('heading', { name: 'Where crypto payments go' }) });
+  const walletState = walletSection.getByTestId('receiving-wallet-state');
+  await expect(walletState).toHaveText('No wallet set yet. Until you add one, your checkout cannot take crypto.');
+  await walletSection.getByLabel('Wallet public key (xpub) *').fill(account.privateExtendedKey);
+  const refusedSave = page.waitForResponse((r) => r.url().includes('merchantReceivingWallet.save') && r.request().method() === 'POST');
+  await walletSection.getByRole('button', { name: 'Save wallet' }).click();
+  expect((await refusedSave).status()).toBe(400);
+  await expect(walletSection.getByRole('alert')).toHaveText(
+    'That is a private key. Never share it. Paste your wallet’s public key, which starts xpub, instead.',
+  );
+  await expect(walletState).toHaveText(/No wallet set yet/);
+  await walletSection.getByLabel('Wallet public key (xpub) *').fill(account.publicExtendedKey);
+  const savedWallet = page.waitForResponse((r) => r.url().includes('merchantReceivingWallet.save') && r.request().method() === 'POST');
+  await walletSection.getByRole('button', { name: 'Save wallet' }).click();
+  expect((await savedWallet).status()).toBe(200);
+  await expect(walletSection.getByText('Saved. Your next crypto payment goes to this wallet.')).toBeVisible();
+  await expect(walletSection.getByTestId('receiving-wallet-first-address')).toHaveText(hdKeyToAccount(master, { addressIndex: 0 }).address);
+  await page.reload();
+  await expect(walletState).toHaveText(/Last saved:/);
+  await expect(walletSection.getByLabel('Wallet public key (xpub) *')).toHaveValue(account.publicExtendedKey);
+  expect(refused).toEqual(['400 merchantReceivingWallet.save']);
 
   // The payer page of a link shows the logo and the colour, to someone with no INTAFACED session.
   const address = await makeLink(page, 'TEST Hoodie', '25', 'USDT');
@@ -448,7 +553,8 @@ test(`${J} #4 the payer opens the link: the fixed amount and asset before confir
     await expect(payerPage.locator('.amount')).toHaveText('25.00 USDC');
     await expect(payerPage.getByLabel('Amount')).toHaveCount(0);
     const toteReference = await payerContinues(payerPage);
-    expect(toteReference).toMatch(/^addr_usdc_[0-9a-f-]{36}$/);
+    // The address is one of the business's own wallet, which only the business can spend from.
+    expect(ownWalletIndex(toteReference)).toBeGreaterThanOrEqual(0);
     await expect(payerPage.locator('.amount')).toHaveText('25.00 USDC');
 
     // One payment uses the single-payment link up: paid in full by a TEST transfer, it then opens a plain state.
@@ -461,6 +567,9 @@ test(`${J} #4 the payer opens the link: the fixed amount and asset before confir
       await payerPage.goto(sessionUrl);
       await expect(payerPage.getByText('Payment received')).toBeVisible({ timeout: 2_000 });
     }).toPass({ timeout: 60_000 });
+    // Paid to the business's own wallet: our ledger booked only our fee on it, once.
+    expect(ownWalletIndex(printReference)).toBeGreaterThanOrEqual(0);
+    expectOnlyOurFee(printReference, '5', 'USDT', 'merchant');
     await payerPage.goto(printAddress);
     await expect(payerPage.getByRole('heading', { name: 'Link already used' })).toBeVisible();
     await expect(payerPage.getByRole('button', { name: /continue/i })).toHaveCount(0);
@@ -486,7 +595,7 @@ test(`${J} #4 the payer opens the link: the fixed amount and asset before confir
     await expect(payerPage.locator('.amount')).toHaveText('Choose an amount');
     await payerPage.getByLabel(/Amount/).fill('3');
     const tipReference = await payerContinues(payerPage);
-    expect(tipReference).toMatch(/^addr_usdt_/);
+    expect(ownWalletIndex(tipReference)).toBeGreaterThanOrEqual(0);
     await expect(payerPage.locator('.amount')).toHaveText('3.00 USDT');
   } finally {
     await payer.close();
@@ -498,13 +607,27 @@ test(`${J} #4 the payer opens the link: the fixed amount and asset before confir
   await expect(print).toContainText('1 of 1');
 });
 
-/** The owner's pending (clearing) figure for one asset on the balance page. */
-async function pendingBalance(page, asset) {
+/**
+ * The business's row in "Held outside INTAFACED" on the balance page for `asset` at `where` ('Your own wallet' or 'With the
+ * payment partner'), once the page has read it: each cell by its column's name, or null when there is no such row.
+ */
+async function outsideRow(page, asset, where) {
   await page.goto('/pay/money');
-  const row = page.getByRole('row').filter({ hasText: asset });
-  await expect(row).toHaveCount(1);
-  return (await row.textContent())?.replace(/\s+/g, ' ').trim();
+  const section = page.getByTestId('outside-funds');
+  await expect(
+    section.getByText('No payment has reached your own wallet or the partner yet.').or(section.getByRole('table')),
+  ).toBeVisible();
+  const rows = section.getByRole('row').filter({ hasText: asset }).filter({ hasText: where });
+  if ((await rows.count()) === 0) return null;
+  await expect(rows).toHaveCount(1);
+  const headers = (await section.getByRole('columnheader').allTextContents()).map((h) => h.trim());
+  const cells = (await rows.getByRole('cell').allTextContents()).map((c) => c.replace(/\s+/g, ' ').trim());
+  return Object.fromEntries(headers.map((h, i) => [h, cells[i]]));
 }
+/** A money cell's figure as a number (TEST figures only, all exact in binary at these sizes); 0 for no row. */
+const figure = (text) => (text ? Number(text.replace(/[^0-9.]/g, '')) : 0);
+/** The ledger's posts for the payment the payer was shown `reference` for. */
+const ledgerPosts = (reference) => JSON.parse(tool('local-test-stack.mjs', 'ledger-posts', reference)).posts;
 
 test(`${J} #5 the payer pays in two transfers: TEST 60 of TEST 100 received and TEST 40 missing with no credit yet; the second confirmed transfer completes it once`, async ({
   page,
@@ -518,7 +641,9 @@ test(`${J} #5 the payer pays in two transfers: TEST 60 of TEST 100 received and 
   const label = `TEST Invoice in two parts ${Date.now().toString(36)}`;
   const address = await makeLink(page, label, '100', 'USDT');
   expect(refused).toEqual([]);
-  const before = await pendingBalance(page, 'USDT');
+  const OWN = 'Your own wallet';
+  const before = await outsideRow(page, 'USDT', OWN);
+  const was = { clearing: figure(before?.Clearing), available: figure(before?.Available) };
 
   const payer = await browser.newContext();
   try {
@@ -526,10 +651,12 @@ test(`${J} #5 the payer pays in two transfers: TEST 60 of TEST 100 received and 
     await payerPage.goto(address);
     await expect(payerPage.locator('.amount')).toHaveText('100.00 USDT');
     const reference = await payerContinues(payerPage);
+    // The payer pays straight into the business's own wallet.
+    expect(ownWalletIndex(reference)).toBeGreaterThanOrEqual(0);
     const sessionUrl = payerPage.url();
     const run = Date.now();
 
-    // The first TEST transfer covers part of it: the page says what arrived and what is missing.
+    // The first TEST transfer covers part of it and is final on the chain: the page says what arrived and what is missing.
     tool('local-test-stack.mjs', 'chain-deposit', reference, 'USDT', '60', '12', '--tx', `j-merchant-04-part-1-${run}`);
     await expect(async () => {
       await payerPage.goto(sessionUrl);
@@ -537,23 +664,45 @@ test(`${J} #5 the payer pays in two transfers: TEST 60 of TEST 100 received and 
     }).toPass({ timeout: 60_000 });
     await expect(payerPage.getByText('Send the missing 40.00 USDT to the same reference')).toBeVisible();
     await expect(payerPage.locator('.reference code')).toHaveText(reference);
+    // Not paid, and nothing booked: the business sees the 60 in its own wallet as the chain reports it, with its time.
+    expect(ledgerPosts(reference)).toEqual([]);
+    let row = await outsideRow(page, 'USDT', OWN);
+    expect(row).toMatchObject({ 'Reported by': 'The chain' });
+    expect(figure(row.Available)).toBe(was.available + 60);
+    expect(figure(row.Clearing)).toBe(was.clearing);
+    expect(row['As of']).toBeTruthy();
 
-    // No credit yet: the owner's pending balance has not moved.
-    expect(await pendingBalance(page, 'USDT')).toBe(before);
+    // The rest is sent and the chain has it with 2 confirmations: clearing, as the chain reports it, and still not paid.
+    const second = `j-merchant-04-part-2-${run}`;
+    tool('local-test-stack.mjs', 'chain-deposit', reference, 'USDT', '40', '2', '--tx', second);
+    await expect(async () => {
+      await payerPage.goto(sessionUrl);
+      row = await outsideRow(page, 'USDT', OWN);
+      expect(figure(row.Clearing)).toBe(was.clearing + 40);
+    }).toPass({ timeout: 60_000 });
+    expect(figure(row.Available)).toBe(was.available + 60);
+    await expect(payerPage.getByText('Payment received')).toHaveCount(0);
+    expect(ledgerPosts(reference)).toEqual([]);
 
-    // The second confirmed TEST transfer completes the payment.
-    tool('local-test-stack.mjs', 'chain-deposit', reference, 'USDT', '40', '12', '--tx', `j-merchant-04-part-2-${run}`);
+    // The same transfer, now final, completes the payment once.
+    tool('local-test-stack.mjs', 'chain-deposit', reference, 'USDT', '40', '12', '--tx', second);
     await expect(async () => {
       await payerPage.goto(sessionUrl);
       await expect(payerPage.getByText('Payment received')).toBeVisible({ timeout: 2_000 });
     }).toPass({ timeout: 60_000 });
     await expect(payerPage.locator('.amount')).toHaveText('100.00 USDT');
+    // Available in the business's own wallet, as the chain reports it; our ledger booked only our fee on it.
+    row = await outsideRow(page, 'USDT', OWN);
+    expect(figure(row.Available)).toBe(was.available + 100);
+    expect(figure(row.Clearing)).toBe(was.clearing);
+    expectOnlyOurFee(reference, '100', 'USDT', 'merchant');
 
-    // Once: delivering the second transfer again books nothing more.
-    const after = await pendingBalance(page, 'USDT');
-    expect(after).not.toBe(before);
-    tool('local-test-stack.mjs', 'chain-deposit', reference, 'USDT', '40', '12', '--tx', `j-merchant-04-part-2-${run}`);
-    expect(await pendingBalance(page, 'USDT')).toBe(after);
+    // Once: delivering the second transfer again books nothing more and counts nothing twice.
+    tool('local-test-stack.mjs', 'chain-deposit', reference, 'USDT', '40', '12', '--tx', second);
+    await payerPage.goto(sessionUrl);
+    await expect(payerPage.getByText('Payment received')).toBeVisible();
+    expectOnlyOurFee(reference, '100', 'USDT', 'merchant');
+    expect(figure((await outsideRow(page, 'USDT', OWN)).Available)).toBe(was.available + 100);
   } finally {
     await payer.close();
   }
@@ -566,17 +715,6 @@ test(`${J} #5 the payer pays in two transfers: TEST 60 of TEST 100 received and 
   expect(usesColumn).toBeGreaterThanOrEqual(0);
   await expect(invoice.getByRole('cell').nth(usesColumn)).toHaveText('1');
 });
-
-/** The owner's EUR balance row on the balance page, once the page has read the balances: '' when the business holds no
- * EUR row yet. A EUR row can appear with zeros as soon as a EUR payment exists, so callers compare figures, not presence. */
-async function eurBalance(page) {
-  await page.goto('/pay/money');
-  await expect(page.getByRole('row').nth(1)).toBeVisible();
-  const rows = page.getByRole('row').filter({ hasText: 'EUR' });
-  return (await rows.count()) === 0 ? '' : ((await rows.first().textContent()) ?? '').replace(/\s+/g, ' ').trim();
-}
-/** True when a balance row shows no money: only zero figures. */
-const noMoney = (row) => !/[1-9]/.test(row);
 
 /** The payer's hosted page for a link with no amount or currency: the payer names both, then the name on their bank
  * account when the business takes the payment by bank transfer. Returns the transfer reference the page shows. */
@@ -617,7 +755,8 @@ test(`${J} #6 the payer pays by bank from an account in another name: the transf
   const address = await page.getByTestId('link-address').getByRole('link', { name: 'Open the link' }).getAttribute('href');
   expect(refused).toEqual([]);
   // This business has never been paid in EUR.
-  expect(noMoney(await eurBalance(page))).toBe(true);
+  const PARTNER = 'With the payment partner';
+  expect(await outsideRow(page, 'EUR', PARTNER)).toBeNull();
   const run = Date.now();
 
   const payer = await browser.newContext();
@@ -636,9 +775,10 @@ test(`${J} #6 the payer pays by bank from an account in another name: the transf
     await expect(payerPage.getByText('Being checked')).toBeVisible();
     await expect(payerPage.getByText('Payment received')).toHaveCount(0);
 
-    // Delivered again, the same transfer is still one held transfer, and nothing is credited.
+    // Delivered again, the same transfer is still one held transfer: nothing is counted for the business, nothing booked.
     tool('local-test-stack.mjs', 'bank-transfer', reference, 'EUR', '30', '--tx', `j-merchant-04-name-${run}`, '--payer', 'A LOVELACE');
-    expect(noMoney(await eurBalance(page))).toBe(true);
+    expect(await outsideRow(page, 'EUR', PARTNER)).toBeNull();
+    expect(ledgerPosts(reference)).toEqual([]);
 
     // The owner's payment is still open, held for a name check, with the reason; it was never captured.
     await page.goto('/pay/payments');
@@ -649,7 +789,8 @@ test(`${J} #6 the payer pays by bank from an account in another name: the transf
     );
     await expect(page.getByText('Bank transfer held for a name check').first()).toBeVisible();
 
-    // The contrast: the same TEST bank and amount, from the name the payer gave, completes once and is credited.
+    // The contrast: the same TEST bank and amount, from the name the payer gave, completes once: the partner holds it for
+    // the business, which sees it as the partner reports it, and our ledger books only our fee, owed by the partner.
     const matching = await payerSendsByBank(payerPage, address, '30', 'EUR', 'Grace Hopper');
     const matchingUrl = payerPage.url();
     tool('local-test-stack.mjs', 'bank-transfer', matching, 'EUR', '30', '--tx', `j-merchant-04-match-${run}`, '--payer', 'GRACE  HOPPER');
@@ -657,7 +798,13 @@ test(`${J} #6 the payer pays by bank from an account in another name: the transf
       await payerPage.goto(matchingUrl);
       await expect(payerPage.getByText('Payment received')).toBeVisible({ timeout: 2_000 });
     }).toPass({ timeout: 60_000 });
-    await expect(async () => expect(noMoney(await eurBalance(page))).toBe(false)).toPass({ timeout: 30_000 });
+    await expect(async () => {
+      const row = await outsideRow(page, 'EUR', PARTNER);
+      expect(row).toMatchObject({ 'Reported by': 'The partner' });
+      expect(figure(row.Available) + figure(row.Clearing)).toBe(30);
+    }).toPass({ timeout: 30_000 });
+    expectOnlyOurFee(matching, '30', 'EUR', 'partner');
+    expect(ledgerPosts(reference)).toEqual([]);
   } finally {
     await payer.close();
   }
@@ -733,13 +880,14 @@ test(`${J} #7 the payer is offered only the methods for the country and currency
     await payerPage.goto(address);
     await expect(payerPage.locator('.amount')).toHaveText('7.00 USDT');
     const reference = await payerContinues(payerPage);
-    expect(reference).toMatch(/^addr_usdt_/);
+    expect(ownWalletIndex(reference)).toBeGreaterThanOrEqual(0);
     const sessionUrl = payerPage.url();
     tool('local-test-stack.mjs', 'chain-deposit', reference, 'USDT', '7', '12', '--tx', `j-merchant-04-methods-${Date.now()}`);
     await expect(async () => {
       await payerPage.goto(sessionUrl);
       await expect(payerPage.getByText('Payment received')).toBeVisible({ timeout: 2_000 });
     }).toPass({ timeout: 60_000 });
+    expectOnlyOurFee(reference, '7', 'USDT', 'merchant');
   } finally {
     await payer.close();
   }

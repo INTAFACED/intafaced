@@ -18,6 +18,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
     // through `local-test-stack.mjs bank-transfer`. svc-pay refuses this secret outside APP_ENV dev or test.
     PAY_BANK_TRANSFER_SANDBOX_WEBHOOK_SECRET: secrets.payBankTransferWebhook,
     PAY_CRYPTO_WATCHER_ENABLED: 'false', // no chain RPC in the local stack
+    // The custody switch (OWNER 226), the same value as svc-ledger's (ledger.mjs): on, for the journeys marked Later.
+    // `LOCAL_STACK_PAY_CUSTODY_LAYER=off` on a restart runs svc-pay as at launch, so hosted checkout pays the business's own
+    // wallet or the partner and books only our fee (J-merchant-04); the ledger's own switch is not changed by it.
+    LEDGER_CUSTODY_LAYER: process.env.LOCAL_STACK_PAY_CUSTODY_LAYER === 'off' ? 'off' : 'on',
     PAY_ALLOW_SANDBOX_RAILS: 'false',
     // Required, no default. LOCAL TEST values copied from .env.example.
     PAY_OPERATOR_CREDIT_RAILS: 'card-sandbox',

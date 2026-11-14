@@ -2846,6 +2846,7 @@ export function toTrpcError(err: unknown): unknown {
        * is wrong, which is the only thing that is actually true.
        */
       case 'pay.link_exhausted':
+      case 'pay.payment_not_in_our_custody':
       case 'pay.checkout_session_closed':
       case 'pay.merchant_parent_present':
         return 'CONFLICT' as const;
@@ -2872,6 +2873,7 @@ export function toTrpcError(err: unknown): unknown {
       case 'pay.destination_hold_unset':
       case 'pay.payout_admission_missing':
       case 'pay.fee_bps_unset':
+      case 'pay.receiving_wallet_unset':
       case 'pay.starter_fee_unpublished':
       case 'pay.link_ttl_unset':
       case 'pay.purchase_hold_period_unset':

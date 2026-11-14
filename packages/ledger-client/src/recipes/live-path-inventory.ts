@@ -108,12 +108,8 @@ export const RECIPE_MATRIX = {
     reason:
       "§13 — a charge collected: the customer's payment arrives at one of our own-funds places, keyed on the chain's or partner's payment id, refused above what they owe. No production writer and no grant until charges can be earned (docs/adr/2026-11-10-launch-money-model.md, rule 1). The recipe-gate catalog samples it and does not ledger.post.",
   },
-  partnerFeeEarn: {
-    kind: 'socket',
-    socket: '§13',
-    reason:
-      "§13 — our fee on a payment a licensed partner processed: our revenue up and what the partner owes us up, keyed on the partner's payment id. Refused with ledger.partner_fee_rate_unset while the owner's rate is unset (the partner is not named yet), so no production writer and no grant (docs/adr/2026-11-10-launch-money-model.md, rule 1). The recipe-gate catalog samples it and does not ledger.post.",
-  },
+  partnerFeeEarn: { kind: 'live', module: 'pay', proof: 'services/svc-pay/src/payment-service/lifecycle.ts' },
+  merchantFeeEarn: { kind: 'live', module: 'pay', proof: 'services/svc-pay/src/payment-service/lifecycle.ts' },
   partnerFeeSettle: {
     kind: 'socket',
     socket: '§13',

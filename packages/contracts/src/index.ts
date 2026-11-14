@@ -133,6 +133,7 @@ export * from './business-category.js';
 export * from './merchant-catalog.js';
 export * from './merchant-checkout-branding.js';
 export * from './merchant-checkout-methods.js';
+export * from './merchant-receiving-wallet.js';
 export * from './merchant-activation.js';
 export * from './merchant-stores.js';
 export * from './quant-disclosure.js';

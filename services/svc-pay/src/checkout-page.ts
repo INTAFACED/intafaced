@@ -782,6 +782,8 @@ export function stateForError(err: unknown): CheckoutPageState {
     case 'pay.merchant_not_found':
     case 'pay.merchant_pricing_invalid':
     case 'pay.fee_bps_unset':
+    // The business has not given its own receiving wallet: nothing was started, and the page says it cannot take payment.
+    case 'pay.receiving_wallet_unset':
     case 'pay.routing_no_rail':
     // The owner has not declared a success fraction for any rail that could take this.
     case 'pay.routing_approval_rate_unset':

@@ -1087,6 +1087,18 @@ function extraShapePosts(): Array<{ name: RecipeName; post: PostRequest }> {
       }),
     },
     {
+      name: 'merchantFeeEarn',
+      // Shape sample only, never posted: a TEST fee, because a blank fee refuses.
+      post: recipes.merchantFeeEarn({
+        module: 'pay',
+        merchantId: U,
+        paymentId: 'pay-test',
+        assetId: 'USDC',
+        grossAmount: AMT,
+        rate: { bps: 100 },
+      }),
+    },
+    {
       name: 'partnerFeeSettle',
       post: recipes.partnerFeeSettle({
         partnerId: 'test-partner',

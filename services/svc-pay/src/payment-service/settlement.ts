@@ -395,6 +395,9 @@ export async function prepareSettlement(
          WHERE p.merchant_id = ${input.merchantId}
            AND p.currency = ${input.assetId}
            AND p.status = 'captured'
+           -- Only money in our custody settles: a payment to the business's own wallet or held by the partner never
+           -- entered clearing (launch money model, OWNER 226).
+           AND p.custody = 'platform'
            AND NOT EXISTS (
              -- Frozen into a settlement that has not been released. A released
              -- inclusion (ops path after desync) is eligible for a later window.
