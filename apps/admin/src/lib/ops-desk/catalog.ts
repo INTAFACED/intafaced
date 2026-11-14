@@ -2258,16 +2258,14 @@ const moreSections: readonly DeskSection[] = [
     title: 'Campaigns',
     intro: 'Customer campaigns and who took part.',
     reads: [],
-    unavailable: [
-      un(
-        'campaigns.participation',
-        'Campaign participation',
-        'svc-campaigns has no operator read of who joined a campaign (its participations are read per customer). The campaigns desk shows every campaign, its state and its budget.',
-        26,
-      ),
-    ],
+    unavailable: [],
     disabledActions: [],
     links: [
+      {
+        href: '/more-ops/campaigns/watch',
+        label: 'Campaign watch',
+        why: 'Running campaigns counted from svc-campaigns: KPIs, trends, alerts, and each campaign’s participation, vouchers, redemptions, code batches and exports.',
+      },
       {
         href: '/more-ops/campaigns',
         label: 'Campaigns desk and builder',

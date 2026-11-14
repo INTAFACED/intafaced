@@ -83,6 +83,19 @@ export const CAMPAIGN_REFUSAL_CODES = [
   'campaigns.attempt_limit_reached',
   'campaigns.window_unset',
   'campaigns.welcome_none',
+  // J-campaigns-17: the operator's watch desk, code batches and exports (campaigns-watch.ts).
+  'campaigns.alert_threshold_unset',
+  'campaigns.code_batch_limit_unset',
+  'campaigns.code_batch_limit_exceeded',
+  'campaigns.code_import_duplicate',
+  'campaigns.code_batch_unknown',
+  'campaigns.code_batch_reference_taken',
+  'campaigns.voucher_unknown',
+  'campaigns.voucher_deactivated',
+  'campaigns.export_validity_unset',
+  'campaigns.export_unknown',
+  'campaigns.export_not_ready',
+  'campaigns.export_expired',
   'owner.decision',
 ] as const;
 export type CampaignRefusalCode = (typeof CAMPAIGN_REFUSAL_CODES)[number];
