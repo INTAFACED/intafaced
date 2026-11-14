@@ -59,6 +59,7 @@ const en = {
   businessNote: 'Price alerts belong to your personal account. Switch to your personal account to use them.',
   // What the platform can do right now
   evalReady: 'Price checks are connected. An alert triggers once, the first time the price reaches your level.',
+  // oxlint-disable-next-line garden/own-gap-wording -- on main before this rule (HM-shell-03); its owner rewords it, and then this line goes
   evalDark:
     'Price checks are not connected on this platform. You can save an alert, but none can trigger while price checks are not connected.',
   evalNoDelivery:

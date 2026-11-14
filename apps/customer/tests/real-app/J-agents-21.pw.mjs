@@ -5,13 +5,14 @@ import { fileURLToPath } from 'node:url';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
+import { openFounderDesk } from './agents.mjs';
 import { EDGE, ORIGIN, api, fromUnits, journeyState, tool, toUnits } from './stack.mjs';
 import { signedHeaders } from './developer.mjs';
 import { confirmStepUp, restorePasskey, testPasskey } from './p2p.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 
 // J-agents-21, in the running app (docs/roadmap/journeys.json): I let my own AI assistant trade on a capped account I
-// can revoke. This file holds the steps built so far (#1 #3 #4 #5 #8 #9 #10 #12 #13 #14 #16 #17 #18 #19 #7), one test per step,
+// can revoke. This file holds the steps built so far (#1 #3 #4 #5 #8 #9 #10 #11 #12 #13 #14 #16 #17 #18 #19 #7 #15), one test per step,
 // titled "J-agents-21 #<n>", run in order by one signed-in, verified TEST person with one TEST wallet key (kept in this
 // run's state) on the stack's TEST venue simulator (tooling/scripts/local-test-venue.mjs). Every figure the TEST venue
 // reports is TEST.
@@ -32,8 +33,13 @@ import { testWalletKey } from './test-wallet.mjs';
 // the venue takes a spot buy's fee in BTC, and BTC left under one lot would keep #14's close refused. #18 left the
 // second account at its daily-loss cap, so the person first sets that cap back to TEST 25.
 //
-// Not here, under the passing/unbuilt rule: #2 and #6 (the Connect your assistant screen), #11 (the connection's log)
-// and #15 (the founder's desk) are later pieces.
+// #11 reads the connection's Activity through the API, as the connection's screen (a later piece, a design change) will:
+// every call the assistant made with the first key in #8 #9 #10, kept by the request id Edge answered each with.
+//
+// Not here, under the passing/unbuilt rule: #2 and #6 (the Connect your assistant screen) are a later piece.
+//
+// #15 runs after #7, on the console (/more-ops/agents) as the stack's LOCAL TEST founder: the second TEST connection is
+// #7's key on the second agent account. Quarantine revokes the key at identity and ends the connection at svc-trade.
 //
 // #19 acts on the second agent account (#16), with two more agent keys the person makes with end dates through identity's
 // API (the same TEST stand-in): the venue's longest agent permission is the TEST venue's own declaration (GET /venue).
@@ -391,9 +397,12 @@ async function assistantKey(which = 'first') {
   return assistantKey(which);
 }
 
-/** One call to Edge as the assistant: its agent key, each request signed with the key's signing secret. */
+/**
+ * One call to Edge as the assistant: its agent key, each request signed with the key's signing secret. Every call is
+ * kept in this run's state by the request id Edge answered it with, under its key, so #11 knows every call made so far.
+ */
 async function asAssistant(method, route, body, which = 'first') {
-  const { agentKey, agentSecret } = await assistantKey(which);
+  const { agentKey, agentKeyId, agentSecret } = await assistantKey(which);
   const raw = body === undefined ? undefined : JSON.stringify(body);
   const res = await fetch(`${EDGE}${route}`, {
     method,
@@ -405,6 +414,10 @@ async function asAssistant(method, route, body, which = 'first') {
     },
     body: raw,
   });
+  const requestId = res.headers.get('x-request-id');
+  expect(requestId, `${method} ${route}: Edge answered with no x-request-id`).toBeTruthy();
+  const made = run.read().calls ?? {};
+  run.write({ calls: { ...made, [agentKeyId]: [...(made[agentKeyId] ?? []), { requestId, method, route }] } });
   const text = await res.text();
   let parsed;
   try {
@@ -554,6 +567,74 @@ test(`${J} #10 The assistant places an order costing more than the agent account
   expect(res.body.refusal.detail).toContain('margin');
   // Nothing locked, and the main venue account never drawn: both accounts, the position and our ledger as they were.
   expect(await everything(session)).toEqual(before);
+});
+
+test(`${J} #11 Opens the connection's Activity: one row per call so far, refused ones included, each with time, tool, outcome and order id; the export holds the same rows`, async () => {
+  test.setTimeout(120_000);
+  const { session } = await person();
+  const { agentKeyId } = await assistantKey();
+  // Every call the assistant made with this key so far (#8 #9 #10), as Edge answered each: oldest first.
+  const made = run.read().calls?.[agentKeyId] ?? [];
+  expect(made.length, 'the assistant made no calls before #11').toBeGreaterThanOrEqual(6);
+
+  const view = body200(await session.get(`${BASE}/connections/${agentKeyId}/activity`));
+  expect(view).toMatchObject({ keyId: agentKeyId, accountId: state().accountId });
+  // One row per call so far, refused ones included, newest first, and no other.
+  expect(view.rows.map((r) => r.requestId)).toEqual([...made].reverse().map((c) => c.requestId));
+  const started = new Date(Date.now() - 60 * 60_000).getTime();
+  for (const row of view.rows) {
+    // Time: when the call was answered, in this run.
+    expect(Number.isNaN(Date.parse(row.at)), JSON.stringify(row)).toBe(false);
+    expect(Date.parse(row.at) > started && Date.parse(row.at) <= Date.now(), JSON.stringify(row)).toBe(true);
+    // Tool, and outcome.
+    const call = made.find((c) => c.requestId === row.requestId);
+    expect(row.tool).toBe(call.route === '/api/v1/venue/agent/orders' ? 'place_order' : `${call.method} ${call.route.split('?')[0]}`);
+    expect(['accepted', 'refused', 'failed']).toContain(row.outcome);
+  }
+  const byOrder = (id) => view.rows.filter((r) => r.order?.clientOrderId === id);
+
+  // #8's perp: accepted, with its order id, the venue's own id as the venue reports it.
+  const [opened] = byOrder('perp-open');
+  expect(opened).toMatchObject({ tool: 'place_order', outcome: 'accepted', status: 200, code: null });
+  const record = body200(
+    await session.get(`/api/v1/venue/orders/by-key?actionKey=${encodeURIComponent(`agent:order:${agentKeyId}:perp-open`)}`),
+  );
+  expect(opened.order.venueOrderId).toBe(record.order?.venueOrderId ?? null);
+  // #9's four calls: each refused, 403, no order.
+  const refusedRoutes = made.slice(-5, -1).map((c) => c.requestId);
+  const nine = view.rows.filter((r) => refusedRoutes.includes(r.requestId));
+  expect(nine).toHaveLength(4);
+  for (const row of nine) expect(row).toMatchObject({ outcome: 'refused', status: 403, order: null });
+  // #10's order past what the account holds: refused with the venue's code, naming its order.
+  const [tooBig] = byOrder('perp-too-big');
+  expect(tooBig).toMatchObject({
+    tool: 'place_order',
+    outcome: 'refused',
+    status: 422,
+    code: 'trade.venue.insufficient_balance',
+    order: { clientOrderId: 'perp-too-big', venueOrderId: null },
+  });
+
+  // The export holds the same rows, in the same order.
+  const file = await session.get(`${BASE}/connections/${agentKeyId}/activity?format=csv`);
+  expect(file.status).toBe(200);
+  expect(typeof file.body).toBe('string');
+  const lines = file.body.trimEnd().split('\n');
+  expect(lines[0]).toBe('Time,Tool,Outcome,Status,Code,Order id,Venue order id,Request id');
+  expect(lines.slice(1)).toEqual(
+    view.rows.map((r) =>
+      [
+        r.at,
+        r.tool,
+        { accepted: 'Accepted', refused: 'Refused', failed: 'Failed' }[r.outcome],
+        String(r.status),
+        r.code ?? '',
+        r.order?.clientOrderId ?? '',
+        r.order?.venueOrderId ?? '',
+        r.requestId,
+      ].join(','),
+    ),
+  );
 });
 
 test(`${J} #12 Revokes the assistant while it has a resting TEST order: the next call with the key refuses auth.api_key_revoked; the resting order is cancelled once on the venue; our copy of the venue agent key is dropped and the wallet is asked to sign the venue's revoke; the perp position stays in the agent account`, async () => {
@@ -1163,4 +1244,78 @@ test(`${J} #7 The assistant buys TEST spot through the MCP server's order tool: 
   await expect(row.locator('td').nth(1)).toHaveText('Buy');
   await expect(row.locator('td').nth(5)).toHaveText('Filled');
   await expect(row.locator('[data-placed-by="assistant"]')).toHaveText('by your assistant');
+});
+
+test(`${J} #15 A founder opens the agents desk and quarantines a second TEST connection: each outside connection with its person, cap, balance, key state and last action; after Quarantine that connection's next call refuses, and an audit row names the founder and the reason`, async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  const { session } = await person();
+  const { second, account } = state();
+  // The second TEST connection: the assistant's key on the second agent account, which made #7's call last.
+  const { agentKeyId } = await assistantKey('second');
+  const before = await everything(session, second.subAccount);
+  const balance = usdcOf(before.sub).total;
+  // The edge's call log holds #7's call before the desk is read (the connection's own Activity, #11, reads the same log).
+  await expect
+    .poll(async () => body200(await session.get(`${BASE}/connections/${agentKeyId}/activity`)).rows.length, { timeout: 30_000 })
+    .toBeGreaterThan(0);
+
+  // The agents desk, as the stack's LOCAL TEST founder: the outside connections, each with its person, cap, balance as
+  // the venue reports it, key state and last action.
+  const founder = await openFounderDesk(page, '/more-ops/agents', 'Agent fleet');
+  const desk = page.getByRole('region', { name: 'Outside assistant connections', exact: true });
+  const row = desk.locator(`tr[data-key-id="${agentKeyId}"]`);
+  await expect(row).toHaveCount(1);
+  await expect(row.getByTestId('outside-person')).toHaveText(account.handle);
+  await expect(row.getByTestId('outside-cap')).toHaveText('200 USDC');
+  await expect(row.getByTestId('outside-balance')).toHaveText(`${fromUnits(toUnits(String(balance)))} USDC`);
+  await expect(row.getByTestId('outside-key')).toContainText('Live');
+  await expect(row.getByTestId('outside-key')).toContainText(agentKeyId);
+  // The last action is the key's newest call, as the edge logged it: #7's order through the MCP server.
+  await expect(row.getByTestId('outside-last-action')).toContainText('POST /api/v1/venue/agent/orders · 200');
+  await expect(row.getByTestId('outside-status')).toHaveText('Connected');
+
+  // Quarantine, with a reason.
+  const reason = `TEST quarantine ${agentKeyId.slice(0, 8)}`;
+  await row.getByRole('button', { name: 'Quarantine' }).click();
+  const sheet = page.getByRole('dialog', { name: 'Quarantine connection' });
+  await sheet.getByLabel('Reason (written to the audit log)').fill(reason);
+  await sheet.getByRole('button', { name: 'Quarantine' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Connection quarantined' })).toBeVisible();
+  await expect(row.getByTestId('outside-status')).toHaveText(`Quarantined by ${founder.handle} · ${reason}`);
+  await expect(row.getByTestId('outside-key')).toContainText('Revoked');
+
+  // An audit row names the founder and the reason.
+  const audit = desk.getByRole('region', { name: 'Outside connections audit log', exact: true });
+  const logged = audit.locator(`tr[data-key-id="${agentKeyId}"]`);
+  await expect(logged).toHaveCount(1);
+  await expect(logged.getByTestId('outside-audit-operator')).toHaveText(founder.handle);
+  await expect(logged.getByTestId('outside-audit-reason')).toHaveText(reason);
+
+  // The connection's next call refuses, at the door, before anything is placed; and it trades no agent account now.
+  const next = await asAssistant(
+    'POST',
+    '/api/v1/venue/agent/orders',
+    {
+      clientOrderId: 'after-quarantine',
+      symbol: 'BTC-USDC',
+      side: 'buy',
+      type: 'limit',
+      amount: '0.0002',
+      price: '50000',
+      timeInForce: 'GTC',
+    },
+    'second',
+  );
+  expect(next.status, JSON.stringify(next.body).slice(0, 300)).toBe(401);
+  expect(next.body.intafacedCode).toBe('auth.api_key_revoked');
+  refused(
+    await session.get(`/api/v1/venue/orders/by-key?actionKey=${encodeURIComponent(`agent:order:${agentKeyId}:after-quarantine`)}`),
+    404,
+    'trade.venue_action_unknown',
+  );
+  expect(body200(await session.get(`${BASE}/connections`)).connections.map((c) => c.keyId)).not.toContain(agentKeyId);
+  // Nothing moved: both venue accounts, as the venue reports them, and our ledger are as they were.
+  expect(await everything(session, second.subAccount)).toEqual(before);
 });

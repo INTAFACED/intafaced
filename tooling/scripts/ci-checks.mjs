@@ -19,13 +19,16 @@
  *     schema count and tooling/ci/assert-test-db-env.mjs;
  *   · the jobs, each with CI's command: gates (`node tooling/ci/gates.mjs --changed`), format (`format:check`'s prettier
  *     over the changed files), build (`turbo run build <build filters>`), typecheck (`turbo run typecheck <filters>`),
- *     tests (`vitest related --run` in each package CI's test job selects: the test files whose imports reach a changed
- *     file or its built twin in dist/, plus every test of the package that walks the source tree, which nothing imports).
- *     Each package's own `test` script runs as CI's `pnpm test` runs it (svc-fix's Maven tests, sbe-codec's jar, a tsc
- *     first), its `vitest run` narrowed to those files.
+ *     tests (`vitest related --run` in each package CI's test job selects that holds a changed file: the test files
+ *     whose imports reach one of that package's changed files, plus every test of the package that walks the source
+ *     tree, which nothing imports). Each package's own `test` script runs as CI's `pnpm test` runs it (svc-fix's Maven
+ *     tests, sbe-codec's jar, a tsc first), its `vitest run` narrowed to those files.
+ *     The packages that only depend on a changed one are built and typechecked here, and their tests are left to CI:
+ *     one change to packages/contracts reached 34 packages, run one after another, 41 to 48 minutes of tests on a
+ *     loaded Mac against CI's 7 to 18 split across its runners (J-agents-21 #11's four pushes, 13 Nov).
  * Left out, and said so in the output: the NATS bus, Redis and the EVM chains (their suites run in CI; a chain suite is
- * excluded by name when no chain answers on 8545 here), and the rest of CI's unit selection (the test files no change
- * reaches). Clocks are UTC, as on CI's runners. A pass here is an early
+ * excluded by name when no chain answers on 8545 here), the tests of the packages that hold no changed file, and the
+ * rest of CI's unit selection (the test files no change reaches). Clocks are UTC, as on CI's runners. A pass here is an early
  * copy of CI's verdict, never a replacement for it.
  *
  *   node tooling/scripts/ci-checks.mjs                  the branch against its merge-base with origin/main
@@ -82,14 +85,13 @@ export function ciSchemaProof(actionText) {
   return { expected: Number(expected[1]), inList: list[1] };
 }
 
-/** A changed source file and its built twin (`src/a.ts` → `dist/a.js`), which a dependent package's tests import. */
-export function withBuiltTwins(files) {
-  const out = new Set(files);
-  for (const f of files) {
-    const m = f.match(/^((?:packages|services)\/[^/]+)\/src\/(.+)\.tsx?$/);
-    if (m && !IS_VITEST_FILE.test(f)) out.add(`${m[1]}/dist/${m[2]}.js`);
-  }
-  return [...out];
+/**
+ * The packages whose tests run here: those of CI's selection (`tested`, { name, directory }) that hold a changed file,
+ * each with its own changed files. A package that only depends on a changed one is left to CI's test job; its build and
+ * typecheck still run here.
+ */
+export function touchedPackages(tested, files) {
+  return tested.map((p) => ({ ...p, own: files.filter((f) => f.startsWith(`${p.directory}/`)) })).filter((p) => p.own.length > 0);
 }
 
 /** The Node CI runs (.node-version's major): null when the default is it, else the bin dir to put first, or an error. */
@@ -344,12 +346,11 @@ export async function runCiChecks({ base = 'origin/main', list = false, log = co
   const { env, skipped } = ciTestEnv(actionText);
   log(`  CI's checks on Node ${node.want}: ${filters.join(' ')}`);
   log(
-    `  left to CI: ${skipped.join(', ')}; the test files no change reaches; the guards that read the pull request (test-diff, journey baseline, journey list, reach map); the deployment tests and the tooling tests that need a full build`,
+    `  left to CI: ${skipped.join(', ')}; the tests of the packages that hold no changed file (built and typechecked here); the test files no change reaches; the guards that read the pull request (test-diff, journey baseline, journey list, reach map); the deployment tests and the tooling tests that need a full build`,
   );
 
   const tested = flags.full || flags.affected ? turboPackages('test', filters, baseEnv) : [];
   if (tested === null) return { ok: false, summary: 'turbo could not list the packages CI would test' };
-  const twins = withBuiltTwins(files).map((f) => join(ROOT, f));
   // CI starts an EVM chain (anvil on 8545); a builder's machine usually has none, and those suites fail by design
   // without one. With no chain answering here they are left to CI, by name.
   const chain = spawnSync(
@@ -368,18 +369,29 @@ export async function runCiChecks({ base = 'origin/main', list = false, log = co
   );
   const hasChain = chain.status === 0 && /"result"/.test(chain.stdout);
   const leftToCi = [];
-  const plan = tested.map(({ name, directory }) => {
+  const touched = touchedPackages(tested, files);
+  const plan = touched.map(({ name, directory, own: ownFiles }) => {
     const own = git(['ls-files', directory]).split('\n').filter(Boolean);
     const tests = own.filter((f) => IS_VITEST_FILE.test(f)).map((f) => ({ f, text: readFileSync(join(ROOT, f), 'utf8') }));
     const rules = tests.filter(({ f, text }) => ruleTest(f, text)).map(({ f }) => join(ROOT, f));
     const exclude = hasChain ? [] : tests.filter(({ text }) => NEEDS_CHAIN.test(text)).map(({ f }) => f.slice(directory.length + 1));
     leftToCi.push(...exclude.map((f) => `${directory}/${f}`));
     const script = JSON.parse(readFileSync(join(ROOT, directory, 'package.json'), 'utf8')).scripts?.test ?? 'vitest run';
-    return { name, directory, targets: [...twins, ...rules], command: packageTestCommand(script, [...twins, ...rules], exclude) };
+    const changed = ownFiles.map((f) => join(ROOT, f));
+    return {
+      name,
+      directory,
+      changed,
+      targets: [...changed, ...rules],
+      command: packageTestCommand(script, [...changed, ...rules], exclude),
+    };
   });
   if (leftToCi.length) log(`  left to CI (they need its EVM chain; none answers on 127.0.0.1:8545 here): ${leftToCi.join(', ')}`);
+  if (tested.length > plan.length)
+    log(`  tests here: ${plan.length} of the ${tested.length} packages CI tests (those holding a changed file); the rest are CI's`);
   if (list) {
-    for (const p of plan) log(`  ${p.name}: related to ${twins.length} changed files, plus ${p.targets.length - twins.length} rule tests`);
+    for (const p of plan)
+      log(`  ${p.name}: related to ${p.changed.length} changed files, plus ${p.targets.length - p.changed.length} rule tests`);
     return { ok: true, summary: `${plan.length} packages` };
   }
 

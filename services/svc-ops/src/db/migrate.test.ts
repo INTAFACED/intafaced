@@ -1,8 +1,18 @@
 import { randomBytes, randomUUID } from 'node:crypto';
+import { readdirSync } from 'node:fs';
 import postgres from 'postgres';
 import { createTestDatabase } from '@intafaced/db';
 import { describe, expect, it } from 'vitest';
 import { migrateOutreach } from './migrate.js';
+
+/**
+ * Every up migration in services/svc-ops/drizzle (each `<name>.sql` beside its `<name>.down.sql`; the archive/ folder is
+ * the archive receiver's own). Read from the folder, not written here: a new migration file listed in migrate.ts passes,
+ * and one left out of migrate.ts's list, which would never run, fails.
+ */
+const UP_MIGRATIONS = readdirSync(new URL('../../drizzle/', import.meta.url), { withFileTypes: true }).filter(
+  (e) => e.isFile() && e.name.endsWith('.sql') && !e.name.endsWith('.down.sql'),
+).length;
 
 describe.runIf(Boolean(process.env.TEST_DATABASE_URL))('OPS migration schema ownership on real PostgreSQL', () => {
   it('migrates a preprovisioned owned schema without database CREATE privilege', async () => {
@@ -26,7 +36,7 @@ describe.runIf(Boolean(process.env.TEST_DATABASE_URL))('OPS migration schema own
       expect(privileges).toMatchObject({ database_create: false, schema_create: true });
       await migrateOutreach(service);
       await migrateOutreach(service);
-      expect(await service`SELECT name FROM ops.crm_migrations`).toHaveLength(28);
+      expect(await service`SELECT name FROM ops.crm_migrations`).toHaveLength(UP_MIGRATIONS);
       expect(await service`SELECT id FROM ops.crm_erasure_intents`).toHaveLength(0);
     } finally {
       await service?.end();

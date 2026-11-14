@@ -82,6 +82,7 @@ GET /api/v1/trades/:symbol public trade:read
 GET /api/v1/venue/agent-accounts private trade:read
 GET /api/v1/venue/agent-accounts/:id private trade:read
 GET /api/v1/venue/agent-accounts/connections private trade:read
+GET /api/v1/venue/agent-accounts/connections/:keyId/activity private trade:read
 GET /api/v1/venue/agent-accounts/terms private trade:read
 GET /api/v1/venue/agents private trade:read
 GET /api/v1/venue/balances private trade:read
