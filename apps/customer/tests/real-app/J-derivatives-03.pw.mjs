@@ -474,7 +474,16 @@ test(`${J} #6 the mark crosses the trigger: the venue fires it once and the posi
   expect(fromUnits(sold)).toBe(fromUnits(toUnits(before.size)));
   const others = venueOnes.filter((p) => p.status !== 'filled');
   expect(others.length > 0).toBe(true);
-  for (const p of others) expect(p).toMatchObject({ status: 'cancelled', cancelReason: 'position_closed' });
+  // Each other leg is cancelled with the position, or, where it is one leg of a pair attached to an entry (#4) whose
+  // other leg just fired, cancelled `linked` by that fill (#8): either way none is left to fire on nothing.
+  const firedParents = new Set(fired.map((p) => p.parentClientOrderId).filter(Boolean));
+  for (const p of others) {
+    const linked = p.parentClientOrderId !== null && firedParents.has(p.parentClientOrderId);
+    expect(p, `${p.clientOrderId} (parent ${p.parentClientOrderId})`).toMatchObject({
+      status: 'cancelled',
+      cancelReason: linked ? expect.stringMatching(/^(linked|position_closed)$/) : 'position_closed',
+    });
+  }
   expect((await openOrders(owner)).filter((o) => o.trigger)).toEqual([]);
   // The mark crossing again fires nothing more.
   await setMark('3300');
