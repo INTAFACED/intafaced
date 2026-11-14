@@ -155,6 +155,8 @@ function testChain() {
       return hash;
     },
     receipt: async (hash) => (mode.reverted.has(hash) ? false : transfers.some((t) => t.hash === hash) ? true : null),
+    // 21,000 gas at 2 gwei, paid by the sender, as an EVM receipt states it.
+    networkFee: async (hash) => (transfers.some((t) => t.hash === hash) ? 21_000n * 2_000_000_000n : null),
     find: async (from, to, units, fromBlock) =>
       transfers.filter((t) => t.from === from && t.to === to && t.units === units && t.block >= fromBlock).map((t) => t.hash),
   };
@@ -170,9 +172,14 @@ let posting: boolean | null;
 let clock: Date | null;
 let connected: string[] | null;
 
+/** The venue's own deposits into each wallet's venue account (J-campaigns-02 #1); a wallet missing here is unread. */
+let venue = new Map<string, { depositRef: string; asset: string; amount: string; status: string; seenAt: string }[]>();
 const wallets: VenueDepositSource = {
   wallets: async (forwarded) => (Object.keys(forwarded).length > 0 ? connected : null),
-  deposits: async () => null,
+  deposits: async (owner) => {
+    const list = venue.get(owner);
+    return list ? { venueId: VENUE, asOf: (clock ?? new Date()).toISOString(), deposits: list } : null;
+  },
 };
 const FORWARDED = { 'x-intafaced-principal': 'TEST' };
 
@@ -279,6 +286,7 @@ if (!db) {
       posting = true;
       clock = null;
       connected = [MY_WALLET];
+      venue = new Map();
       const saga = new PayoutSaga({ sql: db.sql, ledger: wire.ledger, reconcileAfterSeconds: 1, rewardCeiling: CEILING });
       tasks = new TaskService({
         sql: db.sql,
@@ -298,6 +306,117 @@ if (!db) {
         postingEnabled: async () => posting,
         now: () => clock ?? new Date(),
       });
+    });
+
+    it('a deposit step ticks once from the venue’s record of a deposit after the join; read again, or reported again, nothing changes (J-campaigns-02 #1)', async () => {
+      const DEPOSIT_STEPS: CampaignTasks = {
+        ...STEPS,
+        steps: [
+          { title: 'TEST deposit USDC', event: 'pay.deposit', market: null, side: null, count: 1, streakDays: null },
+          { title: 'TEST buy BTC', event: 'trade.fill', market: null, side: 'buy', count: 1, streakDays: null },
+        ],
+      };
+      const c = await joined({ tasks: DEPOSIT_STEPS });
+      const read = () => tasks.progress({ campaignId: c.id, accountId: ME, forwarded: FORWARDED });
+      // The venue unread: the step stays open and says unread, never "no deposit"; with no principal nothing is read.
+      expect(await read()).toMatchObject({ completed: 0, deposit: { source: 'unread', asOf: null } });
+      expect((await tasks.progress({ campaignId: c.id, accountId: ME })).deposit).toEqual({ source: 'unread', asOf: null });
+      connected = [];
+      expect((await read()).deposit).toEqual({ source: 'no_wallet', asOf: null });
+      connected = [MY_WALLET];
+      // A deposit the venue saw before the join, one not credited, and one in another asset count for nothing.
+      const [member] = await db.sql<{ created_at: Date }[]>`SELECT created_at FROM campaigns.participations WHERE campaign_id = ${c.id}`;
+      const before = new Date(member!.created_at.getTime() - 60_000).toISOString();
+      const after = new Date(member!.created_at.getTime() + 1_000).toISOString();
+      venue.set(MY_WALLET, [
+        { depositRef: '0xold:0', asset: 'USDC', amount: '25', status: 'credited', seenAt: before },
+        { depositRef: '0xwait:0', asset: 'USDC', amount: '25', status: 'confirming', seenAt: after },
+        { depositRef: '0xeth:0', asset: 'ETH', amount: '1', status: 'credited', seenAt: after },
+      ]);
+      const none = await read();
+      expect(none.deposit?.source).toBe('read');
+      expect(none.steps.map((st) => st.done)).toEqual([0, 0]);
+      // Credited USDC after the join: the step is done, from the venue's own id for the transfer.
+      venue.get(MY_WALLET)!.push({ depositRef: '0xnew:0', asset: 'USDC', amount: '25', status: 'credited', seenAt: after });
+      const done = await read();
+      expect(done.steps.map((st) => st.done)).toEqual([1, 0]);
+      const events = () => db.sql<{ event_id: string; occurred_at: Date }[]>`
+        SELECT event_id, occurred_at FROM campaigns.task_progress WHERE campaign_id = ${c.id} ORDER BY event_id`;
+      expect(await events()).toEqual([{ event_id: `venue-deposit:${VENUE}:0xnew:0`, occurred_at: new Date(after) }]);
+      // Read again, and with a later deposit on the venue: the one event stands, the step counts once.
+      venue.get(MY_WALLET)!.push({ depositRef: '0xlater:0', asset: 'USDC', amount: '5', status: 'credited', seenAt: after });
+      for (let i = 0; i < 3; i += 1) expect((await read()).steps.map((st) => st.done)).toEqual([1, 0]);
+      expect(await events()).toHaveLength(1);
+      // The fill completes the campaign; the deposit step's event never moved.
+      await tasks.onFill({ fillId: 'fill-deposit-1', userId: ME, marketId: 'm', side: 'buy', ts: new Date().toISOString() });
+      expect((await read()).completed).toBe(2);
+      expect(await events()).toHaveLength(2);
+      // A deposit step is one event on no market or side, never a streak.
+      const s = new CampaignService({ sql: db.sql, timeZone: () => 'UTC', participants });
+      const bad = (step: Partial<CampaignTasks['steps'][number]>) =>
+        s.create({ definition: definition({ tasks: { ...STEPS, steps: [{ ...DEPOSIT_STEPS.steps[0]!, ...step }] } }), actor: A }).then(
+          () => 'made',
+          (e: { code?: string }) => e.code,
+        );
+      expect(await bad({ count: 2 })).toBe('campaigns.tasks_invalid');
+      expect(await bad({ side: 'buy' })).toBe('campaigns.tasks_invalid');
+      expect(await bad({ market: 'BTC/USDT' })).toBe('campaigns.tasks_invalid');
+    });
+
+    it('reward money we paid a wallet, deposited back, does not tick a deposit step', async () => {
+      await seed('50', '20');
+      const reward = await claimed();
+      expect(await payer.pass()).toEqual({ sent: 1, paid: 1 });
+      expect((await recordOf(reward.rewardKey)).state).toBe('paid');
+      const c = await joined({
+        tasks: {
+          ...STEPS,
+          steps: [{ title: 'TEST deposit USDC', event: 'pay.deposit', market: null, side: null, count: 1, streakDays: null }],
+        },
+      });
+      const read = () => tasks.progress({ campaignId: c.id, accountId: ME, forwarded: FORWARDED });
+      const after = new Date(Date.now() + 1_000).toISOString();
+      // The 10 USDC we paid, sent back to the venue: not a deposit of the person's own money.
+      venue.set(MY_WALLET, [{ depositRef: '0xback:0', asset: 'USDC', amount: '10', status: 'credited', seenAt: after }]);
+      expect((await read()).completed).toBe(0);
+      // Anything above it is theirs: the step ticks on the deposit that passes it.
+      venue.get(MY_WALLET)!.push({ depositRef: '0xmine:0', asset: 'USDC', amount: '1', status: 'credited', seenAt: after });
+      expect((await read()).completed).toBe(1);
+      await reconciles('20');
+    });
+
+    it('the budget reservation moves to spent once; reserved, spent and left add up to the limit exactly; the rollback window closes at the payment; the network fee is ours', async () => {
+      await seed('50', '20');
+      const c = await joined({ budget: { asset: 'USDC', limit: '100.000000000000000001' } });
+      const read = () => tasks.progress({ campaignId: c.id, accountId: ME, forwarded: FORWARDED });
+      expect((await read()).budget).toEqual({
+        asset: 'USDC',
+        limit: '100.000000000000000001',
+        reserved: '0',
+        spent: '0',
+        left: '100.000000000000000001',
+      });
+      await complete(c.id);
+      const owed = (await tasks.claim({ campaignId: c.id, accountId: ME, forwarded: FORWARDED })).reward;
+      expect(owed.state).toBe('owed');
+      expect((await read()).budget).toMatchObject({ reserved: '10', spent: '0', left: '90.000000000000000001' });
+      // Owed: the rollback window runs from when it was owed and closes when it is paid.
+      expect(owed.rollback).toMatchObject({ closesOn: 'payment', windowSeconds: 86_400 });
+      expect(Date.parse(owed.rollback.closesAt!)).toBe(Date.parse(owed.owed!.at) + 86_400_000);
+      expect(await payer.pass()).toEqual({ sent: 1, paid: 1 });
+      await payer.pass();
+      const paid = (await read()).reward!;
+      expect(paid.state).toBe('paid');
+      expect((await read()).budget).toMatchObject({ reserved: '0', spent: '10', left: '90.000000000000000001' });
+      // Closed at the payment: a chain payment cannot be taken back.
+      expect(paid.rollback).toMatchObject({ closesOn: 'payment', closesAt: paid.payout!.at });
+      // The network fee is what the chain's receipt states, paid by our wallet, and the reward reached the wallet whole.
+      expect(paid.payout!.networkFee).toEqual({ asset: 'ETH', amount: '0.000042', paidBy: 'intafaced' });
+      expect(world.balances.get(MY_WALLET)).toBe(10_000_000n);
+      // The ledger agrees: owed once, paid once, nothing still owed.
+      expect(wire.mode.posts.filter((k) => k.startsWith('campaigns:owe:'))).toHaveLength(1);
+      expect(new Set(wire.mode.posts.filter((k) => k.startsWith('campaigns:reward-paid:'))).size).toBe(1);
+      await reconciles('20');
     });
 
     it('pays an owed reward once to the wallet connected at its claim, books it under its chain transaction, and it reads paid', async () => {

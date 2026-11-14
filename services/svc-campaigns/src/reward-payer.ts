@@ -4,6 +4,7 @@ import {
   LedgerError,
   REWARD_ASSET,
   classifyPostOutcome,
+  formatAmount,
   parseAmount,
   recipes,
   type Amount,
@@ -54,7 +55,16 @@ export interface RewardChain {
   receipt(hash: string): Promise<boolean | null>;
   /** Every transfer of exactly `units` from `from` to `to` since `fromBlock`, oldest first. */
   find(from: string, to: string, units: bigint, fromBlock: bigint): Promise<readonly string[]>;
+  /**
+   * What a mined transaction cost its sender in the chain's own coin, from its receipt (gas used times the price paid),
+   * in that coin's smallest unit; null when unread. Absent: the chain does not say, and the fee is recorded as unknown.
+   */
+  networkFee?(hash: string): Promise<bigint | null>;
 }
+
+/** The coin a network fee is paid in on the chain rewards are paid on, and its decimals (18 on an EVM chain). */
+export const NETWORK_FEE_ASSET = 'ETH';
+const NETWORK_FEE_DECIMALS = 18;
 
 /** Our own-funds place rewards are paid from: its ledger id (`<chain>:<name>`) and its address on the chain. */
 export interface RewardWallet {
@@ -283,12 +293,16 @@ export class RewardPayer {
       }
       return false;
     }
+    // The network fee is our wallet's cost, as the chain's receipt states it; unread, it is recorded as unknown (null).
+    const feeUnits = this.chain.networkFee ? await this.chain.networkFee(chainTx).catch(() => null) : null;
+    const fee = feeUnits === null ? null : formatAmount(feeUnits * 10n ** BigInt(18 - NETWORK_FEE_DECIMALS));
     return transaction(this.sql, async (tx) => {
       await tx`
         UPDATE campaigns.reward_payments SET state = 'booked', paid_tx_id = ${txId}, reason = NULL, updated_at = now()
         WHERE reward_key = ${p.reward_key} AND state = 'sent'`;
       const paid = await tx`
         UPDATE campaigns.reward_intents SET state = 'paid', ledger_tx_id = ${txId}, paid_at = now(), paid_chain_tx = ${chainTx},
+          paid_network_fee = ${fee}, paid_network_fee_asset = ${fee === null ? null : NETWORK_FEE_ASSET},
           reason = NULL, updated_at = now()
         WHERE reward_key = ${p.reward_key} AND state = 'owed' AND pay_to_wallet = ${p.to_wallet}`;
       if (paid.count === 0) return false;
