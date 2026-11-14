@@ -35,8 +35,9 @@ import { TEST_VENUE_DEPOSIT_ADDRESS } from '../../../../tooling/scripts/local-te
 // wallet the person connected, from INTAFACED's TEST rewards wallet on the stack's TEST chain. That money is our own TEST
 // builder fees, earned on a TEST trader's sells through our venue door (#7 restarts trade with `LOCAL_STACK_USER_VENUE=on`
 // and the file puts it back off after), as J-campaigns-03 does. The simulator earns cashback only through the stack's
-// TEST stand-in (BANK_CARD_SIM_CASHBACK=test, refused outside dev/test). Step 8 (NO-SLICE): the #7 card goes into a
-// phone wallet as the TEST card partner reports its token.
+// TEST stand-in (BANK_CARD_SIM_CASHBACK=test, refused outside dev/test). Step 8 (NO-SLICE): with the TEST card partner's
+// per-person switch saying it does not add cards to phone wallets, the panel reads "not offered by the partner" and an
+// add is refused; with it offered, the #7 card goes into a phone wallet as the partner reports its token.
 const J = 'J-bank-13';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const ADDRESS = { name: 'Ada TEST', line1: '1 TEST Strasse', city: 'Berlin', postalCode: '10115', country: 'DE' };
@@ -1063,15 +1064,16 @@ test(`${J} #7 sees cashback in USDC on card spend with the rank-linked tier: rec
   }
 });
 
-test(`${J} #8 adds the card to the phone's wallet: the card shows as added, as the partner reports it`, async ({ page }) => {
+test(`${J} #8 adds the card to the phone's wallet: the card shows as added, as the partner reports it; or "not offered by the partner"`, async ({
+  page,
+}) => {
   test.setTimeout(240_000);
   const { cashbackCardId: cardId } = run.read();
   if (!cardId) throw new Error(`${J} #7 issued no card, so there is nothing to add to a phone wallet`);
   expect((await cardOf(cardId)).status).toBe('active');
-  await signInPerson(page);
-  await page.goto('/bank/cards');
-  // The card's own panels open from its row, as J-bank-14 opens them.
   const here = page.locator(`[data-card="${cardId}"]`);
+  const wallets = here.getByRole('region', { name: 'Phone wallets', exact: true });
+  // The card's own panels open from its row, as J-bank-14 opens them.
   const showCard = async () => {
     const inspect = page.getByRole('button', { name: `Inspect decisions for card ${cardId}` });
     const controls = here.getByRole('region', { name: 'Card controls', exact: true });
@@ -1079,8 +1081,36 @@ test(`${J} #8 adds the card to the phone's wallet: the card shows as added, as t
     if (await inspect.isVisible()) await inspect.click();
     await expect(controls).toBeVisible();
   };
+
+  // The TEST card partner does not add this person's cards to phone wallets (its per-person "not offered" switch): the
+  // panel says it is not offered by the partner, nothing can be added, and the bank refuses an add by that name.
+  const off = await (await bank()).mutate('testPartner.set', { notOffered: ['phone_wallet'] });
+  expect(off, JSON.stringify(off.body ?? {}).slice(0, 300)).toMatchObject({ ok: true, data: { notOffered: ['phone_wallet'] } });
+  try {
+    await signInPerson(page);
+    await page.goto('/bank/cards');
+    await showCard();
+    await expect(wallets.getByTestId('card-wallets')).toHaveAttribute('data-offered', 'not-by-partner');
+    await expect(wallets).toContainText('Not offered by the partner: your card partner does not add cards to phone wallets.');
+    await expect(wallets.getByRole('button', { name: 'Add to Google Wallet' })).toBeDisabled();
+    const refused = await (
+      await bank()
+    ).mutate('cards.walletProvision', {
+      cardId,
+      provisionId: randomUUID(),
+      wallet: 'google',
+      nonce: randomUUID(),
+    });
+    expect(refused).toMatchObject({ ok: false, code: 'bank.not_offered_by_partner' });
+    expect((await (await bank()).query('cards.walletTokens', { cardId })).data.tokens).toEqual([]);
+  } finally {
+    const on = await (await bank()).mutate('testPartner.set', { notOffered: [] });
+    expect(on, JSON.stringify(on.body ?? {}).slice(0, 300)).toMatchObject({ ok: true, data: { notOffered: [] } });
+  }
+
+  // The partner offers it: the card goes into Google Wallet, and shows as added as the partner reports it.
+  await page.reload();
   await showCard();
-  const wallets = here.getByRole('region', { name: 'Phone wallets', exact: true });
   await expect(wallets).toContainText('This card is in no phone wallet.');
   await wallets.getByRole('button', { name: 'Add to Google Wallet' }).click();
   const google = wallets.locator('li[data-wallet="google"]');

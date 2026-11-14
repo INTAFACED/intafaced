@@ -596,6 +596,11 @@ export interface CardServiceOptions {
    * recorded and waits, `bank.cashback_announce_unwired`; nothing is credited anywhere.
    */
   readonly cashbackEarned?: CardCashbackSink | null;
+  /**
+   * The card partner's own answer to whether it adds this person's cards to a phone wallet (J-bank-13 #8): throws
+   * `bank.not_offered_by_partner` when it does not. Absent: the issuer's own capability alone decides, as before.
+   */
+  readonly assertWalletOffered?: ((userId: string) => void) | null;
 }
 
 /** A merchant's refund of one card payment as recorded (J-bank-14 #6): pending until the partner answers. */
@@ -662,6 +667,7 @@ export class CardService {
   private readonly heldByOf: (userId: string) => MoneyHeldBy;
   private readonly partnerHolds: PartnerCardHolds | null;
   private readonly cashbackEarned: CardCashbackSink | null;
+  private readonly assertWalletOffered: ((userId: string) => void) | null;
   private readonly pinTryLimit: number | null;
 
   constructor(
@@ -684,6 +690,7 @@ export class CardService {
     this.heldByOf = options.heldBy ?? (() => 'ledger');
     this.partnerHolds = options.partnerHolds ?? null;
     this.cashbackEarned = options.cashbackEarned ?? null;
+    this.assertWalletOffered = options.assertWalletOffered ?? null;
     this.pinTryLimit = options.pinTryLimit ?? null;
     this.safety = new CardSafety({
       sql: this.sql,
@@ -1492,6 +1499,8 @@ export class CardService {
     const card = await this.ownedCard(input.cardId, input.userId);
     this.assertLiveSecret('wallet');
     if (!this.issuer.provisionWallet) throw new BankError(WALLET_UNSET, 'bank.card_wallet_issuer_unset');
+    // The partner that issues the card says whether it adds cards to a phone wallet; its no is refused before anything.
+    this.assertWalletOffered?.(input.userId);
     // A frozen or closed card is not added to a wallet; its tokens already there show paused (J-bank-14 #4).
     if (card.status !== 'active' || cardInactive(card)) throw new BankError('This card is not active', 'bank.card_not_active');
     const payloadHash = commandHash({ wallet: input.wallet, nonce: input.nonce });
@@ -3552,14 +3561,33 @@ export class CardService {
    * Which of card details, PIN and phone wallets this deployment's issuer offers (J-bank-14 #3, #4), so a screen shows the
    * button or the reason. The same rule each call itself runs; reading it changes nothing.
    */
-  secretsOffered(): { details: boolean; pin: boolean; wallet: boolean; test: boolean } {
+  secretsOffered(userId?: string): {
+    details: boolean;
+    pin: boolean;
+    wallet: boolean;
+    test: boolean;
+    /** True when the card partner itself does not add this person's cards to a phone wallet ("not offered by the partner"). */
+    walletNotOffered: boolean;
+  } {
     const live = this.moduleEnabled && this.liveSecretProgramme();
+    const walletNotOffered = userId !== undefined && this.walletRefusedFor(userId);
     return {
       details: live && Boolean(this.issuer.revealCredentials),
       pin: live && Boolean(this.issuer.revealPin && this.issuer.setPin),
-      wallet: live && Boolean(this.issuer.provisionWallet),
+      wallet: live && Boolean(this.issuer.provisionWallet) && !walletNotOffered,
       test: this.secretsAreTest(),
+      walletNotOffered,
     };
+  }
+
+  private walletRefusedFor(userId: string): boolean {
+    if (!this.assertWalletOffered) return false;
+    try {
+      this.assertWalletOffered(userId);
+      return false;
+    } catch (err) {
+      return err instanceof BankError && err.code === 'bank.not_offered_by_partner';
+    }
   }
 
   private assertLiveSecret(kind: 'pan' | 'pin' | 'wallet'): void {

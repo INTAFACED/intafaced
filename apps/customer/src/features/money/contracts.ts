@@ -1164,7 +1164,14 @@ export type CardControls = z.infer<typeof cardControlsSchema>;
  * revealed details and PIN with when to drop them, and the wallets the card was added to. `test` marks the TEST
  * partner's stand-ins, which the screen labels TEST.
  */
-export const cardSecretsOfferedSchema = z.object({ details: z.boolean(), pin: z.boolean(), wallet: z.boolean(), test: z.boolean() });
+export const cardSecretsOfferedSchema = z.object({
+  details: z.boolean(),
+  pin: z.boolean(),
+  wallet: z.boolean(),
+  test: z.boolean(),
+  /** The card partner itself does not add this person's cards to a phone wallet (J-bank-13 #8). */
+  walletNotOffered: z.boolean().default(false),
+});
 export const cardRevealSchema = z.object({
   pan: z.string(),
   expiry: z.string(),

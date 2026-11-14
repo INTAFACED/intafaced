@@ -610,8 +610,8 @@ export function createCardsRouter(c: BankRouterContext) {
 
     /** Which of card details, PIN and phone wallets the issuer offers, and whether they are TEST (J-bank-14 #3, #4). */
     secretsOffered: scopedProcedure('bank:read', { module: 'bank' })
-      .output(z.object({ details: z.boolean(), pin: z.boolean(), wallet: z.boolean(), test: z.boolean() }))
-      .query(async () => guard(async () => bank.cards.secretsOffered())),
+      .output(z.object({ details: z.boolean(), pin: z.boolean(), wallet: z.boolean(), test: z.boolean(), walletNotOffered: z.boolean() }))
+      .query(async ({ ctx }) => guard(async () => bank.cards.secretsOffered(ctx.principal.userId))),
 
     /** The phone wallets this card was added to: `added`, `paused` while the card is frozen, or `closed` (J-bank-14 #4). */
     walletTokens: scopedProcedure('bank:read', { module: 'bank' })

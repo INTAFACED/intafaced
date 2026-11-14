@@ -75,7 +75,7 @@ export const TEST_PURCHASE_HOLD_DAYS: Readonly<Record<PartnerPaidBy, number>> = 
 export const TEST_PARTNER_MERCHANT = 'partner:test-merchant';
 
 /** What a partner may not offer. `currencies` is the partner's currency accounts (J-bank-01 #3). */
-export const PARTNER_FEATURES = ['currencies', 'spaces', 'pots', 'joint'] as const;
+export const PARTNER_FEATURES = ['currencies', 'spaces', 'pots', 'joint', 'phone_wallet'] as const;
 export type PartnerFeature = (typeof PARTNER_FEATURES)[number];
 
 export interface TestPartnerSwitches {
@@ -596,6 +596,7 @@ const FEATURE_WORDS: Record<PartnerFeature, string> = {
   spaces: 'spaces',
   pots: 'pots',
   joint: 'joint accounts and shared pots',
+  phone_wallet: 'adding a card to a phone wallet',
 };
 
 /**
