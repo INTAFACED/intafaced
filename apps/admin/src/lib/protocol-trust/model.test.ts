@@ -3,6 +3,7 @@ import type { ProtocolComplianceReport } from '@intafaced/contracts/protocol-add
 import {
   TRUST_TABS,
   TRUST_TAB_WAITS,
+  nameTagWords,
   missingItemWords,
   pendingReview,
   publishedWords,
@@ -66,5 +67,16 @@ describe('protocol trust desk words', () => {
     expect(missingItemWords(['checkerAddress'])).toEqual(['Checker address missing']);
     expect(TRUST_TAB_WAITS['Token tiers']).toBeUndefined();
     expect(TRUST_TAB_WAITS['Permissioned pools']).toBeUndefined();
+  });
+  it('words a name tag by its approvals and its proof, and never calls it public before two', () => {
+    const proof = { signer: '0xabc', blockNumber: '7', verifiedAt: '2026-11-14T00:00:00.000Z' };
+    const one = [{ approverId: 'a', at: '2026-11-14T00:00:00.000Z' }];
+    expect(nameTagWords({ status: 'pending', approvals: [], proof: null })).toBe('0 of 2 approvals · No proof of ownership');
+    expect(nameTagWords({ status: 'pending', approvals: one, proof })).toBe('1 of 2 approvals · Ownership proven by 0xabc at block 7');
+    expect(nameTagWords({ status: 'public', approvals: [...one, { approverId: 'b', at: one[0]!.at }], proof })).toBe(
+      'Public · Ownership proven by 0xabc at block 7',
+    );
+    expect(TRUST_TAB_WAITS['Name tags']).toBeUndefined();
+    expect(trustRefusalWords('protocol.nametags.no_proof')).toMatch(/^No proof of ownership/);
   });
 });

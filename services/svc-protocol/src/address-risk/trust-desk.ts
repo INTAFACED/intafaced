@@ -2,6 +2,8 @@ import {
   ONBOARDING_ITEMS,
   type HumanTokenTier,
   type OnboardingItem,
+  type ProtocolNameTagRefusal,
+  type ProtocolNameTagRequest,
   type ProtocolOnboardingChecklist,
   type ProtocolOnboardingOpenInput,
   type ProtocolOnboardingRefusal,
@@ -23,7 +25,7 @@ import {
  */
 export class TrustDeskRefusedError extends Error {
   constructor(
-    readonly code: ProtocolTierRefusal | ProtocolOnboardingRefusal,
+    readonly code: ProtocolTierRefusal | ProtocolOnboardingRefusal | ProtocolNameTagRefusal,
     message: string,
   ) {
     super(message);
@@ -39,6 +41,8 @@ export type OnboardingApproveOutcome =
   | { kind: 'unknown' }
   | { kind: 'same_approver' }
   | { kind: 'incomplete'; missing: OnboardingItem[] };
+export type NameTagApproveOutcome =
+  { kind: 'approved'; request: ProtocolNameTagRequest } | { kind: 'unknown' } | { kind: 'same_approver' } | { kind: 'no_proof' };
 
 export interface TrustDeskStore {
   /** Every token with a human tier or a pending change, and the newest audit rows. */
@@ -55,6 +59,21 @@ export interface TrustDeskStore {
     input: ProtocolOnboardingOpenInput & { chainId: number; openedBy: string },
   ): Promise<{ kind: 'opened'; checklist: ProtocolOnboardingChecklist } | { kind: 'duplicate' }>;
   approveChecklist(input: { chainId: number; checklistId: string; approverId: string; reason: string }): Promise<OnboardingApproveOutcome>;
+  /** Name tag requests, newest first, each with the newest ownership proof stored for its address. */
+  nameTags(chainId: number): Promise<ProtocolNameTagRequest[]>;
+  /** A pending request, unless one is already pending for the address (the business key). */
+  requestNameTag(input: {
+    chainId: number;
+    address: string;
+    tag: string;
+    reason: string;
+    requesterId: string;
+  }): Promise<{ kind: 'requested'; request: ProtocolNameTagRequest } | { kind: 'pending' }>;
+  /**
+   * In one transaction: refuse without a proof on file or from a person who already approved; record the first approval,
+   * or on the second publish the address's `name` label and its history row.
+   */
+  approveNameTag(input: { chainId: number; requestId: string; approverId: string }): Promise<NameTagApproveOutcome>;
 }
 
 export const AUDIT_LIMIT = 200;
@@ -147,4 +166,40 @@ export async function approveChecklist(
       `This checklist cannot be approved while it is missing: ${missingWords(outcome.missing)}. Nothing was approved.`,
     );
   return outcome.checklist;
+}
+
+export async function readNameTags(store: TrustDeskStore, chainId: number, now: Date) {
+  return { asOf: now.toISOString(), chainId, requests: await store.nameTags(chainId) };
+}
+
+export async function requestNameTag(
+  store: TrustDeskStore,
+  input: { chainId: number; address: string; tag: string; reason: string; requesterId: string },
+): Promise<ProtocolNameTagRequest> {
+  const outcome = await store.requestNameTag({
+    ...input,
+    address: input.address.toLowerCase(),
+    tag: input.tag.trim(),
+    reason: input.reason.trim(),
+  });
+  if (outcome.kind === 'pending')
+    throw new TrustDeskRefusedError('protocol.nametags.request_pending', 'A name tag for this address is already waiting for approval.');
+  return outcome.request;
+}
+
+export async function approveNameTag(store: TrustDeskStore, input: { chainId: number; requestId: string; approverId: string }) {
+  const outcome = await store.approveNameTag(input);
+  if (outcome.kind === 'unknown')
+    throw new TrustDeskRefusedError('protocol.nametags.request_unknown', 'That name tag is not waiting for approval on this network.');
+  if (outcome.kind === 'no_proof')
+    throw new TrustDeskRefusedError(
+      'protocol.nametags.no_proof',
+      'No proof of ownership is stored for this address, so its name tag cannot be approved. Nothing was approved.',
+    );
+  if (outcome.kind === 'same_approver')
+    throw new TrustDeskRefusedError(
+      'protocol.nametags.same_approver',
+      'You already approved this name tag, so a different person must give the second approval. Nothing was changed.',
+    );
+  return outcome.request;
 }
