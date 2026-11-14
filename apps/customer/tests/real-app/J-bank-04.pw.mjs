@@ -56,10 +56,13 @@ function senderSession() {
   return kept.get(email);
 }
 
+/** A's kept session token. */
+const senderToken = () => senderSession()();
+
 /** A request with A's kept session, sent once more on a new sign-in if the kept one is refused as signed out. */
 async function asSender(url, init = {}) {
   const send = async () =>
-    fetch(url, { ...init, headers: { ...init.headers, origin: ORIGIN, authorization: `Bearer ${await senderSession()()}` } });
+    fetch(url, { ...init, headers: { ...init.headers, origin: ORIGIN, authorization: `Bearer ${await senderToken()}` } });
   const res = await send();
   if (res.status !== 401) return res;
   senderSession().drop();
@@ -301,9 +304,9 @@ test(`${J} #3 reviews the transfer: fee lines that add up, and Confirm off with 
   expect(await usdt(recipient)).toBe(received);
 
   // BTC has no published fee or limits on this stack: the review names what is missing and Confirm stays off.
-  const added = await asSender(`${EDGE}/api/bank/trpc/currencies.add`, {
+  const added = await fetch(`${EDGE}/api/bank/trpc/currencies.add`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { origin: ORIGIN, 'content-type': 'application/json', authorization: `Bearer ${await senderToken()}` },
     body: JSON.stringify({ assetId: 'BTC' }),
   });
   expect(added.status, 'add BTC to the account').toBe(200);
@@ -375,7 +378,9 @@ async function staff(procedure, input, founder) {
 
 /** A's global sends, newest first, through A's own API. */
 async function globalSends() {
-  const res = await asSender(`${EDGE}/api/bank/trpc/global.list?input=${encodeURIComponent(JSON.stringify({ limit: 10 }))}`);
+  const res = await fetch(`${EDGE}/api/bank/trpc/global.list?input=${encodeURIComponent(JSON.stringify({ limit: 10 }))}`, {
+    headers: { origin: ORIGIN, authorization: `Bearer ${await senderToken()}` },
+  });
   const body = await res.json().catch(() => null);
   if (!res.ok || !body?.result?.data) throw new Error(`global.list refused: ${res.status} ${JSON.stringify(body).slice(0, 300)}`);
   return body.result.data.items;
