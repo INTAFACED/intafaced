@@ -1,6 +1,16 @@
 {
   "label": "TEST: CX-8 rig and local test stack only. Not an owner decision and not a product default.",
   "values": {
+    "CAMPAIGNS_CODE_BATCH_MAX": {
+      "service": "campaigns",
+      "value": "5",
+      "note": "TEST: the most codes one batch generates or one CSV import holds, so J-campaigns-17 #3 can make a small batch and see a bigger import refused. Not an owner decision."
+    },
+    "CAMPAIGNS_EXPORT_LINK_SECONDS": {
+      "service": "campaigns",
+      "value": "20",
+      "note": "TEST: how long an export's download link works, short so J-campaigns-17 #6 can see a link past its validity refused. Not an owner decision."
+    },
     "CAMPAIGNS_PLATFORM_TIME_ZONE": {
       "service": "campaigns",
       "value": "UTC",
@@ -10,6 +20,16 @@
       "service": "campaigns",
       "value": "5",
       "note": "How long after an attempt the reconciler posts an open task reward or pot sweep again under the same key, so J-campaigns-02 sees a reward post once its pot is funded. Not an owner decision."
+    },
+    "CAMPAIGNS_REWARD_CEILING_PER_CAMPAIGN": {
+      "service": "campaigns",
+      "value": "100",
+      "note": "TEST: the most INTAFACED may owe in USDC rewards for one campaign, so J-campaigns-03 can see a TEST reward owed. The owner's ceiling is zero until he sets it (OWNER 288). Not an owner decision."
+    },
+    "CAMPAIGNS_REWARD_CEILING_TOTAL": {
+      "service": "campaigns",
+      "value": "1000",
+      "note": "TEST: the most INTAFACED may owe in USDC rewards in all, so J-campaigns-03 can see a TEST reward owed. The owner's ceiling is zero until he sets it (OWNER 288). Not an owner decision."
     },
     "CAMPAIGNS_ROLLBACK_WINDOW_SECONDS": {
       "service": "campaigns",

@@ -83,6 +83,33 @@ export interface QuotaRepository {
     readonly actor: string;
     readonly idempotencyKey: string;
   }): Promise<{ readonly accountId: string; readonly profile: string; readonly assignedAt: string }>;
+  /** Every published compute tier (RC-algo-dev-05), by profile name. */
+  tiers(): Promise<readonly TierRow[]>;
+  /** Publishes or withdraws the tier on one profile. A reason is required and kept with the actor. */
+  setTier(input: {
+    readonly profile: string;
+    readonly dataFreshnessSeconds: bigint | null;
+    readonly priorityClass: bigint | null;
+    readonly published: boolean;
+    readonly reason: string;
+    readonly actor: string;
+    readonly idempotencyKey: string;
+  }): Promise<TierWrite>;
+}
+
+/**
+ * A compute tier on a quota profile (RC-algo-dev-05): how fresh the data a run reads is, in whole seconds behind the
+ * exchange's own prices, and its execution priority class. Both are owner values; null is blank ("not set").
+ */
+export interface TierRow {
+  readonly profile: string;
+  readonly dataFreshnessSeconds: bigint | null;
+  readonly priorityClass: bigint | null;
+  readonly setAt: string;
+}
+
+export interface TierWrite extends TierRow {
+  readonly published: boolean;
 }
 
 /**
@@ -107,6 +134,14 @@ export function judgeNeeds(
       throw new QuantError(QUANT_QUOTA_EXCEEDED, `${need.resource}: ${need.used} used of ${limit} allowed`);
     }
   }
+}
+
+/** An owner value as the operator sends it: a whole number as a decimal string, or blank for "not set". */
+export function parseWhole(field: string, raw: string | null | undefined): bigint | null {
+  const text = raw?.trim() ?? '';
+  if (!text) return null;
+  if (!/^\d{1,18}$/.test(text)) throw new QuantError('quant.params_invalid', `${field} — a whole number of at most 18 digits, or blank`);
+  return BigInt(text);
 }
 
 /** A limit as the operator sends it: a whole number as a decimal string, or blank for "not set". */

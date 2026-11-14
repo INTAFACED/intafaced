@@ -78,6 +78,7 @@ function kycRecord(): KycRecordView {
 const auth = {
   kycTier: async () => 'none' as const,
   listKycRecords: async () => [kycRecord()],
+  kycTradingOnly: async () => false,
 } as unknown as AuthService;
 const rank = {} as RankService;
 

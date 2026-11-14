@@ -1,7 +1,8 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
-import type { HomeConfig } from '@intafaced/contracts';
+import { VALUATION_PRICES_UNSET, type HomeConfig, type ValuationPrices } from '@intafaced/contracts';
 import { createHomeConfigRouter, homeConfigFromEnv } from './home-config.js';
+import { createValuationPricesRouter } from './valuation-prices.js';
 import {
   opsCostEntryInputSchema,
   opsCostEntrySchema,
@@ -267,6 +268,8 @@ export interface OperatorDeskConfig {
   readonly staffHolds?: StaffHoldDesk;
   /** Home's owner values for the public `home.config` read. Absent means every value is blank. */
   readonly homeConfig?: HomeConfig;
+  /** The prices Home and Assets value holdings with (`valuation.prices`); absent is unpublished. */
+  readonly valuationPrices?: ValuationPrices;
   /** The capital monitor's thresholds and breach alerts. Absent means every capital call refuses `ops.capital.storage_unconfigured`. */
   readonly capital?: CapitalStore;
   /** The capital monitor's ledger and bank reads. Absent reads every source as not wired ("unknown"). */
@@ -852,6 +855,8 @@ export function createOpsRouter(
     protocolListing: createProtocolListingRouter(desks.protocolListing),
 
     home: createHomeConfigRouter(desks.homeConfig ?? homeConfigFromEnv({})),
+
+    valuation: createValuationPricesRouter(desks.valuationPrices ?? { published: false, code: VALUATION_PRICES_UNSET }),
 
     alertRules: createAlertRulesRouter(desks.alertRules, desks.alertState),
 

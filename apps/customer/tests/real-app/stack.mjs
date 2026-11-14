@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -236,6 +236,30 @@ export function tool(script, ...args) {
 }
 
 /**
+ * `tool`, awaited: the worker's event loop stays free while the tool runs. A long tool call (a service stopped or
+ * started, about 84 s) that blocks the loop outlives Edge's 72 s keep-alive without this process seeing Edge close the
+ * socket, so the next request through Edge is written to a closed socket and fails with "other side closed" (#7449,
+ * as approveKyb in #7461). Same output, limit and error as `tool`.
+ */
+export async function toolAwaited(script, ...args) {
+  try {
+    return await new Promise((resolve, reject) =>
+      execFile(
+        process.execPath,
+        [path.join(ROOT, 'tooling/scripts', script), ...args],
+        { cwd: ROOT, encoding: 'utf8', timeout: TOOL_CAP_MS, maxBuffer: 64 * 1024 * 1024 },
+        (error, stdout, stderr) => (error ? reject(Object.assign(error, { stdout, stderr })) : resolve(stdout)),
+      ),
+    );
+  } catch (error) {
+    // A killed run is the limit reached: it reads as `tool`'s timeout does.
+    const raw = error?.killed ? Object.assign(error, { code: 'ETIMEDOUT' }) : error;
+    if (typeof raw?.code === 'number') Object.assign(raw, { status: raw.code, code: null });
+    throw toolError(raw, script, args);
+  }
+}
+
+/**
  * A stack service restarted with one of its TEST settings switched `off` (blank), or back on: the switch is set for the
  * restart only, and this process's environment is put back as it was.
  */
@@ -337,6 +361,7 @@ export async function signUpInBrowser(page, who, { country = 'DE', dateOfBirth =
   await page.getByLabel('Handle').fill(who.handle);
   await page.getByLabel('Password').fill(who.password);
   await page.getByLabel('Country you live in').selectOption(country);
+  await page.getByRole('radio', { name: 'No, I am not a US person' }).check();
   await page.getByLabel('Date of birth').fill(dateOfBirth);
   await page.getByRole('button', { name: 'Create account' }).click();
   await page.getByRole('heading', { name: 'Check your email' }).waitFor();

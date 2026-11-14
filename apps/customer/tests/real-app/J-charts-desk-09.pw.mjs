@@ -193,33 +193,69 @@ test(`${J} #3 manages alerts: each shows its market, side, exact price and statu
   const at = await lastText();
   const low = testPrice(50, at);
   const mid = testPrice(60, at);
+  // BTC/USDT's id, as the form's own market list holds it, to tie the service's alerts to the market the row shows.
+  const btc = await marketSelect()
+    .locator('option', { hasText: /^BTC\/USDT$/ })
+    .getAttribute('value');
+  expect(btc, 'the form offers BTC/USDT').toBeTruthy();
   await createAlert({ condition: 'At or below', price: low, name: 'TEST dip' });
   await createAlert({ condition: 'At or below', price: mid, name: 'TEST pullback' });
-  // Each row: the market (as its name when it has none, here in the condition's quote), side, exact price, status.
-  for (const [name, price] of [
-    ['TEST dip', low],
-    ['TEST pullback', mid],
-  ]) {
-    await expect(rowWith(name)).toContainText(`At or below ${price} USDT`);
-    await expect(rowWith(name)).toHaveAttribute('data-status', 'active');
-    await expect(rowWith(name).getByRole('button', { name: 'Cancel the alert on BTC/USDT' })).toBeVisible();
-  }
+  /** The service's own list, read by the reloaded page, and the alert named `name` in it. */
+  const storedAfterReload = async (name) => {
+    const listed = await answerAfterNavigation(
+      page,
+      (r) => /notify\.alerts\b/.test(r.url()) && r.request().method() === 'GET' && r.ok(),
+      () => page.reload(),
+    );
+    await expect(marketSelect()).toBeEnabled();
+    return alertNamed(await listed.json(), name);
+  };
+  /** One row, as the person reads it and as the service holds it: market, side, exact price, status. */
+  const checkRow = async (name, price, status, statusWords) => {
+    const stored = await storedAfterReload(name);
+    expect(stored, `the service lists ${name}`).toBeTruthy();
+    expect(stored).toMatchObject({ marketId: btc, condition: 'less_than', status });
+    expect(cents(stored.targetPrice), `${name}'s stored price ${stored.targetPrice}`).toBe(cents(price));
+    const row = rowWith(name);
+    await expect(row).toHaveCount(1);
+    await expect(row.getByTestId('nf-title')).toHaveText(name);
+    await expect(row.getByTestId('alert-market'), `${name}'s market, shown in its row`).toHaveText('BTC/USDT');
+    await expect(row.getByTestId('nf-body').first()).toHaveText(`At or below ${price} USDT`);
+    await expect(row).toHaveAttribute('data-status', status);
+    await expect(row.locator('.nf-pill')).toHaveText(statusWords);
+    // A cancel for an active one; a stopped one is still open and keeps its cancel; a cancelled one has none left.
+    await expect(row.getByRole('button', { name: 'Cancel the alert on BTC/USDT' })).toHaveCount(status === 'cancelled' ? 0 : 1);
+  };
+  // List: each row shows its market, side, exact price and status, as the service holds them after a reload.
+  await checkRow('TEST dip', low, 'active', 'Active');
+  await checkRow('TEST pullback', mid, 'active', 'Active');
   // Sorted by price, low to high: the dip, the pullback, then the breakout from #1.
   await page.getByTestId('alerts-find').getByLabel('Sort by').selectOption({ label: 'Price, low to high' });
   await expect(rows().getByTestId('nf-title')).toHaveText(['TEST dip', 'TEST pullback', 'TEST breakout']);
-  // Edit: the pullback's name; the list shows the change.
+  // Newest first puts the pullback (made last of the three) at the top and the breakout from #1 last.
+  await page.getByTestId('alerts-find').getByLabel('Sort by').selectOption({ label: 'Newest first' });
+  await expect(rows().getByTestId('nf-title')).toHaveText(['TEST pullback', 'TEST dip', 'TEST breakout']);
+  // Edit: the pullback's name; the service holds the new name after a reload, and the old one is gone.
   await rowWith('TEST pullback').getByRole('button', { name: 'Edit the alert on BTC/USDT' }).click();
   const edit = page.getByTestId('alert-edit');
   await edit.getByLabel('Name (optional)').fill('TEST deeper pullback');
   await edit.getByRole('button', { name: 'Save changes' }).click();
   await expect(rowWith('TEST deeper pullback')).toHaveCount(1);
-  // Stop, then resume.
-  const pullback = rowWith('TEST deeper pullback');
-  await pullback.getByRole('button', { name: 'Pause the alert on BTC/USDT' }).click();
-  await expect(pullback).toHaveAttribute('data-status', 'stopped');
-  await expect(pullback).toContainText('Stopped');
-  await pullback.getByRole('button', { name: 'Resume the alert on BTC/USDT' }).click();
-  await expect(pullback).toHaveAttribute('data-status', 'active');
+  await checkRow('TEST deeper pullback', mid, 'active', 'Active');
+  expect(await storedAfterReload('TEST pullback'), 'the old name is gone from the service').toBeNull();
+  await expect(
+    rows()
+      .getByTestId('nf-title')
+      .filter({ hasText: /^TEST pullback$/ }),
+  ).toHaveCount(0);
+  // Stop: stopped, as the service holds it after a reload.
+  await rowWith('TEST deeper pullback').getByRole('button', { name: 'Pause the alert on BTC/USDT' }).click();
+  await expect(rowWith('TEST deeper pullback')).toHaveAttribute('data-status', 'stopped');
+  await checkRow('TEST deeper pullback', mid, 'stopped', 'Stopped');
+  // Resume: active again, as the service holds it after a reload.
+  await rowWith('TEST deeper pullback').getByRole('button', { name: 'Resume the alert on BTC/USDT' }).click();
+  await expect(rowWith('TEST deeper pullback')).toHaveAttribute('data-status', 'active');
+  await checkRow('TEST deeper pullback', mid, 'active', 'Active');
   // The Active filter lists the three active alerts.
   await page.getByTestId('alerts-find').getByLabel('Show').selectOption({ label: 'Active' });
   await expect(rows()).toHaveCount(3);
@@ -229,12 +265,12 @@ test(`${J} #3 manages alerts: each shows its market, side, exact price and statu
   await dip.getByRole('button', { name: 'Cancel the alert on BTC/USDT' }).click();
   await dip.getByRole('button', { name: 'Yes, cancel it' }).click();
   await expect(dip).toHaveAttribute('data-status', 'cancelled');
-  await expect(dip.getByRole('button', { name: 'Cancel the alert on BTC/USDT' })).toHaveCount(0);
-  // Delete it after the confirmation: it leaves the list, and stays gone after a reload.
-  await dip.getByRole('button', { name: 'Delete the alert on BTC/USDT' }).click();
-  await dip.getByRole('button', { name: 'Yes, delete it' }).click();
+  await checkRow('TEST dip', low, 'cancelled', 'Cancelled');
+  // Delete it after the confirmation: it leaves the list, and the service no longer holds it after a reload.
+  await rowWith('TEST dip').getByRole('button', { name: 'Delete the alert on BTC/USDT' }).click();
+  await rowWith('TEST dip').getByRole('button', { name: 'Yes, delete it' }).click();
   await expect(rowWith('TEST dip')).toHaveCount(0);
-  await page.reload();
+  expect(await storedAfterReload('TEST dip'), 'the service no longer holds the deleted alert').toBeNull();
   await expect(rowWith('TEST dip')).toHaveCount(0);
   await expect(rows()).toHaveCount(2);
 });
@@ -391,8 +427,34 @@ test(`${J} #6 reads the trigger log: when it fired, at what price, in the person
   const shownMinutes = Number(m[2]) * 60 + Number(m[3]);
   const nowMinutes = nowThere.getUTCHours() * 60 + nowThere.getUTCMinutes();
   expect((nowMinutes - shownMinutes + 1440) % 1440).toBeLessThanOrEqual(5);
-  // The retention window the service keeps the log for.
-  await expect(log).toContainText(/Kept for \d+ days\./);
+  // The log as the service answers it to the reloaded page: its retention window and this alert's entry.
+  const triggersRead = await answerAfterNavigation(
+    page,
+    (r) => /notify\.alertTriggers\b/.test(r.url()) && r.ok(),
+    () => page.reload(),
+  );
+  const answer = await (await triggersRead).json();
+  const logData = (Array.isArray(answer) ? answer[0] : answer).result.data;
+  const days = logData.retentionDays;
+  expect(Number.isInteger(days) && days > 0, `the service keeps the log for a whole number of days (${days})`).toBe(true);
+  // The window shown is the service's own, to the day.
+  await expect(log.locator('.nf-note')).toHaveText(`Kept for ${days} days.`);
+  // The entry the page shows is the service's: the same mark, and the time it names is the entry's own firing time.
+  const entries = logData.items.filter((t) => cents(String(t.targetPrice)) === cents(target));
+  expect(entries, `one entry for the alert at ${target}`).toHaveLength(1);
+  const [entry] = entries;
+  expect(cents(String(entry.markPrice)), `entry mark ${entry.markPrice}`).toBe(cents(mark));
+  expect(when.trim()).toBe(`Triggered ${inUtc8(Date.parse(entry.firedAt))}`);
+  // Every entry the log answers lies inside that window, none older than its days and none in the future.
+  const now = Date.now();
+  expect(logData.items.length, 'the log holds entries').toBeGreaterThan(0);
+  for (const t of logData.items) {
+    const age = now - Date.parse(t.firedAt);
+    expect(age, `entry fired at ${t.firedAt} is inside the ${days}-day window`).toBeLessThanOrEqual(days * 86_400_000);
+    expect(age, `entry fired at ${t.firedAt} is not in the future`).toBeGreaterThan(-60_000);
+  }
+  // And the page lists exactly the entries the service answered, each named once.
+  await expect(log.getByTestId('alert-trigger')).toHaveCount(logData.items.length);
   // The alert itself reads triggered, with the same time.
   const row = rowWith('TEST fires');
   await expect(row).toHaveAttribute('data-status', 'fired');
@@ -562,8 +624,18 @@ async function addToWatchlist(symbol) {
   await expect(watchlists().locator(`tr[data-symbol="${symbol}"]`)).toBeVisible();
 }
 
+/** Every alert in a `notify.alerts` reply, wherever the reply's wrapping puts the list. */
+function alertsIn(body, out = []) {
+  if (Array.isArray(body)) for (const item of body) alertsIn(item, out);
+  else if (body && typeof body === 'object') {
+    if (typeof body.targetPrice === 'string' && typeof body.marketId === 'string' && typeof body.createdAt === 'string') out.push(body);
+    else for (const value of Object.values(body)) alertsIn(value, out);
+  }
+  return out;
+}
+
 test(`${J} #7 creates one alert for every market in a watchlist; a market added later is picked up on the next sweep`, async () => {
-  test.setTimeout(5 * SWEEP_MS);
+  test.setTimeout(7 * SWEEP_MS);
   // A watchlist on the account, kept beside the chart: ETH/USDT, then BTC/USDT.
   await addToWatchlist('ETH/USDT');
   await addToWatchlist('BTC/USDT');
@@ -597,15 +669,39 @@ test(`${J} #7 creates one alert for every market in a watchlist; a market added 
   await expect(rule).toHaveAttribute('data-status', 'active');
   await expect(rule).toContainText(`At or above ${level} · ETH/USDT, BTC/USDT`);
 
-  // A market added to the list later: the next sweep gives it the same alert, once.
+  // A market added to the list later: the next sweep gives it the same alert, once. The add is made right after a sweep
+  // has finished, so it lands well inside one sweep interval and "the next sweep" is the next one svc-notify finishes.
+  const sweptFirst = await lastSweepAt();
+  await expect.poll(lastSweepAt, { timeout: SWEEP_MS + 15_000, intervals: [1_000] }).not.toBe(sweptFirst);
+  const before = await lastSweepAt();
   await addToWatchlist('IFC/USDT');
-  const addedAt = Date.now();
+  // Still before the next sweep: the list's new market has no alert yet, so nothing but a sweep can add it.
   await page.goto(ALERTS);
-  await expect(async () => {
-    await page.reload();
-    await expect(ruleRows()).toHaveCount(3, { timeout: 2_000 });
-  }).toPass({ timeout: 2 * SWEEP_MS + 30_000, intervals: [5_000] });
-  expect(Date.now() - addedAt, 'picked up within one sweep interval and the page reload after it').toBeLessThan(2 * SWEEP_MS + 30_000);
+  await expect(marketSelect()).toBeEnabled();
+  await expect(ruleRows()).toHaveCount(2);
+  expect(await lastSweepAt(), 'no sweep ran between the add and that read').toBe(before);
+  // The next sweep finishes.
+  await expect.poll(lastSweepAt, { timeout: SWEEP_MS + 15_000, intervals: [1_000] }).not.toBe(before);
+  const next = await lastSweepAt();
+  // Read right after that one sweep, before another can run: the service now holds three alerts of the rule, and the
+  // one for the added market was made by that sweep (after the sweep before it, no later than its end).
+  const listed = await answerAfterNavigation(
+    page,
+    (r) => /notify\.alerts\b/.test(r.url()) && r.request().method() === 'GET' && r.ok(),
+    () => page.reload(),
+  );
+  const ofRule = alertsIn(await (await listed).json()).filter((a) => cents(a.targetPrice) === cents(level));
+  expect(await lastSweepAt(), 'read before the sweep after it').toBe(next);
+  expect(ofRule, 'one alert per market of the list').toHaveLength(3);
+  const added = ofRule.filter((a) => Date.parse(a.createdAt) > Date.parse(before));
+  expect(added, 'exactly one alert made since the sweep before the add').toHaveLength(1);
+  // On a market of its own: the two first alerts' markets are the list's first two, so this one is the added market.
+  const earlier = ofRule.filter((a) => a !== added[0]).map((a) => a.marketId);
+  expect(new Set(earlier).size, 'the first two alerts are on two markets').toBe(2);
+  expect(earlier, `the new alert's market (${added[0].marketId}) is not one of the first two`).not.toContain(added[0].marketId);
+  expect(Date.parse(added[0].createdAt), `made by the sweep that finished at ${next}`).toBeLessThanOrEqual(Date.parse(next));
+  expect(added[0].status).toBe('active');
+  await expect(ruleRows()).toHaveCount(3);
   expect(await marketsOfRule()).toEqual(['BTC/USDT', 'ETH/USDT', 'IFC/USDT']);
   await expect(ruleRows().filter({ has: page.getByTestId('nf-title').getByText('IFC/USDT', { exact: true }) })).toHaveAttribute(
     'data-status',

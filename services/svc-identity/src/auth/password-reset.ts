@@ -84,6 +84,8 @@ export type MailPurpose =
   | 'login-no-account'
   | 'new-device-code'
   | 'withdraw-address-approval'
+  /** A support chat the customer asked to continue by email (J-support-public-05 #7). `code` is the chat's id. */
+  | 'support-chat-email'
   | 'password-changed'
   | 'mfa-reset-code'
   | 'mfa-reset-started'

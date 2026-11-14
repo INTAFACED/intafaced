@@ -724,7 +724,9 @@ export class OwnAgentTrading {
         await this.deps.door.prepare(
           principal,
           { owner: a.owner, subAccount: a.subAccount, signer: { role: 'agent', address: a.agentAddress }, intent },
-          { agentAccount: true },
+          // The order's worst price is already the owner's agent bound against the book (`terms`), so the door's own
+          // spot protection is not applied on top of it.
+          { agentAccount: true, ownWorstPrice: true },
         )
       ).prepared;
     } catch (error) {

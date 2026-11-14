@@ -61,6 +61,13 @@ describe('alert manager on the page', () => {
     expect(page.match(/Delete the alert on BTC\/USDT/g)).toHaveLength(2);
     expect(page).toContain('Stopped');
   });
+  it("shows a named alert's market as text in its row, and an unnamed one's in its title", () => {
+    reads.alerts = ready([alert({ name: 'TEST dip' }), alert({ id: '22222222-2222-4222-8222-222222222222' })]);
+    const page = render();
+    expect(page.match(/<span data-testid="alert-market"[^>]*>BTC\/USDT<\/span>/g)).toHaveLength(1);
+    expect(page).toMatch(/<span data-testid="nf-title"[^>]*>TEST dip<\/span>/);
+    expect(page).toMatch(/<span data-testid="nf-title"[^>]*>BTC\/USDT<\/span>/);
+  });
   it('offers only delete on an alert that has triggered, expired or been cancelled', () => {
     reads.alerts = ready([
       alert({ status: 'fired', firedAt: '2026-10-17T09:00:00.000Z' }),

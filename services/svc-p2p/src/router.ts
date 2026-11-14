@@ -716,6 +716,8 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'p2p.method_not_rail_validated':
       // P-trade-orders-19: the seller's cancellation request waits for the founders' decision.
       case 'p2p.owner_decision_pending':
+      // #4689: identity could not say whether the ad's maker may trade; nothing was reserved, and a retry may pass.
+      case 'p2p.counterparty_unverifiable':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
       case 'p2p.merchant_not_found':
       // P-ads-merchant-07: a private ad without a link to it reads as not there to everyone but its maker.
@@ -758,6 +760,8 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'p2p.offer_has_open_trades':
       // P-ads-merchant-08: the ad's maker is away; it takes orders again in their hours (the error data says when).
       case 'p2p.maker_offline':
+      // #4689: the ad's maker may not trade (frozen, closed or unknown); nothing was reserved.
+      case 'p2p.counterparty_unavailable':
       // P-ads-merchant-07: a share link that ended or was withdrawn; the person asks the maker for a new one.
       case 'p2p.share_link_expired':
       case 'p2p.share_link_revoked':

@@ -29,6 +29,8 @@ export const API_KEY_CREATE_REFUSALS = [
   'identity.key_cap_reached',
   'identity.key_request_conflict',
   'identity.key_signing_unset',
+  'identity.key_lead_not_approved',
+  'identity.key_lead_check_unavailable',
   'identity.key_account_required',
   'identity.key_account_denied',
   'identity.key_org_denied',
@@ -314,8 +316,11 @@ export function apiKeyCreateRequestId(
  * The money actions an agent key may never take (J-developer-15 #6: "The payout is refused `auth.scope_denied` and no
  * approval row is made"). The edge names the action from the route and asks identity whether the key is an agent key;
  * an agent key's attempt is refused at the edge and nothing is forwarded or written, so the action never runs.
+ *
+ * `bank.call`: any call to the bank and card door (`/api/bank/`). An agent key has no bank or card authority at all
+ * (J-agents-21 #9: "the assistant tries to ... pay by card ... refused `auth.scope_denied`; no balance changes").
  */
-export const AGENT_HELD_ACTIONS = ['pay.payout', 'pay.refund'] as const;
+export const AGENT_HELD_ACTIONS = ['pay.payout', 'pay.refund', 'bank.call'] as const;
 export type AgentHeldAction = (typeof AGENT_HELD_ACTIONS)[number];
 
 const bodyHash = z.string().regex(/^sha256:[0-9a-f]{64}$/);
@@ -423,3 +428,97 @@ export type DeveloperSetRoleInput = z.infer<typeof developerSetRoleInputSchema>;
 export const developerSetRoleOutputSchema = z
   .object({ userId: z.string().guid(), role: developerRoleSchema.nullable(), changed: z.boolean() })
   .strict();
+
+/**
+ * A key's call log (DV-keys-06, J-developer-08): one row per call the edge answered for an `ifc_…` key, with what was
+ * called and the HTTP status the edge answered. Never a body, a header value, the key or the caller's address: the edge
+ * sends the key's hash only so identity can find the key, and identity keeps only whether the caller's address was
+ * outside the key's IP list.
+ */
+export const API_KEY_CALL_LIMIT_MAX = 200;
+
+const callDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+/** The edge's report of one answered call. Only the edge may send it. */
+export const apiKeyCallRecordInputSchema = z
+  .object({
+    /** SHA-256 (hex) of the presented key, as identity stores it. Never the key. */
+    keyHash: z.string().regex(/^[0-9a-f]{64}$/),
+    /** The `x-request-id` the edge answered the call with: the business key, so a repeat report writes nothing new. */
+    requestId: z.string().min(1).max(128),
+    method: z.string().min(1).max(16),
+    /** The path without its query. */
+    path: z.string().min(1).max(512),
+    status: z.number().int().min(100).max(599),
+    /** The caller's address as the edge resolved it, used to set the outside-IP flag and never stored. */
+    clientIp: z.string().max(64).nullable(),
+    at: isoInstant,
+  })
+  .strict();
+export type ApiKeyCallRecordInput = z.infer<typeof apiKeyCallRecordInputSchema>;
+export const apiKeyCallRecordOutputSchema = z.object({ recorded: z.boolean() }).strict();
+export type ApiKeyCallRecordOutput = z.infer<typeof apiKeyCallRecordOutputSchema>;
+
+/** The owner's read of one key's log, newest first; `status`, `from` and `to` (UTC days, inclusive) narrow it. */
+export const apiKeyCallsInputSchema = z
+  .object({
+    keyId: z.string().guid(),
+    limit: z.number().int().min(1).max(API_KEY_CALL_LIMIT_MAX),
+    status: z.number().int().min(100).max(599).optional(),
+    from: callDay.optional(),
+    to: callDay.optional(),
+  })
+  .strict();
+export type ApiKeyCallsInput = z.infer<typeof apiKeyCallsInputSchema>;
+
+export const apiKeyCallSchema = z
+  .object({
+    requestId: z.string(),
+    method: z.string(),
+    path: z.string(),
+    status: z.number().int(),
+    outsideIpList: z.boolean(),
+    at: z.string(),
+  })
+  .strict();
+export type ApiKeyCall = z.infer<typeof apiKeyCallSchema>;
+
+export const apiKeyCallsOutputSchema = z.object({ keyId: z.string().guid(), asOf: z.string(), calls: z.array(apiKeyCallSchema) }).strict();
+export type ApiKeyCallsOutput = z.infer<typeof apiKeyCallsOutputSchema>;
+
+/**
+ * Rotate one live key (DV-keys-04, J-developer-07 #1 #2): a replacement with the same name, permissions, IP list and end
+ * date, and the old key kept working for `overlapSeconds` (0: it stops at once), never longer than the owner's maximum.
+ * A key that already has its replacement is not rotated again: the reply is that replacement, with no secret.
+ */
+export const apiKeyRotateInputSchema = z
+  .object({ keyId: z.string().guid(), overlapSeconds: z.number().int().min(0).max(31_536_000) })
+  .strict();
+export type ApiKeyRotateInput = z.infer<typeof apiKeyRotateInputSchema>;
+
+export const apiKeyRotateOutputSchema = z
+  .object({
+    record: apiKeyRecordSchema,
+    /** The new key, in this reply only. Null when this reply answers a rotation already made. */
+    key: z.string().nullable(),
+    signingSecret: z.string().nullable(),
+    /** The key it replaces, and the instant it stops working (now, for an overlap of 0). */
+    replaced: z.object({ id: z.string().guid(), endsAt: isoInstant }).strict(),
+    replayed: z.boolean(),
+  })
+  .strict();
+export type ApiKeyRotateOutput = z.infer<typeof apiKeyRotateOutputSchema>;
+
+/** Typed refusals of the rotate door, second-factor ones included. */
+export const API_KEY_ROTATE_REFUSALS = [
+  'auth.step_up_required',
+  'auth.step_up_expired',
+  'auth.mfa_invalid',
+  'auth.webauthn_invalid',
+  'identity.delegated_refused',
+  'identity.key_not_found',
+  'identity.key_not_live',
+  'identity.key_rotate_overlap_unset',
+  'identity.key_rotate_overlap_too_long',
+  'identity.key_signing_unset',
+] as const;
