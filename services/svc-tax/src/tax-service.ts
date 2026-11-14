@@ -44,7 +44,7 @@ import {
   type Withdrawal,
 } from './lot-book.js';
 import type { BankOwnSpacesPort, TradeVenueActivityPort } from '@intafaced/contracts';
-import { withVenue } from './venue-book.js';
+import { VENUE_TRANSFER_IN, venueAccountKey, venueArrivalLines, withVenue } from './venue-book.js';
 import { pairOwnMoves, type OwnMove, type SpaceInflow } from './own-moves.js';
 import { outsideWithdrawals, WITHDRAWAL_HOLD_PREFIX } from './withdrawals.js';
 import { NO_CHOICES, saleRules, type ChoiceStore, type CostBasisChoices } from './choices.js';
@@ -147,6 +147,7 @@ export type DepositBasisPolicy = (typeof DEPOSIT_BASIS_POLICIES)[number];
 /** Where a coin that was not bought came from, by the ledger reason that brought it. */
 export function inflowSource(reason: string): Inflow['source'] {
   if (reason.startsWith('deposit.')) return 'deposit';
+  if (reason === VENUE_TRANSFER_IN) return 'transfer_in';
   if (reason === 'bank.earn.interest' || reason.includes('reward')) return 'reward';
   if (reason.startsWith('bank.transfer') || reason === 'identity.sub_account.transfer' || reason.startsWith('pay.')) return 'transfer_in';
   return 'other_in';
@@ -292,14 +293,34 @@ export class TaxService {
       withVenueAccounts && this.venue ? this.venue.read({ userId: input.userId }) : Promise.resolve(null),
     ]);
     if (!withVenueAccounts) return main;
-    return withVenue(main, activity, {
-      method: main.method,
-      rules: saleRules(saved, DEFAULT_LOT_BOOK_METHOD, preview),
-      preview: preview !== null,
-      choices,
-      includeTransfers: main.includeTransfers,
-      now: this.now(),
-    });
+    // Coins the venue credited from outside (J-portfolio-02 #6): each a lot of its own, valued and given the owner's deposit
+    // basis the way a ledger arrival is, and priced by the customer the same way.
+    const arrived = activity !== null && activity.state === 'read' ? activity.accounts.filter((a) => a.arrivals !== undefined) : [];
+    const residuals = new Set<string>();
+    const inflows = new Map<string, Inflow[]>();
+    let overridePricePerUnit: Map<string, Amount> | undefined;
+    if (arrived.length > 0) {
+      const [active, valued] = await Promise.all([
+        this.activeBasis(input.userId),
+        Promise.all(arrived.map((a) => this.valueInflows(venueArrivalLines(a), residuals))),
+      ]);
+      arrived.forEach((a, i) => inflows.set(venueAccountKey(a), valued[i]!));
+      overridePricePerUnit = pricesOf(active);
+    }
+    const book = withVenue(
+      main,
+      activity,
+      {
+        method: main.method,
+        rules: saleRules(saved, DEFAULT_LOT_BOOK_METHOD, preview),
+        preview: preview !== null,
+        choices,
+        includeTransfers: main.includeTransfers,
+        now: this.now(),
+      },
+      { inflows, ...(overridePricePerUnit ? { overridePricePerUnit } : {}) },
+    );
+    return residuals.size === 0 ? book : { ...book, residuals: [...new Set([...book.residuals, ...residuals])].sort() };
   }
 
   /**

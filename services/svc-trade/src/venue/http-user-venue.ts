@@ -13,6 +13,7 @@ import {
   type UserVenueAccount,
   type UserVenueAgent,
   type UserVenueBalance,
+  type UserVenueArrival,
   type UserVenueDeposit,
   type UserVenueDepositRoute,
   type UserVenueDescriptor,
@@ -293,6 +294,10 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
 
   deposits(account: UserVenueAccount): Promise<AsOf<readonly UserVenueDeposit[]>> {
     return this.read('/deposits', { account });
+  }
+
+  arrivals(account: UserVenueAccount): Promise<AsOf<readonly UserVenueArrival[]>> {
+    return this.read('/arrivals', { account });
   }
 
   builderFeeApproval(account: UserVenueAccount, builder: string): Promise<AsOf<Amount>> {

@@ -73,6 +73,23 @@ export const tradeVenueOwnMoveSchema = z
   .strict();
 export type TradeVenueOwnMove = z.infer<typeof tradeVenueOwnMoveSchema>;
 
+/**
+ * One credit of coins into the account from outside it (a deposit, or a transfer in from another address), as the venue
+ * recorded it (J-portfolio-02 #6). The venue knows no cost for it: the lot it opens has none until the person enters one.
+ */
+export const tradeVenueArrivalSchema = z
+  .object({
+    /** The venue's own id for the credit. */
+    arrivalId: z.string().min(1),
+    kind: z.enum(['deposit', 'transfer_in']),
+    asset: z.string().min(1),
+    amount: decimal,
+    /** The venue's own time for the credit. */
+    arrivedAt: z.string().datetime(),
+  })
+  .strict();
+export type TradeVenueArrival = z.infer<typeof tradeVenueArrivalSchema>;
+
 export const tradeVenueAccountActivitySchema = z
   .object({
     venueId: z.string().min(1),
@@ -88,7 +105,12 @@ export const tradeVenueAccountActivitySchema = z
      * the venue settled, oldest first. Absent on a sub-account (a move is signed and recorded on the main account).
      */
     transfers: z.array(tradeVenueOwnMoveSchema).optional(),
-    /** The venue's own time for the read (the later of the balances' and the fills'). */
+    /**
+     * Every credit from outside the account, oldest first (J-portfolio-02 #6). Absent when the venue's adapter does not
+     * read them: a coin that arrived that way then does not reconcile in the lot book, named, never guessed.
+     */
+    arrivals: z.array(tradeVenueArrivalSchema).optional(),
+    /** The venue's own time for the read (the latest of its balances, fills and arrivals). */
     asOf: z.string().datetime(),
   })
   .strict();
