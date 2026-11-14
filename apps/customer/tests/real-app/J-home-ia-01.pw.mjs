@@ -1,13 +1,16 @@
-// World: book
+// World: book, restart
 import { createHash } from 'node:crypto';
 import { test, expect } from './journey.mjs';
-import { ORIGIN, api, bestPrices, fund, toUnits } from './stack.mjs';
+import { ORIGIN, api, bestPrices, fund, restartWithSetting, toUnits } from './stack.mjs';
 import { fundedTrader, openOrders, signIn, signUp, verify } from './desk.mjs';
 import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
 
 // J-home-ia-01, in the running app (docs/roadmap/journeys.json): I open the app and see where I stand. Tests titled
-// "J-home-ia-01 #<n>" prove a whole step. One TEST person walks the steps in order: TEST USDT and BTC through the real
-// ledger, plus a fiat code no market prices, so the total has something it must name and leave out.
+// "J-home-ia-01 #<n>" prove a whole step: #4, #5, #6, #8 and #9 here; #1, #2 and #3, the total on the launch model
+// (OWNER 226: the wallet, the venue account and the partner account, each read from its own source), are in
+// J-home-ia-01-venue.pw.mjs. #7 is later (custody). One TEST person walks the steps in order: TEST USDT and BTC through
+// the real ledger, plus a fiat code no market prices. The three tests titled "with the user-venue door off" read Home's
+// total where the door is off, the bank's own valuation; they prove no step.
 const J = 'J-home-ia-01';
 
 test.describe.configure({ mode: 'serial' });
@@ -100,7 +103,7 @@ test.beforeAll(async ({ browser }) => {
   await page.close();
 });
 
-test(`${J} #1 Home shows the bank's total to the cent, names what it leaves out, and follows the unit chosen (BTC, or dollars with a note)`, async ({
+test(`${J}, with the user-venue door off: Home shows the bank's total to the cent, names what it leaves out, and follows the unit chosen (BTC, or dollars with a note)`, async ({
   page,
 }) => {
   test.setTimeout(120_000);
@@ -134,7 +137,10 @@ test(`${J} #1 Home shows the bank's total to the cent, names what it leaves out,
   }
 });
 
-test(`${J} #2 the eye hides amounts and keeps prices, and the choice follows the person to another device`, async ({ page, browser }) => {
+test(`${J}, with the user-venue door off: the eye hides amounts and keeps prices, and the choice follows the person to another device`, async ({
+  page,
+  browser,
+}) => {
   test.setTimeout(120_000);
   await signIn(page, who);
   await page.goto('/');
@@ -158,7 +164,9 @@ test(`${J} #2 the eye hides amounts and keeps prices, and the choice follows the
   await other.close();
 });
 
-test(`${J} #3 the total's Assets link opens the Assets room with the same total and the same holdings`, async ({ page }) => {
+test(`${J}, with the user-venue door off: the total's Assets link opens the Assets room with the same total and the same holdings`, async ({
+  page,
+}) => {
   test.setTimeout(120_000);
   await signIn(page, who);
   await showsBankTotal(page, '/', HOME_TOTAL, usd);
@@ -226,6 +234,27 @@ test(`${J} #5 Recent activity lists the three newest movements to the last digit
   await fresh.close();
 });
 
+test(`${J}, part of #5: with the owner's number of movements blank, Recent activity says it is not set and lists none`, async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  // How many movements Home lists is an owner value (svc-ops home.config, OPS_HOME_RECENT_ACTIVITY_LIMIT). The stack sets
+  // a TEST number for the other steps; here svc-ops restarts with it blank, and is put back after.
+  restartWithSetting('ops', 'LOCAL_STACK_OPS_HOME_RECENT_ACTIVITY_LIMIT', 'off');
+  try {
+    await signIn(page, who);
+    await page.goto('/');
+    const list = page.locator('section[aria-labelledby="home-activity-title"]');
+    const unset = list.locator('[data-code="home.recent_activity_limit_unset"]');
+    await expect(unset).toContainText('Number of movements not set', { timeout: 30_000 });
+    await expect(list.getByTestId('home-activity__row')).toHaveCount(0);
+    // The rest of Home is unaffected.
+    await expect.poll(() => spokenTotal(page, HOME_TOTAL)).toMatch(/^\$[\d,]+\.\d{2}$/);
+  } finally {
+    restartWithSetting('ops', 'LOCAL_STACK_OPS_HOME_RECENT_ACTIVITY_LIMIT', null);
+  }
+});
+
 test(`${J}, part of #5: a failed activity read says so with Try again, and the rest of Home is unaffected`, async ({ page }) => {
   test.setTimeout(120_000);
   await signIn(page, who);
@@ -241,20 +270,35 @@ test(`${J}, part of #5: a failed activity read says so with Try again, and the r
   await expect(list.getByTestId('home-activity__row')).toHaveCount(3);
 });
 
-test(`${J} #4 Needs you: an unverified person gets one item to Verification that is gone after approval; with the margin warning level blank an open loan adds no item; with nothing to do it says nothing needs you`, async ({
+/** Home's Needs you list, and a check that every owner answered, so the list is the whole answer. */
+function needsYou(page) {
+  const work = page.locator('section[aria-labelledby="home-work-title"]');
+  const rows = work.getByTestId('home-work__row');
+  const settled = async () => {
+    await expect(work.locator('[data-slot="state-block"]')).toHaveCount(0);
+    await expect(work.locator('[data-missing]')).toHaveCount(0);
+  };
+  return { work, rows, settled };
+}
+
+/** A new person, verified by the stack's TEST operators and signed in again, on a page of their own. */
+async function approvedPerson(browser, prefix) {
+  const context = await browser.newContext({ baseURL: ORIGIN, viewport: { width: 1440, height: 900 } });
+  const page = await context.newPage();
+  const who = await signUp(page, prefix);
+  await verify(page, who);
+  await signIn(page, who);
+  return { who, page, context };
+}
+
+test(`${J} #4 Needs you: an unverified person gets one item linking to Verification, and it is gone after approval`, async ({
   browser,
 }) => {
   test.setTimeout(300_000);
   const context = await browser.newContext({ baseURL: ORIGIN, viewport: { width: 1440, height: 900 } });
   const page = await context.newPage();
   const fresh = await signUp(page, 'hmw');
-  const work = page.locator('section[aria-labelledby="home-work-title"]');
-  const rows = work.getByTestId('home-work__row');
-  // Every owner answered, so the list is the whole answer (not "nothing so far from the services that answered").
-  const settled = async () => {
-    await expect(work.locator('[data-slot="state-block"]')).toHaveCount(0);
-    await expect(work.locator('[data-missing]')).toHaveCount(0);
-  };
+  const { work, rows, settled } = needsYou(page);
 
   // Unverified: identity's one item, linking to Verification, and nothing else.
   await page.goto('/');
@@ -272,12 +316,30 @@ test(`${J} #4 Needs you: an unverified person gets one item to Verification that
   await verify(page, fresh);
   await signIn(page, fresh);
   await page.goto('/');
-  await expect(work.getByText('Nothing needs you right now.')).toBeVisible();
-  await expect(rows).toHaveCount(0);
   await settled();
+  await expect(rows).toHaveCount(0);
+  await expect(work.locator('[data-kind="verification"]')).toHaveCount(0);
+  await context.close();
+});
 
-  // An open loan while the owner's margin warning level is blank: no margin item and no error, only loans in a call would
-  // be listed (none is). The loan is the bank's TEST product from the stack's content seed.
+test(`${J} #9 with nothing to do, the list says nothing needs you`, async ({ browser }) => {
+  test.setTimeout(300_000);
+  const { page, context } = await approvedPerson(browser, 'hmn');
+  const { work, rows, settled } = needsYou(page);
+  await page.goto('/');
+  await settled();
+  await expect(rows).toHaveCount(0);
+  await expect(work.getByText('Nothing needs you right now.')).toBeVisible();
+  await context.close();
+});
+
+test(`${J} #8 with the margin warning level blank, an open loan adds no margin item to the list`, async ({ browser }) => {
+  test.setTimeout(300_000);
+  const { who: fresh, page, context } = await approvedPerson(browser, 'hmm');
+  const { work, settled } = needsYou(page);
+  // An open loan while the owner's margin warning level is blank (svc-bank home/work-items.ts: no value yet, so only a
+  // loan already in a margin call would be listed, and this one is not): no margin item and no error. The loan is the
+  // bank's TEST product from the stack's content seed.
   expect(fund(fresh.email, 'BTC', '0.01').tx).toBeTruthy();
   const client = await api(fresh);
   const products = await client.get(`/api/bank/trpc/loans.products?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`);
@@ -286,7 +348,7 @@ test(`${J} #4 Needs you: an unverified person gets one item to Verification that
   expect(product, 'the TEST content seed publishes a BTC-backed USDT loan product').toBeTruthy();
   const opened = await client.post('/api/bank/trpc/loans.open', {
     // The loan's id is its business key, named by this step and person, so a retried step meets the same loan.
-    loanId: businessUuid(`${J}-4-loan:${fresh.handle}`),
+    loanId: businessUuid(`${J}-8-loan:${fresh.handle}`),
     productId: product.id,
     collateralAmount: '0.01',
     principal: '100',
@@ -294,9 +356,9 @@ test(`${J} #4 Needs you: an unverified person gets one item to Verification that
   expect(opened.status, JSON.stringify(opened.body).slice(0, 300)).toBe(200);
   expect(opened.body.result.data.status).toBe('active');
   await page.goto('/');
-  await expect(work.getByText('Nothing needs you right now.')).toBeVisible();
-  await expect(work.locator('[data-kind="margin_health"]')).toHaveCount(0);
   await settled();
+  await expect(work.locator('[data-kind="margin_health"]')).toHaveCount(0);
+  await expect(work.getByText('Nothing needs you right now.')).toBeVisible();
   await context.close();
 });
 
