@@ -9,15 +9,13 @@ export function utcMinute(minutesAgo) {
   return new Date(at).toISOString().slice(0, 16);
 }
 
-const SPAN_MS = { '1m': 60_000, '5m': 300_000 };
-
-/** The TEST market maker's closed bars of BTC/USDT (1m unless asked for 5m) since a datetime-local UTC minute, read from Edge's public route. */
-export async function closedBarsSince(minute, timeframe = '1m') {
+/** The TEST market maker's closed 1m bars of BTC/USDT since a datetime-local UTC minute, read from Edge's public route. */
+export async function closedBarsSince(minute) {
   const since = Date.parse(`${minute}:00Z`);
-  const res = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=${timeframe}&since=${since}&limit=720`);
+  const res = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=1m&since=${since}&limit=720`);
   if (!res.ok) return [];
   const rows = await res.json();
-  return rows.filter(([at]) => at >= since && at + SPAN_MS[timeframe] <= Date.now());
+  return rows.filter(([at]) => at >= since && at + 60_000 <= Date.now());
 }
 
 /**

@@ -1,8 +1,8 @@
-// World: none
+// World: book
 // Market: live
 import { test, expect } from './journey.mjs';
-import { journeyState } from './stack.mjs';
-import { signIn, signUp, verify } from './desk.mjs';
+import { api, journeyState } from './stack.mjs';
+import { fundedTrader, signIn, signUp, verify } from './desk.mjs';
 import { closedBarsSince, tapeWindow } from './tape.mjs';
 
 // J-algo-dev-05, in the running app (docs/roadmap/journeys.json): a strategy's orders obey order types, sizing and risk
@@ -167,28 +167,45 @@ oms.cancel(a.id);`,
 test(`${J} #3 attaches a take profit and a stop loss and runs a bar that hits both: the stop fills first and the result says the pessimistic rule applied`, async ({
   page,
 }) => {
-  test.setTimeout(30 * 60_000);
+  test.setTimeout(20 * 60_000);
+  // The TEST taker crosses about once a minute, so a 1 minute bar of the tape holds one trade and has no range. A second
+  // TEST account trades the book both ways every few seconds (a market buy meets the ask, a market sell the bid, the
+  // two cancelling out), so the bars this run reads hold trades on both sides of their open.
+  const tape = await api(await fundedTrader(page, 'jt', '2000'));
+  let tick = 0;
+  async function tradeBothWays(seconds) {
+    for (const until = Date.now() + seconds * 1000; Date.now() < until; tick += 1) {
+      const side = tick % 2 === 0 ? 'buy' : 'sell';
+      const res = await tape.post('/api/v1/orders', {
+        symbol: 'BTC/USDT',
+        type: 'market',
+        side,
+        amount: '0.001',
+        clientOrderId: `${J}-tape-${process.env.JOURNEY_RUN_ID ?? 'local'}-${tick}`,
+      });
+      expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBeLessThan(300);
+      await page.waitForTimeout(5_000);
+    }
+  }
   await developer(page);
   // A stop loss and a take profit a thousandth of a percent either side of the entry: a TEST bar that moves at all
   // both ways from its open reaches both.
   const STOP = '0.001';
   const TARGET = '0.001';
-  // On 5 minute bars: the TEST taker crosses about once a minute, so a 1 minute bar holds one trade and has no range,
-  // while a 5 minute bar holds several, at the bid and the ask, and can reach both levels.
-  await saveSignalStrategy(page, 'TEST both exits', { stopLoss: STOP, takeProfit: TARGET, barSize: '5m' });
-  // The TEST tape's older bars are seeded far apart, so a bar can only reach both levels once the live market has traded
-  // through one; the run is taken again on the newest window, a minute later each time, until a held bar reached both
-  // (each window is its own run key). Every check below is made on that run.
-  const deadline = Date.now() + 25 * 60_000;
+  await saveSignalStrategy(page, 'TEST both exits', { stopLoss: STOP, takeProfit: TARGET });
+  // A minute of trading both ways, then the run on the newest window, again until a held bar reached both levels (each
+  // window is its own run key). Every check below is made on that run.
+  const deadline = Date.now() + 12 * 60_000;
   let room;
   let rows = [];
   let both = [];
   for (;;) {
+    await tradeBothWays(65);
     const window = await tapeWindow(60);
     room = await backtest(page, 'TEST both exits', window);
     // Each exit is paired with the entry before it; a bar that reached both its stop loss and its take profit must
     // exit by the stop loss, so an exit of either kind on such a bar is collected and judged.
-    const bars = new Map((await closedBarsSince(window.from, '5m')).map(([at, open, high, low]) => [at, { open, high, low }]));
+    const bars = new Map((await closedBarsSince(window.from)).map(([at, open, high, low]) => [at, { open, high, low }]));
     await view(room, 'Orders and trades');
     rows = await room
       .getByTestId('quant-bar-trade')
@@ -207,7 +224,6 @@ test(`${J} #3 attaches a take profit and a stop loss and runs a bar that hits bo
       if (bar.high >= target && bar.low <= stop) both.push({ exit, stop, bar });
     }
     if (both.length || Date.now() > deadline) break;
-    await page.waitForTimeout(60_000);
   }
   expect(both.length, 'no bar in the window reached both the stop loss and the take profit of an open position').toBeGreaterThan(0);
 
