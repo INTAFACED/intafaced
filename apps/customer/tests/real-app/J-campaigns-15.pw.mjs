@@ -247,6 +247,8 @@ test(`${J} #5 an operator opens the same programme in the earning-rules builder:
   await expect(form.getByTestId('earn-effect-points-note')).toContainText('waits for an owner decision');
   await form.getByRole('textbox', { name: 'Incentive formula' }).fill('50');
   await form.getByRole('button', { name: 'Add rule' }).click();
+  // Each save is answered before the next action: the rule is listed, and nothing was refused.
+  await expect(rules.getByTestId('earning-rule')).toHaveCount(1);
   await expect(form.getByRole('alert')).toHaveCount(0);
   // An incentive rule beside it, on the same trigger.
   await form.getByRole('textbox', { name: 'Earning rule name' }).fill('Deposit reward');
@@ -254,6 +256,7 @@ test(`${J} #5 an operator opens the same programme in the earning-rules builder:
   await form.getByRole('combobox', { name: 'Effect' }).selectOption('incentive');
   await form.getByRole('textbox', { name: 'Incentive formula' }).fill('amount / 100');
   await form.getByRole('button', { name: 'Add rule' }).click();
+  await expect(rules.getByTestId('earning-rule')).toHaveCount(2);
   await expect(form.getByRole('alert')).toHaveCount(0);
 
   // The points effect saved: it is on the draft after a reload.
