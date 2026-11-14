@@ -1222,7 +1222,6 @@ export class CampaignService {
     return rows.map(toVoucher);
   }
 
-  /** One campaign as operators see it, at any age; the list is the newest 200. */
   /**
    * Evaluates a campaign's earning rules on one TEST event (CM-rewards-hub-05, J-campaigns-15 #5): the rules of the edit
    * waiting beside it when there is one, else its stored revision. Writes nothing; a points rule refuses for itself only.
@@ -1238,6 +1237,7 @@ export class CampaignService {
     };
   }
 
+  /** One campaign as operators see it, at any age; the list is the newest 200. */
   async getForOps(input: { id: string }): Promise<Campaign> {
     const [row] = await this.sql<CampaignRow[]>`SELECT * FROM campaigns.campaign_rows WHERE id = ${input.id}`;
     if (!row) throw new CampaignsError('campaign.unknown', 'No such campaign');
