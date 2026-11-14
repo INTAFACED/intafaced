@@ -15,6 +15,7 @@ import { openStrategyRepository } from './studio/open.js';
 import { openQuota } from './quota/open.js';
 import { JetStreamEventBus } from '@intafaced/events';
 import { openNotifyRepository } from './notify/open.js';
+import { openTeamRepository } from './team/open.js';
 import { sweepFillAlerts } from './notify/sweep.js';
 import { openLifecycleRepository } from './lifecycle/open.js';
 import { parseQuotaSeed } from './quota/quota.js';
@@ -56,6 +57,8 @@ const templates = openTemplateRepository({ DATABASE_URL: env.DATABASE_URL, DATAB
 const lifecycle = openLifecycleRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
 const shares = openShareRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
 const notify = openNotifyRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
+// Strategy teams (J-algo-dev-08): a new collaborator counts against the owner's plan inside the insert's transaction.
+const team = openTeamRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX }, quota.gate);
 
 function embedOrigins(raw: string | undefined): readonly string[] | null {
   if (!raw) return null;
@@ -100,6 +103,8 @@ export const appRouter = createQuantRouter({
   templates: templates.repository,
   quota: quota.repository,
   notify: notify.repository,
+  team: team.repository,
+  editLockSeconds: env.QUANT_EDIT_LOCK_SECONDS === undefined ? null : Number(env.QUANT_EDIT_LOCK_SECONDS),
   lifecycle: lifecycle.repository,
   releaseNoteMax: env.QUANT_RELEASE_NOTE_MAX === undefined ? null : Number(env.QUANT_RELEASE_NOTE_MAX),
   share: {
@@ -194,6 +199,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       await app.close();
       await bus?.close();
       await notify.close();
+      await team.close();
       await strategies.close();
       await runs.close();
       await disclosure.close();

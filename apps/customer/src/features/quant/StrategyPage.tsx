@@ -16,6 +16,7 @@ import { PaperRuns } from './PaperRuns';
 import { StrategyAlerts, StrategyChannels } from './StrategyNotify';
 import { QuantRooms } from './QuantRooms';
 import { StrategyLifecycle } from './StrategyLifecycle';
+import { StrategyTeam } from './StrategyTeam';
 import { strategyPageCopy } from './strategy-page-copy';
 import './algo.css';
 
@@ -52,6 +53,7 @@ export function StrategyPage({ strategyId, paper }: { strategyId: string; paper:
             <StrategyChannels strategy={strategy} />
             <StrategyAlerts strategy={strategy} />
             <StrategyLifecycle strategy={strategy} />
+            <StrategyTeam strategy={strategy} />
           </>
         )}
       </Read>
