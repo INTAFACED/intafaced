@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, normalize, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -289,7 +289,7 @@ function scanScripts(read = (f) => readFileSync(join(ROOT, f), 'utf8')) {
           reached.set(sc, f);
           queue.push(sc);
         }
-    for (const m of text.matchAll(/\bpnpm\s+(?:-w\s+)?(?:run\s+)?([\w:.-]+)/g)) runScript(m[1]);
+    for (const m of text.matchAll(/\bpnpm(?:\s+-\S+)*(?:\s+run)?(?:\s+-\S+)*\s+([\w:.][\w:.-]*)/g)) runScript(m[1]);
   }
   return { reached, seen };
 }
@@ -344,7 +344,12 @@ test('git hooks run no journeys: nothing the journeys run executes commits, push
   for (const f of seen) {
     if (f.startsWith('pnpm:') || !/\.(m?[jt]sx?|cjs|mts|ya?ml|sh)$/.test(f) || !existsSync(join(ROOT, f))) continue;
     const code = codeOf(f, readFileSync(join(ROOT, f), 'utf8'));
-    if (/\.githooks|\bgit\s+(-C\s+\S+\s+)?(commit|push)\b|['"`]git['"`]\s*,\s*\[[^\]]*['"`](commit|push)['"`]/.test(code)) hits.push(f);
+    if (
+      /\.githooks|\bgit(\s+(-C|-c)\s+\S+|\s+--?[\w-]+(=\S+)?)*\s+(commit|push)\b|['"`]git['"`]\s*,\s*\[[^\]]*['"`](commit|push)['"`]/.test(
+        code,
+      )
+    )
+      hits.push(f);
   }
   // `prepare` points git at .githooks on install; the hooks then run only on a commit or a push. The known ones are
   // outside a pull request's journeys run, so running its journeys would not exercise a hook either: journeys-revert.mjs
@@ -360,6 +365,9 @@ test('git hooks run no journeys: nothing the journeys run executes commits, push
     ['early'],
     'the journeys run starts the revert, never pushes it',
   );
+  // The proof covers the commit and push hooks only: a hook git runs on a checkout or a merge would run in the journeys
+  // run after install, so a new hook name fails here until it is shown never to fire there.
+  assert.deepEqual(readdirSync(join(ROOT, '.githooks')).sort(), ['pre-commit', 'pre-push'], 'only the commit and push hooks exist');
   assert.equal(pathKind('.githooks/pre-push').kind, 'none');
   assert.equal(pathKind('.githooks/pre-commit').kind, 'none');
 });
