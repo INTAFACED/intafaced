@@ -725,7 +725,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
    * Settle one pending withdrawal: `done` (the chain confirmed it) or `failed` (the venue returns the amount and its fee
    * to free). False when it is not pending (already settled, or unknown): settling twice changes nothing.
    */
-  settleWithdrawal(account: UserVenueAccount, nonce: string, outcome: 'done' | 'failed'): boolean {
+  settleWithdrawal(account: UserVenueAccount, nonce: string, outcome: 'done' | 'failed', txHash?: string): boolean {
     const state = this.account(account);
     const withdrawal = state.withdrawals.get(nonce);
     if (!withdrawal || withdrawal.status !== 'pending') return false;
@@ -733,7 +733,12 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       const balance = this.balance(state, withdrawal.asset);
       balance.free = add(balance.free, add(withdrawal.amount, this.withdrawalFeeCharged.get(`${state.key}#${nonce}`) ?? ZERO));
     }
-    state.withdrawals.set(nonce, { ...withdrawal, status: outcome });
+    // The chain transaction that paid it, when a chain payer settled it (chain-deposits.ts); a TEST settle names none.
+    state.withdrawals.set(nonce, {
+      ...withdrawal,
+      status: outcome,
+      ...(outcome === 'done' && txHash ? { txHash: txHash.toLowerCase() } : {}),
+    });
     return true;
   }
 

@@ -81,6 +81,19 @@ const schema = serviceEnvSchema
        */
       TRADE_BUILDER_FEE_COLLECT: z.enum(['on', 'off']).default('on'),
       TRADE_BUILDER_FEE_COLLECT_INTERVAL_MS: z.coerce.number().int().min(1_000).max(86_400_000).default(60_000),
+      /**
+       * Move own funds (OWNER 288 Q4: "Claimed on a schedule and moved to a wallet INTAFACED controls, above a float"). All
+       * four are the owner's; any one blank and the sweep waits, naming it, and nothing moves:
+       * - the float, in USDC, left at the venue (it pays the venue's withdrawal fee, so it is at least that fee);
+       * - the schedule, as how often a run happens;
+       * - the wallet, `<walletId>=<0x address>`, where `walletId`'s first segment names the network that carries it;
+       * - the builder key's seed (a secret; the key is derived, never stored) that signs the withdrawal as
+       *   `TRADE_USER_VENUE_BUILDER_ADDRESS`.
+       */
+      TRADE_OWN_FUNDS_FLOAT: z.string().default(''),
+      TRADE_OWN_FUNDS_SWEEP_INTERVAL_MS: z.string().default(''),
+      TRADE_OWN_FUNDS_WALLET: z.string().default(''),
+      TRADE_BUILDER_KEY_SEED: z.string().default(''),
 
       /**
        * J-cex-spot-16 LOCAL TEST seed: a comma list of venue symbols (e.g. `BTC-USDC,BTC-PERP`) svc-trade lists on a TEST

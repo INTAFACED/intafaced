@@ -283,7 +283,7 @@ test(`${J} #6 types a TEST size and leverage and presses Review: initial margin,
         timeInForce: 'IOC',
         reduceOnly: false,
         clientOrderKey: clientId,
-        builderFee: { builder: '0x7e57000000000000000000000000000000000b1d', feeBps: '0.5' },
+        builderFee: { builder: '0x116d8f7751e72306d499dd61ae826e46a726c632', feeBps: '0.5' },
       },
     })
   ).value;
