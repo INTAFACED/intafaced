@@ -1,7 +1,7 @@
 // World: none
 // Market: live
 import { test, expect } from './journey.mjs';
-import { journeyState, toUnits } from './stack.mjs';
+import { journeyState, restartWithSetting, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { closedBarsSince, tapeWindow, utcMinute } from './tape.mjs';
 
@@ -263,6 +263,30 @@ test(`${J} #4 opens the checks panel: overfitting, look-ahead and repainting fin
     await expect(check(name)).toContainText('Ruled out by design');
   }
   await expect(check('look_ahead')).toContainText('A test of the engine proves a bar cannot change anything that happened before it.');
+  // Repainting's evidence is the stored run itself: it says a stored run is never recomputed, and reading it again in a
+  // fresh page shows the same run with the same trades and equity, bar by bar.
+  await expect(check('repainting')).toContainText(
+    'A stored run is never recomputed or rewritten: reading it again shows the same trades and equity.',
+  );
+  const figures = async (r) => {
+    await r.getByRole('button', { name: 'Orders and trades' }).click();
+    const trades = await r
+      .getByTestId('quant-bar-trade')
+      .evaluateAll((rows) => rows.map((row) => `${row.dataset.side} ${row.dataset.ts} ${row.textContent}`));
+    await r.getByRole('button', { name: 'Charts' }).click();
+    const equity = await r
+      .getByTestId('quant-bar-equity')
+      .evaluateAll((rows) => rows.map((row) => `${row.cells[0].textContent} ${row.dataset.equity}`));
+    return { trades, equity };
+  };
+  const first = await figures(result);
+  expect(first.equity.length, 'the stored run has an equity curve to read again').toBeGreaterThan(0);
+  const again = await backtestForm(page, variants.strategy, { ...window, slippage: '5' });
+  await again.getByRole('combobox', { name: /^Out-of-sample split/ }).selectOption('1/3');
+  await again.getByTestId('quant-backtest-run').click();
+  const reread = again.getByTestId('quant-bar-result');
+  await expect(reread).toHaveAttribute('data-run-id', variants.runId);
+  expect(await figures(reread)).toEqual(first);
 });
 
 const MARGIN_SLIPPAGE = '15';
@@ -389,6 +413,32 @@ test(`${J} #6 presses Print: parameters, statistics, charts and labels on paper 
   for (const id of REPORT_SECTIONS) await expect(report.getByTestId(`quant-report-section-${id}`)).toBeVisible();
   await expect(result.getByTestId('quant-report-print')).toBeHidden();
   await expect(page.getByTestId('quant-backtest-run')).toBeHidden();
+  // Nothing else on the page takes room on paper, so no blank page prints before or after the report, and no section
+  // is split across two pages.
+  const layout = await page.evaluate(() => {
+    const doc = document.querySelector('.quant-report-document');
+    const outside = [...document.body.querySelectorAll('*')].filter((el) => !el.contains(doc) && !doc.contains(el));
+    return {
+      top: doc.getBoundingClientRect().top + window.scrollY,
+      height: doc.getBoundingClientRect().height,
+      shown: outside.filter((el) => el.getClientRects().length > 0).map((el) => el.tagName + (el.className ? `.${el.className}` : '')),
+      breaks: [...doc.querySelectorAll('section')].map((section) => getComputedStyle(section).breakInside),
+    };
+  });
+  expect(layout.shown, 'nothing outside the report takes room on paper').toEqual([]);
+  expect(layout.top, 'the report starts at the top of the first page').toBeLessThanOrEqual(64);
+  expect(layout.breaks).toEqual(REPORT_SECTIONS.map(() => 'avoid'));
+  // Paper-sized pages: the printed file's every page is A4 (595 by 842 points), as the report's page rule sets it.
+  const pdf = (await page.pdf({ preferCSSPageSize: true })).toString('latin1');
+  const pages = [...pdf.matchAll(/\/MediaBox\s*\[([^\]]+)\]/g)].map((m) => m[1].trim().split(/\s+/).map(Number));
+  expect(pages.length, 'the report printed no page').toBeGreaterThan(0);
+  // No blank page: at most the pages the report's own height fills (an A4 page holds 1123 CSS pixels less its margins),
+  // plus one per section moved whole onto the next page.
+  const most = Math.ceil(layout.height / (1123 - 48)) + REPORT_SECTIONS.length - 1;
+  expect(pages.length, `the report is ${layout.height}px tall`).toBeLessThanOrEqual(most);
+  for (const [x, y, w, h] of pages) {
+    expect([x, y, Math.round(w), Math.round(h)]).toEqual([0, 0, 595, 842]);
+  }
   await page.emulateMedia({ media: 'screen' });
   // Print opens the browser's print window, which also saves a PDF.
   await page.evaluate(() => {
@@ -401,10 +451,11 @@ test(`${J} #6 presses Print: parameters, statistics, charts and labels on paper 
   expect(await page.evaluate(() => window.__printed)).toBe(1);
 });
 
-test(`${J} #7 creates a share link twice, opens it signed out, then revokes it: one active link; the result under its label with no source; revoked, not found`, async ({
+test(`${J} #7 creates a share link twice, opens it signed out, then revokes it: one active link; the result under its label with no source; revoked, not found; a blank embed list refuses the snippet only`, async ({
   page,
   browser,
 }) => {
+  test.setTimeout(300_000);
   const { result, strategy } = await storedVariant(page);
   await result.getByRole('button', { name: 'Share' }).click();
   const share = result.getByTestId('quant-share');
@@ -452,6 +503,31 @@ test(`${J} #7 creates a share link twice, opens it signed out, then revokes it: 
     await reader.goto(link);
     await expect(reader.getByTestId('quant-shared-result')).toContainText('This shared result was not found.');
     await expect(reader.getByTestId('quant-shared-document')).toHaveCount(0);
+
+    // A blank embed list refuses the embed snippet only: a new link is still made and opens; no snippet is offered.
+    restartWithSetting('quant', 'LOCAL_STACK_QUANT_EMBED_ORIGINS', 'off');
+    try {
+      const fresh = await storedVariant(page);
+      await fresh.result.getByRole('button', { name: 'Share' }).click();
+      const blank = fresh.result.getByTestId('quant-share');
+      await expect(blank.getByTestId('quant-share-state')).toHaveAttribute('data-active', 'false');
+      await blank.getByTestId('quant-share-create').click();
+      const refusal = blank.getByTestId('quant-share-embed-refusal');
+      await expect(refusal).toHaveAttribute('data-code', 'quant.embed_origins_unset');
+      await expect(refusal).toHaveText(
+        'Embedding is not available: the list of sites that may show a shared result in a frame is not set. The link still opens.',
+      );
+      await expect(blank.getByTestId('quant-share-embed-code')).toHaveCount(0);
+      const second = await blank.getByTestId('quant-share-link').inputValue();
+      expect(second).toMatch(/\/quant\/share\/[^/]+$/);
+      expect(second).not.toBe(link);
+      await reader.goto(second);
+      await expect(reader.getByTestId('quant-shared-claim')).toHaveText(CLAIM);
+      await blank.getByTestId('quant-share-revoke').click();
+      await expect(blank.getByTestId('quant-share-state')).toHaveAttribute('data-active', 'false');
+    } finally {
+      restartWithSetting('quant', 'LOCAL_STACK_QUANT_EMBED_ORIGINS', null);
+    }
   } finally {
     await visitor.close();
   }
