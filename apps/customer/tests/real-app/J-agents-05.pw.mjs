@@ -572,6 +572,29 @@ test(`${J} #7 turns on the automatic reviewer for no-value tools: "proceed" runs
     review: { valueTool: false, decision: 'proceed' },
   });
 
+  // And a real call of a value-capable tool, made by the agent with the reviewer on, goes to the person: it is held,
+  // waiting, decided by nobody; the reviewer's log names it a value tool sent to the person; the inbox shows it waiting.
+  const valueSession = await ownCall('session.open', { id: agent.id });
+  expect(valueSession.status, JSON.stringify(valueSession.body).slice(0, 300)).toBe(200);
+  const value = await ownCall('tool.try', {
+    id: agent.id,
+    sessionId: valueSession.body.result.data.sessionId,
+    requestId: `${J}:review-value`,
+    tool: 'ledger.transfer',
+    input: { amount: '1', asset: 'USDT', to: 'TEST' },
+  });
+  expect(value.status, JSON.stringify(value.body).slice(0, 300)).toBe(200);
+  expect(value.body.result.data).toMatchObject({ outcome: 'waiting', request: { status: 'waiting', decidedBy: null } });
+  const valueRequest = value.body.result.data.request;
+  expect((await ownRead('review.list', { id: agent.id, limit: 50 })).find((row) => row.requestId === `${J}:review-value`)).toMatchObject({
+    tool: 'ledger.transfer',
+    decision: 'needs_person',
+    reasonCode: 'agents.review.value_tool',
+    approvalRequestId: valueRequest.id,
+  });
+  await openInbox(page);
+  await expect(inbox(page).locator(`[data-request-id="${valueRequest.id}"]`)).toContainText('Waiting for approval');
+
   // With the reviewer's model unset the owner-decision notice shows, the switch stays the person's, and the call goes
   // to the person: it is held, waiting, and nothing is sent.
   restartAgents('LOCAL_STACK_AGENTS_REVIEWER_MODEL', 'off');
