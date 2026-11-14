@@ -23,12 +23,13 @@ import {
   VOUCHER_LIST_LIMIT,
   type VoucherWindow,
   type CampaignLimits,
-  type CampaignReferral,
   type MyCampaigns,
   type Participation,
   type ParticipationRules,
   type RewardLock,
   EARNING_TRIGGERS,
+  type EarningEvaluateInput,
+  type EarningEvaluation,
   type EarningRule,
   type EarningTrigger,
   type RuleGroup,
@@ -41,6 +42,7 @@ import { CampaignsError } from './codes.js';
 import { parseWindowTime } from './drops.js';
 import type { ParticipantSource } from './participants.js';
 import { parseFormula } from './formula.js';
+import { evaluateEarning } from './points.js';
 import { checkRule, evaluateRule, tryRule, type RuleLimits } from './rules.js';
 
 /**
@@ -102,8 +104,6 @@ type CampaignRow = {
   vouchers: VoucherWindow | null;
   /** The campaign's limits (CM-eligibility-rules-03); null while blank. */
   limits: CampaignLimits | null;
-  /** A referral campaign's programme (CM-referral-02); null for any other campaign. */
-  referral: CampaignReferral | null;
   /** What the campaign's reward intents reserve or spent, from `campaigns.campaign_rows`; absent on a RETURNING row. */
   budget_drawn?: string;
   created_by: string;
@@ -148,6 +148,8 @@ type VoucherRow = {
   revision: number;
   face_asset: string;
   face_amount: string;
+  kind: CampaignVoucher['kind'];
+  fee_discount_bps: number | null;
   state: CampaignVoucher['state'];
   issued_by: string;
   claim_by: Date | null;
@@ -161,6 +163,9 @@ const toVoucher = (v: VoucherRow): CampaignVoucher => ({
   code: v.code,
   revision: v.revision,
   face: { asset: v.face_asset, amount: decimalOf(v.face_amount) },
+  kind: v.kind,
+  feeSaver:
+    v.kind === 'fee_saver' && v.fee_discount_bps !== null ? { discountBps: v.fee_discount_bps, orders: Number(v.face_amount) } : null,
   state: v.state,
   issuedBy: v.issued_by,
   issuedAt: v.created_at.toISOString(),
@@ -253,7 +258,10 @@ const isParked = (type: CampaignType) => (PARKED_CAMPAIGN_TYPES as readonly stri
 export function gateOf(row: CampaignRow, timeZone: string | null): CampaignGate['missing'] {
   const missing: CampaignGate['missing'] = [];
   if (isParked(row.type)) missing.push({ code: 'owner.decision', field: 'type' });
-  if (!row.budget_asset || row.budget_limit === null) missing.push({ code: 'campaigns.budget_unset', field: 'budget' });
+  // A fee-saver coupon campaign moves no value (ENGINE VC-9): it has no reward pot to draw and no reward to pay, so neither
+  // is asked for; its terms are its vouchers' discount and orders, which the definition cannot leave blank.
+  const feeSaver = row.type === 'voucher' && Boolean(row.vouchers?.feeSaver);
+  if (!feeSaver && (!row.budget_asset || row.budget_limit === null)) missing.push({ code: 'campaigns.budget_unset', field: 'budget' });
   if (!row.participation) missing.push({ code: 'campaigns.rules_unset', field: 'participation' });
   else if (row.participation.regionScope === 'listed' && !row.participation.restrictedRegions?.length) {
     missing.push({ code: 'campaigns.region_list_unset', field: 'restrictedRegions' });
@@ -265,17 +273,10 @@ export function gateOf(row: CampaignRow, timeZone: string | null): CampaignGate[
   }
   // A welcome campaign gives a reward per task, each of which may be blank ("not set"; that task's claim refuses).
   const welcome = row.type === 'welcome';
-  // A referral campaign gives each side its own reward (CM-referral-03): the referrer always, the invitee when double sided.
-  const referral = row.type === 'referral';
-  if (!welcome && !referral && (!row.reward_asset || row.reward_amount === null)) {
+  if (!welcome && !feeSaver && (!row.reward_asset || row.reward_amount === null)) {
     missing.push({ code: 'campaigns.reward_unset', field: 'reward' });
   }
-  if (referral) missing.push(...referralGaps(row.referral));
-  const rewardAssets = welcome
-    ? (row.tasks?.steps ?? []).flatMap((s) => (s.reward ? [s.reward.asset] : []))
-    : referral
-      ? [row.referral?.rewards.referrer?.asset, row.referral?.rewards.referee?.asset].filter(Boolean)
-      : [row.reward_asset];
+  const rewardAssets = welcome ? (row.tasks?.steps ?? []).flatMap((s) => (s.reward ? [s.reward.asset] : [])) : [row.reward_asset];
   if (row.budget_asset && rewardAssets.some((a) => a && a !== row.budget_asset)) {
     missing.push({ code: 'campaigns.budget_asset_mismatch', field: 'budget' });
   }
@@ -295,26 +296,6 @@ export function gateOf(row: CampaignRow, timeZone: string | null): CampaignGate[
   if (lock?.kind === 'bonus' && lock.expirySeconds === null) missing.push({ code: 'campaigns.bonus_expiry_unset', field: 'bonusExpiry' });
   if (lock?.kind === 'bonus' && lock.appliesTo.length === 0) missing.push({ code: 'campaigns.bonus_scope_unset', field: 'bonusScope' });
   return missing;
-}
-
-/** What a referral programme still lacks before it can go live: each blank criterion, and each reward a side needs. */
-function referralGaps(p: CampaignReferral | null): CampaignGate['missing'] {
-  if (!p) return [{ code: 'campaigns.criteria_unset', field: 'referralCriteria' }];
-  const c = p.criteria;
-  const out: CampaignGate['missing'] = [];
-  const blank = (
-    [
-      ['verification', c.verification],
-      ['criteriaAsset', c.asset],
-      ['depositMin', c.depositMin],
-      ['tradeVolumeMin', c.tradeVolumeMin],
-      ['qualifyWindow', c.windowSeconds],
-    ] as const
-  ).filter(([, v]) => v === null);
-  for (const [field] of blank) out.push({ code: 'campaigns.criteria_unset', field });
-  if (!p.rewards.referrer) out.push({ code: 'campaigns.reward_unset', field: 'referrerReward' });
-  if (p.sides === 'double' && !p.rewards.referee) out.push({ code: 'campaigns.reward_unset', field: 'refereeReward' });
-  return out;
 }
 
 function refuseGate(missing: CampaignGate['missing']): void {
@@ -361,7 +342,6 @@ function toCampaign(r: CampaignRow, timeZone: string | null, now: Date, change: 
     tasks: r.tasks,
     vouchers: r.vouchers,
     limits: r.limits,
-    referral: r.referral,
     earning: r.earning,
     createdBy: r.created_by,
     submittedBy: r.submitted_by,
@@ -398,7 +378,6 @@ function inputOf(d: Definition): CampaignDefinitionInput {
     ...(d.earning.length > 0 ? { earning: d.earning } : {}),
     ...(d.vouchers ? { vouchers: d.vouchers } : {}),
     ...(d.limits ? { limits: d.limits } : {}),
-    ...(d.referral ? { referral: d.referral } : {}),
     // Blank stays blank; otherwise left out, which reads the platform zone.
     ...(d.timeZoneBlank ? { timeZone: null } : {}),
   };
@@ -426,7 +405,6 @@ function rowWith(r: CampaignRow, d: Definition): CampaignRow {
     earning: d.earning,
     vouchers: d.vouchers,
     limits: d.limits,
-    referral: d.referral,
   };
 }
 
@@ -451,7 +429,6 @@ function inputOfRow(r: CampaignRow): CampaignDefinitionInput {
     earning: r.earning,
     vouchers: r.vouchers,
     limits: r.limits,
-    referral: r.referral,
   });
 }
 
@@ -558,7 +535,6 @@ type Definition = {
   earning: EarningRule[];
   vouchers: VoucherWindow | null;
   limits: CampaignLimits | null;
-  referral: CampaignReferral | null;
 };
 
 /**
@@ -624,33 +600,6 @@ export function parseDefinition(input: CampaignDefinitionInput, platformZone: st
     earning: parseEarning(input.earning ?? []),
     vouchers: input.vouchers ? parseVoucherWindow(type as CampaignType, input.vouchers) : null,
     limits: input.limits ? limitsOf(input.limits) : null,
-    referral: input.referral ? parseReferral(type as CampaignType, input.referral) : null,
-  };
-}
-
-/**
- * A referral programme (CM-referral-02), stored the same way every time. Blanks stay blank for the gate to name. Only a
- * `referral` campaign has one; a single-sided programme rewards the referrer only, so it names no invitee reward.
- */
-function parseReferral(type: CampaignType, input: CampaignReferral): CampaignReferral {
-  if (type !== 'referral') throw new CampaignsError('campaigns.referral_invalid', 'Only a referral campaign has a referral programme');
-  if (input.sides === 'single' && input.rewards.referee) {
-    throw new CampaignsError('campaigns.referral_invalid', 'A single-sided programme rewards the referrer only');
-  }
-  const c = input.criteria;
-  return {
-    sides: input.sides,
-    criteria: {
-      verification: c.verification,
-      asset: c.asset,
-      depositMin: c.depositMin === null ? null : decimalOf(c.depositMin),
-      tradeVolumeMin: c.tradeVolumeMin === null ? null : decimalOf(c.tradeVolumeMin),
-      windowSeconds: c.windowSeconds,
-    },
-    rewards: {
-      referrer: input.rewards.referrer ? { asset: input.rewards.referrer.asset, amount: decimalOf(input.rewards.referrer.amount) } : null,
-      referee: input.rewards.referee ? { asset: input.rewards.referee.asset, amount: decimalOf(input.rewards.referee.amount) } : null,
-    },
   };
 }
 
@@ -676,7 +625,8 @@ function parseVoucherWindow(type: CampaignType, input: NonNullable<CampaignDefin
   if (claimBy && useBy && useBy < claimBy) {
     throw new CampaignsError('campaigns.voucher_window_invalid', 'A voucher’s use-by cannot be before its claim-by');
   }
-  return { claimBy: claimBy ? iso(claimBy) : null, useBy: useBy ? iso(useBy) : null };
+  const feeSaver = input.feeSaver ? { discountBps: input.feeSaver.discountBps, orders: input.feeSaver.orders } : null;
+  return { claimBy: claimBy ? iso(claimBy) : null, useBy: useBy ? iso(useBy) : null, ...(feeSaver ? { feeSaver } : {}) };
 }
 
 /**
@@ -692,7 +642,14 @@ function parseEarning(rules: readonly EarningRule[]): EarningRule[] {
     if (seen.has(name.toLowerCase())) throw new CampaignsError('campaigns.earning_rule_name_taken', `Two earning rules are named ${name}`);
     seen.add(name.toLowerCase());
     parseFormula(r.formula, trigger.names);
-    return { name, trigger: r.trigger, minAmount: r.minAmount ?? null, formula: r.formula.trim() };
+    // An incentive is stored as before (no field), so a rule saved before effects existed reads the same.
+    return {
+      name,
+      trigger: r.trigger,
+      minAmount: r.minAmount ?? null,
+      formula: r.formula.trim(),
+      ...(r.effect === 'points' ? { effect: 'points' as const } : {}),
+    };
   });
 }
 
@@ -824,7 +781,6 @@ function sameDefinition(r: CampaignRow, d: Definition): boolean {
     canonical(r.earning) === canonical(d.earning) &&
     canonical(r.vouchers) === canonical(d.vouchers) &&
     canonical(r.limits) === canonical(d.limits) &&
-    canonical(r.referral) === canonical(d.referral) &&
     r.time_zone_blank === d.timeZoneBlank
   );
 }
@@ -880,12 +836,11 @@ export class CampaignService {
         await this.checkCampaignRule(tx, d);
         const [row] = await tx<CampaignRow[]>`
           INSERT INTO campaigns.campaigns (id, name, type, rules, starts_at, ends_at, weekdays, hours_from, hours_to,
-            participation, budget_asset, budget_limit, reward_asset, reward_amount, tasks, time_zone_blank, earning, vouchers, limits, referral, created_by)
+            participation, budget_asset, budget_limit, reward_asset, reward_amount, tasks, time_zone_blank, earning, vouchers, limits, created_by)
           VALUES (${id}, ${d.name}, ${d.type}, ${d.rules}, ${d.startsAt}, ${d.endsAt}, ${d.weekdays}, ${d.hoursFrom},
             ${d.hoursTo}, ${d.participation ? tx.json(d.participation) : null}, ${d.budgetAsset}, ${d.budgetLimit},
             ${d.rewardAsset}, ${d.rewardAmount}, ${d.tasks ? tx.json(d.tasks as unknown as postgres.JSONValue) : null}, ${d.timeZoneBlank}, ${tx.json(d.earning as unknown as postgres.JSONValue)},
-            ${d.vouchers ? tx.json(d.vouchers) : null}, ${d.limits ? tx.json(d.limits as unknown as postgres.JSONValue) : null},
-            ${d.referral ? tx.json(d.referral as unknown as postgres.JSONValue) : null}, ${input.actor})
+            ${d.vouchers ? tx.json(d.vouchers) : null}, ${d.limits ? tx.json(d.limits as unknown as postgres.JSONValue) : null}, ${input.actor})
           RETURNING *`;
         await audit(tx, input.actor, 'campaign.create', id, { name: d.name, type: d.type });
         return toCampaign(row!, this.timeZone(), this.now());
@@ -929,7 +884,6 @@ export class CampaignService {
             tasks = ${d.tasks ? tx.json(d.tasks as unknown as postgres.JSONValue) : null}, time_zone_blank = ${d.timeZoneBlank},
             earning = ${tx.json(d.earning as unknown as postgres.JSONValue)}, vouchers = ${d.vouchers ? tx.json(d.vouchers) : null},
             limits = ${d.limits ? tx.json(d.limits as unknown as postgres.JSONValue) : null},
-            referral = ${d.referral ? tx.json(d.referral as unknown as postgres.JSONValue) : null},
             revision = revision + 1, updated_at = now()
           WHERE id = ${input.id}
           RETURNING *, (SELECT budget_drawn FROM campaigns.campaign_rows WHERE id = ${input.id}) AS budget_drawn`;
@@ -1037,7 +991,6 @@ export class CampaignService {
         tasks = ${d.tasks ? tx.json(d.tasks as unknown as postgres.JSONValue) : null}, time_zone_blank = ${d.timeZoneBlank},
         earning = ${tx.json(d.earning as unknown as postgres.JSONValue)}, vouchers = ${d.vouchers ? tx.json(d.vouchers) : null},
             limits = ${d.limits ? tx.json(d.limits as unknown as postgres.JSONValue) : null},
-            referral = ${d.referral ? tx.json(d.referral as unknown as postgres.JSONValue) : null},
         revision = ${open.revision}, submitted_by = ${open.submitted_by}, approved_by = ${actor},
         approved_revision = ${open.revision}, updated_at = now()
       WHERE id = ${row.id}`;
@@ -1221,9 +1174,15 @@ export class CampaignService {
           `A campaign that is ${ended ? 'ended' : state} issues no voucher: it must be approved and not ended`,
         );
       }
-      if (!row.reward_asset || row.reward_amount === null) {
+      const feeSaver = row.vouchers?.feeSaver ?? null;
+      if (!feeSaver && (!row.reward_asset || row.reward_amount === null)) {
         throw new CampaignsError('campaigns.reward_unset', 'The live revision has no reward, so a voucher would have no face value');
       }
+      // A fee-saver's face is its orders; it keeps the discount of the revision it was issued under, as a cash voucher
+      // keeps its reward.
+      const face = feeSaver
+        ? { asset: 'ORDERS', amount: String(feeSaver.orders) }
+        : { asset: row.reward_asset!, amount: row.reward_amount! };
       await tx`SELECT pg_advisory_xact_lock(hashtext(${`voucher:code:${code}`}))`;
       const [elsewhere] = await tx<{ id: string }[]>`
         SELECT id FROM campaigns.vouchers WHERE code = ${code} AND campaign_id <> ${row.id} LIMIT 1`;
@@ -1238,10 +1197,11 @@ export class CampaignService {
           ON CONFLICT (campaign_id, revision) DO NOTHING`;
       }
       const [made] = await tx<VoucherRow[]>`
-        INSERT INTO campaigns.vouchers (id, campaign_id, code, issue_key, revision, face_asset, face_amount, issued_by, claim_by,
-          use_by)
-        VALUES (${`vch_${randomUUID()}`}, ${row.id}, ${code}, ${key}, ${row.revision}, ${row.reward_asset}, ${row.reward_amount},
-          ${input.actor}, ${row.vouchers?.claimBy ?? null}, ${row.vouchers?.useBy ?? null})
+        INSERT INTO campaigns.vouchers (id, campaign_id, code, issue_key, revision, face_asset, face_amount, kind, fee_discount_bps,
+          issued_by, claim_by, use_by)
+        VALUES (${`vch_${randomUUID()}`}, ${row.id}, ${code}, ${key}, ${row.revision}, ${face.asset}, ${face.amount},
+          ${feeSaver ? 'fee_saver' : 'cash'}, ${feeSaver?.discountBps ?? null}, ${input.actor}, ${row.vouchers?.claimBy ?? null},
+          ${row.vouchers?.useBy ?? null})
         ON CONFLICT (issue_key) DO NOTHING
         RETURNING *`;
       if (!made) {
@@ -1260,6 +1220,21 @@ export class CampaignService {
     const rows = await this.sql<VoucherRow[]>`
       SELECT * FROM campaigns.vouchers WHERE campaign_id = ${input.campaignId} ORDER BY created_at DESC, id DESC LIMIT ${VOUCHER_LIST_LIMIT}`;
     return rows.map(toVoucher);
+  }
+
+  /**
+   * Evaluates a campaign's earning rules on one TEST event (CM-rewards-hub-05, J-campaigns-15 #5): the rules of the edit
+   * waiting beside it when there is one, else its stored revision. Writes nothing; a points rule refuses for itself only.
+   */
+  async evaluateEarning(input: EarningEvaluateInput): Promise<EarningEvaluation> {
+    const campaign = await this.getForOps({ id: input.id });
+    const rules = campaign.pendingChange ? parseEarning(campaign.pendingChange.definition.earning ?? []) : campaign.earning;
+    const asset = campaign.pendingChange ? (campaign.pendingChange.definition.reward?.asset ?? null) : (campaign.reward?.asset ?? null);
+    return {
+      campaignId: campaign.id,
+      trigger: input.trigger,
+      results: evaluateEarning(rules, asset, input.trigger, input.values),
+    };
   }
 
   /** One campaign as operators see it, at any age; the list is the newest 200. */

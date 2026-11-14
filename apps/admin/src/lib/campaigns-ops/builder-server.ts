@@ -7,6 +7,8 @@ import {
   campaignTransitionInputSchema,
   campaignUpdateInputSchema,
   campaignVoucherSchema,
+  earningEvaluateInputSchema,
+  earningEvaluationSchema,
   ruleLibraryEntrySchema,
   ruleLibrarySaveInputSchema,
   ruleTestInputSchema,
@@ -192,4 +194,18 @@ export async function listVouchers(ctx: FounderCallContext, input: unknown) {
 
 export async function issueVoucher(ctx: FounderCallContext, input: unknown) {
   return ruleReply(await founderCall(ctx, 'campaigns', 'ops.campaigns.vouchers.issue', 'POST', input, readVoucher));
+}
+
+// ── Earning rules evaluated on a TEST event (CM-rewards-hub-05, J-campaigns-15 #5) ─────────────────────────────────
+
+const readEvaluation = parseWith(earningEvaluationSchema);
+
+export const checkEarningEvaluate = check(
+  earningEvaluateInputSchema,
+  "Which campaign, which trigger, and the TEST event's amounts as decimal numbers?",
+);
+
+/** Each earning rule's answer to one TEST event; svc-campaigns writes nothing for it. */
+export async function evaluateEarning(ctx: FounderCallContext, input: unknown) {
+  return ruleReply(await founderCall(ctx, 'campaigns', 'ops.campaigns.earning.evaluate', 'GET', input, readEvaluation));
 }

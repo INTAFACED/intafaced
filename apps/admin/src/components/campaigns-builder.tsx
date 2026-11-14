@@ -691,6 +691,7 @@ export function CampaignBuilder({
           )}
           {step === 'earning' && campaign && (
             <EarningRules
+              campaignId={campaign.id}
               rules={editedView(campaign).earning}
               asset={editedView(campaign).reward?.asset ?? editedView(campaign).budget?.asset ?? null}
               disabled={!editable}

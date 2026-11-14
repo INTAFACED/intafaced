@@ -106,6 +106,11 @@ export interface AgentConnectionView {
   readonly accountId: string;
   readonly subAccount: string | null;
   readonly connectedAt: Date;
+  /**
+   * #19: the key's end date, as identity holds it: `null` when it has none; after it, every call with the key is refused
+   * at the door. Unknown (`known: false`) only when identity could not be asked just now.
+   */
+  readonly expiry: { readonly known: true; readonly expiresAt: Date | null } | { readonly known: false };
 }
 
 /** #12: the assistant revoked. */
@@ -249,8 +254,10 @@ export class AgentOrders {
         { scopes: key.scopes },
       );
     }
+    const expiresAt = key.expiresAt ? new Date(key.expiresAt) : null;
     const existing = await this.deps.connections.active(keyId);
-    if (existing) return this.connectedOrRefused(existing, principal.userId, id, account);
+    if (existing) return this.connectedOrRefused(existing, principal.userId, id, account, expiresAt);
+    if (expiresAt !== null) await this.withinVenueAgentMax(expiresAt);
     await this.deps.stepUp.require({
       scope: AGENT_CONNECT_STEP_UP_SCOPE,
       userId: principal.userId,
@@ -266,24 +273,70 @@ export class AgentOrders {
       createdAt: this.deps.now(),
       endedAt: null,
     });
-    return this.connectedOrRefused(stored, principal.userId, id, account);
+    return this.connectedOrRefused(stored, principal.userId, id, account, expiresAt);
   }
 
-  private connectedOrRefused(c: AgentConnectionRecord, userId: string, accountId: string, a: AgentAccountRecord): AgentConnectionView {
+  /**
+   * #19: a key with an end date is connected only when the venue lets an agent permission last that long, counted from
+   * now. Later than the venue's maximum refuses naming it; a venue that declares no maximum refuses every dated key.
+   * Checked before step-up is spent, so a refused connect spends nothing.
+   */
+  private async withinVenueAgentMax(expiresAt: Date): Promise<void> {
+    const venue = (await this.deps.door.venue()).venue;
+    const maxMs = venue.agentValidityMaxMs;
+    if (maxMs === undefined || !Number.isSafeInteger(maxMs) || maxMs <= 0) {
+      throw new AgentAccountError(
+        'agents.venue_agent_expiry_max_unknown',
+        `${venue.displayName} declares no longest agent permission, so a key with an end date can't be connected; make the key without one or try another venue`,
+        422,
+        { venue: venue.displayName },
+      );
+    }
+    const latest = new Date(this.deps.now().getTime() + maxMs);
+    if (expiresAt.getTime() > latest.getTime()) {
+      const days = maxMs / 86_400_000;
+      const max = Number.isInteger(days) ? `${days} days` : `${Math.floor(maxMs / 1000)} seconds`;
+      throw new AgentAccountError(
+        'agents.key_expiry_above_venue_max',
+        `${venue.displayName} lets an agent permission last at most ${max}; this key ends ${expiresAt.toISOString()}, after the latest allowed end date ${latest.toISOString()}`,
+        422,
+        { venue: venue.displayName, maxDays: days, latestExpiresAt: latest.toISOString(), expiresAt: expiresAt.toISOString() },
+      );
+    }
+  }
+
+  private connectedOrRefused(
+    c: AgentConnectionRecord,
+    userId: string,
+    accountId: string,
+    a: AgentAccountRecord,
+    expiresAt: Date | null,
+  ): AgentConnectionView {
     if (c.userId !== userId || c.accountId !== accountId) {
       throw new AgentAccountError('agents.key_already_connected', `API key ${c.keyId} already trades another agent account`, 409);
     }
-    return { keyId: c.keyId, accountId: c.accountId, subAccount: a.subAccount, connectedAt: c.createdAt };
+    return {
+      keyId: c.keyId,
+      accountId: c.accountId,
+      subAccount: a.subAccount,
+      connectedAt: c.createdAt,
+      expiry: { known: true, expiresAt },
+    };
   }
 
-  /** The person's keys that trade an agent account. */
+  /** The person's keys that trade an agent account, each with its end date as identity holds it (#19). */
   async connections(principal: Principal): Promise<readonly AgentConnectionView[]> {
     assertPerson(principal);
     const rows = await this.deps.connections.listActive(principal.userId);
     const out: AgentConnectionView[] = [];
     for (const c of rows) {
       const a = await this.deps.accounts.find(principal.userId, c.accountId);
-      out.push({ keyId: c.keyId, accountId: c.accountId, subAccount: a?.subAccount ?? null, connectedAt: c.createdAt });
+      const key = await this.deps.keys.read(principal.userId, c.keyId);
+      const expiry: AgentConnectionView['expiry'] =
+        key?.state === 'found' && key.expiresAt !== undefined
+          ? { known: true, expiresAt: key.expiresAt === null ? null : new Date(key.expiresAt) }
+          : { known: false };
+      out.push({ keyId: c.keyId, accountId: c.accountId, subAccount: a?.subAccount ?? null, connectedAt: c.createdAt, expiry });
     }
     return out;
   }
@@ -709,6 +762,127 @@ export class AgentOrders {
       throw this.signRefusal(error, venue, key);
     }
     return this.send(principal, a, keyId, clientOrderId, key, signature, venue, false);
+  }
+
+  /**
+   * A spot order INTAFACED places for the person on one of their own open agent accounts, under the business key its
+   * caller derives (copy trading on the venue: `copy-mirror:…`, `copy.close:…`; copy/venue-copy.ts). The same path as
+   * the assistant's order: the person's own per-order and daily-loss caps, then the account's cap and the owner's bounds
+   * held by the capped signer before the agent key signs, the bytes stored before they are sent, and a retry of the key
+   * read back from the venue's record by its client order id, never signed again. Only on the account's own
+   * sub-account; the main venue account is never named.
+   */
+  async placeOnAccount(
+    principal: Principal,
+    accountId: string,
+    key: string,
+    order: { symbol: string; side: 'buy' | 'sell'; amount: Amount; price: Amount; timeInForce: 'GTC' | 'IOC' },
+  ): Promise<AgentOrderView> {
+    const seed = this.deps.values.keySeed;
+    if (seed === null)
+      throw new AgentAccountError(
+        'agents.agent_key_unset',
+        'the agent key secret is not set (owner value blank), so nothing is signed',
+        422,
+      );
+    const a = await this.deps.accounts.find(principal.userId, accountId);
+    if (!a || a.status !== 'open' || a.subAccount === null) {
+      throw new AgentAccountError(
+        'agents.account_not_open',
+        `agent account ${accountId} is ${a?.status ?? 'gone'}; nothing is placed`,
+        409,
+        {
+          accountId,
+        },
+      );
+    }
+    const account = a as AgentAccountRecord & { subAccount: string };
+    if (compare(order.amount, ZERO) <= 0 || compare(order.price, ZERO) <= 0) orderInvalid('amount and price must be above zero');
+    const venue = await this.deps.door.venue();
+    if (account.venueId !== venue.venue.id) {
+      throw new AgentAccountError(
+        'agents.account_not_open',
+        `agent account ${accountId} is on ${account.venueId}, not ${venue.venue.id}`,
+        409,
+      );
+    }
+    const sub: UserVenueAccount = { venueId: venue.venue.id, owner: account.owner, subAccount: account.subAccount };
+    const tag = key.split(':')[0] ?? 'copy';
+    const stored = await this.deps.door.stored(principal, key);
+    if (stored?.signature) {
+      const was = stored.prepared.intent;
+      if (
+        was.kind !== 'place_order' ||
+        was.symbol !== order.symbol ||
+        was.side !== order.side ||
+        was.amount !== order.amount ||
+        was.price !== order.price ||
+        was.timeInForce !== order.timeInForce
+      ) {
+        throw new UserVenueDoorError(`the key ${key} was already used for a different order`, 'idempotency.conflict', 409);
+      }
+      return this.readBackOrResend(principal, account, tag, key, key, stored.signature, venue);
+    }
+    const market = (await venue.markets(sub)).value.find((m) => m.symbol === order.symbol);
+    if (!market)
+      throw new VenueRefusalError({
+        venueId: venue.venue.id,
+        code: 'unknown_market',
+        detail: `${order.symbol} is not listed on ${venue.venue.displayName}`,
+      });
+    if (market.kind !== 'spot') orderInvalid(`${order.symbol} is a ${market.kind} market; this path places spot orders only`);
+    const intent: PlaceUserOrderIntent = {
+      kind: 'place_order',
+      symbol: order.symbol,
+      side: order.side,
+      type: 'limit',
+      amount: order.amount,
+      price: order.price,
+      timeInForce: order.timeInForce,
+      reduceOnly: false,
+      clientOrderKey: key,
+      builderFee: null,
+    };
+    this.withinAccountLimits(account, intent, null);
+    await this.withinDailyLoss(account, venue, sub);
+    const signer = this.signerFor(account, venue, seed);
+    const cap: AgentCap = {
+      account: sub,
+      agentAddress: account.agentAddress,
+      asset: account.asset,
+      cap: account.cap,
+      validUntil: null,
+      revokedAt: null,
+    };
+    let prepared: PreparedVenueAction;
+    try {
+      prepared = (
+        await this.deps.door.prepare(
+          principal,
+          { owner: account.owner, subAccount: account.subAccount, signer: { role: 'agent', address: account.agentAddress }, intent },
+          { agentAccount: true },
+        )
+      ).prepared;
+    } catch (error) {
+      throw this.venueNamed(error, venue, key);
+    }
+    if (
+      prepared.account.venueId !== sub.venueId ||
+      prepared.account.owner.toLowerCase() !== account.owner ||
+      prepared.account.subAccount !== account.subAccount ||
+      prepared.signer.role !== 'agent' ||
+      prepared.signer.address.toLowerCase() !== account.agentAddress
+    ) {
+      throw new Error(`order ${key} was prepared outside its agent sub-account; nothing is signed`);
+    }
+    await this.refreshMarks(account, venue, sub, order.symbol, market.baseAsset);
+    let signature: VenueSignature;
+    try {
+      ({ signature } = await signer.sign(prepared, cap));
+    } catch (error) {
+      throw this.signRefusal(error, venue, key);
+    }
+    return this.send(principal, account, tag, key, key, signature, venue, false);
   }
 
   /**

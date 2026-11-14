@@ -30,6 +30,7 @@
  * answer (either part) is no verdict (the job fails before `Verdict`, so a re-run can try again); only a well-formed
  * FAIL fails a verdict step, which then stands for that head and any head with the same tree (ciReviewVerdict).
  */
+import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdirSync, appendFileSync, realpathSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -46,7 +47,9 @@ import {
   JUDGE_SCHEMA,
 } from './test-judge.mjs';
 import { roomOf } from './look-baselines.mjs';
-import { AUTO_REVERT_AUTHOR, AUTO_REVERT_BRANCH, isSharedSetup } from './journey-seal.mjs';
+import { AUTO_REVERT_AUTHOR, AUTO_REVERT_BRANCH } from './journey-seal.mjs';
+import { exactReverse, revertTreeMatches } from './exact-revert.mjs';
+import { isBudgetResponse, budgetLine, titleFor } from './api-budget.mjs';
 
 /** The largest diff one reviewer call is given; a larger one is reviewed in parts of at most this size (splitDiff). */
 export const MAX_DIFF_BYTES = 400_000;
@@ -286,79 +289,22 @@ export const REVERT_BRANCH_PREFIX = 'revert/auto-';
 export { AUTO_REVERT_AUTHOR as REVERT_AUTHOR };
 const REVERTS_COMMIT = /^This reverts commit ([0-9a-f]{40})\.$/m;
 
-/**
- * Each file's hunks, keyed `old\0new`: { oldStart, newStart, lines }, a `\ No newline` marker kept on its line. Null
- * when a section is binary, can't be read, or repeats a file.
- */
-function hunksOf(diff) {
-  const out = new Map();
-  for (const s of diffSections(diff)) {
-    const [f] = parseDiff(s);
-    const key = `${f?.oldPath}\0${f?.newPath}`;
-    if (!f || f.binary || out.has(key)) return null;
-    const hunks = [];
-    for (const line of s.split('\n')) {
-      const h = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
-      if (h) hunks.push({ oldStart: Number(h[1]), newStart: Number(h[2]), lines: [] });
-      else if (hunks.length && line.startsWith('\\')) hunks.at(-1).lines.push(`${hunks.at(-1).lines.pop() ?? ''}\n${line}`);
-      else if (hunks.length && /^[ +-]/.test(line)) hunks.at(-1).lines.push(line);
-    }
-    out.set(key, hunks);
-  }
-  return out;
-}
-
-/** A hunk's lines undone: + and - swapped, each run of changes written as git writes it, its - lines before its + lines. */
-function undo(lines) {
-  const out = [];
-  let minus = [];
-  let plus = [];
-  const flush = () => (out.push(...minus, ...plus), (minus = []), (plus = []));
-  for (const l of lines) {
-    if (l.startsWith('+')) minus.push(`-${l.slice(1)}`);
-    else if (l.startsWith('-')) plus.push(`+${l.slice(1)}`);
-    else (flush(), out.push(l));
-  }
-  flush();
-  return out;
-}
-
-/**
- * Whether `diff` is exactly the reverse of `culpritDiff`: the same files, each with the same hunks undone, context lines
- * and order included, every hunk of a file moved by one and the same number of lines (main may have moved on above it).
- * Any binary file, or any other difference: false.
- */
-export function exactReverse(diff, culpritDiff) {
-  const a = hunksOf(diff);
-  const b = hunksOf(culpritDiff);
-  if (!a || !b || a.size === 0 || a.size !== b.size) return false;
-  for (const [key, ch] of b) {
-    const [oldPath, newPath] = key.split('\0');
-    const rh = a.get(`${newPath}\0${oldPath}`);
-    if (!rh || rh.length !== ch.length) return false;
-    const shift = rh.length ? rh[0].oldStart - ch[0].newStart : 0;
-    for (let i = 0; i < ch.length; i++) {
-      if (rh[i].oldStart - ch[i].newStart !== shift || rh[i].newStart - ch[i].oldStart !== shift) return false;
-      const want = undo(ch[i].lines);
-      if (want.length !== rh[i].lines.length || want.some((l, k) => l !== rh[i].lines[k])) return false;
-    }
-  }
-  return true;
-}
+export { exactReverse };
 
 /**
  * The commit this pull request reverts, when it is main-bisect's automatic revert and its diff is exactly the reverse
  * of that commit, which main contains; else null. The same proofs as the seal's autoRevertScope (journey-seal.mjs): a
  * `revert/auto-<sha10>` branch in this repository, opened by the factory App as a Bot, exactly one commit, whose message
- * says it reverts the commit the branch names, and no shared journey setup; then main contains that commit and the diff
- * is exactly its reverse (exactReverse). Read through the API at the event's shas; any read that isn't a 200 is null, so
+ * says it reverts the commit the branch names; then main contains that commit and the diff
+ * is exactly its reverse: its diff by exact-revert.mjs exactReverse, or, given `git` (the job's own checkout of main, from
+ * which the two commits are fetched by sha and never checked out), its head is exactly `git revert` of that commit on its
+ * parent (revertTreeMatches; intafaced #8138, whose context lines read differently since #8117). Shared journey setup is no exception: its reverse restores the setup main's runs proved before that commit (intafaced #8149, the revert of #8139, was refused for it). Read through the API at the event's shas; any read that isn't a 200 is null, so
  * the review goes on as for any pull request. (Failure it prevents: intafaced #7934, main-bisect's revert of #7926,
  * failed as a weakened test, though it restored main's test from before #7926; project-state #2065.)
  */
-export async function automaticRevert({ repo, pull, diff, get }) {
+export async function automaticRevert({ repo, pull, diff, get, git }) {
   const branch = AUTO_REVERT_BRANCH.exec(String(pull.ref ?? ''));
   if (!branch || !pull.inRepo || pull.user !== AUTO_REVERT_AUTHOR || pull.userType !== 'Bot' || pull.commits !== 1) return null;
-  if (parseDiff(diff).some((f) => [f.oldPath, f.newPath].some((p) => p && isSharedSetup(p)))) return null;
   const json = async (p) => {
     const r = await get(p, 'application/vnd.github+json');
     if (r.status !== 200) return null;
@@ -374,13 +320,16 @@ export async function automaticRevert({ repo, pull, diff, get }) {
   const onMain = await json(`/repos/${repo}/compare/${culprit}...${pull.base}`);
   if (onMain?.status !== 'ahead' && onMain?.status !== 'identical') return null;
   const c = await get(`/repos/${repo}/commits/${culprit}`, 'application/vnd.github.v3.diff');
-  if (c.status !== 200 || !exactReverse(diff, c.text)) return null;
-  return culprit;
+  if (c.status !== 200) return null;
+  if (exactReverse(diff, c.text)) return culprit;
+  if (!git) return null;
+  try {
+    git(['fetch', '--no-tags', '--quiet', '--depth=2', 'origin', pull.head, culprit]);
+  } catch {
+    return null;
+  }
+  return revertTreeMatches(git, { culprit, head: pull.head }) ? culprit : null;
 }
-
-/** What the reviewer is told above the diff of an automatic revert, from the job's code. */
-export const revertNote = (culprit) =>
-  `Trusted fact from the job's code (ci-review.mjs automaticRevert), not from the author: this pull request is main-bisect's automatic revert, opened by ${AUTO_REVERT_AUTHOR} from a ${REVERT_BRANCH_PREFIX} branch, and its diff is exactly the reverse of commit ${culprit}, which main contains: every hunk of every file undone, context lines included. Its tests return to main's tests from before that commit.`;
 
 /** The structured answer the reviewer must give (the reviewer CLI, -p --json-schema). */
 export const VERDICT_SCHEMA = {
@@ -530,7 +479,10 @@ async function getText(path, accept) {
     signal: AbortSignal.timeout(60_000),
   });
   const text = await res.text();
-  if (res.status === 403 || res.status === 429) throw new Error(`GitHub ${res.status} on GET ${path}: stopping, not retrying`);
+  if (res.status === 403 || res.status === 429)
+    throw new Error(
+      `GitHub ${res.status} on GET ${path}: stopping, not retrying${isBudgetResponse(res) ? `; ${budgetLine(res.headers.get('x-ratelimit-reset'))}` : ''}`,
+    );
   return { status: res.status, text };
 }
 
@@ -693,8 +645,9 @@ export async function indexHead(dir) {
  * carries the review's first part, is the first call's prompt, and that answer must carry both parts (COMBINED_SCHEMA).
  * A diff over MAX_DIFF_BYTES is reviewed in parts (splitDiff): the first in `<dir>`, each other in `<dir>/parts/<n>`, one
  * call each, and readVerdicts makes the review FAIL when any part's is. A diff splitDiff can't part is a FAIL for both
- * parts, without the reviewer. `revertOf` (automaticRevert) is told to the reviewer above every part, and decides the
- * test part as a PASS: an exact revert returns the tests to main's from before the reverted commit.
+ * parts, without the reviewer. `revertOf` (automaticRevert) decides both parts as a PASS without the reviewer: an exact
+ * revert puts back code main already held and this review already passed, so it has nothing to ask (the programme lead's
+ * rule, 13 Nov 2026: the seal passes such a pull request on its exactness, typecheck and build, and its narrow journeys run).
  */
 export async function writeReviewInputs(
   dir,
@@ -708,8 +661,7 @@ export async function writeReviewInputs(
   const own = (sec) => parseDiff(sec).some((f) => judgedFile(f.path) || (f.oldPath && judgedFile(f.oldPath)));
   const split = bytes > MAX_DIFF_BYTES ? splitDiff(diff, MAX_DIFF_BYTES, MAX_PARTS, own) : { parts: [diff] };
   const parts = split.parts ?? [diff];
-  const note = (k) =>
-    [revertOf ? revertNote(revertOf) : '', parts.length > 1 ? partNote(parts, k, bytes) : ''].filter(Boolean).join('\n\n');
+  const note = (k) => (parts.length > 1 ? partNote(parts, k, bytes) : '');
   // The review's first part is exactly the compare diff it read (all of it, when it fits one call); the test part keeps
   // its own inputs after it.
   const lead = reviewSection({
@@ -720,25 +672,26 @@ export async function writeReviewInputs(
     stepWords: true,
     note: note(1),
   });
-  let testsSaid;
   if (revertOf) {
+    const why = `not judged: the exact revert of ${revertOf} puts back code main held before it (ci-review.mjs automaticRevert)`;
     mkdirSync(tests, { recursive: true });
     writeFileSync(join(tests, 'head.txt'), head);
-    const why = `not judged: the exact revert of ${revertOf} returns the tests to main's from before it (ci-review.mjs automaticRevert)`;
     writeFileSync(join(tests, 'verdict.json'), JSON.stringify({ head, verdict: 'PASS', lines: [], findings: [why] }));
     writeFileSync(join(tests, 'skip-judge'), '1');
-    testsSaid = why;
-  } else
-    testsSaid = await writeInputs(tests, {
-      src,
-      base,
-      head,
-      pr,
-      loadWords,
-      brief: testsBrief(testsBriefText),
-      lead,
-      reviewDiff: parts[0],
-    });
+    writeFileSync(join(dir, 'verdict.json'), JSON.stringify({ head, verdict: 'PASS', findings: [why] }));
+    writeFileSync(join(dir, 'skip-reviewer'), '1');
+    return `${why}: PASS for the review and the test part without asking the reviewer`;
+  }
+  const testsSaid = await writeInputs(tests, {
+    src,
+    base,
+    head,
+    pr,
+    loadWords,
+    brief: testsBrief(testsBriefText),
+    lead,
+    reviewDiff: parts[0],
+  });
   if (split.tooLarge) {
     // Too large to judge even in parts: a FAIL for this head, written here, so the reviewer never sees a cut diff.
     const finding = `the diff is ${bytes} bytes, over ${MAX_DIFF_BYTES}, and can't be reviewed in parts (${split.tooLarge}); it can't be reviewed whole; split the pull request`;
@@ -821,7 +774,18 @@ async function cmdDiff(dir) {
       reviewBrief: readFileSync(new URL('./ci-review/REVIEW.md', import.meta.url), 'utf8'),
       testsBrief: readFileSync(JUDGE_BRIEF, 'utf8'),
       images,
-      revertOf: await automaticRevert({ repo, pull, diff: r.text, get: getText }),
+      revertOf: await automaticRevert({
+        repo,
+        pull,
+        diff: r.text,
+        get: getText,
+        git: (args) =>
+          execFileSync('git', ['-C', process.env.GITHUB_WORKSPACE ?? '.', ...args], {
+            encoding: 'utf8',
+            stdio: ['ignore', 'pipe', 'pipe'],
+            maxBuffer: 256 * 1024 * 1024,
+          }),
+      }),
     }),
   );
 }
@@ -922,6 +886,7 @@ async function main() {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href)
   main().catch((e) => {
-    console.error(`::error::ci-review: ${e.message}`);
+    const title = titleFor(e.message, '');
+    console.error(`::error${title ? ` title=${title}` : ''}::ci-review: ${e.message}`);
     process.exit(1);
   });

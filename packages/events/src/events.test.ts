@@ -934,7 +934,6 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
     rankUpdated: { userId: uid(), rank: 2, previousRank: 1, xp: '100' },
     userCreated: { userId: uid(), handle: 'sovereign' },
     kycApproved: { userId: uid(), tier: 'basic', jurisdiction: 'SG' },
-    referralCreated: { userId: uid(), referrerId: uid(), attachedAt: ts() },
     kycSubmitted: { userId: uid(), caseId: uid(), version: 1, previousCaseId: null, submittedAt: ts() },
     kycRejected: { userId: uid(), caseId: uid(), version: 2, reasonCode: 'doc_blurry', rejectedAt: ts() },
     kycInfoRequested: { userId: uid(), caseId: uid(), version: 2, reasonCode: 'need_address', requestedAt: ts() },
@@ -1316,6 +1315,14 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
       sessionId: uid(),
       tool: 'support.ticket.comment',
       expiresAt: '2026-11-05T21:00:00.000Z',
+    },
+    agentRunCompleted: {
+      runId: uid(),
+      userId: uid(),
+      sessionId: uid(),
+      agentId: 'navigator',
+      notice: 'email',
+      finishedAt: '2026-11-14T09:00:00.000Z',
     },
     personalRequestCreated: {
       requestId: uid(),

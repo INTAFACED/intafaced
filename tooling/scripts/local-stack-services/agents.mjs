@@ -132,6 +132,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, testChain }) => ({
     // LOCAL TEST background test runs of an own agent, slow enough to be quarantined mid-run (J-agents-14 #3).
     AGENTS_BACKGROUND_TEST_STEPS: testValue('AGENTS_BACKGROUND_TEST_STEPS'),
     AGENTS_BACKGROUND_STEP_MS: testValue('AGENTS_BACKGROUND_STEP_MS'),
+    AGENTS_SESSION_RUN_MAX_STEPS: testValue('AGENTS_SESSION_RUN_MAX_STEPS'),
     // LOCAL TEST managed baseline for own agents' tools (J-agents-05 #1). `LOCAL_STACK_AGENTS_POLICY_BASELINE=off` leaves
     // it blank, so every own-agent tool call refuses agents.baseline_value_unset.
     ...(process.env.LOCAL_STACK_AGENTS_POLICY_BASELINE === 'off' ? {} : { AGENTS_POLICY_BASELINE: testValue('AGENTS_POLICY_BASELINE') }),
@@ -160,6 +161,13 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, testChain }) => ({
     ...(process.env.LOCAL_STACK_AGENTS_NAVIGATOR_SIGNER === 'off'
       ? {}
       : { AGENTS_NAVIGATOR_ONCHAIN_SIGNER: testValue('AGENTS_NAVIGATOR_ONCHAIN_SIGNER') }),
+    // LOCAL TEST schedules of own agents (J-agents-07 #1 to #4): the owner's cadence values, and two due-run workers waking
+    // together every tick. Production leaves all four blank until the owner sets them: a new schedule refuses
+    // agents.schedule_cadence_unset and nothing runs on a clock.
+    AGENTS_SCHEDULE_MIN_INTERVAL_MINUTES: testValue('AGENTS_SCHEDULE_MIN_INTERVAL_MINUTES'),
+    AGENTS_SCHEDULE_DAILY_LIMIT: testValue('AGENTS_SCHEDULE_DAILY_LIMIT'),
+    AGENTS_SCHEDULE_TICK_MS: testValue('AGENTS_SCHEDULE_TICK_MS'),
+    AGENTS_SCHEDULE_WORKERS: testValue('AGENTS_SCHEDULE_WORKERS'),
     ...engine(STATE),
     ...paymentToken(testChain?.() ?? null),
     ...navigatorTrading(testChain?.() ?? null),

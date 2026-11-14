@@ -104,6 +104,7 @@ import {
   planAffiliatePayout,
   postAffiliatePayout,
 } from './affiliates/payout-engine.js';
+import { beneficiariesWhoCannotReceive } from './affiliates/account-standing.js';
 import { describeAffiliatesPolicy } from './affiliates/affiliates-policy.js';
 import { AffiliateProgrammeDepthUnsetError, requireProgrammeDepth } from './affiliates/programme-depth.js';
 import { ReferralError } from './affiliates/referral-tree.js';
@@ -676,6 +677,7 @@ function signUpTrpcError(err: unknown): TRPCError {
       return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
     case 'identity.underage':
     case 'identity.region_blocked':
+    case 'identity.us_person_blocked':
       return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
     case 'auth.handle_taken':
     case 'auth.email_taken':
@@ -1075,9 +1077,9 @@ export function createIdentityRouter(
      */
     waitlist?: WaitlistService;
     /**
-     * Per-caller budget for `users.resolveHandle`. Defaults to 30 per minute,
-     * process-local. Injected so tests can pin the clock and a shared store can
-     * replace it later.
+     * Per-caller budget for the people lookups (`resolveHandle`, `searchPayees`),
+     * 30 per minute. index.ts wires the shared Postgres one
+     * (`PgHandleLookupLimiter`); absent, a process-local one serves light tests.
      */
     handleLookupLimiter?: HandleLookupLimiterPort;
     /**
@@ -1360,9 +1362,10 @@ export function createIdentityRouter(
        * frozen, closed and undiscoverable (to anyone but their owner) handles
        * all answer `{ found: false }`; a per-caller
        * budget (30/min) refuses bulk probing with 429. Sessions only: an API
-       * key may not probe the handle space.
+       * key may not probe the handle space. The token must carry `identity:read`,
+       * so a narrow token (svc-ws mints a `trade:read`-only one on recovery) cannot.
        */
-      resolveHandle: protectedProcedure
+      resolveHandle: scopedProcedure('identity:read')
         .input(z.object({ handle: z.string().max(64) }))
         .output(
           z.discriminatedUnion('found', [
@@ -1395,9 +1398,9 @@ export function createIdentityRouter(
        * The payee card for an account a handle lookup or a pay code has already named (J-pay-01 #2): the name the person
        * chose for their profile (null when none) and the month they joined (the member badge). Keyed by the user id
        * those answers carry, so it is no way to find anyone. A frozen, closed or unknown account, and one that turned
-       * "find me by my handle" off (to anyone but its owner), answer `{ found: false }`. Sessions only.
+       * "find me by my handle" off (to anyone but its owner), answer `{ found: false }`. Sessions with `identity:read` only.
        */
-      payeeCard: protectedProcedure
+      payeeCard: scopedProcedure('identity:read')
         .input(z.object({ userId: z.string().guid() }))
         .output(
           z.discriminatedUnion('found', [
@@ -1417,10 +1420,10 @@ export function createIdentityRouter(
 
       /**
        * Find a person by exact email or exact phone. Same budget and the same
-       * miss as `resolveHandle`. A hit requires that person's consent flag.
+       * miss as `resolveHandle`, and the same `identity:read` gate. A hit requires that person's consent flag.
        * The email and the phone are never in the answer.
        */
-      searchPayees: protectedProcedure
+      searchPayees: scopedProcedure('identity:read')
         .input(
           z
             .object({
@@ -1573,6 +1576,8 @@ export function createIdentityRouter(
             subdivision: z.string().trim().min(4).max(6).optional(),
             /** Country of citizenship (ISO 3166-1 alpha-2) or an ISO 3166-2 subdivision. */
             nationality: z.string().trim().min(2).max(6).optional(),
+            /** A US citizen, green-card holder or US resident, wherever they live. Left out is refused by the service, never read as no. */
+            usPerson: z.boolean().optional(),
             dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date of birth must be YYYY-MM-DD'),
             accountType: z.enum(ACCOUNT_TYPES),
             referrerId: z.string().guid().optional(),
@@ -4514,12 +4519,16 @@ export function createIdentityRouter(
               );
             }
             const frozen = await freeze.frozenIds();
+            const payRows = input.beneficiaryId ? rows.filter((r) => r.beneficiaryId === input.beneficiaryId) : rows;
+            // The account itself, not only the programme's freeze: a frozen or closed account takes no credit.
+            const cannotReceive = await beneficiariesWhoCannotReceive(auth, payRows);
 
             const plan = planAffiliatePayout({
               feeEventId,
-              rows: input.beneficiaryId ? rows.filter((r) => r.beneficiaryId === input.beneficiaryId) : rows,
+              rows: payRows,
               law: accrualTierLaw,
               frozenBeneficiaryIds: frozen,
+              cannotReceiveBeneficiaryIds: cannotReceive,
               maxTierDepth,
             });
 

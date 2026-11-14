@@ -1,7 +1,7 @@
 import { AuthError, requireMfa } from '@intafaced/auth';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
-import { forwardedPrincipalHeaders, publicProcedure, router, scopedProcedure } from '@intafaced/contracts';
+import { forwardedPrincipalHeaders, publicProcedure, router, scopedProcedure, serviceProcedureFor } from '@intafaced/contracts';
 import {
   dropClaimInputSchema,
   dropClaimResultSchema,
@@ -51,21 +51,27 @@ import {
   taskProgressSchema,
   type CampaignRefusalCode,
   campaignVoucherSchema,
+  earningEvaluateInputSchema,
+  earningEvaluationSchema,
+  pointsConvertInputSchema,
+  pointsProgrammeSchema,
+  pointsRedeemInputSchema,
+  FEE_SAVER_CALLERS,
+  feeSaverAnswerSchema,
+  feeSaverAskInputSchema,
   voucherIssueInputSchema,
   voucherListInputSchema,
   welcomeChecklistSchema,
   welcomeClaimInputSchema,
   welcomeClaimResultSchema,
   welcomeListInputSchema,
-  myInviteesInputSchema,
-  myInviteesSchema,
 } from '@intafaced/contracts/campaigns-catalogue';
 import type { CampaignService } from './campaigns.js';
 import { CampaignsError } from './codes.js';
 import type { DropService } from './drops.js';
-import type { ReferralService } from './referrals.js';
 import type { TaskService } from './tasks.js';
 import type { VoucherService } from './vouchers.js';
+import { pointsProgramme, refusePoints } from './points.js';
 import { refuseTgeClaim } from './tge.js';
 
 const guard = { module: 'campaigns', plane: 'fiat' } as const;
@@ -124,6 +130,7 @@ const STATUS: Record<CampaignsRefusalCode | CampaignRefusalCode, TRPCError['code
   'campaigns.voucher_window_invalid': 'BAD_REQUEST',
   'campaigns.voucher_code_taken': 'CONFLICT',
   'campaigns.voucher_expired': 'CONFLICT',
+  'campaigns.voucher_not_cash': 'CONFLICT',
   'campaigns.voucher_amount_invalid': 'BAD_REQUEST',
   'campaigns.voucher_exceeds_remaining': 'CONFLICT',
   'campaigns.voucher_sequence_invalid': 'CONFLICT',
@@ -133,8 +140,6 @@ const STATUS: Record<CampaignsRefusalCode | CampaignRefusalCode, TRPCError['code
   'campaigns.customer_limit_reached': 'CONFLICT',
   'campaigns.redemption_limit_reached': 'CONFLICT',
   'campaigns.welcome_none': 'NOT_FOUND',
-  'campaigns.referral_invalid': 'BAD_REQUEST',
-  'campaigns.criteria_unset': 'PRECONDITION_FAILED',
   'owner.decision': 'PRECONDITION_FAILED',
   'campaigns.window_unset': 'PRECONDITION_FAILED',
   'campaigns.timezone_unset': 'BAD_REQUEST',
@@ -181,13 +186,7 @@ const opsProcedure = scopedProcedure('campaigns:ops', guard).use(({ ctx, next })
   return next();
 });
 
-export function createCampaignsRouter(
-  drops: DropService,
-  campaigns: CampaignService,
-  tasks: TaskService,
-  vouchers: VoucherService,
-  referrals?: ReferralService,
-) {
+export function createCampaignsRouter(drops: DropService, campaigns: CampaignService, tasks: TaskService, vouchers: VoucherService) {
   return router({
     health: publicProcedure
       .output(z.object({ ok: z.literal(true), service: z.literal('svc-campaigns') }))
@@ -210,24 +209,6 @@ export function createCampaignsRouter(
         .query(async ({ ctx, input }) => {
           try {
             return await campaigns.get({ id: input.id, accountId: ctx.principal!.userId });
-          } catch (err) {
-            mapError(err);
-          }
-        }),
-    }),
-
-    referral: router({
-      /**
-       * The caller's own invitees (CM-referral-02): each one's place, when they joined, each step done or not and their
-       * state, never who they are. The account is the signed principal's.
-       */
-      invitees: scopedProcedure('campaigns:read', guard)
-        .input(myInviteesInputSchema)
-        .output(myInviteesSchema)
-        .query(async ({ ctx }) => {
-          try {
-            if (!referrals) throw new CampaignsError('campaigns.store_unwired', 'Referral progress is not wired');
-            return await referrals.myInvitees({ referrerId: ctx.principal!.userId });
           } catch (err) {
             mapError(err);
           }
@@ -335,6 +316,23 @@ export function createCampaignsRouter(
         }),
     }),
 
+    service: router({
+      /**
+       * svc-trade's ask for a fee-saver coupon on one venue order (J-campaigns-09 #2 #3): quote, take once per order key,
+       * or read the use an order took. Only svc-trade may call it.
+       */
+      feeSaver: serviceProcedureFor(FEE_SAVER_CALLERS)
+        .input(feeSaverAskInputSchema)
+        .output(feeSaverAnswerSchema)
+        .mutation(async ({ input }) => {
+          try {
+            return await vouchers.feeSaver(input);
+          } catch (err) {
+            mapError(err);
+          }
+        }),
+    }),
+
     vouchers: router({
       /** My vouchers (J-campaigns-08): the caller's own, newest claim first, with what is left and every redemption. */
       mine: scopedProcedure('campaigns:read', guard)
@@ -401,6 +399,35 @@ export function createCampaignsRouter(
         .mutation(async ({ ctx, input }) => {
           try {
             return await drops.claim({ dropId: input.dropId, accountId: ctx.principal!.userId });
+          } catch (err) {
+            mapError(err);
+          }
+        }),
+    }),
+
+    points: router({
+      /** The points programme: its full layout, with every number blank and the owner question named while it is open. */
+      programme: scopedProcedure('campaigns:read', guard)
+        .output(pointsProgrammeSchema)
+        .query(() => pointsProgramme()),
+      /** Converting points to cash waits for the owner decision: always refuses, before anything is read or stored. */
+      convert: scopedProcedure('campaigns:write', guard)
+        .input(pointsConvertInputSchema)
+        .output(z.never())
+        .mutation(() => {
+          try {
+            refusePoints('convert');
+          } catch (err) {
+            mapError(err);
+          }
+        }),
+      /** Redeeming a catalogue reward waits for the owner decision: always refuses, before anything is read or stored. */
+      redeem: scopedProcedure('campaigns:write', guard)
+        .input(pointsRedeemInputSchema)
+        .output(z.never())
+        .mutation(() => {
+          try {
+            refusePoints('redeem');
           } catch (err) {
             mapError(err);
           }
@@ -489,6 +516,19 @@ export function createCampaignsRouter(
               mapError(err);
             }
           }),
+        earning: router({
+          /** Each earning rule's answer to one TEST event; writes nothing. A points rule refuses for itself only. */
+          evaluate: opsProcedure
+            .input(earningEvaluateInputSchema)
+            .output(earningEvaluationSchema)
+            .query(async ({ input }) => {
+              try {
+                return await campaigns.evaluateEarning(input);
+              } catch (err) {
+                mapError(err);
+              }
+            }),
+        }),
         vouchers: router({
           /** A voucher campaign's vouchers, each with the revision and face value it was issued under. */
           list: opsProcedure

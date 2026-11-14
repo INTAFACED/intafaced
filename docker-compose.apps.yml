@@ -645,6 +645,9 @@ services:
       # Worst price a market BUY may be funded at, above the best ask.
       # Empty = refuse market-buy hold (`trade.slippage_cap_unset`). Never invent 200.
       TRADE_MARKET_SLIPPAGE_CAP_BPS: ${TRADE_MARKET_SLIPPAGE_CAP_BPS:-}
+      # Widest venue spread (bps of the best bid) a venue spot market order is sent at.
+      # Empty = refuse every venue spot market order (`trade.spread_limit_unset`). Never invented.
+      TRADE_MARKET_SPREAD_LIMIT_BPS: ${TRADE_MARKET_SPREAD_LIMIT_BPS:-}
       # MAY A FUTURES MARKET ACCEPT AN ORDER? Default `false`, and the default is
       # the decision this line exists to make explicit rather than leave to a zod
       # schema nobody reads at deploy time.
@@ -1412,6 +1415,8 @@ services:
       # Background test runs of an own agent; unset refuses a new one.
       AGENTS_BACKGROUND_TEST_STEPS:
       AGENTS_BACKGROUND_STEP_MS:
+      # Background runs of sessions (J-agents-06): the most steps one may take; unset refuses a new one.
+      AGENTS_SESSION_RUN_MAX_STEPS:
       # Copy-intel live plane (Class X). Pass-through only — unset stays refuse-closed.
       LIVE_TRADE_COPY_LEADER_PLANE_OPEN:
       LIVE_TRADE_COPY_LEADER_IDS:
@@ -1561,6 +1566,11 @@ services:
       # Pass-through only — no compose default. Silence still refuses
       # market.commission_not_configured.
       MARKET_HOUSE_COMMISSION_BPS: ${MARKET_HOUSE_COMMISSION_BPS:-}
+      # Signal providers' own fill count (J-copy-bots-otc-22). The provider criteria are owner values, pass-through
+      # only with no compose default: blank refuses every signal publish (market.provider_criteria_not_set).
+      TRADE_URL: http://svc-trade:4004
+      MARKET_SIGNAL_PROVIDER_MIN_TIER: ${MARKET_SIGNAL_PROVIDER_MIN_TIER:-}
+      MARKET_SIGNAL_PROVIDER_MIN_FILLS: ${MARKET_SIGNAL_PROVIDER_MIN_FILLS:-}
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4018']
     healthcheck: *healthcheck

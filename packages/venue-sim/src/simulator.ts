@@ -210,6 +210,12 @@ export interface SimMarketConfig {
  */
 export const TEST_VENUE_FIGURE_STALE_AFTER_MS = 60_000;
 
+/**
+ * TEST: the longest an agent permission with an end date may last on the TEST venue (J-agents-21 #19), 180 days. A real
+ * venue's adapter declares its own; this TEST value stands in on test stacks only.
+ */
+export const TEST_VENUE_AGENT_VALIDITY_MAX_MS = 180 * 24 * 60 * 60 * 1000;
+
 export interface SimSwitches {
   venueDown: boolean;
   /** The venue's builder totals read as not known (OWNER 288 1e), as on a venue that publishes none. */
@@ -323,6 +329,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   private readonly offHours = new Map<string, { closedMark: Amount; reopensAt: Date | null }>();
   private readonly accounts = new Map<string, AccountState>();
   private readonly submitted = new Map<string, Map<string, SubmittedRecord>>(); // account → nonce → record
+  /** TEST: who signed each order the venue accepted, as recovered from its bytes (account → client order id → signer). */
+  private readonly orderSigners = new Map<string, Map<string, VenueSigner>>();
   /** TEST: per account, how many more submits lose their answer (`loseAnswersOn`). */
   private readonly lostAnswers = new Map<string, number>();
   private readonly resting = new Map<string, OrderState[]>(); // symbol → resting orders
@@ -356,6 +364,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       sequencedDepth: true,
       proofLevel: 'simulator',
       figureStaleAfterMs: TEST_VENUE_FIGURE_STALE_AFTER_MS,
+      agentValidityMaxMs: TEST_VENUE_AGENT_VALIDITY_MAX_MS,
     };
     this.clock = options.clock;
     this.chainId = testVenueDomain(options.chainId ?? TEST_VENUE_CHAIN_ID).chainId;
@@ -760,6 +769,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       contractSize: published(m.contractSize),
       mark: published(m.kind === 'perpetual' ? this.marks.get(m.symbol) : undefined),
       funding: m.funding ? { known: true, value: this.fundingOf(m.funding) } : { known: false },
+      // The simulator's own rule (`place`): an order that would cross this account's own resting order cancels the resting one.
+      selfTrade: { known: true, value: 'cancel_resting' },
     }));
     return this.asOf(list);
   }
@@ -1134,6 +1145,12 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
 
     const outcome = this.apply(prepared);
     this.assertNoNegativeBalance();
+    if (prepared.intent.kind === 'place_order' && outcome.definite && outcome.accepted && recovered) {
+      const signers = this.orderSigners.get(key) ?? new Map<string, VenueSigner>();
+      this.orderSigners.set(key, signers);
+      const cloid = venueClientOrderId(this.venue.id, prepared.intent.clientOrderKey);
+      if (!signers.has(cloid)) signers.set(cloid, { role: prepared.signer.role, address: recovered });
+    }
     byNonce.set(prepared.nonce, { digest, outcome });
     if (this.switches.loseAnswers > 0) {
       this.switches.loseAnswers -= 1;
@@ -1166,6 +1183,15 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       .sort((a, b) => a.seq - b.seq)
       .map((o) => o.order);
     return this.asOf(open);
+  }
+
+  /**
+   * TEST only: who signed the order this account placed under `cloid`, the address recovered from the signed bytes
+   * when the venue accepted it, and whether it signed as the owner or as an agent. `null` when no such order was placed.
+   */
+  orderSigner(account: UserVenueAccount, cloid: string): AsOf<VenueSigner | null> {
+    this.up();
+    return this.asOf(this.orderSigners.get(accountKey(account))?.get(cloid) ?? null);
   }
 
   async orderByClientId(account: UserVenueAccount, cloid: string): Promise<AsOf<UserVenueOrder | null>> {

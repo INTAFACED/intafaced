@@ -427,6 +427,8 @@ const readInputs = () => ({
   'run.list': { sessionId: kept('sessionId'), limit: 50 },
   'run.get': { runId: kept('runId') },
   'run.events': { runId: kept('runId'), limit: 50 },
+  // A background run is read by its own id; the scope is checked before any run is looked up.
+  'run.background.get': { runId: kept('runId') },
   'usage.current': { sessionId: kept('sessionB') },
   'log.mine': { limit: 50 },
 });
