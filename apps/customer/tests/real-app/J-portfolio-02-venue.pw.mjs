@@ -5,7 +5,6 @@ import { test, expect } from './journey.mjs';
 import { fromUnits, journeyState, toUnits } from './stack.mjs';
 import { confirm, reviewSheet, signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
-import { venueBook } from './venue-reads.mjs';
 import {
   continueInWallet,
   openVenueDesk,
@@ -113,7 +112,12 @@ test(`${J} #6 sells coins that arrived from outside: the lot's cost is unknown u
   const market = markets.value.find((m) => m.symbol === SYMBOL);
   expect(market, JSON.stringify(markets).slice(0, 300)).toBeTruthy();
   const tick = toUnits(market.tickSize);
-  const { bid, ask } = await venueBook(SYMBOL);
+  // The venue's own best bid and ask, read straight from the TEST venue.
+  const best = await testVenue('/best-prices', { symbol: SYMBOL });
+  expect(best.status, JSON.stringify(best.body)).toBe(200);
+  expect(best.body.value.bid && best.body.value.ask, `the TEST venue has a two-sided book on ${SYMBOL}`).toBeTruthy();
+  const bid = toUnits(best.body.value.bid);
+  const ask = toUnits(best.body.value.ask);
   const price = bid + tick < ask ? bid + tick : bid;
   const buyer = `${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}-${owner.slice(2, 10)}`;
   await testVenue('/test/deposit', {
