@@ -451,6 +451,13 @@ export const rooms: readonly Room[] = [
     area: 'trade',
     hidden: true,
   },
+  {
+    path: '/trade/screener',
+    title: 'Screener',
+    description: 'Screen the markets by your own rules, and save the screen',
+    door: 'Trade',
+    area: 'trade',
+  },
   { path: '/copy/lead/apply', title: 'Apply to lead', description: 'Become a leader others can copy', door: 'Trade', area: 'trade' },
   { path: '/trade/bots', title: 'Trading bots', description: 'Automated strategies', door: 'Trade', area: 'trade' },
   { path: '/trade/bots/:kind', title: 'Trading bots', description: 'Automated strategies', door: 'Trade', area: 'trade', hidden: true },
