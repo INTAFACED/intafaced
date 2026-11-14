@@ -963,7 +963,9 @@ export class AlertService {
       const created = await this.fireNotification(alert, outcome.markPrice, at, repeating ? seq : null);
       const reachedInbox = created.notification !== null || created.dispatch !== null;
       if (reachedInbox) {
-        notificationId = created.notification?.id ?? null;
+        // A replay finds the notification already written: its id comes back on the dispatch, so the trigger still names it and
+        // the history shows where it went (merchant-email.ts does the same).
+        notificationId = created.notification?.id ?? created.dispatch?.notificationId ?? null;
         // The webhook's delivery is written before the alert is counted or marked fired, keyed by the firing, so a retry after a
         // crash finds it and posts nothing new. The worker posts it (webhook.ts).
         if (alert.webhookUrl) {

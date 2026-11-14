@@ -12,6 +12,7 @@ import { NotifyService } from '../notify-service.js';
 import { MemoryNotifyStore } from '../store.js';
 import { AlertService } from './service.js';
 import { MemoryAlertStore } from './store.js';
+import { MemoryAlertTriggerLog, type AlertTriggerLog } from './trigger-log.js';
 import { TEST_ALERT_LIMITS } from './test-limits.js';
 import type { MarkSource, PriceAlert } from './types.js';
 import { MemoryAlertWebhookStore, NO_WEBHOOK_POLICY, runWebhookTick, type AlertWebhookPolicy, type Resolve } from './webhook.js';
@@ -51,7 +52,7 @@ class SentEmail implements NotificationChannel {
   }
 }
 
-async function harness(opts: { email?: NotificationChannel; confirmedEmail?: boolean; price?: string } = {}) {
+async function harness(opts: { email?: NotificationChannel; confirmedEmail?: boolean; price?: string; triggerLog?: AlertTriggerLog } = {}) {
   const registry = new ChannelRegistry([
     new InAppChannel(),
     opts.email ?? new UnconfiguredChannel('email', ['NOTIFY_EMAIL_GATEWAY_URL', 'NOTIFY_EMAIL_GATEWAY_TOKEN']),
@@ -82,7 +83,7 @@ async function harness(opts: { email?: NotificationChannel; confirmedEmail?: boo
     notify,
     undefined,
     { ...TEST_ALERT_LIMITS, triggerLogDays: 7 },
-    undefined,
+    opts.triggerLog,
     {
       webhooks,
       policy: POLICY,
@@ -159,6 +160,34 @@ describe('per-alert channels', () => {
     rearm(h.alertStore, { ...fired!, status: 'active', firedAt: null });
     await h.alerts.evaluateDueAlerts();
     expect(email.sent).toHaveLength(1);
+  });
+});
+
+describe('the trigger history after a replayed firing', () => {
+  it('a firing replayed after its inbox write still names its notification, so the history shows where it went (J-charts-desk-10 #5)', async () => {
+    // The first pass writes the inbox and sends, then fails before the trigger is logged; the next pass finds the notification
+    // already written and logs the trigger.
+    const log = new (class extends MemoryAlertTriggerLog {
+      failed = false;
+      override async record(trigger: Parameters<MemoryAlertTriggerLog['record']>[0]) {
+        if (!this.failed) {
+          this.failed = true;
+          throw new Error('crashed before the trigger was logged');
+        }
+        return super.record(trigger);
+      }
+    })();
+    const email = new SentEmail();
+    const h = await harness({ email, confirmedEmail: true, triggerLog: log });
+    const alert = await h.alerts.create({ ...rule, channels: ['email'] });
+    await expect(h.alerts.evaluateAlert(USER, alert.id)).rejects.toThrow(/crashed/);
+    await h.alerts.evaluateAlert(USER, alert.id);
+    expect(email.sent).toHaveLength(1);
+    const { triggers } = await h.alerts.triggers(USER, { limit: 10 });
+    expect(triggers).toHaveLength(1);
+    expect(triggers[0]!.notificationId).not.toBeNull();
+    const delivered = (await h.alerts.triggerDeliveries(USER, triggers)).get(`${alert.id}:1`);
+    expect(delivered?.channels.map((c) => [c.channel, c.status])).toContainEqual(['email', 'accepted']);
   });
 });
 
