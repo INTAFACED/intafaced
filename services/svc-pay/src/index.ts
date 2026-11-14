@@ -463,6 +463,7 @@ const pay = new PayService(sql, ledger, rails, {
   identityAuthorityGuard: createPayfacAuthorityGuard(subMerchants),
   payoutDestinations,
   defaultFeeBps: env.PAY_DEFAULT_FEE_BPS,
+  partnerFeeBps: env.PAY_PARTNER_FEE_BPS,
   custodyLayer: env.LEDGER_CUSTODY_LAYER,
   valueMovement: railPosture.policy,
   // NOT `railPosture.policy`. `PAY_ALLOW_SANDBOX_RAILS` relaxes the payout gate

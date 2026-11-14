@@ -36,6 +36,7 @@ import {
   instrumentFor,
   lockPayment,
   paymentCreationPayload,
+  partnerFeeBpsOf,
   paymentFeeBpsOf,
   railPayload,
   readPayment,
@@ -696,8 +697,10 @@ function pendingReceived(result: RailResult): Amount {
 /**
  * Our fee on a payment held outside our book (launch money model, OWNER 226; J-merchant-04's Money line): the business owes
  * it on a payment to its own wallet (`merchantFeeEarn`), the acquiring partner on one it took (`partnerFeeEarn`, the rail
- * as the partner). Both are keyed on the payment, so it is booked once however often capture runs. The fee is the
- * business's pricing or the published default; blank refuses `pay.fee_bps_unset`. Null when the fee rounds to nothing.
+ * as the partner). Both are keyed on the payment, so it is booked once however often capture runs. On the business's own
+ * wallet the fee is its pricing or the published default (blank refuses `pay.fee_bps_unset`); with the partner it is our
+ * rate in that partner's contract (`PAY_PARTNER_FEE_BPS`; unset refuses `pay.partner_fee_rate_unset`), never the business's
+ * price. Null when the fee rounds to nothing.
  */
 export async function outsideCustodyFeePost(
   svc: PayServiceInternal,
@@ -705,7 +708,10 @@ export async function outsideCustodyFeePost(
   row: PaymentRow,
   gross: Amount,
 ): Promise<import('@intafaced/ledger-client').PostRequest | null> {
-  const bps = paymentFeeBpsOf(await svc.getMerchant(row.merchant_id, tx), svc.defaultFeeBps);
+  const bps =
+    row.custody === 'merchant_wallet'
+      ? paymentFeeBpsOf(await svc.getMerchant(row.merchant_id, tx), svc.defaultFeeBps)
+      : partnerFeeBpsOf(svc.partnerFeeBps, row.rail_adapter);
   if (mulBps(gross, bps, 'floor') === 0n) return null;
   return row.custody === 'merchant_wallet'
     ? recipes.merchantFeeEarn({

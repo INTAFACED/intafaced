@@ -86,6 +86,7 @@ import {
   appendEvent,
   totalsFor,
   toPayment,
+  partnerFeeBpsOf,
   paymentFeeBpsOf,
 } from './payment-service/internal.js';
 import { allocateReceivingAddress } from './receiving-wallet/wallet.js';
@@ -167,6 +168,8 @@ export type PayErrorCode =
   | 'pay.merchant_name_invalid'
   /** Owner `PAY_DEFAULT_FEE_BPS` unpublished. Blank env is not 0. */
   | 'pay.fee_bps_unset'
+  /** Launch money model: the owner has not set our fee rate with the partner that would take this payment. */
+  | 'pay.partner_fee_rate_unset'
   /** Launch money model: the business has not given its own receiving wallet, so crypto at hosted checkout is refused. */
   | 'pay.receiving_wallet_unset'
   /** Launch money model: the money is in the business's own wallet or with the partner, so nothing here sends it back. */
@@ -935,6 +938,12 @@ export interface PayServiceOptions {
   readonly defaultFeeBps?: number | null;
 
   /**
+   * Our fee rate with each payment partner, in bps, by the partner's rail id (`PAY_PARTNER_FEE_BPS`): what `partnerFeeEarn`
+   * books on a payment the partner took. Absent means unset, and such a payment refuses `pay.partner_fee_rate_unset`.
+   */
+  readonly partnerFeeBps?: Readonly<Record<string, number>>;
+
+  /**
    * The custody switch (OWNER 226; `LEDGER_CUSTODY_LAYER`). `off`, the launch model: a hosted checkout payment goes to the
    * business's own wallet (crypto) or the acquiring partner (every other rail), and capture books only our fee on it.
    * `on`: the custodial layer, where the payment lands at an address we control and is booked to the business's clearing.
@@ -1281,6 +1290,7 @@ export type PayServiceInternal = { [K in keyof PayService]: PayService[K] } & {
   classifyPaymentAdmission: PayService['classifyPaymentAdmission'];
   custodyDeposits: PayService['custodyDeposits'];
   defaultFeeBps: PayService['defaultFeeBps'];
+  partnerFeeBps: PayService['partnerFeeBps'];
   disputeCases: PayService['disputeCases'];
   enqueueChargebackOutcome: PayService['enqueueChargebackOutcome'];
   ensureChargebackPlanLive: PayService['ensureChargebackPlanLive'];
@@ -1336,6 +1346,7 @@ export class PayService {
   }
 
   private readonly defaultFeeBps: number | null;
+  private readonly partnerFeeBps: Readonly<Record<string, number>>;
   private readonly custodyLayer: 'on' | 'off';
   private readonly valueMovement: ValueMovementPolicy;
   private readonly publicCheckoutMovement: ValueMovementPolicy;
@@ -1379,6 +1390,7 @@ export class PayService {
     options: PayServiceOptions = {},
   ) {
     this.defaultFeeBps = options.defaultFeeBps ?? null;
+    this.partnerFeeBps = options.partnerFeeBps ?? {};
     this.custodyLayer = options.custodyLayer ?? 'on';
     this.valueMovement = options.valueMovement ?? 'allow-sandbox';
     this.publicCheckoutMovement = options.publicCheckoutMovement ?? this.valueMovement;
@@ -2485,10 +2497,12 @@ export class PayService {
         // public either.
         this.assertMerchantActive(merchant);
         // Launch money model (OWNER 226): with the custodial layer off the payer pays the business's own wallet (crypto)
-        // or the acquiring partner, and our ledger records only our fee. A blank fee refuses here, before the payer is
-        // shown where to pay: once they have paid someone else's wallet, nothing of ours could refuse it.
+        // or the acquiring partner, and our ledger records only our fee: the business's price on its own wallet, our rate
+        // with the partner on the partner's. A blank one refuses here, before the payer is shown where to pay: once they
+        // have paid someone else's wallet, nothing of ours could refuse it.
         const custody: PaymentCustody = this.custodyLayer === 'on' ? 'platform' : method === 'crypto' ? 'merchant_wallet' : 'partner';
-        if (custody !== 'platform') paymentFeeBpsOf(merchant, this.defaultFeeBps);
+        if (custody === 'merchant_wallet') paymentFeeBpsOf(merchant, this.defaultFeeBps);
+        if (custody === 'partner') partnerFeeBpsOf(this.partnerFeeBps, adapter.id);
 
         // The floor under an anonymous caller opening rows off one URL forever.
         // Not a rate limiter — a rate limiter belongs at the edge, and this is

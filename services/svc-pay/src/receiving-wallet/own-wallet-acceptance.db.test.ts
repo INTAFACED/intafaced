@@ -45,6 +45,8 @@ const SECRET = 'svc-pay-own-wallet-secret-at-least-32-chars';
 const OWNER = '11111111-1111-4111-8111-111111111111';
 /** TEST fee, never a real value: 2.5%. */
 const FEE_BPS = 250;
+/** Our TEST fee rate with the TEST bank: deliberately not the business's price, so a fee booked at the wrong one shows. */
+const PARTNER_FEE_BPS = 100;
 /** A TEST wallet's account key (m/44'/60'/0'), from a public seed: it holds nothing anywhere. */
 const ACCOUNT = HDKey.fromMasterSeed(toBytes(keccak256(toBytes('intafaced TEST merchant receiving wallet')))).derive("m/44'/60'/0'");
 const XPUB = ACCOUNT.publicExtendedKey;
@@ -102,7 +104,9 @@ describe('launch money model: hosted checkout pays the business, our ledger reco
     await adminStop();
   }, 30_000);
 
-  const service = (over: { custodyLayer?: 'on' | 'off'; defaultFeeBps?: number | null } = {}) =>
+  const service = (
+    over: { custodyLayer?: 'on' | 'off'; defaultFeeBps?: number | null; partnerFeeBps?: Readonly<Record<string, number>> } = {},
+  ) =>
     new PayService(
       sql,
       ledger,
@@ -110,6 +114,7 @@ describe('launch money model: hosted checkout pays the business, our ledger reco
       {
         custodyLayer: over.custodyLayer ?? 'off',
         defaultFeeBps: over.defaultFeeBps ?? null,
+        partnerFeeBps: over.partnerFeeBps ?? { 'bank-transfer-sandbox': PARTNER_FEE_BPS },
         payoutDestinations: memoryPayoutDestinations(),
         checkoutRails: [
           { railId: 'crypto-native', method: 'crypto' },
@@ -258,7 +263,7 @@ describe('launch money model: hosted checkout pays the business, our ledger reco
     expect(session.instruction!.reference).toBe(await chain.acceptanceAddress(payment.id, 'USDT'));
   });
 
-  it('a bank transfer goes to the partner: our fee is owed by the partner, once, and the payer’s money is not booked', async () => {
+  it('a bank transfer goes to the partner: our fee, at our rate with the partner, is owed by the partner, once, and the payer’s money is not booked', async () => {
     const pay = service();
     const m = await business(pay);
     const link = await pay.createPaymentLink({ merchantId: m.id, label: 'TEST bank', amount: amt('30'), currency: 'EUR' });
@@ -278,9 +283,22 @@ describe('launch money model: hosted checkout pays the business, our ledger reco
     await pay.handleWebhook(bank.id, delivery);
     expect((await paymentOf(sessionToken)).status).toBe('captured');
     expect(posts.map((p) => p.idempotencyKey)).toEqual([`partner-fee:earned:bank-transfer-sandbox:${payment.id}`]);
-    expect(formatAmount((await ledger.balance(partnerFeeReceivableAccount('bank-transfer-sandbox', 'EUR'))).amount)).toBe('-0.75');
+    // 1% of 30, our rate with the partner, not the business's 2.5%.
+    expect(formatAmount((await ledger.balance(partnerFeeReceivableAccount('bank-transfer-sandbox', 'EUR'))).amount)).toBe('-0.3');
     expect(formatAmount((await ledger.balance(merchantClearing(m.id, 'EUR'))).amount)).toBe('0');
     const funds = await outsideFundsOf(sql, ownerOf(m.id));
     expect(funds.rows).toEqual([expect.objectContaining({ assetId: 'EUR', holder: 'partner', source: 'partner', available: '30' })]);
+  });
+
+  it('with no fee rate set for the partner, a bank transfer refuses before the payer is shown where to pay, and the business’s price never stands in', async () => {
+    const pay = service({ partnerFeeBps: {} });
+    const m = await business(pay);
+    const link = await pay.createPaymentLink({ merchantId: m.id, label: 'TEST no partner rate', amount: amt('30'), currency: 'EUR' });
+    await expect(
+      pay.openCheckoutSession({ linkToken: link.token, geoCountry: 'DE', method: 'bank_transfer', payerName: 'Grace Hopper' }),
+    ).rejects.toMatchObject({ code: 'pay.partner_fee_rate_unset', detail: { partnerId: 'bank-transfer-sandbox' } });
+    expect(await sql`SELECT id FROM pay.payments`).toHaveLength(0);
+    expect(await sql`SELECT id FROM pay.checkout_sessions`).toHaveLength(0);
+    expect(posts).toEqual([]);
   });
 });

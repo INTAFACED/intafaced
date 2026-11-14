@@ -2873,6 +2873,7 @@ export function toTrpcError(err: unknown): unknown {
       case 'pay.destination_hold_unset':
       case 'pay.payout_admission_missing':
       case 'pay.fee_bps_unset':
+      case 'pay.partner_fee_rate_unset':
       case 'pay.receiving_wallet_unset':
       case 'pay.starter_fee_unpublished':
       case 'pay.link_ttl_unset':

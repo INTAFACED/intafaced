@@ -22,6 +22,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
     // `LOCAL_STACK_PAY_CUSTODY_LAYER=off` on a restart runs svc-pay as at launch, so hosted checkout pays the business's own
     // wallet or the partner and books only our fee (J-merchant-04); the ledger's own switch is not changed by it.
     LEDGER_CUSTODY_LAYER: process.env.LOCAL_STACK_PAY_CUSTODY_LAYER === 'off' ? 'off' : 'on',
+    // LOCAL-TEST: our fee rate with the TEST bank, the only partner on this stack (tooling/profiles/test-owner-values/pay.json),
+    // never an owner's contract rate. `LOCAL_STACK_PAY_PARTNER_FEE=off` on a restart leaves it blank, so the refusal shows.
+    ...(process.env.LOCAL_STACK_PAY_PARTNER_FEE === 'off' ? {} : { PAY_PARTNER_FEE_BPS: 'bank-transfer-sandbox=250' }),
     PAY_ALLOW_SANDBOX_RAILS: 'false',
     // Required, no default. LOCAL TEST values copied from .env.example.
     PAY_OPERATOR_CREDIT_RAILS: 'card-sandbox',

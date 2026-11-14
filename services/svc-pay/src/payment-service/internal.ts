@@ -62,6 +62,20 @@ export function publishedDefaultFeeBps(feeBps: number | null | undefined): numbe
 }
 
 /**
+ * Our fee rate with the partner that takes a payment (`PAY_PARTNER_FEE_BPS`): unset refuses `pay.partner_fee_rate_unset`,
+ * never the business's price and never 0. Read before the payer is shown where to pay, and again at capture.
+ */
+export function partnerFeeBpsOf(rates: Readonly<Record<string, number>>, partnerId: string): number {
+  const bps = Object.hasOwn(rates, partnerId) ? rates[partnerId] : undefined;
+  if (bps === undefined) {
+    throw new PayError(`Our fee rate with ${partnerId} is unset, so no payment it takes can be opened`, 'pay.partner_fee_rate_unset', {
+      partnerId,
+    });
+  }
+  return bps;
+}
+
+/**
  * The fee on one business's payments: its own pricing, or the published default (as settlement reads it). Blank refuses
  * `pay.fee_bps_unset`, never 0. The launch model reads it before a payer is shown where to pay, and again at capture.
  */

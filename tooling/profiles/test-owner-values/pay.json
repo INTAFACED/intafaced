@@ -96,6 +96,11 @@
       "value": "45",
       "note": "TEST seconds a newly verified payout destination (or a change of one) is held before it can receive a payout (J-merchant-02 #5), short so a journey can wait it out. Not an owner decision; blank refuses verifying or changing a destination."
     },
+    "PAY_PARTNER_FEE_BPS": {
+      "service": "pay",
+      "value": "bank-transfer-sandbox=250",
+      "note": "J-merchant-04 #6: our fee rate with the TEST bank on a hosted-checkout payment it takes. Blank refuses pay.partner_fee_rate_unset before the payer is shown where to pay."
+    },
     "PAY_WEBHOOK_ENDPOINT_CAP": {
       "service": "pay",
       "value": "10",

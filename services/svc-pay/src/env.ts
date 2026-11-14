@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { edgeEnvSchema, internalServiceEnvSchema, loadEnv, s2sEnvSchema, serviceEnvSchema } from '@intafaced/config';
 import { parseCustodyLayer } from '@intafaced/ledger-client';
-import { parseOwnerIntegerEnv } from './fee-bps-env.js';
+import { parseOwnerIntegerEnv, parsePartnerFeeBpsEnv } from './fee-bps-env.js';
 import { operatorCreditRailsSchema } from './operator-credit-rails-env.js';
 
 const schema = serviceEnvSchema
@@ -149,6 +149,24 @@ const schema = serviceEnvSchema
         .union([z.string(), z.number()])
         .optional()
         .transform((raw) => parseOwnerIntegerEnv(raw)),
+
+      /**
+       * Our fee rate with each payment partner, `<partner>=<bps>,…` (launch money model, OWNER 226): what the partner owes
+       * us on a hosted-checkout payment it took, booked by `partnerFeeEarn`. The owner's number in each partner's contract,
+       * so no default: a partner with no rate here refuses `pay.partner_fee_rate_unset` before the payer is shown where to
+       * pay. Not the business's own price, which is what the business pays on a payment to its own wallet.
+       */
+      PAY_PARTNER_FEE_BPS: z
+        .string()
+        .optional()
+        .transform((raw, ctx) => {
+          try {
+            return parsePartnerFeeBpsEnv(raw);
+          } catch (error) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: (error as Error).message });
+            return z.NEVER;
+          }
+        }),
 
       /**
        * Rails on which an operator may credit a deposit by hand.

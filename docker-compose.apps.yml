@@ -1001,6 +1001,8 @@ services:
       # exactly dev or test. `required` for every real deployment.
       PAY_MERCHANT_CONTROLS: ${PAY_MERCHANT_CONTROLS:-}
       PAY_DEFAULT_FEE_BPS: ${PAY_DEFAULT_FEE_BPS:-}
+      # Our fee rate with each payment partner, `<partner>=<bps>,…`: the owner's contract numbers, blank until set.
+      PAY_PARTNER_FEE_BPS: ${PAY_PARTNER_FEE_BPS:-}
       # Open-session cap + operator risk band. env.ts already names these;
       # blank risk band refuses — never invent `low`. Open-session cap: no git
       # default — blank refuses (never 25). Owner may set 25 explicitly (see
