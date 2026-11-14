@@ -92,6 +92,8 @@ export type RequestOptions = {
    * A 401 with one of these codes does not sign the person out; any other 401 follows the normal path.
    */
   keepSessionFor?: readonly string[];
+  /** Let this one small write finish after the page is left (a saved draft sent as the person navigates away). */
+  keepalive?: boolean;
 };
 export type RestOptions = RequestOptions & {
   method?: 'GET' | 'POST' | 'DELETE' | 'PUT' | 'PATCH';
@@ -161,8 +163,11 @@ export function createApiClient(
     token?: () => string | undefined;
     canWrite?: () => boolean;
     fetch?: typeof fetch;
-    /** `same-origin` unless a caller must send or receive the refresh cookie across origins (session restore). */
-    credentials?: 'same-origin' | 'include';
+    /**
+     * `same-origin` unless a caller must send or receive the refresh cookie across origins (session restore), or must
+     * send nothing that names the person (`omit`: the address tracker's public reads carry no cookie).
+     */
+    credentials?: 'same-origin' | 'include' | 'omit';
     /** Per-request timeout. Default 15 s; session refresh uses a shorter one (see session-restore.ts). */
     timeoutMs?: number;
     onUnauthorized?: (requestToken: string | undefined) => void;
@@ -198,6 +203,7 @@ export function createApiClient(
         headers,
         credentials: options.credentials ?? 'same-origin',
         signal: controller.signal,
+        ...(requestOptions.keepalive ? { keepalive: true } : {}),
         ...(input === undefined ? {} : { body: JSON.stringify(input) }),
       });
       let body: unknown;

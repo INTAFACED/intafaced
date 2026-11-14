@@ -19,8 +19,9 @@
  * fields (blank asks for a free-text first message only). A guest's address is sealed with the guest address key and
  * erased after the guest retention, as a guest request's is.
  *
- * Continuing a chat by email needs a mailbox, which this build does not connect: it answers `vendor.email` and leaves the
- * chat as it was.
+ * Continuing a chat by email (chat-email.ts): a signed-in customer's chat is mailed to their own proved address through
+ * svc-identity, and stays open. Without a mailbox, or for a guest (whose address only svc-support holds, sealed), it answers
+ * `vendor.email` and leaves the chat as it was.
  */
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { Sql } from 'postgres';
@@ -63,6 +64,7 @@ import {
   type SupportRequestSource,
   type SupportTicket,
 } from '@intafaced/contracts';
+import { NO_CHAT_MAIL, chatMailRequest, type ChatMailPort } from './chat-email.js';
 import { seal } from './guest-requests.js';
 import { refuseCommentSecret, SupportError } from './support-service.js';
 import type { StaffMember } from './desk-staff.js';
@@ -229,6 +231,8 @@ export type SessionRow = {
   closedAt: string | null;
   /** The fingerprint of what opened it, so a replayed key with different content is refused. */
   fingerprint: string;
+  /** When the customer continued it by email; from then on each agent reply is mailed into that thread. */
+  emailedAt: string | null;
 };
 
 export type EnquiryRow = { name: string | null; addressSealed: string | null; eraseAfter: string | null };
@@ -240,7 +244,7 @@ export type Rate = { limit: number; windowSeconds: number };
 export interface ChatBook {
   /** Stores a new session with its first message (and enquiry), or answers the session the key already opened. */
   open(
-    session: Omit<SessionRow, 'id' | 'lastSeq' | 'ticketId' | 'closedAt' | 'agentId' | 'acceptedAt' | 'status'>,
+    session: Omit<SessionRow, 'id' | 'lastSeq' | 'ticketId' | 'closedAt' | 'agentId' | 'acceptedAt' | 'status' | 'emailedAt'>,
     first: NewMessage,
     enquiry: EnquiryRow | null,
     /** The opening message counts against the rate like any other. */
@@ -259,6 +263,8 @@ export interface ChatBook {
   accept(sessionId: string, agentId: string, at: string): Promise<SessionRow>;
   /** Marks the session closed (once; a second close changes nothing). */
   close(sessionId: string, by: string, at: string): Promise<SessionRow>;
+  /** Records that the chat was continued by email (the first time; later calls keep it). */
+  markEmailed(sessionId: string, at: string): Promise<SessionRow>;
   /** Links the closed session to its request and writes the request's source row (once). */
   link(sessionId: string, ticketId: string): Promise<SessionRow>;
   openSessions(limit: number): Promise<SessionRow[]>;
@@ -290,6 +296,7 @@ export class MemoryChatBook implements ChatBook {
       ticketId: null,
       lastSeq: 1,
       closedAt: null,
+      emailedAt: null,
     };
     const message: SupportChatMessage = {
       id: randomUUID(),
@@ -354,6 +361,12 @@ export class MemoryChatBook implements ChatBook {
       throw new SupportError('another agent has this chat', SUPPORT_CHAT_ALREADY_ACCEPTED);
     }
     Object.assign(s, { agentId, acceptedAt: at, status: 'active' });
+    return s;
+  }
+  async markEmailed(sessionId: string, at: string) {
+    const s = this.sessions.get(sessionId);
+    if (!s) throw new SupportError('no such chat', SUPPORT_CHAT_NOT_FOUND);
+    if (s.emailedAt === null) s.emailedAt = at;
     return s;
   }
   async close(sessionId: string, _by: string, at: string) {
@@ -431,6 +444,7 @@ type SessionDb = {
   created_at: Date;
   closed_at: Date | null;
   fingerprint: string;
+  emailed_at: Date | null;
 };
 type MessageDb = {
   id: string;
@@ -460,6 +474,7 @@ const fromSession = (r: SessionDb): SessionRow => ({
   createdAt: iso(r.created_at)!,
   closedAt: iso(r.closed_at),
   fingerprint: r.fingerprint,
+  emailedAt: iso(r.emailed_at),
 });
 const fromMessage = (r: MessageDb): SupportChatMessage => ({
   id: r.id,
@@ -583,6 +598,14 @@ export class SqlChatBook implements ChatBook {
     });
   }
 
+  async markEmailed(sessionId: string, at: string) {
+    const rows = await this.sql<SessionDb[]>`
+      UPDATE support.chat_sessions SET emailed_at = COALESCE(emailed_at, ${at}), updated_at = ${at}
+      WHERE id = ${sessionId} RETURNING *`;
+    if (!rows[0]) throw new SupportError('no such chat', SUPPORT_CHAT_NOT_FOUND);
+    return fromSession(rows[0]);
+  }
+
   async close(sessionId: string, by: string, at: string) {
     const rows = await this.sql<SessionDb[]>`
       UPDATE support.chat_sessions SET status = 'closed', closed_at = ${at}, closed_by = ${by}, updated_at = ${at}
@@ -663,6 +686,7 @@ export class SupportChat {
     /** Reads the contact channels' chat hours (the owner's, or null). */
     private readonly hours: () => Promise<string | null>,
     private readonly now: () => Date = () => new Date(),
+    private readonly mail: ChatMailPort = NO_CHAT_MAIL,
   ) {}
 
   async availability(): Promise<SupportChatAvailability> {
@@ -808,10 +832,21 @@ export class SupportChat {
     return this.view(await this.finish(session.id, session.userId ?? `guest:${session.id}`));
   }
 
-  /** Continue by email: there is no mailbox in this build, so it says so and leaves the chat as it was. */
+  /**
+   * Continue by email: the signed-in owner's chat is mailed to their own proved address (once per chat a day) and stays
+   * open. A guest, or no mailbox, answers `vendor.email` and leaves the chat as it was.
+   */
   async continueByEmail(caller: ChatCaller, sessionId: string): Promise<SupportChatEmailResult> {
     const session = await this.session(sessionId, caller);
     if (session.status === 'closed') throw new SupportError('this chat is closed', SUPPORT_CHAT_CLOSED);
+    // Only the signed-in owner can send their chat to their own mailbox; a page holding the chat's token cannot.
+    if (session.userId !== null && caller.userId === session.userId) {
+      const now = this.now();
+      const sent = await this.mail.send(chatMailRequest({ sessionId: session.id, userId: session.userId, now }));
+      // Mailed first, then recorded: a crash between leaves the chat unmarked, and asking again the same day answers the
+      // same mail and marks it.
+      if (sent) return { status: 'emailed', session: this.view(await this.book.markEmailed(session.id, now.toISOString())) };
+    }
     return { status: 'not_connected', code: 'vendor.email', session: this.view(session) };
   }
 
@@ -833,11 +868,16 @@ export class SupportChat {
     if (!s) throw new SupportError('no such chat', SUPPORT_CHAT_NOT_FOUND);
     if (s.agentId !== agentId) throw new SupportError('take the chat before replying', SUPPORT_CHAT_NOT_ACCEPTED);
     refuseCommentSecret(input.body);
-    return this.book.add(
+    const message = await this.book.add(
       s.id,
       { author: 'agent', authorId: agentId, clientMessageId: input.clientMessageId, body: input.body, at: this.now().toISOString() },
       null,
     );
+    // A chat continued by email gets each agent reply in that thread, under the reply's own key: stored first, then mailed,
+    // so a crash between is finished by the same reply sent again (its key answers the stored message and the same mail).
+    if (s.emailedAt !== null && s.userId !== null)
+      await this.mail.send(chatMailRequest({ sessionId: s.id, userId: s.userId, now: this.now(), reply: message }));
+    return message;
   }
 
   async deskPoll(input: { sessionId: string; after: number }) {

@@ -28,6 +28,7 @@ type ReportRow = {
   evidence_url: string | null;
   note: string | null;
   created_at: Date | string;
+  inserted: boolean;
 };
 
 // The service's client is shared with drizzle, which reads timestamps back as text.
@@ -64,10 +65,12 @@ export class PostgresAddressRiskStore implements AddressRiskStore {
       INSERT INTO protocol.address_reports (idempotency_key, chain_id, address, reporter_id, kind, evidence_url, note)
       VALUES (${report.idempotencyKey}, ${report.chainId}, ${toChecksum(report.address)}, ${report.reporterId}, ${report.kind},
               ${report.evidenceUrl}, ${report.note})
-      ON CONFLICT (idempotency_key) WHERE status = 'open' DO NOTHING
-      RETURNING id, idempotency_key, chain_id, address, reporter_id, kind, evidence_url, note, created_at`;
+      ON CONFLICT (idempotency_key) WHERE status = 'open'
+        DO UPDATE SET duplicates_refused = protocol.address_reports.duplicates_refused + 1, updated_at = now()
+      RETURNING id, idempotency_key, chain_id, address, reporter_id, kind, evidence_url, note, created_at, (xmax = 0) AS inserted`;
     const row = rows[0];
-    if (!row) return { kind: 'duplicate' };
+    // A second open report by the same person is refused, and counted on the open one so the queue can say so.
+    if (!row || !row.inserted) return { kind: 'duplicate' };
     return {
       kind: 'created',
       report: {

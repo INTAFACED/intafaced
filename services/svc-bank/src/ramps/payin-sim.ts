@@ -23,15 +23,35 @@ export type OnrampPartnerSetting = (typeof ONRAMP_PARTNER_SETTINGS)[number];
 /** The ledger rail boundary the stand-in's pay-ins arrive from. */
 export const PAYIN_SIM_RAIL = 'payin-sim';
 
-/** The ways to pay that are a hosted page. A bank transfer is instructions, not a page, and the stand-in opens none. */
+/** The ways to pay that are a hosted page. A bank transfer is instructions, not a page. */
 const HOSTED_METHODS = ['pay_by_bank', 'card', 'wallet_pay'] as const satisfies readonly OnrampMethod[];
 
 const catalogueShape = z
   .object({
     label: z.string().regex(/^TEST\b/),
     methods: z.array(z.enum(HOSTED_METHODS)).min(1),
+    /**
+     * The TEST account a bank transfer is paid to (J-bank-02 #2), both labelled TEST: with it the stand-in answers a bank
+     * transfer with its own reference for the payment and this account, as a partner's instructions. Without it, it
+     * opens no bank transfer.
+     */
+    bankTransfer: z
+      .object({
+        accountName: z
+          .string()
+          .regex(/^TEST\b/)
+          .max(140),
+        accountRef: z.string().min(1).max(64),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
+
+/** The stand-in's reference for one bank transfer: its own, from the payment's id, so asking again gives the same one. */
+export function payinSimReference(onrampId: string): string {
+  return `TEST-${onrampId.replace(/-/g, '').slice(0, 12).toUpperCase()}`;
+}
 
 export type PayinSimCatalogue = z.infer<typeof catalogueShape>;
 
@@ -47,6 +67,11 @@ export interface OnrampPartner {
   readonly payments: OnrampPaymentPort;
   /** Where the payer is sent back to after the partner's page, with the request id. */
   returnUrl(requestId: string): string;
+  /**
+   * The stand-in's delivery of a purchase to the buyer's own wallet (J-dex-protocol-05 #4): the TEST partner sends it on
+   * the stack's TEST chain and answers the transfer's hash. Absent when no delivery address is set.
+   */
+  readonly deliver?: (input: { to: string; assetId: string; amount: string }) => Promise<string>;
 }
 
 /** The typed catalogue, or null when it is blank, not JSON, not labelled TEST or not in shape. */
@@ -83,9 +108,31 @@ function loopbackBase(raw: string | undefined): URL | null {
   return url;
 }
 
+const TX_HASH = /^0x[0-9a-fA-F]{64}$/;
+
+/** The TEST partner's delivery at a loopback address: one POST, the transfer's hash back, or a typed failure. */
+export function payinSimDelivery(deliverUrl: URL, fetchImpl: typeof fetch = fetch): NonNullable<OnrampPartner['deliver']> {
+  return async (input) => {
+    const res = await fetchImpl(deliverUrl, {
+      method: 'POST',
+      redirect: 'error',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ to: input.to, asset: input.assetId, amount: input.amount }),
+      signal: AbortSignal.timeout(90_000),
+    });
+    const body = (await res.json().catch(() => null)) as { hash?: unknown; error?: unknown } | null;
+    if (res.status !== 200 || typeof body?.hash !== 'string' || !TX_HASH.test(body.hash)) {
+      throw new Error(`the TEST partner did not deliver: ${res.status} ${String(body?.error ?? '').slice(0, 200)}`);
+    }
+    return body.hash;
+  };
+}
+
 /** The stand-in over one typed catalogue, its own page address and the app's return address. */
-export function payinSim(catalogue: PayinSimCatalogue, pageBase: URL, returnTo: URL): OnrampPartner {
+export function payinSim(catalogue: PayinSimCatalogue, pageBase: URL, returnTo: URL, deliver?: OnrampPartner['deliver']): OnrampPartner {
   const listed = new Set<OnrampMethod>(catalogue.methods);
+  if (catalogue.bankTransfer) listed.add('bank_transfer');
+  const transfer = catalogue.bankTransfer;
   const page = (onrampId: string) => new URL(`/test/payin-sim/pay/${encodeURIComponent(onrampId)}`, pageBase).toString();
   return {
     label: catalogue.label,
@@ -95,6 +142,11 @@ export function payinSim(catalogue: PayinSimCatalogue, pageBase: URL, returnTo: 
       loopbackPages: true,
       async open(input) {
         if (!listed.has(input.method)) return null;
+        if (input.method === 'bank_transfer') {
+          if (!transfer) return null;
+          const bank = { reference: payinSimReference(input.onrampId), accountName: transfer.accountName, accountRef: transfer.accountRef };
+          return { partnerRail: PAYIN_SIM_RAIL, bank };
+        }
         return { partnerRail: PAYIN_SIM_RAIL, hostedUrl: page(input.onrampId) };
       },
     },
@@ -103,6 +155,7 @@ export function payinSim(catalogue: PayinSimCatalogue, pageBase: URL, returnTo: 
       back.searchParams.set('request', requestId);
       return back.toString();
     },
+    ...(deliver ? { deliver } : {}),
   };
 }
 
@@ -124,7 +177,13 @@ export class PayinSimRefusedError extends Error {
  */
 export function onrampPartnerFor(
   setting: OnrampPartnerSetting,
-  config: { readonly catalogueJson?: string | undefined; readonly pageUrl?: string | undefined; readonly returnUrl?: string | undefined },
+  config: {
+    readonly catalogueJson?: string | undefined;
+    readonly pageUrl?: string | undefined;
+    readonly returnUrl?: string | undefined;
+    /** The TEST partner's delivery address on the stack's TEST chain (optional; loopback when set). */
+    readonly deliverUrl?: string | undefined;
+  },
   env: { readonly APP_ENV?: string; readonly NODE_ENV?: string },
 ): OnrampPartner | null {
   if (setting !== 'payin-sim') return null;
@@ -149,7 +208,14 @@ export function onrampPartnerFor(
       'BANK_ONRAMP_PARTNER=payin-sim needs BANK_PAYIN_SIM_PAGE_URL and BANK_PAYIN_SIM_RETURN_URL, both loopback http(s) addresses.',
     );
   }
-  return payinSim(catalogue, pageBase, returnTo);
+  const deliverUrl = config.deliverUrl?.trim() ? loopbackBase(config.deliverUrl) : null;
+  if (config.deliverUrl?.trim() && !deliverUrl) {
+    throw new PayinSimRefusedError(
+      'bank.payin_sim_address_unset',
+      'BANK_PAYIN_SIM_DELIVER_URL, when set, must be a loopback http(s) address (the TEST partner on the stack).',
+    );
+  }
+  return payinSim(catalogue, pageBase, returnTo, deliverUrl ? payinSimDelivery(deliverUrl) : undefined);
 }
 
 /** The pay-in partner's "paid" job body (`/internal/jobs/payin-sim/paid`): which request, and what it says was paid. */
@@ -158,5 +224,13 @@ export const payinPaidBody = z
     requestId: z.string().uuid(),
     paidAmount: z.string().regex(/^\d+(\.\d{1,18})?$/),
     payCurrency: z.string().regex(/^[A-Z]{3,16}$/),
+    /** The on-chain transfer the partner delivered a wallet request with (J-dex-protocol-05 #4). */
+    deliveryTx: z
+      .string()
+      .regex(/^0x[0-9a-fA-F]{64}$/)
+      .optional(),
   })
   .strict();
+
+/** The pay-in partner's "returned" job body (`/internal/jobs/payin-sim/returned`): the payment it says was sent back. */
+export const payinReturnedBody = z.object({ requestId: z.string().uuid() }).strict();

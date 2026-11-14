@@ -133,6 +133,11 @@ export const FEE_REVENUE_PATHS = {
     recipe: 'partnerFeeEarn',
     note: "Our fee on a payment a licensed partner processed → houseFees(<module>), owed by the partner on a partner fee receivable until it settles into our treasury wallet or our reserve at that partner; the customer's payment never enters our book; rate unset refuses (launch money model, OWNER 288).",
   },
+  'launch.merchant_fee_earned': {
+    kind: 'recipe',
+    recipe: 'merchantFeeEarn',
+    note: "Our fee on a payment a business received straight into its own wallet → houseFees(<module>), owed by the business on a charge receivable until a Collect at one of our own-funds places; the payer's money never enters our book; a blank fee refuses (launch money model, OWNER 226; J-merchant-04).",
+  },
   'launch.fee_giveback_owed': {
     kind: 'recipe',
     recipe: 'feeGiveBackOwe',
@@ -294,6 +299,7 @@ export const RECIPES_TOUCHING_HOUSE_FEES = [
   'feeShareBudgetFund',
   'chargeEarn',
   'partnerFeeEarn',
+  'merchantFeeEarn',
   'feeGiveBackOwe',
   'marketMakerMakerFill',
   'futuresInsuranceTopup',

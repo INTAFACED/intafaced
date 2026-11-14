@@ -999,6 +999,32 @@ function extraShapePosts(): Array<{ name: RecipeName; post: PostRequest }> {
         reference: '0xtest',
       }),
     },
+    // A move with its costs from the outside record: one cost (either kind), or both.
+    {
+      name: 'ownFundsMove',
+      post: recipes.ownFundsMove({
+        from: { kind: 'venue-builder-account', venueId: 'test-venue-sim' },
+        to: { kind: 'treasury-wallet', walletId: 'test' },
+        assetId: 'USDC',
+        amount: AMT,
+        reference: '0xtest-one-cost',
+        costs: [{ kind: 'venue-withdrawal-fee', paidTo: 'test-venue-sim', amount: AMT }],
+      }),
+    },
+    {
+      name: 'ownFundsMove',
+      post: recipes.ownFundsMove({
+        from: { kind: 'venue-builder-account', venueId: 'test-venue-sim' },
+        to: { kind: 'treasury-wallet', walletId: 'test' },
+        assetId: 'USDC',
+        amount: AMT,
+        reference: '0xtest-two-costs',
+        costs: [
+          { kind: 'venue-withdrawal-fee', paidTo: 'test-venue-sim', amount: AMT },
+          { kind: 'network-fee', paidTo: 'test-chain', amount: AMT },
+        ],
+      }),
+    },
     {
       name: 'campaignBudgetFund',
       post: recipes.campaignBudgetFund({ campaignId: 'test-campaign', decisionId: 'approval-test', assetId: 'USDC', amount: AMT }),
@@ -1080,6 +1106,31 @@ function extraShapePosts(): Array<{ name: RecipeName; post: PostRequest }> {
       post: recipes.partnerFeeEarn({
         partnerId: 'test-partner',
         module: 'merchant',
+        paymentId: 'pay-test',
+        assetId: 'USDC',
+        grossAmount: AMT,
+        rate: { bps: 100 },
+      }),
+    },
+    {
+      name: 'partnerFeeEarn',
+      // The same recipe as svc-pay posts it at capture (J-merchant-04): our fee on a hosted-checkout payment the partner
+      // took, under module pay. Shape sample only, never posted.
+      post: recipes.partnerFeeEarn({
+        partnerId: 'test-partner',
+        module: 'pay',
+        paymentId: 'pay-test',
+        assetId: 'USDC',
+        grossAmount: AMT,
+        rate: { bps: 100 },
+      }),
+    },
+    {
+      name: 'merchantFeeEarn',
+      // Shape sample only, never posted: a TEST fee, because a blank fee refuses.
+      post: recipes.merchantFeeEarn({
+        module: 'pay',
+        merchantId: U,
         paymentId: 'pay-test',
         assetId: 'USDC',
         grossAmount: AMT,

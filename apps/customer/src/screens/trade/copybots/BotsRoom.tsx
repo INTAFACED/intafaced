@@ -32,6 +32,7 @@ import { AccountBadge, Freshness, InfoNote, ModeNav, PendingBanner, RefusalNote 
 import { TwapWizard, type BotKind } from './TwapWizard';
 import { GRID_TONE, GRID_WORD, GridRoom } from './GridRoom';
 import { WebhooksRoom } from './WebhooksRoom';
+import { SignalsRoom } from './SignalsRoom';
 import type { GridBot } from './api';
 import { roomRefusal } from './refusals';
 
@@ -113,6 +114,7 @@ export function BotsRoom({ path }: { path: string }) {
   const pathname = new URL(path, 'http://x').pathname.replace(/\/+$/, '');
   if (pathname === TYPE_LINK.grid.href) return <GridRoom path={path} />;
   if (pathname === '/trade/bots/webhooks') return <WebhooksRoom />;
+  if (pathname === '/trade/bots/signals' || pathname.startsWith('/trade/bots/signals/')) return <SignalsRoom path={path} />;
   const parked = PARKED[pathname];
   if (parked) return <ParkedBotRoom title={parked.title} reason={parked.reason} />;
   // Only grid and DCA have rooms of their own; any other /trade/bots/<kind> is an address with no bot type behind it.
@@ -123,7 +125,7 @@ export function BotsRoom({ path }: { path: string }) {
 function ParkedBotRoom({ title, reason }: { title: string; reason: string }) {
   const { t } = roomCopy.useCopy();
   return (
-    <Page width="full" className="cb-page">
+    <Page width="full" className="cb-page" landmark={false}>
       <ModeNav active="bots" />
       <PageHeader title={t(title as 'Spot grid')} description={t('This bot can’t be set up here.')} />
       <EmptyState
@@ -453,7 +455,7 @@ function BotsHub({ path }: { path: string }) {
 
   const schedulerOff = policy.data !== null && !policy.data.capability.jobsEnabled;
   return (
-    <Page width="full" className="cb-page">
+    <Page width="full" className="cb-page" landmark={false}>
       <ModeNav active="bots" />
       <PageHeader
         title={t('Bots')}

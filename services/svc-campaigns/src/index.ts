@@ -4,6 +4,7 @@ import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/a
 import { edgeTrustFromEnv } from '@intafaced/config';
 import { createEdgeContext, s2sFromEnv } from '@intafaced/contracts';
 import { JetStreamEventBus } from '@intafaced/events';
+import { parseAmount } from '@intafaced/ledger-client';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 import { CampaignService, parseTimeZone } from './campaigns.js';
 import { parseRuleLimit } from './rules.js';
@@ -11,8 +12,12 @@ import { createLedgerClient } from './ledger-client.js';
 import { createMarketNames } from './markets.js';
 import { createParticipantClient } from './participants.js';
 import { PayoutSaga } from './payouts.js';
+import { RewardPayer } from './reward-payer.js';
+import { ledgerPostingEnabled, testRewardChain } from './test-chain.js';
 import { TaskService } from './tasks.js';
+import { createVenueDepositSource } from './venue-deposits.js';
 import { VoucherService } from './vouchers.js';
+import { WatchService } from './watch.js';
 import { DropService } from './drops.js';
 import { env } from './env.js';
 import { createCampaignsRouter, type CampaignsRouter } from './router.js';
@@ -54,9 +59,26 @@ const campaigns = new CampaignService({ sql, timeZone: () => timeZone, participa
 const ledger =
   env.LEDGER_URL && env.INTERNAL_SERVICE_SECRET ? createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : null;
 const reconcileAfterSeconds = env.CAMPAIGNS_RECONCILE_AFTER_SECONDS ?? null;
-const saga = ledger ? new PayoutSaga({ sql, ledger, reconcileAfterSeconds }) : null;
+const ceilingOf = (raw: string | undefined) => (raw === undefined ? null : parseAmount(raw));
+// The owner's reward ceiling (OWNER 288). Blank stays blank: every Owe refuses `ledger.reward_ceiling_unset`.
+const rewardCeiling = {
+  perCampaign: ceilingOf(env.CAMPAIGNS_REWARD_CEILING_PER_CAMPAIGN),
+  total: ceilingOf(env.CAMPAIGNS_REWARD_CEILING_TOTAL),
+};
+const saga = ledger ? new PayoutSaga({ sql, ledger, reconcileAfterSeconds, rewardCeiling }) : null;
 const markets = env.TRADE_URL ? createMarketNames({ tradeUrl: env.TRADE_URL }) : null;
+// The welcome deposit task's reads (J-campaigns-04 #2): the person's connected wallets and the venue's deposits.
+const venueDeposits =
+  env.PROTOCOL_URL && env.TRADE_URL && env.INTERNAL_SERVICE_SECRET
+    ? createVenueDepositSource({
+        protocolUrl: env.PROTOCOL_URL,
+        tradeUrl: env.TRADE_URL,
+        internalSecret: env.INTERNAL_SERVICE_SECRET,
+        ...(s2sKey ? { s2s: s2sKey } : {}),
+      })
+    : null;
 const tasks = new TaskService({
+  venueDeposits,
   sql,
   participants,
   saga,
@@ -75,8 +97,27 @@ const attemptLimits =
     : null;
 const vouchers = new VoucherService({ sql, participants, campaigns, saga, attemptLimits: () => attemptLimits });
 
-const appRouter = createCampaignsRouter(drops, campaigns, tasks, vouchers);
-const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, ...edgeTrustFromEnv(env), serviceName: env.SERVICE_NAME });
+// The watch desk's owner values (J-campaigns-17); each blank refuses what needs it, never a default.
+const watchLimits = {
+  codeBatchMax: env.CAMPAIGNS_CODE_BATCH_MAX ?? null,
+  exportLinkSeconds: env.CAMPAIGNS_EXPORT_LINK_SECONDS ?? null,
+  alerts: {
+    budget_low: env.CAMPAIGNS_ALERT_BUDGET_LEFT_PERCENT ?? null,
+    redemptions_spike: env.CAMPAIGNS_ALERT_REDEMPTIONS_PER_HOUR ?? null,
+  },
+};
+const watch = new WatchService({ sql, campaigns, limits: () => watchLimits });
+
+const appRouter = createCampaignsRouter(drops, campaigns, tasks, vouchers, watch);
+// svc-trade's fee-saver ask (`service.feeSaver`, J-campaigns-09) is a service call: the caller is named by its own key,
+// or by the shared secret where keys are not wired.
+const edgeContext = createEdgeContext({
+  secret: env.EDGE_PRINCIPAL_SECRET,
+  ...edgeTrustFromEnv(env),
+  serviceName: env.SERVICE_NAME,
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  ...(s2s.serviceVerifier && s2s.s2sMode ? { serviceVerifier: s2s.serviceVerifier, s2sMode: s2s.s2sMode } : {}),
+});
 
 let bus: JetStreamEventBus | null = null;
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
@@ -164,8 +205,9 @@ async function attachBus(): Promise<void> {
   }
 }
 /**
- * The welcome checklist (CM-rewards-hub-03): each account's sign-up opens its window, and its first verification, crypto
- * deposit and spot fill tick its tasks. Each event is kept once, by account and kind, so a redelivery is a no-op. These
+ * The welcome checklist (CM-rewards-hub-03): each account's sign-up opens its window, and its first verification and
+ * spot fill tick its tasks. Its deposit task is read from the venue, not the bus (J-campaigns-04 #2; tasks.ts
+ * `readWelcomeDeposit`): a credit svc-pay posts to an account in our book is not a deposit into the person's venue account. Each event is kept once, by account and kind, so a redelivery is a no-op. These
  * read `identity`'s stream too, so they attach on their own: if that stream is missing they are tried again, and task
  * progress and earning rules above keep running.
  */
@@ -190,13 +232,6 @@ async function attachWelcome(connected: JetStreamEventBus): Promise<void> {
         });
       },
       { durable: 'campaigns-welcome-kyc-approved' },
-    );
-    await connected.subscribe(
-      'payDepositCreditPosted',
-      async (deposit) => {
-        await tasks.onWelcomeEvent({ userId: deposit.userId, event: 'pay.deposit', eventId: deposit.depositId, at: deposit.creditedAt });
-      },
-      { durable: 'campaigns-welcome-deposit-credited' },
     );
     await connected.subscribe(
       'fillSettled',
@@ -232,6 +267,45 @@ const reconciler =
     : null;
 reconciler?.unref();
 
+// Paying owed rewards to the customer's own wallet (J-campaigns-03 #2 #3): from our own-funds place, on the LOCAL TEST
+// chain only. Any owner value or TEST chain fact blank: none runs, and an owed reward stays owed.
+const payWallet = /^(.+)=(0x[0-9a-fA-F]{40})$/.exec(env.CAMPAIGNS_REWARD_PAY_WALLET ?? '');
+const payer =
+  ledger &&
+  env.LEDGER_URL &&
+  payWallet &&
+  env.CAMPAIGNS_REWARD_PAY_INTERVAL_MS &&
+  env.CAMPAIGNS_TEST_CHAIN_RPC_URL &&
+  env.CAMPAIGNS_TEST_CHAIN_TOKEN &&
+  env.CAMPAIGNS_TEST_CHAIN_TOKEN_DECIMALS !== undefined &&
+  env.CAMPAIGNS_TEST_CHAIN_ID
+    ? new RewardPayer({
+        sql,
+        ledger,
+        chain: testRewardChain({
+          rpcUrl: env.CAMPAIGNS_TEST_CHAIN_RPC_URL,
+          token: env.CAMPAIGNS_TEST_CHAIN_TOKEN,
+          chainId: env.CAMPAIGNS_TEST_CHAIN_ID,
+        }),
+        wallet: { walletId: payWallet[1]!, address: payWallet[2]!, tokenDecimals: env.CAMPAIGNS_TEST_CHAIN_TOKEN_DECIMALS },
+        postingEnabled: ledgerPostingEnabled(env.LEDGER_URL),
+      })
+    : null;
+let paying = false;
+const payTimer = payer
+  ? setInterval(() => {
+      if (paying) return;
+      paying = true;
+      payer
+        .pass()
+        .catch((err: unknown) => app.log.error({ err }, 'reward payment pass failed'))
+        .finally(() => {
+          paying = false;
+        });
+    }, env.CAMPAIGNS_REWARD_PAY_INTERVAL_MS)
+  : null;
+payTimer?.unref();
+
 // Voucher expiry (J-campaigns-08): marks each claimed voucher whose use-by passed `expired`, once, and drops code
 // attempts older than the attempt window, which nothing counts any more. It moves no value, so
 // it runs whether or not the ledger is connected; a redemption after the use-by refuses whether or not it has run.
@@ -239,6 +313,8 @@ const VOUCHER_EXPIRY_MS = 15_000;
 const voucherExpiry = setInterval(() => {
   vouchers.expire().catch((err: unknown) => app.log.error({ err }, 'voucher expiry failed'));
   vouchers.pruneAttempts().catch((err: unknown) => app.log.error({ err }, 'voucher attempt prune failed'));
+  // Expired export files are deleted, and a job a stopped runner left queued is run (J-campaigns-17 #6).
+  watch.sweepExports().catch((err: unknown) => app.log.error({ err }, 'export sweep failed'));
 }, VOUCHER_EXPIRY_MS);
 voucherExpiry.unref();
 
@@ -247,17 +323,20 @@ if (!participantsWired) {
   app.log.warn('IDENTITY_URL or INTERNAL_SERVICE_SECRET is unset: campaigns with exclusions or a region list read unread');
 }
 if (!markets) app.log.warn('TRADE_URL is unset: a task step that names a market counts no fill');
+if (!venueDeposits) app.log.warn('PROTOCOL_URL, TRADE_URL or INTERNAL_SERVICE_SECRET is unset: the welcome deposit task reads unread');
 if (!saga)
   app.log.warn(
     'LEDGER_URL or INTERNAL_SERVICE_SECRET is unset: every claim refuses campaigns.reward_saga_unwired and no earning rule pays',
   );
-app.log.info({ port: env.HTTP_PORT, participants: participantsWired, ledger: Boolean(saga) }, 'svc-campaigns ready');
+if (!payer) app.log.warn('no reward payer: an owed reward stays owed (campaigns.reward_payout_unavailable)');
+app.log.info({ port: env.HTTP_PORT, participants: participantsWired, ledger: Boolean(saga), payer: Boolean(payer) }, 'svc-campaigns ready');
 
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     void (async () => {
       stopping = true;
       if (reconciler) clearInterval(reconciler);
+      if (payTimer) clearInterval(payTimer);
       clearInterval(voucherExpiry);
       if (busRetry) clearTimeout(busRetry);
       if (welcomeRetry) clearTimeout(welcomeRetry);

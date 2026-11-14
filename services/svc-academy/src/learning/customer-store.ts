@@ -223,7 +223,13 @@ export class AcademyCustomerStore {
     return new Set(rows.map((r) => r.path_slug));
   }
 
-  async enrollCertPath(input: { userId: string; pathSlug: string; catalog?: readonly ProgrammeDefinition[] }): Promise<EnrollmentRow> {
+  async enrollCertPath(input: {
+    userId: string;
+    pathSlug: string;
+    catalog?: readonly ProgrammeDefinition[];
+    /** The course's seat cap; set, the enrolment is refused `full` once the active enrolments fill it. */
+    seatCap?: number | null;
+  }): Promise<EnrollmentRow> {
     const pathSlug = input.pathSlug.trim().toLowerCase();
     if (!PATHS.has(pathSlug as ProgrammeSlug)) {
       throw new AcademyError('pathSlug must be one of foundations | markets | builder | sovereign', 'academy.cert_invalid');
@@ -237,14 +243,45 @@ export class AcademyCustomerStore {
     if (missing.length > 0) {
       throw new AcademyError(`academy.prerequisite_unmet missing=${missing.join(',')}`, 'academy.prerequisite_unmet');
     }
-    const rows = await this.sql<EnrollmentSql[]>`
-      INSERT INTO academy.cert_enrollments (user_id, path_slug, enrolled_at)
-      VALUES (${input.userId}, ${pathSlug}, now())
-      ON CONFLICT (user_id, path_slug) WHERE left_at IS NULL
-      DO UPDATE SET path_slug = EXCLUDED.path_slug
-      RETURNING user_id, path_slug, enrolled_at, left_at
+    if (input.seatCap === undefined || input.seatCap === null) {
+      const rows = await this.sql<EnrollmentSql[]>`
+        INSERT INTO academy.cert_enrollments (user_id, path_slug, enrolled_at)
+        VALUES (${input.userId}, ${pathSlug}, now())
+        ON CONFLICT (user_id, path_slug) WHERE left_at IS NULL
+        DO UPDATE SET path_slug = EXCLUDED.path_slug
+        RETURNING user_id, path_slug, enrolled_at, left_at
+      `;
+      return mapEnrollment(rows[0]!);
+    }
+    const cap = input.seatCap;
+    // Under a seat cap, the count and the insert hold one lock per course, so two learners cannot take the last seat.
+    // A learner already enrolled keeps their seat and gets the same enrolment back, full or not.
+    return transaction(this.sql, async (tx) => {
+      await tx`SELECT pg_advisory_xact_lock(hashtext(${`academy.course_seats:${pathSlug}`}))`;
+      const mine = await tx<EnrollmentSql[]>`
+        SELECT user_id, path_slug, enrolled_at, left_at FROM academy.cert_enrollments
+         WHERE user_id = ${input.userId} AND path_slug = ${pathSlug} AND left_at IS NULL
+      `;
+      if (mine[0]) return mapEnrollment(mine[0]);
+      const [taken] = await tx<Array<{ n: number }>>`
+        SELECT count(*)::int AS n FROM academy.cert_enrollments WHERE path_slug = ${pathSlug} AND left_at IS NULL
+      `;
+      if (taken!.n >= cap) throw new AcademyError(`academy.enrolment_closed track=audit reason=full`, 'academy.enrolment_closed');
+      const rows = await tx<EnrollmentSql[]>`
+        INSERT INTO academy.cert_enrollments (user_id, path_slug, enrolled_at)
+        VALUES (${input.userId}, ${pathSlug}, now())
+        RETURNING user_id, path_slug, enrolled_at, left_at
+      `;
+      return mapEnrollment(rows[0]!);
+    });
+  }
+
+  /** The seats a course's active enrolments take. */
+  async seatsTaken(pathSlug: string): Promise<number> {
+    const [row] = await this.sql<Array<{ n: number }>>`
+      SELECT count(*)::int AS n FROM academy.cert_enrollments WHERE path_slug = ${pathSlug} AND left_at IS NULL
     `;
-    return mapEnrollment(rows[0]!);
+    return row!.n;
   }
 
   async myEnrollments(userId: string): Promise<EnrollmentRow[]> {
@@ -698,10 +735,23 @@ export class AcademyCustomerStore {
     return { from: window.fromIso, to: window.toIso, pathSlug: path, items };
   }
 
-  async opsMetrics(input: { from: string; to: string }): Promise<{ from: string; to: string; days: OpsDay[] }> {
+  /**
+   * The daily activity table. A day before the service began recording (`academy.metrics_recording`, or the oldest row
+   * already stored if that is earlier) has no figure: each of its cells is `metric_not_recorded`, never zero.
+   */
+  async opsMetrics(input: { from: string; to: string }): Promise<{ from: string; to: string; recordingSince: string; days: OpsDay[] }> {
     const window = utcWindow('opsMetrics', input.from, input.to);
     const { start, endExclusive } = window;
-    const [lessonRows, completionRows, grantRows] = await Promise.all([
+    const [sinceRows, lessonRows, completionRows, grantRows] = await Promise.all([
+      this.sql<Array<{ day: string }>>`
+        SELECT to_char(LEAST(
+          (SELECT since FROM academy.metrics_recording WHERE id = 1),
+          (SELECT min(touched_at) FROM academy.learning_touches),
+          (SELECT min(completed_at) FROM academy.cert_item_completions),
+          (SELECT min(granted_at) FROM academy.cert_grants),
+          now()
+        ) AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS day
+      `,
       this.sql<Array<{ day: string; n: number }>>`
         SELECT to_char(touched_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS day, COUNT(*)::int AS n
           FROM academy.learning_touches
@@ -724,12 +774,16 @@ export class AcademyCustomerStore {
     const lessons = new Map(lessonRows.map((r) => [r.day, r.n]));
     const completions = new Map(completionRows.map((r) => [r.day, r.n]));
     const grants = new Map(grantRows.map((r) => [r.day, r.n]));
-    const days = utcDaysInclusive(window.fromIso, window.toIso).map((date) => ({
-      date,
-      lessonsRead: metricFromCount(lessons.get(date), true),
-      completions: metricFromCount(completions.get(date), true),
-      grants: metricFromCount(grants.get(date), true),
-    }));
-    return { from: window.fromIso, to: window.toIso, days };
+    const recordingSince = sinceRows[0]!.day;
+    const days = utcDaysInclusive(window.fromIso, window.toIso).map((date) => {
+      const recorded = date >= recordingSince;
+      return {
+        date,
+        lessonsRead: metricFromCount(lessons.get(date), recorded),
+        completions: metricFromCount(completions.get(date), recorded),
+        grants: metricFromCount(grants.get(date), recorded),
+      };
+    });
+    return { from: window.fromIso, to: window.toIso, recordingSince, days };
   }
 }

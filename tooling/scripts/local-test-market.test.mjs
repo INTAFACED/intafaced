@@ -108,7 +108,8 @@ try {
   r = run(home, ['hold', 'NOPE/USDT']);
   assert.equal(r.status, 2, r.stderr);
 
-  // 4c. A hold left set by a file that never released it (a worker killed in J-cex-spot-03 #8) does not outlive the
+  // 4c. A hold left set by a file that never released it (a worker killed in J-cex-spot-08, a `market` file that holds the
+  // book; J-cex-spot-03 trades on the venue since #8140 and no longer holds it) does not outlive the
   // file: the journeys' world restore, entering the next file, clears it (world-restore.mjs restoreWorld, `unshift`).
   // Failure it prevents: a frozen BTC/USDT book for every journey file after it.
   run(home, ['hold', 'BTC/USDT']);
@@ -120,7 +121,7 @@ try {
       '--input-type=module',
       '-e',
       `const w = await import(${JSON.stringify(join(realApp, 'world-restore.mjs'))});
-       await w.enterFile(${JSON.stringify(join(realApp, 'J-cex-spot-03.pw.mjs'))});
+       await w.enterFile(${JSON.stringify(join(realApp, 'J-cex-spot-08.pw.mjs'))});
        await w.enterFile(${JSON.stringify(join(realApp, 'J-cex-spot-04.pw.mjs'))});`,
     ],
     { env: { ...process.env, HOME: home, TEST_PARALLEL_INDEX: 'hold-leak' }, encoding: 'utf8' },

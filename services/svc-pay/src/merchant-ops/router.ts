@@ -35,7 +35,9 @@ import { MerchantSecurity } from './security.js';
 import { permissionCatalogue, refuseBuiltInRoleEdit } from './merchant-plat-org-permission-catalogue.js';
 import { TeamService } from './team.js';
 import { type TeamEmailInviteLimit } from './team-email.js';
-import { WebhookOps, type WebhookRetryLimit } from './webhooks.js';
+import { DELIVERY_STATUSES, WebhookOps, type WebhookRetryLimit, type WebhookSettings } from './webhooks.js';
+import type { WebhookResolver } from '../webhook-url-guard.js';
+import { MERCHANT_WEBHOOK_EVENT_TYPES } from '../merchant-webhooks.js';
 import { ownMerchantRead } from '../own-merchant-read.js';
 import { invitationAccept, membershipExit, teamMemberWrite } from '../team-member-write.js';
 
@@ -67,6 +69,10 @@ export interface MerchantOpsDeps {
   readonly webhooksAllowLocalHttp?: boolean;
   /** Retry window. Unset: retry refuses. No production default. */
   readonly webhookRetry?: WebhookRetryLimit;
+  /** The owner's webhook values (cap, overlap maximum, resend window, retry policy, guide). Each absent is blank. */
+  readonly webhookSettings?: WebhookSettings;
+  /** DNS for the add-time address check. Absent: the delivery worker's default. */
+  readonly webhookResolver?: WebhookResolver | undefined;
   /** Chargeback transactions by key, for the read-only dispute funds card. Absent: that read refuses. */
   readonly disputeFundsLedger?: DisputeFundsLedger;
   /** Email-invite window. Unset: email invite refuses. Account-id invite is unchanged. */
@@ -110,7 +116,12 @@ function makeParts(deps: MerchantOpsDeps) {
         branding: new ReceiptBrandingService(sql, deps.receiptPlaces ?? null),
         activity: new ActivityFeed(sql),
         payouts: new PayoutList(sql),
-        webhooks: new WebhookOps(sql, { allowLocalHttp: deps.webhooksAllowLocalHttp === true, retry: deps.webhookRetry }),
+        webhooks: new WebhookOps(sql, {
+          allowLocalHttp: deps.webhooksAllowLocalHttp === true,
+          retry: deps.webhookRetry,
+          ...(deps.webhookSettings ? { settings: deps.webhookSettings } : {}),
+          ...(deps.webhookResolver ? { resolver: deps.webhookResolver } : {}),
+        }),
         notes: new OperatorNotes(sql),
       }
     : null;
@@ -537,7 +548,15 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
           )
           .query(({ ctx, input }) => wrapOps(async () => need().webhooks.list(await callerOf(ctx), input))),
         create: memberWrite
-          .input(z.object({ url: z.string().trim().min(1).max(2048) }))
+          .input(
+            z.object({
+              url: z.string().trim().min(1).max(2048),
+              eventTypes: z
+                .array(z.string().trim().min(1).max(100))
+                .max(MERCHANT_WEBHOOK_EVENT_TYPES.length * 2)
+                .optional(),
+            }),
+          )
           .mutation(({ ctx, input }) => wrapOps(async () => need().webhooks.create(await callerOf(ctx), input))),
         update: memberWrite
           .input(z.object({ endpointId: id, url: z.string().trim().min(1).max(2048) }))
@@ -546,7 +565,7 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
           .input(z.object({ endpointId: id }))
           .mutation(({ ctx, input }) => wrapOps(async () => need().webhooks.disable(await callerOf(ctx), input.endpointId))),
         rotateSecret: memberWrite
-          .input(z.object({ endpointId: id, requestId: id }))
+          .input(z.object({ endpointId: id, requestId: id, overlapSeconds: z.number().int().min(0).max(31_536_000).optional() }))
           .mutation(({ ctx, input }) => wrapOps(async () => need().webhooks.rotateSecret(await callerOf(ctx), input))),
         deliveries: router({
           list: read
@@ -555,7 +574,7 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
                 limit: limitInput,
                 cursor: cursorInput,
                 endpointId: id.optional(),
-                status: z.enum(['pending', 'delivered', 'failed', 'dead']).optional(),
+                status: z.enum(DELIVERY_STATUSES).optional(),
                 from: iso.optional(),
                 to: iso.optional(),
               }),
@@ -564,7 +583,18 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
           retry: memberWrite
             .input(z.object({ requestId: id, deliveryId: id }))
             .mutation(({ ctx, input }) => wrapOps(async () => need().webhooks.retry(await callerOf(ctx), input))),
+          attempts: read
+            .input(z.object({ deliveryId: id }))
+            .query(({ ctx, input }) => wrapOps(async () => need().webhooks.attempts(await callerOf(ctx), input))),
+          recover: memberWrite
+            .input(z.object({ requestId: id, endpointId: id, since: iso }))
+            .mutation(({ ctx, input }) => wrapOps(async () => need().webhooks.recover(await callerOf(ctx), input))),
         }),
+        policy: read.input(z.object({}).strict()).query(({ ctx }) => wrapOps(async () => need().webhooks.policy(await callerOf(ctx)))),
+        catalogue: read
+          .input(z.object({}).strict())
+          .query(({ ctx }) => wrapOps(async () => need().webhooks.catalogue(await callerOf(ctx)))),
+        guide: read.input(z.object({}).strict()).query(({ ctx }) => wrapOps(async () => need().webhooks.guide(await callerOf(ctx)))),
         health: read.input(z.object({}).strict()).query(({ ctx }) => wrapOps(async () => need().webhooks.health(await callerOf(ctx)))),
       }),
 

@@ -7,6 +7,12 @@ import { z } from 'zod';
  */
 export const ACADEMY_CURRICULUM_PATHS = ['foundations', 'markets', 'builder', 'sovereign'] as const;
 export const ACADEMY_CURRICULUM_KINDS = ['playbook', 'workbook', 'lesson'] as const;
+/**
+ * AC-course-structure-02: what an item of a course is to the learner. A workbook is drills to do, so an assignment; an item
+ * with a published quiz is a quiz; every other item is a lesson to read.
+ */
+export const ACADEMY_ITEM_TYPES = ['lesson', 'quiz', 'assignment'] as const;
+export type AcademyItemType = (typeof ACADEMY_ITEM_TYPES)[number];
 /** `recommended` is the shipped list order until courses are rows (AC-course-structure-01). */
 export const ACADEMY_PUBLIC_CATALOGUE_SORTS = ['recommended', 'name_asc', 'name_desc'] as const;
 export type AcademyPublicCatalogueSort = (typeof ACADEMY_PUBLIC_CATALOGUE_SORTS)[number];
@@ -58,7 +64,7 @@ export const academyPublicCourseSchema = z.object({
   summary: z.string().nullable(),
   instructor: z.string().nullable(),
   outcomes: z.array(z.string()),
-  syllabus: z.array(academyCurriculumSummarySchema).min(1),
+  syllabus: z.array(academyCurriculumSummarySchema.extend({ type: z.enum(ACADEMY_ITEM_TYPES) })).min(1),
   certificate: z.string().nullable(),
 });
 export type AcademyPublicCourse = z.infer<typeof academyPublicCourseSchema>;
@@ -201,6 +207,7 @@ export const academyCourseOutlineItemSchema = z.object({
   slug: z.string().min(1),
   title: z.string().min(1),
   kind: z.enum(ACADEMY_CURRICULUM_KINDS),
+  type: z.enum(ACADEMY_ITEM_TYPES),
   state: z.enum(ACADEMY_ITEM_STATES),
   lock: z.enum(['prerequisite', 'window']).nullable(),
   missing: z.array(z.string().min(1)),

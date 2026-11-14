@@ -54,9 +54,23 @@ const graderLease = () => (process.env.LOCAL_STACK_ACADEMY_GRADER_LEASE === 'off
 // leaves it blank, so the "report limit not set" refusal can be seen too.
 const reportRows = () => (process.env.LOCAL_STACK_ACADEMY_REPORT_ROWS === 'off' ? {} : { ACADEMY_GRADE_REPORT_ROWS: '500' });
 
+// LOCAL TEST issued certificate list and export size (a TEST owner value): 500 rows (J-academy-17 #4).
+// `LOCAL_STACK_ACADEMY_CERT_ISSUED_ROWS=off` leaves it blank, so the "limit not set" refusal can be seen too.
+const certIssuedRows = () => (process.env.LOCAL_STACK_ACADEMY_CERT_ISSUED_ROWS === 'off' ? {} : { ACADEMY_CERT_ISSUED_ROWS: '500' });
+
 // LOCAL TEST quiz curve file size (a TEST owner value): 64 KiB (J-academy-13 #5). `LOCAL_STACK_ACADEMY_BULK_LIMIT=off`
 // leaves it blank, so the "limit not set" refusal can be seen too.
 const bulkLimit = () => (process.env.LOCAL_STACK_ACADEMY_BULK_LIMIT === 'off' ? {} : { ACADEMY_BULK_FILE_MAX_BYTES: '65536' });
+
+// LOCAL TEST staff enrolment, course email and export values (TEST owner values, not decisions): 50 addresses an upload,
+// 30 days without learning is inactive, an export kept 24 hours and holding at most 1000 learners (J-academy-15).
+// Each `LOCAL_STACK_ACADEMY_<NAME>=off` leaves its value blank, so its "not set" refusal can be seen too.
+const staffLimits = () => ({
+  ...(process.env.LOCAL_STACK_ACADEMY_BULK_ENROL_ROWS === 'off' ? {} : { ACADEMY_BULK_ENROL_ROWS: '50' }),
+  ...(process.env.LOCAL_STACK_ACADEMY_INACTIVE_DAYS === 'off' ? {} : { ACADEMY_BULK_EMAIL_INACTIVE_DAYS: '30' }),
+  ...(process.env.LOCAL_STACK_ACADEMY_REPORT_RETENTION === 'off' ? {} : { ACADEMY_REPORT_RETENTION_HOURS: '24' }),
+  ...(process.env.LOCAL_STACK_ACADEMY_EXPORT_ROWS === 'off' ? {} : { ACADEMY_LEARNER_EXPORT_ROWS: '1000' }),
+});
 
 // LOCAL TEST certificate issue sweep (a TEST owner value): every 5 seconds, so a one-minute delayed certificate is issued
 // within the journey (J-academy-05 #1). `LOCAL_STACK_ACADEMY_CERT_SWEEP=off` leaves it blank.
@@ -80,6 +94,36 @@ const postLimits = () =>
     ? {}
     : { ACADEMY_POST_MAX_CHARS: '4000', ACADEMY_POST_IMAGE_MAX_BYTES: '262144', ACADEMY_MESSAGE_MAX_CHARS: '4000' };
 
+// LOCAL TEST room size ceiling (a TEST owner value): a host may open a room of up to 500 seats, so a host can open the
+// specialist rooms J-academy-19 #4 reads. `LOCAL_STACK_ACADEMY_ROOM_CAPACITY=off` leaves it blank (createRoom refuses).
+const roomCapacity = () => (process.env.LOCAL_STACK_ACADEMY_ROOM_CAPACITY === 'off' ? {} : { ACADEMY_MAX_ROOM_CAPACITY: '500' });
+
+// LOCAL TEST learner summaries page size and report task list size (TEST owner values): 50 each (J-academy-16 #2, #3).
+// `LOCAL_STACK_ACADEMY_LEARNER_SUMMARIES=off` leaves the summaries' page size blank, so its refusal can be seen too.
+const analyticsPages = () => ({
+  ...(process.env.LOCAL_STACK_ACADEMY_LEARNER_SUMMARIES === 'off' ? {} : { ACADEMY_LEARNER_SUMMARIES_PAGE_SIZE: '50' }),
+  ACADEMY_REPORT_TASKS_PAGE_SIZE: '50',
+});
+
+// LOCAL TEST reports centre (TEST owner values): the report sweep runs every 30 seconds, so a requested report waits and
+// then runs for one sweep each (long enough to see and abort it) and is done on the next (J-academy-16 #3, #4); a file is
+// kept 1440 minutes (24 hours). A report shares the learner export's row limit above (ACADEMY_LEARNER_EXPORT_ROWS).
+// `LOCAL_STACK_ACADEMY_REPORT_CENTRE_RETENTION=off` leaves the retention blank, so a request refuses by name; a whole
+// number of minutes there keeps a file that long instead, so a journey can watch one expire (J-academy-16 #4).
+const centreRetention = () => {
+  const v = process.env.LOCAL_STACK_ACADEMY_REPORT_CENTRE_RETENTION;
+  if (v === 'off') return {};
+  return { ACADEMY_REPORT_CENTRE_RETENTION_MINUTES: v && /^[1-9][0-9]*$/.test(v) ? v : '1440' };
+};
+const reportsCentre = () => ({
+  ACADEMY_REPORT_SWEEP_SECONDS: '30',
+  ...centreRetention(),
+});
+
+// LOCAL TEST custom role limit (a TEST owner value): 50 custom roles, room for the journey's one role per run on a kept
+// stack (J-academy-18 #6). `LOCAL_STACK_ACADEMY_ROLE_LIMIT=off` leaves it blank, so the "limit not set" refusal can be seen.
+const roleLimit = () => (process.env.LOCAL_STACK_ACADEMY_ROLE_LIMIT === 'off' ? {} : { ACADEMY_CUSTOM_ROLE_LIMIT: '50' });
+
 export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
   name: 'academy',
   env: () => ({
@@ -98,10 +142,16 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     ...grantAuditPage(),
     ...graderLease(),
     ...reportRows(),
+    ...certIssuedRows(),
     ...bulkLimit(),
+    ...staffLimits(),
     ...certSweep(),
     ...programmeMax(),
     ...postLimits(),
     ...verifyRate(),
+    ...roomCapacity(),
+    ...analyticsPages(),
+    ...reportsCentre(),
+    ...roleLimit(),
   }),
 });

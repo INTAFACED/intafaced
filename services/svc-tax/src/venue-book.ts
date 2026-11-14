@@ -1,8 +1,9 @@
 import { formatAmount, mul, parseAmount, type Amount } from '@intafaced/ledger-client';
 import type { TradeVenueAccountActivity, TradeVenueActivityResult } from '@intafaced/contracts';
+import type { InflowLine } from './ledger-reads.js';
 import type { LotBookVenue } from '@intafaced/contracts/tax-lot-book';
 import { TAX_VENUE_OFF, TAX_VENUE_UNAVAILABLE, TAX_VENUE_UNWIRED } from './codes.js';
-import { buildLotBook, PAR_ASSETS, type BookLot, type CarriedLot, type Fill, type LotBook } from './lot-book.js';
+import { buildLotBook, PAR_ASSETS, type BookLot, type CarriedLot, type Fill, type Inflow, type LotBook } from './lot-book.js';
 import type { OwnMove } from './own-moves.js';
 
 /**
@@ -13,8 +14,10 @@ import type { OwnMove } from './own-moves.js';
  * posts nothing for it.
  *
  * Each account stays apart: a venue sale draws only on that account's lots, and a ledger sale never draws on a venue lot.
- * Coins move between the venue and our ledger only through a wallet, which neither book follows, so a coin that arrived
- * on the venue other than by a fill does not reconcile and its figures are unknown, named, never guessed.
+ * Coins move between the venue and our ledger only through a wallet, which neither book follows. A coin the venue credited
+ * from outside (a deposit or a transfer in, J-portfolio-02 #6) is a lot of its own when the venue's adapter reads those
+ * credits (`arrivals`): it has no cost unless the owner's deposit policy gives one or the person enters one, never zero.
+ * Without that read, a coin that arrived other than by a fill does not reconcile and its figures are unknown, named.
  *
  * MOVES TO THE PERSON'S OWN SUB-ACCOUNT (J-portfolio-04 #2). A move from a main account into one of its own sub-accounts,
  * signed by the person's wallet and settled by the venue (`transfers` on the main account), is not a sale: the main
@@ -51,6 +54,27 @@ export function venueFillToFill(account: string, f: TradeVenueAccountActivity['f
     fee: inGot || inGave ? fee : null,
     ...(inGot ? {} : { feeAssetId: f.feeAsset }),
   };
+}
+
+/** The reason a venue credit carries into the lot book: a deposit is `deposit.*`, a transfer in this (inflowSource). */
+export const VENUE_TRANSFER_IN = 'venue.transfer_in';
+
+/** One venue account's credits from outside, as arrivals the lot book values and turns into lots (none: no `arrivals`). */
+export function venueArrivalLines(activity: TradeVenueAccountActivity): InflowLine[] {
+  const account = venueAccountKey(activity);
+  return (activity.arrivals ?? []).map((a) => ({
+    txId: `${account}:arrival:${a.arrivalId}`,
+    postedAt: new Date(a.arrivedAt),
+    assetId: a.asset,
+    amount: parseAmount(a.amount),
+    reason: a.kind === 'deposit' ? 'deposit.venue' : VENUE_TRANSFER_IN,
+  }));
+}
+
+/** What a venue account's book takes besides its activity: its valued arrivals by account key, and customer prices. */
+export interface VenueExtras {
+  readonly inflows?: ReadonlyMap<string, readonly Inflow[]>;
+  readonly overridePricePerUnit?: ReadonlyMap<string, Amount>;
 }
 
 type BookShared = Pick<Parameters<typeof buildLotBook>[0], 'method' | 'rules' | 'preview' | 'choices' | 'includeTransfers' | 'now'>;
@@ -111,6 +135,7 @@ function venueAccountBook(
   activity: TradeVenueAccountActivity,
   shared: BookShared,
   carriedIn: readonly CarriedLot[],
+  extras: VenueExtras = {},
 ): { book: LotBook; carriedOut: Map<string, CarriedLot[]> } {
   const account = venueAccountKey(activity);
   const held = new Map<string, Amount>();
@@ -126,6 +151,9 @@ function venueAccountBook(
     truncated: false,
     moves,
     carriedIn,
+    // Read arrivals (even none) make the account's book follow its credits from outside, each a lot of its own.
+    ...(activity.arrivals === undefined ? {} : { inflows: extras.inflows?.get(account) ?? [] }),
+    ...(extras.overridePricePerUnit ? { overridePricePerUnit: extras.overridePricePerUnit } : {}),
   });
   const carriedOut = new Map<string, CarriedLot[]>();
   for (const lot of book.lots) {
@@ -152,24 +180,24 @@ function venueAccountBook(
 }
 
 /** One venue account's book on its own (with no lots carried in). */
-export function buildVenueAccountBook(activity: TradeVenueAccountActivity, shared: BookShared): LotBook {
-  return venueAccountBook(activity, shared, []).book;
+export function buildVenueAccountBook(activity: TradeVenueAccountActivity, shared: BookShared, extras: VenueExtras = {}): LotBook {
+  return venueAccountBook(activity, shared, [], extras).book;
 }
 
 /**
  * Every venue account's book, in the order the accounts came. Each main account's book is built first, so the lots its
  * moves carried to one of its sub-accounts arrive in that sub-account's book.
  */
-export function venueBooks(accounts: readonly TradeVenueAccountActivity[], shared: BookShared): LotBook[] {
+export function venueBooks(accounts: readonly TradeVenueAccountActivity[], shared: BookShared, extras: VenueExtras = {}): LotBook[] {
   const built = new Map<string, LotBook>();
   const carried = new Map<string, CarriedLot[]>();
   for (const a of accounts.filter((x) => x.subAccount === null)) {
-    const { book, carriedOut } = venueAccountBook(a, shared, []);
+    const { book, carriedOut } = venueAccountBook(a, shared, [], extras);
     built.set(venueAccountKey(a), book);
     for (const [to, lots] of carriedOut) carried.set(to, [...(carried.get(to) ?? []), ...lots]);
   }
   for (const a of accounts.filter((x) => x.subAccount !== null)) {
-    built.set(venueAccountKey(a), venueAccountBook(a, shared, carried.get(venueAccountKey(a)) ?? []).book);
+    built.set(venueAccountKey(a), venueAccountBook(a, shared, carried.get(venueAccountKey(a)) ?? [], extras).book);
   }
   return accounts.map((a) => built.get(venueAccountKey(a))!);
 }
@@ -191,14 +219,14 @@ const countedSales = (book: LotBook) => book.sales.filter((sale) => sale.counted
  * venue account's together: null when any part is null, and null when the venue could not be read (a venue sale may be
  * missing from it). Null, not 0, when nothing anywhere was sold.
  */
-export function withVenue(main: LotBook, activity: TradeVenueActivityResult | null, shared: BookShared): LotBook {
+export function withVenue(main: LotBook, activity: TradeVenueActivityResult | null, shared: BookShared, extras: VenueExtras = {}): LotBook {
   let venue: LotBookVenue;
   let books: LotBook[] = [];
   if (activity === null) venue = { status: 'unwired', code: TAX_VENUE_UNWIRED };
   else if (activity.state === 'off') venue = { status: 'off', code: TAX_VENUE_OFF };
   else if (activity.state === 'unavailable') venue = { status: 'unavailable', code: TAX_VENUE_UNAVAILABLE };
   else {
-    books = venueBooks(activity.accounts, shared);
+    books = venueBooks(activity.accounts, shared, extras);
     venue = {
       status: 'read',
       test: activity.test,

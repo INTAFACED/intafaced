@@ -13,6 +13,7 @@ import { SqlGridStore } from './store.js';
 import {
   gridClientOrderId,
   gridReserveKey,
+  gridTopUpKey,
   gridWithdrawalKey,
   type GridBot,
   type GridOrder,
@@ -58,6 +59,7 @@ function bot(botId = BOT): GridBot {
       { index: 0, price: A('60000'), qty: A('0.00166'), hold: A('99.6') },
       { index: 1, price: A('70000'), qty: A('0.00142'), hold: A('99.4') },
     ],
+    reinitCount: 0,
     status: 'running',
     statusReason: null,
     placeGrant: { scopes: ['trade:write'], sid: 'sid-test', tier: 'full', mfa: false },
@@ -106,7 +108,7 @@ describe('SqlGridStore (shared test postgres)', () => {
   }, 30_000);
 
   beforeEach(async () => {
-    await db.sql`TRUNCATE trade.grid_bot_withdrawals, trade.grid_bot_orders, trade.grid_bot_reserves, trade.grid_bots`;
+    await db.sql`TRUNCATE trade.grid_bot_top_ups, trade.grid_bot_withdrawals, trade.grid_bot_orders, trade.grid_bot_reserves, trade.grid_bots`;
   });
 
   it('writes the bot and its reserve once, and reads both back', async () => {
@@ -334,6 +336,73 @@ describe('SqlGridStore (shared test postgres)', () => {
         store.withdraw(at, () => withdrawal({ reserveBefore: A('200.6'), reserveAfter: A('200.4'), amount: A('0.2') })),
       ).rejects.toThrow(/reserve changed/);
       expect(await store.findWithdrawal(KEY)).toBeNull();
+    });
+  });
+
+  describe('top-up (CB-bots-04; J-copy-bots-otc-15 #1)', () => {
+    const KEY = gridTopUpKey(BOT, 'topup-test-0001');
+    const at = { topUpId: KEY, botId: BOT, userId: ALICE, asset: 'USDT' };
+    const levels = [
+      { index: 0, price: A('60000'), qty: A('0.00207'), hold: A('124.2') },
+      { index: 1, price: A('70000'), qty: A('0.00178'), hold: A('124.6') },
+    ];
+    const decide =
+      (amount = '50') =>
+      async (state: { bot: GridBot }) => ({
+        topUp: {
+          topUpId: KEY,
+          botId: BOT,
+          userId: ALICE,
+          requestId: 'topup-test-0001',
+          requestHash: 'h',
+          asset: 'USDT',
+          amount: A(amount),
+          investmentBefore: state.bot.investment,
+          investmentAfter: state.bot.investment + A(amount),
+          freeBefore: A('800'),
+          appliedAt: AT,
+        },
+        levels,
+      });
+
+    it('raises the investment, the reserve and the reinit count together, once per key', async () => {
+      await store.createWithReserve(bot(), reserve(), async () => {});
+      const first = await store.topUp(at, decide());
+      expect(first.created).toBe(true);
+      const again = await store.topUp(at, async () => {
+        throw new Error('decide must not run for a key already stored');
+      });
+      expect(again).toMatchObject({ created: false, topUp: { topUpId: KEY, amount: A('50') } });
+      const read = (await store.findBot(BOT))!;
+      expect(read.investment).toBe(A('250'));
+      expect(read.reinitCount).toBe(1);
+      expect(read.levels).toEqual(levels);
+      expect((await store.getReserve(BOT))!.amount).toBe(A('250'));
+      expect(await store.findTopUp(KEY)).toEqual(first.topUp);
+    });
+
+    it('a refused decide writes nothing, and a released reserve rolls the whole top-up back', async () => {
+      await store.createWithReserve(bot(), reserve(), async () => {});
+      await expect(
+        store.topUp(at, async () => {
+          throw new GridError('no', 'trade.bots_grid_topup_exceeds_free');
+        }),
+      ).rejects.toMatchObject({ code: 'trade.bots_grid_topup_exceeds_free' });
+      await store.releaseReserve(BOT, AT);
+      await expect(store.topUp(at, decide())).rejects.toThrow(/reserve is released/);
+      expect(await store.findTopUp(KEY)).toBeNull();
+      expect((await store.findBot(BOT))!).toMatchObject({ investment: A('200'), reinitCount: 0 });
+    });
+
+    it('the row refuses a top-up above the free figure it was checked against', async () => {
+      await store.createWithReserve(bot(), reserve(), async () => {});
+      await expect(
+        store.topUp(at, async (state) => {
+          const d = await decide('900')(state);
+          return { ...d, topUp: { ...d.topUp, freeBefore: A('800') } };
+        }),
+      ).rejects.toThrow(/grid_bot_top_ups_free_ck/);
+      expect((await store.findBot(BOT))!.investment).toBe(A('200'));
     });
   });
 });

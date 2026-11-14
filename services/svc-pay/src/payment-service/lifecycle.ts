@@ -19,11 +19,12 @@ import { randomUUID } from 'node:crypto';
 import { withPaymentAdmission, type PreparedPaymentOperation } from '../payment-admission.js';
 import { FRESH, type GuardReplay } from '../seams/guards.js';
 import type { Sql } from 'postgres';
-import { formatAmount, parseAmount, recipes, type Amount } from '@intafaced/ledger-client';
+import { formatAmount, mulBps, parseAmount, recipes, type Amount } from '@intafaced/ledger-client';
 import { isSandboxRailId } from '../sandbox-key-routing.js';
 import { isRailHealthBlockingCode, railReasonCode, type PaymentIntent, type RailResult } from '../rails/rail-adapter.js';
 import { PayoutAdmissionError, stable } from '../payout-admission.js';
 import { assertNoPayerNameHold, holdOnPayerNames } from '../payer-name/holds.js';
+import { receivingAddressOf } from '../receiving-wallet/wallet.js';
 import { withMoneySpan, withRailSpan } from '../tracing.js';
 import type { PayService, PayServiceInternal, PaymentRow, PaymentStatus, PaymentView } from '../payment-service.js';
 import {
@@ -35,6 +36,8 @@ import {
   instrumentFor,
   lockPayment,
   paymentCreationPayload,
+  partnerFeeBpsOf,
+  paymentFeeBpsOf,
   railPayload,
   readPayment,
   refuseUnusableRail,
@@ -315,6 +318,8 @@ export async function authorize(
         // RC-merchant-09: a payment held for a payer-name review is not taken in by any door until the review decides.
         if (adapter.checksPayerName) await assertNoPayerNameHold(tx, row.id);
 
+        // Launch money model: a payment to its business's own wallet carries that address to the rail.
+        const receiveAt = await receivingAddressOf(tx, row.id);
         const intent: PaymentIntent = {
           paymentId: row.id,
           merchantId: row.merchant_id,
@@ -322,6 +327,7 @@ export async function authorize(
           assetId: row.currency,
           method: row.method,
           instrument: await instrumentFor(tx, row.id),
+          ...(receiveAt ? { receiveAt } : {}),
         };
 
         const result = await withRailSpan(adapter.id, 'authorize', async () => adapter.authorize(intent));
@@ -519,18 +525,24 @@ export async function capture(
             throw new PayError(`Payment ${row.id} has no rail reference to capture`, 'pay.invalid_transition');
           }
 
+          // Launch money model (OWNER 226): a payment held by the business's own wallet or by the partner books only our
+          // fee on it, under the payment's own key. Read before the rail is asked, so a blank fee refuses with nothing done.
+          const outside = (row.custody ?? 'platform') !== 'platform';
+          const feePost = outside ? await outsideCustodyFeePost(svc, tx, row, authorized) : null;
+
           // Before the rail and before the ledger. A sandbox key's capture
           // recipe debits live clearing; refusing here posts nothing.
           svc.refuseSandboxLive(
             options.keyEnv === 'sandbox' || (await svc.paymentIsSandbox(tx, row.id)),
-            recipes.paymentCapture({
-              paymentId: row.id,
-              merchantId: row.merchant_id,
-              assetId: row.currency,
-              amount: authorized,
-              rail: row.rail_adapter,
-              railRef: row.rail_ref,
-            }),
+            feePost ??
+              recipes.paymentCapture({
+                paymentId: row.id,
+                merchantId: row.merchant_id,
+                assetId: row.currency,
+                amount: authorized,
+                rail: row.rail_adapter,
+                railRef: row.rail_ref,
+              }),
           );
 
           const adapter = svc.rails.require(row.rail_adapter, 'capture');
@@ -562,17 +574,23 @@ export async function capture(
             );
           }
 
-          const posted = await postPayLedger(
-            svc.ledger,
-            recipes.paymentCapture({
-              paymentId: row.id,
-              merchantId: row.merchant_id,
-              assetId: row.currency,
-              amount: result.amount,
-              rail: adapter.id,
-              railRef: result.railRef,
-            }),
-          );
+          // The payer's money is booked only when it is in our custody. Held outside, only our fee is posted, once; a fee
+          // that rounds to nothing posts nothing.
+          const posted = outside
+            ? feePost
+              ? await postPayLedger(svc.ledger, feePost)
+              : null
+            : await postPayLedger(
+                svc.ledger,
+                recipes.paymentCapture({
+                  paymentId: row.id,
+                  merchantId: row.merchant_id,
+                  assetId: row.currency,
+                  amount: result.amount,
+                  rail: adapter.id,
+                  railRef: result.railRef,
+                }),
+              );
 
           // The rail holds the funds (RC-merchant-10): record its word in this transaction, so a capture is never on the
           // book without the hold the rail reported. Settlement waits for the rail's `funds.available` delivery.
@@ -585,7 +603,7 @@ export async function capture(
 
           // The reconciler calls this same function and does not post again.
           const view = await svc.finishBookedCapture(tx, row, {
-            ledgerTxId: posted.id,
+            ledgerTxId: posted?.id ?? null,
             amount: result.amount,
             railRef: result.railRef,
           });
@@ -674,4 +692,42 @@ function pendingReceived(result: RailResult): Amount {
   } catch {
     return 0n;
   }
+}
+
+/**
+ * Our fee on a payment held outside our book (launch money model, OWNER 226; J-merchant-04's Money line): the business owes
+ * it on a payment to its own wallet (`merchantFeeEarn`), the acquiring partner on one it took (`partnerFeeEarn`, the rail
+ * as the partner). Both are keyed on the payment, so it is booked once however often capture runs. On the business's own
+ * wallet the fee is its pricing or the published default (blank refuses `pay.fee_bps_unset`); with the partner it is our
+ * rate in that partner's contract (`PAY_PARTNER_FEE_BPS`; unset refuses `pay.partner_fee_rate_unset`), never the business's
+ * price. Null when the fee rounds to nothing.
+ */
+export async function outsideCustodyFeePost(
+  svc: PayServiceInternal,
+  tx: Sql,
+  row: PaymentRow,
+  gross: Amount,
+): Promise<import('@intafaced/ledger-client').PostRequest | null> {
+  const bps =
+    row.custody === 'merchant_wallet'
+      ? paymentFeeBpsOf(await svc.getMerchant(row.merchant_id, tx), svc.defaultFeeBps)
+      : partnerFeeBpsOf(svc.partnerFeeBps, row.rail_adapter);
+  if (mulBps(gross, bps, 'floor') === 0n) return null;
+  return row.custody === 'merchant_wallet'
+    ? recipes.merchantFeeEarn({
+        module: 'pay',
+        merchantId: row.merchant_id,
+        paymentId: row.id,
+        assetId: row.currency,
+        grossAmount: gross,
+        rate: { bps },
+      })
+    : recipes.partnerFeeEarn({
+        partnerId: row.rail_adapter,
+        module: 'pay',
+        paymentId: row.id,
+        assetId: row.currency,
+        grossAmount: gross,
+        rate: { bps },
+      });
 }

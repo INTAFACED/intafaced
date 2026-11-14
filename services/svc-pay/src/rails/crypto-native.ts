@@ -239,7 +239,10 @@ export class CryptoNativeAdapter implements RailAdapter {
     let address: string;
     let transfers: readonly ConfirmedTransfer[];
     try {
-      address = await this.chain.acceptanceAddress(p.paymentId, p.assetId);
+      // Launch money model: the business's own address, watched, never ours. Custodial layer: an address we derive.
+      address = p.receiveAt
+        ? await this.chain.watchAddress(p.paymentId, p.assetId, p.receiveAt)
+        : await this.chain.acceptanceAddress(p.paymentId, p.assetId);
       transfers = await this.chain.inboundTransfers(address);
     } catch (err) {
       // A chain provider having a bad minute is not an exception in a payments

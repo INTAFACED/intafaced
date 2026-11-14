@@ -15,6 +15,7 @@ import type { DestinationProof } from '../../access/destination-step-up';
 import { normaliseReference } from '../../money/Destinations';
 import { useUnsavedForm } from '../../useUnsavedForm';
 import { BusinessApplication } from './Application';
+import { useBusinessDraft } from './business-draft';
 import { reason as notLive } from '../../chrome/copy';
 import { accountCopy } from '../account/copy';
 import type { Progress, TermsState } from '../account/schemas';
@@ -28,7 +29,6 @@ import { describeDestination, railWords } from '../../money/destination';
 import {
   businessDetails,
   destinationShapeOk,
-  emptyBusiness,
   merchantNames,
   onboardingSteps,
   railKind,
@@ -312,9 +312,10 @@ function Overview(props: OnboardingViewProps) {
 function StepBusiness({ portal, merchant, starterFee, onCreated, progress }: OnboardingViewProps) {
   const { t } = portalCopy.useCopy();
   const { t: a } = accountCopy.useCopy();
-  const [form, setForm] = useState<BusinessForm>(emptyBusiness);
+  // What is typed is kept as a saved draft by the service until the account is opened (J-merchant-02 #1).
+  const { form, setForm, unsaved } = useBusinessDraft(portal, !merchant);
   const [tried, setTried] = useState(false);
-  useUnsavedForm(!merchant && Object.values(form).some(Boolean), a('acUnsaved'));
+  useUnsavedForm(!merchant && unsaved, a('acUnsaved'));
   const set = (field: keyof BusinessForm) => (event: { target: { value: string } }) => setForm({ ...form, [field]: event.target.value });
   const errors: BusinessErrors = tried || Object.values(form).some(Boolean) ? validateBusiness(form) : {};
   const errorText = (field: keyof BusinessForm) => (errors[field] ? t(`err_${errors[field]}` as 'err_required') : undefined);

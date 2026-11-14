@@ -39,8 +39,8 @@ const asset = (over: Partial<SupportedAsset>): SupportedAsset => ({
   kind: 'crypto',
   precision: 6,
   networks: [
-    { networkId: 'ethereum', label: 'TEST Ethereum' },
-    { networkId: 'base', label: 'TEST Base' },
+    { networkId: 'ethereum', label: 'TEST Ethereum', contract: null, links: [] },
+    { networkId: 'base', label: 'TEST Base', contract: null, links: [] },
   ],
   defaultNetworkId: 'ethereum',
   allowedActions: ['deposit', 'withdraw'],

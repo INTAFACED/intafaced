@@ -25,7 +25,12 @@ const en = {
   state_expired: 'Expired',
   doneAt: 'Done on {when}.',
   openWhy_identity_verified: 'Ticks when your identity verification is approved.',
-  openWhy_pay_deposit: 'Ticks when a crypto deposit of your own is credited. Credits from a bonus, a trial fund or a gift do not count.',
+  openWhy_pay_deposit:
+    'Ticks when the venue credits a USDC deposit from your connected wallet into your venue account. Rewards INTAFACED paid to that wallet do not count if you send them back.',
+  depositNoWallet: 'Connect your wallet first: this task reads the venue’s deposits into the venue account your wallet owns.',
+  depositUnread:
+    'The venue could not be read just now, so this task was not checked. Nothing changed; it is checked again when you open this page.',
+  depositAsOf: 'Read from the venue at {when}.',
   openWhy_trade_fill: 'Ticks when your first spot trade fills.',
   expiredWhy: 'The welcome window closed before this task was claimed. No reward is given.',
   claim: 'Claim',
@@ -78,7 +83,11 @@ const es: { [K in keyof typeof en]: string } = {
   doneAt: 'Hecha el {when}.',
   openWhy_identity_verified: 'Se marca cuando se aprueba la verificación de tu identidad.',
   openWhy_pay_deposit:
-    'Se marca cuando se acredita un depósito cripto tuyo. Los abonos de un bono, un fondo de prueba o un regalo no cuentan.',
+    'Se marca cuando el venue acredita un depósito de USDC desde tu monedero conectado a tu cuenta en el venue. Las recompensas que INTAFACED pagó a ese monedero no cuentan si las devuelves.',
+  depositNoWallet: 'Conecta primero tu monedero: esta tarea lee los depósitos del venue en la cuenta que tu monedero tiene allí.',
+  depositUnread:
+    'No se pudo leer el venue ahora, así que esta tarea no se comprobó. No cambió nada; se comprueba de nuevo al abrir esta página.',
+  depositAsOf: 'Leído del venue el {when}.',
   openWhy_trade_fill: 'Se marca cuando se ejecuta tu primera operación al contado.',
   expiredWhy: 'El periodo de bienvenida terminó antes de reclamar esta tarea. No hay recompensa.',
   claim: 'Reclamar',
@@ -131,7 +140,12 @@ const fr: { [K in keyof typeof en]: string } = {
   doneAt: 'Faite le {when}.',
   openWhy_identity_verified: 'Se coche quand la vérification de votre identité est approuvée.',
   openWhy_pay_deposit:
-    'Se coche quand un dépôt crypto à vous est crédité. Les crédits d’un bonus, d’un fonds d’essai ou d’un cadeau ne comptent pas.',
+    'Se coche quand le venue crédite un dépôt d’USDC de votre portefeuille connecté vers votre compte sur le venue. Les récompenses qu’INTAFACED a versées à ce portefeuille ne comptent pas si vous les renvoyez.',
+  depositNoWallet:
+    'Connectez d’abord votre portefeuille : cette tâche lit les dépôts du venue sur le compte que votre portefeuille y détient.',
+  depositUnread:
+    'Le venue n’a pas pu être lu pour l’instant, cette tâche n’a donc pas été vérifiée. Rien n’a changé ; elle est revérifiée à l’ouverture de cette page.',
+  depositAsOf: 'Lu sur le venue le {when}.',
   openWhy_trade_fill: 'Se coche quand votre premier ordre au comptant est exécuté.',
   expiredWhy: 'La période de bienvenue s’est terminée avant que cette tâche soit réclamée. Aucune récompense n’est donnée.',
   claim: 'Réclamer',

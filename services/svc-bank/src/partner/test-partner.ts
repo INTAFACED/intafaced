@@ -22,6 +22,7 @@ import type {
   PartnerPurchaseHolds,
   PartnerPurchaseRelease,
   PartnerPurchases,
+  PartnerReturn,
 } from './partner-purchases.js';
 
 /**
@@ -223,6 +224,8 @@ export function testPartner(): TestPartner {
   const purchased = new Map<string, PartnerCredit & { readonly assetId: string; readonly paidBy: PartnerPaidBy }>();
   /** Each person's purchase holds still open, and those released, oldest first. */
   const openHolds = new Map<string, PartnerPurchaseHold[]>();
+  /** Each purchase returned, by person and key: one key is one return. */
+  const returns = new Map<string, PartnerReturn>();
   const releasedHolds = new Map<string, PartnerPurchaseRelease[]>();
   let seq = 0;
   /**
@@ -396,7 +399,8 @@ export function testPartner(): TestPartner {
           if (move.id === query.before) passed = true;
           continue;
         }
-        if (move.from.userId === PARTNER_PAY_INS_OWNER && query.payIns !== true) continue;
+        const payIn = move.from.userId === PARTNER_PAY_INS_OWNER || move.to.userId === PARTNER_PAY_INS_OWNER;
+        if (payIn && query.payIns !== true) continue;
         if (query.assetId === undefined || move.from.assetId === query.assetId) out.push(move);
       }
       return out;
@@ -489,6 +493,51 @@ export function testPartner(): TestPartner {
         });
         purchased.set(creditKey, credited);
         return { id, key: purchase.key, amount: purchase.amount, hold };
+      },
+      async returned(userId: string, purchase: PartnerPurchase): Promise<PartnerReturn> {
+        const creditKey = `${userId}|${purchase.key}`;
+        const credited = purchased.get(creditKey);
+        if (!credited || credited.assetId !== purchase.assetId || credited.amount !== purchase.amount) {
+          throw moveConflict(purchase.key);
+        }
+        const prior = returns.get(creditKey);
+        if (prior) return prior;
+        if (switches(userId).down) throw partnerDown();
+        const account: PartnerAccountRef = { userId, assetId: purchase.assetId, spaceId: null };
+        const has = held.get(accountKey(account)) ?? 0n;
+        if (has < purchase.amount) {
+          throw new BankError(
+            `The partner reports ${formatAmount(has)} ${purchase.assetId}, less than the ${formatAmount(purchase.amount)} sent back. Nothing was taken.`,
+            'bank.partner_insufficient_funds',
+          );
+        }
+        // One step, nothing awaited: the amount leaves the balance, the purchase's hold goes, and the return is kept.
+        held.set(accountKey(account), has - purchase.amount);
+        openHolds.set(
+          userId,
+          (openHolds.get(userId) ?? []).filter((h) => h.purchaseKey !== purchase.key),
+        );
+        seq += 1;
+        const id = `test-partner-move-${boot}-${String(seq).padStart(12, '0')}`;
+        const at = new Date();
+        // On the partner's record as the pay-in going back to where it came from, listed with the pay-ins; never under a
+        // move key, as nobody instructed it.
+        const list = byPerson.get(userId) ?? [];
+        list.push(
+          Object.freeze({
+            id,
+            key: `pay-in:return:${creditKey}`,
+            from: Object.freeze({ ...account }),
+            to: Object.freeze(partnerPayInsAccount(purchase.assetId)),
+            amount: purchase.amount,
+            movedAt: at,
+            label: TEST_PARTNER_LABEL,
+          }),
+        );
+        byPerson.set(userId, list);
+        const back: PartnerReturn = Object.freeze({ id, key: purchase.key, amount: purchase.amount, returnedAt: at });
+        returns.set(creditKey, back);
+        return back;
       },
       async holds(userId: string): Promise<PartnerPurchaseHolds> {
         const now = switches(userId);

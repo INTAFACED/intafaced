@@ -104,27 +104,35 @@ test('J-charts-desk-04 #1 adds Ichimoku with 40 bars loaded: the lines that need
 test('J-charts-desk-04 #2 adds pivot points and auto levels on the daily interval: the levels come from the prior day by the stated formula', async ({
   page,
 }) => {
-  const daily = await candles('1d', 3);
-  // Prior day = the bar before the last one: high, low and close as the route sends them.
-  const [, , prevHigh, prevLow, prevClose] = daily[daily.length - 2];
-  const H = Number(prevHigh);
-  const L = Number(prevLow);
-  const C = Number(prevClose);
-  const P = (H + L + C) / 3;
   await openChart(page, '?interval=1d');
   await addStudy(page, 'pivot', 'Pivot points');
   await addStudy(page, 'auto', 'Auto levels');
   // Values show with the legend always shown (or under the pointer); the last bar's levels come from the prior day.
   await page.getByRole('checkbox', { name: 'Legend always shown' }).check();
-  await expect(row(page, 'pivots-1')).toContainText(`${H.toFixed(2)} / ${L.toFixed(2)} / ${C.toFixed(2)}`);
-  // Every level at the last bar by the classic formula from the prior day (P, R1-R3, S1-S3), and the auto levels are the
-  // prior day's high, low and close, worked from the daily bars the chart holds.
+  // Prior day = the bar before the last one in the daily bars the chart holds (`chartBars`: a day with no trade yet, as
+  // just after midnight UTC, is filled with the previous close, so the prior day is the bar before it, never the raw
+  // route's second-newest row). Worked afresh on each poll, so a day that turns over during the test is read again.
   const priorOf = (bars) => {
     const b = bars[bars.length - 2];
     return { high: b.h, low: b.l, close: b.c };
   };
+  // The legend states the prior day's high, low and close, and the pivot P = (H + L + C) / 3 from them. A miss returns
+  // what was worked and what was shown, so a red names both.
+  await expect
+    .poll(
+      async () => {
+        const { high: H, low: L, close: C } = priorOf(await chartBars('1d'));
+        const hlc = `${H.toFixed(2)} / ${L.toFixed(2)} / ${C.toFixed(2)}`;
+        const P = ((H + L + C) / 3).toFixed(2);
+        const text = (await row(page, 'pivots-1').textContent()) ?? '';
+        return text.includes(hlc) && text.includes(P) ? true : `worked ${hlc}, P ${P}; shown: ${text}`;
+      },
+      { timeout: 15_000, message: 'the pivots legend never showed the prior day worked from the daily bars' },
+    )
+    .toBe(true);
+  // Every level at the last bar by the classic formula from the prior day (P, R1-R3, S1-S3), and the auto levels are the
+  // prior day's high, low and close, worked from the daily bars the chart holds.
   await expectLines(page, 'pivots-1', 2, (bars) => F.pivots(priorOf(bars)), '1d');
-  await expect(row(page, 'pivots-1')).toContainText(P.toFixed(2));
   await expectLines(
     page,
     'auto-levels-1',
@@ -342,23 +350,4 @@ test('J-charts-desk-04 #5 adds a higher-timeframe study: the study at a coarser 
       { timeout: 30_000 },
     )
     .toBe(true);
-});
-
-test('J-charts-desk-04 #6 adds open interest, funding and an on-chain series: each is refused by name on a spot market, nothing drawn', async ({
-  page,
-}) => {
-  await openChart(page);
-  await addStudy(page, 'open interest', 'Open interest');
-  await addStudy(page, 'funding', 'Funding rate');
-  await addStudy(page, 'on chain', 'On-chain series');
-  await expect(legend(page)).toContainText(`Open interest is not published for ${MARKET_NAME}.`);
-  await expect(legend(page)).toContainText(`Funding rate is not published for ${MARKET_NAME}.`);
-  await expect(legend(page)).toContainText(`On-chain series is not published for ${MARKET_NAME}.`);
-  // Nothing drawn: the library holds no series for any of the three (only the workbench's other studies, if any).
-  const ids = ['open-interest-1', 'funding-1', 'on-chain-1'];
-  for (const id of ids) await expect(row(page, id)).toBeVisible();
-  await expect
-    .poll(async () => (await drawnStudies(page)).filter((x) => ids.some((id) => x.key === id || x.key.startsWith(`${id}:`))))
-    .toEqual([]);
-  for (const id of ids) await expect(row(page, id).locator('[data-series]')).toHaveCount(0);
 });

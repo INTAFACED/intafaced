@@ -22,14 +22,15 @@ import { privateRead, privateWrite } from '../route-inventory.js';
 import { agentAccountReply } from './agent-account-rest.js';
 import type { OwnAgentTrading } from './own-agent-trading.js';
 import { UserVenueDoorError } from './user-venue-door.js';
-import { venueRefusalReply, type UserVenueRestDeps } from './user-venue-rest.js';
+import { refusedAgentKey, venueRefusalReply, type UserVenueRestDeps } from './user-venue-rest.js';
 
 export const OWN_AGENTS_PATH = '/api/v1/venue/own-agents';
 
 export function attachOwnAgentTradingRoutes(app: FastifyInstance, trading: OwnAgentTrading | null, deps: UserVenueRestDeps): void {
-  function admit(req: FastifyRequest, reply: FastifyReply, scope: Scope): Principal | null {
+  async function admit(req: FastifyRequest, reply: FastifyReply, scope: Scope): Promise<Principal | null> {
     const principal = deps.requirePrincipal(req, reply);
     if (!principal) return null;
+    if (await refusedAgentKey(reply, principal, deps)) return null;
     try {
       requireScope(principal, scope);
     } catch (error) {
@@ -66,19 +67,19 @@ export function attachOwnAgentTradingRoutes(app: FastifyInstance, trading: OwnAg
   type Allowance = { Params: { agentId: string; id: string } };
 
   app.get<Agent>(`${OWN_AGENTS_PATH}/:agentId/allowances`, privateRead, async (req, reply) => {
-    const principal = admit(req, reply, 'trade:read');
+    const principal = await admit(req, reply, 'trade:read');
     if (!principal) return;
     return answer(reply, async (t) => ({ allowances: await t.list(principal, req.params.agentId) }));
   });
 
   app.post<Agent>(`${OWN_AGENTS_PATH}/:agentId/allowances`, privateWrite, async (req, reply) => {
-    const principal = admit(req, reply, 'trade:write');
+    const principal = await admit(req, reply, 'trade:write');
     if (!principal) return;
     return answer(reply, async (t) => t.grant(principal, req.params.agentId, body(req)));
   });
 
   app.post<Allowance>(`${OWN_AGENTS_PATH}/:agentId/allowances/:id/submit`, privateWrite, async (req, reply) => {
-    const principal = admit(req, reply, 'trade:write');
+    const principal = await admit(req, reply, 'trade:write');
     if (!principal) return;
     return answer(reply, async (t) => {
       const b = decodeVenueWire<{ actionKey?: string; signature?: VenueSignature }>(body(req));
@@ -87,26 +88,26 @@ export function attachOwnAgentTradingRoutes(app: FastifyInstance, trading: OwnAg
   });
 
   app.post<Allowance>(`${OWN_AGENTS_PATH}/:agentId/allowances/:id/abandon`, privateWrite, async (req, reply) => {
-    const principal = admit(req, reply, 'trade:write');
+    const principal = await admit(req, reply, 'trade:write');
     if (!principal) return;
     return answer(reply, async (t) => t.abandon(principal, req.params.agentId, req.params.id));
   });
 
   app.post<Allowance>(`${OWN_AGENTS_PATH}/:agentId/allowances/:id/revoke`, privateWrite, async (req, reply) => {
-    const principal = admit(req, reply, 'trade:write');
+    const principal = await admit(req, reply, 'trade:write');
     if (!principal) return;
     return answer(reply, async (t) => t.revoke(principal, req.params.agentId, req.params.id));
   });
 
   app.post<Agent>(`${OWN_AGENTS_PATH}/:agentId/orders/preview`, privateWrite, async (req, reply) => {
-    const principal = admit(req, reply, 'trade:write');
+    const principal = await admit(req, reply, 'trade:write');
     if (!principal) return;
     return answer(reply, async (t) => t.preview(principal, req.params.agentId, body(req)));
   });
 
   // An answer that is not definite is 202: retry the same orderId, which reads the venue's record first and never signs again.
   app.post<Agent>(`${OWN_AGENTS_PATH}/:agentId/orders`, privateWrite, async (req, reply) => {
-    const principal = admit(req, reply, 'trade:write');
+    const principal = await admit(req, reply, 'trade:write');
     if (!principal) return;
     try {
       if (!trading) {
@@ -124,7 +125,7 @@ export function attachOwnAgentTradingRoutes(app: FastifyInstance, trading: OwnAg
   });
 
   app.get<Agent>(`${OWN_AGENTS_PATH}/:agentId/orders`, privateRead, async (req, reply) => {
-    const principal = admit(req, reply, 'trade:read');
+    const principal = await admit(req, reply, 'trade:read');
     if (!principal) return;
     return answer(reply, async (t) => ({ orders: await t.orders(principal, req.params.agentId) }));
   });

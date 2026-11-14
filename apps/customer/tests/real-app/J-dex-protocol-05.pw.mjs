@@ -1,10 +1,10 @@
 // World: restart
 import fs from 'node:fs';
 import path from 'node:path';
-import { createPublicClient, decodeFunctionData, encodeFunctionData, formatUnits, http, parseAbi } from 'viem';
+import { createPublicClient, decodeFunctionData, defineChain, encodeFunctionData, formatUnits, http, parseAbi } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { CHAIN_ID, TOKEN_A, UNBUILT, connectWallet, dexRun, fundOnTestChain, testChain } from './dex.mjs';
+import { CHAIN_ID, TOKEN_A, TOKEN_B, UNBUILT, connectWallet, dexRun, fundOnTestChain, testChain } from './dex.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
 import { api, journeyState, ROOT, tool } from './stack.mjs';
@@ -26,7 +26,12 @@ import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs
 // A withdrawal needs a fresh second factor (`trade.step_up.venue.withdraw`), so #3 adds an authenticator app first. Money: the user's wallet signs each venue deposit and withdrawal; the
 // ledger posts nothing, read before and after.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - the bank ramps have no "Buy to wallet" route (D-bridge-chain-02);
+// - #4 buys TEST USDC to the wallet on the bank's Add money page (/bank/ramps/new, "Deliver to: My wallet"), through the
+//   stack's TEST pay-in stand-in. Once the payer approves, the stack's TEST partner (tooling/scripts/local-test-chain.mjs
+//   /payin-deliver, called by svc-bank's stand-in) delivers the purchase on the TEST chain from its own address, as TEST
+//   USD (the TEST chain's stand-in for USDC, as the TEST venue's deposit route names it), and the stand-in says it was
+//   paid with that transfer. The test sends nothing: it reads the transfer from the TEST chain itself. Money: the ledger
+//   posts nothing for a purchase delivered to the wallet, read before and after;
 // - /protocol/rails has no route table, burn, attestation or mint tracking (D-bridge-chain-03), and no cross-chain
 //   review sheet (RC-dex-protocol-04);
 // - there is no asset link review or contract-read docs (D-bridge-chain-04);
@@ -112,6 +117,87 @@ async function openRails(page) {
   await page.goto('/protocol/rails');
   await expect(rails(page)).toBeVisible(UNBUILT);
   return wallet;
+}
+
+// ── buy to wallet (#4) ───────────────────────────────────────────────────────────────────────────────────────────────
+
+let jobCtx;
+const stackCtx = () =>
+  (jobCtx ??= import('../../../../tooling/scripts/local-test-gates.mjs').then((gates) => gates.makeContext({ log: () => {} })));
+
+/** The next authenticator code of the app #3 added, kept in the run so no code is used twice. */
+async function stepCode() {
+  const { totp } = await totpLib();
+  const now = account.run.read();
+  const next = await nextCode(totp, now.secret, now.step);
+  account.run.write({ step: next.step });
+  return next.code;
+}
+
+/**
+ * Signs in in the browser after #3 added the authenticator app: the password and the app's next code, as J-bank-02 does,
+ * since identity then asks every sign-in for the code (failure it prevents: run 43368584072, #4 stayed on /login).
+ */
+async function signInWithCode(page, who) {
+  const totpCode = account.run.read().secret ? await stepCode() : null;
+  await page.goto('/login');
+  if (totpCode) await page.fill('input[name=totp]', totpCode);
+  await page.fill('input[name=identifier]', who.email);
+  await page.fill('input[name=password]', who.password);
+  await page.getByRole('button', { name: /^sign in$/i }).click();
+  await expect(page).not.toHaveURL(/\/login/);
+}
+
+/** One of the person's own add-money requests, as svc-bank answers it. */
+async function addMoneyRequest(signedIn, requestId) {
+  const input = encodeURIComponent(JSON.stringify({ requestId }));
+  const { status, body } = await (await signedIn()).get(`/api/bank/trpc/addMoney.request?input=${input}`);
+  if (status !== 200) throw new Error(`addMoney.request refused: ${status} ${JSON.stringify(body).slice(0, 300)}`);
+  return body.result.data;
+}
+
+/** The TEST pay-in partner says a payment was paid, through its signed job door, as the partner would. */
+async function partnerPaid(body) {
+  const ctx = await stackCtx();
+  const raw = JSON.stringify(body);
+  const res = await fetch(`${ctx.url('bank')}/internal/jobs/payin-sim/paid`, {
+    method: 'POST',
+    redirect: 'error',
+    headers: {
+      'content-type': 'application/json',
+      ...ctx.contracts.serviceAuthHeadersForBody('local-test-stack', ctx.secrets.internal, raw),
+    },
+    body: raw,
+    signal: AbortSignal.timeout(30_000),
+  });
+  const answer = await res.json().catch(() => null);
+  if (res.status !== 200) throw new Error(`payin-sim/paid refused: ${res.status} ${JSON.stringify(answer).slice(0, 300)}`);
+  return answer;
+}
+
+/** The TEST pay-in partner's own address on the stack's TEST chain (tooling/scripts/local-test-chain.mjs PAYIN_PARTNER). */
+const PAYIN_PARTNER = '0x0000000000000000000000000000000000ba1d01';
+
+/** One delivery as the TEST chain itself records it: its receipt, its sender, and the ERC-20 transfer it made. */
+async function deliveryOnChain(hash) {
+  const gate = testChain().gateUrl;
+  const chain = defineChain({
+    id: CHAIN_ID,
+    name: 'LOCAL TEST chain',
+    nativeCurrency: { name: 'TEST ETH', symbol: 'TESTETH', decimals: 18 },
+    rpcUrls: { default: { http: [gate] } },
+  });
+  const client = createPublicClient({ chain, transport: http(gate) });
+  const receipt = await client.waitForTransactionReceipt({ hash, timeout: 60_000 });
+  const tx = await client.getTransaction({ hash });
+  const call = decodeFunctionData({ abi: parseAbi(['function transfer(address to, uint256 amount) returns (bool)']), data: tx.input });
+  expect(call.functionName).toBe('transfer');
+  return {
+    status: receipt.status,
+    from: tx.from.toLowerCase(),
+    token: tx.to?.toLowerCase(),
+    transfer: { to: call.args[0].toLowerCase(), amount: call.args[1] },
+  };
 }
 
 // ── the venue account room (#1 to #3) ────────────────────────────────────────────────────────────────────────────────
@@ -520,17 +606,76 @@ test(`${J} #3 withdraws from the venue to the wallet: destination is the connect
   }
 });
 
-test(`${J} #4 opens Buy to wallet in the bank ramps: the purchase lands in the wallet address, not the exchange balance`, async ({
-  page,
-}) => {
-  test.setTimeout(120_000);
-  await person(page);
+test(`${J} #4 opens Buy to wallet in the ramps: the partner's purchase lands in the wallet address`, async ({ page }) => {
+  test.setTimeout(300_000);
+  const { who } = venueState();
+  const signedIn = async () => api(who, account.run.read().secret ? { totpCode: await stepCode() } : {});
+  // TEST setup: the account holds USDC as a currency to buy, as the person adds one on the Bank Overview.
+  const added = await (await signedIn()).post('/api/bank/trpc/currencies.add', { assetId: 'USDC' });
+  expect(added.status, `currencies.add: ${JSON.stringify(added.body).slice(0, 300)}`).toBe(200);
+  const ledgerBefore = await (await signedIn()).balances();
+  await signInWithCode(page, who);
   const wallet = await connectWallet(page, dex, { tokens: [TOKEN_A] });
+  const owner = wallet.address.toLowerCase();
+  const before = await chainUsd(wallet.address);
+
   await page.goto('/bank/ramps/new');
   const deliver = page.getByRole('radiogroup', { name: 'Deliver to' });
-  await deliver.getByRole('radio', { name: 'My wallet' }).check(UNBUILT);
-  await expect(page.getByTestId('ramp-destination')).toContainText(new RegExp(wallet.address, 'i'));
-  await expect(page.getByTestId('ramp-destination')).not.toContainText('Exchange balance');
+  await deliver.getByRole('radio', { name: 'My wallet' }).check();
+  const destination = page.getByTestId('ramp-destination');
+  await expect(destination).toContainText(new RegExp(wallet.address, 'i'));
+  await expect(destination).not.toContainText('Exchange balance');
+  await page.getByLabel('Add to').selectOption('USDC');
+  await page.getByLabel('Amount').fill('3');
+  await page.getByLabel('Country you pay from').fill('NL');
+  await page.getByRole('button', { name: 'See ways to pay' }).click();
+  await page.getByTestId('method-pay_by_bank').getByRole('radio').check();
+  await page.getByRole('button', { name: 'Continue' }).click();
+  const { url } = await stackCtx();
+  const confirm = page.getByTestId('add-money-confirm');
+  await expect(confirm.getByTestId('add-money-sign-note')).toContainText('to prove it is yours');
+  await confirm.getByRole('button', { name: 'Ask for this payment' }).click();
+  // The wallet proves it is the person's: the plain-words sheet shows the message, and the TEST wallet signs it.
+  const sheet = page.locator('[data-sheet="sign"]');
+  await expect(sheet).toContainText(`Wallet: ${owner}`);
+  await sheet.getByRole('button', { name: 'Continue in wallet' }).click();
+  // The partner's page names the wallet the purchase goes to: the partner was told it.
+  await page.waitForURL((at) => at.href.startsWith(`${url('bank')}/test/payin-sim/pay/`));
+  await expect(page.getByTestId('payin-sim-label')).toContainText(/^TEST\b/);
+  await expect(page.getByTestId('payin-sim-deliver-to')).toHaveText(`Delivered to the wallet ${owner}`);
+  const requestId = decodeURIComponent(new URL(page.url()).pathname.split('/').pop());
+  const asked = await addMoneyRequest(signedIn, requestId);
+  expect(asked).toMatchObject({ status: 'opened', assetId: 'USDC', amount: '3', walletAddress: owner, deliveryTx: null });
+  await page.getByRole('button', { name: 'Approve payment' }).click();
+  await page.waitForURL((at) => at.pathname === '/bank/ramps/new' && at.searchParams.get('request') === requestId);
+  const tracker = page.getByTestId('add-money-tracker');
+  await expect(page.getByTestId('tracker-delivery')).toContainText(owner);
+
+  // The stack's TEST partner delivers the purchase to that address on the TEST chain, then says it was paid with that
+  // transfer: the request reads delivered, naming it, and nothing was credited here.
+  await expect(tracker).toHaveAttribute('data-status', 'delivered', { timeout: 90_000 });
+  const paid = await addMoneyRequest(signedIn, requestId);
+  expect(paid).toMatchObject({ requestId, status: 'delivered', walletAddress: owner, creditedAmount: null });
+  const hash = paid.deliveryTx;
+  expect(hash).toMatch(/^0x[0-9a-f]{64}$/i);
+  // That transfer is on the TEST chain: mined, sent by the TEST partner (not this test, not the wallet), moving
+  // 3 TEST USD to the wallet address.
+  const sent = await deliveryOnChain(hash);
+  expect(sent.status).toBe('success');
+  expect(sent.from).toBe(PAYIN_PARTNER);
+  expect(sent.from).not.toBe(owner);
+  expect(sent.token).toBe(TEST_USD);
+  expect(sent.transfer).toEqual({ to: owner, amount: 3_000_000n });
+  await expect(tracker).toContainText('Delivered to your wallet');
+  await expect(page.getByTestId('tracker-delivery')).toHaveText(new RegExp(`Delivered to ${owner}`));
+  await expect(page.getByTestId('tracker-delivery-tx')).toHaveAttribute('href', `/chain/tx/${hash}`);
+  // It landed in the wallet address: the TEST chain itself says the wallet holds 3 TEST USD more.
+  expect(await chainUsd(wallet.address)).toBe(before + 3_000_000n);
+  // Once: the partner saying paid again is the same delivery, and nothing more moves.
+  expect(await partnerPaid({ requestId, paidAmount: asked.onramp.payAmount, payCurrency: 'EUR', deliveryTx: hash })).toMatchObject(paid);
+  expect(await chainUsd(wallet.address)).toBe(before + 3_000_000n);
+  // The ledger posts nothing for a purchase delivered to the wallet: INTAFACED holds none of it.
+  expect(await (await signedIn()).balances()).toEqual(ledgerBefore);
 });
 
 test(`${J} #5 opens the rails room with the route table blank: the full layout, the blocker for unset routes with its owner-decision label, no route offered`, async ({
@@ -651,17 +796,66 @@ test(`${J} #9 deposits 10 TEST base to the trading venue and withdraws more than
 test(`${J} #10 requests an asset link review and opens the contract-read docs: the review states decimals and the verdict; the docs list read-only calls with examples`, async ({
   page,
 }) => {
-  await connectWallet(page, dex, { tokens: [TOKEN_A] });
+  const wallet = await connectWallet(page, dex, { tokens: [TOKEN_A] });
+  const chain = createPublicClient({ transport: http(testChain().gateUrl), cacheTime: 0 });
+  const ERC20 = parseAbi(['function decimals() view returns (uint8)']);
   await page.goto('/protocol/contracts');
   await page.getByRole('button', { name: 'Request an asset link review' }).click(UNBUILT);
   const review = page.getByRole('form', { name: 'Asset link review' });
-  await review.getByRole('textbox', { name: /^Token address/ }).fill(TOKEN_A.address);
-  await review.getByRole('button', { name: 'Request review' }).click();
   const result = page.getByRole('region', { name: 'Review result' });
-  await expect(result).toContainText(`Decimals ${TOKEN_A.decimals}`);
-  await expect(result).toContainText(/Verdict: (linked|not linked)/);
+  /** Reviews `token` and returns the venue contract the result names it was read from. */
+  async function reviewOf(token) {
+    await review.getByRole('textbox', { name: /^Token address/ }).fill(token);
+    await review.getByRole('button', { name: 'Request review' }).click();
+    // The decimals the review states are the token's own, as the token contract answers them on the chain.
+    const decimals = await chain.readContract({ address: token, abi: ERC20, functionName: 'decimals' });
+    await expect(result).toContainText(`Decimals ${decimals}`);
+    const venue = (await result.innerText()).match(/venue contract (0x[0-9a-fA-F]{40})/)?.[1];
+    expect(venue, 'the review names the venue contract it read').toBeTruthy();
+    return venue;
+  }
+  // TEST Token A is the venue's base asset, as the venue contract itself reports it: the verdict is linked.
+  const venue = await reviewOf(TOKEN_A.address);
+  expect(await chain.getCode({ address: venue }), 'the venue is a contract on the TEST chain').toMatch(/^0x[0-9a-f]{2,}/);
+  const base = await chain.readContract({ address: venue, abi: VENUE_ABI, functionName: 'baseToken' });
+  expect(base.toLowerCase()).toBe(TOKEN_A.address);
+  await expect(result).toContainText('Verdict: linked');
+  await expect(result).not.toContainText('Verdict: not linked');
+  // TEST Token B is a token the venue does not trade (neither its base nor its quote): the verdict is not linked.
+  const quote = await chain.readContract({
+    address: venue,
+    abi: parseAbi(['function quoteToken() view returns (address)']),
+    functionName: 'quoteToken',
+  });
+  expect([base.toLowerCase(), quote.toLowerCase()]).not.toContain(TOKEN_B.address);
+  await reviewOf(TOKEN_B.address);
+  await expect(result).toContainText('Verdict: not linked');
+  // The contract-read docs: every call listed is a read-only call on that venue, with an example; each example, run as
+  // written against the chain (the person's own address in place of 0xYourAddress), is answered as a view call.
   await page.getByRole('link', { name: 'Contract-read docs' }).click();
   const calls = page.getByRole('region', { name: 'Read-only calls' });
-  await expect(calls.getByRole('heading')).not.toHaveCount(0);
-  await expect(calls.getByRole('code').first()).toBeVisible();
+  const entries = calls.getByRole('article');
+  const count = await entries.count();
+  expect(count, 'the docs list calls').toBeGreaterThan(0);
+  const names = [];
+  for (let i = 0; i < count; i += 1) {
+    const entry = entries.nth(i);
+    await expect(entry.getByRole('heading')).toBeVisible();
+    const example = (await entry.getByRole('code').last().innerText()).trim();
+    const abiLine = example.match(/parseAbi\(\['(function [^']+)'\]\)/)?.[1];
+    const name = example.match(/functionName: '([A-Za-z]+)'/)?.[1];
+    expect(abiLine, `example ${i + 1} carries its ABI`).toMatch(/ view returns /);
+    expect(example).toContain(`address: '${venue}'`);
+    const args = (example.match(/args: \[(.*)\],/)?.[1] ?? '')
+      .split(',')
+      .map((a) => a.trim())
+      .filter(Boolean)
+      .map((a) => (a === "'0xYourAddress'" ? wallet.address : BigInt(a.replace(/n$/, ''))));
+    const abi = parseAbi([abiLine]);
+    expect(abi[0].stateMutability, `${name} is read-only`).toBe('view');
+    await chain.readContract({ address: venue, abi, functionName: name, args });
+    names.push(name);
+  }
+  // The balances a person reads before moving funds are among them.
+  expect(names).toEqual(expect.arrayContaining(['baseToken', 'quoteToken', 'baseBal', 'reservedBase']));
 });

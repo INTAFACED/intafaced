@@ -293,6 +293,17 @@ const schema = serviceEnvSchema
        */
       AGENTS_APPROVAL_TTL_SECONDS: blankAsAbsent(z.coerce.number().int().min(1).max(604_800).optional()),
       /**
+       * Owner values (legal and owner decisions, LD-agent-16): how long svc-agents keeps each kind of record about a
+       * person's own agent, in whole days, 1 to 36500 (AG-guardrails-04). The agent's Privacy page shows each one; a blank
+       * one reads "not set", and a write that needs it refuses agents.retention_unset (keeping transcripts needs the
+       * transcript period). None is ever defaulted.
+       */
+      AGENTS_RETENTION_ACTION_LOG_DAYS: blankAsAbsent(z.coerce.number().int().min(1).max(36_500).optional()),
+      AGENTS_RETENTION_MEMORY_DAYS: blankAsAbsent(z.coerce.number().int().min(1).max(36_500).optional()),
+      AGENTS_RETENTION_TRANSCRIPTS_DAYS: blankAsAbsent(z.coerce.number().int().min(1).max(36_500).optional()),
+      AGENTS_RETENTION_APPROVALS_DAYS: blankAsAbsent(z.coerce.number().int().min(1).max(36_500).optional()),
+      AGENTS_RETENTION_USAGE_DAYS: blankAsAbsent(z.coerce.number().int().min(1).max(36_500).optional()),
+      /**
        * The public EVM address of the Navigator's on-chain signer (RC-agents-01): the session key a person may grant the
        * Navigator on their smart account. An address only, never a key. Blank refuses every navigator.onchain route with
        * rail.crypto (no signer is configured); a malformed value stops the boot.
@@ -324,8 +335,35 @@ const schema = serviceEnvSchema
       AGENTS_REGISTRY_LIST_LIMIT: blankAsAbsent(z.coerce.number().int().min(1).max(500).optional()),
       /** Steps one background test run of an own agent takes, 1 to 10000 (AG-control-02). Blank refuses agents.background_unset. */
       AGENTS_BACKGROUND_TEST_STEPS: blankAsAbsent(z.coerce.number().int().min(1).max(10000).optional()),
-      /** Milliseconds one background step takes, 200 to 600000: the ticker's period. Blank refuses agents.background_unset. */
+      /**
+       * Milliseconds one background step takes, 200 to 600000: the tickers' period, for own agents' test runs and sessions'
+       * background runs alike. Blank refuses agents.background_unset and agents.session_run_unset.
+       */
       AGENTS_BACKGROUND_STEP_MS: blankAsAbsent(z.coerce.number().int().min(200).max(600000).optional()),
+      // ── Schedules and event triggers of own agents (AG-sessions-02) ─────────
+      /**
+       * Owner values: the shortest interval a person's repeating schedule may have, in whole minutes, and how many
+       * occurrences of one schedule or trigger may run in a UTC day. Either blank refuses a new schedule with
+       * agents.schedule_cadence_unset, and an occurrence or event with the daily limit blank is skipped
+       * agents.schedule_blocked: nothing runs on a guess.
+       */
+      AGENTS_SCHEDULE_MIN_INTERVAL_MINUTES: blankAsAbsent(z.coerce.number().int().min(1).max(525_600).optional()),
+      AGENTS_SCHEDULE_DAILY_LIMIT: blankAsAbsent(z.coerce.number().int().min(1).max(10_000).optional()),
+      /**
+       * The due-run workers: how often they wake, in milliseconds, and how many wake together each time (each reads what
+       * is due before any claims, and the occurrence row's business key keeps one run). Blank tick leaves scheduled runs
+       * off: nothing is claimed or run on a clock.
+       */
+      AGENTS_SCHEDULE_TICK_MS: blankAsAbsent(z.coerce.number().int().min(500).max(3_600_000).optional()),
+      AGENTS_SCHEDULE_WORKERS: blankAsAbsent(z.coerce.number().int().min(1).max(8).optional()),
+      /** The most steps one background run of a session may be asked to take, 1 to 1000 (AG-sessions-04). Blank refuses agents.session_run_unset. */
+      AGENTS_SESSION_RUN_MAX_STEPS: blankAsAbsent(z.coerce.number().int().min(1).max(1000).optional()),
+      /**
+       * Owner value: the uncertainty scale a research answer's level is read from (RC-agents-09), comma-separated labels,
+       * lowest first, at least two. Blank refuses every Navigator answer about a market with
+       * agents.uncertainty_scale_unset before the engine runs; nothing is charged.
+       */
+      AGENTS_RESEARCH_UNCERTAINTY_SCALE: blankAsAbsent(z.string().trim().min(1).optional()),
       /**
        * Days an executed engine call's prompt text is kept for a transcript read; 0 keeps none. Blank keeps none and a
        * transcript read refuses agents.transcript_retention_unset.
