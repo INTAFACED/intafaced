@@ -39,7 +39,10 @@
  *   - none: a path no journeys run executes or reads: another workflow under .github (not real-app-journeys.yml, not
  *     .github/actions), a CI check under tooling/ci that the journeys run does not use (JOURNEY_CI lists the ones it
  *     does; journey-touch.test.mjs fails when an import or a reference from the journeys run reaches one not listed),
- *     and a unit test (`*.test.*`, `*.spec.*`).
+ *     a unit test (`*.test.*`, `*.spec.*`), a git hook under .githooks (git runs it on a commit or a push, which no
+ *     journeys run makes), and a factory script under tooling/scripts that nothing the journeys run, the stack or the
+ *     app's build executes, imports or names (FACTORY_SCRIPTS; journey-touch.test.mjs fails when anything there reaches
+ *     one, so a script the run starts using comes off the list or turns its pull request red).
  * A path that matches none of the rules is full.
  *
  *   node tooling/ci/journey-touch.mjs --base origin/main     (this checkout's branch against a base; prints what to run)
@@ -126,6 +129,62 @@ export const DOCS_READ = [
   'docs/THREAT-MODEL-BLUEPRINT-ATTESTATIONS.md',
 ];
 
+/**
+ * The scripts under tooling/scripts that no journeys run executes or reads: builders' and agents' tools on the Mac (the
+ * pre-push checks, the review before a push, worktrees, GitHub setup) and unit tests of scripts. Every other file under
+ * tooling/scripts stays full, a new one included, until it is shown unreached and listed here. journey-touch.test.mjs
+ * proves each entry from the repository: no relative import, script name, `pnpm` script or path in the journeys
+ * workflow, its actions, the journey files and their helpers, the CI files JOURNEY_CI lists, the stack's shared setup,
+ * the stack's environment (tooling/profiles, tooling/infra) or any app, service or package file (the app's build
+ * included) reaches it, through any chain of scripts. Type declarations (`.d.mts`, read by the app's type check),
+ * code generators of app sources and test fixtures stay off the list. (Failure it prevents: intafaced #8284, a change
+ * to the pre-push hook and its checks, paid a full journeys run of about 39 minutes per push on 14 Nov 2026, and factory
+ * pull requests paid 6,011 job-minutes of journey runs since 13 Nov, project-state#2332.)
+ */
+export const FACTORY_SCRIPTS = [
+  'tooling/scripts/agent-models.test.mjs',
+  'tooling/scripts/agent-pr.mjs',
+  'tooling/scripts/ci-checks.mjs',
+  'tooling/scripts/ci-checks.test.mjs',
+  'tooling/scripts/fleet-tip-image.mjs',
+  'tooling/scripts/journey-baseline-guard.test.mjs',
+  'tooling/scripts/journey-clauses-v1.test.mjs',
+  'tooling/scripts/journey-fail-fast-retries.test.mjs',
+  'tooling/scripts/journey-freeze-guard.test.mjs',
+  'tooling/scripts/journey-navigation.test.mjs',
+  'tooling/scripts/journey-reach.test.mjs',
+  'tooling/scripts/journey-world.test.mjs',
+  'tooling/scripts/local-founder-seed.test.mjs',
+  'tooling/scripts/local-tester-seed.test.mjs',
+  'tooling/scripts/main-journeys-time.mjs',
+  'tooling/scripts/main-journeys-time.test.mjs',
+  'tooling/scripts/matching-ledger-load-test.mjs',
+  'tooling/scripts/mvn-run.test.mjs',
+  'tooling/scripts/order-path-cx8-boot.test.mjs',
+  'tooling/scripts/owner-settings.test.mjs',
+  'tooling/scripts/pre-push-hook.test.mjs',
+  'tooling/scripts/purge-charting-library-history.sh',
+  'tooling/scripts/real-app-navigation.test.mjs',
+  'tooling/scripts/real-app-services.test.mjs',
+  'tooling/scripts/real-app-tool-error.test.mjs',
+  'tooling/scripts/redesign-shots.mjs',
+  'tooling/scripts/redesign-shots.test.mjs',
+  'tooling/scripts/review-before-push.mjs',
+  'tooling/scripts/review-before-push.test.mjs',
+  'tooling/scripts/roadmap.test.mjs',
+  'tooling/scripts/runtime-safety.test.mjs',
+  'tooling/scripts/services-map.mjs',
+  'tooling/scripts/services-map.test.mjs',
+  'tooling/scripts/setup-github.mjs',
+  'tooling/scripts/sync-github-issues.mjs',
+  'tooling/scripts/tracker.mjs',
+  'tooling/scripts/truth-check.mjs',
+  'tooling/scripts/truth-check.test.mjs',
+  'tooling/scripts/try-it.mjs',
+  'tooling/scripts/try-it.test.mjs',
+  'tooling/scripts/worktree-gc.mjs',
+];
+
 const FULL_RULES = [
   [
     /^tooling\/scripts\//,
@@ -146,6 +205,9 @@ const FULL_RULES = [
 
 const NONE_RULES = [
   (p) => p.startsWith('.github/') && !/^\.github\/(workflows\/real-app-journeys\.yml|actions\/)/.test(p),
+  // A git hook: git runs it on a commit or a push, and nothing the journeys run executes commits, pushes or reads it
+  // (journey-touch.test.mjs).
+  (p) => p.startsWith('.githooks/'),
   (p) => p.startsWith('tooling/ci/') && !JOURNEY_CI.includes(p),
   (p) => /^(apps|services|packages)\//.test(p) && /\.(test|spec)\.[cm]?[jt]sx?$/.test(p) && !p.startsWith('apps/customer/tests/real-app/'),
   // Markdown at the repository root (AGENTS.md, CLAUDE.md, CONTRIBUTING.md, README.md): no journey, stack script or
@@ -243,6 +305,7 @@ function kindOf(p) {
       why: 'a run file that holds no journey steps (a look sweep), which no report lists, so only a clean full run shows it broke nothing',
     };
   if (JOURNEY_CI.includes(p)) return { kind: 'full', why: 'a check the journeys run uses (JOURNEY_CI)' };
+  if (FACTORY_SCRIPTS.includes(p)) return { kind: 'none' };
   for (const [re, why] of FULL_RULES) if (re.test(p)) return { kind: 'full', why };
   if (NONE_RULES.some((r) => r(p))) return { kind: 'none' };
   if (/^(apps|services|packages)\//.test(p)) return { kind: 'full', why: PRODUCT, product: true };
