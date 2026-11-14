@@ -37,6 +37,13 @@ function routerV2Parts() {
   return record.routerV2 && record.sovereignPermit && record.wrappedNative ? record : null;
 }
 
+/** The TEST lending market from the chain's own record (J-dex-protocol-06 #4), read as routerV2Parts is; null with none. */
+function lendingMarket() {
+  const file = chainRecordPath();
+  if (!existsSync(file)) return null;
+  return JSON.parse(readFileSync(file, 'utf8')).lendingMarket ?? null;
+}
+
 export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain, CUSTOMER_ORIGIN, CUSTOMER_LOCALHOST_ORIGIN }) => ({
   name: 'protocol',
   env: () => {
@@ -127,7 +134,10 @@ export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain, CUSTOMER_ORIGIN, 
       ...(chain?.venue ? { PROTOCOL_VENUE_ADDRESS: chain.venue } : {}),
       // LOCAL TEST only: the TEST chain's lending market (seed-test-chain.ts ensureLendingParts), so a wallet's lending
       // position is read from a real IsolatedLendingMarket. Production stays blank and refuses protocol.lending_market_unset.
-      ...(chain?.lendingMarket ? { PROTOCOL_LENDING_MARKET_ADDRESS: chain.lendingMarket } : {}),
+      ...(() => {
+        const market = chain ? lendingMarket() : null;
+        return market ? { PROTOCOL_LENDING_MARKET_ADDRESS: market } : {};
+      })(),
       // LOCAL TEST only: the TEST chain's smart account factory and implementation (seed-test-chain.ts ensureAccountParts),
       // so a wallet's smart account and its session keys are real on the TEST chain. With no chain both stay zero.
       ...(chain?.accountFactory && chain?.accountImplementation
