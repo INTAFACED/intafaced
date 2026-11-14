@@ -1322,6 +1322,72 @@ async function selfTestRevoke() {
   console.log('✓ journeys-revert revoke self-test OK (6 fixtures)');
 }
 
+/** cancelDoomed's choice, on a fake GitHub whose compare answers from a commit line: P, culprit X, then M (a merge after
+ *  it), revert R, then N after the revert; Q sits on a branch off P that never took X. Only a main run holding X and not
+ *  R is cancelled. A push that is not an automatic revert never reaches it (revertMergePull above). */
+async function selfTestCancel() {
+  const eq = (got, want, m) => {
+    if (JSON.stringify(got) !== JSON.stringify(want)) throw new Error(`${m}: got ${JSON.stringify(got)} want ${JSON.stringify(want)}`);
+  };
+  const [P, X, M, R, N, Q] = ['1', '2', '3', '4', '5', '6'].map((c) => c.repeat(40));
+  const line = [P, X, M, R, N];
+  const compare = (base, head) => {
+    if (base === head) return 'identical';
+    const [b, h] = [line.indexOf(base), line.indexOf(head)];
+    if (head === Q) return base === P ? 'ahead' : 'diverged';
+    if (b < 0 || h < 0) return null; // a commit GitHub can't place: 404, no status
+    return h > b ? 'ahead' : 'behind';
+  };
+  const fake = (runs) => {
+    const cancelled = [];
+    const gh = async (method, path) => {
+      if (method === 'POST') {
+        cancelled.push(Number(/runs\/(\d+)\/cancel$/.exec(path)[1]));
+        return { status: 202, json: null };
+      }
+      const status = /[?&]status=(\w+)/.exec(path)?.[1];
+      if (status) return { status: 200, json: { workflow_runs: runs.filter((r) => r.status === status) } };
+      const [base, head] = /\/compare\/(\w+)\.\.\.(\w+)$/.exec(path).slice(1);
+      const st = compare(base, head);
+      return st ? { status: 200, json: { status: st } } : { status: 404, json: null };
+    };
+    return { gh, cancelled };
+  };
+  const run = (id, head_sha, status = 'in_progress', over = {}) => ({
+    id,
+    run_number: id,
+    head_branch: 'main',
+    event: 'push',
+    status,
+    head_sha,
+    ...over,
+  });
+  const cases = [
+    [[run(1, M)], [1], 'a run holding the culprit and not the revert is cancelled'],
+    [[run(1, X)], [1], 'a run on the culprit itself is cancelled'],
+    [[run(2, M, 'queued')], [2], 'a waiting run holding the culprit and not the revert is cancelled'],
+    [[run(3, R)], [], "the revert's own run is left"],
+    [[run(4, N)], [], 'a run already holding the revert is left'],
+    [[run(5, P)], [], 'a run from before the culprit is left'],
+    [[run(6, Q)], [], 'a run on a commit that never took the culprit is left'],
+    [[run(7, 'f'.repeat(40))], [], 'a run whose commit the compare cannot place is left'],
+    [[run(8, M, 'in_progress', { event: 'pull_request', head_branch: 'x' })], [], "a pull request's run is left"],
+    [[run(9, M, 'completed')], [], 'a finished run is left'],
+    [[run(1, M), run(4, N, 'queued'), run(5, P, 'queued')], [1], 'only the doomed run of several'],
+  ];
+  for (const [runs, want, m] of cases) {
+    const { gh, cancelled } = fake(runs);
+    const lines = await cancelDoomed(gh, 'o/r', { headSha: R, culprit: X });
+    eq(cancelled, want, m);
+    eq(
+      lines.length,
+      runs.filter((r) => r.status !== 'completed' && r.event !== 'pull_request' && r.head_sha !== R).length,
+      `${m}: a line per run weighed`,
+    );
+  }
+  console.log(`✓ journeys-revert cancel self-test OK (${cases.length} fixtures)`);
+}
+
 // ── early: as each shard of main's run ends ─────────────────────────────────
 
 /** How long `early` waits between reads of the run's jobs, and at most in all (the shards' own limit is 90 minutes). */
@@ -1667,6 +1733,7 @@ const COMMANDS = { trigger, find, open, settle, early, confirm, back, 'confirm-f
 if (process.argv.includes('--self-test')) {
   selfTest();
   await selfTestRevoke();
+  await selfTestCancel();
 } else if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const cmd = COMMANDS[process.argv[2]];
   if (!cmd) {
