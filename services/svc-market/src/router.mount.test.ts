@@ -554,7 +554,7 @@ describe('svc-market mount — the public marketplace', () => {
   it('serves the directory to a caller with no token at all', async () => {
     const vendors = stubVendors();
     await expect(createMarketRouter(vendors).createCaller(anonymous()).listed()).resolves.toEqual([publicRow]);
-    expect(vendors.listedVendors).toHaveBeenCalledWith({ limit: undefined });
+    expect(vendors.listedVendors).toHaveBeenCalledWith({ limit: undefined, signal: undefined });
   });
 
   /**
@@ -598,6 +598,16 @@ describe('svc-market mount — the public marketplace', () => {
       code: 'INTERNAL_SERVER_ERROR',
       cause: { code: 'market.stake_unavailable' },
     });
+  });
+
+  it('serves the paged directory with its resume cursor to a caller with no token at all', async () => {
+    const vendors = stubVendors({
+      listedVendorsPage: vi.fn(async () => ({ vendors: [{ ...publicRow, userId: USER }], nextCursor: VENDOR })),
+    } as unknown as Partial<VendorService>);
+    const caller = createMarketRouter(vendors).createCaller(anonymous());
+    await expect(caller.listedPage({ limit: 2, cursor: VENDOR })).resolves.toEqual({ vendors: [publicRow], nextCursor: VENDOR });
+    expect(vendors.listedVendorsPage).toHaveBeenCalledWith({ limit: 2, cursor: VENDOR, signal: undefined });
+    await expect(caller.listedPage({ limit: 2, cursor: 'not-a-cursor' })).rejects.toThrow();
   });
 
   it('caps how much of the directory one request can ask for', async () => {

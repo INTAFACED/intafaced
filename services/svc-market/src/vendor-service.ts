@@ -89,6 +89,13 @@ export const MARKET_APPLICATIONS_LIST_LIMIT_UNSET = 'market.applications_list_li
 /** Operator `history` page size unpublished. Blank is not 50. */
 export const MARKET_HISTORY_LIMIT_UNSET = 'market.history_limit_unset' as const;
 
+/**
+ * How many candidates one directory page may check, as a multiple of its size.
+ * A technical bound on stake reads per request, not a listing policy: a page
+ * that hits it returns short WITH a cursor, never as the directory's end.
+ */
+export const LISTED_CANDIDATE_FACTOR = 3;
+
 /** Owner-published listed-vendors page size. Blank / non-finite / <1 refuses. Never invent 20. */
 export function assertListedVendorsListLimit(limit: number | undefined): number {
   if (limit === undefined || typeof limit !== 'number' || !Number.isFinite(limit)) {
@@ -901,7 +908,7 @@ export class VendorService {
    * Private so that no caller can hand it a row it did not read from this
    * service and get an eligibility verdict about a vendor that does not exist.
    */
-  private async eligibilityFor(vendor: VendorRecord): Promise<VendorListingEligibility> {
+  private async eligibilityFor(vendor: VendorRecord, signal?: AbortSignal): Promise<VendorListingEligibility> {
     if (vendor.status !== 'approved') {
       /**
        * Suspended, rejected and still-undecided collapse into ONE code on
@@ -942,7 +949,8 @@ export class VendorService {
      * The reads below are plain selects: a lock held across this call would
      * deadlock the suspension that has to commit during it.
      */
-    const entitlement = await this.stakes.entitlementOf(vendor.userId);
+    const entitlement = await this.stakes.entitlementOf(vendor.userId, signal);
+    signal?.throwIfAborted();
     const [fresh] = await this.sql<Array<{ status: VendorStatus }>>`
       SELECT status FROM market.vendors WHERE id = ${vendor.id}
     `;
@@ -1066,54 +1074,112 @@ export class VendorService {
    * span attribute below is where that difference is a number rather than a
    * silence nobody can see.
    *
-   * Candidate rows are bounded by the requested page size and checked in
-   * parallel, preserving registration order regardless of lookup completion.
-   * After `entitlementOf`, `eligibilityFor` decides from fresh status and slot
-   * facts. A short page remains possible: refilling through more candidates
-   * would multiply stake calls without a whole-request cancellation contract.
+   * ── BOUNDED, NON-STARVING DISCOVERY (#4529) ─────────────────────────────────
    *
-   * ponytail: one stake read per candidate, at most the page size. Page size is
-   * owner-published — omit is not 20. The upgrade path when the directory gets
-   * real traffic is a BATCH entitlement read on svc-token — never a cached
-   * `is_listed`, which is the exact lie this method exists to avoid.
+   * Candidates are read in registration order by keyset, `limit - found` at a
+   * time, and each window is checked in parallel; order is registration order
+   * regardless of which lookup finishes first. Rounds continue until the page
+   * is full, the candidates run out, or `LISTED_CANDIDATE_FACTOR × limit`
+   * candidates have been checked. So a run of older ineligible vendors costs at
+   * most that many stake reads, and never hides the newer eligible vendors
+   * behind them: `nextCursor` names the last candidate CHECKED (shown or not),
+   * and the next page resumes after it. `nextCursor: null` is the only claim
+   * that the directory is exhausted; a short page with a cursor is incomplete,
+   * not the end.
+   *
+   * `signal` is the caller's request lifetime. It reaches every stake fetch,
+   * so an abandoned request ends its pending reads instead of finishing them,
+   * and no new round starts after it fires. Each fetch also carries the stake
+   * source's own timeout (`stake-source.ts`).
+   *
+   * After `entitlementOf`, `eligibilityFor` decides from fresh status and slot
+   * facts, so a suspension or release that lands mid-read is honoured.
+   *
+   * ponytail: at most `LISTED_CANDIDATE_FACTOR × limit` stake reads per page.
+   * The upgrade path when the directory gets real traffic is a BATCH
+   * entitlement read on svc-token — never a cached `is_listed`, which is the
+   * exact lie this method exists to avoid.
    */
-  async listedVendors(options: { limit?: number } = {}): Promise<PublicVendorProfile[]> {
-    const limit = assertListedVendorsListLimit(options.limit);
+  async listedVendors(options: { limit?: number; signal?: AbortSignal } = {}): Promise<PublicVendorProfile[]> {
+    return (await this.listedVendorsPage(options)).vendors;
+  }
 
-    /**
-     * Both cheap gates are the database's: approved, and holding at least one
-     * open slot. Only the survivors cost a network call, so the common case —
-     * most rows in this table are applications nobody has decided yet — reaches
-     * svc-token zero times. An open slot is not a listed vendor.
-     */
-    const rows = await this.sql<VendorRow[]>`
-      SELECT v.id, v.user_id, v.display_name, v.description, v.status, v.created_at, v.updated_at
-        FROM market.vendors v
-       WHERE v.status = 'approved'::market.vendor_status
-         AND EXISTS (SELECT 1 FROM market.vendor_slots s WHERE s.vendor_id = v.id AND s.released_at IS NULL)
-       ORDER BY v.created_at ASC, v.id ASC
-       LIMIT ${limit}
-    `;
+  /** One directory page plus where the next one resumes. See `listedVendors`. */
+  async listedVendorsPage(
+    options: { limit?: number; cursor?: string; signal?: AbortSignal } = {},
+  ): Promise<{ vendors: PublicVendorProfile[]; nextCursor: string | null }> {
+    const limit = assertListedVendorsListLimit(options.limit);
+    const { signal } = options;
+    const budget = limit * LISTED_CANDIDATE_FACTOR;
+
+    let after: { created_at: Date; id: string } | null = null;
+    if (options.cursor !== undefined) {
+      const [anchor] = await this.sql<Array<{ created_at: Date; id: string }>>`
+        SELECT created_at, id FROM market.vendors WHERE id = ${options.cursor}
+      `;
+      // A cursor this service never issued. Refuse rather than return an empty
+      // page that would read as "the directory ends here".
+      if (!anchor) throw new MarketError('No vendor directory position for that cursor.', 'market.vendor_not_found');
+      after = anchor;
+    }
 
     return withMarketSpan('market.listed', { op: 'listed' }, async (span) => {
+      const found: PublicVendorProfile[] = [];
+      let scanned = 0;
       let unreadable = 0;
-      const checked = await Promise.all(
-        rows.map(async (row) => {
-          const vendor = toVendor(row);
-          try {
-            const eligibility = await this.eligibilityFor(vendor);
-            return eligibility.listed ? toPublicProfile(vendor) : null;
-          } catch {
-            // Fail closed per vendor, with no further candidate lookups.
-            unreadable += 1;
-            return null;
-          }
-        }),
-      );
+      let exhausted = false;
 
-      span.setAttribute('intafaced.market.listed_candidates', rows.length);
+      while (found.length < limit && scanned < budget) {
+        signal?.throwIfAborted();
+        const want = Math.min(limit - found.length, budget - scanned);
+        /**
+         * Both cheap gates are the database's: approved, and holding at least
+         * one open slot. Only the survivors cost a network call. An open slot is
+         * not a listed vendor. `created_at` is compared in the database, not
+         * round-tripped through a JS Date, so microseconds never skip a row.
+         */
+        const rows: VendorRow[] = await this.sql<VendorRow[]>`
+          SELECT v.id, v.user_id, v.display_name, v.description, v.status, v.created_at, v.updated_at
+            FROM market.vendors v
+           WHERE v.status = 'approved'::market.vendor_status
+             AND EXISTS (SELECT 1 FROM market.vendor_slots s WHERE s.vendor_id = v.id AND s.released_at IS NULL)
+             ${
+               after
+                 ? this.sql`AND (v.created_at, v.id) > (SELECT a.created_at, a.id FROM market.vendors a WHERE a.id = ${after.id})`
+                 : this.sql``
+             }
+           ORDER BY v.created_at ASC, v.id ASC
+           LIMIT ${want}
+        `;
+        const checked = await Promise.all(
+          rows.map(async (row) => {
+            const vendor = toVendor(row);
+            try {
+              const eligibility = await this.eligibilityFor(vendor, signal);
+              return eligibility.listed ? toPublicProfile(vendor) : null;
+            } catch (err) {
+              // The caller went away: end the whole read, not just this vendor.
+              if (signal?.aborted) throw signal.reason ?? err;
+              // Fail closed per vendor.
+              unreadable += 1;
+              return null;
+            }
+          }),
+        );
+        signal?.throwIfAborted();
+        scanned += rows.length;
+        for (const profile of checked) if (profile) found.push(profile);
+        if (rows.length < want) {
+          exhausted = true;
+          break;
+        }
+        after = rows[rows.length - 1]!;
+      }
+
+      span.setAttribute('intafaced.market.listed_candidates', scanned);
       span.setAttribute('intafaced.market.listed_stake_unreadable', unreadable);
-      return checked.filter((profile): profile is PublicVendorProfile => profile !== null);
+      span.setAttribute('intafaced.market.listed_complete', exhausted);
+      return { vendors: found, nextCursor: exhausted || !after ? null : after.id };
     });
   }
 }
