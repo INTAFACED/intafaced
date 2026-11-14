@@ -6,8 +6,8 @@ import { EDGE, ORIGIN, journeyState } from './stack.mjs';
 // J-more-catalogue-14, in the running app (docs/roadmap/journeys.json): onboard an issuer and announce a launch event. One
 // test per step, titled "J-more-catalogue-14 #<n>", run in order. Founders A and B work the issuer lens in the admin app at
 // /launch, each on their own console: A asks, B pastes the packet and approves the same request, A runs it. Nothing is
-// written to a table directly. Every name, price and cap here is TEST. Steps #4 to #7 wait for MC-launch-03 and
-// RC-more-catalogue-22 to 24 and fail by name.
+// written to a table directly. Every name, price and cap here is TEST. Steps #4 and #5 wait for MC-launch-03 and
+// RC-more-catalogue-22 and fail by name; #6 is the issuance kind (RC-more-catalogue-23).
 const J = 'J-more-catalogue-14';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const MINUTE = 60_000;
@@ -203,7 +203,7 @@ test(`${J} #3 Onboards the issuer and announces: the event appears in the catalo
   run.write({ announced: true });
 });
 
-// Steps #4 to #7 wait for slices not yet built. They stay cheap (no founder sign-in, a short timeout) and fail naming the
+// Steps #4 and #5 wait for slices not yet built. They stay cheap (no founder sign-in, a short timeout) and fail naming the
 // slice; the lens lists each of them under "Not wired yet" with its blocker. Each becomes a real check when its slice lands.
 test(`${J} #4 Reads the commits and refunds panel: progress reads for the event`, async ({ page }) => {
   started('announced');
@@ -220,12 +220,63 @@ test(`${J} #5 Records fundraising milestones and investor records on the event: 
   });
 });
 
-test(`${J} #6 Records a wrapped or structured issuance: the issuance with its kind`, async ({ page }) => {
-  started('announced');
-  await page.goto(`${ADMIN}/launch`);
-  await expect(page.getByRole('region', { name: 'Structured issuance' }), 'RC-more-catalogue-23 is not built').toBeVisible({
-    timeout: 5_000,
+test(`${J} #6 Records a wrapped or structured issuance: the issuance with its kind`, async ({ browser }) => {
+  test.setTimeout(300_000);
+  const { nonce, issuer } = started('nonce', 'issuer');
+  const pages = await founders(browser);
+  const launch = { id: `j14w-${nonce}`, name: `TEST Wrapped ${nonce}`, symbol: `W${nonce.slice(-5).toUpperCase()}` };
+  const backing = `TEST BTC held one to one (${nonce})`;
+  const now = Date.now();
+  const periods = [now + DAY, now + 2 * DAY, now + 3 * DAY, now + 4 * DAY, now + 5 * DAY].map(utcMinute);
+  const reply = await twoFounders(pages, {
+    path: '/launch/new',
+    heading: 'Save this launch as a draft',
+    fill: async (page) => {
+      const form = page.getByRole('form', { name: 'New launch' });
+      await form.getByLabel('Launch id').fill(launch.id);
+      await form.getByLabel('Issuer').selectOption(issuer.id);
+      await form.getByLabel('Type').selectOption('token_sale');
+      await form.getByLabel('Project name').fill(launch.name);
+      await form.getByLabel('Symbol').fill(launch.symbol);
+      for (const [i, name] of ['Announce', 'Snapshot', 'Open', 'Close', 'Distribution'].entries())
+        await form.getByLabel(`${name} (UTC)`).fill(periods[i]);
+      const issuance = form.getByRole('group', { name: 'Issuance' });
+      await issuance.getByLabel('Issuance kind').selectOption('wrapped');
+      await issuance.getByLabel('Backing asset').fill(backing);
+      await issuance.getByLabel(/^Compliance flags/).fill('TEST, testnet only');
+    },
+    ask: 'Ask a second founder to approve this draft',
+    phrase: `DRAFT LAUNCH ${launch.id}`,
+    summary: `Issuance wrapped, backed by ${backing}, flags TEST, testnet only`,
   });
+  await expect(reply).toContainText(`Launch ${launch.id} is saved as a draft`);
+
+  // The issuance, as svc-token stored it, with its kind: on the stored drafts and on the launch lens.
+  await pages.a.reload();
+  const draft = pages.a.getByRole('list', { name: 'Stored drafts' }).locator(`li[data-launch="${launch.id}"]`);
+  await expect(draft.getByTestId('issuance-kind')).toHaveText('Wrapped');
+  await expect(draft.getByTestId('issuance-detail')).toHaveText(`(backed by ${backing})`);
+  await pages.a.goto(`${ADMIN}/launch`);
+  const row = launchRow(pages.a, launch.id);
+  await expect(row.getByTestId('launch-issuance')).toHaveAttribute('data-kind', 'wrapped');
+  await expect(row.getByTestId('issuance-kind')).toHaveText('Wrapped');
+  await expect(row.getByTestId('issuance-flag')).toHaveText(['TEST', 'testnet only']);
+
+  // A synthetic with no oracle is held back on the form, naming what it needs; nothing is asked for.
+  await pages.a.goto(`${ADMIN}/launch/new`);
+  const form = pages.a.getByRole('form', { name: 'New launch' });
+  await form.getByLabel('Launch id').fill(`j14s-${nonce}`);
+  await form.getByLabel('Issuer').selectOption(issuer.id);
+  await form.getByLabel('Type').selectOption('token_sale');
+  await form.getByLabel('Project name').fill(`TEST Synthetic ${nonce}`);
+  await form.getByLabel('Symbol').fill(`S${nonce.slice(-5).toUpperCase()}`);
+  for (const [i, name] of ['Announce', 'Snapshot', 'Open', 'Close', 'Distribution'].entries())
+    await form.getByLabel(`${name} (UTC)`).fill(periods[i]);
+  await form.getByRole('group', { name: 'Issuance' }).getByLabel('Issuance kind').selectOption('synthetic');
+  await expect(desk(pages.a, 'Save this launch as a draft')).toContainText('A synthetic issuance needs its oracle.');
+  await expect(
+    desk(pages.a, 'Save this launch as a draft').getByRole('button', { name: 'Ask a second founder to approve this draft' }),
+  ).toBeDisabled();
 });
 
 test(`${J} #7 Reviews the marketing claims evidence register before announcing: each claim with its evidence or a block`, async ({

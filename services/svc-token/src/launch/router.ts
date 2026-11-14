@@ -9,6 +9,7 @@ import { LaunchError, launchCopy } from './errors.js';
 import { LAUNCH_EVENT_CREATE_ACTION, LAUNCH_EVENT_MOVE_ACTION, LAUNCH_ISSUER_SET_ACTION, launchEventPayload } from './payload.js';
 import {
   ALLOCATION_METHODS,
+  ISSUANCE_KINDS,
   ISSUER_STATES,
   LAUNCH_STATES,
   LAUNCH_STATUSES,
@@ -45,6 +46,15 @@ const eventOutput = z.object({
   }),
   terms: z.object({ price: amountString.nullable(), paymentAsset: z.string().nullable(), rateSource: z.string().nullable() }),
   snapshot: z.object({ count: z.number().int(), total: amountString, takenAt: z.string() }).nullable(),
+  issuance: z
+    .object({
+      kind: z.enum(ISSUANCE_KINDS),
+      backingAsset: z.string().nullable(),
+      oracle: z.string().nullable(),
+      legTerms: z.string().nullable(),
+      flags: z.array(z.string()),
+    })
+    .nullable(),
   revision: z.number().int(),
 });
 
@@ -75,6 +85,7 @@ function eventToWire(e: LaunchEvent): z.infer<typeof eventOutput> {
     snapshot: e.snapshot
       ? { count: e.snapshot.count, total: formatAmount(e.snapshot.total), takenAt: e.snapshot.takenAt.toISOString() }
       : null,
+    issuance: e.issuance ?? null,
     revision: e.revision,
   };
 }
@@ -100,6 +111,16 @@ const createInput = z.object({
   terms: z
     .object({ price: amountString.nullable(), paymentAsset: z.string().max(12).nullable(), rateSource: z.string().max(120).nullable() })
     .strict(),
+  issuance: z
+    .object({
+      kind: z.enum(ISSUANCE_KINDS),
+      backingAsset: z.string().max(300).nullable(),
+      oracle: z.string().max(300).nullable(),
+      legTerms: z.string().max(300).nullable(),
+      flags: z.array(z.string().max(40)).max(8),
+    })
+    .strict()
+    .nullish(),
 });
 
 const approvalFields = { approvalId: z.string().max(128).nullish(), operationId: z.string().max(128).nullish() };
@@ -135,6 +156,9 @@ function toTrpcError(err: unknown): TRPCError {
       case 'launch.issuer_stale':
         return new TRPCError({ code: 'CONFLICT', message, cause: err });
       case 'launch.event_invalid':
+      case 'launch.backing_unset':
+      case 'launch.oracle_unset':
+      case 'launch.leg_terms_unset':
       case 'launch.event_move_invalid':
       case 'launch.issuer_move_invalid':
         return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
