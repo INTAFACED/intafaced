@@ -938,16 +938,12 @@ test(`${J} #7 sees cashback in USDC on card spend with the rank-linked tier: rec
   expect(firstBps).toBe(rateOf(start.cardTier));
   const first = earnedAt(firstBps);
 
-  // A virtual card that draws on USDC, ordered in the card room; the TEST card partner holds its money.
-  await page.goto('/bank/cards/new');
-  await page.getByLabel('Country you live in').selectOption('DE');
-  await page.getByRole('radio', { name: 'Virtual card' }).check();
-  await page.getByLabel('Card draws on').selectOption(USDC);
-  await page.getByLabel(`Limit per payment (${USDC})`).fill('20');
-  await page.getByRole('button', { name: 'Issue virtual card' }).click();
-  const result = page.getByTestId('card-order-result');
-  await expect(result).toContainText('Virtual card issued');
-  const cardId = await result.getAttribute('data-card-id');
+  // A virtual card in USDC, which the TEST card partner holds for this person (its TEST USDC spendable, never our book's):
+  // issued through the person's own card door, as J-bank-14 #6 does, since the card room's funding list names only what
+  // INTAFACED's book holds for them.
+  const issued = await (await bank(who)).mutate('cards.issue', { cardId: randomUUID(), assetId: USDC, perAuthorizationLimit: '20' });
+  expect(issued.ok, JSON.stringify(issued.body ?? {}).slice(0, 300)).toBe(true);
+  const cardId = issued.data.id;
   expect(await cardOf(cardId)).toMatchObject({ assetId: USDC, status: 'active' });
   run.write({ cashbackCardId: cardId });
 
