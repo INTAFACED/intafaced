@@ -231,7 +231,9 @@ test(`${J} #2 With the TEST ceiling back, opens Connect your assistant: what the
   expect(body200(await session.get(BASE)).accounts).toEqual([]);
 });
 
-test(`${J} #3 Creates an agent account with a cap of TEST 200 USDC and funds it with 150, with step-up: a venue sub-account under the wallet; the wallet signs the move of 150 and the agent permission; balance 150.00 as the venue reports it, cap 200.00; the main venue account falls by exactly 150.00; a rejected signature moves nothing and makes no account`, async () => {
+test(`${J} #3 Creates an agent account with a cap of TEST 200 USDC and funds it with 150, with step-up: the agent's venue account (a venue sub-account, which the TEST venue offers); where the venue's agent permission would reach the person's other accounts the app says so before the wallet is asked to sign, and here it says the permission reaches the agent account only; the wallet signs the move of 150 and the agent permission; balance 150.00 as the venue reports it, cap 200.00; the main venue account falls by exactly 150.00; a rejected signature moves nothing and makes no account`, async ({
+  page,
+}) => {
   test.setTimeout(300_000);
   const { session } = await person();
   const passkey = await testPasskey(session);
@@ -241,6 +243,24 @@ test(`${J} #3 Creates an agent account with a cap of TEST 200 USDC and funds it 
   const subsBefore = (await venue('/sub-accounts', { account: await acct(owner()) })).value;
   const terms = body200(await session.get(`${BASE}/terms`));
   expect(terms.asset).toBe('USDC');
+
+  // How far the agent permission reaches, as the venue itself declares it, is what the app reads and says before the
+  // wallet is asked to sign anything: the TEST venue offers sub-accounts and keeps an agent approved on one to it.
+  const venueInfo = (await venue('/venue')).venue;
+  expect(venueInfo.agentPermissionReach, 'the TEST venue declares how far an agent permission reaches').toBe('own_account_only');
+  expect(terms.agentPermission).toEqual({ venue: venueInfo.displayName, reach: venueInfo.agentPermissionReach });
+  await signIn(page, state().account);
+  await page.goto('/agents/connect');
+  const createRoom = page.getByTestId('agent-connect__create');
+  await createRoom.getByRole('button', { name: 'Create agent account', exact: true }).click();
+  const reach = createRoom.getByTestId('agent-connect__reach');
+  await expect(reach).toHaveAttribute('data-reach', 'own_account_only');
+  await expect(reach).toContainText(
+    `On ${venueInfo.displayName}, the permission your wallet signs lets the assistant trade this agent account and nothing else`,
+  );
+  await expect(reach).not.toContainText('other accounts');
+  // Saying so asked for no signature and made nothing.
+  expect(body200(await session.get(BASE)).accounts).toEqual([]);
 
   // Without step-up: refused, nothing made.
   const bare = await session.post(BASE, { accountId: randomUUID(), owner: owner(), asset: 'USDC', cap: '200', fund: '150' });
@@ -256,6 +276,9 @@ test(`${J} #3 Creates an agent account with a cap of TEST 200 USDC and funds it 
   );
   expect(asked.status).toBe('opening');
   expect(asked.next.step).toBe('open_sub_account');
+  expect(asked.next.signed).toBe(false);
+  // The account the create answers, before its first signature, says the same reach.
+  expect(asked.agentPermission).toEqual({ venue: venueInfo.displayName, reach: 'own_account_only' });
   const ended = body200(await session.post(`${BASE}/${rejectedId}/abandon`, {}));
   expect(ended.status).toBe('abandoned');
   expect(ended.subAccount).toBeNull();

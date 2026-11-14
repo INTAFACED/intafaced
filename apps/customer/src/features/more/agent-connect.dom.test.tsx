@@ -12,6 +12,8 @@ let connected = false;
 /** The wallet: connected or not, and whether the venue's abandon answers. */
 let walletOn = false;
 let abandonAnswers = true;
+/** The terms' agent permission reach, as svc-trade read it from the venue. */
+let permission: unknown = { venue: 'TEST venue simulator', reach: 'own_account_only' };
 const OPENING_NEXT = {
   actionKey: 'agent:account:x:create',
   step: 'open_sub_account',
@@ -47,7 +49,8 @@ vi.mock('../session/session', () => {
     rest: async (path: string, _schema: unknown, opts: { method?: string; body?: unknown } = {}) => {
       calls.push({ kind: opts.method ?? 'GET', target: path, body: opts.body });
       if (doorOff) return { ok: false, reason: 'not_mounted', message: 'off', code: 'trade.user_venue_off' };
-      if (path === '/venue/agent-accounts/terms') return { ok: true, data: { ceiling: '1000.00', asset: 'USDC' } };
+      if (path === '/venue/agent-accounts/terms')
+        return { ok: true, data: { ceiling: '1000.00', asset: 'USDC', agentPermission: permission } };
       if (path === '/venue/agent-accounts' && opts.method !== 'POST') return { ok: true, data: { accounts: [ACCOUNT] } };
       if (path === '/venue/agent-accounts/connections')
         return {
@@ -144,6 +147,7 @@ describe('Connect your assistant (J-agents-21 #2, #6)', () => {
     connected = false;
     walletOn = false;
     abandonAnswers = true;
+    permission = { venue: 'TEST venue simulator', reach: 'own_account_only' };
   });
 
   it('says what the assistant can and cannot do, the owner ceiling, and offers Create agent account', async () => {
@@ -164,6 +168,33 @@ describe('Connect your assistant (J-agents-21 #2, #6)', () => {
     expect(host.querySelector('[data-testid="agent-connect__cannot"]')).toBeTruthy();
     expect(host.textContent).toContain('venue connection is off');
     expect(button(host, 'Create agent account').disabled).toBe(true);
+  });
+
+  it.each([
+    [
+      { venue: 'TEST venue simulator', reach: 'own_account_only' },
+      'own_account_only',
+      'nothing else, so TEST venue simulator itself holds it to your cap',
+    ],
+    [{ venue: 'TEST venue simulator', reach: 'owner_accounts' }, 'owner_accounts', 'Our policy check is then the only limit'],
+    [null, 'unknown', 'can act for your other accounts there too'],
+  ])('says how far the agent permission reaches (%j) before anything is sent or signed', async (reach, attr, words) => {
+    permission = reach;
+    walletOn = true;
+    const host = await render();
+    await click(button(host, 'Create agent account'));
+    const notice = host.querySelector('[data-testid="agent-connect__create"] [data-testid="agent-connect__reach"]') as HTMLElement;
+    expect(notice.dataset.reach).toBe(attr);
+    expect(notice.textContent).toContain(words);
+    expect(calls.filter((c) => c.kind === 'POST')).toEqual([]);
+    const form = host.querySelector('[data-testid="agent-connect__create"] form') as HTMLFormElement;
+    (form.querySelector('input[name=cap]') as HTMLInputElement).value = '200';
+    (form.querySelector('input[name=fund]') as HTMLInputElement).value = '150';
+    await act(async () => form.requestSubmit());
+    await settle();
+    // Still said with the step-up, before the create is sent and before any signature.
+    expect(host.querySelector('[data-testid="agent-connect__reach"]')?.textContent).toContain(words);
+    expect(calls.some((c) => c.kind === 'POST' && c.target === '/venue/agent-accounts')).toBe(false);
   });
 
   it('Create agent account with no wallet connected says so and sends nothing', async () => {

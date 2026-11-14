@@ -997,6 +997,21 @@ export interface UserVenueDescriptor extends VenueDescriptor {
    * end date is the venue's own `validUntil: null` and is not bounded by this.
    */
   readonly agentValidityMaxMs?: number;
+  /**
+   * How far an agent permission approved on one of the owner's sub-accounts reaches (J-agents-21 #3 and its money line):
+   * `own_account_only` when the venue lets that agent trade the sub-account it was approved on and nothing else, so the
+   * venue itself holds the agent account's cap; `owner_accounts` when the venue lets it act for the owner's other
+   * accounts too, so the app says so before the wallet signs and our policy check is the only limit. A venue that
+   * declares none is read as `owner_accounts` (`agentPermissionReach`): a limit nobody declared is never promised.
+   */
+  readonly agentPermissionReach?: AgentPermissionReach;
+}
+
+export type AgentPermissionReach = 'own_account_only' | 'owner_accounts';
+
+/** The venue's declared reach of a sub-account's agent permission; undeclared reads as reaching the owner's accounts. */
+export function agentPermissionReach(venue: UserVenueDescriptor): AgentPermissionReach {
+  return venue.agentPermissionReach === 'own_account_only' ? 'own_account_only' : 'owner_accounts';
 }
 
 /** True for the TEST simulator and any testnet or partner sandbox. */

@@ -369,6 +369,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       proofLevel: 'simulator',
       figureStaleAfterMs: TEST_VENUE_FIGURE_STALE_AFTER_MS,
       agentValidityMaxMs: TEST_VENUE_AGENT_VALIDITY_MAX_MS,
+      // An agent approved on a sub-account is live only in that account's state (`agentLive`), so it trades nothing else.
+      agentPermissionReach: 'own_account_only',
     };
     this.clock = options.clock;
     this.chainId = testVenueDomain(options.chainId ?? TEST_VENUE_CHAIN_ID).chainId;

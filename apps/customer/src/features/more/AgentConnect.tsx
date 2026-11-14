@@ -30,6 +30,7 @@ import {
   type AgentAccount,
   type AgentConnection,
   type AgentNext,
+  type AgentPermission,
   type AgentTerms,
 } from './agent-connect-api';
 import { agentConnectCopy as copy } from './agent-connect-copy';
@@ -349,6 +350,7 @@ function CreateAccount({ terms, reload }: { terms: AgentTerms; reload: () => voi
       {formOpen && !ask && (
         <form className="form-stack" noValidate onSubmit={start}>
           <p className="muted">{t('createIntro')}</p>
+          <PermissionReach permission={terms.agentPermission ?? null} />
           <Field label={t('cap', { asset })} hint={t('capHint')} name="cap" inputMode="decimal" autoComplete="off" />
           <Field label={t('fund', { asset })} hint={t('fundHint')} name="fund" inputMode="decimal" autoComplete="off" />
           {!owner && (
@@ -369,6 +371,7 @@ function CreateAccount({ terms, reload }: { terms: AgentTerms; reload: () => voi
       )}
       {ask && (
         <>
+          <PermissionReach permission={terms.agentPermission ?? null} />
           <StepUpConfirm
             request={() => createStepUp(ask)}
             words={stepUpWords(t, 'stepUpWhy')}
@@ -391,6 +394,30 @@ function CreateAccount({ terms, reload }: { terms: AgentTerms; reload: () => voi
         </p>
       )}
     </section>
+  );
+}
+
+/**
+ * How far the agent permission the wallet is about to sign reaches (J-agents-21 #3): shown with the create form and
+ * again with its step-up, before the wallet is asked to sign anything. The venue's own declaration, read by svc-trade;
+ * not read is said as reaching the person's other accounts, never as a limit nobody declared.
+ */
+function PermissionReach({ permission }: { permission: AgentPermission | null }) {
+  const { t } = copy.useCopy();
+  const others = permission?.reach !== 'own_account_only';
+  return (
+    <p
+      className={others ? 'error-text' : 'muted'}
+      role="note"
+      data-testid="agent-connect__reach"
+      data-reach={permission?.reach ?? 'unknown'}
+    >
+      {permission === null
+        ? t('reachUnknown')
+        : permission.reach === 'own_account_only'
+          ? t('reachOwn', { venue: permission.venue })
+          : t('reachOthers', { venue: permission.venue })}
+    </p>
   );
 }
 
