@@ -1,6 +1,7 @@
 // World: stack
 import { test, expect } from './journey.mjs';
 import { forgetSession } from './identity-factors.mjs';
+import { responseAfterNavigation } from './navigation.mjs';
 import { businessReadyPerson, openBusiness, refusedPayCalls, signInWithCode, verifiedBusiness } from './merchant.mjs';
 
 // J-merchant-01 step 6 in the running app: notification preferences saved per person with their change history, and
@@ -96,10 +97,11 @@ test(`${J} #6 the owner changes a notification preference, saved for them alone,
 
   // The Viewer reads the same preferences, each greyed: its switch and Save cannot be used, and the row says why, naming
   // the permission they lack.
-  const viewerPrefsRead = page.waitForResponse(
+  const { res: viewerPrefs } = await responseAfterNavigation(
+    page,
     (r) => r.url().includes('merchantOps.notifications.preferences.list') && r.request().method() === 'GET',
+    { navigate: () => page.goto('/pay/settings/notifications') },
   );
-  await page.goto('/pay/settings/notifications');
   const viewerRows = page.locator('li[data-testid="pp-pref"]');
   await expect(viewerRows.first()).toBeVisible();
   const count = await viewerRows.count();
@@ -112,9 +114,8 @@ test(`${J} #6 the owner changes a notification preference, saved for them alone,
   }
   // Saved per person: the owner turned Export ready off for themself, not for the Viewer. The Viewer reads their own
   // choices from the service, every kind on by default, none saved by anyone, and an empty history of their own.
-  const viewerPrefs = await viewerPrefsRead;
-  expect(viewerPrefs.status(), 'the Viewer reads their own preferences').toBe(200);
-  const viewerKinds = (await viewerPrefs.json()).result.data;
+  expect(viewerPrefs.status, 'the Viewer reads their own preferences').toBe(200);
+  const viewerKinds = viewerPrefs.body.result.data;
   expect(viewerKinds.find((p) => p.kind === 'export_ready')).toMatchObject({ inApp: true, updatedBy: null });
   expect(viewerKinds.every((p) => p.inApp === true && p.updatedBy === null)).toBe(true);
   await expect(viewerRows.filter({ hasText: 'Export ready' }).getByRole('checkbox')).toBeChecked();
