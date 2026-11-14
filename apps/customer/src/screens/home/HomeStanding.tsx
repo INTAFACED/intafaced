@@ -1,3 +1,4 @@
+import { classifyRefusal } from '../../data/refusal-codes';
 import { networkLabel } from '../../features/protocol/blockers';
 import { APP_CHAIN_ID } from '../../features/protocol/wallet/eip1193';
 import { WalletProvider } from '../../features/protocol/wallet/WalletProvider';
@@ -8,6 +9,7 @@ import { usePreferences } from '../../shared/preferences';
 import { useStanding } from '../money/standing-data';
 import { StandingTotal } from '../money/StandingTotal';
 import { standingCopy } from '../money/standing-copy';
+import type { Loadable } from './deps';
 
 /**
  * The launch model on Home (OWNER 226; J-home-ia-01 #1): with svc-trade's user-venue door on, Home's total is where the
@@ -18,6 +20,16 @@ import { standingCopy } from '../money/standing-copy';
 export function useLaunchVenue(): VenueUp | null {
   const venue = useVenueMode();
   return venue.mode === 'on' && venue.status.available ? venue.status : null;
+}
+
+/**
+ * The launch model's total, unless the person is not verified yet: while the bank refuses Home's summary for that, Home
+ * keeps asking for verification where the total would be, with its Verify now (J-cex-spot-01 #1), and shows today's
+ * Home until they are.
+ */
+export function launchStanding(venue: VenueUp | null, portfolio: Loadable<unknown>): VenueUp | null {
+  if (!venue) return null;
+  return portfolio.status === 'refused' && classifyRefusal(portfolio.code) === 'verify' ? null : venue;
 }
 
 export function HomeStanding({ status, hidden, pro = false }: { status: VenueUp; hidden: boolean; pro?: boolean }) {

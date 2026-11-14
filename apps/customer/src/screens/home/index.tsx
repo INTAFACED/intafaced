@@ -39,7 +39,7 @@ import { GetStarted } from './GetStarted';
 import { LearnStrip } from './LearnStrip';
 import { RecentActivity } from './RecentActivity';
 import { useRecentActivityLimit } from './recent-activity-limit';
-import { HomeStanding, useLaunchVenue } from './HomeStanding';
+import { HomeStanding, launchStanding, useLaunchVenue } from './HomeStanding';
 import { WorkList } from './WorkList';
 import { TotalFigure, TotalUnitNote } from './TotalFigure';
 import { HOME_LINKS } from './links';
@@ -254,7 +254,7 @@ function HomeSimple() {
   const activity = useActivity();
   const activityLimit = useRecentActivityLimit();
   // The launch model (OWNER 226): with the user-venue door on, the total is where the person stands, as Assets shows it.
-  const launch = useLaunchVenue();
+  const launch = launchStanding(useLaunchVenue(), portfolio);
   const { favorites, isFavorite, toggle } = useFavorites(userId);
   const favoriting = useMemo(() => ({ isFavorite, toggle }), [isFavorite, toggle]);
 

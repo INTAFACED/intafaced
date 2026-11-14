@@ -52,7 +52,7 @@ import { HOME_LINKS } from './links';
 import { TotalFigure, TotalUnitNote } from './TotalFigure';
 import { RecentActivity } from './RecentActivity';
 import { useRecentActivityLimit } from './recent-activity-limit';
-import { HomeStanding, useLaunchVenue } from './HomeStanding';
+import { HomeStanding, launchStanding, useLaunchVenue } from './HomeStanding';
 import type { VenueUp } from '../../features/trade/venue-api';
 import { WorkList } from './WorkList';
 import { GetStarted } from './GetStarted';
@@ -625,7 +625,7 @@ export function HomePro() {
   const markets = useMarkets();
   const activity = useActivity();
   const activityLimit = useRecentActivityLimit();
-  const launch = useLaunchVenue();
+  const launch = launchStanding(useLaunchVenue(), portfolio);
   const home = useHomeLayout();
   const tiles = shownTiles(home.layout, 'pro');
   const started = useStartedTile(portfolio, tiles.includes('started'));
