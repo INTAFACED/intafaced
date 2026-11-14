@@ -1070,7 +1070,17 @@ test(`${J} #8 adds the card to the phone's wallet: the card shows as added, as t
   expect((await cardOf(cardId)).status).toBe('active');
   await signInPerson(page);
   await page.goto('/bank/cards');
-  const wallets = page.locator(`[data-card="${cardId}"]`).getByRole('region', { name: 'Phone wallets', exact: true });
+  // The card's own panels open from its row, as J-bank-14 opens them.
+  const here = page.locator(`[data-card="${cardId}"]`);
+  const showCard = async () => {
+    const inspect = page.getByRole('button', { name: `Inspect decisions for card ${cardId}` });
+    const controls = here.getByRole('region', { name: 'Card controls', exact: true });
+    await expect(controls.or(inspect)).toBeVisible();
+    if (await inspect.isVisible()) await inspect.click();
+    await expect(controls).toBeVisible();
+  };
+  await showCard();
+  const wallets = here.getByRole('region', { name: 'Phone wallets', exact: true });
   await expect(wallets).toContainText('This card is in no phone wallet.');
   await wallets.getByRole('button', { name: 'Add to Google Wallet' }).click();
   const google = wallets.locator('li[data-wallet="google"]');
@@ -1081,5 +1091,6 @@ test(`${J} #8 adds the card to the phone's wallet: the card shows as added, as t
   expect(tokens).toMatchObject({ ok: true, data: { test: true } });
   expect(tokens.data.tokens).toEqual([expect.objectContaining({ wallet: 'google', state: 'added' })]);
   await page.reload();
+  await showCard();
   await expect(google).toHaveText('Google Wallet: Added');
 });
