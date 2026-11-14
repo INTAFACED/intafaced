@@ -397,9 +397,13 @@ export async function executeAutoRun(deps: AutoRunDeps, runId: string): Promise<
   if (row.per_run_cap === null) return skip('agents.schedule.cap_per_run_unset');
   if (!(await readOwnCaps(sql, row.owner_id, agent.id))) return skip('agents.spend.cap_unset');
   if (deps.cadence.dailyLimit === null) return skip('agents.schedule_cadence_unset');
+  // Today's runs of this schedule or trigger: those that ran, and those claimed before this one and still running, so
+  // runs claimed together (two fills at once) cannot each pass the limit before either settles.
   const [today] = await sql<Array<{ n: number }>>`
     SELECT count(*)::int AS n FROM agents.own_agent_auto_runs
-     WHERE source_id = ${row.source_id} AND state = 'ran' AND created_at >= date_trunc('day', now())
+     WHERE source_id = ${row.source_id} AND id <> ${row.id} AND created_at >= date_trunc('day', now())
+       AND (state = 'ran'
+            OR (state = 'claimed' AND (created_at, id) < (SELECT created_at, id FROM agents.own_agent_auto_runs WHERE id = ${row.id})))
   `;
   if (today!.n >= deps.cadence.dailyLimit) return skip('agents.schedule.daily_limit_reached');
 
@@ -538,18 +542,19 @@ export async function tickSchedules(
  * recorded (a redelivery of an event id already seen is marked so), and the event's run row is written once; only the
  * delivery that wrote it runs it. The run row is the seen-set, in Postgres, so a restart never runs an event twice.
  * `event.subject` is the bus subject as the envelope carries it (`intafaced.trade.fill.settled`); a trigger stores its
- * subject without the bus prefix (`trade.fill.settled`).
+ * subject without the bus prefix (`trade.fill.settled`). An event that happened before a trigger was added
+ * (`occurredAt`, the event's own time) never runs it, however late it is delivered.
  */
 export async function deliverTriggerEvent(
   deps: AutoRunDeps,
-  event: { subject: string; userId: string; eventId: string; envelopeId: string },
+  event: { subject: string; userId: string; eventId: string; envelopeId: string; occurredAt: string },
 ): Promise<number> {
   const prefix = `${SUBJECT_PREFIX}.`;
   if (!event.subject.startsWith(prefix)) throw new Error(`deliverTriggerEvent takes a bus subject (${prefix}…), not ${event.subject}`);
   const subject = event.subject.slice(prefix.length);
   const triggers = await deps.sql<Array<{ id: string }>>`
     SELECT id::text FROM agents.own_agent_triggers
-     WHERE subject = ${subject} AND owner_id = ${event.userId} AND state = 'active'
+     WHERE subject = ${subject} AND owner_id = ${event.userId} AND state = 'active' AND created_at <= ${event.occurredAt}::timestamptz
   `;
   let ran = 0;
   for (const trigger of triggers) {

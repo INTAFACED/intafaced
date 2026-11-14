@@ -418,6 +418,7 @@ await bus.subscribe(
       userId: fill.userId,
       eventId: fill.fillId,
       envelopeId: envelope.id,
+      occurredAt: fill.ts,
     });
   },
   { durable: 'agents-own-trigger-fill-settled' },

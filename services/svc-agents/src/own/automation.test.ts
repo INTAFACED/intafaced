@@ -340,7 +340,10 @@ if (!available) {
         ask: 'TEST',
       });
       // The subject as the bus envelope carries it (intafaced.trade.fill.settled), as index.ts's consumer passes it.
-      const event = { subject: EVENT_CATALOG.fillSettled.subject, userId: USER, eventId: 'fill-1' };
+      const event = { subject: EVENT_CATALOG.fillSettled.subject, userId: USER, eventId: 'fill-1', occurredAt: new Date().toISOString() };
+      // A fill that settled before the trigger was added, delivered late, never runs it.
+      const before = new Date(Date.parse(trigger.createdAt) - 60_000).toISOString();
+      expect(await deliverTriggerEvent(deps, { ...event, eventId: 'fill-0', occurredAt: before, envelopeId: 'env-0' })).toBe(0);
       expect(await deliverTriggerEvent(deps, { ...event, envelopeId: 'env-1' })).toBe(1);
       expect(await deliverTriggerEvent(deps, { ...event, envelopeId: 'env-2' })).toBe(0);
       // A new process, as after a restart: the seen-set is the table.
@@ -359,6 +362,25 @@ if (!available) {
       await expect(
         person.own.triggers.create({ id, createKey: 'trigger:2', subject: 'identity.kyc.approved', perRunCap: '0.1', ask: 'TEST' }),
       ).rejects.toThrow('agents.trigger_subject_invalid');
+    });
+
+    it('two fills arriving together cannot both pass a daily limit of one', async () => {
+      const { person, deps } = people();
+      const id = await agent(person);
+      await person.own.triggers.create({ id, createKey: 'trigger:limit', subject: 'trade.fill.settled', perRunCap: '0.1', ask: 'TEST' });
+      const limited: AutoRunDeps = { ...deps, cadence: { ...CADENCE, dailyLimit: 1 } };
+      const fill = (eventId: string) => ({
+        subject: EVENT_CATALOG.fillSettled.subject,
+        userId: USER,
+        eventId,
+        envelopeId: `env-${eventId}`,
+        occurredAt: new Date().toISOString(),
+      });
+      await Promise.all([deliverTriggerEvent(limited, fill('fill-a')), deliverTriggerEvent(limited, fill('fill-b'))]);
+      const [listed] = await person.own.triggers.list({ id });
+      expect(listed!.runs.map((r) => r.state).sort()).toEqual(['ran', 'skipped']);
+      expect(listed!.runs.find((r) => r.state === 'skipped')).toMatchObject({ reasonCode: 'agents.schedule.daily_limit_reached', runs: 0 });
+      expect(await completions()).toBe(1);
     });
   });
 }
