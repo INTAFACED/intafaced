@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { testPartner } from '../partner/test-partner.js';
-import type { PostingFreeze } from '../partner/partner-bank.js';
+import type { PartnerAccountRef, PostingFreeze } from '../partner/partner-bank.js';
 import { collectUsagePayment, partnerIntafacedAccount, readUsagePayment, type UsagePaymentDeps } from './usage-payment.js';
 
 const USER = '11111111-1111-4111-8111-111111111111';
@@ -19,7 +19,7 @@ function setup(freeze: PostingFreeze = open) {
   };
   const collect = (amount = '0.0123') =>
     collectUsagePayment(deps, { action: 'collect', userId: USER, assetId: 'USDT', amount, chargeKey: KEY });
-  const has = async (ref = { userId: USER, assetId: 'USDT', spaceId: null }) => (await partner.bank.balance(ref)).amount;
+  const has = async (ref: PartnerAccountRef = { userId: USER, assetId: 'USDT', spaceId: null }) => (await partner.bank.balance(ref)).amount;
   return { partner, deps, collect, has };
 }
 
