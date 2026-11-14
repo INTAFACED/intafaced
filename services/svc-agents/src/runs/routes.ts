@@ -6,6 +6,8 @@ import { actionOutput, toActionOutput, type AgentsRouterDeps, type ExecuteProced
 import { RUN_STATES, RunTransitionError } from './machine.js';
 import { runRecorded } from './record.js';
 import { createRunStore, type StoredRun } from './store.js';
+import { researchProvenanceSchema, type ResearchProvenance } from '@intafaced/contracts/agents-research';
+import { buildProvenance, prepareResearch } from '../research/provenance.js';
 
 /** The run routes' builders, handed in by the agents router so the procedures here match the rest of it. */
 export interface RunRouteKit {
@@ -30,6 +32,8 @@ const runOutput = z.object({
   cost: z.string().nullable(),
   assetId: z.string().nullable(),
   metered: z.boolean().nullable(),
+  /** Where a research answer's facts came from (RC-agents-09); null for any other run. */
+  provenance: researchProvenanceSchema.nullable(),
   /** Every typed refusal the run met, oldest first, as codes a client maps to its own words. */
   refusalCodes: z.array(z.string()),
   createdAt: z.string(),
@@ -47,6 +51,7 @@ const toRunOutput = (run: StoredRun, refusalCodes: string[]) => ({
   cost: run.cost,
   assetId: run.assetId,
   metered: run.metered,
+  provenance: run.provenance,
   refusalCodes,
   createdAt: run.createdAt,
   updatedAt: run.updatedAt,
@@ -118,12 +123,27 @@ export function runRoutes(deps: AgentsRouterDeps, kit: RunRouteKit) {
           assetId: z.string(),
           metered: z.boolean(),
           action: actionOutput,
+          /** A Navigator answer about a market: its sources, observation time, assumptions and uncertainty. */
+          provenance: researchProvenanceSchema.nullable(),
         }),
       )
       .mutation(({ ctx, input }) =>
         guard(() =>
           typed(async () => {
             const session = await ownedSession(input.sessionId, ctx.principal.userId);
+            // A Navigator ask that names a market is research: the service reads each market itself before anything
+            // runs, and refuses (uncharged, with no run row) when it cannot source the answer (RC-agents-09).
+            const research =
+              session.agentId === 'navigator'
+                ? await prepareResearch({
+                    ask: input.messages.filter((m) => m.role === 'user').at(-1)?.content ?? '',
+                    port: deps.navigatorTradeDataPort,
+                    scale: deps.research?.scale ?? null,
+                    environment: deps.research?.environment ?? 'TEST',
+                  })
+                : null;
+            const system = [input.system, research?.system].filter(Boolean).join('\n\n');
+            let provenance: ResearchProvenance | null = null;
             const { result, run } = await runRecorded(
               store(),
               {
@@ -133,13 +153,15 @@ export function runRoutes(deps: AgentsRouterDeps, kit: RunRouteKit) {
                 requestId: input.requestId,
                 task: input.task,
                 assetId: feeAssetId,
+                // Built once, from the reply, in the write that stores it; the answer returns that same value.
+                ...(research ? { provenanceOf: (reply: string) => (provenance = buildProvenance(research, reply)) } : {}),
               },
               () =>
                 runtime.think({
                   sessionId: input.sessionId,
                   requestId: input.requestId,
                   task: input.task,
-                  ...(input.system ? { system: input.system } : {}),
+                  ...(system ? { system } : {}),
                   messages: input.messages,
                   ...(input.maxOutputTokens === undefined ? {} : { maxOutputTokens: input.maxOutputTokens }),
                 }),
@@ -154,6 +176,8 @@ export function runRoutes(deps: AgentsRouterDeps, kit: RunRouteKit) {
               assetId: feeAssetId,
               metered: result.metered,
               action: toActionOutput(result.action),
+              // A replayed or adopted run never reached the stored write: its provenance is built from the same reply.
+              provenance: research ? (provenance ?? buildProvenance(research, result.text)) : null,
             };
           }),
         ),

@@ -33,6 +33,7 @@ import { createHttpSpotTickersPort } from './scanner/trade-tickers-http-port.js'
 import { createHttpPayMetricsPort } from './merchant/pay-metrics-http-port.js';
 import { createHttpCopyLeaderFixturesPort } from './copy-intel/copy-leader-fixtures-http-port.js';
 import { createHttpNavigatorTradeDataPort } from './navigator/trade-data-http-port.js';
+import { parseUncertaintyScale, researchEnvironment } from './research/provenance.js';
 import { createHttpNavigatorIdentitySessionPort } from './navigator/identity-session-http-port.js';
 import { tradeTickerPrices } from './portfolio-agent/trade-prices.js';
 import { createAgentsRouter, type AgentsRouter } from './router.js';
@@ -274,6 +275,11 @@ const appRouter = createAgentsRouter({
   ownBackground: { steps: env.AGENTS_BACKGROUND_TEST_STEPS ?? null, stepMs: env.AGENTS_BACKGROUND_STEP_MS ?? null },
   ownCadence,
   sessionRuns: { maxSteps: env.AGENTS_SESSION_RUN_MAX_STEPS ?? null, stepMs: env.AGENTS_BACKGROUND_STEP_MS ?? null },
+  // Parsed at boot: a malformed scale stops the service here; a blank one refuses research answers by name.
+  research: {
+    scale: parseUncertaintyScale(env.AGENTS_RESEARCH_UNCERTAINTY_SCALE),
+    environment: researchEnvironment(env.APP_ENV),
+  },
   opsLog: {
     reasons: parseReasons(env.AGENTS_LOG_READ_REASONS),
     limit: env.AGENTS_OPS_ACTIONS_LIMIT ?? null,

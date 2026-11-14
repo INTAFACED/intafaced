@@ -18,6 +18,8 @@ import { costRange, runCosts, SESSION_AGENT_IDS } from './agents-catalogue';
 import { preservePaperHref } from './trade-context';
 import { navigatorAskResultSchema, type NavigatorOrder } from '@intafaced/contracts/agents-onchain';
 import { BackgroundRunStart } from './AgentRun';
+import { ResearchProvenance, ResearchReply } from './ResearchProvenance';
+import { researchProvenanceSchema, type ResearchProvenance as ResearchProvenanceShape } from '@intafaced/contracts/agents-research';
 import { NavigatorCapLine, NavigatorOrderView, NavigatorOrders, NavigatorTradeRefusalView, useNavigatorTrading } from './NavigatorOrders';
 const uuid = z.string().guid();
 const routeSchema = z.object({
@@ -141,7 +143,13 @@ export function Agents({ paper = false }: { paper?: boolean }) {
     [activeRecord, setActive] = useState<z.infer<typeof sessionSchema> | null>(null),
     [task, setTask] = useState(''),
     [ask, setAsk] = useState(''),
-    [reply, setReply] = useState<{ text: string; cost: string; assetId: string; metered: boolean } | null>(null),
+    [reply, setReply] = useState<{
+      text: string;
+      cost: string;
+      assetId: string;
+      metered: boolean;
+      provenance: ResearchProvenanceShape | null;
+    } | null>(null),
     [limit, setLimit] = useState(50),
     [coachAsk, setCoachAsk] = useState(''),
     [coachQuery, setCoachQuery] = useState(''),
@@ -460,6 +468,7 @@ export function Agents({ paper = false }: { paper?: boolean }) {
               assetId: z.string(),
               metered: z.boolean(),
               action: actionSchema,
+              provenance: researchProvenanceSchema.nullable(),
             })
             .refine(
               (row) =>
@@ -963,7 +972,15 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                         'agents',
                         'run.complete',
                         { sessionId: active.id, requestId: row.requestId, task: row.task, messages: [{ role: 'user', content: row.ask }] },
-                        z.object({ cost: decimalSchema, text: z.string(), assetId: z.string(), metered: z.boolean() }).passthrough(),
+                        z
+                          .object({
+                            cost: decimalSchema,
+                            text: z.string(),
+                            assetId: z.string(),
+                            metered: z.boolean(),
+                            provenance: researchProvenanceSchema.nullable(),
+                          })
+                          .passthrough(),
                       );
                       // Answered: the first try never reached the engine, so this is the run and its own cost.
                       if (res.ok) {
@@ -973,7 +990,13 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                             entry.requestId === row.requestId ? { ...entry, status: 'completed', cost: res.data.cost, code: null } : entry,
                           ),
                         );
-                        setReply({ text: res.data.text, cost: res.data.cost, assetId: res.data.assetId, metered: res.data.metered });
+                        setReply({
+                          text: res.data.text,
+                          cost: res.data.cost,
+                          assetId: res.data.assetId,
+                          metered: res.data.metered,
+                          provenance: res.data.provenance,
+                        });
                       } else if (res.code === 'agents.request_id_replay') setRunNote('same');
                       else
                         setRuns((current) =>
@@ -986,10 +1009,15 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                     <>
                       <section role="region" aria-label={agentsCatalogueCopy.t('reply')}>
                         <h3>{agentsCatalogueCopy.t('reply')}</h3>
-                        <p data-testid="more-body" className="more-body" lang="und">
-                          {reply.text}
-                        </p>
+                        {reply.provenance ? (
+                          <ResearchReply text={reply.text} provenance={reply.provenance} />
+                        ) : (
+                          <p data-testid="more-body" className="more-body" lang="und">
+                            {reply.text}
+                          </p>
+                        )}
                       </section>
+                      {reply.provenance ? <ResearchProvenance provenance={reply.provenance} /> : null}
                       <p className="muted">
                         {reply.metered
                           ? copyText('agents.metered.cost', { value1: reply.cost, value2: reply.assetId })
