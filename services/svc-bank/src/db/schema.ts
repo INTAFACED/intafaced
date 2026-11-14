@@ -1096,6 +1096,13 @@ export const cardCashback = bank.table(
     rejectionCode: text('rejection_code'),
     createdAt: createdAt(),
     settledAt: tstz('settled_at'),
+    /** `ledger`: the custodial path. `wallet`: a partner-held capture's, owed and paid to the person's wallet by svc-campaigns. */
+    paidBy: text('paid_by').notNull().default('ledger'),
+    /** A wallet row's spend and the rank tier its rate came from. */
+    spend: amount('spend'),
+    tier: text('tier'),
+    /** When the rewards programme took a wallet row's hand-over. */
+    announcedAt: tstz('announced_at'),
   },
   (t) => [
     /** ONE CASHBACK PER AUTHORISATION, forever. */

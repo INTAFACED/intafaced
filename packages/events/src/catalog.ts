@@ -1621,6 +1621,38 @@ export const bankScheduledFailed = defineEvent(
   'A standing order run was refused and posted nothing. svc-notify writes bank.scheduled_failed for its owner.',
 );
 
+/**
+ * RC-bank-02 (J-bank-13 #7). Cashback earned on one card capture the card partner holds (launch money model, OWNER 226 and
+ * 288). INTAFACED holds none of the card's money, so the cashback is never credited to a balance: svc-bank records it
+ * once per authorisation (`bank.card_cashback`, `paid_by = 'wallet'`) at the rate of the person's rank card tier, and
+ * announces it until the bus takes it. svc-campaigns' earning rules owe it in USDC (`rewardOwe`, our liability) and its
+ * payer pays it to the person's own connected wallet. Keyed by the authorisation, so a redelivery owes nothing twice.
+ */
+export const bankCardCashbackEarned = defineEvent(
+  'bank',
+  'card_cashback',
+  'earned',
+  1,
+  z
+    .object({
+      /** The card authorisation whose capture earned it; one cashback per authorisation. */
+      authorizationId: z.string().guid(),
+      cardId: z.string().guid(),
+      userId: userIdSchema,
+      /** What the partner captured, in the card's asset. */
+      spend: amountSchema,
+      /** The cashback earned on it, in the same asset: spend x rate, rounded down. */
+      cashback: amountSchema,
+      assetId: assetIdSchema,
+      /** The rank card tier and its rate in basis points, as svc-bank read them at the capture. */
+      tier: z.string().min(1).max(32),
+      rateBps: z.number().int().min(1).max(10_000),
+      earnedAt: z.string().datetime({ offset: true }),
+    })
+    .strict(),
+  "Cashback was earned on a partner-held card capture. svc-campaigns owes it in USDC and pays it to the person's own wallet.",
+);
+
 // ── core-ops: platform alert rules (OPS-alerts-01) ───────────────────────────
 
 const alertRuleIdSchema = z.string().guid();
@@ -2158,6 +2190,7 @@ export const EVENT_CATALOG = {
   personalDisputeUpdated,
   bankScheduledReminder,
   bankScheduledFailed,
+  bankCardCashbackEarned,
   blueprintCreated,
   blueprintDeleted,
   crewMemberCreated,

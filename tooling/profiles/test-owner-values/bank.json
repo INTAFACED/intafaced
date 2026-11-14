@@ -203,8 +203,8 @@
     },
     "BANK_CARD_CASHBACK_RATES_JSON": {
       "service": "bank",
-      "value": "{\"assetId\": \"IFC\", \"rates\": {\"none\": 100, \"standard\": 150, \"metal\": 200, \"obsidian\": 300}}",
-      "note": "TEST cashback rates by rank card tier, paid in IFC on spend from an IFC card (J-bank-13 #7): 1%, 1.5%, 2% and 3%. Made up for the local test stack; not an owner decision."
+      "value": "{\"assetId\": \"USDC\", \"rates\": {\"none\": 100, \"standard\": 150, \"metal\": 200, \"obsidian\": 300}}",
+      "note": "TEST cashback rates by rank card tier, earned in USDC on spend from a USDC card (J-bank-13 #7): 1%, 1.5%, 2% and 3%. On a card the partner holds, INTAFACED owes it and pays it to the person's own wallet (OWNER 288). Made up for the local test stack; not an owner decision."
     },
     "BANK_PLANS_JSON": {
       "service": "bank",

@@ -746,6 +746,8 @@ export function createCardsRouter(c: BankRouterContext) {
           paid: amountString,
           unpaid: amountString,
           refused: amountString,
+          /** Owed by INTAFACED on partner-held spend and paid to the person's own wallet; never spendable here. */
+          toWallet: amountString,
           payments: z.array(
             z.object({
               authorizationId: z.string(),
@@ -754,6 +756,8 @@ export function createCardsRouter(c: BankRouterContext) {
               status: z.string(),
               rejectionCode: z.string().nullable(),
               ledgerTxId: z.string().nullable(),
+              paidBy: z.enum(['ledger', 'wallet']),
+              announced: z.boolean(),
             }),
           ),
           paying: z.boolean(),
@@ -768,6 +772,7 @@ export function createCardsRouter(c: BankRouterContext) {
             paid: formatAmount(c.paid),
             unpaid: formatAmount(c.unpaid),
             refused: formatAmount(c.refused),
+            toWallet: formatAmount(c.toWallet),
             payments: c.payments.map((p) => ({ ...p, amount: formatAmount(p.amount) })),
           };
         }),

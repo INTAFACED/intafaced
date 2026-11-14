@@ -3083,6 +3083,8 @@ describe('svc-bank money PG-hard', () => {
         'card_disputes.credit_amount':
           "a RECORD of the provisional credit the card partner reports it gave its cardholder; the partner's money, nothing posts with it",
         'card_cashback.amount': 'a RECORD of one reward; summing the table is the lifetime figure',
+        'card_cashback.spend':
+          "a RECORD of what one partner-held capture spent, the base its wallet cashback was worked out on; the partner's money, nothing posts with it",
 
         // ── JIT conversion (§18) ─────────────────────────────────────────────
         //

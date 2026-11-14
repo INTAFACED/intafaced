@@ -1295,6 +1295,8 @@ export const bankReads = {
     paid: money,
     unpaid: money,
     refused: money,
+    /** Owed by INTAFACED on partner-held spend and paid to the person's own wallet (My rewards); never spendable here. */
+    toWallet: money,
     payments: z.array(
       z.object({
         authorizationId: z.string(),
@@ -1303,6 +1305,8 @@ export const bankReads = {
         status: z.string(),
         rejectionCode: z.string().nullable(),
         ledgerTxId: z.string().nullable(),
+        paidBy: z.enum(['ledger', 'wallet']),
+        announced: z.boolean(),
       }),
     ),
     paying: z.boolean(),
