@@ -277,6 +277,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
           // stops it, so a fill waits unposted and the recon lists it as a break.
           TRADE_BUILDER_FEE_POSTER: process.env.LOCAL_STACK_BUILDER_FEE_POSTER === 'off' ? 'off' : 'on',
           TRADE_BUILDER_FEE_POSTER_INTERVAL_MS: '2000',
+          // Collect (J-derivatives-17, J-campaigns-03): every 2 seconds the TEST venue's own claim record is read and each
+          // claim posts once; a claim exists only once a journey asks the TEST venue for one (`/test/builder-claim`).
+          TRADE_BUILDER_FEE_COLLECT_INTERVAL_MS: '2000',
         }
       : {}),
   }),

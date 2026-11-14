@@ -8,6 +8,7 @@ import {
   type AsOf,
   type MaybeKnown,
   type VenueBuilderTotals,
+  type UserVenueBuilderClaim,
   type PlaceUserOrderIntent,
   type PreparedVenueAction,
   type UserVenue,
@@ -344,6 +345,9 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   private fillCounter = 0;
   /** Builder fees charged, by builder address and fee asset: the venue's own builder totals (OWNER 288 1e). */
   private readonly builderEarned = new Map<string, Map<string, Amount>>();
+  /** Builder fee claims, by builder address, oldest first: the venue's own claim record (J-derivatives-17). */
+  private readonly builderClaimRecord = new Map<string, UserVenueBuilderClaim[]>();
+  private builderClaimCounter = 0;
   private venueOrderCounter = 0;
   /** Each market's own state and largest order, changed by the TEST controls. */
   private readonly marketState = new Map<
@@ -1240,8 +1244,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
 
   /**
    * The TEST venue's own builder-fee totals for `builder` (OWNER 288 1e): every builder fee it charged on a fill that
-   * carried that builder, per fee asset. No builder claims here, so all of it is unclaimed. The `builderTotalsUnknown`
-   * switch answers not known.
+   * carried that builder, per fee asset, and what of it the builder has not claimed (`claimBuilderFees`). The
+   * `builderTotalsUnknown` switch answers not known.
    */
   async builderTotals(builder: string): Promise<AsOf<MaybeKnown<VenueBuilderTotals>>> {
     this.up();
@@ -1249,8 +1253,51 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     const b = builder.toLowerCase();
     const assets = [...(this.builderEarned.get(b) ?? new Map<string, Amount>()).entries()]
       .sort(([x], [y]) => x.localeCompare(y))
-      .map(([asset, earned]) => ({ asset, earned, unclaimed: earned }));
+      .map(([asset, earned]) => ({ asset, earned, unclaimed: sub(earned, this.builderClaimed(b, asset)) }));
     return this.asOf({ known: true, value: { builder: b, assets } });
+  }
+
+  /** Every builder fee claim the TEST venue records for `builder`, oldest first. */
+  async builderClaims(builder: string): Promise<AsOf<readonly UserVenueBuilderClaim[]>> {
+    this.up();
+    return this.asOf([...(this.builderClaimRecord.get(builder.toLowerCase()) ?? [])]);
+  }
+
+  /**
+   * TEST control: `builder` claims every builder fee it has not claimed yet, one claim per fee asset, paid into the
+   * builder's own main account at this venue (free to withdraw). Returns the claims it made; nothing unclaimed makes
+   * none. Never part of `UserVenue`.
+   */
+  claimBuilderFees(builder: string): readonly UserVenueBuilderClaim[] {
+    this.up();
+    const b = builder.toLowerCase();
+    if (!/^0x[0-9a-f]{40}$/.test(b)) refuse(this.venue.id, 'venue_rejected', 'builder must be a 0x address');
+    const made: UserVenueBuilderClaim[] = [];
+    const record = this.builderClaimRecord.get(b) ?? [];
+    for (const [asset, earned] of [...(this.builderEarned.get(b) ?? new Map<string, Amount>()).entries()].sort(([x], [y]) =>
+      x.localeCompare(y),
+    )) {
+      const unclaimed = sub(earned, this.builderClaimed(b, asset));
+      if (compare(unclaimed, ZERO) <= 0) continue;
+      this.builderClaimCounter += 1;
+      const claim = {
+        claimId: `sim-builder-claim-${this.builderClaimCounter}`,
+        builder: b,
+        asset,
+        amount: unclaimed,
+        claimedAt: this.clock(),
+      };
+      const balance = this.balance(this.account({ venueId: this.venue.id, owner: b, subAccount: null }), asset);
+      balance.free = add(balance.free, unclaimed);
+      record.push(claim);
+      made.push(claim);
+    }
+    this.builderClaimRecord.set(b, record);
+    return made;
+  }
+
+  private builderClaimed(builder: string, asset: string): Amount {
+    return (this.builderClaimRecord.get(builder) ?? []).filter((c) => c.asset === asset).reduce((n, c) => add(n, c.amount), ZERO);
   }
 
   async leverage(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueLeverage | null>> {
