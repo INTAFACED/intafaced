@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# Refuse direct push to main + require format:check before any push + CI's checks here (ci-checks.mjs).
+# Refuse direct push to main + require format:check and truth-check before any push. CI's checks run on GitHub.
 # Safety net only — --no-verify bypasses; real enforcement is branch protection (needs Pro).
 #
 # P1: format:check covers tooling/scripts/*.mjs (what red-trunked main via #471).
@@ -125,31 +125,13 @@ MESSAGE
   fi
 done < "$PUSHED"
 
-# CI's own checks, here, before the push (tooling/scripts/ci-checks.mjs): its gates, format, build, typecheck and the
-# tests a change reaches, on CI's Node and with CI's test database. A push that only deletes a branch has nothing to
-# check. A push of a commit that is not HEAD, or with uncommitted changes, is checked as the working tree and says so.
+# CI's checks (gates, build, typecheck, tests) run on GitHub, not here: on the branch before the pull request
+# (`gh workflow run ci.yml --ref <branch>`, which prints the run's URL), then on the pull request. On the Mac they took
+# 13 to 91 minutes a push under three builders and 8 of 17 tries ended for reasons outside the change; GitHub runs them
+# in 9 to 20. This hook keeps only what takes seconds: formatting of the pushed files, the agent-rule check and the
+# refusal of main. `node tooling/scripts/ci-checks.mjs` still runs CI's checks here by hand, to diagnose a red.
 if [ -z "${CI:-}" ] && grep -qv ' 0000000000000000000000000000000000000000 ' "$PUSHED"; then
-  HEAD_SHA=$(git rev-parse HEAD)
-  if grep -v ' 0000000000000000000000000000000000000000 ' "$PUSHED" | awk '{print $2}' | grep -qvx "$HEAD_SHA"; then
-    echo "note: this push sends a commit that is not HEAD; CI's checks below ran on HEAD's working tree" >&2
-  fi
-  if ! git diff --quiet HEAD 2>/dev/null; then
-    echo "note: uncommitted changes; CI's checks below include them, the push does not" >&2
-  fi
-  # git sets GIT_DIR and friends for a hook; the checks' own git calls and the tooling tests' temp repos must not
-  # inherit them (they did: 25 tooling tests red inside the hook, green outside it).
-  if ! (for v in $(env | sed -n 's/^\(GIT_[A-Z_]*\)=.*/\1/p'); do unset "$v"; done
-        CDPATH= cd -- "$TOP" && node tooling/scripts/ci-checks.mjs) </dev/null; then
-    cat >&2 <<'MSG'
-
-  ✖ CI's checks failed here — push refused. CI fails the same way.
-
-    Fix what is named above and push again.
-
-MSG
-    rm -f "$PUSHED"
-    exit 1
-  fi
+  echo "CI's checks run on GitHub: gh workflow run ci.yml -R INTAFACED/intafaced --ref <branch>, before the pull request" >&2
 fi
 rm -f "$PUSHED"
 
