@@ -100,11 +100,11 @@ async function setChannel(name, on) {
 }
 
 /**
- * Fills the form for BTC/USDT at or below a level above the market, so the next sweep fires it, and saves it through the
- * review. Returns the level.
+ * Fills the form for BTC/USDT at or below `percent` of the last price, a level above the market, so the next sweep fires it, and
+ * saves it through the review. Each step uses its own percent, so its trigger history row is its own firing. Returns the level.
  */
-async function createFiringAlert({ email = false, push = false, webhookUrl = '' } = {}) {
-  const target = testPrice(120, await lastText());
+async function createFiringAlert({ percent, email = false, push = false, webhookUrl = '' }) {
+  const target = testPrice(percent, await lastText());
   await marketSelect().selectOption({ label: 'BTC/USDT' });
   await form().getByLabel('Notify me when the price is').selectOption({ label: 'At or below' });
   await form().getByLabel('Price (USDT)').fill(target);
@@ -151,7 +151,7 @@ test(`${J} #1 sets an alert to in-app and email: the in-app row is written on fi
   const emailNote = delivery().getByTestId('alerts-delivery-email-note');
   await expect(emailNote).toContainText(EMAIL_OFF);
   await expect(emailNote.locator('[data-not-connected="vendor.email"]')).toHaveCount(1);
-  const target = await createFiringAlert({ email: true });
+  const target = await createFiringAlert({ percent: 120, email: true });
   const row = await firing(target);
   // The in-app row was written: the trigger history says so, and the inbox holds it.
   await expect(row.locator('[data-testid="alert-trigger-channel"][data-channel="inapp"]')).toHaveText(
@@ -182,7 +182,7 @@ test(`${J} #3 adds a webhook URL and fires the alert: one HTTP POST with the ale
     'A webhook may use port 443 and 14590. If your endpoint answers with a 5xx error other than 504, or cannot be reached, it is sent again after 5, 5 and 5 seconds. Any other answer is not sent again.',
   );
   const url = `${HOOK}/ok/${who.handle}`;
-  const target = await createFiringAlert({ webhookUrl: url });
+  const target = await createFiringAlert({ percent: 121, webhookUrl: url });
   const row = await firing(target);
   await expect(row.getByTestId('alert-webhook-state')).toHaveText('Webhook: delivered.');
   const mine = posts.filter((p) => p.path === `/ok/${who.handle}`);
@@ -205,7 +205,7 @@ test(`${J} #3 adds a webhook URL and fires the alert: one HTTP POST with the ale
 test(`${J} #4 the webhook endpoint fails: it is sent again under the published policy, and the diagnostics show each attempt`, async () => {
   test.setTimeout(5 * SWEEP_MS);
   const url = `${HOOK}/down/${who.handle}`;
-  const target = await createFiringAlert({ webhookUrl: url });
+  const target = await createFiringAlert({ percent: 122, webhookUrl: url });
   const row = await firing(target);
   // The published schedule: three resends, 5 s apart, then it stops.
   await expect(row.getByTestId('alert-webhook-state')).toHaveText('Webhook: not delivered after 4 attempts.', { timeout: 60_000 });
@@ -263,7 +263,7 @@ test(`${J} #5 with the TEST email stand-in set, an alert fires: one email labell
     await expect(delivery().getByTestId('alerts-delivery-email-note')).toHaveText(
       'It goes to the address you confirmed in notification settings.',
     );
-    const target = await createFiringAlert({ email: true });
+    const target = await createFiringAlert({ percent: 123, email: true });
     const row = await firing(target);
     await expect(row.locator('[data-testid="alert-trigger-channel"][data-channel="email"]')).toHaveText(
       'Email: handed to the delivery service.',
