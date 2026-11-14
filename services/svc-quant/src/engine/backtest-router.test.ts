@@ -593,7 +593,6 @@ describe('risk screen (AL-risk-01)', () => {
       risk: { maxDrawdown: '500', maxNotional: '10000', kill: '100' },
       cash: '1000',
       environment: 'paper',
-      clientStrategyId: 'client-rules',
       id: strategy.id,
       idempotencyKey: `studio.update:${strategy.id}:v2`,
     });
