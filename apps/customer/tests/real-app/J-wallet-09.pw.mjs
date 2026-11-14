@@ -400,13 +400,31 @@ test(`${J} #4 lets the connection expire: every signed action refuses until the 
   await expect(page.getByRole('button', { name: 'Sign again' })).toBeVisible();
   expect((await recorded(who)).connections.map((c) => c.status)).toEqual(['expired']);
 
-  // Every signed action is refused by the service, by name, and nothing is asked of the wallet.
-  for (const action of ['Deposit TEST USDC', 'Withdraw TEST USDC']) {
-    await venueAction(page, action).click();
+  // Every signed action is refused by the service, by name, and nothing is asked of the wallet. Each action starts on a
+  // freshly loaded room with no refusal showing, so the refusal seen is that action's own: svc-protocol's answer to its
+  // own `venueWallet.authorize` call, for that action.
+  for (const [label, action] of [
+    ['Deposit TEST USDC', 'deposit'],
+    ['Withdraw TEST USDC', 'withdraw'],
+  ]) {
+    await page.reload();
+    const again = page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` });
+    await expect(page.getByRole('heading', { name: 'Connection expired' }).or(again)).toBeVisible();
+    if (await again.isVisible()) await again.click();
+    await expect(page.getByRole('heading', { name: 'Connection expired' })).toBeVisible();
+    await expect(page.getByText('protocol.venue_connection_expired')).toHaveCount(0);
+    await expect(page.getByText('Your wallet must sign again')).toHaveCount(0);
+    const authorized = page.waitForResponse(
+      (res) => res.url().includes('venueWallet.authorize') && (res.request().postData() ?? '').includes(`"${action}"`),
+    );
+    await venueAction(page, label).click();
+    const answer = await authorized;
+    expect(await answer.text(), `${action}: svc-protocol's own answer`).toContain('protocol.venue_connection_expired');
     await expect(page.getByText('Your wallet must sign again')).toBeVisible();
     await expect(page.getByText('protocol.venue_connection_expired')).toBeVisible();
     await expect(sheet(page)).toHaveCount(0);
   }
+  expect(wallet.sends).toEqual([]);
   // Nothing moved on the venue: its own record still holds exactly #3's deposit, and no agent key.
   const venue = await onVenue(address);
   expect(venue.usdc).toMatchObject({ free: deposited, locked: '0' });
