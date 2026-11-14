@@ -192,6 +192,23 @@ export const quantTemplatePublishInputSchema = z.object({
 export type QuantTemplatePublishInput = z.infer<typeof quantTemplatePublishInputSchema>;
 
 /**
+ * `ops.template.listing`: an operator withdraws a starter template from the list (`listed: false`) or restores it
+ * (`listed: true`), with a reason for the audit row. Its published versions are never touched.
+ */
+export const quantTemplateListingInputSchema = z.object({
+  id: quantTemplateIdSchema,
+  listed: z.boolean(),
+  reason: z.string().trim().min(1).max(500),
+  idempotencyKey: z.string().trim().min(1).max(128),
+});
+export type QuantTemplateListingInput = z.infer<typeof quantTemplateListingInputSchema>;
+export const quantTemplateListingSchema = z.object({
+  id: quantTemplateIdSchema,
+  listed: z.boolean(),
+  setAt: z.string(),
+});
+
+/**
  * How a backtest fills a signal. The engine reads a signal on a bar's close and fills it at the open of the next bar
  * that trades (ENGINE BT-2, BT-4), so a fill never uses the price the signal was read from. No default: the person
  * chooses it, so the form says what it means.

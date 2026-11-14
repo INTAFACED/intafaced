@@ -115,6 +115,8 @@ const DATE_FIELDS: ReadonlySet<string> = new Set([
   'fundingAt',
   // UserVenueDeposit (J-dex-protocol-05 #2)
   'seenAt',
+  // UserVenueOrderTrigger (J-derivatives-03 #6 #7)
+  'triggeredAt',
   // UserVenueArrival (J-portfolio-02 #6)
   'arrivedAt',
   // UserVenueBuilderClaim (J-derivatives-17)

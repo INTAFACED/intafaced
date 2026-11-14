@@ -74,9 +74,10 @@ test(`${J} #1 opens /trade/futures: the full desk with the contracts the venue l
 
   const { displayName } = await venueInfo();
   const markets = (await testVenue('/markets', {})).body.value.filter((m) => m.kind === 'perpetual');
-  // The TEST venue lists BTC-PERP, the TEST gold perpetual XAU-PERP (J-derivatives-21) and the TEST stock perpetuals
-  // XSTK-PERP and XSTD-PERP (J-derivatives-27); the desk lists every one, each with its venue named.
-  expect(markets.map((m) => m.symbol)).toEqual([SYMBOL, 'XAU-PERP', 'XSTK-PERP', 'XSTD-PERP']);
+  // The TEST venue lists BTC-PERP, the TEST perpetual ETH-PERP its trigger orders rest on (J-derivatives-03), the TEST
+  // gold perpetual XAU-PERP (J-derivatives-21) and the TEST stock perpetuals XSTK-PERP and XSTD-PERP (J-derivatives-27);
+  // the desk lists every one, each with its venue named.
+  expect(markets.map((m) => m.symbol)).toEqual([SYMBOL, 'ETH-PERP', 'XAU-PERP', 'XSTK-PERP', 'XSTD-PERP']);
   const list = page.getByTestId('venue-contract-list');
   await expect(list.getByRole('button')).toHaveCount(markets.length);
   for (const m of markets) await expect(list.getByRole('button', { name: `${m.symbol} · ${displayName}` })).toBeVisible();
@@ -103,7 +104,14 @@ test(`${J} #1 opens /trade/futures: the full desk with the contracts the venue l
     const ticket = page.getByTestId('venue-ticket');
     await ticket.getByRole('textbox', { name: 'Size (BTC)' }).fill(OPEN.size);
     await ticket.getByRole('textbox', { name: 'Worst price (slippage limit)' }).fill(OPEN.worst);
+    // The control's refusal is typed: the door answers the venue's own code, and the desk shows its words.
+    const refusal = page.waitForResponse(
+      (r) => r.request().method() === 'POST' && new URL(r.url()).pathname.startsWith('/api/v1/venue/') && r.status() >= 400,
+    );
     await ticket.getByRole('button', { name: 'Review long' }).click();
+    const refused = await refusal;
+    expect(refused.status()).toBe(503);
+    expect(await refused.json()).toMatchObject({ code: 'ExchangeNotAvailable', intafacedCode: 'trade.venue.venue_down' });
     await expect(ticket.getByRole('alert')).toContainText('is down (TEST switch)');
     await expect(page.getByTestId('venue-review')).toHaveCount(0);
   } finally {

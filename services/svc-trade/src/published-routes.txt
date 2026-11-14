@@ -5,6 +5,7 @@ DELETE /api/v1/orders/:id private trade:write
 DELETE /api/v1/orders/by-client-id/:clientOrderId private trade:write
 DELETE /api/v1/orders/by-client/:clientOrderId private trade:write
 DELETE /api/v1/positions/:id private trade:write
+DELETE /api/v1/venue/protections/:id private trade:write
 GET /api/v1/account/balance private trade:read
 GET /api/v1/account/fee-tier private trade:read
 GET /api/v1/account/fees private trade:read
@@ -103,6 +104,8 @@ GET /api/v1/venue/orders/open private trade:read
 GET /api/v1/venue/own-agents/:agentId/allowances private trade:read
 GET /api/v1/venue/own-agents/:agentId/orders private trade:read
 GET /api/v1/venue/positions private trade:read
+GET /api/v1/venue/protection-agent private trade:read
+GET /api/v1/venue/protections private trade:read
 GET /api/v1/venue/session private trade:read
 GET /api/v1/venue/settlements private trade:read
 GET /api/v1/venue/status private trade:read
@@ -180,6 +183,8 @@ POST /api/v1/venue/own-agents/:agentId/orders private trade:write
 POST /api/v1/venue/own-agents/:agentId/orders/preview private trade:write
 POST /api/v1/venue/prepare private trade:write
 POST /api/v1/venue/preview private trade:write
+POST /api/v1/venue/protection-agent/prepare private trade:write
+POST /api/v1/venue/protections private trade:write
 POST /api/v1/venue/route-preview private trade:write
 POST /api/v1/venue/session/end private trade:write
 POST /api/v1/venue/session/start private trade:write

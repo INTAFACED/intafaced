@@ -84,6 +84,8 @@ export const RECIPE_MATRIX = {
   },
   chargeEarn: { kind: 'live', module: 'agents', proof: 'services/svc-agents/src/metering/meter.ts' },
   chargeCollect: { kind: 'live', module: 'agents', proof: 'services/svc-agents/src/metering/meter.ts' },
+  academyPurchase: { kind: 'live', module: 'academy', proof: 'services/svc-academy/src/purchases/purchase-ledger.ts' },
+  academyPurchaseRefund: { kind: 'live', module: 'academy', proof: 'services/svc-academy/src/purchases/purchase-ledger.ts' },
   partnerFeeEarn: { kind: 'live', module: 'pay', proof: 'services/svc-pay/src/payment-service/lifecycle.ts' },
   merchantFeeEarn: { kind: 'live', module: 'pay', proof: 'services/svc-pay/src/payment-service/lifecycle.ts' },
   partnerFeeSettle: {
