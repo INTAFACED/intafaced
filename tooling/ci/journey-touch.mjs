@@ -79,6 +79,8 @@ export const printable = (p) => String(p).replace(/[\u0000-\u001f\u007f]/g, '?')
 export const JOURNEY_CI = [
   'tooling/ci/journey-seal.mjs',
   'tooling/ci/journey-touch.mjs',
+  // The touch job's Retries step: which shards of a pull request's full run retry a failed test once.
+  'tooling/ci/journey-retries.mjs',
   'tooling/ci/journey-verdict.mjs',
   'tooling/ci/journey-verdict.test.mjs',
   // The scoreboard's shard download ("Merge the shards").
