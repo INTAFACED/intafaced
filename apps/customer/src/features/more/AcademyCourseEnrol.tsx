@@ -130,8 +130,9 @@ export function CourseEnrolView({
   onEnrol: (track: AcademyEnrolmentTrack) => void;
   onLeave: (enrolledAt: string) => void;
   /**
-   * A course staff made (J-academy-07 #1): a closed track can still be chosen, and Enrol then refuses with its reason
-   * beside it ("price not set"), so the refusal is seen where the person presses.
+   * A course staff made (J-academy-07 #1): a track closed only because no price is set can still be chosen, and Enrol
+   * then refuses with "price not set" beside it, so the refusal is seen where the person presses. A track closed for
+   * any other reason (payments switched off, J-academy-11 #10) stays disabled with its reason.
    */
   selectClosed?: boolean;
 }) {
@@ -141,17 +142,16 @@ export function CourseEnrolView({
   const [confirmingLeave, setConfirmingLeave] = useState(false);
   const [picked, setPicked] = useState<AcademyEnrolmentTrack | null>(null);
   // A track that has closed since it was picked is no longer the choice; the first open one is.
-  const pickedClosed = selectClosed ? (terms.tracks.find((row) => row.track === picked && row.closed !== null) ?? null) : null;
+  const choosable = (row: { closed: string | null }) => row.closed === null || (selectClosed && row.closed === 'no_price');
+  const pickedClosed = selectClosed ? (terms.tracks.find((row) => row.track === picked && row.closed === 'no_price') ?? null) : null;
   const chosen = pickedClosed?.track ?? openTracks.find((row) => row.track === picked)?.track ?? openTracks[0]?.track ?? null;
   const enrolled = terms.enrolment;
   const reason = terms.closed
     ? closedReasonText(t, terms.closed)
     : chosen === null
       ? t('enrolChooseTrack')
-      : pickedClosed?.closed
-        ? pickedClosed.closed === 'no_price'
-          ? t('enrolRefusedNoPrice')
-          : closedReasonText(t, pickedClosed.closed)
+      : pickedClosed
+        ? t('enrolRefusedNoPrice')
         : sending
           ? t('enrolSending')
           : null;
@@ -237,7 +237,7 @@ export function CourseEnrolView({
                       name={`academy-enrol-${terms.slug}`}
                       value={row.track}
                       checked={chosen === row.track}
-                      disabled={(row.closed !== null && !selectClosed) || terms.closed !== null}
+                      disabled={!choosable(row) || terms.closed !== null}
                       aria-describedby={row.closed ? `${id}-closed` : undefined}
                       onChange={() => setPicked(row.track)}
                     />{' '}
