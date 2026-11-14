@@ -145,7 +145,7 @@ test(`${J} #2 opens the expiry mode and pending points: the expiry modes and the
   for (const i of [1, 2, 3]) await expect(modes.nth(i).getByTestId('points-expiry-horizon')).toHaveText('Not set');
 
   const pending = area.getByTestId('points-pending');
-  await expect(pending.getByRole('heading', { name: 'Pending points' })).toBeVisible();
+  await expect(pending.getByRole('heading', { name: 'Pending points', exact: true })).toBeVisible();
   await expect(pending.getByTestId('points-pending-empty')).toContainText('No pending points');
   await expect(pending.getByTestId('points-pending-row')).toHaveCount(0);
   // No invented balance: the wallet's pending line stays "Not kept", and no digit shows in either part.
@@ -231,6 +231,8 @@ test(`${J} #5 an operator opens the same programme in the earning-rules builder:
   await builder.getByRole('textbox', { name: 'Name' }).fill(NAME);
   await builder.getByRole('radio', { name: /^Points programme/ }).check();
   await builder.getByRole('button', { name: 'Next' }).click();
+  // The draft is saved when the builder moves on to the next tab; leaving before that would drop it.
+  await expect(builder.getByRole('tab', { selected: true })).toHaveText('Who can take part');
   await page.goto(`${ADMIN}/more-ops/campaigns`);
   await tableIn(page, 'Campaigns').getByRole('link', { name: NAME, exact: true }).click();
   await expect(builder).toBeVisible();
