@@ -1028,8 +1028,8 @@ if (!db) {
       expect(await tasks.onEarningEvent(deposit)).toBe(1);
       const rows = await db!.sql<{ amount: string; period: string }[]>`
         SELECT amount::text AS amount, period FROM campaigns.reward_intents WHERE campaign_id = ${c.id}`;
-      expect(rows.map((r) => r.amount)).toEqual(['2.000000000000000000']);
-      expect(rows.some((r) => r.period.includes('points'))).toBe(false);
+      // The one row is the incentive rule's; the points rule wrote none.
+      expect(rows).toEqual([{ amount: '2.000000000000000000', period: earningPeriodOf('TEST deposit', 'dep-points-1') }]);
       await reconciles(parseAmount('100'));
     });
 
