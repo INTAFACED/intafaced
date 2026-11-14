@@ -3606,7 +3606,7 @@
             "name": "status",
             "required": false,
             "schema": {
-              "enum": ["pending", "delivered", "failed", "dead"],
+              "enum": ["pending", "delivered", "failed", "dead", "unknown"],
               "type": "string"
             }
           },
@@ -3669,7 +3669,7 @@
                         "type": "string"
                       },
                       "status": {
-                        "enum": ["pending", "delivered", "failed", "dead"],
+                        "enum": ["pending", "delivered", "failed", "dead", "unknown"],
                         "type": "string"
                       }
                     },
