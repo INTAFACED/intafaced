@@ -7,6 +7,8 @@ import { Button, DataTable, EmptyState, Failure, Field, Loading, Panel } from '.
 import { useSession } from '../session/session';
 import { StepUpConfirm } from '../money/StepUpConfirm';
 import { useWallet } from '../protocol/wallet/WalletProvider';
+import { useVenueMode } from '../trade/use-venue-mode';
+import { VenueFrame, WalletBar } from '../trade/venue/VenueKit';
 import type { TypedDataDocument } from '../protocol/wallet/eip1193';
 import { withDomainTypes } from '../protocol/venue-wallet/venue-account-api';
 import { endOfDayUtc } from '../account/developer-keys-api';
@@ -30,6 +32,7 @@ import {
   type AgentAccount,
   type AgentConnection,
   type AgentNext,
+  type AgentPermission,
   type AgentTerms,
 } from './agent-connect-api';
 import { agentConnectCopy as copy } from './agent-connect-copy';
@@ -116,6 +119,19 @@ const stepUpWords = (t: Words, why: 'stepUpWhy' | 'connectStepUpWhy') => ({
  * Every refusal is the service's own; nothing is checked only in the browser. INTAFACED holds and moves nothing.
  */
 export function AgentConnect() {
+  // The person's wallet signs every venue action here, so the room sits in the venue's wallet frame (its signing
+  // network); with the door off or still being read there is no venue to sign for, and the room says so as before.
+  const mode = useVenueMode();
+  return mode.mode === 'on' ? (
+    <VenueFrame mode={mode}>
+      <AgentConnectRoom />
+    </VenueFrame>
+  ) : (
+    <AgentConnectRoom />
+  );
+}
+
+function AgentConnectRoom() {
   const { t } = copy.useCopy();
   const { api, userId } = useSession();
   const { resource, reload } = useResource((signal) => readRoom(api, signal), `agent-connect:${userId}`);
@@ -341,6 +357,7 @@ function CreateAccount({ terms, reload }: { terms: AgentTerms; reload: () => voi
   return (
     <section className="form-stack" data-testid="agent-connect__create" aria-labelledby="agent-connect-create">
       <h3 id="agent-connect-create">{t('createTitle')}</h3>
+      <WalletBar />
       {!formOpen && !ask && (
         <Button onClick={() => setFormOpen(true)} disabled={busy !== null}>
           {t('create')}
@@ -349,6 +366,7 @@ function CreateAccount({ terms, reload }: { terms: AgentTerms; reload: () => voi
       {formOpen && !ask && (
         <form className="form-stack" noValidate onSubmit={start}>
           <p className="muted">{t('createIntro')}</p>
+          <PermissionReach permission={terms.agentPermission ?? null} />
           <Field label={t('cap', { asset })} hint={t('capHint')} name="cap" inputMode="decimal" autoComplete="off" />
           <Field label={t('fund', { asset })} hint={t('fundHint')} name="fund" inputMode="decimal" autoComplete="off" />
           {!owner && (
@@ -369,6 +387,7 @@ function CreateAccount({ terms, reload }: { terms: AgentTerms; reload: () => voi
       )}
       {ask && (
         <>
+          <PermissionReach permission={terms.agentPermission ?? null} />
           <StepUpConfirm
             request={() => createStepUp(ask)}
             words={stepUpWords(t, 'stepUpWhy')}
@@ -391,6 +410,30 @@ function CreateAccount({ terms, reload }: { terms: AgentTerms; reload: () => voi
         </p>
       )}
     </section>
+  );
+}
+
+/**
+ * How far the agent permission the wallet is about to sign reaches (J-agents-21 #3): shown with the create form and
+ * again with its step-up, before the wallet is asked to sign anything. The venue's own declaration, read by svc-trade;
+ * not read is said as reaching the person's other accounts, never as a limit nobody declared.
+ */
+function PermissionReach({ permission }: { permission: AgentPermission | null }) {
+  const { t } = copy.useCopy();
+  const others = permission?.reach !== 'own_account_only';
+  return (
+    <p
+      className={others ? 'error-text' : 'muted'}
+      role="note"
+      data-testid="agent-connect__reach"
+      data-reach={permission?.reach ?? 'unknown'}
+    >
+      {permission === null
+        ? t('reachUnknown')
+        : permission.reach === 'own_account_only'
+          ? t('reachOwn', { venue: permission.venue })
+          : t('reachOthers', { venue: permission.venue })}
+    </p>
   );
 }
 
