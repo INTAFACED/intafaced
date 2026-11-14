@@ -1006,6 +1006,33 @@ if (!db) {
       await reconciles(parseAmount('100'));
     });
 
+    it('a points rule gives nothing and stores nothing while the owner question is open; the rule beside it still pays (J-campaigns-15 #5)', async () => {
+      await earnFees('100');
+      await fundPot('TEST-earn-points', '100');
+      const c = await earning({
+        earning: [
+          { name: 'TEST deposit points', trigger: 'pay.deposit_credit.posted', minAmount: null, formula: '50', effect: 'points' },
+          { name: 'TEST deposit', trigger: 'pay.deposit_credit.posted', minAmount: null, formula: '2' },
+        ],
+      });
+      const stored = await campaigns().getForOps({ id: c.id });
+      expect(stored.earning.map((r) => r.effect ?? 'incentive')).toEqual(['points', 'incentive']);
+      const deposit = {
+        trigger: 'pay.deposit_credit.posted' as const,
+        eventId: 'dep-points-1',
+        userId: ME,
+        at: new Date().toISOString(),
+        values: { amount: '10' },
+        assets: { amount: 'USDT' },
+      };
+      expect(await tasks.onEarningEvent(deposit)).toBe(1);
+      const rows = await db!.sql<{ amount: string; period: string }[]>`
+        SELECT amount::text AS amount, period FROM campaigns.reward_intents WHERE campaign_id = ${c.id}`;
+      // The one row is the incentive rule's; the points rule wrote none.
+      expect(rows).toEqual([{ amount: '2.000000000000000000', period: earningPeriodOf('TEST deposit', 'dep-points-1') }]);
+      await reconciles(parseAmount('100'));
+    });
+
     it('a deposit earns by its own id; a lost ledger reply leaves the reward for the reconciler, posted once', async () => {
       await earnFees('100');
       await fundPot('TEST-earn-5', '100');
