@@ -71,6 +71,17 @@ import {
   QUANT_OWNER_CRITERIA,
   type QuantLifecycle,
   type QuantStage,
+  QUANT_SUPPORT_GRANT_MAX_SECONDS,
+  QUANT_SUPPORT_GRANT_MIN_SECONDS,
+  quantEditLockSchema,
+  quantSharedListSchema,
+  quantSharedOpenSchema,
+  quantSupportGrantInputSchema,
+  quantSupportSourceSchema,
+  quantTeamRemoveInputSchema,
+  quantTeamSaveInputSchema,
+  quantTeamSchema,
+  quantTeamSetInputSchema,
 } from '@intafaced/contracts';
 import type { BacktestCostModel } from '@intafaced/quant-honesty';
 import { missingLake, type BacktestLake } from './backtest/lake.js';
@@ -144,6 +155,11 @@ import {
   QUANT_PAPER_LIST_LIMIT_UNSET,
   QUANT_BACKTEST_RULES_REQUIRED,
   QUANT_CRITERIA_REASON_UNSET,
+  QUANT_EDIT_LOCK_UNSET,
+  QUANT_EDIT_LOCKED,
+  QUANT_GRANT_INVALID,
+  QUANT_PERMISSION_DENIED,
+  QUANT_TEAM_MEMBER_INVALID,
   QUANT_LIVE_DISABLED,
   QUANT_LIVE_PLAN_UNSUPPORTED,
   QUANT_LIVE_ORDER_TYPE_UNSUPPORTED,
@@ -157,6 +173,8 @@ import type { LifecycleRepository } from './lifecycle/repository.js';
 import { evaluateGate, GATE_CRITERION_NAMES, gateCriteriaOf, OWNER_CRITERION_FORMAT, verdictCriteriaOf } from './lifecycle/gate.js';
 import { paperKey, paperSettingsOf, paperView } from './paper/view.js';
 import { openNotifyRepository } from './notify/open.js';
+import { createMemoryTeamRepository } from './team/memory-repository.js';
+import { grantActive, lockLive, type StoredCollaborator, type StoredLock, type TeamRepository } from './team/repository.js';
 import type { NotifyRepository, StoredAlert } from './notify/repository.js';
 import { alertKey, checkChannels, checkTemplate } from './notify/rules.js';
 import type { StoredPaperRun } from './runs/types.js';
@@ -182,7 +200,13 @@ import { buildSavedStrategy } from './studio/save.js';
 import { assertStudioListLimit, STUDIO_LIST_LIMIT_CAP } from './studio/list-limit.js';
 import { idempotencyConflict, requireClientStrategyId, requireIdempotencyKey } from './studio/keys.js';
 import { openStrategyRepository } from './studio/open.js';
-import { draftOf, type StrategyOrganisation, type StrategyRepository, type WriteReceipt } from './studio/repository.js';
+import {
+  draftOf,
+  type StrategyDetail,
+  type StrategyOrganisation,
+  type StrategyRepository,
+  type WriteReceipt,
+} from './studio/repository.js';
 import { requireStudioOperator, resolveStudioAccount, STUDIO_SERVICE_ALLOWLIST } from './studio/scope.js';
 import { publicResultOf, reportOf } from './report/document.js';
 import type { ShareRepository } from './share/repository.js';
@@ -305,56 +329,61 @@ function toTrpc(err: unknown): never {
       err.code === QUANT_VERSION_NOT_FOUND ||
       err.code === QUANT_TEMPLATE_NOT_FOUND
         ? 'NOT_FOUND'
-        : err.code === QUANT_SANDBOX_UNWIRED ||
-            err.code === QUANT_SANDBOX_MAX_OPS_UNSET ||
-            err.code === QUANT_SANDBOX_MAX_SOURCE_UNSET ||
-            err.code === QUANT_PAPER_FEE_UNSET ||
-            err.code === QUANT_BACKTEST_LAKE_MISSING ||
-            err.code === QUANT_BACKTEST_FILLS_MISSING ||
-            err.code === QUANT_STUDIO_LIST_LIMIT_UNSET ||
-            err.code === QUANT_TEMPLATE_LIST_LIMIT_UNSET ||
-            err.code === QUANT_RUN_UNFINISHED ||
-            err.code === QUANT_RUN_NOT_SIMULATED ||
-            err.code === QUANT_RUN_RESULT_CAP_UNSET ||
-            err.code === QUANT_RUN_RESULT_TOO_LARGE ||
-            err.code === QUANT_CLAIM_PNL_UNSET ||
-            err.code === QUANT_DISCLOSURE_UNSET ||
-            err.code === QUANT_EMBED_ORIGINS_UNSET ||
-            err.code === QUANT_SHARE_RATE_UNSET ||
-            err.code === QUANT_RELEASE_NOTE_LIMIT_UNSET ||
-            err.code === QUANT_SHARE_WINDOW_UNSET ||
-            err.code === QUANT_SHARE_RATE_LIMITED ||
-            err.code === QUANT_SIGNAL_RULES_SANDBOX ||
-            err.code === QUANT_QUOTA_UNSET ||
-            err.code === QUANT_QUOTA_EXCEEDED ||
-            err.code === QUANT_QUOTA_PROFILE_UNSET ||
-            err.code === QUANT_GATE_CRITERIA_UNSET ||
-            err.code === QUANT_STAGE_TRANSITION_INVALID ||
-            err.code === QUANT_LIVE_DISABLED ||
-            err.code === QUANT_LIVE_DEPLOY_UNAVAILABLE ||
-            err.code === 'quant.venue_vault_unset'
-          ? 'PRECONDITION_FAILED'
-          : err.code === QUANT_DATABASE_URL_UNSET || err.code === QUANT_DATABASE_POOL_MAX_UNSET
-            ? 'PRECONDITION_FAILED'
-            : err.code === QUANT_STUDIO_RISK_BLOCK_REQUIRED ||
-                err.code === QUANT_BACKTEST_WALK_FORWARD_REQUIRED ||
-                err.code === QUANT_BACKTEST_SURFACE_REFUSED ||
-                err.code === QUANT_ENVIRONMENT_REQUIRED ||
-                err.code === QUANT_ENVIRONMENT_UNKNOWN ||
-                err.code === QUANT_SIMULATED_AS_LIVE ||
-                err.code === QUANT_CASH_UNSET ||
-                err.code === QUANT_CLIENT_STRATEGY_ID_UNSET ||
-                err.code === QUANT_IDEMPOTENCY_KEY_UNSET ||
-                err.code === QUANT_IDEMPOTENCY_CONFLICT ||
-                err.code === QUANT_STRATEGY_VERSION_UNSET ||
-                err.code === QUANT_LIST_CURSOR_INVALID ||
-                err.code === QUANT_OPS_RUNS_LIMIT_UNSET ||
-                err.code === QUANT_OPS_RUNS_FROM_UNSET ||
-                err.code === QUANT_OPS_RUNS_TO_UNSET
-              ? 'BAD_REQUEST'
-              : err.code === 'quant.sandbox_timeout'
-                ? 'TIMEOUT'
-                : 'BAD_REQUEST';
+        : err.code === QUANT_PERMISSION_DENIED
+          ? 'FORBIDDEN'
+          : err.code === QUANT_EDIT_LOCKED
+            ? 'CONFLICT'
+            : err.code === QUANT_SANDBOX_UNWIRED ||
+                err.code === QUANT_SANDBOX_MAX_OPS_UNSET ||
+                err.code === QUANT_SANDBOX_MAX_SOURCE_UNSET ||
+                err.code === QUANT_PAPER_FEE_UNSET ||
+                err.code === QUANT_BACKTEST_LAKE_MISSING ||
+                err.code === QUANT_BACKTEST_FILLS_MISSING ||
+                err.code === QUANT_STUDIO_LIST_LIMIT_UNSET ||
+                err.code === QUANT_TEMPLATE_LIST_LIMIT_UNSET ||
+                err.code === QUANT_RUN_UNFINISHED ||
+                err.code === QUANT_RUN_NOT_SIMULATED ||
+                err.code === QUANT_RUN_RESULT_CAP_UNSET ||
+                err.code === QUANT_RUN_RESULT_TOO_LARGE ||
+                err.code === QUANT_CLAIM_PNL_UNSET ||
+                err.code === QUANT_DISCLOSURE_UNSET ||
+                err.code === QUANT_EMBED_ORIGINS_UNSET ||
+                err.code === QUANT_SHARE_RATE_UNSET ||
+                err.code === QUANT_RELEASE_NOTE_LIMIT_UNSET ||
+                err.code === QUANT_SHARE_WINDOW_UNSET ||
+                err.code === QUANT_SHARE_RATE_LIMITED ||
+                err.code === QUANT_SIGNAL_RULES_SANDBOX ||
+                err.code === QUANT_QUOTA_UNSET ||
+                err.code === QUANT_QUOTA_EXCEEDED ||
+                err.code === QUANT_QUOTA_PROFILE_UNSET ||
+                err.code === QUANT_GATE_CRITERIA_UNSET ||
+                err.code === QUANT_STAGE_TRANSITION_INVALID ||
+                err.code === QUANT_EDIT_LOCK_UNSET ||
+                err.code === QUANT_LIVE_DISABLED ||
+                err.code === QUANT_LIVE_DEPLOY_UNAVAILABLE ||
+                err.code === 'quant.venue_vault_unset'
+              ? 'PRECONDITION_FAILED'
+              : err.code === QUANT_DATABASE_URL_UNSET || err.code === QUANT_DATABASE_POOL_MAX_UNSET
+                ? 'PRECONDITION_FAILED'
+                : err.code === QUANT_STUDIO_RISK_BLOCK_REQUIRED ||
+                    err.code === QUANT_BACKTEST_WALK_FORWARD_REQUIRED ||
+                    err.code === QUANT_BACKTEST_SURFACE_REFUSED ||
+                    err.code === QUANT_ENVIRONMENT_REQUIRED ||
+                    err.code === QUANT_ENVIRONMENT_UNKNOWN ||
+                    err.code === QUANT_SIMULATED_AS_LIVE ||
+                    err.code === QUANT_CASH_UNSET ||
+                    err.code === QUANT_CLIENT_STRATEGY_ID_UNSET ||
+                    err.code === QUANT_IDEMPOTENCY_KEY_UNSET ||
+                    err.code === QUANT_IDEMPOTENCY_CONFLICT ||
+                    err.code === QUANT_STRATEGY_VERSION_UNSET ||
+                    err.code === QUANT_LIST_CURSOR_INVALID ||
+                    err.code === QUANT_OPS_RUNS_LIMIT_UNSET ||
+                    err.code === QUANT_OPS_RUNS_FROM_UNSET ||
+                    err.code === QUANT_OPS_RUNS_TO_UNSET
+                  ? 'BAD_REQUEST'
+                  : err.code === 'quant.sandbox_timeout'
+                    ? 'TIMEOUT'
+                    : 'BAD_REQUEST';
     throw new TRPCError({ code, message: err.message, cause: err });
   }
   throw err;
@@ -508,6 +537,10 @@ export interface QuantRouterDeps extends SandboxDeps {
    * database; unit tests pass the in-memory store.
    */
   readonly notify?: NotifyRepository;
+  /** Strategy teams, edit locks and support grants (J-algo-dev-08). Omitted in unit tests: an in-memory store with no team. */
+  readonly team?: TeamRepository;
+  /** `QUANT_EDIT_LOCK_SECONDS`: how long an edit lock lasts. Null is blank: taking a lock refuses `quant.edit_lock_unset`. */
+  readonly editLockSeconds?: number | null;
   /**
    * The lifecycle store (AL-lifecycle-01): stage rows, gate decisions and the owner criteria an operator sets at
    * runtime. Omitted in unit tests: an in-memory store with nothing set.
@@ -764,6 +797,112 @@ export function createQuantRouter(deps: QuantRouterDeps) {
     if (!found || found.deletedAt || !found.versions.some((row) => row.version === strategyVersion)) missingStrategy();
   }
 
+  const team = deps.team ?? createMemoryTeamRepository();
+  const editLockSeconds = deps.editLockSeconds ?? null;
+
+  /** The caller's own, undeleted strategy. Anything else reads as not found. */
+  async function ownStrategy(accountId: string, strategyId: string): Promise<StrategyDetail> {
+    const found = await strategies.get({ accountId, id: strategyId });
+    if (!found || found.deletedAt) missingStrategy();
+    return found;
+  }
+
+  function lockView(lock: StoredLock | null, accountId: string) {
+    const at = new Date(now());
+    return lockLive(lock, at)
+      ? { held: true, holderId: lock.holderId, mine: lock.holderId === accountId, expiresAt: lock.expiresAt }
+      : { held: false, holderId: null, mine: false, expiresAt: null };
+  }
+
+  /** The owner's view of a strategy's team. */
+  async function teamOf(ownerId: string, strategyId: string) {
+    const at = new Date(now());
+    const [members, lock, grants, reads] = await Promise.all([
+      team.collaborators(strategyId),
+      team.lock(strategyId),
+      team.grants(strategyId),
+      team.reads(strategyId),
+    ]);
+    return {
+      strategyId,
+      ownerId,
+      collaborators: members.map((row) => ({
+        memberId: row.memberId,
+        role: row.role,
+        liveControl: row.liveControl,
+        addedAt: row.addedAt,
+        updatedAt: row.updatedAt,
+      })),
+      lock: lockView(lock, ownerId),
+      grants: grants.map((row) => ({ grantId: row.id, createdAt: row.createdAt, expiresAt: row.expiresAt, active: grantActive(row, at) })),
+      reads: reads.map((row) => ({ readAt: row.readAt, reader: row.reader, granted: row.granted })),
+      asOf: at.toISOString(),
+    };
+  }
+
+  /** A strategy shared with the caller, with the caller's permission. Not shared (or removed, or deleted) is not found. */
+  async function sharedStrategy(accountId: string, strategyId: string): Promise<{ member: StoredCollaborator; found: StrategyDetail }> {
+    const member = await team.membership({ strategyId, memberId: accountId });
+    if (!member) missingStrategy();
+    const found = await strategies.get({ accountId: member.ownerId, id: strategyId });
+    if (!found || found.deletedAt) missingStrategy();
+    return { member, found };
+  }
+
+  async function sharedView(accountId: string, member: StoredCollaborator, found: StrategyDetail) {
+    return {
+      strategyId: found.id,
+      ownerId: found.accountId,
+      role: member.role,
+      liveControl: member.liveControl,
+      name: found.name,
+      version: found.version,
+      source: found.source,
+      releaseNote: found.releaseNote,
+      versions: found.versions.map((row) => ({
+        version: row.version,
+        name: row.name,
+        createdAt: row.createdAt,
+        releaseNote: row.releaseNote,
+      })),
+      lock: lockView(await team.lock(found.id), accountId),
+    };
+  }
+
+  /** The owner, or a teammate with edit, may hold the lock. Anyone else: not found, or view only. */
+  async function editableBy(accountId: string, strategyId: string): Promise<string> {
+    const own = await strategies.get({ accountId, id: strategyId });
+    if (own && !own.deletedAt) return own.id;
+    const { member, found } = await sharedStrategy(accountId, strategyId);
+    if (member.role !== 'edit') {
+      throw new QuantError(QUANT_PERMISSION_DENIED, 'this strategy is shared with you to view only, so you cannot take its edit lock');
+    }
+    return found.id;
+  }
+
+  /** Takes or renews the caller's lock, or refuses naming when another person's lock lapses. */
+  async function takeEditLock(strategyId: string, holderId: string): Promise<StoredLock> {
+    if (editLockSeconds === null) {
+      throw new QuantError(QUANT_EDIT_LOCK_UNSET, 'QUANT_EDIT_LOCK_SECONDS — how long an edit lock lasts is not set');
+    }
+    const attempt = await team.takeLock({ strategyId, holderId, at: new Date(now()), ttlMs: editLockSeconds * 1000 });
+    if (!attempt.taken) {
+      throw new QuantError(
+        QUANT_EDIT_LOCKED,
+        `another person holds the edit lock until ${attempt.lock.expiresAt}; take it after it lapses`,
+      );
+    }
+    return attempt.lock;
+  }
+
+  /** The owner's own save waits while a teammate's live lock holds the strategy. */
+  async function refuseWhileLocked(accountId: string, strategyId: string): Promise<void> {
+    const lock = await team.lock(strategyId);
+    if (lockLive(lock, new Date(now())) && lock.holderId !== accountId) {
+      throw new QuantError(QUANT_EDIT_LOCKED, `another person holds the edit lock until ${lock.expiresAt}; take it after it lapses`);
+    }
+  }
+
   return router({
     health: publicProcedure
       .output(z.object({ ok: z.literal(true), service: z.literal('svc-quant') }))
@@ -892,6 +1031,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
             if (prior) idempotencyConflict(prior.operation);
             const existing = await strategies.get({ accountId, id: input.id });
             if (!existing) missingStrategy();
+            await refuseWhileLocked(accountId, existing.id);
             const built = buildSavedStrategy(input, input.id);
             const releaseNote = releaseNoteOf(input.releaseNote);
             return await strategies.revise({
@@ -1175,7 +1315,11 @@ export function createQuantRouter(deps: QuantRouterDeps) {
         .query(async ({ input, ctx }) => {
           try {
             const accountId = accountOf(ctx, input?.accountId);
-            const [applied, counts] = await Promise.all([quota.applied(accountId), quota.counts(accountId)]);
+            const [applied, counts, collaborators] = await Promise.all([
+              quota.applied(accountId),
+              quota.counts(accountId),
+              team.mostCollaborators(accountId),
+            ]);
             const limits = applied ? await quota.limits(applied.name) : [];
             const used: Record<(typeof QUANT_QUOTA_RESOURCES)[number], bigint> = {
               strategies: counts.strategies,
@@ -1183,11 +1327,11 @@ export function createQuantRouter(deps: QuantRouterDeps) {
               concurrent_runs: counts.running,
               paper_runs: counts.paperRuns,
               runs: counts.runs,
-              // Nothing stores these yet: no log line is kept apart from its run's result, no collaborator can be added
-              // and no notice is sent, so the stored count is zero.
+              // Nothing stores these yet: no log line is kept apart from its run's result and no notice is sent, so the
+              // stored count is zero. Collaborators: the most any one of the account's strategies has.
               log_lines: 0n,
               storage: counts.storage,
-              collaborators: 0n,
+              collaborators,
               notifications: 0n,
             };
             return {
@@ -1199,6 +1343,267 @@ export function createQuantRouter(deps: QuantRouterDeps) {
               }),
               asOf: new Date().toISOString(),
             };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+    }),
+
+    /**
+     * Strategy teams (J-algo-dev-08, AL-team-01). The owner shares a strategy with a teammate by their account id, as
+     * view or edit, with or without live control (stopping the owner's paper runs). One edit lock per strategy keeps two
+     * people from saving over each other; it lapses after the owner's `QUANT_EDIT_LOCK_SECONDS`. Support reads the
+     * source only under the owner's time-boxed grant (`ops.strategy.source`), and every support read writes an audit row
+     * the owner sees here. A teammate's save is a new version of the owner's strategy, counted on the owner's plan.
+     */
+    team: router({
+      get: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ strategyId: z.string().min(1).max(128), ...accountField }))
+        .output(quantTeamSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const found = await ownStrategy(accountId, input.strategyId);
+            return await teamOf(accountId, found.id);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      /** Adds a teammate or changes their permission. A new one counts against the plan's collaborators per strategy. */
+      set: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantTeamSetInputSchema.extend(accountField))
+        .output(quantTeamSchema)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const found = await ownStrategy(accountId, input.strategyId);
+            const memberId = input.memberId.trim().toLowerCase();
+            if (!z.string().guid().safeParse(memberId).success) {
+              throw new QuantError(QUANT_TEAM_MEMBER_INVALID, 'memberId — not an account id');
+            }
+            if (memberId === accountId.toLowerCase()) {
+              throw new QuantError(QUANT_TEAM_MEMBER_INVALID, 'memberId — the owner already has every permission');
+            }
+            await team.upsert({
+              strategyId: found.id,
+              ownerId: accountId,
+              memberId,
+              role: input.role,
+              liveControl: input.liveControl,
+              at: new Date(now()),
+            });
+            return await teamOf(accountId, found.id);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      /** Removes a teammate: their next request is not found. A run already going is left as it is. */
+      remove: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantTeamRemoveInputSchema.extend(accountField))
+        .output(quantTeamSchema)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const found = await ownStrategy(accountId, input.strategyId);
+            await team.remove({ strategyId: found.id, memberId: input.memberId.toLowerCase() });
+            return await teamOf(accountId, found.id);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      /** A time-boxed grant for support to read the source, under `quant.grant:<strategy>:<seq>` (seq: grants the screen read). */
+      grant: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantSupportGrantInputSchema.extend(accountField))
+        .output(quantTeamSchema)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const found = await ownStrategy(accountId, input.strategyId);
+            if (input.seconds < QUANT_SUPPORT_GRANT_MIN_SECONDS || input.seconds > QUANT_SUPPORT_GRANT_MAX_SECONDS) {
+              throw new QuantError(
+                QUANT_GRANT_INVALID,
+                `seconds — a support grant lasts from ${QUANT_SUPPORT_GRANT_MIN_SECONDS} to ${QUANT_SUPPORT_GRANT_MAX_SECONDS} seconds`,
+              );
+            }
+            await team.createGrant({
+              strategyId: found.id,
+              ownerId: accountId,
+              key: `quant.grant:${found.id}:${input.seq}`,
+              at: new Date(now()),
+              seconds: input.seconds,
+            });
+            return await teamOf(accountId, found.id);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      /** The strategies shared with the caller, and the caller's own account id, which an owner adds them by. */
+      shared: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ ...accountField }).optional())
+        .output(quantSharedListSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input?.accountId);
+            const rows = await team.sharedWith(accountId);
+            const out = [];
+            for (const row of rows) {
+              const found = await strategies.get({ accountId: row.ownerId, id: row.strategyId });
+              if (!found || found.deletedAt) continue;
+              out.push({
+                strategyId: found.id,
+                ownerId: row.ownerId,
+                name: found.name,
+                version: found.version,
+                role: row.role,
+                liveControl: row.liveControl,
+              });
+            }
+            return { accountId, strategies: out };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      /** A shared strategy as the teammate reads it. Not shared with the caller (or removed) is not found. */
+      open: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ strategyId: z.string().min(1).max(128), ...accountField }))
+        .output(quantSharedOpenSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const { member, found } = await sharedStrategy(accountId, input.strategyId);
+            return await sharedView(accountId, member, found);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      /**
+       * A teammate's save: a new version of the owner's strategy with the name and note given, under
+       * `quant.team.save:<strategy>:<member>:v<base>`. View only refuses `quant.permission_denied`; another person's live
+       * lock refuses `quant.edit_locked`; saving takes or renews the caller's lock.
+       */
+      save: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantTeamSaveInputSchema.extend(accountField))
+        .output(quantSharedOpenSchema)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const { member, found } = await sharedStrategy(accountId, input.strategyId);
+            if (member.role !== 'edit') {
+              throw new QuantError(QUANT_PERMISSION_DENIED, 'this strategy is shared with you to view only, so you cannot save it');
+            }
+            const key = `quant.team.save:${found.id}:${accountId}:v${input.baseVersion}`;
+            const prior = await strategies.replay(found.accountId, key);
+            if (prior?.operation === 'revise') return await sharedView(accountId, member, prior.response);
+            if (prior) idempotencyConflict(prior.operation);
+            await takeEditLock(found.id, accountId);
+            const base = found.versions.find((row) => row.version === input.baseVersion);
+            if (!base) throw new QuantError(QUANT_VERSION_NOT_FOUND, `version ${input.baseVersion} not found`);
+            const { version: _v, createdAt: _c, ...draft } = base;
+            const saved = await strategies.revise({
+              accountId: found.accountId,
+              id: found.id,
+              idempotencyKey: key,
+              draft: { ...draft, name: input.name.trim(), releaseNote: releaseNoteOf(input.releaseNote) },
+            });
+            return await sharedView(accountId, member, saved);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      /** Takes or renews the edit lock: the owner or an edit teammate. Another person's live lock refuses `quant.edit_locked`. */
+      lock: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ strategyId: z.string().min(1).max(128), ...accountField }))
+        .output(quantEditLockSchema)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const strategyId = await editableBy(accountId, input.strategyId);
+            return lockView(await takeEditLock(strategyId, accountId), accountId);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      /** Lets the caller's own edit lock go. Not holding it changes nothing. */
+      unlock: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ strategyId: z.string().min(1).max(128), ...accountField }))
+        .output(quantEditLockSchema)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const strategyId = await editableBy(accountId, input.strategyId);
+            await team.releaseLock({ strategyId, holderId: accountId });
+            return lockView(await team.lock(strategyId), accountId);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      /** The owner's paper runs of a shared strategy, newest first, as the teammate sees them. */
+      paperRuns: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ strategyId: z.string().min(1).max(128), ...accountField }))
+        .output(quantPaperListSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const { found } = await sharedStrategy(accountId, input.strategyId);
+            const rows = await runs.paperRuns({ userId: found.accountId, strategyId: found.id, limit: QUANT_PAPER_LIST_MAX });
+            return {
+              runs: rows.map((row) => ({
+                runId: row.run.id,
+                strategyId: row.run.strategyId ?? '',
+                strategyVersion: row.run.strategyVersion ?? 1,
+                state: row.run.finished ? ('stopped' as const) : ('running' as const),
+                startedAt: row.run.started,
+                stoppedAt: row.run.finished,
+                cash: row.settings.cash,
+                feed: row.settings.feed,
+              })),
+              counts: [],
+            };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      /** Stops the owner's paper run of a shared strategy: only with live control, else `quant.permission_denied`. */
+      stop: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ strategyId: z.string().min(1).max(128), runId: z.string().min(1).max(128), ...accountField }))
+        .output(quantPaperRunSchema)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const { member, found } = await sharedStrategy(accountId, input.strategyId);
+            if (!member.liveControl) {
+              throw new QuantError(
+                QUANT_PERMISSION_DENIED,
+                'you were given no live control of this strategy, so you cannot stop its runs; nothing was stopped',
+              );
+            }
+            const paper = await runs.paperRun({ userId: found.accountId, id: input.runId });
+            if (!paper || paper.run.strategyId !== found.id) throw new QuantError(QUANT_RUN_NOT_FOUND, 'run not found');
+            if (!paper.run.finished) {
+              try {
+                await runs.finish({
+                  id: paper.run.id,
+                  userId: found.accountId,
+                  outcome: 'stopped',
+                  stored: { detail: null, response: { stopped: true } },
+                });
+              } catch (err) {
+                if (!(err instanceof QuantError) || err.code !== QUANT_RUN_IMMUTABLE) throw err;
+              }
+            }
+            const stopped = await runs.paperRun({ userId: found.accountId, id: input.runId });
+            if (!stopped) throw new QuantError(QUANT_RUN_NOT_FOUND, 'run not found');
+            return await presentPaper(found.accountId, stopped);
           } catch (err) {
             toTrpc(err);
           }
@@ -2267,6 +2672,35 @@ export function createQuantRouter(deps: QuantRouterDeps) {
     preview: createPreviewRouter(),
 
     ops: router({
+      strategy: router({
+        /**
+         * Support's read of one strategy (J-algo-dev-08): the source only while the owner's time-boxed grant is active,
+         * else metadata only. Every read, granted or not, writes one audit row the owner sees in `team.get`.
+         */
+        source: scopedProcedure('admin:read', { module: 'quant', plane: 'fiat' })
+          .input(z.object({ strategyId: z.string().min(1).max(128), ownerId: z.string().guid() }))
+          .output(quantSupportSourceSchema)
+          .query(async ({ input, ctx }) => {
+            try {
+              const found = await strategies.get({ accountId: input.ownerId, id: input.strategyId });
+              if (!found || found.deletedAt) missingStrategy();
+              const grant = await team.recordRead({ strategyId: found.id, reader: ctx.principal.userId, at: new Date(now()) });
+              return {
+                strategyId: found.id,
+                ownerId: found.accountId,
+                name: found.name,
+                version: found.version,
+                versions: found.versions.length,
+                granted: grant !== null,
+                grantExpiresAt: grant?.expiresAt ?? null,
+                source: grant ? found.source : null,
+              };
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+      }),
+
       runs: scopedProcedure('admin:read', { module: 'quant', plane: 'fiat' })
         .input(
           z

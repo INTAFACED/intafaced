@@ -103,6 +103,21 @@ export function unitsOf(amount: Amount, decimals: number): bigint | null {
   return amount % scale === 0n ? amount / scale : null;
 }
 
+/**
+ * What INTAFACED has paid one wallet as rewards, in USDC, from our own payout records (J-campaigns-04 #3): every payment
+ * to it that left or may have left our wallet. Only a payment the chain refused or reverted (`failed`) is left out; one
+ * still `sending` is counted, because it may have landed and its money could come back as a deposit. The welcome deposit
+ * task counts a deposit only above this, so reward money sent back ticks nothing.
+ */
+export function rewardsPaidToWallet(sql: Sql): (wallet: string) => Promise<Amount> {
+  return async (wallet) => {
+    const [row] = await sql<{ paid: string | null }[]>`
+      SELECT sum(amount)::text AS paid FROM campaigns.reward_payments
+      WHERE to_wallet = ${wallet.toLowerCase()} AND asset = ${REWARD_ASSET} AND state <> 'failed'`;
+    return row?.paid ? parseAmount(row.paid) : 0n;
+  };
+}
+
 export class RewardPayer {
   private readonly sql: Sql;
   private readonly ledger: LedgerClient;

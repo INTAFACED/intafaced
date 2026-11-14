@@ -169,6 +169,11 @@ const schema = baseEnvSchema
        */
       QUANT_RELEASE_NOTE_MAX: blankable(z.string().regex(/^(?:[1-9]\d{0,2}|1\d{3}|2000)$/)),
       /**
+       * How long a strategy's edit lock lasts before it lapses, in seconds (J-algo-dev-08). NO DEFAULT: blank refuses
+       * taking the lock (`quant.edit_lock_unset`), and so a teammate's save; the owner's own save still saves.
+       */
+      QUANT_EDIT_LOCK_SECONDS: blankable(z.string().regex(/^[1-9]\d{0,5}$/)),
+      /**
        * The owner's default quota profile (AL-limits-01): the profile an account with no assignment falls under. NO
        * DEFAULT: blank, every counted write (a strategy, a version, a run) refuses `quant.quota_profile_unset`.
        */

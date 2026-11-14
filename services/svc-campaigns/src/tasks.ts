@@ -328,8 +328,8 @@ export interface TaskServiceOptions {
    */
   venueDeposits?: VenueDepositSource | null;
   /**
-   * What INTAFACED has paid this wallet as rewards, in USDC. A deposit counts only above it, so reward money sent back
-   * ticks nothing. Absent: read from our own payment records (`reward_payments` the chain took: sent or booked).
+   * What INTAFACED has paid this wallet as rewards, in USDC, from our payout records (`rewardsPaidToWallet`). A deposit
+   * counts only above it, so reward money sent back ticks nothing. Absent (unit tests only): nothing is counted as paid.
    */
   rewardsPaidTo?: (wallet: string) => Promise<bigint>;
   now?: () => Date;
@@ -380,7 +380,7 @@ export class TaskService {
     this.timeZone = options.timeZone;
     this.rollbackWindowSeconds = options.rollbackWindowSeconds;
     this.venueDeposits = options.venueDeposits ?? null;
-    this.rewardsPaidTo = options.rewardsPaidTo ?? ((wallet) => this.paidToWallet(wallet));
+    this.rewardsPaidTo = options.rewardsPaidTo ?? (async () => 0n);
     this.now = options.now ?? (() => new Date());
   }
 
@@ -688,14 +688,6 @@ export class TaskService {
       spent: formatAmount(spent),
       left: formatAmount(left > 0n ? left : 0n),
     };
-  }
-
-  /** USDC INTAFACED has paid this wallet as rewards: every payment the chain took (sent, then booked). */
-  private async paidToWallet(wallet: string): Promise<bigint> {
-    const [row] = await this.sql<{ paid: string }[]>`
-      SELECT coalesce(sum(amount), 0)::text AS paid FROM campaigns.reward_payments
-      WHERE to_wallet = ${wallet.toLowerCase()} AND asset = ${REWARD_ASSET} AND state IN ('sent', 'booked')`;
-    return parseAmount(row!.paid);
   }
 
   /**
@@ -1078,6 +1070,8 @@ export class TaskService {
     const found = await this.welcomeOf(input.accountId);
     if (!found) return { campaign: null, signedUpAt: null, window: null, tasks: [], deposit: null };
     const deposit = await this.readWelcomeDeposit(found, input.forwarded ?? {});
+    // A claimed USDC reward with no wallet yet takes the wallet the person connected since (J-campaigns-04 #4).
+    await this.recordPayTo(found.account.account_id, input.forwarded ?? {});
     const { account, campaign, events } = found;
     const keys = campaign.tasks.steps.map((s) => rewardKeyOf(campaign.id, account.account_id, welcomePeriodOf(s.event)));
     const intents = await this.sql<IntentRow[]>`
@@ -1169,6 +1163,19 @@ export class TaskService {
    * or one sent again after a lost reply, returns the first (`created: false`). After the window nothing is written.
    */
   async welcomeClaim(input: { accountId: string; event: TaskEvent; forwarded?: Record<string, string> }): Promise<TaskClaimResult> {
+    const result = await this.welcomeClaimOnce(input);
+    // A USDC reward is paid to the wallet the person has connected when they claim it (J-campaigns-04 #4).
+    if (await this.recordPayTo(input.accountId, input.forwarded ?? {})) {
+      return { reward: await this.record((await this.intent(result.reward.rewardKey))!), created: result.created };
+    }
+    return result;
+  }
+
+  private async welcomeClaimOnce(input: {
+    accountId: string;
+    event: TaskEvent;
+    forwarded?: Record<string, string>;
+  }): Promise<TaskClaimResult> {
     const found = await this.welcomeOf(input.accountId);
     if (!found) throw new CampaignsError('campaigns.welcome_none', 'Your account has no welcome checklist');
     if (input.event === 'pay.deposit') await this.readWelcomeDeposit(found, input.forwarded ?? {});
