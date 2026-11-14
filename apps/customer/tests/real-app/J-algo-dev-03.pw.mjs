@@ -5,6 +5,7 @@ import { journeyState } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { tapeWindow } from './tape.mjs';
 import { userIdOf } from './copy.mjs';
+import { responseAfterNavigation } from './navigation.mjs';
 import { createRequire } from 'node:module';
 import nodePath from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -271,9 +272,8 @@ test(`${J} #4 opens a built-in template version and its source: readable and not
 
   // With no template published, the list says so. The operator withdraws every listed template, so the service itself
   // answers with none; then each is restored with its versions, so the steps and journeys after this one find them.
-  const listed = page.waitForResponse((r) => r.url().includes('/api/quant/trpc/template.list') && r.ok());
-  await page.reload();
-  const served = (await (await listed).json()).result.data;
+  const templateList = (r) => r.url().includes('/api/quant/trpc/template.list') && r.ok();
+  const served = (await responseAfterNavigation(page, templateList)).res.body.result.data;
   expect(served.nextCursor, 'every listed template is on the first page the list reads').toBeNull();
   const ids = served.templates.map((row) => row.id);
   expect(ids).toContain(SOURCE_TEMPLATE.id);
@@ -281,9 +281,8 @@ test(`${J} #4 opens a built-in template version and its source: readable and not
   const attempt = `${process.env.JOURNEY_RUN_ID ?? Date.now()}:${testInfo.retry}`;
   try {
     for (const id of ids) await setTemplateListed(id, false, attempt);
-    const none = page.waitForResponse((r) => r.url().includes('/api/quant/trpc/template.list') && r.ok());
-    await page.reload();
-    expect((await (await none).json()).result.data).toEqual({ templates: [], nextCursor: null });
+    const none = (await responseAfterNavigation(page, templateList)).res.body.result.data;
+    expect(none).toEqual({ templates: [], nextCursor: null });
     await expect(templates).toContainText('No template is published.');
     await expect(templates.getByRole('button', { name: /^View the source of / })).toHaveCount(0);
   } finally {
