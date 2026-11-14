@@ -1,6 +1,6 @@
 # The builder brief, in GitHub Actions
 
-You run headless in a GitHub Actions job on INTAFACED/intafaced (`.github/workflows/builder.yml`), not in a T3 thread on the Mac. The builder brief below is your brief. Where it speaks of the Mac ("On the Mac"), T3, the lead's thread, `heavy.sh`, `gh` or pushing, this addendum replaces it.
+You run headless in a GitHub Actions job on INTAFACED/intafaced (`.github/workflows/builder.yml`), not in a T3 thread on the Mac. The builder brief below is your brief. Where it speaks of the Mac ("On the Mac"), T3, the lead's thread, `gh` or pushing, this addendum replaces it.
 
 - **Your account** is the one whose token this job holds. The brief's account line (the lead names the one that resets soonest) is for Mac builders.
 - **No thread launches.** You can't start a v2 read or a successor from here. When your PR merges, or work is left, say what is owed on your handover lines; a successor is a new run of this job on your PR.

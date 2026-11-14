@@ -25,6 +25,7 @@ import {
 } from '@intafaced/contracts/identity-kyc-profile';
 import { decryptDocument, encryptDocument } from './document-crypto.js';
 import type { KycDocumentVault } from './document-store.js';
+import { TRADING_CHECKS_REVIEWER } from './trading-checks.js';
 
 type Tier = 'basic' | 'full' | 'institutional';
 
@@ -418,11 +419,12 @@ export class KycProfileDesk {
       const documentId = fields.documentId;
       if (!documentId) throw new KycProfileError('Add a photo of your ID first', 'kyc.profile_incomplete', { step: 'upload' });
       this.assertListed(fields.residence, fields.documentType);
+      // A trading-checks clear is never a level held (OWNER 258 (4)), so it never stands in for the bank's request.
       // A request already open at this level, or a level already held, is not this draft's: sending would only return
       // it, without this photo. Only a pending request that carries this photo (a send that crashed after it) is ours.
       const [open] = await tx<Array<{ id: string; status: string; provider_ref: string | null }>>`
         SELECT id, status, provider_ref FROM kyc_records WHERE user_id = ${userId} AND (
-          (status = 'pending' AND tier = ${row.tier}) OR (status = 'approved' AND (expires_at IS NULL OR expires_at > now())
+          (status = 'pending' AND tier = ${row.tier}) OR (status = 'approved' AND reviewed_by IS DISTINCT FROM ${TRADING_CHECKS_REVIEWER} AND (expires_at IS NULL OR expires_at > now())
             AND array_position(ARRAY['none','basic','full','institutional']::text[], tier::text) >= array_position(ARRAY['none','basic','full','institutional']::text[], ${row.tier}::text)))
         ORDER BY created_at DESC LIMIT 1`;
       if (open && !(open.status === 'pending' && open.provider_ref === documentId))

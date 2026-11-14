@@ -1407,8 +1407,33 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
   },
   'academy.permission_denied': {
     title: 'This needs a role you do not hold',
-    body: 'Answer-level quiz data needs the data researcher role on the course. Academy has no course roles to hold, so no account holds it.',
-    next: 'Read the item analysis and score distribution instead. Nothing was changed.',
+    body: 'Your roles on this course do not permit this. Answer-level quiz data is not served to any role yet, the data researcher role included.',
+    next: 'Ask a founder who holds the permission, or read what your role allows. Nothing was changed.',
+  },
+  'academy.role_escalation': {
+    title: 'That would give more than you hold',
+    body: 'Nobody may give a role that permits something they do not hold on this course themselves.',
+    next: 'Ask a founder whose roles here cover it. Nothing was changed.',
+  },
+  'academy.role_limit_unset': {
+    title: 'The custom role limit is not set',
+    body: 'The owner has not set how many custom roles the Academy may hold, so no custom role is created. The built-in roles still work.',
+    next: 'Ask the owner to set the custom role limit. Nothing was saved.',
+  },
+  'academy.role_limit_reached': {
+    title: 'The custom role limit is reached',
+    body: 'The Academy already holds as many custom roles as the owner allows. A switched-off role still counts.',
+    next: 'Use a built-in role, or ask the owner to raise the limit. Nothing was saved.',
+  },
+  'academy.role_not_found': {
+    title: 'No such role or role change',
+    body: 'There is no role, or no role change waiting, with that name or id.',
+    next: 'Read the team again. Nothing was changed.',
+  },
+  'academy.second_founder_required': {
+    title: 'A second founder confirms this',
+    body: 'A role change takes effect only when a founder other than the one who proposed it confirms it.',
+    next: 'Ask the other founder to confirm it from their own session. Nothing was changed.',
   },
   'academy.bulk_limit_unset': {
     title: 'The curve file limit is not set',
@@ -1542,7 +1567,7 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
   },
   'academy.report_limit_unset': {
     title: 'The report size is not set',
-    body: 'The owner has not set how many learner rows one grade report may hold, so no report is made.',
+    body: 'The owner has not set how many rows one report or export may hold, so none is made or listed.',
     next: 'The owner sets the limit for this deployment. Nothing was made.',
   },
   'academy.report_too_large': {
@@ -1554,6 +1579,26 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     title: 'That report number skips one',
     body: 'Reports of a course are numbered one after another, and this number is past the next one.',
     next: 'The list below is read again. Make the next report from it. Nothing was made.',
+  },
+  'academy.cert_signatory_missing': {
+    title: 'The design has no signatory',
+    body: 'A certificate design needs at least one signatory, with a name and a role, before it can be active.',
+    next: 'Add a signatory, save the design, then activate it. Nothing was changed.',
+  },
+  'academy.cert_disclaimer_unset': {
+    title: 'The disclaimer is blank',
+    body: "A certificate design needs its disclaimer text before it can be active. The wording is the owner's.",
+    next: 'Put in the disclaimer the owner gave, save the design, then activate it. Nothing was changed.',
+  },
+  'academy.cert_design_stale': {
+    title: 'The design changed since you read it',
+    body: 'Someone saved a newer revision of this design first.',
+    next: 'The page is read again. Make your change on the newest revision. Nothing was changed.',
+  },
+  'academy.cert_design_not_found': {
+    title: 'No design yet',
+    body: 'This certificate has no design to activate.',
+    next: 'Save a design first. Nothing was changed.',
   },
   'academy.report_not_found': {
     title: 'No such report',

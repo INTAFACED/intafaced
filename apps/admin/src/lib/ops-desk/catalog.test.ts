@@ -365,7 +365,9 @@ describe('the desks cover what the product order asks for', () => {
     expect(token.unavailable.map((u) => u.id)).toEqual(['token.supply']);
   });
   it('protocol: chain, audit, indexer finality, DEX health the blockers panel and the listing control link, never INTACHAIN or audited', () => {
-    expect(sections('protocol')).toEqual(['chain', 'audit', 'indexer', 'dex', 'blockers', 'listing']);
+    expect(sections('protocol')).toEqual(['chain', 'audit', 'indexer', 'dex', 'blockers', 'listing', 'trust']);
+    // J-dex-protocol-30: the trust desk is its own panel, read from svc-protocol as the founder.
+    expect(DESKS.protocol.sections.find((s) => s.id === 'trust')).toMatchObject({ title: 'Trust and safety', panel: 'protocol.trust' });
     expect(allReads(DESKS.protocol).map((r) => `${r.module}.${r.procedure}`)).toEqual([
       'protocol.chainStatus',
       'protocol.auditStatus',

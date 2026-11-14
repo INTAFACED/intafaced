@@ -11,6 +11,8 @@ export const corridorSchema = z.object({
   minAmount: amount.nullable(),
   maxAmount: amount.nullable(),
   cutOffTime: z.string().nullable(),
+  /** On a SWIFT corridor, who bears the banks' charges, as the partner answers it; null when it gave none. */
+  swiftCharges: z.enum(['SHA', 'OUR', 'BEN']).nullable(),
   /** The delivery methods a payout partner pays out on: a send on any other is refused, with nothing taken. */
   payoutMethods: z.array(z.string()),
 });
@@ -100,6 +102,19 @@ export type GlobalReceipt = z.infer<typeof receiptSchema>;
 
 /** One row of the destination list: a country and currency with one delivery method. */
 export type Destination = { key: string; country: string; currency: string; method: string; paysOut: boolean; corridor: Corridor };
+/**
+ * A country typed by hand, checked against the published catalogue: `bad` when it is not a two-letter code, `supported`
+ * when any corridor goes there, else `unsupported`. Nothing but the catalogue decides it.
+ */
+export function corridorFor(
+  corridors: readonly Corridor[],
+  typed: string,
+): { country: string; state: 'bad' | 'supported' | 'unsupported' } {
+  const country = typed.trim().toUpperCase();
+  if (!/^[A-Z]{2}$/.test(country)) return { country, state: 'bad' };
+  return { country, state: corridors.some((row) => row.country === country) ? 'supported' : 'unsupported' };
+}
+
 export function destinationsFrom(corridors: readonly Corridor[]): Destination[] {
   return corridors.flatMap((corridor) =>
     corridor.deliveryMethods.map((method) => ({

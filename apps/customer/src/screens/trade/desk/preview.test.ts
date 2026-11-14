@@ -107,6 +107,13 @@ describe('refusal words', () => {
     expect(JSON.stringify(failure)).not.toContain('tier.insufficient');
   });
 
+  it('a trading hold is marked so the note adds its stored reason (J-identity-14 #2), and carries no raw code', () => {
+    const held = refusalFailure('trade.account_restricted', {});
+    expect(held).toMatchObject({ kind: 'refusal', tradingHold: true, copy: { title: 'Trading is on hold on your account' } });
+    expect(JSON.stringify(held)).not.toContain('trade.account_restricted');
+    expect(refusalFailure('tier.insufficient', {})).not.toHaveProperty('tradingHold');
+  });
+
   it('not enough funds names the asset and what is available', () => {
     const failure = refusalFailure('ledger.insufficient_funds', { asset: 'USDT', available: '4,100' });
     expect(failure).toMatchObject({ kind: 'refusal', copy: { title: 'Not enough USDT', body: 'You have 4,100 USDT available.' } });

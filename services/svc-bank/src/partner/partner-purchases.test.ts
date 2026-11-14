@@ -101,6 +101,44 @@ describe('a purchase through the TEST partner', () => {
     expect(await partner.purchases.holds(ADA)).toEqual({ label: 'TEST partner bank', reported: false });
   });
 
+  it('takes a returned purchase back once under its key and drops its hold (J-bank-02 #7)', async () => {
+    const partner = testPartner();
+    const main = { userId: ADA, assetId: 'USDT', spaceId: null };
+    partner.fund(ADA, { fundId: 'f-50', assetId: 'USDT', amount: units('50') });
+    const purchase = { key: KEY, assetId: 'USDT', amount: units('20'), paidBy: 'bank_pull' as const };
+    await partner.purchases.credit(ADA, purchase);
+    const first = await partner.purchases.returned(ADA, purchase);
+    expect(first).toMatchObject({ key: KEY, amount: units('20') });
+    expect(await partner.purchases.returned(ADA, purchase)).toEqual(first);
+    expect((await partner.bank.balance(main)).amount).toBe(units('50'));
+    const report = await partner.purchases.holds(ADA);
+    expect(report.reported && report.holds).toEqual([]);
+    // On the partner's record once, as the pay-in going back, listed only with the pay-ins.
+    const back = (await partner.bank.moves(ADA, { limit: 10, payIns: true })).filter((m) => m.from.userId === ADA);
+    expect(back).toEqual([expect.objectContaining({ id: first.id, amount: units('20') })]);
+    expect((await partner.bank.moves(ADA, { limit: 10 })).filter((m) => m.from.userId === ADA)).toEqual([]);
+    // A credit under the same key after its return is the same credit, and gives nothing back again.
+    await partner.purchases.credit(ADA, purchase);
+    expect((await partner.bank.balance(main)).amount).toBe(units('50'));
+  });
+
+  it('refuses a return of no purchase, of other terms, while down, or that the balance no longer holds, taking nothing', async () => {
+    const partner = testPartner();
+    const main = { userId: ADA, assetId: 'USDT', spaceId: null };
+    const purchase = { key: KEY, assetId: 'USDT', amount: units('20'), paidBy: 'card' as const };
+    expect(await codeOf(partner.purchases.returned(ADA, purchase))).toBe('bank.partner_move_conflict');
+    await partner.purchases.credit(ADA, purchase);
+    expect(await codeOf(partner.purchases.returned(ADA, { ...purchase, amount: units('21') }))).toBe('bank.partner_move_conflict');
+    expect(await codeOf(partner.purchases.returned(BOB, purchase))).toBe('bank.partner_move_conflict');
+    partner.set(ADA, { down: true });
+    expect(await codeOf(partner.purchases.returned(ADA, purchase))).toBe('bank.partner_unavailable');
+    partner.set(ADA, { down: false, purchaseHold: 'expired' });
+    // Released and spent in part: the balance no longer holds the whole purchase.
+    await partner.bank.move({ key: 'spend-15', from: main, to: { userId: BOB, assetId: 'USDT', spaceId: null }, amount: units('15') });
+    expect(await codeOf(partner.purchases.returned(ADA, purchase))).toBe('bank.partner_insufficient_funds');
+    expect((await partner.bank.balance(main)).amount).toBe(units('5'));
+  });
+
   it('is the partner only for a person whose money it holds', () => {
     const partner = testPartner();
     const custody = testPartnerPurchases(partner);

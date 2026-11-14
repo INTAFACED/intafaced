@@ -3,7 +3,7 @@ import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { createBankRouter } from '../router.js';
 import type { BankServices } from '../bank-service.js';
-import { statementCsv, STATEMENT_CSV_HEADER } from '../statements/statement-file.js';
+import { csvCell, statementCsv, STATEMENT_CSV_HEADER, STATEMENT_NOT_TAX_FORM } from '../statements/statement-file.js';
 import { ActivityService, type LedgerHistoryPages, type LedgerPageEntry } from './activity-service.js';
 import type { ActivityAnnotation } from './activity-records.js';
 
@@ -76,14 +76,16 @@ describe('report description and the has-note filter', () => {
     await expect(service().list(ALICE, { hasNote: true })).rejects.toMatchObject({ name: 'ActivityUnavailableError' });
   });
 
-  it('puts the description in its own CSV column, after the payment reference', async () => {
+  it('puts the description in its own CSV column, after the payment reference, and the not-a-tax-form notice last on every row', async () => {
     const out = await service(records()).list(ALICE, {});
     const csv = statementCsv(out.items);
     const rows = csv.replace('﻿', '').split('\r\n');
-    expect(STATEMENT_CSV_HEADER.at(-1)).toBe('Report description');
-    expect(rows[0]?.endsWith(',Payment reference,Report description')).toBe(true);
-    expect(rows.find((r) => r.includes('tx-2'))?.endsWith(',"Office rent, October"')).toBe(true);
-    expect(rows.find((r) => r.includes('tx-3'))?.endsWith(',,')).toBe(true);
+    const notice = `,${csvCell(STATEMENT_NOT_TAX_FORM, false)}`;
+    expect(STATEMENT_CSV_HEADER.slice(-2)).toEqual(['Report description', 'Notice']);
+    expect(rows[0]?.endsWith(',Payment reference,Report description,Notice')).toBe(true);
+    expect(rows.find((r) => r.includes('tx-2'))?.endsWith(`,"Office rent, October"${notice}`)).toBe(true);
+    expect(rows.find((r) => r.includes('tx-3'))?.endsWith(`,,${notice}`)).toBe(true);
+    for (const row of rows.slice(1).filter(Boolean)) expect(row.endsWith(notice)).toBe(true);
   });
 
   it('does not run a formula typed into a description', () => {

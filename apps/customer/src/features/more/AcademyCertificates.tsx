@@ -20,6 +20,7 @@ import {
   issueWait,
   lessonHrefFor,
   parseVerifyCode,
+  type CertGrant,
   type CertPathRow,
   type CertificateCard,
   type LessonSummary,
@@ -240,14 +241,24 @@ function CertificateSheet({
   return (
     <Panel title={t('sheetPanel')}>
       <div className="academy-lms-stack" data-certificate-sheet={doc.certId}>
-        <article className="academy-cert-sheet" aria-label={t('sheetLabel', { title: doc.title })}>
+        <article
+          className="academy-cert-sheet"
+          aria-label={t('sheetLabel', { title: doc.design?.title ?? doc.title })}
+          data-design-revision={doc.design?.revision ?? ''}
+        >
           <small className="muted">
             <Copy k="sheetIssuer" />
           </small>
-          <h2 lang="und">{doc.title}</h2>
-          <p>
-            <Copy k="sheetBody" params={{ count: doc.requirements }} />
-          </p>
+          {doc.design ? (
+            <SheetDesign design={doc.design} />
+          ) : (
+            <>
+              <h2 lang="und">{doc.title}</h2>
+              <p>
+                <Copy k="sheetBody" params={{ count: doc.requirements }} />
+              </p>
+            </>
+          )}
           {doc.code && <SheetHolder code={doc.code} />}
           <p>
             <Copy k="sheetIssued" params={{ date: formatDay(doc.issuedAt, language) }} />
@@ -286,6 +297,41 @@ function CertificateSheet({
         </details>
       </div>
     </Panel>
+  );
+}
+
+/** The design revision the certificate was issued under, as staff wrote it: every line is theirs, in its own language. */
+function SheetDesign({ design }: { design: NonNullable<CertGrant['design']> }) {
+  const { t } = copy.useCopy();
+  return (
+    <div className="academy-lms-stack" data-testid="certificate-design">
+      <h2 lang={design.language}>{design.title}</h2>
+      <p lang={design.language}>{design.body}</p>
+      {design.effortHours && <p>{t('sheetEffort', { hours: design.effortHours })}</p>}
+      {design.signatories.length > 0 && (
+        <div data-testid="certificate-signatories">
+          <small className="muted">{t('sheetSignedBy')}</small>
+          <ul className="academy-lms-rows">
+            {design.signatories.map((s, i) => (
+              <li key={i}>
+                <strong lang="und">{s.name}</strong>{' '}
+                <span className="muted" lang={design.language}>
+                  {s.role}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {design.disclaimer && (
+        <small className="muted" lang={design.language} data-testid="certificate-disclaimer">
+          {design.disclaimer}
+        </small>
+      )}
+      <small className="muted" data-testid="certificate-design-revision">
+        {t('sheetRevision', { revision: design.revision })}
+      </small>
+    </div>
   );
 }
 

@@ -14,8 +14,8 @@ import { timeLeft } from './time-left';
 
 /**
  * The welcome checklist on /uc/promotion (CM-rewards-hub-03, J-campaigns-04): the account's
- * welcome window and each task, ticked by svc-campaigns from real events (verified, a crypto deposit credited, a spot
- * fill), with its reward ("not set" when blank) and a claim per task. Everything is read from svc-campaigns; after any
+ * welcome window and each task, ticked by svc-campaigns from real events (verified, a USDC deposit from the connected
+ * wallet the venue credited, a spot fill), with its reward ("not set" when blank) and a claim per task. Everything is read from svc-campaigns; after any
  * claim answer, or none, the list is read again, so a lost reply never sends a second claim.
  */
 
@@ -167,6 +167,18 @@ function Tasks({
                         ? t('doneAt', { when: when(task.doneAt) })
                         : t(`openWhy_${key(task.event)}`)}
                 </span>
+                {task.event === 'pay.deposit' && task.state === 'open' && data.deposit ? (
+                  <span data-testid="welcome-deposit-source" data-source={data.deposit.source} data-as-of={data.deposit.asOf ?? ''}>
+                    {' '}
+                    {data.deposit.source === 'no_wallet'
+                      ? t('depositNoWallet')
+                      : data.deposit.source === 'unread'
+                        ? t('depositUnread')
+                        : data.deposit.asOf
+                          ? t('depositAsOf', { when: when(data.deposit.asOf) })
+                          : null}
+                  </span>
+                ) : null}
                 {task.record?.ledgerTxId ? (
                   <>
                     {' '}
