@@ -12,7 +12,7 @@ const en = {
   repeat_once: 'Once',
   interval: 'Minimum interval (minutes)',
   intervalHint: 'Whole minutes between runs, at least {minimum}.',
-  intervalHintUnset: 'The platform has not set how often schedules may run yet, so a new schedule is refused.',
+  intervalHintUnset: 'The platform’s schedule frequency is unset, so a new schedule is refused.',
   cap: 'Cap per run',
   capHint: 'The most one run may cost. Left blank, it stays blank: every run is skipped, with the reason.',
   ask: 'Ask the agent',
@@ -80,7 +80,7 @@ const en = {
   code_agents_schedule_min_interval_unset: 'Set the minimum interval between runs first.',
   code_agents_schedule_interval_invalid: 'The interval must be a whole number of minutes, and a schedule that runs once takes none.',
   code_agents_schedule_interval_below_minimum: 'The interval is shorter than the platform allows.',
-  code_agents_schedule_cadence_unset: 'The platform has not set how often schedules may run yet, so no schedule can be made.',
+  code_agents_schedule_cadence_unset: 'The platform’s schedule frequency is unset, so a new schedule is refused.',
   code_agents_schedule_ask_blank: 'Write what the agent is asked first.',
   code_agents_schedule_not_found: 'This schedule is not one of yours.',
   code_agents_trigger_subject_invalid: 'Choose one of the events offered.',
@@ -102,8 +102,7 @@ const es = {
   repeat_once: 'Una vez',
   interval: 'Intervalo mínimo (minutos)',
   intervalHint: 'Minutos enteros entre ejecuciones, al menos {minimum}.',
-  intervalHintUnset:
-    'La plataforma aún no ha fijado con qué frecuencia pueden ejecutarse las programaciones, así que se rechaza una nueva.',
+  intervalHintUnset: 'La frecuencia de las programaciones de la plataforma no está fijada, así que se rechaza una nueva.',
   cap: 'Tope por ejecución',
   capHint: 'Lo máximo que puede costar una ejecución. Si lo dejas en blanco, queda en blanco: cada ejecución se omite, con el motivo.',
   ask: 'Pregunta al agente',
@@ -172,8 +171,7 @@ const es = {
   code_agents_schedule_interval_invalid:
     'El intervalo debe ser un número entero de minutos, y una programación de una vez no lleva ninguno.',
   code_agents_schedule_interval_below_minimum: 'El intervalo es más corto de lo que permite la plataforma.',
-  code_agents_schedule_cadence_unset:
-    'La plataforma aún no ha fijado con qué frecuencia pueden ejecutarse las programaciones, así que no se puede crear ninguna.',
+  code_agents_schedule_cadence_unset: 'La frecuencia de las programaciones de la plataforma no está fijada, así que se rechaza una nueva.',
   code_agents_schedule_ask_blank: 'Escribe primero qué se pregunta al agente.',
   code_agents_schedule_not_found: 'Esta programación no es tuya.',
   code_agents_trigger_subject_invalid: 'Elige uno de los eventos ofrecidos.',
@@ -195,7 +193,7 @@ const fr = {
   repeat_once: 'Une fois',
   interval: 'Intervalle minimum (minutes)',
   intervalHint: 'Minutes entières entre deux exécutions, au moins {minimum}.',
-  intervalHintUnset: 'La plateforme n’a pas encore fixé la fréquence des planifications ; une nouvelle planification est donc refusée.',
+  intervalHintUnset: 'La fréquence des planifications de la plateforme n’est pas fixée ; une nouvelle planification est donc refusée.',
   cap: 'Plafond par exécution',
   capHint: 'Le maximum que peut coûter une exécution. Laissé vide, il reste vide : chaque exécution est ignorée, avec la raison.',
   ask: 'Demande à l’agent',
@@ -264,7 +262,8 @@ const fr = {
   code_agents_schedule_interval_invalid:
     'L’intervalle doit être un nombre entier de minutes, et une planification unique n’en prend aucun.',
   code_agents_schedule_interval_below_minimum: 'L’intervalle est plus court que ce que la plateforme permet.',
-  code_agents_schedule_cadence_unset: 'La plateforme n’a pas encore fixé la fréquence des planifications ; aucune ne peut donc être créée.',
+  code_agents_schedule_cadence_unset:
+    'La fréquence des planifications de la plateforme n’est pas fixée ; une nouvelle planification est donc refusée.',
   code_agents_schedule_ask_blank: 'Écrivez d’abord ce qui est demandé à l’agent.',
   code_agents_schedule_not_found: 'Cette planification n’est pas la vôtre.',
   code_agents_trigger_subject_invalid: 'Choisissez un des événements proposés.',
