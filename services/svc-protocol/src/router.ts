@@ -607,6 +607,9 @@ const unwiredTrustDeskStore: ComplianceDeps['trustDesk'] = {
   checklists: notWired,
   openChecklist: notWired,
   approveChecklist: notWired,
+  nameTags: notWired,
+  requestNameTag: notWired,
+  approveNameTag: notWired,
 };
 
 /** Never reached with a setting: an unwired representation has none, so it refuses `compliance.representation_unset` first. */
