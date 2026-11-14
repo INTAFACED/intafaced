@@ -609,7 +609,7 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
         const reach = body.declaredAgentPermissionReach;
         if (reach !== 'own_account_only' && reach !== 'owner_accounts')
           throw new VenueWireError("declaredAgentPermissionReach must be 'own_account_only' or 'owner_accounts'");
-        sim.switches.declaredAgentPermissionReach = reach;
+        sim.declareAgentPermissionReach(reach);
       }
       if (body.withdrawalFee !== undefined) sim.switches.withdrawalFee = maybeKnownAmount(body.withdrawalFee, 'withdrawalFee');
       if (body.networkFee !== undefined) sim.switches.networkFee = maybeKnownAmount(body.networkFee, 'networkFee');
@@ -623,7 +623,7 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
         venueDown: sim.switches.venueDown,
         unlistPerpetuals: sim.switches.unlistPerpetuals,
         builderTotalsUnknown: sim.switches.builderTotalsUnknown,
-        declaredAgentPermissionReach: sim.switches.declaredAgentPermissionReach,
+        declaredAgentPermissionReach: sim.venue.agentPermissionReach,
         withdrawalFee: sim.switches.withdrawalFee,
         networkFee: sim.switches.networkFee,
         depositExplorerTxUrl: sim.switches.depositExplorerTxUrl,

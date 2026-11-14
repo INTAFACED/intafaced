@@ -240,12 +240,6 @@ export interface SimSwitches {
   unpublishedMakerFeeBps: Amount;
   unpublishedTakerFeeBps: Amount;
   loseAnswers: number;
-  /**
-   * What the descriptor declares as an agent permission's reach (`agentPermissionReach`), so a journey can show what the
-   * app tells a person on a venue whose permission reaches their other accounts (J-agents-21 #3). The declaration only:
-   * the simulator's own agents stay live on the one account they were approved on (`agentLive`).
-   */
-  declaredAgentPermissionReach: AgentPermissionReach;
 }
 
 export interface SimOptions {
@@ -322,14 +316,16 @@ function accountKey(account: UserVenueAccount): string {
 }
 
 export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
-  private readonly descriptor: UserVenueDescriptor;
+  venue: UserVenueDescriptor;
   readonly switches: SimSwitches;
-  private declared: UserVenueDescriptor | null = null;
-  /** The venue's descriptor, with the agent permission reach its switch declares. */
-  get venue(): UserVenueDescriptor {
-    const reach = this.switches.declaredAgentPermissionReach;
-    if (this.declared?.agentPermissionReach !== reach) this.declared = { ...this.descriptor, agentPermissionReach: reach };
-    return this.declared;
+
+  /**
+   * TEST: what the descriptor declares as an agent permission's reach (`agentPermissionReach`), so a journey can show
+   * what the app tells a person on a venue whose permission reaches their other accounts (J-agents-21 #3). The
+   * declaration only: the simulator's own agents stay live on the one account they were approved on (`agentLive`).
+   */
+  declareAgentPermissionReach(reach: AgentPermissionReach): void {
+    this.venue = { ...this.venue, agentPermissionReach: reach };
   }
   /** The chain id every action's EIP-712 domain names. */
   readonly chainId: number;
@@ -375,7 +371,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
 
   constructor(options: SimOptions) {
     const id = options.id ?? 'test-venue-sim';
-    this.descriptor = {
+    this.venue = {
       id,
       displayName: options.displayName ?? 'TEST venue simulator',
       kind: 'external-dex',
@@ -383,6 +379,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       proofLevel: 'simulator',
       figureStaleAfterMs: TEST_VENUE_FIGURE_STALE_AFTER_MS,
       agentValidityMaxMs: TEST_VENUE_AGENT_VALIDITY_MAX_MS,
+      // An agent approved on a sub-account is live only in that account's state (`agentLive`), so it trades nothing else.
+      agentPermissionReach: 'own_account_only',
     };
     this.clock = options.clock;
     this.chainId = testVenueDomain(options.chainId ?? TEST_VENUE_CHAIN_ID).chainId;
@@ -398,8 +396,6 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       unpublishedMakerFeeBps: parseAmount('2'),
       unpublishedTakerFeeBps: parseAmount('5'),
       loseAnswers: 0,
-      // An agent approved on a sub-account is live only in that account's state (`agentLive`), so it trades nothing else.
-      declaredAgentPermissionReach: 'own_account_only',
       ...options.switches,
     };
     for (const market of options.markets) {
