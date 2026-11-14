@@ -540,7 +540,7 @@ test('journeyTouch, named: product code runs the named journey only, not the alw
     map: ALWAYS_MAP,
   });
   // The map's always-run journey (J-agents-12, at the head) is not run: main's full run judges it.
-  assert.deepEqual(named, { ids: ['J-bank-13'], files: ['J-bank-13.pw.mjs'] });
+  assert.deepEqual(named, { ids: ['J-bank-13'], files: ['J-bank-13.pw.mjs'], journeyFiles: HEAD_FILES });
   const t = journeyTouch([...product, 'apps/customer/tests/real-app/J-bank-14.pw.mjs'], () => true, null, named);
   assert.equal(t.mode, 'files');
   assert.deepEqual(t.files, ['J-bank-13.pw.mjs', 'J-bank-14.pw.mjs']);
@@ -1435,4 +1435,34 @@ test("real-app-journeys.yml's one-run-per-head step: off a pull request, or when
     rmSync(dir, { recursive: true, force: true });
   }
   assert.match(t, /\nrun-name: \$\{\{ github\.event_name == 'workflow_dispatch' && format\('Real-app journeys by hand, \{0\}'/);
+});
+
+// ---- 14 Nov 2026 (project-state row d64): a selection runs every file of each journey it selects ----
+
+test('14 Nov, #8320: a named change to the stack runs both J-home-ia-01 files, never the canary file alone', () => {
+  // #8320 at 91cdf2846: a named (J-merchant-04) pull request that changed the stack ran J-home-ia-01.pw.mjs for the canary and
+  // not J-home-ia-01-venue.pw.mjs, where #1 #2 #3 live; its verdict read those money steps as missing.
+  const real = checkoutJourneyTexts(ROOT);
+  const files = new Set([...real.keys()].filter((f) => /^J-.*\.pw\.mjs$/.test(f)));
+  assert.ok(files.has('J-home-ia-01-venue.pw.mjs'), 'J-home-ia-01 keeps steps in a second file at this checkout');
+  const named = namedInputs({ ids: ['J-wallet-05'], journeyFiles: files, importers: (ps) => stackImporters(ps, real) });
+  const t = journeyTouch(['services/svc-pay/src/router.ts', STACK_CANARY], () => true, null, named);
+  assert.equal(t.mode, 'files');
+  for (const f of ['J-home-ia-01.pw.mjs', 'J-home-ia-01-venue.pw.mjs']) assert.ok(t.files.includes(f), `${f} runs`);
+});
+
+test('a journey selected by name, the canary, an importer, the map or its own changed file runs all its files at the head', () => {
+  const head = new Set(['J-bank-13.pw.mjs', 'J-a-01.pw.mjs', 'J-a-01-venue.pw.mjs', 'J-a-02.pw.mjs', 'J-a-010.pw.mjs']);
+  const texts = new Map([...head].map((f) => [f, f === 'J-a-01.pw.mjs' ? "import './x-helper.mjs';" : '']).concat([['x-helper.mjs', '']]));
+  const named = namedInputs({ ids: ['J-bank-13'], journeyFiles: head, importers: (ps) => stackImporters(ps, texts) });
+  // An importer: only J-a-01.pw.mjs imports the helper; its sibling runs with it, and J-a-02 and J-a-010 do not.
+  const h = journeyTouch(['apps/customer/tests/real-app/x-helper.mjs'], () => true, null, named);
+  assert.deepEqual(h.files, ['J-a-01-venue.pw.mjs', 'J-a-01.pw.mjs', 'J-bank-13.pw.mjs']);
+  // A changed journey file: its sibling runs too.
+  assert.deepEqual(journeyTouch(['apps/customer/tests/real-app/J-a-01.pw.mjs'], () => true, null, named).files, [
+    'J-a-01-venue.pw.mjs',
+    'J-a-01.pw.mjs',
+  ]);
+  // The head's journey files unknown: the selection is left as it was (no name, no map).
+  assert.deepEqual(journeyTouch(['apps/customer/tests/real-app/J-a-01.pw.mjs']).files, ['J-a-01.pw.mjs']);
 });
