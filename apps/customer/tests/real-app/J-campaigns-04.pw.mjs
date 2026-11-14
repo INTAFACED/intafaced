@@ -722,7 +722,15 @@ test(`${J} #3 deposits only the rewards INTAFACED paid to the wallet: the deposi
   fundOnTestChain(other.address, 'venue');
   await page.goto('/wallet');
   await page.getByRole('button', { name: 'Venue account', exact: true }).click();
-  await page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` }).click();
+  // The page keeps the browser wallet connected: it asks to connect it again only when it is not.
+  const connectWallet = page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` });
+  await expect(
+    connectWallet
+      .or(page.getByRole('heading', { name: 'Connected' }))
+      .or(page.getByRole('heading', { name: 'Connection expired' }))
+      .or(page.getByRole('button', { name: 'Connect to my account' })),
+  ).toBeVisible();
+  if (await connectWallet.isVisible()) await connectWallet.click();
   await depositFromWallet(page, wallet, '5');
   const both = (await (await api(other.who)).get(`/api/v1/venue/deposits?owner=${other.address.toLowerCase()}`)).body.value
     .filter((d) => d.status === 'credited')
