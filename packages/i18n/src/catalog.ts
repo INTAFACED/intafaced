@@ -295,6 +295,8 @@ export const en = {
   // v22.alerts — fire path uses these keys; missing catalog fell back to the key string.
   'notify.alert.price.crossed.title': 'Price alert',
   'notify.alert.price.crossed.body': '{marketId} crossed {direction} {targetPrice} (mark {markPrice}).',
+  // J-charts-desk-10: the market by its symbol and the time it fired, so an email holds the alert's market, level and time.
+  'notify.alert.price.fired.body': '{market} crossed {direction} {targetPrice} (mark {markPrice}) at {firedAt}.',
   // An alert the person named or wrote a message for shows their own words; the service renders placeholders before it sends.
   'notify.alert.price.crossed.named.title': '{name}',
   'notify.alert.price.crossed.message.body': '{message}',

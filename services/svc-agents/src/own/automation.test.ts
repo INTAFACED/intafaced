@@ -164,10 +164,12 @@ if (!available) {
 
   beforeEach(async () => {
     await lockConn`select pg_advisory_lock(842671)`;
+    // user_spend_limits too: another file in the same run (spend/store.test.ts) leaves a person-level limit for this
+    // USER in another asset, and a run in USDT is then rightly refused (agents.spend_limit).
     await sql`
       TRUNCATE agents.own_agent_trigger_deliveries, agents.own_agent_auto_runs, agents.own_agent_triggers, agents.own_agent_schedules,
                agents.own_agent_session_versions, agents.own_agent_limits, agents.own_agents, agents.spend_reservations,
-               agents.think_claims, agents.usage_records, agents.usage_windows, agents.agent_actions, agents.agent_sessions
+               agents.user_spend_limits, agents.think_claims, agents.usage_records, agents.usage_windows, agents.agent_actions, agents.agent_sessions
       RESTART IDENTITY CASCADE
     `;
   });
