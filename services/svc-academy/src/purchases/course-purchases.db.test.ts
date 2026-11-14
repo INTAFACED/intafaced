@@ -289,13 +289,13 @@ describe('course purchases', () => {
   it('a reopened intent keeps its first block, so a payment sent before it was set aside is still found for it', async () => {
     await paidCourse();
     await purchases.buy({ userId: L, slug: 'perps-101', wallet: WALLET });
-    const [{ from_block: first }] = await db.sql<Array<{ from_block: string }>>`SELECT from_block FROM academy.course_purchases`;
+    const first = (await db.sql<Array<{ from_block: string }>>`SELECT from_block FROM academy.course_purchases`)[0]!.from_block;
     await purchases.abandon({ userId: L, key: KEY });
     // Blocks pass, then Buy again: one intent, the same key and the same first block.
     chain.head += 5n;
     const again = await purchases.buy({ userId: L, slug: 'perps-101', wallet: WALLET });
     expect(again.request).not.toBeNull();
-    const [{ from_block: reopened }] = await db.sql<Array<{ from_block: string }>>`SELECT from_block FROM academy.course_purchases`;
+    const reopened = (await db.sql<Array<{ from_block: string }>>`SELECT from_block FROM academy.course_purchases`)[0]!.from_block;
     expect(reopened).toBe(first);
     // The first send is mined at a block before the reopen would have started: it is found and counted once.
     chain.txs.set(PAY, {

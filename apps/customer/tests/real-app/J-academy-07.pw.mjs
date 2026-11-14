@@ -244,7 +244,7 @@ test(`${J} #1 a paid course with no price set shows without a price, and Enrol r
   await expect(panel.getByText('Price not set: this paid track cannot be bought until staff set a price.').first()).toBeVisible();
   await expect(panel.getByTestId('academy-purchase-price')).toHaveCount(0);
   // Choosing the paid track: Enrol refuses with the reason beside it, and Buy is refused for the same reason.
-  await root.getByLabel('Certificate track').check();
+  await root.getByRole('radio', { name: 'Certificate track' }).check();
   await expect(root.getByText('Enrol is refused: price not set.')).toBeVisible();
   await expect(root.getByRole('button', { name: 'Enrol now' })).toBeDisabled();
   await expect(panel.getByRole('button', { name: 'Buy', exact: true })).toBeDisabled();
@@ -268,9 +268,9 @@ test(`${J} #2 a priced course shows the price, the free and paid track differenc
   await expect(panel).toContainText(
     'The free track costs nothing and needs no payment. The certificate track is the paid track: it opens once your payment is confirmed and recorded.',
   );
-  await expect(root.getByLabel('Free track')).toBeEnabled();
-  await root.getByLabel('Certificate track').check();
-  await expect(root.getByLabel('Certificate track')).toBeChecked();
+  await expect(root.getByRole('radio', { name: 'Free track' })).toBeEnabled();
+  await root.getByRole('radio', { name: 'Certificate track' }).check();
+  await expect(root.getByRole('radio', { name: 'Certificate track' })).toBeChecked();
   await expect(panel.getByTestId('academy-purchase-wallet')).toHaveText(
     `Paying from ${privateKeyToAccount(run.walletKey).address.toLowerCase()}`,
   );
@@ -287,7 +287,7 @@ test(`${J} #2 a priced course shows the price, the free and paid track differenc
 
 test(`${J} #3 Enrol now on the paid track with no purchase is a typed refusal that payment is required`, async ({ page }) => {
   const { root } = await openCourse(page, run.priced.slug);
-  await root.getByLabel('Certificate track').check();
+  await root.getByRole('radio', { name: 'Certificate track' }).check();
   const answered = page.waitForResponse((res) => res.url().includes('/api/academy/trpc/enrolCourse'));
   await root.getByRole('button', { name: 'Enrol now' }).click();
   expect((await answered).status()).toBe(403);
@@ -383,7 +383,7 @@ test(`${J} #4 Buy asks the wallet to sign one payment to INTAFACED; the grant ap
   expect(staffRead.ledgerTxId).toBe(tx.txId);
 
   await page.reload();
-  await root.getByLabel('Certificate track').check();
+  await root.getByRole('radio', { name: 'Certificate track' }).check();
   await root.getByRole('button', { name: 'Enrol now' }).click();
   await expect(root.getByText(/Enrolled on the Certificate track/i)).toBeVisible();
   expect(await purchaseRows(run.priced.id)).toHaveLength(1);
@@ -524,7 +524,7 @@ test(`${J} #7 staff with the refund permission refund: INTAFACED sends the TEST 
   expect(terms.body.result.data.enrolment).toBeNull();
   const enrol = await (await learner()).post('/api/academy/trpc/enrolCourse', { slug: run.priced.slug, track: 'certificate' });
   expect(codeOf(enrol)).toBe('academy.payment_required');
-  await expect(root.getByLabel('Certificate track')).toBeVisible();
+  await expect(root.getByRole('radio', { name: 'Certificate track' })).toBeVisible();
 
   // The grant audit: the purchase grant by the buyer, then the refund's revoke by the staff member, with its reason.
   const audit = data(await staff('query', 'admin.grantAudit', { course: run.priced.slug }));
