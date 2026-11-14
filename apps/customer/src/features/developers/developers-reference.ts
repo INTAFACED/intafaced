@@ -22,7 +22,7 @@ export const PRODUCTS: readonly Product[] = ['general', 'spot', 'derivatives', '
 export type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 /** The scope the edge asks a key for on a method. */
 export type MethodScope = 'trade:read' | 'trade:write';
-export type Scope = MethodScope | 'admin:read';
+export type Scope = MethodScope | 'admin:read' | 'copy:lead';
 /** Who may call a route, as its registration declares: anyone, a signed caller, or another service only. */
 export type Access = 'public' | 'private' | 'internal';
 
@@ -435,6 +435,14 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     product: 'derivatives',
     access: 'public',
     summary: 'Order types, time in force and flags per futures market',
+  },
+  {
+    name: 'fetchFuturesMarginModes',
+    method: 'GET',
+    path: '/api/v1/futures/margin-modes',
+    product: 'derivatives',
+    access: 'public',
+    summary: 'Futures margin modes, whether each is offered, and the typed refusal of each that is not',
   },
   {
     name: 'fetchFundingRateHistory',
@@ -1186,6 +1194,15 @@ export const REST_REFERENCE: readonly RestRoute[] = [
       "Revoke your assistant, from your own sign-in: its key places nothing more, its resting orders are cancelled once, our copy of its venue agent key is dropped, and your wallet signs the venue's revoke; open positions stay",
   },
   {
+    name: 'venueAgentActivity',
+    method: 'GET',
+    path: '/api/v1/venue/agent-accounts/connections/:keyId/activity',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      "Your assistant connection's Activity, from your own sign-in: one row per call made with its key, refused ones included, newest first, each with its time, tool, outcome and order id; format=csv exports the same rows",
+  },
+  {
     name: 'venueAgentOrder',
     method: 'POST',
     path: '/api/v1/venue/agent/orders',
@@ -1447,6 +1464,22 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     summary: 'The listing state of one market as this account meets it',
   },
   {
+    name: 'requestApiKeyRotation',
+    method: 'POST',
+    path: '/api/v1/account/api-key/rotation',
+    product: 'accounts',
+    access: 'private',
+    summary: 'The calling key asks for its own rotation; a different person on the account approves it',
+  },
+  {
+    name: 'approveApiKeyRotation',
+    method: 'POST',
+    path: '/api/v1/account/api-key/rotation/approve',
+    product: 'accounts',
+    access: 'private',
+    summary: 'Approve a rotation request. A key never approves its own: refused identity.rotation_self_approval',
+  },
+  {
     name: 'fetchConvertExport',
     method: 'GET',
     path: '/api/v1/convert/export',
@@ -1461,6 +1494,15 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     product: 'accounts',
     access: 'private',
     summary: 'This account’s copy-trading history as a CSV file',
+  },
+  {
+    name: 'createLeadOrder',
+    method: 'POST',
+    path: '/api/v1/copy/lead/orders',
+    product: 'accounts',
+    access: 'private',
+    alsoNeeds: ['copy:lead'],
+    summary: 'Place an order as an approved copy-trading lead, on an instrument your lead listing names; then as Place an order',
   },
   {
     name: 'fetchRfqExport',
@@ -1509,7 +1551,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     product: 'spot',
     access: 'private',
     summary:
-      'Withdraw a grid bot’s profit; needs a step-up approval made in the calling session (403 identity.step_up_required without one)',
+      'Refused for every key (403 trade.api_withdraw_not_allowed): no API key or bot can withdraw; you withdraw from the venue with your own wallet, and nothing moves',
   },
   {
     name: 'fetchAlgoOrders',
@@ -1635,7 +1677,7 @@ export const routeLine = (route: Pick<RestRoute, 'method' | 'path'>) => `${route
 
 /** The permission-to-endpoint table: one row per scope a key can hold, with every route a key with it may call. */
 export function permissionTable(): { scope: Scope; routes: RestRoute[] }[] {
-  return (['trade:read', 'trade:write'] as const).map((scope) => ({
+  return (['trade:read', 'trade:write', 'copy:lead'] as const).map((scope) => ({
     scope,
     routes: REST_REFERENCE.filter((route) => !neverOnAKey(route) && scopesOf(route).includes(scope)),
   }));

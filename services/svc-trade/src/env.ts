@@ -74,6 +74,13 @@ const schema = serviceEnvSchema
        * `trade.builder_fee_recon_break` when the venue's fills or its own totals and the ledger disagree.
        */
       TRADE_BUILDER_FEE_RECON_INTERVAL_MS: z.coerce.number().int().min(10_000).max(86_400_000).default(300_000),
+      /**
+       * J-derivatives-17, J-campaigns-03 (launch money model, rule 5): how often svc-trade reads each venue's own record of
+       * the claims of our builder fees and posts `builderFeeReceive` once per claim. A venue whose adapter does not read
+       * the claim record collects nothing and says so. `off` stops it; the next run posts each claim once.
+       */
+      TRADE_BUILDER_FEE_COLLECT: z.enum(['on', 'off']).default('on'),
+      TRADE_BUILDER_FEE_COLLECT_INTERVAL_MS: z.coerce.number().int().min(1_000).max(86_400_000).default(60_000),
 
       /**
        * J-cex-spot-16 LOCAL TEST seed: a comma list of venue symbols (e.g. `BTC-USDC,BTC-PERP`) svc-trade lists on a TEST
@@ -120,6 +127,11 @@ const schema = serviceEnvSchema
        * sub-accounts they gave the agent access to). Blank: every grant and agent order refuses agents.policy_unavailable.
        */
       AGENTS_URL: z.string().default(''),
+      /**
+       * svc-campaigns' address, for a person's fee-saver coupon on our builder fee (J-campaigns-09 #2 #3). Blank: no
+       * coupon is asked for, and every venue order carries the rank's rate or the builder fee in force.
+       */
+      CAMPAIGNS_URL: z.string().default(''),
       /**
        * svc-quant's address, for the strategy version a live run trades (J-algo-dev-07; src/quant/live-run/). Read as the
        * person, with their own edge-signed principal passed on. Blank: every live start refuses quant.live_plan_unavailable.
@@ -197,6 +209,15 @@ const schema = serviceEnvSchema
        * `protectionPriceFor` refuses `trade.slippage_cap_unset`. Never invent 200.
        */
       TRADE_MARKET_SLIPPAGE_CAP_BPS: z.string().default('').transform(parseOwnerIntegerEnv),
+
+      /**
+       * The owner's spread limit for a spot market order on the user's venue, in basis points of the venue's best bid
+       * (J-cex-spot-03 #2): a market order is refused while the venue's best ask is further than this above its best bid.
+       *
+       * NO DEFAULT. Blank / unset / non-integer → null; a venue spot market order then refuses
+       * `trade.spread_limit_unset` ("protection not set"), on preview and on prepare. Never invented.
+       */
+      TRADE_MARKET_SPREAD_LIMIT_BPS: z.string().default('').transform(parseOwnerIntegerEnv),
 
       /**
        * Cancel-all-after timeouts the owner publishes, in seconds, comma separated (for example "10,30,60").

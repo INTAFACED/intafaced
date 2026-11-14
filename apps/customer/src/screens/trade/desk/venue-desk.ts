@@ -7,6 +7,8 @@ import {
   type OrderIntent,
   type VenueBestPrices,
   type VenueMarket,
+  type VenueSelfTradeMode,
+  type VenueTimeInForce,
 } from '../../../features/trade/venue-api';
 import { transferCalldata } from '../../../features/protocol/wallet/transfer';
 import { toTokenUnits } from '../../../features/protocol/venue-wallet/venue-account-api';
@@ -41,41 +43,75 @@ export function slippageLimit(side: VenueSide, best: VenueBestPrices | null, bps
   return limit > 0n ? formatAmount(limit) : null;
 }
 
-/** What the ticket holds for one side. */
+/** What the ticket holds for one side. `tif` is a limit's time in force (good till cancelled when absent). */
 export interface TicketFields {
   side: VenueSide;
   type: VenueOrderType;
   price: string;
   amount: string;
-}
-
-/** Why the ticket is not an order yet, or null when it is one the venue can be asked about. */
-export type TicketProblem = 'rule_unpublished' | 'amount' | 'price' | 'amount_step' | 'price_step' | 'no_book' | 'no_cap';
-
-/** A rule a spot order is checked against, which the venue may leave unpublished (J-cex-spot-04 #6). */
-export type VenueRule = 'min' | 'band' | 'cap';
-
-/** The rules the venue does not publish for this market, in the order the desk names them. */
-export function unpublishedRules(market: VenueMarket): VenueRule[] {
-  const out: VenueRule[] = [];
-  if (market.minOrderNotional == null) out.push('min');
-  if (market.priceBandBps == null) out.push('band');
-  if (market.maxOpenOrders == null) out.push('cap');
-  return out;
-}
-
-/** A band in bps as a percent string, exact: "9500" is "95", "250" is "2.5". */
-export function bpsAsPercent(bps: string): string {
-  return formatAmount(parseAmount(bps) / 100n);
+  tif?: VenueTimeInForce;
 }
 
 /**
- * `capSet` false: the owner's protection is blank, so a market order is refused (`trade.slippage_cap_unset`). A spot
- * market whose venue publishes no smallest order value, band or open-order cap takes no order at all: the desk never
- * stands in a default (`trade.venue_rule_unpublished`, refused by our door too).
+ * Every time in force the desk names (J-cex-spot-03 #4 to #7), in the order it lists them. The ones the venue offers on
+ * the market (`VenueMarket.timeInForce`) can be picked; the rest are listed disabled with "not offered by this venue".
  */
+export const TIME_IN_FORCE_NAMES = ['GTC', 'IOC', 'FOK', 'ALO', 'GTD'] as const;
+export type TimeInForceName = (typeof TIME_IN_FORCE_NAMES)[number];
+
+/** The venue's own offer of `name` on `market`: the time in force it takes, or null when it offers none by that name. */
+export function offeredTif(market: Pick<VenueMarket, 'timeInForce'>, name: TimeInForceName): VenueTimeInForce | null {
+  return (market.timeInForce as readonly string[]).includes(name) ? (name as VenueTimeInForce) : null;
+}
+
+/** Order types the desk names beside limit and market; a type the venue does not list is shown disabled. */
+export const OTHER_ORDER_TYPES = ['stop_limit', 'stop', 'take_profit', 'trailing_stop'] as const;
+
+/** Every self-trade mode the desk names (J-cex-spot-03 #8); only the venue's own published rule can be picked. */
+export const SELF_TRADE_MODES: readonly VenueSelfTradeMode[] = ['cancel_resting', 'cancel_new', 'cancel_both'];
+
+/** The venue's own self-trade rule on `market`, or null where it publishes none. */
+export function venueSelfTrade(market: Pick<VenueMarket, 'selfTrade'>): VenueSelfTradeMode | null {
+  return market.selfTrade?.known ? market.selfTrade.value : null;
+}
+
+/**
+ * The amount a typed value buys or sells at `price` (a limit's price, or a market order's worst price): rounded down to
+ * the market's lot, so what the venue locks for a buy (amount × price) never passes the value. Null when it sizes nothing.
+ */
+export function amountForValue(value: string, price: string | null, lot: string): string | null {
+  if (!price || !isDecimal(value) || !isDecimal(price) || !isDecimal(lot)) return null;
+  const v = parseAmount(value.trim());
+  const p = parseAmount(price.trim());
+  const step = parseAmount(lot.trim());
+  if (v <= 0n || p <= 0n || step <= 0n) return null;
+  const one = parseAmount('1');
+  // value / price in scaled units, then down to a whole number of lots.
+  const raw = (v * one) / p;
+  const lots = raw / step;
+  return lots > 0n ? formatAmount(lots * step) : null;
+}
+
+/** The value an amount comes to at `price`, for the field the person did not type. */
+export function valueOf(amount: string, price: string | null): string | null {
+  if (!price || !isDecimal(amount) || !isDecimal(price)) return null;
+  const a = parseAmount(amount.trim());
+  const p = parseAmount(price.trim());
+  if (a <= 0n || p <= 0n) return null;
+  return formatAmount((a * p) / parseAmount('1'));
+}
+
+/** A client tag: 1 to 32 letters, digits, spaces, dots, dashes or underscores. Blank is no tag. */
+export const TAG_PATTERN = /^[A-Za-z0-9 ._-]{1,32}$/;
+export function tagProblem(tag: string): boolean {
+  return tag.trim() !== '' && !TAG_PATTERN.test(tag.trim());
+}
+
+/** Why the ticket is not an order yet, or null when it is one the venue can be asked about. */
+export type TicketProblem = 'amount' | 'price' | 'amount_step' | 'price_step' | 'no_book' | 'no_cap';
+
+/** `capSet` false: the owner's protection is blank, so a market order is refused (`trade.slippage_cap_unset`). */
 export function ticketProblem(fields: TicketFields, market: VenueMarket, worst: string | null, capSet = true): TicketProblem | null {
-  if (market.kind === 'spot' && unpublishedRules(market).length > 0) return 'rule_unpublished';
   if (!fields.amount.trim() || !isDecimal(fields.amount)) return 'amount';
   if (!onStep(fields.amount, market.lotSize)) return 'amount_step';
   if (fields.type === 'market') return !capSet ? 'no_cap' : worst === null ? 'no_book' : null;
@@ -93,7 +129,7 @@ function isDecimal(value: string): boolean {
   }
 }
 
-/** The ticket as the venue's intent: a limit GTC at its price, a market IOC at its worst price (none if `capSet` is false). */
+/** The ticket as the venue's intent: a limit at its price with its time in force (GTC when none), a market IOC at its worst price (none if `capSet` is false). */
 export function intentOf(
   fields: TicketFields,
   market: VenueMarket,
@@ -110,7 +146,7 @@ export function intentOf(
     type: fields.type,
     amount: canonicalDecimal(fields.amount),
     price: canonicalDecimal(limit ? fields.price : worst!),
-    timeInForce: limit ? 'GTC' : 'IOC',
+    timeInForce: limit ? (fields.tif ?? 'GTC') : 'IOC',
     reduceOnly: false,
     clientOrderKey,
     builderFee: null,
@@ -120,7 +156,8 @@ export function intentOf(
 /** The part of a ticket that names one order: the same order reviewed again keeps its client id. */
 export function draftSignature(fields: TicketFields): string {
   const tidy = (v: string) => (isDecimal(v) ? canonicalDecimal(v) : v.trim());
-  return [fields.side, fields.type, fields.type === 'limit' ? tidy(fields.price) : '', tidy(fields.amount)].join('|');
+  const limit = fields.type === 'limit';
+  return [fields.side, fields.type, limit ? tidy(fields.price) : '', tidy(fields.amount), limit ? (fields.tif ?? 'GTC') : ''].join('|');
 }
 
 /** The order key (and a market order's worst price) held until the order changes or gets a definite answer. */

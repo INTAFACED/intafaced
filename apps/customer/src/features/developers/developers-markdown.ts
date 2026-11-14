@@ -1,8 +1,7 @@
 /**
  * The markdown variant of each written developer page and the docs index for assistants (`/developers/llms.txt`),
- * served as static files beside the app from `apps/customer/public/developers/`. They are made from the same English
- * copy and route tables as the pages; `developers-reference.test.ts` checks the files against them and rewrites them
- * with `WRITE_DEVELOPER_DOCS=1`.
+ * served as static files beside the app under `/developers/`. They are made from the same English copy and route tables
+ * as the pages, at build time (`developers-files.ts`, written by vite.config.ts `developerDocs`), and never committed.
  */
 import { REQUEST_SIGN_VERSION } from '@intafaced/contracts/api-keys';
 import { AUTH_ERRORS_PATH } from '@intafaced/contracts/auth-errors';

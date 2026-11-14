@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { MatchingUnavailableError } from './matching-client.js';
 import { createMatchingClient, postClosePosition } from './matching-close.js';
 import { createLifecycleAdmissionProof } from '../lifecycle-proof.js';
 import { decideMarketAction } from '../market-lifecycle.js';
@@ -89,5 +90,34 @@ describe('matching close HTTP', () => {
       lifecycleProof: proof(),
     });
     expect(result.accepted).toBe(true);
+  });
+
+  it('GETs the signed net position the close is sized from, and reads a short as negative', async () => {
+    const calls: Array<{ url: string; init: RequestInit }> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+        calls.push({ url: String(input), init: init ?? {} });
+        return new Response(JSON.stringify({ marketId: MARKET, accountId: 'desk', qty: '-1.5' }), { status: 200 });
+      }),
+    );
+    const net = await createMatchingClient('http://matching:4005', SECRET).netPosition(MARKET, 'desk');
+    expect(calls[0]?.url).toBe(`http://matching:4005/markets/${MARKET}/positions/desk`);
+    expect(calls[0]?.init.method).toBe('GET');
+    expect(net).toBe(-1_500_000_000_000_000_000n);
+  });
+
+  it.each([
+    ['a 5xx', () => new Response('boom', { status: 503 })],
+    ['a body with no qty', () => new Response(JSON.stringify({ marketId: MARKET }), { status: 200 })],
+    ['a qty that is not a decimal', () => new Response(JSON.stringify({ qty: 'lots' }), { status: 200 })],
+  ])('%s is matching unavailable, never a flat position', async (_name, reply) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => reply()),
+    );
+    await expect(createMatchingClient('http://matching:4005', SECRET).netPosition(MARKET, 'desk')).rejects.toBeInstanceOf(
+      MatchingUnavailableError,
+    );
   });
 });

@@ -173,6 +173,9 @@ const LOCAL_COPY: Readonly<Record<string, string>> = {
   'identity.key_expiry_invalid': 'Choose an end date in the future.',
   'identity.key_cap_unset': 'API keys cannot be made yet. The number of keys an account may hold is not set.',
   'identity.key_signing_unset': 'Keys that place orders cannot be made yet. They sign every request, and request signing is not set up.',
+  'identity.key_lead_not_approved': 'A lead trading key is only for an approved lead. Apply to lead first; nothing was created.',
+  'identity.key_lead_check_unavailable':
+    'Whether this account is an approved lead could not be checked just now, so no lead trading key was created. Try again.',
   'identity.key_cap_reached': 'This account holds as many API keys as it may. Revoke one to make another.',
   'identity.key_account_required': 'An organisation key must name the account it reaches.',
   'identity.key_account_denied': 'That account is not one of your live sub-accounts.',
@@ -200,6 +203,9 @@ const LOCAL_COPY: Readonly<Record<string, string>> = {
   'identity.limit_review_own': 'A reviewer cannot decide a request on their own key.',
   'identity.rate_grant_ceiling_unset': 'No grant can be made yet: the most a key may be granted is not set.',
   'identity.rate_grant_above_ceiling': 'That is more than the most a key may be granted.',
+  'identity.key_rotate_overlap_unset':
+    'A rotation with an overlap is refused: the longest overlap is not set. Rotate with an overlap of 0.',
+  'identity.key_rotate_overlap_too_long': 'That overlap is longer than the longest allowed.',
   'auth.request_unsigned': 'This key signs every request. Add the timestamp, nonce and signature headers.',
   'auth.request_stale': 'The request was signed longer ago than the timestamp window. Check your clock and sign it again.',
   'auth.request_future': 'The request is timestamped ahead of the server clock by more than the window. Check your clock.',

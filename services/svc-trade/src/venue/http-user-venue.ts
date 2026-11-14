@@ -6,6 +6,7 @@ import {
   type AsOf,
   type MaybeKnown,
   type VenueBuilderTotals,
+  type UserVenueBuilderClaim,
   type PlaceUserOrderIntent,
   type PreparedVenueAction,
   type UserVenue,
@@ -301,6 +302,11 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
   /** The TEST venue's own builder-fee totals for `builder` (OWNER 288 1e). */
   builderTotals(builder: string): Promise<AsOf<MaybeKnown<VenueBuilderTotals>>> {
     return this.read('/builder-totals', { builder });
+  }
+
+  /** The TEST venue's own record of each claim of our builder fees (J-derivatives-17). */
+  builderClaims(builder: string): Promise<AsOf<readonly UserVenueBuilderClaim[]>> {
+    return this.read('/builder-claims', { builder });
   }
 
   agents(account: UserVenueAccount): Promise<AsOf<readonly UserVenueAgent[]>> {

@@ -26,7 +26,7 @@ for _ in $(seq 1 30); do
 done
 node tooling/scripts/local-test-market.mjs stop
 node tooling/scripts/local-test-gates.mjs verify
-node tooling/scripts/local-test-market.mjs history
+node tooling/scripts/local-test-market.mjs history --markets journeys
 node tooling/scripts/local-test-market.mjs
 LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs apply --state "$LOCAL_STACK_STATE"
 traded=0
@@ -36,8 +36,12 @@ for _ in $(seq 1 60); do
 done
 [ "$traded" = 1 ] || { echo "no BTC/USDT trade within 5 minutes"; exit 1; }
 
+# The red run's leave-out list, set by journeys-revert-probe.mjs only on a commit whose own journeys run leaves tests out
+# (leavesOut): those tests stay out here as there, so a break made by leaving a test out reproduces.
+leave=()
+if [ -n "${JOURNEY_LEAVE_OUT_FILE:-}" ] && [ -s "$JOURNEY_LEAVE_OUT_FILE" ]; then leave=(--test-list-invert "$JOURNEY_LEAVE_OUT_FILE"); fi
 export JOURNEY_FILES JOURNEY_RETRIES=0 JOURNEY_FAIL_FAST=0
 code=0
-pnpm exec playwright test --config apps/customer/tests/real-app/real-app.playwright.config.mjs --trace off || code=$?
+pnpm exec playwright test --config apps/customer/tests/real-app/real-app.playwright.config.mjs --trace off "${leave[@]}" || code=$?
 # 1 is "journeys failed", which the report holds; anything else is the run itself breaking.
 [ "$code" -le 1 ] || exit "$code"

@@ -5,19 +5,23 @@ import { encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { InsufficientFundsError, LedgerError } from '@intafaced/ledger-client';
 import {
   attachClosePosition,
+  CLOSE_NOT_FUNDED,
+  CLOSE_NOT_FUNDED_MESSAGE,
+  CloseNotFundedError,
   CLOSE_OUTCOME_UNKNOWN_MESSAGE,
   CLOSE_SETTLEMENT_PENDING_MESSAGE,
   CLOSE_SETTLEMENT_REFUSED,
   CLOSE_SETTLEMENT_REFUSED_MESSAGE,
   SPOT_CLOSE_POSITION_PATH,
 } from './close-position.js';
-import { SETTLEMENT_PENDING } from '../ledger-public-code.js';
+import { FrozenBeforeEngineError, POSTING_FROZEN, POSTING_FROZEN_MESSAGE, SETTLEMENT_PENDING } from '../ledger-public-code.js';
 
 /**
- * A close's ledger posts all come after the engine printed the flatten (the row is kept recovery_required), so the
- * close exists whatever the ledger said. The posting freeze and an outcome nobody knows are 503
+ * A close's hold is posted before the engine (#4591). A refusal of that hold, with no row left, is CloseNotFundedError:
+ * nothing traded. Any other ledger error comes after the hold, while the row exists, so the close exists whatever the
+ * ledger said. The posting freeze and an outcome nobody knows are 503
  * `trade.settlement_pending`; a refusal the ledger's engine named is its own typed code; any other error is an unknown
- * outcome. Never `posting_frozen`, never a bare 500, and never the ledger's own message.
+ * outcome. After the hold: never `posting_frozen`, never a bare 500, and never the ledger's own message.
  */
 const SECRET = 'a-trade-close-ledger-refusal-edge-secret-xxxxxx';
 const ALICE = '11111111-1111-4111-8111-111111111111';
@@ -60,7 +64,7 @@ async function closeThatThrows(error: unknown) {
   return res;
 }
 
-describe('the close door under a ledger refusal after the engine', () => {
+describe('the close door under a ledger refusal after the hold', () => {
   it.each([
     ['the posting freeze', new LedgerError('Ledger posting is frozen: TEST', 'ledger.frozen')],
     ['an outcome nobody knows', new LedgerError('TEST upstream timed out', 'ledger.timeout')],
@@ -95,5 +99,26 @@ describe('the close door under a ledger refusal after the engine', () => {
     expect(res.json()).toEqual({ error: SETTLEMENT_PENDING, message: CLOSE_OUTCOME_UNKNOWN_MESSAGE });
     expect(res.body).not.toContain('TEST');
     expect(res.body).not.toContain('svc-ledger');
+  });
+});
+
+describe('the close door when its hold was refused before the engine (#4591)', () => {
+  it.each([
+    ['insufficient funds', new InsufficientFundsError('TEST-account', 'USDT', '1', '0')],
+    ['an entry the ledger refused', new LedgerError('TEST entry refused', 'ledger.invalid_entry')],
+  ])('%s is a 400 the caller can act on: nothing traded, nothing held, never the ledger text', async (_name, error) => {
+    const res = await closeThatThrows(new CloseNotFundedError(error));
+    expect(res.statusCode, res.body).toBe(400);
+    expect(res.json()).toEqual({ error: CLOSE_NOT_FUNDED, message: CLOSE_NOT_FUNDED_MESSAGE });
+    expect(res.body).not.toContain(SETTLEMENT_PENDING);
+    expect(res.body).not.toContain('TEST');
+  });
+
+  it('the posting freeze before the engine is posting_frozen (503) in fixed words, never the operator reason', async () => {
+    const frozen = new FrozenBeforeEngineError(new LedgerError('Ledger posting is frozen: TEST', 'ledger.frozen'));
+    const res = await closeThatThrows(new CloseNotFundedError(frozen));
+    expect(res.statusCode, res.body).toBe(503);
+    expect(res.json()).toEqual({ error: POSTING_FROZEN, message: POSTING_FROZEN_MESSAGE });
+    expect(res.body).not.toContain('TEST');
   });
 });

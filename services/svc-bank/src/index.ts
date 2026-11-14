@@ -1,4 +1,5 @@
 import { parseStatementJobsTestHold, startStatementJobWorker } from './statements/statement-jobs.js';
+import { failingHistoryPages, parseActivityTestFault } from './activity/activity-test-fault.js';
 import type { z } from 'zod';
 import Fastify from 'fastify';
 import postgres from 'postgres';
@@ -158,7 +159,12 @@ const assetRegistry = createLedgerAssetRegistry(env.LEDGER_URL, env.INTERNAL_SER
 /** Who takes add-money payments: unset unless the TEST stand-in was chosen, which refuses to boot outside dev/test. */
 const onrampPartner = onrampPartnerFor(
   env.BANK_ONRAMP_PARTNER,
-  { catalogueJson: env.BANK_PAYIN_SIM_JSON, pageUrl: env.BANK_PAYIN_SIM_PAGE_URL, returnUrl: env.BANK_PAYIN_SIM_RETURN_URL },
+  {
+    catalogueJson: env.BANK_PAYIN_SIM_JSON,
+    pageUrl: env.BANK_PAYIN_SIM_PAGE_URL,
+    returnUrl: env.BANK_PAYIN_SIM_RETURN_URL,
+    deliverUrl: env.BANK_PAYIN_SIM_DELIVER_URL,
+  },
   { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV },
 );
 
@@ -219,7 +225,10 @@ const bank = createBankServices(sql, ledger, history, {
     : unconfiguredBusinessDirectory(),
   // `bank.activity.list`: svc-ledger `historyPage` (read-only), cursors signed under the service secret.
   activity: {
-    pages: createLedgerHistoryPages(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s),
+    // The TEST fault (J-home-ia-01 #5) fails every history read; boot refuses it outside an explicit dev or test process.
+    pages: parseActivityTestFault(env.BANK_ACTIVITY_TEST_FAULT, { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV })
+      ? failingHistoryPages()
+      : createLedgerHistoryPages(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s),
     cursorSecret: env.INTERNAL_SERVICE_SECRET,
     // Where the person's own svc-pay withdrawals went (J-portfolio-03 #2), asked by withdrawal id; svc-pay's tables stay its own.
     payWithdrawals: createPayWithdrawalAddressesClient({ payUrl: env.PAY_URL, secret: env.INTERNAL_SERVICE_SECRET }),

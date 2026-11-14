@@ -79,7 +79,6 @@ export function useBalanceEntries(assetId: string, accountId: string | null): Ba
           : { status: 'error', retry: () => startRef.current() },
       );
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [api, assetId, accountId],
   );
 

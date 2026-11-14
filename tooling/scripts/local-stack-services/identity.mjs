@@ -251,6 +251,11 @@ const service = ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_OR
     IDENTITY_WATCHLIST_LIST_CAP: '10',
     IDENTITY_WATCHLIST_SYMBOL_CAP: '100',
     IDENTITY_SAVED_SCREEN_CAP: '10',
+    // Saved desk layout limits (C-workspace-02): explicit LOCAL TEST values, not owner limits (the owner has not
+    // published them; blank refuses every write that needs one). 10 layouts, 20 deleted layouts kept for 7 days.
+    IDENTITY_DESK_LAYOUT_CAP: '10',
+    IDENTITY_DESK_LAYOUT_RESTORE_CAP: '20',
+    IDENTITY_DESK_LAYOUT_RESTORE_DAYS: '7',
     // The closure checks a close runs first (customer closure and the console's staff close): svc-bank, svc-trade and
     // svc-p2p answer for their own open products and balances, signed with this stack's shared service secret.
     IDENTITY_CLOSURE_BANK_URL: urlOf('bank'),
@@ -281,6 +286,12 @@ const service = ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_OR
     // Blank refuses every key call at the edge (edge.limits_unset) and every limit request (identity.rate_limits_unset);
     // `LOCAL_STACK_IDENTITY_RATE_LIMITS=off` on a start or restart leaves it blank so those can be seen.
     ...(process.env.LOCAL_STACK_IDENTITY_RATE_LIMITS === 'off' ? {} : { IDENTITY_API_RATE_LIMITS: testValue('IDENTITY_API_RATE_LIMITS') }),
+    // LOCAL TEST longest rotation overlap (J-developer-07 #1), labelled in the same profile, never an owner decision. Blank
+    // refuses a rotation with an overlap above 0; `LOCAL_STACK_IDENTITY_KEY_ROTATE_OVERLAP_MAX=off` on a restart leaves it
+    // blank so that refusal can be seen.
+    ...(process.env.LOCAL_STACK_IDENTITY_KEY_ROTATE_OVERLAP_MAX === 'off'
+      ? {}
+      : { IDENTITY_API_KEY_ROTATE_OVERLAP_MAX_SECONDS: testValue('IDENTITY_API_KEY_ROTATE_OVERLAP_MAX_SECONDS') }),
     // LOCAL TEST idle period for API keys (J-developer-03 #9), labelled in the same profile, never an owner decision: the
     // key detail shows it; no dormant sweep is built, so it ends no key. Blank shows `not set`.
     IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS: testValue('IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS'),

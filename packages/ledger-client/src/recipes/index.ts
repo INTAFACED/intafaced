@@ -84,8 +84,20 @@ export {
   ownFundsMoveKey,
   ownFundsPlaceAccount,
   type OwnFundsMoveInput,
+  type OwnFundsMoveCost,
   type OwnFundsPlace,
 } from './own-funds.js';
+export {
+  REWARD_ASSET,
+  REWARD_CEILING_UNSET,
+  REWARD_CEILING_UNSET_CODE,
+  REWARD_CEILING_EXCEEDED_CODE,
+  RewardCeilingUnsetError,
+  RewardCeilingExceededError,
+  campaignBudgetAccount,
+  rewardOwedAccount,
+  type RewardCeiling,
+} from './reward-owed.js';
 
 /**
  * LEDGER RECIPES (§4.2).

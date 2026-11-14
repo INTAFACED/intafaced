@@ -8,6 +8,7 @@ import {
   type AsOf,
   type MaybeKnown,
   type VenueBuilderTotals,
+  type UserVenueBuilderClaim,
   type PlaceUserOrderIntent,
   type PreparedVenueAction,
   type UserVenue,
@@ -167,13 +168,6 @@ export interface SimMarketConfig {
   /** The largest order size (base) and notional (quote) at start; absent is `null` (not reported). TEST figures. */
   readonly maxOrderQty?: Amount | null;
   readonly maxOrderNotional?: Amount | null;
-  /**
-   * The venue's published smallest order value (quote), price band (scaled bps around the middle of its own book) and
-   * most open orders per account, at start; absent is `null` (not published, and not enforced). TEST figures.
-   */
-  readonly minOrderNotional?: Amount | null;
-  readonly priceBandBps?: Amount | null;
-  readonly maxOpenOrders?: number | null;
   /** Who lists the market, as the venue publishes it. Unset: not published. */
   readonly listedBy?: UserVenueListing;
   /** The venue's published oracle and mark-price rules and trading hours, in its words. Unset: not published. */
@@ -216,6 +210,12 @@ export interface SimMarketConfig {
  * declares its own; this TEST value stands in on test stacks only.
  */
 export const TEST_VENUE_FIGURE_STALE_AFTER_MS = 60_000;
+
+/**
+ * TEST: the longest an agent permission with an end date may last on the TEST venue (J-agents-21 #19), 180 days. A real
+ * venue's adapter declares its own; this TEST value stands in on test stacks only.
+ */
+export const TEST_VENUE_AGENT_VALIDITY_MAX_MS = 180 * 24 * 60 * 60 * 1000;
 
 export interface SimSwitches {
   venueDown: boolean;
@@ -345,18 +345,14 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   private fillCounter = 0;
   /** Builder fees charged, by builder address and fee asset: the venue's own builder totals (OWNER 288 1e). */
   private readonly builderEarned = new Map<string, Map<string, Amount>>();
+  /** Builder fee claims, by builder address, oldest first: the venue's own claim record (J-derivatives-17). */
+  private readonly builderClaimRecord = new Map<string, UserVenueBuilderClaim[]>();
+  private builderClaimCounter = 0;
   private venueOrderCounter = 0;
   /** Each market's own state and largest order, changed by the TEST controls. */
   private readonly marketState = new Map<
     string,
-    {
-      status: UserVenueMarketStatus | null;
-      maxOrderQty: Amount | null;
-      maxOrderNotional: Amount | null;
-      minOrderNotional: Amount | null;
-      priceBandBps: Amount | null;
-      maxOpenOrders: number | null;
-    }
+    { status: UserVenueMarketStatus | null; maxOrderQty: Amount | null; maxOrderNotional: Amount | null }
   >();
   /** Each market's deployer cap on its open interest (base units; `null`: none set), for a market that reports one. */
   private readonly openInterestCaps = new Map<string, Amount | null>();
@@ -372,6 +368,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       sequencedDepth: true,
       proofLevel: 'simulator',
       figureStaleAfterMs: TEST_VENUE_FIGURE_STALE_AFTER_MS,
+      agentValidityMaxMs: TEST_VENUE_AGENT_VALIDITY_MAX_MS,
     };
     this.clock = options.clock;
     this.chainId = testVenueDomain(options.chainId ?? TEST_VENUE_CHAIN_ID).chainId;
@@ -397,9 +394,6 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         status: market.status === undefined ? 'trading' : market.status,
         maxOrderQty: market.maxOrderQty ?? null,
         maxOrderNotional: market.maxOrderNotional ?? null,
-        minOrderNotional: market.minOrderNotional ?? null,
-        priceBandBps: market.priceBandBps ?? null,
-        maxOpenOrders: market.maxOpenOrders ?? null,
       });
       if (market.openInterestCap !== undefined) this.openInterestCaps.set(market.symbol, market.openInterestCap);
     }
@@ -420,9 +414,6 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       status: market.status === undefined ? 'trading' : market.status,
       maxOrderQty: market.maxOrderQty ?? null,
       maxOrderNotional: market.maxOrderNotional ?? null,
-      minOrderNotional: market.minOrderNotional ?? null,
-      priceBandBps: market.priceBandBps ?? null,
-      maxOpenOrders: market.maxOpenOrders ?? null,
     });
     if (market.openInterestCap !== undefined) this.openInterestCaps.set(market.symbol, market.openInterestCap);
   }
@@ -537,27 +528,12 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     this.openInterestCaps.set(symbol, cap);
   }
 
-  /**
-   * TEST control: the market's largest order size and notional, and its smallest order value, price band and open-order
-   * cap (`null`: not reported). A rule left out is kept as it is. Changes no order.
-   */
-  setMarketLimits(
-    symbol: string,
-    limits: {
-      maxOrderQty?: Amount | null;
-      maxOrderNotional?: Amount | null;
-      minOrderNotional?: Amount | null;
-      priceBandBps?: Amount | null;
-      maxOpenOrders?: number | null;
-    },
-  ): void {
+  /** TEST control: the market's largest order size and notional (`null`: not reported). Changes no order. */
+  setMarketLimits(symbol: string, limits: { maxOrderQty: Amount | null; maxOrderNotional: Amount | null }): void {
     this.market(symbol);
     const state = this.marketState.get(symbol)!;
-    if (limits.maxOrderQty !== undefined) state.maxOrderQty = limits.maxOrderQty;
-    if (limits.maxOrderNotional !== undefined) state.maxOrderNotional = limits.maxOrderNotional;
-    if (limits.minOrderNotional !== undefined) state.minOrderNotional = limits.minOrderNotional;
-    if (limits.priceBandBps !== undefined) state.priceBandBps = limits.priceBandBps;
-    if (limits.maxOpenOrders !== undefined) state.maxOpenOrders = limits.maxOpenOrders;
+    state.maxOrderQty = limits.maxOrderQty;
+    state.maxOrderNotional = limits.maxOrderNotional;
   }
 
   // ── test controls (the simulator's own levers; never part of UserVenue) ──
@@ -782,9 +758,6 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       status: this.marketState.get(m.symbol)!.status,
       maxOrderQty: this.marketState.get(m.symbol)!.maxOrderQty,
       maxOrderNotional: this.marketState.get(m.symbol)!.maxOrderNotional,
-      minOrderNotional: this.marketState.get(m.symbol)!.minOrderNotional,
-      priceBandBps: this.marketState.get(m.symbol)!.priceBandBps,
-      maxOpenOrders: this.marketState.get(m.symbol)!.maxOpenOrders,
       builderFeeCapBps: m.builderFeeCapBps ?? { known: false },
       listedBy: published(m.listedBy),
       oracleRule: published(m.oracleRule),
@@ -800,6 +773,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       contractSize: published(m.contractSize),
       mark: published(m.kind === 'perpetual' ? this.marks.get(m.symbol) : undefined),
       funding: m.funding ? { known: true, value: this.fundingOf(m.funding) } : { known: false },
+      // The simulator's own rule (`place`): an order that would cross this account's own resting order cancels the resting one.
+      selfTrade: { known: true, value: 'cancel_resting' },
     }));
     return this.asOf(list);
   }
@@ -1269,8 +1244,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
 
   /**
    * The TEST venue's own builder-fee totals for `builder` (OWNER 288 1e): every builder fee it charged on a fill that
-   * carried that builder, per fee asset. No builder claims here, so all of it is unclaimed. The `builderTotalsUnknown`
-   * switch answers not known.
+   * carried that builder, per fee asset, and what of it the builder has not claimed (`claimBuilderFees`). The
+   * `builderTotalsUnknown` switch answers not known.
    */
   async builderTotals(builder: string): Promise<AsOf<MaybeKnown<VenueBuilderTotals>>> {
     this.up();
@@ -1278,8 +1253,51 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     const b = builder.toLowerCase();
     const assets = [...(this.builderEarned.get(b) ?? new Map<string, Amount>()).entries()]
       .sort(([x], [y]) => x.localeCompare(y))
-      .map(([asset, earned]) => ({ asset, earned, unclaimed: earned }));
+      .map(([asset, earned]) => ({ asset, earned, unclaimed: sub(earned, this.builderClaimed(b, asset)) }));
     return this.asOf({ known: true, value: { builder: b, assets } });
+  }
+
+  /** Every builder fee claim the TEST venue records for `builder`, oldest first. */
+  async builderClaims(builder: string): Promise<AsOf<readonly UserVenueBuilderClaim[]>> {
+    this.up();
+    return this.asOf([...(this.builderClaimRecord.get(builder.toLowerCase()) ?? [])]);
+  }
+
+  /**
+   * TEST control: `builder` claims every builder fee it has not claimed yet, one claim per fee asset, paid into the
+   * builder's own main account at this venue (free to withdraw). Returns the claims it made; nothing unclaimed makes
+   * none. Never part of `UserVenue`.
+   */
+  claimBuilderFees(builder: string): readonly UserVenueBuilderClaim[] {
+    this.up();
+    const b = builder.toLowerCase();
+    if (!/^0x[0-9a-f]{40}$/.test(b)) refuse(this.venue.id, 'venue_rejected', 'builder must be a 0x address');
+    const made: UserVenueBuilderClaim[] = [];
+    const record = this.builderClaimRecord.get(b) ?? [];
+    for (const [asset, earned] of [...(this.builderEarned.get(b) ?? new Map<string, Amount>()).entries()].sort(([x], [y]) =>
+      x.localeCompare(y),
+    )) {
+      const unclaimed = sub(earned, this.builderClaimed(b, asset));
+      if (compare(unclaimed, ZERO) <= 0) continue;
+      this.builderClaimCounter += 1;
+      const claim = {
+        claimId: `sim-builder-claim-${this.builderClaimCounter}`,
+        builder: b,
+        asset,
+        amount: unclaimed,
+        claimedAt: this.clock(),
+      };
+      const balance = this.balance(this.account({ venueId: this.venue.id, owner: b, subAccount: null }), asset);
+      balance.free = add(balance.free, unclaimed);
+      record.push(claim);
+      made.push(claim);
+    }
+    this.builderClaimRecord.set(b, record);
+    return made;
+  }
+
+  private builderClaimed(builder: string, asset: string): Amount {
+    return (this.builderClaimRecord.get(builder) ?? []).filter((c) => c.asset === asset).reduce((n, c) => add(n, c.amount), ZERO);
   }
 
   async leverage(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueLeverage | null>> {
@@ -1497,7 +1515,6 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       refuse(this.venue.id, 'venue_rejected', `size is not a multiple of the lot size on ${market.symbol}`);
     if (intent.price % market.tickSize !== ZERO)
       refuse(this.venue.id, 'venue_rejected', `price is not a multiple of the tick size on ${market.symbol}`);
-    this.checkPublishedRules(state, market, intent);
     if (market.kind === 'perpetual') {
       if (intent.reduceOnly && intent.type !== 'market' && intent.timeInForce !== 'IOC') {
         refuse(this.venue.id, 'not_offered', 'a resting reduce-only order is not offered on the TEST simulator: close with IOC or market');
@@ -1910,54 +1927,6 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   /** One fee line on `basis`, the same rounding `fill` charges. */
   private feeOn(basis: Amount, feeBps: Amount): Amount {
     return div(mul(basis, feeBps, QUOTE_ROUND), BPS, QUOTE_ROUND);
-  }
-
-  /**
-   * The venue's own published rules (J-cex-spot-04), each enforced only while it is published: the smallest order value,
-   * the price band around the middle of the venue's own book (the one side it has when the other is empty; no band
-   * applies to an empty book), and the most open orders one account may hold. The words name the rule and its figure.
-   */
-  private checkPublishedRules(state: AccountState, market: SimMarketConfig, intent: PlaceUserOrderIntent): void {
-    const own = this.marketState.get(market.symbol)!;
-    const quote = market.quoteAsset;
-    if (own.minOrderNotional !== null && compare(mul(intent.amount, intent.price, 'floor'), own.minOrderNotional) < 0) {
-      refuse(
-        this.venue.id,
-        'order_below_venue_min',
-        `the order's value is below the smallest order on ${market.symbol}, ${formatAmount(own.minOrderNotional)} ${quote}`,
-      );
-    }
-    if (own.priceBandBps !== null && intent.type === 'limit') {
-      let bid: Amount | null = null;
-      let ask: Amount | null = null;
-      for (const o of this.bookOf(market.symbol)) {
-        if (o.order.side === 'buy' && (bid === null || compare(o.order.price, bid) > 0)) bid = o.order.price;
-        if (o.order.side === 'sell' && (ask === null || compare(o.order.price, ask) < 0)) ask = o.order.price;
-      }
-      const reference = bid !== null && ask !== null ? div(add(bid, ask), parseAmount('2'), 'floor') : (bid ?? ask);
-      if (reference !== null) {
-        const reach = div(mul(reference, own.priceBandBps, 'floor'), BPS, 'floor');
-        const low = sub(reference, reach);
-        const high = add(reference, reach);
-        if (compare(intent.price, low) < 0 || compare(intent.price, high) > 0) {
-          refuse(
-            this.venue.id,
-            'price_outside_venue_band',
-            `${market.symbol} takes limit prices from ${formatAmount(low)} to ${formatAmount(high)} ${quote} right now (within ${formatAmount(own.priceBandBps)} bps of ${formatAmount(reference)})`,
-          );
-        }
-      }
-    }
-    if (own.maxOpenOrders !== null) {
-      const open = [...state.orders.values()].filter(isLive).length;
-      if (open >= own.maxOpenOrders) {
-        refuse(
-          this.venue.id,
-          'open_orders_above_venue_cap',
-          `this account has ${open} open orders and ${this.venue.displayName} allows ${own.maxOpenOrders}`,
-        );
-      }
-    }
   }
 
   private bookOf(symbol: string): OrderState[] {

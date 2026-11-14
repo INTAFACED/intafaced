@@ -4,6 +4,7 @@ import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/a
 import { edgeTrustFromEnv } from '@intafaced/config';
 import { createEdgeContext, s2sFromEnv } from '@intafaced/contracts';
 import { JetStreamEventBus } from '@intafaced/events';
+import { parseAmount } from '@intafaced/ledger-client';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 import { CampaignService, parseTimeZone } from './campaigns.js';
 import { parseRuleLimit } from './rules.js';
@@ -14,6 +15,7 @@ import { PayoutSaga } from './payouts.js';
 import { TaskService } from './tasks.js';
 import { createVenueDepositSource } from './venue-deposits.js';
 import { VoucherService } from './vouchers.js';
+import { WatchService } from './watch.js';
 import { DropService } from './drops.js';
 import { env } from './env.js';
 import { createCampaignsRouter, type CampaignsRouter } from './router.js';
@@ -55,7 +57,13 @@ const campaigns = new CampaignService({ sql, timeZone: () => timeZone, participa
 const ledger =
   env.LEDGER_URL && env.INTERNAL_SERVICE_SECRET ? createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : null;
 const reconcileAfterSeconds = env.CAMPAIGNS_RECONCILE_AFTER_SECONDS ?? null;
-const saga = ledger ? new PayoutSaga({ sql, ledger, reconcileAfterSeconds }) : null;
+const ceilingOf = (raw: string | undefined) => (raw === undefined ? null : parseAmount(raw));
+// The owner's reward ceiling (OWNER 288). Blank stays blank: every Owe refuses `ledger.reward_ceiling_unset`.
+const rewardCeiling = {
+  perCampaign: ceilingOf(env.CAMPAIGNS_REWARD_CEILING_PER_CAMPAIGN),
+  total: ceilingOf(env.CAMPAIGNS_REWARD_CEILING_TOTAL),
+};
+const saga = ledger ? new PayoutSaga({ sql, ledger, reconcileAfterSeconds, rewardCeiling }) : null;
 const markets = env.TRADE_URL ? createMarketNames({ tradeUrl: env.TRADE_URL }) : null;
 // The welcome deposit task's reads (J-campaigns-04 #2): the person's connected wallets and the venue's deposits.
 const venueDeposits =
@@ -87,8 +95,27 @@ const attemptLimits =
     : null;
 const vouchers = new VoucherService({ sql, participants, campaigns, saga, attemptLimits: () => attemptLimits });
 
-const appRouter = createCampaignsRouter(drops, campaigns, tasks, vouchers);
-const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, ...edgeTrustFromEnv(env), serviceName: env.SERVICE_NAME });
+// The watch desk's owner values (J-campaigns-17); each blank refuses what needs it, never a default.
+const watchLimits = {
+  codeBatchMax: env.CAMPAIGNS_CODE_BATCH_MAX ?? null,
+  exportLinkSeconds: env.CAMPAIGNS_EXPORT_LINK_SECONDS ?? null,
+  alerts: {
+    budget_low: env.CAMPAIGNS_ALERT_BUDGET_LEFT_PERCENT ?? null,
+    redemptions_spike: env.CAMPAIGNS_ALERT_REDEMPTIONS_PER_HOUR ?? null,
+  },
+};
+const watch = new WatchService({ sql, campaigns, limits: () => watchLimits });
+
+const appRouter = createCampaignsRouter(drops, campaigns, tasks, vouchers, watch);
+// svc-trade's fee-saver ask (`service.feeSaver`, J-campaigns-09) is a service call: the caller is named by its own key,
+// or by the shared secret where keys are not wired.
+const edgeContext = createEdgeContext({
+  secret: env.EDGE_PRINCIPAL_SECRET,
+  ...edgeTrustFromEnv(env),
+  serviceName: env.SERVICE_NAME,
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  ...(s2s.serviceVerifier && s2s.s2sMode ? { serviceVerifier: s2s.serviceVerifier, s2sMode: s2s.s2sMode } : {}),
+});
 
 let bus: JetStreamEventBus | null = null;
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
@@ -245,6 +272,8 @@ const VOUCHER_EXPIRY_MS = 15_000;
 const voucherExpiry = setInterval(() => {
   vouchers.expire().catch((err: unknown) => app.log.error({ err }, 'voucher expiry failed'));
   vouchers.pruneAttempts().catch((err: unknown) => app.log.error({ err }, 'voucher attempt prune failed'));
+  // Expired export files are deleted, and a job a stopped runner left queued is run (J-campaigns-17 #6).
+  watch.sweepExports().catch((err: unknown) => app.log.error({ err }, 'export sweep failed'));
 }, VOUCHER_EXPIRY_MS);
 voucherExpiry.unref();
 
