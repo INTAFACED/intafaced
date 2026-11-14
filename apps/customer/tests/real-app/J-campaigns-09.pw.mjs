@@ -148,11 +148,11 @@ const desk = async (page) => {
   } else {
     await page.goto(DESK);
     await expect(page.getByTestId('venue-header')).toBeVisible({ timeout: 30_000 });
+    // The desk shows Connect first and then restores the still-authorised wallet on its own, so the button can go between
+    // seeing it and pressing it (#8286: run 43542420436 waited out #2 on it): press it only while no address is shown,
+    // and never wait on a button that has gone (as J-derivatives-28 does, #8049).
     const address = page.getByTestId('venue-wallet-address');
     const connect = page.getByRole('button', { name: 'Connect TEST Wallet' });
-    // The desk shows Connect first and then restores the still-authorised wallet on its own, so the button can go between
-    // seeing it and pressing it (#8287: run 43542420436 waited out #2 on it): press it only while no address is shown, and
-    // never wait on a button that has gone (as J-derivatives-28 does, #8049).
     await expect(async () => {
       if (await address.isVisible()) return;
       await connect.click({ timeout: 2_000 });
