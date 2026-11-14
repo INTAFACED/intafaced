@@ -51,10 +51,10 @@
  * a journeys run executes or reads needs no run. (Failure it prevents: #7415 changed product code, merged on its own
  * steps and broke J-copy-bots-otc-01 #1 on main on 7 Nov 2026, so builders ran the full suite on nearly every branch by
  * hand. The seal now says exactly which run each pull request needs, and a builder runs that one.) A pull request whose
- * title or branch names a journey with a file at its head is held, for its product code, to that journey, its changed
- * journey files and the map's always-run list (namedSealInputs, journey-touch.mjs namedInputs: theo-01 part 1,
- * project-state#2065, OWNER 296), the same list its journeys run was given; main's full run after the merge judges the
- * rest and a red main is reverted (OWNER 249 (3)). A service's own stack file in such a pull request adds the journeys
+ * title or branch names a journey with a file at its head is held, for its product code, to that journey and its changed
+ * journey files (namedSealInputs, journey-touch.mjs namedInputs: theo-01 part 1, project-state#2065, OWNER 296), the
+ * same list its journeys run was given, and no longer to the map's always-run list (project-state#2332, 14 Nov 2026);
+ * main's full run after the merge judges the rest and a red main is reverted (OWNER 249 (3)). A service's own stack file in such a pull request adds the journeys
  * that use it, to the run and to this list (theo-01 part 2, OWNER 296). Every other full path still needs the full run.
  *
  * A red step a pull request's run inherited from main stops only a pull request in its area (splitInherited; owner
@@ -1276,8 +1276,7 @@ async function runMap(io, head) {
 
 /**
  * What a pull request that names a journey runs (journey-touch.mjs namedInputs, theo-01 part 1), as its journeys run
- * worked it out: the journeys its title or branch names, with a file at the head, and the always-run list of the map
- * that run chose. Null when it names none, or when the head's journey files can't be read (then the other rules decide,
+ * worked it out: the journeys its title or branch names, with a file at the head. Null when it names none, or when the head's journey files can't be read (then the other rules decide,
  * which never ask fewer journeys).
  */
 export async function namedSealInputs({ io, pull, head }) {
@@ -1302,7 +1301,6 @@ export async function namedSealInputs({ io, pull, head }) {
   return namedInputs({
     ids,
     journeyFiles,
-    map: await runMap(io, head),
     importers: texts ? (stack) => stackImporters(stack, texts) : null,
   });
 }
@@ -1392,7 +1390,7 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
   // GitHub's Revert button (revertOf) undoes a change and adds none, so only shared setup still holds it to a run: a red
   // main is fixed or undone within 2 hours (project-state OWNER 180), as judgeSteps and judgeTouched let it.
   const reverting = revertOf({ title: pull.title, body: pull.body, repo });
-  // A pull request that names a journey is judged on it, its changed journey files and the always-run list, as its run
+  // A pull request that names a journey is judged on it and its changed journey files, as its run
   // was given them (namedSealInputs); else product code goes to the map or the full run.
   const stack = paths.filter((p) => pathKind(p).stack);
   const named =
