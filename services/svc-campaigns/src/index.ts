@@ -12,7 +12,7 @@ import { createLedgerClient } from './ledger-client.js';
 import { createMarketNames } from './markets.js';
 import { createParticipantClient } from './participants.js';
 import { PayoutSaga } from './payouts.js';
-import { RewardPayer } from './reward-payer.js';
+import { RewardPayer, rewardsPaidToWallet } from './reward-payer.js';
 import { ledgerPostingEnabled, testRewardChain } from './test-chain.js';
 import { TaskService } from './tasks.js';
 import { createVenueDepositSource } from './venue-deposits.js';
@@ -79,6 +79,8 @@ const venueDeposits =
     : null;
 const tasks = new TaskService({
   venueDeposits,
+  // What we have paid each wallet as rewards (J-campaigns-04 #3): a deposit counts only above it.
+  rewardsPaidTo: rewardsPaidToWallet(sql),
   sql,
   participants,
   saga,
