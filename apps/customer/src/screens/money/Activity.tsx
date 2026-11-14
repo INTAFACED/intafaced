@@ -22,7 +22,7 @@ import {
 import {
   assetFromSearch,
   fillFromSearch,
-  groupActivity,
+  groupActivityPages,
   groupInAsset,
   inTab,
   isLedgerTab,
@@ -80,6 +80,8 @@ import { DormancyNotice } from './DormancyNotice';
 import { TaxEffects } from './TaxEffects';
 import { stamp } from './time';
 import { currentPreferences, usePreferences } from '../../shared/preferences';
+import { useVenueMode } from '../../features/trade/use-venue-mode';
+import { SourceActivity } from './SourceActivity';
 
 type Copy = ReturnType<typeof moneyCopy.useCopy>;
 
@@ -458,8 +460,8 @@ function Body({
   const { timeZone } = usePreferences();
   // The bank already answers in the order asked for; the rows keep it.
   const groups = useMemo(
-    () => (isLineTab(tab) ? lineGroups(feed.items, tab) : groupActivity(feed.items, filters.sort).groups),
-    [feed.items, tab, filters.sort],
+    () => (isLineTab(tab) ? lineGroups(feed.items, tab) : groupActivityPages(feed.items, feed.pageStarts, filters.sort).groups),
+    [feed.items, feed.pageStarts, tab, filters.sort],
   );
   const filtered = hasFilters(filters) && rangeProblem(filters, timeZone) === null;
   const rows = groups.filter(
@@ -692,6 +694,10 @@ export default function Activity({ search }: { search: string }) {
   const { hideBalances, layoutMode } = usePreferences();
   const [filters, setFilters] = useState<ActivityFilters>(NO_FILTERS);
   const tab = tabFromSearch(search);
+  // The launch model (OWNER 226): with svc-trade's user-venue door on, All lists what the wallet, the venue and the
+  // partner report, each line named with its source (J-portfolio-03 #1), as Assets does (WhereItSits).
+  const venue = useVenueMode();
+  const bySource = venue.mode === 'on' && venue.status.available ? venue.status : null;
   // `?asset=BTC` narrows every tab that lists money lines or fills; Orders lists orders, so it ignores it.
   const asset = tab === 'orders' ? null : assetFromSearch(search);
   // On a phone the tab row scrolls on its own; keep the open tab in view, also when a link opens a far one.
@@ -731,6 +737,8 @@ export default function Activity({ search }: { search: string }) {
           <TradesPanel asset={asset} fill={fillFromSearch(search)} />
         ) : tab === 'orders' ? (
           <OrdersPanel />
+        ) : tab === 'all' && bySource ? (
+          <SourceActivity status={bySource} filters={filters} asset={asset} hidden={hideBalances} />
         ) : isLedgerTab(tab) ? (
           <LedgerTabs tab={tab} asset={asset} copy={copy} hidden={hideBalances} filters={filters} />
         ) : null}

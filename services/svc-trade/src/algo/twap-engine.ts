@@ -672,7 +672,9 @@ export class TwapEngine {
         status: next >= plan.length ? 'completed' : working.status,
       };
       this.parents.set(working.id, updated);
-      this.emitChange(updated);
+      // Await the queued save, as every other tick path does: an older queued save must land before the caller's
+      // direct save of this state, never after it (the store keeps whichever lands last).
+      await this.emitChange(updated);
       return { kind: 'placed', child };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -919,7 +921,7 @@ export class TwapEngine {
     return { kind: 'halted', reason, code };
   }
 
-  private recordMiss(parent: TwapParent, miss: AlgoMiss): SliceTickResult {
+  private async recordMiss(parent: TwapParent, miss: AlgoMiss): Promise<SliceTickResult> {
     const plan = this.plans.get(parent.id)!;
     const next = parent.nextSliceIndex + 1;
     const remaining = plan.length - next;
@@ -934,7 +936,7 @@ export class TwapEngine {
       status: next >= plan.length ? 'completed' : parent.status,
     };
     this.parents.set(parent.id, updated);
-    this.emitChange(updated);
+    await this.emitChange(updated);
     return { kind: 'miss', miss };
   }
 

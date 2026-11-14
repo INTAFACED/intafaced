@@ -7,6 +7,7 @@ import type { DropService } from './drops.js';
 import { createCampaignsRouter } from './router.js';
 import type { TaskService } from './tasks.js';
 import type { VoucherService } from './vouchers.js';
+import type { WatchService } from './watch.js';
 import { parseTgeSchedule, tgeView } from './tge.js';
 
 /**
@@ -104,6 +105,7 @@ function setup(schedule: string | undefined = undefined) {
         campaigns as unknown as CampaignService,
         tasks as unknown as TaskService,
         {} as VoucherService,
+        {} as WatchService,
       ).createCaller(c),
   };
 }
@@ -138,7 +140,7 @@ describe('campaigns router', () => {
   it('claims a task reward for the signed-in account only, behind campaigns:write', async () => {
     const { tasks, api } = setup();
     const out = await api(await ctx(['campaigns:write'])).tasks.claim({ campaignId: 'cmp_1' });
-    expect(tasks.claim).toHaveBeenCalledWith({ campaignId: 'cmp_1', accountId: ME });
+    expect(tasks.claim).toHaveBeenCalledWith({ campaignId: 'cmp_1', accountId: ME, forwarded: expect.any(Object) });
     expect(out.reward.rewardKey).toBe(`task:cmp_1:${ME}:once`);
     await expect(
       api(await ctx(['campaigns:write'])).tasks.claim({ campaignId: 'cmp_1', accountId: 'someone-else' } as never),
@@ -149,7 +151,7 @@ describe('campaigns router', () => {
   it('reads My Rewards for the signed-in account only, behind campaigns:read', async () => {
     const { tasks, api } = setup();
     expect(await api(await ctx(['campaigns:read'])).rewards.mine({})).toEqual({ rewards: [], totals: [], more: false });
-    expect(tasks.myRewards).toHaveBeenCalledWith({ accountId: ME });
+    expect(tasks.myRewards).toHaveBeenCalledWith({ accountId: ME, forwarded: expect.any(Object) });
     await expect(api(await ctx(['campaigns:read'])).rewards.mine({ accountId: 'someone-else' } as never)).rejects.toMatchObject({
       code: 'BAD_REQUEST',
     });

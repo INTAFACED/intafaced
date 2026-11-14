@@ -519,6 +519,19 @@
     gap: var(--if-space-3);
     padding: var(--if-space-4);
   }
+  /* J-charts-desk-10: where an alert reaches the person, a group inside the alert form. */
+  .nf-delivery-choice {
+    display: grid;
+    gap: var(--if-space-2);
+    border: 0;
+    padding: 0;
+    margin: 0;
+    min-inline-size: 0;
+  }
+  .nf-delivery-choice legend {
+    padding: 0;
+    margin-block-end: var(--if-space-1);
+  }
   .nf-alertform .nf-h2 {
     margin-top: 0 !important;
   }

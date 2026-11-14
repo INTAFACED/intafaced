@@ -80,7 +80,7 @@ function registryIds(rows: readonly Json[]): unknown[] {
 }
 
 /** The handles of the accounts a page names. An id identity does not answer for stays an id on the page. */
-async function handlesFor(
+export async function handlesFor(
   ctx: FounderCallContext,
   named: readonly unknown[],
 ): Promise<{ handles: Record<string, string>; unread: boolean }> {

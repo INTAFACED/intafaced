@@ -38,6 +38,7 @@ export function createMemoryRunStore(now: () => Date = () => new Date()): RunSto
         assetId: null,
         metered: null,
         actionId: null,
+        provenance: null,
         createdAt: at,
         updatedAt: at,
       };
@@ -57,6 +58,7 @@ export function createMemoryRunStore(now: () => Date = () => new Date()): RunSto
         assetId: outcome.assetId ?? current.assetId,
         metered: outcome.metered ?? current.metered,
         actionId: outcome.actionId ?? current.actionId,
+        provenance: to === 'completed' ? (outcome.provenance ?? null) : null,
         updatedAt: now().toISOString(),
       };
       runs.set(runId, next);

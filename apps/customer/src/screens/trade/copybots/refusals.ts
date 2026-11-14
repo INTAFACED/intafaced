@@ -46,6 +46,10 @@ const COPY: Readonly<Record<string, Words>> = {
     body: 'Leaders aren’t ranked by how much they earned, so there are no top lists or trending boards. Every listed leader is shown in the order they were listed.',
   },
   'trade.copy_settle_refused': { title: 'Fee share was not settled', body: 'Nothing was charged beyond the normal trading fee.' },
+  'trade.copy_settlement_window_required': {
+    title: 'Choose a window',
+    body: 'A settlement reconcile needs a time window. Nothing was read.',
+  },
   'trade.copy_leader_fill_not_found': { title: 'That leader trade wasn’t found', body: 'It may be too old, or it isn’t one you can copy.' },
   'trade.copy_auto_mirror_place_socket': {
     title: 'Automatic copying is switched off',
@@ -178,6 +182,10 @@ const COPY: Readonly<Record<string, Words>> = {
   'trade.copy_reserve_exceeds_balance': {
     title: 'Not enough free balance',
     body: 'The most in total is more than you have free after your other copies. Lower it, or add funds. Nothing was followed or held.',
+  },
+  'trade.copy_venue_account_not_open': {
+    title: 'Choose one of your open agent accounts',
+    body: 'Copying on the venue places each copy on one of your own open agent accounts, in the asset these markets settle in. Nothing was followed.',
   },
   'trade.copy_market_quote_mixed': {
     title: 'Markets settle in different assets',
@@ -444,16 +452,103 @@ const GRID: Readonly<Record<string, Words>> = {
     title: 'A stop keeps what the bot bought',
     body: 'Selling the bought coins when the bot stops isn’t built. Stop it and keep them.',
   },
+  'trade.api_withdraw_not_allowed': {
+    title: 'No API key or bot can withdraw',
+    body: 'Withdraw from the venue with your own wallet: you sign it there. Nothing was moved.',
+  },
   'trade.grid_not_running': { title: 'This grid bot has already stopped', body: 'Refresh to see its final state.' },
+  'trade.bots_grid_topup_amount_invalid': {
+    title: 'Enter an amount to top up',
+    body: 'The amount must be a number above zero. Nothing was changed.',
+  },
+  'trade.bots_grid_topup_quote_only': {
+    title: 'A grid is topped up in its quote coin only',
+    body: 'A grid invests the coin it buys with, the one its investment is shown in. Choose that coin. Nothing was changed.',
+  },
+  'trade.bots_grid_topup_exceeds_free': {
+    title: 'More than you have free',
+    body: 'A top-up can use only what is free after your other bots and copies, shown as Free to add. Lower the amount. Nothing was changed.',
+  },
+  'trade.bots_grid_topup_conflict': {
+    title: 'That request was already used for a different top-up',
+    body: 'Close this and start again. Nothing more was added.',
+  },
+  'trade.bots_grid_trailing_shift_limit_required': {
+    title: 'Enter a shift limit.',
+    body: 'Trailing needs a shift limit: how far, in percent, the grid may move in all. Nothing was changed.',
+  },
+  'trade.bots_grid_trailing_shift_limit_invalid': {
+    title: 'The shift limit is out of range',
+    body: 'Enter a percent above 0 and at most 100. Nothing was changed.',
+  },
+  'trade.bots_grid_min_count_invalid': {
+    title: 'The minimum grid count must be a whole number',
+    body: 'Enter a whole number of at least 2. Nothing was changed.',
+  },
+  'trade.bots_grid_min_count_above_count': {
+    title: 'The minimum can’t be more than the grid count.',
+    body: 'Enter a minimum no larger than this grid’s grid count, shown above. Nothing was changed.',
+  },
+  'trade.bots_grid_trailing_not_built': {
+    title: 'Trailing isn’t built',
+    body: 'Your settings passed every check, but a grid can’t trail the price. It keeps its range. Nothing was changed.',
+  },
   'trade.grid_unavailable': {
     title: 'Grid bots aren’t available right now',
     body: 'The grid service isn’t switched on here. Nothing was created.',
   },
 };
 
+/** Signal publishing (svc-market `signals.*`, J-copy-bots-otc-22). */
+const SIGNALS: Readonly<Record<string, Words>> = {
+  'market.provider_criteria_not_set': {
+    title: 'Signal provider criteria are not set',
+    body: 'The platform hasn’t set what a signal provider needs, so no signal can be published. Nothing was published.',
+  },
+  'market.provider_criteria_not_met': {
+    title: 'You don’t meet the signal provider criteria',
+    body: 'A provider needs the verification level and the trading record shown here. Nothing was published.',
+  },
+  'market.provider_record_unavailable': {
+    title: 'Your trading record can’t be read right now',
+    body: 'Vetting needs it, so nothing was published. Try again shortly.',
+  },
+  'market.price_not_set': { title: 'Enter a price', body: 'A monthly fee needs its price. Nothing was published.' },
+  'market.subscription_period_unset': { title: 'Enter the period', body: 'A monthly fee needs how many days one payment covers.' },
+  'market.strategy_profit_share_forbidden': {
+    title: 'A profit share isn’t allowed',
+    body: 'A signal can’t charge a share of its subscribers’ profit. Choose free or a monthly fee. Nothing was published.',
+  },
+  'market.subscription_recurring_not_built': {
+    title: 'Recurring subscriptions aren’t built',
+    body: 'A buyer pays one period at a time; nothing renews by itself. Nothing was published.',
+  },
+  'market.vendor_not_found': { title: 'Apply to sell in the Market first', body: 'A signal is published by an approved Market seller.' },
+  'market.vendor_not_approved': {
+    title: 'Your Market seller application isn’t approved',
+    body: 'A signal is published by an approved Market seller. Nothing was published.',
+  },
+  'market.signal_not_found': { title: 'That signal wasn’t found', body: 'It may not be yours. Check My signals.' },
+  'market.signal_key_conflict': { title: 'Start a new form', body: 'This form was already used for a different signal.' },
+  'market.listing_invalid_price': { title: 'Check the price', body: 'The price must be a positive amount.' },
+  'market.signal_recommended_amount_invalid': {
+    title: 'Check the recommended amount',
+    body: 'It must be a positive amount, or left empty.',
+  },
+  'market.commission_not_configured': {
+    title: 'Market fees aren’t set',
+    body: 'A monthly fee signal is sold in the Market, which is closed until its commission is set. Nothing was published.',
+  },
+  'market.slots_exhausted': {
+    title: 'You have no free listing slot',
+    body: 'A monthly fee signal takes one Market listing slot. Archive one, or stake for more.',
+  },
+  'market.earnings_vendor_required': { title: 'No earnings', body: 'Earnings show once you sell in the Market.' },
+};
+
 export function roomRefusal(failure: Extract<ApiResult<unknown>, { ok: false }>): RefusalCopy & { code: string | null } {
   const code = failure.code ?? null;
-  const words = code ? (COPY[code] ?? BOTS[code] ?? GRID[code] ?? DEVICE[code]) : undefined;
+  const words = code ? (COPY[code] ?? BOTS[code] ?? GRID[code] ?? DEVICE[code] ?? SIGNALS[code]) : undefined;
   if (words) return { ...words, code };
   if (failure.reason === 'unreachable') {
     return { title: 'Can’t reach the service', body: 'Nothing was changed. Check your connection and try again.', code };
@@ -472,4 +567,9 @@ export function roomRefusal(failure: Extract<ApiResult<unknown>, { ok: false }>)
   return { ...refusalCopy(code ?? 'unknown'), code };
 }
 
-export const KNOWN_ROOM_CODES: readonly string[] = [...Object.keys(COPY), ...Object.keys(BOTS), ...Object.keys(GRID)];
+export const KNOWN_ROOM_CODES: readonly string[] = [
+  ...Object.keys(COPY),
+  ...Object.keys(BOTS),
+  ...Object.keys(GRID),
+  ...Object.keys(SIGNALS),
+];

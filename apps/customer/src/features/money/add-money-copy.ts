@@ -69,6 +69,23 @@ const en = {
   stepNotYet: 'Waiting',
   stepSkipped: 'Not reported by the partner',
   creditedAmount: 'Credited: {amount}',
+  payStandInTransfer: 'TEST bank details from a stand-in: {label}. No real money moves.',
+  status_returned: 'Returned by the partner',
+  returnedAmount: 'Returned: {amount} was sent back and taken out of your balance once, as the partner reported, {time}.',
+  deliverTo: 'Deliver to',
+  deliverBalance: 'Exchange balance',
+  deliverWallet: 'My wallet',
+  deliverBalanceNote: 'Added to your balance here, in the currency you choose.',
+  deliverWalletNote: 'The partner sends what you buy straight to your wallet. INTAFACED holds none of it.',
+  deliverNoWallet: 'Connect a wallet in the Web3 wallet to buy straight to it.',
+  deliverWalletAddress: 'Your wallet',
+  status_delivered: 'Delivered to your wallet',
+  step_delivered: 'Delivered to your wallet',
+  deliveredTo: 'Delivered to {address}',
+  deliveryTx: 'Transfer on chain',
+  deliverUnsigned:
+    'Your wallet did not sign, so nothing was asked for. To buy to your wallet, sign the message it shows: it proves the wallet is yours and moves nothing.',
+  deliverSign: 'You sign a message in your wallet first, to prove it is yours. It moves nothing.',
 } as const;
 
 const es: Record<keyof typeof en, string> = {
@@ -142,6 +159,23 @@ const es: Record<keyof typeof en, string> = {
   stepNotYet: 'En espera',
   stepSkipped: 'El socio no lo informó',
   creditedAmount: 'Abonado: {amount}',
+  payStandInTransfer: 'Datos bancarios de PRUEBA de un sustituto: {label}. No se mueve dinero real.',
+  status_returned: 'Devuelto por el socio',
+  returnedAmount: 'Devuelto: {amount} se devolvió y se retiró de tu saldo una sola vez, según informó el socio, {time}.',
+  deliverTo: 'Entregar en',
+  deliverBalance: 'Saldo del exchange',
+  deliverWallet: 'Mi monedero',
+  deliverBalanceNote: 'Se añade a tu saldo aquí, en la moneda que elijas.',
+  deliverWalletNote: 'El socio envía lo que compras directamente a tu monedero. INTAFACED no guarda nada de ello.',
+  deliverNoWallet: 'Conecta un monedero en el monedero Web3 para comprar directamente a él.',
+  deliverWalletAddress: 'Tu monedero',
+  status_delivered: 'Entregado en tu monedero',
+  step_delivered: 'Entregado en tu monedero',
+  deliveredTo: 'Entregado en {address}',
+  deliveryTx: 'Transferencia en la cadena',
+  deliverUnsigned:
+    'Tu monedero no firmó, así que no se pidió nada. Para comprar a tu monedero, firma el mensaje que muestra: prueba que el monedero es tuyo y no mueve nada.',
+  deliverSign: 'Primero firmas un mensaje en tu monedero para probar que es tuyo. No mueve nada.',
 };
 
 const fr: Record<keyof typeof en, string> = {
@@ -216,6 +250,23 @@ const fr: Record<keyof typeof en, string> = {
   stepNotYet: 'À venir',
   stepSkipped: 'Non signalé par le partenaire',
   creditedAmount: 'Crédité : {amount}',
+  payStandInTransfer: 'Coordonnées bancaires de TEST d’un substitut : {label}. Aucun argent réel ne bouge.',
+  status_returned: 'Renvoyé par le partenaire',
+  returnedAmount: 'Renvoyé : {amount} a été renvoyé et retiré de votre solde une seule fois, selon le partenaire, {time}.',
+  deliverTo: 'Livrer à',
+  deliverBalance: 'Solde de l’exchange',
+  deliverWallet: 'Mon portefeuille',
+  deliverBalanceNote: 'Ajouté à votre solde ici, dans la devise choisie.',
+  deliverWalletNote: 'Le partenaire envoie ce que vous achetez directement à votre portefeuille. INTAFACED n’en détient rien.',
+  deliverNoWallet: 'Connectez un portefeuille dans le portefeuille Web3 pour y acheter directement.',
+  deliverWalletAddress: 'Votre portefeuille',
+  status_delivered: 'Livré à votre portefeuille',
+  step_delivered: 'Livré à votre portefeuille',
+  deliveredTo: 'Livré à {address}',
+  deliveryTx: 'Transfert sur la chaîne',
+  deliverUnsigned:
+    'Votre portefeuille n’a pas signé, donc rien n’a été demandé. Pour acheter vers votre portefeuille, signez le message qu’il affiche : il prouve que le portefeuille est à vous et ne déplace rien.',
+  deliverSign: 'Vous signez d’abord un message dans votre portefeuille pour prouver qu’il est à vous. Rien ne bouge.',
 };
 
 export const addMoneyCopy = defineCopy('customer.money.addMoney', en, { es, fr });

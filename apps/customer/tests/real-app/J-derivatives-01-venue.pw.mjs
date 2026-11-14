@@ -283,7 +283,7 @@ test(`${J} #6 types a TEST size and leverage and presses Review: initial margin,
         timeInForce: 'IOC',
         reduceOnly: false,
         clientOrderKey: clientId,
-        builderFee: { builder: '0x7e57000000000000000000000000000000000b1d', feeBps: '0.5' },
+        builderFee: { builder: '0x116d8f7751e72306d499dd61ae826e46a726c632', feeBps: '0.5' },
       },
     })
   ).value;
@@ -363,9 +363,16 @@ test(`${J} #9 opens the positions room: entry, mark, unrealised result, margin, 
   await expect(row.locator('[data-cell="mark"]')).toHaveText(p.markPrice);
   await expect(row.locator('[data-cell="unrealised"]')).toHaveText(p.unrealisedPnl);
   await expect(row.locator('[data-cell="margin"]')).toHaveText(p.margin);
-  await expect(row.locator('[data-cell="leverage"]')).toHaveText('10x Isolated');
+  // The leverage and margin mode as the venue reports them: 10x isolated, set in #5 and #6.
+  expect(p.leverageBps).toBe(100_000);
+  expect(p.marginMode).toBe('isolated');
+  await expect(row.locator('[data-cell="leverage"]')).toHaveText(`${p.leverageBps / 10_000}x Isolated`);
   await expect(row.locator('[data-cell="liquidation"]')).toHaveText(p.liquidationPrice.known ? p.liquidationPrice.value : 'not known');
-  await expect(room.getByTestId('venue-as-of')).toContainText('As of');
+  // The as-of line names a time, not only the words: en-GB medium date and time ("As of 14 Nov 2026, 12:20:33"), or the
+  // venue's own ISO time when the person's time zone can't format it (VenueKit useAsOfText; the TEST stack shows that).
+  await expect(room.getByTestId('venue-as-of')).toHaveText(
+    /^As of (\d{1,2} [A-Z][a-z]{2,3} \d{4}, \d{2}:\d{2}:\d{2}|\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z)$/,
+  );
   await expect(room.getByTestId('venue-test').first()).toHaveText('TEST');
 });
 

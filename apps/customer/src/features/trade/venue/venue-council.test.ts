@@ -78,6 +78,10 @@ describe('the spot page in venue mode', () => {
     expect(spotGateChoice(true, { status: 'ready', listed: false })).toBe('today');
     expect(spotGateChoice(true, { status: 'ready', listed: true })).toBe('venue');
     expect(spotGateChoice(true, { status: 'failed' })).toBe('down');
+    expect(spotGateChoice(true, { status: 'failed', code: 'trade.venue.venue_down' })).toBe('down');
+    // Not verified for trading: the jurisdiction refuses the market list, and the desk shows its form with Verify.
+    expect(spotGateChoice(true, { status: 'failed', code: 'denied.kyc_required' })).toBe('verify');
+    expect(spotGateChoice(false, { status: 'failed', code: 'denied.kyc_required' })).toBe('down');
     expect(spotGateChoice(false, { status: 'loading' })).toBe('down');
   });
 });

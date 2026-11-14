@@ -1,7 +1,7 @@
 import type { Amount } from '../money.js';
 import type { AccountRef, EntryInput, PostRequest } from '../types.js';
 import { InvalidEntryError } from '../types.js';
-import { isOwnFundsPlace, partnerReserve, treasuryWallet, venueBuilderAccount } from '../accounts.js';
+import { isOwnFundsPlace, ownFundsCostAccount, partnerReserve, treasuryWallet, venueBuilderAccount } from '../accounts.js';
 
 /**
  * OUR OWN FUNDS MOVING BETWEEN OUTSIDE PLACES (launch money model, rule 1; project-state OWNER.md item 288).
@@ -17,6 +17,10 @@ import { isOwnFundsPlace, partnerReserve, treasuryWallet, venueBuilderAccount } 
  * - A move of more than the book shows at the source is refused by the ledger itself (`balanceAllowed`): a place can never
  *   show less than nothing of ours.
  * - Revenue does not change: the money was already ours. Only where it is changes.
+ * - What a move cost, as the outside record states it (`costs`: the venue's withdrawal fee, the network fee taken from what
+ *   arrived), leaves the source in the same entry, to an `ownFundsCostAccount` per cost and payee. `amount` is what arrived
+ *   at the destination, so the source comes down by `amount` plus every cost and the book keeps matching the outside
+ *   record at both places (rule 6: nothing is left for a person to make agree).
  */
 export const OWN_FUNDS_MODULE = 'treasury';
 
@@ -33,6 +37,16 @@ export interface OwnFundsMoveInput {
   readonly amount: Amount;
   /** The outside record of the move: the chain transaction hash, or the partner's statement line id. */
   readonly reference: string;
+  /** What the move cost, from the same outside record. Absent or empty: it cost nothing in this asset. */
+  readonly costs?: readonly OwnFundsMoveCost[];
+}
+
+/** One cost of a move, as its outside record states it, in the moved asset. */
+export interface OwnFundsMoveCost {
+  readonly kind: 'venue-withdrawal-fee' | 'network-fee';
+  /** Who was paid: the venue id, or the chain network's name. Lower case, no spaces. */
+  readonly paidTo: string;
+  readonly amount: Amount;
 }
 
 const PLACE_ID = /^[a-z0-9][a-z0-9:_-]*$/;
@@ -67,16 +81,39 @@ export function ownFundsMove(input: OwnFundsMoveInput): PostRequest {
   const from = ownFundsPlaceAccount(input.from, input.assetId);
   const to = ownFundsPlaceAccount(input.to, input.assetId);
   if (from.ownerId === to.ownerId) throw new InvalidEntryError('an own-funds move needs two different places');
+  const costs = input.costs ?? [];
+  const seen = new Set<string>();
+  let costTotal = 0n;
+  const costEntries: EntryInput[] = costs.map((cost) => {
+    if (cost.kind !== 'venue-withdrawal-fee' && cost.kind !== 'network-fee') {
+      throw new InvalidEntryError('a cost is a venue-withdrawal-fee or a network-fee');
+    }
+    if (!PLACE_ID.test(cost.paidTo ?? '')) throw new InvalidEntryError('a cost names who was paid, in lower case with no spaces');
+    if (typeof cost.amount !== 'bigint' || cost.amount <= 0n)
+      throw new InvalidEntryError('a cost must be above zero; leave out one that is zero');
+    const name = `${cost.kind}:${cost.paidTo}`;
+    if (seen.has(name)) throw new InvalidEntryError(`a move names each cost once (${name} twice)`);
+    seen.add(name);
+    costTotal += cost.amount;
+    return { account: ownFundsCostAccount(cost.kind, cost.paidTo, input.assetId), direction: 'credit', amount: cost.amount };
+  });
   const entries: EntryInput[] = [
-    // The source's balance comes back toward zero (less of ours there); the destination's goes further below (more there).
-    { account: from, direction: 'debit', amount: input.amount },
+    // The source's balance comes back toward zero (less of ours there) by what arrived and what it cost; the destination's
+    // goes further below (more there) by what arrived; each cost's account goes further below by what it took.
+    { account: from, direction: 'debit', amount: input.amount + costTotal },
     { account: to, direction: 'credit', amount: input.amount },
+    ...costEntries,
   ];
   return {
     idempotencyKey: ownFundsMoveKey(input.from, input.assetId, input.reference),
     module: OWN_FUNDS_MODULE,
     reason: 'treasury.own_funds.moved',
-    meta: { from: from.ownerId, to: to.ownerId, reference: input.reference },
+    meta: {
+      from: from.ownerId,
+      to: to.ownerId,
+      reference: input.reference,
+      ...(costs.length > 0 ? { costs: costs.map((c) => ({ kind: c.kind, paidTo: c.paidTo, amount: c.amount.toString() })) } : {}),
+    },
     entries,
   };
 }

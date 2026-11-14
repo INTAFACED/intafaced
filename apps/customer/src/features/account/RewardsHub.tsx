@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { REWARD_STATUSES, myRewardsSchema, type MyReward, type MyRewards } from '@intafaced/contracts/campaigns-catalogue';
 import { useApi } from '../session/session';
 import { useResource } from '../../shared/resource';
@@ -8,7 +8,9 @@ import { timeLeft } from './time-left';
 
 /**
  * My Rewards hub on /uc/promotion (CM-rewards-hub-01, J-campaigns-03): every campaign reward of the signed-in account in
- * plain status words, with the real reason, the time left on a hold and the transaction of a posted one. Everything is
+ * plain status words, with the real reason, the time left on a hold and the transaction of a posted one. A reward
+ * INTAFACED owes (launch money model) reads as owed by INTAFACED and never as spendable or as part of a wallet: trying to
+ * spend or withdraw it explains that and sends nothing. Everything is
  * read from svc-campaigns on each visit; totals come from the rows it returns. A failed read shows the error and no
  * number at all, never an earlier one.
  */
@@ -104,17 +106,21 @@ function Row({ reward: r }: { reward: MyReward }) {
   const { when, left } = useFormat();
   const reason = r.reason ?? '';
   const leftSeconds = r.holdUntil ? (new Date(r.holdUntil).getTime() - Date.now()) / 1000 : 0;
+  const [spendTried, setSpendTried] = useState(false);
   const why =
     lockWhy(r, t, when, left) ??
+    owedWhy(r, t, when, left) ??
     (r.state === 'held' && r.holdUntil
       ? leftSeconds > 0
         ? t('why_held', { left: left(leftSeconds), when: when(r.holdUntil) })
         : t('why_held_ended', { when: when(r.holdUntil) })
       : r.state === 'posted' && r.postedAt
         ? t('why_posted', { when: when(r.postedAt) })
-        : r.state === 'held' || r.state === 'posted'
-          ? ''
-          : t(`why_${r.state as Exclude<MyReward['state'], 'locked' | 'settling' | 'held' | 'posted'>}`, { reason }));
+        : r.state === 'paid' && r.payout
+          ? t('why_paid', { wallet: r.payout.toWallet, when: when(r.payout.at) })
+          : r.state === 'held' || r.state === 'posted' || r.state === 'paid'
+            ? ''
+            : t(`why_${r.state as Exclude<MyReward['state'], 'locked' | 'settling' | 'held' | 'posted' | 'owed' | 'paid'>}`, { reason }));
   return (
     <tr data-testid="reward-row" data-status={r.status} data-state={r.state} data-reward-key={r.rewardKey} data-campaign={r.campaignId}>
       <td>
@@ -144,7 +150,37 @@ function Row({ reward: r }: { reward: MyReward }) {
             </span>
           </>
         ) : null}
-        {r.ledgerTxId ? (
+        {r.state === 'owed' ? (
+          <>
+            {' '}
+            <button type="button" className="text-link" data-testid="reward-spend" onClick={() => setSpendTried(true)}>
+              {t('spendOwed')}
+            </button>
+            {spendTried ? (
+              <span role="status" className="muted" data-testid="reward-spend-note">
+                {' '}
+                {t('spendOwedNote')}
+              </span>
+            ) : null}
+          </>
+        ) : null}
+        {r.payout ? (
+          <>
+            {' '}
+            {/* The chain's own record of the payment, in the app's explorer: it left our wallet for theirs, never a balance. */}
+            <a
+              className="text-link"
+              data-testid="reward-chain-tx"
+              data-tx={r.payout.chainTx}
+              href={`/chain/tx/${encodeURIComponent(r.payout.chainTx)}`}
+              lang="zxx"
+            >
+              {t('chainTxLink', { tx: r.payout.chainTx })}
+            </a>
+          </>
+        ) : null}
+        {/* A posted reward's transaction is in the customer's own activity; a paid one's booking is ours, not theirs. */}
+        {r.ledgerTxId && r.state !== 'paid' ? (
           <>
             {' '}
             <a
@@ -163,6 +199,22 @@ function Row({ reward: r }: { reward: MyReward }) {
 }
 
 type T = ReturnType<typeof rewardsHubCopy.useCopy>['t'];
+
+/** What an owed reward says, or one waiting on the owner's ceiling; null for any other. */
+function owedWhy(r: MyReward, t: T, when: (iso: string) => string, left: (seconds: number) => string): string | null {
+  if (r.state === 'owed') {
+    const holdLeft = r.holdUntil ? (new Date(r.holdUntil).getTime() - Date.now()) / 1000 : 0;
+    if (r.holdUntil && holdLeft > 0) return t('why_owed_held', { left: left(holdLeft), when: when(r.holdUntil) });
+    if (r.reason?.startsWith('account.')) return t('why_owed_withheld', { reason: r.reason });
+    if (r.reason === 'ledger.frozen') return t('why_owed_frozen');
+    if (r.reason === 'campaigns.reward_wallet_short') return t('why_owed_wallet_short');
+    if (r.reason === 'campaigns.no_connected_wallet') return t('why_owed_no_wallet');
+    if (r.reason && r.reason !== 'campaigns.reward_payout_unavailable') return t('why_owed_stuck', { reason: r.reason });
+    return t('why_owed', { when: when(r.owed?.at ?? r.createdAt) });
+  }
+  if (r.state === 'pending_retry' && r.reason?.startsWith('ledger.reward_ceiling_')) return t('why_ceiling', { reason: r.reason });
+  return null;
+}
 
 /** What a locked reward or bonus says: its condition or expiry, and why it is not in the balance; null for any other. */
 function lockWhy(r: MyReward, t: T, when: (iso: string) => string, left: (seconds: number) => string): string | null {

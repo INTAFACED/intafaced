@@ -1,3 +1,4 @@
+import { depositFreezeAnswerSchema, depositUnfreezeAnswerSchema } from '@intafaced/contracts/pay-deposit-freezes';
 import { DEPOSIT_ADDRESS, NETWORK_ID, REASON_MAX, REASON_MIN, UUID } from '@/lib/desk/approval-packet';
 
 /**
@@ -66,25 +67,22 @@ export interface FreezeAnswer {
   readonly address: string;
 }
 
-const count = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
-
-function readFreezeView(raw: unknown): FreezeAnswer | null {
-  if (!isRecord(raw)) return null;
-  const { id, userId, networkId, address } = raw;
-  if (typeof id !== 'string' || typeof userId !== 'string' || typeof networkId !== 'string' || typeof address !== 'string') return null;
-  return { freezeId: id, userId, networkId, address };
-}
-
-/** svc-pay's `founderAdmin.depositFreezes.freeze` answer, or null when it is not that shape. */
+/**
+ * svc-pay's `founderAdmin.depositFreezes.freeze` answer, or null when it is not that shape. The shape and its checks (counts
+ * are safe non-negative integers; the freeze carries its id, user, network and address) are the contracts schema svc-pay
+ * declares its output from.
+ */
 export function readFreezeAnswer(raw: unknown): (FreezeAnswer & FreezeOutcome) | null {
-  if (!isRecord(raw) || !count(raw.held) || !count(raw.creditedUntouched)) return null;
-  const freeze = readFreezeView(raw.freeze);
-  return freeze ? { ...freeze, held: raw.held, creditedUntouched: raw.creditedUntouched } : null;
+  const parsed = depositFreezeAnswerSchema.safeParse(raw);
+  if (!parsed.success) return null;
+  const { freeze, held, creditedUntouched } = parsed.data;
+  return { freezeId: freeze.id, userId: freeze.userId, networkId: freeze.networkId, address: freeze.address, held, creditedUntouched };
 }
 
-/** svc-pay's `founderAdmin.depositFreezes.unfreeze` answer, or null when it is not that shape. */
+/** svc-pay's `founderAdmin.depositFreezes.unfreeze` answer, or null when it is not that shape (or credits more than it released). */
 export function readUnfreezeAnswer(raw: unknown): (FreezeAnswer & { released: number; credited: number }) | null {
-  if (!isRecord(raw) || !count(raw.released) || !count(raw.credited) || raw.credited > raw.released) return null;
-  const freeze = readFreezeView(raw.freeze);
-  return freeze ? { ...freeze, released: raw.released, credited: raw.credited } : null;
+  const parsed = depositUnfreezeAnswerSchema.safeParse(raw);
+  if (!parsed.success) return null;
+  const { freeze, released, credited } = parsed.data;
+  return { freezeId: freeze.id, userId: freeze.userId, networkId: freeze.networkId, address: freeze.address, released, credited };
 }

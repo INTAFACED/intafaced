@@ -1,4 +1,14 @@
-export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
+import { loadProfile } from '../owner-settings.mjs';
+import { CHAIN_HOST, CHAIN_PORTS, TEST_CHAIN_ID } from '../local-test-facts.mjs';
+
+/** One labelled TEST value from this service's profile file; a missing one names the file instead of a bare TypeError. */
+function testValue(name) {
+  const entry = loadProfile().values[name];
+  if (!entry) throw new Error(`${name} is missing from tooling/profiles/test-owner-values/campaigns.json.`);
+  return entry.value;
+}
+
+export default ({ c, secrets, dbUrl, urlOf, PORTS, testChain }) => ({
   // The drop room (/campaigns/drops) reads api.query('campaigns','drops.room'): the season, each limited drop and the TGE
   // panel. DATABASE_URL is this stack's svc_campaigns role; campaigns is in SCHEMAS, so db:migrate runs before it listens.
   // CAMPAIGNS_TGE_SCHEDULE_JSON stays blank (owner value): every TGE claim refuses launch.schedule_unset, which is what
@@ -19,6 +29,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     LEDGER_URL: urlOf('ledger'),
     // svc-trade's public market list names the market a fill's id points at, for a step on one market.
     TRADE_URL: urlOf('trade'),
+    // The welcome deposit task (J-campaigns-04 #2): the person's connected wallets from svc-protocol, and the venue's
+    // deposits into their venue accounts through svc-trade's door (TRADE_URL), signed with the stack's shared secret.
+    PROTOCOL_URL: urlOf('protocol'),
     // LOCAL TEST only, labelled in tooling/profiles/test-owner-values/campaigns.json: the reconciler interval and the
     // rollback window a reward record shows. Production stays blank: no reconciler runs, and the window reads "not set".
     CAMPAIGNS_RECONCILE_AFTER_SECONDS: '5',
@@ -34,5 +47,34 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ACCOUNT: '20',
     CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ADDRESS: '500',
     CAMPAIGNS_VOUCHER_ATTEMPT_WINDOW_SECONDS: '3600',
+    // LOCAL TEST only, labelled in tooling/profiles/test-owner-values/campaigns.json: the most codes one batch makes or
+    // imports, and how long an export's link works (J-campaigns-17). `LOCAL_STACK_CAMPAIGNS_CODE_BATCH_MAX=off` leaves the
+    // batch limit blank, so its "not set" refusal can be seen too. The two alert thresholds stay blank, as in production:
+    // each alert reads "not set" and refuses to be switched on. Production leaves all of them blank until the owner sets them.
+    ...(process.env.LOCAL_STACK_CAMPAIGNS_CODE_BATCH_MAX === 'off' ? {} : { CAMPAIGNS_CODE_BATCH_MAX: '5' }),
+    CAMPAIGNS_EXPORT_LINK_SECONDS: '20',
+    // Paying owed rewards to the customer's own wallet (J-campaigns-03 #2 #3): LOCAL TEST only, from the TEST rewards wallet
+    // our collected TEST builder fees are swept to, on the stack's anvil straight (not the gate, which a journey may close
+    // for svc-protocol alone), in its TEST USD (6 decimals). The wallet and the interval are labelled in
+    // tooling/profiles/test-owner-values/campaigns.json. With no TEST chain none of it is set and no payer runs.
+    ...rewardPayer(testChain?.()),
+    // LOCAL TEST only, labelled in tooling/profiles/test-owner-values/campaigns.json: the most INTAFACED may owe in USDC
+    // rewards, per campaign and in all (OWNER 288: the owner's ceiling is zero until he sets it). Production stays blank and
+    // every USDC reward refuses ledger.reward_ceiling_unset, nothing owed (J-campaigns-03).
+    CAMPAIGNS_REWARD_CEILING_PER_CAMPAIGN: testValue('CAMPAIGNS_REWARD_CEILING_PER_CAMPAIGN'),
+    CAMPAIGNS_REWARD_CEILING_TOTAL: testValue('CAMPAIGNS_REWARD_CEILING_TOTAL'),
   }),
 });
+
+/** The reward payer's TEST settings, or none when the stack has no TEST chain (or its TEST USD). */
+function rewardPayer(chain) {
+  if (!chain?.usdToken) return {};
+  return {
+    CAMPAIGNS_REWARD_PAY_WALLET: testValue('CAMPAIGNS_REWARD_PAY_WALLET'),
+    CAMPAIGNS_REWARD_PAY_INTERVAL_MS: testValue('CAMPAIGNS_REWARD_PAY_INTERVAL_MS'),
+    CAMPAIGNS_TEST_CHAIN_RPC_URL: `http://${CHAIN_HOST}:${CHAIN_PORTS.anvil}`,
+    CAMPAIGNS_TEST_CHAIN_TOKEN: chain.usdToken,
+    CAMPAIGNS_TEST_CHAIN_TOKEN_DECIMALS: '6',
+    CAMPAIGNS_TEST_CHAIN_ID: String(TEST_CHAIN_ID),
+  };
+}

@@ -47,6 +47,17 @@ const schema = serviceEnvSchema
       /** NO DEFAULT drain bound: the markets an assistant may trade, comma-separated venue symbols. Blank refuses `agents.markets_unset`. */
       TRADE_AGENT_MARKETS: z.string().default(''),
       /**
+       * NO DEFAULT (J-agents-21 #16): the highest leverage cap a person may set on an agent account, whole times ("5" is
+       * 5x). Blank refuses every leverage cap `agents.limit_ceiling_unset`. The per-order cap's ceiling is
+       * TRADE_AGENT_MAX_ORDER_NOTIONAL.
+       */
+      TRADE_AGENT_MAX_LEVERAGE: z.string().default(''),
+      /**
+       * NO DEFAULT (J-agents-21 #16): the highest daily-loss cap a person may set on an agent account, a decimal in
+       * TRADE_AGENT_ACCOUNT_ASSET. Blank refuses every daily-loss cap `agents.limit_ceiling_unset`.
+       */
+      TRADE_AGENT_MAX_DAILY_LOSS: z.string().default(''),
+      /**
        * Owner value: the largest page of GET /api/v1/venue/orders (J-developer-05 #6), a whole number 1 to 1000. Blank
        * refuses every list `trade.venue_orders_page_max_unset`, never a guessed page size.
        */
@@ -63,6 +74,26 @@ const schema = serviceEnvSchema
        * `trade.builder_fee_recon_break` when the venue's fills or its own totals and the ledger disagree.
        */
       TRADE_BUILDER_FEE_RECON_INTERVAL_MS: z.coerce.number().int().min(10_000).max(86_400_000).default(300_000),
+      /**
+       * J-derivatives-17, J-campaigns-03 (launch money model, rule 5): how often svc-trade reads each venue's own record of
+       * the claims of our builder fees and posts `builderFeeReceive` once per claim. A venue whose adapter does not read
+       * the claim record collects nothing and says so. `off` stops it; the next run posts each claim once.
+       */
+      TRADE_BUILDER_FEE_COLLECT: z.enum(['on', 'off']).default('on'),
+      TRADE_BUILDER_FEE_COLLECT_INTERVAL_MS: z.coerce.number().int().min(1_000).max(86_400_000).default(60_000),
+      /**
+       * Move own funds (OWNER 288 Q4: "Claimed on a schedule and moved to a wallet INTAFACED controls, above a float"). All
+       * four are the owner's; any one blank and the sweep waits, naming it, and nothing moves:
+       * - the float, in USDC, left at the venue (it pays the venue's withdrawal fee, so it is at least that fee);
+       * - the schedule, as how often a run happens;
+       * - the wallet, `<walletId>=<0x address>`, where `walletId`'s first segment names the network that carries it;
+       * - the builder key's seed (a secret; the key is derived, never stored) that signs the withdrawal as
+       *   `TRADE_USER_VENUE_BUILDER_ADDRESS`.
+       */
+      TRADE_OWN_FUNDS_FLOAT: z.string().default(''),
+      TRADE_OWN_FUNDS_SWEEP_INTERVAL_MS: z.string().default(''),
+      TRADE_OWN_FUNDS_WALLET: z.string().default(''),
+      TRADE_BUILDER_KEY_SEED: z.string().default(''),
 
       /**
        * J-cex-spot-16 LOCAL TEST seed: a comma list of venue symbols (e.g. `BTC-USDC,BTC-PERP`) svc-trade lists on a TEST
@@ -109,6 +140,24 @@ const schema = serviceEnvSchema
        * sub-accounts they gave the agent access to). Blank: every grant and agent order refuses agents.policy_unavailable.
        */
       AGENTS_URL: z.string().default(''),
+      /**
+       * svc-campaigns' address, for a person's fee-saver coupon on our builder fee (J-campaigns-09 #2 #3). Blank: no
+       * coupon is asked for, and every venue order carries the rank's rate or the builder fee in force.
+       */
+      CAMPAIGNS_URL: z.string().default(''),
+      /**
+       * svc-quant's address, for the strategy version a live run trades (J-algo-dev-07; src/quant/live-run/). Read as the
+       * person, with their own edge-signed principal passed on. Blank: every live start refuses quant.live_plan_unavailable.
+       */
+      QUANT_URL: z.string().default(''),
+      /** `on` lets a live strategy run start (a test stack today). Anything else: every start refuses quant.live_disabled. */
+      TRADE_QUANT_LIVE: z.string().default(''),
+      /**
+       * Owner value: the heartbeat interval a live run's process is watched by, in milliseconds (at least 200). A run with
+       * no heartbeat for this long reads unknown and goes to the reconciler. Blank refuses every start
+       * quant.heartbeat_interval_unset.
+       */
+      TRADE_QUANT_LIVE_HEARTBEAT_MS: z.string().default(''),
       /** Dedicated trading decision key; blank disables new exposure, never founder/read auth. */
       IDENTITY_ADMISSION_SECRET: z.string().default(''),
 
@@ -173,6 +222,15 @@ const schema = serviceEnvSchema
        * `protectionPriceFor` refuses `trade.slippage_cap_unset`. Never invent 200.
        */
       TRADE_MARKET_SLIPPAGE_CAP_BPS: z.string().default('').transform(parseOwnerIntegerEnv),
+
+      /**
+       * The owner's spread limit for a spot market order on the user's venue, in basis points of the venue's best bid
+       * (J-cex-spot-03 #2): a market order is refused while the venue's best ask is further than this above its best bid.
+       *
+       * NO DEFAULT. Blank / unset / non-integer → null; a venue spot market order then refuses
+       * `trade.spread_limit_unset` ("protection not set"), on preview and on prepare. Never invented.
+       */
+      TRADE_MARKET_SPREAD_LIMIT_BPS: z.string().default('').transform(parseOwnerIntegerEnv),
 
       /**
        * Cancel-all-after timeouts the owner publishes, in seconds, comma separated (for example "10,30,60").

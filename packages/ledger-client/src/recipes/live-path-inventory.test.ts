@@ -79,11 +79,6 @@ const PINNED_SOCKETS: readonly { name: RecipeName; fingerprint: string }[] = [
   { name: 'buybackOrderHoldRelease', fingerprint: '10956b0267e4' },
   { name: 'buybackTakerFill', fingerprint: 'feb69e826223' },
   { name: 'bankTransferReversal', fingerprint: '56a8770216cd' },
-  { name: 'builderFeeReceive', fingerprint: 'da565b45397a' },
-  { name: 'ownFundsMove', fingerprint: 'e01e44fe1d12' },
-  { name: 'campaignBudgetFund', fingerprint: 'afb3802d5127' },
-  { name: 'rewardOwe', fingerprint: '1773366dea84' },
-  { name: 'rewardPayOut', fingerprint: '4b92f2d01fde' },
   { name: 'feeShareBudgetFund', fingerprint: '735444de9a10' },
   { name: 'feeShareOwe', fingerprint: 'dc85cf8681c9' },
   { name: 'feeSharePayOut', fingerprint: '8c5f9df47085' },
@@ -112,19 +107,8 @@ const RECIPE_GATE_CATALOG = 'services/svc-ledger/src/recipe-gate.ts';
 const BUYBACK_PLACE = 'services/svc-trade/src/spot/trade-service/buyback.ts';
 const BUYBACK_ORDER = 'services/svc-trade/src/spot/buyback-order.ts';
 const BUYBACK_FILLS = 'services/svc-trade/src/spot/trade-service/fills.ts';
-/**
- * svc-trade's Collect caller is granted `builderFeeReceive` and posts one per claim the venue records, but no venue adapter
- * reads the claim record yet, so nothing feeds it and the row stays a socket until one does.
- */
-const BUILDER_FEE_COLLECT = 'services/svc-trade/src/builder-fee/builder-fee-collect.ts';
-
 const SOCKET_CALLER_ALLOWLIST: ReadonlyMap<RecipeName, readonly string[]> = new Map([
   ['marketMakerSeedFund', [RECIPE_GATE_CATALOG]],
-  ['builderFeeReceive', [RECIPE_GATE_CATALOG, BUILDER_FEE_COLLECT]],
-  ['ownFundsMove', [RECIPE_GATE_CATALOG]],
-  ['campaignBudgetFund', [RECIPE_GATE_CATALOG]],
-  ['rewardOwe', [RECIPE_GATE_CATALOG]],
-  ['rewardPayOut', [RECIPE_GATE_CATALOG]],
   ['feeShareBudgetFund', [RECIPE_GATE_CATALOG]],
   ['feeShareOwe', [RECIPE_GATE_CATALOG]],
   ['feeSharePayOut', [RECIPE_GATE_CATALOG]],
@@ -154,11 +138,11 @@ describe('D26-P2-11 recipe matrix inventory (live path closure)', () => {
     expect(inventory.live.length + inventory.sockets.length).toBe(inventory.recipes.length);
   });
 
-  it('pins live vs §13 socket counts on tip (103 = 80 live + 23 socket)', () => {
+  it('pins live vs §13 socket counts on tip (103 = 85 live + 18 socket)', () => {
     const counts = countByKind(inventory);
-    expect(counts).toEqual({ live: 80, socket: 23 });
+    expect(counts).toEqual({ live: 85, socket: 18 });
     expect(inventory.recipes).toHaveLength(103);
-    expect(liveRecipeKeys(inventory)).toHaveLength(80);
+    expect(liveRecipeKeys(inventory)).toHaveLength(85);
     expect(socketRecipeKeys(inventory)).toEqual(PINNED_SOCKETS.map((s) => s.name).sort());
   });
 

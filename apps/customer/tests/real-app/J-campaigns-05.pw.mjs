@@ -59,6 +59,7 @@ async function signUpFromInvitation(page, token) {
   await page.getByLabel('Handle').fill(who.handle);
   await page.getByLabel('Password').fill(who.password);
   await page.getByLabel('Country you live in').selectOption('DE');
+  await page.getByRole('radio', { name: 'No, I am not a US person' }).check();
   await page.getByLabel('Date of birth').fill('1990-05-01');
   await page.getByRole('button', { name: 'Create account' }).click();
   await page.getByRole('heading', { name: 'Check your email' }).waitFor();
