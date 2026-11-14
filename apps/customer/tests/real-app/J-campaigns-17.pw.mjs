@@ -481,7 +481,7 @@ test(`${J} #6 requests the same export twice: one job runs; the file has the sel
   const page = await founderPage(browser);
   await openCampaign(page, campaignId);
   const exportsPart = page.getByRole('region', { name: 'Exports' });
-  await exportsPart.getByLabel('Export').selectOption('participants');
+  await exportsPart.getByLabel('Export', { exact: true }).selectOption('participants');
   await exportsPart.getByRole('checkbox', { name: 'joinedAt' }).uncheck();
   await exportsPart.getByRole('button', { name: 'Request the export' }).click();
   await expect(exportsPart.getByTestId('export-notice')).toContainText('is ready');
