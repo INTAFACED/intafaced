@@ -288,6 +288,8 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.card_dispute_cap_exceeded': 'PRECONDITION_FAILED',
   'bank.card_dispute_partner_unset': 'PRECONDITION_FAILED',
   'bank.card_dispute_partner_mismatch': 'CONFLICT',
+  'bank.card_dispute_rules_unset': 'PRECONDITION_FAILED',
+  'bank.card_dispute_evidence_closed': 'CONFLICT',
   'bank.card_not_eligible': 'PRECONDITION_FAILED',
   'bank.card_count_limit': 'PRECONDITION_FAILED',
   'bank.card_use_limit_invalid': 'BAD_REQUEST',
