@@ -6,17 +6,20 @@
  */
 import type { FastifyBaseLogger } from 'fastify';
 import type { Sql } from 'postgres';
+import type { LedgerClient } from '@intafaced/ledger-client';
 import { env } from '../env.js';
 import type { JobHost } from '../futures/job-host.js';
 import { SqlPreparedActionStore } from '../venue/prepared-action-store.js';
 import { parseBuilderFee, type UserVenueDoor } from '../venue/user-venue-door.js';
+import type { UserVenue } from '@intafaced/venue-contracts';
+import { collectBuilderFees, type BuilderFeeClaimReader } from './builder-fee-collect.js';
 import { postBuilderFees, type BuilderFeePosterDeps } from './builder-fee-poster.js';
 import { builderFeeRecon, type BuilderFeeReconDeps } from './builder-fee-recon.js';
 import { SqlBuilderFeeStore } from './builder-fee-store.js';
 
 export function wireBuilderFees(deps: {
   sql: Sql;
-  ledger: BuilderFeePosterDeps['ledger'] & BuilderFeeReconDeps['ledger'];
+  ledger: BuilderFeePosterDeps['ledger'] & BuilderFeeReconDeps['ledger'] & Pick<LedgerClient, 'post'>;
   userVenue: UserVenueDoor | null;
   userVenueDoors: readonly UserVenueDoor[];
   log: Pick<FastifyBaseLogger, 'error' | 'warn'>;
@@ -81,6 +84,28 @@ export function wireBuilderFees(deps: {
         if (stopped.length > 0) throw stopped[0];
       });
     }
+    // Collect (launch money model, rule 5; J-derivatives-17): every claim each venue itself records for our builder address
+    // posts `builderFeeReceive` once, keyed by the venue's own claim id. A venue whose adapter reads no claim record
+    // collects nothing and says why; one venue that can't be read leaves the others collected.
+    const builder = parseBuilderFee(env.TRADE_USER_VENUE_BUILDER_ADDRESS, env.TRADE_USER_VENUE_BUILDER_FEE_BPS)?.address ?? '';
+    if (userVenueDoors.length > 0 && env.TRADE_BUILDER_FEE_COLLECT === 'on') {
+      host.every('venue.builder_fee_collect', env.TRADE_BUILDER_FEE_COLLECT_INTERVAL_MS, async () => {
+        const stopped: unknown[] = [];
+        for (const door of userVenueDoors) {
+          try {
+            const run = await collectBuilderFees({ reader: claimReader(await door.venue()), builder, ledger });
+            if (run.status === 'waiting') {
+              log.warn({ job: 'venue.builder_fee_collect', reason: run.reason }, 'builder fees: nothing collected');
+            } else if (run.refused.length > 0) {
+              log.error({ job: 'venue.builder_fee_collect', ...run }, 'builder fee claims the ledger refused stay uncollected');
+            }
+          } catch (error) {
+            stopped.push(error);
+          }
+        }
+        if (stopped.length > 0) throw stopped[0];
+      });
+    }
     // OWNER 288 change 1e: the builder-fee recon also runs on its own, over the last day, so a break is raised without anyone
     // opening the console. Read only: it posts nothing. A break or a venue whose totals are unknown is logged for the desk.
     if (userVenue) {
@@ -109,4 +134,21 @@ export function wireBuilderFees(deps: {
   }
 
   return { builderFees, scheduleJobs };
+}
+
+/** The venue's claim record as the collect job reads it, or `null` when its adapter does not read one. */
+export function claimReader(venue: UserVenue): BuilderFeeClaimReader | null {
+  const read = venue.builderClaims?.bind(venue);
+  if (!read) return null;
+  return {
+    venueId: venue.venue.id,
+    claims: async (builder) =>
+      (await read(builder)).value.map((c) => ({
+        claimId: c.claimId,
+        builder: c.builder,
+        assetId: c.asset,
+        amount: c.amount,
+        claimedAt: c.claimedAt,
+      })),
+  };
 }
