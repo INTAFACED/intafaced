@@ -1,3 +1,4 @@
+import { attachApiKeyRotationRoutes, type ApiKeyRotationClient } from './account/api-key-rotation-rest.js';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { requireScope, tradeTier, type Principal } from '@intafaced/auth';
 import { attachConvertExportRoute } from './convert/convert-history-rest.js';
@@ -196,6 +197,8 @@ function isSpotOrderType(type: string): type is (typeof SPOT_ORDER_TYPES)[number
 const ORDER_ID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface PrivateRestDeps {
+  /** A key's own rotation request, passed to identity (account/api-key-rotation-rest.ts, J-developer-07 #3). */
+  apiKeyRotation?: ApiKeyRotationClient;
   /** Shared EDGE_PRINCIPAL_SECRET — same value tRPC uses. */
   edgeSecret: string;
   edgeTrust?: EdgeTrust;
@@ -1411,6 +1414,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
   attachAlgoRestRoutes(app, deps.algo, { requirePrincipal, requireTradeJurisdiction });
   attachRfqExportRoute(app, deps.rfqExport, requirePrincipal);
   attachStatementRoutes(app, deps.statements, requirePrincipal);
+  attachApiKeyRotationRoutes(app, deps.apiKeyRotation, requirePrincipal);
 
   /**
    * Jurisdiction gate for money writes — mirrors `scopedProcedure(..., { module: 'trade' })`.
