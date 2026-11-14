@@ -1,4 +1,4 @@
-// World: stack
+// World: stack, restart
 import path from 'node:path';
 import { keccak256, toBytes } from 'viem';
 import { HDKey, hdKeyToAccount } from 'viem/accounts';
@@ -206,7 +206,7 @@ test(`${J} #1 the owner sets up hosted checkout once: defaults with Save, an ove
   await expect(preview.getByRole('img', { name: 'Your logo' })).toHaveAttribute('src', `data:image/png;base64,${PNG.toString('base64')}`);
   expect(refused).toEqual([]);
 
-  // Where crypto payments go: no wallet yet, so the checkout says it cannot take crypto. A private key is refused and
+  // Where crypto payments go: no wallet is set, so the checkout says it cannot take crypto. A private key is refused and
   // nothing is kept; the wallet's own public key is saved, and its first address is the one the wallet itself derives.
   const seed = `intafaced TEST ${J} wallet ${process.env.JOURNEY_RUN_ID ?? 'local'} ${Date.now()}`;
   run.write({ walletSeed: seed });
@@ -215,7 +215,7 @@ test(`${J} #1 the owner sets up hosted checkout once: defaults with Save, an ove
     .locator('section[data-testid="pay-section"]')
     .filter({ has: page.getByRole('heading', { name: 'Where crypto payments go' }) });
   const walletState = walletSection.getByTestId('receiving-wallet-state');
-  await expect(walletState).toHaveText('No wallet set yet. Until you add one, your checkout cannot take crypto.');
+  await expect(walletState).toHaveText('No wallet is set, so your checkout cannot take crypto. Add your wallet’s public key below.');
   await walletSection.getByLabel('Wallet public key (xpub) *').fill(account.privateExtendedKey);
   const refusedSave = page.waitForResponse((r) => r.url().includes('merchantReceivingWallet.save') && r.request().method() === 'POST');
   await walletSection.getByRole('button', { name: 'Save wallet' }).click();
@@ -223,7 +223,7 @@ test(`${J} #1 the owner sets up hosted checkout once: defaults with Save, an ove
   await expect(walletSection.getByRole('alert')).toHaveText(
     'That is a private key. Never share it. Paste your wallet’s public key, which starts xpub, instead.',
   );
-  await expect(walletState).toHaveText(/No wallet set yet/);
+  await expect(walletState).toHaveText(/^No wallet is set/);
   await walletSection.getByLabel('Wallet public key (xpub) *').fill(account.publicExtendedKey);
   const savedWallet = page.waitForResponse((r) => r.url().includes('merchantReceivingWallet.save') && r.request().method() === 'POST');
   await walletSection.getByRole('button', { name: 'Save wallet' }).click();
@@ -871,17 +871,69 @@ test(`${J} #7 the payer is offered only the methods for the country and currency
   await expect(usdt.locator('ol > li').first()).toContainText('Available');
   await expect(usdt.locator('li[data-method="bank_debit"]')).toHaveText('Bank debit: Not for this currency');
 
-  // A TEST 7 USDT link: the payer is taken straight to the crypto reference, and a transfer completes the payment.
-  const address = await makeLink(page, `TEST Poster ${Date.now().toString(36)}`, '7', 'USDT');
+  // The payer's own hosted page. A link with no amount or asset: the payer names both. Card is switched off here, so a
+  // payer who arrives naming card (as a shop's own Pay-by-card button would post it) is sent back to the page's list of
+  // the methods this business offers for that payment, in its order.
+  await page.goto('/pay/links/new');
+  await page.getByLabel('Link label *').fill(`TEST Poster ${Date.now().toString(36)}`);
+  await page.getByRole('combobox', { name: /^Asset/ }).selectOption('');
+  await page.getByRole('button', { name: 'Create link' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Create link' }).click();
+  await expect(page.getByRole('heading', { name: 'Your link is ready' })).toBeVisible();
+  const address = await page.getByTestId('link-address').getByRole('link', { name: 'Open the link' }).getAttribute('href');
   expect(refused).toEqual([]);
   const payer = await browser.newContext();
   try {
     const payerPage = await payer.newPage();
-    await payerPage.goto(address);
-    await expect(payerPage.locator('.amount')).toHaveText('7.00 USDT');
-    const reference = await payerContinues(payerPage);
+    const offeredTo = async (amount, currency, named) => {
+      await payerPage.goto(address);
+      await expect(payerPage.locator('.amount')).toHaveText('Choose an amount');
+      if (named) {
+        await payerPage.locator('form.pay').evaluate((form, method) => {
+          const field = document.createElement('input');
+          field.type = 'hidden';
+          field.name = 'method';
+          field.value = method;
+          form.append(field);
+        }, named);
+      }
+      await payerPage.getByLabel(/Amount/).fill(amount);
+      await payerPage.getByLabel('Currency').fill(currency);
+      await payerPage.getByLabel('Country').fill('DE');
+      await payerPage.getByRole('button', { name: /continue/i }).click();
+    };
+    const howToPay = payerPage.getByRole('group', { name: 'How to pay' });
+    const listed = () => howToPay.getByRole('radio').evaluateAll((radios) => radios.map((r) => r.value));
+
+    // In Germany in EUR the page lists bank debit first, which cannot be picked and names rail.bank, then bank transfer,
+    // picked already; no crypto, no card.
+    await offeredTo('12', 'EUR', 'card');
+    await expect(payerPage.getByRole('alert')).toHaveText('Choose one of the ways to pay listed here.');
+    expect(await listed()).toEqual(['bank_debit', 'bank_transfer']);
+    await expect(howToPay.getByRole('radio', { name: 'Bank debit' })).toBeDisabled();
+    await expect(howToPay.locator('[data-not-connected="rail.bank"]')).toHaveText(
+      'Bank debit needs a banking partner. It is switched off here. rail.bank',
+    );
+    await expect(howToPay.getByRole('radio', { name: 'Bank transfer' })).toBeChecked();
+    await expect(payerPage.getByText('Send exactly this amount to')).toHaveCount(0);
+    // Naming nothing, the same payer goes on with the one method that can take it: bank transfer asks for the name.
+    await offeredTo('12', 'EUR');
+    await expect(payerPage.getByRole('alert')).toHaveText('Give the name on the bank account you will send the transfer from.');
+    await expect(howToPay).toHaveCount(0);
+
+    // Paying TEST 7 USDT, the page lists crypto alone, picked already, and Continue gives an address of the business's
+    // own wallet; a transfer there completes the payment.
+    await offeredTo('7', 'USDT', 'card');
+    await expect(payerPage.getByRole('alert')).toHaveText('Choose one of the ways to pay listed here.');
+    expect(await listed()).toEqual(['crypto']);
+    await expect(howToPay.getByRole('radio', { name: 'Crypto' })).toBeChecked();
+    await expect(howToPay.locator('[data-not-connected]')).toHaveCount(0);
+    await payerPage.getByRole('button', { name: /continue/i }).click();
+    await expect(payerPage.getByText('Send exactly this amount to')).toBeVisible();
+    const reference = (await payerPage.locator('.reference code').textContent())?.trim();
     expect(ownWalletIndex(reference)).toBeGreaterThanOrEqual(0);
     const sessionUrl = payerPage.url();
+    await expect(payerPage.getByText('Payment received')).toHaveCount(0);
     tool('local-test-stack.mjs', 'chain-deposit', reference, 'USDT', '7', '12', '--tx', `j-merchant-04-methods-${Date.now()}`);
     await expect(async () => {
       await payerPage.goto(sessionUrl);

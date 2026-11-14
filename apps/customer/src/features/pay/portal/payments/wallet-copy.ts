@@ -8,7 +8,7 @@ const en = {
   title: 'Where crypto payments go',
   purpose:
     'Crypto your customers pay at checkout goes straight to your own wallet. INTAFACED never holds it, and we take only our fee, which we bill you.',
-  unset: 'No wallet set yet. Until you add one, your checkout cannot take crypto.',
+  unset: 'No wallet is set, so your checkout cannot take crypto. Add your wallet’s public key below.',
   savedOn: 'Last saved:',
   key: 'Wallet public key (xpub) *',
   keyHint:
