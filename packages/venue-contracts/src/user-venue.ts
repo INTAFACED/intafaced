@@ -658,6 +658,21 @@ export interface UserVenueDeposit {
   readonly explorerUrl: string | null;
 }
 
+/**
+ * One credit of coins into an account from outside it, as the venue records it (J-portfolio-02 #6): a deposit, or a
+ * transfer in from another address. Its cost is not known to the venue; INTAFACED keeps no copy and the ledger posts
+ * nothing.
+ */
+export interface UserVenueArrival {
+  /** The venue's own id for the credit (a deposit's `depositRef`): the same credit always has the same id. */
+  readonly arrivalId: string;
+  readonly kind: 'deposit' | 'transfer_in';
+  readonly asset: string;
+  readonly amount: Amount;
+  /** The venue's own time for the credit. */
+  readonly arrivedAt: Date;
+}
+
 /** The venue's id for one on-chain deposit: the same transfer always gives the same id, so a replay credits nothing. */
 export function venueDepositRef(chainId: number, txHash: string, logIndex: number): string {
   if (!Number.isSafeInteger(chainId) || chainId <= 0) throw new Error(`deposit chain id must be a positive integer, got ${chainId}`);
@@ -1099,6 +1114,12 @@ export interface UserVenue {
    * that publishes no deposit list leaves it out, and the door refuses the read `not_offered`.
    */
   deposits?(account: UserVenueAccount): Promise<AsOf<readonly UserVenueDeposit[]>>;
+  /**
+   * The coins credited to this account from outside it (a deposit, or a transfer from another address), oldest first, as
+   * the venue records them (J-portfolio-02 #6). Not a fill and not a move between the person's own accounts. Optional: a
+   * venue whose adapter does not read them leaves it out, and a coin that arrived that way stays unknown in the lot book.
+   */
+  arrivals?(account: UserVenueAccount): Promise<AsOf<readonly UserVenueArrival[]>>;
   /**
    * The owner's balance in the margin account a market's deployer keeps for it (`UserVenueMarket.marginAccount`), read on
    * the main account. A market with none refuses `not_offered`. Absent on an adapter that does not read it.

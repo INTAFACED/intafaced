@@ -15,6 +15,7 @@ import {
   type UserVenueAccount,
   type UserVenueAgent,
   type UserVenueBalance,
+  type UserVenueArrival,
   type UserVenueDeposit,
   type UserVenueDescriptor,
   type UserVenueFeed,
@@ -262,6 +263,8 @@ interface AccountState {
   readonly builderApprovals: Map<string, Amount>;
   readonly agents: Map<string, UserVenueAgent>;
   readonly deposits: Set<string>;
+  /** Every credit from outside the account (a deposit), oldest first: the venue's own record of it (J-portfolio-02 #6). */
+  readonly arrivals: UserVenueArrival[];
   readonly leverage: Map<string, { leverageBps: number; marginMode: VenueMarginMode }>;
   /** Main account only: its sub-accounts, by venue id. */
   readonly subAccounts: Map<string, UserVenueSubAccount>;
@@ -565,7 +568,14 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     state.deposits.add(depositRef);
     const balance = this.balance(state, asset);
     balance.free = add(balance.free, amount);
+    state.arrivals.push({ arrivalId: depositRef, kind: 'deposit', asset, amount, arrivedAt: this.clock() });
     return true;
+  }
+
+  /** The coins credited to this account from outside it, oldest first (J-portfolio-02 #6): each deposit it credited. */
+  async arrivals(account: UserVenueAccount): Promise<AsOf<readonly UserVenueArrival[]>> {
+    this.up();
+    return this.asOf([...this.account(account).arrivals]);
   }
 
   /**
@@ -1469,6 +1479,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         builderApprovals: new Map(),
         agents: new Map(),
         deposits: new Set(),
+        arrivals: [],
         leverage: new Map(),
         subAccounts: new Map(),
         transfers: new Map(),
