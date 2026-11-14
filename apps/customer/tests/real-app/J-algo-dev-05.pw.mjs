@@ -31,8 +31,8 @@ async function developer(page) {
   return who;
 }
 
-/** Saves a new signal-rules strategy on 1 minute bars of BTC/USDT at version 1. Every figure is a TEST simulation input. */
-async function saveSignalStrategy(page, name, { stopLoss = '', takeProfit = '', size = '0.01' } = {}) {
+/** Saves a new signal-rules strategy on 1 minute bars (unless told another size) of BTC/USDT at version 1. Every figure is a TEST simulation input. */
+async function saveSignalStrategy(page, name, { stopLoss = '', takeProfit = '', size = '0.01', barSize = '1m' } = {}) {
   await page.goto('/quant/studio');
   // The form shows once Studio has read what it needs; only then can its Start a new strategy button be looked for.
   await expect(page.getByLabel('Strategy name')).toBeVisible();
@@ -48,7 +48,7 @@ async function saveSignalStrategy(page, name, { stopLoss = '', takeProfit = '', 
   await page.getByLabel('How the strategy trades').selectOption('signal');
   const builder = page.getByTestId('quant-signal-builder');
   await builder.getByLabel('Symbol').fill('BTC/USDT');
-  await builder.getByLabel('Bar size').selectOption('1m');
+  await builder.getByLabel('Bar size').selectOption(barSize);
   await builder.getByLabel('Fast average (bars)').fill('1');
   await builder.getByLabel('Slow average (bars)').fill('2');
   await builder.getByRole('combobox', { name: /^Size each entry by/ }).selectOption('quantity');
@@ -167,18 +167,19 @@ oms.cancel(a.id);`,
 test(`${J} #3 attaches a take profit and a stop loss and runs a bar that hits both: the stop fills first and the result says the pessimistic rule applied`, async ({
   page,
 }) => {
-  test.setTimeout(15 * 60_000);
+  test.setTimeout(30 * 60_000);
   await developer(page);
   // A stop loss and a take profit a thousandth of a percent either side of the entry: a TEST bar that moves at all
   // both ways from its open reaches both.
   const STOP = '0.001';
   const TARGET = '0.001';
-  await saveSignalStrategy(page, 'TEST both exits', { stopLoss: STOP, takeProfit: TARGET });
-  console.log('DIAG-SOURCE', await page.evaluate(() => JSON.stringify(localStorage)));
-  // The TEST tape's older bars are seeded with two trades each, so a bar can only reach both levels once the live market
-  // has traded through one; the run is taken again on the newest window, a minute later each time, until a held bar
-  // reached both (each window is its own run key). Every check below is made on that run.
-  const deadline = Date.now() + 12 * 60_000;
+  // On 5 minute bars: the TEST taker crosses about once a minute, so a 1 minute bar holds one trade and has no range,
+  // while a 5 minute bar holds several, at the bid and the ask, and can reach both levels.
+  await saveSignalStrategy(page, 'TEST both exits', { stopLoss: STOP, takeProfit: TARGET, barSize: '5m' });
+  // The TEST tape's older bars are seeded far apart, so a bar can only reach both levels once the live market has traded
+  // through one; the run is taken again on the newest window, a minute later each time, until a held bar reached both
+  // (each window is its own run key). Every check below is made on that run.
+  const deadline = Date.now() + 25 * 60_000;
   let room;
   let rows = [];
   let both = [];
@@ -187,7 +188,7 @@ test(`${J} #3 attaches a take profit and a stop loss and runs a bar that hits bo
     room = await backtest(page, 'TEST both exits', window);
     // Each exit is paired with the entry before it; a bar that reached both its stop loss and its take profit must
     // exit by the stop loss, so an exit of either kind on such a bar is collected and judged.
-    const bars = new Map((await closedBarsSince(window.from)).map(([at, open, high, low]) => [at, { open, high, low }]));
+    const bars = new Map((await closedBarsSince(window.from, '5m')).map(([at, open, high, low]) => [at, { open, high, low }]));
     await view(room, 'Orders and trades');
     rows = await room
       .getByTestId('quant-bar-trade')
@@ -205,14 +206,6 @@ test(`${J} #3 attaches a take profit and a stop loss and runs a bar that hits bo
       const stop = entered * (1 - Number(STOP) / 100);
       if (bar.high >= target && bar.low <= stop) both.push({ exit, stop, bar });
     }
-    // DIAGNOSTIC (temporary): what the run assumed and the bars around each entry.
-    await view(room, 'Summary');
-    const assumed = await room
-      .getByTestId('quant-bar-assumptions')
-      .locator('[data-assumption]')
-      .evaluateAll((els) => els.map((el) => el.getAttribute('data-assumption')));
-    const near = rows.filter((r) => r.side === 'buy').map((r) => [r.ts, r.cells[5], bars.get(Date.parse(r.ts))]);
-    console.log('DIAG', JSON.stringify({ assumed, near }));
     if (both.length || Date.now() > deadline) break;
     await page.waitForTimeout(60_000);
   }
