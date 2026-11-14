@@ -234,9 +234,7 @@ test(`${J} #5 Recent activity lists the three newest movements to the last digit
   await fresh.close();
 });
 
-test(`${J}, part of #5: with the owner's number of movements blank, Recent activity says it is not set and lists none`, async ({
-  page,
-}) => {
+test(`${J} #5 with the owner's number of movements blank, Recent activity says it is not set and lists none`, async ({ page }) => {
   test.setTimeout(300_000);
   // How many movements Home lists is an owner value (svc-ops home.config, OPS_HOME_RECENT_ACTIVITY_LIMIT). The stack sets
   // a TEST number for the other steps; here svc-ops restarts with it blank, and is put back after.
@@ -257,19 +255,29 @@ test(`${J}, part of #5: with the owner's number of movements blank, Recent activ
   }
 });
 
-test(`${J}, part of #5: a failed activity read says so with Try again, and the rest of Home is unaffected`, async ({ page }) => {
-  test.setTimeout(120_000);
-  await signIn(page, who);
-  // The one outside thing in this run: the browser cannot reach the activity read (the service itself is untouched).
-  let fail = true;
-  await page.route('**/activity.list**', (route) => (fail ? route.abort('connectionrefused') : route.continue()));
-  await page.goto('/');
+test(`${J} #5 a failed activity read says so with Try again, and the rest of Home is unaffected`, async ({ page }) => {
+  test.setTimeout(300_000);
+  // The bank restarts with its TEST fault on (BANK_ACTIVITY_TEST_FAULT): every read of the ledger's history fails inside
+  // the running bank, while its balances still answer. Put back after.
+  restartWithSetting('bank', 'LOCAL_STACK_BANK_ACTIVITY_FAULT', 'on');
+  try {
+    await signIn(page, who);
+    await page.goto('/');
+    const list = page.locator('section[aria-labelledby="home-activity-title"]');
+    const failed = list.locator('[data-slot="state-block"]');
+    await expect(failed).toContainText('Couldn’t load your activity.', { timeout: 30_000 });
+    await expect(failed.getByRole('button', { name: 'Try again' })).toBeVisible();
+    await expect(list.getByTestId('home-activity__row')).toHaveCount(0);
+    // The rest of Home is unaffected: the total is the bank's own figure to the cent, and Needs you still answers.
+    await expect.poll(() => spokenTotal(page, HOME_TOTAL)).toBe(usd(await bankSummary()));
+    await needsYou(page).settled();
+  } finally {
+    restartWithSetting('bank', 'LOCAL_STACK_BANK_ACTIVITY_FAULT', null);
+  }
+  // With the bank reading again, Try again lists the movements.
   const list = page.locator('section[aria-labelledby="home-activity-title"]');
-  await expect(list).toContainText('Couldn’t load your activity.');
-  await expect.poll(() => spokenTotal(page, HOME_TOTAL)).toMatch(/^\$[\d,]+\.\d{2}$/);
-  fail = false;
   await list.getByRole('button', { name: 'Try again' }).click();
-  await expect(list.getByTestId('home-activity__row')).toHaveCount(3);
+  await expect(list.getByTestId('home-activity__row')).toHaveCount(3, { timeout: 30_000 });
 });
 
 /** Home's Needs you list, and a check that every owner answered, so the list is the whole answer. */
