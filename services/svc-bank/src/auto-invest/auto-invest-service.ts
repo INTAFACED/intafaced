@@ -488,6 +488,16 @@ export class AutoInvestService {
         }
 
         const now = new Date();
+        // A savings deposit pays from our own book. A capture the card partner made, or a person whose bank money the
+        // partner holds, has nothing on that book to round up from: refused by name, and nothing posts to the ledger.
+        if (input.partnerHeld || this.spaces.custody?.bankFor(rule.userId)) {
+          await this.sql`
+            UPDATE bank.auto_invest_runs
+               SET status = 'rejected', rejection_code = 'bank.partner_custody_mismatch', settled_at = ${now}
+             WHERE id = ${runId}::uuid AND status IN ('pending', 'rejected')
+          `;
+          return { status: 'refused', amount: spare, reason: 'bank.partner_custody_mismatch' };
+        }
         try {
           const position = await this.earn.deposit({
             poolId: rule.targetPoolId!,

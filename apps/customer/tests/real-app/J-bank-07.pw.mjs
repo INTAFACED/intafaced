@@ -520,6 +520,19 @@ test(`${J} #3 money flows into the space on its own: a standing order and a card
   expect(potLines.filter((cells) => cells[4] === '5')).toHaveLength(1);
   const changeLines = await statementOf(change.id, CHANGE);
   expect(changeLines.filter((cells) => cells[4] === '0.7')).toHaveLength(1);
+
+  // Where the partner has no pots (the TEST partner switched to offer none): a round-up into the space reads "not
+  // offered by the partner", and no rule is stored.
+  await withPartner(who, { notOffered: ['pots'] }, async () => {
+    await page.goto(`/bank/spaces?space=${pot}`);
+    const dialog = await act(page, 'Add round-up', (d) => d.getByLabel(/^Round up to the next/).fill('1'));
+    await dialog.getByRole('button', { name: 'Confirm' }).click();
+    await expect(dialog).toContainText(/not offered by the partner/i);
+    const refused = await api.mutate('autoInvest.createRoundUp', { assetId: 'USDT', granularity: '1', targetSpaceId: pot });
+    expect(refused).toMatchObject({ ok: false, code: 'bank.not_offered_by_partner' });
+    const rules = await api.query('autoInvest.list', { limit: 50, targetSpaceId: pot });
+    expect(rules).toMatchObject({ ok: true, data: [] });
+  });
 });
 
 test(`${J} #4 sets an income sorter: one over 100% is refused, and a TEST 100 payment from another person splits 60 and 40, once`, async ({
