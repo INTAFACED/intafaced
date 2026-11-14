@@ -260,7 +260,7 @@ test(`${J} #1 opens a space with a goal: progress is exact, rounded down and cap
   });
   expect(moved.ok, JSON.stringify(moved.body ?? {}).slice(0, 300)).toBe(true);
   // One partner move, nothing on the ledger.
-  expect(moved.data).toMatchObject({ ledgerTxId: null, partnerMove: { amount: '20' } });
+  expect(moved.data).toMatchObject({ ledgerTxId: null, amount: '20', partnerMove: { label: PARTNER_BANK } });
 
   await page.goto(`/bank/spaces?space=${pot.id}`);
   const selected = page.getByTestId('money-selected-space');
