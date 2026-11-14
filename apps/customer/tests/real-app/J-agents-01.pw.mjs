@@ -4,17 +4,28 @@ import { UNBUILT, agentCard, agentSection, agentsRun, openAgents, openNavigatorS
 import { signIn } from './desk.mjs';
 import { existsSync, rmSync, writeFileSync } from 'node:fs';
 import { api, fromUnits, stackFile, toUnits } from './stack.mjs';
+import { ADMIN, founderSignIn } from './admin.mjs';
+import { setPartner } from './partner.mjs';
 
 // J-agents-01, in the running app (docs/roadmap/journeys.json): find an agent, check what it may do, and run it once.
-// One test per step, titled "J-agents-01 #<n>", run in order on one verified TEST account funded with TEST USDT. The
-// usage window settles once as a ledger fee charge equal to the stated window cost; a retried request id charges once.
-// The run uses the stack's TEST rate card (tooling/profiles/test-owner-values/agents.json) and the service's sandbox
-// engine; #5 to #7 check its cost against the published rate and the ledger's own balances, read through Edge.
+// One test per step, titled "J-agents-01 #<n>", run in order on one verified TEST account whose payment method is the
+// TEST partner bank: its money is held at the partner (`testPartner.set({ custody: 'off' })`, OWNER 226), funded there
+// with TEST USDT. INTAFACED keeps no prepaid balance for it. The usage window is recorded once in our ledger as owed by
+// the person (`charge:earned:agents:…`), equal to the stated window cost, and collected once from the partner balance
+// (`charge:collected:partner-reserve:test:…`, keyed on the partner's own payment id); a retried request id charges once,
+// and nothing else moves, in the partner's figures or in the person's own ledger balances. The run uses the stack's TEST
+// rate card (tooling/profiles/test-owner-values/agents.json) and the service's sandbox engine; #5 to #7 check its cost
+// against the published rate, the partner's own figures (svc-bank `spaces.list`, held at the TEST partner bank) and the
+// ledger's own transactions, read by a founder through the console's ledger lookup.
 // Not checkable on this stack: #1's empty state (the stack publishes five agents) and #2's ineligible agent (the TEST
 // account is eligible for every customer agent). #1's disabled agent is the Portfolio planner, which no customer can run
 // yet; J-agents-14 #7 checks a quarantined agent's card.
 const J = 'J-agents-01';
 const agents = agentsRun(J);
+/** The TEST partner bank's name for itself (svc-bank `partner/test-partner.ts` TEST_PARTNER_LABEL). */
+const PARTNER_BANK = 'TEST partner bank';
+/** What the person holds at the TEST partner at the start, in TEST USDT. */
+const AT_PARTNER = '10';
 
 test.describe.configure({ mode: 'default' });
 
@@ -78,9 +89,47 @@ async function selectRanSession(page) {
   return main(page).getByRole('region', { name: 'Selected session' });
 }
 
-test(`${J} starts: a verified TEST account funded with TEST USDT, opening Agents from More`, async ({ page }) => {
+/** The person's USDT main balance as the partner reports it; the space says it is held at the TEST partner bank. */
+async function partnerUsdt() {
+  const res = await (
+    await api(agents.account())
+  ).get(`/api/bank/trpc/spaces.list?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`);
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  const main = res.body.result.data.find((s) => s.kind === 'primary' && s.assetId === 'USDT');
+  expect(main?.heldAt?.label, 'the person’s USDT is held at the TEST partner bank').toBe(PARTNER_BANK);
+  return main.balance;
+}
+
+/** svc-ledger's own record of a business key, traced by founder A through the console's ledger lookup. */
+async function ledgerTrace(browser, businessKey) {
+  const context = await browser.newContext();
+  try {
+    const founder = await context.newPage();
+    await founderSignIn(founder);
+    const res = await founder.request.get(`${ADMIN}/api/ledger-lookup?businessKey=${encodeURIComponent(businessKey)}`);
+    expect(res.status(), (await res.text()).slice(0, 300)).toBe(200);
+    return await res.json();
+  } finally {
+    await context.close();
+  }
+}
+
+/** The ledger keys of one usage window (packages/ledger-client recipes/charge.ts): earned, and collected on a payment. */
+const earnedKey = (chargeKey) => `charge:earned:agents:${chargeKey.replace(/^agent\.usage:/, '').replace(':', '.')}`;
+const collectedKey = (paymentRef) => `charge:collected:partner-reserve:test:USDT:${paymentRef}`;
+
+test(`${J} starts: a verified TEST account whose payment method is the TEST partner bank, funded there with TEST USDT, opening Agents from More`, async ({
+  page,
+}) => {
   test.setTimeout(240_000);
-  await agents.start(page, 'ag01');
+  const who = await agents.start(page, 'ag01');
+  // The person's money is held by the TEST partner bank, not by us, and paid in there once.
+  await setPartner(who, { custody: 'off' });
+  const funded = await (
+    await api(who)
+  ).post('/api/bank/trpc/testPartner.fund', { fundId: `${J}-${who.email}`.slice(0, 64), assetId: 'USDT', amount: AT_PARTNER });
+  expect(funded.status, JSON.stringify(funded.body).slice(0, 300)).toBe(200);
+  expect(await partnerUsdt()).toBe(AT_PARTNER);
   await signIn(page, agents.account());
   await page.goto('/more');
   await main(page)
@@ -404,6 +453,7 @@ test(`${J} #5 presses Run and confirms the spend ceiling: a run row before the e
   const sessionId = await openNavigatorSession(page, agents);
   agents.run.write({ sessionId });
   const before = await ledgerBalances();
+  const partnerBefore = await partnerUsdt();
   const ask = workspace(page).getByRole('textbox', { name: /^Ask the agent/ });
   await ask.fill('Where do I place a limit order?');
 
@@ -476,6 +526,7 @@ test(`${J} #5 presses Run and confirms the spend ceiling: a run row before the e
   expect(toUnits(usage.body.result.data.sessionTotal)).toBe(cost);
   expect(toUnits(usage.body.result.data.pending)).toBe(cost);
   expect(await ledgerBalances()).toEqual(before);
+  expect(await partnerUsdt()).toBe(partnerBefore);
   // The service's own record: the session holds exactly this one run, completed, and one executed engine response.
   const detail = await agentsCall('session.detail', { sessionId }, 'GET');
   expect(detail.body.result.data.runs).toEqual([{ requestId, startedAt: expect.any(String), state: 'completed' }]);
@@ -486,7 +537,7 @@ test(`${J} #5 presses Run and confirms the spend ceiling: a run row before the e
   expect(engineRuns[0].cost).toBe(run.cost);
 });
 
-test(`${J} #6 closes the session: open windows settle once; a closed session refuses further actions`, async ({ page }) => {
+test(`${J} #6 closes the session: open windows settle once; a closed session refuses further actions`, async ({ page, browser }) => {
   // The session #5 ran, with its usage window still open. A request this agent may not run is refused and logged first,
   // so the history #7 reads has a refusal in it; it bills nothing.
   const { cost } = agents.run.read();
@@ -508,6 +559,7 @@ test(`${J} #6 closes the session: open windows settle once; a closed session ref
   expect(toUnits(usage.body.result.data.pending)).toBe(toUnits(cost));
 
   const before = await ledgerBalances();
+  const partnerBefore = await partnerUsdt();
   const selected = await selectRanSession(page);
   await selected.getByRole('button', { name: 'Close session' }).click();
   await expect(selected.getByRole('status')).toContainText('Session closed. Usage settled.');
@@ -518,12 +570,38 @@ test(`${J} #6 closes the session: open windows settle once; a closed session ref
   await expect(settled).toHaveCount(1);
   await expect(settled.getByTestId('window-cost')).toHaveText(`${cost} USDT`);
   await expect(settled.getByTestId('charge-key')).toHaveText(/^agent\.usage:\S+$/);
-  // The ledger moved once, by the window's cost, as a fee from the account's USDT; nothing else moved.
+  const chargeKey = await settled.getByTestId('charge-key').innerText();
+  // Collected from the person's payment method: the partner's own payment, named with the partner.
+  const paidFrom = (await settled.getByTestId('paid-from').innerText()).trim();
+  const paymentRef = paidFrom.match(/^TEST partner bank, payment (\S+)$/)?.[1];
+  expect(paymentRef, `the window names the partner's payment: ${paidFrom}`).toBeTruthy();
+  // The partner took exactly the window's cost from the person's balance there, once.
+  expect(toUnits(partnerBefore) - toUnits(await partnerUsdt())).toBe(toUnits(cost));
+  // We keep no prepaid balance: the person's own ledger balances did not move at all.
   const after = await ledgerBalances();
-  expect(toUnits(before.USDT.total) - toUnits(after.USDT.total)).toBe(toUnits(cost));
-  expect(toUnits(before.USDT.free) - toUnits(after.USDT.free)).toBe(toUnits(cost));
-  expect(after.USDT.used).toBe(before.USDT.used);
-  expect({ ...after, USDT: undefined }).toEqual({ ...before, USDT: undefined });
+  expect(after).toEqual(before);
+  // Our ledger recorded the window once as owed by the person, equal to its cost: one transaction under the window's
+  // earned key, revenue up by the cost and the person's receivable down by it.
+  const earned = await ledgerTrace(browser, earnedKey(chargeKey));
+  expect(earned.found, `the ledger holds ${earnedKey(chargeKey)}`).toBe(true);
+  expect(earned.transaction).toMatchObject({ businessKey: earnedKey(chargeKey), module: 'agents', reason: 'charge.earned' });
+  expect(earned.transaction.postings).toHaveLength(2);
+  for (const posting of earned.transaction.postings) {
+    expect(posting).toMatchObject({ assetId: 'USDT' });
+    expect(toUnits(posting.amount)).toBe(toUnits(cost));
+  }
+  const owedAt = earned.transaction.postings.find((p) => p.side === 'source');
+  expect(toUnits(owedAt.balanceAfter) - toUnits(owedAt.balanceBefore)).toBe(-toUnits(cost));
+  // And collected once, keyed on the partner's payment: what the person owes comes back to zero, our money at the
+  // partner goes up by the cost.
+  const collected = await ledgerTrace(browser, collectedKey(paymentRef));
+  expect(collected.found, `the ledger holds ${collectedKey(paymentRef)}`).toBe(true);
+  expect(collected.transaction).toMatchObject({ businessKey: collectedKey(paymentRef), module: 'agents', reason: 'charge.collected' });
+  expect(collected.transaction.postings).toHaveLength(2);
+  for (const posting of collected.transaction.postings) expect(toUnits(posting.amount)).toBe(toUnits(cost));
+  const owedBack = collected.transaction.postings.find((p) => p.side === 'destination');
+  expect(owedBack.accountId).toBe(owedAt.accountId);
+  expect(toUnits(owedBack.balanceAfter)).toBe(0n);
 
   // Closing again settles nothing more, and the closed session takes no new request.
   await expect(selected.getByRole('button', { name: 'Close session' })).toHaveCount(0);
@@ -540,6 +618,10 @@ test(`${J} #6 closes the session: open windows settle once; a closed session ref
   expect(afterRun.status).toBe(400);
   expect(afterRun.body.error.data.cause.code).toBe('agents.session_closed');
   expect(await ledgerBalances()).toEqual(after);
+  // Nothing more left the partner balance, and the window's keys still name those same two transactions.
+  expect(toUnits(partnerBefore) - toUnits(await partnerUsdt())).toBe(toUnits(cost));
+  expect((await ledgerTrace(browser, earnedKey(chargeKey))).transaction.txId).toBe(earned.transaction.txId);
+  expect((await ledgerTrace(browser, collectedKey(paymentRef))).transaction.txId).toBe(collected.transaction.txId);
 });
 
 test(`${J} #7 opens session history: the run with exact usage, refusal codes as words and no prompt text; the selection survives a reload and another device`, async ({
