@@ -41,6 +41,8 @@ const LIVE_ROOMS = [
   '/agents/runs/:id',
   // The P2P board filtered to one maker, where a followed trader's new ad is (J-p2p-12 #4).
   '/p2p?makerId=:id',
+  // A strategy's own page, where its paper runs and fill alerts are (J-algo-dev-04 #6).
+  '/quant/strategies/:id',
   // The Academy Rooms tab, where a learner reaches their course discussions (J-academy-18 #2).
   '/academy/rooms',
 ];

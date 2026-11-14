@@ -143,6 +143,9 @@ export const en = {
   'notify.outreach.follow_up.title': 'Following up on your INTAFACED enquiry',
   'notify.outreach.follow_up.body': 'The INTAFACED team is following up on your enquiry.\n\n{staffText}',
   'notify.trade.fill.body': '{side} {qty} on {marketId} at {price}.',
+  // A paper strategy fill under the person's own alert (AL-alerts-01): the body is their template, rendered by svc-quant.
+  'notify.quant.fill.title': 'Paper strategy fill (not a real order)',
+  'notify.quant.fill.body': '{message}',
   'notify.trade.order.terminal.title': 'Order {status}',
   'notify.trade.order.terminal.body': '{side} {qty} on {marketId} is {status}.',
   'notify.trade.market_halted.title': 'Market halted',

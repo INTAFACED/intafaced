@@ -68,6 +68,8 @@ export const QUANT_QUOTA_REASON_UNSET = 'quant.quota_reason_unset' as const;
 export const QUANT_PAPER_CASH_UNSET = 'quant.paper_cash_unset' as const;
 export const QUANT_PAPER_FEE_UNSET = 'quant.paper_fee_unset' as const;
 export const QUANT_PAPER_LIST_LIMIT_UNSET = 'quant.paper_list_limit_unset' as const;
+export const QUANT_NOTIFY_CHANNEL_UNAVAILABLE = 'quant.notify_channel_unavailable' as const;
+export const QUANT_ALERT_TEMPLATE_INVALID = 'alert.template_invalid' as const;
 /** A promotion gate criterion the owner has not set (AL-lifecycle-01): promotion is blocked and nothing is written. */
 export const QUANT_GATE_CRITERIA_UNSET = 'quant.gate_criteria_unset' as const;
 /** A stage move ENGINE LC-2 does not allow, such as promoting a version that already left `paper`. */
@@ -146,6 +148,8 @@ export type QuantCode =
   | typeof QUANT_PAPER_CASH_UNSET
   | typeof QUANT_PAPER_FEE_UNSET
   | typeof QUANT_PAPER_LIST_LIMIT_UNSET
+  | typeof QUANT_NOTIFY_CHANNEL_UNAVAILABLE
+  | typeof QUANT_ALERT_TEMPLATE_INVALID
   | typeof QUANT_GATE_CRITERIA_UNSET
   | typeof QUANT_STAGE_TRANSITION_INVALID
   | typeof QUANT_CRITERIA_REASON_UNSET

@@ -111,7 +111,8 @@ describe('catalog — the key set is closed and complete', () => {
     // A price alert's body naming its market by symbol and the time it fired (J-charts-desk-10 #5) adds one body key.
     // An API key revoked on an operator's leaked-key report (J-developer-07 #6) adds a title and a body key.
     // A research answer refused for no source or no published uncertainty scale (J-agents-10 #4) adds two refusal keys.
-    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(329);
+    // A paper strategy fill under the person's own fill alert (J-algo-dev-04 #6) adds a title and a body key.
+    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(331);
 
     for (const surface of ['common.', 'auth.', 'trade.', 'wallet.', 'p2p.', 'notify.', 'error.', 'support.', 'agents.', 'admin.']) {
       expect(
