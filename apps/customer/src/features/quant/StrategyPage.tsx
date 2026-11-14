@@ -16,6 +16,7 @@ import { PaperRuns } from './PaperRuns';
 import { StrategyAlerts, StrategyChannels } from './StrategyNotify';
 import { QuantRooms } from './QuantRooms';
 import { StrategyLifecycle } from './StrategyLifecycle';
+import { StrategyRisk } from './StrategyRisk';
 import { StrategyTeam } from './StrategyTeam';
 import { strategyPageCopy } from './strategy-page-copy';
 import './algo.css';
@@ -49,6 +50,12 @@ export function StrategyPage({ strategyId, paper }: { strategyId: string; paper:
         {(strategy) => (
           <>
             <StrategyVersions strategy={strategy} />
+            <p>
+              <a className="text-link" href={preservePaperHref(`/quant/studio?open=${encodeURIComponent(strategy.id)}`, paper)}>
+                {t('openInStudio')}
+              </a>
+            </p>
+            <StrategyRisk strategy={strategy} />
             <PaperRuns strategy={strategy} />
             <StrategyChannels strategy={strategy} />
             <StrategyAlerts strategy={strategy} />
