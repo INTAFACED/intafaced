@@ -170,7 +170,8 @@ test(`${J} #3 attaches a take profit and a stop loss and runs a bar that hits bo
   test.setTimeout(20 * 60_000);
   // The TEST taker crosses about once a minute, so a 1 minute bar of the tape holds one trade and has no range. A second
   // TEST account trades the book both ways every few seconds (a market buy meets the ask, a market sell the bid, the
-  // two cancelling out), so the bars this run reads hold trades on both sides of their open.
+  // two nearly cancelling out), so the bars this run reads hold trades on both sides of their open. A buy's fee is taken
+  // in BTC (0.001 bought leaves 0.000999), so each sell is a little smaller than the buy before it.
   const tape = await api(await fundedTrader(page, 'jt', '2000'));
   let tick = 0;
   async function tradeBothWays(seconds) {
@@ -180,7 +181,7 @@ test(`${J} #3 attaches a take profit and a stop loss and runs a bar that hits bo
         symbol: 'BTC/USDT',
         type: 'market',
         side,
-        amount: '0.001',
+        amount: side === 'buy' ? '0.001' : '0.0009',
         clientOrderId: `${J}-tape-${process.env.JOURNEY_RUN_ID ?? 'local'}-${tick}`,
       });
       expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBeLessThan(300);
