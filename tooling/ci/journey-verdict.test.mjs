@@ -7,6 +7,8 @@ import {
   historyRuns,
   readHistory,
   historyThrough,
+  toDownload,
+  HISTORY_MAX,
   findStored,
   storedRuns,
   passedSteps,
@@ -206,7 +208,11 @@ test("fetchInputs holds a run off main only to main's runs its head contains, an
   const body = src.slice(src.indexOf('export function fetchInputs('), src.indexOf('function main()'));
   assert.match(body, /compare = \(head, base\) => ghApi\(`\/repos\/\$\{repo\}\/compare\/\$\{head\}\.\.\.\$\{base\}`\)/);
   assert.match(body, /const own = branchRuns\(runs, \{ run, repo, compare \}\);/);
-  assert.match(body, /if \(runs\.length > HISTORY_MAX\)[\s\S]*const own = branchRuns/, 'the history cap still counts every run on main');
+  assert.match(
+    body,
+    /const stored = findStored\(runs, readStored\);\s*const left = toDownload\(runs, stored\)\.length;\s*if \(left > HISTORY_MAX\)[\s\S]*const own = branchRuns/,
+    'the history cap counts what is left to download among every run on main, before a run off main is narrowed',
+  );
 });
 
 test('red: the money rule disagrees with the entry, and a step missing from journeys.json is money', () => {
@@ -1068,4 +1074,27 @@ test('a step id two files share: the run lists both files, and a targeted run of
     ['J-w-04#7'],
     'and a failure there is red',
   );
+});
+
+test('the history cap counts runs left to download, not runs since the baseline (14 Nov 2026: 151 runs since run 1719)', () => {
+  const runs = Array.from({ length: 400 }, (_, i) => ({ id: 1000 + i, run_number: 1720 + i, run_attempt: 1 }));
+  const entry = (r, attempt = 1) => [String(r.id), { number: r.run_number, attempt, passed: [] }];
+  // A stored file holding all but the newest 3: 3 to download, however old the baseline.
+  const stored = { from: runs[396].run_number, runs: Object.fromEntries(runs.slice(0, 397).map((r) => entry(r))) };
+  assert.deepEqual(
+    toDownload(runs, stored).map((r) => r.run_number),
+    runs.slice(397).map((r) => r.run_number),
+  );
+  // A run re-run since the file read it counts; so does a run the file never held (one that kept no report).
+  const rerun = runs.map((r, i) => (i === 10 ? { ...r, run_attempt: 2 } : r));
+  delete stored.runs[String(runs[20].id)];
+  assert.deepEqual(
+    toDownload(rerun, stored).map((r) => r.run_number),
+    [runs[10], runs[20], ...runs.slice(397)].map((r) => r.run_number),
+  );
+  // No stored file: every run, so the cap still trips past HISTORY_MAX, as before.
+  assert.equal(toDownload(runs, null).length, 400);
+  assert.ok(toDownload(runs, null).length > HISTORY_MAX);
+  // The same 400 with the file: under the cap.
+  assert.ok(toDownload(runs, stored).length <= HISTORY_MAX);
 });
