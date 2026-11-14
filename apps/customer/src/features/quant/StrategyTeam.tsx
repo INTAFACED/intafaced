@@ -1,8 +1,8 @@
 import { type QuantStrategyDetail } from '@intafaced/contracts/quant-algo';
 import { quantEditLockSchema, quantTeamSchema, type QuantEditLock, type QuantTeam } from '@intafaced/contracts/quant-team';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ApiResult } from '../../shared/api';
-import { useResource } from '../../shared/resource';
+import { useResource, type Resource } from '../../shared/resource';
 import { Button, DataTable, EmptyState, Failure, Field, Loading } from '../../shared/ui';
 import { Read, Select } from '../more/common';
 import { useApi } from '../session/session';
@@ -15,6 +15,18 @@ const utcText = (iso: string) => iso.slice(0, 19).replace('T', ' ');
 export const refusalCode = (result: Failed) => result.code ?? /^([a-z]+\.[a-z_]+) — /.exec(result.message.trim())?.[1] ?? null;
 /** The time a lock refusal names: `… holds the edit lock until <iso>; …`. */
 export const lockedUntil = (result: Failed) => /until (\d{4}-\d\d-\d\dT[\d:.]+Z)/.exec(result.message)?.[1] ?? '';
+
+/**
+ * The last data a resource read, kept on screen while it reads again, so a form's own note survives the reload its save
+ * starts. Before the first read it is null and the caller shows the loading state.
+ */
+export function useLastReady<T>(resource: Resource<T>): T | null {
+  const [kept, setKept] = useState<T | null>(null);
+  useEffect(() => {
+    if (resource.status === 'ready') setKept(resource.data);
+  }, [resource]);
+  return resource.status === 'ready' ? resource.data : kept;
+}
 
 /** The edit lock, as anyone who may edit reads it, with Take and Let go. */
 export function EditLock({ strategyId, lock, onChange }: { strategyId: string; lock: QuantEditLock; onChange: () => void }) {
@@ -81,20 +93,23 @@ export function StrategyTeam({ strategy }: { strategy: QuantStrategyDetail }) {
     `quant-team:${strategy.id}:${revision}`,
   );
   const reload = () => setRevision((n) => n + 1);
+  const kept = useLastReady(team.resource);
   return (
     <section aria-label={t('teamTitle')} data-testid="quant-team">
       <h3>{t('teamTitle')}</h3>
       <p className="muted">{t('teamIntro')}</p>
-      <Read resource={team.resource} retry={team.reload}>
-        {(data) => (
-          <>
-            <Collaborators team={data} onChange={reload} />
-            <ShareForm strategyId={strategy.id} onChange={reload} />
-            <EditLock strategyId={strategy.id} lock={data.lock} onChange={reload} />
-            <SupportAccess team={data} onChange={reload} />
-          </>
-        )}
-      </Read>
+      {kept ? (
+        <>
+          <Collaborators team={kept} onChange={reload} />
+          <ShareForm strategyId={strategy.id} onChange={reload} />
+          <EditLock strategyId={strategy.id} lock={kept.lock} onChange={reload} />
+          <SupportAccess team={kept} onChange={reload} />
+        </>
+      ) : (
+        <Read resource={team.resource} retry={team.reload}>
+          {() => null}
+        </Read>
+      )}
     </section>
   );
 }

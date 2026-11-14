@@ -9,7 +9,7 @@ import { preservePaperHref } from '../more/trade-context';
 import { useApi } from '../session/session';
 import { QuantRooms } from './QuantRooms';
 import { QuotaAwareFailure } from './quota-refusal';
-import { EditLock, lockedUntil, refusalCode } from './StrategyTeam';
+import { EditLock, lockedUntil, refusalCode, useLastReady } from './StrategyTeam';
 import { teamCopy } from './team-copy';
 import './algo.css';
 
@@ -72,6 +72,7 @@ export function SharedStrategy({ strategyId, paper }: { strategyId: string; pape
     `quant-shared:${strategyId}:${revision}`,
   );
   const reload = () => setRevision((n) => n + 1);
+  const kept = useLastReady(opened.resource);
   return (
     <>
       <QuantRooms active="strategies" paper={paper} />
@@ -85,7 +86,7 @@ export function SharedStrategy({ strategyId, paper }: { strategyId: string; pape
           {t('gone')}
         </p>
       ) : (
-        <Read resource={opened.resource} retry={opened.reload}>
+        <Read resource={kept ? { status: 'ready', data: kept } : opened.resource} retry={opened.reload}>
           {(data) => (
             <Panel title={t('sharedStrategyTitle', { name: data.name })}>
               <div data-testid="quant-shared-strategy" data-id={data.strategyId} data-role={data.role} data-version={data.version}>
