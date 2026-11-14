@@ -59,6 +59,9 @@ const AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   'unclaimed',
   // UserVenueFunding (J-derivatives-01 #4): the signed funding rate, a scaled fraction
   'rate',
+  // UserVenueMarginTier (J-derivatives-02 #2): the notional a tier starts at and its maintenance rate
+  'fromNotional',
+  'maintenanceRate',
   // MaybeKnown<Amount>.value and AsOf<Amount>.value
   'value',
 ]);
