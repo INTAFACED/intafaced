@@ -1,6 +1,6 @@
 // World: book
 import { test, expect } from './journey.mjs';
-import { UNBUILT } from './dex.mjs';
+import { TOKEN_A, UNBUILT } from './dex.mjs';
 import { desk, founderPair, openDesk } from './protocol-desk.mjs';
 import { bodyRows, tableIn } from './tables.mjs';
 import { signIn, signUp } from './desk.mjs';
@@ -135,7 +135,8 @@ test(`${J} #4 sets a human "verified" tier on a token: pending until a second ap
 }) => {
   test.setTimeout(120_000);
   const { a, b } = await founders(browser);
-  const TOKEN = 'TEST Token A';
+  // TEST Token A, told by its address: the stack also seeds a lookalike with the same name (seed-token-pages.ts).
+  const TOKEN = TOKEN_A.address;
   const reason = `LOCAL TEST ${J} verified ${RUN}`;
   const removal = `LOCAL TEST ${J} tier removed ${RUN}`;
   const tiers = await trust(a, 'Token tiers');
@@ -163,7 +164,7 @@ test(`${J} #4 sets a human "verified" tier on a token: pending until a second ap
   await expect(shown.getByTestId('tier')).toHaveText(`verified · since ${day}`);
   await expect(shown.getByTestId('tier-reason')).toHaveText(reason);
   await expect(
-    row(again, 'Audit', TOKEN)
+    row(again, 'Audit', TOKEN_A.name)
       .filter({ hasText: `Approved verified on ${day}` })
       .filter({ hasText: reason }),
   ).toHaveCount(1);
@@ -172,7 +173,9 @@ test(`${J} #4 sets a human "verified" tier on a token: pending until a second ap
   await again.getByLabel(/^Reason/).fill(removal);
   await again.getByRole('button', { name: 'Remove the tier' }).click();
   await expect(shown.getByTestId('tier')).toHaveText(prior);
-  await expect(row(again, 'Audit', TOKEN).filter({ hasText: 'Removed verified, back to' }).filter({ hasText: removal })).toHaveCount(1);
+  await expect(row(again, 'Audit', TOKEN_A.name).filter({ hasText: 'Removed verified, back to' }).filter({ hasText: removal })).toHaveCount(
+    1,
+  );
 });
 
 test(`${J} #5 opens the trust criteria with the criteria blank: every token reads "unknown" and the desk shows the unset criteria`, async ({
