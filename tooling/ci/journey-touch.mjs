@@ -309,11 +309,19 @@ export const STACK_CANARY = 'tooling/scripts/local-test-stack.mjs';
 /**
  * The canary: journey files that run beside a named change to the stack, about one shard (some 10 minutes of journeys)
  * across sign-up and identity, spot trading on the TEST venue, P2P and Home's balances. Each passed every step in main's
- * 4 newest finished full runs (43577989116, 43579219442, 43582579196, 43586501223; 14 Nov 2026). Every shard boots the
- * whole stack, so the named journey's own shard proves it starts; these prove it still serves other areas. One missing
- * at the head makes the change full.
+ * 4 newest finished full runs (43577989116, 43579219442, 43582579196, 43586501223; 14 Nov 2026). J-home-ia-01 #1 to #3
+ * live in J-home-ia-01-venue.pw.mjs since #8310 (fcd0249d60), and the verdict reads a step missing from a file that ran
+ * as red (#8320), so a canary journey runs all its files; that file passed #1 to #3 in main's runs 5011, 5020 and 5049
+ * (43586501223, 43589780896, 43596135637; 14 Nov 2026). Every shard boots the whole stack, so the named journey's own
+ * shard proves it starts; these prove it still serves other areas. One missing at the head makes the change full.
  */
-export const CANARY = ['J-cex-spot-01.pw.mjs', 'J-home-ia-01.pw.mjs', 'J-identity-01.pw.mjs', 'J-p2p-01.pw.mjs'];
+export const CANARY = [
+  'J-cex-spot-01.pw.mjs',
+  'J-home-ia-01-venue.pw.mjs',
+  'J-home-ia-01.pw.mjs',
+  'J-identity-01.pw.mjs',
+  'J-p2p-01.pw.mjs',
+];
 
 /** Whether a changed path is a helper that may narrow (HELPER, and not on STACK_HELPERS). */
 const narrowHelper = (p) => {
