@@ -107,6 +107,18 @@ const standingOn = (page) => page.getByTestId('home-standing');
 const partOf = (scope, id) => scope.locator(`[data-testid="standing-part"][data-part="${id}"]`);
 const spoken = (scope) => scope.getByTestId('standing-figure').locator('[data-slot="hero-number"] [role=img]').getAttribute('aria-label');
 
+/**
+ * Balances shown, as the account's own choice (another step may have left them hidden): waits for Home's eye to answer,
+ * then shows them if they are hidden.
+ */
+async function balancesShown(page) {
+  const show = page.getByRole('button', { name: 'Show balances' }).first();
+  const hide = page.getByRole('button', { name: 'Hide balances' }).first();
+  await expect(show.or(hide)).toBeVisible({ timeout: 30_000 });
+  if (await show.isVisible()) await savedToAccount(page, () => show.click());
+  await expect(hide).toBeVisible();
+}
+
 /** Home with the wallet connected and every part answered. */
 async function openHome(page) {
   await page.goto('/');
@@ -167,6 +179,7 @@ test(`${J} #1 Home's total adds what the wallet, the venue account and the partn
   const venueBefore = Date.parse((await venueRecord(owner, '/balances')).asOf);
   await withWallet(page);
   const standing = await openHome(page);
+  await balancesShown(page);
 
   // The total is the sum of what is priced, worked out here from the venue's and the partner's own figures at svc-ops'
   // published TEST prices, to the cent, and labelled TEST.
@@ -288,9 +301,8 @@ test(`${J} #2 the eye turns every amount on Home to bullets and keeps prices, an
       await other.close();
     }
   } finally {
-    await page.goto('/');
-    const show = page.getByRole('button', { name: 'Show balances' }).first();
-    if (await show.isVisible().catch(() => false)) await savedToAccount(page, () => show.click());
+    await openHome(page);
+    await balancesShown(page);
   }
 });
 
@@ -301,6 +313,7 @@ test(`${J} #3 the total's Assets link opens Assets with the same total and the s
   const { owner } = state();
   await withWallet(page);
   const home = await openHome(page);
+  await balancesShown(page);
   await totalIs(home, owner);
   const onHome = {
     total: await spoken(home),

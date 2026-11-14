@@ -245,8 +245,10 @@ test(`${J}, part of #5: with the owner's number of movements blank, Recent activ
     await signIn(page, who);
     await page.goto('/');
     const list = page.locator('section[aria-labelledby="home-activity-title"]');
-    const unset = list.locator('[data-code="home.recent_activity_limit_unset"]');
+    const unset = list.locator('[data-slot="state-block"]');
     await expect(unset).toContainText('Number of movements not set', { timeout: 30_000 });
+    // The typed refusal's code, as the shared state block prints it.
+    await expect(unset).toContainText('home.recent_activity_limit_unset');
     await expect(list.getByTestId('home-activity__row')).toHaveCount(0);
     // The rest of Home is unaffected.
     await expect.poll(() => spokenTotal(page, HOME_TOTAL)).toMatch(/^\$[\d,]+\.\d{2}$/);
