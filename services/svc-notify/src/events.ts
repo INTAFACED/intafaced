@@ -12,6 +12,7 @@ import {
   copyStopped,
   agentUsageAlertCrossed,
   agentApprovalRequested,
+  agentRunCompleted,
   supportTicketResolved,
   fillSettled,
   kycApproved,
@@ -1015,6 +1016,31 @@ export async function subscribeNotificationEvents(
           sourceSubject: agentApprovalRequested.subject,
           sourceIdempotencyKey: payload.requestId,
           outOfApp: true,
+        }),
+      );
+    }),
+  );
+
+  // A background run of an agent session finished (J-agents-06 #2): svc-agents publishes it once per run, on the run id,
+  // so the person gets one inbox row however often it is sent. The row links to the run's page, where the result is; it
+  // never carries the reply. Only the channel the person asked for goes out of app, and its delivery row is recorded
+  // even when that channel has no vendor (`vendor.email` until a mail vendor is set); `inapp` writes the inbox row alone.
+  attachments.push(
+    await attach(bus, 'agentRunCompleted', agentRunCompleted.subject, 'notify-agent-run-completed', async (payload) => {
+      const asked = payload.notice === 'inapp' ? null : payload.notice;
+      nakIfRetryable(
+        await notify.create({
+          userId: payload.userId,
+          kind: 'agents.run.completed',
+          titleKey: 'notify.agents.run.completed.title',
+          bodyKey: 'notify.agents.run.completed.body',
+          params: { runId: payload.runId, agentId: payload.agentId, finishedAt: payload.finishedAt },
+          href: `/agents/runs/${payload.runId}`,
+          severity: 'info',
+          sourceSubject: agentRunCompleted.subject,
+          sourceIdempotencyKey: payload.runId,
+          outOfApp: asked !== null,
+          ...(asked ? { askedChannels: [asked] } : {}),
         }),
       );
     }),

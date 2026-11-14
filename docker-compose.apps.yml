@@ -1415,6 +1415,8 @@ services:
       # Background test runs of an own agent; unset refuses a new one.
       AGENTS_BACKGROUND_TEST_STEPS:
       AGENTS_BACKGROUND_STEP_MS:
+      # Background runs of sessions (J-agents-06): the most steps one may take; unset refuses a new one.
+      AGENTS_SESSION_RUN_MAX_STEPS:
       # Copy-intel live plane (Class X). Pass-through only — unset stays refuse-closed.
       LIVE_TRADE_COPY_LEADER_PLANE_OPEN:
       LIVE_TRADE_COPY_LEADER_IDS:

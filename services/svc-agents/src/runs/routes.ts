@@ -13,7 +13,7 @@ export interface RunRouteKit {
   /** `agents:execute`, the person's own session only (owner decision 2026-10-29). */
   readonly executeProcedure: ExecuteProcedure;
   /** The session if it is the caller's; the same not-found for someone else's. */
-  readonly ownedSession: (sessionId: string, userId: string) => Promise<{ id: string; agentId: string }>;
+  readonly ownedSession: (sessionId: string, userId: string) => Promise<{ id: string; agentId: string; status: 'open' | 'closed' }>;
 }
 
 const runState = z.enum(RUN_STATES);
