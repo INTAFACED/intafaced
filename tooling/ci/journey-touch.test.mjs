@@ -6,8 +6,12 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, wri
 import { dirname, join, normalize, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  CANARY,
   DOCS_READ,
   FACTORY_SCRIPTS,
+  HELPER,
+  STACK_CANARY,
+  STACK_HELPERS,
   JOURNEY_CI,
   ROOT_DEPLOY_FILE,
   RUN_FILE,
@@ -645,8 +649,10 @@ const IMPORTS = new Map([
 
 test('STACK_FILE: a service’s own stack file and nothing wider', () => {
   for (const p of [STACK, STACK_VALUES, 'tooling/scripts/local-stack-services/mining-pool.mjs']) assert.equal(STACK_FILE.test(p), true, p);
+  // The stack itself is no service's own file; it narrows by the canary instead (STACK_CANARY, tested below).
+  assert.equal(STACK_FILE.test('tooling/scripts/local-test-stack.mjs'), false);
   for (const p of [
-    'tooling/scripts/local-test-stack.mjs',
+    'tooling/scripts/local-test-market.mjs',
     'tooling/scripts/local-stack-services/zz-planted.test.mjs',
     'tooling/scripts/local-stack-services/sub/bank.mjs',
     'tooling/scripts/local-stack-fixtures/bank.mjs',
@@ -752,6 +758,148 @@ test('planted 4 (theo-01 part 2): a named stack-file pull request seals on the l
     verdict: short4,
   });
   assert.equal(asRevert.ok, false, 'a revert is judged as it was before this part');
+});
+
+// ---- 14 Nov 2026 (project-state rows d64, d68): the four paths that sent named journey pull requests to all 32 shards ----
+
+const VENUE_READS = 'apps/customer/tests/real-app/venue-reads.mjs';
+const LOOK_FIXTURES = 'apps/customer/tests/real-app/look-fixtures.mjs';
+const SDK_SPEC = 'sdks/python/openapi/payments.openapi.json';
+const HELPERS = new Map([
+  ...IMPORTS,
+  ['venue-reads.mjs', 'export const readVenue = () => 1;'],
+  ['J-cex-spot-01.pw.mjs', "import { readVenue } from './venue-reads.mjs';"],
+  ['J-cex-spot-03.pw.mjs', "import { x } from './spot-chain.mjs';"],
+  ['spot-chain.mjs', "export { readVenue as x } from './venue-reads.mjs';"],
+  ['look-fixtures.mjs', '// look answers'],
+  ['J-home-ia-01.pw.mjs', "import { answers } from './look-fixtures.mjs';"],
+  ...CANARY.map((f) => [f, `// ${f}`]).filter(([f]) => !['J-cex-spot-01.pw.mjs', 'J-home-ia-01.pw.mjs'].includes(f)),
+]);
+const namedWith = (texts, ids = ['J-bank-13']) =>
+  namedInputs({ ids, journeyFiles: HEAD_FILES, importers: (ps) => stackImporters(ps, texts) });
+
+test('14 Nov, #8321: an SDK file (sdks/python) runs no journeys', () => {
+  assert.equal(pathKind(SDK_SPEC).kind, 'none');
+  assert.equal(pathKind('sdks/python/intafaced_pay/operations.py').kind, 'none');
+  assert.deepEqual(journeyTouch([...product, SDK_SPEC], () => true, null, namedWith(HELPERS)).files, ['J-bank-13.pw.mjs']);
+});
+
+test('14 Nov, #8322: a named change to venue-reads.mjs runs the journeys importing it, directly or through a helper', () => {
+  const v = journeyTouch([VENUE_READS], () => true, null, namedWith(HELPERS));
+  assert.equal(v.mode, 'files');
+  assert.deepEqual(v.files, ['J-bank-13.pw.mjs', 'J-cex-spot-01.pw.mjs', 'J-cex-spot-03.pw.mjs']);
+  assert.deepEqual(v.stack, [VENUE_READS]);
+  // The real folder: the two spot journeys that import it.
+  const real = checkoutJourneyTexts(ROOT);
+  assert.deepEqual(stackImporters([VENUE_READS], real), ['J-cex-spot-01.pw.mjs', 'J-cex-spot-03.pw.mjs']);
+});
+
+test('14 Nov, #8310: a named change to look-fixtures.mjs with product code runs the named journey and its importers', () => {
+  const l = journeyTouch([...product, LOOK_FIXTURES], () => true, null, namedWith(HELPERS));
+  assert.deepEqual([l.mode, l.files], ['files', ['J-bank-13.pw.mjs', 'J-home-ia-01.pw.mjs']]);
+});
+
+test('14 Nov, #8320: a named change to local-test-stack.mjs runs the named journeys and the canary, never the full suite', () => {
+  const s = journeyTouch([...product, STACK_CANARY, STACK], () => true, null, namedWith(HELPERS));
+  assert.equal(s.mode, 'files');
+  assert.deepEqual(s.files, [...new Set(['J-bank-13.pw.mjs', 'J-wallet-05.pw.mjs', ...CANARY])].sort());
+  assert.deepEqual(s.stack, [STACK_CANARY, STACK].sort());
+  const real = checkoutJourneyTexts(ROOT);
+  for (const f of CANARY) assert.ok(real.has(f), `${f}: a canary journey file at this checkout`);
+  assert.deepEqual(stackImporters([STACK_CANARY], real), [...CANARY].sort());
+});
+
+test('planted: what still runs the full suite after the four paths narrow', () => {
+  const named = namedWith(HELPERS);
+  const full = (paths, n = named, why) => assert.equal(journeyTouch(paths, () => true, null, n).mode, 'full', why ?? paths.join(' '));
+  // Unnamed, or the journey texts unreadable: as before.
+  for (const p of [VENUE_READS, LOOK_FIXTURES, STACK_CANARY]) {
+    full([p], null, `${p}: no name`);
+    full([p], namedInputs({ ids: ['J-bank-13'], journeyFiles: HEAD_FILES }), `${p}: texts unreadable`);
+  }
+  // A helper outside code reaches, or that reaches the config, a look sweep or one of those.
+  full(['apps/customer/tests/real-app/journey.mjs']);
+  full(['apps/customer/tests/real-app/real-app.playwright.config.mjs']);
+  full(
+    [VENUE_READS],
+    namedWith(new Map([...HELPERS, ['look-sweep-390.pw.mjs', "import './venue-reads.mjs';"]])),
+    'a look sweep imports it',
+  );
+  full([VENUE_READS], namedWith(new Map([...HELPERS, ['journey.mjs', "import './venue-reads.mjs';"]])), 'a stack helper imports it');
+  full(
+    [VENUE_READS],
+    namedWith(new Map([...HELPERS, ['fixture.config.mjs', "reporter: ['./venue-reads.mjs']"]])),
+    'an entry point names it',
+  );
+  // The canary missing at the head.
+  full([STACK_CANARY], namedWith(new Map([...HELPERS].filter(([f]) => f !== CANARY[0]))), 'a canary file removed');
+  // The stack's siblings and another full path stay full.
+  full(['tooling/scripts/local-test-market.mjs']);
+  full(['tooling/scripts/local-test-seed.mjs']);
+  full([STACK_CANARY, 'tooling/scripts/local-test-market.mjs']);
+  full([VENUE_READS, 'pnpm-lock.yaml']);
+  full([SDK_SPEC, '.github/workflows/real-app-journeys.yml']);
+  // A helper in a subfolder or a non-module beside the journeys is no HELPER.
+  for (const p of ['apps/customer/tests/real-app/sub/venue-reads.mjs', 'apps/customer/tests/real-app/fixtures.json']) {
+    assert.equal(HELPER.test(p) && !p.includes('/sub/'), false, p);
+    full([p]);
+  }
+});
+
+test('STACK_HELPERS holds every helper that code outside the journey files names, so the rest reach only journeys', () => {
+  const dir = 'apps/customer/tests/real-app';
+  const helpers = readdirSync(join(ROOT, dir)).filter((f) => f.endsWith('.mjs') && !f.endsWith('.pw.mjs'));
+  assert.ok(helpers.includes('venue-reads.mjs') && helpers.includes('journey.mjs'), 'sanity');
+  const outside = execFileSync('git', ['ls-files'], { cwd: ROOT, encoding: 'utf8' })
+    .split('\n')
+    .filter(Boolean)
+    // What runs: not docs, Markdown, unit tests, the reach map's data, or a CI check outside the journeys run.
+    .filter((f) => !f.startsWith(`${dir}/`) && !f.startsWith('docs/') && !/\.md$/.test(f) && !/\.(test|spec)\./.test(f))
+    // This classifier names helpers only as its own data.
+    .filter((f) => !['tooling/ci/journey-reach-map.json', 'tooling/ci/journey-touch.mjs'].includes(f))
+    .filter((f) => !f.startsWith('tooling/ci/') || JOURNEY_CI.includes(f))
+    .filter((f) => !/\.(png|jpe?g|webp|gif|ico|woff2?|ttf|pdf|zip|gz|wasm|sha1)$/i.test(f) && statSync(join(ROOT, f)).size < 4e6);
+  const texts = outside.map((f) => [f, readFileSync(join(ROOT, f), 'utf8')]);
+  const named = (h) => texts.filter(([, t]) => new RegExp(`(^|[^A-Za-z0-9_-])${h.replace(/[.]/g, '\\.')}`).test(t)).map(([f]) => f);
+  for (const h of helpers) {
+    const by = named(h);
+    if (by.length) assert.ok(STACK_HELPERS.includes(h), `${h} is named by ${by.slice(0, 3).join(', ')}: add it to STACK_HELPERS`);
+  }
+  // Planted: the same matcher finds a stack script naming a helper by path.
+  assert.deepEqual(
+    [['tooling/scripts/x.mjs', "import '../../apps/customer/tests/real-app/venue-reads.mjs';"]]
+      .filter(([, t]) => /(^|[^A-Za-z0-9_-])venue-reads\.mjs/.test(t))
+      .map(([f]) => f),
+    ['tooling/scripts/x.mjs'],
+  );
+  for (const h of ['venue-reads.mjs', 'look-fixtures.mjs']) assert.equal(STACK_HELPERS.includes(h), false, h);
+});
+
+test('planted 6: a named helper or stack change seals on its list, and is held when an importer or the canary is missing or red', async () => {
+  const title = 'customer: spot (J-bank-13 #1)';
+  const states = { 'J-bank-13#1': 'passed' };
+  const io = { ...namedIo, journeyTexts: async () => HELPERS };
+  const helper = { title, files: [VENUE_READS], runs: [run(1)], io };
+  const ran = ['J-bank-13.pw.mjs', 'J-cex-spot-01.pw.mjs', 'J-cex-spot-03.pw.mjs'];
+  // Not a full run (another journey missing): main's code held these for the full suite.
+  const partial = async () => ({ ...clean, missing: ['J-bank-14.pw.mjs'] });
+  const good = await seal({ ...helper, reports: { 1: { states, ran } }, verdict: partial });
+  assert.equal(good.ok, true, good.lines.join('\n'));
+  const short = await seal({ ...helper, reports: { 1: { states, ran: ran.slice(0, 2) } }, verdict: async () => clean });
+  assert.equal(short.ok, false, 'a run without an importer is held');
+  const broke = await seal({ ...helper, reports: { 1: { states, ran } }, verdict: async () => red('J-cex-spot-03#1') });
+  assert.equal(broke.ok, false, 'breaking an importer holds it');
+  const stack = { title, files: [...product, STACK_CANARY], runs: [run(1)], io };
+  const canaryRan = ['J-bank-13.pw.mjs', ...CANARY];
+  const sGood = await seal({ ...stack, reports: { 1: { states, ran: canaryRan } }, verdict: partial });
+  assert.equal(sGood.ok, true, sGood.lines.join('\n'));
+  const sShort = await seal({ ...stack, reports: { 1: { states, ran: canaryRan.slice(0, 3) } }, verdict: async () => clean });
+  assert.equal(sShort.ok, false, 'a run without the whole canary is held');
+  const sBroke = await seal({ ...stack, reports: { 1: { states, ran: canaryRan } }, verdict: async () => red('J-p2p-01#1') });
+  assert.equal(sBroke.ok, false, 'a red canary holds it');
+  const short4 = async () => ({ ...clean, missing: ['J-bank-14.pw.mjs'] });
+  const unnamed = await seal({ ...stack, title: 'stack: x', reports: { 1: { states: {}, ran: canaryRan } }, verdict: short4 });
+  assert.equal(unnamed.ok, false, 'unnamed: the full run is still needed');
 });
 
 // A root deploy file (compose, .env.example): `pnpm local:stack` never reads one, so a named journey build
