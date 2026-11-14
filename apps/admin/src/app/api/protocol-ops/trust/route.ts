@@ -3,6 +3,8 @@ import {
   HUMAN_TOKEN_TIERS,
   protocolComplianceReportsOutputSchema,
   protocolComplianceReviewSchema,
+  protocolNameTagRequestSchema,
+  protocolNameTagsOutputSchema,
   protocolOnboardingChecklistSchema,
   protocolOnboardingOutputSchema,
   protocolTokenTierSchema,
@@ -20,7 +22,7 @@ import { trustRefusalWords } from '@/lib/protocol-trust/model';
 /**
  * The Protocol trust desk (J-dex-protocol-30) as the signed-in founder: GET reads svc-protocol's compliance queue, its
  * token list, its audit rows, the human token tiers and the permissioned pool checklists; POST asks for or approves a
- * label or a tier, removes a tier, and opens or approves a checklist (`compliance.*`). The second person must be a
+ * label, a tier or a name tag, removes a tier, and opens or approves a checklist (`compliance.*`). The second person must be a
  * different person, which svc-protocol enforces. A reply that never arrived is reported as
  * unknown, never as failed, and is never sent again on its own.
  */
@@ -55,12 +57,13 @@ export async function GET(request: Request) {
   if (disabled) return disabled;
   const session = await adminBffSession(request);
   if (session instanceof Response) return session;
-  const [reports, tokens, audit, tiers, onboarding] = await Promise.all([
+  const [reports, tokens, audit, tiers, onboarding, nameTags] = await Promise.all([
     founderCall(session, 'protocol', 'compliance.reports.list', 'GET', undefined, parseWith(protocolComplianceReportsOutputSchema)),
     founderCall(session, 'protocol', 'tokens.list', 'GET', { window: '24h' }, parseWith(tokensListOutputSchema)),
     founderCall(session, 'protocol', 'auditProducts', 'GET', undefined, parseWith(protocolAuditProductsSchema)),
     founderCall(session, 'protocol', 'compliance.tiers.list', 'GET', undefined, parseWith(protocolTokenTiersOutputSchema)),
     founderCall(session, 'protocol', 'compliance.onboarding.list', 'GET', undefined, parseWith(protocolOnboardingOutputSchema)),
+    founderCall(session, 'protocol', 'compliance.nameTags.list', 'GET', undefined, parseWith(protocolNameTagsOutputSchema)),
   ]);
   return answer(
     {
@@ -70,6 +73,7 @@ export async function GET(request: Request) {
       audit: part(audit, 'audit rows'),
       tiers: part(tiers, 'token tiers'),
       onboarding: part(onboarding, 'pool onboarding checklists'),
+      nameTags: part(nameTags, 'name tag requests'),
     },
     200,
   );
@@ -157,6 +161,19 @@ export async function POST(request: Request) {
     procedure = 'compliance.onboarding.approve';
     input = { checklistId: raw.checklistId, reason };
     schema = protocolOnboardingChecklistSchema;
+  } else if (raw.op === 'nametag-request') {
+    const tag = text(raw.tag, 60);
+    const reason = text(raw.reason, 500);
+    const address = addr(raw.address);
+    if (!address || tag === null || reason === null) return invalid();
+    procedure = 'compliance.nameTags.request';
+    input = { address, tag, reason };
+    schema = protocolNameTagRequestSchema;
+  } else if (raw.op === 'nametag-approve') {
+    if (typeof raw.requestId !== 'string' || !UUID.test(raw.requestId)) return invalid();
+    procedure = 'compliance.nameTags.approve';
+    input = { requestId: raw.requestId };
+    schema = protocolNameTagRequestSchema;
   } else return invalid();
 
   const result = await founderCall(session, 'protocol', procedure, 'POST', input, parseWith(schema));

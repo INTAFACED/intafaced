@@ -12,6 +12,8 @@ import { createLedgerClient } from './ledger-client.js';
 import { createMarketNames } from './markets.js';
 import { createParticipantClient } from './participants.js';
 import { PayoutSaga } from './payouts.js';
+import { RewardPayer } from './reward-payer.js';
+import { ledgerPostingEnabled, testRewardChain } from './test-chain.js';
 import { TaskService } from './tasks.js';
 import { createVenueDepositSource } from './venue-deposits.js';
 import { VoucherService } from './vouchers.js';
@@ -265,6 +267,45 @@ const reconciler =
     : null;
 reconciler?.unref();
 
+// Paying owed rewards to the customer's own wallet (J-campaigns-03 #2 #3): from our own-funds place, on the LOCAL TEST
+// chain only. Any owner value or TEST chain fact blank: none runs, and an owed reward stays owed.
+const payWallet = /^(.+)=(0x[0-9a-fA-F]{40})$/.exec(env.CAMPAIGNS_REWARD_PAY_WALLET ?? '');
+const payer =
+  ledger &&
+  env.LEDGER_URL &&
+  payWallet &&
+  env.CAMPAIGNS_REWARD_PAY_INTERVAL_MS &&
+  env.CAMPAIGNS_TEST_CHAIN_RPC_URL &&
+  env.CAMPAIGNS_TEST_CHAIN_TOKEN &&
+  env.CAMPAIGNS_TEST_CHAIN_TOKEN_DECIMALS !== undefined &&
+  env.CAMPAIGNS_TEST_CHAIN_ID
+    ? new RewardPayer({
+        sql,
+        ledger,
+        chain: testRewardChain({
+          rpcUrl: env.CAMPAIGNS_TEST_CHAIN_RPC_URL,
+          token: env.CAMPAIGNS_TEST_CHAIN_TOKEN,
+          chainId: env.CAMPAIGNS_TEST_CHAIN_ID,
+        }),
+        wallet: { walletId: payWallet[1]!, address: payWallet[2]!, tokenDecimals: env.CAMPAIGNS_TEST_CHAIN_TOKEN_DECIMALS },
+        postingEnabled: ledgerPostingEnabled(env.LEDGER_URL),
+      })
+    : null;
+let paying = false;
+const payTimer = payer
+  ? setInterval(() => {
+      if (paying) return;
+      paying = true;
+      payer
+        .pass()
+        .catch((err: unknown) => app.log.error({ err }, 'reward payment pass failed'))
+        .finally(() => {
+          paying = false;
+        });
+    }, env.CAMPAIGNS_REWARD_PAY_INTERVAL_MS)
+  : null;
+payTimer?.unref();
+
 // Voucher expiry (J-campaigns-08): marks each claimed voucher whose use-by passed `expired`, once, and drops code
 // attempts older than the attempt window, which nothing counts any more. It moves no value, so
 // it runs whether or not the ledger is connected; a redemption after the use-by refuses whether or not it has run.
@@ -287,13 +328,15 @@ if (!saga)
   app.log.warn(
     'LEDGER_URL or INTERNAL_SERVICE_SECRET is unset: every claim refuses campaigns.reward_saga_unwired and no earning rule pays',
   );
-app.log.info({ port: env.HTTP_PORT, participants: participantsWired, ledger: Boolean(saga) }, 'svc-campaigns ready');
+if (!payer) app.log.warn('no reward payer: an owed reward stays owed (campaigns.reward_payout_unavailable)');
+app.log.info({ port: env.HTTP_PORT, participants: participantsWired, ledger: Boolean(saga), payer: Boolean(payer) }, 'svc-campaigns ready');
 
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     void (async () => {
       stopping = true;
       if (reconciler) clearInterval(reconciler);
+      if (payTimer) clearInterval(payTimer);
       clearInterval(voucherExpiry);
       if (busRetry) clearTimeout(busRetry);
       if (welcomeRetry) clearTimeout(welcomeRetry);

@@ -298,6 +298,8 @@ describe('TEST venue withdrawals paid on the chain (J-wallet-09 #5)', () => {
     chain.mine(hash(1000));
     expect(await payPendingWithdrawals(w.sim, ROUTE, chain.payer, paid, w.now(), 4000)).toEqual({ done: [nonce], failed: [] });
     expect((await w.sim.withdrawal(w.account, nonce)).value?.status).toBe('done');
+    // The venue's record names the chain transaction that paid it.
+    expect((await w.sim.withdrawal(w.account, nonce)).value?.txHash).toBe(hash(1000).toLowerCase());
     // Done stays done: nothing is paid again.
     await payPendingWithdrawals(w.sim, ROUTE, chain.payer, paid, w.now(), 4000);
     expect(chain.sent).toHaveLength(1);
@@ -455,6 +457,8 @@ describe('TEST venue withdrawals paid on the chain (J-wallet-09 #5)', () => {
     expect((await w.sim.withdrawal(w.account, nonce)).value?.status).toBe('pending');
     expect(w.sim.settleWithdrawals()).toBe(1);
     expect((await w.sim.withdrawal(w.account, nonce)).value?.status).toBe('done');
+    // Settled by the TEST control, not by a payment: the record names no chain transaction.
+    expect((await w.sim.withdrawal(w.account, nonce)).value).not.toHaveProperty('txHash');
     // Covered exactly (the amount less the 0.25 network fee), the next one is paid.
     const next = await w.withdraw('1', 7);
     chain.setHolds(750_000n);

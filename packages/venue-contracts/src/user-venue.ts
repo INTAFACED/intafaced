@@ -603,6 +603,11 @@ export interface UserVenueWithdrawal {
    * shown as "not known", never as 0.
    */
   readonly networkFee: MaybeKnown<Amount>;
+  /**
+   * The chain transaction that paid a `done` withdrawal, lowercase, when the venue reports it. Absent when it does not:
+   * never made up, and a reader that needs it waits (J-campaigns-03: a move of our own funds is keyed by it).
+   */
+  readonly txHash?: string;
 }
 
 /**
