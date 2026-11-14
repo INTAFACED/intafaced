@@ -53,7 +53,7 @@ const en = {
   total_owed: 'Owed by INTAFACED, not in your wallet',
   status_owed: 'Owed',
   why_owed:
-    'Owed to you by INTAFACED since {when}. It is not in your wallet and is not part of any balance: it has not been paid to your wallet yet.',
+    'Owed to you by INTAFACED since {when}. It is not in your wallet and is not part of any balance: it has not been paid to your wallet.',
   why_owed_frozen:
     'Owed to you by INTAFACED. Payments are paused on the platform, so nothing was sent; it is paid once to your connected wallet after they resume.',
   why_owed_wallet_short:
@@ -209,11 +209,11 @@ const fr: { [K in keyof typeof en]: string } = {
   total_owed: 'Dû par INTAFACED, pas dans votre portefeuille',
   status_owed: 'Due',
   why_owed:
-    'INTAFACED vous la doit depuis le {when}. Elle n’est ni dans votre portefeuille ni dans aucun solde : elle n’a pas encore été versée à votre portefeuille.',
+    'INTAFACED vous la doit depuis le {when}. Elle n’est ni dans votre portefeuille ni dans aucun solde : elle n’a pas été versée à votre portefeuille.',
   why_owed_frozen:
-    'INTAFACED vous la doit. Les paiements sont suspendus sur la plateforme, rien n’a donc été envoyé ; elle est versée une fois à votre portefeuille connecté dès leur reprise.',
+    'INTAFACED vous la doit. Les paiements sont suspendus sur la plateforme, rien n’a donc été envoyé. Elle est versée à votre portefeuille connecté dès leur reprise, jamais deux fois.',
   why_owed_wallet_short:
-    'INTAFACED vous la doit. Le portefeuille de récompenses d’INTAFACED ne peut pas la couvrir pour le moment, rien n’a donc été envoyé ; elle est versée une fois à votre portefeuille connecté dès que possible.',
+    'INTAFACED vous la doit. Le portefeuille de récompenses d’INTAFACED ne peut pas la couvrir pour le moment, rien n’a donc été envoyé. Elle est versée à votre portefeuille connecté dès qu’il le peut, jamais deux fois.',
   why_owed_no_wallet:
     'INTAFACED vous la doit. Connectez un portefeuille à votre compte et rouvrez cette page : elle est versée à ce portefeuille. Rien n’a été envoyé.',
   why_owed_stuck:

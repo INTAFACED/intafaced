@@ -58,6 +58,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, testChain }) => ({
     // for svc-protocol alone), in its TEST USD (6 decimals). The wallet and the interval are labelled in
     // tooling/profiles/test-owner-values/campaigns.json. With no TEST chain none of it is set and no payer runs.
     ...rewardPayer(testChain?.()),
+    // LOCAL TEST only, labelled in tooling/profiles/test-owner-values/campaigns.json: the most INTAFACED may owe in USDC
+    // rewards, per campaign and in all (OWNER 288: the owner's ceiling is zero until he sets it). Production stays blank and
+    // every USDC reward refuses ledger.reward_ceiling_unset, nothing owed (J-campaigns-03).
+    CAMPAIGNS_REWARD_CEILING_PER_CAMPAIGN: testValue('CAMPAIGNS_REWARD_CEILING_PER_CAMPAIGN'),
+    CAMPAIGNS_REWARD_CEILING_TOTAL: testValue('CAMPAIGNS_REWARD_CEILING_TOTAL'),
   }),
 });
 
