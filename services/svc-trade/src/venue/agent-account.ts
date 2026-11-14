@@ -437,7 +437,10 @@ export class AgentAccounts {
   async list(principal: Principal): Promise<readonly AgentAccountView[]> {
     assertPerson(principal);
     const rows = await this.deps.store.list(principal.userId);
-    return Promise.all(rows.map((a) => this.advance(principal, a.accountId)));
+    const views = await Promise.all(rows.map((a) => this.advance(principal, a.accountId)));
+    // An ask that ended before the venue opened anything is no account (#3: "a rejected signature ... makes no
+    // account"): it is not listed. One the venue opened a sub-account for stays listed, so the person sees it.
+    return views.filter((v) => !(v.status === 'abandoned' && v.subAccount === null));
   }
 
   /** Prepare (or re-use) one of this account's actions through the door. */

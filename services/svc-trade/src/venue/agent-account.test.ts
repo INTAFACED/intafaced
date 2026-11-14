@@ -260,6 +260,8 @@ describe('the agent account on the TEST venue', () => {
     const gone = await accounts.abandon(principal, first.accountId);
     expect(gone.status).toBe('abandoned');
     expect(gone.next).toBeNull();
+    // No account: none is listed.
+    expect(await accounts.list(principal)).toEqual([]);
     expect((await sim.subAccounts(main())).value).toHaveLength(subsBefore);
     expect(await usdc(main())).toBe(mainBefore);
     // Its prepared action can never be sent afterwards.
@@ -278,6 +280,8 @@ describe('the agent account on the TEST venue', () => {
     expect(await usdc(main())).toBe(mainBefore);
     expect(await usdc({ ...main(), subAccount: v.subAccount })).toBe(a('0'));
     expect((await accounts.list(principal)).filter((x) => x.status === 'open')).toEqual([]);
+    // The sub-account the venue opened stays listed, ended, so the person sees it.
+    expect((await accounts.list(principal)).map((x) => [x.accountId, x.status])).toEqual([[v.accountId, 'abandoned']]);
   });
 
   it('#4: funding 100 more is refused agents.account_cap_exceeded naming 50 of room, before anything is prepared; nothing moves', async () => {

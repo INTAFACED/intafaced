@@ -317,18 +317,8 @@ test(`${J} #3 Creates an agent account with a cap of TEST 200 USDC and funds it 
     );
     expect(testWallet.requests.map((r) => r.method)).toEqual(['eth_signTypedData_v4']);
     expect(testWallet.requests[0].signature).toBeUndefined();
-    // No account: the one asked for is ended, with no venue account, nothing moved into it and no move signed; the venue
-    // holds no new sub-account and the main venue account is unchanged.
-    const afterReject = body200(await session.get(BASE)).accounts;
-    expect(afterReject).toHaveLength(1);
-    expect(afterReject[0]).toMatchObject({
-      accountId: created.accountId,
-      status: 'abandoned',
-      subAccount: null,
-      balances: null,
-      next: null,
-    });
-    expect(afterReject[0].moves.every((m) => m.state !== 'done')).toBe(true);
+    // No account: none is listed, the venue holds no new sub-account and the main venue account is unchanged.
+    expect(body200(await session.get(BASE)).accounts).toEqual([]);
     expect((await venue('/sub-accounts', { account: await acct(owner()) })).value).toEqual(subsBefore);
     expect(same(await venueUsdc(owner()), mainBefore)).toBe(true);
     // Its prepared action is never sent afterwards, even signed.
@@ -348,7 +338,7 @@ test(`${J} #3 Creates an agent account with a cap of TEST 200 USDC and funds it 
   // Without step-up: refused, nothing made.
   const fields = (accountId) => ({ accountId, owner: owner(), asset: 'USDC', cap: '200', fund: '150' });
   refused(await session.post(BASE, fields(randomUUID())), 403, 'identity.step_up_required');
-  expect(body200(await session.get(BASE)).accounts.filter((a) => a.status !== 'abandoned')).toEqual([]);
+  expect(body200(await session.get(BASE)).accounts).toEqual([]);
 
   // The account: cap 200, first funding 150, with step-up.
   const accountId = randomUUID();
