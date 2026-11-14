@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS "academy"."course_purchases" (
   "refund_reason"       text,
   "refund_actor"        uuid,
   "refund_tx_hash"      text,
+  "refund_send_at"      timestamptz,
   "refund_ledger_tx_id" text,
   "created_at"          timestamptz NOT NULL,
   "updated_at"          timestamptz NOT NULL,

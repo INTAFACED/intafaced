@@ -346,7 +346,7 @@ async function navigatorSign(req, res) {
   }
 }
 
-/** The refunds the TEST refund signer has sent, by key, so the same key never sends twice (kept for this chain's life). */
+/** The refunds the TEST refund signer has sent or is sending, by key (a promise of its hash), so the same key never sends twice (kept for this chain's life). */
 const academyRefunds = new Map();
 
 /**
@@ -380,17 +380,23 @@ async function academyRefund(req, res) {
     return answer(400, { error: 'refund.wrong_token: the seeded TEST USD only' });
   if (typeof call.to !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(call.to)) return answer(400, { error: 'refund.bad_to' });
   if (typeof call.amount !== 'string' || !/^[1-9][0-9]{0,30}$/.test(call.amount)) return answer(400, { error: 'refund.bad_amount' });
-  const sent = academyRefunds.get(call.key);
-  if (sent) return answer(200, { hash: sent });
-  const pad = (hex) => hex.replace(/^0x/, '').toLowerCase().padStart(64, '0');
-  const data = `0xa9059cbb${pad(call.to)}${pad(BigInt(call.amount).toString(16))}`;
+  // The key is held before anything is awaited, so two requests at once share the one send and answer its one hash.
+  let sending = academyRefunds.get(call.key);
+  if (!sending) {
+    const pad = (hex) => hex.replace(/^0x/, '').toLowerCase().padStart(64, '0');
+    const data = `0xa9059cbb${pad(call.to)}${pad(BigInt(call.amount).toString(16))}`;
+    sending = (async () => {
+      await anvilRpc('anvil_impersonateAccount', [ACADEMY_TEST_RECEIVER]);
+      // TEST ETH for gas only; the call itself carries no value.
+      await anvilRpc('anvil_setBalance', [ACADEMY_TEST_RECEIVER, '0x56bc75e2d63100000']);
+      return anvilRpc('eth_sendTransaction', [{ from: ACADEMY_TEST_RECEIVER, to: usd, data, value: '0x0' }]);
+    })();
+    academyRefunds.set(call.key, sending);
+    // A send that failed before it reached the chain frees the key for the next try.
+    sending.catch(() => academyRefunds.delete(call.key));
+  }
   try {
-    await anvilRpc('anvil_impersonateAccount', [ACADEMY_TEST_RECEIVER]);
-    // TEST ETH for gas only; the call itself carries no value.
-    await anvilRpc('anvil_setBalance', [ACADEMY_TEST_RECEIVER, '0x56bc75e2d63100000']);
-    const hash = await anvilRpc('eth_sendTransaction', [{ from: ACADEMY_TEST_RECEIVER, to: usd, data, value: '0x0' }]);
-    academyRefunds.set(call.key, hash);
-    return answer(200, { hash });
+    return answer(200, { hash: await sending });
   } catch (err) {
     return answer(502, { error: `refund.send_failed: ${err.message}` });
   }

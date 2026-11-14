@@ -102,8 +102,11 @@ class FakeLedger {
 class FakeRefunds implements RefundSender {
   sends: RefundSend[] = [];
   answer: 'hash' | 'lost' = 'hash';
+  /** While set, a send waits for it: the test holds a send in flight. */
+  hold: Promise<void> | null = null;
   async send(input: RefundSend) {
     this.sends.push(input);
+    if (this.hold) await this.hold;
     return this.answer === 'hash' ? REFUND_TX : null;
   }
 }
@@ -122,11 +125,11 @@ const wallets: LinkedWalletsPort = {
 let purchases: CoursePurchases;
 let learners: CourseLearners;
 
-async function paidCourse(price: string | null = '2.5', asset = 'USDC') {
+async function paidCourse(price: string | null = '2.5', asset = 'USDC', slug = 'perps-101') {
   const records = new CourseRecords(db.sql, { maxSections: 5, maxItems: 3 });
   const course = await records.create({
-    slug: 'perps-101',
-    title: 'Perps 101',
+    slug,
+    title: slug === 'perps-101' ? 'Perps 101' : `TEST ${slug}`,
     summary: null,
     thumbnailUrl: null,
     pricing: 'paid',
@@ -518,6 +521,49 @@ describe('course purchases', () => {
     // Bought again after the refund: a new purchase, n = 2.
     const next = await purchases.buy({ userId: L, slug: 'perps-101', wallet: WALLET });
     expect(next.purchase?.key).toBe(`academy:purchase:perps-101:${L}:2`);
+  });
+
+  it('a refund is sent by one caller at a time: a staff read, a view and the reconciler arriving mid-send send nothing more', async () => {
+    await paidCourse();
+    await purchases.buy({ userId: L, slug: 'perps-101', wallet: WALLET });
+    pay();
+    chain.head += 1n;
+    await purchases.submitPayment({ userId: L, key: KEY, txHash: PAY });
+    let release!: () => void;
+    refunds.hold = new Promise((resolve) => (release = resolve));
+    const first = purchases.refund({ key: KEY, reason: 'asked within the window', actorId: STAFF });
+    await expect.poll(() => refunds.sends.length).toBe(1);
+    // While the first send is in flight, every other way in reaches the refund and sends nothing.
+    await Promise.all([purchases.reconcile(), purchases.staffRead(KEY), purchases.view({ userId: L, slug: 'perps-101' })]);
+    expect(refunds.sends).toHaveLength(1);
+    release();
+    expect(await first).toMatchObject({ state: 'refunding', refund: { txHash: REFUND_TX } });
+    refunds.hold = null;
+    await purchases.reconcile();
+    expect(refunds.sends).toHaveLength(1);
+  });
+
+  it('a transfer two open intents of the same wallet could both have paid is taken for neither until the wallet reports its hash', async () => {
+    await paidCourse();
+    await paidCourse('2.5', 'USDC', 'perps-102');
+    await purchases.buy({ userId: L, slug: 'perps-101', wallet: WALLET });
+    await purchases.buy({ userId: L, slug: 'perps-102', wallet: WALLET });
+    pay();
+    chain.head += 1n;
+    await purchases.reconcile();
+    expect((await rows()).map((r) => r.state)).toEqual(['awaiting_signature', 'awaiting_signature']);
+    expect(ledger.calls).toEqual([]);
+    // The wallet's reported hash says which course it paid: that one only.
+    const KEY_102 = `academy:purchase:perps-102:${L}:1`;
+    await purchases.submitPayment({ userId: L, key: KEY_102, txHash: PAY });
+    await purchases.reconcile();
+    const states = await db.sql<Array<{ purchase_key: string; state: string; tx_hash: string | null }>>`
+      SELECT purchase_key, state, tx_hash FROM academy.course_purchases ORDER BY purchase_key`;
+    expect(states).toEqual([
+      { purchase_key: KEY, state: 'awaiting_signature', tx_hash: null },
+      { purchase_key: KEY_102, state: 'posted', tx_hash: PAY },
+    ]);
+    expect(ledger.calls).toEqual([KEY_102]);
   });
 
   it('a purchase not yet recorded cannot be refunded; a refund transaction that sends something else is stopped, never sent again', async () => {

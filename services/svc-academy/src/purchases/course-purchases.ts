@@ -79,6 +79,7 @@ type PurchaseRow = {
   refund_reason: string | null;
   refund_actor: string | null;
   refund_tx_hash: string | null;
+  refund_send_at: Date | null;
   refund_ledger_tx_id: string | null;
   created_at: Date;
   updated_at: Date;
@@ -360,6 +361,17 @@ export class CoursePurchases {
         SELECT id FROM academy.course_purchases WHERE chain_id = ${row.chain_id} AND tx_hash = ${transfer.txHash}
       `;
       if (used) continue;
+      // A plain transfer names no course. If another open intent of this wallet could have paid this same transfer (same
+      // receiver, token and price, opened at or before its block), it is not taken for either: the wallet's own reported
+      // hash settles which purchase it paid, so a payment is never recorded against the wrong course.
+      const [rival] = await this.sql<Array<{ id: string }>>`
+        SELECT id FROM academy.course_purchases
+         WHERE id <> ${row.id} AND state IN ('awaiting_signature', 'abandoned') AND chain_id = ${row.chain_id}
+           AND payer = ${row.payer} AND receiver = ${row.receiver} AND token = ${row.token} AND price = ${row.price}
+           AND token_decimals = ${row.token_decimals} AND from_block::numeric <= ${transfer.blockNumber.toString()}::numeric
+         LIMIT 1
+      `;
+      if (rival) continue;
       const [moved] = await this.sql<PurchaseRow[]>`
         UPDATE academy.course_purchases SET state = 'submitted', tx_hash = ${transfer.txHash}, updated_at = now()
          WHERE id = ${row.id} AND state IN ('awaiting_signature', 'abandoned')
@@ -478,14 +490,38 @@ export class CoursePurchases {
   private async advanceRefund(row: PurchaseRow): Promise<PurchaseRow> {
     if (!row.refund_tx_hash) {
       if (!this.deps.refunds) return row;
-      const hash = await this.deps.refunds.send({
-        key: row.refund_key!,
-        chainId: row.chain_id,
-        token: row.token,
-        to: row.payer,
-        amount: this.amountOf(row),
-      });
-      if (!hash) return row;
+      // One caller sends at a time: the reconciler, a staff read, a learner's view and a refund call can all reach here at
+      // once. A claim a crash left behind is taken again after the deadline; the signer answers a key it already sent
+      // with that same transaction, so a retry never sends twice.
+      const [claimed] = await this.sql<Array<{ id: string }>>`
+        UPDATE academy.course_purchases SET refund_send_at = now()
+         WHERE id = ${row.id} AND state = 'refunding' AND refund_tx_hash IS NULL
+           AND (refund_send_at IS NULL OR refund_send_at < now() - make_interval(secs => ${POST_DEADLINE_SECONDS}))
+        RETURNING id
+      `;
+      if (!claimed) return this.reread(row);
+      const release = () => this.sql`
+        UPDATE academy.course_purchases SET refund_send_at = NULL
+         WHERE id = ${row.id} AND state = 'refunding' AND refund_tx_hash IS NULL
+      `;
+      let hash: string | null;
+      try {
+        hash = await this.deps.refunds.send({
+          key: row.refund_key!,
+          chainId: row.chain_id,
+          token: row.token,
+          to: row.payer,
+          amount: this.amountOf(row),
+        });
+      } catch (err) {
+        await release();
+        throw err;
+      }
+      // A lost answer frees the claim: the next try asks the signer again under the same key.
+      if (!hash) {
+        await release();
+        return row;
+      }
       const [sent] = await this.sql<PurchaseRow[]>`
         UPDATE academy.course_purchases SET refund_tx_hash = ${hash}, updated_at = now()
          WHERE id = ${row.id} AND state = 'refunding' AND refund_tx_hash IS NULL RETURNING *
