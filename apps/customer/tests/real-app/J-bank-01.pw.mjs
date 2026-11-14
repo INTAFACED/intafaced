@@ -277,7 +277,7 @@ test(`${J} #5 moves TEST 20 from the main balance into the space, and a locked s
   );
   await dialog.getByRole('button', { name: 'Confirm' }).click();
   const reply = await answered;
-  const sent = reply.request().postDataJSON();
+  const asked = reply.request().postDataJSON();
   const made = (await reply.json()).result.data;
   // One partner move, keyed by the transfer id the app sent, and no ledger transaction.
   expect(made).toMatchObject({ ledgerTxId: null, amount: '20', partnerMove: { label: PARTNER_BANK } });
@@ -294,7 +294,7 @@ test(`${J} #5 moves TEST 20 from the main balance into the space, and a locked s
   const usdt = after.filter((s) => s.assetId === 'USDT' && !s.archivedAt);
   expect(usdt.reduce((sum, s) => sum + toUnits(s.balance), 0n)).toBe(toUnits('100'));
   // The same transfer id again is the same move, made once: the partner answers with it and nothing moves twice.
-  const again = await (await bank(who)).mutate('transfers.create', sent);
+  const again = await (await bank(who)).mutate('transfers.create', asked);
   expect(again).toMatchObject({ ok: true, data: { ledgerTxId: null, partnerMove: { id: made.partnerMove.id } } });
   const twice = await spaces(who);
   expect(main(twice).balance).toBe(main(after).balance);
