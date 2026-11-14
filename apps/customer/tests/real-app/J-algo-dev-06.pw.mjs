@@ -1,9 +1,10 @@
-// World: none
+// World: restart
 // Market: live
 import { test, expect } from './journey.mjs';
 import { api, journeyState } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { tapeWindow } from './tape.mjs';
+import { venueForThisFile } from './venue.mjs';
 
 // J-algo-dev-06, in the running app (docs/roadmap/journeys.json): promote a strategy to live under my own limits. One test
 // per step, titled "J-algo-dev-06 #<n>", run in order on one TEST developer who starts signed in, verified, with a
@@ -21,6 +22,8 @@ const STRATEGY = 'TEST promotion strategy';
 const STOP_STRATEGY = 'TEST stop-loss strategy';
 
 test.describe.configure({ mode: 'default' });
+// svc-trade's user-venue door is on for this file, so #7 reads the person's live runs where a deploy would store them.
+venueForThisFile(test);
 
 function developer() {
   const who = run.read().account;
