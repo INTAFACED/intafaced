@@ -68,6 +68,32 @@ describe('recipe-gate', () => {
     expect(recipeCandidates(toWire(merchant))).toContain('merchantFeeEarn');
   });
 
+  it('accepts a move of our own funds with its costs, and refuses a cost leg sent to a customer instead', () => {
+    const move = (costs: Parameters<typeof recipes.ownFundsMove>[0]['costs']) =>
+      recipes.ownFundsMove({
+        from: { kind: 'venue-builder-account', venueId: 'venue-a' },
+        to: { kind: 'treasury-wallet', walletId: 'base:ops' },
+        assetId: 'USDC',
+        amount: amt('5'),
+        reference: '0xmove',
+        costs,
+      });
+    for (const costs of [
+      undefined,
+      [{ kind: 'network-fee' as const, paidTo: 'base', amount: amt('0.1') }],
+      [{ kind: 'venue-withdrawal-fee' as const, paidTo: 'venue-a', amount: amt('1') }],
+      [
+        { kind: 'venue-withdrawal-fee' as const, paidTo: 'venue-a', amount: amt('1') },
+        { kind: 'network-fee' as const, paidTo: 'base', amount: amt('0.1') },
+      ],
+    ]) {
+      expect(() => assertKnownRecipePost(toWire(move(costs)))).not.toThrow();
+    }
+    const wire = toWire(move([{ kind: 'network-fee', paidTo: 'base', amount: amt('0.1') }]));
+    const stolen = { ...wire, entries: [...wire.entries.slice(0, 2), { ...wire.entries[2]!, account: userAvailable(USER, 'USDC') }] };
+    expect(() => assertKnownRecipePost(stolen)).toThrow(expect.objectContaining({ code: RECIPE_REQUIRED_CODE }));
+  });
+
   it('accepts a deposit recipe post', () => {
     expect(() =>
       assertKnownRecipePost(

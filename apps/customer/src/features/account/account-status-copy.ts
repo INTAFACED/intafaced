@@ -8,6 +8,7 @@ export const accountStatusCopy = defineCopy('account.status', {
   restricted: 'Some actions are restricted on your account.',
   frozen_self: 'You froze this account.',
   closed: 'This account is closed.',
+  closing: 'This account closes on {time}. Until then you can withdraw what is left, but you cannot trade.',
   frozen: 'Support froze this account.',
   canStill: 'You can still',
   cannot: 'You cannot',

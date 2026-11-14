@@ -2,7 +2,7 @@ import path from 'node:path';
 import { loadProfile } from '../owner-settings.mjs';
 
 /** LOCAL TEST sanctioned destination, not a real list (J-wallet-05 #2), kept in local-test-facts.mjs. */
-import { LOCAL_TEST_SANCTIONED_ADDRESS } from '../local-test-facts.mjs';
+import { CHAIN_HOST, CHAIN_PORTS, LOCAL_TEST_SANCTIONED_ADDRESS } from '../local-test-facts.mjs';
 
 export { LOCAL_TEST_SANCTIONED_ADDRESS };
 const LOCAL_TEST_SANCTIONED_DESTINATION = `*:${LOCAL_TEST_SANCTIONED_ADDRESS}`;
@@ -341,6 +341,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     BANK_PAYIN_SIM_JSON: testValue('BANK_PAYIN_SIM_JSON'),
     BANK_PAYIN_SIM_PAGE_URL: urlOf('bank'),
     BANK_PAYIN_SIM_RETURN_URL: `${CUSTOMER_ORIGIN}/bank/ramps/new`,
+    // LOCAL TEST partner delivery (J-dex-protocol-05 #4): a purchase for the buyer's own wallet is delivered, once the payer
+    // approves, by the TEST chain's stand-in partner (tooling/scripts/local-test-chain.mjs /payin-deliver), which sends TEST
+    // USD to the wallet; the stand-in then says paid with that transfer. With no TEST chain it refuses and the request waits.
+    BANK_PAYIN_SIM_DELIVER_URL: `http://${CHAIN_HOST}:${CHAIN_PORTS.relay}/payin-deliver`,
     // LOCAL TEST payout stand-in for cash out (J-bank-03 #4/#5; pays nobody, refused under live posture): it prices the
     // assets its TEST catalogue lists and takes a payout; verifying an account and saying paid, failed or returned are the
     // partner's signed job calls, which only a test makes here. Value moves to and from its own TEST rail boundary.

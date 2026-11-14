@@ -516,8 +516,22 @@ export class RampService {
    * Idempotent by `onrampId`. Stores the partner instruction and does not credit the ledger.
    * A blank partner refuses `bank.fiat_ramp_socket` before any row.
    */
-  onrampCreate(input: { userId: string; onrampId: string; quoteId: string; method: OnrampMethod }): Promise<CustomerOnrampView> {
+  onrampCreate(input: {
+    userId: string;
+    onrampId: string;
+    quoteId: string;
+    method: OnrampMethod;
+    walletAddress?: string;
+  }): Promise<CustomerOnrampView> {
     return createOnramp(this.customerDeps(), input);
+  }
+
+  /**
+   * Buy to wallet (J-dex-protocol-05 #4): the owner's destination sanctions list must clear the wallet, on any network,
+   * as for every other crypto destination outside INTAFACED. A listed address, or any while the list is unset, refuses.
+   */
+  screenWallet(address: string): void {
+    assertNotSanctioned(this.sanctions, null, address);
   }
 
   /** One of the customer's own on-ramp quotes as stored, expired or not. */

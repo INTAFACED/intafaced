@@ -32,6 +32,8 @@ import {
   excusedSetAside,
   runIsOnMain,
   branchRuns,
+  passedTests,
+  testKey,
 } from './journey-verdict.mjs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
@@ -1097,4 +1099,100 @@ test('the history cap counts runs left to download, not runs since the baseline 
   assert.ok(toDownload(runs, null).length > HISTORY_MAX);
   // The same 400 with the file: under the cap.
   assert.ok(toDownload(runs, stored).length <= HISTORY_MAX);
+});
+
+// Tests with no step title in a journey file (project-state #2232, the lead's call under row d69). Built from intafaced
+// main's runs 4890 to 5011: J-derivatives-01's custodial checks beside its venue steps passed in every run, and 7 tests
+// of work not built yet (J-agents-12 outside:, J-pay-03 part of #1 (blocked), …) failed in every run.
+const KEEP = 'J-a-01, part of #1: our own ledger holds the margin';
+const UNBUILT = 'J-a-01 starts: from a notice nobody built';
+const k = (t) => testKey('J-a-01.pw.mjs', t);
+
+test('a test with no step title is keyed by its journey, file and title, never as a step', () => {
+  const r = readReport(report(ok('J-a-01 #1'), ok(KEEP), bad(UNBUILT), flaky('J-a-01 ends: back home')));
+  assert.deepEqual(Object.keys(r.states), ['J-a-01#1']);
+  assert.deepEqual(r.tests, { [k(KEEP)]: 'passed', [k(UNBUILT)]: 'failed', [k('J-a-01 ends: back home')]: 'flaky' });
+  assert.equal(k(KEEP).split('#')[0], 'J-a-01', "its journey is what comes before the '#', as a step's is");
+  assert.equal(testKey('J-x-07-venue.pw.mjs', 'setup: the venue').split('#')[0], 'J-x-07', "a title without an id takes the file's");
+  assert.deepEqual(
+    passedTests(r),
+    [k('J-a-01 ends: back home'), k(KEEP)].sort((a, b) => a.localeCompare(b, 'en', { numeric: true })),
+  );
+});
+
+test('red: a test with no step title that passed in the named run fails or is skipped now', () => {
+  const named2 = readReport(report(ok('J-a-01 #1'), ok(KEEP), bad(UNBUILT)));
+  for (const now of [bad(KEEP), skip(KEEP)]) {
+    const v = judge({ newest: readReport(report(ok('J-a-01 #1'), now, bad(UNBUILT))), named: named2, baseline, money });
+    assert.deepEqual(
+      v.red.map((r) => [r.step, r.why]),
+      [[k(KEEP), `a test with no step title: passed on main in run 100, ${now.tests[0].status === 'skipped' ? 'skipped' : 'failed'} now`]],
+    );
+    assert.equal(v.testsFailing, 1);
+  }
+});
+
+test('red: a test with no step title that passed on main after the named run fails now; a pass on its retry counted', () => {
+  for (const pass of [ok(KEEP), flaky(KEEP)]) {
+    const passedSince = passesSince([
+      [101, readReport(report(pass))],
+      [102, readReport(report(bad(KEEP)))],
+    ]);
+    assert.equal(passedSince[k(KEEP)], 101);
+    const v = run(report(ok('J-a-01 #1'), bad(KEEP)), { passedSince });
+    assert.deepEqual(
+      v.red.map((r) => [r.step, r.why, r.money]),
+      [[k(KEEP), 'a test with no step title: passed on main in run 101, failed now', false]],
+    );
+  }
+});
+
+test('green: a test with no step title that never passed on main stays out until it first passes', () => {
+  const passedSince = passesSince([[101, readReport(report(bad(UNBUILT)))]]);
+  const v = run(report(ok('J-a-01 #1'), bad(UNBUILT), ok(KEEP)), { passedSince });
+  assert.deepEqual(v.red, []);
+  assert.equal(v.testsFailing, 0);
+  // Retitled: the old title passed, the new one never did. Missing is no failure, so a retitle alone is not red.
+  assert.deepEqual(
+    judge({ newest: readReport(report(ok('J-a-01 #1'))), named: readReport(report(ok('J-a-01 #1'), ok(KEEP))), baseline, money }).red,
+    [],
+  );
+});
+
+test("a step's rule is unchanged by the tests beside it", () => {
+  const withTests = (...specs) => run(report(...specs, ok(KEEP), bad(UNBUILT)));
+  assert.deepEqual(withTests(ok('J-a-01 #1'), bad('J-a-01 #2'), bad('J-a-02 #1'), ok('J-a-03 #1')).red, []);
+  assert.deepEqual(
+    withTests(bad('J-a-01 #1'), bad('J-a-01 #2')).red.map((r) => [r.step, r.why]),
+    [['J-a-01#1', 'failing, not in the baseline']],
+  );
+  assert.match(withTests(bad('J-a-01 #2')).red[0].why, /passed in run 100, missing now/);
+});
+
+test("a test's money is its journey's: money when a step of it is, or no step of it is known", () => {
+  const named2 = readReport(report(ok('J-a-01 #1'), ok(KEEP)));
+  const red = (m) => judge({ newest: readReport(report(ok('J-a-01 #1'), bad(KEEP))), named: named2, baseline, money: m }).red[0].money;
+  assert.equal(red(money), false);
+  assert.equal(red({ ...money, 'J-a-01#2': true }), true);
+  assert.equal(red({ 'J-b-01#1': false }), true, 'a journey the money rule does not know is money');
+});
+
+test('the stored pass history keeps the passes of tests with no step title, and an entry from before them still reads', () => {
+  const runs = [
+    { id: 1, run_number: 101, run_attempt: 1 },
+    { id: 2, run_number: 102, run_attempt: 1 },
+  ];
+  const reports = { 1: readReport(report(ok('J-a-01 #1'), ok(KEEP))), 2: readReport(report(ok('J-a-01 #1'), bad(KEEP))) };
+  const first = historyThrough(runs, { stored: null, read: (r) => reports[r.id] });
+  assert.deepEqual(first.entries[1], { number: 101, attempt: 1, passed: ['J-a-01#1'], tests: [k(KEEP)] });
+  const stored = { from: 102, runs: storedRuns({ version: HISTORY_VERSION, runs: first.entries }) };
+  const again = historyThrough(runs, { stored, read: () => assert.fail('everything is stored') });
+  assert.deepEqual(passesSince(again.reports), passesSince(first.reports));
+  assert.equal(passesSince(again.reports)[k(KEEP)], 101);
+  // An entry written before 14 Nov 2026 has no `tests`: it reads, and counts none of them as passed.
+  const old = storedRuns({ version: HISTORY_VERSION, runs: { 1: { number: 101, attempt: 1, passed: ['J-a-01#1'] } } });
+  assert.ok(old);
+  assert.equal(storedRuns({ version: HISTORY_VERSION, runs: { 1: { number: 101, attempt: 1, passed: [], tests: 'x' } } }), null);
+  const via = historyThrough(runs.slice(0, 1), { stored: { from: 101, runs: old }, read: () => assert.fail('stored') });
+  assert.deepEqual(passesSince(via.reports), { 'J-a-01#1': 101 });
 });
