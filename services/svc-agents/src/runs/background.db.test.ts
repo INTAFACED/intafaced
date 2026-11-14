@@ -181,7 +181,8 @@ if (!available) {
   const balance = async () => formatAmount((await ledger.balance(userAvailable(USER, 'IFC'))).amount);
   const house = async () => formatAmount((await ledger.balance(houseFees('agents', 'IFC'))).amount);
 
-  describe('svc-agents background runs on Postgres', () => {
+  // Each case makes a few dozen Postgres round trips under row locks; a loaded machine needs more than vitest's 5 s.
+  describe('svc-agents background runs on Postgres', { timeout: 20_000 }, () => {
     it('a background run goes on without the caller, one metered call per step, completes, and is announced once', async () => {
       const { me, run } = await begin(2);
       expect(run).toMatchObject({ state: 'queued', stepsTotal: 2, notice: 'email', steps: [] });
