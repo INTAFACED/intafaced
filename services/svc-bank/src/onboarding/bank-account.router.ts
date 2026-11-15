@@ -3,6 +3,7 @@ import { router, scopedProcedure } from '@intafaced/contracts';
 import type { BankServices } from '../bank-service.js';
 import { BankError } from '../errors.js';
 import { NO_PARTNER_BANK_CODE } from '../partner/partner-bank.js';
+import { profileField } from '../account-home/profile.js';
 import {
   closureBalancesOut,
   type DataRequest,
@@ -16,6 +17,8 @@ type Guard = <T>(fn: () => Promise<T>) => Promise<T>;
 
 const iso = z.string().datetime();
 const businessId = z.string().regex(/^[A-Za-z0-9:_-]{8,64}$/);
+/** The profile in view, as every bank call carries it (J-bank-01 #7); none is Personal. */
+const forProfile = z.object({ profile: profileField }).strict().optional();
 
 const infoRequestOut = z
   .object({
@@ -100,8 +103,16 @@ const dataWire = (row: DataRequest) => ({ ...row, requestedAt: row.requestedAt.t
  * A person whose bank money the partner does not hold (the custodial layer, or no partner) is refused
  * `bank.no_partner_bank`: there is no partner account to onboard, review or close.
  */
-export function createBankAccountRouter(bank: Pick<BankServices, 'testPartner' | 'partnerCustody' | 'bankAccountTerms'>, guard: Guard) {
-  const partnerFor = (userId: string): PartnerCompliance => {
+export function createBankAccountRouter(
+  bank: Pick<BankServices, 'testPartner' | 'partnerCustody' | 'bankAccountTerms' | 'profiles'>,
+  guard: Guard,
+) {
+  /**
+   * The partner's record for the person, once the profile in view is proved theirs and personal (J-bank-01 #7): a business
+   * profile has no bank account of its own at the partner, so it refuses `bank.company_account_unwired`.
+   */
+  const partnerFor = async (userId: string, profile: string | undefined): Promise<PartnerCompliance> => {
+    await bank.profiles.personalOnly(userId, profile);
     const compliance = bank.testPartner?.compliance;
     if (!compliance || !bank.partnerCustody.bankFor(userId)) {
       throw new BankError(
@@ -117,6 +128,7 @@ export function createBankAccountRouter(bank: Pick<BankServices, 'testPartner' |
   return router({
     /** The partner's steps and requirements, with the owner's, and our identity case where the partner accepts it (#1). */
     onboarding: scopedProcedure('bank:read', { module: 'bank' })
+      .input(forProfile)
       .output(
         z
           .object({
@@ -143,11 +155,11 @@ export function createBankAccountRouter(bank: Pick<BankServices, 'testPartner' |
           })
           .strict(),
       )
-      .query(({ ctx }) =>
+      .query(({ ctx, input }) =>
         guard(async () => {
           const terms = owner();
           const userId = ctx.principal.userId;
-          const partner = partnerFor(userId);
+          const partner = await partnerFor(userId, input?.profile);
           const now = await partner.onboarding(userId, ctx.principal.tier);
           const requests = await partner.requests(userId);
           const reviews = await partner.reviews(userId);
@@ -168,6 +180,7 @@ export function createBankAccountRouter(bank: Pick<BankServices, 'testPartner' |
 
     /** The partner's information requests, newest first, with the owner's size cap and types for an answer (#2). */
     requests: scopedProcedure('bank:read', { module: 'bank' })
+      .input(forProfile)
       .output(
         z
           .object({
@@ -179,10 +192,10 @@ export function createBankAccountRouter(bank: Pick<BankServices, 'testPartner' |
           })
           .strict(),
       )
-      .query(({ ctx }) =>
+      .query(({ ctx, input }) =>
         guard(async () => {
           const terms = owner();
-          const rows = await partnerFor(ctx.principal.userId).requests(ctx.principal.userId);
+          const rows = await (await partnerFor(ctx.principal.userId, input?.profile)).requests(ctx.principal.userId);
           return {
             requests: rows.map(requestWire),
             upload: terms.upload
@@ -202,6 +215,7 @@ export function createBankAccountRouter(bank: Pick<BankServices, 'testPartner' |
             type: z.string().trim().min(1).max(100),
             // The size cap is the owner's; this bound only stops a body far past any cap from being decoded.
             contentBase64: z.string().min(4).max(28_000_000),
+            profile: profileField,
           })
           .strict(),
       )
@@ -210,7 +224,7 @@ export function createBankAccountRouter(bank: Pick<BankServices, 'testPartner' |
         guard(async () => {
           const terms = owner();
           const userId = ctx.principal.userId;
-          const partner = partnerFor(userId);
+          const partner = await partnerFor(userId, input?.profile);
           const limits = terms.upload;
           if (!limits) {
             throw new BankError(
@@ -236,22 +250,32 @@ export function createBankAccountRouter(bank: Pick<BankServices, 'testPartner' |
 
     /** The partner's periodic reviews: each open one with its due date and what missing it does (#4). */
     reviews: scopedProcedure('bank:read', { module: 'bank' })
+      .input(forProfile)
       .output(z.object({ reviews: z.array(reviewOut) }).strict())
-      .query(({ ctx }) =>
-        guard(async () => ({ reviews: (await partnerFor(ctx.principal.userId).reviews(ctx.principal.userId)).map(reviewWire) })),
+      .query(({ ctx, input }) =>
+        guard(async () => ({
+          reviews: (await (await partnerFor(ctx.principal.userId, input?.profile)).reviews(ctx.principal.userId)).map(reviewWire),
+        })),
       ),
 
     answerReview: scopedProcedure('bank:write', { module: 'bank' })
       .input(
         z
-          .object({ reviewId: z.string().min(1).max(128), stillAccurate: z.boolean(), note: z.string().trim().max(500).nullable() })
+          .object({
+            reviewId: z.string().min(1).max(128),
+            stillAccurate: z.boolean(),
+            note: z.string().trim().max(500).nullable(),
+            profile: profileField,
+          })
           .strict(),
       )
       .output(reviewOut)
       .mutation(({ ctx, input }) =>
         guard(async () =>
           reviewWire(
-            await partnerFor(ctx.principal.userId).answerReview(ctx.principal.userId, input.reviewId, {
+            await (
+              await partnerFor(ctx.principal.userId, input?.profile)
+            ).answerReview(ctx.principal.userId, input.reviewId, {
               stillAccurate: input.stillAccurate,
               note: input.note,
             }),
@@ -261,6 +285,7 @@ export function createBankAccountRouter(bank: Pick<BankServices, 'testPartner' |
 
     /** Whether the account is open, closing (restricted) or closed, every closure newest first, and the reopen window (#5, #6). */
     closure: scopedProcedure('bank:read', { module: 'bank' })
+      .input(forProfile)
       .output(
         z
           .object({
@@ -273,10 +298,10 @@ export function createBankAccountRouter(bank: Pick<BankServices, 'testPartner' |
           })
           .strict(),
       )
-      .query(({ ctx }) =>
+      .query(({ ctx, input }) =>
         guard(async () => {
           const terms = owner();
-          const now = await partnerFor(ctx.principal.userId).closure(ctx.principal.userId);
+          const now = await (await partnerFor(ctx.principal.userId, input?.profile)).closure(ctx.principal.userId);
           const closedAt = now.state === 'closed' ? (now.closures[0]?.closedAt ?? null) : null;
           return {
             state: now.state,
@@ -299,6 +324,7 @@ export function createBankAccountRouter(bank: Pick<BankServices, 'testPartner' |
         z
           .object({
             closureId: businessId,
+            profile: profileField,
             destination: z
               .object({
                 name: z.string().trim().min(1).max(140),
@@ -316,7 +342,9 @@ export function createBankAccountRouter(bank: Pick<BankServices, 'testPartner' |
       .mutation(({ ctx, input }) =>
         guard(async () =>
           closureWire(
-            await partnerFor(ctx.principal.userId).requestClosure(
+            await (
+              await partnerFor(ctx.principal.userId, input?.profile)
+            ).requestClosure(
               ctx.principal.userId,
               `${ctx.principal.userId}:${input.closureId}`,
               input.destination
@@ -329,11 +357,12 @@ export function createBankAccountRouter(bank: Pick<BankServices, 'testPartner' |
 
     /** Reopens a closed account within the owner's window (#6). */
     reopen: scopedProcedure('bank:write', { module: 'bank' })
+      .input(forProfile)
       .output(closureOut)
-      .mutation(({ ctx }) =>
+      .mutation(({ ctx, input }) =>
         guard(async () => {
           const terms = owner();
-          const partner = partnerFor(ctx.principal.userId);
+          const partner = await partnerFor(ctx.principal.userId, input?.profile);
           if (terms.reopenWindowDays === null) {
             throw new BankError(
               'How long a closed account may be reopened is not published, so it cannot be reopened here.',
@@ -346,22 +375,23 @@ export function createBankAccountRouter(bank: Pick<BankServices, 'testPartner' |
 
     /** The person's data-rights requests about the account, each with the partner's record of it (#6). */
     dataRequests: scopedProcedure('bank:read', { module: 'bank' })
+      .input(forProfile)
       .output(z.object({ requests: z.array(dataRequestOut) }).strict())
-      .query(({ ctx }) =>
-        guard(async () => ({ requests: (await partnerFor(ctx.principal.userId).dataRequests(ctx.principal.userId)).map(dataWire) })),
+      .query(({ ctx, input }) =>
+        guard(async () => ({
+          requests: (await (await partnerFor(ctx.principal.userId, input?.profile)).dataRequests(ctx.principal.userId)).map(dataWire),
+        })),
       ),
 
     requestData: scopedProcedure('bank:write', { module: 'bank' })
-      .input(z.object({ requestId: businessId, kind: z.enum(['access', 'portability']) }).strict())
+      .input(z.object({ requestId: businessId, kind: z.enum(['access', 'portability']), profile: profileField }).strict())
       .output(dataRequestOut)
       .mutation(({ ctx, input }) =>
         guard(async () =>
           dataWire(
-            await partnerFor(ctx.principal.userId).requestData(
-              ctx.principal.userId,
-              `${ctx.principal.userId}:${input.requestId}`,
-              input.kind,
-            ),
+            await (
+              await partnerFor(ctx.principal.userId, input?.profile)
+            ).requestData(ctx.principal.userId, `${ctx.principal.userId}:${input.requestId}`, input.kind),
           ),
         ),
       ),

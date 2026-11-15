@@ -156,11 +156,13 @@ type Read<T> = { state: 'loading' } | { state: 'ready'; data: T } | { state: 'fa
 
 /** One bank read, re-read whenever `version` changes. */
 function useAccountRead<T>(procedure: string, schema: z.ZodType<T>, version: number): Read<T> {
-  const { api, userId } = useSession();
+  const { api, userId, profiles } = useSession();
+  // Every bank call carries the profile in view (J-bank-01 #7); a business profile is refused, as it has no bank account here.
+  const profile = profiles.active;
   const { resource } = useResource<T>(async (signal) => {
     if (!userId) return { ok: false, reason: 'unauthorized', message: bankAccountCopy.t('signIn') };
-    return api.query('bank', `bankAccount.${procedure}`, undefined, schema, { signal });
-  }, `${userId}:bankAccount.${procedure}:${version}`);
+    return api.query('bank', `bankAccount.${procedure}`, { profile }, schema, { signal });
+  }, `${userId}:${profile}:bankAccount.${procedure}:${version}`);
   if (resource.status === 'loading') return { state: 'loading' };
   if (resource.status === 'ready') return { state: 'ready', data: resource.data };
   return { state: 'failed', failure: { code: resource.failure.code ?? '', message: resource.failure.message } };
@@ -272,7 +274,8 @@ function Onboarding({ version }: { version: number }) {
 
 function InfoRequests({ version, changed }: { version: number; changed: () => void }) {
   const { t } = bankAccountCopy.useCopy();
-  const { api } = useSession();
+  const { api, profiles } = useSession();
+  const profile = profiles.active;
   const read = useAccountRead('requests', requestsSchema, version);
   const [failures, setFailures] = useState<Record<string, Failure>>({});
   const [busy, setBusy] = useState<string | null>(null);
@@ -287,7 +290,7 @@ function InfoRequests({ version, changed }: { version: number; changed: () => vo
       const result = await api.mutate(
         'bank',
         'bankAccount.answerRequest',
-        { requestId, name: file.name, type: file.type || 'application/octet-stream', contentBase64 },
+        { requestId, name: file.name, type: file.type || 'application/octet-stream', contentBase64, profile },
         requestSchema,
       );
       setBusy(null);
@@ -299,7 +302,7 @@ function InfoRequests({ version, changed }: { version: number; changed: () => vo
       });
       changed();
     },
-    [api, changed],
+    [api, changed, profile],
   );
   if (read.state === 'loading') return null;
   if (read.state === 'failed') return <Refusal failure={read.failure} unread />;
@@ -343,7 +346,8 @@ function InfoRequests({ version, changed }: { version: number; changed: () => vo
 
 function Reviews({ version, changed }: { version: number; changed: () => void }) {
   const { t } = bankAccountCopy.useCopy();
-  const { api } = useSession();
+  const { api, profiles } = useSession();
+  const profile = profiles.active;
   const read = useAccountRead('reviews', reviewsSchema, version);
   const [failure, setFailure] = useState<Failure | null>(null);
   if (read.state === 'loading') return null;
@@ -358,7 +362,7 @@ function Reviews({ version, changed }: { version: number; changed: () => void })
     const result = await api.mutate(
       'bank',
       'bankAccount.answerReview',
-      { reviewId, stillAccurate: accurate, note: note === '' ? null : note },
+      { reviewId, stillAccurate: accurate, note: note === '' ? null : note, profile },
       reviewSchema,
     );
     setFailure(result.ok ? null : { code: result.code ?? '', message: result.message });
@@ -397,7 +401,8 @@ function Reviews({ version, changed }: { version: number; changed: () => void })
 
 function Closure({ version, changed }: { version: number; changed: () => void }) {
   const { t } = bankAccountCopy.useCopy();
-  const { api } = useSession();
+  const { api, profiles } = useSession();
+  const profile = profiles.active;
   const read = useAccountRead('closure', closureSchema, version);
   const [failure, setFailure] = useState<Failure | null>(null);
   if (read.state === 'loading') return null;
@@ -414,14 +419,14 @@ function Closure({ version, changed }: { version: number; changed: () => void })
     const result = await api.mutate(
       'bank',
       'bankAccount.requestClosure',
-      { closureId, destination: name === '' && accountRef === '' ? null : { name, accountRef } },
+      { closureId, destination: name === '' && accountRef === '' ? null : { name, accountRef }, profile },
       closureRowSchema,
     );
     setFailure(result.ok ? null : { code: result.code ?? '', message: result.message });
     changed();
   };
   const reopen = async () => {
-    const result = await api.mutate('bank', 'bankAccount.reopen', undefined, closureRowSchema);
+    const result = await api.mutate('bank', 'bankAccount.reopen', { profile }, closureRowSchema);
     setFailure(result.ok ? null : { code: result.code ?? '', message: result.message });
     changed();
   };
@@ -485,7 +490,8 @@ function Closure({ version, changed }: { version: number; changed: () => void })
 
 function DataRights({ version, changed }: { version: number; changed: () => void }) {
   const { t } = bankAccountCopy.useCopy();
-  const { api } = useSession();
+  const { api, profiles } = useSession();
+  const profile = profiles.active;
   const read = useAccountRead('dataRequests', dataSchema, version);
   const [kind, setKind] = useState<'access' | 'portability'>('access');
   const [failure, setFailure] = useState<Failure | null>(null);
@@ -496,7 +502,7 @@ function DataRights({ version, changed }: { version: number; changed: () => void
     event.preventDefault();
     // The business key: this person's next data request, so a resend of the same ask is recorded once.
     const requestId = `data-request-${requests.length + 1}`;
-    const result = await api.mutate('bank', 'bankAccount.requestData', { requestId, kind }, dataRowSchema);
+    const result = await api.mutate('bank', 'bankAccount.requestData', { requestId, kind, profile }, dataRowSchema);
     setFailure(result.ok ? null : { code: result.code ?? '', message: result.message });
     changed();
   };
