@@ -274,6 +274,12 @@ Two properties worth stating:
 
 ---
 
+## Alerts and this environment's policy overrides (`opsAlerts.*`, AG-analytics-02, AG-guardrails-02)
+
+An operator (`admin:write`) stores alert rules: a measure over every recorded agent action (refusal rate or failure rate in percent of the window's actions, or cost in the fee asset), a threshold, a window in minutes, and optionally one agent id. A blank threshold refuses `agents.alert_threshold_required` and stores nothing; `0` is a value. The evaluator runs once a minute and on `opsAlerts.evaluate`, over each rule's current and previous window aligned to the epoch. A window with no actions has no rate and fires nothing. A window above its threshold writes one `agent_alerts` row, unique by rule and window start, so a second evaluation writes nothing. No delivery vendor is connected, so every alert stays `delivery = 'pending'` and is kept.
+
+`opsAlerts.policy` shows the owner's managed baseline (`AGENTS_POLICY_BASELINE`) per tool class, with this environment's override (`agent_policy_overrides`). `opsAlerts.setOverride` refuses an override looser than the baseline with `agents.baseline_loosen_refused` and stores nothing. Every own-agent tool gate and dry run meets the stricter of the baseline and the override. `opsAlerts.checkRule` checks a person's standing rule against both and stores nothing. The founder console's desk is `/more-ops/agents/alerts`.
+
 ## Database constraints as a backstop
 
 The service checks these; the database enforces them regardless.

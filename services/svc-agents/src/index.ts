@@ -40,6 +40,7 @@ import { tradeTickerPrices } from './portfolio-agent/trade-prices.js';
 import { createAgentsRouter, type AgentsRouter } from './router.js';
 import { parseTierLaws } from './tier-laws.js';
 import { parseReasons, purgeExpiredTranscripts } from './oplog/routes.js';
+import { evaluateAlertRules } from './alerts/routes.js';
 import { advanceBackgroundRuns } from './own/background.js';
 import { deliverTriggerEvent, tickSchedules, type AutoRunDeps } from './own/automation.js';
 import { OWN_RUN_TASK, ownGuardrail } from './own/routes.js';
@@ -408,6 +409,20 @@ sweepUnpublished();
 const unpublishedTimer = setInterval(sweepUnpublished, 60_000);
 unpublishedTimer.unref();
 
+// The agent alert evaluator (AG-analytics-02): every rule over its current and previous window, once a minute. One alert
+// per rule and window, by its unique key, so this timer, "Evaluate now" and another replica never write a second one.
+let evaluatingAlerts = false;
+const alertTimer = setInterval(() => {
+  if (evaluatingAlerts) return;
+  evaluatingAlerts = true;
+  evaluateAlertRules(sql)
+    .catch((err: unknown) => app.log.warn({ err }, 'agent alert rules were not evaluated'))
+    .finally(() => {
+      evaluatingAlerts = false;
+    });
+}, 60_000);
+alertTimer.unref();
+
 // Background test runs of own agents take one step per period, re-reading the agent's switches at each (AG-control-02).
 // Blank leaves the ticker off, and a new background run refuses agents.background_unset.
 if (env.AGENTS_BACKGROUND_STEP_MS) {
@@ -490,6 +505,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
     void (async () => {
       clearInterval(transcriptPurge);
       clearInterval(unpublishedTimer);
+      clearInterval(alertTimer);
       if (scheduleTimer) clearInterval(scheduleTimer);
       // Draining, not dropping: an in-flight settlement finishes before exit.
       await app.close();

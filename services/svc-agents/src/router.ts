@@ -80,6 +80,7 @@ import type { PolicyBaseline } from './own/guardrails.js';
 import type { TeamMembershipPort } from './team/membership.js';
 import { teamRouter } from './team/routes.js';
 import { opsLogRouter, parseReasons, type OpsLogSettings } from './oplog/routes.js';
+import { alertsRouter } from './alerts/routes.js';
 import { fleetRouter, type FleetSettings } from './fleet/control.js';
 import type { BackgroundSettings } from './own/background.js';
 import type { Cadence } from './own/automation.js';
@@ -4161,6 +4162,8 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
     /** A business team's agent roles, pool, projects, runs and usage (AG-governance-01). Membership is svc-bank's, read per call. */
     team: teamRouter({ sql, membership: deps.teamMembership, feeAssetId, runtime }),
     opsLog: opsLogRouter(sql, deps.opsLog ?? { reasons: null, limit: null, retentionDays: null }),
+    /** The operator's agent alert rules, their alerts, and this environment's policy overrides (AG-analytics-02, AG-guardrails-02). */
+    opsAlerts: alertsRouter(sql, deps.policyBaseline ?? {}),
     /** Every agent on the platform for an operator: the registry, its export and the switches (AG-registry-01, AG-control-02). */
     fleet: fleetRouter(sql, deps.fleet ?? { registryLimit: null }),
   });
