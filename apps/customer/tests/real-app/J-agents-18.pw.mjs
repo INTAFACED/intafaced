@@ -245,9 +245,11 @@ test(`${J} #1 asks the Portfolio agent for a rebalance: a proposal listing each 
     `${btc.price} vs ${best.bid}/${best.ask}`,
   ).toBe(true);
   const holdings = tableIn(article, 'Holdings as the venue reports them');
-  await expect(holdings.getByRole('row').filter({ hasText: 'BTC' })).toContainText(venueHolds.BTC);
-  await expect(holdings.getByRole('row').filter({ hasText: 'USDC' })).toContainText(venueHolds.USDC);
-  await expect(holdings.getByRole('row').filter({ hasText: 'BTC' })).toContainText('25%');
+  // Each holding's row, by its asset cell (every row's price and value name USDC too).
+  const row = (asset) => holdings.getByRole('row').filter({ has: page.getByRole('cell', { name: asset, exact: true }) });
+  await expect(row('BTC')).toContainText(venueHolds.BTC);
+  await expect(row('USDC')).toContainText(venueHolds.USDC);
+  await expect(row('BTC')).toContainText('25%');
   // Each order listed: BTC is about 60 of about 160 TEST USDC, so 25% sells BTC, in whole lots, at a worst price.
   const leg = expectedLeg(stored, '25');
   expect(leg).toEqual({ side: 'sell', size: expect.stringMatching(/^0\.000[1-9]$/) });
