@@ -212,7 +212,7 @@ export function linesOutsideCode(body) {
  * tracker over the raw lines (a fence opens at any indent, so one inside a list counts) and HTML comments stripped; a
  * line inside either is code or hidden and exempts nothing. Outside them, a `Left-or-replaced:` line at column 0 whose
  * rest is only full step ids (`J-bank-13 #1 #3, J-bank-14 #2`) exempts those steps; every other line that looks like an
- * exemption is a problem, and so is an exemption line with anything else after the colon or a range that can't be read.
+ * exemption is a problem, printed as a note and never a red, as is an exemption line with more after the colon or a bad range.
  */
 export function exemptions(body) {
   const steps = new Set();
@@ -246,6 +246,7 @@ export function exemptionLine(keys) {
   }
   return `Left-or-replaced: ${[...by].map(([id, ns]) => `${id} ${ns.join(' ')}`).join(', ')}`;
 }
+const notes = (left) => left.problems.map((l) => `note: "${l.slice(0, 80)}" exempts nothing; only step ids at a line's start do`);
 const leaveLine = (keys) =>
   `to leave these steps instead, add this line to the body, at the start of a line and outside code: ${exemptionLine(keys)}`;
 
@@ -266,17 +267,7 @@ export async function judgeSteps({ sha, repo, title, body, runs, reportOf, waitO
     };
   if (named.length === 0) return { ok: true, state: 'none', lines: ['the title names no journey step'] };
   const left = exemptions(body);
-  if (left.problems.length)
-    return {
-      ok: false,
-      state: 'fail',
-      kinds: ['yours'],
-      lines: left.problems.map(
-        (l) =>
-          `"${l.slice(0, 160)}" looks like an exemption but isn't one: write \`Left-or-replaced: J-bank-13 #1 #3\` at the start of a line, outside code, with step ids only`,
-      ),
-    };
-  const lines = [];
+  const lines = notes(left);
   const needed = [];
   for (const k of named) {
     if (left.steps.has(k)) lines.push(`${k}: exempted on a Left-or-replaced line`);
@@ -861,7 +852,7 @@ export function fileSteps(journey, text) {
 /**
  * A pull request that changes a journey test file says which steps it touches: for each changed file, at least one of
  * the steps it holds is named in the title (then judged by judgeSteps) or on a strict `Left-or-replaced:` line. A
- * title naming another journey's steps, or none, fails, and so does an exemption-like line that isn't one. `touched`:
+ * title naming another journey's steps, or none, fails; a line that only looks like an exemption names none. `touched`:
  * [{ file, journey, steps }], the steps each file holds at the head (or at the base, for a file the head removed).
  * (Failure it prevents: #7434 and #7435 changed journey tests on 7 Nov 2026 with no `#n` in their titles, so the seal
  * judged none of their steps; project-state #1249 comment 6681706701.)
@@ -873,14 +864,6 @@ export function judgeTouched({ title, body, touched, repo }) {
   const reverts = revertOf({ title, body, repo });
   if (reverts) return { ok: true, lines: [`a revert of #${reverts} (GitHub's Revert form): its journey tests need no steps named`] };
   const left = exemptions(body);
-  if (left.problems.length)
-    return {
-      ok: false,
-      lines: left.problems.map(
-        (l) =>
-          `"${l.slice(0, 160)}" looks like an exemption but isn't one: write \`Left-or-replaced: J-bank-13 #1 #3\` at the start of a line, outside code, with step ids only`,
-      ),
-    };
   const named = new Set([...titleSteps(title), ...left.steps]);
   const lines = [];
   for (const { file, journey, steps } of touched) {

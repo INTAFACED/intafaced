@@ -140,6 +140,10 @@ else
   echo "lint-ratchet — no oxlint in this worktree; skipped (pnpm install --frozen-lockfile --prefer-offline); CI checks it" >&2
 fi
 
+# CI's cross-package read scan (1.6 s on CI) when a test or what it checks changed: else a red after the push (4, 13-14 Nov).
+if git diff --name-only "${SCAN_BASE:-HEAD}" HEAD | grep -qE '\.test\.|turbo\.json$|package\.json$|test-read-edges\.json$' &&
+  ! (CDPATH= cd -- "$TOP" && node tooling/ci/cross-package-reads.mjs) </dev/null; then exit 1; fi
+
 protected="main"
 remote_ref_prefix="refs/heads/"
 
