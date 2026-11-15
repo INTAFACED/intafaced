@@ -3,8 +3,7 @@
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { api, journeyState, toUnits } from './stack.mjs';
-import { signIn, signUp, verify } from './desk.mjs';
-import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
+import { signUp, verify } from './desk.mjs';
 import { holderAgain, keyHolder, makeKey, withKey } from './developer.mjs';
 import { tapeWindow } from './tape.mjs';
 import { testWalletKey } from './test-wallet.mjs';
@@ -24,7 +23,11 @@ const J = 'J-algo-dev-14';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const RUN_ID = process.env.JOURNEY_RUN_ID ?? `local-${Date.now().toString(36)}`;
 
-test.describe.configure({ mode: 'default' });
+// Serial: every key is made on #1's page, whose virtual authenticator holds the account's passkey (each create takes
+// its fresh step-up), as J-developer-03 does.
+test.describe.configure({ mode: 'serial' });
+/** #1's signed-in passkey page. */
+let holder;
 venueForThisFile(test);
 
 const LIVE = '/api/v1/quant/live-runs';
@@ -108,7 +111,8 @@ async function keyRecord(who, name) {
   const session = await api(who);
   const listed = body200(await session.get(`/api/identity/trpc/apiKeys.list?input=${encodeURIComponent(JSON.stringify({ limit: 200 }))}`));
   const data = dataOf(listed);
-  return (data.keys ?? data).find((row) => row.name === name);
+  // The list is the array of records (an array's own `keys` is Array.prototype.keys, so it is never read as one).
+  return (Array.isArray(data) ? data : data.keys).find((row) => row.name === name);
 }
 
 function state(...keys) {
@@ -121,7 +125,8 @@ function state(...keys) {
 test(`${J} #1 mints a key with the quant read scope: the key carries only that scope`, async ({ browser }) => {
   test.setTimeout(15 * 60_000);
   // The start: a signed-in developer on /developers/quant, with one strategy, and another account with its own.
-  const { page, who } = await keyHolder(browser, 'aq14');
+  holder = await keyHolder(browser, 'aq14');
+  const { page, who } = holder;
   const otherPage = await (await browser.newContext()).newPage();
   const other = await signUp(otherPage, 'aq14o');
   await verify(otherPage, other);
@@ -344,16 +349,12 @@ test(`${J} #7 stops a live strategy with and without the trade scope: refused wi
 
 // ── Helpers ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
-/** A key made on a fresh passkey page of the same account (each create takes the passkey's fresh step-up). */
-async function makeKeyWithPasskey(browser, who, name, scopes) {
-  const page = await (await browser.newContext({ baseURL: PASSKEY_ORIGIN })).newPage();
-  await virtualAuthenticator(page);
-  await signIn(page, who);
-  await addPasskey(page);
-  const key = await makeKey(page, { name, scopes });
+/** A key made on #1's passkey page with exactly `scopes`, checked on the account's keys list. */
+async function makeKeyWithPasskey(_browser, who, name, scopes) {
+  if (!holder) throw new Error(`${J}: #1 left no signed-in passkey page to make a key on`);
+  const key = await makeKey(holder.page, { name, scopes });
   const record = await keyRecord(who, name);
   expect([...record.scopes].sort()).toEqual([...scopes].sort());
-  await page.context().close();
   return key;
 }
 
