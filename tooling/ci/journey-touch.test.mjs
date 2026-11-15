@@ -358,11 +358,9 @@ test('git hooks run no journeys: nothing the journeys run executes commits, push
   // `prepare` points git at .githooks on install; the hooks then run only on a commit or a push. The known ones are
   // outside a pull request's journeys run, so running its journeys would not exercise a hook either: journeys-revert.mjs
   // pushes a revert branch only in main-bisect.yml after a red main run (its `early` step in the journeys workflow
-  // starts that workflow by the API), factory-builder.mjs pushes with --no-verify from the factory's own jobs (and names
-  // `git push failed` in a message), and journey-touch.mjs is this rule.
-  const KNOWN = ['tooling/ci/factory-builder.mjs', 'tooling/ci/journey-touch.mjs', 'tooling/ci/journeys-revert.mjs'];
+  // starts that workflow by the API), and journey-touch.mjs is this rule.
+  const KNOWN = ['tooling/ci/journey-touch.mjs', 'tooling/ci/journeys-revert.mjs'];
   assert.deepEqual(hits.sort(), KNOWN, 'a file the journeys run executes commits, pushes or reads a git hook');
-  assert.match(readFileSync(join(ROOT, 'tooling/ci/factory-builder.mjs'), 'utf8'), /'push', '-q', '--no-verify'/);
   const wf = readFileSync(join(ROOT, JOURNEYS_WORKFLOW), 'utf8');
   assert.deepEqual(
     [...new Set([...wf.matchAll(/journeys-revert\.mjs (\w+)/g)].map((m) => m[1]))],

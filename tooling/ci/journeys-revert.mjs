@@ -658,7 +658,7 @@ async function openRevert(env, revoke) {
   const parents = git('log', '-1', '--format=%P', sha).split(' ').filter(Boolean).length;
   const files = git('diff-tree', '--no-commit-id', '--name-only', '-r', '-m', '--first-parent', sha).split('\n').filter(Boolean);
 
-  const { mintToken } = await import('./factory-builder.mjs');
+  const { mintToken } = await import('./app-token.mjs');
   const dry = process.env.DRY_RUN === '1';
   if (!dry) need(env, 'FACTORY_APP_KEY');
   const token = dry ? env.GH_TOKEN : await mintToken({ pem: env.FACTORY_APP_KEY, repo, spec: REVERT_TOKEN });
@@ -868,7 +868,7 @@ async function refresh(env) {
   }
   if (picked.length) {
     if (process.env.DRY_RUN !== '1') need(env, 'FACTORY_APP_KEY');
-    const { mintToken } = await import('./factory-builder.mjs');
+    const { mintToken } = await import('./app-token.mjs');
     const dry = process.env.DRY_RUN === '1';
     const token = dry ? env.GH_TOKEN : await mintToken({ pem: env.FACTORY_APP_KEY, repo, spec: REVERT_TOKEN });
     if (token && !dry) console.log(`::add-mask::${token}`);

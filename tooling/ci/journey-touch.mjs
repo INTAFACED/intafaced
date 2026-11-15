@@ -99,7 +99,7 @@ export const JOURNEY_CI = [
   'tooling/ci/journeys-revert-probe.mjs',
   'tooling/ci/journeys-revert-probe.sh',
   // journeys-revert.mjs mints its App token with it.
-  'tooling/ci/factory-builder.mjs',
+  'tooling/ci/app-token.mjs',
   // journeys-revert.mjs reads its test and job lists (the revert on main for CI reds).
   'tooling/ci/bisect-main.mjs',
   // journeys-revert.mjs refresh tells main-bisect's revert by its branch and author.
@@ -182,13 +182,10 @@ export const FACTORY_SCRIPTS = [
   'tooling/scripts/services-map.mjs',
   'tooling/scripts/services-map.test.mjs',
   'tooling/scripts/setup-github.mjs',
-  'tooling/scripts/sync-github-issues.mjs',
-  'tooling/scripts/tracker.mjs',
   'tooling/scripts/truth-check.mjs',
   'tooling/scripts/truth-check.test.mjs',
   'tooling/scripts/try-it.mjs',
   'tooling/scripts/try-it.test.mjs',
-  'tooling/scripts/worktree-gc.mjs',
 ];
 
 const FULL_RULES = [
