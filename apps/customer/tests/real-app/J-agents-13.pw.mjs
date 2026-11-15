@@ -52,6 +52,15 @@ async function storedLog(outcome) {
   return rows;
 }
 
+/** The English words the room shows for a refusal code, read from the room's own copy (agents-catalogue-copy.ts). */
+const CATALOGUE_COPY = readFileSync(new URL('../../src/features/more/agents-catalogue-copy.ts', import.meta.url), 'utf8');
+function refusalWordsOf(code) {
+  const key = `refusal_${code.replace(/^agents\./, '')}`;
+  const line = new RegExp(`^\\s*'?${key.replace(/[.]/g, '\\.')}'?:\\s*'([^']+)'`, 'm').exec(CATALOGUE_COPY);
+  if (!line) throw new Error(`${J}: the room has no words for ${code}`);
+  return line[1];
+}
+
 /** The session the start ran, from the run file; a later step after a failed start says so. */
 function ranSession() {
   const { sessionId } = agents.run.read();
@@ -114,6 +123,15 @@ test(`${J} starts: a verified TEST account with a metered Navigator session that
   await panel.getByRole('textbox', { name: /^Ask the agent/ }).fill('TEST question');
   await panel.getByRole('button', { name: 'Run a test' }).click();
   await expect(panel.getByRole('region', { name: 'Engine run' })).toBeVisible();
+  // And one dry run of one of its tool calls (AG-spend-04): a test run too, never billed, kept apart from live runs.
+  const [own] = await agentsRead('own.list', { limit: 50 });
+  const dry = await agentsCall(
+    'own.dryRun',
+    { id: own.id, requestId: `${J}:dry-run:${own.id}`, tool: 'support.kb.search', input: { kbQuery: 'TEST question', limit: '5' } },
+    'POST',
+  );
+  expect(dry.status, JSON.stringify(dry.body).slice(0, 300)).toBe(200);
+  expect(dry.body.result.data).toMatchObject({ kind: 'dry_run', cost: '0', label: 'TEST' });
 });
 
 test(`${J} #1 opens the dashboard for a date range: counts, outcomes by day and spend equal to the stored rows; test and dry runs out unless the filter includes them; a blank range value refuses`, async ({
@@ -145,13 +163,13 @@ test(`${J} #1 opens the dashboard for a date range: counts, outcomes by day and 
   const { total: sealedTotal } = await sealedWindows();
   expect(log.length).toBeGreaterThan(REFUSED);
   expect(sealedTotal).toBeGreaterThan(0n);
-  const tests = await (async () => {
-    const own = await agentsRead('own.list', { limit: 50 });
-    let n = 0;
-    for (const agent of own) n += (await agentsRead('own.testRuns', { id: agent.id, limit: 50 })).length;
-    return n;
-  })();
-  expect(tests).toBeGreaterThan(0);
+  const testRuns = [];
+  for (const agent of await agentsRead('own.list', { limit: 50 }))
+    testRuns.push(...(await agentsRead('own.testRuns', { id: agent.id, limit: 50 })));
+  const tests = testRuns.length;
+  // Both kinds the filter names are stored: a test run on the test engine and a dry run of a tool call.
+  expect(testRuns.filter((run) => run.kind === 'engine_run').length).toBeGreaterThan(0);
+  expect(testRuns.filter((run) => run.kind === 'dry_run').length).toBeGreaterThan(0);
 
   // Live only, by default: the filter says so and the test runs are left out.
   await from.fill(today);
@@ -167,6 +185,8 @@ test(`${J} #1 opens the dashboard for a date range: counts, outcomes by day and 
   await expect(figure('refused')).toHaveText(String(count('refused')));
   await expect(figure('failed')).toHaveText(String(count('failed')));
   await expect(figure('test-runs')).toHaveText('Left out');
+  // Left out means left out of every count: the actions are the live log's rows alone, the dry run adds none.
+  expect(log.some((row) => row.kind === 'tool_call' && row.tool === 'support.kb.search')).toBe(false);
   // Displayed spend equals the sum of the sealed windows.
   expect(sum([await figure('spend').innerText()])).toBe(sealedTotal);
 
@@ -194,6 +214,14 @@ test(`${J} #1 opens the dashboard for a date range: counts, outcomes by day and 
   await expect(figure('actions')).toHaveText(String(log.length));
   expect(sum([await figure('spend').innerText()])).toBe(sealedTotal);
   expect((await byDay.getByTestId('day-test-runs').allInnerTexts()).reduce((n, cell) => n + Number(cell), 0)).toBe(tests);
+  // The day's test runs are exactly the stored test and dry runs of that day.
+  for (const day of days)
+    await expect(
+      byDay
+        .locator('tbody tr')
+        .filter({ has: page.getByRole('cell', { name: day, exact: true }) })
+        .getByTestId('day-test-runs'),
+    ).toHaveText(String(testRuns.filter((run) => run.createdAt.slice(0, 10) === day).length));
 });
 
 test(`${J} #2 opens one run's trace: tool calls, timing, cost and the plan as timed steps`, async ({ page }) => {
@@ -253,13 +281,19 @@ test(`${J} #3 opens Activity and filters to refused: only refused rows, the refu
   const outcomes = log.getByTestId('action-outcome');
   await expect(outcomes).toHaveCount(50);
   await expect(outcomes.filter({ hasNotText: /^Refused$/ })).toHaveCount(0);
-  // Each refusal reads as words: no reason cell is a bare code, and no code is shown in it.
+  // Each refusal reads as words: each reason cell is the words of that row's stored refusal code, never the code.
+  const loaded = await agentsRead('log.mine', { limit: 50, outcome: 'refused' });
+  expect(loaded).toHaveLength(50);
   const reasons = await log.getByTestId('action-reason').allInnerTexts();
   expect(reasons).toHaveLength(50);
-  for (const reason of reasons) {
-    expect(reason).not.toMatch(/agents\.[a-z_.]+/);
-    expect(reason.trim().split(/\s+/).length).toBeGreaterThan(2);
+  for (const [index, row] of loaded.entries()) {
+    expect(row.refusalCode, `row ${index}`).toMatch(/^agents\./);
+    expect(reasons[index].trim(), `row ${index}: ${row.refusalCode}`).toBe(refusalWordsOf(row.refusalCode));
+    expect(reasons[index]).not.toContain(row.refusalCode);
   }
+  // The 600 refusals of the start are the Navigator refusing a task it may not run, in those words.
+  expect(loaded.every((row) => row.refusalCode === 'agents.task_not_allowed')).toBe(true);
+  expect(reasons[0].trim()).toBe('This agent may not run that task');
   // No prompt text: neither the asked question nor a refused request's text appears.
   await expect(log).not.toContainText(ASK);
   await expect(log).not.toContainText('a task this agent may not run');
