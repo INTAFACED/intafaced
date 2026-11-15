@@ -87,7 +87,7 @@ export const TEST_SPOT_LISTINGS = Object.freeze([
 export const UNQUOTED_TEST_SPOT = Object.freeze(['IFC/USDC', 'IFC/BTC', 'TNEW/USDT', 'TOLD/USDT']);
 
 /** The open TEST market whose public tape stays empty: unquoted, and named only by the charts journeys that read it as a
- * market with no trades (apps/customer/tests/real-app/charts-desk-studies.mjs `untradedMarket`). No journey trades it. */
+ * market with no trades (their shared `untradedMarket` helper). No journey trades it. */
 export const UNTRADED_TEST_SPOT = 'IFC/BTC';
 
 /** The url back, or a refusal when its database is not obviously local or test. */
