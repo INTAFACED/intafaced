@@ -259,9 +259,11 @@ export function bandEdgeQuote(quote, band, { tick, lot }) {
  * level-0 quote whether or not anything was ahead of it, and this head's earlier fallback to a deeper resting quote
  * swept further.)
  */
-export function crossingQuote(ladder, resting, side, book) {
+export function crossingQuote(ladder, resting, side, book, level = 0) {
   const want = side === 'buy' ? 'sell' : 'buy';
-  const top = ladder.find((q) => q.level === 0 && q.side === want);
+  // `level` 1 is the third leg of a turn (`crossingLegs`), once this turn's own first leg took the level-0 quote: the
+  // book's top on that side must then be the maker's level-1 quote, alone, by the same rule.
+  const top = ladder.find((q) => q.level === level && q.side === want);
   if (!top) return null;
   const same = (x, y) => {
     try {
@@ -270,9 +272,9 @@ export function crossingQuote(ladder, resting, side, book) {
       return false;
     }
   };
-  if (!resting.some((q) => q.side === want && q.level === 0 && same(q.price, top.price) && same(q.amount, top.amount))) return null;
-  const level = (want === 'buy' ? book?.bids : book?.asks)?.[0];
-  if (!Array.isArray(level) || !same(level[0], top.price) || !same(level[1], top.amount)) return null;
+  if (!resting.some((q) => q.side === want && q.level === level && same(q.price, top.price) && same(q.amount, top.amount))) return null;
+  const first = (want === 'buy' ? book?.bids : book?.asks)?.[0];
+  if (!Array.isArray(first) || !same(first[0], top.price) || !same(first[1], top.amount)) return null;
   return top;
 }
 
@@ -789,10 +791,19 @@ async function preflight(maker, symbols) {
 /** Crossing side for the nth crossing in a market: buy, sell, buy, sell... so the taker's balances stay flat. */
 export const crossingSide = (n) => (n % 2 === 1 ? 'buy' : 'sell');
 /**
- * The two crossings a market's turn makes, as crossing numbers for `crossingSide`: this turn's side, then the other
- * one, so each turn trades at both the ask and the bid and its 1m bar has range (exported for tests).
+ * The three crossings a market's turn makes (exported for tests): this turn's side at the maker's level-0 quote, the
+ * other side at its level-0 quote, then this turn's side again at its level-1 quote. With `n` odd (a buy first): the ask,
+ * the bid, then the ask one level out. The bar's first trade, its open, is then strictly inside the bar: its high is
+ * the level-1 ask above it and its low the bid below it, so a position entered at that open can reach both a stop loss
+ * and a take profit on the same bar. Two legs were not enough: the open was always the bar's high or low, so an entry
+ * at it was stopped out on its own bar and could never take profit there (J-algo-dev-05 #3 replayed as at #8404
+ * `3016eeec` on main `1bff0b1`, run 43710208806). The next turn starts on the other side, so the taker stays flat.
  */
-export const crossingLegs = (n) => [n, n + 1];
+export const crossingLegs = (n) => [
+  { k: n, level: 0 },
+  { k: n + 1, level: 0 },
+  { k: n, level: 1 },
+];
 
 /** How long the market waits out a stack whose services are not all up (a restart) before it ends. */
 export const STACK_INACTIVE_LIMIT_MS = 5 * 60_000;
@@ -1231,19 +1242,18 @@ async function runLoop(opts, home) {
           const n = (crossings.get(m.symbol) ?? 0) + 1;
           // Top the taker up through the real ledger if either leg is under half its target.
           await ensureFunds(taker, 'taker', [m.base, m.quote], 10).catch((err) => log(`taker top-up failed: ${err.message}`));
-          // Both sides, one after the other (`crossingLegs`): a buy at the maker's ask and a sell at its bid, so every
-          // minute that trades has a bar with range, its high at the ask and its low at the bid. One crossing a minute
-          // made a 1m bar of one trade, open = high = low = close, so no bar could reach both a stop loss and a take
-          // profit (J-algo-dev-05 #3, #8404: six heads in a row, 165.6 round minutes). Each leg reads the book's top
-          // just before it, so it meets only the maker's own level-0 quote; a leg that can't is skipped.
-          for (const k of crossingLegs(n)) {
+          // Three legs (`crossingLegs`): this turn's side at level 0, the other side at level 0, this turn's side again at
+          // level 1, so each traded minute's bar opens strictly inside its own range and a position entered at its open
+          // can reach both a stop loss and a take profit (J-algo-dev-05 #3). Each leg reads the book's top just before it,
+          // so it meets only the maker's own quote at that level; a leg that can't is skipped.
+          for (const { k, level } of crossingLegs(n)) {
             const book = await maker
               .http('GET', `/api/v1/orderbook/${encodeURIComponent(m.symbol)}?limit=1`, null, { auth: false })
               .catch(() => null);
             const side = crossingSide(k);
-            const best = crossingQuote(ladder, resting, side, book?.status === 200 ? book.json : null);
+            const best = crossingQuote(ladder, resting, side, book?.status === 200 ? book.json : null, level);
             if (!best) {
-              log(`${m.symbol} no ${side} crossing this cycle: the book's top is not the maker's own level-0 quote on that side`);
+              log(`${m.symbol} no ${side} crossing this cycle: the book's top is not the maker's own level-${level} quote on that side`);
               continue;
             }
             // Counted only once placed, as the side placed: buys and sells still alternate.
