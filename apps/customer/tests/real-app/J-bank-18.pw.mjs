@@ -402,7 +402,10 @@ test(`${J} #4 reports a lost phone or a compromised account from the bank: step-
   // The location signal: off keeps nothing; on, the next sign-in keeps the region the edge resolved for it.
   const location = main.getByTestId('lost-phone__location');
   await expect(location.getByTestId('lost-phone__location-off')).toHaveText('Off: no location is kept.');
-  await location.getByLabel('Share my sign-in location').check();
+  // The switch shows what identity holds, so it turns once identity has recorded the consent: clicked, then awaited.
+  const share = location.getByLabel('Share my sign-in location');
+  await share.click();
+  await expect(share).toBeChecked();
   await expect(main.getByTestId('lost-phone__notice')).toHaveText('Location sharing is on.');
   await expect(location.getByTestId('lost-phone__signals')).toContainText('No sign-in region is kept yet.');
   try {
@@ -466,7 +469,9 @@ test(`${J} #4 reports a lost phone or a compromised account from the bank: step-
 
   // Turning the location signal off deletes the kept regions.
   await page.reload();
-  await location.getByLabel('Share my sign-in location').uncheck({ timeout: 30_000 });
+  await expect(share).toBeChecked({ timeout: 30_000 });
+  await share.click();
+  await expect(share).not.toBeChecked();
   await expect(main.getByTestId('lost-phone__notice')).toHaveText('Location sharing is off, and the kept regions were deleted.');
   await expect(location.getByTestId('lost-phone__location-off')).toBeVisible();
   const read = await (await api(who)).get('/api/identity/trpc/account.safety.read');
