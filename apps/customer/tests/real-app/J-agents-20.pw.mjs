@@ -37,10 +37,10 @@ function configured() {
   const { values } = JSON.parse(readFileSync(path.join(ROOT, 'tooling/profiles/test-owner-values/agents.json'), 'utf8'));
   return [...JSON.parse(values.AGENTS_ROUTING_TABLE.value).routes, JSON.parse(values.AGENTS_COACH_ROUTE.value)];
 }
-/** One route row's cells as the table shows them, by column name. */
+/** One route row's cells as the table holds them, by column name (text content: the console's headers render in capitals). */
 async function cells(page, task) {
-  const header = await routes(page).getByRole('columnheader').allInnerTexts();
-  const values = await row(page, task).getByRole('cell').allInnerTexts();
+  const header = await routes(page).getByRole('columnheader').allTextContents();
+  const values = await row(page, task).getByRole('cell').allTextContents();
   return Object.fromEntries(header.map((name, i) => [name.trim(), (values[i] ?? '').trim()]));
 }
 

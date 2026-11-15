@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseRoutesAction, rateOf, routeSay } from './model';
+import { parseRoutesAction, rateOf, routeRequestId, routeSay } from './model';
 
 const CHANGE = '11111111-1111-4111-8111-111111111111';
 
@@ -34,6 +34,11 @@ describe('the routing table desk’s route body (J-agents-20)', () => {
     expect(parseRoutesAction({ ...body, maxOutputTokens: 1.5 })).toBeNull();
     expect(parseRoutesAction({ ...body, task: 'a b' })).toBeNull();
     expect(parseRoutesAction({ ...body, requestId: 'short' })).toBeNull();
+  });
+
+  it('the sheet’s own request id passes the route’s check, for a task with a dot in its name', () => {
+    const body = { action: 'propose', task: 'index.embed', maxOutputTokens: 2, inputPerMillion: '0.1', outputPerMillion: '0' };
+    expect(parseRoutesAction({ ...body, requestId: routeRequestId() })).not.toBeNull();
   });
 
   it('withdraw and confirm take a change id; anything else is refused', () => {

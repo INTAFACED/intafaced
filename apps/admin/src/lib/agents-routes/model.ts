@@ -22,6 +22,9 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** A rate as typed: an unsigned decimal. Blank is "not set", passed on as null. */
 const RATE = /^\d{1,20}(\.\d{1,18})?$/;
 
+/** One request id per change sheet, so a retried press lands on the same row. Its shape is the route body's own check. */
+export const routeRequestId = (): string => `agents-routes:propose:${crypto.randomUUID()}`;
+
 /** A typed rate: null for blank, the string for a decimal, undefined for anything else. */
 export function rateOf(value: unknown): string | null | undefined {
   if (value === null || value === undefined) return null;

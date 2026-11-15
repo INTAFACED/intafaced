@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { formatAsOf } from '@/lib/as-of';
 import { founderMutationHeaders } from '@/lib/founder-browser';
-import { rateOf, routeSay } from '@/lib/agents-routes/model';
+import { rateOf, routeRequestId, routeSay } from '@/lib/agents-routes/model';
 
 /**
  * The model routing table (J-agents-20; AG-usage-02, RC-agents-05), as svc-agents serves it: each task with its
@@ -105,7 +105,7 @@ function ChangeSheet({ route, onDone, onCancel }: { route: Route; onDone: (messa
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   // One request id per sheet: a retried press of the same change lands on the same row.
-  const requestId = useRef(`agents-routes:${route.task}:${crypto.randomUUID()}`);
+  const requestId = useRef(routeRequestId());
   const titleId = `route-sheet-${route.task.replace(/[^A-Za-z0-9]/g, '-')}`;
 
   async function submit() {
