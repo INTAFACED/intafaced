@@ -261,11 +261,14 @@ export type RuleTestResult = z.infer<typeof ruleTestResultSchema>;
 /**
  * The triggers an earning rule may name: events declared in `packages/events`, each with the names its incentive
  * formula may read. `trade.fill.settled`: `amount` is the fill's quote amount, `fee` its fee, `qty` its quantity.
- * `pay.deposit_credit.posted`: `amount` is the amount credited. Anything else refuses `campaigns.trigger_unknown`.
+ * `pay.deposit_credit.posted`: `amount` is the amount credited. `bank.card_cashback.earned`: `amount` is what a card
+ * capture the card partner holds spent, `cashback` the cashback svc-bank worked out on it at the person's rank card tier
+ * (J-bank-13 #7). Anything else refuses `campaigns.trigger_unknown`.
  */
 export const EARNING_TRIGGERS = {
   'trade.fill.settled': { label: 'A spot fill settles', names: ['amount', 'fee', 'qty'] },
   'pay.deposit_credit.posted': { label: 'A crypto deposit is credited', names: ['amount'] },
+  'bank.card_cashback.earned': { label: 'Card spend earns cashback', names: ['amount', 'cashback'] },
 } as const;
 export type EarningTrigger = keyof typeof EARNING_TRIGGERS;
 

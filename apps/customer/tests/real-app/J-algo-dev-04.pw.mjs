@@ -94,6 +94,17 @@ async function startForm(paper, { cash = '1000', feed = 'own_venue' } = {}) {
 
 const runRows = (paper) => paper.getByTestId('quant-paper-run');
 
+/** Stops one of the developer's paper runs through Edge: it places no new order, and its record stays. */
+async function stopRun(who, runId) {
+  const client = await api(who);
+  const res = await client.post('/api/quant/trpc/paper.stop', { runId });
+  expect(res.status, `paper.stop: ${JSON.stringify(res.body).slice(0, 300)}`).toBe(200);
+  expect(dataOf(res.body).state).toBe('stopped');
+}
+
+/** The runs #2's failed attempts left (the workflow retries a failed step once, JOURNEY_RETRIES=1): stopped and listed. */
+const leftRuns = () => state().leftRuns ?? [];
+
 test(`${J} #1 opens the strategy and starts a paper run with starting cash left blank: a refusal naming the cash; nothing starts`, async ({
   page,
 }) => {
@@ -141,7 +152,13 @@ test(`${J} #2 sets cash TEST and an empty holdings list, keeps the own-exchange 
   page,
 }) => {
   test.setTimeout(15 * 60_000);
-  const { account: who, strategyId } = state();
+  const { account: who, strategyId, runId: earlier } = state();
+  // A retry of this step finds the run its failed attempt started (#8399: that run made the later steps count one run
+  // too many). It is stopped, so it trades no more, and named, so the later steps count it as already there.
+  if (earlier) {
+    await stopRun(who, earlier);
+    run.write({ runId: undefined, leftRuns: [...leftRuns(), earlier] });
+  }
   await signIn(page, who);
   const paper = await openStrategy(page, strategyId);
   const form = await startForm(paper);
@@ -244,9 +261,10 @@ test(`${J} #2 sets cash TEST and an empty holdings list, keeps the own-exchange 
 
 test(`${J} #3 retries the start dialog after a lost reply: the same run, not a second one`, async ({ page }) => {
   const { account: who, strategyId, runId: first } = state();
+  const left = leftRuns();
   await signIn(page, who);
   const paper = await openStrategy(page, strategyId);
-  await expect(runRows(paper)).toHaveCount(1);
+  await expect(runRows(paper)).toHaveCount(1 + left.length);
   const form = await startForm(paper);
   // The start reaches svc-quant, but its reply is lost on the way back.
   let lost = false;
@@ -264,18 +282,18 @@ test(`${J} #3 retries the start dialog after a lost reply: the same run, not a s
   expect(lostRunId, `the lost reply names its run: ${lostReply.slice(0, 200)}`).toBeTruthy();
   expect(lostRunId).not.toBe(first);
   const before = await read(who, 'quant', 'paper.list', { strategyId, limit: 50 });
-  expect(before.runs.map((row) => row.runId).sort()).toEqual([first, lostRunId].sort());
-  expect(before.counts).toEqual([{ strategyVersion: 1, runs: 2 }]);
+  expect(before.runs.map((row) => row.runId).sort()).toEqual([first, ...left, lostRunId].sort());
+  expect(before.counts).toEqual([{ strategyVersion: 1, runs: 2 + left.length }]);
   // Pressed again from the same dialog: the run the lost reply started, not a second one.
   await form.getByRole('button', { name: 'Start', exact: true }).click();
   await expect(paper.getByTestId('quant-paper-note')).toHaveText('Version 1 is running on paper.');
   const second = await paper.getByTestId('quant-paper-view').getAttribute('data-run-id');
   expect(second).toBe(lostRunId);
   await page.reload();
-  await expect(runRows(paper)).toHaveCount(2);
+  await expect(runRows(paper)).toHaveCount(2 + left.length);
   const list = await read(who, 'quant', 'paper.list', { strategyId, limit: 50 });
-  expect(list.runs.map((row) => row.runId).sort()).toEqual([first, second].sort());
-  expect(list.counts).toEqual([{ strategyVersion: 1, runs: 2 }]);
+  expect(list.runs.map((row) => row.runId).sort()).toEqual([first, ...left, second].sort());
+  expect(list.counts).toEqual([{ strategyVersion: 1, runs: 2 + left.length }]);
 
   // This retry's run is stopped again, so the journey goes on with #2's run alone.
   await paper
@@ -289,9 +307,10 @@ test(`${J} #4 chooses an outside data feed: the notice that this needs an outsid
   page,
 }) => {
   const { account: who, strategyId } = state();
+  const runs = 2 + leftRuns().length;
   await signIn(page, who);
   const paper = await openStrategy(page, strategyId);
-  await expect(runRows(paper)).toHaveCount(2);
+  await expect(runRows(paper)).toHaveCount(runs);
   const form = await startForm(paper, { feed: 'outside_market' });
   await expect(form.getByTestId('quant-paper-feed-notice')).toHaveText(
     'This needs an outside market feed, which is switched off in this build. Choose our exchange’s own prices to start.',
@@ -303,8 +322,8 @@ test(`${J} #4 chooses an outside data feed: the notice that this needs an outsid
     'This needs an outside market feed, which is switched off in this build. Nothing was started, and no run was added.',
   );
   await page.reload();
-  await expect(runRows(paper)).toHaveCount(2);
-  expect((await read(who, 'quant', 'paper.list', { strategyId, limit: 50 })).counts).toEqual([{ strategyVersion: 1, runs: 2 }]);
+  await expect(runRows(paper)).toHaveCount(runs);
+  expect((await read(who, 'quant', 'paper.list', { strategyId, limit: 50 })).counts).toEqual([{ strategyVersion: 1, runs }]);
 });
 
 test(`${J} #5 sets notification channels for the strategy, in-app, email and webhook: in-app on; email shows the vendor notice while the notice still appears in the app; webhook is refused as unavailable and is not saved`, async ({
