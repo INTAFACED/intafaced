@@ -76,6 +76,9 @@ export const venueProtectCopy = defineCopy('trade.futures.venue.protect', {
   // One-tap reverse.
   'Reverse plan': 'Close {size} {base} {side}, then open {size} {base} {opposite}',
   'Reverse note': 'This venue takes one order per signature: you sign the close, then the open.',
+  'Reverse note together': 'This venue takes the close and the open together: you sign once.',
+  'Reverse failed': 'The reverse did not go through, so nothing changed: {outcome}',
+  'Reverse close part': 'The close did not fill whole: {outcome}. Check the position before you trade again.',
   'Reverse sign': 'Sign the reverse',
   'Reverse close failed': 'The close did not go through, so nothing was opened: {outcome}',
   'Reverse open failed': 'The close went through; the open did not: {outcome}',

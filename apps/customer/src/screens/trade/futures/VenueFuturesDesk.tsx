@@ -1101,6 +1101,7 @@ function Blotter({
           run={run}
           test={status.test}
           venueName={status.venue.displayName}
+          ordersPerAction={status.ordersPerAction ?? 1}
           onDone={account.reload}
         />
       ) : tab === 'orders' ? (
@@ -1136,6 +1137,7 @@ function PositionsTable({
   run,
   test,
   venueName,
+  ordersPerAction,
   onDone,
 }: {
   positions: AsOf<VenuePosition[]> | null;
@@ -1144,6 +1146,8 @@ function PositionsTable({
   run: RunAction;
   test: boolean;
   venueName: string;
+  /** The most orders the venue takes in one signed action (status `ordersPerAction`). */
+  ordersPerAction: number;
   onDone: () => void;
 }) {
   const { t } = futuresVenueCopy.useCopy();
@@ -1236,6 +1240,7 @@ function PositionsTable({
           market={dialogMarket}
           owner={owner}
           run={run}
+          together={ordersPerAction >= 2}
           worstPrice={(position) => closeWorstPrice(position, dialogMarket.tickSize)}
           onDone={onDone}
           onClose={() => setOpen(null)}

@@ -51,6 +51,8 @@ export const venueStatusSchema = z.union([
       .nullable()
       .optional(),
     builder: z.object({ address, feeBps: decimalSchema }).nullable(),
+    // J-derivatives-03 #9: the most orders the venue takes in one signed action; above 1, a reverse is signed once.
+    ordersPerAction: z.number().int().positive().optional(),
     // J-derivatives-28: true when more than one venue is configured; the ticket then routes over them.
     routes: z.boolean().optional(),
   }),
@@ -360,12 +362,27 @@ export const routePreviewSchema = z.object({
 });
 export type RoutePreview = z.infer<typeof routePreviewSchema>;
 
+/** The venue's own answer for one order of orders signed together (J-derivatives-03 #9). */
+const legOutcome = z.union([
+  z.object({
+    definite: z.literal(true),
+    accepted: z.literal(true),
+    venueRef: z.string().nullable(),
+    order: venueOrderSchema.nullable(),
+    asOf: isoTime,
+  }),
+  z.object({ definite: z.literal(true), accepted: z.literal(false), refusal: refusalSchema, asOf: isoTime }),
+]);
+export type VenueLegOutcome = z.infer<typeof legOutcome>;
+
 const orderOutcome = z.union([
   z.object({
     definite: z.literal(true),
     accepted: z.literal(true),
     venueRef: z.string().nullable(),
     order: venueOrderSchema.nullable(),
+    /** Orders signed together: each order's own answer, in the order sent. */
+    legs: z.array(legOutcome).optional(),
     asOf: isoTime,
   }),
   z.object({ definite: z.literal(true), accepted: z.literal(false), refusal: refusalSchema, asOf: isoTime }),
@@ -400,7 +417,13 @@ export type PreparedAnswer = z.infer<typeof preparedAnswerSchema>;
 export const submitAnswerSchema = z.object({
   actionKey: z.string(),
   outcome: orderOutcome,
-  readBack: z.union([z.object({ venueClientOrderId: z.string() }), z.object({ nonce: z.string() })]).nullable(),
+  readBack: z
+    .union([
+      z.object({ venueClientOrderId: z.string() }),
+      z.object({ venueClientOrderIds: z.array(z.string()) }),
+      z.object({ nonce: z.string() }),
+    ])
+    .nullable(),
 });
 export type SubmitAnswer = z.infer<typeof submitAnswerSchema>;
 
@@ -522,6 +545,8 @@ export interface OrderIntent {
 }
 export type VenueIntent =
   | OrderIntent
+  // Orders the venue takes in one signed action (J-derivatives-03 #9), each keyed `<actionKey>:<part>`.
+  | { kind: 'place_orders'; actionKey: string; orders: OrderIntent[] }
   | { kind: 'cancel_order'; symbol: string; clientOrderKey: string }
   | { kind: 'update_leverage'; symbol: string; leverageBps: number; marginMode: VenueMarginMode }
   | { kind: 'approve_builder_fee'; builder: string; maxFeeBps: string }
