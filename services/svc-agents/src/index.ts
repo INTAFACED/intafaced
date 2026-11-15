@@ -45,6 +45,7 @@ import { deliverTriggerEvent, tickSchedules, type AutoRunDeps } from './own/auto
 import { OWN_RUN_TASK, ownGuardrail } from './own/routes.js';
 import { advanceSessionRuns, publishCompletedRuns } from './runs/background.js';
 import { createIdentityLinkedWallets, paymentMethodFunds } from './own/payment-method.js';
+import { teamFunds } from './team/funds.js';
 import { createChainBalance } from './chain-balance.js';
 import { retentionPeriods } from './own/memory.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
@@ -180,21 +181,26 @@ const runtime = new AgentRuntime(sql, gateway, meter, bus, {
   spend,
   // The person's available balance, read from the ledger before each metered run (OWNER 107), or, for an own agent whose
   // payment method is a linked wallet, that wallet's balance of the payment token as the chain reports it (J-agents-02 #4).
-  funds: paymentMethodFunds({
+  funds: teamFunds({
     sql,
-    // A person whose partner holds their money is covered by what the partner reports (an unknown figure is unread,
-    // never 0); one with no payment method has nothing to pay with; everyone else reads the ledger, as before.
-    ledger: async (userId, assetId) => {
-      const held = await usagePayment.read(userId, assetId);
-      if (held.heldBy === 'none') return 0n;
-      if (held.heldBy === 'partner') {
-        if (held.available === null) throw new Error('the partner has not reported this balance');
-        return parseAmount(held.available);
-      }
-      return (await ledger.balance(userAvailable(userId, assetId))).amount;
-    },
-    wallets: linkedWallets,
-    chain: paymentChain,
+    payment: usagePayment,
+    ledger: async (userId, assetId) => (await ledger.balance(userAvailable(userId, assetId))).amount,
+    own: paymentMethodFunds({
+      sql,
+      // A person whose partner holds their money is covered by what the partner reports (an unknown figure is unread,
+      // never 0); one with no payment method has nothing to pay with; everyone else reads the ledger, as before.
+      ledger: async (userId, assetId) => {
+        const held = await usagePayment.read(userId, assetId);
+        if (held.heldBy === 'none') return 0n;
+        if (held.heldBy === 'partner') {
+          if (held.available === null) throw new Error('the partner has not reported this balance');
+          return parseAmount(held.available);
+        }
+        return (await ledger.balance(userAvailable(userId, assetId))).amount;
+      },
+      wallets: linkedWallets,
+      chain: paymentChain,
+    }),
   }),
   transcriptRetentionDays: env.AGENTS_TRANSCRIPT_RETENTION_DAYS ?? null,
   overageGrace: env.AGENTS_OVERAGE_GRACE === undefined ? null : parseAmount(env.AGENTS_OVERAGE_GRACE),

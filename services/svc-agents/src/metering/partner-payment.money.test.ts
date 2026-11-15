@@ -38,6 +38,7 @@ const migrations = readdirSync(drizzleDir)
   .map((f) => readFileSync(join(drizzleDir, f), 'utf8'));
 
 const USER = '33333333-3333-4333-8333-333333333333';
+const BUSINESS = '44444444-4444-4444-8444-444444444444';
 const ASSET = 'USDT';
 const TABLE = parseRoutingTable({
   routes: [
@@ -69,16 +70,20 @@ function partnerDoor(start: Amount) {
     loseNextReply: false,
     readFails: false,
     collects: 0,
+    /** The business each read and collect named, in order (undefined: the person pays). */
+    businesses: [] as Array<string | undefined>,
   };
   const port: UsagePaymentPort = {
-    async read() {
+    async read(_userId, _assetId, businessId) {
+      state.businesses.push(businessId);
       if (state.readFails) throw new Error('svc-bank did not answer');
       return state.heldBy === 'partner'
         ? { heldBy: 'partner', label: 'TEST partner bank', available: formatAmount(balance), asOf: new Date().toISOString() }
         : { heldBy: state.heldBy };
     },
-    async collect({ amount, chargeKey }) {
+    async collect({ amount, chargeKey, businessId }) {
       state.collects += 1;
+      state.businesses.push(businessId);
       const prior = payments.get(chargeKey);
       if (!prior) {
         if (state.refuse) return { ok: false, reason: state.refuse };
@@ -139,7 +144,7 @@ if (!available) {
     beforeEach(async () => {
       await lockConn`select pg_advisory_lock(842671)`;
       await sql`
-        TRUNCATE agents.spend_reservations, agents.spend_limit_requests, agents.user_spend_limits, agents.think_claims, agents.agent_place_intents, agents.usage_records, agents.usage_windows, agents.agent_actions, agents.agent_sessions, agents.agent_definitions
+        TRUNCATE agents.team_sessions, agents.spend_reservations, agents.spend_limit_requests, agents.user_spend_limits, agents.think_claims, agents.agent_place_intents, agents.usage_records, agents.usage_windows, agents.agent_actions, agents.agent_sessions, agents.agent_definitions
         RESTART IDENTITY CASCADE
       `;
       ledger = new MemoryLedger();
@@ -328,6 +333,84 @@ if (!available) {
           .slice(1),
       ).toEqual(['agents.usage.metered']);
       expect((await windowRow(session.id)).paid_by).toBe('ledger');
+    });
+
+    /** A run on a business team session of USER's (J-agents-11): the business pays. */
+    const ranForTeam = async () => {
+      const made = await ran('team-r-1');
+      await sql`
+        INSERT INTO agents.team_sessions (session_id, business_id, member_user_id, own_agent_id)
+        VALUES (${made.session.id}, ${BUSINESS}, ${USER}, 'own-test')
+      `;
+      return made;
+    };
+    const owedByBusiness = async (sessionId: string) =>
+      (
+        await sql<Array<{ owed_by_business: string | null }>>`
+        SELECT owed_by_business FROM agents.usage_windows WHERE session_id = ${sessionId}
+      `
+      )[0]!.owed_by_business;
+
+    it('a team run is owed by the business, naming the member, and collected once from the business’s payment method (J-agents-11)', async () => {
+      const { session, windowId } = await ranForTeam();
+      const first = await runtime.settleWindow(session.id, windowId);
+      const again = await runtime.settleWindow(session.id, windowId);
+      const amount = first.amount;
+      expect(amount > 0n).toBe(true);
+      expect(again.settled).toBe(false);
+      // svc-bank was asked for the business's payment method, never the member's.
+      // One read and one collect; the second settle finds the window paid and asks nothing.
+      expect(door.state.businesses).toEqual([BUSINESS, BUSINESS]);
+      expect(door.payments.size).toBe(1);
+      expect(door.balance()).toBe(parseAmount('10') - amount);
+      // Earned once as owed by the business, naming the member; the member owes nothing and holds nothing here.
+      const [earned, collected] = ledger.journal();
+      expect(earned).toMatchObject({ reason: 'charge.earned', meta: { userId: BUSINESS, memberUserId: USER } });
+      expect(collected).toMatchObject({ reason: 'charge.collected', meta: { userId: BUSINESS, paymentId: 'test-partner-move-1' } });
+      expect(ledger.journal()).toHaveLength(2);
+      expect(await figure(houseFees('agents', ASSET))).toBe(amount);
+      expect(await figure(chargeReceivable('agents', BUSINESS, ASSET))).toBe(0n);
+      expect(await figure(chargeReceivable('agents', USER, ASSET))).toBe(0n);
+      expect(await figure(userAvailable(USER, ASSET))).toBe(0n);
+      expect(await figure(partnerReserve('test', ASSET))).toBe(-amount);
+      expect(ledger.reconcile()).toEqual({ ok: true });
+      expect(await owedByBusiness(session.id)).toBe(BUSINESS);
+      expect((await windowRow(session.id)).paid_by).toBe('partner');
+    });
+
+    it('a team window the business cannot pay stays owed by the business, and the next settle collects it once', async () => {
+      const { session, windowId } = await ranForTeam();
+      door.state.refuse = 'insufficient_funds';
+      await expect(runtime.settleWindow(session.id, windowId)).rejects.toMatchObject({
+        code: 'agents.window_unpaid',
+        reason: 'insufficient_funds',
+      });
+      const amount = await meterOf().pendingCost(session.id, windowId);
+      expect(await figure(chargeReceivable('agents', BUSINESS, ASSET))).toBe(-amount);
+      expect(await figure(chargeReceivable('agents', USER, ASSET))).toBe(0n);
+      expect(await owedByBusiness(session.id)).toBe(BUSINESS);
+      expect(door.balance()).toBe(parseAmount('10'));
+      door.state.refuse = null;
+      expect((await runtime.settleWindow(session.id, windowId)).settled).toBe(true);
+      expect(await figure(chargeReceivable('agents', BUSINESS, ASSET))).toBe(0n);
+      expect(ledger.journal().map((t) => t.reason)).toEqual(['charge.earned', 'charge.collected']);
+    });
+
+    it('on the custodial layer a team run is the member’s fee charge, as before, and owed by no business', async () => {
+      door.state.heldBy = 'ledger';
+      await ledger.post(
+        recipes.deposit({ userId: USER, assetId: ASSET, amount: parseAmount('5'), rail: 'test', railRef: 'partner-pay-team-fund' }),
+      );
+      const { session, windowId } = await ranForTeam();
+      expect((await runtime.settleWindow(session.id, windowId)).settled).toBe(true);
+      expect(door.state.collects).toBe(0);
+      expect(
+        ledger
+          .journal()
+          .map((t) => t.reason)
+          .slice(1),
+      ).toEqual(['agents.usage.metered']);
+      expect(await owedByBusiness(session.id)).toBeNull();
     });
   });
 }

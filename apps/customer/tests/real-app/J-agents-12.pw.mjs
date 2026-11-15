@@ -427,10 +427,16 @@ const readInputs = () => ({
   'run.list': { sessionId: kept('sessionId'), limit: 50 },
   'run.get': { runId: kept('runId') },
   'run.events': { runId: kept('runId'), limit: 50 },
+  // One run's trace, by its session and the request that started it (J-agents-13).
+  'run.trace': { sessionId: kept('sessionId'), requestId: kept('requestId') },
   // A background run is read by its own id; the scope is checked before any run is looked up.
   'run.background.get': { runId: kept('runId') },
   'usage.current': { sessionId: kept('sessionB') },
+  'usage.summary': { limit: 50 },
   'log.mine': { limit: 50 },
+  'log.count': {},
+  // The whole log's export, a page at a time; refused here before any page or audit row is written.
+  'log.export': { limit: 50 },
 });
 
 test(`${J} #1 calls the session API with a key lacking the agents read scope: refused`, async () => {

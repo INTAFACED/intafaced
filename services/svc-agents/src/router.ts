@@ -61,6 +61,7 @@ import { coachRunRoutes } from './coach/router.js';
 import { runRoutes } from './runs/routes.js';
 import { backgroundRunRoutes } from './runs/background-routes.js';
 import type { SessionRunSettings } from './runs/background.js';
+import { reviewRoutes } from './review/routes.js';
 import { sessionEventsRoute } from './runs/session-events.js';
 import type { RunStore } from './runs/store.js';
 import { NO_TIER_LAWS, type TierLaws } from './tier-laws.js';
@@ -494,6 +495,8 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
     requireSettleService(ctx.service);
     return next({ ctx });
   });
+
+  const review = reviewRoutes(deps, { guard, ownedSession });
 
   return router({
     health: publicProcedure.output(z.object({ ok: z.literal(true), service: z.string() })).query(() => ({
@@ -961,9 +964,16 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
     run: router({
       ...runRoutes(deps, { guard, executeProcedure, ownedSession }),
       background: router(backgroundRunRoutes(deps, { guard, executeProcedure, ownedSession })),
+      trace: review.runTrace,
     }),
 
+    /** What my agents did over a range of days (AG-analytics-01). */
+    analytics: router({ summary: review.analyticsSummary }),
+
     usage: router({
+      /** Usage by agent, user and task from sealed windows (AG-usage-02). Bills nothing. */
+      summary: review.usageSummary,
+
       /** What the current window would cost if it settled now. Bills nothing. */
       current: scopedProcedure('agents:read', { module: 'agents' })
         .input(z.object({ sessionId: z.string().guid() }))
@@ -1048,11 +1058,19 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
     /** THE USER-VISIBLE LOG (§8.2). Always the caller's own. Blank limit refuses — never invent 100. */
     log: router({
       mine: scopedProcedure('agents:read', { module: 'agents' })
-        .input(z.object({ limit: z.number().int().min(1).max(500).optional() }).optional())
+        .input(
+          z
+            .object({ limit: z.number().int().min(1).max(500).optional(), outcome: z.enum(['executed', 'refused', 'failed']).optional() })
+            .optional(),
+        )
         .output(z.array(actionOutput))
         .query(({ ctx, input }) =>
-          guard(async () => (await runtime.userLog(ctx.principal.userId, assertUserLogPageLimit(input?.limit))).map(toActionOutput)),
+          guard(async () =>
+            (await runtime.userLog(ctx.principal.userId, assertUserLogPageLimit(input?.limit), input?.outcome ?? null)).map(toActionOutput),
+          ),
         ),
+      count: review.logCount,
+      export: review.logExport,
     }),
 
     /**

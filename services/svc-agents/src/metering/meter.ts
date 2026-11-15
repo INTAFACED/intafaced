@@ -423,8 +423,11 @@ export class UsageMeter {
     // Where the person's money is held decides how (launch money model, OWNER 226). On the custodial layer the window
     // is one ledger fee charge, as before. Otherwise it is earned in our ledger as owed by the person, then collected
     // from their payment method by their partner, and the ledger's collect is keyed on the partner's own payment id.
-    const held = await this.payment.read(input.userId, this.assetId);
-    if (held.heldBy !== 'ledger') return this.earnAndCollect(input, chargeKey, sealed.amount, held.heldBy);
+    // A business team's run (J-agents-11) is paid by the business: it is owed by the business, naming the member, and
+    // collected from the business's payment method. On the custodial layer it is the member's fee charge, as before.
+    const business = await this.teamBusinessOf(input.sessionId);
+    const held = await this.payment.read(input.userId, this.assetId, business ?? undefined);
+    if (held.heldBy !== 'ledger') return this.earnAndCollect(input, chargeKey, sealed.amount, held.heldBy, business);
 
     const ledgerTx = await this.ledger.post(
       recipes.feeCharge({
@@ -478,26 +481,42 @@ export class UsageMeter {
     chargeKey: string,
     amount: Amount,
     heldBy: 'partner' | 'none',
+    business: string | null = null,
   ): Promise<SettlementResult> {
+    // Who owes it: the business for a team run (naming the member whose run it was), else the person.
+    const debtor = business ?? input.userId;
     await this.ledger.post(
       recipes.chargeEarn({
         module: this.module,
         saleId: `${input.sessionId}.${input.windowId}`,
-        userId: input.userId,
+        userId: debtor,
+        ...(business ? { memberUserId: input.userId } : {}),
         assetId: this.assetId,
         price: { perUnit: amount },
         units: 1n,
       }),
     );
+    if (business) {
+      await this.sql`
+        UPDATE agents.usage_windows SET owed_by_business = ${business}
+         WHERE session_id = ${input.sessionId} AND window_id = ${input.windowId} AND owed_by_business IS NULL
+      `;
+    }
     if (heldBy === 'none') throw new UsageOwedError('no_payment_method');
 
-    const paid = await this.payment.collect({ userId: input.userId, assetId: this.assetId, amount, chargeKey });
+    const paid = await this.payment.collect({
+      userId: input.userId,
+      assetId: this.assetId,
+      amount,
+      chargeKey,
+      ...(business ? { businessId: business } : {}),
+    });
     if (!paid.ok) throw new UsageOwedError(paid.reason);
 
     const collected = await this.ledger.post(
       recipes.chargeCollect({
         module: this.module,
-        userId: input.userId,
+        userId: debtor,
         to: { kind: 'partner-reserve', partnerId: paid.partnerId },
         paymentId: paid.paymentId,
         assetId: this.assetId,
@@ -522,6 +541,14 @@ export class UsageMeter {
       chargeTxId: collected.id,
       settled: recorded.length > 0,
     };
+  }
+
+  /** The business a team session runs for (J-agents-11), or null for any other session. */
+  private async teamBusinessOf(sessionId: string): Promise<string | null> {
+    const [row] = await this.sql<Array<{ business_id: string }>>`
+      SELECT business_id::text FROM agents.team_sessions WHERE session_id = ${sessionId}
+    `;
+    return row?.business_id ?? null;
   }
 
   /** Best-effort; never throws. feeCharge already posted. */

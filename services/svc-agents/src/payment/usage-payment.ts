@@ -19,8 +19,15 @@ import {
 import { formatAmount, type Amount } from '@intafaced/ledger-client';
 
 export interface UsagePaymentPort {
-  read(userId: string, assetId: string): Promise<AgentsUsagePaymentRead>;
-  collect(input: { userId: string; assetId: string; amount: Amount; chargeKey: string }): Promise<AgentsUsagePaymentCollect>;
+  /** With `businessId` (a team run), how the business pays, not the member (`userId`). */
+  read(userId: string, assetId: string, businessId?: string): Promise<AgentsUsagePaymentRead>;
+  collect(input: {
+    userId: string;
+    assetId: string;
+    amount: Amount;
+    chargeKey: string;
+    businessId?: string;
+  }): Promise<AgentsUsagePaymentCollect>;
 }
 
 export class UsagePaymentUnavailable extends Error {
@@ -68,14 +75,16 @@ export function createHttpUsagePaymentPort(options: HttpUsagePaymentOptions): Us
     return response.json().catch(() => null);
   };
   return {
-    async read(userId, assetId) {
-      const parsed = agentsUsagePaymentReadSchema.safeParse(await call({ action: 'read', userId, assetId }));
+    async read(userId, assetId, businessId) {
+      const parsed = agentsUsagePaymentReadSchema.safeParse(
+        await call({ action: 'read', userId, assetId, ...(businessId ? { businessId } : {}) }),
+      );
       if (!parsed.success) throw new UsagePaymentUnavailable();
       return parsed.data;
     },
-    async collect({ userId, assetId, amount, chargeKey }) {
+    async collect({ userId, assetId, amount, chargeKey, businessId }) {
       const parsed = agentsUsagePaymentCollectSchema.safeParse(
-        await call({ action: 'collect', userId, assetId, amount: formatAmount(amount), chargeKey }),
+        await call({ action: 'collect', userId, assetId, amount: formatAmount(amount), chargeKey, ...(businessId ? { businessId } : {}) }),
       );
       if (!parsed.success) throw new UsagePaymentUnavailable();
       // The partner's answer must be for the amount asked; any other is not this window's payment.

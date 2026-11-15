@@ -4,7 +4,7 @@ import type { EventBus } from '@intafaced/events';
 import { formatAmount, InsufficientFundsError, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { fundsRefusalParams, fundsShortfall, readFunds, type FundsPort } from './funds.js';
 import { AgentError, MeteredReplayError } from './errors.js';
-import { AuditLog, type ActionKind, type AuditedAction } from './fleet/audit.js';
+import { AuditLog, type ActionKind, type ActionStatus, type AuditedAction } from './fleet/audit.js';
 import {
   evaluateCompletion,
   evaluateToolCall,
@@ -600,7 +600,7 @@ export class AgentRuntime {
     //      block it was read at and that block's time, or why it could not be read (J-agents-02 #4).
     if (!this.spend && this.funds && shouldMeter && worstCaseCost > 0n) {
       const funds = this.funds;
-      const read = await readFunds(() => funds.available(session.userId, this.feeAssetId, session.agentId));
+      const read = await readFunds(() => funds.available(session.userId, this.feeAssetId, session.agentId, session.id));
       const outcome = read.ok ? fundsShortfall(read.reading, 0n, worstCaseCost) : read;
       if (outcome !== null) {
         throw await this.appendRefusal(
@@ -640,7 +640,9 @@ export class AgentRuntime {
     let reservationKey = input.requestId;
     const funds = this.funds;
     const fundsRead =
-      funds && shouldMeter && worstCaseCost > 0n ? () => funds.available(session.userId, this.feeAssetId, session.agentId) : null;
+      funds && shouldMeter && worstCaseCost > 0n
+        ? () => funds.available(session.userId, this.feeAssetId, session.agentId, session.id)
+        : null;
     if (this.spend) {
       try {
         let held = await this.spend.reserve({
@@ -1267,8 +1269,8 @@ export class AgentRuntime {
 
   // ── The user-visible log (§8.2) ────────────────────────────────────────────
 
-  async userLog(userId: string, limit: number): Promise<AuditedAction[]> {
-    return this.audit.forUser(userId, limit);
+  async userLog(userId: string, limit: number, status: ActionStatus | null = null): Promise<AuditedAction[]> {
+    return this.audit.forUser(userId, limit, status);
   }
 
   async sessionLog(sessionId: string, limit: number): Promise<AuditedAction[]> {

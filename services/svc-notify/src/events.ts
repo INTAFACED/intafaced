@@ -905,7 +905,13 @@ export async function subscribeNotificationEvents(
       // before a retry is asked for, so one person's channel outage never holds back the other's notice. A send
       // to oneself is only a receipt: the money never left the person.
       const common = {
-        params: { amount: payload.amount, assetId: payload.assetId, transferId: payload.transferId, ledgerTxId: payload.ledgerTxId },
+        params: {
+          amount: payload.amount,
+          assetId: payload.assetId,
+          transferId: payload.transferId,
+          ledgerTxId: payload.ledgerTxId,
+          partnerMoveId: payload.partnerMoveId ?? null,
+        },
         href: '/money/activity?tab=transfers',
         severity: 'info' as const,
         sourceSubject: personalTransferPosted.subject,

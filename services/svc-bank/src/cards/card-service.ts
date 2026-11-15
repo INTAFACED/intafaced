@@ -2135,8 +2135,12 @@ export class CardService {
       );
     }
     if (figures.available === null) {
+      // The assets the partner says it spends from, when it says: the card's own asset is not among the ones it holds
+      // (J-bank-07 #3, #8410 `ef45f97a`: a TEST card in USDT on a partner that spends from USDC, BTC and USD).
+      const from = this.partnerTerms().spendFrom;
+      const spends = from && from.length > 0 ? ` It spends from ${from.join(', ')}; a card in one of those can be held.` : '';
       throw new BankError(
-        `The card partner reports no ${card.assetId} balance, so nothing can be held. Nothing was decided.`,
+        `The card partner reports no ${card.assetId} balance, so nothing can be held.${spends} Nothing was decided.`,
         'bank.card_partner_balance_not_known',
       );
     }
