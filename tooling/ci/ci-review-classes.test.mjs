@@ -21,7 +21,10 @@ const REAL = [
     'route-scope',
   ],
   [
-    'apps/customer/tests/real-app/J-cex-spot-04.pw.mjs:71 and :205: item 3: two tests had titles naming step #2 and #4; the PR retitles them',
+    [
+      'apps/customer/tests/real-app/x.pw.mjs:77: item 3: the PR retitles seven tests so they no longer begin with `${J} #N`',
+      'step-id-dropped',
+    ],
     'step-id-dropped',
   ],
   [
@@ -43,6 +46,11 @@ const REAL = [
   ],
   ['services/svc-x/src/a.ts:3: item 5: calls a live outside service on a test path', 'other'],
   ['something with no ground at all', 'other'],
+  // Advice or a quoted phrase is not the pattern: the cited item decides (the fresh check's misreads, 15 Nov).
+  ['a.ts:1: item 4: the comment swallows a line of the table', 'says-not-does'],
+  ["x.ts:2: item 3: the body says the diff can't be reviewed whole, but it can", 'test-weakened'],
+  ['x.ts:3: item 1: I could not confirm a non-random idempotency key here', 'money-path'],
+  ['x.ts:4: item 3: retitle the PR so it names its steps', 'test-weakened'],
 ];
 
 test('the closed list holds the five corrections project-state #2582 counted most, and other', () => {
@@ -53,6 +61,12 @@ test('the closed list holds the five corrections project-state #2582 counted mos
 test('each real finding reads as its class, the most specific first', () => {
   for (const [f, want] of REAL) assert.equal(findingClass(f), want, f);
   assert.ok(REAL.every(([, c]) => FINDING_CLASSES.includes(c)));
+});
+
+test('a long run of spaces is read in linear time', () => {
+  const t = Date.now();
+  findingClass(`catch (${' '.repeat(200000)}`);
+  assert.ok(Date.now() - t < 500);
 });
 
 test('classes are listed once each, notes left out', () => {

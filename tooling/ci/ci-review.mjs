@@ -341,10 +341,12 @@ export async function automaticRevert({ repo, pull, diff, get, git }) {
  * or test could hold, then the finding's REVIEW.md ground (`item N`), else `other`.
  */
 export const FINDING_PATTERNS = [
-  ['unreviewable', /can't be reviewed whole|split the pull request/i],
+  // The job's own too-large finding, or the brief's ground written as one (`path: can't be reviewed whole: ...`); a
+  // finding that only quotes the phrase is not one.
+  ['unreviewable', /^the diff is \d+ bytes, over \d+|(?:^|: )can't be reviewed whole(?::|;|$)/i],
   [
     'catch-all',
-    /catch\s*(?:\(\s*\w*\s*\))?\s*\{\s*\}|\.catch\(\s*\(\s*\)\s*=>|\bcatch-all\b|\bbare `?catch\b|\bswallow(?:s|ed|ing)?\b|(?:error|failure|rejection)s?\b[^.;]{0,40}\b(?:dropped|ignored|discarded|lost)\b|drops? (?:every|the|each|all) (?:error|failure|rejection)/i,
+    /catch ?(?:\(\w*\))? ?\{ ?\}|\.catch\( ?\( ?\) ?=>|\bcatch-all\b|\bbare `?catch\b|\b(?:errors?|exceptions?|failures?|rejections?)\b[^.;]{0,40}\b(?:swallowed|dropped|ignored|discarded)\b|\bswallows? (?:the |every |each |all |an? )?(?:errors?|exceptions?|failures?|rejections?)\b|drops? (?:every|the|each|all) (?:errors?|failures?|rejections?)/i,
   ],
   [
     'route-scope',
@@ -352,7 +354,7 @@ export const FINDING_PATTERNS = [
   ],
   [
     'random-key',
-    /randomUUID|idempotency key[^.;]{0,60}\b(?:random|Date\.now|time-based|timestamp)|(?:random|Date\.now\(\))[^.;]{0,60}\bidempotency key/i,
+    /randomUUID\(|idempotency key[^.;]{0,60}(?<!non-)\b(?:random|Date\.now|time-based|timestamp)|(?<!non-)\brandom\b[^.;]{0,40}\bidempotency key/i,
   ],
   [
     'number-money',
@@ -364,7 +366,7 @@ export const FINDING_PATTERNS = [
   ],
   [
     'step-id-dropped',
-    /\bretitl|(?:title|titled)[^.;]{0,80}\b(?:step id|`?#\d)[^.;]{0,80}\b(?:dropped|removed|renamed|no longer|lost)|(?:drops?|removes?|loses?) (?:the )?step id/i,
+    /\bretitl(?:es|ed|ing)\b[^.;]{0,60}\btests?\b|(?:title|titled)[^.;]{0,80}\b(?:step id|`?#\d)[^.;]{0,80}\b(?:dropped|removed|renamed|retitl\w*|no longer|lost)|(?:drops?|removes?|loses?) (?:the )?step id/i,
   ],
 ];
 const GROUND_CLASS = { 1: 'money-path', 2: 'security-loosened', 3: 'test-weakened', 4: 'says-not-does' };
