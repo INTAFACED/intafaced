@@ -206,9 +206,13 @@ test(`${J} starts: a verified TEST account, a TEST wallet with TEST USDC and BTC
   // The Allowance page opened afresh by a full load, as J-agents-08's own steps open it; the TEST wallet installed
   // above stays in this page across loads.
   await openOwnAgent(page, agents, 'Allowance');
+  // The wallet the Access page connected stays connected across the load; it is connected again only when it is not.
   const allowance = main(page).getByRole('region', { name: 'Allowance', exact: true });
-  await allowance.getByRole('button', { name: 'Connect TEST Wallet' }).click();
-  await expect(main(page).getByTestId('venue-wallet-address')).toHaveText(owner());
+  const connect = allowance.getByRole('button', { name: 'Connect TEST Wallet' });
+  const address = main(page).getByTestId('venue-wallet-address');
+  await expect(connect.or(address).first()).toBeVisible();
+  if (await connect.isVisible()) await connect.click();
+  await expect(address).toHaveText(owner());
   const form = main(page).getByRole('form', { name: 'Allowance' });
   await form.getByRole('textbox', { name: /^Amount/ }).fill('50');
   await form.getByRole('combobox', { name: 'Period' }).selectOption({ label: 'A week' });
