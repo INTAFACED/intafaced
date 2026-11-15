@@ -163,7 +163,6 @@
     "services/svc-trade/src/futures/position-service.ts": ["futuresMarginAdd", "futuresMarginLock", "futuresMarginRelease"],
     "services/svc-trade/src/futures/profit-source.ts": ["futuresRealizeProfit"],
     "services/svc-trade/src/otc/settle.ts": ["marketMakerMakerFill", "orderHold"],
-    "services/svc-trade/src/spot/close-position.ts": ["orderHold"],
     "services/svc-trade/src/spot/fee-ifc.ts": ["feeCharge"],
     "services/svc-trade/src/spot/trade-service.ts": ["orderHold", "orderHoldRelease", "tradeFill"],
     "services/svc-trade/src/spot/trade-service/fills.ts": ["buybackTakerFill", "marketMakerMakerFill", "tradeFill", "tradeFillMakerRebate"],

@@ -304,6 +304,8 @@ describe('pay.subscriptions Done bar PG-hard', () => {
       expect(data.preChargeNotify.notifyStatus).toBe('skipped_unwired');
       expect(data.preChargeNotify.socket).toBe(PRECHARGE_NOTIFY_SOCKET);
       expect(data.dunning.maxAttemptsPerCycle).toBe(MAX_ATTEMPTS_PER_CYCLE);
+      expect(data.dunning.afterLimit).toBe('stall_named');
+      expect(data.dunning).not.toHaveProperty('then');
       expect(mandateChargeDisposition('card').kind).toBe('refuse');
       await app.close();
     });

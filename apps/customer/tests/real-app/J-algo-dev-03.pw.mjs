@@ -5,15 +5,16 @@ import { journeyState } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { tapeWindow } from './tape.mjs';
 import { userIdOf } from './copy.mjs';
+import { responseAfterNavigation } from './navigation.mjs';
+import { createRequire } from 'node:module';
+import nodePath from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // J-algo-dev-03, in the running app (docs/roadmap/journeys.json): keep strategies organised and stay inside the plan
 // limits. One test per step, titled "J-algo-dev-03 #<n>", run in order on one TEST developer who starts signed in,
-// verified and with no strategy. Every strategy in Algo dev is simulated; nothing here moves money. Steps whose slice
-// is not built yet (RC-algo-dev-05 for #8) check their step's text with a short wait,
-// so they fail fast and name what is missing.
+// verified and with no strategy. Every strategy in Algo dev is simulated; nothing here moves money.
 const J = 'J-algo-dev-03';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
-const UNBUILT = { timeout: 5_000 };
 
 test.describe.configure({ mode: 'default' });
 
@@ -193,11 +194,23 @@ test(`${J} #3 edits, saves and writes release notes on two versions, then compar
   await expect(code.locator('textarea, [contenteditable="true"]')).toHaveCount(0);
 });
 
+/**
+ * The stack's TEST founders, signed in once for this worker on one gates context (`shareSessions`, as
+ * J-more-catalogue-02 keeps its own) and reused by every operator door below. Each sign-in spends a fresh authenticator
+ * step per founder, so a sign-in per call waited out a new 30 s window on each call after the first: #4's two publishes
+ * and its withdraw and restore of every template took 50 s of its 90 s, and past 90 s when other journeys had spent the
+ * founders' steps (#8420). Every sign-in still sends a real, unused step.
+ */
+let founderCtx;
+async function founderOps() {
+  const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
+  founderCtx ??= await gates.makeContext({ log: () => {}, shareSessions: true });
+  return { ctx: founderCtx, founders: await gates.approverSessions(founderCtx) };
+}
+
 /** A TEST starter template through the operator's publish door, as the founder console calls it. */
 async function publishTemplate(input) {
-  const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
-  const ctx = await gates.makeContext({ log: () => {} });
-  const founders = await gates.approverSessions(ctx);
+  const { ctx, founders } = await founderOps();
   // The operator write scope, as svc-trade's admin doors take it; a plain founder session is an ordinary user.
   const res = await ctx.edge.mutate('quant', 'ops.template.publish', input, await founders.a.tradeOpsToken());
   if (!res.json?.result?.data?.version) throw new Error(`template publish refused: ${res.status} ${res.text.slice(0, 300)}`);
@@ -220,7 +233,7 @@ const SOURCE_TEMPLATE = {
 
 test(`${J} #4 opens a built-in template version and its source: readable and not editable; with no template published the list says none is published`, async ({
   page,
-}) => {
+}, testInfo) => {
   // Two TEST versions, one key each, so a second run replays them instead of stacking more.
   const first = await publishTemplate({
     ...SOURCE_TEMPLATE,
@@ -269,14 +282,41 @@ test(`${J} #4 opens a built-in template version and its source: readable and not
   await expect(page.getByLabel('Strategy name')).toHaveValue(formName);
   await expect(page.getByTestId('quant-template-used')).toHaveCount(0);
 
-  // With no template published, the list says so. The stack always holds this journey's TEST template, so the list's
-  // reply is read again with no template in it, exactly as the service answers when nothing is published.
-  await page.route('**/api/quant/trpc/template.list*', (route) =>
-    route.fulfill({ json: { result: { data: { templates: [], nextCursor: null } } } }),
-  );
+  // With no template published, the list says so. The operator withdraws every listed template, so the service itself
+  // answers with none; then each is restored with its versions, so the steps and journeys after this one find them.
+  const templateList = (r) => r.url().includes('/api/quant/trpc/template.list') && r.ok();
+  const served = (await responseAfterNavigation(page, templateList)).res.body.result.data;
+  expect(served.nextCursor, 'every listed template is on the first page the list reads').toBeNull();
+  const ids = served.templates.map((row) => row.id);
+  expect(ids).toContain(SOURCE_TEMPLATE.id);
+  // One key per attempt: a retry withdraws again rather than replaying this attempt's withdraw after its restore.
+  const attempt = `${process.env.JOURNEY_RUN_ID ?? Date.now()}:${testInfo.retry}`;
+  try {
+    for (const id of ids) await setTemplateListed(id, false, attempt);
+    const none = (await responseAfterNavigation(page, templateList)).res.body.result.data;
+    expect(none).toEqual({ templates: [], nextCursor: null });
+    await expect(templates).toContainText('No template is published.');
+    await expect(templates.getByRole('button', { name: /^View the source of / })).toHaveCount(0);
+  } finally {
+    for (const id of ids) await setTemplateListed(id, true, attempt);
+  }
   await page.reload();
-  await expect(templates).toContainText('No template is published.');
+  await expect(templates.getByRole('button', { name: `View the source of ${SOURCE_TEMPLATE.name}` })).toBeVisible();
+  await expect(templates).not.toContainText('No template is published.');
 });
+
+/** Withdraws a starter template from the list or restores it, through the operator's door, as the founder console calls it. */
+async function setTemplateListed(id, listed, attempt) {
+  const { ctx, founders } = await founderOps();
+  const input = {
+    id,
+    listed,
+    reason: `LOCAL TEST ${J} #4 ${listed ? 'restores' : 'withdraws'} the starter templates`,
+    idempotencyKey: `journey:${J}:listing:${id}:${listed ? 'restore' : 'withdraw'}:${attempt}`.slice(0, 128),
+  };
+  const res = await ctx.edge.mutate('quant', 'ops.template.listing', input, await founders.a.tradeOpsToken());
+  if (res.json?.result?.data?.listed !== listed) throw new Error(`template listing refused: ${res.status} ${res.text.slice(0, 300)}`);
+}
 
 test(`${J} #5 deletes a strategy then restores it from the recycle bin: it moves out with its versions and returns with the same versions`, async ({
   page,
@@ -329,9 +369,7 @@ async function storedRuns(page, strategyId) {
 
 /** The operator's quota door (AL-limits-01), as the founder console calls it, with the stack's TEST founder. */
 async function quotaDoor() {
-  const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
-  const ctx = await gates.makeContext({ log: () => {} });
-  const founders = await gates.approverSessions(ctx);
+  const { ctx, founders } = await founderOps();
   const token = await founders.a.tradeOpsToken();
   const data = (res, what) => {
     const got = res.json?.result?.data;
@@ -361,6 +399,25 @@ async function quotaDoor() {
           'ops.quota.set',
         );
       }
+    },
+    /** Publishes or withdraws a TEST profile's tier, keyed by what it writes, with a reason for the audit row. */
+    async tier(profile, { dataFreshnessSeconds, priorityClass, published }) {
+      data(
+        await ctx.edge.mutate(
+          'quant',
+          'ops.quota.tier',
+          {
+            profile,
+            dataFreshnessSeconds,
+            priorityClass,
+            published,
+            reason: `LOCAL TEST ${J}`,
+            idempotencyKey: `quant.tier:${profile}:${dataFreshnessSeconds}:${priorityClass}:${published}:try${test.info().retry}`,
+          },
+          token,
+        ),
+        'ops.quota.tier',
+      );
     },
     async assign(accountId, profile) {
       data(
@@ -502,10 +559,18 @@ test(`${J} #7 opens the usage view: counts for strategies, runs, storage and col
   await expect(usage).toBeVisible();
   await expect(usage).toHaveAttribute('aria-label', 'Usage and plan limits');
   await expect(page.getByRole('heading', { name: 'Usage and plan limits' })).toBeVisible();
-  const plan = usage.getByTestId('quant-usage-plan');
-  const profile = await plan.getAttribute('data-profile');
+  // The plan named is the one this account is assigned in svc-quant's own rows, else the stack's TEST default plan.
+  const accountId = await userIdOf(developer());
+  const assigned = await quantDb(
+    async (sql) => (await sql`SELECT profile FROM quant.quota_assignments WHERE account_id = ${accountId}`)[0]?.profile ?? null,
+  );
+  const { profileEnvFor } = await import('../../../../tooling/scripts/owner-settings.mjs');
+  const profile = assigned ?? profileEnvFor('quant', 'dev').QUANT_DEFAULT_QUOTA_PROFILE;
   expect(profile, 'a plan applies to this account').toBeTruthy();
-  await expect(plan).toContainText(`Plan: ${profile}`);
+  const plan = usage.getByTestId('quant-usage-plan');
+  await expect(plan).toHaveAttribute('data-profile', profile);
+  await expect(plan).toHaveAttribute('data-source', assigned ? 'assigned' : 'default');
+  await expect(plan).toContainText(`Plan: ${profile} (${assigned ? 'set for this account' : 'the default plan'})`);
   const stored = Object.fromEntries((await (await quotaDoor()).profile(profile)).limits.map((row) => [row.resource, row.limit]));
 
   const row = (resource) => usage.locator(`[data-resource="${resource}"]`);
@@ -524,17 +589,109 @@ test(`${J} #7 opens the usage view: counts for strategies, runs, storage and col
     await expect(row(resource)).toHaveAttribute('data-limit', limit ?? '');
     await expect(row(resource).locator('td').nth(1)).toHaveText(limit ?? 'not set');
   }
-  // Storage is the bytes of the stored source and results: a whole number above zero, since a strategy and a run are stored.
-  expect(Number(await row('storage').getAttribute('data-used'))).toBeGreaterThan(0);
-  await expect(row('storage').locator('td').first()).toHaveText(/^\d+$/);
+  // Storage is the bytes of the source of every version this account keeps (the recycle bin's too) and of every stored
+  // run's result, each row read from svc-quant's own tables and measured here in UTF-8 bytes.
+  const bytes = await quantDb(async (sql) => {
+    const sources = await sql`SELECT v.source FROM quant.strategy_versions v JOIN quant.strategies s ON s.id = v.strategy_id
+      WHERE s.account_id = ${accountId}`;
+    const results = await sql`SELECT r.result::text AS result FROM quant.runs r WHERE r.user_id = ${accountId}`;
+    expect(sources.length, `${J} #1 to #5 stored versions for this account`).toBeGreaterThan(0);
+    expect(results.length, `${J} #3 stored a run for this account`).toBeGreaterThan(0);
+    const size = (text) => (text == null ? 0 : Buffer.byteLength(text, 'utf8'));
+    return sources.reduce((sum, r) => sum + size(r.source), 0) + results.reduce((sum, r) => sum + size(r.result), 0);
+  });
+  expect(bytes).toBeGreaterThan(0);
+  await expect(row('storage')).toHaveAttribute('data-used', String(bytes));
+  await expect(row('storage').locator('td').first()).toHaveText(String(bytes));
 });
+
+const REPO = fileURLToPath(new URL('../../../../', import.meta.url));
+
+/** One read on svc-quant's own database role on the stack (loopback, the marker's postgres port, the stack's secret). */
+async function quantDb(read) {
+  const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
+  const ctx = await gates.makeContext({ log: () => {} });
+  const postgres = createRequire(nodePath.join(REPO, 'services', 'svc-quant', 'package.json'))('postgres');
+  const port = ctx.marker.ports.postgres ?? 15460;
+  const sql = postgres(`postgres://svc_quant:${encodeURIComponent(ctx.secrets.pgService)}@127.0.0.1:${port}/intafaced_local_test`, {
+    max: 1,
+    onnotice: () => {},
+  });
+  try {
+    return await read(sql);
+  } finally {
+    await sql.end();
+  }
+}
 
 test(`${J} #8 chooses a plan with more data freshness or execution priority: the plan page shows what each tier changes; with no tier published it says so`, async ({
   page,
 }) => {
   await signIn(page, developer());
+  const door = await quotaDoor();
+  const tiers = page.getByTestId('quant-plan-tiers');
+  const empty = tiers.getByTestId('quant-plan-tiers-empty');
+
+  // With no tier published, the plan page says so and offers nothing to choose.
   await page.goto('/quant/strategies');
-  await expect(page.getByTestId('quant-plan-tiers'), 'compute tiers are not built (RC-algo-dev-05)').toBeVisible(UNBUILT);
+  await expect(tiers).toHaveAttribute('aria-label', 'Plan tiers');
+  await expect(empty).toHaveText('No plan tier is published, so there is no other plan to choose.');
+  await expect(tiers.getByRole('button', { name: /^Choose / })).toHaveCount(0);
+
+  // Two TEST tiers on their own TEST profiles: one with fresher data, one with a higher execution priority class.
+  const fresher = planName('fresher data');
+  const sooner = planName('execution priority');
+  await door.plan(fresher, { ...ROOMY, concurrent_runs: '6' });
+  await door.plan(sooner, ROOMY);
+  try {
+    await door.tier(fresher, { dataFreshnessSeconds: '0', priorityClass: '1', published: true });
+    await door.tier(sooner, { dataFreshnessSeconds: '60', priorityClass: '5', published: true });
+    await page.reload();
+    await expect(empty).toHaveCount(0);
+
+    // The plan page shows, for each tier, what it changes: freshness, priority class and every limit of its profile.
+    const cell = (row, tier) => tiers.locator(`tr[data-row="${row}"] td[data-tier="${tier}"]`);
+    await expect(tiers.getByRole('columnheader', { name: fresher })).toBeVisible();
+    await expect(tiers.getByRole('columnheader', { name: sooner })).toBeVisible();
+    await expect(tiers.locator('tr[data-row="freshness"] th')).toHaveText('Data freshness');
+    await expect(cell('freshness', fresher)).toHaveText('As the exchange publishes it');
+    await expect(cell('freshness', sooner)).toHaveText('60 seconds behind the exchange');
+    await expect(tiers.locator('tr[data-row="priority"] th')).toHaveText('Execution priority class');
+    await expect(cell('priority', fresher)).toHaveText('Class 1 (a higher class starts first)');
+    await expect(cell('priority', sooner)).toHaveText('Class 5 (a higher class starts first)');
+    for (const [resource, limit] of Object.entries(ROOMY)) {
+      await expect(cell(resource, sooner)).toHaveText(limit);
+      await expect(cell(resource, fresher)).toHaveText(resource === 'concurrent_runs' ? '6' : limit);
+    }
+
+    // Choosing the fresher tier names what it changes against the developer's plan, which is no published tier.
+    const plan = await page.getByTestId('quant-usage-plan').getAttribute('data-profile');
+    expect(plan, 'a plan applies to this account').toBeTruthy();
+    await tiers.getByRole('button', { name: `Choose ${fresher}` }).click();
+    const choice = page.getByTestId('quant-plan-choice');
+    await expect(choice).toHaveAttribute('data-tier', fresher);
+    await expect(choice.locator('p').first()).toHaveText(`${fresher} against your plan, ${plan}`);
+    await expect(choice.locator('li[data-row="freshness"]')).toHaveText(
+      'Data freshness: not set now, As the exchange publishes it on this tier',
+    );
+    await expect(choice.locator('li[data-row="priority"]')).toHaveText(
+      'Execution priority class: not set now, Class 1 (a higher class starts first) on this tier',
+    );
+    await expect(choice).toContainText('Moving to a tier is not open on this page: an operator assigns the plan.');
+
+    // Choosing the other tier shows its higher priority class instead.
+    await tiers.getByRole('button', { name: `Choose ${sooner}` }).click();
+    await expect(choice).toHaveAttribute('data-tier', sooner);
+    await expect(choice.locator('li[data-row="priority"]')).toHaveText(
+      'Execution priority class: not set now, Class 5 (a higher class starts first) on this tier',
+    );
+  } finally {
+    // Put the world back: both tiers withdrawn, so the next file's plan page lists none.
+    await door.tier(fresher, { dataFreshnessSeconds: '0', priorityClass: '1', published: false });
+    await door.tier(sooner, { dataFreshnessSeconds: '60', priorityClass: '5', published: false });
+  }
+  await page.reload();
+  await expect(empty).toBeVisible();
 });
 
 /** Runs a bar backtest of the renamed strategy's newest version on the TEST tape, slipping by `slippage` basis points. */

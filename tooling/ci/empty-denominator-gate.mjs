@@ -141,6 +141,11 @@ const VERBOSE = process.argv.includes('--verbose');
 //                      and the fix is to update the row, which is a visible act.
 // ───────────────────────────────────────────────────────────────────────────
 export const ENFORCED = {
+  'architecture-map': {
+    kind: 'guard',
+    must: /ARCHITECTURE MAP FAILED - docs\/ARCHITECTURE\.md, apps\/, services\/ or packages\/ is missing or empty/,
+    note: 'refuses by name when the doc or the folders it counts are absent, instead of counting nothing and calling it current.',
+  },
   'services-map': {
     kind: 'guard',
     must: /SERVICES MAP FAILED - services\/ or docker-compose\.apps\.yml is missing/,
@@ -250,6 +255,11 @@ export const ENFORCED = {
     kind: 'guard',
     must: /scope is EMPTY/,
     note: 'walks every workspace test file; with no test file anywhere it refuses by name instead of printing clean.',
+  },
+  'lint-ratchet': {
+    kind: 'guard',
+    must: /✖ lint-ratchet: (?:no merge base|cannot fetch main)/,
+    note: 'with no repository there is no merge base to lint from (and on CI no main to fetch); it refuses by name.',
   },
   'money-property-mutation': {
     kind: 'uncaught',

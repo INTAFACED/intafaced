@@ -12,6 +12,7 @@ import {
   type QuotaRepository,
   type QuotaResource,
   type QuotaSeed,
+  type TierRow,
 } from './quota.js';
 
 function relation(schema: string, table: string): string {
@@ -20,6 +21,15 @@ function relation(schema: string, table: string): string {
 }
 
 const iso = (value: Date | string) => (value instanceof Date ? value : new Date(value)).toISOString();
+
+interface TierSql {
+  profile: string;
+  data_freshness_seconds: string | null;
+  priority_class: string | null;
+  set_at: Date | string;
+}
+
+const whole = (value: string | null) => (value === null ? null : BigInt(value));
 
 interface LimitSql {
   resource: string;
@@ -42,6 +52,7 @@ export function createPostgresQuota(sql: Sql, options: PostgresQuotaOptions): { 
   const limitsTable = relation(schema, 'quota_limits');
   const assignments = relation(schema, 'quota_assignments');
   const audit = relation(schema, 'quota_audit');
+  const tiersTable = relation(schema, 'compute_tiers');
   const now = options.now ?? (() => new Date());
   const seed = options.seed ?? null;
   let seeded: Promise<void> | null = null;
@@ -182,6 +193,67 @@ export function createPostgresQuota(sql: Sql, options: PostgresQuotaOptions): { 
           [input.idempotencyKey, request, response, input.reason, input.actor, at],
         );
         return response;
+      });
+    },
+
+    async tiers() {
+      const rows = await query<TierSql>(
+        sql,
+        `SELECT profile, data_freshness_seconds::text AS data_freshness_seconds, priority_class::text AS priority_class, set_at
+           FROM ${tiersTable} WHERE published ORDER BY profile`,
+        [],
+      );
+      return rows.map((row): TierRow => ({
+        profile: row.profile,
+        dataFreshnessSeconds: whole(row.data_freshness_seconds),
+        priorityClass: whole(row.priority_class),
+        setAt: iso(row.set_at),
+      }));
+    },
+
+    async setTier(input) {
+      const request = {
+        profile: input.profile,
+        dataFreshnessSeconds: input.dataFreshnessSeconds?.toString() ?? null,
+        priorityClass: input.priorityClass?.toString() ?? null,
+        published: input.published,
+      };
+      const back = (stored: typeof request & { setAt: string }) => ({
+        ...stored,
+        dataFreshnessSeconds: whole(stored.dataFreshnessSeconds),
+        priorityClass: whole(stored.priorityClass),
+      });
+      return sql.begin(async (tx) => {
+        await query(tx, `SELECT pg_advisory_xact_lock(hashtext($1))`, [`${schema}.quota.key:${input.idempotencyKey}`]);
+        const prior = await priorWrite<typeof request & { setAt: string }>(
+          tx,
+          input.idempotencyKey,
+          'tier',
+          (stored) =>
+            stored.profile === request.profile &&
+            stored.dataFreshnessSeconds === request.dataFreshnessSeconds &&
+            stored.priorityClass === request.priorityClass &&
+            stored.published === request.published,
+        );
+        if (prior) return back(prior);
+        const at = now().toISOString();
+        await query(
+          tx,
+          `INSERT INTO ${tiersTable} (profile, data_freshness_seconds, priority_class, published, reason, set_by, set_at)
+           VALUES ($1, $2::numeric, $3::numeric, $4, $5, $6, $7)
+           ON CONFLICT (profile) DO UPDATE
+             SET data_freshness_seconds = EXCLUDED.data_freshness_seconds, priority_class = EXCLUDED.priority_class,
+                 published = EXCLUDED.published, reason = EXCLUDED.reason, set_by = EXCLUDED.set_by, set_at = EXCLUDED.set_at`,
+          [request.profile, request.dataFreshnessSeconds, request.priorityClass, request.published, input.reason, input.actor, at],
+        );
+        const response = { ...request, setAt: at };
+        await query(
+          tx,
+          `INSERT INTO ${audit} (idempotency_key, action, request, response, reason, actor, at)
+           VALUES ($1, 'tier', $2::jsonb, $3::jsonb, $4, $5, $6)`,
+          [input.idempotencyKey, request, response, input.reason, input.actor, at],
+        );
+        return back(response);
       });
     },
   };

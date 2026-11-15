@@ -3,8 +3,8 @@
  *
  * Accrue (`/internal/affiliates/accrue`) writes durable rows and posts nothing.
  * This door is the money half: planAffiliatePayout + postAffiliatePayout through
- * ledger-client. Refuse-closed on unset / unpublished rates and frozen
- * beneficiaries. No invented rates. Does not wire trade/pay callers.
+ * ledger-client. Refuse-closed on unset / unpublished rates, frozen
+ * beneficiaries, and beneficiaries whose account is frozen or closed. No invented rates. Does not wire trade/pay callers.
  */
 
 import type { FastifyInstance } from 'fastify';
@@ -12,12 +12,14 @@ import { retainRawBody } from '@intafaced/contracts';
 import type { LedgerClient } from '@intafaced/ledger-client';
 import { z } from 'zod';
 import { serviceOfRequest, type IdentityS2s } from '../s2s-door.js';
+import { beneficiariesWhoCannotReceive, type AccountStandingReader } from './account-standing.js';
 import { AffiliatePayoutRefuseError, AFFILIATE_PAYOUT_RESIDUAL } from './admin-tree-read.js';
 import type { AccrualStore } from './accrual-store.js';
 import type { AccrualTierLaw } from './commission-rate-law.js';
 import { UNPUBLISHED_ACCRUAL_TIER_LAW } from './commission-rate-law.js';
 import { AFFILIATE_PRODUCER_SOURCE_BY_SERVICE, type AffiliateProducerService } from './producer-accrue.js';
 import { assertPayoutRateProvenance, planAffiliatePayout, postAffiliatePayout } from './payout-engine.js';
+import { AffiliateProgrammeDepthUnsetError, requireProgrammeDepth } from './programme-depth.js';
 
 export const AFFILIATE_PRODUCER_PAYOUT_PATH = '/internal/affiliates/payout';
 
@@ -28,8 +30,12 @@ export type AffiliateProducerPayoutDeps = {
   /** Per-service keys (S2S v3). Unset keeps the shared secret alone. */
   readonly s2s?: IdentityS2s;
   readonly freeze: { frozenIds(): Promise<ReadonlySet<string>> };
+  /** Each beneficiary's account state (`AuthService.accountState`): a frozen or closed account is never paid. */
+  readonly accounts: AccountStandingReader;
   readonly accruals: AccrualStore;
   readonly accrualTierLaw: AccrualTierLaw | undefined;
+  /** The partner programme depth (RC-campaigns-07). Undefined (blank) refuses every payout. */
+  readonly programmeDepth: number | undefined;
   readonly ledger: Pick<LedgerClient, 'post'> | undefined;
   /**
    * Isolated tests need this (same reason accrue installs it). Production
@@ -81,6 +87,8 @@ export function registerAffiliateProducerPayout(app: FastifyInstance, deps: Affi
     const law = deps.accrualTierLaw ?? UNPUBLISHED_ACCRUAL_TIER_LAW;
 
     try {
+      // Depth first: nothing is paid under a programme whose reach nobody set.
+      const maxTierDepth = requireProgrammeDepth(deps.programmeDepth);
       assertPayoutRateProvenance([], law);
 
       if (!deps.ledger) {
@@ -93,11 +101,14 @@ export function registerAffiliateProducerPayout(app: FastifyInstance, deps: Affi
 
       const rows = await deps.accruals.listByFeeEvent(feeEventId);
       const frozen = await deps.freeze.frozenIds();
+      const cannotReceive = await beneficiariesWhoCannotReceive(deps.accounts, rows);
       const plan = planAffiliatePayout({
         feeEventId,
         rows,
         law,
         frozenBeneficiaryIds: frozen,
+        cannotReceiveBeneficiaryIds: cannotReceive,
+        maxTierDepth,
       });
       const receipt = await postAffiliatePayout(deps.ledger, plan);
       return reply.code(200).send({
@@ -110,6 +121,9 @@ export function registerAffiliateProducerPayout(app: FastifyInstance, deps: Affi
         idempotencyKeys: receipt.idempotencyKeys,
       });
     } catch (err) {
+      if (err instanceof AffiliateProgrammeDepthUnsetError) {
+        return reply.code(412).send({ error: err.message, code: err.code });
+      }
       if (err instanceof AffiliatePayoutRefuseError) {
         return reply.code(httpStatus(err.code)).send({
           error: err.message,

@@ -17,6 +17,9 @@ import { AddressBookPanel } from './AddressBookPanel';
 import { ClaimLinksPanel } from './ClaimLinksPanel';
 import { ApprovalsPanel } from './ApprovalsPanel';
 import { PermitForm } from './PermitForm';
+import { PortfolioPanel } from './PortfolioPanel';
+import { WalletPositions } from './WalletPositions';
+import { TrackerPanel } from './TrackerPanel';
 import { ReceivePanel } from './ReceivePanel';
 import { SafetyPanel } from './SafetyPanel';
 import { ScanPanel } from './ScanPanel';
@@ -128,6 +131,7 @@ export function WalletRoom({
   const overview = (
     <>
       {connectPanel}
+      <PortfolioPanel positions={<WalletPositions />} />
       <Panel title={t('enableTitle')}>
         <p className="muted">{t('enableNote')}</p>
         <Button variant="secondary" disabled aria-disabled="true" title={t('enableBlocked')}>
@@ -160,6 +164,8 @@ export function WalletRoom({
       <ClaimLinksPanel />
     ) : section === 'activity' ? (
       <ActivityPanel />
+    ) : section === 'tracker' ? (
+      <TrackerPanel />
     ) : section === 'accounts' ? (
       <AccountsPanel />
     ) : section === 'safety' ? (

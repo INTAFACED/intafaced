@@ -306,7 +306,15 @@ for (const row of TEST_ASSET_ROWS) {
   assert.ok(!assetRowMatches({ ...published, networks: [] }, row), `${row.id} blank row taken as published`);
   assert.ok(!assetRowMatches({ ...published, precision: null }, row));
   assert.ok(!assetRowMatches(null, row));
+  // A network whose contract or links changed is published again.
+  const bare = { ...published, networks: published.networks.map((n) => ({ networkId: n.networkId, label: n.label })) };
+  const known = row.networks.some((n) => n.contract || n.links?.length);
+  assert.equal(assetRowMatches(bare, row), !known, `${row.id} a row without its contract or links taken as published`);
 }
+// USDC on TEST Ethereum is the one network with a contract and a link; both are TEST and the link is on a reserved domain.
+const usdcEthereum = TEST_ASSET_ROWS.find((row) => row.id === 'USDC').networks.find((n) => n.networkId === 'ethereum');
+assert.match(usdcEthereum.contract, /^0x7e57[0-9a-f]{36}$/);
+assert.deepEqual(usdcEthereum.links, [{ label: 'TEST explorer', url: 'https://example.com/test-explorer/usdc' }]);
 
 // The retired TEST row: named TEST, allows nothing, lists a TEST network, and is not one of the active rows deposits use.
 assert.ok(TEST_RETIRED_ASSET_ROW.id.startsWith('TEST'));

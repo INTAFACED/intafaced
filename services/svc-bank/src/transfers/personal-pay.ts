@@ -14,6 +14,7 @@ import type { Sql, TransactionSql } from 'postgres';
 import {
   bankTransferKey,
   formatAmount,
+  LedgerError,
   POST_IN_FLIGHT_BOUND_SECONDS,
   provesPostNotCommitted,
   parseAmount,
@@ -21,7 +22,7 @@ import {
   type LedgerClient,
   type LedgerTx,
 } from '@intafaced/ledger-client';
-import { BankError } from '../errors.js';
+import { BankError, LedgerFrozenRefusal } from '../errors.js';
 import { accountForSpace, type SpaceService } from '../spaces/space-service.js';
 import { partnerAccountFor, type PartnerBank, type PartnerMove } from '../partner/partner-bank.js';
 import type { PartnerTransferResult, TransferResult, TransferService } from './transfer-service.js';
@@ -472,7 +473,8 @@ export class PersonalPayService {
       // adopt whatever else is booked under it, including an own-space move.
       if (isDefinitePersonalRefusal(err)) {
         await this.abandon(input.transferId, requestId);
-        throw err;
+        // The posting freeze, proved not posted: a definite refusal on the wire (J-identity-14 #2).
+        throw err instanceof LedgerError && err.code === 'ledger.frozen' ? new LedgerFrozenRefusal(err) : err;
       }
       // Timeout, network, or 5xx: the post may still land. Keep the reservation
       // and the request claim. Adopt the key only when its entries are this send.
@@ -1867,7 +1869,7 @@ function isDefinitePersonalRefusal(err: unknown): boolean {
   if (err instanceof BookedTransferConflict) return false;
   // The partner may have made the move and only its answer was lost: the same key is asked again, never let go.
   if (err instanceof BankError && err.code === 'bank.partner_reply_lost') return false;
-  if (err instanceof BankError) return true;
+  if (err instanceof BankError || err instanceof LedgerFrozenRefusal) return true;
   return provesPostNotCommitted(err);
 }
 

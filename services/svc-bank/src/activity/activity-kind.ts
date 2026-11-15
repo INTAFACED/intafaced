@@ -79,6 +79,8 @@ type Row = ActivityKind | 'transfer';
 export const KIND_BY_MODULE_REASON: Readonly<Record<string, Row>> = {
   // Money across the platform boundary (recipes/index.ts:83, 131, 146, 164)
   'ledger/deposit.credited': 'deposit',
+  // A deposit taken back: a reorged chain credit, or an add-money pay-in its partner sent back (J-bank-02 #7).
+  'ledger/deposit.reversed': 'deposit',
   'ledger/withdraw.held': 'withdrawal',
   'ledger/withdraw.settled': 'withdrawal',
   'ledger/withdraw.reversed': 'withdrawal',

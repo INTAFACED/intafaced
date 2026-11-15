@@ -6,6 +6,7 @@ import { test, expect } from './journey.mjs';
 import { DEVICE_KEY, EDGE, ORIGIN, ROOT, fund, journeyState, staffFreeze, toUnits, signOutBrowser } from './stack.mjs';
 import { signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
+import { keptSession } from '../../../../tooling/scripts/kept-session.mjs';
 
 // J-bank-04, in the running app (docs/roadmap/journeys.json): I send money to a person from the bank's Transfers room.
 // One test per step, titled "J-bank-04 #<n>", run in order on TEST accounts: A sends (with an authenticator app), B
@@ -46,7 +47,7 @@ async function code() {
 }
 
 /** A session token for A through identity's own sign-in, with a fresh code. */
-async function senderToken() {
+async function signInToken() {
   const { sender } = run.read();
   const login = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
     method: 'POST',
@@ -58,17 +59,40 @@ async function senderToken() {
   return token;
 }
 
-/** The ledger's free USDT for the sender, through the sender's own API. */
-async function ledgerUsdtOf(token) {
-  const res = await fetch(`${EDGE}/api/v1/account/balance`, { headers: { origin: ORIGIN, authorization: `Bearer ${token}` } });
+// A's reads ride on one kept session (tooling/scripts/kept-session.mjs), so each read no longer waits for a new
+// authenticator step; every code a step is about (a sign-in, a confirm) is still typed fresh.
+const kept = new Map();
+function senderSession() {
+  const { email } = run.read().sender;
+  if (!kept.has(email)) kept.set(email, keptSession(signInToken));
+  return kept.get(email);
+}
+
+/** A's kept session token. */
+const senderToken = () => senderSession()();
+
+/** A request with A's kept session, sent once more on a new sign-in if the kept one is refused as signed out. */
+async function asSender(url, init = {}) {
+  const send = async () =>
+    fetch(url, { ...init, headers: { ...init.headers, origin: ORIGIN, authorization: `Bearer ${await senderToken()}` } });
+  const res = await send();
+  if (res.status !== 401) return res;
+  senderSession().drop();
+  return send();
+}
+
+/** A GET with someone's own session token. */
+const withToken = (token) => (url) => fetch(url, { headers: { origin: ORIGIN, authorization: `Bearer ${token}` } });
+
+/** The ledger's free USDT, through the person's own API (`get` carries their session). */
+async function ledgerUsdtVia(get) {
+  const res = await get(`${EDGE}/api/v1/account/balance`);
   return (await res.json()).balances?.USDT?.free ?? '0';
 }
 
 /** The USDT main balance as the partner bank reports it, through the person's own bank API; the space says who holds it. */
-async function partnerUsdtOf(token) {
-  const res = await fetch(`${EDGE}/api/bank/trpc/spaces.list?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`, {
-    headers: { origin: ORIGIN, authorization: `Bearer ${token}` },
-  });
+async function partnerUsdtVia(get) {
+  const res = await get(`${EDGE}/api/bank/trpc/spaces.list?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`);
   const body = await res.json().catch(() => null);
   if (!res.ok || !body?.result?.data) throw new Error(`spaces.list refused: ${res.status} ${JSON.stringify(body).slice(0, 300)}`);
   const main = body.result.data.find((space) => space.kind === 'primary' && space.assetId === 'USDT');
@@ -78,8 +102,7 @@ async function partnerUsdtOf(token) {
 
 /** The sender's USDT: the partner's figure for A (#1 to #4), the ledger's for G (#5 to #7). */
 async function senderUsdt() {
-  const token = await senderToken();
-  return run === atPartner ? partnerUsdtOf(token) : ledgerUsdtOf(token);
+  return run === atPartner ? partnerUsdtVia(asSender) : ledgerUsdtVia(asSender);
 }
 
 /** A session token for someone with no authenticator app. */
@@ -95,9 +118,12 @@ async function tokenOf(who) {
 }
 
 /** Someone else's USDT, in the same book as the sender's. */
-const usdt = async (who) => (run === atPartner ? partnerUsdtOf(await tokenOf(who)) : ledgerUsdtOf(await tokenOf(who)));
+const usdt = async (who) => {
+  const get = withToken(await tokenOf(who));
+  return run === atPartner ? partnerUsdtVia(get) : ledgerUsdtVia(get);
+};
 /** What the ledger holds for someone: for a person held at the partner it never changes, because the ledger posts nothing. */
-const ledgerUsdt = async (who) => ledgerUsdtOf(await tokenOf(who));
+const ledgerUsdt = async (who) => ledgerUsdtVia(withToken(await tokenOf(who)));
 
 /** `who`'s bank money held at the TEST partner from now on, through their own bank API. */
 async function holdAtPartner(token) {

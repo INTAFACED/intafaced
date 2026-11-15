@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button } from '@intafaced/ui';
+import { Button, Checkbox } from '@intafaced/ui';
 import { Field } from '../../../ui-kit';
 import { PaySection } from '../../../components';
 import { ListShell, MoreFooter, SelectField } from '../../components';
@@ -94,6 +94,10 @@ export function Webhooks({ api, canManage }: { api: SettingsBApi; canManage: boo
                       </>
                     ),
                   },
+                  {
+                    header: t('colEvents'),
+                    cell: (e) => <span className="pp-wrap">{e.eventTypes ? e.eventTypes.join(', ') : t('allEventTypes')}</span>,
+                  },
                   { header: t('colStatus'), cell: (e) => <StatusChip entity="endpoint" value={e.status} /> },
                   {
                     header: t('colLastDelivered'),
@@ -178,13 +182,20 @@ export function AddEndpoint({
   canManage,
   onCreated,
 }: {
-  api: Pick<SettingsBApi, 'endpointCreate'>;
+  api: Pick<SettingsBApi, 'endpointCreate' | 'webhookCatalogue' | 'webhookPolicy'>;
   canManage: boolean;
   onCreated: (secret: string) => void;
 }) {
   const { t } = c.useCopy();
   const [url, setUrl] = useState('');
+  // Every type starts ticked, as before subscriptions existed; untick what this address should not get.
+  const [unticked, setUnticked] = useState<readonly string[]>([]);
+  const catalogue = useResource((signal) => api.webhookCatalogue(signal), 'dev:catalogue');
+  const policy = useResource((signal) => api.webhookPolicy(signal), 'dev:policy');
+  const types = catalogue.resource.status === 'ready' ? catalogue.resource.data.events.map((e) => e.type) : [];
+  const chosen = types.filter((type) => !unticked.includes(type));
   const problem = url.trim() ? webhookUrlProblem(url) : null;
+  const cap = policy.resource.status === 'ready' ? policy.resource.data.endpointCap : undefined;
   return (
     <PaySection title={t('addEndpoint')} description={t('addEndpointBody')}>
       {!canManage && (
@@ -192,6 +203,12 @@ export function AddEndpoint({
           {t('readOnlyRole')}
         </p>
       )}
+      {cap === null && (
+        <p className="pp-callout" role="status" data-testid="webhook-cap-unset">
+          {t('capUnset')}
+        </p>
+      )}
+      {typeof cap === 'number' && <p className="muted">{t('capShown', { n: cap })}</p>}
       <div data-testid="form-stack" className="form-stack pp-form">
         <Field
           label={t('urlLabel')}
@@ -203,12 +220,31 @@ export function AddEndpoint({
           error={problem ? t(`errUrl_${problem}`) : undefined}
           onChange={(e) => setUrl(e.target.value)}
         />
+        <fieldset className="pp-fieldset" disabled={!canManage} data-testid="webhook-event-types">
+          <legend>{t('eventTypesLabel')}</legend>
+          <p className="muted">{t('eventTypesHint')}</p>
+          {catalogue.resource.status === 'loading' && <p className="muted">{t('eventTypesLoading')}</p>}
+          {catalogue.resource.status === 'failed' && (
+            <p className="pp-callout" role="status">
+              {t('eventTypesUnavailable')}
+            </p>
+          )}
+          {types.map((type) => (
+            <label key={type} className="pp-check">
+              <Checkbox
+                checked={chosen.includes(type)}
+                onCheckedChange={(on) => setUnticked(on ? unticked.filter((x) => x !== type) : [...new Set([...unticked, type])])}
+              />
+              <span>{type}</span>
+            </label>
+          ))}
+        </fieldset>
         <PortalReview
           title={t('addEndpointAction')}
           variant="primary"
           description={t('addEndpointReview')}
-          disabled={!canManage || !url.trim() || Boolean(problem)}
-          disabledReason={canManage ? t('urlFixFirst') : t('readOnlyRole')}
+          disabled={!canManage || !url.trim() || Boolean(problem) || chosen.length === 0}
+          disabledReason={!canManage ? t('readOnlyRole') : chosen.length === 0 ? t('eventTypesPickOne') : t('urlFixFirst')}
           review={
             <dl className="pay-details">
               <div>
@@ -217,13 +253,14 @@ export function AddEndpoint({
               </div>
               <div>
                 <dt>{t('colEvents')}</dt>
-                <dd>{t('allEventTypes')}</dd>
+                <dd data-testid="webhook-review-events">{chosen.length === types.length ? t('allEventTypes') : chosen.join(', ')}</dd>
               </div>
             </dl>
           }
-          perform={() => api.endpointCreate(url.trim())}
+          perform={() => api.endpointCreate(url.trim(), chosen)}
           onConfirmed={(created) => {
             setUrl('');
+            setUnticked([]);
             onCreated(created.secret);
           }}
         />

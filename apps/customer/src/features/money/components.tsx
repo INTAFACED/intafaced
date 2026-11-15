@@ -235,6 +235,15 @@ const outputNames: Record<string, string> = {
   get ledgerTxId() {
     return copyText('components.ledger.transaction');
   },
+  get partnerMoveId() {
+    return copyText('components.partner.move');
+  },
+  get heldBy() {
+    return copyText('components.held.by');
+  },
+  get ledgerPosting() {
+    return copyText('components.ledger.posting');
+  },
   get drawLedgerTxId() {
     return copyText('components.draw.transaction');
   },
@@ -285,12 +294,6 @@ const outputNames: Record<string, string> = {
   },
   get name() {
     return copyText('outcome.name');
-  },
-  get partnerMove() {
-    return copyText('outcome.partner.move');
-  },
-  get label() {
-    return copyText('outcome.held.at');
   },
 };
 const monetaryOutcomeKeys = new Set([

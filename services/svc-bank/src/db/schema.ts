@@ -1096,6 +1096,13 @@ export const cardCashback = bank.table(
     rejectionCode: text('rejection_code'),
     createdAt: createdAt(),
     settledAt: tstz('settled_at'),
+    /** `ledger`: the custodial path. `wallet`: a partner-held capture's, owed and paid to the person's wallet by svc-campaigns. */
+    paidBy: text('paid_by').notNull().default('ledger'),
+    /** A wallet row's spend and the rank tier its rate came from. */
+    spend: amount('spend'),
+    tier: text('tier'),
+    /** When the rewards programme took a wallet row's hand-over. */
+    announcedAt: tstz('announced_at'),
   },
   (t) => [
     /** ONE CASHBACK PER AUTHORISATION, forever. */
@@ -1354,6 +1361,17 @@ export const addMoneyRequests = bank.table('add_money_requests', {
   ledgerTxId: text('ledger_tx_id'),
   // Migration 20261111102441: the partner's pay-in reference when the partner credited it (J-wallet-01 #3).
   partnerPayInRef: text('partner_pay_in_ref'),
+  // Migration 20261112122912: when the partner said a credited payment was sent back, and the partner's reference for the
+  // return (J-bank-02 #7).
+  returnedAt: tstz('returned_at'),
+  returnRef: text('return_ref'),
+  // Migration 20261113031713: buy to wallet (J-dex-protocol-05 #4). The person's own wallet the partner delivers the
+  // purchase to, when it is not added to a balance here, and when and with which on-chain transfer the partner delivered.
+  walletAddress: text('wallet_address'),
+  deliveredAt: tstz('delivered_at'),
+  deliveryTx: text('delivery_tx'),
+  // The person's EIP-191 signature over the request id and the wallet, proving they control it.
+  walletSignature: text('wallet_signature'),
 });
 
 /**
@@ -1520,6 +1538,8 @@ export const autoInvestRuns = bank.table(
     status: autoInvestRunStatusEnum('status').notNull().default('pending'),
     amount: amount('amount'),
     ledgerTxId: text('ledger_tx_id'),
+    /** A round-up the partner bank made (OWNER 226): its own move reference; nothing on the ledger. */
+    partnerMoveId: text('partner_move_id'),
     positionId: text('position_id'),
     rejectionCode: text('rejection_code'),
     createdAt: createdAt(),

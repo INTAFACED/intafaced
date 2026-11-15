@@ -645,6 +645,9 @@ services:
       # Worst price a market BUY may be funded at, above the best ask.
       # Empty = refuse market-buy hold (`trade.slippage_cap_unset`). Never invent 200.
       TRADE_MARKET_SLIPPAGE_CAP_BPS: ${TRADE_MARKET_SLIPPAGE_CAP_BPS:-}
+      # Widest venue spread (bps of the best bid) a venue spot market order is sent at.
+      # Empty = refuse every venue spot market order (`trade.spread_limit_unset`). Never invented.
+      TRADE_MARKET_SPREAD_LIMIT_BPS: ${TRADE_MARKET_SPREAD_LIMIT_BPS:-}
       # MAY A FUTURES MARKET ACCEPT AN ORDER? Default `false`, and the default is
       # the decision this line exists to make explicit rather than leave to a zod
       # schema nobody reads at deploy time.
@@ -954,6 +957,9 @@ services:
       <<: [*service-env, *edge-secret, *internal-secret]
       SERVICE_NAME: svc-pay
       HTTP_PORT: '4006'
+      # The custody switch (OWNER 226), the same value as svc-ledger's. Off: hosted checkout pays the business's own wallet
+      # or the partner, and svc-pay books only our fee.
+      LEDGER_CUSTODY_LAYER: ${LEDGER_CUSTODY_LAYER:-off}
       DATABASE_URL: postgres://svc_pay:${SVC_PAY_DB_PASSWORD:-svc_pay}@postgres:5432/intafaced
       LEDGER_URL: http://svc-ledger:4001
       IDENTITY_URL: http://svc-identity:4002
@@ -995,6 +1001,8 @@ services:
       # exactly dev or test. `required` for every real deployment.
       PAY_MERCHANT_CONTROLS: ${PAY_MERCHANT_CONTROLS:-}
       PAY_DEFAULT_FEE_BPS: ${PAY_DEFAULT_FEE_BPS:-}
+      # Our fee rate with each payment partner, `<partner>=<bps>,…`: the owner's contract numbers, blank until set.
+      PAY_PARTNER_FEE_BPS: ${PAY_PARTNER_FEE_BPS:-}
       # Open-session cap + operator risk band. env.ts already names these;
       # blank risk band refuses — never invent `low`. Open-session cap: no git
       # default — blank refuses (never 25). Owner may set 25 explicitly (see
@@ -1412,6 +1420,10 @@ services:
       # Background test runs of an own agent; unset refuses a new one.
       AGENTS_BACKGROUND_TEST_STEPS:
       AGENTS_BACKGROUND_STEP_MS:
+      # Background runs of sessions (J-agents-06): the most steps one may take; unset refuses a new one.
+      AGENTS_SESSION_RUN_MAX_STEPS:
+      # Research answers (J-agents-10 #4): the uncertainty scale, lowest first; unset refuses an answer about a market.
+      AGENTS_RESEARCH_UNCERTAINTY_SCALE:
       # Copy-intel live plane (Class X). Pass-through only — unset stays refuse-closed.
       LIVE_TRADE_COPY_LEADER_PLANE_OPEN:
       LIVE_TRADE_COPY_LEADER_IDS:
@@ -1561,6 +1573,11 @@ services:
       # Pass-through only — no compose default. Silence still refuses
       # market.commission_not_configured.
       MARKET_HOUSE_COMMISSION_BPS: ${MARKET_HOUSE_COMMISSION_BPS:-}
+      # Signal providers' own fill count (J-copy-bots-otc-22). The provider criteria are owner values, pass-through
+      # only with no compose default: blank refuses every signal publish (market.provider_criteria_not_set).
+      TRADE_URL: http://svc-trade:4004
+      MARKET_SIGNAL_PROVIDER_MIN_TIER: ${MARKET_SIGNAL_PROVIDER_MIN_TIER:-}
+      MARKET_SIGNAL_PROVIDER_MIN_FILLS: ${MARKET_SIGNAL_PROVIDER_MIN_FILLS:-}
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4018']
     healthcheck: *healthcheck
@@ -1679,6 +1696,8 @@ services:
       # Owner-published isolate ceilings. Blank = sandbox refuses quant.sandbox_max_ops_unset / quant.sandbox_max_source_unset.
       SANDBOX_MAX_OPS: ${SANDBOX_MAX_OPS:-}
       SANDBOX_MAX_SOURCE: ${SANDBOX_MAX_SOURCE:-}
+      # Paper-book fee in basis points. Blank = every paper order refuses quant.paper_fee_unset (never invented as zero).
+      QUANT_PAPER_FEE_BPS: ${QUANT_PAPER_FEE_BPS:-}
       # Venue Vault trade-only pin. Blank = venue OMS refuses quant.venue_vault_unset.
       QUANT_VENUE_VAULT: ${QUANT_VENUE_VAULT:-}
       # Role svc_quant and schema quant come from postgres-init.
@@ -1868,6 +1887,17 @@ services:
       ACADEMY_UPLOAD_MAX_BYTES: ${ACADEMY_UPLOAD_MAX_BYTES:-}
       ACADEMY_TOPICS_LIST_LIMIT: ${ACADEMY_TOPICS_LIST_LIMIT:-}
       ACADEMY_GRANT_AUDIT_PAGE_SIZE: ${ACADEMY_GRANT_AUDIT_PAGE_SIZE:-}
+      # J-academy-07 course payments: owner values, blank until set (nothing is sold while any is blank).
+      ACADEMY_PAYMENT_RPC_URL: ${ACADEMY_PAYMENT_RPC_URL:-}
+      ACADEMY_PAYMENT_CHAIN_ID: ${ACADEMY_PAYMENT_CHAIN_ID:-}
+      ACADEMY_PAYMENT_TOKEN_ADDRESS: ${ACADEMY_PAYMENT_TOKEN_ADDRESS:-}
+      ACADEMY_PAYMENT_TOKEN_DECIMALS: ${ACADEMY_PAYMENT_TOKEN_DECIMALS:-}
+      ACADEMY_PAYMENT_ASSET: ${ACADEMY_PAYMENT_ASSET:-}
+      ACADEMY_PAYMENT_RECEIVER: ${ACADEMY_PAYMENT_RECEIVER:-}
+      ACADEMY_PAYMENT_CONFIRMATIONS: ${ACADEMY_PAYMENT_CONFIRMATIONS:-}
+      ACADEMY_REFUND_SIGNER_URL: ${ACADEMY_REFUND_SIGNER_URL:-}
+      ACADEMY_PURCHASE_RECONCILE_SECONDS: ${ACADEMY_PURCHASE_RECONCILE_SECONDS:-}
+      LEDGER_URL: http://svc-ledger:4001
       ACADEMY_GRADER_LEASE_SECONDS: ${ACADEMY_GRADER_LEASE_SECONDS:-}
       ACADEMY_CERT_ISSUE_SWEEP_SECONDS: ${ACADEMY_CERT_ISSUE_SWEEP_SECONDS:-}
       ACADEMY_PROGRAMME_MAX_COURSES: ${ACADEMY_PROGRAMME_MAX_COURSES:-}

@@ -2,7 +2,8 @@
  * The wallets an account linked, for other services (`POST /internal/linked-wallets`, `linkedWalletsSchema`). Identity
  * holds which wallets an account linked by their own signature (`wallet_identities`); svc-agents asks here when the person
  * chooses one as the payment method for their agent's runs, and again before each run, so a wallet unlinked since is
- * never read (J-agents-02 #4). Only the services listed may ask. Nothing is written.
+ * never read (J-agents-02 #4); svc-academy asks before a course purchase names a wallet as its payer, so only the buyer's
+ * own wallet can pay for it (J-academy-07 #4). Only the services listed may ask. Nothing is written.
  */
 import type { FastifyInstance } from 'fastify';
 import type { Sql } from 'postgres';
@@ -11,7 +12,7 @@ import { serviceOfRequest, type IdentityS2s } from '../s2s-door.js';
 import { securityLockHolds } from './security-lock.js';
 
 /** The services allowed to list an account's linked wallets. */
-export const LINKED_WALLET_READERS: ReadonlySet<string> = new Set(['svc-agents']);
+export const LINKED_WALLET_READERS: ReadonlySet<string> = new Set(['svc-agents', 'svc-academy']);
 
 /** An account that is missing, not active or under a security lock lists no wallet, as for a signature check. */
 export async function linkedWallets(sql: Sql, userId: string): Promise<LinkedWallets> {

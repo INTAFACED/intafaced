@@ -17,7 +17,7 @@ export const SAVED_SCREENS_NAMESPACE = 'trade.screens' as const;
 export const WATCHLIST_FLAGS = ['red', 'amber', 'green', 'blue'] as const;
 /** Columns a saved screen may show. */
 export const SCREEN_COLUMNS = ['last', 'change', 'volume', 'high', 'low'] as const;
-/** The timeframe the change column measures over. `4h` is not served by the candle read, so a screen may keep it and show 'not served'. */
+/** The timeframe the change column measures over: 24h from the ticker, the others from the candle route (a refused read shows 'not served'). */
 export const SCREEN_TIMEFRAMES = ['24h', '4h', '1h', '1d'] as const;
 
 /** A fixed guard against a runaway write, whatever the owner's per-list cap is. */

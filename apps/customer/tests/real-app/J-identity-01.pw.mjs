@@ -35,7 +35,11 @@ function person() {
   return { handle, email: `${handle}@local-test.invalid`, password: `TEST-${randomBytes(9).toString('base64url')}-9a` };
 }
 
-async function details(page, who, { country = 'DE', dateOfBirth = '1990-05-01', password = who.password, accountType = 'Personal' } = {}) {
+async function details(
+  page,
+  who,
+  { country = 'DE', subdivision, usPerson = false, dateOfBirth = '1990-05-01', password = who.password, accountType = 'Personal' } = {},
+) {
   await page.goto('/register');
   // The person picks the account type and the channel, as the row says, rather than leaving the page's first choice.
   await page.getByRole('radio', { name: new RegExp(`^${accountType}\\b`) }).check();
@@ -44,6 +48,9 @@ async function details(page, who, { country = 'DE', dateOfBirth = '1990-05-01', 
   await page.getByLabel('Handle').fill(who.handle);
   await page.getByLabel('Password').fill(password);
   await page.getByLabel('Country you live in').selectOption(country);
+  if (subdivision) await page.getByLabel('Province or territory you live in').selectOption(subdivision);
+  // `null` leaves the US-person question unanswered.
+  if (usPerson !== null) await page.getByRole('radio', { name: usPerson ? 'Yes, I am a US person' : 'No, I am not a US person' }).check();
   await page.getByLabel('Date of birth').fill(dateOfBirth);
   await page.getByRole('button', { name: 'Create account' }).click();
 }
@@ -57,6 +64,7 @@ async function phoneDetails(page, who, phone) {
   await page.getByLabel('Handle').fill(who.handle);
   await page.getByLabel('Password').fill(who.password);
   await page.getByLabel('Country you live in').selectOption('DE');
+  await page.getByRole('radio', { name: 'No, I am not a US person' }).check();
   await page.getByLabel('Date of birth').fill('1990-05-01');
   await page.getByRole('button', { name: 'Create account' }).click();
 }
@@ -91,6 +99,7 @@ async function signUpStart(who, fields = {}) {
       email: who.email,
       password: who.password,
       country: 'DE',
+      usPerson: false,
       dateOfBirth: '1990-05-01',
       accountType: 'individual',
       ...fields,
@@ -199,6 +208,7 @@ test(`${J} #1 fills the form with channel, country, birth date and account type;
     select.append(stale);
   });
   await page.getByLabel('Country you live in').selectOption('XQ');
+  await page.getByRole('radio', { name: 'No, I am not a US person' }).check();
   await page.getByLabel('Date of birth').fill('1990-05-01');
   await page.getByRole('button', { name: 'Create account' }).click();
   await expect(notice(page)).toContainText('Choose the country you live in, and your nationality if you give one, from the list.');
@@ -340,6 +350,7 @@ test(`${J} #4 "check your email" reads the same for a known address, an early re
   await page.getByLabel('Handle').fill(switcher.handle);
   await page.getByLabel('Password').fill(switcher.password);
   await page.getByLabel('Country you live in').selectOption('DE');
+  await page.getByRole('radio', { name: 'No, I am not a US person' }).check();
   await page.getByLabel('Date of birth').fill('1990-05-01');
   await page.getByRole('button', { name: 'Create account' }).click();
   await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible();
@@ -675,4 +686,103 @@ test(`${J} #8 a verified, funded account with an email never proved is stopped a
   const [open] = await openOrders(who);
   const gone = await (await api(who)).delete(`/api/v1/orders/${encodeURIComponent(open.id)}?symbol=${encodeURIComponent('BTC/USDT')}`);
   expect(gone.status).toBeLessThan(300);
+});
+
+/** Identity restarted with no blocked list at all (no list, no rows, fail-closed on), or back on the stack's own list. */
+function screeningList(set) {
+  const before = process.env.LOCAL_STACK_IDENTITY_SCREENING;
+  if (set) delete process.env.LOCAL_STACK_IDENTITY_SCREENING;
+  else process.env.LOCAL_STACK_IDENTITY_SCREENING = 'unset';
+  try {
+    tool('local-test-stack.mjs', 'restart', 'identity');
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_IDENTITY_SCREENING;
+    else process.env.LOCAL_STACK_IDENTITY_SCREENING = before;
+  }
+}
+
+/** Refused at the door: the code step never opens, nothing is mailed for this person and no account exists. */
+async function nothingMade(page, who, first) {
+  await expect(page.getByRole('heading', { name: 'Check your email' })).toHaveCount(0);
+  expect((await gainedSince(page, first)).filter((line) => line.includes(who.email) || line.includes(who.handle))).toEqual([]);
+  await noAccount(who);
+}
+
+test(`${J} #9 a blocked province is refused with its reason, a US person from their own answer, an unanswered question is refused, and a blank list says it is not set`, async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  const who = person();
+
+  // Canada with no province: identity cannot tell Ontario from Quebec, so it asks; the page offers the provinces.
+  let first = outbox();
+  const bare = await signUpStart(who, { country: 'CA' });
+  expect(bare.code).toBe('identity.subdivision_required');
+  await page.goto('/register');
+  await page.getByLabel('Country you live in').selectOption('CA');
+  await expect(page.getByLabel('Province or territory you live in').locator('option', { hasText: 'Ontario' })).toHaveCount(1);
+  await expect(page.getByLabel('Province or territory you live in').locator('option', { hasText: 'Quebec' })).toHaveCount(1);
+  await details(page, who, { country: 'CA' });
+  await expect(notice(page)).toContainText('Choose the province or territory you live in from the list. Nothing was created.');
+  await expect(notice(page).locator('small')).toHaveText('identity.subdivision_required');
+  await nothingMade(page, who, first);
+
+  // A blocked province (Ontario, on the shipped launch list): refused identity.region_blocked with its reason in plain
+  // words, by identity itself and on the page, and nothing is made.
+  first = outbox();
+  const ontario = await signUpStart(who, { country: 'CA', subdivision: 'CA-ON' });
+  expect(ontario.status).toBe(403);
+  expect(ontario.code).toBe('identity.region_blocked');
+  expect(ontario.message).toBe('Ontario, Canada is not served at launch.');
+  await details(page, who, { country: 'CA', subdivision: 'CA-ON' });
+  await expect(notice(page)).toContainText(
+    'We cannot open an account where you live. Ontario, Canada is not served at launch. Nothing was created.',
+  );
+  await expect(notice(page).locator('small')).toHaveText('identity.region_blocked');
+  await nothingMade(page, who, first);
+
+  // A US person living in Germany, where the owner's list blocks US persons: refused from their own answer.
+  first = outbox();
+  const american = await signUpStart(who, { usPerson: true });
+  expect(american.status).toBe(403);
+  expect(american.code).toBe('identity.us_person_blocked');
+  expect(american.message).toContain('US citizens, green-card holders and US residents, wherever they live');
+  await details(page, who, { usPerson: true });
+  await expect(notice(page)).toContainText(
+    'We cannot open accounts for US persons (US citizens, green-card holders and US residents, wherever they live). This is from your own answer. Nothing was created.',
+  );
+  await expect(notice(page).locator('small')).toHaveText('identity.us_person_blocked');
+  await nothingMade(page, who, first);
+
+  // The question left unanswered: refused, never taken as no, by identity and on the page.
+  first = outbox();
+  const unanswered = await signUpStart(who, { usPerson: undefined });
+  expect(unanswered.status).toBe(400);
+  expect(unanswered.code).toBe('identity.us_person_unanswered');
+  await details(page, who, { usPerson: null });
+  await expect(page.getByRole('radio', { name: 'Yes, I am a US person' })).not.toBeChecked();
+  await expect(page.getByRole('radio', { name: 'No, I am not a US person' })).not.toBeChecked();
+  await expect(notice(page)).toContainText('Answer whether you are a US person. We never take a blank answer as no. Nothing was created.');
+  await expect(notice(page).locator('small')).toHaveText('identity.us_person_unanswered');
+  await nothingMade(page, who, first);
+
+  // With the owner's blocked list blank, sign-up refuses and says the list is not set; nothing is made.
+  screeningList(false);
+  try {
+    first = outbox();
+    await details(page, who);
+    await expect(notice(page)).toContainText('Sign-up is paused: the sanctions screening list is not set. Nothing was created.', {
+      timeout: 15_000,
+    });
+    await expect(notice(page).locator('small')).toHaveText('identity.screening_unset');
+    await nothingMade(page, who, first);
+  } finally {
+    screeningList(true);
+  }
+
+  // A province that is served (Quebec), answered "not a US person", goes on to the code step: the blocks are the
+  // blocked regions only.
+  await details(page, who, { country: 'CA', subdivision: 'CA-QC', usPerson: false });
+  await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible({ timeout: 15_000 });
+  await noAccount(who);
 });
