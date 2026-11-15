@@ -84,7 +84,7 @@ Local-test instrument key (p2p only). The p2p process sets `LOCAL_TEST_KMS=1` an
 
 ## A fresh stack, or a cloud container (root)
 
-A wiped state folder trades only after five steps, in this order, and shows Earn, Loans and P2P working after a sixth (Try it and the journeys workflow run the same):
+A wiped state folder trades only after five steps, in this order, and shows Earn, Loans and P2P working after a sixth (the journeys workflow runs the same):
 
 ```sh
 pnpm local:stack                                         # services up; the founders enrol
@@ -122,24 +122,6 @@ pnpm local:market                                        # live quotes carry on 
 svc-trade has that route only with `TRADE_LOCAL_TEST_TAPE_RETIME=on`, which the stack sets, and refuses to start with it outside `APP_ENV` dev or test (`services/svc-trade/src/spot/local-test-tape.ts`). It refuses any market that already has a trade that is not a tape trade. So `history` skips every market with trades and says so. On a long-lived stack, wipe the state folder for history.
 
 As root (a cloud container's default user), `initdb` and `postgres` refuse to run, so the stack runs them as the OS user `postgres` (`LOCAL_STACK_PG_USER` names another) through `runuser`, and gives that user the database folders. That user cannot enter `/root`, so set the state folder outside it, for example `LOCAL_STACK_STATE=/var/lib/intafaced/local-test-stack`; the stack refuses with that hint otherwise. The container also needs a `nats-server` binary (`LOCAL_STACK_NATS_BIN`) and the screening variables below in its environment.
-
-## Try it (a temporary link, TEST money)
-
-The `Try it` workflow (Actions, Try it, Run workflow) boots this stack on GitHub's runner the same way Real-app journeys does. It then gives a password-protected link to the Customer app for up to about 5 h 45 min (owner decision 48; the ADR amendment is in `docs/adr/2026-08-08-staging-deploy-path.md`). The link is in the run summary. The password is the repository secret `TRY_PASSWORD`; without it, the run refuses before it boots.
-
-- **The gate.** `tooling/scripts/try-it.mjs gate` sits between the tunnel and the Customer server. It shows a password page and sets a SameSite=Strict, HttpOnly, Secure cookie; with ten wrong tries in a minute it stops taking passwords for that minute. Every other request needs the cookie. The gate refuses any Host other than the link's own and any Origin other than the link's. Before forwarding, it rewrites Host and Origin to `http://127.0.0.1:3210`, so the Customer server's Host guard and Edge's `EDGE_ALLOWED_ORIGINS` stay unchanged.
-- **The start page** (`/__try/`, behind the password):
-  - the demo account: `try-demo@local-test.invalid`, with the same password, verified and funded with TEST USDT by `try-it.mjs demo`;
-  - a TEST inbox showing the codes and links the stack "mails" to its outbox file;
-  - a button for the two TEST operators to approve waiting verification requests;
-  - a once-per-account TEST USDT credit, through `local:fund` with a business key per email.
-- **Not on the link:**
-  - live streams (the gate passes no WebSocket upgrade);
-  - the founder console;
-  - passkeys (their relying party is localhost);
-  - anything that needs a partner.
-- **One rate limit.** Everyone on the link counts as one caller against Edge's 1200 requests a minute.
-- **Checks.** `node tooling/scripts/try-it.test.mjs` checks the gate in front of a fake app. `try-it.mjs check <link>` checks a running link; the workflow runs it before posting the link.
 
 ## Founder console
 

@@ -188,8 +188,6 @@ export const FACTORY_SCRIPTS = [
   'tooling/scripts/setup-github.mjs',
   'tooling/scripts/truth-check.mjs',
   'tooling/scripts/truth-check.test.mjs',
-  'tooling/scripts/try-it.mjs',
-  'tooling/scripts/try-it.test.mjs',
 ];
 
 const FULL_RULES = [
