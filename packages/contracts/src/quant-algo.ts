@@ -722,11 +722,74 @@ export const quantQuotaAssignInputSchema = z.object({
 });
 export const quantQuotaAssignOutputSchema = z.object({ accountId: z.string(), profile: z.string(), assignedAt: z.string() });
 
-/** `ops.quota.profile`: one profile's limits as stored; a resource with no row reads null (not set). */
+/**
+ * Sandbox limits by plan (AL-limits-02, J-algo-dev-12). Each is an owner value on a quota profile, enforced by the
+ * sandbox from outside the strategy: the wall-clock time one run may take in milliseconds, the bytes of text its
+ * variables may hold, and the bytes of log output it may write. A blank one refuses every start
+ * `quant.sandbox_limit_unset`, naming it, before anything runs; `0` is a deliberate value.
+ */
+export const QUANT_SANDBOX_LIMITS = ['wall_clock_ms', 'memory_bytes', 'output_bytes'] as const;
+export type QuantSandboxLimit = (typeof QUANT_SANDBOX_LIMITS)[number];
+export const quantSandboxLimitSchema = z.enum(QUANT_SANDBOX_LIMITS);
+
+/** `ops.quota.profile`: one profile's limits as stored; a resource or sandbox limit with no row reads null (not set). */
 export const quantQuotaProfileSchema = z.object({
   profile: z.string(),
   limits: z.array(z.object({ resource: quantQuotaResourceSchema, limit: quotaWhole.nullable(), setAt: z.string().nullable() })),
+  sandbox: z.array(z.object({ limit: quantSandboxLimitSchema, value: quotaWhole.nullable(), setAt: z.string().nullable() })),
 });
+export type QuantQuotaProfile = z.infer<typeof quantQuotaProfileSchema>;
+
+/** `ops.quota.sandbox`: one sandbox limit of one profile, blank for "not set", with a reason for the audit row. */
+export const quantSandboxLimitSetInputSchema = z.object({
+  profile: quotaProfileName,
+  limit: quantSandboxLimitSchema,
+  value: z.string().max(18).nullable(),
+  reason: z.string().max(500),
+  idempotencyKey: z.string().trim().min(1).max(128),
+});
+export const quantSandboxLimitSetOutputSchema = z.object({
+  profile: z.string(),
+  limit: quantSandboxLimitSchema,
+  value: quotaWhole.nullable(),
+  setAt: z.string(),
+});
+
+/**
+ * `limits.get`: every limit a developer's run meets, with its current value as the sandbox will apply it: the sandbox
+ * limits of the plan that applies (null: not set), and the two ceilings every plan shares (the operation budget and the
+ * source length, null while the owner has not published them).
+ */
+export const quantLimitsSchema = z.object({
+  profile: z.string().nullable(),
+  source: z.enum(['assigned', 'default']).nullable(),
+  sandbox: z.array(z.object({ limit: quantSandboxLimitSchema, value: quotaWhole.nullable() })),
+  ceilings: z.object({ maxOps: quotaWhole.nullable(), maxSource: quotaWhole.nullable() }),
+  asOf: z.string(),
+});
+export type QuantLimits = z.infer<typeof quantLimitsSchema>;
+
+/**
+ * `ops.sandbox.corpus`: the escape corpus run against the sandbox under one profile's limits. Each case is untrusted
+ * code that tries to leave the sandbox; each ends in a typed refusal (`code`, never null for a case that was stopped).
+ * `control` is an ordinary run after the corpus, which still runs.
+ */
+export const quantEscapeCorpusInputSchema = z.object({ profile: quotaProfileName });
+export const quantEscapeCorpusSchema = z.object({
+  profile: z.string(),
+  cases: z.array(
+    z.object({
+      id: z.string(),
+      attack: z.string(),
+      language: z.enum(['javascript', 'typescript', 'python']),
+      code: z.string().nullable(),
+      message: z.string(),
+    }),
+  ),
+  control: z.object({ ok: z.boolean(), code: z.string().nullable(), logs: z.array(z.string()) }),
+  asOf: z.string(),
+});
+export type QuantEscapeCorpus = z.infer<typeof quantEscapeCorpusSchema>;
 
 /**
  * Compute tiers (RC-algo-dev-05, an extension of AL-limits-01). A tier is published on a quota profile: its limits are
@@ -1040,6 +1103,8 @@ export const QUANT_OWNER_CRITERIA = [
   'oos.maxShortfallPercent',
   /** The platform's live switch for strategies (ENGINE E-4, AL-risk-01's `quant.live`): `on`, or blank for off. */
   'live.enabled',
+  /** How many listings one page of the library review queue holds (AL-library-03); blank refuses the queue. */
+  'library.queuePageSize',
 ] as const;
 export type QuantOwnerCriterion = (typeof QUANT_OWNER_CRITERIA)[number];
 export const quantCriteriaSetInputSchema = z.object({

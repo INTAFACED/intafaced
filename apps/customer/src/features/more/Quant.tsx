@@ -5,7 +5,9 @@ import { useApi, useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
 import { decimalSchema, signedDecimalSchema, displayAmount, parseAmount } from '../../shared/money';
 import { Button, Failure, Field, Loading, Panel } from '../../shared/ui';
-import { Details, Read, Select, TextArea, useAction } from './common';
+import { Details, presentActionFailure, Read, Select, TextArea, useAction } from './common';
+import { limitsCopy } from '../quant/limits-copy';
+import { sandboxLimitRefusalOf, sandboxLimitSentence } from '../quant/sandbox-limit-refusal';
 import { preservePaperHref } from './trade-context';
 import { authoredRefusal, type ApiResult } from '../../shared/api';
 import { refusalCopy } from '../../data/refusals';
@@ -309,6 +311,17 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                       ),
                     );
                     if (res.ok && action.isCurrent()) setResult(res.data);
+                    // A plan limit that refused the start, or that ended the run, is named in the plan's words (J-algo-dev-12).
+                    const limit = res.ok ? null : sandboxLimitRefusalOf(res);
+                    if (!res.ok && limit) {
+                      return presentActionFailure(res, (locale) => {
+                        const words = limitsCopy.forLocale(locale);
+                        return {
+                          message: sandboxLimitSentence(limit, words),
+                          language: words.languageFor(limit.kind === 'unset' ? 'refusedUnset' : 'refusedHit'),
+                        };
+                      });
+                    }
                     return res;
                   },
                 });

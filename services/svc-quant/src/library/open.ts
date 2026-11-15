@@ -19,6 +19,14 @@ function refuse(code: typeof QUANT_DATABASE_URL_UNSET | typeof QUANT_DATABASE_PO
     cloneOf: async () => fail(),
     addReview: async () => fail(),
     reviews: async () => fail(),
+    queue: async () => fail(),
+    moderation: async () => fail(),
+    moderationOf: async () => fail(),
+    moderate: async () => fail(),
+    openDispute: async () => fail(),
+    dispute: async () => fail(),
+    disputes: async () => fail(),
+    resolveDispute: async () => fail(),
   };
 }
 

@@ -47,6 +47,9 @@ describe.skipIf(!ready)('strategy library store on Postgres (AL-library-01, AL-l
         readFileSync(join(SERVICE, 'drizzle/20261115140000_quant_library.sql'), 'utf8').replaceAll('"quant"', `"${SCHEMA}"`),
       );
       await sql.unsafe(
+        readFileSync(join(SERVICE, 'drizzle/20261115160000_quant_library_moderation.sql'), 'utf8').replaceAll('"quant"', `"${SCHEMA}"`),
+      );
+      await sql.unsafe(
         `INSERT INTO "${SCHEMA}"."strategies" (id, account_id, client_strategy_id, created_at)
          VALUES ('s1', $1, 'c1', now()), ('s2', $1, 'c2', now()), ('s3', $1, 'c3', now()), ('copy', $2, 'c4', now())`,
         [OWNER, READER],
@@ -93,5 +96,45 @@ describe.skipIf(!ready)('strategy library store on Postgres (AL-library-01, AL-l
     await repo.addReview({ listingId: invite!.id, reviewerId: READER, text: 'TEST first', at });
     await repo.addReview({ listingId: invite!.id, reviewerId: READER, text: 'TEST second', at });
     expect((await repo.reviews(invite!.id)).map((row) => row.text)).toEqual(['TEST first']);
+  });
+
+  it('keeps moderation rows and disputes insert-only, one per (listing, seq), and resolves a dispute once (AL-library-03)', async () => {
+    const [open] = await repo.listingsOf(OWNER);
+    const at = new Date();
+    const operator = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    await repo.moderate({ listingId: open!.id, seq: 0, action: 'hide', actor: operator, reason: 'TEST rule', at });
+    const again = await repo.moderate({ listingId: open!.id, seq: 0, action: 'remove', actor: operator, reason: 'TEST other', at });
+    expect(again).toMatchObject({ action: 'hide', reason: 'TEST rule', actor: operator });
+    await repo.moderate({ listingId: open!.id, seq: 1, action: 'unhide', actor: operator, reason: 'TEST back', at });
+    expect((await repo.moderation(open!.id)).map((row) => row.action)).toEqual(['hide', 'unhide']);
+    expect((await repo.moderationOf([open!.id, 'none'])).map((row) => row.seq)).toEqual([0, 1]);
+    expect((await repo.queue({ afterSeq: 0, limit: 10 })).map((row) => row.visibility)).toEqual(['open', 'invite', 'protected']);
+    await expect(sql.unsafe(`UPDATE "${SCHEMA}"."library_moderation" SET reason = 'x'`)).rejects.toThrow(/quant\.library_immutable/);
+    await expect(
+      sql.unsafe(
+        `INSERT INTO "${SCHEMA}"."library_moderation" (listing_id, seq, action, actor, reason, at) VALUES ($1, 9, 'hide', 'x', '', now())`,
+        [open!.id],
+      ),
+    ).rejects.toThrow();
+
+    const dispute = await repo.openDispute({
+      listingId: open!.id,
+      seq: 0,
+      openedBy: operator,
+      reason: 'TEST copied',
+      ticketRef: 'TEST-7',
+      at,
+    });
+    expect((await repo.openDispute({ listingId: open!.id, seq: 0, openedBy: operator, reason: 'TEST x', ticketRef: 'x', at })).id).toBe(
+      dispute.id,
+    );
+    expect(dispute.resolution).toBeNull();
+    const resolved = await repo.resolveDispute({ id: dispute.id, actor: operator, reason: 'TEST settled', at });
+    expect(resolved).toMatchObject({ ticketRef: 'TEST-7', resolution: { actor: operator, reason: 'TEST settled' } });
+    expect((await repo.resolveDispute({ id: dispute.id, actor: operator, reason: 'TEST later', at })).resolution!.reason).toBe(
+      'TEST settled',
+    );
+    expect((await repo.disputes([open!.id])).map((row) => row.id)).toEqual([dispute.id]);
+    await expect(sql.unsafe(`DELETE FROM "${SCHEMA}"."library_dispute_resolutions"`)).rejects.toThrow(/quant\.library_immutable/);
   });
 });

@@ -11,6 +11,7 @@ import {
   copySkipped,
   copyStopped,
   agentUsageAlertCrossed,
+  agentAlertFired,
   agentApprovalRequested,
   agentRunCompleted,
   supportTicketResolved,
@@ -288,6 +289,9 @@ interface Attachment {
   subscription: Subscription | null;
   pending: PendingConsumer | null;
 }
+
+/** An agent alert's measure in words, for its notice. */
+const ALERT_MEASURE_WORDS = { refusal_rate: 'Refusal rate', failure_rate: 'Failure rate', cost: 'Cost in the fee asset' } as const;
 
 /**
  * Subscribe, or report why not.
@@ -1004,6 +1008,37 @@ export async function subscribeNotificationEvents(
           // The person ticked email for this alert: its row is recorded even when email can't go, so Delivery history
           // shows what happened to it (J-agents-02 #6).
           ...(payload.email ? { askedChannels: ['email' as const] } : {}),
+        }),
+      );
+    }),
+  );
+
+  // An operator's agent alert (J-agents-16 #3): svc-agents hands each alert over once per rule and window, on that
+  // business key, while alert notifications are on. The operator who stored the rule gets one inbox row, and it goes out
+  // of app on every channel they confirmed: email and push show `vendor.email` and `vendor.push` until those vendors are
+  // set, and the inbox row is written regardless.
+  attachments.push(
+    await attach(bus, 'agentAlertFired', agentAlertFired.subject, 'notify-agent-alert-fired', async (payload) => {
+      const percent = payload.measure !== 'cost';
+      nakIfRetryable(
+        await notify.create({
+          userId: payload.userId,
+          kind: 'agents.alert.fired',
+          titleKey: 'notify.agents.alert.fired.title',
+          bodyKey: 'notify.agents.alert.fired.body',
+          params: {
+            rule: payload.ruleName,
+            measure: ALERT_MEASURE_WORDS[payload.measure],
+            value: percent ? `${payload.value}%` : payload.value,
+            threshold: percent ? `${payload.threshold}%` : payload.threshold,
+            from: payload.windowStart,
+            to: payload.windowEnd,
+          },
+          href: null,
+          severity: 'action',
+          sourceSubject: agentAlertFired.subject,
+          sourceIdempotencyKey: payload.alertKey,
+          outOfApp: true,
         }),
       );
     }),

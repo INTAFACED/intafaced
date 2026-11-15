@@ -43,6 +43,12 @@ import {
   quantQuotaProfileSchema,
   quantQuotaSchema,
   quantQuotaSetInputSchema,
+  quantSandboxLimitSetInputSchema,
+  quantSandboxLimitSetOutputSchema,
+  quantLimitsSchema,
+  quantEscapeCorpusInputSchema,
+  quantEscapeCorpusSchema,
+  QUANT_SANDBOX_LIMITS,
   quantQuotaSetOutputSchema,
   quantTierListSchema,
   quantTierSetInputSchema,
@@ -72,6 +78,12 @@ import {
   type QuantLiveCheck,
   quantPromoteOutputSchema,
   QUANT_OWNER_CRITERIA,
+  quantDisputeOpenInputSchema,
+  quantDisputeResolveInputSchema,
+  quantModerationEntrySchema,
+  quantModerationInputSchema,
+  quantModerationQueueInputSchema,
+  quantModerationQueueSchema,
   type QuantLifecycle,
   type QuantStage,
   QUANT_SUPPORT_GRANT_MAX_SECONDS,
@@ -169,6 +181,7 @@ import {
   QUANT_STUDIO_RISK_BLOCK_REQUIRED,
   QUANT_QUOTA_EXCEEDED,
   QUANT_QUOTA_PROFILE_UNSET,
+  QUANT_SANDBOX_LIMIT_UNSET,
   QUANT_QUOTA_REASON_UNSET,
   QUANT_QUOTA_UNSET,
   QUANT_PAPER_LIST_LIMIT_UNSET,
@@ -193,6 +206,9 @@ import {
   QUANT_LISTING_ACCESS_DENIED,
   QUANT_LISTING_CHECK_FAILED,
   QUANT_LISTING_NOT_FOUND,
+  QUANT_DISPUTE_NOT_FOUND,
+  QUANT_LIBRARY_QUEUE_LIMIT_UNSET,
+  QUANT_MODERATION_STATE_INVALID,
   QUANT_LISTING_SOURCE_PROTECTED,
   QUANT_LISTING_STALE,
   QUANT_REALISM_CHECKLIST_UNACCEPTED,
@@ -231,6 +247,8 @@ import { trackRun } from './runs/track.js';
 import type { RunResultBody } from './runs/types.js';
 import { sandboxSourceInputMax } from './sandbox/max.js';
 import { runSandbox, type SandboxDeps } from './sandbox/run.js';
+import { requireRunLimits, type RunLimits } from './sandbox/limits.js';
+import { CONTROL_RUN, ESCAPE_CORPUS } from './sandbox/escape-corpus.js';
 import { compileSignalRules, templateSource } from './studio/modules.js';
 import { versionDiff } from './studio/diff.js';
 import { buildSavedStrategy } from './studio/save.js';
@@ -365,11 +383,12 @@ function toTrpc(err: unknown): never {
       err.code === QUANT_SHARE_NOT_FOUND ||
       err.code === QUANT_VERSION_NOT_FOUND ||
       err.code === QUANT_TEMPLATE_NOT_FOUND ||
-      err.code === QUANT_LISTING_NOT_FOUND
+      err.code === QUANT_LISTING_NOT_FOUND ||
+      err.code === QUANT_DISPUTE_NOT_FOUND
         ? 'NOT_FOUND'
         : err.code === QUANT_PERMISSION_DENIED || err.code === QUANT_LISTING_ACCESS_DENIED || err.code === QUANT_LISTING_SOURCE_PROTECTED
           ? 'FORBIDDEN'
-          : err.code === QUANT_EDIT_LOCKED || err.code === QUANT_LISTING_STALE
+          : err.code === QUANT_EDIT_LOCKED || err.code === QUANT_LISTING_STALE || err.code === QUANT_MODERATION_STATE_INVALID
             ? 'CONFLICT'
             : err.code === QUANT_SANDBOX_UNWIRED ||
                 err.code === QUANT_SANDBOX_MAX_OPS_UNSET ||
@@ -394,6 +413,7 @@ function toTrpc(err: unknown): never {
                 err.code === QUANT_QUOTA_UNSET ||
                 err.code === QUANT_QUOTA_EXCEEDED ||
                 err.code === QUANT_QUOTA_PROFILE_UNSET ||
+                err.code === QUANT_SANDBOX_LIMIT_UNSET ||
                 err.code === QUANT_GATE_CRITERIA_UNSET ||
                 err.code === QUANT_RISK_CAP_UNSET ||
                 err.code === QUANT_STAGE_TRANSITION_INVALID ||
@@ -404,6 +424,7 @@ function toTrpc(err: unknown): never {
                 err.code === QUANT_REALISM_CHECKLIST_UNACCEPTED ||
                 err.code === QUANT_LISTING_CHECK_FAILED ||
                 err.code === QUANT_REVIEW_NEEDS_RUN ||
+                err.code === QUANT_LIBRARY_QUEUE_LIMIT_UNSET ||
                 err.code === QUANT_LIVE_DISABLED ||
                 err.code === QUANT_LIVE_DEPLOY_UNAVAILABLE ||
                 err.code === 'quant.venue_vault_unset'
@@ -772,6 +793,19 @@ export function createQuantRouter(deps: QuantRouterDeps) {
       now(),
     );
   }
+  /**
+   * The sandbox limits a run of this account meets (J-algo-dev-12): the applied plan's, each required. Called before the
+   * run is recorded or started, so a blank limit refuses by name and nothing runs. A call with no signed account reads
+   * the default plan (the nil id is never an account).
+   */
+  async function runLimitsFor(accountId: string | null): Promise<RunLimits> {
+    const applied = await quota.applied(accountId ?? '00000000-0000-0000-0000-000000000000');
+    return requireRunLimits(applied, applied ? await quota.sandboxLimits(applied.name) : []);
+  }
+  /** Sandbox deps for one run, with that run's plan limits. */
+  function runDeps(run: RunLimits): SandboxDeps {
+    return { ...deps, limits: { ...deps.limits, run } };
+  }
   /** The reason an operator gives for a quota write: required, so every audit row says why. */
   function quotaReason(raw: string): string {
     const reason = raw.trim();
@@ -877,6 +911,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
     runs,
     licences: deps.library?.licences ?? null,
     checklist: deps.library?.checklist ?? null,
+    queuePageSize: async () => (await lifecycle.criteria()).find((row) => row.name === 'library.queuePageSize')?.value ?? null,
     now,
   });
   const editLockSeconds = deps.editLockSeconds ?? null;
@@ -1305,6 +1340,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
                 throw new QuantError(QUANT_SIGNAL_RULES_SANDBOX, 'signal rules run on bars in a backtest, not in the sandbox');
               }
               const idempotencyKey = requireIdempotencyKey(input.idempotencyKey);
+              const run = await runLimitsFor(accountId);
               return await trackRun(
                 runs,
                 {
@@ -1323,7 +1359,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
                       environment: input.environment ?? found.environment,
                       presentedAs: input.presentedAs ?? found.environment,
                     },
-                    deps,
+                    runDeps(run),
                   ),
                 (value, err) => ({
                   detail: err || !value ? null : sandboxBody(value),
@@ -1422,6 +1458,36 @@ export function createQuantRouter(deps: QuantRouterDeps) {
                 const limit = limits.find((row) => row.resource === resource)?.limit ?? null;
                 return { resource, used: used[resource].toString(), limit: limit === null ? null : limit.toString() };
               }),
+              asOf: new Date().toISOString(),
+            };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+    }),
+
+    limits: router({
+      /**
+       * Every limit the caller's runs meet (J-algo-dev-12 #4), as the sandbox will apply it: the applied plan's sandbox
+       * limits (null: not set, and then no run starts) and the two ceilings every plan shares.
+       */
+      get: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ ...accountField }).optional())
+        .output(quantLimitsSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input?.accountId);
+            const applied = await quota.applied(accountId);
+            const rows = applied ? await quota.sandboxLimits(applied.name) : [];
+            const ceiling = (value: number | undefined) => (typeof value === 'number' && Number.isInteger(value) ? String(value) : null);
+            return {
+              profile: applied?.name ?? null,
+              source: applied?.source ?? null,
+              sandbox: QUANT_SANDBOX_LIMITS.map((limit) => {
+                const value = rows.find((row) => row.limit === limit)?.value ?? null;
+                return { limit, value: value === null ? null : value.toString() };
+              }),
+              ceilings: { maxOps: ceiling(deps.limits.maxOps), maxSource: ceiling(deps.limits.maxSource) },
               asOf: new Date().toISOString(),
             };
           } catch (err) {
@@ -2784,6 +2850,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
             try {
               const idempotencyKey = requireIdempotencyKey(input.idempotencyKey);
               const userId = ctx.principal ? (ctx.principal.sub_account ?? ctx.principal.userId) : null;
+              const run = await runLimitsFor(userId);
               return await trackRun(
                 runs,
                 {
@@ -2793,7 +2860,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
                   strategyId: null,
                   strategyVersion: null,
                 },
-                async () => runSandbox(input, deps),
+                async () => runSandbox(input, runDeps(run)),
                 (value, err) => ({
                   detail: err || !value ? null : sandboxBody(value),
                   response: err ? null : value,
@@ -3109,6 +3176,76 @@ export function createQuantRouter(deps: QuantRouterDeps) {
           }
         }),
 
+      /**
+       * Library moderation (J-algo-dev-10, AL-library-03). The review queue reads with `admin:read`; hide, unhide, remove
+       * and the disputes write with `admin:write`, each one audit row naming the founder from their own token and the
+       * reason. Operators never see a listing's source. No money moves.
+       */
+      library: router({
+        queue: scopedProcedure('admin:read', { module: 'quant', plane: 'fiat' })
+          .input(quantModerationQueueInputSchema)
+          .output(quantModerationQueueSchema)
+          .query(async ({ input }) => {
+            try {
+              return await library.queue({ cursor: input?.cursor ?? null });
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+        hide: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
+          .input(quantModerationInputSchema)
+          .output(quantModerationEntrySchema)
+          .mutation(async ({ input, ctx }) => {
+            try {
+              return await library.moderate(ctx.principal.userId, input, 'hide');
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+        unhide: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
+          .input(quantModerationInputSchema)
+          .output(quantModerationEntrySchema)
+          .mutation(async ({ input, ctx }) => {
+            try {
+              return await library.moderate(ctx.principal.userId, input, 'unhide');
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+        remove: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
+          .input(quantModerationInputSchema)
+          .output(quantModerationEntrySchema)
+          .mutation(async ({ input, ctx }) => {
+            try {
+              return await library.moderate(ctx.principal.userId, input, 'remove');
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+        dispute: router({
+          open: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
+            .input(quantDisputeOpenInputSchema)
+            .output(quantModerationEntrySchema)
+            .mutation(async ({ input, ctx }) => {
+              try {
+                return await library.openDispute(ctx.principal.userId, input);
+              } catch (err) {
+                toTrpc(err);
+              }
+            }),
+          resolve: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
+            .input(quantDisputeResolveInputSchema)
+            .output(quantModerationEntrySchema)
+            .mutation(async ({ input, ctx }) => {
+              try {
+                return await library.resolveDispute(ctx.principal.userId, input);
+              } catch (err) {
+                toTrpc(err);
+              }
+            }),
+        }),
+      }),
+
       criteria: router({
         /** Every owner criterion an operator can set at runtime, with where its value comes from now. */
         get: scopedProcedure('admin:read', { module: 'quant', plane: 'fiat' })
@@ -3239,24 +3376,91 @@ export function createQuantRouter(deps: QuantRouterDeps) {
             }
           }),
 
-        /** One profile's limits as stored. */
+        /** Sets one sandbox limit of one profile (J-algo-dev-12); blank is "not set". A reason is required and kept with the actor. */
+        sandbox: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
+          .input(quantSandboxLimitSetInputSchema)
+          .output(quantSandboxLimitSetOutputSchema)
+          .mutation(async ({ input, ctx }) => {
+            try {
+              const reason = quotaReason(input.reason);
+              const saved = await quota.setSandboxLimit({
+                profile: input.profile,
+                limit: input.limit,
+                value: parseWhole(input.limit, input.value),
+                reason,
+                actor: ctx.principal.userId,
+                idempotencyKey: input.idempotencyKey,
+              });
+              return { ...saved, value: saved.value === null ? null : saved.value.toString() };
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+
+        /** One profile's limits and sandbox limits as stored. */
         profile: scopedProcedure('admin:read', { module: 'quant', plane: 'fiat' })
           .input(z.object({ profile: z.string().trim().min(1).max(80) }))
           .output(quantQuotaProfileSchema)
           .query(async ({ input }) => {
             try {
-              const rows = await quota.limits(input.profile);
+              const [rows, sandboxRows] = await Promise.all([quota.limits(input.profile), quota.sandboxLimits(input.profile)]);
               return {
                 profile: input.profile,
                 limits: QUANT_QUOTA_RESOURCES.map((resource) => {
                   const row = rows.find((r) => r.resource === resource);
                   return { resource, limit: row?.limit == null ? null : row.limit.toString(), setAt: row?.setAt ?? null };
                 }),
+                sandbox: QUANT_SANDBOX_LIMITS.map((limit) => {
+                  const row = sandboxRows.find((r) => r.limit === limit);
+                  return { limit, value: row?.value == null ? null : row.value.toString(), setAt: row?.setAt ?? null };
+                }),
               };
             } catch (err) {
               toTrpc(err);
             }
           }),
+      }),
+
+      sandbox: router({
+        /**
+         * Runs the escape corpus against the sandbox under one profile's limits (J-algo-dev-12 #5, ENGINE T-14). Each case
+         * goes through the same door as a developer's run; each must end in a typed refusal, and the control run after
+         * them must still run. Nothing is stored and no order reaches anything: the paper book of each case is its own.
+         */
+        corpus: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
+          .input(quantEscapeCorpusInputSchema)
+          .output(quantEscapeCorpusSchema)
+          .mutation(async ({ input }) =>
+            withQuantSpan('quant.ops.sandbox.corpus', { language: 'none' }, async () => {
+              try {
+                const run = requireRunLimits({ name: input.profile, source: 'assigned' }, await quota.sandboxLimits(input.profile));
+                const sandboxDeps = runDeps(run);
+                const attempt = (language: (typeof ESCAPE_CORPUS)[number]['language'], source: string) => {
+                  try {
+                    const ran = runSandbox({ language, source, cash: '1000', environment: 'paper', presentedAs: 'paper' }, sandboxDeps);
+                    return { ok: true as const, code: null, message: 'ran', logs: ran.logs };
+                  } catch (err) {
+                    if (err instanceof QuantError) return { ok: false as const, code: err.code as string, message: err.message, logs: [] };
+                    // Anything untyped is a hole in the sandbox, reported as one rather than thrown past the corpus.
+                    return { ok: false as const, code: null, message: err instanceof Error ? err.message : 'untyped failure', logs: [] };
+                  }
+                };
+                const cases = ESCAPE_CORPUS.map((c) => {
+                  const out = attempt(c.language, c.source);
+                  return { id: c.id, attack: c.attack, language: c.language, code: out.code, message: out.message };
+                });
+                const control = attempt(CONTROL_RUN.language, CONTROL_RUN.source);
+                return {
+                  profile: input.profile,
+                  cases,
+                  control: { ok: control.ok, code: control.code, logs: control.logs },
+                  asOf: new Date().toISOString(),
+                };
+              } catch (err) {
+                toTrpc(err);
+              }
+            }),
+          ),
       }),
 
       template: router({

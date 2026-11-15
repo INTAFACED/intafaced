@@ -69,9 +69,42 @@ export const spotVenueCopy = defineCopy('trade.desk.venue', {
   'Checking verification': 'Checking your verification…',
   'Verification unread': 'Your verification could not be read, so no order is sent. Reload to try again.',
   'Not a step': '{field} must be a multiple of {step}.',
+  'Rule unpublished':
+    '{venue} publishes no {rules} for {symbol}, so this order can’t be checked against it and the desk won’t guess one. Nothing was sent.',
+  'Rule name min': 'smallest order value',
+  'Rule name band': 'price band',
+  'Rule name cap': 'open-order cap',
+
+  // The market's rules, as the venue publishes them (J-cex-spot-04 #2)
+  'Rules title': 'Market rules',
+  'Rules source': 'As {venue} publishes them',
+  'Rule tick': 'Price step',
+  'Rule lot': 'Amount step',
+  'Rule min': 'Smallest order value',
+  'Rule band': 'Price band',
+  'Rule cap': 'Open orders',
+  'Rule largest': 'Largest order',
+  'Rule step value': '{step} {asset}',
+  'Rule min value': '{min} {quote}',
+  'Rule band value': 'Limit prices within {percent}% of the middle of the venue’s book',
+  'Rule cap value': 'Up to {count} open orders on your venue account',
+  'Rule largest value': '{qty} {base}, or {notional} {quote}',
+  'Rule largest qty': '{qty} {base}',
+  'Rule largest notional': '{notional} {quote}',
+  'Not published by': 'Not published by {venue}',
   'Enter amount': 'Enter an amount.',
   'Enter price': 'Enter a price.',
   'Waiting wallet': 'Waiting for your wallet…',
+  'Not enough free': 'Not enough {asset} free on your venue account: this order locks {lock} {asset} and {free} {asset} is free.',
+  'Not placeable': 'This order can’t be placed: {detail}.',
+
+  // An earlier order with no definite answer (J-cex-spot-02 #3, #4)
+  'Pending title': 'Checking your earlier order with the venue',
+  'Pending checking': 'Looking up your {side} of {amount} {asset} on the venue by its client id {id}…',
+  'Pending missing': 'The venue has no order under client id {id} so far. It may still arrive; nothing is sent again unless you ask.',
+  'Pending wait': 'New orders wait until the venue has answered about this order.',
+  'Pending found': 'Checked with the venue: your order {id} is {status}. Nothing was sent again.',
+  'Send same again': 'Send the same order again',
   'Order types more': 'Other order types',
   'Self trade': 'If it meets my own order',
   'Self trade note': 'The venue applies its own rule; a rule it doesn’t offer can’t be picked.',
@@ -101,6 +134,8 @@ export const spotVenueCopy = defineCopy('trade.desk.venue', {
   Cancel: 'Cancel',
   'Confirm buy': 'Confirm buy',
   'Confirm sell': 'Confirm sell',
+  'Numbers changed':
+    'The venue’s numbers for this order changed since you reviewed it. Nothing was sent: check the new numbers and confirm again.',
 
   // Deposit
   'Deposit title': 'Deposit into your venue account',
