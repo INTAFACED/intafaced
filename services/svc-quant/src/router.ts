@@ -72,6 +72,12 @@ import {
   type QuantLiveCheck,
   quantPromoteOutputSchema,
   QUANT_OWNER_CRITERIA,
+  quantDisputeOpenInputSchema,
+  quantDisputeResolveInputSchema,
+  quantModerationEntrySchema,
+  quantModerationInputSchema,
+  quantModerationQueueInputSchema,
+  quantModerationQueueSchema,
   type QuantLifecycle,
   type QuantStage,
   QUANT_SUPPORT_GRANT_MAX_SECONDS,
@@ -193,6 +199,9 @@ import {
   QUANT_LISTING_ACCESS_DENIED,
   QUANT_LISTING_CHECK_FAILED,
   QUANT_LISTING_NOT_FOUND,
+  QUANT_DISPUTE_NOT_FOUND,
+  QUANT_LIBRARY_QUEUE_LIMIT_UNSET,
+  QUANT_MODERATION_STATE_INVALID,
   QUANT_LISTING_SOURCE_PROTECTED,
   QUANT_LISTING_STALE,
   QUANT_REALISM_CHECKLIST_UNACCEPTED,
@@ -365,11 +374,12 @@ function toTrpc(err: unknown): never {
       err.code === QUANT_SHARE_NOT_FOUND ||
       err.code === QUANT_VERSION_NOT_FOUND ||
       err.code === QUANT_TEMPLATE_NOT_FOUND ||
-      err.code === QUANT_LISTING_NOT_FOUND
+      err.code === QUANT_LISTING_NOT_FOUND ||
+      err.code === QUANT_DISPUTE_NOT_FOUND
         ? 'NOT_FOUND'
         : err.code === QUANT_PERMISSION_DENIED || err.code === QUANT_LISTING_ACCESS_DENIED || err.code === QUANT_LISTING_SOURCE_PROTECTED
           ? 'FORBIDDEN'
-          : err.code === QUANT_EDIT_LOCKED || err.code === QUANT_LISTING_STALE
+          : err.code === QUANT_EDIT_LOCKED || err.code === QUANT_LISTING_STALE || err.code === QUANT_MODERATION_STATE_INVALID
             ? 'CONFLICT'
             : err.code === QUANT_SANDBOX_UNWIRED ||
                 err.code === QUANT_SANDBOX_MAX_OPS_UNSET ||
@@ -404,6 +414,7 @@ function toTrpc(err: unknown): never {
                 err.code === QUANT_REALISM_CHECKLIST_UNACCEPTED ||
                 err.code === QUANT_LISTING_CHECK_FAILED ||
                 err.code === QUANT_REVIEW_NEEDS_RUN ||
+                err.code === QUANT_LIBRARY_QUEUE_LIMIT_UNSET ||
                 err.code === QUANT_LIVE_DISABLED ||
                 err.code === QUANT_LIVE_DEPLOY_UNAVAILABLE ||
                 err.code === 'quant.venue_vault_unset'
@@ -877,6 +888,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
     runs,
     licences: deps.library?.licences ?? null,
     checklist: deps.library?.checklist ?? null,
+    queuePageSize: async () => (await lifecycle.criteria()).find((row) => row.name === 'library.queuePageSize')?.value ?? null,
     now,
   });
   const editLockSeconds = deps.editLockSeconds ?? null;
@@ -3108,6 +3120,76 @@ export function createQuantRouter(deps: QuantRouterDeps) {
             toTrpc(err);
           }
         }),
+
+      /**
+       * Library moderation (J-algo-dev-10, AL-library-03). The review queue reads with `admin:read`; hide, unhide, remove
+       * and the disputes write with `admin:write`, each one audit row naming the founder from their own token and the
+       * reason. Operators never see a listing's source. No money moves.
+       */
+      library: router({
+        queue: scopedProcedure('admin:read', { module: 'quant', plane: 'fiat' })
+          .input(quantModerationQueueInputSchema)
+          .output(quantModerationQueueSchema)
+          .query(async ({ input }) => {
+            try {
+              return await library.queue({ cursor: input?.cursor ?? null });
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+        hide: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
+          .input(quantModerationInputSchema)
+          .output(quantModerationEntrySchema)
+          .mutation(async ({ input, ctx }) => {
+            try {
+              return await library.moderate(ctx.principal.userId, input, 'hide');
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+        unhide: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
+          .input(quantModerationInputSchema)
+          .output(quantModerationEntrySchema)
+          .mutation(async ({ input, ctx }) => {
+            try {
+              return await library.moderate(ctx.principal.userId, input, 'unhide');
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+        remove: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
+          .input(quantModerationInputSchema)
+          .output(quantModerationEntrySchema)
+          .mutation(async ({ input, ctx }) => {
+            try {
+              return await library.moderate(ctx.principal.userId, input, 'remove');
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+        dispute: router({
+          open: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
+            .input(quantDisputeOpenInputSchema)
+            .output(quantModerationEntrySchema)
+            .mutation(async ({ input, ctx }) => {
+              try {
+                return await library.openDispute(ctx.principal.userId, input);
+              } catch (err) {
+                toTrpc(err);
+              }
+            }),
+          resolve: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
+            .input(quantDisputeResolveInputSchema)
+            .output(quantModerationEntrySchema)
+            .mutation(async ({ input, ctx }) => {
+              try {
+                return await library.resolveDispute(ctx.principal.userId, input);
+              } catch (err) {
+                toTrpc(err);
+              }
+            }),
+        }),
+      }),
 
       criteria: router({
         /** Every owner criterion an operator can set at runtime, with where its value comes from now. */

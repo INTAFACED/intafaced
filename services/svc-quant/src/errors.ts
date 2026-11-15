@@ -110,6 +110,15 @@ export const QUANT_LISTING_ACCESS_DENIED = 'quant.listing_access_denied' as cons
 export const QUANT_LISTING_SOURCE_PROTECTED = 'quant.listing_source_protected' as const;
 /** A review by someone whose own clone of the listing has no finished run. */
 export const QUANT_REVIEW_NEEDS_RUN = 'quant.review_needs_run' as const;
+/** Library moderation (J-algo-dev-10). The owner's queue page size (`library.queuePageSize`) is blank: the queue refuses. */
+export const QUANT_LIBRARY_QUEUE_LIMIT_UNSET = 'quant.library_queue_limit_unset' as const;
+/** A moderation action or a dispute without a reason: nothing is written. */
+export const QUANT_MODERATION_REASON_REQUIRED = 'quant.moderation_reason_required' as const;
+/** A dispute without its support ticket reference: nothing is written. */
+export const QUANT_DISPUTE_TICKET_REQUIRED = 'quant.dispute_ticket_required' as const;
+/** An action the listing's state does not take (hide a hidden one, unhide a listed one, anything on a removed one). */
+export const QUANT_MODERATION_STATE_INVALID = 'quant.moderation_state_invalid' as const;
+export const QUANT_DISPUTE_NOT_FOUND = 'quant.dispute_not_found' as const;
 
 /** The platform's live switch is off (`live.enabled` blank): every live deploy refuses before anything is written. */
 export const QUANT_LIVE_DISABLED = 'quant.live_disabled' as const;
@@ -213,6 +222,11 @@ export type QuantCode =
   | typeof QUANT_LISTING_ACCESS_DENIED
   | typeof QUANT_LISTING_SOURCE_PROTECTED
   | typeof QUANT_REVIEW_NEEDS_RUN
+  | typeof QUANT_LIBRARY_QUEUE_LIMIT_UNSET
+  | typeof QUANT_MODERATION_REASON_REQUIRED
+  | typeof QUANT_DISPUTE_TICKET_REQUIRED
+  | typeof QUANT_MODERATION_STATE_INVALID
+  | typeof QUANT_DISPUTE_NOT_FOUND
   | typeof QUANT_LIVE_DISABLED
   | typeof QUANT_LIVE_PLAN_UNSUPPORTED
   | typeof QUANT_LIVE_ORDER_TYPE_UNSUPPORTED

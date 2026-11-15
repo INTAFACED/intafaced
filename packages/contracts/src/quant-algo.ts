@@ -1040,6 +1040,8 @@ export const QUANT_OWNER_CRITERIA = [
   'oos.maxShortfallPercent',
   /** The platform's live switch for strategies (ENGINE E-4, AL-risk-01's `quant.live`): `on`, or blank for off. */
   'live.enabled',
+  /** How many listings one page of the library review queue holds (AL-library-03); blank refuses the queue. */
+  'library.queuePageSize',
 ] as const;
 export type QuantOwnerCriterion = (typeof QUANT_OWNER_CRITERIA)[number];
 export const quantCriteriaSetInputSchema = z.object({

@@ -191,3 +191,85 @@ export const quantAccessSetInputSchema = z.object({
 });
 
 export const quantReviewInputSchema = z.object({ listingId: z.string().min(1).max(64), text: z.string().max(QUANT_REVIEW_TEXT_MAX) });
+
+/**
+ * Library moderation (J-algo-dev-10, AL-library-03): an operator with `admin:read` reads the review queue, and with
+ * `admin:write` hides, unhides or removes one listing with a reason, and opens and resolves a dispute with its support
+ * ticket reference. Every action is one insert-only audit row naming the actor and the reason; the listing itself is never
+ * rewritten. Operators never see a listing's source. No money moves.
+ */
+export const QUANT_MODERATION_ACTIONS = ['hide', 'unhide', 'remove'] as const;
+export type QuantModerationAction = (typeof QUANT_MODERATION_ACTIONS)[number];
+/** Listed: in the library. Hidden: out of the library, reversible. Removed: taken down for good; the record stays. */
+export const QUANT_MODERATION_STATES = ['listed', 'hidden', 'removed'] as const;
+export type QuantModerationState = (typeof QUANT_MODERATION_STATES)[number];
+export const QUANT_MODERATION_REASON_MAX = 500;
+export const QUANT_DISPUTE_TICKET_MAX = 120;
+
+export const quantModerationAuditSchema = z.object({
+  seq: z.number().int().nonnegative(),
+  action: z.enum(QUANT_MODERATION_ACTIONS),
+  actor: z.string(),
+  reason: z.string(),
+  at: z.string(),
+});
+export type QuantModerationAudit = z.infer<typeof quantModerationAuditSchema>;
+
+export const quantDisputeSchema = z.object({
+  disputeId: z.string(),
+  listingId: z.string(),
+  openedBy: z.string(),
+  reason: z.string(),
+  ticketRef: z.string(),
+  openedAt: z.string(),
+  state: z.enum(['open', 'resolved']),
+  resolution: z.object({ actor: z.string(), reason: z.string(), at: z.string() }).nullable(),
+});
+export type QuantDispute = z.infer<typeof quantDisputeSchema>;
+
+/** One listing as the review queue shows it: its stored facts, never its source. */
+export const quantModerationEntrySchema = z.object({
+  listingId: z.string(),
+  title: z.string(),
+  description: z.string(),
+  tags: z.array(z.enum(QUANT_LIBRARY_TAGS)),
+  visibility: z.enum(QUANT_LISTING_VISIBILITIES),
+  licence: z.string(),
+  ownerId: z.string(),
+  strategyId: z.string(),
+  strategyVersion: z.number().int().positive(),
+  listedAt: z.string(),
+  /** What the publish check relied on: the stored backtest and the realism checklist version accepted. */
+  facts: z.object({ runId: z.string(), checklistVersion: z.string(), stale: z.boolean() }),
+  state: z.enum(QUANT_MODERATION_STATES),
+  audit: z.array(quantModerationAuditSchema),
+  disputes: z.array(quantDisputeSchema),
+});
+export type QuantModerationEntry = z.infer<typeof quantModerationEntrySchema>;
+
+/** `ops.library.queue`: listings oldest first, a page of the owner's page size (`library.queuePageSize`). */
+export const quantModerationQueueInputSchema = z.object({ cursor: z.string().max(40).nullish() }).optional();
+export const quantModerationQueueSchema = z.object({
+  pageSize: z.number().int().positive(),
+  entries: z.array(quantModerationEntrySchema),
+  nextCursor: z.string().nullable(),
+});
+export type QuantModerationQueue = z.infer<typeof quantModerationQueueSchema>;
+
+/** `ops.library.hide|unhide|remove`: `seq` is the audit rows the screen read; the key is `quant.moderation:<listing>:<seq>`. */
+export const quantModerationInputSchema = z.object({
+  listingId: z.string().min(1).max(64),
+  reason: z.string().max(QUANT_MODERATION_REASON_MAX),
+  seq: z.number().int().nonnegative(),
+});
+/** `ops.library.dispute.open`: `seq` is the disputes the screen read on that listing. */
+export const quantDisputeOpenInputSchema = z.object({
+  listingId: z.string().min(1).max(64),
+  reason: z.string().max(QUANT_MODERATION_REASON_MAX),
+  ticketRef: z.string().max(QUANT_DISPUTE_TICKET_MAX),
+  seq: z.number().int().nonnegative(),
+});
+export const quantDisputeResolveInputSchema = z.object({
+  disputeId: z.string().min(1).max(64),
+  reason: z.string().max(QUANT_MODERATION_REASON_MAX),
+});

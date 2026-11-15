@@ -1,5 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import type { LibraryRepository, StoredAccess, StoredClone, StoredListing, StoredReview } from './repository.js';
+import type {
+  LibraryRepository,
+  StoredAccess,
+  StoredClone,
+  StoredDispute,
+  StoredListing,
+  StoredModeration,
+  StoredReview,
+} from './repository.js';
 
 /** The in-memory library unit tests use. Production runs on Postgres (library.pg.test.ts). */
 export function createMemoryLibraryRepository(): LibraryRepository {
@@ -7,6 +15,8 @@ export function createMemoryLibraryRepository(): LibraryRepository {
   const access: StoredAccess[] = [];
   const clones: StoredClone[] = [];
   const reviews: StoredReview[] = [];
+  const moderation: StoredModeration[] = [];
+  const disputes: StoredDispute[] = [];
   return {
     async publish(input) {
       const prior = listings.find((row) => row.ownerId === input.ownerId && row.key === input.key);
@@ -64,6 +74,45 @@ export function createMemoryLibraryRepository(): LibraryRepository {
     },
     async reviews(listingId) {
       return reviews.filter((row) => row.listingId === listingId);
+    },
+    async queue({ afterSeq, limit }) {
+      return listings.filter((row) => row.seq > afterSeq).slice(0, limit);
+    },
+    async moderation(listingId) {
+      return moderation.filter((row) => row.listingId === listingId);
+    },
+    async moderationOf(listingIds) {
+      return moderation.filter((row) => listingIds.includes(row.listingId));
+    },
+    async moderate(input) {
+      const prior = moderation.find((row) => row.listingId === input.listingId && row.seq === input.seq);
+      if (prior) return prior;
+      const { at, ...rest } = input;
+      const row = { ...rest, at: at.toISOString() };
+      moderation.push(row);
+      return row;
+    },
+    async openDispute(input) {
+      const prior = disputes.find((row) => row.listingId === input.listingId && row.seq === input.seq);
+      if (prior) return prior;
+      const { at, ...rest } = input;
+      const row: StoredDispute = { ...rest, id: randomUUID(), openedAt: at.toISOString(), resolution: null };
+      disputes.push(row);
+      return row;
+    },
+    async dispute(id) {
+      return disputes.find((row) => row.id === id) ?? null;
+    },
+    async disputes(listingIds) {
+      return disputes.filter((row) => listingIds.includes(row.listingId));
+    },
+    async resolveDispute({ id, actor, reason, at }) {
+      const index = disputes.findIndex((row) => row.id === id);
+      const prior = disputes[index]!;
+      if (prior.resolution) return prior;
+      const row = { ...prior, resolution: { actor, reason, at: at.toISOString() } };
+      disputes[index] = row;
+      return row;
     },
   };
 }
