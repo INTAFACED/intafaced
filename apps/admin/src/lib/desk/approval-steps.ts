@@ -5,6 +5,7 @@ import { payloadHashFor, proposeInputFor } from './approval-hash';
 import { founderCall, parseWith, type FounderCallContext, type FounderCallFailure } from './founder-call';
 import { explainRefusal } from './refusal-copy';
 import type { ApprovalView, ExecuteReply, StepName, StepReply } from './approval-types';
+import { isRecord } from '@intafaced/contracts/guards';
 
 export type { ApprovalView, ExecuteReply, StepName, StepReply } from './approval-types';
 
@@ -43,10 +44,6 @@ export interface StepBody {
 }
 
 export type ParsedStep = { readonly ok: true; readonly body: StepBody } | { readonly ok: false; readonly error: string };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
 
 /** Trim the reason the way the services will before hashing, then read the request strictly. */
 function normalisedRequest(raw: unknown): DeskRequest | null {

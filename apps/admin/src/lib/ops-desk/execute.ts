@@ -7,6 +7,7 @@ import { treasuryTransport } from '@/lib/ledger/reconciliation-server';
 import { codeInText, explainRefusal, isKnownCode } from '@/lib/desk/refusal-copy';
 import { marketTargetId, poolTargetId } from '@intafaced/contracts/protocol-ops';
 import { normaliseCostAmount } from '@/lib/venue-economics/model';
+import { isRecord } from '@intafaced/contracts/guards';
 
 /**
  * Run an approved Market or Academy request against the owning service, as the signed-in founder.
@@ -16,10 +17,6 @@ import { normaliseCostAmount } from '@/lib/venue-economics/model';
  * service's operator scope (market:ops, admin:write) and a verified second factor; the service checks both itself and
  * its refusal is shown in words (admin-BACKEND-NEEDS.md, item 27).
  */
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
 
 interface VetAnswer {
   readonly changed: boolean;
