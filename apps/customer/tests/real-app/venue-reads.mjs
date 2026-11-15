@@ -1,4 +1,3 @@
-import { keccak256, toHex } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { expect } from './journey.mjs';
 import { api, toUnits, tool } from './stack.mjs';
@@ -174,20 +173,15 @@ export async function otherVenueTrader(funds) {
   };
 }
 
-/** The venue's own best bid and ask on `symbol`, never our engine's book. */
+/**
+ * The venue's own best bid and ask on `symbol`, across every account resting on its book, never our engine's book. Not
+ * only the TEST makers': another journey's trader may leave a better order resting (J-campaigns-04's bid), and a step
+ * that prices "one tick above the best bid" must be above that one too (intafaced #8426).
+ */
 export async function venueBook(symbol) {
-  const venueId = await testVenueId();
-  const makers = ['bid', 'ask'].map((name) =>
-    privateKeyToAccount(keccak256(toHex(`intafaced TEST venue maker ${name}`))).address.toLowerCase(),
-  );
-  const orders = [];
-  for (const owner of makers) {
-    const { status, body } = await testVenue('/open-orders', { account: { venueId, owner, subAccount: null } });
-    expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
-    orders.push(...body.value.filter((o) => o.symbol === symbol));
-  }
-  const bids = orders.filter((o) => o.side === 'buy').map((o) => toUnits(o.price));
-  const asks = orders.filter((o) => o.side === 'sell').map((o) => toUnits(o.price));
-  expect(bids.length > 0 && asks.length > 0, `the TEST venue has a two-sided book on ${symbol}`).toBe(true);
-  return { bid: bids.reduce((a, b) => (b > a ? b : a)), ask: asks.reduce((a, b) => (b < a ? b : a)) };
+  const { status, body } = await testVenue('/best-prices', { symbol });
+  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  const { bid, ask } = body.value;
+  expect(bid !== null && ask !== null, `the TEST venue has a two-sided book on ${symbol}`).toBe(true);
+  return { bid: toUnits(bid), ask: toUnits(ask) };
 }
