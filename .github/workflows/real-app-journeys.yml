@@ -821,7 +821,7 @@ jobs:
           done
           node tooling/scripts/local-test-market.mjs stop
           node tooling/scripts/local-test-gates.mjs verify
-          node tooling/scripts/local-test-market.mjs history --markets journeys
+          echo "PROBE: no chart history written (measuring which journeys need it)"
           node tooling/scripts/local-test-market.mjs
 
       # Labelled TEST rows (earn pools, loan products, a TEST P2P method) so those rooms show working, after the gates
