@@ -7,6 +7,8 @@ import { StrategiesRoom } from './StrategiesRoom';
 import { StrategyPage } from './StrategyPage';
 import { SharedRoom, SharedStrategy } from './SharedRooms';
 import { teamCopy } from './team-copy';
+import { LibraryRoom, ListingRoom } from './LibraryRooms';
+import { libraryCopy } from './library-copy';
 import { LiveRun, LiveRuns } from './LiveRun';
 import { liveRunCopy } from './live-run-copy';
 import { EditorRoom, OptimiseRoom, TesterRoom } from './PreviewRooms';
@@ -64,6 +66,28 @@ export function quantRoute(
       title: teamCopy.t('sharedTitle'),
       description: teamCopy.t('sharedIntro'),
       content: <SharedStrategy key={`${userId ?? 'anonymous'}:${strategyId}`} strategyId={strategyId} paper={paper} />,
+    };
+  }
+  // The strategy library (J-algo-dev-09): what people published, and one listing.
+  if (pathname === '/quant/library') {
+    return {
+      title: libraryCopy.t('libraryTitle'),
+      description: libraryCopy.t('libraryIntro'),
+      content: <LibraryRoom key={userId ?? 'anonymous'} paper={paper} />,
+    };
+  }
+  const listing = /^\/quant\/library\/([^/]+)$/.exec(pathname);
+  if (listing) {
+    let listingId = listing[1]!;
+    try {
+      listingId = decodeURIComponent(listingId);
+    } catch {
+      // A broken escape is sent as it is, and the service answers that no such listing exists.
+    }
+    return {
+      title: libraryCopy.t('libraryTitle'),
+      description: libraryCopy.t('libraryIntro'),
+      content: <ListingRoom key={`${userId ?? 'anonymous'}:${listingId}`} listingId={listingId} paper={paper} />,
     };
   }
   // A live strategy run on the person's own venue sub-account (J-algo-dev-07), and the list of them.
