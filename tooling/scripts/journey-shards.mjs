@@ -288,6 +288,27 @@ export function planShards(files, durations, shards, fresh = new Set()) {
   return bins.map((bin) => ({ ms: bin.ms, files: bin.files.sort() }));
 }
 
+// A file whose journeys alone run this much longer than the plan's median shard is named. (Failure it prevents: main's
+// runs 43653086390 and 43656238027, 15 Nov 2026, planned 64 shards of about 12 minutes, but five shards each held one
+// file of 14 to 23 minutes, J-wallet-05, J-algo-dev-04, J-merchant-02, J-charts-desk-09 and J-wallet-04, so the run
+// ended at 30 and 31 minutes while its median shard ended at 18. A file's steps run in order on one account, so no plan
+// can split a file; only moving some of its steps into a part file, J-<id>-<part>.pw.mjs, can. Nothing named it.)
+export const LONG_FILE_SLACK_MINUTES = 2;
+
+/**
+ * The files a run waits on: each file whose own time is more than LONG_FILE_SLACK_MINUTES over the plan's median shard,
+ * longest first, as { file, ms, medianMs }. Pure, for the tests.
+ */
+export function longFiles(plan, durations, slackMs = LONG_FILE_SLACK_MINUTES * 60_000) {
+  const times = plan.map((bin) => bin.ms).sort((a, b) => a - b);
+  const medianMs = times.length ? times[Math.floor(times.length / 2)] : 0;
+  return plan
+    .flatMap((bin) => bin.files)
+    .map((file) => ({ file, ms: durations.get(file) ?? 0, medianMs }))
+    .filter(({ ms }) => ms > medianMs + slackMs)
+    .sort((a, b) => b.ms - a.ms || a.file.localeCompare(b.file));
+}
+
 function readReport(file) {
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -346,6 +367,10 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   plan.forEach((bin, i) =>
     console.error(`shard ${i + 1}: ${bin.files.length} files, about ${Math.round(bin.ms / 60_000)} min by the last runs`),
   );
+  for (const { file, ms, medianMs } of longFiles(plan, durations))
+    console.error(
+      `::warning::${file} takes about ${Math.round(ms / 60_000)} min of journeys alone and the median shard about ${Math.round(medianMs / 60_000)}, so the run waits on it; move some of its steps into a part file (J-<id>-<part>.pw.mjs) with its own setup`,
+    );
   const longest = Math.max(...plan.map((bin) => bin.ms)) / 60_000;
   // Stderr, so the plan on stdout stays clean; the runner reads workflow commands from both.
   if (longest > JOURNEY_LIMIT_MINUTES - LIMIT_MARGIN_MINUTES)

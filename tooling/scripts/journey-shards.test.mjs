@@ -1,7 +1,7 @@
 // Proves the journey shard split without a run. Run: node --test tooling/scripts/journey-shards.test.mjs
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -17,6 +17,7 @@ import {
   fileDurations,
   fullPlan,
   journeyFiles,
+  longFiles,
   longestDurations,
   planCovers,
   planShards,
@@ -444,4 +445,59 @@ test("the repo's fresh-stack files, J-more-catalogue-11 among them, each run fir
       if (shard) assert.equal([...shard].sort()[0], f, `${only ?? 'full'}: ${f} runs after ${[...shard].sort()[0]}`);
     }
   }
+});
+
+test('a file far longer than the median shard is named, longest first; the run waits on it whatever the plan (15 Nov 2026)', () => {
+  const min = 60_000;
+  // Main's run 43656238027 in small: shards of about 12 minutes, two files of 23 and 15 minutes, one of 13.
+  const durations = new Map([
+    ['J-long.pw.mjs', 23 * min],
+    ['J-mid.pw.mjs', 15 * min],
+    ['J-near.pw.mjs', 13 * min],
+    ...Array.from({ length: 12 }, (_, i) => [`J-f${String(i).padStart(2, '0')}.pw.mjs`, 6 * min]),
+  ]);
+  const plan = planShards([...durations.keys()], durations, 9);
+  assert.equal(planCovers(plan, [...durations.keys()]).length, 0);
+  assert.deepEqual(
+    longFiles(plan, durations).map(({ file, ms, medianMs }) => [file, ms / min, medianMs / min]),
+    [
+      ['J-long.pw.mjs', 23, 12],
+      ['J-mid.pw.mjs', 15, 12],
+    ],
+    'over the median by more than the 2-minute slack: named; 13 against 12 is within it',
+  );
+  // Split the long file into parts of 12 and 11 minutes and nothing is named.
+  const split = new Map([...durations].filter(([f]) => f !== 'J-long.pw.mjs' && f !== 'J-mid.pw.mjs'));
+  split
+    .set('J-long.pw.mjs', 12 * min)
+    .set('J-long-part.pw.mjs', 11 * min)
+    .set('J-mid.pw.mjs', 8 * min)
+    .set('J-mid-part.pw.mjs', 7 * min);
+  assert.deepEqual(longFiles(planShards([...split.keys()], split, 10), split), []);
+  assert.deepEqual(longFiles([], new Map()), [], 'an empty plan names nothing');
+});
+
+test('the planner as the workflow calls it on main names the files the run waits on in a warning', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'journey-shards-long-'));
+  const files = journeyFiles(JOURNEY_DIR);
+  // Every step timed, so no untimed step adds to a file: the first file 40 minutes, every other 2.
+  const steps = stepCounts(JOURNEY_DIR, files);
+  const suites = files.map((file, i) => {
+    const n = Math.max(1, steps.get(file));
+    return {
+      file,
+      specs: Array.from({ length: n }, () => ({
+        tests: [{ results: [{ status: 'passed', duration: ((i === 0 ? 40 : 2) * 60_000) / n }] }],
+      })),
+    };
+  });
+  const report = path.join(dir, 'report.json');
+  fs.writeFileSync(report, JSON.stringify({ suites }));
+  const run = spawnSync(process.execPath, ['tooling/scripts/journey-shards.mjs', '--shards', 'auto', '--report', report, '--main'], {
+    encoding: 'utf8',
+  });
+  assert.equal(run.status, 0, run.stderr);
+  const warned = run.stderr.split('\n').filter((l) => l.startsWith('::warning::') && l.includes('the run waits on it'));
+  assert.equal(warned.length, 1, run.stderr);
+  assert.ok(warned[0].startsWith(`::warning::${files[0]} takes about 40 min`), warned[0]);
 });
