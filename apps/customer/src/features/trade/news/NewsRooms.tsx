@@ -86,6 +86,8 @@ const LANGUAGES = [
   ['es', 'languageEs'],
   ['fr', 'languageFr'],
 ] as const;
+const label = (options: ReadonlyArray<readonly [string, string]>, value: string): string =>
+  options.find(([candidate]) => candidate === value)?.[1] ?? value;
 function withStored(known: ReadonlyArray<readonly [string, string]>, stored: readonly string[]): ReadonlyArray<readonly [string, string]> {
   const seen = new Set(known.map(([value]) => value));
   return [...known, ...distinct(stored.filter((value) => !seen.has(value)))];
@@ -95,6 +97,14 @@ export function NewsRoom({ items = STORED_NEWS }: { items?: readonly NewsItem[] 
   const { t } = newsCopy.useCopy();
   const [filter, setFilter] = useState<NewsFilter>(allNews);
   const shown = useMemo(() => filterNews(items, filter), [items, filter]);
+  const categoryOptions = withStored(
+    CATEGORIES.map(([value, key]) => [value, t(key)] as const),
+    items.map((item) => item.category),
+  );
+  const languageOptions = withStored(
+    LANGUAGES.map(([value, key]) => [value, t(key)] as const),
+    items.map((item) => item.language),
+  );
   return (
     <Page eyebrow={t('eyebrow')} title={t('newsTitle')} description={t('newsLead')}>
       <NewsNotice text={t('newsNotice')} />
@@ -105,20 +115,14 @@ export function NewsRoom({ items = STORED_NEWS }: { items?: readonly NewsItem[] 
             value={filter.category}
             onChange={(category) => setFilter({ ...filter, category })}
             all={t('allCategories')}
-            options={withStored(
-              CATEGORIES.map(([value, key]) => [value, t(key)] as const),
-              items.map((item) => item.category),
-            )}
+            options={categoryOptions}
           />
           <Choice
             label={t('language')}
             value={filter.language}
             onChange={(language) => setFilter({ ...filter, language })}
             all={t('allLanguages')}
-            options={withStored(
-              LANGUAGES.map(([value, key]) => [value, t(key)] as const),
-              items.map((item) => item.language),
-            )}
+            options={languageOptions}
           />
           <label className="news-filter">
             <span>{t('symbol')}</span>
@@ -139,6 +143,21 @@ export function NewsRoom({ items = STORED_NEWS }: { items?: readonly NewsItem[] 
             </button>
           ) : null}
         </form>
+        <p className="muted" data-testid="news-applied" aria-live="polite">
+          {filtersActive(filter)
+            ? t('appliedSome', {
+                filters: [
+                  filter.category ? `${t('category')} ${label(categoryOptions, filter.category)}` : '',
+                  filter.language ? `${t('language')} ${label(languageOptions, filter.language)}` : '',
+                  cleanSymbol(filter.symbol) ? `${t('symbol')} ${cleanSymbol(filter.symbol)}` : '',
+                ]
+                  .filter(Boolean)
+                  .join(' · '),
+                shown: String(shown.length),
+                count: String(items.length),
+              })
+            : t('appliedNone', { count: String(items.length) })}
+        </p>
         {shown.length === 0 ? (
           items.length === 0 ? (
             <EmptyState title={t('newsTitle')}>{t('storeEmpty')}</EmptyState>

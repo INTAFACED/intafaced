@@ -55,10 +55,15 @@ test(`${J} #2 filters by category and language: the filters apply to what the st
   // The filters offer their own choices even with an empty store, so a person can filter at all.
   await expect(category.locator('option')).toHaveText(['All categories', 'Markets', 'Crypto', 'Macro', 'Company', 'Regulation']);
   await expect(language.locator('option')).toHaveText(['All languages', 'English', 'Spanish', 'French']);
+  // What the filters apply to: the store's items, counted before any filter is set.
+  const applied = page.getByTestId('news-applied');
+  await expect(applied).toHaveText('No filter applied. 0 stored items.');
   await category.selectOption({ label: 'Crypto' });
+  await expect(applied).toHaveText('Filtered by Category Crypto. 0 of 0 stored items match.');
   await language.selectOption({ label: 'English' });
   await expect(category).toHaveValue('crypto');
   await expect(language).toHaveValue('en');
+  await expect(applied).toHaveText('Filtered by Category Crypto · Language English. 0 of 0 stored items match.');
   // The filters are applied: the clear control appears, and the store's answer (nothing) reads as empty, never as a sample.
   const clear = form.getByRole('button', { name: 'Clear filters' });
   await expect(clear).toBeVisible();
@@ -66,11 +71,13 @@ test(`${J} #2 filters by category and language: the filters apply to what the st
   await expect(page.locator('.news-list li')).toHaveCount(0);
   await form.getByRole('textbox', { name: 'Symbol' }).fill('btc');
   await expect(form.getByRole('textbox', { name: 'Symbol' })).toHaveValue('BTC');
+  await expect(applied).toHaveText('Filtered by Category Crypto · Language English · Symbol BTC. 0 of 0 stored items match.');
   await expect(page.getByText(EMPTY)).toBeVisible();
   await clear.click();
   await expect(category).toHaveValue('');
   await expect(language).toHaveValue('');
   await expect(clear).toHaveCount(0);
+  await expect(applied).toHaveText('No filter applied. 0 stored items.');
   await expectNotice(page, NEWS_NOTICE);
 });
 

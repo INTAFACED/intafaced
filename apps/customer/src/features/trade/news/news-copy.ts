@@ -52,6 +52,8 @@ const en = {
   languageEn: 'English',
   languageEs: 'Spanish',
   languageFr: 'French',
+  appliedNone: 'No filter applied. {count} stored items.',
+  appliedSome: 'Filtered by {filters}. {shown} of {count} stored items match.',
   widgetOpen: 'News',
   widgetClose: 'Hide news',
   widgetTitle: 'News for {symbol}',
