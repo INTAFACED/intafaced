@@ -34,22 +34,26 @@ The alternative was to hardcode a hostname and a model id and add this service t
 
 Internal tRPC (§1). Every log query is scoped to `ctx.principal.userId` — an audit trail one user can query for another is a privacy incident wearing a feature's clothes.
 
-| Procedure             | Scope            | Input                                      | Output                                                      |
-| --------------------- | ---------------- | ------------------------------------------ | ----------------------------------------------------------- |
-| `health`              | —                | —                                          | `{ ok, service }`                                           |
-| `routes.list`         | `agents:read`    | —                                          | tasks, output ceilings, and the **rate each is billed at**  |
-| `agent.get`           | `agents:read`    | `{ agentId }`                              | the guardrail, its permission mode and each tool’s refusals |
-| `session.open`        | `agents:execute` | `{ agentId }`                              | session, with the guardrail bound to it                     |
-| `session.close`       | `agents:execute` | `{ sessionId }`                            | settles open windows, then closes                           |
-| `session.log`         | `agents:read`    | `{ sessionId }`                            | every action, i18n-keyed                                    |
-| `session.detail`      | `agents:read`    | `{ sessionId }`                            | the caller's own session and each usage window, exact       |
-| `session.selected`    | `agents:read`    | —                                          | the session the person last selected, or null               |
-| `session.select`      | `agents:read`    | `{ sessionId }`                            | keeps that choice; the person only, never a key or service  |
-| `run.complete`        | `agents:execute` | `{ sessionId, requestId, task, messages }` | text, token counts, cost, the audit row                     |
-| `usage.current`       | `agents:read`    | `{ sessionId }`                            | what the open window would cost. Bills nothing              |
-| `usage.settle`        | `admin:write`    | `{ sessionId, windowId }`                  | posts the charge. Idempotent                                |
-| `usage.settleSession` | `admin:write`    | `{ sessionId }`                            | settles every open / sealed-unbilled window. Idempotent     |
-| `log.mine`            | `agents:read`    | `{ limit }`                                | **the user-visible log** (§8.2)                             |
+| Procedure             | Scope            | Input                                                                     | Output                                                                                                                |
+| --------------------- | ---------------- | ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `health`              | —                | —                                                                         | `{ ok, service }`                                                                                                     |
+| `routes.list`         | `agents:read`    | —                                                                         | tasks, output ceilings, and the **rate each is billed at**                                                            |
+| `routes.desk`         | `admin:read`     | —                                                                         | founders' table: provider and model alias (configuration), ceiling, rates or null, pending change, last change, audit |
+| `routes.propose`      | `admin:write`    | `{ task, maxOutputTokens, inputPerMillion, outputPerMillion, requestId }` | one founder's change, pending; the table does not move                                                                |
+| `routes.withdraw`     | `admin:write`    | `{ changeId }`                                                            | the proposer takes their pending change back                                                                          |
+| `routes.confirm`      | `admin:write`    | `{ changeId }`                                                            | a second founder applies it once, with an audit row naming both                                                       |
+| `agent.get`           | `agents:read`    | `{ agentId }`                                                             | the guardrail, its permission mode and each tool’s refusals                                                           |
+| `session.open`        | `agents:execute` | `{ agentId }`                                                             | session, with the guardrail bound to it                                                                               |
+| `session.close`       | `agents:execute` | `{ sessionId }`                                                           | settles open windows, then closes                                                                                     |
+| `session.log`         | `agents:read`    | `{ sessionId }`                                                           | every action, i18n-keyed                                                                                              |
+| `session.detail`      | `agents:read`    | `{ sessionId }`                                                           | the caller's own session and each usage window, exact                                                                 |
+| `session.selected`    | `agents:read`    | —                                                                         | the session the person last selected, or null                                                                         |
+| `session.select`      | `agents:read`    | `{ sessionId }`                                                           | keeps that choice; the person only, never a key or service                                                            |
+| `run.complete`        | `agents:execute` | `{ sessionId, requestId, task, messages }`                                | text, token counts, cost, the audit row                                                                               |
+| `usage.current`       | `agents:read`    | `{ sessionId }`                                                           | what the open window would cost. Bills nothing                                                                        |
+| `usage.settle`        | `admin:write`    | `{ sessionId, windowId }`                                                 | posts the charge. Idempotent                                                                                          |
+| `usage.settleSession` | `admin:write`    | `{ sessionId }`                                                           | settles every open / sealed-unbilled window. Idempotent                                                               |
+| `log.mine`            | `agents:read`    | `{ limit }`                                                               | **the user-visible log** (§8.2)                                                                                       |
 
 ### Agents a person builds (AG-builder-01)
 
@@ -379,3 +383,7 @@ The ledger client signs with svc-agents' own key when `S2S_AUTH_MODE`, `S2S_SIGN
 ## Service keys: outgoing calls
 
 Beyond the ledger, svc-agents' other hand-signed calls sign with its own key when `S2S_AUTH_MODE`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` are set (`S2S_KEYRING` too for the inbound door): affiliate accrue and payout and the account and session reads go to svc-identity, the curriculum read to svc-academy, merchant watch metrics to svc-pay and copy leader fixtures to svc-trade. `dual` also sends the shared secret, `keypair` the key only. Unset, they are signed with the shared secret exactly as before.
+
+## Changing the routing table (J-agents-20)
+
+Provider and model alias come only from `AGENTS_ROUTING_TABLE`: swapping a provider is a configuration change and a restart, never a code change. Founders change a route's output ceiling and rates on the console's More modules page, two of them: `routes.propose` stores the change as pending (`route_change_requests`, one pending per task), and a different founder's `routes.confirm` writes `route_overrides` and its `route_change_audit` row in one transaction; the proposer is refused (`agents.route_change_same_founder`), and a second confirm changes nothing. The overrides are laid over the configured table at boot, after each confirm and every 30 s (`src/gateway/route-changes.ts`). A rate change takes effect at the start of the next usage window; until then the open window keeps the rate in force at confirm. Blank rates leave the route unpriced, so its runs refuse `agents.price_unset`. Open sessions keep the guardrail they copied; nothing here touches a session. Migration `20261116090000_route_changes`.

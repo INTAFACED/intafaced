@@ -10,6 +10,7 @@ import { ModelGateway } from './gateway/gateway.js';
 import { parseOwnTemplates } from './own/catalog.js';
 import { parsePolicyBaseline } from './own/guardrails.js';
 import { parseAmount, userAvailable } from '@intafaced/ledger-client';
+import { RouteChangeStore, RouteTableSync } from './gateway/route-changes.js';
 import { DEFAULT_ROUTING_TABLE, parseRoutingTable, unpricedTable, type RoutingTable } from './gateway/routing.js';
 import { createLedgerClient } from './ledger-client.js';
 import { createAffiliateAccrueClient } from './affiliate-accrue.js';
@@ -129,7 +130,10 @@ function buildRoutingTable(): RoutingTable {
 
 const primaryProvider = buildPrimaryProvider();
 const providers: readonly ModelProvider[] = [primaryProvider];
-const gateway = new ModelGateway(providers, buildRoutingTable());
+// The configured table. Founders' confirmed changes to ceilings and rates are laid over it once the database is open
+// (J-agents-20); provider and model aliases are only ever this table's.
+const configuredRoutingTable = buildRoutingTable();
+const gateway = new ModelGateway(providers, configuredRoutingTable);
 
 const bus = await JetStreamEventBus.connect({
   servers: env.NATS_URL,
@@ -151,6 +155,14 @@ const ledger = createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, s
 const usagePayment = env.BANK_URL
   ? createHttpUsagePaymentPort({ bankUrl: env.BANK_URL, internalSecret: env.INTERNAL_SERVICE_SECRET, ...(s2sKey ? { s2s: s2sKey } : {}) })
   : ledgerOnlyPayment;
+
+const routeSync = new RouteTableSync(sql, gateway, configuredRoutingTable);
+await routeSync.refresh();
+routeSync.start();
+const routeChanges = {
+  sync: routeSync,
+  store: new RouteChangeStore({ sql, sync: routeSync, windowMinutes: env.AGENTS_USAGE_WINDOW_MINUTES }),
+};
 
 const meter = new UsageMeter(sql, ledger, {
   payment: usagePayment,
@@ -268,6 +280,7 @@ const ownCadence = {
 };
 
 const appRouter = createAgentsRouter({
+  routeChanges,
   runtime,
   // Parsed at boot: a malformed law stops the service here, never opens or closes a door at a call.
   tierLaws: parseTierLaws(env.AGENTS_TIER_LAWS),
