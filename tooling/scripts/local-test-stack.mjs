@@ -72,7 +72,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { apiSecurityHeaders, securityHeaders } from '../../apps/customer/deployment/render-security-headers.mjs';
 import { APEX_DESCRIPTOR_PATH, APEX_PRODUCT } from '../../apps/customer/deployment/host-dispatch.mjs';
 import { anvilBin, chainRecordPath, chainStatus, CHAIN_PORTS, GATE_URL, runSeedScript, TEST_CHAIN_ID } from './local-test-chain.mjs';
-import { FIX_SOCKET_PORTS, STACK_PORTS } from './local-test-facts.mjs';
+import { FIX_SOCKET_PORTS, slotEnv, STACK_PORTS } from './local-test-facts.mjs';
 import { reduceMaps } from './journey-reach.mjs';
 import { runMvnSync } from './mvn-run.mjs';
 import { marketStatus } from './local-test-market.mjs';
@@ -250,7 +250,14 @@ const sha256File = (file) => crypto.createHash('sha256').update(fs.readFileSync(
 
 function baseEnv() {
   // A clean environment: nothing from the caller's shell leaks into services.
-  return { PATH: PNPM_PATH, HOME: os.homedir(), LANG: 'en_US.UTF-8', TMPDIR: path.join(STATE, 'tmp'), LOCAL_STACK_STATE: STATE };
+  return {
+    PATH: PNPM_PATH,
+    HOME: os.homedir(),
+    LANG: 'en_US.UTF-8',
+    TMPDIR: path.join(STATE, 'tmp'),
+    LOCAL_STACK_STATE: STATE,
+    ...slotEnv(),
+  };
 }
 
 function freeGb() {
@@ -2437,7 +2444,7 @@ async function cmdStart(flags) {
  */
 function ensureMarket() {
   const r = spawnSync(process.execPath, [path.join(path.dirname(SCRIPT), 'local-test-market.mjs'), 'ensure'], {
-    env: { PATH: process.env.PATH, HOME: os.homedir(), LOCAL_STACK_STATE: STATE },
+    env: { PATH: process.env.PATH, HOME: os.homedir(), LOCAL_STACK_STATE: STATE, ...slotEnv() },
     encoding: 'utf8',
   });
   const text = `${r.stdout ?? ''}${r.stderr ?? ''}`.trim().split('\n').filter(Boolean).join(' | ');

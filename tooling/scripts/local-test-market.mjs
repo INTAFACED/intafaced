@@ -69,7 +69,7 @@ import {
   stackCustodyOff,
 } from './local-test-state.mjs';
 import { LOCAL_TEST_DEVICE_KEY } from './local-test-device.mjs';
-import { stackUrl } from './local-test-facts.mjs';
+import { slotEnv, stackUrl } from './local-test-facts.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const REPO = path.resolve(path.dirname(SCRIPT), '..', '..');
@@ -1870,7 +1870,7 @@ async function startBackground(p, args, { wait }) {
       cwd: REPO,
       detached: true,
       stdio: ['ignore', fd, fd],
-      env: { PATH: process.env.PATH, HOME: os.homedir(), LOCAL_STACK_STATE: p.stateDir },
+      env: { PATH: process.env.PATH, HOME: os.homedir(), LOCAL_STACK_STATE: p.stateDir, ...slotEnv() },
     });
     child.unref();
     fs.closeSync(fd);

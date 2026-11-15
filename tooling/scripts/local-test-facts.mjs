@@ -121,6 +121,8 @@ export const STACK_PORTS = PORTS_NOW.stack;
 export const FIX_SOCKET_PORTS = PORTS_NOW.fixSockets;
 export const HOOK_PORTS = PORTS_NOW.hooks;
 export const CHAIN_PORTS = PORTS_NOW.chain;
+/** The slot for a child given a clean environment: nothing when unset, so slot 0's children run as they always did. */
+export const slotEnv = () => (process.env.LOCAL_STACK_SLOT === undefined ? {} : { LOCAL_STACK_SLOT: process.env.LOCAL_STACK_SLOT });
 /** `http://127.0.0.1:<port>` of one stack part, by its name in STACK_PORTS. */
 export const stackUrl = (name, host = '127.0.0.1') => `http://${host}:${STACK_PORTS[name]}`;
 /** The journeys' folder for results, report and run files (JOURNEY_RUN_DIR, JOURNEY_REPORT and --output move parts of it). */
