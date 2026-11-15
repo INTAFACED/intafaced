@@ -86,10 +86,10 @@
     "@playwright/test": "^1.65.0",
     "@types/node": "^22.20.5",
     "oxlint": "1.93.0",
-    "prettier": "^3.9.10",
+    "prettier": "^3.10.0",
     "rimraf": "^6.1.4",
     "tsx": "^4.23.15",
-    "turbo": "^2.11.10",
+    "turbo": "^2.11.11",
     "typescript": "^7.0.2",
     "vitest": "^4.1.12"
   },
