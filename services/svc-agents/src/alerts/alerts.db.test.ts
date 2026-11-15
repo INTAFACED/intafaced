@@ -7,7 +7,8 @@ import { describe, expect, it, beforeAll, beforeEach, afterEach, afterAll } from
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { effectiveRequirement, type PolicyBaseline } from '../own/guardrails.js';
-import { alertsRouter, checkChoice, parseThreshold, trimDecimal, AlertRefusal } from './routes.js';
+import { MemoryEventBus } from '@intafaced/events';
+import { alertsRouter, checkChoice, parseThreshold, publishPendingAgentAlerts, trimDecimal, AlertRefusal } from './routes.js';
 
 /**
  * The agent alert desk on real Postgres (J-agents-16): a blank threshold stores nothing and 0 is a value; the evaluator
@@ -51,6 +52,13 @@ function signed(scopes: string[]) {
     },
     id: 'req-alerts',
   });
+}
+
+/** A bus that refuses every publish, as one in an outage does. */
+class BrokenBus extends MemoryEventBus {
+  override async publish(): Promise<never> {
+    throw new Error('bus down');
+  }
 }
 
 const refusalOf = (fn: () => unknown): string | null => {
@@ -115,7 +123,7 @@ describe('alert thresholds and rule checks (pure)', () => {
   beforeEach(async () => {
     await lockConn`select pg_advisory_lock(842671)`;
     await sql`
-      TRUNCATE agents.agent_alerts, agents.agent_alert_rules, agents.agent_policy_overrides, agents.agent_actions,
+      TRUNCATE agents.agent_alerts, agents.agent_alert_settings, agents.agent_alert_rules, agents.agent_policy_overrides, agents.agent_actions,
                agents.agent_sessions
       RESTART IDENTITY CASCADE
     `;
@@ -130,7 +138,9 @@ describe('alert thresholds and rule checks (pure)', () => {
     await sql.end({ timeout: 5 });
   });
 
-  const desk = (scopes = ['admin:read', 'admin:write']) => alertsRouter(sql, BASELINE).createCaller(signed(scopes));
+  let bus = new MemoryEventBus('svc-agents');
+  const desk = (scopes = ['admin:read', 'admin:write']) =>
+    alertsRouter(sql, BASELINE, () => publishPendingAgentAlerts(sql, bus)).createCaller(signed(scopes));
 
   /** Stores `n` actions of `status` for `agentId` in a session of their own, now, as the runtime would. */
   async function actions(agentId: string, status: 'executed' | 'refused' | 'failed', n: number, cost = '0') {
@@ -164,7 +174,8 @@ describe('alert thresholds and rule checks (pure)', () => {
       );
     });
 
-    it('#2 #3 two evaluations of a breached window keep one alert, pending delivery; an empty window fires nothing and has no rate', async () => {
+    it('#2 two evaluations of a breached window keep one alert, handed to notifications once; an empty window fires nothing and has no rate', async () => {
+      bus = new MemoryEventBus('svc-agents');
       const ops = desk();
       await actions('probe', 'executed', 3);
       await actions('probe', 'refused', 1);
@@ -184,10 +195,39 @@ describe('alert thresholds and rule checks (pure)', () => {
       expect(current(first, quiet.id)).toMatchObject({ actionRows: 0, value: null, breached: false, alertWritten: false });
       const { alerts } = await ops.desk();
       expect(alerts.map((a) => [a.ruleName, a.actionRows, a.value, a.threshold, a.delivery])).toEqual([
-        ['TEST refusals', 4, '25', '0', 'pending'],
+        ['TEST refusals', 4, '25', '0', 'handed_off'],
       ]);
+      // Handed over once, on the rule and window's business key, to the operator who stored the rule.
+      const sent = bus.emitted('agentAlertFired');
+      expect(sent.map((e) => [e.payload.userId, e.payload.ruleName, e.payload.value, e.payload.threshold])).toEqual([
+        [OPERATOR, 'TEST refusals', '25', '0'],
+      ]);
+      expect(sent[0]!.payload.alertKey).toBe(`agents.alert:${breached.id}:${alerts[0]!.windowStart}`);
       const stored = await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM agents.agent_alerts`;
       expect(stored[0]?.n).toBe(1);
+    });
+
+    it('#3 with notifications down an alert is kept pending and nothing is sent; back on, it is handed over', async () => {
+      bus = new MemoryEventBus('svc-agents');
+      const ops = desk();
+      expect((await ops.desk()).notifications).toEqual({ state: 'on', setBy: null, setAt: null });
+      expect((await ops.setNotifications({ state: 'down' })).state).toBe('down');
+      await actions('probe', 'refused', 1);
+      await ops.createRule({ name: 'TEST while down', measure: 'refusal_rate', threshold: '0', windowMinutes: 60 });
+      await ops.evaluate();
+      expect((await ops.desk()).alerts.map((a) => [a.ruleName, a.delivery, a.handedOffAt])).toEqual([['TEST while down', 'pending', null]]);
+      expect(bus.emitted('agentAlertFired')).toHaveLength(0);
+      // A publish that fails leaves it pending too.
+      const broken = new BrokenBus('svc-agents');
+      await sql`UPDATE agents.agent_alert_settings SET notifications = 'on'`;
+      expect(await publishPendingAgentAlerts(sql, broken)).toBe(0);
+      await sql`UPDATE agents.agent_alert_settings SET notifications = 'down'`;
+      expect((await ops.desk()).alerts[0]!.delivery).toBe('pending');
+      await ops.setNotifications({ state: 'on' });
+      const kept = (await ops.desk()).alerts[0]!;
+      expect(kept.delivery).toBe('handed_off');
+      expect(kept.handedOffAt).not.toBeNull();
+      expect(bus.emitted('agentAlertFired')).toHaveLength(1);
     });
 
     it('failure rate and cost read their own columns; a value at the threshold is not above it', async () => {

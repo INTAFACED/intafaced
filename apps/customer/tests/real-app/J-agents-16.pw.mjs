@@ -7,8 +7,8 @@ import { api } from './stack.mjs';
 // much. One test per step, titled "J-agents-16 #<n>", run in order by the stack's LOCAL TEST founder on the agents alert
 // desk (/more-ops/agents/alerts). The start makes a fresh TEST customer whose Navigator session asks for a task the
 // agent may not run, so svc-agents records one refused action now: the refusal-rate rule's window is breached.
-// Delivery: no mail or push vendor is connected to svc-agents, so notifications are down and every alert stays pending
-// (#3). The managed baseline is the stack's LOCAL TEST AGENTS_POLICY_BASELINE (own data: act when asked).
+// Delivery: while alert notifications are on, svc-agents hands each alert to notifications (svc-notify). #3 takes them
+// down on the desk, fires a new alert, sees it kept with delivery pending, and brings them back. The managed baseline is the stack's LOCAL TEST AGENTS_POLICY_BASELINE (own data: act when asked).
 const J = 'J-agents-16';
 const agents = agentsRun(J);
 
@@ -54,7 +54,12 @@ test(`${J} starts: a TEST customer whose agent request was refused just now, and
   expect(refused.status).toBe(403);
   expect(refused.body.error.message).toBe('agents.refused.task_not_allowed');
   const tag = `${agents.account().handle}-${Date.now()}`;
-  agents.run.write({ rule: `TEST refusals ${tag}`, quiet: `TEST quiet ${tag}`, quietAgent: `TEST-no-actions-${tag}` });
+  agents.run.write({
+    rule: `TEST refusals ${tag}`,
+    quiet: `TEST quiet ${tag}`,
+    quietAgent: `TEST-no-actions-${tag}`,
+    whileDown: `TEST while down ${tag}`,
+  });
 });
 
 test(`${J} #1 creates a refusal-rate rule with the threshold blank: refused by name and not stored; a threshold of 0 is stored as deliberate`, async ({
@@ -120,14 +125,39 @@ test(`${J} #2 lets the evaluator run twice over a breached window: one alert row
   await expect(rowOf(alerts(page), quiet)).toHaveCount(0);
 });
 
-test(`${J} #3 with notifications down: the alert row is still kept and shows delivery pending`, async ({ page }) => {
-  const { rule } = names();
+test(`${J} #3 takes notifications down: the alert row is still kept and shows delivery pending`, async ({ page }) => {
+  const { whileDown } = agents.run.read();
+  if (!whileDown) throw new Error(`${J} start named no rule for #3`);
   await openAlerts(page);
-  // No delivery vendor is connected: the desk names both and says alerts are kept.
-  await expect(main(page).getByRole('note').filter({ hasText: 'vendor.email' })).toContainText('vendor.push');
-  const kept = rowOf(alerts(page), rule);
-  await expect(kept).not.toHaveCount(0);
-  for (const row of await kept.all()) await expect(row.getByTestId('alert-delivery')).toHaveText('Delivery pending');
+  const switchboard = main(page).getByRole('region', { name: 'Alert notifications' });
+  await expect(switchboard.getByTestId('notifications-state')).toHaveText('Notifications are on.');
+  await switchboard.getByRole('button', { name: 'Take notifications down' }).click();
+  try {
+    await expect(switchboard.getByTestId('notifications-state')).toHaveText('Notifications are down.');
+    // A new rule over the start's refusal fires while notifications are down.
+    await saveRule(page, { name: whileDown, threshold: '0' });
+    await expect(newRule(page).getByRole('status')).toHaveText(`Rule stored: ${whileDown}.`);
+    await main(page).getByRole('button', { name: 'Evaluate now' }).click();
+    // It fired (this click wrote it, or the service's own minute timer did just before): above the threshold, kept.
+    await expect(
+      rowOf(evaluation(page), whileDown).filter({
+        has: page.getByTestId('window-result').getByText(/^Alert (written|already kept for this window)$/),
+      }),
+    ).not.toHaveCount(0);
+    // The row is kept, read back from svc-agents, and shows delivery pending.
+    await page.reload();
+    const kept = rowOf(alerts(page), whileDown);
+    await expect(kept).not.toHaveCount(0);
+    for (const row of await kept.all()) await expect(row.getByTestId('alert-delivery')).toHaveText('Delivery pending');
+    await expect(switchboard.getByTestId('notifications-state')).toHaveText('Notifications are down.');
+  } finally {
+    await switchboard.getByRole('button', { name: 'Bring notifications back' }).click();
+    await expect(switchboard.getByTestId('notifications-state')).toHaveText('Notifications are on.');
+  }
+  // It was pending only because notifications were down: back on, the same row is handed over.
+  const handed = rowOf(alerts(page), whileDown);
+  await expect(handed).not.toHaveCount(0);
+  for (const row of await handed.all()) await expect(row.getByTestId('alert-delivery')).toHaveText('Handed to notifications');
 });
 
 test(`${J} #4 opens the managed policy baseline and sets an environment override: the baseline is shown; a loosening override is refused`, async ({

@@ -175,6 +175,13 @@ export const NOTIFY_EVENT_CONSUMERS: readonly NotifyConsumerRow[] = [
       'Inbox row agents.usage_alert.crossed for the owner of an own agent whose monthly spend reached their alert, once per agent and month',
   },
   {
+    event: 'agentAlertFired',
+    durable: 'notify-agent-alert-fired',
+    subject: 'intafaced.agents.alert.triggered',
+    effect:
+      'Inbox row agents.alert.fired for the operator who stored an agent alert rule that went above its threshold, sent out of app on every confirmed channel, once per rule and window',
+  },
+  {
     event: 'agentApprovalRequested',
     durable: 'notify-agent-approval-requested',
     subject: 'intafaced.agents.approval.requested',

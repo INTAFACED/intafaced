@@ -416,6 +416,7 @@ const alertTimer = setInterval(() => {
   if (evaluatingAlerts) return;
   evaluatingAlerts = true;
   evaluateAlertRules(sql)
+    .then(() => runtime.publishAgentAlerts())
     .catch((err: unknown) => app.log.warn({ err }, 'agent alert rules were not evaluated'))
     .finally(() => {
       evaluatingAlerts = false;

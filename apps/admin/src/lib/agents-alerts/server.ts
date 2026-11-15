@@ -2,6 +2,7 @@ import 'server-only';
 import {
   agentAlertDeskSchema,
   agentAlertEvaluationSchema,
+  agentAlertNotificationsSchema,
   agentAlertRuleSchema,
   agentPolicySchema,
   agentRuleCheckSchema,
@@ -47,6 +48,10 @@ export async function runAlerts(ctx: FounderCallContext, action: AlertsAction): 
           },
           parseWith(agentAlertRuleSchema),
         ),
+      );
+    case 'setNotifications':
+      return answer(
+        founderCall(ctx, 'agents', 'opsAlerts.setNotifications', 'POST', { state: action.state }, parseWith(agentAlertNotificationsSchema)),
       );
     case 'setOverride':
       return answer(

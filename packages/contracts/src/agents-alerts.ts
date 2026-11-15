@@ -32,7 +32,9 @@ export const agentAlertSchema = z.object({
   actionRows: z.number().int().min(1),
   value: z.string(),
   threshold: z.string(),
-  delivery: z.enum(['pending', 'sent']),
+  /** `pending` until svc-agents hands the alert to notifications; it stays pending while notifications are down. */
+  delivery: z.enum(['pending', 'handed_off']),
+  handedOffAt: z.string().nullable(),
   createdAt: z.string(),
 });
 export type AgentAlert = z.infer<typeof agentAlertSchema>;
@@ -50,7 +52,16 @@ export const agentAlertWindowSchema = z.object({
 });
 export type AgentAlertWindow = z.infer<typeof agentAlertWindowSchema>;
 
+/** Whether alerts are handed to notifications. No one has set it: on. */
+export const agentAlertNotificationsSchema = z.object({
+  state: z.enum(['on', 'down']),
+  setBy: z.string().nullable(),
+  setAt: z.string().nullable(),
+});
+export type AgentAlertNotifications = z.infer<typeof agentAlertNotificationsSchema>;
+
 export const agentAlertDeskSchema = z.object({
+  notifications: agentAlertNotificationsSchema,
   rules: z.array(agentAlertRuleSchema),
   alerts: z.array(agentAlertSchema),
   alertsListed: z.number().int(),

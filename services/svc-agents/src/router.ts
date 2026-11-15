@@ -4163,7 +4163,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
     team: teamRouter({ sql, membership: deps.teamMembership, feeAssetId, runtime }),
     opsLog: opsLogRouter(sql, deps.opsLog ?? { reasons: null, limit: null, retentionDays: null }),
     /** The operator's agent alert rules, their alerts, and this environment's policy overrides (AG-analytics-02, AG-guardrails-02). */
-    opsAlerts: alertsRouter(sql, deps.policyBaseline ?? {}),
+    opsAlerts: alertsRouter(sql, deps.policyBaseline ?? {}, () => runtime.publishAgentAlerts()),
     /** Every agent on the platform for an operator: the registry, its export and the switches (AG-registry-01, AG-control-02). */
     fleet: fleetRouter(sql, deps.fleet ?? { registryLimit: null }),
   });
