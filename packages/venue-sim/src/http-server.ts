@@ -45,7 +45,7 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *        /settlements {account,since}                     the account's settlements in a deployer's halt or a split
  *   TEST controls (never part of UserVenue):
  *   POST /test/deposit {account,asset,amount,depositRef}   idempotent by depositRef
- *        /test/switches {venueDown?,unlistPerpetuals?,declaredAgentPermissionReach?,amendsInPlace?,withdrawalFee?,networkFee?,depositExplorerTxUrl?}   each fee a MaybeKnown<Amount>
+ *        /test/switches {venueDown?,unlistPerpetuals?,declaredAgentPermissionReach?,amendsInPlace?,cancelsPerAction?,withdrawalFee?,networkFee?,depositExplorerTxUrl?}   each fee a MaybeKnown<Amount>
  *        /test/account-switches {owner,down?,loseAnswers?,failAfterSend?,submitDelayMs?}   one owner's account only, so a journey can
  *                                                         take the venue away from its own person and no one else's:
  *                                                         `down` refuses every call on that owner's account venue_down;
@@ -766,6 +766,12 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
         if (typeof body.amendsInPlace !== 'boolean') throw new VenueWireError('amendsInPlace must be true or false');
         sim.declareAmendsInPlace(body.amendsInPlace);
       }
+      if (body.cancelsPerAction !== undefined) {
+        const n = body.cancelsPerAction;
+        if (n !== null && !(typeof n === 'number' && Number.isInteger(n) && n > 1))
+          throw new VenueWireError('cancelsPerAction must be a whole number above 1, or null');
+        sim.declareCancelsPerAction(n);
+      }
       if (body.withdrawalFee !== undefined) sim.switches.withdrawalFee = maybeKnownAmount(body.withdrawalFee, 'withdrawalFee');
       if (body.networkFee !== undefined) sim.switches.networkFee = maybeKnownAmount(body.networkFee, 'networkFee');
       if (body.depositExplorerTxUrl === null || typeof body.depositExplorerTxUrl === 'string') {
@@ -780,6 +786,7 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
         builderTotalsUnknown: sim.switches.builderTotalsUnknown,
         declaredAgentPermissionReach: sim.venue.agentPermissionReach,
         amendsInPlace: sim.venue.amendsInPlace === true,
+        cancelsPerAction: sim.venue.cancelsPerAction ?? null,
         withdrawalFee: sim.switches.withdrawalFee,
         networkFee: sim.switches.networkFee,
         depositExplorerTxUrl: sim.switches.depositExplorerTxUrl,

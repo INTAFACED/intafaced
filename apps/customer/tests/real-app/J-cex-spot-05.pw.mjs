@@ -36,6 +36,17 @@ const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
 test.describe.configure({ mode: 'default' });
 venueForThisFile(test);
+// The stack's TEST venue, for this file only, lowers an order in place and cancels several in one signed action, as the
+// venue it stands for does; svc-trade restarted so its door reads the venue afresh. After the file, it does neither again.
+const ORDER_CHANGES = { amendsInPlace: true, cancelsPerAction: 20 };
+test.beforeAll(async () => {
+  test.setTimeout(240_000);
+  expect((await testVenue('/test/switches', ORDER_CHANGES)).body).toMatchObject(ORDER_CHANGES);
+  restartWithSetting('trade', 'LOCAL_STACK_USER_VENUE', 'on');
+});
+test.afterAll(async () => {
+  await testVenue('/test/switches', { amendsInPlace: false, cancelsPerAction: null });
+});
 
 function state() {
   const s = run.read();

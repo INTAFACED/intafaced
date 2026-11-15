@@ -67,8 +67,6 @@ export function userVenueCount(raw) {
  */
 /** TEST: the most orders the first TEST venue takes in one signed action. */
 export const FIRST_TEST_VENUE_ORDERS_PER_ACTION = 10;
-/** The most orders the first TEST venue cancels in one signed action (J-cex-spot-05 #5, #6). */
-export const FIRST_TEST_VENUE_CANCELS_PER_ACTION = 20;
 export const SECOND_TEST_VENUE = { id: 'test-venue-sim-b', displayName: 'TEST venue simulator B', levelSize: '5' };
 
 /**
@@ -118,15 +116,10 @@ export async function serveTestVenue({ host, port, appEnv, chainId, rpcUrl = '',
   const sim = await import(pathToFileURL(VENUE_SIM_DIST).href);
   const deposit = second ? null : testVenueDepositRoute({ rpcUrl, token: depositToken });
   // The first TEST venue takes several orders in one signed action, as the venue it stands for does (J-derivatives-03 #9);
-  // the second takes one order per signature, so the app's other branch runs against a venue too. Likewise the first
-  // lowers an order in place and cancels several in one signed action (J-cex-spot-05); the second does neither.
+  // the second takes one order per signature, so the app's other branch runs against a venue too.
   const which = second
     ? { id: SECOND_TEST_VENUE.id, displayName: SECOND_TEST_VENUE.displayName }
-    : {
-        ordersPerAction: FIRST_TEST_VENUE_ORDERS_PER_ACTION,
-        amendsInPlace: true,
-        cancelsPerAction: FIRST_TEST_VENUE_CANCELS_PER_ACTION,
-      };
+    : { ordersPerAction: FIRST_TEST_VENUE_ORDERS_PER_ACTION };
   const started = await sim.startTestVenueServer({ host, port, appEnv, chainId, deposit, ...which });
   const seeded = await sim.seedTestVenue(started.sim, second ? { levelSize: SECOND_TEST_VENUE.levelSize } : {});
   const log = (line) => process.stdout.write(`${JSON.stringify(line)}\n`);

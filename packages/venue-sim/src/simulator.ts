@@ -389,6 +389,14 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     const { amendsInPlace: _dropped, ...rest } = this.venue;
     this.venue = on ? { ...rest, amendsInPlace: true } : rest;
   }
+  /**
+   * TEST: how many cancels the descriptor declares it takes in one signed action (`cancelsPerAction`); `null` declares
+   * none, so a cancel goes one per signature. A door reads it when it connects (J-cex-spot-05 #5, #6).
+   */
+  declareCancelsPerAction(n: number | null): void {
+    const { cancelsPerAction: _dropped, ...rest } = this.venue;
+    this.venue = n === null ? rest : { ...rest, cancelsPerAction: n };
+  }
   /** The chain id every action's EIP-712 domain names. */
   readonly chainId: number;
   private readonly clock: () => Date;

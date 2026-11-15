@@ -89,6 +89,19 @@ describe('TEST venue simulator: changing and cancelling resting orders (J-cex-sp
     expect(await w.run(lower)).toMatchObject({ accepted: true, order: { remaining: a('0.001') } });
   });
 
+  it('declares a batch size for cancels only while switched on, and refuses a batch once switched off', async () => {
+    const w = world({});
+    await w.run(buy('a'));
+    const batch = { kind: 'cancel_orders' as const, orders: [{ symbol: BTC, venueClientOrderId: cloid(w, 'a') }] };
+    expect(await refusalOf(w.run(batch))).toBe('not_offered');
+    w.sim.declareCancelsPerAction(20);
+    expect(cancelsTakenTogether(w.sim.venue)).toBe(20);
+    expect(await w.run(batch)).toMatchObject({ accepted: true, legs: [{ accepted: true }] });
+    w.sim.declareCancelsPerAction(null);
+    expect(cancelsTakenTogether(w.sim.venue)).toBe(0);
+    expect(w.sim.venue.cancelsPerAction).toBeUndefined();
+  });
+
   it('lowers the amount in place: the same order and price, its place kept, its lock cut, and the cut freed', async () => {
     const w = world();
     await w.run(buy('a'));
