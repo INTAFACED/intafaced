@@ -3,7 +3,7 @@ import { generateKeyPairSync } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
-import { api, journeyState, restartWith, signOutBrowser, tool } from './stack.mjs';
+import { api, journeyState, restartWith, signOutBrowser, stackUrl, tool } from './stack.mjs';
 import { PASSKEY_ORIGIN, virtualAuthenticator } from './identity-factors.mjs';
 import { venueForThisFile, venueInfo, venueRecord } from './venue.mjs';
 
@@ -402,7 +402,7 @@ test(`${J} #7 asks for a signature while the provider is down: refused with the 
 });
 
 /** The stack's TEST venue (local-test-stack.mjs PORTS['test-venue']). */
-const TEST_VENUE = 'http://127.0.0.1:14560';
+const TEST_VENUE = stackUrl('test-venue');
 const VENUE_NAME = 'TEST venue simulator';
 
 /** One call to the TEST venue: its JSON answer. Amounts travel as decimal strings. */
