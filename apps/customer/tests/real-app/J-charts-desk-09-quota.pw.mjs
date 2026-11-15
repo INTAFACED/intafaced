@@ -125,11 +125,8 @@ test(`${J} #8 hits the alert quota, and an alert that triggers too often is stop
   // moved to just under the level and over it again, sweep after sweep, so every sweep sees a real crossing.
   const level = await midCents();
   const levelText = fromCents(level);
-  await form().getByRole('combobox', { name: 'Price to watch' }).selectOption({ index: 0 });
-  await createAlert({ condition: 'Crossing, either way,', price: levelText, name: 'TEST bursts', repeat: true });
+  /** The burst alert's row, a locator that finds it once it is created below. */
   const row = rowWith('TEST bursts');
-  await expect(row.getByTestId('nf-body').first()).toHaveText(`Crossing, either way, ${levelText} USDT`);
-  await expect(row.getByTestId('alert-repeats')).toContainText('Triggered so far: 0');
 
   let shift = 0n;
   /** Moves the TEST price to 0.6% under (-1) or over (+1) the level, from the walk's own price now, and waits for the book. */
@@ -159,8 +156,14 @@ test(`${J} #8 hits the alert quota, and an alert that triggers too often is stop
   };
 
   try {
-    // First a sweep sees the price under the level, so the alert knows which side it is on.
+    // The price goes under the level before the alert exists: created at the live mid while the TEST walk moves, a sweep
+    // before the move could see a real crossing and trigger once (#8464).
     await aim(-1);
+    await form().getByRole('combobox', { name: 'Price to watch' }).selectOption({ index: 0 });
+    await createAlert({ condition: 'Crossing, either way,', price: levelText, name: 'TEST bursts', repeat: true });
+    await expect(row.getByTestId('nf-body').first()).toHaveText(`Crossing, either way, ${levelText} USDT`);
+    await expect(row.getByTestId('alert-repeats')).toContainText('Triggered so far: 0');
+    // First a sweep sees the price under the level, so the alert knows which side it is on.
     await nextSweep();
     expect(await triggered(), 'no trigger while the price stays on one side').toBe(0);
     // Then one crossing a sweep, up and down, until one more than the rule allows.
