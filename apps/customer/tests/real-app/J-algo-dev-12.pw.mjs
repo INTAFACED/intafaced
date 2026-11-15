@@ -74,6 +74,15 @@ async function sandboxRun(page, source = SOURCE) {
   await page.getByRole('dialog').getByRole('button', { name: 'Run simulation' }).click();
 }
 
+/** The plan as svc-quant stores it, read through the console's own route with the founder's session in `page`. */
+async function storedPlan(page, plan) {
+  const res = await page.request.get(`${ADMIN}/api/more-ops/quant-limits?profile=${encodeURIComponent(plan)}`);
+  expect(res.status(), await res.text()).toBe(200);
+  const read = (await res.json()).profile;
+  expect(read.kind, JSON.stringify(read)).toBe('ok');
+  return read.data;
+}
+
 const usageOf = async (who) => body200(await (await api(who)).get('/api/quant/trpc/quota.get')).result.data;
 const limitsOf = async (who) => body200(await (await api(who)).get('/api/quant/trpc/limits.get')).result.data;
 
@@ -84,22 +93,28 @@ test(`${J} #1 opens quota settings and saves a limit with no reason: a typed ref
   const plan = `TEST ${J} ${Date.now().toString(36)}`;
   run.reset({ dev, devId: await userIdOf(dev), plan });
 
-  const { desk } = await limitsDesk(browser, plan);
+  const { page: console_, desk } = await limitsDesk(browser, plan);
   // A plan nobody has set yet: every quota and sandbox limit reads "not set".
   await expect(quotaRow(desk, 'runs')).toHaveAttribute('data-limit', '');
   await expect(quotaRow(desk, 'runs')).toContainText('not set');
+  const before = await storedPlan(console_, plan);
+  expect(before.limits.every((row) => row.limit === null && row.setAt === null)).toBe(true);
 
   await saveQuota(desk, 'runs', '5', '');
   await expect(outcome(desk)).toHaveAttribute('data-code', 'quant.quota_reason_unset');
   await expect(outcome(desk)).toHaveAttribute('role', 'alert');
   await expect(outcome(desk)).toContainText('a quota change needs a reason');
-  // No change: the desk re-read the plan after the refusal, and the limit is still not set.
+  // No change: a fresh read of the plan still shows the limit not set, and svc-quant stored nothing for it.
+  await desk.getByRole('button', { name: 'Read plan' }).click();
   await expect(quotaRow(desk, 'runs')).toHaveAttribute('data-limit', '');
   await expect(quotaRow(desk, 'runs')).toContainText('not set');
-  // The same press with a reason that is only spaces is refused the same way.
+  expect(await storedPlan(console_, plan)).toEqual(before);
+  // The same press with a reason that is only spaces is refused the same way, and nothing is stored either.
   await saveQuota(desk, 'runs', '5', '   ');
   await expect(outcome(desk)).toHaveAttribute('data-code', 'quant.quota_reason_unset');
+  await desk.getByRole('button', { name: 'Read plan' }).click();
   await expect(quotaRow(desk, 'runs')).toHaveAttribute('data-limit', '');
+  expect(await storedPlan(console_, plan)).toEqual(before);
 });
 
 test(`${J} #2 sets limits for runs, files and collaborators with a reason: the profile saves; an account without a profile sees "quota profile not set"`, async ({
