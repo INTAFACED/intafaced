@@ -77,6 +77,8 @@ import {
   quantLiveDeployInputSchema,
   type QuantLiveCheck,
   quantPromoteOutputSchema,
+  quantPromotionAuditSchema,
+  QUANT_PROMOTION_AUDIT_PAGE,
   QUANT_OWNER_CRITERIA,
   quantDisputeOpenInputSchema,
   quantDisputeResolveInputSchema,
@@ -3244,6 +3246,23 @@ export function createQuantRouter(deps: QuantRouterDeps) {
               }
             }),
         }),
+      }),
+
+      lifecycle: router({
+        /**
+         * The promotion audit (AL-lifecycle-01, J-algo-dev-13 #3): every stored gate decision across accounts, newest
+         * first, with the one stage row an approval wrote, who pressed and the criteria the gate judged by.
+         */
+        audit: scopedProcedure('admin:read', { module: 'quant', plane: 'fiat' })
+          .output(quantPromotionAuditSchema)
+          .query(async () => {
+            try {
+              const found = await lifecycle.audit(QUANT_PROMOTION_AUDIT_PAGE);
+              return { rows: found.rows.map((row) => ({ ...row })), total: found.total, asOf: new Date().toISOString() };
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
       }),
 
       criteria: router({
