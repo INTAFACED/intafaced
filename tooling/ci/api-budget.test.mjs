@@ -1,17 +1,12 @@
 // Tests for api-budget.mjs: GitHub's spent hourly budget told apart from every other refusal, replayed on the real
-// refusals of 13 Nov 2026 (Gate-file guard run 43358106834, seal run 43358114181).
+// refusals of 13 Nov 2026 (run 43358106834, seal run 43358114181).
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, chmodSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { test } from 'node:test';
-import { fileURLToPath } from 'node:url';
-import { BUDGET_MARK, BUDGET_TITLE, httpMessage, isBudgetResponse, isBudgetText, titleFor } from './api-budget.mjs';
+import { BUDGET_MARK, BUDGET_TITLE, budgetLine, httpMessage, isBudgetResponse, isBudgetText, titleFor } from './api-budget.mjs';
 import { summarize } from './why-red.mjs';
 
 const answer = (status, headers = {}) => ({ status, ok: false, headers: new Headers(headers) });
-// The words `gh` printed in Gate-file guard run 43358106834 at 03:18:58 UTC on 13 Nov (request id left out).
+// The words `gh` printed in run 43358106834 at 03:18:58 UTC on 13 Nov (request id left out).
 const GH_REFUSAL =
   'gh: API rate limit exceeded for installation. If you reach out to GitHub Support for help, please include the request ID and timestamp 2026-11-13 03:18:58 UTC. (HTTP 403)';
 
@@ -41,35 +36,23 @@ test('the seal says judge down with the reset, replayed on run 43358114181', () 
   assert.equal(titleFor(perm, 'Named journey steps unreadable'), 'Named journey steps unreadable');
 });
 
-test('the Gate-file guard names the spent budget in an annotation, replayed on run 43358106834', () => {
-  // A stand-in gh that answers as GitHub did, so the real guard runs end to end.
-  const dir = mkdtempSync(join(tmpdir(), 'api-budget-'));
-  const gh = join(dir, 'gh');
-  writeFileSync(gh, `#!/bin/sh\necho '${GH_REFUSAL}' >&2\nexit 1\n`);
-  chmodSync(gh, 0o755);
-  const guard = fileURLToPath(new URL('../scripts/gate-file-guard.mjs', import.meta.url));
-  const run = (path) =>
-    spawnSync(process.execPath, [guard, '--pr', '8203', '--title', 'fix: x', '--repo', 'INTAFACED/intafaced'], {
-      encoding: 'utf8',
-      env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, ...path },
-    });
-  const r = run();
-  assert.equal(r.status, 3, r.stderr);
-  assert.match(r.stderr, new RegExp(`::error title=${BUDGET_TITLE}::gate-file-guard: ${BUDGET_MARK}`));
-  // why-red reads that annotation as JUDGE DOWN, not RED.
-  const ann = /::error title=(.+?)::(.*)/.exec(r.stderr);
-  const v = summarize({
-    sha: 'e'.repeat(40),
-    checks: [{ id: 1, name: 'Gate-file guard', status: 'completed', conclusion: 'failure' }],
-    annotations: { 1: [{ annotation_level: 'failure', title: ann[1], message: ann[2] }] },
-    failedSteps: {},
-    statuses: [],
-    runs: {},
-  });
-  assert.match(v.at(-1), /^JUDGE DOWN:/);
-  // A planted fault: a permission refusal prints no budget annotation and stays a plain refusal.
-  writeFileSync(gh, `#!/bin/sh\necho 'HTTP 403: Resource not accessible by integration' >&2\nexit 1\n`);
-  const p = run();
-  assert.equal(p.status, 3);
-  assert.doesNotMatch(p.stderr, /judge down/);
+test('why-red reads a spent-budget annotation as JUDGE DOWN, replayed on the words of run 43358106834', () => {
+  // The annotation a gate script prints when gh refuses for the spent budget (the Gate-file guard printed it, until it was
+  // removed on 15 Nov 2026; the seal's scripts print the same title).
+  const read = (message) =>
+    summarize({
+      sha: 'e'.repeat(40),
+      checks: [{ id: 1, name: 'CI merge seal', status: 'completed', conclusion: 'failure' }],
+      annotations: { 1: [{ annotation_level: 'failure', title: titleFor(message, 'Review sign-off unreadable'), message }] },
+      failedSteps: {},
+      statuses: [],
+      runs: {},
+    }).at(-1);
+  assert.equal(isBudgetText(GH_REFUSAL), true);
+  assert.match(read(`${GH_REFUSAL}; ${budgetLine()}`), /^JUDGE DOWN:/);
+  // The annotation's form, as the guard's end-to-end replay pinned it: the budget's own title, and the mark in its message.
+  assert.equal(titleFor(`${GH_REFUSAL}; ${budgetLine()}`, 'Review sign-off unreadable'), BUDGET_TITLE);
+  assert.equal(titleFor('HTTP 403: Resource not accessible by integration', 'Review sign-off unreadable'), 'Review sign-off unreadable');
+  // A planted fault: a permission refusal carries no budget words and stays a red of its own.
+  assert.doesNotMatch(read('HTTP 403: Resource not accessible by integration'), /^JUDGE DOWN:/);
 });

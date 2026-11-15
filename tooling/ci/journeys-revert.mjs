@@ -56,7 +56,7 @@ import { pathToFileURL } from 'node:url';
 import { JOURNEYS_ARTIFACT, JOURNEYS_WORKFLOW, stepStates } from './post-merge-trust.mjs';
 import { journeyTouch } from './journey-touch.mjs';
 import { SUBSCRIBES, loadMap, runsBehind } from './journey-reach-map.mjs';
-import { evaluateGateFileRule } from '../scripts/gate-file-guard.mjs';
+import { gateFilesTouched } from '../scripts/gate-files.mjs';
 import { parseJobs, parseTests } from './bisect-main.mjs';
 import { AUTO_REVERT_AUTHOR, AUTO_REVERT_BRANCH } from './exact-revert.mjs';
 import { moneyGuardAt } from './journey-verdict.mjs';
@@ -191,7 +191,7 @@ export const revertBranch = (sha) => `${BRANCH_PREFIX}${sha.slice(0, 10)}`;
 export function revertTitle({ prNumber, sha, files, redRun, kind = 'journeys' }) {
   const what = prNumber ? `#${prNumber}` : `\`${sha.slice(0, 10)}\``;
   const base = `Revert ${what}, which turned ${kind === 'ci' ? "main's CI" : 'the Real-app journeys'} red (run ${redRun})`;
-  return evaluateGateFileRule('', files).gateFiles.length ? `ci: ${base.charAt(0).toLowerCase()}${base.slice(1)}` : base;
+  return gateFilesTouched(files).length ? `ci: ${base.charAt(0).toLowerCase()}${base.slice(1)}` : base;
 }
 
 export function revertBody({ repo, sha, subject, prNumber, redRun, steps, base, failing, control = null }) {

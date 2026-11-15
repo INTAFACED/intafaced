@@ -545,16 +545,13 @@ test('Main bisect: two breaks on one main commit each get their own group, and a
 const drop = (text) => text.replace(/^concurrency:\n(?:[ #].*\n|\n)*/m, '');
 
 test('planted: a pull-request workflow without its concurrency group fails rule 1', () => {
-  assert.ok(concurrency(read('gate-file-guard.yml')), 'gate-file-guard.yml has a group to remove');
-  assert.match(prProblems('gate-file-guard.yml', drop(read('gate-file-guard.yml')))[0], /no top-level concurrency group/);
+  assert.ok(concurrency(read('docs-format.yml')), 'docs-format.yml has a group to remove');
+  assert.match(prProblems('docs-format.yml', drop(read('docs-format.yml')))[0], /no top-level concurrency group/);
 });
 
 test('planted: a pull-request workflow that never cancels, or keys on the base ref, fails rule 1', () => {
-  const t = read('gate-file-guard.yml');
-  assert.match(
-    prProblems('gate-file-guard.yml', t.replace('cancel-in-progress: true', 'cancel-in-progress: false')).join(),
-    /doesn't cancel/,
-  );
+  const t = read('docs-format.yml');
+  assert.match(prProblems('docs-format.yml', t.replace('cancel-in-progress: true', 'cancel-in-progress: false')).join(), /doesn't cancel/);
   const target = `on:\n  pull_request_target:\n\nconcurrency:\n  group: x-\${{ github.ref }}\n  cancel-in-progress: true\n`;
   assert.match(prProblems('x.yml', target).join(), /share a group/);
 });

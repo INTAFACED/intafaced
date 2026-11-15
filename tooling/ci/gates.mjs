@@ -64,7 +64,7 @@ export const GATES = [
     doctrine: 'merge condition (2026-10-13); every tooling test on every PR (owner decision 2026-10-31)',
     why:
       'the unit tests of the tools that decide what may merge and of the local test stack: every tooling/scripts/*.test.mjs, ' +
-      'including gate-file-guard (a gate change must say so in the PR title), gate-gh (a 403 or 429 stops) and ' +
+      'including gate-files (which files need the CI review), gate-gh (a 403 or 429 stops) and ' +
       'local-test-stack. Until 2026-10-31 only two of 28 ran here, so a stack change could land with its own tests red. ' +
       'Lives in tooling/scripts/, so the manifest check below does not cover it: this entry is the only thing running ' +
       'those tests, and deleting it has to be a visible act. About 40 seconds, no network.',
@@ -324,9 +324,9 @@ export const NOT_GATES = {
   'custody-layer-check.test.mjs':
     'not a gate: the node:test file of custody-layer-check.mjs, with planted faults (a customer-balance posting outside the inventory; the default turned on; the runtime refusal removed; a missing inventory). tooling-tests.mjs runs it with every other tooling test.',
   'api-budget.mjs':
-    "not a gate: the words for GitHub's spent hourly API budget (403 or 429 with no calls left, or gh's \"API rate limit exceeded\"), which the seal's scripts and the Gate-file guard put in their error and annotation title, so why-red.mjs reads such a red as JUDGE DOWN rather than a red of the change's own (project-state #2065 row d25). It changes no pass or fail. Its tests are api-budget.test.mjs.",
+    "not a gate: the words for GitHub's spent hourly API budget (403 or 429 with no calls left, or gh's \"API rate limit exceeded\"), which the seal's scripts put in their error and annotation title, so why-red.mjs reads such a red as JUDGE DOWN rather than a red of the change's own (project-state #2065 row d25). It changes no pass or fail. Its tests are api-budget.test.mjs.",
   'api-budget.test.mjs':
-    'not a gate: the node:test file of api-budget.mjs, replayed on the refusals of Gate-file guard run 43358106834 and seal run 43358114181, with planted faults (a permission 403, a secondary limit).',
+    'not a gate: the node:test file of api-budget.mjs, replayed on the refusals of 13 Nov 2026 (seal run 43358114181, and the words gh printed in run 43358106834), with planted faults (a permission 403, a secondary limit).',
   'main-first.mjs':
     "not a gate: real-app-journeys.yml's `Main's journeys first` job, which defers a Real-app journeys run off main while a main run's jobs wait for runners, without holding a runner: the deferred run selects no journeys and ends, and the `release` job re-runs it when main's planner finishes (a hand-dispatched full run is also deferred while 2 others hold runners; INTAFACED/project-state#1574 item 3). It reads GitHub's Actions API, so a laptop verify has no input; ci.yml runs its `--self-test`.",
   'node-version.test.mjs':
