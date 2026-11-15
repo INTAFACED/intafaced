@@ -30,7 +30,7 @@ const adminUrl = process.env.TEST_DATABASE_URL?.trim();
 if (!adminUrl && (process.env.REQUIRE_POSTGRES === '1' || process.env.CI === 'true' || process.env.CI === '1')) {
   throw new Error('TEST_DATABASE_URL is required');
 }
-const available = adminUrl ? await postgresAvailable(adminUrl) : false;
+const available = await postgresAvailable(adminUrl);
 const drizzle = join(dirname(fileURLToPath(import.meta.url)), '..', 'drizzle');
 const migrations = readdirSync(drizzle)
   .filter((f) => f.endsWith('.sql') && !f.endsWith('.down.sql'))
@@ -110,7 +110,8 @@ const fill = (fillId: string, notional: string, over: Partial<CompetitionFill> =
   quoteAsset: 'USDC',
   notional,
   builderFee: '0.3',
-  filledAt: new Date().toISOString(),
+  // A second ago: after every entrant's join (`entered` puts it a minute back) and before now.
+  filledAt: new Date(Date.now() - 1_000).toISOString(),
   ...over,
 });
 
@@ -171,6 +172,14 @@ async function live(over: Partial<CampaignDefinitionInput> = {}) {
   return c;
 }
 
+/**
+ * The entrants joined a minute ago: a TEST fill stamped by this process's millisecond clock then always falls after the
+ * join, which Postgres stamps to the microsecond.
+ */
+async function entered(campaignId: string) {
+  await db!.sql`UPDATE campaigns.competition_entries SET joined_at = joined_at - interval '1 minute' WHERE campaign_id = ${campaignId}`;
+}
+
 /** Ends the period now, by operators, and moves the clock past the settle delay. */
 async function close(id: string) {
   await campaigns.transition({ id, action: 'end', revision: 1, actor: A });
@@ -200,7 +209,7 @@ async function reconciles(campaignId: string) {
   }
 }
 
-describe.skipIf(!db)('competitions (J-campaigns-11)', () => {
+describe.skipIf(!available)('competitions (J-campaigns-11)', () => {
   it('#1 refuses to go live without its terms, ranking by returns, or a pool short of every prize it could pay', async () => {
     const gaps = async (over: Partial<CampaignDefinitionInput>) => {
       const c = await campaigns.create({ definition: definition(over), actor: A });
@@ -261,6 +270,7 @@ describe.skipIf(!db)('competitions (J-campaigns-11)', () => {
   it('#3 counts each venue fill once, leaves out fills that do not count, and keeps a stable order on a tie', async () => {
     const c = await live();
     for (const who of [ANN, BEN, CAT]) await campaigns.join({ campaignId: c.id, accountId: who });
+    await entered(c.id);
     fills.set(ANN, [
       fill('f1', '600'),
       fill('f2', '600'),
@@ -292,6 +302,7 @@ describe.skipIf(!db)('competitions (J-campaigns-11)', () => {
   it('#4 queues a milestone prize once when it is reached: owed now, held until the period closes', async () => {
     const c = await live();
     await campaigns.join({ campaignId: c.id, accountId: ANN });
+    await entered(c.id);
     fills.set(ANN, [fill('f1', '1500')]);
     await competitions.tick();
     let board = await competitions.board({ campaignId: c.id, accountId: ANN, forwarded: FORWARDED });
@@ -314,6 +325,7 @@ describe.skipIf(!db)('competitions (J-campaigns-11)', () => {
   it('#5 settles a closed period once: each place to its winner above the threshold, owed once, and prizes + remainder = pool', async () => {
     const c = await live();
     for (const who of [ANN, BEN, CAT]) await campaigns.join({ campaignId: c.id, accountId: who });
+    await entered(c.id);
     fills.set(ANN, [fill('a1', '3000')]);
     fills.set(BEN, [fill('b1', '1500')]);
     // Below the threshold: no place prize, though a place is left.
