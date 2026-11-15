@@ -69,14 +69,15 @@ import {
   stackCustodyOff,
 } from './local-test-state.mjs';
 import { LOCAL_TEST_DEVICE_KEY } from './local-test-device.mjs';
+import { slotEnv, stackUrl } from './local-test-facts.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const REPO = path.resolve(path.dirname(SCRIPT), '..', '..');
 const STACK_SCRIPT = path.join(path.dirname(SCRIPT), 'local-test-stack.mjs');
 const MARKER_KIND = 'intafaced-local-test-stack';
 const LOCAL_HOST = '127.0.0.1';
-const DEFAULT_EDGE = 'http://127.0.0.1:14500';
-const DEFAULT_CUSTOMER_ORIGIN = 'http://127.0.0.1:3210';
+const DEFAULT_EDGE = stackUrl('edge');
+const DEFAULT_CUSTOMER_ORIGIN = stackUrl('customer');
 const LABEL = 'LOCAL TEST MARKET — TEST PRICES, not a market feed, not real money';
 
 // ── Containment guard (exported for tests) ──────────────────────────────────
@@ -1883,7 +1884,7 @@ async function startBackground(p, args, { wait }) {
       cwd: REPO,
       detached: true,
       stdio: ['ignore', fd, fd],
-      env: { PATH: process.env.PATH, HOME: os.homedir(), LOCAL_STACK_STATE: p.stateDir },
+      env: { PATH: process.env.PATH, HOME: os.homedir(), LOCAL_STACK_STATE: p.stateDir, ...slotEnv() },
     });
     child.unref();
     fs.closeSync(fd);
