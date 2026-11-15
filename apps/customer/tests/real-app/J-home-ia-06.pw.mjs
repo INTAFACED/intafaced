@@ -11,7 +11,7 @@ import {
   publishedNotices,
 } from './notices.mjs';
 import { expectServiceOff } from './service-off.mjs';
-import { api, ORIGIN, tool } from './stack.mjs';
+import { api, ORIGIN, restartWith, tool } from './stack.mjs';
 import { answerAfterNavigation, answersAfterNavigation } from './navigation.mjs';
 
 // J-home-ia-06, in the running app (docs/roadmap/journeys.json): I see announcements and maintenance on Home. Tests titled
@@ -22,8 +22,8 @@ const RUN = Date.now().toString(36);
 // This run's own notices end inside the wait the next run gives them.
 const WINDOW_MINUTES = NOTICE_DRAIN_MINUTES - 1;
 
-// Serial: each step builds on the board the one before left; the service-down case, which restarts svc-notify, is last. The BLOCKED steps are in J-home-ia-06-blocked.pw.mjs, so
-// their red by name never skips a built step.
+// Serial: each step builds on the board the one before left. The two cases that restart a service (svc-notify down, then
+// svc-ops with the strip count blank) are last, so a red there skips no step.
 test.describe.configure({ mode: 'serial' });
 
 let page;
@@ -380,4 +380,31 @@ test(`${J} #1 with the notice service down, Home draws no strip and no banner, t
       page.off('console', onConsole);
     }
   });
+});
+
+// Last: it restarts svc-ops. Not a step of its own: the owner's strip count is a blank owner value, which refuses with
+// its typed code rather than drawing any number of notices (AGENTS.md floor 8).
+test(`${J} with the owner's strip count blank, Home refuses home.notice_strip_limit_unset and the strip says "not set"`, async ({
+  browser,
+}) => {
+  test.setTimeout(300_000);
+  // Home's strip shows as many of the latest announcements as the owner's strip count (svc-ops home.config,
+  // OPS_HOME_NOTICE_STRIP_LIMIT). The stack sets a TEST count for the other steps; here svc-ops restarts with it blank.
+  const blankCount = (blank) => restartWith('ops', 'LOCAL_STACK_OPS_HOME_NOTICE_STRIP_LIMIT', !blank);
+  const context = await browser.newContext({ baseURL: ORIGIN });
+  const person = await context.newPage();
+  blankCount(true);
+  try {
+    await signUp(person, 'hml');
+    // With the strip count blank, Home's strip says it is not set, with the typed code, rather than drawing any number
+    // of notices.
+    await person.goto('/home');
+    await expect(person.getByRole('heading', { name: 'Home', level: 1 })).toBeVisible();
+    const unset = person.locator('[data-code="home.notice_strip_limit_unset"]');
+    await expect(unset).toContainText(/not set/i, { timeout: 15_000 });
+    await expect(person.locator('[data-testid="home-notice"][data-kind="announcement"]')).toHaveCount(0);
+  } finally {
+    blankCount(false);
+    await context.close();
+  }
 });

@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 // HM-shell-03 (1): one shared service-off notice. Each shell control may end in success, a typed refusal or this notice
 // (3), so no shell file has to import it; what has to hold is that there is one notice, the kit's, and that no customer
 // room draws its own copy of it (ruling by D, 2026-10-31). J-home-ia-06 #5 checks the same sentence in the running app;
-// this is its source half, moved here from J-home-ia-06-blocked.pw.mjs.
+// this is its source half, moved here from the journey's former blocked-steps file.
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '../../../..');
 
