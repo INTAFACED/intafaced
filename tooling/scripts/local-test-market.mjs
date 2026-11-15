@@ -514,7 +514,7 @@ export const DEFAULT_SYMBOLS = ['BTC/USDT', 'BTC/USDC', 'ETH/USDT', 'ETH/USDC', 
  * journeys shard's boot: on 13 Nov, on main 233e1c4773 with only this changed, CI run 43391038048 wrote six markets in
  * 193 s and run 43391059746 these four in 149 s. ETH/BTC and ETH/USDC keep their live TEST market maker trades; no
  * journey reads their past. One market per request instead (six lanes, run 43392547118) was slower: 6.1 minutes for the
- * step against 4.6. Without --markets, history still writes every default market (the try-it stack's charts).
+ * step against 4.6. Without --markets, history still writes every default market.
  */
 export const HISTORY_SYMBOLS = Object.freeze(['BTC/USDT', 'BTC/USDC', 'ETH/USDT', 'IFC/USDT']);
 // Funded to this level by `local:fund` (real ledger deposits, LOCAL-TEST- rail refs); the taker gets a tenth.
