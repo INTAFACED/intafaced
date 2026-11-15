@@ -19,7 +19,7 @@ describe('venue.aggregation mount vs tracker honest gaps (D73-P1)', () => {
     expect(venueAggregationPolicyHonest()).toBe(true);
     expect(venueAggregationTradeFactoryComplete()).toBe(true);
     expect(venueAggregationDoneBarTestsPresent()).toBe(true);
-    expect(VENUE_AGGREGATION_DONE_BAR_TEST_FILES).toHaveLength(6);
+    expect(VENUE_AGGREGATION_DONE_BAR_TEST_FILES).toHaveLength(5);
     expect(venueAggregationTrackerBackendDoneBarMet()).toBe(true);
     expect(venueAggregationMountVsTrackerBoardCard().backendDoneBarMet).toBe(true);
   });
@@ -80,7 +80,7 @@ describe('venue.aggregation mount vs tracker — D78 denon complete', () => {
     expect(venueAggregationPolicyHonest()).toBe(true);
     expect(venueAggregationTradeFactoryComplete()).toBe(true);
     expect(venueAggregationDoneBarTestsPresent()).toBe(true);
-    expect(VENUE_AGGREGATION_DONE_BAR_TEST_FILES).toHaveLength(6);
+    expect(VENUE_AGGREGATION_DONE_BAR_TEST_FILES).toHaveLength(5);
     expect(VENUE_AGGREGATION_HONEST_GAPS).toHaveLength(0);
   });
 });

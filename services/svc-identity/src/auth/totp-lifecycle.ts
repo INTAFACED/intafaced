@@ -121,10 +121,11 @@ export class TotpLifecycle {
    */
   private async proveCurrent(tx: Sql, userId: string, u: UserRow, code: string): Promise<{ recoveryCodeSpent: boolean }> {
     const secret = this.openSecret(u.totp_secret!);
-    const matched = secret === null ? null : matchTotpStep(secret, code);
-    if (matched !== null) {
+    if (secret !== null && matchTotpStep(secret, code) !== null) {
       const last = u.totp_last_step === null ? null : BigInt(u.totp_last_step);
-      if (last === null || matched > last) {
+      // Only an unspent step matches: a fresh code equal to a spent step's code is still this step's code.
+      const matched = matchTotpStep(secret, code, { after: last });
+      if (matched !== null) {
         await tx`UPDATE users SET totp_last_step = ${matched.toString()} WHERE id = ${userId}`;
         return { recoveryCodeSpent: false };
       }

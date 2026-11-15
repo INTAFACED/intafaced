@@ -1,4 +1,5 @@
 import type { Part } from '@/lib/desk/part';
+import { isRecord } from '@intafaced/contracts/guards';
 
 /**
  * Notify owner settings: strict readers for svc-notify's `notify.channelSettings` and `notify.templates` (both
@@ -43,9 +44,6 @@ export interface NotifyConfigView {
   readonly templates: Part<readonly TemplateRow[]>;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
 const isStrings = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string');
 const isIso = (v: unknown): v is string => typeof v === 'string' && Number.isFinite(Date.parse(v));
 

@@ -1,10 +1,7 @@
 /** Browser hop for the subscriber desk. Same-origin BFF only; the CSRF nonce is fetched per change. */
 import { founderMutationHeaders } from '@/lib/founder-browser';
 import { readImportResult, type SubscriberDeskReply, type SubscriberDeskView, type SubscriberState } from './subscribers-model';
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
+import { isRecord } from '@intafaced/contracts/guards';
 
 export async function fetchSubscriberDesk(state: SubscriberState | null, noticeId: string | null): Promise<SubscriberDeskView | null> {
   const query = new URLSearchParams();

@@ -19,6 +19,8 @@
 //   node tooling/scripts/local-test-chain.mjs fund <address> spam     TEST Airdrop sent unasked (J-dex-protocol-04 #7)
 //   node tooling/scripts/local-test-chain.mjs fund <address> venue    TEST ETH for gas + TEST USD to deposit (J-wallet-09 #3)
 //   node tooling/scripts/local-test-chain.mjs fund <address> plain    TEST Token C, the token with no permit (J-dex-protocol-03)
+//   node tooling/scripts/local-test-chain.mjs fund <address> positions  a TEST lending collateral deposit and a TEST venue
+//                                                                        deposit, made as that address (J-dex-protocol-06 #4)
 //
 // `serve` also runs, on the same port, the Navigator's TEST signer at /navigator (J-agents-19 #4): one SmartAccount
 // executeWithSession call, sent from the Navigator's TEST session key address, impersonated on this anvil.
@@ -26,6 +28,10 @@
 // signed fee-token swap is handed to. It takes one call for the seeded FeeTokenRelay's swap(), sends it from the seeded
 // TEST relayer (an impersonated address on this anvil, holding TEST ETH), and answers the hash. It signs nothing itself
 // and sends nothing else: the relay contract checks the person's signature and prices the fee.
+// `serve` also runs the TEST pay-in partner's delivery at /payin-deliver (J-dex-protocol-05 #4): a stand-in for the
+// partner that delivers a purchase to the buyer's own wallet. svc-bank's pay-in stand-in calls it once the payer
+// approved; it sends TEST USD (the TEST chain's USDC) from the TEST partner's own address, impersonated on this anvil and
+// minted only what it delivers, and answers the mined transfer's hash.
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -47,8 +53,27 @@ export const RELAY_URL = `http://${HOST}:${CHAIN_PORTS.relay}/relay`;
  * for the signer a production Navigator would hold its session key in; svc-agents holds no key.
  */
 export const NAVIGATOR_SIGNER_URL = `http://${HOST}:${CHAIN_PORTS.relay}/navigator`;
+/**
+ * INTAFACED's TEST receiving address for Academy course payments (J-academy-07): a buyer's TEST wallet pays the course
+ * price in TEST USD here. Nobody holds a key for it; on this anvil the TEST refund signer below sends from it by
+ * impersonation. TEST only: production's receiving address is the owner's ACADEMY_PAYMENT_RECEIVER.
+ */
+export const ACADEMY_TEST_RECEIVER = '0x7e57ac4d00000000000000000000000000000007';
+/**
+ * The TEST refund signer (J-academy-07 #7): POST {key, chainId, token, to, amount} here sends one TEST USD transfer of
+ * `amount` (smallest unit) from ACADEMY_TEST_RECEIVER to `to`, and answers {hash}. The same key answers the same hash and
+ * sends nothing more, as the owner's real signer must. It is the stand-in for the signer that holds INTAFACED's key;
+ * svc-academy holds none.
+ */
+export const ACADEMY_REFUND_SIGNER_URL = `http://${HOST}:${CHAIN_PORTS.relay}/academy-refund`;
 /** SmartAccount.executeWithSession's selector: the one call a session key can make, and the only call this signer sends. */
 export const EXECUTE_WITH_SESSION_SELECTOR = '0xbd210fed';
+/** The TEST pay-in partner's delivery (svc-bank's BANK_PAYIN_SIM_DELIVER_URL on the stack). */
+export const PAYIN_DELIVER_URL = `http://${HOST}:${CHAIN_PORTS.relay}/payin-deliver`;
+/** The TEST pay-in partner's own address on this anvil: impersonated, it sends each delivery. */
+export const PAYIN_PARTNER = '0x0000000000000000000000000000000000ba1d01';
+/** The TEST chain's TEST USD (services/svc-protocol/scripts/seed-test-chain.ts TEST_TOKENS.USD): the USDC it delivers. */
+const PAYIN_TOKENS = { USDC: { address: '0x000000000000000000000000000000000000d011', decimals: 6 } };
 /** FeeTokenRelay.swap's selector: the one call the TEST relayer sends. */
 export const RELAY_SWAP_SELECTOR = '0xff292559';
 /**
@@ -169,9 +194,16 @@ function serve() {
     })
     .listen(CHAIN_PORTS.control, HOST);
   http
-    .createServer(
-      (req, res) => void (new URL(req.url, `http://${HOST}`).pathname === '/navigator' ? navigatorSign(req, res) : relay(req, res)),
-    )
+    .createServer((req, res) => {
+      const at = new URL(req.url, `http://${HOST}`).pathname;
+      void (at === '/navigator'
+        ? navigatorSign(req, res)
+        : at === '/payin-deliver'
+          ? payinDeliver(req, res)
+          : at === '/academy-refund'
+            ? academyRefund(req, res)
+            : relay(req, res));
+    })
     .listen(CHAIN_PORTS.relay, HOST);
   // A gate that cannot listen (its port taken after the stack's check) stops the chains with its error, never unhandled.
   Promise.all([gate.open(), second.open()]).catch((err) => {
@@ -316,6 +348,139 @@ async function navigatorSign(req, res) {
   }
 }
 
+/** The refunds the TEST refund signer has sent or is sending, by key (a promise of its hash), so the same key never sends twice (kept for this chain's life). */
+const academyRefunds = new Map();
+
+/**
+ * POST /academy-refund {key, chainId, token, to, amount}: one TEST USD transfer from ACADEMY_TEST_RECEIVER to `to`. Only
+ * the seeded TEST USD token on the TEST chain, a key that names an Academy refund, and a whole positive amount. A key
+ * already sent answers its first hash and sends nothing. Answers {hash} or {error}.
+ */
+async function academyRefund(req, res) {
+  const answer = (status, body) => {
+    res.statusCode = status;
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify(body));
+  };
+  if (req.method !== 'POST') return answer(404, { error: 'refund.not_found: POST /academy-refund only' });
+  let raw = '';
+  for await (const chunk of req) {
+    raw += chunk;
+    if (raw.length > 8_000) return answer(413, { error: 'refund.too_large' });
+  }
+  let call;
+  try {
+    call = JSON.parse(raw);
+  } catch {
+    return answer(400, { error: 'refund.bad_json' });
+  }
+  if (call?.chainId !== TEST_CHAIN_ID) return answer(400, { error: 'refund.wrong_chain: the TEST chain only' });
+  if (typeof call.key !== 'string' || !/^academy:refund:[^\s]{1,190}$/.test(call.key)) return answer(400, { error: 'refund.bad_key' });
+  const record = fs.existsSync(chainRecordPath()) ? JSON.parse(fs.readFileSync(chainRecordPath(), 'utf8')) : null;
+  const usd = record?.tokens?.USD?.address?.toLowerCase();
+  if (!usd || typeof call.token !== 'string' || call.token.toLowerCase() !== usd)
+    return answer(400, { error: 'refund.wrong_token: the seeded TEST USD only' });
+  if (typeof call.to !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(call.to)) return answer(400, { error: 'refund.bad_to' });
+  if (typeof call.amount !== 'string' || !/^[1-9][0-9]{0,30}$/.test(call.amount)) return answer(400, { error: 'refund.bad_amount' });
+  // The key is held before anything is awaited, so two requests at once share the one send and answer its one hash.
+  let sending = academyRefunds.get(call.key);
+  if (!sending) {
+    const pad = (hex) => hex.replace(/^0x/, '').toLowerCase().padStart(64, '0');
+    const data = `0xa9059cbb${pad(call.to)}${pad(BigInt(call.amount).toString(16))}`;
+    sending = (async () => {
+      await anvilRpc('anvil_impersonateAccount', [ACADEMY_TEST_RECEIVER]);
+      // TEST ETH for gas only; the call itself carries no value.
+      await anvilRpc('anvil_setBalance', [ACADEMY_TEST_RECEIVER, '0x56bc75e2d63100000']);
+      return anvilRpc('eth_sendTransaction', [{ from: ACADEMY_TEST_RECEIVER, to: usd, data, value: '0x0' }]);
+    })();
+    academyRefunds.set(call.key, sending);
+    // A send that failed before it reached the chain frees the key for the next try.
+    sending.catch(() => academyRefunds.delete(call.key));
+  }
+  try {
+    return answer(200, { hash: await sending });
+  } catch (err) {
+    return answer(502, { error: `refund.send_failed: ${err.message}` });
+  }
+}
+
+/** Sends one call from an impersonated address and waits until it is mined; the hash, or an error when it reverted. */
+async function sendMined(tx) {
+  const hash = await anvilRpc('eth_sendTransaction', [tx]);
+  for (let i = 0; i < 120; i++) {
+    const receipt = await anvilRpc('eth_getTransactionReceipt', [hash]);
+    if (receipt) {
+      if (receipt.status !== '0x1') throw new Error(`reverted: ${hash}`);
+      return hash;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error(`not mined within 60 s: ${hash}`);
+}
+
+/** Whole units of a decimal string with at most `decimals` places, or null when it is not one or is not above zero. */
+function toUnits(amount, decimals) {
+  const m = /^(\d{1,30})(?:\.(\d+))?$/.exec(typeof amount === 'string' ? amount : '');
+  if (!m || (m[2] ?? '').length > decimals) return null;
+  const units = BigInt(m[1]) * 10n ** BigInt(decimals) + BigInt((m[2] ?? '').padEnd(decimals, '0') || '0');
+  return units > 0n ? units : null;
+}
+
+const word = (hex) => hex.replace(/^0x/, '').toLowerCase().padStart(64, '0');
+
+/**
+ * POST /payin-deliver {to, asset, amount} (amount a decimal string): the TEST pay-in partner delivers `amount` of `asset`
+ * to `to` on the TEST chain. It mints the TEST token to its own address, then sends one transfer from there to `to`,
+ * each mined before the next. Only the assets PAYIN_TOKENS lists; anything else is refused by name. Answers {hash} (the
+ * transfer's) or {error}.
+ */
+async function payinDeliver(req, res) {
+  const answer = (status, body) => {
+    res.statusCode = status;
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify(body));
+  };
+  if (req.method !== 'POST') return answer(404, { error: 'payin.not_found: POST /payin-deliver only' });
+  let raw = '';
+  for await (const chunk of req) {
+    raw += chunk;
+    if (raw.length > 4_000) return answer(413, { error: 'payin.too_large' });
+  }
+  let call;
+  try {
+    call = JSON.parse(raw);
+  } catch {
+    return answer(400, { error: 'payin.bad_json' });
+  }
+  if (typeof call?.to !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(call.to)) return answer(400, { error: 'payin.bad_to' });
+  const token = Object.hasOwn(PAYIN_TOKENS, call.asset) ? PAYIN_TOKENS[call.asset] : null;
+  if (!token) return answer(400, { error: `payin.wrong_asset: only ${Object.keys(PAYIN_TOKENS).join(', ')} is delivered` });
+  const units = toUnits(call.amount, token.decimals);
+  if (units === null) return answer(400, { error: 'payin.bad_amount' });
+  try {
+    await anvilRpc('anvil_impersonateAccount', [PAYIN_PARTNER]);
+    // TEST ETH for gas only; neither call carries value.
+    await anvilRpc('anvil_setBalance', [PAYIN_PARTNER, '0x56bc75e2d63100000']);
+    // mint(address,uint256): the TEST token mints to anyone; the partner holds exactly what it then delivers.
+    await sendMined({
+      from: PAYIN_PARTNER,
+      to: token.address,
+      data: `0x40c10f19${word(PAYIN_PARTNER)}${word(units.toString(16))}`,
+      value: '0x0',
+    });
+    // transfer(address,uint256): the delivery itself.
+    const hash = await sendMined({
+      from: PAYIN_PARTNER,
+      to: token.address,
+      data: `0xa9059cbb${word(call.to)}${word(units.toString(16))}`,
+      value: '0x0',
+    });
+    return answer(200, { hash });
+  } catch (err) {
+    return answer(502, { error: `payin.send_failed: ${err.message}` });
+  }
+}
+
 async function cmdGate(state, network) {
   if (!['open', 'closed'].includes(state) || ![undefined, 'second'].includes(network)) throw new Error('usage: gate open|closed [second]');
   const answer = await control(`?gate=${state}${network ? `&network=${network}` : ''}`);
@@ -324,8 +489,8 @@ async function cmdGate(state, network) {
 }
 
 async function cmdFund(address, kind) {
-  if (!/^0x[0-9a-fA-F]{40}$/.test(address ?? '') || ![undefined, 'stable', 'spam', 'venue', 'plain'].includes(kind))
-    throw new Error('usage: fund <0x address> [stable|spam|venue|plain]');
+  if (!/^0x[0-9a-fA-F]{40}$/.test(address ?? '') || ![undefined, 'stable', 'spam', 'venue', 'plain', 'positions'].includes(kind))
+    throw new Error('usage: fund <0x address> [stable|spam|venue|plain|positions]');
   const status = await chainStatus();
   if (status.chain !== 'running') {
     console.error('local-test-chain.no_chain: this stack runs no TEST chain (no anvil binary), so nothing can be funded');
@@ -335,7 +500,8 @@ async function cmdFund(address, kind) {
     console.error('local-test-chain.gate_closed: the TEST chain gate is closed; open it before funding');
     process.exit(1);
   }
-  const r = runSeedScript(['fund', address, ...(kind ? [kind] : [])]);
+  // `positions` reads the lending market and venue from the chain's record.
+  const r = runSeedScript(['fund', address, ...(kind ? [kind] : []), ...(kind === 'positions' ? [chainRecordPath()] : [])]);
   console.log(r.output);
   if (r.status !== 0) process.exit(1);
 }
@@ -348,7 +514,9 @@ if (runningAsCli) {
   else if (command === 'gate') await cmdGate(arg, extra);
   else if (command === 'fund') await cmdFund(arg, extra);
   else {
-    console.error('usage: local-test-chain.mjs serve | status | gate open|closed [second] | fund <address> [stable|spam|venue|plain]');
+    console.error(
+      'usage: local-test-chain.mjs serve | status | gate open|closed [second] | fund <address> [stable|spam|venue|plain|positions]',
+    );
     process.exit(2);
   }
 }

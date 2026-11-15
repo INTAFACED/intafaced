@@ -25,6 +25,7 @@ import http from 'node:http';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { STACK_PORTS, stackUrl } from './local-test-facts.mjs';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 export const TEST_WALLET_PROVIDER_LABEL = 'TEST wallet provider';
@@ -330,9 +331,9 @@ export async function serveTestWalletProvider({ host, port, appEnv, origins, acc
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   serveTestWalletProvider({
     host: process.env.TEST_WALLET_PROVIDER_HOST ?? '127.0.0.1',
-    port: Number(process.env.TEST_WALLET_PROVIDER_PORT ?? '14561'),
+    port: Number(process.env.TEST_WALLET_PROVIDER_PORT ?? STACK_PORTS['test-wallet-provider']),
     appEnv: process.env.APP_ENV,
-    origins: (process.env.TEST_WALLET_PROVIDER_ORIGINS ?? 'http://localhost:3210').split(',').map((o) => o.trim()),
+    origins: (process.env.TEST_WALLET_PROVIDER_ORIGINS ?? stackUrl('customer', 'localhost')).split(',').map((o) => o.trim()),
     stateFile: process.env.TEST_WALLET_PROVIDER_STATE_FILE || undefined,
   }).catch((err) => {
     process.stderr.write(`test-wallet-provider: ${err instanceof Error ? err.message : String(err)}\n`);

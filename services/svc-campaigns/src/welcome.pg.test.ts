@@ -220,7 +220,7 @@ if (!db) {
       expect(await db.sql`SELECT 1 FROM campaigns.reward_intents`).toHaveLength(0);
     });
 
-    it('keeps welcome tasks to the first-time list, and task campaigns to spot fills', async () => {
+    it('keeps welcome tasks to the first-time list, and task campaigns to spot fills and venue deposits', async () => {
       const s = campaigns();
       const twice = { ...WELCOME, steps: [WELCOME.steps[0]!, WELCOME.steps[0]!] };
       expect(await code(s.create({ definition: definition({ tasks: twice }), actor: A }))).toBe('campaigns.tasks_invalid');

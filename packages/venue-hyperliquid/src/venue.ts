@@ -506,6 +506,12 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
       status: null,
       maxOrderQty: null,
       maxOrderNotional: null,
+      // The smallest order value, price band and open-order cap are rules the venue states in its documentation, not
+      // figures this adapter reads from the info API: each is not published here, never typed in. On spot our door then
+      // refuses an order naming the missing rule (trade.venue_rule_unpublished, J-cex-spot-04 #6) until it is read.
+      minOrderNotional: null,
+      priceBandBps: null,
+      maxOpenOrders: null,
       // Who listed it (a HIP-3 deployer), its oracle and mark rules, trading hours, feed state and home-market session
       // are not read from the info API by this adapter yet: each is not known, never guessed.
       listedBy: { known: false },
@@ -524,6 +530,8 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
       contractSize: { known: false },
       mark: { known: false },
       funding: { known: false },
+      // Its self-trade rule is not read from the venue by this adapter: not known, never guessed.
+      selfTrade: { known: false },
     }));
     return this.asOf(list);
   }
@@ -859,6 +867,10 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
         throw refusal(venueId, 'not_offered', 'sub-accounts are not offered by this adapter yet');
       case 'market_margin_transfer':
         throw refusal(venueId, 'not_offered', "a HIP-3 deployer's own margin account is not offered by this adapter yet");
+      case 'place_orders':
+        // The venue takes several orders in one `order` action, but this adapter does not build or read one yet, and its
+        // descriptor declares no `ordersPerAction`: each order is signed on its own.
+        throw refusal(venueId, 'not_offered', 'orders signed together are not offered by this adapter yet: sign each order on its own');
     }
   }
 

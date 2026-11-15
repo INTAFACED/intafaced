@@ -225,6 +225,9 @@ async function seed(out: string) {
       // A chain seeded before the TEST trading venue existed gets it now (J-dex-protocol-05 #9).
       const venue = await ensureVenueParts(clients(), out);
       if (venue) console.log(`trading venue: ${venue}`);
+      // A chain seeded before the TEST lending market existed gets it now (J-dex-protocol-06 #4).
+      const lending = await ensureLendingParts(clients(), out);
+      if (lending) console.log(`lending market: ${lending}`);
       // A chain seeded before router v2 existed gets it (TEST Token C, TEST Wrapped ETH, their pools) now.
       const current = JSON.parse(readFileSync(out, 'utf8')) as { routerV2?: Address };
       const v2Code = current.routerV2 ? await publicClient.getCode({ address: current.routerV2 }) : undefined;
@@ -394,6 +397,8 @@ async function seed(out: string) {
   await ensureAccountParts(all, out);
   // After the smart accounts, for the same reason.
   await ensureVenueParts(all, out);
+  // After the venue, for the same reason.
+  await ensureLendingParts(all, out);
   await mineOnInterval(publicClient);
   console.log(`seeded: factory ${factory}, router ${router}, ${seeded.length} TEST pools, fee relay ${feeRelay}`);
 }
@@ -455,6 +460,55 @@ async function ensureVenueParts({ publicClient, walletClient }: Clients, out: st
   const receipt = await publicClient.waitForTransactionReceipt({ hash });
   if (receipt.status !== 'success' || !receipt.contractAddress) throw new Error(`trading venue deploy failed: ${hash}`);
   writeFileSync(out, `${JSON.stringify({ ...JSON.parse(readFileSync(out, 'utf8')), venue: receipt.contractAddress }, null, 2)}\n`);
+  return receipt.contractAddress;
+}
+
+/**
+ * The TEST lending market (D-portfolio-wallet-04, J-dex-protocol-06 #4): one IsolatedLendingMarket, TEST Token A as
+ * collateral and TEST USD to borrow, priced by the seed's fail-closed oracle. TEST parameters, illustrative only: 70%
+ * maximum loan to value, liquidation at 80% with a 5% bonus, half a loan closable at once, 10% reserve, and a 2% base
+ * rate rising 4% to an 80% kink, then 60%. Deployed once per chain and added to the record as `lendingMarket`; a chain
+ * that already has it keeps it. Returns it, or null when it was there already. Runs on automine.
+ */
+export const TEST_LENDING_MARKET = {
+  collateral: 'A',
+  borrow: 'USD',
+  maxLtvBps: 7_000,
+  liquidationThresholdBps: 8_000,
+  liquidationBonusBps: 500,
+  closeFactorBps: 5_000,
+  reserveFactorBps: 1_000,
+  baseRateBps: 200,
+  slope1Bps: 400,
+  slope2Bps: 6_000,
+  kinkBps: 8_000,
+} as const;
+async function ensureLendingParts({ publicClient, walletClient }: Clients, out: string): Promise<Address | null> {
+  const record = JSON.parse(readFileSync(out, 'utf8')) as { lendingMarket?: Address; oracle?: Address };
+  if (record.lendingMarket) {
+    const code = await publicClient.getCode({ address: record.lendingMarket });
+    if (code && code !== '0x') return null;
+  }
+  if (!record.oracle) throw new Error("the TEST lending market needs the seed's oracle, which this record does not name");
+  const { collateral, borrow, ...params } = TEST_LENDING_MARKET;
+  const a = artifact('IsolatedLendingMarket');
+  const hash = await walletClient.deployContract({
+    abi: a.abi,
+    bytecode: a.bytecode,
+    args: [
+      {
+        collateralToken: TEST_TOKENS[collateral].address,
+        borrowToken: TEST_TOKENS[borrow].address,
+        oracle: record.oracle,
+        collateralAssetForOracle: TEST_TOKENS[collateral].address,
+        borrowAssetForOracle: TEST_TOKENS[borrow].address,
+        ...params,
+      },
+    ],
+  });
+  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  if (receipt.status !== 'success' || !receipt.contractAddress) throw new Error(`lending market deploy failed: ${hash}`);
+  writeFileSync(out, `${JSON.stringify({ ...JSON.parse(readFileSync(out, 'utf8')), lendingMarket: receipt.contractAddress }, null, 2)}\n`);
   return receipt.contractAddress;
 }
 
@@ -654,11 +708,105 @@ async function fundVenue(address: Address) {
   console.log(`funded ${address}: 10 TEST ETH, ${VENUE_FUNDING} ${TEST_TOKENS.USD.name}`);
 }
 
-const [command, arg, kind] = process.argv.slice(2);
+/** What `fund <address> positions` puts in place: TEST collateral in the lending market and TEST USD in the venue. */
+export const POSITIONS_FUNDING = { lendingCollateral: '25', venueQuote: '40' } as const;
+
+/**
+ * A TEST lending position and a TEST venue position for one TEST wallet (J-dex-protocol-06 #4), made as that wallet on
+ * this anvil only (anvil_impersonateAccount): TEST Token A minted to it and deposited as collateral in the TEST lending
+ * market, and TEST USD minted to it and deposited into the TEST venue. Its TEST ETH is lent for the gas and set back
+ * after, so the wallet ends holding exactly what it held, plus the two positions.
+ */
+async function fundPositions(address: Address, recordPath: string) {
+  const { publicClient, walletClient } = clients();
+  await assertStandIn(publicClient);
+  const record = JSON.parse(readFileSync(recordPath, 'utf8')) as {
+    lendingMarket?: Address;
+    venue?: Address;
+  };
+  if (!record.lendingMarket || !record.venue)
+    throw new Error('this TEST chain has no lending market or venue: stop the chain and start it again to reseed it');
+  const tokenAbi = artifact('TestToken').abi;
+  const sent = async (hash: Hex, what: string) => {
+    const receipt = await publicClient.waitForTransactionReceipt({ hash });
+    if (receipt.status !== 'success') throw new Error(`${what} failed: ${hash}`);
+  };
+  const gasBefore = await publicClient.getBalance({ address });
+  await publicClient.request({ method: 'anvil_impersonateAccount', params: [address] } as never);
+  await publicClient.request({ method: 'anvil_setBalance', params: [address, toHex(parseUnits('1', 18))] } as never);
+  try {
+    const as = { account: address, chain: walletClient.chain } as const;
+    const A = TEST_TOKENS.A;
+    const USD = TEST_TOKENS.USD;
+    const collateral = parseUnits(POSITIONS_FUNDING.lendingCollateral, A.decimals);
+    await sent(
+      await walletClient.writeContract({ address: A.address, abi: tokenAbi, functionName: 'mint', args: [address, collateral] }),
+      'mint TEST Token A',
+    );
+    await sent(
+      await walletClient.writeContract({
+        ...as,
+        address: A.address,
+        abi: tokenAbi,
+        functionName: 'approve',
+        args: [record.lendingMarket, collateral],
+      }),
+      'approve the lending market',
+    );
+    await sent(
+      await walletClient.writeContract({
+        ...as,
+        address: record.lendingMarket,
+        abi: artifact('IsolatedLendingMarket').abi,
+        functionName: 'depositCollateral',
+        args: [collateral],
+      }),
+      'deposit collateral',
+    );
+    // The venue keeps every amount in 18 decimals and pulls the token's own units.
+    const quoteUnits = parseUnits(POSITIONS_FUNDING.venueQuote, USD.decimals);
+    await sent(
+      await walletClient.writeContract({ address: USD.address, abi: tokenAbi, functionName: 'mint', args: [address, quoteUnits] }),
+      'mint TEST USD',
+    );
+    await sent(
+      await walletClient.writeContract({
+        ...as,
+        address: USD.address,
+        abi: tokenAbi,
+        functionName: 'approve',
+        args: [record.venue, quoteUnits],
+      }),
+      'approve the venue',
+    );
+    await sent(
+      await walletClient.writeContract({
+        ...as,
+        address: record.venue,
+        abi: artifact('SovereignVenue').abi,
+        functionName: 'deposit',
+        args: [0n, parseUnits(POSITIONS_FUNDING.venueQuote, 18)],
+      }),
+      'deposit into the venue',
+    );
+  } finally {
+    await publicClient.request({ method: 'anvil_stopImpersonatingAccount', params: [address] } as never);
+    await publicClient.request({ method: 'anvil_setBalance', params: [address, toHex(gasBefore)] } as never);
+  }
+  console.log(
+    `positions for ${address}: ${POSITIONS_FUNDING.lendingCollateral} ${TEST_TOKENS.A.name} as collateral in ${record.lendingMarket}, ${POSITIONS_FUNDING.venueQuote} ${TEST_TOKENS.USD.name} in the venue ${record.venue}`,
+  );
+}
+
+const [command, arg, kind, recordPath] = process.argv.slice(2);
 if (command === 'seed' && arg) await seed(arg);
 else if (command === 'fund' && arg && kind === 'stable') await fundStable(getAddress(arg));
 else if (command === 'fund' && arg && kind === 'spam') await fundSpam(getAddress(arg));
 else if (command === 'fund' && arg && kind === 'venue') await fundVenue(getAddress(arg));
 else if (command === 'fund' && arg && kind === 'plain') await fundPlain(getAddress(arg));
+else if (command === 'fund' && arg && kind === 'positions' && recordPath) await fundPositions(getAddress(arg), recordPath);
 else if (command === 'fund' && arg && kind === undefined) await fund(getAddress(arg));
-else throw new Error('usage: seed-test-chain.ts seed <record.json> | fund <address> [stable|spam|venue|plain]');
+else
+  throw new Error(
+    'usage: seed-test-chain.ts seed <record.json> | fund <address> [stable|spam|venue|plain] | fund <address> positions <record.json>',
+  );

@@ -4,7 +4,13 @@ import { t as moreCopy } from '../more/copy';
 import { AlgoHome } from './AlgoHome';
 import { BacktestRoom } from './BacktestRoom';
 import { StrategiesRoom } from './StrategiesRoom';
+import { LimitsRoom } from './LimitsRoom';
+import { limitsCopy } from './limits-copy';
 import { StrategyPage } from './StrategyPage';
+import { SharedRoom, SharedStrategy } from './SharedRooms';
+import { teamCopy } from './team-copy';
+import { LibraryRoom, ListingRoom } from './LibraryRooms';
+import { libraryCopy } from './library-copy';
 import { LiveRun, LiveRuns } from './LiveRun';
 import { liveRunCopy } from './live-run-copy';
 import { EditorRoom, OptimiseRoom, TesterRoom } from './PreviewRooms';
@@ -42,6 +48,50 @@ export function quantRoute(
       content: <StrategyPage key={`${userId ?? 'anonymous'}:${strategyId}`} strategyId={strategyId} paper={paper} />,
     };
   }
+  // Strategies other people shared with the caller, and one of them (J-algo-dev-08).
+  if (pathname === '/quant/shared') {
+    return {
+      title: teamCopy.t('sharedTitle'),
+      description: teamCopy.t('sharedIntro'),
+      content: <SharedRoom key={userId ?? 'anonymous'} paper={paper} />,
+    };
+  }
+  const shared = /^\/quant\/shared\/([^/]+)$/.exec(pathname);
+  if (shared) {
+    let strategyId = shared[1]!;
+    try {
+      strategyId = decodeURIComponent(strategyId);
+    } catch {
+      // A broken escape is sent as it is, and the service answers that no such strategy is shared.
+    }
+    return {
+      title: teamCopy.t('sharedTitle'),
+      description: teamCopy.t('sharedIntro'),
+      content: <SharedStrategy key={`${userId ?? 'anonymous'}:${strategyId}`} strategyId={strategyId} paper={paper} />,
+    };
+  }
+  // The strategy library (J-algo-dev-09): what people published, and one listing.
+  if (pathname === '/quant/library') {
+    return {
+      title: libraryCopy.t('libraryTitle'),
+      description: libraryCopy.t('libraryIntro'),
+      content: <LibraryRoom key={userId ?? 'anonymous'} paper={paper} />,
+    };
+  }
+  const listing = /^\/quant\/library\/([^/]+)$/.exec(pathname);
+  if (listing) {
+    let listingId = listing[1]!;
+    try {
+      listingId = decodeURIComponent(listingId);
+    } catch {
+      // A broken escape is sent as it is, and the service answers that no such listing exists.
+    }
+    return {
+      title: libraryCopy.t('libraryTitle'),
+      description: libraryCopy.t('libraryIntro'),
+      content: <ListingRoom key={`${userId ?? 'anonymous'}:${listingId}`} listingId={listingId} paper={paper} />,
+    };
+  }
   // A live strategy run on the person's own venue sub-account (J-algo-dev-07), and the list of them.
   if (pathname === '/quant/live') {
     return {
@@ -66,6 +116,14 @@ export function quantRoute(
       title: previewCopy.t(room === 'editor' ? 'editorTitle' : room === 'tester' ? 'testerTitle' : 'optimiseTitle'),
       description: previewCopy.t('label'),
       content: <Room key={userId ?? 'anonymous'} paper={paper} />,
+    };
+  }
+  // Every limit a developer's runs meet (J-algo-dev-12 #4).
+  if (pathname === '/quant/limits') {
+    return {
+      title: limitsCopy.t('title'),
+      description: limitsCopy.t('description'),
+      content: <LimitsRoom key={userId ?? 'anonymous'} paper={paper} />,
     };
   }
   if (pathname === '/quant/strategies') {

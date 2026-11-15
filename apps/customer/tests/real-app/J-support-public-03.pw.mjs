@@ -3,7 +3,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
-import { asDesk, ensureDeskGroup } from './help-centre.mjs';
+import { asDesk, clearOfGuestWindowEdge, ensureDeskGroup } from './help-centre.mjs';
 import { makeContext } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { journeyState, ORIGIN, restartWith, ROOT, stackFile, tool } from './stack.mjs';
 
@@ -122,8 +122,6 @@ test(`${J} #2 sending it shows "check your email" and opens no request yet`, asy
 });
 
 test(`${J} #3 with no email sender, the send says so with vendor.email and the request waits`, async ({ browser }) => {
-  // Two restarts of svc-support fit in this step's own limit.
-  test.setTimeout(240_000);
   const email = address('nosender');
   const subject = `TEST ${J} ${RUN} no sender`;
   restartWith('support', 'LOCAL_STACK_SUPPORT_GUEST_MAIL', false);
@@ -132,16 +130,21 @@ test(`${J} #3 with no email sender, the send says so with vendor.email and the r
     const page = await guest(browser);
     const form = await sendRequest(page, { email, subject });
     const off = form.getByTestId('support-guest-not-connected');
-    await expect(off).toContainText('A verification email needs an email delivery provider. It is switched off in this build.');
+    await expect(off).toContainText('A verification email needs an email sender. It is switched off in this build.');
     await expect(off.locator('[data-not-connected="vendor.email"]')).toBeVisible();
     expect(guestMail(email)).toHaveLength(0);
     expect(await deskRequests(subject)).toHaveLength(0);
+    // The request is stored and pending: one row, waiting for a sender, with no ticket.
+    const pending = await storedGuestRequests(subject);
+    expect(pending.map((row) => [row.status, row.ticket_id])).toEqual([['pending_delivery', null]]);
     // The request was kept, waiting: once a sender exists, sending the same form again mails that request's link.
     restartWith('support', 'LOCAL_STACK_SUPPORT_GUEST_MAIL', true);
     restored = true;
     await form.getByRole('button', { name: 'Send request' }).click();
     await expect(page.getByTestId('support-guest-check-email')).toBeVisible({ timeout: 15_000 });
     await mailedLink(email);
+    // The mail went out for that same pending request, not a new one.
+    expect((await storedGuestRequests(subject)).map((row) => row.id)).toEqual([pending[0].id]);
   } finally {
     if (!restored) restartWith('support', 'LOCAL_STACK_SUPPORT_GUEST_MAIL', true);
   }
@@ -168,7 +171,10 @@ test(`${J} #5 too many requests from one address are refused with no request sto
   test.setTimeout(240_000);
   const email = address('busy');
   const page = await guest(browser);
-  // The stack's TEST limit is three per address per hour.
+  // The stack's TEST limit is three per address per hour, counted in fixed windows: all four sends fall in one (#8365).
+  // Two restarts of svc-support, and the wait for a fresh window, fit in this step's own limit.
+  test.setTimeout(240_000 + 125_000);
+  await clearOfGuestWindowEdge();
   for (let n = 1; n <= 3; n += 1) {
     await sendRequest(page, { email, subject: `TEST ${J} ${RUN} busy ${n}` });
     await expect(page.getByTestId('support-guest-check-email')).toBeVisible();

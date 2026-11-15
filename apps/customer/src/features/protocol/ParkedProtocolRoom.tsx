@@ -32,6 +32,7 @@ import { PoolsList } from './pools/PoolsList';
 import { BridgeRoutes } from './rails/BridgeRoutes';
 import { AuditProducts } from './AuditProducts';
 import { VenueFunds } from './venue/VenueFunds';
+import { LendPanel } from './lend/LendPanel';
 import './explorer/explorer.css';
 import './protocol.css';
 
@@ -525,6 +526,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
         <EmptyState title={t('positionsEmpty')} />
       </Panel>
     );
+  else if (slug === 'dex' && tab === 'lend') body = <LendPanel api={api} t={t} />;
   else if (slug === 'dex' && tab === 'venue')
     body = (
       <>

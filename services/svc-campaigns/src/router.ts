@@ -51,8 +51,15 @@ import {
   taskProgressSchema,
   type CampaignRefusalCode,
   campaignVoucherSchema,
+  earningEvaluateInputSchema,
+  earningEvaluationSchema,
+  pointsConvertInputSchema,
+  pointsProgrammeSchema,
+  pointsRedeemInputSchema,
   FEE_SAVER_CALLERS,
   feeSaverAnswerSchema,
+  competitionBoardInputSchema,
+  competitionBoardSchema,
   feeSaverAskInputSchema,
   voucherIssueInputSchema,
   voucherListInputSchema,
@@ -60,12 +67,36 @@ import {
   welcomeClaimInputSchema,
   welcomeClaimResultSchema,
   welcomeListInputSchema,
+  myInviteesInputSchema,
+  myInviteesSchema,
 } from '@intafaced/contracts/campaigns-catalogue';
 import type { CampaignService } from './campaigns.js';
+import type { CompetitionService } from './competitions.js';
 import { CampaignsError } from './codes.js';
 import type { DropService } from './drops.js';
+import type { ReferralService } from './referrals.js';
 import type { TaskService } from './tasks.js';
 import type { VoucherService } from './vouchers.js';
+import type { WatchService } from './watch.js';
+import {
+  alertEnableInputSchema,
+  codeBatchResultSchema,
+  codeBatchSchema,
+  codeGenerateInputSchema,
+  codeImportInputSchema,
+  codePublishInputSchema,
+  exportDownloadInputSchema,
+  exportFileSchema,
+  exportRequestInputSchema,
+  exportRequestResultSchema,
+  voucherDeactivateInputSchema,
+  watchAlertSchema,
+  watchCampaignInputSchema,
+  watchCampaignSchema,
+  watchOverviewSchema,
+  watchVoucherSchema,
+} from '@intafaced/contracts/campaigns-watch';
+import { pointsProgramme, refusePoints } from './points.js';
 import { refuseTgeClaim } from './tge.js';
 
 const guard = { module: 'campaigns', plane: 'fiat' } as const;
@@ -134,6 +165,26 @@ const STATUS: Record<CampaignsRefusalCode | CampaignRefusalCode, TRPCError['code
   'campaigns.customer_limit_reached': 'CONFLICT',
   'campaigns.redemption_limit_reached': 'CONFLICT',
   'campaigns.welcome_none': 'NOT_FOUND',
+  'campaigns.alert_threshold_unset': 'PRECONDITION_FAILED',
+  'campaigns.code_batch_limit_unset': 'PRECONDITION_FAILED',
+  'campaigns.code_batch_limit_exceeded': 'BAD_REQUEST',
+  'campaigns.code_import_duplicate': 'BAD_REQUEST',
+  'campaigns.code_batch_unknown': 'NOT_FOUND',
+  'campaigns.code_batch_reference_taken': 'CONFLICT',
+  'campaigns.voucher_unknown': 'NOT_FOUND',
+  'campaigns.voucher_deactivated': 'CONFLICT',
+  'campaigns.export_validity_unset': 'PRECONDITION_FAILED',
+  'campaigns.export_unknown': 'NOT_FOUND',
+  'campaigns.export_not_ready': 'CONFLICT',
+  'campaigns.export_expired': 'CONFLICT',
+  'campaigns.referral_invalid': 'BAD_REQUEST',
+  'campaigns.criteria_unset': 'PRECONDITION_FAILED',
+  'campaigns.competition_invalid': 'BAD_REQUEST',
+  'campaigns.competition_unset': 'PRECONDITION_FAILED',
+  'campaigns.prize_pool_short': 'PRECONDITION_FAILED',
+  'campaigns.seats_full': 'CONFLICT',
+  'campaigns.not_competition': 'BAD_REQUEST',
+  'campaigns.fills_unread': 'SERVICE_UNAVAILABLE',
   'owner.decision': 'PRECONDITION_FAILED',
   'campaigns.window_unset': 'PRECONDITION_FAILED',
   'campaigns.timezone_unset': 'BAD_REQUEST',
@@ -180,7 +231,15 @@ const opsProcedure = scopedProcedure('campaigns:ops', guard).use(({ ctx, next })
   return next();
 });
 
-export function createCampaignsRouter(drops: DropService, campaigns: CampaignService, tasks: TaskService, vouchers: VoucherService) {
+export function createCampaignsRouter(
+  drops: DropService,
+  campaigns: CampaignService,
+  tasks: TaskService,
+  vouchers: VoucherService,
+  watch: WatchService,
+  referrals?: ReferralService,
+  competitions?: CompetitionService,
+) {
   return router({
     health: publicProcedure
       .output(z.object({ ok: z.literal(true), service: z.literal('svc-campaigns') }))
@@ -203,6 +262,47 @@ export function createCampaignsRouter(drops: DropService, campaigns: CampaignSer
         .query(async ({ ctx, input }) => {
           try {
             return await campaigns.get({ id: input.id, accountId: ctx.principal!.userId });
+          } catch (err) {
+            mapError(err);
+          }
+        }),
+    }),
+
+    referral: router({
+      /**
+       * The caller's own invitees (CM-referral-02): each one's place, when they joined, each step done or not and their
+       * state, never who they are. The account is the signed principal's.
+       */
+      invitees: scopedProcedure('campaigns:read', guard)
+        .input(myInviteesInputSchema)
+        .output(myInviteesSchema)
+        .query(async ({ ctx }) => {
+          try {
+            if (!referrals) throw new CampaignsError('campaigns.store_unwired', 'Referral progress is not wired');
+            return await referrals.myInvitees({ referrerId: ctx.principal!.userId });
+          } catch (err) {
+            mapError(err);
+          }
+        }),
+    }),
+
+    competition: router({
+      /**
+       * One competition's board (J-campaigns-11): terms, seats left, the leaderboard by venue volume, the caller's own
+       * entry and milestones, and the settlement once the period closed. Forwarded so the caller's connected wallet is
+       * noted for their prizes.
+       */
+      board: scopedProcedure('campaigns:read', guard)
+        .input(competitionBoardInputSchema)
+        .output(competitionBoardSchema)
+        .query(async ({ ctx, input }) => {
+          try {
+            if (!competitions) throw new CampaignsError('campaigns.store_unwired', 'Competitions are not wired');
+            return await competitions.board({
+              campaignId: input.campaignId,
+              accountId: ctx.principal!.userId,
+              forwarded: forwardedPrincipalHeaders(ctx),
+            });
           } catch (err) {
             mapError(err);
           }
@@ -250,7 +350,12 @@ export function createCampaignsRouter(drops: DropService, campaigns: CampaignSer
         .output(taskProgressSchema)
         .query(async ({ ctx, input }) => {
           try {
-            return await tasks.progress({ campaignId: input.campaignId, accountId: ctx.principal!.userId });
+            // Forwarded so a deposit step reads the person's own wallets for them (J-campaigns-02 #1).
+            return await tasks.progress({
+              campaignId: input.campaignId,
+              accountId: ctx.principal!.userId,
+              forwarded: forwardedPrincipalHeaders(ctx),
+            });
           } catch (err) {
             mapError(err);
           }
@@ -261,7 +366,11 @@ export function createCampaignsRouter(drops: DropService, campaigns: CampaignSer
         .output(taskClaimResultSchema)
         .mutation(async ({ ctx, input }) => {
           try {
-            return await tasks.claim({ campaignId: input.campaignId, accountId: ctx.principal!.userId });
+            return await tasks.claim({
+              campaignId: input.campaignId,
+              accountId: ctx.principal!.userId,
+              forwarded: forwardedPrincipalHeaders(ctx),
+            });
           } catch (err) {
             mapError(err);
           }
@@ -303,7 +412,7 @@ export function createCampaignsRouter(drops: DropService, campaigns: CampaignSer
         .output(myRewardsSchema)
         .query(async ({ ctx }) => {
           try {
-            return await tasks.myRewards({ accountId: ctx.principal!.userId });
+            return await tasks.myRewards({ accountId: ctx.principal!.userId, forwarded: forwardedPrincipalHeaders(ctx) });
           } catch (err) {
             mapError(err);
           }
@@ -367,7 +476,7 @@ export function createCampaignsRouter(drops: DropService, campaigns: CampaignSer
         .output(voucherRedeemResultSchema)
         .mutation(async ({ ctx, input }) => {
           try {
-            return await vouchers.redeem({ ...input, accountId: ctx.principal!.userId });
+            return await vouchers.redeem({ ...input, accountId: ctx.principal!.userId, forwarded: forwardedPrincipalHeaders(ctx) });
           } catch (err) {
             mapError(err);
           }
@@ -393,6 +502,35 @@ export function createCampaignsRouter(drops: DropService, campaigns: CampaignSer
         .mutation(async ({ ctx, input }) => {
           try {
             return await drops.claim({ dropId: input.dropId, accountId: ctx.principal!.userId });
+          } catch (err) {
+            mapError(err);
+          }
+        }),
+    }),
+
+    points: router({
+      /** The points programme: its full layout, with every number blank and the owner question named while it is open. */
+      programme: scopedProcedure('campaigns:read', guard)
+        .output(pointsProgrammeSchema)
+        .query(() => pointsProgramme()),
+      /** Converting points to cash waits for the owner decision: always refuses, before anything is read or stored. */
+      convert: scopedProcedure('campaigns:write', guard)
+        .input(pointsConvertInputSchema)
+        .output(z.never())
+        .mutation(() => {
+          try {
+            refusePoints('convert');
+          } catch (err) {
+            mapError(err);
+          }
+        }),
+      /** Redeeming a catalogue reward waits for the owner decision: always refuses, before anything is read or stored. */
+      redeem: scopedProcedure('campaigns:write', guard)
+        .input(pointsRedeemInputSchema)
+        .output(z.never())
+        .mutation(() => {
+          try {
+            refusePoints('redeem');
           } catch (err) {
             mapError(err);
           }
@@ -481,6 +619,19 @@ export function createCampaignsRouter(drops: DropService, campaigns: CampaignSer
               mapError(err);
             }
           }),
+        earning: router({
+          /** Each earning rule's answer to one TEST event; writes nothing. A points rule refuses for itself only. */
+          evaluate: opsProcedure
+            .input(earningEvaluateInputSchema)
+            .output(earningEvaluationSchema)
+            .query(async ({ input }) => {
+              try {
+                return await campaigns.evaluateEarning(input);
+              } catch (err) {
+                mapError(err);
+              }
+            }),
+        }),
         vouchers: router({
           /** A voucher campaign's vouchers, each with the revision and face value it was issued under. */
           list: opsProcedure
@@ -500,6 +651,105 @@ export function createCampaignsRouter(drops: DropService, campaigns: CampaignSer
             .mutation(async ({ ctx, input }) => {
               try {
                 return await campaigns.issueVoucher({ ...input, actor: ctx.principal!.userId });
+              } catch (err) {
+                mapError(err);
+              }
+            }),
+          /** Deactivates one voucher: its claim and every later use refuse (J-campaigns-17 #5). */
+          deactivate: opsProcedure
+            .input(voucherDeactivateInputSchema)
+            .output(watchVoucherSchema)
+            .mutation(async ({ ctx, input }) => {
+              try {
+                return await watch.deactivate({ ...input, actor: ctx.principal!.userId });
+              } catch (err) {
+                mapError(err);
+              }
+            }),
+        }),
+        /** The watch desk (J-campaigns-17 #1 #2): counted from the rows on each read. */
+        watch: router({
+          overview: opsProcedure.output(watchOverviewSchema).query(async () => {
+            try {
+              return await watch.overview();
+            } catch (err) {
+              mapError(err);
+            }
+          }),
+          campaign: opsProcedure
+            .input(watchCampaignInputSchema)
+            .output(watchCampaignSchema)
+            .query(async ({ input }) => {
+              try {
+                return await watch.campaign(input);
+              } catch (err) {
+                mapError(err);
+              }
+            }),
+          /** Switches an alert on or off; on refuses while its owner threshold is blank. */
+          alert: opsProcedure
+            .input(alertEnableInputSchema)
+            .output(watchAlertSchema)
+            .mutation(async ({ ctx, input }) => {
+              try {
+                return await watch.setAlert({ ...input, actor: ctx.principal!.userId });
+              } catch (err) {
+                mapError(err);
+              }
+            }),
+        }),
+        /** Code batches (J-campaigns-17 #3 to #5): stored as hashes and last four characters only. */
+        codes: router({
+          /** Makes a batch and returns its plain codes in this answer only; the same reference again returns none. */
+          generate: opsProcedure
+            .input(codeGenerateInputSchema)
+            .output(codeBatchResultSchema)
+            .mutation(async ({ ctx, input }) => {
+              try {
+                return await watch.generate({ ...input, actor: ctx.principal!.userId });
+              } catch (err) {
+                mapError(err);
+              }
+            }),
+          import: opsProcedure
+            .input(codeImportInputSchema)
+            .output(codeBatchResultSchema)
+            .mutation(async ({ ctx, input }) => {
+              try {
+                return await watch.importCodes({ ...input, actor: ctx.principal!.userId });
+              } catch (err) {
+                mapError(err);
+              }
+            }),
+          publish: opsProcedure
+            .input(codePublishInputSchema)
+            .output(codeBatchSchema)
+            .mutation(async ({ ctx, input }) => {
+              try {
+                return await watch.publish({ ...input, actor: ctx.principal!.userId });
+              } catch (err) {
+                mapError(err);
+              }
+            }),
+        }),
+        /** Exports (J-campaigns-17 #6): one job per export while it is open or its link valid. */
+        exports: router({
+          request: opsProcedure
+            .input(exportRequestInputSchema)
+            .output(exportRequestResultSchema)
+            .mutation(async ({ ctx, input }) => {
+              try {
+                return await watch.requestExport({ ...input, actor: ctx.principal!.userId });
+              } catch (err) {
+                mapError(err);
+              }
+            }),
+          download: opsProcedure
+            .input(exportDownloadInputSchema)
+            .output(exportFileSchema)
+            .query(async ({ ctx, input }) => {
+              try {
+                return await watch.download({ ...input, actor: ctx.principal!.userId });
               } catch (err) {
                 mapError(err);
               }

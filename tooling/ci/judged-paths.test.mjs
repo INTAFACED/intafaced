@@ -24,14 +24,19 @@ export function judgeJobTerms(text) {
     .split(/\s*&&\s*/);
 }
 
+const DEFERS = ['!github.event.pull_request.draft'];
+
 test("the guard's judgeRuns is the review job's condition, term for term", () => {
   const terms = judgeJobTerms(workflow);
-  const pr = terms.filter((t) => t.includes('github.event.pull_request'));
+  // DEFERS only put a head's review off to a later event on the same head, never skip it: a draft is reviewed when
+  // `ready_for_review` marks it ready (in the job's `on:` types), and it can't merge before (the seal needs the verdict).
+  const pr = terms.filter((t) => t.includes('github.event.pull_request') && !DEFERS.includes(t));
   assert.deepEqual(pr.sort(), [...JUDGE_JOB_CONDITIONS].sort(), `the judge job's pull request terms: ${terms.join(' && ')}`);
-  // Its one other term skips only an `edited` event that changes no base: the head's own events are reviewed.
+  assert.match(workflow, /types: \[[^\]]*\bready_for_review\b[^\]]*\]/, 'a draft is reviewed when it is marked ready');
+  // Its other terms skip only an `edited` event that changes no base, and a draft until it is ready.
   assert.deepEqual(
-    terms.filter((x) => !pr.includes(x)),
-    ["(github.event.action != 'edited' || github.event.changes.base)"],
+    terms.filter((x) => !pr.includes(x)).sort(),
+    ['!github.event.pull_request.draft', "(github.event.action != 'edited' || github.event.changes.base)"].sort(),
   );
 });
 

@@ -1,9 +1,6 @@
 /** Browser hop for the announcement desk. Same-origin BFF only; changes go through the incident desk's change hop. */
 import type { NoticesDeskView } from './notices-model';
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
+import { isRecord } from '@intafaced/contracts/guards';
 
 export async function fetchNoticesDesk(): Promise<NoticesDeskView | null> {
   try {

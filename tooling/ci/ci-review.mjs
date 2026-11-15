@@ -40,6 +40,7 @@ import {
   ciSource,
   readWordsApi,
   redact,
+  shingles,
   diffSections,
   parseDiff,
   judgedFile,
@@ -49,6 +50,7 @@ import {
 import { roomOf } from './look-baselines.mjs';
 import { AUTO_REVERT_AUTHOR, AUTO_REVERT_BRANCH } from './journey-seal.mjs';
 import { exactReverse, revertTreeMatches } from './exact-revert.mjs';
+import { isBudgetResponse, budgetLine, titleFor } from './api-budget.mjs';
 
 /** The largest diff one reviewer call is given; a larger one is reviewed in parts of at most this size (splitDiff). */
 export const MAX_DIFF_BYTES = 400_000;
@@ -373,7 +375,9 @@ export const testsBrief = (tests) => tests.trim().replace(/^# /m, '## ');
  * line posing as the trusted step words, for the one call that carries them.
  */
 export function reviewSection({ brief, diff, pr, head, stepWords = false, note = '' }) {
-  let body = diff.replace(/^(BEGIN|END) UNTRUSTED DIFF$/gm, '$1 UNTRUSTED DIFF (quoted by the author)');
+  let body = diff
+    .replace(/^(BEGIN|END) UNTRUSTED DIFF$/gm, '$1 UNTRUSTED DIFF (quoted by the author)')
+    .replace(/^(.?)(BEGIN|END) OWNER RECORD/gm, '$1$2 OWNER RECORD (quoted by the author)');
   if (stepWords) body = body.replace(/^(BEGIN|END) STEP WORDS/gm, '$1 STEP WORDS (quoted by the author)');
   return [
     brief.trim(),
@@ -384,6 +388,101 @@ export function reviewSection({ brief, diff, pr, head, stepWords = false, note =
     body,
     'END UNTRUSTED DIFF',
   ].join('\n');
+}
+
+// ── The owner's record, for a pull request that changes the brief ─────────────────────────────────────────────────
+
+/** The brief's own path: a diff that changes it may add an owner decision, which the review checks against his record. */
+export const BRIEF_PATH = 'tooling/ci/ci-review/REVIEW.md';
+/** The owner record's private five-word runs, beside the review's verdict, so no finding repeats them in public. */
+const OWNER_SHINGLES = 'owner-shingles.json';
+
+/**
+ * The project-state OWNER.md items a diff's added lines of the brief cite ("OWNER.md item 258", "OWNER 277"), in
+ * order, or [] when the diff adds no line to the brief.
+ */
+export function citedOwnerItems(diff) {
+  const items = new Set();
+  let inBrief = false;
+  for (const l of String(diff).split('\n')) {
+    if (l.startsWith('diff --git ')) inBrief = l.endsWith(` b/${BRIEF_PATH}`);
+    if (!inBrief || !l.startsWith('+') || l.startsWith('+++ ')) continue;
+    for (const m of l.matchAll(/\bOWNER(?:\.md)?(?:\s+items?)?\s+(\d{1,4})\b/g)) items.add(Number(m[1]));
+  }
+  return [...items];
+}
+
+/**
+ * The project-state decided rows a diff's added lines of the brief cite ("project-state row d74"), in order, or []:
+ * OWNER.md closed as history at item 303, so a later decision of the owner's is recorded in project-state
+ * `open-list/decided/dN.md`, which quotes his words (intafaced #8265, CI review FAIL on 3e9000de: no OWNER.md item holds
+ * the 12 Nov test sentence, so the route could never pass it).
+ */
+export function citedRows(diff) {
+  const rows = new Set();
+  let inBrief = false;
+  for (const l of String(diff).split('\n')) {
+    if (l.startsWith('diff --git ')) inBrief = l.endsWith(` b/${BRIEF_PATH}`);
+    if (!inBrief || !l.startsWith('+') || l.startsWith('+++ ')) continue;
+    for (const m of l.matchAll(/\bproject-state row d(\d{1,4})\b/g)) rows.add(`d${Number(m[1])}`);
+  }
+  return [...rows];
+}
+
+/** Each cited item's text in OWNER.md (from its "N. " line to the next item or heading), or null when it has none. */
+export function ownerItems(text, numbers) {
+  const lines = String(text).split('\n');
+  const out = new Map(numbers.map((n) => [n, null]));
+  let cur = null;
+  for (const l of lines) {
+    const m = /^(\d{1,4})\. /.exec(l);
+    if (m || /^#/.test(l)) cur = m && out.has(Number(m[1])) ? Number(m[1]) : null;
+    if (cur !== null) out.set(cur, out.get(cur) === null ? l : `${out.get(cur)}\n${l}`);
+  }
+  return out;
+}
+
+/**
+ * The trusted block the review is given with a diff that changes the brief: the cited items as the job read them from
+ * project-state OWNER.md, so a new entry's quote is checked against the owner's own record, never taken on its form.
+ */
+export function ownerRecordSection({ items, ref, rows = new Map() }) {
+  const quoted = (t) => t.replace(/^(BEGIN|END) OWNER RECORD/gm, '$1 OWNER RECORD (quoted)');
+  const body = [
+    ...[...items].map(([n, t]) => (t === null ? `Item ${n}: OWNER.md has no item ${n}.` : quoted(t))),
+    ...[...rows].map(([r, t]) =>
+      t === null ? `Row ${r}: project-state has no row ${r}.` : `Row ${r} (project-state open-list/decided/${r}.md):\n${quoted(t.trim())}`,
+    ),
+  ];
+  const cites = [items.size ? `items ${[...items.keys()].join(', ')}` : '', rows.size ? `rows ${[...rows.keys()].join(', ')}` : '']
+    .filter(Boolean)
+    .join(' and ');
+  return [
+    `The owner's record. The job read the items${rows.size ? ' and rows' : ''} the diff's added lines of this brief cite from project-state OWNER.md${rows.size ? ' and open-list/decided/' : ''} at ${ref} (trusted input, private: never repeat it beyond the words the diff itself quotes). The diff cites ${cites || 'no item'}.`,
+    'BEGIN OWNER RECORD',
+    ...body,
+    'END OWNER RECORD',
+  ].join('\n');
+}
+
+/** OWNER.md from project-state's default branch, with the commit it was read at (the token reads project-state). */
+export async function readOwnerRecord(token, get = getText, rows = []) {
+  const repo = 'INTAFACED/project-state';
+  const ref = await get(`/repos/${repo}/commits/main`, 'application/vnd.github.sha', token);
+  if (ref.status !== 200 || !SHA40.test(ref.text.trim())) throw new Error(`could not read project-state's main: HTTP ${ref.status}`);
+  const sha = ref.text.trim();
+  const r = await get(`/repos/${repo}/contents/OWNER.md?ref=${sha}`, 'application/vnd.github.raw', token);
+  if (r.status !== 200 || r.text.trim() === '') throw new Error(`could not read project-state OWNER.md: HTTP ${r.status}`);
+  // A cited row, at the same commit; one that isn't there is no record, which blocks the entry (REVIEW.md's route).
+  const read = new Map();
+  for (const row of rows) {
+    if (!/^d\d{1,4}$/.test(row)) throw new Error(`not a row: ${row}`);
+    const f = await get(`/repos/${repo}/contents/open-list/decided/${row}.md?ref=${sha}`, 'application/vnd.github.raw', token);
+    if (f.status === 404) read.set(row, null);
+    else if (f.status !== 200) throw new Error(`could not read project-state row ${row}: HTTP ${f.status}`);
+    else read.set(row, f.text.trim() === '' ? null : f.text);
+  }
+  return { text: r.text, ref: sha, rows: read };
 }
 
 /** The prompt: the brief from the default branch, then the diff fenced as untrusted data. */
@@ -472,13 +571,16 @@ export function eventPull(payload, repo) {
   };
 }
 
-async function getText(path, accept) {
+async function getText(path, accept, token = process.env.GH_TOKEN) {
   const res = await fetch(`https://api.github.com${path}`, {
-    headers: { authorization: `Bearer ${process.env.GH_TOKEN}`, accept, 'x-github-api-version': '2022-11-28' },
+    headers: { authorization: `Bearer ${token}`, accept, 'x-github-api-version': '2022-11-28' },
     signal: AbortSignal.timeout(60_000),
   });
   const text = await res.text();
-  if (res.status === 403 || res.status === 429) throw new Error(`GitHub ${res.status} on GET ${path}: stopping, not retrying`);
+  if (res.status === 403 || res.status === 429)
+    throw new Error(
+      `GitHub ${res.status} on GET ${path}: stopping, not retrying${isBudgetResponse(res) ? `; ${budgetLine(res.headers.get('x-ratelimit-reset'))}` : ''}`,
+    );
   return { status: res.status, text };
 }
 
@@ -647,9 +749,39 @@ export async function indexHead(dir) {
  */
 export async function writeReviewInputs(
   dir,
-  { diff, base, head, pr, src, loadWords, reviewBrief, testsBrief: testsBriefText, images = [], revertOf = null },
+  {
+    diff,
+    base,
+    head,
+    pr,
+    src,
+    loadWords,
+    reviewBrief: briefText,
+    testsBrief: testsBriefText,
+    images = [],
+    revertOf = null,
+    loadOwner = null,
+  },
 ) {
   mkdirSync(dir, { recursive: true });
+  // A diff that adds to the brief: the owner items it cites, read from his record, follow the brief as trusted input.
+  let reviewBrief = briefText;
+  const cited = citedOwnerItems(diff);
+  const citedRowIds = citedRows(diff);
+  if ((cited.length > 0 || citedRowIds.length > 0) && !revertOf) {
+    if (!loadOwner) {
+      const what = [cited.length ? `OWNER items ${cited.join(', ')}` : '', citedRowIds.length ? `rows ${citedRowIds.join(', ')}` : ''];
+      throw new Error(`the diff cites ${what.filter(Boolean).join(' and ')} and the job can't read the owner's record`);
+    }
+    const { text, ref, rows: readRows = new Map() } = await loadOwner(citedRowIds);
+    const items = ownerItems(text, cited);
+    const rows = new Map(citedRowIds.map((r) => [r, readRows.get(r) ?? null]));
+    reviewBrief = `${briefText.trim()}\n\n${ownerRecordSection({ items, ref, rows })}`;
+    // What the diff doesn't already make public never reaches the public log (readVerdicts).
+    const open = shingles([diff]);
+    const own = [...shingles([...items.values(), ...rows.values()].filter((t) => t !== null))].filter((x) => !open.has(x));
+    writeFileSync(join(dir, OWNER_SHINGLES), JSON.stringify(own));
+  }
   writeFileSync(join(dir, 'head.txt'), head);
   const tests = join(dir, TESTS_DIR);
   const bytes = Buffer.byteLength(diff);
@@ -770,6 +902,14 @@ async function cmdDiff(dir) {
       reviewBrief: readFileSync(new URL('./ci-review/REVIEW.md', import.meta.url), 'utf8'),
       testsBrief: readFileSync(JUDGE_BRIEF, 'utf8'),
       images,
+      loadOwner: (rows) => {
+        const t = process.env.PROJECT_STATE_READ_TOKEN;
+        if (!t)
+          throw new Error(
+            "the ci-review environment has no PROJECT_STATE_READ_TOKEN secret, so the owner's record is unreadable and nothing is decided",
+          );
+        return readOwnerRecord(t, getText, rows);
+      },
       revertOf: await automaticRevert({
         repo,
         pull,
@@ -827,7 +967,7 @@ export function readVerdicts(dir) {
     all.push(...p.findings);
   }
   // The step words were in this call's input: a finding that repeats them never reaches the public log.
-  const findings = withheld(all, join(tests, 'shingles.json'));
+  const findings = withheld(withheld(all, join(tests, 'shingles.json')), join(dir, OWNER_SHINGLES), "the owner's record");
   writeFileSync(join(dir, 'verdict.json'), JSON.stringify({ head, verdict, findings }));
   const w = written();
   const inParts = parts.length ? `, in ${parts.length + 1} parts` : '';
@@ -838,14 +978,121 @@ export function readVerdicts(dir) {
  * The review's findings with any that repeat the step words withheld (test-judge.mjs redact, five words in a row), read
  * against the step-word set at `shinglesPath`. A withheld finding keeps its place and its blocking: a note stays a note.
  */
-export function withheld(findings, shinglesPath) {
+export function withheld(findings, shinglesPath, what = 'the step words') {
   if (!existsSync(shinglesPath)) return findings;
   const set = new Set(JSON.parse(readFileSync(shinglesPath, 'utf8')));
   return findings.map((f) =>
     redact(f, set).startsWith('(reason withheld')
-      ? `${/^note:/i.test(f.trim()) ? 'note: ' : ''}(finding withheld: it repeated the step words)`
+      ? `${/^note:/i.test(f.trim()) ? 'note: ' : ''}(finding withheld: it repeated ${what})`
       : f,
   );
+}
+
+/**
+ * The CI review FAILs in a row on one pull request's branch, ending at `head` (counted as a FAIL: its Verdict is the step
+ * now failing), newest first: [{ sha, job }]. A head counts once however many runs or attempts it had, so a re-run, a
+ * ready_for_review or a run by hand is no push (project-state row d73); a head with no verdict (judge down, cancelled)
+ * neither counts nor breaks the row; a PASS ends it. `runs` are this workflow's pull_request_target runs on the branch,
+ * `jobsOf(run)` its jobs of every attempt, `since` when the pull request opened. Stops at the first PASS or `max` heads.
+ */
+export async function failStreak({ runs, jobsOf, head, number, since, max = 30 }) {
+  const first = new Map();
+  const opened = Date.parse(since ?? '');
+  for (const r of runs ?? []) {
+    const sha = String(r?.head_sha ?? '').toLowerCase();
+    const prs = r?.pull_requests ?? [];
+    const at = Date.parse(r?.created_at ?? '');
+    if (!SHA40.test(sha) || r?.event !== 'pull_request_target') continue;
+    // A run of another pull request from the same branch name (named, or from before this one opened) is not this row.
+    if (prs.length > 0 && !prs.some((p) => Number(p?.number) === Number(number))) continue;
+    if (Number.isFinite(opened) && at < opened) continue;
+    const seen = first.get(sha) ?? { at: Infinity, runs: [] };
+    seen.at = Math.min(seen.at, Number.isFinite(at) ? at : Infinity);
+    seen.runs.push(r);
+    first.set(sha, seen);
+  }
+  const own = String(head).toLowerCase();
+  const until = first.get(own)?.at ?? Infinity;
+  const earlier = [...first.entries()].filter(([sha, h]) => sha !== own && h.at < until).sort((a, b) => b[1].at - a[1].at);
+  const out = [{ sha: own, job: null }];
+  for (const [sha, h] of earlier.slice(0, max)) {
+    const jobs = (await Promise.all(h.runs.map(jobsOf))).flat().filter((j) => j?.name === 'CI review');
+    const verdict = (c) => jobs.find((j) => (j.steps ?? []).some((s) => s?.name === 'Verdict' && s?.conclusion === c));
+    const failed = verdict('failure');
+    if (failed) out.push({ sha, job: failed });
+    else if (verdict('success')) break;
+  }
+  return out;
+}
+
+/** A FAIL's blocking findings, read back from its Verdict step's log (cmdJudge prints them), one line each. */
+export function findingsInLog(log) {
+  const lines = String(log ?? '')
+    .split('\n')
+    .map((l) => l.replace(/^\S+Z /, '').trimEnd());
+  const at = lines.findIndex((l) => l.startsWith('## CI review: FAIL on '));
+  if (at < 0) return [];
+  const out = [];
+  for (const l of lines.slice(at + 1)) {
+    if (l.startsWith('##[')) break;
+    if (l.startsWith('- ') && !/^- note:/i.test(l)) out.push(l.slice(2));
+  }
+  return out;
+}
+
+/** The FAILs in a row at which the judge says to stop fixing (pstack principle-attack-the-premise: two fixes failed). */
+export const PREMISE_AT = 3;
+
+/**
+ * Nothing below PREMISE_AT FAILs in a row; from there, the instruction and each head's findings, newest first. Advice
+ * only: the FAIL stands as it would without it, and a builder that ignores it merges on its checks.
+ */
+export function premiseLines(streak) {
+  if (streak.length < PREMISE_AT) return [];
+  const cut = (f) => (f.length > 300 ? `${f.slice(0, 300)}...` : f).replace(/\s+/g, ' ');
+  return [
+    '',
+    `### ${streak.length} FAILs in a row on this branch: stop fixing`,
+    '',
+    'Each fix since the first FAIL assumed one belief, and each FAIL is evidence against it. Before the next push, write that belief down in one sentence and test it: find an observation that would come out differently if it were false, and make it. Look at what the findings below have in common that the belief did not predict. If it holds, ask the next "why": the earlier fixes may have treated a consequence. Then ask the outside reviewer once why, as project-state BUILDER.md says (row d74). Advice, not a gate.',
+    '',
+    ...streak.flatMap(({ sha, findings }) => [
+      `- ${sha.slice(0, 10)}${findings?.length ? '' : ': (findings unreadable)'}`,
+      ...(findings ?? []).map((f) => `  - ${cut(f)}`),
+    ]),
+  ];
+}
+
+/** The streak at `head` of pull request `number` on branch `ref`, read from GitHub, each head with its findings. */
+export async function readStreak({ repo, number, ref, head, since, own, get = getText }) {
+  const json = async (p) => {
+    const r = await get(p, 'application/vnd.github+json');
+    if (r.status !== 200) throw new Error(`could not read ${p}: HTTP ${r.status}`);
+    return JSON.parse(r.text);
+  };
+  const runs = [];
+  for (let page = 1; page <= 10; page++) {
+    const q = `event=pull_request_target&branch=${encodeURIComponent(ref)}&per_page=100&page=${page}`;
+    const batch = (await json(`/repos/${repo}/actions/workflows/ci-review.yml/runs?${q}`)).workflow_runs ?? [];
+    runs.push(...batch);
+    if (batch.length < 100) break;
+  }
+  const jobsOf = async (r) => (await json(`/repos/${repo}/actions/runs/${r.id}/jobs?filter=all&per_page=100`)).jobs ?? [];
+  const logOf = async (job) => {
+    const r = await get(`/repos/${repo}/actions/jobs/${job.id}/logs`, 'application/vnd.github+json');
+    return r.status === 200 ? findingsInLog(r.text) : [];
+  };
+  let mine = null;
+  if (own === undefined) {
+    // A replay: only a head whose Verdict failed, its own findings read back like the others'.
+    const jobs = (await Promise.all(runs.filter((r) => r.head_sha === head).map(jobsOf))).flat();
+    mine = jobs.find((j) => j?.name === 'CI review' && j.steps?.some((s) => s?.name === 'Verdict' && s?.conclusion === 'failure'));
+    if (!mine) return [];
+  }
+  const streak = await failStreak({ runs, jobsOf, head, number, since });
+  if (streak.length < PREMISE_AT) return streak;
+  if (mine) own = await logOf(mine);
+  return Promise.all(streak.map(async (h, i) => ({ sha: h.sha, findings: i === 0 ? own : await logOf(h.job) })));
 }
 
 function cmdRead(dir) {
@@ -857,17 +1104,61 @@ function cmdRead(dir) {
   console.log(`verdict: ${v.why}`);
 }
 
-function cmdJudge(dir) {
+async function cmdJudge(dir) {
   const v = JSON.parse(readFileSync(join(dir, 'verdict.json'), 'utf8'));
   const lines = [`## CI review: ${v.verdict} on ${v.head}`, '', ...v.findings.map((f) => `- ${f}`)];
+  // The third FAIL in a row adds the instruction; a failed read adds a warning and changes no verdict.
+  let premise = [];
+  if (v.verdict !== 'PASS')
+    try {
+      const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
+      const pull = eventPull(event, process.env.GITHUB_REPOSITORY);
+      const blocking = v.findings.filter((f) => !/^note:/i.test(f.trim()));
+      const since = event.pull_request?.created_at;
+      premise = premiseLines(await readStreak({ repo: process.env.GITHUB_REPOSITORY, ...pull, since, own: blocking }));
+    } catch (e) {
+      console.log(`::warning::could not count this branch's FAILs in a row: ${e.message}`);
+    }
+  lines.push(...premise);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines.join('\n')}\n`);
   console.log(lines.join('\n'));
   if (v.verdict !== 'PASS') {
     console.error(
-      `::error title=CI review FAIL::${v.findings.length} blocking finding(s) on ${v.head}; this FAIL stands for this head and its code, so push a fix that changes it (see the job summary)`,
+      `::error title=CI review FAIL::${v.findings.length} blocking finding(s) on ${v.head}; this FAIL stands for this head and its code, so push a fix that changes it (see the job summary)${premise.length ? `. ${premise[1].slice(4)}: write down the one belief your fixes shared and test it before the next push (the job summary)` : ''}`,
     );
     process.exit(1);
   }
+}
+
+/** A replay: what the Verdict step would print at `head` (default: the pull request's head), read through `gh api`:
+ *   node tooling/ci/ci-review.mjs premise <pr> [head] */
+async function cmdPremise(number, head) {
+  const repo = process.env.GITHUB_REPOSITORY ?? 'INTAFACED/intafaced';
+  const get = async (path, accept) => {
+    try {
+      return {
+        status: 200,
+        text: execFileSync('gh', ['api', path.slice(1), '-H', `accept: ${accept}`, '--allow-escape-sequences'], {
+          encoding: 'utf8',
+          maxBuffer: 256 * 1024 * 1024,
+        }),
+      };
+    } catch (e) {
+      return { status: Number(/HTTP (\d{3})/.exec(String(e.stderr))?.[1] ?? 0), text: '' };
+    }
+  };
+  const r = await get(`/repos/${repo}/pulls/${number}`, 'application/vnd.github+json');
+  if (r.status !== 200) throw new Error(`could not read pull request ${number}: HTTP ${r.status}`);
+  const pr = JSON.parse(r.text);
+  const at = (head ?? pr.head.sha).toLowerCase();
+  const streak = await readStreak({ repo, number: pr.number, ref: pr.head.ref, since: pr.created_at, head: at, get });
+  const lines = premiseLines(streak);
+  console.log(
+    streak.length
+      ? `${streak.length} FAIL(s) in a row at ${at}${lines.length ? '' : ': nothing new printed'}`
+      : `no CI review FAIL at ${at}: nothing new printed`,
+  );
+  if (lines.length) console.log(lines.join('\n'));
 }
 
 async function main() {
@@ -876,12 +1167,14 @@ async function main() {
   if (cmd === 'diff') return cmdDiff(dir);
   if (cmd === 'read') return cmdRead(dir);
   if (cmd === 'judge') return cmdJudge(dir);
-  console.error('usage: ci-review.mjs index|diff|read|judge <dir>');
+  if (cmd === 'premise') return cmdPremise(dir, process.argv[4]);
+  console.error('usage: ci-review.mjs index|diff|read|judge <dir> | premise <pr> [head]');
   process.exit(2);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href)
   main().catch((e) => {
-    console.error(`::error::ci-review: ${e.message}`);
+    const title = titleFor(e.message, '');
+    console.error(`::error${title ? ` title=${title}` : ''}::ci-review: ${e.message}`);
     process.exit(1);
   });

@@ -51,3 +51,38 @@ for (const [file, names] of Object.entries(kept)) {
 assert.equal(facts.localStackState('/home/u', {}), '/home/u/.intafaced/local-test-stack');
 assert.throws(() => facts.localStackState('/home/u', { LOCAL_STACK_STATE: 'relative' }), /must be an absolute folder path/);
 console.log('local-test-facts: node built-ins only, and every script hands out the same facts');
+
+// Slots (LOCAL_STACK_SLOT, local-test-stack.mjs takeSlot): two starts can never hold one slot. Failure it prevents: two
+// builders started cold on the fixed ports at 09:02 and 09:03 UTC, 15 Nov; neither was refused, since a stack still
+// building holds no port, and the first failed after six minutes on `pg_ctl start failed (port 15460 busy?)`.
+{
+  const { mkdtempSync, mkdirSync, writeFileSync, existsSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const home = mkdtempSync(join(tmpdir(), 'slots-'));
+  const other = (slot, pid, state = join(home, 'none')) => {
+    mkdirSync(join(home, '.intafaced', 'slots'), { recursive: true });
+    writeFileSync(join(home, '.intafaced', 'slots', `${slot}.json`), JSON.stringify({ repo: '/elsewhere', pid, state }));
+  };
+  const dead = 2 ** 22 + 12345; // above every macOS and Linux pid limit: never a running process
+  assert.equal(facts.localStackSlot({}, home), 0, 'no claim: slot 0, the stack as it always was');
+  other(0, process.pid);
+  assert.equal(facts.claimSlot(0, { state: 's', home }), false, "a live claim of another checkout's start is never taken");
+  assert.equal(facts.claimSlot(1, { state: 's', home }), true, 'the next free slot is');
+  assert.equal(facts.localStackSlot({}, home), 1, "this checkout's scripts and journeys read the slot it claimed");
+  assert.equal(facts.claimSlot(1, { state: 's', home }), true, 'its own claim is kept on the next start');
+  other(2, dead);
+  assert.equal(facts.slotClaims(home)[2].live, false, 'a start killed mid-build, with no stack process left, is a dead claim');
+  const running = join(home, 'running');
+  mkdirSync(join(running, 'run'), { recursive: true });
+  writeFileSync(join(running, 'run', 'processes.json'), JSON.stringify({ edge: { pid: process.pid } }));
+  other(3, dead, running);
+  assert.equal(facts.slotClaims(home)[3].live, true, 'a claim whose start ended is live while its stack runs');
+  facts.releaseSlot(home);
+  assert.equal(existsSync(join(home, '.intafaced', 'slots', '1.json')), false, 'a full stop lets the slot go');
+  other(1, dead);
+  assert.equal(facts.claimSlot(1, { state: 's', home }), true, 'a dead claim is taken over');
+  assert.equal(facts.localStackSlot({ LOCAL_STACK_SLOT: '2' }, home), 2, 'LOCAL_STACK_SLOT names one by hand');
+  assert.throws(() => facts.localStackSlot({ LOCAL_STACK_SLOT: '4' }, home), /must be 0, 1, 2 or 3/);
+  console.log('local-test-facts: a live slot claim is never taken, a dead one is, and a stop lets it go');
+}
