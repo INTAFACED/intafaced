@@ -25,7 +25,7 @@ const evaluation = (page) => tableIn(main(page), 'Last evaluation');
  * The founder console, signed in once per worker in its own browser context (its cookies never meet the customer's), as
  * J-algo-dev-10 does. Each sign-in must send a TOTP step no earlier sign-in spent, so a fresh sign-in per step waited up
  * to a whole 30 s step for the next one, inside the step's own 30 s: main run 43726862351, J-agents-16 #4 spent 29 s
- * between the password and the code and timed out on the desk's heading.
+ * between the password and the code and timed out on the desk's heading. The start signs in, so no step pays that wait.
  */
 let consoleSession = null;
 async function openAlerts(browser) {
@@ -60,8 +60,10 @@ async function saveRule(page, { name, threshold, agentId = '' }) {
   await form.getByRole('button', { name: 'Save rule' }).click();
 }
 
-test(`${J} starts: a TEST customer whose agent request was refused just now, and the founder console`, async ({ page }) => {
+test(`${J} starts: a TEST customer whose agent request was refused just now, and the founder console`, async ({ page, browser }) => {
   test.setTimeout(180_000);
+  // The founder's one sign-in is here, in the start's own time: it may wait out a TOTP window another sign-in spent.
+  await openAlerts(browser);
   await agents.start(page, 'ag16', '10');
   const sessionId = await openNavigatorSession(page, agents);
   const door = await api(agents.account());
