@@ -454,6 +454,12 @@ test(`${J} #7 the numbers change between Review and Confirm: the new numbers sho
     builderFee: null,
   });
   expect(offer.definite && offer.accepted, JSON.stringify(offer)).toBe(true);
+  // DIAG (temporary): the venue's book and the seller's own orders the moment before Confirm.
+  console.log('DIAG price', price, 'bid(maker)', fromUnits(bid));
+  console.log('DIAG book', JSON.stringify((await testVenue('/book', { symbol: SYMBOL, depth: 6 })).body));
+  console.log('DIAG seller open', JSON.stringify((await venueRecord(otherTraderKey(seller).address.toLowerCase(), '/open-orders')).value));
+  console.log('DIAG person open', JSON.stringify(await venueOpen(owner)));
+  console.log('DIAG offer', JSON.stringify(offer).slice(0, 600));
   const asked = signatures(wallet);
   try {
     await review.getByRole('button', { name: 'Confirm buy' }).click();
