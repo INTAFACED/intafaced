@@ -1595,6 +1595,31 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'Someone saved a newer revision of this design first.',
     next: 'The page is read again. Make your change on the newest revision. Nothing was changed.',
   },
+  'academy.cert_delay_unset': {
+    title: 'The delay is blank',
+    body: "A delayed issue rule needs the wait, in whole minutes after the course is complete. The wait is the owner's.",
+    next: 'Put in the delay, or choose automatic or manual. Nothing was changed.',
+  },
+  'academy.cert_sweep_unset': {
+    title: 'No issue sweep runs',
+    body: 'A delayed certificate is issued by the issue sweep, and its interval (ACADEMY_CERT_ISSUE_SWEEP_SECONDS) is not set, so a learner would wait forever.',
+    next: 'The owner sets the sweep interval first. Nothing was changed.',
+  },
+  'academy.cert_already_granted': {
+    title: 'The learner already holds this certificate',
+    body: 'This learner was issued this certificate already, so there is no exception to make.',
+    next: 'Nothing was changed and no approval was spent.',
+  },
+  'academy.cert_revoked': {
+    title: 'This certificate was revoked',
+    body: "The learner's certificate was revoked. A revoked certificate stays revoked and is not issued again.",
+    next: 'Nothing was changed and no approval was spent.',
+  },
+  'academy.cert_not_found': {
+    title: 'No such certificate',
+    body: 'svc-academy publishes no certificate with that id, or no issued certificate has that code.',
+    next: 'Check the id or the code. Nothing was changed and no approval was spent.',
+  },
   'academy.cert_design_not_found': {
     title: 'No design yet',
     body: 'This certificate has no design to activate.',

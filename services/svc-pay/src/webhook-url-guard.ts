@@ -98,8 +98,21 @@ const INTERNAL_SUFFIXES = [
 /** Names that mean "us". Single-label names are refused anyway; this is belt and braces. */
 const INTERNAL_NAMES: ReadonlySet<string> = new Set(['localhost', 'postgres', 'nats', 'redis']);
 
-function invalid(message: string): never {
-  throw new PayError(`${message} NOTHING WAS ATTEMPTED.`, 'pay.webhook_url_invalid');
+/** Why an address was refused, so a caller can name it: not https, private or internal, or otherwise not usable. */
+export type WebhookUrlRefusalReason = 'https' | 'private' | 'unresolvable' | 'invalid';
+
+/** `pay.webhook_url_invalid`, carrying the reason. The code is unchanged for every existing caller. */
+export class WebhookUrlRefusal extends PayError {
+  constructor(
+    message: string,
+    readonly reason: WebhookUrlRefusalReason,
+  ) {
+    super(message, 'pay.webhook_url_invalid');
+  }
+}
+
+function invalid(message: string, reason: WebhookUrlRefusalReason = 'invalid'): never {
+  throw new WebhookUrlRefusal(`${message} NOTHING WAS ATTEMPTED.`, reason);
 }
 
 function stripBrackets(hostname: string): string {
@@ -271,17 +284,18 @@ export function assertPublicWebhookUrl(url: string, opts: PublicWebhookUrlOption
       allowLocal
         ? 'Webhook URL must be https (http is only allowed for localhost).'
         : 'Webhook URL must be https (http is only allowed for localhost in dev/test).',
+      'https',
     );
   }
 
   if (local && allowLocal) return parsed;
 
   if (literal) {
-    if (!isPublicIpAddress(host)) invalid('Webhook URL points at a private, loopback, link-local or reserved address.');
+    if (!isPublicIpAddress(host)) invalid('Webhook URL points at a private, loopback, link-local or reserved address.', 'private');
   } else {
-    if (INTERNAL_NAMES.has(host) || host.startsWith('svc-')) invalid('Webhook URL points at an internal service name.');
-    if (!host.includes('.')) invalid('Webhook URL host must be a fully qualified public hostname.');
-    if (INTERNAL_SUFFIXES.some((s) => host.endsWith(s))) invalid('Webhook URL host is an internal-only name.');
+    if (INTERNAL_NAMES.has(host) || host.startsWith('svc-')) invalid('Webhook URL points at an internal service name.', 'private');
+    if (!host.includes('.')) invalid('Webhook URL host must be a fully qualified public hostname.', 'private');
+    if (INTERNAL_SUFFIXES.some((s) => host.endsWith(s))) invalid('Webhook URL host is an internal-only name.', 'private');
   }
 
   const port = parsed.port === '' ? 443 : Number(parsed.port);
@@ -321,13 +335,13 @@ export async function resolvePublicAddresses(
     try {
       answers = await resolver(host);
     } catch {
-      return invalid('Webhook host could not be resolved.');
+      return invalid('Webhook host could not be resolved.', 'unresolvable');
     }
   }
-  if (answers.length === 0) return invalid('Webhook host resolved to no addresses.');
+  if (answers.length === 0) return invalid('Webhook host resolved to no addresses.', 'unresolvable');
   for (const a of answers) {
     if (!isPublicIpAddress(a.address, opts)) {
-      return invalid('Webhook host resolves to a private, loopback, link-local or reserved address.');
+      return invalid('Webhook host resolves to a private, loopback, link-local or reserved address.', 'private');
     }
   }
   const all: ResolvedAddress[] = answers.map((a) => ({ address: a.address, family: isIP(a.address) === 6 ? 6 : 4 }));

@@ -79,5 +79,5 @@ export const developersRooms: RoomTable = {
     <DeliveryList api={api} canManage={canManageWebhooks(role)} />
   )),
   'developer-sandbox': def('developer-sandbox', (_r, api) => <Sandbox api={api} />),
-  'developer-docs': def('developer-docs', () => <Docs />),
+  'developer-docs': def('developer-docs', (_r, api) => <Docs api={api} />),
 };

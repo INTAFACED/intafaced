@@ -2,6 +2,7 @@
 // a response the old page made before the navigation committed is never the one returned, nor one the old page started
 // before the navigation that answers after it committed (#8061); the body is read when the response arrives, and the
 // listeners are gone afterwards. Run: node tooling/scripts/real-app-navigation.test.mjs
+// Before a push: runs from .githooks/pre-push when the push changes a journey file (it takes under a second).
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 

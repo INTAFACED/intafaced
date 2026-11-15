@@ -73,6 +73,7 @@ import { PAY_MERCHANT_DECIDE_KYB, kybApprovalFields, loadKybDecisionBinding } fr
 import { ControlError } from './control/errors.js';
 import { toTrpcError as controlToTrpcError } from './namespaces/control-errors.js';
 import { PayError, type PayService } from './payment-service.js';
+import { openingTxIdFromDetail } from './payment-service/internal.js';
 import { merchantFeeView, type MerchantStarterFee } from './starter-fee.js';
 import { DestinationKindError } from './payout-destination.js';
 import {
@@ -125,6 +126,9 @@ import { PostgresFraudReviewQueue, type DurableReviewCase } from './fraud/review
 import {
   defaultDisputeCaseStore,
   DisputeCaseError,
+  refuseChargebackOpeningPostedShortfallUnfunded,
+  refuseChargebackPlanConflict,
+  refuseChargebackShortfallUnfunded,
   refuseChargebackUncovered,
   type ChargebackLedgerRefuse,
   type DisputeCaseStore,
@@ -2021,7 +2025,23 @@ export function createPayRouter(
                     cause: e,
                   });
                 }
-                throw e;
+                // The refusals the webhook door records as a case (postChargebackOpenOrRefuse): the dispute exists either
+                // way. An opening that already posted before the shortfall was refused moved the merchant's money, so the
+                // case must name that transaction; a later lost or closed outcome books the shortfall once.
+                const ref = { disputeId: input.disputeId, paymentId: input.paymentId };
+                if (e instanceof PayError && e.code === 'pay.chargeback_plan_conflict') {
+                  ledgerRefuse = refuseChargebackPlanConflict(ref);
+                } else if (e instanceof PayError && e.code === 'pay.chargeback_shortfall_unfunded') {
+                  const openingTxId = openingTxIdFromDetail(e.detail);
+                  if (openingTxId) {
+                    posted = { txId: openingTxId };
+                    ledgerRefuse = refuseChargebackOpeningPostedShortfallUnfunded(ref);
+                  } else {
+                    ledgerRefuse = refuseChargebackShortfallUnfunded(ref);
+                  }
+                } else {
+                  throw e;
+                }
               }
             }
             const ledgerPost = posted?.txId?.trim() ? { txId: posted.txId.trim() } : undefined;
@@ -2826,6 +2846,7 @@ export function toTrpcError(err: unknown): unknown {
        * is wrong, which is the only thing that is actually true.
        */
       case 'pay.link_exhausted':
+      case 'pay.payment_not_in_our_custody':
       case 'pay.checkout_session_closed':
       case 'pay.merchant_parent_present':
         return 'CONFLICT' as const;
@@ -2852,6 +2873,8 @@ export function toTrpcError(err: unknown): unknown {
       case 'pay.destination_hold_unset':
       case 'pay.payout_admission_missing':
       case 'pay.fee_bps_unset':
+      case 'pay.partner_fee_rate_unset':
+      case 'pay.receiving_wallet_unset':
       case 'pay.starter_fee_unpublished':
       case 'pay.link_ttl_unset':
       case 'pay.purchase_hold_period_unset':

@@ -162,6 +162,20 @@ describe.runIf(Boolean(url))('durable identity operation decisions', () => {
     expect(await decisions.decide(grant(intent()), 'svc-trade')).toMatchObject({ status: 'granted' });
   });
 
+  it('refuses every fresh trading operation while a staff close with a grace date waits for its date (J-identity-14 #1)', async () => {
+    const userId = target.principal!.userId;
+    const before = intent();
+    const original = await decisions.decide(grant(before), 'svc-trade');
+    expect(original).toMatchObject({ status: 'granted' });
+    await db.sql`UPDATE users SET closed_reason = 'other', close_grace_until = now() + interval '14 days' WHERE id = ${userId}`;
+    // The person is still signed in (status active), but nothing new trades; an earlier grant stays.
+    expect(await decisions.decide(grant(before), 'svc-trade')).toEqual(original);
+    expect(await decisions.decide(grant(intent()), 'svc-trade')).toMatchObject({ status: 'cancelled', code: 'trade.account_restricted' });
+    expect(await decisions.decide(grant(intent('strategy.start')), 'svc-trade')).toMatchObject({ code: 'trade.account_restricted' });
+    await db.sql`UPDATE users SET closed_reason = NULL, close_grace_until = NULL WHERE id = ${userId}`;
+    expect(await decisions.decide(grant(intent()), 'svc-trade')).toMatchObject({ status: 'granted' });
+  });
+
   it('an armed futures stop still fires its reduce-only order under the trading restriction; an auto-invest buy does not', async () => {
     const userId = target.principal!.userId;
     await db.sql`INSERT INTO trading_restrictions (user_id, restricted, version) VALUES (${userId}, true, 1)`;

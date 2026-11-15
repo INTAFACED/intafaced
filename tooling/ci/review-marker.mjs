@@ -37,6 +37,7 @@ import { pathToFileURL } from 'node:url';
 import { gateFilesTouched } from '../scripts/gate-file-guard.mjs';
 import { BASELINE } from './look-baselines.mjs';
 import { judgeReason } from './test-judge.mjs';
+import { httpMessage, titleFor } from './api-budget.mjs';
 
 /** How long the seal waits for the review before it fails, and how often it looks. ci.yml's merge-seal timeout covers it. */
 const REVIEW_WAIT_MS = 20 * 60_000;
@@ -588,7 +589,11 @@ async function api(path, token, { missingOk = false } = {}) {
   });
   if (missingOk && res.status === 404) return null;
   if (!res.ok) {
-    console.error(`::error::could not read ${path} (HTTP ${res.status}); sealing fails closed`);
+    const msg = httpMessage(path, res);
+    const title = titleFor(msg, '');
+    console.error(
+      `::error${title ? ` title=${title}` : ''}::could not read ${path} (${msg.slice(msg.indexOf('HTTP'))}); sealing fails closed`,
+    );
     process.exit(1);
   }
   return res.json();
@@ -1026,6 +1031,6 @@ async function main() {
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href)
   main().catch((e) => {
     // Every unreadable list or bound ends here: the seal fails closed and says why.
-    console.error(`::error title=Review sign-off unreadable::${e.message}`);
+    console.error(`::error title=${titleFor(e.message, 'Review sign-off unreadable')}::${e.message}`);
     process.exit(1);
   });

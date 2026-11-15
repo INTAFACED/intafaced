@@ -77,10 +77,14 @@ test(`${J} #1 a course page offers Enrol now on the free track, with the start d
     ],
   });
 
+  // The learner chooses the free audit track, then presses Enrol now, and the enrolment is on that track.
+  await block.getByRole('radio', { name: /Free track/ }).check();
+  await expect(block.getByRole('radio', { name: /Free track/ })).toBeChecked();
   await block.getByRole('button', { name: 'Enrol now', exact: true }).click();
   await expect(block.getByText(/^You are enrolled on the Free track since /)).toBeVisible();
   await expect(block.getByRole('button', { name: 'Enrol now', exact: true })).toHaveCount(0);
   expect((await enrolments(who)).filter((row) => row.pathSlug === first)).toHaveLength(1);
+  expect((await termsOf(who, first)).enrolment).toMatchObject({ track: 'audit' });
 
   // Seats only when a cap exists, and a closed course says why in words. Staff set each condition on the third course
   // (nobody in this run is enrolled in it until #4) through Academy's admin door, one at a time, and take it off again.
@@ -101,7 +105,11 @@ test(`${J} #1 a course page offers Enrol now on the free track, with the start d
     const capped = await terms();
     expect(capped.seatCap).toBe(3);
     expect(capped.closed).toBeNull();
-    await expect(seats(await page3())).toHaveText(`${capped.seatsRemaining} of 3 left`);
+    const open = await page3();
+    await expect(seats(open)).toHaveText(`${capped.seatsRemaining} of 3 left`);
+    // Seats left under a cap: the course stays open, with no closed reason and Enrol now offered.
+    await expect(open.getByText(/so the course is closed for enrolment|The enrolment window has/)).toHaveCount(0);
+    await expect(open.getByRole('button', { name: 'Enrol now', exact: true })).toBeEnabled();
 
     // Full: a cap of the seats already taken (one other TEST learner enrols first), so none is left.
     const other = await (await page.context().browser().newContext()).newPage();
@@ -256,7 +264,9 @@ const TEST_QUIZ = {
   ],
 };
 const setCourseStart = (slug, startsAt) => staff('admin.setCourseStart', { slug, startsAt, reason: `TEST ${J}` });
-// The staff doors #1 needs to set a seat cap, an enrolment window and a course's visibility (not in svc-academy yet).
+// Academy's staff doors #1 uses to set a seat cap, an enrolment window and a course's visibility (svc-academy router.ts
+// `admin.setCourseSeatCap`, `admin.setCourseEnrolmentWindow`, `admin.setCourseVisibility`; `staff` fails the step on any
+// answer but 200, so a missing door is a red, never a pass).
 const setSeatCap = (slug, seatCap, reason) => staff('admin.setCourseSeatCap', { slug, seatCap, reason });
 const setEnrolmentWindow = (slug, window, reason) => staff('admin.setCourseEnrolmentWindow', { slug, ...window, reason });
 const setVisibility = (slug, visibility, reason) => staff('admin.setCourseVisibility', { slug, visibility, reason });

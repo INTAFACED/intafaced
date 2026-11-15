@@ -5,16 +5,21 @@ import type {
   AcademyCertExports,
   AcademyIssuedCerts,
 } from '@intafaced/contracts/academy-cert-designs';
+import type { AcademyCertIssueRule } from '@intafaced/contracts/academy-certificates';
 import type { Part } from '@/lib/desk/part';
 
 /**
  * Certificate designs and the issued-certificates list on the founder console (AC-certificates-03). Pure, so the server
  * loader, the route and the browser components share it.
  */
-export type { AcademyCertDesign, AcademyCertExport, AcademyIssuedCerts };
+export type { AcademyCertDesign, AcademyCertExport, AcademyIssuedCerts, AcademyCertIssueRule };
+
+/** Each published certificate's stored issue rule (null when staff have set none: the learner claims it), read on its own. */
+export type CertIssueRules = Readonly<Record<string, Part<AcademyCertIssueRule | null>>>;
 
 export interface CertDesignsView {
   readonly designs: Part<AcademyCertDesigns>;
+  readonly issueRules: CertIssueRules;
   readonly asOf: string;
 }
 

@@ -29,6 +29,14 @@ function state(key) {
 const GRID = '/api/trade/trpc/bots.grid';
 const codeOf = (body) => body?.error?.data?.cause?.code;
 const read = (route, input) => `${route}?input=${encodeURIComponent(JSON.stringify(input ?? {}))}`;
+/**
+ * The answer to one tRPC call of `procedure` (its path ends with it). `bots.grid.topUp` is not `bots.grid.topUpFree`,
+ * the sheet's read of the free figure, which it sends on opening and after every answer and which answers 200: a free
+ * read that answers late can be taken for the BTC top-up's answer, and #1 then sees 200 where the service refuses
+ * (13 Nov, on #8178 and #8222).
+ */
+const answerOf = (page, procedure) =>
+  page.waitForResponse((res) => new URL(res.url()).pathname.endsWith(`/${procedure}`) && res.request().method() === 'POST');
 async function getBot(who, botId) {
   const { status, body } = await (await api(who)).get(read(`${GRID}.get`, { botId }));
   expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
@@ -91,7 +99,7 @@ test(`${J} #1 tops up the quote by TEST 50: the investment rises by 50 and the g
   const send = async (asset, amount) => {
     await sheet.getByLabel('Asset').selectOption(asset);
     await sheet.getByLabel('Amount').fill(amount);
-    const answer = page.waitForResponse((res) => res.url().includes('bots.grid.topUp'));
+    const answer = answerOf(page, 'bots.grid.topUp');
     await sheet.getByRole('button', { name: 'Top up' }).click();
     const res = await answer;
     return { status: res.status(), body: await res.json() };

@@ -157,6 +157,9 @@ test('gate files: the review additions (rules every agent loads, repo-wide confi
     'package.json',
     'tooling/scripts/github-refusal.mjs',
     'tooling/scripts/gate-gh.mjs',
+    '.oxlintrc.json',
+    'tooling/lint/oxlint-plugin-garden/index.js',
+    'tooling/lint/ratchet.json',
   ]) {
     assert.equal(gateFilesTouched([f]).length, 1, f);
   }

@@ -171,6 +171,12 @@ export interface PaymentIntent {
   /** Merchant's reference for the buyer — opaque to us and to the rail. */
   readonly customerRef?: string;
   readonly metadata?: Readonly<Record<string, string>>;
+  /**
+   * Launch money model (OWNER 226): the business's own receiving address for this payment, derived from the key it gave.
+   * A rail that takes crypto watches this address instead of deriving one of ours; nobody here can move what lands there.
+   * Absent: the custodial layer, where the rail gives an address we control.
+   */
+  readonly receiveAt?: string;
 }
 
 /**

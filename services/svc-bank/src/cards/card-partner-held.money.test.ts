@@ -24,7 +24,9 @@ import { createBankServices } from '../bank-service.js';
 import { BankError } from '../errors.js';
 import { testPartner, type TestPartner } from '../partner/test-partner.js';
 import { createBankRouter } from '../router.js';
-import { CardService } from './card-service.js';
+import { CASHBACK_ANNOUNCE_FAILED, CASHBACK_ANNOUNCE_UNWIRED, CardService, type CardCashbackEarned } from './card-service.js';
+import { parseCashbackRates } from './card-programme.js';
+import { memoryRankTier } from './rank-tier.js';
 import { cardSim } from './issuer.js';
 import { PartnerCardRefusal, partnerCardKey, testPartnerCardHolds, type PartnerCardHolds } from './partner-card-holds.js';
 import { NOTHING_REPORTED, type CardPartnerTerms } from './partner-terms.js';
@@ -84,7 +86,7 @@ describe('partner-held card authorisations (PG)', () => {
   }, 30_000);
 
   /** One CardService wired as `createBankServices` wires it: the TEST partner's switch, then the custody switch. */
-  function build(over: { holds?: PartnerCardHolds } = {}) {
+  function build(over: { holds?: PartnerCardHolds; cashback?: { sink?: ((e: CardCashbackEarned) => Promise<void>) | null } } = {}) {
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
       testPartner: partner,
       custodyLayer: layer,
@@ -92,6 +94,17 @@ describe('partner-held card authorisations (PG)', () => {
       cards: {
         issuer: cardSim({ partner: terms }),
         ...(over.holds ? { partnerHolds: over.holds } : {}),
+        // J-bank-13 #7's TEST cashback: USDC rates by rank tier, the simulator's TEST stand-in on, Ada at `metal`.
+        ...(over.cashback
+          ? {
+              cashback: {
+                rates: parseCashbackRates(JSON.stringify({ assetId: 'USDC', rates: { none: 100, metal: 200 } })),
+                rankTier: memoryRankTier({ [ADA]: 'metal' }),
+                simulatorPays: true,
+              },
+              cashbackEarned: over.cashback.sink ?? null,
+            }
+          : {}),
       },
     });
     return bank;
@@ -219,7 +232,7 @@ describe('partner-held card authorisations (PG)', () => {
       expect(ledger.journal()).toHaveLength(0);
     });
 
-    it('captures at the partner, gives the rest back, and the ledger still posts nothing (no cashback, no round-up)', async () => {
+    it('captures at the partner, gives the rest back, and the ledger still posts nothing (no cashback rate set; no round-up without a rule)', async () => {
       const card = await issue();
       const auth = await cards.authorize({ cardId: card.id, authorizationRef: 'jb14-capture', amount: amt('40') });
       const result = await cards.capture({ cardId: card.id, authorizationRef: 'jb14-capture', amount: amt('30') });
@@ -229,8 +242,9 @@ describe('partner-held card authorisations (PG)', () => {
         returned: amt('10'),
         captureLedgerTxId: null,
         reversalLedgerTxId: null,
-        cashback: { status: 'refused', reason: 'bank.card_partner_held' },
-        roundUp: { status: 'skipped', reason: 'bank.card_partner_held' },
+        cashback: { status: 'none' },
+        // No round-up rule on this card's account: nothing to round up (a rule's partner move is J-bank-07 #3's).
+        roundUp: { status: 'none' },
       });
       expect(result.partner?.captureRef).toBe(`TEST-card-partner:${partnerCardKey('capture', auth.id)}`);
       expect(result.partner?.releaseRef).toBe(`TEST-card-partner:${partnerCardKey('release', auth.id)}`);
@@ -242,6 +256,89 @@ describe('partner-held card authorisations (PG)', () => {
         'bank.card_authorization_closed',
       );
       expect(await holds.figures({ userId: ADA, assetId: 'USDC' })).toMatchObject({ available: '70', held: '0' });
+    });
+
+    describe('cashback on partner-held spend (J-bank-13 #7): owed by INTAFACED and paid to the wallet, never credited here', () => {
+      it('PLANTED: earned once at the rank tier, handed to the rewards programme once, and the ledger posts nothing', async () => {
+        const sent: CardCashbackEarned[] = [];
+        const svc = build({ holds, cashback: { sink: async (e) => void sent.push(e) } }).cards;
+        const card = await issue(svc);
+        const auth = await svc.authorize({ cardId: card.id, authorizationRef: 'jb13-cb', amount: amt('40') });
+        const result = await svc.capture({ cardId: card.id, authorizationRef: 'jb13-cb', amount: amt('30') });
+        // 30 USDC at metal's 2%: 0.6 USDC, owed, handed over; the custodial reward key was never used.
+        expect(result.cashback).toEqual({ status: 'owed', amount: amt('0.6'), announced: true });
+        expect(ledger.journal()).toHaveLength(0);
+        expect(await ledgerKeysFor(auth.id)).toEqual([]);
+        expect(sent).toEqual([
+          expect.objectContaining({
+            authorizationId: auth.id,
+            cardId: card.id,
+            userId: ADA,
+            spend: '30',
+            cashback: '0.6',
+            assetId: 'USDC',
+            tier: 'metal',
+            rateBps: 200,
+          }),
+        ]);
+        const [row] = await sql<Array<{ paid_by: string; status: string; ledger_tx_id: string | null; announced: boolean }>>`
+          SELECT paid_by, status::text AS status, ledger_tx_id, announced_at IS NOT NULL AS announced
+            FROM bank.card_cashback WHERE authorization_id = ${auth.id}
+        `;
+        expect(row).toEqual({ paid_by: 'wallet', status: 'pending', ledger_tx_id: null, announced: true });
+        // Never spendable here: the summary keeps it out of `paid` and names it owed to the wallet.
+        const summary = await svc.cashbackSummary(ADA);
+        expect(summary).toMatchObject({ tier: 'metal', rateBps: 200, assetId: 'USDC', paid: 0n, unpaid: 0n, toWallet: amt('0.6') });
+        expect(summary.payments).toEqual([expect.objectContaining({ authorizationId: auth.id, paidBy: 'wallet', announced: true })]);
+        // A resume hands nothing over twice and posts nothing.
+        await svc.resumeSettlements({ cardId: card.id, authorizationRef: 'jb13-cb' });
+        expect(sent).toHaveLength(1);
+        expect(ledger.journal()).toHaveLength(0);
+      });
+
+      it('a hand-over the bus did not take waits, named, and a resume sends the same record once', async () => {
+        let up = false;
+        const sent: CardCashbackEarned[] = [];
+        const svc = build({
+          holds,
+          cashback: {
+            sink: async (e) => {
+              if (!up) throw new Error('nats: timeout');
+              sent.push(e);
+            },
+          },
+        }).cards;
+        const card = await issue(svc);
+        const auth = await svc.authorize({ cardId: card.id, authorizationRef: 'jb13-cb-lost', amount: amt('10') });
+        const result = await svc.capture({ cardId: card.id, authorizationRef: 'jb13-cb-lost', amount: amt('10') });
+        // The capture stands; the cashback is recorded and says why it waits.
+        expect(result.captured).toBe(amt('10'));
+        expect(result.cashback).toEqual({ status: 'owed', amount: amt('0.2'), announced: false, reason: CASHBACK_ANNOUNCE_FAILED });
+        up = true;
+        await svc.resumeSettlements({ cardId: card.id, authorizationRef: 'jb13-cb-lost' });
+        await svc.resumeSettlements({ cardId: card.id, authorizationRef: 'jb13-cb-lost' });
+        expect(sent).toEqual([expect.objectContaining({ authorizationId: auth.id, cashback: '0.2', tier: 'metal' })]);
+        expect(ledger.journal()).toHaveLength(0);
+      });
+
+      it('with no hand-over wired it is recorded and names that, and nothing is credited anywhere', async () => {
+        const svc = build({ holds, cashback: { sink: null } }).cards;
+        const card = await issue(svc);
+        await svc.authorize({ cardId: card.id, authorizationRef: 'jb13-cb-unwired', amount: amt('10') });
+        const result = await svc.capture({ cardId: card.id, authorizationRef: 'jb13-cb-unwired', amount: amt('10') });
+        expect(result.cashback).toEqual({ status: 'owed', amount: amt('0.2'), announced: false, reason: CASHBACK_ANNOUNCE_UNWIRED });
+        expect(ledger.journal()).toHaveLength(0);
+      });
+
+      it('a wallet row can never be settled or name a ledger transaction (the table refuses it)', async () => {
+        const svc = build({ holds, cashback: { sink: async () => undefined } }).cards;
+        const card = await issue(svc);
+        const auth = await svc.authorize({ cardId: card.id, authorizationRef: 'jb13-cb-ck', amount: amt('10') });
+        await svc.capture({ cardId: card.id, authorizationRef: 'jb13-cb-ck', amount: amt('10') });
+        await expect(
+          sql`UPDATE bank.card_cashback SET status = 'settled', ledger_tx_id = 'planted' WHERE authorization_id = ${auth.id}`,
+        ).rejects.toThrow(/card_cashback_paid_by_ck/);
+      });
     });
 
     it('a capture above the authorised amount is refused by the partner, and one within it then captures', async () => {
