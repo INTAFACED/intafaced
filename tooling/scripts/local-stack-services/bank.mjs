@@ -288,6 +288,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     BANK_CARD_CASHBACK_RATES_JSON: testValue('BANK_CARD_CASHBACK_RATES_JSON'),
     BANK_PLANS_JSON: testValue('BANK_PLANS_JSON'),
     BANK_DORMANCY_RULES_JSON: testValue('BANK_DORMANCY_RULES_JSON'),
+    // LOCAL TEST bank account values (J-bank-17): the owner's onboarding requirements, an answer's size cap, the reopen window.
+    BANK_ONBOARDING_REQUIREMENTS_JSON: testValue('BANK_ONBOARDING_REQUIREMENTS_JSON'),
+    BANK_INFO_REQUEST_UPLOAD_JSON: testValue('BANK_INFO_REQUEST_UPLOAD_JSON'),
+    BANK_REOPEN_WINDOW_DAYS: testValue('BANK_REOPEN_WINDOW_DAYS'),
     BANK_CARD_SIM_CASHBACK: 'test',
     ...addressBookCap(),
     ...offrampCooling(),

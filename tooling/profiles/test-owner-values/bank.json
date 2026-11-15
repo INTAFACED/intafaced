@@ -216,6 +216,21 @@
       "value": "[{\"assetId\": \"USDT\", \"fee\": \"5\", \"inactiveDays\": 365, \"noticeLeadDays\": 30, \"version\": \"local-test-1\"}]",
       "note": "TEST dormancy fee rule (J-bank-16 #7): 5 TEST USDT after 365 days with no activity, noticed 30 days ahead. Made up for the local test stack; not an owner decision or a fee."
     },
+    "BANK_ONBOARDING_REQUIREMENTS_JSON": {
+      "service": "bank",
+      "value": "[\"TEST owner requirement: keep your contact email up to date\", \"TEST owner requirement: use the account for your own money only\"]",
+      "note": "Two made-up owner requirements labelled TEST, shown beside the partner's in bank onboarding (J-bank-17 #1). Not the owner's requirements."
+    },
+    "BANK_INFO_REQUEST_UPLOAD_JSON": {
+      "service": "bank",
+      "value": "{\"allowedTypes\": [\"application/pdf\", \"image/png\"], \"maxBytes\": 65536}",
+      "note": "TEST size cap for an answer to the partner's information request: a PDF or PNG up to 64 KiB, small so a journey can see a file over it refused (J-bank-17 #2). Not an owner decision."
+    },
+    "BANK_REOPEN_WINDOW_DAYS": {
+      "service": "bank",
+      "value": "30",
+      "note": "TEST days after a bank account closed in which it may be reopened (J-bank-17 #6). Not an owner decision."
+    },
     "BANK_CARD_SPEND_ASSETS": {
       "service": "bank",
       "value": "USDC,BTC,USD",
