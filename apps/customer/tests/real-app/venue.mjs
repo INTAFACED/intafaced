@@ -1,4 +1,5 @@
-import { keccak256, toHex } from 'viem';
+import { createPublicClient, erc20Abi, http, keccak256, toHex } from 'viem';
+import { GATE_URL } from '../../../../tooling/scripts/local-test-facts.mjs';
 import { privateKeyToAccount } from 'viem/accounts';
 import { expect } from './journey.mjs';
 import { restartWithSetting, toUnits } from './stack.mjs';
@@ -182,4 +183,22 @@ export function sameDecimal(a, b) {
 export async function venueBalance(owner, asset, base = TEST_VENUE) {
   const body = await venueRecord(owner, '/balances', {}, base);
   return body.value.find((b) => b.asset === asset) ?? { asset, free: '0', locked: '0', total: '0' };
+}
+
+// cacheTime 0: viem otherwise answers a read from a 4 s cache, so a figure at a later block could repeat an earlier one.
+const testChainClient = createPublicClient({ transport: http(GATE_URL), cacheTime: 0 });
+
+/**
+ * A wallet's token balance as the stack's TEST chain itself reports it (read straight through the chain's gate, never
+ * through our door or our ledger), at `blockNumber` when given. The outside record for a step whose figure the chain
+ * reports, as `venueBalance` is for a step whose figure the TEST venue reports. Raw token units, as a bigint.
+ */
+export async function chainBalance(token, owner, blockNumber) {
+  return testChainClient.readContract({
+    address: token,
+    abi: erc20Abi,
+    functionName: 'balanceOf',
+    args: [owner],
+    ...(blockNumber === undefined ? {} : { blockNumber }),
+  });
 }
