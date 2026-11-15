@@ -1468,7 +1468,10 @@ export const personalTransferPosted = defineEvent(
     recipientUserId: userIdSchema,
     amount: amountSchema,
     assetId: assetIdSchema,
-    ledgerTxId: z.string().min(1).max(128),
+    /** The ledger transaction of a send on the custodial layer; null when the partner bank moved it. */
+    ledgerTxId: z.string().min(1).max(128).nullable(),
+    /** The partner bank's move of a send it holds the money for (OWNER 226); absent or null on the custodial layer. */
+    partnerMoveId: z.string().min(1).max(128).nullable().optional(),
     postedAt: z.string().datetime({ offset: true }),
   }),
   'A personal send posted. svc-notify writes pay.transfer_sent for the sender and pay.transfer_received for the recipient.',

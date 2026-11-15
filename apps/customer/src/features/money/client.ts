@@ -136,7 +136,10 @@ export function createMoneyClient(api: ApiClient) {
             .map(([assetId, available]) => ({ assetId, available, held: null, quantity: null }));
       return { coverage: 'partial' as const, balances, spaces, unnamed, holdings, conflicts: [...conflicts] };
     },
-    transfer(spaces: Space[], input: TransferDraft): Promise<ApiResult<{ ledgerTxId: string; amount: string }>> {
+    transfer(
+      spaces: Space[],
+      input: TransferDraft,
+    ): Promise<ApiResult<{ ledgerTxId: string | null; partnerMove?: { id: string; label: string } | null; amount: string }>> {
       const message = validateTransfer(spaces, input);
       if (message) return Promise.resolve({ ok: false, reason: 'error', code: 'money.invalid_transfer', message });
       // Only a field the customer wrote goes on the wire, trimmed exactly as the service trims it.
@@ -153,7 +156,12 @@ export function createMoneyClient(api: ApiClient) {
         body,
         z
           .object({
-            ledgerTxId: z.string().min(1),
+            // The ledger's transaction, or, when the partner bank holds the money, null with the partner's move (OWNER 226).
+            ledgerTxId: z.string().min(1).nullable(),
+            partnerMove: z
+              .object({ id: z.string().min(1), label: z.string().min(1) })
+              .nullable()
+              .optional(),
             amount: decimalSchema.refine(
               (amount) => parseAmount(amount) === parseAmount(input.amount),
               copyText('client.the.settled.amount.must.match.the.review'),
@@ -161,6 +169,8 @@ export function createMoneyClient(api: ApiClient) {
             note: z.string().nullable().optional(),
             reference: z.string().nullable().optional(),
           })
+          // Exactly one record of the move: the ledger's or the partner's.
+          .refine((data) => (data.ledgerTxId !== null) !== Boolean(data.partnerMove), { message: transferDepthCopy.t('echoMismatch') })
           // A send to a person echoes what it stored. The reply must be the note and reference that were reviewed.
           .refine((data) => !toPerson || (data.note !== undefined && data.reference !== undefined && messageEchoed(data, body)), {
             message: transferDepthCopy.t('echoMismatch'),

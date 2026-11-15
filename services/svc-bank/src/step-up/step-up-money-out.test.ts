@@ -225,6 +225,7 @@ function fixture(mode: StepUpMode = 'required') {
         calls.push('personalPay.send');
         return {
           ledgerTxId: 'tx-1',
+          partnerMove: null,
           amount: '5',
           note: input.note ?? null,
           reference: input.reference ?? null,

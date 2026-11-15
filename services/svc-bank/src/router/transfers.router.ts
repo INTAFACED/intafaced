@@ -262,7 +262,9 @@ export function createTransfersRouter(c: BankRouterContext) {
       )
       .output(
         z.object({
-          ledgerTxId: z.string(),
+          /** The ledger transaction on the custodial layer; null when the partner bank moved it (OWNER 226). */
+          ledgerTxId: z.string().nullable(),
+          partnerMove: z.object({ id: z.string(), label: z.string() }).nullable(),
           amount: amountString,
           note: z.string().nullable(),
           reference: z.string().nullable(),
@@ -319,6 +321,7 @@ export function createTransfersRouter(c: BankRouterContext) {
           if (isHeldSend(result)) throw heldRefusal(result);
           return {
             ledgerTxId: result.ledgerTxId,
+            partnerMove: result.partnerMove,
             amount: result.amount,
             note: result.note,
             reference: result.reference,
@@ -341,7 +344,8 @@ export function createTransfersRouter(c: BankRouterContext) {
       .input(z.object({ ledgerTxId: z.string().min(1).max(128) }))
       .output(
         z.object({
-          ledgerTxId: z.string(),
+          ledgerTxId: z.string().nullable(),
+          partnerMove: z.object({ id: z.string(), label: z.string() }).nullable(),
           transferId: z.string(),
           createdAt: z.string().datetime(),
           fromHandle: z.string().nullable(),
@@ -360,6 +364,7 @@ export function createTransfersRouter(c: BankRouterContext) {
           const row = await bank.personalPay.get(ctx.principal.userId, input.ledgerTxId);
           return {
             ledgerTxId: row.ledgerTxId,
+            partnerMove: row.partnerMove,
             transferId: row.transferId,
             createdAt: row.createdAt,
             fromHandle: row.fromHandle,

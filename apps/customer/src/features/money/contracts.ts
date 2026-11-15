@@ -4,6 +4,9 @@ import { decimalSchema as money, parseAmount, signedDecimalSchema } from '../../
 import { spaceSchema } from './client';
 import { businessListSchema, businessSchema } from './business-schema';
 
+/** The partner bank's move of money it holds for the person (OWNER 226): its id, and the partner's name for itself. */
+export const partnerMoveSchema = z.object({ id: z.string().min(1), label: z.string().min(1) }).passthrough();
+
 export const scheduleSchema = z.object({
   id: z.string(),
   assetId: z.string(),
@@ -1400,9 +1403,16 @@ export const bankWrites = {
   // The bills pot (BK-pots-03): the space that pays bills, and whether a standing order from it tops it up from the account.
   'spaces.setBillsPot': z.object({ spaceId: z.string(), assetId: z.string(), fallback: z.boolean() }),
   'spaces.clearBillsPot': z.object({ spaceId: z.string(), billsPot: z.null() }),
-  'transfers.create': z.object({ ledgerTxId: z.string(), amount: money }),
+  // A move names its ledger transaction, or, when the partner bank holds the money, the partner's move (OWNER 226).
+  'transfers.create': z.object({ ledgerTxId: z.string().nullable(), amount: money, partnerMove: partnerMoveSchema.nullable().optional() }),
   // A personal send echoes the note and reference it stored, so the review can be checked against them.
-  'transfers.toUser': z.object({ ledgerTxId: z.string(), amount: money, note: z.string().nullable(), reference: z.string().nullable() }),
+  'transfers.toUser': z.object({
+    ledgerTxId: z.string().nullable(),
+    partnerMove: partnerMoveSchema.nullable().optional(),
+    amount: money,
+    note: z.string().nullable(),
+    reference: z.string().nullable(),
+  }),
   'transfers.schedule': z.object({ id: z.string(), nextRunAt: z.string() }),
   'transfers.scheduleToUser': z.object({ id: z.string(), nextRunAt: z.string() }),
   'transfers.pause': z.object({ status: z.string(), nextRunAt: z.string() }),

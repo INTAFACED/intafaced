@@ -14,7 +14,9 @@ export interface TransferPostedNotice {
   readonly recipientUserId: string;
   readonly amount: string;
   readonly assetId: string;
-  readonly ledgerTxId: string;
+  /** Exactly one of these two: the ledger transaction on the custodial layer, or the partner bank's move (OWNER 226). */
+  readonly ledgerTxId: string | null;
+  readonly partnerMoveId: string | null;
   readonly postedAt: string;
 }
 
@@ -34,6 +36,7 @@ export function eventPersonalTransferNotices(bus: EventBus): PersonalTransferNot
           amount: input.amount,
           assetId: input.assetId,
           ledgerTxId: input.ledgerTxId,
+          partnerMoveId: input.partnerMoveId,
           postedAt: input.postedAt,
         },
         { idempotencyKey: `pay.transfer_posted:${input.transferId}` },

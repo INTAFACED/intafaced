@@ -286,6 +286,12 @@ const outputNames: Record<string, string> = {
   get name() {
     return copyText('outcome.name');
   },
+  get partnerMove() {
+    return copyText('outcome.partner.move');
+  },
+  get label() {
+    return copyText('outcome.held.at');
+  },
 };
 const monetaryOutcomeKeys = new Set([
   'amount',
