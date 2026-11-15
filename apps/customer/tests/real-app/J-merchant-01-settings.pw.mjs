@@ -76,8 +76,8 @@ test(`${J} #6 the owner changes a notification preference, saved for them alone,
   await expect(page).toHaveURL(/\/support$/);
   // Support itself: its help search and the way to ask a person, not just its address.
   await expect(page.getByLabel('Search help')).toBeVisible();
-  const desk = page.getByRole('tablist', { name: 'Support sections' });
-  for (const name of ['Help articles', 'Your requests', 'New request']) await expect(desk.getByRole('tab', { name })).toBeVisible();
+  const desk = page.getByRole('group', { name: 'Support sections' });
+  for (const name of ['Help articles', 'Your requests', 'New request']) await expect(desk.getByRole('button', { name })).toBeVisible();
   expect(refused).toEqual([]);
 
   // The team half needs a verified business: the founder pair approves this one now, and the owner's own choice, saved
