@@ -36,6 +36,7 @@
  */
 import { closeSync, existsSync, openSync, readFileSync, readSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { STACK_PORTS } from './local-test-facts.mjs';
 
 export const REACH_ATTACHMENT = 'journey-reach';
 export const REACH_VERSION = 2;
@@ -398,7 +399,7 @@ export function makeLogReader(logsDir) {
  * every script that ran is then `otherDist`). `take(file)` returns what this worker has
  * not attached for that journey file yet, as one record.
  */
-export function makeRecorder({ root, customerPort = '3210', distDir, routes = routeTable(root) }) {
+export function makeRecorder({ root, customerPort = String(STACK_PORTS.customer), distDir, routes = routeTable(root) }) {
   const scripts = new Map();
   const tabled = new Set();
   const noMapSeen = new Set();
