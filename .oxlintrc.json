@@ -23,6 +23,8 @@
     "garden/no-hand-decimal-parse": "error",
     "garden/no-hand-trpc-unwrap": "error",
     "garden/no-fetch-without-timeout": "error",
+    "garden/no-effect-in-product": "error",
+    "garden/no-hand-answer-reader": "error",
     "typescript/no-explicit-any": "error",
     "react-hooks/exhaustive-deps": "error",
     "react/refs": "off",
