@@ -294,11 +294,19 @@ function git(args) {
   return execFileSync('git', args, { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
 }
 
-function sourceFor(path) {
+/**
+ * Whether the code a deleted test file tests still exists: `x.test.ts` tests `x.ts` (or `x.tsx`), and a suite-named
+ * test (`x.money.test.ts`, `x.db.test.ts`, `x.pg.test.ts`, …) tests `x.ts` when no `x.money.ts` exists. (Failure it
+ * prevents: deleting `packages/ledger-client/src/recipes/builder-fee.money.test.ts` while `builder-fee.ts` stayed
+ * passed the guard clean, because only `builder-fee.money.ts` was looked for.)
+ */
+export function sourceFor(path, exists = existsSync) {
   const src = path.replace(/\.(?:test|spec)(\.[cm]?[jt]sx?)$/, '$1');
-  if (src !== path && existsSync(src)) return true;
-  const alt = src.replace(/\.tsx?$/, (m) => (m === '.ts' ? '.tsx' : '.ts'));
-  return alt !== src && existsSync(alt);
+  if (src === path) return false;
+  const withAlt = (p) => [p, p.replace(/\.tsx?$/, (m) => (m === '.ts' ? '.tsx' : '.ts'))];
+  const suite = src.replace(/\.[a-z][a-z0-9-]*(\.[cm]?[jt]sx?)$/, '$1');
+  const candidates = [...withAlt(src), ...(suite !== src ? withAlt(suite) : [])];
+  return candidates.some((p) => exists(p));
 }
 
 function collect(base) {
@@ -343,6 +351,17 @@ async function selfTest() {
   eq(t({ removed: ['  expect(a).toEqual({ x: 1 });'], added: ['  expect(a).toBeDefined();'] }).length, 1, 'weaker matcher');
   eq(judge([{ path: 'a/x.test.ts', status: 'D', removed: [], added: [], sourceExists: true }]).length, 1, 'deleted with source');
   eq(judge([{ path: 'a/x.test.ts', status: 'D', removed: [], added: [], sourceExists: false }]).length, 0, 'deleted with source gone');
+  // Planted: a suite-named test's source is the name without the suite (builder-fee.money.test.ts tests builder-fee.ts).
+  const has =
+    (...files) =>
+    (p) =>
+      files.includes(p);
+  eq(sourceFor('r/builder-fee.money.test.ts', has('r/builder-fee.ts')), true, 'x.money.test.ts: x.ts still exists');
+  eq(sourceFor('r/store.pg.test.ts', has('r/store.tsx')), true, 'x.pg.test.ts: x.tsx still exists');
+  eq(sourceFor('r/router.db.test.ts', has('r/router.db.ts')), true, 'x.db.test.ts: x.db.ts still exists');
+  eq(sourceFor('r/x.test.ts', has('r/x.ts')), true, 'x.test.ts: x.ts still exists');
+  eq(sourceFor('r/builder-fee.money.test.ts', has()), false, 'x.money.test.ts: source gone with it');
+  eq(sourceFor('r/x.test.ts', has('r/y.ts')), false, 'x.test.ts: another file is not its source');
   eq(judge([{ path: 'a/x.ts', status: 'M', removed: ['expect(a)'], added: [], sourceExists: true }]).length, 0, 'non-test ignored');
   eq(DECLARED.test('Why\n\nTest-change: removed the legacy vue snapshot test'), true, 'declared line');
   eq(DECLARED.test('Test-change: n/a'), false, 'declaration needs a real reason');
@@ -550,7 +569,7 @@ async function selfTest() {
     'planted fault: one more file',
   );
   await protectedSelfTest(eq);
-  console.log('✓ test-diff-guard --self-test OK (99 fixtures)');
+  console.log('✓ test-diff-guard --self-test OK (105 fixtures)');
 }
 
 /** Planted cases for the protected tests (protected-tests.mjs) and check 7. */
