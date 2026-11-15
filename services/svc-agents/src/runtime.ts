@@ -600,7 +600,7 @@ export class AgentRuntime {
     //      block it was read at and that block's time, or why it could not be read (J-agents-02 #4).
     if (!this.spend && this.funds && shouldMeter && worstCaseCost > 0n) {
       const funds = this.funds;
-      const read = await readFunds(() => funds.available(session.userId, this.feeAssetId, session.agentId));
+      const read = await readFunds(() => funds.available(session.userId, this.feeAssetId, session.agentId, session.id));
       const outcome = read.ok ? fundsShortfall(read.reading, 0n, worstCaseCost) : read;
       if (outcome !== null) {
         throw await this.appendRefusal(
@@ -640,7 +640,9 @@ export class AgentRuntime {
     let reservationKey = input.requestId;
     const funds = this.funds;
     const fundsRead =
-      funds && shouldMeter && worstCaseCost > 0n ? () => funds.available(session.userId, this.feeAssetId, session.agentId) : null;
+      funds && shouldMeter && worstCaseCost > 0n
+        ? () => funds.available(session.userId, this.feeAssetId, session.agentId, session.id)
+        : null;
     if (this.spend) {
       try {
         let held = await this.spend.reserve({

@@ -10,8 +10,13 @@
  * Every refusal is an answer (200, `ok: false`) naming why, so svc-agents keeps the window owed and asks again later; a
  * failure to answer at all is 503. `reply_lost` means the partner may have made the payment: asking again under the same
  * key answers with that payment, or makes it once.
+ *
+ * A business team's run (J-agents-11) names `businessId`: the business pays. Its payment method is the main balance at
+ * the partner of its first administrator (`businessPayer`), since a business account holds no money of its own here; a
+ * closed or unknown business has none. The member who ran it is still named, and settles what they ran after removal.
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { Sql } from 'postgres';
 import {
   AGENTS_USAGE_PAYMENT_PATH,
   agentsUsagePaymentCollectSchema,
@@ -37,6 +42,19 @@ export const partnerIntafacedAccount = (assetId: string): PartnerAccountRef => (
 });
 
 /** The partner move key for one usage window: one window is one payment. */
+/** A business's first administrator, while the business is active: who pays for its team runs. */
+export async function firstAdministrator(sql: Sql, businessId: string): Promise<string | null> {
+  const [row] = await sql<Array<{ user_id: string }>>`
+    SELECT m.user_id
+      FROM bank.business_accounts a
+      JOIN bank.business_members m ON m.account_id = a.id
+     WHERE a.id = ${businessId.toLowerCase()} AND a.status = 'active' AND m.role = 'admin'
+     ORDER BY m.created_at, m.user_id
+     LIMIT 1
+  `;
+  return row?.user_id ?? null;
+}
+
 export const usagePaymentKey = (chargeKey: string): string => `agents.usage-payment:${chargeKey}`;
 
 export interface UsagePaymentDeps {
@@ -45,9 +63,23 @@ export interface UsagePaymentDeps {
     userId: string,
   ): { readonly kind: 'partner'; readonly bank: PartnerBank; readonly partnerId: string } | { readonly kind: 'ledger' | 'none' };
   readonly freeze: PostingFreeze;
+  /** Who pays for an active business: its first administrator, or null for a closed or unknown business. */
+  businessPayer(businessId: string): Promise<string | null>;
 }
 
-export async function readUsagePayment(deps: UsagePaymentDeps, userId: string, assetId: string): Promise<AgentsUsagePaymentRead> {
+/** The person whose payment method pays: the business's payer for a team run, else the person themselves. */
+async function payerOf(deps: UsagePaymentDeps, userId: string, businessId: string | undefined): Promise<string | null> {
+  return businessId === undefined ? userId : deps.businessPayer(businessId);
+}
+
+export async function readUsagePayment(
+  deps: UsagePaymentDeps,
+  member: string,
+  assetId: string,
+  businessId?: string,
+): Promise<AgentsUsagePaymentRead> {
+  const userId = await payerOf(deps, member, businessId);
+  if (userId === null) return { heldBy: 'none' };
   const held = deps.heldBy(userId);
   if (held.kind !== 'partner') return { heldBy: held.kind };
   const balance = await held.bank.balance({ userId, assetId, spaceId: null });
@@ -71,7 +103,9 @@ export async function collectUsagePayment(
   deps: UsagePaymentDeps,
   input: Extract<AgentsUsagePaymentRequest, { action: 'collect' }>,
 ): Promise<AgentsUsagePaymentCollect> {
-  const held = deps.heldBy(input.userId);
+  const payer = await payerOf(deps, input.userId, input.businessId);
+  if (payer === null) return { ok: false, reason: 'not_partner_held' };
+  const held = deps.heldBy(payer);
   if (held.kind !== 'partner') return { ok: false, reason: 'not_partner_held' };
   const amount = parseAmount(input.amount);
   if (amount <= 0n) throw new BankError('A usage payment needs an amount above zero.', 'bank.partner_amount_invalid');
@@ -82,7 +116,7 @@ export async function collectUsagePayment(
     if (!prior) await assertPostingEnabled(deps.freeze, 'agents_usage_payment');
     const move = await held.bank.move({
       key,
-      from: { userId: input.userId, assetId: input.assetId, spaceId: null },
+      from: { userId: payer, assetId: input.assetId, spaceId: null },
       to: partnerIntafacedAccount(input.assetId),
       amount,
     });
@@ -124,7 +158,9 @@ export function registerAgentsUsagePayment(
     if (!parsed.success) return reply.code(400).send({ error: 'usage payment request is invalid', code: 'bank.usage_payment_input' });
     try {
       if (parsed.data.action === 'read') {
-        const read = agentsUsagePaymentReadSchema.safeParse(await readUsagePayment(deps, parsed.data.userId, parsed.data.assetId));
+        const read = agentsUsagePaymentReadSchema.safeParse(
+          await readUsagePayment(deps, parsed.data.userId, parsed.data.assetId, parsed.data.businessId),
+        );
         if (read.success) return read.data;
       } else {
         const done = agentsUsagePaymentCollectSchema.safeParse(await collectUsagePayment(deps, parsed.data));
