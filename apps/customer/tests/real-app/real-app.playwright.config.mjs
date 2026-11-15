@@ -43,7 +43,11 @@ export default defineConfig({
     // Every context, including each `browser.newContext()`, starts as the same TEST browser, which sign-up trusts, so
     // the new-device check asks only where a journey clears this cookie on purpose (J-identity-02 #5).
     storageState: localTestDeviceState(),
-    screenshot: 'only-on-failure',
+    // Every test that opens a page leaves a picture of what the app showed as it ended, passed or failed (project-state
+    // d88: "proof kept for every pass"): `<outputDir>/<file>-<title, from "J-<module>-NN-<step>">/test-finished-1.png`,
+    // one per page. A test with no page (an API-only step) leaves none. Pixels only: a password field draws dots and no
+    // screen shows a session token, while a trace would carry both, so CI keeps passing `--trace off`.
+    screenshot: 'on',
     trace: 'retain-on-failure',
     launchOptions: process.env.JOURNEY_CHROMIUM ? { executablePath: process.env.JOURNEY_CHROMIUM } : {},
   },
