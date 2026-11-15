@@ -22,3 +22,6 @@ vendor/
 # Retired Graphify installer remnants and generated maps in older checkouts.
 .agents/skills/graphify/
 graphify-out/
+
+# Written by `next build` in Next's own format; formatting it made every stack build leave a diff to commit.
+apps/admin/next-env.d.ts

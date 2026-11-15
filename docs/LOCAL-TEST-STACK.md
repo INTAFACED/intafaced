@@ -41,6 +41,20 @@ For a fresh database without altering an existing one, set `export LOCAL_STACK_S
 
 **Several stacks on one machine.** In each extra checkout set `LOCAL_STACK_SLOT=1`, `2` or `3`, for its stack and its journeys alike: every port above moves up by 1000 × the slot, the state folder becomes `~/.intafaced/local-test-stack-<slot>` (unless `LOCAL_STACK_STATE` is set) and journey results go to `/tmp/intafaced-real-app-<slot>`. Slot 0, the default, is the stack as above. A start from a checkout whose slot another checkout's stack holds refuses and names the slot to set. The ports live in one table, `tooling/scripts/local-test-facts.mjs`. Start cold builds one after another: each takes about 5.5 GB and 4 cores for about 4 minutes.
 
+## Check your own journey
+
+A builder may run its own stack to check its own work before pushing. The proof is still CI's Real-app journeys run on the PR's head; a local pass never counts. If another checkout's stack holds the ports, the start refuses before it builds: set `LOCAL_STACK_SLOT` (above).
+
+```sh
+export LOCAL_STACK_STATE="$PWD/.stack-state"   # this checkout's own stack (git-ignored)
+node tooling/scripts/local-test-stack.mjs start --only edge,identity,trade,matching,ledger,customer,<your services>
+pnpm exec playwright test --config apps/customer/tests/real-app/real-app.playwright.config.mjs --output "$PWD/.jr/results" <J-x>.pw.mjs
+pnpm exec playwright screenshot http://127.0.0.1:3210/<room> "$PWD/.jr/<room>.png"
+node tooling/scripts/local-test-stack.mjs stop
+```
+
+The first start builds everything (4 to 10 minutes); later starts take about 20 seconds. With `--only` the start lists the services you left out as DOWN and exits 1; the ones you named read `ok`.
+
 Helpers also check that this folder's Postgres and recorded services still own their loopback ports, with the expected checkout, database directory and process start time. A stale marker cannot authorize mutations against a different stack that has taken over the fixed ports. Missing ownership evidence refuses the action before account creation, funding or order submission.
 
 ## Real vs test

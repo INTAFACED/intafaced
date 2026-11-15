@@ -134,6 +134,7 @@ import {
   stackCustodyLayer,
   stackCustodyOff,
   custodyOffRefusal,
+  DEFAULT_SERVICES,
 } from './local-test-state.mjs';
 
 // ── Paths and ports ─────────────────────────────────────────────────────────
@@ -2276,8 +2277,13 @@ async function refuseOtherStack() {
   const procs = readProcs();
   if (was && was !== REPO && Object.values(procs).some(ownedAlive))
     fail(`the stack in ${STATE} runs from ${was}; start this checkout's own with LOCAL_STACK_SLOT=1 (or 2, 3)`);
-  for (const name of ['nats', 'edge', 'customer'])
-    if (!ownedAlive(procs[name]) && (await portOpen(PORTS[name]))) portTaken(PORTS[name], name);
+  for (const [name, ours] of [
+    ['postgres', pgRunning()],
+    ['nats', ownedAlive(procs.nats)],
+    ['edge', ownedAlive(procs.edge)],
+    ['customer', ownedAlive(procs.customer)],
+  ])
+    if (!ours && (await portOpen(PORTS[name]))) portTaken(PORTS[name], name);
 }
 
 async function cmdStart(flags) {
@@ -2290,6 +2296,11 @@ async function cmdStart(flags) {
   if (free < MIN_FREE_GB) fail(`only ${free.toFixed(1)} GB free on / (need >= ${MIN_FREE_GB} GB so free space stays above 12 GB)`);
   for (const b of [`${PG_BIN}/pg_ctl`, `${PG_BIN}/initdb`, `${PG_BIN}/psql`])
     if (!fs.existsSync(b)) fail(`missing ${b} (install PostgreSQL 16 via Homebrew)`);
+  // A first start without the core services leaves a stack the journey helpers refuse (assertActiveLocalStack).
+  const only = onlyFlag(flags);
+  const missingCore = DEFAULT_SERVICES.filter((n) => only && !only.includes(n));
+  if (missingCore.length && !DEFAULT_SERVICES.some((n) => ownedAlive(readProcs()[n])))
+    fail(`refusing: the journeys need ${DEFAULT_SERVICES.join(',')} running; add ${missingCore.join(',')} to --only`, 2);
   const secrets = loadOrCreateSecrets();
   // Each stack starts with no recorded CSP violations, so `csp-report --fail` speaks only of this run.
   fs.rmSync(P.cspViolations, { force: true });
@@ -2318,7 +2329,6 @@ async function cmdStart(flags) {
     );
   }
   adoptEnvCustomerDist();
-  const only = onlyFlag(flags);
   ensureNatsBinary();
   ensureBuilt(flags.includes('--rebuild'));
   ensureInvitationBuilt(flags.includes('--rebuild'));
