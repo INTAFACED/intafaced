@@ -245,12 +245,16 @@ describe('course purchases', () => {
     expect(await rows()).toHaveLength(1);
   });
 
-  it('two first presses at once open one intent, and only one answer carries the request', async () => {
-    await paidCourse();
-    const answers = await Promise.all([1, 2, 3].map(() => purchases.buy({ userId: L, slug: 'perps-101', wallet: WALLET })));
-    expect(answers.filter((a) => a.request !== null)).toHaveLength(1);
-    expect(await rows()).toHaveLength(1);
-  });
+  // Ten rounds of six: one round of three let the purchase_key race through on main once (#8378); without the fix this fails most runs.
+  it.each(Array.from({ length: 10 }, (_, i) => i + 1))(
+    'two first presses at once open one intent, and only one answer carries the request (round %i)',
+    async () => {
+      await paidCourse();
+      const answers = await Promise.all([1, 2, 3, 4, 5, 6].map(() => purchases.buy({ userId: L, slug: 'perps-101', wallet: WALLET })));
+      expect(answers.filter((a) => a.request !== null)).toHaveLength(1);
+      expect(await rows()).toHaveLength(1);
+    },
+  );
 
   it('a rejected signature leaves no purchase; Buy again reopens the same key and asks once more', async () => {
     await paidCourse();
