@@ -201,7 +201,8 @@ test(`${J} #3 attaches a take profit and a stop loss and runs a bar that hits bo
   let rows = [];
   let both = [];
   for (;;) {
-    await tradeBothWays(65);
+    // REPLAY (#8404 3016eeec): no second account; only the TEST tape, a new window every minute.
+    await page.waitForTimeout(65_000);
     const window = await tapeWindow(60);
     room = await backtest(page, 'TEST both exits', window);
     // Each exit is paired with the entry before it; a bar that reached both its stop loss and its take profit must
