@@ -33,6 +33,8 @@ venueForThisFile(test);
 const main = (page) => page.getByRole('main');
 const planner = (page) => main(page).getByRole('region', { name: 'Portfolio planner', exact: true });
 const proposals = (page) => planner(page).getByRole('region', { name: 'Rebalance proposals', exact: true }).getByRole('article');
+/** One proposal's article, pinned by its id: a newer proposal listed above it never moves the locator. */
+const proposal = (page, id) => planner(page).locator(`article[data-proposal-id="${id}"]`);
 
 /** The account's USDT as the ledger holds it, free and held, in scaled units. */
 async function usdt() {
@@ -111,7 +113,9 @@ async function ask(page, targets) {
   await form.getByRole('textbox', { name: /^Targets/ }).fill(targets);
   await form.getByRole('button', { name: 'Propose a rebalance' }).click();
   await expect(proposals(page)).toHaveCount(count + 1);
-  return proposals(page).first();
+  const id = await proposals(page).first().getAttribute('data-proposal-id');
+  expect(id).toMatch(/^[0-9a-f-]{36}$/);
+  return proposal(page, id);
 }
 
 /** A proposal's orders as the page lists them: side, market, size, worst price and what each commits. */
@@ -206,13 +210,9 @@ test(`${J} starts: a verified TEST account, a TEST wallet with TEST USDC and BTC
   // The Allowance page opened afresh by a full load, as J-agents-08's own steps open it; the TEST wallet installed
   // above stays in this page across loads.
   await openOwnAgent(page, agents, 'Allowance');
-  // The wallet the Access page connected stays connected across the load; it is connected again only when it is not.
-  const allowance = main(page).getByRole('region', { name: 'Allowance', exact: true });
-  const connect = allowance.getByRole('button', { name: 'Connect TEST Wallet' });
-  const address = main(page).getByTestId('venue-wallet-address');
-  await expect(connect.or(address).first()).toBeVisible();
-  if (await connect.isVisible()) await connect.click();
-  await expect(address).toHaveText(owner());
+  // The wallet the Access page connected is restored on the load (the provider asks eth_accounts again), so the page
+  // shows its address without a second connect.
+  await expect(main(page).getByTestId('venue-wallet-address')).toHaveText(owner());
   const form = main(page).getByRole('form', { name: 'Allowance' });
   await form.getByRole('textbox', { name: /^Amount/ }).fill('50');
   await form.getByRole('combobox', { name: 'Period' }).selectOption({ label: 'A week' });
@@ -275,8 +275,8 @@ test(`${J} #2 approves one proposal and rejects another: the approved orders pla
   const { agentAddress } = agents.run.read();
   const a = await subA();
   await openPortfolio(page);
-  const sell = proposals(page).first();
-  const sellId = await sell.getAttribute('data-proposal-id');
+  const sellId = await proposals(page).first().getAttribute('data-proposal-id');
+  const sell = proposal(page, sellId);
   // A second proposal, the other way: 75% BTC buys BTC.
   const buy = await ask(page, 'BTC 75');
   const buyId = await buy.getAttribute('data-proposal-id');
