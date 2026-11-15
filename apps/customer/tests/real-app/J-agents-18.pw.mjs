@@ -203,8 +203,8 @@ test(`${J} starts: a verified TEST account, a TEST wallet with TEST USDC and BTC
   await grant.getByRole('textbox', { name: /^Ends/ }).fill('7');
   await grant.getByRole('button', { name: 'Grant access' }).click();
   await expect(tableIn(section, 'Granted access')).toContainText('Sub-account A');
-  // The Allowance page opened afresh, with the wallet in the browser again, as J-agents-08's own steps open it.
-  await installTestWallet(page, { chainId, privateKey: agents.run.read().walletKey });
+  // The Allowance page opened afresh by a full load, as J-agents-08's own steps open it; the TEST wallet installed
+  // above stays in this page across loads.
   await openOwnAgent(page, agents, 'Allowance');
   const allowance = main(page).getByRole('region', { name: 'Allowance', exact: true });
   await allowance.getByRole('button', { name: 'Connect TEST Wallet' }).click();
