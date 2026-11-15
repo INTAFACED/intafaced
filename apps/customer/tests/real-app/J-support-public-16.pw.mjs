@@ -4,7 +4,7 @@ import { ADMIN, founderSignIn } from './admin.mjs';
 import { asDesk, helpCentre, publishText, saveCategory, saveSection, setAudience, setHelpCentre, unpublish } from './help-centre.mjs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
-import { EDGE, journeyState, ORIGIN, ROOT, STACK_PORTS } from './stack.mjs';
+import { EDGE, ORIGIN, ROOT, journeyState } from './stack.mjs';
 
 // J-support-public-16, in the running app (docs/roadmap/journeys.json): two support operators write, review and publish a
 // help article in the founder console's article editor, and readers find it once under its section. Founder A is the
@@ -58,7 +58,7 @@ async function supportDb() {
   const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
   const ctx = await gates.makeContext({ log: () => {} });
   const postgres = createRequire(path.join(ROOT, 'services', 'svc-support', 'package.json'))('postgres');
-  const port = ctx.marker.ports.postgres ?? STACK_PORTS.postgres;
+  const port = ctx.marker.ports.postgres ?? 15460;
   return postgres(`postgres://svc_support:${encodeURIComponent(ctx.secrets.pgService)}@127.0.0.1:${port}/intafaced_local_test`, {
     max: 1,
     onnotice: () => {},

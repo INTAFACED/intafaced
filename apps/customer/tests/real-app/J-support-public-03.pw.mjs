@@ -5,7 +5,7 @@ import path from 'node:path';
 import { test, expect } from './journey.mjs';
 import { asDesk, clearOfGuestWindowEdge, ensureDeskGroup } from './help-centre.mjs';
 import { makeContext } from '../../../../tooling/scripts/local-test-gates.mjs';
-import { journeyState, ORIGIN, restartWith, ROOT, STACK_PORTS, stackFile, tool } from './stack.mjs';
+import { journeyState, ORIGIN, restartWith, ROOT, stackFile, tool } from './stack.mjs';
 
 // J-support-public-03, in the running app (docs/roadmap/journeys.json): someone with no account asks for help, confirms
 // their address by the emailed link, and reads and replies on that one request by link. svc-support stores the request and
@@ -68,7 +68,7 @@ async function deskRequests(text, filter) {
 async function storedGuestRequests(subject) {
   const ctx = await makeContext({ log: () => undefined });
   const postgres = createRequire(path.join(ROOT, 'services', 'svc-support', 'package.json'))('postgres');
-  const port = ctx.marker.ports.postgres ?? STACK_PORTS.postgres;
+  const port = ctx.marker.ports.postgres ?? 15460;
   const sql = postgres(`postgres://svc_support:${encodeURIComponent(ctx.secrets.pgService)}@127.0.0.1:${port}/intafaced_local_test`, {
     max: 1,
     onnotice: () => {},

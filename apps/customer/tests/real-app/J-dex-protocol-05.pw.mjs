@@ -7,7 +7,7 @@ import { test, expect } from './journey.mjs';
 import { CHAIN_ID, TOKEN_A, TOKEN_B, UNBUILT, connectWallet, dexRun, fundOnTestChain, testChain } from './dex.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
-import { api, journeyState, ROOT, stackUrl, tool } from './stack.mjs';
+import { api, journeyState, ROOT, tool } from './stack.mjs';
 import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs';
 
 // J-dex-protocol-05, in the running app (docs/roadmap/journeys.json): move value between a trading venue, the wallet and
@@ -54,7 +54,7 @@ const TEST_USD = '0x000000000000000000000000000000000000d011';
 const MINIMUM = '5';
 const CONFIRMATIONS = 3;
 /** The TEST venue's own TEST controls (packages/venue-sim src/http-server.ts), on the stack's loopback port. */
-const TEST_VENUE = stackUrl('test-venue');
+const TEST_VENUE = 'http://127.0.0.1:14560';
 /** The TEST chain's explorer, as the TEST venue links a deposit (tooling/scripts/local-test-venue.mjs). */
 const EXPLORER = '/chain/tx/';
 /** The trading venue's calls and public balances (services/svc-protocol/contracts/venue/SovereignVenue.sol). */

@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
 import { makeContext } from '../../../../tooling/scripts/local-test-gates.mjs';
-import { ORIGIN, ROOT, signUpInBrowser, STACK_PORTS } from './stack.mjs';
+import { ORIGIN, ROOT, signUpInBrowser } from './stack.mjs';
 
 // J-identity-06, in the running app (docs/roadmap/journeys.json): I see where I am signed in and sign out the rest.
 // Tests titled "J-identity-06 #<n>" prove a whole step.
@@ -24,7 +24,7 @@ function person(prefix) {
 async function identityDb() {
   const ctx = await makeContext({ log: () => undefined });
   const postgres = createRequire(path.join(ROOT, 'services', 'svc-identity', 'package.json'))('postgres');
-  const port = ctx.marker.ports.postgres ?? STACK_PORTS.postgres;
+  const port = ctx.marker.ports.postgres ?? 15460;
   return postgres(`postgres://svc_identity:${encodeURIComponent(ctx.secrets.pgService)}@127.0.0.1:${port}/intafaced_local_test`, {
     max: 1,
     onnotice: () => {},

@@ -90,7 +90,6 @@ import { FOUNDER_STEPS_NAME, FOUNDER_VAULT_NAME, enrolledFounderPair } from './l
 import { TEST_AGREEMENTS, TEST_ELIGIBILITY_RULES } from './local-test-futures-terms.mjs';
 import { LOCAL_TEST_DEVICE_KEY } from './local-test-device.mjs';
 import { leakedFreezePlan } from './journey-freeze-guard.mjs';
-import { STACK_PORTS } from './local-test-facts.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
 /** Written by `sandbox-funds set`, read by local-stack-services/pay.mjs. */
@@ -387,24 +386,7 @@ function sandboxFunds(ctx, on) {
 function psqlRead(secrets, role, sql) {
   const r = spawnSync(
     PSQL,
-    [
-      '-X',
-      '-At',
-      '-F',
-      '\t',
-      '-v',
-      'ON_ERROR_STOP=1',
-      '-h',
-      HOST,
-      '-p',
-      String(STACK_PORTS.postgres),
-      '-U',
-      role,
-      '-d',
-      DB_NAME,
-      '-c',
-      sql,
-    ],
+    ['-X', '-At', '-F', '\t', '-v', 'ON_ERROR_STOP=1', '-h', HOST, '-p', '15460', '-U', role, '-d', DB_NAME, '-c', sql],
     {
       encoding: 'utf8',
       env: { PATH: '/usr/bin:/bin:/opt/homebrew/bin', PGPASSWORD: secrets.pgService },
@@ -588,7 +570,7 @@ export async function makeContext({ home = os.homedir(), log = say, shareSession
     tokens,
     totp,
     url,
-    edge: new Edge(url('edge'), `http://${HOST}:${marker.ports.customer ?? STACK_PORTS.customer}`),
+    edge: new Edge(url('edge'), `http://${HOST}:${marker.ports.customer ?? 3210}`),
     guard: paths,
     /** Set: approverSessions and operatorSessions sign each pair in once for this context (see `shared`). */
     sessionCache: shareSessions ? {} : null,
@@ -2574,7 +2556,7 @@ export function eligibilityRulesHash({ questions, passMark, minKycTier, expected
 
 /** svc-trade's own role on the stack's database: loopback, the marker's postgres port, the stack's secret. */
 function localDbUrl(ctx) {
-  return `postgres://svc_trade:${encodeURIComponent(ctx.secrets.pgService)}@${HOST}:${ctx.marker.ports.postgres ?? STACK_PORTS.postgres}/${DB_NAME}`;
+  return `postgres://svc_trade:${encodeURIComponent(ctx.secrets.pgService)}@${HOST}:${ctx.marker.ports.postgres ?? 15460}/${DB_NAME}`;
 }
 
 /** Insert the TEST perpetual once, through the repo's own seed tool (it refuses any database that is not local). */
@@ -2624,7 +2606,7 @@ export async function seedPayKybRequirements(ctx) {
   const { createRequire } = await import('node:module');
   const postgres = createRequire(path.join(REPO, 'services', 'svc-pay', 'package.json'))('postgres');
   const { insertKybTestRequirements, localTestDatabaseUrl } = await import('./seed-pay-kyb-test-requirements.mjs');
-  const url = `postgres://svc_pay:${encodeURIComponent(ctx.secrets.pgService)}@${HOST}:${ctx.marker.ports.postgres ?? STACK_PORTS.postgres}/${DB_NAME}`;
+  const url = `postgres://svc_pay:${encodeURIComponent(ctx.secrets.pgService)}@${HOST}:${ctx.marker.ports.postgres ?? 15460}/${DB_NAME}`;
   const databaseUrl = localTestDatabaseUrl(url);
   assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
   const sql = postgres(databaseUrl, { max: 1, onnotice: () => {} });

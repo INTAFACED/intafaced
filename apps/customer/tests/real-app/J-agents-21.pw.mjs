@@ -6,7 +6,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { openFounderDesk } from './agents.mjs';
-import { api, EDGE, fromUnits, journeyState, ORIGIN, stackUrl, tool, toUnits } from './stack.mjs';
+import { EDGE, ORIGIN, api, fromUnits, journeyState, tool, toUnits } from './stack.mjs';
 import { signedHeaders } from './developer.mjs';
 import { browserHoldsPasskey, confirmStepUp, restorePasskey, testPasskey } from './p2p.mjs';
 import { PASSKEY_ORIGIN } from './identity-factors.mjs';
@@ -60,7 +60,7 @@ import { installTestWallet, testWalletKey } from './test-wallet.mjs';
 const J = 'J-agents-21';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 /** The stack's TEST venue (local-test-stack.mjs PORTS['test-venue']). */
-const TEST_VENUE = stackUrl('test-venue');
+const TEST_VENUE = 'http://127.0.0.1:14560';
 const BASE = '/api/v1/venue/agent-accounts';
 const STEP_UP = { scope: 'trade.step_up.venue.agentAccount', purpose: 'venue.agentAccount' };
 

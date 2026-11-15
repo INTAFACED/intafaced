@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { api, fund, journeyState, ORIGIN, ROOT, signUpInBrowser, STACK_PORTS, tool } from './stack.mjs';
+import { ORIGIN, ROOT, api, fund, journeyState, signUpInBrowser, tool } from './stack.mjs';
 
 // J-ops-console-07: reconcile the books on the founder console's /ledger page. Steps 1-4 (OPS-reconciliation-01): define a
 // control, set its policy and dynamic account set, run it now with two founders, and run it at a past instant. Define, change
@@ -448,7 +448,7 @@ function deliverRunFailedTwice(key) {
     await nc.drain();`;
   const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], {
     cwd: path.join(ROOT, 'packages', 'events'),
-    env: { ...process.env, NATS_URL: `nats://127.0.0.1:${STACK_PORTS.nats}`, EVENT_KEY: key },
+    env: { ...process.env, NATS_URL: 'nats://127.0.0.1:14232', EVENT_KEY: key },
     encoding: 'utf8',
     timeout: 60_000,
   });

@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 import { existsSync, readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
 import { signUp } from './desk.mjs';
-import { api, EDGE, HOOK_PORTS, ORIGIN, restartWithSetting, stackFile, stackUrl } from './stack.mjs';
+import { EDGE, ORIGIN, api, restartWithSetting, stackFile } from './stack.mjs';
 
 // J-charts-desk-10, in the running app (docs/roadmap/journeys.json): where a price alert reaches the person. One test per step,
 // titled "J-charts-desk-10 #<n>", run in order on one TEST account in one browser. The alert engine is the stack's own svc-notify,
@@ -15,9 +15,9 @@ const ALERTS = '/notifications?view=alerts';
 const SETTINGS = '/notifications?view=settings';
 // svc-notify sweeps every minute (ALERT_SWEEP_INTERVAL_MS, services/svc-notify/src/alerts/service.ts).
 const SWEEP_MS = 60_000;
-const HOOK_PORT = HOOK_PORTS.alert;
+const HOOK_PORT = 14590;
 const HOOK = `http://127.0.0.1:${HOOK_PORT}`;
-const NOTIFY = stackUrl('notify');
+const NOTIFY = 'http://127.0.0.1:14510';
 const EMAIL_OFF = 'Email needs an email delivery service. It is switched off in this build.';
 const PUSH_OFF = 'Push needs a push delivery service. It is switched off in this build.';
 
@@ -179,7 +179,7 @@ test(`${J} #2 turns on push: the same notice names the push dependency`, async (
 test(`${J} #3 adds a webhook URL and fires the alert: one HTTP POST with the alert body, and the delivery is logged`, async () => {
   test.setTimeout(4 * SWEEP_MS);
   await expect(page.getByTestId('alerts-webhook-policy')).toHaveText(
-    `A webhook may use port 443 and ${HOOK_PORT}. If your endpoint answers with a 5xx error other than 504, or cannot be reached, it is sent again after 5, 5 and 5 seconds. Any other answer is not sent again.`,
+    'A webhook may use port 443 and 14590. If your endpoint answers with a 5xx error other than 504, or cannot be reached, it is sent again after 5, 5 and 5 seconds. Any other answer is not sent again.',
   );
   const url = `${HOOK}/ok/${who.handle}`;
   const target = await createFiringAlert({ percent: 121, webhookUrl: url });

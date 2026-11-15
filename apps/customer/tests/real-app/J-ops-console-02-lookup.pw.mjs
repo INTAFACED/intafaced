@@ -5,7 +5,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { makeContext } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { STACK_PORTS } from './stack.mjs';
 
 // J-ops-console-02 #6 (OPS-rules-monitoring-12): a founder looks up a ledger object by an id that does not exist. The ledger
 // refuses with its own typed not-found, never an empty success, and the lookup is audited with the id searched: svc-ledger
@@ -18,7 +17,7 @@ const REPO = fileURLToPath(new URL('../../../../', import.meta.url));
 async function ledgerDb(read) {
   const ctx = await makeContext({ log: () => undefined });
   const postgres = createRequire(path.join(REPO, 'services', 'svc-ledger', 'package.json'))('postgres');
-  const port = ctx.marker.ports.postgres ?? STACK_PORTS.postgres;
+  const port = ctx.marker.ports.postgres ?? 15460;
   const sql = postgres(`postgres://svc_ledger:${encodeURIComponent(ctx.secrets.pgService)}@127.0.0.1:${port}/intafaced_local_test`, {
     max: 1,
     onnotice: () => {},

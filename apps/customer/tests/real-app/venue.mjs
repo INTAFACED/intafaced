@@ -1,7 +1,7 @@
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { expect } from './journey.mjs';
-import { restartWithSetting, stackUrl, toUnits } from './stack.mjs';
+import { restartWithSetting, toUnits } from './stack.mjs';
 import { signIn } from './desk.mjs';
 import { installTestWallet } from './test-wallet.mjs';
 
@@ -11,7 +11,7 @@ import { installTestWallet } from './test-wallet.mjs';
 // Every figure the TEST venue reports is TEST.
 
 /** The stack's TEST venue (local-test-stack.mjs PORTS['test-venue']). */
-export const TEST_VENUE = stackUrl('test-venue');
+export const TEST_VENUE = 'http://127.0.0.1:14560';
 /** The setting that points svc-trade's door at it (tooling/scripts/local-stack-services/trade.mjs). */
 const SWITCH = 'LOCAL_STACK_USER_VENUE';
 
@@ -68,7 +68,7 @@ async function venueFetch(url, init) {
 }
 
 /** The stack's second TEST venue (local-test-stack.mjs PORTS['test-venue-b']), on with LOCAL_STACK_USER_VENUE=two. */
-export const TEST_VENUE_B = stackUrl('test-venue-b');
+export const TEST_VENUE_B = 'http://127.0.0.1:14562';
 
 /** One call to either TEST venue by its base URL. */
 export async function testVenueAt(base, path, body) {
