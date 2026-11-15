@@ -18,6 +18,7 @@ import {
   STACK_FILE,
   afterReuse,
   checkoutJourneyTexts,
+  dispatchTarget,
   reusableRuns,
   journeyTouch,
   namedInputs,
@@ -1469,4 +1470,20 @@ test('a journey selected by name, the canary, an importer, the map or its own ch
   ]);
   // The head's journey files unknown: the selection is left as it was (no name, no map).
   assert.deepEqual(journeyTouch(['apps/customer/tests/real-app/J-a-01.pw.mjs']).files, ['J-a-01.pw.mjs']);
+});
+
+test('15 Nov: a run by hand that names one file of a journey runs every file of it (run 43637111867)', () => {
+  const head = new Set(['J-derivatives-01.pw.mjs', 'J-derivatives-01-venue.pw.mjs', 'J-derivatives-02.pw.mjs', 'J-bank-13.pw.mjs']);
+  assert.equal(dispatchTarget('J-derivatives-01.pw.mjs', head), 'J-derivatives-01-venue.pw.mjs J-derivatives-01.pw.mjs');
+  assert.equal(dispatchTarget('J-derivatives-01-venue.pw.mjs', head), 'J-derivatives-01-venue.pw.mjs J-derivatives-01.pw.mjs');
+  assert.equal(
+    dispatchTarget('J-bank-13.pw.mjs, J-derivatives-01.pw.mjs', head),
+    'J-bank-13.pw.mjs J-derivatives-01-venue.pw.mjs J-derivatives-01.pw.mjs',
+  );
+  assert.equal(dispatchTarget('J-derivatives-02.pw.mjs', head), 'J-derivatives-02.pw.mjs', 'a one-file journey stays one file');
+  assert.equal(dispatchTarget('nope.txt', head), 'nope.txt', 'a name that is no journey file stays, so the run refuses it');
+  assert.equal(dispatchTarget('', head), '');
+  // At this checkout: the real derivatives-01 pair.
+  const real = new Set(readdirSync(join(ROOT, 'apps/customer/tests/real-app')));
+  assert.equal(dispatchTarget('J-derivatives-01.pw.mjs', real), 'J-derivatives-01-venue.pw.mjs J-derivatives-01.pw.mjs');
 });

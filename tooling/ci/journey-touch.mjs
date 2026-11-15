@@ -57,6 +57,8 @@
  *   … --reach                                                 (product paths by the touched-journeys map; GH_TOKEN for its age)
  *   node tooling/ci/journey-touch.mjs --reuse               (env TARGET, HEAD_SHA: the target less what runs by hand on
  *                                                              that head already run; real-app-journeys.yml's reuse step)
+ *   node tooling/ci/journey-touch.mjs --dispatch            (env JOURNEYS_TARGET: a run by hand's input with every file of
+ *                                                              each journey it names; real-app-journeys.yml's pick step)
  *   … --title <t> --branch <b>                                (the journeys the pull request names; with --reach, the
  *                                                              env's TITLE and GITHUB_HEAD_REF when not given, which is
  *                                                              how real-app-journeys.yml's touch step passes them)
@@ -265,6 +267,21 @@ export function withSiblings(files, journeyFiles) {
   const idOf = (f) => JOURNEY_TEST.exec(`apps/customer/tests/real-app/${f}`)?.[1];
   const ids = new Set(list.map(idOf).filter(Boolean));
   return [...new Set([...list, ...[...journeyFiles].filter((f) => ids.has(idOf(f)))])].sort();
+}
+
+/**
+ * A run by hand's journeys input (journey file names, spaces or commas between) as the files it runs: every file of each
+ * journey it names (withSiblings), as a pull request's run takes them. (Failure it prevents: on 14 Nov 2026 run
+ * 43637111867 named J-derivatives-01.pw.mjs alone, and the steps in J-derivatives-01-venue.pw.mjs read as missing money
+ * steps.) A name that is not a journey file at the head stays as given, so the run still refuses it.
+ */
+export function dispatchTarget(input, journeyFiles) {
+  return withSiblings(
+    String(input ?? '')
+      .split(/[\s,]+/)
+      .filter(Boolean),
+    journeyFiles,
+  ).join(' ');
 }
 
 /** A service's own stack file: what `local:stack` starts that one service with. A test file beside them, or any other
@@ -625,6 +642,7 @@ function reuseMain() {
 async function main() {
   const args = process.argv.slice(2);
   if (args[0] === '--reuse') return reuseMain();
+  if (args[0] === '--dispatch') return console.log(dispatchTarget(process.env.JOURNEYS_TARGET, checkoutJourneyFiles()));
   let paths;
   let atHead = (p) => existsSync(p);
   const b = args.indexOf('--base');
