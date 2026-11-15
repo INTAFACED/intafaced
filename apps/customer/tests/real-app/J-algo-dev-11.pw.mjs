@@ -470,8 +470,16 @@ test(`${J} #5 restores a halted strategy: restore needs the same two-person rule
     status: 'awaiting_second',
     proposedBy: fa.userId,
   });
+  // The founder who asked is offered no confirm, and confirming it alone is refused: S1 stays halted.
+  const mine = deskA.getByRole('row').filter({ hasText: RESTORE_REASON });
+  await expect(mine.getByText('Waiting for a second founder')).toBeVisible();
+  await expect(mine.getByRole('button', { name: 'Confirm' })).toHaveCount(0);
+  const self = await deskCall(deskA, { action: 'confirm', requestId: request.id });
+  expect([self.status, self.body.code]).toEqual([409, 'action_approval.same_person']);
+  expect((await readDesk(deskA)).waiting.find((w) => w.id === request.id)?.status).toBe('awaiting_second');
   await expect(stateCell(deskA, runs.keep)).toHaveAttribute('data-halted', 'true');
-  expect([(await manualBuy(a, runs.keep)).status]).toEqual([423]);
+  const still = await manualBuy(a, runs.keep);
+  expect([still.status, codeOf(still)]).toEqual([423, 'quant.strategy_halted']);
   await deskA.context().close();
 
   // The second founder confirms: S1 is restored, its run trades again, and the audit row names both founders.
