@@ -154,6 +154,7 @@ test(`${J} #2 sets limits for runs, files and collaborators with a reason: the p
   await verify(page, other);
   restartWithSetting('quant', 'LOCAL_STACK_QUANT_DEFAULT_QUOTA_PROFILE', 'off');
   try {
+    await signIn(page, other);
     await page.goto('/quant/strategies');
     const panel = page.getByTestId('quant-usage');
     await expect(panel.getByTestId('quant-usage-plan')).toHaveAttribute('data-profile', '');
