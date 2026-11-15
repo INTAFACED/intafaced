@@ -915,7 +915,7 @@ export class CampaignService {
             ${d.hoursTo}, ${d.participation ? tx.json(d.participation) : null}, ${d.budgetAsset}, ${d.budgetLimit},
             ${d.rewardAsset}, ${d.rewardAmount}, ${d.tasks ? tx.json(d.tasks as unknown as postgres.JSONValue) : null}, ${d.timeZoneBlank}, ${tx.json(d.earning as unknown as postgres.JSONValue)},
             ${d.vouchers ? tx.json(d.vouchers) : null}, ${d.limits ? tx.json(d.limits as unknown as postgres.JSONValue) : null},
-            ${d.referral ? tx.json(d.referral as unknown as postgres.JSONValue) : null}, ${input.actor})
+            ${d.referral ? tx.json(d.referral) : null}, ${input.actor})
           RETURNING *`;
         await audit(tx, input.actor, 'campaign.create', id, { name: d.name, type: d.type });
         return toCampaign(row!, this.timeZone(), this.now());
@@ -959,7 +959,7 @@ export class CampaignService {
             tasks = ${d.tasks ? tx.json(d.tasks as unknown as postgres.JSONValue) : null}, time_zone_blank = ${d.timeZoneBlank},
             earning = ${tx.json(d.earning as unknown as postgres.JSONValue)}, vouchers = ${d.vouchers ? tx.json(d.vouchers) : null},
             limits = ${d.limits ? tx.json(d.limits as unknown as postgres.JSONValue) : null},
-            referral = ${d.referral ? tx.json(d.referral as unknown as postgres.JSONValue) : null},
+            referral = ${d.referral ? tx.json(d.referral) : null},
             revision = revision + 1, updated_at = now()
           WHERE id = ${input.id}
           RETURNING *, (SELECT budget_drawn FROM campaigns.campaign_rows WHERE id = ${input.id}) AS budget_drawn`;
@@ -1067,7 +1067,7 @@ export class CampaignService {
         tasks = ${d.tasks ? tx.json(d.tasks as unknown as postgres.JSONValue) : null}, time_zone_blank = ${d.timeZoneBlank},
         earning = ${tx.json(d.earning as unknown as postgres.JSONValue)}, vouchers = ${d.vouchers ? tx.json(d.vouchers) : null},
             limits = ${d.limits ? tx.json(d.limits as unknown as postgres.JSONValue) : null},
-            referral = ${d.referral ? tx.json(d.referral as unknown as postgres.JSONValue) : null},
+            referral = ${d.referral ? tx.json(d.referral) : null},
         revision = ${open.revision}, submitted_by = ${open.submitted_by}, approved_by = ${actor},
         approved_revision = ${open.revision}, updated_at = now()
       WHERE id = ${row.id}`;

@@ -98,7 +98,7 @@ export class ReferralService {
     const made = await this.sql`
       INSERT INTO campaigns.referral_invitees (invitee_id, referrer_id, attached_at, campaign_id, revision, terms)
       VALUES (${input.userId.toLowerCase()}, ${input.referrerId.toLowerCase()}, ${at}, ${campaign?.id ?? null},
-        ${campaign?.revision ?? null}, ${campaign?.referral ? this.sql.json(campaign.referral as unknown as postgres.JSONValue) : null})
+        ${campaign?.revision ?? null}, ${campaign?.referral ? this.sql.json(campaign.referral) : null})
       ON CONFLICT (invitee_id) DO NOTHING`;
     return made.count > 0;
   }
