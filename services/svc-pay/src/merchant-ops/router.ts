@@ -39,7 +39,7 @@ import { DELIVERY_STATUSES, WebhookOps, type WebhookRetryLimit, type WebhookSett
 import type { WebhookResolver } from '../webhook-url-guard.js';
 import { MERCHANT_WEBHOOK_EVENT_TYPES } from '../merchant-webhooks.js';
 import { ownMerchantRead } from '../own-merchant-read.js';
-import { invitationAccept, membershipExit, teamMemberWrite } from '../team-member-write.js';
+import { invitationAccept, membershipExit, ownPreferenceWrite, teamMemberWrite } from '../team-member-write.js';
 
 /**
  * `merchantOps.*`   - the merchant's own operations pages (W15). Scoped to the
@@ -139,6 +139,8 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
   const { need } = makeParts(deps);
   /** pay:write, or pay:onboard for an active member of a verified business: see team-member-write.ts. */
   const memberWrite = teamMemberWrite(() => need().sql);
+  /** A person's own notification preferences: no KYB gate, the role table decides (team-member-write.ts). */
+  const ownPreference = ownPreferenceWrite();
   const accept = invitationAccept();
   const exit = membershipExit();
   const kick =
@@ -625,7 +627,7 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
           history: read
             .input(z.object({ limit: limitInput, cursor: cursorInput }))
             .query(({ ctx, input }) => wrapOps(async () => need().notifications.preferenceHistory(await callerOf(ctx), input))),
-          set: memberWrite
+          set: ownPreference
             .input(
               z.object({
                 kind: z.enum(NOTIFICATION_KINDS),
