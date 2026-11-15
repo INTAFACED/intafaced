@@ -7,7 +7,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { CHAIN_ID, TOKEN_USD, fundOnTestChain, testChain } from './dex.mjs';
-import { api, fund, journeyState, signOutBrowser, tool } from './stack.mjs';
+import { api, fund, journeyState, signOutBrowser, STACK_PORTS, stackUrl, tool } from './stack.mjs';
 import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs';
 import { otherTraderKey, otherTraderRun, testDeposit, testVenue, venueRecord } from './venue.mjs';
 import { GATE_URL } from '../../../../tooling/scripts/local-test-facts.mjs';
@@ -499,7 +499,7 @@ function redeliverKyc(userId) {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
   const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], {
     cwd: path.join(root, 'packages', 'events'),
-    env: { ...process.env, NATS_URL: 'nats://127.0.0.1:14232', NATS_STREAM_PREFIX: 'LOCAL_TEST', USER_ID: userId },
+    env: { ...process.env, NATS_URL: `nats://127.0.0.1:${STACK_PORTS.nats}`, NATS_STREAM_PREFIX: 'LOCAL_TEST', USER_ID: userId },
     encoding: 'utf8',
     timeout: 60_000,
   });
@@ -510,7 +510,7 @@ function redeliverKyc(userId) {
 /** Until svc-campaigns' welcome verification consumer has taken and acknowledged every message on the bus. */
 async function kycConsumerCaughtUp() {
   await expect(async () => {
-    const info = await fetch('http://127.0.0.1:18232/jsz?consumers=true').then((r) => r.json());
+    const info = await fetch(`${stackUrl('natsMonitor')}/jsz?consumers=true`).then((r) => r.json());
     const consumer = info.account_details
       ?.flatMap((a) => a.stream_detail ?? [])
       .flatMap((st) => st.consumer_detail ?? [])

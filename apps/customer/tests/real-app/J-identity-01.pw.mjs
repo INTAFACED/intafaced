@@ -3,14 +3,15 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
 import {
+  api,
   DEVICE_KEY,
   EDGE,
-  api,
   fund,
   journeyState,
   mailedCodes,
   mailedConfirmLinks,
   nextMailedCode,
+  ORIGIN,
   restartWith,
   signOutBrowser,
   stackFile,
@@ -24,7 +25,6 @@ import { awayBid, deskPath, held, openOrders, previewed, reviewSheet, verify } f
 // TEST owner values: minimum age 18, sign-up closed for AQ, five wrong codes lock, a new code after 30 s, five
 // confirmation emails an hour.
 const J = 'J-identity-01';
-const ORIGIN = 'http://127.0.0.1:3210';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
 test.describe.configure({ mode: 'default' });

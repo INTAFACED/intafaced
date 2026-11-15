@@ -2,12 +2,11 @@
 import { expect, test } from './journey.mjs';
 import { randomUUID } from 'node:crypto';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { DEVICE_KEY, EDGE, ORIGIN, signUpInBrowser } from './stack.mjs';
+import { DEVICE_KEY, EDGE, LEDGER, ORIGIN, signUpInBrowser } from './stack.mjs';
 
 // J-ops-console-04 step #1: a founder freezes one TEST customer's account with a reason on the console's Account controls.
 // Identity records the freeze against the version the console read, and refuses a page that read an older one; the history shows the founder and the reason; the
 // ledger's platform-wide posting freeze is a different control and stays off.
-const LEDGER = 'http://127.0.0.1:14501';
 
 test('J-ops-console-04 #1 freezes an account with a reason: identity records it, the history shows actor and reason, posting is untouched', async ({
   browser,
