@@ -9,6 +9,7 @@ import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 import { CampaignService, parseTimeZone } from './campaigns.js';
 import { createCompetitionFillSource } from './competition-fills.js';
 import { CompetitionService } from './competitions.js';
+import { DrawService } from './draws.js';
 import { parseRuleLimit } from './rules.js';
 import { createLedgerClient } from './ledger-client.js';
 import { createMarketNames } from './markets.js';
@@ -143,7 +144,25 @@ const competitions = new CompetitionService({
   log: (msg, detail) => app.log.warn({ ...detail }, msg),
 });
 
-const appRouter = createCampaignsRouter(drops, campaigns, tasks, vouchers, watch, referrals, competitions);
+/**
+ * Lucky draws (J-campaigns-12): chances read from the same venue fills (TRADE_URL and INTERNAL_SERVICE_SECRET), capped by
+ * the verification level svc-identity reports. Running one waits for the owner's decision and pays nothing.
+ */
+const draws = new DrawService({
+  sql,
+  fills:
+    env.TRADE_URL && env.INTERNAL_SERVICE_SECRET
+      ? createCompetitionFillSource({
+          tradeUrl: env.TRADE_URL,
+          internalSecret: env.INTERNAL_SERVICE_SECRET,
+          ...(s2sKey ? { s2s: s2sKey } : {}),
+        })
+      : null,
+  participants,
+  log: (msg, detail) => app.log.warn({ ...detail }, msg),
+});
+
+const appRouter = createCampaignsRouter(drops, campaigns, tasks, vouchers, watch, referrals, competitions, draws);
 // svc-trade's fee-saver ask (`service.feeSaver`, J-campaigns-09) is a service call: the caller is named by its own key,
 // or by the shared secret where keys are not wired.
 const edgeContext = createEdgeContext({
@@ -443,6 +462,20 @@ const competitionTick = setInterval(() => {
     });
 }, COMPETITION_TICK_MS);
 competitionTick.unref();
+
+// Draws (J-campaigns-12): each open one's entrants are read from the venue and their chances counted. Nothing is drawn.
+let drawing = false;
+const drawTick = setInterval(() => {
+  if (drawing) return;
+  drawing = true;
+  draws
+    .tick()
+    .catch((err: unknown) => app.log.error({ err }, 'draw pass failed'))
+    .finally(() => {
+      drawing = false;
+    });
+}, COMPETITION_TICK_MS);
+drawTick.unref();
 voucherExpiry.unref();
 
 await app.listen({ host: env.HTTP_HOST, port: env.HTTP_PORT });
@@ -466,6 +499,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       if (payTimer) clearInterval(payTimer);
       clearInterval(voucherExpiry);
       clearInterval(competitionTick);
+      clearInterval(drawTick);
       if (busRetry) clearTimeout(busRetry);
       if (welcomeRetry) clearTimeout(welcomeRetry);
       if (cashbackRetry) clearTimeout(cashbackRetry);

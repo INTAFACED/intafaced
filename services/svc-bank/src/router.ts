@@ -22,6 +22,7 @@ import { createLinkedAccountsRouter } from './linked-accounts/linked-accounts.ro
 import { createCashOutRouter } from './cash-out/cash-out.router.js';
 import { createRailSendsRouter } from './rail-sends/rail-sends.router.js';
 import { createSafetyRouter } from './safety/safety.router.js';
+import { createBankAccountRouter } from './onboarding/bank-account.router.js';
 import { createWorkItemsRouter } from './home/work-items.js';
 import { createCreditCardPreviewRouter } from './loans/credit-card-preview.router.js';
 import { createBillsRouter, createGlobalRouter } from './personal-pay/router.js';
@@ -393,6 +394,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     sorter: createSorterRouter(bank, guard),
     /** CUSTODY-DELTA §4: the person's own TEST partner bank and ramp switches; refuses `bank.test_partner_off` off the TEST stack. */
     testPartner: createTestPartnerRouter(bank, guard),
+    /** BK-acct-05, BK-acct-06 (J-bank-17): onboarding, information requests, reviews, closure and data rights at the partner. */
+    bankAccount: createBankAccountRouter(bank, guard),
     /** PP-money-balance-05: payments from strangers held for the person to accept; a blank period refuses holding. */
     holds: createHoldsRouter(bank, guard),
     /** BK-acct-09: pots shared with viewers and contributors; blank owner values refuse `bank.joint_unset`. */
