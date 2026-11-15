@@ -1090,6 +1090,30 @@ export const quantPromoteOutputSchema = z.object({
 export type QuantPromoteOutput = z.infer<typeof quantPromoteOutputSchema>;
 
 /**
+ * `ops.lifecycle.audit` (AL-lifecycle-01, J-algo-dev-13 #3): every stored gate decision across accounts, newest first,
+ * with the stage row it wrote (an approval writes exactly one; a rejection none), who pressed and the owner criteria the
+ * gate judged by. An operator read (`admin:read`); it names an account by its id only. At most
+ * `QUANT_PROMOTION_AUDIT_PAGE` rows; `total` says how many are stored.
+ */
+export const QUANT_PROMOTION_AUDIT_PAGE = 100;
+export const quantPromotionAuditRowSchema = z.object({
+  key: z.string(),
+  accountId: z.string(),
+  strategyId: z.string(),
+  strategyVersion: z.number().int().positive(),
+  actor: z.string(),
+  decision: quantGateDecisionSchema,
+  stage: quantStageRowSchema.nullable(),
+});
+export type QuantPromotionAuditRow = z.infer<typeof quantPromotionAuditRowSchema>;
+export const quantPromotionAuditSchema = z.object({
+  rows: z.array(quantPromotionAuditRowSchema),
+  total: z.number().int().nonnegative(),
+  asOf: z.string(),
+});
+export type QuantPromotionAudit = z.infer<typeof quantPromotionAuditSchema>;
+
+/**
  * The owner values an operator sets at runtime (`ops.criteria.set`): the gate's criteria and the out-of-sample
  * criteria a verdict is judged against. Blank is "not set". A row overrides the boot value; with no row, the boot value
  * stands. Every write keeps its actor and reason.
