@@ -11,6 +11,7 @@ import {
   fileSteps,
   fullVerdict,
   judgeTouched,
+  titleBeforePush,
   JOURNEY_TEST,
   touchedSteps,
   globRe,
@@ -923,6 +924,33 @@ test('planted: a title naming another journey, a malformed line, an unreadable f
     'a file the head removed is read at the base',
   );
   assert.deepEqual(judgeTouched({ title: 'x', body: '', touched: [] }), { ok: true, lines: [] });
+});
+
+test('titleBeforePush: the title #8469 and #8478 first had is refused with the one they merged on; a wrong one stays refused', () => {
+  const t = (journey) => [
+    { file: `apps/customer/tests/real-app/${journey}.pw.mjs`, journey, steps: [1, 2, 3].map((n) => `${journey}#${n}`) },
+  ];
+  assert.deepEqual(
+    titleBeforePush({ title: null, touched: t('J-bank-13') }),
+    { ok: true, need: ['J-bank-13 #1 #2 #3'] },
+    'no pull request yet',
+  );
+  const pick = (v) => [v.ok, v.fix];
+  assert.deepEqual(pick(titleBeforePush({ title: 'fix(svc-ws): TEST limits (#8311)', touched: t('J-dev-01') })), [
+    false,
+    'fix(svc-ws): TEST limits, J-dev-01 #1 #2 #3 (#8311)',
+  ]);
+  assert.deepEqual(pick(titleBeforePush({ title: 'tests(J-dev-01): first (#8477)', touched: t('J-dev-01') })), [
+    false,
+    'tests(J-dev-01 #1 #2 #3): first (#8477)',
+  ]);
+  assert.equal(titleBeforePush({ title: 'tests(J-dev-01 #2): first', touched: t('J-dev-01') }).ok, true);
+  const wrong = titleBeforePush({ title: 'tests(J-dev-02 #2): first', touched: t('J-dev-01') });
+  assert.equal(wrong.ok, false, "another journey's steps");
+  assert.match(wrong.lines.join('\n'), /J-dev-01\.pw\.mjs changes the tests of/);
+  assert.equal(wrong.fix, 'tests(J-dev-02 #2): first, J-dev-01 #1 #2 #3');
+  assert.equal(titleBeforePush({ title: 'x', body: 'Left-or-replaced: J-dev-01 #3', touched: t('J-dev-01') }).ok, true, 'a strict line');
+  assert.equal(titleBeforePush({ title: 'x J-dev-01 #2-120', touched: t('J-dev-01') }).ok, false, 'an unreadable range');
 });
 
 test('the recheck takes a pull request whose body gained an exemption line, so leaving steps there re-runs the seal', () => {

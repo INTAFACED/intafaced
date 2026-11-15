@@ -880,6 +880,30 @@ export function judgeTouched({ title, body, touched, repo }) {
   return { ok: lines.length === 0, lines };
 }
 
+/**
+ * judgeTouched before the push (`--before-push`, from .githooks/pre-push), with the title it needs: the seal judged it
+ * only once every input had finished, so #8469 heard 42 minutes after its push and #8478 18. `title` null (no pull
+ * request yet): `need` names the steps the title must name. Otherwise ok, or `fix`: the title with them added. Pure.
+ */
+export function titleBeforePush({ title, body, touched, repo }) {
+  const runOf = ({ journey, steps }) => `${journey} ${steps.map((k) => `#${k.split('#')[1]}`).join(' ')}`;
+  const need = touched.filter((t) => t.steps.length).map(runOf);
+  if (title == null) return { ok: true, need };
+  const pass = (t) => judgeTouched({ title: t, body, touched, repo }).ok && !titleProblems(t).length;
+  if (pass(title)) return { ok: true, need };
+  let fix = title;
+  for (const t of touched.filter((t) => t.steps.length && !t.steps.some((k) => titleSteps(fix).includes(k)))) {
+    const at = new RegExp(`\\b${t.journey}\\b(?!\\s*#)`, 'i');
+    fix = at.test(fix) ? fix.replace(at, runOf(t)) : fix.replace(/( \(#\d+\))?\s*$/, (end) => `, ${runOf(t)}${end}`);
+  }
+  return {
+    ok: false,
+    need,
+    lines: [...titleProblems(title), ...judgeTouched({ title, body, touched, repo }).lines],
+    fix: pass(fix) ? fix : null,
+  };
+}
+
 /** The pull request a GitHub revert undoes: the title is exactly `Revert "…"` and a body line, at column 0, is exactly
  *  `Reverts <this repo>#n`, as GitHub's Revert button writes them. Null for anything else. */
 export function revertOf({ title, body, repo }) {
@@ -2125,7 +2149,29 @@ function report({ ok, lines, stepsOk = ok, fullOk = true, stepsKinds = [], fullK
   process.exit(1);
 }
 
+/** `--before-push`: titleBeforePush on this branch against origin/main and its open pull request (gh), if any. */
+async function beforePushStep() {
+  const sh = (...a) => execFileSync(a[0], a.slice(1), { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 20_000 });
+  const base = sh('git', 'merge-base', 'HEAD', 'origin/main').trim();
+  const paths = sh('git', 'diff', '--name-only', base, 'HEAD').split('\n').filter(Boolean);
+  const text = (f, ref) => { try { return sh('git', 'show', `${ref}:${f}`); } catch { return null; } }; // prettier-ignore
+  const touched = await touchedSteps({ paths, head: 'HEAD', base, text });
+  if (!touched.length) return;
+  let pull = null;
+  try {
+    pull = process.env.CI ? null : JSON.parse(sh('gh', 'pr', 'view', '--json', 'number,title,body,state,url'));
+  } catch {}
+  if (pull?.state !== 'OPEN') pull = null;
+  const repo = /github\.com\/([^/]+\/[^/]+)\/pull\//.exec(pull?.url ?? '')?.[1];
+  const v = titleBeforePush({ title: pull?.title ?? null, body: pull?.body, touched, repo });
+  if (v.ok) return console.log(`journey seal: the pull request's title must name ${v.need.join(', ')}${pull ? ', and it does' : ''}`);
+  console.error([`✖ #${pull.number}'s title fails the merge seal's step rule — push refused.`, ...v.lines].join('\n  '));
+  console.error(v.fix ? `  Fix: gh pr edit ${pull.number} --title '${v.fix.replace(/'/g, `'\\''`)}'` : `  Fix: name ${v.need.join(', ')}`);
+  process.exit(1);
+}
+
 async function main() {
+  if (process.argv.includes('--before-push')) return beforePushStep();
   const { GH_TOKEN, REPO } = process.env;
   if (!GH_TOKEN || !REPO) {
     console.error('::error::journey-seal needs GH_TOKEN and REPO');
