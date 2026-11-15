@@ -3,10 +3,10 @@ import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { chosePro, signIn, signUp } from './desk.mjs';
-import { CHAIN_ID, fundOnTestChain, testChain } from './dex.mjs';
+import { CHAIN_ID, TOKEN_USD, fundOnTestChain, testChain } from './dex.mjs';
 import { api, journeyState, tool } from './stack.mjs';
 import { installTestWallet, TEST_WALLET } from './test-wallet.mjs';
-import { otherTraderKey, otherTraderRun, testDeposit, testVenue, venueForThisFile, venueRecord } from './venue.mjs';
+import { chainBalance, otherTraderKey, otherTraderRun, testDeposit, testVenue, venueForThisFile, venueRecord } from './venue.mjs';
 
 // J-campaigns-12, in the running app (docs/roadmap/journeys.json): take part in a lucky draw. One test per step, titled
 // "J-campaigns-12 #<n>", run in order. The draw is this run's TEST campaign, made by the stack's two LOCAL TEST founders
@@ -336,6 +336,12 @@ test(`${J} #3 the draw is run: while the owner decision is open, the refusal nam
   const { campaignId, ann, commitment } = state('campaignId', 'ann', 'commitment');
   const { ctx, pair } = await operators();
   const a = await pair.a.campaignsOpsToken();
+  const budgetLeft = async () =>
+    data(await ctx.edge.query('campaigns', 'ops.campaigns.get', { id: campaignId }, a), 'ops.campaigns.get').budget;
+  // Before the run: the whole TEST budget is left, and the person's TEST wallet holds what the chain says.
+  const before = await boardOf(ann.who, campaignId);
+  expect(await budgetLeft()).toEqual({ asset: ASSET, limit: POOL, left: POOL });
+  const walletBefore = await chainBalance(TOKEN_USD.address, ann.wallet);
   for (const door of ['ops.campaigns.draw.run', 'ops.campaigns.draw.settle']) {
     const res = await ctx.edge.mutate('campaigns', door, { campaignId, reason: `TEST ${J} run ${RUN}` }, a);
     expect(res.status, `${door}: ${res.text.slice(0, 300)}`).toBe(412);
@@ -355,4 +361,11 @@ test(`${J} #3 the draw is run: while the owner decision is open, the refusal nam
   expect(board).toMatchObject({ revealed: null, winners: [], commitment, running: { code: 'owner.decision', question: QUESTION } });
   const rewards = await myRewards(ann.who);
   expect(rewards.filter((r) => r.campaignId === campaignId)).toEqual([]);
+  // Nothing moved: the budget is still whole, the wallet holds the same on the chain, and the entry list the draw would
+  // be drawn from is unchanged.
+  expect(await budgetLeft()).toEqual({ asset: ASSET, limit: POOL, left: POOL });
+  expect(await chainBalance(TOKEN_USD.address, ann.wallet)).toBe(walletBefore);
+  expect(board.entryHash).toBe(before.entryHash);
+  expect(board.totalChances).toBe(before.totalChances);
+  expect(board.mine).toEqual(before.mine);
 });
