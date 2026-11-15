@@ -134,12 +134,17 @@ test(`${J} #3 with no email sender, the send says so with vendor.email and the r
     await expect(off.locator('[data-not-connected="vendor.email"]')).toBeVisible();
     expect(guestMail(email)).toHaveLength(0);
     expect(await deskRequests(subject)).toHaveLength(0);
+    // The request is stored and pending: one row, waiting for a sender, with no ticket.
+    const pending = await storedGuestRequests(subject);
+    expect(pending.map((row) => [row.status, row.ticket_id])).toEqual([['pending_delivery', null]]);
     // The request was kept, waiting: once a sender exists, sending the same form again mails that request's link.
     restartWith('support', 'LOCAL_STACK_SUPPORT_GUEST_MAIL', true);
     restored = true;
     await form.getByRole('button', { name: 'Send request' }).click();
     await expect(page.getByTestId('support-guest-check-email')).toBeVisible({ timeout: 15_000 });
     await mailedLink(email);
+    // The mail went out for that same pending request, not a new one.
+    expect((await storedGuestRequests(subject)).map((row) => row.id)).toEqual([pending[0].id]);
   } finally {
     if (!restored) restartWith('support', 'LOCAL_STACK_SUPPORT_GUEST_MAIL', true);
   }
