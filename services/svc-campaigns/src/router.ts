@@ -443,7 +443,7 @@ export function createCampaignsRouter(
         .output(voucherRedeemResultSchema)
         .mutation(async ({ ctx, input }) => {
           try {
-            return await vouchers.redeem({ ...input, accountId: ctx.principal!.userId });
+            return await vouchers.redeem({ ...input, accountId: ctx.principal!.userId, forwarded: forwardedPrincipalHeaders(ctx) });
           } catch (err) {
             mapError(err);
           }
