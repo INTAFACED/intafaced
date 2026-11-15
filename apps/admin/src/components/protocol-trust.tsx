@@ -5,6 +5,7 @@ import {
   ADDRESS_LABEL_KINDS,
   HUMAN_TOKEN_TIERS,
   type ProtocolComplianceReport,
+  type ProtocolNameTagRequest,
   type ProtocolOnboardingChecklist,
   type ProtocolTokenTiersOutput,
 } from '@intafaced/contracts/protocol-address-risk';
@@ -16,6 +17,7 @@ import {
   TRUST_TABS,
   TRUST_TAB_WAITS,
   missingItemWords,
+  nameTagWords,
   pendingReview,
   publishedWords,
   reportWords,
@@ -33,6 +35,7 @@ interface TrustRead {
   audit: Part<ProtocolAuditProducts>;
   tiers: Part<ProtocolTokenTiersOutput>;
   onboarding: Part<{ asOf: string; chainId: number; checklists: ProtocolOnboardingChecklist[] }>;
+  nameTags: Part<{ asOf: string; chainId: number; requests: ProtocolNameTagRequest[] }>;
 }
 
 const tabId = (tab: TrustTab) => `trust-tab-${tab.toLowerCase().replace(/[^a-z]+/g, '-')}`;
@@ -538,6 +541,111 @@ function PermissionedPools({ read, reload }: { read: TrustRead['onboarding']; re
   );
 }
 
+/**
+ * Public name tags (D-launch-listing-01, J-dex-protocol-30 #7): a tag says who an address belongs to. svc-protocol refuses
+ * to approve one with no ownership proof on file (the address's on-chain owner signed a one-time challenge), and makes it
+ * public only after two different people approved it.
+ */
+function NameTags({ read, reload }: { read: TrustRead['nameTags']; reload: () => void }) {
+  const { busy, problem, send } = useSend(reload);
+  const [address, setAddress] = useState('');
+  const [tag, setTag] = useState('');
+  const [reason, setReason] = useState('');
+  if (!read.ok) return <Failed message={read.message} />;
+  return (
+    <div className="dk-stack">
+      <form
+        className="dk-stack"
+        aria-label="New name tag"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void send({ op: 'nametag-request', address: address.trim(), tag: tag.trim(), reason: reason.trim() }).then(
+            (ok) => ok && (setAddress(''), setTag(''), setReason('')),
+          );
+        }}
+      >
+        <p className="dk-muted">
+          A name tag is public only with a proof of ownership on file, where the address’s owner signed a one-time challenge, and after two
+          different people approve it. Read {formatAsOf(read.data.asOf)}.
+        </p>
+        <div className="adm-field">
+          <label htmlFor="trust-nametag-address">Address</label>
+          <input id="trust-nametag-address" className="adm-input" value={address} onChange={(e) => setAddress(e.target.value)} />
+        </div>
+        <div className="adm-field">
+          <label htmlFor="trust-nametag-tag">Name tag</label>
+          <input id="trust-nametag-tag" className="adm-input" maxLength={60} value={tag} onChange={(e) => setTag(e.target.value)} />
+        </div>
+        <div className="adm-field">
+          <label htmlFor="trust-nametag-reason">Why</label>
+          <input
+            id="trust-nametag-reason"
+            className="adm-input"
+            maxLength={500}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+          />
+        </div>
+        <button type="submit" className="adm-btn" disabled={busy || address.trim() === '' || tag.trim() === '' || reason.trim() === ''}>
+          Request the name tag
+        </button>
+      </form>
+      <Problem problem={problem} />
+      {read.data.requests.length === 0 ? (
+        <p role="status">No name tag has been requested on this network.</p>
+      ) : (
+        <table className="adm-table" aria-label="Requests">
+          <thead>
+            <tr>
+              <th>Name tag</th>
+              <th>Address</th>
+              <th>State</th>
+              <th>Why</th>
+              <th>Approved by</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {read.data.requests.map((r) => (
+              <tr key={r.id}>
+                <td>{r.tag}</td>
+                <td>
+                  <code>{r.address}</code>
+                </td>
+                <td data-testid="name-tag-state">{nameTagWords(r)}</td>
+                <td>{r.reason}</td>
+                <td>
+                  {r.approvals.length === 0 ? (
+                    <span className="dk-muted">Nobody yet</span>
+                  ) : (
+                    r.approvals.map((a) => (
+                      <div key={a.approverId}>
+                        <code>{a.approverId}</code>
+                      </div>
+                    ))
+                  )}
+                </td>
+                <td>
+                  {r.status === 'pending' && (
+                    <button
+                      type="button"
+                      className="adm-btn"
+                      disabled={busy}
+                      onClick={() => void send({ op: 'nametag-approve', requestId: r.id })}
+                    >
+                      Approve
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
 function TrustCriteria({ read }: { read: TrustRead['tokens'] }) {
   return (
     <div className="dk-stack">
@@ -631,7 +739,7 @@ function AuditRoom({ read }: { read: TrustRead['audit'] }) {
 
 /**
  * The Protocol trust desk (J-dex-protocol-30): scam reports and their two-reviewer labels, the trust criteria, and the
- * audit and disclosure room, token tiers and permissioned pool onboarding, read from svc-protocol as the signed-in founder. The other tabs name what they wait for.
+ * audit and disclosure room, token tiers, name tags and permissioned pool onboarding, read from svc-protocol as the signed-in founder. The other tabs name what they wait for.
  */
 export function ProtocolTrust() {
   const [tab, setTab] = useState<TrustTab>('Scam reports');
@@ -688,6 +796,8 @@ export function ProtocolTrust() {
           <TokenTiers tokens={read.tokens} read={read.tiers} reload={() => void reload()} />
         ) : tab === 'Permissioned pools' ? (
           <PermissionedPools read={read.onboarding} reload={() => void reload()} />
+        ) : tab === 'Name tags' ? (
+          <NameTags read={read.nameTags} reload={() => void reload()} />
         ) : tab === 'Trust criteria' ? (
           <TrustCriteria read={read.tokens} />
         ) : (

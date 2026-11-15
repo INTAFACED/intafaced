@@ -60,6 +60,7 @@ import { AssignmentGrading } from './curriculum/grading.js';
 import { LearnHub } from './curriculum/learn-hub.js';
 import { CoursePreview } from './curriculum/course-preview.js';
 import { CourseLearners } from './curriculum/course-learners.js';
+import { CoursePurchases, type CoursePurchaseDeps } from './purchases/course-purchases.js';
 import type { VideoStorageConfig } from './video/storage.js';
 import { CourseStarts } from './curriculum/course-start.js';
 import { courseClosedReason, CourseTermsStore, type CourseVisibility } from './curriculum/course-terms.js';
@@ -110,6 +111,7 @@ import type {
   AcademyCertIssue,
   AcademyCertIssueRule,
   AcademyCertRevocation,
+  AcademyCertException,
   AcademyIssuedCertDesign,
   AcademySetCertIssueRuleInput,
   AcademyProgramme,
@@ -312,6 +314,8 @@ const toSession = (row: SessionRow): SessionRecord => {
 };
 
 export interface AcademyServiceOptions {
+  /** J-academy-07: course payments from the buyer's own wallet. Absent or with any part blank, nothing is sold. */
+  purchases?: CoursePurchaseDeps;
   /**
    * Owner-published operational ceiling. Undefined = unpublished —
    * createRoom refuses `academy.room_capacity_unset`. Never invent 5000.
@@ -443,6 +447,28 @@ const revocationRecord = (r: RevocationRow): AcademyCertRevocation => ({
   revokedAt: r.revoked_at,
 });
 
+const EXCEPTION_COLUMNS = ['public_id', 'user_id', 'cert_id', 'proposed_by', 'approved_by', 'granted_by', 'reason', 'granted_at'] as const;
+type ExceptionRow = {
+  public_id: string;
+  user_id: string;
+  cert_id: string;
+  proposed_by: string;
+  approved_by: string;
+  granted_by: string;
+  reason: string;
+  granted_at: Date;
+};
+const exceptionRecord = (r: ExceptionRow): AcademyCertException => ({
+  publicId: r.public_id,
+  userId: r.user_id,
+  certId: r.cert_id,
+  proposedBy: r.proposed_by,
+  approvedBy: r.approved_by,
+  grantedBy: r.granted_by,
+  reason: r.reason,
+  grantedAt: r.granted_at,
+});
+
 /** The caller's own due date: staff's later date for them when there is one, else everyone's (J-academy-14 #5). */
 function dueFor(dueAt: Date | null, extendedUntil: Date | null): { dueAt: string | null; dueExtended: boolean } {
   if (dueAt === null) return { dueAt: null, dueExtended: false };
@@ -469,6 +495,7 @@ export class AcademyService {
   private readonly learnHub: LearnHub;
   private readonly coursePreview: CoursePreview;
   private readonly courseLearners: CourseLearners;
+  private readonly coursePurchases: CoursePurchases;
   private readonly courseStarts: CourseStarts;
   private readonly courseTerms: CourseTermsStore;
   private readonly plannerStore: PlannerStore;
@@ -527,7 +554,11 @@ export class AcademyService {
     this.lessonRecords = new LessonRecords(sql, this.courseRecords, this.options.lessonImportMaxBytes ?? null);
     this.learnHub = new LearnHub(sql, this.options.topicsListLimit ?? null);
     this.coursePreview = new CoursePreview(sql);
-    this.courseLearners = new CourseLearners(sql, this.coursePreview);
+    this.coursePurchases = new CoursePurchases(
+      sql,
+      options.purchases ?? { settings: null, chain: null, ledger: null, refunds: null, wallets: null },
+    );
+    this.courseLearners = new CourseLearners(sql, this.coursePreview, this.coursePurchases);
     this.courseMedia = new CourseMedia(
       sql,
       this.options.mediaStorage ?? null,
@@ -2678,6 +2709,37 @@ export class AcademyService {
     return this.courseLearners.leave({ ...input, now: input.now ?? new Date() });
   }
 
+  /** J-academy-07: a course's price, how it can be paid, and the caller's own latest purchase. */
+  coursePurchase(input: { userId: string; slug: string }) {
+    return this.coursePurchases.view(input);
+  }
+
+  /** J-academy-07: Buy. Stores the intent first; asks the wallet to sign only on the answer that opened it. */
+  buyCourse(input: { userId: string; slug: string; wallet: string }) {
+    return this.coursePurchases.buy(input);
+  }
+
+  submitCoursePayment(input: { userId: string; key: string; txHash: string }) {
+    return this.coursePurchases.submitPayment(input);
+  }
+
+  abandonCoursePurchase(input: { userId: string; key: string }) {
+    return this.coursePurchases.abandon(input);
+  }
+
+  staffCoursePurchase(key: string) {
+    return this.coursePurchases.staffRead(key);
+  }
+
+  refundCoursePurchase(input: { key: string; reason: string; actorId: string }) {
+    return this.coursePurchases.refund(input);
+  }
+
+  /** Every open purchase, read against the chain and the ledger once; a row's error goes to `onError` with its key. */
+  reconcileCoursePurchases(onError?: (key: string, err: unknown) => void) {
+    return this.coursePurchases.reconcile(100, onError);
+  }
+
   /** AC-videos-02: an item's uploads, captions and the owner's upload limits. */
   itemMedia(itemId: string, now: Date = new Date()) {
     return this.courseMedia.itemMedia(itemId, now);
@@ -3241,6 +3303,41 @@ export class AcademyService {
   }): Promise<AcademyCertRevocation> {
     const reason = input.reason.trim();
     if (reason.length === 0 || reason.length > 500) throw new AcademyError('A revoke needs a reason', 'academy.cert_invalid');
+    const record = await this.recordRevocation(input, reason);
+    await this.settleRevokedXp(input.publicId);
+    return record;
+  }
+
+  /**
+   * J-academy-17 #6: a revoked certificate's XP goes back, so the rank perks it brought stop. The award is published
+   * again first (a no-op at identity when it already landed; when it never did, award and reversal net to nothing), then
+   * the reversal, the same amount negative, keyed once per grant. Safe to repeat: a repeat revoke calls it again, which is
+   * the recovery path when the bus was down. Reported, never thrown: the revocation is the durable fact. No money moves.
+   */
+  async settleRevokedXp(publicId: string): Promise<CertXpEmitResult | null> {
+    const [row] = await this.sql<Array<{ user_id: string; cert_id: string; granted_at: Date; idempotency_key: string; status: string }>>`
+      SELECT user_id, cert_id, granted_at, idempotency_key, status FROM academy.cert_grants WHERE public_id = ${publicId}
+    `;
+    if (!row || row.status !== 'revoked') return null;
+    const grant: CertGrantRecord = {
+      userId: row.user_id,
+      certId: row.cert_id,
+      grantedAt: row.granted_at,
+      idempotencyKey: row.idempotency_key,
+    };
+    try {
+      await this.certXp.publishCertXp(grant);
+      return await this.certXp.reverseCertXp(grant);
+    } catch (err) {
+      console.error({ err, certId: row.cert_id }, 'revoked certificate XP reversal failed; a repeat revoke publishes it again');
+      return null;
+    }
+  }
+
+  private recordRevocation(
+    input: { publicId: string; proposedBy: string; approvedBy: string; operatorId: string; now?: Date },
+    reason: string,
+  ): Promise<AcademyCertRevocation> {
     return transaction(this.sql, async (tx) => {
       await tx`SELECT 1 FROM academy.cert_grants WHERE public_id = ${input.publicId} FOR UPDATE`;
       const recorded = await this.certRevocation(input.publicId, tx);
@@ -3256,6 +3353,79 @@ export class AcademyService {
       `;
       return revocationRecord(rows[0]!);
     });
+  }
+
+  /**
+   * AC-certificates-02: the exception already recorded for this learner and certificate, or null when none is. Read
+   * before a two-person approval is spent, so a repeat, an unknown certificate, or a learner who already holds it costs
+   * nobody's approval: an unpublished certificate is `academy.cert_not_found`, a held one `academy.cert_already_granted`,
+   * a revoked one `academy.cert_revoked`.
+   */
+  async certException(userId: string, certId: string, tx: Sql = this.sql): Promise<AcademyCertException | null> {
+    if (!this.certDefinition(certId)) {
+      this.refuseUnpublishedPath(certId);
+      throw new AcademyError('Unknown certification', 'academy.cert_not_found');
+    }
+    const rows = await tx<ExceptionRow[]>`
+      SELECT ${tx(EXCEPTION_COLUMNS)} FROM academy.cert_exceptions WHERE user_id = ${userId} AND cert_id = ${certId}
+    `;
+    if (rows[0]) return exceptionRecord(rows[0]);
+    const [grant] = await tx<Array<{ status: string }>>`
+      SELECT status FROM academy.cert_grants WHERE user_id = ${userId} AND cert_id = ${certId}
+    `;
+    if (grant?.status === 'revoked') throw new AcademyError(`academy.cert_revoked cert=${certId}`, 'academy.cert_revoked');
+    if (grant) throw new AcademyError(`academy.cert_already_granted cert=${certId}`, 'academy.cert_already_granted');
+    return null;
+  }
+
+  /**
+   * AC-certificates-02: staff issue one learner a certificate without every required item, with a reason, once two
+   * people approved it (the router consumes identity's approval and passes who proposed and who approved it). The grant
+   * is the learner's one ordinary grant, keyed like any other (`cert:<account>:<cert>`), keeping the active design
+   * revision; one exception record names who proposed, approved and carried it out, and why. The XP it is worth is then
+   * published as for any grant (its business key makes a repeat a no-op at identity). A repeat answers with the first
+   * record and writes nothing. No money moves.
+   */
+  async grantCertException(input: {
+    userId: string;
+    certId: string;
+    reason: string;
+    proposedBy: string;
+    approvedBy: string;
+    operatorId: string;
+    now?: Date;
+  }): Promise<AcademyCertException> {
+    const reason = input.reason.trim();
+    if (reason.length === 0 || reason.length > 500) throw new AcademyError('An exception needs a reason', 'academy.cert_invalid');
+    const now = input.now ?? new Date();
+    const record = await transaction(this.sql, async (tx) => {
+      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`cert-exception:${input.userId}:${input.certId}`}, 0))`;
+      const recorded = await this.certException(input.userId, input.certId, tx);
+      if (recorded) return recorded;
+      const [grant] = await tx<Array<{ public_id: string }>>`
+        INSERT INTO academy.cert_grants (user_id, cert_id, granted_at, idempotency_key, public_id, design_revision)
+        VALUES (${input.userId}, ${input.certId}, ${now}, ${certIdempotencyKey(input.userId, input.certId)}, ${randomPublicId()},
+                (SELECT active_revision FROM academy.cert_designs WHERE cert_id = ${input.certId}))
+        RETURNING public_id
+      `;
+      const rows = await tx<ExceptionRow[]>`
+        INSERT INTO academy.cert_exceptions (public_id, user_id, cert_id, proposed_by, approved_by, granted_by, reason, granted_at)
+        VALUES (${grant!.public_id}, ${input.userId}, ${input.certId}, ${input.proposedBy}, ${input.approvedBy},
+                ${input.operatorId}, ${reason}, ${now})
+        RETURNING ${tx(EXCEPTION_COLUMNS)}
+      `;
+      return exceptionRecord(rows[0]!);
+    });
+    // The grant is the durable fact; the XP is its consequence, published after, as `grantCert` does.
+    const grant = await this.existingGrant(input.userId, input.certId);
+    if (grant && grant.status === 'valid') {
+      try {
+        await this.certXp.publishCertXp(grant);
+      } catch (err) {
+        console.error({ err, certId: input.certId }, 'exception XP publish failed; the next claim read re-publishes it');
+      }
+    }
+    return record;
   }
 
   /** The stored issue rule of one certificate, or null when staff have set none. */

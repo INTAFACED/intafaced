@@ -195,9 +195,9 @@ export const GATES = [
       'or a workspace dependency cycle, an import or disk read that climbs into another service, SQL against another ' +
       'service’s schema (any tag, string or .unsafe), a ledger entry, hand-built LedgerClient or /trpc/post outside ' +
       'ledger-client and svc-ledger, a balance-like column (also via ADD COLUMN or a drizzle schema), and a randomUUID, ' +
-      'Date.now or Math.random idempotency key (also through a variable or on the next line). A duplicate ratchet ' +
-      '(tooling/ci/duplicate-ratchet.json) lets local 10n ** 18n scales, result?.data unwraps, padEnd parsers and ' +
-      'timeout-less fetch calls only shrink. Exceptions are named with a reason in tooling/ci/boundary-allow.json.',
+      'Date.now or Math.random idempotency key (also through a variable or on the next line). Its old duplicate ratchet ' +
+      '(local scales, result?.data unwraps, padEnd parsers, timeout-less fetch) is held by lint-ratchet below. Exceptions ' +
+      'are named with a reason in tooling/ci/boundary-allow.json.',
   },
   {
     id: 'workspace',
@@ -280,6 +280,16 @@ export const GATES = [
       'SMALLEST remainders all survived eighteen green properties. 6 planted defects, all must die.',
   },
   {
+    id: 'lint-ratchet',
+    script: 'tooling/ci/lint-ratchet.mjs',
+    doctrine: 'one linter, as a count that can only fall',
+    why:
+      "lints the files a change touches at the merge base and at the head with MAIN's .oxlintrc.json and garden plugin, " +
+      "and fails when a rule's count rises. No baseline file: main is the baseline, so a moved function does not fail. A rule " +
+      'prints only for its first 7 days (tooling/lint/ratchet.json); the rules that replaced deleted source-reading tests and ' +
+      'the old regex duplicate ratchet enforce at once, so what those checks guarded never lapses. A few seconds.',
+  },
+  {
     id: 'empty-denominator',
     script: 'tooling/ci/empty-denominator-gate.mjs',
     doctrine: '§14 / empty-denominator law',
@@ -323,6 +333,8 @@ export const NOT_GATES = {
     'not a gate: the node:test file of the one Node version (U4): the root .node-version is read by every actions/setup-node step through node-version-file, no workflow hard-codes node-version, and it satisfies engines.node and matches the node images the Dockerfiles ship, with planted faults for each. tooling-tests.mjs runs it with every other tooling test.',
   'main-trust-steps.test.mjs':
     "not a gate: the node:test file of main-trust.yml's post-merge job: every step after the compare step runs when that step fails (`!cancelled()`), so a 403 there no longer skips the journeys revert (run 4591, 13 Nov), with planted faults. tooling-tests.mjs runs it with every other tooling test.",
+  'rules-from-main.test.mjs':
+    "not a gate: the node:test file that a workflow step running main's copy of a script runs it from a worktree of main, never from single files copied out with `git show` (their imports went stale and the Test-diff guard died with ERR_MODULE_NOT_FOUND, INTAFACED/project-state#2284), with planted faults. tooling-tests.mjs runs it with every other tooling test.",
   'workflow-concurrency.test.mjs':
     "not a gate: the node:test file of the workflows' concurrency shape (one run per pull request; a main journeys run never cancelled and in one group, OWNER 206; a superseded branch journeys run cancelled), with planted faults for each. tooling-tests.mjs runs it with every other tooling test.",
   'journey-verdict.mjs':
@@ -361,6 +373,8 @@ export const NOT_GATES = {
     'PR-only guard: needs the PR’s docs/roadmap/journeys.json against that of the main its checkout was built on (its merge base with origin/main, so main moving on after GitHub made the merge is not read as a drop) and, when something is dropped, the PR body, so a laptop verify has no input. CI runs main’s copy from the `gates` job, so a PR cannot loosen the rules it is judged by. It refuses a journey or step on main dropped from journeys.json or its live count without a `Journey-retired: J-bank-13 #2 (OWNER <n>)` body line, a step slice id not in docs/roadmap/slices.json, and a docs/ROADMAP.md other than what main’s roadmap.mjs builds (OWNER 1; intafaced #7438). Its tests are journey-list-guard.test.mjs.',
   'journey-list-guard.test.mjs':
     'not a gate: the node:test file of journey-list-guard.mjs, its planted cases (a dropped journey, a dropped step, a newly parked step, an unknown slice id, a regenerated ROADMAP.md hiding a drop, a stale ROADMAP.md and a retirement line without an OWNER number each fail; main’s list passes; a merge built on an older main passes after main adds a journey, and still fails when it drops one of its own base’s). tooling-tests.mjs runs it with every other tooling test.',
+  'lint-ratchet.test.mjs':
+    "not a gate: the node:test file of lint-ratchet.mjs, its planted pull requests in a throwaway repository (a rise fails and names the rule, a rise paid for in the same file passes, a rule switched off in the pull request's own config still fails, a moved function passes, a new rule only prints, a rule that replaced a deleted test enforces at once). The tooling tests run it.",
   'test-diff-guard.mjs':
     'PR-only guard: needs the PR diff against origin/main and the PR body, so a laptop verify has no input. CI runs main’s copy of it from the `gates` job, so a PR cannot loosen the rules it is judged by. A deleted test or a lower assertion count fails only on a protected test (`protected-tests.mjs`) and is a notice elsewhere; a test deleted or loosened after it failed on an earlier head of the PR fails with no line that clears it. It covers unit tests, the browser harnesses and look sweeps (`*.pw.mjs`; a changed journey step file `J-*.pw.mjs` on a pull request the test judge runs for is the judge’s, `judged-paths.mjs` leftToJudge) and look baselines (`look-baselines/<room>/*.png`, which need a `Baseline-change: <room>` line and the independent review). `node tooling/ci/test-diff-guard.mjs --self-test` checks the matcher.',
   'look-drift.mjs':
@@ -373,6 +387,8 @@ export const NOT_GATES = {
     'not a gate: the node:test file of ci-review.mjs and of review-marker.mjs ciReviewVerdict, the planted cases of the CI review (a reviewed gate-file PR seals; no verdict, a PASS comment, an older head, a FAIL re-run and a branch copy of the workflow do not) and of which changes need it (gate files and look baselines do; money-only and security-only changes do not). tooling-tests.mjs runs it with every other tooling test.',
   'ci-review-parts.test.mjs':
     "not a gate: the node:test file of ci-review.mjs splitDiff, readableDiff, exactReverse and automaticRevert, the planted cases of a diff over the cap reviewed in parts (any part FAIL is a FAIL; a part with no answer is no verdict; one hunk over the cap still fails), an empty diff (no verdict) and main-bisect's automatic revert (a hand edit, another author or branch, or a culprit main lacks gets no trusted fact). tooling-tests.mjs runs it with every other tooling test.",
+  'ci-review-owner.test.mjs':
+    "not a gate: the node:test file of ci-review.mjs citedOwnerItems, ownerItems, ownerRecordSection, readOwnerRecord and writeReviewInputs' loadOwner, the planted cases of a REVIEW.md entry's cited project-state OWNER.md items given to the review as trusted input (an author's own copy stays quoted in the diff; no record reader is no verdict; a finding that repeats the record's private words is withheld). tooling-tests.mjs runs it with every other tooling test.",
   'reviewer-error.mjs':
     "runs only inside ci-review.yml, when the reviewer CLI exits non-zero in the Review or Proof read step: prints that call's exit code and its answer's own error fields (U4, project-state#1574), so an outage names itself, and classes it `down` (no answer, a refused or used-up key, a limit, an overload, a network error: the judge is down, the job ends without a verdict and without a red) or `error` (red, as before), with the one action a down judge needs (OWNER 289 point 11). It needs a failed call's answer file, so a laptop verify has no input; `tooling/ci/reviewer-error.test.mjs` tests it.",
   'reviewer-error.test.mjs':
@@ -402,7 +418,7 @@ export const NOT_GATES = {
   'journey-seal.mjs':
     "merge-seal step: a pull request whose title names journey steps (`J-bank-13 #1 #2`) needs each one passing in a finished Real-app journeys run on its exact head, read from the run's `real-app-journeys` report through the Actions API, or the step exempted on a strict body line `Left-or-replaced: J-bank-13 #1` at column 0 outside code; anything else that looks like an exemption fails closed (owner decision 2026-11-06). A pull request whose diff touches the journey stack's shared setup (SHARED_SETUP) also needs the newest finished full Real-app journeys run on its exact head with 0 steps outside the list or against its rules, the journeys verdict (journey-verdict.mjs judge) read with the default branch's baseline; a red step main's newest full run in the head's history has too stops only a pull request in its area (its journey, or a package changed since it last passed on main), and one that can't be bounded stops every pull request (owner decision 180). A pull request that changes a journey test file (`apps/customer/tests/real-app/J-*.pw.mjs`) names a step each changed file holds, in the title or on a `Left-or-replaced:` line, or the seal fails and prints the steps the files hold. `--recheck`, the last job of each seal input (START_JOB), starts or re-runs the seal once every input on the head has finished; `--clear-older` re-runs older red seals on a head after a green verdict. Needs a GitHub token and a pull request, so a laptop verify has no input; `tooling/ci/journey-seal.test.mjs` holds its planted cases and `--dry-run <pr>` reads any pull request without writing.",
   'journey-touch.mjs':
-    'the journeys a pull request touches, read by journey-seal.mjs from its changed paths: shared setup, tooling/scripts, the journeys workflow and its checks, docs, build files and product code need the full run; journey test files only need those files run; other workflows, CI checks the journeys run does not use and unit tests need none. A merge-seal input, not a gate of its own; `--base <ref>` prints what a branch must run, and `tooling/ci/journey-touch.test.mjs` holds its planted cases.',
+    'the journeys a pull request touches, read by journey-seal.mjs from its changed paths: shared setup, tooling/scripts, the journeys workflow and its checks, docs, build files and product code need the full run; journey test files only need those files run; other workflows, CI checks the journeys run does not use, unit tests, the git hooks under .githooks and the tooling/scripts files FACTORY_SCRIPTS lists (shown unreached by the journeys run, the stack and the app build) need none. A merge-seal input, not a gate of its own; `--base <ref>` prints what a branch must run, and `tooling/ci/journey-touch.test.mjs` holds its planted cases.',
   'journey-reach-map.mjs':
     "the touched-journeys map (R3 C4): `build` reads the `journey-reach` records of main's newest whole full Real-app journeys runs (gh run download) into tooling/ci/journey-reach-map.json, and refuses (a full map) with fewer than 3; journey-touch.mjs and the seal read it so product code runs only the journeys recorded reaching it, else the full suite (shared setup, scripts, admin-app paths, packages it can't map, event subscribers, a stale, missing or switched-off map; REACH_MAP_MODE = 'full' turns it off). A merge-seal input, not a gate of its own; `tooling/ci/journey-reach-map.test.mjs` holds its planted cases. Its `verify` (rebuild from main's runs up to the newest run the map names, compared byte for byte) runs in the Doctrine gates job of ci.yml when a pull request changes the map, with main's copy and the job's read-only token, NOT here: it needs NETWORK and a token. `.github/workflows/journey-reach-map.yml` builds the map in CI and keeps it as an artifact.",
   'journey-reach-map.test.mjs':
@@ -535,6 +551,9 @@ export function changedSinceMain(cwd = ROOT, base = 'origin/main') {
  * Behaviour when run directly (`node tooling/ci/gates.mjs`, `pnpm gates`, the
  * `gates` job in ci.yml) is unchanged — `main()` is called immediately below.
  */
+/** The most of one gate's output kept: the tooling tests' passing TAP alone is over 1 MB. */
+export const GATE_OUTPUT_MAX = 64 * 1024 * 1024;
+
 const RUN_AS_SCRIPT = process.argv[1] !== undefined && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url));
 
 if (RUN_AS_SCRIPT) main();
@@ -577,6 +596,8 @@ function main() {
       output = execFileSync(process.execPath, [join(ROOT, gate.script), ...(gate.args ?? [])], {
         encoding: 'utf8',
         cwd: ROOT,
+        // The default 1 MB cut the tooling tests' output before its `not ok` lines (CI run 43623577056, 14 Nov).
+        maxBuffer: GATE_OUTPUT_MAX,
       });
     } catch (err) {
       ok = false;

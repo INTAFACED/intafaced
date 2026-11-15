@@ -2,7 +2,7 @@ import path from 'node:path';
 import { loadProfile } from '../owner-settings.mjs';
 
 /** LOCAL TEST sanctioned destination, not a real list (J-wallet-05 #2), kept in local-test-facts.mjs. */
-import { LOCAL_TEST_SANCTIONED_ADDRESS } from '../local-test-facts.mjs';
+import { CHAIN_HOST, CHAIN_PORTS, LOCAL_TEST_SANCTIONED_ADDRESS } from '../local-test-facts.mjs';
 
 export { LOCAL_TEST_SANCTIONED_ADDRESS };
 const LOCAL_TEST_SANCTIONED_DESTINATION = `*:${LOCAL_TEST_SANCTIONED_ADDRESS}`;
@@ -177,6 +177,17 @@ function statementJobs() {
   throw new Error(`LOCAL_STACK_BANK_STATEMENT_HOLD is "${asked}"; leave it unset for renders that finish, or set it to on.`);
 }
 
+/**
+ * `LOCAL_STACK_BANK_ACTIVITY_FAULT=on` on a restart fails every activity history read (a TEST fault, J-home-ia-01 #5), so a
+ * journey sees the activity list fail in the running bank while balances still answer. Unset: activity reads as normal.
+ */
+function activityFault() {
+  const asked = process.env.LOCAL_STACK_BANK_ACTIVITY_FAULT;
+  if (asked === undefined || asked === '') return {};
+  if (asked === 'on') return { BANK_ACTIVITY_TEST_FAULT: 'on' };
+  throw new Error(`LOCAL_STACK_BANK_ACTIVITY_FAULT is "${asked}"; leave it unset for activity that reads, or set it to on.`);
+}
+
 /** The account terms (BK-acct-01): the TEST base tier, or blank when the stack is asked to show them unpublished. */
 function accountTerms() {
   const asked = process.env.LOCAL_STACK_BANK_ACCOUNT_TERMS;
@@ -225,6 +236,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     // refusal can be seen too (J-wallet-02 #1).
     ...depositCustody(urlOf),
     ...statementJobs(),
+    ...activityFault(),
     // Required, no default (owner-unpublished). Inert LOCAL TEST placeholders so the service can
     // boot: the jobs they size are all switched off below, so no batch size is ever exercised.
     LOAN_QUOTE_ASSET_ID: 'USDT',
@@ -329,6 +341,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     BANK_PAYIN_SIM_JSON: testValue('BANK_PAYIN_SIM_JSON'),
     BANK_PAYIN_SIM_PAGE_URL: urlOf('bank'),
     BANK_PAYIN_SIM_RETURN_URL: `${CUSTOMER_ORIGIN}/bank/ramps/new`,
+    // LOCAL TEST partner delivery (J-dex-protocol-05 #4): a purchase for the buyer's own wallet is delivered, once the payer
+    // approves, by the TEST chain's stand-in partner (tooling/scripts/local-test-chain.mjs /payin-deliver), which sends TEST
+    // USD to the wallet; the stand-in then says paid with that transfer. With no TEST chain it refuses and the request waits.
+    BANK_PAYIN_SIM_DELIVER_URL: `http://${CHAIN_HOST}:${CHAIN_PORTS.relay}/payin-deliver`,
     // LOCAL TEST payout stand-in for cash out (J-bank-03 #4/#5; pays nobody, refused under live posture): it prices the
     // assets its TEST catalogue lists and takes a payout; verifying an account and saying paid, failed or returned are the
     // partner's signed job calls, which only a test makes here. Value moves to and from its own TEST rail boundary.

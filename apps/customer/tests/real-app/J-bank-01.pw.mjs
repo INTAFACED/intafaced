@@ -1,12 +1,14 @@
 // World: restart
 import { randomUUID } from 'node:crypto';
 import { test, expect } from './journey.mjs';
-import { DEVICE_KEY, EDGE, ORIGIN, fund, journeyState, toUnits, tool } from './stack.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, api, journeyState, toUnits, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { withPartner } from './partner.mjs';
 
 // J-bank-01, in the running app (docs/roadmap/journeys.json): I open my bank, see my accounts and spaces, and create one.
-// One test per step, titled "J-bank-01 #<n>", run in order on one TEST account funded with TEST 100 USDT. The stack
+// One test per step, titled "J-bank-01 #<n>", run in order on one TEST account whose bank money the stack's TEST partner
+// bank holds (`testPartner.set({ custody: 'off' })`, the launch model, OWNER 226), funded there with TEST 100 USDT
+// (`testPartner.fund`, the partner's figure, no ledger post). The ledger holds and posts nothing of it. The stack
 // publishes labelled TEST account terms, a TEST currency list, a TEST space limit of 5 and TEST currencies for account
 // details (tooling/scripts/local-test-stack.mjs, svc-bank). Balances are read through the person's own bank API. Step 7 opens
 // a TEST business through that API, so the person has a business profile to switch to.
@@ -65,11 +67,29 @@ async function spaces(who) {
 }
 const main = (rows) => rows.find((s) => s.kind === 'primary' && s.assetId === 'USDT');
 
+const PARTNER_BANK = 'TEST partner bank';
+
+/**
+ * The journey's start at the TEST partner bank: the person's bank money held there (`custody: 'off'`) and TEST 100 USDT
+ * paid in there under one fund id, the partner's figure and no ledger post. The TEST partner keeps its book in memory, so
+ * a svc-bank restart empties it (svc-bank `partner/test-partner.ts`); #2 and #4 restart svc-bank before anything has
+ * moved, and put this same start back after each restart. Within one svc-bank process the same fund id pays in once.
+ */
+async function atPartner(who) {
+  const own = await bank(who);
+  const held = await own.mutate('testPartner.set', { custody: 'off' });
+  expect(held, JSON.stringify(held.body ?? {}).slice(0, 300)).toMatchObject({ ok: true });
+  const funded = await own.mutate('testPartner.fund', { fundId: `jb01-${who.email}`.slice(0, 64), assetId: 'USDT', amount: '100' });
+  expect(funded, JSON.stringify(funded.body ?? {}).slice(0, 300)).toMatchObject({ ok: true, data: { balance: '100' } });
+  expect(main(await spaces(who))).toMatchObject({ balance: '100', ledgerAccount: null, heldAt: { label: PARTNER_BANK } });
+}
+
 /**
  * Runs `fn` with svc-bank restarted on one owner value blank (`LOCAL_STACK_BANK_<NAME>=off`,
- * tooling/scripts/local-stack-services/bank.mjs), and restarts it on the TEST value after, even when `fn` fails.
+ * tooling/scripts/local-stack-services/bank.mjs), and restarts it on the TEST value after, even when `fn` fails. After
+ * each restart `who`'s start at the TEST partner is put back (`atPartner`).
  */
-async function withBankValueBlank(key, fn) {
+async function withBankValueBlank(key, who, fn) {
   const restart = (value) => {
     const before = process.env[key];
     if (value === undefined) delete process.env[key];
@@ -83,18 +103,32 @@ async function withBankValueBlank(key, fn) {
   };
   restart('off');
   try {
+    await atPartner(who);
     return await fn();
   } finally {
     restart(undefined);
+    await atPartner(who);
   }
 }
 const named = (rows, name) => rows.find((s) => s.kind === 'named' && s.name === name);
+/** The spaces as facts: the partner's `asOf` says when it was asked, which every read changes, so it is left out. */
+const withoutReadTime = (rows) =>
+  rows.map(({ heldAt, ...space }) => ({
+    ...space,
+    heldAt: heldAt && { ...heldAt, asOf: undefined, figure: heldAt.figure && { ...heldAt.figure, asOf: undefined } },
+  }));
+/** The ledger's USDT figures for `who`, in units: their bank money is the partner's, so these never change. */
+async function ledgerUsdt(who) {
+  const row = (await (await api(who)).balances()).USDT;
+  return row ? { free: toUnits(row.free), used: toUnits(row.used), total: toUnits(row.total) } : null;
+}
 
 test(`${J} #1 opens /bank and sees its own Overview with the Bank rooms`, async ({ page }) => {
   const who = await signUp(page, 'jbk');
   await verify(page, who);
-  expect(fund(who.email, 'USDT', '100').tx).toBeTruthy();
-  run.reset({ who });
+  // The person's bank money is held at the TEST partner bank and paid in there: nothing is posted to the ledger.
+  await atPartner(who);
+  run.reset({ who, ledger: await ledgerUsdt(who) });
 
   await signIn(page, who);
   await page.goto('/bank');
@@ -129,7 +163,7 @@ test(`${J} #2 reads the account panel: the published TEST terms, and with the ow
 
   // With the owner's terms table blank: the bank refuses by its code, and the panel says the terms are not published,
   // shows that code, and claims no fee or fee-free account.
-  await withBankValueBlank('LOCAL_STACK_BANK_ACCOUNT_TERMS', async () => {
+  await withBankValueBlank('LOCAL_STACK_BANK_ACCOUNT_TERMS', who, async () => {
     expect(await (await bank(who)).query('accounts.features', {})).toMatchObject({ ok: false, code: 'bank.account_terms_unset' });
     await page.goto('/bank');
     const unset = page.getByTestId('failure').filter({ hasText: 'Terms not published' });
@@ -223,7 +257,7 @@ test(`${J} #4 creates a space, and at the TEST limit of ${LIMIT} the create is r
   await expect(paused).toHaveCount(0);
 
   // With the owner's space limit blank: the create is refused, saying the limit is not set, and no space is made.
-  await withBankValueBlank('LOCAL_STACK_BANK_SPACE_LIMIT', async () => {
+  await withBankValueBlank('LOCAL_STACK_BANK_SPACE_LIMIT', who, async () => {
     const before = (await spaces(who)).length;
     expect(await (await bank(who)).mutate('spaces.create', { assetId: 'USDT', name: 'No limit TEST' })).toMatchObject({
       ok: false,
@@ -249,6 +283,8 @@ test(`${J} #5 moves TEST 20 from the main balance into the space, and a locked s
   const who = person();
   const before = await spaces(who);
   const trip = named(before, SPACE);
+  const ledgerBefore = await ledgerUsdt(who);
+  expect(ledgerBefore, 'the ledger is where #1 left it').toEqual(run.read().ledger);
   await signIn(page, who);
   await page.goto('/bank/transfers');
   await page.getByLabel('From your space').selectOption(main(before).id);
@@ -257,14 +293,35 @@ test(`${J} #5 moves TEST 20 from the main balance into the space, and a locked s
   await dialog.getByLabel('To which of your accounts').selectOption(trip.id);
   await dialog.getByLabel(/Amount/).fill('20');
   await dialog.getByRole('button', { name: 'Review' }).click();
+  const answered = page.waitForResponse(
+    (res) => res.request().method() === 'POST' && res.url().includes('/api/bank/trpc/transfers.create'),
+  );
   await dialog.getByRole('button', { name: 'Confirm' }).click();
-  await expect(dialog.getByText(/ledger/i).first()).toBeVisible();
+  const reply = await answered;
+  const asked = reply.request().postDataJSON();
+  const made = (await reply.json()).result.data;
+  // One partner move, keyed by the transfer id the app sent, and no ledger transaction.
+  expect(made).toMatchObject({ ledgerTxId: null, amount: '20', partnerMove: { label: PARTNER_BANK } });
+  await expect(dialog).toContainText('Partner bank move');
+  await expect(dialog).toContainText(made.partnerMove.id);
+  await expect(dialog).toContainText('None: the partner bank holds this money');
 
   const after = await spaces(who);
   expect(toUnits(main(before).balance) - toUnits(main(after).balance)).toBe(toUnits('20'));
   expect(toUnits(named(after, SPACE).balance) - toUnits(trip.balance)).toBe(toUnits('20'));
-  // The sum of the spaces is still the ledger total.
-  expect(toUnits(main(after).balance) + toUnits(named(after, SPACE).balance)).toBe(toUnits('100'));
+  for (const space of [main(after), named(after, SPACE)])
+    expect(space).toMatchObject({ ledgerAccount: null, heldAt: { label: PARTNER_BANK } });
+  // The spaces plus the main balance shown are the partner's total: the 100 it was paid in.
+  const usdt = after.filter((s) => s.assetId === 'USDT' && !s.archivedAt);
+  expect(usdt.reduce((sum, s) => sum + toUnits(s.balance), 0n)).toBe(toUnits('100'));
+  // The same transfer id again is the same move, made once: the partner answers with it and nothing moves twice.
+  const again = await (await bank(who)).mutate('transfers.create', asked);
+  expect(again).toMatchObject({ ok: true, data: { ledgerTxId: null, partnerMove: { id: made.partnerMove.id } } });
+  const twice = await spaces(who);
+  expect(main(twice).balance).toBe(main(after).balance);
+  expect(named(twice, SPACE).balance).toBe(named(after, SPACE).balance);
+  // The ledger posted nothing.
+  expect(await ledgerUsdt(who)).toEqual(ledgerBefore);
 
   // The move is in the history, on the space it went to.
   await page.goto('/money/activity');
@@ -412,7 +469,8 @@ test(`${J} #7 switches to a business profile: every bank read carries it, and a 
     const res = await api[kind](procedure, input);
     expect(res, procedure).toMatchObject({ ok: false, status: 403, code: 'bank.profile_not_held' });
   }
-  expect(await spaces(who)).toEqual(before);
+  // Nothing on the account changed: every space and figure is the same, read apart from when the partner was asked.
+  expect(withoutReadTime(await spaces(who))).toEqual(withoutReadTime(before));
 
   // Back to Personal: the account's own terms and money are there again.
   await page.getByRole('button', { name: 'Account menu' }).click();

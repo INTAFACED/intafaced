@@ -106,6 +106,10 @@ export type DeskRequest =
   | { readonly kind: 'academy.ambassador.unfreeze'; readonly userId: string }
   | { readonly kind: 'academy.ambassador.appoint'; readonly userId: string }
   | { readonly kind: 'academy.residency.decide'; readonly id: string; readonly decision: ResidencyDecision }
+  /** Revoke one issued certificate by its public code (svc-academy `admin.revokeCert`, J-academy-17 #6). */
+  | { readonly kind: 'academy.cert.revoke'; readonly publicId: string; readonly reason: string }
+  /** Issue one learner a certificate as an exception (svc-academy `admin.grantCertException`, J-academy-17 #5). */
+  | { readonly kind: 'academy.cert.exception'; readonly userId: string; readonly certId: string; readonly reason: string }
   | { readonly kind: 'bank.card.status'; readonly cardId: string; readonly status: CardStatus; readonly reason: string }
   /**
    * One programme funding instruction to the card partner (svc-bank `ops.requestCardProgrammeFunding`, J-bank-26 #6): fund or
@@ -314,6 +318,8 @@ const REASON_CODE = /^[A-Za-z0-9._:-]{1,64}$/;
 /** A market symbol as the service keys it: no surrounding space, no lower case, so one market has one target id. */
 const MARKET_SYMBOL = /^[A-Z0-9][A-Z0-9._/-]{0,63}$/;
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const CERT_PUBLIC_ID = /^[0-9a-f]{32}$/;
+const CERT_ID = /^[a-z0-9:_-]{1,64}$/;
 /** svc-ops' reconciliation alert evidence hash: SHA-256 hex of the contract's canonical evidence. */
 const EVIDENCE_HASH = /^[0-9a-f]{64}$/;
 /** svc-ops' staff hold number: one global sequence. */
@@ -588,6 +594,18 @@ export function readDeskRequest(raw: unknown): DeskRequest | null {
     if (typeof raw.id !== 'string' || !UUID.test(raw.id)) return null;
     if (typeof raw.decision !== 'string' || !(RESIDENCY_DECISIONS as readonly string[]).includes(raw.decision)) return null;
     return { kind: 'academy.residency.decide', id: raw.id, decision: raw.decision as ResidencyDecision };
+  }
+  // svc-academy binds the code (or the learner and certificate) and the reason to the approval.
+  if (raw.kind === 'academy.cert.revoke') {
+    if (keys !== 'kind,publicId,reason') return null;
+    if (typeof raw.publicId !== 'string' || !CERT_PUBLIC_ID.test(raw.publicId) || !validReason(raw.reason)) return null;
+    return { kind: 'academy.cert.revoke', publicId: raw.publicId, reason: raw.reason };
+  }
+  if (raw.kind === 'academy.cert.exception') {
+    if (keys !== 'certId,kind,reason,userId') return null;
+    if (typeof raw.userId !== 'string' || !UUID.test(raw.userId) || !validReason(raw.reason)) return null;
+    if (typeof raw.certId !== 'string' || !CERT_ID.test(raw.certId)) return null;
+    return { kind: 'academy.cert.exception', userId: raw.userId, certId: raw.certId, reason: raw.reason };
   }
   // svc-bank binds the card and the status to the approval; the reason is required by the service (10+ characters) and recorded
   // with the freeze, but it is not part of what the second founder signs. It is in the packet so they read it.
@@ -875,6 +893,10 @@ export function confirmPhrase(request: DeskRequest): string {
       return `APPOINT AMBASSADOR ${request.userId.slice(0, 8)}`;
     case 'academy.residency.decide':
       return `${request.decision === 'accepted' ? 'ACCEPT' : 'REJECT'} RESIDENCY ${request.id.slice(0, 8)}`;
+    case 'academy.cert.revoke':
+      return `REVOKE CERTIFICATE ${request.publicId.slice(0, 8)}`;
+    case 'academy.cert.exception':
+      return `ISSUE CERTIFICATE ${request.userId.slice(0, 8)}`;
     case 'bank.card.status':
       return `${request.status === 'frozen' ? 'FREEZE' : 'UNFREEZE'} CARD ${request.cardId.slice(0, 8)}`;
     case 'bank.card.funding':
@@ -987,6 +1009,10 @@ export function describeRequest(request: DeskRequest): string {
       return request.decision === 'accepted'
         ? `Accept residency application ${request.id}: the application is recorded as accepted.`
         : `Reject residency application ${request.id}: the application is recorded as rejected.`;
+    case 'academy.cert.revoke':
+      return `Revoke issued certificate ${request.publicId} ("${request.reason}"): its public check says revoked, the learner can no longer claim it, and the revoke is listed in the grant audit with who did it and why. The grant row stays. No money moves.`;
+    case 'academy.cert.exception':
+      return `Issue certificate ${request.certId} to learner ${request.userId} as an exception ("${request.reason}"), without every required item: it is their one grant of that certificate, and the issued list and the grant audit show it with this reason. No money moves.`;
     case 'bank.card.status':
       return request.status === 'frozen'
         ? `Freeze card ${request.cardId} as an operator: the card is frozen and its owner cannot unfreeze it. Only an operator can lift it. The owner can still close it.`

@@ -12,6 +12,7 @@ import { changeCertDesk, isCertDeskOp, loadCertDesigns, loadCertExportFile, load
  *   GET ?export=<n>   stored export n as a CSV download, with its SHA-256
  *   POST { op: 'saveDesign', certId, revision, title, body, signatories, disclaimer, language, size, effortHours, reason }
  *   POST { op: 'activateDesign', certId, revision, reason }
+ *   POST { op: 'setIssueRule', certId, mode, delayMinutes, reason }   how the certificate is issued (AC-certificates-02)
  *   POST { op: 'makeExport', n }   stores export n: the whole issued list now, with its time and hash
  *
  * Founder-only. svc-academy records the founder from their own token.

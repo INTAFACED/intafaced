@@ -20,6 +20,7 @@
 import { execFileSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { allEdges, detectedEdges } from './cross-package-reads.mjs';
+import { SPLIT } from './test-shards.mjs';
 
 /** Run-everything list: a change here can break a consumer in any package, so the whole suite runs. */
 export const FULL_TRIGGERS = [
@@ -145,12 +146,32 @@ export const SHARD_COUNT = 16;
 
 /**
  * The test job's matrix. A run-everything run is split SHARD_COUNT ways (tooling/ci/test-shards.mjs: the whole packages in
- * the first shards, then one shard per piece of each package in its SPLIT); an affected run is
- * one job, `changed`. The seal reads the matrix as one job: it is green only when every shard is.
+ * the first shards, then one shard per piece of each package in its SPLIT); an affected run is one job, `changed`,
+ * unless it is wide: its tests include a SPLIT package (one too slow for one job), or turbo could not say which packages
+ * it tests (`tested` null). A wide run takes the sixteen shards, which run every test the `changed` job would, and the rest.
+ * (Failure it prevents: on 14 Nov 2026 every `changed` job whose packages held a SPLIT one took 17 to 37 minutes, runs
+ * 43594422205, 43586760106, 43599805754 and 43616068781, against 1.8 to 6.5 for the others and 6.3 to 8.8 minutes wall
+ * time for all sixteen shards.) The seal reads the matrix as one job: it is green only when every shard is.
  */
-export function shardMatrix(flags) {
-  if (flags.full) return Array.from({ length: SHARD_COUNT }, (_, i) => `${i + 1}/${SHARD_COUNT}`);
+export function shardMatrix(flags, tested = []) {
+  const all = Array.from({ length: SHARD_COUNT }, (_, i) => `${i + 1}/${SHARD_COUNT}`);
+  if (flags.full) return all;
+  if (flags.affected && (tested === null || tested.some((name) => SPLIT[name]))) return all;
   return ['changed'];
+}
+
+/**
+ * The packages an affected run's `pnpm test` runs, by turbo's own dry run over the same filters; null when turbo cannot
+ * say, which shardMatrix reads as wide (more tests, never fewer).
+ */
+export function testedPackages(filters, run = (args) => execFileSync('pnpm', args, { encoding: 'utf8', maxBuffer: 64 << 20 })) {
+  try {
+    const dry = JSON.parse(run(['-s', 'turbo', 'run', 'test', '--dry-run=json', ...filters.map((f) => `--filter=${f}`)]));
+    const names = dry.tasks.filter((t) => t.task === 'test' && t.command && t.command !== '<NONEXISTENT>').map((t) => t.package);
+    return [...new Set(names)].sort();
+  } catch {
+    return null;
+  }
 }
 
 export function sealNeeded(flags, results) {
@@ -322,15 +343,48 @@ function selfTest() {
     'a full run is split sixteen ways',
   );
   assert(same(shardMatrix({ full: false, affected: true }), ['changed']), 'an affected run is one job');
-  console.log('✓ ci-affected --self-test OK (' + (cases.length + 18) + ' fixtures)');
+  const sixteen = Array.from({ length: 16 }, (_, i) => `${i + 1}/16`);
+  const narrow = ['@intafaced/customer', '@intafaced/mobile', '@intafaced/svc-edge', '@intafaced/ui'];
+  assert(same(shardMatrix({ full: false, affected: true }, narrow), ['changed']), 'a narrow affected run stays one job');
+  assert(
+    same(shardMatrix({ full: false, affected: true }, [...narrow, '@intafaced/svc-trade']), sixteen),
+    'an affected run that tests a SPLIT package takes the sixteen shards',
+  );
+  assert(same(shardMatrix({ full: false, affected: true }, null), sixteen), 'an unknown tested set takes the sixteen shards');
+  assert(same(shardMatrix({ full: false, affected: false }, null), ['changed']), 'docs only stays as it was');
+  const dry = JSON.stringify({
+    tasks: [
+      { task: 'test', package: '@intafaced/svc-trade', command: 'vitest run' },
+      { task: 'build', package: '@intafaced/ledger-client', command: 'tsc' },
+      { task: 'test', package: '@intafaced/config', command: '<NONEXISTENT>' },
+      { task: 'test', package: '@intafaced/customer', command: 'vitest run' },
+    ],
+  });
+  assert(
+    same(
+      testedPackages(['x'], () => dry),
+      ['@intafaced/customer', '@intafaced/svc-trade'],
+    ),
+    'only packages with a test script count',
+  );
+  assert(
+    testedPackages(['x'], () => {
+      throw new Error('turbo failed');
+    }) === null,
+    'turbo failing is unknown, not narrow',
+  );
+  assert(same(testedPackages(['./services/svc-trade']), ['@intafaced/svc-trade']), 'the real turbo names what a filter tests');
+  console.log('✓ ci-affected --self-test OK (' + (cases.length + 25) + ' fixtures)');
 }
 
-function githubOutput(flags) {
+function githubOutput(flags, tested = []) {
   const lines = Object.entries(flags).map(([k, v]) => `${k}=${v ? 'true' : 'false'}`);
   const dest = process.env.GITHUB_OUTPUT;
   if (dest) writeFileSync(dest, `${lines.join('\n')}\n`, { flag: 'a' });
   for (const line of lines) console.log(line);
-  const shards = `shards=${JSON.stringify(shardMatrix(flags))}`;
+  if (tested === null) console.log('turbo could not list the tested packages: the sixteen shards run');
+  else if (tested.length) console.log(`tested packages (${tested.length}): ${tested.join(' ')}`);
+  const shards = `shards=${JSON.stringify(shardMatrix(flags, tested))}`;
   if (dest) writeFileSync(dest, `${shards}\n`, { flag: 'a' });
   console.log(shards);
 }
@@ -384,6 +438,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     process.exit(0);
   }
   const flags = classify(files, { forceFull });
-  if (args.includes('--github-output')) githubOutput(flags);
+  if (args.includes('--github-output'))
+    githubOutput(flags, flags.affected && !flags.full ? testedPackages(affectedFilters(files, readEdges(), diffBase())) : []);
   else console.log(JSON.stringify({ files, flags }, null, 2));
 }

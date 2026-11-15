@@ -261,3 +261,51 @@ export const protocolOnboardingApproveInputSchema = z.object({
 });
 export type ProtocolOnboardingChecklist = z.infer<typeof protocolOnboardingChecklistSchema>;
 export type ProtocolOnboardingOpenInput = z.infer<typeof protocolOnboardingOpenInputSchema>;
+
+/**
+ * Public name tags (D-launch-listing-01, J-dex-protocol-30 #7), version 1: svc-protocol's `compliance.nameTags.*`. A name
+ * tag says who an address belongs to. It is published only with a proof of ownership on file (the contract's on-chain owner
+ * signed a one-time challenge, `listing.verifyOwnership`) and only after two different people approved it. Then it is a
+ * public `name` label on the address with its reason.
+ */
+export const PROTOCOL_NAME_TAG_REFUSALS = [
+  /** No ownership proof is stored for the address, so the tag cannot be approved. */
+  'protocol.nametags.no_proof',
+  /** This person already approved the tag; a second approver must be someone else. */
+  'protocol.nametags.same_approver',
+  /** The request is not pending, or does not exist. */
+  'protocol.nametags.request_unknown',
+  /** A tag for this address is already waiting for approval. */
+  'protocol.nametags.request_pending',
+] as const;
+export type ProtocolNameTagRefusal = (typeof PROTOCOL_NAME_TAG_REFUSALS)[number];
+
+export const NAME_TAG_MAX = 60;
+
+export const protocolNameTagRequestSchema = z.object({
+  id: z.string(),
+  address: z.string(),
+  tag: z.string(),
+  reason: z.string(),
+  status: z.enum(['pending', 'public']),
+  requesterId: z.string(),
+  /** The newest stored ownership proof for the address, or null: then the tag cannot be approved. */
+  proof: z.object({ signer: z.string(), blockNumber: z.string(), verifiedAt: z.string() }).nullable(),
+  /** The people who approved it, in order; public needs two different ones. */
+  approvals: z.array(z.object({ approverId: z.string(), at: z.string() })),
+  askedAt: z.string(),
+  publishedAt: z.string().nullable(),
+});
+export const protocolNameTagsOutputSchema = z.object({
+  asOf: z.string(),
+  chainId: z.number().int(),
+  requests: z.array(protocolNameTagRequestSchema),
+});
+export const protocolNameTagRequestInputSchema = z.object({
+  address,
+  tag: z.string().trim().min(1).max(NAME_TAG_MAX),
+  reason: z.string().trim().min(1).max(ADDRESS_LABEL_REASON_MAX),
+});
+export const protocolNameTagApproveInputSchema = z.object({ requestId: z.string().uuid() });
+export type ProtocolNameTagRequest = z.infer<typeof protocolNameTagRequestSchema>;
+export type ProtocolNameTagsOutput = z.infer<typeof protocolNameTagsOutputSchema>;

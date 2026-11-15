@@ -15,6 +15,7 @@ import {
 } from '../step-up/money-out-fields.js';
 import { cardInactive } from '../cards/card-service.js';
 import { cardOutput, presentCard } from '../cards/card-view.js';
+import { cardholderDisputeRouter } from '../cards/cardholder-disputes.js';
 import { CARD_TIERS, DELIVERY_SPEEDS } from '../cards/card-programme.js';
 import { CARD_CATEGORIES, CARD_CONTROL_KINDS } from '../cards/card-controls.js';
 import { CARD_CUSTODY_MODES, NOT_USED_FOR_CARDS } from '../cards/partner-terms.js';
@@ -610,8 +611,8 @@ export function createCardsRouter(c: BankRouterContext) {
 
     /** Which of card details, PIN and phone wallets the issuer offers, and whether they are TEST (J-bank-14 #3, #4). */
     secretsOffered: scopedProcedure('bank:read', { module: 'bank' })
-      .output(z.object({ details: z.boolean(), pin: z.boolean(), wallet: z.boolean(), test: z.boolean() }))
-      .query(async () => guard(async () => bank.cards.secretsOffered())),
+      .output(z.object({ details: z.boolean(), pin: z.boolean(), wallet: z.boolean(), test: z.boolean(), walletNotOffered: z.boolean() }))
+      .query(async ({ ctx }) => guard(async () => bank.cards.secretsOffered(ctx.principal.userId))),
 
     /** The phone wallets this card was added to: `added`, `paused` while the card is frozen, or `closed` (J-bank-14 #4). */
     walletTokens: scopedProcedure('bank:read', { module: 'bank' })
@@ -746,6 +747,8 @@ export function createCardsRouter(c: BankRouterContext) {
           paid: amountString,
           unpaid: amountString,
           refused: amountString,
+          /** Owed by INTAFACED on partner-held spend and paid to the person's own wallet; never spendable here. */
+          toWallet: amountString,
           payments: z.array(
             z.object({
               authorizationId: z.string(),
@@ -754,6 +757,8 @@ export function createCardsRouter(c: BankRouterContext) {
               status: z.string(),
               rejectionCode: z.string().nullable(),
               ledgerTxId: z.string().nullable(),
+              paidBy: z.enum(['ledger', 'wallet']),
+              announced: z.boolean(),
             }),
           ),
           paying: z.boolean(),
@@ -768,6 +773,7 @@ export function createCardsRouter(c: BankRouterContext) {
             paid: formatAmount(c.paid),
             unpaid: formatAmount(c.unpaid),
             refused: formatAmount(c.refused),
+            toWallet: formatAmount(c.toWallet),
             payments: c.payments.map((p) => ({ ...p, amount: formatAmount(p.amount) })),
           };
         }),
@@ -1150,6 +1156,9 @@ export function createCardsRouter(c: BankRouterContext) {
      * captured, released, or given back by the partner on expiry. `test` is true on the TEST partner card. Every null is
      * "not known", never 0. Reads only.
      */
+    /** J-bank-15: the cardholder disputes their own card charge (BK-cdisp-01). */
+    disputes: cardholderDisputeRouter(bank, guard),
+
     partnerHeld: scopedProcedure('bank:read', { module: 'bank' })
       .input(z.object({ cardId: z.string().guid(), limit: z.number().int().min(1).max(200).optional() }))
       .output(

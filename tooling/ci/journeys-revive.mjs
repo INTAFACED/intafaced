@@ -199,9 +199,9 @@ export async function mainBack({ repo, io }) {
   return { back: true, runs };
 }
 
-/** API calls one verdict's inputs spend, with room (98 history runs read on 12 Nov 2026: 208 calls; it grows by two
- *  per main run until the baseline is rewritten, HISTORY_MAX 150 runs). A re-run asked with less left would only spend
- *  one of the run's re-runs on the same limit. */
+/** API calls one verdict's inputs spend, with room (98 history runs read on 12 Nov 2026: 208 calls; two per run the
+ *  stored pass history does not cover, at most HISTORY_MAX 150 such runs, plus one list call per 100 runs on main since
+ *  the baseline). A re-run asked with less left would only spend one of the run's re-runs on the same limit. */
 export const VERDICT_CALLS = 400;
 
 /** The pull request runs worth reading: this repository's, finished red, in the window, attempts left. */

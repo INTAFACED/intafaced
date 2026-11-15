@@ -2,6 +2,7 @@ import { keccak256, toHex } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { expect } from './journey.mjs';
 import { api, toUnits, tool } from './stack.mjs';
+import { venueRecord } from './venue.mjs';
 
 // The person's venue account, read from the stack's LOCAL TEST venue (packages/venue-sim) itself, never our ledger,
 // engine or door. svc-trade's door is off unless LOCAL_STACK_USER_VENUE=on: `venueOn` and `venueOff` switch it. All TEST.
@@ -67,14 +68,13 @@ export async function venueRead(who, route, owner, query = {}) {
   const nonce = route.startsWith('withdrawals/') ? decodeURIComponent(route.slice('withdrawals/'.length)) : undefined;
   const path = nonce ? '/withdrawal' : SIM_READS[route];
   expect(path, `${route} is a venue read`).toBeTruthy();
-  const account = { venueId: await testVenueId(), owner: owner.trim().toLowerCase(), subAccount: null };
   const extra = {
     ...(nonce === undefined ? {} : { nonce }),
     ...(query.clientOrderId === undefined ? {} : { venueClientOrderId: query.clientOrderId }),
     ...(query.since === undefined ? {} : { since: query.since }),
   };
-  const { status, body } = await testVenue(path, { account, ...extra });
-  expect(status, `${route}: ${JSON.stringify(body).slice(0, 300)}`).toBe(200);
+  // The venue fixture's own read (venue.mjs): the TEST venue's record for this account, on loopback.
+  const body = await venueRecord(owner.trim(), path, extra);
   expect(typeof body.asOf, `${route} carries the venue's as-of time`).toBe('string');
   expect(Number.isNaN(Date.parse(body.asOf)), body.asOf).toBe(false);
   return body;

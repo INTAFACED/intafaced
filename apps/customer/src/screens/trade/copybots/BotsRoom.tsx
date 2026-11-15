@@ -18,6 +18,7 @@ import {
   type TableColumn,
 } from '@intafaced/ui';
 import { navigate } from '../../../app/location';
+import { LiveDeployWizard } from '../../../features/quant/LiveDeploy';
 import { usePortfolio } from '../../../data';
 import { useApi, useSession } from '../../../features/session/session';
 import { createTradeApi } from '../../../features/trade/trade-api';
@@ -114,6 +115,8 @@ export function BotsRoom({ path }: { path: string }) {
   const pathname = new URL(path, 'http://x').pathname.replace(/\/+$/, '');
   if (pathname === TYPE_LINK.grid.href) return <GridRoom path={path} />;
   if (pathname === '/trade/bots/webhooks') return <WebhooksRoom />;
+  // The deploy wizard of a saved Quant Studio strategy (AL-live-02): `/trade/bots/new?from=<strategyId>`.
+  if (pathname === '/trade/bots/new') return <LiveDeployWizard path={path} />;
   if (pathname === '/trade/bots/signals' || pathname.startsWith('/trade/bots/signals/')) return <SignalsRoom path={path} />;
   const parked = PARKED[pathname];
   if (parked) return <ParkedBotRoom title={parked.title} reason={parked.reason} />;
@@ -125,7 +128,7 @@ export function BotsRoom({ path }: { path: string }) {
 function ParkedBotRoom({ title, reason }: { title: string; reason: string }) {
   const { t } = roomCopy.useCopy();
   return (
-    <Page width="full" className="cb-page">
+    <Page width="full" className="cb-page" landmark={false}>
       <ModeNav active="bots" />
       <PageHeader title={t(title as 'Spot grid')} description={t('This bot can’t be set up here.')} />
       <EmptyState
@@ -451,11 +454,21 @@ function BotsHub({ path }: { path: string }) {
       cell: (r) => displayAmount(r.risk.maxNotional),
     },
     { id: 'kill', header: t('Stops at a loss of'), value: (r) => r.risk.kill, numeric: true, cell: (r) => displayAmount(r.risk.kill) },
+    {
+      id: 'deploy',
+      header: t('Live'),
+      cell: (r) => (
+        <a href={`/trade/bots/new?from=${encodeURIComponent(r.id)}`} data-testid="bots-deploy-live">
+          {t('Deploy live')}
+        </a>
+      ),
+      width: 140,
+    },
   ];
 
   const schedulerOff = policy.data !== null && !policy.data.capability.jobsEnabled;
   return (
-    <Page width="full" className="cb-page">
+    <Page width="full" className="cb-page" landmark={false}>
       <ModeNav active="bots" />
       <PageHeader
         title={t('Bots')}
@@ -635,7 +648,7 @@ function BotsHub({ path }: { path: string }) {
             />
             <KeyValue
               items={[
-                { label: t('Running a strategy live'), value: t('Not built: a strategy cannot trade real money') },
+                { label: t('Running a strategy live'), value: t('Deploy live opens the deploy wizard, which checks the strategy first') },
                 { label: t('Where to write one'), value: t('Quant Studio') },
               ]}
             />

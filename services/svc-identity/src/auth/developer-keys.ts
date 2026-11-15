@@ -75,7 +75,9 @@ export type DeveloperKeyRefusal =
   | 'auth.agent_scope_forbidden'
   | 'identity.developer_roles_unset'
   | 'identity.developer_role_read_only'
-  | 'identity.developer_role_none';
+  | 'identity.developer_role_none'
+  | 'identity.key_rotate_overlap_unset'
+  | 'identity.key_rotate_overlap_too_long';
 
 export class DeveloperKeyError extends Error {
   constructor(
@@ -303,12 +305,17 @@ export type DeveloperKeysDeps = {
   developerRoles?: readonly DeveloperRole[] | null;
   /** svc-trade's answer to "is this account an approved lead" (`lead-key-check.ts`). Absent: a `copy:lead` key refuses as unavailable. */
   leadCheck?: LeadCheck;
+  /**
+   * The owner's longest rotation overlap in seconds (`IDENTITY_API_KEY_ROTATE_OVERLAP_MAX_SECONDS`). Null or absent: a
+   * rotation with an overlap above 0 refuses `identity.key_rotate_overlap_unset`; an overlap of 0 still rotates.
+   */
+  rotateOverlapMaxSeconds?: number | null;
   now?: () => Date;
 };
 
 export { signsByDefault };
 
-type Caller = { userId: string; sid: string; kid?: string | undefined; sub_account?: string | undefined; scopes: readonly string[] };
+export type Caller = { userId: string; sid: string; kid?: string | undefined; sub_account?: string | undefined; scopes: readonly string[] };
 
 async function capFor(deps: DeveloperKeysDeps, userId: string, sql: Sql): Promise<number | null> {
   if (!deps.capByTier) return null;
@@ -518,9 +525,9 @@ export async function listDeveloperKeys(deps: DeveloperKeysDeps, userId: string,
   };
 }
 
-const notFound = () => new DeveloperKeyError('No key with this id on your account', 'identity.key_not_found');
+export const notFound = () => new DeveloperKeyError('No key with this id on your account', 'identity.key_not_found');
 
-async function ownKey(sql: Sql, userId: string, keyId: string): Promise<KeyRow & { require_non_empty_ip_allowlist: boolean }> {
+export async function ownKey(sql: Sql, userId: string, keyId: string): Promise<KeyRow & { require_non_empty_ip_allowlist: boolean }> {
   // Another account's key and a missing key answer the same: not found.
   const rows = await sql<Array<KeyRow & { require_non_empty_ip_allowlist: boolean }>>`
     SELECT ${sql.unsafe(KEY_COLUMNS)}, require_non_empty_ip_allowlist FROM api_keys WHERE id = ${keyId} AND user_id = ${userId}

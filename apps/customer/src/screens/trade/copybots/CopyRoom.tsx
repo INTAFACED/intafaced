@@ -210,7 +210,7 @@ export function CopyRoom({ path }: { path: string }) {
   }
 
   return (
-    <Page width="full" className="cb-page">
+    <Page width="full" className="cb-page" landmark={false}>
       <ModeNav active="copy" />
       <PageHeader
         title={t('Copy trading')}

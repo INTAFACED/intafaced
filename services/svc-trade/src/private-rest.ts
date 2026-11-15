@@ -1,3 +1,4 @@
+import { attachApiKeyRotationRoutes, type ApiKeyRotationClient } from './account/api-key-rotation-rest.js';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { requireScope, tradeTier, type Principal } from '@intafaced/auth';
 import { attachConvertExportRoute } from './convert/convert-history-rest.js';
@@ -98,7 +99,10 @@ import { privateRead, privateWith, privateWrite, publicRead } from './route-inve
 import { attachGridRestRoutes } from './grid/grid-rest.js';
 import { attachUserVenueRoutes } from './venue/user-venue-rest.js';
 import { attachAgentAccountRoutes } from './venue/agent-account-rest.js';
+import type { AgentActivity } from './venue/agent-order-calls.js';
 import { attachOwnAgentTradingRoutes } from './venue/own-agent-trading-rest.js';
+import { attachProtectionRoutes } from './venue/protections-rest.js';
+import type { VenueProtections } from './venue/protections.js';
 import { attachLiveRunRoutes } from './quant/live-run/rest.js';
 import type { LiveRuns } from './quant/live-run/live-runs.js';
 import type { OwnAgentTrading } from './venue/own-agent-trading.js';
@@ -195,6 +199,8 @@ function isSpotOrderType(type: string): type is (typeof SPOT_ORDER_TYPES)[number
 const ORDER_ID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface PrivateRestDeps {
+  /** A key's own rotation request, passed to identity (account/api-key-rotation-rest.ts, J-developer-07 #3). */
+  apiKeyRotation?: ApiKeyRotationClient;
   /** Shared EDGE_PRINCIPAL_SECRET — same value tRPC uses. */
   edgeSecret: string;
   edgeTrust?: EdgeTrust;
@@ -223,8 +229,12 @@ export interface PrivateRestDeps {
   agentAccounts?: AgentAccounts | null;
   /** The assistant's trade path on its agent account (J-agents-21 #6 #7 #10). Off with the door. */
   agentOrders?: AgentOrders | null;
+  /** The assistant connection's Activity (J-agents-21 #11). Off with the door. */
+  agentActivity?: AgentActivity | null;
   /** A person's own agent trading their venue sub-account under an allowance (J-agents-08 #3 to #7). Off with the door. */
   ownAgentTrading?: OwnAgentTrading | null;
+  /** A position's protections on the person's own venue account (J-derivatives-03); off with the door. */
+  venueProtections?: VenueProtections | null;
   /** Live strategy runs (J-algo-dev-07); null with the user-venue door off. */
   liveRuns?: LiveRuns | null;
   /** Convert's sell quotes priced by the venue (J-cex-spot-17 #8); absent with the door. */
@@ -1408,6 +1418,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
   attachAlgoRestRoutes(app, deps.algo, { requirePrincipal, requireTradeJurisdiction });
   attachRfqExportRoute(app, deps.rfqExport, requirePrincipal);
   attachStatementRoutes(app, deps.statements, requirePrincipal);
+  attachApiKeyRotationRoutes(app, deps.apiKeyRotation, requirePrincipal);
 
   /**
    * Jurisdiction gate for money writes — mirrors `scopedProcedure(..., { module: 'trade' })`.
@@ -1452,9 +1463,21 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     sellQuotes: deps.venueSellQuotes ?? null,
     agentKeyConfined,
   });
-  attachAgentAccountRoutes(app, deps.agentAccounts ?? null, { requirePrincipal, requireTradeJurisdiction, agentKeyConfined }, agentOrders);
+  attachAgentAccountRoutes(
+    app,
+    deps.agentAccounts ?? null,
+    { requirePrincipal, requireTradeJurisdiction, agentKeyConfined },
+    agentOrders,
+    deps.agentActivity ?? null,
+  );
   attachOwnAgentTradingRoutes(app, deps.ownAgentTrading ?? null, { requirePrincipal, requireTradeJurisdiction, agentKeyConfined });
   attachLiveRunRoutes(app, deps.liveRuns ?? null, {
+    requirePrincipal,
+    requireTradeJurisdiction,
+    agentKeyConfined,
+    regionOf: (req) => contextFrom(req).region,
+  });
+  attachProtectionRoutes(app, deps.venueProtections ?? null, {
     requirePrincipal,
     requireTradeJurisdiction,
     agentKeyConfined,
