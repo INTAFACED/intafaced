@@ -18,16 +18,19 @@ const session: Principal = {
 const key = { ...session, kid: '00000000-0000-4000-8000-000000000003' } as Principal;
 
 function app(principal: Principal, calls: string[]) {
-  const runs = {
+  type View = Awaited<ReturnType<LiveRuns['start']>>;
+  const fake: Pick<LiveRuns, 'start' | 'stop'> = {
     start: async () => {
       calls.push('start');
-      return { state: 'signing' };
+      return { state: 'signing' } as View;
     },
     stop: async () => {
       calls.push('stop');
-      return { state: 'stopped' };
+      return { state: 'stopped' } as View;
     },
-  } as Pick<LiveRuns, 'start' | 'stop'> as LiveRuns;
+  };
+  // A fake of the two methods these routes call.
+  const runs = fake as LiveRuns;
   const server = Fastify();
   attachLiveRunRoutes(server, runs, {
     requirePrincipal: () => principal,
