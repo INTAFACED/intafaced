@@ -75,6 +75,20 @@ support reads are insert-only (`quant.support_grants`, `quant.support_reads`). R
 their lock; a run already going is left as it is. Live control here stops the owner's paper runs only: a live venue run
 (svc-trade) takes control from its owner alone.
 
+## Strategy library (J-algo-dev-09, AL-library-01, AL-library-02)
+
+Free listings only: no price, no subscription, no profit share, and the library is never ordered by return. No money moves.
+
+- `library.options`: the owner's licence list (`QUANT_LIBRARY_LICENCES`, `|`-separated) and realism checklist (`QUANT_REALISM_CHECKLIST`, JSON `{ version, items }`); null when blank.
+- `library.check({ strategyId, strategyVersion, title, description, tags, visibility, licence })` writes nothing and returns five checks: `version` (the newest), `backtest` (a finished bar backtest of exactly this version), `costs` (that run's fees, slippage and delay), `claim` (no sentence of the title or description claims a return or safety from loss; a failure quotes the sentence) and `licence` (from the list). A blank licence list refuses `quant.library_licences_unset`. It never returns source.
+- `library.publish` adds `checklistVersion` and `checklistAccepted`. An older version refuses `quant.listing_stale` (409); a failing check refuses `quant.listing_check_failed — <check> — <detail>` (412); then a checklist not accepted at its current version refuses `quant.realism_checklist_unaccepted`, and a blank one `quant.realism_checklist_unset`. Key `quant.listing:<strategy>:v<version>`: the same publish twice is one listing.
+- A listing is stale once its strategy has a newer version or is deleted: `library.mine` shows it, `library.browse` leaves it out, and only a new check of the new version lists that version, as a new listing.
+- `library.browse({ tag?, limit, cursor? })`: open and protected listings, oldest first (`seq`), no return figure. `library.preview` gives the title and the caller's access to anyone signed in. `library.get` is the page: for an invite-only listing without a grant it refuses `quant.listing_access_denied` (403); a protected listing's `source` is always null to anyone but its owner.
+- `library.request`, `library.grant`, `library.revoke`: insert-only rows keyed `(listing, person, action, seq)`, `seq` being the rows the screen read; grant and revoke are the owner's only.
+- `library.clone({ listingId })` copies the listed version into the caller's library as a new strategy at version 1 (key `quant.library.clone:<listing>`), with its lineage (`library.lineage`). A protected listing refuses `quant.listing_source_protected` (403).
+- `library.review({ listingId, text })`: one per person per listing, only once the caller's own clone has a finished run (`quant.review_needs_run`, 412), and screened by the same claim check.
+- Tables: `quant.library_listings`, `quant.library_access`, `quant.library_clones`, `quant.library_reviews` (`drizzle/20261115140000_quant_library.sql`); listings and access rows refuse update and delete.
+
 ## Fill alerts and strategy events (AL-live-06, AL-alerts-01)
 
 svc-quant publishes one subject, `intafaced.quant.order.filled` (stream `INTAFACED_QUANT`). Every 15 seconds the

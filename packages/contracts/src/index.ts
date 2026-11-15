@@ -141,6 +141,7 @@ export * from './quant-disclosure.js';
 export * from './quant-algo.js';
 export * from './trade-signal-alerts.js';
 export * from './quant-team.js';
+export * from './quant-library.js';
 export * from './home-work-items.js';
 export * from './valuation-prices.js';
 export * from './support-attachments.js';
