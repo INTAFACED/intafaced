@@ -3,12 +3,11 @@ import { founderMutationHeaders } from '@/lib/founder-browser';
 import type { RefusalView } from '@/lib/desk/refusal-copy';
 import { TASK_STATUSES, type CustodyTask, type CustodyTaskDetail, type Decision } from './model';
 import type { CustodyOpsRead } from './server-types';
+import { isRecord } from '@intafaced/contracts/guards';
 
 export type DecisionReply =
   { readonly ok: true; readonly action: Decision; readonly task: CustodyTask } | { readonly ok: false; readonly refusal: RefusalView };
 export type TaskReply = { readonly ok: true; readonly task: CustodyTaskDetail } | { readonly ok: false; readonly refusal: RefusalView };
-
-const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value && typeof value === 'object' && !Array.isArray(value));
 
 const UNKNOWN: RefusalView = {
   title: 'The console got an answer it could not read',

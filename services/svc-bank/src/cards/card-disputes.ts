@@ -29,6 +29,9 @@ export const DISPUTE_STATES = ['opened', 'representment', 'arbitration', 'closed
 export type DisputeState = (typeof DISPUTE_STATES)[number];
 export const DISPUTE_OUTCOMES = ['cardholder', 'merchant'] as const;
 export type DisputeOutcome = (typeof DISPUTE_OUTCOMES)[number];
+/** How a case closed: decided by support for one side, or withdrawn by the cardholder who filed it (J-bank-15 #4). */
+export const DISPUTE_CLOSURES = [...DISPUTE_OUTCOMES, 'withdrawn'] as const;
+export type DisputeClosure = (typeof DISPUTE_CLOSURES)[number];
 export const DISPUTE_EVENT_KINDS = ['opened', 'evidence', 'representment', 'arbitration', 'provisional_credit', 'closed'] as const;
 export type DisputeEventKind = (typeof DISPUTE_EVENT_KINDS)[number];
 
@@ -120,7 +123,9 @@ export interface DisputeSummary {
     readonly at: string | null;
   };
   readonly decision: {
-    readonly outcome: DisputeOutcome;
+    readonly outcome: DisputeClosure;
+    /** Why it closed, as support or the cardholder wrote it; null on a case decided before reasons were kept. */
+    readonly reason: string | null;
     readonly lossStatus: 'reported' | 'not_known';
     readonly lossBearer: LossBearer | null;
     readonly lossTerms: string | null;
@@ -152,14 +157,15 @@ interface DisputeRow {
   credit_amount: string | null;
   credit_partner_ref: string | null;
   credited_at: Date | null;
-  outcome: DisputeOutcome | null;
+  outcome: DisputeClosure | null;
+  decision_reason: string | null;
   loss_status: 'reported' | 'not_known' | null;
   loss_bearer: LossBearer | null;
   loss_terms: string | null;
   credit_settlement: 'final' | 'reversed' | null;
   credit_settlement_partner_ref: string | null;
   closed_at: Date | null;
-  decision_requested_outcome: DisputeOutcome | null;
+  decision_requested_outcome: DisputeClosure | null;
   created_at: Date;
 }
 
@@ -188,6 +194,7 @@ function summary(r: DisputeRow): DisputeSummary {
       r.state === 'closed' && r.outcome && r.loss_status && r.closed_at
         ? {
             outcome: r.outcome,
+            reason: r.decision_reason,
             lossStatus: r.loss_status,
             lossBearer: r.loss_bearer,
             lossTerms: r.loss_terms,
@@ -500,7 +507,11 @@ export class CardDisputeService {
    * provisional credit is reversed by the partner. Who bears the fraud loss is read from the partner's terms now, or "not
    * known". A closed case returns as it is.
    */
-  async decide(input: { disputeId: string; outcome: DisputeOutcome; actor: string }): Promise<DisputeCase> {
+  async decide(input: { disputeId: string; outcome: DisputeOutcome; actor: string; reason?: string }): Promise<DisputeCase> {
+    return this.close({ ...input, reason: input.reason === undefined ? null : text(input.reason, 1, 500, 'A decision reason') });
+  }
+
+  private async close(input: { disputeId: string; outcome: DisputeClosure; actor: string; reason: string | null }): Promise<DisputeCase> {
     // Pin the decision under the case's lock before the partner hears of it: a second decision with another outcome, or a
     // credit asked after this, refuses, so the partner is never told two things about one case.
     const row = await transaction(this.sql, async (tx) => {
@@ -529,7 +540,11 @@ export class CardDisputeService {
       return r;
     });
     if (row.state === 'closed') return this.get(row.id);
-    const loss = lossFromTerms(this.options.partnerTerms());
+    // A withdrawn case loses nobody anything: who would bear a loss is not asked of the partner, and reads "not known".
+    const loss =
+      input.outcome === 'withdrawn'
+        ? ({ status: 'not_known', bearer: null, terms: null } as const)
+        : lossFromTerms(this.options.partnerTerms());
     let settlement: { kind: 'final' | 'reversed'; partnerRef: string } | null = null;
     if (row.credit_partner_ref) {
       const settle = this.options.issuer.settleProvisionalCredit;
@@ -548,12 +563,17 @@ export class CardDisputeService {
       if (!locked || locked.state === 'closed') return;
       await tx`
         UPDATE bank.card_disputes
-           SET state = 'closed', outcome = ${input.outcome}, loss_status = ${loss.status}, loss_bearer = ${loss.bearer},
+           SET state = 'closed', outcome = ${input.outcome}, decision_reason = ${input.reason}, loss_status = ${loss.status}, loss_bearer = ${loss.bearer},
                loss_terms = ${loss.terms}, credit_settlement = ${settlement?.kind ?? null},
                credit_settlement_partner_ref = ${settlement?.partnerRef ?? null}, closed_at = ${this.clock()}, updated_at = now()
          WHERE id = ${row.id}
       `;
-      const who = input.outcome === 'cardholder' ? 'Decided for the cardholder' : 'Decided for the merchant';
+      const who =
+        input.outcome === 'cardholder'
+          ? 'Decided for the cardholder'
+          : input.outcome === 'merchant'
+            ? 'Decided for the merchant'
+            : 'Withdrawn by the cardholder';
       const bears =
         loss.status === 'reported'
           ? `${loss.bearer} bears the fraud loss under the partner's terms: ${loss.terms}`
@@ -567,11 +587,182 @@ export class CardDisputeService {
         locked.state,
         'closed',
         input.actor,
-        `${who}; ${bears}${credited}`,
+        `${who}${input.reason ? `: ${input.reason}` : ''}; ${bears}${credited}`,
         false,
       );
     });
     return this.get(row.id);
+  }
+
+  /**
+   * THE CARDHOLDER'S OWN FORM (J-bank-15 #1): the partner's dispute rules and where this one charge stands under them. A
+   * charge is disputable only when it was approved, captured and settled, not refunded in full, inside the partner's
+   * window and not disputed already; each other case is named by its code. The rules are the partner's: with none
+   * reported, the form says so and filing refuses `bank.card_dispute_rules_unset`. The caller checked the card is theirs.
+   */
+  async cardholderForm(cardId: string, authorizationRef: string): Promise<CardholderDisputeForm> {
+    const rules = this.options.partnerTerms().disputeRules;
+    const [charge] = await this.sql<
+      Array<{
+        id: string;
+        asset_id: string;
+        decision: string;
+        merchant: string | null;
+        decided_at: Date;
+        captured: string;
+        settled_at: Date | null;
+        refunded: string;
+        dispute_id: string | null;
+      }>
+    >`
+      SELECT a.id, k.asset_id, a.decision, a.merchant, a.decided_at,
+             COALESCE((SELECT SUM(s.amount) FROM bank.card_settlements s
+                        WHERE s.authorization_id = a.id AND s.kind = 'capture' AND s.status = 'settled'), 0)::text AS captured,
+             (SELECT MAX(s.settled_at) FROM bank.card_settlements s
+               WHERE s.authorization_id = a.id AND s.kind = 'capture' AND s.status = 'settled') AS settled_at,
+             COALESCE((SELECT r.amount FROM bank.card_partner_refunds r
+                        WHERE r.authorization_id = a.id AND r.status = 'settled'), 0)::text AS refunded,
+             (SELECT d.id FROM bank.card_disputes d WHERE d.authorization_id = a.id) AS dispute_id
+        FROM bank.card_authorizations a JOIN bank.cards k ON k.id = a.card_id
+       WHERE a.card_id = ${cardId} AND a.authorization_ref = ${authorizationRef}
+    `;
+    if (!charge) {
+      throw new BankError('No such payment on this card (bank.card_dispute_not_found)', 'bank.card_dispute_not_found');
+    }
+    const captured = parseAmount(charge.captured);
+    const disputable = captured - parseAmount(charge.refunded);
+    const settledAt = charge.settled_at ?? (captured > 0n ? charge.decided_at : null);
+    const deadline = rules && settledAt ? new Date(settledAt.getTime() + rules.windowDays * 86_400_000) : null;
+    const standing: CardholderDisputeStanding =
+      charge.decision !== 'approved'
+        ? 'declined'
+        : captured === 0n
+          ? 'not_settled'
+          : disputable <= 0n
+            ? 'refunded'
+            : charge.dispute_id
+              ? 'already_disputed'
+              : !rules
+                ? 'rules_unset'
+                : deadline && this.clock() > deadline
+                  ? 'window_closed'
+                  : 'disputable';
+    return {
+      test: this.options.simulated(),
+      rules,
+      charge: {
+        authorizationRef,
+        assetId: charge.asset_id,
+        merchant: charge.merchant,
+        captured: formatAmount(captured),
+        disputable: formatAmount(disputable > 0n ? disputable : 0n),
+        settledAt: iso(settledAt),
+      },
+      deadline: iso(deadline),
+      standing,
+      disputeId: charge.dispute_id,
+    };
+  }
+
+  /**
+   * The cardholder files their own dispute of one charge (J-bank-15 #2): all of it or part of it, with their reason. The
+   * case key is derived from the card and the payment, so a retried filing is the same case and a second filing of the
+   * same payment with other figures refuses. Nothing posts.
+   */
+  async cardholderOpen(input: {
+    userId: string;
+    cardId: string;
+    authorizationRef: string;
+    amount: string;
+    reason: string;
+  }): Promise<DisputeCase> {
+    const form = await this.cardholderForm(input.cardId, input.authorizationRef);
+    const caseKey = `cardholder:${createHash('sha256').update(`${input.cardId}\n${input.authorizationRef}`).digest('hex').slice(0, 40)}`;
+    if (form.standing === 'already_disputed' && form.disputeId === caseId(caseKey)) {
+      return this.open({
+        caseKey,
+        cardId: input.cardId,
+        authorizationRef: input.authorizationRef,
+        amount: input.amount,
+        reason: input.reason,
+        actor: input.userId,
+      });
+    }
+    if (form.standing === 'rules_unset') {
+      throw new BankError(
+        'The card partner has not reported its dispute rules, so no dispute can be filed (bank.card_dispute_rules_unset)',
+        'bank.card_dispute_rules_unset',
+      );
+    }
+    if (form.standing !== 'disputable') {
+      throw new BankError(
+        `This payment cannot be disputed: ${STANDING_WORDS[form.standing]} (bank.card_dispute_not_disputable)`,
+        'bank.card_dispute_not_disputable',
+      );
+    }
+    if (/^\d+(\.\d{1,18})?$/.test(input.amount) && parseAmount(input.amount) > parseAmount(form.charge.disputable)) {
+      throw new BankError(
+        `The disputed amount is above the ${form.charge.disputable} ${form.charge.assetId} that can be disputed (bank.card_dispute_not_disputable)`,
+        'bank.card_dispute_not_disputable',
+      );
+    }
+    return this.open({
+      caseKey,
+      cardId: input.cardId,
+      authorizationRef: input.authorizationRef,
+      amount: input.amount,
+      reason: input.reason,
+      actor: input.userId,
+    });
+  }
+
+  /** The cardholder's own cases on one card, newest first. */
+  async cardholderList(userId: string, cardId: string): Promise<DisputeSummary[]> {
+    const rows = await this.sql<DisputeRow[]>`
+      SELECT d.*, a.authorization_ref FROM bank.card_disputes d JOIN bank.card_authorizations a ON a.id = d.authorization_id
+       WHERE d.user_id = ${userId} AND d.card_id = ${cardId}
+       ORDER BY d.created_at DESC, d.id
+       LIMIT ${LIST_LIMIT}
+    `;
+    return rows.map(summary);
+  }
+
+  /** One of the cardholder's own cases; another person's reads as not found. */
+  async cardholderGet(userId: string, disputeId: string): Promise<DisputeCase> {
+    const found = await this.get(disputeId);
+    if (found.userId !== userId) {
+      throw new BankError('No such card dispute (bank.card_dispute_not_found)', 'bank.card_dispute_not_found');
+    }
+    return found;
+  }
+
+  /**
+   * The cardholder's evidence (J-bank-15 #3): taken while the case is open; once the representment is submitted, only
+   * where the partner's rules take it, else refused `bank.card_dispute_evidence_closed`. The same words on the same case
+   * are the same step.
+   */
+  async cardholderEvidence(input: { userId: string; disputeId: string; description: string }): Promise<DisputeCase> {
+    const found = await this.cardholderGet(input.userId, input.disputeId);
+    const rules = this.options.partnerTerms().disputeRules;
+    if (found.state !== 'opened' && found.state !== 'closed' && !rules?.evidenceAfterSubmission) {
+      throw new BankError(
+        rules
+          ? 'The card partner takes no more evidence from you once the representment is submitted (bank.card_dispute_evidence_closed)'
+          : 'The card partner has not reported whether it takes evidence after the representment (bank.card_dispute_evidence_closed)',
+        'bank.card_dispute_evidence_closed',
+      );
+    }
+    const stepKey = `cardholder-evidence:${createHash('sha256').update(`${found.id}\n${input.description.trim()}`).digest('hex').slice(0, 40)}`;
+    return this.addEvidence({ disputeId: found.id, stepKey, description: input.description, actor: input.userId });
+  }
+
+  /**
+   * The cardholder withdraws their own case (J-bank-15 #4), with their reason: it closes `withdrawn`, and any provisional
+   * credit is reversed by the partner, as the partner reports. A withdrawn case returns as it is.
+   */
+  async cardholderWithdraw(input: { userId: string; disputeId: string; reason: string }): Promise<DisputeCase> {
+    const found = await this.cardholderGet(input.userId, input.disputeId);
+    return this.close({ disputeId: found.id, outcome: 'withdrawn', actor: input.userId, reason: text(input.reason, 1, 500, 'A reason') });
   }
 
   private async row(sql: Sql, id: string, lock = false): Promise<DisputeRow & { id: string }> {
@@ -639,3 +830,41 @@ export class CardDisputeService {
 }
 
 const creditKey = (id: string): string => `card-dispute-credit:${id}`;
+
+export const CARDHOLDER_DISPUTE_STANDINGS = [
+  'disputable',
+  'declined',
+  'not_settled',
+  'refunded',
+  'already_disputed',
+  'window_closed',
+  'rules_unset',
+] as const;
+export type CardholderDisputeStanding = (typeof CARDHOLDER_DISPUTE_STANDINGS)[number];
+
+const STANDING_WORDS: Record<CardholderDisputeStanding, string> = {
+  disputable: 'it can be disputed',
+  declined: 'it was declined, so nothing was taken',
+  not_settled: 'it has not settled yet',
+  refunded: 'the merchant refunded it in full',
+  already_disputed: 'it is disputed already',
+  window_closed: "the partner's time to dispute it has passed",
+  rules_unset: 'the card partner has not reported its dispute rules',
+};
+
+export interface CardholderDisputeForm {
+  readonly test: boolean;
+  readonly rules: { readonly windowDays: number; readonly evidenceAfterSubmission: boolean } | null;
+  readonly charge: {
+    readonly authorizationRef: string;
+    readonly assetId: string;
+    readonly merchant: string | null;
+    readonly captured: string;
+    readonly disputable: string;
+    readonly settledAt: string | null;
+  };
+  /** The last moment the partner takes a dispute of this charge, or null (not settled, or no rules reported). */
+  readonly deadline: string | null;
+  readonly standing: CardholderDisputeStanding;
+  readonly disputeId: string | null;
+}

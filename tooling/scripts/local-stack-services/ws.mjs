@@ -1,3 +1,5 @@
+import { profileEnvFor } from '../owner-settings.mjs';
+
 export default ({ c, secrets, urlOf, PORTS, CUSTOMER_ORIGIN, CUSTOMER_LOCALHOST_ORIGIN }) => ({
   name: 'ws',
   env: () => {
@@ -15,8 +17,10 @@ export default ({ c, secrets, urlOf, PORTS, CUSTOMER_ORIGIN, CUSTOMER_LOCALHOST_
       // The SBE consumer list's read key; svc-edge signs with the same one for the founder console (J-cex-spot-20 #3).
       WS_STATUS_READ_SECRET: secrets.wsStatusRead,
       EDGE_ALLOWED_ORIGINS: `${CUSTOMER_ORIGIN},${CUSTOMER_LOCALHOST_ORIGIN}`,
-      // Every WS_* limit, ceiling and window (depth, connections, lag, the multiplexed door's idle time) is
-      // owner-unpublished: left unset, so each door refuses by its own *_unset code.
+      // The multiplexed door's labelled TEST values (tooling/profiles/test-owner-values/ws.json), so that door mounts and
+      // takes subscriptions on this stack (#8311). Every other WS_* limit (depth, lag) stays unset and refuses by its
+      // own *_unset code.
+      ...profileEnvFor('ws', 'test'),
     };
   },
 });

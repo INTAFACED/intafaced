@@ -125,5 +125,23 @@ export const agentsTeamUsageSchema = z.object({
     }),
   ),
   sealedTotal: z.string(),
+  /**
+   * Each sealed window of those members, newest first, with what it charged and who it is owed by (J-agents-11 #7).
+   * `business`: recorded in our ledger as owed by the business, naming the member, on the window's charge key, and,
+   * once `payment` names the partner's payment, collected from the business's payment method. `member`: the custodial
+   * layer's charge to the member's own account. `owed`: earned and not yet paid. Amounts are decimal strings.
+   */
+  windows: z.array(
+    z.object({
+      userId: z.string(),
+      sessionId: z.string(),
+      windowId: z.string(),
+      chargeKey: z.string().nullable(),
+      amount: z.string(),
+      owedBy: z.enum(['business', 'member']),
+      state: z.enum(['settled', 'owed']),
+      payment: z.object({ ref: z.string(), label: z.string() }).nullable(),
+    }),
+  ),
 });
 export type AgentsTeamUsage = z.infer<typeof agentsTeamUsageSchema>;

@@ -1220,6 +1220,15 @@ export class MatchingEngine {
     return { accepted: true, applied: walked.changed, rejected: null };
   }
 
+  /**
+   * Signed net fill qty of one account on one book: positive is long, negative short, ZERO flat or no book.
+   * svc-trade reads it to size a close, then holds before it sends the reduce-only order (#4591).
+   */
+  netPosition(marketId: MarketId, accountId: ClosePositionCommand['accountId']): Amount {
+    const existing = this.existingBook(marketId);
+    return existing ? netPositionOf(existing, accountId) : ZERO;
+  }
+
   async closePosition(
     marketId: MarketId,
     cmd: ClosePositionCommand,

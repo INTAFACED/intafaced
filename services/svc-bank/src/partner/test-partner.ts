@@ -22,7 +22,9 @@ import type {
   PartnerPurchaseHolds,
   PartnerPurchaseRelease,
   PartnerPurchases,
+  PartnerReturn,
 } from './partner-purchases.js';
+import type { PartnerDirectDebits, PartnerMandate } from './partner-direct-debits.js';
 
 /**
  * THE TEST PARTNER BANK AND THE TEST RAMP, AND THEY ARE TEST FIXTURES (CUSTODY-DELTA §4; OWNER 226).
@@ -74,7 +76,7 @@ export const TEST_PURCHASE_HOLD_DAYS: Readonly<Record<PartnerPaidBy, number>> = 
 export const TEST_PARTNER_MERCHANT = 'partner:test-merchant';
 
 /** What a partner may not offer. `currencies` is the partner's currency accounts (J-bank-01 #3). */
-export const PARTNER_FEATURES = ['currencies', 'spaces', 'pots', 'joint'] as const;
+export const PARTNER_FEATURES = ['currencies', 'spaces', 'pots', 'joint', 'phone_wallet'] as const;
 export type PartnerFeature = (typeof PARTNER_FEATURES)[number];
 
 export interface TestPartnerSwitches {
@@ -181,7 +183,12 @@ export interface TestPartner {
   fund(userId: string, funding: TestPartnerFund): PartnerBalance;
   /** The TEST partner as the ramp's partner: it credits a paid purchase and reports what it holds back of it. */
   readonly purchases: PartnerPurchases;
+  /** The TEST partner as the bank a direct debit collects from: it keeps each mandate's block (J-bank-06 #4). */
+  readonly directDebits: PartnerDirectDebits;
 }
+
+/** The TEST partner's own reason code for a collection on a mandate the person blocked with it. */
+export const TEST_PARTNER_DD_BLOCKED = 'test_partner.dd_mandate_blocked';
 
 /**
  * The most people the adapter keeps switches for. The local stack signs up a few hundred per run; past this the oldest
@@ -223,7 +230,11 @@ export function testPartner(): TestPartner {
   const purchased = new Map<string, PartnerCredit & { readonly assetId: string; readonly paidBy: PartnerPaidBy }>();
   /** Each person's purchase holds still open, and those released, oldest first. */
   const openHolds = new Map<string, PartnerPurchaseHold[]>();
+  /** Each purchase returned, by person and key: one key is one return. */
+  const returns = new Map<string, PartnerReturn>();
   const releasedHolds = new Map<string, PartnerPurchaseRelease[]>();
+  /** Each mandate the person blocked with the partner, by person and mandate, with the partner's time for it. */
+  const ddBlocks = new Map<string, Date>();
   let seq = 0;
   /**
    * Unique to this process, so a move reference is never reused after a restart: a note kept in svc-bank's database
@@ -396,7 +407,8 @@ export function testPartner(): TestPartner {
           if (move.id === query.before) passed = true;
           continue;
         }
-        if (move.from.userId === PARTNER_PAY_INS_OWNER && query.payIns !== true) continue;
+        const payIn = move.from.userId === PARTNER_PAY_INS_OWNER || move.to.userId === PARTNER_PAY_INS_OWNER;
+        if (payIn && query.payIns !== true) continue;
         if (query.assetId === undefined || move.from.assetId === query.assetId) out.push(move);
       }
       return out;
@@ -426,11 +438,47 @@ export function testPartner(): TestPartner {
     },
   };
 
+  const mandate = (userId: string, mandateId: string): PartnerMandate => {
+    const blockedAt = ddBlocks.get(`${userId}|${mandateId}`) ?? null;
+    return Object.freeze({
+      mandateId,
+      blocked: blockedAt !== null,
+      blockedAt,
+      refusalCode: blockedAt ? TEST_PARTNER_DD_BLOCKED : null,
+      label: TEST_PARTNER_LABEL,
+    });
+  };
+  const directDebits: PartnerDirectDebits = {
+    label: TEST_PARTNER_LABEL,
+    async block(userId, mandateId) {
+      const key = `${userId}|${mandateId}`;
+      if (!ddBlocks.has(key)) {
+        if (switches(userId).down) throw partnerDown();
+        if (ddBlocks.size >= MAX_MOVES) throw partnerDown();
+        ddBlocks.set(key, new Date());
+      }
+      return mandate(userId, mandateId);
+    },
+    async unblock(userId, mandateId) {
+      const key = `${userId}|${mandateId}`;
+      if (ddBlocks.has(key)) {
+        if (switches(userId).down) throw partnerDown();
+        ddBlocks.delete(key);
+      }
+      return mandate(userId, mandateId);
+    },
+    async mandate(userId, mandateId) {
+      if (switches(userId).down) throw partnerDown();
+      return mandate(userId, mandateId);
+    },
+  };
+
   return {
     label: TEST_PARTNER_LABEL,
     switches,
     set,
     bank,
+    directDebits,
     fund(userId, funding) {
       const account: PartnerAccountRef = { userId, assetId: funding.assetId, spaceId: null };
       // Per person: one person's fund id never collides with, or tells anything about, another's.
@@ -490,6 +538,51 @@ export function testPartner(): TestPartner {
         purchased.set(creditKey, credited);
         return { id, key: purchase.key, amount: purchase.amount, hold };
       },
+      async returned(userId: string, purchase: PartnerPurchase): Promise<PartnerReturn> {
+        const creditKey = `${userId}|${purchase.key}`;
+        const credited = purchased.get(creditKey);
+        if (!credited || credited.assetId !== purchase.assetId || credited.amount !== purchase.amount) {
+          throw moveConflict(purchase.key);
+        }
+        const prior = returns.get(creditKey);
+        if (prior) return prior;
+        if (switches(userId).down) throw partnerDown();
+        const account: PartnerAccountRef = { userId, assetId: purchase.assetId, spaceId: null };
+        const has = held.get(accountKey(account)) ?? 0n;
+        if (has < purchase.amount) {
+          throw new BankError(
+            `The partner reports ${formatAmount(has)} ${purchase.assetId}, less than the ${formatAmount(purchase.amount)} sent back. Nothing was taken.`,
+            'bank.partner_insufficient_funds',
+          );
+        }
+        // One step, nothing awaited: the amount leaves the balance, the purchase's hold goes, and the return is kept.
+        held.set(accountKey(account), has - purchase.amount);
+        openHolds.set(
+          userId,
+          (openHolds.get(userId) ?? []).filter((h) => h.purchaseKey !== purchase.key),
+        );
+        seq += 1;
+        const id = `test-partner-move-${boot}-${String(seq).padStart(12, '0')}`;
+        const at = new Date();
+        // On the partner's record as the pay-in going back to where it came from, listed with the pay-ins; never under a
+        // move key, as nobody instructed it.
+        const list = byPerson.get(userId) ?? [];
+        list.push(
+          Object.freeze({
+            id,
+            key: `pay-in:return:${creditKey}`,
+            from: Object.freeze({ ...account }),
+            to: Object.freeze(partnerPayInsAccount(purchase.assetId)),
+            amount: purchase.amount,
+            movedAt: at,
+            label: TEST_PARTNER_LABEL,
+          }),
+        );
+        byPerson.set(userId, list);
+        const back: PartnerReturn = Object.freeze({ id, key: purchase.key, amount: purchase.amount, returnedAt: at });
+        returns.set(creditKey, back);
+        return back;
+      },
       async holds(userId: string): Promise<PartnerPurchaseHolds> {
         const now = switches(userId);
         if (now.down) throw partnerDown();
@@ -516,6 +609,13 @@ export function testPartnerCustody(partner: TestPartner | null | undefined): { b
 /** The TEST partner as the ramp's partner for a person it holds money for (`custody: 'off'`); none for anyone else. */
 export function testPartnerPurchases(partner: TestPartner | null | undefined): { purchasesFor(userId: string): PartnerPurchases | null } {
   return { purchasesFor: (userId) => (partner && partner.switches(userId).custody === 'off' ? partner.purchases : null) };
+}
+
+/** The TEST partner as the bank a direct debit collects from, for a person it holds money for; none for anyone else. */
+export function testPartnerDirectDebits(partner: TestPartner | null | undefined): {
+  directDebitsFor(userId: string): PartnerDirectDebits | null;
+} {
+  return { directDebitsFor: (userId) => (partner && partner.switches(userId).custody === 'off' ? partner.directDebits : null) };
 }
 
 /** Why the service will not start with the adapter chosen. */
@@ -547,6 +647,7 @@ const FEATURE_WORDS: Record<PartnerFeature, string> = {
   spaces: 'spaces',
   pots: 'pots',
   joint: 'joint accounts and shared pots',
+  phone_wallet: 'adding a card to a phone wallet',
 };
 
 /**

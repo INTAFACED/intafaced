@@ -67,7 +67,7 @@ describe('course page Enrol now (AC-enrolment-01)', () => {
     const out = view({ enrolment: { track: 'audit', enrolledAt: '2026-10-23T09:00:00.000Z' } });
     expect(out).toContain('You are enrolled on the Free track since October 23, 2026.');
     expect(out).toContain('data-not-connected="vendor.email"');
-    expect(out).toContain('The activation mail needs an email delivery provider. It is switched off in this build.');
+    expect(out).toContain('The activation mail needs an email sender. It is switched off in this build.');
     expect(out).not.toContain('Enrol now');
     // Leaving asks first: the first press only shows the confirmation.
     expect(out).toContain('Leave course');

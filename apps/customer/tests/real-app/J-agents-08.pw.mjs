@@ -438,15 +438,22 @@ test(`${J} #7 revokes the allowance during a run: our copy of the agent key is d
   const { agentAddress } = agents.run.read();
   const subA = (await subAccounts())['Sub-account A'];
   const earlier = (await trading(id, 'orders')).map((o) => o.orderId);
-  // A run in progress: the venue holds each submit for TEST 6 seconds, so the approved order is on its way to the venue
+  // A run in progress: the venue holds each submit for TEST 10 seconds, so the approved order is on its way to the venue
   // while the person revokes.
-  await accountSwitch({ submitDelayMs: 6000 });
+  await accountSwitch({ submitDelayMs: 10_000 });
+  const directOrder = (orderId) =>
+    api(agents.account()).then((a) =>
+      a.post(`/api/v1/venue/own-agents/${id}/orders`, { orderId, side: 'buy', base: 'BTC', size: '0.0001', type: 'market' }),
+    );
   try {
     await ask(page, 'Buy 0.0001 BTC at market');
     await preview(page).getByRole('button', { name: 'Approve' }).click();
     // Sent: the agent key has signed it and the bytes are with the venue, which has not answered yet.
     const newOnes = async () => (await trading(id, 'orders')).filter((o) => !earlier.includes(o.orderId)).map((o) => o.state);
     await expect.poll(newOnes, { timeout: 4_000, intervals: [100] }).toEqual(['unknown']);
+    // Before the revoke, svc-trade holds a signer for the allowance's agent key: it just signed the order in flight.
+    expect((await trading(id, 'allowances'))[0]).toMatchObject({ status: 'active', agentKeyHeld: true });
+    const unanswered = await sent();
     // Revoke, during the run. The wallet is asked to sign the venue's revoke; the person rejects it this once, so the
     // venue still holds the agent permission: what stops the agent is our side, at once.
     const row = tableIn(main(page), 'Allowances').getByRole('row').filter({ hasText: 'Active' });
@@ -457,6 +464,15 @@ test(`${J} #7 revokes the allowance during a run: our copy of the agent key is d
     await expect(revoked).toContainText('the venue’s revoke waits for your wallet’s signature');
     expect(testWallet.requests.at(-1).method).toBe('eth_signTypedData_v4');
     expect(await permissionsOnA()).toEqual([agentAddress]);
+    // At once, while the order already sent is still unanswered: our copy of the agent key is dropped (svc-trade holds
+    // no signer for it, and the page says so) and the next admission refuses, with a new order id, sending nothing.
+    await expect(revoked).toContainText('our copy of the agent key is dropped');
+    expect((await trading(id, 'allowances'))[0]).toMatchObject({ status: 'revoked', agentKeyHeld: false, permissionOnVenue: true });
+    const atOnce = await directOrder('00000000-0000-4000-8000-0000000000a6');
+    expect(atOnce.status, JSON.stringify(atOnce.body)).toBe(409);
+    expect(atOnce.body.intafacedCode).toBe('agents.allowance_revoked');
+    expect(await newOnes()).toEqual(['unknown']);
+    expect(await sent()).toEqual(unanswered);
     // The order already sent: the venue holds it past svc-trade's 5 second wait, so the page says it was sent with no
     // answer yet, and it is read back from the venue by its client order id, where it finished.
     await expect(main(page).getByRole('status')).toContainText(
@@ -465,7 +481,7 @@ test(`${J} #7 revokes the allowance during a run: our copy of the agent key is d
         timeout: 15_000,
       },
     );
-    await expect.poll(newOnes, { timeout: 15_000, intervals: [250] }).toEqual(['accepted']);
+    await expect.poll(newOnes, { timeout: 20_000, intervals: [250] }).toEqual(['accepted']);
   } finally {
     await accountSwitch({ submitDelayMs: 0 });
   }
@@ -482,15 +498,7 @@ test(`${J} #7 revokes the allowance during a run: our copy of the agent key is d
   const alert = main(page).getByRole('region', { name: 'Ask the agent to trade' }).getByRole('alert');
   await expect(alert).toContainText('agents.allowance_revoked');
   await expect(preview(page)).toHaveCount(0);
-  const direct = await (
-    await api(agents.account())
-  ).post(`/api/v1/venue/own-agents/${id}/orders`, {
-    orderId: '00000000-0000-4000-8000-0000000000a7',
-    side: 'buy',
-    base: 'BTC',
-    size: '0.0001',
-    type: 'market',
-  });
+  const direct = await directOrder('00000000-0000-4000-8000-0000000000a7');
   expect(direct.status, JSON.stringify(direct.body)).toBe(409);
   expect(direct.body.intafacedCode).toBe('agents.allowance_revoked');
   expect(await permissionsOnA()).toEqual([agentAddress]);
@@ -506,6 +514,6 @@ test(`${J} #7 revokes the allowance during a run: our copy of the agent key is d
   expect(testWallet.requests.at(-1).method).toBe('eth_signTypedData_v4');
   expect(await permissionsOnA()).toEqual([]);
   const [allowance] = await trading(id, 'allowances');
-  expect(allowance).toMatchObject({ status: 'revoked', permissionOnVenue: false });
+  expect(allowance).toMatchObject({ status: 'revoked', permissionOnVenue: false, agentKeyHeld: false });
   expect(await sent()).toEqual(before);
 });

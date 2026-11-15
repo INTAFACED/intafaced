@@ -243,7 +243,7 @@ export async function quoteOnramp(
 
 export async function createOnramp(
   deps: CustomerRampDeps,
-  input: { userId: string; onrampId: string; quoteId: string; method: OnrampMethod },
+  input: { userId: string; onrampId: string; quoteId: string; method: OnrampMethod; walletAddress?: string },
 ): Promise<CustomerOnrampView> {
   assertUuid(input.onrampId, 'onrampId');
   assertUuid(input.quoteId, 'quoteId');
@@ -273,6 +273,7 @@ export async function createOnramp(
     userId: input.userId,
     assetId: quote.asset_id,
     amount: formatAmount(parseAmount(quote.amount)),
+    ...(input.walletAddress ? { walletAddress: input.walletAddress } : {}),
   });
   if (!instruction) {
     throw new BankError(

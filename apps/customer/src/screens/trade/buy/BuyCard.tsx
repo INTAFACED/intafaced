@@ -62,6 +62,8 @@ import {
   type Unit,
 } from './order-plan';
 import { useAvailable, useMarketLimits } from './quote-flow';
+import { classifyRefusal } from '../../../data';
+import { TradingHoldReason } from '../../../features/account/TradingHoldReason';
 import { receiptFrom, type Receipt } from './receipt';
 import { dec, fractionDigits } from './trade-math';
 
@@ -273,7 +275,12 @@ function BuyForm({
   const [review, setReview] = useState<ReviewState | null>(null);
   const [reviewMessage, setReviewMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState<'review' | 'place' | 'max' | 'check' | null>(null);
-  const [problem, setProblem] = useState<{ title: string; body?: string; action?: { label: string; href: string } } | null>(null);
+  const [problem, setProblem] = useState<{
+    title: string;
+    body?: string;
+    action?: { label: string; href: string };
+    code?: string | null;
+  } | null>(null);
   const [checked, setChecked] = useState<string | null>(null);
   const [uncertainId, setUncertainId] = useState<string | null>(null);
   const mounted = useRef(true);
@@ -411,7 +418,8 @@ function BuyForm({
     if (outcome.kind === 'ok') {
       setReviewMessage(null);
       setReview({ draft, preview: outcome.preview, price, changed: false });
-    } else if (outcome.kind === 'refused') setProblem({ title: outcome.copy.title, body: outcome.copy.body, action: outcome.copy.action });
+    } else if (outcome.kind === 'refused')
+      setProblem({ title: outcome.copy.title, body: outcome.copy.body, action: outcome.copy.action, code: outcome.code });
     else setProblem({ title: t('Couldn’t check this order') });
   }
 
@@ -449,7 +457,7 @@ function BuyForm({
         return;
       case 'refused':
         setReview(null);
-        setProblem({ title: outcome.copy.title, body: outcome.copy.body, action: outcome.copy.action });
+        setProblem({ title: outcome.copy.title, body: outcome.copy.body, action: outcome.copy.action, code: outcome.code });
         return;
       case 'uncertain':
         setReview(null);
@@ -705,9 +713,12 @@ function BuyForm({
           action={estimate.copy.action}
         />
       ) : null}
+      {estimate.state === 'refused' && classifyRefusal(estimate.code) === 'tradingOnHold' ? <TradingHoldReason /> : null}
       {problem ? (
         <StateBlock kind="refused" className="buy-state" title={problem.title} body={problem.body ?? ''} action={problem.action} />
       ) : null}
+      {/* J-identity-14 #2: a trading hold gives the restriction's stored reason here too, in the status page's words. */}
+      {problem && classifyRefusal(problem.code) === 'tradingOnHold' ? <TradingHoldReason /> : null}
       {note.state === 'pending' ? (
         <div className="buy-pending" role="alert" data-testid="pending">
           <p className="buy-pending__title">{uncertainId === note.pending.id ? t('Not confirmed title') : t('Earlier order title')}</p>

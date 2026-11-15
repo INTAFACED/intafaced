@@ -249,6 +249,19 @@ A page can come back shorter than `limit`, because the entitlement filter runs
 after it. Back-filling would mean paging svc-token until the page was full, which
 turns one slow lookup into an unbounded number of them.
 
+## Signals (J-copy-bots-otc-22)
+
+`signals.*` (src/signals/signal-publisher.ts, tables `market.signals` and `market.signal_vettings`): a provider publishes a
+trade signal, free or for a monthly fee. Before the first publish the provider is vetted once against the owner's criteria,
+`MARKET_SIGNAL_PROVIDER_MIN_TIER` (verification tier, from the signed principal) and `MARKET_SIGNAL_PROVIDER_MIN_FILLS`
+(fills of their own orders, read from svc-trade `GET /internal/track-record/:userId` at `TRADE_URL`); either blank refuses
+`market.provider_criteria_not_set`, an unreadable record refuses `market.provider_record_unavailable`. A retried
+`publishKey` answers the first signal. A monthly fee signal is one subscription listing in the shop (it takes a slot and
+is bought through `purchase`); a free one has no listing. A profit share refuses `market.strategy_profit_share_forbidden`
+and an automatic recurring subscription `market.subscription_recurring_not_built`. `signals.archive` withdraws the signal
+and its listing; buyers keep the period they paid for. `signals.earnings` is `myEarnings` cut to signal listings, per
+asset, settled at sale, with no profit-share figure. Nothing here posts to the ledger.
+
 ## Events
 
 **None published, none consumed.** No accepted bus subject exists for vendor

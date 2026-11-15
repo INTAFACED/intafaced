@@ -1,12 +1,12 @@
 import {
+  builderFeePayoutKey,
   earnedBuilderFeeKey,
-  venueBuilderAccount,
   venueBuilderFeeReceivable,
   type LedgerClient,
   type LedgerTx,
 } from '@intafaced/ledger-client';
 import { div, formatAmount, mul, parseAmount, type Amount } from '@intafaced/ledger-client/money';
-import { isTestVenue, VenueRefusalError, type UserVenue, type UserVenueFill } from '@intafaced/venue-contracts';
+import { isTestVenue, VenueRefusalError, type UserVenue, type UserVenueBuilderClaim, type UserVenueFill } from '@intafaced/venue-contracts';
 import { builderFeeVenueAccount, type BuilderFeeStop, type BuilderFeeStore, type LoggedBuilderFee } from './builder-fee-store.js';
 
 /**
@@ -34,9 +34,11 @@ import { builderFeeVenueAccount, type BuilderFeeStop, type BuilderFeeStore, type
  *
  * The venue's own totals decide (OWNER 288 change 1e): a dropped side, a foreign fee and a fill older than the venue's
  * history each leave the fill-by-fill match green, so the recon also compares, per fee asset, the ledger's earned total
- * at the venue (what it owes us plus what it has paid out to our builder account, the whole book) against the venue's own
+ * at the venue (what it owes us plus every payout it has received from the venue, the whole book) against the venue's own
  * earned total for our builder address, and what the ledger says the venue owes us against the venue's own unclaimed
- * figure. The verdict is `matched` only when every fill matches, both totals match, and at least one fill was compared; a
+ * figure. A payout received is the ledger's own `builderFeeReceive` transaction under each claim the venue records for
+ * our address, never our builder account's balance: the sweep moves our money on from that account
+ * (`own-funds-sweep.ts`), which leaves what we earned unchanged. The verdict is `matched` only when every fill matches, both totals match, and at least one fill was compared; a
  * period with none reads `nothing_to_compare`, never matched; totals the venue can't give read `totals_unknown`.
  */
 export type BuilderFeeLineStatus =
@@ -398,9 +400,9 @@ export async function builderFeeRecon(deps: BuilderFeeReconDeps, from: Date, to:
   // What the venue owes us now (the receivable's own balance, negative while fees are earned and not yet paid out), and
   // the orders we routed among the period's fills: two reads that share nothing, run together.
   const ids = [...new Set(inPeriod.map((f) => f.venueClientOrderId).filter((id): id is string => id !== null))];
-  const [balances, paidOut, rates, runs] = await Promise.all([
+  const [balances, received, rates, runs] = await Promise.all([
     deps.ledger.balances('treasury', venueBuilderFeeReceivable(venueId, '').ownerId),
-    deps.ledger.balances('treasury', venueBuilderAccount(venueId, '').ownerId),
+    venueSide.state === 'known' ? receivedPayouts(deps.ledger, venueId, venueSide.claims) : new Map<string, Amount>(),
     deps.routedOrders(venueId, ids),
     deps.store.runState(venueId),
   ]);
@@ -483,7 +485,7 @@ export async function builderFeeRecon(deps: BuilderFeeReconDeps, from: Date, to:
       matched: v.gaps === 0,
     }));
 
-  const venueTotals = compareVenueTotals(venueSide, balances, paidOut);
+  const venueTotals = compareVenueTotals(venueSide, balances, received);
   const compared = lines.filter((l) => l.status !== 'not_our_order').length;
   const linesBreak = lines.some((l) => l.status !== 'matched' && l.status !== 'not_our_order');
   const totalsBreak = venueTotals.state === 'known' && venueTotals.rows.some((r) => !r.earnedMatched || !r.owedMatched);
@@ -539,6 +541,8 @@ type VenueSide =
       readonly builder: string;
       readonly asOf: Date;
       readonly byAsset: ReadonlyMap<string, { earned: Amount; unclaimed: Amount }>;
+      /** Every claim the venue records for our builder address: what it has paid out to us. */
+      readonly claims: readonly UserVenueBuilderClaim[];
     }
   | { readonly state: 'unknown'; readonly reason: BuilderFeeVenueTotalsUnknown; readonly message: string };
 
@@ -567,22 +571,56 @@ async function readVenueTotals(venue: UserVenue, builder: string | null): Promis
   }
   const byAsset = new Map<string, { earned: Amount; unclaimed: Amount }>();
   for (const a of read.value.value.assets) byAsset.set(a.asset, { earned: a.earned, unclaimed: a.unclaimed });
-  return { state: 'known', builder: read.value.value.builder, asOf: read.asOf, byAsset };
+  // The venue's claim record for our address: each claim is a payout the ledger receives once (builder-fee-collect.ts).
+  // An adapter that does not read it has nothing collected, so no payout can have been received.
+  let claims: readonly UserVenueBuilderClaim[] = [];
+  if (venue.builderClaims) {
+    try {
+      const ours = builder.trim().toLowerCase();
+      claims = (await venue.builderClaims(builder)).value.filter((c) => c.builder.trim().toLowerCase() === ours);
+    } catch (error) {
+      if (!(error instanceof VenueRefusalError) || error.refusal.code === 'venue_down') throw error;
+      return { state: 'unknown', reason: 'venue_refused', message: `venue.${error.refusal.code}: ${error.message}` };
+    }
+  }
+  return { state: 'known', builder: read.value.value.builder, asOf: read.asOf, byAsset, claims };
+}
+
+/**
+ * What the ledger has received from the venue, per asset: the credit of the ledger's own `builderFeeReceive` transaction
+ * under each claim's key. A claim the ledger has not received yet is still in the receivable, so it counts there.
+ */
+async function receivedPayouts(
+  ledger: Pick<LedgerClient, 'getTxByKey'>,
+  venueId: string,
+  claims: readonly UserVenueBuilderClaim[],
+): Promise<Map<string, Amount>> {
+  const received = new Map<string, Amount>();
+  for (let i = 0; i < claims.length; i += LEDGER_READS_AT_ONCE) {
+    const txs = await Promise.all(
+      claims.slice(i, i + LEDGER_READS_AT_ONCE).map((c) => ledger.getTxByKey(builderFeePayoutKey(venueId, c.claimId))),
+    );
+    for (const tx of txs) {
+      for (const e of tx?.entries ?? []) {
+        if (e.direction === 'credit') received.set(e.assetId, (received.get(e.assetId) ?? 0n) + e.amount);
+      }
+    }
+  }
+  return received;
 }
 
 type Balance = Awaited<ReturnType<LedgerClient['balances']>>[number];
 
 /**
- * Per fee asset, the ledger's earned total (what the venue owes us, the receivable negated, plus what it paid out to our
- * builder account, that account negated) and what it owes us, against the venue's own earned and unclaimed figures. Every
+ * Per fee asset, the ledger's earned total (what the venue owes us, the receivable negated, plus every payout the ledger
+ * has received from it) and what it owes us, against the venue's own earned and unclaimed figures. Every
  * asset either side holds is a row, so a fee asset only one side knows is a break, never left out.
  */
-function compareVenueTotals(side: VenueSide, receivable: readonly Balance[], paidOut: readonly Balance[]): BuilderFeeVenueTotals {
+function compareVenueTotals(side: VenueSide, receivable: readonly Balance[], paid: ReadonlyMap<string, Amount>): BuilderFeeVenueTotals {
   if (side.state === 'unknown') return side;
   const available = (bs: readonly Balance[]) =>
     new Map(bs.filter((b) => b.account.kind === 'available').map((b) => [b.account.assetId, -b.amount] as const));
   const owed = available(receivable);
-  const paid = available(paidOut);
   const assets = [...new Set([...owed.keys(), ...paid.keys(), ...side.byAsset.keys()])].sort();
   const rows: BuilderFeeVenueTotalRow[] = [];
   for (const assetId of assets) {

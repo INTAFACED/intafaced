@@ -14,8 +14,8 @@ import { addAuthenticator, nextCode } from './identity-factors.mjs';
 // authenticator app and a saved TEST bank destination that the TEST payout stand-in (BANK_PAYOUT_PARTNER=payout-sim, which
 // pays nobody) verified and that the stack's TEST fixture moved past its 24-hour cooling-off, as the journey starts. The
 // stand-in's signed calls say paid, failed, cancelled or came back, as a partner would. Balances are the partner's figures,
-// read through the person's own bank API. #2 restarts svc-bank with the cooling-off blank, which empties the TEST partner's
-// in-process book, so the person is put back at the partner with TEST 50 USDT after it.
+// read through the person's own bank API. #2 restarts svc-bank with the cooling-off blank; the TEST partner's start comes
+// back after each restart (partner-start.mjs), and the person is put back under the same fund id, which pays in once.
 const J = 'J-bank-03';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 // TEST: the standard example IBANs, not a customer's accounts.
@@ -290,7 +290,7 @@ test(`${J} #2 chooses a saved destination: one inside its cooling window is refu
   restartWith('bank', 'LOCAL_STACK_BANK_OFFRAMP_COOLING', false);
   try {
     const blank = await bank();
-    await atPartner(blank, `jb3-blank-${who.email}`);
+    await atPartner(blank, `jb3-start-${who.email}`);
     expect(await blank.query('cashOut.quote', { assetId: 'USDT', amount: '20', linkedAccountId: saved.accountId })).toMatchObject({
       ok: true,
       data: { blocker: 'bank.offramp_cooling_unset', fee: null, receiveAmount: null, account: { coolingOffEndsAt: null } },
@@ -317,9 +317,9 @@ test(`${J} #2 chooses a saved destination: one inside its cooling window is refu
   } finally {
     restartWith('bank', 'LOCAL_STACK_BANK_OFFRAMP_COOLING', true);
   }
-  // Back on the stack's TEST 24 hours; the restart emptied the TEST partner's book, so the person is put back there.
+  // Back on the stack's TEST 24 hours, the person is put back at the partner under the same fund id, which pays in once.
   const after = await bank();
-  await atPartner(after, `jb3-after-${who.email}`);
+  await atPartner(after, `jb3-start-${who.email}`);
   expect(await usdt(after)).toBe('50');
   expect((await after.query('cashOut.quote', { assetId: 'USDT', amount: '20', linkedAccountId: saved.accountId })).data.blocker).toBeNull();
 });

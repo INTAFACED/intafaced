@@ -27,7 +27,22 @@
  *   Test-change: <the reason a reviewer can check>
  * which turns the failure into a printed notice. The reviewer sees both. A Test-change line never covers 6.
  *
+ * The owner's decision of 12 Nov 2026 (REVIEW.md, project-state row d76), that a test may be deleted or rewritten when
+ * what it guarded is still guarded and the pull request names which, is carried by that line: for 2 and 3 its reason
+ * names what still guards the test (a type, a lint rule id, a test path or a journey step id), and the CI review judges
+ * it. Every test keeps 1-6. (A list of which tests could go without a line was tried on #8252 and dropped: three CI
+ * reviews in a row found a money, sign-in or permission test it freed.)
+ *
+ *   7. a test file deleted or loosened (deleted, or any of 1-5 found in it) that failed in a `Tests (…)` job on an
+ *      earlier head of the same pull request. Never to get green: a failing test is fixed or its failure explained,
+ *      not removed. No line clears 7, and when the earlier heads cannot be read it fails rather than pass unseen.
+ *
  * Every run prints each changed test file's assertion count change, so a locator-only rewrite can show it kept them.
+ *
+ * main-bisect's automatic revert (a `revert/auto-<sha10>` branch the factory App opened, one commit that says it reverts
+ * that commit, which main holds, and a diff that undoes exactly what that commit did: exact-revert.mjs) is not judged by
+ * 1-5: it returns the tests to main's from before that commit, which main's runs proved (autoRevert below; intafaced
+ * #8138 and #8149 were refused here for deleting the tests their culprits had added). 6 still applies to it.
  *
  * Rules come from MAIN: CI runs the copy of this file on origin/main, never the
  * PR's copy, so a PR cannot loosen the guard it is judged by. (CI falls back to
@@ -36,6 +51,7 @@
  *   node tooling/ci/test-diff-guard.mjs                 uses origin/main, PR_BODY env
  *   node tooling/ci/test-diff-guard.mjs --self-test
  */
+import { AUTO_REVERT_AUTHOR, AUTO_REVERT_BRANCH, REVERTS_COMMIT, exactReverse, revertTreeMatches } from './exact-revert.mjs';
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { judgeRunsFor, leftToJudge } from './judged-paths.mjs';
@@ -56,6 +72,24 @@ const SKIP = /\b(?:(?:it|test|describe|suite)\.(?:skip|todo|only|fixme|skipIf|ru
 // The repo's journalled no-database branch: `describe.skip('<suite> (Postgres unavailable)', ...)`. The suite
 // runs in full when the database is up; the skip-honesty gates account for the skip. Exact title shape only.
 const PG_UNAVAILABLE_SKIP = /^\s*describe\.skip\(\s*'[^']+ \(Postgres unavailable\)'\s*,/;
+// The same branch through `packages/db`'s one sanctioned probe, `postgresAvailable`, which throws on CI
+// (`postgresRequired`), so the suite can't skip there: `describe.skipIf(!ready)(…)` / `describe.runIf(ready)(…)` on a
+// name the file assigns from `await postgresAvailable(…)`, or `describe.skip('<suite> (Postgres unavailable — <hint>)', …)`
+// in a file that calls it. Any other condition, title or file stays a finding. (project-state#2512: intafaced #8404,
+// #8387 and #8377 lost five pushes to these shapes, all already gated by the probe.)
+const PROBED = /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*await\s+postgresAvailable\s*\(/g;
+const PROBED_SKIP = /^\s*describe\.(?:skipIf\(\s*!\s*([A-Za-z_$][\w$]*)\s*\)|runIf\(\s*([A-Za-z_$][\w$]*)\s*\))\s*\(/;
+const PROBED_TITLE_SKIP = /^\s*describe\.skip\(\s*(['"`])[^'"`]+ \(Postgres unavailable[^)'"`]*\)\1\s*,/;
+
+/** The part of a skip line the probe accounts for removed, so what is left is judged; `file` is the test file at HEAD. */
+export function withoutProbedSkip(line, file) {
+  const l = line.replace(PG_UNAVAILABLE_SKIP, '');
+  if (l !== line || !/\bpostgresAvailable\s*\(/.test(file ?? '')) return l;
+  const names = new Set([...(file ?? '').matchAll(PROBED)].map((m) => m[1]));
+  const m = PROBED_SKIP.exec(line);
+  if (m && names.has(m[1] ?? m[2])) return line.slice(m[0].length);
+  return line.replace(PROBED_TITLE_SKIP, '');
+}
 const ASSERT = /\b(?:expect(?:\.\w+)?|assert(?:\.\w+)?|t\.(?:is|equal|deepEqual|throws|true|false|truthy|falsy))\s*\(/g;
 const WEAK_MATCHER = /\.(?:toBeDefined|toBeTruthy|toBeFalsy|toBeUndefined|not\.toBeNull|toBeInstanceOf|toBeAttached)\s*\(/;
 const STRONG_MATCHER =
@@ -91,7 +125,7 @@ export function judge(changes, { judgeRuns = false } = {}) {
       continue;
     }
     for (const l of c.added) {
-      if (SKIP.test(l.replace(PG_UNAVAILABLE_SKIP, '')))
+      if (SKIP.test(withoutProbedSkip(l, c.text ?? c.added.join('\n'))))
         problems.push({ path: c.path, why: `skip/todo/only added: ${l.trim().slice(0, 100)}` });
     }
     if (c.status === 'M') {
@@ -137,6 +171,87 @@ function toleranceRaised(path, removed, added) {
   return null;
 }
 
+/**
+ * The test files a `Tests (…)` job log says failed: vitest's ` FAIL  <file relative to its package> …` lines, with the
+ * packages from turbo's `Failed: <pkg>#test, …` line. Escape codes and the runner's timestamps are stripped first.
+ * @returns {{ packages: string[], files: string[] }}
+ */
+export function failedInLog(log) {
+  const packages = new Set();
+  const files = new Set();
+  for (const raw of String(log ?? '').split('\n')) {
+    const l = raw.replace(/\x1b\[[0-9;]*m/g, '').replace(/^\d{4}-\d\d-\d\dT[\d:.]+Z ?/, '');
+    const failed = /^\s*Failed:\s+(.+)$/.exec(l);
+    if (failed) for (const t of failed[1].split(/[\s,]+/)) if (t.endsWith('#test')) packages.add(t.slice(0, -5).replace(/^@[^/]+\//, ''));
+    const fail = /(?:^|[: ])FAIL {2}(\S+)/.exec(l);
+    if (fail && TEST_FILE.test(fail[1])) files.add(fail[1].replace(/^\.\//, ''));
+  }
+  return { packages: [...packages], files: [...files] };
+}
+
+/** Whether repository path `path` is one of the failed files (package-relative) in one of the failed packages. */
+export function failedEarlier(path, failures) {
+  for (const f of failures) {
+    if (!(path === f.file || path.endsWith(`/${f.file}`))) continue;
+    const root = path.slice(0, path.length - f.file.length);
+    // A log with no `Failed:` line names no package: then the file name alone decides (it can only fail more).
+    if (f.packages.length === 0 || f.packages.some((p) => root.endsWith(`/${p}/`) || root === `${p}/`)) return f;
+  }
+  return null;
+}
+
+/**
+ * Check 7: each test file the pull request deletes or loosens that failed on an earlier head. `loosened` are the
+ * changed test paths with a deletion or a finding; `failures` come from earlierFailures().
+ */
+export function gotGreen(loosened, failures) {
+  const out = [];
+  for (const path of loosened) {
+    const f = failedEarlier(path, failures);
+    if (f)
+      out.push({
+        path,
+        why: `deleted or loosened after it failed on an earlier head (${f.sha.slice(0, 10)}, ${f.job}): fix the test or explain its failure, never remove it to get green`,
+      });
+  }
+  return out;
+}
+
+/**
+ * The failed test files of every earlier head of this pull request: the CI workflow's pull_request runs on its branch
+ * from its head repository, other than the current head, newest 20, and in each the failed `Tests (…)` jobs' logs.
+ * `api(path)` returns parsed JSON for a REST path; `text(path)` a log's text. Either throws on a refusal, which the
+ * caller turns into a failure.
+ */
+export async function earlierFailures({ repo, headRepo = repo, branch, headSha }, { api, text }) {
+  const runs =
+    (await api(`/repos/${repo}/actions/workflows/ci.yml/runs?branch=${encodeURIComponent(branch)}&event=pull_request&per_page=20`))
+      .workflow_runs ?? [];
+  const out = [];
+  for (const run of runs) {
+    if (run.head_sha === headSha || run.head_repository?.full_name !== headRepo) continue;
+    const jobs = (await api(`/repos/${repo}/actions/runs/${run.id}/jobs?per_page=100`)).jobs ?? [];
+    for (const job of jobs) {
+      if (!/^Tests \(/.test(job.name) || job.conclusion !== 'failure') continue;
+      const { packages, files } = failedInLog(await text(`/repos/${repo}/actions/jobs/${job.id}/logs`));
+      for (const file of files) out.push({ sha: run.head_sha, job: job.name, packages, file });
+    }
+  }
+  return out;
+}
+
+/** A REST reader on GITHUB_TOKEN; a refusal or a limit throws with the exact status, never retried. */
+function restReader(token) {
+  const get = async (path) => {
+    const res = await fetch(`https://api.github.com${path}`, {
+      headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28' },
+    });
+    if (!res.ok) throw new Error(`GitHub ${res.status} ${res.statusText} on ${path}`);
+    return res;
+  };
+  return { api: async (p) => (await get(p)).json(), text: async (p) => (await get(p)).text() };
+}
+
 /** The rooms a PR body names on `Baseline-change: <room> — <why>` lines. */
 export function declaredRooms(body) {
   return new Set([...String(body ?? '').matchAll(BASELINE_DECLARED)].map((m) => m[1]));
@@ -168,15 +283,44 @@ export function assertionDeltas(changes) {
     .filter((d) => d.removed || d.added);
 }
 
+/**
+ * The commit this pull request reverts, when it is main-bisect's automatic revert by every proof above; else null.
+ * `pr`: { ref, author, authorType, commits, headRepo, repo, headSha }; `read(args)`: git's output, throwing on a failure.
+ */
+export function autoRevert(pr, base, read) {
+  const branch = AUTO_REVERT_BRANCH.exec(String(pr?.ref ?? ''));
+  if (!branch || pr.author !== AUTO_REVERT_AUTHOR || pr.authorType !== 'Bot' || String(pr.commits) !== '1') return null;
+  if (!pr.repo || pr.headRepo !== pr.repo || !/^[0-9a-f]{40}$/.test(String(pr.headSha ?? ''))) return null;
+  try {
+    const culprit = REVERTS_COMMIT.exec(read(['log', '-1', '--format=%B', pr.headSha]))?.[1];
+    if (!culprit || !culprit.startsWith(branch[1])) return null;
+    if (read(['rev-list', '--parents', '-n', '1', culprit]).trim().split(' ').length !== 2) return null;
+    read(['merge-base', '--is-ancestor', culprit, base]);
+    const diff = read(['diff', '--no-renames', `${base}...${pr.headSha}`]);
+    const was = read(['diff', '--no-renames', `${culprit}^`, culprit]);
+    return exactReverse(diff, was) || revertTreeMatches(read, { culprit, head: pr.headSha }) ? culprit : null;
+  } catch {
+    return null;
+  }
+}
+
 function git(args) {
   return execFileSync('git', args, { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
 }
 
-function sourceFor(path) {
+/**
+ * Whether the code a deleted test file tests still exists: `x.test.ts` tests `x.ts` (or `x.tsx`), and a suite-named
+ * test (`x.money.test.ts`, `x.db.test.ts`, `x.pg.test.ts`, …) tests `x.ts` when no `x.money.ts` exists. (Failure it
+ * prevents: deleting `packages/ledger-client/src/recipes/builder-fee.money.test.ts` while `builder-fee.ts` stayed
+ * passed the guard clean, because only `builder-fee.money.ts` was looked for.)
+ */
+export function sourceFor(path, exists = existsSync) {
   const src = path.replace(/\.(?:test|spec)(\.[cm]?[jt]sx?)$/, '$1');
-  if (src !== path && existsSync(src)) return true;
-  const alt = src.replace(/\.tsx?$/, (m) => (m === '.ts' ? '.tsx' : '.ts'));
-  return alt !== src && existsSync(alt);
+  if (src === path) return false;
+  const withAlt = (p) => [p, p.replace(/\.tsx?$/, (m) => (m === '.ts' ? '.tsx' : '.ts'))];
+  const suite = src.replace(/\.[a-z][a-z0-9-]*(\.[cm]?[jt]sx?)$/, '$1');
+  const candidates = [...withAlt(src), ...(suite !== src ? withAlt(suite) : [])];
+  return candidates.some((p) => exists(p));
 }
 
 function collect(base) {
@@ -195,13 +339,17 @@ function collect(base) {
         else if (l.startsWith('-')) removed.push(l.slice(1));
       }
     }
-    return { path, status: status[0], removed, added, sourceExists: status === 'D' ? sourceFor(path) : true };
+    // The file at HEAD, so a Postgres skip can be read against the probe it is gated by (withoutProbedSkip).
+    const text = status === 'D' || BASELINE.test(path) ? '' : git(['show', `HEAD:${path}`]);
+    return { path, status: status[0], removed, added, text, sourceExists: status === 'D' ? sourceFor(path) : true };
   });
 }
 
-function selfTest() {
+async function selfTest() {
   const t = (c) => judge([{ path: 'a/x.test.ts', status: 'M', removed: [], added: [], sourceExists: true, ...c }]);
+  let fixtures = 0;
   const eq = (got, want, m) => {
+    fixtures += 1;
     if (got !== want) throw new Error(`${m}: got ${got}, want ${want}`);
   };
   eq(t({ added: ["  it.skip('x', () => {})"] }).length, 1, 'skip added');
@@ -214,6 +362,32 @@ function selfTest() {
     'second skip on the same line still flagged',
   );
   eq(t({ added: ["  describe.skip('account closure', () => {"] }).length, 1, 'other describe.skip still flagged');
+  // project-state#2512: the probe-gated no-database skips intafaced #8404, #8387 and #8377 lost pushes to.
+  const probe = "import { postgresAvailable } from '@intafaced/db/testing';\nconst ready = await postgresAvailable(databaseUrl);\n";
+  const pg = (line, text = probe + line) => t({ status: 'A', added: [line], text }).length;
+  eq(pg("describe.skipIf(!ready)('strategy risk store on Postgres (AL-risk-01)', () => {"), 0, '#8404: skipIf(!probed) is fine');
+  eq(pg("describe.runIf(ready)('strategy team store on Postgres', () => {"), 0, 'runIf(probed) is fine');
+  eq(
+    pg("  describe.skip('svc-agents partner payment (Postgres unavailable — start docker compose)', () => {"),
+    0,
+    '#8377: titled no-database skip in a probed file is fine',
+  );
+  eq(pg("describe.skipIf(!other)('x', () => {"), 1, 'skipIf on a name the probe did not set: flagged');
+  eq(pg("describe.skipIf(true)('x', () => {"), 1, 'skipIf(true): flagged');
+  eq(pg("describe.skipIf(!ready || fast)('x', () => {"), 1, 'skipIf on more than the probe: flagged');
+  eq(pg("describe.skipIf(!ready)('x', () => { it.skip('y', () => {}); });"), 1, 'second skip after a probed one: flagged');
+  eq(pg("describe.skipIf(!ready)('x', () => {", "describe.skipIf(!ready)('x', () => {"), 1, 'skipIf without the probe: flagged');
+  eq(
+    pg("describe.skipIf(!ready)('x', () => {", 'const ready = true; // postgresAvailable(\n'),
+    1,
+    'a name not assigned from the probe: flagged',
+  );
+  eq(
+    pg("  describe.skip('x (Postgres unavailable — start docker compose)', () => {", 'const ready = true;\n'),
+    1,
+    'titled skip in a file without the probe: flagged',
+  );
+  eq(pg("  it.skipIf(!ready)('x', () => {"), 1, 'it.skipIf: flagged');
   eq(t({ added: ["  it.skip('x (Postgres unavailable)', () => {})"] }).length, 1, 'it.skip still flagged');
   eq(t({ added: ["  it('skips the empty case', () => {"] }).length, 0, 'word skip in a title is fine');
   eq(t({ removed: ['  expect(a).toBe(1);', '  expect(b).toBe(2);'], added: ['  expect(a).toBe(1);'] }).length, 1, 'fewer assertions');
@@ -221,6 +395,17 @@ function selfTest() {
   eq(t({ removed: ['  expect(a).toEqual({ x: 1 });'], added: ['  expect(a).toBeDefined();'] }).length, 1, 'weaker matcher');
   eq(judge([{ path: 'a/x.test.ts', status: 'D', removed: [], added: [], sourceExists: true }]).length, 1, 'deleted with source');
   eq(judge([{ path: 'a/x.test.ts', status: 'D', removed: [], added: [], sourceExists: false }]).length, 0, 'deleted with source gone');
+  // Planted: a suite-named test's source is the name without the suite (builder-fee.money.test.ts tests builder-fee.ts).
+  const has =
+    (...files) =>
+    (p) =>
+      files.includes(p);
+  eq(sourceFor('r/builder-fee.money.test.ts', has('r/builder-fee.ts')), true, 'x.money.test.ts: x.ts still exists');
+  eq(sourceFor('r/store.pg.test.ts', has('r/store.tsx')), true, 'x.pg.test.ts: x.tsx still exists');
+  eq(sourceFor('r/router.db.test.ts', has('r/router.db.ts')), true, 'x.db.test.ts: x.db.ts still exists');
+  eq(sourceFor('r/x.test.ts', has('r/x.ts')), true, 'x.test.ts: x.ts still exists');
+  eq(sourceFor('r/builder-fee.money.test.ts', has()), false, 'x.money.test.ts: source gone with it');
+  eq(sourceFor('r/x.test.ts', has('r/y.ts')), false, 'x.test.ts: another file is not its source');
   eq(judge([{ path: 'a/x.ts', status: 'M', removed: ['expect(a)'], added: [], sourceExists: true }]).length, 0, 'non-test ignored');
   eq(DECLARED.test('Why\n\nTest-change: removed the legacy vue snapshot test'), true, 'declared line');
   eq(DECLARED.test('Test-change: n/a'), false, 'declaration needs a real reason');
@@ -382,11 +567,203 @@ function selfTest() {
     2,
     'assertion delta counted',
   );
-  console.log('✓ test-diff-guard --self-test OK (62 fixtures)');
+  // main-bisect's automatic revert (intafaced #8138, #8149): every proof, and each one missing.
+  const C = 'c'.repeat(40);
+  const H = 'd'.repeat(40);
+  const was = 'diff --git a/t.test.ts b/t.test.ts\n--- a/t.test.ts\n+++ b/t.test.ts\n@@ -1,2 +1,3 @@\n a\n+expect(x).toBe(1);\n b\n';
+  const back = 'diff --git a/t.test.ts b/t.test.ts\n--- a/t.test.ts\n+++ b/t.test.ts\n@@ -1,3 +1,2 @@\n a\n-expect(x).toBe(1);\n b\n';
+  const pr = {
+    ref: `revert/auto-${C.slice(0, 10)}`,
+    author: 'intafaced-mac-agents[bot]',
+    authorType: 'Bot',
+    commits: '1',
+    headRepo: 'o/r',
+    repo: 'o/r',
+    headSha: H,
+  };
+  const reader =
+    ({ diff = back, msg = `Revert x\n\nThis reverts commit ${C}.\n`, onMain = true, parents = `${C} p` } = {}) =>
+    (args) => {
+      if (args[0] === 'log') return msg;
+      if (args[0] === 'rev-list') return parents;
+      if (args[0] === 'merge-base') {
+        if (!onMain) throw new Error('not an ancestor');
+        return '';
+      }
+      if (args[0] === 'diff') return args[2] === `${C}^` ? was : diff;
+      throw new Error(`unexpected git ${args.join(' ')}`);
+    };
+  eq(autoRevert(pr, 'origin/main', reader()), C, 'an automatic revert by every proof');
+  eq(autoRevert({ ...pr, author: 'someone' }, 'origin/main', reader()), null, 'not opened by the App');
+  eq(autoRevert({ ...pr, authorType: 'User' }, 'origin/main', reader()), null, 'not a Bot');
+  eq(autoRevert({ ...pr, ref: 'fix/x' }, 'origin/main', reader()), null, 'not a revert/auto- branch');
+  eq(autoRevert({ ...pr, commits: '2' }, 'origin/main', reader()), null, 'more than one commit');
+  eq(autoRevert({ ...pr, headRepo: 'fork/r' }, 'origin/main', reader()), null, 'from a fork');
+  eq(autoRevert(pr, 'origin/main', reader({ msg: 'no revert line' })), null, 'its commit says no revert');
+  eq(autoRevert(pr, 'origin/main', reader({ onMain: false })), null, 'the commit is not on main');
+  eq(autoRevert(pr, 'origin/main', reader({ parents: `${C} p q` })), null, 'a merge commit');
+  eq(
+    autoRevert(pr, 'origin/main', reader({ diff: back.replace('-expect(x).toBe(1);', '-expect(x).toBe(2);') })),
+    null,
+    'planted fault: not exactly its reverse',
+  );
+  eq(
+    autoRevert(pr, 'origin/main', reader({ diff: `${back}diff --git a/y.ts b/y.ts\n--- a/y.ts\n+++ b/y.ts\n@@ -1 +1 @@\n-a\n+b\n` })),
+    null,
+    'planted fault: one more file',
+  );
+  await laterSelfTest(eq);
+  console.log(`✓ test-diff-guard --self-test OK (${fixtures} fixtures)`);
+}
+
+/** Planted cases: every test keeps checks 2 and 3, the tests three CI reviews named on #8252 among them; and check 7. */
+async function laterSelfTest(eq) {
+  const blocking = (changes, opts) => judge(changes, opts).length;
+  const del = (path) => [{ path, status: 'D', removed: [], added: [], sourceExists: true }];
+  const fewer = (path) => [{ path, status: 'M', removed: ["  it('x', () => { expect(a).toBe(1); });"], added: [], sourceExists: true }];
+  // Planted: a placeholder test deleted, or a case removed, fails as before; its Test-change line names what still guards it.
+  eq(blocking(del('apps/customer/src/screens/home/home-card.test.tsx')), 1, 'placeholder file deleted: fails as before');
+  eq(blocking(fewer('packages/i18n/src/keys.test.ts')), 1, 'a case removed: fails as before');
+  eq(blocking(fewer('services/svc-academy/src/paper/real-money-ban.money.test.ts')), 1, 'a *.money.test.ts case removed: fails as today');
+  eq(blocking(del('services/svc-academy/src/paper/real-money-ban.money.test.ts')), 1, 'a *.money.test.ts file deleted: fails as today');
+  eq(blocking(fewer('services/svc-ledger/src/posting.test.ts')), 1, 'a money root (MONEY_PATH_ROOTS): fails as today');
+  eq(blocking(fewer('services/svc-tax/src/a.db.test.ts')), 1, 'a *.db.test.ts: fails as today');
+  eq(blocking(fewer('services/svc-tax/src/a.pg.test.ts')), 1, 'a *.pg.test.ts: fails as today');
+  eq(blocking(fewer('services/svc-identity/src/x.test.ts')), 1, 'svc-identity: fails as today');
+  eq(blocking(fewer('packages/auth/src/x.test.ts')), 1, 'packages/auth: fails as today');
+  eq(blocking(fewer('apps/customer/src/features/public/AuthForm.test.tsx')), 1, 'a sign-in test by name: fails as today');
+  // Planted: the gateway's and the venue paths' tests the first CI review named (37203eff3f).
+  for (const path of [
+    'services/svc-edge/src/api-key-revoked.test.ts',
+    'services/svc-edge/src/geo-block.test.ts',
+    'services/svc-edge/src/execution-kill-p07.e2e.test.ts',
+    'services/svc-execution/src/router.test.ts',
+    'services/svc-dex/src/quote.test.ts',
+    'packages/venue-hyperliquid/src/client.test.ts',
+    'packages/execution-mm/src/quote.test.ts',
+    'apps/admin/src/lib/api-key-list.test.ts',
+    'apps/admin/src/lib/dual-control.test.ts',
+    'apps/customer/src/features/live-authority.test.ts',
+    'apps/customer/src/features/trade/kill-banner.test.tsx',
+    // The second FAIL (1b78912898): edge-trust suites and payout maths.
+    'services/svc-mining-pool/src/edge-trust.test.ts',
+    'services/svc-indexer/src/edge-trust.test.ts',
+    'services/svc-quant/src/edge-trust.test.ts',
+    'services/svc-mining-pool/src/pplns.test.ts',
+    'services/svc-campaigns/src/owed.test.ts',
+    'tooling/ci/journey-verdict.test.mjs',
+    'packages/contracts/src/x.test.ts',
+    'apps/customer/src/features/bank/pots.test.tsx',
+    'apps/admin/src/lib/identity-review.test.ts',
+    'apps/admin/src/lib/desk/approval-hash.test.ts',
+    'apps/customer/src/shared/password.test.ts',
+    'apps/customer/src/shared/api.test.ts',
+    // The third FAIL (332460c6cf) and a second reader's look at it: account security, order drafts, permissions in a DOM test.
+    'apps/customer/src/features/account/security-lock.test.ts',
+    'apps/customer/src/features/account/close-account.test.ts',
+    'apps/customer/src/features/trade/trade.test.ts',
+    'apps/customer/src/features/more/agent-connect.dom.test.tsx',
+    'apps/customer/src/app/team-desk.render.test.tsx',
+    'packages/ui/src/components/amount-input-logic.test.ts',
+    'packages/i18n/src/format.test.ts',
+  ]) {
+    eq(blocking(fewer(path)), 1, `${path}: fails as today`);
+    eq(blocking(del(path)), 1, `${path}: deleted, fails as today`);
+  }
+  eq(blocking(fewer('apps/customer/src/screens/home/clock.test.ts')), 1, 'an ordinary screen test: fails as before');
+  eq(blocking(fewer('apps/admin/src/lib/operator-access.test.ts')), 1, 'a permissions test by name: fails as today');
+  eq(blocking(fewer('apps/admin/src/lib/custody-ops/model.test.ts')), 1, 'a custody test by folder: fails as today');
+  eq(blocking(fewer('apps/customer/src/features/protocol/wallet/SessionKeysPanel.test.tsx')), 1, 'camelCase split: SessionKeys');
+  eq(blocking(del('apps/customer/src/screens/home/home.pw.mjs')), 1, 'a harness deleted: fails as today');
+  eq(
+    blocking([
+      {
+        path: 'apps/customer/tests/real-app/J-x-01.pw.mjs',
+        status: 'M',
+        removed: ['  await expect(a).toBeVisible();'],
+        added: [],
+        sourceExists: true,
+      },
+    ]),
+    1,
+    'a journey test edit, no judge job: fails as today',
+  );
+  eq(
+    blocking([{ path: 'apps/customer/tests/real-app/J-x-01.pw.mjs', status: 'D', removed: [], added: [], sourceExists: false }], {
+      judgeRuns: true,
+    }),
+    1,
+    'a journey test deleted: fails as today',
+  );
+  // Unchanged: a skip, a weaker matcher.
+  eq(
+    blocking([{ ...fewer('packages/i18n/src/keys.test.ts')[0], removed: [], added: ["  it.skip('x', () => {})"] }]),
+    1,
+    'skip added anywhere: fails',
+  );
+  eq(
+    blocking([
+      { ...fewer('packages/i18n/src/keys.test.ts')[0], removed: ['  expect(a).toEqual(1);'], added: ['  expect(a).toBeDefined();'] },
+    ]),
+    1,
+    'weaker matcher anywhere: fails',
+  );
+  // Check 7: the log reader and the match.
+  const log = [
+    '2026-11-13T05:17:14.7515515Z \x1b[31m FAIL \x1b[39m src/edge-trust.test.ts [ src/edge-trust.test.ts ]',
+    '2026-11-13T05:17:14.7523672Z  FAIL  src/engine/checks.test.ts > checks > refuses a stale bar',
+    '2026-11-13T05:17:20.0000000Z  Failed:    @intafaced/svc-quant#test',
+    '2026-11-13T05:17:20.0000000Z  FAIL  is the word in a sentence about nothing',
+  ].join('\n');
+  const read = failedInLog(log);
+  eq(read.packages.join(), 'svc-quant', 'failed packages read');
+  eq(read.files.sort().join(), 'src/edge-trust.test.ts,src/engine/checks.test.ts', 'failed files read');
+  const failures = read.files.map((file) => ({ sha: 'a'.repeat(40), job: 'Tests (changed)', packages: read.packages, file }));
+  eq(gotGreen(['services/svc-quant/src/edge-trust.test.ts'], failures).length, 1, 'planted: deleted after it failed: fails');
+  eq(gotGreen(['services/svc-tax/src/edge-trust.test.ts'], failures).length, 0, 'same name, another package: not this failure');
+  eq(gotGreen(['services/svc-quant/src/engine/bars.test.ts'], failures).length, 0, 'a test that did not fail: no finding');
+  // earlierFailures reads only earlier heads of this branch from the head repository, and only failed Tests jobs.
+  const H = 'h'.repeat(40);
+  const api = async (path) => {
+    if (path.includes('/workflows/ci.yml/runs'))
+      return {
+        workflow_runs: [
+          { id: 1, head_sha: H, head_repository: { full_name: 'o/r' } },
+          { id: 2, head_sha: 'a'.repeat(40), head_repository: { full_name: 'o/r' } },
+          { id: 3, head_sha: 'b'.repeat(40), head_repository: { full_name: 'fork/r' } },
+        ],
+      };
+    if (path.endsWith('/runs/2/jobs?per_page=100'))
+      return {
+        jobs: [
+          { id: 20, name: 'Tests (changed)', conclusion: 'failure' },
+          { id: 21, name: 'Doctrine gates', conclusion: 'failure' },
+          { id: 22, name: 'Tests (3/16)', conclusion: 'success' },
+        ],
+      };
+    throw new Error(`unexpected ${path}`);
+  };
+  const text = async (path) => {
+    if (path.endsWith('/jobs/20/logs')) return log;
+    throw new Error(`unexpected ${path}`);
+  };
+  const got = await earlierFailures({ repo: 'o/r', branch: 'x', headSha: H }, { api, text });
+  eq(got.length, 2, 'earlier failures: one failed Tests job on one earlier head');
+  let refused = '';
+  await earlierFailures(
+    { repo: 'o/r', branch: 'x', headSha: H },
+    {
+      api: async () => {
+        throw new Error('GitHub 403 Forbidden');
+      },
+      text,
+    },
+  ).catch((e) => (refused = e.message));
+  eq(refused, 'GitHub 403 Forbidden', 'a refusal is thrown, never read as no failures');
 }
 
 if (process.argv.includes('--self-test')) {
-  selfTest();
+  await selfTest();
   process.exit(0);
 }
 
@@ -405,7 +782,54 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     repo: process.env.GITHUB_REPOSITORY,
   });
   if (judgeRuns) console.log("journey step files (J-*.pw.mjs) changed here are the test judge's (its verdict is required by the seal)");
-  const problems = judge(changes, { judgeRuns });
+  const reverted = autoRevert(
+    {
+      ref: process.env.PR_HEAD_REF,
+      author: process.env.PR_AUTHOR,
+      authorType: process.env.PR_AUTHOR_TYPE,
+      commits: process.env.PR_COMMITS,
+      headRepo: process.env.PR_HEAD_REPO,
+      repo: process.env.GITHUB_REPOSITORY,
+      headSha: process.env.PR_HEAD_SHA,
+    },
+    base,
+    git,
+  );
+  if (reverted)
+    console.log(
+      `main-bisect's automatic revert of ${reverted.slice(0, 10)}: its diff undoes exactly that commit, which main holds, so checks 1-5 don't judge it (its tests return to main's from before it)`,
+    );
+  const found = reverted ? [] : judge(changes, { judgeRuns });
+  const problems = found;
+  // Check 7: a test deleted or loosened after it failed on an earlier head of this pull request. No line clears it.
+  const loosened = reverted
+    ? []
+    : [...new Set([...changes.filter((c) => c.status === 'D' && TEST_FILE.test(c.path)).map((c) => c.path), ...found.map((p) => p.path)])];
+  let green = [];
+  if (loosened.length && process.env.PR_HEAD_REF && process.env.GITHUB_REPOSITORY) {
+    try {
+      const failures = await earlierFailures(
+        {
+          repo: process.env.GITHUB_REPOSITORY,
+          headRepo: process.env.PR_HEAD_REPO || process.env.GITHUB_REPOSITORY,
+          branch: process.env.PR_HEAD_REF,
+          headSha: process.env.PR_HEAD_SHA,
+        },
+        restReader(process.env.GH_TOKEN || process.env.GITHUB_TOKEN || ''),
+      );
+      green = gotGreen(loosened, failures);
+      console.log(
+        `earlier heads read: ${new Set(failures.map((f) => f.sha)).size} with a failed Tests job; ${green.length} deleted or loosened test(s) failed there`,
+      );
+    } catch (e) {
+      green = [
+        {
+          path: loosened[0],
+          why: `could not read this pull request's earlier heads to check a deleted or loosened test did not fail there: ${e.message}`,
+        },
+      ];
+    }
+  }
   const baselines = judgeBaselines(changes, body);
   for (const n of baselines.notices) console.log(`⚠ ${n.path}\n    → ${n.why}`);
   const esc = (t) => String(t).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
@@ -417,8 +841,13 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   };
   const declared = DECLARED.test(body);
   // GitHub keeps 10 annotations per step: the test findings the Test-change line does not cover come first.
-  annotate([...(declared ? [] : problems), ...baselines.problems]);
+  annotate([...green, ...(declared ? [] : problems), ...baselines.problems]);
   let failed = false;
+  if (green.length > 0) {
+    console.error(`\n✖ test-diff-guard FAILED — ${green.length} test(s) removed or loosened after failing (no line clears this)\n`);
+    for (const p of green) console.error(`  ${p.path}\n    → ${p.why}\n`);
+    failed = true;
+  }
   if (baselines.problems.length > 0) {
     console.error(`\n✖ test-diff-guard FAILED — ${baselines.problems.length} unnamed baseline change(s)\n`);
     for (const p of baselines.problems) console.error(`  ${p.path}\n    → ${p.why}\n`);

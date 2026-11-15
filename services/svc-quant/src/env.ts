@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { baseEnvSchema, edgeEnvSchema, httpEnvSchema, loadEnv, otelEnvSchema } from '@intafaced/config';
+import { baseEnvSchema, edgeEnvSchema, httpEnvSchema, loadEnv, natsEnvSchema, otelEnvSchema } from '@intafaced/config';
 
 /**
  * svc-quant environment.
@@ -23,6 +23,7 @@ function blankable<T extends z.ZodTypeAny>(inner: T) {
 const schema = baseEnvSchema
   .merge(httpEnvSchema)
   .merge(otelEnvSchema)
+  .merge(natsEnvSchema)
   .merge(edgeEnvSchema)
   .merge(
     z.object({
@@ -58,6 +59,13 @@ const schema = baseEnvSchema
        * Venue Vault trade-only credential pin. Pass-through, no default.
        * Unset/blank → venue OMS refuses by name. Never invent a key.
        */
+      /**
+       * The paper book's fee, in basis points of an order's notional (AL-orders-03). NO DEFAULT: blank refuses every
+       * paper order `quant.paper_fee_unset`, because the pre-trade check is notional plus fee and a fee is never
+       * invented as zero.
+       */
+      QUANT_PAPER_FEE_BPS: blankable(z.string().regex(/^\d+(\.\d+)?$/)),
+
       QUANT_VENUE_VAULT: z
         .string()
         .optional()
@@ -160,6 +168,11 @@ const schema = baseEnvSchema
        * save that writes a note (`quant.release_note_limit_unset`); a save without a note still saves. At most 2000.
        */
       QUANT_RELEASE_NOTE_MAX: blankable(z.string().regex(/^(?:[1-9]\d{0,2}|1\d{3}|2000)$/)),
+      /**
+       * How long a strategy's edit lock lasts before it lapses, in seconds (J-algo-dev-08). NO DEFAULT: blank refuses
+       * taking the lock (`quant.edit_lock_unset`), and so a teammate's save; the owner's own save still saves.
+       */
+      QUANT_EDIT_LOCK_SECONDS: blankable(z.string().regex(/^[1-9]\d{0,5}$/)),
       /**
        * The owner's default quota profile (AL-limits-01): the profile an account with no assignment falls under. NO
        * DEFAULT: blank, every counted write (a strategy, a version, a run) refuses `quant.quota_profile_unset`.

@@ -939,14 +939,20 @@ describe('W15 merchant operations (Postgres)', () => {
       merchant = (await sql<Array<{ id: string }>>`INSERT INTO pay.merchants (user_id) VALUES (${owner}) RETURNING id`)[0]!.id;
     });
 
-    it("producers are idempotent on the dedupe key and honour the merchant's preference", async () => {
+    it('producers are idempotent on the dedupe key, and a kind the person turned off leaves their own view', async () => {
       const c = as(owner);
       const n = { merchantId: merchant, kind: 'settlement_failed' as const, title: 'Settlement failed', dedupeKey: 's:1' };
       const first = await recordMerchantNotification(sql, n);
       expect(first).not.toBeNull();
       expect(await recordMerchantNotification(sql, n)).toBeNull();
       await c.merchantOps.notifications.preferences.set({ kind: 'payout_failed', inApp: false });
-      expect(await recordMerchantNotification(sql, { merchantId: merchant, kind: 'payout_failed', title: 'nope' })).toBeNull();
+      // The notice is the business's record; the owner, who turned the kind off, doesn't see it.
+      const muted = await recordMerchantNotification(sql, { merchantId: merchant, kind: 'payout_failed', title: 'muted for the owner' });
+      expect(muted).not.toBeNull();
+      const feed = (await c.merchantOps.notifications.list({ limit: 50 })) as { items: Array<{ notificationId: string }> };
+      expect(feed.items.map((i) => i.notificationId)).toContain(first);
+      expect(feed.items.map((i) => i.notificationId)).not.toContain(muted);
+      expect(await c.merchantOps.notifications.unreadCount({})).toEqual({ unread: feed.items.length });
       const prefs = (await c.merchantOps.notifications.preferences.list({})) as Array<{
         kind: string;
         inApp: boolean;
@@ -1008,6 +1014,97 @@ describe('W15 merchant operations (Postgres)', () => {
       await expect(sql`DELETE FROM pay.merchant_notification_preference_events WHERE merchant_id = ${merchant}`).rejects.toThrow(
         /append-only/,
       );
+    });
+
+    it('an owner whose verification is not done saves their own preferences on pay:onboard; the role table and the scope still decide', async () => {
+      type Pref = { kind: string; inApp: boolean; updatedBy: string | null };
+      const fresh = id();
+      const business = (
+        await sql<Array<{ id: string; kyb_status: string }>>`
+        INSERT INTO pay.merchants (user_id) VALUES (${fresh}) RETURNING id, kyb_status::text`
+      )[0]!;
+      expect(business.kyb_status).not.toBe('approved');
+      const onboarding = as(fresh, { scopes: ['pay:onboard'] });
+      const set = (await onboarding.merchantOps.notifications.preferences.set({ kind: 'export_ready', inApp: false })) as Pref;
+      expect(set).toMatchObject({ kind: 'export_ready', inApp: false, updatedBy: fresh });
+      const history = (await onboarding.merchantOps.notifications.preferences.history({ limit: 200 })) as {
+        items: Array<{ kind: string; inApp: boolean; actorId: string }>;
+      };
+      expect(history.items).toEqual([expect.objectContaining({ kind: 'export_ready', inApp: false, actorId: fresh })]);
+
+      // The money writes keep their KYB gate: the same session still may not send an invoice.
+      expect((await refusal(() => onboarding.merchantOps.invoices.create({ requestId: id(), assetId: 'USDT', amount: '1' }))).code).toBe(
+        'FORBIDDEN',
+      );
+      // A Viewer of that business, on pay:onboard, lacks notifications.manage.
+      const viewer = id();
+      await sql`INSERT INTO pay.merchant_team_members (merchant_id, user_id, role, status, invited_by)
+                VALUES (${business.id}, ${viewer}, 'viewer', 'active', ${fresh})`;
+      expect(
+        (
+          await refusal(() =>
+            as(viewer, { scopes: ['pay:onboard'] }).merchantOps.notifications.preferences.set({ kind: 'export_ready', inApp: false }),
+          )
+        ).cause,
+      ).toBe('pay.team_role_forbidden');
+      // Without pay:onboard or pay:write, or without the second factor, nothing is saved.
+      expect(
+        (
+          await refusal(() =>
+            as(fresh, { scopes: ['pay:read'] }).merchantOps.notifications.preferences.set({ kind: 'dispute_due', inApp: false }),
+          )
+        ).code,
+      ).toBe('FORBIDDEN');
+      await refusal(() =>
+        as(fresh, { scopes: ['pay:onboard'], mfa: false }).merchantOps.notifications.preferences.set({ kind: 'dispute_due', inApp: false }),
+      );
+      const after = (await onboarding.merchantOps.notifications.preferences.list({})) as Pref[];
+      expect(after.find((p) => p.kind === 'dispute_due')).toMatchObject({ inApp: true, updatedBy: null });
+    });
+
+    it("each person's preferences are their own: a teammate's choice, feed, unread count and history leave the owner's alone", async () => {
+      type Pref = { kind: string; inApp: boolean; updatedBy: string | null };
+      type Changes = { items: Array<{ kind: string; inApp: boolean; actorId: string }> };
+      const teammate = id();
+      const inv = (await as(owner).merchantOps.team.invite({ userId: teammate, role: 'finance' })) as { memberId: string };
+      await as(teammate).merchantOps.team.acceptInvite({ memberId: inv.memberId });
+      const mine = as(owner);
+      const theirs = as(teammate);
+      const ownerBefore = (await mine.merchantOps.notifications.preferences.list({})) as Pref[];
+      const ownerHistoryBefore = (await mine.merchantOps.notifications.preferences.history({ limit: 200 })) as Changes;
+      // The teammate starts from the defaults, not from the owner's choices (the owner turned payout_failed off above).
+      expect(ownerBefore.find((p) => p.kind === 'payout_failed')?.inApp).toBe(false);
+      const fresh = (await theirs.merchantOps.notifications.preferences.list({})) as Pref[];
+      expect(fresh.every((p) => p.inApp && p.updatedBy === null)).toBe(true);
+      expect(((await theirs.merchantOps.notifications.preferences.history({ limit: 200 })) as Changes).items).toEqual([]);
+
+      await theirs.merchantOps.notifications.preferences.set({ kind: 'dispute_opened', inApp: false });
+      const theirsAfter = (await theirs.merchantOps.notifications.preferences.list({})) as Pref[];
+      expect(theirsAfter.find((p) => p.kind === 'dispute_opened')).toMatchObject({ inApp: false, updatedBy: teammate });
+      expect(theirsAfter.find((p) => p.kind === 'payout_failed')?.inApp).toBe(true);
+      expect((await mine.merchantOps.notifications.preferences.list({})) as Pref[]).toEqual(ownerBefore);
+      expect(((await theirs.merchantOps.notifications.preferences.history({ limit: 200 })) as Changes).items).toEqual([
+        expect.objectContaining({ kind: 'dispute_opened', inApp: false, actorId: teammate }),
+      ]);
+      expect((await mine.merchantOps.notifications.preferences.history({ limit: 200 })) as Changes).toEqual(ownerHistoryBefore);
+
+      // One notice on the business's feed: each person sees it by their own choice.
+      const dispute = await recordMerchantNotification(sql, { merchantId: merchant, kind: 'dispute_opened', title: 'Dispute opened' });
+      const payout = await recordMerchantNotification(sql, { merchantId: merchant, kind: 'payout_failed', title: 'Payout failed' });
+      const seen = async (c: ReturnType<typeof as>) =>
+        ((await c.merchantOps.notifications.list({ limit: 200 })) as { items: Array<{ notificationId: string }> }).items.map(
+          (i) => i.notificationId,
+        );
+      const ownerSees = await seen(mine);
+      const teammateSees = await seen(theirs);
+      expect(ownerSees).toContain(dispute);
+      expect(ownerSees).not.toContain(payout);
+      expect(teammateSees).toContain(payout);
+      expect(teammateSees).not.toContain(dispute);
+      const unreadOnly = (c: ReturnType<typeof as>) =>
+        c.merchantOps.notifications.list({ limit: 200, unreadOnly: true }) as Promise<{ items: unknown[] }>;
+      expect(await mine.merchantOps.notifications.unreadCount({})).toEqual({ unread: (await unreadOnly(mine)).items.length });
+      expect(await theirs.merchantOps.notifications.unreadCount({})).toEqual({ unread: (await unreadOnly(theirs)).items.length });
     });
 
     it('cursor pagination walks every row once, read state works, bad cursors are refused', async () => {

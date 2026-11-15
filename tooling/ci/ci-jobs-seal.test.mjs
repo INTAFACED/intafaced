@@ -31,12 +31,15 @@ test('known good: every job green passes', () => {
   assert.equal(v.ok, true, v.lines.join('\n'));
 });
 
-test('a run still going, or none, waits (red), and says the seal re-runs', () => {
-  for (const r of [null, run(1, { status: 'in_progress' })]) {
+test('a run still going waits (red) and says the seal re-runs; none says to merge main or push again', () => {
+  for (const [r, said] of [
+    [null, /no CI ran .* merge origin\/main if it conflicts/],
+    [run(1, { status: 'in_progress' }), /re-runs/],
+  ]) {
     const v = judgeCiJobs({ run: r, jobs: [], files: product });
     assert.equal(v.ok, false);
     assert.equal(v.wait, true);
-    assert.match(v.lines[0], /re-runs when it finishes/);
+    assert.match(v.lines[0], said);
   }
 });
 

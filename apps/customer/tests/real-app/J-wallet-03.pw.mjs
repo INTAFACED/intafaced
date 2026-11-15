@@ -215,10 +215,15 @@ test(`${J} #3 a wait on the sending platform runs past its deadline: still held,
   await expect(recordRow(page, tx)).toContainText('Compliance is waiting for the sending platform to confirm the transfer');
 
   // The TEST wait is 60 seconds; svc-pay records it ran out within half a minute after. The deposit stays held.
+  // The records list and the declaration panel are two reads: an expiry recorded between them shows on the panel while
+  // the row still reads the wait. svc-pay writes both in one transaction, so one reload shows both once it has run.
   await expect(async () => {
     await page.reload();
     await expect(travelRule(page, tx).getByTestId('deposit-travel-rule')).toHaveAttribute('data-state', 'blocking_time_expired', {
       timeout: 5_000,
+    });
+    await expect(recordRow(page, tx)).toContainText('The sending platform did not answer in time. The deposit stays held', {
+      timeout: 1_000,
     });
   }).toPass({ timeout: 180_000, intervals: [10_000] });
   await expect(recordRow(page, tx).locator('[data-status]')).toHaveAttribute('data-status', 'held_travel_rule');

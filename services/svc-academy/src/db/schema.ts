@@ -79,6 +79,21 @@ export const rooms = academy.table(
   (t) => [uniqueIndex('rooms_slug_idx').on(t.slug), index('rooms_kind_idx').on(t.kind, t.access)],
 );
 
+/** RC-academy-06: lessons a room's host pins to the room page, in the order pinned (the lesson is a curriculum slug). */
+export const roomPinnedLessons = academy.table(
+  'room_pinned_lessons',
+  {
+    roomId: uuid('room_id')
+      .notNull()
+      .references(() => rooms.id, { onDelete: 'cascade' }),
+    itemSlug: text('item_slug').notNull(),
+    position: integer('position').notNull(),
+    pinnedBy: uuid('pinned_by').notNull(),
+    pinnedAt: tstz('pinned_at').notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.roomId, t.itemSlug] }), index('room_pinned_lessons_order_idx').on(t.roomId, t.position)],
+);
+
 /**
  * An invitation to an `invite` room.
  *

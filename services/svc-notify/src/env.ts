@@ -198,6 +198,23 @@ const schema = serviceEnvSchema
        * NOTIFY_STATUS_MAIL_OUTBOX and is allowed only when APP_ENV is exactly dev or test. Unset: the email gateway
        * channel sends, with NOTIFY_PUBLIC_ORIGIN for the links; without both, status mail waits with `vendor.email`.
        */
+      /**
+       * The TEST email stand-in (J-charts-desk-10 #5): an absolute file the email channel writes each message to, labelled TEST,
+       * while no email gateway is set. Refused at boot unless APP_ENV is exactly dev or test. Unset: email refuses honestly.
+       */
+      NOTIFY_EMAIL_TEST_OUTBOX: blankAsAbsent(z.string().optional()),
+      /**
+       * Ports an alert webhook may post to, comma separated (`443`). NO DEFAULT. Blank refuses every webhook save
+       * (`notify.alert_webhook_ports_unset`).
+       */
+      NOTIFY_ALERT_WEBHOOK_PORTS: blankAsAbsent(z.string().optional()),
+      /**
+       * Seconds to wait before each resend of a failed alert webhook, comma separated (`5,5,5` resends three times, 5 s apart).
+       * NO DEFAULT. Blank resends nothing, and each failed attempt says so.
+       */
+      NOTIFY_ALERT_WEBHOOK_RETRY_SECONDS: blankAsAbsent(z.string().optional()),
+      /** LOCAL TEST only: `on` lets an alert webhook post to a loopback address. Refused at boot unless APP_ENV is dev or test. */
+      NOTIFY_ALERT_WEBHOOK_TEST_LOOPBACK: blankAsAbsent(z.string().optional()),
       NOTIFY_STATUS_MAIL_TRANSPORT: blankAsAbsent(z.string().optional()),
       NOTIFY_STATUS_MAIL_OUTBOX: blankAsAbsent(z.string().optional()),
       /** Signs the confirm, manage and unsubscribe links in status mail. Unset: subscribing refuses with status.challenge_unset. */

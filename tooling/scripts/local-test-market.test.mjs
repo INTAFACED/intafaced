@@ -19,6 +19,7 @@ import {
   buildLadder,
   createPriceWalk,
   crossingSide,
+  crossingLegs,
   bookMid,
   parseShift,
   shiftedMid,
@@ -26,6 +27,7 @@ import {
   placingOrder,
   shiftQuoted,
   crossesOn,
+  missedMinute,
   quotesInTheWay,
   quotesThisCycle,
   holdTaken,
@@ -108,7 +110,8 @@ try {
   r = run(home, ['hold', 'NOPE/USDT']);
   assert.equal(r.status, 2, r.stderr);
 
-  // 4c. A hold left set by a file that never released it (a worker killed in J-cex-spot-03 #8) does not outlive the
+  // 4c. A hold left set by a file that never released it (a worker killed in J-cex-spot-08, a `market` file that holds the
+  // book; J-cex-spot-03 trades on the venue since #8140 and no longer holds it) does not outlive the
   // file: the journeys' world restore, entering the next file, clears it (world-restore.mjs restoreWorld, `unshift`).
   // Failure it prevents: a frozen BTC/USDT book for every journey file after it.
   run(home, ['hold', 'BTC/USDT']);
@@ -120,7 +123,7 @@ try {
       '--input-type=module',
       '-e',
       `const w = await import(${JSON.stringify(join(realApp, 'world-restore.mjs'))});
-       await w.enterFile(${JSON.stringify(join(realApp, 'J-cex-spot-03.pw.mjs'))});
+       await w.enterFile(${JSON.stringify(join(realApp, 'J-cex-spot-08.pw.mjs'))});
        await w.enterFile(${JSON.stringify(join(realApp, 'J-cex-spot-04.pw.mjs'))});`,
     ],
     { env: { ...process.env, HOME: home, TEST_PARALLEL_INDEX: 'hold-leak' }, encoding: 'utf8' },
@@ -490,6 +493,36 @@ for (const q of ladder) {
 
 // The taker must alternate sides so it cannot drain one asset (it once bought forever and every order got 400).
 assert.deepEqual([1, 2, 3, 4].map(crossingSide), ['buy', 'sell', 'buy', 'sell']);
+// Each turn crosses both sides, a buy at the maker's ask and a sell at its bid, so a 1m bar that trades has range: its
+// high is the ask and its low the bid (J-algo-dev-05 #3, #8404: one crossing a minute made bars with open = high = low,
+// and no bar could reach both a stop loss and a take profit). The next turn starts on the side after.
+for (const n of [1, 2, 3, 4]) {
+  assert.deepEqual([...crossingLegs(n).map(crossingSide)].sort(), ['buy', 'sell'], `turn ${n} crosses both sides`);
+  assert.equal(crossingLegs(n)[0], n);
+}
+{
+  const ladder = buildLadder({
+    mid: toScaled('65000'),
+    tick: toScaled('0.01'),
+    lot: toScaled('0.00001'),
+    minAmount: toScaled('0.00001'),
+    minCost: toScaled('5'),
+    levels: 3,
+    halfSpreadBps: 6n,
+    stepBps: 9n,
+    levelNotional: toScaled('3000'),
+  });
+  const top = (side) => ladder.find((q) => q.level === 0 && q.side === side);
+  const book = { bids: [[top('buy').price, top('buy').amount]], asks: [[top('sell').price, top('sell').amount]] };
+  const prices = crossingLegs(1).map((k) => toScaled(crossingQuote(ladder, ladder, crossingSide(k), book).price));
+  const [high, low] = [prices.reduce((a, b) => (a > b ? a : b)), prices.reduce((a, b) => (a < b ? a : b))];
+  // A stop loss and a take profit a thousandth of a percent either side of the mid both lie inside that bar.
+  const mid = toScaled('65000');
+  assert.ok(
+    high > mid + mid / 100000n && low < mid - mid / 100000n,
+    `a turn's bar spans the spread: high ${fromScaled(high)}, low ${fromScaled(low)}`,
+  );
+}
 // The taker crosses each market every sixth cycle, half the markets at a time, and BTC/USDT (the one the journeys run
 // waits for) on the very first cycle.
 const crossCycles = (symbol) => Array.from({ length: 20 }, (_, i) => i + 1).filter((c) => crossesOn(c, symbol));
@@ -778,6 +811,30 @@ assert.equal(shiftedMid(toScaled('1'), undefined, toScaled('0.0001')), toScaled(
   assert.equal(takerCrosses({ still: true, cross: undefined, rested: 6, cycle: turn, symbol: 'BTC/USDT' }), false);
   assert.equal(takerCrosses({ still: false, cross: false, rested: 6, cycle: turn, symbol: 'BTC/USDT' }), false);
   assert.equal(takerCrosses({ still: false, cross: undefined, rested: 0, cycle: turn, symbol: 'BTC/USDT' }), false);
+  // Off its turn, a market crosses when its last crossing was in an earlier UTC minute, so every live minute trades
+  // (#8390: on a loaded runner the turn alone left half the 1m bars of BTC/USDT without a trade).
+  const off = [1, 2, 3, 4, 5, 6, 7].find((c) => !crossesOn(c, 'BTC/USDT'));
+  const minute = 1_800_000_000_000 - (1_800_000_000_000 % 60_000);
+  assert.equal(missedMinute(undefined, minute + 5_000), false);
+  assert.equal(missedMinute(minute + 1_000, minute + 59_999), false);
+  assert.equal(missedMinute(minute + 59_000, minute + 60_000), true);
+  assert.equal(
+    takerCrosses({ still: false, rested: 6, cycle: off, symbol: 'BTC/USDT', nowMs: minute + 30_000, lastCrossMs: minute + 1_000 }),
+    false,
+  );
+  assert.equal(
+    takerCrosses({ still: false, rested: 6, cycle: off, symbol: 'BTC/USDT', nowMs: minute + 61_000, lastCrossMs: minute + 1_000 }),
+    true,
+  );
+  assert.equal(takerCrosses({ still: false, rested: 6, cycle: off, symbol: 'BTC/USDT', nowMs: minute + 61_000 }), false);
+  assert.equal(
+    takerCrosses({ still: true, rested: 6, cycle: off, symbol: 'BTC/USDT', nowMs: minute + 61_000, lastCrossMs: minute }),
+    false,
+  );
+  assert.equal(
+    takerCrosses({ still: false, cross: false, rested: 6, cycle: off, symbol: 'BTC/USDT', nowMs: minute + 61_000, lastCrossMs: minute }),
+    false,
+  );
   // `still` and `live` return only on a cycle of the running maker that started after the ask and runs that way.
   assert.equal(stillTaken(null, { still: true, askedAt: 1_000, pid: 7 }), false);
   assert.equal(stillTaken({ pid: 7, startedAt: 1_000, still: true }, { still: true, askedAt: 1_000, pid: 7 }), false);
@@ -956,4 +1013,47 @@ assert.equal(shiftedMid(toScaled('1'), undefined, toScaled('0.0001')), toScaled(
     rmSync(offHome, { recursive: true, force: true });
   }
   console.log('local-test-market: with custody off nothing quotes, trades, funds or writes history');
+}
+
+// 10. A stop request ends start-up funding before the next transfer (#8312): a SIGTERM during funding used to wait for
+// every `local:fund` call, about 35 s for ten, because the funding loop never read STOP.requested.
+{
+  const { ensureFunds, STOP } = await import('./local-test-market.mjs');
+  const empty = { json: { balances: {} } };
+  const fakeClient = () => {
+    const calls = [];
+    return { calls, account: { userId: 'u-test' }, http: async (method, route) => (calls.push(`${method} ${route}`), empty) };
+  };
+  const assets = ['USDT', 'BTC', 'ETH'];
+  try {
+    // Stop already asked: no balance read and no transfer.
+    STOP.requested = true;
+    const before = fakeClient();
+    const funded = [];
+    await ensureFunds(before, 'maker', assets, 1, { fund: (...a) => (funded.push(a), { status: 0 }) });
+    assert.deepEqual(funded, [], 'a stop asked before funding makes no local:fund call');
+    assert.deepEqual(before.calls, [], 'and reads no balance');
+
+    // Stop asked while the first transfer runs: that one finishes, no later one starts.
+    STOP.requested = false;
+    const during = fakeClient();
+    const order = [];
+    await ensureFunds(during, 'maker', assets, 1, {
+      fund: (_user, asset) => {
+        order.push(asset);
+        STOP.requested = true;
+        return { status: 0 };
+      },
+    });
+    assert.deepEqual(order, ['USDT'], 'a stop during the first transfer ends funding before the second');
+
+    // No stop: every asset short of its target gets its one transfer (the guard does not skip real work).
+    STOP.requested = false;
+    const all = [];
+    await ensureFunds(fakeClient(), 'taker', assets, 10, { fund: (_u, asset) => (all.push(asset), { status: 0 }) });
+    assert.deepEqual(all, assets, 'without a stop each short asset is funded');
+  } finally {
+    STOP.requested = false;
+  }
+  console.log('local-test-market: a stop during start-up funding ends it before the next transfer');
 }
