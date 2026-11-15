@@ -1,4 +1,5 @@
 import type { Sql } from 'postgres';
+import type { ACTION_KINDS, RUN_PLAN_STATES } from '@intafaced/contracts/agents-review';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { AgentError } from '../errors.js';
 
@@ -183,7 +184,7 @@ function figures(
 
 export interface TraceStep {
   readonly sequence: number;
-  readonly state: string;
+  readonly state: (typeof RUN_PLAN_STATES)[number];
   readonly code: string | null;
   readonly startedAt: string;
   /** Milliseconds until the next step started; null for the last step, which ended the run or is still current. */
@@ -193,7 +194,7 @@ export interface TraceStep {
 export interface TraceCall {
   readonly actionId: string;
   readonly sequence: number;
-  readonly kind: string;
+  readonly kind: (typeof ACTION_KINDS)[number];
   readonly status: Outcome;
   readonly tool: string | null;
   readonly task: string | null;
@@ -247,7 +248,7 @@ export async function runTrace(sql: Sql, input: { sessionId: string; requestId: 
   `;
   if (!run) return null;
   const [events, claims, calls] = await Promise.all([
-    sql<Array<{ sequence: number; state: string; code: string | null; occurred_at: Date }>>`
+    sql<Array<{ sequence: number; state: TraceStep['state']; code: string | null; occurred_at: Date }>>`
       SELECT sequence, state, code, occurred_at FROM agents.agent_run_events WHERE run_id = ${run.id} ORDER BY sequence
     `,
     sql<Array<{ claimed_at: Date }>>`
@@ -258,7 +259,7 @@ export async function runTrace(sql: Sql, input: { sessionId: string; requestId: 
           Array<{
             id: string;
             sequence: number;
-            kind: string;
+            kind: TraceCall['kind'];
             status: Outcome;
             tool: string | null;
             task: string | null;

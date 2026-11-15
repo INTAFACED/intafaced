@@ -2,7 +2,15 @@ import { z } from 'zod';
 import { scopedProcedure, TRPCError } from '@intafaced/contracts';
 import type { Sql } from 'postgres';
 import type { AgentRuntime } from '../runtime.js';
-import { actionOutput, toActionOutput } from '../router.js';
+import { toActionOutput } from '../router.js';
+import {
+  actionLogCountSchema,
+  actionLogExportPageSchema,
+  actionOutcomeSchema,
+  analyticsSummarySchema,
+  runTraceSchema,
+  usageSummarySchema,
+} from '@intafaced/contracts/agents-review';
 import { analyticsRange, analyticsSummary, decodeLogCursor, encodeLogCursor, recordOwnExport, runTrace, usageSummary } from './store.js';
 
 /**
@@ -11,7 +19,7 @@ import { analyticsRange, analyticsSummary, decodeLogCursor, encodeLogCursor, rec
  * from the signed principal, never the body) and writes nothing; no money moves.
  */
 
-const outcome = z.enum(['executed', 'refused', 'failed']);
+const outcome = actionOutcomeSchema;
 
 interface ReviewDeps {
   readonly runtime: AgentRuntime;
@@ -23,25 +31,6 @@ interface ReviewKit {
   readonly guard: <T>(fn: () => Promise<T>) => Promise<T>;
   readonly ownedSession: (sessionId: string, userId: string) => Promise<{ id: string }>;
 }
-
-const group = z.object({
-  key: z.string(),
-  name: z.string().nullable(),
-  windows: z.number().int(),
-  assetId: z.string(),
-  amount: z.string(),
-});
-const amountLine = z.object({ assetId: z.string(), amount: z.string() });
-const dayFigures = z.object({
-  day: z.string(),
-  sessions: z.number().int(),
-  actions: z.number().int(),
-  executed: z.number().int(),
-  refused: z.number().int(),
-  failed: z.number().int(),
-  testRuns: z.number().int().nullable(),
-  spend: z.array(amountLine),
-});
 
 export function reviewRoutes(deps: ReviewDeps, kit: ReviewKit) {
   const { runtime, feeAssetId } = deps;
@@ -66,15 +55,7 @@ export function reviewRoutes(deps: ReviewDeps, kit: ReviewKit) {
           })
           .strict(),
       )
-      .output(
-        z.object({
-          from: z.string(),
-          to: z.string(),
-          includesTest: z.boolean(),
-          totals: dayFigures.omit({ day: true }),
-          days: z.array(dayFigures),
-        }),
-      )
+      .output(analyticsSummarySchema)
       .query(({ ctx, input }) =>
         guard(async () => {
           const range = analyticsRange(input.from, input.to);
@@ -90,45 +71,7 @@ export function reviewRoutes(deps: ReviewDeps, kit: ReviewKit) {
     /** One run of one of the person's sessions, by its request id, as timed steps and calls. Someone else's: not found. */
     runTrace: scopedProcedure('agents:read', { module: 'agents' })
       .input(z.object({ sessionId: z.string().guid(), requestId: z.string().min(1).max(200) }).strict())
-      .output(
-        z.object({
-          runId: z.string(),
-          requestId: z.string(),
-          sessionId: z.string(),
-          agentId: z.string(),
-          task: z.string().nullable(),
-          state: z.string(),
-          cost: z.string().nullable(),
-          assetId: z.string().nullable(),
-          startedAt: z.string(),
-          plan: z.array(
-            z.object({
-              sequence: z.number().int(),
-              state: z.string(),
-              code: z.string().nullable(),
-              startedAt: z.string(),
-              tookMs: z.number().int().nullable(),
-            }),
-          ),
-          calls: z.array(
-            z.object({
-              actionId: z.string(),
-              sequence: z.number().int(),
-              kind: z.string(),
-              status: outcome,
-              tool: z.string().nullable(),
-              task: z.string().nullable(),
-              startedAt: z.string(),
-              finishedAt: z.string(),
-              tookMs: z.number().int(),
-              inputTokens: z.string(),
-              outputTokens: z.string(),
-              cost: z.string(),
-              refusalCode: z.string().nullable(),
-            }),
-          ),
-        }),
-      )
+      .output(runTraceSchema)
       .query(({ ctx, input }) =>
         guard(async () => {
           const session = await ownedSession(input.sessionId, ctx.principal.userId);
@@ -141,7 +84,7 @@ export function reviewRoutes(deps: ReviewDeps, kit: ReviewKit) {
     /** How many rows the person's log holds, of one outcome or all: what an export of that filter will hold. */
     logCount: scopedProcedure('agents:read', { module: 'agents' })
       .input(z.object({ outcome: outcome.optional() }).strict())
-      .output(z.object({ total: z.number().int() }))
+      .output(actionLogCountSchema)
       .query(({ ctx, input }) =>
         guard(async () => ({ total: await runtime.audit.countForUser(ctx.principal.userId, input.outcome ?? null) })),
       ),
@@ -163,7 +106,7 @@ export function reviewRoutes(deps: ReviewDeps, kit: ReviewKit) {
           })
           .strict(),
       )
-      .output(z.object({ rows: z.array(actionOutput), nextCursor: z.string().nullable() }))
+      .output(actionLogExportPageSchema)
       .query(({ ctx, input }) =>
         guard(async () => {
           const after = input.cursor ? decodeLogCursor(input.cursor) : null;
@@ -200,28 +143,7 @@ export function reviewRoutes(deps: ReviewDeps, kit: ReviewKit) {
      */
     usageSummary: scopedProcedure('agents:read', { module: 'agents' })
       .input(z.object({ limit: z.number().int().min(1).max(500) }).strict())
-      .output(
-        z.object({
-          windowCount: z.number().int(),
-          windows: z.array(
-            z.object({
-              sessionId: z.string(),
-              agentId: z.string(),
-              agentName: z.string().nullable(),
-              windowId: z.string(),
-              day: z.string(),
-              task: z.string(),
-              state: z.enum(['unpaid', 'settled']),
-              amount: z.string(),
-              assetId: z.string(),
-            }),
-          ),
-          total: z.array(amountLine),
-          byAgent: z.array(group),
-          byUser: z.array(group),
-          byTask: z.array(group),
-        }),
-      )
+      .output(usageSummarySchema)
       .query(({ ctx, input }) => guard(() => usageSummary(db(), { userId: ctx.principal.userId, limit: input.limit, feeAssetId }))),
   };
 }

@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import { useApi, useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
-import { decimalSchema, displayAmount } from '../../shared/money';
+import { displayAmount } from '../../shared/money';
 import { usePreferences } from '../../shared/preferences';
 import { Button, DataTable, Field, Panel } from '../../shared/ui';
 import { Read } from './common';
@@ -10,31 +10,23 @@ import { refusalWords } from './AgentsCatalogue';
 import { ACTION_LOG_HEADER, actionLogRows } from './agents-catalogue';
 import { downloadCsv, toCsv } from './depth-csv';
 import { agentsReviewCopy } from './agents-review-copy';
+import {
+  ACTION_LOG_EXPORT_PAGE,
+  actionLogCountSchema,
+  actionLogExportPageSchema,
+  actionLogRowSchema,
+  analyticsSummarySchema,
+  runTraceSchema,
+  usageGroupSchema,
+  usageSummarySchema,
+  type ActionLogRow,
+} from '@intafaced/contracts/agents-review';
 
 /**
  * What my agents did (J-agents-13): the dashboard over a range of days, the activity log with its outcome filter and a
  * whole-log export, usage by agent, user and task, and one run's trace. Every figure is read from the service's stored
  * rows for the signed person; spend is the sum of sealed usage windows as stored. Nothing here writes or moves money.
  */
-
-const amountLine = z.object({ assetId: z.string().min(1), amount: decimalSchema });
-const dayFigures = z.object({
-  day: z.string(),
-  sessions: z.number().int().nonnegative(),
-  actions: z.number().int().nonnegative(),
-  executed: z.number().int().nonnegative(),
-  refused: z.number().int().nonnegative(),
-  failed: z.number().int().nonnegative(),
-  testRuns: z.number().int().nonnegative().nullable(),
-  spend: z.array(amountLine),
-});
-const summarySchema = z.object({
-  from: z.string(),
-  to: z.string(),
-  includesTest: z.boolean(),
-  totals: dayFigures.omit({ day: true }),
-  days: z.array(dayFigures),
-});
 
 const RANGE_REFUSALS = {
   'agents.refused.analytics_from_unset': 'fromUnset',
@@ -56,9 +48,15 @@ export function AgentsDashboard() {
   const summary = useResource(
     (signal) =>
       asked
-        ? api.query('agents', 'analytics.summary', { from: asked.from, to: asked.to, includeTest: asked.includeTest }, summarySchema, {
-            signal,
-          })
+        ? api.query(
+            'agents',
+            'analytics.summary',
+            { from: asked.from, to: asked.to, includeTest: asked.includeTest },
+            analyticsSummarySchema,
+            {
+              signal,
+            },
+          )
         : Promise.resolve({ ok: true as const, data: null }),
     `agent-dashboard:${userId}:${asked ? `${asked.from}:${asked.to}:${asked.includeTest}:${asked.n}` : 'none'}`,
   );
@@ -95,7 +93,7 @@ export function AgentsDashboard() {
   );
 }
 
-function DashboardFigures({ data }: { data: z.infer<typeof summarySchema> }) {
+function DashboardFigures({ data }: { data: z.infer<typeof analyticsSummarySchema> }) {
   const { t } = agentsReviewCopy.useCopy();
   const preferences = usePreferences();
   const money = (lines: readonly { assetId: string; amount: string }[]) =>
@@ -165,27 +163,8 @@ function DashboardFigures({ data }: { data: z.infer<typeof summarySchema> }) {
 
 // ── Activity ────────────────────────────────────────────────────────────────
 
-const actionSchema = z.object({
-  id: z.string(),
-  sessionId: z.string(),
-  agentId: z.string(),
-  sequence: z.number().int().nonnegative(),
-  kind: z.enum(['session_open', 'session_close', 'completion', 'embedding', 'tool_call', 'usage_settlement']),
-  status: z.enum(['executed', 'refused', 'failed']),
-  tool: z.string().nullable(),
-  task: z.string().nullable(),
-  model: z.string().nullable(),
-  inputTokens: z.string().regex(/^\d+$/),
-  outputTokens: z.string().regex(/^\d+$/),
-  cost: decimalSchema,
-  refusalCode: z.string().nullable(),
-  messageKey: z.string(),
-  messageParams: z.record(z.string(), z.union([z.string(), z.number()])),
-  occurredAt: z.string(),
-});
-type ActionRow = z.infer<typeof actionSchema>;
 type Outcome = '' | 'executed' | 'refused' | 'failed';
-const EXPORT_PAGE = 500;
+const EXPORT_PAGE = ACTION_LOG_EXPORT_PAGE;
 /** How many of the newest rows the screen loads; the export always holds every row of the filter. */
 const LOAD_SIZES = [50, 100, 250, 500] as const;
 
@@ -207,18 +186,18 @@ export function AgentsActivity({ title, note, empty }: { title: string; note: Re
     [exported, setExported] = useState<{ ok: true; count: number } | { ok: false } | null>(null);
   const filter = outcome ? { outcome } : {};
   const rows = useResource(
-      (signal) => api.query('agents', 'log.mine', { limit, ...filter }, z.array(actionSchema).max(limit), { signal }),
+      (signal) => api.query('agents', 'log.mine', { limit, ...filter }, z.array(actionLogRowSchema).max(limit), { signal }),
       `agent-activity:${userId}:${outcome}:${limit}`,
     ),
     count = useResource(
-      (signal) => api.query('agents', 'log.count', filter, z.object({ total: z.number().int().nonnegative() }), { signal }),
+      (signal) => api.query('agents', 'log.count', filter, actionLogCountSchema, { signal }),
       `agent-activity-count:${userId}:${outcome}`,
     );
 
   async function exportAll() {
     setExporting(true);
     setExported(null);
-    const all: ActionRow[] = [];
+    const all: ActionLogRow[] = [];
     // One id for the whole export: its last page writes the one audit row of it.
     const requestId = `export:${crypto.randomUUID()}`;
     let cursor: string | null | undefined;
@@ -228,7 +207,7 @@ export function AgentsActivity({ title, note, empty }: { title: string; note: Re
           'agents',
           'log.export',
           { ...filter, limit: EXPORT_PAGE, requestId, format, ...(cursor ? { cursor } : {}) },
-          z.object({ rows: z.array(actionSchema).max(EXPORT_PAGE), nextCursor: z.string().nullable() }),
+          actionLogExportPageSchema,
         );
         if (!page.ok) {
           setExported({ ok: false });
@@ -304,7 +283,7 @@ export function AgentsActivity({ title, note, empty }: { title: string; note: Re
   );
 }
 
-function ActionTable({ rows }: { rows: readonly ActionRow[] }) {
+function ActionTable({ rows }: { rows: readonly ActionLogRow[] }) {
   const { t } = agentsReviewCopy.useCopy();
   const preferences = usePreferences();
   return (
@@ -349,33 +328,6 @@ function downloadFile(filename: string, text: string): boolean {
 
 // ── Usage ───────────────────────────────────────────────────────────────────
 
-const usageGroup = z.object({
-  key: z.string(),
-  name: z.string().nullable(),
-  windows: z.number().int().nonnegative(),
-  assetId: z.string().min(1),
-  amount: decimalSchema,
-});
-const usageSchema = z.object({
-  windowCount: z.number().int().nonnegative(),
-  windows: z.array(
-    z.object({
-      sessionId: z.string(),
-      agentId: z.string(),
-      agentName: z.string().nullable(),
-      windowId: z.string(),
-      day: z.string(),
-      task: z.string(),
-      state: z.enum(['unpaid', 'settled']),
-      amount: decimalSchema,
-      assetId: z.string().min(1),
-    }),
-  ),
-  total: z.array(amountLine),
-  byAgent: z.array(usageGroup),
-  byUser: z.array(usageGroup),
-  byTask: z.array(usageGroup),
-});
 const USAGE_PAGE = 500;
 
 export function AgentsUsage() {
@@ -384,15 +336,15 @@ export function AgentsUsage() {
   const { t } = agentsReviewCopy.useCopy();
   const preferences = usePreferences();
   const usage = useResource(
-    (signal) => api.query('agents', 'usage.summary', { limit: USAGE_PAGE }, usageSchema, { signal }),
+    (signal) => api.query('agents', 'usage.summary', { limit: USAGE_PAGE }, usageSummarySchema, { signal }),
     `agent-usage-summary:${userId}`,
   );
   const cost = (amount: string, assetId: string) => (preferences.hideBalances ? '••••' : `${displayAmount(amount)} ${assetId}`);
   const groupTable = (
     label: string,
     head: string,
-    rows: z.infer<typeof usageGroup>[],
-    name: (row: z.infer<typeof usageGroup>) => string,
+    rows: z.infer<typeof usageGroupSchema>[],
+    name: (row: z.infer<typeof usageGroupSchema>) => string,
   ) => (
     <DataTable headers={[head, t('windows'), t('cost')]} label={label}>
       {rows.map((row) => (
@@ -446,43 +398,6 @@ export function AgentsUsage() {
 
 // ── A run's trace ───────────────────────────────────────────────────────────
 
-const traceSchema = z.object({
-  runId: z.string(),
-  requestId: z.string(),
-  sessionId: z.string(),
-  agentId: z.string(),
-  task: z.string().nullable(),
-  state: z.string(),
-  cost: decimalSchema.nullable(),
-  assetId: z.string().nullable(),
-  startedAt: z.string(),
-  plan: z.array(
-    z.object({
-      sequence: z.number().int(),
-      state: z.enum(['admitted', 'running', 'waiting_approval', 'completed', 'refused', 'failed']),
-      code: z.string().nullable(),
-      startedAt: z.string(),
-      tookMs: z.number().int().nullable(),
-    }),
-  ),
-  calls: z.array(
-    z.object({
-      actionId: z.string(),
-      sequence: z.number().int(),
-      kind: z.enum(['session_open', 'session_close', 'completion', 'embedding', 'tool_call', 'usage_settlement']),
-      status: z.enum(['executed', 'refused', 'failed']),
-      tool: z.string().nullable(),
-      task: z.string().nullable(),
-      startedAt: z.string(),
-      finishedAt: z.string(),
-      tookMs: z.number().int().nonnegative(),
-      inputTokens: z.string(),
-      outputTokens: z.string(),
-      cost: decimalSchema,
-      refusalCode: z.string().nullable(),
-    }),
-  ),
-});
 const STATE_KEYS = {
   admitted: 'state_admitted',
   running: 'state_running',
@@ -532,7 +447,7 @@ function RunTrace({ sessionId, requestId }: { sessionId: string; requestId: stri
   const { t } = agentsReviewCopy.useCopy();
   const preferences = usePreferences();
   const trace = useResource(
-    (signal) => api.query('agents', 'run.trace', { sessionId, requestId }, traceSchema, { signal }),
+    (signal) => api.query('agents', 'run.trace', { sessionId, requestId }, runTraceSchema, { signal }),
     `agent-run-trace:${userId}:${sessionId}:${requestId}`,
   );
   const cost = (amount: string | null, assetId: string | null) =>
