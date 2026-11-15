@@ -180,8 +180,8 @@ async function publishPanel(page, strategyId) {
 async function fillPublish(panel, { version, description = CLEAN, tags = ['Trend'], visibility = 'open', checklist = false }) {
   const form = panel.getByTestId('quant-publish-form');
   if (version) await form.getByRole('combobox', { name: 'Version to publish' }).selectOption(String(version));
-  await form.getByLabel('Listing title').fill(TITLE);
-  await form.getByLabel('Description').fill(description);
+  await form.getByRole('textbox', { name: 'Listing title', exact: true }).fill(TITLE);
+  await form.getByRole('textbox', { name: 'Description', exact: true }).fill(description);
   for (const tag of tags) await form.getByRole('checkbox', { name: tag, exact: true }).check();
   await form.getByRole('combobox', { name: 'Visibility' }).selectOption(visibility);
   if (await form.getByRole('combobox', { name: 'Licence' }).isVisible())
