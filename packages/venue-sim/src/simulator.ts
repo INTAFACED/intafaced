@@ -381,6 +381,14 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   declareAgentPermissionReach(reach: AgentPermissionReach): void {
     this.venue = { ...this.venue, agentPermissionReach: reach };
   }
+  /**
+   * TEST: whether the descriptor declares an amend in place (`amendsInPlace`), so a journey can show the app's other branch,
+   * a reviewed cancel-and-replace, against the same running venue (J-cex-spot-05 #2). A door reads it when it connects.
+   */
+  declareAmendsInPlace(on: boolean): void {
+    const { amendsInPlace: _dropped, ...rest } = this.venue;
+    this.venue = on ? { ...rest, amendsInPlace: true } : rest;
+  }
   /** The chain id every action's EIP-712 domain names. */
   readonly chainId: number;
   private readonly clock: () => Date;

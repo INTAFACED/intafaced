@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { api, fromUnits, journeyState, toUnits } from './stack.mjs';
+import { api, fromUnits, journeyState, restartWithSetting, toUnits } from './stack.mjs';
 import { reviewSheet, signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import {
@@ -201,10 +201,10 @@ test(`${J} #1 opens Open orders: each open venue order with its price, amount, f
   await ledgerUntouched(s);
 });
 
-test(`${J} #2 lowers the amount of an open order: the same order, a smaller venue lock, the same price, its place in the queue kept, signed once`, async ({
+test(`${J} #2 lowers the amount of an open order: the same order, a smaller venue lock, the same price, its place in the queue kept, where the venue amends in place; otherwise a reviewed cancel-and-replace, signed once`, async ({
   page,
 }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(480_000);
   const s = state();
   const owner = ownerOf(s);
   const wallet = await openVenueDesk(page, s.account, DESK, s.walletKey);
@@ -232,10 +232,83 @@ test(`${J} #2 lowers the amount of an open order: the same order, a smaller venu
   // Its place: the venue still lists it where it was, ahead of every order placed after it.
   expect((await venueOpen(owner)).map((o) => o.venueClientOrderId)).toEqual(queue);
   await dialog.getByRole('button', { name: 'Close' }).click();
-  await expect
-    .poll(async () => shownUnits(await rowOf(page, s.orders.a).locator('[data-cell=locked]').innerText()), { timeout: 20_000 })
-    .toBe(toUnits(after.locked));
+  // On screen: the same order's row, its smaller lock, its smaller amount, its same price.
+  await expect(rowOf(page, s.orders.a)).toHaveCount(1);
+  const cell = async (cloid, name) => shownUnits(await rowOf(page, cloid).locator(`[data-cell=${name}]`).innerText());
+  await expect.poll(() => cell(s.orders.a, 'locked'), { timeout: 20_000 }).toBe(toUnits(after.locked));
+  expect(await cell(s.orders.a, 'amount')).toBe(toUnits(after.amount));
+  expect(await cell(s.orders.a, 'price')).toBe(toUnits(before.price));
   expect((await usdc(owner)).locked).toBe(await lockedByOrders(owner));
+
+  // Where the venue doesn't amend in place: the same running TEST venue declares no amend, and svc-trade restarted so it
+  // reads the venue afresh. A TEST order from another device is lowered: reviewed first, then one signed
+  // cancel-and-replace at the same price under the replacement's own client id.
+  const d = await restBuy(s.walletKey, SPOT, await awayBid(55), '0.002', 'lower-replace');
+  await testVenue('/test/switches', { amendsInPlace: false });
+  restartWithSetting('trade', 'LOCAL_STACK_USER_VENUE', 'on');
+  let replacementId = null;
+  try {
+    expect((await testVenue('/venue')).body.venue.amendsInPlace).toBeUndefined();
+    const plain = await openVenueDesk(page, s.account, DESK, s.walletKey);
+    const door = doorCalls(page);
+    const dBefore = await venueOrder(owner, d);
+    await rowOf(page, d)
+      .getByRole('button', { name: `Edit order ${d}` })
+      .click({ timeout: 30_000 });
+    await dialog.getByRole('textbox', { name: 'Amount left' }).fill('0.001');
+    await expect(dialog).toContainText(
+      'This venue doesn’t change an order in place: the order is cancelled and placed again for the new amount, signed once, and it loses its place in the queue. You review it first.',
+    );
+    await expect(dialog.getByRole('button', { name: 'Change amount' })).toHaveCount(0);
+    const askedPlain = signatures(plain);
+    await dialog.getByRole('button', { name: 'Review new amount' }).click();
+    const review = dialog.getByTestId('venue-replace-review');
+    await expect(review).toContainText('One signature covers both.', { timeout: 20_000 });
+    const lockShown = shownUnits((await review.getByTestId('venue-replace-lock').innerText()).replace('The venue locks ', ''));
+    expect(lockShown).toBe((toUnits(dBefore.price) * toUnits('0.001')) / toUnits('1'));
+    // Reviewed first: nothing prepared or signed yet, and the order rests as it was.
+    expect(door.of('prepare')).toHaveLength(0);
+    expect(signatures(plain)).toBe(askedPlain);
+    expect(await venueOrder(owner, d)).toEqual(dBefore);
+    const prepared = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/prepare' && r.request().method() === 'POST');
+    await dialog.getByRole('button', { name: 'Cancel and replace' }).click();
+    await continueInWallet(page);
+    await expect(note).toContainText('The venue cancelled the original order and released its lock. The replacement', { timeout: 20_000 });
+    // Signed once: one signature, one prepared action, the cancel-and-replace of this order at its own price.
+    expect(signatures(plain)).toBe(askedPlain + 1);
+    expect(door.of('prepare')).toHaveLength(1);
+    const sent = door.of('prepare')[0].body.intent;
+    expect(sent).toMatchObject({ kind: 'replace_order', symbol: SPOT, venueClientOrderId: d });
+    expect(sameDecimal(sent.order.amount, '0.001')).toBe(true);
+    expect(sameDecimal(sent.order.price, dBefore.price)).toBe(true);
+    replacementId = (await (await prepared).json()).prepared.venueClientOrderId;
+    expect(replacementId).toBeTruthy();
+    expect(replacementId).not.toBe(d);
+    const original = await venueOrder(owner, d);
+    expect(original).toMatchObject({ status: 'canceled' });
+    expect(toUnits(original.locked)).toBe(0n);
+    const replacement = await venueOrder(owner, replacementId);
+    expect(replacement).toMatchObject({ status: 'open', symbol: SPOT, side: 'buy' });
+    expect(sameDecimal(replacement.price, dBefore.price)).toBe(true);
+    expect(sameDecimal(replacement.remaining, '0.001')).toBe(true);
+    expect(toUnits(replacement.locked)).toBe(lockShown);
+    expect(toUnits(replacement.locked)).toBeLessThan(toUnits(dBefore.locked));
+    await dialog.getByRole('button', { name: 'Close' }).click();
+    await expect.poll(() => cell(replacementId, 'locked'), { timeout: 20_000 }).toBe(lockShown);
+    expect(await cell(replacementId, 'price')).toBe(toUnits(dBefore.price));
+    expect(await cell(replacementId, 'amount')).toBe(toUnits('0.001'));
+    expect((await usdc(owner)).locked).toBe(await lockedByOrders(owner));
+  } finally {
+    // The replacement goes, from the same other device, so the later steps meet only their own orders; the venue amends
+    // in place again.
+    if (replacementId)
+      expect(
+        (await ownRun(s.walletKey, { kind: 'cancel_orders', orders: [{ symbol: SPOT, venueClientOrderId: replacementId }] })).legs[0],
+      ).toMatchObject({ accepted: true });
+    await testVenue('/test/switches', { amendsInPlace: true });
+    restartWithSetting('trade', 'LOCAL_STACK_USER_VENUE', 'on');
+  }
+  expect((await testVenue('/venue')).body.venue.amendsInPlace).toBe(true);
   await ledgerUntouched(s);
 });
 
@@ -329,9 +402,11 @@ test(`${J} #4 changes the price: reviewed first, then the original is cancelled 
   expect(lockShown).toBe((toUnits(newPrice) * toUnits(before.remaining)) / toUnits('1'));
   const asked = signatures(wallet);
   const prepared = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/prepare' && r.request().method() === 'POST');
+  const submitted = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/submit' && r.request().method() === 'POST');
   await dialog.getByRole('button', { name: 'Cancel and replace' }).click();
   await continueInWallet(page);
   await expect(note).toContainText('The venue cancelled the original order and released its lock. The replacement', { timeout: 20_000 });
+  const firstAnswer = await (await submitted).json();
   expect(signatures(wallet)).toBe(asked + 1);
   const replacementId = (await (await prepared).json()).prepared.venueClientOrderId;
   expect(replacementId).toBeTruthy();
@@ -345,14 +420,30 @@ test(`${J} #4 changes the price: reviewed first, then the original is cancelled 
   expect(sameDecimal(replacement.price, newPrice)).toBe(true);
   expect(sameDecimal(replacement.remaining, before.remaining)).toBe(true);
   expect(toUnits(replacement.locked)).toBe(lockShown);
-  // Submitting twice returns the first: no second signature, the same answer, one replacement on the venue.
-  const submits = door.of('submit').length;
-  await dialog.getByRole('button', { name: 'Cancel and replace' }).click();
-  await expect(note).toContainText('The venue cancelled the original order and released its lock. The replacement');
+  // Submitting twice returns the first. The same signed action sent to the door again, as a lost answer's retry sends it:
+  // the door answers with the first answer, word for word, and nothing new happens on the venue.
+  expect(firstAnswer.outcome).toMatchObject({
+    accepted: true,
+    legs: [
+      { accepted: true, order: { venueClientOrderId: s.orders.b, status: 'canceled' } },
+      { accepted: true, order: { venueClientOrderId: replacementId, status: 'open' } },
+    ],
+  });
+  const firstSubmit = door.of('submit').at(-1).body;
+  expect(firstSubmit.actionKey).toBe(door.of('prepare').at(-1).body.actionKey);
+  const again = await (await api(s.account)).post('/api/v1/venue/submit', firstSubmit);
+  expect(again.status, JSON.stringify(again.body).slice(0, 300)).toBe(200);
+  expect(again.body.actionKey).toBe(firstAnswer.actionKey);
+  expect(again.body.outcome).toEqual(firstAnswer.outcome);
   expect(signatures(wallet)).toBe(asked + 1);
-  expect(door.of('submit').length).toBe(submits);
   expect((await venueOpen(owner)).filter((o) => o.venueClientOrderId === replacementId)).toHaveLength(1);
+  expect(await venueOrder(owner, replacementId)).toEqual(replacement);
   expect(await venueOrder(owner, s.orders.b)).toEqual(original);
+  // And pressed twice on the page: the same answer shown, no second signature asked.
+  await dialog.getByRole('button', { name: 'Cancel and replace' }).click();
+  await expect(note).toContainText(`The replacement ${replacementId} rests at`);
+  expect(signatures(wallet)).toBe(asked + 1);
+  expect((await venueOpen(owner)).filter((o) => o.venueClientOrderId === replacementId)).toHaveLength(1);
   await dialog.getByRole('button', { name: 'Close' }).click();
   // Every lock the venue holds is an order's: the original's was released once.
   expect((await usdc(owner)).locked).toBe(await lockedByOrders(owner));

@@ -77,6 +77,18 @@ describe('TEST venue simulator: changing and cancelling resting orders (J-cex-sp
     expect(cancelsTakenTogether(plain.sim.venue)).toBe(0);
   });
 
+  it('switched off, declares no amend in place and refuses one; switched on again, amends', async () => {
+    const w = world();
+    await w.run(buy('a'));
+    const lower = { kind: 'amend_order' as const, symbol: BTC, venueClientOrderId: cloid(w, 'a'), amount: a('0.001'), price: a('50000') };
+    w.sim.declareAmendsInPlace(false);
+    expect(w.sim.venue.amendsInPlace).toBeUndefined();
+    expect(cancelsTakenTogether(w.sim.venue)).toBe(20);
+    expect(await refusalOf(w.run(lower))).toBe('not_offered');
+    w.sim.declareAmendsInPlace(true);
+    expect(await w.run(lower)).toMatchObject({ accepted: true, order: { remaining: a('0.001') } });
+  });
+
   it('lowers the amount in place: the same order and price, its place kept, its lock cut, and the cut freed', async () => {
     const w = world();
     await w.run(buy('a'));

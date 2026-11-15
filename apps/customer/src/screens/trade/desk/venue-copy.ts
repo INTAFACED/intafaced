@@ -146,10 +146,11 @@ export const spotVenueCopy = defineCopy('trade.desk.venue', {
   'Amount left': 'Amount left',
   'Amend in place note': 'Lowering the amount keeps your place in the queue; the venue changes the order in place.',
   'Amend replace note':
-    'This venue doesn’t change an order in place: the order is cancelled and placed again for the new amount, signed once, and it loses its place in the queue.',
+    'This venue doesn’t change an order in place: the order is cancelled and placed again for the new amount, signed once, and it loses its place in the queue. You review it first.',
   'New price note': 'A new price cancels this order on the venue and places a new one under its own client id. You review it first.',
   'Change amount': 'Change amount',
   'Review new price': 'Review new price',
+  'Review new amount': 'Review new amount',
   'Confirm replace': 'Cancel and replace',
   'Amend done': 'Changed on the venue: {amount} left, same price. Your place in the queue was kept. The venue now locks {lock}.',
   'Replace review': 'Your order at {old} is cancelled on the venue, then {amount} is placed at {price}. One signature covers both.',

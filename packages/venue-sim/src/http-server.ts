@@ -45,7 +45,7 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *        /settlements {account,since}                     the account's settlements in a deployer's halt or a split
  *   TEST controls (never part of UserVenue):
  *   POST /test/deposit {account,asset,amount,depositRef}   idempotent by depositRef
- *        /test/switches {venueDown?,unlistPerpetuals?,declaredAgentPermissionReach?,withdrawalFee?,networkFee?,depositExplorerTxUrl?}   each fee a MaybeKnown<Amount>
+ *        /test/switches {venueDown?,unlistPerpetuals?,declaredAgentPermissionReach?,amendsInPlace?,withdrawalFee?,networkFee?,depositExplorerTxUrl?}   each fee a MaybeKnown<Amount>
  *        /test/account-switches {owner,down?,loseAnswers?,failAfterSend?,submitDelayMs?}   one owner's account only, so a journey can
  *                                                         take the venue away from its own person and no one else's:
  *                                                         `down` refuses every call on that owner's account venue_down;
@@ -762,6 +762,10 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
           throw new VenueWireError("declaredAgentPermissionReach must be 'own_account_only' or 'owner_accounts'");
         sim.declareAgentPermissionReach(reach);
       }
+      if (body.amendsInPlace !== undefined) {
+        if (typeof body.amendsInPlace !== 'boolean') throw new VenueWireError('amendsInPlace must be true or false');
+        sim.declareAmendsInPlace(body.amendsInPlace);
+      }
       if (body.withdrawalFee !== undefined) sim.switches.withdrawalFee = maybeKnownAmount(body.withdrawalFee, 'withdrawalFee');
       if (body.networkFee !== undefined) sim.switches.networkFee = maybeKnownAmount(body.networkFee, 'networkFee');
       if (body.depositExplorerTxUrl === null || typeof body.depositExplorerTxUrl === 'string') {
@@ -775,6 +779,7 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
         unlistPerpetuals: sim.switches.unlistPerpetuals,
         builderTotalsUnknown: sim.switches.builderTotalsUnknown,
         declaredAgentPermissionReach: sim.venue.agentPermissionReach,
+        amendsInPlace: sim.venue.amendsInPlace === true,
         withdrawalFee: sim.switches.withdrawalFee,
         networkFee: sim.switches.networkFee,
         depositExplorerTxUrl: sim.switches.depositExplorerTxUrl,

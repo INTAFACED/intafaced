@@ -78,7 +78,7 @@ function replaced(t: T, answer: ActionResult, newId: string): Note {
 
 /**
  * Change one resting order. A lower amount at the same price is the venue's amend in place where it offers one (the
- * order keeps its place in the queue), otherwise a cancel-and-replace signed once, said before it is sent. A new price is
+ * order keeps its place in the queue), otherwise a cancel-and-replace, reviewed first and signed once. A new price is
  * always a cancel-and-replace, reviewed first. A higher amount is refused by the door from the venue's own record.
  */
 export function VenueEditOrder({
@@ -140,39 +140,30 @@ export function VenueEditOrder({
     builderFee: null,
   });
 
-  /** A new amount at the same price: in place, or a cancel-and-replace signed once where the venue has no amend. */
+  /** A new amount at the same price, where the venue amends in place: the same order, its place in the queue kept. */
   const changeAmount = () =>
     send(async () => {
       setNote(null);
-      if (inPlace) {
-        const answer = await run(
-          { kind: 'amend_order', symbol: order.symbol, venueClientOrderId: cloid, amount: amount.trim(), price: order.price },
-          { actionKey: keys.amend(owner, cloid, amount) },
-        );
-        const bad = notDone(t, answer);
-        if (bad) return setNote(bad);
-        const after = answer.kind === 'outcome' && answer.outcome.accepted ? answer.outcome.order : null;
-        setNote({
-          tone: 'good',
-          text: t('Amend done', {
-            amount: displayAmount(after?.remaining ?? amount),
-            lock: `${displayAmount(after?.locked ?? '')} ${after?.lockedAsset ?? ''}`,
-          }),
-        });
-        return;
-      }
-      draft.current ??= draftId();
-      const key = keys.replace(owner, draft.current);
-      const intent = replacementOf(draft.current);
       const answer = await run(
-        { kind: 'replace_order', symbol: order.symbol, venueClientOrderId: cloid, order: intent },
-        { actionKey: key },
+        { kind: 'amend_order', symbol: order.symbol, venueClientOrderId: cloid, amount: amount.trim(), price: order.price },
+        { actionKey: keys.amend(owner, cloid, amount) },
       );
-      if (answer.kind === 'outcome') draft.current = null;
-      setNote(replaced(t, answer, intent.clientOrderKey));
+      const bad = notDone(t, answer);
+      if (bad) return setNote(bad);
+      const after = answer.kind === 'outcome' && answer.outcome.accepted ? answer.outcome.order : null;
+      setNote({
+        tone: 'good',
+        text: t('Amend done', {
+          amount: displayAmount(after?.remaining ?? amount),
+          lock: `${displayAmount(after?.locked ?? '')} ${after?.lockedAsset ?? ''}`,
+        }),
+      });
     });
 
-  /** A new price: the venue's preview of the replacement first, then Confirm sends the one signed cancel-and-replace. */
+  /**
+   * A new price, or a new amount where the venue has no amend in place: the venue's preview of the replacement first, then
+   * Confirm sends the one signed cancel-and-replace.
+   */
   const startReview = () =>
     send(async () => {
       setNote(null);
@@ -262,9 +253,13 @@ export function VenueEditOrder({
             <Button disabled={busy} onClick={() => void confirm()}>
               {t('Confirm replace')}
             </Button>
-          ) : samePrice ? (
+          ) : samePrice && inPlace ? (
             <Button disabled={busy || !amountOk} onClick={() => void changeAmount()}>
               {t('Change amount')}
+            </Button>
+          ) : samePrice ? (
+            <Button disabled={busy || !amountOk} onClick={() => void startReview()}>
+              {t('Review new amount')}
             </Button>
           ) : (
             <Button disabled={busy || !amountOk || price.trim() === ''} onClick={() => void startReview()}>
