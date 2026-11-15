@@ -34,7 +34,7 @@
  */
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { gateFilesTouched } from '../scripts/gate-file-guard.mjs';
+import { gateFilesTouched } from '../scripts/gate-files.mjs';
 import { BASELINE } from './look-baselines.mjs';
 import { judgeReason } from './test-judge.mjs';
 import { httpMessage, titleFor } from './api-budget.mjs';
@@ -270,7 +270,7 @@ export async function ciReviewVerdict({ sha, runs, attempts, tree, base, number,
 }
 
 /**
- * Why this change needs the independent review, or null when it does not: a gate file (gate-file-guard.mjs GATE_PATHS),
+ * Why this change needs the independent review, or null when it does not: a gate file (gate-files.mjs GATE_PATHS),
  * or a look baseline. Money and security code alone does not (owner decision
  * 2026-11-06). An empty file list fails closed.
  */

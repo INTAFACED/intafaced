@@ -1,48 +1,11 @@
 /**
- * Unit tests for gate-file-guard.mjs and gate-gh.mjs. No network.
- * Run: node --test tooling/scripts/gate-file-guard.test.mjs
+ * Unit tests for gate-files.mjs and gate-gh.mjs. No network.
+ * Run: node --test tooling/scripts/gate-files.test.mjs
  */
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { GitHubRefusalError, makeGh } from './gate-gh.mjs';
-import { MARKER, evaluateGateFileRule, gateFilesTouched, renderComment, titleStatesGateChange, upsertComment } from './gate-file-guard.mjs';
-
-test('title declarations: accepted forms', () => {
-  for (const t of [
-    'ci: widen allowlist',
-    'ci(deps): bump audit list',
-    'CI: shout',
-    'gate: new scan',
-    'gate(money): x',
-    'chore(ci): pin node',
-    'fix(ci): run every package',
-    'test(gate): cover x',
-    'ci!: breaking',
-    'fix: thing [gate-change]',
-    '[GATE-CHANGE] fix',
-    'docs: x [gate-change] y',
-  ]) {
-    assert.equal(titleStatesGateChange(t), true, t);
-  }
-});
-
-test('title declarations: refused forms (#4402 shape included)', () => {
-  for (const t of [
-    'fix(identity): recover bounded input checks',
-    'fix(db): repair the migration runner',
-    'docs: explain ci',
-    'feat(ci-tools): x',
-    'cicd: x',
-    'circuit: x',
-    'gateway: fix',
-    'fix: gate',
-    '',
-    undefined,
-  ]) {
-    assert.equal(titleStatesGateChange(t), false, String(t));
-  }
-});
+import { gateFilesTouched } from './gate-files.mjs';
 
 test('gate files: the four things the brief names, plus the tools themselves', () => {
   const touched = (f) => gateFilesTouched([f]).length === 1;
@@ -55,7 +18,7 @@ test('gate files: the four things the brief names, plus the tools themselves', (
   assert.ok(touched('.gitleaks.toml'));
   assert.ok(touched('tooling/scripts/gate-gh.mjs'));
   assert.ok(touched('tooling/scripts/main-auto-revert.mjs'));
-  assert.ok(touched('tooling/scripts/gate-file-guard.mjs'));
+  assert.ok(touched('tooling/scripts/gate-files.mjs'));
   // The journeys run's list and its steps (the factory's setup step 2): the baseline guard enforces the list's rules.
   assert.ok(touched('docs/runbooks/journey-baseline.json'));
   assert.ok(touched('docs/roadmap/journeys.json'));
@@ -75,45 +38,6 @@ test('gate files: ordinary files are not gate files', () => {
   ]) {
     assert.equal(gateFilesTouched([f]).length, 0, f);
   }
-});
-
-test('rule: undeclared change fails, declared passes, no gate file passes', () => {
-  const files = ['services/svc-bank/drizzle/0019.sql', 'tooling/ci/dependency-audit.mjs'];
-  assert.equal(evaluateGateFileRule('fix(bank): migration', files).ok, false);
-  assert.equal(evaluateGateFileRule('ci: allow GHSA', files).ok, true);
-  assert.equal(evaluateGateFileRule('fix(bank): migration', ['services/svc-bank/a.ts']).ok, true);
-});
-
-test('comment states the rule and lists the files', () => {
-  const bad = renderComment(evaluateGateFileRule('fix: x', ['tooling/ci/secret-scan.mjs']));
-  assert.ok(bad.startsWith(MARKER));
-  assert.match(bad, /FAIL/);
-  assert.match(bad, /tooling\/ci\/secret-scan\.mjs/);
-  assert.match(bad, /`ci:`.*`gate:`.*`chore\(ci\):`.*\[gate-change\]/);
-  assert.match(renderComment(evaluateGateFileRule('ci: x', ['tooling/ci/secret-scan.mjs'])), /OK, declared/);
-});
-
-test('upsertComment edits its own marked comment only, creates if absent, stays quiet when passing and absent', () => {
-  const calls = [];
-  const mk = (existing) => (args) => {
-    calls.push(args);
-    if (args.includes('--slurp')) return { stdout: JSON.stringify([existing]) };
-    return { stdout: '' };
-  };
-  const other = { id: 1, body: 'a human comment' };
-  const mine = { id: 2, body: `${MARKER}\nold` };
-  assert.equal(upsertComment(mk([other, mine]), 'o/r', 5, `${MARKER}\nnew`), 'updated');
-  assert.ok(calls.some((a) => a.includes('PATCH') && a.includes('repos/o/r/issues/comments/2')));
-  assert.equal(
-    calls.some((a) => a.join(' ').includes('comments/1')),
-    false,
-    'never touches a human comment',
-  );
-  calls.length = 0;
-  assert.equal(upsertComment(mk([other]), 'o/r', 5, `${MARKER}\nnew`), 'created');
-  calls.length = 0;
-  assert.equal(upsertComment(mk([other]), 'o/r', 5, `${MARKER}\nok`, { onlyIfExisting: true }), 'none');
-  assert.equal(calls.length, 1);
 });
 
 test('gate-gh: 403 and 429 throw a refusal; other failures throw plain errors; success passes through', () => {
@@ -165,33 +89,6 @@ test('gate files: the review additions (rules every agent loads, repo-wide confi
   }
   assert.equal(gateFilesTouched(['apps/admin/package.json', 'services/svc-pay/package.json']).length, 0, 'only the ROOT package.json');
 });
-
-test('no author is exempt: the root package.json needs a declaring title from everyone, bots included', () => {
-  const files = ['package.json', 'pnpm-lock.yaml'];
-  assert.equal(evaluateGateFileRule('chore(deps): bump x', files).ok, false);
-  assert.equal(evaluateGateFileRule('ci(deps): bump x', files).ok, true);
-  assert.equal(evaluateGateFileRule.length, 2, 'the rule takes only a title and files (no author argument)');
-});
-
-const DEPENDABOT = new URL('../../.github/dependabot.yml', import.meta.url);
-test(
-  'dependabot prefixes pass the title rule (npm bumps touch the root package.json, actions bumps touch workflows)',
-  { skip: !existsSync(DEPENDABOT) && 'dependabot.yml not present (empty-tree run)' },
-  () => {
-    const yml = readFileSync(DEPENDABOT, 'utf8');
-    for (const [eco, next] of [
-      ['npm', "package-ecosystem: 'github-actions'"],
-      ['github-actions', "package-ecosystem: 'maven'"],
-    ]) {
-      const start = yml.indexOf(`package-ecosystem: '${eco}'`);
-      const block = yml.slice(start, yml.indexOf(next, start + 1));
-      const prefixes = [...block.matchAll(/^\s+prefix(?:-development)?: '([^']+)'/gm)].map((m) => m[1]);
-      assert.ok(prefixes.length >= 1, `${eco}: a prefix is set`);
-      for (const prefix of prefixes)
-        assert.equal(titleStatesGateChange(`${prefix}: Bump something from 1 to 2`), true, `${eco}: ${prefix}`);
-    }
-  },
-);
 
 test('gate-gh: a hung or unspawnable gh fails with a clear error, never hangs; a timeout is passed to spawn', () => {
   let seen;
