@@ -480,7 +480,10 @@ test(`${J} #6 cancels a batch by ids, then the selected, then spot only, then al
   await ask.getByRole('button', { name: 'Close' }).click();
 
   // All markets: the perpetual too.
-  await expect(rowOf(page, x3).locator('[data-cell=status]')).not.toHaveText('Open', { timeout: 20_000 });
+  // The desk has read the venue again: no row shows that order open (one this page didn't place leaves the table).
+  await expect(rowOf(page, x3).filter({ has: page.locator('[data-cell=status]', { hasText: /^Open$/ }) })).toHaveCount(0, {
+    timeout: 20_000,
+  });
   await page.getByRole('button', { name: 'Cancel all markets' }).click();
   await expect(ask).toContainText('Cancel every open order in every market?');
   await ask.getByRole('button', { name: 'Cancel 1 orders' }).click();
