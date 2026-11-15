@@ -1051,10 +1051,39 @@ const roadmapAt = (read, manifests) => ({
 
 export function gitSource(clone, graphSha) {
   const git = (...a) => execFileSync('git', ['-C', clone, ...a], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+  // Each sha's regular files are listed once (one ls-tree) and each blob read once, the import graph's code files in one
+  // `git cat-file --batch` (about 0.3 s): the graph probes thousands of paths, and one git call per probe took 105 s on
+  // intafaced #8496. Only a regular file's text, as before: a symlink, a submodule or a directory is null.
+  const trees = new Map();
+  const texts = new Map();
+  const filesAt = (sha) => {
+    if (!trees.has(sha)) {
+      const m = new Map();
+      for (const l of git('ls-tree', '-r', '-z', '--full-tree', sha).split('\0')) {
+        const r = /^100(?:644|755) blob ([0-9a-f]+)\t([^]+)$/.exec(l);
+        if (r) m.set(r[2], r[1]);
+      }
+      trees.set(sha, m);
+      if (sha === graphSha) {
+        const blobs = [...new Set([...m].filter(([p]) => /\.(mjs|cjs|js|mts|ts|tsx|json)$/.test(p)).map(([, b]) => b))];
+        const out = execFileSync('git', ['-C', clone, 'cat-file', '--batch'], { input: `${blobs.join('\n')}\n`, maxBuffer: 1 << 30 });
+        for (let at = 0; at < out.length;) {
+          const nl = out.indexOf(10, at);
+          const [blob, type, size] = out.subarray(at, nl).toString('latin1').split(' ');
+          if (type !== 'blob') throw new Error(`git cat-file --batch: ${blob} is ${type}`);
+          texts.set(blob, out.subarray(nl + 1, nl + 1 + Number(size)).toString('utf8'));
+          at = nl + 2 + Number(size);
+        }
+      }
+    }
+    return trees.get(sha);
+  };
   const show = (sha, p) => {
     try {
-      if (!/^100(644|755) blob /.test(git('ls-tree', sha, '--', p))) return null;
-      return git('show', `${sha}:${p}`);
+      const blob = filesAt(sha).get(p);
+      if (!blob) return null;
+      if (!texts.has(blob)) texts.set(blob, git('cat-file', 'blob', blob));
+      return texts.get(blob);
     } catch {
       return null;
     }
