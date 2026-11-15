@@ -291,8 +291,12 @@ async function openWizardAtLimits(page, key) {
   await wizard.getByRole('button', { name: 'Next' }).click();
   await wizard.getByText(VENUE_MARKET, { exact: true }).click();
   await wizard.getByRole('button', { name: 'Next' }).click();
-  await wizard.getByRole('button', { name: 'Connect TEST Wallet' }).click();
-  await expect(wizard.getByTestId('venue-wallet-address')).toHaveText(wallet.address);
+  // Connected already when this page connected the wallet before (the wallet keeps its connection for the page).
+  const connect = wizard.getByRole('button', { name: 'Connect TEST Wallet' });
+  const address = wizard.getByTestId('venue-wallet-address');
+  await expect(connect.or(address)).toBeVisible();
+  if (await connect.isVisible()) await connect.click();
+  await expect(address).toHaveText(wallet.address);
   return wizard;
 }
 
@@ -840,7 +844,18 @@ test(`${J} #8 waits for the lead to fill: the copy is an order on the follower's
     expect(await num('Our builder fee'), 'our builder fee as the venue reports it').toBe(toUnits(f.builderFee));
     await expect(cells.nth(headers.indexOf('Venue fee'))).toContainText(f.feeAsset);
   }
-  await expect(detail.getByRole('tabpanel')).not.toContainText(/profit share/i);
+  // No profit-share value: the copied fills name none, and where the copied positions keep a leader profit-share column
+  // (J-copy-bots-otc-06), each of its cells says the platform sets none.
+  await expect(fillsTable).not.toContainText(/profit/i);
+  const positions = detail.getByRole('table', { name: 'Copied positions' });
+  const positionHeaders = (await positions.locator('thead th').allInnerTexts()).map((h) => h.trim());
+  const shareColumn = positionHeaders.findIndex((h) => /profit share/i.test(h));
+  const positionRows = positions.locator('tbody tr:not([data-slot="table-empty-row"])');
+  if (shareColumn >= 0) {
+    for (let i = 0; i < (await positionRows.count()); i += 1) {
+      await expect(positionRows.nth(i).locator('td').nth(shareColumn)).toHaveText('Not set by the platform');
+    }
+  }
 
   // Read again after the copy driver's later sweeps: still one copied order, on the screen and on the venue.
   await page.reload();
