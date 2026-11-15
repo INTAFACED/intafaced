@@ -61,6 +61,9 @@ import { slippageLimit } from '../desk/venue-desk';
 import { RoutedReview, VenueRoutes } from './VenueRoutes';
 import { ProtectDialog, ReverseDialog, refusalOf, useSignPrepared } from './VenueProtect';
 import { venueProtectCopy } from './venue-protect-copy';
+import { VenueCollateral, VenueTiers } from './VenueRisk';
+import { venueRiskCopy } from './venue-risk-copy';
+import { roomLeft, takenAssets } from './venue-risk-logic';
 import { canonical, protectionClientId } from './venue-protect-logic';
 import type { RoutePreview } from '../../../features/trade/venue-api';
 
@@ -183,9 +186,13 @@ function Contracts({ status, perps, requested }: { status: VenueUp; perps: Venue
       </ul>
       <ContractStrip market={market} test={status.test} />
       <MarketRules market={market} venueName={status.venue.displayName} test={status.test} />
+      <VenueTiers market={market} venueName={status.venue.displayName} test={status.test} />
       <WalletBar />
       <ReadProblem failure={account.balances.failure} venueName={status.venue.displayName} />
       {owner ? <BalancesPanel balances={account.balances.data} test={status.test} /> : null}
+      {owner ? (
+        <VenueCollateral market={market} venueName={status.venue.displayName} balances={account.balances.data} test={status.test} />
+      ) : null}
       {owner && market.marginAccount?.known ? (
         <MarketMarginStep key={`mm:${market.symbol}`} market={market} owner={owner} run={run} test={status.test} />
       ) : null}
@@ -376,7 +383,9 @@ function MarketRules({ market, venueName, test }: { market: VenueMarket; venueNa
               <dd className="numeric" data-testid="venue-open-interest-cap">
                 {market.openInterest.value.capSize === null
                   ? t('Open interest no cap')
-                  : t('Open interest cap value', { cap: market.openInterest.value.capSize, base: market.baseAsset })}
+                  : market.listedBy.known && market.listedBy.value.kind === 'venue'
+                    ? t('Open interest venue cap value', { cap: market.openInterest.value.capSize, base: market.baseAsset })
+                    : t('Open interest cap value', { cap: market.openInterest.value.capSize, base: market.baseAsset })}
               </dd>
             </div>
           </>
@@ -717,6 +726,7 @@ function Ticket({
   const [reduceOnly, setReduceOnly] = useState(false);
   const [attached, setAttached] = useState<Attached | null>(null);
   const p = venueProtectCopy.useCopy().t;
+  const r = venueRiskCopy.useCopy().t;
   const signPrepared = useSignPrepared(owner);
   const [problem, setProblem] = useState<string | null>(null);
   const [review, setReview] = useState<{ intent: OrderIntent; preview: AsOf<VenuePreview> } | null>(null);
@@ -732,7 +742,14 @@ function Ticket({
     setProblem(null);
     setResult(null);
     setAttached(null);
-    if (marginAsset !== market.quoteAsset)
+    // What the venue publishes it takes as margin decides, naming the venue (J-derivatives-02 #4); with no list published,
+    // a perpetual's margin is its settle asset.
+    const taken = takenAssets(market);
+    if (taken && !taken.includes(marginAsset))
+      return setProblem(
+        r('Margin not taken', { venue: status.venue.displayName, asset: marginAsset, symbol: market.symbol, taken: taken.join(', ') }),
+      );
+    if (!taken && marginAsset !== market.quoteAsset)
       return setProblem(t('Margin mismatch', { symbol: market.symbol, settle: market.quoteAsset, asset: marginAsset }));
     if (!size.trim()) return setProblem(v('Enter amount'));
     if (!price.trim()) return setProblem(v('Enter price'));
@@ -758,7 +775,15 @@ function Ticket({
       return;
     }
     const preview = await venue.preview(owner, intent);
-    if (!preview.ok) return setProblem(v('Outcome refused', { detail: preview.message }));
+    if (!preview.ok) {
+      // Past the open-interest cap: the venue's reason, and the room left where the venue reports both figures (J-derivatives-02 #7).
+      // The figures are read fresh from the venue, so the room is the venue's now, not the desk's last poll.
+      const fresh = preview.code === 'trade.venue.open_interest_above_cap' ? await venue.markets() : null;
+      const now = fresh?.ok ? fresh.data.value.find((m) => m.symbol === market.symbol) : undefined;
+      const room = now ? roomLeft(now) : null;
+      const refused = v('Outcome refused', { detail: preview.message });
+      return setProblem(room === null ? refused : `${refused}. ${r('Room left', { room: displayAmount(room), base: market.baseAsset })}`);
+    }
     setReview({ intent, preview: preview.data });
   }
 

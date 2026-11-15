@@ -75,9 +75,10 @@ test(`${J} #1 opens /trade/futures: the full desk with the contracts the venue l
   const { displayName } = await venueInfo();
   const markets = (await testVenue('/markets', {})).body.value.filter((m) => m.kind === 'perpetual');
   // The TEST venue lists BTC-PERP, the TEST perpetual ETH-PERP its trigger orders rest on (J-derivatives-03), the TEST
-  // gold perpetual XAU-PERP (J-derivatives-21) and the TEST stock perpetuals XSTK-PERP and XSTD-PERP (J-derivatives-27);
-  // the desk lists every one, each with its venue named.
-  expect(markets.map((m) => m.symbol)).toEqual([SYMBOL, 'ETH-PERP', 'XAU-PERP', 'XSTK-PERP', 'XSTD-PERP']);
+  // gold perpetual XAU-PERP (J-derivatives-21), the TEST stock perpetuals XSTK-PERP and XSTD-PERP (J-derivatives-27) and
+  // the TEST perpetual XRSK-PERP its margin tiers are published on (J-derivatives-02); the desk lists every one, each
+  // with its venue named.
+  expect(markets.map((m) => m.symbol)).toEqual([SYMBOL, 'ETH-PERP', 'XAU-PERP', 'XSTK-PERP', 'XSTD-PERP', 'XRSK-PERP']);
   const list = page.getByTestId('venue-contract-list');
   await expect(list.getByRole('button')).toHaveCount(markets.length);
   for (const m of markets) await expect(list.getByRole('button', { name: `${m.symbol} · ${displayName}` })).toBeVisible();

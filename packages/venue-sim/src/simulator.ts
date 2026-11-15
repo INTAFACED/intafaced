@@ -26,6 +26,8 @@ import {
   type UserVenueLeverage,
   type UserVenueListing,
   type UserVenueMarginAccountRule,
+  type UserVenueMarginTier,
+  type UserVenueCollateral,
   type UserVenueMarketMargin,
   type UserVenueMarketEvent,
   type UserVenueSettlement,
@@ -212,6 +214,15 @@ export interface SimMarketConfig {
    * order on this market, and one refuses `not_offered`.
    */
   readonly triggerSources?: readonly VenueTriggerSource[];
+  /**
+   * Perpetuals: the venue's published margin tiers, lowest `fromNotional` first (the first from zero). Set, they are the
+   * venue's rule: a position's maintenance margin is its tier's rate (not `maintenanceMarginRate`), and an opening order
+   * whose position notional would reach a tier above the account's leverage refuses `leverage_above_cap`, naming the
+   * tier. Unset: none published, and the flat `maintenanceMarginRate` applies.
+   */
+  readonly marginTiers?: readonly UserVenueMarginTier[];
+  /** What the venue publishes it takes as margin on this market, each with its haircut. Unset: no list published. */
+  readonly collateral?: readonly UserVenueCollateral[];
 }
 
 /**
@@ -836,6 +847,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       index: published(m.kind === 'perpetual' ? this.indexes.get(m.symbol) : undefined),
       // The simulator's own rule (`place`): an order that would cross this account's own resting order cancels the resting one.
       selfTrade: { known: true, value: 'cancel_resting' },
+      marginTiers: published(m.kind === 'perpetual' ? m.marginTiers : undefined),
+      collateral: published(m.collateral),
     }));
     return this.asOf(list);
   }
@@ -1591,6 +1604,21 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       }
       if (!intent.reduceOnly && market.maxLeverageBps !== null && setting.leverageBps > market.maxLeverageBps)
         this.aboveCap(market, setting.leverageBps);
+      // The venue's published tiers: an opening order may not take the position into a tier that allows less leverage.
+      if (!intent.reduceOnly && market.marginTiers?.length) {
+        const held = state.positions.get(market.symbol);
+        const same = held && held.side === (intent.side === 'buy' ? 'long' : 'short');
+        const notional = mul(add(same ? held.size : ZERO, intent.amount), intent.price, 'ceil');
+        const tier = tierOf(market.marginTiers, notional);
+        if (setting.leverageBps > tier.maxLeverageBps) {
+          const n = market.marginTiers.indexOf(tier) + 1;
+          refuse(
+            this.venue.id,
+            'leverage_above_cap',
+            `a position of ${formatAmount(notional)} ${market.quoteAsset} on ${market.symbol} is in tier ${n}, which allows at most ${tier.maxLeverageBps / 10_000}x; ${setting.leverageBps / 10_000}x is above it`,
+          );
+        }
+      }
       // The deployer's cap on open interest: an opening order may not take the market's open size past it.
       const oiCap = this.openInterestCaps.get(market.symbol) ?? null;
       if (!intent.reduceOnly && oiCap !== null) {
@@ -1600,7 +1628,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
           refuse(
             this.venue.id,
             'open_interest_above_cap',
-            `${market.symbol}'s deployer caps its open interest at ${formatAmount(oiCap)} ${base}; ${formatAmount(open)} ${base} is open, so ${formatAmount(intent.amount)} ${base} more would pass the cap`,
+            `${market.listedBy?.kind === 'venue' ? `${this.venue.displayName} caps ${market.symbol}'s` : `${market.symbol}'s deployer caps its`} open interest at ${formatAmount(oiCap)} ${base}; ${formatAmount(open)} ${base} is open, so ${formatAmount(intent.amount)} ${base} more would pass the cap`,
           );
         }
       }
@@ -2390,8 +2418,10 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
    * reports the venue's figure.
    */
   private liquidationPrice(market: SimMarketConfig, p: PositionState): MaybeKnown<Amount> {
-    if (market.maintenanceMarginRate === undefined) return { known: false };
-    const maintenance = mul(mul(p.entryPrice, p.size), market.maintenanceMarginRate);
+    const notional = mul(p.entryPrice, p.size);
+    const rate = market.marginTiers?.length ? tierOf(market.marginTiers, notional).maintenanceRate : market.maintenanceMarginRate;
+    if (rate === undefined) return { known: false };
+    const maintenance = mul(notional, rate);
     const cushion = div(sub(p.margin, maintenance), p.size, 'floor');
     const price = p.side === 'long' ? sub(p.entryPrice, cushion) : add(p.entryPrice, cushion);
     return { known: true, value: max(ZERO, price) };
@@ -2416,6 +2446,13 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
 }
 
 /** A published word of the venue's, or `known: false` when it publishes none. */
+/** The published tier a position notional falls in: the last whose `fromNotional` it reaches (the first from zero). */
+function tierOf(tiers: readonly UserVenueMarginTier[], notional: Amount): UserVenueMarginTier {
+  let at = tiers[0]!;
+  for (const t of tiers) if (compare(notional, t.fromNotional) >= 0) at = t;
+  return at;
+}
+
 function published<T>(value: T | undefined): MaybeKnown<T> {
   return value === undefined ? { known: false } : { known: true, value };
 }

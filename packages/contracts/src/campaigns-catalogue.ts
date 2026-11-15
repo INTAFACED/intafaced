@@ -261,11 +261,14 @@ export type RuleTestResult = z.infer<typeof ruleTestResultSchema>;
 /**
  * The triggers an earning rule may name: events declared in `packages/events`, each with the names its incentive
  * formula may read. `trade.fill.settled`: `amount` is the fill's quote amount, `fee` its fee, `qty` its quantity.
- * `pay.deposit_credit.posted`: `amount` is the amount credited. Anything else refuses `campaigns.trigger_unknown`.
+ * `pay.deposit_credit.posted`: `amount` is the amount credited. `bank.card_cashback.earned`: `amount` is what a card
+ * capture the card partner holds spent, `cashback` the cashback svc-bank worked out on it at the person's rank card tier
+ * (J-bank-13 #7). Anything else refuses `campaigns.trigger_unknown`.
  */
 export const EARNING_TRIGGERS = {
   'trade.fill.settled': { label: 'A spot fill settles', names: ['amount', 'fee', 'qty'] },
   'pay.deposit_credit.posted': { label: 'A crypto deposit is credited', names: ['amount'] },
+  'bank.card_cashback.earned': { label: 'Card spend earns cashback', names: ['amount', 'cashback'] },
 } as const;
 export type EarningTrigger = keyof typeof EARNING_TRIGGERS;
 
@@ -385,7 +388,8 @@ export const campaignWindowsSchema = z.object({
  * credit funded by a bonus, a trial fund or a gift is no deposit and never sends that event. In a welcome checklist,
  * `pay.deposit` is read from the venue instead (J-campaigns-04 #2): a USDC deposit from a wallet the person connected
  * into the venue account it owns, as the venue reports it credited, counted only above what INTAFACED has paid that
- * wallet as rewards.
+ * wallet as rewards. A task campaign's step may be `pay.deposit` too (J-campaigns-02 #1), read from the venue the same
+ * way: the first counting deposit seen after the person joined, inside the campaign's time frame, once per step.
  */
 export const TASK_EVENTS = ['trade.fill', 'identity.verified', 'pay.deposit'] as const;
 export type TaskEvent = (typeof TASK_EVENTS)[number];
@@ -920,7 +924,22 @@ export const rewardRecordSchema = z.object({
    * An owed reward paid to the customer's own wallet: the chain transaction that paid it, the wallet it went to (the one
    * connected when it was claimed), and when the payment was booked (`rewardPayOut`, keyed by that chain transaction).
    */
-  payout: z.object({ chainTx: z.string(), toWallet: z.string(), at: iso }).nullable().default(null),
+  payout: z
+    .object({
+      chainTx: z.string(),
+      toWallet: z.string(),
+      at: iso,
+      /**
+       * The network fee of the payment, as the chain's receipt reports it (gas used times its price, in the chain's own
+       * coin), paid by INTAFACED's wallet: our cost, never taken from the reward. Null when the receipt did not say.
+       */
+      networkFee: z
+        .object({ asset: z.string(), amount: campaignDecimal, paidBy: z.literal('intafaced') })
+        .nullable()
+        .default(null),
+    })
+    .nullable()
+    .default(null),
   createdAt: iso,
   postedAt: iso.nullable(),
   /** When a held reward's risk-review hold ends; null when the campaign pays at once. */
@@ -947,6 +966,12 @@ export const rewardRecordSchema = z.object({
   rollback: z.object({
     windowSeconds: z.number().int().positive().nullable(),
     closesAt: iso.nullable(),
+    /**
+     * `payment`: a reward INTAFACED owes, whose rollback window closes when it is paid to the customer's wallet (a chain
+     * payment cannot be taken back), at `closesAt` once paid, or earlier if the window runs out first. `posting`: the
+     * window runs from the post.
+     */
+    closesOn: z.enum(['posting', 'payment']).default('posting'),
     blocker: z.literal('campaigns.reclaim_unavailable'),
   }),
   attempts: z.array(redemptionAttemptSchema),
@@ -988,6 +1013,24 @@ export const taskProgressSchema = z.object({
   claimClosesAt: iso.nullable(),
   kycGate: z.enum(KYC_GATES),
   reward: rewardRecordSchema.nullable(),
+  /**
+   * A deposit step's read of the venue (J-campaigns-02 #1): `read` with the venue's as-of time, `unread` when the venue or
+   * the person's wallets could not be read (the step stays as it was, never "no deposit"), `no_wallet` with no wallet
+   * connected. Null when the campaign has no deposit step or the person has not joined.
+   */
+  deposit: z
+    .object({ source: z.enum(['read', 'unread', 'no_wallet']), asOf: iso.nullable() })
+    .nullable()
+    .default(null),
+  /**
+   * The campaign's budget, from its reward records: what is reserved (rewards owed or still being given, not yet paid),
+   * what is spent (paid or posted) and what is left of the limit. `reserved + spent + left = limit` exactly while the
+   * limit is not overdrawn. Null when the campaign has no budget set.
+   */
+  budget: z
+    .object({ asset, limit: campaignDecimal, reserved: campaignDecimal, spent: campaignDecimal, left: campaignDecimal })
+    .nullable()
+    .default(null),
 });
 export type TaskProgress = z.infer<typeof taskProgressSchema>;
 

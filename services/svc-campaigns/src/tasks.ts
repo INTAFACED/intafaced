@@ -97,6 +97,8 @@ type IntentRow = {
   pay_to_wallet: string | null;
   paid_at: Date | null;
   paid_chain_tx: string | null;
+  paid_network_fee?: string | null;
+  paid_network_fee_asset?: string | null;
 };
 
 /** What a locked row shows: its campaign's lock terms and how many unlock-step fills counted so far. */
@@ -326,8 +328,8 @@ export interface TaskServiceOptions {
    */
   venueDeposits?: VenueDepositSource | null;
   /**
-   * What INTAFACED has paid this wallet as rewards, in USDC, from our payout records. A deposit counts only above it, so
-   * reward money sent back ticks nothing. Absent: no reward is paid to a wallet in this build, so nothing is.
+   * What INTAFACED has paid this wallet as rewards, in USDC, from our payout records (`rewardsPaidToWallet`). A deposit
+   * counts only above it, so reward money sent back ticks nothing. Absent (unit tests only): nothing is counted as paid.
    */
   rewardsPaidTo?: (wallet: string) => Promise<bigint>;
   now?: () => Date;
@@ -620,10 +622,14 @@ export class TaskService {
 
   // ── Customer (own account only) ───────────────────────────────────────────
 
-  async progress(input: { campaignId: string; accountId: string }): Promise<TaskProgress> {
+  async progress(input: { campaignId: string; accountId: string; forwarded?: Record<string, string> }): Promise<TaskProgress> {
     const row = await this.taskCampaign(input.campaignId);
     const tasks = row.tasks!;
-    const [[joined], events, [completion], [intent]] = await Promise.all([
+    const [member] = await this.sql<{ created_at: Date }[]>`
+      SELECT created_at FROM campaigns.participations WHERE campaign_id = ${row.id} AND account_id = ${input.accountId}`;
+    // A deposit step is read from the venue on each look, before the steps are counted (J-campaigns-02 #1).
+    const deposit = member ? await this.readTaskDeposit(row, input.accountId, member.created_at, input.forwarded ?? {}) : null;
+    const [[joined], events, [completion], [intent], budget] = await Promise.all([
       this.sql<{ k: string }[]>`
         SELECT participation_key AS k FROM campaigns.participations
         WHERE campaign_id = ${row.id} AND account_id = ${input.accountId}`,
@@ -635,6 +641,7 @@ export class TaskService {
       this.sql<IntentRow[]>`
         SELECT *, amount::text AS amount FROM campaigns.reward_intents
         WHERE reward_key = ${rewardKeyOf(row.id, input.accountId, PERIOD_ONCE)}`,
+      this.budgetOf(row),
     ]);
     const timeZone = this.timeZone();
     // Streak days are read in the platform zone: blank, a streak campaign refuses rather than show 0 days.
@@ -654,7 +661,104 @@ export class TaskService {
       claimClosesAt: closes ? iso(closes) : null,
       kycGate: tasks.kycGate,
       reward: intent ? await this.record(intent) : null,
+      deposit,
+      budget,
     };
+  }
+
+  /**
+   * The campaign's budget from its reward records, summed exactly on each read: reserved (owed or still being given),
+   * spent (paid to a wallet, or posted) and the limit's rest. Failed, forfeited and withheld rewards hold nothing.
+   */
+  private async budgetOf(row: TaskCampaignRow): Promise<TaskProgress['budget']> {
+    if (!row.budget_asset || row.budget_limit === null) return null;
+    const [sums] = await this.sql<{ reserved: string; spent: string }[]>`
+      SELECT
+        coalesce(sum(amount) FILTER (WHERE state NOT IN ('paid', 'posted', 'failed', 'forfeited', 'withheld')), 0)::text AS reserved,
+        coalesce(sum(amount) FILTER (WHERE state IN ('paid', 'posted')), 0)::text AS spent
+      FROM campaigns.reward_intents WHERE campaign_id = ${row.id}`;
+    const limit = parseAmount(row.budget_limit);
+    const reserved = parseAmount(sums!.reserved);
+    const spent = parseAmount(sums!.spent);
+    const left = limit - reserved - spent;
+    return {
+      asset: row.budget_asset,
+      limit: formatAmount(limit),
+      reserved: formatAmount(reserved),
+      spent: formatAmount(spent),
+      left: formatAmount(left > 0n ? left : 0n),
+    };
+  }
+
+  /**
+   * A task campaign's deposit step, read from the venue (J-campaigns-02 #1), as the welcome deposit task is: the venue's
+   * own credited USDC deposits into the venue accounts of the wallets this person connected, read for them during their
+   * own request (`forwarded`). The first that counts (`firstCountingDeposit`, above what we paid that wallet as rewards),
+   * seen after they joined and while the campaign ran, is the step's one event, under the venue's own id for the
+   * transfer: the same deposit read again, or reported to the venue again, changes nothing, and a step already done keeps
+   * its event. INTAFACED keeps no copy of the venue's list and the ledger posts nothing for a deposit. A read that fails
+   * changes nothing and says `unread`, never "no deposit".
+   */
+  private async readTaskDeposit(
+    row: TaskCampaignRow,
+    accountId: string,
+    joinedAt: Date,
+    forwarded: Record<string, string>,
+  ): Promise<TaskProgress['deposit']> {
+    const indexes = row.tasks!.steps.flatMap((s, i) => (s.event === 'pay.deposit' ? [i] : []));
+    if (indexes.length === 0) return null;
+    if (!this.venueDeposits || Object.keys(forwarded).length === 0) return { source: 'unread', asOf: null };
+    const wallets = await this.venueDeposits.wallets(forwarded);
+    if (wallets === null) return { source: 'unread', asOf: null };
+    if (wallets.length === 0) return { source: 'no_wallet', asOf: null };
+    const timeZone = this.timeZone();
+    const counts = (at: Date) =>
+      at.getTime() >= joinedAt.getTime() &&
+      effectiveState(row as never, at) === 'active' &&
+      (!(row.weekdays || (row.hours_from && row.hours_to)) || (timeZone !== null && outsideWindow(row, at, timeZone) === null));
+    let unread = false;
+    let asOf: string | null = null;
+    for (const wallet of wallets) {
+      const read = await this.venueDeposits.deposits(wallet);
+      if (!read) {
+        unread = true;
+        continue;
+      }
+      if (asOf === null || read.asOf > asOf) asOf = read.asOf;
+      const inside = read.deposits.filter((d) => {
+        const at = new Date(d.seenAt);
+        return !Number.isNaN(at.getTime()) && counts(at);
+      });
+      const first = firstCountingDeposit(inside, await this.rewardsPaidTo(wallet));
+      if (!first) continue;
+      await this.countStepEvent(row, accountId, indexes, `venue-deposit:${read.venueId}:${first.depositRef}`, first.seenAt);
+      return { source: 'read', asOf: read.asOf };
+    }
+    return { source: unread ? 'unread' : 'read', asOf };
+  }
+
+  /** One event for steps that take a single one (a deposit step): written once per step, then the completion, as a fill. */
+  private async countStepEvent(row: TaskCampaignRow, accountId: string, indexes: number[], eventId: string, at: Date) {
+    await transaction(this.sql, async (tx) => {
+      for (const index of indexes) {
+        await tx`
+          INSERT INTO campaigns.task_progress (campaign_id, account_id, step_index, event_id, occurred_at)
+          SELECT ${row.id}, ${accountId}, ${index}, ${eventId}, ${at}
+          WHERE NOT EXISTS (
+            SELECT 1 FROM campaigns.task_progress
+            WHERE campaign_id = ${row.id} AND account_id = ${accountId} AND step_index = ${index})
+          ON CONFLICT DO NOTHING`;
+      }
+      const events = await tx<ProgressRow[]>`
+        SELECT step_index, occurred_at FROM campaigns.task_progress WHERE campaign_id = ${row.id} AND account_id = ${accountId}`;
+      const completedAt = new Date(Math.max(at.getTime(), this.now().getTime()));
+      if (stepStates(row.tasks!, events, this.timeZone(), at).every((st) => st.complete)) {
+        await tx`
+          INSERT INTO campaigns.task_completions (campaign_id, account_id, completed_at)
+          VALUES (${row.id}, ${accountId}, ${completedAt})
+          ON CONFLICT DO NOTHING`;
+      }
+    });
   }
 
   /**
@@ -966,6 +1070,8 @@ export class TaskService {
     const found = await this.welcomeOf(input.accountId);
     if (!found) return { campaign: null, signedUpAt: null, window: null, tasks: [], deposit: null };
     const deposit = await this.readWelcomeDeposit(found, input.forwarded ?? {});
+    // A claimed USDC reward with no wallet yet takes the wallet the person connected since (J-campaigns-04 #4).
+    await this.recordPayTo(found.account.account_id, input.forwarded ?? {});
     const { account, campaign, events } = found;
     const keys = campaign.tasks.steps.map((s) => rewardKeyOf(campaign.id, account.account_id, welcomePeriodOf(s.event)));
     const intents = await this.sql<IntentRow[]>`
@@ -1057,6 +1163,19 @@ export class TaskService {
    * or one sent again after a lost reply, returns the first (`created: false`). After the window nothing is written.
    */
   async welcomeClaim(input: { accountId: string; event: TaskEvent; forwarded?: Record<string, string> }): Promise<TaskClaimResult> {
+    const result = await this.welcomeClaimOnce(input);
+    // A USDC reward is paid to the wallet the person has connected when they claim it (J-campaigns-04 #4).
+    if (await this.recordPayTo(input.accountId, input.forwarded ?? {})) {
+      return { reward: await this.record((await this.intent(result.reward.rewardKey))!), created: result.created };
+    }
+    return result;
+  }
+
+  private async welcomeClaimOnce(input: {
+    accountId: string;
+    event: TaskEvent;
+    forwarded?: Record<string, string>;
+  }): Promise<TaskClaimResult> {
     const found = await this.welcomeOf(input.accountId);
     if (!found) throw new CampaignsError('campaigns.welcome_none', 'Your account has no welcome checklist');
     if (input.event === 'pay.deposit') await this.readWelcomeDeposit(found, input.forwarded ?? {});
@@ -1296,7 +1415,15 @@ export class TaskService {
       owed: row.owe_tx_id && row.owed_at ? { txId: row.owe_tx_id, at: iso(row.owed_at) } : null,
       payout:
         row.state === 'paid' && row.paid_chain_tx && row.pay_to_wallet && row.paid_at
-          ? { chainTx: row.paid_chain_tx, toWallet: row.pay_to_wallet, at: iso(row.paid_at) }
+          ? {
+              chainTx: row.paid_chain_tx,
+              toWallet: row.pay_to_wallet,
+              at: iso(row.paid_at),
+              networkFee:
+                row.paid_network_fee != null && row.paid_network_fee_asset
+                  ? { asset: row.paid_network_fee_asset, amount: formatAmount(parseAmount(row.paid_network_fee)), paidBy: 'intafaced' }
+                  : null,
+            }
           : null,
       createdAt: iso(row.created_at),
       postedAt: row.posted_at ? iso(row.posted_at) : null,
@@ -1315,14 +1442,31 @@ export class TaskService {
               outcome: row.settle,
             }
           : null,
-      rollback: {
-        windowSeconds: window,
-        closesAt: window && row.posted_at ? iso(new Date(row.posted_at.getTime() + window * 1000)) : null,
-        blocker: 'campaigns.reclaim_unavailable',
-      },
+      rollback: owesReward(row)
+        ? {
+            // A reward we owe can be rolled back only until it is paid: a payment on the chain cannot be taken back. The
+            // window runs from when it was owed and closes at the payment, or when it runs out, whichever is first.
+            windowSeconds: window,
+            closesAt: rollbackClosesAt(window, row.owed_at, row.paid_at),
+            closesOn: 'payment',
+            blocker: 'campaigns.reclaim_unavailable',
+          }
+        : {
+            windowSeconds: window,
+            closesAt: window && row.posted_at ? iso(new Date(row.posted_at.getTime() + window * 1000)) : null,
+            closesOn: 'posting',
+            blocker: 'campaigns.reclaim_unavailable',
+          },
       attempts,
     };
   }
+}
+
+/** An owed reward's rollback window: from when it was owed, closed at its payment or when the window ends, if earlier. */
+export function rollbackClosesAt(windowSeconds: number | null, owedAt: Date | null, paidAt: Date | null): string | null {
+  if (!windowSeconds || !owedAt) return paidAt ? iso(paidAt) : null;
+  const ends = owedAt.getTime() + windowSeconds * 1000;
+  return iso(new Date(paidAt ? Math.min(ends, paidAt.getTime()) : ends));
 }
 
 function toFunding(r: FundingRow): PotFunding {

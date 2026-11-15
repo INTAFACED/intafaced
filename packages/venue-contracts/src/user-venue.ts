@@ -839,6 +839,26 @@ export interface UserVenueMarketMargin extends UserVenueMarginAccountRule {
   readonly total: Amount;
 }
 
+/**
+ * One of a perpetual's margin tiers as the venue publishes it (J-derivatives-02 #2): from a position notional of
+ * `fromNotional` (in the quote asset) upward, the most leverage the venue allows and the maintenance margin rate it
+ * charges (a scaled fraction of notional, `parseAmount('0.025')` is 2.5%). The venue's figures, never ours.
+ */
+export interface UserVenueMarginTier {
+  readonly fromNotional: Amount;
+  readonly maxLeverageBps: number;
+  readonly maintenanceRate: Amount;
+}
+
+/**
+ * One asset the venue takes as margin on a market (J-derivatives-02 #3): the asset, and the haircut the venue applies to
+ * it (a scaled fraction, `parseAmount('0.02')` is 2%), or `known: false` where the venue publishes none.
+ */
+export interface UserVenueCollateral {
+  readonly asset: string;
+  readonly haircut: MaybeKnown<Amount>;
+}
+
 /** A market's open interest as the venue reports it: the size open now, and the cap its deployer set (`null`: none). */
 export interface UserVenueOpenInterest {
   readonly size: Amount;
@@ -954,6 +974,17 @@ export interface UserVenueMarket {
    * not published). Never our guess of what the venue does.
    */
   readonly selfTrade?: MaybeKnown<VenueSelfTradeMode>;
+
+  /**
+   * The venue's published margin tiers for a perpetual, lowest notional first, or `known: false` where it publishes none
+   * (shown as "not published by this venue", never a tier of ours). Optional on the wire for venues that report none.
+   */
+  readonly marginTiers?: MaybeKnown<readonly UserVenueMarginTier[]>;
+  /**
+   * What the venue takes as margin on this market, each asset with its haircut, or `known: false` where it publishes no
+   * list. Nothing else the account holds counts toward buying power. Optional on the wire for venues that report none.
+   */
+  readonly collateral?: MaybeKnown<readonly UserVenueCollateral[]>;
 }
 
 /** One settled funding interval as the venue published it: when it settled and its signed rate per interval. */
