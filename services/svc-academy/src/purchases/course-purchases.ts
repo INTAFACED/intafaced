@@ -189,6 +189,8 @@ export class CoursePurchases {
       `;
     } else {
       const n = latest ? latest.n + 1 : 1;
+      // No conflict target: the key is unique too, and a target names one index only. Two presses racing here would
+      // otherwise have the loser fail on the key's index (23505) instead of finding the winner's intent (#8409).
       [opened] = await this.sql<PurchaseRow[]>`
         INSERT INTO academy.course_purchases
           (course_id, course_slug, user_id, n, purchase_key, price, asset, chain_id, token, token_decimals, receiver, payer,
@@ -196,7 +198,7 @@ export class CoursePurchases {
         VALUES (${course.id}, ${course.slug}, ${input.userId}, ${n}, ${purchaseKeyOf(course.slug, input.userId, n)}, ${course.price},
                 ${course.price_asset!}, ${settings.chainId}, ${settings.token}, ${settings.decimals}, ${settings.receiver}, ${wallet},
                 ${fromBlock.toString()}, 'awaiting_signature', ${now}, ${now})
-        ON CONFLICT (course_id, user_id, n) DO NOTHING
+        ON CONFLICT DO NOTHING
         RETURNING *
       `;
     }

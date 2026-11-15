@@ -247,8 +247,23 @@ describe('course purchases', () => {
 
   it('two first presses at once open one intent, and only one answer carries the request', async () => {
     await paidCourse();
-    const answers = await Promise.all([1, 2, 3].map(() => purchases.buy({ userId: L, slug: 'perps-101', wallet: WALLET })));
+    // Every press has read "no purchase yet" before any of them inserts: they all race to store the same key at once.
+    const presses = 5;
+    let arrived = 0;
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const original = chain.blockNumber.bind(chain);
+    chain.blockNumber = async () => {
+      arrived += 1;
+      if (arrived === presses) release();
+      await held;
+      return original();
+    };
+    const answers = await Promise.all(
+      Array.from({ length: presses }, () => purchases.buy({ userId: L, slug: 'perps-101', wallet: WALLET })),
+    );
     expect(answers.filter((a) => a.request !== null)).toHaveLength(1);
+    expect(answers.every((a) => a.purchase?.key === KEY)).toBe(true);
     expect(await rows()).toHaveLength(1);
   });
 
