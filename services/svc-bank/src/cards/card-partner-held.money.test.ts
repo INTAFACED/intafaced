@@ -564,6 +564,10 @@ describe('partner-held card authorisations (PG)', () => {
       expect(await codeOf(cards.authorize({ cardId: btc.id, authorizationRef: 'jb14-btc', amount: amt('1') }))).toBe(
         'bank.card_partner_balance_not_known',
       );
+      // The refusal names the assets the partner spends from, so the fix is in the message (#8410 `ef45f97a`).
+      await expect(cards.authorize({ cardId: btc.id, authorizationRef: 'jb14-btc', amount: amt('1') })).rejects.toThrow(
+        'The card partner reports no BTC balance, so nothing can be held. It spends from USDC; a card in one of those can be held. Nothing was decided.',
+      );
       expect(await sql`SELECT 1 FROM bank.card_authorizations`).toHaveLength(0);
     });
 

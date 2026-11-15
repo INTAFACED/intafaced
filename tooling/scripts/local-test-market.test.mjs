@@ -19,6 +19,7 @@ import {
   buildLadder,
   createPriceWalk,
   crossingSide,
+  crossingLegs,
   bookMid,
   parseShift,
   shiftedMid,
@@ -492,6 +493,36 @@ for (const q of ladder) {
 
 // The taker must alternate sides so it cannot drain one asset (it once bought forever and every order got 400).
 assert.deepEqual([1, 2, 3, 4].map(crossingSide), ['buy', 'sell', 'buy', 'sell']);
+// Each turn crosses both sides, a buy at the maker's ask and a sell at its bid, so a 1m bar that trades has range: its
+// high is the ask and its low the bid (J-algo-dev-05 #3, #8404: one crossing a minute made bars with open = high = low,
+// and no bar could reach both a stop loss and a take profit). The next turn starts on the side after.
+for (const n of [1, 2, 3, 4]) {
+  assert.deepEqual([...crossingLegs(n).map(crossingSide)].sort(), ['buy', 'sell'], `turn ${n} crosses both sides`);
+  assert.equal(crossingLegs(n)[0], n);
+}
+{
+  const ladder = buildLadder({
+    mid: toScaled('65000'),
+    tick: toScaled('0.01'),
+    lot: toScaled('0.00001'),
+    minAmount: toScaled('0.00001'),
+    minCost: toScaled('5'),
+    levels: 3,
+    halfSpreadBps: 6n,
+    stepBps: 9n,
+    levelNotional: toScaled('3000'),
+  });
+  const top = (side) => ladder.find((q) => q.level === 0 && q.side === side);
+  const book = { bids: [[top('buy').price, top('buy').amount]], asks: [[top('sell').price, top('sell').amount]] };
+  const prices = crossingLegs(1).map((k) => toScaled(crossingQuote(ladder, ladder, crossingSide(k), book).price));
+  const [high, low] = [prices.reduce((a, b) => (a > b ? a : b)), prices.reduce((a, b) => (a < b ? a : b))];
+  // A stop loss and a take profit a thousandth of a percent either side of the mid both lie inside that bar.
+  const mid = toScaled('65000');
+  assert.ok(
+    high > mid + mid / 100000n && low < mid - mid / 100000n,
+    `a turn's bar spans the spread: high ${fromScaled(high)}, low ${fromScaled(low)}`,
+  );
+}
 // The taker crosses each market every sixth cycle, half the markets at a time, and BTC/USDT (the one the journeys run
 // waits for) on the very first cycle.
 const crossCycles = (symbol) => Array.from({ length: 20 }, (_, i) => i + 1).filter((c) => crossesOn(c, symbol));
