@@ -319,6 +319,45 @@ describe('TEST venue simulator: J-cex-spot-01 at the venue', () => {
   });
 });
 
+describe('TEST venue simulator: J-cex-spot-01 #5 the public tape and candles', () => {
+  it('every match is one print at the maker price with the taker side, newest first, and candles group them by interval', async () => {
+    const w = world();
+    expect((await w.sim.trades('BTC-USDC', 10)).value).toEqual([]);
+    expect((await w.sim.candles('BTC-USDC', '1m', 10)).value).toEqual([]);
+    w.sim.deposit(w.trader, 'USDC', a('100000'), 'chain:t:tape');
+    w.sim.deposit(w.other, 'BTC', a('1'), 'chain:o:tape');
+    await w.run(w.otherWallet, w.other, order('BTC-USDC', 'sell', '60000', '0.1', 'order:o:tape:1'));
+    await w.run(w.otherWallet, w.other, order('BTC-USDC', 'sell', '60100', '0.1', 'order:o:tape:2'));
+    // One buy that crosses both asks: two matches, two prints, each at its maker's price.
+    await w.run(w.wallet, w.trader, order('BTC-USDC', 'buy', '60100', '0.15', 'order:t:tape:1'));
+    const tape = (await w.sim.trades('BTC-USDC', 10)).value;
+    expect(tape.map((p) => [p.price, p.amount, p.takerSide])).toEqual([
+      [a('60100'), a('0.05'), 'buy'],
+      [a('60000'), a('0.1'), 'buy'],
+    ]);
+    expect(new Set(tape.map((p) => p.tradeId)).size).toBe(2);
+    expect((await w.sim.trades('BTC-USDC', 1)).value).toHaveLength(1);
+    // A sell into a resting bid two minutes later: a print of its own, in a new 1m candle.
+    for (let i = 0; i < 120; i += 1) w.tick();
+    w.sim.deposit(w.other, 'USDC', a('10000'), 'chain:o:tape:2');
+    await w.run(w.otherWallet, w.other, order('BTC-USDC', 'buy', '59900', '0.02', 'order:o:tape:3'));
+    w.sim.deposit(w.trader, 'BTC', a('1'), 'chain:t:tape:2');
+    await w.run(w.wallet, w.trader, order('BTC-USDC', 'sell', '59900', '0.02', 'order:t:tape:2'));
+    expect((await w.sim.trades('BTC-USDC', 10)).value[0]).toMatchObject({ price: a('59900'), amount: a('0.02'), takerSide: 'sell' });
+    const candles = (await w.sim.candles('BTC-USDC', '1m', 10)).value;
+    expect(candles.map((c) => [c.openPrice, c.highPrice, c.lowPrice, c.closePrice, c.baseVolume])).toEqual([
+      [a('60000'), a('60100'), a('60000'), a('60100'), a('0.15')],
+      [a('59900'), a('59900'), a('59900'), a('59900'), a('0.02')],
+    ]);
+    expect(candles.every((c) => c.openAt.getTime() % 60_000 === 0)).toBe(true);
+    // One 1h candle holds all three prints.
+    expect((await w.sim.candles('BTC-USDC', '1h', 10)).value.map((c) => [c.openPrice, c.closePrice, c.baseVolume])).toEqual([
+      [a('60000'), a('59900'), a('0.17')],
+    ]);
+    expect(await refusal(w.sim.trades('NOPE-USDC', 10))).toBe('unknown_market');
+  });
+});
+
 describe('TEST venue simulator: J-derivatives-01 at the venue', () => {
   const perpOrder = (side: 'buy' | 'sell', price: string, size: string, key: string, extra: Partial<PlaceUserOrderIntent> = {}) =>
     order('BTC-PERP', side, price, size, key, extra);

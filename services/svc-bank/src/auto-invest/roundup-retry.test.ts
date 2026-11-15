@@ -96,6 +96,42 @@ function apply(svc: AutoInvestService) {
 }
 
 describe('applyRoundUp duplicate client run id', () => {
+  it('a capture the card partner made never deposits into a savings pool from the ledger: refused by name, recorded', async () => {
+    const { svc, calls, updates } = serviceFor({ id: RUN_ID, status: 'pending', position_id: null }, async () => {
+      throw new Error('deposit must not run');
+    });
+
+    const outcome = await svc.applyRoundUp({
+      userId: USER_ID,
+      assetId: 'USDT',
+      authorizationId: AUTHORIZATION_ID,
+      captured: parseAmount('4.30'),
+      partnerHeld: true,
+    });
+
+    expect(calls).toHaveLength(0);
+    expect(outcome).toEqual({ status: 'refused', amount: spare, reason: 'bank.partner_custody_mismatch' });
+    expect(updates).toHaveLength(1);
+    expect(updates[0]!.query).toContain("status = 'rejected'");
+  });
+
+  it('a person whose bank money the partner holds never deposits into a savings pool from the ledger', async () => {
+    const calls: DepositCall[] = [];
+    const { sql, updates } = roundUpSql({ id: RUN_ID, status: 'pending', position_id: null });
+    const earn = { deposit: async (input: DepositCall) => (calls.push(input), { id: input.positionId }) } as unknown as EarnService;
+    const spaces = { custody: { bankFor: () => ({}) } } as unknown as SpaceService;
+    const outcome = await new AutoInvestService(sql, {} as LedgerClient, earn, spaces).applyRoundUp({
+      userId: USER_ID,
+      assetId: 'USDT',
+      authorizationId: AUTHORIZATION_ID,
+      captured: parseAmount('4.30'),
+    });
+
+    expect(calls).toHaveLength(0);
+    expect(outcome).toEqual({ status: 'refused', amount: spare, reason: 'bank.partner_custody_mismatch' });
+    expect(updates[0]!.query).toContain("status = 'rejected'");
+  });
+
   it('a settled row with a position id does not deposit again', async () => {
     const { svc, calls } = serviceFor({ id: RUN_ID, status: 'settled', position_id: PRIOR_POSITION_ID }, async () => {
       throw new Error('deposit must not run');

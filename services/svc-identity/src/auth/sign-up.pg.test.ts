@@ -119,6 +119,7 @@ if (!available) {
       email: `${handle}@example.com`,
       password: PASSWORD,
       country: 'DE',
+      usPerson: false,
       dateOfBirth: '1990-05-01',
       accountType: 'individual' as const,
       ...over,
@@ -322,6 +323,9 @@ if (!available) {
         [{ country: 'KP' }, 'identity.region_blocked'],
         [{ country: 'DE', nationality: 'KP' }, 'identity.region_blocked'],
         [{ country: 'ZZ' }, 'identity.country_invalid'],
+        [{ country: 'CA', subdivision: 'CA-ON' }, 'identity.region_blocked'],
+        [{ usPerson: true }, 'identity.us_person_blocked'],
+        [{ usPerson: undefined }, 'identity.us_person_unanswered'],
         [{ password: 'short' }, 'auth.password_policy'],
         [{ channel: 'phone', phone: '+4915112345678' }, 'vendor.sms'],
       ];

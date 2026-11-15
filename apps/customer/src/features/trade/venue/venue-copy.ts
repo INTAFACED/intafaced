@@ -85,6 +85,13 @@ export const venueCopy = defineCopy('trade.venue', {
   tif_GTC: 'Good till cancelled',
   tif_IOC: 'Immediate or cancel',
   tif_ALO: 'Post only',
+  tif_FOK: 'Fill or kill',
+  tif_GTD: 'Good till date',
+  stp_cancel_resting: 'Cancel my resting order',
+  stp_cancel_new: 'Cancel the new order',
+  stp_cancel_both: 'Cancel both',
+  'Not published': 'not published by this venue',
+  Tag: 'Tag',
 
   // Review and signing
   Review: 'Review',
@@ -97,6 +104,9 @@ export const venueCopy = defineCopy('trade.venue', {
   'Builder approved': 'Signed, up to {bps} bps',
   'Builder approval not needed': 'Not needed: this order carries no builder fee',
   'Builder none spot buy': 'None: the venue charges no builder fee on a spot buy',
+  'Builder fee discount': 'Builder fee discount',
+  'Builder discount coupon': 'Coupon {code}: {pct}% off our builder fee, never the venue’s',
+  'Builder discount rank': 'Your rank: {pct}% off our builder fee, never the venue’s',
   'Builder not approved': 'Not signed: your wallet signs an approval of up to {bps} bps before the order',
   'Approve in wallet': 'Approve our builder fee in your wallet',
   'Confirm and sign': 'Confirm and sign',

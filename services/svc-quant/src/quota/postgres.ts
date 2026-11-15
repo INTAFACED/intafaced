@@ -12,6 +12,11 @@ import {
   type QuotaRepository,
   type QuotaResource,
   type QuotaSeed,
+  type SandboxLimit,
+  type SandboxLimitRow,
+  type TierRow,
+  isSandboxLimit,
+  SANDBOX_LIMITS,
 } from './quota.js';
 
 function relation(schema: string, table: string): string {
@@ -20,6 +25,15 @@ function relation(schema: string, table: string): string {
 }
 
 const iso = (value: Date | string) => (value instanceof Date ? value : new Date(value)).toISOString();
+
+interface TierSql {
+  profile: string;
+  data_freshness_seconds: string | null;
+  priority_class: string | null;
+  set_at: Date | string;
+}
+
+const whole = (value: string | null) => (value === null ? null : BigInt(value));
 
 interface LimitSql {
   resource: string;
@@ -42,6 +56,8 @@ export function createPostgresQuota(sql: Sql, options: PostgresQuotaOptions): { 
   const limitsTable = relation(schema, 'quota_limits');
   const assignments = relation(schema, 'quota_assignments');
   const audit = relation(schema, 'quota_audit');
+  const tiersTable = relation(schema, 'compute_tiers');
+  const sandboxTable = relation(schema, 'sandbox_limits');
   const now = options.now ?? (() => new Date());
   const seed = options.seed ?? null;
   let seeded: Promise<void> | null = null;
@@ -63,6 +79,17 @@ export function createPostgresQuota(sql: Sql, options: PostgresQuotaOptions): { 
            VALUES ($1, $2, $3::numeric, 'TEST profile seeded on the local and CI stack', 'svc-quant:test-seed', $4)
            ON CONFLICT (profile, resource) DO NOTHING`,
           [seed.profile, resource, value, now().toISOString()],
+        );
+      }
+      for (const limit of SANDBOX_LIMITS) {
+        const value = seed.sandbox?.[limit];
+        if (value === undefined) continue;
+        await query(
+          sql,
+          `INSERT INTO ${sandboxTable} (profile, limit_name, limit_value, reason, set_by, set_at)
+           VALUES ($1, $2, $3::numeric, 'TEST profile seeded on the local and CI stack', 'svc-quant:test-seed', $4)
+           ON CONFLICT (profile, limit_name) DO NOTHING`,
+          [seed.profile, limit, value, now().toISOString()],
         );
       }
     })().catch((err) => {
@@ -120,6 +147,50 @@ export function createPostgresQuota(sql: Sql, options: PostgresQuotaOptions): { 
     async limits(profile) {
       await ensureSeed();
       return limitsIn(sql, profile);
+    },
+
+    async sandboxLimits(profile) {
+      await ensureSeed();
+      const rows = await query<{ limit_name: string; limit_value: string | null; set_at: Date | string }>(
+        sql,
+        `SELECT limit_name, limit_value::text AS limit_value, set_at FROM ${sandboxTable} WHERE profile = $1`,
+        [profile],
+      );
+      return rows
+        .filter((row) => isSandboxLimit(row.limit_name))
+        .map((row): SandboxLimitRow => ({ limit: row.limit_name as SandboxLimit, value: whole(row.limit_value), setAt: iso(row.set_at) }));
+    },
+
+    async setSandboxLimit(input) {
+      await ensureSeed();
+      const request = { profile: input.profile, limit: input.limit, value: input.value === null ? null : input.value.toString() };
+      return sql.begin(async (tx) => {
+        await query(tx, `SELECT pg_advisory_xact_lock(hashtext($1))`, [`${schema}.quota.key:${input.idempotencyKey}`]);
+        const prior = await priorWrite<{ profile: string; limit: SandboxLimit; value: string | null; setAt: string }>(
+          tx,
+          input.idempotencyKey,
+          'sandbox',
+          (stored) => stored.profile === request.profile && stored.limit === request.limit && stored.value === request.value,
+        );
+        if (prior) return { ...prior, value: whole(prior.value) };
+        const at = now().toISOString();
+        await query(
+          tx,
+          `INSERT INTO ${sandboxTable} (profile, limit_name, limit_value, reason, set_by, set_at)
+           VALUES ($1, $2, $3::numeric, $4, $5, $6)
+           ON CONFLICT (profile, limit_name) DO UPDATE
+             SET limit_value = EXCLUDED.limit_value, reason = EXCLUDED.reason, set_by = EXCLUDED.set_by, set_at = EXCLUDED.set_at`,
+          [input.profile, input.limit, request.value, input.reason, input.actor, at],
+        );
+        const response = { ...request, setAt: at };
+        await query(
+          tx,
+          `INSERT INTO ${audit} (idempotency_key, action, request, response, reason, actor, at)
+           VALUES ($1, 'sandbox', $2::jsonb, $3::jsonb, $4, $5, $6)`,
+          [input.idempotencyKey, request, response, input.reason, input.actor, at],
+        );
+        return { ...response, limit: input.limit, value: input.value };
+      });
     },
 
     async set(input) {
@@ -182,6 +253,67 @@ export function createPostgresQuota(sql: Sql, options: PostgresQuotaOptions): { 
           [input.idempotencyKey, request, response, input.reason, input.actor, at],
         );
         return response;
+      });
+    },
+
+    async tiers() {
+      const rows = await query<TierSql>(
+        sql,
+        `SELECT profile, data_freshness_seconds::text AS data_freshness_seconds, priority_class::text AS priority_class, set_at
+           FROM ${tiersTable} WHERE published ORDER BY profile`,
+        [],
+      );
+      return rows.map((row): TierRow => ({
+        profile: row.profile,
+        dataFreshnessSeconds: whole(row.data_freshness_seconds),
+        priorityClass: whole(row.priority_class),
+        setAt: iso(row.set_at),
+      }));
+    },
+
+    async setTier(input) {
+      const request = {
+        profile: input.profile,
+        dataFreshnessSeconds: input.dataFreshnessSeconds?.toString() ?? null,
+        priorityClass: input.priorityClass?.toString() ?? null,
+        published: input.published,
+      };
+      const back = (stored: typeof request & { setAt: string }) => ({
+        ...stored,
+        dataFreshnessSeconds: whole(stored.dataFreshnessSeconds),
+        priorityClass: whole(stored.priorityClass),
+      });
+      return sql.begin(async (tx) => {
+        await query(tx, `SELECT pg_advisory_xact_lock(hashtext($1))`, [`${schema}.quota.key:${input.idempotencyKey}`]);
+        const prior = await priorWrite<typeof request & { setAt: string }>(
+          tx,
+          input.idempotencyKey,
+          'tier',
+          (stored) =>
+            stored.profile === request.profile &&
+            stored.dataFreshnessSeconds === request.dataFreshnessSeconds &&
+            stored.priorityClass === request.priorityClass &&
+            stored.published === request.published,
+        );
+        if (prior) return back(prior);
+        const at = now().toISOString();
+        await query(
+          tx,
+          `INSERT INTO ${tiersTable} (profile, data_freshness_seconds, priority_class, published, reason, set_by, set_at)
+           VALUES ($1, $2::numeric, $3::numeric, $4, $5, $6, $7)
+           ON CONFLICT (profile) DO UPDATE
+             SET data_freshness_seconds = EXCLUDED.data_freshness_seconds, priority_class = EXCLUDED.priority_class,
+                 published = EXCLUDED.published, reason = EXCLUDED.reason, set_by = EXCLUDED.set_by, set_at = EXCLUDED.set_at`,
+          [request.profile, request.dataFreshnessSeconds, request.priorityClass, request.published, input.reason, input.actor, at],
+        );
+        const response = { ...request, setAt: at };
+        await query(
+          tx,
+          `INSERT INTO ${audit} (idempotency_key, action, request, response, reason, actor, at)
+           VALUES ($1, 'tier', $2::jsonb, $3::jsonb, $4, $5, $6)`,
+          [input.idempotencyKey, request, response, input.reason, input.actor, at],
+        );
+        return back(response);
       });
     },
   };

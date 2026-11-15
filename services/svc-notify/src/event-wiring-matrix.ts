@@ -175,11 +175,25 @@ export const NOTIFY_EVENT_CONSUMERS: readonly NotifyConsumerRow[] = [
       'Inbox row agents.usage_alert.crossed for the owner of an own agent whose monthly spend reached their alert, once per agent and month',
   },
   {
+    event: 'agentAlertFired',
+    durable: 'notify-agent-alert-fired',
+    subject: 'intafaced.agents.alert.triggered',
+    effect:
+      'Inbox row agents.alert.fired for the operator who stored an agent alert rule that went above its threshold, sent out of app on every confirmed channel, once per rule and window',
+  },
+  {
     event: 'agentApprovalRequested',
     durable: 'notify-agent-approval-requested',
     subject: 'intafaced.agents.approval.requested',
     effect:
       'Inbox row agents.approval.requested for the owner of an own agent whose tool call waits for their approval, naming the action and linking to the Approvals inbox, once per request',
+  },
+  {
+    event: 'agentRunCompleted',
+    durable: 'notify-agent-run-completed',
+    subject: 'intafaced.agents.run.completed',
+    effect:
+      'Inbox row agents.run.completed for the person whose background agent run finished, linking to the run and its result, once per run; the email, SMS or push they asked for gets its delivery row even when no vendor is set',
   },
   {
     event: 'bankScheduledReminder',
@@ -199,6 +213,13 @@ export const NOTIFY_EVENT_CONSUMERS: readonly NotifyConsumerRow[] = [
     subject: 'intafaced.support.ticket.resolved',
     effect:
       'Inbox row support.rate_request asking the owner to rate a resolved request; email where an address is confirmed, and with no email sender set its email row waits pending vendor.email',
+  },
+  {
+    event: 'quantOrderFilled',
+    durable: 'notify-quant-order-filled',
+    subject: 'intafaced.quant.order.filled',
+    effect:
+      'Inbox row quant.fill for the owner of a paper strategy run that filled under their fill alert, once per event id; the chosen out-of-app channels each get a delivery row, refused by name when no sender is set',
   },
   {
     event: 'agentActionRejected',

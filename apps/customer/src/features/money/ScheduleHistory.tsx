@@ -184,6 +184,16 @@ function ExecutionRead({ id, asset, refreshInstructions }: { id: string; asset: 
                             </dd>
                           </dl>
                         )}
+                        {row.partnerMoveId !== null && (
+                          <dl className="money-execution-ledger" data-testid="money-execution-partner">
+                            <dt>
+                              <Copy k="partnerMove" />
+                            </dt>
+                            <dd lang="zxx" dir="ltr">
+                              {row.partnerMoveId}
+                            </dd>
+                          </dl>
+                        )}
                         <dl className="money-execution-ledger">
                           <dt>
                             <Copy k="ledger" />

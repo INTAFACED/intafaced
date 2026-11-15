@@ -26,19 +26,29 @@ import {
  * Law: docs/adr/2026-08-07-pay-public-api-law.md §2.4.
  *
  *   · HMAC-SHA256 over `timestamp + "." + raw body` → `X-Intafaced-Signature`
+ *     (two comma-separated signatures while a rolled secret's overlap lasts)
  *   · At-least-once; merchants dedupe on `id` (event id)
- *   · Retry with backoff; a permanently failing endpoint is disabled and
- *     listed on the failure dashboard — never silently dropped
+ *   · Retry on the owner's retry policy; a blank policy sends nothing. A permanently
+ *     failing endpoint, or one that answers 410 Gone, is disabled and listed on the
+ *     failure dashboard — never silently dropped
+ *   · Every attempt is journalled (outcome, response code, time taken)
  *   · Body carries STATE (current payment shape), not instructions
  *
  * Reuses the same `signPayload` the inbound rail path uses so there is one
  * way to get HMAC right. This module does not move value.
  */
 
-export type MerchantWebhookEventType = 'payment.authorized' | 'payment.captured' | 'payment.refunded' | 'payment.failed';
+/** Every public event type, in the catalogue's order (merchant-ops/webhook-catalogue.ts publishes each one's payload). */
+export const MERCHANT_WEBHOOK_EVENT_TYPES = ['payment.authorized', 'payment.captured', 'payment.refunded', 'payment.failed'] as const;
+export type MerchantWebhookEventType = (typeof MERCHANT_WEBHOOK_EVENT_TYPES)[number];
 
 export type WebhookEndpointStatus = 'active' | 'disabled';
-export type WebhookDeliveryStatus = 'pending' | 'delivered' | 'failed' | 'dead';
+/**
+ * `unknown`: the attempt timed out after the request may have reached the receiver, so whether it arrived is not
+ * known. It is tried again only once its lease has passed, never while another worker could still be sending it.
+ */
+export type WebhookDeliveryStatus = 'pending' | 'delivered' | 'failed' | 'dead' | 'unknown';
+export type WebhookAttemptOutcome = 'delivered' | 'failed' | 'unknown';
 
 export interface MerchantWebhookEndpoint {
   readonly id: string;
@@ -47,6 +57,8 @@ export interface MerchantWebhookEndpoint {
   readonly status: WebhookEndpointStatus;
   readonly disabledReason: string | null;
   readonly consecutiveFailures: number;
+  /** The event types this endpoint subscribed to; an event of any other type writes no delivery for it. */
+  readonly eventTypes: readonly MerchantWebhookEventType[];
   readonly createdAt: Date;
   readonly updatedAt: Date;
 }
@@ -70,6 +82,41 @@ export interface MerchantWebhookDelivery {
   readonly lastError: string | null;
   readonly createdAt: Date;
   readonly deliveredAt: Date | null;
+}
+
+/** A due delivery as the worker holds it: where to send it and which secrets sign it. */
+export interface ClaimedWebhookDelivery extends MerchantWebhookDelivery {
+  readonly secret: string;
+  readonly url: string;
+  /** The secret a roll replaced, while its overlap lasts (`previousSecretUntil` in the future). */
+  readonly previousSecret: string | null;
+  readonly previousSecretUntil: Date | null;
+  /** The resend request this attempt answers, if a person asked for it (merchant-ops/webhooks.ts). */
+  readonly resendRequestId: string | null;
+}
+
+/** One attempt's journal row. Written in the same statement that records the delivery's new state. */
+export interface WebhookAttempt {
+  readonly deliveryId: string;
+  readonly merchantId: string;
+  readonly attemptNo: number;
+  readonly startedAt: Date;
+  readonly finishedAt: Date;
+  readonly outcome: WebhookAttemptOutcome;
+  readonly statusCode: number | null;
+  readonly error: string | null;
+  readonly resendRequestId: string | null;
+}
+
+/** What one attempt leaves on the delivery row. */
+export interface WebhookAttemptResult {
+  readonly status: WebhookDeliveryStatus;
+  readonly attempts: number;
+  readonly nextAttemptAt: Date;
+  readonly statusCode: number | null;
+  readonly error: string | null;
+  readonly deliveredAt: Date | null;
+  readonly attempt: WebhookAttempt;
 }
 
 export interface PaymentEventNotify {
@@ -98,11 +145,16 @@ export interface MerchantWebhookRuntime {
   readonly allowLocalHttp?: boolean;
   /** Consecutive delivery failures before an endpoint is disabled (ADR §2.4). */
   readonly disableAfterFailures?: number;
-  /** Attempts before a delivery is marked `dead`. */
+  /** Attempts before a delivery is marked `dead`. Defaults to one first attempt plus one per retry in the policy. */
   readonly maxAttempts?: number;
+  /**
+   * The retry policy, an owner value (`PAY_WEBHOOK_RETRY_SCHEDULE_SECONDS`): the wait before each retry, in seconds.
+   * Blank (`null` or absent) sends nothing at all: deliveries wait as `pending` and the dashboard says why. No
+   * schedule is invented here.
+   */
+  readonly retryScheduleSeconds?: readonly number[] | null;
 }
 
-const DEFAULT_MAX_ATTEMPTS = 8;
 const DEFAULT_DISABLE_AFTER = 5;
 /** One deadline per delivery attempt: DNS + connect + response headers, all inside it. */
 const DELIVERY_TIMEOUT_MS = 10_000;
@@ -126,18 +178,27 @@ function withDeadline<T>(work: Promise<T>, ms: number): Promise<T> {
   });
 }
 
+/** A timed-out POST: the receiver may have taken it, so the outcome is unknown rather than failed. */
+function isTimeout(err: unknown): boolean {
+  if (err instanceof DeadlineExceeded) return true;
+  const name = (err as { name?: unknown } | null)?.name;
+  const code = (err as { code?: unknown } | null)?.code;
+  return name === 'TimeoutError' || name === 'AbortError' || code === 'ABORT_ERR' || code === 23;
+}
+
 /**
  * How long a worker owns a due row after `claimDue`.
  *
  * claimDue advances `next_attempt_at` into the future so a second replica
  * (FOR UPDATE SKIP LOCKED) will not POST the same delivery while this one is
- * in flight. Crash before markDelivered/markRetry: the lease expires and
- * another worker retries — at-least-once, never silently dropped.
+ * in flight. Crash before the attempt is recorded: the lease expires and
+ * another worker retries — at-least-once, never silently dropped. An attempt
+ * that ends `unknown` keeps the lease: it is not tried again before it ends.
  */
 export const WEBHOOK_CLAIM_LEASE_MS = 60_000;
 
-/** Backoff seconds by attempt index (0-based). Caps at last entry. */
-const BACKOFF_SECONDS = [60, 300, 1_800, 7_200, 43_200, 86_400, 86_400, 86_400] as const;
+/** The disabled reason an endpoint gets when its receiver answers 410 Gone. */
+export const WEBHOOK_GONE_REASON = 'receiver_gone';
 
 export function eventIdFor(type: MerchantWebhookEventType, payment: PaymentView): string {
   if (type === 'payment.refunded') {
@@ -164,11 +225,24 @@ export function paymentStateBody(payment: PaymentView): Record<string, unknown> 
   };
 }
 
-export function buildSignedHeaders(secret: string, timestamp: string, rawBody: string): Record<string, string> {
+/**
+ * The signed headers. While a rolled secret's overlap lasts, the signature header carries two signatures, the new
+ * secret's first, separated by a comma: a receiver holding either secret finds one that matches.
+ */
+export function buildSignedHeaders(
+  secret: string,
+  timestamp: string,
+  rawBody: string,
+  previousSecret?: string | null,
+): Record<string, string> {
+  const signatures = [
+    signPayload(secret, timestamp, rawBody),
+    ...(previousSecret ? [signPayload(previousSecret, timestamp, rawBody)] : []),
+  ];
   return {
     'content-type': 'application/json',
     'x-intafaced-timestamp': timestamp,
-    'x-intafaced-signature': signPayload(secret, timestamp, rawBody),
+    'x-intafaced-signature': signatures.join(','),
   };
 }
 
@@ -198,10 +272,14 @@ export interface MerchantWebhookStore {
     url: string;
     secretHash: string;
     secretEncrypted: string;
+    /** Omitted: every public event type. */
+    eventTypes?: readonly MerchantWebhookEventType[];
   }): Promise<MerchantWebhookEndpoint>;
   listEndpoints(merchantId: string, opts: { limit: number }): Promise<MerchantWebhookEndpoint[]>;
-  /** Dispatch fan-out — every active receiver. Not a client page; never invent a 50-row cut. */
-  listActiveEndpoints(merchantId: string): Promise<MerchantWebhookEndpoint[]>;
+  /**
+   * Dispatch fan-out — every active receiver subscribed to `eventType`. Not a client page; never invent a 50-row cut.
+   */
+  listActiveEndpoints(merchantId: string, eventType: MerchantWebhookEventType): Promise<MerchantWebhookEndpoint[]>;
   getEndpoint(id: string): Promise<(MerchantWebhookEndpoint & { secret: string }) | null>;
   setEndpointStatus(id: string, status: WebhookEndpointStatus, reason: string | null, consecutiveFailures: number): Promise<void>;
   bumpEndpointFailure(id: string): Promise<number>;
@@ -216,10 +294,11 @@ export interface MerchantWebhookStore {
     payload: unknown;
     nextAttemptAt: Date;
   }): Promise<MerchantWebhookDelivery | null>;
-  claimDue(limit: number, now: Date): Promise<Array<MerchantWebhookDelivery & { secret: string; url: string }>>;
-  markDelivered(id: string, statusCode: number, deliveredAt: Date): Promise<void>;
-  markRetry(id: string, attempts: number, nextAttemptAt: Date, statusCode: number | null, error: string, dead: boolean): Promise<void>;
+  claimDue(limit: number, now: Date): Promise<ClaimedWebhookDelivery[]>;
+  /** The delivery's new state and its attempt's journal row, together. Clears the resend request it answered. */
+  finishAttempt(id: string, result: WebhookAttemptResult): Promise<void>;
   listDeliveries(merchantId: string, opts: { status?: WebhookDeliveryStatus; limit: number }): Promise<MerchantWebhookDelivery[]>;
+  listAttempts(merchantId: string, deliveryId: string): Promise<WebhookAttempt[]>;
 }
 
 type MemEndpoint = {
@@ -229,10 +308,13 @@ type MemEndpoint = {
   status: WebhookEndpointStatus;
   disabledReason: string | null;
   consecutiveFailures: number;
+  eventTypes: MerchantWebhookEventType[];
   createdAt: Date;
   updatedAt: Date;
   secret: string;
   secretHash: string;
+  previousSecret: string | null;
+  previousSecretUntil: Date | null;
 };
 type MemDelivery = {
   id: string;
@@ -248,12 +330,17 @@ type MemDelivery = {
   lastError: string | null;
   createdAt: Date;
   deliveredAt: Date | null;
+  resendRequestId: string | null;
 };
+
+/** The statuses a worker may claim once due. */
+const CLAIMABLE: ReadonlySet<WebhookDeliveryStatus> = new Set(['pending', 'failed', 'unknown']);
 
 /** In-memory store — unit tests / single-process local. Not multi-replica. */
 export class MemoryMerchantWebhookStore implements MerchantWebhookStore {
   readonly endpoints = new Map<string, MemEndpoint>();
   readonly deliveries = new Map<string, MemDelivery>();
+  readonly attempts: WebhookAttempt[] = [];
 
   async insertEndpoint(row: {
     id: string;
@@ -261,6 +348,7 @@ export class MemoryMerchantWebhookStore implements MerchantWebhookStore {
     url: string;
     secretHash: string;
     secretEncrypted: string;
+    eventTypes?: readonly MerchantWebhookEventType[];
   }): Promise<MerchantWebhookEndpoint> {
     const now = new Date();
     const ep: MemEndpoint = {
@@ -270,10 +358,13 @@ export class MemoryMerchantWebhookStore implements MerchantWebhookStore {
       status: 'active',
       disabledReason: null,
       consecutiveFailures: 0,
+      eventTypes: [...(row.eventTypes ?? MERCHANT_WEBHOOK_EVENT_TYPES)],
       createdAt: now,
       updatedAt: now,
       secret: row.secretEncrypted,
       secretHash: row.secretHash,
+      previousSecret: null,
+      previousSecretUntil: null,
     };
     this.endpoints.set(ep.id, ep);
     return publicEndpoint(ep);
@@ -287,8 +378,10 @@ export class MemoryMerchantWebhookStore implements MerchantWebhookStore {
       .map(publicEndpoint);
   }
 
-  async listActiveEndpoints(merchantId: string): Promise<MerchantWebhookEndpoint[]> {
-    return [...this.endpoints.values()].filter((e) => e.merchantId === merchantId && e.status === 'active').map(publicEndpoint);
+  async listActiveEndpoints(merchantId: string, eventType: MerchantWebhookEventType): Promise<MerchantWebhookEndpoint[]> {
+    return [...this.endpoints.values()]
+      .filter((e) => e.merchantId === merchantId && e.status === 'active' && e.eventTypes.includes(eventType))
+      .map(publicEndpoint);
   }
 
   async getEndpoint(id: string): Promise<(MerchantWebhookEndpoint & { secret: string }) | null> {
@@ -348,54 +441,48 @@ export class MemoryMerchantWebhookStore implements MerchantWebhookStore {
       lastError: null,
       createdAt: now,
       deliveredAt: null,
+      resendRequestId: null,
     };
     this.deliveries.set(delivery.id, delivery);
-    return delivery;
+    return publicDelivery(delivery);
   }
 
-  async claimDue(limit: number, now: Date): Promise<Array<MerchantWebhookDelivery & { secret: string; url: string }>> {
+  async claimDue(limit: number, now: Date): Promise<ClaimedWebhookDelivery[]> {
     const leaseUntil = new Date(now.getTime() + WEBHOOK_CLAIM_LEASE_MS);
     const due = [...this.deliveries.values()]
-      .filter((d) => d.status === 'pending' || d.status === 'failed')
+      .filter((d) => CLAIMABLE.has(d.status))
       .filter((d) => d.nextAttemptAt.getTime() <= now.getTime())
       .sort((a, b) => a.nextAttemptAt.getTime() - b.nextAttemptAt.getTime())
       .slice(0, limit);
-    const out: Array<MerchantWebhookDelivery & { secret: string; url: string }> = [];
+    const out: ClaimedWebhookDelivery[] = [];
     for (const d of due) {
       const ep = this.endpoints.get(d.endpointId);
       if (!ep || ep.status !== 'active') continue;
       // Lease: concurrent processDue in the same process will not re-select this row.
       d.nextAttemptAt = leaseUntil;
-      out.push({ ...d, secret: ep.secret, url: ep.url });
+      out.push({
+        ...publicDelivery(d),
+        secret: ep.secret,
+        url: ep.url,
+        previousSecret: ep.previousSecret,
+        previousSecretUntil: ep.previousSecretUntil,
+        resendRequestId: d.resendRequestId,
+      });
     }
     return out;
   }
 
-  async markDelivered(id: string, statusCode: number, deliveredAt: Date): Promise<void> {
+  async finishAttempt(id: string, result: WebhookAttemptResult): Promise<void> {
     const d = this.deliveries.get(id);
     if (!d) return;
-    d.status = 'delivered';
-    d.attempts += 1;
-    d.lastStatusCode = statusCode;
-    d.lastError = null;
-    d.deliveredAt = deliveredAt;
-  }
-
-  async markRetry(
-    id: string,
-    attempts: number,
-    nextAttemptAt: Date,
-    statusCode: number | null,
-    error: string,
-    dead: boolean,
-  ): Promise<void> {
-    const d = this.deliveries.get(id);
-    if (!d) return;
-    d.attempts = attempts;
-    d.nextAttemptAt = nextAttemptAt;
-    d.lastStatusCode = statusCode;
-    d.lastError = error;
-    d.status = dead ? 'dead' : 'failed';
+    d.status = result.status;
+    d.attempts = result.attempts;
+    d.nextAttemptAt = result.nextAttemptAt;
+    d.lastStatusCode = result.statusCode;
+    d.lastError = result.error;
+    if (result.deliveredAt) d.deliveredAt = result.deliveredAt;
+    d.resendRequestId = null;
+    this.attempts.push(result.attempt);
   }
 
   async listDeliveries(merchantId: string, opts: { status?: WebhookDeliveryStatus; limit: number }): Promise<MerchantWebhookDelivery[]> {
@@ -403,7 +490,32 @@ export class MemoryMerchantWebhookStore implements MerchantWebhookStore {
       .filter((d) => d.merchantId === merchantId)
       .filter((d) => (opts.status ? d.status === opts.status : true))
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-      .slice(0, opts.limit);
+      .slice(0, opts.limit)
+      .map(publicDelivery);
+  }
+
+  async listAttempts(merchantId: string, deliveryId: string): Promise<WebhookAttempt[]> {
+    return this.attempts
+      .filter((a) => a.merchantId === merchantId && a.deliveryId === deliveryId)
+      .sort((a, b) => a.attemptNo - b.attemptNo);
+  }
+
+  /** Test seam: a roll with overlap, as merchant-ops `rotateSecret` writes it. */
+  rollSecret(id: string, secret: string, overlapUntil: Date | null): void {
+    const ep = this.endpoints.get(id);
+    if (!ep) return;
+    ep.previousSecret = overlapUntil ? ep.secret : null;
+    ep.previousSecretUntil = overlapUntil;
+    ep.secret = secret;
+  }
+
+  /** Test seam: a resend request, as merchant-ops `retry` writes it. */
+  requestResend(deliveryId: string, requestId: string, now: Date): void {
+    const d = this.deliveries.get(deliveryId);
+    if (!d) return;
+    d.status = 'pending';
+    d.nextAttemptAt = now;
+    d.resendRequestId = requestId;
   }
 }
 
@@ -415,9 +527,15 @@ function publicEndpoint(ep: MemEndpoint): MerchantWebhookEndpoint {
     status: ep.status,
     disabledReason: ep.disabledReason,
     consecutiveFailures: ep.consecutiveFailures,
+    eventTypes: [...ep.eventTypes],
     createdAt: ep.createdAt,
     updatedAt: ep.updatedAt,
   };
+}
+
+function publicDelivery(d: MemDelivery): MerchantWebhookDelivery {
+  const { resendRequestId: _resend, ...rest } = d;
+  return { ...rest };
 }
 
 export type WebhookSql = {
@@ -439,20 +557,22 @@ export class PostgresMerchantWebhookStore implements MerchantWebhookStore {
     url: string;
     secretHash: string;
     secretEncrypted: string;
+    eventTypes?: readonly MerchantWebhookEventType[];
   }): Promise<MerchantWebhookEndpoint> {
+    const eventTypes = [...(row.eventTypes ?? MERCHANT_WEBHOOK_EVENT_TYPES)];
     const rows = (await this.sql`
       INSERT INTO pay.merchant_webhook_endpoints
-        (id, merchant_id, url, secret_hash, signing_secret, status, consecutive_failures)
+        (id, merchant_id, url, secret_hash, signing_secret, status, consecutive_failures, event_types)
       VALUES
-        (${row.id}, ${row.merchantId}, ${row.url}, ${row.secretHash}, ${row.secretEncrypted}, 'active', 0)
-      RETURNING id, merchant_id, url, status, disabled_reason, consecutive_failures, created_at, updated_at
+        (${row.id}, ${row.merchantId}, ${row.url}, ${row.secretHash}, ${row.secretEncrypted}, 'active', 0, ${eventTypes}::text[])
+      RETURNING id, merchant_id, url, status, disabled_reason, consecutive_failures, event_types, created_at, updated_at
     `) as ReadonlyArray<EndpointRow>;
     return mapEndpoint(rows[0]!);
   }
 
   async listEndpoints(merchantId: string, opts: { limit: number }): Promise<MerchantWebhookEndpoint[]> {
     const rows = (await this.sql`
-      SELECT id, merchant_id, url, status, disabled_reason, consecutive_failures, created_at, updated_at
+      SELECT id, merchant_id, url, status, disabled_reason, consecutive_failures, event_types, created_at, updated_at
         FROM pay.merchant_webhook_endpoints
        WHERE merchant_id = ${merchantId}
        ORDER BY created_at DESC
@@ -461,11 +581,11 @@ export class PostgresMerchantWebhookStore implements MerchantWebhookStore {
     return rows.map(mapEndpoint);
   }
 
-  async listActiveEndpoints(merchantId: string): Promise<MerchantWebhookEndpoint[]> {
+  async listActiveEndpoints(merchantId: string, eventType: MerchantWebhookEventType): Promise<MerchantWebhookEndpoint[]> {
     const rows = (await this.sql`
-      SELECT id, merchant_id, url, status, disabled_reason, consecutive_failures, created_at, updated_at
+      SELECT id, merchant_id, url, status, disabled_reason, consecutive_failures, event_types, created_at, updated_at
         FROM pay.merchant_webhook_endpoints
-       WHERE merchant_id = ${merchantId} AND status = 'active'
+       WHERE merchant_id = ${merchantId} AND status = 'active' AND ${eventType} = ANY(event_types)
        ORDER BY created_at DESC
     `) as ReadonlyArray<EndpointRow>;
     return rows.map(mapEndpoint);
@@ -473,7 +593,7 @@ export class PostgresMerchantWebhookStore implements MerchantWebhookStore {
 
   async getEndpoint(id: string): Promise<(MerchantWebhookEndpoint & { secret: string }) | null> {
     const rows = (await this.sql`
-      SELECT id, merchant_id, url, status, disabled_reason, consecutive_failures,
+      SELECT id, merchant_id, url, status, disabled_reason, consecutive_failures, event_types,
              created_at, updated_at, signing_secret
         FROM pay.merchant_webhook_endpoints
        WHERE id = ${id}
@@ -536,7 +656,7 @@ export class PostgresMerchantWebhookStore implements MerchantWebhookStore {
     return mapDelivery(rows[0]!);
   }
 
-  async claimDue(limit: number, now: Date): Promise<Array<MerchantWebhookDelivery & { secret: string; url: string }>> {
+  async claimDue(limit: number, now: Date): Promise<ClaimedWebhookDelivery[]> {
     /**
      * Multi-replica claim (ADR §2.4 at-least-once, never silently dropped).
      *
@@ -553,7 +673,7 @@ export class PostgresMerchantWebhookStore implements MerchantWebhookStore {
           FROM pay.merchant_webhook_deliveries d
           JOIN pay.merchant_webhook_endpoints e ON e.id = d.endpoint_id
          WHERE e.status = 'active'
-           AND d.status IN ('pending', 'failed')
+           AND d.status IN ('pending', 'failed', 'unknown')
            AND d.next_attempt_at <= ${nowIso}
          ORDER BY d.next_attempt_at ASC
          LIMIT ${limit}
@@ -565,45 +685,55 @@ export class PostgresMerchantWebhookStore implements MerchantWebhookStore {
           FROM due
          WHERE d.id = due.id
       RETURNING d.id, d.endpoint_id, d.merchant_id, d.event_id, d.event_type, d.payload, d.status,
-                d.attempts, d.next_attempt_at, d.last_status_code, d.last_error, d.created_at, d.delivered_at
+                d.attempts, d.next_attempt_at, d.last_status_code, d.last_error, d.created_at, d.delivered_at,
+                d.resend_request_id
       )
       SELECT c.id, c.endpoint_id, c.merchant_id, c.event_id, c.event_type, c.payload, c.status,
              c.attempts, c.next_attempt_at, c.last_status_code, c.last_error, c.created_at, c.delivered_at,
-             e.signing_secret, e.url
+             c.resend_request_id, e.signing_secret, e.url, e.previous_signing_secret, e.previous_secret_until
         FROM claimed c
         JOIN pay.merchant_webhook_endpoints e ON e.id = c.endpoint_id
-    `) as ReadonlyArray<DeliveryRow & { signing_secret: string; url: string }>;
-    return rows.map((r) => ({ ...mapDelivery(r), secret: r.signing_secret, url: r.url }));
+    `) as ReadonlyArray<
+      DeliveryRow & {
+        signing_secret: string;
+        url: string;
+        previous_signing_secret: string | null;
+        previous_secret_until: Date | string | null;
+        resend_request_id: string | null;
+      }
+    >;
+    return rows.map((r) => ({
+      ...mapDelivery(r),
+      secret: r.signing_secret,
+      url: r.url,
+      previousSecret: r.previous_signing_secret,
+      previousSecretUntil: r.previous_secret_until ? new Date(r.previous_secret_until) : null,
+      resendRequestId: r.resend_request_id,
+    }));
   }
 
-  async markDelivered(id: string, statusCode: number, deliveredAt: Date): Promise<void> {
+  async finishAttempt(id: string, result: WebhookAttemptResult): Promise<void> {
+    const a = result.attempt;
+    // One statement: the row's new state and its journal line land together or not at all.
     await this.sql`
-      UPDATE pay.merchant_webhook_deliveries
-         SET status = 'delivered',
-             attempts = attempts + 1,
-             last_status_code = ${statusCode},
-             last_error = NULL,
-             delivered_at = ${deliveredAt.toISOString()}
-       WHERE id = ${id}
-    `;
-  }
-
-  async markRetry(
-    id: string,
-    attempts: number,
-    nextAttemptAt: Date,
-    statusCode: number | null,
-    error: string,
-    dead: boolean,
-  ): Promise<void> {
-    await this.sql`
-      UPDATE pay.merchant_webhook_deliveries
-         SET status = ${dead ? 'dead' : 'failed'},
-             attempts = ${attempts},
-             next_attempt_at = ${nextAttemptAt.toISOString()},
-             last_status_code = ${statusCode},
-             last_error = ${error}
-       WHERE id = ${id}
+      WITH updated AS (
+        UPDATE pay.merchant_webhook_deliveries
+           SET status = ${result.status},
+               attempts = ${result.attempts},
+               next_attempt_at = ${result.nextAttemptAt.toISOString()},
+               last_status_code = ${result.statusCode},
+               last_error = ${result.error},
+               delivered_at = COALESCE(${result.deliveredAt ? result.deliveredAt.toISOString() : null}::timestamptz, delivered_at),
+               resend_request_id = NULL
+         WHERE id = ${id}
+         RETURNING id
+      )
+      INSERT INTO pay.merchant_webhook_attempts
+        (delivery_id, merchant_id, attempt_no, started_at, finished_at, outcome, status_code, error, resend_request_id)
+      SELECT updated.id, ${a.merchantId}, ${a.attemptNo}, ${a.startedAt.toISOString()}, ${a.finishedAt.toISOString()},
+             ${a.outcome}, ${a.statusCode}, ${a.error}, ${a.resendRequestId}::uuid
+        FROM updated
+      ON CONFLICT DO NOTHING
     `;
   }
 
@@ -629,6 +759,36 @@ export class PostgresMerchantWebhookStore implements MerchantWebhookStore {
     `) as ReadonlyArray<DeliveryRow>;
     return rows.map(mapDelivery);
   }
+
+  async listAttempts(merchantId: string, deliveryId: string): Promise<WebhookAttempt[]> {
+    const rows = (await this.sql`
+      SELECT delivery_id, merchant_id, attempt_no, started_at, finished_at, outcome, status_code, error, resend_request_id
+        FROM pay.merchant_webhook_attempts
+       WHERE merchant_id = ${merchantId} AND delivery_id = ${deliveryId}
+       ORDER BY attempt_no ASC
+    `) as ReadonlyArray<{
+      delivery_id: string;
+      merchant_id: string;
+      attempt_no: number;
+      started_at: Date | string;
+      finished_at: Date | string;
+      outcome: WebhookAttemptOutcome;
+      status_code: number | null;
+      error: string | null;
+      resend_request_id: string | null;
+    }>;
+    return rows.map((r) => ({
+      deliveryId: r.delivery_id,
+      merchantId: r.merchant_id,
+      attemptNo: r.attempt_no,
+      startedAt: new Date(r.started_at),
+      finishedAt: new Date(r.finished_at),
+      outcome: r.outcome,
+      statusCode: r.status_code,
+      error: r.error,
+      resendRequestId: r.resend_request_id,
+    }));
+  }
 }
 
 type EndpointRow = {
@@ -638,6 +798,7 @@ type EndpointRow = {
   status: WebhookEndpointStatus;
   disabled_reason: string | null;
   consecutive_failures: number;
+  event_types: MerchantWebhookEventType[] | null;
   created_at: Date | string;
   updated_at: Date | string;
 };
@@ -666,6 +827,7 @@ function mapEndpoint(row: EndpointRow): MerchantWebhookEndpoint {
     status: row.status,
     disabledReason: row.disabled_reason,
     consecutiveFailures: row.consecutive_failures,
+    eventTypes: [...(row.event_types ?? [])],
     createdAt: new Date(row.created_at),
     updatedAt: new Date(row.updated_at),
   };
@@ -691,11 +853,21 @@ function mapDelivery(row: DeliveryRow): MerchantWebhookDelivery {
 
 // ── Service ─────────────────────────────────────────────────────────────────
 
+/** What one drain pass did. `paused` names why it sent nothing at all. */
+export interface WebhookDrainResult {
+  readonly delivered: number;
+  readonly failed: number;
+  readonly unknown: number;
+  readonly disabled: number;
+  readonly paused?: 'pay.webhook_retry_policy_unset';
+}
+
 export class MerchantWebhookService {
   private readonly now: () => Date;
   private readonly transport: WebhookTransport;
   private readonly resolver: WebhookResolver;
   private readonly allowLocalHttp: boolean;
+  private readonly retrySchedule: readonly number[] | null;
   private readonly maxAttempts: number;
   private readonly disableAfter: number;
 
@@ -707,8 +879,15 @@ export class MerchantWebhookService {
     this.transport = runtime.transport ?? pinnedPost;
     this.allowLocalHttp = runtime.allowLocalHttp === true;
     this.resolver = runtime.resolver ?? (this.allowLocalHttp ? systemResolver : publicDnsResolver);
-    this.maxAttempts = runtime.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
+    const schedule = runtime.retryScheduleSeconds ?? null;
+    this.retrySchedule = schedule && schedule.length > 0 && schedule.every((s) => Number.isSafeInteger(s) && s > 0) ? [...schedule] : null;
+    this.maxAttempts = runtime.maxAttempts ?? (this.retrySchedule ? this.retrySchedule.length + 1 : 1);
     this.disableAfter = runtime.disableAfterFailures ?? DEFAULT_DISABLE_AFTER;
+  }
+
+  /** The retry policy this process sends by, or null when the owner has not set one (nothing is sent). */
+  get retryPolicy(): readonly number[] | null {
+    return this.retrySchedule;
   }
 
   async registerEndpoint(merchantId: string, url: string): Promise<MerchantWebhookEndpointCreated> {
@@ -757,7 +936,7 @@ export class MerchantWebhookService {
   }
 
   /**
-   * Enqueue one delivery per active endpoint for this merchant.
+   * Enqueue one delivery per active endpoint of this merchant that subscribed to the event's type.
    * Dedup is (endpointId, eventId) — a re-notify of the same logical event is a no-op.
    */
   async enqueue(event: PaymentEventNotify): Promise<number> {
@@ -769,7 +948,7 @@ export class MerchantWebhookService {
       createdAt,
       data: { payment: paymentStateBody(event.payment) },
     };
-    const endpoints = await this.store.listActiveEndpoints(event.payment.merchantId);
+    const endpoints = await this.store.listActiveEndpoints(event.payment.merchantId, event.type);
     let inserted = 0;
     for (const ep of endpoints) {
       const row = await this.store.insertDelivery({
@@ -802,33 +981,77 @@ export class MerchantWebhookService {
    * (Postgres uses SKIP LOCKED; memory store is single-process).
    *
    * `limit` is required. Omit used to invent a 25-row drain. Blank refuses.
-   * Owner/drain may pass 25 explicitly.
+   * Owner/drain may pass 25 explicitly. With no retry policy set, nothing is
+   * claimed and nothing is sent (`paused`).
    */
-  async processDue(limit?: number): Promise<{ delivered: number; failed: number; disabled: number }> {
+  async processDue(limit?: number): Promise<WebhookDrainResult> {
     const batch = assertDueWebhookDeliveriesBatchLimit(limit);
+    const schedule = this.retrySchedule;
+    if (!schedule) return { delivered: 0, failed: 0, unknown: 0, disabled: 0, paused: 'pay.webhook_retry_policy_unset' };
     const due = await this.store.claimDue(batch, this.now());
     let delivered = 0;
     let failed = 0;
+    let unknown = 0;
     let disabled = 0;
 
-    /** One failed attempt: backoff, count against the endpoint, disable when exhausted. Never dropped. */
-    const fail = async (item: (typeof due)[number], statusCode: number | null, error: string): Promise<void> => {
+    const attemptOf = (
+      item: ClaimedWebhookDelivery,
+      startedAt: Date,
+      outcome: WebhookAttemptOutcome,
+      statusCode: number | null,
+      error: string | null,
+    ): WebhookAttempt => ({
+      deliveryId: item.id,
+      merchantId: item.merchantId,
+      attemptNo: item.attempts + 1,
+      startedAt,
+      finishedAt: this.now(),
+      outcome,
+      statusCode,
+      error,
+      resendRequestId: item.resendRequestId,
+    });
+
+    /**
+     * One attempt that did not deliver: wait the policy's next interval, count it against the endpoint, disable the
+     * endpoint when it is exhausted or gone. Never dropped. An `unknown` outcome is not tried again before its lease ends.
+     */
+    const fail = async (
+      item: ClaimedWebhookDelivery,
+      startedAt: Date,
+      statusCode: number | null,
+      error: string,
+      outcome: 'failed' | 'unknown' = 'failed',
+    ): Promise<void> => {
       const attempts = item.attempts + 1;
-      const dead = attempts >= this.maxAttempts;
-      const backoff = BACKOFF_SECONDS[Math.min(attempts - 1, BACKOFF_SECONDS.length - 1)] ?? 86_400;
-      const next = new Date(this.now().getTime() + backoff * 1000);
-      await this.store.markRetry(item.id, attempts, next, statusCode, error, dead);
-      failed += 1;
+      const gone = statusCode === 410;
+      const dead = attempts >= this.maxAttempts || gone;
+      const backoff = schedule[Math.min(attempts - 1, schedule.length - 1)]!;
+      let next = new Date(this.now().getTime() + backoff * 1000);
+      if (outcome === 'unknown' && item.nextAttemptAt.getTime() > next.getTime()) next = item.nextAttemptAt;
+      await this.store.finishAttempt(item.id, {
+        status: dead ? 'dead' : outcome,
+        attempts,
+        nextAttemptAt: next,
+        statusCode,
+        error,
+        deliveredAt: null,
+        attempt: attemptOf(item, startedAt, outcome, statusCode, error),
+      });
+      if (outcome === 'unknown') unknown += 1;
+      else failed += 1;
       const consecutive = await this.store.bumpEndpointFailure(item.endpointId);
-      if (consecutive >= this.disableAfter || dead) {
-        await this.store.setEndpointStatus(item.endpointId, 'disabled', dead ? 'delivery_exhausted' : 'consecutive_failures', consecutive);
+      if (gone || consecutive >= this.disableAfter || dead) {
+        const reason = gone ? WEBHOOK_GONE_REASON : dead ? 'delivery_exhausted' : 'consecutive_failures';
+        await this.store.setEndpointStatus(item.endpointId, 'disabled', reason, consecutive);
         disabled += 1;
       }
     };
 
     for (const item of due) {
+      const startedAt = this.now();
       if (!item.secret || item.secret.trim().length < 32) {
-        await fail(item, null, 'pay.webhook_not_configured');
+        await fail(item, startedAt, null, 'pay.webhook_not_configured');
         continue;
       }
 
@@ -839,7 +1062,7 @@ export class MerchantWebhookService {
       try {
         url = assertPublicWebhookUrl(item.url, { allowLocalHttp: this.allowLocalHttp });
       } catch {
-        await fail(item, null, 'webhook_target_not_public');
+        await fail(item, startedAt, null, 'webhook_target_not_public');
         continue;
       }
       let addresses: readonly ResolvedAddress[];
@@ -850,13 +1073,15 @@ export class MerchantWebhookService {
         );
       } catch (err) {
         // A hung nameserver is a failure to retry, not a refusal; either way nothing was POSTed.
-        await fail(item, null, err instanceof DeadlineExceeded ? 'webhook_dns_timeout' : 'webhook_target_not_public');
+        await fail(item, startedAt, null, err instanceof DeadlineExceeded ? 'webhook_dns_timeout' : 'webhook_target_not_public');
         continue;
       }
 
       const rawBody = JSON.stringify(item.payload);
-      const timestamp = String(Math.floor(this.now().getTime() / 1000));
-      const headers = buildSignedHeaders(item.secret, timestamp, rawBody);
+      const now = this.now();
+      const timestamp = String(Math.floor(now.getTime() / 1000));
+      const overlap = item.previousSecret && item.previousSecretUntil && item.previousSecretUntil.getTime() > now.getTime();
+      const headers = buildSignedHeaders(item.secret, timestamp, rawBody, overlap ? item.previousSecret : null);
       headers['x-intafaced-event-id'] = item.eventId;
 
       try {
@@ -869,19 +1094,29 @@ export class MerchantWebhookService {
           timeoutMs: Math.max(1, deadline - Date.now()),
         });
         if (res.status >= 200 && res.status < 300) {
-          await this.store.markDelivered(item.id, res.status, this.now());
+          const at = this.now();
+          await this.store.finishAttempt(item.id, {
+            status: 'delivered',
+            attempts: item.attempts + 1,
+            nextAttemptAt: item.nextAttemptAt,
+            statusCode: res.status,
+            error: null,
+            deliveredAt: at,
+            attempt: attemptOf(item, startedAt, 'delivered', res.status, null),
+          });
           await this.store.resetEndpointFailures(item.endpointId);
           delivered += 1;
           continue;
         }
         // A redirect is never followed (it would walk past the guard): failure, loudly.
         const err = res.status >= 300 && res.status < 400 ? `webhook_redirect_not_followed (HTTP ${res.status})` : `HTTP ${res.status}`;
-        await fail(item, res.status, err);
+        await fail(item, startedAt, res.status, err);
       } catch (err) {
-        await fail(item, null, err instanceof Error ? err.message : 'delivery_error');
+        if (isTimeout(err)) await fail(item, startedAt, null, 'webhook_timeout', 'unknown');
+        else await fail(item, startedAt, null, err instanceof Error ? err.message : 'delivery_error');
       }
     }
 
-    return { delivered, failed, disabled };
+    return { delivered, failed, unknown, disabled };
   }
 }

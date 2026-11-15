@@ -29,6 +29,7 @@ export type CopyErrorCode =
   | 'trade.copy_pnl_fee_forbidden'
   | 'trade.copy_ranking_forbidden'
   | 'trade.copy_settle_refused'
+  | 'trade.copy_settlement_window_required'
   | 'trade.copy_leader_fill_not_found'
   | 'trade.copy_auto_mirror_place_socket'
   | 'trade.copy_place_disabled'
@@ -75,13 +76,6 @@ export type CopyErrorCode =
   | 'trade.tier_insufficient'
   | 'trade.copy_subaccount_refused'
   | 'trade.copy_reserve_exceeds_balance'
-  | 'trade.copy_venue_balance_short'
-  | 'trade.copy_venue_follow_abandoned'
-  | 'trade.copy_venue_action_unknown'
-  | 'trade.copy_venue_signed'
-  | 'trade.copy_venue_refused'
-  | 'trade.copy_venue_off'
-  | 'trade.copy_agent_key_unset'
   | 'trade.copy_market_quote_mixed'
   | 'trade.copy_lead_name_invalid'
   | 'trade.copy_lead_application_open'
@@ -90,7 +84,8 @@ export type CopyErrorCode =
   | 'trade.copy_lead_application_decided'
   | 'trade.copy_lead_application_not_found'
   | 'trade.copy_lead_reapply_wait_unset'
-  | 'trade.copy_lead_reapply_wait';
+  | 'trade.copy_lead_reapply_wait'
+  | 'trade.copy_venue_account_not_open';
 
 /**
  * Closed set for the customer desk and blank-law refusals.

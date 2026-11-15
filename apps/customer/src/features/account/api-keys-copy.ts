@@ -46,9 +46,14 @@ const messages = {
   permissions: 'Permissions',
   presetRead: 'Read only',
   presetTrade: 'Trade',
+  presetLead: 'Lead trading',
+  presetCopy: 'Copy trading',
   presetCustom: 'Choose',
   presetSummaryRead: 'This key can read your account. It cannot place or cancel orders or change anything.',
   presetSummaryTrade: 'This key can read your orders and trades, and place and cancel orders. It cannot withdraw.',
+  presetSummaryLead:
+    'This key places your orders as a lead through the lead API, on the instruments your lead listing names. It is only for an approved lead. It cannot withdraw.',
+  presetSummaryCopy: 'This key starts, changes, stops and lists the leaders you copy, as the web does. It cannot withdraw.',
   presetSummaryCustom: 'This key holds exactly the permissions ticked below.',
   scopesLoading: 'Reading the permissions a key may hold',
   accessRead: 'reads',
@@ -98,6 +103,10 @@ const messages = {
   'refused.identity.key_cap_unset': 'The number of keys an account may hold is not set, so keys are refused. Nothing was created.',
   'refused.identity.key_signing_unset':
     'Keys that place orders sign every request, and request signing is not set up, so this key is refused. Nothing was created.',
+  'refused.identity.key_lead_not_approved':
+    'A lead trading key is only for an approved lead. Apply to lead first, and make this key once you are listed. Nothing was created.',
+  'refused.identity.key_lead_check_unavailable':
+    'We could not check whether you are an approved lead just now, so no lead trading key was created. Try again.',
   'refused.identity.key_cap_reached': 'This account holds as many keys as it may. Revoke one to make another. Nothing was created.',
   'refused.identity.key_request_conflict': 'This request was already used for a different key. Reload the page and try again.',
   'refused.auth.passkey_missing': 'Add a passkey on Security first. Only an account with a passkey can hold API keys. Nothing was created.',

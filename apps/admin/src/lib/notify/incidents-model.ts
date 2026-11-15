@@ -6,6 +6,7 @@
  * identity for an approval bound to the exact draft, a different founder approves it, and svc-notify spends it once.
  */
 import type { Part } from '@/lib/desk/part';
+import { isRecord } from '@intafaced/contracts/guards';
 
 export const IMPACTS = ['none', 'minor', 'major', 'critical'] as const;
 export type Impact = (typeof IMPACTS)[number];
@@ -86,7 +87,6 @@ export type IncidentDeskReply =
       readonly changed: 'no' | 'unknown';
     };
 
-const isRecord = (v: unknown): v is Record<string, unknown> => Boolean(v && typeof v === 'object' && !Array.isArray(v));
 const isImpact = (v: unknown): v is Impact | null => v === null || (IMPACTS as readonly unknown[]).includes(v);
 const strings = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string');
 const strOrNull = (v: unknown): v is string | null => v === null || typeof v === 'string';

@@ -51,6 +51,7 @@ import { execFileSync } from 'node:child_process';
 import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { readReport } from './journey-verdict.mjs';
 
 export const JOURNEYS_WORKFLOW = 'Real-app journeys';
 export const JOURNEYS_ARTIFACT = 'real-app-journeys';
@@ -88,6 +89,16 @@ export function stepStates(report) {
   };
   for (const suite of report?.suites ?? []) walk(suite);
   return states;
+}
+
+/** Tests with no step title in journey files (journey-verdict.mjs readReport `tests`) that passed in `before`, on the
+ *  first try or the retry, and failed in `now`. Sorted. */
+export function newlyBrokenTests(before, now) {
+  const was = readReport(before).tests;
+  return Object.entries(readReport(now).tests)
+    .filter(([k, s]) => s === 'failed' && (was[k] === 'passed' || was[k] === 'flaky'))
+    .map(([k]) => k)
+    .sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
 }
 
 const sortKeys = (keys) => [...keys].sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
@@ -176,6 +187,8 @@ export function flakyIssueBody(row, runUrl) {
     `- Fix the race in the test or the code it checks, never by weakening the test${row.file ? `: apps/customer/tests/real-app/${row.file}` : ''}. A rare real bug can look like this.`,
     '',
     `<!-- flaky-step: ${row.step} -->`,
+    // A money step (setAsideGuard; a row with no `money` counts as money): project-state's pull ranks its fix first.
+    ...(row.money !== false ? [`<!-- money-flaky: ${row.step} -->`] : []),
     '_Opened by tooling/ci/post-merge-trust.mjs._',
   ].join('\n');
 }
@@ -552,7 +565,7 @@ async function timeLimitCheck({ repo, name, runId, sha, runUrl, timedOut }) {
     const body = [
       `${timedOut.map((j) => `\`${j}\``).join(', ')} hit a time limit on \`${sha.slice(0, 10)}\` ([run ${runId}](${runUrl})), so ${timedOut.length === 1 ? 'its' : 'their'} journeys did not finish and count as not passing.`,
       '',
-      'Find the step that hangs, or give the journeys more shards (MAX_SHARDS in tooling/scripts/journey-shards.mjs); never shorten or skip a journey to fit.',
+      'Find the step that hangs, or give the journeys more shards (MAIN_MAX_SHARDS for main, MAX_SHARDS elsewhere, in tooling/scripts/journey-shards.mjs); never shorten or skip a journey to fit.',
       '',
       '_Opened by tooling/ci/post-merge-trust.mjs. It closes itself on the next run where no job hits its limit._',
     ].join('\n');
@@ -672,6 +685,13 @@ async function journeysCheck(ctx) {
   lines.push(
     `- Newly broken (${newlyFailing.length}): ${newlyFailing.join(', ') || 'none'}${newlyFailing.length ? ' (the journeys revert decides each one)' : ''}`,
   );
+  // Tests in journey files with no step title (project-state #2232): the run's verdict turns red when one that passed
+  // on main fails (journey-verdict.mjs judge), so a red here is named beside the steps. They start no revert: the
+  // revert reads steps.
+  const testsBroken = newlyBrokenTests(prev, now);
+  lines.push(
+    `- Tests with no step title newly broken (${testsBroken.length}): ${testsBroken.map((k) => `\`${k.split('#test ')[1]}\``).join(', ') || 'none'}${testsBroken.length ? " (the run's verdict judges them; no revert starts for them)" : ''}`,
+  );
 
   // Close journey issues whose named steps all pass now. One search for all of them (search allows 30 calls a minute).
   for (const issue of await openIssuesTitled(repo, journeyIssueTitle(''))) {
@@ -730,6 +750,18 @@ function selfTest() {
     { newlyPassing: ['J-a-01#1'], newlyFailing: ['J-a-01#2', 'J-a-01#10'] },
     'newly passing and failing; skipped and new steps are neither; numeric order',
   );
+  {
+    const t = (title, status) => ({ title, file: 'J-a-01.pw.mjs', tests: [{ status }] });
+    const r = (...specs) => ({ suites: [{ file: 'J-a-01.pw.mjs', specs }] });
+    const before = r(t('J-a-01, part of #1: ledger', 'expected'), t('J-a-01 starts: unbuilt', 'unexpected'), t('J-a-01 #2 y', 'expected'));
+    const now = r(t('J-a-01, part of #1: ledger', 'unexpected'), t('J-a-01 starts: unbuilt', 'unexpected'), t('J-a-01 #2 y', 'unexpected'));
+    eq(
+      newlyBrokenTests(before, now),
+      ['J-a-01#test J-a-01.pw.mjs › J-a-01, part of #1: ledger'],
+      'a test with no step title that passed and now fails is named; one never passing and a step are not',
+    );
+    eq(newlyBrokenTests(before, before), [], 'known-good: nothing newly broken');
+  }
   eq(decideCheck({ conclusion: 'failure', attempt: 1, previous: 'success' }), 'rerun', 'first red after green re-runs');
   eq(decideCheck({ conclusion: 'failure', attempt: 2, previous: 'success' }), 'broken', 'red after re-run is a break');
   eq(decideCheck({ conclusion: 'timed_out', attempt: 2, previous: 'success' }), 'broken', 'a timeout counts as red');
@@ -846,6 +878,10 @@ function selfTest() {
     'a flaky step gets one issue while none is open (an older money-flaky title counts): once per step, again after its last one closed',
   );
   if (!/never counts as proven/.test(flakyIssueBody(mf, 'u'))) throw new Error('the flaky issue says it is never proven');
+  // A money step's issue carries the mark project-state's pull reads to rank its fix first (intafaced #8379 had none).
+  eq(flakyIssueBody({ ...mf, money: true }, 'u').includes('<!-- money-flaky: J-a-05#1 -->'), true, 'a money step is marked money-flaky');
+  eq(flakyIssueBody({ ...mf, money: false }, 'u').includes('money-flaky'), false, 'a non-money step is not');
+  eq(flakyIssueBody(mf, 'u').includes('<!-- money-flaky: J-a-05#1 -->'), true, 'a row with no money field counts as money');
   const lost = lostShardBody({ missing: ['shard 2 of 4'], sha: 'a'.repeat(40), runId: 9, runUrl: 'u', attempt: 2, why: null });
   if (!/`shard 2 of 4` sent no report on `aaaaaaaaaa` \(\[run 9\]\(u\), attempt 2, after its one re-run\)/.test(lost))
     throw new Error('the lost-shard issue names the shard, the commit, the run and its attempt');

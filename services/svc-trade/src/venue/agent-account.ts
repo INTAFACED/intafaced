@@ -3,6 +3,8 @@ import { AuthError, isApiKeyPrincipal, type Principal } from '@intafaced/auth';
 import type { StepUpCheck } from '@intafaced/contracts';
 import {
   AgentCapError,
+  agentPermissionReach,
+  type AgentPermissionReach,
   assertAgentCapWithinCeiling,
   agentFundingRoom,
   assertAgentFundingWithinCap,
@@ -95,7 +97,16 @@ export type AgentAccountCode =
   | 'agents.key_scope_not_trade'
   | 'agents.key_read_unavailable'
   | 'agents.key_already_connected'
+  | 'agents.key_expiry_above_venue_max'
+  | 'agents.venue_agent_expiry_max_unknown'
   | 'agents.key_not_connected'
+  // The connection's Activity (agent-order-calls.ts, #11): identity's call log of the key could not be read just now.
+  | 'agents.activity_read_unavailable'
+  // The person revoked the assistant (#12): our copy of the account's venue agent key signs nothing more.
+  | 'agents.agent_revoked'
+  // The founder's desk over every outside connection (agent-desk.ts, #15).
+  | 'agents.desk_reason_required'
+  | 'agents.desk_request_invalid'
   | 'agents.order_needs_agent_key'
   | 'agents.order_request_invalid'
   | 'agents.order_leverage_unknown'
@@ -154,7 +165,7 @@ export interface AgentAccountsDeps {
 /** What the wallet is asked to sign next, if anything. */
 export interface NextSignature {
   readonly actionKey: string;
-  readonly step: 'open_sub_account' | 'approve_agent' | 'move_in' | 'move_out';
+  readonly step: 'open_sub_account' | 'approve_agent' | 'move_in' | 'move_out' | 'revoke_agent';
   readonly prepared: PreparedVenueAction;
   /** True when this action was signed and sent and its answer is not yet known: re-send it, never sign a new one. */
   readonly signed: boolean;
@@ -190,6 +201,22 @@ export interface AgentAccountView {
   /** Why the account could not open (the venue's own refusal), when it was abandoned for one. */
   readonly refusal: VenueRefusal | null;
   readonly test: boolean;
+  /** How far the agent permission the wallet signs reaches, as the venue declares it (#3); shown before any signature. */
+  readonly agentPermission: AgentPermissionView;
+}
+
+/**
+ * The agent permission's reach on this venue (#3, the journey's money line): `own_account_only`, the venue lets the
+ * agent trade the agent account and nothing else, so the venue holds the cap; `owner_accounts`, it can act for the
+ * person's other accounts too, so our policy check is the only limit, and the app says so before the wallet signs.
+ */
+export interface AgentPermissionView {
+  readonly venue: string;
+  readonly reach: AgentPermissionReach;
+}
+
+function permissionOf(venue: UserVenue): AgentPermissionView {
+  return { venue: venue.venue.displayName, reach: agentPermissionReach(venue.venue) };
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -245,10 +272,15 @@ function positive(value: unknown, label: string): Amount {
 export class AgentAccounts {
   constructor(private readonly deps: AgentAccountsDeps) {}
 
-  /** The owner's terms every agent account is held to, and whether they are set. */
-  terms() {
+  /**
+   * The owner's terms every agent account is held to, and whether they are set, with the agent permission's reach on
+   * the venue (#3), read before anything is created or signed; `null` when the venue can't be reached to read it.
+   */
+  async terms() {
     const v = this.deps.values;
+    const agentPermission = await this.deps.door.venue().then(permissionOf, () => null);
     return {
+      agentPermission,
       ceiling: v.ceiling === null ? null : formatAmount(v.ceiling),
       asset: v.asset,
       bounds: {
@@ -405,7 +437,10 @@ export class AgentAccounts {
   async list(principal: Principal): Promise<readonly AgentAccountView[]> {
     assertPerson(principal);
     const rows = await this.deps.store.list(principal.userId);
-    return Promise.all(rows.map((a) => this.advance(principal, a.accountId)));
+    const views = await Promise.all(rows.map((a) => this.advance(principal, a.accountId)));
+    // An ask that ended before the venue opened anything is no account (#3: "a rejected signature ... makes no
+    // account"): it is not listed. One the venue opened a sub-account for stays listed, so the person sees it.
+    return views.filter((v) => !(v.status === 'abandoned' && v.subAccount === null));
   }
 
   /** Prepare (or re-use) one of this account's actions through the door. */
@@ -548,7 +583,7 @@ export class AgentAccounts {
         (await this.refusalOf(principal, approveKey(a.accountId))) ??
         (await this.refusalOf(principal, moveKey(a.accountId)));
     }
-    return this.view(a, moves, next, refusal, isTestVenue(venue.venue), a.subAccount ? await venue.balances(this.subOf(a)) : null);
+    return this.view(a, moves, next, refusal, venue, a.subAccount ? await venue.balances(this.subOf(a)) : null);
   }
 
   private async refusalOf(principal: Principal, key: string): Promise<VenueRefusal | null> {
@@ -579,7 +614,7 @@ export class AgentAccounts {
     moves: readonly AgentMoveRecord[],
     next: NextSignature | null,
     refusal: VenueRefusal | null,
-    test: boolean,
+    venue: UserVenue,
     balances: AsOf<readonly UserVenueBalance[]> | null,
   ): AgentAccountView {
     const { movedIn, movedOut } = netFunding(moves);
@@ -610,7 +645,8 @@ export class AgentAccounts {
       balances,
       next,
       refusal,
-      test,
+      test: isTestVenue(venue.venue),
+      agentPermission: permissionOf(venue),
     };
   }
 

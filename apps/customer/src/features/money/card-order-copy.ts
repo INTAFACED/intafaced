@@ -111,6 +111,9 @@ const en = {
   cashbackRefused: 'Not paid, the reward pot was short: {amount} {asset}',
   cashbackSimulated: 'Paid on spend from the simulation record’s cards.',
   cashbackOff: 'Cashback needs rail.card. It is switched off in this build.',
+  cashbackToWallet:
+    'Cashback on spend the card partner holds: {amount} {asset}. INTAFACED owes it to you and pays it to your own wallet. It is not spendable until it is paid.',
+  cashbackToWalletLink: 'See each payment in My rewards',
   tierNone: 'None',
   tierStandard: 'Standard',
   tierMetal: 'Metal',

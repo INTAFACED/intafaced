@@ -10,6 +10,7 @@ import { GATE_URL, TEST_CHAIN_ID } from '../../../../tooling/scripts/local-test-
 import { testChain } from './dex.mjs';
 import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
 import { installTestWallet } from './test-wallet.mjs';
+import { chainBalance } from './venue.mjs';
 
 // J-agents-02, in the running app (docs/roadmap/journeys.json): set my spending limits and see that a run I cannot pay
 // for never starts. One test per step, titled "J-agents-02 #<n>", run in order on one verified TEST account funded with
@@ -372,13 +373,7 @@ test(`${J} #4 asks for a run when the payment method's available amount, as the 
   const onChain = await chain.getBlock({ blockNumber: block });
   const asOf = new Date(Number(onChain.timestamp) * 1000).toISOString();
   await expect(refusal).toHaveAttribute('data-as-of', asOf);
-  const held = await chain.readContract({
-    address: TEST_USD,
-    abi: erc20Abi,
-    functionName: 'balanceOf',
-    args: [address],
-    blockNumber: block,
-  });
+  const held = await chainBalance(TEST_USD, address, block);
   expect(held).toBeLessThan(toUnits('0.01024') / 10n ** 12n);
   const figure = fromUnits(held * 10n ** 12n);
   // The figure is named in the token the chain holds, by the chain's own name for it, never relabelled.
