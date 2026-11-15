@@ -332,6 +332,61 @@ export async function automaticRevert({ repo, pull, diff, get, git }) {
   return revertTreeMatches(git, { culprit, head: pull.head }) ? culprit : null;
 }
 
+/**
+ * The correction each blocking finding names, from a closed list, so the garden's census can count which correction keeps
+ * coming back and open one weed for it (project-state #2582; poteto's `correct`: "A class counts once it has happened
+ * twice"). Read by code from the finding's own words after the verdict is decided, so it can't change what blocks: the
+ * reviewer's brief and answer are untouched (a replay of 25 heads, two runs a brief, found two runs of the same brief
+ * disagreeing on 6 of 23 heads, so a brief change could not be shown to keep verdicts). First the patterns a type, lint rule
+ * or test could hold, then the finding's REVIEW.md ground (`item N`), else `other`.
+ */
+export const FINDING_PATTERNS = [
+  ['unreviewable', /can't be reviewed whole|split the pull request/i],
+  [
+    'catch-all',
+    /catch\s*(?:\(\s*\w*\s*\))?\s*\{\s*\}|\.catch\(\s*\(\s*\)\s*=>|\bcatch-all\b|\bbare `?catch\b|\bswallow(?:s|ed|ing)?\b|(?:error|failure|rejection)s?\b[^.;]{0,40}\b(?:dropped|ignored|discarded|lost)\b|drops? (?:every|the|each|all) (?:error|failure|rejection)/i,
+  ],
+  [
+    'route-scope',
+    /route-inventory|only declares|declared (?:scope|permission)|(?:scope|permission)[^.;]{0,60}\b(?:declared|metadata)\b[^.;]{0,60}\b(?:not|never)\b[^.;]{0,20}\b(?:enforced|checked)/i,
+  ],
+  [
+    'random-key',
+    /randomUUID|idempotency key[^.;]{0,60}\b(?:random|Date\.now|time-based|timestamp)|(?:random|Date\.now\(\))[^.;]{0,60}\bidempotency key/i,
+  ],
+  [
+    'number-money',
+    /money (?:in|as) a `?number|\bparseFloat\b|(?:amount|balance|price|fee)s? (?:in|as) (?:a )?(?:JS |javascript )?`?number`?/i,
+  ],
+  [
+    'inline-entries',
+    /entries (?:assembled|built|written) inline|inline (?:ledger )?entr|outside (?:the |`?packages\/ledger-client`? )?recipes|balance (?:held|kept) outside/i,
+  ],
+  [
+    'step-id-dropped',
+    /\bretitl|(?:title|titled)[^.;]{0,80}\b(?:step id|`?#\d)[^.;]{0,80}\b(?:dropped|removed|renamed|no longer|lost)|(?:drops?|removes?|loses?) (?:the )?step id/i,
+  ],
+];
+const GROUND_CLASS = { 1: 'money-path', 2: 'security-loosened', 3: 'test-weakened', 4: 'says-not-does' };
+export const FINDING_CLASSES = [
+  ...FINDING_PATTERNS.map(([c]) => c),
+  'money-path',
+  'security-loosened',
+  'test-weakened',
+  'says-not-does',
+  'other',
+];
+/** A blocking finding's class: the first pattern it shows, else its ground's class, else `other`. */
+export function findingClass(f) {
+  const t = String(f);
+  for (const [c, re] of FINDING_PATTERNS) if (re.test(t)) return c;
+  return GROUND_CLASS[/\bitem ([1-5])\b/i.exec(t)?.[1]] ?? 'other';
+}
+/** The classes of a FAIL's blocking findings, each once, in the order given: the census's annotation line. */
+export const findingClasses = (findings) => [...new Set(findings.filter((f) => !/^note:/i.test(f.trim())).map(findingClass))];
+/** The annotation title the census reads the classes from (project-state tooling/garden/census.mjs blameOf). */
+export const CLASSES_TITLE = 'CI review classes';
+
 /** The structured answer the reviewer must give (the reviewer CLI, -p --json-schema). */
 export const VERDICT_SCHEMA = {
   type: 'object',
@@ -1123,6 +1178,8 @@ async function cmdJudge(dir) {
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines.join('\n')}\n`);
   console.log(lines.join('\n'));
   if (v.verdict !== 'PASS') {
+    // The classes only: no finding's text, so nothing in it can change how the census reads this run (its classOf).
+    console.error(`::error title=${CLASSES_TITLE}::${findingClasses(v.findings).join(' ') || 'other'}`);
     console.error(
       `::error title=CI review FAIL::${v.findings.length} blocking finding(s) on ${v.head}; this FAIL stands for this head and its code, so push a fix that changes it (see the job summary)${premise.length ? `. ${premise[1].slice(4)}: write down the one belief your fixes shared and test it before the next push (the job summary)` : ''}`,
     );
