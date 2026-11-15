@@ -408,7 +408,16 @@ test(`${J} #4 reads the REST conventions and the trading API reference index: UR
   await page.goto('/developers/rest');
   await expect(page.getByRole('heading', { name: 'REST conventions', level: 1 })).toBeVisible();
   const body = page.getByRole('main');
-  for (const rule of [/\/api\/v1\/orders\/:id/, /JSON/, /UTC/, /UUID/, /decimal string/i]) await expect(body).toContainText(rule);
+  // Each convention is stated whole, not only named: what a URL holds, the JSON encoding, what a time is, what an id is,
+  // and that money is a decimal string.
+  for (const rule of [
+    'Resource addresses live under /api/v1 and name what they hold: /api/v1/orders, /api/v1/orders/:id, /api/v1/ticker/:symbol.',
+    'Requests and answers are JSON, in UTF-8, sent as application/json.',
+    'Times are UTC: timestamp is Unix milliseconds and datetime is the same instant in ISO 8601 with an offset.',
+    'Order ids are UUIDs, written as strings; an id that is not a UUID names no order and is refused as not found.',
+    'Every price, amount, fee and balance is a decimal string ("0.015"), never a JSON number.',
+  ])
+    await expect(body).toContainText(rule);
   // The symbol format, by example: spot, a linear perpetual, and the encoded form in a path.
   const SYMBOL = /^[A-Z0-9]+\/[A-Z0-9]+(:[A-Z0-9]+(-\d+)?)?$/;
   for (const example of ['BTC/USDT', 'BTC/USDT:USDT']) {
@@ -424,6 +433,8 @@ test(`${J} #4 reads the REST conventions and the trading API reference index: UR
   const listedMarkets = await markets.json();
   expect(Array.isArray(listedMarkets) && listedMarkets.length > 0, JSON.stringify(listedMarkets).slice(0, 200)).toBe(true);
   for (const market of listedMarkets) expect(market.symbol).toMatch(SYMBOL);
+  // The running stack answers as the JSON rule says: application/json, in UTF-8.
+  expect(markets.headers()['content-type'] ?? '').toMatch(/^application\/json(;\s*charset=utf-8)?$/i);
 
   await page.goto('/developers/reference');
   await expect(page.getByRole('heading', { name: 'API reference', level: 1 })).toBeVisible();
