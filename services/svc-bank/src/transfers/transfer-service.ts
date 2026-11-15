@@ -323,7 +323,7 @@ export class TransferService {
         const toPartner = this.spaces.custody.bankFor(to.userId);
         if (partner || toPartner) {
           if (!partner || toPartner !== partner) throw partnerCustodyMismatch();
-          if (!partnerAllowed || keySpace !== 'own') throw partnerPathNotBuilt();
+          if (!partnerAllowed) throw partnerPathNotBuilt();
           // The note and reference bind to the transfer id first, as on the ledger path; "already made" is the partner's.
           await bindTransferMessage(
             this.sql,
@@ -376,13 +376,19 @@ export class TransferService {
     );
   }
 
+  /**
+   * A send to another person's main space under the `p2p` key: the ledger's `bankTransfer` on the custodial layer, or,
+   * when the partner bank holds both people's money (OWNER 226), ONE partner move from the sender's account at the
+   * partner to the recipient's under the same business key (`bank.transfer.p2p:<transferId>:0`), and nothing posted to the
+   * ledger. One side at the partner and the other on the ledger is refused by name (`partnerCustodyMismatch`).
+   */
   async transferToUser(input: {
     transferId: string;
     fromSpaceId: string;
     toUserId: string;
     amount: Amount;
     now?: Date;
-  }): Promise<TransferResult> {
+  }): Promise<TransferResult | PartnerTransferResult> {
     const now = input.now ?? new Date();
     return withMoneySpan(
       'bank.transferToUser',
@@ -396,14 +402,17 @@ export class TransferService {
           // the caller must not be able to tell them apart.
           throw new BankError(RECIPIENT_CANNOT_RECEIVE_MESSAGE, 'bank.recipient_cannot_receive');
         }
-        return this.transfer({
-          transferId: input.transferId,
-          fromSpaceId: input.fromSpaceId,
-          toSpaceId: dest.id,
-          amount: input.amount,
-          keySpace: 'p2p',
-          now,
-        });
+        return this.move(
+          {
+            transferId: input.transferId,
+            fromSpaceId: input.fromSpaceId,
+            toSpaceId: dest.id,
+            amount: input.amount,
+            keySpace: 'p2p',
+            now,
+          },
+          true,
+        );
       },
     );
   }

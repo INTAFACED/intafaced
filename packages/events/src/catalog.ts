@@ -105,6 +105,21 @@ export const userCreated = defineEvent(
   'A sovereign account exists.',
 );
 
+/**
+ * A referral attached (CM-referral-01, CM-referral-02): `userId` was brought by `referrerId`, once and for good (a second
+ * attach is refused before this is sent). Published by svc-identity after the edge commits, business key
+ * `identity.referral.created:<userId>`; svc-campaigns keeps the invitee once by `userId` and tracks their progress under
+ * the referral programme live at `attachedAt`. No personal detail rides on the bus.
+ */
+export const referralCreated = defineEvent(
+  'identity',
+  'referral',
+  'created',
+  1,
+  z.object({ userId: userIdSchema, referrerId: userIdSchema, attachedAt: z.string().datetime({ offset: true }) }).strict(),
+  'A referral edge was recorded: the invitee, their referrer and when. Consumers dedupe on userId.',
+);
+
 export const kycApproved = defineEvent(
   'identity',
   'kyc',
@@ -1527,7 +1542,10 @@ export const personalTransferPosted = defineEvent(
     recipientUserId: userIdSchema,
     amount: amountSchema,
     assetId: assetIdSchema,
-    ledgerTxId: z.string().min(1).max(128),
+    /** The ledger transaction of a send on the custodial layer; null when the partner bank moved it. */
+    ledgerTxId: z.string().min(1).max(128).nullable(),
+    /** The partner bank's move of a send it holds the money for (OWNER 226); absent or null on the custodial layer. */
+    partnerMoveId: z.string().min(1).max(128).nullable().optional(),
     postedAt: z.string().datetime({ offset: true }),
   }),
   'A personal send posted. svc-notify writes pay.transfer_sent for the sender and pay.transfer_received for the recipient.',
@@ -2145,6 +2163,7 @@ export const EVENT_CATALOG = {
   xpEarned,
   rankUpdated,
   userCreated,
+  referralCreated,
   kycApproved,
   kycSubmitted,
   kycRejected,

@@ -422,6 +422,7 @@ export function createBankServices(
     securityLock: options.ramps?.securityLock,
     reviewRule: options.sendReviewRule ?? null,
     remindPolicy: options.remindPolicy ?? null,
+    custody,
   });
   const assetPauses = new AssetPauseService(sql);
   // The supply pause lives in the deposit path so auto-invest cannot go around it.

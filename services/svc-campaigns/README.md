@@ -96,4 +96,4 @@ Publishes none. Consumes `trade.fill.settled` (`fillSettled`) with the durable c
 
 ## Database
 
-Schema `campaigns` (from the database bootstrap): `campaigns`, `participations`, `eligibility_reviews`, `task_progress`, `task_completions`, `reward_intents`, `redemption_attempts`, `pot_fundings`, `seasons`, `drops`, `drop_claims`, `vouchers`, `voucher_attempts`, `campaign_revisions`, `code_batches`, `code_publications`, `alert_settings`, `export_jobs`, `audit_log`, and the view `campaign_rows` (a campaign with the budget its open and paid rewards draw). Migrations in `drizzle/`, applied by `pnpm db:migrate`.
+Schema `campaigns` (from the database bootstrap): `campaigns`, `participations`, `eligibility_reviews`, `task_progress`, `task_completions`, `reward_intents`, `redemption_attempts`, `pot_fundings`, `seasons`, `drops`, `drop_claims`, `vouchers`, `voucher_attempts`, `campaign_revisions`, `code_batches`, `code_publications`, `alert_settings`, `export_jobs`, `referral_invitees`, `referral_events`, `audit_log`, and the view `campaign_rows` (a campaign with the budget its open and paid rewards draw). Migrations in `drizzle/`, applied by `pnpm db:migrate`.
