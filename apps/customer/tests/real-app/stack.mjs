@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LOCAL_TEST_DEVICE_KEY, localStackState, localTestDeviceState } from '../../../../tooling/scripts/local-test-facts.mjs';
+import { noteStackTool } from './partner-start.mjs';
 
 // The parts of a real-app journey that are not the customer's browser: the stack's own tools (the TEST operators,
 // TEST funding, the other TEST trader) and the customer's own API through Edge, to read what the ledger holds.
@@ -228,6 +229,7 @@ const run = (script, args, timeout) =>
  * the tool's own stdout and stderr.
  */
 export function tool(script, ...args) {
+  noteStackTool(script, args);
   try {
     return run(script, args, TOOL_CAP_MS);
   } catch (error) {
@@ -242,6 +244,7 @@ export function tool(script, ...args) {
  * as approveKyb in #7461). Same output, limit and error as `tool`.
  */
 export async function toolAwaited(script, ...args) {
+  noteStackTool(script, args);
   try {
     return await new Promise((resolve, reject) =>
       execFile(
@@ -387,6 +390,27 @@ export async function json(res) {
 }
 
 /**
+ * A spot sell the ledger refused for less base than it asked, with the likely cause added to the refusal's message: a
+ * buy's fee is taken in the asset bought, so a sell of what was bought asks for more than the buy left (#8404
+ * `8cd82aa5`, J-algo-dev-05 #3: "requested 0.001, available 0.000999"). The answer is otherwise the app's own.
+ */
+export function withFeeNote(route, body, res) {
+  if (!/^\/api\/v1\/orders(\?|$)/.test(route) || body?.side !== 'sell' || res?.status !== 400) return res;
+  const message = res.body?.message;
+  const m = typeof message === 'string' ? /Insufficient (\S+): requested (\d[\d.]*\d|\d), available (\d[\d.]*\d|\d)/.exec(message) : null;
+  if (res.body?.intafacedCode !== 'ledger.insufficient_funds' || !m) return res;
+  let short;
+  try {
+    short = toUnits(m[3]) < toUnits(m[2]);
+  } catch {
+    return res;
+  }
+  if (!short) return res;
+  const note = ` (journey helper: a buy's fee is taken in the asset bought, so a sell of what was bought asks for more than the buy left; sell what the balance holds, (await api(who).balances()).${m[1]}.free)`;
+  return { ...res, body: { ...res.body, message: `${message}${note}` } };
+}
+
+/**
  * The customer's own API through Edge, signed in as `who` with a session of its own (not the browser's). An account
  * with an authenticator signs in with a fresh code from it (`totpCode`).
  */
@@ -415,10 +439,12 @@ export async function api(who, { totpCode } = {}) {
   // A kept-alive socket that Edge closed while the test waited (a lane restart takes longer than Edge's idle timeout)
   // fails before any answer. A read is sent once more on a fresh socket; a write never is.
   const call = (method, route, body) =>
-    send(method, route, body).catch((error) => {
-      if (method !== 'GET' || error?.cause?.code !== 'UND_ERR_SOCKET') throw error;
-      return send(method, route, body);
-    });
+    send(method, route, body)
+      .catch((error) => {
+        if (method !== 'GET' || error?.cause?.code !== 'UND_ERR_SOCKET') throw error;
+        return send(method, route, body);
+      })
+      .then((res) => (method === 'POST' ? withFeeNote(route, body, res) : res));
   return {
     /** The account's user id, as identity answered the sign-in. */
     userId: login.body.result.data.userId,

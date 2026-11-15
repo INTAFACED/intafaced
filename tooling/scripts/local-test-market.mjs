@@ -788,6 +788,11 @@ async function preflight(maker, symbols) {
 
 /** Crossing side for the nth crossing in a market: buy, sell, buy, sell... so the taker's balances stay flat. */
 export const crossingSide = (n) => (n % 2 === 1 ? 'buy' : 'sell');
+/**
+ * The two crossings a market's turn makes, as crossing numbers for `crossingSide`: this turn's side, then the other
+ * one, so each turn trades at both the ask and the bid and its 1m bar has range (exported for tests).
+ */
+export const crossingLegs = (n) => [n, n + 1];
 
 /** How long the market waits out a stack whose services are not all up (a restart) before it ends. */
 export const STACK_INACTIVE_LIMIT_MS = 5 * 60_000;
@@ -1212,25 +1217,28 @@ async function runLoop(opts, home) {
           const n = (crossings.get(m.symbol) ?? 0) + 1;
           // Top the taker up through the real ledger if either leg is under half its target.
           await ensureFunds(taker, 'taker', [m.base, m.quote], 10).catch((err) => log(`taker top-up failed: ${err.message}`));
-          // The book's top on both sides, read just before the crossing, so it meets only the maker's own quote.
-          const book = await maker
-            .http('GET', `/api/v1/orderbook/${encodeURIComponent(m.symbol)}?limit=1`, null, { auth: false })
-            .catch(() => null);
-          // This crossing's side first; if it can't meet only the maker, the other side, so one side the maker can't
-          // cross on doesn't stop the tape.
-          const turn = [n, n + 1].find((k) => crossingQuote(ladder, resting, crossingSide(k), book?.status === 200 ? book.json : null));
-          if (turn === undefined) {
-            log(`${m.symbol} no crossing this cycle: the book's top is not the maker's own level-0 quote on either side`);
-            continue;
+          // Both sides, one after the other (`crossingLegs`): a buy at the maker's ask and a sell at its bid, so every
+          // minute that trades has a bar with range, its high at the ask and its low at the bid. One crossing a minute
+          // made a 1m bar of one trade, open = high = low = close, so no bar could reach both a stop loss and a take
+          // profit (J-algo-dev-05 #3, #8404: six heads in a row, 165.6 round minutes). Each leg reads the book's top
+          // just before it, so it meets only the maker's own level-0 quote; a leg that can't is skipped.
+          for (const k of crossingLegs(n)) {
+            const book = await maker
+              .http('GET', `/api/v1/orderbook/${encodeURIComponent(m.symbol)}?limit=1`, null, { auth: false })
+              .catch(() => null);
+            const side = crossingSide(k);
+            const best = crossingQuote(ladder, resting, side, book?.status === 200 ? book.json : null);
+            if (!best) {
+              log(`${m.symbol} no ${side} crossing this cycle: the book's top is not the maker's own level-0 quote on that side`);
+              continue;
+            }
+            // Counted only once placed, as the side placed: buys and sells still alternate.
+            crossings.set(m.symbol, k);
+            const r = await place(taker, m, side, best.price, best.amount, 'IOC');
+            const why = r.status === 201 ? '' : ` (${(r.json?.intafacedCode ?? r.json?.code ?? r.text).toString().slice(0, 120)})`;
+            if (r.status === 201) crossedAt.set(m.symbol, Date.now());
+            log(`${m.symbol} crossing trade by test_taker: ${side} ${best.amount} @ ${best.price} -> HTTP ${r.status}${why}`);
           }
-          const side = crossingSide(turn);
-          const best = crossingQuote(ladder, resting, side, book.json);
-          // Counted only once placed, as the side placed: buys and sells still alternate.
-          crossings.set(m.symbol, turn);
-          const r = await place(taker, m, side, best.price, best.amount, 'IOC');
-          const why = r.status === 201 ? '' : ` (${(r.json?.intafacedCode ?? r.json?.code ?? r.text).toString().slice(0, 120)})`;
-          if (r.status === 201) crossedAt.set(m.symbol, Date.now());
-          log(`${m.symbol} crossing trade by test_taker: ${side} ${best.amount} @ ${best.price} -> HTTP ${r.status}${why}`);
         }
       }
       inactiveSince = null;

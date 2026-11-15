@@ -168,10 +168,11 @@ test(`${J} #3 attaches a take profit and a stop loss and runs a bar that hits bo
   page,
 }) => {
   test.setTimeout(20 * 60_000);
-  // The TEST taker crosses about once a minute, so a 1 minute bar of the tape holds one trade and has no range. A second
-  // TEST account trades the book both ways every few seconds (a market buy meets the ask, a market sell the bid, the
-  // two nearly cancelling out), so the bars this run reads hold trades on both sides of their open. A buy's fee is taken
-  // in BTC (0.001 bought leaves 0.000999), so each sell is a little smaller than the buy before it.
+  // The TEST taker crosses both sides on each of its turns (local-test-market.mjs `crossingLegs`), so a 1 minute bar of
+  // the tape spans the spread. A second TEST account also trades the book both ways every few seconds (a market buy
+  // meets the ask, a market sell the bid, the two nearly cancelling out), so the bars this run reads hold trades on both
+  // sides of their open. A buy's fee is taken in BTC (0.001 bought leaves 0.000999), so each sell is a little smaller
+  // than the buy before it.
   const tape = await api(await fundedTrader(page, 'jt', '2000'));
   let tick = 0;
   async function tradeBothWays(seconds) {
