@@ -89,6 +89,16 @@ export const GATES = [
       'Generated from the code, so a stale copy fails here, the same way the tracker does.',
   },
   {
+    id: 'architecture-map',
+    script: 'tooling/ci/architecture-map.mjs',
+    args: ['--check'],
+    doctrine: 'agent map honesty',
+    why:
+      'docs/ARCHITECTURE.md is what every agent reads first. Its hand-kept count said 24 packages for 29 and its services ' +
+      'table had no svc-campaigns row (project-state#2338). The count block is generated from the folders, and the Apps and ' +
+      'Services tables must hold one row per folder, so a stale copy fails here.',
+  },
+  {
     id: 'reachability',
     script: 'tooling/ci/reachability-scan.mjs',
     doctrine: 'L3 slice factory law, Reachability law',
@@ -319,6 +329,8 @@ export const GATES = [
  * unrun for weeks.
  */
 export const NOT_GATES = {
+  'architecture-map.test.mjs':
+    'not a gate: the node:test file of architecture-map.mjs, replayed on project-state#2338 (the count of 24 packages for 29; no svc-campaigns row) with planted faults (a row for a deleted service, a missing package). tooling-tests.mjs runs it with every other tooling test.',
   'custody-layer-check.mjs':
     'not a gate on its own: check 4 of custody-scan.mjs (the custody switch, OWNER 226), imported and run by it, so the `custody` gate runs it. A separate module so its plants can run in a sandbox copy without touching the tree.',
   'custody-layer-check.test.mjs':
