@@ -4,10 +4,7 @@ import type { RefusalView } from '@/lib/desk/refusal-copy';
 import { readBulkResults, type BulkChange, type BulkExpected, type BulkRow } from './bulk';
 import { readClaimReply } from './browser';
 import type { SupportBulkPolicyView } from './types';
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
+import { isRecord } from '@intafaced/contracts/guards';
 
 export async function fetchBulkPolicy(signal?: AbortSignal): Promise<SupportBulkPolicyView | null> {
   try {

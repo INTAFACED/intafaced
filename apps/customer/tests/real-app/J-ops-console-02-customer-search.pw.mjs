@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { makeContext } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { signUpInBrowser } from './stack.mjs';
+import { signUpInBrowser, STACK_PORTS } from './stack.mjs';
 
 // J-ops-console-02 step #1: a founder finds customers in the console by the start of a handle or a whole email (identity's
 // operator search). 26 fresh TEST customers share a handle start, one more than identity's page of 25: the first page shows
@@ -23,7 +23,7 @@ const PEOPLE = PAGE + 1;
 async function identityDb(read) {
   const ctx = await makeContext({ log: () => undefined });
   const postgres = createRequire(path.join(REPO, 'services', 'svc-identity', 'package.json'))('postgres');
-  const port = ctx.marker.ports.postgres ?? 15460;
+  const port = ctx.marker.ports.postgres ?? STACK_PORTS.postgres;
   const sql = postgres(`postgres://svc_identity:${encodeURIComponent(ctx.secrets.pgService)}@127.0.0.1:${port}/intafaced_local_test`, {
     max: 1,
     onnotice: () => {},

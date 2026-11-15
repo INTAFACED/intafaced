@@ -1,19 +1,28 @@
 import { createHash } from 'node:crypto';
 import { add, compare, div, formatAmount, max, min, mul, parseAmount, sub, ZERO, type Amount } from '@intafaced/ledger-client/money';
 import {
+  type AgentPermissionReach,
   VenueRefusalError,
   assertSignatureMatches,
   assertSignerMaySign,
   venueClientOrderId,
+  ordersTakenTogether,
   type AsOf,
   type MaybeKnown,
   type VenueBuilderTotals,
+  type UserVenueBuilderClaim,
   type PlaceUserOrderIntent,
+  type PlaceUserOrdersIntent,
+  type ReplaceUserOrderIntent,
+  type CancelUserOrdersIntent,
+  cancelsTakenTogether,
+  type VenueLegOutcome,
   type PreparedVenueAction,
   type UserVenue,
   type UserVenueAccount,
   type UserVenueAgent,
   type UserVenueBalance,
+  type UserVenueArrival,
   type UserVenueDeposit,
   type UserVenueDescriptor,
   type UserVenueFeed,
@@ -23,6 +32,8 @@ import {
   type UserVenueLeverage,
   type UserVenueListing,
   type UserVenueMarginAccountRule,
+  type UserVenueMarginTier,
+  type UserVenueCollateral,
   type UserVenueMarketMargin,
   type UserVenueMarketEvent,
   type UserVenueSettlement,
@@ -46,6 +57,12 @@ import {
   type VenueSignature,
   type VenueSigner,
   type VenueSubmitOutcome,
+  type VenueTrigger,
+  type VenueTriggerSource,
+  type VenueCandle,
+  type VenueCandleInterval,
+  type VenuePrint,
+  VENUE_CANDLE_INTERVALS,
 } from '@intafaced/venue-contracts';
 import { TEST_VENUE_CHAIN_ID, buildTypedData, digestOf, recoverSigner, testVenueDomain } from './signing.js';
 
@@ -167,6 +184,13 @@ export interface SimMarketConfig {
   /** The largest order size (base) and notional (quote) at start; absent is `null` (not reported). TEST figures. */
   readonly maxOrderQty?: Amount | null;
   readonly maxOrderNotional?: Amount | null;
+  /**
+   * The venue's published smallest order value (quote), price band (scaled bps around the middle of its own book) and
+   * most open orders per account, at start; absent is `null` (not published, and not enforced). TEST figures.
+   */
+  readonly minOrderNotional?: Amount | null;
+  readonly priceBandBps?: Amount | null;
+  readonly maxOpenOrders?: number | null;
   /** Who lists the market, as the venue publishes it. Unset: not published. */
   readonly listedBy?: UserVenueListing;
   /** The venue's published oracle and mark-price rules and trading hours, in its words. Unset: not published. */
@@ -202,6 +226,20 @@ export interface SimMarketConfig {
   readonly marginAccount?: UserVenueMarginAccountRule;
   /** The deployer's cap on the market's open interest at start, in base units; absent: no open interest is reported. */
   readonly openInterestCap?: Amount | null;
+  /**
+   * Perpetuals: the prices the venue judges its trigger orders on (`VenueTrigger`). Absent or empty: it takes no trigger
+   * order on this market, and one refuses `not_offered`.
+   */
+  readonly triggerSources?: readonly VenueTriggerSource[];
+  /**
+   * Perpetuals: the venue's published margin tiers, lowest `fromNotional` first (the first from zero). Set, they are the
+   * venue's rule: a position's maintenance margin is its tier's rate (not `maintenanceMarginRate`), and an opening order
+   * whose position notional would reach a tier above the account's leverage refuses `leverage_above_cap`, naming the
+   * tier. Unset: none published, and the flat `maintenanceMarginRate` applies.
+   */
+  readonly marginTiers?: readonly UserVenueMarginTier[];
+  /** What the venue publishes it takes as margin on this market, each with its haircut. Unset: no list published. */
+  readonly collateral?: readonly UserVenueCollateral[];
 }
 
 /**
@@ -209,6 +247,12 @@ export interface SimMarketConfig {
  * declares its own; this TEST value stands in on test stacks only.
  */
 export const TEST_VENUE_FIGURE_STALE_AFTER_MS = 60_000;
+
+/**
+ * TEST: the longest an agent permission with an end date may last on the TEST venue (J-agents-21 #19), 180 days. A real
+ * venue's adapter declares its own; this TEST value stands in on test stacks only.
+ */
+export const TEST_VENUE_AGENT_VALIDITY_MAX_MS = 180 * 24 * 60 * 60 * 1000;
 
 export interface SimSwitches {
   venueDown: boolean;
@@ -242,6 +286,15 @@ export interface SimOptions {
   readonly switches?: Partial<SimSwitches>;
   /** The EIP-712 domain's chain id (signing.ts). Default `TEST_VENUE_CHAIN_ID`. */
   readonly chainId?: number;
+  /**
+   * The most orders this TEST venue takes in one signed action (`place_orders`), as its descriptor declares it. Default:
+   * none declared, so it takes one order per signature.
+   */
+  readonly ordersPerAction?: number;
+  /** True when this TEST venue lowers a resting order's amount in place (`amend_order`), as its descriptor declares it. */
+  readonly amendsInPlace?: boolean;
+  /** The most orders this TEST venue cancels in one signed action (`cancel_orders`). Default: none declared. */
+  readonly cancelsPerAction?: number;
 }
 
 interface AccountState {
@@ -255,6 +308,8 @@ interface AccountState {
   readonly builderApprovals: Map<string, Amount>;
   readonly agents: Map<string, UserVenueAgent>;
   readonly deposits: Set<string>;
+  /** Every credit from outside the account (a deposit), oldest first: the venue's own record of it (J-portfolio-02 #6). */
+  readonly arrivals: UserVenueArrival[];
   readonly leverage: Map<string, { leverageBps: number; marginMode: VenueMarginMode }>;
   /** Main account only: its sub-accounts, by venue id. */
   readonly subAccounts: Map<string, UserVenueSubAccount>;
@@ -279,6 +334,9 @@ interface OrderState {
   readonly lockPerUnit: Amount;
   /** The deployer margin account the order's lock sits in (a market with `marginAccount`), or `null`: the main balances. */
   readonly marginAccount: string | null;
+  /** A trigger order attached to an entry: the entry, and the size the person asked for (it arms on what the entry filled). */
+  readonly parent?: OrderState | null;
+  readonly requested?: Amount;
 }
 
 interface PositionState {
@@ -298,6 +356,10 @@ interface SubmittedRecord {
 /** How far back the TEST funding history reaches, and its most rows per read (J-charts-desk-04 #6). TEST. */
 const FUNDING_HISTORY_MS = 24 * 3_600_000;
 const FUNDING_HISTORY_ROWS = 500;
+/** The public prints the simulator keeps per market, newest last; the tape and the candles read from these. */
+const PRINTS_KEPT = 5_000;
+/** The most prints or candles one read answers. */
+const MARKET_READ_MAX = 500;
 
 function refuse(venueId: string, code: VenueRefusalCode, detail: string): never {
   throw new VenueRefusalError({ venueId, code, detail });
@@ -308,8 +370,33 @@ function accountKey(account: UserVenueAccount): string {
 }
 
 export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
-  readonly venue: UserVenueDescriptor;
+  venue: UserVenueDescriptor;
   readonly switches: SimSwitches;
+
+  /**
+   * TEST: what the descriptor declares as an agent permission's reach (`agentPermissionReach`), so a journey can show
+   * what the app tells a person on a venue whose permission reaches their other accounts (J-agents-21 #3). The
+   * declaration only: the simulator's own agents stay live on the one account they were approved on (`agentLive`).
+   */
+  declareAgentPermissionReach(reach: AgentPermissionReach): void {
+    this.venue = { ...this.venue, agentPermissionReach: reach };
+  }
+  /**
+   * TEST: whether the descriptor declares an amend in place (`amendsInPlace`), so a journey can show the app's other branch,
+   * a reviewed cancel-and-replace, against the same running venue (J-cex-spot-05 #2). A door reads it when it connects.
+   */
+  declareAmendsInPlace(on: boolean): void {
+    const { amendsInPlace: _dropped, ...rest } = this.venue;
+    this.venue = on ? { ...rest, amendsInPlace: true } : rest;
+  }
+  /**
+   * TEST: how many cancels the descriptor declares it takes in one signed action (`cancelsPerAction`); `null` declares
+   * none, so a cancel goes one per signature. A door reads it when it connects (J-cex-spot-05 #5, #6).
+   */
+  declareCancelsPerAction(n: number | null): void {
+    const { cancelsPerAction: _dropped, ...rest } = this.venue;
+    this.venue = n === null ? rest : { ...rest, cancelsPerAction: n };
+  }
   /** The chain id every action's EIP-712 domain names. */
   readonly chainId: number;
   private readonly clock: () => Date;
@@ -338,16 +425,37 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   private fillCounter = 0;
   /** Builder fees charged, by builder address and fee asset: the venue's own builder totals (OWNER 288 1e). */
   private readonly builderEarned = new Map<string, Map<string, Amount>>();
+  /** Builder fee claims, by builder address, oldest first: the venue's own claim record (J-derivatives-17). */
+  private readonly builderClaimRecord = new Map<string, UserVenueBuilderClaim[]>();
+  private builderClaimCounter = 0;
   private venueOrderCounter = 0;
   /** Each market's own state and largest order, changed by the TEST controls. */
   private readonly marketState = new Map<
     string,
-    { status: UserVenueMarketStatus | null; maxOrderQty: Amount | null; maxOrderNotional: Amount | null }
+    {
+      status: UserVenueMarketStatus | null;
+      maxOrderQty: Amount | null;
+      maxOrderNotional: Amount | null;
+      minOrderNotional: Amount | null;
+      priceBandBps: Amount | null;
+      maxOpenOrders: number | null;
+    }
   >();
   /** Each market's deployer cap on its open interest (base units; `null`: none set), for a market that reports one. */
   private readonly openInterestCaps = new Map<string, Amount | null>();
   /** Each market's latest halt or split that settled its positions (`settleMarket`). */
   private readonly marketEvents = new Map<string, UserVenueMarketEvent>();
+  /** Each perpetual's last traded price, the `last` trigger source; absent until its first fill. */
+  private readonly lastTrades = new Map<string, Amount>();
+  /** Every market's public prints, oldest first, at most `PRINTS_KEPT` (J-cex-spot-01 #5: the tape, ticker and chart). */
+  private readonly prints = new Map<string, VenuePrint[]>();
+  private printCounter = 0;
+  /** Each perpetual's TEST index (oracle) price, as the venue publishes it (`setIndex`); it starts at the market's mark. */
+  private readonly indexes = new Map<string, Amount>();
+  /** Trigger orders waiting for their source to cross their price, by market. They are not on the book. */
+  private readonly triggers = new Map<string, OrderState[]>();
+  /** Set while trigger orders are being fired, so a fill a trigger order makes never fires another from inside it. */
+  private firing = false;
 
   constructor(options: SimOptions) {
     const id = options.id ?? 'test-venue-sim';
@@ -358,6 +466,12 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       sequencedDepth: true,
       proofLevel: 'simulator',
       figureStaleAfterMs: TEST_VENUE_FIGURE_STALE_AFTER_MS,
+      agentValidityMaxMs: TEST_VENUE_AGENT_VALIDITY_MAX_MS,
+      // An agent approved on a sub-account is live only in that account's state (`agentLive`), so it trades nothing else.
+      agentPermissionReach: 'own_account_only',
+      ...(options.ordersPerAction !== undefined ? { ordersPerAction: options.ordersPerAction } : {}),
+      ...(options.amendsInPlace ? { amendsInPlace: true } : {}),
+      ...(options.cancelsPerAction !== undefined ? { cancelsPerAction: options.cancelsPerAction } : {}),
     };
     this.clock = options.clock;
     this.chainId = testVenueDomain(options.chainId ?? TEST_VENUE_CHAIN_ID).chainId;
@@ -378,11 +492,16 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     for (const market of options.markets) {
       this.marketsBySymbol.set(market.symbol, market);
       this.resting.set(market.symbol, []);
+      this.triggers.set(market.symbol, []);
       if (market.markPrice !== undefined) this.marks.set(market.symbol, market.markPrice);
+      if (market.kind === 'perpetual' && market.markPrice !== undefined) this.indexes.set(market.symbol, market.markPrice);
       this.marketState.set(market.symbol, {
         status: market.status === undefined ? 'trading' : market.status,
         maxOrderQty: market.maxOrderQty ?? null,
         maxOrderNotional: market.maxOrderNotional ?? null,
+        minOrderNotional: market.minOrderNotional ?? null,
+        priceBandBps: market.priceBandBps ?? null,
+        maxOpenOrders: market.maxOpenOrders ?? null,
       });
       if (market.openInterestCap !== undefined) this.openInterestCaps.set(market.symbol, market.openInterestCap);
     }
@@ -398,11 +517,16 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     }
     this.marketsBySymbol.set(market.symbol, market);
     this.resting.set(market.symbol, []);
+    this.triggers.set(market.symbol, []);
     if (market.markPrice !== undefined) this.marks.set(market.symbol, market.markPrice);
+    if (market.kind === 'perpetual' && market.markPrice !== undefined) this.indexes.set(market.symbol, market.markPrice);
     this.marketState.set(market.symbol, {
       status: market.status === undefined ? 'trading' : market.status,
       maxOrderQty: market.maxOrderQty ?? null,
       maxOrderNotional: market.maxOrderNotional ?? null,
+      minOrderNotional: market.minOrderNotional ?? null,
+      priceBandBps: market.priceBandBps ?? null,
+      maxOpenOrders: market.maxOpenOrders ?? null,
     });
     if (market.openInterestCap !== undefined) this.openInterestCaps.set(market.symbol, market.openInterestCap);
   }
@@ -432,7 +556,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       refuse(this.venue.id, 'venue_rejected', 'a split needs a ratio above zero');
     const at = this.clock();
     const cancelled = new Map<AccountState, (string | null)[]>();
-    for (const order of [...this.bookOf(symbol)]) {
+    for (const order of [...this.bookOf(symbol), ...(this.triggers.get(symbol) ?? [])]) {
       this.release(order, 'canceled');
       cancelled.set(order.account, [...(cancelled.get(order.account) ?? []), order.order.venueClientOrderId]);
     }
@@ -517,12 +641,27 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     this.openInterestCaps.set(symbol, cap);
   }
 
-  /** TEST control: the market's largest order size and notional (`null`: not reported). Changes no order. */
-  setMarketLimits(symbol: string, limits: { maxOrderQty: Amount | null; maxOrderNotional: Amount | null }): void {
+  /**
+   * TEST control: the market's largest order size and notional, and its smallest order value, price band and open-order
+   * cap (`null`: not reported). A rule left out is kept as it is. Changes no order.
+   */
+  setMarketLimits(
+    symbol: string,
+    limits: {
+      maxOrderQty?: Amount | null;
+      maxOrderNotional?: Amount | null;
+      minOrderNotional?: Amount | null;
+      priceBandBps?: Amount | null;
+      maxOpenOrders?: number | null;
+    },
+  ): void {
     this.market(symbol);
     const state = this.marketState.get(symbol)!;
-    state.maxOrderQty = limits.maxOrderQty;
-    state.maxOrderNotional = limits.maxOrderNotional;
+    if (limits.maxOrderQty !== undefined) state.maxOrderQty = limits.maxOrderQty;
+    if (limits.maxOrderNotional !== undefined) state.maxOrderNotional = limits.maxOrderNotional;
+    if (limits.minOrderNotional !== undefined) state.minOrderNotional = limits.minOrderNotional;
+    if (limits.priceBandBps !== undefined) state.priceBandBps = limits.priceBandBps;
+    if (limits.maxOpenOrders !== undefined) state.maxOpenOrders = limits.maxOpenOrders;
   }
 
   // ── test controls (the simulator's own levers; never part of UserVenue) ──
@@ -554,7 +693,14 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     state.deposits.add(depositRef);
     const balance = this.balance(state, asset);
     balance.free = add(balance.free, amount);
+    state.arrivals.push({ arrivalId: depositRef, kind: 'deposit', asset, amount, arrivedAt: this.clock() });
     return true;
+  }
+
+  /** The coins credited to this account from outside it, oldest first (J-portfolio-02 #6): each deposit it credited. */
+  async arrivals(account: UserVenueAccount): Promise<AsOf<readonly UserVenueArrival[]>> {
+    this.up();
+    return this.asOf([...this.account(account).arrivals]);
   }
 
   /**
@@ -605,6 +751,16 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     if (this.offHours.has(symbol))
       refuse(this.venue.id, 'market_off_hours', `${symbol}'s home market is closed: the mark holds at the last open-hours price`);
     this.marks.set(symbol, price);
+    // A trigger order judged on the mark fires as soon as the mark crosses it.
+    this.runTriggers();
+  }
+
+  /** TEST control: the perpetual's TEST index (oracle) price, as the venue publishes it. No venue trigger is judged on it. */
+  setIndex(symbol: string, price: Amount): void {
+    const market = this.market(symbol);
+    if (market.kind !== 'perpetual') refuse(this.venue.id, 'not_offered', `${symbol} is cash spot: it has no index`);
+    if (compare(price, ZERO) <= 0) refuse(this.venue.id, 'venue_rejected', 'an index price must be above zero');
+    this.indexes.set(symbol, price);
   }
 
   /** TEST: the next `count` submits on this account are applied and then answered `definite: false` (a lost answer). */
@@ -714,7 +870,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
    * Settle one pending withdrawal: `done` (the chain confirmed it) or `failed` (the venue returns the amount and its fee
    * to free). False when it is not pending (already settled, or unknown): settling twice changes nothing.
    */
-  settleWithdrawal(account: UserVenueAccount, nonce: string, outcome: 'done' | 'failed'): boolean {
+  settleWithdrawal(account: UserVenueAccount, nonce: string, outcome: 'done' | 'failed', txHash?: string): boolean {
     const state = this.account(account);
     const withdrawal = state.withdrawals.get(nonce);
     if (!withdrawal || withdrawal.status !== 'pending') return false;
@@ -722,7 +878,12 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       const balance = this.balance(state, withdrawal.asset);
       balance.free = add(balance.free, add(withdrawal.amount, this.withdrawalFeeCharged.get(`${state.key}#${nonce}`) ?? ZERO));
     }
-    state.withdrawals.set(nonce, { ...withdrawal, status: outcome });
+    // The chain transaction that paid it, when a chain payer settled it (chain-deposits.ts); a TEST settle names none.
+    state.withdrawals.set(nonce, {
+      ...withdrawal,
+      status: outcome,
+      ...(outcome === 'done' && txHash ? { txHash: txHash.toLowerCase() } : {}),
+    });
     return true;
   }
 
@@ -747,6 +908,9 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       status: this.marketState.get(m.symbol)!.status,
       maxOrderQty: this.marketState.get(m.symbol)!.maxOrderQty,
       maxOrderNotional: this.marketState.get(m.symbol)!.maxOrderNotional,
+      minOrderNotional: this.marketState.get(m.symbol)!.minOrderNotional,
+      priceBandBps: this.marketState.get(m.symbol)!.priceBandBps,
+      maxOpenOrders: this.marketState.get(m.symbol)!.maxOpenOrders,
       builderFeeCapBps: m.builderFeeCapBps ?? { known: false },
       listedBy: published(m.listedBy),
       oracleRule: published(m.oracleRule),
@@ -762,6 +926,12 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       contractSize: published(m.contractSize),
       mark: published(m.kind === 'perpetual' ? this.marks.get(m.symbol) : undefined),
       funding: m.funding ? { known: true, value: this.fundingOf(m.funding) } : { known: false },
+      triggerSources: m.kind === 'perpetual' ? (m.triggerSources ?? []) : [],
+      index: published(m.kind === 'perpetual' ? this.indexes.get(m.symbol) : undefined),
+      // The simulator's own rule (`place`): an order that would cross this account's own resting order cancels the resting one.
+      selfTrade: { known: true, value: 'cancel_resting' },
+      marginTiers: published(m.kind === 'perpetual' ? m.marginTiers : undefined),
+      collateral: published(m.collateral),
     }));
     return this.asOf(list);
   }
@@ -795,6 +965,47 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     for (let t = Math.ceil(from / step) * step; t <= now && rows.length < FUNDING_HISTORY_ROWS; t += step)
       rows.push({ fundingAt: new Date(t), rate: market.funding.rate });
     return this.asOf(rows);
+  }
+
+  /** The newest `limit` public prints on `symbol`, newest first: every account's fills, one print per match. */
+  async trades(symbol: string, limit: number): Promise<AsOf<readonly VenuePrint[]>> {
+    this.up();
+    const market = this.market(symbol);
+    const kept = this.prints.get(market.symbol) ?? [];
+    return this.asOf(kept.slice(-Math.min(limit, MARKET_READ_MAX)).reverse());
+  }
+
+  /**
+   * The newest `limit` candles of `symbol`'s prints on `interval`, oldest first; an interval with no print is not sent.
+   * TEST: only the prints the simulator keeps (`PRINTS_KEPT`) are counted.
+   */
+  async candles(symbol: string, interval: VenueCandleInterval, limit: number): Promise<AsOf<readonly VenueCandle[]>> {
+    this.up();
+    const market = this.market(symbol);
+    const stepMs = VENUE_CANDLE_INTERVALS[interval] * 1000;
+    const out: VenueCandle[] = [];
+    for (const p of this.prints.get(market.symbol) ?? []) {
+      const openMs = Math.floor(p.tradedAt.getTime() / stepMs) * stepMs;
+      const last = out[out.length - 1];
+      if (last && last.openAt.getTime() === openMs)
+        out[out.length - 1] = {
+          ...last,
+          highPrice: max(last.highPrice, p.price),
+          lowPrice: min(last.lowPrice, p.price),
+          closePrice: p.price,
+          baseVolume: add(last.baseVolume, p.amount),
+        };
+      else
+        out.push({
+          openAt: new Date(openMs),
+          openPrice: p.price,
+          highPrice: p.price,
+          lowPrice: p.price,
+          closePrice: p.price,
+          baseVolume: p.amount,
+        });
+    }
+    return this.asOf(out.slice(-Math.min(limit, MARKET_READ_MAX)));
   }
 
   async book(symbol: string, depth: number): Promise<AsOf<VenueBook>> {
@@ -934,7 +1145,13 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     this.up();
     this.validate(account, signer, intent);
     const cloid =
-      intent.kind === 'place_order' || intent.kind === 'cancel_order' ? venueClientOrderId(this.venue.id, intent.clientOrderKey) : null;
+      intent.kind === 'place_order' || intent.kind === 'cancel_order'
+        ? venueClientOrderId(this.venue.id, intent.clientOrderKey)
+        : intent.kind === 'replace_order'
+          ? venueClientOrderId(this.venue.id, intent.order.clientOrderKey)
+          : intent.kind === 'amend_order'
+            ? intent.venueClientOrderId
+            : null;
     const builderFee: PreparedVenueAction['builderFee'] =
       intent.kind === 'place_order' && intent.builderFee
         ? { builder: intent.builderFee.builder.toLowerCase(), feeBps: intent.builderFee.feeBps }
@@ -975,6 +1192,26 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     // `not_offered` below whatever its state, so it keeps that one answer.
     if (account.subAccount !== null && intent.kind !== 'withdraw') this.subAccountOf(account.owner, account.subAccount);
     switch (intent.kind) {
+      case 'place_orders': {
+        const most = ordersTakenTogether(this.venue);
+        if (most < 2)
+          refuse(this.venue.id, 'not_offered', `${this.venue.displayName} takes one order per signature: sign each order on its own`);
+        if (!Array.isArray(intent.orders) || intent.orders.length < 2)
+          refuse(this.venue.id, 'venue_rejected', 'orders signed together are at least two');
+        if (intent.orders.length > most)
+          refuse(this.venue.id, 'not_offered', `${this.venue.displayName} takes at most ${most} orders in one signed action`);
+        const keys = new Set(intent.orders.map((o) => o.clientOrderKey));
+        if (keys.size !== intent.orders.length)
+          refuse(this.venue.id, 'venue_rejected', 'each order signed together has its own client order key');
+        for (const order of intent.orders) {
+          if (order?.kind !== 'place_order') refuse(this.venue.id, 'venue_rejected', 'only orders are signed together');
+          // A trigger order rests unseen; one attached to an entry is armed by that entry: neither is sent in a batch here.
+          if (order.trigger || order.parentClientOrderKey) refuse(this.venue.id, 'not_offered', 'a trigger order is signed on its own');
+          // Each order's own checks, so the wallet is never asked to sign an order that must fail on its face.
+          this.validate(account, signer, order);
+        }
+        return;
+      }
       case 'place_order': {
         this.checkOrderOnItsFace(state, intent);
         venueClientOrderId(this.venue.id, intent.clientOrderKey); // refuses a key that is not a business key
@@ -1012,9 +1249,57 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       case 'approve_builder_fee':
         if (compare(intent.maxFeeBps, ZERO) < 0) refuse(this.venue.id, 'venue_rejected', 'a builder fee approval cannot be negative');
         return;
-      case 'amend_order':
-        refuse(this.venue.id, 'not_offered', 'amend is not offered on the TEST venue simulator: cancel and place a new order');
-      // falls through: refuse never returns
+      case 'amend_order': {
+        if (!this.venue.amendsInPlace)
+          refuse(this.venue.id, 'not_offered', `${this.venue.displayName} does not amend in place: cancel and replace the order`);
+        const resting = this.restingOrder(state, intent.symbol, intent.venueClientOrderId);
+        if (compare(intent.price, resting.order.price) !== 0)
+          refuse(this.venue.id, 'not_offered', 'a new price is not an amend in place: cancel and replace the order');
+        if (compare(intent.amount, ZERO) <= 0) refuse(this.venue.id, 'venue_rejected', 'the amount left must be positive');
+        if (compare(intent.amount, resting.order.remaining) >= 0)
+          refuse(this.venue.id, 'not_offered', `${this.venue.displayName} amends in place only to lower the amount left`);
+        this.checkOrderOnItsFace(state, {
+          kind: 'place_order',
+          symbol: intent.symbol,
+          side: resting.order.side,
+          type: resting.order.type,
+          amount: intent.amount,
+          price: intent.price,
+          timeInForce: resting.order.timeInForce,
+          reduceOnly: resting.order.reduceOnly,
+          clientOrderKey: 'amend:check',
+          builderFee: null,
+        });
+        return;
+      }
+      case 'replace_order': {
+        if (intent.order?.kind !== 'place_order') refuse(this.venue.id, 'venue_rejected', 'a replacement is an order');
+        if (intent.order.symbol !== intent.symbol)
+          refuse(this.venue.id, 'venue_rejected', 'the replacement is on the market of the order it replaces');
+        if (intent.order.trigger || intent.order.parentClientOrderKey)
+          refuse(this.venue.id, 'not_offered', 'a trigger order is not placed as a replacement');
+        if (venueClientOrderId(this.venue.id, intent.order.clientOrderKey) === intent.venueClientOrderId)
+          refuse(this.venue.id, 'venue_rejected', 'the replacement has a client id of its own');
+        this.market(intent.symbol);
+        this.validate(account, signer, intent.order);
+        return;
+      }
+      case 'cancel_orders': {
+        const most = cancelsTakenTogether(this.venue);
+        if (most < 1) refuse(this.venue.id, 'not_offered', `${this.venue.displayName} cancels one order per signature`);
+        if (!Array.isArray(intent.orders) || intent.orders.length < 1)
+          refuse(this.venue.id, 'venue_rejected', 'a batch cancel names at least one order');
+        if (intent.orders.length > most)
+          refuse(this.venue.id, 'not_offered', `${this.venue.displayName} cancels at most ${most} orders in one signed action`);
+        const ids = new Set(intent.orders.map((o) => o?.venueClientOrderId));
+        if (ids.size !== intent.orders.length) refuse(this.venue.id, 'venue_rejected', 'each order in a batch cancel is named once');
+        for (const o of intent.orders) {
+          if (typeof o?.venueClientOrderId !== 'string' || o.venueClientOrderId === '')
+            refuse(this.venue.id, 'venue_rejected', 'each order in a batch cancel is named by its client id');
+          this.market(o.symbol);
+        }
+        return;
+      }
       case 'cancel_order':
         this.market(intent.symbol);
         venueClientOrderId(this.venue.id, intent.clientOrderKey); // refuses a key that is not a business key
@@ -1135,12 +1420,26 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     }
 
     const outcome = this.apply(prepared);
+    // A fill moves the mark and the last price: any trigger order they now cross fires before the answer goes back.
+    this.runTriggers();
     this.assertNoNegativeBalance();
-    if (prepared.intent.kind === 'place_order' && outcome.definite && outcome.accepted && recovered) {
+    const placedKeys =
+      prepared.intent.kind === 'place_order'
+        ? outcome.definite && outcome.accepted
+          ? [prepared.intent.clientOrderKey]
+          : []
+        : prepared.intent.kind === 'place_orders' && outcome.definite && outcome.accepted
+          ? prepared.intent.orders.filter((_, i) => outcome.legs?.[i]?.accepted).map((o) => o.clientOrderKey)
+          : prepared.intent.kind === 'replace_order' && outcome.definite && outcome.accepted && outcome.legs?.[1]?.accepted
+            ? [prepared.intent.order.clientOrderKey]
+            : [];
+    if (placedKeys.length > 0 && recovered) {
       const signers = this.orderSigners.get(key) ?? new Map<string, VenueSigner>();
       this.orderSigners.set(key, signers);
-      const cloid = venueClientOrderId(this.venue.id, prepared.intent.clientOrderKey);
-      if (!signers.has(cloid)) signers.set(cloid, { role: prepared.signer.role, address: recovered });
+      for (const clientOrderKey of placedKeys) {
+        const cloid = venueClientOrderId(this.venue.id, clientOrderKey);
+        if (!signers.has(cloid)) signers.set(cloid, { role: prepared.signer.role, address: recovered });
+      }
     }
     byNonce.set(prepared.nonce, { digest, outcome });
     if (this.switches.loseAnswers > 0) {
@@ -1231,8 +1530,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
 
   /**
    * The TEST venue's own builder-fee totals for `builder` (OWNER 288 1e): every builder fee it charged on a fill that
-   * carried that builder, per fee asset. No builder claims here, so all of it is unclaimed. The `builderTotalsUnknown`
-   * switch answers not known.
+   * carried that builder, per fee asset, and what of it the builder has not claimed (`claimBuilderFees`). The
+   * `builderTotalsUnknown` switch answers not known.
    */
   async builderTotals(builder: string): Promise<AsOf<MaybeKnown<VenueBuilderTotals>>> {
     this.up();
@@ -1240,8 +1539,51 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     const b = builder.toLowerCase();
     const assets = [...(this.builderEarned.get(b) ?? new Map<string, Amount>()).entries()]
       .sort(([x], [y]) => x.localeCompare(y))
-      .map(([asset, earned]) => ({ asset, earned, unclaimed: earned }));
+      .map(([asset, earned]) => ({ asset, earned, unclaimed: sub(earned, this.builderClaimed(b, asset)) }));
     return this.asOf({ known: true, value: { builder: b, assets } });
+  }
+
+  /** Every builder fee claim the TEST venue records for `builder`, oldest first. */
+  async builderClaims(builder: string): Promise<AsOf<readonly UserVenueBuilderClaim[]>> {
+    this.up();
+    return this.asOf([...(this.builderClaimRecord.get(builder.toLowerCase()) ?? [])]);
+  }
+
+  /**
+   * TEST control: `builder` claims every builder fee it has not claimed yet, one claim per fee asset, paid into the
+   * builder's own main account at this venue (free to withdraw). Returns the claims it made; nothing unclaimed makes
+   * none. Never part of `UserVenue`.
+   */
+  claimBuilderFees(builder: string): readonly UserVenueBuilderClaim[] {
+    this.up();
+    const b = builder.toLowerCase();
+    if (!/^0x[0-9a-f]{40}$/.test(b)) refuse(this.venue.id, 'venue_rejected', 'builder must be a 0x address');
+    const made: UserVenueBuilderClaim[] = [];
+    const record = this.builderClaimRecord.get(b) ?? [];
+    for (const [asset, earned] of [...(this.builderEarned.get(b) ?? new Map<string, Amount>()).entries()].sort(([x], [y]) =>
+      x.localeCompare(y),
+    )) {
+      const unclaimed = sub(earned, this.builderClaimed(b, asset));
+      if (compare(unclaimed, ZERO) <= 0) continue;
+      this.builderClaimCounter += 1;
+      const claim = {
+        claimId: `sim-builder-claim-${this.builderClaimCounter}`,
+        builder: b,
+        asset,
+        amount: unclaimed,
+        claimedAt: this.clock(),
+      };
+      const balance = this.balance(this.account({ venueId: this.venue.id, owner: b, subAccount: null }), asset);
+      balance.free = add(balance.free, unclaimed);
+      record.push(claim);
+      made.push(claim);
+    }
+    this.builderClaimRecord.set(b, record);
+    return made;
+  }
+
+  private builderClaimed(builder: string, asset: string): Amount {
+    return (this.builderClaimRecord.get(builder) ?? []).filter((c) => c.asset === asset).reduce((n, c) => add(n, c.amount), ZERO);
   }
 
   async leverage(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueLeverage | null>> {
@@ -1408,6 +1750,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         builderApprovals: new Map(),
         agents: new Map(),
         deposits: new Set(),
+        arrivals: [],
         leverage: new Map(),
         subAccounts: new Map(),
         transfers: new Map(),
@@ -1459,8 +1802,11 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       refuse(this.venue.id, 'venue_rejected', `size is not a multiple of the lot size on ${market.symbol}`);
     if (intent.price % market.tickSize !== ZERO)
       refuse(this.venue.id, 'venue_rejected', `price is not a multiple of the tick size on ${market.symbol}`);
+    if (intent.trigger) this.checkTriggerOnItsFace(market, intent);
+    else if (intent.parentClientOrderKey) refuse(this.venue.id, 'venue_rejected', 'only a trigger order is attached to an entry order');
+    this.checkPublishedRules(state, market, intent);
     if (market.kind === 'perpetual') {
-      if (intent.reduceOnly && intent.type !== 'market' && intent.timeInForce !== 'IOC') {
+      if (!intent.trigger && intent.reduceOnly && intent.type !== 'market' && intent.timeInForce !== 'IOC') {
         refuse(this.venue.id, 'not_offered', 'a resting reduce-only order is not offered on the TEST simulator: close with IOC or market');
       }
       const setting = state.leverage.get(market.symbol);
@@ -1469,6 +1815,21 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       }
       if (!intent.reduceOnly && market.maxLeverageBps !== null && setting.leverageBps > market.maxLeverageBps)
         this.aboveCap(market, setting.leverageBps);
+      // The venue's published tiers: an opening order may not take the position into a tier that allows less leverage.
+      if (!intent.reduceOnly && market.marginTiers?.length) {
+        const held = state.positions.get(market.symbol);
+        const same = held && held.side === (intent.side === 'buy' ? 'long' : 'short');
+        const notional = mul(add(same ? held.size : ZERO, intent.amount), intent.price, 'ceil');
+        const tier = tierOf(market.marginTiers, notional);
+        if (setting.leverageBps > tier.maxLeverageBps) {
+          const n = market.marginTiers.indexOf(tier) + 1;
+          refuse(
+            this.venue.id,
+            'leverage_above_cap',
+            `a position of ${formatAmount(notional)} ${market.quoteAsset} on ${market.symbol} is in tier ${n}, which allows at most ${tier.maxLeverageBps / 10_000}x; ${setting.leverageBps / 10_000}x is above it`,
+          );
+        }
+      }
       // The deployer's cap on open interest: an opening order may not take the market's open size past it.
       const oiCap = this.openInterestCaps.get(market.symbol) ?? null;
       if (!intent.reduceOnly && oiCap !== null) {
@@ -1478,7 +1839,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
           refuse(
             this.venue.id,
             'open_interest_above_cap',
-            `${market.symbol}'s deployer caps its open interest at ${formatAmount(oiCap)} ${base}; ${formatAmount(open)} ${base} is open, so ${formatAmount(intent.amount)} ${base} more would pass the cap`,
+            `${market.listedBy?.kind === 'venue' ? `${this.venue.displayName} caps ${market.symbol}'s` : `${market.symbol}'s deployer caps its`} open interest at ${formatAmount(oiCap)} ${base}; ${formatAmount(open)} ${base} is open, so ${formatAmount(intent.amount)} ${base} more would pass the cap`,
           );
         }
       }
@@ -1497,6 +1858,53 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     }
   }
 
+  /** A trigger order's own rules: a perpetual whose venue takes triggers on its source, reduce-only, priced on the tick. */
+  private checkTriggerOnItsFace(market: SimMarketConfig, intent: PlaceUserOrderIntent): void {
+    const trigger = intent.trigger as VenueTrigger;
+    if (market.kind !== 'perpetual') refuse(this.venue.id, 'not_offered', `${market.symbol} is cash spot: no trigger orders`);
+    if (!(market.triggerSources ?? []).includes(trigger.source))
+      refuse(this.venue.id, 'not_offered', `trigger orders judged on the ${trigger.source} price are not offered on ${market.symbol}`);
+    if (trigger.role !== 'take_profit' && trigger.role !== 'stop_loss')
+      refuse(this.venue.id, 'venue_rejected', 'a trigger order is a take profit or a stop loss');
+    if (!intent.reduceOnly) refuse(this.venue.id, 'not_offered', 'a trigger order is reduce-only on this venue: it closes, never opens');
+    if (compare(trigger.price, ZERO) <= 0) refuse(this.venue.id, 'venue_rejected', 'a trigger price must be above zero');
+    if (trigger.price % market.tickSize !== ZERO)
+      refuse(this.venue.id, 'venue_rejected', `the trigger price is not a multiple of the tick size on ${market.symbol}`);
+    if (intent.type === 'limit' && intent.timeInForce !== 'GTC')
+      refuse(this.venue.id, 'not_offered', 'a triggered limit order rests GTC on this venue');
+  }
+
+  /**
+   * Orders signed together, applied one after the other in the order sent, each as if it were signed alone (every check
+   * on the signed fields runs again for each), and each answered on its own: one refused does not undo the one before.
+   */
+  private applyTogether(prepared: PreparedVenueAction, intent: PlaceUserOrdersIntent): VenueSubmitOutcome {
+    const now = this.clock();
+    try {
+      assertSignerMaySign(prepared.account, prepared.signer, intent);
+      this.validate(prepared.account, prepared.signer, intent);
+    } catch (error) {
+      if (error instanceof VenueRefusalError) {
+        return {
+          definite: true,
+          accepted: false,
+          refusal: { venueId: this.venue.id, code: error.refusal.code, detail: error.refusal.detail },
+          asOf: now,
+        };
+      }
+      throw error;
+    }
+    const legs: VenueLegOutcome[] = [];
+    for (const order of intent.orders) {
+      const leg = this.apply({ ...prepared, intent: order, venueClientOrderId: venueClientOrderId(this.venue.id, order.clientOrderKey) });
+      // An order is placed inside the action, so a fill it makes may fire a trigger order before the next is placed.
+      this.runTriggers();
+      if (!leg.definite) throw new Error('a TEST venue order answers definitely');
+      legs.push(leg);
+    }
+    return { definite: true, accepted: true, venueRef: null, order: null, legs, asOf: now };
+  }
+
   private checkLeverageOnItsFace(symbol: string, leverageBps: number, marginMode: VenueMarginMode): SimMarketConfig {
     const market = this.market(symbol);
     if (market.kind !== 'perpetual') refuse(this.venue.id, 'not_offered', `${symbol} is cash spot: no leverage or margin mode`);
@@ -1509,7 +1917,105 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     return market;
   }
 
+  /** A live order of this account on `symbol`, by its client id; refuses `unknown_order` or `order_final`. */
+  private restingOrder(state: AccountState, symbol: string, cloid: string): OrderState {
+    const found = state.orders.get(cloid);
+    if (!found || found.order.symbol !== symbol) refuse(this.venue.id, 'unknown_order', `no order ${cloid} on ${symbol}`);
+    if (!isLive(found)) refuse(this.venue.id, 'order_final', `the order is already ${found.order.status}`);
+    return found;
+  }
+
+  /** The signer's authority and the action's face, checked again at submit: a definite refusal, or null. */
+  private refusalAtSubmit(prepared: PreparedVenueAction): VenueSubmitOutcome | null {
+    try {
+      assertSignerMaySign(prepared.account, prepared.signer, prepared.intent);
+      if (prepared.signer.role === 'agent' && !this.agentLive(this.account(prepared.account), prepared.signer.address))
+        refuse(this.venue.id, 'signer_not_authorised', 'the agent key is not approved on this account, or has expired');
+      this.validate(prepared.account, prepared.signer, prepared.intent);
+      return null;
+    } catch (error) {
+      if (error instanceof VenueRefusalError)
+        return {
+          definite: true,
+          accepted: false,
+          refusal: { venueId: this.venue.id, code: error.refusal.code, detail: error.refusal.detail },
+          asOf: this.clock(),
+        };
+      throw error;
+    }
+  }
+
+  /** One cancel inside a signed action: the venue's own answer for that order. */
+  private cancelOne(state: AccountState, symbol: string, cloid: string): VenueLegOutcome {
+    const now = this.clock();
+    const found = state.orders.get(cloid);
+    if (!found || found.order.symbol !== symbol)
+      return {
+        definite: true,
+        accepted: false,
+        refusal: { venueId: this.venue.id, code: 'unknown_order', detail: `no order ${cloid} on ${symbol}` },
+        asOf: now,
+      };
+    if (!isLive(found)) {
+      // A repeat cancel reports the same outcome.
+      if (found.order.status === 'canceled')
+        return { definite: true, accepted: true, venueRef: found.order.venueOrderId, order: found.order, asOf: now };
+      return {
+        definite: true,
+        accepted: false,
+        refusal: { venueId: this.venue.id, code: 'order_final', detail: `the order is already ${found.order.status}` },
+        asOf: now,
+      };
+    }
+    this.release(found, 'canceled');
+    return { definite: true, accepted: true, venueRef: found.order.venueOrderId, order: found.order, asOf: now };
+  }
+
+  /**
+   * A cancel-and-replace signed once: the original is cancelled first (its lock released once), then the replacement is
+   * placed under its own client id. Sent again, it answers as the first time: the replacement already placed is the
+   * same order, and the original stays cancelled.
+   */
+  private applyReplace(prepared: PreparedVenueAction, intent: ReplaceUserOrderIntent): VenueSubmitOutcome {
+    const state = this.account(prepared.account);
+    const now = this.clock();
+    const newId = venueClientOrderId(this.venue.id, intent.order.clientOrderKey);
+    const placed = state.orders.get(newId);
+    const original = state.orders.get(intent.venueClientOrderId);
+    if (placed && original) {
+      const leg: VenueLegOutcome = { definite: true, accepted: true, venueRef: placed.order.venueOrderId, order: placed.order, asOf: now };
+      return {
+        definite: true,
+        accepted: true,
+        venueRef: null,
+        order: null,
+        legs: [this.cancelOne(state, intent.symbol, intent.venueClientOrderId), leg],
+        asOf: now,
+      };
+    }
+    const refusal = this.refusalAtSubmit(prepared);
+    if (refusal) return refusal;
+    const cancel = this.cancelOne(state, intent.symbol, intent.venueClientOrderId);
+    if (!cancel.accepted) return cancel;
+    const leg = this.apply({ ...prepared, intent: intent.order, venueClientOrderId: newId });
+    this.runTriggers();
+    if (!leg.definite) throw new Error('a TEST venue order answers definitely');
+    return { definite: true, accepted: true, venueRef: null, order: null, legs: [cancel, leg], asOf: now };
+  }
+
+  /** Several cancels signed once: each order answered on its own, in the order named. */
+  private applyCancels(prepared: PreparedVenueAction, intent: CancelUserOrdersIntent): VenueSubmitOutcome {
+    const refusal = this.refusalAtSubmit(prepared);
+    if (refusal) return refusal;
+    const state = this.account(prepared.account);
+    const legs = intent.orders.map((o) => this.cancelOne(state, o.symbol, o.venueClientOrderId));
+    return { definite: true, accepted: true, venueRef: null, order: null, legs, asOf: this.clock() };
+  }
+
   private apply(prepared: PreparedVenueAction): VenueSubmitOutcome {
+    if (prepared.intent.kind === 'place_orders') return this.applyTogether(prepared, prepared.intent);
+    if (prepared.intent.kind === 'replace_order') return this.applyReplace(prepared, prepared.intent);
+    if (prepared.intent.kind === 'cancel_orders') return this.applyCancels(prepared, prepared.intent);
     const state = this.account(prepared.account);
     const intent = prepared.intent;
     const now = this.clock();
@@ -1578,8 +2084,18 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         this.release(existing, 'canceled');
         return accepted(existing.order.venueOrderId, existing.order);
       }
-      case 'amend_order':
-        return refused('not_offered', 'amend is not offered on the TEST venue simulator: cancel and place a new order');
+      case 'amend_order': {
+        // Lowered in place: the same order, its place in the queue (`seq`) kept, its lock cut by what the cut amount locked.
+        const resting = this.restingOrder(state, intent.symbol, intent.venueClientOrderId);
+        const o = resting.order;
+        const cut = sub(o.remaining, intent.amount);
+        const freed = min(o.locked, mul(resting.lockPerUnit, cut, 'floor'));
+        const balance = this.lockBalance(state, resting.marginAccount, o.lockedAsset);
+        balance.locked = sub(balance.locked, freed);
+        balance.free = add(balance.free, freed);
+        resting.order = { ...o, amount: add(o.filled, intent.amount), remaining: intent.amount, locked: sub(o.locked, freed) };
+        return accepted(resting.order.venueOrderId, resting.order);
+      }
       case 'withdraw': {
         const fee = this.switches.withdrawalFee.known ? this.switches.withdrawalFee.value : this.switches.unpublishedWithdrawalFee;
         const balance = this.balance(state, intent.asset);
@@ -1723,6 +2239,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     refused: (code: VenueRefusalCode, detail: string) => VenueSubmitOutcome,
     accepted: (venueRef: string | null, order: UserVenueOrder | null) => VenueSubmitOutcome,
   ): VenueSubmitOutcome {
+    if (intent.trigger) return this.placeTrigger(state, intent, cloid, builderFee, refused, accepted);
     const market = this.market(intent.symbol);
     const perp = market.kind === 'perpetual';
     const crossesPrice = (resting: OrderState) =>
@@ -1808,12 +2325,14 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         (a, b) => (intent.side === 'buy' ? compare(a.order.price, b.order.price) : compare(b.order.price, a.order.price)) || a.seq - b.seq,
       );
     for (const maker of ordered) {
-      if (order.order.remaining === ZERO) break;
+      if (order.order.remaining === ZERO || !isLive(order)) break;
+      // A fill can close a position and cancel its other reduce-only orders: one cancelled meanwhile is not traded.
+      if (!isLive(maker)) continue;
       const qty = min(order.order.remaining, maker.order.remaining);
       this.fill(market, maker, order, qty, maker.order.price);
     }
 
-    if (order.order.remaining !== ZERO) {
+    if (order.order.remaining !== ZERO && isLive(order)) {
       if (intent.type === 'market' || intent.timeInForce === 'IOC') {
         // The unfilled rest of an IOC ends here: final, nothing stays locked.
         this.release(order, 'canceled');
@@ -1873,6 +2392,56 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     return div(mul(basis, feeBps, QUOTE_ROUND), BPS, QUOTE_ROUND);
   }
 
+  /**
+   * The venue's own published rules (J-cex-spot-04), each enforced only while it is published: the smallest order value,
+   * the price band around the middle of the venue's own book (the one side it has when the other is empty; no band
+   * applies to an empty book), and the most open orders one account may hold. The words name the rule and its figure.
+   * A market order's price is only its worst bound (a market sell may carry one tick), so its value is taken at the
+   * book's reference price, as a venue values a market order; with no reference, at its bound. A trigger order's limit
+   * price is checked against the band when it triggers, not when it is placed, so the band leaves it alone here.
+   */
+  private checkPublishedRules(state: AccountState, market: SimMarketConfig, intent: PlaceUserOrderIntent): void {
+    const own = this.marketState.get(market.symbol)!;
+    const quote = market.quoteAsset;
+    let bid: Amount | null = null;
+    let ask: Amount | null = null;
+    for (const o of this.bookOf(market.symbol)) {
+      if (o.order.side === 'buy' && (bid === null || compare(o.order.price, bid) > 0)) bid = o.order.price;
+      if (o.order.side === 'sell' && (ask === null || compare(o.order.price, ask) < 0)) ask = o.order.price;
+    }
+    const reference = bid !== null && ask !== null ? div(add(bid, ask), parseAmount('2'), 'floor') : (bid ?? ask);
+    const valuedAt = intent.type === 'market' && reference !== null ? reference : intent.price;
+    if (own.minOrderNotional !== null && compare(mul(intent.amount, valuedAt, 'floor'), own.minOrderNotional) < 0) {
+      refuse(
+        this.venue.id,
+        'order_below_venue_min',
+        `the order's value is below the smallest order on ${market.symbol}, ${formatAmount(own.minOrderNotional)} ${quote}`,
+      );
+    }
+    if (own.priceBandBps !== null && intent.type === 'limit' && !intent.trigger && reference !== null) {
+      const reach = div(mul(reference, own.priceBandBps, 'floor'), BPS, 'floor');
+      const low = sub(reference, reach);
+      const high = add(reference, reach);
+      if (compare(intent.price, low) < 0 || compare(intent.price, high) > 0) {
+        refuse(
+          this.venue.id,
+          'price_outside_venue_band',
+          `${market.symbol} takes limit prices from ${formatAmount(low)} to ${formatAmount(high)} ${quote} right now (within ${formatAmount(own.priceBandBps)} bps of ${formatAmount(reference)})`,
+        );
+      }
+    }
+    if (own.maxOpenOrders !== null) {
+      const open = [...state.orders.values()].filter(isLive).length;
+      if (open >= own.maxOpenOrders) {
+        refuse(
+          this.venue.id,
+          'open_orders_above_venue_cap',
+          `this account has ${open} open orders and ${this.venue.displayName} allows ${own.maxOpenOrders}`,
+        );
+      }
+    }
+  }
+
   private bookOf(symbol: string): OrderState[] {
     return this.resting.get(symbol) as OrderState[];
   }
@@ -1907,6 +2476,10 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       const averagePrice = o.averagePrice === null ? price : div(add(mul(o.averagePrice, o.filled), mul(price, qty)), filled);
       side.order = { ...o, filled, remaining, averagePrice, status: remaining === ZERO ? 'filled' : 'partially_filled' };
       if (remaining === ZERO) this.release(side, 'filled');
+      // A protection attached to this entry arms on what the entry has filled, never on more (`normalTpsl`).
+      if (!o.reduceOnly) this.armChildren(side);
+      // One leg of a pair attached to the same entry fills: the venue cancels the other (`linked`), part filled or whole.
+      else if (side.parent) this.cancelLinked(side);
 
       if (builderFee > ZERO) {
         const b = side.builderFee!.builder.toLowerCase();
@@ -1931,8 +2504,237 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         filledAt: now,
       });
     }
+    // One public print per match, at the maker's price, the taker's side the one that crossed.
+    const prints = this.prints.get(market.symbol) ?? [];
+    this.printCounter += 1;
+    prints.push({
+      tradeId: `sim-print-${this.printCounter}`,
+      symbol: market.symbol,
+      price,
+      amount: qty,
+      takerSide: taker.order.side,
+      tradedAt: now,
+    });
+    if (prints.length > PRINTS_KEPT) prints.splice(0, prints.length - PRINTS_KEPT);
+    this.prints.set(market.symbol, prints);
     // An oracle market's mark is the oracle price: a fill does not move it.
     if (market.kind === 'perpetual' && !market.oracle) this.marks.set(market.symbol, price);
+    if (market.kind === 'perpetual') {
+      this.lastTrades.set(market.symbol, price);
+      // A position closed to nothing takes its reduce-only orders with it: a pair's other leg never fires on nothing.
+      for (const side of [maker, taker]) {
+        if (!side.order.reduceOnly) continue;
+        const p = side.account.positions.get(market.symbol);
+        if (!p || p.size === ZERO) this.cancelProtections(side.account, market.symbol, taker);
+      }
+    }
+  }
+
+  /** Every live reduce-only order of `state` on `symbol`, waiting triggers included, cancelled `position_closed`. */
+  private cancelProtections(state: AccountState, symbol: string, except: OrderState): void {
+    for (const o of [...state.orders.values()]) {
+      if (o === except || o.order.symbol !== symbol || !o.order.reduceOnly || !isLive(o)) continue;
+      this.release(o, 'canceled', 'position_closed');
+    }
+  }
+
+  /** The other waiting trigger orders attached to the same entry as `leg`, cancelled `linked` once `leg` has filled. */
+  private cancelLinked(leg: OrderState): void {
+    for (const o of [...leg.account.orders.values()]) {
+      if (o === leg || o.parent !== leg.parent || !isLive(o) || o.order.trigger?.state !== 'waiting') continue;
+      this.release(o, 'canceled', 'linked');
+    }
+  }
+
+  /** The waiting protections attached to `entry`, sized to what it has filled so far, never above what was asked. */
+  private armChildren(entry: OrderState): void {
+    for (const o of entry.account.orders.values()) {
+      if (o.parent !== entry || !isLive(o) || o.order.trigger?.state !== 'waiting') continue;
+      const amount = min(o.requested ?? o.order.amount, entry.order.filled);
+      if (amount !== ZERO) o.order = { ...o.order, amount, remaining: amount };
+    }
+  }
+
+  /**
+   * A trigger order (`intent.trigger`): checked against the position (or the entry it is attached to) and the price it
+   * is judged on now, its most fees locked, and kept off the book until its source crosses its price (`runTriggers`).
+   */
+  private placeTrigger(
+    state: AccountState,
+    intent: PlaceUserOrderIntent,
+    cloid: string,
+    builderFee: PreparedVenueAction['builderFee'],
+    refused: (code: VenueRefusalCode, detail: string) => VenueSubmitOutcome,
+    accepted: (venueRef: string | null, order: UserVenueOrder | null) => VenueSubmitOutcome,
+  ): VenueSubmitOutcome {
+    const market = this.market(intent.symbol);
+    const trigger = intent.trigger as VenueTrigger;
+    const setting = state.leverage.get(market.symbol);
+    if (!setting) return refused('leverage_not_set', `no leverage is set on ${market.symbol} for this account`);
+    let parent: OrderState | null = null;
+    if (intent.parentClientOrderKey) {
+      parent = state.orders.get(venueClientOrderId(this.venue.id, intent.parentClientOrderKey)) ?? null;
+      if (!parent || parent.order.symbol !== market.symbol || parent.order.reduceOnly)
+        return refused('venue_rejected', 'the entry order this protection is attached to is not an opening order on this account');
+      if (parent.order.side === intent.side) return refused('venue_rejected', 'a protection closes its entry: it is on the other side');
+      if (compare(intent.amount, parent.order.amount) > 0) return refused('venue_rejected', 'a protection is larger than its entry order');
+      if (!isLive(parent) && parent.order.filled === ZERO)
+        return refused('venue_rejected', 'the entry order ended without a fill: there is nothing to protect');
+    } else {
+      const p = state.positions.get(market.symbol);
+      const held = p !== undefined && p.size !== ZERO ? p : undefined;
+      if (!held || (held.side === 'long') === (intent.side === 'buy'))
+        return refused('venue_rejected', 'reduce-only order would open or grow a position');
+      if (compare(intent.amount, held.size) > 0) return refused('venue_rejected', 'reduce-only order is larger than the position');
+    }
+    const now = this.sourcePrice(market.symbol, trigger.source);
+    if (now !== null && crossed(intent.side, trigger, now)) {
+      const want = (trigger.role === 'take_profit') === (intent.side === 'sell') ? 'above' : 'below';
+      return refused(
+        'venue_rejected',
+        `a ${trigger.role === 'take_profit' ? 'take profit' : 'stop loss'} on this side must trigger ${want} the ${trigger.source} price ${formatAmount(now)}: this one would fire at once`,
+      );
+    }
+    const { lockAsset, lockPerUnit } = this.orderLock(market, intent, setting, builderFee);
+    const amount = parent && parent.order.filled !== ZERO ? min(intent.amount, parent.order.filled) : intent.amount;
+    const lockAmount = mul(lockPerUnit, intent.amount, QUOTE_ROUND);
+    const marginAccount = market.marginAccount ? market.marginAccount.name : null;
+    const balance = this.lockBalance(state, marginAccount, lockAsset);
+    if (compare(balance.free, lockAmount) < 0)
+      return refused('insufficient_balance', `free ${lockAsset} does not cover the most this trigger order can pay in fees`);
+    balance.free = sub(balance.free, lockAmount);
+    balance.locked = add(balance.locked, lockAmount);
+    this.venueOrderCounter += 1;
+    this.seqCounter += 1;
+    const order: OrderState = {
+      account: state,
+      seq: this.seqCounter,
+      builderFee,
+      leverageBps: setting.leverageBps,
+      marginMode: setting.marginMode,
+      lockPerUnit,
+      marginAccount,
+      parent,
+      requested: intent.amount,
+      order: {
+        venueOrderId: `sim-${this.venueOrderCounter}`,
+        venueClientOrderId: cloid,
+        symbol: market.symbol,
+        side: intent.side,
+        type: intent.type,
+        timeInForce: intent.timeInForce,
+        price: intent.price,
+        amount,
+        filled: ZERO,
+        remaining: amount,
+        averagePrice: null,
+        status: 'open',
+        locked: lockAmount,
+        lockedAsset: lockAsset,
+        reduceOnly: true,
+        trigger: { price: trigger.price, source: trigger.source, role: trigger.role, state: 'waiting', triggeredAt: null, failure: null },
+        parentClientOrderId: parent?.order.venueClientOrderId ?? null,
+        cancelReason: null,
+      },
+    };
+    state.orders.set(cloid, order);
+    this.triggers.get(market.symbol)!.push(order);
+    return accepted(order.order.venueOrderId, order.order);
+  }
+
+  /** The price a trigger is judged on now, or `null` while there is none (no trade yet on `last`). */
+  private sourcePrice(symbol: string, source: VenueTriggerSource): Amount | null {
+    return (source === 'mark' ? this.marks.get(symbol) : this.lastTrades.get(symbol)) ?? null;
+  }
+
+  /**
+   * Fire every waiting trigger order whose source has crossed its price, oldest first, until none is left to fire. Each
+   * fires once: it leaves the waiting list before it is sent, and a fill it makes is judged only after it is done.
+   */
+  private runTriggers(): void {
+    if (this.firing) return;
+    this.firing = true;
+    try {
+      for (let round = 0; round < 100; round += 1) {
+        let fired = false;
+        for (const [symbol, waiting] of this.triggers) {
+          for (const o of [...waiting].sort((a, b) => a.seq - b.seq)) {
+            const trigger = o.order.trigger;
+            if (!isLive(o) || !trigger || trigger.state !== 'waiting') continue;
+            if (o.parent && o.parent.order.filled === ZERO) continue;
+            const now = this.sourcePrice(symbol, trigger.source);
+            if (now === null || !crossed(o.order.side, trigger, now)) continue;
+            this.fire(o);
+            fired = true;
+          }
+        }
+        if (!fired) return;
+      }
+      throw new Error('TEST simulator invariant: trigger orders kept firing for 100 rounds');
+    } finally {
+      this.firing = false;
+    }
+  }
+
+  /**
+   * One trigger order's source crossed its price: sent as the order it carries, for no more than the position holds
+   * (and the entry filled), against other traders' resting orders. A market order that finds nothing at or better than
+   * its worst price fails, in the venue's words, and closes nothing; a limit rests on the book at its price.
+   */
+  private fire(o: OrderState): void {
+    const state = o.account;
+    const market = this.market(o.order.symbol);
+    const waiting = this.triggers.get(market.symbol)!;
+    waiting.splice(waiting.indexOf(o), 1);
+    const p = state.positions.get(market.symbol);
+    const held = p && p.size !== ZERO && (p.side === 'long') === (o.order.side === 'sell') ? p : undefined;
+    if (!held) {
+      this.release(o, 'canceled', 'position_closed');
+      return;
+    }
+    let qty = min(o.order.remaining, held.size);
+    if (o.parent) qty = min(qty, o.parent.order.filled);
+    // Its lock, sized again to what it now closes.
+    const balance = this.lockBalance(state, o.marginAccount, o.order.lockedAsset);
+    const lock = mul(o.lockPerUnit, qty, QUOTE_ROUND);
+    balance.locked = add(sub(balance.locked, o.order.locked), lock);
+    balance.free = sub(add(balance.free, o.order.locked), lock);
+    const at = this.clock();
+    o.order = {
+      ...o.order,
+      amount: qty,
+      remaining: qty,
+      locked: lock,
+      trigger: { ...o.order.trigger!, state: 'triggered', triggeredAt: at },
+    };
+    const sell = o.order.side === 'sell';
+    const ordered = this.bookOf(market.symbol)
+      .filter((m) => m.account !== state && m.order.side !== o.order.side)
+      .filter((m) => (sell ? compare(m.order.price, o.order.price) >= 0 : compare(m.order.price, o.order.price) <= 0))
+      .sort((a, b) => (sell ? compare(b.order.price, a.order.price) : compare(a.order.price, b.order.price)) || a.seq - b.seq);
+    for (const maker of ordered) {
+      if (o.order.remaining === ZERO || !isLive(o)) break;
+      if (!isLive(maker)) continue;
+      this.fill(market, maker, o, min(o.order.remaining, maker.order.remaining), maker.order.price);
+    }
+    if (o.order.remaining === ZERO || !isLive(o)) return;
+    if (o.order.type === 'limit') {
+      this.bookOf(market.symbol).push(o);
+      return;
+    }
+    if (o.order.filled === ZERO) {
+      this.release(o, 'rejected');
+      o.order = {
+        ...o.order,
+        trigger: {
+          ...o.order.trigger!,
+          state: 'failed',
+          failure: `no ${sell ? 'buy' : 'sell'} order rests at or ${sell ? 'above' : 'below'} the worst price ${formatAmount(o.order.price)} ${market.quoteAsset}, so the triggered order did not fill`,
+        },
+      };
+      return;
+    }
+    this.release(o, 'canceled');
   }
 
   /**
@@ -2029,31 +2831,55 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
    * reports the venue's figure.
    */
   private liquidationPrice(market: SimMarketConfig, p: PositionState): MaybeKnown<Amount> {
-    if (market.maintenanceMarginRate === undefined) return { known: false };
-    const maintenance = mul(mul(p.entryPrice, p.size), market.maintenanceMarginRate);
+    const notional = mul(p.entryPrice, p.size);
+    const rate = market.marginTiers?.length ? tierOf(market.marginTiers, notional).maintenanceRate : market.maintenanceMarginRate;
+    if (rate === undefined) return { known: false };
+    const maintenance = mul(notional, rate);
     const cushion = div(sub(p.margin, maintenance), p.size, 'floor');
     const price = p.side === 'long' ? sub(p.entryPrice, cushion) : add(p.entryPrice, cushion);
     return { known: true, value: max(ZERO, price) };
   }
 
   /** End an order's remaining lock exactly once. */
-  private release(order: OrderState, status: UserVenueOrder['status']): void {
+  private release(order: OrderState, status: UserVenueOrder['status'], cancelReason: 'position_closed' | 'linked' | null = null): void {
     const o = order.order;
     if (o.locked !== ZERO) {
       const balance = this.lockBalance(order.account, order.marginAccount, o.lockedAsset);
       balance.locked = sub(balance.locked, o.locked);
       balance.free = add(balance.free, o.locked);
     }
-    order.order = { ...order.order, locked: ZERO, status };
+    order.order = { ...order.order, locked: ZERO, status, ...(cancelReason ? { cancelReason } : {}) };
     const book = this.bookOf(o.symbol);
     const at = book.indexOf(order);
     if (at >= 0) book.splice(at, 1);
+    const waiting = this.triggers.get(o.symbol) ?? [];
+    const w = waiting.indexOf(order);
+    if (w >= 0) waiting.splice(w, 1);
   }
 }
 
 /** A published word of the venue's, or `known: false` when it publishes none. */
+/** The published tier a position notional falls in: the last whose `fromNotional` it reaches (the first from zero). */
+function tierOf(tiers: readonly UserVenueMarginTier[], notional: Amount): UserVenueMarginTier {
+  let at = tiers[0]!;
+  for (const t of tiers) if (compare(notional, t.fromNotional) >= 0) at = t;
+  return at;
+}
+
 function published<T>(value: T | undefined): MaybeKnown<T> {
   return value === undefined ? { known: false } : { known: true, value };
+}
+
+/**
+ * Whether `price` has crossed a trigger for an order on `side`: a take profit when the price has moved in the position's
+ * favour to it, a stop loss when against. A sell closes a long (take profit at or above, stop loss at or below); a buy
+ * closes a short (the other way round).
+ */
+export function crossed(side: 'buy' | 'sell', trigger: VenueTrigger, price: Amount): boolean {
+  const above = compare(price, trigger.price) >= 0;
+  const below = compare(price, trigger.price) <= 0;
+  if (trigger.role === 'take_profit') return side === 'sell' ? above : below;
+  return side === 'sell' ? below : above;
 }
 
 function isLive(o: OrderState): boolean {

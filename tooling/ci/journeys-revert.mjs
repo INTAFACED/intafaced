@@ -8,6 +8,8 @@
  *            revert jobs at once, with the commit that passed, this one, this run and the broken steps. Waiting for the
  *            next full run as well cost a run of 40 to 55 minutes out of OWNER 180's 2 hours (bisect run 14: the revert
  *            opened 72 minutes after the first red finished). A flaky step never counts: the verdict sets it aside.
+ *            A step new to main (absent from the run before) that fails outright on its first run, in a journey file
+ *            the commits between the two runs added or changed, is reverted the same way (revertSteps' `changed`).
  *   early    Main's own journeys run, beside its shards (real-app-journeys.yml `early-break`): reads each shard's report as
  *            its job ends and, on a step that passed in the run before and failed outright in that shard, starts the same
  *            revert jobs at once, before the other shards and the whole run end (plant 1, project-state #2065: its failing
@@ -54,14 +56,18 @@ import { pathToFileURL } from 'node:url';
 import { JOURNEYS_ARTIFACT, JOURNEYS_WORKFLOW, stepStates } from './post-merge-trust.mjs';
 import { journeyTouch } from './journey-touch.mjs';
 import { SUBSCRIBES, loadMap, runsBehind } from './journey-reach-map.mjs';
-import { evaluateGateFileRule } from '../scripts/gate-file-guard.mjs';
+import { gateFilesTouched } from '../scripts/gate-files.mjs';
 import { parseJobs, parseTests } from './bisect-main.mjs';
+import { AUTO_REVERT_AUTHOR, AUTO_REVERT_BRANCH } from './exact-revert.mjs';
+import { moneyGuardAt } from './journey-verdict.mjs';
 
 const SHA = /^[0-9a-f]{40}$/;
 const STEP = /^J-[a-z0-9-]+-\d+#\d+$/;
 const STEP_TITLE = /^(J-[a-z0-9-]+-\d+)\s+#(\d+)\b/;
 const BASE = /^(?!.*\.\.)(?!\/)[A-Za-z0-9._/-]{1,200}$/;
 const REAL_APP = 'apps/customer/tests/real-app/';
+/** The artifact real-app-journeys.yml keeps a push run's leave-out list in ("Keep the leave-out list"). */
+export const LEAVE_OUT_ARTIFACT = 'real-app-journeys-leave-out';
 export const MAX_COMMITS = 200;
 export const BRANCH_PREFIX = 'revert/auto-';
 /** The App token `open` writes with: intafaced only, never workflows. */
@@ -102,13 +108,46 @@ export function outrightStates(report) {
 }
 
 /** The steps to revert for, from the two newest runs' reports (oldest first): passed in `previous`, failed outright in
- *  `now`. Sorted. A step red in `previous` as well started its revert a run ago, so it never starts another. */
-export function revertSteps(previous, now) {
+ *  `now`. Sorted. A step red in `previous` as well started its revert a run ago, so it never starts another.
+ *  `changed` (the journey file names the commits between the two runs added or changed, or null): a step absent from
+ *  `previous` that fails outright in `now`, in one of those files, is new to main and broke on its first run, so it takes
+ *  the same revert; its culprit is the merge that brought it (14 Nov 2026: J-algo-dev-04 #3, new in #8371, failed on
+ *  main's first run that held it and nothing started, as it had never passed before). A step that never passed in a file
+ *  no commit between the runs touched is not reverted. */
+export function revertSteps(previous, now, changed = null, leftOut = new Set()) {
   const before = stepStates(previous);
+  // A step the run before left out (journey-leave-out.mjs) was left out because it is unbuilt and failed in a recent run
+  // on main: it counts as red there, as it would have been had it run. It is not new to main (15 Nov 2026, #8535:
+  // J-agents-18 #5, red by name since #6990, was left out of run 43735359940; #8518 changed its file, so it ran again,
+  // failed as it always does, and was taken for a new step that broke).
+  for (const key of leftOut) if (!before.has(key)) before.set(key, 'failed');
+  const failed = outrightFailures(now);
   return [...outrightStates(now)]
-    .filter(([key, state]) => state === 'failed' && before.get(key) === 'passed')
+    .filter(([key, state]) => state === 'failed' && (before.get(key) === 'passed' || (!before.has(key) && changed?.has(failed.get(key)))))
     .map(([key]) => key)
     .sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
+}
+
+/** The step keys a run's leave-out list (journey-leave-out.mjs testListText: `file › describe › title`, one per line)
+ *  names. Pure. */
+export function leftOutSteps(text) {
+  const out = new Set();
+  for (const line of String(text ?? '').split('\n')) {
+    const m = STEP_TITLE.exec(line.split(' › ').at(-1)?.trim() ?? '');
+    if (m) out.add(`${m[1]}#${Number(m[2])}`);
+  }
+  return out;
+}
+
+/** The journey file names (`J-x.pw.mjs`) among a compare's changed paths, added, changed or renamed to. Pure. */
+export function journeyFilesChanged(files) {
+  return new Set(
+    (files ?? [])
+      .filter((f) => f?.status !== 'removed')
+      .map((f) => String(f?.filename ?? ''))
+      .filter((f) => f.startsWith(REAL_APP) && f.endsWith('.pw.mjs'))
+      .map((f) => f.split('/').pop()),
+  );
 }
 
 export function parseSteps(text) {
@@ -170,7 +209,7 @@ export const revertBranch = (sha) => `${BRANCH_PREFIX}${sha.slice(0, 10)}`;
 export function revertTitle({ prNumber, sha, files, redRun, kind = 'journeys' }) {
   const what = prNumber ? `#${prNumber}` : `\`${sha.slice(0, 10)}\``;
   const base = `Revert ${what}, which turned ${kind === 'ci' ? "main's CI" : 'the Real-app journeys'} red (run ${redRun})`;
-  return evaluateGateFileRule('', files).gateFiles.length ? `ci: ${base.charAt(0).toLowerCase()}${base.slice(1)}` : base;
+  return gateFilesTouched(files).length ? `ci: ${base.charAt(0).toLowerCase()}${base.slice(1)}` : base;
 }
 
 export function revertBody({ repo, sha, subject, prNumber, redRun, steps, base, failing, control = null }) {
@@ -247,6 +286,28 @@ async function runReport(gh, repo, runId, token, { partial = false, shards = nul
   const reports = [];
   for (const a of parts) reports.push(await artifactReport(a, runId, token));
   return reports.some(Boolean) ? joinReports(reports.filter(Boolean)) : null;
+}
+
+/** The step keys run `runId` left out (its `real-app-journeys-leave-out` artifact), or an empty set when it kept none: a
+ *  run that left nothing out, or one before the list was kept. */
+async function runLeftOut(gh, repo, runId, token) {
+  const { json } = await gh('GET', `/repos/${repo}/actions/runs/${runId}/artifacts?per_page=100`);
+  const artifact = (json?.artifacts ?? []).find((a) => !a.expired && a.name === LEAVE_OUT_ARTIFACT);
+  if (!artifact) return new Set();
+  const res = await fetch(artifact.archive_download_url, { headers: token ? { authorization: `Bearer ${token}` } : {} });
+  if (res.status === 403 || res.status === 429) throw new Error(`GitHub ${res.status} on the leave-out list of run ${runId}: stopping`);
+  if (!res.ok) return new Set();
+  const dir = mkdtempSync(join(tmpdir(), 'revert-'));
+  try {
+    const zip = join(dir, 'a.zip');
+    writeFileSync(zip, Buffer.from(await res.arrayBuffer()));
+    const entry = execFileSync('unzip', ['-Z1', zip], { encoding: 'utf8' })
+      .split('\n')
+      .find((e) => e.endsWith('leave-out.txt'));
+    return entry ? leftOutSteps(execFileSync('unzip', ['-p', zip, entry], { encoding: 'utf8', maxBuffer: 64 * 2 ** 20 })) : new Set();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 async function artifactReport(artifact, runId, token) {
@@ -328,6 +389,20 @@ async function startSettle(gh, repo, { steps, redRun }) {
   return startRevert(gh, repo, { good: json.sha, bad: json.sha, steps, redRun, settle: true });
 }
 
+/** The journey files the commits from `base` to `head` added or changed (revertSteps' `changed`), or null when the
+ *  compare can't be read, so only steps that passed before count. */
+async function changedBetween(gh, repo, base, head) {
+  if (base === head) return new Set();
+  const files = [];
+  for (let page = 1; page <= 30; page++) {
+    const { status, json } = await gh('GET', `/repos/${repo}/compare/${base}...${head}?per_page=100&page=${page}`);
+    if (status !== 200 || !Array.isArray(json?.files)) return page === 1 ? null : journeyFilesChanged(files);
+    files.push(...json.files);
+    if (json.files.length < 100) break;
+  }
+  return journeyFilesChanged(files);
+}
+
 /** Main's finished journeys runs before `run`, newest first (the runs post-merge-trust.mjs compares with). */
 async function earlierRuns(gh, repo, workflowId, run) {
   const { json } = await gh('GET', `/repos/${repo}/actions/workflows/${workflowId}/runs?branch=main&status=completed&per_page=100`);
@@ -357,10 +432,15 @@ async function trigger(env) {
   if (!prevRun) return summary(['Journeys revert: no earlier finished run on main; nothing to compare.']);
   const [now, prev] = [await runReport(gh, repo, run.id, env.GH_TOKEN), await runReport(gh, repo, prevRun.id, env.GH_TOKEN)];
   if (!now || !prev) return summary(['Journeys revert: one of the two runs kept no journey report; nothing is reverted.']);
-  const steps = revertSteps(prev, now);
+  const steps = revertSteps(
+    prev,
+    now,
+    await changedBetween(gh, repo, prevRun.head_sha, run.head_sha),
+    await runLeftOut(gh, repo, prevRun.id, env.GH_TOKEN),
+  );
   if (!steps.length)
     return summary([
-      `Journeys revert: no step passed on \`${prevRun.head_sha.slice(0, 10)}\` and then failed outright; nothing to revert.`,
+      `Journeys revert: no step passed on \`${prevRun.head_sha.slice(0, 10)}\` (or came new in a journey file changed since) and then failed outright; nothing to revert.`,
     ]);
   if (prevRun.head_sha === run.head_sha) {
     const settled = await startSettle(gh, repo, { steps, redRun: run.id });
@@ -374,7 +454,7 @@ async function trigger(env) {
   summary([
     `### Journeys revert`,
     '',
-    `${steps.join(', ')} passed on \`${prevRun.head_sha.slice(0, 10)}\` (run ${prevRun.id}) and failed outright on \`${run.head_sha.slice(0, 10)}\` (run ${run.id}).`,
+    `${steps.join(', ')} passed (or came new) on \`${prevRun.head_sha.slice(0, 10)}\` (run ${prevRun.id}) and failed outright on \`${run.head_sha.slice(0, 10)}\` (run ${run.id}).`,
     started === null
       ? 'Dispatch failed.'
       : started.length
@@ -657,7 +737,7 @@ async function openRevert(env, revoke) {
   const parents = git('log', '-1', '--format=%P', sha).split(' ').filter(Boolean).length;
   const files = git('diff-tree', '--no-commit-id', '--name-only', '-r', '-m', '--first-parent', sha).split('\n').filter(Boolean);
 
-  const { mintToken } = await import('./factory-builder.mjs');
+  const { mintToken } = await import('./app-token.mjs');
   const dry = process.env.DRY_RUN === '1';
   if (!dry) need(env, 'FACTORY_APP_KEY');
   const token = dry ? env.GH_TOKEN : await mintToken({ pem: env.FACTORY_APP_KEY, repo, spec: REVERT_TOKEN });
@@ -799,6 +879,103 @@ async function openRevert(env, revoke) {
   }
 }
 
+// ── refresh: an open revert's red checks run again on main's newer rules ──────
+
+/** At most this many rebases of one revert by `refresh`: one per merge into main while its checks stay red. */
+export const REFRESH_MAX = 4;
+/** The workflows whose newest run on a revert's head decides a refresh, with the event each runs on. */
+export const REFRESH_WORKFLOWS = [
+  { file: 'ci.yml', event: 'pull_request' },
+  { file: 'ci-review.yml', event: 'pull_request_target' },
+];
+
+/**
+ * Whether `refresh` rebases this open pull request onto main, or why not. Pure. Only main-bisect's own revert (its
+ * revert/auto- branch in this repository, opened by the App as a Bot, not a draft); only when the newest run of a
+ * REFRESH_WORKFLOWS workflow on its head failed and started before main's head commit (`mainAt`, ms), with none of them
+ * still going; at most REFRESH_MAX times (`rebased`: its earlier rebases, the timeline's head_ref_force_pushed events).
+ * A re-run can't do it: a pull_request run's re-run keeps its merge commit and that commit's workflow file, so it
+ * never reads main's newer check (intafaced #8138 after #8166: its re-run guard couldn't import exact-revert.mjs).
+ */
+export function refreshWhy(pr, { repo, runs, mainAt, rebased }) {
+  const ok =
+    AUTO_REVERT_BRANCH.test(String(pr?.head?.ref ?? '')) &&
+    pr?.user?.login === AUTO_REVERT_AUTHOR &&
+    pr?.user?.type === 'Bot' &&
+    pr?.head?.repo?.full_name === repo &&
+    !pr?.draft;
+  if (!ok) return { refresh: false, why: "not main-bisect's revert" };
+  const newest = REFRESH_WORKFLOWS.map(
+    ({ file, event }) =>
+      (runs[file] ?? []).filter((r) => r.event === event && r.conclusion !== 'skipped').sort((a, b) => b.run_number - a.run_number)[0],
+  ).filter(Boolean);
+  if (newest.some((r) => r.status !== 'completed')) return { refresh: false, why: 'a check is still going' };
+  const red = newest.filter((r) => r.conclusion === 'failure');
+  if (!red.length) return { refresh: false, why: 'no check red' };
+  if (!red.some((r) => Date.parse(r.run_started_at ?? r.created_at) < mainAt))
+    return { refresh: false, why: "its checks ran after main's head" };
+  if (rebased >= REFRESH_MAX) return { refresh: false, why: `rebased ${rebased} times already, the most` };
+  return { refresh: true, why: `${red.map((r) => r.name ?? r.id).join(', ')} red before main's head` };
+}
+
+/**
+ * After each CI run on main (main-trust.yml revert-refresh): rebase each open automatic revert that refreshWhy picks
+ * onto main, with the App's token, so its head is new and every check runs again on main's rules, with no hand. GitHub
+ * refuses a rebase that conflicts; that is said, and nothing is resolved (the programme lead's rule, 13 Nov 2026). Reads
+ * go with GH_TOKEN; the App token is minted only when something is rebased, and revoked at the end.
+ */
+async function refresh(env) {
+  need(env, 'GITHUB_REPOSITORY', 'GH_TOKEN');
+  const repo = env.GITHUB_REPOSITORY;
+  const read = client(env.GH_TOKEN);
+  const lines = ['### Refresh of open automatic reverts', ''];
+  const pulls = (await read('GET', `/repos/${repo}/pulls?state=open&per_page=100`)).json ?? [];
+  const mainAt = Date.parse((await read('GET', `/repos/${repo}/commits/main`)).json?.commit?.committer?.date ?? '');
+  const picked = [];
+  for (const pr of pulls) {
+    if (!AUTO_REVERT_BRANCH.test(String(pr?.head?.ref ?? ''))) continue;
+    const runs = {};
+    for (const w of REFRESH_WORKFLOWS)
+      runs[w.file] =
+        (await read('GET', `/repos/${repo}/actions/workflows/${w.file}/runs?head_sha=${pr.head.sha}&per_page=100`)).json?.workflow_runs ??
+        [];
+    const events = (await read('GET', `/repos/${repo}/issues/${pr.number}/timeline?per_page=100`)).json ?? [];
+    const rebased = events.filter((e) => e.event === 'head_ref_force_pushed').length;
+    const d = refreshWhy(pr, { repo, runs, mainAt, rebased });
+    lines.push(`- #${pr.number}: ${d.refresh ? 'rebase' : 'left'} (${d.why})`);
+    if (d.refresh) picked.push(pr);
+  }
+  if (picked.length) {
+    if (process.env.DRY_RUN !== '1') need(env, 'FACTORY_APP_KEY');
+    const { mintToken } = await import('./app-token.mjs');
+    const dry = process.env.DRY_RUN === '1';
+    const token = dry ? env.GH_TOKEN : await mintToken({ pem: env.FACTORY_APP_KEY, repo, spec: REVERT_TOKEN });
+    if (token && !dry) console.log(`::add-mask::${token}`);
+    const gh = client(token);
+    try {
+      for (const pr of picked) {
+        const r = await gh('POST', `${API}/graphql`, {
+          query:
+            'mutation($id: ID!, $oid: GitObjectID!) { updatePullRequestBranch(input: { pullRequestId: $id, expectedHeadOid: $oid, updateMethod: REBASE }) { pullRequest { headRefOid } } }',
+          variables: { id: pr.node_id, oid: pr.head.sha },
+        });
+        const head = r.json?.data?.updatePullRequestBranch?.pullRequest?.headRefOid;
+        lines.push(
+          head
+            ? `- #${pr.number}: rebased onto main, head ${head.slice(0, 10)}; its checks run again`
+            : `- #${pr.number}: not rebased (${String(r.json?.errors?.[0]?.message ?? `HTTP ${r.status}`).slice(0, 200)}); a conflict is left for a fix forward, never resolved by hand`,
+        );
+      }
+    } finally {
+      if (token && !dry) {
+        const end = await fetch(`${API}/installation/token`, { method: 'DELETE', headers: { authorization: `Bearer ${token}` } });
+        lines.push(`- the App token: revoke ${end.status}`);
+      }
+    }
+  }
+  summary(lines);
+}
+
 /** How many times, and how long apart, a revoked token's refusal is asked for: about 20 s in all. */
 export const REVOKE_PROBES = [0, 1000, 2000, 3000, 5000, 8000];
 /**
@@ -833,6 +1010,56 @@ function selfTest() {
   eq(revertSteps(pass, flaky), [], 'planted fault: a pass on the retry reverts nothing (the verdict sets it aside)');
   eq(revertSteps(pass, pass), [], 'known-good: green runs revert nothing');
   eq(revertSteps(red, red), [], 'a step already red started its revert a run ago, so it never starts another');
+  {
+    // 14 Nov 2026, replayed: the run before holds no J-algo-dev-04 at all, main's first run with it fails #3 outright, and
+    // the merge between the runs added its file. The revert starts; the merge that brought it is its culprit.
+    const at = (j, specs) => ({ suites: [{ title: `${j}.pw.mjs`, file: `${j}.pw.mjs`, specs }] });
+    const s = (title, status) => ({ title, file: title.split(' ')[0] + '.pw.mjs', tests: [{ status }] });
+    const before = at('J-algo-dev-03', [s('J-algo-dev-03 #1 x', 'expected')]);
+    const after = joinReports([
+      before,
+      at('J-algo-dev-04', [s('J-algo-dev-04 #1 a', 'expected'), s('J-algo-dev-04 #3 c', 'unexpected'), s('J-algo-dev-04 #4 d', 'flaky')]),
+    ]);
+    const added = journeyFilesChanged([
+      { filename: 'apps/customer/tests/real-app/J-algo-dev-04.pw.mjs', status: 'added' },
+      { filename: 'apps/customer/src/x.ts', status: 'modified' },
+      { filename: 'apps/customer/tests/real-app/J-old.pw.mjs', status: 'removed' },
+    ]);
+    eq([...added], ['J-algo-dev-04.pw.mjs'], 'the journey files a compare added or changed, not one it removed');
+    eq(revertSteps(before, after, added), ['J-algo-dev-04#3'], 'a step new to main that fails outright on its first run is reverted');
+    eq(
+      revertSteps(before, after, new Set(['J-other.pw.mjs'])),
+      [],
+      'a step that never passed, in a file no commit between touched, is not',
+    );
+    eq(revertSteps(before, after, null), [], 'no compare read: only a step that passed before counts');
+    // 15 Nov 2026, replayed (#8535): run 43735359940 left out J-agents-18 #5, unbuilt and red by name; #8518 changed
+    // its file, and the next run failed it outright as always. Left out is red before, not new: nothing starts. The
+    // same step absent with no leave-out list still starts (the J-algo-dev-04 case above), so the planted fault holds.
+    const list = leftOutSteps(
+      'J-agents-18.pw.mjs › J-agents-18 #5 opens the Launch, Risk and Compliance, and Growth agent pages: run history\n' +
+        'J-x-01.pw.mjs › a describe › J-x-01 #12 y\n\nnot a step line\n',
+    );
+    eq([...list], ['J-agents-18#5', 'J-x-01#12'], 'the leave-out list names its steps by key, describe titles and all');
+    const ag18 = (specs) => ({ suites: [{ title: 'J-agents-18.pw.mjs', file: 'J-agents-18.pw.mjs', specs }] });
+    const prev18 = ag18([s('J-agents-18 #3 c', 'unexpected'), s('J-agents-18 #4 d', 'expected')]);
+    const now18 = ag18([s('J-agents-18 #3 c', 'unexpected'), s('J-agents-18 #4 d', 'expected'), s('J-agents-18 #5 e', 'unexpected')]);
+    const touched = new Set(['J-agents-18.pw.mjs']);
+    eq(revertSteps(prev18, now18, touched, list), [], 'a step the run before left out counts as red there: no revert');
+    eq(revertSteps(prev18, now18, touched), ['J-agents-18#5'], 'planted fault: without the list it reads as new and starts');
+    eq(
+      revertSteps(ag18([s('J-agents-18 #3 c', 'unexpected'), s('J-agents-18 #5 e', 'expected')]), now18, touched, list),
+      ['J-agents-18#5'],
+      'a step that passed in the run before still starts, whatever the list says',
+    );
+    const wasRed = joinReports([before, at('J-algo-dev-04', [s('J-algo-dev-04 #3 c', 'unexpected')])]);
+    eq(revertSteps(wasRed, after, added), [], 'a step already red in the run before started its revert then');
+    eq(
+      commitReaches(['apps/customer/tests/real-app/J-algo-dev-04.pw.mjs'], ['J-algo-dev-04.pw.mjs'], null, () => true).reaches,
+      true,
+      'the merge that added the journey file reaches it, so the probe runs on it',
+    );
+  }
   eq(parseSteps('J-a-01#2, J-a-01#10 J-a-01#2'), ['J-a-01#2', 'J-a-01#10'], 'steps parse, dedupe, numeric order');
   let threw = false;
   try {
@@ -920,6 +1147,60 @@ function selfTest() {
   );
   eq(untraced[0].body.includes('no commit between them can reach J-b-02'), true, 'the note says why');
   eq(untraced[0].opens, false, 'an untraced red opens no issue: main-unknown-red stops every builder');
+  // refresh (intafaced #8138 after #8166): main-bisect's red revert is rebased once per merge into main, at most REFRESH_MAX.
+  const rpr = (over = {}) => ({
+    number: 8138,
+    draft: false,
+    user: { login: 'intafaced-mac-agents[bot]', type: 'Bot' },
+    head: { ref: 'revert/auto-2481c93533', sha: 'c'.repeat(40), repo: { full_name: 'o/r' } },
+    ...over,
+  });
+  const rrun = (over = {}) => ({
+    id: 1,
+    run_number: 9,
+    event: 'pull_request',
+    status: 'completed',
+    conclusion: 'failure',
+    run_started_at: '2026-11-12T16:00:00Z',
+    ...over,
+  });
+  const rruns = (ci = {}, review = {}) => ({
+    'ci.yml': [rrun(ci)],
+    'ci-review.yml': [rrun({ id: 2, event: 'pull_request_target', conclusion: 'success', ...review })],
+  });
+  const at = { repo: 'o/r', mainAt: Date.parse('2026-11-13T00:51:39Z'), rebased: 0 };
+  eq(refreshWhy(rpr(), { ...at, runs: rruns() }).refresh, true, "#8138: its CI red before main's head: rebased");
+  eq(
+    refreshWhy(rpr(), { ...at, runs: rruns({ conclusion: 'success' }, { conclusion: 'failure' }) }).refresh,
+    true,
+    'a red CI review alone: rebased',
+  );
+  eq(refreshWhy(rpr(), { ...at, runs: rruns({ conclusion: 'success' }) }).refresh, false, 'every check green: left');
+  eq(
+    refreshWhy(rpr(), { ...at, runs: rruns({ run_started_at: '2026-11-13T01:00:00Z' }) }).refresh,
+    false,
+    "red after main's head: once per merge",
+  );
+  eq(
+    refreshWhy(rpr(), { ...at, runs: rruns({}, { status: 'in_progress', conclusion: null }) }).refresh,
+    false,
+    'a check still going: left',
+  );
+  eq(refreshWhy(rpr(), { ...at, runs: rruns(), rebased: REFRESH_MAX }).refresh, false, 'bounded: REFRESH_MAX rebases');
+  eq(
+    refreshWhy(rpr({ user: { login: 'ZenYoda3', type: 'User' } }), { ...at, runs: rruns() }).refresh,
+    false,
+    "a person's pull request: never",
+  );
+  eq(refreshWhy(rpr({ head: { ...rpr().head, repo: { full_name: 'x/y' } } }), { ...at, runs: rruns() }).refresh, false, 'a fork: never');
+  eq(refreshWhy(rpr({ head: { ...rpr().head, ref: 'fix/x' } }), { ...at, runs: rruns() }).refresh, false, 'another branch: never');
+  eq(refreshWhy(rpr({ draft: true }), { ...at, runs: rruns() }).refresh, false, 'a draft: never');
+  eq(
+    refreshWhy(rpr(), { ...at, runs: { 'ci.yml': [rrun(), rrun({ id: 3, run_number: 10, conclusion: 'success' })], 'ci-review.yml': [] } })
+      .refresh,
+    false,
+    'the newest run decides',
+  );
   const conflicted = breakIssueNotes({ steps: ['J-c-03#4'], conflict: '#7 (`abcdef0123`)', redRunUrl: 'u' });
   eq(
     conflicted.map((n) => [n.labels, n.opens]),
@@ -1007,6 +1288,25 @@ function selfTest() {
       at: 't',
     });
   const passed = settle(true);
+  // A money step's flaky issue carries the mark project-state's pull reads (intafaced #8379: J-cex-spot-01 #8 had none).
+  const marked = settleNotes({
+    steps: ['J-a-01#2', 'J-b-01#1', 'J-c-01#1'],
+    back: true,
+    sha: A,
+    runUrl: 'u',
+    redRunUrl: 'https://x/actions/runs/42',
+    at: 't',
+    money: { 'J-a-01#2': true, 'J-b-01#1': false },
+  }).map((n) => /<!-- money-flaky: (\S+) -->/.exec(n.body)?.[1] ?? null);
+  eq(
+    marked,
+    ['J-a-01#2', null, 'J-c-01#1'],
+    'a money step (or one the guard does not know) is marked money-flaky; a non-money step is not',
+  );
+  const guard = moneyGuardAt('.');
+  eq(guard['J-cex-spot-01#8'], true, "the guard at this checkout calls J-cex-spot-01 #8 money, as main's verdict did");
+  const real = settleNotes({ steps: ['J-cex-spot-01#8'], back: true, sha: A, runUrl: 'u', redRunUrl: 'r', at: 't', money: guard })[0].body;
+  eq(real.includes('<!-- money-flaky: J-cex-spot-01#8 -->'), true, "#8379's step, settled flaky, opens marked money-flaky");
   eq(
     passed.map((n) => [n.title, n.labels, n.opens]),
     [
@@ -1135,7 +1435,7 @@ function selfTest() {
     [1, 5],
     "only main's runs still going on another commit than the revert's are weighed",
   );
-  console.log('✓ journeys-revert --self-test OK (73 fixtures)');
+  console.log('✓ journeys-revert --self-test OK (90 fixtures)');
 }
 
 async function selfTestRevoke() {
@@ -1170,6 +1470,72 @@ async function selfTestRevoke() {
   console.log('✓ journeys-revert revoke self-test OK (6 fixtures)');
 }
 
+/** cancelDoomed's choice, on a fake GitHub whose compare answers from a commit line: P, culprit X, then M (a merge after
+ *  it), revert R, then N after the revert; Q sits on a branch off P that never took X. Only a main run holding X and not
+ *  R is cancelled. A push that is not an automatic revert never reaches it (revertMergePull above). */
+async function selfTestCancel() {
+  const eq = (got, want, m) => {
+    if (JSON.stringify(got) !== JSON.stringify(want)) throw new Error(`${m}: got ${JSON.stringify(got)} want ${JSON.stringify(want)}`);
+  };
+  const [P, X, M, R, N, Q] = ['1', '2', '3', '4', '5', '6'].map((c) => c.repeat(40));
+  const line = [P, X, M, R, N];
+  const compare = (base, head) => {
+    if (base === head) return 'identical';
+    const [b, h] = [line.indexOf(base), line.indexOf(head)];
+    if (head === Q) return base === P ? 'ahead' : 'diverged';
+    if (b < 0 || h < 0) return null; // a commit GitHub can't place: 404, no status
+    return h > b ? 'ahead' : 'behind';
+  };
+  const fake = (runs) => {
+    const cancelled = [];
+    const gh = async (method, path) => {
+      if (method === 'POST') {
+        cancelled.push(Number(/runs\/(\d+)\/cancel$/.exec(path)[1]));
+        return { status: 202, json: null };
+      }
+      const status = /[?&]status=(\w+)/.exec(path)?.[1];
+      if (status) return { status: 200, json: { workflow_runs: runs.filter((r) => r.status === status) } };
+      const [base, head] = /\/compare\/(\w+)\.\.\.(\w+)$/.exec(path).slice(1);
+      const st = compare(base, head);
+      return st ? { status: 200, json: { status: st } } : { status: 404, json: null };
+    };
+    return { gh, cancelled };
+  };
+  const run = (id, head_sha, status = 'in_progress', over = {}) => ({
+    id,
+    run_number: id,
+    head_branch: 'main',
+    event: 'push',
+    status,
+    head_sha,
+    ...over,
+  });
+  const cases = [
+    [[run(1, M)], [1], 'a run holding the culprit and not the revert is cancelled'],
+    [[run(1, X)], [1], 'a run on the culprit itself is cancelled'],
+    [[run(2, M, 'queued')], [2], 'a waiting run holding the culprit and not the revert is cancelled'],
+    [[run(3, R)], [], "the revert's own run is left"],
+    [[run(4, N)], [], 'a run already holding the revert is left'],
+    [[run(5, P)], [], 'a run from before the culprit is left'],
+    [[run(6, Q)], [], 'a run on a commit that never took the culprit is left'],
+    [[run(7, 'f'.repeat(40))], [], 'a run whose commit the compare cannot place is left'],
+    [[run(8, M, 'in_progress', { event: 'pull_request', head_branch: 'x' })], [], "a pull request's run is left"],
+    [[run(9, M, 'completed')], [], 'a finished run is left'],
+    [[run(1, M), run(4, N, 'queued'), run(5, P, 'queued')], [1], 'only the doomed run of several'],
+  ];
+  for (const [runs, want, m] of cases) {
+    const { gh, cancelled } = fake(runs);
+    const lines = await cancelDoomed(gh, 'o/r', { headSha: R, culprit: X });
+    eq(cancelled, want, m);
+    eq(
+      lines.length,
+      runs.filter((r) => r.status !== 'completed' && r.event !== 'pull_request' && r.head_sha !== R).length,
+      `${m}: a line per run weighed`,
+    );
+  }
+  console.log(`✓ journeys-revert cancel self-test OK (${cases.length} fixtures)`);
+}
+
 // ── early: as each shard of main's run ends ─────────────────────────────────
 
 /** How long `early` waits between reads of the run's jobs, and at most in all (the shards' own limit is 90 minutes). */
@@ -1194,6 +1560,8 @@ async function early(env, { sleep = (ms) => new Promise((r) => setTimeout(r, ms)
     return summary(['Journeys revert, early: no earlier finished run on another commit to compare with; the run-end start decides.']);
   const prev = await runReport(gh, repo, prevRun.id, env.GH_TOKEN);
   if (!prev) return summary([`Journeys revert, early: run ${prevRun.id} kept no report; the run-end start decides.`]);
+  const changed = await changedBetween(gh, repo, prevRun.head_sha, env.HEAD_SHA);
+  const leftOut = await runLeftOut(gh, repo, prevRun.id, env.GH_TOKEN);
   const seen = new Set();
   const lines = ['### Journeys revert, as each shard ends', ''];
   const start = now();
@@ -1207,11 +1575,11 @@ async function early(env, { sleep = (ms) => new Promise((r) => setTimeout(r, ms)
         lines.push(`- shard ${shard}: no report kept`);
         continue;
       }
-      const steps = revertSteps(prev, report);
+      const steps = revertSteps(prev, report, changed, leftOut);
       if (!steps.length) continue;
       const started = await startRevert(gh, repo, { good: prevRun.head_sha, bad: env.HEAD_SHA, steps, redRun: env.RUN_ID });
       lines.push(
-        `- shard ${shard}: ${steps.join(', ')} passed on \`${prevRun.head_sha.slice(0, 10)}\` and failed outright here: ${started === null ? 'dispatch failed' : started.length ? `main-bisect.yml started for ${started.join(', ')}` : 'already started'}`,
+        `- shard ${shard}: ${steps.join(', ')} passed (or came new) on \`${prevRun.head_sha.slice(0, 10)}\` and failed outright here: ${started === null ? 'dispatch failed' : started.length ? `main-bisect.yml started for ${started.join(', ')}` : 'already started'}`,
       );
     }
     const shards = jobs.filter((j) => shardOf(j.name));
@@ -1368,7 +1736,7 @@ export const flakyStepTitle = (step) => `Flaky step on main: ${step.replace('#',
  * false: the steps fail again, one `regression` break issue per journey at once, closed by Main trust when they pass.
  * null: the run broke before it said, one `main-unknown-red` break issue per journey. Pure.
  */
-export function settleNotes({ steps, back, sha, runUrl, redRunUrl, at }) {
+export function settleNotes({ steps, back, sha, runUrl, redRunUrl, at, money = {} }) {
   const record = (list) =>
     `<!-- ${SETTLE_MARK} ${JSON.stringify({ v: 1, steps: list, red_run: Number(/runs\/(\d+)/.exec(redRunUrl)?.[1]) || null, sha, run: runUrl, result: back === true ? 'pass' : back === false ? 'fail' : 'unfinished', at })} -->`;
   const head = `main's head \`${sha.slice(0, 10)}\``;
@@ -1378,7 +1746,7 @@ export function settleNotes({ steps, back, sha, runUrl, redRunUrl, at }) {
       title: flakyStepTitle(step),
       labels: ['flaky'],
       opens: true,
-      body: `\`${step.replace('#', ' #')}\` failed on main ([red run](${redRunUrl})), traced to no single merge, and passed run alone on ${head} ([settle run](${runUrl})). It is flaky, not broken: main counts it green, and it never counts as proven from the red run. Fix the race in the test or the code it checks, never by weakening the test.\n\n<!-- flaky: ${step} -->\n${record([step])}\n${tail}`,
+      body: `\`${step.replace('#', ' #')}\` failed on main ([red run](${redRunUrl})), traced to no single merge, and passed run alone on ${head} ([settle run](${runUrl})). It is flaky, not broken: main counts it green, and it never counts as proven from the red run. Fix the race in the test or the code it checks, never by weakening the test.\n\n<!-- flaky: ${step} -->\n${(money[step] ?? true) ? `<!-- money-flaky: ${step} -->\n` : ''}${record([step])}\n${tail}`,
     }));
   return journeysOf(steps).map((journey) => {
     const list = steps.filter((s) => s.split('#')[0] === journey);
@@ -1435,6 +1803,16 @@ export function parseRecord(body) {
   }
 }
 
+/** The money guard at this checkout; when it can't be read, every step counts as money ({}: unknown means money). */
+function guardOrAllMoney() {
+  try {
+    return moneyGuardAt('.');
+  } catch (e) {
+    console.error(`the money guard could not be read (${e.message}): every step counts as money`);
+    return {};
+  }
+}
+
 async function back(env) {
   need(env, 'GITHUB_REPOSITORY', 'STEPS', 'BAD', 'RUN_URL');
   if (!SHA.test(env.BAD)) throw new Error('BAD must be a full commit sha');
@@ -1463,6 +1841,8 @@ async function back(env) {
       runUrl: env.RUN_URL,
       redRunUrl: `https://github.com/${env.GITHUB_REPOSITORY}/actions/runs/${env.RED_RUN}`,
       at: new Date().toISOString(),
+      // The set-aside's money guard at this checkout (main): a money step's flaky issue carries `money-flaky`.
+      money: guardOrAllMoney(),
     });
     summary([
       `### Journeys settle: ${back === true ? 'flaky, main counts green' : back === false ? 'broken on main' : 'did not finish'}`,
@@ -1511,10 +1891,11 @@ async function confirmFiles(env) {
   output({ files: files.join(' '), steps: parseSteps(env.STEPS).join(',') });
 }
 
-const COMMANDS = { trigger, find, open, settle, early, confirm, back, 'confirm-files': confirmFiles };
+const COMMANDS = { trigger, find, open, settle, early, confirm, back, 'confirm-files': confirmFiles, refresh };
 if (process.argv.includes('--self-test')) {
   selfTest();
   await selfTestRevoke();
+  await selfTestCancel();
 } else if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const cmd = COMMANDS[process.argv[2]];
   if (!cmd) {

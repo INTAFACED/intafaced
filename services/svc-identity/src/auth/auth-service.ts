@@ -2539,8 +2539,7 @@ export class AuthService {
   }
 
   private async consumeTotpCode(userId: string, secret: string, code: string, at?: Date): Promise<void> {
-    const matched = matchTotpStep(secret, code, at ? { at } : {});
-    if (matched === null) {
+    if (matchTotpStep(secret, code, at ? { at } : {}) === null) {
       throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');
     }
     await transaction(this.sql, async (tx) => {
@@ -2550,7 +2549,9 @@ export class AuthService {
       if (!rows[0]) throw new AuthError('User not found', 'auth.not_found');
       const lastRaw = rows[0].totp_last_step;
       const lastStep = lastRaw === null || lastRaw === undefined ? null : BigInt(lastRaw);
-      if (lastStep !== null && matched <= lastStep) {
+      // Only an unspent step matches: a fresh code equal to a spent step's code is still this step's code.
+      const matched = matchTotpStep(secret, code, { ...(at ? { at } : {}), after: lastStep });
+      if (matched === null) {
         throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');
       }
       // A replay guard, not a change to the record: updated_at stays (the restore watermark reads it as a write).

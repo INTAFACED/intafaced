@@ -15,6 +15,8 @@ import { createFounderAuthority } from '../founder-authority.js';
 import { MemoryDisputeCaseStore } from '../fraud/dispute-case.js';
 import { createMerchantOpsRouter, type MerchantOpsDeps } from './router.js';
 import { ExportService } from './exports.js';
+import { signPayload } from '../rails/webhook-signature.js';
+import type { WebhookResolver } from '../webhook-url-guard.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzleDir = join(here, '..', '..', 'drizzle');
@@ -93,6 +95,7 @@ describe('merchant portal activity, exports, and webhooks (Postgres)', () => {
       ledger,
       webhooksAllowLocalHttp: true,
       webhookRetry: { maxPerWindow: 2, windowMs: 60_000 },
+      webhookSettings: { endpointCap: 20, overlapMaxSeconds: 600, resendWindowSeconds: 86_400, retryScheduleSeconds: [5, 10] },
       ...over,
     });
 
@@ -321,7 +324,7 @@ describe('merchant portal activity, exports, and webhooks (Postgres)', () => {
 
   it('webhook mutations need developer or admin step-up, and a retry is idempotent', async () => {
     const dev = as(developerId);
-    const created = (await dev.merchantOps.webhooks.create({ url: 'http://localhost:9/gap-hook' })) as {
+    const created = (await dev.merchantOps.webhooks.create({ url: 'http://localhost:9/gap-hook', eventTypes: ['payment.captured'] })) as {
       endpoint: { id: string };
       secret: string;
     };
@@ -357,7 +360,8 @@ describe('merchant portal activity, exports, and webhooks (Postgres)', () => {
       delivery: { attempts: number; status: string };
     };
     expect(retried.retried).toBe(true);
-    expect(retried.delivery).toMatchObject({ status: 'pending', attempts: 0 });
+    // A resend keeps the attempt count: every attempt stays in the delivery's history (J-developer-10 #10).
+    expect(retried.delivery).toMatchObject({ status: 'pending', attempts: 3 });
     const replay = (await dev.merchantOps.webhooks.deliveries.retry({
       requestId: (
         await sql<Array<{ request_id: string }>>`SELECT request_id FROM pay.merchant_webhook_retries WHERE delivery_id = ${delivery}`
@@ -380,7 +384,9 @@ describe('merchant portal activity, exports, and webhooks (Postgres)', () => {
 
   it('a concurrent retry of the same request id replays the first one', async () => {
     const dev = as(developerId);
-    const created = (await dev.merchantOps.webhooks.create({ url: 'http://localhost:9/race-hook' })) as { endpoint: { id: string } };
+    const created = (await dev.merchantOps.webhooks.create({ url: 'http://localhost:9/race-hook', eventTypes: ['payment.captured'] })) as {
+      endpoint: { id: string };
+    };
     const delivery = (
       await sql<Array<{ id: string }>>`
         INSERT INTO pay.merchant_webhook_deliveries (id, endpoint_id, merchant_id, event_id, event_type, payload, status, attempts)
@@ -425,6 +431,212 @@ describe('merchant portal activity, exports, and webhooks (Postgres)', () => {
       SELECT count(*)::int AS n FROM pay.merchant_webhook_retries WHERE request_id = ${requestId}::uuid`;
     expect(stored[0]!.n).toBe(1);
   }, 15_000);
+
+  it('J-developer-10 #1 #2 #3: https required, private names refused, the cap is the owner value, subscriptions stored', async () => {
+    const privateName: WebhookResolver = async (host) =>
+      host === 'private-receiver.example.com' ? [{ address: '10.20.30.40', family: 4 }] : [{ address: '93.184.216.34', family: 4 }];
+    const dev = as(developerId, {}, { webhookResolver: privateName });
+    const https = await refusal(() =>
+      dev.merchantOps.webhooks.create({ url: 'http://receiver.example.com/hook', eventTypes: ['payment.captured'] }),
+    );
+    expect(https.cause).toBe('pay.webhook_url_https_required');
+    const resolvesPrivate = await refusal(() =>
+      dev.merchantOps.webhooks.create({ url: 'https://private-receiver.example.com/hook', eventTypes: ['payment.captured'] }),
+    );
+    expect(resolvesPrivate.cause).toBe('pay.webhook_url_private');
+    const literal = await refusal(() =>
+      dev.merchantOps.webhooks.create({ url: 'https://192.168.1.5/hook', eventTypes: ['payment.captured'] }),
+    );
+    expect(literal.cause).toBe('pay.webhook_url_private');
+    const noTypes = await refusal(() => dev.merchantOps.webhooks.create({ url: 'https://receiver.example.com/a', eventTypes: [] }));
+    expect(noTypes.cause).toBe('pay.webhook_event_types_required');
+    const badType = await refusal(() =>
+      dev.merchantOps.webhooks.create({ url: 'https://receiver.example.com/a', eventTypes: ['pay.payment.captured.v1'] }),
+    );
+    expect(badType.cause).toBe('pay.webhook_event_type_unknown');
+
+    const blank = await refusal(() =>
+      as(developerId, {}, { webhookResolver: privateName, webhookSettings: {} }).merchantOps.webhooks.create({
+        url: 'https://receiver.example.com/blank',
+        eventTypes: ['payment.captured'],
+      }),
+    );
+    expect(blank.cause).toBe('pay.webhook_endpoint_cap_unset');
+
+    const active = await sql<Array<{ n: number }>>`
+      SELECT count(*)::int AS n FROM pay.merchant_webhook_endpoints WHERE merchant_id = ${merchantA} AND status = 'active'`;
+    const capped = as(developerId, {}, { webhookResolver: privateName, webhookSettings: { endpointCap: active[0]!.n + 1 } });
+    const created = (await capped.merchantOps.webhooks.create({
+      url: 'https://receiver.example.com/two-types',
+      eventTypes: ['payment.refunded', 'payment.authorized', 'payment.refunded'],
+    })) as { endpoint: { id: string; eventTypes: string[] } };
+    expect(created.endpoint.eventTypes).toEqual(['payment.authorized', 'payment.refunded']);
+    const full = await refusal(() =>
+      capped.merchantOps.webhooks.create({ url: 'https://receiver.example.com/over', eventTypes: ['payment.captured'] }),
+    );
+    expect(full.cause).toBe('pay.webhook_endpoint_cap_reached');
+    await dev.merchantOps.webhooks.disable({ endpointId: created.endpoint.id });
+  });
+
+  it('J-developer-10 #4 #6: the catalogue names public types only, the guide publishes a vector the delivery code signs', async () => {
+    const dev = as(developerId, {}, { webhookSettings: { toleranceSeconds: 300, senderIps: ['127.0.0.1'] } });
+    const catalogue = (await dev.merchantOps.webhooks.catalogue({})) as {
+      events: Array<{ type: string; payloadSchema: unknown }>;
+      ordering: string;
+      duplicates: string;
+    };
+    expect(catalogue.events.map((e) => e.type)).toEqual(['payment.authorized', 'payment.captured', 'payment.refunded', 'payment.failed']);
+    expect(JSON.stringify(catalogue)).not.toMatch(/pay\.payment\.|\.v1|nats|svc-/i);
+    expect(catalogue.ordering).toMatch(/out of order/);
+    expect(catalogue.duplicates).toMatch(/same id/);
+    const guide = (await dev.merchantOps.webhooks.guide({})) as {
+      toleranceSeconds: number | null;
+      senderIps: string[] | null;
+      vector: { secret: string; timestamp: string; body: string; signature: string };
+    };
+    expect(guide.toleranceSeconds).toBe(300);
+    expect(guide.senderIps).toEqual(['127.0.0.1']);
+    expect(guide.vector.signature).toBe(signPayload(guide.vector.secret, guide.vector.timestamp, guide.vector.body));
+    expect(guide.vector.signature).not.toBe(
+      signPayload(guide.vector.secret, guide.vector.timestamp, guide.vector.body.replace('10.00', '99.00')),
+    );
+    const blank = (await as(developerId, {}, { webhookSettings: {} }).merchantOps.webhooks.guide({})) as {
+      toleranceSeconds: number | null;
+      senderIps: string[] | null;
+    };
+    expect(blank).toMatchObject({ toleranceSeconds: null, senderIps: null });
+  });
+
+  it('J-developer-10 #5: a roll with overlap keeps the old secret until its end; a blank maximum refuses overlap above zero', async () => {
+    const dev = as(developerId);
+    const created = (await dev.merchantOps.webhooks.create({
+      url: 'http://localhost:9/overlap-hook',
+      eventTypes: ['payment.captured'],
+    })) as {
+      endpoint: { id: string };
+      secret: string;
+    };
+    const blank = await refusal(() =>
+      as(developerId, {}, { webhookSettings: {} }).merchantOps.webhooks.rotateSecret({
+        endpointId: created.endpoint.id,
+        requestId: id(),
+        overlapSeconds: 60,
+      }),
+    );
+    expect(blank.cause).toBe('pay.webhook_overlap_max_unset');
+    const now = (await as(developerId, {}, { webhookSettings: {} }).merchantOps.webhooks.rotateSecret({
+      endpointId: created.endpoint.id,
+      requestId: id(),
+      overlapSeconds: 0,
+    })) as { rotated: boolean; secret: string };
+    expect(now.rotated).toBe(true);
+    const tooLong = await refusal(() =>
+      dev.merchantOps.webhooks.rotateSecret({ endpointId: created.endpoint.id, requestId: id(), overlapSeconds: 601 }),
+    );
+    expect(tooLong.cause).toBe('pay.webhook_overlap_too_long');
+    const rolled = (await dev.merchantOps.webhooks.rotateSecret({
+      endpointId: created.endpoint.id,
+      requestId: id(),
+      overlapSeconds: 120,
+    })) as {
+      secret: string;
+      endpoint: { previousSecretUntil: string | null };
+    };
+    expect(rolled.endpoint.previousSecretUntil).not.toBeNull();
+    const stored = await sql<Array<{ signing_secret: string; previous_signing_secret: string | null; until_s: number }>>`
+      SELECT signing_secret, previous_signing_secret, extract(epoch FROM previous_secret_until - now())::int AS until_s
+        FROM pay.merchant_webhook_endpoints WHERE id = ${created.endpoint.id}`;
+    expect(stored[0]).toMatchObject({ signing_secret: rolled.secret, previous_signing_secret: now.secret });
+    expect(stored[0]!.until_s).toBeGreaterThan(100);
+    expect(stored[0]!.until_s).toBeLessThanOrEqual(120);
+  });
+
+  it('J-developer-10 #10: resend inside the window, refused outside it or blank; recover missed events; attempts read', async () => {
+    // Its own rate budget: the earlier tests spend the shared one (2 a minute).
+    const dev = as(developerId, {}, { webhookRetry: { maxPerWindow: 50, windowMs: 60_000 } });
+    const created = (await dev.merchantOps.webhooks.create({
+      url: 'http://localhost:9/resend-hook',
+      eventTypes: ['payment.captured'],
+    })) as {
+      endpoint: { id: string };
+    };
+    const insert = async (status: string, ageSeconds: number) =>
+      (
+        await sql<Array<{ id: string }>>`
+          INSERT INTO pay.merchant_webhook_deliveries (id, endpoint_id, merchant_id, event_id, event_type, payload, status, attempts, created_at)
+          VALUES (${id()}, ${created.endpoint.id}, ${merchantA}, ${'evt-' + id()}, 'payment.captured', ${sql.json({ ok: true })}, ${status}, 1,
+                  now() - make_interval(secs => ${ageSeconds}))
+          RETURNING id`
+      )[0]!.id;
+    const delivered = await insert('delivered', 10);
+    const old = await insert('failed', 2 * 86_400);
+    const missedA = await insert('dead', 30);
+    const missedB = await insert('failed', 20);
+    const pending = await insert('pending', 5);
+
+    const resend = (await dev.merchantOps.webhooks.deliveries.retry({ requestId: id(), deliveryId: delivered })) as {
+      retried: boolean;
+      delivery: { status: string };
+    };
+    expect(resend).toMatchObject({ retried: true, delivery: { status: 'pending' } });
+    const outside = await refusal(() => dev.merchantOps.webhooks.deliveries.retry({ requestId: id(), deliveryId: old }));
+    expect(outside.cause).toBe('pay.webhook_resend_outside_window');
+    const queued = await refusal(() => dev.merchantOps.webhooks.deliveries.retry({ requestId: id(), deliveryId: pending }));
+    expect(queued.cause).toBe('pay.webhook_resend_already_queued');
+    const blank = await refusal(() =>
+      as(developerId, {}, { webhookSettings: {} }).merchantOps.webhooks.deliveries.retry({ requestId: id(), deliveryId: missedA }),
+    );
+    expect(blank.cause).toBe('pay.webhook_resend_window_unset');
+
+    const wide = as(
+      developerId,
+      {},
+      {
+        webhookRetry: { maxPerWindow: 50, windowMs: 60_000 },
+        webhookSettings: { resendWindowSeconds: 86_400 },
+      },
+    );
+    const tooOld = await refusal(() =>
+      wide.merchantOps.webhooks.deliveries.recover({
+        requestId: id(),
+        endpointId: created.endpoint.id,
+        since: new Date(Date.now() - 3 * 86_400_000).toISOString(),
+      }),
+    );
+    expect(tooOld.cause).toBe('pay.webhook_resend_outside_window');
+    const requestId = id();
+    const since = new Date(Date.now() - 3_600_000).toISOString();
+    const recovered = await wide.merchantOps.webhooks.deliveries.recover({ requestId, endpointId: created.endpoint.id, since });
+    expect(recovered).toEqual({ recovered: true, queued: 2 });
+    expect(await wide.merchantOps.webhooks.deliveries.recover({ requestId, endpointId: created.endpoint.id, since })).toEqual({
+      recovered: false,
+      queued: 2,
+    });
+    const after = await sql<Array<{ id: string; status: string; resend_request_id: string | null }>>`
+      SELECT id, status, resend_request_id::text FROM pay.merchant_webhook_deliveries WHERE id IN (${missedA}, ${missedB}, ${old})`;
+    const byId = new Map(after.map((r) => [r.id, r]));
+    expect(byId.get(missedA)).toMatchObject({ status: 'pending', resend_request_id: requestId });
+    expect(byId.get(missedB)).toMatchObject({ status: 'pending', resend_request_id: requestId });
+    expect(byId.get(old)).toMatchObject({ status: 'failed', resend_request_id: null });
+
+    await sql`
+      INSERT INTO pay.merchant_webhook_attempts (delivery_id, merchant_id, attempt_no, started_at, finished_at, outcome, status_code, error)
+      VALUES (${delivered}, ${merchantA}, 1, now() - interval '2 seconds', now() - interval '1 second', 'failed', 500, 'HTTP 500')`;
+    const attempts = (await dev.merchantOps.webhooks.deliveries.attempts({ deliveryId: delivered })) as {
+      attempts: Array<{ attemptNo: number; outcome: string; statusCode: number | null; durationMs: number }>;
+    };
+    expect(attempts.attempts).toEqual([expect.objectContaining({ attemptNo: 1, outcome: 'failed', statusCode: 500, durationMs: 1000 })]);
+    const foreign = await refusal(() => as(userB).merchantOps.webhooks.deliveries.attempts({ deliveryId: delivered }));
+    const ghost = await refusal(() => as(userB).merchantOps.webhooks.deliveries.attempts({ deliveryId: id() }));
+    expect(foreign).toEqual(ghost);
+    const policy = await dev.merchantOps.webhooks.policy({});
+    expect(policy).toMatchObject({ retryScheduleSeconds: [5, 10], resendWindowSeconds: 86_400, endpointCap: 20 });
+    expect(await as(developerId, {}, { webhookSettings: {} }).merchantOps.webhooks.policy({})).toMatchObject({
+      retryScheduleSeconds: null,
+      resendWindowSeconds: null,
+      endpointCap: null,
+    });
+  });
 
   it('approval list filters status in the database and pages', async () => {
     const approvals = new ApprovalService(sql, { access: teamAccessPorts(sql) });

@@ -14,7 +14,7 @@ import {
   type VoucherRedemption,
   type VoucherValidation,
 } from '@intafaced/contracts/campaigns-catalogue';
-import { CampaignsError } from './codes.js';
+import { CampaignsError, codeHashOf, maskedCode } from './codes.js';
 import { ELIGIBILITY_REFUSAL, effectiveState, type CampaignService } from './campaigns.js';
 import type { ParticipantSource } from './participants.js';
 import type { PayoutSaga } from './payouts.js';
@@ -50,7 +50,9 @@ type Sql = postgres.Sql;
 type VoucherCampaignRow = {
   id: string;
   campaign_id: string;
-  code: string;
+  /** Null for a code made in a batch or imported: only its hash and last four characters are stored. */
+  code: string | null;
+  code_last4: string;
   state: MyVoucher['state'];
   face_asset: string;
   face_amount: string;
@@ -78,6 +80,11 @@ type RedemptionRow = {
   ledger_tx_id: string | null;
   posted_at: Date | null;
   created_at: Date;
+  owe_tx_id: string | null;
+  owed_at: Date | null;
+  paid_chain_tx: string | null;
+  pay_to_wallet: string | null;
+  paid_at: Date | null;
 };
 
 const INVALID = 'This code cannot be claimed. Check it and try again.';
@@ -105,7 +112,7 @@ const USED = (sql: Sql) => sql`
       AND i.state NOT IN ('failed', 'forfeited', 'withheld')), 0) END)::text`;
 
 const SELECT_VOUCHER = (sql: Sql) => sql`
-  SELECT v.id, v.campaign_id, v.code, v.state, v.face_asset, v.face_amount::text AS face_amount, v.kind, v.fee_discount_bps,
+  SELECT v.id, v.campaign_id, v.code, v.code_last4, v.state, v.face_asset, v.face_amount::text AS face_amount, v.kind, v.fee_discount_bps,
     ${USED(sql)} AS used_amount, v.claim_by, v.use_by, v.claimed_by, v.claimed_at, v.expired_at,
     c.name AS campaign_name, c.state AS campaign_state, c.starts_at, c.ends_at, c.participation
   FROM campaigns.vouchers v JOIN campaigns.campaigns c ON c.id = v.campaign_id`;
@@ -120,6 +127,12 @@ export interface VoucherServiceOptions {
   saga: PayoutSaga | null;
   /** The owner's attempt limits, read per call; null refuses every check and claim `campaigns.attempt_limit_unset`. */
   attemptLimits: () => AttemptLimits | null;
+  /**
+   * Notes the caller's connected wallet on their open USDC rewards (TaskService.recordPayTo), from the headers their own
+   * request forwarded, so a cash voucher in USDC is paid to that wallet (launch money model; J-campaigns-08 #5). Absent:
+   * a USDC redemption is owed and waits for a connected wallet.
+   */
+  payTo?: (accountId: string, forwarded: Record<string, string>) => Promise<boolean>;
   now?: () => Date;
 }
 
@@ -129,6 +142,7 @@ export class VoucherService {
   private readonly campaigns: Pick<CampaignService, 'eligibility'>;
   private readonly saga: PayoutSaga | null;
   private readonly attemptLimits: () => AttemptLimits | null;
+  private readonly payTo: VoucherServiceOptions['payTo'];
   private readonly now: () => Date;
 
   constructor(options: VoucherServiceOptions) {
@@ -137,6 +151,7 @@ export class VoucherService {
     this.campaigns = options.campaigns;
     this.saga = options.saga;
     this.attemptLimits = options.attemptLimits;
+    this.payTo = options.payTo;
     this.now = options.now ?? (() => new Date());
   }
 
@@ -186,7 +201,13 @@ export class VoucherService {
    * archived or otherwise stopped campaign pays nothing (`campaign.not_active`); an ended one honours a claimed voucher
    * until its use-by. The caller is checked against the campaign's rules again, as at the claim.
    */
-  async redeem(input: { voucherId: string; amount: string; sequence: number; accountId: string }): Promise<VoucherRedeemResult> {
+  async redeem(input: {
+    voucherId: string;
+    amount: string;
+    sequence: number;
+    accountId: string;
+    forwarded?: Record<string, string>;
+  }): Promise<VoucherRedeemResult> {
     if (!this.saga) throw new CampaignsError('campaigns.reward_saga_unwired', 'Vouchers cannot be redeemed: the ledger is not connected');
     const raw = input.amount.trim();
     if (!DECIMAL.test(raw) || parseAmount(raw) <= 0n) {
@@ -227,6 +248,10 @@ export class VoucherService {
           throw new CampaignsError('campaigns.voucher_sequence_invalid', `Redemption ${input.sequence} of this voucher was another amount`);
         }
         return { key, created: false, withheld: false };
+      }
+      // An operator deactivated it (J-campaigns-17 #5): it pays nothing more, whatever is left on it.
+      if (v.state === 'deactivated') {
+        throw new CampaignsError('campaigns.voucher_deactivated', 'This voucher was deactivated, so it cannot be used');
       }
       if (v.state === 'expired' || !v.use_by || v.use_by <= this.now()) {
         throw new CampaignsError('campaigns.voucher_expired', 'This voucher’s use-by has passed');
@@ -296,6 +321,9 @@ export class VoucherService {
           ${tx.json({ voucher: v.id, rewardKey: key, sequence: input.sequence, amount })})`;
       return { key, created: true, withheld: withheld !== null };
     });
+    // A USDC redemption is paid to the caller's connected wallet: it is given that wallet before it is owed, so the payer
+    // can send it once the ledger records it owed. A redemption seen again keeps the wallet it was given.
+    if (this.payTo && input.forwarded) await this.payTo(input.accountId, input.forwarded);
     if (outcome.created && !outcome.withheld) await this.saga.attempt(outcome.key);
     const voucher = (await this.own(input.voucherId, input.accountId))!;
     const redemption = voucher.redemptions.find((r) => r.sequence === input.sequence)!;
@@ -313,12 +341,19 @@ export class VoucherService {
   async feeSaver(input: FeeSaverAskInput): Promise<FeeSaverAnswer> {
     return transaction(this.sql, async (tx) => {
       if (input.mode === 'take') await tx`SELECT pg_advisory_xact_lock(hashtext(${`fee-saver:${input.accountId}`}))`;
-      const [taken] = await tx<{ voucher_id: string; code: string; discount_bps: number; sequence: number }[]>`
-        SELECT u.voucher_id, v.code, u.discount_bps, u.sequence
+      const [taken] = await tx<{ voucher_id: string; code: string | null; code_last4: string; discount_bps: number; sequence: number }[]>`
+        SELECT u.voucher_id, v.code, v.code_last4, u.discount_bps, u.sequence
         FROM campaigns.fee_saver_uses u JOIN campaigns.vouchers v ON v.id = u.voucher_id
         WHERE u.account_id = ${input.accountId} AND u.order_key = ${input.orderKey}`;
       if (taken) {
-        return { coupon: { voucherId: taken.voucher_id, code: taken.code, discountBps: taken.discount_bps, sequence: taken.sequence } };
+        return {
+          coupon: {
+            voucherId: taken.voucher_id,
+            code: taken.code ?? maskedCode(taken.code_last4),
+            discountBps: taken.discount_bps,
+            sequence: taken.sequence,
+          },
+        };
       }
       if (input.mode === 'read') return { coupon: null };
       const now = this.now();
@@ -333,7 +368,14 @@ export class VoucherService {
       });
       if (!best) return { coupon: null };
       if (input.mode === 'quote') {
-        return { coupon: { voucherId: best.id, code: best.code, discountBps: best.fee_discount_bps!, sequence: null } };
+        return {
+          coupon: {
+            voucherId: best.id,
+            code: best.code ?? maskedCode(best.code_last4),
+            discountBps: best.fee_discount_bps!,
+            sequence: null,
+          },
+        };
       }
       // Under the account's lock every take of this account's coupons is one at a time, so the count cannot move under us.
       const sequence = Number(parseAmount(best.used_amount) / parseAmount('1')) + 1;
@@ -348,7 +390,9 @@ export class VoucherService {
         INSERT INTO campaigns.audit_log (actor, action, target, detail)
         VALUES (${input.accountId}, 'campaign.voucher.fee_saver_take', ${best.campaign_id},
           ${tx.json({ voucher: best.id, orderKey: input.orderKey, sequence, discountBps: best.fee_discount_bps })})`;
-      return { coupon: { voucherId: best.id, code: best.code, discountBps: best.fee_discount_bps!, sequence } };
+      return {
+        coupon: { voucherId: best.id, code: best.code ?? maskedCode(best.code_last4), discountBps: best.fee_discount_bps!, sequence },
+      };
     });
   }
 
@@ -433,8 +477,8 @@ export class VoucherService {
 
   /** Every claim check, in order; anything about a code the caller may not claim is the one generic refusal. */
   private async claimable(raw: string, accountId: string): Promise<VoucherCampaignRow> {
-    const code = raw.trim().toUpperCase();
-    const rows = await this.sql<VoucherCampaignRow[]>`${SELECT_VOUCHER(this.sql)} WHERE v.code = ${code} LIMIT 2`;
+    // Looked up by its hash: a code made in a batch or imported has no plain text to match (J-campaigns-17).
+    const rows = await this.sql<VoucherCampaignRow[]>`${SELECT_VOUCHER(this.sql)} WHERE v.code_hash = ${codeHashOf(raw)} LIMIT 2`;
     const now = this.now();
     const [v] = rows;
     if (!v || rows.length > 1 || v.state !== 'published' || effectiveState({ ...v, state: v.campaign_state }, now) !== 'active') {
@@ -484,7 +528,8 @@ export class VoucherService {
     const out = new Map<string, VoucherRedemption[]>();
     if (rows.length === 0) return out;
     const found = await this.sql<RedemptionRow[]>`
-      SELECT reward_key, period, amount::text AS amount, state, reason, ledger_tx_id, posted_at, created_at
+      SELECT reward_key, period, amount::text AS amount, state, reason, ledger_tx_id, posted_at, created_at,
+        owe_tx_id, owed_at, paid_chain_tx, pay_to_wallet, paid_at
       FROM campaigns.reward_intents
       WHERE account_id = ${accountId} AND campaign_id IN ${this.sql([...new Set(rows.map((r) => r.campaign_id))])}
         AND left(period, 8) = 'voucher:'`;
@@ -501,6 +546,11 @@ export class VoucherService {
           reason: r.reason,
           ledgerTxId: r.ledger_tx_id,
           postedAt: r.posted_at ? r.posted_at.toISOString() : null,
+          owed: r.owe_tx_id && r.owed_at ? { txId: r.owe_tx_id, at: r.owed_at.toISOString() } : null,
+          payout:
+            r.state === 'paid' && r.paid_chain_tx && r.pay_to_wallet && r.paid_at
+              ? { chainTx: r.paid_chain_tx, toWallet: r.pay_to_wallet, at: r.paid_at.toISOString() }
+              : null,
         },
       });
       out.set(voucherId, list);
@@ -518,11 +568,13 @@ function toMine(v: VoucherCampaignRow, redemptions: VoucherRedemption[], now: Da
   const expired = v.state === 'expired' || (used < face && v.use_by !== null && v.use_by <= now);
   return {
     id: v.id,
-    code: v.code,
+    code: v.code ?? maskedCode(v.code_last4),
     campaignId: v.campaign_id,
     campaignName: v.campaign_name,
     // Read from the sum, so a redemption the ledger refused gives its part back to the voucher.
-    state: expired ? 'expired' : used === 0n ? 'claimed' : used >= face ? 'used' : 'partially_used',
+    // A deactivated voucher reads deactivated, whatever it used (J-campaigns-17 #5).
+    state:
+      v.state === 'deactivated' ? 'deactivated' : expired ? 'expired' : used === 0n ? 'claimed' : used >= face ? 'used' : 'partially_used',
     face: { asset: v.face_asset, amount: formatAmount(face) },
     used: formatAmount(used),
     remaining: formatAmount(face - used),

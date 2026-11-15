@@ -3,12 +3,9 @@ import { founderMutationHeaders } from '@/lib/founder-browser';
 import type { RefusalView } from '@/lib/desk/refusal-copy';
 import type { OAuthQueueView } from './server';
 import type { OAuthReviewRequest, OAuthReviewStatus } from './model';
+import { isRecord } from '@intafaced/contracts/guards';
 
 export type OAuthQueueDeskView = OAuthQueueView;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
 
 export async function fetchOAuthQueue(status: OAuthReviewStatus, signal?: AbortSignal): Promise<OAuthQueueDeskView | null> {
   try {

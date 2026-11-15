@@ -148,8 +148,8 @@
     },
     "BANK_ONRAMP_SIM_JSON": {
       "service": "bank",
-      "value": "{\"label\": \"TEST add-money stand-in for the local stack: not a partner, not a rate anyone offers\", \"quoteValidSeconds\": 20, \"quotes\": [{\"country\": \"NL\", \"method\": \"bank_transfer\", \"asset\": \"USDT\", \"payCurrency\": \"EUR\", \"rate\": \"2\", \"fee\": \"1\", \"deliveryEstimate\": \"TEST 1 business day\"}, {\"country\": \"NL\", \"method\": \"pay_by_bank\", \"asset\": \"USDT\", \"payCurrency\": \"EUR\", \"rate\": \"2\", \"fee\": \"1\", \"deliveryEstimate\": \"TEST once your bank approves\", \"quoteValidSeconds\": 600}, {\"country\": \"NL\", \"method\": \"card\", \"asset\": \"USDT\", \"payCurrency\": \"EUR\", \"rate\": \"2\", \"fee\": \"1\", \"deliveryEstimate\": \"TEST once your card is approved\", \"quoteValidSeconds\": 600}]}",
-      "note": "The add-money rate stand-in's catalogue: three made-up prices from NL, USDT at a TEST rate of 2 EUR plus a TEST fee of 1 EUR. The bank-transfer one holds for 20 seconds, so a journey can see a price, wait it out and be refused (J-bank-02 #4); the pay-by-bank and card ones hold for 10 minutes, so a journey can pay them through the pay-in stand-in (J-bank-02 #3, #5; J-wallet-01 #3 buys both ways through the partner). It opens no payment and credits nothing itself. Every other country and way to pay stays refused. Loaded only with BANK_ONRAMP_RATES=ramp-sim."
+      "value": "{\"label\": \"TEST add-money stand-in for the local stack: not a partner, not a rate anyone offers\", \"quoteValidSeconds\": 20, \"quotes\": [{\"country\": \"NL\", \"method\": \"bank_transfer\", \"asset\": \"USDT\", \"payCurrency\": \"EUR\", \"rate\": \"2\", \"fee\": \"1\", \"deliveryEstimate\": \"TEST 1 business day\"}, {\"country\": \"NL\", \"method\": \"pay_by_bank\", \"asset\": \"USDT\", \"payCurrency\": \"EUR\", \"rate\": \"2\", \"fee\": \"1\", \"deliveryEstimate\": \"TEST once your bank approves\", \"quoteValidSeconds\": 600}, {\"country\": \"NL\", \"method\": \"card\", \"asset\": \"USDT\", \"payCurrency\": \"EUR\", \"rate\": \"2\", \"fee\": \"1\", \"deliveryEstimate\": \"TEST once your card is approved\", \"quoteValidSeconds\": 600}, {\"country\": \"NL\", \"method\": \"pay_by_bank\", \"asset\": \"USDC\", \"payCurrency\": \"EUR\", \"rate\": \"2\", \"fee\": \"1\", \"deliveryEstimate\": \"TEST once your bank approves\", \"quoteValidSeconds\": 600}]}",
+      "note": "The add-money rate stand-in's catalogue: four made-up prices from NL at a TEST rate of 2 EUR plus a TEST fee of 1 EUR: USDT three ways, and USDC by pay by bank for a purchase delivered to the person's own wallet (J-dex-protocol-05 #4). The bank-transfer one holds for 20 seconds, so a journey can see a price, wait it out and be refused (J-bank-02 #4); the pay-by-bank and card ones hold for 10 minutes, so a journey can pay them through the pay-in stand-in (J-bank-02 #3, #5; J-wallet-01 #3 buys both ways through the partner). It opens no payment and credits nothing itself. Every other country and way to pay stays refused. Loaded only with BANK_ONRAMP_RATES=ramp-sim."
     },
     "BANK_PAYIN_SIM_JSON": {
       "service": "bank",
@@ -203,8 +203,8 @@
     },
     "BANK_CARD_CASHBACK_RATES_JSON": {
       "service": "bank",
-      "value": "{\"assetId\": \"IFC\", \"rates\": {\"none\": 100, \"standard\": 150, \"metal\": 200, \"obsidian\": 300}}",
-      "note": "TEST cashback rates by rank card tier, paid in IFC on spend from an IFC card (J-bank-13 #7): 1%, 1.5%, 2% and 3%. Made up for the local test stack; not an owner decision."
+      "value": "{\"assetId\": \"USDC\", \"rates\": {\"none\": 100, \"standard\": 150, \"metal\": 200, \"obsidian\": 300}}",
+      "note": "TEST cashback rates by rank card tier, earned in USDC on spend from a USDC card (J-bank-13 #7): 1%, 1.5%, 2% and 3%. On a card the partner holds, INTAFACED owes it and pays it to the person's own wallet (OWNER 288). Made up for the local test stack; not an owner decision."
     },
     "BANK_PLANS_JSON": {
       "service": "bank",
@@ -216,6 +216,21 @@
       "value": "[{\"assetId\": \"USDT\", \"fee\": \"5\", \"inactiveDays\": 365, \"noticeLeadDays\": 30, \"version\": \"local-test-1\"}]",
       "note": "TEST dormancy fee rule (J-bank-16 #7): 5 TEST USDT after 365 days with no activity, noticed 30 days ahead. Made up for the local test stack; not an owner decision or a fee."
     },
+    "BANK_ONBOARDING_REQUIREMENTS_JSON": {
+      "service": "bank",
+      "value": "[\"TEST owner requirement: keep your contact email up to date\", \"TEST owner requirement: use the account for your own money only\"]",
+      "note": "Two made-up owner requirements labelled TEST, shown beside the partner's in bank onboarding (J-bank-17 #1). Not the owner's requirements."
+    },
+    "BANK_INFO_REQUEST_UPLOAD_JSON": {
+      "service": "bank",
+      "value": "{\"allowedTypes\": [\"application/pdf\", \"image/png\"], \"maxBytes\": 65536}",
+      "note": "TEST size cap for an answer to the partner's information request: a PDF or PNG up to 64 KiB, small so a journey can see a file over it refused (J-bank-17 #2). Not an owner decision."
+    },
+    "BANK_REOPEN_WINDOW_DAYS": {
+      "service": "bank",
+      "value": "30",
+      "note": "TEST days after a bank account closed in which it may be reopened (J-bank-17 #6). Not an owner decision."
+    },
     "BANK_CARD_SPEND_ASSETS": {
       "service": "bank",
       "value": "USDC,BTC,USD",
@@ -223,8 +238,8 @@
     },
     "BANK_CARD_SIM_PARTNER_JSON": {
       "service": "bank",
-      "value": "{\"custodyMode\": \"partner_holds\", \"spendFrom\": [\"USDC\", \"BTC\", \"USD\"], \"lossLiability\": null, \"reserve\": null, \"funder\": null, \"balances\": {\"USDC\": \"30\", \"BTC\": \"0.01\", \"USD\": \"50\"}, \"programmeFigures\": null, \"figuresAsOf\": null, \"fundingAssetId\": null, \"fundingOffers\": null, \"secrets\": \"test\"}",
-      "note": "The TEST partner card adapter's switches (CUSTODY-DELTA section 4): the stand-in partner holds the crypto, spends from USDC, BTC and USD and reports TEST 30 USDC, 0.01 BTC and 50 USD spendable for every cardholder (J-bank-29 Starts); loss liability, any programme reserve, who funds the programme, the partner's programme figures and its time for them, the funding stablecoin and which funding actions it offers are not known (null), so the app shows \"not known\" (J-bank-26 #6, J-bank-27 #4). Its secrets set to test turns on a TEST card number, expiry and security code, a TEST PIN and TEST wallet tokens, each labelled TEST (J-bank-14 #3, #4). Not a partner's answers. Refused at boot outside dev/test."
+      "value": "{\"custodyMode\": \"partner_holds\", \"spendFrom\": [\"USDC\", \"BTC\", \"USD\"], \"lossLiability\": null, \"reserve\": null, \"funder\": null, \"balances\": {\"USDC\": \"30\", \"BTC\": \"0.01\", \"USD\": \"50\"}, \"programmeFigures\": null, \"figuresAsOf\": null, \"fundingAssetId\": null, \"fundingOffers\": null, \"secrets\": \"test\", \"disputeRules\": {\"windowDays\": 120, \"evidenceAfterSubmission\": false}}",
+      "note": "The TEST partner card adapter's switches (CUSTODY-DELTA section 4): the stand-in partner holds the crypto, spends from USDC, BTC and USD and reports TEST 30 USDC, 0.01 BTC and 50 USD spendable for every cardholder (J-bank-29 Starts); loss liability, any programme reserve, who funds the programme, the partner's programme figures and its time for them, the funding stablecoin and which funding actions it offers are not known (null), so the app shows \"not known\" (J-bank-26 #6, J-bank-27 #4). Its secrets set to test turns on a TEST card number, expiry and security code, a TEST PIN and TEST wallet tokens, each labelled TEST (J-bank-14 #3, #4). Its TEST dispute rules take a cardholder's dispute up to 120 days after the charge settled and no evidence from them once the representment is submitted (J-bank-15 #1, #3). Not a partner's answers. Refused at boot outside dev/test."
     },
     "BANK_CARD_PIN_TRY_LIMIT": {
       "service": "bank",

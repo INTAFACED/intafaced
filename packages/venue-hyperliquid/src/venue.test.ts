@@ -414,10 +414,14 @@ describe('prepare builds exactly what the wallet signs', () => {
       venue.prepare(account, ownerSigner, {
         kind: 'amend_order',
         symbol: 'ETH-PERP',
-        clientOrderKey: 'order:test-user:desk:1',
+        venueClientOrderId: '0x00000000000000000000000000000001',
         amount: a('1'),
         price: a('1'),
       }),
+      'not_offered',
+    );
+    await refusedWith(
+      venue.prepare(account, ownerSigner, { kind: 'cancel_orders', orders: [{ symbol: 'ETH-PERP', venueClientOrderId: '0x01' }] }),
       'not_offered',
     );
   });

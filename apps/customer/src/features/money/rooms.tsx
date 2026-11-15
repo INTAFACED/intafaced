@@ -56,6 +56,7 @@ import { SharedPots } from './SharedPots';
 import { BillsPotActions } from './BillsPot';
 import { AccountHome } from './AccountHome';
 import { AddMoney } from './AddMoney';
+import { WalletProvider } from '../protocol/wallet/WalletProvider';
 import { addMoneyCopy } from './add-money-copy';
 import { LinkedAccounts } from './LinkedAccounts';
 import { DirectDebits } from './DirectDebits';
@@ -81,6 +82,7 @@ import { categoryLabel } from './analytics-copy';
 import { splitAnalytics } from './analytics-model';
 import { AnalyticsBudgets, AnalyticsCompare } from './AnalyticsBudgets';
 import { LimitsRoom, limitsCopy } from './LimitsRoom';
+import { BankAccountRoom, OnboardingBanner, bankAccountCopy } from './BankAccountRoom';
 import { GoalProgress, MovementBars } from './GoalAndMovement';
 import { availableRow, earnFormFacts, earnLiveRows, loanFormFacts, loanLiveRows } from './form-preview';
 import { RecipientPicker } from './RecipientPicker';
@@ -1518,7 +1520,10 @@ function AddMoneyRoom() {
   const { t } = addMoneyCopy.useCopy();
   return (
     <BankPage room="Ramps" title={t('title')} description={t('description')}>
-      <AddMoney />
+      {/* The browser wallet's connection, so a purchase can be delivered straight to it (J-dex-protocol-05 #4). */}
+      <WalletProvider>
+        <AddMoney />
+      </WalletProvider>
     </BankPage>
   );
 }
@@ -1661,6 +1666,15 @@ function LimitsPage() {
   return (
     <BankPage room="Overview" title={limitsCopy.t('title')} description={limitsCopy.t('description')}>
       <LimitsRoom />
+    </BankPage>
+  );
+}
+
+/** `/bank/account`: onboarding, requests, reviews, closure and data rights at the partner bank (BK-acct-05, BK-acct-06, J-bank-17). */
+function BankAccountPage() {
+  return (
+    <BankPage room="Overview" title={bankAccountCopy.t('title')} description={bankAccountCopy.t('description')}>
+      <BankAccountRoom />
     </BankPage>
   );
 }
@@ -1885,6 +1899,7 @@ const bankServices = [
   { href: '/bank/analytics', label: 'nav.analytics', note: 'overview.analytics.note' },
   { href: '/bank/business', label: 'nav.business', note: 'overview.business.note' },
   { href: '/uc/record', label: 'index.money.activity', note: 'overview.activity.note' },
+  { href: '/bank/account', label: 'nav.bank.account', note: 'overview.bank.account.note' },
   { href: '/bank/safety/scam', label: 'nav.scam', note: 'overview.scam.note' },
   { href: '/bank/safety/complaint', label: 'nav.complaint', note: 'overview.complaint.note' },
   { href: '/bank/safety/bereavement', label: 'nav.bereavement', note: 'overview.bereavement.note' },
@@ -1923,6 +1938,7 @@ function BankOverview() {
       }
     >
       <BankNavigation current="Overview" />
+      <OnboardingBanner />
       <div className="money-overview-lane">
         <Section
           title={copyText('index.holdings')}
@@ -2183,6 +2199,8 @@ export function BankRoutes({ path, search, open }: { path: string; search: strin
       return <StatementsRoom />;
     case '/bank/limits':
       return <LimitsPage />;
+    case '/bank/account':
+      return <BankAccountPage />;
     case '/bank/business':
       return <Business open={open} />;
     case '/uc/record':

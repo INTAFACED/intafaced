@@ -13,8 +13,12 @@ import { Read } from '../more/common';
 import { preservePaperHref } from '../more/trade-context';
 import { useApi } from '../session/session';
 import { PaperRuns } from './PaperRuns';
+import { StrategyAlerts, StrategyChannels } from './StrategyNotify';
 import { QuantRooms } from './QuantRooms';
 import { StrategyLifecycle } from './StrategyLifecycle';
+import { StrategyRisk } from './StrategyRisk';
+import { StrategyTeam } from './StrategyTeam';
+import { StrategyLineage, StrategyPublish } from './StrategyPublish';
 import { strategyPageCopy } from './strategy-page-copy';
 import './algo.css';
 
@@ -46,9 +50,20 @@ export function StrategyPage({ strategyId, paper }: { strategyId: string; paper:
       <Read resource={detail.resource} retry={detail.reload}>
         {(strategy) => (
           <>
+            <StrategyLineage strategy={strategy} />
             <StrategyVersions strategy={strategy} />
+            <p>
+              <a className="text-link" href={preservePaperHref(`/quant/studio?open=${encodeURIComponent(strategy.id)}`, paper)}>
+                {t('openInStudio')}
+              </a>
+            </p>
+            <StrategyRisk strategy={strategy} />
             <PaperRuns strategy={strategy} />
+            <StrategyChannels strategy={strategy} />
+            <StrategyAlerts strategy={strategy} />
             <StrategyLifecycle strategy={strategy} />
+            <StrategyTeam strategy={strategy} />
+            <StrategyPublish strategy={strategy} />
           </>
         )}
       </Read>

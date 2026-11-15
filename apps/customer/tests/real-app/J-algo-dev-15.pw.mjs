@@ -8,12 +8,11 @@ import { signIn, signUp } from './desk.mjs';
 // editor, then signs up one fresh TEST developer; the later steps sign it in again from the run file. Every row in these
 // rooms is TEST sample data; every engine action is refused with the platform's one typed Preview refusal
 // (packages/contracts/src/preview-refusal.ts: code `preview.engine_not_built`, kind `preview`, HTTP 412), and local
-// interactions store nothing on a server. No money moves.
-// Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #8: the promotion gate (AL-lifecycle-01) is not in this app yet.
+// interactions store nothing on a server. No money moves. Step 8 saves one TEST strategy and runs the real promotion gate
+// (AL-lifecycle-01) on its own page: the gate reads only that version's stored runs and the owner's criteria, so nothing
+// the Preview rooms showed in #1 to #7 reaches it.
 const J = 'J-algo-dev-15';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
-const UNBUILT = { timeout: 5_000 };
 const LABEL = 'Preview · sample data';
 const CODE = 'preview.engine_not_built';
 
@@ -386,19 +385,99 @@ test(`${J} #7 opens walk-forward, changes the forward preset, then presses Stop,
   expect(await windows(page)).toEqual(relaid);
 });
 
-test(`${J} #8 runs the promotion gate afterwards: the gate reads no Preview value (AL-lifecycle-01, not built)`, async ({ page }) => {
-  await signIn(page, who());
+/** Saves a manual TEST strategy at version 1 from the studio, with every risk limit set, and returns its id. */
+async function saveStrategy(page, name) {
+  await page.goto('/quant/studio');
+  const fresh = page.getByRole('button', { name: 'Start a new strategy' });
+  if (await fresh.isVisible()) await fresh.click();
+  await page.getByLabel('Strategy name').fill(name);
+  await page.getByLabel('Simulated starting cash').fill('1000');
+  await page.getByLabel('Block 1 symbol').fill('BTC/USDT');
+  await page.getByLabel('Block 1 quantity').fill('0.01');
+  await page.getByLabel('Max drawdown (service unit unspecified)').fill('100');
+  await page.getByLabel('Max notional (service unit unspecified)').fill('500');
+  await page.getByLabel('Kill threshold (service unit unspecified)').fill('50');
+  await page.getByRole('button', { name: 'Save to library', exact: true }).click();
+  await expect(page.getByTestId('quant-save-state')).toHaveText('Saved as version 1.');
   await page.goto('/quant/strategies');
-  // Not built: the promotion gate (AL-lifecycle-01) is not in this app yet; this is where the spec puts it.
-  const gate = page.getByRole('region', { name: 'Promotion gate' });
-  await expect(gate).toBeVisible(UNBUILT);
-  await gate.getByRole('button', { name: /Run the promotion gate/ }).click();
-  const rows = gate.getByRole('row');
-  await expect.poll(() => rows.count()).toBeGreaterThan(0);
-  // No row of the gate reads a value from a Preview room.
-  for (const text of await rows.allInnerTexts()) {
-    expect(text).not.toContain(LABEL);
-    expect(text).not.toMatch(/preview|sample data/i);
+  const row = page.getByTestId('quant-strategy-row').filter({ hasText: name });
+  await expect(row).toHaveCount(1);
+  const id = await row.getAttribute('data-id');
+  expect(id, 'the saved strategy has an id').toBeTruthy();
+  return id;
+}
+
+/** Fails if `text` carries anything a Preview room shows: its label, the word preview, sample data or the Preview code. */
+function noPreview(text, what) {
+  expect(text, what).not.toContain(LABEL);
+  expect(text, what).not.toMatch(/preview|sample data/i);
+  expect(text, what).not.toContain(CODE);
+}
+
+test(`${J} #8 runs the promotion gate afterwards: the gate reads no Preview value`, async ({ page }) => {
+  await signIn(page, who());
+  // Afterwards: the Preview optimiser still shows its sample walk-forward windows and their gate line.
+  await page.goto('/quant/optimise');
+  await previewRoom(page, 'optimise');
+  await page.getByRole('button', { name: 'Walk-forward', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Walk-forward', exact: true }).getByTestId('wf-gate-line')).toBeVisible();
+  expect((await windows(page)).length, 'the Preview room shows sample windows').toBeGreaterThan(0);
+
+  // The person's own strategy, saved for real: it has no backtest and no paper run of its own.
+  const id = await saveStrategy(page, `TEST gate strategy ${Date.now().toString(36)}`);
+  const lifecycleReads = [];
+  page.on('response', (res) => {
+    if (res.url().includes('/trpc/lifecycle.get')) lifecycleReads.push(res);
+  });
+  await page.goto(`/quant/strategies/${encodeURIComponent(id)}`);
+  const gate = page.getByRole('region', { name: 'Lifecycle and promotion', exact: true });
+  await expect(gate).toBeVisible();
+  const life = gate.getByTestId('quant-lifecycle-version');
+  await expect(life).toHaveAttribute('data-version', '1');
+  await expect(life).toHaveAttribute('data-stage', 'draft');
+
+  // The gate as it reads now: four checks, none of them fed by a run, let alone a Preview window.
+  const checks = life.getByTestId('quant-gate-check');
+  await expect(checks).toHaveCount(4);
+  for (const row of await checks.all()) {
+    await expect(row).toHaveAttribute('data-run-id', '');
+    // Only the risk-limit check is met: it reads this version's own limits, set when it was saved.
+    const name = await row.getAttribute('data-check');
+    if (name === 'riskLimits') await expect(row).toHaveAttribute('data-status', 'met');
+    else await expect(row, name).not.toHaveAttribute('data-status', 'met');
+    noPreview(await row.innerText(), 'a gate check row');
   }
-  await expect(gate.locator('[data-kind="preview"], [data-code="preview.engine_not_built"]')).toHaveCount(0);
+  const check = (name) => life.locator(`[data-testid="quant-gate-check"][data-check="${name}"]`);
+  await expect(check('outOfSample')).toHaveAttribute('data-status', 'not_met');
+  await expect(check('outOfSample').locator('td').nth(3)).toHaveText('Nothing yet');
+  await expect(check('paperDuration').locator('td').nth(3)).toHaveText('Nothing yet');
+  await expect(check('maxDrawdown').locator('td').nth(3)).toHaveText('Nothing yet');
+  expect(lifecycleReads.length, 'the page read the gate from svc-quant').toBeGreaterThan(0);
+  const read = await lifecycleReads.at(-1).text();
+  noPreview(read, 'the gate reading svc-quant sent');
+
+  // Runs the gate: Promote asks svc-quant to judge this version. Whatever the owner's criteria are on this stack, the
+  // gate either refuses for a blank criterion or rejects this version, and its decision names no run it read.
+  const reply = page.waitForResponse((r) => r.url().includes('/trpc/lifecycle.promote') && r.request().method() === 'POST');
+  await life.getByRole('button', { name: 'Promote version 1' }).click();
+  const res = await reply;
+  const body = await res.text();
+  noPreview(body, 'the gate answer');
+  if (res.status() === 200) {
+    const decision = JSON.parse(body)?.result?.data?.json?.decision ?? JSON.parse(body)?.result?.data?.decision;
+    expect(decision?.decision, 'the gate does not approve a version with no runs').toBe('rejected');
+    expect(decision?.runIds, 'the gate read no run').toEqual([]);
+    await expect(life.getByTestId('quant-promote-decision')).toHaveAttribute('data-decision', 'rejected');
+  } else {
+    expect(res.status(), 'a blank owner criterion refuses').toBe(412);
+    await expect(life.getByTestId('quant-promote-refusal')).toHaveAttribute('data-code', 'quant.gate_criteria_unset');
+  }
+  await expect(page.locator('[data-kind="preview"], [data-code="preview.engine_not_built"]')).toHaveCount(0);
+  // The section's intro says in words that Preview sample data never counts; what the gate read and decided names none.
+  noPreview(await life.innerText(), 'the gate checks and its answer');
+
+  // Read back from the service: the version is still a draft and no stage row was written.
+  await page.reload();
+  await expect(life).toHaveAttribute('data-stage', 'draft');
+  await expect(life.getByTestId('quant-gate-decisions')).toHaveAttribute('data-stages', '0');
 });

@@ -10,7 +10,8 @@ import { lockBusiness } from './store.js';
  * worst case and committed ones at what they cost.
  *
  * An allocation, a project limit and the pool are limits on what members' team runs may spend in all, never a balance:
- * each run is charged to the member's own account at its usage window's seal.
+ * each run's usage window is owed by the business at its seal, naming the member, and collected from the business's
+ * payment method (on the custodial layer, charged to the member's own account).
  */
 
 /** A team session's holds carry this prefix: only the team run route, which reads membership first, makes them. */

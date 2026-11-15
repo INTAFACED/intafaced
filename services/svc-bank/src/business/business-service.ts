@@ -1370,7 +1370,18 @@ export class BusinessService {
          WHERE id = ${approval.id}::uuid AND status = 'approved' AND ledger_tx_id IS NULL
         RETURNING id
       `;
-      if (closed[0]) await this.releaseHold(approval);
+      if (closed[0]) {
+        try {
+          await this.releaseHold(approval);
+        } catch (releaseError) {
+          // A concurrent approve whose recipient check passed may have posted the
+          // settle after our check: the hold is spent and the release is refused.
+          // The posted settle is the fact, so the row records it.
+          const posted = await this.ledger.getTxByKey(`bank.business.settle:${approval.id}`);
+          if (!posted) throw releaseError;
+          return this.recordSettled(approval, posted.id);
+        }
+      }
       throw refusal;
     }
     const request = recipes.businessApprovalSettle({
@@ -1407,12 +1418,26 @@ export class BusinessService {
         throw new BankError('The settle did not post and the hold was released', 'bank.business_rejected');
       }
     }
-    await this.sql`
-        UPDATE bank.business_approvals
-           SET ledger_tx_id = ${settled.id}
-         WHERE id = ${approval.id}::uuid
-      `;
-    return { transferId: approval.id, ledgerTxId: settled.id };
+    return this.recordSettled(approval, settled.id);
+  }
+
+  /**
+   * Record a posted settle on its row. The post is the fact: a row a concurrent
+   * approve closed as `rejected` (its recipient check refused after this one
+   * passed) is set back to `approved`, because its hold went to the recipient
+   * and can no longer be released. A row naming another transaction is refused.
+   */
+  private async recordSettled(approval: BusinessApproval, ledgerTxId: string): Promise<{ transferId: string; ledgerTxId: string }> {
+    const recorded = await this.sql<Array<{ id: string }>>`
+      UPDATE bank.business_approvals
+         SET ledger_tx_id = ${ledgerTxId}, status = 'approved', rejection_code = NULL
+       WHERE id = ${approval.id}::uuid
+         AND (status = 'approved' OR (status = 'rejected' AND rejection_code = ${'bank.recipient_cannot_receive'}))
+         AND (ledger_tx_id IS NULL OR ledger_tx_id = ${ledgerTxId})
+      RETURNING id
+    `;
+    if (!recorded[0]) throw new BankError('The proposal no longer names this transfer', 'bank.business_request_conflict');
+    return { transferId: approval.id, ledgerTxId };
   }
 
   /** The settle destination, refusing a recipient who cannot receive (unless this settle already posted). */

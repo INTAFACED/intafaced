@@ -13,6 +13,7 @@ function refuse(code: typeof QUANT_DATABASE_URL_UNSET | typeof QUANT_DATABASE_PO
     of: async () => fail(),
     replay: async () => fail(),
     record: async () => fail(),
+    audit: async () => fail(),
   };
 }
 

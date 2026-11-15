@@ -1,8 +1,7 @@
 /**
  * The markdown variant of each written developer page and the docs index for assistants (`/developers/llms.txt`),
- * served as static files beside the app from `apps/customer/public/developers/`. They are made from the same English
- * copy and route tables as the pages; `developers-reference.test.ts` checks the files against them and rewrites them
- * with `WRITE_DEVELOPER_DOCS=1`.
+ * served as static files beside the app under `/developers/`. They are made from the same English copy and route tables
+ * as the pages, at build time (`developers-files.ts`, written by vite.config.ts `developerDocs`), and never committed.
  */
 import { REQUEST_SIGN_VERSION } from '@intafaced/contracts/api-keys';
 import { AUTH_ERRORS_PATH } from '@intafaced/contracts/auth-errors';
@@ -12,6 +11,8 @@ import { deskCopy } from '../../screens/trade/desk/copy';
 import { acceptedCells, refusedName } from './trading/order-types-view';
 import { tradingApiCopy } from './trading/trading-api-copy';
 import { idempotencyCopy } from './idempotency/idempotency-copy';
+import { quantApiCopy } from './quant/quant-api-copy';
+import { QUANT_API_ENDPOINTS } from './quant/quant-api-endpoints';
 import { developersCopy } from './developers-copy';
 import { rateLimitsCopy } from './rate-limits/rate-limits-copy';
 import { explorerCopy } from './explorer/explorer-copy';
@@ -42,6 +43,7 @@ const tradeErrors = tradeErrorsCopy.forLocale('en').t;
 const errorClass = errorClassCopy.forLocale('en').t;
 const trading = tradingApiCopy.forLocale('en').t;
 const idem = idempotencyCopy.forLocale('en').t;
+const quantApi = quantApiCopy.forLocale('en').t;
 const desk = deskCopy.forLocale('en').t;
 const sectionTitle = (id: string) => (portal as (key: string) => string)(`section_${id.replace(/-/g, '_')}`);
 
@@ -390,6 +392,29 @@ export const DOCS_PAGES: readonly DocsPage[] = [
         `## ${idem('listTitle')}`,
         idem('listBody'),
         idem('listMax'),
+      ].join('\n\n'),
+  },
+  {
+    slug: 'quant',
+    title: sectionTitle('quant'),
+    summary: quantApi('lead'),
+    body: () =>
+      [
+        quantApi('lead'),
+        `## ${quantApi('keyTitle')}`,
+        quantApi('keyBody'),
+        `## ${quantApi('endpointsTitle')}`,
+        quantApi('endpointsLead'),
+        table(
+          [quantApi('colMethod'), quantApi('colPath'), quantApi('colScope'), quantApi('colWhat')],
+          QUANT_API_ENDPOINTS.map((row) => [row.method, code(row.path), code(row.scope), (quantApi as (key: string) => string)(row.what)]),
+        ),
+        `## ${quantApi('idemTitle')}`,
+        quantApi('idemBody'),
+        `## ${quantApi('noDeployTitle')}`,
+        quantApi('noDeployBody'),
+        `## ${quantApi('rulesTitle')}`,
+        quantApi('rulesBody'),
       ].join('\n\n'),
   },
 ];

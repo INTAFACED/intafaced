@@ -1768,6 +1768,7 @@ const academySections: readonly DeskSection[] = [
               bundle: 'Part of a bundle',
               membership: 'Part of a membership',
               issue: 'Certificate',
+              exception: 'Certificate issued as an exception',
             },
           }),
           text('reference', 'Reference', { detail: true }),
@@ -1823,28 +1824,10 @@ const moreSections: readonly DeskSection[] = [
   {
     id: 'agents',
     title: 'Agents',
-    intro: 'The AI agent service: which tasks it can run and at what price.',
-    reads: [
-      {
-        id: 'agents.routes',
-        title: 'Task routes and prices',
-        note: 'Each task the gateway serves, its output ceiling and its metered price per million tokens. A route table, not usage.',
-        module: 'agents',
-        procedure: 'routes.list',
-        shape: 'list',
-        idKey: 'task',
-        columns: [
-          text('task', 'Task'),
-          text('capability', 'Capability'),
-          int('maxOutputTokens', 'Output ceiling (tokens)'),
-          amount('inputPerMillion', 'Input per million'),
-          amount('outputPerMillion', 'Output per million'),
-          text('assetId', 'Billed in'),
-        ],
-        emptyText: 'svc-agents serves no task routes.',
-        forbiddenText: 'svc-agents did not accept your founder session for this read (it needs agents:read).',
-      },
-    ],
+    intro: 'The AI agent service: which tasks it can run, on which provider and model, and at what price.',
+    // The routing table is its own panel (J-agents-20): its rows carry the two-founder change, which a read cannot.
+    reads: [],
+    panel: 'agents.routes',
     unavailable: [
       un(
         'agents.sessions',
@@ -2258,16 +2241,14 @@ const moreSections: readonly DeskSection[] = [
     title: 'Campaigns',
     intro: 'Customer campaigns and who took part.',
     reads: [],
-    unavailable: [
-      un(
-        'campaigns.participation',
-        'Campaign participation',
-        'svc-campaigns has no operator read of who joined a campaign (its participations are read per customer). The campaigns desk shows every campaign, its state and its budget.',
-        26,
-      ),
-    ],
+    unavailable: [],
     disabledActions: [],
     links: [
+      {
+        href: '/more-ops/campaigns/watch',
+        label: 'Campaign watch',
+        why: 'Running campaigns counted from svc-campaigns: KPIs, trends, alerts, and each campaign’s participation, vouchers, redemptions, code batches and exports.',
+      },
       {
         href: '/more-ops/campaigns',
         label: 'Campaigns desk and builder',
