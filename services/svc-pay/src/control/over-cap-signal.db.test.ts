@@ -9,6 +9,7 @@ import { composeGuards } from '../seams/guards.js';
 import { createControlGuards } from './guards.js';
 import { capturedOverCapTotal, resetCapturedOverCapTotalForTests } from './over-cap-signal.js';
 import { ChangeService } from './changes.js';
+import { NotificationService } from '../merchant-ops/notifications.js';
 import { applyChange, migrations, openAdmin, resetControl, SECRET, TEST_GLOBAL_RULE, TEST_TIER } from './control.testkit.js';
 
 describe('captured_over_cap metric and alert', () => {
@@ -101,16 +102,24 @@ describe('captured_over_cap metric and alert', () => {
     expect(await notices(m.id)).toHaveLength(1);
   });
 
-  it('a muted limit_threshold preference skips the in-app alert and still counts', async () => {
+  it("a person who muted limit_threshold doesn't see the alert, a teammate who didn't does, and it still counts", async () => {
     const m = await merchant();
+    const teammate = randomUUID();
     await sql`
-      INSERT INTO pay.merchant_notification_preferences (merchant_id, kind, in_app, updated_by)
-      VALUES (${m.id}, 'limit_threshold', false, ${m.userId})
+      INSERT INTO pay.merchant_notification_preferences (merchant_id, user_id, kind, in_app, updated_by)
+      VALUES (${m.id}, ${m.userId}, 'limit_threshold', false, ${m.userId})
     `;
     const ids = [await open(m.id, '100'), await open(m.id, '100'), await open(m.id, '100'), await open(m.id, '100')];
     for (const id of ids) await pay.capture(id);
     expect(capturedOverCapTotal()).toBe(1);
-    expect(await notices(m.id)).toEqual([]);
+    expect(await notices(m.id)).toEqual([{ kind: 'limit_threshold', dedupe_key: `captured_over_cap:${ids[3]}`, subject_id: ids[3] }]);
+    const feed = new NotificationService(sql);
+    const ownerView = { merchantId: m.id, userId: m.userId, role: 'owner' as const, viaApiKey: false, interactive: true };
+    const teammateView = { merchantId: m.id, userId: teammate, role: 'finance' as const, viaApiKey: false, interactive: true };
+    expect((await feed.list(ownerView, { limit: 10 })).items).toEqual([]);
+    expect(await feed.unreadCount(ownerView)).toEqual({ unread: 0 });
+    expect((await feed.list(teammateView, { limit: 10 })).items.map((n) => n.kind)).toEqual(['limit_threshold']);
+    expect(await feed.unreadCount(teammateView)).toEqual({ unread: 1 });
     expect(await flags(m.id)).toHaveLength(1);
   });
 });

@@ -1,7 +1,9 @@
-// World: none
+// World: book
+// Market: live
 import { test, expect } from './journey.mjs';
-import { journeyState } from './stack.mjs';
-import { signIn, signUp, verify } from './desk.mjs';
+import { api, journeyState } from './stack.mjs';
+import { fundedTrader, signIn, signUp, verify } from './desk.mjs';
+import { closedBarsSince, tapeWindow } from './tape.mjs';
 
 // J-algo-dev-05, in the running app (docs/roadmap/journeys.json): a strategy's orders obey order types, sizing and risk
 // settings. One test per step, titled "J-algo-dev-05 #<n>", on one TEST developer who starts signed in with a strategy
@@ -11,9 +13,6 @@ import { signIn, signUp, verify } from './desk.mjs';
 // Steps whose slice is not built yet check their step's words with a short wait, so they fail fast and name what is
 // missing. Their selectors (test ids, labels, the sandbox's order calls) are this file's proposal for UI that does not
 // exist yet: a builder may rename one to match what it builds, never drop or loosen a check.
-// This file carries #1 #2 #4 #5 #6, which the paper book builds. #3 (the bar backtest's both-exits bar), #7 (the risk
-// screen) and #8 (the equity-stop floor) are written (the tests: draft #7419) and land with the code that builds them:
-// the merge seal reads main's list of steps not built yet, so a failing step can't arrive ahead of its code here.
 const J = 'J-algo-dev-05';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const UNBUILT = { timeout: 5_000 };
@@ -30,6 +29,62 @@ async function developer(page) {
   }
   await signIn(page, who);
   return who;
+}
+
+/** Fills Studio's form for a new signal-rules strategy on 1 minute bars (unless told another size) of BTC/USDT, every
+ *  input but the ones told otherwise, without saving. Every figure is a TEST simulation input. */
+async function fillSignalStrategy(page, name, { stopLoss = '', takeProfit = '', size = '0.01', barSize = '1m', pyramiding } = {}) {
+  await page.goto('/quant/studio');
+  // The form shows once Studio has read what it needs; only then can its Start a new strategy button be looked for.
+  await expect(page.getByLabel('Strategy name')).toBeVisible();
+  const fresh = page.getByRole('button', { name: 'Start a new strategy' });
+  if (await fresh.isVisible()) await fresh.click();
+  await page.getByLabel('Strategy name').fill(name);
+  await page.getByLabel('Simulated starting cash').fill('1000');
+  await page.getByLabel('Block 1 symbol').fill('BTC/USDT');
+  await page.getByLabel('Block 1 quantity').fill('0.01');
+  await page.getByLabel('Max drawdown (service unit unspecified)').fill('100');
+  await page.getByLabel('Max notional (service unit unspecified)').fill('500');
+  await page.getByLabel('Kill threshold (service unit unspecified)').fill('50');
+  await page.getByLabel('How the strategy trades').selectOption('signal');
+  const builder = page.getByTestId('quant-signal-builder');
+  await builder.getByLabel('Symbol').fill('BTC/USDT');
+  await builder.getByLabel('Bar size').selectOption(barSize);
+  await builder.getByLabel('Fast average (bars)').fill('1');
+  await builder.getByLabel('Slow average (bars)').fill('2');
+  await builder.getByRole('combobox', { name: /^Size each entry by/ }).selectOption('quantity');
+  await builder.getByLabel('Size', { exact: true }).fill(size);
+  await builder.getByLabel('Stop loss (percent, optional)', { exact: true }).fill(stopLoss);
+  await builder.getByLabel('Take profit (percent, optional)', { exact: true }).fill(takeProfit);
+  if (pyramiding !== undefined) await builder.getByLabel('Pyramiding (entries at most)').fill(pyramiding, UNBUILT);
+}
+
+/** Saves a new signal-rules strategy (fillSignalStrategy's form) at version 1. */
+async function saveSignalStrategy(page, name, options = {}) {
+  await fillSignalStrategy(page, name, options);
+  await page.getByRole('button', { name: 'Save to library', exact: true }).click();
+  await expect(page.getByTestId('quant-save-state')).toHaveText('Saved as version 1.');
+}
+
+/** Runs a saved strategy in the bar backtest room on a window of the TEST tape, with no slippage and no delay. */
+async function backtest(page, strategy, window) {
+  await page.goto('/quant/backtest');
+  const room = page.getByTestId('quant-bar-backtest');
+  await room.getByRole('combobox', { name: /^Strategy/ }).selectOption({ label: strategy });
+  await room.getByLabel('From (UTC)').fill(window.from);
+  await room.getByLabel('To (UTC)').fill(window.to);
+  await room.getByRole('combobox', { name: /^Fill a signal at/ }).selectOption('next_open');
+  await room.getByRole('combobox', { name: /^Fee rate/ }).selectOption('taker');
+  await room.getByLabel('Delay (bars)').fill('0');
+  await room.getByLabel('Slippage (basis points)').fill('0');
+  await room.getByTestId('quant-backtest-run').click();
+  await expect(room.getByTestId('quant-bar-result')).toBeVisible();
+  return room;
+}
+
+/** Shows one of the result's views (Summary, Metrics, Checks, Orders and trades, Log, ...). */
+async function view(room, name) {
+  await room.getByRole('group', { name: 'Result views' }).getByRole('button', { name, exact: true }).click();
 }
 
 /** Runs a strategy's source as a paper run in the sandbox (TEST simulated cash) and returns the page once its result shows. */
@@ -50,6 +105,15 @@ function orderEvents(page) {
 async function eventKinds(page, order) {
   const rows = orderEvents(page).and(page.locator(`[data-order="${order}"]`));
   return rows.evaluateAll((els) => els.map((el) => el.getAttribute('data-kind')));
+}
+
+/** Opens the risk screen of a saved strategy from the strategies list. */
+async function riskScreen(page, strategy) {
+  await page.goto('/quant/strategies');
+  await page.getByTestId('quant-strategy-name').filter({ hasText: strategy }).click();
+  const screen = page.getByTestId('quant-risk-screen');
+  await expect(screen, 'the strategy has no risk screen yet (AL-risk-01)').toBeVisible(UNBUILT);
+  return screen;
 }
 
 const MARK = '50000'; // the paper book's TEST mark for BTC-USD
@@ -107,6 +171,86 @@ oms.cancel(a.id);`,
   await expect(page.getByRole('table', { name: 'Simulated fills' }).getByRole('row')).toHaveCount(1); // the header only
 });
 
+test(`${J} #3 attaches a take profit and a stop loss and runs a bar that hits both: the stop fills first and the result says the pessimistic rule applied`, async ({
+  page,
+}) => {
+  test.setTimeout(20 * 60_000);
+  // The TEST taker crosses both sides on each of its turns (local-test-market.mjs `crossingLegs`), so a 1 minute bar of
+  // the tape spans the spread. A second TEST account also trades the book both ways every few seconds (a market buy
+  // meets the ask, a market sell the bid, the two nearly cancelling out), so the bars this run reads hold trades on both
+  // sides of their open. A buy's fee is taken in BTC (0.001 bought leaves 0.000999), so each sell is a little smaller
+  // than the buy before it.
+  const tape = await api(await fundedTrader(page, 'jt', '2000'));
+  let tick = 0;
+  async function tradeBothWays(seconds) {
+    for (const until = Date.now() + seconds * 1000; Date.now() < until; tick += 1) {
+      const side = tick % 2 === 0 ? 'buy' : 'sell';
+      const res = await tape.post('/api/v1/orders', {
+        symbol: 'BTC/USDT',
+        type: 'market',
+        side,
+        amount: side === 'buy' ? '0.001' : '0.0009',
+        clientOrderId: `${J}-tape-${process.env.JOURNEY_RUN_ID ?? 'local'}-${tick}`,
+      });
+      expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBeLessThan(300);
+      await page.waitForTimeout(5_000);
+    }
+  }
+  await developer(page);
+  // A stop loss and a take profit a thousandth of a percent either side of the entry: a TEST bar that moves at all
+  // both ways from its open reaches both.
+  const STOP = '0.001';
+  const TARGET = '0.001';
+  await saveSignalStrategy(page, 'TEST both exits', { stopLoss: STOP, takeProfit: TARGET });
+  // A minute of trading both ways, then the run on the newest window, again until a held bar reached both levels (each
+  // window is its own run key). Every check below is made on that run.
+  const deadline = Date.now() + 12 * 60_000;
+  let room;
+  let rows = [];
+  let both = [];
+  for (;;) {
+    await tradeBothWays(65);
+    const window = await tapeWindow(60);
+    room = await backtest(page, 'TEST both exits', window);
+    // Each exit is paired with the entry before it; a bar that reached both its stop loss and its take profit must
+    // exit by the stop loss, so an exit of either kind on such a bar is collected and judged.
+    const bars = new Map((await closedBarsSince(window.from)).map(([at, open, high, low]) => [at, { open, high, low }]));
+    await view(room, 'Orders and trades');
+    rows = await room
+      .getByTestId('quant-bar-trade')
+      .evaluateAll((els) =>
+        els.map((el) => ({ ts: el.dataset.ts, side: el.dataset.side, cells: [...el.querySelectorAll('td')].map((td) => td.textContent) })),
+      );
+    both = [];
+    for (let i = 1; i < rows.length; i++) {
+      const [entry, exit] = [rows[i - 1], rows[i]];
+      if (entry.side !== 'buy' || exit.side !== 'sell' || !['Stop loss', 'Take profit'].includes(exit.cells[2])) continue;
+      const bar = bars.get(Date.parse(exit.ts));
+      if (!bar) continue;
+      const entered = Number(entry.cells[5]);
+      const target = entered * (1 + Number(TARGET) / 100);
+      const stop = entered * (1 - Number(STOP) / 100);
+      if (bar.high >= target && bar.low <= stop) both.push({ exit, stop, bar });
+    }
+    if (both.length || Date.now() > deadline) break;
+  }
+  expect(both.length, 'no bar in the window reached both the stop loss and the take profit of an open position').toBeGreaterThan(0);
+
+  // The stop filled first: the exit on that bar is the stop loss, at the stop (or the open, had the bar gapped past
+  // it), and no take-profit exit shares its bar.
+  for (const { exit, stop, bar } of both) {
+    expect(exit.cells[2], `the exit at ${exit.ts}, on a bar that reached both levels, was not the stop loss`).toBe('Stop loss');
+    const price = Number(exit.cells[5]);
+    expect(price).toBeCloseTo(bar.open <= stop ? bar.open : stop, 6);
+    expect(rows.filter((r) => r.ts === exit.ts && r.cells[2] === 'Take profit')).toHaveLength(0);
+  }
+  // The result says the pessimistic rule applied.
+  await view(room, 'Summary');
+  await expect(room.getByTestId('quant-bar-assumptions').locator('[data-assumption="stop_loss_first"]')).toHaveText(
+    'A bar reached both the stop loss and the take profit; the stop loss was taken first.',
+  );
+});
+
 test(`${J} #4 sets pyramiding to two and adds a third entry: rejected with "limit hit"; a blank sizing rule refuses naming it`, async ({
   page,
 }) => {
@@ -133,17 +277,18 @@ console.log(third.reason);`,
   await expect(page.getByTestId('more-body')).toHaveText('rejected\nlimit hit');
   await expect(page.getByRole('table', { name: 'Simulated positions' }).getByRole('row', { name: /BTC-USD/ })).toContainText('0.02');
 
-  // A blank sizing rule: the strategy cannot be saved, and the refusal names the sizing rule.
-  await page.goto('/quant/studio');
-  const fresh = page.getByRole('button', { name: 'Start a new strategy' });
-  if (await fresh.isVisible()) await fresh.click();
-  await page.getByLabel('How the strategy trades').selectOption('signal');
-  const builder = page.getByTestId('quant-signal-builder');
-  await builder.getByLabel('Pyramiding (entries at most)').fill('2', UNBUILT);
-  await builder.getByLabel('Size', { exact: true }).fill('');
+  // A blank sizing rule: every other input of the strategy is filled (pyramiding two included) and only the size is
+  // blank, so the refusal can name nothing but the sizing rule. Save refuses naming it, and nothing is saved.
+  const name = `TEST ${J} #4 blank size ${Date.now()}`;
+  await fillSignalStrategy(page, name, { size: '', pyramiding: '2' });
   await page.getByRole('button', { name: 'Save to library', exact: true }).click();
-  await expect(page.getByTestId('quant-save-state')).toContainText('Size');
-  await expect(page.getByTestId('quant-save-state')).not.toHaveText(/^Saved as version/);
+  await expect(page.getByTestId('quant-save-state')).toHaveText(
+    'Not saved. Still blank: Size. Studio never picks a value for you, so nothing was sent.',
+  );
+  // Nothing was saved by the refused press: once the size is filled, the same form saves as version 1, not 2.
+  await page.getByTestId('quant-signal-builder').getByLabel('Size', { exact: true }).fill('0.01');
+  await page.getByRole('button', { name: 'Save to library', exact: true }).click();
+  await expect(page.getByTestId('quant-save-state')).toHaveText('Saved as version 1.');
 });
 
 test(`${J} #5 reverses from long three to short two: two legs, each checked; the open leg is refused when no short rule exists`, async ({
@@ -211,4 +356,88 @@ console.log(s2.status);`,
   await expect(second).toHaveCount(1);
   expect(await second.getAttribute('data-order')).not.toBe(firstSell);
   await expect(page.getByTestId('more-body')).toHaveText('accepted\nrejected');
+});
+
+test(`${J} #7 leaves the risk screen's deposit-percentage cap blank and tries the trading switch: a refusal naming the cap and the switch stays off; off by default and off again after any version change`, async ({
+  page,
+}) => {
+  await developer(page);
+  const STRATEGY = 'TEST risk caps';
+  await saveSignalStrategy(page, STRATEGY);
+  const screen = await riskScreen(page, STRATEGY);
+  const trading = screen.getByRole('switch', { name: 'Trading' });
+
+  // Off by default, on a strategy nobody has touched.
+  await expect(trading).toHaveAttribute('aria-checked', 'false');
+  // Every cap but the deposit percentage set; that one left blank.
+  const deposit = screen.getByLabel('Deposit-percentage cap');
+  await expect(deposit).toHaveValue('');
+  const caps = screen.getByTestId('quant-risk-cap');
+  for (let i = 0; i < (await caps.count()); i++) {
+    const cap = caps.nth(i).getByRole('textbox');
+    if ((await cap.getAttribute('data-cap')) !== 'depositPercent') await cap.fill('10');
+  }
+  await screen.getByRole('button', { name: 'Save caps' }).click();
+  await expect(screen.getByTestId('quant-risk-note')).toHaveText('Caps saved.');
+  await trading.click();
+  await expect(screen.getByTestId('quant-risk-refusal')).toContainText('Deposit-percentage cap');
+  await expect(trading).toHaveAttribute('aria-checked', 'false');
+  await page.reload();
+  await expect(page.getByTestId('quant-risk-screen').getByRole('switch', { name: 'Trading' })).toHaveAttribute('aria-checked', 'false');
+
+  // With the cap set the switch turns on; a new version of the strategy turns it off again.
+  await page.getByTestId('quant-risk-screen').getByLabel('Deposit-percentage cap').fill('10');
+  await page.getByTestId('quant-risk-screen').getByRole('button', { name: 'Save caps' }).click();
+  await expect(page.getByTestId('quant-risk-note')).toHaveText('Caps saved.');
+  await page.getByTestId('quant-risk-screen').getByRole('switch', { name: 'Trading' }).click();
+  await expect(page.getByTestId('quant-risk-screen').getByRole('switch', { name: 'Trading' })).toHaveAttribute('aria-checked', 'true');
+  await page.goto('/quant/strategies');
+  await page.getByTestId('quant-strategy-name').filter({ hasText: STRATEGY }).click();
+  await page.getByRole('link', { name: 'Open in Studio' }).click();
+  await page.getByTestId('quant-signal-builder').getByLabel('Slow average (bars)').fill('3');
+  await page.getByRole('button', { name: 'Save to library', exact: true }).click();
+  await expect(page.getByTestId('quant-save-state')).toHaveText('Saved as version 2.');
+  const after = await riskScreen(page, STRATEGY);
+  await expect(after.getByRole('switch', { name: 'Trading' })).toHaveAttribute('aria-checked', 'false');
+});
+
+test(`${J} #8 lets equity fall below the equity-stop floor: the strategy turns reduce-only and the event is recorded; with the close-out policy a close-out order is placed once`, async ({
+  page,
+}) => {
+  test.setTimeout(15 * 60_000);
+  await developer(page);
+  const window = await tapeWindow(60);
+
+  // A floor a cent under the 1000 starting cash: the first entry's fee alone takes equity below it.
+  async function floored(name, policy) {
+    await saveSignalStrategy(page, name);
+    const screen = await riskScreen(page, name);
+    await screen.getByLabel('Equity-stop floor').fill('999.99');
+    await screen.getByRole('combobox', { name: 'When the floor is hit' }).selectOption(policy);
+    await screen.getByRole('button', { name: 'Save caps' }).click();
+    await expect(screen.getByTestId('quant-risk-note')).toHaveText('Caps saved.');
+    return backtest(page, name, window);
+  }
+
+  // Reduce-only: the event is recorded once, at the first bar below the floor, and no entry fills after it.
+  let room = await floored('TEST floor reduce', 'reduce_only');
+  const event = room.getByTestId('quant-risk-event').and(page.locator('[data-kind="equity_stop"]'));
+  await expect(event).toHaveCount(1);
+  await expect(event).toHaveAttribute('data-mode', 'reduce_only');
+  expect(Number(await event.getAttribute('data-equity'))).toBeLessThan(999.99);
+  const at = await event.getAttribute('data-ts');
+  await view(room, 'Orders and trades');
+  const buysAfter = await room
+    .getByTestId('quant-bar-trade')
+    .evaluateAll((els, ts) => els.filter((el) => el.dataset.side === 'buy' && el.dataset.ts > ts).length, at);
+  expect(buysAfter).toBe(0);
+  await expect(room.getByTestId('quant-bar-trade').filter({ hasText: 'Close-out' })).toHaveCount(0);
+
+  // With the close-out policy: the same event, and exactly one close-out order, however many bars stay below.
+  room = await floored('TEST floor close', 'close_out');
+  await expect(room.getByTestId('quant-risk-event').and(page.locator('[data-kind="equity_stop"]'))).toHaveCount(1);
+  await view(room, 'Orders and trades');
+  await expect(room.getByTestId('quant-bar-trade').filter({ hasText: 'Close-out' })).toHaveCount(1);
+  await view(room, 'Summary');
+  await expect(room.getByTestId('quant-bar-total-openQty')).toHaveAttribute('data-value', '0');
 });

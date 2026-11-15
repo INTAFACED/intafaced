@@ -76,6 +76,7 @@ export const EVENT_BUS_MATRIX = {
   rankUpdated: { kind: 'live' },
   userCreated: { kind: 'live' },
   kycApproved: { kind: 'live' },
+  referralCreated: { kind: 'live' },
   kycSubmitted: { kind: 'socket', socketClass: 'A' },
   kycRejected: { kind: 'socket', socketClass: 'A' },
   kycInfoRequested: { kind: 'socket', socketClass: 'A' },
@@ -118,6 +119,7 @@ export const EVENT_BUS_MATRIX = {
   personalDisputeUpdated: { kind: 'socket', socketClass: 'A' },
   bankScheduledReminder: { kind: 'live' },
   bankScheduledFailed: { kind: 'live' },
+  bankCardCashbackEarned: { kind: 'live' },
   blueprintCreated: { kind: 'live' },
   blueprintDeleted: { kind: 'live' },
   crewMemberCreated: { kind: 'broken_promise', socketClass: 'B' },
@@ -137,6 +139,7 @@ export const EVENT_BUS_MATRIX = {
   agentUsageSettled: { kind: 'socket', socketClass: 'A' },
   agentUsageAlertCrossed: { kind: 'live' },
   agentApprovalRequested: { kind: 'live' },
+  agentRunCompleted: { kind: 'live' },
   p2pOfferCreated: { kind: 'socket', socketClass: 'A' },
   p2pEscrowLocked: { kind: 'live' },
   p2pEscrowReleased: { kind: 'live' },
@@ -159,6 +162,7 @@ export const EVENT_BUS_MATRIX = {
   venueDelistingScheduled: { kind: 'live' },
   projectionUpdated: { kind: 'socket', socketClass: 'A' },
   supportTicketResolved: { kind: 'live' },
+  quantOrderFilled: { kind: 'live' },
 } as const satisfies Record<EventName, CatalogDisposition>;
 
 /**

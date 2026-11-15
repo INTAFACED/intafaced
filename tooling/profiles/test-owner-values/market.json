@@ -25,6 +25,16 @@
       "service": "market",
       "value": "seller_full",
       "note": "TEST refund policy: the seller may refund a held purchase in full, so a journey can see a refund move money once. The owner has not decided; blank, every refund request and refund refuses owner.decision and the purchase stays held."
+    },
+    "MARKET_SIGNAL_PROVIDER_MIN_TIER": {
+      "service": "market",
+      "value": "full",
+      "note": "TEST signal provider criterion: a provider holds full verification before publishing a signal (J-copy-bots-otc-22). The owner has not decided; blank refuses every signal publish (market.provider_criteria_not_set)."
+    },
+    "MARKET_SIGNAL_PROVIDER_MIN_FILLS": {
+      "service": "market",
+      "value": "1",
+      "note": "TEST signal provider criterion: a provider's track record is at least one fill of their own orders. The owner has not decided; blank refuses every signal publish (market.provider_criteria_not_set)."
     }
   }
 }

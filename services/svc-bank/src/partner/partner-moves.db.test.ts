@@ -654,4 +654,110 @@ describe('partner-held bank moves (OWNER 226)', () => {
     expect(codeOf(err)).toBe('bank.no_partner_bank');
     expect(post).not.toHaveBeenCalled();
   });
+  describe('a send to another person held at the partner (J-bank-04 #4; OWNER 226)', () => {
+    beforeEach(async () => {
+      await sql`TRUNCATE bank.personal_transfers, bank.personal_transfer_terms RESTART IDENTITY CASCADE`;
+      // A labelled TEST zero fee and limits, as the stack's gates publish them.
+      await sql`INSERT INTO bank.personal_transfer_terms (asset_id, per_transfer_limit, daily_limit, fee) VALUES ('USDT', 1000, 10000, 0)`;
+    });
+
+    it('moves TEST 40 once at the partner, from the sender to the recipient; both figures as the partner reports; the ledger posts nothing', async () => {
+      const ada = await partnerHeld(ADA);
+      const bob = await partnerHeld(BOB);
+      // The ledger also holds money for the sender, so a ledger post planted back on this path would succeed and be seen.
+      await ledger.post(recipes.deposit({ userId: ADA, assetId: 'USDT', amount: parseAmount('100'), rail: 'test', railRef: 'r-ada-p2p' }));
+      const journal = ledger.journal().length;
+      const post = vi.spyOn(ledger, 'post');
+
+      const sent = await ada.api.transfers.toUser({
+        transferId: 'send-ada-0001',
+        fromSpaceId: ada.mainSpace.id,
+        toUserId: BOB,
+        amount: '40',
+        note: 'Lunch, TEST',
+      });
+
+      expect(sent).toMatchObject({ ledgerTxId: null, amount: '40', note: 'Lunch, TEST', partnerMove: { label: TEST_PARTNER_LABEL } });
+      expect(post).not.toHaveBeenCalled();
+      expect(ledger.journal()).toHaveLength(journal);
+      expect(await ledger.getTxByKey(bankTransferKey('p2p', 'send-ada-0001', 0))).toBeNull();
+      const made = await partner.bank.moveByKey(bankTransferKey('p2p', 'send-ada-0001', 0));
+      expect(made).toMatchObject({
+        id: sent.partnerMove!.id,
+        from: { userId: ADA, assetId: 'USDT', spaceId: null },
+        to: { userId: BOB, assetId: 'USDT', spaceId: null },
+        amount: parseAmount('40'),
+      });
+      expect(await mainOf(ada.api)).toMatchObject({ balance: '60', ledgerAccount: null, heldAt: { label: TEST_PARTNER_LABEL } });
+      expect(await mainOf(bob.api)).toMatchObject({ balance: '140', ledgerAccount: null, heldAt: { label: TEST_PARTNER_LABEL } });
+
+      // A repeated submit sends once: answered with the same partner move, and nothing moves again.
+      const again = await ada.api.transfers.toUser({
+        transferId: 'send-ada-0001',
+        fromSpaceId: ada.mainSpace.id,
+        toUserId: BOB,
+        amount: '40',
+        note: 'Lunch, TEST',
+      });
+      expect(again.partnerMove).toEqual(sent.partnerMove);
+      expect((await mainOf(ada.api)).balance).toBe('60');
+      expect((await mainOf(bob.api)).balance).toBe('140');
+      expect(post).not.toHaveBeenCalled();
+
+      // The recipient reads the receipt by the partner's move id, and the note shows on the partner's line in History.
+      const receipt = await bob.api.transfers.get({ ledgerTxId: sent.partnerMove!.id });
+      expect(receipt).toMatchObject({ ledgerTxId: null, partnerMove: sent.partnerMove, amount: '40', note: 'Lunch, TEST' });
+      const feed = await bob.api.activity.list({ limit: 20 });
+      expect(feed.items.find((item) => item.txId === sent.partnerMove!.id)).toMatchObject({ note: 'Lunch, TEST', amount: '40' });
+    });
+
+    it('a lost partner answer keeps the send: the retry with the same id is answered with the one move', async () => {
+      const ada = await partnerHeld(ADA);
+      await partnerHeld(BOB);
+      partner.set(ADA, { nextReply: 'lost' });
+      const send = () =>
+        ada.api.transfers.toUser({ transferId: 'send-ada-0002', fromSpaceId: ada.mainSpace.id, toUserId: BOB, amount: '40' });
+
+      await expect(send()).rejects.toMatchObject({ cause: { code: 'bank.partner_reply_lost' } });
+      const [kept] = await sql<Array<{ status: string }>>`SELECT status FROM bank.personal_transfers WHERE transfer_id = 'send-ada-0002'`;
+      expect(kept?.status).toBe('reserved');
+
+      const answered = await send();
+      const made = await partner.bank.moveByKey(bankTransferKey('p2p', 'send-ada-0002', 0));
+      expect(answered.partnerMove?.id).toBe(made!.id);
+      expect((await partner.bank.moves(ADA, { limit: 10 })).filter((m) => m.to.userId === BOB)).toHaveLength(1);
+      expect((await mainOf(ada.api)).balance).toBe('60');
+    });
+
+    it('a recipient whose money is not at the partner is refused by name; nothing moves and the send is let go', async () => {
+      const ada = await partnerHeld(ADA);
+      const bob = as(BOB);
+      await bob.api.spaces.list({ limit: 50 });
+      const post = vi.spyOn(ledger, 'post');
+
+      await expect(
+        ada.api.transfers.toUser({ transferId: 'send-ada-0003', fromSpaceId: ada.mainSpace.id, toUserId: BOB, amount: '40' }),
+      ).rejects.toMatchObject({ cause: { code: 'bank.partner_custody_mismatch' } });
+      expect(post).not.toHaveBeenCalled();
+      expect(await partner.bank.moveByKey(bankTransferKey('p2p', 'send-ada-0003', 0))).toBeNull();
+      expect((await mainOf(ada.api)).balance).toBe('100');
+      expect(await sql`SELECT 1 FROM bank.personal_transfers WHERE transfer_id = 'send-ada-0003'`).toHaveLength(0);
+    });
+
+    it('paying a request through the partner is refused by name before anything is written', async () => {
+      const ada = await partnerHeld(ADA);
+      await partnerHeld(BOB);
+      await expect(
+        ada.api.transfers.toUser({
+          transferId: 'send-ada-0004',
+          fromSpaceId: ada.mainSpace.id,
+          toUserId: BOB,
+          amount: '40',
+          requestId: '33333333-3333-4333-8333-333333333333',
+        }),
+      ).rejects.toMatchObject({ cause: { code: 'bank.partner_path_not_built' } });
+      expect(await sql`SELECT 1 FROM bank.personal_transfers WHERE transfer_id = 'send-ada-0004'`).toHaveLength(0);
+      expect((await mainOf(ada.api)).balance).toBe('100');
+    });
+  });
 });

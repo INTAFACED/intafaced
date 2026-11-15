@@ -27,6 +27,7 @@ import {
   type VenueWithdrawal,
 } from './venue-account-api';
 import { venueWalletCopy, type VenueWalletCopyKey } from './venue-wallet-copy';
+import { sleep as pause } from '@intafaced/contracts/sleep';
 
 /**
  * /wallet/venue (J-wallet-09), on the flow template: the signed-in person connects the wallet in this browser to their
@@ -200,8 +201,6 @@ async function readVenueFigure(account: ReturnType<typeof createVenueAccountApi>
   const row = read.data.value.find((balance) => balance.asset === ASSET);
   return { free: row?.free ?? '0', asOf: read.data.asOf };
 }
-
-const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /** A fee the venue reports, or "not known": never shown as 0 when the venue does not publish it. */
 function feeText(fee: VenueWithdrawal['fee'], t: T): string {

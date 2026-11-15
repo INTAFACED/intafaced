@@ -3,6 +3,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { sweepRoutes } from './routes.mjs';
+import { JOURNEY_TMP } from '../../../../tooling/scripts/local-test-facts.mjs';
 import { signUp, verify, signIn } from './desk.mjs';
 
 // The room report: every customer room at one width, measured for contrast (axe), horizontal overflow, overlapping
@@ -201,7 +202,7 @@ export function lookSweep(width, height) {
       `Totals: contrast ${total('contrast')}, axe serious ${total('axeSerious')}, rooms overflowing ${rows.filter((r) => r.overflowX > 0).length}, overlaps ${total('overlaps')}, codes ${total('codesElsewhere')} (${total('codesInSupportLines')} in support lines), rooms with undefined variables ${rows.filter((r) => n(r.undefinedVars) > 0).length}, not measured ${rows.filter((r) => r.error).length}.`,
     );
     const md = lines.join('\n');
-    const dir = '/tmp/intafaced-real-app/results';
+    const dir = `${JOURNEY_TMP}/results`;
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, `look-report-${width}.md`), `${md}\n`);
     writeFileSync(join(dir, `look-report-${width}.json`), `${JSON.stringify({ width, signedIn, rows }, null, 2)}\n`);

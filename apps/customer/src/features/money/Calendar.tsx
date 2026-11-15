@@ -63,8 +63,10 @@ function reasonOf(t: Copy, code: string | null): string {
     case 'bank.insufficient_funds':
     case 'ledger.insufficient_funds':
     case 'bank.bills_insufficient_funds':
+    case 'bank.partner_insufficient_funds':
       return t('reason_insufficient');
     case 'bank.dd_mandate_blocked':
+    case 'test_partner.dd_mandate_blocked':
       return t('reason_blocked');
     case 'bank.dd_account_unavailable':
       return t('reason_account');
