@@ -22,11 +22,14 @@ on:
   workflow_run:
     workflows: [Real-app journeys]
     types: [completed]
+    # Only main's runs start it (project-state #2589, 15 Nov): the build job runs for nothing else, and the other ~95% of
+    # journeys runs (pull requests' and branches' own dispatches) only made a skipped run.
+    branches: [main]
 
 permissions: {}
 
 # Only a run whose job builds shares a group (a newer build replaces an older one): the group's condition is the build
-# job's `if`, word for word. Every other Real-app journeys run (a pull request's, a red one) also starts this workflow,
+# job's `if`, word for word. Every other Real-app journeys run on main (a red or cancelled one) also starts this workflow,
 # and its job skips; with github.ref (always main for workflow_run) it cancelled main's build in progress (runs
 # 42522896030, 42532262144, 42535543684 on 8 Nov), so it gets a group of its own (review 7594-R1 F1).
 concurrency:
