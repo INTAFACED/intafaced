@@ -852,7 +852,7 @@ describe('TEST venue simulator: council round 1 regressions', () => {
         w.sim.prepare(w.trader, w.wallet.signer, {
           kind: 'amend_order',
           symbol: 'BTC-USDC',
-          clientOrderKey: 'order:t:am',
+          venueClientOrderId: '0xam',
           amount: a('1'),
           price: a('1'),
         }),

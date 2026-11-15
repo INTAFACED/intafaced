@@ -74,7 +74,7 @@ describe('assertSignerMaySign', () => {
       clientOrderKey: 'order:u:1',
       builderFee: null,
     },
-    { kind: 'amend_order', symbol: 'BTC-USDC', clientOrderKey: 'order:u:1', amount: 1n, price: 1n },
+    { kind: 'amend_order', symbol: 'BTC-USDC', venueClientOrderId: '0xabc', amount: 1n, price: 1n },
     { kind: 'cancel_order', symbol: 'BTC-USDC', clientOrderKey: 'order:u:1' },
     { kind: 'withdraw', asset: 'USDC', amount: 1n, destination: '0xowner', withdrawalKey: 'withdraw:u:1' },
     { kind: 'approve_builder_fee', builder: '0xbuilder', maxFeeBps: 1n },
