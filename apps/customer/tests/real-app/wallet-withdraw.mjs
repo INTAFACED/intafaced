@@ -1,10 +1,10 @@
-// The shared world of J-wallet-05's part files (J-wallet-05.pw.mjs, J-wallet-05-send.pw.mjs, J-wallet-05-parallel.pw.mjs):
+// The shared world of J-wallet-05's part files (J-wallet-05.pw.mjs and J-wallet-05-send.pw.mjs):
 // its TEST constants and helpers, and the account each part starts from. Each part has its own account and its own
 // journey state, so the parts run in any order, in one shard or in several.
 //
 // (Failure it prevents: as one file J-wallet-05 ran 23 to 26 minutes, one step after another in one shard, and main's whole
-// journeys run waited on that shard; #6 alone waits out a five-minute step-up and #4 uses up a day's limit. Split in three,
-// the longest part is about 12 minutes.)
+// journeys run waited on that shard; #6 alone waits out a five-minute step-up and #4 uses up a day's limit. Split in two,
+// the longer part is about 14 minutes.)
 import path from 'node:path';
 import { expect } from './journey.mjs';
 import { DEVICE_KEY, EDGE, ORIGIN, ROOT, fund, journeyState, mailedLines, tool } from './stack.mjs';
