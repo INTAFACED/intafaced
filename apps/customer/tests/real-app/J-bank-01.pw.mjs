@@ -103,11 +103,10 @@ async function withBankValueBlank(key, who, fn) {
   };
   restart('off');
   try {
-    await atPartner(who);
+    // REPLAY (#8392 0822ed95): the start is not put back by the test after the restart.
     return await fn();
   } finally {
     restart(undefined);
-    await atPartner(who);
   }
 }
 const named = (rows, name) => rows.find((s) => s.kind === 'named' && s.name === name);
