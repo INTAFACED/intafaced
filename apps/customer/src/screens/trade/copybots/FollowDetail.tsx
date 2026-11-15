@@ -379,11 +379,10 @@ export function FollowDetail({
               </TabsPanel>
               <TabsPanel value="positions">
                 {tab === 'positions' ? (
-                  venue ? (
-                    <VenueCopiedFills follow={follow} api={api} />
-                  ) : (
+                  <>
                     <CopiedPositions follow={follow} api={api} guard={guard} />
-                  )
+                    {venue ? <VenueCopiedFills follow={follow} api={api} /> : null}
+                  </>
                 ) : null}
               </TabsPanel>
               <TabsPanel value="skipped">{tab === 'skipped' ? <SkippedCopies follow={follow} api={api} /> : null}</TabsPanel>

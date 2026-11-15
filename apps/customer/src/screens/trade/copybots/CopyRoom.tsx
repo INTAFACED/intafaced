@@ -204,6 +204,7 @@ export function CopyRoom({ path }: { path: string }) {
           initialLeader={wizard.leader}
           listed={wizard.listed}
           venueName={venueMode.status.available ? venueMode.status.venue.displayName : ''}
+          builder={venueMode.status.available ? venueMode.status.builder : null}
           onFollowed={onFollowed}
         />
       </VenueFrame>

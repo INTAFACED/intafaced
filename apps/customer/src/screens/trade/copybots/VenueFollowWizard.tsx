@@ -16,10 +16,21 @@ import { dec } from '../../../data/decimal';
 import { displayAmount } from '../../../shared/money';
 import { useResource } from '../../../shared/resource';
 import { useWallet } from '../../../features/protocol/wallet/WalletProvider';
+import { useSession } from '../../../features/session/session';
+import { StepUpConfirm } from '../../../features/money/StepUpConfirm';
+import {
+  abandonAgentAccount,
+  canonical,
+  createAgentAccount,
+  createStepUp,
+  readAgentTerms,
+  submitAgentAction,
+  type AgentAccount,
+} from '../../../features/more/agent-connect-api';
 import { useVenueApi, WalletBar } from '../../../features/trade/venue/VenueKit';
-import { walletTypedData } from '../../../features/trade/venue-api';
+import { keys, walletTypedData, type PreparedAnswer, type VenueUp } from '../../../features/trade/venue-api';
 import type { Failure } from './guard';
-import type { CopyDesk, LeaderRow, RoomApi, VenueFollow } from './api';
+import type { CopyDesk, FollowRequest, LeaderRow, RoomApi } from './api';
 import { bpsText, deskState } from './desk';
 import { roomCopy } from './copy';
 import { InfoNote, RefusalNote } from './parts';
@@ -35,11 +46,18 @@ function instantOf(local: string): string | null {
 
 const asOfText = (iso: string) => new Date(iso).toLocaleString();
 
+type Typed = PreparedAnswer['prepared']['typedData'];
+const failed = (code: string): Failure => ({ ok: false, reason: 'error', message: '', code });
+
 /**
- * Start copying on the person's own venue account (J-copy-bots-otc-01 #7; svc-trade copy/venue-copy.ts). INTAFACED holds
- * and moves nothing: the follow's total is a limit, checked against the free balance the venue reports for the
- * connected wallet's account, and starting it asks the wallet to sign the venue's permission for this follow's key,
- * which can place and cancel orders on that account and never withdraw. A rejected signature leaves no follow.
+ * Start copying on the person's own venue account (J-copy-bots-otc-01 #5 #7; svc-trade copy/venue-copy.ts). INTAFACED
+ * holds and moves nothing. Start copying first has svc-trade check every gate and term with nothing written
+ * (copy.checkVenueFollow). Then, after the person confirms it's them, their wallet opens the follow's own agent account
+ * (J-agents-21: a venue sub-account under their wallet, its agent permission, which can place and cancel orders there
+ * and never withdraw, and the move of the most in total into it from their main venue account) and approves our builder
+ * fee on it. Only then is the follow made, bound to that account: every copy is a venue order there, placed by the agent
+ * permission. A rejected signature while the account opens ends it: no account and no follow. The request key and the
+ * account id are kept for the request, so a second press after a lost answer is the same account and the same follow.
  */
 export function VenueFollowWizard({
   open,
@@ -49,6 +67,7 @@ export function VenueFollowWizard({
   initialLeader,
   listed = null,
   venueName,
+  builder,
   onFollowed,
 }: {
   open: boolean;
@@ -59,11 +78,14 @@ export function VenueFollowWizard({
   listed?: LeaderRow | null;
   /** The venue's own name, as its status names it. */
   venueName: string;
+  /** Our builder fee as the venue status names it; null when the owner set none. */
+  builder: VenueUp['builder'];
   onFollowed: () => void;
 }) {
   const { t } = roomCopy.useCopy();
   const venue = useVenueApi();
   const wallet = useWallet();
+  const { api: transport } = useSession();
   const owner = wallet.status === 'connected' && wallet.address ? wallet.address.toLowerCase() : null;
   const [step, setStep] = useState<Step>(1);
   const [leader, setLeader] = useState(initialLeader);
@@ -74,6 +96,10 @@ export function VenueFollowWizard({
   const [fixed, setFixed] = useState('');
   const [expiry, setExpiry] = useState('');
   const [requestKey, setRequestKey] = useState('');
+  // The follow's own agent account: its id is made once per request, so a retry is the same account, never a second.
+  const [accountId, setAccountId] = useState('');
+  const [made, setMade] = useState<AgentAccount | null>(null);
+  const [asking, setAsking] = useState(false);
   const [failure, setFailure] = useState<Failure | null>(null);
   const [busy, setBusy] = useState(false);
   // While the wallet asks, its own "Check before you sign" sheet is the only thing on screen: this modal would hide it from
@@ -84,11 +110,13 @@ export function VenueFollowWizard({
   useEffect(() => {
     if (open) {
       setLeader(initialLeader);
-      setRequestKey(`copy-start:${Date.now().toString(36)}`);
+      newRequest();
     }
   }, [open, initialLeader]);
 
   const markets = useResource((signal) => venue.markets(signal), 'copy-venue-markets');
+  const terms = useResource((signal) => readAgentTerms(transport, signal), 'copy-agent-terms');
+  const reach = terms.resource.status === 'ready' ? (terms.resource.data.agentPermission?.reach ?? null) : null;
   const spot = useMemo(
     () => (markets.resource.status === 'ready' ? markets.resource.data.value.filter((m) => m.kind === 'spot') : []),
     [markets.resource],
@@ -148,6 +176,7 @@ export function VenueFollowWizard({
     setStep(1);
     setTouched(false);
     setFailure(null);
+    setAsking(false);
   };
   const next = () => {
     setTouched(true);
@@ -157,68 +186,151 @@ export function VenueFollowWizard({
     }
   };
 
-  /** The wallet signs what the follow asks next, sent once; a rejection is never sent, and the follow is ended. */
-  async function signNext(start: VenueFollow): Promise<VenueFollow | null> {
-    let current = start;
-    for (let i = 0; current.next && i < 3 && owner; i += 1) {
-      const p = current.next.prepared;
-      setSigning(true);
-      const signed = await wallet.sign({ kind: 'typedData', typedData: walletTypedData(p.typedData) }).finally(() => setSigning(false));
-      if (signed.status !== 'signed') {
-        await api.venueFollowAbandon(current.followId);
-        // That request has ended; pressing Start copying again is a new request, with its own key.
-        setRequestKey(`copy-start:${Date.now().toString(36)}`);
-        setFailure({
-          ok: false,
-          reason: 'error',
-          message: '',
-          code: signed.status === 'rejected' ? 'trade.copy_venue_wallet_rejected' : 'trade.copy_venue_wallet_failed',
-        });
-        return null;
-      }
-      const sent = await api.venueFollowSubmit(current.followId, current.next.actionKey, {
-        digest: p.digest,
-        signature: signed.signature,
-        signedBy: owner,
-      });
-      if (!sent.ok) {
-        setFailure(sent);
-        return null;
-      }
-      current = sent.data;
-    }
-    return current;
+  /** A new Start copying request: its own key, its own agent account id, and nothing made for it yet. */
+  function newRequest() {
+    setRequestKey(`copy-start:${Date.now().toString(36)}`);
+    setAccountId(crypto.randomUUID());
+    setMade(null);
+    setAsking(false);
   }
 
-  const confirm = async () => {
+  const request = (): FollowRequest | null => {
     const expiresAt = instantOf(expiry);
-    if (!expiresAt || busy || !owner) return;
+    if (!expiresAt) return null;
+    return {
+      ...(listed ? { leaderRef: listed.leaderRef } : { leaderId: leader.trim() }),
+      region: region.trim().toUpperCase(),
+      permittedMarkets: picked,
+      maxNotionalPerOrder: perOrder,
+      maxAggregateExposure: aggregate,
+      fixedOrderSize: fixed,
+      expiresAt,
+      clientRequestId: requestKey,
+    };
+  };
+  const ask = () => ({
+    accountId,
+    owner: owner ?? '',
+    asset,
+    cap: canonical(aggregate) ?? aggregate,
+    fund: canonical(aggregate) ?? aggregate,
+  });
+
+  /** The wallet signs one prepared payload; while it asks, its own sheet is the only thing on screen. */
+  async function walletSigns(typed: Typed) {
+    setSigning(true);
+    return wallet.sign({ kind: 'typedData', typedData: walletTypedData(typed) }).finally(() => setSigning(false));
+  }
+
+  /** The wallet signs each step the agent account asks (open, agent permission, move in), each sent once. */
+  async function openAccount(start: AgentAccount): Promise<AgentAccount | null> {
+    let view = start;
+    for (let i = 0; view.next && i < 6 && owner; i += 1) {
+      const next = view.next;
+      const signed = await walletSigns(next.prepared.typedData as Typed);
+      if (signed.status !== 'signed') {
+        if (view.status === 'opening') {
+          // Nothing signed, so nothing moved; the account is ended and this request with it. A new press is a new one.
+          const ended = await abandonAgentAccount(transport, view.accountId);
+          if (!ended.ok) return (setFailure(ended), null);
+          newRequest();
+        }
+        setFailure(failed(signed.status === 'rejected' ? 'trade.copy_venue_wallet_rejected' : 'trade.copy_venue_wallet_failed'));
+        return null;
+      }
+      const sent = await submitAgentAction(transport, view.accountId, next.actionKey, {
+        digest: next.prepared.digest,
+        signature: signed.signature,
+        signedBy: view.owner,
+      });
+      if (!sent.ok) return (setFailure(sent), null);
+      view = sent.data;
+    }
+    if (view.next || view.status !== 'open' || !view.subAccount) return (setFailure(failed('trade.copy_venue_account_not_open')), null);
+    return view;
+  }
+
+  /** Our builder fee rides on every copy: the wallet approves it once on the follow's sub-account, sent once. */
+  async function approveBuilder(account: AgentAccount): Promise<boolean> {
+    if (!builder || !owner || !account.subAccount) return true;
+    const prepared = await venue.prepare({
+      owner,
+      subAccount: account.subAccount,
+      intent: { kind: 'approve_builder_fee', builder: builder.address, maxFeeBps: builder.feeBps },
+      actionKey: `${keys.builderApproval(owner, builder.address, builder.feeBps)}:${account.subAccount}`,
+    });
+    if (!prepared.ok) return (setFailure(prepared), false);
+    if (prepared.data.lastOutcome?.definite && prepared.data.lastOutcome.accepted) return true;
+    const signed = await walletSigns(prepared.data.prepared.typedData);
+    if (signed.status !== 'signed') {
+      setFailure(failed(signed.status === 'rejected' ? 'trade.copy_venue_wallet_rejected' : 'trade.copy_venue_wallet_failed'));
+      return false;
+    }
+    const sent = await venue.submit(prepared.data.actionKey, {
+      digest: prepared.data.prepared.digest,
+      signature: signed.signature,
+      signedBy: owner,
+    });
+    if (!sent.ok) return (setFailure(sent), false);
+    if (!sent.data.outcome.definite || !sent.data.outcome.accepted) return (setFailure(failed('trade.copy_venue_refused')), false);
+    return true;
+  }
+
+  /** The follow onto the open account, then automatic copying on: Start copying is also the grant to place each copy. */
+  async function follow(account: AgentAccount) {
+    const body = request();
+    if (!body) return;
+    if (!(await approveBuilder(account))) return;
+    const followed = await api.venueFollow({ ...body, agentAccountId: account.accountId });
+    if (!followed.ok) return setFailure(followed);
+    const granted = await api.grantCopying(followed.data.followId);
+    if (!granted.ok) return setFailure(granted);
+    onFollowed();
+    onOpenChange(false);
+    reset();
+  }
+
+  /** Start copying: svc-trade checks every gate and term with nothing written; then the person confirms it's them. */
+  const confirm = async () => {
+    const body = request();
+    if (!body || busy || !owner) return;
     setBusy(true);
     setFailure(null);
     try {
-      const started = await api.venueFollow({
-        ...(listed ? { leaderRef: listed.leaderRef } : { leaderId: leader.trim() }),
-        region: region.trim().toUpperCase(),
-        permittedMarkets: picked,
-        maxNotionalPerOrder: perOrder,
-        maxAggregateExposure: aggregate,
-        fixedOrderSize: fixed,
-        expiresAt,
-        clientRequestId: requestKey,
-        owner,
-      });
-      if (!started.ok) return setFailure(started);
-      const done = await signNext(started.data);
-      if (!done) return;
-      if (done.status !== 'active' || !done.follow) {
-        return setFailure({ ok: false, reason: 'error', message: '', code: 'trade.copy_venue_permission_pending' });
+      // The account this request already opened: its answer was lost, so carry on from it, never open a second.
+      if (made) return await follow(made);
+      const checked = await api.checkVenueFollow(body);
+      if (!checked.ok) return setFailure(checked);
+      if (checked.data.follow) {
+        const granted = await api.grantCopying(checked.data.followId);
+        if (!granted.ok) return setFailure(granted);
+        onFollowed();
+        onOpenChange(false);
+        return reset();
       }
-      // Starting to copy is also the grant to place each copy as you; it can be turned off on the follow.
-      const granted = await api.grantCopying(done.followId);
-      if (!granted.ok) return setFailure(granted);
-      onFollowed();
-      onOpenChange(false);
-      reset();
+      setAsking(true);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** Confirmed: the wallet opens the follow's agent account, and the follow is made on it. */
+  const approved = async (stepUpApprovalId: string | null) => {
+    if (busy) return;
+    setAsking(false);
+    setBusy(true);
+    try {
+      const created = await createAgentAccount(transport, ask(), stepUpApprovalId);
+      if (!created.ok) {
+        setFailure(created);
+        // A definite refusal ends this request; one whose answer was lost keeps its id, so the retry is the same account.
+        if (created.reason !== 'uncertain') newRequest();
+        return;
+      }
+      const open = await openAccount(created.data);
+      if (!open) return;
+      setMade(open);
+      await follow(open);
     } finally {
       setBusy(false);
     }
@@ -358,11 +470,6 @@ export function VenueFollowWizard({
         {step === 4 ? (
           <div className="cb-form">
             {failure ? <RefusalNote failure={failure} /> : null}
-            {failure?.code === 'trade.copy_venue_balance_short' && problems.balance ? (
-              <p className="cb-error" role="alert">
-                {problems.balance}
-              </p>
-            ) : null}
             <KeyValue
               items={[
                 listed ? { label: t('Leader'), value: listed.displayName } : { label: t('Leader'), value: leader.trim(), mono: true },
@@ -392,10 +499,38 @@ export function VenueFollowWizard({
               <h3>{t('Copy permission')}</h3>
               <InfoNote>
                 {t(
-                  'Your wallet is asked to sign a permission for this follow on your own venue account. It can place and cancel orders there and can never withdraw. Nothing is moved or held by INTAFACED.',
+                  'Your wallet is asked to open an agent account for this follow on your own venue account, sign its agent permission and move the most in total into it. The permission can place and cancel orders there and can never withdraw. Nothing is moved or held by INTAFACED.',
                 )}
               </InfoNote>
+              {reach === 'owner_accounts' ? (
+                <InfoNote tone="warn">
+                  {t(
+                    'On {venue}, this permission also reaches your other accounts there. Your limits here are then the only limit on its orders.',
+                    {
+                      venue: venueName,
+                    },
+                  )}
+                </InfoNote>
+              ) : null}
             </section>
+            {asking ? (
+              <StepUpConfirm
+                request={() => createStepUp(ask())}
+                words={{
+                  why: t('Confirm it’s you to open the agent account for this follow and move {amount} {asset} into it.', {
+                    amount: displayAmount(aggregate),
+                    asset,
+                  }),
+                  code: t('Authenticator code'),
+                  codeHint: t('The 6-digit code from your authenticator app'),
+                  codeShort: t('Enter the 6-digit code'),
+                  noFactor: t('You have no authenticator app or passkey. The request is sent without one, and the service decides.'),
+                  sendWithout: t('Continue'),
+                }}
+                disabled={busy}
+                onApproved={(id) => void approved(id)}
+              />
+            ) : null}
             <InfoNote>
               {t(
                 'Each new trade the leader makes is then placed on your venue account, within these limits, until you turn copying off or the permission ends.',
@@ -413,7 +548,7 @@ export function VenueFollowWizard({
           {step < 4 ? (
             <Button onClick={next}>{t('Next')}</Button>
           ) : (
-            <Button onClick={() => void confirm()} loading={busy} disabled={!owner}>
+            <Button onClick={() => void confirm()} loading={busy} disabled={!owner || asking}>
               {t('Start copying')}
             </Button>
           )}

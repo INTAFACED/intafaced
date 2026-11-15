@@ -28,10 +28,6 @@ const COPY: Readonly<Record<string, Words>> = {
     title: 'Copy trading isn’t available right now',
     body: 'The copy service isn’t switched on here. Nothing was followed and no money moved.',
   },
-  'trade.copy_venue_balance_short': {
-    title: 'More than your free balance on the venue',
-    body: 'The most in total is more than the free balance the venue reports for your account. Nothing was followed and no money moved.',
-  },
   'trade.copy_venue_wallet_rejected': {
     title: 'Your wallet did not sign',
     body: 'The copy permission was not signed, so nothing was sent and nothing is followed.',
@@ -40,33 +36,9 @@ const COPY: Readonly<Record<string, Words>> = {
     title: 'Your wallet could not sign',
     body: 'The copy permission was not signed, so nothing was sent and nothing is followed. Try again.',
   },
-  'trade.copy_venue_permission_pending': {
-    title: 'The venue is still listing the permission',
-    body: 'Your signature was sent. The follow starts once the venue lists the permission; open My follows in a moment.',
-  },
-  'trade.copy_venue_follow_abandoned': {
-    title: 'This request has ended',
-    body: 'The wallet did not sign it. Start again to follow this leader.',
-  },
-  'trade.copy_venue_off': {
-    title: 'Copy trading on your venue account isn’t on here',
-    body: 'Nothing was followed and no money moved.',
-  },
-  'trade.copy_venue_action_unknown': {
-    title: 'That isn’t this follow’s permission',
-    body: 'The signature asked for doesn’t match this follow, so nothing was sent. Start the follow again.',
-  },
-  'trade.copy_venue_signed': {
-    title: 'Your wallet already signed this permission',
-    body: 'It can no longer be cancelled here. The follow starts once the venue lists it; open My follows in a moment.',
-  },
   'trade.copy_venue_refused': {
-    title: 'The venue refused this copy',
-    body: 'The copied order was not placed on your venue account. Your follow and its limits are kept.',
-  },
-  'trade.copy_agent_key_unset': {
-    title: 'Copy permissions aren’t set up',
-    body: 'The platform has no copy permissions set up. Nothing was followed and no money moved.',
+    title: 'The venue refused it',
+    body: 'Your wallet signed, but the venue did not accept it, so nothing is followed. Try again.',
   },
   'trade.copy_self_follow': { title: 'You can’t follow yourself', body: 'Choose a different leader.' },
   'trade.copy_already_following': { title: 'You already follow this leader', body: 'Open it in My follows to change it.' },

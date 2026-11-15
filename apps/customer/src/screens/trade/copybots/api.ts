@@ -6,7 +6,6 @@ import { z } from 'zod';
 import { decimalSchema, signedDecimalSchema } from '../../../shared/money';
 import type { ApiClient } from '../../../shared/api';
 import { algoSchema, copyFollowSchema, createToolApi } from '../../../features/trade/tool-api';
-import { preparedAnswerSchema, venueFillSchema, venueOrderSchema } from '../../../features/trade/venue-api';
 
 export const copyDeskSchema = z.object({
   feeSharePublished: z.boolean(),
@@ -193,6 +192,26 @@ export const copyPositionSchema = z.object({
   price: decimalSchema,
   status: z.string(),
   placedAt: z.string(),
+  /** On a follow that copies on the venue: who placed it, and its fills with their fees, as the venue reports them. */
+  venue: z
+    .object({
+      venueName: z.string(),
+      test: z.boolean(),
+      asOf: z.string(),
+      placedBy: z.string(),
+      fills: z.array(
+        z.object({
+          fillId: z.string(),
+          amount: decimalSchema,
+          price: decimalSchema,
+          venueFee: decimalSchema,
+          builderFee: decimalSchema,
+          feeAsset: z.string(),
+          filledAt: z.string(),
+        }),
+      ),
+    })
+    .optional(),
 });
 export type CopyPosition = z.infer<typeof copyPositionSchema>;
 
@@ -386,37 +405,12 @@ export type TwapRequest = {
   participationBps?: number;
 };
 
-// ── copy on the person's own venue account (J-copy-bots-otc-01 #7 #8; svc-trade copy/venue-copy.ts) ──────────────
-export const venueFollowSchema = z.object({
-  followId: z.string(),
-  status: z.enum(['signing', 'active', 'abandoned']),
-  venueId: z.string(),
-  venueName: z.string(),
-  owner: z.string(),
-  agentAddress: z.string(),
-  asset: z.string(),
-  cap: z.string(),
-  permissionOnVenue: z.boolean(),
-  next: z
-    .object({ actionKey: z.string(), step: z.literal('approve_agent'), prepared: preparedAnswerSchema.shape.prepared, signed: z.boolean() })
-    .nullable(),
-  refusal: z.object({ code: z.string(), detail: z.string() }).passthrough().nullable(),
-  follow: copyFollowSchema.nullable(),
-  test: z.boolean(),
-});
-export type VenueFollow = z.infer<typeof venueFollowSchema>;
-export const venueCopiedOrderSchema = z.object({
-  leaderFillId: z.string(),
-  actionKey: z.string(),
-  venueClientOrderId: z.string().nullable(),
-  state: z.enum(['accepted', 'unknown', 'refused', 'not_sent']),
-  order: venueOrderSchema.nullable(),
-  fills: z.array(venueFillSchema),
-  signedBy: z.string(),
-  asOf: z.string().nullable(),
-});
-export type VenueCopiedOrder = z.infer<typeof venueCopiedOrderSchema>;
-const venueCopiedOrdersSchema = z.object({ venueName: z.string(), test: z.boolean(), orders: z.array(venueCopiedOrderSchema) });
+/** copy.checkVenueFollow (svc-trade copy-service.ts): a venue follow checked with nothing written, or the follow its key made. */
+export const venueFollowCheckSchema = z.union([
+  z.object({ followId: z.string(), follow: copyFollowSchema }),
+  z.object({ followId: z.string(), follow: z.null(), quoteAsset: z.string(), maxAggregateExposure: decimalSchema }),
+]);
+export type VenueFollowCheck = z.infer<typeof venueFollowCheckSchema>;
 
 export function createRoomApi(api: ApiClient) {
   const tools = createToolApi(api);
@@ -446,13 +440,10 @@ export function createRoomApi(api: ApiClient) {
       }),
     follows: tools.copyFollows,
     follow: (input: FollowRequest) => api.mutate('trade', 'copy.follow', input, copyFollowSchema),
-    /** Start copying on the person's own venue account: the wallet is then asked to sign the follow's permission. */
-    venueFollow: (input: FollowRequest & { owner: string }) => api.mutate('trade', 'copy.venue.start', input, venueFollowSchema),
-    venueFollowSubmit: (followId: string, actionKey: string, signature: { digest: string; signature: string; signedBy: string }) =>
-      api.mutate('trade', 'copy.venue.submit', { followId, actionKey, signature }, venueFollowSchema),
-    venueFollowAbandon: (followId: string) => api.mutate('trade', 'copy.venue.abandon', { followId }, venueFollowSchema),
-    venueCopiedOrders: (followId: string, signal?: AbortSignal) =>
-      api.query('trade', 'copy.venue.copiedOrders', { followId }, venueCopiedOrdersSchema, { signal }),
+    /** Start copying on the venue, checked: every gate and term, with nothing written (J-copy-bots-otc-01 #5 #7). */
+    checkVenueFollow: (input: FollowRequest) => api.mutate('trade', 'copy.checkVenueFollow', input, venueFollowCheckSchema),
+    /** A follow that copies onto one of the person's own open agent accounts (svc-trade venue-copy.ts). */
+    venueFollow: (input: FollowRequest & { agentAccountId: string }) => api.mutate('trade', 'copy.follow', input, copyFollowSchema),
     followAction: tools.copyAction,
     /** Lets the service place each copy as this person. The one-time key it answers with is never kept. */
     grantCopying: (followId: string) => api.mutate('trade', 'copy.grantSessionKey', { followId }, copyFollowSchema),

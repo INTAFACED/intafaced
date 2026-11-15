@@ -1,60 +1,61 @@
 import { EmptyState, Table, type TableColumn } from '@intafaced/ui';
 import { displayAmount } from '../../../shared/money';
 import { useResource } from '../../../shared/resource';
-import type { RoomApi, VenueCopiedOrder } from './api';
+import type { CopyPosition, RoomApi } from './api';
 import { roomCopy } from './copy';
 import type { Follow } from './FollowDetail';
 import { InfoNote, RefusalNote } from './parts';
 
-type VenueFillRow = VenueCopiedOrder['fills'][number];
+type VenueFillRow = NonNullable<CopyPosition['venue']>['fills'][number];
 
-const STATE: Record<VenueCopiedOrder['state'], string> = {
-  accepted: 'On the venue',
+const STATE: Record<string, string> = {
+  open: 'On the venue',
+  resting: 'On the venue',
+  partially_filled: 'On the venue',
+  filled: 'Filled',
+  cancelled: 'Cancelled',
+  expired: 'Expired',
+  rejected: 'Refused',
   unknown: 'Being checked',
-  refused: 'Refused',
-  not_sent: 'Not sent',
+  pending: 'Not sent',
 };
 
+/** The venue's own words for where its record of the copies comes from, with TEST on a test venue. */
+function Source({ rows }: { rows: readonly CopyPosition[] }) {
+  const { t } = roomCopy.useCopy();
+  const on = rows.find((r) => r.venue)?.venue;
+  if (!on) return null;
+  return (
+    <InfoNote>
+      {t('Each copy is your own order on {venue}, placed by this follow’s agent permission, as {venue} reports it.', {
+        venue: on.venueName,
+      })}
+      {on.test ? ' TEST' : ''}
+    </InfoNote>
+  );
+}
+
 /**
- * A follow's copies on the person's own venue account (J-copy-bots-otc-01 #8): each copy is the person's own venue
- * order, placed by the follow's permission, read back from the venue. Every figure is the venue's own report.
+ * A venue follow's copies (J-copy-bots-otc-01 #8; svc-trade venue-copy.ts `copiedOrders`): each copy is the person's
+ * own venue order on the follow's agent account, placed by its agent permission, read back from the venue.
  */
 export function VenueCopiedOrders({ follow, api }: { follow: Follow; api: RoomApi }) {
   const { t } = roomCopy.useCopy();
-  const { resource, reload } = useResource((signal) => api.venueCopiedOrders(follow.followId, signal), `venue-copies:${follow.followId}`);
+  const { resource, reload } = useResource((signal) => api.followPositions(follow.followId, signal), `venue-copies:${follow.followId}`);
   if (resource.status === 'failed') return <RefusalNote failure={resource.failure} retry={reload} />;
-  const rows = resource.status === 'ready' ? resource.data.orders : [];
-  const columns: TableColumn<VenueCopiedOrder>[] = [
-    { id: 'market', header: t('Market'), value: (r) => r.order?.symbol ?? '', pin: 'start' },
-    { id: 'side', header: t('Side'), value: (r) => (r.order?.side === 'sell' ? t('Sell') : t('Buy')) },
+  const rows = resource.status === 'ready' ? resource.data.positions : [];
+  const columns: TableColumn<CopyPosition>[] = [
+    { id: 'market', header: t('Market'), value: (r) => r.market, pin: 'start' },
+    { id: 'side', header: t('Side'), value: (r) => (r.side === 'sell' ? t('Sell') : t('Buy')) },
+    { id: 'qty', header: t('Amount'), value: (r) => r.qty, numeric: true, cell: (r) => displayAmount(r.qty) },
+    { id: 'filled', header: t('Filled'), value: (r) => r.filledQty, numeric: true, cell: (r) => displayAmount(r.filledQty) },
+    { id: 'price', header: t('Price'), value: (r) => r.price, numeric: true, cell: (r) => displayAmount(r.price) },
+    { id: 'state', header: t('Venue status'), value: (r) => t((STATE[r.status] ?? 'Not known') as 'Filled') },
     {
-      id: 'qty',
-      header: t('Amount'),
-      value: (r) => r.order?.amount ?? '',
-      numeric: true,
-      cell: (r) => (r.order ? displayAmount(r.order.amount) : ''),
-    },
-    {
-      id: 'filled',
-      header: t('Filled'),
-      value: (r) => r.order?.filled ?? '',
-      numeric: true,
-      cell: (r) => (r.order ? displayAmount(r.order.filled) : ''),
-    },
-    {
-      id: 'price',
-      header: t('Price'),
-      value: (r) => r.order?.price ?? '',
-      numeric: true,
-      cell: (r) => (r.order ? displayAmount(r.order.price) : ''),
-    },
-    { id: 'state', header: t('State'), value: (r) => t(STATE[r.state] as 'Refused') },
-    { id: 'venueStatus', header: t('Venue status'), value: (r) => r.order?.status ?? t('Not known') },
-    {
-      id: 'signedBy',
+      id: 'placedBy',
       header: t('Placed by'),
-      value: (r) => r.signedBy,
-      cell: (r) => <span data-testid="copy-signed-by">{r.signedBy}</span>,
+      value: (r) => r.venue?.placedBy ?? '',
+      cell: (r) => <span data-testid="copy-placed-by">{r.venue?.placedBy ?? t('Not known')}</span>,
     },
   ];
   return (
@@ -63,7 +64,7 @@ export function VenueCopiedOrders({ follow, api }: { follow: Follow; api: RoomAp
         label={t('Copied orders')}
         columns={columns}
         rows={rows}
-        getRowId={(r) => r.actionKey}
+        getRowId={(r) => r.orderId}
         status={resource.status === 'loading' ? 'loading' : 'ready'}
         minWidth={760}
         emptyState={
@@ -74,26 +75,20 @@ export function VenueCopiedOrders({ follow, api }: { follow: Follow; api: RoomAp
           />
         }
       />
-      {resource.status === 'ready' ? (
-        <InfoNote>
-          {t('Each copy is your own order on {venue}, placed by this follow’s permission, as {venue} reports it.', {
-            venue: resource.data.venueName,
-          })}
-          {resource.data.test ? ' TEST' : ''}
-        </InfoNote>
-      ) : null}
+      <Source rows={rows} />
     </>
   );
 }
 
-/** The fills of a follow's copies, each with the venue's fee and our builder fee as the venue charged them. */
+/** The fills of a venue follow's copies, each with the venue's fee and our builder fee as the venue charged them. */
 export function VenueCopiedFills({ follow, api }: { follow: Follow; api: RoomApi }) {
   const { t } = roomCopy.useCopy();
-  const { resource, reload } = useResource((signal) => api.venueCopiedOrders(follow.followId, signal), `venue-fills:${follow.followId}`);
+  const { resource, reload } = useResource((signal) => api.followPositions(follow.followId, signal), `venue-fills:${follow.followId}`);
   if (resource.status === 'failed') return <RefusalNote failure={resource.failure} retry={reload} />;
-  const rows = resource.status === 'ready' ? resource.data.orders.flatMap((o) => o.fills) : [];
-  const columns: TableColumn<VenueFillRow>[] = [
-    { id: 'market', header: t('Market'), value: (r) => r.symbol, pin: 'start' },
+  const copies = resource.status === 'ready' ? resource.data.positions : [];
+  const rows = copies.flatMap((o) => (o.venue?.fills ?? []).map((f) => ({ ...f, market: o.market, side: o.side })));
+  const columns: TableColumn<VenueFillRow & { market: string; side: 'buy' | 'sell' }>[] = [
+    { id: 'market', header: t('Market'), value: (r) => r.market, pin: 'start' },
     { id: 'side', header: t('Side'), value: (r) => (r.side === 'sell' ? t('Sell') : t('Buy')) },
     { id: 'amount', header: t('Amount'), value: (r) => r.amount, numeric: true, cell: (r) => displayAmount(r.amount) },
     { id: 'price', header: t('Price'), value: (r) => r.price, numeric: true, cell: (r) => displayAmount(r.price) },
@@ -126,6 +121,7 @@ export function VenueCopiedFills({ follow, api }: { follow: Follow; api: RoomApi
           <EmptyState size="inline" title={t('No copied fills')} reason={t('A fill appears here when a copy fills on the venue.')} />
         }
       />
+      <Source rows={copies} />
       <InfoNote>{t('Leaders are paid a share of our fee only, never of your profit.')}</InfoNote>
     </>
   );
