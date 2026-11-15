@@ -19,7 +19,8 @@ import { localStackState } from './local-test-facts.mjs';
 
 export { localStackState };
 
-const DEFAULT_SERVICES = ['edge', 'identity', 'trade', 'matching', 'ledger', 'customer'];
+/** The services the journey helpers require running (assertActiveLocalStack); a first `start --only` must name them. */
+export const DEFAULT_SERVICES = ['edge', 'identity', 'trade', 'matching', 'ledger', 'customer'];
 
 /**
  * The custody switch (OWNER 226, OWNER 288) the stack's running svc-ledger was started with: `on` or `off`. The stack
