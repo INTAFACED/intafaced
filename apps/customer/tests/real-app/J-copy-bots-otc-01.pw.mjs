@@ -6,13 +6,13 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { EDGE, ORIGIN, ROOT, api, fromUnits, journeyState, tool, signOutBrowser, toUnits } from './stack.mjs';
 import { fundedTrader, signIn, signUp, verify } from './desk.mjs';
-import { listLeader, takeBest, userIdOf } from './copy.mjs';
-import { approverSessions, makeContext, refusalText } from '../../../../tooling/scripts/local-test-gates.mjs';
+import { listLeader, takeBest } from './copy.mjs';
 import { installTestWallet, testWalletKey } from './test-wallet.mjs';
+import { PASSKEY_ORIGIN } from './identity-factors.mjs';
+import { browserHoldsPasskey, testPasskey } from './p2p.mjs';
 import {
   continueInWallet,
   otherTraderKey,
-  otherTraderRun,
   testDeposit,
   testVenue,
   venueAccount,
@@ -27,17 +27,16 @@ import {
 // follower starts signed in and verified, with a TEST wallet whose own account on the stack's LOCAL TEST venue holds
 // TEST USDC; the leaders are TEST accounts the stack's TEST founder lists through svc-trade's own operator door. The
 // lead's profile trades (#4) are its own fills on the TEST book; the lead's trade that is copied (#8) is its own order on
-// the TEST venue, on the venue account the founder names for it. svc-trade's user-venue door is on for this file
-// (venue.mjs `venueForThisFile`): a follow is on the follower's own venue account, and INTAFACED holds and moves none of
-// it (the launch money model, OWNER 226). Every figure the TEST venue reports is TEST.
+// the TEST venue, on the lead's own venue account, signed by the lead's own TEST wallet through our door. svc-trade's
+// user-venue door is on for this file (venue.mjs `venueForThisFile`): Start copying opens the follow's own agent account
+// with the follower's wallet (a venue sub-account under it, with an agent permission that can place and cancel orders
+// there and never withdraw), and every copy is a venue order on it; INTAFACED holds and moves none of it (the launch
+// money model, OWNER 226). Every figure the TEST venue reports is TEST.
 const J = 'J-copy-bots-otc-01';
 const RUN = process.env.JOURNEY_RUN_ID ?? 'local';
 const run = journeyState(`${J}-${RUN}`);
 /** The venue's cash spot market the follow allows (the TEST venue's BTC-USDC). */
 const VENUE_MARKET = 'BTC-USDC';
-/** The stack's TEST agent key secret (tooling/profiles/test-owner-values/trade.json): public, holds nothing real. */
-const AGENT_KEY_SEED = JSON.parse(readFileSync(path.join(ROOT, 'tooling/profiles/test-owner-values/trade.json'), 'utf8')).values
-  .TRADE_AGENT_KEY_SEED.value;
 /** A chain-transfer-shaped TEST deposit reference, one per name, so a replay credits nothing. */
 const depositRef = (name) => `84532:${keccak256(toHex(`${J} ${RUN} ${name}`))}:0`;
 
@@ -105,11 +104,11 @@ test(`${J} #2 chooses the Futures tab and searches a name: only futures leaders,
   const spotRef = await listLeader(leader, spotName, { tenureStart: '2026-01-01T00:00:00.000Z' });
   const futuresLeader = await signUp(page, 'jcx');
   await listLeader(futuresLeader, futuresName, { marketMode: 'futures' });
-  // The spot lead's own account on the venue, named by the founder who lists the lead, with TEST USDC for #8's trade.
+  // The spot lead's own TEST wallet, with TEST USDC in its own venue account for #8's trade, which the lead signs through
+  // our door: svc-trade reads a lead's fills only from venue accounts the lead signed for there.
   const leadName = `${J} lead ${RUN} ${tag}`;
   const leadOwner = otherTraderKey(leadName).address.toLowerCase();
   await testDeposit(leadOwner, 'USDC', '1000', depositRef('lead'));
-  await setLeadVenueAccount(spotRef, leadOwner);
   run.write({ leader, spotName, spotRef, futuresName, leadName, leadOwner });
 
   await signOutBrowser(page.context());
@@ -271,14 +270,6 @@ function weekAhead() {
   return `${when.getFullYear()}-${pad(when.getMonth() + 1)}-${pad(when.getDate())}T${pad(when.getHours())}:${pad(when.getMinutes())}`;
 }
 
-/** The founder who lists a lead names the venue account the lead trades on (svc-trade copy.venue.setLeadAccount). */
-async function setLeadVenueAccount(leaderRef, owner) {
-  const ctx = await makeContext({ log: () => {} });
-  const founders = await approverSessions(ctx);
-  const res = await ctx.edge.mutate('trade', 'copy.venue.setLeadAccount', { leaderRef, owner }, founders.a.token);
-  if (res.json?.result?.data?.owner !== owner) throw new Error(`naming the lead's venue account refused: ${refusalText(res)}`);
-}
-
 /** The TEST wallet in this page, once per page, before the app's scripts run: `key` is the person's own TEST key. */
 const wallets = new WeakMap();
 async function walletIn(page, key = state('walletKey')) {
@@ -305,7 +296,7 @@ async function openWizardAtLimits(page, key) {
   return wizard;
 }
 
-/** A Start copying request on the venue as the API takes it, for the follower's own venue account. */
+/** A Start copying request on the venue as copy.checkVenueFollow takes it (svc-trade copy-service.ts). */
 const venueStart = (over = {}) => ({
   leaderRef: state('spotRef'),
   region: 'DE',
@@ -314,7 +305,6 @@ const venueStart = (over = {}) => ({
   maxAggregateExposure: '200',
   fixedOrderSize: '20',
   expiresAt: new Date(Date.now() + 7 * 24 * 3600_000).toISOString(),
-  owner: state('owner'),
   ...over,
 });
 
@@ -356,7 +346,7 @@ test(`${J} #5 presses Start copying: below the copy verification level, under a 
   const wizard = await openWizardAtLimits(page, unverifiedKey);
   await fillLimits(wizard, { perOrder: '50', total: '200', fixed: '20' });
   await wizard.getByRole('button', { name: 'Next' }).click();
-  const answer = page.waitForResponse((res) => res.url().includes('copy.venue.start'));
+  const answer = page.waitForResponse((res) => res.url().includes('copy.checkVenueFollow'));
   await wizard.getByRole('button', { name: 'Start copying' }).click();
   expect((await answer).status()).toBe(403);
   await expect(wizard.getByRole('alert').filter({ hasText: 'More verification needed' })).toBeVisible();
@@ -368,6 +358,8 @@ test(`${J} #5 presses Start copying: below the copy verification level, under a 
   await expect(page.getByText('You aren’t following anyone')).toBeVisible();
   expect((await venueBalance(unverifiedOwner, 'USDC')).free, 'the venue balance is untouched').toBe('1000');
   expect((await venueRecord(unverifiedOwner, '/agents')).value, 'no copy permission was asked for').toEqual([]);
+  expect((await venueRecord(unverifiedOwner, '/sub-accounts')).value, 'no agent account was opened on the venue').toEqual([]);
+  expect(await agentAccounts(await api(unverified)), 'no agent account was made').toEqual([]);
 
   page = await first.context().newPage();
 
@@ -380,7 +372,7 @@ test(`${J} #5 presses Start copying: below the copy verification level, under a 
     await copyCountries('blank');
     const refused = await (
       await api(follower)
-    ).post('/api/trade/trpc/copy.venue.start', venueStart({ clientRequestId: `journey-blank-countries:${state('tag')}` }));
+    ).post('/api/trade/trpc/copy.checkVenueFollow', venueStart({ clientRequestId: `journey-blank-countries:${state('tag')}` }));
     expect(
       refused.body?.error?.data?.cause?.code ?? refused.body?.error?.data?.intafacedCode,
       JSON.stringify(refused.body).slice(0, 300),
@@ -395,7 +387,7 @@ test(`${J} #5 presses Start copying: below the copy verification level, under a 
     const closed = await openWizardAtLimits(page);
     await fillLimits(closed, { perOrder: '50', total: '200', fixed: '20' });
     await closed.getByRole('button', { name: 'Next' }).click();
-    const blankAnswer = page.waitForResponse((res) => res.url().includes('copy.venue.start'));
+    const blankAnswer = page.waitForResponse((res) => res.url().includes('copy.checkVenueFollow'));
     await closed.getByRole('button', { name: 'Start copying' }).click();
     expect((await blankAnswer).status()).toBe(412);
     await expect(closed.getByRole('alert').filter({ hasText: 'Copy trading isn’t open for your country' })).toBeVisible();
@@ -433,7 +425,7 @@ test(`${J} #5 presses Start copying: below the copy verification level, under a 
   const asSub = await openWizardAtLimits(page);
   await fillLimits(asSub, { perOrder: '50', total: '200', fixed: '20' });
   await asSub.getByRole('button', { name: 'Next' }).click();
-  const subAnswer = page.waitForResponse((res) => res.url().includes('copy.venue.start'));
+  const subAnswer = page.waitForResponse((res) => res.url().includes('copy.checkVenueFollow'));
   await asSub.getByRole('button', { name: 'Start copying' }).click();
   const subRes = await subAnswer;
   // The press went out as the sub-account: its token names the sub-account the person chose.
@@ -449,6 +441,8 @@ test(`${J} #5 presses Start copying: below the copy verification level, under a 
   expect(await myFollows(await api(follower)), 'no follow was started by the sub-account').toEqual(followsBefore);
   expect(await venueBalance(state('owner'), 'USDC'), 'nothing was set aside').toEqual(mainBefore);
   expect((await venueRecord(state('owner'), '/agents')).value, 'no copy permission was asked for').toEqual([]);
+  expect((await venueRecord(state('owner'), '/sub-accounts')).value, 'no agent account was opened on the venue').toEqual([]);
+  expect(await agentAccounts(await api(follower)), 'no agent account was made').toEqual([]);
 
   // Back to the main account in the same tab.
   await inUse.getByRole('button', { name: 'Switch back to the main account' }).click();
@@ -500,173 +494,214 @@ test(`${J} #6 reaches the review with no risk disclosure to accept, and Start co
   await expect(wizard.getByRole('button', { name: 'Start copying' })).toBeEnabled();
 });
 
-/** The follow's agent key as svc-trade derives it (services/svc-trade/src/venue/agent-key.ts) from the TEST seed. */
-const followAgentKey = (userId, followId) =>
-  privateKeyToAccount(keccak256(toHex(`intafaced agent key\u0000${AGENT_KEY_SEED}\u0000${userId}\u0000copy:${followId}`)));
-
 const codeOf = (res) => res.body?.error?.data?.cause?.code ?? res.body?.error?.data?.intafacedCode;
 
-test(`${J} #7 enters a fixed amount and starts: zero, above the per-order cap and above the venue's free USDC refused; the wallet signs the follow's permission, which places and cancels and never withdraws; a rejected signature leaves no follow; the same key is the same follow; nothing is moved or held`, async ({
-  page,
+/** The person's agent accounts as svc-trade lists them to their owner (an ended one is not listed). */
+async function agentAccounts(me) {
+  const res = await me.get('/api/v1/venue/agent-accounts');
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  return res.body.accounts;
+}
+
+/** Our builder fee as the venue status names it; null when the owner set none. */
+async function builderOf(me) {
+  const res = await me.get('/api/v1/venue/status');
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  return res.body.builder ?? null;
+}
+
+/**
+ * Answers every "Check before you sign" sheet the page shows with Continue in wallet, until `done` settles: the wallet
+ * then signs or rejects as it was told. Returns how many it answered.
+ */
+async function walletAnswers(page, done) {
+  const sheet = page.getByRole('dialog', { name: 'Check before you sign' });
+  let finished = false;
+  done.then(
+    () => (finished = true),
+    () => (finished = true),
+  );
+  let answered = 0;
+  while (!finished && answered < 8) {
+    const shown = await sheet
+      .waitFor({ state: 'visible', timeout: 1_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (!shown) continue;
+    await continueInWallet(page);
+    answered += 1;
+  }
+  return answered;
+}
+
+test(`${J} #7 enters a fixed amount and starts: zero, above the per-order cap and above the venue's free USDC refused; the wallet signs the agent permission for this follow, which places and cancels and never withdraws; a rejected signature leaves no follow; the same key is the same follow; nothing is held by INTAFACED`, async ({
+  browser,
 }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(420_000);
   const follower = state('follower');
   const owner = state('owner');
   const me = await api(follower);
   const venue = await venueInfo();
   const before = await venueBalance(owner, 'USDC');
-  const agentsBefore = (await venueRecord(owner, '/agents')).value;
-  expect(agentsBefore, 'no copy permission before the follow').toEqual([]);
+  expect((await venueRecord(owner, '/sub-accounts')).value, 'no agent account before the follow').toEqual([]);
 
-  // The service itself refuses each amount the screen refuses below, by its typed code, and starts no follow: a zero
-  // fixed amount, one above the most per order, and one above the free USDC the venue reports, which the refusal names
-  // with the venue's figure and its as-of time.
-  const ask = (over) =>
-    me.post('/api/trade/trpc/copy.venue.start', venueStart({ clientRequestId: `${J}-7-refused-${Date.now()}`, ...over }));
-  const aboveFree = fromUnits(toUnits(before.free) + toUnits('1'));
+  // The service itself refuses each amount the screen refuses below, by its typed code, before anything is written: a
+  // zero fixed amount, and one above the most per order.
   for (const [over, code] of [
     [{ fixedOrderSize: '0' }, 'trade.copy_envelope_invalid'],
     [{ fixedOrderSize: '60' }, 'trade.copy_fixed_size_above_cap'],
-    [{ maxNotionalPerOrder: aboveFree, maxAggregateExposure: aboveFree, fixedOrderSize: aboveFree }, 'trade.copy_venue_balance_short'],
   ]) {
-    const refused = await ask(over);
+    const refused = await me.post(
+      '/api/trade/trpc/copy.checkVenueFollow',
+      venueStart({ clientRequestId: `${J}-7-refused-${Date.now()}`, ...over }),
+    );
     expect(codeOf(refused), JSON.stringify(refused.body).slice(0, 300)).toBe(code);
-    if (code === 'trade.copy_venue_balance_short') {
-      const message = refused.body.error.message;
-      expect(message, 'the refusal names the venue').toContain(venue.displayName);
-      expect(message, "the refusal names the venue's free figure").toContain(`${before.free} USDC`);
-      expect(message, 'the refusal names its as-of time').toMatch(/as of \d{4}-\d\d-\d\dT\d\d:\d\d:\d\d/);
-    }
   }
   expect(await myFollows(me), 'no follow was started by a refused request').toEqual([]);
-  expect((await venueRecord(owner, '/agents')).value, 'no permission was asked for by a refused request').toEqual([]);
+  expect(await agentAccounts(me), 'no agent account was made by a refused request').toEqual([]);
 
-  await signIn(page, follower);
-  const wallet = await walletIn(page);
-  const wizard = await openWizardAtLimits(page);
-  await expect(wizard.getByText(`${before.free} USDC`).or(wizard.getByText(/1,000 USDC/))).toBeVisible();
-  await fillLimits(wizard, { perOrder: '50', total: '200', fixed: '0' });
-  await wizard.getByRole('button', { name: 'Next' }).click();
-  await expect(wizard.getByText('Enter an amount above zero')).toBeVisible();
-  await wizard.getByLabel('Fixed amount per copied order (USDC)').fill('60');
-  await wizard.getByRole('button', { name: 'Next' }).click();
-  await expect(wizard.getByText('The most per order is 50 USDC')).toBeVisible();
-  // Above the free USDC the venue reports: refused on the screen, naming the venue's figure and its as-of time.
-  await wizard.getByLabel('Most per order (USDC)').fill('5000');
-  await wizard.getByLabel('Fixed amount per copied order (USDC)').fill('5000');
-  await wizard.getByLabel('Most in total (USDC)').fill('5000');
-  await wizard.getByRole('button', { name: 'Next' }).click();
-  await expect(
-    wizard.getByText(new RegExp(`more than the 1,?000 USDC free that ${venue.displayName} reports for your account, as of `)),
-  ).toBeVisible();
-  // The fixed amount is the follow's cap: no copy may go past 20 USDC, each copy or in total.
-  await fillLimits(wizard, { perOrder: '20', total: '20', fixed: '20' });
-  await wizard.getByRole('button', { name: 'Next' }).click();
-  await expect(wizard.getByRole('region', { name: 'Copy permission' })).toContainText(
-    'can place and cancel orders there and can never withdraw',
-  );
+  // The person confirms it's them with their own TEST passkey, held by the browser on the passkey origin.
+  const passkey = await testPasskey(me);
+  const context = await browser.newContext({ baseURL: PASSKEY_ORIGIN });
+  try {
+    const page = await context.newPage();
+    const wallet = await walletIn(page);
+    /** What the wallet was asked to sign, in order. */
+    const signs = () => wallet.requests.filter((r) => r.method === 'eth_signTypedData_v4');
+    await browserHoldsPasskey(page, passkey.saved());
+    await signIn(page, follower);
+    const wizard = await openWizardAtLimits(page);
+    await expect(wizard.getByText(`${before.free} USDC`).or(wizard.getByText(/1,000 USDC/))).toBeVisible();
+    await fillLimits(wizard, { perOrder: '50', total: '200', fixed: '0' });
+    await wizard.getByRole('button', { name: 'Next' }).click();
+    await expect(wizard.getByText('Enter an amount above zero')).toBeVisible();
+    await wizard.getByLabel('Fixed amount per copied order (USDC)').fill('60');
+    await wizard.getByRole('button', { name: 'Next' }).click();
+    await expect(wizard.getByText('The most per order is 50 USDC')).toBeVisible();
+    // Above the free USDC the venue reports: refused on the screen, naming the venue's figure and its as-of time.
+    await wizard.getByLabel('Most per order (USDC)').fill('5000');
+    await wizard.getByLabel('Fixed amount per copied order (USDC)').fill('5000');
+    await wizard.getByLabel('Most in total (USDC)').fill('5000');
+    await wizard.getByRole('button', { name: 'Next' }).click();
+    await expect(
+      wizard.getByText(new RegExp(`more than the 1,?000 USDC free that ${venue.displayName} reports for your account, as of `)),
+    ).toBeVisible();
+    // The fixed amount is the follow's cap: no copy may go past 20 USDC, each copy or in total.
+    await fillLimits(wizard, { perOrder: '20', total: '20', fixed: '20' });
+    await wizard.getByRole('button', { name: 'Next' }).click();
+    await expect(wizard.getByRole('region', { name: 'Copy permission' })).toContainText(
+      'The permission can place and cancel orders there and can never withdraw',
+    );
+    expect(signs(), 'nothing is asked of the wallet to sign before Start copying').toEqual([]);
 
-  // The wallet is asked to sign the follow's permission; rejected, it is never sent, and there is no follow.
-  wallet.rejectNext();
-  await wizard.getByRole('button', { name: 'Start copying' }).click();
-  await continueInWallet(page);
-  await expect(wizard.getByRole('alert').filter({ hasText: 'Your wallet did not sign' })).toBeVisible();
-  expect(await myFollows(me), 'a rejected signature leaves no follow').toEqual([]);
-  expect((await venueRecord(owner, '/agents')).value, 'a rejected signature grants nothing on the venue').toEqual([]);
-  const asked = wallet.requests.length;
+    // Start copying, confirmed with the passkey: the wallet is asked to open the follow's agent account. Rejected, it is
+    // never sent: the account is ended, nothing moved, and there is no follow.
+    wallet.rejectNext();
+    await wizard.getByRole('button', { name: 'Start copying' }).click();
+    await page.getByTestId('step-up-confirm').getByRole('button', { name: 'Use a passkey' }).click();
+    await continueInWallet(page);
+    await expect(page.getByRole('dialog').getByRole('alert').filter({ hasText: 'Your wallet did not sign' })).toBeVisible();
+    expect(await myFollows(me), 'a rejected signature leaves no follow').toEqual([]);
+    expect(await agentAccounts(me), 'a rejected signature makes no agent account').toEqual([]);
+    expect((await venueRecord(owner, '/sub-accounts')).value, 'a rejected signature opens nothing on the venue').toEqual([]);
+    expect(await venueBalance(owner, 'USDC'), 'a rejected signature moves nothing').toEqual(before);
+    const asked = signs().length;
+    expect(asked, 'the wallet was asked once, and rejected it').toBe(1);
 
-  // Signed, but the answer to sending the signature is lost on the way back: the venue has the permission, the screen
-  // does not know it. A second press of Start copying is the same request, under the same key: it returns the same
-  // follow, now active, and asks the wallet for nothing more.
-  const starts = [];
-  const onStart = (res) => {
-    if (res.url().includes('copy.venue.start')) starts.push(res.json().catch(() => null));
-  };
-  page.on('response', onStart);
-  let lost;
-  const answerLost = new Promise((resolve) => (lost = resolve));
-  await page.route('**/copy.venue.submit**', async (route) => {
-    await route.fetch();
-    await route.abort('connectionreset');
-    lost();
-  });
-  await wizard.getByRole('button', { name: 'Start copying' }).click();
-  await continueInWallet(page);
-  await answerLost;
-  await expect(wizard.getByRole('button', { name: 'Start copying' })).toBeEnabled();
-  await expect(page).not.toHaveURL(/tab=follows/);
-  expect(wallet.requests.length, 'the wallet was asked for one signature').toBe(asked + 1);
-  await page.unroute('**/copy.venue.submit**');
-  await wizard.getByRole('button', { name: 'Start copying' }).click();
-  await expect(page).toHaveURL(/tab=follows/);
-  page.off('response', onStart);
-  expect(wallet.requests.length, 'the second press asked the wallet for nothing').toBe(asked + 1);
-  const pressed = (await Promise.all(starts)).map((b) => b?.result?.data);
-  expect(pressed, 'two presses after the rejection reached the service').toHaveLength(2);
-  expect(pressed[1].followId, 'the second press with the same key is the same follow').toBe(pressed[0].followId);
-  expect(pressed[1].status).toBe('active');
-  const signedData = JSON.parse(wallet.requests.at(-1).params[1]);
-  const row = page.getByRole('grid', { name: 'My follows' }).getByRole('rowgroup').nth(1).getByRole('row');
-  await expect(row).toHaveCount(1);
-  await row.first().getByRole('button', { name: 'Manage' }).click();
-  const detail = page.getByRole('dialog');
-  await expect(detail).toContainText('20 USDC');
-  const follows = await myFollows(me);
-  expect(follows, 'one follow from the two presses').toHaveLength(1);
-  const [spot] = follows;
-  expect(spot.followId).toBe(pressed[0].followId);
-  expect(spot.leaderRef).toBe(state('spotRef'));
-  expect(spot.relationshipState).toBe('ACTIVE');
-  expect(spot.fixedOrderSize, 'the fixed amount').toBe('20');
-  expect(spot.maxNotionalPerOrder, 'the fixed amount is the cap on each copy').toBe('20');
-  expect(spot.maxAggregateExposure, 'the fixed amount is the cap in total').toBe('20');
-  // Nothing is held by INTAFACED: no reserve, and the venue balance is exactly what it was.
-  expect(spot.reserve ?? null, 'no reserve is held').toBeNull();
-  await expect(detail.getByText('Reserved for this copy').locator('..')).toContainText('Not set');
-  expect(await venueBalance(owner, 'USDC'), 'nothing moved on the venue').toEqual(before);
+    // Pressed again and confirmed: the wallet signs each step the agent account asks (the sub-account, the agent
+    // permission, the move of the most in total into it) and our builder fee on it. The answer to the follow itself is
+    // lost on the way back: the screen does not know the follow exists. A second press is the same request, under the
+    // same key: it returns the same follow, now active, and asks the wallet and the passkey for nothing more.
+    const builder = await builderOf(me);
+    const followBodies = [];
+    let lost;
+    const answerLost = new Promise((resolve) => (lost = resolve));
+    const isFollow = (url) => new URL(url).pathname.endsWith('/copy.follow');
+    await page.route(isFollow, async (route) => {
+      followBodies.push(route.request().postData());
+      await route.fetch();
+      await route.abort('connectionreset');
+      lost();
+    });
+    await wizard.getByRole('button', { name: 'Start copying' }).click();
+    await page.getByTestId('step-up-confirm').getByRole('button', { name: 'Use a passkey' }).click();
+    const signed = await walletAnswers(page, answerLost);
+    await answerLost;
+    expect(signed, 'one signature per agent-account step, and one for our builder fee when the owner set one').toBe(builder ? 4 : 3);
+    expect(signs().length).toBe(asked + signed);
+    await expect(wizard.getByRole('button', { name: 'Start copying' })).toBeEnabled();
+    await expect(page).not.toHaveURL(/tab=follows/);
+    await page.unroute(isFollow);
+    const second = page.waitForResponse((res) => isFollow(res.url()));
+    await wizard.getByRole('button', { name: 'Start copying' }).click();
+    const secondAnswer = await (await second).json();
+    followBodies.push((await second).request().postData());
+    await expect(page).toHaveURL(/tab=follows/);
+    expect(signs().length, 'the second press asked the wallet for nothing').toBe(asked + signed);
+    await expect(page.getByTestId('step-up-confirm'), 'nor for the passkey').toHaveCount(0);
+    expect(followBodies[1], 'the second press is the same request, under the same key').toBe(followBodies[0]);
 
-  // The permission the wallet signed is on the venue's own record of the follower's account: one agent, the follow's own
-  // key, which the venue lets place and cancel orders and refuses a withdrawal.
-  const agents = (await venueRecord(owner, '/agents')).value;
-  expect(agents).toHaveLength(1);
-  const agent = followAgentKey(await userIdOf(follower), spot.followId);
-  expect(agents[0].address.toLowerCase(), "the permission is the follow's own key").toBe(agent.address.toLowerCase());
-  expect(JSON.stringify(signedData.message).toLowerCase(), 'the wallet signed that key').toContain(agent.address.toLowerCase().slice(2));
-  const account = await venueAccount(owner);
-  const withdraw = await testVenue('/prepare', {
-    account,
-    signer: { role: 'agent', address: agent.address.toLowerCase() },
-    intent: {
-      kind: 'withdraw',
-      asset: 'USDC',
-      amount: '1',
-      destination: agent.address.toLowerCase(),
-      withdrawalKey: `withdraw:${state('tag')}`,
-    },
-  });
-  expect(withdraw.status, JSON.stringify(withdraw.body).slice(0, 300)).not.toBe(200);
-  expect(JSON.stringify(withdraw.body), 'the venue refuses the permission a withdrawal').toContain('agent_not_permitted');
-  run.write({ agentAddress: agent.address.toLowerCase(), followId: spot.followId, followedAt: new Date().toISOString() });
+    const follows = await myFollows(me);
+    expect(follows, 'one follow from the two presses').toHaveLength(1);
+    const [spot] = follows;
+    expect(JSON.stringify(secondAnswer)).toContain(spot.followId);
+    expect(spot.leaderRef).toBe(state('spotRef'));
+    expect(spot.relationshipState).toBe('ACTIVE');
+    expect(spot.fixedOrderSize, 'the fixed amount').toBe('20');
+    expect(spot.maxNotionalPerOrder, 'the fixed amount is the cap on each copy').toBe('20');
+    expect(spot.maxAggregateExposure, 'the fixed amount is the cap in total').toBe('20');
+    // Nothing is held by INTAFACED: no reserve of ours.
+    expect(spot.reserve ?? null, 'no reserve is held').toBeNull();
+    const row = page.getByRole('grid', { name: 'My follows' }).getByRole('rowgroup').nth(1).getByRole('row');
+    await expect(row).toHaveCount(1);
+    await row.first().getByRole('button', { name: 'Manage' }).click();
+    const detail = page.getByRole('dialog');
+    await expect(detail).toContainText('20 USDC');
+    await expect(detail.getByText('Reserved for this copy').locator('..')).toContainText('Not set');
 
-  // The same request sent twice is one follow, asking for one signature (here to the futures leader, by the API the
-  // screen uses): the same follow id and the same prepared permission, nothing new prepared.
-  const futuresLeaderRef = await futuresRef(me);
-  const request = venueStart({
-    leaderRef: futuresLeaderRef,
-    maxAggregateExposure: '100',
-    fixedOrderSize: '10',
-    clientRequestId: `journey-start:${state('tag')}`,
-  });
-  const first = await me.post('/api/trade/trpc/copy.venue.start', request);
-  const second = await me.post('/api/trade/trpc/copy.venue.start', request);
-  expect(first.status, JSON.stringify(first.body).slice(0, 300)).toBe(200);
-  expect(second.status, JSON.stringify(second.body).slice(0, 300)).toBe(200);
-  expect(second.body.result.data.followId).toBe(first.body.result.data.followId);
-  expect(second.body.result.data.next.prepared.digest, 'one permission to sign, not two').toBe(first.body.result.data.next.prepared.digest);
-  expect(
-    (await myFollows(me)).map((f) => f.followId),
-    'an unsigned request is no follow',
-  ).toEqual([spot.followId]);
+    // The follow's agent account: the person's own, open, capped at the fixed amount, holding the 20 USDC their own wallet
+    // moved from their main venue account, as the venue reports both. Nothing else moved.
+    const [account, ...more] = await agentAccounts(me);
+    expect(more, 'one agent account, made once').toEqual([]);
+    expect(account).toMatchObject({ status: 'open', owner, asset: 'USDC', next: null });
+    expect(toUnits(account.cap)).toBe(toUnits('20'));
+    const sub = account.subAccount;
+    expect(sub, 'a venue sub-account under the wallet').toBeTruthy();
+    expect((await venueRecord(owner, '/sub-accounts')).value.map((s) => s.subAccount)).toEqual([sub]);
+    const moved = await venueBalance(owner, 'USDC');
+    expect(toUnits(moved.free), 'the main venue account fell by exactly the 20 USDC moved').toBe(toUnits(before.free) - toUnits('20'));
+    const onSub = (await venueRecord(owner, '/balances', {}, undefined, sub)).value.find((b) => b.asset === 'USDC');
+    expect(toUnits(onSub.total), 'the agent account holds the 20 USDC, as the venue reports it').toBe(toUnits('20'));
+
+    // The permission the wallet signed is on the venue's own record of that sub-account: one agent, which the venue lets
+    // place and cancel orders and refuses a withdrawal.
+    const agents = (await venueRecord(owner, '/agents', {}, undefined, sub)).value;
+    expect(agents).toHaveLength(1);
+    const agent = agents[0].address.toLowerCase();
+    expect(
+      signs().some((r) => JSON.stringify(JSON.parse(r.params[1]).message).toLowerCase().includes(agent.slice(2))),
+      'the wallet signed that agent',
+    ).toBe(true);
+    const withdraw = await testVenue('/prepare', {
+      account: { ...(await venueAccount(owner)), subAccount: sub },
+      signer: { role: 'agent', address: agent },
+      intent: { kind: 'withdraw', asset: 'USDC', amount: '1', destination: agent, withdrawalKey: `withdraw:${state('tag')}` },
+    });
+    expect(withdraw.status, JSON.stringify(withdraw.body).slice(0, 300)).not.toBe(200);
+    expect(JSON.stringify(withdraw.body), 'the venue refuses the agent permission a withdrawal').toContain('agent_not_permitted');
+
+    // The same request sent again by the API the screen uses is the same follow, and the check answers that follow.
+    const again = await me.post('/api/trade/trpc/copy.follow', JSON.parse(followBodies[0]));
+    expect(again.status, JSON.stringify(again.body).slice(0, 300)).toBe(200);
+    expect(JSON.stringify(again.body)).toContain(spot.followId);
+    const checked = await me.post('/api/trade/trpc/copy.checkVenueFollow', JSON.parse(followBodies[0]));
+    expect(checked.status, JSON.stringify(checked.body).slice(0, 300)).toBe(200);
+    expect(JSON.stringify(checked.body)).toContain(spot.followId);
+    expect(await myFollows(me), 'still one follow').toHaveLength(1);
+    run.write({ agentAddress: agent, subAccount: sub, followId: spot.followId, followedAt: new Date().toISOString() });
+  } finally {
+    await context.close();
+  }
 });
 
 /** The follower's follows as svc-trade reads them back to their owner. */
@@ -676,21 +711,37 @@ async function myFollows(me) {
   return res.body.result.data;
 }
 
-/** The futures leader's public ref, read from the directory the way the screen reads it. */
-async function futuresRef(me) {
-  const input = encodeURIComponent(JSON.stringify({ limit: 50, marketMode: 'futures', q: state('futuresName') }));
-  const page = await me.get(`/api/trade/trpc/copy.listLeaders?input=${input}`);
-  const ref = page.body?.result?.data?.leaders?.[0]?.leaderRef;
-  if (!ref) throw new Error(`no futures leader listed: ${JSON.stringify(page.body).slice(0, 300)}`);
-  return ref;
+/** The lead's own wallet signs one action on its own venue account, through our door, and the venue accepts it. */
+async function leadActs(intent, actionKey = null) {
+  const key = otherTraderKey(state('leadName'));
+  const owner = key.address.toLowerCase();
+  const session = await api(state('leader'));
+  const prepared = await session.post('/api/v1/venue/prepare', {
+    owner,
+    subAccount: null,
+    signer: { role: 'owner', address: owner },
+    intent,
+    actionKey,
+  });
+  expect(prepared.status, JSON.stringify(prepared.body).slice(0, 300)).toBe(200);
+  const t = prepared.body.prepared.typedData;
+  const signature = await key.signTypedData({ domain: t.domain, types: t.types, primaryType: t.primaryType, message: t.message });
+  const sent = await session.post('/api/v1/venue/submit', {
+    actionKey: prepared.body.actionKey,
+    signature: { digest: prepared.body.prepared.digest, signature, signedBy: owner },
+  });
+  expect(sent.status, JSON.stringify(sent.body).slice(0, 300)).toBe(200);
+  expect(sent.body.outcome, JSON.stringify(sent.body.outcome).slice(0, 300)).toMatchObject({ definite: true, accepted: true });
+  return sent.body;
 }
 
-test(`${J} #8 waits for the lead to fill: the copy is the follower's own venue order, placed by the follow's permission at the fixed amount, with the venue's fill and fee and our builder fee as the venue reports them, and the Positions tab shows the copied fill and no profit share`, async ({
+test(`${J} #8 waits for the lead to fill: the copy is an order on the follower's own venue account, placed by the agent permission at the fixed amount, with the venue's fill and fee and our builder fee as the venue reports them, and the Positions tab shows the copied fills and no profit share`, async ({
   page,
 }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(240_000);
   const follower = state('follower');
   const owner = state('owner');
+  const sub = state('subAccount');
   await signIn(page, follower);
   await walletIn(page);
   await page.goto('/trade/copy?tab=follows');
@@ -707,11 +758,19 @@ test(`${J} #8 waits for the lead to fill: the copy is the follower's own venue o
   await expect(detail.getByRole('button', { name: 'Turn off automatic copying' })).toBeVisible();
   await expect(detail.getByText('No copied orders')).toBeVisible();
 
-  // The lead buys on the venue, its own signed order on its own venue account, at the best ask.
+  // The lead buys on the venue: its own order on its own venue account, signed by its own wallet through our door, at
+  // the best ask. Our builder fee rides on door orders, so the lead's wallet approves it first.
+  const builder = await builderOf(await api(follower));
+  if (builder) {
+    await leadActs(
+      { kind: 'approve_builder_fee', builder: builder.address, maxFeeBps: builder.feeBps },
+      `approve:${J}:${state('tag')}:lead`,
+    );
+  }
   const book = (await testVenue('/book', { account: null, symbol: VENUE_MARKET, depth: 1 })).body;
   const bestAsk = book?.value?.asks?.[0]?.price ?? book?.asks?.[0]?.price;
   expect(bestAsk, JSON.stringify(book).slice(0, 300)).toBeTruthy();
-  const leadSent = await otherTraderRun(state('leadName'), {
+  await leadActs({
     kind: 'place_order',
     symbol: VENUE_MARKET,
     side: 'buy',
@@ -723,7 +782,6 @@ test(`${J} #8 waits for the lead to fill: the copy is the follower's own venue o
     clientOrderKey: `order:${state('leadOwner')}:j01-8-${state('tag')}`,
     builderFee: null,
   });
-  expect(leadSent, JSON.stringify(leadSent).slice(0, 300)).toMatchObject({ definite: true, accepted: true });
   const leadFills = (await venueRecord(state('leadOwner'), '/fills', { since: state('followedAt') })).value;
   expect(leadFills.length, "the lead's buy filled on the venue").toBeGreaterThan(0);
 
@@ -736,16 +794,19 @@ test(`${J} #8 waits for the lead to fill: the copy is the follower's own venue o
   }).toPass({ timeout: 90_000 });
   await expect(copied.first()).toContainText(VENUE_MARKET);
   await expect(copied.first()).toContainText('Buy');
-  await expect(copied.first()).toContainText('On the venue');
-  // Placed by the follow's permission: the follow's own agent key, never the person's wallet.
-  await expect(copied.first().getByTestId('copy-signed-by')).toHaveText(state('agentAddress'));
+  // Placed by the agent permission on the follow's agent account, never by the person's wallet.
+  await expect(copied.first().getByTestId('copy-placed-by')).toHaveText(state('agentAddress'));
+  expect(state('agentAddress')).not.toBe(owner);
 
-  // The venue's own record of the follower's account: exactly one copy, filled, at the fixed 20 USDC at one of the
-  // lead's fill prices, stepped down to the market's lot, never more than 20 USDC.
-  const mine = (await venueRecord(owner, '/fills', { since: state('followedAt') })).value;
-  expect(mine.length, "the copy's fills on the follower's own venue account").toBeGreaterThan(0);
+  // The venue's own record of the follower's agent account: exactly one copy, filled, at the fixed 20 USDC at one of the
+  // lead's fill prices, stepped down to the market's lot, never more than 20 USDC; and nothing on the main account.
+  const mine = (await venueRecord(owner, '/fills', { since: state('followedAt') }, undefined, sub)).value;
+  expect(mine.length, "the copy's fills on the follower's own agent account").toBeGreaterThan(0);
   const cloids = new Set(mine.map((f) => f.venueClientOrderId));
   expect(cloids.size, 'one copied order').toBe(1);
+  expect((await venueRecord(owner, '/fills', { since: state('followedAt') })).value, 'no copy on the main account').toEqual([]);
+  const signer = (await venueRecord(owner, '/order-signer', { venueClientOrderId: [...cloids][0] }, undefined, sub)).value;
+  expect(signer, 'the venue records the agent permission as the signer').toEqual({ role: 'agent', address: state('agentAddress') });
   const markets = (await testVenue('/markets', { account: null })).body.value;
   const lot = toUnits(markets.find((m) => m.symbol === VENUE_MARKET).lotSize);
   const amount = mine.reduce((sum, f) => sum + toUnits(f.amount), 0n);
@@ -757,7 +818,7 @@ test(`${J} #8 waits for the lead to fill: the copy is the follower's own venue o
   const notional = mine.reduce((sum, f) => sum + (toUnits(f.amount) * toUnits(f.price)) / 10n ** 18n, 0n);
   expect(notional <= toUnits('20'), `the copy's notional ${fromUnits(notional)} is never above the fixed amount`).toBe(true);
 
-  // The Positions tab: the copied fill with the venue's fee and our builder fee, as the venue reports them, and no
+  // The Positions tab: the copied fills with the venue's fee and our builder fee, as the venue reports them, and no
   // profit-share value anywhere on it.
   await detail.getByRole('tab', { name: 'Positions' }).click();
   const fillsTable = detail.getByRole('table', { name: 'Copied fills' });
@@ -769,18 +830,24 @@ test(`${J} #8 waits for the lead to fill: the copy is the follower's own venue o
     headers.some((h) => /profit/i.test(h)),
     'no profit-share column',
   ).toBe(false);
-  const shownFee = (await fillRows.first().locator('td').nth(headers.indexOf('Venue fee')).innerText()).trim();
-  const shownBuilder = (await fillRows.first().locator('td').nth(headers.indexOf('Our builder fee')).innerText()).trim();
-  const first = mine[0];
-  expect(toUnits(shownFee.split(' ')[0].replace(/,/g, '')), "the venue's fee as the venue reports it").toBe(toUnits(first.venueFee));
-  expect(shownFee).toContain(first.feeAsset);
-  expect(toUnits(shownBuilder.split(' ')[0].replace(/,/g, '')), 'our builder fee as the venue reports it').toBe(toUnits(first.builderFee));
+  const byId = new Map(mine.map((f) => [toUnits(f.amount).toString() + ':' + toUnits(f.price).toString(), f]));
+  for (let i = 0; i < mine.length; i += 1) {
+    const cells = fillRows.nth(i).locator('td');
+    const num = async (header) => toUnits((await cells.nth(headers.indexOf(header)).innerText()).trim().split(' ')[0].replace(/,/g, ''));
+    const f = byId.get(`${await num('Amount')}:${await num('Price')}`);
+    expect(f, 'each fill shown is one the venue reports').toBeTruthy();
+    expect(await num('Venue fee'), "the venue's fee as the venue reports it").toBe(toUnits(f.venueFee));
+    expect(await num('Our builder fee'), 'our builder fee as the venue reports it').toBe(toUnits(f.builderFee));
+    await expect(cells.nth(headers.indexOf('Venue fee'))).toContainText(f.feeAsset);
+  }
   await expect(detail.getByRole('tabpanel')).not.toContainText(/profit share/i);
 
-  // A second sweep places nothing more: still one copied order a few seconds later.
-  await page.waitForTimeout(5_000);
+  // Read again after the copy driver's later sweeps: still one copied order, on the screen and on the venue.
   await page.reload();
   await row.first().getByRole('button', { name: 'Manage' }).click();
   await expect(copied).toHaveCount(1);
-  expect(new Set((await venueRecord(owner, '/fills', { since: state('followedAt') })).value.map((f) => f.venueClientOrderId)).size).toBe(1);
+  expect(
+    new Set((await venueRecord(owner, '/fills', { since: state('followedAt') }, undefined, sub)).value.map((f) => f.venueClientOrderId))
+      .size,
+  ).toBe(1);
 });
