@@ -1044,6 +1044,15 @@ test('the review job runs only on pull requests into main, and again when one is
   assert.match(wf, /github\.event\.action != 'edited' \|\| github\.event\.changes\.base/);
 });
 
+test('a draft is not reviewed: the review and proof read run once, when it is marked ready', async () => {
+  const { readFileSync } = await import('node:fs');
+  const wf = readFileSync(new URL('../../.github/workflows/ci-review.yml', import.meta.url), 'utf8');
+  const on = wf.slice(wf.indexOf('\non:'), wf.indexOf('\npermissions:'));
+  assert.match(on, /types: \[[^\]]*\bready_for_review\b[^\]]*\]/);
+  const review = wf.slice(wf.indexOf('\n  review:'), wf.indexOf('\n    runs-on:', wf.indexOf('\n  review:')));
+  assert.match(review, /!github\.event\.pull_request\.draft &&/);
+});
+
 test("starting the seal can't void a PASS: it is a job of its own after the review, never a step of it", async () => {
   const { readFileSync } = await import('node:fs');
   const wf = readFileSync(new URL('../../.github/workflows/ci-review.yml', import.meta.url), 'utf8');
