@@ -1790,6 +1790,17 @@ function opsOutreachEnv() {
   };
 }
 
+/**
+ * What a start does with a stack service's port (pure): `ready` when the stack's own recorded process answers its health;
+ * `wait` when it is the stack's own process but its health is late (a busy runner, #8434), so the start waits for it as
+ * it waits for a new one; `start` when the port is free; `refuse` only when a process the stack has no record of holds it.
+ * Before #8434 the late-health case was refused as a stranger's port, and `restart notify` failed on matching's own port.
+ */
+export function portDecision({ owned, healthy, portInUse }) {
+  if (owned) return healthy ? 'ready' : 'wait';
+  return portInUse ? 'refuse' : 'start';
+}
+
 async function startNodeService(def) {
   const env = def.env();
   const port = Number(env.HTTP_PORT);
@@ -1797,8 +1808,21 @@ async function startNodeService(def) {
   const url = `http://${HOST}:${port}/health`;
   const build = currentBuild('backendBuild');
   await stopForNewBuild(def.name, procs[def.name], build, port);
-  if (ownedAlive(readProcs()[def.name]) && (await httpGet(url, 2000)).status === 200) return;
-  if (await portOpen(port)) fail(`port ${port} (${def.name}) is in use by a process this script did not start`);
+  const rec = readProcs()[def.name];
+  const owned = ownedAlive(rec);
+  const healthy = owned && (await httpGet(url, 2000)).status === 200;
+  const decision = portDecision({ owned, healthy, portInUse: !owned && (await portOpen(port)) });
+  if (decision === 'ready') return;
+  if (decision === 'wait') return waitHealthy(def.name, url, rec.pid);
+  if (decision === 'refuse') {
+    // Which check failed, so a refusal on CI names its cause: no record, or a record ps does not match (#7488, #8434).
+    const seen = rec?.pid
+      ? psCommand(rec.pid)
+        ? `pid ${rec.pid} does not match its record`
+        : `recorded pid ${rec.pid} is gone`
+      : 'no record';
+    fail(`port ${port} (${def.name}) is in use by a process this script did not start (${seen})`);
+  }
   for (const d of ['matching', 'execution']) fs.mkdirSync(path.join(P.data, d), { recursive: true, mode: 0o700 });
   if (def.name === 'identity') writeFounderPinStamp(STATE, env);
   const entry = path.join(REPO, 'services', `svc-${def.name}`, 'dist', def.entry ?? 'index.js');

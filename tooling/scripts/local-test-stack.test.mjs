@@ -1604,3 +1604,20 @@ console.log('local-test-stack: customer folder override checks passed');
   assert.equal(new Set(stackPorts).size, stackPorts.length, 'every stack port is used once');
   console.log('local-test-stack: no stack port collides with the test chain or with another stack port');
 }
+
+// A start never calls the stack's own running service a stranger: matching's own process answered its health late on a
+// busy runner and `restart notify` refused port 14505 as "in use by a process this script did not start" (journeys run
+// 43663982223, J-support-public-07 #5, #8434). Its own process is waited for; only a port with no matching record refuses.
+{
+  const { portDecision } = await import('./local-test-stack.mjs');
+  assert.equal(portDecision({ owned: true, healthy: true, portInUse: true }), 'ready');
+  assert.equal(portDecision({ owned: true, healthy: false, portInUse: true }), 'wait', 'its own late service is waited for, not refused');
+  assert.equal(portDecision({ owned: false, healthy: false, portInUse: true }), 'refuse', "a stranger's port still refuses");
+  assert.equal(portDecision({ owned: false, healthy: false, portInUse: false }), 'start');
+  assert.match(
+    source,
+    /if \(decision === 'wait'\) return waitHealthy\(def\.name, url, rec\.pid\);/,
+    'startNodeService waits on its own late service',
+  );
+  console.log("local-test-stack: a start waits for the stack's own late service and refuses only a stranger's port");
+}
