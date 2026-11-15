@@ -569,7 +569,7 @@ async function selfTest() {
     'planted fault: one more file',
   );
   await protectedSelfTest(eq);
-  console.log('✓ test-diff-guard --self-test OK (128 fixtures)');
+  console.log('✓ test-diff-guard --self-test OK (152 fixtures)');
 }
 
 /** Planted cases for the protected tests (protected-tests.mjs) and check 7. */
@@ -604,6 +604,19 @@ async function protectedSelfTest(eq) {
     'apps/admin/src/lib/dual-control.test.ts',
     'apps/customer/src/features/live-authority.test.ts',
     'apps/customer/src/features/trade/kill-banner.test.tsx',
+    // The second FAIL (1b78912898): edge-trust suites and payout maths outside any named folder or word.
+    'services/svc-mining-pool/src/edge-trust.test.ts',
+    'services/svc-indexer/src/edge-trust.test.ts',
+    'services/svc-quant/src/edge-trust.test.ts',
+    'services/svc-mining-pool/src/pplns.test.ts',
+    'services/svc-campaigns/src/owed.test.ts',
+    'tooling/ci/journey-verdict.test.mjs',
+    'packages/contracts/src/x.test.ts',
+    'apps/customer/src/features/bank/pots.test.tsx',
+    'apps/admin/src/lib/identity-review.test.ts',
+    'apps/admin/src/lib/desk/approval-hash.test.ts',
+    'apps/customer/src/shared/password.test.ts',
+    'apps/customer/src/shared/api.test.ts',
   ]) {
     eq(blocking(fewer(path)), 1, `${path}: protected, fails as today`);
     eq(blocking(del(path)), 1, `${path}: deleted, fails as today`);
