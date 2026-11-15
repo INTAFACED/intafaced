@@ -1,7 +1,7 @@
 import { parseStatementJobsTestHold, startStatementJobWorker } from './statements/statement-jobs.js';
 import { failingHistoryPages, parseActivityTestFault } from './activity/activity-test-fault.js';
 import type { z } from 'zod';
-import Fastify from 'fastify';
+import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { edgeTrustFromEnv } from '@intafaced/config';
@@ -43,6 +43,7 @@ import { cardTermsOrNone, partnerReservesRead } from './partner/reserves.js';
 import { cashOutPartnerFor } from './cash-out/payout-sim.js';
 import { onrampPartnerFor, payinPaidBody, payinReturnedBody } from './ramps/payin-sim.js';
 import { registerPayinSimPage } from './ramps/payin-sim-page.js';
+import { answerTestPartnerRecord, onLoopback, TEST_PARTNER_RECORD_BASE } from './partner/test-partner-record.js';
 import {
   payoutCancelledBody,
   payoutFailedBody,
@@ -839,6 +840,23 @@ jobDoor('/internal/jobs/payin-sim/returned', payinReturnedBody, (b) => bank.addM
  */
 jobDoor('/internal/jobs/card-sim/shipment', cardShipmentJobBody, (b) => bank.cardOrders.recordShipment(b));
 if (onrampPartner) registerPayinSimPage(app, bank.addMoney, onrampPartner);
+/**
+ * LOCAL TEST: the TEST partner bank's own book on loopback (`partner/test-partner-record.ts`), so a journey compares what
+ * the app shows with what the partner itself recorded. Mounted only with the TEST partner, which refuses to start outside
+ * `dev`/`test`; a caller off loopback is refused.
+ */
+if (testPartner) {
+  const record = testPartner;
+  const read = async (req: FastifyRequest, reply: FastifyReply) => {
+    if (!onLoopback(req.socket.remoteAddress)) return reply.code(403).send({ error: 'loopback only' });
+    const below = req.url.split('?')[0]!.slice(TEST_PARTNER_RECORD_BASE.length);
+    const [status, body] = answerTestPartnerRecord(record, req.method, below, req.body ?? null);
+    return reply.code(status).header('cache-control', 'no-store').send(body);
+  };
+  app.get(`${TEST_PARTNER_RECORD_BASE}/venue`, read);
+  app.post(`${TEST_PARTNER_RECORD_BASE}/balances`, read);
+  app.post(`${TEST_PARTNER_RECORD_BASE}/moves`, read);
+}
 jobDoor('/internal/jobs/redrive-cash-outs', redriveBody, async (b) => recoveryCounts(await bank.cashOut.redrive(b.limit)));
 
 /**

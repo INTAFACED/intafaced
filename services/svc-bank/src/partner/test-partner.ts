@@ -169,6 +169,12 @@ export interface TestPartnerFund {
   readonly amount: Amount;
 }
 
+/** One person's page of the TEST partner's own book (`TestPartner.record`). */
+export interface TestPartnerRecord {
+  readonly accounts: readonly { readonly account: PartnerAccountRef; readonly amount: Amount }[];
+  readonly moves: readonly PartnerMove[];
+}
+
 export interface TestPartner {
   readonly label: string;
   switches(userId: string): TestPartnerSwitches;
@@ -181,6 +187,12 @@ export interface TestPartner {
    * TEST money"). Once per `fundId`; the same id with another body refuses `bank.partner_move_conflict`.
    */
   fund(userId: string, funding: TestPartnerFund): PartnerBalance;
+  /**
+   * The TEST partner's own book for one person, as it keeps it: every account it holds for them with the amount in it,
+   * and every move and pay-in on their record, oldest first. Read straight from the book, never through `bank`, so no
+   * switch (down, unknown or stale figures) shapes it: it is what the partner holds, for a test to compare the app with.
+   */
+  record(userId: string): TestPartnerRecord;
   /** The TEST partner as the ramp's partner: it credits a paid purchase and reports what it holds back of it. */
   readonly purchases: PartnerPurchases;
   /** The TEST partner as the bank a direct debit collects from: it keeps each mandate's block (J-bank-06 #4). */
@@ -479,6 +491,15 @@ export function testPartner(): TestPartner {
     set,
     bank,
     directDebits,
+    record(userId) {
+      const accounts: { account: PartnerAccountRef; amount: Amount }[] = [];
+      for (const [key, amount] of held) {
+        const [owner, assetId, space] = key.split('|') as [string, string, string];
+        if (owner === userId)
+          accounts.push(Object.freeze({ account: Object.freeze({ userId, assetId, spaceId: space === 'main' ? null : space }), amount }));
+      }
+      return Object.freeze({ accounts: Object.freeze(accounts), moves: Object.freeze([...(byPerson.get(userId) ?? [])]) });
+    },
     fund(userId, funding) {
       const account: PartnerAccountRef = { userId, assetId: funding.assetId, spaceId: null };
       // Per person: one person's fund id never collides with, or tells anything about, another's.
