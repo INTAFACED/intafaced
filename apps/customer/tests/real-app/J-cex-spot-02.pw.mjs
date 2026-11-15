@@ -421,32 +421,52 @@ test(`${J} #7 the numbers change between Review and Confirm: the new numbers sho
 }) => {
   test.setTimeout(240_000);
   const s = state();
-  const wallet = await openVenueDesk(page, s.account, DESK, s.walletKey);
   const owner = ownerOf(s);
+  // A book this step owns: a fresh TEST market no other file trades, so nothing another journey left resting on a shared
+  // market (a buy above the venue maker's bid, or this person's own buy from an earlier attempt) can meet the second
+  // trader's sell before Confirm (#8546: on BTC-USDC after J-agents-21 and J-bank-13, the sell filled at once and the
+  // review saw nothing change). Its book is empty, so a limit buy at 10 rests as a maker.
+  const market = await freshListedMarket('R');
+  const wallet = await openVenueDesk(page, s.account, `/trade/spot/${market.symbol}`, s.walletKey);
   const open = await venueOpen(owner);
+  const price = '10';
+  const amount = '1';
+  expect((await testVenue('/book', { symbol: market.symbol, depth: 5 })).body.value).toMatchObject({ bids: [], asks: [] });
+  await page.locator('[role=tab]', { hasText: /^Limit$/ }).click();
+  const form = page.locator('form[data-testid="dk-form"][data-side="buy"]');
+  await form.getByRole('textbox', { name: 'Price' }).fill(price);
+  // A market listed a moment ago may not be in our door's market list yet: it re-reads the venue's list on a miss, at
+  // most every few seconds (user-venue-door.ts MARKET_MISS_REREAD_MS), so the preview is asked again until it answers.
+  const amountBox = form.getByRole('textbox', { name: 'Amount' });
   const door = doorCalls(page);
-  // A buy one tick over the venue's bid: it would rest, as a maker, filling nothing now.
-  const { body } = await testVenue('/markets', {});
-  const tick = toUnits(body.value.find((m) => m.symbol === SYMBOL).tickSize);
-  const bid = toUnits(await awayBid(100));
-  const price = fromUnits(bid + tick);
-  const { review } = await reviewLimitBuy(page, price);
+  await expect(async () => {
+    await amountBox.fill('');
+    const answer = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/preview' && r.request().method() === 'POST');
+    await amountBox.fill(amount);
+    const res = await answer;
+    expect(res.status(), (await res.text()).slice(0, 300)).toBe(200);
+  }).toPass({ timeout: 30_000, intervals: [2_000] });
+  await page.getByRole('button', { name: `Buy ${market.base}` }).click();
+  const review = reviewSheet(page);
+  await expect(review).toBeVisible();
+  expect((await review.getByTestId('client-order-id').innerText()).trim()).toMatch(/^\S+$/);
   await expect(review.locator('dt', { hasText: 'Fee role' }).locator('xpath=..')).toContainText('Maker');
   // After the review opened, another TEST trader offers at that price on the venue, so this buy would now take it.
-  const seller = `${J}-7-${process.env.JOURNEY_RUN_ID ?? 'local'}-${owner.slice(2, 10)}`;
+  const seller = `${J}-7-${market.symbol}-${owner.slice(2, 10)}`;
+  const sellerOwner = otherTraderKey(seller).address.toLowerCase();
   await testVenue('/test/deposit', {
-    account: await venueAccount(otherTraderKey(seller).address),
-    asset: 'BTC',
-    amount: '1',
-    depositRef: `seed:${seller}:BTC`,
+    account: await venueAccount(sellerOwner),
+    asset: market.base,
+    amount,
+    depositRef: `seed:${seller}:${market.base}`,
   });
   const offerKey = `order:${seller}:js2-7-ask`;
   const offer = await otherTraderRun(seller, {
     kind: 'place_order',
-    symbol: SYMBOL,
+    symbol: market.symbol,
     side: 'sell',
     type: 'limit',
-    amount: AMOUNT,
+    amount,
     price,
     timeInForce: 'GTC',
     reduceOnly: false,
@@ -454,8 +474,22 @@ test(`${J} #7 the numbers change between Review and Confirm: the new numbers sho
     builderFee: null,
   });
   expect(offer.definite && offer.accepted, JSON.stringify(offer)).toBe(true);
-  const asked = signatures(wallet);
   try {
+    // The sell really rests at the order's price before Confirm: the seller's own open order, unfilled, and the venue's
+    // book holding it as the only ask, with no bid.
+    const resting = (await venueRecord(sellerOwner, '/open-orders')).value.filter((o) => o.symbol === market.symbol);
+    expect(resting, JSON.stringify(resting)).toHaveLength(1);
+    expect(resting[0]).toMatchObject({ side: 'sell', status: 'open' });
+    expect(sameDecimal(resting[0].price, price) && sameDecimal(resting[0].remaining, amount)).toBe(true);
+    const book = (await testVenue('/book', { symbol: market.symbol, depth: 5 })).body.value;
+    expect(book.bids, JSON.stringify(book)).toEqual([]);
+    expect(
+      book.asks.map((l) => [toUnits(l.price), toUnits(l.amount)]),
+      JSON.stringify(book),
+    ).toEqual([[toUnits(price), toUnits(amount)]]);
+    const asked = signatures(wallet);
+    const reviewed = door.of('preview').at(-1);
+    const reviewedCount = door.of('preview').length;
     await review.getByRole('button', { name: 'Confirm buy' }).click();
     // The new numbers show, and the person is asked again: nothing is prepared, signed or sent.
     await expect(review.getByTestId('venue-review-moved')).toHaveText(
@@ -463,9 +497,11 @@ test(`${J} #7 the numbers change between Review and Confirm: the new numbers sho
     );
     await expect(review.locator('dt', { hasText: 'Fee role' }).locator('xpath=..')).toContainText('Taker');
     await expect(review.getByRole('button', { name: 'Confirm buy' })).toBeVisible();
+    // Confirm asked the venue again, for the same reviewed draft (the same client order key).
     const previews = door.of('preview');
+    expect(previews.length).toBeGreaterThan(reviewedCount);
     const shown = previews.at(-1);
-    expect(shown.body.intent.clientOrderKey).toBe(door.of('preview')[0].body.intent.clientOrderKey);
+    expect(shown.body.intent.clientOrderKey).toBe(reviewed.body.intent.clientOrderKey);
     expect(door.of('prepare')).toHaveLength(0);
     expect(door.of('submit')).toHaveLength(0);
     expect(signatures(wallet)).toBe(asked);
@@ -474,7 +510,7 @@ test(`${J} #7 the numbers change between Review and Confirm: the new numbers sho
     expect(door.of('prepare')).toHaveLength(0);
     expect(await venueOpen(owner)).toEqual(open);
   } finally {
-    await otherTraderRun(seller, { kind: 'cancel_order', symbol: SYMBOL, clientOrderKey: offerKey });
+    await otherTraderRun(seller, { kind: 'cancel_order', symbol: market.symbol, clientOrderKey: offerKey });
   }
 });
 

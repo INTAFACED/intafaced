@@ -34,6 +34,21 @@ export const TEST_SPOT_LISTINGS = Object.freeze([
     makerBps: '10',
     takerBps: '20',
   }),
+  // The charts' empty tape (J-charts-desk-03 #3, J-charts-desk-04 #4): an open market no journey and no market maker
+  // trades, so its public tape stays empty whatever ran before on the stack (`UNTRADED_TEST_SPOT`). It used to be "the
+  // first open market with no trades", which another journey's trade on IFC/USDC took away (#8509, run 43731598319).
+  Object.freeze({
+    symbol: 'IFC/BTC',
+    baseAsset: 'IFC',
+    quoteAsset: 'BTC',
+    displayName: 'IFC in Bitcoin (TEST, never traded)',
+    tickSize: '0.00000001',
+    lotSize: '0.01',
+    minQty: '0.01',
+    minNotional: '0.00000001',
+    makerBps: '10',
+    takerBps: '20',
+  }),
   // J-cex-spot-14 #1: the markets list shows an upcoming listing and a dated delisting next to the open markets. Both are
   // TEST rows no order can reach: a pending listing and a delisted one are never orderable (svc-trade
   // `orderableForListedMarket`), so neither gets a book or a quote.
@@ -69,7 +84,11 @@ export const TEST_SPOT_LISTINGS = Object.freeze([
 
 /** TEST listings the market maker never quotes, so their book holds only what a journey rests on it (J-copy-bots-otc-23
  * step 7 needs a book with one side empty and a known size on the other). Every other listing is quoted. */
-export const UNQUOTED_TEST_SPOT = Object.freeze(['IFC/USDC', 'TNEW/USDT', 'TOLD/USDT']);
+export const UNQUOTED_TEST_SPOT = Object.freeze(['IFC/USDC', 'IFC/BTC', 'TNEW/USDT', 'TOLD/USDT']);
+
+/** The open TEST market whose public tape stays empty: unquoted, and named only by the charts journeys that read it as a
+ * market with no trades (their shared `untradedMarket` helper). No journey trades it. */
+export const UNTRADED_TEST_SPOT = 'IFC/BTC';
 
 /** The url back, or a refusal when its database is not obviously local or test. */
 export function localTestDatabaseUrl(url, env = process.env) {

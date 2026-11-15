@@ -108,3 +108,15 @@ export const claims = quant.table(
 );
 
 export const schema = { strategies, strategyVersions, writeReceipts, backtestRuns, runs, claims };
+
+/** The strategy API's Idempotency-Key (J-algo-dev-14 #4): what one key's backtest start asked for, by its hash. */
+export const apiIdempotency = quant.table(
+  'api_idempotency',
+  {
+    accountId: uuid('account_id').notNull(),
+    idempotencyKey: text('idempotency_key').notNull(),
+    requestHash: text('request_hash').notNull(),
+    createdAt: tstz('created_at').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.accountId, t.idempotencyKey] })],
+);

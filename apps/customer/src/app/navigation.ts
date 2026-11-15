@@ -294,6 +294,13 @@ export const rooms: readonly Room[] = [
     area: 'money',
   },
   {
+    path: '/bank/account',
+    title: 'Your bank account',
+    description: 'Onboarding, requests, reviews, closing the account and your data',
+    door: 'Money',
+    area: 'money',
+  },
+  {
     path: '/bank/limits',
     title: 'Limits, fees and plan',
     description: 'What you can send today, the fees and your plan',

@@ -26,6 +26,8 @@ const switches = z
     accountDetails: z.enum(['none', 'issued']),
     purchaseHolds: z.enum(['reported', 'not_reported']),
     purchaseHold: z.enum(['live', 'expired']),
+    legalHold: z.enum(['none', 'held']),
+    identityCase: z.enum(['accepted', 'not_accepted']),
   })
   .strict();
 
@@ -127,6 +129,57 @@ export function createTestPartnerRouter(bank: Pick<BankServices, 'testPartner' |
             amount: parseAmount(input.amount),
           });
           return { label: moved.label, moveId: moved.id, amount: formatAmount(moved.amount) };
+        }),
+      ),
+    /**
+     * The TEST partner opens an information request or a periodic review for the person (J-bank-17 Starts: "with a
+     * compliance request open"), once per id, due in `dueDays`. A real partner opens these itself; on the TEST stack the
+     * person's own call stands in for it. Refused off the TEST stack (`bank.test_partner_off`).
+     */
+    openCompliance: scopedProcedure('bank:write', { module: 'bank' })
+      .input(
+        z
+          .object({
+            kind: z.enum(['request', 'review']),
+            id: z.string().regex(/^[A-Za-z0-9:_-]{8,64}$/),
+            dueDays: z.number().int().min(1).max(365),
+          })
+          .strict(),
+      )
+      .output(z.object({ label: z.string(), id: z.string(), dueAt: z.string().datetime() }).strict())
+      .mutation(({ ctx, input }) =>
+        guard(async () => {
+          const partner = on(bank.testPartner);
+          const userId = ctx.principal.userId;
+          const id = `${userId}:${input.id}`;
+          const row =
+            input.kind === 'request'
+              ? partner.compliance.openRequest(userId, id, input.dueDays)
+              : partner.compliance.openReview(userId, id, input.dueDays);
+          return { label: row.label, id: row.id, dueAt: row.dueAt.toISOString() };
+        }),
+      ),
+    /**
+     * The TEST partner reports the pending closure's balance paid out to its destination, and the account closes
+     * (J-bank-17 #5: "closed once the partner reports it paid out"). Each balance leaves under its own closure payout key,
+     * so a retry after a lost reply pays it once. Nothing posts to our ledger. Refused off the TEST stack.
+     */
+    closurePaidOut: scopedProcedure('bank:write', { module: 'bank' })
+      .output(
+        z
+          .object({ label: z.string(), closureId: z.string(), payoutMoveIds: z.array(z.string()), closedAt: z.string().datetime() })
+          .strict(),
+      )
+      .mutation(({ ctx }) =>
+        guard(async () => {
+          const partner = on(bank.testPartner);
+          const closed = await partner.compliance.reportPaidOut(ctx.principal.userId);
+          return {
+            label: closed.label,
+            closureId: closed.id,
+            payoutMoveIds: [...closed.payoutMoveIds],
+            closedAt: closed.closedAt!.toISOString(),
+          };
         }),
       ),
     /**

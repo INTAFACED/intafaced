@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import nodePath from 'node:path';
 import { makeContext } from '../../../../tooling/scripts/local-test-gates.mjs';
-import { ORIGIN, tool } from './stack.mjs';
+import { ORIGIN, STACK_PORTS, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 
 // J-academy-11, in the running app (docs/roadmap/journeys.json): a founder creates a course on the founder console's
@@ -28,7 +28,7 @@ const REPO = fileURLToPath(new URL('../../../../', import.meta.url));
 async function academyDb(read) {
   const ctx = await makeContext({ log: () => undefined });
   const postgres = createRequire(nodePath.join(REPO, 'services', 'svc-academy', 'package.json'))('postgres');
-  const port = ctx.marker.ports.postgres ?? 15460;
+  const port = ctx.marker.ports.postgres ?? STACK_PORTS.postgres;
   const sql = postgres(`postgres://svc_academy:${encodeURIComponent(ctx.secrets.pgService)}@127.0.0.1:${port}/intafaced_local_test`, {
     max: 1,
     onnotice: () => {},

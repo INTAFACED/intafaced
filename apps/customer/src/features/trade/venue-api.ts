@@ -53,6 +53,9 @@ export const venueStatusSchema = z.union([
     builder: z.object({ address, feeBps: decimalSchema }).nullable(),
     // J-derivatives-03 #9: the most orders the venue takes in one signed action; above 1, a reverse is signed once.
     ordersPerAction: z.number().int().positive().optional(),
+    // J-cex-spot-05: whether the venue lowers an order in place, and how many it cancels in one signed action (0: one each).
+    amendsInPlace: z.boolean().optional(),
+    cancelsPerAction: z.number().int().min(0).optional(),
     // J-derivatives-28: true when more than one venue is configured; the ticket then routes over them.
     routes: z.boolean().optional(),
   }),
@@ -585,6 +588,11 @@ export type VenueIntent =
   // Orders the venue takes in one signed action (J-derivatives-03 #9), each keyed `<actionKey>:<part>`.
   | { kind: 'place_orders'; actionKey: string; orders: OrderIntent[] }
   | { kind: 'cancel_order'; symbol: string; clientOrderKey: string }
+  // J-cex-spot-05: a resting order lowered in place, replaced in one signed action, or several cancelled in one, each
+  // named by the venue's own client id, so an order placed from any page can be changed.
+  | { kind: 'amend_order'; symbol: string; venueClientOrderId: string; amount: string; price: string }
+  | { kind: 'replace_order'; symbol: string; venueClientOrderId: string; order: OrderIntent }
+  | { kind: 'cancel_orders'; orders: Array<{ symbol: string; venueClientOrderId: string }> }
   | { kind: 'update_leverage'; symbol: string; leverageBps: number; marginMode: VenueMarginMode }
   | { kind: 'approve_builder_fee'; builder: string; maxFeeBps: string }
   | { kind: 'withdraw'; asset: string; amount: string; destination: string; withdrawalKey: string }
@@ -637,6 +645,14 @@ export const keys = {
       ? `builder-approval:${part(owner)}:${part(venueId)}:${part(builder)}:${maxFeeBps}`
       : `builder-approval:${part(owner)}:${part(builder)}:${maxFeeBps}`,
   withdraw: (owner: string, draft: string) => `withdraw:${part(owner)}:${draft}`,
+  /** One lowering of a resting order, by the venue's client id and the amount left: the same change asked twice is one. */
+  amend: (owner: string, venueClientOrderId: string, amount: string) =>
+    `amend:${part(owner)}:${part(venueClientOrderId)}:${canonicalDecimal(amount)}`,
+  /** One reviewed cancel-and-replace; its replacement is placed under `<key>:new`'s own client id. */
+  replace: (owner: string, draft: string) => `replace:${part(owner)}:${draft}`,
+  replacement: (owner: string, symbol: string, draft: string) => `order:${part(owner)}:${part(symbol)}:replace-${draft}`,
+  /** One confirmed batch cancel. */
+  cancelBatch: (owner: string, draft: string) => `cancel-batch:${part(owner)}:${draft}`,
   marketMargin: (owner: string, symbol: string, direction: 'into_market' | 'out_of_market', draft: string) =>
     `market-margin:${part(owner)}:${part(symbol)}:${direction === 'into_market' ? 'in' : 'out'}:${draft}`,
 };

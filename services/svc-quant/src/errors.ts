@@ -31,6 +31,11 @@ export const QUANT_DATABASE_URL_UNSET = 'quant.database_url_unset' as const;
 export const QUANT_DATABASE_POOL_MAX_UNSET = 'quant.database_pool_max_unset' as const;
 export const QUANT_RUN_NOT_FOUND = 'quant.run_not_found' as const;
 export const QUANT_RUN_IMMUTABLE = 'quant.run_immutable' as const;
+/** The strategy API (J-algo-dev-14): a key's call outside it, and a key's backtest start under its Idempotency-Key. */
+export const QUANT_KEY_NO_SUCH_ENDPOINT = 'quant.key_no_such_endpoint' as const;
+export const QUANT_IDEMPOTENCY_KEY_REQUIRED = 'quant.idempotency_key_required' as const;
+export const QUANT_IDEMPOTENCY_KEY_INVALID = 'quant.idempotency_key_invalid' as const;
+export const QUANT_IDEMPOTENCY_KEY_REUSED = 'quant.idempotency_key_reused' as const;
 export const QUANT_RUN_UNFINISHED = 'quant.run_unfinished' as const;
 export const QUANT_RUN_NOT_SIMULATED = 'quant.run_not_simulated' as const;
 export const QUANT_RUN_RESULT_CAP_UNSET = 'quant.run_result_cap_unset' as const;
@@ -240,6 +245,10 @@ export type QuantCode =
   | typeof QUANT_LIVE_PLAN_UNSUPPORTED
   | typeof QUANT_LIVE_ORDER_TYPE_UNSUPPORTED
   | typeof QUANT_LIVE_DEPLOY_UNAVAILABLE
+  | typeof QUANT_KEY_NO_SUCH_ENDPOINT
+  | typeof QUANT_IDEMPOTENCY_KEY_REQUIRED
+  | typeof QUANT_IDEMPOTENCY_KEY_INVALID
+  | typeof QUANT_IDEMPOTENCY_KEY_REUSED
   | 'quant.params_invalid';
 
 export class QuantError extends Error {

@@ -14,8 +14,12 @@ import {
   refuseTestVenueOutsideTest,
   type PlaceUserOrderIntent,
   type PlaceUserOrdersIntent,
+  type AmendUserOrderIntent,
+  type ReplaceUserOrderIntent,
+  type CancelUserOrdersIntent,
   venueClientOrderId,
   ordersTakenTogether,
+  cancelsTakenTogether,
   type PreparedVenueAction,
   type UserVenue,
   type UserVenueAccount,
@@ -80,7 +84,8 @@ export function assertInteractive(principal: Principal, kind: VenueIntent['kind'
  * grants stay open below it: they only reduce what is on the venue, so a held account never strands its own funds there.
  */
 export function assertTradingLevel(principal: Principal, kind: VenueIntent['kind']): void {
-  if (kind === 'place_order' || kind === 'place_orders' || kind === 'amend_order') requireTradeTier(principal, 'basic');
+  if (kind === 'place_order' || kind === 'place_orders' || kind === 'amend_order' || kind === 'replace_order')
+    requireTradeTier(principal, 'basic');
 }
 
 /**
@@ -183,6 +188,8 @@ export type UserVenueDoorCode =
   | 'trade.venue.withdraw_own_wallet_only'
   | 'trade.venue_request_invalid'
   | 'trade.venue_together_owner_only'
+  | 'trade.venue_order_not_resting'
+  | 'trade.venue_order_amount_raise'
   | 'trade.venue_action_key_invalid'
   | 'idempotency.conflict'
   | 'idempotency.in_progress'
@@ -538,12 +545,49 @@ function assertTogetherIntent(intent: PlaceUserOrdersIntent, signer: { role?: un
   }
 }
 
+const CLIENT_ID_RE = /^\S{1,128}$/;
+
+/**
+ * A change to a resting order (J-cex-spot-05 #2, #4): lowered in place (`amend_order`) or cancelled and replaced in one
+ * signed action (`replace_order`), each naming the order by the venue's own client id.
+ */
+function assertChangeIntent(intent: AmendUserOrderIntent | ReplaceUserOrderIntent): void {
+  const i: Record<string, unknown> = { ...intent };
+  if (typeof i.symbol !== 'string' || !/^\S{1,64}$/.test(i.symbol)) invalid('symbol must be a venue market symbol');
+  if (typeof i.venueClientOrderId !== 'string' || !CLIENT_ID_RE.test(i.venueClientOrderId))
+    invalid("venueClientOrderId must be the venue's client id of the order to change");
+  if (intent.kind === 'amend_order') {
+    if (!positive(i.amount)) invalid('amount must be the positive amount left after the change');
+    if (!positive(i.price)) invalid('price must be a positive decimal string');
+    return;
+  }
+  const order = i.order as PlaceUserOrderIntent | undefined;
+  if (!order || typeof order !== 'object' || order.kind !== 'place_order') invalid('a replacement is a place_order');
+  assertPlaceIntent(order);
+  if (order.symbol !== intent.symbol) invalid('the replacement is on the market of the order it replaces');
+}
+
+/** Several orders cancelled in one signed action (J-cex-spot-05 #5, #6), each named by the venue's client id, once. */
+function assertCancelsIntent(intent: CancelUserOrdersIntent): void {
+  const orders = (intent as { orders?: unknown }).orders;
+  if (!Array.isArray(orders) || orders.length < 1) invalid('a batch cancel names at least one order');
+  const ids = new Set<string>();
+  for (const o of orders as { symbol?: unknown; venueClientOrderId?: unknown }[]) {
+    if (!o || typeof o.symbol !== 'string' || !/^\S{1,64}$/.test(o.symbol)) invalid('each order cancelled names its market');
+    if (typeof o.venueClientOrderId !== 'string' || !CLIENT_ID_RE.test(o.venueClientOrderId))
+      invalid("each order cancelled is named by the venue's client id");
+    ids.add(o.venueClientOrderId);
+  }
+  if (ids.size !== orders.length) invalid('each order in a batch cancel is named once');
+}
+
 /** `fn` over the order an intent places, or over each order it signs together; any other intent as it is. */
 async function eachOrder(
   intent: VenueIntent,
   fn: (order: PlaceUserOrderIntent) => Promise<PlaceUserOrderIntent | void>,
 ): Promise<VenueIntent> {
   if (intent.kind === 'place_order') return (await fn(intent)) ?? intent;
+  if (intent.kind === 'replace_order') return { ...intent, order: (await fn(intent.order)) ?? intent.order };
   if (intent.kind !== 'place_orders') return intent;
   const orders: PlaceUserOrderIntent[] = [];
   for (const order of intent.orders) orders.push((await fn(order)) ?? order);
@@ -629,6 +673,10 @@ export class UserVenueDoor {
       venue: { id: venue.venue.id, displayName: venue.venue.displayName, proofLevel: venue.venue.proofLevel },
       // How many orders the venue takes in one signed action (J-derivatives-03 #9): above 1, a reverse is signed once.
       ordersPerAction: ordersTakenTogether(venue.venue),
+      // How the venue changes and cancels resting orders (J-cex-spot-05): in place or by cancel-and-replace signed once,
+      // and how many it cancels in one signed action (0: one cancel per signature).
+      amendsInPlace: venue.venue.amendsInPlace === true,
+      cancelsPerAction: cancelsTakenTogether(venue.venue),
       test,
       ...(test ? { label: 'TEST' } : {}),
       chainId: venue.chainId ?? null,
@@ -973,6 +1021,36 @@ export class UserVenueDoor {
     return { intent: { ...intent, builderFee: { ...intent.builderFee, feeBps } }, discount };
   }
 
+  /**
+   * A change never raises an order's amount (J-cex-spot-05 #3): the amount left after it is at most what rests on the
+   * venue now, read from the venue's own record, and the side is the resting order's. Refused before the wallet is
+   * asked, so the order and its lock are untouched.
+   */
+  private async assertNoRaise(
+    venue: UserVenue,
+    account: UserVenueAccount,
+    intent: AmendUserOrderIntent | ReplaceUserOrderIntent,
+  ): Promise<void> {
+    const resting = (await venue.orderByClientId(account, intent.venueClientOrderId)).value;
+    if (!resting || resting.symbol !== intent.symbol || (resting.status !== 'open' && resting.status !== 'partially_filled')) {
+      throw new UserVenueDoorError(
+        `no resting order ${intent.venueClientOrderId} on ${intent.symbol} on ${venue.venue.displayName}: nothing was changed`,
+        'trade.venue_order_not_resting',
+        409,
+      );
+    }
+    const amount = intent.kind === 'amend_order' ? intent.amount : intent.order.amount;
+    if (amount > resting.remaining) {
+      throw new UserVenueDoorError(
+        `raising an order's amount is refused: ${formatAmount(resting.remaining)} rests and ${formatAmount(amount)} was asked; place a new order for more. This order and its lock are untouched`,
+        'trade.venue_order_amount_raise',
+        409,
+      );
+    }
+    if (intent.kind === 'replace_order' && intent.order.side !== resting.side)
+      invalid(`the replacement is a ${resting.side}, as the order it replaces`);
+  }
+
   /** The key the action is stored under: the intent's own business key where it has one. */
   private businessKey(intent: VenueIntent, actionKey: string | null | undefined): string {
     let key: string | null | undefined;
@@ -1019,6 +1097,8 @@ export class UserVenueDoor {
     assertOwnWalletWithdrawal(principal, req.owner, intent);
     if (intent.kind === 'place_order') assertPlaceIntent(intent);
     if (intent.kind === 'place_orders') assertTogetherIntent(intent, req.signer);
+    if (intent.kind === 'amend_order' || intent.kind === 'replace_order') assertChangeIntent(intent);
+    if (intent.kind === 'cancel_orders') assertCancelsIntent(intent);
     const key = this.businessKey(intent, req.actionKey);
     assertDoorMay(intent.kind, caller, key);
     assertLiveRunKey(key, caller);
@@ -1120,6 +1200,7 @@ export class UserVenueDoor {
     if (finalIntent.kind === 'sub_account_transfer' && key.startsWith(OWN_MOVE_PREFIX)) {
       await this.assertOwnSubAccount(principal, venue, account, finalIntent.subAccount);
     }
+    if (finalIntent.kind === 'amend_order' || finalIntent.kind === 'replace_order') await this.assertNoRaise(venue, account, finalIntent);
     finalIntent = await eachOrder(finalIntent, (order) => this.admitPlace(venue.venue.id, order));
 
     // A new market order is bounded before the venue is asked to prepare it. A stored one was bounded when it was
@@ -1315,9 +1396,13 @@ export class UserVenueDoor {
         ? null
         : p.intent.kind === 'place_orders'
           ? { venueClientOrderIds: p.intent.orders.map((order) => venueClientOrderId(p.venueId, order.clientOrderKey)) }
-          : p.venueClientOrderId
-            ? { venueClientOrderId: p.venueClientOrderId }
-            : { nonce: p.nonce };
+          : p.intent.kind === 'cancel_orders'
+            ? { venueClientOrderIds: p.intent.orders.map((order) => order.venueClientOrderId) }
+            : p.intent.kind === 'replace_order'
+              ? { venueClientOrderIds: [p.intent.venueClientOrderId, venueClientOrderId(p.venueId, p.intent.order.clientOrderKey)] }
+              : p.venueClientOrderId
+                ? { venueClientOrderId: p.venueClientOrderId }
+                : { nonce: p.nonce };
     let answered: VenueSubmitOutcome;
     try {
       const venue = await this.venue();
