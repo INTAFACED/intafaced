@@ -232,7 +232,7 @@ describe('partner-held card authorisations (PG)', () => {
       expect(ledger.journal()).toHaveLength(0);
     });
 
-    it('captures at the partner, gives the rest back, and the ledger still posts nothing (no cashback rate set, no round-up)', async () => {
+    it('captures at the partner, gives the rest back, and the ledger still posts nothing (no cashback rate set; no round-up without a rule)', async () => {
       const card = await issue();
       const auth = await cards.authorize({ cardId: card.id, authorizationRef: 'jb14-capture', amount: amt('40') });
       const result = await cards.capture({ cardId: card.id, authorizationRef: 'jb14-capture', amount: amt('30') });
@@ -243,7 +243,8 @@ describe('partner-held card authorisations (PG)', () => {
         captureLedgerTxId: null,
         reversalLedgerTxId: null,
         cashback: { status: 'none' },
-        roundUp: { status: 'skipped', reason: 'bank.card_partner_held' },
+        // No round-up rule on this card's account: nothing to round up (a rule's partner move is J-bank-07 #3's).
+        roundUp: { status: 'none' },
       });
       expect(result.partner?.captureRef).toBe(`TEST-card-partner:${partnerCardKey('capture', auth.id)}`);
       expect(result.partner?.releaseRef).toBe(`TEST-card-partner:${partnerCardKey('release', auth.id)}`);
