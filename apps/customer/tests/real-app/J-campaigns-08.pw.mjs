@@ -229,7 +229,15 @@ test(`${J} #1 opens /campaigns/mine: my vouchers, an honest empty state when non
   await expect(heldRow.getByTestId('voucher-state')).toHaveText('Claimed');
   // Its expiry is the campaign's use-by, shown as a date and time.
   expect(Date.parse(held.useBy)).toBe(Date.parse(useByAt));
-  await expect(heldRow.getByTestId('voucher-use-by')).toHaveText(/^Use by .*\d/);
+  // The date on screen is that use-by, as the app writes a day and time in the browser's own zone ("14 Oct, 19:29").
+  const shownUseBy = await otherPage.evaluate(
+    (at) =>
+      new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).format(
+        Date.parse(at),
+      ),
+    held.useBy,
+  );
+  await expect(heldRow.getByTestId('voucher-use-by')).toHaveText(`Use by ${shownUseBy}`);
   await otherPage.context().close();
   run.write({ me, walletKey, wallet: ownWallet, campaignId: campaign.id, codes });
 });
