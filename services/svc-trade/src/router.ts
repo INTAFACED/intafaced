@@ -1,5 +1,7 @@
 import { builderFeeAdminRouter, type BuilderFeeReconReader } from './builder-fee/builder-fee-admin.js';
 import { agentDeskAdminRouter } from './venue/agent-desk-admin.js';
+import { quantLiveAdminRouter } from './quant/live-run/halts-admin.js';
+import type { StrategyHaltDesk } from './quant/live-run/halts.js';
 import type { AgentDesk } from './venue/agent-desk.js';
 import { z } from 'zod';
 import { gridRouter } from './grid/router.js';
@@ -912,6 +914,7 @@ export function createTradeRouter(
   venueActivity?: OwnVenueActivityDeps,
   signals?: SignalDesk,
   agentDesk?: AgentDesk | null,
+  quantHalts?: StrategyHaltDesk | null,
 ) {
   const placeAttempts = new PlaceAttemptBook();
   /** The lead desk's refusals carry their code at the end of the message, where the console reads it. */
@@ -962,6 +965,7 @@ export function createTradeRouter(
       insuranceAdminRouter(insuranceTopups),
       builderFeeAdminRouter(builderFees),
       agentDeskAdminRouter(agentDesk),
+      quantLiveAdminRouter(quantHalts),
     ),
     /** `support.tradeSummary`: read-only, svc-support only (D-ops-06). The case check is svc-support's; this door audits the read. */
     support: supportTradeSummaryRouter(supportSummary),

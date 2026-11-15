@@ -118,6 +118,7 @@ import { UserVenueDoorError } from './venue/user-venue-door.js';
 import { wireUserVenue } from './venue/wire.js';
 import { wireVenueAgents } from './venue/agents-wire.js';
 import { LiveRuns, parseLiveRunValues } from './quant/live-run/live-runs.js';
+import { StrategyHaltDesk } from './quant/live-run/halts.js';
 import { createIdentityFreezeRead, createQuantStrategySource } from './quant/live-run/ports.js';
 import { SqlLiveRunStore } from './quant/live-run/sql-store.js';
 import { VenueProtections } from './venue/protections.js';
@@ -516,6 +517,13 @@ if (venueProtections && protectionEngineMs > 0) {
 // from svc-quant as the person, the owner's freeze read from svc-identity. Off with the door; TRADE_QUANT_LIVE not `on`
 // refuses every start. The supervisor watches every running run's heartbeat and recovers a dead process.
 const liveRunTier = createLiveTierClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
+// The risk desk's halt of one strategy or every strategy (J-algo-dev-11): one operator halts one, two founders halt
+// every one or restore. The live runs read it; the approvals book is the trade ops desk's (bound below).
+const quantHalts = new StrategyHaltDesk({
+  sql,
+  approvals: { consume: (input) => tradeOpsApprovals.consume(input) },
+  now: () => new Date(),
+});
 const liveRuns = userVenue
   ? new LiveRuns({
       door: userVenue,
@@ -532,6 +540,7 @@ const liveRuns = userVenue
       freeze: createIdentityFreezeRead(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s),
       // Read on every supervisor pass: a run never trades on the tier it started with (signals/live-tier.ts, as an alert).
       liveTier: (userId) => liveRunTier.tierOf(userId),
+      halts: quantHalts,
       now: () => new Date(),
     })
   : null;
@@ -800,6 +809,7 @@ export const appRouter = createTradeRouter(
   { venue: userVenue ? () => userVenue.venue() : null, store: new SqlPreparedActionStore(sql) },
   signalDesk,
   agentDesk,
+  quantHalts,
 );
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({
