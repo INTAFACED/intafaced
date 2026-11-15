@@ -104,9 +104,11 @@ test(`${J} #2 chooses the Futures tab and searches a name: only futures leaders,
   const leader = await fundedTrader(page, 'jcl', '1000');
   const spotName = `Journey Spot ${tag}`;
   const futuresName = `Journey Futures ${tag}`;
-  // The spot lead discloses a TEST return; its drawdown stays unpublished, for #4.
+  // The spot lead discloses a TEST return; its drawdown stays unpublished, for #4. It trades the TEST book (#4) and the
+  // venue's market (#8), so with the venue door on its Start copying copies on the venue.
   const spotRef = await listLeader(leader, spotName, {
     tenureStart: '2026-01-01T00:00:00.000Z',
+    assets: ['BTC/USDT', VENUE_MARKET],
     published: { publishedReturn: PUBLISHED_RETURN },
   });
   const futuresLeader = await signUp(page, 'jcx');

@@ -57,6 +57,9 @@ export function leaderRefOf(pathname: string): string | null {
 }
 
 /** Who the follow wizard starts with: a typed leader ID, or a listed leader picked from the directory or their page. */
+/** A venue market's symbol (BASE-QUOTE), not the TEST book's (BASE/QUOTE). */
+const isVenueMarket = (symbol: string) => /^[A-Z0-9]+-[A-Z0-9]+$/i.test(symbol);
+
 type WizardStart = { open: boolean; leader: string; listed: LeaderRow | null };
 
 export function CopyRoom({ path }: { path: string }) {
@@ -193,8 +196,11 @@ export function CopyRoom({ path }: { path: string }) {
     follows.reload();
     navigate('/trade/copy?tab=follows', true);
   };
+  // A leader is copied on the venue when the venue door is on and the leader trades a venue market (venue symbols are
+  // BASE-QUOTE, the TEST book's BASE/QUOTE); any other follow keeps the existing wizard (J-copy-bots-otc-03's follows).
+  const onVenue = venueMode.mode === 'on' && wizard.listed !== null && wizard.listed.assets.some(isVenueMarket);
   const wizardNode =
-    venueMode.mode === 'on' ? (
+    venueMode.mode === 'on' && onVenue ? (
       <VenueFrame mode={venueMode}>
         {/* Mounted while open: each opening starts a new request (its own key and agent account id). */}
         {wizard.open ? (
@@ -436,7 +442,7 @@ export function CopyRoom({ path }: { path: string }) {
         api={api}
         guard={guard}
         onChanged={follows.reload}
-        venue={venueMode.mode === 'on'}
+        venue={venueMode.mode === 'on' && openFollow !== null && openFollow.permittedMarkets.every(isVenueMarket)}
       />
     </Page>
   );
