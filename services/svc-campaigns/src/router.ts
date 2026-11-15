@@ -58,6 +58,8 @@ import {
   pointsRedeemInputSchema,
   FEE_SAVER_CALLERS,
   feeSaverAnswerSchema,
+  competitionBoardInputSchema,
+  competitionBoardSchema,
   feeSaverAskInputSchema,
   voucherIssueInputSchema,
   voucherListInputSchema,
@@ -69,6 +71,7 @@ import {
   myInviteesSchema,
 } from '@intafaced/contracts/campaigns-catalogue';
 import type { CampaignService } from './campaigns.js';
+import type { CompetitionService } from './competitions.js';
 import { CampaignsError } from './codes.js';
 import type { DropService } from './drops.js';
 import type { ReferralService } from './referrals.js';
@@ -176,6 +179,12 @@ const STATUS: Record<CampaignsRefusalCode | CampaignRefusalCode, TRPCError['code
   'campaigns.export_expired': 'CONFLICT',
   'campaigns.referral_invalid': 'BAD_REQUEST',
   'campaigns.criteria_unset': 'PRECONDITION_FAILED',
+  'campaigns.competition_invalid': 'BAD_REQUEST',
+  'campaigns.competition_unset': 'PRECONDITION_FAILED',
+  'campaigns.prize_pool_short': 'PRECONDITION_FAILED',
+  'campaigns.seats_full': 'CONFLICT',
+  'campaigns.not_competition': 'BAD_REQUEST',
+  'campaigns.fills_unread': 'SERVICE_UNAVAILABLE',
   'owner.decision': 'PRECONDITION_FAILED',
   'campaigns.window_unset': 'PRECONDITION_FAILED',
   'campaigns.timezone_unset': 'BAD_REQUEST',
@@ -229,6 +238,7 @@ export function createCampaignsRouter(
   vouchers: VoucherService,
   watch: WatchService,
   referrals?: ReferralService,
+  competitions?: CompetitionService,
 ) {
   return router({
     health: publicProcedure
@@ -270,6 +280,29 @@ export function createCampaignsRouter(
           try {
             if (!referrals) throw new CampaignsError('campaigns.store_unwired', 'Referral progress is not wired');
             return await referrals.myInvitees({ referrerId: ctx.principal!.userId });
+          } catch (err) {
+            mapError(err);
+          }
+        }),
+    }),
+
+    competition: router({
+      /**
+       * One competition's board (J-campaigns-11): terms, seats left, the leaderboard by venue volume, the caller's own
+       * entry and milestones, and the settlement once the period closed. Forwarded so the caller's connected wallet is
+       * noted for their prizes.
+       */
+      board: scopedProcedure('campaigns:read', guard)
+        .input(competitionBoardInputSchema)
+        .output(competitionBoardSchema)
+        .query(async ({ ctx, input }) => {
+          try {
+            if (!competitions) throw new CampaignsError('campaigns.store_unwired', 'Competitions are not wired');
+            return await competitions.board({
+              campaignId: input.campaignId,
+              accountId: ctx.principal!.userId,
+              forwarded: forwardedPrincipalHeaders(ctx),
+            });
           } catch (err) {
             mapError(err);
           }

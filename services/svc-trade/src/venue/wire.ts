@@ -14,6 +14,7 @@ import { builderFeesAt } from './builder-fee-versions.js';
 import { createFeeSaverClient } from './fee-saver-client.js';
 import { HttpUserVenue } from './http-user-venue.js';
 import { registerInternalVenueDeposits } from './internal-deposits.js';
+import { registerInternalOurFills } from './internal-our-fills.js';
 import { SqlPreparedActionStore } from './prepared-action-store.js';
 import { UserVenueDoor, parseBuilderFee, parseOrdersPageMax } from './user-venue-door.js';
 import { SqlVenueListingStore } from './venue-listing-store.js';
@@ -110,6 +111,13 @@ export function wireUserVenue(deps: {
     userVenueDoors.length > 0 ? new UserVenueRouter({ doors: userVenueDoors, store: userVenueStore, now: () => new Date() }) : null;
   // The primary venue's deposits for one wallet, read by svc-campaigns' welcome checklist (J-campaigns-04 #2 #3).
   registerInternalVenueDeposits(app, { door: userVenue, secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s });
+  // The primary venue's fills of one person's orders placed through our door, read by svc-campaigns' competitions
+  // (J-campaigns-11 #3 #4).
+  registerInternalOurFills(app, {
+    fills: { venue: userVenue ? () => userVenue.venue() : null, store: userVenueStore, now: () => new Date() },
+    secret: env.INTERNAL_SERVICE_SECRET,
+    s2s: doorS2s,
+  });
   // Convert's sell quotes priced by the venue on the customer's own venue account (J-cex-spot-17 #8), on the primary
   // venue's door. Off with the door.
   const venueSellQuotes = userVenue
