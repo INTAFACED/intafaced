@@ -356,3 +356,61 @@ test('the duplicate rules report through the linter, on the line', { skip: !exis
     out.join('\n'),
   );
 });
+
+test('no-effect-in-product: an effect in a room, screen or the shell fires; the data layer, shared hooks and tests do not', skip, () => {
+  const effect = "import { useEffect } from 'react';\nexport function R() {\n  useEffect(() => {}, []);\n  return null;\n}\n";
+  const out = lint({
+    'apps/customer/src/features/money/Room.tsx': effect,
+    'apps/customer/src/screens/home/index.tsx': effect.replace(/useEffect/g, 'useLayoutEffect'),
+    'apps/customer/src/app/Shell.tsx':
+      "import React from 'react';\nexport function S() {\n  React.useEffect(() => {}, []);\n  return null;\n}\n",
+    'apps/customer/src/shared/resource.ts': effect,
+    'apps/customer/src/data/hooks.ts': effect,
+    'apps/customer/src/features/money/Room.test.tsx': effect,
+    'apps/admin/src/components/desk.tsx': effect,
+  });
+  for (const f of [
+    'apps/customer/src/features/money/Room.tsx',
+    'apps/customer/src/screens/home/index.tsx',
+    'apps/customer/src/app/Shell.tsx',
+  ])
+    assert.ok(has(out, f, 'garden(no-effect-in-product)'), `${f}\n${out.join('\n')}`);
+  assert.ok(
+    out.some((l) => l.includes('no-effect-in-product') && l.includes('src/shared/resource.ts')),
+    'the message names the fix',
+  );
+  for (const f of [
+    'apps/customer/src/shared/resource.ts',
+    'apps/customer/src/data/hooks.ts',
+    'apps/customer/src/features/money/Room.test.tsx',
+    'apps/admin/src/components/desk.tsx',
+  ])
+    assert.ok(!has(out, f, 'garden(no-effect-in-product)'), `${f}\n${out.join('\n')}`);
+});
+
+test('no-hand-answer-reader: a reader of a founderCall answer checked by hand fires; parseWith and a schema reader do not', skip, () => {
+  const head = "import { founderCall, parseWith } from '@/lib/desk/founder-call';\nimport { s } from '@intafaced/contracts/x';\n";
+  const call = (parse) => `export const go = (ctx) => founderCall(ctx, 'pay', 'a.b', 'GET', {}, ${parse});\n`;
+  const out = lint({
+    'apps/admin/src/lib/a/inline.ts': head + call("(raw) => (typeof raw === 'object' && raw ? raw : null)"),
+    'apps/admin/src/lib/a/local.ts':
+      head +
+      "function readAnswer(raw: unknown) {\n  return raw && typeof (raw as { id?: unknown }).id === 'string' ? raw : null;\n}\n" +
+      call('readAnswer'),
+    'apps/admin/src/lib/a/schema.ts': head + call('parseWith(s)'),
+    'apps/admin/src/lib/a/schema-reader.ts':
+      head +
+      'const readAnswer = (raw: unknown) => {\n  const p = s.safeParse(raw);\n  return p.success ? p.data : null;\n};\n' +
+      call('readAnswer'),
+    'apps/admin/src/lib/a/imported.ts': head + "import { readX } from './model';\n" + call('readX'),
+    'apps/admin/src/lib/a/wrapper.ts': head + "import { readX } from './model';\n" + call('(raw) => readX(raw, 2)'),
+    'apps/admin/src/lib/a/form.ts': "export function readForm(raw: unknown) {\n  return typeof raw === 'string' ? raw : null;\n}\n",
+  });
+  assert.ok(has(out, 'apps/admin/src/lib/a/inline.ts', 'garden(no-hand-answer-reader)'), out.join('\n'));
+  assert.ok(
+    out.some((l) => l.startsWith('apps/admin/src/lib/a/local.ts:3:') && l.includes('no-hand-answer-reader') && l.includes('parseWith')),
+    out.join('\n'),
+  );
+  for (const f of ['schema.ts', 'schema-reader.ts', 'imported.ts', 'wrapper.ts', 'form.ts'])
+    assert.ok(!has(out, `apps/admin/src/lib/a/${f}`, 'garden(no-hand-answer-reader)'), `${f}\n${out.join('\n')}`);
+});
