@@ -994,6 +994,10 @@ export interface StartTestVenueOptions {
   readonly displayName?: string;
   /** The most orders it takes in one signed action (`place_orders`); default one per signature. */
   readonly ordersPerAction?: number;
+  /** True when it lowers a resting order in place (`amend_order`); default: changed by cancel-and-replace. */
+  readonly amendsInPlace?: boolean;
+  /** The most orders it cancels in one signed action (`cancel_orders`); default: one cancel per signature. */
+  readonly cancelsPerAction?: number;
   /** The deposit route `GET /venue` names (the TEST chain's watcher is started by the caller, chain-deposits.ts). */
   readonly deposit?: UserVenueDepositRoute | null;
 }
@@ -1012,6 +1016,8 @@ export async function startTestVenueServer(
     ...(opts.id ? { id: opts.id } : {}),
     ...(opts.displayName ? { displayName: opts.displayName } : {}),
     ...(opts.ordersPerAction !== undefined ? { ordersPerAction: opts.ordersPerAction } : {}),
+    ...(opts.amendsInPlace ? { amendsInPlace: true } : {}),
+    ...(opts.cancelsPerAction !== undefined ? { cancelsPerAction: opts.cancelsPerAction } : {}),
   });
   refuseTestVenueOutsideTest(sim.venue, opts.appEnv);
   const server = http.createServer(testVenueHandler(sim, opts.deposit ?? null));

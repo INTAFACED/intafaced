@@ -629,6 +629,8 @@ export function OrdersTable({
   cancelled,
   filled = [],
   tagOf,
+  onEdit,
+  select,
 }: {
   orders: AsOf<VenueOrder[]> | null;
   test: boolean;
@@ -637,6 +639,10 @@ export function OrdersTable({
   filled?: VenueOrder[];
   /** The person's own tag on an order, by client id; given, the table has a Tag column. */
   tagOf?: (clientOrderId: string) => string | undefined;
+  /** Given, each resting order has an Edit button (J-cex-spot-05 #2, #4). */
+  onEdit?: (order: VenueOrder) => void;
+  /** Given, the table has a Select column for a batch cancel (J-cex-spot-05 #6), by client id. */
+  select?: { selected: ReadonlySet<string>; onToggle: (clientOrderId: string) => void; label: (id: string) => string; header: string };
 }) {
   const { t } = venueCopy.useCopy();
   const open = orders?.value ?? [];
@@ -652,6 +658,7 @@ export function OrdersTable({
         <DataTable
           label={t('Open orders')}
           headers={[
+            ...(select ? [select.header] : []),
             t('Market'),
             t('Side'),
             t('Type'),
@@ -667,6 +674,18 @@ export function OrdersTable({
         >
           {rows.map((o) => (
             <tr key={o.venueClientOrderId ?? o.venueOrderId ?? `${o.symbol}:${o.price}`} data-client-order-id={o.venueClientOrderId ?? ''}>
+              {select ? (
+                <td data-cell="select">
+                  {o.venueClientOrderId && (o.status === 'open' || o.status === 'partially_filled') ? (
+                    <input
+                      type="checkbox"
+                      aria-label={select.label(o.venueClientOrderId)}
+                      checked={select.selected.has(o.venueClientOrderId)}
+                      onChange={() => select.onToggle(o.venueClientOrderId!)}
+                    />
+                  ) : null}
+                </td>
+              ) : null}
               <td>{o.symbol}</td>
               <td>{word(t, 'side', o.side)}</td>
               <td>{word(t, 'type', o.type)}</td>
@@ -686,6 +705,13 @@ export function OrdersTable({
               <td data-cell="status">{word(t, 'status', o.status)}</td>
               {tagOf ? <td data-cell="tag">{o.venueClientOrderId ? (tagOf(o.venueClientOrderId) ?? '') : ''}</td> : null}
               <td>
+                {onEdit && o.venueClientOrderId && (o.status === 'open' || o.status === 'partially_filled') ? (
+                  <>
+                    <Button variant="secondary" onClick={() => onEdit(o)} aria-label={t('Edit order', { id: o.venueClientOrderId })}>
+                      {t('Edit')}
+                    </Button>{' '}
+                  </>
+                ) : null}
                 {o.venueClientOrderId && o.status !== 'filled' ? (
                   <Button variant="secondary" onClick={() => onCancel(o)}>
                     {o.status === 'canceled' ? t('Cancel again') : t('Cancel')}

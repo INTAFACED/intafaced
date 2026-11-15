@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useImperativeHandle, useMemo, useRef, useState, type FormEvent, type ReactNode, type Ref } from 'react';
 import { Button as KitButton, Dialog, Field } from '../../../shared/ui';
 import { useResource } from '../../../shared/resource';
-import { displayAmount, parseAmount } from '../../../shared/money';
+import { displayAmount, formatAmount, parseAmount } from '../../../shared/money';
 import { usePreferences } from '../../../shared/preferences';
 import { useSession } from '../../../features/session/session';
 import { verificationStatus } from '../../../features/account/verification-guards';
@@ -73,6 +73,7 @@ import { spotVenueCopy } from './venue-copy';
 import { VenueMarketPanel } from './VenueMarketData';
 import { NotOfferedTypes, UnitFlag, VenueSelfTradeSelect, VenueTifSelect } from './VenueOrderOptions';
 import { VenueMarketRules } from './VenueMarketRules';
+import { VenueCancelMany, VenueEditOrder } from './VenueOrderChanges';
 import {
   HeldDraft,
   amountForValue,
@@ -173,7 +174,7 @@ export function VenueSpotGate({
   }
   return (
     <VenueFrame mode={mode}>
-      <VenueSpotDesk status={mode.status} market={market} />
+      <VenueSpotDesk status={mode.status} market={market} markets={r.status === 'ready' ? r.data.value : [market]} />
     </VenueFrame>
   );
 }
@@ -211,7 +212,16 @@ function useClock(): (iso: string) => string {
   };
 }
 
-export function VenueSpotDesk({ status, market }: { status: VenueUp; market: VenueMarket }) {
+export function VenueSpotDesk({
+  status,
+  market,
+  markets = [market],
+}: {
+  status: VenueUp;
+  market: VenueMarket;
+  /** The venue's listed markets: an order's own market rules when it is changed, and which orders are spot. */
+  markets?: readonly VenueMarket[];
+}) {
   const { t } = spotVenueCopy.useCopy();
   const v = venueCopy.useCopy().t;
   const d = deskCopy.useCopy().t;
@@ -227,6 +237,10 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
   const [cancelledKeys, setCancelledKeys] = useState<Array<{ key: string; clientOrderId: string }>>([]);
   const [dialog, setDialog] = useState<'deposit' | 'withdraw' | null>(null);
   const [withdrawalNonce, setWithdrawalNonce] = useState<string | null>(null);
+  const [editing, setEditing] = useState<VenueOrder | null>(null);
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  // Flatten (J-cex-spot-05 #8): the sell ticket is filled with all the free base as a market sell and its review opened.
+  const flattenHandle = useRef<{ flatten: (amount: string, worst: string | null) => void }>(null);
   const placedKeys = useMemo(() => (owner ? heldKeys(owner) : null), [owner]);
   // Orders with no definite answer yet (J-cex-spot-02 #3, #4): kept across a reload; while one is listed, no new order goes.
   const pendingStore = useMemo(() => (owner ? pendingOrders(owner) : null), [owner]);
@@ -271,7 +285,19 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
   async function cancel(order: VenueOrder) {
     if (!order.venueClientOrderId) return;
     const key = placedKeys?.get(order.venueClientOrderId) ?? cancelledKeys.find((c) => c.clientOrderId === order.venueClientOrderId)?.key;
-    if (!key) return;
+    if (!key) {
+      // An order this page did not place (another tab or device): named by the venue's client id, where the venue
+      // cancels by it in a signed action.
+      if (!owner || (status.cancelsPerAction ?? 0) < 1) return;
+      setLastResult(
+        await run(
+          { kind: 'cancel_orders', orders: [{ symbol: order.symbol, venueClientOrderId: order.venueClientOrderId }] },
+          { actionKey: keys.cancelBatch(owner, `one-${draftId()}`) },
+        ),
+      );
+      account.reload();
+      return;
+    }
     const answer = await run({ kind: 'cancel_order', symbol: order.symbol, clientOrderKey: key });
     setLastResult(answer);
     if (answer.kind === 'outcome' && answer.outcome.accepted)
@@ -335,6 +361,13 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
         balances={account.balances.data}
         onDeposit={() => setDialog('deposit')}
         onWithdraw={() => setDialog('withdraw')}
+        onFlatten={(amount) => {
+          setType('market');
+          flattenHandle.current?.flatten(
+            amount,
+            cap?.known ? slippageLimit('sell', best.data?.value ?? null, cap.value, market.tickSize) : null,
+          );
+        }}
         withdrawal={owner && withdrawalNonce ? <WithdrawalTracker owner={owner} nonce={withdrawalNonce} /> : null}
       />
       {owner ? (
@@ -391,6 +424,7 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
                 onPlaced={placed}
                 waiting={pending.length > 0}
                 settledKeys={settledKeys}
+                {...(side === 'sell' ? { flattenHandle } : {})}
               />
             ))}
           </div>
@@ -411,7 +445,45 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
             cancelled={cancelled}
             filled={filled}
             tagOf={tagOf}
+            onEdit={owner ? setEditing : undefined}
+            select={{
+              selected,
+              header: t('Select'),
+              label: (id) => t('Select order', { id }),
+              onToggle: (id) =>
+                setSelected((now) => {
+                  const next = new Set(now);
+                  if (next.has(id)) next.delete(id);
+                  else next.add(id);
+                  return next;
+                }),
+            }}
           />
+          <VenueCancelMany
+            orders={account.openOrders.data?.value ?? []}
+            market={market}
+            markets={markets}
+            status={status}
+            owner={owner}
+            run={run}
+            selected={(account.openOrders.data?.value ?? []).filter((o) => o.venueClientOrderId && selected.has(o.venueClientOrderId))}
+            onDone={() => {
+              setSelected(new Set());
+              account.reload();
+            }}
+          />
+          {editing && owner ? (
+            <VenueEditOrder
+              key={editing.venueClientOrderId ?? ''}
+              order={editing}
+              market={markets.find((m) => m.symbol === editing.symbol) ?? null}
+              status={status}
+              owner={owner}
+              run={run}
+              onDone={account.reload}
+              onClose={() => setEditing(null)}
+            />
+          ) : null}
         </TabsPanel>
         <TabsPanel value="history">
           <FillsTable fills={account.fills.data} test={status.test} symbol={market.symbol} tagOf={tagOf} />
@@ -437,6 +509,14 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
   );
 }
 
+/** All of `free` on the venue's lot, or null when less than one lot is free: what Flatten sells. */
+function flattenable(free: string, lot: string): string | null {
+  const f = parseAmount(free);
+  const l = parseAmount(lot);
+  if (l <= 0n || f < l) return null;
+  return formatAmount((f / l) * l);
+}
+
 /** The person's venue account, the venue's figures only. */
 function VenueAccountPanel({
   status,
@@ -444,6 +524,7 @@ function VenueAccountPanel({
   balances,
   onDeposit,
   onWithdraw,
+  onFlatten,
   withdrawal,
 }: {
   status: VenueUp;
@@ -451,6 +532,8 @@ function VenueAccountPanel({
   balances: AsOf<VenueBalance[]> | null;
   onDeposit: () => void;
   onWithdraw: () => void;
+  /** Sell all of the free base asset in one reviewed market sell (J-cex-spot-05 #8), on the lot. */
+  onFlatten: (amount: string) => void;
   withdrawal: ReactNode;
 }) {
   const { t } = spotVenueCopy.useCopy();
@@ -490,6 +573,16 @@ function VenueAccountPanel({
                   <dt>{t('As of')}</dt>
                   <dd className="numeric">{clock(balances.asOf)}</dd>
                 </div>
+                {asset === market.baseAsset && flattenable(row?.free ?? '0', market.lotSize) ? (
+                  <div>
+                    <dt className="muted">{t('Flatten note', { asset })}</dt>
+                    <dd>
+                      <KitButton variant="secondary" onClick={() => onFlatten(flattenable(row?.free ?? '0', market.lotSize)!)}>
+                        {t('Flatten', { asset })}
+                      </KitButton>
+                    </dd>
+                  </div>
+                ) : null}
               </dl>
             );
           })
@@ -581,6 +674,7 @@ function VenueSideForm({
   onPlaced,
   waiting,
   settledKeys,
+  flattenHandle,
 }: {
   side: VenueSide;
   type: VenueOrderType;
@@ -600,6 +694,8 @@ function VenueSideForm({
   /** An earlier order has no definite answer yet: no new order is sent until the venue names it. */
   waiting: boolean;
   settledKeys: readonly string[];
+  /** Flatten (J-cex-spot-05 #8): the sell ticket registers here how it types all the free base in and opens its review. */
+  flattenHandle?: Ref<{ flatten: (amount: string, worst: string | null) => void }>;
 }) {
   const { t } = spotVenueCopy.useCopy();
   const d = deskCopy.useCopy().t;
@@ -706,6 +802,33 @@ function VenueSideForm({
     setMoved(false);
     setReviewProblem(null);
     setReview({ intent, preview: answer.data });
+  }
+
+  // Flatten: a market sell of `amount`, typed into this ticket and reviewed at once, under the key the draft holds for it,
+  // so every retry of the same flatten sends the same client order id.
+  useImperativeHandle(flattenHandle, () => ({
+    flatten(all: string, worstNow: string | null) {
+      // The ticket shows the same market sell the review holds, so its draft keeps the one key for it.
+      setUnit('base');
+      setPrice('');
+      setAmount(all);
+      setResult(null);
+      setProblem(null);
+      const f: TicketFields = { side, type: 'market', price: '', amount: all, tif };
+      if (!draft || !owner || access !== 'verified' || ticketProblem(f, market, worstNow, capSet) !== null) return;
+      const hold = draft.hold(f, worstNow);
+      const sell = intentOf(f, market, hold.worst, hold.key, capSet);
+      if (sell) void reviewOf(sell);
+    },
+  }));
+
+  async function reviewOf(sell: OrderIntent) {
+    if (!owner) return;
+    const answer = await venue.preview(owner, sell);
+    if (!answer.ok) return setProblem(t('Not placeable', { detail: answer.message }));
+    setMoved(false);
+    setReviewProblem(null);
+    setReview({ intent: sell, preview: answer.data });
   }
 
   async function confirm() {
