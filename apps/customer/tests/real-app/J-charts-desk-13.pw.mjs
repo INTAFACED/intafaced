@@ -103,18 +103,19 @@ test(`${J} #3 opens the economic calendar and highlights events: the layout with
 test(`${J} #4 opens a symbol's news widget on the chart: the widget with the same notice`, async ({ page }) => {
   await signIn(page, account());
   await page.goto('/charts/BTC-USDT');
+  // The workbench names the market as the app writes it everywhere, base/quote.
   await expect(page.getByTestId('cw').first()).toBeVisible();
   const open = page.getByRole('button', { name: 'News', exact: true });
   await expect(open).toHaveAttribute('aria-expanded', 'false');
   await open.click();
-  const widget = page.getByRole('region', { name: 'News for BTC-USDT' });
+  const widget = page.getByRole('region', { name: 'News for BTC/USDT' });
   await expect(widget).toBeVisible();
   await expect(page.getByRole('button', { name: 'Hide news' })).toHaveAttribute('aria-expanded', 'true');
   // The same notice as the News room, with its code, inside the widget.
   const notice = widget.getByRole('status');
   await expect(notice).toContainText(NEWS_NOTICE);
   await expect(notice.locator('code')).toHaveText('feed.news');
-  await expect(widget).toContainText('The store holds no items for BTC-USDT, so there is nothing to list.');
+  await expect(widget).toContainText('The store holds no items for BTC/USDT, so there is nothing to list.');
   await widget.getByRole('link', { name: 'Open news for every market' }).click();
   await expect(page).toHaveURL(/\/trade\/news$/);
   await expectNotice(page, NEWS_NOTICE);

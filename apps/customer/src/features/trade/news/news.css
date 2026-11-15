@@ -26,6 +26,14 @@
     align-items: center;
     min-width: 0;
   }
+  /* The app's base reset strips native checkboxes to 0 by 0; the highlight box is drawn at a usable size. */
+  .news-filter--check input[type='checkbox'] {
+    appearance: auto;
+    width: 1rem;
+    height: 1rem;
+    margin: 0;
+    accent-color: var(--if-accent);
+  }
   .news-list {
     list-style: none;
     margin: 0;
