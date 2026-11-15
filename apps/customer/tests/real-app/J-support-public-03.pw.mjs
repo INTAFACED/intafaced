@@ -122,8 +122,6 @@ test(`${J} #2 sending it shows "check your email" and opens no request yet`, asy
 });
 
 test(`${J} #3 with no email sender, the send says so with vendor.email and the request waits`, async ({ browser }) => {
-  // Two restarts of svc-support fit in this step's own limit.
-  test.setTimeout(240_000);
   const email = address('nosender');
   const subject = `TEST ${J} ${RUN} no sender`;
   restartWith('support', 'LOCAL_STACK_SUPPORT_GUEST_MAIL', false);
@@ -169,7 +167,9 @@ test(`${J} #5 too many requests from one address are refused with no request sto
   const email = address('busy');
   const page = await guest(browser);
   // The stack's TEST limit is three per address per hour, counted in fixed windows: all four sends fall in one (#8365).
-  test.setTimeout(240_000 + (await clearOfGuestWindowEdge()));
+  // Two restarts of svc-support, and the wait for a fresh window, fit in this step's own limit.
+  test.setTimeout(240_000 + 125_000);
+  await clearOfGuestWindowEdge();
   for (let n = 1; n <= 3; n += 1) {
     await sendRequest(page, { email, subject: `TEST ${J} ${RUN} busy ${n}` });
     await expect(page.getByTestId('support-guest-check-email')).toBeVisible();
