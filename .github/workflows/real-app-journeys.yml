@@ -12,8 +12,10 @@
 # run 40024672126, whether or not anything broke; a red that never turns green says nothing.)
 #
 # Flaky steps are set aside by the machine, never by an agent, and never a money step (owner decision 2026-11-07,
-# project-state OWNER 225 and 227). A run on main retries a failed test once (JOURNEY_RETRIES); a test that fails and then
-# passes on the same commit ends "flaky", and the verdict sets its step aside for 7 days, a list each main run keeps in
+# project-state OWNER 225 and 227). A run on main retries a failed test once (JOURNEY_RETRIES), and so does a shard of a
+# pull request's full run that holds none of the journeys it touches (tooling/ci/journey-retries.mjs), where a pass on
+# the retry only keeps the run green: the set-aside, the flaky issue and every proof stay main's. On main, a test that
+# fails and then passes on the same commit ends "flaky", and the verdict sets its step aside for 7 days, a list each main run keeps in
 # its own artifact (set-aside.json) for the next: it still runs and is shown, it isn't counted as proven, and its failure
 # doesn't turn main red. A step that is flaky and not set aside, a money step included, is a pass that is never proven
 # and opens a `flaky` issue (the programme lead's decision of 12 Nov 2026 under project-state OWNER 296 and 297). (Failure it prevents: with no retry and no way to set a test
@@ -148,6 +150,7 @@ jobs:
       matrix: ${{ steps.plan.outputs.matrix }}
       count: ${{ steps.plan.outputs.count }}
       fast_plan: ${{ steps.fast.outputs.plan }}
+      retries: ${{ steps.retries.outputs.retries }}
       leave_out: ${{ steps.leave.outputs.list }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -259,7 +262,8 @@ jobs:
           case "$mode" in
             none) if [ -n "$named" ]; then { echo "mode=run"; echo "target=$named"; } >> "$GITHUB_OUTPUT"; else { echo "mode=none"; echo "target="; } >> "$GITHUB_OUTPUT"; fi ;;
             files) { echo "mode=run"; echo "target=$(jq -r --arg n "$named" '(.files + ($n | split(" ") | map(select(. != "")))) | unique | join(" ")' <<<"$touch")"; } >> "$GITHUB_OUTPUT" ;;
-            *) { echo "mode=run"; echo "target="; } >> "$GITHUB_OUTPUT" ;;
+            # The full run: which journeys it touches decides which shards may retry (the Retries step).
+            *) { echo "mode=run"; echo "target="; echo "scope=full"; echo "named=$named"; } >> "$GITHUB_OUTPUT" ;;
           esac
 
       # One journeys run per head (project-state#2065 row d32 part (b)): a pull request's targeted run leaves out the
@@ -384,6 +388,24 @@ jobs:
             echo "matrix=$(jq -c '[range(1; length + 1)]' <<<"$shards")"
             echo "count=$(jq length <<<"$shards")"
           } >> "$GITHUB_OUTPUT"
+      # Which shards of a pull request's full run retry a failed test once, as main's do (tooling/ci/journey-retries.mjs):
+      # those holding none of the journeys the pull request touches; a change the shards can run touches them all. Only
+      # a full run whose changed paths were read whole (the pick's `scope`); main's copy of the rule when main has it.
+      # Without it, or on any failure, no shard retries. (Failure it prevents: 14 Nov 2026, the full runs of #8375,
+      # #8385 and #8391 went red on J-cex-spot-03 #9, J-charts-desk-09 #5 and J-agents-01 #6, steps their change could
+      # not reach, which passed on main's runs and on another attempt; each re-run took 35 to 50 minutes.)
+      - name: Retries off main
+        id: retries
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && steps.pick.outputs.scope == 'full' && steps.touch.outputs.target == '' && steps.plan.outputs.shards != '' }}
+        continue-on-error: true
+        env:
+          SHARDS: ${{ steps.plan.outputs.shards }}
+          NAMED: ${{ steps.pick.outputs.named }}
+        run: |
+          rule=.base/tooling/ci/journey-retries.mjs
+          [ -f "$rule" ] || rule=tooling/ci/journey-retries.mjs
+          out=$(node "$rule" --changed "$RUNNER_TEMP/changed.txt" --named "$NAMED" --shards "$SHARDS")
+          echo "retries=$out" >> "$GITHUB_OUTPUT"
       # The fail-fast plan (tooling/scripts/journey-fail-fast.mjs): the baseline's unbuilt steps, less each of their tests
       # that passed in a run read above. Best effort: without it nothing fails fast.
       - name: Fail-fast plan
@@ -833,8 +855,10 @@ jobs:
           JOURNEY_FAIL_FAST_PLAN: ${{ needs.touch.outputs.fast_plan }}
           # The unbuilt tests a push run on main leaves out (the touch job's Leave-out plan), as Playwright's test list.
           JOURNEY_LEAVE_OUT: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' && needs.touch.outputs.leave_out || '' }}
-          # One retry of a failed test on main only (the set-aside above); a targeted run on a branch never retries.
-          JOURNEY_RETRIES: ${{ github.ref == 'refs/heads/main' && '1' || '0' }}
+          # One retry of a failed test on main (the set-aside above), and in a pull request's full run on a shard that
+          # holds none of the journeys it touches (the Retries step); a targeted run, a shard with a journey the pull
+          # request touches, and a run by hand off main never retry.
+          JOURNEY_RETRIES: ${{ (github.ref == 'refs/heads/main' || fromJSON(needs.touch.outputs.retries || '[]')[matrix.shard] == '1') && '1' || '0' }}
           SHARDS: ${{ needs.touch.outputs.shards }}
           SHARD: ${{ matrix.shard }}
           TOTAL: ${{ strategy.job-total }}

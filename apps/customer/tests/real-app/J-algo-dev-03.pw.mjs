@@ -194,11 +194,23 @@ test(`${J} #3 edits, saves and writes release notes on two versions, then compar
   await expect(code.locator('textarea, [contenteditable="true"]')).toHaveCount(0);
 });
 
+/**
+ * The stack's TEST founders, signed in once for this worker on one gates context (`shareSessions`, as
+ * J-more-catalogue-02 keeps its own) and reused by every operator door below. Each sign-in spends a fresh authenticator
+ * step per founder, so a sign-in per call waited out a new 30 s window on each call after the first: #4's two publishes
+ * and its withdraw and restore of every template took 50 s of its 90 s, and past 90 s when other journeys had spent the
+ * founders' steps (#8420). Every sign-in still sends a real, unused step.
+ */
+let founderCtx;
+async function founderOps() {
+  const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
+  founderCtx ??= await gates.makeContext({ log: () => {}, shareSessions: true });
+  return { ctx: founderCtx, founders: await gates.approverSessions(founderCtx) };
+}
+
 /** A TEST starter template through the operator's publish door, as the founder console calls it. */
 async function publishTemplate(input) {
-  const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
-  const ctx = await gates.makeContext({ log: () => {} });
-  const founders = await gates.approverSessions(ctx);
+  const { ctx, founders } = await founderOps();
   // The operator write scope, as svc-trade's admin doors take it; a plain founder session is an ordinary user.
   const res = await ctx.edge.mutate('quant', 'ops.template.publish', input, await founders.a.tradeOpsToken());
   if (!res.json?.result?.data?.version) throw new Error(`template publish refused: ${res.status} ${res.text.slice(0, 300)}`);
@@ -295,9 +307,7 @@ test(`${J} #4 opens a built-in template version and its source: readable and not
 
 /** Withdraws a starter template from the list or restores it, through the operator's door, as the founder console calls it. */
 async function setTemplateListed(id, listed, attempt) {
-  const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
-  const ctx = await gates.makeContext({ log: () => {} });
-  const founders = await gates.approverSessions(ctx);
+  const { ctx, founders } = await founderOps();
   const input = {
     id,
     listed,
@@ -359,9 +369,7 @@ async function storedRuns(page, strategyId) {
 
 /** The operator's quota door (AL-limits-01), as the founder console calls it, with the stack's TEST founder. */
 async function quotaDoor() {
-  const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
-  const ctx = await gates.makeContext({ log: () => {} });
-  const founders = await gates.approverSessions(ctx);
+  const { ctx, founders } = await founderOps();
   const token = await founders.a.tradeOpsToken();
   const data = (res, what) => {
     const got = res.json?.result?.data;

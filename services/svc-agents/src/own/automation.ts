@@ -478,9 +478,12 @@ async function claimDue(sql: Sql, due: ReadonlyArray<{ id: string; ordinal: numb
         await tx`UPDATE agents.own_agent_auto_runs SET wakes = wakes + 1 WHERE run_key = ${key}`;
         return null;
       }
+      // created_at is the claim time under this row lock, after the schedule's newest run: never now(), the transaction's
+      // start, which a worker that began first but took the lock second would carry, sorting before a run claimed ahead
+      // of it, so both would pass the daily limit (#8326). executeAutoRun counts the runs claimed before its own by it.
       const [inserted] = await tx<Array<{ id: string; fresh: boolean }>>`
-        INSERT INTO agents.own_agent_auto_runs (run_key, agent_id, owner_id, source, source_id, ordinal, due_at)
-        VALUES (${key}, ${schedule.agent_id}, ${schedule.owner_id}, 'schedule', ${id}, ${ordinal}, ${schedule.next_due_at})
+        INSERT INTO agents.own_agent_auto_runs (run_key, agent_id, owner_id, source, source_id, ordinal, due_at, created_at)
+        VALUES (${key}, ${schedule.agent_id}, ${schedule.owner_id}, 'schedule', ${id}, ${ordinal}, ${schedule.next_due_at}, (SELECT GREATEST(clock_timestamp(), max(created_at) + interval '1 microsecond') FROM agents.own_agent_auto_runs WHERE source_id = ${id}))
         ON CONFLICT (run_key) DO UPDATE SET wakes = agents.own_agent_auto_runs.wakes + 1
         RETURNING id::text, (xmax = 0) AS fresh
       `;
@@ -571,9 +574,10 @@ export async function deliverTriggerEvent(
         VALUES (${trigger.id}, ${locked.agent_id}, ${event.envelopeId}, ${event.eventId}, ${seen!.n > 0})
         ON CONFLICT (trigger_id, envelope_id) DO NOTHING
       `;
+      // created_at is the claim time under this row lock, after the trigger's newest run (see claimDue; #8326).
       const [inserted] = await tx<Array<{ id: string }>>`
-        INSERT INTO agents.own_agent_auto_runs (run_key, agent_id, owner_id, source, source_id, event_id, due_at)
-        VALUES (${triggerRunKey(trigger.id, event.eventId)}, ${locked.agent_id}, ${locked.owner_id}, 'trigger', ${trigger.id}, ${event.eventId}, now())
+        INSERT INTO agents.own_agent_auto_runs (run_key, agent_id, owner_id, source, source_id, event_id, due_at, created_at)
+        VALUES (${triggerRunKey(trigger.id, event.eventId)}, ${locked.agent_id}, ${locked.owner_id}, 'trigger', ${trigger.id}, ${event.eventId}, now(), (SELECT GREATEST(clock_timestamp(), max(created_at) + interval '1 microsecond') FROM agents.own_agent_auto_runs WHERE source_id = ${trigger.id}))
         ON CONFLICT (run_key) DO NOTHING
         RETURNING id::text
       `;
