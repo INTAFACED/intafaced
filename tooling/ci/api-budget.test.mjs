@@ -50,6 +50,9 @@ test('why-red reads a spent-budget annotation as JUDGE DOWN, replayed on the wor
     }).at(-1);
   assert.equal(isBudgetText(GH_REFUSAL), true);
   assert.match(read(`${GH_REFUSAL}; ${budgetLine()}`), /^JUDGE DOWN:/);
+  // The annotation's form, as the guard's end-to-end replay pinned it: the budget's own title, and the mark in its message.
+  assert.equal(titleFor(`${GH_REFUSAL}; ${budgetLine()}`, 'Review sign-off unreadable'), BUDGET_TITLE);
+  assert.equal(titleFor('HTTP 403: Resource not accessible by integration', 'Review sign-off unreadable'), 'Review sign-off unreadable');
   // A planted fault: a permission refusal carries no budget words and stays a red of its own.
   assert.doesNotMatch(read('HTTP 403: Resource not accessible by integration'), /^JUDGE DOWN:/);
 });
