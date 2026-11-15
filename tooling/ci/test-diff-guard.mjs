@@ -27,11 +27,11 @@
  *   Test-change: <the reason a reviewer can check>
  * which turns the failure into a printed notice. The reviewer sees both. A Test-change line never covers 6.
  *
- * Only protected tests keep 2 and 3 as failures (protected-tests.mjs: money, custody, sign-in, permissions, database
- * suites and every `*.pw.mjs`). Elsewhere a deleted test file or a lower assertion count is a notice printed into the
- * job summary that needs no line: a test may be deleted or rewritten when what it guarded is still guarded, by a type,
- * a lint rule, another test or a journey step, and the pull request names which, and the CI review (REVIEW.md item 3)
- * reads that name. 1, 4, 5 and 6 are unchanged everywhere.
+ * The owner's decision of 12 Nov 2026 (REVIEW.md, project-state row d76), that a test may be deleted or rewritten when
+ * what it guarded is still guarded and the pull request names which, is carried by that line: for 2 and 3 its reason
+ * names what still guards the test (a type, a lint rule id, a test path or a journey step id), and the CI review judges
+ * it. Every test keeps 1-6. (A list of which tests could go without a line was tried on #8252 and dropped: three CI
+ * reviews in a row found a money, sign-in or permission test it freed.)
  *
  *   7. a test file deleted or loosened (deleted, or any of 1-5 found in it) that failed in a `Tests (…)` job on an
  *      earlier head of the same pull request. Never to get green: a failing test is fixed or its failure explained,
@@ -56,7 +56,6 @@ import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { judgeRunsFor, leftToJudge } from './judged-paths.mjs';
 import { BASELINE, roomOf } from './look-baselines.mjs';
-import { protectedTest } from './protected-tests.mjs';
 
 const TEST_FILE = /(?:\.(?:test|spec)\.(?:[cm]?[jt]sx?)$|\.pw\.mjs$|\/__tests__\/)/;
 const BROWSER_TEST = /\.pw\.mjs$/;
@@ -102,11 +101,9 @@ export function judge(changes, { judgeRuns = false } = {}) {
       continue;
     }
     if (!TEST_FILE.test(c.path)) continue;
-    // Outside the protected tests a deletion or a lower assertion count is a notice (`free`), not a failure.
-    const free = !protectedTest(c.path);
     if (c.status === 'D') {
       if (BROWSER_TEST.test(c.path)) problems.push({ path: c.path, why: 'journey or harness file deleted' });
-      else if (c.sourceExists) problems.push({ path: c.path, why: 'test file deleted while the code it tests still exists', free });
+      else if (c.sourceExists) problems.push({ path: c.path, why: 'test file deleted while the code it tests still exists' });
       continue;
     }
     for (const l of c.added) {
@@ -119,7 +116,6 @@ export function judge(changes, { judgeRuns = false } = {}) {
         problems.push({
           path: c.path,
           why: `${lost} fewer assertion(s) than before (${count(c.removed)} removed, ${count(c.added)} added)`,
-          free,
         });
       const strongGone = c.removed.filter((l) => STRONG_MATCHER.test(l)).length;
       const weakIn = c.added.filter((l) => WEAK_MATCHER.test(l)).length;
@@ -331,7 +327,9 @@ function collect(base) {
 
 async function selfTest() {
   const t = (c) => judge([{ path: 'a/x.test.ts', status: 'M', removed: [], added: [], sourceExists: true, ...c }]);
+  let fixtures = 0;
   const eq = (got, want, m) => {
+    fixtures += 1;
     if (got !== want) throw new Error(`${m}: got ${got}, want ${want}`);
   };
   eq(t({ added: ["  it.skip('x', () => {})"] }).length, 1, 'skip added');
@@ -568,21 +566,18 @@ async function selfTest() {
     null,
     'planted fault: one more file',
   );
-  await protectedSelfTest(eq);
-  console.log('✓ test-diff-guard --self-test OK (152 fixtures)');
+  await laterSelfTest(eq);
+  console.log(`✓ test-diff-guard --self-test OK (${fixtures} fixtures)`);
 }
 
-/** Planted cases for the protected tests (protected-tests.mjs) and check 7. */
-async function protectedSelfTest(eq) {
-  const blocking = (changes, opts) => judge(changes, opts).filter((p) => !p.free).length;
-  const freed = (changes, opts) => judge(changes, opts).filter((p) => p.free).length;
+/** Planted cases: every test keeps checks 2 and 3, the tests three CI reviews named on #8252 among them; and check 7. */
+async function laterSelfTest(eq) {
+  const blocking = (changes, opts) => judge(changes, opts).length;
   const del = (path) => [{ path, status: 'D', removed: [], added: [], sourceExists: true }];
   const fewer = (path) => [{ path, status: 'M', removed: ["  it('x', () => { expect(a).toBe(1); });"], added: [], sourceExists: true }];
-  // Planted: a placeholder test deleted outside the protected tests passes with no line, as a notice.
-  eq(blocking(del('apps/customer/src/screens/home/home-card.test.tsx')), 0, 'placeholder file deleted, not protected: no failure');
-  eq(freed(del('apps/customer/src/screens/home/home-card.test.tsx')), 1, 'placeholder file deleted, not protected: a notice');
-  eq(blocking(fewer('packages/i18n/src/keys.test.ts')), 0, 'a case removed, not protected: no failure');
-  // Planted: protected tests fail as today.
+  // Planted: a placeholder test deleted, or a case removed, fails as before; its Test-change line names what still guards it.
+  eq(blocking(del('apps/customer/src/screens/home/home-card.test.tsx')), 1, 'placeholder file deleted: fails as before');
+  eq(blocking(fewer('packages/i18n/src/keys.test.ts')), 1, 'a case removed: fails as before');
   eq(blocking(fewer('services/svc-academy/src/paper/real-money-ban.money.test.ts')), 1, 'a *.money.test.ts case removed: fails as today');
   eq(blocking(del('services/svc-academy/src/paper/real-money-ban.money.test.ts')), 1, 'a *.money.test.ts file deleted: fails as today');
   eq(blocking(fewer('services/svc-ledger/src/posting.test.ts')), 1, 'a money root (MONEY_PATH_ROOTS): fails as today');
@@ -591,7 +586,7 @@ async function protectedSelfTest(eq) {
   eq(blocking(fewer('services/svc-identity/src/x.test.ts')), 1, 'svc-identity: fails as today');
   eq(blocking(fewer('packages/auth/src/x.test.ts')), 1, 'packages/auth: fails as today');
   eq(blocking(fewer('apps/customer/src/features/public/AuthForm.test.tsx')), 1, 'a sign-in test by name: fails as today');
-  // Planted: the gateway's and the venue paths' tests the CI review found unprotected on 37203eff3f.
+  // Planted: the gateway's and the venue paths' tests the first CI review named (37203eff3f).
   for (const path of [
     'services/svc-edge/src/api-key-revoked.test.ts',
     'services/svc-edge/src/geo-block.test.ts',
@@ -604,7 +599,7 @@ async function protectedSelfTest(eq) {
     'apps/admin/src/lib/dual-control.test.ts',
     'apps/customer/src/features/live-authority.test.ts',
     'apps/customer/src/features/trade/kill-banner.test.tsx',
-    // The second FAIL (1b78912898): edge-trust suites and payout maths outside any named folder or word.
+    // The second FAIL (1b78912898): edge-trust suites and payout maths.
     'services/svc-mining-pool/src/edge-trust.test.ts',
     'services/svc-indexer/src/edge-trust.test.ts',
     'services/svc-quant/src/edge-trust.test.ts',
@@ -617,11 +612,19 @@ async function protectedSelfTest(eq) {
     'apps/admin/src/lib/desk/approval-hash.test.ts',
     'apps/customer/src/shared/password.test.ts',
     'apps/customer/src/shared/api.test.ts',
+    // The third FAIL (332460c6cf) and GPT-6.1 Sol's read of it: account security, order drafts, permissions in a DOM test.
+    'apps/customer/src/features/account/security-lock.test.ts',
+    'apps/customer/src/features/account/close-account.test.ts',
+    'apps/customer/src/features/trade/trade.test.ts',
+    'apps/customer/src/features/more/agent-connect.dom.test.tsx',
+    'apps/customer/src/app/team-desk.render.test.tsx',
+    'packages/ui/src/components/amount-input-logic.test.ts',
+    'packages/i18n/src/format.test.ts',
   ]) {
-    eq(blocking(fewer(path)), 1, `${path}: protected, fails as today`);
+    eq(blocking(fewer(path)), 1, `${path}: fails as today`);
     eq(blocking(del(path)), 1, `${path}: deleted, fails as today`);
   }
-  eq(blocking(fewer('apps/customer/src/screens/home/clock.test.ts')), 0, 'an ordinary screen test stays free');
+  eq(blocking(fewer('apps/customer/src/screens/home/clock.test.ts')), 1, 'an ordinary screen test: fails as before');
   eq(blocking(fewer('apps/admin/src/lib/operator-access.test.ts')), 1, 'a permissions test by name: fails as today');
   eq(blocking(fewer('apps/admin/src/lib/custody-ops/model.test.ts')), 1, 'a custody test by folder: fails as today');
   eq(blocking(fewer('apps/customer/src/features/protocol/wallet/SessionKeysPanel.test.tsx')), 1, 'camelCase split: SessionKeys');
@@ -646,7 +649,7 @@ async function protectedSelfTest(eq) {
     1,
     'a journey test deleted: fails as today',
   );
-  // Unchanged outside the protected tests: a skip, a weaker matcher.
+  // Unchanged: a skip, a weaker matcher.
   eq(
     blocking([{ ...fewer('packages/i18n/src/keys.test.ts')[0], removed: [], added: ["  it.skip('x', () => {})"] }]),
     1,
@@ -751,17 +754,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       `main-bisect's automatic revert of ${reverted.slice(0, 10)}: its diff undoes exactly that commit, which main holds, so checks 1-5 don't judge it (its tests return to main's from before it)`,
     );
   const found = reverted ? [] : judge(changes, { judgeRuns });
-  // Outside the protected tests a deletion or a lower assertion count is printed into the job summary, needing no line.
-  const notes = found.filter((p) => p.free);
-  const problems = found.filter((p) => !p.free);
-  for (const n of notes) console.log(`ℹ ${n.path}\n    → ${n.why} (not a protected test: the pull request names what still guards it)`);
-  if (notes.length && process.env.GITHUB_STEP_SUMMARY) {
-    const { appendFileSync } = await import('node:fs');
-    appendFileSync(
-      process.env.GITHUB_STEP_SUMMARY,
-      `## Tests deleted or with fewer assertions (not protected tests)\n\nThe pull request names, by a rule id, a test path or a step id, what still guards each; the CI review reads it.\n\n${notes.map((n) => `- \`${n.path}\`: ${n.why}`).join('\n')}\n`,
-    );
-  }
+  const problems = found;
   // Check 7: a test deleted or loosened after it failed on an earlier head of this pull request. No line clears it.
   const loosened = reverted
     ? []
@@ -818,12 +811,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     failed = true;
   }
   if (problems.length === 0) {
-    if (!failed)
-      console.log(
-        notes.length
-          ? `✓ test-diff-guard clean — ${notes.length} notice(s) above on tests that are not protected, none on a protected test`
-          : '✓ test-diff-guard clean — no test was deleted, skipped or weakened',
-      );
+    if (!failed) console.log('✓ test-diff-guard clean — no test was deleted, skipped or weakened');
     process.exit(failed ? 1 : 0);
   }
   const head = declared
