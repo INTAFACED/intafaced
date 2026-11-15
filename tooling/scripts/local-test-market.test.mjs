@@ -493,12 +493,22 @@ for (const q of ladder) {
 
 // The taker must alternate sides so it cannot drain one asset (it once bought forever and every order got 400).
 assert.deepEqual([1, 2, 3, 4].map(crossingSide), ['buy', 'sell', 'buy', 'sell']);
-// Each turn crosses both sides, a buy at the maker's ask and a sell at its bid, so a 1m bar that trades has range: its
-// high is the ask and its low the bid (J-algo-dev-05 #3, #8404: one crossing a minute made bars with open = high = low,
-// and no bar could reach both a stop loss and a take profit). The next turn starts on the side after.
+// Each turn makes three crossings: its side at level 0, the other side at level 0, its side again at level 1. The bar's
+// first trade, its open, is then strictly inside the bar, so an entry at that open reaches both a stop loss and a take
+// profit 0.001% either side of it on the same bar (J-algo-dev-05 #3: with two legs the open was the bar's high or low,
+// and an entry there was stopped out on its own bar; replay on main 1bff0b1, run 43710208806). Turns alternate sides,
+// so the taker stays flat.
 for (const n of [1, 2, 3, 4]) {
-  assert.deepEqual([...crossingLegs(n).map(crossingSide)].sort(), ['buy', 'sell'], `turn ${n} crosses both sides`);
-  assert.equal(crossingLegs(n)[0], n);
+  const legs = crossingLegs(n);
+  assert.deepEqual(
+    legs.map((l) => [crossingSide(l.k), l.level]),
+    [
+      [crossingSide(n), 0],
+      [crossingSide(n + 1), 0],
+      [crossingSide(n), 1],
+    ],
+  );
+  assert.equal(legs.at(-1).k + 1, n + 1, 'the next turn starts on the other side');
 }
 {
   const ladder = buildLadder({
@@ -512,16 +522,32 @@ for (const n of [1, 2, 3, 4]) {
     stepBps: 9n,
     levelNotional: toScaled('3000'),
   });
-  const top = (side) => ladder.find((q) => q.level === 0 && q.side === side);
-  const book = { bids: [[top('buy').price, top('buy').amount]], asks: [[top('sell').price, top('sell').amount]] };
-  const prices = crossingLegs(1).map((k) => toScaled(crossingQuote(ladder, ladder, crossingSide(k), book).price));
-  const [high, low] = [prices.reduce((a, b) => (a > b ? a : b)), prices.reduce((a, b) => (a < b ? a : b))];
-  // A stop loss and a take profit a thousandth of a percent either side of the mid both lie inside that bar.
-  const mid = toScaled('65000');
-  assert.ok(
-    high > mid + mid / 100000n && low < mid - mid / 100000n,
-    `a turn's bar spans the spread: high ${fromScaled(high)}, low ${fromScaled(low)}`,
-  );
+  for (const n of [1, 2]) {
+    // The book as each leg meets it: a leg takes its level whole, so the next level on that side is the top after it.
+    const resting = ladder.map((q) => ({ ...q }));
+    const prices = [];
+    for (const { k, level } of crossingLegs(n)) {
+      const side = crossingSide(k);
+      const want = side === 'buy' ? 'sell' : 'buy';
+      const top = resting.filter((q) => q.side === want).sort((x, y) => x.level - y.level)[0];
+      const book = {
+        bids: want === 'buy' ? [[top.price, top.amount]] : [],
+        asks: want === 'sell' ? [[top.price, top.amount]] : [],
+      };
+      const q = crossingQuote(ladder, resting, side, book, level);
+      assert.ok(q, `turn ${n}: leg ${side} at level ${level} meets the maker's own quote`);
+      prices.push(toScaled(q.price));
+      resting.splice(resting.indexOf(top), 1);
+    }
+    const [open] = prices;
+    const high = prices.reduce((a, b) => (a > b ? a : b));
+    const low = prices.reduce((a, b) => (a < b ? a : b));
+    const tenth = open / 100000n; // 0.001% of the entry
+    assert.ok(
+      high >= open + tenth && low <= open - tenth,
+      `turn ${n}: open ${fromScaled(open)} lies inside high ${fromScaled(high)} and low ${fromScaled(low)}`,
+    );
+  }
 }
 // The taker crosses each market every sixth cycle, half the markets at a time, and BTC/USDT (the one the journeys run
 // waits for) on the very first cycle.
