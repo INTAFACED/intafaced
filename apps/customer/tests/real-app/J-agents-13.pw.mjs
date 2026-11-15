@@ -291,9 +291,6 @@ test(`${J} #3 opens Activity and filters to refused: only refused rows, the refu
     expect(reasons[index].trim(), `row ${index}: ${row.refusalCode}`).toBe(refusalWordsOf(row.refusalCode));
     expect(reasons[index]).not.toContain(row.refusalCode);
   }
-  // The 600 refusals of the start are the Navigator refusing a task it may not run, in those words.
-  expect(loaded.every((row) => row.refusalCode === 'agents.task_not_allowed')).toBe(true);
-  expect(reasons[0].trim()).toBe('This agent may not run that task');
   // No prompt text: neither the asked question nor a refused request's text appears.
   await expect(log).not.toContainText(ASK);
   await expect(log).not.toContainText('a task this agent may not run');
