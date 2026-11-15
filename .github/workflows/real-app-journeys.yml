@@ -861,7 +861,8 @@ jobs:
           tail -40 "$LOCAL_STACK_STATE/logs/market.log"
           exit 1
 
-      # No traces: they would carry the run's TEST session and password into a public artifact. Screenshots stay.
+      # No traces: they would carry the run's TEST session and password into a public artifact. Pictures stay: every test
+      # that opens a page leaves one as it ends, passed or failed (the config's `screenshot: 'on'`, project-state d88).
       # The plan's files for this shard, or Playwright's own split when the plan is missing.
       - name: Journeys in the running app (this shard)
         env:
@@ -926,7 +927,7 @@ jobs:
         if: success() || failure()
         run: node tooling/scripts/local-test-stack.mjs csp-report --fail
 
-      # The shard's blob (merged by the scoreboard job), its failure screenshots, and its own JSON report (which the
+      # The shard's blob (merged by the scoreboard job), each test's end picture, and its own JSON report (which the
       # early-break job reads as the shard ends); the run's TEST account files stay on the runner.
       - name: Keep the shard's report
         if: always()
@@ -1040,6 +1041,7 @@ jobs:
             echo "**Targeted run:** only the journey files named in the manual run's input, or the pull request's own journey files, ran; every other journey counts as not run below. This run is not main's scoreboard." >> "$GITHUB_STEP_SUMMARY"
           fi
           if [ -f "$report" ]; then
+            echo "**Pictures:** each step that opened a page, passed or failed, left what the app showed as it ended, in its shard's artifact ([real-app-journeys-shard-N]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID#artifacts)) at \`results/<file>-<step title>/test-finished-1.png\`." >> "$GITHUB_STEP_SUMMARY"
             node tooling/scripts/roadmap.mjs --progress --results "$report" >> "$GITHUB_STEP_SUMMARY"
             missing=$((SHARD_COUNT - $(find "$RUNNER_TEMP/blobs" -name '*.zip' | wc -l)))
             if [ "$missing" -gt 0 ]; then
