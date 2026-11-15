@@ -72,7 +72,7 @@
  *   GH_TOKEN=... REPO=... SHA=... [PR_NUMBER=...] [OLD_TITLE=...] [OLD_BODY=...] node tooling/ci/journey-seal.mjs --recheck   (re-runs the seal)
  */
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -782,7 +782,20 @@ export function makeIo(repo, token) {
 /** The default branch's checkout this script runs from (ci.yml runs the base's copy): its baseline and money rule. */
 const BASE_ROOT = fileURLToPath(new URL('../..', import.meta.url));
 let base = null;
-const baseInputs = () => (base ??= { ...rootInputs(BASE_ROOT), reports: new Map() });
+const baseInputs = () => (base ??= { ...rootInputs(BASE_ROOT), onMain: journeyFilesAt(BASE_ROOT), reports: new Map() });
+
+/**
+ * The journey files a checkout holds (`apps/customer/tests/real-app/*.pw.mjs`), as a set of names, or null when the
+ * folder can't be read. The seal reads it from the default branch's checkout it runs from, never from the pull request's
+ * head, so a pull request can't shorten what a full run must hold by deleting or renaming a file itself.
+ */
+export function journeyFilesAt(root) {
+  try {
+    return new Set(readdirSync(join(root, 'apps/customer/tests/real-app')).filter((f) => f.endsWith('.pw.mjs')));
+  } catch {
+    return null;
+  }
+}
 
 /** One run's verdict, as journey-verdict.mjs would print it with the default branch's baseline, and the journey files
  *  of the full suite (the baseline's named run) its report lacks. GET only, through gh (GH_TOKEN). */
@@ -797,7 +810,12 @@ export function fullVerdict({ repo, report, run, inputs, read = fetchInputs }) {
   if (!Array.isArray(got.named.ran))
     return { red: [...red, { step: '(input)', why: "the named run's report has no list of the files it ran" }], failing: 0, missing: [] };
   const have = new Set(report.ran ?? []);
-  const missing = got.named.ran.filter((f) => !have.has(f));
+  // A file the named run ran that the default branch no longer has (deleted or renamed there since, as #8485 deleted
+  // J-home-ia-06-blocked.pw.mjs) can't run, so it is not missing (#8505: every full run after it read as short).
+  // `inputs.onMain` is main's own file list (`journeyFilesAt`); without one, every file still counts, so the rule
+  // fails closed.
+  const onMain = inputs.onMain instanceof Set ? inputs.onMain : null;
+  const missing = got.named.ran.filter((f) => !have.has(f) && (onMain === null || onMain.has(f)));
   // A run short of journey files (targeted, or a shard lost) is judged on the files it has, as a targeted run's own
   // verdict is: a red step there fails the seal; only a run clean on all it has is passed over (judgeFullRun).
   const target = missing.length ? have : null;
