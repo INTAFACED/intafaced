@@ -297,7 +297,9 @@ test(`${J} #4 changes the price: reviewed first, then the original is cancelled 
     timeout: 20_000,
   });
   await expect(note).toContainText('Nothing of yours rests at the new price.');
-  await expect(note).not.toContainText('rests at');
+  // It never says a replacement rests, nor that the original still does.
+  await expect(note).not.toContainText(/The replacement \S+ rests at/);
+  await expect(note).not.toContainText(/original order (still )?rests/);
   expect(await venueOrder(owner, s.orders.c)).toMatchObject({ status: 'canceled' });
   expect(toUnits((await venueOrder(owner, s.orders.c)).locked)).toBe(0n);
   const failedKey = (await dialog.getByTestId('venue-replace-id').innerText()).split(': ').at(-1).trim();
@@ -548,6 +550,7 @@ test(`${J} #8 presses Flatten on a held coin: one reviewed market sell of all of
     await route.abort('connectionreset');
   });
   const asked = signatures(wallet);
+  const submitsBefore = door.of('submit').length;
   const prepared = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/prepare' && r.request().method() === 'POST');
   await sheet.getByRole('button', { name: 'Confirm sell' }).click();
   await continueInWallet(page);
@@ -561,7 +564,9 @@ test(`${J} #8 presses Flatten on a held coin: one reviewed market sell of all of
   });
   await page.unrouteAll({ behavior: 'wait' });
   expect(signatures(wallet)).toBe(asked + 1);
-  expect(door.of('submit')).toHaveLength(1);
+  // The sell was sent once (an approval of our builder fee, when the wallet needed one, is its own action before it).
+  expect(door.of('submit')).toHaveLength(submitsBefore + 1);
+  expect(door.of('submit').at(-1).body.actionKey).toBe(sell.clientOrderKey);
   // The client id the review showed is the one the venue holds; one sell of all of it, filled once.
   expect(sell.clientOrderKey).toBe(id);
   const placed = await venueOrder(owner, cloid);
