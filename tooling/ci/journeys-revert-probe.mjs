@@ -103,6 +103,46 @@ export function stepsRan(report, steps) {
   return ran;
 }
 
+/** Whether a spec titled for each step is in the report at all, step by step. Pure. */
+export function stepsPresent(report, steps) {
+  const seen = new Set();
+  const walk = (suite) => {
+    for (const spec of suite.specs ?? []) {
+      const m = STEP_TITLE.exec(spec.title ?? '');
+      if (m) seen.add(`${m[1]}#${Number(m[2])}`);
+    }
+    for (const c of suite.suites ?? []) walk(c);
+  };
+  for (const s of report?.suites ?? []) walk(s);
+  return steps.filter((s) => seen.has(s));
+}
+
+/** Whether the probe's journey files loaded: the report lists at least one test and no load error. Pure. */
+export function filesLoaded(report) {
+  if (report?.errors?.length) return false;
+  let any = false;
+  const walk = (suite) => {
+    if ((suite.specs ?? []).length) any = true;
+    for (const c of suite.suites ?? []) walk(c);
+  };
+  for (const s of report?.suites ?? []) walk(s);
+  return any;
+}
+
+/**
+ * One probe's verdict from its report: 'bad' (a failing step fails outright), 'good', or 'error' (it says nothing). A
+ * step that is not in the commit yet (its files loaded and listed tests, but none titled for it) does not reproduce
+ * there, so the merge that brought a new step that breaks on main is named (14 Nov 2026: J-algo-dev-04 #3, new in
+ * #8371). Pure.
+ */
+export function probeVerdict(report, steps) {
+  if (!report) return 'error';
+  const present = stepsPresent(report, steps);
+  if (!present.length) return filesLoaded(report) ? 'good' : 'error';
+  if (!stepsRan(report, present)) return 'error';
+  return stepsFail(report, present) ? 'bad' : 'good';
+}
+
 /** One or more full commit shas: a lone candidate is run too, so a red that was the stack's blames no one. */
 export const validCandidates = (commits) => commits.length > 0 && commits.every((c) => SHA.test(c));
 
@@ -190,15 +230,25 @@ function main(mode = null) {
   if (!PROBE_SH || !JOURNEY_REPORT) throw new Error('PROBE_SH and JOURNEY_REPORT are required');
   const isBad = (sha) => {
     rmSync(JOURNEY_REPORT, { force: true });
+    // A journey file the commit doesn't hold yet is not run there: its steps don't exist, so they don't reproduce.
+    const there = files.filter(
+      (f) => spawnSync('git', ['cat-file', '-e', `${sha}:apps/customer/tests/real-app/${f}`], { stdio: 'ignore' }).status === 0,
+    );
+    if (!there.length) {
+      console.log(`probe ${sha.slice(0, 10)}: passes (${files.join(', ')} not there yet, so the steps don't exist)`);
+      return false;
+    }
     console.log(`::group::probe ${sha.slice(0, 10)}`);
-    const env = { ...process.env, JOURNEY_FILES: files.join(' '), JOURNEY_LEAVE_OUT_FILE: leaveOutFor(sha) };
+    const env = { ...process.env, JOURNEY_FILES: there.join(' '), JOURNEY_LEAVE_OUT_FILE: leaveOutFor(sha) };
     const r = spawnSync('bash', [PROBE_SH, sha], { stdio: 'inherit', env });
     console.log('::endgroup::');
     if (r.status !== 0) throw new Error(`the stack did not start on ${sha.slice(0, 10)} (exit ${r.status}), so the search stops`);
     const report = existsSync(JOURNEY_REPORT) ? JSON.parse(readFileSync(JOURNEY_REPORT, 'utf8')) : null;
-    if (!report || !stepsRan(report, steps)) throw new Error(`the failing steps did not run on ${sha.slice(0, 10)}, so the search stops`);
-    const bad = stepsFail(report, steps);
-    console.log(`probe ${sha.slice(0, 10)}: ${bad ? 'fails' : 'passes'}`);
+    const verdict = probeVerdict(report, steps);
+    if (verdict === 'error') throw new Error(`the failing steps did not run on ${sha.slice(0, 10)}, so the search stops`);
+    const bad = verdict === 'bad';
+    const absent = steps.filter((x) => !stepsPresent(report, steps).includes(x));
+    console.log(`probe ${sha.slice(0, 10)}: ${bad ? 'fails' : 'passes'}${absent.length ? ` (${absent.join(', ')} not there yet)` : ''}`);
     return bad;
   };
   // Confirm (main-bisect.yml, after the automatic revert merged): the failing journeys alone on main's head. Back when
@@ -272,6 +322,38 @@ function selfTest() {
   eq(stepsFail(rep('unexpected'), ['J-a-01#3']), false, 'another step does not count');
   eq(stepsRan(rep('skipped'), ['J-a-01#2']), false, 'a skipped step did not run');
   eq(stepsRan(rep('expected'), ['J-a-01#2']), true, 'a step that ran');
+  // 14 Nov 2026, replayed: the commit before #8371 holds J-algo-dev-04's file without #3 (or no step of it): not there
+  // yet reads as a pass, so the merge that brought the step is the culprit; a report that loaded nothing says nothing.
+  const other = { suites: [{ specs: [{ title: 'J-a-01 #1 x', tests: [{ status: 'expected' }] }] }] };
+  eq(
+    [probeVerdict(rep('unexpected'), ['J-a-01#2']), probeVerdict(rep('expected'), ['J-a-01#2']), probeVerdict(other, ['J-a-01#2'])],
+    ['bad', 'good', 'good'],
+    'fails, passes, and a step not there yet passes',
+  );
+  eq(
+    [
+      probeVerdict({ suites: [] }, ['J-a-01#2']),
+      probeVerdict({ ...other, errors: [{ message: 'x' }] }, ['J-a-01#2']),
+      probeVerdict(null, ['J-a-01#2']),
+    ],
+    ['error', 'error', 'error'],
+    'nothing loaded, a load error, or no report: the probe says nothing',
+  );
+  eq(probeVerdict(rep('skipped'), ['J-a-01#2']), 'error', 'a step there but skipped says nothing');
+  eq(
+    decideCulprit(
+      c,
+      new Map([
+        [c[0], { bad: false }],
+        [c[1], { bad: false }],
+        [c[2], { bad: true }],
+        [c[3], { bad: true }],
+        [c[4], { bad: true }],
+      ]),
+    ).culprit,
+    c[2],
+    'the commits before the step existed pass, so the merge that added it is named',
+  );
   const many = Array.from({ length: MAX_LEGS + 1 }, (_, i) => String(i % 10).repeat(39) + 'abcdefghijklmnopq'[i]);
   eq([planPoints(c), planPoints(many)], [c, [SEARCH]], 'each candidate at once, or one search past MAX_LEGS');
   const res = (...xs) =>
@@ -299,7 +381,7 @@ function selfTest() {
   );
   // Planted: the paths list naming the planner's files is not the planner running.
   eq(leavesOut("paths:\n  - 'tooling/scripts/journey-leave-out*.mjs'\n"), false, 'a paths entry is not the planner');
-  console.log('✓ journeys-revert-probe --self-test OK (32 fixtures)');
+  console.log('✓ journeys-revert-probe --self-test OK (40 fixtures)');
 }
 
 if (process.argv.includes('--self-test')) selfTest();

@@ -103,27 +103,27 @@ async function partnerUsdt() {
 }
 
 /**
- * svc-ledger's own record of business keys, traced by founder A through the console's ledger lookup. Founder A signs in
- * once for all of a step's lookups: each sign-in spends a fresh 30 s authenticator step (`founderTotp`), so four
- * sign-ins in one step waited out most of its 90 s (#8414).
+ * Founder A, signed in to the console once, in a context of its own. One sign-in per step: each sign-in spends a fresh
+ * authenticator step (identity refuses a replayed one), so a sign-in per lookup waited for a new 30 s window on every
+ * lookup after the second, and #6's four lookups ran past the step's 90 s (main run 43653086390).
  */
-async function ledgerTracer(browser) {
+async function founderConsole(browser) {
   const context = await browser.newContext();
-  const founder = await context.newPage();
   try {
+    const founder = await context.newPage();
     await founderSignIn(founder);
-  } catch (err) {
+    return { founder, close: () => context.close() };
+  } catch (error) {
     await context.close();
-    throw err;
+    throw error;
   }
-  return {
-    async trace(businessKey) {
-      const res = await founder.request.get(`${ADMIN}/api/ledger-lookup?businessKey=${encodeURIComponent(businessKey)}`);
-      expect(res.status(), (await res.text()).slice(0, 300)).toBe(200);
-      return await res.json();
-    },
-    close: () => context.close(),
-  };
+}
+
+/** svc-ledger's own record of a business key, traced by founder A through the console's ledger lookup. */
+async function ledgerTrace({ founder }, businessKey) {
+  const res = await founder.request.get(`${ADMIN}/api/ledger-lookup?businessKey=${encodeURIComponent(businessKey)}`);
+  expect(res.status(), (await res.text()).slice(0, 300)).toBe(200);
+  return await res.json();
 }
 
 /** The ledger keys of one usage window (packages/ledger-client recipes/charge.ts): earned, and collected on a payment. */
@@ -615,9 +615,9 @@ test(`${J} #6 closes the session: open windows settle once; a closed session ref
   expect(after).toEqual(before);
   // Our ledger recorded the window once as owed by the person, equal to its cost: one transaction under the window's
   // earned key, revenue up by the cost and the person's receivable down by it.
-  const ledger = await ledgerTracer(browser);
+  const desk = await founderConsole(browser);
   try {
-    const earned = await ledger.trace(earnedKey(chargeKey));
+    const earned = await ledgerTrace(desk, earnedKey(chargeKey));
     expect(earned.found, `the ledger holds ${earnedKey(chargeKey)}`).toBe(true);
     expect(earned.transaction).toMatchObject({ businessKey: earnedKey(chargeKey), module: 'agents', reason: 'charge.earned' });
     expect(earned.transaction.postings).toHaveLength(2);
@@ -629,7 +629,7 @@ test(`${J} #6 closes the session: open windows settle once; a closed session ref
     expect(toUnits(owedAt.balanceAfter) - toUnits(owedAt.balanceBefore)).toBe(-toUnits(cost));
     // And collected once, keyed on the partner's payment: what the person owes comes back to zero, our money at the
     // partner goes up by the cost.
-    const collected = await ledger.trace(collectedKey(paymentRef));
+    const collected = await ledgerTrace(desk, collectedKey(paymentRef));
     expect(collected.found, `the ledger holds ${collectedKey(paymentRef)}`).toBe(true);
     expect(collected.transaction).toMatchObject({ businessKey: collectedKey(paymentRef), module: 'agents', reason: 'charge.collected' });
     expect(collected.transaction.postings).toHaveLength(2);
@@ -655,10 +655,10 @@ test(`${J} #6 closes the session: open windows settle once; a closed session ref
     expect(await ledgerBalances()).toEqual(after);
     // Nothing more left the partner balance, and the window's keys still name those same two transactions.
     expect(toUnits(partnerBefore) - toUnits(await partnerUsdt())).toBe(toUnits(cost));
-    expect((await ledger.trace(earnedKey(chargeKey))).transaction.txId).toBe(earned.transaction.txId);
-    expect((await ledger.trace(collectedKey(paymentRef))).transaction.txId).toBe(collected.transaction.txId);
+    expect((await ledgerTrace(desk, earnedKey(chargeKey))).transaction.txId).toBe(earned.transaction.txId);
+    expect((await ledgerTrace(desk, collectedKey(paymentRef))).transaction.txId).toBe(collected.transaction.txId);
   } finally {
-    await ledger.close();
+    await desk.close();
   }
 });
 

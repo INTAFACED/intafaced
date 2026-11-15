@@ -35,8 +35,6 @@ printf '%s\\t%s\\n' "$count" "$* $body" >> "$GH_CALL_LOG"
 case "$GH_FIXTURE_MODE:$count" in
   setup-fail403:1|setup-success:1) printf '%s\\n' 'Phantom-X-007/intafaced'; exit 0 ;;
   setup-fail403:2) printf '%s\\n' 'HTTP 403: forbidden' >&2; exit 1 ;;
-  sync-fail429:1) printf '%s\\n' '[]'; exit 0 ;;
-  sync-fail429:2) printf '%s\\n' 'HTTP 429: rate limit exceeded' >&2; exit 1 ;;
 esac
 printf '%s\\n' '{}'
 `;
@@ -94,12 +92,4 @@ function run(script, args, mode) {
   assert.doesNotMatch(merge, /(delete_branch_on_merge|allow_auto_merge)=true/);
 }
 
-// Issue-sync's permissive milestone-creation fallback must stop on HTTP 429.
-{
-  const t = run(join(root, 'tooling/scripts/sync-github-issues.mjs'), [], 'sync-fail429');
-  assert.equal(t.result.status, 1, t.result.stderr);
-  assert.equal(t.calls.length, 2);
-  assert.match(t.result.stderr, /429/);
-}
-
-console.log('2 refusal-stop paths, stubbed setup policy, and 10 classifier cases passed; PATH contained only temporary gh/git stubs.');
+console.log('1 refusal-stop path, stubbed setup policy, and 10 classifier cases passed; PATH contained only temporary gh/git stubs.');

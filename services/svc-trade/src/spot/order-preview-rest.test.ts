@@ -614,6 +614,25 @@ describe('POST /api/v1/orders/preview', () => {
     expect(previewSource).toContain('never receives a ledger port');
   });
 
+  it('with the fail-closed switch unset (the production default), an unset sanctions list still refuses', async () => {
+    delete process.env[SCREENING_FAIL_CLOSED_ENV];
+    await withScreeningList(undefined, undefined, async () => {
+      const { app, submit, ledgerPost } = appWith({});
+      const response = await app.inject({
+        method: 'POST',
+        url: SPOT_ORDER_PREVIEW_PATH,
+        headers: headers(),
+        payload: limitBuy,
+      });
+      expect(response.statusCode, response.body).toBe(200);
+      expect(response.json().orderable).toBe(false);
+      expect(response.json().refusals.map((row: { code: string }) => row.code)).toContain(SCREENING_REFUSE_UNCONFIGURED);
+      expect(submit).not.toHaveBeenCalled();
+      expect(ledgerPost).not.toHaveBeenCalled();
+      await app.close();
+    });
+  });
+
   it('refuses preview when the sanctions list is unset and posts no hold', async () => {
     await withScreeningList(undefined, undefined, async () => {
       const { app, submit, ledgerPost } = appWith({});

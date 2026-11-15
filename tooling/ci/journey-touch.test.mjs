@@ -18,6 +18,7 @@ import {
   STACK_FILE,
   afterReuse,
   checkoutJourneyTexts,
+  dispatchTarget,
   reusableRuns,
   journeyTouch,
   namedInputs,
@@ -358,11 +359,9 @@ test('git hooks run no journeys: nothing the journeys run executes commits, push
   // `prepare` points git at .githooks on install; the hooks then run only on a commit or a push. The known ones are
   // outside a pull request's journeys run, so running its journeys would not exercise a hook either: journeys-revert.mjs
   // pushes a revert branch only in main-bisect.yml after a red main run (its `early` step in the journeys workflow
-  // starts that workflow by the API), factory-builder.mjs pushes with --no-verify from the factory's own jobs (and names
-  // `git push failed` in a message), and journey-touch.mjs is this rule.
-  const KNOWN = ['tooling/ci/factory-builder.mjs', 'tooling/ci/journey-touch.mjs', 'tooling/ci/journeys-revert.mjs'];
+  // starts that workflow by the API), and journey-touch.mjs is this rule.
+  const KNOWN = ['tooling/ci/journey-touch.mjs', 'tooling/ci/journeys-revert.mjs'];
   assert.deepEqual(hits.sort(), KNOWN, 'a file the journeys run executes commits, pushes or reads a git hook');
-  assert.match(readFileSync(join(ROOT, 'tooling/ci/factory-builder.mjs'), 'utf8'), /'push', '-q', '--no-verify'/);
   const wf = readFileSync(join(ROOT, JOURNEYS_WORKFLOW), 'utf8');
   assert.deepEqual(
     [...new Set([...wf.matchAll(/journeys-revert\.mjs (\w+)/g)].map((m) => m[1]))],
@@ -1471,4 +1470,20 @@ test('a journey selected by name, the canary, an importer, the map or its own ch
   ]);
   // The head's journey files unknown: the selection is left as it was (no name, no map).
   assert.deepEqual(journeyTouch(['apps/customer/tests/real-app/J-a-01.pw.mjs']).files, ['J-a-01.pw.mjs']);
+});
+
+test('15 Nov: a run by hand that names one file of a journey runs every file of it (run 43637111867)', () => {
+  const head = new Set(['J-derivatives-01.pw.mjs', 'J-derivatives-01-venue.pw.mjs', 'J-derivatives-02.pw.mjs', 'J-bank-13.pw.mjs']);
+  assert.equal(dispatchTarget('J-derivatives-01.pw.mjs', head), 'J-derivatives-01-venue.pw.mjs J-derivatives-01.pw.mjs');
+  assert.equal(dispatchTarget('J-derivatives-01-venue.pw.mjs', head), 'J-derivatives-01-venue.pw.mjs J-derivatives-01.pw.mjs');
+  assert.equal(
+    dispatchTarget('J-bank-13.pw.mjs, J-derivatives-01.pw.mjs', head),
+    'J-bank-13.pw.mjs J-derivatives-01-venue.pw.mjs J-derivatives-01.pw.mjs',
+  );
+  assert.equal(dispatchTarget('J-derivatives-02.pw.mjs', head), 'J-derivatives-02.pw.mjs', 'a one-file journey stays one file');
+  assert.equal(dispatchTarget('nope.txt', head), 'nope.txt', 'a name that is no journey file stays, so the run refuses it');
+  assert.equal(dispatchTarget('', head), '');
+  // At this checkout: the real derivatives-01 pair.
+  const real = new Set(readdirSync(join(ROOT, 'apps/customer/tests/real-app')));
+  assert.equal(dispatchTarget('J-derivatives-01.pw.mjs', real), 'J-derivatives-01-venue.pw.mjs J-derivatives-01.pw.mjs');
 });
