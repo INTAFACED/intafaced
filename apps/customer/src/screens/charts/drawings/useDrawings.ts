@@ -8,7 +8,7 @@
  */
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { Candle } from '../../../data/types';
-import type { ChartHost } from '../chart-host';
+import type { ChartHost, ChartSeries } from '../chart-host';
 import { drawingsCopy } from './copy';
 import { barPrices, magnetSnap, type Pt, type Refusal } from './geometry';
 import { figureLines } from './figures';
@@ -23,8 +23,12 @@ import {
   groupDrawings,
   isRefused,
   isVisible,
+  allowedOnPane,
   makeDrawing,
   patchDrawing,
+  SIZE_DEFAULT,
+  TEXT_SIZES,
+  TONES,
   pointsNeeded,
   removeDrawing,
   setGroupHidden,
@@ -36,20 +40,62 @@ import {
   type DrawingLimits,
   type ModelRefusal,
   type PatternVariant,
+  type Tone,
 } from './model';
 import { canRedo, canUndo, commit, redo as redoHistory, startHistory, undo as undoHistory, type History } from './history';
 import { DrawingsPrimitive } from './primitive';
 import { drawingsKey, readDoc, writeDoc } from './store';
 import { isCursorTool, toolKind, type ToolId } from './tools';
 
-/** What a check can read from the chart element: each drawing's painted lines and handles, and a price's height. */
+/**
+ * What a check can read from the chart element: each drawing's pane, its painted lines, handles and texts (the font and
+ * colour the canvas was given) in pixels from the chart's top left, and a price's height on the price pane.
+ */
 interface DrawnReadback {
   readDrawnLines?: () => Array<{
     id: string;
+    pane: number;
     lines: Array<[number, number, number, number]>;
     handles: Array<{ x: number; y: number; index: number | 'middle' }>;
+    texts: Array<{ text: string; x: number; y: number; font: string; colour: string }>;
   }>;
   readPriceY?: (price: number) => number | null;
+  /** Each pane's index, top and height in the chart element's pixels, as the drawings read them. */
+  readPaneBoxes?: () => Array<{ index: number; top: number; height: number }>;
+}
+
+/** One pane of the chart as laid out now: its index, its top and height in the chart element's pixels, and its scale. */
+interface PaneBox {
+  index: number;
+  top: number;
+  height: number;
+  /** The series whose scale gives the pane's values: the main series on the price pane, the pane's first study series below. */
+  series: ChartSeries | null;
+}
+
+/** The panes of a host, top to bottom. Without the library's pane list (a test host), the whole element is the price pane. */
+function paneBoxes(host: ChartHost): PaneBox[] {
+  const panes = typeof host.chart.panes === 'function' ? host.chart.panes() : [];
+  const rects: Array<{ index: number; rect: DOMRect; series: ChartSeries | null }> = [];
+  for (const pane of panes) {
+    const index = pane.paneIndex();
+    const el = typeof pane.getHTMLElement === 'function' ? pane.getHTMLElement() : null;
+    if (!el) continue;
+    const series = index === 0 ? host.main : ((typeof pane.getSeries === 'function' ? pane.getSeries() : [])[0] ?? null);
+    rects.push({ index, rect: el.getBoundingClientRect(), series });
+  }
+  // Heights are measured from the price pane's own top, which the chart element's pixels start at (the library reads the
+  // price pane in the element's own pixels); an indicator pane's top is its distance below that.
+  const origin = rects.find((r) => r.index === 0)?.rect.top ?? host.element.getBoundingClientRect().top;
+  const boxes: PaneBox[] = rects.map(({ index, rect, series }) => ({ index, top: rect.top - origin, height: rect.height, series }));
+  if (boxes.length === 0) boxes.push({ index: 0, top: 0, height: Number.POSITIVE_INFINITY, series: host.main });
+  return boxes;
+}
+
+/** The pane under a height in the chart element: the price pane above the first pane's top, the last one below the end. */
+function paneAt(boxes: readonly PaneBox[], y: number): PaneBox {
+  for (const box of boxes) if (y >= box.top && y < box.top + box.height) return box;
+  return y < (boxes[0]?.top ?? 0) ? boxes[0]! : boxes[boxes.length - 1]!;
 }
 
 /** The magnet's sensitivity in pixels: a UI default, shown in the panel. Blank (null) turns the magnet off. */
@@ -101,6 +147,13 @@ export interface DrawingsApi {
   setText(id: string, text: string): void;
   setTextValue(text: string): void;
   textValue: string;
+  /** The size and colour a new text takes, and the change of a placed text's size or colour. */
+  textSize: number;
+  setTextSize(size: number): void;
+  textTone: Tone;
+  setTextTone(tone: Tone): void;
+  setSize(id: string, size: number): void;
+  setTone(id: string, tone: Tone): void;
   setLevels(id: string, levels: readonly string[]): void;
   magnet: boolean;
   setMagnet(on: boolean): void;
@@ -153,6 +206,8 @@ const REFUSAL_KEY = {
   'brush-cap-loading': 'Refused brush-cap-loading',
   'brush-cap-unavailable': 'Refused brush-cap-unavailable',
   'wrong-side': 'Refused wrong-side',
+  'pane-not-allowed': 'Refused pane-not-allowed',
+  'bad-size': 'Refused bad-size',
   'no-risk': 'Refused no-risk',
 } as const satisfies Partial<Record<ModelRefusal | Refusal, string>>;
 
@@ -188,6 +243,8 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
   const [checked, setChecked] = useState<string[]>([]);
   const [magnetOn, setMagnetOn] = useState(false);
   const [textValue, setTextValue] = useState('Text');
+  const [textSize, setTextSize] = useState(SIZE_DEFAULT);
+  const [textTone, setTextTone] = useState<Tone>('text');
   const [notice, setNoticeText] = useState<string | null>(null);
   const [noticeCode, setNoticeCode] = useState<string | null>(null);
   /** Show a note; a note about an owner limit carries its typed code, and any other note carries none. */
@@ -199,9 +256,16 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
   const [saved, setSaved] = useState(true);
 
   const primitive = useMemo(() => new DrawingsPrimitive(), []);
+  /** One primitive per indicator pane that holds a series, attached to that series, keyed by the pane's index. */
+  const panePrims = useRef(new Map<number, { primitive: DrawingsPrimitive; series: ChartSeries }>());
+  /** The pane the drawing being placed is on (its first click's pane). */
+  const draftPaneRef = useRef(0);
   const barTimes = useMemo(() => bars.map((b) => Math.floor(b.t / 1000)), [bars]);
   const draftRef = useRef<Pt[]>([]);
   const cursorRef = useRef<{ x: number; y: number } | null>(null);
+  /** The pixel a brush stroke last sampled a point at (the next is taken a few pixels on). Its own: the pointer's latest
+   * position (`cursorRef`) is written on every move, before the stroke's own handler reads it. */
+  const brushPxRef = useRef<{ x: number; y: number } | null>(null);
   const suppressClickRef = useRef(false);
   const magnet = magnetOn && sensitivity !== null;
 
@@ -218,6 +282,8 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
     magnet,
     sensitivity,
     textValue,
+    textSize,
+    textTone,
     t,
   });
   latest.current = {
@@ -232,6 +298,8 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
     magnet,
     sensitivity,
     textValue,
+    textSize,
+    textTone,
     t,
   };
 
@@ -256,8 +324,23 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
     return true;
   };
 
-  /** The chart point under a pixel: the nearest loaded bar and the decimal price, snapped if the magnet is on. */
-  const pointAt = (x: number, y: number): Pt | Refused => {
+  /** The panes as laid out now (the price pane alone before the chart is ready). */
+  const boxes = (): PaneBox[] => {
+    const h = latest.current.host;
+    return h ? paneBoxes(h) : [{ index: 0, top: 0, height: Number.POSITIVE_INFINITY, series: null }];
+  };
+  /** The pane at a height in the chart element, or the given pane (a placement or a drag stays on its own pane). */
+  const boxFor = (y: number, pane?: number): PaneBox | null => {
+    const all = boxes();
+    return pane === undefined ? paneAt(all, y) : (all.find((b) => b.index === pane) ?? null);
+  };
+
+  /**
+   * The chart point under a pixel: the nearest loaded bar and the decimal value at that height on the pane's own scale (the
+   * price on the price pane, the indicator's value on an indicator pane), at the tick size. On the price pane the magnet
+   * snaps to the bar's open, high, low or close.
+   */
+  const pointAt = (x: number, y: number, pane?: number): Pt | Refused => {
     const L = latest.current;
     const h = L.host;
     if (!h) return { refused: 'bad-price' };
@@ -266,38 +349,85 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
     const index = Math.round(logical);
     const bar = L.bars[index];
     if (!bar || index < 0) return { refused: 'outside-bars' };
-    const raw = h.main.coordinateToPrice(y);
+    const box = boxFor(y, pane);
+    const series = box?.index === 0 || !box ? h.main : box.series;
+    if (!series) return { refused: 'bad-price' };
+    const localY = y - (box?.top ?? 0);
+    const raw = series.coordinateToPrice(localY);
     if (raw === null) return { refused: 'bad-price' };
     let price = priceFromNumber(raw, L.tickSize);
     if (price === null) return { refused: 'bad-tick' };
-    if (L.magnet && L.sensitivity !== null) {
-      const snapped = magnetSnap(barPrices(bar), y, (p) => h.main.priceToCoordinate(Number(p)), L.sensitivity);
+    if (L.magnet && L.sensitivity !== null && (box?.index ?? 0) === 0) {
+      const snapped = magnetSnap(barPrices(bar), localY, (p) => h.main.priceToCoordinate(Number(p)), L.sensitivity);
       if (snapped !== null) price = snapped;
     }
     return { time: L.barTimes[index]!, price };
   };
 
+  /** What is under a pixel: the drawings of the pane at that height, hit in that pane's pixels. */
+  const hitAt = (x: number, y: number) => {
+    const box = boxFor(y);
+    if (!box || box.index === 0) return primitive.hit(x, y - (box?.top ?? 0));
+    return panePrims.current.get(box.index)?.primitive.hit(x, y - box.top) ?? null;
+  };
+
+  /**
+   * Keep one primitive on each indicator pane that holds a series. A pane whose series changed (the studies were drawn
+   * again) gets its primitive moved to the new series; a pane that is gone loses its primitive.
+   */
+  const syncPanes = () => {
+    const h = latest.current.host;
+    const want = new Map<number, ChartSeries>();
+    if (h) for (const box of paneBoxes(h)) if (box.index > 0 && box.series) want.set(box.index, box.series);
+    for (const [index, entry] of panePrims.current) {
+      if (want.get(index) === entry.series) continue;
+      try {
+        entry.series.detachPrimitive(entry.primitive);
+      } catch {
+        /* The series is already removed with its pane. */
+      }
+      panePrims.current.delete(index);
+    }
+    for (const [index, series] of want) {
+      if (panePrims.current.has(index)) continue;
+      const pane = new DrawingsPrimitive();
+      pane.bind(series);
+      series.attachPrimitive(pane);
+      panePrims.current.set(index, { primitive: pane, series });
+    }
+  };
+
   const refreshPrimitive = () => {
     const L = latest.current;
+    syncPanes();
     const visible = L.doc.drawings.filter((d) => isVisible(L.doc, d));
     let preview: Drawing | null = null;
     const kind = toolKind(L.tool);
     if (kind && draftRef.current.length > 0) {
       const points = [...draftRef.current];
       if (cursorRef.current) {
-        const at = pointAt(cursorRef.current.x, cursorRef.current.y);
+        const at = pointAt(cursorRef.current.x, cursorRef.current.y, draftPaneRef.current);
         if (!isPointRefusal(at)) points.push(at);
       }
-      preview = makeDrawing('preview', kind.kind, points, { variant: kind.variant, text: L.textValue });
+      preview = makeDrawing('preview', kind.kind, points, {
+        variant: kind.variant,
+        text: L.textValue,
+        size: L.textSize,
+        tone: L.textTone,
+        pane: draftPaneRef.current,
+      });
     }
-    primitive.set({
-      drawings: visible,
+    const paneOf = (d: Drawing) => d.pane ?? 0;
+    const stateFor = (pane: number) => ({
+      drawings: visible.filter((d) => paneOf(d) === pane),
       selectedId: L.selectedId,
-      preview,
+      preview: preview && paneOf(preview) === pane ? preview : null,
       tick: L.tickSize,
       barTimes: L.barTimes,
-      t: (key, vars) => L.t(key, vars),
+      t: (key: string, vars?: Record<string, string>) => L.t(key, vars),
     });
+    primitive.set(stateFor(0));
+    for (const [index, entry] of panePrims.current) entry.primitive.set(stateFor(index));
   };
 
   const setDraft = (points: Pt[]) => {
@@ -313,7 +443,14 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
 
   // Placement: one click per point; the drawing completes when it has the points it needs.
   const finishPlacement = (kind: DrawingKind, variant: PatternVariant | undefined, points: Pt[]) => {
-    const drawing = makeDrawing(newId(), kind, points, { variant, text: latest.current.textValue });
+    const L = latest.current;
+    const drawing = makeDrawing(newId(), kind, points, {
+      variant,
+      text: L.textValue,
+      size: L.textSize,
+      tone: L.textTone,
+      pane: draftPaneRef.current,
+    });
     const ok = applyResult(addDrawing(latest.current.doc, drawing, latest.current.limits));
     setDraft([]);
     if (ok) {
@@ -330,7 +467,7 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
     const L = latest.current;
     const current = L.tool;
     if (isCursorTool(current)) {
-      const hit = primitive.hit(x, y);
+      const hit = hitAt(x, y);
       if (current === 'eraser') {
         if (hit) {
           const result = removeDrawing(L.doc, hit.id);
@@ -344,7 +481,16 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
     }
     const kind = toolKind(current);
     if (!kind || kind.kind === 'brush') return;
-    const at = pointAt(x, y);
+    // The first click picks the pane; the drawing's other points are read on that same pane.
+    if (draftRef.current.length === 0) {
+      const pane = boxFor(y)?.index ?? 0;
+      if (!allowedOnPane(kind.kind, pane)) {
+        showRefusal('pane-not-allowed');
+        return;
+      }
+      draftPaneRef.current = pane;
+    }
+    const at = pointAt(x, y, draftPaneRef.current);
     if (isPointRefusal(at)) {
       showRefusal(at.refused);
       return;
@@ -373,6 +519,7 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
           startPrice: Decimal;
           startPoints: Pt[];
           startDoc: DrawingDoc;
+          pane: number;
         }
       | { mode: 'brush' };
     let drag: Drag | null = null;
@@ -407,11 +554,11 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
         const cap = latest.current.limits.brushPointCap;
         if (cap === null) return;
         const last = draftRef.current[draftRef.current.length - 1];
-        const at = pointAt(x, y);
+        const at = pointAt(x, y, 0);
         if (isPointRefusal(at) || (last && last.time === at.time && last.price === at.price)) return;
-        const lastPx = cursorRef.current;
+        const lastPx = brushPxRef.current;
         if (lastPx && Math.hypot(lastPx.x - x, lastPx.y - y) < BRUSH_STEP_PX) return;
-        cursorRef.current = { x, y };
+        brushPxRef.current = { x, y };
         draftRef.current = [...draftRef.current, at];
         if (draftRef.current.length >= cap) {
           setNotice(latest.current.t('Refused brush-cap-reached'));
@@ -421,7 +568,7 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
         refreshPrimitive();
         return;
       }
-      const at = pointAt(x, y);
+      const at = pointAt(x, y, d.pane);
       if (isPointRefusal(at)) return;
       const L = latest.current;
       let points: Pt[];
@@ -495,7 +642,7 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
       const L = latest.current;
       const { x, y } = local(e);
       if (isCursorTool(L.tool) && L.tool !== 'eraser') {
-        const hit = primitive.hit(x, y);
+        const hit = hitAt(x, y);
         if (!hit || hit.handle === undefined) return;
         const d = findDrawing(L.doc, hit.id);
         if (!d) return;
@@ -505,9 +652,11 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
           showRefusal('locked');
           return;
         }
-        const at = pointAt(x, y);
+        const pane = d.pane ?? 0;
+        const at = pointAt(x, y, pane);
         if (isPointRefusal(at)) return;
         drag = {
+          pane,
           mode: hit.handle === 'middle' ? 'middle' : 'handle',
           id: hit.id,
           index: hit.handle,
@@ -518,15 +667,19 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
         };
         freeze(true);
       } else if (toolKind(L.tool)?.kind === 'brush') {
+        if ((boxFor(y)?.index ?? 0) !== 0) {
+          showRefusal('pane-not-allowed');
+          return;
+        }
         if (L.limits.brushPointCap === null) {
           showRefusal(blankCapRefusal(L.limits.brushWhy, true));
           return;
         }
-        const at = pointAt(x, y);
+        const at = pointAt(x, y, 0);
         if (isPointRefusal(at)) return;
         suppressClickRef.current = true;
         draftRef.current = [at];
-        cursorRef.current = { x, y };
+        brushPxRef.current = { x, y };
         drag = { mode: 'brush' };
         freeze(true);
         refreshPrimitive();
@@ -580,20 +733,49 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
     };
   }, [host?.element, tool]);
 
-  // Chart clicks place and select; crosshair moves update the preview of a drawing being placed.
+  // Pointer moves over the chart update the preview of a drawing being placed. They are read in the chart element's pixels,
+  // like the clicks, so a preview on an indicator pane is read on that pane.
   useEffect(() => {
-    const chart = host?.chart;
-    if (!chart) return;
-    const onMoveChart = (param: { point?: { x: number; y: number } }) => {
-      cursorRef.current = param.point ? { x: param.point.x, y: param.point.y } : null;
+    const element = host?.element;
+    if (!element) return;
+    const onMovePointer = (e: PointerEvent) => {
+      const r = element.getBoundingClientRect();
+      cursorRef.current = { x: e.clientX - r.left, y: e.clientY - r.top };
       if (draftRef.current.length > 0) refreshPrimitive();
     };
-    chart.subscribeCrosshairMove(onMoveChart);
+    const onLeave = () => {
+      cursorRef.current = null;
+      if (draftRef.current.length > 0) refreshPrimitive();
+    };
+    element.addEventListener('pointermove', onMovePointer);
+    element.addEventListener('pointerleave', onLeave);
     return () => {
-      chart.unsubscribeCrosshairMove(onMoveChart);
+      element.removeEventListener('pointermove', onMovePointer);
+      element.removeEventListener('pointerleave', onLeave);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [host?.chart]);
+  }, [host?.element]);
+
+  // The studies draw their indicator panes on the same host and mark the element when they do: each change gets the
+  // indicator panes' primitives attached again, so drawings on a pane come back with it.
+  useEffect(() => {
+    const element = host?.element;
+    if (!element || typeof MutationObserver === 'undefined') return;
+    const observer = new MutationObserver(() => refreshPrimitive());
+    observer.observe(element, { attributes: true, attributeFilter: ['data-study-panes', 'data-study-pane-layout'] });
+    return () => {
+      observer.disconnect();
+      for (const entry of panePrims.current.values()) {
+        try {
+          entry.series.detachPrimitive(entry.primitive);
+        } catch {
+          /* The series is already removed with its pane. */
+        }
+      }
+      panePrims.current.clear();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [host?.element]);
 
   // The primitive is attached to the main series; a new main series (a chart style change) attaches it again.
   useEffect(() => {
@@ -605,15 +787,36 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
     const element = host?.element as (HTMLElement & DrawnReadback) | undefined;
     if (element) {
       element.dataset.drawingsPane = String(main.getPane().paneIndex());
-      // Read on demand (nothing is written per frame), so a check can measure what is drawn: each drawing's painted lines
-      // and handles in pixels from the chart's top left, and the height a price is drawn at on the price pane.
-      element.readDrawnLines = () =>
-        primitive.current().map((plan) => ({
-          id: plan.id,
-          lines: plan.ops.flatMap((op) => (op.op === 'line' ? [[op.x1, op.y1, op.x2, op.y2] as [number, number, number, number]] : [])),
-          handles: plan.handles.map((h) => ({ x: h.x, y: h.y, index: h.index })),
-        }));
+      // Read on demand (nothing is written per frame), so a check can measure what is drawn: each drawing's pane, its painted
+      // lines, handles and texts in pixels from the chart's top left, and the height a price is drawn at on the price pane.
+      element.readDrawnLines = () => {
+        const h = latest.current.host;
+        const tops = new Map((h ? paneBoxes(h) : []).map((b) => [b.index, b.top]));
+        const sources: Array<[number, DrawingsPrimitive]> = [
+          [0, primitive],
+          ...[...panePrims.current].map(([i, e]) => [i, e.primitive] as [number, DrawingsPrimitive]),
+        ];
+        return sources.flatMap(([pane, prim]) => {
+          const top = tops.get(pane) ?? 0;
+          const texts = prim.paintedTexts();
+          return prim.current().map((plan) => ({
+            id: plan.id,
+            pane,
+            lines: plan.ops.flatMap((op) =>
+              op.op === 'line' ? [[op.x1, op.y1 + top, op.x2, op.y2 + top] as [number, number, number, number]] : [],
+            ),
+            handles: plan.handles.map((hd) => ({ x: hd.x, y: hd.y + top, index: hd.index })),
+            texts: texts
+              .filter((tx) => tx.id === plan.id)
+              .map((tx) => ({ text: tx.text, x: tx.x, y: tx.y + top, font: tx.font, colour: tx.colour })),
+          }));
+        });
+      };
       element.readPriceY = (price: number) => main.priceToCoordinate(price);
+      element.readPaneBoxes = () => {
+        const h = latest.current.host;
+        return h ? paneBoxes(h).map(({ index, top, height }) => ({ index, top, height })) : [];
+      };
     }
     return () => {
       main.detachPrimitive(primitive);
@@ -621,6 +824,7 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
         delete element.dataset.drawingsPane;
         delete element.readDrawnLines;
         delete element.readPriceY;
+        delete element.readPaneBoxes;
       }
     };
   }, [host?.main, host?.element, primitive]);
@@ -629,7 +833,7 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
   useEffect(() => {
     refreshPrimitive();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [doc, selectedId, tool, barTimes, options.tickSize, host?.main, magnet]);
+  }, [doc, selectedId, tool, barTimes, options.tickSize, host?.main, magnet, textSize, textTone]);
 
   // Keyboard: Delete removes the selection, Ctrl+Z and Ctrl+Y or Ctrl+Shift+Z move through history, Escape cancels a placement.
   useEffect(() => {
@@ -717,6 +921,25 @@ export function useDrawings(host: ChartHost | null, bars: readonly Candle[], opt
     setText: (id, text) => patch(id, { text: text.trim() || 'Text' }),
     setTextValue,
     textValue,
+    textSize,
+    setTextSize: (size) => {
+      if (TEXT_SIZES.includes(size)) setTextSize(size);
+      else showRefusal('bad-size');
+    },
+    textTone,
+    setTextTone: (tone) => {
+      if (TONES.includes(tone)) setTextTone(tone);
+    },
+    setSize: (id, size) => {
+      if (!TEXT_SIZES.includes(size)) {
+        showRefusal('bad-size');
+        return;
+      }
+      patch(id, { size });
+    },
+    setTone: (id, tone) => {
+      if (TONES.includes(tone)) patch(id, { tone });
+    },
     setLevels: (id, levels) => {
       const cleaned: Decimal[] = [];
       for (const level of levels) {

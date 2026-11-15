@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { EDGE, ORIGIN, DEVICE_KEY, json, tool, worldState } from './stack.mjs';
-import { declaredWorld } from './world-line.mjs';
+import { declaredWorld, marketLive } from './world-line.mjs';
 import { STATUS_MS, healStack } from './services.mjs';
 import { MAKER_SETTLE_MS, makerEmails, makerRecordArgs, makerSettled } from './market.mjs';
 
@@ -167,6 +167,34 @@ export async function restoreWorld(file, { makerArgs = null, accounts = [] }) {
   return said;
 }
 
+/** Whether the journey file `file` reads the TEST market moving on its own (world-line.mjs `marketLive`); unreadable is still. */
+export function liveOf(file) {
+  try {
+    return marketLive(fs.readFileSync(file, 'utf8'));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The TEST market as the journey file `file` needs it: still, unless it has a `// Market: live` line. Returns once the
+ * running maker has started a cycle that way (at once when it already runs that way or is not running). Nothing here
+ * fails a step: a market not made so is printed with "WORLD RESTORE" and the file runs on it as it is.
+ */
+export function marketFor(file) {
+  const mode = liveOf(file) ? 'live' : 'still';
+  try {
+    tool('local-test-market.mjs', mode);
+    return [];
+  } catch (err) {
+    const line = `TEST market not made ${mode} for ${file.split('/').at(-1)}: ${String(err.stderr || err.message)
+      .trim()
+      .slice(0, 200)}`;
+    console.log(`WORLD RESTORE ${line}`);
+    return [line];
+  }
+}
+
 /**
  * Entering journey file `file` in this worker: when the last file this worker ran was another one, put back what that
  * one changed first, then start the new file's record. The same file again (a worker started again after a failed
@@ -175,6 +203,9 @@ export async function restoreWorld(file, { makerArgs = null, accounts = [] }) {
 export async function enterFile(file) {
   const last = worldState.read();
   if (last.file === file) return;
+  // Before the last file's restore, so the restore's own wait for a settled book (or a maker it starts again) is
+  // already still or live as this file needs.
+  marketFor(file);
   if (last.file) await restoreWorld(last.file, last);
   worldState.write({ file, makerArgs: worldOf(file).has('market') ? marketArgs() : null, accounts: [] });
 }

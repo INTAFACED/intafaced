@@ -4,6 +4,7 @@ import { useResource } from '../../shared/resource';
 import { Read } from '../more/common';
 import { useApi } from '../session/session';
 import { usageCopy } from './usage-copy';
+import { limitsCopy } from './limits-copy';
 
 /**
  * The usage view (AL-limits-01): each resource with what the account holds, counted from the stored rows, against its
@@ -12,6 +13,7 @@ import { usageCopy } from './usage-copy';
 export function UsagePanel({ revision }: { revision: number }) {
   const api = useApi();
   const { t } = usageCopy.useCopy();
+  const limits = limitsCopy.useCopy();
   const usage = useResource(
     (signal) => api.query('quant', 'quota.get', undefined, quantQuotaSchema, { signal }),
     `quant-usage:${revision}`,
@@ -42,6 +44,10 @@ export function UsagePanel({ revision }: { revision: number }) {
                 ))}
               </DataTable>
               <p className="muted">{t('asOf', { at: data.asOf.slice(0, 16).replace('T', ' ') })}</p>
+              {/* The sandbox limits each run meets are on their own page (J-algo-dev-12 #4). */}
+              <a className="text-link" href="/quant/limits" data-testid="quant-usage-limits-link">
+                {limits.t('openLimits')}
+              </a>
             </>
           )}
         </Read>

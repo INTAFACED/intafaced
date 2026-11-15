@@ -617,6 +617,16 @@ export function futuresRefusal(failure: { code?: string; message?: string; statu
   return { title: shared.title, body: shared.body, code, retryable: true };
 }
 
+/** Words for a margin class the venue does not take, naming that venue when the service names it (J-derivatives-02 #4). */
+export function collateralRefusal(venue: string | undefined): FuturesRefusal {
+  const known = futuresRefusal({ code: 'trade.unsupported_collateral_class' });
+  if (!venue) return known;
+  return {
+    ...known,
+    body: `${venue} does not take yield-bearing, staked or lending balances as margin. Use cash from your free balance.`,
+  };
+}
+
 /** Codes that mean "the whole futures plane is not accepting this", so the room shows one plane-level block. */
 export function isPlaneOff(code: string | null | undefined): boolean {
   return code === 'trade.futures_disabled';

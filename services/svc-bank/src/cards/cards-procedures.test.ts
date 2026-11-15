@@ -21,6 +21,7 @@ import { stubApprovalConsumer } from '../action-approval-consume.js';
 import { CardService } from './card-service.js';
 import { cardIssuerFor, cardProgrammeOutput, cardSim, type CardIssuerAdapter } from './issuer.js';
 import { NOTHING_REPORTED } from './partner-terms.js';
+import { testPartner, type TestPartner } from '../partner/test-partner.js';
 
 function luhnOk(digits: string): boolean {
   let sum = 0;
@@ -598,12 +599,13 @@ describe('customer card procedures (PG-hard)', () => {
   });
 
   /** The TEST partner adapter with `secrets: "test"` and the owner's PIN try limit (J-bank-14 #3, #4). */
-  async function testSecretsSim(pinTryLimit: number | null, threeDSTryLimit: number | null = null) {
+  async function testSecretsSim(pinTryLimit: number | null, threeDSTryLimit: number | null = null, partnerSwitches?: TestPartner) {
     await sql`TRUNCATE bank.card_3ds_challenges, bank.card_fraud_reports, bank.card_wallet_tokens, bank.card_controls, bank.card_status_events, bank.card_secret_audits, bank.card_commands, bank.card_cashback, bank.card_settlements, bank.card_conversions, bank.card_authorizations, bank.cards RESTART IDENTITY CASCADE`;
     const ledger = new MemoryLedger();
     const partner = { ...NOTHING_REPORTED, secrets: 'test' as const };
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
       cards: { issuer: cardIssuerFor('card-sim', { live: false }, partner), clock: () => NOW, pinTryLimit, threeDSTryLimit },
+      ...(partnerSwitches ? { testPartner: partnerSwitches } : {}),
     });
     const identity = new FakeIdentity();
     const gate = createStepUpGate({ mode: 'required', approvals: identity, clock: () => NOW });
@@ -612,7 +614,13 @@ describe('customer card procedures (PG-hard)', () => {
 
   it('shows the TEST partner card details once per step-up, labelled TEST, and keeps none of them', async () => {
     const { bank, user, identity } = await testSecretsSim(3);
-    await expect(user.cards.secretsOffered()).resolves.toEqual({ details: true, pin: true, wallet: true, test: true });
+    await expect(user.cards.secretsOffered()).resolves.toEqual({
+      details: true,
+      pin: true,
+      wallet: true,
+      test: true,
+      walletNotOffered: false,
+    });
     const cardId = randomUUID();
     await bank.cards.issue({ cardId, userId: HOLDER, assetId: 'USDT', perAuthorizationLimit: amt('100') });
     const revealId = randomUUID();
@@ -720,12 +728,15 @@ describe('customer card procedures (PG-hard)', () => {
     expect(await tap('0000')).toMatchObject({ declineCode: 'bank.card_pin_wrong' });
     expect(await tap('0000')).toMatchObject({ declineCode: 'bank.card_pin_blocked' });
 
-    // Random ids and clock times can hold any four digits ("86422193-…" did, on #7779's run 42738583878), so they are
-    // taken out before the search; every other stored value is still searched for both PINs.
+    // Random ids, hex hashes and clock times can hold any four digits ("86422193-…" did, on #7779's run 42738583878; a
+    // payload_hash "e691a724987c4321…" did, on #7815's run 42759902360), so they are taken out before the search; every
+    // other stored value is still searched for both PINs. A hash is a whole quoted run of 32 or more hex digits, so a
+    // PIN stored in the clear, alone or inside other text, is never masked.
     const stored = (
       JSON.stringify(await sql`SELECT * FROM bank.card_authorizations`) + JSON.stringify(await sql`SELECT * FROM bank.card_secret_audits`)
     )
       .replace(/"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"/gi, '"<uuid>"')
+      .replace(/(?<=")[0-9a-f]{32,}(?=\\?")/gi, '<hash>')
       .replace(/"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z"/g, '"<time>"');
     expect(stored).not.toContain('4321');
     expect(stored).not.toContain('8642');
@@ -777,6 +788,31 @@ describe('customer card procedures (PG-hard)', () => {
     expect((await user.cards.walletTokens({ cardId })).tokens).toHaveLength(1);
     const rows = JSON.stringify(await sql`SELECT * FROM bank.card_wallet_tokens`);
     expect(rows).not.toContain(first.payload);
+  });
+
+  it('a card partner that does not add cards to phone wallets reads "not offered by the partner" and refuses, adding nothing (J-bank-13 #8)', async () => {
+    const switches = testPartner();
+    switches.set(HOLDER, { notOffered: ['phone_wallet'] });
+    const { bank, user } = await testSecretsSim(3, null, switches);
+    await expect(user.cards.secretsOffered()).resolves.toEqual({
+      details: true,
+      pin: true,
+      wallet: false,
+      test: true,
+      walletNotOffered: true,
+    });
+    const cardId = randomUUID();
+    await bank.cards.issue({ cardId, userId: HOLDER, assetId: 'USDT', perAuthorizationLimit: amt('100') });
+    await expect(
+      user.cards.walletProvision({ cardId, provisionId: randomUUID(), wallet: 'apple', nonce: 'device-n' }),
+    ).rejects.toMatchObject({ message: expect.stringContaining('Not offered by the partner') });
+    expect((await user.cards.walletTokens({ cardId })).tokens).toEqual([]);
+    expect(await sql`SELECT id FROM bank.card_secret_audits WHERE kind = 'wallet_provision'`).toHaveLength(0);
+    // The partner offers it again: the same person's card goes in.
+    switches.set(HOLDER, { notOffered: [] });
+    await expect(user.cards.secretsOffered()).resolves.toMatchObject({ wallet: true, walletNotOffered: false });
+    await user.cards.walletProvision({ cardId, provisionId: randomUUID(), wallet: 'apple', nonce: 'device-o' });
+    expect((await user.cards.walletTokens({ cardId })).tokens).toEqual([expect.objectContaining({ wallet: 'apple', state: 'added' })]);
   });
 
   it('completes a 3D Secure purchase once on the right code, and locks a challenge at the owner count of wrong codes (J-bank-14 #5)', async () => {
@@ -1034,7 +1070,13 @@ describe('customer card procedures (PG-hard)', () => {
       message: expect.stringContaining('bank.card_wallet_issuer_unset'),
     });
     await expect(user.cards.walletTokens({ cardId })).resolves.toEqual({ test: false, tokens: [] });
-    await expect(user.cards.secretsOffered()).resolves.toEqual({ details: false, pin: false, wallet: false, test: false });
+    await expect(user.cards.secretsOffered()).resolves.toEqual({
+      details: false,
+      pin: false,
+      wallet: false,
+      test: false,
+      walletNotOffered: false,
+    });
   });
 
   it('issues a simulated physical card only with a delivery address', async () => {

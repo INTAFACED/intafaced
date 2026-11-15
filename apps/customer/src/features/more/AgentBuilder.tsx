@@ -35,17 +35,21 @@ import { ownAgentUsageLimitsSchema, type OwnAgentUsageLimits } from '@intafaced/
 import { ServiceOffNotice } from '../../shared/service-off';
 import { PermissionsPage, RulesPage, toolWords, TryTool } from './AgentGuardrails';
 import { AccessPage } from './AgentAccess';
+import { AllowancePage } from './AgentAllowance';
+import { PortfolioPage } from './AgentPortfolio';
 import { ReviewerPanel } from './AgentReviewer';
 import { agentGuardrailsCopy } from './agent-guardrails-copy';
 import { EvaluationsPage } from './AgentEvaluations';
+import { SchedulesPage, TriggersPage } from './AgentAutomation';
 import { AnalyticsPage, RunsPage, TestPanel } from './AgentTestRuns';
 import { AssistantPanel, IdentityPage } from './AgentIdentity';
+import { MemoryPage, PrivacyPage, ShareWithCoOwners } from './AgentMemory';
 
 type ToolEntry = OwnAgentCatalogue['tools'][number];
 
 const OWN_AGENT_PATH = /^\/agents\/([^/]{1,64})$/;
 /** The agent pages of their own under /agents/, which never name an agent. */
-const AGENT_ROOMS = new Set(['new', 'team', 'approvals']);
+const AGENT_ROOMS = new Set(['new', 'team', 'approvals', 'connect']);
 /**
  * The id an address names under /agents/, or null. Any id opens the agent's page, so one that is not the person's,
  * or not an id at all, shows the service's own "not one of yours" refusal there, never a missing route.
@@ -515,6 +519,7 @@ const PAGES = [
   'Usage',
   'Analytics',
   'Allowance',
+  'Portfolio',
   'Access',
   'Schedules',
   'Triggers',
@@ -529,6 +534,8 @@ export function OwnAgentPage({ id }: { id: string }) {
   const api = useApi();
   const { t } = agentBuilderCopy.useCopy();
   const [page, setPage] = useState<string>('Build');
+  // A run a Memory item names as its source: the Runs page opens on the test runs with that run marked.
+  const [focusRun, setFocusRun] = useState<string | null>(null);
   // The open session belongs to the agent's page, not to one tab of it: moving to Usage and back keeps it.
   const session = useState<string | null>(null);
   const [usageRuns, setUsageRuns] = useState(0);
@@ -590,27 +597,40 @@ export function OwnAgentPage({ id }: { id: string }) {
             ) : page === 'Permissions' ? (
               <PermissionsPage agent={agent} />
             ) : page === 'Runs' ? (
-              <RunsPage agent={agent} live={<Runs agent={agent} />} />
+              <RunsPage agent={agent} live={<Runs agent={agent} />} focusRun={focusRun} />
             ) : page === 'Analytics' ? (
               <AnalyticsPage agent={agent} />
             ) : page === 'Usage' ? (
               <Usage agent={agent} />
             ) : page === 'Evaluations' ? (
               <EvaluationsPage agent={agent} />
+            ) : page === 'Schedules' ? (
+              <SchedulesPage agent={agent} />
+            ) : page === 'Triggers' ? (
+              <TriggersPage agent={agent} />
             ) : page === 'Sharing' ? (
-              <SharingPage agent={agent} />
+              <>
+                <SharingPage agent={agent} />
+                <ShareWithCoOwners agent={agent} />
+              </>
             ) : page === 'Access' ? (
               <AccessPage agent={agent} />
+            ) : page === 'Allowance' ? (
+              <AllowancePage agent={agent} />
+            ) : page === 'Portfolio' ? (
+              <PortfolioPage agent={agent} />
             ) : page === 'Identity' ? (
               <IdentityPage key={agent.id} agent={agent} />
+            ) : page === 'Memory' ? (
+              <MemoryPage
+                agent={agent}
+                onOpenRun={(runId) => {
+                  setFocusRun(runId);
+                  setPage('Runs');
+                }}
+              />
             ) : (
-              <Panel title={t(`page_${page as (typeof PAGES)[number]}`)}>
-                <p role="note">
-                  {t(
-                    `parked_${page as Exclude<(typeof PAGES)[number], 'Build' | 'Limits' | 'Test' | 'Runs' | 'Usage' | 'Rules' | 'Permissions' | 'Evaluations' | 'Analytics' | 'Sharing' | 'Identity' | 'Access'>}`,
-                  )}
-                </p>
-              </Panel>
+              <PrivacyPage agent={agent} />
             )}
           </div>
         );

@@ -125,7 +125,7 @@ export function mapError(err: unknown): never {
       if (err.code === 'support.chat_prechat_invalid') throw new TRPCError({ code: 'BAD_REQUEST', message });
       throw new TRPCError({ code: 'PRECONDITION_FAILED', message });
     }
-    if (err.code === 'support.claim.already_claimed' || err.code === 'support.kb.revision_stale' || err.code === 'support.already_rated') {
+    if (err.code === 'support.claim.already_claimed' || err.code === 'support.kb_revision_stale' || err.code === 'support.already_rated') {
       throw new TRPCError({ code: 'CONFLICT', message });
     }
     if (

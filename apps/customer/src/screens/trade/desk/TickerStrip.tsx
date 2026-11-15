@@ -7,6 +7,8 @@ import { tradingMode, type DeskMarket } from './market';
 import { changeLine, dollarPrice, partialWindowStart, placesOf, turnoverText } from './text';
 import { clockMinutes } from './time';
 import { maintenanceWhen } from '../../../shared/market-maintenance';
+import { useMarketLifecycle } from '../../charts/market-state';
+import { TEST_EVIDENCE_PREFIX } from '../../charts/data-status';
 import type { Preferences } from '../../../shared/preferences';
 import type { ReactNode } from 'react';
 
@@ -56,6 +58,10 @@ function MaintenanceStat({ window, zone }: { window: NonNullable<DeskMarket['mai
 /** Ticker strip, 48 px (UI-SPEC 5.7): pair, last price, 24h change, low, high, volume, turnover from /ticker; the trading mode from the listing. */
 export const TickerStrip = memo(function TickerStrip({ market, ticker, favorite, onToggleFavorite, zone, picker, status }: Props) {
   const { t } = deskCopy.useCopy();
+  // The TEST label follows the market's own lifecycle evidence, the same read and marker the chart's label uses, so the
+  // chart and the price header never disagree. A lifecycle not read names no TEST and claims nothing either way.
+  const lifecycle = useMarketLifecycle(market.symbol);
+  const test = lifecycle.status === 'ready' && lifecycle.data.evidenceRefs.some((ref) => ref.startsWith(TEST_EVIDENCE_PREFIX));
   const row = ticker.status === 'ready' ? ticker.data : null;
   const last = row?.last ?? null;
   const direction = useTickDirection(last, market.symbol);
@@ -80,6 +86,11 @@ export const TickerStrip = memo(function TickerStrip({ market, ticker, favorite,
         <h1 data-testid="dk-pair" className="dk-pair">
           {pair}
         </h1>
+        {test ? (
+          <span data-testid="dk-test" className="dk-test" title={t('Test market title')}>
+            {t('Test market')}
+          </span>
+        ) : null}
         {picker}
         <button
           type="button"

@@ -33,6 +33,7 @@ import { readDatabaseNow } from './clock-skew.js';
 import { PostgresLedger } from './postgres-ledger.js';
 import {
   defineReconciliationControl,
+  existedAt,
   listReconciliationControlRuns,
   listReconciliationEvaluations,
   RECONCILIATION_EVALUATION_SETTLE_SECONDS,
@@ -219,6 +220,40 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
     expect(run.outsideSide).toBe('unset');
     expect(run.status).toBe('UNSET');
     expect(run.assets.every((asset) => asset.expected === 'unset' && asset.difference === 'unset')).toBe(true);
+  });
+
+  it('a past read finds the set with one hashed lookup of posted entries, never a walk of every account (#8044)', async () => {
+    // Issue #8044: on a young database with no statistics, a per-account EXISTS was planned as a correlated subplan that,
+    // for a readAt before every posting, read every entry of every account in the set. The posted side must be one
+    // uncorrelated lookup that Postgres hashes once. Temporary tables of the same shape shadow the real ones on this
+    // connection (pg_temp is searched first) and are never analysed, so the planner sees exactly that young database.
+    const readAt = new Date('2025-06-01T00:00:00.000Z');
+    const text = await db.sql.begin(async (tx) => {
+      for (const table of ['accounts', 'ledger_tx', 'ledger_entries']) {
+        await tx.unsafe(`CREATE TEMP TABLE ${table} (LIKE ${table} INCLUDING DEFAULTS INCLUDING INDEXES) ON COMMIT DROP`);
+      }
+      await tx`
+        INSERT INTO accounts (owner_type, owner_id, asset_id, kind)
+        SELECT 'user', gen_random_uuid()::text, 'USDT', 'available' FROM generate_series(1, 3000)
+      `;
+      await tx`
+        INSERT INTO ledger_tx (idempotency_key, module, reason, hash)
+        SELECT 'recon-8044-' || g, 'bank', 'bank.transfer.in', 'h' FROM generate_series(1, 30000) g
+      `;
+      await tx`
+        INSERT INTO ledger_entries (tx_id, account_id, asset_id, direction, amount, balance_after)
+        SELECT t.id, a.id, 'USDT', 'debit', 1, 1
+          FROM (SELECT id, row_number() OVER () AS n FROM ledger_tx) t
+          JOIN (SELECT id, row_number() OVER () AS n FROM accounts) a ON a.n = 1 + (t.n % 3000)
+      `;
+      const plan = await tx<Array<{ 'QUERY PLAN': string }>>`
+        EXPLAIN SELECT id, asset_id FROM accounts WHERE ${existedAt(tx, readAt)} AND asset_id = 'USDT'
+      `;
+      return plan.map((row) => row['QUERY PLAN']).join('\n');
+    });
+    // The filter names the subplan it evaluates: `(hashed SubPlan 1)` is built once, a bare `(SubPlan 1)` runs per row.
+    expect(text).toMatch(/\(hashed SubPlan \d+\)/);
+    expect(text).not.toMatch(/(?<!hashed )SubPlan \d+\)/);
   });
 
   it('reads a past instant minus the margin, accepts 0, and refuses a blank margin or a future instant', async () => {

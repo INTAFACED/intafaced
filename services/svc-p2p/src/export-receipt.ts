@@ -11,6 +11,8 @@ export interface ExportPolicy {
   readonly maxRangeDays?: number;
   /** Most rows in one export file. */
   readonly maxRows?: number;
+  /** Order-history exports per user per UTC day. */
+  readonly exportDailyQuota?: number;
   /** Receipt downloads per user per UTC day. */
   readonly receiptDailyQuota?: number;
   /** Downloads of one trade's receipt per user, ever. */
@@ -24,6 +26,9 @@ export interface ExportPolicy {
  */
 export const RECEIPT_QUOTA_LOCK_CLASS = 8_140_714;
 
+/** Class half of the lock serialising one user's exports, so two parallel clicks cannot both take the last export. */
+export const EXPORT_QUOTA_LOCK_CLASS = 8_140_715;
+
 export const EXPORT_FORMATS = ['csv', 'xlsx', 'pdf'] as const;
 export type ExportFormat = (typeof EXPORT_FORMATS)[number];
 
@@ -32,6 +37,7 @@ export type ExportPolicyCode =
   | 'p2p.export_format_unbuilt'
   | 'p2p.export_range_too_large'
   | 'p2p.export_too_many_rows'
+  | 'p2p.export_quota_reached'
   | 'p2p.receipt_quota_reached'
   | 'p2p.receipt_not_available';
 
@@ -74,7 +80,7 @@ export function assertRowsWithinCap(rows: number, maxRows: number): void {
   }
 }
 
-/** Start of the next UTC day: when a daily receipt quota resets. */
+/** Start of the next UTC day: when a daily export or receipt quota resets. */
 export function nextUtcMidnight(now: Date): Date {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
 }

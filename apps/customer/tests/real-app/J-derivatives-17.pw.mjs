@@ -6,7 +6,7 @@ import { ADMIN } from './admin.mjs';
 import { api, fromUnits, toUnits, tool } from './stack.mjs';
 import { signUp, verify, signIn } from './desk.mjs';
 import { staffSignIn } from './staff.mjs';
-import { otherTraderRun, testDeposit, otherTraderKey } from './venue.mjs';
+import { otherTraderRun, testDeposit, otherTraderKey, venueRecord } from './venue.mjs';
 
 // J-derivatives-17 "I reconcile the builder fees the venues report against the ledger", in the founder console
 // (docs/roadmap/journeys.json). One test per step, titled "J-derivatives-17 #<n>", run in order. The person is the
@@ -68,10 +68,9 @@ async function venueId() {
 }
 const account = async () => ({ venueId: await venueId(), owner, subAccount: null });
 
-/** The venue's own fills for our trader since `since`, with our builder fee on them. */
+/** The venue's own fills for our trader since `since`, with our builder fee on them: the TEST venue's own record, read by the venue fixture. */
 async function venueFills(since) {
-  const { status, body } = await testVenue('/fills', { account: await account(), since: since.toISOString() });
-  expect(status, JSON.stringify(body)).toBe(200);
+  const body = await venueRecord(owner, '/fills', { since: since.toISOString() });
   return body.value.filter((f) => !/^0(\.0+)?$/.test(f.builderFee));
 }
 
@@ -163,21 +162,28 @@ async function ledgerOwed(id) {
   );
 }
 
-/** What the ledger has received from the venue into our builder account there, per asset (that account negated). */
-async function ledgerPaidOut(id) {
-  const page = await ledgerRead(`/operator/accounts?prefix=${encodeURIComponent(`treasury:venue-builder-account:${id}`)}`);
-  expect(page.nextCursor).toBeNull();
-  return new Map(
-    page.accounts
-      .filter((a) => a.ownerId === `venue-builder-account:${id}` && a.kind === 'available')
-      .map((a) => [a.assetId, -toUnits(a.balance)]),
-  );
+/**
+ * What the ledger has received from the venue, per asset: the ledger's own payout transaction under each claim the TEST
+ * venue records for our builder address (`builder-fee-payout:<venueId>:<claimId>`), traced on svc-ledger's operator
+ * door. Never our builder account's balance: the own-funds sweep moves collected fees on from it (J-campaigns-03 pays
+ * its rewards from them on the same stack), which leaves what we earned unchanged.
+ */
+async function ledgerReceived(id, builder) {
+  const claims = (await venueRecord(owner, '/builder-claims', { builder })).value;
+  const received = new Map();
+  for (const c of claims.filter((c) => c.builder.toLowerCase() === builder.toLowerCase())) {
+    const trace = await ledgerRead(`/operator/trace?businessKey=${encodeURIComponent(`builder-fee-payout:${id}:${c.claimId}`)}`);
+    if (!trace.found) continue;
+    for (const p of trace.postings.filter((p) => p.direction === 'credit')) {
+      received.set(p.assetId, (received.get(p.assetId) ?? 0n) + toUnits(p.amount));
+    }
+  }
+  return received;
 }
 
 /** The TEST venue's own builder totals for our builder address, per asset: what it has credited us, and what of that is unclaimed. */
 async function venueBuilderTotals(builder) {
-  const { status, body } = await testVenue('/builder-totals', { builder });
-  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  const body = await venueRecord(owner, '/builder-totals', { builder });
   expect(body.value, 'the TEST venue reports its builder totals').toMatchObject({ known: true });
   return new Map(body.value.value.assets.map((a) => [a.asset, { earned: toUnits(a.earned), unclaimed: toUnits(a.unclaimed) }]));
 }
@@ -298,10 +304,10 @@ test(`${J} #1 opens recon for a period: the venue's builder fees against the led
   expect(through).toBeLessThanOrEqual(Date.now());
 
   // The ledger's earned total against the venue's own total for our builder address, both read here from their own
-  // records: the TEST venue's builder totals, and svc-ledger's receivable plus what it has received into our builder account.
+  // records: the TEST venue's builder totals, and svc-ledger's receivable plus every payout it has received from the venue.
   const id = await venueId();
   const own = await venueBuilderTotals(builder.builder.address);
-  const [owedNow, paidNow] = [await ledgerOwed(id), await ledgerPaidOut(id)];
+  const [owedNow, paidNow] = [await ledgerOwed(id), await ledgerReceived(id, builder.builder.address)];
   const earnedByLedger = (owedNow.get(asset) ?? 0n) + (paidNow.get(asset) ?? 0n);
   expect(own.get(asset)?.earned, "the venue's own earned total is the ledger's").toBe(earnedByLedger);
   const totals = venue.getByTestId('builder-fee-venue-totals');
@@ -332,7 +338,7 @@ test(`${J} #1 opens recon for a period: the venue's builder fees against the led
   const [extra] = await venueFills(unposted);
   expect(extra, 'the extra fill carries our builder fee').toBeTruthy();
   const ownAfter = await venueBuilderTotals(builder.builder.address);
-  const ledgerAfter = ((await ledgerOwed(id)).get(asset) ?? 0n) + ((await ledgerPaidOut(id)).get(asset) ?? 0n);
+  const ledgerAfter = ((await ledgerOwed(id)).get(asset) ?? 0n) + ((await ledgerReceived(id, builder.builder.address)).get(asset) ?? 0n);
   expect(ownAfter.get(asset)?.earned, "the venue's own earned total is above the ledger's by the unposted fee").toBe(
     ledgerAfter + toUnits(extra.builderFee),
   );

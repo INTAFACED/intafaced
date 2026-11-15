@@ -34,9 +34,10 @@
  */
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { gateFilesTouched } from '../scripts/gate-file-guard.mjs';
+import { gateFilesTouched } from '../scripts/gate-files.mjs';
 import { BASELINE } from './look-baselines.mjs';
 import { judgeReason } from './test-judge.mjs';
+import { httpMessage, titleFor } from './api-budget.mjs';
 
 /** How long the seal waits for the review before it fails, and how often it looks. ci.yml's merge-seal timeout covers it. */
 const REVIEW_WAIT_MS = 20 * 60_000;
@@ -90,6 +91,21 @@ export const isJudgeDown = (job) =>
  * job is skipped by its `if:` (0 steps; head e1d3ad61, run 42803694870), so the newest run on a head may hold no review.
  */
 export const reviewRan = (job) => job?.name === REVIEW_JOB && job?.conclusion !== 'skipped' && (job?.steps ?? []).length > 0;
+/**
+ * A seal on a pull request that has already merged has nothing left to judge: it can't merge again or be reopened.
+ * Such seals ran, red, in 12 of the 66 failed seals from 04:46 to 13:54 UTC on 12 Nov 2026: an older red seal re-run
+ * by the green verdict that merged the pull request (clearOlderReds), or an edit just after the merge, judged it
+ * seconds later, when GitHub had already emptied the CI review run's `pull_requests` (so its PASS no longer counted,
+ * passedRun) and the named steps' check refused a closed pull request. Given the pull request as read now and the
+ * pull requests GitHub lists on `sha` (`/commits/{sha}/pulls`): the line that says so, or null when it isn't merged,
+ * its head is not `sha`, or another open pull request has this head (a green check on the commit would count for that
+ * one too). Pure.
+ */
+export function mergedNothingToSeal(pull, sha, onSha) {
+  if (!pull?.merged_at || pull?.head?.sha !== sha || !Array.isArray(onSha)) return null;
+  if (onSha.some((p) => p?.state === 'open' && Number(p?.number) !== Number(pull.number))) return null;
+  return `#${pull.number} merged at ${pull.merged_at}; a merged pull request has nothing left to seal`;
+}
 /** The only base a review counts for: a review of a pull request into another branch reviewed another diff. */
 export const REVIEW_BASE = 'main';
 const SHA40 = /^[0-9a-f]{40}$/;
@@ -254,7 +270,7 @@ export async function ciReviewVerdict({ sha, runs, attempts, tree, base, number,
 }
 
 /**
- * Why this change needs the independent review, or null when it does not: a gate file (gate-file-guard.mjs GATE_PATHS),
+ * Why this change needs the independent review, or null when it does not: a gate file (gate-files.mjs GATE_PATHS),
  * or a look baseline. Money and security code alone does not (owner decision
  * 2026-11-06). An empty file list fails closed.
  */
@@ -312,14 +328,14 @@ export function groupPulls(commits, headRef) {
  * Returns { ok, state, why }.
  */
 /**
- * A change that needs no verdict (requiredChecks is empty) merges without one when the judge is up, by the owner's
- * decisions of 2026-10-22 and 2026-11-06. When the judge was down on its head, it waits for the judge as a gate-file change
- * does: "No PR merges without its judge" (project-state OWNER 289 point 11; CI review on 0cef53f9b, item 3). Returns that
+ * Whether a verdict a change needs is missing only because the judge was down on its head: the seal then stops waiting
+ * for it (the catch-up re-runs the review and the seal when the judge is back). A change that needs no verdict merges
+ * without one, the judge up or down (owner decisions of 2026-10-22 and 2026-11-06; project-state OWNER 302). Returns that
  * need, or null when the head's CI review was not down.
  */
 export const judgeDownNeed = (verdict) =>
   verdict?.state === 'none' && /the judge was down in run/.test(String(verdict.why ?? ''))
-    ? { check: REVIEW_CHECK, reason: 'the judge was down on this head, and no pull request merges without its judge' }
+    ? { check: REVIEW_CHECK, reason: 'the judge was down on this head, and this change needs its verdict' }
     : null;
 
 /** A sign-off missing because the judge was down says so in its title, never a red that reads as the change's own (OWNER 289 point 11). */
@@ -573,7 +589,11 @@ async function api(path, token, { missingOk = false } = {}) {
   });
   if (missingOk && res.status === 404) return null;
   if (!res.ok) {
-    console.error(`::error::could not read ${path} (HTTP ${res.status}); sealing fails closed`);
+    const msg = httpMessage(path, res);
+    const title = titleFor(msg, '');
+    console.error(
+      `::error${title ? ` title=${title}` : ''}::could not read ${path} (${msg.slice(msg.indexOf('HTTP'))}); sealing fails closed`,
+    );
     process.exit(1);
   }
   return res.json();
@@ -943,6 +963,10 @@ async function main() {
   // main (the seal doesn't re-run on a retarget; the CI review does, and re-runs a red seal when it passes).
   const pull = PR_NUMBER ? await api(`/repos/${REPO}/pulls/${PR_NUMBER}`, GH_TOKEN) : null;
   const branch = String(pull?.head?.ref ?? '') || undefined;
+  if (PR_NUMBER && pull?.merged_at) {
+    const merged = mergedNothingToSeal(pull, HEAD_SHA, await api(`/repos/${REPO}/commits/${HEAD_SHA}/pulls?per_page=100`, GH_TOKEN));
+    if (merged) return console.log(merged);
+  }
   if (PR_NUMBER && pull?.base?.ref !== REVIEW_BASE) {
     console.error(
       `::error title=Not into ${REVIEW_BASE}::The seal passes only a pull request into ${REVIEW_BASE}; this one's base is ${pull?.base?.ref ?? 'unreadable'}. Point it at ${REVIEW_BASE}, then re-run this seal.`,
@@ -950,24 +974,10 @@ async function main() {
     process.exit(1);
   }
   if (PR_NUMBER) {
+    // A change that needs no verdict merges without one, the judge up or down (project-state OWNER 302, 12 Nov 2026:
+    // "While the reviewer is down, a product pull request that it can only advise on merges on its tests and its
+    // journey; the reviewer reads it when it is back and anything it finds becomes a fix."; judge-down.mjs catchUpTargets).
     needs = requiredChecks(await readChangedFiles(REPO, PR_NUMBER, HEAD_SHA, GH_TOKEN));
-    // A change that needs no verdict still waits for a judge that was down on its head (judgeDownNeed).
-    if (needs.length === 0) {
-      const down = judgeDownNeed(
-        await lookForSignoff({
-          sha: HEAD_SHA,
-          io: {
-            reviewRuns: (sha) => readReviewRuns(REPO, sha, GH_TOKEN, branch),
-            attempts: (run) => readAttempts(REPO, run, GH_TOKEN),
-            tree: (sha) => readTree(REPO, sha, GH_TOKEN),
-          },
-          base: pull?.base?.ref,
-          number: PR_NUMBER,
-          check: REVIEW_CHECK,
-        }),
-      );
-      if (down) needs = [down];
-    }
     if (needs.length === 0) {
       console.log(
         'independent review not required: no gate file, look baseline, journey test or shared test code changed (owner decisions 2026-10-22 and 2026-11-06; the test judge, E1)',
@@ -1021,6 +1031,6 @@ async function main() {
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href)
   main().catch((e) => {
     // Every unreadable list or bound ends here: the seal fails closed and says why.
-    console.error(`::error title=Review sign-off unreadable::${e.message}`);
+    console.error(`::error title=${titleFor(e.message, 'Review sign-off unreadable')}::${e.message}`);
     process.exit(1);
   });

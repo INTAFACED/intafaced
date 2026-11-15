@@ -35,6 +35,8 @@ import { agentHeldAction, holdAgentKeyAttempt } from './agent-key-hold.js';
 import { EXPLORER_LIVE_WRITE_REFUSED, explorerLiveWrite } from './explorer-guard.js';
 import { markProxied, registerReplyEnvelope, REQUEST_ID_HEADER, REQUEST_ID_OPTIONS } from './reply-envelope.js';
 import { exchangePrincipal } from './principal-exchange.js';
+import { keyCallReport, presentedKeyHash, reportKeyCall } from './key-call-log.js';
+import { normalizeIp } from './request-client-ip.js';
 import { upstreamBody } from './proxy-body.js';
 import { forwardUpstreamResponseHeaders, prepareUpstreamRequestHeaders, refuseCookieCsrf } from './refresh-cookie-proxy.js';
 import { hostedCheckoutHeaders, hostedCheckoutLocation, isHostedCheckoutPath, upstreamRedirectMode } from './hosted-checkout-proxy.js';
@@ -401,6 +403,29 @@ await app.register(async (api) => {
     done(null, body);
   });
 
+  // A key's call log (J-developer-08): every reply to an API key's call is reported to identity once its status is
+  // final. A failed report is logged; the reply goes out as it would have (`key-call-log.ts`).
+  api.addHook('onSend', async (req, reply, payload) => {
+    const keyHash = presentedKeyHash(req.headers.authorization);
+    if (!keyHash || !env.IDENTITY_OWNERSHIP_SECRET) return payload;
+    const recorded = await reportKeyCall({
+      identityUrl: env.IDENTITY_URL,
+      identityOwnershipSecret: env.IDENTITY_OWNERSHIP_SECRET,
+      s2s: edgeS2s,
+      report: keyCallReport({
+        keyHash,
+        requestId: String(req.id),
+        method: req.method,
+        url: req.url,
+        status: reply.statusCode,
+        clientIp: normalizeIp(req.ip),
+        at: new Date(),
+      }),
+    });
+    if (!recorded) req.log.warn({ path: req.url.split('?')[0] }, 'edge: key call not recorded');
+    return payload;
+  });
+
   api.all('/api/*', async (req, reply) => {
     const url = new URL(req.url, `http://${env.HTTP_HOST}`);
     const target = resolve(url.pathname);
@@ -519,8 +544,8 @@ await app.register(async (api) => {
       return reply.code(403).send({ error: userCopy(EXPLORER_LIVE_WRITE_REFUSED), code: EXPLORER_LIVE_WRITE_REFUSED });
     }
 
-    // An agent key's sensitive action (a payout, a refund) is held for its owner and never forwarded (DV-keys-05):
-    // identity writes the waiting row, and the answer names it. Any other key's request goes on below.
+    // An agent key cannot move money (J-developer-15 #6): its payout or refund is refused `auth.scope_denied` and never
+    // forwarded, and nothing is written. Any other key's request goes on below.
     const heldAction = exchanged.principal?.kid ? agentHeldAction(req.method, url.pathname) : undefined;
     if (heldAction && exchanged.principal?.kid) {
       const hold = env.IDENTITY_OWNERSHIP_SECRET
@@ -546,11 +571,9 @@ await app.register(async (api) => {
       if (hold.kind === 'refused') {
         return reply.code(API_KEY_DENIED.status).send(apiKeyRefusalBody(API_KEY_DENIED));
       }
-      if (hold.kind === 'held') {
-        req.log.info({ action: heldAction, approvalId: hold.approval.id }, 'edge: agent key action held for its owner');
-        return reply
-          .code(202)
-          .send({ error: userCopy('edge.agent_approval_required'), code: 'edge.agent_approval_required', approval: hold.approval });
+      if (hold.kind === 'agent_refused') {
+        req.log.info({ action: heldAction, code: hold.code }, 'edge: agent key money action refused');
+        return reply.code(403).send({ error: userCopy(hold.code), code: hold.code });
       }
     }
 

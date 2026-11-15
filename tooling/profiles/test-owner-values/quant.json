@@ -73,8 +73,38 @@
     },
     "QUANT_TEST_QUOTA_SEED": {
       "service": "quant",
-      "value": "{\"profile\":\"TEST developer\",\"limits\":{\"strategies\":\"200\",\"versions\":\"200\",\"concurrent_runs\":\"20\",\"paper_runs\":\"500\",\"runs\":\"2000\",\"log_lines\":\"1000000\",\"storage\":\"500000000\",\"collaborators\":\"10\",\"notifications\":\"1000\"}}",
-      "note": "TEST limits of the TEST developer profile, seeded once on the local and CI stack, high enough that no other journey meets them; a journey that proves a limit assigns its own TEST profile."
+      "value": "{\"profile\":\"TEST developer\",\"limits\":{\"strategies\":\"200\",\"versions\":\"200\",\"concurrent_runs\":\"20\",\"paper_runs\":\"500\",\"runs\":\"2000\",\"log_lines\":\"1000000\",\"storage\":\"500000000\",\"collaborators\":\"10\",\"notifications\":\"1000\"},\"sandbox\":{\"wall_clock_ms\":\"5000\",\"memory_bytes\":\"1000000\",\"output_bytes\":\"200000\"}}",
+      "note": "TEST limits of the TEST developer profile, seeded once on the local and CI stack, high enough that no other journey meets them; a journey that proves a limit assigns its own TEST profile. Its TEST sandbox limits (5 s of wall-clock, 1 MB of text, 200 kB of log per run) let every journey's run start (J-algo-dev-12)."
+    },
+    "SANDBOX_MAX_OPS": {
+      "service": "quant",
+      "value": "50000",
+      "note": "TEST isolate operation ceiling, so a journey's paper run can place and cancel orders on the stack."
+    },
+    "SANDBOX_MAX_SOURCE": {
+      "service": "quant",
+      "value": "8000",
+      "note": "TEST isolate source-length ceiling, in characters, so a journey's paper strategy fits."
+    },
+    "QUANT_EDIT_LOCK_SECONDS": {
+      "service": "quant",
+      "value": "45",
+      "note": "TEST length of a strategy's edit lock, in seconds, short enough that a journey sees a held lock lapse (J-algo-dev-08 #3)."
+    },
+    "QUANT_PAPER_FEE_BPS": {
+      "service": "quant",
+      "value": "10",
+      "note": "TEST paper-book fee, 10 basis points of notional, so the pre-trade check of notional plus fee can be seen (J-algo-dev-05 #6)."
+    },
+    "QUANT_LIBRARY_LICENCES": {
+      "service": "quant",
+      "value": "TEST open licence|TEST all rights reserved",
+      "note": "TEST licences a library listing may carry, so a journey can publish one (J-algo-dev-09 #2); the real list is owner and lawyer content."
+    },
+    "QUANT_REALISM_CHECKLIST": {
+      "service": "quant",
+      "value": "{\"version\": \"TEST v1\", \"items\": [\"TEST The backtest includes fees, slippage and delay.\", \"TEST The results are a historical simulation, not a forecast.\", \"TEST The description promises no return.\"]}",
+      "note": "TEST realism checklist a developer accepts before publishing (J-algo-dev-09 #2); the real wording is owner and lawyer content."
     }
   }
 }

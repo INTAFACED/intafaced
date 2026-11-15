@@ -120,6 +120,33 @@ const script = resolve(here, 'local-test-stack.mjs');
   );
 }
 
+// The empty notice board (J-support-public-07 #5): LOCAL_STACK_NOTIFY_NOTICES=off moves svc-notify, and only svc-notify,
+// to a database of its own; without it svc-notify is on the stack's database like every other service.
+{
+  const { localTestServiceEnvs, PLAN_SECRETS } = await import('./local-test-stack.mjs');
+  const { NOTIFY_EMPTY_NOTICES_DB, onEmptyNoticesDb } = await import('./local-stack-services/notify.mjs');
+  const dbOf = (envs, name) => new URL(envs.find((d) => d.name === name).env.DATABASE_URL).pathname.slice(1);
+  const prior = process.env.LOCAL_STACK_NOTIFY_NOTICES;
+  try {
+    delete process.env.LOCAL_STACK_NOTIFY_NOTICES;
+    const shared = localTestServiceEnvs(PLAN_SECRETS);
+    assert.equal(dbOf(shared, 'notify'), 'intafaced_local_test', 'notify on the stack database by default');
+    process.env.LOCAL_STACK_NOTIFY_NOTICES = 'off';
+    const empty = localTestServiceEnvs(PLAN_SECRETS);
+    assert.equal(dbOf(empty, 'notify'), NOTIFY_EMPTY_NOTICES_DB, 'notify on its own empty database under the switch');
+    for (const { name, env } of empty)
+      if (name !== 'notify' && env.DATABASE_URL)
+        assert.equal(dbOf(empty, name), 'intafaced_local_test', `${name} stays on the stack database under the switch`);
+  } finally {
+    if (prior === undefined) delete process.env.LOCAL_STACK_NOTIFY_NOTICES;
+    else process.env.LOCAL_STACK_NOTIFY_NOTICES = prior;
+  }
+  assert.equal(
+    onEmptyNoticesDb('postgres://svc_notify:pw@127.0.0.1:5433/intafaced_local_test?sslmode=disable'),
+    `postgres://svc_notify:pw@127.0.0.1:5433/${NOTIFY_EMPTY_NOTICES_DB}?sslmode=disable`,
+  );
+}
+
 // Service keys: off by default, so the journeys' stack is unchanged; LOCAL_STACK_S2S=dual gives every S2S service one
 // shared public keyring and its own matching signing key, and keypair is refused.
 {
@@ -469,6 +496,27 @@ const script = resolve(here, 'local-test-stack.mjs');
     assert.equal(bank.env[name], profile[name].value, `bank env ${name} differs from the bank profile`);
   }
   console.log('local-test-stack: bank BK-xfer-07 TEST values come from the bank profile');
+}
+
+// The ws process carries the multiplexed door's TEST values from the ws profile, verbatim, so the door mounts on this
+// stack and takes subscriptions (#8311) instead of staying down on ws.mux_idle_unset.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const { loadProfile } = await import('./owner-settings.mjs');
+  const ws = localTestServiceEnvs().find((service) => service.name === 'ws');
+  const profile = loadProfile().values;
+  for (const name of [
+    'WS_MUX_IDLE_MS',
+    'WS_MUX_MAX_SEATS',
+    'WS_MUX_MAX_SUBSCRIPTIONS',
+    'WS_MUX_MAX_OPS_PER_SECOND',
+    'WS_MAX_CONNECTIONS',
+    'WS_HIGH_WATER_BYTES',
+  ]) {
+    assert.equal(profile[name]?.service, 'ws', `${name} is not in the ws profile`);
+    assert.equal(ws.env[name], profile[name].value, `ws env ${name} differs from the ws profile`);
+  }
+  console.log('local-test-stack: ws multiplexed door TEST values come from the ws profile');
 }
 
 // The token process carries the TEST proposer rule and proposal limit from the token profile, verbatim, so a governance
@@ -1567,13 +1615,34 @@ console.log('local-test-stack: customer folder override checks passed');
 
 // No stack service listens on a port the test chain uses: the TEST venue first took 14533, the chain's second gate, and
 // every restart that started it refused with "in use by a process this script did not start" (journeys run 42524275189).
+// Nor does one slot's stack take another slot's port (LOCAL_STACK_SLOT 0 to 3), its second workers' included.
 {
-  const { CHAIN_PORTS } = await import('./local-test-chain.mjs');
-  const table = /const PORTS = \{([\s\S]*?)\n\};/.exec(source)?.[1] ?? '';
-  const stackPorts = [...table.matchAll(/'?[\w-]+'?: (\d{4,5}),/g)].map((m) => Number(m[1]));
-  assert.ok(stackPorts.length > 20, 'the stack port table was read');
-  const clash = stackPorts.filter((port) => Object.values(CHAIN_PORTS).includes(port));
-  assert.deepEqual(clash, [], `stack ports also used by the test chain: ${clash.join(', ')}`);
-  assert.equal(new Set(stackPorts).size, stackPorts.length, 'every stack port is used once');
-  console.log('local-test-stack: no stack port collides with the test chain or with another stack port');
+  const { slotPorts } = await import('./local-test-facts.mjs');
+  const held = [0, 1, 2, 3].flatMap((slot) => {
+    const { stack, fixSockets, hooks, chain } = slotPorts(slot);
+    const workers = Array.from({ length: 20 }, (_, i) => stack.edge + 400 + i);
+    return [...Object.values(stack), ...Object.values(fixSockets), ...Object.values(hooks), ...Object.values(chain), ...workers];
+  });
+  assert.ok(held.length > 4 * 40, 'the port tables were read');
+  const clash = held.filter((port, i) => held.indexOf(port) !== i);
+  assert.deepEqual(clash, [], `ports held twice: ${clash.join(', ')}`);
+  assert.equal(slotPorts(0).stack.customer, 3210, 'slot 0 keeps the ports the stack always had');
+  console.log('local-test-stack: every port of every slot, the test chain and second workers included, is held once');
+}
+
+// A start never calls the stack's own running service a stranger: matching's own process answered its health late on a
+// busy runner and `restart notify` refused port 14505 as "in use by a process this script did not start" (journeys run
+// 43663982223, J-support-public-07 #5, #8434). Its own process is waited for; only a port with no matching record refuses.
+{
+  const { portDecision } = await import('./local-test-stack.mjs');
+  assert.equal(portDecision({ owned: true, healthy: true, portInUse: true }), 'ready');
+  assert.equal(portDecision({ owned: true, healthy: false, portInUse: true }), 'wait', 'its own late service is waited for, not refused');
+  assert.equal(portDecision({ owned: false, healthy: false, portInUse: true }), 'refuse', "a stranger's port still refuses");
+  assert.equal(portDecision({ owned: false, healthy: false, portInUse: false }), 'start');
+  assert.match(
+    source,
+    /if \(decision === 'wait'\) return waitHealthy\(def\.name, url, rec\.pid\);/,
+    'startNodeService waits on its own late service',
+  );
+  console.log("local-test-stack: a start waits for the stack's own late service and refuses only a stranger's port");
 }

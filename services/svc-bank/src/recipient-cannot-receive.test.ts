@@ -517,6 +517,84 @@ describe('recipient cannot receive — svc-bank refuses before posting', () => {
       expect(await available(MAKER)).toBe('1000');
       expect(await available(RECIPIENT)).toBe('0');
     });
+
+    it('two approves at once, the recipient frozen between them: the settle that posted is recorded, the row never says rejected (#4689)', async () => {
+      // A passes its checks and is held just before its settle posts. B's check sees the freeze and no settle yet;
+      // A's settle then posts, and A is held again before it records the post. B closes the row and tries to
+      // release a hold A has already spent.
+      let asks = 0;
+      const recipients = {
+        // 1 = propose, 2 = A's pre-claim check, 3 = A's settle check, 4 = B's settle check.
+        async statusOf() {
+          asks += 1;
+          return asks >= 4 ? ('frozen' as const) : ('active' as const);
+        },
+      };
+      const gate = () => {
+        let open!: () => void;
+        const opened = new Promise<void>((resolve) => (open = resolve));
+        return { open, opened };
+      };
+      const aAtSettle = gate();
+      const aMaySettle = gate();
+      const aPosted = gate();
+      const aMayRecord = gate();
+      let settlePosts = 0;
+      let bAsked = false;
+      const settleKey = (approvalId: string) => `bank.business.settle:${approvalId}`;
+      let approvalId = '';
+      const racingLedger = new Proxy(ledger, {
+        get(target, prop) {
+          if (prop === 'post') {
+            return async (request: Parameters<MemoryLedger['post']>[0]) => {
+              if (request.idempotencyKey !== settleKey(approvalId) || settlePosts++ > 0) return target.post(request);
+              aAtSettle.open();
+              await aMaySettle.opened;
+              const tx = await target.post(request);
+              aPosted.open();
+              await aMayRecord.opened;
+              return tx;
+            };
+          }
+          if (prop === 'getTxByKey') {
+            return async (key: string) => {
+              const found = await target.getTxByKey(key);
+              if (key === settleKey(approvalId) && settlePosts > 0 && !bAsked) {
+                bAsked = true;
+                aMaySettle.open();
+                await aPosted.opened;
+              }
+              return found;
+            };
+          }
+          const value = Reflect.get(target, prop, target) as unknown;
+          return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+        },
+      });
+      const racing = createBankServices(sql, racingLedger, memoryLedgerHistory(ledger), { nativeAssetId: 'IFC', recipients });
+      const approval = await pendingToRecipient(racing);
+      approvalId = approval.id;
+
+      const a = racing.business.approve({ approvalId: approval.id, checkerUserId: CHECKER });
+      await aAtSettle.opened;
+      const b = await racing.business.approve({ approvalId: approval.id, checkerUserId: CHECKER });
+      aMayRecord.open();
+      const first = await a;
+
+      const settled = await ledger.getTxByKey(settleKey(approval.id));
+      expect(settled).not.toBeNull();
+      expect(first).toEqual({ transferId: approval.id, ledgerTxId: settled!.id });
+      expect(b).toEqual(first);
+      const [row] = await sql<Array<{ status: string; rejection_code: string | null; ledger_tx_id: string | null }>>`
+        SELECT status, rejection_code, ledger_tx_id FROM bank.business_approvals WHERE id = ${approval.id}::uuid
+      `;
+      expect(row).toEqual({ status: 'approved', rejection_code: null, ledger_tx_id: settled!.id });
+      // Money invariant: the 250 moved once, the hold is spent and never released.
+      expect(await available(MAKER)).toBe('750');
+      expect(await available(RECIPIENT)).toBe('250');
+      expect(journalKeys().filter((k) => k === settleKey(approval.id))).toHaveLength(1);
+      expect(journalKeys()).not.toContain(`bank.business.release:${approval.id}`);
+    });
   });
 });
 

@@ -201,10 +201,41 @@ export function heldKeys(owner: string) {
   };
   return {
     get: (clientOrderId: string): string | undefined => read()[clientOrderId] ?? memory.get(clientOrderId),
+    /** The client ids this page placed, oldest first. */
+    ids: (): string[] => [...new Set([...Object.keys(read()), ...memory.keys()])],
     set(clientOrderId: string, key: string) {
       memory.set(clientOrderId, key);
       try {
         sessionStorage.setItem(name, JSON.stringify({ ...read(), [clientOrderId]: key }));
+      } catch {
+        /* blocked storage: the page keeps it */
+      }
+    },
+  };
+}
+
+/**
+ * The person's own tags on the orders this page placed, by the venue's client id (J-cex-spot-03 #9). The venue stores no
+ * tag, so the tag is kept beside the order key in this browser session and shown on the order and its fills.
+ */
+export function heldTags(owner: string) {
+  const name = `if.venue.tags.${owner}`;
+  const memory = new Map<string, string>();
+  const read = (): Record<string, string> => {
+    try {
+      const raw = sessionStorage.getItem(name);
+      const parsed: unknown = raw ? JSON.parse(raw) : {};
+      return parsed && typeof parsed === 'object' ? (parsed as Record<string, string>) : {};
+    } catch {
+      return Object.fromEntries(memory);
+    }
+  };
+  return {
+    get: (clientOrderId: string): string | undefined => read()[clientOrderId] ?? memory.get(clientOrderId),
+    set(clientOrderId: string, tag: string) {
+      memory.set(clientOrderId, tag);
+      try {
+        sessionStorage.setItem(name, JSON.stringify({ ...read(), [clientOrderId]: tag }));
       } catch {
         /* blocked storage: the page keeps it */
       }
@@ -261,8 +292,10 @@ export type RunAction = (
 /** The business key the door stores an intent under (user-venue-door.ts `businessKey`). */
 function keyOf(intent: VenueIntent, actionKey: string | undefined): string {
   if (intent.kind === 'place_order') return intent.clientOrderKey;
+  if (intent.kind === 'place_orders') return intent.actionKey;
   if (intent.kind === 'withdraw') return intent.withdrawalKey;
   if (intent.kind === 'cancel_order') return actionKey ?? keys.cancel(intent.clientOrderKey);
+  if (intent.kind === 'market_margin_transfer') return intent.moveKey;
   return actionKey ?? '';
 }
 
@@ -357,9 +390,10 @@ export function useVenueActions(owner: string | null) {
    * signature: with no signature kept on this page, it is `run` again, which reads the stored answer.
    */
   const resend = useCallback(
-    async (intent: VenueIntent, opts: { actionKey?: string; venueId?: string } = {}): Promise<ActionResult> => {
+    async (intent: VenueIntent, opts: { actionKey?: string; venueId?: string; signature?: KeptSignature } = {}): Promise<ActionResult> => {
       const key = keyOf(intent, opts.actionKey);
-      const kept = signatures.current.get(key);
+      // The signature this page made, or one the page kept for the key across a reload (J-cex-spot-02 #4): the same bytes.
+      const kept = signatures.current.get(key) ?? opts.signature;
       if (!kept) return run(intent, opts);
       const prepared = await venue.prepare({
         owner: owner ?? '',
@@ -372,7 +406,9 @@ export function useVenueActions(owner: string | null) {
     },
     [owner, venue, run, submitSigned],
   );
-  return { run, resend };
+  /** The signed bytes this page holds for a key, if any: what a resend after a reload sends again. */
+  const keptSignature = useCallback((key: string): KeptSignature | undefined => signatures.current.get(key), []);
+  return { run, resend, keptSignature };
 }
 
 /** The words for one action's result. An order's outcome names its status on the venue. */
@@ -512,7 +548,18 @@ export function BalancesPanel({ balances, test }: { balances: AsOf<VenueBalance[
   );
 }
 
-export function FillsTable({ fills, test, symbol }: { fills: AsOf<VenueFill[]> | null; test: boolean; symbol?: string }) {
+export function FillsTable({
+  fills,
+  test,
+  symbol,
+  tagOf,
+}: {
+  fills: AsOf<VenueFill[]> | null;
+  test: boolean;
+  symbol?: string;
+  /** The person's own tag on an order, by client id; given, the table has a Tag column. */
+  tagOf?: (clientOrderId: string) => string | undefined;
+}) {
   const { t } = venueCopy.useCopy();
   const asOfText = useAsOfText();
   const rows = (fills?.value ?? []).filter((f) => !symbol || f.symbol === symbol);
@@ -535,6 +582,7 @@ export function FillsTable({ fills, test, symbol }: { fills: AsOf<VenueFill[]> |
             t('Our builder fee'),
             t('Fee asset'),
             t('Realised result'),
+            ...(tagOf ? [t('Tag')] : []),
           ]}
         >
           {rows.map((f) => (
@@ -559,6 +607,7 @@ export function FillsTable({ fills, test, symbol }: { fills: AsOf<VenueFill[]> |
               <td className="numeric" data-cell="realised">
                 {f.realisedPnl === null ? t('Not known') : f.realisedPnl}
               </td>
+              {tagOf ? <td data-cell="tag">{f.venueClientOrderId ? (tagOf(f.venueClientOrderId) ?? '') : ''}</td> : null}
             </tr>
           ))}
         </DataTable>
@@ -570,22 +619,30 @@ export function FillsTable({ fills, test, symbol }: { fills: AsOf<VenueFill[]> |
 
 /**
  * The open orders the venue lists, and the orders this page cancelled (read back by client id), each with Cancel. A
- * repeated cancel uses the same key, so it is the same action and reports the venue's first answer.
+ * repeated cancel uses the same key, so it is the same action and reports the venue's first answer. An order this page
+ * placed that has since filled stays listed as the venue reads it, Filled, with nothing left to cancel.
  */
 export function OrdersTable({
   orders,
   test,
   onCancel,
   cancelled,
+  filled = [],
+  tagOf,
 }: {
   orders: AsOf<VenueOrder[]> | null;
   test: boolean;
   onCancel: (order: VenueOrder) => void;
   cancelled: VenueOrder[];
+  filled?: VenueOrder[];
+  /** The person's own tag on an order, by client id; given, the table has a Tag column. */
+  tagOf?: (clientOrderId: string) => string | undefined;
 }) {
   const { t } = venueCopy.useCopy();
   const open = orders?.value ?? [];
-  const rows = [...open, ...cancelled.filter((c) => !open.some((o) => o.venueClientOrderId === c.venueClientOrderId))];
+  const listed = (o: VenueOrder, rows: VenueOrder[]) => rows.some((r) => r.venueClientOrderId === o.venueClientOrderId);
+  const rows = [...open, ...cancelled.filter((c) => !listed(c, open))];
+  rows.push(...filled.filter((f) => f.status === 'filled' && !listed(f, rows)));
   return (
     <div data-testid="venue-open-orders">
       <TestMark test={test} />
@@ -594,13 +651,26 @@ export function OrdersTable({
       ) : (
         <DataTable
           label={t('Open orders')}
-          headers={[t('Market'), t('Side'), t('Type'), t('Price'), t('Amount'), t('Filled'), t('Locked'), t('Status'), '']}
+          headers={[
+            t('Market'),
+            t('Side'),
+            t('Type'),
+            t('Time in force'),
+            t('Price'),
+            t('Amount'),
+            t('Filled'),
+            t('Locked'),
+            t('Status'),
+            ...(tagOf ? [t('Tag')] : []),
+            '',
+          ]}
         >
           {rows.map((o) => (
             <tr key={o.venueClientOrderId ?? o.venueOrderId ?? `${o.symbol}:${o.price}`} data-client-order-id={o.venueClientOrderId ?? ''}>
               <td>{o.symbol}</td>
               <td>{word(t, 'side', o.side)}</td>
               <td>{word(t, 'type', o.type)}</td>
+              <td data-cell="tif">{word(t, 'tif', o.timeInForce)}</td>
               <td className="numeric" data-cell="price">
                 {displayAmount(o.price)}
               </td>
@@ -614,8 +684,9 @@ export function OrdersTable({
                 {displayAmount(o.locked)} {o.lockedAsset}
               </td>
               <td data-cell="status">{word(t, 'status', o.status)}</td>
+              {tagOf ? <td data-cell="tag">{o.venueClientOrderId ? (tagOf(o.venueClientOrderId) ?? '') : ''}</td> : null}
               <td>
-                {o.venueClientOrderId ? (
+                {o.venueClientOrderId && o.status !== 'filled' ? (
                   <Button variant="secondary" onClick={() => onCancel(o)}>
                     {o.status === 'canceled' ? t('Cancel again') : t('Cancel')}
                   </Button>

@@ -1,7 +1,32 @@
 // World: none
 import { test, expect } from './journey.mjs';
-import { clickPlot, figureLines, openWorkbench, pick, plot, pointText, pricesOf, rowNamed, rows, timesOf } from './charts-desk.mjs';
+import { figureLines, openWorkbench, pick, plot as barPlot, pointText, pricesOf, rowNamed, rows, timesOf } from './charts-desk.mjs';
 import { openOrders, signUp } from './desk.mjs';
+
+/** The chart's panes as the drawings read them: each pane's index, top and height in pixels from the chart's top. */
+const paneBoxes = (page) =>
+  page
+    .getByTestId('cw')
+    .getByTestId('wc-host')
+    .evaluate((el) => el.readPaneBoxes());
+
+/**
+ * A point on the chart's price pane: across, on the loaded bar `fx` picks; down, at `fy` of the price pane's own height,
+ * on a whole pixel as a mouse gives. The indicator panes under the price pane (the default Volume pane) take their own
+ * clicks, so a fraction of the whole chart's height would land a low click on them.
+ */
+async function plot(page, fx, fy) {
+  const { x } = await barPlot(page, fx, 0.5);
+  const box = await page.getByTestId('cw').getByTestId('wc-host').boundingBox();
+  const price = (await paneBoxes(page)).find((b) => b.index === 0);
+  if (!box || !price) throw new Error('the chart has no price pane');
+  return { x, y: box.y + Math.round(price.top + price.height * fy) };
+}
+
+async function clickPlot(page, fx, fy) {
+  const p = await plot(page, fx, fy);
+  await page.mouse.click(p.x, p.y);
+}
 
 // J-charts-desk-06 "I mark up a trade idea with Fibonacci, channels, patterns and position boxes", in the running app. One
 // test per step, titled "J-charts-desk-06 #<n>", run in order in one browser context (drawings are kept on this device).
@@ -134,13 +159,18 @@ async function loadedBars(page, box) {
   return byIndex;
 }
 
-/** Clicks loaded bar `index` (0 is the first loaded bar) at height `fy`, and answers that bar's own time in seconds. */
+/**
+ * Clicks loaded bar `index` (0 is the first loaded bar) at `fy` of the price pane's height, and answers that bar's own time
+ * in seconds. The indicator panes under the price pane take their own clicks.
+ */
 async function clickBar(page, index, fy) {
   const box = await page.getByTestId('cw').getByTestId('wc-host').boundingBox();
   if (!box) throw new Error('the chart has no box on the page');
   const bar = (await loadedBars(page, box)).get(index);
   if (!bar) throw new Error(`loaded bar ${index} is not in view`);
-  await page.mouse.click(box.x + (bar.min + bar.max) / 2, box.y + box.height * fy);
+  const price = (await paneBoxes(page)).find((b) => b.index === 0);
+  if (!price) throw new Error('the chart has no price pane');
+  await page.mouse.click(box.x + (bar.min + bar.max) / 2, box.y + Math.round(price.top + price.height * fy));
   return bar.time;
 }
 

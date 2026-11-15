@@ -145,7 +145,7 @@ describe('svc-p2p export caps and receipts (P-trade-orders-14)', () => {
     );
   }
 
-  const FULL = { maxRangeDays: 3650, maxRows: 100, receiptDailyQuota: 2, receiptPerTradeQuota: 1 };
+  const FULL = { maxRangeDays: 3650, maxRows: 100, exportDailyQuota: 2, receiptDailyQuota: 2, receiptPerTradeQuota: 1 };
   const FROM = '2020-01-01T00:00:00.000Z';
   const TO = '2029-01-01T00:00:00.000Z';
 
@@ -258,6 +258,54 @@ describe('svc-p2p export caps and receipts (P-trade-orders-14)', () => {
     await expect(caller(TAKER).trades.export({ from: TO, to: FROM, format: 'csv' })).rejects.toMatchObject(
       cause('p2p.export_range_invalid'),
     );
+  });
+
+  it("the daily export quota refuses with the reset time, counts only that person's exports today, and is blank-refused", async () => {
+    rebuild(FULL);
+    await fund(MAKER, '1000');
+    await released('20');
+    await caller(TAKER).trades.export({ from: FROM, to: TO, format: 'csv' });
+    // A refused export is not counted: the range cap refuses before the quota is touched.
+    await expect(caller(TAKER).trades.export({ from: '2010-01-01T00:00:00Z', to: TO, format: 'csv' })).rejects.toMatchObject(
+      cause('p2p.export_range_too_large'),
+    );
+    await caller(TAKER).trades.export({ from: FROM, to: TO, format: 'csv' });
+    const tomorrow = new Date();
+    tomorrow.setUTCHours(24, 0, 0, 0);
+    await expect(caller(TAKER).trades.export({ from: FROM, to: TO, format: 'csv' })).rejects.toMatchObject({
+      code: 'TOO_MANY_REQUESTS',
+      message: expect.stringContaining(`daily quota 2 used; resets at ${tomorrow.toISOString()}`),
+      ...cause('p2p.export_quota_reached'),
+    });
+    const audit = await sql<
+      Array<{ n: number }>
+    >`SELECT count(*)::int AS n FROM p2p.export_audit WHERE kind = 'export' AND user_id = ${TAKER}`;
+    expect(audit[0]?.n).toBe(2);
+    // The quota is per person: the seller still has its own.
+    await expect(caller(MAKER).trades.export({ from: FROM, to: TO, format: 'csv' })).resolves.toMatchObject({ rows: 1 });
+    // Yesterday's exports do not count: the next UTC day starts a new quota.
+    const nextDay = new Date(tomorrow.getTime() + 60_000);
+    await expect(p2p.exportTrades({ userId: TAKER, from: FROM, to: TO, now: nextDay })).resolves.toMatchObject({ rows: 1 });
+    // A blank quota refuses by name, and nothing is audited.
+    rebuild({ maxRangeDays: 3650, maxRows: 100 });
+    await expect(caller(OTHER).trades.export({ from: FROM, to: TO, format: 'csv' })).rejects.toMatchObject({
+      message: expect.stringContaining('P2P_EXPORT_DAILY_QUOTA'),
+      ...cause('p2p.config_unset'),
+    });
+    const others = await sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM p2p.export_audit WHERE user_id = ${OTHER}`;
+    expect(others[0]?.n).toBe(0);
+  });
+
+  it('parallel exports cannot both take the last one of the day', async () => {
+    rebuild({ ...FULL, exportDailyQuota: 1 });
+    const results = await Promise.allSettled(
+      Array.from({ length: 4 }, () => caller(TAKER).trades.export({ from: FROM, to: TO, format: 'csv' })),
+    );
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    const audit = await sql<
+      Array<{ n: number }>
+    >`SELECT count(*)::int AS n FROM p2p.export_audit WHERE kind = 'export' AND user_id = ${TAKER}`;
+    expect(audit[0]?.n).toBe(1);
   });
 
   it('receipt for a released trade, for both parties, without counterparty identity', async () => {

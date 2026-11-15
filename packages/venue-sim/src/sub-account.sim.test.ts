@@ -174,6 +174,7 @@ describe('TEST venue simulator: J-agents-21 sub-accounts', () => {
       asset: 'USDC',
       amount: a('150'),
       status: 'done',
+      settledAt: expect.any(Date),
     });
     // The same stored bytes re-sent: the venue's first answer, no second move.
     expect(accepted(await w.sim.submit(prepared, signature)).venueRef).toBe(prepared.nonce);

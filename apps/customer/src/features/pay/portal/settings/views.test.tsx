@@ -90,7 +90,12 @@ describe('notifications', () => {
     { seq: '2', kind: 'team_change', inApp: false, threshold: null, actorId: 'user-finance', createdAt: '2026-10-15T07:00:00.000Z' },
     { seq: '1', kind: 'export_ready', inApp: true, threshold: null, actorId: 'user-gone', createdAt: '2026-10-15T06:00:00.000Z' },
   ]);
-  const render = (view: 'feed' | 'preferences', feed: ListState<p.Notification>, history: ListState<p.PreferenceChange> = changes) =>
+  const render = (
+    view: 'feed' | 'preferences',
+    feed: ListState<p.Notification>,
+    history: ListState<p.PreferenceChange> = changes,
+    lockedReason: string | null = null,
+  ) =>
     html(
       <NotificationsView
         portal={portal}
@@ -110,8 +115,24 @@ describe('notifications', () => {
         reloadHistory={noop}
         names={new Map([['user-finance', 'Accounts']])}
         myUserId="me-1"
+        lockedReason={lockedReason}
       />,
     );
+  it('greys every preference with the reason for a person who may not change them (J-merchant-01 #6)', () => {
+    const open = render('preferences', list<p.Notification>([]));
+    expect(open).not.toContain('class="pp-pref" aria-disabled');
+    expect(open).not.toMatch(/<input[^>]*type="checkbox"[^>]*disabled/);
+    const out = render('preferences', list<p.Notification>([]), changes, 'Needs notifications.manage');
+    const rows = out.split('data-testid="pp-pref"').slice(1);
+    expect(rows).toHaveLength(p.notificationKinds.length);
+    for (const row of rows) {
+      expect(row).toMatch(/<input[^>]*type="checkbox"[^>]*disabled=""/);
+      expect(row).toMatch(/<button[^>]*disabled=""[^>]*>Save</);
+      expect(row).toContain('Needs notifications.manage');
+    }
+    // The threshold field cannot be typed into either.
+    expect(out).toMatch(/<input[^>]*inputMode="decimal"[^>]*disabled=""|<input[^>]*disabled=""[^>]*inputMode="decimal"/);
+  });
   it('shows a feed with unread marked in words and a link to the subject', () => {
     const out = render(
       'feed',

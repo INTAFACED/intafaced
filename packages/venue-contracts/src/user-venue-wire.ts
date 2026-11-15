@@ -50,9 +50,27 @@ const AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   'ask',
   'maxOrderQty',
   'maxOrderNotional',
+  // UserVenueMarket's smallest order value and price band (J-cex-spot-04), null where the venue publishes none
+  'minOrderNotional',
+  'priceBandBps',
+  // UserVenueOpenInterest (J-derivatives-27 #8): the deployer's cap, null where it sets none
+  'capSize',
+  // UserVenueMarketEvent (J-derivatives-27 #9 #10)
+  'settlementPrice',
   // VenueBuilderTotal (OWNER 288 1e)
   'earned',
   'unclaimed',
+  // VenueCandle (J-cex-spot-01 #5)
+  'openPrice',
+  'highPrice',
+  'lowPrice',
+  'closePrice',
+  'baseVolume',
+  // UserVenueFunding (J-derivatives-01 #4): the signed funding rate, a scaled fraction
+  'rate',
+  // UserVenueMarginTier (J-derivatives-02 #2): the notional a tier starts at and its maintenance rate
+  'fromNotional',
+  'maintenanceRate',
   // MaybeKnown<Amount>.value and AsOf<Amount>.value
   'value',
 ]);
@@ -87,6 +105,9 @@ const NULLABLE_AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   'ask',
   'maxOrderQty',
   'maxOrderNotional',
+  'minOrderNotional',
+  'priceBandBps',
+  'capSize',
 ]);
 
 const DATE_FIELDS: ReadonlySet<string> = new Set([
@@ -94,10 +115,29 @@ const DATE_FIELDS: ReadonlySet<string> = new Set([
   'reportedAt',
   'preparedAt',
   'filledAt',
+  'settledAt',
   'validUntil',
   'since',
   'lastOracleUpdateAt',
   'reopensAt',
+  // UserVenueMarketEvent and UserVenueSettlement (J-derivatives-27 #9 #10)
+  'eventAt',
+  'reopenedAt',
+  'settledAt',
+  'nextFundingAt',
+  // VenueFundingRow (J-charts-desk-04 #6)
+  'fundingAt',
+  // UserVenueDeposit (J-dex-protocol-05 #2)
+  'seenAt',
+  // UserVenueOrderTrigger (J-derivatives-03 #6 #7)
+  'triggeredAt',
+  // UserVenueArrival (J-portfolio-02 #6)
+  'arrivedAt',
+  // UserVenueBuilderClaim (J-derivatives-17)
+  'claimedAt',
+  // VenuePrint and VenueCandle (J-cex-spot-01 #5)
+  'tradedAt',
+  'openAt',
 ]);
 
 /**
@@ -114,6 +154,8 @@ const OPAQUE_FIELDS: ReadonlySet<string> = new Set([
   'offHoursMode',
   'offHoursBand',
   'offHoursRule',
+  // A market's deployer margin account rule (J-derivatives-27 #7): its name, collateral asset and margin mode are text.
+  'marginAccount',
 ]);
 
 export class VenueWireError extends Error {

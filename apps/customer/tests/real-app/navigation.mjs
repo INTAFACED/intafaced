@@ -3,7 +3,10 @@
  * before a reload or a `goto` can match a request the old page made just before it, and the navigation then drops that
  * response's body: "No resource with given identifier found" (#7457, J-wallet-04 #4 on three PR runs), or "the response
  * was navigated away from". So the match starts only once the navigation has committed the main frame, and the body is
- * read as soon as the response arrives, before anything else can move the page on.
+ * read as soon as the response arrives, before anything else can move the page on. A read the old page started before the
+ * navigation can still answer after the commit (#8061, J-wallet-04 #4: a rename's own re-read of the book, then a reload),
+ * so the match also needs the request to have started no earlier than the navigation's own document request did (both
+ * times from the browser's clock): such an old read is never the one matched, and its dropped body is never read.
  *
  * Returns `{ res, doc }`: `res` is `{ status, startedAt, body }` (`startedAt` is the request's start on the browser's
  * clock, `body` what `read` made of it, JSON by default), and `doc` is what `navigate` returned (the new document's
@@ -11,18 +14,29 @@
  */
 export async function responseAfterNavigation(page, match, { navigate = () => page.reload(), read = (r) => r.json() } = {}) {
   let navigated = false;
+  let docRequest = null;
   const committed = (frame) => {
     if (frame === page.mainFrame()) navigated = true;
   };
+  const requested = (req) => {
+    if (req.isNavigationRequest() && req.frame() === page.mainFrame()) docRequest = req;
+  };
+  // Playwright fills a request's start time when its answer arrives; the document's answer arrives before the commit.
+  const fresh = (r) => {
+    const since = docRequest?.timing().startTime ?? 0;
+    return since > 0 && r.request().timing().startTime >= since;
+  };
+  page.on('request', requested);
   page.on('framenavigated', committed);
   try {
     const answer = page
-      .waitForResponse((r) => navigated && match(r))
+      .waitForResponse((r) => navigated && fresh(r) && match(r))
       .then(async (r) => ({ status: r.status(), startedAt: r.request().timing().startTime, body: await read(r) }));
     const [res, doc] = await Promise.all([answer, navigate()]);
     return { res, doc };
   } finally {
     page.off('framenavigated', committed);
+    page.off('request', requested);
   }
 }
 

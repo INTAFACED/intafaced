@@ -1,4 +1,5 @@
-import { testPartnerCustody, type TestPartner } from './partner/test-partner.js';
+import { testPartnerCustody, testPartnerDirectDebits, testPartnerPurchases, type TestPartner } from './partner/test-partner.js';
+import type { PartnerPurchaseCustody } from './partner/partner-purchases.js';
 import {
   bankCustodyLayer,
   custodyGuardedLedger,
@@ -6,7 +7,7 @@ import {
   type PartnerCustody,
   type PostingFreeze,
 } from './partner/partner-bank.js';
-import { moneyHeldBy } from './partner/test-partner.js';
+import { assertPartnerOffers, moneyHeldBy } from './partner/test-partner.js';
 import { freezeGuardedCardHolds, testPartnerCardHolds } from './cards/partner-card-holds.js';
 import { NOTHING_REPORTED } from './cards/partner-terms.js';
 import { AssetPauseService } from './ops/asset-pause.js';
@@ -55,6 +56,7 @@ import { BusinessLookupLimiter, unconfiguredBusinessDirectory, type BusinessDire
 import { PortfolioService, type PortfolioServiceOptions } from './portfolio/portfolio-service.js';
 import { ActivityService, type ActivityServiceOptions } from './activity/activity-service.js';
 import { ActivityRecordService } from './activity/activity-records.js';
+import type { TaxEffectMap } from './activity/tax-effects.js';
 import { StatementService } from './statements/statement-service.js';
 import { StatementJobService, type StatementJobsConfig } from './statements/statement-jobs.js';
 import { AccountDetailsService, type AccountDetailsOptions } from './account-details/account-details.js';
@@ -98,8 +100,12 @@ export interface BankServices {
   readonly blockedRegionNotice?: string | undefined;
   /** The TEST partner bank and ramp with their switches (CUSTODY-DELTA §4), on a dev or test stack only; null elsewhere. */
   readonly testPartner: TestPartner | null;
+  /** What each kind of activity line means for tax: the owner's map, the TEST one on a test stack, or null (refused). */
+  readonly taxEffects: TaxEffectMap | null;
   /** Who holds each person's bank money: the partner, or (null) the custodial layer. */
   readonly partnerCustody: PartnerCustody;
+  /** Who credits a partner-held person's purchase and reports what it holds back of it (J-wallet-01 #3). */
+  readonly partnerPurchases: PartnerPurchaseCustody;
   readonly spaces: SpaceService;
   readonly transfers: TransferService;
   readonly personalPay: PersonalPayService;
@@ -205,6 +211,8 @@ export interface BankServiceOptions {
   onrampPartner?: OnrampPartner | null;
   /** The TEST partner bank and ramp (`BANK_TEST_PARTNER=test`); refused at boot outside dev/test. Unset: no switches. */
   testPartner?: TestPartner | null;
+  /** The tax-effect map (`activity/tax-effects.ts`). Unset: `activity.taxEffects` refuses by name. */
+  taxEffects?: TaxEffectMap | null;
   /**
    * The custody switch as svc-bank reads it (`LEDGER_CUSTODY_LAYER`, OWNER 226). A value passed in wins; otherwise the
    * live env, where unset is off. Off: every customer-balance post refuses `bank.no_partner_bank` before svc-ledger,
@@ -414,6 +422,7 @@ export function createBankServices(
     securityLock: options.ramps?.securityLock,
     reviewRule: options.sendReviewRule ?? null,
     remindPolicy: options.remindPolicy ?? null,
+    custody,
   });
   const assetPauses = new AssetPauseService(sql);
   // The supply pause lives in the deposit path so auto-invest cannot go around it.
@@ -485,6 +494,10 @@ export function createBankServices(
     ...(options.cards ?? {}),
     heldBy: options.cards?.heldBy ?? ((userId) => moneyHeldBy(options.testPartner, userId, custodyLayer)),
     partnerHolds,
+    // The TEST partner's own "not offered" switch for phone wallets (J-bank-13 #8); no partner, the issuer alone decides.
+    assertWalletOffered:
+      options.cards?.assertWalletOffered ??
+      (options.testPartner ? (userId: string) => assertPartnerOffers(options.testPartner, userId, 'phone_wallet') : null),
     onCaptureSettled: options.cards?.onCaptureSettled ?? ((event) => autoInvest.applyRoundUp(event)),
     // A card linked to a shared pot: every change of its status is a line in the pot's log, in the card's transaction.
     onStatusChanged: options.cards?.onStatusChanged ?? ((tx, change) => sharedPots.noteCardStatus(tx, change)),
@@ -509,7 +522,9 @@ export function createBankServices(
   });
   // The pay-in partner opens hosted payments (as the ramps' payment port) and says each was paid; unset everywhere but a
   // dev or test stack with the TEST stand-in chosen.
-  const addMoney = new AddMoneyService(sql, ramps, { ledger, partner: options.onrampPartner ?? null });
+  // A person the TEST partner holds money for has their paid purchase credited by the partner itself, not the ledger.
+  const partnerPurchases = testPartnerPurchases(options.testPartner);
+  const addMoney = new AddMoneyService(sql, ramps, { ledger, partner: options.onrampPartner ?? null, purchases: partnerPurchases });
   // The same owner values as the crypto address book: its cap, and the payout cooling-off window.
   const linkedAccounts = new LinkedAccountService(sql, {
     // Resolved as RampService resolves them: a value passed in wins, otherwise the live env.
@@ -558,13 +573,20 @@ export function createBankServices(
     options.holdCancelHours !== undefined ? options.holdCancelHours : process.env[BANK_GLOBAL_HOLD_CANCEL_HOURS_ENV],
   );
   globalSend.screenWith((sendId) => globalHolds.screen(sendId));
-  const directDebits = new DirectDebitService(sql, ledger, spaces, options.directDebitScheme ?? unsetDirectDebitScheme);
+  const directDebits = new DirectDebitService(
+    sql,
+    ledger,
+    spaces,
+    options.directDebitScheme ?? unsetDirectDebitScheme,
+    testPartnerDirectDebits(options.testPartner),
+  );
 
   const recovery = new RecoveryClaimService(sql, ledger, spaces, options.identityRecovery ?? unconfiguredIdentityRecovery());
 
   return {
     blockedRegionNotice: options.blockedRegionNotice,
     testPartner: options.testPartner ?? null,
+    taxEffects: options.taxEffects ?? null,
     spaces,
     sorter,
     billsPots,
@@ -577,6 +599,7 @@ export function createBankServices(
     analytics,
     budgets,
     partnerCustody: custody,
+    partnerPurchases,
     portfolio,
     activity,
     activityRecords,

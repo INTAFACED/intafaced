@@ -6,16 +6,21 @@ import {
   type AsOf,
   type MaybeKnown,
   type VenueBuilderTotals,
+  type UserVenueBuilderClaim,
   type PlaceUserOrderIntent,
   type PreparedVenueAction,
   type UserVenue,
   type UserVenueAccount,
   type UserVenueAgent,
   type UserVenueBalance,
+  type UserVenueArrival,
+  type UserVenueDeposit,
   type UserVenueDepositRoute,
   type UserVenueDescriptor,
   type UserVenueFill,
   type UserVenueLeverage,
+  type UserVenueMarketMargin,
+  type UserVenueSettlement,
   type UserVenueMarket,
   type UserVenueOrder,
   type UserVenuePosition,
@@ -27,6 +32,10 @@ import {
   type VenueBook,
   type VenueOrderPreview,
   type VenueBestPrices,
+  type VenueFundingRow,
+  type VenueCandle,
+  type VenueCandleInterval,
+  type VenuePrint,
   type VenueRefusal,
   type VenueSignature,
   type VenueSigner,
@@ -84,7 +93,21 @@ export function readDepositRoute(raw: unknown): UserVenueDepositRoute | null {
     r.asset.trim() === ''
   )
     return null;
-  return { chainId: r.chainId, token, tokenDecimals: r.tokenDecimals, address, asset: r.asset };
+  // The venue's published terms: each one it names but does not give in its form is not published (null), never guessed.
+  const minimum = typeof r.minimum === 'string' && /^(0|[1-9]\d*)(\.\d+)?$/.test(r.minimum) ? r.minimum : null;
+  const confirmations =
+    typeof r.confirmations === 'number' && Number.isSafeInteger(r.confirmations) && r.confirmations > 0 ? r.confirmations : null;
+  const network = typeof r.network === 'string' && r.network.trim() !== '' ? r.network : null;
+  return {
+    chainId: r.chainId,
+    token,
+    tokenDecimals: r.tokenDecimals,
+    address,
+    asset: r.asset,
+    minimum,
+    confirmations,
+    network,
+  };
 }
 
 type Failure = { readonly kind: 'not_sent' | 'timeout' | 'connection_lost' | 'error_after_send'; readonly detail: string };
@@ -218,6 +241,18 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
     return this.read('/best-prices', { symbol });
   }
 
+  fundingHistory(symbol: string, since: Date): Promise<AsOf<readonly VenueFundingRow[]>> {
+    return this.read('/funding-history', { symbol, since });
+  }
+
+  trades(symbol: string, limit: number): Promise<AsOf<readonly VenuePrint[]>> {
+    return this.read('/trades', { symbol, limit });
+  }
+
+  candles(symbol: string, interval: VenueCandleInterval, limit: number): Promise<AsOf<readonly VenueCandle[]>> {
+    return this.read('/candles', { symbol, interval, limit });
+  }
+
   /** A lost prepare sends nothing to sign, so it is `venue_down` and safe to ask again. */
   prepare(account: UserVenueAccount, signer: VenueSigner, intent: VenueIntent): Promise<PreparedVenueAction> {
     return this.read('/prepare', { account, signer, intent });
@@ -268,6 +303,14 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
     return this.read('/withdrawal', { account, nonce });
   }
 
+  deposits(account: UserVenueAccount): Promise<AsOf<readonly UserVenueDeposit[]>> {
+    return this.read('/deposits', { account });
+  }
+
+  arrivals(account: UserVenueAccount): Promise<AsOf<readonly UserVenueArrival[]>> {
+    return this.read('/arrivals', { account });
+  }
+
   builderFeeApproval(account: UserVenueAccount, builder: string): Promise<AsOf<Amount>> {
     return this.read('/builder-fee-approval', { account, builder });
   }
@@ -277,12 +320,27 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
     return this.read('/builder-totals', { builder });
   }
 
+  /** The TEST venue's own record of each claim of our builder fees (J-derivatives-17). */
+  builderClaims(builder: string): Promise<AsOf<readonly UserVenueBuilderClaim[]>> {
+    return this.read('/builder-claims', { builder });
+  }
+
   agents(account: UserVenueAccount): Promise<AsOf<readonly UserVenueAgent[]>> {
     return this.read('/agents', { account });
   }
 
   leverage(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueLeverage | null>> {
     return this.read('/leverage', { account, symbol });
+  }
+
+  /** The owner's balance in the margin account a market's deployer keeps for it (J-derivatives-27 #7). */
+  marketMargin(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueMarketMargin>> {
+    return this.read('/market-margin', { account, symbol });
+  }
+
+  /** The account's settlements in a deployer's halt or a split since `since` (J-derivatives-27 #9 #10). */
+  settlements(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueSettlement[]>> {
+    return this.read('/settlements', { account, since });
   }
 
   // ── UserVenueSubAccountReads (J-agents-21: the agent's sub-account and the person's moves into and out of it) ──

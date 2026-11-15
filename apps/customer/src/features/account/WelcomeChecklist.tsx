@@ -14,8 +14,8 @@ import { timeLeft } from './time-left';
 
 /**
  * The welcome checklist on /uc/promotion (CM-rewards-hub-03, J-campaigns-04): the account's
- * welcome window and each task, ticked by svc-campaigns from real events (verified, a crypto deposit credited, a spot
- * fill), with its reward ("not set" when blank) and a claim per task. Everything is read from svc-campaigns; after any
+ * welcome window and each task, ticked by svc-campaigns from real events (verified, a USDC deposit from the connected
+ * wallet the venue credited, a spot fill), with its reward ("not set" when blank) and a claim per task. Everything is read from svc-campaigns; after any
  * claim answer, or none, the list is read again, so a lost reply never sends a second claim.
  */
 
@@ -162,12 +162,44 @@ function Tasks({
                     : task.record
                       ? task.record.state === 'posted' && task.record.postedAt
                         ? t('record_posted', { when: when(task.record.postedAt) })
-                        : t('record_open', { state: task.record.state })
+                        : task.record.state === 'paid' && task.record.payout
+                          ? t('record_paid', { wallet: task.record.payout.toWallet, when: when(task.record.payout.at) })
+                          : task.record.state === 'owed' && task.record.owed
+                            ? t('record_owed', { when: when(task.record.owed.at) })
+                            : t('record_open', { state: task.record.state })
                       : task.doneAt
                         ? t('doneAt', { when: when(task.doneAt) })
                         : t(`openWhy_${key(task.event)}`)}
                 </span>
-                {task.record?.ledgerTxId ? (
+                {task.event === 'pay.deposit' && task.state === 'open' && data.deposit ? (
+                  <span data-testid="welcome-deposit-source" data-source={data.deposit.source} data-as-of={data.deposit.asOf ?? ''}>
+                    {' '}
+                    {data.deposit.source === 'no_wallet'
+                      ? t('depositNoWallet')
+                      : data.deposit.source === 'unread'
+                        ? t('depositUnread')
+                        : data.deposit.asOf
+                          ? t('depositAsOf', { when: when(data.deposit.asOf) })
+                          : null}
+                  </span>
+                ) : null}
+                {/* A paid reward's chain transaction, in the app's explorer: it left our wallet for theirs, never a balance. */}
+                {task.record?.payout ? (
+                  <>
+                    {' '}
+                    <a
+                      className="text-link"
+                      data-testid="welcome-chain-tx"
+                      data-tx={task.record.payout.chainTx}
+                      href={`/chain/tx/${encodeURIComponent(task.record.payout.chainTx)}`}
+                      lang="zxx"
+                    >
+                      {t('chainTxLink', { tx: task.record.payout.chainTx })}
+                    </a>
+                  </>
+                ) : null}
+                {/* A posted reward's transaction is in the customer's own activity; a paid one's booking is ours, not theirs. */}
+                {task.record?.ledgerTxId && task.record.state !== 'paid' ? (
                   <>
                     {' '}
                     <a

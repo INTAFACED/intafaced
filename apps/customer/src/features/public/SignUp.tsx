@@ -18,11 +18,19 @@ import {
   type Channel,
 } from './sign-up';
 import { signUpCopy } from './sign-up-copy';
+import { subdivisionOptions } from './subdivisions';
 import { SocialSignIn } from './SocialSignIn';
 import './public-pages.css';
 import './sign-up.css';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
+
+/** The service's own sentence saying why a region is blocked ("Ontario, Canada is not served at launch."), or none. */
+const GENERAL_BLOCK = 'We cannot open accounts for this country right now.';
+function blockReason(refusal: Refusal | null): string | undefined {
+  const reason = refusal?.message.trim();
+  return reason && reason !== GENERAL_BLOCK ? reason : undefined;
+}
 type Pending = { flowId: string; email: string; resendAt: number; accountType: AccountType };
 
 /**
@@ -37,6 +45,7 @@ export function SignUp() {
   const context = publicAuthContext(location.pathname, location.search);
   const [accountType, setAccountType] = useState<AccountType>('individual');
   const [channel, setChannel] = useState<Channel>('email');
+  const [country, setCountry] = useState('');
   const [pending, setPending] = useState<Pending | null>(null);
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
@@ -48,6 +57,7 @@ export function SignUp() {
   const mounted = useRef(true);
   const problemId = useId();
   const countries = useMemo(() => countryOptions(requestedLocale), [requestedLocale]);
+  const provinces = useMemo(() => subdivisionOptions(country), [country]);
 
   useEffect(() => {
     mounted.current = true;
@@ -82,6 +92,9 @@ export function SignUp() {
     const field = (name: string) => String(data.get(name) ?? '').trim();
     const email = field('email');
     const nationality = field('nationality');
+    const subdivision = field('subdivision');
+    // Left unanswered, the question is sent as no answer at all, and the service refuses it: never read as no.
+    const usPerson = field('usPerson');
     const input = {
       channel,
       accountType,
@@ -89,6 +102,8 @@ export function SignUp() {
       ...(channel === 'email' ? { email } : { phone: field('phone') }),
       password: String(data.get('password') ?? ''),
       country: field('country'),
+      ...(subdivision ? { subdivision } : {}),
+      ...(usPerson === 'yes' ? { usPerson: true } : usPerson === 'no' ? { usPerson: false } : {}),
       ...(nationality ? { nationality } : {}),
       dateOfBirth: field('dateOfBirth'),
       // Signing up from an invitation link names its referrer when the account is made (CM-referral-01, RF-1).
@@ -176,9 +191,13 @@ export function SignUp() {
         ? t(code, { minutes: Math.max(1, Math.ceil((refusal?.retryAfterSeconds ?? 60) / 60)) })
         : code === 'identity.resend_too_soon' && wait > 0
           ? t('resendIn', { seconds: wait })
-          : code
-            ? t(code)
-            : null;
+          : code === 'identity.region_blocked' && blockReason(refusal)
+            ? t('regionBlockedBecause', { reason: blockReason(refusal)! })
+            : code === 'identity.subdivision_required' && provinces.length === 0
+              ? t('subdivisionNoField')
+              : code
+                ? t(code)
+                : null;
 
   return (
     <div className="pub-page">
@@ -250,7 +269,7 @@ export function SignUp() {
               )}
               <label className="field">
                 <span>{t('country')}</span>
-                <select name="country" required disabled={busy} defaultValue="">
+                <select name="country" required disabled={busy} value={country} onChange={(e) => setCountry(e.target.value)}>
                   <option value="" disabled>
                     {t('countryPick')}
                   </option>
@@ -261,6 +280,28 @@ export function SignUp() {
                   ))}
                 </select>
               </label>
+              {provinces.length > 0 && (
+                <label className="field">
+                  <span>{t('subdivision')}</span>
+                  <select key={country} name="subdivision" disabled={busy} defaultValue="">
+                    <option value="">{t('subdivisionPick')}</option>
+                    {provinces.map((p) => (
+                      <option key={p.code} value={p.code}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <fieldset className="pub-choice" disabled={busy}>
+                <legend>{t('usPerson')}</legend>
+                <small className="muted">{t('usPersonHint')}</small>
+                {(['yes', 'no'] as const).map((answer) => (
+                  <label key={answer}>
+                    <input type="radio" name="usPerson" value={answer} /> {t(answer === 'yes' ? 'usPersonYes' : 'usPersonNo')}
+                  </label>
+                ))}
+              </fieldset>
               <label className="field">
                 <span>{t('nationality')}</span>
                 <select name="nationality" disabled={busy} defaultValue="">

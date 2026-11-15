@@ -110,7 +110,13 @@ export function endpointNeedsAttention(endpoint: Endpoint): boolean {
 }
 
 /** Only a failed or dead delivery can be sent again. */
-export const canRetry = (delivery: Delivery) => delivery.status === 'failed' || delivery.status === 'dead';
+/**
+ * Whether a delivery can be sent again: any one that is not already waiting to be sent. An `unknown` one is waiting
+ * while its lease lasts (the service refuses a resend then, so no second copy can be in flight).
+ */
+export const canRetry = (delivery: Delivery, now = Date.now()) =>
+  delivery.status !== 'pending' &&
+  !(delivery.status === 'unknown' && delivery.nextAttemptAt != null && Date.parse(delivery.nextAttemptAt) > now);
 
 export type SnippetLanguage = 'typescript' | 'python';
 
@@ -151,22 +157,25 @@ export const verifySnippets: Record<SnippetLanguage, string> = {
 
 export function eventIsGenuine(secret: string, headers: Headers, rawBody: string) {
   const timestamp = headers.get('x-intafaced-timestamp') ?? '';
-  const received = headers.get('x-intafaced-signature') ?? '';
-  const toleranceSeconds = 300; // your choice: how old an event may be before you refuse it
+  // While an old secret overlaps a new one the header holds two signatures, comma separated: one match is enough.
+  const received = (headers.get('x-intafaced-signature') ?? '').split(',');
+  const toleranceSeconds = 300; // the tolerance the receiver guide publishes
   if (Math.abs(Date.now() / 1000 - Number(timestamp)) > toleranceSeconds) return false;
-  const expected = createHmac('sha256', secret).update(\`\${timestamp}.\${rawBody}\`).digest('hex');
-  const a = Buffer.from(received, 'hex');
-  const b = Buffer.from(expected, 'hex');
-  return a.length === b.length && timingSafeEqual(a, b);
+  const expected = Buffer.from(createHmac('sha256', secret).update(\`\${timestamp}.\${rawBody}\`).digest('hex'), 'hex');
+  return received.some((sig) => {
+    const given = Buffer.from(sig.trim(), 'hex');
+    return given.length === expected.length && timingSafeEqual(given, expected);
+  });
 }`,
   python: `import hashlib, hmac, time
 
 def event_is_genuine(secret: str, headers, raw_body: str) -> bool:
     timestamp = headers.get("x-intafaced-timestamp", "")
-    received = headers.get("x-intafaced-signature", "")
-    tolerance_seconds = 300  # your choice: how old an event may be before you refuse it
+    # While an old secret overlaps a new one the header holds two signatures, comma separated: one match is enough.
+    received = headers.get("x-intafaced-signature", "").split(",")
+    tolerance_seconds = 300  # the tolerance the receiver guide publishes
     if not timestamp.isdigit() or abs(time.time() - int(timestamp)) > tolerance_seconds:
         return False
     expected = hmac.new(secret.encode(), f"{timestamp}.{raw_body}".encode(), hashlib.sha256).hexdigest()
-    return hmac.compare_digest(received, expected)`,
+    return any(hmac.compare_digest(sig.strip(), expected) for sig in received)`,
 };

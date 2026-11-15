@@ -56,6 +56,11 @@
       "value": "1000",
       "note": "Most rows in one P2P order export."
     },
+    "P2P_EXPORT_DAILY_QUOTA": {
+      "service": "p2p",
+      "value": "5",
+      "note": "P2P order exports per person per UTC day; small, so J-p2p-18 #2 reaches it."
+    },
     "P2P_PAIR_LIMITS": {
       "service": "p2p",
       "value": "{\"USDT/EUR\":{\"min\":\"0.5\",\"max\":\"500\"},\"USDT/USD\":{\"min\":\"0.5\",\"max\":\"500\"}}",

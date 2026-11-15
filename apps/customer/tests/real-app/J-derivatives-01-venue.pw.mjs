@@ -20,8 +20,8 @@ import {
 // J-derivatives-01's steps on the user's own venue account (B1, project-state #1789), in the running app against the
 // stack's TEST venue simulator (BTC-PERP, isolated margin only). One test per step, titled "J-derivatives-01 #<n>" as
 // today's files title them; a step in two files must pass in both. #1 makes the verified account and its TEST 1000 USDC
-// (the journey's start). #2 (the gated list), #3 (deferred to launch prep) and #4 (the strip's mark price and funding,
-// which the venue's market read does not carry) are not here. #10 closes the position and reads our builder fee on
+// (the journey's start). #2 reads the gated list as svc-trade answers it; #3 (deferred to launch prep) is not here; #4 reads the strip's
+// contract size, mark and funding from the venue's own market read. #10 closes the position and reads our builder fee on
 // svc-ledger's own operator door; #11 reads what #10 closed. Every figure is TEST. The door is on for this file only.
 const J = 'J-derivatives-01';
 const DESK = '/trade/futures';
@@ -74,9 +74,11 @@ test(`${J} #1 opens /trade/futures: the full desk with the contracts the venue l
 
   const { displayName } = await venueInfo();
   const markets = (await testVenue('/markets', {})).body.value.filter((m) => m.kind === 'perpetual');
-  // The TEST venue lists BTC-PERP, the TEST gold perpetual XAU-PERP (J-derivatives-21) and the TEST stock perpetual
-  // XSTK-PERP (J-derivatives-27); the desk lists every one, each with its venue named.
-  expect(markets.map((m) => m.symbol)).toEqual([SYMBOL, 'XAU-PERP', 'XSTK-PERP']);
+  // The TEST venue lists BTC-PERP, the TEST perpetual ETH-PERP its trigger orders rest on (J-derivatives-03), the TEST
+  // gold perpetual XAU-PERP (J-derivatives-21), the TEST stock perpetuals XSTK-PERP and XSTD-PERP (J-derivatives-27) and
+  // the TEST perpetual XRSK-PERP its margin tiers are published on (J-derivatives-02); the desk lists every one, each
+  // with its venue named.
+  expect(markets.map((m) => m.symbol)).toEqual([SYMBOL, 'ETH-PERP', 'XAU-PERP', 'XSTK-PERP', 'XSTD-PERP', 'XRSK-PERP']);
   const list = page.getByTestId('venue-contract-list');
   await expect(list.getByRole('button')).toHaveCount(markets.length);
   for (const m of markets) await expect(list.getByRole('button', { name: `${m.symbol} · ${displayName}` })).toBeVisible();
@@ -103,13 +105,135 @@ test(`${J} #1 opens /trade/futures: the full desk with the contracts the venue l
     const ticket = page.getByTestId('venue-ticket');
     await ticket.getByRole('textbox', { name: 'Size (BTC)' }).fill(OPEN.size);
     await ticket.getByRole('textbox', { name: 'Worst price (slippage limit)' }).fill(OPEN.worst);
+    // The control's refusal is typed: the door answers the venue's own code, and the desk shows its words.
+    const refusal = page.waitForResponse(
+      (r) => r.request().method() === 'POST' && new URL(r.url()).pathname.startsWith('/api/v1/venue/') && r.status() >= 400,
+    );
     await ticket.getByRole('button', { name: 'Review long' }).click();
+    const refused = await refusal;
+    expect(refused.status()).toBe(503);
+    expect(await refused.json()).toMatchObject({ code: 'ExchangeNotAvailable', intafacedCode: 'trade.venue.venue_down' });
     await expect(ticket.getByRole('alert')).toContainText('is down (TEST switch)');
     await expect(page.getByTestId('venue-review')).toHaveCount(0);
   } finally {
     await testVenue('/test/switches', { venueDown: false });
   }
   expect((await venueRecord(owner, '/open-orders')).value).toEqual([]);
+});
+
+// The legal and suitability reasons the list used to carry. None of them is a reason (owner decision 2026-10-27).
+const LEGAL_CODES = ['trade.derivatives_eligibility_unset', 'trade.agreement_required', 'trade.adl_disclosure_required'];
+
+test(`${J} #2 opens the gated list: each contract marked open or blocked for this account with the reason; a contract the venue halts is blocked naming it`, async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  const { account } = state();
+  await desk(page);
+  const { displayName } = await venueInfo();
+  const me = await api(account);
+  const gatedList = async () => {
+    const { status, body } = await me.get('/api/v1/venue/gated-list');
+    expect(status, JSON.stringify(body)).toBe(200);
+    return body;
+  };
+  const panel = page.getByTestId('venue-gated-list');
+  await expect(panel).toBeVisible();
+  await expect(panel.getByTestId('venue-test').first()).toHaveText('TEST');
+  const contractList = page.getByTestId('venue-contract-list');
+
+  /** The screen matches the service, contract by contract: open or blocked, and each reason by its code, no other. */
+  async function shownAsService(body) {
+    const offered = (await contractList.getByRole('button').allInnerTexts()).map((b) => b.split(' · ')[0].trim());
+    expect(body.value.map((c) => c.symbol).sort(), 'the gated list names every contract the desk offers, and no other').toEqual(
+      [...offered].sort(),
+    );
+    for (const c of body.value) {
+      const row = panel.locator(`[data-testid="venue-gate"][data-symbol="${c.symbol}"]`);
+      await expect(row, c.symbol).toHaveAttribute('data-open', c.open ? 'true' : 'false');
+      await expect(row.getByTestId('venue-gate-state')).toHaveText(c.open ? 'Open for your account' : 'Blocked for your account');
+      await expect(row.locator('[data-code]')).toHaveCount(c.blockers.length);
+      for (const b of c.blockers) await expect(row.locator(`[data-code="${b.code}"]`)).toHaveText(b.message);
+      for (const code of LEGAL_CODES) expect(c.blockers.map((x) => x.code)).not.toContain(code);
+    }
+  }
+
+  // This verified account, with our TEST builder fee published: every contract the venue lists is open, with no reason.
+  const before = await gatedList();
+  expect(before.value.map((c) => c.symbol)).toEqual(expect.arrayContaining([SYMBOL, 'XAU-PERP']));
+  for (const c of before.value) expect(c, c.symbol).toMatchObject({ open: true, code: null, blockers: [] });
+  await shownAsService(before);
+  await expect(panel.getByTestId('venue-gated-as-of')).toContainText('As of');
+
+  // The venue halts one contract: that one reads blocked, naming the venue's halt; the others stay open; nothing is sent.
+  try {
+    expect((await testVenue('/test/market-status', { symbol: 'XAU-PERP', status: 'halted' })).status).toBe(200);
+    const row = panel.locator('[data-testid="venue-gate"][data-symbol="XAU-PERP"]');
+    await expect(row).toHaveAttribute('data-open', 'false', { timeout: 20_000 });
+    const halted = await gatedList();
+    const gold = halted.value.find((c) => c.symbol === 'XAU-PERP');
+    expect(gold).toMatchObject({ open: false, code: 'trade.venue.market_halted' });
+    expect(gold.blockers).toEqual([{ code: 'trade.venue.market_halted', message: `${displayName} reports XAU-PERP halted` }]);
+    for (const c of halted.value.filter((x) => x.symbol !== 'XAU-PERP')) expect(c.open, c.symbol).toBe(true);
+    await shownAsService(halted);
+  } finally {
+    await testVenue('/test/market-status', { symbol: 'XAU-PERP', status: 'trading' });
+  }
+  await expect(panel.locator('[data-testid="venue-gate"][data-symbol="XAU-PERP"]')).toHaveAttribute('data-open', 'true', {
+    timeout: 20_000,
+  });
+});
+
+test(`${J} #4 picks the contract and reads its strip: family, settle asset, contract size, mark price and funding, each as the venue publishes it`, async ({
+  page,
+}) => {
+  await desk(page);
+  const list = page.getByTestId('venue-contract-list');
+  const strip = page.getByTestId('venue-contract-strip');
+  const { displayName } = await venueInfo();
+  const venueMarket = async (symbol) => (await testVenue('/markets', {})).body.value.find((m) => m.symbol === symbol);
+  // Picking another contract redraws the strip for it; a figure the venue does not publish says so, never a zero.
+  await list.getByRole('button', { name: `XAU-PERP · ${displayName}` }).click();
+  await expect(strip.getByRole('heading')).toContainText('XAU-PERP');
+  const gold = await venueMarket('XAU-PERP');
+  expect(gold.funding).toEqual({ known: false });
+  await expect(strip.getByTestId('venue-funding')).toHaveText('not published by this venue');
+  await expect(strip.getByTestId('venue-contract-size')).toHaveText(`${gold.contractSize.value} XAU per contract`);
+
+  // The person picks BTC-PERP: the strip is the venue's own figures for it.
+  const pick = list.getByRole('button', { name: `${SYMBOL} · ${displayName}` });
+  await pick.click();
+  await expect(pick).toHaveAttribute('aria-pressed', 'true');
+  await expect(strip.getByRole('heading')).toContainText(SYMBOL);
+  await expect(strip.getByTestId('venue-test')).toHaveText('TEST');
+  const m = await venueMarket(SYMBOL);
+  expect(m.kind).toBe('perpetual');
+  await expect(strip.getByTestId('venue-family')).toHaveText('Perpetual');
+  await expect(strip.getByTestId('venue-settle-asset')).toHaveText(m.quoteAsset);
+  expect(m.contractSize.known).toBe(true);
+  await expect(strip.getByTestId('venue-contract-size')).toHaveText(`${m.contractSize.value} BTC per contract`);
+  // The mark is the venue's now, digit for digit; read the venue and the strip together until one poll agrees, since
+  // another file's fill on the shared TEST book may move it between two reads.
+  expect(m.mark.known).toBe(true);
+  await expect(async () => {
+    const now = await venueMarket(SYMBOL);
+    const shown = await strip.getByTestId('venue-mark').innerText();
+    expect(sameDecimal(shown, now.mark.value), `strip ${shown}, venue ${now.mark.value}`).toBe(true);
+  }).toPass({ timeout: 20_000 });
+  // Funding: the venue's published rate, shown as a percent with its interval, and its next settlement time; read with
+  // the strip in one poll, so an hour turning between two reads can't part them.
+  expect(m.funding.known).toBe(true);
+  const funding = strip.getByTestId('venue-funding');
+  await expect(async () => {
+    const { rate, intervalSeconds, nextFundingAt } = (await venueMarket(SYMBOL)).funding.value;
+    expect(await funding.getAttribute('data-rate')).toBe(rate);
+    const shown = (await strip.getByTestId('venue-funding-rate').innerText()).match(/^(-?[\d.]+)% every (\d+)h$/);
+    expect(shown, 'the rate reads "<percent>% every <hours>h"').not.toBeNull();
+    expect(sameDecimal(shown[1], fromUnits(toUnits(rate) * 100n)), `${shown[1]}% is ${rate} as a percent`).toBe(true);
+    expect(Number(shown[2]) * 3600).toBe(intervalSeconds);
+    expect(await strip.getByTestId('venue-funding-next').getAttribute('dateTime')).toBe(nextFundingAt);
+    expect(new Date(nextFundingAt).getTime()).toBeGreaterThan(Date.now() - 60_000);
+  }).toPass({ timeout: 20_000 });
 });
 
 test(`${J} #5 chooses the margin mode: the modes the venue offers for the contract, the others listed as not offered by this venue; nothing changes`, async ({
@@ -168,7 +292,7 @@ test(`${J} #6 types a TEST size and leverage and presses Review: initial margin,
         timeInForce: 'IOC',
         reduceOnly: false,
         clientOrderKey: clientId,
-        builderFee: { builder: '0x7e57000000000000000000000000000000000b1d', feeBps: '0.5' },
+        builderFee: { builder: '0x116d8f7751e72306d499dd61ae826e46a726c632', feeBps: '0.5' },
       },
     })
   ).value;
@@ -248,9 +372,16 @@ test(`${J} #9 opens the positions room: entry, mark, unrealised result, margin, 
   await expect(row.locator('[data-cell="mark"]')).toHaveText(p.markPrice);
   await expect(row.locator('[data-cell="unrealised"]')).toHaveText(p.unrealisedPnl);
   await expect(row.locator('[data-cell="margin"]')).toHaveText(p.margin);
-  await expect(row.locator('[data-cell="leverage"]')).toHaveText('10x Isolated');
+  // The leverage and margin mode as the venue reports them: 10x isolated, set in #5 and #6.
+  expect(p.leverageBps).toBe(100_000);
+  expect(p.marginMode).toBe('isolated');
+  await expect(row.locator('[data-cell="leverage"]')).toHaveText(`${p.leverageBps / 10_000}x Isolated`);
   await expect(row.locator('[data-cell="liquidation"]')).toHaveText(p.liquidationPrice.known ? p.liquidationPrice.value : 'not known');
-  await expect(room.getByTestId('venue-as-of')).toContainText('As of');
+  // The as-of line names a time, not only the words: en-GB medium date and time ("As of 14 Nov 2026, 12:20:33"), or the
+  // venue's own ISO time when the person's time zone can't format it (VenueKit useAsOfText; the TEST stack shows that).
+  await expect(room.getByTestId('venue-as-of')).toHaveText(
+    /^As of (\d{1,2} [A-Z][a-z]{2,3} \d{4}, \d{2}:\d{2}:\d{2}|\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z)$/,
+  );
   await expect(room.getByTestId('venue-test').first()).toHaveText('TEST');
 });
 

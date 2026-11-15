@@ -18,7 +18,7 @@ if (!process.env.TEST_DATABASE_URL) {
       try {
         await migrateOutreach(database.sql);
         const book = new SqlPublicSettingsBook(database.sql);
-        expect(await book.get()).toEqual({ joinUrl: null, partnerTerms: null, revision: 0, updatedAt: null });
+        expect(await book.get()).toEqual({ joinUrl: null, partnerTerms: null, appStoreUrl: null, revision: 0, updatedAt: null });
 
         const change = { changes: { joinUrl: 'https://join.example.org' }, expectedRevision: 0, by: 'founder-a', reason: 'live', at: AT };
         const first = await book.set(change);
@@ -38,6 +38,17 @@ if (!process.env.TEST_DATABASE_URL) {
         expect(race.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
         expect(race.filter((r) => r.status === 'rejected' && r.reason instanceof PublicSettingsStaleError)).toHaveLength(1);
         expect((await book.get()).revision).toBe(2);
+
+        const store = 'https://apps.apple.com/app/id0000000000';
+        const withStore = await book.set({
+          changes: { appStoreUrl: store },
+          expectedRevision: 2,
+          by: 'founder-a',
+          reason: 'store',
+          at: AT,
+        });
+        expect(withStore).toMatchObject({ joinUrl: 'https://join.example.org', appStoreUrl: store, revision: 3 });
+        expect(await book.get()).toMatchObject({ appStoreUrl: store });
       } finally {
         await database.drop();
       }

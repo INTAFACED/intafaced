@@ -52,22 +52,14 @@ jobs:
     name: Prettier (docs)
     runs-on: ubuntu-latest
     steps:
-      # fetch-depth: 0, and this is not incidental.
-      #
-      # `actions/checkout@v4` defaults to fetch-depth: 1. Under that checkout
-      # `origin/main` does not exist and `git log HEAD -11` returns one line, so
-      # value-gate's `previousSubjects()` caught, returned `[]`, and `decide()`
-      # compared the subject against an empty list: best 0, nearDup false,
-      # `value-gate: OK`. The stamp-mill detector has been printing clean on
-      # every docs PR while comparing nothing to nothing — the exact zero-walk
-      # defect four gates in this repo exist to close, inside the gate itself.
-      # It now exits 1 rather than pretend, which needs history to be here.
+      # fetch-depth: 0 — full history with `origin/main`, first set for value-gate
+      # (removed); kept so a step that compares against main still sees it.
       #
       # 49 MiB of pack for 818 commits: a rounding error next to pnpm install.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version

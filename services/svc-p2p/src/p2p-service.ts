@@ -87,6 +87,7 @@ import {
   requireSetting,
   startOfUtcDay,
   RECEIPT_QUOTA_LOCK_CLASS,
+  EXPORT_QUOTA_LOCK_CLASS,
   type ExportFormat,
   type ExportPolicy,
 } from './export-receipt.js';
@@ -185,6 +186,7 @@ import {
   type MismatchReport,
 } from './amount-mismatch.js';
 import { railMismatch, type PaymentRail, type RailMismatch } from './rail-validate.js';
+import { CounterpartyStateUnavailableError, type CounterpartyStatePort } from './counterparty-state.js';
 import {
   ADVERTISER_TERMS_SETTING,
   AdvertiserTermsError,
@@ -254,6 +256,9 @@ export type P2pErrorCode =
   // P-ads-merchant-08: a presence schedule that is not a valid week, and a bulk action naming no ads or too many.
   | 'p2p.schedule_invalid'
   | 'p2p.maker_offline'
+  // #4689: the ad's maker is frozen, closed or unknown to identity (one code for all three), or identity could not say.
+  | 'p2p.counterparty_unavailable'
+  | 'p2p.counterparty_unverifiable'
   | 'p2p.bulk_scope_invalid'
   | 'p2p.edit_quota_reached'
   | 'p2p.offer_unfunded'
@@ -376,6 +381,7 @@ export type P2pErrorCode =
   | 'p2p.export_format_unbuilt'
   | 'p2p.export_range_too_large'
   | 'p2p.export_too_many_rows'
+  | 'p2p.export_quota_reached'
   | 'p2p.receipt_quota_reached'
   | 'p2p.receipt_not_available'
   | 'p2p.user_not_found'
@@ -894,6 +900,12 @@ export interface P2pServiceOptions {
    * in it `p2p.config_unset`.
    */
   postingThresholds?: PostingThresholds;
+  /**
+   * #4689. Whether the ad's maker may be the other side of a new order (svc-identity's account status). `index.ts`
+   * always passes it, where no IDENTITY_URL refuses every take `p2p.counterparty_unverifiable`; omitted is a service
+   * built without it (tests).
+   */
+  counterpartyState?: CounterpartyStatePort;
 }
 
 /**
@@ -1496,6 +1508,7 @@ export class P2pService {
   private readonly sellBalanceAtPost: boolean;
   private readonly adContentRules: AdContentRules;
   private readonly postingThresholds: PostingThresholds | undefined;
+  private readonly counterpartyState: CounterpartyStatePort | undefined;
   private tradingEnabled: boolean;
 
   /**
@@ -1542,6 +1555,7 @@ export class P2pService {
     this.sellBalanceAtPost = options.sellBalanceAtPost === true;
     this.adContentRules = options.adContentRules ?? { status: 'absent' };
     this.postingThresholds = options.postingThresholds;
+    this.counterpartyState = options.counterpartyState;
   }
 
   /**
@@ -2679,6 +2693,27 @@ export class P2pService {
   }
 
   /**
+   * #4689. The ad's maker is the other side of the order and is not the caller, so the edge's frozen/closed check on
+   * the caller never covers them. A frozen, closed or unknown maker refuses `p2p.counterparty_unavailable`, one code
+   * for all three; an unanswered check refuses `p2p.counterparty_unverifiable`. Either way nothing is reserved.
+   */
+  private async assertCounterpartyMayTrade(makerId: string, takerId: string): Promise<void> {
+    if (!this.counterpartyState || makerId === takerId) return;
+    let status;
+    try {
+      status = await this.counterpartyState.statusOf(makerId);
+    } catch (err) {
+      if (err instanceof CounterpartyStateUnavailableError) {
+        throw new P2pError('This ad cannot be checked right now; nothing was held. Try again shortly', 'p2p.counterparty_unverifiable');
+      }
+      throw err;
+    }
+    if (status !== 'active') {
+      throw new P2pError('This ad cannot take orders; nothing was held', 'p2p.counterparty_unavailable');
+    }
+  }
+
+  /**
    * P-ads-merchant-08: an ad whose maker is offline, or on a schedule outside every window, takes no order; it is off
    * the board for the same reason. Refuses `p2p.maker_offline` with when the maker's hours open again (null when
    * offline with no schedule). Orders already open are not touched.
@@ -3272,6 +3307,8 @@ export class P2pService {
     // missing offer mid-take. Take still refuses with the uniform message when
     // the destination is gone; get/list stay honest for strangers.
     const preview = await this.loadOfferRaw(input.offerId);
+    // #4689: before anything is reserved, and outside the transaction (a network call must not hold the offer lock).
+    await this.assertCounterpartyMayTrade(preview.makerId, input.takerId);
     const referencePrice =
       preview.priceType === 'float' ? ((await this.referencePrices?.price(preview.asset, preview.fiatCurrency)) ?? null) : null;
 
@@ -6266,7 +6303,9 @@ export class P2pService {
 
   /**
    * P-trade-orders-14: `trades.export` under owner caps, with an audit row.
-   * Only CSV is built; xlsx/pdf refuse `p2p.export_format_unbuilt`.
+   * Only CSV is built; xlsx/pdf refuse `p2p.export_format_unbuilt`. The audit
+   * rows are the daily quota's counter: past it the export refuses
+   * `p2p.export_quota_reached` with the next UTC midnight.
    */
   async exportTrades(input: {
     userId: string;
@@ -6274,6 +6313,7 @@ export class P2pService {
     to: string;
     /** Omitted means csv, the format this endpoint has always served. */
     format?: ExportFormat;
+    now?: Date;
   }): Promise<{
     csv: string;
     rows: number;
@@ -6284,6 +6324,8 @@ export class P2pService {
       const format = assertFormatBuilt(input.format ?? 'csv');
       const maxRangeDays = requireSetting(this.exportPolicy.maxRangeDays, 'P2P_EXPORT_MAX_RANGE_DAYS');
       const maxRows = requireSetting(this.exportPolicy.maxRows, 'P2P_EXPORT_MAX_ROWS');
+      const daily = requireSetting(this.exportPolicy.exportDailyQuota, 'P2P_EXPORT_DAILY_QUOTA');
+      const now = input.now ?? new Date();
       const from = new Date(input.from);
       const to = new Date(input.to);
       if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from.getTime() > to.getTime()) {
@@ -6306,10 +6348,24 @@ export class P2pService {
            AND created_at >= ${from} AND created_at <= ${to}
          GROUP BY asset, fiat_currency ORDER BY asset, fiat_currency
       `;
-      await this.sql`
-        INSERT INTO p2p.export_audit (user_id, kind, format, range_from, range_to, row_count)
-        VALUES (${input.userId}, 'export', ${format}, ${from}, ${to}, ${file.rows})
-      `;
+      await transaction(this.sql, async (tx) => {
+        // One user's exports serialise, so two parallel clicks cannot both take the last export of the day.
+        await tx`SELECT pg_advisory_xact_lock(${EXPORT_QUOTA_LOCK_CLASS}, hashtext(${input.userId}))`;
+        const used = await tx<Array<{ today: number }>>`
+          SELECT count(*)::int AS today FROM p2p.export_audit
+           WHERE user_id = ${input.userId} AND kind = 'export' AND created_at >= ${startOfUtcDay(now)}
+        `;
+        if (Number(used[0]?.today ?? 0) >= daily) {
+          throw new P2pError(
+            `p2p.export_quota_reached: daily quota ${daily} used; resets at ${nextUtcMidnight(now).toISOString()}`,
+            'p2p.export_quota_reached',
+          );
+        }
+        await tx`
+          INSERT INTO p2p.export_audit (user_id, kind, format, range_from, range_to, row_count, created_at)
+          VALUES (${input.userId}, 'export', ${format}, ${from}, ${to}, ${file.rows}, ${now})
+        `;
+      });
       return {
         ...file,
         format,

@@ -142,7 +142,7 @@ the opening message counts. Card numbers and recovery phrases are refused as on 
 `chat:<session>` (owner: the account, or the session id for a guest; body: the transcript), then linked in
 `ticket_sources` with the profile type svc-identity answered when the chat opened (`/internal/campaign-participant`,
 read per chat, `unread` when identity cannot answer). A closed chat takes no message (`support.chat_closed`).
-`chatContinueByEmail` answers `vendor.email` (no mailbox in this build) and leaves the chat open.
+`chatContinueByEmail` mails a signed-in owner's chat to their own proved address through svc-identity (`POST /internal/mail`, purpose `support-chat-email`, once per chat a day) when `SUPPORT_CHAT_EMAIL=identity`; blank, or for a guest, it answers `vendor.email`. Either way the chat stays open.
 
 Contact channels: the owner-set support email, phone and chat hours. `contactChannels` is public (a
 signed-out visitor reads it) and answers each channel as a value or `null`; nothing is seeded and no address,
@@ -173,7 +173,7 @@ principal, the desk is a `support:ops` principal. The filter runs before the pag
 place in a page and is in no count, and it answers exactly like a missing id (`null`, or the same refusal). `setKbAudience`
 (`support:ops`) takes the revision the desk read, writes a new version that keeps the keys and topic, and one audit row
 (`support.kb_audience_changes`: article, from, to, revisions, actor; append-only). The same audience again changes nothing
-and writes no row. A stale revision is a CONFLICT (`support.kb.revision_stale`); an audience outside the list never
+and writes no row. A stale revision is a CONFLICT (`support.kb_revision_stale`); an audience outside the list never
 reaches the service and, if it does, refuses `support.kb_audience_invalid`. `kbAudienceChanges` (`support:ops`, `{id}`) reads
 that trail for one article, oldest first: old and new audience, the revisions, who and when; an unknown article has none.
 Per-segment visibility is not built: whether it is wanted is a thread decision, and nothing about a segment is stored.

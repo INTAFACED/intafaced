@@ -15,6 +15,21 @@ export type AgentAccountStatus = 'opening' | 'open' | 'closed' | 'abandoned';
 export type AgentMoveDirection = 'into_sub_account' | 'out_of_sub_account';
 export type AgentMoveState = 'pending' | 'done' | 'refused';
 
+/**
+ * The caps the person sets on their agent account beside its funding cap (J-agents-21 #16), each under the owner's
+ * ceiling for it. `null` is not set: then only the owner's own bounds hold. Limits, never money.
+ */
+export interface AgentAccountLimits {
+  /** The largest notional (amount × price, as signed) of one assistant order, in the account's asset. */
+  readonly maxOrderNotional: Amount | null;
+  /** The highest leverage an assistant's perpetual may open at, in whole times. */
+  readonly maxLeverage: number | null;
+  /** The most the account may lose in one UTC day, in the account's asset. */
+  readonly maxDailyLoss: Amount | null;
+}
+
+export const NO_LIMITS: AgentAccountLimits = { maxOrderNotional: null, maxLeverage: null, maxDailyLoss: null };
+
 export interface AgentAccountRecord {
   readonly userId: string;
   readonly accountId: string;
@@ -27,6 +42,8 @@ export interface AgentAccountRecord {
   readonly name: string;
   readonly asset: string;
   readonly cap: Amount;
+  /** The person's own per-order, leverage and daily-loss caps (#16). */
+  readonly limits: AgentAccountLimits;
   /** The address of the venue agent key INTAFACED holds for this account (agent-key.ts). */
   readonly agentAddress: string;
   /** The first funding the person confirmed with the account; its move id is the account id. */
@@ -58,7 +75,7 @@ export function netFunding(moves: readonly AgentMoveRecord[]): { readonly movedI
   return { movedIn, movedOut };
 }
 
-export type AccountPatch = Partial<Pick<AgentAccountRecord, 'subAccount' | 'status' | 'openedAt' | 'closedAt' | 'cap'>>;
+export type AccountPatch = Partial<Pick<AgentAccountRecord, 'subAccount' | 'status' | 'openedAt' | 'closedAt' | 'cap' | 'limits'>>;
 
 export interface AgentAccountStore {
   find(userId: string, accountId: string): Promise<AgentAccountRecord | null>;
@@ -183,6 +200,9 @@ interface AccountRow {
   name: string;
   asset: string;
   cap: string;
+  max_order_notional: string | null;
+  max_leverage: number | null;
+  max_daily_loss: string | null;
   agent_address: string;
   fund_amount: string;
   status: AgentAccountStatus;
@@ -210,6 +230,11 @@ const accountOf = (r: AccountRow): AgentAccountRecord => ({
   name: r.name,
   asset: r.asset,
   cap: parseAmount(r.cap),
+  limits: {
+    maxOrderNotional: r.max_order_notional === null ? null : parseAmount(r.max_order_notional),
+    maxLeverage: r.max_leverage,
+    maxDailyLoss: r.max_daily_loss === null ? null : parseAmount(r.max_daily_loss),
+  },
   agentAddress: r.agent_address,
   fundAmount: parseAmount(r.fund_amount),
   status: r.status,
@@ -229,7 +254,7 @@ const moveOf = (r: MoveRow): AgentMoveRecord => ({
 });
 
 const ACCOUNT_COLUMNS =
-  'user_id, account_id, venue_id, owner, sub_account, name, asset, cap, agent_address, fund_amount, status, created_at, opened_at, closed_at';
+  'user_id, account_id, venue_id, owner, sub_account, name, asset, cap, max_order_notional, max_leverage, max_daily_loss, agent_address, fund_amount, status, created_at, opened_at, closed_at';
 const MOVE_COLUMNS = 'user_id, account_id, move_id, direction, amount, state, created_at';
 
 export class SqlAgentAccountStore implements AgentAccountStore {
@@ -283,6 +308,11 @@ export class SqlAgentAccountStore implements AgentAccountStore {
     if ('openedAt' in patch) columns.opened_at = patch.openedAt;
     if ('closedAt' in patch) columns.closed_at = patch.closedAt;
     if (patch.cap !== undefined) columns.cap = formatAmount(patch.cap);
+    if (patch.limits !== undefined) {
+      columns.max_order_notional = patch.limits.maxOrderNotional === null ? null : formatAmount(patch.limits.maxOrderNotional);
+      columns.max_leverage = patch.limits.maxLeverage;
+      columns.max_daily_loss = patch.limits.maxDailyLoss === null ? null : formatAmount(patch.limits.maxDailyLoss);
+    }
     const names = Object.keys(columns);
     if (names.length === 0) return;
     const updated = await sql`

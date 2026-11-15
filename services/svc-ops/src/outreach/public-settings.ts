@@ -1,5 +1,6 @@
 /**
- * Owner-set outreach public settings (SP-pages-02): where the invitation site is served and the partner programme terms.
+ * Owner-set outreach public settings (SP-pages-02, SP-pages-03): where the invitation site is served, the partner programme
+ * terms and the app's store link.
  *
  * Each value is set or `null`. Nothing is seeded and no address or wording is built in, so a blank value reads `null` and
  * the partner page says it is not set. A change names the revision it read; the same change replayed under the same
@@ -40,7 +41,7 @@ export interface PublicSettingsBook {
   set(change: PublicSettingsChange): Promise<OutreachPublicSettings>;
 }
 
-const blank = (): OutreachPublicSettings => ({ joinUrl: null, partnerTerms: null, revision: 0, updatedAt: null });
+const blank = (): OutreachPublicSettings => ({ joinUrl: null, partnerTerms: null, appStoreUrl: null, revision: 0, updatedAt: null });
 
 /** The changes of a founder call, with `undefined` fields left out. */
 export function publicChangesOf(input: OutreachPublicSettingsSetInput): Partial<PublicValues> {
@@ -52,9 +53,11 @@ export function publicChangesOf(input: OutreachPublicSettingsSetInput): Partial<
 const applyChanges = (prior: PublicValues, changes: Partial<PublicValues>): PublicValues => ({
   joinUrl: changes.joinUrl === undefined ? prior.joinUrl : changes.joinUrl,
   partnerTerms: changes.partnerTerms === undefined ? prior.partnerTerms : changes.partnerTerms,
+  appStoreUrl: changes.appStoreUrl === undefined ? prior.appStoreUrl : changes.appStoreUrl,
 });
 
-const sameValues = (a: PublicValues, b: PublicValues): boolean => a.joinUrl === b.joinUrl && a.partnerTerms === b.partnerTerms;
+const sameValues = (a: PublicValues, b: PublicValues): boolean =>
+  a.joinUrl === b.joinUrl && a.partnerTerms === b.partnerTerms && a.appStoreUrl === b.appStoreUrl;
 
 /** What identifies one change: the fields it sets, in a fixed order, and the reason. The actor and the time are not part of it. */
 export function publicFingerprint(changes: Partial<PublicValues>, reason: string): string {
@@ -94,6 +97,7 @@ export class MemoryPublicSettingsBook implements PublicSettingsBook {
 type Row = {
   join_url: string | null;
   partner_terms: string | null;
+  app_store_url: string | null;
   revision: number;
   updated_at: Date | string | null;
 };
@@ -103,6 +107,7 @@ const fromRow = (row: Row | undefined): OutreachPublicSettings =>
     ? {
         joinUrl: row.join_url,
         partnerTerms: row.partner_terms,
+        appStoreUrl: row.app_store_url,
         revision: row.revision,
         updatedAt: row.updated_at === null ? null : new Date(row.updated_at).toISOString(),
       }
@@ -112,7 +117,7 @@ export class SqlPublicSettingsBook implements PublicSettingsBook {
   constructor(private readonly sql: Sql) {}
 
   async get(): Promise<OutreachPublicSettings> {
-    const rows = await this.sql<Row[]>`SELECT join_url, partner_terms, revision, updated_at FROM ops.public_settings`;
+    const rows = await this.sql<Row[]>`SELECT join_url, partner_terms, app_store_url, revision, updated_at FROM ops.public_settings`;
     return fromRow(rows[0]);
   }
 
@@ -123,7 +128,7 @@ export class SqlPublicSettingsBook implements PublicSettingsBook {
       // The single row is the lock: every writer serialises on it.
       await tx`INSERT INTO ops.public_settings (singleton) VALUES (true) ON CONFLICT DO NOTHING`;
       const [locked] = await tx<Row[]>`
-        SELECT join_url, partner_terms, revision, updated_at FROM ops.public_settings WHERE singleton FOR UPDATE
+        SELECT join_url, partner_terms, app_store_url, revision, updated_at FROM ops.public_settings WHERE singleton FOR UPDATE
       `;
       const prior = fromRow(locked);
       if (change.expectedRevision !== prior.revision) {
@@ -136,7 +141,8 @@ export class SqlPublicSettingsBook implements PublicSettingsBook {
       const after: OutreachPublicSettings = { ...next, revision: prior.revision + 1, updatedAt: change.at };
       await tx`
         UPDATE ops.public_settings
-        SET join_url = ${after.joinUrl}, partner_terms = ${after.partnerTerms}, revision = ${after.revision},
+        SET join_url = ${after.joinUrl}, partner_terms = ${after.partnerTerms}, app_store_url = ${after.appStoreUrl},
+            revision = ${after.revision},
             updated_by = ${change.by}, updated_at = ${change.at}
         WHERE singleton
       `;

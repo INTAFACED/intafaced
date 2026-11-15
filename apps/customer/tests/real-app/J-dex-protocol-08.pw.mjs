@@ -1,6 +1,9 @@
-// World: none
+// World: restart
 import { test, expect } from './journey.mjs';
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import nodePath from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   createPublicClient,
   createWalletClient,
@@ -15,17 +18,34 @@ import {
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { chainRecordPath, GATE_URL, TEST_CHAIN_ID } from '../../../../tooling/scripts/local-test-chain.mjs';
-import { TOKEN_A, TOKEN_B, UNBUILT, acceptRepresentation, connectWallet, dexRun, fundOnTestChain, walletSection } from './dex.mjs';
+import { makeContext } from '../../../../tooling/scripts/local-test-gates.mjs';
+import {
+  CHAIN_ID,
+  TOKEN_A,
+  TOKEN_B,
+  UNBUILT,
+  acceptRepresentation,
+  connectWallet,
+  dexRun,
+  fundOnTestChain,
+  walletSection,
+} from './dex.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import { bodyRows, tableIn } from './tables.mjs';
-import { signIn, signUp } from './desk.mjs';
+import { signIn, signUp, verify } from './desk.mjs';
 import { PASSKEY_ORIGIN, virtualAuthenticator } from './identity-factors.mjs';
-import { api } from './stack.mjs';
+import { api, ORIGIN } from './stack.mjs';
+import { testVenue, venueAccount, venueForThisFile, venueInfo, venueRecord } from './venue.mjs';
 
 // J-dex-protocol-08, in the running app (docs/roadmap/journeys.json): keep my wallet safe with approvals, session keys,
 // risk cards and reporting. One test per step, titled "J-dex-protocol-08 #<n>", run in order with one TEST wallet on Base
 // Sepolia holding two session keys and old approvals. Revoke calls are signed by the person's wallet; nothing posts to
 // the ledger. vendor.aml shows while no screening source is configured: the page says the list is not loaded.
+// #4's sub-account list includes the wallet's own sub-accounts on the trading venue: the file turns svc-trade's user-venue
+// door on in front of the stack's TEST venue (venue.mjs venueForThisFile), and #4 compares the list with the TEST venue's
+// own record of the wallet's sub-accounts (venueRecord). The venue is read for a signed-in person, so #4 signs one in.
+// #5's published label is a TEST label written into svc-protocol's label store on the stack: nothing publishes labels in
+// the app yet (the compliance queue is the next part of D-developer-compliance-01), and the card must show it with its reason.
 // The journey runs on the stack's TEST chain (tooling/scripts/local-test-chain.mjs): its approvals and session keys are
 // on-chain state the run's wallet makes. It is put on the chain here, with the same funding dexRun gives a chain journey,
 // rather than in dex.mjs's ON_TEST_CHAIN, so the two do not edit one shared line.
@@ -138,8 +158,46 @@ async function continueSigning(page) {
 const account = dexRun(`${J}-account`);
 // A TEST address to look up and report.
 const SUSPECT = '0x000000000000000000000000000000000000bad0';
+// A TEST address with a published TEST label (#5).
+const LABELLED = '0x000000000000000000000000000000000000bad1';
+const LABEL = { value: 'TEST phishing drainer', reason: 'TEST: asked people to sign an approval for all their tokens' };
 
 test.describe.configure({ mode: 'default' });
+venueForThisFile(test);
+
+const REPO = fileURLToPath(new URL('../../../../', import.meta.url));
+
+/** One query on svc-protocol's own database role on the stack (loopback, the marker's postgres port, the stack's secret). */
+async function protocolDb(run) {
+  const ctx = await makeContext({ log: () => undefined });
+  const postgres = createRequire(nodePath.join(REPO, 'services', 'svc-protocol', 'package.json'))('postgres');
+  const port = ctx.marker.ports.postgres ?? 15460;
+  const sql = postgres(`postgres://svc_protocol:${encodeURIComponent(ctx.secrets.pgService)}@127.0.0.1:${port}/intafaced_local_test`, {
+    max: 1,
+    onnotice: () => {},
+  });
+  try {
+    return await run(sql);
+  } finally {
+    await sql.end();
+  }
+}
+
+/** The person's wallet signs one action on its own main venue account, on the TEST venue directly (as J-agents-08 does). */
+async function ownVenueAction(intent) {
+  const wallet = privateKeyToAccount(dex.key());
+  const owner = wallet.address.toLowerCase();
+  const prepared = await testVenue('/prepare', { account: await venueAccount(owner), signer: { role: 'owner', address: owner }, intent });
+  expect(prepared.status, JSON.stringify(prepared.body)).toBe(200);
+  const t = prepared.body.typedData;
+  const signature = await wallet.signTypedData({ domain: t.domain, types: t.types, primaryType: t.primaryType, message: t.message });
+  const sent = await testVenue('/submit', {
+    prepared: prepared.body,
+    signature: { digest: prepared.body.digest, signature, signedBy: owner },
+  });
+  expect(sent.status, JSON.stringify(sent.body)).toBe(200);
+  expect(sent.body.accepted, JSON.stringify(sent.body)).toBe(true);
+}
 
 /** Opens one wallet section with the run's wallet connected. */
 async function openSection(page, name) {
@@ -268,11 +326,51 @@ test(`${J} #3 opens the approvals list: spender, token and amount per approval; 
 test(`${J} #4 opens sub-accounts and a multi-signature account: the sub-account list; the multi-signature control shows its blocker until the contract exists`, async ({
   page,
 }) => {
-  await openSection(page, 'Accounts');
-  await expect(page.getByRole('region', { name: 'Sub-accounts' }).getByRole('table')).toBeVisible(UNBUILT);
-  // The list holds the accounts this wallet controls, starting with the connected wallet itself.
+  test.setTimeout(240_000);
   const owner = privateKeyToAccount(dex.key()).address;
-  await expect(bodyRows(tableIn(page, 'Sub-accounts')).filter({ hasText: owner })).toHaveCount(1);
+  // The wallet's own sub-account on the trading venue, opened before by the wallet signing the venue's action on the TEST
+  // venue itself (the app has no control that opens one): once per wallet, so a retry finds it there.
+  const SUB_NAME = 'TEST savings';
+  if (!(await venueRecord(owner, '/sub-accounts')).value.some((sub) => sub.name === SUB_NAME))
+    await ownVenueAction({ kind: 'create_sub_account', name: SUB_NAME, subAccountKey: `j-dex-protocol-08:${owner.toLowerCase()}:sub` });
+  const listed = (await venueRecord(owner, '/sub-accounts')).value;
+  expect(listed.map((sub) => sub.name)).toEqual([SUB_NAME]);
+  // The venue is read for a signed-in person who passed the checks.
+  const who = await signUp(page, 'dex08a');
+  await verify(page, who);
+  await signIn(page, who);
+  await openSection(page, 'Accounts');
+  const accounts = bodyRows(tableIn(page, 'Sub-accounts'));
+  await expect(accounts).toHaveCount(2, UNBUILT);
+  // The connected wallet itself, then its smart account: the one the start made with the TEST chain's factory, deployed.
+  const record = JSON.parse(readFileSync(chainRecordPath(), 'utf8'));
+  const reader = createPublicClient({ chain: testChainDef, transport: http(GATE_URL) });
+  const smart = await reader.readContract({
+    address: record.accountFactory,
+    abi: accountAbi,
+    functionName: 'getAddress',
+    args: [owner, DEFAULT_SALT],
+  });
+  // Addresses are compared without regard to letter case (the wallet reports its address in lower case).
+  const exactly = (address) => new RegExp(`^${address}$`, 'i');
+  await expect(accounts.nth(0).getByRole('cell').nth(0)).toHaveText('This wallet');
+  await expect(accounts.nth(0).getByRole('cell').nth(1)).toHaveText(exactly(owner));
+  await expect(accounts.nth(1).getByRole('cell').nth(0)).toHaveText('Smart account');
+  await expect(accounts.nth(1).getByRole('cell').nth(1)).toHaveText(exactly(smart));
+  await expect(accounts.nth(1).getByRole('cell').nth(2)).toHaveText('Deployed');
+  // The wallet's sub-accounts on the venue: exactly the venue's own list, each by its name and address, the venue named
+  // with its TEST label, and the venue's as-of time.
+  const { displayName } = await venueInfo();
+  const venueRows = bodyRows(tableIn(page, 'Venue sub-accounts'));
+  await expect(venueRows).toHaveCount(listed.length);
+  for (const [i, sub] of listed.entries()) {
+    await expect(venueRows.nth(i).getByRole('cell').nth(0)).toHaveText(sub.name);
+    await expect(venueRows.nth(i).getByRole('cell').nth(1)).toHaveText(sub.subAccount);
+  }
+  const named = page.getByTestId('venue-subs-venue');
+  await expect(named).toContainText(displayName);
+  await expect(named.getByTestId('venue-test')).toHaveText('TEST');
+  await expect(page.getByTestId('venue-as-of')).toContainText('As of');
   const multisig = page.getByRole('button', { name: 'Create a multi-signature account' });
   await expect(multisig).toBeDisabled();
   await expect(page.getByText(/multi-signature contract is not deployed/)).toBeVisible();
@@ -281,9 +379,27 @@ test(`${J} #4 opens sub-accounts and a multi-signature account: the sub-account 
 test(`${J} #5 opens an address page before sending: a risk card with any label and its reason; with no screening source it says the list is not loaded rather than clear`, async ({
   page,
 }) => {
+  // A TEST label published about another address, as the label store holds it: the card shows it with its reason.
+  await protocolDb(
+    (sql) => sql`
+      INSERT INTO protocol.address_labels (chain_id, address, kind, value, source, reputation, reason, set_by)
+      VALUES (${CHAIN_ID}, ${LABELLED}, 'phishing', ${LABEL.value}, 'curator', 'UNSAFE', ${LABEL.reason}, 'LOCAL TEST journey')
+      ON CONFLICT (chain_id, lower(address), kind) DO NOTHING`,
+  );
+  await page.goto(`/chain/address/${LABELLED}`);
+  const labelled = page.getByRole('region', { name: 'Address risk' });
+  await expect(labelled).toBeVisible(UNBUILT);
+  await expect(labelled).toContainText('Risk: unsafe');
+  await expect(labelled.getByRole('listitem').filter({ hasText: LABEL.value })).toHaveText(
+    `${LABEL.value} (phishing). Why: ${LABEL.reason}`,
+  );
+  await expect(labelled).toContainText('The screening list is not loaded');
+  await expect(labelled.getByText(/^Clear$/)).toHaveCount(0);
+  // An address with no label: nothing is invented, and with no screening source it is still not read as clear.
   await page.goto(`/chain/address/${SUSPECT}`);
   const card = page.getByRole('region', { name: 'Address risk' });
-  await expect(card).toBeVisible(UNBUILT);
+  await expect(card).toBeVisible();
+  await expect(card).toContainText('No label is published for this address.');
   await expect(card).toContainText('The screening list is not loaded');
   await expect(card.getByText(/^Clear$/)).toHaveCount(0);
 });
@@ -327,23 +443,37 @@ test(`${J} #7 opens the safety education and the audit room: each step opens its
   await openSection(page, 'Safety');
   const lessons = page.getByRole('list', { name: 'Stay safe' });
   await expect(lessons.getByRole('listitem')).not.toHaveCount(0, UNBUILT);
-  // Each step opens its control: every lesson links to a page of the app, and that page opens (not "Page not found").
-  const targets = [];
-  for (const link of await lessons.getByRole('link').all()) {
-    await expect(link).toHaveAttribute('href', /^\//);
-    targets.push(await link.getAttribute('href'));
-  }
-  expect(targets.length).toBe(await lessons.getByRole('listitem').count());
-  for (const href of targets) {
+  // Each step opens its own control: every lesson links to the control it is about, and that control is there.
+  const tab = (name) => page.getByRole('group', { name: 'Wallet sections' }).getByRole('button', { name, exact: true });
+  const CONTROLS = [
+    ['Look up an address', '/chain', () => page.getByRole('searchbox', { name: /Search by address, transaction or block/ })],
+    ['Send', '/wallet/send', () => tab('Send')],
+    ['Address book', '/wallet/address-book', () => tab('Address book')],
+    ['Approvals', '/wallet/approvals', () => tab('Approvals')],
+    ['Session keys', '/wallet/session-keys', () => tab('Session keys')],
+    ['Tokens', '/dex/tokens', () => page.getByRole('searchbox', { name: 'Search tokens' })],
+    ['Audit room', '/chain/audit', () => page.getByRole('region', { name: 'Audits', exact: true })],
+  ];
+  // One lesson per control, each with exactly one link: a lesson with no link, or with two, fails.
+  await expect(lessons.getByRole('listitem')).toHaveCount(CONTROLS.length);
+  for (const item of await lessons.getByRole('listitem').all()) await expect(item.getByRole('link')).toHaveCount(1);
+  await expect(lessons.getByRole('link')).toHaveText(CONTROLS.map(([name]) => name));
+  for (const [name, href] of CONTROLS) await expect(lessons.getByRole('link', { name, exact: true })).toHaveAttribute('href', href);
+  for (const [name, href, control] of CONTROLS) {
     await page.goto(href);
-    await expect(page.getByTestId('page-heading').first()).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Page not found' })).toHaveCount(0);
-    expect(new URL(page.url()).pathname).toBe(href);
+    expect(new URL(page.url()).pathname, name).toBe(href);
+    await expect(control(), name).toBeVisible();
+    if (href.startsWith('/wallet/')) await expect(control(), name).toHaveAttribute('aria-pressed', 'true');
   }
   await page.goto('/chain/audit');
   const audits = tableIn(page, 'Audits');
   const rows = bodyRows(audits);
-  await expect(rows).not.toHaveCount(0);
+  // One row per product the service lists, each named.
+  const products = await (await fetch(`${ORIGIN}/api/protocol/trpc/auditProducts`)).json();
+  const names = { swap: 'Swap', pools: 'Pools', lending: 'Lending', orders: 'Orders', launch: 'Launch', bridge: 'Bridge' };
+  const listed = products.result.data.products.map((p) => names[p.product] ?? p.product);
+  expect(listed.length).toBeGreaterThan(0);
+  await expect(rows.getByRole('rowheader')).toHaveText(listed);
   await expect(rows.filter({ hasNotText: 'External audit: not done' })).toHaveCount(0);
   await expect(audits.getByText('✓')).toHaveCount(0);
 });

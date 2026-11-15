@@ -26,9 +26,11 @@ import {
 } from 'lucide-react';
 import { isHiddenPath } from '../../app/feature-registry';
 import { rooms, type Door, type Room } from '../../app/navigation';
+import { roomStandingBlockers, type Slug as ProtocolSlug } from '../../features/protocol/blockers';
 import type { moreCopy } from './copy';
 
-type Key = Parameters<typeof moreCopy.t>[0];
+/** A plain More message: every key but the one that takes a parameter (`Blocked by`). */
+type Key = Exclude<Parameters<typeof moreCopy.t>[0], 'Blocked by'>;
 
 export type Section = 'Learn and build' | 'Markets and assets' | 'Money and pay' | 'Rewards' | 'Web3' | 'Help' | 'Account';
 
@@ -38,8 +40,11 @@ export interface Tile {
   href: string;
   icon: LucideIcon;
   title: Key;
-  line: Key;
+  /** The tile's line; a Web3 tile has none, its line names its blockers instead (`web3`). */
+  line?: Key;
   section: Section;
+  /** A Web3 room: the tile's line names the blockers that room stands behind, from the Protocol blocker engine. */
+  web3?: ProtocolSlug;
 }
 
 /**
@@ -64,10 +69,10 @@ export const TILES: readonly Tile[] = [
   { id: 'p2p', href: '/p2p', icon: Users, title: 'P2P tile', line: 'P2P line', section: 'Money and pay' },
   { id: 'promotions', href: '/uc/promotion', icon: Gift, title: 'Promotions tile', line: 'Promotions line', section: 'Rewards' },
   { id: 'campaigns', href: '/campaigns', icon: Megaphone, title: 'Campaigns tile', line: 'Campaigns line', section: 'Rewards' },
-  // The Web3 rooms open to their named blockers; their routes sit in area `web3`, behind the Web3 shell.
-  { id: 'dex', href: '/dex', icon: ArrowLeftRight, title: 'DEX tile', line: 'DEX line', section: 'Web3' },
-  { id: 'chain', href: '/chain', icon: Link2, title: 'Chain tile', line: 'Chain line', section: 'Web3' },
-  { id: 'protocol', href: '/protocol', icon: Network, title: 'Protocol tile', line: 'Protocol line', section: 'Web3' },
+  // The Web3 rooms name their blockers on the tile and open to them in full; their routes sit in area `web3`, behind the Web3 shell.
+  { id: 'dex', href: '/dex', icon: ArrowLeftRight, title: 'DEX tile', section: 'Web3', web3: 'dex' },
+  { id: 'chain', href: '/chain', icon: Link2, title: 'Chain tile', section: 'Web3', web3: 'chain' },
+  { id: 'protocol', href: '/protocol', icon: Network, title: 'Protocol tile', section: 'Web3', web3: 'protocol' },
   { id: 'predict', href: '/predict', icon: Target, title: 'Predict tile', line: 'Predict line', section: 'Web3' },
   { id: 'help', href: '/support', icon: CircleHelp, title: 'Help tile', line: 'Help line', section: 'Help' },
   { id: 'account', href: '/uc/account', icon: User, title: 'Account tile', line: 'Account line', section: 'Account' },
@@ -153,4 +158,9 @@ export function allServices(live: Live = registry, source: readonly Room[] = roo
     groups.set(id, [...(groups.get(id) ?? []), room]);
   }
   return GROUP_ORDER.flatMap((id) => (groups.has(id) ? [{ id, rooms: groups.get(id)! }] : []));
+}
+
+/** The short words for each blocker a Web3 tile names: `Blocker <code>` in the More copy (tiles.test.ts checks every one exists). */
+export function web3TileBlockers(slug: ProtocolSlug): Array<Extract<Key, `Blocker ${string}`>> {
+  return roomStandingBlockers(slug).map((code) => `Blocker ${code}` as Extract<Key, `Blocker ${string}`>);
 }

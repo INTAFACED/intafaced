@@ -1,8 +1,9 @@
 /**
  * Live-network smoke — public market data only, no operator credentials.
  *
- * Runs in CI when VENUE_AGGREGATION_LIVE_NETWORK_CI=1 (see
- * .github/workflows/venue-aggregation-live-network.yml). Skipped locally by default.
+ * Runs only when VENUE_AGGREGATION_LIVE_NETWORK_CI=1, by hand:
+ *   VENUE_AGGREGATION_LIVE_NETWORK_CI=1 pnpm --filter @intafaced/venue-adapter test -- --run src/fabric/venues/live-network-smoke.test.ts
+ * Its by-hand workflow was removed on 15 Nov 2026 (last run 5 Oct, failed).
  */
 import { describe, expect, it } from 'vitest';
 import { createVenueMarketDataAdapter, PUBLIC_MARKET_DATA_VENUE_IDS } from './factory.js';

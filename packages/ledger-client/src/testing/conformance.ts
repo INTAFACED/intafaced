@@ -6,6 +6,7 @@ import {
   railBoundary,
   rewardsEngine,
   treasuryWallet,
+  ownFundsCostAccount,
   venueBuilderAccount,
   venueBuilderFeeReceivable,
   userAvailable,
@@ -19,6 +20,7 @@ import {
   campaignLockAccount,
   chargeReceivableAccount,
   partnerFeeReceivableAccount,
+  feeGiveBackOwedAccount,
   feeShareBudgetAccount,
   feeShareOwedAccount,
   recipes,
@@ -247,6 +249,41 @@ export function runLedgerConformance(name: string, createHarness: () => Promise<
         expect(formatAmount((await ledger.balance(partnerReserve('conf', 'USDT'))).amount)).toBe('0');
       });
 
+      it('moves our own funds with their costs in one entry, and refuses the whole move past what the place holds', async () => {
+        await ledger.post(
+          recipes.builderFeeEarn({
+            venueId: 'conf-c',
+            venueAccount: '0xconf',
+            fillId: 'fc1',
+            assetId: 'USDC',
+            amount: amt('5'),
+            userId: USER_A,
+          }),
+        );
+        await ledger.post(recipes.builderFeeReceive({ venueId: 'conf-c', claimId: 'cc1', assetId: 'USDC', amount: amt('5') }));
+        const sweep = (reference: string, amount: string) =>
+          recipes.ownFundsMove({
+            from: { kind: 'venue-builder-account', venueId: 'conf-c' },
+            to: { kind: 'treasury-wallet', walletId: 'conf-c' },
+            assetId: 'USDC',
+            amount: amt(amount),
+            reference,
+            costs: [
+              { kind: 'venue-withdrawal-fee', paidTo: 'conf-c', amount: amt('1') },
+              { kind: 'network-fee', paidTo: 'conf-chain', amount: amt('0.25') },
+            ],
+          });
+        // 4 arriving plus 1.25 of costs is more than the 5 there: refused whole.
+        await expect(ledger.post(sweep('0xc-over', '4'))).rejects.toThrow(InsufficientFundsError);
+        expect(formatAmount((await ledger.balance(ownFundsCostAccount('network-fee', 'conf-chain', 'USDC'))).amount)).toBe('0');
+        const tx = await ledger.post(sweep('0xc-ok', '3.75'));
+        expect((await ledger.post(sweep('0xc-ok', '3.75'))).id).toBe(tx.id);
+        expect(formatAmount((await ledger.balance(venueBuilderAccount('conf-c', 'USDC'))).amount)).toBe('0');
+        expect(formatAmount((await ledger.balance(treasuryWallet('conf-c', 'USDC'))).amount)).toBe('-3.75');
+        expect(formatAmount((await ledger.balance(ownFundsCostAccount('venue-withdrawal-fee', 'conf-c', 'USDC'))).amount)).toBe('-1');
+        expect(formatAmount((await ledger.balance(ownFundsCostAccount('network-fee', 'conf-chain', 'USDC'))).amount)).toBe('-0.25');
+      });
+
       it('never pays a reward past what the paying place holds or past what is owed for it', async () => {
         // 10 USDC earned and collected into our builder account; 6 swept to the rewards engine, set aside, and owed.
         await ledger.post(
@@ -401,6 +438,55 @@ export function runLedgerConformance(name: string, createHarness: () => Promise<
         expect(formatAmount((await ledger.balance(owed)).amount)).toBe('-2');
         expect(formatAmount((await ledger.balance(treasuryWallet('conf-pf', 'USDC'))).amount)).toBe('-3');
         expect(formatAmount((await ledger.balance(houseFees('merchant', 'USDC'))).amount)).toBe('5');
+      });
+
+      it('never pays a fee give-back past what we owe the customer or past what the paying place holds', async () => {
+        const user = '11111111-1111-4111-8111-1111111111c9';
+        const owed = feeGiveBackOwedAccount(user, 'USDC');
+        const builder = { kind: 'venue-builder-account' as const, venueId: 'conf-gb' };
+        const empty = { kind: 'treasury-wallet' as const, walletId: 'conf-gb-empty' };
+        const pay = (chainTx: string, amount: string, from: typeof builder | typeof empty = builder) =>
+          recipes.feeGiveBackPayOut({
+            userId: user,
+            from,
+            toWallet: '0x00000000000000000000000000000000000000c9',
+            chainTx,
+            assetId: 'USDC',
+            amount: amt(amount),
+          });
+        // A 5 USDC builder fee on one fill, collected into our builder account at the venue (TEST amounts).
+        await ledger.post(
+          recipes.builderFeeEarn({
+            venueId: 'conf-gb',
+            venueAccount: '0xconf',
+            fillId: 'f1',
+            assetId: 'USDC',
+            amount: amt('5'),
+            userId: user,
+          }),
+        );
+        await ledger.post(recipes.builderFeeReceive({ venueId: 'conf-gb', claimId: 'c1', assetId: 'USDC', amount: amt('5') }));
+        // TEST approvers.
+        await ledger.post(
+          recipes.feeGiveBackOwe({
+            venueId: 'conf-gb',
+            venueAccount: '0xconf',
+            fillId: 'f1',
+            userId: user,
+            assetId: 'USDC',
+            feePaid: amt('5'),
+            amount: amt('3'),
+            approvers: ['conf-op-a', 'conf-op-b'],
+          }),
+        );
+        expect(formatAmount((await ledger.balance(owed)).amount)).toBe('3');
+        expect(formatAmount((await ledger.balance(houseFees('builder', 'USDC'))).amount)).toBe('2');
+        await expect(ledger.post(pay('0xover', '3.000001'))).rejects.toThrow(InsufficientFundsError);
+        await expect(ledger.post(pay('0xempty', '3', empty))).rejects.toThrow(InsufficientFundsError);
+        expect(formatAmount((await ledger.balance(owed)).amount)).toBe('3');
+        await ledger.post(pay('0xpaid', '3'));
+        expect(formatAmount((await ledger.balance(owed)).amount)).toBe('0');
+        expect(formatAmount((await ledger.balance(venueBuilderAccount('conf-gb', 'USDC'))).amount)).toBe('-2');
       });
     });
 

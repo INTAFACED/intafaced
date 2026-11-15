@@ -165,18 +165,37 @@ test(`${J} #2 with no recovery codes left, a locked-out reset tells every contac
       expect(spent.body.result.data.recoveryCodesLeft).toBe(codes.length - i - 1);
     }
   };
-  const { who, codes } = await withAuthenticator(page);
+  const { who, codes, secret, step } = await withAuthenticator(page);
+  // Contacts on file: the address they signed up with, and a second address of their own they proved earlier on Receive
+  // (a six-digit code mailed to it, typed back). No stack sends texts, so no phone can be proved
+  // (J-pay-03 #6); a proved phone is named as not texted (mfa-reset.pg.test.ts).
+  const second = `second-${who.handle}@local-test.invalid`;
+  const mine = await api(who, { totpCode: (await nextCode(await totpOf(), secret, step)).code });
+  const sentBefore = mailedCodes(second, 'receive-contact-code').length;
+  const added = await mine.post('/api/identity/trpc/receiveContacts.add', { channel: 'email', target: second });
+  expect(added.status, JSON.stringify(added.body).slice(0, 300)).toBe(200);
+  const contact = added.body.result.data.contacts.find((c) => c.target === second);
+  const proved = await mine.post('/api/identity/trpc/receiveContacts.verify', {
+    id: contact.id,
+    code: await nextMailedCode(second, sentBefore, 20_000, 'receive-contact-code'),
+  });
+  expect(proved.status, JSON.stringify(proved.body).slice(0, 300)).toBe(200);
+  expect(proved.body.result.data.contacts.find((c) => c.id === contact.id).verified).toBe(true);
   await spendAll({ who, codes });
   const seen = mailedLines(who.email, 'mfa-reset-started').length;
+  const seenSecond = mailedLines(second, 'mfa-reset-started').length;
   const { context, page: other } = await startLockedOutReset(browser, who);
-  // Every contact on file: this person's only contact is the proved email, which is told with the end of the wait. (A
-  // phone number on file is named as not texted in this build: mfa-reset.pg.test.ts.)
-  await expect(other.getByText('an email went to')).toBeVisible();
+  // Every contact on file is told with the end of the wait: a notice to each address, and the page names both, masked.
+  await expect(other.getByText(`We told every contact on file: an email went to ${who.handle[0]}***@local-test.invalid.`)).toBeVisible();
+  await expect(other.getByText('An email also went to every other address you proved on Receive: s***@local-test.invalid.')).toBeVisible();
+  await expect(other.getByText(second)).toHaveCount(0);
   await expect.poll(() => mailedLines(who.email, 'mfa-reset-started').length).toBeGreaterThan(seen);
+  await expect.poll(() => mailedLines(second, 'mfa-reset-started').length).toBe(seenSecond + 1);
   const until = mailedLines(who.email, 'mfa-reset-started')
     .at(-1)
     .match(/ until=(\S+)/)?.[1];
   expect(until).toMatch(/^\d{4}-\d\d-\d\dT/);
+  expect(mailedLines(second, 'mfa-reset-started').at(-1)).toContain(` until=${until}`);
   // The page shows the same end of the wait as the mail, in this browser's clock.
   const shown = await other.evaluate((iso) => {
     const at = Date.parse(iso);

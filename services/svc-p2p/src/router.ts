@@ -716,6 +716,8 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'p2p.method_not_rail_validated':
       // P-trade-orders-19: the seller's cancellation request waits for the founders' decision.
       case 'p2p.owner_decision_pending':
+      // #4689: identity could not say whether the ad's maker may trade; nothing was reserved, and a retry may pass.
+      case 'p2p.counterparty_unverifiable':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
       case 'p2p.merchant_not_found':
       // P-ads-merchant-07: a private ad without a link to it reads as not there to everyone but its maker.
@@ -758,6 +760,8 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'p2p.offer_has_open_trades':
       // P-ads-merchant-08: the ad's maker is away; it takes orders again in their hours (the error data says when).
       case 'p2p.maker_offline':
+      // #4689: the ad's maker may not trade (frozen, closed or unknown); nothing was reserved.
+      case 'p2p.counterparty_unavailable':
       // P-ads-merchant-07: a share link that ended or was withdrawn; the person asks the maker for a new one.
       case 'p2p.share_link_expired':
       case 'p2p.share_link_revoked':
@@ -791,6 +795,8 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'p2p.remark_case_exists':
         return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
       case 'p2p.receipt_quota_reached':
+      // P-trade-orders-14: the daily export quota; the message says when it resets.
+      case 'p2p.export_quota_reached':
       // P-ads-merchant-06: the daily edit cap; the error data says when editing opens again.
       case 'p2p.edit_quota_reached':
         return new TRPCError({ code: 'TOO_MANY_REQUESTS', message: err.message, cause: err });
@@ -2196,8 +2202,9 @@ export function createP2pRouter(
       /**
        * P-trade-orders-14: export under owner range and row caps
        * (`P2P_EXPORT_MAX_RANGE_DAYS`, `P2P_EXPORT_MAX_ROWS`; blank refuses
-       * `p2p.config_unset`), one audit row per export, totals as decimal
-       * strings. CSV only; xlsx/pdf refuse `p2p.export_format_unbuilt`.
+       * `p2p.config_unset`), and a daily quota per person (`P2P_EXPORT_DAILY_QUOTA`;
+       * past it `p2p.export_quota_reached`, TOO_MANY_REQUESTS, naming the next UTC
+       * midnight), one audit row per export, totals as decimal strings. CSV only; xlsx/pdf refuse `p2p.export_format_unbuilt`.
        */
       export: merchantApiProcedure('p2p:read')
         .input(z.object({ from: z.string().min(1), to: z.string().min(1), format: z.enum(EXPORT_FORMATS).optional() }))

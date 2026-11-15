@@ -127,6 +127,10 @@ if (!available) {
       other: router.createCaller(callerFor(OTHER)),
       /** The same person without identity:write: an agent's token or another app, not their own signed-in session. */
       notSession: router.createCaller(callerFor(USER, ['agents:read', 'agents:execute'])),
+      /** svc-trade asking the gate for the person (J-agents-08 #4 #6): a verified service caller, no principal. */
+      trade: router.createCaller({ ...edgeContext({ headers: {}, id: 'req-trade' }), service: 'svc-trade' }),
+      /** Another service, verified as itself, which may not ask. */
+      bank: router.createCaller({ ...edgeContext({ headers: {}, id: 'req-bank' }), service: 'svc-bank' }),
     };
   }
 
@@ -242,6 +246,53 @@ if (!available) {
         message: 'agents.access_request_invalid',
       });
       expect((await person.own.access.get({ id })).grants).toEqual([]);
+    });
+
+    it("svc-trade asks the same gate for the person: A passes, B and another person's agent refuse, and no other caller may ask", async () => {
+      const { person, trade, bank } = people();
+      const id = await ownAgent(person);
+      await person.own.access.grant(grantOf(id, [SUB_A], '7'));
+      const ask = (account: string, userId = USER) => trade.own.policy.forService({ userId, id, action: 'place_order', account } as never);
+      expect((await ask(`sub:${SUB_A}`)).outcome).toBe('no_rule');
+      await expect(ask(`sub:${SUB_B}`)).rejects.toMatchObject({ code: 'FORBIDDEN', message: 'agents.access_account_denied' });
+      await expect(ask(`sub:${SUB_A}`, OTHER)).rejects.toMatchObject({ message: 'agents.own.not_found' });
+      await person.own.policy.add({ id, effect: 'deny', action: 'place_order', scope: 'all' });
+      await expect(ask(`sub:${SUB_A}`)).rejects.toMatchObject({ code: 'FORBIDDEN', message: 'agents.policy_denied' });
+      await expect(
+        bank.own.policy.forService({ userId: USER, id, action: 'place_order', account: `sub:${SUB_A}` } as never),
+      ).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+      });
+      // The person's own session is not a service: it asks through own.policy.check instead.
+      await expect(
+        person.own.policy.forService({ userId: USER, id, action: 'place_order', account: `sub:${SUB_A}` } as never),
+      ).rejects.toMatchObject({
+        code: 'UNAUTHORIZED',
+      });
+    });
+
+    it('the agent drafts one order from the words: side, size, asset and type; anything else is not understood', async () => {
+      const { person, other } = people();
+      const id = await ownAgent(person);
+      expect(await person.own.trade.draft({ id, ask: 'Buy 0.0001 BTC at market' })).toEqual({
+        side: 'buy',
+        base: 'BTC',
+        size: '0.0001',
+        type: 'market',
+        price: null,
+        label: 'TEST',
+      });
+      expect(await person.own.trade.draft({ id, ask: 'sell 0.5 eth at 3100' })).toMatchObject({
+        side: 'sell',
+        base: 'ETH',
+        type: 'limit',
+        price: '3100',
+      });
+      for (const ask of ['buy some BTC', 'Buy 0 BTC at market', 'send 1 USDT to my savings', 'Buy 0.0001 BTC at market and sell it'])
+        await expect(person.own.trade.draft({ id, ask })).rejects.toMatchObject({ message: 'agents.order_not_understood' });
+      await expect(other.own.trade.draft({ id, ask: 'Buy 0.0001 BTC at market' })).rejects.toMatchObject({
+        message: 'agents.own.not_found',
+      });
     });
 
     it('only the person grants access: another person reaches no agent, and a token that is not their session is refused', async () => {

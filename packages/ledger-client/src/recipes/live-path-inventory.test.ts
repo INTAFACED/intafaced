@@ -79,18 +79,12 @@ const PINNED_SOCKETS: readonly { name: RecipeName; fingerprint: string }[] = [
   { name: 'buybackOrderHoldRelease', fingerprint: '10956b0267e4' },
   { name: 'buybackTakerFill', fingerprint: 'feb69e826223' },
   { name: 'bankTransferReversal', fingerprint: '56a8770216cd' },
-  { name: 'builderFeeReceive', fingerprint: 'da565b45397a' },
-  { name: 'ownFundsMove', fingerprint: 'e01e44fe1d12' },
-  { name: 'campaignBudgetFund', fingerprint: 'afb3802d5127' },
-  { name: 'rewardOwe', fingerprint: '1773366dea84' },
-  { name: 'rewardPayOut', fingerprint: '4b92f2d01fde' },
   { name: 'feeShareBudgetFund', fingerprint: '735444de9a10' },
   { name: 'feeShareOwe', fingerprint: 'dc85cf8681c9' },
   { name: 'feeSharePayOut', fingerprint: '8c5f9df47085' },
-  { name: 'chargeEarn', fingerprint: '5b38ec7a93b9' },
-  { name: 'chargeCollect', fingerprint: '1934e9fb0911' },
-  { name: 'partnerFeeEarn', fingerprint: 'efa43a3353af' },
   { name: 'partnerFeeSettle', fingerprint: 'fa297367e6cc' },
+  { name: 'feeGiveBackOwe', fingerprint: '3c7e9fe3e86f' },
+  { name: 'feeGiveBackPayOut', fingerprint: 'f7f6a98f3e44' },
 ];
 
 /**
@@ -110,26 +104,14 @@ const RECIPE_GATE_CATALOG = 'services/svc-ledger/src/recipe-gate.ts';
 const BUYBACK_PLACE = 'services/svc-trade/src/spot/trade-service/buyback.ts';
 const BUYBACK_ORDER = 'services/svc-trade/src/spot/buyback-order.ts';
 const BUYBACK_FILLS = 'services/svc-trade/src/spot/trade-service/fills.ts';
-/**
- * svc-trade's Collect caller is granted `builderFeeReceive` and posts one per claim the venue records, but no venue adapter
- * reads the claim record yet, so nothing feeds it and the row stays a socket until one does.
- */
-const BUILDER_FEE_COLLECT = 'services/svc-trade/src/builder-fee/builder-fee-collect.ts';
-
 const SOCKET_CALLER_ALLOWLIST: ReadonlyMap<RecipeName, readonly string[]> = new Map([
   ['marketMakerSeedFund', [RECIPE_GATE_CATALOG]],
-  ['builderFeeReceive', [RECIPE_GATE_CATALOG, BUILDER_FEE_COLLECT]],
-  ['ownFundsMove', [RECIPE_GATE_CATALOG]],
-  ['campaignBudgetFund', [RECIPE_GATE_CATALOG]],
-  ['rewardOwe', [RECIPE_GATE_CATALOG]],
-  ['rewardPayOut', [RECIPE_GATE_CATALOG]],
   ['feeShareBudgetFund', [RECIPE_GATE_CATALOG]],
   ['feeShareOwe', [RECIPE_GATE_CATALOG]],
   ['feeSharePayOut', [RECIPE_GATE_CATALOG]],
-  ['chargeEarn', [RECIPE_GATE_CATALOG]],
-  ['chargeCollect', [RECIPE_GATE_CATALOG]],
-  ['partnerFeeEarn', [RECIPE_GATE_CATALOG]],
   ['partnerFeeSettle', [RECIPE_GATE_CATALOG]],
+  ['feeGiveBackOwe', [RECIPE_GATE_CATALOG]],
+  ['feeGiveBackPayOut', [RECIPE_GATE_CATALOG]],
   ['tradeFillFeeCorrection', [RECIPE_GATE_CATALOG]],
   ['orderHoldAmend', [RECIPE_GATE_CATALOG]],
   ['marketListingFee', [RECIPE_GATE_CATALOG]],
@@ -150,11 +132,11 @@ describe('D26-P2-11 recipe matrix inventory (live path closure)', () => {
     expect(inventory.live.length + inventory.sockets.length).toBe(inventory.recipes.length);
   });
 
-  it('pins live vs §13 socket counts on tip (101 = 80 live + 21 socket)', () => {
+  it('pins live vs §13 socket counts on tip (106 = 91 live + 15 socket)', () => {
     const counts = countByKind(inventory);
-    expect(counts).toEqual({ live: 80, socket: 21 });
-    expect(inventory.recipes).toHaveLength(101);
-    expect(liveRecipeKeys(inventory)).toHaveLength(80);
+    expect(counts).toEqual({ live: 91, socket: 15 });
+    expect(inventory.recipes).toHaveLength(106);
+    expect(liveRecipeKeys(inventory)).toHaveLength(91);
     expect(socketRecipeKeys(inventory)).toEqual(PINNED_SOCKETS.map((s) => s.name).sort());
   });
 

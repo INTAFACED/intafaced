@@ -15,6 +15,7 @@ const messages = {
   confirming: 'Checking…',
   waiting: 'Your second step is being reset. It waits until {time}.',
   told: 'We told every contact on file: an email went to {email}.',
+  toldAlso: 'An email also went to every other address you proved on Receive: {emails}.',
   noSms: 'Texts are not sent in this build, so your phone number was not texted.',
   notYou: 'Not you? Sign in on a device you trust and stop it from Security.',
   after:

@@ -1,11 +1,12 @@
-import { keccak256, toHex } from 'viem';
+import { createPublicClient, erc20Abi, http, keccak256, toHex } from 'viem';
+import { GATE_URL } from '../../../../tooling/scripts/local-test-facts.mjs';
 import { privateKeyToAccount } from 'viem/accounts';
 import { expect } from './journey.mjs';
 import { restartWithSetting, toUnits } from './stack.mjs';
 import { signIn } from './desk.mjs';
 import { installTestWallet } from './test-wallet.mjs';
 
-// What the venue journeys (J-cex-spot-01-venue, J-derivatives-01-venue) share: svc-trade's user-venue door switched on
+// What the venue journeys (J-derivatives-01-venue; J-cex-spot-01 had one until its own file covered its venue steps) share: svc-trade's user-venue door switched on
 // for one file and off after it, the stack's LOCAL TEST venue simulator (tooling/scripts/local-test-venue.mjs) reached
 // on loopback for its TEST controls and as the other TEST trader, and the desk opened with the browser TEST wallet.
 // Every figure the TEST venue reports is TEST.
@@ -90,9 +91,17 @@ export async function venueInfo() {
 
 export const venueAccount = async (owner) => ({ venueId: (await venueInfo()).id, owner: owner.toLowerCase(), subAccount: null });
 
-/** The venue's own record for `owner`, read directly (what the desk must equal). */
-export async function venueRecord(owner, path, extra = {}) {
-  const { status, body } = await testVenue(path, { account: await venueAccount(owner), ...extra });
+/**
+ * The venue's own record for `owner`, read directly (what the desk must equal). `base` is the TEST venue read: the
+ * first by default, or TEST_VENUE_B for a journey that routes across both. `subAccount` reads one of the owner's
+ * sub-accounts instead of the main account.
+ */
+export async function venueRecord(owner, path, extra = {}, base = TEST_VENUE, subAccount = null) {
+  const at = await testVenueAt(base, '/venue');
+  expect(at.status, JSON.stringify(at.body)).toBe(200);
+  expect(at.body.label).toBe('TEST');
+  const account = { venueId: at.body.venue.id, owner: owner.toLowerCase(), subAccount };
+  const { status, body } = await testVenueAt(base, path, { account, ...extra });
   expect(status, JSON.stringify(body)).toBe(200);
   return body;
 }
@@ -170,8 +179,26 @@ export function sameDecimal(a, b) {
   return units(a) === units(b);
 }
 
-/** The venue's balance of `asset` for `owner`, from its own record. */
-export async function venueBalance(owner, asset) {
-  const body = await venueRecord(owner, '/balances');
+/** The venue's balance of `asset` for `owner`, from its own record (on the TEST venue at `base`). */
+export async function venueBalance(owner, asset, base = TEST_VENUE) {
+  const body = await venueRecord(owner, '/balances', {}, base);
   return body.value.find((b) => b.asset === asset) ?? { asset, free: '0', locked: '0', total: '0' };
+}
+
+// cacheTime 0: viem otherwise answers a read from a 4 s cache, so a figure at a later block could repeat an earlier one.
+const testChainClient = createPublicClient({ transport: http(GATE_URL), cacheTime: 0 });
+
+/**
+ * A wallet's token balance as the stack's TEST chain itself reports it (read straight through the chain's gate, never
+ * through our door or our ledger), at `blockNumber` when given. The outside record for a step whose figure the chain
+ * reports, as `venueBalance` is for a step whose figure the TEST venue reports. Raw token units, as a bigint.
+ */
+export async function chainBalance(token, owner, blockNumber) {
+  return testChainClient.readContract({
+    address: token,
+    abi: erc20Abi,
+    functionName: 'balanceOf',
+    args: [owner],
+    ...(blockNumber === undefined ? {} : { blockNumber }),
+  });
 }

@@ -1,3 +1,4 @@
+import { isRecord } from '@intafaced/contracts/guards';
 /**
  * Founder signing-key state as svc-identity returns it (`authKeys.state`). Ids only: key material never leaves the identity host.
  * The reader is strict: a shape that is not exactly this makes the whole read invalid, so the desk never prints a guess.
@@ -8,10 +9,6 @@ export interface KeyState {
   readonly previousKeyIds: readonly string[];
   readonly activatedAt: string | null;
   readonly availableKeyIds: readonly string[];
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
 const strings = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string');

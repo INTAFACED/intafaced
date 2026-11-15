@@ -1,4 +1,5 @@
 // World: book
+// Market: live
 import { readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
 import { EDGE, fund, journeyState, signOutBrowser } from './stack.mjs';

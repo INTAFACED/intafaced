@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { API_KEY_CALL_LIMIT_MAX, apiKeyCallSchema } from './api-keys.js';
 
 /**
  * IDENTITY CONTRACT — the reference example of the zod-first pattern (§3).
@@ -193,7 +194,9 @@ export const mfaResetViewSchema = z.discriminatedUnion('state', [
       state: z.literal('waiting'),
       resetId: z.string().guid(),
       completesAt: z.string().datetime({ offset: true }),
-      told: z.object({ email: z.string(), sms: z.literal('vendor.sms').nullable() }).strict(),
+      // `email` is the account's own address; `also` every other address the person proved they hold (Receive), each
+      // masked and told by mail too; `sms` names the missing rail when a proved phone could not be texted.
+      told: z.object({ email: z.string(), also: z.array(z.string()), sms: z.literal('vendor.sms').nullable() }).strict(),
     })
     .strict(),
 ]);
@@ -276,7 +279,7 @@ export const freezeLinkRedeemSchema = z
  * address's first and last characters) so the customer can see what they approve.
  */
 export const SERVICE_MAIL_PATH = '/internal/mail' as const;
-export const serviceMailPurposeSchema = z.enum(['withdraw-address-approval']);
+export const serviceMailPurposeSchema = z.enum(['withdraw-address-approval', 'support-chat-email']);
 export type ServiceMailPurpose = z.infer<typeof serviceMailPurposeSchema>;
 export const serviceMailRequestSchema = z
   .object({
@@ -385,6 +388,48 @@ export const linkedWalletsSchema = z.discriminatedUnion('state', [
   z.object({ state: z.literal('account_inactive') }).strict(),
 ]);
 export type LinkedWallets = z.infer<typeof linkedWalletsSchema>;
+
+/**
+ * One of a person's own API keys, as svc-trade reads it before binding it to an agent account (J-agents-21 #6): its kind,
+ * its scopes and whether it is live. Asked with the person's id, so a key of anyone else answers `none`, the same as a key
+ * that does not exist: no other person's key is ever confirmed. Only the services identity lists may ask. Nothing is written.
+ */
+export const AGENT_KEY_READ_PATH = '/internal/agent-keys/read' as const;
+export const agentKeyReadRequestSchema = z.object({ userId: z.string().guid(), keyId: z.string().guid() }).strict();
+export type AgentKeyReadRequest = z.infer<typeof agentKeyReadRequestSchema>;
+export const agentKeyReadSchema = z.discriminatedUnion('state', [
+  z
+    .object({
+      state: z.literal('found'),
+      keyId: z.string().guid(),
+      kind: z.enum(['personal', 'agent']),
+      scopes: z.array(z.string().min(1).max(64)).max(200),
+      /** Revoked, or past its end date. */
+      revoked: z.boolean(),
+      /** The key's end date (ISO), `null` when it has none (J-agents-21 #19). Absent from an identity built before it. */
+      expiresAt: z.string().datetime().nullable().optional(),
+    })
+    .strict(),
+  z.object({ state: z.literal('none') }).strict(),
+]);
+export type AgentKeyRead = z.infer<typeof agentKeyReadSchema>;
+
+/**
+ * One of a person's own API keys' call log (DV-keys-06), as svc-trade reads it for the assistant connection's Activity
+ * (J-agents-21 #11): every call the edge answered for the key, accepted and refused, newest first. Asked with the
+ * person's id, so anyone else's key answers `none`, as a key that does not exist does. Only the services identity lists
+ * may ask. Never a body, a header value, the key or the caller's address. Nothing is written.
+ */
+export const AGENT_KEY_CALLS_PATH = '/internal/agent-keys/calls' as const;
+export const agentKeyCallsRequestSchema = z
+  .object({ userId: z.string().guid(), keyId: z.string().guid(), limit: z.number().int().min(1).max(API_KEY_CALL_LIMIT_MAX) })
+  .strict();
+export type AgentKeyCallsRequest = z.infer<typeof agentKeyCallsRequestSchema>;
+export const agentKeyCallsSchema = z.discriminatedUnion('state', [
+  z.object({ state: z.literal('found'), keyId: z.string().guid(), asOf: z.string().datetime(), calls: z.array(apiKeyCallSchema) }).strict(),
+  z.object({ state: z.literal('none') }).strict(),
+]);
+export type AgentKeyCalls = z.infer<typeof agentKeyCallsSchema>;
 /** The step-up door for an unlock request (see `CUSTOMER_STEP_UP_DOORS`). Locking needs none: it only takes power away. */
 export const SECURITY_LOCK_UNLOCK_STEP_UP_SCOPE = 'identity.step_up.security_lock_unlock' as const;
 export const SECURITY_LOCK_UNLOCK_STEP_UP_PURPOSE = 'account.securityLock.unlock' as const;

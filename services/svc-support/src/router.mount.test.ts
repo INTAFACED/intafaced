@@ -520,7 +520,7 @@ describe('svc-support mount', () => {
   it('maps a KB stale-revision refuse to the dotted key, not English', async () => {
     const support = stubSupport({
       publishKb: vi.fn(async () => {
-        throw new SupportError('KB revision is stale', 'support.kb.revision_stale');
+        throw new SupportError('KB revision is stale', 'support.kb_revision_stale');
       }),
     });
     const op = principal({ userId: OP, sub: OP, scopes: ['support:read', 'support:write', 'support:ops'] });
@@ -534,7 +534,7 @@ describe('svc-support mount', () => {
       }),
     ).rejects.toMatchObject({
       code: 'CONFLICT',
-      message: userCopy('support.kb.revision_stale'),
+      message: userCopy('support.kb_revision_stale'),
     });
   });
 

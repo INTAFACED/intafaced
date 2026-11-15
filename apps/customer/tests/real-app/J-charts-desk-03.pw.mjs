@@ -79,6 +79,27 @@ async function addStudy(page, search, name) {
   await page.getByRole('button', { name: `Add ${name}`, exact: true }).click();
 }
 
+/**
+ * An open spot market the public tape holds no trade for, read from the public routes (the markets list, then each one's
+ * newest trade). The step's other branch needs one; a stack whose every market trades fails here by name.
+ */
+async function untradedMarket() {
+  const res = await fetch(`${EDGE}/api/v1/markets?limit=500`);
+  expect(res.status).toBe(200);
+  const markets = await res.json();
+  const listed = [];
+  for (const m of markets) {
+    if (typeof m.symbol !== 'string' || m.symbol.includes(':')) continue;
+    // Only a market open for trading: a market that is not open has no chart studies to read.
+    const life = await fetch(`${EDGE}/api/v1/market-lifecycle/${encodeURIComponent(m.symbol)}`);
+    if (!life.ok || (await life.json()).state !== 'OPEN') continue;
+    listed.push(m.symbol);
+    const tape = await fetch(`${EDGE}/api/v1/trades/${encodeURIComponent(m.symbol)}?limit=1`);
+    if (tape.ok && (await tape.json()).length === 0) return m.symbol;
+  }
+  throw new Error(`no open spot market is without trades on this stack (open: ${listed.join(', ')})`);
+}
+
 const legend = (page) => page.getByTestId('study-legend');
 const row = (page, id) => page.locator(`[data-study="${id}"]`);
 const host = (page) => page.getByTestId('cw').getByTestId('wc-host');
@@ -114,6 +135,16 @@ test('J-charts-desk-03 #1 types rsi into the indicator dialog, finds RSI under O
   await expect(oscillators).toContainText('Relative Strength Index');
   await oscillators.getByRole('button', { name: 'Add Relative Strength Index' }).click();
   await expect(row(page, 'rsi-1')).toHaveAttribute('data-pane', 'sub');
+  // In a sub-pane on the chart itself: the library's own series for rsi-1 sits on a pane below the price pane (0).
+  await expect
+    .poll(async () =>
+      JSON.parse((await host(page).getAttribute('data-study-series')) ?? '[]')
+        .filter((x) => x.key.split(':')[0] === 'rsi-1')
+        .map((x) => x.pane),
+    )
+    .toEqual([expect.any(Number)]);
+  const [rsi] = JSON.parse((await host(page).getAttribute('data-study-series')) ?? '[]').filter((x) => x.key.split(':')[0] === 'rsi-1');
+  expect(rsi.pane).toBeGreaterThan(0);
   // The chip's accessible name is the study's name; its visible text carries the inputs.
   await expect(page.getByRole('button', { name: 'Settings for Relative Strength Index' })).toContainText('RSI 14');
 });
@@ -218,7 +249,19 @@ test('J-charts-desk-03 #3 adds EMA(20), Volume, MACD, Stochastic, Bollinger and 
   await expect(chart).toContainText('No trades in this period.');
   await expect(chart).toContainText('This market has no volume in the loaded bars.');
   await expect(host(page)).toHaveCount(0);
-  await expect(page.getByTestId('study-legend')).toHaveCount(0);
+  // The studies bar stays on a market with no trades (so a tape study can say there is no tape, J-charts-desk-04 #4),
+  // and every study in it shows no value: no series value and no fact, only what it lacks.
+  const quietLegend = page.getByTestId('study-legend');
+  await expect(quietLegend.locator('.st-row').first()).toBeVisible();
+  await expect(quietLegend.locator('[data-series]')).toHaveCount(0);
+  await expect(quietLegend.locator('.st-fact')).toHaveCount(0);
+
+  // A market with no volume says so: on a listed market the public tape holds no trade for, Volume names it, and draws nothing.
+  const untraded = await untradedMarket();
+  await page.goto(`/charts/${untraded.replace('/', '-')}`);
+  await expect(page.getByTestId('studies')).toBeVisible();
+  await addStudy(page, 'volume', 'Volume');
+  await expect(row(page, 'volume-1')).toContainText('This market has no volume in the loaded bars.');
 });
 
 test('J-charts-desk-03 #4 hides an indicator on one interval only; it shows on the others and the setting is remembered', async ({
@@ -492,6 +535,12 @@ test('J-charts-desk-03 #8 adds a price line at a level: a labelled line at that 
   const markets = await (await fetch(`${EDGE}/api/v1/markets?limit=500`)).json();
   const tick = markets.find((m) => m.symbol === 'BTC/USDT').precision.price;
   await openChart(page);
+  // The lines the drawing library itself holds, read back from each drawn line: its price and its title.
+  const drawnLines = async () =>
+    ((await host(page).getAttribute('data-drawn-price-lines')) ?? '')
+      .split('\n')
+      .filter(Boolean)
+      .map((entry) => ({ price: entry.split('|')[0], title: entry.split('|').slice(1).join('|') }));
   await page.getByRole('button', { name: 'Price line', exact: true }).click();
   const form = page.getByRole('form', { name: 'Add a price line' });
   // A price off the tick grid is refused by name and draws nothing. Built from the tick's own scale: the level with one
@@ -507,15 +556,23 @@ test('J-charts-desk-03 #8 adds a price line at a level: a labelled line at that 
   await form.getByRole('button', { name: 'Add line' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'whole multiple of the tick size' })).toBeVisible();
   await expect(host(page)).toHaveAttribute('data-price-lines', '');
+  expect(await drawnLines()).toEqual([]);
   // The level on the grid, with a label, draws one line at exactly that price.
   await form.getByLabel('Price').fill(level);
   await form.getByLabel('Label (optional)').fill('Support');
   await form.getByRole('button', { name: 'Add line' }).click();
   await expect(host(page)).toHaveAttribute('data-price-lines', level);
   await expect(page.getByRole('list', { name: 'Price lines' })).toContainText(`Support at ${level}`);
+  // The chart drew exactly one line, at exactly that price, titled with its label.
+  await expect.poll(drawnLines).toHaveLength(1);
+  const [line] = await drawnLines();
+  expect(Number(line.price)).toBe(Number(level));
+  expect(line.title).toBe('Support');
   // Kept for this market on this device; removing it takes it off the chart.
   await page.reload();
   await expect(host(page)).toHaveAttribute('data-price-lines', level);
+  await expect.poll(drawnLines).toEqual([{ price: line.price, title: 'Support' }]);
   await page.getByRole('button', { name: `Remove the line at ${level}` }).click();
   await expect(host(page)).toHaveAttribute('data-price-lines', '');
+  await expect.poll(drawnLines).toEqual([]);
 });

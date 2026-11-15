@@ -21,8 +21,18 @@ describe('academy signed-out catalogue shapes (AC-catalogue-01)', () => {
   });
 
   it('a course has at least one syllabus item; summary, instructor and certificate may be blank, never invented', () => {
-    const course = { slug: 'markets', summary: null, instructor: null, outcomes: [], syllabus: [row], certificate: null };
+    const course = {
+      slug: 'markets',
+      summary: null,
+      instructor: null,
+      outcomes: [],
+      syllabus: [{ ...row, type: 'lesson' }],
+      certificate: null,
+    };
     expect(academyPublicCourseSchema.parse(course)).toEqual(course);
+    // Each syllabus row says what it is to the learner: a lesson, a quiz or an assignment, and nothing else.
+    expect(academyPublicCourseSchema.safeParse({ ...course, syllabus: [row] }).success).toBe(false);
+    expect(academyPublicCourseSchema.safeParse({ ...course, syllabus: [{ ...row, type: 'playbook' }] }).success).toBe(false);
     expect(academyPublicCourseSchema.safeParse({ ...course, syllabus: [] }).success).toBe(false);
     expect(academyPublicHubSchema.parse({ featured: null, lesson: null })).toEqual({ featured: null, lesson: null });
     // A featured lesson names its course; the course's address only while it is published, never an invented one.

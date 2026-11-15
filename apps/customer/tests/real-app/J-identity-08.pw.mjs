@@ -15,6 +15,8 @@ const J = 'J-identity-08';
 const UNBUILT = { timeout: 5_000 };
 const LEVELS = ['none', 'basic', 'full', 'institutional'];
 const GATED = ['deposit', 'withdraw', 'trade', 'card', 'earn'];
+/** Every capability the TEST mapping gives level Full (tooling/profiles/test-owner-values/identity.json). */
+const CAPABILITIES = ['custody_crypto', 'transfer_crypto', 'trade_crypto', 'custody_fiat', 'transfer_fiat'];
 /** The stack's one TEST reason from an owner reason list in identity's TEST owner values, as account status returns it. */
 function ownerReason(setting) {
   const raw = JSON.parse(readFileSync(new URL('../../../../tooling/profiles/test-owner-values/identity.json', import.meta.url), 'utf8'));
@@ -38,6 +40,17 @@ async function atVerification(page) {
   await page.goto('/verification');
   const ladder = page.getByRole('region', { name: 'What each level unlocks' });
   return { who, ladder, rung: (level) => ladder.locator(`[data-testid="verification__rung"][data-level="${level}"]`) };
+}
+
+/**
+ * Open the bank's verification: /verification leads with the trading checks, and the ID and selfie steps open on this
+ * one click (trading asks for no ID document or selfie, OWNER 258 (4); J-cex-spot-01 #3).
+ */
+async function openBankVerification(page) {
+  await page
+    .getByRole('region', { name: 'Verification for the bank' })
+    .getByRole('button', { name: 'Start verification for the bank' })
+    .click();
 }
 
 /** Send the request form as it stands for `country`, through its review step. */
@@ -123,6 +136,7 @@ test(`${J} #2: guided verification resumes at the step left, a country with no d
     if (value && new URL(r.url()).pathname.startsWith('/api/identity/trpc/')) authorization = value;
   });
   await atVerification(page);
+  await openBankVerification(page);
   const guided = page.getByRole('region', { name: 'Guided verification' });
   const current = guided.getByTestId('verification__guided-steps').locator('li[aria-current="step"]');
   const cases = page.getByRole('region', { name: 'Case history' }).getByTestId('verification__case');
@@ -233,6 +247,7 @@ test(`${J} #3: with the face check switched off the selfie is kept for manual re
     });
     const page = await context.newPage();
     const { who } = await atVerification(page);
+    await openBankVerification(page);
     const selfie = page.getByTestId('verification__selfie');
     await expect(page.getByRole('heading', { name: 'Selfie and liveness' })).toBeVisible();
     await expect(selfie.getByTestId('verification__selfie-manual')).toHaveAttribute('data-face-check', 'not_connected');
@@ -581,8 +596,10 @@ test(`${J} #6: one case record with history; an approval unlocks the mapped feat
   await page.reload();
   await expect(cases).toHaveCount(1);
   await expect(cases.first()).toHaveAttribute('data-state', 'submitted');
-  await expect(capability('custody_fiat')).toHaveAttribute('data-state', 'pending');
-  await expect(capability('trade_crypto')).toContainText('Pending review');
+  for (const name of CAPABILITIES) {
+    await expect(capability(name)).toHaveAttribute('data-state', 'pending');
+    await expect(capability(name)).toContainText('Pending review');
+  }
 
   // Approved: the same case reads approved with its two steps, and every mapped capability is active at once.
   tool('local-test-gates.mjs', 'verify');
@@ -613,7 +630,10 @@ test(`${J} #6: one case record with history; an approval unlocks the mapped feat
     await other.reload();
     await expect(otherCases).toHaveCount(1);
     await expect(otherCases.first()).toHaveAttribute('data-state', 'submitted');
-    await expect(otherCapability('custody_fiat')).toHaveAttribute('data-state', 'pending');
+    for (const name of CAPABILITIES) {
+      await expect(otherCapability(name)).toHaveAttribute('data-state', 'pending');
+      await expect(otherCapability(name)).toContainText('Pending review');
+    }
     expect(tool('local-test-gates.mjs', 'kyc-reject', second.who.handle, 'document_unreadable')).toContain(
       'rejected (document_unreadable)',
     );

@@ -1,0 +1,35 @@
+{
+  "label": "TEST: CX-8 rig and local test stack only. Not an owner decision and not a product default.",
+  "values": {
+    "WS_MUX_IDLE_MS": {
+      "service": "ws",
+      "value": "60000",
+      "note": "TEST idle window of one minute for a multiplexed socket with no subscription, so the multiplexed /ws door mounts on the test stack (#8311). Blank in production leaves the door unmounted (ws.mux_idle_unset)."
+    },
+    "WS_MUX_MAX_SEATS": {
+      "service": "ws",
+      "value": "200",
+      "note": "TEST multiplexed seat pool per hub, so a journey's subscriptions find a seat. Blank in production refuses the attach (ws.close.mux_max_seats_unset)."
+    },
+    "WS_MUX_MAX_SUBSCRIPTIONS": {
+      "service": "ws",
+      "value": "32",
+      "note": "TEST channels per multiplexed connection. Blank in production closes the connection (ws.close.mux_max_subscriptions_unset)."
+    },
+    "WS_MUX_MAX_OPS_PER_SECOND": {
+      "service": "ws",
+      "value": "32",
+      "note": "TEST inbound operations per second per multiplexed connection. Blank in production closes the connection (ws.close.mux_max_ops_per_second_unset)."
+    },
+    "WS_MAX_CONNECTIONS": {
+      "service": "ws",
+      "value": "200",
+      "note": "TEST socket ceiling per hub, which the multiplexed door also checks before it accepts a connection. Blank in production refuses the attach (ws.max_connections_unset)."
+    },
+    "WS_HIGH_WATER_BYTES": {
+      "service": "ws",
+      "value": "1048576",
+      "note": "TEST outbound buffer high-water of 1 MiB, which every multiplexed session checks when it starts. Blank in production refuses (ws.high_water_bytes_unset)."
+    }
+  }
+}

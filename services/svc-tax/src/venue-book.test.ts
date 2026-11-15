@@ -3,7 +3,7 @@ import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { lotBookSchema } from '@intafaced/contracts/tax-lot-book';
 import type { TradeVenueAccountActivity, TradeVenueActivityResult } from '@intafaced/contracts';
 import { buildLotBook, type Fill } from './lot-book.js';
-import { venueAccountKey, venueFillToFill, withVenue } from './venue-book.js';
+import { venueAccountKey, venueArrivalLines, venueFillToFill, withVenue } from './venue-book.js';
 
 // J-cex-spot-01 #11: the person's own venue account in their profit and loss indicator. Every figure is TEST.
 const OWNER = '0x00000000000000000000000000000000000000a1';
@@ -255,5 +255,212 @@ describe('the venue account beside the ledger book (J-cex-spot-01 #11)', () => {
     expect(withVenue(main, { state: 'off' }, shared)).toEqual({ ...main, venue: { status: 'off', code: 'tax.venue_off' } });
     expect(withVenue(main, null, shared)).toEqual({ ...main, venue: { status: 'unwired', code: 'tax.venue_unwired' } });
     expect(withVenue(main, read(), shared)).toEqual({ ...main, venue: { status: 'read', test: true, accounts: [] } });
+  });
+});
+
+// J-portfolio-04 #2: a move from the main venue account to the person's own venue sub-account, signed in their wallet,
+// carries the lots with their acquired date and basis. Every figure is TEST, worked out by hand.
+describe('a move into the person own venue sub-account carries the lots', () => {
+  const SUB = '0x00000000000000000000000000000000000000c5';
+  const SUB_KEY = `venue:test-venue:${OWNER}:${SUB}`;
+  const A = fill({
+    fillId: 'a',
+    side: 'buy',
+    price: '60000',
+    amount: '0.6',
+    fee: '0',
+    feeAsset: 'BTC',
+    filledAt: '2026-11-10T01:00:00.000Z',
+  });
+  const B = fill({
+    fillId: 'b',
+    side: 'buy',
+    price: '61000',
+    amount: '0.6',
+    fee: '0',
+    feeAsset: 'BTC',
+    filledAt: '2026-11-10T02:00:00.000Z',
+  });
+  const MOVED_AT = '2026-11-11T01:00:00.000Z';
+  const main = (
+    transfers: NonNullable<TradeVenueAccountActivity['transfers']>,
+    btc: string,
+    fills = [A, B],
+  ): TradeVenueAccountActivity => ({
+    ...activity(fills, btc),
+    transfers,
+  });
+  const sub = (btc: string, fills: VenueFill[] = []): TradeVenueAccountActivity => ({
+    venueId: 'test-venue',
+    owner: OWNER,
+    subAccount: SUB,
+    balances: [{ asset: 'BTC', total: btc }],
+    fills,
+    asOf: '2026-11-11T03:00:01.000Z',
+  });
+  const into = (amount: string, moveId = 'n1', settledAt = MOVED_AT) => ({
+    moveId,
+    subAccount: SUB,
+    direction: 'into_sub_account' as const,
+    asset: 'BTC',
+    amount,
+    settledAt,
+  });
+  const lotsIn = (book: ReturnType<typeof withVenue>, account: string) => book.lots.filter((l) => l.venueAccount === account);
+
+  it('FIFO: the whole oldest lot and a share of the next arrive in the sub-account with their dates and basis; the main account keeps the rest', () => {
+    const book = withVenue(emptyMain(), read(main([into('1')], '0.2'), sub('1')), shared);
+    expect(lotBookSchema.safeParse(book).success).toBe(true);
+    const moved = lotsIn(book, SUB_KEY);
+    expect(
+      moved.map((l) => [
+        l.acquiredAt,
+        l.source,
+        l.qty,
+        l.remaining,
+        l.costUsd,
+        l.remainingCostUsd,
+        l.carriedFrom?.lotId,
+        l.carriedFrom?.movedAt,
+      ]),
+    ).toEqual([
+      // TEST: 0.6 BTC at 60000 is 36000; 0.4 of the 0.6 BTC bought at 61000 (36600) is 24400.
+      [A.filledAt, 'trade', '0.6', '0.6', '36000', '36000', `lot:${ACCOUNT}:a:BTC`, MOVED_AT],
+      [B.filledAt, 'trade', '0.4', '0.4', '24400', '24400', `lot:${ACCOUNT}:b:BTC`, MOVED_AT],
+    ]);
+    // Not a buy: a carried lot names no fee of its own.
+    expect(moved.every((l) => l.fee === undefined)).toBe(true);
+    const left = lotsIn(book, ACCOUNT);
+    expect(left.map((l) => [l.id, l.remaining, l.remainingCostUsd])).toEqual([
+      [`lot:${ACCOUNT}:a:BTC`, '0', '0'],
+      [`lot:${ACCOUNT}:b:BTC`, '0.2', '12200'],
+    ]);
+    // Both accounts reconcile with what the venue holds, and a move is not a sale.
+    expect(book.residuals).toEqual([]);
+    expect(book.sales).toEqual([]);
+    expect(book.assets.filter((a) => a.assetId === 'BTC').map((a) => [a.venueAccount, a.openQty, a.openCostUsd, a.held])).toEqual([
+      [ACCOUNT, '0.2', '12200', '0.2'],
+      [SUB_KEY, '1', '60400', '1'],
+    ]);
+  });
+
+  it('LIFO moves the newest lot first, by the method a sale at that moment would use', () => {
+    const book = withVenue(emptyMain(), read(main([into('1')], '0.2'), sub('1')), { ...shared, method: 'LIFO' as const });
+    expect(lotsIn(book, SUB_KEY).map((l) => [l.acquiredAt, l.qty, l.costUsd])).toEqual([
+      [A.filledAt, '0.4', '24000'],
+      [B.filledAt, '0.6', '36600'],
+    ]);
+  });
+
+  it("a sale in the sub-account draws on the lots carried there, at their basis, never on the main account's", () => {
+    const SELL_SUB = fill({
+      fillId: 's',
+      side: 'sell',
+      price: '62000',
+      amount: '0.5',
+      fee: '0',
+      feeAsset: 'USDC',
+      filledAt: '2026-11-11T02:00:00.000Z',
+    });
+    const book = withVenue(emptyMain(), read(main([into('1')], '0.2'), sub('0.5', [SELL_SUB])), shared);
+    const sale = book.sales.find((s) => s.venueAccount === SUB_KEY)!;
+    // TEST: 0.5 of the carried 0.6 at 36000 is 30000; sold for 31000.
+    expect([sale.costUsd, sale.proceedsUsd, sale.realizedUsd]).toEqual(['30000', '31000', '1000']);
+    expect(sale.matches.map((m) => m.lotId)).toEqual([lotsIn(book, SUB_KEY)[0]!.id]);
+    expect(lotsIn(book, ACCOUNT).find((l) => l.remaining !== '0')?.remaining).toBe('0.2');
+    expect(book.residuals).toEqual([]);
+  });
+
+  it('a move with no lot behind it arrives with no basis, named, never a made-up one', () => {
+    const book = withVenue(emptyMain(), read(main([into('1')], '0', []), sub('1')), shared);
+    const moved = lotsIn(book, SUB_KEY);
+    expect(moved.map((l) => [l.source, l.qty, l.costUsd])).toEqual([['transfer_in', '1', null]]);
+    expect(book.residuals).toContain('tax.cost_basis_unavailable');
+  });
+
+  it('a move back out of a sub-account is not followed: that coin is unknown on both accounts, named', () => {
+    const out = { ...into('0.3', 'n2', '2026-11-11T02:00:00.000Z'), direction: 'out_of_sub_account' as const };
+    const book = withVenue(emptyMain(), read(main([into('1'), out], '0.5'), sub('0.7')), shared);
+    expect(book.residuals).toContain('tax.lot_book_unreconciled');
+    for (const key of [ACCOUNT, SUB_KEY]) {
+      expect(book.assets.find((a) => a.venueAccount === key && a.assetId === 'BTC')?.openCostUsd).toBeNull();
+    }
+  });
+});
+
+describe('coins the venue credited from outside (J-portfolio-02 #6)', () => {
+  const ARRIVED = '2026-11-10T01:00:00.000Z';
+  const SALE = fill({
+    fillId: 'f9',
+    side: 'sell',
+    price: '59400',
+    amount: '0.02',
+    fee: '1.188',
+    feeAsset: 'USDC',
+    filledAt: '2026-11-11T03:00:00.000Z',
+  });
+  const credited = (): TradeVenueAccountActivity => ({
+    ...activity([SALE], '0.03'),
+    arrivals: [{ arrivalId: '84532:0xabc:0', kind: 'deposit', asset: 'BTC', amount: '0.05', arrivedAt: ARRIVED }],
+  });
+  // As svc-tax values them under a policy that leaves the cost to the customer: no cost, never zero.
+  const inflowsOf = (a: TradeVenueAccountActivity) =>
+    new Map([
+      [venueAccountKey(a), venueArrivalLines(a).map((line) => ({ ...line, source: 'deposit' as const, costUsd: null, valuedAt: null }))],
+    ]);
+  // 0.02 × 59400 = 1188, less the 1.188 USDC fee.
+  const proceeds = u('1188') - u('1.188');
+
+  it('each credit is an arrival line keyed by the account and the venue id, a deposit by its reason', () => {
+    expect(venueArrivalLines(credited())).toEqual([
+      { txId: `${ACCOUNT}:arrival:84532:0xabc:0`, postedAt: new Date(ARRIVED), assetId: 'BTC', amount: u('0.05'), reason: 'deposit.venue' },
+    ]);
+    expect(venueArrivalLines(activity([SALE], '0.03'))).toEqual([]);
+  });
+
+  it('the credit is a lot with no cost: the sale reaches it, its result is unknown and the total stays blank, never zero', () => {
+    const a = credited();
+    const book = withVenue(emptyMain(), read(a), shared, { inflows: inflowsOf(a) });
+    expect(() => lotBookSchema.parse(book)).not.toThrow();
+    // It reconciles with what the venue holds: the coins are explained, only their cost is unknown.
+    expect(book.residuals).not.toContain('tax.lot_book_unreconciled');
+    expect(book.residuals).toContain('tax.cost_basis_unavailable');
+    const lot = book.lots.find((l) => l.source === 'deposit')!;
+    // The lot is the whole credit, 0.05; 0.03 of it is still open.
+    expect(lot).toMatchObject({ assetId: 'BTC', qty: '0.05', remaining: '0.03', costUsd: null, venueAccount: ACCOUNT });
+    const sale = book.sales[0]!;
+    expect(sale).toMatchObject({
+      assetId: 'BTC',
+      qty: '0.02',
+      proceedsUsd: formatAmount(proceeds),
+      realizedUsd: null,
+      venueAccount: ACCOUNT,
+    });
+    expect(sale.matches.map((m) => [m.lotId, m.costUsd])).toEqual([[lot.id, null]]);
+    expect(book.assets[0]).toMatchObject({ assetId: 'BTC', openQty: '0.03', openCostUsd: null, held: '0.03' });
+    expect(book.realizedUsd).toBeNull();
+  });
+
+  it('a price the person enters gives the lot its cost: the sale has a result and the total counts it', () => {
+    const a = credited();
+    const lotId = withVenue(emptyMain(), read(a), shared, { inflows: inflowsOf(a) }).lots.find((l) => l.source === 'deposit')!.id;
+    const book = withVenue(emptyMain(), read(a), shared, { inflows: inflowsOf(a), overridePricePerUnit: new Map([[lotId, u('50000')]]) });
+    const lot = book.lots.find((l) => l.id === lotId)!;
+    // 0.05 at 50000: the whole credit's cost; the 0.03 still open costs 1500 and the 0.02 sold 1000.
+    expect(lot).toMatchObject({ costUsd: '2500', basisSource: 'customer-entered' });
+    const realised = formatAmount(proceeds - u('1000'));
+    expect(book.sales[0]!.realizedUsd).toBe(realised);
+    expect(book.assets[0]).toMatchObject({ openCostUsd: '1500' });
+    expect(book.realizedUsd).toBe(realised);
+  });
+
+  it('a dollar coin credited is not a position', () => {
+    const a: TradeVenueAccountActivity = {
+      ...activity([], '0'),
+      arrivals: [{ arrivalId: 'r1', kind: 'deposit', asset: 'USDC', amount: '268.31', arrivedAt: ARRIVED }],
+    };
+    const book = withVenue(emptyMain(), read(a), shared, { inflows: inflowsOf(a) });
+    expect(book.lots).toEqual([]);
+    expect(book.assets).toEqual([]);
   });
 });

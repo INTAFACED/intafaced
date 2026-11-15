@@ -2,7 +2,7 @@ import path from 'node:path';
 import { loadProfile } from '../owner-settings.mjs';
 
 /** LOCAL TEST sanctioned destination, not a real list (J-wallet-05 #2), kept in local-test-facts.mjs. */
-import { LOCAL_TEST_SANCTIONED_ADDRESS } from '../local-test-facts.mjs';
+import { CHAIN_HOST, CHAIN_PORTS, LOCAL_TEST_SANCTIONED_ADDRESS } from '../local-test-facts.mjs';
 
 export { LOCAL_TEST_SANCTIONED_ADDRESS };
 const LOCAL_TEST_SANCTIONED_DESTINATION = `*:${LOCAL_TEST_SANCTIONED_ADDRESS}`;
@@ -39,6 +39,19 @@ function offrampCooling() {
   if (asked === undefined || asked === '') return { BANK_OFFRAMP_COOLING_HOURS: '24' };
   if (asked === 'off') return {};
   throw new Error(`LOCAL_STACK_BANK_OFFRAMP_COOLING is "${asked}"; leave it unset for the TEST 24 hours, or set it to off.`);
+}
+
+/**
+ * The owner's address-book cap (J-wallet-04 #2): the stack's TEST 10, a smaller whole number so a journey can fill the book
+ * and see the refusal name the cap (bank.address_book_full), or blank when the stack is asked to show it unset, so every
+ * address save refuses bank.address_book_cap_unset.
+ */
+function addressBookCap() {
+  const asked = process.env.LOCAL_STACK_BANK_ADDRESS_BOOK_CAP;
+  if (asked === undefined || asked === '') return { BANK_ADDRESS_BOOK_CAP: '10' };
+  if (asked === 'off') return {};
+  if (/^[1-9]$/.test(asked)) return { BANK_ADDRESS_BOOK_CAP: asked };
+  throw new Error(`LOCAL_STACK_BANK_ADDRESS_BOOK_CAP is "${asked}"; leave it unset for the TEST 10, set it to 1 to 9, or set it to off.`);
 }
 
 /** The lending policy (BK-loan-01, J-bank-09 #1): new loans open, or switched off when the stack is asked to show it. */
@@ -164,6 +177,17 @@ function statementJobs() {
   throw new Error(`LOCAL_STACK_BANK_STATEMENT_HOLD is "${asked}"; leave it unset for renders that finish, or set it to on.`);
 }
 
+/**
+ * `LOCAL_STACK_BANK_ACTIVITY_FAULT=on` on a restart fails every activity history read (a TEST fault, J-home-ia-01 #5), so a
+ * journey sees the activity list fail in the running bank while balances still answer. Unset: activity reads as normal.
+ */
+function activityFault() {
+  const asked = process.env.LOCAL_STACK_BANK_ACTIVITY_FAULT;
+  if (asked === undefined || asked === '') return {};
+  if (asked === 'on') return { BANK_ACTIVITY_TEST_FAULT: 'on' };
+  throw new Error(`LOCAL_STACK_BANK_ACTIVITY_FAULT is "${asked}"; leave it unset for activity that reads, or set it to on.`);
+}
+
 /** The account terms (BK-acct-01): the TEST base tier, or blank when the stack is asked to show them unpublished. */
 function accountTerms() {
   const asked = process.env.LOCAL_STACK_BANK_ACCOUNT_TERMS;
@@ -212,6 +236,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     // refusal can be seen too (J-wallet-02 #1).
     ...depositCustody(urlOf),
     ...statementJobs(),
+    ...activityFault(),
     // Required, no default (owner-unpublished). Inert LOCAL TEST placeholders so the service can
     // boot: the jobs they size are all switched off below, so no batch size is ever exercised.
     LOAN_QUOTE_ASSET_ID: 'USDT',
@@ -264,7 +289,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     BANK_PLANS_JSON: testValue('BANK_PLANS_JSON'),
     BANK_DORMANCY_RULES_JSON: testValue('BANK_DORMANCY_RULES_JSON'),
     BANK_CARD_SIM_CASHBACK: 'test',
-    BANK_ADDRESS_BOOK_CAP: '10',
+    ...addressBookCap(),
     ...offrampCooling(),
     // LOCAL TEST sanctioned destination, not a real list: one made-up address on every network, so J-wallet-05 #2 can show a
     // listed address refused by name (bank.destination_sanctions_listed). Set only here, never in a deploy; unset, every
@@ -295,6 +320,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     // switches a journey sets through its own `testPartner.set` (a feature not offered by the partner, a fee not known, a
     // reserve required, the partner down, a ramp quote expired, a ramp fee not known). Every switch starts off.
     BANK_TEST_PARTNER: 'test',
+    // LOCAL TEST tax-effect map (J-portfolio-03 #7; refused at boot outside dev/test): made up for test stacks, not the
+    // owner's or counsel's call, and the answer and the screen say TEST.
+    BANK_TAX_EFFECTS: 'test',
     // The custody switch as svc-bank reads it, pinned as svc-ledger's is: the TEST stack runs the custodial layer for the
     // journeys marked Later. A journey puts its own person's money at the TEST partner with `testPartner.set({ custody:
     // 'off' })`, and then nothing of theirs is posted to the ledger and their card money is
@@ -313,6 +341,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     BANK_PAYIN_SIM_JSON: testValue('BANK_PAYIN_SIM_JSON'),
     BANK_PAYIN_SIM_PAGE_URL: urlOf('bank'),
     BANK_PAYIN_SIM_RETURN_URL: `${CUSTOMER_ORIGIN}/bank/ramps/new`,
+    // LOCAL TEST partner delivery (J-dex-protocol-05 #4): a purchase for the buyer's own wallet is delivered, once the payer
+    // approves, by the TEST chain's stand-in partner (tooling/scripts/local-test-chain.mjs /payin-deliver), which sends TEST
+    // USD to the wallet; the stand-in then says paid with that transfer. With no TEST chain it refuses and the request waits.
+    BANK_PAYIN_SIM_DELIVER_URL: `http://${CHAIN_HOST}:${CHAIN_PORTS.relay}/payin-deliver`,
     // LOCAL TEST payout stand-in for cash out (J-bank-03 #4/#5; pays nobody, refused under live posture): it prices the
     // assets its TEST catalogue lists and takes a payout; verifying an account and saying paid, failed or returned are the
     // partner's signed job calls, which only a test makes here. Value moves to and from its own TEST rail boundary.

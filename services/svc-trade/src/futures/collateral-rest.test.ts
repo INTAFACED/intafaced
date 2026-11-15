@@ -103,6 +103,16 @@ describe('GET /api/v1/futures/collateral', () => {
     await app.close();
   });
 
+  it('names the venue whose margin rule this is, and each refused class says that venue does not take it', async () => {
+    const { app } = appWith();
+    const body = (await app.inject({ method: 'GET', url: '/api/v1/futures/collateral', headers: headers() })).json();
+    expect(body.venue).toEqual({ id: 'intafaced', name: 'INTAFACED' });
+    for (const r of body.refusedClasses as { collateralClass: string; message: string }[]) {
+      expect(r.message).toContain(`INTAFACED does not take ${r.collateralClass} balances as futures margin`);
+    }
+    await app.close();
+  });
+
   it('refuses a signed-out caller', async () => {
     const { app, asked } = appWith();
     expect((await app.inject({ method: 'GET', url: '/api/v1/futures/collateral' })).statusCode).toBe(401);

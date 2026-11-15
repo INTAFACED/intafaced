@@ -24,6 +24,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { TEST_CHAIN_ID } from './local-test-chain.mjs';
+import { STACK_PORTS } from './local-test-facts.mjs';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 /** The built simulator. The stack builds it with svc-trade (a dev dependency there); a bare run says how to build it. */
@@ -64,6 +65,8 @@ export function userVenueCount(raw) {
  * The second TEST venue (J-derivatives-28): its own id and name, and a deeper TEST ladder (5 BTC a level against the first
  * venue's 1), so one order the first venue's shown depth can't fill at its shown price has a venue that can.
  */
+/** TEST: the most orders the first TEST venue takes in one signed action. */
+export const FIRST_TEST_VENUE_ORDERS_PER_ACTION = 10;
 export const SECOND_TEST_VENUE = { id: 'test-venue-sim-b', displayName: 'TEST venue simulator B', levelSize: '5' };
 
 /**
@@ -74,6 +77,17 @@ export const TEST_VENUE_DEPOSIT_ADDRESS = '0x00000000000000000000000000000000de9
 /** The venue asset a deposit of the TEST chain's TEST USD (6 decimals) is credited as. TEST. */
 export const TEST_VENUE_DEPOSIT_ASSET = 'USDC';
 const TEST_USD_DECIMALS = 6;
+/**
+ * The TEST venue's published deposit terms (J-dex-protocol-05 #1 and #2), all TEST: a transfer under 5 TEST USDC is never
+ * credited, and one is credited after 3 confirmations on the TEST chain. The stack's anvil mines a block per transaction
+ * only, so a journey that waits for confirmations mines the blocks itself (`evm_mine`, the TEST chain's own control).
+ */
+export const TEST_VENUE_DEPOSIT_TERMS = { minimum: '5', confirmations: 3, network: 'TEST chain' };
+/**
+ * The TEST chain's explorer is the app's own (/chain/tx/<hash>, which reads the stack's TEST chain), so the TEST venue links
+ * each deposit there. A journey switches it off (`/test/switches {depositExplorerTxUrl: null}`) for a network with none.
+ */
+export const TEST_VENUE_DEPOSIT_EXPLORER = '/chain/tx/';
 
 /**
  * The deposit route for this venue, or null when the TEST chain or its token is not given. Its chain is the stack's TEST
@@ -90,6 +104,7 @@ export function testVenueDepositRoute({ rpcUrl, token }) {
     tokenDecimals: TEST_USD_DECIMALS,
     address: TEST_VENUE_DEPOSIT_ADDRESS,
     asset: TEST_VENUE_DEPOSIT_ASSET,
+    ...TEST_VENUE_DEPOSIT_TERMS,
   };
 }
 
@@ -100,10 +115,15 @@ export async function serveTestVenue({ host, port, appEnv, chainId, rpcUrl = '',
   }
   const sim = await import(pathToFileURL(VENUE_SIM_DIST).href);
   const deposit = second ? null : testVenueDepositRoute({ rpcUrl, token: depositToken });
-  const which = second ? { id: SECOND_TEST_VENUE.id, displayName: SECOND_TEST_VENUE.displayName } : {};
+  // The first TEST venue takes several orders in one signed action, as the venue it stands for does (J-derivatives-03 #9);
+  // the second takes one order per signature, so the app's other branch runs against a venue too.
+  const which = second
+    ? { id: SECOND_TEST_VENUE.id, displayName: SECOND_TEST_VENUE.displayName }
+    : { ordersPerAction: FIRST_TEST_VENUE_ORDERS_PER_ACTION };
   const started = await sim.startTestVenueServer({ host, port, appEnv, chainId, deposit, ...which });
   const seeded = await sim.seedTestVenue(started.sim, second ? { levelSize: SECOND_TEST_VENUE.levelSize } : {});
   const log = (line) => process.stdout.write(`${JSON.stringify(line)}\n`);
+  if (deposit) started.sim.switches.depositExplorerTxUrl = TEST_VENUE_DEPOSIT_EXPLORER;
   if (deposit) await sim.startChainDeposits({ sim: started.sim, route: deposit, rpcUrl, log });
   log({ msg: 'test-venue.listening', label: 'TEST', url: started.url, chainId: started.sim.chainId, seeded: seeded.orders, deposit });
   return started;
@@ -112,7 +132,7 @@ export async function serveTestVenue({ host, port, appEnv, chainId, rpcUrl = '',
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   serveTestVenue({
     host: process.env.TEST_VENUE_HOST ?? '127.0.0.1',
-    port: Number(process.env.TEST_VENUE_PORT ?? '14560'),
+    port: Number(process.env.TEST_VENUE_PORT ?? STACK_PORTS['test-venue']),
     // The RAW value: unset, blank and anything but dev or test refuse.
     appEnv: process.env.APP_ENV,
     chainId: testVenueChainId(process.env.TEST_VENUE_CHAIN_ID),

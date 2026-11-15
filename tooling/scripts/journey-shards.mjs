@@ -3,12 +3,14 @@
 // (Failure it prevents: Playwright's own --shard splits by test count, in file-name order. In run 338 the bank journeys
 // sat together and shard 2 ran 36 minutes while shard 4 ran 3, so every run waited about 20 minutes on one shard.)
 //
-// Usage: node tooling/scripts/journey-shards.mjs --shards <n | auto> [--report <report.json>]... [--only "<files>"]
+// Usage: node tooling/scripts/journey-shards.mjs --shards <n | auto> [--report <report.json>]... [--only "<files>"] [--main]
 // Prints a JSON array with one string per shard: that shard's journey files (relative to the journey folder),
-// separated by spaces. Each file counts its longest time across the reports, so a shard that was cut short or a file
-// that failed early in one run does not make it look fast, plus the suite's time per step for each step no report
-// timed, so a new journey or steps added to an old one count before any run has timed them. With no report every step
-// counts the same. A report that cannot be read is skipped.
+// separated by spaces. Each file counts the longest time of each of its tests' titles across the reports, wherever that
+// test ran (titleEstimates; a file whose titles can't be read counts its own longest time), so a shard that was cut short
+// or a file that failed early in one run does not make it look fast and a step moved into a part file takes its time
+// with it, plus the suite's time per step for each step no report timed, so a new journey or steps added to an old one count before any run has timed them. With no report every step
+// counts UNTIMED_STEP_MS, the time a step took on main, so a run that could not read the last reports still plans its
+// shards from a real size. A report that cannot be read is skipped.
 //
 // `--shards auto` picks as many shards as keep each one's journeys near the target (shardTarget), between MIN_SHARDS
 // and MAX_SHARDS. (Failure it prevents: run 631 spent about 30 minutes per shard of a 60-minute job, and the real-app
@@ -30,6 +32,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { stackFresh } from '../../apps/customer/tests/real-app/world-line.mjs';
 
 export const JOURNEY_DIR = 'apps/customer/tests/real-app';
 export const JOURNEY_FILE = /\.pw\.mjs$/;
@@ -50,6 +53,18 @@ export const MAX_TARGET_MINUTES = 25;
 // 32 shards and the same 36 with 40 or 56, so 32 costs main's verdict about nothing and leaves the rest for CI.
 export const MIN_SHARDS = 8;
 export const MAX_SHARDS = 32;
+// A run on main (`--main`: a push, the daily run, a manual full run there) aims every shard at MIN_TARGET_MINUTES of
+// journeys, up to MAIN_MAX_SHARDS, so a break is named sooner: the journeys revert starts as the failing shard ends
+// (real-app-journeys.yml early-break), not when the run ends, and that shard ends with its own journeys, not with the
+// longest file. The run's own end still waits on the longest file (J-wallet-05, 25.8 minutes in run 5027). Measured
+// 14 Nov 2026: the ceiling above is gone (the org is on the paid Enterprise plan since 11 Nov): from 10:00 to 13:00 UTC,
+// counted from every job's own times in both of the org's repositories, at most 235 jobs ran at once (median 88), at
+// most 4 waited at any minute, and the median wait was 2 seconds (505 shard jobs: 6 s at most). Replaying the reports of
+// main's runs 5011, 5020 and 5027 (a shard's setup 8.0 minutes at the median, its journeys 0.94 of their planned time):
+// with 32 shards a step's shard ended at 28.7 minutes at the median, with 64 at 17.8, for 1,179 runner-minutes a run
+// instead of 923. Pull-request runs keep MAX_SHARDS and the targeted cap; 32 more runners for about 18 minutes is well
+// under the 235 that ran with nothing waiting.
+export const MAIN_MAX_SHARDS = 64;
 // The workflow stops a shard's journeys after this (Playwright's globalTimeout), so the shard still reports.
 const JOURNEY_LIMIT_MINUTES = Number(process.env.JOURNEY_GLOBAL_TIMEOUT_MS || 3_600_000) / 60_000;
 // The planner warns when a shard's journeys come within this of the limit; a capped plan must stay clear of it.
@@ -64,6 +79,11 @@ export const TARGETED_MAX_SHARDS = 10;
 // A step is a `test(` call at the start of a line, the way journey files declare one. A step a loop declares counts
 // once until a run has timed its file; from then on the report's count wins.
 const STEP = /^\s*test\(/gm;
+// A step's time when no report timed any step: main's run 43122218992 (2dea3d951, 11 Nov 2026) took 37,903,623 ms
+// over 2,333 timed steps, 16.2 seconds a step. (Failure it prevents, #8032: run 43130806194's download of the last
+// reports met `HTTP 403: API rate limit exceeded for installation`, every step counted 1 ms, the plan read "about 0
+// min" and took the 8-shard floor, and all 8 shards hit their time limit with four times a shard's journeys.)
+export const UNTIMED_STEP_MS = 16_000;
 const TIMED = new Set(['passed', 'failed', 'timedOut']);
 
 /** Journey files under `dir`, as paths relative to it with forward slashes, the way Playwright's report names them. */
@@ -129,6 +149,55 @@ export function timedSteps(report) {
   return out;
 }
 
+/** Milliseconds per test title in a Playwright JSON report, whatever file the test was in: every result, retries included. */
+export function titleDurations(report) {
+  const out = new Map();
+  const visit = (suite) => {
+    for (const spec of suite.specs ?? [])
+      for (const test of spec.tests ?? [])
+        for (const result of test.results ?? [])
+          if (TIMED.has(result.status)) out.set(spec.title, (out.get(spec.title) ?? 0) + (result.duration ?? 0));
+    for (const child of suite.suites ?? []) visit(child);
+  };
+  for (const suite of report?.suites ?? []) visit(suite);
+  return out;
+}
+
+const TITLE = /^\s*test\(\s*(`[^`]*`|'[^'\n]*'|"[^"\n]*")/gm;
+
+/**
+ * The titles a journey file's `test(` calls declare, the way a report names them: `${J}` read from the file's own
+ * `const J = '...'`. Null when any title holds anything else to fill in (a loop's `${n}`), so the caller falls back to
+ * the file's own past time.
+ */
+export function sourceTitles(text) {
+  const j = /^const J = '([^'\n]+)';/m.exec(text)?.[1];
+  const titles = [];
+  for (const m of text.matchAll(TITLE)) {
+    const t = m[1].slice(1, -1).replaceAll('${J}', j ?? '${J}');
+    if (t.includes('${')) return null;
+    titles.push(t);
+  }
+  return titles.length ? titles : null;
+}
+
+/**
+ * Every file's expected time from its own tests' titles: each title's longest time across the reports, wherever that
+ * test ran, plus `perStep` for a title no report timed. (Failure it prevents: a step moved into a new part file, as on
+ * 15 Nov 2026 when five long files were split, kept its time under the old file's name for three main runs, so the old
+ * file looked as long as before and the part file, timed by nobody, was packed beside a full shard's journeys and ended
+ * last.) A file whose titles can't all be read keeps the estimate in `fallback`.
+ */
+export function titleEstimates(files, texts, titleTimes, perStep, fallback) {
+  return new Map(
+    files.map((f) => {
+      const titles = sourceTitles(texts.get(f) ?? '');
+      if (!titles || !titles.some((t) => titleTimes.get(t) > 0)) return [f, fallback.get(f)];
+      return [f, titles.reduce((ms, t) => ms + (titleTimes.get(t) > 0 ? titleTimes.get(t) : perStep), 0)];
+    }),
+  );
+}
+
 /** Each file's longest time (or most timed steps) across several runs. */
 export function longestDurations(runs) {
   const out = new Map();
@@ -137,6 +206,14 @@ export function longestDurations(runs) {
 }
 
 /** Steps per journey file under `dir`. */
+/** The journey files under `dir` that need a fresh stack (world-line.mjs `stackFresh`, a `// Stack: fresh` line). */
+export function freshFiles(dir, files) {
+  return new Set(files.filter((f) => stackFresh(fs.readFileSync(path.join(dir, f), 'utf8'))));
+}
+
+/** Whether `a` runs before `b` in one shard: Playwright runs a shard's files in name order, the order `sort()` gives. */
+const runsFirst = (a, b) => [a, b].sort()[0] === a;
+
 export function stepCounts(dir, files) {
   return new Map(files.map((f) => [f, (fs.readFileSync(path.join(dir, f), 'utf8').match(STEP) ?? []).length]));
 }
@@ -145,7 +222,8 @@ export function stepCounts(dir, files) {
  * Every file's expected time: its longest past time plus the suite's time per step (all past time over all timed steps)
  * for each of its steps no report timed. A file no report knows and with no step counts as one step, so it still lands.
  */
-export function estimateDurations(files, past, timed, steps) {
+/** The suite's time per step: all past time over all timed steps of `files`, or UNTIMED_STEP_MS when no report timed one. */
+export function stepTime(files, past, timed) {
   let ms = 0;
   let count = 0;
   for (const f of files)
@@ -153,7 +231,11 @@ export function estimateDurations(files, past, timed, steps) {
       ms += past.get(f);
       count += timed.get(f);
     }
-  const perStep = count ? ms / count : 1;
+  return count ? ms / count : UNTIMED_STEP_MS;
+}
+
+export function estimateDurations(files, past, timed, steps) {
+  const perStep = stepTime(files, past, timed);
   return new Map(
     files.map((f) => {
       const known = past.get(f) ?? 0;
@@ -174,8 +256,14 @@ export function shardTarget(durations) {
  * Problems with a plan against the journey files it must run: a file in no shard, a file in two shards or twice in one,
  * a name that is not one of the files, or an empty shard. An empty list means every file runs exactly once.
  */
-export function planCovers(plan, files) {
+export function planCovers(plan, files, fresh = new Set()) {
   const problems = [];
+  // A file that needs a fresh stack runs first in its shard, so no other file has used that stack before it.
+  plan.forEach((bin, i) => {
+    const first = [...bin.files].sort()[0];
+    for (const f of bin.files)
+      if (fresh.has(f) && f !== first) problems.push(`${f} needs a fresh stack but runs after ${first} in shard ${i + 1}`);
+  });
   const seen = new Map();
   plan.forEach((bin, i) => {
     if (!bin.files.length) problems.push(`shard ${i + 1} has no file`);
@@ -188,6 +276,11 @@ export function planCovers(plan, files) {
     if (shards.length > 1) problems.push(`${f} is in shards ${shards.join(', ')}`);
   }
   return problems;
+}
+
+/** The full suite's target on main (MIN_TARGET_MINUTES) or elsewhere (shardTarget), and its ceiling. Pure, for the tests. */
+export function fullPlan(durations, main) {
+  return main ? { target: MIN_TARGET_MINUTES * 60_000, max: MAIN_MAX_SHARDS } : { target: shardTarget(durations), max: MAX_SHARDS };
 }
 
 /** How many shards keep each one's journeys near `targetMs`, between `min` and `max`. */
@@ -212,8 +305,10 @@ export function targetedShards(files, durations, targetMs, limitMs = (JOURNEY_LI
 /**
  * Longest file first onto the shard with the least time so far. Ties go to the lower shard and files of equal time
  * keep name order, so the same inputs always give the same split. Every shard gets a file when there are enough files.
+ * A file in `fresh` (it needs a fresh stack) gets a shard of its own to start, and only files that run after it in name
+ * order join it, so it runs first there; a plan that can't keep that throws, naming why.
  */
-export function planShards(files, durations, shards) {
+export function planShards(files, durations, shards, fresh = new Set()) {
   if (!Number.isInteger(shards) || shards < 1) throw new Error(`shards must be a whole number of 1 or more, got ${shards}`);
   if (files.length < shards) throw new Error(`${files.length} journey files cannot fill ${shards} shards`);
   const odd = files.find((f) => GLOB_CHARS.test(f));
@@ -227,14 +322,46 @@ export function planShards(files, durations, shards) {
     .sort()
     .map((file) => ({ file, ms: durations.get(file) > 0 ? durations.get(file) : middle }))
     .sort((a, b) => b.ms - a.ms);
-  const bins = Array.from({ length: shards }, () => ({ ms: 0, files: [] }));
+  const bins = Array.from({ length: shards }, () => ({ ms: 0, files: [], fresh: null }));
+  const needing = weighted.filter(({ file }) => fresh.has(file));
+  if (needing.length > shards) throw new Error(`${needing.length} journey files need a fresh stack and there are ${shards} shards`);
+  for (const { file, ms } of needing) {
+    let target = null;
+    for (const bin of bins) if (bin.fresh === null && (target === null || bin.ms < target.ms)) target = bin;
+    target.ms += ms;
+    target.files.push(file);
+    target.fresh = file;
+  }
   for (const { file, ms } of weighted) {
-    let target = bins[0];
-    for (const bin of bins) if (bin.ms < target.ms) target = bin;
+    if (fresh.has(file)) continue;
+    let target = null;
+    for (const bin of bins) if ((bin.fresh === null || runsFirst(bin.fresh, file)) && (target === null || bin.ms < target.ms)) target = bin;
+    if (target === null) throw new Error(`${file} runs before every file that needs a fresh stack, and every shard has one`);
     target.ms += ms;
     target.files.push(file);
   }
   return bins.map((bin) => ({ ms: bin.ms, files: bin.files.sort() }));
+}
+
+// A file whose journeys alone run this much longer than the plan's median shard is named. (Failure it prevents: main's
+// runs 43653086390 and 43656238027, 15 Nov 2026, planned 64 shards of about 12 minutes, but five shards each held one
+// file of 14 to 23 minutes, J-wallet-05, J-algo-dev-04, J-merchant-02, J-charts-desk-09 and J-wallet-04, so the run
+// ended at 30 and 31 minutes while its median shard ended at 18. A file's steps run in order on one account, so no plan
+// can split a file; only moving some of its steps into a part file, J-<id>-<part>.pw.mjs, can. Nothing named it.)
+export const LONG_FILE_SLACK_MINUTES = 2;
+
+/**
+ * The files a run waits on: each file whose own time is more than LONG_FILE_SLACK_MINUTES over the plan's median shard,
+ * longest first, as { file, ms, medianMs }. Pure, for the tests.
+ */
+export function longFiles(plan, durations, slackMs = LONG_FILE_SLACK_MINUTES * 60_000) {
+  const times = plan.map((bin) => bin.ms).sort((a, b) => a - b);
+  const medianMs = times.length ? times[Math.floor(times.length / 2)] : 0;
+  return plan
+    .flatMap((bin) => bin.files)
+    .map((file) => ({ file, ms: durations.get(file) ?? 0, medianMs }))
+    .filter(({ ms }) => ms > medianMs + slackMs)
+    .sort((a, b) => b.ms - a.ms || a.file.localeCompare(b.file));
 }
 
 function readReport(file) {
@@ -250,45 +377,63 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const argv = process.argv.slice(2);
   const asked = argv[argv.indexOf('--shards') + 1];
   const only = argv.includes('--only') ? argv[argv.indexOf('--only') + 1] : null;
+  // A targeted run is never main's: --only wins.
+  const main = argv.includes('--main') && only === null;
   const reports = argv.flatMap((a, i) => (argv[i - 1] === '--report' && fs.existsSync(a) ? [a] : []));
   if (!reports.length) console.error('journey-shards: no report from a finished run, so every step counts the same');
   const files = only === null ? journeyFiles(JOURNEY_DIR) : targetFiles(only, journeyFiles(JOURNEY_DIR));
   if (only !== null) console.error(`journey-shards: a targeted run of ${files.length} journey file(s): ${files.join(' ')}`);
   const read = reports.map(readReport);
-  const durations = estimateDurations(
+  const past = longestDurations(read.map((r) => fileDurations(r)));
+  const timed = longestDurations(read.map((r) => timedSteps(r)));
+  const durations = titleEstimates(
     files,
-    longestDurations(read.map((r) => fileDurations(r))),
-    longestDurations(read.map((r) => timedSteps(r))),
-    stepCounts(JOURNEY_DIR, files),
+    new Map(files.map((f) => [f, fs.readFileSync(path.join(JOURNEY_DIR, f), 'utf8')])),
+    longestDurations(read.map((r) => titleDurations(r))),
+    stepTime(files, past, timed),
+    estimateDurations(files, past, timed, stepCounts(JOURNEY_DIR, files)),
   );
   const totalMs = [...durations.values()].reduce((a, b) => a + b, 0);
   // Never more shards than files: a shard must have a file to run.
   // A targeted run takes as few stacks as its files need (from one), not the full suite's floor, and at most
   // TARGETED_MAX_SHARDS while every shard stays clear of the limit (targetedShards).
-  const target = shardTarget(durations);
+  const { target, max } = fullPlan(durations, main);
   const shards =
     asked !== 'auto'
       ? Number(asked)
       : only === null
-        ? Math.min(files.length, shardCount(totalMs, target))
+        ? Math.min(files.length, shardCount(totalMs, target, MIN_SHARDS, max))
         : targetedShards(files, durations, target);
-  const plan = planShards(files, durations, shards);
-  const problems = planCovers(plan, files);
+  const fresh = freshFiles(JOURNEY_DIR, files);
+  // A targeted run too small to give each file that needs a fresh stack a shard it runs first in takes one more shard.
+  let plan = null;
+  for (let n = shards; plan === null; n += 1) {
+    try {
+      plan = planShards(files, durations, n, fresh);
+    } catch (err) {
+      if (n >= files.length || n >= max || !/fresh stack/.test(err.message)) throw err;
+    }
+  }
+  const problems = planCovers(plan, files, fresh);
   if (problems.length) {
     for (const p of problems) console.error(`::error::the shard plan does not run every journey file once: ${p}`);
     process.exit(1);
   }
   console.error(
-    `journey-shards: ${files.length} files, about ${Math.round(totalMs / 60_000)} min in all, ${shards} shards aimed at about ${Math.round(target / 60_000)} min each${only !== null ? ` (a targeted run: at most ${TARGETED_MAX_SHARDS} while each shard stays clear of the limit)` : ''}`,
+    `journey-shards: ${files.length} files, about ${Math.round(totalMs / 60_000)} min in all, ${shards} shards aimed at about ${Math.round(target / 60_000)} min each${main ? ` (main: at most ${MAIN_MAX_SHARDS})` : ''}${only !== null ? ` (a targeted run: at most ${TARGETED_MAX_SHARDS} while each shard stays clear of the limit)` : ''}`,
   );
   plan.forEach((bin, i) =>
     console.error(`shard ${i + 1}: ${bin.files.length} files, about ${Math.round(bin.ms / 60_000)} min by the last runs`),
   );
+  for (const { file, ms, medianMs } of longFiles(plan, durations))
+    console.error(
+      `::warning::${file} takes about ${Math.round(ms / 60_000)} min of journeys alone and the median shard about ${Math.round(medianMs / 60_000)}, so the run waits on it; move some of its steps into a part file (J-<id>-<part>.pw.mjs) with its own setup`,
+    );
   const longest = Math.max(...plan.map((bin) => bin.ms)) / 60_000;
   // Stderr, so the plan on stdout stays clean; the runner reads workflow commands from both.
   if (longest > JOURNEY_LIMIT_MINUTES - LIMIT_MARGIN_MINUTES)
     console.error(
-      `::warning::the longest shard needs about ${Math.round(longest)} of its ${JOURNEY_LIMIT_MINUTES} minutes of journeys; raise MAX_SHARDS in tooling/scripts/journey-shards.mjs`,
+      `::warning::the longest shard needs about ${Math.round(longest)} of its ${JOURNEY_LIMIT_MINUTES} minutes of journeys; raise ${main ? 'MAIN_MAX_SHARDS' : 'MAX_SHARDS'} in tooling/scripts/journey-shards.mjs`,
     );
   process.stdout.write(JSON.stringify(plan.map((bin) => bin.files.join(' '))));
 }

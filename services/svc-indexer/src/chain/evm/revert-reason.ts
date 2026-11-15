@@ -73,12 +73,24 @@ export function revertReasonFromData(data: string | null | undefined): string | 
     if (decoded.errorName === 'Error') {
       return storableReason(String(decoded.args?.[0] ?? '')) ?? 'Error with an empty message';
     }
-    if (decoded.errorName === 'Panic') return `Panic(0x${(decoded.args?.[0] as bigint).toString(16)})`;
+    if (decoded.errorName === 'Panic') {
+      const code = decoded.args?.[0];
+      return typeof code === 'bigint' ? `Panic(0x${code.toString(16)})` : PANIC_UNREADABLE;
+    }
     return decoded.errorName;
   } catch {
-    return `Custom error ${data.slice(0, 10).toLowerCase()}`;
+    // The selector matched but its payload is missing or cut short: still name the error it is.
+    const selector = data.slice(0, 10).toLowerCase();
+    if (selector === PANIC_SELECTOR) return PANIC_UNREADABLE;
+    if (selector === ERROR_SELECTOR) return 'Error with an unreadable message';
+    return `Custom error ${selector}`;
   }
 }
+
+/** `Panic(uint256)` and `Error(string)` selectors, fixed by Solidity. */
+const PANIC_SELECTOR = '0x4e487b71';
+const ERROR_SELECTOR = '0x08c379a0';
+const PANIC_UNREADABLE = 'Panic with no readable code';
 
 /**
  * The node answered the trace request with a refusal, not a transport failure: any JSON-RPC error response (method not

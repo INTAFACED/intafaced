@@ -5,7 +5,7 @@
  * Money stays a decimal string. A blank config refuses; it is never filled in.
  */
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
-import type { Sql } from 'postgres';
+import type { Sql, TransactionSql } from 'postgres';
 import { requireScope, type Principal } from '@intafaced/auth';
 
 export const OPERATOR_PERMISSION = 'admin:read' as const;
@@ -154,7 +154,8 @@ export interface AuditWrite {
   readonly detail?: unknown;
 }
 
-export async function writeOperatorAudit(sql: Sql, row: AuditWrite, at: Date = new Date()): Promise<string> {
+/** `sql` may be a transaction: the row commits with the change it records. */
+export async function writeOperatorAudit(sql: Sql | TransactionSql, row: AuditWrite, at: Date = new Date()): Promise<string> {
   const id = row.id ?? randomUUID();
   await sql`INSERT INTO trade.operator_audit (
     id, kind, operator_id, account_id, object_id, approver_id, reason, occurred_at, detail

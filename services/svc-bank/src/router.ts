@@ -170,7 +170,16 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
                   assetId: z.string(),
                   kind: z.enum(REGISTRY_ASSET_KINDS),
                   precision: z.number().int().nonnegative(),
-                  networks: z.array(z.object({ networkId: z.string(), label: z.string() }).strict()),
+                  networks: z.array(
+                    z
+                      .object({
+                        networkId: z.string(),
+                        label: z.string(),
+                        contract: z.string().nullable(),
+                        links: z.array(z.object({ label: z.string(), url: z.string() }).strict()),
+                      })
+                      .strict(),
+                  ),
                   defaultNetworkId: z.string().nullable(),
                   allowedActions: z.array(z.enum(ASSET_ACTIONS)),
                   state: z.enum(ASSET_STATES),
@@ -192,6 +201,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
             assets: z.array(
               z.object({
                 assetId: z.string(),
+                /** The asset's decimal places in the supported asset list (`assets.list`), the same for Deposit and Withdraw. */
+                precision: z.number().int().nonnegative(),
                 networks: z.array(
                   z.object({
                     id: z.string(),
@@ -345,6 +356,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     business,
     analytics,
     plans: limitsTables.plans,
+    partnerHolds: limitsTables.partnerHolds,
     dormancy: limitsTables.dormancy,
     portfolio,
     activity: createActivityRouter(bank),
