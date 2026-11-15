@@ -1,14 +1,8 @@
 {
-  "printOnlyDays": 7,
-  "enforceFromStart": [
-    "garden/no-promise-copy",
-    "garden/pay-portal-copy",
-    "garden/own-gap-wording",
-    "garden/no-local-scale",
-    "garden/no-hand-decimal-parse",
-    "garden/no-hand-trpc-unwrap",
-    "garden/no-fetch-without-timeout"
-  ],
-  "enforceAddedFromStart": ["garden/no-hand-schema", "garden/no-screen-literal"],
-  "started": {}
+  "printOnly": {
+    "garden/no-wait-for-timeout": "a journey runs on a real stack with a real clock: in the 50 product PRs before 15 Nov its fixed waits mostly proved that nothing happened for a while (#8382, #8371, #8362) or let a server-side expiry pass (#8387), which no locator or event shows",
+    "garden/no-real-clock-wait-in-tests": "its fix, vi.useFakeTimers(), does not reach a journey's real stack: in the same 50 PRs it fired on a journey waiting for a venue's as-of time to move (#8394) and for a restarted service's sockets to close (#8359)",
+    "unicorn/no-useless-spread": "it fires on `for (const o of [...map.values()])` where the loop deletes from the map, a copy taken on purpose (#8366, packages/venue-sim/src/simulator.ts)"
+  },
+  "failInAddedFiles": ["garden/no-hand-schema", "garden/no-screen-literal"]
 }

@@ -146,7 +146,7 @@ test('exemption line: column 0, outside code and comments, step ids only; Markdo
     assert.deepEqual(ok(b), [], b);
     assert.deepEqual(bad(b), [], b);
   }
-  // Anything else that looks like an exemption is a problem (the seal fails closed).
+  // Anything else that looks like an exemption is a problem: printed as a note, and it exempts nothing.
   for (const b of [
     ' Left-or-replaced: J-bank-13 #1',
     '    Left-or-replaced: J-bank-13 #1',
@@ -222,7 +222,7 @@ test('a skipped named step is not green', async () => {
   assert.equal(v.ok, false);
 });
 
-test('a Left-or-replaced line passes its steps without a run; a malformed one fails the seal; a prose section exempts nothing', async () => {
+test('a Left-or-replaced line passes its steps without a run; a malformed one exempts nothing and is only a note', async () => {
   const one = { runs: [run(1)], reportOf: reports({ 1: { states: { 'J-bank-13#1': 'passed' } } }) };
   const left = await judge({ body: 'Left-or-replaced: J-bank-13 #2\n', ...one });
   assert.equal(left.ok, true, left.lines.join('\n'));
@@ -230,8 +230,15 @@ test('a Left-or-replaced line passes its steps without a run; a malformed one fa
   const both = await judge({ body: 'Left-or-replaced: J-bank-13 #1 #2\n', reportOf: () => assert.fail('nothing to read') });
   assert.equal(both.ok, true);
   const broken = await judge({ body: 'Left-or-replaced: J-bank-13 #2 needs the issuer\n', ...one });
-  assert.equal(broken.ok, false, 'a malformed line fails even though #1 passed');
-  assert.match(broken.lines.join('\n'), /looks like an exemption but isn't one/);
+  assert.equal(broken.ok, false, 'a malformed line exempts nothing: #2 still has no passing run');
+  assert.match(broken.lines.join('\n'), /exempts nothing[\s\S]*J-bank-13#2: no finished Real-app journeys run/);
+  // The 7 bodies the old early return failed (#8289 #8321 #8327 #8339 #8364 #8396 #8410): every step passed, so they seal.
+  const green = { runs: [run(1)], reportOf: reports({ 1: { states: { 'J-bank-13#1': 'passed', 'J-bank-13#2': 'passed' } } }) };
+  for (const body of ['Left-or-replaced: none.\n', 'Left-or-replaced: none (all green)\n', 'Needs no `Left-or-replaced:` line.\n']) {
+    const v = await judge({ body, ...green });
+    assert.equal(v.ok, true, body);
+    assert.match(v.lines.join('\n'), /exempts nothing/);
+  }
   assert.equal((await judge({ body: '## Left or replaced\n- J-bank-13 #2: needs the issuer\n', ...one })).ok, false);
   assert.equal((await judge({ body: 'Left-or-replaced: #2\n', ...one })).ok, false, 'a bare #n');
 });
@@ -897,8 +904,8 @@ test('planted: a title naming another journey, a malformed line, an unreadable f
   assert.equal(wrong.ok, false, "another journey's step does not cover this file");
   assert.match(wrong.lines.join('\n'), /J-bank-13\.pw\.mjs changes the tests of/);
   const bad = await touchedPull({ title: 'test(journeys): waits', body: '- Left-or-replaced: J-bank-13 #3' });
-  assert.equal(bad.ok, false, 'an exemption-like line that is not one');
-  assert.match(bad.lines.join('\n'), /looks like an exemption but isn't one/);
+  assert.equal(bad.ok, false, 'an exemption-like line that is not one names nothing');
+  assert.match(bad.lines.join('\n'), /J-bank-13\.pw\.mjs changes the tests of/);
   assert.equal((await touchedPull({ title: 'x', body: 'Left-or-replaced: J-bank-13 #9' })).ok, false, 'a step the file does not hold');
   const empty = await touchedPull({ title: 'x (J-bank-13 #1)', text: { 'apps/customer/tests/real-app/J-bank-13.pw.mjs': '// nothing' } });
   assert.equal(empty.ok, false, 'a journey file with no readable step fails closed');

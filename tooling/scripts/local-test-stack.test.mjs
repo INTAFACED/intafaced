@@ -498,6 +498,27 @@ const script = resolve(here, 'local-test-stack.mjs');
   console.log('local-test-stack: bank BK-xfer-07 TEST values come from the bank profile');
 }
 
+// The ws process carries the multiplexed door's TEST values from the ws profile, verbatim, so the door mounts on this
+// stack and takes subscriptions (#8311) instead of staying down on ws.mux_idle_unset.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const { loadProfile } = await import('./owner-settings.mjs');
+  const ws = localTestServiceEnvs().find((service) => service.name === 'ws');
+  const profile = loadProfile().values;
+  for (const name of [
+    'WS_MUX_IDLE_MS',
+    'WS_MUX_MAX_SEATS',
+    'WS_MUX_MAX_SUBSCRIPTIONS',
+    'WS_MUX_MAX_OPS_PER_SECOND',
+    'WS_MAX_CONNECTIONS',
+    'WS_HIGH_WATER_BYTES',
+  ]) {
+    assert.equal(profile[name]?.service, 'ws', `${name} is not in the ws profile`);
+    assert.equal(ws.env[name], profile[name].value, `ws env ${name} differs from the ws profile`);
+  }
+  console.log('local-test-stack: ws multiplexed door TEST values come from the ws profile');
+}
+
 // The token process carries the TEST proposer rule and proposal limit from the token profile, verbatim, so a governance
 // journey meets the rule instead of the unset refusal.
 {

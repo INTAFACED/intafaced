@@ -57,7 +57,8 @@ export function jobResults(jobs) {
  * then needed). `forceFull` for a merge queue's commit (runsEverything). Returns { ok, wait, lines }.
  */
 export function judgeCiJobs({ run, jobs, files, forceFull = false }) {
-  if (!run) return { ok: false, wait: true, lines: ['CI (ci.yml) has not run on this head yet; the seal re-runs when it finishes'] };
+  if (!run)
+    return { ok: false, wait: true, lines: ['no CI ran for this pull request on this head: merge origin/main if it conflicts, else push'] };
   const id = `CI run ${run.id} (attempt ${run.run_attempt ?? 1})`;
   // A run is judged once every job but ci.yml's own seal has finished: a re-run of that seal alone puts the run back in
   // progress, and must not turn this seal red (the CI review on 7a7eb9a0, 8 Nov 2026). Its last job, START_JOB, is

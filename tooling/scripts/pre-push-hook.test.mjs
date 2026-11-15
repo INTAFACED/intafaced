@@ -246,6 +246,25 @@ test('a push that raises a lint rule in the files it touches is refused, named, 
   }
 });
 
+test('a push that adds an `as unknown as` cast is refused in seconds, with the line and the fix', () => {
+  const file = 'services/svc-x/src/a.ts';
+  const p = plant({
+    prettier: 'exit 0',
+    oxlint: true,
+    base: { ...RATCHET, [file]: 'export const n = 1;\n' },
+    change: { [file]: 'export const n = "1" as unknown as number;\n' },
+  });
+  try {
+    const started = Date.now();
+    const r = p.push();
+    assert.notEqual(r.code, 0, r.out);
+    assert.match(r.out, /services\/svc-x\/src\/a\.ts:1 {2}`as unknown as` turns type checking off here: narrow with a type guard/);
+    assert.ok(Date.now() - started < 20_000, `the push took ${Date.now() - started} ms`);
+  } finally {
+    p.done();
+  }
+});
+
 test('a push that holds every lint rule goes through with the ratchet run', () => {
   const p = plant({
     prettier: 'exit 0',
