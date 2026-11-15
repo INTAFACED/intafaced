@@ -10,6 +10,9 @@ import { registerPublicPayRest } from './public-rest.js';
 import { MemoryRestIdempotencyStore } from './rest-idempotency.js';
 import type { MerchantTeamRead } from './merchant-team-read.js';
 
+/** A TEST retry policy (the owner's value is PAY_WEBHOOK_RETRY_SCHEDULE_SECONDS): seven retries, eight attempts. */
+const TEST_RETRY_SCHEDULE = [60, 300, 1_800, 7_200, 43_200, 86_400, 86_400] as const;
+
 /**
  * THE MERCHANT SURFACE — reads (step 1) and mutations (step 2).
  *
@@ -170,7 +173,7 @@ async function build(
     serviceName: 'svc-pay',
     pay,
     idempotency,
-    webhooks: webhooks ?? new MerchantWebhookService(new MemoryMerchantWebhookStore()),
+    webhooks: webhooks ?? new MerchantWebhookService(new MemoryMerchantWebhookStore(), { retryScheduleSeconds: TEST_RETRY_SCHEDULE }),
     teamReads,
   });
   await app.ready();
@@ -402,7 +405,7 @@ describe('the spec is served, and describes what the routes actually do', () => 
       idempotency: new MemoryRestIdempotencyStore(),
       // Webhook routes are conditional on this dep, so it must be present or the
       // comparison would quietly be over the smaller surface.
-      webhooks: new MerchantWebhookService(new MemoryMerchantWebhookStore()),
+      webhooks: new MerchantWebhookService(new MemoryMerchantWebhookStore(), { retryScheduleSeconds: TEST_RETRY_SCHEDULE }),
     });
     await built.ready();
     const described = new Set(Object.keys((built.swagger() as { paths: Record<string, unknown> }).paths));
@@ -778,7 +781,7 @@ describe('webhooks step 3 — register + ownership + dashboard', () => {
 
   it('re-enables a disabled endpoint and resets the failure counter', async () => {
     const store = new MemoryMerchantWebhookStore();
-    const webhooks = new MerchantWebhookService(store);
+    const webhooks = new MerchantWebhookService(store, { retryScheduleSeconds: TEST_RETRY_SCHEDULE });
     app = await build(stubPay(), new MemoryRestIdempotencyStore(), webhooks);
 
     const created = await webhooks.registerEndpoint(MERCHANT, 'https://merchant.example/hooks/pay');

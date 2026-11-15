@@ -39,6 +39,7 @@ const allowanceSchema = z.object({
   endsAt: iso,
   agentAddress: z.string(),
   permissionOnVenue: z.boolean(),
+  agentKeyHeld: z.boolean(),
   next: nextSchema.nullable(),
   test: z.boolean(),
 });
@@ -260,6 +261,7 @@ function AllowanceDesk({ agent }: { agent: OwnAgent }) {
               </td>
               <td data-testid="allowance-status">
                 {t(`status_${a.status}`)}
+                {a.status === 'revoked' && !a.agentKeyHeld ? ` · ${t('agentKeyDropped')}` : ''}
                 {a.status === 'revoked' && a.permissionOnVenue ? ` · ${t('revokeOnVenuePending')}` : ''}
               </td>
               <td>

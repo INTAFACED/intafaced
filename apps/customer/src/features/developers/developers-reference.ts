@@ -914,6 +914,31 @@ export const REST_REFERENCE: readonly RestRoute[] = [
       'The venue’s best bid and ask on one market, from its own book, with its as-of time: where a market order’s worst price is set from',
   },
   {
+    name: 'venueBook',
+    method: 'GET',
+    path: '/api/v1/venue/book',
+    product: 'accounts',
+    access: 'private',
+    summary: 'The venue’s own book on one market we list, bids and asks best first, each level’s price and size, with its as-of time',
+  },
+  {
+    name: 'venueTrades',
+    method: 'GET',
+    path: '/api/v1/venue/trades',
+    product: 'accounts',
+    access: 'private',
+    summary: 'The venue’s newest public prints on one market we list, newest first: price, size, the side that crossed and when',
+  },
+  {
+    name: 'venueCandles',
+    method: 'GET',
+    path: '/api/v1/venue/candles',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      'Candles of the venue’s own prints on one market we list, on one interval, oldest first: an interval with no print is not sent',
+  },
+  {
     name: 'venueFundingHistory',
     method: 'GET',
     path: '/api/v1/venue/funding-history',
@@ -1194,6 +1219,15 @@ export const REST_REFERENCE: readonly RestRoute[] = [
       "Revoke your assistant, from your own sign-in: its key places nothing more, its resting orders are cancelled once, our copy of its venue agent key is dropped, and your wallet signs the venue's revoke; open positions stay",
   },
   {
+    name: 'venueAgentActivity',
+    method: 'GET',
+    path: '/api/v1/venue/agent-accounts/connections/:keyId/activity',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      "Your assistant connection's Activity, from your own sign-in: one row per call made with its key, refused ones included, newest first, each with its time, tool, outcome and order id; format=csv exports the same rows",
+  },
+  {
     name: 'venueAgentOrder',
     method: 'POST',
     path: '/api/v1/venue/agent/orders',
@@ -1244,6 +1278,49 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     access: 'private',
     summary:
       'Revoke the allowance: our copy of the agent key is dropped and the next order refused at once; the answer is the venue’s revoke for your wallet to sign',
+  },
+  {
+    name: 'venueProtections',
+    method: 'GET',
+    path: '/api/v1/venue/protections',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      'A position’s protections on your own venue account: the venue’s trigger orders and the stops our engine runs, each with where it rests, its trigger and source, and its state',
+  },
+  {
+    name: 'venueProtectionCreate',
+    method: 'POST',
+    path: '/api/v1/venue/protections',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      'Protect a position: a take profit, stop loss, stop market or stop limit the venue takes answers its unsigned trigger order for your wallet; a trailing stop or an index stop is armed on our engine (201) under your agent permission',
+  },
+  {
+    name: 'venueProtectionCancel',
+    method: 'DELETE',
+    path: '/api/v1/venue/protections/:id',
+    product: 'accounts',
+    access: 'private',
+    summary: 'Cancel a stop on our engine that has not fired; nothing is sent to the venue',
+  },
+  {
+    name: 'venueProtectionAgent',
+    method: 'GET',
+    path: '/api/v1/venue/protection-agent',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      'The agent key our engine signs your stops with, and whether your venue account lists it approved; it can trade, never withdraw',
+  },
+  {
+    name: 'venueProtectionAgentPrepare',
+    method: 'POST',
+    path: '/api/v1/venue/protection-agent/prepare',
+    product: 'accounts',
+    access: 'private',
+    summary: 'The unsigned approval of that agent key, for your wallet to sign and send through /api/v1/venue/submit',
   },
   {
     name: 'liveRuns',
@@ -1453,6 +1530,22 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     product: 'accounts',
     access: 'private',
     summary: 'The listing state of one market as this account meets it',
+  },
+  {
+    name: 'requestApiKeyRotation',
+    method: 'POST',
+    path: '/api/v1/account/api-key/rotation',
+    product: 'accounts',
+    access: 'private',
+    summary: 'The calling key asks for its own rotation; a different person on the account approves it',
+  },
+  {
+    name: 'approveApiKeyRotation',
+    method: 'POST',
+    path: '/api/v1/account/api-key/rotation/approve',
+    product: 'accounts',
+    access: 'private',
+    summary: 'Approve a rotation request. A key never approves its own: refused identity.rotation_self_approval',
   },
   {
     name: 'fetchConvertExport',

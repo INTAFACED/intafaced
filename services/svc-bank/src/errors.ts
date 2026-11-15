@@ -334,6 +334,8 @@ export type BankErrorCode =
   | 'bank.card_dispute_partner_unset'
   /** The card partner answered a provisional credit with another amount than the one asked; nothing was recorded. */
   | 'bank.card_dispute_partner_mismatch'
+  | 'bank.card_dispute_rules_unset'
+  | 'bank.card_dispute_evidence_closed'
   /** Cards are not offered to residents of the country given. */
   | 'bank.card_not_eligible'
   /** The person already holds as many active cards of this kind as the programme allows. */
@@ -438,6 +440,8 @@ export type BankErrorCode =
   | 'bank.add_money_request_missing'
   /** The partner said a pay-in was paid in another amount or currency than the payment it opened. Nothing is credited. */
   | 'bank.onramp_paid_mismatch'
+  | 'bank.onramp_delivery_missing'
+  | 'bank.wallet_delivery_unproven'
   /**
    * Crypto off-ramp has no published fee schedule. Zero is not assumed.
    * Kind fiat still refuses `bank.fiat_ramp_socket` before this.

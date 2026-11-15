@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assertPartnerOffers } from '../partner/test-partner.js';
 import { router, publicProcedure, scopedProcedure } from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
@@ -116,6 +117,9 @@ export function createAutoInvestRouter(c: BankRouterContext) {
       .output(autoInvestRuleOutput)
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
+          // A round-up into a pot is a pot feature: where the partner offers no pots, it is refused before anything is
+          // written (J-bank-07 #3, "not offered by the partner").
+          if (input.targetSpaceId) assertPartnerOffers(bank.testPartner, ctx.principal.userId, 'pots');
           const rule = await bank.autoInvest.createCardRoundUp({
             userId: ctx.principal.userId,
             assetId: input.assetId,

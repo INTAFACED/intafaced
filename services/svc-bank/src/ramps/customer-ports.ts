@@ -49,6 +49,8 @@ export interface OnrampPaymentPort {
     userId: string;
     assetId: string;
     amount: string;
+    /** The person's own wallet the partner delivers the purchase to on chain (J-dex-protocol-05 #4); absent for a balance. */
+    walletAddress?: string;
   }): Promise<OnrampPaymentInstruction | null>;
 }
 

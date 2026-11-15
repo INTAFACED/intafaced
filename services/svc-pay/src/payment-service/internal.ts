@@ -17,6 +17,7 @@ import { ListQueryError, parseListFilters, type ListFilters } from '../list-page
 import { MAX_FEE_BPS } from '../fee-bps-bound.js';
 import type {
   PayErrorCode,
+  PaymentCustody,
   PaymentStatus,
   PayService,
   PaymentRow,
@@ -58,6 +59,28 @@ export function publishedDefaultFeeBps(feeBps: number | null | undefined): numbe
     throw new PayError(`Fee must be an integer between 0 and ${MAX_FEE_BPS} bps, got ${feeBps}`, 'pay.merchant_pricing_invalid');
   }
   return feeBps;
+}
+
+/**
+ * Our fee rate with the partner that takes a payment (`PAY_PARTNER_FEE_BPS`): unset refuses `pay.partner_fee_rate_unset`,
+ * never the business's price and never 0. Read before the payer is shown where to pay, and again at capture.
+ */
+export function partnerFeeBpsOf(rates: Readonly<Record<string, number>>, partnerId: string): number {
+  const bps = Object.hasOwn(rates, partnerId) ? rates[partnerId] : undefined;
+  if (bps === undefined) {
+    throw new PayError(`Our fee rate with ${partnerId} is unset, so no payment it takes can be opened`, 'pay.partner_fee_rate_unset', {
+      partnerId,
+    });
+  }
+  return bps;
+}
+
+/**
+ * The fee on one business's payments: its own pricing, or the published default (as settlement reads it). Blank refuses
+ * `pay.fee_bps_unset`, never 0. The launch model reads it before a payer is shown where to pay, and again at capture.
+ */
+export function paymentFeeBpsOf(merchant: Pick<MerchantRecord, 'pricing'>, defaultFeeBps: number | null | undefined): number {
+  return merchant.pricing.feeBps !== undefined ? merchant.pricing.feeBps : publishedDefaultFeeBps(defaultFeeBps);
 }
 
 export function assertOwnerPageLimit(limit: number | undefined, code: PayErrorCode, cap: number, message: string): number {
@@ -196,15 +219,17 @@ export async function insertPayment(
     metadata?: Record<string, string>;
     /** Immutable. Written only when the creating key was sandbox. */
     sandbox?: boolean;
+    /** Who holds the payment's money (launch money model). Absent: `platform`, the custodial layer. */
+    custody?: PaymentCustody;
   },
 ): Promise<PaymentRow> {
   const rows = await tx<PaymentRow[]>`
-    INSERT INTO pay.payments (id, merchant_id, profile_id, amount, currency, method, rail_adapter, status)
+    INSERT INTO pay.payments (id, merchant_id, profile_id, amount, currency, method, rail_adapter, status, custody)
     VALUES (
       ${input.id ?? randomUUID()}, ${input.merchantId}, ${input.profileId ?? null}, ${formatAmount(input.amount)}::numeric,
-      ${input.assetId}, ${input.method}, ${input.railAdapter}, 'created'
+      ${input.assetId}, ${input.method}, ${input.railAdapter}, 'created', ${input.custody ?? 'platform'}
     )
-    RETURNING id, merchant_id, profile_id, amount, currency, method, rail_adapter, rail_ref, status, created_at
+    RETURNING id, merchant_id, profile_id, amount, currency, method, rail_adapter, rail_ref, status, created_at, custody
   `;
   const row = rows[0]!;
 
@@ -267,7 +292,7 @@ export async function completeCheckoutSession(tx: Sql, paymentId: string): Promi
 
 export async function readPayment(tx: Sql, paymentId: string): Promise<PaymentRow> {
   const rows = await tx<PaymentRow[]>`
-    SELECT id, merchant_id, profile_id, amount, currency, method, rail_adapter, rail_ref, status, created_at
+    SELECT id, merchant_id, profile_id, amount, currency, method, rail_adapter, rail_ref, status, created_at, custody
       FROM pay.payments WHERE id = ${paymentId}
   `;
   const row = rows[0];
@@ -277,7 +302,7 @@ export async function readPayment(tx: Sql, paymentId: string): Promise<PaymentRo
 
 export async function lockPayment(tx: Sql, paymentId: string): Promise<PaymentRow> {
   const rows = await tx<PaymentRow[]>`
-    SELECT id, merchant_id, profile_id, amount, currency, method, rail_adapter, rail_ref, status, created_at
+    SELECT id, merchant_id, profile_id, amount, currency, method, rail_adapter, rail_ref, status, created_at, custody
       FROM pay.payments WHERE id = ${paymentId} FOR UPDATE
   `;
   const row = rows[0];

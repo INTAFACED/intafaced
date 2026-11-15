@@ -25,6 +25,7 @@ import {
   SOURCE_KEY,
 } from './alerts-model';
 import { AlertEditPanel } from './AlertEditPanel';
+import { AlertDelivery, deliveryIntent, NO_DELIVERY_CHOICE, useDeliveryFacts, webhookProblem, type DeliveryChoice } from './AlertDelivery';
 import { TriggerLog } from './TriggerLog';
 import { WatchlistAlert, type BlockedReason } from './WatchlistAlert';
 import { FollowListAlert } from './FollowListAlert';
@@ -83,6 +84,8 @@ const REFUSAL = {
   quotaReached: 'refusedQuotaReached',
   notFound: 'refusedNotFound',
   logOff: 'refusedLogOff',
+  webhookOff: 'refusedWebhookOff',
+  webhookRejected: 'refusedWebhookRejected',
   other: 'refusedOther',
 } as const satisfies Record<Refusal, string>;
 const CANCEL = {
@@ -128,6 +131,8 @@ const BACK_TO_FORM: ReadonlySet<Refusal> = new Set([
   'tooManyConditions',
   'repeatOff',
   'repeatRejected',
+  'webhookOff',
+  'webhookRejected',
 ]);
 
 /**
@@ -149,6 +154,9 @@ export default function AlertsPage() {
   const [expires, setExpires] = useState('');
   const [repeat, setRepeat] = useState(false);
   const [source, setSource] = useState<AlertSource>('mark');
+  // Where the alert reaches the person besides the app: email, push and their own webhook (J-charts-desk-10).
+  const [delivery, setDelivery] = useState<DeliveryChoice>(NO_DELIVERY_CHOICE);
+  const deliveryFacts = useDeliveryFacts();
   // What the alert is on. Only a price alert can be saved; an indicator alert is listed and refused until it is built.
   const [alertKind, setAlertKind] = useState<'price' | 'indicator'>('price');
   const [extras, setExtras] = useState<{ condition: AlertExtra['condition']; price: string }[]>([]);
@@ -246,6 +254,7 @@ export default function AlertsPage() {
       priceProblem(price) !== null ||
       expiryProblem(expires) !== null ||
       extras.some((extra) => priceProblem(extra.price) !== null) ||
+      webhookProblem(delivery.webhookUrl) !== null ||
       !list
     )
       return;
@@ -261,6 +270,7 @@ export default function AlertsPage() {
       ...(extras.length > 0 ? { extras: extras.map((extra) => ({ condition: extra.condition, targetPrice: extra.price.trim() })) } : {}),
       ...(repeat && isCrossing(condition) ? { frequency: 'every_crossing' as const } : {}),
       ...(source !== 'mark' ? { source } : {}),
+      ...deliveryIntent(delivery),
     };
     setAck(false);
     setReview({ intent, duplicate: findDuplicate(list.items, intent) !== null });
@@ -298,6 +308,7 @@ export default function AlertsPage() {
         setExtras([]);
         setRepeat(false);
         setSource('mark');
+        setDelivery(NO_DELIVERY_CHOICE);
         setAlertKind('price');
         setTouched(false);
         reload();
@@ -537,6 +548,23 @@ export default function AlertsPage() {
               <dt>{copy.t('reviewRepeat')}</dt>
               <dd>{copy.t(review.intent.frequency === 'every_crossing' ? 'repeatEvery' : 'repeatOnce')}</dd>
             </div>
+            <div>
+              <dt>{copy.t('reviewDelivery')}</dt>
+              <dd data-testid="alerts-review-delivery">
+                {[
+                  copy.t('deliveryInApp'),
+                  ...(review.intent.channels ?? []).map((c) => copy.t(c === 'email' ? 'deliveryEmail' : 'deliveryPush')),
+                ].join(', ')}
+              </dd>
+            </div>
+            {review.intent.webhookUrl ? (
+              <div>
+                <dt>{copy.t('reviewWebhook')}</dt>
+                <dd lang="zxx" data-testid="alerts-review-webhook">
+                  {review.intent.webhookUrl}
+                </dd>
+              </div>
+            ) : null}
             {review.intent.name ? (
               <div>
                 <dt>{copy.t('reviewName')}</dt>
@@ -766,6 +794,7 @@ export default function AlertsPage() {
               {expiryProblem(expires) ? copy.t('expiresInvalid') : copy.t('expiresHint')}
             </small>
           </label>
+          <AlertDelivery value={delivery} onChange={setDelivery} disabled={priceFormLocked} facts={deliveryFacts} />
           <div className="nf-address__actions">
             <Button type="submit" size={32} disabled={blockedReason !== null || alertKind !== 'price'}>
               {copy.t('review')}

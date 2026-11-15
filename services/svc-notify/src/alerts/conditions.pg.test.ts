@@ -23,6 +23,7 @@ const ALERT_MIGRATIONS = [
   '0022_notify_alert_frequency.sql',
   '0026_notify_alert_burst.sql',
   '20261106031241_notify_alert_price_source.sql',
+  '20261114033918_notify_alert_delivery.sql',
 ];
 
 const available = await postgresAvailable(URL);

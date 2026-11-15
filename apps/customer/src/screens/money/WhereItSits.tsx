@@ -1,29 +1,26 @@
-import { useMemo } from 'react';
 import { Badge } from '@intafaced/ui';
 import { DataTable, Page, Panel } from '../../shared/ui';
 import { displayAmount } from '../../shared/money';
-import { useApi } from '../../features/session/session';
-import { createProtocolApi } from '../../features/protocol/api';
 import { networkLabel } from '../../features/protocol/blockers';
-import { nativeCurrency } from '../../features/protocol/wallet/transfer';
 import { APP_CHAIN_ID } from '../../features/protocol/wallet/eip1193';
-import { WalletProvider, useWallet } from '../../features/protocol/wallet/WalletProvider';
-import { usePolled } from '../../features/protocol/wallet/use-polled';
-import { useResource } from '../../shared/resource';
-import { WalletBar, useAsOfText, useOwner, useVenueApi } from '../../features/trade/venue/VenueKit';
+import { WalletProvider } from '../../features/protocol/wallet/WalletProvider';
+import { WalletBar, useAsOfText, useOwner } from '../../features/trade/venue/VenueKit';
 import type { VenueUp } from '../../features/trade/venue-api';
-import { readWallet, shortOrderId, venueRows, type NodeRead, type WalletRead, type WalletToken } from './where-it-sits';
+import { usePreferences } from '../../shared/preferences';
+import { shortOrderId, type VenueRow, type WalletRead } from './where-it-sits';
 import { whereCopy } from './where-it-sits-copy';
+import { useStanding, type PartnerRead } from './standing-data';
+import type { ValuedPart } from './standing';
+import { StandingTotal, dollars } from './StandingTotal';
 
 type T = ReturnType<typeof whereCopy.useCopy>['t'];
 
-/** How often the wallet and the venue are read again while Assets is open. */
-const READ_EVERY_MS = 3_000;
-
 /**
- * Assets with the user-venue door on (J-wallet-01): the connected wallet, read from the chain, and the venue account, read
- * from the venue, each grouped by where it sits with its own as-of time. The ledger is never read here, nothing is valued
- * without a published price, and no INTAFACED total exists.
+ * Assets with the user-venue door on (J-wallet-01): the connected wallet, read from the chain, the venue account, read
+ * from the venue, and the partner account when the partner holds the person's bank money, each grouped by where it sits
+ * with its own as-of time. The ledger is never read here. An asset is valued only at a published price
+ * (`valuation.prices`); with none published nothing is valued and there is no total. With prices published, the total is
+ * the sum of what is priced, every part named (`StandingTotal`, the same figures Home shows), never an INTAFACED balance.
  */
 export function WhereItSits({ status }: { status: VenueUp }) {
   const chainId = status.chainId ?? APP_CHAIN_ID;
@@ -41,19 +38,44 @@ function Sources({ status, chainId }: { status: VenueUp; chainId: number }) {
     <Page title={t('Title')} description={t('Lede')}>
       <div data-testid="assets-by-source" className="form-stack">
         <WalletBar />
-        {owner ? (
-          <>
-            <WalletSource owner={owner} chainId={chainId} t={t} />
-            <VenueSource owner={owner} status={status} t={t} />
-            <p className="muted" data-testid="assets-no-price-note">
-              {t('No price note')}
-            </p>
-          </>
-        ) : (
-          <p className="muted">{t('Connect first')}</p>
-        )}
+        {owner ? <Read owner={owner} status={status} chainId={chainId} t={t} /> : <p className="muted">{t('Connect first')}</p>}
       </div>
     </Page>
+  );
+}
+
+function Read({ owner, status, chainId, t }: { owner: string; status: VenueUp; chainId: number; t: T }) {
+  const { displayCurrency, hideBalances } = usePreferences();
+  const network = networkLabel(chainId).name;
+  const { wallet, venue, partner, standing, pricesFailed } = useStanding(
+    owner,
+    chainId,
+    { network, venue: status.venue.displayName, venueTest: status.test },
+    displayCurrency === 'BTC' ? 'BTC' : 'USD',
+  );
+  const part = (id: ValuedPart['id']) => standing.parts.find((p) => p.id === id);
+  return (
+    <>
+      {standing.prices || pricesFailed ? (
+        <Panel title={t('Total title')}>
+          <StandingTotal
+            standing={standing}
+            pricesFailed={pricesFailed}
+            displayCurrency={displayCurrency}
+            hidden={hideBalances}
+            testId="assets-total"
+          />
+        </Panel>
+      ) : null}
+      <WalletSource owner={owner} network={network} read={wallet} valued={part('wallet')} t={t} />
+      <VenueSource status={status} read={venue} valued={part('venue')} t={t} />
+      {partner.state === 'none' ? null : <PartnerSource read={partner} valued={part('partner')} t={t} />}
+      {standing.prices ? null : (
+        <p className="muted" data-testid="assets-no-price-note">
+          {t('No price note')}
+        </p>
+      )}
+    </>
   );
 }
 
@@ -66,28 +88,27 @@ function AsOf({ iso }: { iso: string }) {
   );
 }
 
-function WalletSource({ owner, chainId, t }: { owner: string; chainId: number; t: T }) {
-  const wallet = useWallet();
-  const transport = useApi();
-  const protocol = useMemo(() => createProtocolApi(transport), [transport]);
-  const pairs = useResource((signal) => protocol.ammPairs(signal), 'assets:pairs');
-  // The network's own currency, then every token its pools list: the tokens a wallet on this network is read for.
-  const tokens = useMemo<WalletToken[]>(() => {
-    const native = nativeCurrency(chainId);
-    const listed = pairs.resource.status === 'ready' ? pairs.resource.data.tokens : [];
-    return [
-      ...(native ? [{ address: null, symbol: native.symbol, decimals: native.decimals }] : []),
-      ...listed.map((token) => ({ address: token.address, symbol: token.symbol, decimals: token.decimals })),
-    ];
-  }, [pairs.resource, chainId]);
-  const node: NodeRead = (method, params) => wallet.read(method, params);
-  const key = `${owner}:${chainId}:${tokens.map((token) => token.symbol).join(',')}`;
-  const read = usePolled<WalletRead>(
-    async () => ({ ok: true as const, data: await readWallet(node, chainId, owner, tokens) }),
-    key,
-    READ_EVERY_MS,
-  );
-  const network = networkLabel(chainId).name;
+/** The value cell of `asset` in a valued part: dollars to the cent at the published price, or "No price published". */
+function valueOf(valued: ValuedPart | undefined, asset: string, t: T): string {
+  const value = valued?.rows.find((row) => row.asset === asset)?.valueUsd ?? null;
+  return value === null ? t('No price published') : dollars(value);
+}
+
+type Polled<D> = { data: D | null; failure: { message?: string } | null };
+
+function WalletSource({
+  owner,
+  network,
+  read,
+  valued,
+  t,
+}: {
+  owner: string;
+  network: string;
+  read: Polled<WalletRead>;
+  valued: ValuedPart | undefined;
+  t: T;
+}) {
   const data = read.data;
   return (
     <Panel title={t('Wallet title')}>
@@ -115,7 +136,7 @@ function WalletSource({ owner, chainId, t }: { owner: string; chainId: number; t
                   <tr key={row.symbol} data-asset={row.symbol} data-token={row.token ?? 'native'}>
                     <td>{row.symbol}</td>
                     <td data-cell="amount">{displayAmount(row.amount)}</td>
-                    <td data-cell="value">{t('No price published')}</td>
+                    <td data-cell="value">{valueOf(valued, row.symbol, t)}</td>
                   </tr>
                 ))}
               </DataTable>
@@ -132,21 +153,17 @@ function WalletSource({ owner, chainId, t }: { owner: string; chainId: number; t
   );
 }
 
-function VenueSource({ owner, status, t }: { owner: string; status: VenueUp; t: T }) {
-  const venue = useVenueApi();
-  const read = usePolled(
-    async (signal) => {
-      const [balances, orders] = await Promise.all([venue.balances(owner, signal), venue.openOrders(owner, signal)]);
-      if (!balances.ok) return balances;
-      if (!orders.ok) return orders;
-      return {
-        ok: true as const,
-        data: { asOf: balances.data.asOf, rows: venueRows(balances.data.value, orders.data.value) },
-      };
-    },
-    `assets:venue:${owner}`,
-    READ_EVERY_MS,
-  );
+function VenueSource({
+  status,
+  read,
+  valued,
+  t,
+}: {
+  status: VenueUp;
+  read: Polled<{ asOf: string; rows: VenueRow[] }>;
+  valued: ValuedPart | undefined;
+  t: T;
+}) {
   const data = read.data;
   return (
     <Panel title={t('Venue title', { venue: status.venue.displayName })}>
@@ -161,7 +178,7 @@ function VenueSource({ owner, status, t }: { owner: string; status: VenueUp; t: 
           {data ? <AsOf iso={data.asOf} /> : null}
         </p>
         {read.failure && !data ? (
-          <p role="alert">{t('Venue read failed', { detail: read.failure.message })}</p>
+          <p role="alert">{t('Venue read failed', { detail: read.failure.message ?? '' })}</p>
         ) : !data ? (
           <p className="muted">{t('Reading')}</p>
         ) : data.rows.length === 0 ? (
@@ -195,7 +212,36 @@ function VenueSource({ owner, status, t }: { owner: string; status: VenueUp; t: 
                 </td>
                 <td data-cell="total">{displayAmount(row.total)}</td>
                 <td data-cell="withdrawable">{displayAmount(row.withdrawable)}</td>
-                <td data-cell="value">{t('No price published')}</td>
+                <td data-cell="value">{valueOf(valued, row.asset, t)}</td>
+              </tr>
+            ))}
+          </DataTable>
+        )}
+      </section>
+    </Panel>
+  );
+}
+
+/** The partner account, when the partner holds the person's bank money: each asset as the partner reports it. */
+function PartnerSource({ read, valued, t }: { read: Exclude<PartnerRead, { state: 'none' }>; valued: ValuedPart | undefined; t: T }) {
+  const title = read.state === 'read' ? t('Partner title', { partner: read.label }) : t('Partner title unnamed');
+  return (
+    <Panel title={title}>
+      <section data-testid="source-partner" data-source="partner" aria-label={title}>
+        <p>
+          {t('Partner source')} {read.state === 'read' ? <AsOf iso={read.asOf} /> : null}
+        </p>
+        {read.state === 'reading' ? (
+          <p className="muted">{t('Reading')}</p>
+        ) : read.state === 'unread' ? (
+          <p role="alert">{t('Partner read failed')}</p>
+        ) : (
+          <DataTable label={title} headers={[t('Asset'), t('Amount'), t('Value')]}>
+            {read.rows.map((row) => (
+              <tr key={row.asset} data-asset={row.asset}>
+                <td>{row.asset}</td>
+                <td data-cell="amount">{displayAmount(row.amount)}</td>
+                <td data-cell="value">{valueOf(valued, row.asset, t)}</td>
               </tr>
             ))}
           </DataTable>
