@@ -3,7 +3,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
-import { asDesk, ensureDeskGroup } from './help-centre.mjs';
+import { asDesk, clearOfGuestWindowEdge, ensureDeskGroup } from './help-centre.mjs';
 import { makeContext } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { journeyState, ORIGIN, restartWith, ROOT, stackFile, tool } from './stack.mjs';
 
@@ -168,7 +168,8 @@ test(`${J} #5 too many requests from one address are refused with no request sto
   test.setTimeout(240_000);
   const email = address('busy');
   const page = await guest(browser);
-  // The stack's TEST limit is three per address per hour.
+  // The stack's TEST limit is three per address per hour, counted in fixed windows: all four sends fall in one (#8365).
+  test.setTimeout(240_000 + (await clearOfGuestWindowEdge()));
   for (let n = 1; n <= 3; n += 1) {
     await sendRequest(page, { email, subject: `TEST ${J} ${RUN} busy ${n}` });
     await expect(page.getByTestId('support-guest-check-email')).toBeVisible();
