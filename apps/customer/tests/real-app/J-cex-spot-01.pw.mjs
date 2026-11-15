@@ -261,7 +261,11 @@ test(`${J} #3 passes the trading checks (legal name, country confirmed, sanction
   // locked on the venue or held in our ledger.
   const intent = answer.request().postDataJSON().intent;
   const placed = await placeThroughDoor(await api(who), owner, intent);
+  // Accepted at our door: prepared as this person's own order (its typed data to sign, its action key), where the held
+  // person below is refused 403 `denied.kyc_required`.
   expect(placed.prepared.status, JSON.stringify(placed.prepared.body).slice(0, 400)).toBe(200);
+  expect(placed.prepared.body.actionKey).toEqual(expect.any(String));
+  expect(placed.prepared.body.prepared.typedData).toBeTruthy();
   expect(placed.sent.status, JSON.stringify(placed.sent.body).slice(0, 400)).toBe(200);
   expect(placed.sent.body.outcome, JSON.stringify(placed.sent.body).slice(0, 400)).toMatchObject({
     definite: true,
@@ -303,9 +307,10 @@ test(`${J} #3 passes the trading checks (legal name, country confirmed, sanction
     await expect(hitPage.getByTestId('venue-ticket-short')).toHaveCount(0);
     const hitOwner = hitWallet.address.toLowerCase();
     const hold = await placeThroughDoor(await api(listed), hitOwner, intent);
-    expect(hold.prepared.status, JSON.stringify(hold.prepared.body).slice(0, 400)).not.toBe(200);
+    // The trading level the hold keeps this person below: 403 PermissionDenied `denied.kyc_required`, before any typed data.
+    expect(hold.prepared.status, JSON.stringify(hold.prepared.body).slice(0, 400)).toBe(403);
+    expect(hold.prepared.body).toMatchObject({ code: 'PermissionDenied', intafacedCode: 'denied.kyc_required' });
     expect(hold.prepared.body.prepared).toBeUndefined();
-    expect(String(hold.prepared.body.intafacedCode ?? '')).not.toMatch(/^trade\.venue\./);
     expect(hold.sent).toBeNull();
   } finally {
     await hitContext.close();
