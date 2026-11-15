@@ -1776,7 +1776,7 @@ test('the first and second FAIL print nothing new; the third does, naming each h
   ]).join('\n');
   assert.match(out, /3 FAILs in a row on this branch: stop fixing/);
   assert.match(out, /write that belief down in one sentence and test it/);
-  assert.match(out, /ask GPT-6\.1 Sol why \(project-state BUILDER\.md, row d74\)/);
+  assert.match(out, /ask the outside reviewer once why, as project-state BUILDER\.md says \(row d74\)/);
   assert.match(out, new RegExp(`- ${hex('3').slice(0, 10)}\n  - a\\.ts:4: the comment is never closed`));
   assert.match(out, new RegExp(`- ${hex('1').slice(0, 10)}: \\(findings unreadable\\)`));
 });

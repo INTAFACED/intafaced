@@ -1054,7 +1054,7 @@ export function premiseLines(streak) {
     '',
     `### ${streak.length} FAILs in a row on this branch: stop fixing`,
     '',
-    'Each fix since the first FAIL assumed one belief, and each FAIL is evidence against it. Before the next push, write that belief down in one sentence and test it: find an observation that would come out differently if it were false, and make it. Look at what the findings below have in common that the belief did not predict. If it holds, ask the next "why": the earlier fixes may have treated a consequence. Then, once, ask GPT-6.1 Sol why (project-state BUILDER.md, row d74). Advice, not a gate.',
+    'Each fix since the first FAIL assumed one belief, and each FAIL is evidence against it. Before the next push, write that belief down in one sentence and test it: find an observation that would come out differently if it were false, and make it. Look at what the findings below have in common that the belief did not predict. If it holds, ask the next "why": the earlier fixes may have treated a consequence. Then ask the outside reviewer once why, as project-state BUILDER.md says (row d74). Advice, not a gate.',
     '',
     ...streak.flatMap(({ sha, findings }) => [
       `- ${sha.slice(0, 10)}${findings?.length ? '' : ': (findings unreadable)'}`,
