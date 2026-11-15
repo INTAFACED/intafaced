@@ -102,18 +102,28 @@ async function partnerUsdt() {
   return main.balance;
 }
 
-/** svc-ledger's own record of a business key, traced by founder A through the console's ledger lookup. */
-async function ledgerTrace(browser, businessKey) {
+/**
+ * svc-ledger's own record of business keys, traced by founder A through the console's ledger lookup. Founder A signs in
+ * once for all of a step's lookups: each sign-in spends a fresh 30 s authenticator step (`founderTotp`), so four
+ * sign-ins in one step waited out most of its 90 s (#8414).
+ */
+async function ledgerTracer(browser) {
   const context = await browser.newContext();
+  const founder = await context.newPage();
   try {
-    const founder = await context.newPage();
     await founderSignIn(founder);
-    const res = await founder.request.get(`${ADMIN}/api/ledger-lookup?businessKey=${encodeURIComponent(businessKey)}`);
-    expect(res.status(), (await res.text()).slice(0, 300)).toBe(200);
-    return await res.json();
-  } finally {
+  } catch (err) {
     await context.close();
+    throw err;
   }
+  return {
+    async trace(businessKey) {
+      const res = await founder.request.get(`${ADMIN}/api/ledger-lookup?businessKey=${encodeURIComponent(businessKey)}`);
+      expect(res.status(), (await res.text()).slice(0, 300)).toBe(200);
+      return await res.json();
+    },
+    close: () => context.close(),
+  };
 }
 
 /** The ledger keys of one usage window (packages/ledger-client recipes/charge.ts): earned, and collected on a payment. */
@@ -605,46 +615,51 @@ test(`${J} #6 closes the session: open windows settle once; a closed session ref
   expect(after).toEqual(before);
   // Our ledger recorded the window once as owed by the person, equal to its cost: one transaction under the window's
   // earned key, revenue up by the cost and the person's receivable down by it.
-  const earned = await ledgerTrace(browser, earnedKey(chargeKey));
-  expect(earned.found, `the ledger holds ${earnedKey(chargeKey)}`).toBe(true);
-  expect(earned.transaction).toMatchObject({ businessKey: earnedKey(chargeKey), module: 'agents', reason: 'charge.earned' });
-  expect(earned.transaction.postings).toHaveLength(2);
-  for (const posting of earned.transaction.postings) {
-    expect(posting).toMatchObject({ assetId: 'USDT' });
-    expect(toUnits(posting.amount)).toBe(toUnits(cost));
-  }
-  const owedAt = earned.transaction.postings.find((p) => p.side === 'source');
-  expect(toUnits(owedAt.balanceAfter) - toUnits(owedAt.balanceBefore)).toBe(-toUnits(cost));
-  // And collected once, keyed on the partner's payment: what the person owes comes back to zero, our money at the
-  // partner goes up by the cost.
-  const collected = await ledgerTrace(browser, collectedKey(paymentRef));
-  expect(collected.found, `the ledger holds ${collectedKey(paymentRef)}`).toBe(true);
-  expect(collected.transaction).toMatchObject({ businessKey: collectedKey(paymentRef), module: 'agents', reason: 'charge.collected' });
-  expect(collected.transaction.postings).toHaveLength(2);
-  for (const posting of collected.transaction.postings) expect(toUnits(posting.amount)).toBe(toUnits(cost));
-  const owedBack = collected.transaction.postings.find((p) => p.side === 'destination');
-  expect(owedBack.accountId).toBe(owedAt.accountId);
-  expect(toUnits(owedBack.balanceAfter)).toBe(0n);
+  const ledger = await ledgerTracer(browser);
+  try {
+    const earned = await ledger.trace(earnedKey(chargeKey));
+    expect(earned.found, `the ledger holds ${earnedKey(chargeKey)}`).toBe(true);
+    expect(earned.transaction).toMatchObject({ businessKey: earnedKey(chargeKey), module: 'agents', reason: 'charge.earned' });
+    expect(earned.transaction.postings).toHaveLength(2);
+    for (const posting of earned.transaction.postings) {
+      expect(posting).toMatchObject({ assetId: 'USDT' });
+      expect(toUnits(posting.amount)).toBe(toUnits(cost));
+    }
+    const owedAt = earned.transaction.postings.find((p) => p.side === 'source');
+    expect(toUnits(owedAt.balanceAfter) - toUnits(owedAt.balanceBefore)).toBe(-toUnits(cost));
+    // And collected once, keyed on the partner's payment: what the person owes comes back to zero, our money at the
+    // partner goes up by the cost.
+    const collected = await ledger.trace(collectedKey(paymentRef));
+    expect(collected.found, `the ledger holds ${collectedKey(paymentRef)}`).toBe(true);
+    expect(collected.transaction).toMatchObject({ businessKey: collectedKey(paymentRef), module: 'agents', reason: 'charge.collected' });
+    expect(collected.transaction.postings).toHaveLength(2);
+    for (const posting of collected.transaction.postings) expect(toUnits(posting.amount)).toBe(toUnits(cost));
+    const owedBack = collected.transaction.postings.find((p) => p.side === 'destination');
+    expect(owedBack.accountId).toBe(owedAt.accountId);
+    expect(toUnits(owedBack.balanceAfter)).toBe(0n);
 
-  // Closing again settles nothing more, and the closed session takes no new request.
-  await expect(selected.getByRole('button', { name: 'Close session' })).toHaveCount(0);
-  await expect(selected).toContainText('This session is closed.');
-  const closeAgain = await agentsCall('session.close', { sessionId: ranSession() });
-  expect(closeAgain.status).toBe(200);
-  expect(closeAgain.body.result.data.status).toBe('closed');
-  const afterRun = await agentsCall('run.complete', {
-    sessionId: ranSession(),
-    requestId: `${ranSession()}:after-close`,
-    task: agents.run.read().task,
-    messages: [{ role: 'user', content: 'TEST' }],
-  });
-  expect(afterRun.status).toBe(400);
-  expect(afterRun.body.error.data.cause.code).toBe('agents.session_closed');
-  expect(await ledgerBalances()).toEqual(after);
-  // Nothing more left the partner balance, and the window's keys still name those same two transactions.
-  expect(toUnits(partnerBefore) - toUnits(await partnerUsdt())).toBe(toUnits(cost));
-  expect((await ledgerTrace(browser, earnedKey(chargeKey))).transaction.txId).toBe(earned.transaction.txId);
-  expect((await ledgerTrace(browser, collectedKey(paymentRef))).transaction.txId).toBe(collected.transaction.txId);
+    // Closing again settles nothing more, and the closed session takes no new request.
+    await expect(selected.getByRole('button', { name: 'Close session' })).toHaveCount(0);
+    await expect(selected).toContainText('This session is closed.');
+    const closeAgain = await agentsCall('session.close', { sessionId: ranSession() });
+    expect(closeAgain.status).toBe(200);
+    expect(closeAgain.body.result.data.status).toBe('closed');
+    const afterRun = await agentsCall('run.complete', {
+      sessionId: ranSession(),
+      requestId: `${ranSession()}:after-close`,
+      task: agents.run.read().task,
+      messages: [{ role: 'user', content: 'TEST' }],
+    });
+    expect(afterRun.status).toBe(400);
+    expect(afterRun.body.error.data.cause.code).toBe('agents.session_closed');
+    expect(await ledgerBalances()).toEqual(after);
+    // Nothing more left the partner balance, and the window's keys still name those same two transactions.
+    expect(toUnits(partnerBefore) - toUnits(await partnerUsdt())).toBe(toUnits(cost));
+    expect((await ledger.trace(earnedKey(chargeKey))).transaction.txId).toBe(earned.transaction.txId);
+    expect((await ledger.trace(collectedKey(paymentRef))).transaction.txId).toBe(collected.transaction.txId);
+  } finally {
+    await ledger.close();
+  }
 });
 
 test(`${J} #7 opens session history: the run with exact usage, refusal codes as words and no prompt text; the selection survives a reload and another device`, async ({
