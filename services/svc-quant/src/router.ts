@@ -58,6 +58,9 @@ import {
   quantAlertListSchema,
   quantAlertSchema,
   quantNotifySetInputSchema,
+  quantRiskScreenSchema,
+  quantRiskSetInputSchema,
+  quantRiskTradingInputSchema,
   quantNotifySettingsSchema,
   quantCriteriaSchema,
   quantCriteriaSetInputSchema,
@@ -83,6 +86,7 @@ import {
   quantTeamSchema,
   quantTeamSetInputSchema,
 } from '@intafaced/contracts';
+import { parseAmount } from '@intafaced/ledger-client/money';
 import type { BacktestCostModel } from '@intafaced/quant-honesty';
 import { missingLake, type BacktestLake } from './backtest/lake.js';
 import { missingFees, missingHistory, type FeePort, type HistoryPort } from './engine/ports.js';
@@ -165,6 +169,8 @@ import {
   QUANT_LIVE_ORDER_TYPE_UNSUPPORTED,
   QUANT_LIVE_DEPLOY_UNAVAILABLE,
   QUANT_GATE_CRITERIA_UNSET,
+  QUANT_RISK_CAP_INVALID,
+  QUANT_RISK_CAP_UNSET,
   QUANT_STAGE_TRANSITION_INVALID,
   QuantError,
 } from './errors.js';
@@ -173,6 +179,9 @@ import type { LifecycleRepository } from './lifecycle/repository.js';
 import { evaluateGate, GATE_CRITERION_NAMES, gateCriteriaOf, OWNER_CRITERION_FORMAT, verdictCriteriaOf } from './lifecycle/gate.js';
 import { paperKey, paperSettingsOf, paperView } from './paper/view.js';
 import { openNotifyRepository } from './notify/open.js';
+import { createMemoryRiskRepository } from './risk/memory-repository.js';
+import type { RiskRepository } from './risk/repository.js';
+import { checkCaps, checkTradingOn, DEFAULT_FLOOR_POLICY, riskScreenOf } from './risk/rules.js';
 import { createMemoryTeamRepository } from './team/memory-repository.js';
 import { grantActive, lockLive, type StoredCollaborator, type StoredLock, type TeamRepository } from './team/repository.js';
 import type { NotifyRepository, StoredAlert } from './notify/repository.js';
@@ -357,6 +366,7 @@ function toTrpc(err: unknown): never {
                 err.code === QUANT_QUOTA_EXCEEDED ||
                 err.code === QUANT_QUOTA_PROFILE_UNSET ||
                 err.code === QUANT_GATE_CRITERIA_UNSET ||
+                err.code === QUANT_RISK_CAP_UNSET ||
                 err.code === QUANT_STAGE_TRANSITION_INVALID ||
                 err.code === QUANT_EDIT_LOCK_UNSET ||
                 err.code === QUANT_LIVE_DISABLED ||
@@ -379,7 +389,8 @@ function toTrpc(err: unknown): never {
                     err.code === QUANT_LIST_CURSOR_INVALID ||
                     err.code === QUANT_OPS_RUNS_LIMIT_UNSET ||
                     err.code === QUANT_OPS_RUNS_FROM_UNSET ||
-                    err.code === QUANT_OPS_RUNS_TO_UNSET
+                    err.code === QUANT_OPS_RUNS_TO_UNSET ||
+                    err.code === QUANT_RISK_CAP_INVALID
                   ? 'BAD_REQUEST'
                   : err.code === 'quant.sandbox_timeout'
                     ? 'TIMEOUT'
@@ -537,6 +548,8 @@ export interface QuantRouterDeps extends SandboxDeps {
    * database; unit tests pass the in-memory store.
    */
   readonly notify?: NotifyRepository;
+  /** A strategy's risk screen (AL-risk-01). */
+  readonly risk?: RiskRepository;
   /** Strategy teams, edit locks and support grants (J-algo-dev-08). Omitted in unit tests: an in-memory store with no team. */
   readonly team?: TeamRepository;
   /** `QUANT_EDIT_LOCK_SECONDS`: how long an edit lock lasts. Null is blank: taking a lock refuses `quant.edit_lock_unset`. */
@@ -606,7 +619,23 @@ export function createQuantRouter(deps: QuantRouterDeps) {
   const templates = deps.templates ?? openTemplateRepository({}).repository;
   const quota = deps.quota ?? createMemoryQuota({ defaultProfile: null }).repository;
   const notify = deps.notify ?? openNotifyRepository({}).repository;
+  const risk = deps.risk ?? createMemoryRiskRepository();
   const lifecycle = deps.lifecycle ?? createMemoryLifecycleRepository();
+
+  /** The account's strategy, not in the bin; anything else is not found. */
+  async function liveStrategy(accountId: string, strategyId: string) {
+    const found = await strategies.get({ accountId, id: strategyId });
+    if (!found || found.deletedAt) missingStrategy();
+    return found;
+  }
+  const newestVersion = (strategy: { readonly versions: readonly { readonly version: number }[] }) =>
+    Math.max(...strategy.versions.map((row) => row.version));
+  /** The strategy's equity-stop floor for a backtest, or null while the risk screen leaves it blank. */
+  async function equityStopOf(accountId: string, strategyId: string) {
+    const stored = await risk.get({ accountId, strategyId });
+    if (!stored?.caps.equityFloor) return null;
+    return { floor: parseAmount(stored.caps.equityFloor), policy: stored.floorPolicy ?? DEFAULT_FLOOR_POLICY };
+  }
 
   /**
    * One version's lifecycle (AL-lifecycle-01): its stage rows and gate decisions, and the gate as it reads now, from this
@@ -1652,6 +1681,61 @@ export function createQuantRouter(deps: QuantRouterDeps) {
     }),
 
     /**
+     * A strategy's risk screen (AL-risk-01): the developer's own caps, each blank until set and never assumed, and the
+     * trading switch. The switch is off by default, turns on only with every cap set (`quant.risk_cap_unset` names each
+     * blank one, and it stays off), and holds only for the version it was turned on for: a new version reads it off.
+     * The equity-stop floor applies to every bar backtest of the strategy. Another account's strategy is not found.
+     */
+    risk: router({
+      get: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ strategyId: z.string().min(1).max(128), ...accountField }))
+        .output(quantRiskScreenSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const found = await liveStrategy(accountId, input.strategyId);
+            return riskScreenOf(found.id, newestVersion(found), await risk.get({ accountId, strategyId: found.id }));
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+      set: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantRiskSetInputSchema.extend(accountField))
+        .output(quantRiskScreenSchema)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const found = await liveStrategy(accountId, input.strategyId);
+            const { caps, floorPolicy } = checkCaps(input.caps, input.floorPolicy);
+            const saved = await risk.saveCaps({ accountId, strategyId: found.id, caps, floorPolicy });
+            // A cap cleared while trading is on turns the switch off: it never stays on with a blank cap.
+            const latest = newestVersion(found);
+            if (saved.tradingVersion !== null && Object.values(caps).some((value) => value === null)) {
+              return riskScreenOf(found.id, latest, await risk.setTrading({ accountId, strategyId: found.id, version: null }));
+            }
+            return riskScreenOf(found.id, latest, saved);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+      trading: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantRiskTradingInputSchema.extend(accountField))
+        .output(quantRiskScreenSchema)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const found = await liveStrategy(accountId, input.strategyId);
+            const latest = newestVersion(found);
+            if (input.on) checkTradingOn(await risk.get({ accountId, strategyId: found.id }));
+            const saved = await risk.setTrading({ accountId, strategyId: found.id, version: input.on ? latest : null });
+            return riskScreenOf(found.id, latest, saved);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+    }),
+
+    /**
      * Fill alerts (AL-alerts-01): one strategy version and a message template from allow-listed fields. The alert keeps
      * the version, never the parameters, so a later change to the strategy leaves it as it was. The server announces each
      * fill once, with no browser open (`notify/sweep.ts`). An unknown field refuses `alert.template_invalid`.
@@ -2160,7 +2244,13 @@ export function createQuantRouter(deps: QuantRouterDeps) {
               if (!found || !version) missingStrategy();
               const prepared = await prepareBacktest(
                 input,
-                { id: found.id, version: version.version, modules: version.modules, risk: version.risk },
+                {
+                  id: found.id,
+                  version: version.version,
+                  modules: version.modules,
+                  risk: version.risk,
+                  equityStop: await equityStopOf(accountId, found.id),
+                },
                 fees,
                 now(),
                 // The owner's out-of-sample criteria as they stand now: an operator's stored value wins over the boot one.

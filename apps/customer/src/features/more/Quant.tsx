@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { useApi, useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
 import { decimalSchema, signedDecimalSchema, displayAmount, parseAmount } from '../../shared/money';
-import { Button, Field, Panel } from '../../shared/ui';
+import { Button, Failure, Field, Loading, Panel } from '../../shared/ui';
 import { Details, Read, Select, TextArea, useAction } from './common';
 import { preservePaperHref } from './trade-context';
 import { authoredRefusal, type ApiResult } from '../../shared/api';
@@ -31,7 +31,7 @@ import { builderCopy } from '../quant/builder-copy';
 import { SignalBuilder } from '../quant/SignalBuilder';
 import { StudioTemplates } from '../quant/StudioTemplates';
 import { emptySignalRules } from '../quant/signal-rules';
-import type { QuantSignalRules } from '@intafaced/contracts/quant-algo';
+import { quantStrategyHeadSchema, type QuantSignalRules } from '@intafaced/contracts/quant-algo';
 import { emptyDraft, readDraft, writeDraft } from './quant-draft';
 import { analysisCopy } from './quant-analysis-copy';
 import { QuantRooms } from '../quant/QuantRooms';
@@ -232,6 +232,33 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
     setKill(draft.risk.kill);
     setLink(nextLink);
   };
+  // "Open in Studio" from a strategy's page: /quant/studio?open=<id> loads that strategy's newest version into the form,
+  // as the library's Open does, then drops the parameter so a reload keeps whatever is edited since.
+  const [opening, setOpening] = useState(() =>
+    mode === 'studio' ? new URLSearchParams(globalThis.location?.search ?? '').get('open') : null,
+  );
+  // The form waits for the strategy, so nothing typed before it arrives is overwritten; a failed read says so.
+  const [openFailure, setOpenFailure] = useState<Extract<ApiResult<unknown>, { ok: false }> | null>(null);
+  useEffect(() => {
+    if (!opening) return;
+    const controller = new AbortController();
+    void api.query('quant', 'studio.get', { id: opening }, quantStrategyHeadSchema, { signal: controller.signal }).then((res) => {
+      if (controller.signal.aborted) return;
+      if (!res.ok) {
+        setOpenFailure(res);
+        return;
+      }
+      const head = res.data;
+      load(head, { clientStrategyId: head.clientStrategyId, strategyId: head.id, version: head.version, saved: fingerprint(head) });
+      const url = new URL(window.location.href);
+      url.searchParams.delete('open');
+      window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
+      setOpening(null);
+    });
+    return () => controller.abort();
+    // `load` only sets this form's state; the open is read once, on arrival.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [api]);
   return (
     <div className="more-grid">
       <QuantRooms active={mode} paper={paper} />
@@ -372,6 +399,12 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
             )}
           </Panel>
         </div>
+      ) : mode === 'studio' && opening ? (
+        openFailure ? (
+          <Failure result={openFailure} retry={() => window.location.reload()} />
+        ) : (
+          <Loading />
+        )
       ) : mode === 'studio' ? (
         <div className="more-columns">
           <Panel title={copyText('quant.build.a.strategy')}>

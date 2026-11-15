@@ -611,8 +611,8 @@ export function createCardsRouter(c: BankRouterContext) {
 
     /** Which of card details, PIN and phone wallets the issuer offers, and whether they are TEST (J-bank-14 #3, #4). */
     secretsOffered: scopedProcedure('bank:read', { module: 'bank' })
-      .output(z.object({ details: z.boolean(), pin: z.boolean(), wallet: z.boolean(), test: z.boolean() }))
-      .query(async () => guard(async () => bank.cards.secretsOffered())),
+      .output(z.object({ details: z.boolean(), pin: z.boolean(), wallet: z.boolean(), test: z.boolean(), walletNotOffered: z.boolean() }))
+      .query(async ({ ctx }) => guard(async () => bank.cards.secretsOffered(ctx.principal.userId))),
 
     /** The phone wallets this card was added to: `added`, `paused` while the card is frozen, or `closed` (J-bank-14 #4). */
     walletTokens: scopedProcedure('bank:read', { module: 'bank' })
@@ -747,6 +747,8 @@ export function createCardsRouter(c: BankRouterContext) {
           paid: amountString,
           unpaid: amountString,
           refused: amountString,
+          /** Owed by INTAFACED on partner-held spend and paid to the person's own wallet; never spendable here. */
+          toWallet: amountString,
           payments: z.array(
             z.object({
               authorizationId: z.string(),
@@ -755,6 +757,8 @@ export function createCardsRouter(c: BankRouterContext) {
               status: z.string(),
               rejectionCode: z.string().nullable(),
               ledgerTxId: z.string().nullable(),
+              paidBy: z.enum(['ledger', 'wallet']),
+              announced: z.boolean(),
             }),
           ),
           paying: z.boolean(),
@@ -769,6 +773,7 @@ export function createCardsRouter(c: BankRouterContext) {
             paid: formatAmount(c.paid),
             unpaid: formatAmount(c.unpaid),
             refused: formatAmount(c.refused),
+            toWallet: formatAmount(c.toWallet),
             payments: c.payments.map((p) => ({ ...p, amount: formatAmount(p.amount) })),
           };
         }),
