@@ -1016,6 +1016,52 @@ describe('W15 merchant operations (Postgres)', () => {
       );
     });
 
+    it('an owner whose verification is not done saves their own preferences on pay:onboard; the role table and the scope still decide', async () => {
+      type Pref = { kind: string; inApp: boolean; updatedBy: string | null };
+      const fresh = id();
+      const business = (
+        await sql<Array<{ id: string; kyb_status: string }>>`
+        INSERT INTO pay.merchants (user_id) VALUES (${fresh}) RETURNING id, kyb_status::text`
+      )[0]!;
+      expect(business.kyb_status).not.toBe('approved');
+      const onboarding = as(fresh, { scopes: ['pay:onboard'] });
+      const set = (await onboarding.merchantOps.notifications.preferences.set({ kind: 'export_ready', inApp: false })) as Pref;
+      expect(set).toMatchObject({ kind: 'export_ready', inApp: false, updatedBy: fresh });
+      const history = (await onboarding.merchantOps.notifications.preferences.history({ limit: 200 })) as {
+        items: Array<{ kind: string; inApp: boolean; actorId: string }>;
+      };
+      expect(history.items).toEqual([expect.objectContaining({ kind: 'export_ready', inApp: false, actorId: fresh })]);
+
+      // The money writes keep their KYB gate: the same session still may not send an invoice.
+      expect((await refusal(() => onboarding.merchantOps.invoices.create({ requestId: id(), assetId: 'USDT', amount: '1' }))).code).toBe(
+        'FORBIDDEN',
+      );
+      // A Viewer of that business, on pay:onboard, lacks notifications.manage.
+      const viewer = id();
+      await sql`INSERT INTO pay.merchant_team_members (merchant_id, user_id, role, status, invited_by)
+                VALUES (${business.id}, ${viewer}, 'viewer', 'active', ${fresh})`;
+      expect(
+        (
+          await refusal(() =>
+            as(viewer, { scopes: ['pay:onboard'] }).merchantOps.notifications.preferences.set({ kind: 'export_ready', inApp: false }),
+          )
+        ).cause,
+      ).toBe('pay.team_role_forbidden');
+      // Without pay:onboard or pay:write, or without the second factor, nothing is saved.
+      expect(
+        (
+          await refusal(() =>
+            as(fresh, { scopes: ['pay:read'] }).merchantOps.notifications.preferences.set({ kind: 'dispute_due', inApp: false }),
+          )
+        ).code,
+      ).toBe('FORBIDDEN');
+      await refusal(() =>
+        as(fresh, { scopes: ['pay:onboard'], mfa: false }).merchantOps.notifications.preferences.set({ kind: 'dispute_due', inApp: false }),
+      );
+      const after = (await onboarding.merchantOps.notifications.preferences.list({})) as Pref[];
+      expect(after.find((p) => p.kind === 'dispute_due')).toMatchObject({ inApp: true, updatedBy: null });
+    });
+
     it("each person's preferences are their own: a teammate's choice, feed, unread count and history leave the owner's alone", async () => {
       type Pref = { kind: string; inApp: boolean; updatedBy: string | null };
       type Changes = { items: Array<{ kind: string; inApp: boolean; actorId: string }> };
