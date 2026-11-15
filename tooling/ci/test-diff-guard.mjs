@@ -612,7 +612,7 @@ async function laterSelfTest(eq) {
     'apps/admin/src/lib/desk/approval-hash.test.ts',
     'apps/customer/src/shared/password.test.ts',
     'apps/customer/src/shared/api.test.ts',
-    // The third FAIL (332460c6cf) and GPT-6.1 Sol's read of it: account security, order drafts, permissions in a DOM test.
+    // The third FAIL (332460c6cf) and a second reader's look at it: account security, order drafts, permissions in a DOM test.
     'apps/customer/src/features/account/security-lock.test.ts',
     'apps/customer/src/features/account/close-account.test.ts',
     'apps/customer/src/features/trade/trade.test.ts',
