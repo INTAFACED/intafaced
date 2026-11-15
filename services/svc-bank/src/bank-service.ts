@@ -1,3 +1,4 @@
+import { parseBankAccountTerms, type BankAccountTerms } from './onboarding/bank-account-terms.js';
 import { testPartnerCustody, testPartnerDirectDebits, testPartnerPurchases, type TestPartner } from './partner/test-partner.js';
 import type { PartnerPurchaseCustody } from './partner/partner-purchases.js';
 import {
@@ -96,6 +97,8 @@ import { emptyBillPorts, emptyGlobalPorts, type BillPorts, type GlobalPorts } fr
  */
 
 export interface BankServices {
+  /** The owner's values for onboarding, information requests and reopening a bank account (J-bank-17); null is unpublished. */
+  readonly bankAccountTerms: BankAccountTerms;
   /** The owner's notice for a blocked region (`BANK_BLOCKED_REGION_NOTICE`, BK-safe-01). No default: blank reads "not published". */
   readonly blockedRegionNotice?: string | undefined;
   /** The TEST partner bank and ramp with their switches (CUSTODY-DELTA §4), on a dev or test stack only; null elsewhere. */
@@ -285,6 +288,10 @@ export interface BankServiceOptions {
   earnRiskWording?: string | undefined;
   /** The owner's notice for a blocked region (`BANK_BLOCKED_REGION_NOTICE`, BK-safe-01). No default: blank reads "not published". */
   blockedRegionNotice?: string | undefined;
+  /** `BANK_ONBOARDING_REQUIREMENTS_JSON`, `BANK_INFO_REQUEST_UPLOAD_JSON`, `BANK_REOPEN_WINDOW_DAYS` (J-bank-17). No defaults. */
+  onboardingRequirements?: string | undefined;
+  infoRequestUpload?: string | undefined;
+  reopenWindowDays?: string | undefined;
   /** Owner-published currencies an account may hold (`BANK_ACCOUNT_CURRENCIES`). No default: blank refuses an add. */
   accountCurrencies?: string | undefined;
   /** Owner-published number of live named spaces per account (`BANK_SPACE_LIMIT`). No default: blank refuses a create. */
@@ -584,6 +591,7 @@ export function createBankServices(
   const recovery = new RecoveryClaimService(sql, ledger, spaces, options.identityRecovery ?? unconfiguredIdentityRecovery());
 
   return {
+    bankAccountTerms: parseBankAccountTerms(options),
     blockedRegionNotice: options.blockedRegionNotice,
     testPartner: options.testPartner ?? null,
     taxEffects: options.taxEffects ?? null,
