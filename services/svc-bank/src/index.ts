@@ -1,4 +1,5 @@
 import { parseStatementJobsTestHold, startStatementJobWorker } from './statements/statement-jobs.js';
+import { createIdentityExtraControls, unconfiguredExtraControls } from './safety/extra-controls.js';
 import { failingHistoryPages, parseActivityTestFault } from './activity/activity-test-fault.js';
 import type { z } from 'zod';
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
@@ -464,6 +465,11 @@ const approvalConsumer = env.IDENTITY_URL
   : unwiredApprovalConsumer();
 
 export const appRouter = createBankRouter(bank, {
+  // The person's own extra checks (BK-safe-01): read from identity on every send to another person. No IDENTITY_URL refuses
+  // those sends with bank.extra_controls_unset rather than acting as if no extras were set.
+  extraControls: env.IDENTITY_URL
+    ? createIdentityExtraControls(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, undefined, ledgerS2s)
+    : unconfiguredExtraControls(),
   scheduledTransfersEnabled: env.SCHEDULED_TRANSFERS_ENABLED,
   interestAccrualEnabled: env.INTEREST_ACCRUAL_ENABLED,
   loanAccrualEnabled: env.LOAN_ACCRUAL_ENABLED,

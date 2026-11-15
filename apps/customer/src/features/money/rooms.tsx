@@ -2,6 +2,7 @@ import { t as copyText, Text } from './copy';
 import { ComplaintRoom } from './complaint/ComplaintRoom';
 import { BereavementRoom } from './bereavement/BereavementRoom';
 import { ScamReportRoom } from './scam/ScamReportRoom';
+import { LostPhoneRoom } from './lost-phone/LostPhoneRoom';
 import { CardOrderRoom } from './CardOrder';
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
@@ -1901,6 +1902,7 @@ const bankServices = [
   { href: '/uc/record', label: 'index.money.activity', note: 'overview.activity.note' },
   { href: '/bank/account', label: 'nav.bank.account', note: 'overview.bank.account.note' },
   { href: '/bank/safety/scam', label: 'nav.scam', note: 'overview.scam.note' },
+  { href: '/bank/safety/lost-phone', label: 'nav.lostPhone', note: 'overview.lostPhone.note' },
   { href: '/bank/safety/complaint', label: 'nav.complaint', note: 'overview.complaint.note' },
   { href: '/bank/safety/bereavement', label: 'nav.bereavement', note: 'overview.bereavement.note' },
 ] as const;
@@ -2165,6 +2167,8 @@ export function BankRoutes({ path, search, open }: { path: string; search: strin
       return <ComplaintRoom />;
     case '/bank/safety/scam':
       return <ScamReportRoom />;
+    case '/bank/safety/lost-phone':
+      return <LostPhoneRoom />;
     case '/bank/safety/bereavement':
       return <BereavementRoom />;
     case '/bank/recovery':

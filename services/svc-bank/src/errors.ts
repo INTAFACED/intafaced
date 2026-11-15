@@ -580,6 +580,12 @@ export type BankErrorCode =
   | 'bank.security_lock_unavailable'
   /** No IDENTITY_URL: this deployment cannot check the security lock, so address changes and sends refuse. A deployment gap. */
   | 'bank.security_lock_unset'
+  /** The person's own step-up extras hold a send above their allowance while a chosen check cannot be done (BK-safe-01). Nothing was sent. */
+  | 'bank.extra_controls_pending'
+  /** Identity could not answer the extra-checks read (outage, timeout, bad reply). Nothing was sent; retry. */
+  | 'bank.extra_controls_unavailable'
+  /** No IDENTITY_URL: this deployment cannot read the extra checks, so sends to another person refuse. A deployment gap. */
+  | 'bank.extra_controls_unset'
   /** The owner froze the account themselves (I-account-lifecycle-08): no address change and nothing sent until they lift it. */
   | 'bank.account_frozen_self'
   /** The address was approved already, so there is nothing to approve or mail. */
