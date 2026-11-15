@@ -80,6 +80,11 @@ type RedemptionRow = {
   ledger_tx_id: string | null;
   posted_at: Date | null;
   created_at: Date;
+  owe_tx_id: string | null;
+  owed_at: Date | null;
+  paid_chain_tx: string | null;
+  pay_to_wallet: string | null;
+  paid_at: Date | null;
 };
 
 const INVALID = 'This code cannot be claimed. Check it and try again.';
@@ -122,6 +127,12 @@ export interface VoucherServiceOptions {
   saga: PayoutSaga | null;
   /** The owner's attempt limits, read per call; null refuses every check and claim `campaigns.attempt_limit_unset`. */
   attemptLimits: () => AttemptLimits | null;
+  /**
+   * Notes the caller's connected wallet on their open USDC rewards (TaskService.recordPayTo), from the headers their own
+   * request forwarded, so a cash voucher in USDC is paid to that wallet (launch money model; J-campaigns-08 #5). Absent:
+   * a USDC redemption is owed and waits for a connected wallet.
+   */
+  payTo?: (accountId: string, forwarded: Record<string, string>) => Promise<boolean>;
   now?: () => Date;
 }
 
@@ -131,6 +142,7 @@ export class VoucherService {
   private readonly campaigns: Pick<CampaignService, 'eligibility'>;
   private readonly saga: PayoutSaga | null;
   private readonly attemptLimits: () => AttemptLimits | null;
+  private readonly payTo: VoucherServiceOptions['payTo'];
   private readonly now: () => Date;
 
   constructor(options: VoucherServiceOptions) {
@@ -139,6 +151,7 @@ export class VoucherService {
     this.campaigns = options.campaigns;
     this.saga = options.saga;
     this.attemptLimits = options.attemptLimits;
+    this.payTo = options.payTo;
     this.now = options.now ?? (() => new Date());
   }
 
@@ -188,7 +201,13 @@ export class VoucherService {
    * archived or otherwise stopped campaign pays nothing (`campaign.not_active`); an ended one honours a claimed voucher
    * until its use-by. The caller is checked against the campaign's rules again, as at the claim.
    */
-  async redeem(input: { voucherId: string; amount: string; sequence: number; accountId: string }): Promise<VoucherRedeemResult> {
+  async redeem(input: {
+    voucherId: string;
+    amount: string;
+    sequence: number;
+    accountId: string;
+    forwarded?: Record<string, string>;
+  }): Promise<VoucherRedeemResult> {
     if (!this.saga) throw new CampaignsError('campaigns.reward_saga_unwired', 'Vouchers cannot be redeemed: the ledger is not connected');
     const raw = input.amount.trim();
     if (!DECIMAL.test(raw) || parseAmount(raw) <= 0n) {
@@ -302,6 +321,9 @@ export class VoucherService {
           ${tx.json({ voucher: v.id, rewardKey: key, sequence: input.sequence, amount })})`;
       return { key, created: true, withheld: withheld !== null };
     });
+    // A USDC redemption is paid to the caller's connected wallet: it is given that wallet before it is owed, so the payer
+    // can send it once the ledger records it owed. A redemption seen again keeps the wallet it was given.
+    if (this.payTo && input.forwarded) await this.payTo(input.accountId, input.forwarded);
     if (outcome.created && !outcome.withheld) await this.saga.attempt(outcome.key);
     const voucher = (await this.own(input.voucherId, input.accountId))!;
     const redemption = voucher.redemptions.find((r) => r.sequence === input.sequence)!;
@@ -506,7 +528,8 @@ export class VoucherService {
     const out = new Map<string, VoucherRedemption[]>();
     if (rows.length === 0) return out;
     const found = await this.sql<RedemptionRow[]>`
-      SELECT reward_key, period, amount::text AS amount, state, reason, ledger_tx_id, posted_at, created_at
+      SELECT reward_key, period, amount::text AS amount, state, reason, ledger_tx_id, posted_at, created_at,
+        owe_tx_id, owed_at, paid_chain_tx, pay_to_wallet, paid_at
       FROM campaigns.reward_intents
       WHERE account_id = ${accountId} AND campaign_id IN ${this.sql([...new Set(rows.map((r) => r.campaign_id))])}
         AND left(period, 8) = 'voucher:'`;
@@ -523,6 +546,11 @@ export class VoucherService {
           reason: r.reason,
           ledgerTxId: r.ledger_tx_id,
           postedAt: r.posted_at ? r.posted_at.toISOString() : null,
+          owed: r.owe_tx_id && r.owed_at ? { txId: r.owe_tx_id, at: r.owed_at.toISOString() } : null,
+          payout:
+            r.state === 'paid' && r.paid_chain_tx && r.pay_to_wallet && r.paid_at
+              ? { chainTx: r.paid_chain_tx, toWallet: r.pay_to_wallet, at: r.paid_at.toISOString() }
+              : null,
         },
       });
       out.set(voucherId, list);
