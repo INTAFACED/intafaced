@@ -297,7 +297,7 @@ test(`${J} #5 a region-scoped campaign from a blocked region shows the reason; a
   expect(answers[1]).toBe(answers[0]);
 });
 
-test(`${J} #6 pressing Join twice is one participation; a campaign outside its weekday window refuses`, async ({ browser }) => {
+test(`${J} #6 pressing Join twice is one participation; a campaign outside its weekday or hour window refuses`, async ({ browser }) => {
   const { me, campaignId, campaignName } = state('me', 'campaignId', 'campaignName');
   const page = await customer(browser);
   await signIn(page, me);
@@ -326,6 +326,24 @@ test(`${J} #6 pressing Join twice is one participation; a campaign outside its w
   await expect(detail.getByTestId('campaign-refusal')).toHaveAttribute('data-code', 'campaign.outside_window');
   await expect(detail.getByTestId('campaign-refusal')).toContainText('does not run at this time');
   await expect(detail.getByTestId('campaign-joined')).toHaveCount(0);
+
+  // A campaign that runs every day but only in an hour window that is not now in the platform time zone (UTC): a later
+  // hour today, or an earlier one late in the day, so the step holds for the hours it takes.
+  const hour = new Date().getUTCHours();
+  const from = hour <= 20 ? hour + 2 : hour - 3;
+  const hh = (h) => `${String(h).padStart(2, '0')}:00`;
+  const offHours = await liveCampaign(`TEST hours ${tag}`, { hours: { from: hh(from), to: hh(from + 1) } });
+  await page.goto(`/campaigns/${offHours.id}`);
+  await expect(detail.getByTestId('campaign-hours')).toContainText(`${hh(from)}`);
+  await detail.getByRole('button', { name: `Join ${offHours.name}` }).click();
+  await expect(detail.getByTestId('campaign-refusal')).toHaveAttribute('data-code', 'campaign.outside_window');
+  await expect(detail.getByTestId('campaign-refusal')).toContainText('does not run at this time');
+  await expect(detail.getByTestId('campaign-joined')).toHaveCount(0);
+  // The service refuses it by the hour, and keeps no participation for it.
+  const refused = await mine.post('/api/campaigns/trpc/participation.join', { campaignId: offHours.id });
+  expect(refused.body?.error?.message ?? '').toContain('does not run at this hour');
+  const after = await mine.get('/api/campaigns/trpc/participation.mine');
+  expect(after.body?.result?.data?.campaigns.filter((m) => m.campaign.id === offHours.id)).toHaveLength(0);
 });
 
 test(`${J} #7 /campaigns/mine shows the campaign I joined`, async ({ browser }) => {
