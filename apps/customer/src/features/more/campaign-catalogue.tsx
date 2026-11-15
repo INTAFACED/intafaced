@@ -20,6 +20,7 @@ import { StatRow } from './depth-kit';
 import { campaignCatalogueCopy } from './campaign-catalogue-copy';
 import { CampaignTasks } from './campaign-tasks';
 import { CampaignCompetition } from './campaign-competition';
+import { CampaignDraw } from './campaign-draw';
 
 /**
  * The campaign rooms read from svc-campaigns (CM-campaign-types-01, J-campaigns-01): the catalogue at /campaigns, one
@@ -376,6 +377,7 @@ function CampaignBody({
       </Panel>
       {c.tasks && c.type !== 'welcome' ? <CampaignTasks campaign={c} /> : null}
       {c.type === 'competition' ? <CampaignCompetition campaign={c} version={c.mine?.participationKey ?? 'none'} /> : null}
+      {c.type === 'draw' ? <CampaignDraw campaign={c} version={c.mine?.participationKey ?? 'none'} /> : null}
     </>
   );
 }
