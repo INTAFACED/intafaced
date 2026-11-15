@@ -59,6 +59,7 @@ import { SUBSCRIBES, loadMap, runsBehind } from './journey-reach-map.mjs';
 import { evaluateGateFileRule } from '../scripts/gate-file-guard.mjs';
 import { parseJobs, parseTests } from './bisect-main.mjs';
 import { AUTO_REVERT_AUTHOR, AUTO_REVERT_BRANCH } from './exact-revert.mjs';
+import { moneyGuardAt } from './journey-verdict.mjs';
 
 const SHA = /^[0-9a-f]{40}$/;
 const STEP = /^J-[a-z0-9-]+-\d+#\d+$/;
@@ -1223,6 +1224,25 @@ function selfTest() {
       at: 't',
     });
   const passed = settle(true);
+  // A money step's flaky issue carries the mark project-state's pull reads (intafaced #8379: J-cex-spot-01 #8 had none).
+  const marked = settleNotes({
+    steps: ['J-a-01#2', 'J-b-01#1', 'J-c-01#1'],
+    back: true,
+    sha: A,
+    runUrl: 'u',
+    redRunUrl: 'https://x/actions/runs/42',
+    at: 't',
+    money: { 'J-a-01#2': true, 'J-b-01#1': false },
+  }).map((n) => /<!-- money-flaky: (\S+) -->/.exec(n.body)?.[1] ?? null);
+  eq(
+    marked,
+    ['J-a-01#2', null, 'J-c-01#1'],
+    'a money step (or one the guard does not know) is marked money-flaky; a non-money step is not',
+  );
+  const guard = moneyGuardAt('.');
+  eq(guard['J-cex-spot-01#8'], true, "the guard at this checkout calls J-cex-spot-01 #8 money, as main's verdict did");
+  const real = settleNotes({ steps: ['J-cex-spot-01#8'], back: true, sha: A, runUrl: 'u', redRunUrl: 'r', at: 't', money: guard })[0].body;
+  eq(real.includes('<!-- money-flaky: J-cex-spot-01#8 -->'), true, "#8379's step, settled flaky, opens marked money-flaky");
   eq(
     passed.map((n) => [n.title, n.labels, n.opens]),
     [
@@ -1651,7 +1671,7 @@ export const flakyStepTitle = (step) => `Flaky step on main: ${step.replace('#',
  * false: the steps fail again, one `regression` break issue per journey at once, closed by Main trust when they pass.
  * null: the run broke before it said, one `main-unknown-red` break issue per journey. Pure.
  */
-export function settleNotes({ steps, back, sha, runUrl, redRunUrl, at }) {
+export function settleNotes({ steps, back, sha, runUrl, redRunUrl, at, money = {} }) {
   const record = (list) =>
     `<!-- ${SETTLE_MARK} ${JSON.stringify({ v: 1, steps: list, red_run: Number(/runs\/(\d+)/.exec(redRunUrl)?.[1]) || null, sha, run: runUrl, result: back === true ? 'pass' : back === false ? 'fail' : 'unfinished', at })} -->`;
   const head = `main's head \`${sha.slice(0, 10)}\``;
@@ -1661,7 +1681,7 @@ export function settleNotes({ steps, back, sha, runUrl, redRunUrl, at }) {
       title: flakyStepTitle(step),
       labels: ['flaky'],
       opens: true,
-      body: `\`${step.replace('#', ' #')}\` failed on main ([red run](${redRunUrl})), traced to no single merge, and passed run alone on ${head} ([settle run](${runUrl})). It is flaky, not broken: main counts it green, and it never counts as proven from the red run. Fix the race in the test or the code it checks, never by weakening the test.\n\n<!-- flaky: ${step} -->\n${record([step])}\n${tail}`,
+      body: `\`${step.replace('#', ' #')}\` failed on main ([red run](${redRunUrl})), traced to no single merge, and passed run alone on ${head} ([settle run](${runUrl})). It is flaky, not broken: main counts it green, and it never counts as proven from the red run. Fix the race in the test or the code it checks, never by weakening the test.\n\n<!-- flaky: ${step} -->\n${(money[step] ?? true) ? `<!-- money-flaky: ${step} -->\n` : ''}${record([step])}\n${tail}`,
     }));
   return journeysOf(steps).map((journey) => {
     const list = steps.filter((s) => s.split('#')[0] === journey);
@@ -1718,6 +1738,16 @@ export function parseRecord(body) {
   }
 }
 
+/** The money guard at this checkout; when it can't be read, every step counts as money ({}: unknown means money). */
+function guardOrAllMoney() {
+  try {
+    return moneyGuardAt('.');
+  } catch (e) {
+    console.error(`the money guard could not be read (${e.message}): every step counts as money`);
+    return {};
+  }
+}
+
 async function back(env) {
   need(env, 'GITHUB_REPOSITORY', 'STEPS', 'BAD', 'RUN_URL');
   if (!SHA.test(env.BAD)) throw new Error('BAD must be a full commit sha');
@@ -1746,6 +1776,8 @@ async function back(env) {
       runUrl: env.RUN_URL,
       redRunUrl: `https://github.com/${env.GITHUB_REPOSITORY}/actions/runs/${env.RED_RUN}`,
       at: new Date().toISOString(),
+      // The set-aside's money guard at this checkout (main): a money step's flaky issue carries `money-flaky`.
+      money: guardOrAllMoney(),
     });
     summary([
       `### Journeys settle: ${back === true ? 'flaky, main counts green' : back === false ? 'broken on main' : 'did not finish'}`,
