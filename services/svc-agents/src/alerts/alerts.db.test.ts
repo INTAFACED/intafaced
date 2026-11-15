@@ -136,7 +136,7 @@ describe('alert thresholds and rule checks (pure)', () => {
   async function actions(agentId: string, status: 'executed' | 'refused' | 'failed', n: number, cost = '0') {
     const [session] = await sql<{ id: string }[]>`
       INSERT INTO agents.agent_sessions (user_id, agent_id, guardrail, guardrail_version)
-      VALUES (${OPERATOR}, ${agentId}, '{}'::jsonb, 1) RETURNING id::text
+      VALUES (${OPERATOR}, ${agentId}, ${sql.json({ limits: {}, tools: [] })}, 1) RETURNING id::text
     `;
     for (let i = 0; i < n; i += 1) {
       await sql`
