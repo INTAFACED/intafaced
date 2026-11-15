@@ -3,7 +3,7 @@ import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { ADMIN } from './admin.mjs';
-import { api, fromUnits, stackUrl, tool, toUnits } from './stack.mjs';
+import { api, fromUnits, toUnits, tool } from './stack.mjs';
 import { signUp, verify, signIn } from './desk.mjs';
 import { staffSignIn } from './staff.mjs';
 import { otherTraderRun, testDeposit, otherTraderKey, venueRecord } from './venue.mjs';
@@ -15,7 +15,7 @@ import { otherTraderRun, testDeposit, otherTraderKey, venueRecord } from './venu
 // tooling/scripts/local-test-venue.mjs), and a fresh TEST trader approves our builder fee and places orders through the
 // door, each signed by a TEST key derived from a public name. Every figure the TEST venue reports is TEST.
 const J = 'J-derivatives-17';
-const TEST_VENUE = stackUrl('test-venue');
+const TEST_VENUE = 'http://127.0.0.1:14560';
 const key = privateKeyToAccount(keccak256(toHex(`intafaced TEST venue journey trader ${J} ${process.env.JOURNEY_RUN_ID ?? 'local'}`)));
 const owner = key.address.toLowerCase();
 const signer = { role: 'owner', address: owner };

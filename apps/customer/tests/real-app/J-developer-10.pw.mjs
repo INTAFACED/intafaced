@@ -5,7 +5,7 @@ import { test, expect } from './journey.mjs';
 import { signUp, verify } from './desk.mjs';
 import { addAuthenticator, forgetSession } from './identity-factors.mjs';
 import { openBusiness, paidCardPayment, payApiOf, signInWithCode, verifiedBusiness } from './merchant.mjs';
-import { HOOK_PORTS, ORIGIN, restartWith, restartWithSetting, ROOT } from './stack.mjs';
+import { ORIGIN, ROOT, restartWith, restartWithSetting } from './stack.mjs';
 import path from 'node:path';
 
 // J-developer-10, in the running app (docs/roadmap/journeys.json): receive webhooks and verify them. One test per step,
@@ -24,7 +24,7 @@ const J = 'J-developer-10';
 const WEBHOOKS = '/pay/developer/webhooks';
 const DELIVERIES = '/pay/developer/deliveries';
 const DOCS = '/pay/developer/docs';
-const HOOK_PORT = HOOK_PORTS.developer;
+const HOOK_PORT = 14591;
 const HOOK = `http://127.0.0.1:${HOOK_PORT}`;
 const DRAIN_MS = 15_000;
 const LEASE_MS = 60_000;

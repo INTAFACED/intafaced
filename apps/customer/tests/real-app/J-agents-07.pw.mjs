@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { test, expect } from './journey.mjs';
 import { OWN_AGENT, UNBUILT, agentsRun, createOwnAgent, openOwnAgent, tableIn } from './agents.mjs';
 import { signIn } from './desk.mjs';
-import { api, STACK_PORTS } from './stack.mjs';
+import { api } from './stack.mjs';
 
 // J-agents-07, in the running app (docs/roadmap/journeys.json): schedule an agent, trigger it from an event and hand
 // work to a specialist. One test per step, titled "J-agents-07 #<n>", run in order on one verified TEST account with a
@@ -213,7 +213,7 @@ function redeliverFill(userId) {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
   const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], {
     cwd: path.join(root, 'packages', 'events'),
-    env: { ...process.env, NATS_URL: `nats://127.0.0.1:${STACK_PORTS.nats}`, NATS_STREAM_PREFIX: 'LOCAL_TEST', USER_ID: userId },
+    env: { ...process.env, NATS_URL: 'nats://127.0.0.1:14232', NATS_STREAM_PREFIX: 'LOCAL_TEST', USER_ID: userId },
     encoding: 'utf8',
     timeout: 60_000,
   });

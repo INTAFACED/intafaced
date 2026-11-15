@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test, expect } from './journey.mjs';
 import { approverSessions, makeContext, setFeeSchedule } from '../../../../tooling/scripts/local-test-gates.mjs';
-import { api, bestPrices, EDGE, fromUnits, fund, otherTrader, STACK_PORTS, stackUrl, times, toUnits } from './stack.mjs';
+import { EDGE, api, bestPrices, fromUnits, fund, otherTrader, times, toUnits } from './stack.mjs';
 import { fundedTrader, openOrders } from './desk.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { withPartner } from './partner.mjs';
@@ -188,7 +188,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { tool } from './stack.mjs';
 
 /** The stack's TEST venue simulator, on loopback (local-test-stack.mjs PORTS['test-venue']), for its TEST controls only. */
-const TEST_VENUE = stackUrl('test-venue');
+const TEST_VENUE = 'http://127.0.0.1:14560';
 /** The setting that turns svc-trade's user-venue door on and starts the TEST venue (local-stack-services/trade.mjs). */
 const VENUE_SWITCH = 'LOCAL_STACK_USER_VENUE';
 /** The market our TEST builder-fee versions put in a group of its own. Every other market of the venue takes the default group. */
@@ -257,7 +257,7 @@ function testWallet(name) {
 /** svc-trade's own database role on the stack (loopback, the marker's postgres port, the stack's secret). */
 function tradeDb(ctx) {
   const postgres = createRequire(path.join(REPO, 'services', 'svc-trade', 'package.json'))('postgres');
-  const port = ctx.marker.ports.postgres ?? STACK_PORTS.postgres;
+  const port = ctx.marker.ports.postgres ?? 15460;
   return postgres(`postgres://svc_trade:${encodeURIComponent(ctx.secrets.pgService)}@127.0.0.1:${port}/intafaced_local_test`, {
     max: 1,
     onnotice: () => {},

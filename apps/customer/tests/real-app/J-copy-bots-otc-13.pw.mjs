@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { test, expect } from './journey.mjs';
 import { approverSessions, makeContext, setFeeDiscountSchedule } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { api, bestPrices, fund, journeyState, STACK_PORTS, tool, toUnits } from './stack.mjs';
+import { api, bestPrices, fund, journeyState, toUnits, tool } from './stack.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 import { followOnScreen, listLeader, userIdOf } from './copy.mjs';
 import { staffSignIn } from './staff.mjs';
@@ -104,7 +104,7 @@ async function founderReads() {
 /** svc-trade's own database role on the stack (loopback, the marker's postgres port, the stack's secret). */
 function tradeDb(ctx) {
   const postgres = createRequire(path.join(REPO, 'services', 'svc-trade', 'package.json'))('postgres');
-  const port = ctx.marker.ports.postgres ?? STACK_PORTS.postgres;
+  const port = ctx.marker.ports.postgres ?? 15460;
   return postgres(`postgres://svc_trade:${encodeURIComponent(ctx.secrets.pgService)}@127.0.0.1:${port}/intafaced_local_test`, {
     max: 1,
     onnotice: () => {},

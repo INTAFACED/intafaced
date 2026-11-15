@@ -13,7 +13,7 @@ import { deviceCodesMailedTo, OUTBOX_NAME } from '../../../../tooling/scripts/lo
 import { HOME_ASSET, HOME_DEPOSIT_AMOUNT, HOME_NOTICE_TITLE } from '../../../../tooling/scripts/local-test-home.mjs';
 import { ADMIN, assertAdminUp } from './admin.mjs';
 import { NOTICE_DRAIN_MINUTES } from './notices.mjs';
-import { EDGE, ORIGIN as CUSTOMER, ROOT, stackUrl } from './stack.mjs';
+import { EDGE, ORIGIN as CUSTOMER, ROOT } from './stack.mjs';
 
 // J-home-ia-11, in the running app (docs/roadmap/journeys.json): I bring up a test build and sign in as a founder (tester
 // entry). Tests titled "J-home-ia-11 #<n>" prove a whole step. The journey starts from a compose up with the `tester`
@@ -30,8 +30,8 @@ const STATE = localStackState();
 const COMPOSE = ['docker-compose.yml', 'docker-compose.apps.yml'];
 const OUTBOX = path.join(STATE, OUTBOX_NAME);
 // The stack's TEST apex stand-in (not the real apex build), its invitation site (the join host) and the Customer server (the app host): localTestHosts.
-const APEX = stackUrl('apex');
-const INVITATION = stackUrl('invitation');
+const APEX = 'http://127.0.0.1:3260';
+const INVITATION = 'http://127.0.0.1:3220';
 
 test.describe.configure({ mode: 'default' });
 

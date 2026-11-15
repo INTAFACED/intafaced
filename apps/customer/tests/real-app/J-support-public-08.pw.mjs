@@ -2,10 +2,10 @@
 import { test, expect } from './journey.mjs';
 import { draftNotice, publishNotice, publishedNotices } from './notices.mjs';
 import { campaignTotals, enquiriesFor, inviteCampaign, publicSettings, setPublicSettings } from './outreach.mjs';
-import { ORIGIN, stackUrl, toolAwaited } from './stack.mjs';
+import { ORIGIN, toolAwaited } from './stack.mjs';
 
 /** The public invitation site on the stack (apps/invitation), where the join and partner enquiry forms live. */
-const JOIN = process.env.JOURNEY_JOIN_URL ?? stackUrl('invitation');
+const JOIN = process.env.JOURNEY_JOIN_URL ?? 'http://127.0.0.1:3220';
 
 // J-support-public-08, in the running app (docs/roadmap/journeys.json): a signed-out visitor opens the lab, partner, app and
 // announcement pages, and each tells the truth about what exists. Tests titled "J-support-public-08 #<n>" prove a whole step.
