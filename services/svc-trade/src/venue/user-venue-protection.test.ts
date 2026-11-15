@@ -6,7 +6,14 @@ import type { PlaceUserOrderIntent, PreparedVenueAction, UserVenueMarket, VenueI
 import { TradeError } from '../spot/types.js';
 import { InMemoryPreparedActionStore } from './prepared-action-store.js';
 import { UserVenueRouter } from './venue-router.js';
-import { UserVenueDoor, UserVenueDoorError, marketProtectionBound, type ConnectedUserVenue } from './user-venue-door.js';
+import {
+  UserVenueDoor,
+  UserVenueDoorError,
+  marketProtectionBound,
+  requireMarketSpreadLimitBps,
+  spreadTooWide,
+  type ConnectedUserVenue,
+} from './user-venue-door.js';
 import { attachUserVenueRoutes } from './user-venue-rest.js';
 import { listedTestStore } from './venue-listing-store.js';
 import { StoreVenueRoutingGate } from './venue-listing.js';
@@ -92,7 +99,14 @@ function stubVenue(best: { bid: Amount | null; ask: Amount | null }) {
   return { venue, asked };
 }
 
-function door(slippageCapBps: number | null, best = { bid: a('59990') as Amount | null, ask: a('60010') as Amount | null }) {
+/** A labelled TEST spread limit, wide of the stub's 20-wide book (3.3 bps of its bid). */
+const TEST_SPREAD_LIMIT_BPS = 100;
+
+function door(
+  slippageCapBps: number | null,
+  best = { bid: a('59990') as Amount | null, ask: a('60010') as Amount | null },
+  spreadLimitBps: number | null = TEST_SPREAD_LIMIT_BPS,
+) {
   const { venue, asked } = stubVenue(best);
   const d = new UserVenueDoor({
     connect: async () => venue,
@@ -101,6 +115,7 @@ function door(slippageCapBps: number | null, best = { bid: a('59990') as Amount 
     stepUp: { require: async () => ({ stepUpEventId: 'x', consumedAt: null, replayed: false }) },
     builder: { address: '0x00000000000000000000000000000000000000b1', feeBps: a('1') },
     slippageCapBps,
+    spreadLimitBps,
     now: () => new Date(),
     // Our listing shows the one market these orders use (J-cex-spot-16).
     listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'], 'stub')),
@@ -140,6 +155,35 @@ describe('marketProtectionBound: the same rounding as the desk', () => {
     expect(marketProtectionBound('sell', { bid: a('59990'), ask: a('60010') }, 50, a('1'))).toBe(a('59690'));
     expect(marketProtectionBound('buy', { bid: a('1'), ask: null }, 50, a('1'))).toBeNull();
     expect(marketProtectionBound('sell', { bid: null, ask: a('1') }, 50, a('1'))).toBeNull();
+  });
+});
+
+describe('the owner spread limit (J-cex-spot-03 #2)', () => {
+  it('spreadTooWide: the ask further above the bid than the limit, in bps of the bid; a missing side is never within', () => {
+    // 59990 → 60010 is 20 wide: 3.33 bps of the bid.
+    expect(spreadTooWide({ bid: a('59990'), ask: a('60010') }, 4)).toBe(false);
+    expect(spreadTooWide({ bid: a('59990'), ask: a('60010') }, 3)).toBe(true);
+    expect(spreadTooWide({ bid: a('10000'), ask: a('10001') }, 1)).toBe(false);
+    expect(spreadTooWide({ bid: null, ask: a('1') }, 1)).toBe(false);
+  });
+
+  it('blank spread limit: a market order refuses trade.spread_limit_unset ("protection not set") on preview and prepare; the venue is never asked', async () => {
+    const { d, asked } = door(50, undefined, null);
+    expect(await refusal(() => d.preview(principal, owner, order()))).toBe('trade.spread_limit_unset');
+    expect(await refusal(() => d.prepare(principal, { owner, signer, intent: order() }))).toBe('trade.spread_limit_unset');
+    expect(asked).toEqual({ previews: 0, prepares: 0 });
+    expect(() => requireMarketSpreadLimitBps(null)).toThrow(/protection not set/);
+    expect(() => requireMarketSpreadLimitBps(0)).toThrow(/protection not set/);
+  });
+
+  it('a spread wider than the limit refuses trade.venue.spread_too_wide; nothing is prepared; a limit order is not touched', async () => {
+    const { d, asked } = door(50, { bid: a('59990'), ask: a('60010') }, 3);
+    expect(await refusal(() => d.preview(principal, owner, order()))).toBe('trade.venue.spread_too_wide');
+    expect(await refusal(() => d.prepare(principal, { owner, signer, intent: order() }))).toBe('trade.venue.spread_too_wide');
+    expect(asked).toEqual({ previews: 0, prepares: 0 });
+    expect(await refusal(() => d.preview(principal, owner, order({ type: 'limit', price: a('59000'), timeInForce: 'GTC' })))).toBe(
+      'passed',
+    );
   });
 });
 
@@ -219,6 +263,7 @@ describe('POST /api/v1/venue/preview and /prepare answer the protection refusals
         requirePrincipal: () => principal,
         requireTradeJurisdiction: () => true,
         slippageCapBps: cap,
+        spreadLimitBps: TEST_SPREAD_LIMIT_BPS,
       },
     );
     await app.ready();

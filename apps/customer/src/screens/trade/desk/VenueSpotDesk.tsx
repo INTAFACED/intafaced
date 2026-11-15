@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Button as KitButton, Dialog, Field } from '../../../shared/ui';
 import { useResource } from '../../../shared/resource';
-import { displayAmount } from '../../../shared/money';
+import { displayAmount, parseAmount } from '../../../shared/money';
 import { usePreferences } from '../../../shared/preferences';
 import { useSession } from '../../../features/session/session';
 import { verificationStatus } from '../../../features/account/verification-guards';
@@ -20,6 +20,8 @@ import {
   type VenueMarket,
   type VenueOrder,
   type VenuePreview,
+  type VenueSelfTradeMode,
+  type VenueTimeInForce,
   type VenueUp,
   type VenueWithdrawal,
 } from '../../../features/trade/venue-api';
@@ -34,6 +36,8 @@ import {
   VenueFrame,
   VenueHeader,
   heldKeys,
+  outcomeText,
+  heldTags,
   keepsDraft,
   useOwner,
   useVenueAccount,
@@ -66,17 +70,27 @@ import {
 import { placesOf } from './text';
 import { zoneName } from './time';
 import { spotVenueCopy } from './venue-copy';
+import { VenueMarketPanel } from './VenueMarketData';
+import { NotOfferedTypes, UnitFlag, VenueSelfTradeSelect, VenueTifSelect } from './VenueOrderOptions';
 import {
   HeldDraft,
+  amountForValue,
+  tagProblem,
+  valueOf,
+  venueSelfTrade,
   depositTransfer,
   draftSignature,
   intentOf,
+  lockShortfall,
+  pendingOrders,
+  previewMoved,
   refusedAtHeldWorst,
   shortAddress,
   slippageLimit,
   ticketProblem,
   withdrawStep,
   type DepositRoute,
+  type PendingOrder,
   type TicketFields,
   type VenueOrderType,
   type VenueSide,
@@ -202,15 +216,28 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
   const owner = useOwner();
   const venue = useVenueApi();
   const account = useVenueAccount(owner);
-  const { run } = useVenueActions(owner);
+  const { run, resend, keptSignature } = useVenueActions(owner);
   const access = useTradeAccess();
   const [type, setType] = useState<VenueOrderType>('limit');
+  const [tif, setTif] = useState<VenueTimeInForce>('GTC');
   const [tab, setTab] = useState<'open' | 'history' | 'positions'>('open');
   const [lastResult, setLastResult] = useState<ActionResult | null>(null);
   const [cancelledKeys, setCancelledKeys] = useState<Array<{ key: string; clientOrderId: string }>>([]);
   const [dialog, setDialog] = useState<'deposit' | 'withdraw' | null>(null);
   const [withdrawalNonce, setWithdrawalNonce] = useState<string | null>(null);
   const placedKeys = useMemo(() => (owner ? heldKeys(owner) : null), [owner]);
+  // Orders with no definite answer yet (J-cex-spot-02 #3, #4): kept across a reload; while one is listed, no new order goes.
+  const pendingStore = useMemo(() => (owner ? pendingOrders(owner) : null), [owner]);
+  // Read from this tab's store when the owner's store changes (during render, so a reload shows them at once).
+  const [pendingOf, setPendingOf] = useState(() => ({ store: pendingStore, list: pendingStore?.list() ?? [] }));
+  if (pendingOf.store !== pendingStore) setPendingOf({ store: pendingStore, list: pendingStore?.list() ?? [] });
+  const pending = pendingOf.store === pendingStore ? pendingOf.list : (pendingStore?.list() ?? []);
+  const setPending = (list: PendingOrder[]) => setPendingOf({ store: pendingStore, list });
+  const [found, setFound] = useState<string | null>(null);
+  // The keys of orders the venue has since named: each side's ticket lets go of a key it still holds for one.
+  const [settledKeys, setSettledKeys] = useState<string[]>([]);
+  const tags = useMemo(() => (owner ? heldTags(owner) : null), [owner]);
+  const tagOf = (clientOrderId: string) => tags?.get(clientOrderId);
   const best = usePolled((signal) => venue.bestPrices(market.symbol, signal), `best:${market.symbol}`, VENUE_POLL_MS);
   const cancelled = useCancelledOrders(owner, cancelledKeys);
   // The orders behind the venue's own fills on this market (newest last), and any this page placed: the filled ones
@@ -227,7 +254,9 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
   const filled = useFilledOrders(owner, filledIds, account.openOrders.data?.value ?? null, cancelledKeys);
   // The owner's market price protection, as svc-trade answers it with the venue's best prices; blank refuses a market order.
   const cap = best.data?.slippageCapBps ?? null;
-  const capSet = cap?.known === true;
+  // A market order needs both owner values: the price protection and the spread limit. Either blank: "protection not set".
+  const spreadSet = best.data?.spreadLimitBps?.known === true;
+  const capSet = cap?.known === true && spreadSet;
 
   const fee = (m: VenueMarket['makerFeeBps']) => (m.known ? v('Fee bps', { bps: m.value }) : v('Not known'));
   const feeLine = v('Fee line spot', {
@@ -248,19 +277,55 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
     account.reload();
   }
 
-  const placed = (intent: OrderIntent, answer: ActionResult) => {
-    if ((answer.kind === 'outcome' || answer.kind === 'unknown') && answer.clientOrderId)
+  const placed = (intent: OrderIntent, answer: ActionResult, tag: string) => {
+    if ((answer.kind === 'outcome' || answer.kind === 'unknown') && answer.clientOrderId) {
       placedKeys?.set(answer.clientOrderId, intent.clientOrderKey);
-    setLastResult(answer);
+      if (tag) tags?.set(answer.clientOrderId, tag);
+    }
+    if (answer.kind === 'unknown' && answer.clientOrderId && pendingStore) {
+      // No definite answer: the order is looked up on the venue by its client id, and nothing new is sent meanwhile.
+      const signature = keptSignature(intent.clientOrderKey) ?? pendingStore.list().find((p) => p.key === intent.clientOrderKey)?.signature;
+      pendingStore.add({ clientOrderId: answer.clientOrderId, key: intent.clientOrderKey, intent, ...(signature ? { signature } : {}) });
+      setPending(pendingStore.list());
+      setFound(null);
+    } else {
+      const answeredId = answer.kind === 'outcome' ? answer.clientOrderId : null;
+      const wasPending = answeredId ? pendingStore?.list().find((p) => p.clientOrderId === answeredId) : undefined;
+      if (answer.kind === 'outcome' && wasPending && pendingStore) {
+        // The same order sent again was answered definitely: it is named as the look-up names it, and the draft let go.
+        pendingStore.remove(wasPending.clientOrderId);
+        setPending(pendingStore.list());
+        setSettledKeys((now) => [...now, wasPending.key]);
+        const status = answer.outcome.accepted ? answer.outcome.order?.status : undefined;
+        if (status) setFound(t('Pending found', { id: wasPending.clientOrderId, status: word(v, 'status', status) }));
+      }
+      setLastResult(answer);
+    }
     account.reload();
     if (answer.kind === 'outcome' && answer.outcome.accepted) setTab('open');
   };
+
+  const onFound = (entry: PendingOrder, order: VenueOrder) => {
+    pendingStore?.remove(entry.clientOrderId);
+    setPending(pendingStore?.list() ?? []);
+    setSettledKeys((now) => [...now, entry.key]);
+    setFound(t('Pending found', { id: entry.clientOrderId, status: word(v, 'status', order.status) }));
+    account.reload();
+  };
+  // The same order again under the same key: the same signed bytes when this tab kept them, so the wallet is not asked.
+  const sendAgain = async (entry: PendingOrder) =>
+    placed(
+      entry.intent,
+      await resend(entry.intent, entry.signature ? { signature: entry.signature } : {}),
+      tagOf(entry.clientOrderId) ?? '',
+    );
 
   const offeredTypes = market.orderTypes.filter((x): x is VenueOrderType => x === 'limit' || x === 'market');
   const route: DepositRoute | null = status.deposit ?? null;
   return (
     <div data-testid="if-desk" className="if-desk" data-market={market.symbol} data-venue="on">
       <VenueHeader status={status} title={t('Spot on venue', { symbol: market.symbol })} feeLine={feeLine} />
+      <VenueMarketPanel market={market} test={status.test} venueName={status.venue.displayName} />
       <ReadProblem failure={account.balances.failure} venueName={status.venue.displayName} />
       <VenueAccountPanel
         status={status}
@@ -273,6 +338,21 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
       {owner ? (
         <SubAccountsPanel owner={owner} balances={account.balances.data} test={status.test} run={run} onMoved={account.reload} />
       ) : null}
+      {owner && pending.length > 0 ? (
+        <section className="dk-panel form-stack" data-testid="venue-pending" aria-label={t('Pending title')}>
+          <h2 className="dk-tab-title">{t('Pending title')}</h2>
+          {pending.map((entry) => (
+            <PendingCheck key={entry.clientOrderId} owner={owner} entry={entry} onFound={onFound} onSendAgain={sendAgain} />
+          ))}
+          <p className="dk-note" role="status">
+            {t('Pending wait')}
+          </p>
+        </section>
+      ) : found ? (
+        <p className="dk-note" role="status" data-testid="venue-pending-found">
+          {found}
+        </p>
+      ) : null}
       <Tabs value={type} onValueChange={(value) => setType(value as VenueOrderType)} data-testid="dk-order" className="dk-panel dk-order">
         <div className="dk-order-head">
           <TabsList className="dk-tabs" aria-label={t('Order type')}>
@@ -282,6 +362,11 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
               </TabsTab>
             ))}
           </TabsList>
+          <NotOfferedTypes market={market} />
+        </div>
+        <div className="dk-order-opts">
+          {type === 'limit' ? <VenueTifSelect market={market} tif={tif} onTif={setTif} /> : null}
+          <VenueSelfTradeSelect market={market} />
         </div>
         <TabsPanel value={type} className="dk-order-body">
           <div className="dk-forms">
@@ -290,6 +375,8 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
                 key={`${side}:${owner ?? ''}`}
                 side={side}
                 type={type}
+                tif={tif}
+                protectionBps={cap?.known ? cap.value : null}
                 market={market}
                 status={status}
                 owner={owner}
@@ -299,6 +386,8 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
                 capSet={capSet}
                 run={run}
                 onPlaced={placed}
+                waiting={pending.length > 0}
+                settledKeys={settledKeys}
               />
             ))}
           </div>
@@ -318,10 +407,11 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
             onCancel={(o) => void cancel(o)}
             cancelled={cancelled}
             filled={filled}
+            tagOf={tagOf}
           />
         </TabsPanel>
         <TabsPanel value="history">
-          <FillsTable fills={account.fills.data} test={status.test} symbol={market.symbol} />
+          <FillsTable fills={account.fills.data} test={status.test} symbol={market.symbol} tagOf={tagOf} />
         </TabsPanel>
         <TabsPanel value="positions">
           <p data-testid="venue-positions-na">{t('Positions not applicable')}</p>
@@ -475,6 +565,8 @@ const PREVIEW_DEBOUNCE_MS = 250;
 function VenueSideForm({
   side,
   type,
+  tif,
+  protectionBps,
   market,
   status,
   owner,
@@ -484,9 +576,15 @@ function VenueSideForm({
   capSet,
   run,
   onPlaced,
+  waiting,
+  settledKeys,
 }: {
   side: VenueSide;
   type: VenueOrderType;
+  /** A limit order's time in force, picked once for both tickets. */
+  tif: VenueTimeInForce;
+  /** The owner's market price protection in bps, or null when blank. */
+  protectionBps: string | null;
   market: VenueMarket;
   status: VenueUp;
   owner: string | null;
@@ -495,7 +593,10 @@ function VenueSideForm({
   worst: string | null;
   capSet: boolean;
   run: ReturnType<typeof useVenueActions>['run'];
-  onPlaced: (intent: OrderIntent, answer: ActionResult) => void;
+  onPlaced: (intent: OrderIntent, answer: ActionResult, tag: string) => void;
+  /** An earlier order has no definite answer yet: no new order is sent until the venue names it. */
+  waiting: boolean;
+  settledKeys: readonly string[];
 }) {
   const { t } = spotVenueCopy.useCopy();
   const d = deskCopy.useCopy().t;
@@ -503,6 +604,12 @@ function VenueSideForm({
   const venue = useVenueApi();
   const [price, setPrice] = useState('');
   const [amount, setAmount] = useState('');
+  // The unit flag: the person types the size in the base asset (Amount) or in the quote asset (Total, or Spend on a
+  // market buy); the other field follows. A typed value is dropped when the order type changes (J-cex-spot-03 #1, #9).
+  const [unit, setUnit] = useState<'base' | 'quote'>('base');
+  const [value, setValue] = useState('');
+  const [tag, setTag] = useState('');
+  const [sent, setSent] = useState<OrderIntent | null>(null);
   const [live, setLive] = useState<Live | null>(null);
   const [review, setReview] = useState<{ intent: OrderIntent; preview: AsOf<VenuePreview> } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -510,6 +617,8 @@ function VenueSideForm({
   const [problem, setProblem] = useState<string | null>(null);
   const sending = useRef(false);
   const [approving, setApproving] = useState<ActionResult | null>(null);
+  const [moved, setMoved] = useState(false);
+  const [reviewProblem, setReviewProblem] = useState<string | null>(null);
 
   /** A sell that carries our builder fee, with no approval on the venue: the wallet signs the approval first. */
   async function approve() {
@@ -524,7 +633,18 @@ function VenueSideForm({
     account.reload();
   }
   const draft = useMemo(() => (owner ? new HeldDraft(owner, market.symbol) : null), [owner, market.symbol]);
-  const fields: TicketFields = { side, type, price, amount };
+  // A key the venue has since named is let go before this render holds one (settle only drops a key still held).
+  for (const key of settledKeys) draft?.settle(key);
+  const [typed, setTyped] = useState(type);
+  if (typed !== type) {
+    // The order type changed: a typed spend or total is dropped, never carried into the next kind of order.
+    setTyped(type);
+    setValue('');
+  }
+  // The price a value is sized at: a limit's own price, or a market order's worst price (so a buy's lock stays within it).
+  const sizedAt = type === 'limit' ? price.trim() || null : worst;
+  const sizedAmount = unit === 'quote' ? (amountForValue(value, sizedAt, market.lotSize) ?? '') : amount;
+  const fields: TicketFields = { side, type, price, amount: sizedAmount, tif };
   const issue = ticketProblem(fields, market, worst, capSet);
   // A market order's worst price is held with its key (HeldDraft.hold): the intent sent under one key never changes.
   const held = draft && issue === null ? draft.hold(fields, worst) : null;
@@ -555,8 +675,15 @@ function VenueSideForm({
   }, [owner, signature, venue]);
 
   const verb = side === 'buy' ? d('Buy asset', { asset: market.baseAsset }) : d('Sell asset', { asset: market.baseAsset });
-  const canSend = access === 'verified' && owner !== null && intent !== null && !busy;
+  // The venue's own figures: what this order locks against what the venue account has free (J-cex-spot-02 #6).
+  const balances = account.balances.data?.value ?? null;
+  const short = live?.state === 'ok' && live.signature === signature && balances ? lockShortfall(live.preview.value, balances) : null;
+  const refusedNow = live?.state === 'refused' && live.signature === signature;
+  const tagBad = tagProblem(tag);
+  const canSend =
+    access === 'verified' && owner !== null && intent !== null && !busy && !waiting && short === null && !refusedNow && !tagBad;
   const amountPlaces = placesOf(market.lotSize);
+  const valueLabel = type === 'market' && side === 'buy' ? t('Spend') : t('Total');
   const pricePlaces = placesOf(market.tickSize);
 
   async function startReview(event?: FormEvent) {
@@ -565,25 +692,47 @@ function VenueSideForm({
     setProblem(null);
     setResult(null);
     const fresh = live && live.signature === signature && live.state === 'ok' ? live.preview : null;
-    if (fresh) return setReview({ intent, preview: fresh });
+    if (fresh) {
+      setMoved(false);
+      setReviewProblem(null);
+      return setReview({ intent, preview: fresh });
+    }
     const answer = await venue.preview(owner, intent);
-    if (!answer.ok) return setProblem(v('Outcome refused', { detail: answer.message }));
+    if (!answer.ok) return setProblem(t('Not placeable', { detail: answer.message }));
+    if (balances && lockShortfall(answer.data.value, balances)) return;
+    setMoved(false);
+    setReviewProblem(null);
     setReview({ intent, preview: answer.data });
   }
 
   async function confirm() {
-    if (!review || sending.current) return;
+    if (!review || sending.current || !owner) return;
     sending.current = true;
     const sent = review.intent;
+    // The venue is asked again at Confirm: numbers that moved since the review are shown and asked again, never sent
+    // (J-cex-spot-02 #7). A refusal now is said in the review; nothing is signed.
+    const now = await venue.preview(owner, sent);
+    if (!now.ok) {
+      sending.current = false;
+      setReviewProblem(t('Not placeable', { detail: now.message }));
+      return;
+    }
+    if (previewMoved(review.preview.value, now.data.value)) {
+      sending.current = false;
+      setMoved(true);
+      setReview({ intent: sent, preview: now.data });
+      return;
+    }
     // The review closes on Confirm: what follows is the wallet's, then the venue's answer under the ticket.
     setReview(null);
     setBusy(true);
+    setSent(sent);
     const answer = await run(sent);
     sending.current = false;
     setBusy(false);
     setResult(answer);
     if (!keepsDraft(answer) || refusedAtHeldWorst(answer)) draft?.settle(sent.clientOrderKey);
-    onPlaced(sent, answer);
+    onPlaced(sent, answer, tag.trim());
   }
 
   const edit = (apply: () => void) => {
@@ -625,15 +774,53 @@ function VenueSideForm({
           aria-label={d('Price')}
         />
       )}
+      <UnitFlag
+        unit={unit}
+        base={market.baseAsset}
+        quote={market.quoteAsset}
+        onUnit={(next) =>
+          edit(() => {
+            setUnit(next);
+            setValue('');
+            setAmount('');
+          })
+        }
+      />
       <AmountInput
         label={d('Amount')}
-        value={amount}
+        value={sizedAmount}
         onValueChange={(next) => edit(() => setAmount(next))}
         precision={amountPlaces}
         unit={market.baseAsset}
         placeholder="0"
+        readOnly={unit === 'quote'}
         aria-label={d('Amount')}
       />
+      <AmountInput
+        label={valueLabel}
+        value={unit === 'quote' ? value : (valueOf(amount, sizedAt) ?? '')}
+        onValueChange={(next) => edit(() => setValue(next))}
+        precision={pricePlaces}
+        unit={market.quoteAsset}
+        placeholder="0"
+        readOnly={unit === 'base'}
+        aria-label={valueLabel}
+      />
+      <label className="dk-tif dk-opt">
+        <span className="dk-tif-label">{t('Tag label')}</span>
+        <input
+          type="text"
+          className="dk-expiry-input dk-tag-input"
+          value={tag}
+          maxLength={32}
+          onChange={(event) => edit(() => setTag(event.target.value))}
+          aria-label={t('Tag label')}
+          aria-describedby={`dk-tag-note-${side}`}
+        />
+        <span className="dk-opt-note" id={`dk-tag-note-${side}`}>
+          {t('Tag note')}
+        </span>
+      </label>
       {shownWorst ? (
         <p className="dk-note-small if-num" data-testid="venue-worst-price">
           {t('Worst price line', { price: displayAmount(shownWorst), quote: market.quoteAsset })}
@@ -661,8 +848,12 @@ function VenueSideForm({
         ) : !owner ? (
           <p className="dk-note">{t('Connect to trade')}</p>
         ) : issue === 'no_cap' && type === 'market' ? (
-          <p className="dk-note" data-code="trade.slippage_cap_unset">
+          <p className="dk-note" data-code={protectionBps !== null ? 'trade.spread_limit_unset' : 'trade.slippage_cap_unset'}>
             {t('No price protection')}
+          </p>
+        ) : tagBad ? (
+          <p className="dk-note dk-note--bad" role="alert">
+            {t('Tag bad')}
           </p>
         ) : issue === 'no_book' ? (
           <p className="dk-note">{t('No book side')}</p>
@@ -673,8 +864,12 @@ function VenueSideForm({
         ) : live?.state === 'checking' ? (
           <p className="dk-note">{t('Checking venue')}</p>
         ) : live?.state === 'refused' ? (
-          <p className="dk-note dk-note--bad" role="alert">
-            {v('Outcome refused', { detail: live.message })}
+          <p className="dk-note dk-note--bad" role="alert" data-testid="venue-ticket-refused">
+            {t('Not placeable', { detail: live.message })}
+          </p>
+        ) : short ? (
+          <p className="dk-note dk-note--bad" role="alert" data-testid="venue-ticket-short">
+            {t('Not enough free', { asset: short.asset, lock: displayAmount(short.lock), free: displayAmount(short.free) })}
           </p>
         ) : null}
         {busy ? <p className="dk-note">{t('Waiting wallet')}</p> : null}
@@ -683,7 +878,14 @@ function VenueSideForm({
             {problem}
           </p>
         ) : null}
-        {result ? <OutcomeLine result={result} owner={owner} /> : null}
+        {result?.kind === 'unknown' ? (
+          <p className="dk-note" role="status">
+            {outcomeText(v, result)}
+          </p>
+        ) : result ? (
+          <OutcomeLine result={result} owner={owner} />
+        ) : null}
+        {result ? <TicketOutcome result={result} sent={sent} base={market.baseAsset} /> : null}
       </div>
       <AlertDialog
         open={review !== null}
@@ -697,7 +899,25 @@ function VenueSideForm({
               <AlertDialogTitle>{side === 'buy' ? d('Review buy') : d('Review sell')}</AlertDialogTitle>
               <AlertDialogDescription>{t('Review intro')}</AlertDialogDescription>
             </AlertDialogHeader>
-            <VenueReviewRows intent={review.intent} preview={review.preview} status={status} approved={builderApproved(account, status)} />
+            {moved ? (
+              <p className="dk-note dk-note--bad" role="alert" data-testid="venue-review-moved">
+                {t('Numbers changed')}
+              </p>
+            ) : null}
+            {reviewProblem ? (
+              <p className="dk-note dk-note--bad" role="alert" data-testid="venue-review-refused">
+                {reviewProblem}
+              </p>
+            ) : null}
+            <VenueReviewRows
+              intent={review.intent}
+              preview={review.preview}
+              status={status}
+              approved={builderApproved(account, status)}
+              protectionBps={protectionBps}
+              selfTrade={venueSelfTrade(market)}
+              tag={tag.trim()}
+            />
             {carriesBuilderFee(review.preview.value.builderFee) && builderApproved(account, status) === false ? (
               <Button variant="secondary" size={40} onClick={() => void approve()}>
                 {v('Approve in wallet')}
@@ -722,6 +942,98 @@ function VenueSideForm({
         ) : null}
       </AlertDialog>
     </form>
+  );
+}
+
+/**
+ * One order with no definite answer, looked up on the venue by its client id until the venue names it (J-cex-spot-02 #3,
+ * #4). Not found is only that: nothing is sent again unless the person asks for the same order, under the same key.
+ */
+function PendingCheck({
+  owner,
+  entry,
+  onFound,
+  onSendAgain,
+}: {
+  owner: string;
+  entry: PendingOrder;
+  onFound: (entry: PendingOrder, order: VenueOrder) => void;
+  onSendAgain: (entry: PendingOrder) => Promise<void>;
+}) {
+  const { t } = spotVenueCopy.useCopy();
+  const d = deskCopy.useCopy().t;
+  const venue = useVenueApi();
+  const [sending, setSending] = useState(false);
+  const read = usePolled(
+    async (signal) => {
+      const answer = await venue.orderByClientId(owner, entry.clientOrderId, signal);
+      // The venue named the order: the row hands it up as the look-up answers, and goes.
+      if (answer.ok && answer.data.value) onFound(entry, answer.data.value);
+      return answer;
+    },
+    `pending:${owner}:${entry.clientOrderId}`,
+    VENUE_POLL_MS,
+  );
+  const order = read.data?.value ?? null;
+  const asset = entry.intent.symbol.split('-')[0] ?? entry.intent.symbol;
+  return (
+    <div data-pending={entry.clientOrderId}>
+      <p role="status">
+        {t('Pending checking', {
+          side: entry.intent.side === 'buy' ? d('Buy') : d('Sell'),
+          amount: displayAmount(entry.intent.amount),
+          asset,
+          id: entry.clientOrderId,
+        })}
+      </p>
+      {read.data && !order ? (
+        <>
+          <p>{t('Pending missing', { id: entry.clientOrderId })}</p>
+          <KitButton
+            variant="secondary"
+            disabled={sending}
+            onClick={() => {
+              setSending(true);
+              void onSendAgain(entry).finally(() => setSending(false));
+            }}
+          >
+            {t('Send same again')}
+          </KitButton>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+const baseOf = (symbol: string) => symbol.split('-')[0] ?? symbol;
+const quoteOf = (symbol: string) => symbol.split('-')[1] ?? '';
+
+/**
+ * What the venue's definite answer means for the order just sent (J-cex-spot-03 #4, #6): one that ended at once with
+ * nothing filled traded nothing, and the venue released its lock; a post-only order the venue refused was never placed.
+ */
+function TicketOutcome({ result, sent, base }: { result: ActionResult; sent: OrderIntent | null; base: string }) {
+  const { t } = spotVenueCopy.useCopy();
+  if (result.kind !== 'outcome' || !sent) return null;
+  const o = result.outcome;
+  if (!o.accepted) {
+    return sent.timeInForce === 'ALO' ? (
+      <p className="dk-note" data-testid="venue-ticket-outcome" data-outcome="post-only-refused">
+        {t('Post only refused')}
+      </p>
+    ) : null;
+  }
+  if (o.order?.status !== 'canceled') return null;
+  let filled = 0n;
+  try {
+    filled = parseAmount(o.order.filled);
+  } catch {
+    return null;
+  }
+  return (
+    <p className="dk-note" data-testid="venue-ticket-outcome" data-outcome={filled === 0n ? 'nothing-traded' : 'partly-traded'}>
+      {filled === 0n ? t('Nothing traded') : t('Partly traded', { filled: displayAmount(o.order.filled), asset: base })}
+    </p>
   );
 }
 
@@ -840,11 +1152,20 @@ export function VenueReviewRows({
   preview,
   status,
   approved,
+  protectionBps = null,
+  selfTrade = null,
+  tag = '',
 }: {
   intent: OrderIntent;
   preview: AsOf<VenuePreview>;
   status: Pick<VenueUp, 'builder' | 'test'>;
   approved: boolean | null;
+  /** The owner's market price protection in bps the worst price was set from; shown on a market order. */
+  protectionBps?: string | null;
+  /** The venue's own self-trade rule on the market, or null where it publishes none. */
+  selfTrade?: VenueSelfTradeMode | null;
+  /** The person's own tag on the order, or blank. */
+  tag?: string;
 }) {
   const { t } = spotVenueCopy.useCopy();
   const v = venueCopy.useCopy().t;
@@ -908,6 +1229,29 @@ export function VenueReviewRows({
             <dd className="numeric" data-line="worst">
               {displayAmount(intent.price)}
             </dd>
+          </div>
+        ) : null}
+        {intent.type === 'market' && protectionBps !== null ? (
+          <div>
+            <dt>{t('Price protection')}</dt>
+            <dd data-line="protection">
+              {t(intent.side === 'buy' ? 'Protection buy' : 'Protection sell', {
+                price: displayAmount(intent.price),
+                quote: quoteOf(intent.symbol),
+                base: baseOf(intent.symbol),
+                bps: protectionBps,
+              })}
+            </dd>
+          </div>
+        ) : null}
+        <div>
+          <dt>{t('Self trade review')}</dt>
+          <dd data-line="self-trade">{selfTrade ? word(v, 'stp', selfTrade) : v('Not published')}</dd>
+        </div>
+        {tag ? (
+          <div>
+            <dt>{t('Tag review')}</dt>
+            <dd data-line="tag">{tag}</dd>
           </div>
         ) : null}
         <div>

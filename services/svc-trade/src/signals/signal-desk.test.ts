@@ -241,6 +241,20 @@ describe('a webhook prepares an order only for a person who may place a trade or
     }
   });
 
+  it('refuses an amount too large for the ledger column by its field, not as a server error', async () => {
+    const w = world({ liveTier: 'basic' });
+    const out = await w.alert('a-huge', { amount: '9'.repeat(80) });
+    expect(out).toMatchObject({ status: 400, body: { code: 'trade.signal_format_invalid', field: 'amount' } });
+    expect(w.orders).toEqual([]);
+    expect(w.writes).toEqual([]);
+  });
+
+  it('names side first when side, amount and price are all wrong', async () => {
+    const w = world({ liveTier: 'basic' });
+    const out = await w.alert('a-allbad', { side: 'reverse', amount: 1, price: 2 });
+    expect(out).toMatchObject({ status: 400, body: { code: 'trade.signal_format_invalid', field: 'side' } });
+  });
+
   it('refuses an alert with no price, naming the field: nothing admitted or prepared', async () => {
     const w = world({ liveTier: 'basic' });
     const out = await w.alert('a-noprice', { price: undefined });

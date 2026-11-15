@@ -1,7 +1,7 @@
 import { defineConfig } from '@playwright/test';
-import { localTestDeviceState } from '../../../../tooling/scripts/local-test-facts.mjs';
+import { JOURNEY_TMP, localTestDeviceState, stackUrl } from '../../../../tooling/scripts/local-test-facts.mjs';
 
-// Journeys in the running app: `pnpm local:stack` must be up (Customer on 127.0.0.1:3210). Nothing is mocked; each
+// Journeys in the running app: `pnpm local:stack` must be up, on the same LOCAL_STACK_SLOT (Customer on 127.0.0.1:3210 in slot 0). Nothing is mocked; each
 // spec drives the browser and, where the journey names another actor (an operator, TEST funding, another trader),
 // uses the stack's own tools. Test titles start "J-<module>-NN #<step>" so `roadmap.mjs --progress --results` counts them.
 export default defineConfig({
@@ -29,12 +29,12 @@ export default defineConfig({
     // records the plan (tooling/scripts/journey-fail-fast.mjs, noRetryForFailFast).
     ['./fail-fast-once.mjs'],
     ['list'],
-    ['json', { outputFile: process.env.JOURNEY_REPORT ?? '/tmp/intafaced-real-app/report.json' }],
+    ['json', { outputFile: process.env.JOURNEY_REPORT ?? `${JOURNEY_TMP}/report.json` }],
     ...(process.env.JOURNEY_BLOB_DIR ? [['blob', { outputDir: process.env.JOURNEY_BLOB_DIR }]] : []),
   ],
-  outputDir: '/tmp/intafaced-real-app/results',
+  outputDir: `${JOURNEY_TMP}/results`,
   use: {
-    baseURL: 'http://127.0.0.1:3210',
+    baseURL: stackUrl('customer'),
     headless: true,
     // Full Chromium in its new headless mode, as a person's browser runs. The default headless shell always reports
     // notifications as blocked, even after a grant, so the push card (J-home-ia-05, J-home-ia-06) could never be proved.
@@ -43,7 +43,11 @@ export default defineConfig({
     // Every context, including each `browser.newContext()`, starts as the same TEST browser, which sign-up trusts, so
     // the new-device check asks only where a journey clears this cookie on purpose (J-identity-02 #5).
     storageState: localTestDeviceState(),
-    screenshot: 'only-on-failure',
+    // Every test that opens a page leaves a picture of what the app showed as it ended, passed or failed (project-state
+    // d88: "proof kept for every pass"): `<outputDir>/<file>-<title, from "J-<module>-NN-<step>">/test-finished-1.png`,
+    // one per page. A test with no page (an API-only step) leaves none. Pixels only: a password field draws dots and no
+    // screen shows a session token, while a trace would carry both, so CI keeps passing `--trace off`.
+    screenshot: 'on',
     trace: 'retain-on-failure',
     launchOptions: process.env.JOURNEY_CHROMIUM ? { executablePath: process.env.JOURNEY_CHROMIUM } : {},
   },

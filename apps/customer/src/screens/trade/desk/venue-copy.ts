@@ -27,6 +27,27 @@ export const spotVenueCopy = defineCopy('trade.desk.venue', {
   'Positions not applicable': 'Not applicable: cash spot holds balances, not positions',
   'Market not offered': 'This venue does not list this market.',
 
+  // The venue market's own ticker, book, chart and tape (J-cex-spot-01 #5)
+  'Venue market': 'The venue’s market',
+  'Last price': 'Last price',
+  'Best bid': 'Best bid',
+  'Best ask': 'Best ask',
+  'Market data as of': 'Market data',
+  'No print': 'The venue shows no trade on this market',
+  'Side empty': 'None resting',
+  'Reading the venue': 'Reading the venue…',
+  'Order book': 'Order book',
+  'Last trades': 'Last trades',
+  Side: 'Side',
+  Time: 'Time',
+  'Price col': 'Price ({quote})',
+  'Size col': 'Size ({base})',
+  Bid: 'Bid',
+  Ask: 'Ask',
+  'Taker buy': 'Buy',
+  'Taker sell': 'Sell',
+  'Side not published': 'Not published',
+
   // The venue account panel
   'Venue account': 'Your venue account',
   'Venue account note': 'Your own account on the venue. These are the venue’s figures; INTAFACED holds none of it.',
@@ -39,7 +60,7 @@ export const spotVenueCopy = defineCopy('trade.desk.venue', {
   Connected: 'Connected',
 
   // The ticket
-  'No price protection': 'Market orders are closed: the price protection that bounds them is not set.',
+  'No price protection': 'Market orders are closed: protection not set, so nothing bounds the price they fill at.',
   'Worst price line': 'Worst price: {price} {quote}',
   'No book side': 'The venue shows no price to meet on this side, so no market order can be placed now.',
   'Venue fees line': 'The venue’s fees: maker {maker}, taker {taker}',
@@ -51,6 +72,28 @@ export const spotVenueCopy = defineCopy('trade.desk.venue', {
   'Enter amount': 'Enter an amount.',
   'Enter price': 'Enter a price.',
   'Waiting wallet': 'Waiting for your wallet…',
+  'Not enough free': 'Not enough {asset} free on your venue account: this order locks {lock} {asset} and {free} {asset} is free.',
+  'Not placeable': 'This order can’t be placed: {detail}.',
+
+  // An earlier order with no definite answer (J-cex-spot-02 #3, #4)
+  'Pending title': 'Checking your earlier order with the venue',
+  'Pending checking': 'Looking up your {side} of {amount} {asset} on the venue by its client id {id}…',
+  'Pending missing': 'The venue has no order under client id {id} so far. It may still arrive; nothing is sent again unless you ask.',
+  'Pending wait': 'New orders wait until the venue has answered about this order.',
+  'Pending found': 'Checked with the venue: your order {id} is {status}. Nothing was sent again.',
+  'Send same again': 'Send the same order again',
+  'Order types more': 'Other order types',
+  'Self trade': 'If it meets my own order',
+  'Self trade note': 'The venue applies its own rule; a rule it doesn’t offer can’t be picked.',
+  'Amount in': 'Type the amount in',
+  Spend: 'Spend',
+  Total: 'Total',
+  'Tag label': 'Tag (optional)',
+  'Tag bad': 'A tag is up to 32 letters, digits, spaces, dots, dashes or underscores.',
+  'Tag note': 'Your tag is kept on this device beside the order; the venue doesn’t store it.',
+  'Nothing traded': 'Nothing traded: the order ended without resting, and the venue released what it locked.',
+  'Partly traded': 'Filled {filled} {asset}; the rest ended without resting, and the venue released what it locked for it.',
+  'Post only refused': 'Not placed: a post-only order that would trade at once is refused, so nothing was placed and nothing moved.',
 
   // The review
   'Review intro': 'These are the venue’s own figures for this order. Nothing is signed until you confirm.',
@@ -60,9 +103,16 @@ export const spotVenueCopy = defineCopy('trade.desk.venue', {
   'Fee role': 'Fee role',
   'Client id': 'Client id held for retry',
   'Worst price review': 'Worst price (slippage limit)',
+  'Price protection': 'Price protection',
+  'Protection buy': 'You won’t pay more than {price} {quote} per {base} ({bps} bps above the best ask)',
+  'Protection sell': 'You won’t sell for less than {price} {quote} per {base} ({bps} bps below the best bid)',
+  'Self trade review': 'If it meets my own order',
+  'Tag review': 'Tag',
   Cancel: 'Cancel',
   'Confirm buy': 'Confirm buy',
   'Confirm sell': 'Confirm sell',
+  'Numbers changed':
+    'The venue’s numbers for this order changed since you reviewed it. Nothing was sent: check the new numbers and confirm again.',
 
   // Deposit
   'Deposit title': 'Deposit into your venue account',

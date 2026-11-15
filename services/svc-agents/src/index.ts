@@ -21,6 +21,7 @@ import type { ModelProvider } from './providers/provider.js';
 import { AgentRuntime } from './runtime.js';
 import { UserSpendStore } from './spend/store.js';
 import { createHttpTeamMembershipPort } from './team/membership.js';
+import { createHttpUsagePaymentPort, ledgerOnlyPayment } from './payment/usage-payment.js';
 import { registerProductAgentsAtBoot } from './fleet/boot-register.js';
 import { registerCoachAgent } from './coach/coach-run.js';
 import { registerCatalogueOnlyAgents } from './fleet/catalogue-only.js';
@@ -33,14 +34,21 @@ import { createHttpSpotTickersPort } from './scanner/trade-tickers-http-port.js'
 import { createHttpPayMetricsPort } from './merchant/pay-metrics-http-port.js';
 import { createHttpCopyLeaderFixturesPort } from './copy-intel/copy-leader-fixtures-http-port.js';
 import { createHttpNavigatorTradeDataPort } from './navigator/trade-data-http-port.js';
+import { parseUncertaintyScale, researchEnvironment } from './research/provenance.js';
 import { createHttpNavigatorIdentitySessionPort } from './navigator/identity-session-http-port.js';
 import { tradeTickerPrices } from './portfolio-agent/trade-prices.js';
 import { createAgentsRouter, type AgentsRouter } from './router.js';
 import { parseTierLaws } from './tier-laws.js';
 import { parseReasons, purgeExpiredTranscripts } from './oplog/routes.js';
+import { evaluateAlertRules } from './alerts/routes.js';
 import { advanceBackgroundRuns } from './own/background.js';
+import { deliverTriggerEvent, tickSchedules, type AutoRunDeps } from './own/automation.js';
+import { OWN_RUN_TASK, ownGuardrail } from './own/routes.js';
+import { advanceSessionRuns, publishCompletedRuns } from './runs/background.js';
 import { createIdentityLinkedWallets, paymentMethodFunds } from './own/payment-method.js';
+import { teamFunds } from './team/funds.js';
 import { createChainBalance } from './chain-balance.js';
+import { retentionPeriods } from './own/memory.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 
 // §9 — register the TracerProvider before the first span is created.
@@ -138,7 +146,14 @@ const s2s = s2sFromEnv(env, 'svc-agents');
 const s2sKey = s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined;
 const ledger = createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, s2sKey);
 
+// How each person pays for usage (J-agents-01, OWNER 226): svc-bank says whether their partner holds their money and
+// collects a sealed window from it. No BANK_URL keeps everyone on the custodial ledger charge, as before.
+const usagePayment = env.BANK_URL
+  ? createHttpUsagePaymentPort({ bankUrl: env.BANK_URL, internalSecret: env.INTERNAL_SERVICE_SECRET, ...(s2sKey ? { s2s: s2sKey } : {}) })
+  : ledgerOnlyPayment;
+
 const meter = new UsageMeter(sql, ledger, {
+  payment: usagePayment,
   assetId: env.AGENTS_FEE_ASSET_ID,
   windowMinutes: env.AGENTS_USAGE_WINDOW_MINUTES,
   affiliateAccrue: env.IDENTITY_URL ? createAffiliateAccrueClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : undefined,
@@ -167,11 +182,26 @@ const runtime = new AgentRuntime(sql, gateway, meter, bus, {
   spend,
   // The person's available balance, read from the ledger before each metered run (OWNER 107), or, for an own agent whose
   // payment method is a linked wallet, that wallet's balance of the payment token as the chain reports it (J-agents-02 #4).
-  funds: paymentMethodFunds({
+  funds: teamFunds({
     sql,
+    payment: usagePayment,
     ledger: async (userId, assetId) => (await ledger.balance(userAvailable(userId, assetId))).amount,
-    wallets: linkedWallets,
-    chain: paymentChain,
+    own: paymentMethodFunds({
+      sql,
+      // A person whose partner holds their money is covered by what the partner reports (an unknown figure is unread,
+      // never 0); one with no payment method has nothing to pay with; everyone else reads the ledger, as before.
+      ledger: async (userId, assetId) => {
+        const held = await usagePayment.read(userId, assetId);
+        if (held.heldBy === 'none') return 0n;
+        if (held.heldBy === 'partner') {
+          if (held.available === null) throw new Error('the partner has not reported this balance');
+          return parseAmount(held.available);
+        }
+        return (await ledger.balance(userAvailable(userId, assetId))).amount;
+      },
+      wallets: linkedWallets,
+      chain: paymentChain,
+    }),
   }),
   transcriptRetentionDays: env.AGENTS_TRANSCRIPT_RETENTION_DAYS ?? null,
   overageGrace: env.AGENTS_OVERAGE_GRACE === undefined ? null : parseAmount(env.AGENTS_OVERAGE_GRACE),
@@ -231,6 +261,12 @@ const portfolioPrices =
     ? tradeTickerPrices({ baseUrl: env.TRADE_URL, quoteAssetId: env.PORTFOLIO_QUOTE_ASSET })
     : undefined;
 
+// The owner's cadence values for own agents' schedules (AG-sessions-02); blank refuses a new schedule.
+const ownCadence = {
+  minIntervalMinutes: env.AGENTS_SCHEDULE_MIN_INTERVAL_MINUTES ?? null,
+  dailyLimit: env.AGENTS_SCHEDULE_DAILY_LIMIT ?? null,
+};
+
 const appRouter = createAgentsRouter({
   runtime,
   // Parsed at boot: a malformed law stops the service here, never opens or closes a door at a call.
@@ -241,6 +277,13 @@ const appRouter = createAgentsRouter({
   ownLinkedWallets: linkedWallets,
   ownAssistantModel: env.AGENTS_OWN_ASSISTANT_MODEL ?? null,
   ownApprovalTtlSeconds: env.AGENTS_APPROVAL_TTL_SECONDS ?? null,
+  ownRetention: retentionPeriods({
+    action_log: env.AGENTS_RETENTION_ACTION_LOG_DAYS,
+    memory: env.AGENTS_RETENTION_MEMORY_DAYS,
+    transcripts: env.AGENTS_RETENTION_TRANSCRIPTS_DAYS,
+    approvals: env.AGENTS_RETENTION_APPROVALS_DAYS,
+    usage: env.AGENTS_RETENTION_USAGE_DAYS,
+  }),
   navigatorOnchainSigner: env.AGENTS_NAVIGATOR_ONCHAIN_SIGNER ?? null,
   navigatorTrading: {
     sender: env.AGENTS_NAVIGATOR_ONCHAIN_SENDER_URL ? httpNavigatorSender(env.AGENTS_NAVIGATOR_ONCHAIN_SENDER_URL) : null,
@@ -255,6 +298,13 @@ const appRouter = createAgentsRouter({
   meteringEnabled: env.AGENTS_METERING_ENABLED,
   fleet: { registryLimit: env.AGENTS_REGISTRY_LIST_LIMIT ?? null },
   ownBackground: { steps: env.AGENTS_BACKGROUND_TEST_STEPS ?? null, stepMs: env.AGENTS_BACKGROUND_STEP_MS ?? null },
+  ownCadence,
+  sessionRuns: { maxSteps: env.AGENTS_SESSION_RUN_MAX_STEPS ?? null, stepMs: env.AGENTS_BACKGROUND_STEP_MS ?? null },
+  // Parsed at boot: a malformed scale stops the service here; a blank one refuses research answers by name.
+  research: {
+    scale: parseUncertaintyScale(env.AGENTS_RESEARCH_UNCERTAINTY_SCALE),
+    environment: researchEnvironment(env.APP_ENV),
+  },
   opsLog: {
     reasons: parseReasons(env.AGENTS_LOG_READ_REASONS),
     limit: env.AGENTS_OPS_ACTIONS_LIMIT ?? null,
@@ -359,6 +409,21 @@ sweepUnpublished();
 const unpublishedTimer = setInterval(sweepUnpublished, 60_000);
 unpublishedTimer.unref();
 
+// The agent alert evaluator (AG-analytics-02): every rule over its current and previous window, once a minute. One alert
+// per rule and window, by its unique key, so this timer, "Evaluate now" and another replica never write a second one.
+let evaluatingAlerts = false;
+const alertTimer = setInterval(() => {
+  if (evaluatingAlerts) return;
+  evaluatingAlerts = true;
+  evaluateAlertRules(sql)
+    .then(() => runtime.publishAgentAlerts())
+    .catch((err: unknown) => app.log.warn({ err }, 'agent alert rules were not evaluated'))
+    .finally(() => {
+      evaluatingAlerts = false;
+    });
+}, 60_000);
+alertTimer.unref();
+
 // Background test runs of own agents take one step per period, re-reading the agent's switches at each (AG-control-02).
 // Blank leaves the ticker off, and a new background run refuses agents.background_unset.
 if (env.AGENTS_BACKGROUND_STEP_MS) {
@@ -375,11 +440,74 @@ if (env.AGENTS_BACKGROUND_STEP_MS) {
   backgroundTimer.unref();
 }
 
+// Schedules and event triggers of own agents (AG-sessions-02). The due-run workers wake each tick and run what is due;
+// a blank tick leaves scheduled runs off. The trigger consumer is mounted here so every event of the person's reaches it,
+// and its seen-set is the run row's business key in Postgres, so a restart never runs an event twice.
+const autoRuns: AutoRunDeps = {
+  sql,
+  runtime,
+  cadence: ownCadence,
+  task: OWN_RUN_TASK,
+  guardrailOf: ownGuardrail,
+  log: (msg, detail) => app.log.warn(detail, msg),
+};
+let scheduleTimer: NodeJS.Timeout | null = null;
+if (env.AGENTS_SCHEDULE_TICK_MS) {
+  let ticking = false;
+  const workers = env.AGENTS_SCHEDULE_WORKERS ?? 1;
+  scheduleTimer = setInterval(() => {
+    if (ticking) return;
+    ticking = true;
+    tickSchedules(autoRuns, workers)
+      .catch((err: unknown) => app.log.warn({ err }, 'own agent schedules did not tick'))
+      .finally(() => {
+        ticking = false;
+      });
+  }, env.AGENTS_SCHEDULE_TICK_MS);
+  scheduleTimer.unref();
+}
+await bus.subscribe(
+  'fillSettled',
+  async (fill, envelope) => {
+    await deliverTriggerEvent(autoRuns, {
+      subject: envelope.subject,
+      userId: fill.userId,
+      eventId: fill.fillId,
+      envelopeId: envelope.id,
+      occurredAt: fill.ts,
+    });
+  },
+  { durable: 'agents-own-trigger-fill-settled' },
+);
+// Background runs of sessions take their steps on the same period, and every finished one is announced once
+// (AG-sessions-04, J-agents-06). Blank leaves the ticker off, and a new background run refuses agents.session_run_unset.
+if (env.AGENTS_BACKGROUND_STEP_MS && env.AGENTS_SESSION_RUN_MAX_STEPS) {
+  const stepMs = env.AGENTS_BACKGROUND_STEP_MS;
+  let advancing = false;
+  const sessionRunTimer = setInterval(
+    () => {
+      if (advancing) return;
+      advancing = true;
+      advanceSessionRuns(sql, runtime, stepMs)
+        .catch((err: unknown) => app.log.warn({ err }, 'background session runs did not advance'))
+        .then(() => publishCompletedRuns(sql, bus))
+        .catch((err: unknown) => app.log.warn({ err }, 'finished background runs not announced'))
+        .finally(() => {
+          advancing = false;
+        });
+    },
+    Math.min(stepMs, 500),
+  );
+  sessionRunTimer.unref();
+}
+
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     void (async () => {
       clearInterval(transcriptPurge);
       clearInterval(unpublishedTimer);
+      clearInterval(alertTimer);
+      if (scheduleTimer) clearInterval(scheduleTimer);
       // Draining, not dropping: an in-flight settlement finishes before exit.
       await app.close();
       await bus.close();

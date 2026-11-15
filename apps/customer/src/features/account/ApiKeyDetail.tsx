@@ -8,6 +8,8 @@ import { apiKeysCopy as copy, type ApiKeysPlainKey } from './api-keys-copy';
 import { RevokedReason, stateOf } from './ApiKeys';
 import { KeyCallLog } from './KeyCallLog';
 import { KeyUsage } from './KeyUsage';
+import { RotateKey } from './RotateKey';
+import { RotationRequest } from './RotationRequest';
 import {
   changeRefusal,
   endOfDayUtc,
@@ -221,7 +223,11 @@ export function ApiKeyDetail({ keyId }: { keyId: string }) {
           </section>
           <KeyUsage keyId={detail.key.id} />
           {stateOf(detail.key, now) === 'stateActive' ? (
-            <ExpiryForm detail={detail} onSaved={setUpdated} />
+            <>
+              <RotationRequest keyId={detail.key.id} />
+              <RotateKey keyId={detail.key.id} onRotated={() => undefined} />
+              <ExpiryForm detail={detail} onSaved={setUpdated} />
+            </>
           ) : (
             <p className="muted">{t('notLive')}</p>
           )}

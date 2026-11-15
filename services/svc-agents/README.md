@@ -4,7 +4,7 @@
 
 Owns four things: a provider-agnostic model gateway, a per-task routing table, exact per-user metering billed through the ledger, and the `agent_actions` audit trail that makes an agent accountable.
 
-**What this service is:** the fleet runtime **and** the five Stage-1 product factories (navigator / support / scanner / merchant / copy-intel). Boot upserts their guardrails into `agent_definitions`; each mounts a metered `*.runSession`. `riskCompliance`, `coach`, and `growth` are refuse/proposal doors (not fleet `runSession` factories). Portfolio / launch remain doctrine names only until product law. An ungrounded coach is a typed refuse, not a chatbot. Growth proposes and never publishes; a dark warehouse is not a funnel.
+**What this service is:** the fleet runtime **and** the five Stage-1 product factories (navigator / support / scanner / merchant / copy-intel). Boot upserts their guardrails into `agent_definitions`; each mounts a metered `*.runSession`. `riskCompliance`, `coach`, and `growth` are refuse/proposal doors (not fleet `runSession` factories). Launch remains a doctrine name only until product law; the Portfolio planner's rebalance of a person's own agent's venue sub-account runs in svc-trade (`src/venue/own-agent-rebalance.ts`, J-agents-18 #1 #2), and `portfolio.plan` here stays the ledger-only planner behind its kill switch. An ungrounded coach is a typed refuse, not a chatbot. Growth proposes and never publishes; a dark warehouse is not a funnel.
 
 It also holds no balances and prices nothing it does not have a rate for. Metered usage moves value exactly once, through `feeCharge`, into svc-ledger.
 
@@ -62,6 +62,30 @@ Internal tRPC (§1). Every log query is scoped to `ctx.principal.userId` — an 
 | `own.list`      | `agents:read`, person | `{ limit }`                                        | the caller's own agents, newest first                                                                      |
 
 "Person" is the signed-in session itself (`identity:write`, no `kid` or `sub_account`), as for spend limits. A draft's tools come only from `src/own/catalog.ts`; a tool that moves money is offered so it can be refused (`agents.own.money_tool`) and is never stored; each read tool declares its input and output shapes and the refusals its route returns (AG-tools-01), and one with no declared shape is refused (`agents.tool_shape_missing`) and never granted to a session; and a blank per-session cap stays blank (`agents.spend.cap_unset` blocks publishing). Building an agent moves no value. Table: `own_agents` (migration `0005`).
+
+### Schedules and event triggers of own agents (AG-sessions-02, J-agents-07 #1 to #4)
+
+| Procedure              | Scope                    | Input                                                        | Output                                                            |
+| ---------------------- | ------------------------ | ------------------------------------------------------------ | ----------------------------------------------------------------- |
+| `own.schedules.list`   | `agents:read`, person    | `{ id }`                                                     | the owner's cadence values and each schedule with its occurrences |
+| `own.schedules.create` | `agents:execute`, person | `{ id, createKey, repeat, intervalMinutes, perRunCap, ask }` | the schedule; the same create key is the same schedule            |
+| `own.schedules.cancel` | `agents:execute`, person | `{ id, scheduleId }`                                         | the schedule, cancelled: no next occurrence                       |
+| `own.triggers.list`    | `agents:read`, person    | `{ id }`                                                     | each trigger with its deliveries and runs                         |
+| `own.triggers.create`  | `agents:execute`, person | `{ id, createKey, subject, perRunCap, ask }`                 | the trigger                                                       |
+
+A schedule is due at once and then every interval the person set, never below the owner's minimum
+(`AGENTS_SCHEDULE_MIN_INTERVAL_MINUTES`); with that or the daily limit (`AGENTS_SCHEDULE_DAILY_LIMIT`) blank, a new
+schedule refuses `agents.schedule_cadence_unset`, and a repeating one with its interval blank refuses
+`agents.schedule.min_interval_unset`. The due-run workers (`AGENTS_SCHEDULE_WORKERS`, waking every
+`AGENTS_SCHEDULE_TICK_MS`; blank leaves them off) each read what is due before any claims; a claim is made under the
+schedule's row lock and writes one `own_agent_auto_runs` row keyed `agents:schedule:<schedule>:<ordinal>`, so two workers
+make one run and the other only counts its wake. A trigger's event writes one row keyed `agents:trigger:<trigger>:<event id>`.
+Each run is the agent's own run on a session of its own, admitted on the agent's switch, the cap per run (the session's
+ceiling), the person's caps for the agent and the daily limit: anything blank skips it `agents.schedule_blocked` with
+the reason, and nothing runs. A crash leaves the row `claimed`; after its lease a tick resumes it under the same key, so
+the meter's request id stops a second engine call. Cancelling a schedule does not stop a run already running. No value
+moves here: the run's window is charged like any run's. Tables: `own_agent_schedules`, `own_agent_triggers`,
+`own_agent_auto_runs`, `own_agent_trigger_deliveries` (migration `20261113210533`).
 
 ### The Navigator on-chain (RC-agents-01, J-agents-19)
 
@@ -143,7 +167,7 @@ The thin useful path on the gateway itself is `runUsefulPath` in `src/useful-pat
 
 No payload carries a prompt, an answer, or a model identifier. §10 keeps user content out of general stores and a durable event stream is one; §0.7 keeps vendor names out of anything shipped. Consumers get counts and codes — anything more detailed is a query against `agent_actions` under the caller's own authorisation.
 
-**Consumes** — nothing yet. Compliance screening of refusals (§8.8) consumes `action.rejected` when svc-core-ops lands.
+**Consumes** — `trade.fill.settled` (durable `agents-own-trigger-fill-settled`, mounted from `index.ts`), for the triggers of a person's own agents (AG-sessions-02): the person's own fill runs each of their active triggers on that subject once per fill id; the run row's business key in Postgres is the seen-set, so a redelivery or a restart never runs it twice. Compliance screening of refusals (§8.8) consumes `action.rejected` when svc-core-ops lands.
 
 ---
 
@@ -249,6 +273,12 @@ Two properties worth stating:
 **Every log line is an i18n key plus parameters**, never rendered prose (§14 DoD 4). Storing English would freeze one locale into the audit trail and would be the one place an upstream's error text could reach a screen unnoticed. The catalogue is `src/copy.ts`.
 
 ---
+
+## Alerts and this environment's policy overrides (`opsAlerts.*`, AG-analytics-02, AG-guardrails-02)
+
+An operator (`admin:write`) stores alert rules: a measure over every recorded agent action (refusal rate or failure rate in percent of the window's actions, or cost in the fee asset), a threshold, a window in minutes, and optionally one agent id. A blank threshold refuses `agents.alert_threshold_required` and stores nothing; `0` is a value. The evaluator runs once a minute and on `opsAlerts.evaluate`, over each rule's current and previous window aligned to the epoch. A window with no actions has no rate and fires nothing. A window above its threshold writes one `agent_alerts` row, unique by rule and window start, so a second evaluation writes nothing. Every alert is kept. While alert notifications are on (`agent_alert_settings`; no row is on), svc-agents hands each one to svc-notify by `agentAlertFired`, once per rule and window on its business key, and marks it `handed_off`; svc-notify writes the inbox row for the operator who stored the rule and sends it by email and push where those vendors are set. An operator takes notifications down with `opsAlerts.setNotifications`: alerts are still kept and stay `pending` until they are back, when every pending one is handed over.
+
+`opsAlerts.policy` shows the owner's managed baseline (`AGENTS_POLICY_BASELINE`) per tool class, with this environment's override (`agent_policy_overrides`). `opsAlerts.setOverride` refuses an override looser than the baseline with `agents.baseline_loosen_refused` and stores nothing. Every own-agent tool gate and dry run meets the stricter of the baseline and the override. `opsAlerts.checkRule` checks a person's standing rule against both and stores nothing. The founder console's desk is `/more-ops/agents/alerts`.
 
 ## Database constraints as a backstop
 

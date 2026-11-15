@@ -21,6 +21,9 @@ const BLOCKS = {
   // `users.status` not active: sign-in, the edge and every door refuse (`auth.account_frozen`).
   staff_freeze: [...ACCOUNT_ACTIONS],
   closed: [...ACCOUNT_ACTIONS],
+  // A staff close with a grace date, before the date (`users.close_grace_until`, status still active): sign-in and
+  // withdrawals go on; `OperationIdentityDecisions.decide` refuses every fresh svc-trade operation.
+  closing: ['trade'],
   // `AuthService.createApiKey` refuses `identity.account_frozen_self`; the freeze revoked every session and key when set.
   self_freeze: ['create_api_key'],
   // `assertNotSecurityLocked` (password change, sign-in methods, password and second-factor resets, adding recovery keys
@@ -42,12 +45,13 @@ const BLOCKS = {
   // `kyc.capability_inactive`), so it blocks only while the owner's level map grants it somewhere; no service outside
   // identity reads capability states, so orders and transfers go on.
   capability_off: ['request_level_with_switched_off_capability'],
-} as const satisfies Record<AccountRestriction['kind'], readonly AccountAction[]>;
+} as const satisfies Record<AccountRestriction['kind'] | 'closing', readonly AccountAction[]>;
 
 type UserRow = {
   status: 'active' | 'frozen' | 'closed';
   closed_reason: AccountStatusReason | null;
   customer_closed_at: Date | null;
+  close_grace_until: Date | null;
 };
 type FreezeRow = { reason: string; since: Date; available_at: Date | null };
 type LockRow = { set_by: 'self' | 'support'; locked_at: Date; unlocks_at: Date | null };
@@ -80,7 +84,7 @@ export class AccountStatusDesk {
     const [[user], [freeze], [lock], [trading], capabilities] = await Promise.all([
       // A customer-closed account carries no staff code: the closure flow's finalisation is its code and its time.
       this.sql<UserRow[]>`
-        SELECT status, closed_reason,
+        SELECT status, closed_reason, close_grace_until,
           (SELECT MAX(finalized_at) FROM account_closures c WHERE c.user_id = users.id AND c.status = 'closed') AS customer_closed_at
         FROM users WHERE id = ${userId}`,
       this.sql<FreezeRow[]>`
@@ -96,15 +100,29 @@ export class AccountStatusDesk {
     if (!user) return null;
     const restrictions: AccountRestriction[] = [];
     const closedCode = user.closed_reason ?? (user.customer_closed_at ? 'customer_request' : null);
+    // The owner's own read names the closure code in plain words (J-identity-14 #1), except a fraud finding, which is
+    // never tipped off: it reads as no reason recorded, as before. Staff reads see every code.
+    const ownCode = view === 'owner' && closedCode === 'fraud' ? null : closedCode;
     if (user.status === 'closed')
       restrictions.push({
         kind: 'closed',
-        reasonCode: view === 'owner' && closedCode !== 'customer_request' ? null : closedCode,
+        reasonCode: ownCode,
         since: user.closed_reason ? null : iso(user.customer_closed_at),
         blocks: [...BLOCKS.closed],
         lift: { by: 'staff' },
         capability: null,
         owner: null,
+      });
+    else if (user.close_grace_until)
+      restrictions.push({
+        kind: 'closed',
+        reasonCode: ownCode,
+        since: null,
+        blocks: [...BLOCKS.closing],
+        lift: { by: 'staff' },
+        capability: null,
+        owner: null,
+        graceUntil: user.close_grace_until.toISOString(),
       });
     if (user.status === 'frozen')
       restrictions.push({

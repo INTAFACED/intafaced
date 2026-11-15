@@ -1,3 +1,4 @@
+import { isRecord } from '@intafaced/contracts/guards';
 /**
  * THE MULTIPLEX PROTOCOL (one socket, many channels).
  *
@@ -89,10 +90,6 @@ export type ParsedOp =
   | { readonly ok: false; readonly code: 'bad_json' | 'bad_request'; readonly message: string; readonly id: string | undefined };
 
 const VERBS: readonly MuxVerb[] = ['subscribe', 'unsubscribe', 'resync'];
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 /** Parse one inbound text frame. Never throws. */
 export function parseOp(text: string): ParsedOp {

@@ -28,6 +28,7 @@
  *   node tooling/scripts/local-test-market.mjs history [--bars 210] [--step-minutes 15] [--trades-per-bar 2]
  *                                    on a FRESH stack, with the market stopped: real TEST trades now, then moved into the
  *                                    past (fill times only) so charts have history. Skips any market that already traded.
+ *                                    --markets journeys: only HISTORY_SYMBOLS, the markets journeys read the past of.
  *
  * What it does, every few seconds, for each published market it has a TEST PRICE for:
  *   1. moves a deterministic, seedable synthetic price (integer arithmetic, no float money);
@@ -462,9 +463,25 @@ export function walkedMid(walk, { still, shift, tick }) {
   return shiftedMid(still ? walk.current() : walk.next(), shift, tick);
 }
 
-/** Whether test_taker crosses `symbol` this cycle: never on a still cycle; otherwise on its turn (`crossesOn`) when the market crosses and quotes rest (exported for tests). */
-export function takerCrosses({ still, cross, rested, cycle, symbol }) {
-  return !still && cross !== false && rested > 0 && crossesOn(cycle, symbol);
+/**
+ * Whether test_taker crosses `symbol` this cycle: never on a still cycle; otherwise, when the market crosses and quotes
+ * rest, on its turn (`crossesOn`) or when its last crossing was in an earlier UTC minute (`missedMinute`) (exported for
+ * tests).
+ */
+export function takerCrosses({ still, cross, rested, cycle, symbol, nowMs = Date.now(), lastCrossMs }) {
+  return !still && cross !== false && rested > 0 && (crossesOn(cycle, symbol) || missedMinute(lastCrossMs, nowMs));
+}
+
+/**
+ * Whether a market that has crossed has not crossed yet in the current UTC minute (exported for tests), so every live
+ * minute gets a trade and so a closed 1m bar while a cycle takes under a minute. The turn alone is every sixth cycle,
+ * and a cycle is its 8 s wait plus its own work: on a loaded journeys runner a cycle took about 16 s, so BTC/USDT traded
+ * about every 2 minutes and half the 1m bars had no trade. (Failure it prevents: main's run 43634063912, shard 37, cycles
+ * of 16 to 35 s; J-algo-dev-04 #2's paper run, which needs four traded 1m bars to fill a crossing of its averages, had
+ * no fill in 12 minutes, #8390.)
+ */
+export function missedMinute(lastCrossMs, nowMs = Date.now()) {
+  return Number.isFinite(lastCrossMs) && Math.floor(nowMs / 60_000) > Math.floor(lastCrossMs / 60_000);
 }
 
 /** Whether a cycle record of the running maker shows `still` (true or false) in a cycle started after `askedAt` (exported for tests). */
@@ -489,7 +506,17 @@ export function bookMid(book) {
   }
 }
 
-const DEFAULT_SYMBOLS = ['BTC/USDT', 'BTC/USDC', 'ETH/USDT', 'ETH/USDC', 'IFC/USDT', 'ETH/BTC', 'BTC/USDT:USDT'];
+export const DEFAULT_SYMBOLS = ['BTC/USDT', 'BTC/USDC', 'ETH/USDT', 'ETH/USDC', 'IFC/USDT', 'ETH/BTC', 'BTC/USDT:USDT'];
+/**
+ * The markets `history --markets journeys` writes past trades on (the journeys shards and the revert probe): the spot
+ * markets whose charts, candles or tape a journey reads (local-test-market-history.test.mjs fails when a journey that
+ * reads them names a market missing here). The tape is about 5040 real TEST orders through the stack and most of a
+ * journeys shard's boot: on 13 Nov, on main 233e1c4773 with only this changed, CI run 43391038048 wrote six markets in
+ * 193 s and run 43391059746 these four in 149 s. ETH/BTC and ETH/USDC keep their live TEST market maker trades; no
+ * journey reads their past. One market per request instead (six lanes, run 43392547118) was slower: 6.1 minutes for the
+ * step against 4.6. Without --markets, history still writes every default market.
+ */
+export const HISTORY_SYMBOLS = Object.freeze(['BTC/USDT', 'BTC/USDC', 'ETH/USDT', 'IFC/USDT']);
 // Funded to this level by `local:fund` (real ledger deposits, LOCAL-TEST- rail refs); the taker gets a tenth.
 const FUND_TO = {
   USDT: '1000000',
@@ -761,6 +788,11 @@ async function preflight(maker, symbols) {
 
 /** Crossing side for the nth crossing in a market: buy, sell, buy, sell... so the taker's balances stay flat. */
 export const crossingSide = (n) => (n % 2 === 1 ? 'buy' : 'sell');
+/**
+ * The two crossings a market's turn makes, as crossing numbers for `crossingSide`: this turn's side, then the other
+ * one, so each turn trades at both the ask and the bid and its 1m bar has range (exported for tests).
+ */
+export const crossingLegs = (n) => [n, n + 1];
 
 /** How long the market waits out a stack whose services are not all up (a restart) before it ends. */
 export const STACK_INACTIVE_LIMIT_MS = 5 * 60_000;
@@ -824,18 +856,32 @@ export function crossesOn(cycle, symbol) {
 
 // ── Funding (reuses local:fund: real svc-ledger deposit, LOCAL-TEST- rail ref) ─
 
-async function ensureFunds(client, who, assets, divisor) {
+/** One `local:fund` transfer: a real svc-ledger deposit through `local-test-stack.mjs fund`. */
+function fundThroughStack(userId, asset, amount, ref) {
+  return spawnSync(process.execPath, [STACK_SCRIPT, 'fund', userId, asset, amount, '--ref', ref], { encoding: 'utf8' });
+}
+
+/**
+ * Top up `who` to FUND_TO / `divisor` in each asset with less than half of that free, one transfer at a time. A stop request ends it before the next transfer
+ * (failure it prevents, #8312: a SIGTERM during start-up funding waited for all ten transfers, about 35 s, because the
+ * blocking `fund` call never looked at the stop). The signal handler runs between transfers, so a stop costs at most
+ * the one transfer already under way.
+ */
+export async function ensureFunds(client, who, assets, divisor, { fund = fundThroughStack } = {}) {
+  if (STOP.requested) return;
   const bal = await client.http('GET', '/api/v1/account/balance');
   const have = bal.json?.balances ?? {};
   for (const asset of assets) {
+    if (STOP.requested) {
+      log(`stop requested: ${who} funding ends before ${asset}`);
+      return;
+    }
     const target = toScaled(FUND_TO[asset] ?? '0') / BigInt(divisor);
     if (target === 0n) continue;
     const free = toScaledFloor(have[asset]?.free ?? '0');
     if (free * 2n >= target) continue;
     const ref = `MM-${who}-${asset}-${nowIso().slice(0, 13).replace(/[-:T]/g, '')}`;
-    const r = spawnSync(process.execPath, [STACK_SCRIPT, 'fund', client.account.userId, asset, fromScaled(target), '--ref', ref], {
-      encoding: 'utf8',
-    });
+    const r = fund(client.account.userId, asset, fromScaled(target), ref);
     if (r.status !== 0) throw new Error(`local:fund ${asset} failed: ${(r.stderr || r.stdout).trim().slice(0, 300)}`);
     // The rail ref repeats within the hour, so a second top-up is a ledger no-op: say so instead of "funded".
     const after = await client.http('GET', '/api/v1/account/balance');
@@ -865,7 +911,8 @@ function parseArgs(argv) {
     if (a === '--seed') opts.seed = argv[++i];
     else if (a === '--interval') opts.seconds = Number(argv[++i]);
     else if (a === '--levels') opts.levels = Number(argv[++i]);
-    else if (a === '--markets') opts.symbols = argv[++i] === 'all' ? Object.keys(TEST_PRICES) : argv[i].split(',');
+    else if (a === '--markets')
+      opts.symbols = argv[++i] === 'all' ? Object.keys(TEST_PRICES) : argv[i] === 'journeys' ? [...HISTORY_SYMBOLS] : argv[i].split(',');
     else if (a === '--edge-url') opts.edge = argv[++i];
     else if (a === '--foreground') opts.foreground = true;
     else if (a === '--bars') opts.bars = Number(argv[++i]);
@@ -994,6 +1041,8 @@ async function runLoop(opts, home) {
   let counter = 0;
   let cycle = 0;
   const crossings = new Map();
+  /** When each market's newest crossing was placed (ms), for `missedMinute`. */
+  const crossedAt = new Map();
   /** The maker's resting quote ids per market, from the cycle before. */
   const quoted = new Map();
   /** The maker's resting quotes per market from the cycle before, with their sides and prices (`placingOrder`). */
@@ -1175,31 +1224,35 @@ async function runLoop(opts, home) {
         );
         if (newShift) log(`${m.symbol} TEST PRICE shift ${shift} bps quoted`);
         done[m.symbol] = { held: false, resting: rested, ladder: ladder.length, shiftBps: shift === undefined ? null : String(shift) };
-        if (takerCrosses({ still: stillCycle, cross: cfg.cross, rested, cycle, symbol: m.symbol })) {
+        if (takerCrosses({ still: stillCycle, cross: cfg.cross, rested, cycle, symbol: m.symbol, lastCrossMs: crossedAt.get(m.symbol) })) {
           // Alternate per market (failure it prevents: every symbol here has the same name length, so a
           // side picked from cycle and name parity was always "buy", drained the taker's quote asset, and
           // every crossing then failed with 400 ledger.insufficient_funds).
           const n = (crossings.get(m.symbol) ?? 0) + 1;
           // Top the taker up through the real ledger if either leg is under half its target.
           await ensureFunds(taker, 'taker', [m.base, m.quote], 10).catch((err) => log(`taker top-up failed: ${err.message}`));
-          // The book's top on both sides, read just before the crossing, so it meets only the maker's own quote.
-          const book = await maker
-            .http('GET', `/api/v1/orderbook/${encodeURIComponent(m.symbol)}?limit=1`, null, { auth: false })
-            .catch(() => null);
-          // This crossing's side first; if it can't meet only the maker, the other side, so one side the maker can't
-          // cross on doesn't stop the tape.
-          const turn = [n, n + 1].find((k) => crossingQuote(ladder, resting, crossingSide(k), book?.status === 200 ? book.json : null));
-          if (turn === undefined) {
-            log(`${m.symbol} no crossing this cycle: the book's top is not the maker's own level-0 quote on either side`);
-            continue;
+          // Both sides, one after the other (`crossingLegs`): a buy at the maker's ask and a sell at its bid, so every
+          // minute that trades has a bar with range, its high at the ask and its low at the bid. One crossing a minute
+          // made a 1m bar of one trade, open = high = low = close, so no bar could reach both a stop loss and a take
+          // profit (J-algo-dev-05 #3, #8404: six heads in a row, 165.6 round minutes). Each leg reads the book's top
+          // just before it, so it meets only the maker's own level-0 quote; a leg that can't is skipped.
+          for (const k of crossingLegs(n)) {
+            const book = await maker
+              .http('GET', `/api/v1/orderbook/${encodeURIComponent(m.symbol)}?limit=1`, null, { auth: false })
+              .catch(() => null);
+            const side = crossingSide(k);
+            const best = crossingQuote(ladder, resting, side, book?.status === 200 ? book.json : null);
+            if (!best) {
+              log(`${m.symbol} no ${side} crossing this cycle: the book's top is not the maker's own level-0 quote on that side`);
+              continue;
+            }
+            // Counted only once placed, as the side placed: buys and sells still alternate.
+            crossings.set(m.symbol, k);
+            const r = await place(taker, m, side, best.price, best.amount, 'IOC');
+            const why = r.status === 201 ? '' : ` (${(r.json?.intafacedCode ?? r.json?.code ?? r.text).toString().slice(0, 120)})`;
+            if (r.status === 201) crossedAt.set(m.symbol, Date.now());
+            log(`${m.symbol} crossing trade by test_taker: ${side} ${best.amount} @ ${best.price} -> HTTP ${r.status}${why}`);
           }
-          const side = crossingSide(turn);
-          const best = crossingQuote(ladder, resting, side, book.json);
-          // Counted only once placed, as the side placed: buys and sells still alternate.
-          crossings.set(m.symbol, turn);
-          const r = await place(taker, m, side, best.price, best.amount, 'IOC');
-          const why = r.status === 201 ? '' : ` (${(r.json?.intafacedCode ?? r.json?.code ?? r.text).toString().slice(0, 120)})`;
-          log(`${m.symbol} crossing trade by test_taker: ${side} ${best.amount} @ ${best.price} -> HTTP ${r.status}${why}`);
         }
       }
       inactiveSince = null;

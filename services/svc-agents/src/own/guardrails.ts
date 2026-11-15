@@ -1,6 +1,7 @@
 import type { Sql } from 'postgres';
 import { OWN_AGENT_DATA_CLASSES, OWN_AGENT_RULE_CHOICES, type OwnAgentApprovalStatus } from '@intafaced/contracts/agents-own';
 import { OWN_TOOLS, OwnAgentRefusal, type OwnDataClass } from './catalog.js';
+import { PolicyOverrideStore } from './overrides.js';
 
 /**
  * WHAT A PERSON'S OWN AGENT MAY DO WITH ITS TOOLS (AG-guardrails-01, AG-guardrails-02).
@@ -9,7 +10,8 @@ import { OWN_TOOLS, OwnAgentRefusal, type OwnDataClass } from './catalog.js';
  * 1. Consent. The first time the agent uses a class of tools (own data, market data, draft write, live write) the
  *    person is asked; until they allow it the call is refused `agents.consent_required`, and revoking withdraws it.
  * 2. The managed baseline. The owner's requirement per class: the loosest standing choice any lower scope may take.
- *    A blank class refuses the call, and any rule that would rely on it, with `agents.baseline_value_unset`.
+ *    A blank class refuses the call, and any rule that would rely on it, with `agents.baseline_value_unset`. This
+ *    environment's override for the class (own/overrides.ts), when set, narrows it: the stricter of the two decides.
  * 3. The person's standing rule for that tool, if any. Rules only narrow: a rule never grants a tool, and the stricter
  *    of the rule and the baseline decides. "Ask before acting" turns the call into an approval request; "hand it off"
  *    stops the agent and leaves the step to the person.
@@ -72,6 +74,17 @@ export function checkRule(baseline: PolicyBaseline, agentTools: readonly string[
   if (looseness(choice) > looseness(required)) throw new OwnAgentRefusal('agents.baseline_loosen_refused', { dataClass, required });
 }
 
+/**
+ * The requirement a tool call of `dataClass` meets: the owner's baseline, narrowed by this environment's override when
+ * one is set (the stricter of the two). A blank baseline is blank whatever the override says: null, and the caller refuses.
+ */
+export async function effectiveRequirement(sql: Sql, baseline: PolicyBaseline, dataClass: OwnDataClass): Promise<RuleChoice | null> {
+  const required = baseline[dataClass];
+  if (!required) return null;
+  const override = await new PolicyOverrideStore(sql).forClass(dataClass);
+  return override ? stricter(required, override) : required;
+}
+
 /** What a tool call of the person's own agent comes to, before it runs. */
 export type Gate =
   | { readonly kind: 'run'; readonly dataClass: OwnDataClass }
@@ -91,7 +104,7 @@ export async function gateToolCall(
   if (!(await consents.granted(input.ownerId, input.agentId, dataClass))) {
     throw new OwnAgentRefusal('agents.consent_required', { dataClass });
   }
-  const required = baseline[dataClass];
+  const required = await effectiveRequirement(sql, baseline, dataClass);
   if (!required) throw new OwnAgentRefusal('agents.baseline_value_unset', { dataClass });
   const rule = await new OwnRuleStore(sql).forTool(input.ownerId, input.agentId, input.tool);
   const choice = rule ? stricter(rule.choice, required) : required;

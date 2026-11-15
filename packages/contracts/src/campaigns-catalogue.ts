@@ -83,6 +83,21 @@ export const CAMPAIGN_REFUSAL_CODES = [
   'campaigns.attempt_limit_reached',
   'campaigns.window_unset',
   'campaigns.welcome_none',
+  // J-campaigns-17: the operator's watch desk, code batches and exports (campaigns-watch.ts).
+  'campaigns.alert_threshold_unset',
+  'campaigns.code_batch_limit_unset',
+  'campaigns.code_batch_limit_exceeded',
+  'campaigns.code_import_duplicate',
+  'campaigns.code_batch_unknown',
+  'campaigns.code_batch_reference_taken',
+  'campaigns.voucher_unknown',
+  'campaigns.voucher_deactivated',
+  'campaigns.export_validity_unset',
+  'campaigns.export_unknown',
+  'campaigns.export_not_ready',
+  'campaigns.export_expired',
+  'campaigns.referral_invalid',
+  'campaigns.criteria_unset',
   'owner.decision',
 ] as const;
 export type CampaignRefusalCode = (typeof CAMPAIGN_REFUSAL_CODES)[number];
@@ -248,11 +263,14 @@ export type RuleTestResult = z.infer<typeof ruleTestResultSchema>;
 /**
  * The triggers an earning rule may name: events declared in `packages/events`, each with the names its incentive
  * formula may read. `trade.fill.settled`: `amount` is the fill's quote amount, `fee` its fee, `qty` its quantity.
- * `pay.deposit_credit.posted`: `amount` is the amount credited. Anything else refuses `campaigns.trigger_unknown`.
+ * `pay.deposit_credit.posted`: `amount` is the amount credited. `bank.card_cashback.earned`: `amount` is what a card
+ * capture the card partner holds spent, `cashback` the cashback svc-bank worked out on it at the person's rank card tier
+ * (J-bank-13 #7). Anything else refuses `campaigns.trigger_unknown`.
  */
 export const EARNING_TRIGGERS = {
   'trade.fill.settled': { label: 'A spot fill settles', names: ['amount', 'fee', 'qty'] },
   'pay.deposit_credit.posted': { label: 'A crypto deposit is credited', names: ['amount'] },
+  'bank.card_cashback.earned': { label: 'Card spend earns cashback', names: ['amount', 'cashback'] },
 } as const;
 export type EarningTrigger = keyof typeof EARNING_TRIGGERS;
 
@@ -269,9 +287,64 @@ export const earningRuleSchema = z
     /** The condition on the event: its amount is at least this; null: any amount. */
     minAmount: campaignDecimal.nullable().default(null),
     formula: z.string().trim().min(1).max(200),
+    /**
+     * What the rule gives. Absent: an incentive, the formula's answer in the campaign's reward asset. `points`: that many
+     * points of the points programme. A points effect saves, but it waits for the owner's answer to whether INTAFACED runs
+     * a points programme whose points have value or convert to cash: evaluating it refuses `owner.decision` for that rule
+     * only, and a live event gives nothing for it, while the campaign's other rules evaluate and pay as before.
+     */
+    effect: z.enum(['incentive', 'points']).optional(),
   })
   .strict();
 export type EarningRule = z.infer<typeof earningRuleSchema>;
+export type EarningEffect = NonNullable<EarningRule['effect']>;
+
+/**
+ * Evaluate a campaign's earning rules on one TEST event the operator types (CM-rewards-hub-05 preview and test): what each
+ * rule would give for it, writing nothing. `values` are the trigger's names (`amount`, `fee`, `qty`), each a decimal
+ * string in the campaign's reward asset; a name the trigger does not have refuses `campaigns.formula_invalid`.
+ */
+export const earningEvaluateInputSchema = z
+  .object({
+    id,
+    trigger: z.string().max(64),
+    values: z.record(z.string().max(16), campaignDecimal),
+  })
+  .strict();
+export type EarningEvaluateInput = z.infer<typeof earningEvaluateInputSchema>;
+
+/** One rule's answer to the TEST event: what it would give, why it gives nothing, or the refusal for its effect alone. */
+export const earningEvaluationResultSchema = z.discriminatedUnion('outcome', [
+  z.object({
+    outcome: z.literal('gives'),
+    rule: z.string(),
+    effect: z.literal('incentive'),
+    amount: campaignDecimal,
+    asset: asset.nullable(),
+  }),
+  z.object({
+    outcome: z.literal('nothing'),
+    rule: z.string(),
+    effect: z.enum(['incentive', 'points']),
+    /** `other_trigger`: the rule answers another event; `below_condition`: the amount is under its minimum; `zero`: it works out to nothing. */
+    reason: z.enum(['other_trigger', 'below_condition', 'zero']),
+  }),
+  z.object({
+    outcome: z.literal('refused'),
+    rule: z.string(),
+    effect: z.literal('points'),
+    code: z.literal('owner.decision'),
+    question: z.string(),
+  }),
+]);
+export type EarningEvaluationResult = z.infer<typeof earningEvaluationResultSchema>;
+
+export const earningEvaluationSchema = z.object({
+  campaignId: id,
+  trigger: z.string(),
+  results: z.array(earningEvaluationResultSchema),
+});
+export type EarningEvaluation = z.infer<typeof earningEvaluationSchema>;
 
 /**
  * Who can take part (CM-eligibility-rules-01, ENGINE EL-1 to EL-3). Exclusions read svc-identity: `business` is the
@@ -317,7 +390,8 @@ export const campaignWindowsSchema = z.object({
  * credit funded by a bonus, a trial fund or a gift is no deposit and never sends that event. In a welcome checklist,
  * `pay.deposit` is read from the venue instead (J-campaigns-04 #2): a USDC deposit from a wallet the person connected
  * into the venue account it owns, as the venue reports it credited, counted only above what INTAFACED has paid that
- * wallet as rewards.
+ * wallet as rewards. A task campaign's step may be `pay.deposit` too (J-campaigns-02 #1), read from the venue the same
+ * way: the first counting deposit seen after the person joined, inside the campaign's time frame, once per step.
  */
 export const TASK_EVENTS = ['trade.fill', 'identity.verified', 'pay.deposit'] as const;
 export type TaskEvent = (typeof TASK_EVENTS)[number];
@@ -402,6 +476,69 @@ export const campaignTasksSchema = z
   .strict();
 export type CampaignTasks = z.infer<typeof campaignTasksSchema>;
 
+// ── Referral programmes (CM-referral-02, J-campaigns-06) ─────────────────────────────────────────────────────────────
+
+/**
+ * What makes an invitee qualified under a referral programme (ENGINE EL-8, RF-5): the verification tier they reach, a
+ * crypto deposit of at least `depositMin` and spot trades worth at least `tradeVolumeMin` (in fills quoted in `asset`),
+ * each inside `windowSeconds` from the moment they were attached to their referrer. A deposit is only a crypto deposit
+ * svc-pay credited (`pay.deposit_credit.posted`); moving money between the invitee's own wallet and venue accounts, or a
+ * bonus, trial fund or gift, is no deposit and never counts. Every value is the operator's per programme: blank refuses
+ * activation `campaigns.criteria_unset`, never a default.
+ */
+export const referralCriteriaSchema = z
+  .object({
+    verification: z.enum(['basic', 'full']).nullable(),
+    asset: asset.nullable(),
+    depositMin: campaignDecimal.nullable(),
+    tradeVolumeMin: campaignDecimal.nullable(),
+    windowSeconds: z.number().int().min(60).max(31_536_000).nullable(),
+  })
+  .strict();
+export type ReferralCriteria = z.infer<typeof referralCriteriaSchema>;
+
+/**
+ * A `referral` campaign's programme: single sided (the referrer is rewarded) or double sided (both are), its criteria,
+ * and each side's reward (CM-referral-03 pays them). A blank reward a side needs refuses activation `campaigns.reward_unset`.
+ */
+export const campaignReferralSchema = z
+  .object({
+    sides: z.enum(['single', 'double']),
+    criteria: referralCriteriaSchema,
+    rewards: z.object({ referrer: campaignRewardSchema.nullable(), referee: campaignRewardSchema.nullable() }).strict(),
+  })
+  .strict();
+export type CampaignReferral = z.infer<typeof campaignReferralSchema>;
+
+/** The steps a referrer sees for each invitee: done or not, never an amount, an event or who the invitee is. */
+export const REFERRAL_STEPS = ['verified', 'deposited', 'traded'] as const;
+export type ReferralStep = (typeof REFERRAL_STEPS)[number];
+
+/**
+ * One invitee as their referrer sees them (the bounded summary, ENGINE EL-6): their place in the order they joined, when
+ * they were attached, each step done or not, and the summary state. `qualified` is reached once and never undone;
+ * `window_closed`: the window passed before every step was done; `no_programme`: no referral programme was live when they
+ * were attached, so nothing is tracked for them. No id, handle, email, amount or event detail of the invitee is returned.
+ */
+export const INVITEE_STATES = ['in_progress', 'qualified', 'window_closed', 'no_programme'] as const;
+export const myInviteeSchema = z
+  .object({
+    place: z.number().int().positive(),
+    attachedAt: iso,
+    state: z.enum(INVITEE_STATES),
+    steps: z.object({ verified: z.boolean(), deposited: z.boolean(), traded: z.boolean() }).strict(),
+    qualifiedAt: iso.nullable(),
+    windowClosesAt: iso.nullable(),
+    programme: z.object({ id, name: z.string() }).nullable(),
+  })
+  .strict();
+export type MyInvitee = z.infer<typeof myInviteeSchema>;
+/** The most invitees one read lists, in the order they joined; `total` says when there are more. */
+export const INVITEE_LIST_LIMIT = 200;
+export const myInviteesSchema = z.object({ invitees: z.array(myInviteeSchema).max(INVITEE_LIST_LIMIT), total: z.number().int().min(0) });
+export type MyInvitees = z.infer<typeof myInviteesSchema>;
+export const myInviteesInputSchema = z.object({}).strict();
+
 /** The full stored definition, as operators see it. */
 export const campaignSchema = z.object({
   id,
@@ -424,6 +561,8 @@ export const campaignSchema = z.object({
   tasks: campaignTasksSchema.nullable(),
   /** How often one customer, and everyone together, may take this campaign's reward (CM-eligibility-rules-03). */
   limits: z.lazy(() => campaignLimitsSchema).nullish(),
+  /** A referral campaign's programme (CM-referral-02); absent or null for any other campaign. */
+  referral: campaignReferralSchema.nullish(),
   /** A voucher campaign's claim-by and use-by times; absent or null for any other campaign. */
   vouchers: z.lazy(() => voucherWindowSchema).nullish(),
   /** Earning rules, in the order they are checked (CM-rewards-hub-05). */
@@ -565,6 +704,8 @@ export const campaignDefinitionInputSchema = z
       .nullish(),
     /** The campaign's limits; a blank per-customer limit refuses activation `campaigns.per_customer_limit_unset`. */
     limits: z.lazy(() => campaignLimitsSchema).nullish(),
+    /** Only for a `referral` campaign (anything else refuses `campaigns.referral_invalid`): its programme. */
+    referral: campaignReferralSchema.nullish(),
   })
   .strict();
 export type CampaignDefinitionInput = z.infer<typeof campaignDefinitionInputSchema>;
@@ -714,6 +855,10 @@ export const voucherRedemptionSchema = z.object({
     reason: z.string().nullable(),
     ledgerTxId: z.string().nullable(),
     postedAt: iso.nullable(),
+    /** A USDC redemption on the launch path (J-campaigns-08 #5): when INTAFACED recorded it owed, under its ledger transaction. */
+    owed: z.object({ txId: z.string(), at: iso }).nullable().default(null),
+    /** Its one payment to the connected wallet, once paid: the chain transaction, the wallet and when. */
+    payout: z.object({ chainTx: z.string(), toWallet: z.string(), at: iso }).nullable().default(null),
   }),
 });
 export type VoucherRedemption = z.infer<typeof voucherRedemptionSchema>;
@@ -798,6 +943,7 @@ export const REWARD_STATES = [
   'qualified',
   'posting',
   'owed',
+  'paid',
   'locked',
   'settling',
   'posted',
@@ -813,7 +959,20 @@ export type RewardState = (typeof REWARD_STATES)[number];
 /** One line of the redemption log: every attempt, with its outcome and typed reason. */
 export const redemptionAttemptSchema = z.object({
   at: iso,
-  outcome: z.enum(['held', 'released', 'qualified', 'owed', 'posted', 'locked', 'unlocked', 'refused', 'unknown', 'withheld', 'forfeited']),
+  outcome: z.enum([
+    'held',
+    'released',
+    'qualified',
+    'owed',
+    'paid',
+    'posted',
+    'locked',
+    'unlocked',
+    'refused',
+    'unknown',
+    'withheld',
+    'forfeited',
+  ]),
   reason: z.string().nullable(),
 });
 export type RedemptionAttempt = z.infer<typeof redemptionAttemptSchema>;
@@ -834,6 +993,26 @@ export const rewardRecordSchema = z.object({
    * booked. Owed is never in the customer's wallet or a balance: it is ours until it is paid to their own wallet.
    */
   owed: z.object({ txId: z.string(), at: iso }).nullable().default(null),
+  /**
+   * An owed reward paid to the customer's own wallet: the chain transaction that paid it, the wallet it went to (the one
+   * connected when it was claimed), and when the payment was booked (`rewardPayOut`, keyed by that chain transaction).
+   */
+  payout: z
+    .object({
+      chainTx: z.string(),
+      toWallet: z.string(),
+      at: iso,
+      /**
+       * The network fee of the payment, as the chain's receipt reports it (gas used times its price, in the chain's own
+       * coin), paid by INTAFACED's wallet: our cost, never taken from the reward. Null when the receipt did not say.
+       */
+      networkFee: z
+        .object({ asset: z.string(), amount: campaignDecimal, paidBy: z.literal('intafaced') })
+        .nullable()
+        .default(null),
+    })
+    .nullable()
+    .default(null),
   createdAt: iso,
   postedAt: iso.nullable(),
   /** When a held reward's risk-review hold ends; null when the campaign pays at once. */
@@ -860,6 +1039,12 @@ export const rewardRecordSchema = z.object({
   rollback: z.object({
     windowSeconds: z.number().int().positive().nullable(),
     closesAt: iso.nullable(),
+    /**
+     * `payment`: a reward INTAFACED owes, whose rollback window closes when it is paid to the customer's wallet (a chain
+     * payment cannot be taken back), at `closesAt` once paid, or earlier if the window runs out first. `posting`: the
+     * window runs from the post.
+     */
+    closesOn: z.enum(['posting', 'payment']).default('posting'),
     blocker: z.literal('campaigns.reclaim_unavailable'),
   }),
   attempts: z.array(redemptionAttemptSchema),
@@ -901,6 +1086,24 @@ export const taskProgressSchema = z.object({
   claimClosesAt: iso.nullable(),
   kycGate: z.enum(KYC_GATES),
   reward: rewardRecordSchema.nullable(),
+  /**
+   * A deposit step's read of the venue (J-campaigns-02 #1): `read` with the venue's as-of time, `unread` when the venue or
+   * the person's wallets could not be read (the step stays as it was, never "no deposit"), `no_wallet` with no wallet
+   * connected. Null when the campaign has no deposit step or the person has not joined.
+   */
+  deposit: z
+    .object({ source: z.enum(['read', 'unread', 'no_wallet']), asOf: iso.nullable() })
+    .nullable()
+    .default(null),
+  /**
+   * The campaign's budget, from its reward records: what is reserved (rewards owed or still being given, not yet paid),
+   * what is spent (paid or posted) and what is left of the limit. `reserved + spent + left = limit` exactly while the
+   * limit is not overdrawn. Null when the campaign has no budget set.
+   */
+  budget: z
+    .object({ asset, limit: campaignDecimal, reserved: campaignDecimal, spent: campaignDecimal, left: campaignDecimal })
+    .nullable()
+    .default(null),
 });
 export type TaskProgress = z.infer<typeof taskProgressSchema>;
 
@@ -919,10 +1122,11 @@ export type TaskClaimResult = z.infer<typeof taskClaimResultSchema>;
  * (being posted, waiting for the pot, the platform posting freeze, or an answer that was lost). `posted`: booked, with the
  * ledger transaction. `locked`: a locked reward or bonus waiting on its condition or expiry, held in a campaigns pot and
  * never withdrawable (its total is the customer's restricted balance). `owed`: a USDC reward INTAFACED owes and has not
- * paid to the customer's own wallet; an owed reward whose hold has not ended reads `on_hold`. `closed`: forfeited or failed, never paid. Totals are summed from the reward rows on each read, never
+ * paid to the customer's own wallet; an owed reward whose hold has not ended reads `on_hold`. `paid`: an owed reward paid
+ * to the customer's own connected wallet, with its chain transaction. `closed`: forfeited or failed, never paid. Totals are summed from the reward rows on each read, never
  * stored.
  */
-export const REWARD_STATUSES = ['on_hold', 'still_open', 'owed', 'locked', 'posted', 'closed'] as const;
+export const REWARD_STATUSES = ['on_hold', 'still_open', 'owed', 'paid', 'locked', 'posted', 'closed'] as const;
 export type RewardStatus = (typeof REWARD_STATUSES)[number];
 export const REWARD_STATUS_OF = {
   held: 'on_hold',
@@ -930,6 +1134,7 @@ export const REWARD_STATUS_OF = {
   qualified: 'still_open',
   posting: 'still_open',
   owed: 'owed',
+  paid: 'paid',
   locked: 'locked',
   settling: 'locked',
   pending_funding: 'still_open',
@@ -1058,3 +1263,64 @@ export const feeSaverAnswerSchema = z.object({
     .nullable(),
 });
 export type FeeSaverAnswer = z.infer<typeof feeSaverAnswerSchema>;
+
+// ── Points programme (CM-rewards-hub-04, J-campaigns-15) ───────────────────────────────────────────────────────────
+
+/**
+ * The owner question the points programme waits on, in plain words. Until the owner answers it, every press that would
+ * earn, spend, expire, release, redeem or convert points refuses `owner.decision` naming it, and no points are stored.
+ */
+export const POINTS_OWNER_QUESTION =
+  'Whether INTAFACED runs a points programme whose points have value or convert to cash. Until the owner answers, no points are earned, kept, redeemed or converted.';
+
+/** A programme's lifecycle (ENGINE LC-1 to LC-4), in order. */
+export const POINTS_LIFECYCLE = ['draft', 'active', 'paused', 'ended'] as const;
+export type PointsLifecycleStage = (typeof POINTS_LIFECYCLE)[number];
+
+/** How points would expire: never, a rolling horizon from each earning, a calendar date, or after inactivity. */
+export const POINTS_EXPIRY_MODES = ['never', 'rolling', 'calendar', 'inactivity'] as const;
+export type PointsExpiryMode = (typeof POINTS_EXPIRY_MODES)[number];
+
+/**
+ * The benefits the catalogue offers for points: a fee-saver coupon (part of our builder fee off venue orders,
+ * J-campaigns-09), a voucher in the reward asset (J-campaigns-08) and a place in a limited drop (J-campaigns-20). Their
+ * prices in points, stock and per-person limits are owner values.
+ */
+export const POINTS_CATALOGUE_ITEMS = ['fee_saver', 'cash_voucher', 'drop_place'] as const;
+export type PointsCatalogueItem = (typeof POINTS_CATALOGUE_ITEMS)[number];
+
+/** A whole number of points, as a string. */
+const points = z.string().regex(/^(0|[1-9]\d{0,19})$/);
+
+/**
+ * The points programme as a signed-in customer reads it. Every number is null while it is not kept or not set: no
+ * balance, member count, horizon, price, stock, limit, rate or minimum is ever filled in. `blocker` names the owner
+ * question while it is open.
+ */
+export const pointsProgrammeSchema = z.object({
+  blocker: z.object({ code: z.literal('owner.decision'), question: z.string() }).nullable(),
+  lifecycle: z.object({ stages: z.array(z.enum(POINTS_LIFECYCLE)), current: z.enum(POINTS_LIFECYCLE).nullable() }),
+  /** The caller's own points wallet: null while no points are kept. */
+  wallet: z.object({ available: points.nullable(), pending: points.nullable(), expiring: points.nullable() }),
+  /** How many customers take part: null while the programme does not run. */
+  members: z.object({ count: z.number().int().min(0).nullable() }),
+  expiry: z.object({
+    current: z.enum(POINTS_EXPIRY_MODES).nullable(),
+    modes: z.array(z.object({ mode: z.enum(POINTS_EXPIRY_MODES), horizonSeconds: z.number().int().positive().nullable() })),
+  }),
+  /** The caller's points waiting to become available, each with when it would; none while no points are kept. */
+  pending: z.array(z.object({ id, points, availableAt: iso })),
+  catalogue: z.array(
+    z.object({
+      id: z.enum(POINTS_CATALOGUE_ITEMS),
+      pricePoints: points.nullable(),
+      stock: z.number().int().min(0).nullable(),
+      perPersonLimit: z.number().int().positive().nullable(),
+    }),
+  ),
+  conversion: z.object({ rate: campaignDecimal.nullable(), asset: asset.nullable(), minimumPoints: points.nullable() }),
+});
+export type PointsProgramme = z.infer<typeof pointsProgrammeSchema>;
+
+export const pointsRedeemInputSchema = z.object({ itemId: z.enum(POINTS_CATALOGUE_ITEMS) }).strict();
+export const pointsConvertInputSchema = z.object({}).strict();

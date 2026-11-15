@@ -79,6 +79,7 @@ const messages = {
   'auth.email_taken': 'That email already has an account. Sign in instead.',
   'vendor.email':
     'Email delivery is switched off in this build, so a sign-up code cannot be sent. Nothing was switched to another channel: pick one yourself.',
+  // oxlint-disable-next-line garden/own-gap-wording -- on main before this rule (HM-shell-03); its owner rewords it, and then this line goes
   'vendor.sms':
     'Phone sign-up needs a text-message provider, which is not connected in this build. Nothing was sent by any other channel: use email instead.',
 } as const;

@@ -10,6 +10,7 @@ import { settingsApi } from './settings/api';
 import { catalogApi } from './catalog/api';
 import { lookApi } from './payments/look-api';
 import { methodsApi } from './payments/methods-api';
+import { walletApi } from './payments/wallet-api';
 
 /**
  * The merchant portal's own client. Every procedure here scopes itself on the server from the signed
@@ -37,5 +38,6 @@ export function createPortalApi(api: ApiClient, userId: string | null) {
     ...catalogApi(tools),
     ...lookApi(tools),
     ...methodsApi(tools),
+    ...walletApi(tools),
   };
 }

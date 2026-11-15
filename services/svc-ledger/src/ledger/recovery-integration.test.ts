@@ -9,6 +9,7 @@ import { recipes, parseAmount } from '@intafaced/ledger-client';
 import { LedgerService } from '../service.js';
 import { runScheduledReconciliation } from './reconcile.js';
 import { writeFreeze, readFreeze, unpublishedFreezeOutbox } from './freeze.js';
+import { sleep as delay } from '@intafaced/contracts/sleep';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '../..');
 const migrationDir = join(root, 'drizzle');
@@ -18,7 +19,6 @@ const migrations = readdirSync(migrationDir)
   .map((name) => (schema: string) => rewriteSchemaSql(readFileSync(join(migrationDir, name), 'utf8'), 'ledger', schema));
 const USER = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const deposit = (ref: string) => recipes.deposit({ userId: USER, assetId: 'USDT', amount: parseAmount('1'), rail: 'test', railRef: ref });
-const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 async function fixture(run: (db: Awaited<ReturnType<typeof createTestDb>>, pool: postgres.Sql) => Promise<void>) {
   const db = await createTestDb({ service: 'ledger_repair', url: process.env.TEST_DATABASE_URL, migrations });
