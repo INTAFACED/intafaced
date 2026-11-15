@@ -262,9 +262,13 @@ jobs:
       # The step the seal reads for gate files and look baselines: it fails only on a well-formed FAIL of the review
       # part, which then stands for this head and its code. Skipped when the judge is down: no answer is no verdict, so
       # the seal reads none (review-marker.mjs isJudgeDown) and waits, never a PASS and never a FAIL that would stand.
+      # From a branch's third FAIL in a row it also says to stop fixing and test the belief the fixes shared (ci-review.mjs
+      # premiseLines; the token reads this branch's runs and logs). Words only: no verdict changes.
       - name: Verdict
         id: verdict
         if: steps.review.outputs.kind != 'down'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node tooling/ci/ci-review.mjs judge "$RUNNER_TEMP/review"
 
       # The step the seal reads for journey tests and shared test code (review-marker.mjs JUDGE_CHECK): the same answer's

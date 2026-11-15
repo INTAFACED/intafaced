@@ -106,3 +106,7 @@ apps/customer/public/developers/
 # Where T3 worktree setup markers used to be; they are under node_modules/.t3-setup now (tooling/t3/setup-worktree.mjs).
 # Kept ignored so older worktrees that still hold the folder stay clean.
 .t3/
+
+# A builder's own stack and journey results in its checkout (docs/LOCAL-TEST-STACK.md, "Check your own journey").
+/.stack-state/
+/.jr/
