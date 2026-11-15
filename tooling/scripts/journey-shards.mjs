@@ -5,9 +5,10 @@
 //
 // Usage: node tooling/scripts/journey-shards.mjs --shards <n | auto> [--report <report.json>]... [--only "<files>"] [--main]
 // Prints a JSON array with one string per shard: that shard's journey files (relative to the journey folder),
-// separated by spaces. Each file counts its longest time across the reports, so a shard that was cut short or a file
-// that failed early in one run does not make it look fast, plus the suite's time per step for each step no report
-// timed, so a new journey or steps added to an old one count before any run has timed them. With no report every step
+// separated by spaces. Each file counts the longest time of each of its tests' titles across the reports, wherever that
+// test ran (titleEstimates; a file whose titles can't be read counts its own longest time), so a shard that was cut short
+// or a file that failed early in one run does not make it look fast and a step moved into a part file takes its time
+// with it, plus the suite's time per step for each step no report timed, so a new journey or steps added to an old one count before any run has timed them. With no report every step
 // counts UNTIMED_STEP_MS, the time a step took on main, so a run that could not read the last reports still plans its
 // shards from a real size. A report that cannot be read is skipped.
 //
@@ -148,6 +149,55 @@ export function timedSteps(report) {
   return out;
 }
 
+/** Milliseconds per test title in a Playwright JSON report, whatever file the test was in: every result, retries included. */
+export function titleDurations(report) {
+  const out = new Map();
+  const visit = (suite) => {
+    for (const spec of suite.specs ?? [])
+      for (const test of spec.tests ?? [])
+        for (const result of test.results ?? [])
+          if (TIMED.has(result.status)) out.set(spec.title, (out.get(spec.title) ?? 0) + (result.duration ?? 0));
+    for (const child of suite.suites ?? []) visit(child);
+  };
+  for (const suite of report?.suites ?? []) visit(suite);
+  return out;
+}
+
+const TITLE = /^\s*test\(\s*(`[^`]*`|'[^'\n]*'|"[^"\n]*")/gm;
+
+/**
+ * The titles a journey file's `test(` calls declare, the way a report names them: `${J}` read from the file's own
+ * `const J = '...'`. Null when any title holds anything else to fill in (a loop's `${n}`), so the caller falls back to
+ * the file's own past time.
+ */
+export function sourceTitles(text) {
+  const j = /^const J = '([^'\n]+)';/m.exec(text)?.[1];
+  const titles = [];
+  for (const m of text.matchAll(TITLE)) {
+    const t = m[1].slice(1, -1).replaceAll('${J}', j ?? '${J}');
+    if (t.includes('${')) return null;
+    titles.push(t);
+  }
+  return titles.length ? titles : null;
+}
+
+/**
+ * Every file's expected time from its own tests' titles: each title's longest time across the reports, wherever that
+ * test ran, plus `perStep` for a title no report timed. (Failure it prevents: a step moved into a new part file, as on
+ * 15 Nov 2026 when five long files were split, kept its time under the old file's name for three main runs, so the old
+ * file looked as long as before and the part file, timed by nobody, was packed beside a full shard's journeys and ended
+ * last.) A file whose titles can't all be read keeps the estimate in `fallback`.
+ */
+export function titleEstimates(files, texts, titleTimes, perStep, fallback) {
+  return new Map(
+    files.map((f) => {
+      const titles = sourceTitles(texts.get(f) ?? '');
+      if (!titles || !titles.some((t) => titleTimes.get(t) > 0)) return [f, fallback.get(f)];
+      return [f, titles.reduce((ms, t) => ms + (titleTimes.get(t) > 0 ? titleTimes.get(t) : perStep), 0)];
+    }),
+  );
+}
+
 /** Each file's longest time (or most timed steps) across several runs. */
 export function longestDurations(runs) {
   const out = new Map();
@@ -172,7 +222,8 @@ export function stepCounts(dir, files) {
  * Every file's expected time: its longest past time plus the suite's time per step (all past time over all timed steps)
  * for each of its steps no report timed. A file no report knows and with no step counts as one step, so it still lands.
  */
-export function estimateDurations(files, past, timed, steps) {
+/** The suite's time per step: all past time over all timed steps of `files`, or UNTIMED_STEP_MS when no report timed one. */
+export function stepTime(files, past, timed) {
   let ms = 0;
   let count = 0;
   for (const f of files)
@@ -180,7 +231,11 @@ export function estimateDurations(files, past, timed, steps) {
       ms += past.get(f);
       count += timed.get(f);
     }
-  const perStep = count ? ms / count : UNTIMED_STEP_MS;
+  return count ? ms / count : UNTIMED_STEP_MS;
+}
+
+export function estimateDurations(files, past, timed, steps) {
+  const perStep = stepTime(files, past, timed);
   return new Map(
     files.map((f) => {
       const known = past.get(f) ?? 0;
@@ -329,11 +384,14 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const files = only === null ? journeyFiles(JOURNEY_DIR) : targetFiles(only, journeyFiles(JOURNEY_DIR));
   if (only !== null) console.error(`journey-shards: a targeted run of ${files.length} journey file(s): ${files.join(' ')}`);
   const read = reports.map(readReport);
-  const durations = estimateDurations(
+  const past = longestDurations(read.map((r) => fileDurations(r)));
+  const timed = longestDurations(read.map((r) => timedSteps(r)));
+  const durations = titleEstimates(
     files,
-    longestDurations(read.map((r) => fileDurations(r))),
-    longestDurations(read.map((r) => timedSteps(r))),
-    stepCounts(JOURNEY_DIR, files),
+    new Map(files.map((f) => [f, fs.readFileSync(path.join(JOURNEY_DIR, f), 'utf8')])),
+    longestDurations(read.map((r) => titleDurations(r))),
+    stepTime(files, past, timed),
+    estimateDurations(files, past, timed, stepCounts(JOURNEY_DIR, files)),
   );
   const totalMs = [...durations.values()].reduce((a, b) => a + b, 0);
   // Never more shards than files: a shard must have a file to run.

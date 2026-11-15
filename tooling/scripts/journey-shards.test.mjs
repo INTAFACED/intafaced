@@ -23,6 +23,10 @@ import {
   planShards,
   shardCount,
   shardTarget,
+  sourceTitles,
+  stepTime,
+  titleDurations,
+  titleEstimates,
   stepCounts,
   targetFiles,
   targetedShards,
@@ -500,4 +504,77 @@ test('the planner as the workflow calls it on main names the files the run waits
   const warned = run.stderr.split('\n').filter((l) => l.startsWith('::warning::') && l.includes('the run waits on it'));
   assert.equal(warned.length, 1, run.stderr);
   assert.ok(warned[0].startsWith(`::warning::${files[0]} takes about 40 min`), warned[0]);
+});
+
+test('a step moved into a part file takes its time with it, found by its title (15 Nov 2026 splits)', () => {
+  const min = 60_000;
+  // Main's report from before the split: every step in J-x.pw.mjs, 20 minutes in all.
+  const before = {
+    suites: [
+      {
+        file: 'J-x.pw.mjs',
+        specs: [
+          { title: 'J-x starts: an account', tests: [{ results: [{ status: 'passed', duration: 2 * min }] }] },
+          { title: 'J-x #1 reads', tests: [{ results: [{ status: 'passed', duration: 3 * min }] }] },
+          {
+            title: 'J-x #2 sends',
+            tests: [
+              {
+                results: [
+                  { status: 'failed', duration: 9 * min },
+                  { status: 'passed', duration: 6 * min },
+                ],
+              },
+            ],
+          },
+          { title: 'J-x #3 never ran', tests: [{ results: [{ status: 'skipped', duration: 0 }] }] },
+        ],
+      },
+    ],
+  };
+  const times = titleDurations(before);
+  assert.equal(times.get('J-x #2 sends'), 15 * min, 'every timed result of a title, retries included');
+  assert.equal(times.has('J-x #3 never ran'), false, 'a skipped step says nothing about its time');
+  const texts = new Map([
+    ['J-x.pw.mjs', "const J = 'J-x';\ntest(`${J} starts: an account`, async () => {});\ntest(`${J} #1 reads`, async () => {});\n"],
+    [
+      'J-x-send.pw.mjs',
+      "const J = 'J-x';\ntest(`${J} starts (send): an account`, async () => {});\ntest(`${J} #2 sends`, async () => {});\ntest(`${J} #3 never ran`, async () => {});\n",
+    ],
+    [
+      'J-loop.pw.mjs',
+      "const J = 'J-loop';\nfor (const n of [1, 2]) test(`${J} #${n}`, async () => {});\n  test(`${J} #${n} too`, () => {});\n",
+    ],
+  ]);
+  assert.deepEqual(sourceTitles(texts.get('J-x.pw.mjs')), ['J-x starts: an account', 'J-x #1 reads']);
+  assert.equal(sourceTitles(texts.get('J-loop.pw.mjs')), null, 'a title with anything but ${J} to fill in is not read');
+  const fallback = new Map([
+    ['J-x.pw.mjs', 20 * min],
+    ['J-x-send.pw.mjs', 1],
+    ['J-loop.pw.mjs', 7 * min],
+  ]);
+  const est = titleEstimates([...texts.keys()], texts, times, min, fallback);
+  assert.equal(est.get('J-x.pw.mjs'), 5 * min, 'the original keeps only the time of the steps it still holds');
+  assert.equal(
+    est.get('J-x-send.pw.mjs'),
+    17 * min,
+    'the part file: #2 moved with its 15 minutes, a new setup and an untimed step a step each',
+  );
+  assert.equal(est.get('J-loop.pw.mjs'), 7 * min, 'an unreadable file keeps its own past time');
+  assert.equal(stepTime(['J-x.pw.mjs'], new Map([['J-x.pw.mjs', 20 * min]]), new Map([['J-x.pw.mjs', 4]])), 5 * min);
+  assert.equal(stepTime([], new Map(), new Map()), UNTIMED_STEP_MS);
+});
+
+test("the repo's journey titles read from their files match the titles main's reports use", () => {
+  const files = journeyFiles(JOURNEY_DIR);
+  const read = files.map((f) => sourceTitles(fs.readFileSync(path.join(JOURNEY_DIR, f), 'utf8')));
+  const readable = read.filter(Boolean);
+  assert.ok(readable.length > files.length * 0.9, `${readable.length} of ${files.length} journey files have readable titles`);
+  const all = readable.flat();
+  assert.equal(new Set(all).size, all.length, 'no title is declared twice across the journey files');
+  assert.ok(
+    all.includes(
+      "J-wallet-05 #8 watches the status: requested, held, broadcast, confirming and settled in plain words, settled only at the owner's depth, and a failure reads as a sentence",
+    ),
+  );
 });
