@@ -161,6 +161,7 @@ import {
   QUANT_CRITERIA_REASON_UNSET,
   QUANT_EDIT_LOCK_UNSET,
   QUANT_EDIT_LOCKED,
+  QUANT_PAPER_MANUAL_ORDER_UNSUPPORTED,
   QUANT_GRANT_INVALID,
   QUANT_PERMISSION_DENIED,
   QUANT_TEAM_MEMBER_INVALID,
@@ -369,6 +370,7 @@ function toTrpc(err: unknown): never {
                 err.code === QUANT_RISK_CAP_UNSET ||
                 err.code === QUANT_STAGE_TRANSITION_INVALID ||
                 err.code === QUANT_EDIT_LOCK_UNSET ||
+                err.code === QUANT_PAPER_MANUAL_ORDER_UNSUPPORTED ||
                 err.code === QUANT_LIVE_DISABLED ||
                 err.code === QUANT_LIVE_DEPLOY_UNAVAILABLE ||
                 err.code === 'quant.venue_vault_unset'
@@ -1597,6 +1599,43 @@ export function createQuantRouter(deps: QuantRouterDeps) {
               })),
               counts: [],
             };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      /**
+       * A teammate's manual order to the owner's paper run of a shared strategy: without live control it refuses
+       * `quant.permission_denied`, and nothing is sent. With live control it refuses `quant.paper_manual_order_unsupported`:
+       * a paper run trades only by its own rules, so no manual order is ever placed on one. Not shared is not found.
+       */
+      order: publicJurisdictionProcedure('quant', 'fiat')
+        .input(
+          z.object({
+            strategyId: z.string().min(1).max(128),
+            runId: z.string().min(1).max(128),
+            side: z.enum(['buy', 'sell']),
+            size: z.string().regex(/^(?:0|[1-9]\d{0,17})(?:\.\d{1,18})?$/, 'size — a decimal string'),
+            ...accountField,
+          }),
+        )
+        .output(z.never())
+        .mutation(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const { member, found } = await sharedStrategy(accountId, input.strategyId);
+            if (!member.liveControl) {
+              throw new QuantError(
+                QUANT_PERMISSION_DENIED,
+                'you were given no live control of this strategy, so you cannot send its runs a manual order; nothing was sent',
+              );
+            }
+            const paper = await runs.paperRun({ userId: found.accountId, id: input.runId });
+            if (!paper || paper.run.strategyId !== found.id) throw new QuantError(QUANT_RUN_NOT_FOUND, 'run not found');
+            throw new QuantError(
+              QUANT_PAPER_MANUAL_ORDER_UNSUPPORTED,
+              'a paper run trades only by its own rules and takes no manual order; nothing was sent',
+            );
           } catch (err) {
             toTrpc(err);
           }

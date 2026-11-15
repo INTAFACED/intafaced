@@ -84,6 +84,8 @@ export const QUANT_CRITERIA_REASON_UNSET = 'quant.criteria_reason_unset' as cons
 export const QUANT_PERMISSION_DENIED = 'quant.permission_denied' as const;
 /** Another person holds the strategy's edit lock until its stored time. */
 export const QUANT_EDIT_LOCKED = 'quant.edit_locked' as const;
+/** A manual order to a paper run, by a teammate with live control: a paper run trades only by its own rules. */
+export const QUANT_PAPER_MANUAL_ORDER_UNSUPPORTED = 'quant.paper_manual_order_unsupported' as const;
 /** The owner's edit lock length (`QUANT_EDIT_LOCK_SECONDS`) is blank: no lock can be taken, so no shared save. */
 export const QUANT_EDIT_LOCK_UNSET = 'quant.edit_lock_unset' as const;
 /** A collaborator who is the owner, or an id that is no account id. */
@@ -180,6 +182,7 @@ export type QuantCode =
   | typeof QUANT_CRITERIA_REASON_UNSET
   | typeof QUANT_PERMISSION_DENIED
   | typeof QUANT_EDIT_LOCKED
+  | typeof QUANT_PAPER_MANUAL_ORDER_UNSUPPORTED
   | typeof QUANT_EDIT_LOCK_UNSET
   | typeof QUANT_TEAM_MEMBER_INVALID
   | typeof QUANT_GRANT_INVALID
