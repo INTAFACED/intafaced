@@ -9,7 +9,11 @@ import { ORIGIN, restartWith } from './stack.mjs';
 // markup, is a source check, kept in apps/customer/src/shared/service-off.one-notice.test.ts.
 const J = 'J-home-ia-06';
 
-test(`${J} #1 a blank strip count refuses home.notice_strip_limit_unset and the strip says "not set"`, async ({ browser }) => {
+// Not a step of its own: the owner's strip count is a blank owner value, which refuses with its typed code rather than
+// drawing any number of notices (AGENTS.md floor 8). Step #1's own tests, with no published notice, are in J-home-ia-06.pw.mjs.
+test(`${J} with the owner's strip count blank, Home refuses home.notice_strip_limit_unset and the strip says "not set"`, async ({
+  browser,
+}) => {
   test.setTimeout(300_000);
   // Home's strip shows as many of the latest announcements as the owner's strip count (svc-ops home.config,
   // OPS_HOME_NOTICE_STRIP_LIMIT). The stack sets a TEST count for the other steps; here svc-ops restarts with it blank.
