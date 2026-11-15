@@ -88,7 +88,9 @@ GET /api/v1/venue/agent-accounts/terms private trade:read
 GET /api/v1/venue/agents private trade:read
 GET /api/v1/venue/balances private trade:read
 GET /api/v1/venue/best-prices private trade:read
+GET /api/v1/venue/book private trade:read
 GET /api/v1/venue/builder-fee-approval private trade:read
+GET /api/v1/venue/candles private trade:read
 GET /api/v1/venue/deposits private trade:read
 GET /api/v1/venue/fills private trade:read
 GET /api/v1/venue/funding-history public trade:read
@@ -110,6 +112,7 @@ GET /api/v1/venue/session private trade:read
 GET /api/v1/venue/settlements private trade:read
 GET /api/v1/venue/status private trade:read
 GET /api/v1/venue/sub-accounts private trade:read
+GET /api/v1/venue/trades private trade:read
 GET /api/v1/venue/withdrawals/:nonce private trade:read
 GET /api/v1/vip/applications private trade:read
 PATCH /api/v1/algo/:id private trade:write

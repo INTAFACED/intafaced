@@ -914,6 +914,31 @@ export const REST_REFERENCE: readonly RestRoute[] = [
       'The venue’s best bid and ask on one market, from its own book, with its as-of time: where a market order’s worst price is set from',
   },
   {
+    name: 'venueBook',
+    method: 'GET',
+    path: '/api/v1/venue/book',
+    product: 'accounts',
+    access: 'private',
+    summary: 'The venue’s own book on one market we list, bids and asks best first, each level’s price and size, with its as-of time',
+  },
+  {
+    name: 'venueTrades',
+    method: 'GET',
+    path: '/api/v1/venue/trades',
+    product: 'accounts',
+    access: 'private',
+    summary: 'The venue’s newest public prints on one market we list, newest first: price, size, the side that crossed and when',
+  },
+  {
+    name: 'venueCandles',
+    method: 'GET',
+    path: '/api/v1/venue/candles',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      'Candles of the venue’s own prints on one market we list, on one interval, oldest first: an interval with no print is not sent',
+  },
+  {
     name: 'venueFundingHistory',
     method: 'GET',
     path: '/api/v1/venue/funding-history',

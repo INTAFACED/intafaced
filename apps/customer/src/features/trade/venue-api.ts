@@ -169,6 +169,35 @@ export const venueBestPricesReadSchema = asOf(venueBestPricesSchema).extend({
   spreadLimitBps: maybeKnown(decimalSchema).optional(),
 });
 
+// ── The venue's own market data on a market we list (J-cex-spot-01 #5: the spot desk's ticker, book, chart and tape) ──
+const venueLevelSchema = z.object({ price: decimalSchema, amount: decimalSchema });
+export const venueBookReadSchema = asOf(
+  z.object({ symbol: z.string(), bids: z.array(venueLevelSchema), asks: z.array(venueLevelSchema) }),
+).extend({
+  test: z.boolean(),
+});
+export type VenueBookRead = z.infer<typeof venueBookReadSchema>;
+export const venuePrintSchema = z.object({
+  tradeId: z.string(),
+  symbol: z.string(),
+  price: decimalSchema,
+  amount: decimalSchema,
+  takerSide: z.enum(['buy', 'sell']).nullable(),
+  tradedAt: isoTime,
+});
+export type VenuePrint = z.infer<typeof venuePrintSchema>;
+export const venueTradesReadSchema = asOf(z.array(venuePrintSchema)).extend({ test: z.boolean() });
+export const venueCandleSchema = z.object({
+  openAt: isoTime,
+  openPrice: decimalSchema,
+  highPrice: decimalSchema,
+  lowPrice: decimalSchema,
+  closePrice: decimalSchema,
+  baseVolume: decimalSchema,
+});
+export type VenueCandle = z.infer<typeof venueCandleSchema>;
+export const venueCandlesReadSchema = asOf(z.array(venueCandleSchema)).extend({ test: z.boolean() });
+
 export const venueBalanceSchema = z.object({ asset: z.string(), free: decimalSchema, locked: decimalSchema, total: decimalSchema });
 export type VenueBalance = z.infer<typeof venueBalanceSchema>;
 
@@ -667,6 +696,12 @@ export function venueApi(api: ApiClient) {
     status: (signal?: AbortSignal) => api.rest('/venue/status', venueStatusSchema, { signal }),
     markets: (signal?: AbortSignal) => read('/markets', asOf(z.array(venueMarketSchema)), {}, signal),
     bestPrices: (symbol: string, signal?: AbortSignal) => read('/best-prices', venueBestPricesReadSchema, { symbol }, signal),
+    book: (symbol: string, depth: number, signal?: AbortSignal) =>
+      read('/book', venueBookReadSchema, { symbol, depth: String(depth) }, signal),
+    trades: (symbol: string, limit: number, signal?: AbortSignal) =>
+      read('/trades', venueTradesReadSchema, { symbol, limit: String(limit) }, signal),
+    candles: (symbol: string, interval: string, limit: number, signal?: AbortSignal) =>
+      read('/candles', venueCandlesReadSchema, { symbol, interval, limit: String(limit) }, signal),
     gatedList: (signal?: AbortSignal) => read('/gated-list', asOf(z.array(venueGatedContractSchema)), {}, signal),
     balances: (owner: string, signal?: AbortSignal, subAccount?: string) =>
       read('/balances', asOf(z.array(venueBalanceSchema)), { owner, subAccount }, signal),

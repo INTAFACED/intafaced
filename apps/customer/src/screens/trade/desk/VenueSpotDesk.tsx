@@ -69,6 +69,7 @@ import {
 import { placesOf } from './text';
 import { zoneName } from './time';
 import { spotVenueCopy } from './venue-copy';
+import { VenueMarketPanel } from './VenueMarketData';
 import { NotOfferedTypes, UnitFlag, VenueSelfTradeSelect, VenueTifSelect } from './VenueOrderOptions';
 import {
   HeldDraft,
@@ -276,6 +277,7 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
   return (
     <div data-testid="if-desk" className="if-desk" data-market={market.symbol} data-venue="on">
       <VenueHeader status={status} title={t('Spot on venue', { symbol: market.symbol })} feeLine={feeLine} />
+      <VenueMarketPanel market={market} test={status.test} venueName={status.venue.displayName} />
       <ReadProblem failure={account.balances.failure} venueName={status.venue.displayName} />
       <VenueAccountPanel
         status={status}

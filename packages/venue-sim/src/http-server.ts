@@ -19,6 +19,8 @@ import {
   type VenueIntent,
   type VenueSignature,
   type VenueSigner,
+  type VenueCandleInterval,
+  VENUE_CANDLE_INTERVALS,
 } from '@intafaced/venue-contracts';
 import type { TestVenueTypedData } from './signing.js';
 import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketConfig } from './simulator.js';
@@ -375,6 +377,14 @@ function account(body: Record<string, unknown>): UserVenueAccount {
   return { venueId: a.venueId, owner: a.owner.toLowerCase(), subAccount: a.subAccount ?? null };
 }
 
+/** A market read's `limit`: a whole number from 1 to 500. */
+function readLimit(body: Record<string, unknown>): number {
+  const limit = body.limit;
+  if (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 1 || limit > 500)
+    throw new VenueWireError('limit is a whole number from 1 to 500');
+  return limit;
+}
+
 function str(body: Record<string, unknown>, key: string): string {
   const v = body[key];
   if (typeof v !== 'string' || v.trim() === '') throw new VenueWireError(`${key} is required`);
@@ -658,6 +668,14 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       return sim.preview(account(body), body.intent as PlaceUserOrderIntent);
     case '/best-prices':
       return sim.bestPrices(str(body, 'symbol'));
+    case '/trades':
+      return sim.trades(str(body, 'symbol'), readLimit(body));
+    case '/candles': {
+      const interval = body.interval;
+      if (typeof interval !== 'string' || !Object.hasOwn(VENUE_CANDLE_INTERVALS, interval))
+        throw new VenueWireError(`interval is one of ${Object.keys(VENUE_CANDLE_INTERVALS).join(', ')}`);
+      return sim.candles(str(body, 'symbol'), interval as VenueCandleInterval, readLimit(body));
+    }
     case '/funding-history': {
       const since = body.since;
       if (!(since instanceof Date)) throw new VenueWireError('since is required (an ISO time)');
