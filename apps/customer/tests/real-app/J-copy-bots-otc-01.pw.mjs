@@ -128,13 +128,19 @@ test(`${J} #2 chooses the Futures tab and searches a name: only futures leaders,
   await expect(table.getByRole('link', { name: spotName })).toHaveCount(0);
 
   // The search goes to the service with the tab's market: the screen does not filter a second time.
-  const asked = page.waitForRequest((req) => {
-    if (!req.url().includes('copy.listLeaders')) return false;
-    const input = JSON.parse(new URL(req.url()).searchParams.get('input') ?? '{}');
+  const answered = page.waitForResponse((res) => {
+    if (!res.url().includes('copy.listLeaders')) return false;
+    const input = JSON.parse(new URL(res.url()).searchParams.get('input') ?? '{}');
     return input.marketMode === 'futures' && input.q === `futures ${tag}`.toUpperCase();
   });
   await page.getByLabel('Search leaders').fill(`futures ${tag}`.toUpperCase());
-  await asked;
+  // The server's own answer to the uppercased name: exactly the futures leader, matched in any case.
+  const answer = await answered;
+  expect(answer.status()).toBe(200);
+  const listed = (await answer.json()).result.data.leaders;
+  expect(listed.map((l) => l.displayName)).toEqual([futuresName]);
+  expect(listed.map((l) => l.marketMode)).toEqual(['futures']);
+  // The screen shows that answer: one row, the futures leader.
   await expect(table.getByRole('link', { name: futuresName })).toBeVisible();
   await expect(table.locator('tbody tr')).toHaveCount(1);
 
