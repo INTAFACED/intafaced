@@ -4,8 +4,10 @@
 // of svc-bank emptied it: every person's switches went back off and their TEST pay-ins were gone. A journey that
 // restarted svc-bank to blank an owner value then read "0 USDT" where it had paid in 100 (#8392 `0822ed95`, J-bank-01
 // #3 and #7), unless it knew to put the start back. Now every `testPartner.set` and `testPartner.fund` a journey file
-// sends from Node, through any helper, is noted in order, and after its svc-bank restarts they are sent again, in the
-// same order and as the same person, before the file's next request. A fund id pays in once per svc-bank process, so a
+// sends from Node, through any helper, is noted in order, and after its svc-bank restarts those of each person who paid
+// in at the partner are sent again, in the same order and as the same person, before the file's next request. A person
+// who only switched the partner (J-pay-01's `fee: 'unknown'`) has nothing at the partner to lose, and their switches go
+// back off with the restart, as before. A fund id pays in once per svc-bank process, so a
 // journey that puts its own start back with the same fund id changes nothing. Moves made at the partner since are not
 // sent again: what comes back is the start, as each person set and paid it in.
 //
@@ -15,7 +17,7 @@ const START = /\/api\/bank\/trpc\/testPartner\.(set|fund)(\?|$)/;
 const LOGIN = /\/api\/identity\/trpc\/auth\.login(\?|$)/;
 
 let file = null;
-/** This file's starts, oldest first: { url, init, token }. */
+/** This file's starts, oldest first: { url, init, token, who } (`who`: the account the sign-in named, else the token). */
 let starts = [];
 /** The sign-in each access token came from, so a start is sent again on a fresh session after the token has expired. */
 let logins = new Map();
@@ -51,14 +53,24 @@ export function noteStackTool(script, args) {
 }
 
 /** Whether a restart has emptied the TEST partner since this file's starts were last sent. */
-export const partnerDue = () => restarts !== restored && starts.length > 0;
+export const partnerDue = () => restarts !== restored && starts.some((s) => s.fund);
+
+const whoOf = (token) => {
+  const login = token && logins.get(token);
+  try {
+    return login ? (JSON.parse(login.init.body)?.identifier ?? token) : token;
+  } catch {
+    return token;
+  }
+};
 
 /** After the response: a start the partner took is noted, and a sign-in's token is tied to the body that made it. */
 export async function noteResponse(input, init, res) {
   const url = urlOf(input);
   if (typeof url !== 'string' || !res?.ok || typeof init?.body !== 'string') return;
   if (START.test(url)) {
-    starts.push({ url, init: { ...init }, token: tokenOf(init) });
+    const token = tokenOf(init);
+    starts.push({ url, init: { ...init }, token, who: whoOf(token), fund: /testPartner\.fund/.test(url) });
     return;
   }
   if (LOGIN.test(url)) {
@@ -88,7 +100,8 @@ export function beforeRequest(send) {
 export async function restorePartner(send) {
   restored = restarts;
   const fresh = new Map();
-  for (const start of starts) {
+  const paidIn = new Set(starts.filter((s) => s.fund).map((s) => s.who));
+  for (const start of starts.filter((s) => paidIn.has(s.who))) {
     let token = start.token;
     const login = token && logins.get(token);
     if (login) {

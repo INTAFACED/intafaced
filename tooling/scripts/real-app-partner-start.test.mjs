@@ -108,3 +108,46 @@ test('a refused start, a GET and a non-partner write are never noted', async () 
   noteStackTool('local-test-stack.mjs', ['restart', 'bank']);
   assert.equal(partnerDue(), false);
 });
+
+test("a person who only switched the partner and paid nothing in is left as the restart leaves them (J-pay-01 #5, this PR's first head)", async () => {
+  partnerFile('J-fake-06.pw.mjs');
+  const bank = fakeBank();
+  await request(bank, SET, post('switch-only', { fee: 'unknown' }));
+  await request(bank, SET, post('switch-only', { fee: 'known' }));
+  noteStackTool('local-test-stack.mjs', ['restart', 'bank']);
+  assert.equal(partnerDue(), false);
+  bank.sent.length = 0;
+  await request(bank, `${EDGE}/api/v1/account/balance`, { method: 'GET', headers: {} });
+  assert.deepEqual(
+    bank.sent.map((s) => s.url),
+    [`${EDGE}/api/v1/account/balance`],
+    'no sign-in and no switch is sent again',
+  );
+});
+
+test("one person's set and fund on two sessions both come back; another person's switch alone does not", async () => {
+  partnerFile('J-fake-07.pw.mjs');
+  const bank = fakeBank();
+  const loginAs = (identifier) => ({ method: 'POST', headers: {}, body: JSON.stringify({ identifier }) });
+  // Each sign-in answers its own token, as identity does.
+  let n = 0;
+  const send = bank.send;
+  bank.send = async (url, init) =>
+    url === LOGIN ? (bank.sent.push({ url, init }), ok({ result: { data: { accessToken: `tok-${++n}` } } })) : send(url, init);
+  await request(bank, LOGIN, loginAs('ada@local-test.invalid'));
+  await request(bank, SET, post('tok-1', { custody: 'off' }));
+  await request(bank, LOGIN, loginAs('ada@local-test.invalid'));
+  await request(bank, FUND, post('tok-2', { fundId: 'jfake-ada', assetId: 'USDT', amount: '100' }));
+  await request(bank, LOGIN, loginAs('bo@local-test.invalid'));
+  await request(bank, SET, post('tok-3', { down: true }));
+  noteStackTool('local-test-stack.mjs', ['restart', 'bank']);
+  bank.restart();
+  bank.sent.length = 0;
+  await request(bank, `${EDGE}/api/v1/account/balance`, { method: 'GET', headers: {} });
+  const sentBack = bank.sent.filter((s) => s.url !== LOGIN).map((s) => [s.url, s.init.body ?? null]);
+  assert.deepEqual(sentBack, [
+    [SET, JSON.stringify({ custody: 'off' })],
+    [FUND, JSON.stringify({ fundId: 'jfake-ada', assetId: 'USDT', amount: '100' })],
+    [`${EDGE}/api/v1/account/balance`, null],
+  ]);
+});
