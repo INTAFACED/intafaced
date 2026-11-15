@@ -4,19 +4,16 @@
  *
  * For the files the change touches (added, modified, renamed, deleted; lintable extensions), it lints each file as it was
  * at the merge base and as it is at the head, with MAIN's `.oxlintrc.json`, main's garden plugin (tooling/lint/**) and
- * main's start dates (tooling/lint/ratchet.json), read with `git show`, so a change cannot loosen the rules it is judged
- * by. It counts findings per rule over those files on each side, prints the table (into the job summary on CI), and fails
- * only when an enforcing rule's count is higher at the head than at the base.
+ * main's tooling/lint/ratchet.json, read with `git show`, so a change cannot loosen the rules it is judged by. It counts
+ * findings per rule over those files on each side, prints the table (into the job summary on CI), and fails when a rule's
+ * count is higher at the head than at the base, printing each new finding's line, message and fix.
  *
  * There is no baseline file: main's own code is the baseline, so the count tightens by itself and a function moved from
  * one touched file to another does not fail (its finding leaves one file and arrives in the other).
  *
- * A rule enforces 7 days after its start date and only prints before that, so a pull request opened before a rule
- * started is told the date. The start date is the rule's entry in ratchet.json `started`, else the day ratchet.json first
- * reached main. Rules in `enforceFromStart` enforce at once: they replaced checks that already failed a change (deleted
- * source-reading unit tests, the regex duplicate ratchet), so their guard never lapses. Rules in `enforceAddedFromStart`
- * replaced tests that judged only the files a change ADDS: any finding in an added file fails at once, as the test did,
- * and a rise in an existing file follows the dates like any other rule.
+ * Every rule enforces, except one in ratchet.json `printOnly`, which names why it would fail honest code; its rise only
+ * prints. Rules in `failInAddedFiles` replaced tests that judged the files a change ADDS: any finding in an added file
+ * fails, even when a removal elsewhere pays for it, as the test did.
  *
  * Usage:
  *   node tooling/ci/lint-ratchet.mjs                    merge base with main .. HEAD
@@ -34,7 +31,6 @@ export const LINTABLE = /\.(?:[cm]?[jt]sx?)$/u;
 export const CONFIG = '.oxlintrc.json';
 export const PLUGIN_DIR = 'tooling/lint';
 export const STARTS = 'tooling/lint/ratchet.json';
-const DAY = 24 * 60 * 60 * 1000;
 
 const git = (args, opts = {}) =>
   execFileSync('git', args, { cwd: opts.cwd ?? ROOT, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -84,11 +80,12 @@ function rulesFrom(ref, dir) {
   delete config.$schema;
   config.jsPlugins = (config.jsPlugins ?? []).map((p) => join(dir, 'rules', p));
   const starts = show(ref, STARTS);
-  return { config, starts: starts ? JSON.parse(starts) : { printOnlyDays: 7, enforceFromStart: [], started: {} } };
+  return { config, starts: starts ? JSON.parse(starts) : {} };
 }
 
-/** Lints one side's files (path → text) with the config, from a tree of their own; returns { rule: { file: count } }. */
-export function lintSide(files, config, dir, oxlint) {
+/** Lints one side's files (path → text) with the config, from a tree of their own; returns { rule: { file: count } },
+ * with each finding's line and text in `found` (rule → file → [{ line, text }]). */
+export function lintSide(files, config, dir, oxlint, found = {}) {
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, CONFIG), JSON.stringify(config));
@@ -116,36 +113,30 @@ export function lintSide(files, config, dir, oxlint) {
     const file = String(d.filename).split('\\').join('/');
     counts[rule] ??= {};
     counts[rule][file] = (counts[rule][file] ?? 0) + 1;
+    ((found[rule] ??= {})[file] ??= []).push({ line: d.labels?.[0]?.span?.line, text: [d.message, d.help].filter(Boolean).join(' ') });
   }
   return counts;
 }
 
 const sum = (byFile) => Object.values(byFile ?? {}).reduce((a, b) => a + b, 0);
 
-/** When a rule starts failing: null (enforces now) or the ISO day it starts. */
-export function enforcesFrom(rule, starts, defaultStart) {
-  if ((starts.enforceFromStart ?? []).includes(rule)) return null;
-  const start = starts.started?.[rule] ?? defaultStart;
-  return start ? new Date(Date.parse(start) + (starts.printOnlyDays ?? 7) * DAY).toISOString().slice(0, 10) : 'never';
-}
-
 /** The verdict: one row per rule seen on either side, and the rules that rose while enforcing. */
-export function compare(base, head, starts, defaultStart, today = new Date().toISOString().slice(0, 10), added = new Set()) {
+export function compare(base, head, starts, added = new Set()) {
   const rows = [];
   for (const rule of [...new Set([...Object.keys(base), ...Object.keys(head)])].sort()) {
     const was = sum(base[rule]);
     const now = sum(head[rule]);
-    const from = enforcesFrom(rule, starts, defaultStart);
-    const enforcing = from === null || (from !== 'never' && from <= today);
+    const printOnly = starts.printOnly?.[rule];
+    const enforcing = printOnly === undefined;
     const rose = now > was;
     const inFiles = (keep) =>
       Object.keys(head[rule] ?? {})
         .filter((f) => (head[rule][f] ?? 0) > 0 && keep(f))
         .sort();
-    // A rule that replaced a test of ADDED files only enforces on added files at once; elsewhere it follows its dates.
-    const newFiles = (starts.enforceAddedFromStart ?? []).includes(rule) ? inFiles((f) => added.has(f)) : [];
+    const newFiles = (starts.failInAddedFiles ?? []).includes(rule) ? inFiles((f) => added.has(f)) : [];
     const fails = (rose && enforcing) || newFiles.length > 0;
-    rows.push({ rule, was, now, enforcing, from, fails, newFiles, files: rose || newFiles.length ? inFiles(() => true) : [] });
+    const files = rose || newFiles.length ? inFiles((f) => newFiles.includes(f) || (head[rule][f] ?? 0) > (base[rule]?.[f] ?? 0)) : [];
+    rows.push({ rule, was, now, enforcing, printOnly, fails, newFiles, files });
   }
   return { rows, failing: rows.filter((r) => r.fails) };
 }
@@ -163,12 +154,10 @@ export function table({ rows }, nFiles) {
       : r.now > r.was
         ? r.enforcing
           ? `**FAILS: +${r.now - r.was}** in ${r.files.join(', ')}`
-          : `rose +${r.now - r.was}; prints only, fails from ${r.from}`
-        : r.enforcing
-          ? r.now < r.was
-            ? `fell ${r.now - r.was}`
-            : 'held'
-          : `held; fails from ${r.from}`;
+          : `rose +${r.now - r.was}; prints only (tooling/lint/ratchet.json)`
+        : r.now < r.was
+          ? `fell ${r.now - r.was}`
+          : 'held';
     lines.push(`| ${r.rule} | ${r.was} | ${r.now} | ${status} |`);
   }
   if (!rows.length) lines.push('| (no findings on either side) | 0 | 0 | held |');
@@ -223,23 +212,24 @@ export function run(argv = process.argv.slice(2)) {
           }),
       );
     const started = Date.now();
+    const found = {};
     const baseCounts = lintSide(read(base, 'base'), rules.config, join(dir, 'base'), oxlint);
-    const headCounts = lintSide(read(head, 'head'), rules.config, join(dir, 'head'), oxlint);
-    const landed = gitOr(['log', '--diff-filter=A', '--format=%cI', main, '--', STARTS], '').trim().split('\n').filter(Boolean).pop();
+    const headCounts = lintSide(read(head, 'head'), rules.config, join(dir, 'head'), oxlint, found);
     const added = new Set(files.filter((f) => !f.base).map((f) => f.head));
-    const verdict = compare(baseCounts, headCounts, rules.starts, landed ?? new Date().toISOString(), undefined, added);
+    const verdict = compare(baseCounts, headCounts, rules.starts, added);
     const text = table(verdict, files.length) + `\n\n(${Date.now() - started} ms)`;
     if (argv.includes('--json')) console.log(JSON.stringify({ files: files.length, ...verdict, ms: Date.now() - started }));
     else console.log(text);
     if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${text}\n`);
     if (verdict.failing.length) {
-      for (const r of verdict.failing)
+      for (const r of verdict.failing) {
         console.error(
-          (r.newFiles.length
-            ? `✖ lint-ratchet: ${r.rule} fires in file(s) this change adds (${r.newFiles.join(', ')}). `
-            : `✖ lint-ratchet: ${r.rule} rose from ${r.was} to ${r.now} in the touched files (${r.files.join(', ')}). `) +
-            'Run `pnpm lint <file>` for the lines and the fix; a finding removed elsewhere in a touched file pays for one added.',
+          r.newFiles.length
+            ? `✖ lint-ratchet: ${r.rule} fires in file(s) this change adds (${r.newFiles.join(', ')}).`
+            : `✖ lint-ratchet: ${r.rule} rose from ${r.was} to ${r.now} in the touched files (${r.files.join(', ')}); a finding removed elsewhere in them pays for one added.`,
         );
+        for (const f of r.files) for (const d of (found[r.rule]?.[f] ?? []).slice(0, 10)) console.error(`  ${f}:${d.line}  ${d.text}`);
+      }
       return 1;
     }
     return 0;
