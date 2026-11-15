@@ -479,6 +479,17 @@ async function main() {
     const [n, sha] = process.argv.slice(dry + 1);
     return report(await sealPull({ repo: REPO, number: Number(n), sha: sha || undefined, io, requireOpen: false }), 'dry run');
   }
+  // The factory switch (factory-switch.mjs): this step runs the default branch's copy on every seal since 2026-11-06, so a
+  // re-run of a seal whose own workflow predates the switch's step still reads it. Imported here, not at the top, to keep
+  // the two files free of an import cycle.
+  if (process.env.MERGE_GROUP_HEAD_SHA || process.env.PR_NUMBER) {
+    const { switchProblem } = await import('./factory-switch.mjs');
+    const problem = await switchProblem({ repo: REPO, token: GH_TOKEN });
+    if (problem) {
+      console.error(`::error title=${problem.title}::${problem.why}`);
+      process.exit(1);
+    }
+  }
   if (process.env.MERGE_GROUP_HEAD_SHA) {
     const { MERGE_GROUP_BASE_SHA: base, MERGE_GROUP_HEAD_SHA: head, MERGE_GROUP_HEAD_REF: headRef } = process.env;
     const commits = (await io.compare(base, head))?.commits;

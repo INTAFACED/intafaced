@@ -185,6 +185,40 @@
         }
       }
     },
+    "/api/v1/rulebook": {
+      "get": {
+        "operationId": "fetchRulebook",
+        "summary": "The trading rulebook in force, section by section",
+        "tags": ["spot"],
+        "security": [{}, { "apiKey": [] }],
+        "x-access": "public",
+        "x-scopes": ["trade:read"],
+        "x-signed-out": null,
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "403": { "description": "An API key without trade:read (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
+    "/api/v1/rulebook/versions": {
+      "get": {
+        "operationId": "fetchRulebookVersions",
+        "summary": "Every published rulebook version and what each changed",
+        "tags": ["spot"],
+        "security": [{}, { "apiKey": [] }],
+        "x-access": "public",
+        "x-scopes": ["trade:read"],
+        "x-signed-out": null,
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "403": { "description": "An API key without trade:read (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
     "/api/v1/market-lifecycle/{symbol}": {
       "get": {
         "operationId": "fetchMarketLifecycle",

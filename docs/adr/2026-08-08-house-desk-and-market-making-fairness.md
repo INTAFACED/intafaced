@@ -2,7 +2,7 @@
 
 **Status:** **Accepted — 2026-08-12 (D26-P0-01 sealed).** The five mechanism rules below remain Accepted. The three owner questions are now **ruled** (external-only v1 · existence-disclosure deferred · hard mark exclusion). Source packet: `docs/OWNER-DECISION-PACKET-2026-08-09.md` (removed) §A1 — recommendations sealed as owner decisions this session.
 **Decision owner:** repo owner (Denon). **Written by:** Denon.
-**Law:** [`INTAFACED_DEFINITIVE_BUILD.md`](../../INTAFACED_DEFINITIVE_BUILD.md) §28 (`:770`–`:777`), the Throne Law at `:777`.
+**Law:** `INTAFACED_DEFINITIVE_BUILD.md` (private: INTAFACED/project-state `product/`) §28 (`:770`–`:777`), the Throne Law at `:777`.
 **Board:** `execution.sor`, `execution.arbitrage`, `execution.market-making`, `execution.house-tenant` — boarded 2026-08-08 (#1127). D26-P0-01 fairness gate sealed here.
 **Binds:** [`adr/2026-08-05-futures-risk-and-mark-law.md`](2026-08-05-futures-risk-and-mark-law.md), [`adr/2026-08-04-matching-dual-target.md`](2026-08-04-matching-dual-target.md) (D-S-06).
 

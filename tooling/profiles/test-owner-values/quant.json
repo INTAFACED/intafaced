@@ -65,6 +65,16 @@
       "service": "quant",
       "value": "500",
       "note": "TEST longest release note on a saved strategy version, in characters."
+    },
+    "QUANT_DEFAULT_QUOTA_PROFILE": {
+      "service": "quant",
+      "value": "TEST developer",
+      "note": "TEST default quota profile: an account with no assignment falls under it, so a journey's new developer can save and run."
+    },
+    "QUANT_TEST_QUOTA_SEED": {
+      "service": "quant",
+      "value": "{\"profile\":\"TEST developer\",\"limits\":{\"strategies\":\"200\",\"versions\":\"200\",\"concurrent_runs\":\"20\",\"paper_runs\":\"500\",\"runs\":\"2000\",\"log_lines\":\"1000000\",\"storage\":\"500000000\",\"collaborators\":\"10\",\"notifications\":\"1000\"}}",
+      "note": "TEST limits of the TEST developer profile, seeded once on the local and CI stack, high enough that no other journey meets them; a journey that proves a limit assigns its own TEST profile."
     }
   }
 }

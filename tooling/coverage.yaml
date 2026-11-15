@@ -1,7 +1,8 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # THE COVERAGE MATRIX, MACHINE-READABLE.
 #
-# INTAFACED_DEFINITIVE_BUILD.md §25 line 740 names this file by path and says CI
+# INTAFACED_DEFINITIVE_BUILD.md (private: INTAFACED/project-state product/; its
+# structure is tooling/coverage-law-index.json) §25 line 740 names this file by path and says CI
 # carries a `coverage-check` against it. Until 2026-08-03 neither existed, and
 # the cost of that absence is written down in
 # docs/audit/BUILD-COVERAGE-AUDIT-2026-08-03.md: forty law-specified
@@ -30,7 +31,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 meta:
-  law: INTAFACED_DEFINITIVE_BUILD.md
+  law: INTAFACED/project-state:product/INTAFACED_DEFINITIVE_BUILD.md
   law_version: '2.2 FINAL'
   tracker: tooling/tracker/features.mjs
   built_from: docs/audit/BUILD-COVERAGE-AUDIT-2026-08-03.md

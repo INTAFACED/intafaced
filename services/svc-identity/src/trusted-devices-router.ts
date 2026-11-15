@@ -39,7 +39,8 @@ const iso = z.string().datetime({ offset: true });
  * Top-level `trustedDevices` (I-signin-sessions-07). `list` answers this account's trusted devices, whether the owner
  * turned the new-device check on, and the sign-ins waiting for approval. `approve` lets a session on a trusted device
  * approve one waiting sign-in of the same account; `remove` stops trusting a device and ends the sessions signed in on
- * it. Both spend a step-up approval first.
+ * it. Both spend a step-up approval first. `confirmSignIn` is the person's "this was me" for a new-device sign-in on one
+ * of their devices, answered from another one: it ends that sign-in's "Needs you" item and changes nothing else.
  */
 export function createTrustedDevicesRouter(auth: AuthService, stepUp: SecurityStepUp) {
   return router({
@@ -58,6 +59,7 @@ export function createTrustedDevicesRouter(auth: AuthService, stepUp: SecuritySt
                     lastSeenAt: iso,
                     trustedUntil: iso.nullable(),
                     current: z.boolean(),
+                    newSignIn: z.boolean(),
                   })
                   .strict(),
               ),
@@ -80,6 +82,7 @@ export function createTrustedDevicesRouter(auth: AuthService, stepUp: SecuritySt
                 lastSeenAt: d.lastSeenAt.toISOString(),
                 trustedUntil: d.trustedUntil ? d.trustedUntil.toISOString() : null,
                 current: d.current,
+                newSignIn: d.newSignIn,
               })),
               waiting: waiting.map((w) => ({
                 flowId: w.flowId,
@@ -133,6 +136,17 @@ export function createTrustedDevicesRouter(auth: AuthService, stepUp: SecuritySt
               input.stepUpApprovalId,
             );
             return await auth.removeTrustedDevice(ctx.principal.userId, input.deviceId);
+          } catch (err) {
+            return mapError(err);
+          }
+        }),
+      confirmSignIn: scopedProcedure('identity:write')
+        .input(z.object({ deviceId: z.string().guid() }).strict())
+        .output(z.object({ confirmed: z.number().int().nonnegative() }).strict())
+        .mutation(async ({ ctx, input }) => {
+          try {
+            refuseDelegated(ctx.principal);
+            return await auth.confirmTrustedDeviceSignIn(ctx.principal.userId, input.deviceId, ctx.principal.sid ?? null);
           } catch (err) {
             return mapError(err);
           }

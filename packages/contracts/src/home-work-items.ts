@@ -32,6 +32,8 @@ export const BANK_MARGIN_WARNING_UNSET = 'bank.margin_warning_unset' as const;
 /** Every kind and the one service that may answer it. A kind not listed here is not a work item. */
 export const WORK_ITEM_SOURCES = {
   verification: 'identity',
+  /** A new device was approved and signed in, and the person has not said it was them (I-signin-sessions-08). */
+  new_device: 'identity',
   margin_health: 'bank',
   loan_payment_due: 'bank',
   card_frozen: 'bank',

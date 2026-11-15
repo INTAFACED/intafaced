@@ -42,4 +42,13 @@ describe('presentMmSeedHealth', () => {
     expect(presentMmSeedHealth({ enabled: true, targetCount: Number.NaN }).armed).toBe(false);
     expect(presentMmSeedHealth({ enabled: true, targetCount: -1 }).targetCount).toBe(0);
   });
+
+  it('says whether the operator configuration is read each tick, apart from the environment arm (J-cex-spot-20 #5)', () => {
+    expect(presentMmSeedHealth({ enabled: false, targetCount: 0, operatorTick: true })).toMatchObject({
+      armed: false,
+      operatorConfig: 'read_each_tick',
+    });
+    expect(presentMmSeedHealth({ enabled: false, targetCount: 0, operatorTick: false }).operatorConfig).toBe('off');
+    expect(presentMmSeedHealth({ enabled: false, targetCount: 0 })).not.toHaveProperty('operatorConfig');
+  });
 });

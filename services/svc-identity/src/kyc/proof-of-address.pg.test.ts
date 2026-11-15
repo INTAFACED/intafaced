@@ -7,7 +7,7 @@ import { randomBytes } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { kycPoaReadSchema } from '@intafaced/contracts/identity-kyc-poa';
 import { postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
@@ -192,6 +192,26 @@ if (!available) {
       expect(a).toEqual(b);
       expect(await docs(userId)).toBe(1);
       expect(await desk.listFor(userId, 10)).toHaveLength(1);
+    });
+
+    it('an identical send that lands between the first two reads is still the answer, never a pending refusal (#6848)', async () => {
+      const userId = await person();
+      const first = await send(userId, { issuedOn: '2026-09-03' });
+      // The first read for an identical document misses it, as when that send commits just after the read.
+      const real = (desk as unknown as { waiting: (...args: unknown[]) => Promise<unknown> }).waiting.bind(desk);
+      const spy = vi
+        .spyOn(desk as unknown as { waiting: (...args: unknown[]) => Promise<unknown> }, 'waiting')
+        .mockImplementationOnce(async () => undefined)
+        .mockImplementation(real);
+      try {
+        await expect(send(userId, { issuedOn: '2026-09-03' })).resolves.toEqual(first);
+      } finally {
+        spy.mockRestore();
+      }
+      expect(await docs(userId)).toBe(1);
+      expect(await desk.listFor(userId, 10)).toHaveLength(1);
+      // A different document while that one waits still refuses by name.
+      await expect(send(userId, { issuedOn: '2026-09-04' })).rejects.toMatchObject({ code: 'kyc.poa_pending' });
     });
 
     it('a document exactly at the rule is accepted all day on a calendar west of UTC', async () => {

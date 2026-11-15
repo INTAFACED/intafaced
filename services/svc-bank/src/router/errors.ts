@@ -363,6 +363,7 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.card_programme_span_unset': 'BAD_REQUEST',
   'bank.card_programme_span_too_long': 'BAD_REQUEST',
   'bank.ramp_health_window_unset': 'BAD_REQUEST',
+  'bank.onramp_quotes_limit_unset': 'BAD_REQUEST',
   'bank.transfer_health_window_unset': 'BAD_REQUEST',
   'bank.failed_transfers_window_unset': 'BAD_REQUEST',
   'bank.failed_transfers_limit_unset': 'BAD_REQUEST',

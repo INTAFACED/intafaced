@@ -31,6 +31,11 @@ export default ({
       // host at 127.0.0.1, so J-developer-02 can call one key at both and see env.mismatch at the live one.
       EDGE_SANDBOX_HOSTS: `localhost:${PORTS.edge}`,
       EDGE_KILL_STATE_PATH: path.join(P.data, 'edge-kill-state.json'),
+      // The FIX and SBE adapters' own status for the founder console (J-cex-spot-20 #3), each with its own read key.
+      FIX_STATUS_URL: urlOf('fix'),
+      FIX_STATUS_READ_SECRET: secrets.fixStatusRead,
+      WS_STATUS_URL: urlOf('ws'),
+      WS_STATUS_READ_SECRET: secrets.wsStatusRead,
     };
     for (const [k, service] of Object.entries(EDGE_UPSTREAMS)) env[k] = urlOf(service);
     for (const k of Object.keys(EDGE_ABSENT)) env[k] = UNUSED; // nothing listens; answers 502 by design

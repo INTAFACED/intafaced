@@ -625,3 +625,64 @@ export const quantShareEmbedSchema = z.object({
   origins: z.array(z.string().min(1)).min(1),
 });
 export type QuantShareEmbed = z.infer<typeof quantShareEmbedSchema>;
+
+/**
+ * Quotas by plan (AL-limits-01). A quota profile is a named row of limits, one per resource; each limit is an owner
+ * value, blank reads "not set" and refuses `quant.quota_unset`, `0` refuses every create. A profile is a name, not a
+ * price. The order is the order the screen lists them in.
+ */
+export const QUANT_QUOTA_RESOURCES = [
+  'strategies',
+  'versions',
+  'concurrent_runs',
+  'paper_runs',
+  'runs',
+  'log_lines',
+  'storage',
+  'collaborators',
+  'notifications',
+] as const;
+export type QuantQuotaResource = (typeof QUANT_QUOTA_RESOURCES)[number];
+export const quantQuotaResourceSchema = z.enum(QUANT_QUOTA_RESOURCES);
+const quotaWhole = z.string().regex(/^\d{1,18}$/, 'a whole number as a decimal string');
+
+/** `quota.get`: the caller's profile, and each resource's usage against its limit (null: not set), counted from stored rows. */
+export const quantQuotaSchema = z.object({
+  profile: z.string().nullable(),
+  source: z.enum(['assigned', 'default']).nullable(),
+  resources: z.array(z.object({ resource: quantQuotaResourceSchema, used: quotaWhole, limit: quotaWhole.nullable() })),
+  asOf: z.string(),
+});
+export type QuantQuota = z.infer<typeof quantQuotaSchema>;
+
+const quotaProfileName = z.string().trim().min(1).max(80);
+
+/** `ops.quota.set`: one limit of one profile, blank for "not set", with a reason for the audit row. Keyed by the screen. */
+export const quantQuotaSetInputSchema = z.object({
+  profile: quotaProfileName,
+  resource: quantQuotaResourceSchema,
+  limit: z.string().max(18).nullable(),
+  reason: z.string().max(500),
+  idempotencyKey: z.string().trim().min(1).max(128),
+});
+export const quantQuotaSetOutputSchema = z.object({
+  profile: z.string(),
+  resource: quantQuotaResourceSchema,
+  limit: quotaWhole.nullable(),
+  setAt: z.string(),
+});
+
+/** `ops.quota.assign`: attaches an account to a profile, with a reason for the audit row. */
+export const quantQuotaAssignInputSchema = z.object({
+  accountId: z.string().guid(),
+  profile: quotaProfileName,
+  reason: z.string().max(500),
+  idempotencyKey: z.string().trim().min(1).max(128),
+});
+export const quantQuotaAssignOutputSchema = z.object({ accountId: z.string(), profile: z.string(), assignedAt: z.string() });
+
+/** `ops.quota.profile`: one profile's limits as stored; a resource with no row reads null (not set). */
+export const quantQuotaProfileSchema = z.object({
+  profile: z.string(),
+  limits: z.array(z.object({ resource: quantQuotaResourceSchema, limit: quotaWhole.nullable(), setAt: z.string().nullable() })),
+});

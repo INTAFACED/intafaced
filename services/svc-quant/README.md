@@ -174,3 +174,25 @@ counted, including when the rate is zero and when other misses have already fill
 frame list. Blank refuses only `result.share.embed` (`quant.embed_origins_unset`); the link still opens. The public read
 returns the result, the historical-simulation label, the checks and the coverage. It does not return an account, the
 strategy source or the run key.
+
+## Quotas by plan (AL-limits-01)
+
+A quota profile is a name with one limit per resource: saved strategies, versions per strategy, concurrent runs, paper
+runs, stored runs, stored log lines, source and result storage in bytes, collaborators per strategy and notifications per
+day. Each limit is an owner value. A blank limit refuses `quant.quota_unset` naming the resource; `0` refuses every
+create of it. An account is attached to a profile by `ops.quota.assign` (`admin:write`, a reason, an audit row); without
+one, `QUANT_DEFAULT_QUOTA_PROFILE` applies, and while that is blank every counted write refuses
+`quant.quota_profile_unset`. `ops.quota.set` (`admin:write`, a reason, keyed) sets one limit; `ops.quota.profile`
+(`admin:read`) reads a profile. A profile is a name, not a price: tiers, pricing and billing are not here.
+
+Counted writes are `studio.save` and `studio.clone` (a strategy, its first version and its source bytes),
+`studio.update` (a version and its source bytes), `studio.restore` (a strategy back from the recycle bin) and every run
+an account starts (a stored run, a running one and at least one byte). Each locks the account's counters, counts from
+the stored rows and writes in one transaction, so a count can't drift and two writes racing at the limit can't both
+pass. At the limit the write refuses `quant.quota_exceeded`: `<resource>: <used> used of <limit> allowed`. A replay
+under the same key reads its stored answer and is never counted again. `quota.get` shows the caller the profile that
+applies and each resource's usage against its limit, or null ("not set"). Nothing stores log lines apart from a run's
+result, collaborators or notices yet, so those counts read zero.
+
+`QUANT_TEST_QUOTA_SEED` is for the local and CI stack only: a JSON profile whose name starts with TEST, inserted once
+and never over a row an operator set.

@@ -41,11 +41,11 @@ function FeeRevenue({ fees }: { fees: OpsVenueEconomics['feeRevenue'] }) {
         </thead>
         <tbody>
           {fees.assets.map((a) => (
-            <tr key={a.assetId}>
+            <tr key={a.assetId} data-asset={a.assetId}>
               <td>{a.assetId}</td>
-              <td>{a.collected}</td>
-              <td>{a.returned}</td>
-              <td>{a.net}</td>
+              <td data-col="collected">{a.collected}</td>
+              <td data-col="returned">{a.returned}</td>
+              <td data-col="kept">{a.net}</td>
             </tr>
           ))}
         </tbody>
@@ -85,22 +85,24 @@ function Net({ net, feesCode }: { net: OpsVenueEconomics['net']; feesCode: strin
   }
   if (net.reason === 'costs_incomplete') {
     return (
-      <p data-testid="net-unavailable">
-        Net needs every cost line entered. The fee revenue above is the ledger’s figure; the costs are partial, so no net is given.
+      <p data-testid="net-unavailable" data-reason="costs_incomplete">
+        Net needs every cost line entered. The fee revenue above is the ledger’s figure; the costs are partial, so no net is given.{' '}
+        <span className="dk-muted">Code: costs_incomplete.</span>
       </p>
     );
   }
   if (net.reason === 'revenue_unavailable') {
     return (
-      <p data-testid="net-unavailable">
+      <p data-testid="net-unavailable" data-reason="revenue_unavailable">
         Net needs the ledger’s fee revenue, which could not be read{feesCode ? ` (${feesCode})` : ''}. No net is given and fees are not read
-        as zero.
+        as zero. <span className="dk-muted">Code: revenue_unavailable.</span>
       </p>
     );
   }
   return (
-    <p data-testid="net-unavailable">
-      Net is not worked out here. The warehouse’s revenue points carry no currency or month, so subtracting costs from them would mix units.
+    <p data-testid="net-unavailable" data-reason="revenue_asset_unknown">
+      Net is not worked out here. The warehouse’s revenue points carry no currency or month, so subtracting costs from them would mix units.{' '}
+      <span className="dk-muted">Code: revenue_asset_unknown.</span>
     </p>
   );
 }

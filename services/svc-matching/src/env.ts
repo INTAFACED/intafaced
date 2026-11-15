@@ -73,14 +73,6 @@ const schema = baseEnvSchema
         }),
 
       /**
-       * Public rulebook version (M00). Blank is unpublished: GET /rulebook
-       * refuses and best-execution / certified-venue claims refuse. A set
-       * value is the version string only — this service does not invent
-       * rule text, fees, or haircuts.
-       */
-      MATCHING_RULEBOOK_VERSION: z.string().default(''),
-
-      /**
        * Identity issuer for halt/resume/mode consume.
        * Blank / unset → those doors refuse (`action_approval.identity_unwired`).
        */

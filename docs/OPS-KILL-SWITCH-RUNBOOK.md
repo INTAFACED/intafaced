@@ -3,7 +3,7 @@
 > **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
 
 **Status:** live on tip (wired #186; admin board live-module path A-P5-OPS)  
-**Law:** `INTAFACED_DEFINITIVE_BUILD.md` §14.6 · edge fail-closed · never trap funds  
+**Law:** `INTAFACED_DEFINITIVE_BUILD.md` §14.6 (private: INTAFACED/project-state `product/`) · edge fail-closed · never trap funds  
 **Board Clear:** A-P5-OPS (ops surface)
 
 This is the operator path to **halt a module without a deploy**, and the ledger freeze path that **halts all value movement**. It is not a full `ops.admin` product (listings, fee params, treasury UI, SSO) — those remain residual.

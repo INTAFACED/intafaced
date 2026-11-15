@@ -44,19 +44,35 @@ const script = resolve(here, 'local-test-stack.mjs');
   assert.deepEqual(waitsOf('ledger'), []);
   assert.ok(waitsOf('matching').includes('ledger'), 'matching waits for the ledger');
   assert.ok(waitsOf('identity').includes('ledger'), 'identity waits for the ledger');
-  // Every service but svc-ws, which is not behind the edge: the Customer server proxies /ws to it directly.
+  // Every service. svc-ws is not behind the edge (the Customer server proxies /ws to it directly): the edge names its
+  // port only for the founder console's signed SBE consumer read (J-cex-spot-20 #3), never as a proxy upstream.
   assert.deepEqual(
     waitsOf('edge').sort(),
     defs
       .map((d) => d.name)
-      .filter((n) => n !== 'edge' && n !== 'ws')
+      .filter((n) => n !== 'edge')
       .sort(),
   );
   const wsPort = `:${defs.find((d) => d.name === 'ws').env.HTTP_PORT}`;
-  assert.ok(
-    !Object.values(defs.find((d) => d.name === 'edge').env).some((value) => String(value).includes(wsPort)),
-    'the edge names no svc-ws port',
+  assert.deepEqual(
+    Object.entries(defs.find((d) => d.name === 'edge').env)
+      .filter(([, value]) => String(value).includes(wsPort))
+      .map(([key]) => key),
+    ['WS_STATUS_URL'],
+    'the edge names the svc-ws port only for the signed SBE consumer read',
   );
+  // svc-fix (Java) runs LOCAL TEST sessions; the edge and svc-fix share its status read key, and svc-ws and the edge
+  // theirs, each different from the fleet secret.
+  const fixEnv = defs.find((d) => d.name === 'fix').env;
+  const edgeEnv = defs.find((d) => d.name === 'edge').env;
+  assert.equal(fixEnv.FIX_STATUS_READ_SECRET, edgeEnv.FIX_STATUS_READ_SECRET);
+  assert.equal(defs.find((d) => d.name === 'ws').env.WS_STATUS_READ_SECRET, edgeEnv.WS_STATUS_READ_SECRET);
+  assert.equal(fixEnv.FIX_DROPCOPY_INGEST_PORT, fixEnv.HTTP_PORT, 'the stack health-checks svc-fix on its HTTP listener');
+  assert.notEqual(fixEnv.FIX_SENDER_COMP_ID, fixEnv.FIX_DROPCOPY_SENDER_COMP_ID);
+  // svc-fix's FIX sockets are its own ports, never another service's (J-home-ia-11 #1 reads each port key as a service).
+  const servicePorts = defs.map((d) => d.env.HTTP_PORT);
+  for (const k of ['FIX_SOCKET_ACCEPT_PORT', 'FIX_DROPCOPY_SOCKET_ACCEPT_PORT']) assert.ok(!servicePorts.includes(fixEnv[k]), k);
+  assert.ok(/TEST/.test(fixEnv.FIX_COMPID_ACCOUNT_JSON), 'the CompID map is labelled TEST');
   // Only services listed earlier are waited for, so the order can never deadlock.
   for (const def of defs) {
     for (const dep of startDependencies(defs, def, envOf)) assert.ok(defs.indexOf(dep) < defs.indexOf(def));
@@ -597,6 +613,11 @@ try {
   assert.equal(new Set(plan.services.map((x) => x.port)).size, names.length, 'two services share a port');
   for (const sv of plan.services) {
     assert.equal(sv.url, `http://127.0.0.1:${sv.port}`, `${sv.name} must bind loopback`);
+    if (sv.java) {
+      // svc-fix runs its shaded jar, which the stack builds from its Maven project (ensureFixJar).
+      assert.equal(existsSync(join(repo, 'services', `svc-${sv.name}`, 'pom.xml')), true, `no services/svc-${sv.name}/pom.xml`);
+      continue;
+    }
     assert.equal(existsSync(join(repo, 'services', `svc-${sv.name}`, 'src', 'index.ts')), true, `no services/svc-${sv.name}`);
     assert.equal(plan.backendPackages.includes(`svc-${sv.name}`), true, `svc-${sv.name} is started but never built`);
   }

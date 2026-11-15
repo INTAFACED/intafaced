@@ -1,4 +1,4 @@
-import { Fragment, Suspense, lazy, useMemo } from 'react';
+import { Fragment, Suspense, lazy, useMemo, useState } from 'react';
 import { ChevronRight, Eye, EyeOff } from 'lucide-react';
 import './home.css';
 import { clockTime } from './clock';
@@ -42,6 +42,7 @@ import { WorkList } from './WorkList';
 import { TotalFigure, TotalUnitNote } from './TotalFigure';
 import { HOME_LINKS } from './links';
 import { useStartedTile } from './started-data';
+import type { NeedsYouShown } from './work-list';
 import { CustomiseHome } from './CustomiseHome';
 import { LitSphere } from './LitSphere';
 import { HomeNotices } from './Notices';
@@ -306,12 +307,14 @@ function HomeSimple() {
   const main = shownTiles(home.layout, 'simple', 'main');
   const side = shownTiles(home.layout, 'simple', 'side');
   const started = useStartedTile(portfolio, side.includes('started'));
+  // What "Needs you" shows, so the inbox row is never a notice it already carries.
+  const [needsYou, setNeedsYou] = useState<NeedsYouShown | null>(null);
 
   return (
     <div data-testid="if-home" className="if-home">
       <h1 className="if-sr">{t('Home')}</h1>
       <HomeNotices />
-      <HomeInbox />
+      <HomeInbox needsYou={needsYou} />
       <div className="home-grid">
         <div data-testid="home-main" className="home-main">
           <div data-testid="home-label" className="home-label">
@@ -339,7 +342,7 @@ function HomeSimple() {
           {main.map((id) => {
             switch (id) {
               case 'work':
-                return <WorkList key={id} hidden={hideBalances} />;
+                return <WorkList key={id} hidden={hideBalances} onShown={setNeedsYou} />;
               case 'holdings':
                 return portfolio.status === 'loading' ? (
                   // the sphere's section keeps its place while the holdings load (no split, no figures), so it doesn't

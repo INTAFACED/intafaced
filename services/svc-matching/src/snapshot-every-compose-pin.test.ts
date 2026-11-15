@@ -13,7 +13,7 @@
  * 6. RED: pin fails if cadence default is 500, compose bakes 500, or sibling
  *    matching keys are restamped
  * 7. Collision: MATCHING_ENGINE_ENABLED stays default true. JOURNAL_PATH stays
- *    volume default. MATCHING_RULEBOOK_VERSION stays empty pass-through.
+ *    volume default. No MATCHING_RULEBOOK_VERSION (the journal is the rulebook's source).
  */
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -63,7 +63,7 @@ describe('compose passes MATCHING_SNAPSHOT_EVERY empty into svc-matching', () =>
   it('does not restamp kill-switch / journal / rulebook or invent 500', () => {
     expect(block).toMatch(/MATCHING_ENGINE_ENABLED:\s*\$\{MATCHING_ENGINE_ENABLED:-true\}/);
     expect(block).toMatch(/MATCHING_JOURNAL_PATH:\s*\$\{MATCHING_JOURNAL_PATH:-\/data\/matching\/engine_journal\.ndjson\}/);
-    expect(block).toMatch(/MATCHING_RULEBOOK_VERSION:\s*\$\{MATCHING_RULEBOOK_VERSION:-\}/);
+    expect(block).not.toMatch(/^\s*MATCHING_RULEBOOK_VERSION:/m);
     expect(block).toMatch(/HTTP_PORT:\s*'4005'/);
   });
 });

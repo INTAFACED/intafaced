@@ -99,6 +99,28 @@ export function workList(config: ConfigRead, sources: Readonly<Record<WorkItemSo
   return { state: 'ready', items: all.slice(0, cap), more: Math.max(0, all.length - cap), ordered: order !== null, missing };
 }
 
+/**
+ * What "Needs you" shows right now, as the inbox on Home needs it: whether the list has settled (loaded, refused or
+ * ready), and the inbox notices it already carries. A `new_device` item's id is `new_device:<notice key>`, the key
+ * svc-notify files that sign-in's inbox notice under (`params.noticeKey`), so the inbox can leave that notice to it.
+ */
+export type NeedsYouShown = { settled: boolean; noticeKeys: ReadonlySet<string> };
+const NEW_DEVICE_PREFIX = 'new_device:';
+/** The inbox kind of the notice a `new_device` item carries (svc-notify, `identity.security.<change>`). */
+export const NEW_DEVICE_NOTICE_KIND = 'identity.security.new_device';
+
+export function needsYouShown(list: WorkList): NeedsYouShown {
+  if (list.state !== 'ready') return { settled: list.state !== 'loading', noticeKeys: new Set() };
+  const keys = list.items.filter((item) => item.kind === 'new_device').map((item) => item.id.slice(NEW_DEVICE_PREFIX.length));
+  return { settled: true, noticeKeys: new Set(keys) };
+}
+
+/** Whether "Needs you" already shows this inbox notice: a new-device notice whose key is one of its items. */
+export function shownInNeedsYou(notice: { kind: string; params: Readonly<Record<string, unknown>> }, shown: NeedsYouShown | null): boolean {
+  const key = notice.params.noticeKey;
+  return shown !== null && notice.kind === NEW_DEVICE_NOTICE_KIND && typeof key === 'string' && shown.noticeKeys.has(key);
+}
+
 /** A ratio from the owner's record ("0.8512", where 1 is 100%) as the percent it reads as ("85.12%"), without a float. */
 export function ratioPercent(ratio: string): string {
   const [whole = '0', frac = ''] = ratio.split('.');

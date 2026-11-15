@@ -33,6 +33,11 @@ public final class DropCopyIngest implements AutoCloseable {
         return port;
     }
 
+    /** Another read on this listener (the adapter status and health, AdapterStatus). */
+    public void mount(String path, com.sun.net.httpserver.HttpHandler handler) {
+        server.createContext(path, handler);
+    }
+
     public static Result start(int port, String beginString, String secret, DropCopyHub hub) {
         return start(port, beginString, secret, hub, null);
     }

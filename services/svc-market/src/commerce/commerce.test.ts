@@ -634,6 +634,10 @@ describe('market.commerce', () => {
         price: '10',
       });
       expect((await commerce.publicListings({ limit: 50 })).map((l) => l.id)).toEqual([oneTime.id]);
+      // The approved seller's live listing reads `approved`, in the catalogue and in the seller's own list.
+      expect((await commerce.publicListings({ limit: 50 })).map((l) => l.reviewState)).toEqual(['approved']);
+      const own = (await commerce.myListings(VENDOR_USER, { limit: 50 })).find((l) => l.id === oneTime.id);
+      expect(own?.reviewState).toBe('approved');
     });
   });
 

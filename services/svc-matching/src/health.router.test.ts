@@ -100,7 +100,10 @@ describe('the deployed entrypoint serves this /health', () => {
       .split(/\r?\n/)
       .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
       .join('\n');
-    expect(live).toMatch(/registerHealth\(\s*app\s*,\s*env\.SERVICE_NAME\s*,\s*engine\s*,\s*journal\s*\)/);
+    // The fifth argument is the per-operation latency the console reads (J-cex-spot-20 #1); it must be the one the
+    // onResponse hook records into.
+    expect(live).toMatch(/registerHealth\(\s*app\s*,\s*env\.SERVICE_NAME\s*,\s*engine\s*,\s*journal\s*,\s*operationLatency\s*\)/);
+    expect(live).toMatch(/registerOperationLatency\(\s*app\s*,\s*operationLatency\s*,/);
     expect(live).not.toMatch(/app\.get\(\s*['"]\/health['"]/);
   });
 });

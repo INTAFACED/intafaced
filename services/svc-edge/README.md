@@ -230,6 +230,8 @@ With `S2S_AUTH_MODE` set to `dual` or `keypair` (plus `S2S_KEYRING`, `S2S_SIGNIN
 
 The signature binds the method, the path and query as sent, the exact body bytes and the content type. On the proxy forward the forwarded principal, its signature and the region are inside the signed context too. `dual` also sends the dedicated shared secret on the identity and matching calls; `keypair` sends the key only. The edge holds no shared secret for the other upstreams, so the proxy forward carries the key signature alone in both modes. The modules blueprint, dex, indexer and protocol have no service role and are forwarded unsigned. Unset `S2S_AUTH_MODE` leaves every call exactly as before (the shared secret). Browsers cannot supply these headers: every `x-intafaced-*` request header is stripped.
 
+One matching read is unsigned on purpose: the operator health door (`/admin/trade-ops/matching/health`, `admin:read`) reads svc-matching's public `GET /health` with a client that can send nothing else, so it needs `MATCHING_URL` only and answers while `MATCHING_EDGE_SIGNING_SECRET` is blank (the control routes then still refuse `matching_credential_unconfigured`).
+
 ## Not built yet
 
 - **Full geo topology + CDN contract.** Mechanism: trusted header + trustProxy (`EDGE_GEO_COUNTRY_HEADER`). Still needs deployment topology proof (socket.geo-region-resolution residual) and Class X counsel list content.

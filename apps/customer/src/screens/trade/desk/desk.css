@@ -1486,3 +1486,141 @@
   appearance: auto;
   min-height: 32px;
 }
+
+/* Desk widget workspace (C-workspace-01, J-charts-desk-07 #1 and #2): the Layouts menu, the arranged grid and the
+   arrange controls. Sizes are rem, sides are logical. */
+@layer components {
+  @media (min-width: 73.75rem) {
+    .dk-grid[data-layout='custom'] {
+      grid-template-columns: var(--dk-columns);
+    }
+    .dk-grid[data-layout='custom'] > [data-widget] {
+      order: var(--dk-order);
+    }
+  }
+  @media (max-width: 73.6875rem) {
+    .dk-arrange-edge {
+      display: none;
+    }
+  }
+  /* The tape never sets the row's height: it takes the height the other widgets give the row and scrolls inside. */
+  .dk-trades {
+    display: flex;
+    flex-direction: column;
+    min-block-size: 0;
+    contain: size;
+    overflow: hidden;
+  }
+  .dk-trades > .dk-panel-body {
+    overflow: auto;
+  }
+  .dk-layouts-btn,
+  .dk-layouts-actions button,
+  .dk-arrange-move,
+  .dk-arrange-bar button {
+    padding-inline: var(--if-space-2);
+    min-block-size: 1.75rem;
+    border: 1px solid var(--if-line);
+    border-radius: var(--if-r-sm);
+    background: var(--if-field);
+    color: var(--if-fg);
+    font: 500 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
+    cursor: pointer;
+  }
+  .dk-layouts-btn[aria-expanded='true'] {
+    border-color: var(--if-accent);
+  }
+  .dk-layouts-pop {
+    display: grid;
+    gap: var(--if-space-3);
+    color: var(--if-fg);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
+  }
+  .dk-layouts-presets {
+    display: flex;
+    gap: var(--if-space-3);
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+  .dk-layouts-presets legend {
+    margin-block-end: var(--if-space-2);
+    color: var(--if-fg-2);
+  }
+  .dk-layouts-preset {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--if-space-1);
+  }
+  .dk-layouts-preset input {
+    appearance: auto;
+    inline-size: 1rem;
+    block-size: 1rem;
+    margin: 0;
+    accent-color: var(--if-accent);
+  }
+  .dk-layouts-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--if-space-2);
+  }
+  .dk-layouts-note,
+  .dk-layout-note {
+    margin: 0;
+    color: var(--if-fg-2);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
+  }
+  .dk-layout-note {
+    padding: var(--if-space-2) var(--if-space-3);
+    background: var(--if-panel);
+  }
+  .dk-layouts-confirm {
+    display: grid;
+    gap: var(--if-space-2);
+    padding-block-start: var(--if-space-2);
+    border-block-start: 1px solid var(--if-line);
+  }
+  .dk-layouts-confirm p {
+    margin: 0;
+  }
+  .dk-arrange-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--if-space-3);
+    padding: var(--if-space-2) var(--if-space-3);
+    background: var(--if-panel);
+    color: var(--if-fg-2);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
+  }
+  .if-desk[data-arranging='true'] [data-widget] {
+    position: relative;
+    outline: 1px dashed var(--if-accent);
+    outline-offset: -1px;
+  }
+  .dk-arrange-move {
+    position: absolute;
+    inset-block-start: var(--if-space-2);
+    inset-inline: 0;
+    z-index: 20;
+    inline-size: fit-content;
+    margin-inline: auto;
+    cursor: grab;
+  }
+  .dk-arrange-edge {
+    position: absolute;
+    inset-block: 0;
+    inset-inline-end: 0;
+    z-index: 20;
+    inline-size: 0.5rem;
+    background: var(--if-accent);
+    opacity: 0.6;
+    cursor: col-resize;
+    touch-action: none;
+  }
+  .dk-arrange-edge:focus-visible,
+  .dk-arrange-move:focus-visible {
+    outline: 2px solid var(--if-focus);
+    outline-offset: 2px;
+  }
+}

@@ -126,7 +126,7 @@ export async function edgeCall<T>(ctx: TradeCtx, spec: EdgeSpec<T>): Promise<Out
 
 /** tRPC procedure on a module: GET ?input=… for queries, POST body for mutations. */
 export function trpcSpec<T>(
-  module: 'trade' | 'identity',
+  module: 'trade' | 'identity' | 'notify' | 'bank',
   procedure: string,
   kind: 'query' | 'mutation',
   input: unknown,

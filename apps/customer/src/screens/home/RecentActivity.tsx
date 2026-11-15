@@ -26,6 +26,7 @@ const LABEL = {
   transfer_in: 'Activity transfer_in',
   transfer_out: 'Activity transfer_out',
   trade: 'Activity trade',
+  convert: 'Activity convert',
   fee: 'Activity fee',
   payment: 'Activity payment',
   withdrawal: 'Activity withdrawal',

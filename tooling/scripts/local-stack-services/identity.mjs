@@ -230,6 +230,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     // LOCAL TEST limit override policy (J-ops-console-04 #12), labelled TEST in the same profile, never an owner decision:
     // blank refuses every override with identity.limit_ceiling_unset.
     IDENTITY_LIMIT_OVERRIDE_POLICY: testValue('IDENTITY_LIMIT_OVERRIDE_POLICY'),
+    // LOCAL TEST staff roster (OWNER 44), labelled TEST in the same profile, never an owner decision: one TEST member per
+    // role (support, compliance, risk, finance), so staff journeys sign in to the console as staff, not as a founder
+    // (apps/customer/tests/real-app/staff.mjs). Identity reads it only with APP_ENV exactly dev or test and refuses boot with
+    // it anywhere else; production keeps the blank roster and the founder-only console.
+    IDENTITY_STAFF_TEST_ROSTER: testValue('IDENTITY_STAFF_TEST_ROSTER'),
     // LOCAL TEST referral attach window and code length (J-campaigns-05), labelled TEST in the same profile. Blank refuses
     // every link attach (referral.attach_window_unset) and every new code (referral.code_length_unset).
     // `LOCAL_STACK_IDENTITY_REFERRAL_WINDOW=off` on a start or restart leaves the attach window blank, so its refusal can

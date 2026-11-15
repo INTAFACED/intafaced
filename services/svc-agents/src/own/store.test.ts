@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,8 +18,10 @@ const migrations = readdirSync(drizzleDir)
   .sort()
   .map((f) => readFileSync(join(drizzleDir, f), 'utf8'));
 
-const USER = '11111111-1111-4111-8111-111111111111';
-const OTHER = '22222222-2222-4222-8222-222222222222';
+// This file's own people. Other svc-agents test files share the test database and the fixed ids, so the "moves no value"
+// count below counted their usage too and moved when one wrote at the same moment (#6787).
+const USER = randomUUID();
+const OTHER = randomUUID();
 const SECRET = 'an-agents-own-agent-test-secret-of-32-plus-chars';
 const edgeContext = createEdgeContext({ secret: SECRET, serviceName: 'svc-agents' });
 
@@ -67,7 +70,12 @@ if (!available) {
   });
   const person = router.createCaller(callerFor(USER, ['agents:read', 'identity:write']));
   const other = router.createCaller(callerFor(OTHER, ['agents:read', 'identity:write']));
-  const balance = async () => (await sql<{ n: string }[]>`SELECT count(*)::text AS n FROM agents.usage_windows`)[0]!.n;
+  const balance = async () =>
+    (
+      await sql<{ n: string }[]>`
+        SELECT count(*)::text AS n FROM agents.usage_windows w JOIN agents.agent_sessions s ON s.id = w.session_id
+        WHERE s.user_id IN (${USER}, ${OTHER})`
+    )[0]!.n;
 
   // Other test files truncate these tables too, so each test holds the lock while it runs.
   let lock: Awaited<ReturnType<typeof sql.reserve>>;
@@ -115,6 +123,12 @@ if (!available) {
 
   it('creates a draft from the service starter with its tools and no cap; a retried create is the same draft, a new one the next', async () => {
     const before = await balance();
+    // Another file's metered session writing usage meanwhile, as parallel files do on the shared test database: not this
+    // person's value, so it must not move the count.
+    const [elsewhere] = await sql<{ id: string }[]>`
+      INSERT INTO agents.agent_sessions (user_id, agent_id, guardrail, guardrail_version)
+      VALUES (${randomUUID()}, 'TEST-elsewhere', '{"limits":{}}'::jsonb, 1) RETURNING id`;
+    await sql`INSERT INTO agents.usage_windows (session_id, window_id) VALUES (${elsewhere!.id}, 'TEST-elsewhere')`;
     const first = await person.own.create({ template: 'service-starter', createKey: 'picker:one' });
     expect(first).toMatchObject({ state: 'draft', version: 1, perSessionCap: null, name: '' });
     expect(first.tools).toEqual(['support.kb.search', 'support.ticket.read', 'identity.account.read']);

@@ -122,6 +122,18 @@ const schema = baseEnvSchema
       MATCHING_EDGE_SIGNING_SECRET: z.string().min(32).optional(),
 
       /**
+       * The protocol adapters' own status for the founder console (J-cex-spot-20 #3): svc-fix's listener that serves
+       * `GET /internal/status` (its FIX sessions and CompID map) and svc-ws's `GET /internal/sbe/consumers`. Each read is
+       * signed as `svc-edge` with that adapter's dedicated read key, never INTERNAL_SERVICE_SECRET. A blank URL or key
+       * leaves that half of `/admin/trade-ops/adapters/status` refused by name (`fix_status_unconfigured`,
+       * `ws_status_unconfigured`).
+       */
+      FIX_STATUS_URL: z.string().url().optional(),
+      FIX_STATUS_READ_SECRET: z.string().min(32).optional(),
+      WS_STATUS_URL: z.string().url().optional(),
+      WS_STATUS_READ_SECRET: z.string().min(32).optional(),
+
+      /**
        * The edge's Ed25519 signing key (PKCS8, base64url). Unset: the edge keeps signing the forwarded principal with
        * EDGE_PRINCIPAL_SECRET. Set it only once every receiver verifies with the public key, or they will refuse the
        * edge's requests. Held by svc-edge alone; no other service gets it. Needs EDGE_PRINCIPAL_MAX_LIFETIME_SECONDS.

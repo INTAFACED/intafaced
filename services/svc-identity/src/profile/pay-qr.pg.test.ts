@@ -131,7 +131,11 @@ if (!available) {
       });
       expect(await record(payee.userId)).toEqual(before);
 
-      expect(await refusal(router.createCaller(payerCtx).qr.resolve({ payload: `${payload.slice(0, -2)}AA` }))).toMatchObject({
+      // The signature's first character changed to another one, so the forged code always differs. Setting the last two to
+      // "AA" was the same code whenever the signature already ended in "AA" (1 in 4096), and then it resolved (#6898).
+      const forged = `${v}.${payload.split('.')[1]}.${tag}.${sig[0] === 'A' ? 'B' : 'A'}${sig.slice(1)}`;
+      expect(forged).not.toBe(payload);
+      expect(await refusal(router.createCaller(payerCtx).qr.resolve({ payload: forged }))).toMatchObject({
         code: 'identity.qr_invalid',
       });
       expect(await record(payee.userId)).toEqual(before);

@@ -7,8 +7,8 @@ import { awayBid, confirm, deskPath, fundedTrader, held, openOrders, reviewLimit
 // annotate it". One test per step, titled "J-portfolio-03 #<n>", run in order on one TEST account funded with TEST 1000
 // USDT. Every row is checked against the bank's own activity read and the ledger balances, never against fixtures.
 //
-// The kinds this stack can make: a deposit (the TEST welcome funds), a trade, an order set aside, a cancelled order and a
-// move to one of the person's own spaces. Earn has no rate configured on the stack (`earn.pools` refuses, a blank setting
+// The kinds this stack can make: a deposit (the TEST welcome funds), a trade, a conversion (Convert, settled from the
+// house's TEST inventory), an order set aside, a cancelled order and a move to one of the person's own spaces. Earn has no rate configured on the stack (`earn.pools` refuses, a blank setting
 // stays blank), and a withdrawal is refused before anything is held (J-cex-spot-01 #12), so neither leaves a line to show.
 const J = 'J-portfolio-03';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
@@ -16,6 +16,7 @@ const ZONE = 'Pacific/Auckland';
 const SPACE = 'Rent TEST';
 const SAVED = '30';
 const WITHDRAWN = '10';
+const CONVERTED = '0.001';
 
 test.describe.configure({ mode: 'default' });
 // A zone far from UTC, so a time shown in UTC would not pass for local time.
@@ -105,6 +106,18 @@ async function allLines(who, input = {}) {
 const activity = (page) => page.getByRole('region', { name: 'Activity' }).last();
 const rows = (page) => activity(page).locator('tbody tr[data-testid="money-act"]');
 
+/** A TEST conversion of USDT into `qty` BTC through the customer's own Convert API: a firm quote, then accept it. */
+async function convertNow(who, qty) {
+  const me = await api(who);
+  const input = encodeURIComponent(JSON.stringify({ symbol: 'BTC/USDT', side: 'buy', qty }));
+  const quote = await me.get(`/api/trade/trpc/convert.quote?input=${input}`);
+  expect(quote.status, `convert.quote: ${JSON.stringify(quote.body).slice(0, 300)}`).toBe(200);
+  const { quoteId } = quote.body.result.data;
+  const accept = await me.post('/api/trade/trpc/convert.accept', { quoteId, clientConvertId: `${J}-${Date.now()}` });
+  expect(accept.status, `convert.accept: ${JSON.stringify(accept.body).slice(0, 300)}`).toBe(200);
+  return quoteId;
+}
+
 async function openActivity(page, query = '') {
   await page.goto(`/money/activity${query}`);
   await expect(page.getByRole('heading', { name: 'Activity', level: 1 })).toBeVisible();
@@ -148,6 +161,7 @@ test(`${J} #1 opens /money/activity: every kind of movement in one list, in plai
 
   // TEST movements of every kind this stack can make.
   await buyNow(page, who, '0.004');
+  await convertNow(who, CONVERTED);
   const resting = await restBuy(page, who, 80, '0.001');
   const cancelled = await restBuy(page, who, 85, '0.001');
   const cancel = await (await api(who)).delete(`/api/v1/orders/${cancelled.id}?symbol=${encodeURIComponent('BTC/USDT')}`);
@@ -226,6 +240,17 @@ test(`${J} #1 opens /money/activity: every kind of movement in one list, in plai
   // Each movement is one row, in plain words.
   await expect(list.filter({ hasText: 'Welcome test funds' })).toHaveCount(1);
   await expect(list.filter({ hasText: /^Trade/ })).toHaveCount(1);
+  // The conversion is its own row, called a conversion, with the coin it brought in: never a second desk trade.
+  const converted = lines.filter((l) => l.kind === 'convert');
+  expect(converted.map((l) => [l.direction, l.amount, l.asset])).toEqual([['in', CONVERTED, 'BTC']]);
+  await expect(list.filter({ hasText: /^Convert/ })).toHaveCount(1);
+  await expect(
+    list
+      .filter({ hasText: /^Convert/ })
+      .locator('td')
+      .nth(2),
+  ).toHaveText(`+${CONVERTED} BTC`);
+  await expect(list.filter({ hasText: /^Convert/ }).getByTestId('money-act__time')).toHaveText(local(converted[0].postedAt));
   await expect(list.filter({ hasText: 'Set aside for an order' })).toHaveCount(1);
   await expect(list.filter({ hasText: 'Order cancelled · nothing spent' })).toHaveCount(1);
   await expect(list.filter({ hasText: /Transfer|Moved/ })).not.toHaveCount(0);
@@ -259,13 +284,18 @@ test(`${J} #1 opens /money/activity: every kind of movement in one list, in plai
   await expect(fundsRow.getByTestId('money-act__status')).toHaveText('Completed');
 });
 
-// #1's convert part: a conversion settles as ordinary trade fills (svc-trade convert/settle.ts), and the bank's activity has
-// no convert kind to tell it from a desk trade. This part goes green when svc-bank lists conversions as their own kind.
-test(`${J} #1 a conversion is listed as a convert, not as a desk trade (BLOCKED convert_kind)`, async () => {
-  const who = run.read().account;
-  expect(who, '#1 made no account').toBeTruthy();
-  const res = await bankRead(who, 'activity.list', { kind: ['convert'], limit: 1 });
-  expect(res.status, `BLOCKED convert_kind: svc-bank has no convert activity kind (${res.status})`).toBe(200);
+// #1's convert part: a conversion settles as a house fill, the reason a desk order filled by the house also posts
+// (svc-trade convert/settle.ts). The fill's own `product: convert` makes the bank call it a conversion. The bank's kind
+// filter keeps it apart: Convert lists the conversion alone, Trade never lists it.
+test(`${J} #1 a conversion is listed as a convert, not as a desk trade`, async () => {
+  const who = account();
+  const res = await bankRead(who, 'activity.list', { kind: ['convert'], limit: 50 });
+  expect(res.status, `activity.list kind convert: ${JSON.stringify(res.body).slice(0, 300)}`).toBe(200);
+  const converts = res.data.items;
+  expect(converts.map((l) => [l.kind, l.direction, l.amount, l.asset])).toEqual([['convert', 'in', CONVERTED, 'BTC']]);
+  const trades = await allLines(who, { kind: ['trade'] });
+  expect(trades.length, 'the desk trade is still a trade').toBeGreaterThan(0);
+  expect(trades.filter((l) => l.txId === converts[0].txId)).toEqual([]);
 });
 
 /** The local calendar day `days` from today, as a date input takes it. */

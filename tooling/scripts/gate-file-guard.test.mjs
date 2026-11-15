@@ -59,6 +59,7 @@ test('gate files: the four things the brief names, plus the tools themselves', (
   // The journeys run's list and its steps (the factory's setup step 2): the baseline guard enforces the list's rules.
   assert.ok(touched('docs/runbooks/journey-baseline.json'));
   assert.ok(touched('docs/roadmap/journeys.json'));
+  assert.ok(touched('tooling/coverage-law-index.json'));
   assert.ok(!touched('docs/runbooks/journey-baseline-proof/J-agents-03-6.txt'));
   assert.ok(!touched('docs/roadmap/slices.json'));
 });

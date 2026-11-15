@@ -1,15 +1,15 @@
 # Rules for agents
 
-INTAFACED is an exchange, a bank and a payments platform on one custodial ledger. You own an outcome: build it, prove it in the running app, and merge it. This page is the rules; the linked files hold procedures. Where another file disagrees with this page, this page wins. Agreed acceptance criteria win; report conflicts.
+INTAFACED is an exchange, a bank and a payments platform. You own an outcome: build it, prove it in the running app, and merge it. This page is the rules; the linked files hold procedures. Where another file disagrees with this page, this page wins. Agreed acceptance criteria win; report conflicts.
 
 ## The floor
 
-1. **Money moves only through `packages/ledger-client` recipes.** Never assemble entries inline. There is one custodial ledger (`svc-ledger`): no module holds its own balance, and there is no second money book (no outside system as source of truth, no second order book, no npm `ccxt`; FIX, SBE and Greeks stay adapters).
+1. **Money moves only through `packages/ledger-client` recipes.** Never assemble entries inline. There is one ledger (`svc-ledger`): no module holds its own balance, and there is no second money book (no outside system as source of truth for what the ledger records, no second order book of our own, no npm `ccxt`; outside markets, users' own wallets, FIX, SBE and Greeks are reached through adapters). The ledger is authoritative for its own recorded obligations, never over a wallet's or an outside market's own state.
 2. **Never store money in a `number`.** Decimal strings on the wire, scaled bigint in memory.
 3. **Idempotency keys are business keys** (`deposit:crypto-native:0xabc`), never `randomUUID()`. Every money path tests its failure branches and has an invariant test. Ask: if this crashes exactly here, whose funds are stranded?
 4. **Protocol Plane services never import ledger write recipes** (`pnpm scan:custody`). Freezing one account belongs to `svc-identity`; the platform-wide posting freeze belongs to `svc-ledger`.
 5. **`main` stays protected and green.** Never push `main`. Never bypass a required check or change the `main` ruleset (`CI merge seal`, Gitleaks, Dependency audit; no force-push, no delete). A breaking commit is fixed or reverted before anything else merges into the packages it touches.
-6. **Never skip, disable, quarantine or weaken a test or safeguard** to get green. A test that is wrong is fixed, with the evidence in the PR body.
+6. **Never skip, disable, quarantine or weaken a test or safeguard** to get green. A test that is wrong is fixed, with the evidence in the PR body. The one exception is the machine's: CI sets aside a journey step that fails and then passes on the same commit on main, for a limited time with an owner, and never a money step (`tooling/ci/journey-verdict.mjs`). No agent sets anything aside. A set-aside step never counts as proven.
 7. **The owner alone:** deploys, real funds, live credentials, secrets and keys, purchases, and contact with anyone outside. A merge is not a launch.
 8. **Honest product and honest claims.** No fake balances, books, prices, limits or metrics; an illustrative figure says TEST. A blank owner value (a price, limit, fee, sanctions list or provider setting) stays blank and refuses with a typed error; a labelled TEST value may stand in on test stacks only. A claim in a PR body comes with its output.
 
@@ -41,7 +41,7 @@ Within the floor, these win over any agent's or reviewer's preference.
 
 - **Gate files** (`GATE_PATHS` in `tooling/scripts/gate-file-guard.mjs`: CI and workflows, agent rule files, root build files, secret-scan lists, CODEOWNERS and the like) need a `ci:` or `gate:` title, `/security-review` answered in the PR body, and the `CI review` job's PASS on the exact head. A new or changed check shows it passes on a known-good state and fails on a planted fault. Agent rule files are never docs-only.
 - **Look baselines** (`<package>/look-baselines/<room>/`) need a `Baseline-change: <room> — <why>` line and the `CI review` job's PASS.
-- **The `CI review` job** judges the diff against [`tooling/ci/ci-review/REVIEW.md`](tooling/ci/ci-review/REVIEW.md), read from `main`. A FAIL stands for that code: fix it and push. After three FAILs on one PR, rethink the approach. A change to `REVIEW.md` or to the review job can't pass its own review, so it goes to the owner for an admin merge.
+- **The `CI review` job** judges the diff against [`tooling/ci/ci-review/REVIEW.md`](tooling/ci/ci-review/REVIEW.md), read from `main`. A FAIL stands for that code: fix it and push. After three FAILs on one PR, rethink the approach. A change to `REVIEW.md` or to the review job can't pass its own review. When it only records a decision the owner has already made, in his words and dated, the factory-admin agent merges it with the owner's bypass once every other required check passes, and names the decision and its own thread on the pull request. Any other change to them waits for the owner.
 
 ## Services
 
@@ -61,4 +61,4 @@ Within the floor, these win over any agent's or reviewer's preference.
 - [`docs/adr/`](docs/adr/): settled decisions. [`docs/runbooks/`](docs/runbooks/): operations. [`docs/refs/`](docs/refs/): measured front-end references.
 - [`tooling/agent-protocol/AGENT_PROTOCOL.md`](tooling/agent-protocol/AGENT_PROTOCOL.md): service shape. [`apps/customer/README.md`](apps/customer/README.md): where customer screens and rooms go.
 - Each service's `README.md`: read it before you edit that service. Find code with `rg`.
-- Issues, labels and domain notes: `docs/agents/issue-tracker.md`, `triage-labels.md`, `domain.md`. Active work and owners: open GitHub PRs and issues. The original product spec is `INTAFACED_DEFINITIVE_BUILD.md`.
+- Issues, labels and domain notes: `docs/agents/issue-tracker.md`, `triage-labels.md`, `domain.md`. Active work and owners: open GitHub PRs and issues. The original product spec, `INTAFACED_DEFINITIVE_BUILD.md`, is private: INTAFACED/project-state `product/INTAFACED_DEFINITIVE_BUILD.md`.

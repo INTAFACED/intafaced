@@ -49,6 +49,11 @@ public final class FixDropCopyAcceptor implements AutoCloseable {
         return new FixDropCopyAcceptor(acceptor, application, config, !path.isEmpty());
     }
 
+    /** The sessions this acceptor holds, as QuickFIX/J configured them. */
+    public java.util.List<quickfix.SessionID> sessions() {
+        return acceptor.getSessions();
+    }
+
     @Override
     public void close() {
         acceptor.stop();

@@ -122,7 +122,10 @@ export class MemoryApprovalBook implements ApprovalBook {
   }
 }
 
-export async function consumeApproval(book: ApprovalBook, input: ApprovalConsumeInput): Promise<{ approverId: string }> {
+export async function consumeApproval(
+  book: ApprovalBook,
+  input: ApprovalConsumeInput,
+): Promise<{ approverId: string; requesterId: string }> {
   const result = await book.consume(input);
   if (!result.ok) {
     const message =
@@ -133,7 +136,7 @@ export async function consumeApproval(book: ApprovalBook, input: ApprovalConsume
           : 'approval does not match this scope, payload, or a second operator';
     throw new TradeOpsError(result.code, message);
   }
-  return { approverId: result.approverId };
+  return { approverId: result.approverId, requesterId: result.requesterId };
 }
 
 export interface AuditWrite {

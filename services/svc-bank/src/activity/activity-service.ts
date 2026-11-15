@@ -95,6 +95,8 @@ export interface LedgerPageEntry {
   readonly entryId?: string;
   /** Allow-listed rail of a deposit posting, else null. Absent until svc-ledger sends it. */
   readonly rail?: string | null;
+  /** Allow-listed product of the posting (`convert`), else null. Absent until svc-ledger sends it; then the line stays a trade. */
+  readonly product?: string | null;
   /** The page owner's own trade order this posting belongs to, else null. Absent until svc-ledger sends it. */
   readonly orderId?: string | null;
 }
@@ -775,7 +777,9 @@ export class ActivityService {
       seen.set(base, n + 1);
       return {
         id: n === 0 ? base : `${base}#${n}`,
-        kind: own ? 'space_move' : classify({ module: entry.module, reason: entry.reason, direction: entry.direction, rail: entry.rail }),
+        kind: own
+          ? 'space_move'
+          : classify({ module: entry.module, reason: entry.reason, direction: entry.direction, rail: entry.rail, product: entry.product }),
         direction: dir,
         asset: entry.assetId,
         amount: entry.amount,

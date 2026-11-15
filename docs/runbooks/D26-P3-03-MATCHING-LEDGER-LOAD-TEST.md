@@ -14,7 +14,7 @@
 
 There is **no host**. AXIS already said load testing cannot be built against a laptop ([`AXIS-IMPROVEMENT-PLAN-2026-08-08.md`](../AXIS-IMPROVEMENT-PLAN-2026-08-08.md)). This mountain’s closable slice is the **refuse-closed stub + a place to write numbers**, not a p99 that pretends a soak happened.
 
-Doctrine **§20** already names a Fiat matching target (`< 5ms p99` internal match, Rust-port trigger `>10k/s` sustained) in [`INTAFACED_DEFINITIVE_BUILD.md`](../../INTAFACED_DEFINITIVE_BUILD.md). **That line is existing doctrine, not a measurement from this harness.** This document does not invent a new p99, does not promote an empty table into product law, and does not treat “the stub exited 0” as latency proof.
+Doctrine **§20** already names a Fiat matching target (`< 5ms p99` internal match, Rust-port trigger `>10k/s` sustained) in `INTAFACED_DEFINITIVE_BUILD.md` (private: INTAFACED/project-state `product/`). **That line is existing doctrine, not a measurement from this harness.** This document does not invent a new p99, does not promote an empty table into product law, and does not treat “the stub exited 0” as latency proof.
 
 ---
 

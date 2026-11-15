@@ -116,6 +116,30 @@ export type OfferType = 'one_time' | 'subscription';
 export type ListingStatus = 'active' | 'archived' | 'taken_down';
 export type ListingSort = 'newest' | 'priceAsc' | 'priceDesc' | 'title';
 
+/**
+ * Where a listing stands in the Market's review, the same for every kind (strategy subscription or one-time listing in
+ * any category). A seller is reviewed once, by two operators (`vet`, four-eyes), and every listing they publish stands
+ * on that review until an operator takes the listing down. So a listing's review state is its seller's review, unless
+ * the listing itself was taken down:
+ *   · `taken_down`, an operator took this listing down (`takedownListing`);
+ *   · otherwise the seller's: `in_review` (applied, not yet decided), `approved`, `rejected` or `suspended`.
+ * The public catalogue only ever holds approved sellers' live listings, so a public row reads `approved`; the seller's
+ * own list shows every state. A rejected or suspended seller's state reaches only that seller (see `eligibilityFor`).
+ */
+export const LISTING_REVIEW_STATES = ['in_review', 'approved', 'rejected', 'suspended', 'taken_down'] as const;
+export type ListingReviewState = (typeof LISTING_REVIEW_STATES)[number];
+
+export function listingReviewState(
+  listingStatus: ListingStatus,
+  vendorStatus: 'applied' | 'approved' | 'rejected' | 'suspended',
+): ListingReviewState {
+  if (listingStatus === 'taken_down') return 'taken_down';
+  return vendorStatus === 'applied' ? 'in_review' : vendorStatus;
+}
+
+/** A listing row as a catalogue or the seller's own list answers it: with its review state. */
+export type ReviewedListingRecord = ListingRecord & { reviewState: ListingReviewState };
+
 export const MARKET_LISTINGS_SORT_UNSET = 'market.listings_sort_unset' as const;
 export const MARKET_LISTINGS_SORT_UNKNOWN = 'market.listings_sort_unknown' as const;
 export const MARKET_LISTINGS_CURSOR_INVALID = 'market.listings_cursor_invalid' as const;
@@ -150,7 +174,7 @@ export interface ListingRecord {
   updatedAt: string;
 }
 
-export interface PublicListingRecord extends ListingRecord {
+export interface PublicListingRecord extends ReviewedListingRecord {
   /** That vendor's listings with status `active`. Integer, not a float. */
   vendorListingCount: number;
 }
@@ -546,7 +570,7 @@ export class CommerceService {
    * Caller's own listings. Page size is owner-published — omit is not 50.
    * Unset limit refuses before the dump, including when the caller has no vendor.
    */
-  async myListings(userId: string, opts?: { limit?: number }): Promise<ListingRecord[]> {
+  async myListings(userId: string, opts?: { limit?: number }): Promise<ReviewedListingRecord[]> {
     const limit = assertMyListingsListLimit(opts?.limit);
     const mine = await this.vendors.myVendor(userId);
     if (!mine) return [];
@@ -556,7 +580,7 @@ export class CommerceService {
        ORDER BY created_at DESC
        LIMIT ${limit}
     `;
-    return rows.map(toListing);
+    return rows.map((row) => ({ ...toListing(row), reviewState: listingReviewState(row.status, mine.status) }));
   }
 
   async getListing(listingId: string): Promise<ListingRecord | null> {
@@ -623,7 +647,7 @@ export class CommerceService {
    *
    * Page size is owner-published — omit is not 50.
    */
-  async publicListings(opts?: { limit?: number }): Promise<ListingRecord[]> {
+  async publicListings(opts?: { limit?: number }): Promise<ReviewedListingRecord[]> {
     const limit = assertPublicListingsListLimit(opts?.limit);
     // Blank commission → empty shopfront. Do not advertise inventory that
     // purchase will refuse; that would invent a working marketplace.
@@ -638,7 +662,7 @@ export class CommerceService {
        ORDER BY created_at ASC, id ASC
        LIMIT ${limit * 3}
     `;
-    const out: ListingRecord[] = [];
+    const out: ReviewedListingRecord[] = [];
     for (const row of rows) {
       if (out.length >= limit) break;
       try {
@@ -648,7 +672,8 @@ export class CommerceService {
         // Over-held after unstake: only the oldest usable slots stay shopfront.
         const entitled = await this.vendors.entitledListingRefs(row.vendor_id);
         if (!entitled.has(row.id)) continue;
-        out.push(toListing(row));
+        // Listed means the seller is approved (`eligibilityFor`) and the row is active: its review state is approved.
+        out.push({ ...toListing(row), reviewState: listingReviewState(row.status, 'approved') });
       } catch (err) {
         // stake_unavailable and friends — drop this vendor's rows, keep the page.
         if (err instanceof MarketError && err.code === 'market.stake_unavailable') continue;
@@ -670,7 +695,7 @@ export class CommerceService {
   async publicListingsByCategory(opts?: {
     category?: string | null;
     limit?: number;
-  }): Promise<Array<ListingRecord & { category: string }>> {
+  }): Promise<Array<ReviewedListingRecord & { category: string }>> {
     const limit = assertPublicListingsListLimit(opts?.limit);
     const category = requireListingCategory(opts?.category ?? null);
     if (this.config.commissionBps === null) return [];
@@ -682,7 +707,7 @@ export class CommerceService {
        ORDER BY created_at ASC, id ASC
        LIMIT ${limit * 3}
     `;
-    const out: Array<ListingRecord & { category: string }> = [];
+    const out: Array<ReviewedListingRecord & { category: string }> = [];
     for (const row of rows) {
       if (out.length >= limit) break;
       if (row.category !== category) continue;
@@ -692,7 +717,7 @@ export class CommerceService {
         if (!(await this.listingHoldsLiveSlot(row.id, row.vendor_id))) continue;
         const entitled = await this.vendors.entitledListingRefs(row.vendor_id);
         if (!entitled.has(row.id)) continue;
-        out.push({ ...toListing(row), category });
+        out.push({ ...toListing(row), reviewState: listingReviewState(row.status, 'approved'), category });
       } catch (err) {
         if (err instanceof MarketError && err.code === 'market.stake_unavailable') continue;
         throw err;
@@ -1817,7 +1842,8 @@ function toPublicListing(row: ListingRow): PublicListingRecord {
   if (!Number.isInteger(count) || count < 0) {
     throw new MarketError('market.vendor_listing_count_unreadable', 'market.vendor_listing_count_unreadable');
   }
-  return { ...toListing(row), vendorListingCount: count };
+  // Only rows `catalogueRowVisible` passed (approved seller, active row) reach here.
+  return { ...toListing(row), reviewState: listingReviewState(row.status, 'approved'), vendorListingCount: count };
 }
 
 function resolveListingSort(sort: string | undefined): ListingSort {

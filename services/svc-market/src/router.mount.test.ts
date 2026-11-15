@@ -8,7 +8,7 @@ import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryLedger, parseAmount, recipes } from '@intafaced/ledger-client';
-import { createMarketRouter, listingOut, reviewPublicOut } from './router.js';
+import { createMarketRouter, reviewPublicOut, reviewedListingOut } from './router.js';
 import { stubApprovalConsumer } from './action-approval-consume.js';
 import { userCopy } from './user-copy.js';
 import {
@@ -643,6 +643,8 @@ describe('svc-market mount — commerce scopes', () => {
     createdAt: '2026-08-09T00:00:00.000Z',
     updatedAt: '2026-08-09T00:00:00.000Z',
   };
+  /** The same row as the catalogue and the seller's own list answer it: with its review state. */
+  const reviewedRow = { ...listingRow, reviewState: 'approved' as const };
 
   function stubCommerce(opts?: { commissionBps: number | null }) {
     const commissionBps = opts?.commissionBps === undefined ? 500 : opts.commissionBps;
@@ -656,8 +658,8 @@ describe('svc-market mount — commerce scopes', () => {
       })),
       createListing: vi.fn(async () => listingRow),
       archiveListing: vi.fn(async () => ({ ...listingRow, status: 'archived' as const })),
-      myListings: vi.fn(async (_userId: string, _opts?: { limit?: number }) => [listingRow]),
-      publicListings: vi.fn(async () => [listingRow]),
+      myListings: vi.fn(async (_userId: string, _opts?: { limit?: number }) => [reviewedRow]),
+      publicListings: vi.fn(async () => [reviewedRow]),
       purchase: vi.fn(async () => ({
         id: purchaseId,
         listingId,
@@ -745,7 +747,7 @@ describe('svc-market mount — commerce scopes', () => {
       createMarketRouter(stubVendors(), commerce as never)
         .createCaller(anonymous())
         .listings({ limit: 50 }),
-    ).resolves.toEqual([listingRow]);
+    ).resolves.toEqual([reviewedRow]);
     expect(commerce.publicListings).toHaveBeenCalled();
   });
 
@@ -916,7 +918,7 @@ describe('svc-market mount — commerce scopes', () => {
     const commerce = stubCommerce();
     commerce.publicListings = vi.fn(async (opts?: { limit?: number }) => {
       assertPublicListingsListLimit(opts?.limit);
-      return [listingRow];
+      return [reviewedRow];
     });
     const caller = createMarketRouter(stubVendors(), commerce as never).createCaller(anonymous());
     await expect(caller.listings()).rejects.toMatchObject({
@@ -927,14 +929,14 @@ describe('svc-market mount — commerce scopes', () => {
       code: 'PRECONDITION_FAILED',
       message: 'market.public_listings_list_limit_unset',
     });
-    await expect(caller.listings({ limit: 50 })).resolves.toEqual([listingRow]);
+    await expect(caller.listings({ limit: 50 })).resolves.toEqual([reviewedRow]);
   });
 
   it('myListings omit is PRECONDITION_FAILED — never invents a 50-listing page', async () => {
     const commerce = stubCommerce();
     commerce.myListings = vi.fn(async (_userId: string, opts?: { limit?: number }) => {
       assertMyListingsListLimit(opts?.limit);
-      return [listingRow];
+      return [reviewedRow];
     });
     const caller = createMarketRouter(stubVendors(), commerce as never).createCaller(signed());
     await expect(caller.myListings()).rejects.toMatchObject({
@@ -945,7 +947,7 @@ describe('svc-market mount — commerce scopes', () => {
       code: 'PRECONDITION_FAILED',
       message: 'market.my_listings_list_limit_unset',
     });
-    await expect(caller.myListings({ limit: 50 })).resolves.toEqual([listingRow]);
+    await expect(caller.myListings({ limit: 50 })).resolves.toEqual([reviewedRow]);
   });
 
   it('myPurchases omit is PRECONDITION_FAILED — never invents a 50-purchase page', async () => {
@@ -1312,8 +1314,10 @@ describe('svc-market mount — listings array and public reviews', () => {
     const caller = mount().createCaller(anonymous());
     const reply = await caller.listings({ limit: 50 });
     expect(Array.isArray(reply)).toBe(true);
-    expect(z.array(listingOut).parse(reply)).toEqual(reply);
+    expect(z.array(reviewedListingOut).parse(reply)).toEqual(reply);
     expect(reply.map((row) => row.id)).toEqual([earlier.id, later.id]);
+    // Both rows' seller passed the operators' review, so the catalogue answers each with that review state.
+    expect(reply.map((row) => row.reviewState)).toEqual(['approved', 'approved']);
   });
 
   it('listingsPage refuses an omitted sort', async () => {

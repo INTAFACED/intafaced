@@ -11,7 +11,13 @@ import type { Principal } from '@intafaced/auth';
 import { resolveRequestRegion } from './geo-region.js';
 
 export type MatchingOperatorPath =
-  '/operator/in-flight' | '/operator/halt' | '/operator/halt-all' | '/operator/resume' | '/operator/resume-all';
+  | '/operator/in-flight'
+  | '/operator/halt'
+  | '/operator/halt-all'
+  | '/operator/resume'
+  | '/operator/resume-all'
+  | '/operator/rulebook/check'
+  | '/operator/rulebook/publish';
 
 export type MatchingOperatorCall = (
   path: MatchingOperatorPath,

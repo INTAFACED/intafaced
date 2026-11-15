@@ -27,7 +27,8 @@ import { pendingPayfacPermissionIntentCount } from './payfac-authority.js';
  * The tracker row `pay.payfac` is titled "PayFac mode — sub-merchant trees, 14
  * permission areas". THAT LIST HAS NEVER EXISTED. The phrase appears in
  * `tooling/tracker/features.mjs`, `tooling/coverage.yaml`,
- * `INTAFACED_DEFINITIVE_BUILD.md` and three board renders derived from them —
+ * `INTAFACED_DEFINITIVE_BUILD.md` (now private: INTAFACED/project-state
+ * `product/`) and three board renders derived from them —
  * six copies of one title string, and nobody ever enumerated the fourteen.
  * `docs/PAY-LANE-HARVEST-AND-BUILD-PLAN-2026-08-08.md` §2 records the same
  * finding independently, and §6.3 puts "enumerate them, or drop the claim from

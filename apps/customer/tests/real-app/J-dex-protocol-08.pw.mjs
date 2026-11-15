@@ -1,6 +1,7 @@
 // World: none
 import { test, expect } from './journey.mjs';
 import { TOKEN_A, UNBUILT, connectWallet, dexRun, walletSection } from './dex.mjs';
+import { privateKeyToAccount } from 'viem/accounts';
 import { bodyRows, tableIn } from './tables.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 
@@ -96,6 +97,9 @@ test(`${J} #4 opens sub-accounts and a multi-signature account: the sub-account 
 }) => {
   await openSection(page, 'Accounts');
   await expect(page.getByRole('region', { name: 'Sub-accounts' }).getByRole('table')).toBeVisible(UNBUILT);
+  // The list holds the accounts this wallet controls, starting with the connected wallet itself.
+  const owner = privateKeyToAccount(dex.key()).address;
+  await expect(bodyRows(tableIn(page, 'Sub-accounts')).filter({ hasText: owner })).toHaveCount(1);
   const multisig = page.getByRole('button', { name: 'Create a multi-signature account' });
   await expect(multisig).toBeDisabled();
   await expect(page.getByText(/multi-signature contract is not deployed/)).toBeVisible();
@@ -146,7 +150,19 @@ test(`${J} #7 opens the safety education and the audit room: each step opens its
   await openSection(page, 'Safety');
   const lessons = page.getByRole('list', { name: 'Stay safe' });
   await expect(lessons.getByRole('listitem')).not.toHaveCount(0, UNBUILT);
-  for (const link of await lessons.getByRole('link').all()) await expect(link).toHaveAttribute('href', /^\//);
+  // Each step opens its control: every lesson links to a page of the app, and that page opens (not "Page not found").
+  const targets = [];
+  for (const link of await lessons.getByRole('link').all()) {
+    await expect(link).toHaveAttribute('href', /^\//);
+    targets.push(await link.getAttribute('href'));
+  }
+  expect(targets.length).toBe(await lessons.getByRole('listitem').count());
+  for (const href of targets) {
+    await page.goto(href);
+    await expect(page.getByTestId('page-heading').first()).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Page not found' })).toHaveCount(0);
+    expect(new URL(page.url()).pathname).toBe(href);
+  }
   await page.goto('/chain/audit');
   const audits = tableIn(page, 'Audits');
   const rows = bodyRows(audits);
@@ -161,8 +177,13 @@ test(`${J} #8 follows the compromise guidance: an ordered list: revoke keys, rev
   await openSection(page, 'Safety');
   const steps = page.getByRole('list', { name: 'If your wallet is compromised' });
   await expect(steps.getByRole('listitem')).toHaveText([/^Revoke session keys/, /^Revoke approvals/, /^Move your funds/], UNBUILT);
-  for (const name of ['Revoke session keys', 'Revoke approvals', 'Move your funds'])
-    await expect(steps.getByRole('link', { name })).toBeVisible();
+  // Each step is linked to its control: the wallet's Session keys, Approvals and Send sections.
+  for (const [name, href] of [
+    ['Revoke session keys', '/wallet/session-keys'],
+    ['Revoke approvals', '/wallet/approvals'],
+    ['Move your funds', '/wallet/send'],
+  ])
+    await expect(steps.getByRole('link', { name })).toHaveAttribute('href', href);
 });
 
 test(`${J} #9 exports the embedded-login key once: shown once after a fresh passkey check and derives the owner address; a second request returns no key`, async ({

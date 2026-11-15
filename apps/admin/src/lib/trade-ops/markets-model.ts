@@ -76,6 +76,8 @@ export interface MarketRowView {
   readonly orders: OrderTally | null;
   /** The fee customers are charged on this market (not the listing-row bps). */
   readonly fee: FeeCell;
+  /** Seeded share of open quantity, whole percent; null = unread or nothing open; absent = orders not read. */
+  readonly seededShare?: number | null;
 }
 
 export const ZERO_TALLY: OrderTally = { open: 0, seeded: 0, held: 0 };
@@ -102,6 +104,33 @@ export function sumTallies(orders: readonly AdminOrderRow[]): OrderTally {
 export function seededPercent(t: OrderTally | null): number | null {
   if (!t || t.open === 0) return null;
   return Math.round((t.seeded * 100) / t.open);
+}
+
+const SCALE_DIGITS = 18;
+
+/** An exact unsigned decimal string as an integer scaled by 10^18; null when it is not one. */
+export function scaledQty(v: string): bigint | null {
+  const m = /^(\d+)(?:\.(\d{1,18}))?$/.exec(v.trim());
+  if (!m) return null;
+  return BigInt(m[1]!) * 10n ** BigInt(SCALE_DIGITS) + BigInt((m[2] ?? '').padEnd(SCALE_DIGITS, '0'));
+}
+
+/**
+ * The seeded share of each market's open quantity (J-cex-spot-20 #4): seeded remaining quantity over all remaining
+ * quantity, from the same `seeded` flag, as a whole percent rounded down. A market with nothing open has no entry
+ * ("unknown", never 0%); one with a remaining that is not an exact decimal is null (unread, never a guess).
+ */
+export function seededQtyShares(orders: readonly AdminOrderRow[]): Map<string, number | null> {
+  const sums = new Map<string, { open: bigint; seeded: bigint } | null>();
+  for (const o of orders) {
+    if (o.status !== 'open') continue;
+    const prior = sums.has(o.symbol) ? sums.get(o.symbol)! : { open: 0n, seeded: 0n };
+    const qty = scaledQty(o.remaining);
+    sums.set(o.symbol, prior === null || qty === null ? null : { open: prior.open + qty, seeded: prior.seeded + (o.seeded ? qty : 0n) });
+  }
+  const out = new Map<string, number | null>();
+  for (const [symbol, s] of sums) out.set(symbol, s === null || s.open === 0n ? null : Number((s.seeded * 100n) / s.open));
+  return out;
 }
 
 export function lifecycleOf(view: MarketRowView): LifecycleRow | null {

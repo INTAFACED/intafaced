@@ -82,7 +82,8 @@ function stubHost() {
   return {
     lib: { LineSeries: 'LineSeries', HistogramSeries: 'HistogramSeries' },
     chart,
-    main: {},
+    // The price series: the chart's trading overlay asks which pane it is in.
+    main: { getPane: () => ({ paneIndex: () => 0 }) },
     element: document.createElement('div'),
     tickSize: '0.01',
     symbol: 'BTC/USDT',

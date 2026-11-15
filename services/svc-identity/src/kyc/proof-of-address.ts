@@ -197,7 +197,15 @@ export class KycPoaDesk {
     const sha256 = createHash('sha256').update(input.bytes).digest('hex');
     const first = await this.waiting(this.sql, userId, input, sha256);
     if (first) return this.view(first);
-    await this.assertNoneWaiting(this.sql, userId);
+    try {
+      await this.assertNoneWaiting(this.sql, userId);
+    } catch (err) {
+      // An identical send can commit between the two reads above (#6848): the one waiting is then this document, and is
+      // the answer, as it is under the lock below. Any other waiting document still refuses.
+      const landed = await this.waiting(this.sql, userId, input, sha256);
+      if (landed) return this.view(landed);
+      throw err;
+    }
     // The vault first: a crash after this leaves an unreferenced ciphertext row, never a submission pointing at nothing.
     const stored = await vault.put({ userId, contentType, bytes: input.bytes, storedBy: userId });
     const owner = { kind: 'owner' as const, userId };

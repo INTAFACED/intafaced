@@ -59,6 +59,11 @@ export interface PublicRestDeps {
   marketBySymbol(symbol: string): Promise<Market | null>;
   /** Charts owner values (C-ops-04). Absent: the owner-values read refuses, it never answers with a default. */
   chartOwnerValues?: ChartOwnerValuesPublicReader;
+  /**
+   * Matching's published trading rulebook (RC-cex-spot-08): `current` is GET /rulebook, `versions` GET /rulebook/versions,
+   * passed on as matching serves them. Absent, or throwing, answers 503 (trade.rulebook_unavailable); never invented text.
+   */
+  rulebook?(which: 'current' | 'versions'): Promise<unknown>;
   /** Optional PX-S01 snapshot; absent means this bounded mount has no authority publisher. */
   lifecycleForMarket?(market: Market): MarketStateSnapshot | null | Promise<MarketStateSnapshot | null>;
   /**
@@ -807,6 +812,21 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
     );
     return reply.code(200).send(presented);
   });
+
+  // The published trading rulebook, owned and journaled by svc-matching. Public: published rules are not a secret.
+  const rulebookRead = (which: 'current' | 'versions') => async (_req: unknown, reply: FastifyReply) => {
+    const unavailable = { error: 'the published rulebook is not readable', code: 'trade.rulebook_unavailable' };
+    if (!deps.rulebook) return reply.code(503).send(unavailable);
+    try {
+      const body = await deps.rulebook(which);
+      if (!body || typeof body !== 'object') return reply.code(503).send(unavailable);
+      return reply.code(200).send(body);
+    } catch {
+      return reply.code(503).send(unavailable);
+    }
+  };
+  app.get('/api/v1/rulebook', publicRead, rulebookRead('current'));
+  app.get('/api/v1/rulebook/versions', publicRead, rulebookRead('versions'));
 
   /** PX-S01 projection. Missing authority is a typed 503, never an OPEN default. */
   app.get<{ Params: { symbol: string } }>('/api/v1/market-halt/:symbol', publicRead, async (req, reply) => {

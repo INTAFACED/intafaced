@@ -21,6 +21,8 @@ Every trading REST route and WebSocket stream, under its product, with the permi
 | `GET /api/v1/ohlcv/:symbol`                         | `fetchOHLCV`            | public; with a key trade:read |
 | `GET /api/v1/trades/:symbol`                        | `fetchTrades`           | public; with a key trade:read |
 | `GET /api/v1/market-halt/:symbol`                   | `fetchMarketHalt`       | public; with a key trade:read |
+| `GET /api/v1/rulebook`                              | `fetchRulebook`         | public; with a key trade:read |
+| `GET /api/v1/rulebook/versions`                     | `fetchRulebookVersions` | public; with a key trade:read |
 | `GET /api/v1/market-lifecycle/:symbol`              | `fetchMarketLifecycle`  | public; with a key trade:read |
 | `GET /api/v1/charts/owner-values`                   | `fetchChartOwnerValues` | public; with a key trade:read |
 | `GET /api/v1/fees/published`                        | `fetchPublishedFees`    | public; with a key trade:read |

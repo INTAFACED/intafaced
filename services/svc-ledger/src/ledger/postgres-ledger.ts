@@ -27,6 +27,7 @@ import { frozenMessage } from './freeze.js';
 import {
   HISTORY_MAX_ENTRIES,
   HistoryTooLargeError,
+  allowedHistoryProduct,
   allowedHistoryRail,
   orderIdFromHoldPurpose,
   decodeHistoryCursor,
@@ -633,13 +634,22 @@ export class PostgresLedger implements LedgerClient {
     const cursorId = cursor?.entryId ?? null;
 
     const rows = await this.sql<
-      Array<HistoryRow & { entry_id: string; asset_id: string; rail: unknown; order_purpose: unknown; fill_fee: string | null }>
+      Array<
+        HistoryRow & {
+          entry_id: string;
+          asset_id: string;
+          rail: unknown;
+          product: unknown;
+          order_purpose: unknown;
+          fill_fee: string | null;
+        }
+      >
     >`
-      SELECT p.entry_id, p.tx_id, p.module, p.reason, p.direction, p.amount, p.asset_id, p.posted_at, p.rail,
+      SELECT p.entry_id, p.tx_id, p.module, p.reason, p.direction, p.amount, p.asset_id, p.posted_at, p.rail, p.product,
              o.purpose AS order_purpose, CASE WHEN p.fill_line THEN f.fee END AS fill_fee
         FROM (
           SELECT x.entry_id, t.id AS tx_id, t.module, t.reason, x.direction, x.amount, x.asset_id, t.posted_at,
-                 t.meta -> 'rail' AS rail, a.id AS account_id, a.owner_type, a.owner_id, a.kind,
+                 t.meta -> 'rail' AS rail, t.meta -> 'product' AS product, a.id AS account_id, a.owner_type, a.owner_id, a.kind,
                  (t.module = 'trade' AND t.reason IN ('trade.fill', 'trade.fill.mm_maker', 'trade.fill.buyback') AND a.owner_type = 'user'
                    AND a.kind = 'available' AND x.direction = 'debit') AS fill_line
             FROM accounts a
@@ -717,6 +727,7 @@ export class PostgresLedger implements LedgerClient {
         entryId: r.entry_id,
         // Only the one key, and only if allow-listed: meta is free-form.
         rail: allowedHistoryRail(r.rail),
+        product: allowedHistoryProduct(r.product),
         orderId: orderIdFromHoldPurpose(r.order_purpose),
         fee: r.fill_fee === null ? null : parseStoredAmount(r.fill_fee, 'ledger_entries.amount'),
       })),

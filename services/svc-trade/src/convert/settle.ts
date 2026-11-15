@@ -91,6 +91,8 @@ export function planConvertSettle(input: {
       takerSide: q.side,
       makerFeeBps: 0,
       takerFeeBps: 0,
+      // The bank's activity lists this fill as a conversion, not a desk trade (PF-activity-01).
+      product: 'convert',
     }),
     expiresAt: q.expiresAt,
   };

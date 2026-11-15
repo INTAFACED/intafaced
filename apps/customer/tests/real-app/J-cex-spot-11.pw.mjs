@@ -378,8 +378,14 @@ test(`${J} #10 opens Recent conversions: the conversion with paid and received a
   // state is its `lifecycle` (svc-trade convert-history-router.ts), the field the panel filters on.
   expect(rows.some((r) => r.lifecycle === 'quoted' || r.lifecycle === 'expired')).toBe(true);
   const taken = rows.filter((r) => r.lifecycle !== 'quoted' && r.lifecycle !== 'expired');
-  const row = recent.getByRole('row').filter({ hasText: `${shown8(paid)} USDT` });
+  // #5's conversion, found by its quote in the service's record, not by its amount: two conversions can pay the same
+  // amount (run 42212975613 had two rows at 9.80819774 USDT). The panel keeps the record's order (recent.ts).
+  const at = taken.findIndex((r) => r.quoteId === converted);
+  expect(at, `#5's conversion ${converted} is in the record`).toBeGreaterThanOrEqual(0);
+  expect(at, 'and among the ten the panel shows').toBeLessThan(10);
+  const row = recent.locator(`tr[data-row-index="${at}"]`);
   await expect(row).toHaveCount(1);
+  await expect(row).toContainText(`${shown8(paid)} USDT`);
   await expect(row).toContainText('USDT');
   await expect(row).toContainText('BTC');
   await expect(row).toContainText(`${shown8(received)} BTC`);

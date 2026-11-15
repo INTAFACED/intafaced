@@ -68,6 +68,12 @@ export interface MatchingOperatorRouteDeps {
   /** Null when the upstream URL or the signing secret is blank. */
   readonly matching: MatchingControlCall | null;
   readonly blocked: MatchingDoorBlock | null;
+  /**
+   * The engine's health read alone (J-cex-spot-20 #1). svc-matching serves `GET /health` to anyone on its network with
+   * no credential, so this needs only MATCHING_URL: it sends no service signature and can reach nothing else. Absent: the
+   * health door uses `matching` and its block, as before.
+   */
+  readonly healthRead?: MatchingControlCall | null;
   readonly readApproval: MatchingApprovalRead;
   readonly now?: () => number;
 }
@@ -179,6 +185,32 @@ function errorMessage(err: unknown): string {
  * svc-matching is key-signed over its method, path and query, body and content
  * type; `dual` also sends the secret, `keypair` does not.
  */
+/**
+ * An unsigned client for svc-matching's public health read and nothing else: every request it can make is
+ * `GET /health`, whatever path it is asked for, so it can never stand in for the signed control client.
+ */
+export function httpMatchingHealthRead(baseUrl: string, timeoutMs: number, fetchFn: typeof fetch = globalThis.fetch): MatchingControlCall {
+  const target = `${baseUrl.replace(/\/$/, '')}/health`;
+  return async () => {
+    try {
+      const res = await fetchFn(target, { method: 'GET', signal: AbortSignal.timeout(timeoutMs) });
+      const text = await res.text();
+      let body: unknown = {};
+      if (text.length > 0) {
+        try {
+          body = JSON.parse(text) as unknown;
+        } catch {
+          body = { error: 'matching upstream body was not JSON' };
+        }
+      }
+      return { kind: 'answered', status: res.status, body };
+    } catch (err) {
+      if (isTimeout(err)) return { kind: 'unknown', error: `svc-matching did not answer before ${timeoutMs}ms` };
+      return { kind: 'unavailable', error: `svc-matching did not answer: ${errorMessage(err)}` };
+    }
+  };
+}
+
 export function httpMatchingControl(
   baseUrl: string,
   secret: string,
@@ -331,7 +363,7 @@ export function registerMatchingOperatorRoutes(app: FastifyInstance, deps: Match
       if (authError(err, reply)) return reply;
       throw err;
     }
-    const matching = openMatching();
+    const matching = deps.healthRead ?? openMatching();
     if (!matching) return sendJson(reply, 503, blockedBody());
     const started = clock();
     const res = await matching({ method: 'GET', path: '/health' });
@@ -367,6 +399,9 @@ export function registerMatchingOperatorRoutes(app: FastifyInstance, deps: Match
       venueHalted,
       restingOrders,
       journalRecords,
+      // The engine's other figures go on as the engine gave them, each only when it is the right shape; one missing or
+      // malformed is left out, and the console shows that one as `matching_metrics_unread` (J-cex-spot-20 #1).
+      ...optionalHealthFields(rec),
       asOf: new Date(receivedAt).toISOString(),
       ageMs: Math.max(0, receivedAt - started),
     });
@@ -625,4 +660,49 @@ function approvalRefusal(
     };
   }
   return null;
+}
+
+const isCount = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0;
+const isBoundOrNull = (v: unknown): boolean => v === null || (typeof v === 'number' && Number.isFinite(v) && v > 0);
+
+/** One operation's reading, exactly as svc-matching `operation-latency.ts` writes it; null when it is not that shape. */
+function operationReading(v: unknown): Record<string, unknown> | null {
+  if (!v || typeof v !== 'object') return null;
+  const r = v as Record<string, unknown>;
+  if (!isCount(r.count) || !isCount(r.errors) || !isBoundOrNull(r.p50Ms) || !isBoundOrNull(r.p99Ms)) return null;
+  if (typeof r.perMinute !== 'string' || !/^\d+(\.\d+)?$/.test(r.perMinute)) return null;
+  return { count: r.count, errors: r.errors, p50Ms: r.p50Ms, p99Ms: r.p99Ms, perMinute: r.perMinute };
+}
+
+/**
+ * The engine's health fields beyond the three the halt check needs, each passed on only when it is the right shape. An
+ * operation's reading that is not the right shape is left out on its own, so the rest still show.
+ */
+export function optionalHealthFields(rec: Record<string, unknown> | null): Record<string, unknown> {
+  if (!rec) return {};
+  const out: Record<string, unknown> = {};
+  if (isCount(rec.markets)) out.markets = rec.markets;
+  if (typeof rec.admissionOpen === 'boolean') out.admissionOpen = rec.admissionOpen;
+  if (rec.admissionReason === null || typeof rec.admissionReason === 'string') out.admissionReason = rec.admissionReason;
+  if (Array.isArray(rec.holdHalted) && rec.holdHalted.every((m) => typeof m === 'string')) out.holdHalted = rec.holdHalted;
+  const metrics = rec.metrics && typeof rec.metrics === 'object' ? (rec.metrics as Record<string, unknown>) : null;
+  if (metrics && typeof metrics.startedAt === 'string' && !Number.isNaN(Date.parse(metrics.startedAt))) {
+    const ops = metrics.operations && typeof metrics.operations === 'object' ? (metrics.operations as Record<string, unknown>) : {};
+    const operations: Record<string, unknown> = {};
+    for (const op of ['submit', 'cancel', 'depth']) {
+      const reading = operationReading(ops[op]);
+      if (reading) operations[op] = reading;
+    }
+    // Per-market submit latency: each entry on its own, keyed by the engine's market id; one malformed is left out.
+    const byMarket: Record<string, unknown> = {};
+    const raw =
+      metrics.submitByMarket && typeof metrics.submitByMarket === 'object' ? (metrics.submitByMarket as Record<string, unknown>) : {};
+    for (const [marketId, value] of Object.entries(raw)) {
+      if (marketId.length === 0 || marketId.length > 64) continue;
+      const reading = operationReading(value);
+      if (reading) byMarket[marketId] = reading;
+    }
+    out.metrics = { startedAt: metrics.startedAt, operations, submitByMarket: byMarket };
+  }
+  return out;
 }

@@ -1,0 +1,46 @@
+# The factory switch's sweep (tooling/ci/factory-switch.mjs). This file lives at .github/workflows/factory-sweep.yml on
+# the branch factory-switch, beside the one-line file FACTORY; this copy on the default branch is the reviewed one, and
+# the branch's copy is kept byte for byte the same. GitHub runs a push's workflows from the pushed commit, so a workflow
+# on the default branch can't fire on a push to factory-switch; this small one does, and runs only the default branch's
+# script. On `pause` it re-runs every open pull request's green seal, so it fails; on `run`, the seals that failed on
+# the switch. The newest flip wins.
+name: Factory switch sweep
+
+on:
+  push:
+    branches: [factory-switch]
+
+permissions: {}
+
+concurrency:
+  group: factory-switch-sweep
+  cancel-in-progress: true
+
+jobs:
+  sweep:
+    name: Re-run the open pull requests' seals on a flip
+    runs-on: ubuntu-latest
+    timeout-minutes: 30 # healthy run: seconds; waiting out a running seal takes up to 25 minutes
+    permissions:
+      contents: read
+      actions: write # read ci.yml's runs and jobs on each head and re-run the seal job; no Checks API
+      pull-requests: read # the open pull requests and their heads
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Sweep
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          BASE: ${{ github.event.repository.default_branch }}
+        # Until the pull request that adds the sweep merges, the default branch has no copy: that pull request's branch
+        # is read instead, and the notice says so.
+        run: |
+          if ! grep -q -- '--sweep' tooling/ci/factory-switch.mjs 2>/dev/null; then
+            echo "::notice::the default branch has no sweep yet; reading tooling/ci/factory-switch.mjs from ci/factory-switch"
+            git fetch --no-tags --depth=1 https://github.com/${REPO}.git ci/factory-switch
+            git checkout FETCH_HEAD -- tooling/ci/factory-switch.mjs
+          fi
+          node tooling/ci/factory-switch.mjs --sweep

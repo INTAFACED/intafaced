@@ -51,11 +51,14 @@ export function movingAverage(candles: readonly Candle[], period: number): Array
   return out;
 }
 
-/** Axis price format from the market's tick: "0.01" draws two decimals and moves by 0.01. */
-export function priceFormat(tickSize: Decimal): { type: 'custom'; formatter: (price: number) => string; minMove: number } {
+/**
+ * Axis price format from the market's tick: "0.01" draws two decimals and moves by 0.01. The digits are grouped and
+ * pointed as the person's locale writes them ("65 000,00" in French).
+ */
+export function priceFormat(tickSize: Decimal, locale = 'en'): { type: 'custom'; formatter: (price: number) => string; minMove: number } {
   const precision = fractionDigits(tickSize) ?? 2;
   const move = Number(tickSize);
-  const format = new Intl.NumberFormat('en', { minimumFractionDigits: precision, maximumFractionDigits: precision });
+  const format = new Intl.NumberFormat(locale, { minimumFractionDigits: precision, maximumFractionDigits: precision });
   return {
     type: 'custom',
     formatter: (price) => format.format(price),
@@ -114,8 +117,8 @@ export interface LegendValues {
   direction: 'up' | 'down' | 'flat';
 }
 
-/** The OHLC legend line for one candle, text from the decimal strings. */
-export function legendValues(c: Candle, tickSize: Decimal): LegendValues {
+/** The OHLC legend line for one candle, text from the decimal strings, in the person's locale. */
+export function legendValues(c: Candle, tickSize: Decimal, locale = 'en'): LegendValues {
   const open = dec(c.o);
   const close = dec(c.c);
   let change = '—';
@@ -123,14 +126,14 @@ export function legendValues(c: Candle, tickSize: Decimal): LegendValues {
   if (open !== null && close !== null) {
     const diff = sub(close, open);
     direction = diff > 0n ? 'up' : diff < 0n ? 'down' : 'flat';
-    const pct = open > 0n ? fmtPct(decOrNull(ratio(diff, open))) : '—';
-    change = `${fmtPrice(decOrNull(diff), tickSize)} (${pct})`.replace(/^([^−+])/, diff > 0n ? '+$1' : '$1');
+    const pct = open > 0n ? fmtPct(decOrNull(ratio(diff, open)), { locale }) : '—';
+    change = `${fmtPrice(decOrNull(diff), tickSize, { locale })} (${pct})`.replace(/^([^−+])/, diff > 0n ? '+$1' : '$1');
   }
   return {
-    open: fmtPrice(c.o, tickSize),
-    high: fmtPrice(c.h, tickSize),
-    low: fmtPrice(c.l, tickSize),
-    close: fmtPrice(c.c, tickSize),
+    open: fmtPrice(c.o, tickSize, { locale }),
+    high: fmtPrice(c.h, tickSize, { locale }),
+    low: fmtPrice(c.l, tickSize, { locale }),
+    close: fmtPrice(c.c, tickSize, { locale }),
     change,
     direction,
   };

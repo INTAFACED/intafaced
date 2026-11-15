@@ -45,9 +45,19 @@ async function lastPrice(symbol = 'BTC/USDT') {
   return body.last ?? body.close;
 }
 
-/** The price the chart names under the pointer at a fraction of its height, from the price-axis plus button. */
-async function axisPriceAt(fy) {
+/** The price pane's box on the page: the overlay names where it sits in the chart (a volume pane sits below it). */
+async function pricePaneBox() {
   const box = await host().boundingBox();
+  const overlay = page.getByTestId('cw').getByTestId('chart-trading-overlay');
+  const top = Number(await overlay.getAttribute('data-pane-top'));
+  const height = Number(await overlay.getAttribute('data-pane-height'));
+  expect(height).toBeGreaterThan(0);
+  return { x: box.x, y: box.y + top, width: box.width, height };
+}
+
+/** The price the chart names under the pointer at a fraction of the price pane's height, from the price-axis plus button. */
+async function axisPriceAt(fy) {
+  const box = await pricePaneBox();
   const y = box.y + box.height * fy;
   await page.mouse.move(box.x + box.width * 0.5, y - 1);
   await page.mouse.move(box.x + box.width * 0.5, y);
@@ -124,7 +134,7 @@ test(`${J} #2 creates an order at a price from the price-axis plus button or the
   await expect(ticket()).toBeVisible();
   await expect(priceField()).toHaveValue(named);
   // The context menu at another height: the ticket opens at that price, on the side chosen.
-  const box = await host().boundingBox();
+  const box = await pricePaneBox();
   const at = await axisPriceAt(0.6);
   const menuPrice = await page.getByTestId('chart-axis-plus').getAttribute('data-price');
   await page.mouse.click(box.x + box.width * 0.5, at.y, { button: 'right' });

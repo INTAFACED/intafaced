@@ -47,6 +47,9 @@ describe('planConvertSettle / postConvertSettle', () => {
     const plan = planConvertSettle({ bound, ...ids, now: ACCEPT_AT });
     expect(plan.fill.entries.length).toBeGreaterThan(0);
     expect(plan.fill.reason).toBe('trade.fill.mm_maker');
+    // The fill says it is a conversion, so the bank's activity lists it as one (PF-activity-01); holds carry no product.
+    expect(plan.fill.meta).toMatchObject({ product: 'convert' });
+    expect(plan.hold.meta).not.toHaveProperty('product');
     expect(plan.hold.reason).toBe('order.hold');
     expect(plan.mmHold.reason).toBe('order.hold.mm');
     await postConvertSettle(ledger, plan);

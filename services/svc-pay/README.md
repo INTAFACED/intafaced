@@ -269,7 +269,7 @@ A merchant may now have children. `merchants.parent_merchant_id` is the tree (NU
 
 #### The "14 permission areas" — said out loud
 
-The tracker row is titled _"PayFac mode — sub-merchant trees, 14 permission areas"_. **That list has never existed.** The phrase is one title string copied between `tooling/tracker/features.mjs`, `tooling/coverage.yaml`, `INTAFACED_DEFINITIVE_BUILD.md` and three board renders derived from them; `docs/PAY-LANE-HARVEST-AND-BUILD-PLAN-2026-08-08.md` (removed) §2 found the same thing independently and §6.3 puts _"enumerate them, or drop the claim from the title"_ on the owner's list.
+The tracker row is titled _"PayFac mode — sub-merchant trees, 14 permission areas"_. **That list has never existed.** The phrase is one title string copied between `tooling/tracker/features.mjs`, `tooling/coverage.yaml`, `INTAFACED_DEFINITIVE_BUILD.md` (now private: INTAFACED/project-state `product/`) and three board renders derived from them; `docs/PAY-LANE-HARVEST-AND-BUILD-PLAN-2026-08-08.md` (removed) §2 found the same thing independently and §6.3 puts _"enumerate them, or drop the claim from the title"_ on the owner's list.
 
 So this ships the **mechanism**, and `PERMISSION_AREAS` in `src/submerchants.ts` is **eleven** areas — every one that names a surface this service actually has: `merchant.profile`, `checkout.profile`, `payment.link`, `payment`, `payment.refund`, `settlement`, `settlement.payout`, `webhook`, `kyb`, `submerchant`, `permission`. Padding the list to hit a number in a title would be inventing product law inside an implementation. `area` is stored as text, so the twelfth is a one-line change and no migration.
 

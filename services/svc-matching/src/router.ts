@@ -54,7 +54,14 @@ import {
 import { bindPostOnlyTif, postOnlyCannotRest } from './engine/post-only.js';
 import { reconcile } from './reconcile.js';
 import { readSpreadListing, spreadIdentity, toWireSpread } from './engine/spread-instrument.js';
-import { presentRulebook, readRulebook } from './rulebook.js';
+import {
+  RULEBOOK_PUBLISH_ACTION,
+  rulebookImmutableRefuse,
+  readRulebookDraft,
+  rulebookApprovalFields,
+  rulebookApprovalTarget,
+  RULEBOOK_SECTION_MAX,
+} from './rulebook.js';
 import { l4, nativeL3FromEngine, publicMakerIdentity } from './engine/l3-queue.js';
 import {
   MATCHING_L2_LIMIT_UNSET,
@@ -573,8 +580,6 @@ export interface MatchingRouteOptions {
   s2s?: { readonly verifier: ServiceVerifier; readonly mode: ServiceAuthMode };
   /** `INTERNAL_SERVICE_BODY_BIND`. Isolated tests default to accept-both. */
   bodyBind?: ServiceBodyBindMode;
-  /** Owner-published rulebook version. Missing/blank is unpublished. */
-  rulebookVersion?: string;
   /** Real Logic SBE adapter. Tests inject; production uses the package singleton. */
   sbe?: SbeCodec;
   /** Halt/resume/mode consume. Tests inject a stub. Unset → refuse. */
@@ -606,7 +611,6 @@ export function registerRoutes(
   options: MatchingRouteOptions = {},
 ): void {
   const mode = options.bodyBind ?? DEFAULT_SERVICE_BODY_BIND_MODE;
-  const rulebookVersion = options.rulebookVersion ?? process.env.MATCHING_RULEBOOK_VERSION ?? '';
   const sbe = options.sbe ?? sbeCodec;
   const approvals = options.approvals ?? unwiredApprovalConsumer();
   const operatorIds = options.operatorIds ?? new Set<string>();
@@ -1680,7 +1684,9 @@ export function registerRoutes(
     return reply.code(200).send(presentSubmit(result));
   });
 
-  app.get('/rulebook', async () => presentRulebook(readRulebook(rulebookVersion)));
+  // Public reads: the rulebook is published text. The journal is its only source (owner versions, two-person publish).
+  app.get('/rulebook', async () => engine.rulebookView());
+  app.get('/rulebook/versions', async () => engine.rulebookHistory());
 
   // H9 — open cases from journal/book. Evidence only. Auth like resting orders.
   app.get('/surveillance/cases', async (req, reply) => {
@@ -1902,6 +1908,93 @@ export function registerRoutes(
     founderIdem.set(key.key, { fingerprint, value });
     return reply.code(200).send(value);
   };
+
+  const rulebookDraftBody = z.object({
+    version: z.string().max(200).optional(),
+    effectiveAt: z.string().max(64).optional(),
+    sections: z.record(z.string(), z.string().max(RULEBOOK_SECTION_MAX * 2)).optional(),
+  });
+  const rulebookPublishBody = rulebookDraftBody.extend({
+    approvalId: z.string().max(128),
+    operationId: z.string().max(128),
+  });
+
+  /**
+   * Check a rulebook draft before anyone proposes it (RC-cex-spot-08): a blank section refuses
+   * `matching.rulebook_section_unset`, a published id refuses `matching.rulebook_immutable`. An accepted draft answers the
+   * exact approval target and payload hash this engine will recompute at publish, so the proposal binds this text.
+   */
+  app.post('/operator/rulebook/check', async (req, reply) => {
+    const auth = await founderPrincipal(req, 'admin:write');
+    if (!auth.ok) return reply.code(auth.status).send(auth.body);
+    const parsed = rulebookDraftBody.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return reply.code(400).send({ code: 'BadRequest', issues: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`) });
+    }
+    const read = readRulebookDraft(parsed.data);
+    if (!read.ok) return reply.code(200).send({ accepted: false, rejected: read.rejected });
+    // A version already published, with this text or other text, needs no new request; a time gone by is refused too.
+    const pre = engine.rulebookPrecheck(read.draft);
+    if (pre.kind === 'same') return reply.code(200).send({ accepted: false, rejected: rulebookImmutableRefuse(read.draft.version) });
+    if (pre.kind === 'refused') return reply.code(200).send({ accepted: false, rejected: pre.rejected });
+    return reply.code(200).send({
+      accepted: true,
+      version: read.draft.version,
+      effectiveAt: read.draft.effectiveAt,
+      digest: read.draft.digest,
+      actionType: RULEBOOK_PUBLISH_ACTION,
+      targetId: rulebookApprovalTarget(read.draft.version),
+      payloadHash: matchingActionPayloadHash(RULEBOOK_PUBLISH_ACTION, rulebookApprovalFields(read.draft)),
+      rejected: null,
+    });
+  });
+
+  /**
+   * Publish one rulebook version through the two-person approval (RC-cex-spot-08). The draft is read and checked before
+   * the single-use approval is spent; the approval binds the version id and the digest of every section.
+   */
+  app.post('/operator/rulebook/publish', async (req, reply) => {
+    const auth = await founderPrincipal(req, 'admin:write');
+    if (!auth.ok) return reply.code(auth.status).send(auth.body);
+    const parsed = rulebookPublishBody.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return reply.code(400).send({ code: 'BadRequest', issues: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`) });
+    }
+    const read = readRulebookDraft(parsed.data);
+    if (!read.ok) return reply.code(200).send({ accepted: false, version: null, rejected: read.rejected });
+    const draft = read.draft;
+    const pre = engine.rulebookPrecheck(draft);
+    // Refused before the single-use approval is spent: other text under a published id, or a time gone by.
+    if (pre.kind === 'refused') return reply.code(200).send({ accepted: false, version: draft.version, rejected: pre.rejected });
+    if (pre.kind === 'same') {
+      const view = engine.rulebookHistory().versions.find((v) => v.version === pre.published.version) ?? null;
+      return reply.code(200).send({ accepted: true, version: draft.version, alreadyPublished: true, published: view, rejected: null });
+    }
+    const authz = await consumeVenueKill(
+      { operatorId: auth.userId, approvalId: parsed.data.approvalId, operationId: parsed.data.operationId },
+      RULEBOOK_PUBLISH_ACTION,
+      rulebookApprovalFields(draft),
+      rulebookApprovalTarget(draft.version),
+    );
+    if (!authz.ok && authz.status === 400) return reply.code(400).send(authz.body);
+    if (!authz.ok) return reply.code(200).send({ accepted: false, version: draft.version, rejected: authz.rejected });
+    const result = await engine.publishRulebook(draft, {
+      operatorId: authz.operatorId,
+      confirmOperatorId: authz.confirmOperatorId,
+      approvalId: parsed.data.approvalId,
+    });
+    if (!result.accepted) return reply.code(200).send({ accepted: false, version: result.version, rejected: result.rejected });
+    const view = engine.rulebookHistory().versions.find((v) => v.version === result.version) ?? null;
+    return reply.code(200).send({
+      accepted: true,
+      version: result.version,
+      alreadyPublished: result.alreadyPublished,
+      published: view,
+      operatorId: authz.operatorId,
+      confirmOperatorId: authz.confirmOperatorId,
+      rejected: null,
+    });
+  });
 
   app.post('/operator/halt', async (req, reply) =>
     founderMutate(req, reply, {

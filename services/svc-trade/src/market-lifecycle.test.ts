@@ -459,6 +459,24 @@ describe('named lifecycle state is the stored transition, not open-or-not', () =
     expect(snapshot.state).toBe('HALTED');
   });
 
+  it('lets a halted, delisted or pending listing win over a stored restricted mode', () => {
+    for (const [status, state] of [
+      ['halted', 'HALTED'],
+      ['delisted', 'DELISTING'],
+      ['pending', 'PRELAUNCH'],
+    ] as const) {
+      for (const mode of ['LIMIT_ONLY', 'POST_ONLY', 'CANCEL_ONLY'] as const) {
+        const market = fakeMarket({ id: `market-${status}-${mode}`, status });
+        const snapshot = deriveMarketLifecycleSnapshot(market, {
+          now: '2026-08-24T12:01:00.000Z',
+          evidence: { ...readyEvidence(market.id), transition: appliedTransition(market.id, mode) },
+        });
+        expect(snapshot.state).toBe(state);
+        expect(snapshot.allowedActions).not.toContain('PLACE');
+      }
+    }
+  });
+
   it('loads the stored transition through the SQL authority', async () => {
     const market = fakeMarket({ id: 'market-sql-post-only' });
     const transition = appliedTransition(market.id, 'POST_ONLY');

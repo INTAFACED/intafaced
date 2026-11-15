@@ -174,5 +174,5 @@ Cheapest to stand up and the only option that does not require rewriting one sid
 
 - Source: the vendored exchange tree
 - Infrastructure: `the vendored exchange compose file`
-- Ledger doctrine: §0.6, §4.2 of `INTAFACED_DEFINITIVE_BUILD.md`
+- Ledger doctrine: §0.6, §4.2 of `INTAFACED_DEFINITIVE_BUILD.md` (private: INTAFACED/project-state `product/`)
 - Precedent: the FinceptTerminal decision (build our own, aggregate others)

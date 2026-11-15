@@ -364,9 +364,16 @@ describe('the websocket gateway, over a real socket', () => {
     const takerAccountId = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
 
     // Open the tape first — unwatched markets do not pin a ring (W7 residual).
+    const watching = tradeHub.connections;
     const client = connect(`market=${MARKET}&channel=trades`);
-    // Wait until the subscription is live (empty ring → no replay frames).
-    await new Promise((r) => setTimeout(r, 50));
+    // Wait until the hub holds the subscription: a print before that has no watcher and is dropped. A fixed 50 ms was not
+    // always enough on a loaded runner, and the print never came (#6027). With a ring, a print held while the seat is
+    // still opening is replayed to it.
+    const until = Date.now() + 4_000;
+    while (tradeHub.connections <= watching) {
+      if (Date.now() > until) throw new Error('the trades subscription never reached the hub');
+      await new Promise((r) => setTimeout(r, 5));
+    }
 
     tradeHub.ingest({
       marketId: MARKET,

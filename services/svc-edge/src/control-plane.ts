@@ -947,4 +947,7 @@ export function registerAdminRoutes(app: FastifyInstance, admin: AdminApi, match
   matchingPost('/admin/matching/halt-all', '/operator/halt-all');
   matchingPost('/admin/matching/resume', '/operator/resume');
   matchingPost('/admin/matching/resume-all', '/operator/resume-all');
+  // Rulebook versions (RC-cex-spot-08): matching checks the draft and, with a two-person approval, publishes it.
+  matchingPost('/admin/matching/rulebook/check', '/operator/rulebook/check');
+  matchingPost('/admin/matching/rulebook/publish', '/operator/rulebook/publish');
 }

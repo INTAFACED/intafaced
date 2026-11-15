@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useDataEnv, useSource } from '../../data/hooks';
 import { refusalCopy } from '../../data';
-import { knownMode, maintenanceFetcher, marketModesFetcher, type MaintenanceWindow, type MarketMode } from './status';
+import { knownMode, maintenanceFetcher, marketModesFetcher, modesAsOf, type MaintenanceWindow, type MarketMode } from './status';
 import { statusCopy } from './status-copy';
 import { StatusComponents } from './StatusComponents';
 import './status-page.css';
@@ -9,6 +9,16 @@ import './status-page.css';
 const whenUtc = (instant: string) => `${instant.slice(0, 16).replace('T', ' ')} UTC`;
 
 type CopyKey = Parameters<ReturnType<typeof statusCopy.useCopy>['t']>[0];
+
+/** The time the trading modes are as of, in UTC, or the honest line that no market reported one. */
+function ModesAsOf({ at }: { at: string | null }) {
+  const copy = statusCopy.useCopy();
+  return (
+    <p className="muted" data-testid="status-modes-asof">
+      {at ? `${copy.t('modesAsOf')} ${whenUtc(at)}` : copy.t('modesAsOfNone')}
+    </p>
+  );
+}
 
 /**
  * /status: public, signed-out. Components come from the founders' status page (readings and published notices); each
@@ -48,8 +58,9 @@ export function StatusPage() {
           </p>
         ) : null}
         {load.status === 'ready' && load.data.length === 0 ? <p role="status">{copy.t('none')}</p> : null}
+        {load.status === 'ready' && load.data.length > 0 ? <ModesAsOf at={modesAsOf(load.data)} /> : null}
         {load.status === 'ready' && load.data.length > 0 ? (
-          <table className="pub-table">
+          <table className="pub-table" data-testid="status-modes">
             <thead>
               <tr>
                 <th>{copy.t('colMarket')}</th>
@@ -61,7 +72,7 @@ export function StatusPage() {
               {load.data.map((row) => {
                 const mode = knownMode(row.state);
                 return (
-                  <tr key={row.symbol}>
+                  <tr key={row.symbol} data-testid={`status-mode-${row.symbol}`} data-state={row.state ?? 'none'}>
                     <td>{row.symbol}</td>
                     <td>{mode ? copy.t(mode) : row.state === null ? copy.t('notReported') : row.state}</td>
                     <td>

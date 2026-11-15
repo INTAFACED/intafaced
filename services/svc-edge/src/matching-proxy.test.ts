@@ -6,6 +6,7 @@ import { createAdminApi } from './admin-api.js';
 import { KillSwitchState } from './kill-switch.js';
 import {
   httpMatchingControl,
+  httpMatchingHealthRead,
   registerMatchingOperatorRoutes,
   type MatchingApprovalRead,
   type MatchingApprovalRow,
@@ -58,6 +59,7 @@ function mount(opts: {
   readonly blocked?: MatchingDoorBlock | null;
   readonly read?: MatchingApprovalRead;
   readonly calls?: MatchingControlRequest[];
+  readonly healthRead?: MatchingControlCall | null;
 }) {
   const app = Fastify({ logger: false });
   const admin = createAdminApi(new KillSwitchState(), { tokens, ledger: null });
@@ -66,6 +68,7 @@ function mount(opts: {
     authenticateWrite: (header) => admin.authenticate(header),
     matching: opts.matching,
     blocked: opts.blocked === undefined ? null : opts.blocked,
+    ...(opts.healthRead !== undefined ? { healthRead: opts.healthRead } : {}),
     readApproval:
       opts.read ??
       (async () => {
@@ -369,6 +372,75 @@ describe('matching health read', () => {
     expect(calls).toEqual([{ method: 'GET', path: '/health' }]);
   });
 
+  it('passes the engine figures and per-operation latency on as the engine gave them (J-cex-spot-20 #1)', async () => {
+    const reading = { count: 3, errors: 0, p50Ms: 5, p99Ms: 10, perMinute: '1.50' };
+    const { matching } = recording(async () => ({
+      kind: 'answered',
+      status: 200,
+      body: {
+        venueHalted: false,
+        restingOrders: 4,
+        journalRecords: 9,
+        markets: 2,
+        admissionOpen: false,
+        admissionReason: 'matching.hold_check_unreachable',
+        holdHalted: ['BTC-USDT'],
+        metrics: {
+          startedAt: '2026-11-06T10:00:00.000Z',
+          operations: { submit: reading, cancel: { ...reading, count: 0, p50Ms: null, p99Ms: null, perMinute: '0' }, depth: reading },
+          submitByMarket: { 'm-1': reading, 'm-2': { count: 'x' } },
+        },
+      },
+    }));
+    const app = mount({ matching });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/admin/trade-ops/matching/health',
+      headers: { authorization: await bearer(['admin:read'], false) },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      markets: 2,
+      admissionOpen: false,
+      admissionReason: 'matching.hold_check_unreachable',
+      holdHalted: ['BTC-USDT'],
+      metrics: { startedAt: '2026-11-06T10:00:00.000Z', operations: { submit: reading, depth: reading } },
+    });
+    expect(res.json().metrics.operations.cancel).toEqual({ count: 0, errors: 0, p50Ms: null, p99Ms: null, perMinute: '0' });
+    expect(res.json().metrics.submitByMarket).toEqual({ 'm-1': reading });
+  });
+
+  it('leaves out one malformed figure on its own and keeps the rest; never a made-up value', async () => {
+    const { matching } = recording(async () => ({
+      kind: 'answered',
+      status: 200,
+      body: {
+        venueHalted: false,
+        restingOrders: 4,
+        journalRecords: 9,
+        markets: '2',
+        metrics: {
+          startedAt: '2026-11-06T10:00:00.000Z',
+          operations: {
+            submit: { count: -1, errors: 0, p50Ms: 5, p99Ms: 10, perMinute: '1' },
+            depth: { count: 1, errors: 0, p50Ms: 5, p99Ms: 5, perMinute: '1' },
+          },
+        },
+      },
+    }));
+    const app = mount({ matching });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/admin/trade-ops/matching/health',
+      headers: { authorization: await bearer(['admin:read'], false) },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).not.toHaveProperty('markets');
+    expect(res.json().metrics.operations).not.toHaveProperty('submit');
+    expect(res.json().metrics.operations).not.toHaveProperty('cancel');
+    expect(res.json().metrics.operations.depth.count).toBe(1);
+  });
+
   it('returns a typed error when matching is down and does not invent zeros', async () => {
     const { matching } = recording(async () => ({ kind: 'unavailable', error: 'connect ECONNREFUSED' }));
     const app = mount({ matching });
@@ -399,6 +471,53 @@ describe('matching health read', () => {
     expect(res.statusCode).toBe(403);
     expect(res.json()).toMatchObject({ code: 'scope.denied' });
     expect(calls).toEqual([]);
+  });
+});
+
+describe('matching health read without the signing secret (J-cex-spot-20 #1)', () => {
+  it('reads the engine health through the unsigned health client while the control door stays blocked', async () => {
+    const health = recording(async () => ({
+      kind: 'answered',
+      status: 200,
+      body: { venueHalted: false, restingOrders: 1, journalRecords: 2 },
+    }));
+    const app = mount({
+      matching: null,
+      blocked: { code: 'matching_credential_unconfigured', key: 'MATCHING_EDGE_SIGNING_SECRET' },
+      healthRead: health.matching,
+    });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/admin/trade-ops/matching/health',
+      headers: { authorization: await bearer(['admin:read'], false) },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ venueHalted: false, restingOrders: 1, journalRecords: 2 });
+    // A control write is still refused by name: the health client never stands in for the signed one.
+    const halt = await app.inject({
+      method: 'POST',
+      url: '/admin/trade-ops/matching/markets/BTC-USDT/halt',
+      headers: { authorization: await bearer(['admin:read', 'admin:write'], true) },
+      payload: {},
+    });
+    expect(halt.statusCode).not.toBe(200);
+    expect(health.calls).toEqual([{ method: 'GET', path: '/health' }]);
+  });
+
+  it('the unsigned client sends GET /health with no service credential, whatever it is asked', async () => {
+    const seen: Array<{ url: string; init: RequestInit }> = [];
+    const fake = (async (url: string, init: RequestInit) => {
+      seen.push({ url, init });
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const read = httpMatchingHealthRead('http://matching:4005/', 1000, fake);
+    const out = await read({ method: 'POST', path: '/halt-all', body: { x: 1 } });
+    expect(out).toMatchObject({ kind: 'answered', status: 200 });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.url).toBe('http://matching:4005/health');
+    expect(seen[0]!.init.method).toBe('GET');
+    expect(seen[0]!.init.headers).toBeUndefined();
+    expect(seen[0]!.init.body).toBeUndefined();
   });
 });
 

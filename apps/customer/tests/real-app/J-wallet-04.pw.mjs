@@ -202,12 +202,97 @@ test(`${J} #3 refuses a changed character, and warns about a look-alike of a sav
   await expect(savedRows(page).filter({ hasText: 'TEST cold wallet' })).not.toContainText('You confirmed the look-alike warning');
 });
 
-test(`${J} #4 removes a saved address after a fresh confirmation, and it is gone after a reload`, async ({ page }) => {
-  test.setTimeout(240_000);
+test(`${J} #4 renaming an entry keeps its cooling-off clock as it was; removing one needs a fresh confirmation, and it is gone after a reload`, async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(420_000);
+  const { account: who } = account();
   await signInWithCode(page);
   await page.goto('/uc/withdraw/address');
-  // Both entries #2 and #3 saved, one at a time, each with its own confirmation.
-  for (const label of ['TEST cold wallet', 'TEST look-alike']) {
+
+  // The cooling-off clock starts at approval (#5), so TEST cold wallet is approved first, by its emailed link opened in
+  // another browser, to have a clock to keep.
+  const cold = savedRows(page).filter({ hasText: 'TEST cold wallet' });
+  await expect(cold).toContainText('Waiting for approval');
+  const before = approvalLinks(who.email).length;
+  await cold.getByRole('button', { name: 'Withdraw to this address' }).click();
+  await page.getByTestId('address-use').getByRole('button', { name: 'Email me an approval link' }).click();
+  await expect(page.getByTestId('address-approval-mail').getByRole('status')).toContainText('We asked for an approval link');
+  const link = await nextApprovalLink(who.email, before);
+  let ends = null;
+  const other = await browser.newContext();
+  try {
+    const away = await other.newPage();
+    await away.goto(link);
+    await away.getByRole('link', { name: 'Sign in' }).last().click();
+    await expect(away).toHaveURL(/\/login\?redirect=/);
+    const state = account();
+    const { totp } = await totpLib();
+    const { code, step } = await nextCode(totp, state.secret, state.step);
+    run.reset({ ...state, step });
+    await away.fill('input[name=totp]', code);
+    await away.fill('input[name=identifier]', who.email);
+    await away.fill('input[name=password]', who.password);
+    await away.getByRole('button', { name: /^sign in$/i }).click();
+    await expect(away).toHaveURL(/\/approveAddress$/);
+    const there = away.getByTestId('approve-address');
+    await there.getByRole('button', { name: 'Approve' }).click();
+    await confirmItsMe(away);
+    await expect(away.getByRole('heading', { name: 'Address approved' })).toBeVisible();
+    const done = (await there.getByRole('status').textContent()) ?? '';
+    ends = /from (.+), when its cooling-off ends\.$/.exec(done)?.[1] ?? null;
+    expect(ends, done).toBeTruthy();
+  } finally {
+    await other.close();
+  }
+  // The bank's own row, read exactly (the page shows times to the minute): its address, first-saved time and cooling-off end.
+  const was = await bankRowOnReload(page, 'TEST cold wallet');
+  expect(was, "TEST cold wallet is in the bank's book").toBeTruthy();
+  expect(was.ref.toLowerCase()).toBe(ADDRESS.toLowerCase());
+  expect(was.coolingOffEndsAt).toBeTruthy();
+  const cooling = savedRows(page).filter({ hasText: 'TEST cold wallet' });
+  await expect(cooling).toContainText('Cooling off');
+  await expect(cooling.locator('td').nth(5)).toHaveText(`Ends ${ends}`);
+  const firstSaved = (await cooling.locator('td').nth(4).textContent()) ?? '';
+  expect(firstSaved).not.toBe('');
+
+  // Rename: only the label changes, with no fresh confirmation, because it cannot change where money goes.
+  await cooling.getByRole('button', { name: 'Rename' }).click();
+  const sheet = page.getByRole('dialog', { name: /rename address/i });
+  await expect(sheet).toContainText('Only the name changes. The address and its cooling-off period stay as they are.');
+  await sheet.getByLabel('Label').fill('TEST renamed wallet');
+  await sheet.getByRole('button', { name: 'Review' }).click();
+  // A rename that asked for a fresh confirmation would send nothing, so the wait is short and the dialog is checked after.
+  const renamed = page.waitForResponse((res) => /\/api\/bank\/trpc\/ramps\.destinations\.rename$/.test(res.url()), { timeout: 30_000 });
+  await sheet.getByRole('button', { name: 'Save name' }).click();
+  expect((await renamed).status()).toBe(200);
+  await expect(page.getByRole('dialog', { name: 'Confirm it’s you' })).toHaveCount(0);
+
+  // After a reload the bank's row carries the new name with the same first-saved time and the same cooling-off end, and
+  // the bank still refuses to send to it until that same time: the clock did not restart.
+  const after = await bankRowOnReload(page, 'TEST renamed wallet');
+  expect(after, "the renamed entry is in the bank's book").toBeTruthy();
+  expect(after.destinationId).toBe(was.destinationId);
+  expect(after.ref).toBe(was.ref);
+  expect(after.addedAt).toBe(was.addedAt);
+  expect(after.coolingOffEndsAt).toBe(was.coolingOffEndsAt);
+  expect(after.state).toBe(was.state);
+  await expect(savedRows(page).filter({ hasText: 'TEST cold wallet' })).toHaveCount(0);
+  const kept = savedRows(page).filter({ hasText: 'TEST renamed wallet' });
+  await expect(kept).toHaveCount(1);
+  await expect(kept).toContainText('Cooling off');
+  await expect(kept.locator('td').nth(4)).toHaveText(firstSaved);
+  await expect(kept.locator('td').nth(5)).toHaveText(`Ends ${ends}`);
+  await expect(kept.locator('td[data-withdrawal-private]')).toHaveText('0x5290…9EE7');
+  await kept.getByRole('button', { name: 'Withdraw to this address' }).click();
+  await expect(page.getByTestId('address-use').getByRole('alert')).toHaveText(
+    `TEST renamed wallet is a new address. Money can be sent to it from ${ends}, when its cooling-off ends.`,
+  );
+
+  // Remove both entries, one at a time: each asks "Confirm it's you" first.
+  await page.reload();
+  for (const label of ['TEST renamed wallet', 'TEST look-alike']) {
     const row = savedRows(page).filter({ hasText: label });
     await expect(row).toHaveCount(1);
     await row.getByRole('button', { name: 'Remove' }).click();
@@ -219,6 +304,26 @@ test(`${J} #4 removes a saved address after a fresh confirmation, and it is gone
   await expect(savedRows(page)).toHaveCount(0);
   await expect(page.getByText('You have no saved withdrawal addresses.')).toBeVisible();
 });
+
+/** Reloads the page and returns the bank's own row for `label` from the address-book read that load makes. */
+async function bankRowOnReload(page, label) {
+  const read = page.waitForResponse(
+    (res) => res.request().method() === 'GET' && /\/api\/bank\/trpc\/ramps\.destinations\.list/.test(res.url()),
+  );
+  await page.reload();
+  const res = await read;
+  expect(res.status()).toBe(200);
+  const rows = [];
+  const walk = (value) => {
+    if (Array.isArray(value)) value.forEach(walk);
+    else if (value && typeof value === 'object') {
+      if (typeof value.destinationId === 'string' && typeof value.ref === 'string') rows.push(value);
+      else Object.values(value).forEach(walk);
+    }
+  };
+  walk(await res.json());
+  return rows.find((row) => row.label === label) ?? null;
+}
 
 /** The approval links mailed to this person so far, oldest first, from the stack's LOCAL-TEST outbox. */
 const approvalLinks = (email) =>

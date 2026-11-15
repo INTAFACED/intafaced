@@ -12,6 +12,7 @@ import {
   deviceApprovedSchema,
   deviceRemovedSchema,
   removeStepUp,
+  signInConfirmedSchema,
   trustedDeviceCode,
   trustedDevicesSchema,
 } from './trusted-devices-api';
@@ -22,7 +23,8 @@ type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 /**
  * Trusted devices in Security (I-signin-sessions-07). Lists the browsers this account trusts, says whether the owner
  * turned the new-device check on, and lets the owner approve a waiting sign-in or remove a device. Both confirm who you
- * are first (authenticator code or passkey).
+ * are first (authenticator code or passkey). A device with a new-device sign-in not yet answered says so, with "This was
+ * me" beside Remove (on any other device: the one the alert is about cannot clear it): either ends Home's item for it.
  */
 export function TrustedDevices({ onChanged }: { onChanged?: () => void }) {
   const { t, languageFor } = copy.useCopy();
@@ -99,6 +101,24 @@ export function TrustedDevices({ onChanged }: { onChanged?: () => void }) {
     } finally {
       const field = element.elements.namedItem('otp');
       if (field instanceof HTMLInputElement) field.value = '';
+      if (mounted.current) setBusy(false);
+    }
+  }
+
+  /** "This was me" for a new-device sign-in: it only ends Home's question about it, so it takes no step-up. */
+  async function confirmSignIn(deviceId: string) {
+    if (busy) return;
+    setBusy(true);
+    setFailure(null);
+    setNote(null);
+    try {
+      const answer = await api.mutate('identity', 'trustedDevices.confirmSignIn', { deviceId }, signInConfirmedSchema);
+      if (!mounted.current) return;
+      if (!answer.ok) return setFailure(answer);
+      setNote(t('confirmed'));
+      reload();
+      onChanged?.();
+    } finally {
       if (mounted.current) setBusy(false);
     }
   }
@@ -182,7 +202,23 @@ export function TrustedDevices({ onChanged }: { onChanged?: () => void }) {
                   {' · '}
                   {device.trustedUntil ? t('until', { time: stamp(device.trustedUntil, timeZone) }) : t('untilRemoved')}
                 </span>
+                {device.newSignIn && (
+                  <p data-testid="security__new-sign-in" className="notice">
+                    {t('newSignIn')} {device.current ? t('confirmElsewhere') : null}
+                  </p>
+                )}
               </div>
+              {/* The device the alert is about cannot clear it: "This was me" is answered from another device. */}
+              {device.newSignIn && !device.current && (
+                <Button
+                  variant="secondary"
+                  disabled={busy}
+                  aria-label={t('confirmLabel', { device: device.label })}
+                  onClick={() => void confirmSignIn(device.id)}
+                >
+                  {t('confirm')}
+                </Button>
+              )}
               <Button
                 variant="secondary"
                 disabled={busy}
