@@ -47,6 +47,7 @@ export type AlertsAction =
       readonly windowMinutes: number;
       readonly agentId: string | null;
     }
+  | { readonly action: 'setNotifications'; readonly state: 'on' | 'down' }
   | { readonly action: 'setOverride'; readonly dataClass: DataClass; readonly choice: Choice }
   | { readonly action: 'checkRule'; readonly dataClass: DataClass; readonly choice: Choice };
 
@@ -70,6 +71,8 @@ export function parseAlertsAction(body: unknown): AlertsAction | null {
     const threshold = typeof b.threshold === 'string' && b.threshold.trim() !== '' ? b.threshold.trim().slice(0, 60) : null;
     return { action: 'createRule', name, measure, threshold, windowMinutes, agentId: text(b.agentId, 120) };
   }
+  if (b.action === 'setNotifications')
+    return b.state === 'on' || b.state === 'down' ? { action: 'setNotifications', state: b.state } : null;
   if (b.action === 'setOverride' || b.action === 'checkRule') {
     const dataClass = DATA_CLASSES.includes(b.dataClass as DataClass) ? (b.dataClass as DataClass) : null;
     const choice = CHOICES.includes(b.choice as Choice) ? (b.choice as Choice) : null;

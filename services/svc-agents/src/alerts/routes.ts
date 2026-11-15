@@ -11,15 +11,18 @@ import {
   AGENT_ALERT_MEASURES,
   agentAlertDeskSchema,
   agentAlertEvaluationSchema,
+  agentAlertNotificationsSchema,
   agentAlertRuleSchema,
   agentPolicySchema,
   agentRuleCheckSchema,
   type AgentAlert,
   type AgentAlertMeasure,
+  type AgentAlertNotifications,
   type AgentAlertRule,
   type AgentAlertWindow,
   type AgentPolicy,
 } from '@intafaced/contracts/agents-alerts';
+import type { EventBus } from '@intafaced/events';
 import { stricter, type PolicyBaseline } from '../own/guardrails.js';
 import { PolicyOverrideStore } from '../own/overrides.js';
 
@@ -158,12 +161,13 @@ async function readAlerts(sql: Sql): Promise<AgentAlert[]> {
       action_rows: number;
       value: string;
       threshold: string;
-      delivery: 'pending' | 'sent';
+      delivery: 'pending' | 'handed_off';
+      handed_off_at: Date | null;
       created_at: Date;
     }[]
   >`
     SELECT a.id, a.rule_id, r.name AS rule_name, r.measure, a.window_start, a.window_end, a.action_rows,
-           a.value::text AS value, a.threshold::text AS threshold, a.delivery, a.created_at
+           a.value::text AS value, a.threshold::text AS threshold, a.delivery, a.handed_off_at, a.created_at
       FROM agents.agent_alerts a JOIN agents.agent_alert_rules r ON r.id = a.rule_id
      ORDER BY a.created_at DESC, a.id
      LIMIT ${ALERTS_LISTED}
@@ -179,6 +183,7 @@ async function readAlerts(sql: Sql): Promise<AgentAlert[]> {
     value: trimDecimal(row.value),
     threshold: trimDecimal(row.threshold),
     delivery: row.delivery,
+    handedOffAt: row.handed_off_at?.toISOString() ?? null,
     createdAt: row.created_at.toISOString(),
   }));
 }
@@ -249,6 +254,84 @@ export async function evaluateAlertRules(sql: Sql): Promise<WindowView[]> {
   return out;
 }
 
+/** Whether alerts are handed to notifications: the one settings row, or on when no one has set it. */
+export async function readNotifications(sql: Sql): Promise<AgentAlertNotifications> {
+  const rows = await sql<{ notifications: 'on' | 'down'; set_by: string; set_at: Date }[]>`
+    SELECT notifications, set_by, set_at FROM agents.agent_alert_settings WHERE id
+  `;
+  const row = rows[0];
+  return row ? { state: row.notifications, setBy: row.set_by, setAt: row.set_at.toISOString() } : { state: 'on', setBy: null, setAt: null };
+}
+
+async function setNotifications(sql: Sql, state: 'on' | 'down', setBy: string): Promise<void> {
+  await sql`
+    INSERT INTO agents.agent_alert_settings (id, notifications, set_by) VALUES (true, ${state}, ${setBy})
+    ON CONFLICT (id) DO UPDATE
+      SET notifications = EXCLUDED.notifications,
+          set_by = CASE WHEN agent_alert_settings.notifications = EXCLUDED.notifications THEN agent_alert_settings.set_by ELSE EXCLUDED.set_by END,
+          set_at = CASE WHEN agent_alert_settings.notifications = EXCLUDED.notifications THEN agent_alert_settings.set_at ELSE now() END
+  `;
+}
+
+/**
+ * Hands every pending alert to notifications (svc-notify, by `agentAlertFired`), once per rule and window on its
+ * business key, while notifications are on. An alert is marked handed off only after the bus took it; one the bus
+ * refused stays pending and is tried again on the next sweep. With notifications down nothing is published: every new
+ * alert is kept and stays pending until they are back.
+ */
+export async function publishPendingAgentAlerts(sql: Sql, bus: EventBus): Promise<number> {
+  if ((await readNotifications(sql)).state === 'down') return 0;
+  const rows = await sql<
+    {
+      id: string;
+      rule_id: string;
+      created_by: string;
+      name: string;
+      measure: AlertMeasure;
+      value: string;
+      threshold: string;
+      window_start: Date;
+      window_end: Date;
+    }[]
+  >`
+    SELECT a.id, a.rule_id, r.created_by, r.name, r.measure, a.value::text AS value, a.threshold::text AS threshold,
+           a.window_start, a.window_end
+      FROM agents.agent_alerts a JOIN agents.agent_alert_rules r ON r.id = a.rule_id
+     WHERE a.delivery = 'pending'
+     ORDER BY a.created_at
+     LIMIT 100
+  `;
+  let handed = 0;
+  for (const row of rows) {
+    const alertKey = `agents.alert:${row.rule_id}:${row.window_start.toISOString()}`;
+    try {
+      await bus.publish(
+        'agentAlertFired',
+        {
+          alertKey,
+          alertId: row.id,
+          userId: row.created_by,
+          ruleName: row.name,
+          measure: row.measure,
+          value: trimDecimal(row.value),
+          threshold: trimDecimal(row.threshold),
+          windowStart: row.window_start.toISOString(),
+          windowEnd: row.window_end.toISOString(),
+        },
+        { idempotencyKey: alertKey },
+      );
+    } catch {
+      continue;
+    }
+    await sql`
+      UPDATE agents.agent_alerts SET delivery = 'handed_off', handed_off_at = now()
+       WHERE id = ${row.id} AND delivery = 'pending'
+    `;
+    handed += 1;
+  }
+  return handed;
+}
+
 const looseness = (choice: OwnAgentRuleChoice): number => OWN_AGENT_RULE_CHOICES.indexOf(choice);
 
 /** The baseline's requirement for one class: blank refuses by its code. */
@@ -294,7 +377,14 @@ async function readPolicy(sql: Sql, baseline: PolicyBaseline): Promise<AgentPoli
   };
 }
 
-export function alertsRouter(sql: Sql | undefined, baseline: PolicyBaseline) {
+/** Hands pending alerts to notifications; absent (a router with no bus), alerts are kept pending. */
+export type PublishAlerts = () => Promise<number>;
+
+export function alertsRouter(sql: Sql | undefined, baseline: PolicyBaseline, publish: PublishAlerts | null = null) {
+  // A bus fault leaves the alerts pending for the timer's next sweep; it never fails the operator's evaluation.
+  const handOff = async (): Promise<void> => {
+    if (publish) await publish().catch(() => 0);
+  };
   // A signed-in operator's own session: never a service forwarding a principal, an API key or a sub-account.
   const operator = (scope: 'admin:read' | 'admin:write') =>
     scopedProcedure(scope, { module: 'agents', person: true }).use(({ ctx, next }) => {
@@ -309,7 +399,12 @@ export function alertsRouter(sql: Sql | undefined, baseline: PolicyBaseline) {
       .query(() =>
         guard(async () => {
           const db = sqlOf(sql);
-          return { rules: await readRules(db), alerts: await readAlerts(db), alertsListed: ALERTS_LISTED };
+          return {
+            notifications: await readNotifications(db),
+            rules: await readRules(db),
+            alerts: await readAlerts(db),
+            alertsListed: ALERTS_LISTED,
+          };
         }),
       ),
 
@@ -343,7 +438,26 @@ export function alertsRouter(sql: Sql | undefined, baseline: PolicyBaseline) {
     /** Runs the evaluator now over every rule's current and previous window, and says what each window came to. */
     evaluate: operator('admin:write')
       .output(agentAlertEvaluationSchema)
-      .mutation(() => guard(async () => ({ windows: await evaluateAlertRules(sqlOf(sql)) }))),
+      .mutation(() =>
+        guard(async () => {
+          const windows = await evaluateAlertRules(sqlOf(sql));
+          await handOff();
+          return { windows };
+        }),
+      ),
+
+    /** Takes alert notifications down or brings them back. Back on, every alert kept meanwhile is handed over. */
+    setNotifications: operator('admin:write')
+      .input(z.object({ state: z.enum(['on', 'down']) }))
+      .output(agentAlertNotificationsSchema)
+      .mutation(({ ctx, input }) =>
+        guard(async () => {
+          const db = sqlOf(sql);
+          await setNotifications(db, input.state, ctx.principal.userId);
+          if (input.state === 'on') await handOff();
+          return readNotifications(db);
+        }),
+      ),
 
     /** The owner's managed baseline per class, this environment's override, and the stricter of the two. */
     policy: operator('admin:read')

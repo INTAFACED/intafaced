@@ -40,7 +40,7 @@ interface Alert {
   readonly actionRows: number;
   readonly value: string;
   readonly threshold: string;
-  readonly delivery: 'pending' | 'sent';
+  readonly delivery: 'pending' | 'handed_off';
 }
 
 interface Window {
@@ -81,6 +81,7 @@ export function AgentsAlertsDesk({ csrf }: { csrf: string }) {
   const [alerts, setAlerts] = useState<readonly Alert[]>([]);
   const [windows, setWindows] = useState<readonly Window[] | null>(null);
   const [policy, setPolicy] = useState<readonly PolicyClass[] | null>(null);
+  const [notifications, setNotificationsState] = useState<'on' | 'down' | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [ruleProblem, setRuleProblem] = useState<string | null>(null);
   const [ruleNotice, setRuleNotice] = useState<string | null>(null);
@@ -118,7 +119,8 @@ export function AgentsAlertsDesk({ csrf }: { csrf: string }) {
     const [desk, baseline] = await Promise.all([post({ action: 'desk' }), post({ action: 'policy' })]);
     if (!desk.ok) setProblem(say(desk.code));
     else {
-      const data = desk.data as { rules: Rule[]; alerts: Alert[] };
+      const data = desk.data as { rules: Rule[]; alerts: Alert[]; notifications: { state: 'on' | 'down' } };
+      setNotificationsState(data.notifications.state);
       setRules(data.rules);
       setAlerts(data.alerts);
     }
@@ -158,6 +160,14 @@ export function AgentsAlertsDesk({ csrf }: { csrf: string }) {
     await read();
   }
 
+  async function switchNotifications(state: 'on' | 'down') {
+    setBusy(true);
+    const answer = await post({ action: 'setNotifications', state });
+    setBusy(false);
+    if (!answer.ok) setProblem(say(answer.code));
+    await read();
+  }
+
   async function saveOverride() {
     setOverrideNotice(null);
     setBusy(true);
@@ -192,10 +202,27 @@ export function AgentsAlertsDesk({ csrf }: { csrf: string }) {
         Get alerted when agents fail, refuse or cost too much. The evaluator reads each rule&rsquo;s current and previous window once a
         minute, and when you ask; it keeps one alert per rule and window.
       </p>
-      <p role="note" className="adm-callout" data-tone="info">
-        No delivery vendor (vendor.email, vendor.push) is connected, so alerts are not sent. Each alert is kept here and shows delivery
-        pending.
-      </p>
+      <section role="region" aria-label="Alert notifications">
+        <h2>Alert notifications</h2>
+        <p role="note" className="adm-callout" data-tone="info">
+          While notifications are on, each alert is handed to notifications: an inbox row for the operator who stored the rule, sent by
+          email and push where vendor.email and vendor.push are set. While they are down, each alert is still kept here and shows delivery
+          pending until they are back.
+        </p>
+        {notifications && (
+          <p data-testid="notifications-state">{notifications === 'on' ? 'Notifications are on.' : 'Notifications are down.'}</p>
+        )}
+        {notifications === 'on' && (
+          <button type="button" className="adm-btn" disabled={busy} onClick={() => void switchNotifications('down')}>
+            Take notifications down
+          </button>
+        )}
+        {notifications === 'down' && (
+          <button type="button" className="adm-btn" disabled={busy} onClick={() => void switchNotifications('on')}>
+            Bring notifications back
+          </button>
+        )}
+      </section>
       {problem && (
         <p role="alert" className="adm-callout" data-tone="warn">
           {problem}
@@ -357,7 +384,7 @@ export function AgentsAlertsDesk({ csrf }: { csrf: string }) {
                     <td>{alert.actionRows}</td>
                     <td>{valueWords(alert.measure, alert.value)}</td>
                     <td>{valueWords(alert.measure, alert.threshold)}</td>
-                    <td data-testid="alert-delivery">{alert.delivery === 'pending' ? 'Delivery pending' : 'Delivered'}</td>
+                    <td data-testid="alert-delivery">{alert.delivery === 'pending' ? 'Delivery pending' : 'Handed to notifications'}</td>
                   </tr>
                 ))}
               </tbody>
