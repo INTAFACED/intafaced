@@ -1,9 +1,10 @@
-// World: restart
+// World: restart, book
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { ROOT, restartWith } from './stack.mjs';
+import { agentsRun } from './agents.mjs';
+import { ROOT, api, restartWith } from './stack.mjs';
 
 // J-agents-20, in the founder console (docs/roadmap/journeys.json): change the model routing table with an audit. One
 // test per step, titled "J-agents-20 #<n>", run in order by the stack's two LOCAL TEST founders on More modules
@@ -12,13 +13,41 @@ import { ROOT, restartWith } from './stack.mjs';
 // route's output ceiling and rates, and a change takes two distinct founders and writes one audit row naming both
 // (svc-agents `routes.propose`, `routes.confirm`). #2 and #3 change the output ceiling of index.embed, the route no
 // journey runs, and #3 puts it back the same way, so the stack's other journeys meet the table as it was.
-// #3's "sessions open at the time keep their copied guardrail" is not checked here: a route change touches no session
-// (svc-agents src/gateway/route-changes.ts); its title names only what it checks.
+// #3 and #4 also act as a funded TEST customer the start makes, through Edge: #3 opens a Navigator session before the
+// change and reads it after the confirm (the same guardrail version, still open, and a run in it answers); #4 runs the
+// Navigator before the swap (the stand-in engine answers), after it (the run reaches the live adapter, which nothing
+// answers on a test stack: agents.error.engine_unavailable) and after the stand-in engine is back (it answers again).
 // #4 swaps the provider in configuration by restarting svc-agents with the live model adapter in place of the stand-in
 // engine (LOCAL_STACK_AGENTS_SANDBOX_ENGINE=off), the same build: the table shows the new engine for new runs, the same
 // provider and model aliases from configuration, and the founders' change kept. Then the stand-in engine comes back.
 const J = 'J-agents-20';
 const ROUTE = 'index.embed';
+const agents = agentsRun(J);
+/** The task the Navigator runs (its guardrail allows navigator.plan and navigator.tool_select). */
+const RUN_TASK = 'navigator.plan';
+
+/** One svc-agents call as the start's TEST customer, on their own sign-in through Edge. */
+async function personCall(procedure, input, method = 'GET') {
+  const door = await api(agents.account());
+  const path = `/api/agents/trpc/${procedure}`;
+  return method === 'GET'
+    ? door.get(`${path}${input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`}`)
+    : door.post(path, input);
+}
+const data = (answer) => {
+  expect(answer.status, JSON.stringify(answer.body).slice(0, 300)).toBe(200);
+  return answer.body.result.data;
+};
+/** A new Navigator session of the customer's, and one run in it: the raw answer. */
+async function navigatorRun(label) {
+  const session = data(await personCall('session.open', { agentId: 'navigator' }, 'POST'));
+  const answer = await personCall(
+    'run.complete',
+    { sessionId: session.id, requestId: `${session.id}:${label}`, task: RUN_TASK, messages: [{ role: 'user', content: `TEST ${label}` }] },
+    'POST',
+  );
+  return { session, answer };
+}
 
 test.describe.configure({ mode: 'default' });
 
@@ -75,8 +104,9 @@ async function changeCeiling(browser, ceiling) {
   await expect(ceilingOf(b)).toHaveText(ceiling);
 }
 
-test(`${J} starts: both LOCAL TEST founders signed in to the console`, async ({ browser }) => {
-  test.setTimeout(180_000);
+test(`${J} starts: both LOCAL TEST founders signed in to the console, and a funded TEST customer`, async ({ browser, page }) => {
+  test.setTimeout(240_000);
+  await agents.start(page, 'ag20', '10');
   await openRoutes(browser, 'a');
   await openRoutes(browser, 'b');
   expect(consoles.a.handle).not.toBe(consoles.b.handle);
@@ -127,8 +157,26 @@ test(`${J} #3 a second founder confirms: the table changes once with an audit ro
   const before = await ceilingOf(page).innerText();
   const confirmedBefore = await confirmations(page).count();
   const changed = String(Number(before) + 1);
+  // A customer's Navigator session, open at the time of the change.
+  const open = data(await personCall('session.open', { agentId: 'navigator' }, 'POST'));
   try {
     await changeCeiling(browser, changed);
+    // The session keeps the guardrail it copied when it opened, stays open, and still runs under it.
+    const kept = data(await personCall('session.detail', { sessionId: open.id })).session;
+    expect(kept).toMatchObject({ id: open.id, status: 'open', guardrailVersion: open.guardrailVersion, openedAt: open.openedAt });
+    const ran = data(
+      await personCall(
+        'run.complete',
+        {
+          sessionId: open.id,
+          requestId: `${open.id}:after-change`,
+          task: RUN_TASK,
+          messages: [{ role: 'user', content: 'TEST after the change' }],
+        },
+        'POST',
+      ),
+    );
+    expect(ran.text.trim()).not.toBe('');
     const a = await openRoutes(browser, 'a');
     await expect(ceilingOf(a)).toHaveText(changed);
     const audit = row(a).getByTestId('route-audit');
@@ -142,6 +190,7 @@ test(`${J} #3 a second founder confirms: the table changes once with an audit ro
     // Put the route back the same way, so the stack's other journeys meet the table as it was.
     const a = await openRoutes(browser, 'a');
     if ((await ceilingOf(a).innerText()) !== before) await changeCeiling(browser, before);
+    await personCall('session.close', { sessionId: open.id }, 'POST');
   }
 });
 
@@ -152,6 +201,10 @@ test(`${J} #4 swaps the provider in configuration: new runs use the new provider
   const before = {};
   for (const r of config) before[r.task] = await cells(page, r.task);
   for (const r of config) expect(before[r.task]['Engine for new runs'], r.task).toBe('Stand-in engine (sandbox)');
+  // A new run before the swap is answered by the stand-in engine.
+  const sandbox = await navigatorRun('before-swap');
+  expect(data(sandbox.answer).text.trim()).not.toBe('');
+  await personCall('session.close', { sessionId: sandbox.session.id }, 'POST');
   // The same build restarted with the live model adapter as the configured provider: a configuration change only.
   restartWith('agents', 'LOCAL_STACK_AGENTS_SANDBOX_ENGINE', false);
   try {
@@ -163,9 +216,18 @@ test(`${J} #4 swaps the provider in configuration: new runs use the new provider
       expect({ ...after, 'Engine for new runs': '' }, r.task).toEqual({ ...before[r.task], 'Engine for new runs': '' });
       expect(after['Set in'], r.task).toBe('From configuration');
     }
+    // A new run now goes to the new provider: the live adapter, which nothing answers on a test stack.
+    const live = await navigatorRun('after-swap');
+    expect(live.answer.status, JSON.stringify(live.answer.body).slice(0, 300)).not.toBe(200);
+    expect(live.answer.body.error.message).toBe('agents.error.engine_unavailable');
+    await personCall('session.close', { sessionId: live.session.id }, 'POST');
   } finally {
     restartWith('agents', 'LOCAL_STACK_AGENTS_SANDBOX_ENGINE', true);
   }
   page = await openRoutes(browser);
   for (const r of config) await expect(row(page, r.task).getByTestId('route-engine')).toHaveText('Stand-in engine (sandbox)');
+  // And with the stand-in engine back in configuration, a new run is answered by it again.
+  const back = await navigatorRun('swapped-back');
+  expect(data(back.answer).text.trim()).not.toBe('');
+  await personCall('session.close', { sessionId: back.session.id }, 'POST');
 });
