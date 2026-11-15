@@ -72,7 +72,17 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { apiSecurityHeaders, securityHeaders } from '../../apps/customer/deployment/render-security-headers.mjs';
 import { APEX_DESCRIPTOR_PATH, APEX_PRODUCT } from '../../apps/customer/deployment/host-dispatch.mjs';
 import { anvilBin, chainRecordPath, chainStatus, CHAIN_PORTS, GATE_URL, runSeedScript, TEST_CHAIN_ID } from './local-test-chain.mjs';
-import { FIX_SOCKET_PORTS, slotEnv, STACK_PORTS } from './local-test-facts.mjs';
+import {
+  claimSlot,
+  FIX_SOCKET_PORTS,
+  localStackSlot,
+  releaseSlot,
+  slotClaims,
+  slotEnv,
+  slotPorts,
+  STACK_PORTS,
+  stackPids,
+} from './local-test-facts.mjs';
 import { reduceMaps } from './journey-reach.mjs';
 import { runMvnSync } from './mvn-run.mjs';
 import { marketStatus } from './local-test-market.mjs';
@@ -142,6 +152,7 @@ import {
 const SCRIPT = fileURLToPath(import.meta.url);
 const REPO = path.resolve(path.dirname(SCRIPT), '..', '..');
 const STATE = localStackState();
+const SLOT = localStackSlot();
 const P = {
   marker: path.join(STATE, 'LOCAL-TEST-STACK.json'),
   secrets: path.join(STATE, 'secrets.json'),
@@ -239,7 +250,7 @@ const fail = (msg, code = 1) => {
 const portTaken = (port, what, seen) =>
   fail(
     `port ${port} (${what}) is held by a process this stack did not start${seen ? ` (${seen})` : ''}; ` +
-      "if it is another checkout's stack, start yours with LOCAL_STACK_SLOT=1 (or 2, 3)",
+      'stop it, or start again without LOCAL_STACK_SLOT: a start takes a free slot',
   );
 const readJson = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
 function writePrivate(file, text) {
@@ -2251,7 +2262,8 @@ function onlyFlag(flags) {
  * so a checkout of the same commit with no edits that receives these outputs and the stamp starts without building, and
  * any difference (another commit, an edit, a missing output) rebuilds exactly as a cold start would.
  */
-function cmdBuild(flags) {
+async function cmdBuild(flags) {
+  await takeSlot();
   say('INTAFACED local test stack: build only');
   say(`  repo ${REPO}`);
   say(`  state ${STATE}`);
@@ -2276,7 +2288,7 @@ async function refuseOtherStack() {
   const was = fs.existsSync(P.marker) ? readJson(P.marker).repo : undefined;
   const procs = readProcs();
   if (was && was !== REPO && Object.values(procs).some(ownedAlive))
-    fail(`the stack in ${STATE} runs from ${was}; start this checkout's own with LOCAL_STACK_SLOT=1 (or 2, 3)`);
+    fail(`the stack in ${STATE} runs from ${was}; give this checkout its own LOCAL_STACK_STATE, or leave it unset`);
   for (const [name, ours] of [
     ['postgres', pgRunning()],
     ['nats', ownedAlive(procs.nats)],
@@ -2286,7 +2298,43 @@ async function refuseOtherStack() {
     if (!ours && (await portOpen(PORTS[name]))) portTaken(PORTS[name], name);
 }
 
+/**
+ * The slot this start runs on, taken before anything is built or written, so a second start sees it at once.
+ * LOCAL_STACK_SLOT set (a person's choice, or the run again below): that slot is claimed or the start refuses. Unset:
+ * this checkout keeps its slot, or claims the first free one (no live claim and none of its ports held) and runs itself
+ * again on it.
+ */
+async function takeSlot() {
+  const holder = ({ slot, claim, live }) =>
+    `${slot}: ${claim && live ? `${claim.repo} (pid ${claim.pid})` : 'a process with no claim on its ports'}`;
+  const claims = slotClaims();
+  if (process.env.LOCAL_STACK_SLOT !== undefined || claims.some((c) => c.claim?.repo === REPO)) {
+    if (claimSlot(SLOT, { state: STATE })) return;
+    fail(`refusing: slot ${holder(claims[SLOT])} holds it; leave LOCAL_STACK_SLOT unset and the start takes a free slot`);
+  }
+  for (const c of claims) {
+    if (c.claim && c.live) continue;
+    const state = localStackState(os.homedir(), { ...process.env, LOCAL_STACK_SLOT: String(c.slot) });
+    const marker = path.join(state, 'LOCAL-TEST-STACK.json');
+    const oursRunning = fs.existsSync(marker) && readJson(marker).repo === REPO && stackPids(state).some((pid) => readProcessIdentity(pid));
+    const { postgres, nats, edge, customer } = slotPorts(c.slot).stack;
+    if (!oursRunning && (await Promise.all([postgres, nats, edge, customer].map(portOpen))).some(Boolean)) continue;
+    if (!claimSlot(c.slot, { state })) continue;
+    if (c.slot === SLOT) return;
+    say(`  slot ${c.slot}: taken for this checkout (ports +${c.slot * 1000}, state ${state})`);
+    const r = spawnSync(process.execPath, [SCRIPT, ...process.argv.slice(2)], {
+      stdio: 'inherit',
+      env: { ...process.env, LOCAL_STACK_SLOT: String(c.slot) },
+    });
+    process.exit(r.status ?? 1);
+  }
+  fail(
+    `refusing: every slot is held (${slotClaims().map(holder).join('; ')}); stop one with \`local-test-stack.mjs stop\` in its checkout`,
+  );
+}
+
 async function cmdStart(flags) {
+  await takeSlot();
   await refuseOtherStack();
   const s2sMode = checkedS2sMode();
   say('INTAFACED local test stack');
@@ -2508,6 +2556,7 @@ async function cmdStop(names = []) {
   }
   say('  Data is kept in the state directory. Start again with: pnpm local:stack');
   if (bad) process.exit(1);
+  releaseSlot();
 }
 
 // ── plan / restart ──────────────────────────────────────────────────────────
@@ -2575,6 +2624,7 @@ async function cmdRestart(names) {
   if (names.length === 0 || bad.length)
     fail(`restart needs service names from: ${known.join(', ')}${bad.length ? ` (unknown: ${bad.join(', ')})` : ''}`, 2);
   checkedS2sMode();
+  await takeSlot();
   await refuseOtherStack();
   await cmdStop(names);
   await cmdStart([]);
@@ -4319,7 +4369,7 @@ async function runCli() {
   else if (cmd === 'start' && rest[0] === 'customer-dist')
     cmdCustomerDist(rest.slice(1)); // pnpm local:stack customer-dist <path>
   else if (cmd === 'start') await cmdStart(rest);
-  else if (cmd === 'build') cmdBuild(rest);
+  else if (cmd === 'build') await cmdBuild(rest);
   else if (cmd === 'stop') await cmdStop(rest);
   else if (cmd === 'plan') cmdPlan(rest);
   else if (cmd === 'csp-report') cmdCspReport(rest);

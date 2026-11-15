@@ -5,8 +5,10 @@
 // name, so nothing else changes. Failure it prevents: a journey importing a stack script for one constant took in that
 // script's code (local-stack-services/bank.mjs brought owner-settings.mjs), so every change to it reached every step.
 // Every value here is a LOCAL TEST value with no meaning outside the stack.
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // ── The state folder (local-test-state.mjs) ─────────────────────────────────
 
@@ -16,7 +18,7 @@ import path from 'node:path';
  */
 export function localStackState(home = os.homedir(), env = process.env) {
   if (env.LOCAL_STACK_STATE === undefined) {
-    const slot = localStackSlot(env);
+    const slot = localStackSlot(env, home);
     return path.join(home, '.intafaced', slot ? `local-test-stack-${slot}` : 'local-test-stack');
   }
   const state = env.LOCAL_STACK_STATE;
@@ -24,18 +26,97 @@ export function localStackState(home = os.homedir(), env = process.env) {
   return path.resolve(state);
 }
 
-// ── Which stack on this machine (LOCAL_STACK_SLOT) ─────────────────────────
+// ── Which stack on this machine: its slot ──────────────────────────────────
 
 /**
- * Up to four stacks run side by side on one machine, one per slot. Slot 0, the default, is the stack as it always was:
- * the ports below, the state folder above and /tmp/intafaced-real-app. Slot n adds n × 1000 to every port and takes
- * its own state folder (local-test-stack-<n>) and run folder (/tmp/intafaced-real-app-<n>), so a second checkout sets
- * LOCAL_STACK_SLOT=1 for both its stack and its journeys and shares nothing with the first.
+ * Up to four stacks run side by side on one machine, one per slot. Slot 0 is the stack as it always was: the ports
+ * below, the state folder above and /tmp/intafaced-real-app. Slot n adds n × 1000 to every port and takes its own state
+ * folder (local-test-stack-<n>) and run folder (/tmp/intafaced-real-app-<n>). A start takes the first free slot itself and
+ * claims it for its checkout in ~/.intafaced/slots/<n>.json, the moment it begins (local-test-stack.mjs takeSlot); every
+ * script and journey run from that checkout then reads the slot from that claim. LOCAL_STACK_SLOT names one by hand.
  */
-export function localStackSlot(env = process.env) {
-  const slot = env.LOCAL_STACK_SLOT ?? '0';
-  if (!/^[0-3]$/.test(slot)) throw new Error('LOCAL_STACK_SLOT must be 0, 1, 2 or 3');
-  return Number(slot);
+export const CHECKOUT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+export const SLOTS = [0, 1, 2, 3];
+const slotFile = (slot, home = os.homedir()) => path.join(home, '.intafaced', 'slots', `${slot}.json`);
+const alive = (pid) => {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err.code === 'EPERM';
+  }
+};
+const readJsonOr = (file, fallback) => {
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch {
+    return fallback;
+  }
+};
+/** The PIDs a state folder's stack runs: its recorded processes and its Postgres. */
+export function stackPids(state) {
+  const procs = Object.values(readJsonOr(path.join(state, 'run', 'processes.json'), {})).map((r) => r?.pid);
+  let pg = null;
+  try {
+    pg = Number(fs.readFileSync(path.join(state, 'data', 'postgres', 'postmaster.pid'), 'utf8').split('\n')[0]);
+  } catch {}
+  return [...procs, pg].filter((pid) => Number.isInteger(pid) && pid > 0);
+}
+
+/**
+ * Each slot's claim: the checkout, the start's PID and the state folder, and whether it is live. A claim is live while
+ * its start runs or its stack has a process left; a start killed mid-build and a stack that died leave a dead claim,
+ * which the next start takes over.
+ */
+export function slotClaims(home = os.homedir()) {
+  return SLOTS.map((slot) => {
+    const claim = readJsonOr(slotFile(slot, home), null);
+    return { slot, claim, live: Boolean(claim) && [claim.pid, ...stackPids(claim.state ?? '')].some(alive) };
+  });
+}
+
+/**
+ * Claims `slot` for this checkout, atomically: true when it is now this checkout's. Two starts that both see a dead
+ * claim move it aside under their own names, and only one of them then creates the file (`wx`).
+ */
+export function claimSlot(slot, { state, pid = process.pid, home = os.homedir() }) {
+  const file = slotFile(slot, home);
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  const mine = JSON.stringify({ repo: CHECKOUT, pid, state, takenAt: new Date().toISOString() });
+  const now = slotClaims(home)[slot];
+  if (now.claim?.repo === CHECKOUT) {
+    fs.writeFileSync(file, mine, { mode: 0o600 });
+    return true;
+  }
+  if (now.claim && now.live) return false;
+  if (now.claim)
+    try {
+      fs.renameSync(file, `${file}.${pid}.dead`);
+      fs.rmSync(`${file}.${pid}.dead`, { force: true });
+    } catch {
+      return false;
+    }
+  try {
+    fs.writeFileSync(file, mine, { flag: 'wx', mode: 0o600 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Lets this checkout's slot go (a full `stop`). */
+export function releaseSlot(home = os.homedir()) {
+  for (const { slot, claim } of slotClaims(home)) if (claim?.repo === CHECKOUT) fs.rmSync(slotFile(slot, home), { force: true });
+}
+
+/** LOCAL_STACK_SLOT when set; else the slot this checkout's claim holds; else 0. */
+export function localStackSlot(env = process.env, home = os.homedir()) {
+  if (env.LOCAL_STACK_SLOT !== undefined) {
+    if (!/^[0-3]$/.test(env.LOCAL_STACK_SLOT)) throw new Error('LOCAL_STACK_SLOT must be 0, 1, 2 or 3');
+    return Number(env.LOCAL_STACK_SLOT);
+  }
+  return slotClaims(home).find((c) => c.claim?.repo === CHECKOUT)?.slot ?? 0;
 }
 // The stack's one table of ports, before the slot's shift. Every script and journey reads a port from here.
 const BASE_PORTS = {
