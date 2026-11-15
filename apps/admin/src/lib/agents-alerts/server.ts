@@ -1,5 +1,12 @@
 import 'server-only';
-import { founderCall, type FounderCallContext } from '@/lib/desk/founder-call';
+import {
+  agentAlertDeskSchema,
+  agentAlertEvaluationSchema,
+  agentAlertRuleSchema,
+  agentPolicySchema,
+  agentRuleCheckSchema,
+} from '@intafaced/contracts/agents-alerts';
+import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
 import { refusalOf } from '@/lib/agents-log/server';
 import type { AlertsAction } from './model';
 
@@ -9,28 +16,21 @@ import type { AlertsAction } from './model';
  * environment's overrides. Nothing is cached or kept here.
  */
 
-type Json = Record<string, unknown>;
-const isObject = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v);
-const parseObject = (raw: unknown): Json | null => (isObject(raw) ? raw : null);
-const parseDesk = (raw: unknown): Json | null => (isObject(raw) && Array.isArray(raw.rules) && Array.isArray(raw.alerts) ? raw : null);
-const parsePolicy = (raw: unknown): Json | null => (isObject(raw) && Array.isArray(raw.classes) ? raw : null);
-const parseWindows = (raw: unknown): Json | null => (isObject(raw) && Array.isArray(raw.windows) ? raw : null);
-
 export type AlertsAnswer =
   { readonly kind: 'ok'; readonly data: unknown } | { readonly kind: 'refused'; readonly code: string; readonly status: number };
 
 export async function runAlerts(ctx: FounderCallContext, action: AlertsAction): Promise<AlertsAnswer> {
-  const answer = async (call: ReturnType<typeof founderCall<Json>>): Promise<AlertsAnswer> => {
+  const answer = async <T>(call: Promise<FounderCallResult<T>>): Promise<AlertsAnswer> => {
     const result = await call;
     return result.kind === 'ok' ? { kind: 'ok', data: result.data } : refusalOf(result);
   };
   switch (action.action) {
     case 'desk':
-      return answer(founderCall(ctx, 'agents', 'opsAlerts.desk', 'GET', undefined, parseDesk));
+      return answer(founderCall(ctx, 'agents', 'opsAlerts.desk', 'GET', undefined, parseWith(agentAlertDeskSchema)));
     case 'policy':
-      return answer(founderCall(ctx, 'agents', 'opsAlerts.policy', 'GET', undefined, parsePolicy));
+      return answer(founderCall(ctx, 'agents', 'opsAlerts.policy', 'GET', undefined, parseWith(agentPolicySchema)));
     case 'evaluate':
-      return answer(founderCall(ctx, 'agents', 'opsAlerts.evaluate', 'POST', undefined, parseWindows));
+      return answer(founderCall(ctx, 'agents', 'opsAlerts.evaluate', 'POST', undefined, parseWith(agentAlertEvaluationSchema)));
     case 'createRule':
       return answer(
         founderCall(
@@ -45,16 +45,30 @@ export async function runAlerts(ctx: FounderCallContext, action: AlertsAction): 
             ...(action.threshold !== null ? { threshold: action.threshold } : {}),
             ...(action.agentId !== null ? { agentId: action.agentId } : {}),
           },
-          parseObject,
+          parseWith(agentAlertRuleSchema),
         ),
       );
     case 'setOverride':
       return answer(
-        founderCall(ctx, 'agents', 'opsAlerts.setOverride', 'POST', { dataClass: action.dataClass, choice: action.choice }, parsePolicy),
+        founderCall(
+          ctx,
+          'agents',
+          'opsAlerts.setOverride',
+          'POST',
+          { dataClass: action.dataClass, choice: action.choice },
+          parseWith(agentPolicySchema),
+        ),
       );
     case 'checkRule':
       return answer(
-        founderCall(ctx, 'agents', 'opsAlerts.checkRule', 'POST', { dataClass: action.dataClass, choice: action.choice }, parseObject),
+        founderCall(
+          ctx,
+          'agents',
+          'opsAlerts.checkRule',
+          'POST',
+          { dataClass: action.dataClass, choice: action.choice },
+          parseWith(agentRuleCheckSchema),
+        ),
       );
   }
 }

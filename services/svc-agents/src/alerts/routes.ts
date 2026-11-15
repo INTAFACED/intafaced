@@ -7,6 +7,19 @@ import {
   type OwnAgentDataClass,
   type OwnAgentRuleChoice,
 } from '@intafaced/contracts/agents-own';
+import {
+  AGENT_ALERT_MEASURES,
+  agentAlertDeskSchema,
+  agentAlertEvaluationSchema,
+  agentAlertRuleSchema,
+  agentPolicySchema,
+  agentRuleCheckSchema,
+  type AgentAlert,
+  type AgentAlertMeasure,
+  type AgentAlertRule,
+  type AgentAlertWindow,
+  type AgentPolicy,
+} from '@intafaced/contracts/agents-alerts';
 import { stricter, type PolicyBaseline } from '../own/guardrails.js';
 import { PolicyOverrideStore } from '../own/overrides.js';
 
@@ -28,8 +41,8 @@ import { PolicyOverrideStore } from '../own/overrides.js';
  * Nothing here moves value.
  */
 
-export const ALERT_MEASURES = ['refusal_rate', 'failure_rate', 'cost'] as const;
-export type AlertMeasure = (typeof ALERT_MEASURES)[number];
+export const ALERT_MEASURES = AGENT_ALERT_MEASURES;
+export type AlertMeasure = AgentAlertMeasure;
 
 export type AlertRefusalCode =
   | 'agents.alert_threshold_required'
@@ -99,44 +112,8 @@ export function parseThreshold(measure: AlertMeasure, raw: string | undefined): 
   return text;
 }
 
-const ruleView = z.object({
-  id: z.string(),
-  name: z.string(),
-  measure: z.enum(ALERT_MEASURES),
-  threshold: z.string(),
-  windowMinutes: z.number().int(),
-  agentId: z.string().nullable(),
-  createdBy: z.string(),
-  createdAt: z.string(),
-});
-type RuleView = z.infer<typeof ruleView>;
-
-const alertView = z.object({
-  id: z.string(),
-  ruleId: z.string(),
-  ruleName: z.string(),
-  measure: z.enum(ALERT_MEASURES),
-  windowStart: z.string(),
-  windowEnd: z.string(),
-  actionRows: z.number().int(),
-  value: z.string(),
-  threshold: z.string(),
-  delivery: z.enum(['pending', 'sent']),
-  createdAt: z.string(),
-});
-
-const windowView = z.object({
-  ruleId: z.string(),
-  windowStart: z.string(),
-  windowEnd: z.string(),
-  actionRows: z.number().int(),
-  /** Null when the window has no actions: there is no rate to show. */
-  value: z.string().nullable(),
-  breached: z.boolean(),
-  /** True only for the evaluation that wrote the window's alert; a later one finds it already kept. */
-  alertWritten: z.boolean(),
-});
-type WindowView = z.infer<typeof windowView>;
+type RuleView = AgentAlertRule;
+type WindowView = AgentAlertWindow;
 
 interface RuleRow {
   id: string;
@@ -169,7 +146,7 @@ async function readRules(sql: Sql): Promise<RuleView[]> {
 /** Most alerts one read lists, newest first. Not an owner value: a bound on one desk read. */
 export const ALERTS_LISTED = 200;
 
-async function readAlerts(sql: Sql): Promise<z.infer<typeof alertView>[]> {
+async function readAlerts(sql: Sql): Promise<AgentAlert[]> {
   const rows = await sql<
     {
       id: string;
@@ -299,20 +276,7 @@ export function checkChoice(
   return effective;
 }
 
-const policyView = z.object({
-  classes: z.array(
-    z.object({
-      dataClass: z.enum(OWN_AGENT_DATA_CLASSES),
-      baseline: z.enum(OWN_AGENT_RULE_CHOICES).nullable(),
-      override: z.enum(OWN_AGENT_RULE_CHOICES).nullable(),
-      overrideSetBy: z.string().nullable(),
-      overrideSetAt: z.string().nullable(),
-      effective: z.enum(OWN_AGENT_RULE_CHOICES).nullable(),
-    }),
-  ),
-});
-
-async function readPolicy(sql: Sql, baseline: PolicyBaseline): Promise<z.infer<typeof policyView>> {
+async function readPolicy(sql: Sql, baseline: PolicyBaseline): Promise<AgentPolicy> {
   const overrides = await new PolicyOverrideStore(sql).list();
   return {
     classes: OWN_AGENT_DATA_CLASSES.map((dataClass) => {
@@ -341,7 +305,7 @@ export function alertsRouter(sql: Sql | undefined, baseline: PolicyBaseline) {
   return router({
     /** The stored rules, oldest first, and the newest alerts with their delivery state. */
     desk: operator('admin:read')
-      .output(z.object({ rules: z.array(ruleView), alerts: z.array(alertView), alertsListed: z.number().int() }))
+      .output(agentAlertDeskSchema)
       .query(() =>
         guard(async () => {
           const db = sqlOf(sql);
@@ -360,7 +324,7 @@ export function alertsRouter(sql: Sql | undefined, baseline: PolicyBaseline) {
           agentId: z.string().trim().min(1).max(120).optional(),
         }),
       )
-      .output(ruleView)
+      .output(agentAlertRuleSchema)
       .mutation(({ ctx, input }) =>
         guard(async () => {
           const threshold = parseThreshold(input.measure, input.threshold);
@@ -378,18 +342,18 @@ export function alertsRouter(sql: Sql | undefined, baseline: PolicyBaseline) {
 
     /** Runs the evaluator now over every rule's current and previous window, and says what each window came to. */
     evaluate: operator('admin:write')
-      .output(z.object({ windows: z.array(windowView) }))
+      .output(agentAlertEvaluationSchema)
       .mutation(() => guard(async () => ({ windows: await evaluateAlertRules(sqlOf(sql)) }))),
 
     /** The owner's managed baseline per class, this environment's override, and the stricter of the two. */
     policy: operator('admin:read')
-      .output(policyView)
+      .output(agentPolicySchema)
       .query(() => guard(async () => readPolicy(sqlOf(sql), baseline))),
 
     /** Sets this environment's override for one class. One looser than the baseline is refused and nothing is stored. */
     setOverride: operator('admin:write')
       .input(z.object({ dataClass: z.enum(OWN_AGENT_DATA_CLASSES), choice: z.enum(OWN_AGENT_RULE_CHOICES) }))
-      .output(policyView)
+      .output(agentPolicySchema)
       .mutation(({ ctx, input }) =>
         guard(async () => {
           const db = sqlOf(sql);
@@ -405,7 +369,7 @@ export function alertsRouter(sql: Sql | undefined, baseline: PolicyBaseline) {
     /** Checks a person's standing rule against the baseline and this environment's override. Stores nothing. */
     checkRule: operator('admin:read')
       .input(z.object({ dataClass: z.enum(OWN_AGENT_DATA_CLASSES), choice: z.enum(OWN_AGENT_RULE_CHOICES) }))
-      .output(z.object({ verdict: z.literal('allowed'), effective: z.enum(OWN_AGENT_RULE_CHOICES) }))
+      .output(agentRuleCheckSchema)
       .mutation(({ input }) =>
         guard(async () => {
           const override = await new PolicyOverrideStore(sqlOf(sql)).forClass(input.dataClass);
