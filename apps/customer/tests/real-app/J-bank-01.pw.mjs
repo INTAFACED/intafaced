@@ -103,11 +103,9 @@ async function withBankValueBlank(key, who, fn) {
   };
   restart('off');
   try {
-    await atPartner(who);
     return await fn();
   } finally {
     restart(undefined);
-    await atPartner(who);
   }
 }
 const named = (rows, name) => rows.find((s) => s.kind === 'named' && s.name === name);
