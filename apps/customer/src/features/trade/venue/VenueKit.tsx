@@ -292,6 +292,7 @@ export type RunAction = (
 /** The business key the door stores an intent under (user-venue-door.ts `businessKey`). */
 function keyOf(intent: VenueIntent, actionKey: string | undefined): string {
   if (intent.kind === 'place_order') return intent.clientOrderKey;
+  if (intent.kind === 'place_orders') return intent.actionKey;
   if (intent.kind === 'withdraw') return intent.withdrawalKey;
   if (intent.kind === 'cancel_order') return actionKey ?? keys.cancel(intent.clientOrderKey);
   if (intent.kind === 'market_margin_transfer') return intent.moveKey;

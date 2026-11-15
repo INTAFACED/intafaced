@@ -6,11 +6,14 @@ import {
   assertSignatureMatches,
   assertSignerMaySign,
   venueClientOrderId,
+  ordersTakenTogether,
   type AsOf,
   type MaybeKnown,
   type VenueBuilderTotals,
   type UserVenueBuilderClaim,
   type PlaceUserOrderIntent,
+  type PlaceUserOrdersIntent,
+  type VenueLegOutcome,
   type PreparedVenueAction,
   type UserVenue,
   type UserVenueAccount,
@@ -273,6 +276,11 @@ export interface SimOptions {
   readonly switches?: Partial<SimSwitches>;
   /** The EIP-712 domain's chain id (signing.ts). Default `TEST_VENUE_CHAIN_ID`. */
   readonly chainId?: number;
+  /**
+   * The most orders this TEST venue takes in one signed action (`place_orders`), as its descriptor declares it. Default:
+   * none declared, so it takes one order per signature.
+   */
+  readonly ordersPerAction?: number;
 }
 
 interface AccountState {
@@ -424,6 +432,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       agentValidityMaxMs: TEST_VENUE_AGENT_VALIDITY_MAX_MS,
       // An agent approved on a sub-account is live only in that account's state (`agentLive`), so it trades nothing else.
       agentPermissionReach: 'own_account_only',
+      ...(options.ordersPerAction !== undefined ? { ordersPerAction: options.ordersPerAction } : {}),
     };
     this.clock = options.clock;
     this.chainId = testVenueDomain(options.chainId ?? TEST_VENUE_CHAIN_ID).chainId;
@@ -1114,6 +1123,26 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     // `not_offered` below whatever its state, so it keeps that one answer.
     if (account.subAccount !== null && intent.kind !== 'withdraw') this.subAccountOf(account.owner, account.subAccount);
     switch (intent.kind) {
+      case 'place_orders': {
+        const most = ordersTakenTogether(this.venue);
+        if (most < 2)
+          refuse(this.venue.id, 'not_offered', `${this.venue.displayName} takes one order per signature: sign each order on its own`);
+        if (!Array.isArray(intent.orders) || intent.orders.length < 2)
+          refuse(this.venue.id, 'venue_rejected', 'orders signed together are at least two');
+        if (intent.orders.length > most)
+          refuse(this.venue.id, 'not_offered', `${this.venue.displayName} takes at most ${most} orders in one signed action`);
+        const keys = new Set(intent.orders.map((o) => o.clientOrderKey));
+        if (keys.size !== intent.orders.length)
+          refuse(this.venue.id, 'venue_rejected', 'each order signed together has its own client order key');
+        for (const order of intent.orders) {
+          if (order?.kind !== 'place_order') refuse(this.venue.id, 'venue_rejected', 'only orders are signed together');
+          // A trigger order rests unseen; one attached to an entry is armed by that entry: neither is sent in a batch here.
+          if (order.trigger || order.parentClientOrderKey) refuse(this.venue.id, 'not_offered', 'a trigger order is signed on its own');
+          // Each order's own checks, so the wallet is never asked to sign an order that must fail on its face.
+          this.validate(account, signer, order);
+        }
+        return;
+      }
       case 'place_order': {
         this.checkOrderOnItsFace(state, intent);
         venueClientOrderId(this.venue.id, intent.clientOrderKey); // refuses a key that is not a business key
@@ -1277,11 +1306,21 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     // A fill moves the mark and the last price: any trigger order they now cross fires before the answer goes back.
     this.runTriggers();
     this.assertNoNegativeBalance();
-    if (prepared.intent.kind === 'place_order' && outcome.definite && outcome.accepted && recovered) {
+    const placedKeys =
+      prepared.intent.kind === 'place_order'
+        ? outcome.definite && outcome.accepted
+          ? [prepared.intent.clientOrderKey]
+          : []
+        : prepared.intent.kind === 'place_orders' && outcome.definite && outcome.accepted
+          ? prepared.intent.orders.filter((_, i) => outcome.legs?.[i]?.accepted).map((o) => o.clientOrderKey)
+          : [];
+    if (placedKeys.length > 0 && recovered) {
       const signers = this.orderSigners.get(key) ?? new Map<string, VenueSigner>();
       this.orderSigners.set(key, signers);
-      const cloid = venueClientOrderId(this.venue.id, prepared.intent.clientOrderKey);
-      if (!signers.has(cloid)) signers.set(cloid, { role: prepared.signer.role, address: recovered });
+      for (const clientOrderKey of placedKeys) {
+        const cloid = venueClientOrderId(this.venue.id, clientOrderKey);
+        if (!signers.has(cloid)) signers.set(cloid, { role: prepared.signer.role, address: recovered });
+      }
     }
     byNonce.set(prepared.nonce, { digest, outcome });
     if (this.switches.loseAnswers > 0) {
@@ -1715,6 +1754,37 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       refuse(this.venue.id, 'not_offered', 'a triggered limit order rests GTC on this venue');
   }
 
+  /**
+   * Orders signed together, applied one after the other in the order sent, each as if it were signed alone (every check
+   * on the signed fields runs again for each), and each answered on its own: one refused does not undo the one before.
+   */
+  private applyTogether(prepared: PreparedVenueAction, intent: PlaceUserOrdersIntent): VenueSubmitOutcome {
+    const now = this.clock();
+    try {
+      assertSignerMaySign(prepared.account, prepared.signer, intent);
+      this.validate(prepared.account, prepared.signer, intent);
+    } catch (error) {
+      if (error instanceof VenueRefusalError) {
+        return {
+          definite: true,
+          accepted: false,
+          refusal: { venueId: this.venue.id, code: error.refusal.code, detail: error.refusal.detail },
+          asOf: now,
+        };
+      }
+      throw error;
+    }
+    const legs: VenueLegOutcome[] = [];
+    for (const order of intent.orders) {
+      const leg = this.apply({ ...prepared, intent: order, venueClientOrderId: venueClientOrderId(this.venue.id, order.clientOrderKey) });
+      // An order is placed inside the action, so a fill it makes may fire a trigger order before the next is placed.
+      this.runTriggers();
+      if (!leg.definite) throw new Error('a TEST venue order answers definitely');
+      legs.push(leg);
+    }
+    return { definite: true, accepted: true, venueRef: null, order: null, legs, asOf: now };
+  }
+
   private checkLeverageOnItsFace(symbol: string, leverageBps: number, marginMode: VenueMarginMode): SimMarketConfig {
     const market = this.market(symbol);
     if (market.kind !== 'perpetual') refuse(this.venue.id, 'not_offered', `${symbol} is cash spot: no leverage or margin mode`);
@@ -1728,6 +1798,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   }
 
   private apply(prepared: PreparedVenueAction): VenueSubmitOutcome {
+    if (prepared.intent.kind === 'place_orders') return this.applyTogether(prepared, prepared.intent);
     const state = this.account(prepared.account);
     const intent = prepared.intent;
     const now = this.clock();

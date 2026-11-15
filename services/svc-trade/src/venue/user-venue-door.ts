@@ -13,6 +13,9 @@ import {
   isTestVenue,
   refuseTestVenueOutsideTest,
   type PlaceUserOrderIntent,
+  type PlaceUserOrdersIntent,
+  venueClientOrderId,
+  ordersTakenTogether,
   type PreparedVenueAction,
   type UserVenue,
   type UserVenueAccount,
@@ -77,7 +80,7 @@ export function assertInteractive(principal: Principal, kind: VenueIntent['kind'
  * grants stay open below it: they only reduce what is on the venue, so a held account never strands its own funds there.
  */
 export function assertTradingLevel(principal: Principal, kind: VenueIntent['kind']): void {
-  if (kind === 'place_order' || kind === 'amend_order') requireTradeTier(principal, 'basic');
+  if (kind === 'place_order' || kind === 'place_orders' || kind === 'amend_order') requireTradeTier(principal, 'basic');
 }
 
 /**
@@ -179,6 +182,7 @@ export type UserVenueDoorCode =
   | 'trade.user_venue_off'
   | 'trade.venue.withdraw_own_wallet_only'
   | 'trade.venue_request_invalid'
+  | 'trade.venue_together_owner_only'
   | 'trade.venue_action_key_invalid'
   | 'idempotency.conflict'
   | 'idempotency.in_progress'
@@ -473,7 +477,9 @@ export interface SubmitAnswer {
   readonly actionKey: string;
   readonly outcome: VenueSubmitOutcome;
   /** Where to read the action back when `outcome.definite` is false. */
-  readonly readBack: { readonly venueClientOrderId: string } | { readonly nonce: string } | null;
+  /** Orders signed together are read back each by its own client id (`venueClientOrderIds`, in the order sent). */
+  readonly readBack:
+    { readonly venueClientOrderId: string } | { readonly venueClientOrderIds: readonly string[] } | { readonly nonce: string } | null;
   /** True when this is the stored answer of an earlier send: nothing was sent again. */
   readonly replayed: boolean;
 }
@@ -501,6 +507,46 @@ function assertPlaceIntent(intent: PlaceUserOrderIntent): void {
   if (!TIMES_IN_FORCE.has(i.timeInForce)) invalid('timeInForce must be GTC, IOC or ALO');
   if (typeof i.reduceOnly !== 'boolean') invalid('reduceOnly must be true or false');
   if (typeof i.clientOrderKey !== 'string') invalid('clientOrderKey must be the business key of this order');
+}
+
+/**
+ * Orders signed together (`place_orders`, J-derivatives-03 #9): at least two orders, each checked as an order alone, each
+ * under a key of the action's own (`<actionKey>:<part>`) so a retry of the action is a retry of each order, and signed by
+ * the owner's wallet only. An agent key's orders are counted one at a time against the person's cap (agent-cap.ts), so
+ * an agent never signs them together.
+ */
+function assertTogetherIntent(intent: PlaceUserOrdersIntent, signer: { role?: unknown }): void {
+  const orders = (intent as { orders?: unknown }).orders;
+  if (!Array.isArray(orders) || orders.length < 2) invalid('orders signed together are a list of at least two orders');
+  if (typeof intent.actionKey !== 'string') invalid('actionKey must be the business key of the orders signed together');
+  const keys = new Set<string>();
+  for (const order of orders as PlaceUserOrderIntent[]) {
+    if (!order || typeof order !== 'object' || order.kind !== 'place_order') invalid('each order signed together is a place_order');
+    assertPlaceIntent(order);
+    if (!order.clientOrderKey.startsWith(`${intent.actionKey}:`) || order.clientOrderKey.length <= intent.actionKey.length + 1)
+      invalid(`each order signed together is keyed under the action's own key, ${intent.actionKey}:<part>`);
+    keys.add(order.clientOrderKey);
+  }
+  if (keys.size !== orders.length) invalid('each order signed together has its own key');
+  if (signer.role !== 'owner') {
+    throw new UserVenueDoorError(
+      "orders signed together are signed by the account owner's wallet; an agent key signs each order on its own, under its cap",
+      'trade.venue_together_owner_only',
+      403,
+    );
+  }
+}
+
+/** `fn` over the order an intent places, or over each order it signs together; any other intent as it is. */
+async function eachOrder(
+  intent: VenueIntent,
+  fn: (order: PlaceUserOrderIntent) => Promise<PlaceUserOrderIntent | void>,
+): Promise<VenueIntent> {
+  if (intent.kind === 'place_order') return (await fn(intent)) ?? intent;
+  if (intent.kind !== 'place_orders') return intent;
+  const orders: PlaceUserOrderIntent[] = [];
+  for (const order of intent.orders) orders.push((await fn(order)) ?? order);
+  return { ...intent, orders };
 }
 
 /** The wire form with every object's keys sorted: jsonb does not keep key order, so equality never depends on it. */
@@ -580,6 +626,8 @@ export class UserVenueDoor {
       enabled: true,
       available: true,
       venue: { id: venue.venue.id, displayName: venue.venue.displayName, proofLevel: venue.venue.proofLevel },
+      // How many orders the venue takes in one signed action (J-derivatives-03 #9): above 1, a reverse is signed once.
+      ordersPerAction: ordersTakenTogether(venue.venue),
       test,
       ...(test ? { label: 'TEST' } : {}),
       chainId: venue.chainId ?? null,
@@ -905,6 +953,7 @@ export class UserVenueDoor {
   private businessKey(intent: VenueIntent, actionKey: string | null | undefined): string {
     let key: string | null | undefined;
     if (intent.kind === 'place_order') key = intent.clientOrderKey;
+    else if (intent.kind === 'place_orders') key = intent.actionKey;
     else if (intent.kind === 'withdraw') key = intent.withdrawalKey;
     else if (intent.kind === 'cancel_order') key = actionKey ?? `cancel:${intent.clientOrderKey}`;
     else if (intent.kind === 'sub_account_transfer' || intent.kind === 'market_margin_transfer') key = intent.moveKey;
@@ -945,6 +994,7 @@ export class UserVenueDoor {
     assertTradingLevel(principal, intent.kind);
     assertOwnWalletWithdrawal(principal, req.owner, intent);
     if (intent.kind === 'place_order') assertPlaceIntent(intent);
+    if (intent.kind === 'place_orders') assertTogetherIntent(intent, req.signer);
     const key = this.businessKey(intent, req.actionKey);
     assertDoorMay(intent.kind, caller, key);
     assertLiveRunKey(key, caller);
@@ -1021,7 +1071,7 @@ export class UserVenueDoor {
     const account = await this.account(req.owner, req.subAccount);
     const signer: VenueSigner = { role: req.signer.role, address: req.signer.address.toLowerCase() };
     let finalIntent: VenueIntent = intent;
-    if (intent.kind === 'place_order') finalIntent = await this.withBuilderFee(venue, intent);
+    finalIntent = await eachOrder(finalIntent, (order) => this.withBuilderFee(venue, order));
     if (intent.kind === 'approve_builder_fee') {
       const builder = this.builderAddress();
       if (!builder) {
@@ -1037,20 +1087,26 @@ export class UserVenueDoor {
     const existing = await this.deps.store.find(principal.userId, key);
     if (existing) {
       // A stored order is repriced with the coupon use it already took, never a new one.
-      if (finalIntent.kind === 'place_order') finalIntent = (await this.withFeeDiscount(principal, finalIntent, key, 'read')).intent;
+      finalIntent = await eachOrder(
+        finalIntent,
+        async (order) => (await this.withFeeDiscount(principal, order, order.clientOrderKey, 'read')).intent,
+      );
       return this.reuse(existing, account, signer, finalIntent);
     }
     if (finalIntent.kind === 'sub_account_transfer' && key.startsWith(OWN_MOVE_PREFIX)) {
       await this.assertOwnSubAccount(principal, venue, account, finalIntent.subAccount);
     }
-    if (finalIntent.kind === 'place_order') await this.admitPlace(venue.venue.id, finalIntent);
+    finalIntent = await eachOrder(finalIntent, (order) => this.admitPlace(venue.venue.id, order));
 
     // A new market order is bounded before the venue is asked to prepare it. A stored one was bounded when it was
     // prepared, and its retry returns those same bytes, so a moved book never changes the intent sent for a key.
-    if (finalIntent.kind === 'place_order' && !opts.ownWorstPrice) await this.assertMarketProtection(venue, finalIntent);
+    if (!opts.ownWorstPrice) finalIntent = await eachOrder(finalIntent, (order) => this.assertMarketProtection(venue, order));
     // Only an order every check admitted takes a coupon. It keeps the builder fee it is signed with: a coupon used up
     // later never reprices it (J-campaigns-09 #3).
-    if (finalIntent.kind === 'place_order') finalIntent = (await this.withFeeDiscount(principal, finalIntent, key, 'take')).intent;
+    finalIntent = await eachOrder(
+      finalIntent,
+      async (order) => (await this.withFeeDiscount(principal, order, order.clientOrderKey, 'take')).intent,
+    );
 
     const prepared = await venue.prepare(account, signer, finalIntent);
     const stored = await this.deps.store.insertOnce(principal.userId, key, prepared, this.deps.now());
@@ -1222,15 +1278,21 @@ export class UserVenueDoor {
   ): Promise<Omit<SubmitAnswer, 'replayed'>> {
     let signed = row;
     // An order never sent yet is checked again: a stop or limit approved since it was prepared applies to it.
-    if (!row.signature && row.prepared.intent.kind === 'place_order') await this.admitPlace(row.prepared.venueId, row.prepared.intent);
+    if (!row.signature) await eachOrder(row.prepared.intent, (order) => this.admitPlace(row.prepared.venueId, order));
     if (!row.signature) {
       assertSignatureMatches(row.prepared, signature);
       await assertSignatureRecovers(row.prepared, signature);
       signed = await this.deps.store.signOnce(principal.userId, key, signature, this.deps.now());
     }
     const p = signed.prepared;
-    const readBackOf = (o: VenueSubmitOutcome) =>
-      o.definite ? null : p.venueClientOrderId ? { venueClientOrderId: p.venueClientOrderId } : { nonce: p.nonce };
+    const readBackOf = (o: VenueSubmitOutcome): SubmitAnswer['readBack'] =>
+      o.definite
+        ? null
+        : p.intent.kind === 'place_orders'
+          ? { venueClientOrderIds: p.intent.orders.map((order) => venueClientOrderId(p.venueId, order.clientOrderKey)) }
+          : p.venueClientOrderId
+            ? { venueClientOrderId: p.venueClientOrderId }
+            : { nonce: p.nonce };
     let answered: VenueSubmitOutcome;
     try {
       const venue = await this.venue();

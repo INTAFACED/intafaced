@@ -292,8 +292,25 @@ export interface MarketMarginTransferIntent {
   readonly moveKey: string;
 }
 
+/**
+ * Several orders the venue takes in one signed action, applied in the order given (Hyperliquid: one `order` action with
+ * several `orders`, grouping `na`, read 2026-11-15): the wallet signs once, and each order keeps its own client order key,
+ * so each is placed at most once and read back by its own client id. Offered only on a venue whose descriptor declares
+ * `ordersPerAction` of at least the number of orders (`ordersTakenTogether`); elsewhere each order is signed on its own.
+ * J-derivatives-03 #9's one-tap reverse sends its close and its open this way. The venue answers each order apart
+ * (`legs` on the accepted outcome): one refused does not undo the other.
+ */
+export interface PlaceUserOrdersIntent {
+  readonly kind: 'place_orders';
+  /** At least two, each an ordinary order with its own business key. */
+  readonly orders: readonly PlaceUserOrderIntent[];
+  /** The business key of the whole action (e.g. `reverse:<owner>:<draft>`), never a random id: a retry re-sends the same bytes. */
+  readonly actionKey: string;
+}
+
 export type VenueIntent =
   | PlaceUserOrderIntent
+  | PlaceUserOrdersIntent
   | UpdateLeverageIntent
   | AmendUserOrderIntent
   | CancelUserOrderIntent
@@ -386,6 +403,11 @@ export type VenueSubmitOutcome =
       readonly accepted: true;
       readonly venueRef: string | null;
       readonly order: UserVenueOrder | null;
+      /**
+       * A `place_orders` action only: the venue's own answer for each of its orders, in the order sent. The action is
+       * accepted when the venue took the signed action; each order may still be refused on its own.
+       */
+      readonly legs?: readonly VenueLegOutcome[];
       readonly asOf: Date;
     }
   | {
@@ -404,6 +426,9 @@ export type VenueSubmitOutcome =
        */
       readonly reason: 'timeout' | 'connection_lost' | 'venue_error_after_send' | 'already_submitted';
     };
+
+/** The venue's definite answer for one order of a `place_orders` action. */
+export type VenueLegOutcome = Extract<VenueSubmitOutcome, { definite: true }>;
 
 /** True when the caller must read back before anything else: the answer is not definite. */
 export function needsReadBack(outcome: VenueSubmitOutcome): outcome is Extract<VenueSubmitOutcome, { definite: false }> {
@@ -1160,6 +1185,17 @@ export interface UserVenueDescriptor extends VenueDescriptor {
    * declares none is read as `owner_accounts` (`agentPermissionReach`): a limit nobody declared is never promised.
    */
   readonly agentPermissionReach?: AgentPermissionReach;
+  /**
+   * The most orders this venue takes in one signed action (`place_orders`). A venue that declares none takes one order
+   * per signature (`ordersTakenTogether` reads it as 1), so a close and an open are each signed.
+   */
+  readonly ordersPerAction?: number;
+}
+
+/** The most orders the venue takes in one signed action; 1 when it declares none. */
+export function ordersTakenTogether(venue: Pick<UserVenueDescriptor, 'ordersPerAction'>): number {
+  const n = venue.ordersPerAction;
+  return typeof n === 'number' && Number.isSafeInteger(n) && n > 1 ? n : 1;
 }
 
 export type AgentPermissionReach = 'own_account_only' | 'owner_accounts';

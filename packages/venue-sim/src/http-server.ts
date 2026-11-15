@@ -953,6 +953,8 @@ export interface StartTestVenueOptions {
   /** The venue's id and name, so a stack can run two TEST venues side by side (J-derivatives-28). Defaults: the simulator's. */
   readonly id?: string;
   readonly displayName?: string;
+  /** The most orders it takes in one signed action (`place_orders`); default one per signature. */
+  readonly ordersPerAction?: number;
   /** The deposit route `GET /venue` names (the TEST chain's watcher is started by the caller, chain-deposits.ts). */
   readonly deposit?: UserVenueDepositRoute | null;
 }
@@ -970,6 +972,7 @@ export async function startTestVenueServer(
     chainId: opts.chainId,
     ...(opts.id ? { id: opts.id } : {}),
     ...(opts.displayName ? { displayName: opts.displayName } : {}),
+    ...(opts.ordersPerAction !== undefined ? { ordersPerAction: opts.ordersPerAction } : {}),
   });
   refuseTestVenueOutsideTest(sim.venue, opts.appEnv);
   const server = http.createServer(testVenueHandler(sim, opts.deposit ?? null));
