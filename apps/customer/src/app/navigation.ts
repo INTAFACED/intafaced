@@ -273,6 +273,13 @@ export const rooms: readonly Room[] = [
     area: 'money',
   },
   {
+    path: '/bank/safety/lost-phone',
+    title: 'Lost phone or compromised account',
+    description: 'Secure the account, extra checks for large sends and your sign-in location',
+    door: 'Money',
+    area: 'money',
+  },
+  {
     path: '/bank/safety/bereavement',
     title: 'Report a death',
     description: 'Tell us that a customer has died',

@@ -22,6 +22,12 @@ import { addAuthenticator, nextCode } from './identity-factors.mjs';
 // transfer before it takes the report. The mule policy is the support profile's TEST wording (SUPPORT_MULE_POLICY), or
 // blank with `LOCAL_STACK_SUPPORT_MULE_POLICY=off`, put back in the same step.
 //
+// #4 (BK-safe-01): from the bank, the lost-phone page. Its ordered steps open Security's compromised-account path; the
+// step-up extras take at least the owner's number of checks (the identity profile's TEST 2, IDENTITY_EXTRA_CONTROLS_MIN,
+// or blank with `LOCAL_STACK_IDENTITY_EXTRA_CONTROLS_MIN=off`) and the person's password, and the bank holds a send above
+// the allowance; the location signal keeps a sign-in's region only under the consent. The sign-in comes from the TEST
+// region AA (`LOCAL_STACK_TEST_REGION_SERVED=off` on the edge alone), since the stack's edge otherwise resolves none.
+//
 // #5 and #6 (BK-safe-03): a complaint and a bereavement report, each a request on the support desk with one
 // acknowledgement. The stack publishes a TEST final-response limit of 14 calendar days (SUPPORT_COMPLAINT_RESPONSE_DAYS
 // in tooling/profiles/test-owner-values/support.json); production stays blank and every deadline reads "not set"
@@ -337,6 +343,140 @@ test(`${J} #3 reports a scam with an amount and a transfer id: a ticket in the s
   }
   await page.reload();
   await expect(policy.getByTestId('mule-policy__text')).toBeVisible();
+  await page.context().close();
+});
+
+test(`${J} #4 reports a lost phone or a compromised account from the bank: step-up extras and a location signal; the compromised-account path of Security opens`, async ({
+  browser,
+}) => {
+  test.setTimeout(420_000);
+  // The person they would send money to, on a device of their own.
+  const other = await visitor(browser);
+  const payee = await signUp(other, 'jb18q');
+  await verify(other, payee);
+  const payeeApi = await api(payee);
+  await other.context().close();
+
+  const page = await visitor(browser);
+  const who = await signUp(page, 'jb18p');
+  await verify(page, who);
+  expect(fund(who.email, 'USDT', '20').tx).toBeTruthy();
+  await signIn(page, who);
+
+  // From the bank: the lost-phone and compromised-account page.
+  await page.goto('/bank');
+  await page
+    .locator('main')
+    .getByRole('link', { name: /Lost phone or compromised account/ })
+    .click();
+  await expect(page).toHaveURL(/\/bank\/safety\/lost-phone$/);
+  const main = page.locator('main');
+  const steps = main.getByTestId('lost-phone__steps');
+  await expect(steps.getByRole('listitem')).toHaveCount(4);
+  await expect(steps.getByRole('link', { name: 'My account is compromised' })).toHaveAttribute('href', '/uc/safe/compromised');
+  await expect(steps.getByRole('link', { name: 'Open cards' })).toHaveAttribute('href', '/bank/cards');
+
+  // Step-up extras: the owner's TEST least number of checks (two), and nothing set yet.
+  const extras = main.getByTestId('lost-phone__extras');
+  await expect(extras.getByTestId('lost-phone__extras-minimum')).toHaveText('Choose at least 2 checks.');
+  await expect(extras.getByTestId('lost-phone__extras-state')).toHaveText('No extra checks are set.');
+  const form = extras.getByRole('form', { name: 'Extra checks for large sends' });
+  const save = async (checks, password) => {
+    for (const box of await form.getByRole('checkbox').all()) await box.uncheck();
+    for (const name of checks) await form.getByLabel(name).check();
+    await form.getByLabel('Allowance').fill('5');
+    await form.getByLabel('In', { exact: true }).selectOption('USDT');
+    await form.getByLabel('Your password').fill(password);
+    await form.getByRole('button', { name: 'Save extra checks' }).click();
+  };
+  // One check is fewer than the owner's number: refused by its code, nothing set.
+  await save(['A trusted contact confirms'], who.password);
+  await expect(main).toContainText('identity.extra_controls_too_few');
+  await expect(extras.getByTestId('lost-phone__extras-state')).toHaveAttribute('data-status', 'off');
+  // Known locations needs the location signal first.
+  await save(['Known locations (needs location sharing)', 'A trusted contact confirms'], who.password);
+  await expect(main).toContainText('identity.location_consent_required');
+  await expect(extras.getByTestId('lost-phone__extras-state')).toHaveAttribute('data-status', 'off');
+
+  // The location signal: off keeps nothing; on, the next sign-in keeps the region the edge resolved for it.
+  const location = main.getByTestId('lost-phone__location');
+  await expect(location.getByTestId('lost-phone__location-off')).toHaveText('Off: no location is kept.');
+  await location.getByLabel('Share my sign-in location').check();
+  await expect(main.getByTestId('lost-phone__notice')).toHaveText('Location sharing is on.');
+  await expect(location.getByTestId('lost-phone__signals')).toContainText('No sign-in region is kept yet.');
+  try {
+    // A sign-in from the TEST region AA (only the edge is restarted; the bank still serves).
+    restartWithAll('edge', { LOCAL_STACK_TEST_REGION_SERVED: 'off' });
+    await api(who);
+  } finally {
+    restartWithAll('edge', { LOCAL_STACK_TEST_REGION_SERVED: undefined });
+  }
+  await page.reload();
+  await expect(location.getByTestId('lost-phone__signal')).toHaveCount(1, { timeout: 30_000 });
+  await expect(location.getByTestId('lost-phone__signal').first()).toHaveAttribute('data-region', 'AA');
+
+  // Two checks with the person's password: saved. A wrong password changes nothing.
+  await save(['Known locations (needs location sharing)', 'A trusted contact confirms'], `${who.password}-wrong`);
+  await expect(main).toContainText('auth.invalid_credentials');
+  await expect(extras.getByTestId('lost-phone__extras-state')).toHaveAttribute('data-status', 'off');
+  await save(['Known locations (needs location sharing)', 'A trusted contact confirms'], who.password);
+  await expect(main.getByTestId('lost-phone__notice')).toHaveText('Extra checks saved.');
+  await expect(extras.getByTestId('lost-phone__extras-state')).toHaveText('On: a send to another person above 5 USDT waits.');
+
+  // The bank holds a send above the allowance, with nothing moved; one at the allowance goes.
+  const bank = await api(who);
+  const primary = async () => {
+    const spaces = await bank.get(`/api/bank/trpc/spaces.list?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`);
+    expect(spaces.status, JSON.stringify(spaces.body).slice(0, 300)).toBe(200);
+    return spaces.body.result.data.find((x) => x.kind === 'primary' && x.assetId === 'USDT');
+  };
+  const from = await primary();
+  const before = from.balance;
+  const held = await bank.post('/api/bank/trpc/transfers.toUser', {
+    transferId: `jb18-extras-over-${RUN}`,
+    fromSpaceId: from.id,
+    toUserId: payeeApi.userId,
+    amount: '6',
+  });
+  expect(held.status, JSON.stringify(held.body).slice(0, 300)).toBe(412);
+  expect(JSON.stringify(held.body)).toContain('bank.extra_controls_pending');
+  expect((await primary()).balance).toBe(before);
+  const sent = await bank.post('/api/bank/trpc/transfers.toUser', {
+    transferId: `jb18-extras-under-${RUN}`,
+    fromSpaceId: from.id,
+    toUserId: payeeApi.userId,
+    amount: '5',
+  });
+  expect(sent.status, JSON.stringify(sent.body).slice(0, 300)).toBe(200);
+
+  // With the owner's number blank, as production is until it is set: the page says so and setting extras is refused.
+  try {
+    restartWithAll('identity', { LOCAL_STACK_IDENTITY_EXTRA_CONTROLS_MIN: 'off' });
+    await page.reload();
+    await expect(extras.getByTestId('lost-phone__extras-minimum')).toHaveAttribute('data-status', 'not_set', { timeout: 30_000 });
+    await expect(extras.getByTestId('lost-phone__extras-minimum')).toHaveText(
+      'The number of checks a large send needs is not set, so extra checks cannot be turned on yet.',
+    );
+    await save(['A secret QR code', 'A trusted contact confirms'], who.password);
+    await expect(main).toContainText('identity.extra_controls_unset');
+  } finally {
+    restartWithAll('identity', { LOCAL_STACK_IDENTITY_EXTRA_CONTROLS_MIN: undefined });
+  }
+
+  // Turning the location signal off deletes the kept regions.
+  await page.reload();
+  await location.getByLabel('Share my sign-in location').uncheck({ timeout: 30_000 });
+  await expect(main.getByTestId('lost-phone__notice')).toHaveText('Location sharing is off, and the kept regions were deleted.');
+  await expect(location.getByTestId('lost-phone__location-off')).toBeVisible();
+  const read = await (await api(who)).get('/api/identity/trpc/account.safety.read');
+  expect(read.status, JSON.stringify(read.body).slice(0, 300)).toBe(200);
+  expect(read.body.result.data.location).toMatchObject({ consent: false, signals: [] });
+
+  // The compromised-account path of Security opens from the bank.
+  await steps.getByRole('link', { name: 'My account is compromised' }).click();
+  await expect(page).toHaveURL(/\/uc\/safe\/compromised$/);
+  await expect(page.getByTestId('compromised__what')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Secure my account now' })).toBeVisible();
   await page.context().close();
 });
 

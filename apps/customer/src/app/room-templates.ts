@@ -86,6 +86,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/bank/recovery': { template: 'flow' },
   '/bank/safety/complaint': { template: 'flow', migrated: { file: 'features/money/complaint/ComplaintRoom.tsx' } },
   '/bank/safety/scam': { template: 'flow', migrated: { file: 'features/money/scam/ScamReportRoom.tsx' } },
+  '/bank/safety/lost-phone': { template: 'flow', migrated: { file: 'features/money/lost-phone/LostPhoneRoom.tsx' } },
   '/bank/safety/bereavement': { template: 'flow', migrated: { file: 'features/money/bereavement/BereavementRoom.tsx' } },
   '/bank/calendar': { template: 'monitor' },
   '/bank/statements': { template: 'flow' },

@@ -23,6 +23,7 @@ import {
 import { amountString, gateDestination, heldSendOutput, hideDestinationDetail, stepUpApprovalField } from './shared.js';
 import { heldRefusal, isHeldSend } from '../transfers/send-review.js';
 import { guard } from './errors.js';
+import { assertExtrasAllow } from '../safety/extra-controls.js';
 import type { BankRouterContext } from './context.js';
 
 export function createTransfersRouter(c: BankRouterContext) {
@@ -279,6 +280,15 @@ export function createTransfersRouter(c: BankRouterContext) {
           assertSelf(ctx.principal.userId, from.userId);
           const note = plainNote(input.note) ?? undefined;
           const reference = plainReference(input.reference) ?? undefined;
+          // The person's own extra checks hold a send above their allowance (BK-safe-01), before any step-up is spent.
+          if (c.options.extraControls) {
+            await assertExtrasAllow(c.options.extraControls, {
+              userId: ctx.principal.userId,
+              toUserId: input.toUserId,
+              assetId: from.assetId,
+              amount: parseAmount(input.amount),
+            });
+          }
           if (stepUpEnforced && input.toUserId !== ctx.principal.userId) {
             await requireStepUp(
               ctx.principal,

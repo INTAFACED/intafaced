@@ -219,6 +219,9 @@ const messages = {
   'Acknowledged once, with a reference and a response date': 'Acknowledged once, with a reference and a response date',
   'Report a death': 'Report a death',
   'Tell us that a customer has died': 'Tell us that a customer has died',
+  'Lost phone or compromised account': 'Lost phone or compromised account',
+  'Secure the account, extra checks for large sends and your sign-in location':
+    'Secure the account, extra checks for large sends and your sign-in location',
   'Report a scam': 'Report a scam',
   'Before or after sending money, with the transfer it went out on': 'Before or after sending money, with the transfer it went out on',
   'Money mule policy': 'Money mule policy',
@@ -727,6 +730,9 @@ export const navigationCopy: ReturnType<typeof defineCopy<typeof messages>> = de
     'Acknowledged once, with a reference and a response date': 'Con un acuse único, una referencia y una fecha de respuesta',
     'Report a death': 'Comunicar un fallecimiento',
     'Tell us that a customer has died': 'Avísanos de que un cliente ha fallecido',
+    'Lost phone or compromised account': 'Teléfono perdido o cuenta comprometida',
+    'Secure the account, extra checks for large sends and your sign-in location':
+      'Protege la cuenta, controles extra para envíos grandes y tu ubicación al entrar',
     'Report a scam': 'Denunciar una estafa',
     'Before or after sending money, with the transfer it went out on':
       'Antes o después de enviar dinero, con la transferencia en la que salió',
@@ -1146,6 +1152,9 @@ export const navigationCopy: ReturnType<typeof defineCopy<typeof messages>> = de
     'Acknowledged once, with a reference and a response date': 'Un seul accusé de réception, avec une référence et une date de réponse',
     'Report a death': 'Signaler un décès',
     'Tell us that a customer has died': 'Indiquez-nous qu’un client est décédé',
+    'Lost phone or compromised account': 'Téléphone perdu ou compte compromis',
+    'Secure the account, extra checks for large sends and your sign-in location':
+      'Sécurisez le compte, ajoutez des contrôles aux gros envois et votre position à la connexion',
     'Report a scam': 'Signaler une arnaque',
     'Before or after sending money, with the transfer it went out on': 'Avant ou après un envoi d’argent, avec le virement concerné',
     'Money mule policy': 'Politique sur les mules financières',

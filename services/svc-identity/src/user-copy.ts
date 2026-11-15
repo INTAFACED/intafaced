@@ -53,6 +53,10 @@ const LOCAL_COPY: Readonly<Record<string, string>> = {
   'auth.challenge_used': 'That sign-in check was already used. Sign in again to get a new one.',
   'identity.challenge_unconfigured': 'Sign-in needs a check whose settings the owner has not set yet, so signing in is closed for now.',
   'identity.compromise_no_case': 'There is no open case for a compromised account. Secure your account first.',
+  'identity.extra_controls_unset':
+    'Extra checks cannot be set up yet: INTAFACED has not published how many checks a large send needs. Nothing was changed.',
+  'identity.extra_controls_too_few': 'Choose more checks: a large send needs at least the number shown.',
+  'identity.location_consent_required': 'Known locations needs location sharing on first. Turn it on, then choose known locations.',
   'auth.email_confirm_invalid': 'That confirmation link is not valid. Request a new one.',
   'auth.email_confirm_unwired': 'Email confirmation is not available yet.',
   'auth.email_confirm_rate_limited': 'Too many confirmation emails. Try again later.',

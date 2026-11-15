@@ -504,6 +504,8 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.recipient_check_unset': 'PRECONDITION_FAILED',
   'bank.security_locked': 'PRECONDITION_FAILED',
   'bank.security_lock_unset': 'PRECONDITION_FAILED',
+  'bank.extra_controls_pending': 'PRECONDITION_FAILED',
+  'bank.extra_controls_unset': 'PRECONDITION_FAILED',
   'bank.account_frozen_self': 'PRECONDITION_FAILED',
   'bank.address_approval_not_pending': 'CONFLICT',
   'bank.address_approval_same_device': 'PRECONDITION_FAILED',
@@ -636,6 +638,7 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   // Identity could not answer; nothing was posted. Retry with the same id.
   'bank.recipient_check_unavailable': 'SERVICE_UNAVAILABLE',
   'bank.security_lock_unavailable': 'SERVICE_UNAVAILABLE',
+  'bank.extra_controls_unavailable': 'SERVICE_UNAVAILABLE',
   // Identity could not confirm the step-up approval; nothing was posted.
   'bank.step_up_unavailable': 'SERVICE_UNAVAILABLE',
   'bank.party_handles_unavailable': 'SERVICE_UNAVAILABLE',
