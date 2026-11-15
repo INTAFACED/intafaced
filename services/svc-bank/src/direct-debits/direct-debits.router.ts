@@ -23,6 +23,8 @@ const collectionView = z.object({
   status: z.enum(DD_COLLECTION_STATUSES),
   failureCode: z.string().nullable(),
   ledgerTxId: z.string().nullable(),
+  /** The partner's reference for the move that collected it, when the partner bank holds the money (OWNER 226). */
+  partnerMoveId: z.string().nullable(),
   presentedAt: z.string(),
   settledAt: z.string().nullable(),
   failureFee: z.null(),
@@ -71,6 +73,8 @@ export function createDirectDebitsRouter(bank: BankServices, guard: Guard) {
           mandate: mandateView,
           rejected: z.array(z.string()),
           tooLate: z.array(z.object({ collectionId: z.string(), code: z.literal('bank.dd_too_late') })),
+          /** The partner the block was sent to, when it holds the money; null on the custodial layer. */
+          sentTo: z.string().nullable(),
         }),
       )
       .mutation(({ ctx, input }) => guard(() => bank.directDebits.block({ userId: ctx.principal.userId, mandateId: input.mandateId }))),

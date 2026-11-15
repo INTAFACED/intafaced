@@ -187,7 +187,6 @@ export function CoinChart({ candles, resetKey, tickSize, direction, timeZone, la
     if (!line.current) return;
     const c = readColors();
     line.current.applyOptions({ color: direction === 'down' ? c.down : c.up });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [direction, upColor, ready]);
 
   // Candles: `update` for the newest ones, a full reset only when the window moved.

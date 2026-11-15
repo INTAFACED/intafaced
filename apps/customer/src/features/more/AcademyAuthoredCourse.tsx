@@ -15,6 +15,7 @@ import { academyLmsCopy as copy } from './academy-lms-copy';
 import { academyAssignmentHref, academyCourseHref, academyCourseSignInHref } from './academy-lms';
 import { AcademyRefusal } from './AcademyLmsParts';
 import { AcademyCourseEnrol } from './AcademyCourseEnrol';
+import { AcademyCoursePurchase } from './AcademyCoursePurchase';
 import { CourseTeamContact } from './AcademyCourseMessages';
 
 /**
@@ -180,6 +181,12 @@ export function AcademyAuthoredCourse({ slug, signedIn }: { slug: string; signed
   );
   // A re-read after an enrolment keeps the page (and its enrol block) on screen until the new read lands.
   const [last, setLast] = useState<AcademyCourseLearnerView | null>(null);
+  // A purchase that settles (granted or refunded) changes what Enrol allows: the enrol block reads its terms again.
+  const [purchases, setPurchases] = useState(0);
+  const settlePurchase = () => {
+    setPurchases((n) => n + 1);
+    course.reload();
+  };
   const ready = course.resource.status === 'ready' ? course.resource.data : null;
   useEffect(() => {
     if (ready) setLast(ready);
@@ -196,7 +203,7 @@ export function AcademyAuthoredCourse({ slug, signedIn }: { slug: string; signed
         <div className="academy-lms-stack">
           <PriceLine data={data} />
           {signedIn ? (
-            <AcademyCourseEnrol slug={data.slug} source="authored" onSettled={course.reload} />
+            <AcademyCourseEnrol key={`enrol:${purchases}`} slug={data.slug} source="authored" onSettled={course.reload} />
           ) : (
             <a className="button button--primary" href={academyCourseSignInHref(data.slug)}>
               {t('courseSignInToEnrol')}
@@ -204,6 +211,7 @@ export function AcademyAuthoredCourse({ slug, signedIn }: { slug: string; signed
           )}
         </div>
       </Panel>
+      {signedIn && data.pricing === 'paid' && <AcademyCoursePurchase slug={data.slug} onSettled={settlePurchase} />}
       {signedIn && <CourseTeamContact courseSlug={data.slug} />}
     </div>
   );

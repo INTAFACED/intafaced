@@ -246,7 +246,7 @@ export async function payPendingWithdrawals(
       const ok = await payer.receipt(payment.hash);
       if (ok === null) continue;
       // Settled elsewhere meanwhile (a TEST control): this pass reports nothing for it.
-      if (!sim.settleWithdrawal(pending.account, pending.nonce, ok ? 'done' : 'failed')) continue;
+      if (!sim.settleWithdrawal(pending.account, pending.nonce, ok ? 'done' : 'failed', payment.hash)) continue;
       (ok ? done : failed).push(pending.nonce);
     } catch (err) {
       onError(pending.nonce, err);

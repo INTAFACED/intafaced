@@ -89,3 +89,21 @@ describe('what the team reads return', () => {
     expect(bankReads['business.myRole'].safeParse({ role: 'owner' }).success).toBe(false);
   });
 });
+
+describe('what a move into a space returns (transfers.create)', () => {
+  const reply = bankWrites['transfers.create'];
+  const move = { id: 'test-partner-move-1', label: 'TEST partner bank', movedAt: '2026-11-15T00:00:00.000Z' };
+
+  it('is confirmed by the ledger’s transaction, or by the partner bank’s one move with no ledger transaction', () => {
+    expect(reply.safeParse({ ledgerTxId: 'tx-1', amount: '5' }).success).toBe(true);
+    expect(reply.safeParse({ ledgerTxId: 'tx-1', amount: '5', partnerMove: null }).success).toBe(true);
+    expect(reply.safeParse({ ledgerTxId: null, amount: '5', partnerMove: move }).success).toBe(true);
+  });
+
+  it('is never a confirmation when it names neither book, or both', () => {
+    expect(reply.safeParse({ ledgerTxId: null, amount: '5' }).success).toBe(false);
+    expect(reply.safeParse({ ledgerTxId: null, amount: '5', partnerMove: null }).success).toBe(false);
+    expect(reply.safeParse({ ledgerTxId: 'tx-1', amount: '5', partnerMove: move }).success).toBe(false);
+    expect(reply.safeParse({ ledgerTxId: '', amount: '5' }).success).toBe(false);
+  });
+});

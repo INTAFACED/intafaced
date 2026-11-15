@@ -18,6 +18,10 @@ import { createTradePublicPaperFlagPort } from './paper/market-flag-verify.js';
 import { parseAmbassadorIfcPayLawJson, parseAmbassadorRevenueShareLawJson } from './ambassadors/ifc-pay-rate-law.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 import { createQuizAddressResolver } from './curriculum/course-quizzes.js';
+import { rpcPaymentChain } from './purchases/chain.js';
+import { createAcademyLedgerClient, purchaseLedger } from './purchases/purchase-ledger.js';
+import { httpRefundSender } from './purchases/refund-signer.js';
+import { createIdentityLinkedWallets } from './purchases/linked-wallets.js';
 
 // §9 — register the TracerProvider before the first span is created.
 // `@opentelemetry/api` alone is a no-op: without this call every span in
@@ -128,12 +132,42 @@ const certXp: CertXpPublisher = bus
   ? new BusCertXpPublisher(bus, (err, grant) => console.error({ err, certId: grant.certId }, 'cert XP publish failed'))
   : new NullCertXpPublisher();
 
+/**
+ * J-academy-07: course payments from the buyer's own wallet. Every owner value, the chain node and the ledger, or nothing
+ * is sold. The refund signer is separate: without it a refund refuses `academy.refund_sender_unset`.
+ */
+const paymentSettings =
+  env.ACADEMY_PAYMENT_RPC_URL &&
+  env.ACADEMY_PAYMENT_CHAIN_ID !== undefined &&
+  env.ACADEMY_PAYMENT_TOKEN_ADDRESS &&
+  env.ACADEMY_PAYMENT_TOKEN_DECIMALS !== undefined &&
+  env.ACADEMY_PAYMENT_ASSET &&
+  env.ACADEMY_PAYMENT_RECEIVER &&
+  env.ACADEMY_PAYMENT_CONFIRMATIONS !== undefined
+    ? {
+        chainId: env.ACADEMY_PAYMENT_CHAIN_ID,
+        token: env.ACADEMY_PAYMENT_TOKEN_ADDRESS.toLowerCase(),
+        decimals: env.ACADEMY_PAYMENT_TOKEN_DECIMALS,
+        asset: env.ACADEMY_PAYMENT_ASSET,
+        receiver: env.ACADEMY_PAYMENT_RECEIVER.toLowerCase(),
+        confirmations: env.ACADEMY_PAYMENT_CONFIRMATIONS,
+      }
+    : null;
+const purchases = {
+  settings: paymentSettings,
+  chain: paymentSettings && env.ACADEMY_PAYMENT_RPC_URL ? rpcPaymentChain(env.ACADEMY_PAYMENT_RPC_URL) : null,
+  ledger: env.LEDGER_URL ? purchaseLedger(createAcademyLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, s2sKey)) : null,
+  refunds: env.ACADEMY_REFUND_SIGNER_URL ? httpRefundSender(env.ACADEMY_REFUND_SIGNER_URL) : null,
+  wallets: createIdentityLinkedWallets(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey),
+};
+
 const academy = new AcademyService(
   sql,
   stakes,
   hostRights,
   stream,
   {
+    purchases,
     maxRoomCapacity: env.ACADEMY_MAX_ROOM_CAPACITY,
     plannerTodoLimit: env.ACADEMY_PLANNER_TODO_LIMIT,
     outlineMaxSections: env.ACADEMY_OUTLINE_MAX_SECTIONS,
@@ -247,6 +281,8 @@ app.get('/ready', async () => ({
   // an enum; NATS_URL can carry credentials (`nats://user:pass@host`), and
   // /ready is the least authenticated surface this service has.
   xp: { id: certXp.id, usable: certXp.usable, publishes: 'intafaced.identity.xp.earned' },
+  // J-academy-07: whether course payments are set up end to end, and whether a refund can be sent. No value is echoed.
+  payments: { sells: Boolean(purchases.settings && purchases.chain && purchases.ledger), refunds: Boolean(purchases.refunds) },
 }));
 
 registerInternalCurriculumRoute(
@@ -300,6 +336,31 @@ const certSweep =
 certSweep?.unref();
 
 /**
+ * J-academy-07: the purchase reconciler reads every open purchase against the chain and the ledger: a payment whose
+ * reply was lost, a confirmation, a post that crashed or got no answer, a refund to send, confirm or post. One pass at a
+ * time. Blank interval: only a read of a purchase reconciles it.
+ */
+let reconciling: Promise<void> | null = null;
+const purchaseSweep =
+  env.ACADEMY_PURCHASE_RECONCILE_SECONDS === undefined
+    ? null
+    : setInterval(() => {
+        if (reconciling) return;
+        reconciling = academy
+          .reconcileCoursePurchases((key, err) =>
+            app.log.error({ err, key }, 'purchase reconcile failed on one purchase; the next pass retries it'),
+          )
+          .then(
+            () => undefined,
+            (err: unknown) => app.log.error({ err }, 'purchase reconcile failed; the next pass retries'),
+          )
+          .finally(() => {
+            reconciling = null;
+          });
+      }, env.ACADEMY_PURCHASE_RECONCILE_SECONDS * 1000);
+purchaseSweep?.unref();
+
+/**
  * AC-analytics-02: the report sweep runs requested reports (academy/report-tasks.ts). One sweep at a time. Blank
  * interval, no sweep, and report requests refuse `academy.report_sweep_unset`.
  */
@@ -326,9 +387,11 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     void (async () => {
       if (certSweep) clearInterval(certSweep);
+      if (purchaseSweep) clearInterval(purchaseSweep);
       if (reportSweep) clearInterval(reportSweep);
       // A sweep under way finishes before the pool closes, so no issue is cut off between its grant and its cleanup.
       await sweeping;
+      await reconciling;
       await reporting;
       await app.close();
       await bus?.close();

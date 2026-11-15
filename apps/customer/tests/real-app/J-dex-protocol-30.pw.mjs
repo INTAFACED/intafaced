@@ -1,24 +1,26 @@
 // World: book
 import { test, expect } from './journey.mjs';
-import { UNBUILT } from './dex.mjs';
+import { TOKEN_A, UNBUILT, fundOnTestChain, testChain } from './dex.mjs';
 import { desk, founderPair, openDesk } from './protocol-desk.mjs';
 import { bodyRows, tableIn } from './tables.mjs';
 import { signIn, signUp } from './desk.mjs';
+import { EDGE, ORIGIN } from './stack.mjs';
+import { createPublicClient, createWalletClient, http } from 'viem';
+import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 
 // J-dex-protocol-30, in the running app (docs/roadmap/journeys.json): screen the protocol: reports, labels, tiers,
 // pools and disclosures. One test per step, titled "J-dex-protocol-30 #<n>", run in order on the founder console as the
 // stack's two LOCAL TEST founders, who hold the compliance desk's roles on the stack (admin.mjs). No money moves.
 // owner.decision for blank lists and criteria.
-// Steps 3, 10 and 11 (the screening label store, the region and sanctions list, and real-world token jurisdiction flags)
-// wait for launch prep (owner decision 2026-10-27) and have no test.
-// Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - the console has no Protocol trust desk (/protocol-ops/trust): no scam report queue or public labels
-//   (D-developer-compliance-01), no token tiers, trust criteria or blocklist (D-launch-listing-02), no name tags
-//   (D-launch-listing-01), no pool halt (D-launch-listing-07), no permissioned pool checklist (D-liquidity-07) and no
-//   audit and disclosure room (D-developer-compliance-02);
-// - #1's report is filed in the running app by a TEST customer, who then files the same report again and is refused;
-//   #4's to #8's subjects are TEST tokens and pools the stack will seed when those tabs are built; each two-reviewer step
-//   is asked by founder A and approved by founder B.
+// Steps 3 and 11 (the screening label store and real-world token jurisdiction flags) wait for launch prep (owner decision
+// 2026-10-27) and have no test. Step 10 (the region and sanctions list) has no test yet.
+// #1's report is filed in the running app by a TEST customer, who then files the same report again and is refused; #4's
+// subject is the TEST chain's TEST Token A; #7's two name tag requests are filed through the tab's form, and its proof is a
+// real owner's signature on a contract deployed to the TEST chain; #9's checklist is opened through the tab's own form;
+// each two-person step is asked by founder A and approved by founder B.
+// Steps written but not built yet fail at their first missing part, quickly (UNBUILT): #6's blocklist
+// (D-launch-listing-02) and #8's pool halts (D-launch-listing-07), whose subjects are TEST tokens and pools the stack will
+// seed when those tabs are built.
 const J = 'J-dex-protocol-30';
 const founders = founderPair();
 const SUSPECT = '0x00000000000000000000000000000000000ba5e0';
@@ -132,24 +134,49 @@ test(`${J} #2 publishes a "phishing" label as the first reviewer: pending; publi
 test(`${J} #4 sets a human "verified" tier on a token: pending until a second approver; then shown with date and reason; removal returns the prior tier with an audit row`, async ({
   browser,
 }) => {
+  test.setTimeout(120_000);
   const { a, b } = await founders(browser);
+  // TEST Token A, told by its address: the stack also seeds a lookalike with the same name (seed-token-pages.ts).
+  const TOKEN = TOKEN_A.address;
+  const reason = `LOCAL TEST ${J} verified ${RUN}`;
+  const removal = `LOCAL TEST ${J} tier removed ${RUN}`;
   const tiers = await trust(a, 'Token tiers');
-  const token = row(tiers, 'Tokens', 'TEST Base');
-  const prior = await token.getByTestId('tier').innerText();
+  const token = row(tiers, 'Tokens', TOKEN);
+  const prior = (await token.getByTestId('tier').innerText()).trim();
+  expect(prior).not.toMatch(/pending/);
   await token.getByRole('button', { name: 'Set tier' }).click();
   await tiers.getByLabel('Tier').selectOption('verified');
-  await tiers.getByLabel(/^Reason/).fill(`LOCAL TEST ${J} verified`);
+  await tiers.getByLabel(/^Reason/).fill(reason);
   await tiers.getByRole('button', { name: 'Ask a second approver' }).click();
+  // Pending: the tier in force is still the prior one, and the person who asked cannot approve it.
   await expect(token.getByTestId('tier')).toHaveText(`${prior} · verified pending`);
-  await row(await trust(b, 'Token tiers'), 'Tokens', 'TEST Base')
+  await token.getByRole('button', { name: 'Approve tier' }).click();
+  await expect(tiers.getByRole('alert')).toContainText('a different person must approve it');
+  await expect(token.getByTestId('tier')).toHaveText(`${prior} · verified pending`);
+
+  await row(await trust(b, 'Token tiers'), 'Tokens', TOKEN)
     .getByRole('button', { name: 'Approve tier' })
     .click();
   await a.reload();
-  const shown = row(await trust(a, 'Token tiers'), 'Tokens', 'TEST Base');
-  await expect(shown.getByTestId('tier')).toHaveText(/^verified · since \d{1,2} \w{3} \d{4}$/);
+  const again = await trust(a, 'Token tiers');
+  const shown = row(again, 'Tokens', TOKEN);
+  // In force, with the day it was approved and its reason.
+  const day = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date());
+  await expect(shown.getByTestId('tier')).toHaveText(`verified · since ${day}`);
+  await expect(shown.getByTestId('tier-reason')).toHaveText(reason);
+  await expect(
+    row(again, 'Audit', TOKEN_A.name)
+      .filter({ hasText: `Approved verified on ${day}` })
+      .filter({ hasText: reason }),
+  ).toHaveCount(1);
+
   await shown.getByRole('button', { name: 'Remove tier' }).click();
+  await again.getByLabel(/^Reason/).fill(removal);
+  await again.getByRole('button', { name: 'Remove the tier' }).click();
   await expect(shown.getByTestId('tier')).toHaveText(prior);
-  await expect(row(tiers, 'Audit', 'TEST Base').filter({ hasText: 'Removed verified' })).toHaveCount(1);
+  await expect(row(again, 'Audit', TOKEN_A.name).filter({ hasText: 'Removed verified, back to' }).filter({ hasText: removal })).toHaveCount(
+    1,
+  );
 });
 
 test(`${J} #5 opens the trust criteria with the criteria blank: every token reads "unknown" and the desk shows the unset criteria`, async ({
@@ -177,15 +204,94 @@ test(`${J} #6 adds a token to the blocklist: it is not routed and shows the badg
   await expect(row(blocklist, 'Permissioned tokens', 'TEST permissioned')).toContainText('Gated');
 });
 
-test(`${J} #7 approves a public name tag: needs two approvers and a proof of ownership`, async ({ browser }) => {
-  const { a } = await founders(browser);
+test(`${J} #7 approves a public name tag: needs two approvers and a proof of ownership`, async ({ browser, page }) => {
+  test.setTimeout(180_000);
+  const { a, b } = await founders(browser);
+  // A token contract on the TEST chain whose owner() is a fresh key, and that owner signs the one-time ownership
+  // challenge, as a token's owner does in the running app (J-dex-protocol-09 #11): the proof is stored.
+  const chain = testChain();
+  expect(chain.chain, 'the stack runs no TEST chain, so no contract can name an owner').toBe('running');
+  const viemChain = {
+    id: chain.chainId,
+    name: 'LOCAL TEST chain',
+    nativeCurrency: { name: 'TEST ETH', symbol: 'TESTETH', decimals: 18 },
+    rpcUrls: { default: { http: [chain.gateUrl] } },
+  };
+  const reader = createPublicClient({ chain: viemChain, transport: http(chain.gateUrl) });
+  const owner = privateKeyToAccount(generatePrivateKey());
+  const deployer = privateKeyToAccount(generatePrivateKey());
+  fundOnTestChain(deployer.address);
+  const deploy = await createWalletClient({ account: deployer, chain: viemChain, transport: http(chain.gateUrl) }).sendTransaction({
+    data: ownedDeploy(owner.address),
+  });
+  const proven = (await reader.waitForTransactionReceipt({ hash: deploy })).contractAddress.toLowerCase();
+  const call = async (procedure, input) => {
+    const res = await fetch(`${EDGE}/api/protocol/trpc/listing.${procedure}`, {
+      method: 'POST',
+      headers: { origin: ORIGIN, 'content-type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    const body = await res.json();
+    expect(res.status, JSON.stringify(body)).toBe(200);
+    return body.result.data;
+  };
+  const challenge = await call('ownershipChallenge', { token: proven });
+  const proof = await call('verifyOwnership', {
+    nonce: challenge.nonce,
+    signature: await owner.signMessage({ message: challenge.message }),
+  });
+  expect(proof.signer.toLowerCase()).toBe(owner.address.toLowerCase());
+  // A second address no one has proven.
+  const unproven = privateKeyToAccount(generatePrivateKey()).address.toLowerCase();
+  const UNPROVEN_TAG = `TEST unproven tag ${RUN}`;
+  const PROVEN_TAG = `TEST proven tag ${RUN}`;
+  const TAG_REASON = `LOCAL TEST ${J} name tag ${RUN}`;
+
   const tags = await trust(a, 'Name tags');
-  const unproven = row(tags, 'Requests', 'TEST unproven tag');
-  await unproven.getByRole('button', { name: 'Approve' }).click();
+  for (const [address, tag] of [
+    [unproven, UNPROVEN_TAG],
+    [proven, PROVEN_TAG],
+  ]) {
+    await tags.getByLabel('Address', { exact: true }).fill(address);
+    await tags.getByLabel('Name tag', { exact: true }).fill(tag);
+    await tags.getByLabel('Why', { exact: true }).fill(TAG_REASON);
+    await tags.getByRole('button', { name: 'Request the name tag' }).click();
+    await expect(row(tags, 'Requests', tag)).toBeVisible();
+  }
+  // No proof of ownership: neither founder can approve it, and it stays at no approvals.
+  const unprovenRow = row(tags, 'Requests', UNPROVEN_TAG);
+  await expect(unprovenRow.getByTestId('name-tag-state')).toHaveText('0 of 2 approvals · No proof of ownership');
+  await unprovenRow.getByRole('button', { name: 'Approve' }).click();
   await expect(tags.getByRole('alert')).toContainText('No proof of ownership');
-  const proven = row(tags, 'Requests', 'TEST proven tag');
-  await proven.getByRole('button', { name: 'Approve' }).click();
-  await expect(proven).toContainText('1 of 2 approvals');
+  const tagsB = await trust(b, 'Name tags');
+  const unprovenB = row(tagsB, 'Requests', UNPROVEN_TAG);
+  await unprovenB.getByRole('button', { name: 'Approve' }).click();
+  await expect(tagsB.getByRole('alert')).toContainText('No proof of ownership');
+  await expect(unprovenB.getByTestId('name-tag-state')).toHaveText('0 of 2 approvals · No proof of ownership');
+
+  // With the proof: one approval leaves it pending, the same person cannot give the second, a different person makes it public.
+  const provenRow = row(tags, 'Requests', PROVEN_TAG);
+  await expect(provenRow.getByTestId('name-tag-state')).toContainText(`0 of 2 approvals · Ownership proven by ${proof.signer}`);
+  await provenRow.getByRole('button', { name: 'Approve' }).click();
+  await expect(provenRow.getByTestId('name-tag-state')).toContainText('1 of 2 approvals');
+  await provenRow.getByRole('button', { name: 'Approve' }).click();
+  await expect(tags.getByRole('alert')).toContainText('a different person must give the second approval');
+  await expect(provenRow.getByTestId('name-tag-state')).toContainText('1 of 2 approvals');
+  // Not public yet: the address page shows no name tag.
+  await page.goto(`/chain/address/${proven}`);
+  const card = page.getByRole('region', { name: 'Address risk' });
+  await expect(card).toBeVisible();
+  await expect(card).not.toContainText(PROVEN_TAG);
+  await b.reload();
+  const provenB = row(await trust(b, 'Name tags'), 'Requests', PROVEN_TAG);
+  await provenB.getByRole('button', { name: 'Approve' }).click();
+  await expect(provenB.getByTestId('name-tag-state')).toContainText(`Public · Ownership proven by ${proof.signer}`);
+  await expect(provenB.getByRole('button', { name: 'Approve' })).toHaveCount(0);
+  // Public: the address page names it, with its reason.
+  await page.reload();
+  await expect(page.getByRole('region', { name: 'Address risk' })).toContainText(`${PROVEN_TAG} (name). Why: ${TAG_REASON}`);
+  await page.goto(`/chain/address/${unproven}`);
+  await expect(page.getByRole('region', { name: 'Address risk' })).not.toContainText(UNPROVEN_TAG);
 });
 
 test(`${J} #8 halts a pool: routing excludes it, the page shows the badge and remove liquidity still works; one approver leaves it pending`, async ({
@@ -212,11 +318,37 @@ test(`${J} #8 halts a pool: routing excludes it, the page shows the badge and re
 test(`${J} #9 opens the permissioned pool onboarding checklist: a checklist missing the checker address cannot be approved`, async ({
   browser,
 }) => {
-  const { a } = await founders(browser);
+  const { a, b } = await founders(browser);
+  const POOL = `LOCAL TEST permissioned pool ${RUN}`;
   const onboarding = await trust(a, 'Permissioned pools');
-  const pending = row(onboarding, 'Onboarding', 'TEST permissioned pool');
+  // Every item but the checker address is filled in.
+  for (const [label, value] of [
+    ['Pool name', POOL],
+    ['Legal entity', 'LOCAL TEST Issuer Ltd'],
+    ['Token contract', '0x00000000000000000000000000000000000a11ce'],
+    ['Wrapper address', '0x000000000000000000000000000000000000a7a9'],
+    ['Routing registration', 'LOCAL TEST registry entry'],
+  ])
+    await onboarding.getByLabel(label, { exact: true }).fill(value);
+  await onboarding.getByRole('button', { name: 'Open the checklist' }).click();
+  const pending = row(onboarding, 'Onboarding', POOL);
   await expect(pending).toContainText('Checker address missing');
-  await expect(pending.getByRole('button', { name: 'Approve' })).toBeDisabled();
+  // Neither the opener nor a second person can approve it: svc-protocol refuses by name, and it stays open.
+  const refusal = 'This checklist cannot be approved while it is missing: checker address. Nothing was approved.';
+  await onboarding.getByLabel('Approval reason').fill(`LOCAL TEST ${J} approval`);
+  await pending.getByRole('button', { name: 'Approve' }).click();
+  await expect(onboarding.getByRole('alert')).toHaveText(refusal);
+  await expect(pending).toContainText('Checker address missing');
+  const second = await trust(b, 'Permissioned pools');
+  await second.getByLabel('Approval reason').fill(`LOCAL TEST ${J} approval`);
+  const seen = row(second, 'Onboarding', POOL);
+  await expect(seen).toContainText('Checker address missing');
+  await seen.getByRole('button', { name: 'Approve' }).click();
+  await expect(second.getByRole('alert')).toHaveText(refusal);
+  await b.reload();
+  const after = row(await trust(b, 'Permissioned pools'), 'Onboarding', POOL);
+  await expect(after).toContainText('Checker address missing');
+  await expect(after).not.toContainText('Approved');
 });
 
 test(`${J} #12 opens the audit and disclosure room: each product row says "External audit: not done" until the owner records a report; a blank policy shows its refusal`, async ({
@@ -241,3 +373,9 @@ test(`${J} #12 opens the audit and disclosure room: each product row says "Exter
     await expect(shown).toHaveAttribute('data-code', 'owner.decision');
   }
 });
+
+/**
+ * A contract whose `owner()` (and any other call) answers `owner`: just enough for a contract that names its owner (as in
+ * J-dex-protocol-09 #11). Runtime: PUSH32 owner, MSTORE at 0, RETURN 32 bytes; the init code copies it and returns it.
+ */
+const ownedDeploy = (owner) => `0x6029600c60003960296000f37f${owner.slice(2).toLowerCase().padStart(64, '0')}60005260206000f3`;

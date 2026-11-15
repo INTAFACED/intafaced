@@ -355,11 +355,27 @@ test(`${J} #2 sets a per-purchase cap and other limits: an exact figure above ze
   const limits = limitsPanel(page);
   await limits.getByRole('button', { name: 'Change limits' }).click();
   const dialog = page.getByRole('dialog');
-  // Zero is never a cap: neither the per-purchase cap nor any other.
-  await dialog.getByLabel('Per purchase (USDT)').fill('0');
-  await dialog.getByLabel('Per day (USDT)').fill('0');
+  // Zero is never a cap: neither the per-purchase cap nor any other. Each cap typed as zero is marked wrong on its own
+  // field, described by the refusal, and the form does not move on to review.
+  const capFields = ['Per purchase (USDT)', 'Per day (USDT)', 'Per month (USDT)', 'Cash withdrawals (USDT)'];
+  for (const label of capFields) await dialog.getByLabel(label).fill('0');
   await dialog.getByRole('button', { name: 'Review' }).click();
-  await expect(dialog.getByText('Enter an exact amount greater than zero.').first()).toBeVisible();
+  for (const label of capFields) {
+    const input = dialog.getByLabel(label);
+    await expect(input).toHaveAttribute('aria-invalid', 'true');
+    await expect(input).toHaveAccessibleDescription('Enter an exact amount greater than zero.');
+  }
+  await expect(dialog.getByRole('button', { name: 'Save limits' })).toHaveCount(0);
+  // Zero on one other cap alone is refused on that field only; the per-purchase cap beside it is fine.
+  await dialog.getByLabel('Per purchase (USDT)').fill('20.5');
+  await dialog.getByLabel('Per day (USDT)').fill('');
+  await dialog.getByLabel('Per month (USDT)').fill('');
+  await dialog.getByLabel('Cash withdrawals (USDT)').fill('0');
+  await dialog.getByRole('button', { name: 'Review' }).click();
+  await expect(dialog.getByLabel('Cash withdrawals (USDT)')).toHaveAttribute('aria-invalid', 'true');
+  await expect(dialog.getByLabel('Cash withdrawals (USDT)')).toHaveAccessibleDescription('Enter an exact amount greater than zero.');
+  for (const label of capFields.slice(0, 3)) await expect(dialog.getByLabel(label)).toHaveAttribute('aria-invalid', 'false');
+  await expect(dialog.getByRole('button', { name: 'Save limits' })).toHaveCount(0);
   // An exact cap above zero, a daily cap, and the monthly and cash caps left blank.
   await dialog.getByLabel('Per purchase (USDT)').fill('20.5');
   await dialog.getByLabel('Per day (USDT)').fill('30');
@@ -371,11 +387,18 @@ test(`${J} #2 sets a per-purchase cap and other limits: an exact figure above ze
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   expect(await cardOf(cardId())).toMatchObject({ perAuthorizationLimit: '20.5', dailyLimit: '30', monthlyLimit: null, cashLimit: null });
   await expect(limits).toContainText('No limit');
-  // The service refuses zero itself, whatever the page lets through.
-  const zero = await (
-    await bank()
-  ).mutate('cards.setLimits', { cardId: cardId(), commandId: randomUUID(), perAuthorizationLimit: '20.5', monthlyLimit: '0' });
-  expect(zero.ok).toBe(false);
+  // The service refuses zero itself, whatever the page lets through: zero on the per-purchase cap or on any other cap
+  // is refused with the typed limit code, and the card keeps the limits just saved.
+  for (const zero of [
+    { perAuthorizationLimit: '0' },
+    { perAuthorizationLimit: '20.5', dailyLimit: '0' },
+    { perAuthorizationLimit: '20.5', monthlyLimit: '0' },
+    { perAuthorizationLimit: '20.5', cashLimit: '0' },
+  ]) {
+    const refused = await (await bank()).mutate('cards.setLimits', { cardId: cardId(), commandId: randomUUID(), ...zero });
+    expect(refused, JSON.stringify(zero)).toMatchObject({ ok: false, code: 'bank.card_limit_exceeded' });
+  }
+  expect(await cardOf(cardId())).toMatchObject({ perAuthorizationLimit: '20.5', dailyLimit: '30', monthlyLimit: null, cashLimit: null });
 
   // Over the per-purchase cap: declined naming that cap, and nothing is held.
   let before = await (await bank()).usdt();
