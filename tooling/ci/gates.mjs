@@ -295,9 +295,9 @@ export const GATES = [
     doctrine: 'one linter, as a count that can only fall',
     why:
       "lints the files a change touches at the merge base and at the head with MAIN's .oxlintrc.json and garden plugin, " +
-      "and fails when a rule's count rises. No baseline file: main is the baseline, so a moved function does not fail. A rule " +
-      'prints only for its first 7 days (tooling/lint/ratchet.json); the rules that replaced deleted source-reading tests and ' +
-      'the old regex duplicate ratchet enforce at once, so what those checks guarded never lapses. A few seconds.',
+      "and fails when a rule's count rises, printing each finding's line and fix. No baseline file: main is the baseline, so " +
+      'a moved function does not fail. The rules shown to fail honest code only print, each with its reason ' +
+      '(tooling/lint/ratchet.json). A few seconds.',
   },
   {
     id: 'empty-denominator',
@@ -386,7 +386,7 @@ export const NOT_GATES = {
   'journey-list-guard.test.mjs':
     'not a gate: the node:test file of journey-list-guard.mjs, its planted cases (a dropped journey, a dropped step, a newly parked step, an unknown slice id, a regenerated ROADMAP.md hiding a drop, a stale ROADMAP.md and a retirement line without an OWNER number each fail; main’s list passes; a merge built on an older main passes after main adds a journey, and still fails when it drops one of its own base’s). tooling-tests.mjs runs it with every other tooling test.',
   'lint-ratchet.test.mjs':
-    "not a gate: the node:test file of lint-ratchet.mjs, its planted pull requests in a throwaway repository (a rise fails and names the rule, a rise paid for in the same file passes, a rule switched off in the pull request's own config still fails, a moved function passes, a new rule only prints, a rule that replaced a deleted test enforces at once). The tooling tests run it.",
+    "not a gate: the node:test file of lint-ratchet.mjs, its planted pull requests in a throwaway repository (a rise fails and names the rule, a rise paid for in the same file passes, a rule switched off in the pull request's own config still fails, a moved function passes, a printOnly rule only prints, a rule that replaced a test of added files fails there even when paid for). The tooling tests run it.",
   'test-diff-guard.mjs':
     'PR-only guard: needs the PR diff against origin/main and the PR body, so a laptop verify has no input. CI runs main’s copy of it from the `gates` job, so a PR cannot loosen the rules it is judged by. A test deleted or loosened after it failed on an earlier head of the PR fails with no line that clears it. It covers unit tests, the browser harnesses and look sweeps (`*.pw.mjs`; a changed journey step file `J-*.pw.mjs` on a pull request the test judge runs for is the judge’s, `judged-paths.mjs` leftToJudge) and look baselines (`look-baselines/<room>/*.png`, which need a `Baseline-change: <room>` line and the independent review). `node tooling/ci/test-diff-guard.mjs --self-test` checks the matcher.',
   'look-drift.mjs':
