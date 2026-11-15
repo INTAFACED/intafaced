@@ -23,6 +23,9 @@ import { createRoomApi, type LeaderMode, type LeaderRow } from './api';
 import { roomCopy } from './copy';
 import { bpsText, deskState } from './desk';
 import { FollowWizard } from './FollowWizard';
+import { VenueFollowWizard } from './VenueFollowWizard';
+import { useVenueMode } from '../../../features/trade/use-venue-mode';
+import { VenueFrame } from '../../../features/trade/venue/VenueKit';
 import { FollowDetail, STATE_TONE, quoteAsset, stateWord, type Follow } from './FollowDetail';
 import { useWriteGuard } from './guard';
 import { LeadDesk, Leaderboard } from './LeadDesk';
@@ -61,6 +64,8 @@ export function CopyRoom({ path }: { path: string }) {
   const leaderRef = leaderRefOf(new URL(path, 'http://x').pathname);
   const transport = useApi();
   const { session } = useSession();
+  // Venue mode (the user-venue door on): a follow is on the person's own venue account (J-copy-bots-otc-01 #7 #8).
+  const venueMode = useVenueMode();
   const api = useMemo(() => createRoomApi(transport), [transport]);
   const tradeApi = useMemo(() => createTradeApi(transport), [transport]);
   const params = new URL(path, 'http://x').searchParams;
@@ -184,22 +189,41 @@ export function CopyRoom({ path }: { path: string }) {
     },
   ];
 
-  const wizardNode = (
-    <FollowWizard
-      open={wizard.open}
-      onOpenChange={(open) => setWizard((w) => ({ ...w, open }))}
-      api={api}
-      guard={guard}
-      desk={desk.data}
-      markets={spot}
-      initialLeader={wizard.leader}
-      listed={wizard.listed}
-      onFollowed={() => {
-        follows.reload();
-        navigate('/trade/copy?tab=follows', true);
-      }}
-    />
-  );
+  const onFollowed = () => {
+    follows.reload();
+    navigate('/trade/copy?tab=follows', true);
+  };
+  const wizardNode =
+    venueMode.mode === 'on' ? (
+      <VenueFrame mode={venueMode}>
+        {/* Mounted while open: each opening starts a new request (its own key and agent account id). */}
+        {wizard.open ? (
+          <VenueFollowWizard
+            open={wizard.open}
+            onOpenChange={(open) => setWizard((w) => ({ ...w, open }))}
+            api={api}
+            desk={desk.data}
+            initialLeader={wizard.leader}
+            listed={wizard.listed}
+            venueName={venueMode.status.available ? venueMode.status.venue.displayName : ''}
+            builder={venueMode.status.available ? venueMode.status.builder : null}
+            onFollowed={onFollowed}
+          />
+        ) : null}
+      </VenueFrame>
+    ) : (
+      <FollowWizard
+        open={wizard.open}
+        onOpenChange={(open) => setWizard((w) => ({ ...w, open }))}
+        api={api}
+        guard={guard}
+        desk={desk.data}
+        markets={spot}
+        initialLeader={wizard.leader}
+        listed={wizard.listed}
+        onFollowed={onFollowed}
+      />
+    );
   if (leaderRef !== null) {
     return (
       <>
@@ -406,7 +430,14 @@ export function CopyRoom({ path }: { path: string }) {
       </Tabs>
 
       {wizardNode}
-      <FollowDetail follow={openFollow} onClose={() => setOpenFollowId(null)} api={api} guard={guard} onChanged={follows.reload} />
+      <FollowDetail
+        follow={openFollow}
+        onClose={() => setOpenFollowId(null)}
+        api={api}
+        guard={guard}
+        onChanged={follows.reload}
+        venue={venueMode.mode === 'on'}
+      />
     </Page>
   );
 }
