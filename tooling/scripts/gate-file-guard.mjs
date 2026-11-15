@@ -34,11 +34,19 @@
  * There is no author exemption: anyone with write access can push to a bot's branch, so the author proves nothing. Dependabot's
  * commit-message prefixes in .github/dependabot.yml are `ci`/`ci(deps)`, so its PRs declare themselves like anyone's.
  *
+ * WHERE THE FILE LIST COMES FROM: in CI, from git (`--base <sha> --head <sha>`: `git diff base...head`, the same
+ * merge-base diff GitHub's PR files list shows, plus a renamed file's old path). Never from the API: the installation's
+ * hourly budget is shared by every workflow, and the API read was this check's only red in the week to 15 Nov 2026
+ * (project-state #2511: #8023, #8100, #8141, all "API rate limit exceeded for installation", none a gate change).
+ * gate-file-guard.test.mjs fails if the workflow goes back to the API list.
+ *
  * Usage:
- *   node tooling/scripts/gate-file-guard.mjs --pr 4402 --title "fix(db): ..." [--repo owner/name] [--comment]
+ *   node tooling/scripts/gate-file-guard.mjs --base <sha> --head <sha> --pr 4402 --title "..." [--repo owner/name] [--comment]
+ *   node tooling/scripts/gate-file-guard.mjs --pr 4402 --title "fix(db): ..." [--repo owner/name] [--comment]   (API list, by hand)
  *   node tooling/scripts/gate-file-guard.mjs --title "..." --files-file changed.txt      (offline)
  * Exit 0 = pass, 1 = undeclared gate change, 2 = usage or lookup error, 3 = GitHub refused (stop, no retry).
  */
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { GitHubRefusalError, makeGh } from './gate-gh.mjs';
@@ -161,6 +169,28 @@ export function listPrFiles(gh, repo, pr) {
   return out.split('\n').filter(Boolean);
 }
 
+const SHA = /^[0-9a-f]{40}$/;
+
+/** The PR's files from git, no API: `git diff --name-only base...head` (merge base to head). --no-renames lists a renamed
+ *  file's old path too, so moving a gate file away is a gate change, and needs no blob (the checkout is blob-less). */
+export function listGitFiles(
+  base,
+  head,
+  git = (args) => execFileSync('git', args, { encoding: 'utf8', maxBuffer: 1 << 28, timeout: 120_000 }),
+) {
+  if (!SHA.test(base ?? '') || !SHA.test(head ?? '')) throw new Error('--base and --head must be full commit SHAs');
+  return git(['diff', '--name-only', '--no-renames', '-z', `${base}...${head}`])
+    .split('\0')
+    .filter(Boolean);
+}
+
+/** Where the file list comes from: a file, git (CI), or the API (by hand only). */
+export function changedFiles(o, gh, git) {
+  if (o.filesFile) return readFileSync(o.filesFile, 'utf8').split('\n').filter(Boolean);
+  if (o.base || o.head) return listGitFiles(o.base, o.head, git);
+  return listPrFiles(gh, o.repo, o.pr);
+}
+
 function parseArgs(argv) {
   const o = { repo: DEFAULT_REPO, comment: false };
   for (let i = 0; i < argv.length; i++) {
@@ -169,11 +199,14 @@ function parseArgs(argv) {
     else if (a === '--title') o.title = argv[++i];
     else if (a === '--repo') o.repo = argv[++i];
     else if (a === '--files-file') o.filesFile = argv[++i];
+    else if (a === '--base') o.base = argv[++i];
+    else if (a === '--head') o.head = argv[++i];
     else if (a === '--comment') o.comment = true;
     else throw new Error(`unknown argument: ${a}`);
   }
   if (o.title === undefined) throw new Error('--title is required');
-  if (!o.filesFile && !/^\d+$/.test(o.pr ?? '')) throw new Error('--pr <number> (or --files-file) is required');
+  if (!o.filesFile && !o.base && !o.head && !/^\d+$/.test(o.pr ?? ''))
+    throw new Error('--pr <number> (or --base/--head, or --files-file) is required');
   return o;
 }
 
@@ -187,7 +220,7 @@ async function main() {
   }
   try {
     const gh = makeGh();
-    const files = o.filesFile ? readFileSync(o.filesFile, 'utf8').split('\n').filter(Boolean) : listPrFiles(gh, o.repo, o.pr);
+    const files = changedFiles(o, gh);
     const result = evaluateGateFileRule(o.title, files);
     const body = renderComment(result);
     console.log(body.replace(MARKER, '').trim());

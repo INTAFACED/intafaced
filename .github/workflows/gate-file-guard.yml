@@ -38,18 +38,34 @@ jobs:
       contents: read
       pull-requests: write
     steps:
+      # Full history without file contents (blob:none): enough for git to find the merge base and list the PR's files,
+      # so the list costs no API budget (project-state #2511: the API list was this check's only red that week).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+          filter: blob:none
+      # The PR's head commit and trees only, as data: nothing from it is checked out or run.
+      - name: Fetch the PR head's history
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: git fetch --no-tags --filter=blob:none origin "$HEAD_SHA"
       - name: Check gate files against the PR title
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           REPO: ${{ github.repository }}
         run: |
           if [ ! -f tooling/scripts/gate-file-guard.mjs ]; then
             echo "::notice::gate-file-guard.mjs is not on the base commit yet (this PR introduces it); nothing to enforce."
             exit 0
           fi
-          node tooling/scripts/gate-file-guard.mjs --pr "$PR_NUMBER" --title "$PR_TITLE" --repo "$REPO" --comment
+          if ! grep -q -- "'--base'" tooling/scripts/gate-file-guard.mjs; then
+            # A base from before the git list (the PR that brings it): that copy only knows the API list.
+            node tooling/scripts/gate-file-guard.mjs --pr "$PR_NUMBER" --title "$PR_TITLE" --repo "$REPO" --comment
+            exit $?
+          fi
+          node tooling/scripts/gate-file-guard.mjs --base "$BASE_SHA" --head "$HEAD_SHA" --pr "$PR_NUMBER" --title "$PR_TITLE" --repo "$REPO" --comment

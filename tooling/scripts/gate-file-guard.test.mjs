@@ -6,7 +6,20 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { GitHubRefusalError, makeGh } from './gate-gh.mjs';
-import { MARKER, evaluateGateFileRule, gateFilesTouched, renderComment, titleStatesGateChange, upsertComment } from './gate-file-guard.mjs';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import {
+  MARKER,
+  changedFiles,
+  evaluateGateFileRule,
+  gateFilesTouched,
+  listGitFiles,
+  renderComment,
+  titleStatesGateChange,
+  upsertComment,
+} from './gate-file-guard.mjs';
 
 test('title declarations: accepted forms', () => {
   for (const t of [
@@ -210,4 +223,55 @@ test('gate-gh: the GraphQL "API rate limit already exceeded" message is a refusa
   assert.throws(() => makeGh({ spawn })(['pr', 'view', '1']), GitHubRefusalError);
   const secondary = () => ({ status: 1, stderr: 'You have exceeded a secondary rate limit.', stdout: '' });
   assert.throws(() => makeGh({ spawn: secondary })(['pr', 'view', '1']), GitHubRefusalError);
+});
+
+// project-state #2511: the API file list (`pulls/<n>/files`) was this check's only red in the week to 15 Nov 2026, each one
+// "API rate limit exceeded for installation" (#8023, #8100, #8141). The workflow lists the files from git instead.
+test('the workflow lists the PR files from git, never from the API budget', () => {
+  const yml = readFileSync(new URL('../../.github/workflows/gate-file-guard.yml', import.meta.url), 'utf8');
+  const runs = yml.split('\n').filter((l) => /node tooling\/scripts\/gate-file-guard\.mjs/.test(l));
+  // The last call is the one every base that has the git list runs; an earlier one is only for an older base.
+  assert.match(runs.at(-1) ?? '', /--base "\$BASE_SHA" --head "\$HEAD_SHA"/, 'the guard is given the base and head SHAs');
+  assert.match(yml, /fetch-depth: 0/, 'the checkout has the history git needs for the merge base');
+  assert.match(yml, /git fetch --no-tags --filter=blob:none origin "\$HEAD_SHA"/, 'the PR head is fetched as data');
+});
+
+test('with --base/--head the file list makes no GitHub call', () => {
+  const gh = () => assert.fail('the API was called');
+  const a = 'a'.repeat(40),
+    b = 'b'.repeat(40);
+  let seen;
+  const files = changedFiles({ base: a, head: b, pr: '1', repo: 'o/r' }, gh, (args) => ((seen = args), 'x.ts\0tooling/ci/y.mjs\0'));
+  assert.deepEqual(files, ['x.ts', 'tooling/ci/y.mjs']);
+  assert.deepEqual(seen, ['diff', '--name-only', '--no-renames', '-z', `${a}...${b}`]);
+  assert.throws(() => listGitFiles('main', b, () => ''), /full commit SHAs/);
+  assert.throws(() => listGitFiles(a, undefined, () => ''), /full commit SHAs/);
+});
+
+test('the git list is the merge-base diff: base-side changes are not the PR, a moved gate file is', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gfg-'));
+  const git = (...args) =>
+    execFileSync('git', ['-C', dir, '-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { encoding: 'utf8' }).trim();
+  try {
+    git('init', '-q', '-b', 'main');
+    mkdirSync(join(dir, 'tooling/ci'), { recursive: true });
+    writeFileSync(join(dir, 'tooling/ci/scan.mjs'), 'a\n');
+    writeFileSync(join(dir, 'app.ts'), 'a\n');
+    git('add', '.');
+    git('commit', '-qm', 'root');
+    git('switch', '-qc', 'pr');
+    git('mv', 'tooling/ci/scan.mjs', 'scan.mjs');
+    git('commit', '-qm', 'move a gate file out');
+    const head = git('rev-parse', 'HEAD');
+    git('switch', '-q', 'main');
+    writeFileSync(join(dir, '.gitleaks.toml'), 'x\n');
+    git('add', '.');
+    git('commit', '-qm', 'main moves on');
+    const base = git('rev-parse', 'HEAD');
+    const files = listGitFiles(base, head, (args) => git(...args));
+    assert.deepEqual(files.sort(), ['scan.mjs', 'tooling/ci/scan.mjs']);
+    assert.equal(evaluateGateFileRule('fix: tidy', files).ok, false, 'moving a gate file away is a gate change');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
