@@ -784,9 +784,18 @@ export function venueApi(api: ApiClient) {
     withdrawal: (owner: string, nonce: string, signal?: AbortSignal) =>
       api.rest(`/venue/withdrawals/${encodeURIComponent(nonce)}`, asOf(venueWithdrawalSchema.nullable()), { query: { owner }, signal }),
     preview: (owner: string, intent: OrderIntent) => write('/preview', asOf(venuePreviewSchema), { owner, intent }),
-    prepare: (input: { owner: string; intent: VenueIntent; actionKey?: string; stepUpApprovalId?: string | null; venueId?: string }) =>
+    prepare: (input: {
+      owner: string;
+      /** One of the person's own sub-accounts under `owner`, which the wallet signs for as its owner; omitted is the main account. */
+      subAccount?: string | null;
+      intent: VenueIntent;
+      actionKey?: string;
+      stepUpApprovalId?: string | null;
+      venueId?: string;
+    }) =>
       write('/prepare', preparedAnswerSchema, {
         ...(input.venueId ? { venueId: input.venueId } : {}),
+        ...(input.subAccount ? { subAccount: input.subAccount } : {}),
         owner: input.owner,
         signer: { role: 'owner', address: input.owner },
         intent: input.intent,
