@@ -1,29 +1,38 @@
-// World: none
+// World: restart
+import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { UNBUILT, agentCard, agentsRun, openAgents, tableIn } from './agents.mjs';
-import { free, held } from './desk.mjs';
-import { api } from './stack.mjs';
+import { UNBUILT, agentCard, agentsRun, createOwnAgent, openAgents, openOwnAgent, tableIn } from './agents.mjs';
+import { free, held, signIn } from './desk.mjs';
+import { api, fromUnits, toUnits } from './stack.mjs';
+import { installTestWallet, testWalletKey } from './test-wallet.mjs';
+import { continueInWallet, testDeposit, testVenue, venueAccount, venueForThisFile, venueInfo, venueRecord } from './venue.mjs';
 
 // J-agents-18, in the running app (docs/roadmap/journeys.json): let the Portfolio and Copy-Intel agents propose, and
-// approve what I choose. One test per step, titled "J-agents-18 #<n>", run in order on one verified TEST account funded
-// with TEST USDT. An approved rebalance moves value only through ordinary exchange orders under the person's limits; no
-// profit share is paid; the leader directory shows disclosed stats and never a returns ranking.
+// approve what I choose. One test per step, titled "J-agents-18 #<n>", run in order on one verified TEST account, a TEST
+// wallet whose own venue account on the stack's TEST venue simulator holds TEST USDC and TEST BTC in a sub-account, and
+// an agent of the person's own with access to that sub-account and an allowance of TEST 50 USDC whose agent permission
+// the wallet signed (J-agents-08's Access and Allowance pages). Every figure the TEST venue reports is TEST.
+// #1 #2 are built: the Portfolio planner on the agent's Portfolio page (svc-trade src/venue/own-agent-rebalance.ts)
+// reads what the venue reports the sub-account holds and proposes market orders to the person's targets, sending
+// nothing; an approved proposal's orders are placed on the person's own sub-account by the agent permission, within the
+// allowance, each once; a rejected one changes nothing. INTAFACED holds and moves nothing, and no profit share is paid.
+// Every check of what was sent or held reads the TEST venue's own record of the person's sub-account.
 // #4 is built: a person's own session opens Copy intelligence, and a request for a returns ranking is refused before
 // anything is priced, held or run.
-// What is built: the catalogue cards of Portfolio planner ("Not connected"), Copy intelligence (metered session), Launch
-// check, Growth drafts and Risk and compliance ("Staff only").
-// #1, #2 and #5 are red by name (BLOCKED below; D's ruling 2026-10-31 by product law): the Portfolio, Launch and Growth
-// agents are v2, "Doctrine names only — no factory until product law" (services/svc-agents/README.md:313;
-// INTAFACED/project-state product/INTAFACED_DEFINITIVE_BUILD.md:388, private), so no rebalance proposal, run history or draft is built for them. Each step
-// first asserts what the app does today, then fails with its name.
 // #3 is not built yet and fails at its first missing part, quickly (UNBUILT): leader cards have no Copy-Intel stats or
 // audited badge (RC-agents-07).
+// #5 is red by name (BLOCKED below; D's ruling 2026-10-31 by product law): the Launch and Growth agents keep no run
+// history or drafts (services/svc-agents/README.md, "v2 agents"), so the step first asserts what the app does today,
+// then fails with its name.
 const J = 'J-agents-18';
 const agents = agentsRun(J);
 
 test.describe.configure({ mode: 'default' });
+venueForThisFile(test);
 
 const main = (page) => page.getByRole('main');
+const planner = (page) => main(page).getByRole('region', { name: 'Portfolio planner', exact: true });
+const proposals = (page) => planner(page).getByRole('region', { name: 'Rebalance proposals', exact: true }).getByRole('article');
 
 /** The account's USDT as the ledger holds it, free and held, in scaled units. */
 async function usdt() {
@@ -31,11 +40,105 @@ async function usdt() {
   return { free: free(balances, 'USDT'), held: held(balances, 'USDT') };
 }
 
-/** The steps that stay red by name, and why. Every failure inside them carries the name (`blockedBy`). */
-const V2 = 'services/svc-agents/README.md:313: v2 agents are "Doctrine names only — no factory until product law"';
+/** This run's TEST wallet: the person's own, kept in the run's state from the start. */
+function wallet() {
+  const { walletKey } = agents.run.read();
+  if (!walletKey) throw new Error(`${J} starts made no wallet, so this step has no one to sign as`);
+  return privateKeyToAccount(walletKey);
+}
+const owner = () => wallet().address.toLowerCase();
+
+/** The person's wallet signs one action on its own venue account (or one of its sub-accounts), on the TEST venue directly. */
+async function ownVenueAction(intent, subAccount = null) {
+  const account = { ...(await venueAccount(owner())), subAccount };
+  const prepared = await testVenue('/prepare', { account, signer: { role: 'owner', address: owner() }, intent });
+  expect(prepared.status, JSON.stringify(prepared.body)).toBe(200);
+  const t = prepared.body.typedData;
+  const signature = await wallet().signTypedData({ domain: t.domain, types: t.types, primaryType: t.primaryType, message: t.message });
+  const sent = await testVenue('/submit', {
+    prepared: prepared.body,
+    signature: { digest: prepared.body.digest, signature, signedBy: owner() },
+  });
+  expect(sent.status, JSON.stringify(sent.body)).toBe(200);
+  expect(sent.body.accepted, JSON.stringify(sent.body)).toBe(true);
+  return sent.body;
+}
+
+/** The venue's own id of the wallet's sub-account A. */
+async function subA() {
+  const { value } = await venueRecord(owner(), '/sub-accounts');
+  const a = value.find((s) => s.name === 'Sub-account A');
+  expect(a, 'the venue lists no Sub-account A for this wallet').toBeTruthy();
+  return a.subAccount;
+}
+
+/** The TEST venue's own record of sub-account A. */
+const onA = async (path, extra = {}) => (await venueRecord(owner(), path, extra, undefined, await subA())).value;
+
+/** What the venue holds and has traded on sub-account A and the main account: what "nothing executed" must leave as it was. */
+async function sent() {
+  const since = '2020-01-01T00:00:00.000Z';
+  const [balances, fills, open, mainFills, mainOpen] = await Promise.all([
+    onA('/balances'),
+    onA('/fills', { since }),
+    onA('/open-orders'),
+    venueRecord(owner(), '/fills', { since }).then((r) => r.value),
+    venueRecord(owner(), '/open-orders').then((r) => r.value),
+  ]);
+  return { balances, fills, open, mainFills, mainOpen };
+}
+
+/** svc-trade's record for the person's own agent (allowances, orders, rebalances), as the person reads it. */
+async function trading(what) {
+  const { agentId } = agents.run.read();
+  const { status, body } = await (await api(agents.account())).get(`/api/v1/venue/own-agents/${agentId}/${what}`);
+  expect(status, JSON.stringify(body).slice(0, 400)).toBe(200);
+  return body[what];
+}
+
+/** Opens the agent's Portfolio page, with this run's TEST wallet in the browser. */
+async function openPortfolio(page) {
+  const { chainId } = await venueInfo();
+  await installTestWallet(page, { chainId, privateKey: agents.run.read().walletKey });
+  await openOwnAgent(page, agents, 'Portfolio');
+  await expect(planner(page)).toBeVisible();
+}
+
+/** Asks the planner for a rebalance to `targets` and returns the proposal's article, newest first. */
+async function ask(page, targets) {
+  const form = planner(page).getByRole('form', { name: 'Ask for a rebalance' });
+  const count = await proposals(page).count();
+  await form.getByRole('textbox', { name: /^Targets/ }).fill(targets);
+  await form.getByRole('button', { name: 'Propose a rebalance' }).click();
+  await expect(proposals(page)).toHaveCount(count + 1);
+  return proposals(page).first();
+}
+
+/** A proposal's orders as the page lists them: side, market, size, worst price and what each commits. */
+async function ordersShown(article) {
+  const rows = tableIn(article, 'Proposed orders').getByRole('row');
+  const out = [];
+  for (let i = 1; i < (await rows.count()); i += 1) {
+    const cells = await rows.nth(i).getByRole('cell').allInnerTexts();
+    out.push(cells.map((c) => c.trim()));
+  }
+  return out;
+}
+
+/** The order sizes a target of `percent`% BTC gives, from the holdings and mids the proposal names, in whole lots of 0.0001. */
+function expectedLeg(proposal, percent) {
+  const btc = proposal.holdings.find((h) => h.asset === 'BTC');
+  const want = (toUnits(proposal.totalValue) * toUnits(percent)) / toUnits('100');
+  const delta = want - toUnits(btc.value);
+  const lot = toUnits('0.0001');
+  const raw = ((delta < 0n ? -delta : delta) * 10n ** 18n) / toUnits(btc.price);
+  const capped = delta < 0n && raw > toUnits(btc.total) ? toUnits(btc.total) : raw;
+  return { side: delta < 0n ? 'sell' : 'buy', size: fromUnits((capped / lot) * lot) };
+}
+
+/** The step that stays red by name, and why. Every failure inside it carries the name (`blockedBy`). */
+const V2 = 'services/svc-agents/README.md: v2 agents are "Doctrine names only — no factory until product law"';
 const BLOCKED = {
-  1: `${J} #1 BLOCKED (${V2}; RC-agents-03): the Portfolio planner's portfolio source is not connected, so it proposes no rebalance (portfolio.plan refuses portfolio.killed)`,
-  2: `${J} #2 BLOCKED (${V2}; RC-agents-03): with no proposal there is nothing to approve or reject`,
   5: `${J} #5 BLOCKED (${V2}; RC-agents-04): the Launch check and Growth drafts agents keep no run history or drafts`,
 };
 
@@ -53,45 +156,200 @@ async function blockedBy(name, check) {
   throw new Error(name);
 }
 
-/**
- * What the Portfolio planner does today when a person tries it: its card's open button is off with the blocker named,
- * and asking the service for a plan is refused with the planner's kill switch (portfolio.killed), moving nothing. A plan coming back means
- * the planner is wired, and the step needs a rewrite instead of the block.
- */
-async function plannerRefuses(page) {
-  await openAgents(page, agents);
-  const card = agentCard(page, 'Portfolio planner');
-  await expect(card.getByRole('button', { name: 'Open a session' })).toBeDisabled();
-  await expect(card.getByRole('note')).toHaveText(
-    'No session can be opened: this agent’s data source is not connected, so it cannot plan or place anything.',
-  );
-  const before = await usdt();
-  const door = await api(agents.account());
-  const input = encodeURIComponent(JSON.stringify({ targets: [{ asset: 'USDT', plane: 'custodial', weight: '1' }] }));
-  const plan = await door.get(`/api/agents/trpc/portfolio.plan?input=${input}`);
-  const result = plan.body?.result?.data?.result;
-  if (result?.status === 'planned')
-    throw new Error(`${J} NEEDS A REWRITE: portfolio.plan now plans (${JSON.stringify(result).slice(0, 200)})`);
-  expect(plan.status, JSON.stringify(plan.body).slice(0, 300)).toBe(200);
-  expect(result).toMatchObject({ status: 'refused', code: 'portfolio.killed' });
-  expect(await usdt()).toEqual(before);
-}
-
-test(`${J} starts: a verified TEST account with a funded TEST portfolio and the leader directory`, async ({ page }) => {
-  test.setTimeout(240_000);
-  await agents.start(page, 'ag18', '100');
+test(`${J} starts: a verified TEST account, a TEST wallet with TEST USDC and BTC in its venue sub-account, an agent of its own with an allowance, and the leader directory`, async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  const who = await agents.start(page, 'ag18', '100');
+  agents.run.write({ ...agents.run.read(), walletKey: testWalletKey() });
+  // The wallet's own venue account: TEST USDC and TEST BTC, moved into Sub-account A, and our builder fee approved there
+  // once, as a person who has sold on the venue has. Signed by the wallet on the TEST venue directly: a customer cannot
+  // open plain sub-accounts in the app yet, so this is the journey's starting state, not a step.
+  expect(await testDeposit(owner(), 'USDC', '100', `j-agents-18:${who.handle}:usdc`)).toBe(true);
+  expect(await testDeposit(owner(), 'BTC', '0.001', `j-agents-18:${who.handle}:btc`)).toBe(true);
+  await ownVenueAction({ kind: 'create_sub_account', name: 'Sub-account A', subAccountKey: `j-agents-18:${who.handle}:sub:a` });
+  const a = await subA();
+  for (const [asset, amount] of [
+    ['USDC', '100'],
+    ['BTC', '0.001'],
+  ])
+    await ownVenueAction({
+      kind: 'sub_account_transfer',
+      subAccount: a,
+      direction: 'into_sub_account',
+      asset,
+      amount,
+      moveKey: `j-agents-18:${who.handle}:fund-a:${asset}`,
+    });
+  const status = await (await api(who)).get('/api/v1/venue/status');
+  expect(status.status, JSON.stringify(status.body).slice(0, 300)).toBe(200);
+  await ownVenueAction({ kind: 'approve_builder_fee', builder: status.body.builder.address, maxFeeBps: status.body.builder.feeBps }, a);
+  expect(Object.fromEntries((await onA('/balances')).map((b) => [b.asset, b.total]))).toMatchObject({ USDC: '100', BTC: '0.001' });
+  // An agent of the person's own, with access to Sub-account A for a week and an allowance of TEST 50 USDC for a week,
+  // whose agent permission the wallet signs (J-agents-08 #2 #4).
+  await signIn(page, who);
+  await createOwnAgent(page);
+  const { chainId } = await venueInfo();
+  await installTestWallet(page, { chainId, privateKey: agents.run.read().walletKey });
+  await openOwnAgent(page, agents, 'Access');
+  const agentId = new URL(page.url()).pathname.split('/').pop();
+  expect(agentId).toMatch(/^[0-9a-f-]{36}$/);
+  agents.run.write({ ...agents.run.read(), agentId });
+  const section = main(page).getByRole('region', { name: 'Account access', exact: true });
+  await section.getByRole('button', { name: 'Connect TEST Wallet' }).click();
+  await expect(section.getByTestId('venue-wallet-address')).toHaveText(owner());
+  const grant = section.getByRole('form', { name: 'Account access' });
+  await grant.getByRole('checkbox', { name: 'Sub-account A', exact: true }).check();
+  await grant.getByRole('textbox', { name: /^Ends/ }).fill('7');
+  await grant.getByRole('button', { name: 'Grant access' }).click();
+  await expect(tableIn(section, 'Granted access')).toContainText('Sub-account A');
+  await page.getByRole('group', { name: 'Agent pages' }).getByRole('button', { name: 'Allowance', exact: true }).click();
+  const allowance = main(page).getByRole('region', { name: 'Allowance', exact: true });
+  await allowance.getByRole('button', { name: 'Connect TEST Wallet' }).click();
+  await expect(main(page).getByTestId('venue-wallet-address')).toHaveText(owner());
+  const form = main(page).getByRole('form', { name: 'Allowance' });
+  await form.getByRole('textbox', { name: /^Amount/ }).fill('50');
+  await form.getByRole('combobox', { name: 'Period' }).selectOption({ label: 'A week' });
+  await form.getByRole('button', { name: 'Grant allowance' }).click();
+  await continueInWallet(page);
+  await expect(tableIn(main(page), 'Allowances').getByRole('row').filter({ hasText: 'Active' })).toHaveCount(1);
+  const [active] = (await trading('allowances')).filter((x) => x.status === 'active');
+  expect(active).toMatchObject({ amount: '50', left: '50', asset: 'USDC', subAccount: a, permissionOnVenue: true });
+  agents.run.write({ ...agents.run.read(), agentAddress: active.agentAddress });
   await openAgents(page, agents);
   await expect(agentCard(page, 'Portfolio planner')).toBeVisible();
 });
 
 test(`${J} #1 asks the Portfolio agent for a rebalance: a proposal listing each order, and nothing executed`, async ({ page }) => {
-  await blockedBy(BLOCKED[1], () => plannerRefuses(page));
+  const before = await sent();
+  const ledgerBefore = await usdt();
+  await openPortfolio(page);
+  const article = await ask(page, 'BTC 25');
+  await expect(article.getByTestId('proposal-status')).toHaveText('Proposed: nothing has been sent');
+  await expect(article.getByRole('heading', { name: /Rebalance proposal TEST/ })).toBeVisible();
+  // The proposal as svc-trade stored it: the holdings as the venue reports them on Sub-account A, at the venue's mids.
+  const [stored] = await trading('rebalances');
+  expect(stored).toMatchObject({ status: 'proposed', asset: 'USDC', subAccount: await subA() });
+  const venueHolds = Object.fromEntries(before.balances.map((b) => [b.asset, b.total]));
+  expect(Object.fromEntries(stored.holdings.map((h) => [h.asset, h.total]))).toEqual({ USDC: venueHolds.USDC, BTC: venueHolds.BTC });
+  const best = (await testVenue('/best-prices', { symbol: 'BTC-USDC' })).body.value;
+  const btc = stored.holdings.find((h) => h.asset === 'BTC');
+  expect(
+    toUnits(btc.price) >= toUnits(best.bid) && toUnits(btc.price) <= toUnits(best.ask),
+    `${btc.price} vs ${best.bid}/${best.ask}`,
+  ).toBe(true);
+  const holdings = tableIn(article, 'Holdings as the venue reports them');
+  await expect(holdings.getByRole('row').filter({ hasText: 'BTC' })).toContainText(venueHolds.BTC);
+  await expect(holdings.getByRole('row').filter({ hasText: 'USDC' })).toContainText(venueHolds.USDC);
+  await expect(holdings.getByRole('row').filter({ hasText: 'BTC' })).toContainText('25%');
+  // Each order listed: BTC is about 60 of about 160 TEST USDC, so 25% sells BTC, in whole lots, at a worst price.
+  const leg = expectedLeg(stored, '25');
+  expect(leg).toEqual({ side: 'sell', size: expect.stringMatching(/^0\.000[1-9]$/) });
+  expect(stored.orders.map((o) => [o.side, o.symbol, o.size])).toEqual([[leg.side, 'BTC-USDC', leg.size]]);
+  const o = stored.orders[0];
+  expect(await ordersShown(article)).toEqual([['Sell', 'BTC-USDC', o.size, `${o.price} USDC`, `${o.notional} USDC`, 'Not sent']]);
+  await expect(article.getByRole('button', { name: 'Approve' })).toBeVisible();
+  await expect(article.getByRole('button', { name: 'Reject' })).toBeVisible();
+  // Nothing executed: the venue's own record of the sub-account and the main account is as it was, the agent drew
+  // nothing on its allowance, sent no order, and the ledger is untouched.
+  expect(await sent()).toEqual(before);
+  expect(await trading('orders')).toEqual([]);
+  expect((await trading('allowances')).find((x) => x.status === 'active').left).toBe('50');
+  expect(await usdt()).toEqual(ledgerBefore);
+  // Stored, not the page's: a fresh load lists the same proposal, still proposed.
+  await page.reload();
+  await page.getByRole('group', { name: 'Agent pages' }).getByRole('button', { name: 'Portfolio', exact: true }).click();
+  await expect(proposals(page)).toHaveCount(1);
+  await expect(proposals(page).first().getByTestId('proposal-status')).toHaveText('Proposed: nothing has been sent');
 });
 
 test(`${J} #2 approves one proposal and rejects another: the approved orders placed within limits; the rejected one changes nothing`, async ({
   page,
 }) => {
-  await blockedBy(BLOCKED[2], () => plannerRefuses(page));
+  const { agentAddress } = agents.run.read();
+  const a = await subA();
+  await openPortfolio(page);
+  const sell = proposals(page).first();
+  const sellId = await sell.getAttribute('data-proposal-id');
+  // A second proposal, the other way: 75% BTC buys BTC.
+  const buy = await ask(page, 'BTC 75');
+  const buyId = await buy.getAttribute('data-proposal-id');
+  const stored = Object.fromEntries((await trading('rebalances')).map((r) => [r.proposalId, r]));
+  expect(stored[buyId].orders.map((o) => [o.side, o.symbol])).toEqual([['buy', 'BTC-USDC']]);
+  expect(stored[buyId].orders[0].size).toBe(expectedLeg(stored[buyId], '75').size);
+  const before = await sent();
+  const ledgerBefore = await usdt();
+  // Rejected: nothing changes, on the venue, the allowance or the ledger, and it can never be approved.
+  await buy.getByRole('button', { name: 'Reject' }).click();
+  await expect(planner(page).getByRole('status')).toHaveText('Rejected: nothing was sent and nothing changed.');
+  await expect(buy.getByTestId('proposal-status')).toHaveText('Rejected: nothing was sent');
+  await expect(buy.getByRole('button', { name: 'Approve' })).toHaveCount(0);
+  expect(await sent()).toEqual(before);
+  expect(await trading('orders')).toEqual([]);
+  expect((await trading('allowances')).find((x) => x.status === 'active').left).toBe('50');
+  const door = await api(agents.account());
+  const { agentId } = agents.run.read();
+  const late = await door.post(`/api/v1/venue/own-agents/${agentId}/rebalances/${buyId}/approve`, {});
+  expect(late.status).toBe(409);
+  expect(late.body.intafacedCode).toBe('agents.rebalance_rejected');
+  expect(await sent()).toEqual(before);
+  // Approved: its order is placed on the person's own Sub-account A by the agent permission, as the venue reports it.
+  const order = stored[sellId].orders[0];
+  await sell.getByRole('button', { name: 'Approve' }).click();
+  await expect(planner(page).getByRole('status')).toHaveText(
+    'Approved: its orders were placed on your sub-account by the agent permission, as the venue reports them.',
+  );
+  await expect(sell.getByTestId('proposal-status')).toHaveText('Approved');
+  await expect(sell.getByTestId('proposal-order-state')).toHaveText(['Placed']);
+  const [placed] = await trading('orders');
+  expect(placed).toMatchObject({
+    orderId: order.orderId,
+    state: 'accepted',
+    symbol: 'BTC-USDC',
+    side: 'sell',
+    size: order.size,
+    subAccount: a,
+    signedBy: agentAddress,
+  });
+  const cloid = placed.order.venueClientOrderId;
+  expect(await onA('/order-by-client-id', { venueClientOrderId: cloid })).toMatchObject({
+    venueClientOrderId: cloid,
+    symbol: 'BTC-USDC',
+    side: 'sell',
+    amount: order.size,
+  });
+  const after = await sent();
+  expect(after.fills.length).toBe(before.fills.length + 1);
+  expect(after.fills.at(-1)).toMatchObject({ symbol: 'BTC-USDC', side: 'sell', amount: order.size });
+  const btcAfter = after.balances.find((b) => b.asset === 'BTC').total;
+  expect(toUnits(btcAfter)).toBe(toUnits(before.balances.find((b) => b.asset === 'BTC').total) - toUnits(order.size));
+  expect(after.mainFills).toEqual(before.mainFills);
+  expect(after.mainOpen).toEqual(before.mainOpen);
+  // Within the limits: the allowance drew exactly the order's notional at its worst price, and its key holds only A.
+  const left = (await trading('allowances')).find((x) => x.status === 'active').left;
+  expect(toUnits(left)).toBe(toUnits('50') - toUnits(order.notional));
+  // INTAFACED holds and moves nothing: the ledger is untouched.
+  expect(await usdt()).toEqual(ledgerBefore);
+  // Sent once: approving again (a double press, a lost answer) reads the same order back, never a second one.
+  const again = await door.post(`/api/v1/venue/own-agents/${agentId}/rebalances/${sellId}/approve`, {});
+  expect(again.status, JSON.stringify(again.body).slice(0, 300)).toBe(200);
+  expect(again.body.orders.map((x) => [x.orderId, x.state, x.replayed])).toEqual([[order.orderId, 'accepted', true]]);
+  expect((await sent()).fills.length).toBe(after.fills.length);
+  expect(await trading('orders')).toHaveLength(1);
+  // Outside the limits: a proposal whose orders need more than the allowance has left is refused whole, and nothing is
+  // sent. Selling every BTC left commits more than the TEST 50 less the first order's draw.
+  const over = await ask(page, 'BTC 0');
+  const overId = await over.getAttribute('data-proposal-id');
+  const overOrder = (await trading('rebalances')).find((r) => r.proposalId === overId).orders[0];
+  expect(toUnits(overOrder.notional) > toUnits(left), `${overOrder.notional} vs ${left} left`).toBe(true);
+  const beforeOver = await sent();
+  await over.getByRole('button', { name: 'Approve' }).click();
+  const alert = planner(page).getByRole('alert');
+  await expect(alert).toContainText('These orders need more than the allowance has left. Nothing was sent.');
+  await expect(alert).toContainText('agents.rebalance_exceeds_allowance');
+  await expect(over.getByTestId('proposal-status')).toHaveText('Proposed: nothing has been sent');
+  expect(await sent()).toEqual(beforeOver);
+  expect(await trading('orders')).toHaveLength(1);
 });
 
 test(`${J} #3 opens a leader's card: stats computed from fills, with the audited badge only once the Copy-Intel job wrote it`, async ({

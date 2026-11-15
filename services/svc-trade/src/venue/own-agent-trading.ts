@@ -576,6 +576,38 @@ export class OwnAgentTrading {
   }
 
   /**
+   * What a rebalance of the agent's sub-account works from (J-agents-18 #1 #2; own-agent-rebalance.ts): the agent's
+   * usable allowance once svc-agents' gate allows the sub-account, the venue, and what the allowance has left. Reads only.
+   */
+  async rebalanceRoom(
+    principal: Principal,
+    agentIdRaw: string,
+  ): Promise<{ agentId: string; allowance: AllowanceRecord; venue: UserVenue; account: UserVenueAccount; left: Amount }> {
+    assertPerson(principal);
+    const agentId = uuid(agentIdRaw, 'agentId');
+    const a = await this.usable(principal.userId, agentId);
+    await this.assertPolicy(principal.userId, agentId, a.subAccount);
+    const venue = await this.venue();
+    const left = allowanceLeft(a.amount, await this.deps.store.draws(a.userId, a.allowanceId));
+    return { agentId, allowance: a, venue, account: this.sub(a), left };
+  }
+
+  /** Whether the venue this service trades on is a TEST venue. */
+  async onTestVenue(): Promise<boolean> {
+    return isTestVenue((await this.venue()).venue);
+  }
+
+  /** A market order's terms on the allowance's sub-account as `place` sets them: market, worst price and notional. Reads only. */
+  async quote(
+    venue: UserVenue,
+    a: AllowanceRecord,
+    order: { readonly side: 'buy' | 'sell'; readonly base: string; readonly size: Amount },
+  ): Promise<{ symbol: string; lotSize: Amount; price: Amount; notional: Amount }> {
+    const t = await this.terms(venue, a, { side: order.side, base: order.base, size: formatAmount(order.size), type: 'market' });
+    return { symbol: t.market.symbol, lotSize: t.market.lotSize, price: t.price, notional: mul(t.size, t.price, 'ceil') };
+  }
+
+  /**
    * #3 #5: what the agent's order would be, before anything is sent. Refused when the agent has no allowance or its
    * agent permission is not signed (#3), or when svc-agents' gate refuses the sub-account; otherwise the side, market,
    * type, size, price and the venue's own fee, read from the venue. Nothing is stored, signed or sent.

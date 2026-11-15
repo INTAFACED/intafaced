@@ -472,12 +472,13 @@ const userVenueWiring = wireUserVenue({ app, sql, bus, stepUp, perks, outS2s, do
 const { userVenueDoors, userVenue, userVenueRouter, userVenueStore, venueListings, venueDelistingNotices, venueSellQuotes } =
   userVenueWiring;
 // The agents beside the door, each off with it (src/venue/agents-wire.ts).
-const { agentAccountStore, agentAccountValues, agentAccounts, agentOrders, agentActivity, agentDesk, ownAgentTrading } = wireVenueAgents({
-  sql,
-  userVenue,
-  stepUp,
-  outS2s,
-});
+const { agentAccountStore, agentAccountValues, agentAccounts, agentOrders, agentActivity, agentDesk, ownAgentTrading, ownAgentRebalance } =
+  wireVenueAgents({
+    sql,
+    userVenue,
+    stepUp,
+    outS2s,
+  });
 // A position's protections on the person's own venue account (J-derivatives-03): the venue's trigger orders through the
 // door, and our engine for the kinds the venue lacks, signed by the protection key the person approved. Off with the door.
 const protectionTier = createLiveTierClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
@@ -1775,6 +1776,7 @@ registerPrivateRest(app, {
   agentOrders,
   agentActivity,
   ownAgentTrading,
+  ownAgentRebalance,
   venueProtections,
   liveRuns,
   venueSellQuotes,
