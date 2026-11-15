@@ -1014,3 +1014,46 @@ assert.equal(shiftedMid(toScaled('1'), undefined, toScaled('0.0001')), toScaled(
   }
   console.log('local-test-market: with custody off nothing quotes, trades, funds or writes history');
 }
+
+// 10. A stop request ends start-up funding before the next transfer (#8312): a SIGTERM during funding used to wait for
+// every `local:fund` call, about 35 s for ten, because the funding loop never read STOP.requested.
+{
+  const { ensureFunds, STOP } = await import('./local-test-market.mjs');
+  const empty = { json: { balances: {} } };
+  const fakeClient = () => {
+    const calls = [];
+    return { calls, account: { userId: 'u-test' }, http: async (method, route) => (calls.push(`${method} ${route}`), empty) };
+  };
+  const assets = ['USDT', 'BTC', 'ETH'];
+  try {
+    // Stop already asked: no balance read and no transfer.
+    STOP.requested = true;
+    const before = fakeClient();
+    const funded = [];
+    await ensureFunds(before, 'maker', assets, 1, { fund: (...a) => (funded.push(a), { status: 0 }) });
+    assert.deepEqual(funded, [], 'a stop asked before funding makes no local:fund call');
+    assert.deepEqual(before.calls, [], 'and reads no balance');
+
+    // Stop asked while the first transfer runs: that one finishes, no later one starts.
+    STOP.requested = false;
+    const during = fakeClient();
+    const order = [];
+    await ensureFunds(during, 'maker', assets, 1, {
+      fund: (_user, asset) => {
+        order.push(asset);
+        STOP.requested = true;
+        return { status: 0 };
+      },
+    });
+    assert.deepEqual(order, ['USDT'], 'a stop during the first transfer ends funding before the second');
+
+    // No stop: every asset short of its target gets its one transfer (the guard does not skip real work).
+    STOP.requested = false;
+    const all = [];
+    await ensureFunds(fakeClient(), 'taker', assets, 10, { fund: (_u, asset) => (all.push(asset), { status: 0 }) });
+    assert.deepEqual(all, assets, 'without a stop each short asset is funded');
+  } finally {
+    STOP.requested = false;
+  }
+  console.log('local-test-market: a stop during start-up funding ends it before the next transfer');
+}

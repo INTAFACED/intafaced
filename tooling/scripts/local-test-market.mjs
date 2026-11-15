@@ -856,18 +856,32 @@ export function crossesOn(cycle, symbol) {
 
 // ── Funding (reuses local:fund: real svc-ledger deposit, LOCAL-TEST- rail ref) ─
 
-async function ensureFunds(client, who, assets, divisor) {
+/** One `local:fund` transfer: a real svc-ledger deposit through `local-test-stack.mjs fund`. */
+function fundThroughStack(userId, asset, amount, ref) {
+  return spawnSync(process.execPath, [STACK_SCRIPT, 'fund', userId, asset, amount, '--ref', ref], { encoding: 'utf8' });
+}
+
+/**
+ * Top up `who` to FUND_TO / `divisor` in each asset with less than half of that free, one transfer at a time. A stop request ends it before the next transfer
+ * (failure it prevents, #8312: a SIGTERM during start-up funding waited for all ten transfers, about 35 s, because the
+ * blocking `fund` call never looked at the stop). The signal handler runs between transfers, so a stop costs at most
+ * the one transfer already under way.
+ */
+export async function ensureFunds(client, who, assets, divisor, { fund = fundThroughStack } = {}) {
+  if (STOP.requested) return;
   const bal = await client.http('GET', '/api/v1/account/balance');
   const have = bal.json?.balances ?? {};
   for (const asset of assets) {
+    if (STOP.requested) {
+      log(`stop requested: ${who} funding ends before ${asset}`);
+      return;
+    }
     const target = toScaled(FUND_TO[asset] ?? '0') / BigInt(divisor);
     if (target === 0n) continue;
     const free = toScaledFloor(have[asset]?.free ?? '0');
     if (free * 2n >= target) continue;
     const ref = `MM-${who}-${asset}-${nowIso().slice(0, 13).replace(/[-:T]/g, '')}`;
-    const r = spawnSync(process.execPath, [STACK_SCRIPT, 'fund', client.account.userId, asset, fromScaled(target), '--ref', ref], {
-      encoding: 'utf8',
-    });
+    const r = fund(client.account.userId, asset, fromScaled(target), ref);
     if (r.status !== 0) throw new Error(`local:fund ${asset} failed: ${(r.stderr || r.stdout).trim().slice(0, 300)}`);
     // The rail ref repeats within the hour, so a second top-up is a ledger no-op: say so instead of "funded".
     const after = await client.http('GET', '/api/v1/account/balance');
