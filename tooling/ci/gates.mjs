@@ -89,6 +89,16 @@ export const GATES = [
       'Generated from the code, so a stale copy fails here, the same way the tracker does.',
   },
   {
+    id: 'architecture-map',
+    script: 'tooling/ci/architecture-map.mjs',
+    args: ['--check'],
+    doctrine: 'agent map honesty',
+    why:
+      'docs/ARCHITECTURE.md is what every agent reads first. Its hand-kept count said 24 packages for 29 and its services ' +
+      'table had no svc-campaigns row (project-state#2338). The count block is generated from the folders, and the Apps and ' +
+      'Services tables must hold one row per folder, so a stale copy fails here.',
+  },
+  {
     id: 'reachability',
     script: 'tooling/ci/reachability-scan.mjs',
     doctrine: 'L3 slice factory law, Reachability law',
@@ -319,6 +329,8 @@ export const GATES = [
  * unrun for weeks.
  */
 export const NOT_GATES = {
+  'architecture-map.test.mjs':
+    'not a gate: the node:test file of architecture-map.mjs, replayed on project-state#2338 (the count of 24 packages for 29; no svc-campaigns row) with planted faults (a row for a deleted service, a missing package). tooling-tests.mjs runs it with every other tooling test.',
   'custody-layer-check.mjs':
     'not a gate on its own: check 4 of custody-scan.mjs (the custody switch, OWNER 226), imported and run by it, so the `custody` gate runs it. A separate module so its plants can run in a sandbox copy without touching the tree.',
   'custody-layer-check.test.mjs':
@@ -382,9 +394,9 @@ export const NOT_GATES = {
   'why-red.mjs':
     'not a check: a read-only helper that prints why a PR head is not green (failing checks, their error annotations, and whether the seal only waits for the independent review), so agents do not read whole job logs. It needs a GitHub token and a PR, so a laptop verify cannot run it; `node tooling/ci/why-red.mjs --self-test` runs in the `changes` job.',
   'ci-review.mjs':
-    "runs only inside ci-review.yml (the CI review job, AGENTS.md, 'Where a mistake costs more'): reads one PR head's diff through the API, asks the pinned reviewer CLI once, with read-only tools over the default branch's checkout (with the test part, test-judge.mjs, when a journey test or shared test code changed: the one AI judge a PR has), and turns its answer into the job's `Verdict` step and the test part's `Test verdict`. Needs the event payload, a GitHub token, the project-state read token and the review key, so a laptop verify has no input; `tooling/ci/ci-review.test.mjs` tests its answer reader and the seal's verdict reader.",
+    "runs only inside ci-review.yml (the CI review job, AGENTS.md, 'Where a mistake costs more'): reads one PR head's diff through the API, asks the pinned reviewer CLI once, with read-only tools over the default branch's checkout (with the test part, test-judge.mjs, when a journey test or shared test code changed: the one AI judge a PR has), and turns its answer into the job's `Verdict` step and the test part's `Test verdict`; from a branch's third FAIL in a row, the Verdict step also prints the attack-the-premise instruction (advice, no verdict changes; `premise <pr> [head]` replays it through `gh api`). Needs the event payload, a GitHub token, the project-state read token and the review key, so a laptop verify has no input; `tooling/ci/ci-review.test.mjs` tests its answer reader and the seal's verdict reader.",
   'ci-review.test.mjs':
-    'not a gate: the node:test file of ci-review.mjs and of review-marker.mjs ciReviewVerdict, the planted cases of the CI review (a reviewed gate-file PR seals; no verdict, a PASS comment, an older head, a FAIL re-run and a branch copy of the workflow do not) and of which changes need it (gate files and look baselines do; money-only and security-only changes do not). tooling-tests.mjs runs it with every other tooling test.',
+    'not a gate: the node:test file of ci-review.mjs and of review-marker.mjs ciReviewVerdict, the planted cases of the CI review (a reviewed gate-file PR seals; no verdict, a PASS comment, an older head, a FAIL re-run and a branch copy of the workflow do not) and of which changes need it (gate files and look baselines do; money-only and security-only changes do not), and the third FAIL in a row (a re-run on one head counts once, a PASS ends the row). tooling-tests.mjs runs it with every other tooling test.',
   'ci-review-parts.test.mjs':
     "not a gate: the node:test file of ci-review.mjs splitDiff, readableDiff, exactReverse and automaticRevert, the planted cases of a diff over the cap reviewed in parts (any part FAIL is a FAIL; a part with no answer is no verdict; one hunk over the cap still fails), an empty diff (no verdict) and main-bisect's automatic revert (a hand edit, another author or branch, or a culprit main lacks gets no trusted fact). tooling-tests.mjs runs it with every other tooling test.",
   'ci-review-owner.test.mjs':
