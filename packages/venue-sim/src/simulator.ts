@@ -53,6 +53,10 @@ import {
   type VenueSubmitOutcome,
   type VenueTrigger,
   type VenueTriggerSource,
+  type VenueCandle,
+  type VenueCandleInterval,
+  type VenuePrint,
+  VENUE_CANDLE_INTERVALS,
 } from '@intafaced/venue-contracts';
 import { TEST_VENUE_CHAIN_ID, buildTypedData, digestOf, recoverSigner, testVenueDomain } from './signing.js';
 
@@ -330,6 +334,10 @@ interface SubmittedRecord {
 /** How far back the TEST funding history reaches, and its most rows per read (J-charts-desk-04 #6). TEST. */
 const FUNDING_HISTORY_MS = 24 * 3_600_000;
 const FUNDING_HISTORY_ROWS = 500;
+/** The public prints the simulator keeps per market, newest last; the tape and the candles read from these. */
+const PRINTS_KEPT = 5_000;
+/** The most prints or candles one read answers. */
+const MARKET_READ_MAX = 500;
 
 function refuse(venueId: string, code: VenueRefusalCode, detail: string): never {
   throw new VenueRefusalError({ venueId, code, detail });
@@ -394,6 +402,9 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   private readonly marketEvents = new Map<string, UserVenueMarketEvent>();
   /** Each perpetual's last traded price, the `last` trigger source; absent until its first fill. */
   private readonly lastTrades = new Map<string, Amount>();
+  /** Every market's public prints, oldest first, at most `PRINTS_KEPT` (J-cex-spot-01 #5: the tape, ticker and chart). */
+  private readonly prints = new Map<string, VenuePrint[]>();
+  private printCounter = 0;
   /** Each perpetual's TEST index (oracle) price, as the venue publishes it (`setIndex`); it starts at the market's mark. */
   private readonly indexes = new Map<string, Amount>();
   /** Trigger orders waiting for their source to cross their price, by market. They are not on the book. */
@@ -882,6 +893,47 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     for (let t = Math.ceil(from / step) * step; t <= now && rows.length < FUNDING_HISTORY_ROWS; t += step)
       rows.push({ fundingAt: new Date(t), rate: market.funding.rate });
     return this.asOf(rows);
+  }
+
+  /** The newest `limit` public prints on `symbol`, newest first: every account's fills, one print per match. */
+  async trades(symbol: string, limit: number): Promise<AsOf<readonly VenuePrint[]>> {
+    this.up();
+    const market = this.market(symbol);
+    const kept = this.prints.get(market.symbol) ?? [];
+    return this.asOf(kept.slice(-Math.min(limit, MARKET_READ_MAX)).reverse());
+  }
+
+  /**
+   * The newest `limit` candles of `symbol`'s prints on `interval`, oldest first; an interval with no print is not sent.
+   * TEST: only the prints the simulator keeps (`PRINTS_KEPT`) are counted.
+   */
+  async candles(symbol: string, interval: VenueCandleInterval, limit: number): Promise<AsOf<readonly VenueCandle[]>> {
+    this.up();
+    const market = this.market(symbol);
+    const stepMs = VENUE_CANDLE_INTERVALS[interval] * 1000;
+    const out: VenueCandle[] = [];
+    for (const p of this.prints.get(market.symbol) ?? []) {
+      const openMs = Math.floor(p.tradedAt.getTime() / stepMs) * stepMs;
+      const last = out[out.length - 1];
+      if (last && last.openAt.getTime() === openMs)
+        out[out.length - 1] = {
+          ...last,
+          highPrice: max(last.highPrice, p.price),
+          lowPrice: min(last.lowPrice, p.price),
+          closePrice: p.price,
+          baseVolume: add(last.baseVolume, p.amount),
+        };
+      else
+        out.push({
+          openAt: new Date(openMs),
+          openPrice: p.price,
+          highPrice: p.price,
+          lowPrice: p.price,
+          closePrice: p.price,
+          baseVolume: p.amount,
+        });
+    }
+    return this.asOf(out.slice(-Math.min(limit, MARKET_READ_MAX)));
   }
 
   async book(symbol: string, depth: number): Promise<AsOf<VenueBook>> {
@@ -2104,6 +2156,19 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         filledAt: now,
       });
     }
+    // One public print per match, at the maker's price, the taker's side the one that crossed.
+    const prints = this.prints.get(market.symbol) ?? [];
+    this.printCounter += 1;
+    prints.push({
+      tradeId: `sim-print-${this.printCounter}`,
+      symbol: market.symbol,
+      price,
+      amount: qty,
+      takerSide: taker.order.side,
+      tradedAt: now,
+    });
+    if (prints.length > PRINTS_KEPT) prints.splice(0, prints.length - PRINTS_KEPT);
+    this.prints.set(market.symbol, prints);
     // An oracle market's mark is the oracle price: a fill does not move it.
     if (market.kind === 'perpetual' && !market.oracle) this.marks.set(market.symbol, price);
     if (market.kind === 'perpetual') {

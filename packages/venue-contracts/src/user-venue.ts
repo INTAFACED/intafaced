@@ -1029,6 +1029,50 @@ export interface VenueBook {
   readonly asks: readonly VenueBookLevel[];
 }
 
+/**
+ * One public trade print on a venue market, as the venue publishes it (J-cex-spot-01 #5: the spot desk's tape and its
+ * ticker's last price). `takerSide` is the side that crossed, or `null` where the venue does not publish it.
+ */
+export interface VenuePrint {
+  readonly tradeId: string;
+  readonly symbol: string;
+  readonly price: Amount;
+  readonly amount: Amount;
+  readonly takerSide: 'buy' | 'sell' | null;
+  readonly tradedAt: Date;
+}
+
+/** The candle intervals a venue's `candles` read takes, in seconds by name. */
+export const VENUE_CANDLE_INTERVALS = {
+  '1m': 60,
+  '3m': 180,
+  '5m': 300,
+  '15m': 900,
+  '30m': 1_800,
+  '1h': 3_600,
+  '2h': 7_200,
+  '4h': 14_400,
+  '6h': 21_600,
+  '12h': 43_200,
+  '1d': 86_400,
+  '1w': 604_800,
+} as const;
+export type VenueCandleInterval = keyof typeof VENUE_CANDLE_INTERVALS;
+
+/**
+ * One candle of a venue market's own prints (J-cex-spot-01 #5: the spot desk's chart): an interval with at least one
+ * print, its first, highest, lowest and last price and the base traded. An interval with no print is not sent; the
+ * chart carries the previous close across it.
+ */
+export interface VenueCandle {
+  readonly openAt: Date;
+  readonly openPrice: Amount;
+  readonly highPrice: Amount;
+  readonly lowPrice: Amount;
+  readonly closePrice: Amount;
+  readonly baseVolume: Amount;
+}
+
 /** One figure of a preview: an amount in a named asset. */
 export interface VenueAssetAmount {
   readonly asset: string;
@@ -1165,6 +1209,19 @@ export interface UserVenue {
    * its funding history leaves it out, and the chart then refuses the study by name.
    */
   fundingHistory?(symbol: string, since: Date): Promise<AsOf<readonly VenueFundingRow[]>>;
+
+  /**
+   * The newest `limit` public prints on `symbol`, newest first, no account (J-cex-spot-01 #5: the desk's tape). Refuses
+   * `unknown_market` for a symbol it does not list. Optional: a venue (or an adapter) that does not read its prints leaves
+   * it out, and the desk then shows the tape refused by name.
+   */
+  trades?(symbol: string, limit: number): Promise<AsOf<readonly VenuePrint[]>>;
+
+  /**
+   * The newest `limit` candles of `symbol`'s own prints on `interval`, oldest first, no account (J-cex-spot-01 #5: the
+   * desk's chart). Refuses `unknown_market` for a symbol it does not list. Optional, as `trades`.
+   */
+  candles?(symbol: string, interval: VenueCandleInterval, limit: number): Promise<AsOf<readonly VenueCandle[]>>;
 
   // ── signed actions ─────────────────────────────────────────────────────
   /**

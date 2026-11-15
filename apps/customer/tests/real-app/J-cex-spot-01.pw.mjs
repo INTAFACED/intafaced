@@ -2,8 +2,8 @@
 import { randomBytes } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import path from 'node:path';
-import { api, bestPrices, fromUnits, journeyState, ROOT, signUpInBrowser, toUnits, signOutBrowser, restartWith } from './stack.mjs';
-import { confirm, deskPath, held, openDesk, openOrders, reviewSheet, signIn } from './desk.mjs';
+import { api, fromUnits, journeyState, ROOT, signUpInBrowser, toUnits, signOutBrowser, restartWith } from './stack.mjs';
+import { confirm, deskPath, held, openDesk, reviewSheet, signIn } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
 import { installTestWallet, testWalletKey, TEST_WALLET } from './test-wallet.mjs';
 import { createPublicClient, http, pad } from 'viem';
@@ -31,9 +31,9 @@ import {
 // balances, locks, orders, fills and withdrawals) is read from the venue (venue-reads.mjs), never from our ledger or engine;
 // the ledger is read only where a step says it posts nothing.
 const J = 'J-cex-spot-01';
-const DESK = '/trade/spot/BTC-USDT';
-/** The venue's TEST market the Starts line names, BTC/USDC, as the desk names it. */
+/** The venue's TEST market the Starts line names, BTC/USDC, as the desk names it, and its desk's path. */
 const DESK_SYMBOL = 'BTC/USDC';
+const VENUE_DESK = '/trade/spot/BTC-USDC';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 /**
  * A dollar figure as the app writes one (fmtUsd in apps/customer/src/data/format.ts): two decimals; under $1 up to four,
@@ -52,10 +52,6 @@ function account() {
   const who = run.read().account;
   if (!who) throw new Error(`${J} #1 made no account, so this step has no one to act as`);
   return who;
-}
-
-async function desk(page) {
-  await openDesk(page, account());
 }
 
 /** The journey stack's owner market price protection: TEST 50 bps (tooling/scripts/local-stack-services/trade.mjs). */
@@ -84,15 +80,6 @@ function asShownUsd(value) {
   // A non-zero figure that rounds to nothing reads "<$0.0001", which shownUnits reads as 0.0001.
   if (rounded === 0n && abs !== 0n) rounded = unit;
   return units < 0n ? -rounded : rounded;
-}
-
-/** A ratio ("0.0008") as the desk's two-place percent ("0.08") in units, rounded half away from zero. */
-function asPercent(ratio) {
-  const cent = toUnits('0.01');
-  const percent = wireUnits(ratio) * 100n;
-  const size = percent < 0n ? -percent : percent;
-  const rounded = ((size + cent / 2n) / cent) * cent;
-  return percent < 0n ? -rounded : rounded;
 }
 
 /** The pointer leaves the top bar, as a person's does, so a door's hover menu closes over the room. */
@@ -141,18 +128,54 @@ test(`${J} #1 signs up with an email and a password`, async ({ page }) => {
   await expect(page.getByLabel('Level to request')).toBeVisible();
 });
 
-test(`${J} #2 tries a TEST limit buy before verifying and is refused in plain words`, async ({ page }) => {
-  await desk(page);
-  await page.getByRole('textbox', { name: 'Price' }).first().fill('60000.00');
+test(`${J} #2 opens the spot desk and tries a TEST limit buy before verifying: refused in plain words with the Verify path, no raw code; nothing held; no order exists`, async ({
+  page,
+}) => {
+  const who = account();
+  await venueStatus(who);
+  // Every order call the desk could make on the venue door: a refused buy that still sent one shows here.
+  const sent = [];
+  page.on('request', (r) => {
+    const at = new URL(r.url()).pathname;
+    if (r.method() === 'POST' && /^\/api\/v1\/venue\/(preview|route-preview|prepare|submit)$/.test(at)) sent.push(at);
+  });
+  // The person's own TEST wallet on the venue's spot desk for the Starts line's market, BTC/USDC, connected, so the
+  // closed Buy is the verification refusal and never a missing wallet.
+  const wallet = await personWallet(page);
+  await openDesk(page, who, DESK_SYMBOL);
+  await expect(page).toHaveURL(new RegExp(`${VENUE_DESK}$`));
+  await expect(page.getByTestId('if-desk')).toHaveAttribute('data-venue', 'on');
+  await expect(page.getByTestId('if-desk')).toHaveAttribute('data-access', 'verify');
+  await connectWallet(page, wallet);
+  const owner = wallet.address.toLowerCase();
+  // A TEST limit buy, typed and pressed: the button and Enter in the form.
+  await page.locator('[role=tab]', { hasText: /^Limit$/ }).click();
+  await page.getByRole('textbox', { name: 'Price' }).first().fill('60000');
   await page.getByRole('textbox', { name: 'Amount' }).first().fill('0.001');
-  await expect(page.getByRole('button', { name: 'Buy BTC' })).toBeDisabled();
+  const buy = page.getByRole('button', { name: 'Buy BTC' });
+  await expect(buy).toBeDisabled();
+  await buy.click({ force: true });
+  await page.getByRole('textbox', { name: 'Amount' }).first().press('Enter');
+  // The refusal, in plain words, with the Verify path, which opens Verification.
   const reason = page.locator('#dk-reason-buy');
   await expect(reason).toContainText('Verify your identity first');
-  await expect(reason).toContainText('Verify now');
-  await expect(reason).not.toContainText(/[a-z]+\.[a-z_]+_[a-z_]+/); // no raw code like trade.kyc_required
-  expect(await openOrders(account())).toHaveLength(0);
-  const balances = await (await api(account())).balances();
-  expect(held(balances, 'USDT')).toBe(0n);
+  await expect(reason).toContainText('You need to be verified for trading to place an order.');
+  const way = reason.getByRole('link', { name: 'Verify now' });
+  await expect(way).toHaveAttribute('href', '/verification');
+  // No raw code: no dotted or underscored code (denied.kyc_required, trade.venue.kyc_required) anywhere on the desk.
+  await expect(page.getByTestId('if-desk')).not.toContainText(/\b[a-z]+(?:\.[a-z_]+)+\b|[a-z]_[a-z]/);
+  await expect(reviewSheet(page)).toHaveCount(0);
+  // No order exists: nothing went to the venue door, and the venue lists no order for the wallet.
+  expect(sent).toEqual([]);
+  expect(await venueOpenOrders(who, owner)).toHaveLength(0);
+  expect(await venueFills(who, owner, new Date(0))).toHaveLength(0);
+  // Nothing held: the venue locks nothing for the wallet, and our ledger holds nothing for the account.
+  for (const asset of ['USDC', 'BTC']) expect(wireUnits((await venueBalance(who, owner, asset)).locked), asset).toBe(0n);
+  const ledger = await ledgerOf(who);
+  for (const asset of ['USDC', 'USDT', 'BTC']) expect(held(ledger, asset), asset).toBe(0n);
+  await way.click();
+  await expect(page).toHaveURL(/\/verification(\?|$)/);
+  await expect(page.getByTestId('verification__level-tag')).toContainText('Not verified');
 });
 
 /** The stack's TEST sanctions list entry a trading check must hold (a TEST name only; never a real person). */
@@ -472,70 +495,116 @@ test(`${J} #4 connects a wallet and deposits TEST 1,000 USDC into the venue acco
   expect(await ledgerOf(who)).toEqual(ledgerBefore);
 });
 
-test(`${J} #5 opens the spot desk: ticker, book, chart, tape, fees, trading mode and positions`, async ({ page }) => {
-  // One signed-in client of the account's own for every service read below (the retries reuse it).
-  const client = await api(account());
-  await desk(page);
-  await expect(page).toHaveURL(new RegExp(`${DESK}$`));
-  await expect(page.getByTestId('dk-pair')).toHaveText('BTC/USDT');
-  // The ticker's last price is the service's.
+test(`${J} #5 opens /trade/spot/BTC-USDC: ticker, book, chart, tape, the fee line, the trading-mode line, and positions not applicable`, async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  const who = account();
+  const status = await venueStatus(who);
+  // The Starts line's other TEST trader trades on the venue: it sells a little into the best bid, so the venue has a
+  // print of its own to show on the tape, the ticker and the chart (a TEST trade between TEST accounts; none of ours).
+  const trader = await otherVenueTrader({ BTC: '0.01' });
+  const { bid: atBid } = await venueBook(VENUE_SPOT);
+  await trader.place({
+    symbol: VENUE_SPOT,
+    side: 'sell',
+    amount: '0.001',
+    price: fromUnits(atBid),
+    timeInForce: 'IOC',
+    key: `${J}:5:print:${Date.now()}`,
+  });
+
+  await venueDesk(page);
+  await expect(page).toHaveURL(new RegExp(`${VENUE_DESK}$`));
+  await expect(page.getByTestId('if-desk')).toHaveAttribute('data-market', VENUE_SPOT);
+  await expect(page.getByTestId('venue-header')).toContainText(`${VENUE_SPOT} spot`);
+  const market = page.getByTestId('venue-market');
+  // The venue's own reads, on loopback, never the door the desk uses.
+  const prints = async (limit) => {
+    const { status: code, body } = await testVenue('/trades', { symbol: VENUE_SPOT, limit });
+    expect(code, JSON.stringify(body).slice(0, 300)).toBe(200);
+    return body.value;
+  };
+  // The ticker: the last price is the venue's newest print, and best bid and ask are the venue's whole-book best.
   await expect(async () => {
-    const { body } = await client.get('/api/v1/ticker/BTC%2FUSDT');
-    expect(shownUnits(await page.getByTestId('dk-last').innerText())).toBe(wireUnits(body.last));
+    const [newest] = await prints(1);
+    expect(newest, 'the venue has a print').toBeTruthy();
+    const last = market.getByTestId('venue-last');
+    await expect(last).toHaveAttribute('data-trade-id', newest.tradeId, { timeout: 1_000 });
+    expect(shownUnits(await last.innerText())).toBe(wireUnits(newest.price));
+    const { bid, ask } = await venueBook(VENUE_SPOT);
+    expect(shownUnits(await market.getByTestId('venue-best-bid').innerText()), 'best bid').toBe(bid);
+    expect(shownUnits(await market.getByTestId('venue-best-ask').innerText()), 'best ask').toBe(ask);
+    await expect(market.getByTestId('venue-market-as-of')).toHaveText(/\d{1,2}:\d{2}/, { timeout: 1_000 });
   }).toPass({ timeout: 30_000 });
-  await expect(page.locator('[role=tab]', { hasText: 'Order book' })).toBeVisible();
-  // The book draws real levels on both sides, each at a price the service's book holds.
+  // The book: every level drawn, both sides, is the venue's own level at that place, price and size.
   await expect(async () => {
-    const { body } = await bestPrices();
+    const { status: code, body } = await testVenue('/book', { symbol: VENUE_SPOT, depth: 10 });
+    expect(code).toBe(200);
     for (const [side, levels] of [
-      ['bid', body.bids],
-      ['ask', body.asks],
+      ['bid', body.value.bids],
+      ['ask', [...body.value.asks].reverse()],
     ]) {
-      const book = new Set(levels.map(([p]) => toUnits(p)));
-      const price = page.locator(`[data-testid=dk-bk-row][data-side=${side}] [data-testid=dk-bk-price]`).first();
-      expect(book.has(shownUnits(await price.innerText())), side).toBe(true);
+      expect(levels.length, `the venue rests ${side}s`).toBeGreaterThan(0);
+      const rows = market.locator(`[data-testid=venue-book-row][data-side=${side}]`);
+      await expect(rows).toHaveCount(levels.length, { timeout: 1_000 });
+      for (const [i, level] of levels.entries()) {
+        expect(shownUnits(await rows.nth(i).getByTestId('venue-book-price').innerText()), `${side} ${i} price`).toBe(
+          wireUnits(level.price),
+        );
+        expect(shownUnits(await rows.nth(i).getByTestId('venue-book-amount').innerText()), `${side} ${i} size`).toBe(
+          wireUnits(level.amount),
+        );
+      }
     }
   }).toPass({ timeout: 30_000 });
-  // The chart draws the service's candles: on 15m, its legend's close is the close of the service's newest 15m candle.
-  // A fresh stack draws its first candle after the TEST market maker's first crossing trade (about a minute).
-  await page.getByRole('group', { name: 'Chart intervals' }).getByRole('button', { name: '15m', exact: true }).click();
+  // The chart draws the venue's candles: on 15m, its legend's close is the close of the venue's newest 15m candle.
+  await market.getByRole('group', { name: 'Chart intervals' }).getByRole('button', { name: '15m', exact: true }).click();
   await page.mouse.move(0, 0);
-  await expect(page.locator('canvas').first()).toBeVisible({ timeout: 90_000 });
+  await expect(market.getByTestId('venue-chart').locator('canvas').first()).toBeVisible({ timeout: 30_000 });
   await expect(async () => {
-    const { body } = await client.get('/api/v1/ohlcv/BTC%2FUSDT?timeframe=15m&limit=3');
-    expect(Array.isArray(body) && body.length > 0, JSON.stringify(body).slice(0, 200)).toBe(true);
-    const close = page.getByTestId('pc-legend').locator('.pc-ohlc').nth(3).locator('b');
-    expect(shownUnits(await close.innerText())).toBe(wireUnits(body.at(-1)[4]));
+    const { status: code, body } = await testVenue('/candles', { symbol: VENUE_SPOT, interval: '15m', limit: 3 });
+    expect(code).toBe(200);
+    expect(body.value.length, JSON.stringify(body).slice(0, 200)).toBeGreaterThan(0);
+    const close = market.getByTestId('pc-legend').locator('.pc-ohlc').nth(3).locator('b');
+    expect(shownUnits(await close.innerText())).toBe(wireUnits(body.value.at(-1).closePrice));
   }).toPass({ timeout: 60_000 });
-  // The tape draws the service's prints: its newest row's price is among the service's recent trades.
-  await page.locator('[role=tab]', { hasText: 'Last trades' }).click();
+  // The tape: the venue's newest prints, newest first, each row the venue's print by id, price and size.
+  await market.locator('[role=tab]', { hasText: /^Last trades$/ }).click();
   await expect(async () => {
-    const { body } = await client.get('/api/v1/trades/BTC%2FUSDT?limit=50');
-    const prices = new Set(body.map((t) => toUnits(String(t.price))));
-    const first = page.locator('[data-testid=dk-bk-row--tape] [data-testid=dk-bk-price]').first();
-    expect(prices.has(shownUnits(await first.innerText()))).toBe(true);
-  }).toPass({ timeout: 60_000 });
-  // The fee line: this account's own maker and taker rates, as the service lists them for BTC/USDT, to the shown 0.01%.
-  const { body: fees } = await client.get('/api/v1/account/fees');
-  const rates = fees['BTC/USDT'];
-  expect(rates, JSON.stringify(fees).slice(0, 300)).toBeTruthy();
-  const line = page.getByRole('form', { name: 'Buy BTC' }).getByTestId('dk-fees-mine');
-  await expect(line).toHaveText(/^Your rates: maker [−-]?[\d.]+% · taker [−-]?[\d.]+%$/);
-  const [, maker, taker] = /maker ([−-]?[\d.]+)% · taker ([−-]?[\d.]+)%/.exec(await line.innerText());
-  expect(toUnits(maker.replace('−', '-'))).toBe(asPercent(rates.maker));
-  expect(toUnits(taker.replace('−', '-'))).toBe(asPercent(rates.taker));
-  // The trading-mode line: cash spot, open, as the service lists the market (orderable, active, session open, OPEN).
-  const { body: markets } = await client.get('/api/v1/markets?limit=500');
-  const listing = markets.find((m) => m.symbol === 'BTC/USDT');
-  expect(listing, 'BTC/USDT is listed').toBeTruthy();
-  expect(listing).toMatchObject({ spot: true, active: true, orderable: true, sessionOpen: true });
-  // A listing that names no lifecycle state is open by the desk's own rule (market.ts); one that names a state names OPEN.
-  expect(listing.lifecycle?.state ?? 'OPEN').toBe('OPEN');
-  const mode = page.getByTestId('dk-stats').locator('.dk-stat', { has: page.locator('.dk-stat-label', { hasText: /^Trading mode$/ }) });
-  await expect(mode.locator('.dk-stat-value')).toHaveText('Cash spot · Open');
+    const venue = await prints(30);
+    const rows = market.getByTestId('venue-tape-row');
+    await expect(rows).toHaveCount(venue.length, { timeout: 1_000 });
+    for (const [i, print] of venue.slice(0, 5).entries()) {
+      await expect(rows.nth(i)).toHaveAttribute('data-trade-id', print.tradeId, { timeout: 1_000 });
+      expect(shownUnits(await rows.nth(i).getByTestId('venue-tape-price').innerText())).toBe(wireUnits(print.price));
+      expect(shownUnits(await rows.nth(i).getByTestId('venue-tape-amount').innerText())).toBe(wireUnits(print.amount));
+    }
+  }).toPass({ timeout: 30_000 });
+  // The fee line: the venue's own maker and taker fees on the market, and our builder fee on a sell, none on a buy.
+  const { body: listed } = await testVenue('/markets', {});
+  const spot = listed.value.find((m) => m.symbol === VENUE_SPOT);
+  expect(spot?.makerFeeBps?.known && spot?.takerFeeBps?.known, JSON.stringify(spot).slice(0, 300)).toBe(true);
+  const fees = page.getByTestId('venue-fee-line');
+  await expect(fees).toContainText(`Fees on ${VENUE_SPOT}: maker `);
+  const [, maker, taker] = /maker ([\d.]+) bps, taker ([\d.]+) bps/.exec(await fees.innerText()) ?? [];
+  expect(toUnits(maker ?? 'x'), 'maker bps').toBe(wireUnits(spot.makerFeeBps.value));
+  expect(toUnits(taker ?? 'x'), 'taker bps').toBe(wireUnits(spot.takerFeeBps.value));
+  await expect(fees).toContainText(
+    status.builder
+      ? `our builder fee on a sell: ${status.builder.feeBps} bps; a buy carries none`
+      : 'our builder fee on a sell: not published',
+  );
+  // The trading-mode line: the person's own account on the venue, their wallet signing, INTAFACED holding none of it.
+  await expect(page.getByTestId('venue-trading-mode')).toHaveText(
+    `Trading mode: Your own account on ${status.venue.displayName}. Your wallet signs every order, cancel and withdrawal; INTAFACED holds none of your funds.`,
+  );
   // The positions tab reads that cash spot holds balances, not positions.
-  await page.locator('[role=tab]', { hasText: /^Positions$/ }).click();
-  await expect(page.getByText('Not applicable: cash spot holds balances, not positions')).toBeVisible();
+  await page
+    .getByTestId('venue-bottom')
+    .locator('[role=tab]', { hasText: /^Positions$/ })
+    .click();
+  await expect(page.getByTestId('venue-positions-na')).toHaveText('Not applicable: cash spot holds balances, not positions');
 });
 
 /** #6's buy, in the row's own words: TEST 0.1 BTC. */

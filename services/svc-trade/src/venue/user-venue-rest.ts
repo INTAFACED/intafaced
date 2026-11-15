@@ -7,6 +7,9 @@
  *   GET  /api/v1/venue/best-prices?symbol=BTC-USDC         the venue's best bid and ask (a market order's worst price)
  *   GET  /api/v1/venue/funding-history?base=BTC&since=<ISO>  public: the funding the venue published on our listed
  *                                                      perpetual on that asset (a chart's funding study, J-charts-desk-04 #6)
+ *   GET  /api/v1/venue/book?symbol=BTC-USDC&depth=20    the venue's own book on a market we list (J-cex-spot-01 #5)
+ *   GET  /api/v1/venue/trades?symbol=BTC-USDC&limit=50  the venue's newest prints there, newest first
+ *   GET  /api/v1/venue/candles?symbol=BTC-USDC&interval=15m&limit=240   candles of the venue's prints, oldest first
  *   GET  /api/v1/venue/balances?owner=0x…              (and orders/open, positions, agents, builder-fee-approval)
  *   GET  /api/v1/venue/orders/by-client-id?owner=&clientOrderId=
  *   GET  /api/v1/venue/fills?owner=&since=<ISO>
@@ -58,6 +61,8 @@ import {
   type VenueIntent,
   type VenueSignature,
   type VenueSigner,
+  type VenueCandleInterval,
+  VENUE_CANDLE_INTERVALS,
 } from '@intafaced/venue-contracts';
 import { toCcxtError } from '../ccxt-errors.js';
 import { privateRead, privateWrite, publicRead } from '../route-inventory.js';
@@ -293,6 +298,37 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
       const since = new Date(req.query.since ?? '');
       if (Number.isNaN(since.getTime())) throw new VenueWireError('since is required (an ISO time)');
       return d.fundingHistory(base, since);
+    });
+  });
+
+  // J-cex-spot-01 #5: the venue's public book, prints and candles on a market we list, as the spot desk draws them. Gated
+  // as `markets` and `best-prices` are: venue market data is for a person the trade jurisdiction admits.
+  const whole = (raw: string | undefined, name: string, most: number, fallback: number) => {
+    if (raw === undefined) return fallback;
+    const n = /^\d{1,3}$/.test(raw) ? Number(raw) : NaN;
+    if (!(n >= 1 && n <= most)) throw new VenueWireError(`${name} is a whole number from 1 to ${most}`);
+    return n;
+  };
+  const symbolOf = (raw: string | undefined) => {
+    if (!raw || !/^[A-Za-z0-9]{1,20}-[A-Za-z0-9]{1,20}$/.test(raw)) throw new VenueWireError('symbol is the venue market, as BTC-USDC');
+    return raw;
+  };
+  type MarketQuery = Query & { depth?: string; limit?: string; interval?: string };
+  app.get<{ Querystring: MarketQuery }>('/api/v1/venue/book', privateRead, async (req, reply) => {
+    if (!(await admit(req, reply, 'trade:read'))) return;
+    return answer(reply, async (d) => d.marketBook(symbolOf(req.query.symbol), whole(req.query.depth, 'depth', 50, 20)));
+  });
+  app.get<{ Querystring: MarketQuery }>('/api/v1/venue/trades', privateRead, async (req, reply) => {
+    if (!(await admit(req, reply, 'trade:read'))) return;
+    return answer(reply, async (d) => d.marketTrades(symbolOf(req.query.symbol), whole(req.query.limit, 'limit', 500, 50)));
+  });
+  app.get<{ Querystring: MarketQuery }>('/api/v1/venue/candles', privateRead, async (req, reply) => {
+    if (!(await admit(req, reply, 'trade:read'))) return;
+    return answer(reply, async (d) => {
+      const interval = req.query.interval ?? '';
+      if (!Object.hasOwn(VENUE_CANDLE_INTERVALS, interval))
+        throw new VenueWireError(`interval is one of ${Object.keys(VENUE_CANDLE_INTERVALS).join(', ')}`);
+      return d.marketCandles(symbolOf(req.query.symbol), interval as VenueCandleInterval, whole(req.query.limit, 'limit', 500, 240));
     });
   });
 

@@ -27,6 +27,27 @@ export const spotVenueCopy = defineCopy('trade.desk.venue', {
   'Positions not applicable': 'Not applicable: cash spot holds balances, not positions',
   'Market not offered': 'This venue does not list this market.',
 
+  // The venue market's own ticker, book, chart and tape (J-cex-spot-01 #5)
+  'Venue market': 'The venue’s market',
+  'Last price': 'Last price',
+  'Best bid': 'Best bid',
+  'Best ask': 'Best ask',
+  'Market data as of': 'Market data',
+  'No print': 'The venue shows no trade on this market',
+  'Side empty': 'None resting',
+  'Reading the venue': 'Reading the venue…',
+  'Order book': 'Order book',
+  'Last trades': 'Last trades',
+  Side: 'Side',
+  Time: 'Time',
+  'Price col': 'Price ({quote})',
+  'Size col': 'Size ({base})',
+  Bid: 'Bid',
+  Ask: 'Ask',
+  'Taker buy': 'Buy',
+  'Taker sell': 'Sell',
+  'Side not published': 'Not published',
+
   // The venue account panel
   'Venue account': 'Your venue account',
   'Venue account note': 'Your own account on the venue. These are the venue’s figures; INTAFACED holds none of it.',
