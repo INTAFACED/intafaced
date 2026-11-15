@@ -39,6 +39,20 @@ State lives in `~/.intafaced/local-test-stack/` (data, logs, `secrets.json` mode
 
 For a fresh database without altering an existing one, set `export LOCAL_STACK_STATE="$HOME/.intafaced/my-fresh-test-stack"` before running any command. The path must be absolute. Stack, funding, market, gates and world commands all use that folder, including background children. Use the same setting for later status, restart and stop commands. Ports stay fixed: stop the previous stack with its original state setting before starting another. The old data and secrets stay in their original folder; nothing is copied automatically. `plan --json` reports `stateDir` so the selected folder can be checked before starting.
 
+## Check your own journey
+
+A builder may run its own stack to check its own work before pushing. The proof is still CI's Real-app journeys run on the PR's head; a local pass never counts. One stack at a time: the ports are fixed, so a start while another stack holds them refuses; wait for it to stop, or run the journey by hand on GitHub.
+
+```sh
+export LOCAL_STACK_STATE="$PWD/.stack-state"   # this checkout's own stack (git-ignored)
+node tooling/scripts/local-test-stack.mjs start --only edge,identity,trade,matching,ledger,customer,<your services>
+pnpm exec playwright test --config apps/customer/tests/real-app/real-app.playwright.config.mjs --output "$PWD/.jr/results" <J-x>.pw.mjs
+pnpm exec playwright screenshot http://127.0.0.1:3210/<room> "$PWD/.jr/<room>.png"
+node tooling/scripts/local-test-stack.mjs stop
+```
+
+The first start builds everything (4 to 10 minutes); later starts take about 20 seconds. With `--only` the start lists the services you left out as DOWN and exits 1; the ones you named read `ok`.
+
 Helpers also check that this folder's Postgres and recorded services still own their loopback ports, with the expected checkout, database directory and process start time. A stale marker cannot authorize mutations against a different stack that has taken over the fixed ports. Missing ownership evidence refuses the action before account creation, funding or order submission.
 
 ## Real vs test
