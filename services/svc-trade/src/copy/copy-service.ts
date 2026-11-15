@@ -192,24 +192,6 @@ export type CopyPosition = {
   readonly price: string;
   readonly status: string;
   readonly placedAt: string;
-  /** On a follow that copies on the venue: who placed it and its fills with their fees, as the venue reports them. */
-  readonly venue?: CopyPositionOnVenue;
-};
-
-export type CopyPositionOnVenue = {
-  readonly venueName: string;
-  readonly test: boolean;
-  readonly asOf: string;
-  readonly placedBy: string;
-  readonly fills: ReadonlyArray<{
-    readonly fillId: string;
-    readonly amount: string;
-    readonly price: string;
-    readonly venueFee: string;
-    readonly builderFee: string;
-    readonly feeAsset: string;
-    readonly filledAt: string;
-  }>;
 };
 
 /**
@@ -788,83 +770,6 @@ export class CopyService {
   }
 
   /**
-   * The terms every follow is held to before anything is written: not yourself, not a leader already followed, no
-   * leverage, a valid envelope after the leader's limits, and a fixed amount within the most per order.
-   */
-  private async vetFollowTerms(principal: Principal, input: Parameters<CopyService['follow']>[1], leaderId: string) {
-    if (leaderId === principal.userId) {
-      throw new CopyError('Cannot follow yourself', 'trade.copy_self_follow');
-    }
-    assertLeverageUnsupported(input.maxLeverage);
-
-    for (const f of await this.store.listFollowsByFollower(principal.userId)) {
-      if (f.leaderId === leaderId) {
-        throw new CopyError('Already following this leader', 'trade.copy_already_following');
-      }
-    }
-
-    const parsed = parseCopyEnvelope({
-      permittedMarkets: input.permittedMarkets,
-      maxNotionalPerOrder: input.maxNotionalPerOrder,
-      maxAggregateExposure: input.maxAggregateExposure,
-      maxLoss: input.maxLoss,
-      fixedOrderSize: input.fixedOrderSize,
-      expiresAt: input.expiresAt,
-      now: this.now(),
-    });
-    const envelope = envelopeWithBoundLimits(
-      parsed,
-      bindCopyFollowerLimits({
-        follower: {
-          ...followerLimitsFromEnvelope(parsed),
-          maxSlippageBps: input.maxSlippageBps,
-          maxConcurrent: input.maxConcurrent,
-          maxDrawdown: input.maxDrawdown,
-        },
-        leader: input.leaderSettings,
-      }),
-    );
-
-    // A leader's recommendation can only lower the per-order cap; the fixed amount has to fit what is left.
-    if (envelope.fixedOrderSize !== undefined && envelope.fixedOrderSize > envelope.maxNotionalPerOrder) {
-      throw new CopyError(
-        `The fixed amount cannot be above the most per order, ${formatAmount(envelope.maxNotionalPerOrder)}`,
-        'trade.copy_fixed_size_above_cap',
-      );
-    }
-    return envelope;
-  }
-
-  /**
-   * Start copying on the venue, checked and not written (J-copy-bots-otc-01 #5 #7): every gate and term startVenueFollow
-   * holds, before the follower's wallet is asked to open an agent account for the follow. Writes nothing. The same
-   * clientRequestId that already made a follow answers that follow.
-   */
-  async checkVenueFollow(principal: Principal, input: Parameters<CopyService['follow']>[1] & { readonly clientRequestId: string }) {
-    if (!this.venueFollows) throw new CopyError('Copy trading on the venue is not connected here', 'trade.copy_unavailable');
-    try {
-      assertCopyRegionAllowed(this.jurisdictionLaw, input.region);
-    } catch (err) {
-      this.blankLawRefusal(err);
-    }
-    assertMayFollow(principal, this.minTier);
-    const leaderId = await this.directory.resolveLeaderId(input.leaderId, input.leaderRef);
-    const followId = copyFollowIdFor(principal.userId, leaderId, input.clientRequestId);
-    const already = await this.store.getFollow(followId);
-    if (already) {
-      if (already.followerId !== principal.userId) throw new CopyError('Follow not found', 'trade.copy_not_following');
-      return { followId, follow: await this.presentFollow(already) };
-    }
-    const envelope = await this.vetFollowTerms(principal, input, leaderId);
-    return {
-      followId,
-      follow: null,
-      quoteAsset: copyQuoteAsset(input.permittedMarkets),
-      maxAggregateExposure: formatAmount(envelope.maxAggregateExposure),
-    };
-  }
-
-  /**
    * The follow write without startFollow's gates (tier, reserve). The router mounts only startFollow; this
    * stays callable for the unit tests of the envelope and lifecycle. Without `admitted` no reserve is held and the id
    * is random, so two direct follows of one leader race to the unique (follower, leader) row as before.
@@ -916,7 +821,46 @@ export class CopyService {
       }
       leaderId = await this.directory.resolveLeaderId(input.leaderId, input.leaderRef);
     }
-    const envelope = await this.vetFollowTerms(principal, input, leaderId);
+    if (leaderId === principal.userId) {
+      throw new CopyError('Cannot follow yourself', 'trade.copy_self_follow');
+    }
+    assertLeverageUnsupported(input.maxLeverage);
+
+    for (const f of await this.store.listFollowsByFollower(principal.userId)) {
+      if (f.leaderId === leaderId) {
+        throw new CopyError('Already following this leader', 'trade.copy_already_following');
+      }
+    }
+
+    const parsed = parseCopyEnvelope({
+      permittedMarkets: input.permittedMarkets,
+      maxNotionalPerOrder: input.maxNotionalPerOrder,
+      maxAggregateExposure: input.maxAggregateExposure,
+      maxLoss: input.maxLoss,
+      fixedOrderSize: input.fixedOrderSize,
+      expiresAt: input.expiresAt,
+      now: this.now(),
+    });
+    const envelope = envelopeWithBoundLimits(
+      parsed,
+      bindCopyFollowerLimits({
+        follower: {
+          ...followerLimitsFromEnvelope(parsed),
+          maxSlippageBps: input.maxSlippageBps,
+          maxConcurrent: input.maxConcurrent,
+          maxDrawdown: input.maxDrawdown,
+        },
+        leader: input.leaderSettings,
+      }),
+    );
+
+    // A leader's recommendation can only lower the per-order cap; the fixed amount has to fit what is left.
+    if (envelope.fixedOrderSize !== undefined && envelope.fixedOrderSize > envelope.maxNotionalPerOrder) {
+      throw new CopyError(
+        `The fixed amount cannot be above the most per order, ${formatAmount(envelope.maxNotionalPerOrder)}`,
+        'trade.copy_fixed_size_above_cap',
+      );
+    }
 
     const follow: CopyFollow = {
       followId: admitted?.followId ?? randomUUID(),

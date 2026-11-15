@@ -28,18 +28,6 @@ const COPY: Readonly<Record<string, Words>> = {
     title: 'Copy trading isn’t available right now',
     body: 'The copy service isn’t switched on here. Nothing was followed and no money moved.',
   },
-  'trade.copy_venue_wallet_rejected': {
-    title: 'Your wallet did not sign',
-    body: 'The copy permission was not signed, so nothing was sent and nothing is followed.',
-  },
-  'trade.copy_venue_wallet_failed': {
-    title: 'Your wallet could not sign',
-    body: 'The copy permission was not signed, so nothing was sent and nothing is followed. Try again.',
-  },
-  'trade.copy_venue_refused': {
-    title: 'The venue refused it',
-    body: 'Your wallet signed, but the venue did not accept it, so nothing is followed. Try again.',
-  },
   'trade.copy_self_follow': { title: 'You can’t follow yourself', body: 'Choose a different leader.' },
   'trade.copy_already_following': { title: 'You already follow this leader', body: 'Open it in My follows to change it.' },
   'trade.copy_not_following': { title: 'You don’t follow that leader', body: 'Check My follows and try again.' },
