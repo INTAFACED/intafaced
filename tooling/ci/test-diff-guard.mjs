@@ -569,7 +569,7 @@ async function selfTest() {
     'planted fault: one more file',
   );
   await protectedSelfTest(eq);
-  console.log('✓ test-diff-guard --self-test OK (105 fixtures)');
+  console.log('✓ test-diff-guard --self-test OK (128 fixtures)');
 }
 
 /** Planted cases for the protected tests (protected-tests.mjs) and check 7. */
@@ -591,6 +591,24 @@ async function protectedSelfTest(eq) {
   eq(blocking(fewer('services/svc-identity/src/x.test.ts')), 1, 'svc-identity: fails as today');
   eq(blocking(fewer('packages/auth/src/x.test.ts')), 1, 'packages/auth: fails as today');
   eq(blocking(fewer('apps/customer/src/features/public/AuthForm.test.tsx')), 1, 'a sign-in test by name: fails as today');
+  // Planted: the gateway's and the venue paths' tests the CI review found unprotected on 37203eff3f.
+  for (const path of [
+    'services/svc-edge/src/api-key-revoked.test.ts',
+    'services/svc-edge/src/geo-block.test.ts',
+    'services/svc-edge/src/execution-kill-p07.e2e.test.ts',
+    'services/svc-execution/src/router.test.ts',
+    'services/svc-dex/src/quote.test.ts',
+    'packages/venue-hyperliquid/src/client.test.ts',
+    'packages/execution-mm/src/quote.test.ts',
+    'apps/admin/src/lib/api-key-list.test.ts',
+    'apps/admin/src/lib/dual-control.test.ts',
+    'apps/customer/src/features/live-authority.test.ts',
+    'apps/customer/src/features/trade/kill-banner.test.tsx',
+  ]) {
+    eq(blocking(fewer(path)), 1, `${path}: protected, fails as today`);
+    eq(blocking(del(path)), 1, `${path}: deleted, fails as today`);
+  }
+  eq(blocking(fewer('apps/customer/src/screens/home/clock.test.ts')), 0, 'an ordinary screen test stays free');
   eq(blocking(fewer('apps/admin/src/lib/operator-access.test.ts')), 1, 'a permissions test by name: fails as today');
   eq(blocking(fewer('apps/admin/src/lib/custody-ops/model.test.ts')), 1, 'a custody test by folder: fails as today');
   eq(blocking(fewer('apps/customer/src/features/protocol/wallet/SessionKeysPanel.test.tsx')), 1, 'camelCase split: SessionKeys');
