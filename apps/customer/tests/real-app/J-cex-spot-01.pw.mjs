@@ -220,10 +220,14 @@ test(`${J} #3 passes the trading checks (legal name, country confirmed, sanction
   await expect(page.getByTestId('account-summary')).toContainText(/Verification: .*trading/i);
   await page.keyboard.press('Escape');
   // The desk accepts orders: on the venue desk with the person's TEST wallet connected, the venue's own preview of this
-  // exact order (the price and amount typed below) is answered, its lock in USDC the order's price times its amount, and
-  // Buy is open with no refusal on verification.
+  // exact order (the price and amount typed below) is answered, its lock in USDC the order's price times its amount.
+  // Verification no longer stops it: the one thing in the way is the venue's money check, which the desk runs before
+  // Confirm (J-cex-spot-02 #6): the venue account holds nothing until #4, so the desk says in words that this order locks
+  // more USDC than is free, and never asks to verify. Nothing is signed, no order rests and nothing is locked on the venue
+  // or held in our ledger.
   await venueStatus(who);
   const { wallet, owner } = await venueDesk(page);
+  const asked = wallet.requests.length;
   const { bid } = await venueBook(VENUE_SPOT);
   const away = fromUnits((bid / 2n / toUnits('1')) * toUnits('1'));
   const amount = '0.001';
@@ -241,30 +245,15 @@ test(`${J} #3 passes the trading checks (legal name, country confirmed, sanction
   const preview = (await answer.json()).value;
   expect(preview?.lock?.asset, JSON.stringify(preview).slice(0, 400)).toBe('USDC');
   expect(wireUnits(preview.lock.amount)).toBe((toUnits(away) * toUnits(amount)) / toUnits('1'));
-  const buy = page.getByRole('button', { name: 'Buy BTC' });
-  await expect(buy).toBeEnabled();
   const reason = page.locator('#dk-reason-buy');
+  const short = reason.getByTestId('venue-ticket-short');
+  await expect(short).toBeVisible();
+  await expect(short).toContainText(/Not enough USDC free on your venue account/);
+  await expect(short).not.toContainText(/[a-z]+_[a-z_]+/);
   await expect(reason).not.toContainText('Verify your identity first');
   await expect(reason).not.toContainText('Verify now');
-  // The place door takes the same order past verification to the venue's money check: confirmed and signed, the venue
-  // answers on funds (the venue account holds nothing until #4), not on permission; no order rests and nothing is locked
-  // on the venue or held in our ledger.
-  const submitted = page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname === '/api/v1/venue/submit');
-  await buy.click();
-  await expect(reviewSheet(page)).toBeVisible();
-  const asked = wallet.requests.length;
-  await confirm(page, 'buy');
-  await continueInWallet(page);
-  const placed = await submitted;
-  const placedBody = await placed.json();
-  expect(placed.status(), JSON.stringify(placedBody).slice(0, 400)).toBe(200);
-  expect(placedBody.outcome, JSON.stringify(placedBody).slice(0, 400)).toMatchObject({
-    definite: true,
-    accepted: false,
-    refusal: { code: 'insufficient_balance' },
-  });
-  expect(wallet.requests.length).toBe(asked + 1);
-  expect(wallet.requests.at(-1).method).toBe('eth_signTypedData_v4');
+  await expect(page.getByRole('button', { name: 'Buy BTC' })).toBeDisabled();
+  expect(wallet.requests.length).toBe(asked);
   expect(await venueOpenOrders(who, owner)).toHaveLength(0);
   expect(wireUnits((await venueBalance(who, owner, 'USDC')).locked)).toBe(0n);
   expect(held(await (await api(who)).balances(), 'USDT')).toBe(0n);
