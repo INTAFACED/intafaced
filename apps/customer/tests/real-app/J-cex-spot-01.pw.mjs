@@ -159,7 +159,7 @@ test(`${J} #2 opens the spot desk and tries a TEST limit buy before verifying: r
   // The refusal, in plain words, with the Verify path, which opens Verification.
   const reason = page.locator('#dk-reason-buy');
   await expect(reason).toContainText('Verify your identity first');
-  await expect(reason).toContainText('You need to be verified for trading to place an order.');
+  await expect(reason).toContainText('You need a verified account to do this.');
   const way = reason.getByRole('link', { name: 'Verify now' });
   await expect(way).toHaveAttribute('href', '/verification');
   // No raw code: no dotted or underscored code (denied.kyc_required, trade.venue.kyc_required) anywhere on the desk.
@@ -511,7 +511,7 @@ test(`${J} #5 opens /trade/spot/BTC-USDC: ticker, book, chart, tape, the fee lin
     amount: '0.001',
     price: fromUnits(atBid),
     timeInForce: 'IOC',
-    key: `${J}:5:print:${Date.now()}`,
+    key: `order:test-printer:${trader.owner}:5`,
   });
 
   await venueDesk(page);
@@ -535,7 +535,10 @@ test(`${J} #5 opens /trade/spot/BTC-USDC: ticker, book, chart, tape, the fee lin
     const { bid, ask } = await venueBook(VENUE_SPOT);
     expect(shownUnits(await market.getByTestId('venue-best-bid').innerText()), 'best bid').toBe(bid);
     expect(shownUnits(await market.getByTestId('venue-best-ask').innerText()), 'best ask').toBe(ask);
-    await expect(market.getByTestId('venue-market-as-of')).toHaveText(/\d{1,2}:\d{2}/, { timeout: 1_000 });
+    // The venue's as-of time, on the person's clock ("15 Nov 2026, 17:33:51").
+    await expect(market.getByTestId('venue-market-as-of')).toHaveText(/^\d{1,2} [A-Z][a-z]{2} \d{4}, \d{2}:\d{2}:\d{2}/, {
+      timeout: 1_000,
+    });
   }).toPass({ timeout: 30_000 });
   // The book: every level drawn, both sides, is the venue's own level at that place, price and size.
   await expect(async () => {

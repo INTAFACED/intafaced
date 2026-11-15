@@ -5,7 +5,7 @@ import { displayAmount } from '../../../shared/money';
 import { usePreferences } from '../../../shared/preferences';
 import { usePolled } from '../../../features/protocol/wallet/use-polled';
 import type { VenueCandle, VenueMarket, VenuePrint } from '../../../features/trade/venue-api';
-import { ReadProblem, TestMark, VENUE_POLL_MS, useAsOfText, useVenueApi } from '../../../features/trade/venue/VenueKit';
+import { ReadProblem, TestMark, VENUE_POLL_MS, useVenueApi } from '../../../features/trade/venue/VenueKit';
 import { forwardFill, type OhlcvRow } from '../../../data/derive';
 import type { Candle } from '../../../data/types';
 import { CHART_INTERVALS, type ChartInterval } from '../chart/candles';
@@ -41,8 +41,18 @@ export function VenueMarketPanel({ market, test, venueName }: { market: VenueMar
   const { t } = spotVenueCopy.useCopy();
   const d = deskCopy.useCopy().t;
   const venue = useVenueApi();
-  const asOfText = useAsOfText();
   const { timeZone } = usePreferences();
+  // The venue's time on the person's own clock ("15 Nov 2026, 17:33:51"), as the venue account panel shows it.
+  const asOfText = (iso: string) => {
+    try {
+      const text = new Intl.DateTimeFormat('en-GB', { timeZone: zoneName(timeZone), dateStyle: 'medium', timeStyle: 'medium' }).format(
+        new Date(iso),
+      );
+      return timeZone === 'device' ? text : `${text} ${timeZone}`;
+    } catch {
+      return iso;
+    }
+  };
   const [tab, setTab] = useState<'book' | 'tape'>('book');
   const [interval, setChartInterval] = useState<ChartInterval>('15m');
   const book = usePolled((signal) => venue.book(market.symbol, BOOK_DEPTH, signal), `venue-book:${market.symbol}`, VENUE_POLL_MS);
@@ -78,6 +88,9 @@ export function VenueMarketPanel({ market, test, venueName }: { market: VenueMar
 
   return (
     <section className="dk-panel form-stack" aria-label={t('Venue market')} data-testid="venue-market" data-market={market.symbol}>
+      <h2 className="dk-tab-title">
+        {t('Venue market')} <TestMark test={test} />
+      </h2>
       <ReadProblem failure={failure} venueName={venueName} />
       <dl className="protocol-facts" data-testid="venue-ticker">
         <div>
@@ -103,7 +116,6 @@ export function VenueMarketPanel({ market, test, venueName }: { market: VenueMar
           <dd data-testid="venue-market-as-of">{book.data ? asOfText(book.data.asOf) : '…'}</dd>
         </div>
       </dl>
-      <TestMark test={test} />
 
       <div className="dk-chart" data-testid="venue-chart">
         <div className="dk-chart-bar">
