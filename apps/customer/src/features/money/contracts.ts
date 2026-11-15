@@ -4,6 +4,9 @@ import { decimalSchema as money, parseAmount, signedDecimalSchema } from '../../
 import { spaceSchema } from './client';
 import { businessListSchema, businessSchema } from './business-schema';
 
+/** The partner bank's move of money it holds for the person (OWNER 226): its id, and the partner's name for itself. */
+export const partnerMoveSchema = z.object({ id: z.string().min(1), label: z.string().min(1) }).passthrough();
+
 export const scheduleSchema = z.object({
   id: z.string(),
   assetId: z.string(),
@@ -1496,7 +1499,13 @@ export const bankWrites = {
     })
     .refine((data) => (data.ledgerTxId === null) === (data.partnerMove != null)),
   // A personal send echoes the note and reference it stored, so the review can be checked against them.
-  'transfers.toUser': z.object({ ledgerTxId: z.string(), amount: money, note: z.string().nullable(), reference: z.string().nullable() }),
+  'transfers.toUser': z.object({
+    ledgerTxId: z.string().nullable(),
+    partnerMove: partnerMoveSchema.nullable().optional(),
+    amount: money,
+    note: z.string().nullable(),
+    reference: z.string().nullable(),
+  }),
   'transfers.schedule': z.object({ id: z.string(), nextRunAt: z.string() }),
   'transfers.scheduleToUser': z.object({ id: z.string(), nextRunAt: z.string() }),
   'transfers.pause': z.object({ status: z.string(), nextRunAt: z.string() }),
