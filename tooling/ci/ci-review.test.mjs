@@ -42,6 +42,10 @@ import {
   MAX_IMAGE_BYTES,
   MAX_IMAGES_TOTAL_BYTES,
   COMPARE_FILES_CAP,
+  failStreak,
+  findingsInLog,
+  premiseLines,
+  readStreak,
 } from './ci-review.mjs';
 
 const HEAD = 'a'.repeat(40);
@@ -1740,4 +1744,123 @@ test('a map rebuilt from new runs groups the paths that gain and lose the same j
     });
   assert.deepEqual(expand(out).sort(), jsonChanges(before, after).sort());
   assert.deepEqual(expand(lines).sort(), jsonChanges(twice, reordered).sort());
+});
+
+// The third FAIL in a row says to stop fixing (ci-review.mjs failStreak, premiseLines; pstack principle-attack-the-premise).
+// Failure it replaces: project-state BUILDER.md's words-only "after three red runs in a row", which builders skipped.
+const hex = (c) => c.repeat(40);
+const job = (verdict, id = 0) => ({ id, name: 'CI review', steps: [{ name: 'Verdict', conclusion: verdict }] });
+// One run per push on the branch, minutes apart; `jobs` per run, every attempt's.
+const branchRun = (id, c, minute, jobs, over = {}) => ({
+  id,
+  head_sha: hex(c),
+  event: 'pull_request_target',
+  pull_requests: [],
+  created_at: new Date(Date.UTC(2026, 10, 15, 0, minute)).toISOString(),
+  jobs,
+  ...over,
+});
+const streakOf = (runs, head, over = {}) =>
+  failStreak({ runs, jobsOf: async (r) => r.jobs, head: hex(head), number: 7, ...over }).then((s) => s.map((h) => h.sha[0]));
+
+test('the first and second FAIL print nothing new; the third does, naming each head and its findings', async () => {
+  const runs = [branchRun(1, '1', 1, [job('failure')]), branchRun(2, '2', 2, [job('failure')]), branchRun(3, '3', 3, [])];
+  assert.deepEqual(await streakOf(runs.slice(0, 1), '1'), ['1']);
+  assert.deepEqual(premiseLines([{ sha: hex('1') }]), []);
+  assert.deepEqual(premiseLines([{ sha: hex('2') }, { sha: hex('1') }]), [], 'a second FAIL prints nothing new');
+  assert.deepEqual(await streakOf(runs, '3'), ['3', '2', '1']);
+  const out = premiseLines([
+    { sha: hex('3'), findings: ['a.ts:4: the comment is never closed'] },
+    { sha: hex('2'), findings: ['a.ts:4: the doc comment is never closed'] },
+    { sha: hex('1'), findings: [] },
+  ]).join('\n');
+  assert.match(out, /3 FAILs in a row on this branch: stop fixing/);
+  assert.match(out, /write that belief down in one sentence and test it/);
+  assert.match(out, /ask GPT-6\.1 Sol why \(project-state BUILDER\.md, row d74\)/);
+  assert.match(out, new RegExp(`- ${hex('3').slice(0, 10)}\n  - a\\.ts:4: the comment is never closed`));
+  assert.match(out, new RegExp(`- ${hex('1').slice(0, 10)}: \\(findings unreadable\\)`));
+});
+
+test('a run by hand is no push: a re-run, a second attempt or ready_for_review on one head counts it once', async () => {
+  const runs = [
+    branchRun(1, '1', 1, [job('failure'), job('failure')]), // attempt 1 and its re-run by hand
+    branchRun(2, '1', 2, [job('failure')]), // ready_for_review on the same head
+    branchRun(3, '2', 3, [job('failure')]),
+    branchRun(4, '9', 4, [job('success')], { event: 'workflow_dispatch' }), // not this workflow's pull_request_target
+    branchRun(5, '3', 5, []),
+  ];
+  assert.deepEqual(await streakOf(runs, '3'), ['3', '2', '1'], 'three heads, five runs');
+  assert.deepEqual(await streakOf(runs.slice(0, 3), '2'), ['2', '1'], 'two heads after a re-run is the second FAIL');
+});
+
+test('a PASS ends the row; a head with no verdict neither counts nor ends it', async () => {
+  const pass = [
+    branchRun(1, '1', 1, [job('failure')]),
+    branchRun(2, '2', 2, [job('success')]),
+    branchRun(3, '3', 3, [job('failure')]),
+    branchRun(4, '4', 4, []),
+  ];
+  assert.deepEqual(await streakOf(pass, '4'), ['4', '3']);
+  // A FAIL then a PASS on one head's re-runs: the FAIL stands, as the seal reads it.
+  const down = [
+    branchRun(1, '1', 1, [job('failure')]),
+    branchRun(2, '2', 2, [job('failure')]),
+    branchRun(3, '5', 3, [{ name: 'CI review', steps: [{ name: 'Verdict', conclusion: 'skipped' }] }]), // judge down
+    branchRun(4, '3', 4, []),
+  ];
+  assert.deepEqual(await streakOf(down, '3'), ['3', '2', '1']);
+});
+
+test("another pull request's runs on the same branch name are not this row", async () => {
+  const runs = [
+    branchRun(1, '1', 1, [job('failure')]), // before this pull request opened
+    branchRun(2, '2', 2, [job('failure')], { pull_requests: [{ number: 6 }] }),
+    branchRun(3, '3', 3, [job('failure')]),
+    branchRun(4, '4', 4, []),
+  ];
+  const since = new Date(Date.UTC(2026, 10, 15, 0, 2)).toISOString();
+  assert.deepEqual(await streakOf(runs, '4', { since }), ['4', '3']);
+});
+
+test('findings are read back from a FAIL log; notes and other lines are not', () => {
+  const log = [
+    '2026-11-12T15:33:41.1Z ##[group]Run node tooling/ci/ci-review.mjs judge',
+    '2026-11-12T15:33:41.3Z ## CI review: FAIL on ' + hex('1'),
+    '2026-11-12T15:33:41.3Z ',
+    '2026-11-12T15:33:41.3Z - a.ts:4: blocking',
+    '2026-11-12T15:33:41.3Z - note: a remark',
+    '2026-11-12T15:33:41.3Z ##[error]1 blocking finding(s)',
+    '2026-11-12T15:33:41.3Z - after the step',
+  ].join('\n');
+  assert.deepEqual(findingsInLog(log), ['a.ts:4: blocking']);
+  assert.deepEqual(findingsInLog('## CI review: PASS on x'), []);
+});
+
+test('readStreak reads the branch through GitHub and the logs only from the third FAIL', async () => {
+  const runs = [
+    branchRun(1, '1', 1, [job('failure', 11)]),
+    branchRun(2, '2', 2, [job('failure', 12)]),
+    branchRun(3, '3', 3, [job('failure', 13)]),
+  ];
+  const asked = [];
+  const get = async (path) => {
+    asked.push(path);
+    if (path.includes('/workflows/ci-review.yml/runs?')) return { status: 200, text: JSON.stringify({ workflow_runs: runs }) };
+    const r = /runs\/(\d+)\/jobs/.exec(path);
+    if (r) return { status: 200, text: JSON.stringify({ jobs: runs.find((x) => x.id === Number(r[1])).jobs }) };
+    const j = /jobs\/(\d+)\/logs/.exec(path);
+    if (j) return { status: 200, text: `## CI review: FAIL on x\n- finding of job ${j[1]}\n##[error]` };
+    return { status: 404, text: '' };
+  };
+  const at3 = await readStreak({ repo: 'o/r', number: 7, ref: 'b', head: hex('3'), own: ['mine'], get });
+  assert.deepEqual(
+    at3.map((h) => h.findings),
+    [['mine'], ['finding of job 12'], ['finding of job 11']],
+  );
+  assert.match(asked[0], /event=pull_request_target&branch=b&/);
+  asked.length = 0;
+  const at2 = await readStreak({ repo: 'o/r', number: 7, ref: 'b', head: hex('2'), own: ['mine'], get });
+  assert.equal(at2.length, 2);
+  assert.ok(!asked.some((p) => p.includes('/logs')), 'no log read below the third FAIL');
+  assert.deepEqual(await readStreak({ repo: 'o/r', number: 7, ref: 'b', head: hex('9'), get }), [], 'a replay at a head with no FAIL');
 });

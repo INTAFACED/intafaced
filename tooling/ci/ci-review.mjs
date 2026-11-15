@@ -988,6 +988,113 @@ export function withheld(findings, shinglesPath, what = 'the step words') {
   );
 }
 
+/**
+ * The CI review FAILs in a row on one pull request's branch, ending at `head` (counted as a FAIL: its Verdict is the step
+ * now failing), newest first: [{ sha, job }]. A head counts once however many runs or attempts it had, so a re-run, a
+ * ready_for_review or a run by hand is no push (project-state row d73); a head with no verdict (judge down, cancelled)
+ * neither counts nor breaks the row; a PASS ends it. `runs` are this workflow's pull_request_target runs on the branch,
+ * `jobsOf(run)` its jobs of every attempt, `since` when the pull request opened. Stops at the first PASS or `max` heads.
+ */
+export async function failStreak({ runs, jobsOf, head, number, since, max = 30 }) {
+  const first = new Map();
+  const opened = Date.parse(since ?? '');
+  for (const r of runs ?? []) {
+    const sha = String(r?.head_sha ?? '').toLowerCase();
+    const prs = r?.pull_requests ?? [];
+    const at = Date.parse(r?.created_at ?? '');
+    if (!SHA40.test(sha) || r?.event !== 'pull_request_target') continue;
+    // A run of another pull request from the same branch name (named, or from before this one opened) is not this row.
+    if (prs.length > 0 && !prs.some((p) => Number(p?.number) === Number(number))) continue;
+    if (Number.isFinite(opened) && at < opened) continue;
+    const seen = first.get(sha) ?? { at: Infinity, runs: [] };
+    seen.at = Math.min(seen.at, Number.isFinite(at) ? at : Infinity);
+    seen.runs.push(r);
+    first.set(sha, seen);
+  }
+  const own = String(head).toLowerCase();
+  const until = first.get(own)?.at ?? Infinity;
+  const earlier = [...first.entries()].filter(([sha, h]) => sha !== own && h.at < until).sort((a, b) => b[1].at - a[1].at);
+  const out = [{ sha: own, job: null }];
+  for (const [sha, h] of earlier.slice(0, max)) {
+    const jobs = (await Promise.all(h.runs.map(jobsOf))).flat().filter((j) => j?.name === 'CI review');
+    const verdict = (c) => jobs.find((j) => (j.steps ?? []).some((s) => s?.name === 'Verdict' && s?.conclusion === c));
+    const failed = verdict('failure');
+    if (failed) out.push({ sha, job: failed });
+    else if (verdict('success')) break;
+  }
+  return out;
+}
+
+/** A FAIL's blocking findings, read back from its Verdict step's log (cmdJudge prints them), one line each. */
+export function findingsInLog(log) {
+  const lines = String(log ?? '')
+    .split('\n')
+    .map((l) => l.replace(/^\S+Z /, '').trimEnd());
+  const at = lines.findIndex((l) => l.startsWith('## CI review: FAIL on '));
+  if (at < 0) return [];
+  const out = [];
+  for (const l of lines.slice(at + 1)) {
+    if (l.startsWith('##[')) break;
+    if (l.startsWith('- ') && !/^- note:/i.test(l)) out.push(l.slice(2));
+  }
+  return out;
+}
+
+/** The FAILs in a row at which the judge says to stop fixing (pstack principle-attack-the-premise: two fixes failed). */
+export const PREMISE_AT = 3;
+
+/**
+ * Nothing below PREMISE_AT FAILs in a row; from there, the instruction and each head's findings, newest first. Advice
+ * only: the FAIL stands as it would without it, and a builder that ignores it merges on its checks.
+ */
+export function premiseLines(streak) {
+  if (streak.length < PREMISE_AT) return [];
+  const cut = (f) => (f.length > 300 ? `${f.slice(0, 300)}...` : f).replace(/\s+/g, ' ');
+  return [
+    '',
+    `### ${streak.length} FAILs in a row on this branch: stop fixing`,
+    '',
+    'Each fix since the first FAIL assumed one belief, and each FAIL is evidence against it. Before the next push, write that belief down in one sentence and test it: find an observation that would come out differently if it were false, and make it. Look at what the findings below have in common that the belief did not predict. If it holds, ask the next "why": the earlier fixes may have treated a consequence. Then, once, ask GPT-6.1 Sol why (project-state BUILDER.md, row d74). Advice, not a gate.',
+    '',
+    ...streak.flatMap(({ sha, findings }) => [
+      `- ${sha.slice(0, 10)}${findings?.length ? '' : ': (findings unreadable)'}`,
+      ...(findings ?? []).map((f) => `  - ${cut(f)}`),
+    ]),
+  ];
+}
+
+/** The streak at `head` of pull request `number` on branch `ref`, read from GitHub, each head with its findings. */
+export async function readStreak({ repo, number, ref, head, since, own, get = getText }) {
+  const json = async (p) => {
+    const r = await get(p, 'application/vnd.github+json');
+    if (r.status !== 200) throw new Error(`could not read ${p}: HTTP ${r.status}`);
+    return JSON.parse(r.text);
+  };
+  const runs = [];
+  for (let page = 1; page <= 10; page++) {
+    const q = `event=pull_request_target&branch=${encodeURIComponent(ref)}&per_page=100&page=${page}`;
+    const batch = (await json(`/repos/${repo}/actions/workflows/ci-review.yml/runs?${q}`)).workflow_runs ?? [];
+    runs.push(...batch);
+    if (batch.length < 100) break;
+  }
+  const jobsOf = async (r) => (await json(`/repos/${repo}/actions/runs/${r.id}/jobs?filter=all&per_page=100`)).jobs ?? [];
+  const logOf = async (job) => {
+    const r = await get(`/repos/${repo}/actions/jobs/${job.id}/logs`, 'application/vnd.github+json');
+    return r.status === 200 ? findingsInLog(r.text) : [];
+  };
+  let mine = null;
+  if (own === undefined) {
+    // A replay: only a head whose Verdict failed, its own findings read back like the others'.
+    const jobs = (await Promise.all(runs.filter((r) => r.head_sha === head).map(jobsOf))).flat();
+    mine = jobs.find((j) => j?.name === 'CI review' && j.steps?.some((s) => s?.name === 'Verdict' && s?.conclusion === 'failure'));
+    if (!mine) return [];
+  }
+  const streak = await failStreak({ runs, jobsOf, head, number, since });
+  if (streak.length < PREMISE_AT) return streak;
+  if (mine) own = await logOf(mine);
+  return Promise.all(streak.map(async (h, i) => ({ sha: h.sha, findings: i === 0 ? own : await logOf(h.job) })));
+}
+
 function cmdRead(dir) {
   const v = readVerdicts(dir);
   if (!v.ok) {
@@ -997,17 +1104,61 @@ function cmdRead(dir) {
   console.log(`verdict: ${v.why}`);
 }
 
-function cmdJudge(dir) {
+async function cmdJudge(dir) {
   const v = JSON.parse(readFileSync(join(dir, 'verdict.json'), 'utf8'));
   const lines = [`## CI review: ${v.verdict} on ${v.head}`, '', ...v.findings.map((f) => `- ${f}`)];
+  // The third FAIL in a row adds the instruction; a failed read adds a warning and changes no verdict.
+  let premise = [];
+  if (v.verdict !== 'PASS')
+    try {
+      const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
+      const pull = eventPull(event, process.env.GITHUB_REPOSITORY);
+      const blocking = v.findings.filter((f) => !/^note:/i.test(f.trim()));
+      const since = event.pull_request?.created_at;
+      premise = premiseLines(await readStreak({ repo: process.env.GITHUB_REPOSITORY, ...pull, since, own: blocking }));
+    } catch (e) {
+      console.log(`::warning::could not count this branch's FAILs in a row: ${e.message}`);
+    }
+  lines.push(...premise);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines.join('\n')}\n`);
   console.log(lines.join('\n'));
   if (v.verdict !== 'PASS') {
     console.error(
-      `::error title=CI review FAIL::${v.findings.length} blocking finding(s) on ${v.head}; this FAIL stands for this head and its code, so push a fix that changes it (see the job summary)`,
+      `::error title=CI review FAIL::${v.findings.length} blocking finding(s) on ${v.head}; this FAIL stands for this head and its code, so push a fix that changes it (see the job summary)${premise.length ? `. ${premise[1].slice(4)}: write down the one belief your fixes shared and test it before the next push (the job summary)` : ''}`,
     );
     process.exit(1);
   }
+}
+
+/** A replay: what the Verdict step would print at `head` (default: the pull request's head), read through `gh api`:
+ *   node tooling/ci/ci-review.mjs premise <pr> [head] */
+async function cmdPremise(number, head) {
+  const repo = process.env.GITHUB_REPOSITORY ?? 'INTAFACED/intafaced';
+  const get = async (path, accept) => {
+    try {
+      return {
+        status: 200,
+        text: execFileSync('gh', ['api', path.slice(1), '-H', `accept: ${accept}`, '--allow-escape-sequences'], {
+          encoding: 'utf8',
+          maxBuffer: 256 * 1024 * 1024,
+        }),
+      };
+    } catch (e) {
+      return { status: Number(/HTTP (\d{3})/.exec(String(e.stderr))?.[1] ?? 0), text: '' };
+    }
+  };
+  const r = await get(`/repos/${repo}/pulls/${number}`, 'application/vnd.github+json');
+  if (r.status !== 200) throw new Error(`could not read pull request ${number}: HTTP ${r.status}`);
+  const pr = JSON.parse(r.text);
+  const at = (head ?? pr.head.sha).toLowerCase();
+  const streak = await readStreak({ repo, number: pr.number, ref: pr.head.ref, since: pr.created_at, head: at, get });
+  const lines = premiseLines(streak);
+  console.log(
+    streak.length
+      ? `${streak.length} FAIL(s) in a row at ${at}${lines.length ? '' : ': nothing new printed'}`
+      : `no CI review FAIL at ${at}: nothing new printed`,
+  );
+  if (lines.length) console.log(lines.join('\n'));
 }
 
 async function main() {
@@ -1016,7 +1167,8 @@ async function main() {
   if (cmd === 'diff') return cmdDiff(dir);
   if (cmd === 'read') return cmdRead(dir);
   if (cmd === 'judge') return cmdJudge(dir);
-  console.error('usage: ci-review.mjs index|diff|read|judge <dir>');
+  if (cmd === 'premise') return cmdPremise(dir, process.argv[4]);
+  console.error('usage: ci-review.mjs index|diff|read|judge <dir> | premise <pr> [head]');
   process.exit(2);
 }
 
