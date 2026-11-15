@@ -10,6 +10,7 @@ import {
   currentReportArtifact,
   fileSteps,
   fullVerdict,
+  journeyFilesAt,
   judgeTouched,
   titleBeforePush,
   JOURNEY_TEST,
@@ -1153,6 +1154,42 @@ test('fullVerdict: two journey files sharing one step id, both run, make a full 
     ["the named run's report has no list of the files it ran"],
     'a named run without its file list fails closed',
   );
+});
+
+test("fullVerdict: a file main has since deleted is not missing; one main still has is, whatever the pull request's head holds (#8505)", () => {
+  // #8485 deleted J-home-ia-06-blocked.pw.mjs on main, but the baseline's named run (1719) ran it, so every full run
+  // after it read as short of that file and the seal held every pull request that needs one (#8494, 9c9b8091, run
+  // 43712693473). Which files must have run comes from the default branch's own checkout (`onMain`), never the head.
+  const spec = (title, file) => ({ title, file, tests: [{ status: 'expected' }] });
+  const rep = (...specs) => readReport({ suites: [{ specs }] });
+  const a = spec('J-a-01 #1', 'J-a-01.pw.mjs');
+  const b = spec('J-b-01 #1', 'J-b-01.pw.mjs');
+  const gone = spec('J-c-01 #1', 'J-c-01-blocked.pw.mjs');
+  const named = rep(a, b, gone);
+  const read = () => ({ named, passedSince: {}, issues: {}, problems: [] });
+  const base = { baseline: { run: { number: 100, id: 1 }, steps: [] }, money: {}, reports: new Map() };
+  const v = (report, onMain) => fullVerdict({ repo: REPO, report, run: run(1), inputs: { ...base, onMain }, read });
+  const mainNow = new Set(['J-a-01.pw.mjs', 'J-b-01.pw.mjs']);
+  // Known good: main deleted the file, and the run holds every file main still has.
+  assert.deepEqual(v(rep(a, b), mainNow).missing, [], 'a file main deleted is not held against the run');
+  // Planted fault: the run left out a file main still has.
+  assert.deepEqual(v(rep(a), mainNow).missing, ['J-b-01.pw.mjs'], 'a file main still has, left out, is missing');
+  // The trap: a pull request that deletes or skips a file itself. Main still has it, so the run is short of it.
+  assert.deepEqual(v(rep(a, b), new Set([...mainNow, 'J-c-01-blocked.pw.mjs'])).missing, ['J-c-01-blocked.pw.mjs']);
+  // No list of main's files: nothing is let off (fails closed, as before #8505).
+  assert.deepEqual(v(rep(a, b), undefined).missing, ['J-c-01-blocked.pw.mjs']);
+  assert.deepEqual(v(rep(a, b), null).missing, ['J-c-01-blocked.pw.mjs']);
+});
+
+test("journeyFilesAt: the journey files of a checkout's real-app folder, or null when it can't be read", () => {
+  const here = journeyFilesAt(new URL('../..', import.meta.url).pathname);
+  assert.ok(here instanceof Set && here.size > 100, 'this checkout holds the journey files');
+  assert.ok(here.has('J-home-ia-06.pw.mjs') && !here.has('J-home-ia-06-blocked.pw.mjs'), 'as main holds them since #8485');
+  assert.ok(
+    [...here].every((f) => f.endsWith('.pw.mjs')),
+    'only run files, never helpers',
+  );
+  assert.equal(journeyFilesAt('/nonexistent-checkout-8505'), null);
 });
 
 // ---- C1: reds inherited from main stop only their area (owner decision 180) ----
