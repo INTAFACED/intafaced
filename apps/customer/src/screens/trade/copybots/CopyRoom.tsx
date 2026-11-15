@@ -196,17 +196,20 @@ export function CopyRoom({ path }: { path: string }) {
   const wizardNode =
     venueMode.mode === 'on' ? (
       <VenueFrame mode={venueMode}>
-        <VenueFollowWizard
-          open={wizard.open}
-          onOpenChange={(open) => setWizard((w) => ({ ...w, open }))}
-          api={api}
-          desk={desk.data}
-          initialLeader={wizard.leader}
-          listed={wizard.listed}
-          venueName={venueMode.status.available ? venueMode.status.venue.displayName : ''}
-          builder={venueMode.status.available ? venueMode.status.builder : null}
-          onFollowed={onFollowed}
-        />
+        {/* Mounted while open: each opening starts a new request (its own key and agent account id). */}
+        {wizard.open ? (
+          <VenueFollowWizard
+            open={wizard.open}
+            onOpenChange={(open) => setWizard((w) => ({ ...w, open }))}
+            api={api}
+            desk={desk.data}
+            initialLeader={wizard.leader}
+            listed={wizard.listed}
+            venueName={venueMode.status.available ? venueMode.status.venue.displayName : ''}
+            builder={venueMode.status.available ? venueMode.status.builder : null}
+            onFollowed={onFollowed}
+          />
+        ) : null}
       </VenueFrame>
     ) : (
       <FollowWizard

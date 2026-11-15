@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Button,
   Checkbox,
@@ -95,9 +95,10 @@ export function VenueFollowWizard({
   const [aggregate, setAggregate] = useState('');
   const [fixed, setFixed] = useState('');
   const [expiry, setExpiry] = useState('');
-  const [requestKey, setRequestKey] = useState('');
+  // Mounted when the wizard opens (CopyRoom), so each opening is a new request with its own key.
+  const [requestKey, setRequestKey] = useState(() => `copy-start:${Date.now().toString(36)}`);
   // The follow's own agent account: its id is made once per request, so a retry is the same account, never a second.
-  const [accountId, setAccountId] = useState('');
+  const [accountId, setAccountId] = useState(() => crypto.randomUUID());
   const [made, setMade] = useState<AgentAccount | null>(null);
   const [asking, setAsking] = useState(false);
   const [failure, setFailure] = useState<Failure | null>(null);
@@ -107,12 +108,6 @@ export function VenueFollowWizard({
   const [signing, setSigning] = useState(false);
   const [touched, setTouched] = useState(false);
   const state = deskState(desk);
-  useEffect(() => {
-    if (open) {
-      setLeader(initialLeader);
-      newRequest();
-    }
-  }, [open, initialLeader]);
 
   const markets = useResource((signal) => venue.markets(signal), 'copy-venue-markets');
   const terms = useResource((signal) => readAgentTerms(transport, signal), 'copy-agent-terms');
