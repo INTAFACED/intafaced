@@ -228,8 +228,11 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
   const placedKeys = useMemo(() => (owner ? heldKeys(owner) : null), [owner]);
   // Orders with no definite answer yet (J-cex-spot-02 #3, #4): kept across a reload; while one is listed, no new order goes.
   const pendingStore = useMemo(() => (owner ? pendingOrders(owner) : null), [owner]);
-  const [pending, setPending] = useState<PendingOrder[]>([]);
-  useEffect(() => setPending(pendingStore?.list() ?? []), [pendingStore]);
+  // Read from this tab's store when the owner's store changes (during render, so a reload shows them at once).
+  const [pendingOf, setPendingOf] = useState(() => ({ store: pendingStore, list: pendingStore?.list() ?? [] }));
+  if (pendingOf.store !== pendingStore) setPendingOf({ store: pendingStore, list: pendingStore?.list() ?? [] });
+  const pending = pendingOf.store === pendingStore ? pendingOf.list : (pendingStore?.list() ?? []);
+  const setPending = (list: PendingOrder[]) => setPendingOf({ store: pendingStore, list });
   const [found, setFound] = useState<string | null>(null);
   // The keys of orders the venue has since named: each side's ticket lets go of a key it still holds for one.
   const [settledKeys, setSettledKeys] = useState<string[]>([]);
@@ -630,9 +633,8 @@ function VenueSideForm({
     account.reload();
   }
   const draft = useMemo(() => (owner ? new HeldDraft(owner, market.symbol) : null), [owner, market.symbol]);
-  useEffect(() => {
-    for (const key of settledKeys) draft?.settle(key);
-  }, [draft, settledKeys]);
+  // A key the venue has since named is let go before this render holds one (settle only drops a key still held).
+  for (const key of settledKeys) draft?.settle(key);
   const [typed, setTyped] = useState(type);
   if (typed !== type) {
     // The order type changed: a typed spend or total is dropped, never carried into the next kind of order.
@@ -963,16 +965,16 @@ function PendingCheck({
   const venue = useVenueApi();
   const [sending, setSending] = useState(false);
   const read = usePolled(
-    (signal) => venue.orderByClientId(owner, entry.clientOrderId, signal),
+    async (signal) => {
+      const answer = await venue.orderByClientId(owner, entry.clientOrderId, signal);
+      // The venue named the order: the row hands it up as the look-up answers, and goes.
+      if (answer.ok && answer.data.value) onFound(entry, answer.data.value);
+      return answer;
+    },
     `pending:${owner}:${entry.clientOrderId}`,
     VENUE_POLL_MS,
   );
   const order = read.data?.value ?? null;
-  useEffect(() => {
-    if (order) onFound(entry, order);
-    // `entry` is this row's own, fixed for its life.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [order]);
   const asset = entry.intent.symbol.split('-')[0] ?? entry.intent.symbol;
   return (
     <div data-pending={entry.clientOrderId}>
