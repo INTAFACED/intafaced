@@ -1,4 +1,5 @@
 import type { Sql } from 'postgres';
+import { publishPendingAgentAlerts } from './alerts/routes.js';
 import { transaction } from '@intafaced/db';
 import type { EventBus } from '@intafaced/events';
 import { formatAmount, InsufficientFundsError, parseAmount, type Amount } from '@intafaced/ledger-client';
@@ -1122,6 +1123,11 @@ export class AgentRuntime {
   /** Publishes recorded usage alerts not yet published, one person's or everyone's, each on its business key (J-agents-02). */
   async publishUsageAlerts(userId?: string): Promise<number> {
     return publishPendingUsageAlerts(this.sql, this.bus, userId);
+  }
+
+  /** Hands the operator's pending agent alerts to notifications while they are on (J-agents-16 #3). */
+  async publishAgentAlerts(): Promise<number> {
+    return publishPendingAgentAlerts(this.sql, this.bus);
   }
 
   /** Publishes held tool calls not yet announced to their owner, each on its request (J-agents-05 #4); all of them unscoped. */

@@ -100,7 +100,14 @@ const attemptLimits =
         windowSeconds: env.CAMPAIGNS_VOUCHER_ATTEMPT_WINDOW_SECONDS,
       }
     : null;
-const vouchers = new VoucherService({ sql, participants, campaigns, saga, attemptLimits: () => attemptLimits });
+const vouchers = new VoucherService({
+  sql,
+  participants,
+  campaigns,
+  saga,
+  attemptLimits: () => attemptLimits,
+  payTo: (accountId, forwarded) => tasks.recordPayTo(accountId, forwarded),
+});
 
 // The watch desk's owner values (J-campaigns-17); each blank refuses what needs it, never a default.
 const watchLimits = {

@@ -72,6 +72,12 @@ import {
   type QuantLiveCheck,
   quantPromoteOutputSchema,
   QUANT_OWNER_CRITERIA,
+  quantDisputeOpenInputSchema,
+  quantDisputeResolveInputSchema,
+  quantModerationEntrySchema,
+  quantModerationInputSchema,
+  quantModerationQueueInputSchema,
+  quantModerationQueueSchema,
   type QuantLifecycle,
   type QuantStage,
   QUANT_SUPPORT_GRANT_MAX_SECONDS,
@@ -85,6 +91,21 @@ import {
   quantTeamSaveInputSchema,
   quantTeamSchema,
   quantTeamSetInputSchema,
+  quantAccessRequestInputSchema,
+  quantAccessSetInputSchema,
+  quantLibraryBrowseInputSchema,
+  quantLibraryOptionsSchema,
+  quantLibraryPageSchema,
+  quantLineageReadSchema,
+  quantLineageSchema,
+  quantListingCheckInputSchema,
+  quantListingCheckSchema,
+  quantListingPageSchema,
+  quantListingPreviewSchema,
+  quantListingPublishInputSchema,
+  quantListingSchema,
+  quantMyListingsSchema,
+  quantReviewInputSchema,
 } from '@intafaced/contracts';
 import { parseAmount } from '@intafaced/ledger-client/money';
 import type { BacktestCostModel } from '@intafaced/quant-honesty';
@@ -174,6 +195,18 @@ import {
   QUANT_RISK_CAP_UNSET,
   QUANT_STAGE_TRANSITION_INVALID,
   QuantError,
+  QUANT_LIBRARY_LICENCES_UNSET,
+  QUANT_LISTING_ACCESS_DENIED,
+  QUANT_LISTING_CHECK_FAILED,
+  QUANT_LISTING_NOT_FOUND,
+  QUANT_DISPUTE_NOT_FOUND,
+  QUANT_LIBRARY_QUEUE_LIMIT_UNSET,
+  QUANT_MODERATION_STATE_INVALID,
+  QUANT_LISTING_SOURCE_PROTECTED,
+  QUANT_LISTING_STALE,
+  QUANT_REALISM_CHECKLIST_UNACCEPTED,
+  QUANT_REALISM_CHECKLIST_UNSET,
+  QUANT_REVIEW_NEEDS_RUN,
 } from './errors.js';
 import { createMemoryLifecycleRepository } from './lifecycle/memory-repository.js';
 import type { LifecycleRepository } from './lifecycle/repository.js';
@@ -184,6 +217,9 @@ import { createMemoryRiskRepository } from './risk/memory-repository.js';
 import type { RiskRepository } from './risk/repository.js';
 import { checkCaps, checkTradingOn, DEFAULT_FLOOR_POLICY, riskScreenOf } from './risk/rules.js';
 import { createMemoryTeamRepository } from './team/memory-repository.js';
+import { createMemoryLibraryRepository } from './library/memory-repository.js';
+import type { LibraryRepository } from './library/repository.js';
+import { createLibrary, type RealismChecklist } from './library/service.js';
 import { grantActive, lockLive, type StoredCollaborator, type StoredLock, type TeamRepository } from './team/repository.js';
 import type { NotifyRepository, StoredAlert } from './notify/repository.js';
 import { alertKey, checkChannels, checkTemplate } from './notify/rules.js';
@@ -337,11 +373,13 @@ function toTrpc(err: unknown): never {
       err.code === QUANT_RUN_NOT_FOUND ||
       err.code === QUANT_SHARE_NOT_FOUND ||
       err.code === QUANT_VERSION_NOT_FOUND ||
-      err.code === QUANT_TEMPLATE_NOT_FOUND
+      err.code === QUANT_TEMPLATE_NOT_FOUND ||
+      err.code === QUANT_LISTING_NOT_FOUND ||
+      err.code === QUANT_DISPUTE_NOT_FOUND
         ? 'NOT_FOUND'
-        : err.code === QUANT_PERMISSION_DENIED
+        : err.code === QUANT_PERMISSION_DENIED || err.code === QUANT_LISTING_ACCESS_DENIED || err.code === QUANT_LISTING_SOURCE_PROTECTED
           ? 'FORBIDDEN'
-          : err.code === QUANT_EDIT_LOCKED
+          : err.code === QUANT_EDIT_LOCKED || err.code === QUANT_LISTING_STALE || err.code === QUANT_MODERATION_STATE_INVALID
             ? 'CONFLICT'
             : err.code === QUANT_SANDBOX_UNWIRED ||
                 err.code === QUANT_SANDBOX_MAX_OPS_UNSET ||
@@ -371,6 +409,12 @@ function toTrpc(err: unknown): never {
                 err.code === QUANT_STAGE_TRANSITION_INVALID ||
                 err.code === QUANT_EDIT_LOCK_UNSET ||
                 err.code === QUANT_PAPER_MANUAL_ORDER_UNSUPPORTED ||
+                err.code === QUANT_LIBRARY_LICENCES_UNSET ||
+                err.code === QUANT_REALISM_CHECKLIST_UNSET ||
+                err.code === QUANT_REALISM_CHECKLIST_UNACCEPTED ||
+                err.code === QUANT_LISTING_CHECK_FAILED ||
+                err.code === QUANT_REVIEW_NEEDS_RUN ||
+                err.code === QUANT_LIBRARY_QUEUE_LIMIT_UNSET ||
                 err.code === QUANT_LIVE_DISABLED ||
                 err.code === QUANT_LIVE_DEPLOY_UNAVAILABLE ||
                 err.code === 'quant.venue_vault_unset'
@@ -554,6 +598,15 @@ export interface QuantRouterDeps extends SandboxDeps {
   readonly risk?: RiskRepository;
   /** Strategy teams, edit locks and support grants (J-algo-dev-08). Omitted in unit tests: an in-memory store with no team. */
   readonly team?: TeamRepository;
+  /**
+   * The strategy library (J-algo-dev-09) and the owner's licence list and realism checklist; either blank refuses
+   * publishing by name. Omitted in unit tests: an in-memory store with both blank.
+   */
+  readonly library?: {
+    readonly repository: LibraryRepository;
+    readonly licences: readonly string[] | null;
+    readonly checklist: RealismChecklist | null;
+  };
   /** `QUANT_EDIT_LOCK_SECONDS`: how long an edit lock lasts. Null is blank: taking a lock refuses `quant.edit_lock_unset`. */
   readonly editLockSeconds?: number | null;
   /**
@@ -829,6 +882,15 @@ export function createQuantRouter(deps: QuantRouterDeps) {
   }
 
   const team = deps.team ?? createMemoryTeamRepository();
+  const library = createLibrary({
+    library: deps.library?.repository ?? createMemoryLibraryRepository(),
+    strategies,
+    runs,
+    licences: deps.library?.licences ?? null,
+    checklist: deps.library?.checklist ?? null,
+    queuePageSize: async () => (await lifecycle.criteria()).find((row) => row.name === 'library.queuePageSize')?.value ?? null,
+    now,
+  });
   const editLockSeconds = deps.editLockSeconds ?? null;
 
   /** The caller's own, undeleted strategy. Anything else reads as not found. */
@@ -1387,6 +1449,147 @@ export function createQuantRouter(deps: QuantRouterDeps) {
      * source only under the owner's time-boxed grant (`ops.strategy.source`), and every support read writes an audit row
      * the owner sees here. A teammate's save is a new version of the owner's strategy, counted on the owner's plan.
      */
+    /**
+     * The strategy library (J-algo-dev-09, AL-library-01 and AL-library-02). A developer checks one version and its
+     * text, accepts the owner's realism checklist and publishes it; anyone signed in browses open and protected listings
+     * in registration order (never by return), opens an invite-only one only under the owner's grant, clones an open
+     * one into their own library with its lineage, and reviews one only after running their clone. No money moves.
+     */
+    library: router({
+      options: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ ...accountField }).optional())
+        .output(quantLibraryOptionsSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            accountOf(ctx, input?.accountId);
+            return library.options();
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+      check: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantListingCheckInputSchema.extend(accountField))
+        .output(quantListingCheckSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            return await library.check(accountOf(ctx, input.accountId), input);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+      publish: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantListingPublishInputSchema.extend(accountField))
+        .output(quantListingSchema)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            return await library.publish(accountOf(ctx, input.accountId), input);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+      mine: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ ...accountField }).optional())
+        .output(quantMyListingsSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            return { listings: await library.mine(accountOf(ctx, input?.accountId)) };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+      browse: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantLibraryBrowseInputSchema.extend(accountField))
+        .output(quantLibraryPageSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            accountOf(ctx, input.accountId);
+            return await library.browse({ tag: input.tag ?? null, limit: input.limit, cursor: input.cursor ?? null });
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+      preview: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ listingId: z.string().min(1).max(64), ...accountField }))
+        .output(quantListingPreviewSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            return await library.preview(accountOf(ctx, input.accountId), input.listingId);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+      get: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ listingId: z.string().min(1).max(64), ...accountField }))
+        .output(quantListingPageSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            return await library.get(accountOf(ctx, input.accountId), input.listingId);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+      request: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantAccessRequestInputSchema.extend(accountField))
+        .output(quantListingPreviewSchema)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            return await library.request(accountOf(ctx, input.accountId), input);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+      grant: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantAccessSetInputSchema.extend(accountField))
+        .output(quantListingSchema)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            return await library.setAccess(accountOf(ctx, input.accountId), input, 'grant');
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+      revoke: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantAccessSetInputSchema.extend(accountField))
+        .output(quantListingSchema)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            return await library.setAccess(accountOf(ctx, input.accountId), input, 'revoke');
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+      clone: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ listingId: z.string().min(1).max(64), ...accountField }))
+        .output(quantLineageSchema)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            return await library.clone(accountOf(ctx, input.accountId), input.listingId);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+      lineage: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ strategyId: z.string().min(1).max(128), ...accountField }))
+        .output(quantLineageReadSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            return { lineage: await library.lineage(accountOf(ctx, input.accountId), input.strategyId) };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+      review: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantReviewInputSchema.extend(accountField))
+        .output(quantListingPageSchema)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            return await library.review(accountOf(ctx, input.accountId), input);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+    }),
+
     team: router({
       get: publicJurisdictionProcedure('quant', 'fiat')
         .input(z.object({ strategyId: z.string().min(1).max(128), ...accountField }))
@@ -2917,6 +3120,76 @@ export function createQuantRouter(deps: QuantRouterDeps) {
             toTrpc(err);
           }
         }),
+
+      /**
+       * Library moderation (J-algo-dev-10, AL-library-03). The review queue reads with `admin:read`; hide, unhide, remove
+       * and the disputes write with `admin:write`, each one audit row naming the founder from their own token and the
+       * reason. Operators never see a listing's source. No money moves.
+       */
+      library: router({
+        queue: scopedProcedure('admin:read', { module: 'quant', plane: 'fiat' })
+          .input(quantModerationQueueInputSchema)
+          .output(quantModerationQueueSchema)
+          .query(async ({ input }) => {
+            try {
+              return await library.queue({ cursor: input?.cursor ?? null });
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+        hide: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
+          .input(quantModerationInputSchema)
+          .output(quantModerationEntrySchema)
+          .mutation(async ({ input, ctx }) => {
+            try {
+              return await library.moderate(ctx.principal.userId, input, 'hide');
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+        unhide: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
+          .input(quantModerationInputSchema)
+          .output(quantModerationEntrySchema)
+          .mutation(async ({ input, ctx }) => {
+            try {
+              return await library.moderate(ctx.principal.userId, input, 'unhide');
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+        remove: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
+          .input(quantModerationInputSchema)
+          .output(quantModerationEntrySchema)
+          .mutation(async ({ input, ctx }) => {
+            try {
+              return await library.moderate(ctx.principal.userId, input, 'remove');
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+        dispute: router({
+          open: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
+            .input(quantDisputeOpenInputSchema)
+            .output(quantModerationEntrySchema)
+            .mutation(async ({ input, ctx }) => {
+              try {
+                return await library.openDispute(ctx.principal.userId, input);
+              } catch (err) {
+                toTrpc(err);
+              }
+            }),
+          resolve: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
+            .input(quantDisputeResolveInputSchema)
+            .output(quantModerationEntrySchema)
+            .mutation(async ({ input, ctx }) => {
+              try {
+                return await library.resolveDispute(ctx.principal.userId, input);
+              } catch (err) {
+                toTrpc(err);
+              }
+            }),
+        }),
+      }),
 
       criteria: router({
         /** Every owner criterion an operator can set at runtime, with where its value comes from now. */

@@ -174,6 +174,16 @@ const schema = baseEnvSchema
        */
       QUANT_EDIT_LOCK_SECONDS: blankable(z.string().regex(/^[1-9]\d{0,5}$/)),
       /**
+       * The licences a library listing may carry (J-algo-dev-09), `|`-separated. Owner and lawyer content. NO DEFAULT:
+       * blank refuses every publish check `quant.library_licences_unset`.
+       */
+      QUANT_LIBRARY_LICENCES: blankable(z.string()),
+      /**
+       * The realism checklist a developer accepts before publishing, as JSON `{ "version": "...", "items": ["..."] }`.
+       * Owner and lawyer content. NO DEFAULT: blank or unreadable refuses publishing `quant.realism_checklist_unset`.
+       */
+      QUANT_REALISM_CHECKLIST: blankable(z.string()),
+      /**
        * The owner's default quota profile (AL-limits-01): the profile an account with no assignment falls under. NO
        * DEFAULT: blank, every counted write (a strategy, a version, a run) refuses `quant.quota_profile_unset`.
        */

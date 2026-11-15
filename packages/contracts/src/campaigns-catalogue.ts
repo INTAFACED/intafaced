@@ -855,6 +855,10 @@ export const voucherRedemptionSchema = z.object({
     reason: z.string().nullable(),
     ledgerTxId: z.string().nullable(),
     postedAt: iso.nullable(),
+    /** A USDC redemption on the launch path (J-campaigns-08 #5): when INTAFACED recorded it owed, under its ledger transaction. */
+    owed: z.object({ txId: z.string(), at: iso }).nullable().default(null),
+    /** Its one payment to the connected wallet, once paid: the chain transaction, the wallet and when. */
+    payout: z.object({ chainTx: z.string(), toWallet: z.string(), at: iso }).nullable().default(null),
   }),
 });
 export type VoucherRedemption = z.infer<typeof voucherRedemptionSchema>;

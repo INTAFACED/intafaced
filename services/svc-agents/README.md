@@ -4,7 +4,7 @@
 
 Owns four things: a provider-agnostic model gateway, a per-task routing table, exact per-user metering billed through the ledger, and the `agent_actions` audit trail that makes an agent accountable.
 
-**What this service is:** the fleet runtime **and** the five Stage-1 product factories (navigator / support / scanner / merchant / copy-intel). Boot upserts their guardrails into `agent_definitions`; each mounts a metered `*.runSession`. `riskCompliance`, `coach`, and `growth` are refuse/proposal doors (not fleet `runSession` factories). Portfolio / launch remain doctrine names only until product law. An ungrounded coach is a typed refuse, not a chatbot. Growth proposes and never publishes; a dark warehouse is not a funnel.
+**What this service is:** the fleet runtime **and** the five Stage-1 product factories (navigator / support / scanner / merchant / copy-intel). Boot upserts their guardrails into `agent_definitions`; each mounts a metered `*.runSession`. `riskCompliance`, `coach`, and `growth` are refuse/proposal doors (not fleet `runSession` factories). Launch remains a doctrine name only until product law; the Portfolio planner's rebalance of a person's own agent's venue sub-account runs in svc-trade (`src/venue/own-agent-rebalance.ts`, J-agents-18 #1 #2), and `portfolio.plan` here stays the ledger-only planner behind its kill switch. An ungrounded coach is a typed refuse, not a chatbot. Growth proposes and never publishes; a dark warehouse is not a funnel.
 
 It also holds no balances and prices nothing it does not have a rate for. Metered usage moves value exactly once, through `feeCharge`, into svc-ledger.
 
@@ -273,6 +273,12 @@ Two properties worth stating:
 **Every log line is an i18n key plus parameters**, never rendered prose (§14 DoD 4). Storing English would freeze one locale into the audit trail and would be the one place an upstream's error text could reach a screen unnoticed. The catalogue is `src/copy.ts`.
 
 ---
+
+## Alerts and this environment's policy overrides (`opsAlerts.*`, AG-analytics-02, AG-guardrails-02)
+
+An operator (`admin:write`) stores alert rules: a measure over every recorded agent action (refusal rate or failure rate in percent of the window's actions, or cost in the fee asset), a threshold, a window in minutes, and optionally one agent id. A blank threshold refuses `agents.alert_threshold_required` and stores nothing; `0` is a value. The evaluator runs once a minute and on `opsAlerts.evaluate`, over each rule's current and previous window aligned to the epoch. A window with no actions has no rate and fires nothing. A window above its threshold writes one `agent_alerts` row, unique by rule and window start, so a second evaluation writes nothing. Every alert is kept. While alert notifications are on (`agent_alert_settings`; no row is on), svc-agents hands each one to svc-notify by `agentAlertFired`, once per rule and window on its business key, and marks it `handed_off`; svc-notify writes the inbox row for the operator who stored the rule and sends it by email and push where those vendors are set. An operator takes notifications down with `opsAlerts.setNotifications`: alerts are still kept and stay `pending` until they are back, when every pending one is handed over.
+
+`opsAlerts.policy` shows the owner's managed baseline (`AGENTS_POLICY_BASELINE`) per tool class, with this environment's override (`agent_policy_overrides`). `opsAlerts.setOverride` refuses an override looser than the baseline with `agents.baseline_loosen_refused` and stores nothing. Every own-agent tool gate and dry run meets the stricter of the baseline and the override. `opsAlerts.checkRule` checks a person's standing rule against both and stores nothing. The founder console's desk is `/more-ops/agents/alerts`.
 
 ## Database constraints as a backstop
 

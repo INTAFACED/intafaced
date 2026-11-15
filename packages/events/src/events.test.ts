@@ -1309,6 +1309,17 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
       assetId: 'USDT',
       email: false,
     },
+    agentAlertFired: {
+      alertKey: 'agents.alert:r1:2026-11-15T14:00:00.000Z',
+      alertId: uid(),
+      userId: uid(),
+      ruleName: 'TEST refusals',
+      measure: 'refusal_rate',
+      value: '25',
+      threshold: '0',
+      windowStart: '2026-11-15T14:00:00.000Z',
+      windowEnd: '2026-11-15T15:00:00.000Z',
+    },
     agentApprovalRequested: {
       requestId: uid(),
       userId: uid(),

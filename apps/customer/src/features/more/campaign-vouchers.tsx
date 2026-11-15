@@ -254,6 +254,24 @@ function VoucherRow({
             {v.redemptions.map((r) => (
               <li key={r.sequence} data-reward-key={r.reward.rewardKey} data-state={r.reward.state}>
                 {t('redemption', { amount: r.amount, asset: v.face.asset, state: t(`reward_${r.reward.state}`) })}
+                {r.reward.payout ? (
+                  <>
+                    {' '}
+                    {/* The chain's own record of the payment: it left INTAFACED's wallet for the connected one, never a balance. */}
+                    <span data-testid="voucher-paid-to" data-wallet={r.reward.payout.toWallet}>
+                      {t('paidTo', { wallet: r.reward.payout.toWallet })}
+                    </span>{' '}
+                    <a
+                      className="text-link"
+                      data-testid="voucher-chain-tx"
+                      data-tx={r.reward.payout.chainTx}
+                      href={`/chain/tx/${encodeURIComponent(r.reward.payout.chainTx)}`}
+                      lang="zxx"
+                    >
+                      {t('chainTx', { tx: r.reward.payout.chainTx })}
+                    </a>
+                  </>
+                ) : null}
               </li>
             ))}
           </ul>
