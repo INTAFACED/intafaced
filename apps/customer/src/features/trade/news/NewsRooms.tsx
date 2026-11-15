@@ -25,7 +25,8 @@ import './news.css';
 const STORED_NEWS: readonly NewsItem[] = [];
 const STORED_EVENTS: readonly CalendarEvent[] = [];
 
-function Notice({ text }: { text: string }) {
+/** The feed.news notice, shared by both rooms and the chart's news widget. */
+export function NewsNotice({ text }: { text: string }) {
   const { t } = newsCopy.useCopy();
   return (
     <div className="news-notice" role="status">
@@ -69,13 +70,34 @@ function Choice({
 const distinct = (values: readonly string[]): ReadonlyArray<readonly [string, string]> =>
   [...new Set(values)].sort().map((value) => [value, value] as const);
 
+/**
+ * The categories and languages a person can filter by. They are the filter's own choices, not read from the store, so the
+ * filters work on an empty store and read empty; a stored item with another value adds its own choice.
+ */
+const CATEGORIES = [
+  ['markets', 'categoryMarkets'],
+  ['crypto', 'categoryCrypto'],
+  ['macro', 'categoryMacro'],
+  ['company', 'categoryCompany'],
+  ['regulation', 'categoryRegulation'],
+] as const;
+const LANGUAGES = [
+  ['en', 'languageEn'],
+  ['es', 'languageEs'],
+  ['fr', 'languageFr'],
+] as const;
+function withStored(known: ReadonlyArray<readonly [string, string]>, stored: readonly string[]): ReadonlyArray<readonly [string, string]> {
+  const seen = new Set(known.map(([value]) => value));
+  return [...known, ...distinct(stored.filter((value) => !seen.has(value)))];
+}
+
 export function NewsRoom({ items = STORED_NEWS }: { items?: readonly NewsItem[] }) {
   const { t } = newsCopy.useCopy();
   const [filter, setFilter] = useState<NewsFilter>(allNews);
   const shown = useMemo(() => filterNews(items, filter), [items, filter]);
   return (
     <Page eyebrow={t('eyebrow')} title={t('newsTitle')} description={t('newsLead')}>
-      <Notice text={t('newsNotice')} />
+      <NewsNotice text={t('newsNotice')} />
       <Panel title={t('newsTitle')}>
         <form className="news-filters" onSubmit={(event) => event.preventDefault()} aria-label={t('newsTitle')}>
           <Choice
@@ -83,14 +105,20 @@ export function NewsRoom({ items = STORED_NEWS }: { items?: readonly NewsItem[] 
             value={filter.category}
             onChange={(category) => setFilter({ ...filter, category })}
             all={t('allCategories')}
-            options={distinct(items.map((item) => item.category))}
+            options={withStored(
+              CATEGORIES.map(([value, key]) => [value, t(key)] as const),
+              items.map((item) => item.category),
+            )}
           />
           <Choice
             label={t('language')}
             value={filter.language}
             onChange={(language) => setFilter({ ...filter, language })}
             all={t('allLanguages')}
-            options={distinct(items.map((item) => item.language))}
+            options={withStored(
+              LANGUAGES.map(([value, key]) => [value, t(key)] as const),
+              items.map((item) => item.language),
+            )}
           />
           <label className="news-filter">
             <span>{t('symbol')}</span>
@@ -151,7 +179,7 @@ export function CalendarRoom({ events = STORED_EVENTS }: { events?: readonly Cal
   const cell = (value: string | null): ReactNode => value ?? <span className="muted">{t('notPublished')}</span>;
   return (
     <Page eyebrow={t('eyebrow')} title={t('calendarTitle')} description={t('calendarLead')}>
-      <Notice text={t('calendarNotice')} />
+      <NewsNotice text={t('calendarNotice')} />
       <Panel title={t('calendarTitle')}>
         <form className="news-filters" onSubmit={(event) => event.preventDefault()} aria-label={t('calendarTitle')}>
           <Choice

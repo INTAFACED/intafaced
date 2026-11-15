@@ -49,3 +49,16 @@
     color: var(--if-down-text);
   }
 }
+
+@layer components {
+  .news-widget {
+    flex-basis: 100%;
+    padding: var(--if-space-3) var(--if-space-4);
+    border: 0.0625rem solid var(--if-line, currentColor);
+    border-radius: var(--if-r-sm);
+  }
+  .news-widget h2 {
+    margin: 0 0 var(--if-space-2);
+    font-size: 1rem;
+  }
+}
