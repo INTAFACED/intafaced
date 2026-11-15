@@ -111,7 +111,8 @@ export function createBankAccountRouter(bank: Pick<BankServices, 'testPartner' |
     }
     return compliance;
   };
-  const terms = bank.bankAccountTerms;
+  // Read per call, never at mount: a router built for one door must not touch the bank's services until it is called.
+  const owner = () => bank.bankAccountTerms;
 
   return router({
     /** The partner's steps and requirements, with the owner's, and our identity case where the partner accepts it (#1). */
@@ -144,6 +145,7 @@ export function createBankAccountRouter(bank: Pick<BankServices, 'testPartner' |
       )
       .query(({ ctx }) =>
         guard(async () => {
+          const terms = owner();
           const userId = ctx.principal.userId;
           const partner = partnerFor(userId);
           const now = await partner.onboarding(userId, ctx.principal.tier);
@@ -179,6 +181,7 @@ export function createBankAccountRouter(bank: Pick<BankServices, 'testPartner' |
       )
       .query(({ ctx }) =>
         guard(async () => {
+          const terms = owner();
           const rows = await partnerFor(ctx.principal.userId).requests(ctx.principal.userId);
           return {
             requests: rows.map(requestWire),
@@ -205,6 +208,7 @@ export function createBankAccountRouter(bank: Pick<BankServices, 'testPartner' |
       .output(infoRequestOut)
       .mutation(({ ctx, input }) =>
         guard(async () => {
+          const terms = owner();
           const userId = ctx.principal.userId;
           const partner = partnerFor(userId);
           const limits = terms.upload;
@@ -271,6 +275,7 @@ export function createBankAccountRouter(bank: Pick<BankServices, 'testPartner' |
       )
       .query(({ ctx }) =>
         guard(async () => {
+          const terms = owner();
           const now = await partnerFor(ctx.principal.userId).closure(ctx.principal.userId);
           const closedAt = now.state === 'closed' ? (now.closures[0]?.closedAt ?? null) : null;
           return {
@@ -327,6 +332,7 @@ export function createBankAccountRouter(bank: Pick<BankServices, 'testPartner' |
       .output(closureOut)
       .mutation(({ ctx }) =>
         guard(async () => {
+          const terms = owner();
           const partner = partnerFor(ctx.principal.userId);
           if (terms.reopenWindowDays === null) {
             throw new BankError(
