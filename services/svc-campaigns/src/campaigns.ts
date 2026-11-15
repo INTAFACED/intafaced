@@ -5,6 +5,7 @@ import {
   BONUS_APPLIES_TO,
   CAMPAIGN_TYPES,
   CUSTOMER_CAMPAIGN_STATES,
+  DRAW_USER_TYPES,
   PARKED_CAMPAIGN_TYPES,
   type Campaign,
   type CampaignAction,
@@ -25,6 +26,7 @@ import {
   type CampaignLimits,
   type CampaignReferral,
   type CampaignCompetition,
+  type CampaignDraw,
   type MyCampaigns,
   type Participation,
   type ParticipationRules,
@@ -110,6 +112,8 @@ type CampaignRow = {
   referral: CampaignReferral | null;
   /** A competition's terms (CM-promotions-events-01); null for any other campaign. */
   competition: CampaignCompetition | null;
+  /** A draw's terms (CM-promotions-events-02); null for any other campaign. */
+  draw: CampaignDraw | null;
   /** What the campaign's reward intents reserve or spent, from `campaigns.campaign_rows`; absent on a RETURNING row. */
   budget_drawn?: string;
   created_by: string;
@@ -285,16 +289,19 @@ export function gateOf(row: CampaignRow, timeZone: string | null): CampaignGate[
   const referral = row.type === 'referral';
   // A competition pays its prize table from its pool, the campaign's budget, in the budget's asset.
   const competition = row.type === 'competition';
-  if (!welcome && !feeSaver && !referral && !competition && (!row.reward_asset || row.reward_amount === null)) {
+  // A draw pays its prize table from the campaign's budget, in the budget's asset.
+  const draw = row.type === 'draw';
+  if (!welcome && !feeSaver && !referral && !competition && !draw && (!row.reward_asset || row.reward_amount === null)) {
     missing.push({ code: 'campaigns.reward_unset', field: 'reward' });
   }
   if (referral) missing.push(...referralGaps(row.referral));
   if (competition) missing.push(...competitionGaps(row.competition, row.budget_limit));
+  if (draw) missing.push(...drawGaps(row.draw, row.budget_limit));
   const rewardAssets = welcome
     ? (row.tasks?.steps ?? []).flatMap((s) => (s.reward ? [s.reward.asset] : []))
     : referral
       ? [row.referral?.rewards.referrer?.asset, row.referral?.rewards.referee?.asset].filter(Boolean)
-      : competition
+      : competition || draw
         ? []
         : [row.reward_asset];
   if (row.budget_asset && rewardAssets.some((a) => a && a !== row.budget_asset)) {
@@ -384,6 +391,7 @@ function toCampaign(r: CampaignRow, timeZone: string | null, now: Date, change: 
     limits: r.limits,
     referral: r.referral,
     competition: r.competition,
+    draw: r.draw,
     earning: r.earning,
     createdBy: r.created_by,
     submittedBy: r.submitted_by,
@@ -422,6 +430,7 @@ function inputOf(d: Definition): CampaignDefinitionInput {
     ...(d.limits ? { limits: d.limits } : {}),
     ...(d.referral ? { referral: d.referral } : {}),
     ...(d.competition ? { competition: d.competition } : {}),
+    ...(d.draw ? { draw: d.draw } : {}),
     // Blank stays blank; otherwise left out, which reads the platform zone.
     ...(d.timeZoneBlank ? { timeZone: null } : {}),
   };
@@ -451,6 +460,7 @@ function rowWith(r: CampaignRow, d: Definition): CampaignRow {
     limits: d.limits,
     referral: d.referral,
     competition: d.competition,
+    draw: d.draw,
   };
 }
 
@@ -477,6 +487,7 @@ function inputOfRow(r: CampaignRow): CampaignDefinitionInput {
     limits: r.limits,
     referral: r.referral,
     competition: r.competition,
+    draw: r.draw,
   });
 }
 
@@ -512,6 +523,7 @@ function toView(
     reward: c.reward,
     tasks: c.tasks,
     competition: c.competition,
+    draw: c.draw,
     mine,
     eligibility,
   };
@@ -586,6 +598,7 @@ type Definition = {
   limits: CampaignLimits | null;
   referral: CampaignReferral | null;
   competition: CampaignCompetition | null;
+  draw: CampaignDraw | null;
 };
 
 /**
@@ -653,6 +666,7 @@ export function parseDefinition(input: CampaignDefinitionInput, platformZone: st
     limits: input.limits ? limitsOf(input.limits) : null,
     referral: input.referral ? parseReferral(type as CampaignType, input.referral) : null,
     competition: input.competition ? parseCompetition(type as CampaignType, input.competition) : null,
+    draw: input.draw ? parseDraw(type as CampaignType, input.draw) : null,
   };
 }
 
@@ -705,6 +719,46 @@ function competitionGaps(c: CampaignCompetition | null, poolLimit: string | null
     const places = c.prizes.reduce((n, p) => n + parseAmount18(p.amount), 0n);
     const milestones = c.milestones.reduce((n, m) => n + parseAmount18(m.amount), 0n) * BigInt(c.seats);
     if (places + milestones > parseAmount18(poolLimit)) out.push({ code: 'campaigns.prize_pool_short', field: 'budget' });
+  }
+  return out;
+}
+
+/**
+ * A draw's terms (CM-promotions-events-02), stored the same way every time. Blanks stay blank for the gate to name. Only
+ * a `draw` campaign has them; each place has one prize above zero, and each user type one cap.
+ */
+function parseDraw(type: CampaignType, input: CampaignDraw): CampaignDraw {
+  if (type !== 'draw') throw new CampaignsError('campaigns.draw_invalid', 'Only a draw campaign has draw terms');
+  const prizes = [...input.prizes].sort((a, b) => a.rank - b.rank);
+  prizes.forEach((p, i) => {
+    if (p.rank !== i + 1) throw new CampaignsError('campaigns.draw_invalid', 'The prize table names each place once, from first');
+    if (parseAmount18(p.amount) <= 0n) throw new CampaignsError('campaigns.draw_invalid', 'Every prize is above zero');
+  });
+  if (new Set(input.caps.map((c) => c.userType)).size !== input.caps.length) {
+    throw new CampaignsError('campaigns.draw_invalid', 'Each user type has one cap');
+  }
+  return {
+    chancesPerFill: input.chancesPerFill,
+    caps: input.caps.map((c) => ({ userType: c.userType, cap: c.cap })),
+    prizes: prizes.map((p) => ({ rank: p.rank, amount: decimalOf(p.amount) })),
+  };
+}
+
+/**
+ * What a draw still lacks before it can go live: chances per fill, a cap for every user type, a prize table, and a budget
+ * that covers every prize. Running it is a separate door that waits for the owner (OWNER 87).
+ */
+function drawGaps(d: CampaignDraw | null, poolLimit: string | null): CampaignGate['missing'] {
+  if (!d) return [{ code: 'campaigns.draw_unset', field: 'draw' }];
+  const out: CampaignGate['missing'] = [];
+  if (d.chancesPerFill === null) out.push({ code: 'campaigns.draw_unset', field: 'chancesPerFill' });
+  for (const userType of DRAW_USER_TYPES) {
+    const cap = d.caps.find((c) => c.userType === userType);
+    if (!cap || cap.cap === null) out.push({ code: 'campaigns.draw_unset', field: `cap.${userType}` });
+  }
+  if (d.prizes.length === 0) out.push({ code: 'campaigns.reward_unset', field: 'prizes' });
+  if (poolLimit !== null && d.prizes.reduce((n, p) => n + parseAmount18(p.amount), 0n) > parseAmount18(poolLimit)) {
+    out.push({ code: 'campaigns.prize_pool_short', field: 'budget' });
   }
   return out;
 }
@@ -924,6 +978,7 @@ function sameDefinition(r: CampaignRow, d: Definition): boolean {
     canonical(r.limits) === canonical(d.limits) &&
     canonical(r.referral) === canonical(d.referral) &&
     canonical(r.competition) === canonical(d.competition) &&
+    canonical(r.draw) === canonical(d.draw) &&
     r.time_zone_blank === d.timeZoneBlank
   );
 }
@@ -979,12 +1034,13 @@ export class CampaignService {
         await this.checkCampaignRule(tx, d);
         const [row] = await tx<CampaignRow[]>`
           INSERT INTO campaigns.campaigns (id, name, type, rules, starts_at, ends_at, weekdays, hours_from, hours_to,
-            participation, budget_asset, budget_limit, reward_asset, reward_amount, tasks, time_zone_blank, earning, vouchers, limits, referral, competition, created_by)
+            participation, budget_asset, budget_limit, reward_asset, reward_amount, tasks, time_zone_blank, earning, vouchers, limits, referral, competition, draw, created_by)
           VALUES (${id}, ${d.name}, ${d.type}, ${d.rules}, ${d.startsAt}, ${d.endsAt}, ${d.weekdays}, ${d.hoursFrom},
             ${d.hoursTo}, ${d.participation ? tx.json(d.participation) : null}, ${d.budgetAsset}, ${d.budgetLimit},
             ${d.rewardAsset}, ${d.rewardAmount}, ${d.tasks ? tx.json(d.tasks as unknown as postgres.JSONValue) : null}, ${d.timeZoneBlank}, ${tx.json(d.earning as unknown as postgres.JSONValue)},
             ${d.vouchers ? tx.json(d.vouchers) : null}, ${d.limits ? tx.json(d.limits as unknown as postgres.JSONValue) : null},
-            ${d.referral ? tx.json(d.referral) : null}, ${d.competition ? tx.json(d.competition) : null}, ${input.actor})
+            ${d.referral ? tx.json(d.referral) : null}, ${d.competition ? tx.json(d.competition) : null},
+            ${d.draw ? tx.json(d.draw) : null}, ${input.actor})
           RETURNING *`;
         await audit(tx, input.actor, 'campaign.create', id, { name: d.name, type: d.type });
         return toCampaign(row!, this.timeZone(), this.now());
@@ -1030,6 +1086,7 @@ export class CampaignService {
             limits = ${d.limits ? tx.json(d.limits as unknown as postgres.JSONValue) : null},
             referral = ${d.referral ? tx.json(d.referral) : null},
             competition = ${d.competition ? tx.json(d.competition) : null},
+            draw = ${d.draw ? tx.json(d.draw) : null},
             revision = revision + 1, updated_at = now()
           WHERE id = ${input.id}
           RETURNING *, (SELECT budget_drawn FROM campaigns.campaign_rows WHERE id = ${input.id}) AS budget_drawn`;
@@ -1139,6 +1196,7 @@ export class CampaignService {
             limits = ${d.limits ? tx.json(d.limits as unknown as postgres.JSONValue) : null},
             referral = ${d.referral ? tx.json(d.referral) : null},
             competition = ${d.competition ? tx.json(d.competition) : null},
+            draw = ${d.draw ? tx.json(d.draw) : null},
         revision = ${open.revision}, submitted_by = ${open.submitted_by}, approved_by = ${actor},
         approved_revision = ${open.revision}, updated_at = now()
       WHERE id = ${row.id}`;
