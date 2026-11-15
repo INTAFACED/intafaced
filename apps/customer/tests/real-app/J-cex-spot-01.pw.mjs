@@ -757,7 +757,7 @@ test(`${J} #9 places a market buy: it fills on the venue inside its slippage lim
   page.on('request', (r) => {
     if (r.method() === 'POST' && new URL(r.url()).pathname === '/api/v1/venue/prepare') prepares.push(r.postDataJSON());
   });
-  // The bound, fixed outside the app: the TEST venue's own best ask, read from its makers' orders on the venue, widened
+  // The bound, fixed outside the app: the TEST venue's own best ask, read from the venue's whole book, widened
   // by the journey stack's owner price protection, TEST 50 bps (tooling/scripts/local-stack-services/trade.mjs).
   const { ask } = await venueBook(VENUE_SPOT);
   // Rounded up to the market's own tick on the venue, as a buy's worst price is.
