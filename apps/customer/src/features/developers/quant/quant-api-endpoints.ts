@@ -1,6 +1,6 @@
 /**
  * The strategy API's endpoints as the reference publishes them (J-algo-dev-14). The quant rows mirror svc-quant's
- * `QUANT_KEY_API` (services/svc-quant/src/key-api/key-api.ts), which `quant-api.test.ts` reads; the live rows are
+ * `QUANT_KEY_API` (services/svc-quant/src/key-api/key-api.ts; both sides assert the same table); the live rows are
  * svc-trade's live-run routes (services/svc-trade/src/quant/live-run/rest.ts), under the key plane's trade scopes.
  */
 export type QuantApiEndpoint = {

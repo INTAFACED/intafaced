@@ -4,7 +4,8 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { api, journeyState, toUnits } from './stack.mjs';
 import { signUp, verify } from './desk.mjs';
-import { holderAgain, keyHolder, makeKey, withKey } from './developer.mjs';
+import { createHash } from 'node:crypto';
+import { holderAgain, keyHolder, withKey } from './developer.mjs';
 import { tapeWindow } from './tape.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import { TEST_VENUE, testDeposit, testVenue, venueAccount, venueForThisFile, venueRecord } from './venue.mjs';
@@ -143,7 +144,7 @@ test(`${J} #1 mints a key with the quant read scope: the key carries only that s
   await expect(page.getByRole('heading', { level: 1, name: 'Strategy API' })).toBeVisible();
 
   const name = `TEST quant read ${RUN_ID}`;
-  const readKey = await makeKey(page, { name, scopes: ['quant:read'] });
+  const readKey = await scopedKey(page, { name, scopes: ['quant:read'] });
   expect(readKey).toBeTruthy();
   const record = await keyRecord(who, name);
   expect(record, `the keys list has ${name}`).toBeTruthy();
@@ -349,10 +350,42 @@ test(`${J} #7 stops a live strategy with and without the trade scope: refused wi
 
 // ── Helpers ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
+// A key that places orders is shown a signing secret once; it is kept where developer.mjs `withKey` reads it (this run's
+// `developer-signing-*` state, keyed by the key's hash), so a later step that holds only the key signs as a program would.
+const signing = journeyState(`developer-signing-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
+
+/**
+ * Makes a live key through /uc/safe/api-keys/new with exactly `scopes`: "Choose", then every offered permission ticked
+ * or cleared to match, created with the passkey's fresh step-up. Returns the key, read once from "Your new key".
+ */
+async function scopedKey(page, { name, scopes }) {
+  await page.goto('/uc/safe/api-keys/new');
+  await page.getByLabel('Key name').fill(name);
+  await page.getByLabel('Choose', { exact: true }).check();
+  const boxes = page.locator('input[type="checkbox"][name="scope"]');
+  await expect(boxes.first()).toBeVisible();
+  for (const box of await boxes.all()) {
+    if (scopes.includes(await box.getAttribute('value'))) await box.check();
+    else await box.uncheck();
+  }
+  for (const scope of scopes) await expect(page.locator(`input[name="scope"][value="${scope}"]`), `${scope} is offered`).toBeChecked();
+  await page.getByLabel('IP addresses (one per line, optional)').fill('');
+  await page.getByRole('button', { name: 'Create with a passkey', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Your new key' })).toBeVisible();
+  const key = (await page.getByTestId('api-keys__key').locator('code').textContent())?.trim();
+  const secretBox = page.getByTestId('api-keys__signing-secret');
+  if (key && (await secretBox.count()))
+    signing.write({ [createHash('sha256').update(key).digest('hex')]: (await secretBox.locator('code').textContent())?.trim() });
+  await page.getByLabel('I have stored this key somewhere safe').check();
+  await page.getByRole('button', { name: 'Done' }).click();
+  await expect(page).toHaveURL(/\/uc\/safe\/api-keys$/);
+  return key;
+}
+
 /** A key made on #1's passkey page with exactly `scopes`, checked on the account's keys list. */
 async function makeKeyWithPasskey(_browser, who, name, scopes) {
   if (!holder) throw new Error(`${J}: #1 left no signed-in passkey page to make a key on`);
-  const key = await makeKey(holder.page, { name, scopes });
+  const key = await scopedKey(holder.page, { name, scopes });
   const record = await keyRecord(who, name);
   expect([...record.scopes].sort()).toEqual([...scopes].sort());
   return key;

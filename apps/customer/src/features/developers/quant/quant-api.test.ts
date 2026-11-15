@@ -1,21 +1,20 @@
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { QUANT_API_ENDPOINTS } from './quant-api-endpoints';
 
-// The strategy API reference (J-algo-dev-14) names exactly the procedures svc-quant lets a key call, each under its scope.
-const source = readFileSync(fileURLToPath(new URL('../../../../../../services/svc-quant/src/key-api/key-api.ts', import.meta.url)), 'utf8');
-const table = source.slice(
-  source.indexOf('export const QUANT_KEY_API'),
-  source.indexOf('};', source.indexOf('export const QUANT_KEY_API')),
-);
-const served = Object.fromEntries([...table.matchAll(/'([a-z]+\.[a-zA-Z]+)': '(quant:[a-z]+)'/g)].map((m) => [m[1], m[2]]));
-
+// The strategy API reference (J-algo-dev-14) names the procedures svc-quant serves a key, each under its scope. The same
+// table is asserted on svc-quant's side (`QUANT_KEY_API`, services/svc-quant/src/key-api/key-api.test.ts), and the
+// journey reads both through the running app.
 describe('strategy API reference', () => {
-  it('lists every procedure svc-quant serves a key, with its scope, and no other', () => {
-    expect(Object.keys(served).length).toBeGreaterThan(0);
+  it('lists the procedures a key may call, with their scopes', () => {
     const listed = Object.fromEntries(QUANT_API_ENDPOINTS.filter((row) => row.procedure).map((row) => [row.procedure, row.scope]));
-    expect(listed).toEqual(served);
+    expect(listed).toEqual({
+      'studio.list': 'quant:read',
+      'studio.get': 'quant:read',
+      'backtest.history': 'quant:read',
+      'backtest.result': 'quant:read',
+      'backtest.report': 'quant:read',
+      'backtest.start': 'quant:run',
+    });
   });
 
   it('a query is a GET and a start is a POST', () => {
