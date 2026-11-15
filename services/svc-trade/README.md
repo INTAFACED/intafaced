@@ -225,7 +225,8 @@ idempotency conflict, the posting freeze, an outage) stops, as before, and raise
 keeps the last complete run and the last stop, which the treasury desk shows. `admin.builderFees.recon` (`admin:read`) is
 the founder console's `/ledger/treasury`: for one period, the venue's builder fee on each fill against the ledger's under
 the fill's key, and every break listed with its venue fill id and amounts. The venue's own totals decide (OWNER 288 change
-1e): per fee asset, the ledger's earned total at the venue (owed plus paid out to our builder account) against the venue's
+1e): per fee asset, the ledger's earned total at the venue (owed plus the ledger's own payout transaction under each claim the venue records
+for us, never our builder account's balance, which the own-funds sweep draws down) against the venue's
 own earned total for our builder address (`TRADE_USER_VENUE_BUILDER_ADDRESS`), and what the ledger says is owed against the
 venue's own unclaimed figure (`UserVenue.builderTotals`). The verdict is `matched` only when every fill and both totals match
 and at least one fill was compared; no fill reads `nothing_to_compare`, and totals the venue can't give (a blank builder
