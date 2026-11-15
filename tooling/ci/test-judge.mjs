@@ -1049,6 +1049,24 @@ const roadmapAt = (read, manifests) => ({
   manifests,
 });
 
+/** git's empty tree, and its own defaults for every setting that shapes a diff's text (a local config never counts). */
+const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+const DIFF_DEFAULTS = [
+  'diff.noprefix=false',
+  'diff.mnemonicPrefix=false',
+  'diff.srcPrefix=a/',
+  'diff.dstPrefix=b/',
+  'diff.context=3',
+  'diff.interHunkContext=0',
+  'diff.indentHeuristic=true',
+  'diff.suppressBlankEmpty=false',
+  'diff.algorithm=myers',
+  'diff.relative=false',
+  'diff.renames=true',
+  'core.quotePath=true',
+  'core.autocrlf=false',
+].flatMap((c) => ['-c', c]);
+
 export function gitSource(clone, graphSha) {
   const git = (...a) => execFileSync('git', ['-C', clone, ...a], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
   // Each sha's regular files are listed once (one ls-tree) and each blob read once, the import graph's code files in one
@@ -1090,8 +1108,28 @@ export function gitSource(clone, graphSha) {
   };
   return {
     diff: async (base, head) => ({
-      // Rename detection on, as in the compare API's diff, so a local replay sees the renames CI sees.
-      diff: git('diff', '--no-color', '--no-ext-diff', '--find-renames', `${base}...${head}`),
+      // Rename detection on, as in the compare API's diff, so a local replay sees the renames CI sees. The compare API
+      // reads no .gitattributes (its `-diff` lockfile comes as text: #8458's 33075 bytes, 793 here without this) and no
+      // one's git config: attributes from the empty tree, and git's own defaults for what shapes a diff.
+      diff: execFileSync(
+        'git',
+        [
+          '-C',
+          clone,
+          `--attr-source=${EMPTY_TREE}`,
+          ...DIFF_DEFAULTS,
+          'diff',
+          '--no-color',
+          '--no-ext-diff',
+          '-O/dev/null', // no diff.orderFile: the files in git's own order
+          '--find-renames',
+          `${base}...${head}`,
+        ],
+        {
+          encoding: 'utf8',
+          maxBuffer: 256 * 1024 * 1024,
+        },
+      ),
       mergeBase: git('merge-base', base, head).trim(),
     }),
     read: async (sha, p) => show(sha, p),

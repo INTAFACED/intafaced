@@ -154,3 +154,35 @@ test("wordsAt reads every module's step words at a project-state ref, without it
   git('commit', '-qm', 'w');
   assert.throws(() => wordsAt(ps, 'HEAD'), /holds no step words/);
 });
+
+test("the diff is the compare API's: a `-diff` file counts as text and no git config changes it (#8458's lockfile)", async () => {
+  const lock = Array.from({ length: 50 }, (_, i) => `pkg-${i}: 1.0.${i}\n`).join('');
+  const p = planted(
+    { '.gitattributes': 'pnpm-lock.yaml -diff\n', 'pnpm-lock.yaml': lock },
+    { 'pnpm-lock.yaml': lock.replace('1.0.7', '1.0.8') },
+  );
+  const plain = execFileSync('git', ['-C', p.top, '-c', 'core.attributesFile=/dev/null', 'diff', '--no-color', `${p.main}...${p.head}`], {
+    encoding: 'utf8',
+  });
+  assert.match(plain, /Binary files/); // what local git prints for it, and what the compare API never does
+  const hostile = {
+    GIT_CONFIG_COUNT: '3',
+    GIT_CONFIG_KEY_0: 'diff.noprefix',
+    GIT_CONFIG_VALUE_0: 'true',
+    GIT_CONFIG_KEY_1: 'diff.context',
+    GIT_CONFIG_VALUE_1: '9',
+    GIT_CONFIG_KEY_2: 'diff.algorithm',
+    GIT_CONFIG_VALUE_2: 'histogram',
+  };
+  const saved = { ...process.env };
+  Object.assign(process.env, hostile);
+  try {
+    const { diff } = await gitSource(p.top, p.main).diff(p.main, p.head);
+    assert.match(diff, /^diff --git a\/pnpm-lock\.yaml b\/pnpm-lock\.yaml\n/m);
+    assert.match(diff, /^-pkg-7: 1\.0\.7\n\+pkg-7: 1\.0\.8\n/m);
+    assert.equal(diff.split('\n').filter((l) => l.startsWith(' ')).length, 6); // git's default three lines of context
+  } finally {
+    for (const k of Object.keys(hostile)) delete process.env[k];
+    Object.assign(process.env, saved);
+  }
+});

@@ -59,7 +59,8 @@ export function wordsAt(clone, ref) {
 
 /** readOwnerRecord's `get`, served from a project-state clone's `ref` through git, so the owner's record needs no token. */
 export const ownerGetAt = (clone, ref) => {
-  const git = (...a) => execFileSync('git', ['-C', clone, ...a], { encoding: 'utf8', maxBuffer: 64 << 20 });
+  const git = (...a) =>
+    execFileSync('git', ['-C', clone, ...a], { encoding: 'utf8', maxBuffer: 64 << 20, stdio: ['ignore', 'pipe', 'ignore'] });
   const sha = git('rev-parse', `${ref}^{commit}`).trim();
   return async (path) => {
     if (path.endsWith('/commits/main')) return { status: 200, text: sha };
@@ -143,18 +144,30 @@ async function sizeStep() {
     const pr = await prRead;
     if (pr !== null && String(pr).length !== String(STAND_IN).length) v = await count(pr);
     v.pr = pr;
+    v.main = main;
   } catch (e) {
     return console.error(`CI review size — not counted here (${String(e.message).split('\n')[0]}); the CI review counts it`);
   }
   const prompt = v.prompt === null ? '' : `, test part's prompt ${v.prompt} of ${MAX_PROMPT_BYTES}`;
   const what = `diff ${v.bytes} bytes (${MAX_DIFF_BYTES} a part, ${v.parts} of at most ${MAX_PARTS} parts)${prompt}`;
   const at = `${v.pr ? `#${v.pr}` : 'no pull request yet'}${v.wordsRef ? `, step words at project-state ${v.wordsRef.slice(0, 9)}` : ''}`;
-  if (!v.over) return console.log(`CI review size: ${what}: under (${at})`);
+  const on = `against origin/main ${v.main.slice(0, 9)}`;
+  if (!v.over) return console.log(`CI review size: ${what}: under (${on}, ${at})`);
+  // A refusal counted against a stale origin/main (a branch that holds a newer main) would count main's own commits:
+  // it refuses only when origin/main is GitHub's main.
+  let live = null;
+  try {
+    live = /^([0-9a-f]{40})\s/.exec(sh('git', 'ls-remote', 'origin', 'refs/heads/main'))?.[1] ?? null;
+  } catch {}
+  if (live !== v.main)
+    return console.error(
+      `CI review size — counted over, but origin/main ${v.main.slice(0, 9)} is not GitHub's main ${live?.slice(0, 9) ?? '(unread)'}: run git fetch origin main and push again to count it (${what})`,
+    );
   console.error(
     [
       `✖ the CI review will refuse this change for its size — push refused.`,
       `The review's own words on this head: ${v.over}`,
-      `Counted by its own diff step (ci-review.mjs writeReviewInputs) on local git (${at}).`,
+      `Counted by its own diff step (ci-review.mjs writeReviewInputs) on local git (${on}, GitHub's main; ${at}).`,
       'Fix: split the change into pull requests that each fit; --no-verify pushes it anyway.',
     ].join('\n  '),
   );
