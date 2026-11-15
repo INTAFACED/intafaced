@@ -31,8 +31,9 @@ async function developer(page) {
   return who;
 }
 
-/** Saves a new signal-rules strategy on 1 minute bars (unless told another size) of BTC/USDT at version 1. Every figure is a TEST simulation input. */
-async function saveSignalStrategy(page, name, { stopLoss = '', takeProfit = '', size = '0.01', barSize = '1m' } = {}) {
+/** Fills Studio's form for a new signal-rules strategy on 1 minute bars (unless told another size) of BTC/USDT, every
+ *  input but the ones told otherwise, without saving. Every figure is a TEST simulation input. */
+async function fillSignalStrategy(page, name, { stopLoss = '', takeProfit = '', size = '0.01', barSize = '1m', pyramiding } = {}) {
   await page.goto('/quant/studio');
   // The form shows once Studio has read what it needs; only then can its Start a new strategy button be looked for.
   await expect(page.getByLabel('Strategy name')).toBeVisible();
@@ -55,6 +56,12 @@ async function saveSignalStrategy(page, name, { stopLoss = '', takeProfit = '', 
   await builder.getByLabel('Size', { exact: true }).fill(size);
   await builder.getByLabel('Stop loss (percent, optional)', { exact: true }).fill(stopLoss);
   await builder.getByLabel('Take profit (percent, optional)', { exact: true }).fill(takeProfit);
+  if (pyramiding !== undefined) await builder.getByLabel('Pyramiding (entries at most)').fill(pyramiding, UNBUILT);
+}
+
+/** Saves a new signal-rules strategy (fillSignalStrategy's form) at version 1. */
+async function saveSignalStrategy(page, name, options = {}) {
+  await fillSignalStrategy(page, name, options);
   await page.getByRole('button', { name: 'Save to library', exact: true }).click();
   await expect(page.getByTestId('quant-save-state')).toHaveText('Saved as version 1.');
 }
@@ -270,17 +277,18 @@ console.log(third.reason);`,
   await expect(page.getByTestId('more-body')).toHaveText('rejected\nlimit hit');
   await expect(page.getByRole('table', { name: 'Simulated positions' }).getByRole('row', { name: /BTC-USD/ })).toContainText('0.02');
 
-  // A blank sizing rule: the strategy cannot be saved, and the refusal names the sizing rule.
-  await page.goto('/quant/studio');
-  const fresh = page.getByRole('button', { name: 'Start a new strategy' });
-  if (await fresh.isVisible()) await fresh.click();
-  await page.getByLabel('How the strategy trades').selectOption('signal');
-  const builder = page.getByTestId('quant-signal-builder');
-  await builder.getByLabel('Pyramiding (entries at most)').fill('2', UNBUILT);
-  await builder.getByLabel('Size', { exact: true }).fill('');
+  // A blank sizing rule: every other input of the strategy is filled (pyramiding two included) and only the size is
+  // blank, so the refusal can name nothing but the sizing rule. Save refuses naming it, and nothing is saved.
+  const name = `TEST ${J} #4 blank size ${Date.now()}`;
+  await fillSignalStrategy(page, name, { size: '', pyramiding: '2' });
   await page.getByRole('button', { name: 'Save to library', exact: true }).click();
-  await expect(page.getByTestId('quant-save-state')).toContainText('Size');
-  await expect(page.getByTestId('quant-save-state')).not.toHaveText(/^Saved as version/);
+  await expect(page.getByTestId('quant-save-state')).toHaveText(
+    'Not saved. Still blank: Size. Studio never picks a value for you, so nothing was sent.',
+  );
+  // Nothing was saved by the refused press: once the size is filled, the same form saves as version 1, not 2.
+  await page.getByTestId('quant-signal-builder').getByLabel('Size', { exact: true }).fill('0.01');
+  await page.getByRole('button', { name: 'Save to library', exact: true }).click();
+  await expect(page.getByTestId('quant-save-state')).toHaveText('Saved as version 1.');
 });
 
 test(`${J} #5 reverses from long three to short two: two legs, each checked; the open leg is refused when no short rule exists`, async ({

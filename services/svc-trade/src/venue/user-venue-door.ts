@@ -25,6 +25,7 @@ import {
   type VenueSignature,
   type VenueSigner,
   type VenueSubmitOutcome,
+  type VenueCandleInterval,
 } from '@intafaced/venue-contracts';
 import { requireMarketSlippageCapBps } from '../spot/risk.js';
 import { TradeError } from '../spot/types.js';
@@ -797,6 +798,42 @@ export class UserVenueDoor {
       intervalSeconds: perp.funding.known ? perp.funding.value.intervalSeconds : null,
       test: isTestVenue(venue.venue),
     };
+  }
+
+  /**
+   * The venue's public book, prints and candles on a market we list (J-cex-spot-01 #5: the spot desk's book, tape, ticker
+   * and chart). A market we do not list is refused `not_offered`, as a venue (or adapter) that does not read its prints or
+   * candles is; the venue's own refusals pass through.
+   */
+  async marketBook(symbol: string, depth: number) {
+    const venue = await this.listedVenue(symbol);
+    return { ...(await venue.book(symbol, depth)), test: isTestVenue(venue.venue) };
+  }
+
+  async marketTrades(symbol: string, limit: number) {
+    const venue = await this.listedVenue(symbol);
+    if (!venue.trades)
+      throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: 'this venue publishes no trade prints' });
+    return { ...(await venue.trades(symbol, limit)), test: isTestVenue(venue.venue) };
+  }
+
+  async marketCandles(symbol: string, interval: VenueCandleInterval, limit: number) {
+    const venue = await this.listedVenue(symbol);
+    if (!venue.candles)
+      throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: 'this venue publishes no candles' });
+    return { ...(await venue.candles(symbol, interval, limit)), test: isTestVenue(venue.venue) };
+  }
+
+  /** The venue, once `symbol` is a market we list on it; else `not_offered`. */
+  private async listedVenue(symbol: string) {
+    const venue = await this.venue();
+    if (!(await this.markets()).value.some((m) => m.symbol === symbol))
+      throw new VenueRefusalError({
+        venueId: venue.venue.id,
+        code: 'not_offered',
+        detail: `${symbol} is not a market we list on this venue`,
+      });
+    return venue;
   }
 
   /** A new order our listing, routing state, dates or largest order refuse, as this door's typed refusal. */

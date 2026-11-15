@@ -33,6 +33,9 @@ import {
   type VenueOrderPreview,
   type VenueBestPrices,
   type VenueFundingRow,
+  type VenueCandle,
+  type VenueCandleInterval,
+  type VenuePrint,
   type VenueRefusal,
   type VenueSignature,
   type VenueSigner,
@@ -240,6 +243,14 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
 
   fundingHistory(symbol: string, since: Date): Promise<AsOf<readonly VenueFundingRow[]>> {
     return this.read('/funding-history', { symbol, since });
+  }
+
+  trades(symbol: string, limit: number): Promise<AsOf<readonly VenuePrint[]>> {
+    return this.read('/trades', { symbol, limit });
+  }
+
+  candles(symbol: string, interval: VenueCandleInterval, limit: number): Promise<AsOf<readonly VenueCandle[]>> {
+    return this.read('/candles', { symbol, interval, limit });
   }
 
   /** A lost prepare sends nothing to sign, so it is `venue_down` and safe to ask again. */

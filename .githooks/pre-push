@@ -117,6 +117,8 @@ MSG
       exit 1
     fi
   fi
+  # The merge seal's title rule for journey files (journey-seal.mjs titleBeforePush): the title it needs, before the push.
+  if [ -f "$TOP/tooling/ci/journey-seal.mjs" ] && ! (CDPATH= cd -- "$TOP" && node tooling/ci/journey-seal.mjs --before-push) </dev/null; then exit 1; fi
 fi
 
 # CI's lint ratchet (a Doctrine gate), the same command on the files this push touches against origin/main, with main's

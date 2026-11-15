@@ -57,6 +57,12 @@ const AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   // VenueBuilderTotal (OWNER 288 1e)
   'earned',
   'unclaimed',
+  // VenueCandle (J-cex-spot-01 #5)
+  'openPrice',
+  'highPrice',
+  'lowPrice',
+  'closePrice',
+  'baseVolume',
   // UserVenueFunding (J-derivatives-01 #4): the signed funding rate, a scaled fraction
   'rate',
   // UserVenueMarginTier (J-derivatives-02 #2): the notional a tier starts at and its maintenance rate
@@ -124,6 +130,9 @@ const DATE_FIELDS: ReadonlySet<string> = new Set([
   'arrivedAt',
   // UserVenueBuilderClaim (J-derivatives-17)
   'claimedAt',
+  // VenuePrint and VenueCandle (J-cex-spot-01 #5)
+  'tradedAt',
+  'openAt',
 ]);
 
 /**
