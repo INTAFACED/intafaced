@@ -389,12 +389,14 @@ if (!available) {
       const { person, deps } = people();
       const id = await agent(person);
       await person.own.triggers.create({ id, createKey: 'trigger:order', subject: 'trade.fill.settled', perRunCap: '0.1', ask: 'TEST' });
-      // Fill a opens its transaction first and waits before taking the trigger's lock; fill b opens after it, takes the lock
-      // first, claims and is still running when a claims. Transaction start time would put a's row before b's.
-      const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+      // Fill a opens its transaction first and takes the trigger's lock only once fill b has claimed and committed; b's
+      // run stays open until a's delivery is done. Transaction start time would put a's row before b's.
+      let markABegan!: () => void;
+      let markBClaimed!: () => void;
+      const aBegan = new Promise<void>((resolve) => (markABegan = resolve));
+      const bClaimed = new Promise<void>((resolve) => (markBClaimed = resolve));
+      let aDelivered: Promise<number> = Promise.resolve(0);
       let begins = 0;
-      let aBegan!: () => void;
-      const aStarted = new Promise<void>((resolve) => (aBegan = resolve));
       const ordered = new Proxy(deps.sql, {
         get(target, key, receiver) {
           if (key !== 'begin') return Reflect.get(target, key, receiver);
@@ -402,28 +404,28 @@ if (!available) {
             begins += 1;
             if (begins === 1)
               return target.begin(async (tx) => {
-                aBegan();
-                await sleep(300);
+                markABegan();
+                await bClaimed;
                 return fn(tx);
               });
-            await aStarted;
-            return target.begin(fn as never);
+            await aBegan;
+            const claimed = await target.begin(fn as never);
+            markBClaimed();
+            return claimed;
           };
         },
       });
-      let thinks = 0;
-      const slowFirst = new Proxy(deps.runtime, {
+      const bWaits = new Proxy(deps.runtime, {
         get(target, key) {
           const value = Reflect.get(target, key, target);
           if (key !== 'think') return typeof value === 'function' ? value.bind(target) : value;
           return async (...args: Parameters<typeof target.think>) => {
-            thinks += 1;
-            if (thinks === 1) await sleep(700);
+            if (args[0].requestId.includes('fill-b')) await aDelivered;
             return target.think(...args);
           };
         },
       });
-      const limited: AutoRunDeps = { ...deps, sql: ordered, runtime: slowFirst, cadence: { ...CADENCE, dailyLimit: 1 } };
+      const limited: AutoRunDeps = { ...deps, sql: ordered, runtime: bWaits, cadence: { ...CADENCE, dailyLimit: 1 } };
       const fill = (eventId: string) => ({
         subject: EVENT_CATALOG.fillSettled.subject,
         userId: USER,
@@ -431,7 +433,8 @@ if (!available) {
         envelopeId: `env-${eventId}`,
         occurredAt: new Date().toISOString(),
       });
-      await Promise.all([deliverTriggerEvent(limited, fill('fill-a')), deliverTriggerEvent(limited, fill('fill-b'))]);
+      aDelivered = deliverTriggerEvent(limited, fill('fill-a'));
+      await Promise.all([aDelivered, deliverTriggerEvent(limited, fill('fill-b'))]);
       const [listed] = await person.own.triggers.list({ id });
       expect(listed!.runs.map((r) => [r.eventId, r.state]).sort()).toEqual([
         ['fill-a', 'skipped'],
