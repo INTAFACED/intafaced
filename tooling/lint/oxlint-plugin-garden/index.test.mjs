@@ -64,20 +64,29 @@ test('the six garden rules fire on their weeds and name the fix', { skip: !exist
   assert.ok(has(out, 'any.ts', 'no-explicit-any'), out.join('\n'));
 });
 
+test('the clean forms pass', { skip: !existsSync(OXLINT) && 'no node_modules' }, () => {
+  const out = lint({
+    'reasoned.ts': '// eslint-disable-next-line no-console -- the CLI prints its table\nconsole.log(1);\n',
+    'one-cast.ts': 'export const n = Number("1" as string) + 1;\n',
+    'src/fake.test.ts': 'export function t(vi) {\n  vi.useFakeTimers();\n}\n',
+    'imports.ts': "import { isRecord } from '@intafaced/contracts/guards';\nexport const ok = isRecord({});\n",
+    'prod-wait.ts': 'export const later = () => new Promise((r) => setTimeout(r, 50));\n',
+  });
+  const garden = out.filter((l) => l.includes('garden('));
+  assert.deepEqual(garden, [], garden.join('\n'));
+});
+
 test(
-  'the clean forms pass, and no-local-helper stays off until its shared import exists',
+  'no-local-helper is on now that the shared isRecord and sleep exist in @intafaced/contracts',
   { skip: !existsSync(OXLINT) && 'no node_modules' },
   () => {
     const out = lint({
-      'reasoned.ts': '// eslint-disable-next-line no-console -- the CLI prints its table\nconsole.log(1);\n',
-      'one-cast.ts': 'export const n = Number("1" as string) + 1;\n',
-      'src/fake.test.ts': 'export function t(vi) {\n  vi.useFakeTimers();\n}\n',
       'helper.ts':
         'export function isRecord(v: unknown): v is Record<string, unknown> {\n  return typeof v === "object" && v !== null;\n}\n',
-      'prod-wait.ts': 'export const later = () => new Promise((r) => setTimeout(r, 50));\n',
+      'nap.ts': 'const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));\nexport const nap = () => sleep(5);\n',
     });
-    const garden = out.filter((l) => l.includes('garden('));
-    assert.deepEqual(garden, [], garden.join('\n'));
+    assert.ok(has(out, 'helper.ts', 'garden(no-local-helper)'), out.join('\n'));
+    assert.ok(has(out, 'nap.ts', 'garden(no-local-helper)'), out.join('\n'));
   },
 );
 
