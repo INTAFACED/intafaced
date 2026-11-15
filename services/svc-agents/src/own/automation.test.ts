@@ -384,5 +384,64 @@ if (!available) {
       expect(listed!.runs.find((r) => r.state === 'skipped')).toMatchObject({ reasonCode: 'agents.schedule.daily_limit_reached', runs: 0 });
       expect(await completions()).toBe(1);
     });
+
+    it('a fill whose transaction began first but took the lock second still counts the one claimed before it (#8326)', async () => {
+      const { person, deps } = people();
+      const id = await agent(person);
+      await person.own.triggers.create({ id, createKey: 'trigger:order', subject: 'trade.fill.settled', perRunCap: '0.1', ask: 'TEST' });
+      // Fill a opens its transaction first and waits before taking the trigger's lock; fill b opens after it, takes the lock
+      // first, claims and is still running when a claims. Transaction start time would put a's row before b's.
+      const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+      let begins = 0;
+      let aBegan!: () => void;
+      const aStarted = new Promise<void>((resolve) => (aBegan = resolve));
+      const ordered = new Proxy(deps.sql, {
+        get(target, key, receiver) {
+          if (key !== 'begin') return Reflect.get(target, key, receiver);
+          return async (fn: (tx: unknown) => unknown) => {
+            begins += 1;
+            if (begins === 1)
+              return target.begin(async (tx) => {
+                aBegan();
+                await sleep(300);
+                return fn(tx);
+              });
+            await aStarted;
+            return target.begin(fn as never);
+          };
+        },
+      });
+      let thinks = 0;
+      const slowFirst = new Proxy(deps.runtime, {
+        get(target, key) {
+          const value = Reflect.get(target, key, target);
+          if (key !== 'think') return typeof value === 'function' ? value.bind(target) : value;
+          return async (...args: Parameters<typeof target.think>) => {
+            thinks += 1;
+            if (thinks === 1) await sleep(700);
+            return target.think(...args);
+          };
+        },
+      });
+      const limited: AutoRunDeps = { ...deps, sql: ordered, runtime: slowFirst, cadence: { ...CADENCE, dailyLimit: 1 } };
+      const fill = (eventId: string) => ({
+        subject: EVENT_CATALOG.fillSettled.subject,
+        userId: USER,
+        eventId,
+        envelopeId: `env-${eventId}`,
+        occurredAt: new Date().toISOString(),
+      });
+      await Promise.all([deliverTriggerEvent(limited, fill('fill-a')), deliverTriggerEvent(limited, fill('fill-b'))]);
+      const [listed] = await person.own.triggers.list({ id });
+      expect(listed!.runs.map((r) => [r.eventId, r.state]).sort()).toEqual([
+        ['fill-a', 'skipped'],
+        ['fill-b', 'ran'],
+      ]);
+      expect(listed!.runs.find((r) => r.eventId === 'fill-a')).toMatchObject({
+        reasonCode: 'agents.schedule.daily_limit_reached',
+        runs: 0,
+      });
+      expect(await completions()).toBe(1);
+    });
   });
 }
