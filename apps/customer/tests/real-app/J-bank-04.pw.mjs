@@ -122,7 +122,10 @@ const usdt = async (who) => {
   const get = withToken(await tokenOf(who));
   return run === atPartner ? partnerUsdtVia(get) : ledgerUsdtVia(get);
 };
-/** What the ledger holds for someone: for a person held at the partner it never changes, because the ledger posts nothing. */
+/**
+ * What the ledger holds for someone with no authenticator app (the sender's is read on its kept session): for a person
+ * held at the partner it never changes, because the ledger posts nothing.
+ */
 const ledgerUsdt = async (who) => ledgerUsdtVia(withToken(await tokenOf(who)));
 
 /** `who`'s bank money held at the TEST partner from now on, through their own bank API. */
@@ -415,11 +418,11 @@ test(`${J} #4 confirms with a fresh code: the money reaches the person once, and
   test.setTimeout(300_000);
   as(atPartner);
   const dialog = await reviewSend(page, { note: NOTE });
-  const { recipient, sender } = run.read();
+  const { recipient } = run.read();
   const before = await usdt(recipient);
   const senderBefore = await senderUsdt();
   // What the ledger holds for each of them: a send the partner makes posts nothing to it.
-  const ledgerBefore = { sender: await ledgerUsdt(sender), recipient: await ledgerUsdt(recipient) };
+  const ledgerBefore = { sender: await ledgerUsdtVia(asSender), recipient: await ledgerUsdt(recipient) };
   // A send to another person needs a fresh second factor for exactly this send, with its note.
   const stepUp = dialog.getByTestId('step-up-confirm');
   await expect(stepUp).toContainText('Confirm it’s you');
@@ -430,7 +433,7 @@ test(`${J} #4 confirms with a fresh code: the money reaches the person once, and
   // The partner reports the 40 at the recipient and 40 less at the sender, and the ledger holds what it held before.
   await expect.poll(async () => toUnits(await usdt(recipient)), { timeout: 30_000 }).toBe(toUnits(before) + toUnits(AMOUNT));
   expect(toUnits(await senderUsdt())).toBe(toUnits(senderBefore) - toUnits(AMOUNT));
-  expect(await ledgerUsdt(sender)).toBe(ledgerBefore.sender);
+  expect(await ledgerUsdtVia(asSender)).toBe(ledgerBefore.sender);
   expect(await ledgerUsdt(recipient)).toBe(ledgerBefore.recipient);
 
   // C is frozen by staff after A picked them (a frozen account is not found by handle at all): the bank refuses the
@@ -448,7 +451,7 @@ test(`${J} #4 confirms with a fresh code: the money reaches the person once, and
   // Never shown as sent: the dialog keeps the refusal, the partner moved nothing more, and the ledger posted nothing.
   await expect(refused).not.toContainText('Sent');
   expect(toUnits(await senderUsdt())).toBe(toUnits(senderBefore) - toUnits(AMOUNT));
-  expect(await ledgerUsdt(sender)).toBe(ledgerBefore.sender);
+  expect(await ledgerUsdtVia(asSender)).toBe(ledgerBefore.sender);
 });
 
 let founderSessions;
