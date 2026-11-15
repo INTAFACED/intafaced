@@ -93,6 +93,24 @@ export const QUANT_TEAM_MEMBER_INVALID = 'quant.team_member_invalid' as const;
 /** A support grant length outside the screen's bounds. */
 export const QUANT_GRANT_INVALID = 'quant.grant_invalid' as const;
 
+/** The strategy library (J-algo-dev-09). The owner's licence list (`QUANT_LIBRARY_LICENCES`) is blank: nothing is listed. */
+export const QUANT_LIBRARY_LICENCES_UNSET = 'quant.library_licences_unset' as const;
+/** The owner's realism checklist (`QUANT_REALISM_CHECKLIST`) is blank: nothing is listed. */
+export const QUANT_REALISM_CHECKLIST_UNSET = 'quant.realism_checklist_unset' as const;
+/** Publish without every item of the current realism checklist accepted. */
+export const QUANT_REALISM_CHECKLIST_UNACCEPTED = 'quant.realism_checklist_unaccepted' as const;
+/** A publish check failed; the message names the check and what failed. Nothing is listed. */
+export const QUANT_LISTING_CHECK_FAILED = 'quant.listing_check_failed' as const;
+/** A publish of a version that is no longer the strategy's newest: it needs a new check of the new version. */
+export const QUANT_LISTING_STALE = 'quant.listing_stale' as const;
+export const QUANT_LISTING_NOT_FOUND = 'quant.listing_not_found' as const;
+/** An invite-only listing the caller holds no grant to. */
+export const QUANT_LISTING_ACCESS_DENIED = 'quant.listing_access_denied' as const;
+/** A clone of a protected listing: its source never leaves the owner. */
+export const QUANT_LISTING_SOURCE_PROTECTED = 'quant.listing_source_protected' as const;
+/** A review by someone whose own clone of the listing has no finished run. */
+export const QUANT_REVIEW_NEEDS_RUN = 'quant.review_needs_run' as const;
+
 /** The platform's live switch is off (`live.enabled` blank): every live deploy refuses before anything is written. */
 export const QUANT_LIVE_DISABLED = 'quant.live_disabled' as const;
 /** A version the live runner cannot trade in this build (signal rules), named at the compile check. */
@@ -186,6 +204,15 @@ export type QuantCode =
   | typeof QUANT_EDIT_LOCK_UNSET
   | typeof QUANT_TEAM_MEMBER_INVALID
   | typeof QUANT_GRANT_INVALID
+  | typeof QUANT_LIBRARY_LICENCES_UNSET
+  | typeof QUANT_REALISM_CHECKLIST_UNSET
+  | typeof QUANT_REALISM_CHECKLIST_UNACCEPTED
+  | typeof QUANT_LISTING_CHECK_FAILED
+  | typeof QUANT_LISTING_STALE
+  | typeof QUANT_LISTING_NOT_FOUND
+  | typeof QUANT_LISTING_ACCESS_DENIED
+  | typeof QUANT_LISTING_SOURCE_PROTECTED
+  | typeof QUANT_REVIEW_NEEDS_RUN
   | typeof QUANT_LIVE_DISABLED
   | typeof QUANT_LIVE_PLAN_UNSUPPORTED
   | typeof QUANT_LIVE_ORDER_TYPE_UNSUPPORTED

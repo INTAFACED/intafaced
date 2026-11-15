@@ -13,5 +13,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, CUSTOMER_ORIGIN }) => ({
     // TEST: the only site that may frame a shared result is this stack's own customer app. `off` leaves the list blank,
     // so a journey can see the embed snippet refused while the link still opens (J-algo-dev-02 #7).
     QUANT_EMBED_ORIGINS: process.env.LOCAL_STACK_QUANT_EMBED_ORIGINS === 'off' ? '' : CUSTOMER_ORIGIN,
+    // `off` blanks the TEST licence list, so a journey can see publishing refused by name (J-algo-dev-09 #2).
+    ...(process.env.LOCAL_STACK_QUANT_LIBRARY_LICENCES === 'off' ? { QUANT_LIBRARY_LICENCES: '' } : {}),
   }),
 });

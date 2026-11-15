@@ -95,6 +95,16 @@
       "service": "quant",
       "value": "10",
       "note": "TEST paper-book fee, 10 basis points of notional, so the pre-trade check of notional plus fee can be seen (J-algo-dev-05 #6)."
+    },
+    "QUANT_LIBRARY_LICENCES": {
+      "service": "quant",
+      "value": "TEST open licence|TEST all rights reserved",
+      "note": "TEST licences a library listing may carry, so a journey can publish one (J-algo-dev-09 #2); the real list is owner and lawyer content."
+    },
+    "QUANT_REALISM_CHECKLIST": {
+      "service": "quant",
+      "value": "{\"version\": \"TEST v1\", \"items\": [\"TEST The backtest includes fees, slippage and delay.\", \"TEST The results are a historical simulation, not a forecast.\", \"TEST The description promises no return.\"]}",
+      "note": "TEST realism checklist a developer accepts before publishing (J-algo-dev-09 #2); the real wording is owner and lawyer content."
     }
   }
 }
