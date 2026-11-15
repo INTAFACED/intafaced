@@ -2260,15 +2260,21 @@ function cmdBuild(flags) {
   say(`  build: stamp ${P.buildStamp}`);
 }
 
-/** Another checkout's running stack in this state folder would be rebuilt and restarted under it: refuse instead. */
-function refuseOtherCheckout() {
+/**
+ * Before anything is built or written: another checkout's running stack, in this state folder or on this slot's ports,
+ * would be rebuilt under it or collide with it. Refuse in one line that names the slot to set.
+ */
+async function refuseOtherStack() {
   const was = fs.existsSync(P.marker) ? readJson(P.marker).repo : undefined;
-  if (was && was !== REPO && Object.values(readProcs()).some(ownedAlive))
+  const procs = readProcs();
+  if (was && was !== REPO && Object.values(procs).some(ownedAlive))
     fail(`the stack in ${STATE} runs from ${was}; start this checkout's own with LOCAL_STACK_SLOT=1 (or 2, 3)`);
+  for (const name of ['nats', 'edge', 'customer'])
+    if (!ownedAlive(procs[name]) && (await portOpen(PORTS[name]))) portTaken(PORTS[name], name);
 }
 
 async function cmdStart(flags) {
-  refuseOtherCheckout();
+  await refuseOtherStack();
   const s2sMode = checkedS2sMode();
   say('INTAFACED local test stack');
   say(`  repo ${REPO}`);
@@ -2552,7 +2558,7 @@ async function cmdRestart(names) {
   if (names.length === 0 || bad.length)
     fail(`restart needs service names from: ${known.join(', ')}${bad.length ? ` (unknown: ${bad.join(', ')})` : ''}`, 2);
   checkedS2sMode();
-  refuseOtherCheckout();
+  await refuseOtherStack();
   await cmdStop(names);
   await cmdStart([]);
 }
