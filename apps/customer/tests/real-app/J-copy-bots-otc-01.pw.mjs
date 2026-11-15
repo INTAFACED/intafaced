@@ -58,6 +58,9 @@ function state(key) {
   return value;
 }
 
+/** The return the TEST spot lead discloses (#2), shown on its profile as published (#4). TEST figure. */
+const PUBLISHED_RETURN = '12.34';
+
 const TABS = ['Leaders', 'Futures', 'Spot', 'Bots', 'Signal', 'My follows', 'Rules'];
 
 test(`${J} #1 opens Copy trading: every tab, an empty tab says so with no placeholder row, the desk state is read`, async ({ page }) => {
@@ -101,7 +104,11 @@ test(`${J} #2 chooses the Futures tab and searches a name: only futures leaders,
   const leader = await fundedTrader(page, 'jcl', '1000');
   const spotName = `Journey Spot ${tag}`;
   const futuresName = `Journey Futures ${tag}`;
-  const spotRef = await listLeader(leader, spotName, { tenureStart: '2026-01-01T00:00:00.000Z' });
+  // The spot lead discloses a TEST return; its drawdown stays unpublished, for #4.
+  const spotRef = await listLeader(leader, spotName, {
+    tenureStart: '2026-01-01T00:00:00.000Z',
+    published: { publishedReturn: PUBLISHED_RETURN },
+  });
   const futuresLeader = await signUp(page, 'jcx');
   await listLeader(futuresLeader, futuresName, { marketMode: 'futures' });
   // The spot lead's own TEST wallet, with TEST USDC in its own venue account for #8's trade, which the lead signs through
@@ -212,10 +219,13 @@ test(`${J} #4 opens a lead profile: metrics only with a definition, and the lead
   await expect(page).toHaveURL(new RegExp(`/trade/copy/${state('spotRef')}$`));
   await expect(page.getByRole('heading', { name: state('spotName'), level: 1 })).toBeVisible();
 
-  // Return and drawdown carry the TEST definitions; this listing publishes no figure, so each reads Not published.
+  // Disclosed performance: the return the listing published, as published, with its TEST definition; the drawdown it
+  // did not publish reads Not published, never a number.
   const metric = (key) => page.locator(`[data-testid="cb-metric"][data-metric=${key}]`);
-  await expect(metric('publishedReturn')).toContainText('Not published');
+  await expect(metric('publishedReturn').locator('strong')).toHaveText(`${PUBLISHED_RETURN}%`);
   await expect(metric('publishedReturn')).toContainText('TEST definition');
+  await expect(metric('maximumDrawdown').locator('strong')).toHaveText('Not published');
+  await expect(metric('maximumDrawdown')).toContainText('TEST definition');
   // No definition is published for these, so no number is shown.
   await expect(metric('winRate')).toHaveText(/Win rate\s*Not set by the platform/);
   await expect(metric('sharpeRatio')).toHaveText(/Sharpe ratio\s*Not set by the platform/);
@@ -227,7 +237,6 @@ test(`${J} #4 opens a lead profile: metrics only with a definition, and the lead
   await expect(rows.nth(0)).toContainText('Open');
   await expect(rows.nth(0)).toContainText('Still open');
   await expect(rows.nth(1)).toContainText('Closed');
-  await expect(rows.nth(1)).toContainText('None set');
   await expect(rows.nth(1)).toContainText(/[−]?\d+\.\d\d%/);
   const headers = (await trades.locator('thead th').allInnerTexts()).map((h) => h.trim());
   for (const header of ['Entry price', 'Margin', 'TP / SL', 'Close price', 'Return before fees']) {
@@ -241,6 +250,9 @@ test(`${J} #4 opens a lead profile: metrics only with a definition, and the lead
       Math.abs(Number(amountOf(shown) - expected)),
       `${what}: shown ${shown}, from the fills ${fromUnits(expected)}`,
     ).toBeLessThanOrEqual(1e10);
+  // Neither trade carried a TP or SL: the TP / SL cell of each says so.
+  expect(await cell(0, 'TP / SL')).toBe('None set');
+  expect(await cell(1, 'TP / SL')).toBe('None set');
   // The open buy: its own entry and margin, no close.
   near(await cell(0, 'Entry price'), openIn.price, 'open row entry');
   expect(amountOf(await cell(0, 'Margin')), 'open row margin is the quote paid').toBe(openIn.quote);
@@ -587,9 +599,16 @@ test(`${J} #7 enters a fixed amount and starts: zero, above the per-order cap an
     await wizard.getByLabel('Fixed amount per copied order (USDC)').fill('5000');
     await wizard.getByLabel('Most in total (USDC)').fill('5000');
     await wizard.getByRole('button', { name: 'Next' }).click();
-    await expect(
-      wizard.getByText(new RegExp(`more than the 1,?000 USDC free that ${venue.displayName} reports for your account, as of `)),
-    ).toBeVisible();
+    const refusal = wizard.getByText(
+      new RegExp(`more than the 1,?000 USDC free that ${venue.displayName} reports for your account, as of `),
+    );
+    await expect(refusal).toBeVisible();
+    // The as-of time is the venue's own read of that balance: the same instant the balance line above names.
+    const asOf = (await refusal.innerText()).split(', as of ')[1].trim();
+    await expect(wizard.getByText(`As the venue reports it, as of ${asOf}`)).toBeVisible();
+    const when = new Date(asOf);
+    expect(Number.isNaN(when.getTime()), `the as-of time ${asOf} is a time`).toBe(false);
+    expect(Math.abs(Date.now() - when.getTime()), 'read within the last few minutes').toBeLessThan(10 * 60_000);
     // The fixed amount is the follow's cap: no copy may go past 20 USDC, each copy or in total.
     await fillLimits(wizard, { perOrder: '20', total: '20', fixed: '20' });
     await wizard.getByRole('button', { name: 'Next' }).click();
