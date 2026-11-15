@@ -16,15 +16,16 @@ Branch names: `feat/<scope>-<what>`, `fix/<scope>-<what>`, `chore/<what>`, `docs
 
 Nobody works in the main checkout. Each branch gets its own directory, its own `node_modules` and its own dev server, so two agents can never edit the same files by accident.
 
-A T3 agent works in the worktree T3 made for it, or a thread with none gets one with `t3_worktree_handoff`; never `pnpm wt` or `git worktree add`. The commands below are for everyone else.
+A T3 agent works in the worktree T3 made for it, or a thread with none gets one with `t3_worktree_handoff`; never `git worktree add`. The commands below are for everyone else.
 
 ```bash
-pnpm wt feat/svc-identity-rank-events   # create a worktree and install dependencies
-pnpm wt:list                            # what exists
+git worktree add ../intafaced-worktrees/rank-events -b feat/svc-identity-rank-events origin/main
+(cd ../intafaced-worktrees/rank-events && pnpm install)
+git worktree list                       # what exists
 git worktree remove <worktree-path>     # when your task is merged or handed off
 ```
 
-`pnpm wt` creates the worktree in a `<checkout-folder>-worktrees` folder beside the main checkout (`tooling/scripts/worktree.mjs`); for the Sovereign checkout that is `sovereign-worktrees`. Open your editor or agent in the worktree, not in the main checkout.
+Keep worktrees in a `<checkout-folder>-worktrees` folder beside the main checkout. Open your editor or agent in the worktree, not in the main checkout.
 
 A worktree T3 makes is installed for you in the background (`t3.json`, `tooling/t3/setup-worktree.mjs`), with its markers in the worktree's `node_modules/.t3-setup` folder (there, not in another ignored folder, so T3 can remove the worktree once it is finished). While `setup-running` there names a live process, wait for it and do not run `pnpm install` yourself. It ends with `setup-done`, or `setup-failed` with the install's last lines. Otherwise, unless `setup-done` exists (no marker, `setup-failed`, or a `setup-running` whose process is gone), run `pnpm install` yourself once.
 
@@ -62,7 +63,7 @@ pnpm platform:up        # or: pnpm infra:up for only the infrastructure
 pnpm build && pnpm test
 ```
 
-Then make your first change in a worktree (`pnpm wt feat/my-first-change`). Infrastructure ports (Postgres `5433`, Redis `6380`) are non-standard on purpose, so a native Postgres on `5432` does not collide.
+Then make your first change in a worktree (`git worktree add`, as in §2). Infrastructure ports (Postgres `5433`, Redis `6380`) are non-standard on purpose, so a native Postgres on `5432` does not collide.
 
 ---
 
@@ -78,5 +79,3 @@ docs(architecture): record the money flow
 ```
 
 Commit messages inside a PR need not be perfect. The squash-merge title lands on `main`, so make that one good.
-
-If `tooling/ci/value-gate.mjs` asks for a `Board-Delta:` or `Serial-Work:` trailer, its message says what to write. A bare trailer with no reason does not pass.

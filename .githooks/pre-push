@@ -159,7 +159,7 @@ while read -r local_ref _local_sha remote_ref _remote_sha; do
     (CONTRIBUTING.md §1).
 
     Instead:
-      pnpm wt feat/your-change
+      git switch -c feat/your-change
       git push -u origin feat/your-change
       gh pr create --fill
 
