@@ -878,12 +878,9 @@ async function signInOne(ctx, op, saveSteps) {
     op,
     /** Second-factor session token (what a signed-in operator holds). */
     token: loginToken,
-    /**
-     * Same session with the compliance scopes, `admin:compliance` plus `admin:read` and `admin:write`: KYC binding,
-     * transfer terms, fraud listings, P2P methods, account appeals and the trade desk's VIP application review. Short-lived.
-     */
+    /** Same session, plus the operator scope. Short-lived. */
     async complianceToken() {
-      return mintOperatorToken(ctx, op, ['admin:read', 'admin:write', 'admin:compliance']);
+      return mintOperatorToken(ctx, op);
     },
     /**
      * Same session with an `admin:*` scope: what identity needs to see an OPERATOR principal. Four-eyes over
@@ -901,6 +898,10 @@ async function signInOne(ctx, op, saveSteps) {
     /** Same session with the trade operator write scope svc-trade's admin doors check (admin.risk.set). */
     async tradeOpsToken() {
       return mintOperatorToken(ctx, op, ['admin:read', 'admin:write']);
+    },
+    /** Same session as compliance: the trade desk's VIP application review also needs `admin:compliance`. */
+    async complianceToken() {
+      return mintOperatorToken(ctx, op, ['admin:read', 'admin:write', 'admin:compliance']);
     },
     /** Same session with the CRM scopes svc-ops checks before it asks identity whether the caller is a founder. */
     async crmToken() {
