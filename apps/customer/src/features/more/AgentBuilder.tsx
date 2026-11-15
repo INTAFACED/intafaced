@@ -36,6 +36,7 @@ import { ServiceOffNotice } from '../../shared/service-off';
 import { PermissionsPage, RulesPage, toolWords, TryTool } from './AgentGuardrails';
 import { AccessPage } from './AgentAccess';
 import { AllowancePage } from './AgentAllowance';
+import { PortfolioPage } from './AgentPortfolio';
 import { ReviewerPanel } from './AgentReviewer';
 import { agentGuardrailsCopy } from './agent-guardrails-copy';
 import { EvaluationsPage } from './AgentEvaluations';
@@ -518,6 +519,7 @@ const PAGES = [
   'Usage',
   'Analytics',
   'Allowance',
+  'Portfolio',
   'Access',
   'Schedules',
   'Triggers',
@@ -615,6 +617,8 @@ export function OwnAgentPage({ id }: { id: string }) {
               <AccessPage agent={agent} />
             ) : page === 'Allowance' ? (
               <AllowancePage agent={agent} />
+            ) : page === 'Portfolio' ? (
+              <PortfolioPage agent={agent} />
             ) : page === 'Identity' ? (
               <IdentityPage key={agent.id} agent={agent} />
             ) : page === 'Memory' ? (
