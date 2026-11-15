@@ -134,7 +134,7 @@ function usdUnits(amount) {
  * enough for every redemption this file makes.
  */
 async function fundRewards(who) {
-  const fees = await funds.earnBuilderFees(who, 4);
+  const fees = await funds.earnBuilderFees(who, 6);
   await funds.fundPotFromFees(`TEST-${J}-${tag}`, fees);
   await funds.claimOurBuilderFees();
 }
@@ -155,6 +155,8 @@ async function paidOnce(who, redemption, wallet) {
   expect(redemption.reward.owed?.txId, JSON.stringify(redemption)).toBeTruthy();
   const rows = (await myRewards(who)).filter((r) => r.rewardKey === redemption.reward.rewardKey);
   expect(rows).toHaveLength(1);
+  // Owed for exactly what was redeemed, in the voucher's asset.
+  expect(rows[0]).toMatchObject({ asset: ASSET, amount: redemption.amount });
   expect(rows[0].attempts.filter((a) => a.outcome === 'owed')).toHaveLength(1);
   expect(rows[0].attempts.filter((a) => a.outcome === 'paid')).toHaveLength(1);
   const payout = redemption.reward.payout;
@@ -192,11 +194,12 @@ test(`${J} #1 opens /campaigns/mine: my vouchers, an honest empty state when non
   test.setTimeout(180_000);
   run.reset({});
   const now = Date.now();
+  const useByAt = new Date(now + 7 * DAY).toISOString();
   const campaign = await liveVoucherCampaign(`TEST vouchers ${tag}`, {
     claimBy: new Date(now + 7 * DAY).toISOString(),
-    useBy: new Date(now + 7 * DAY).toISOString(),
+    useBy: useByAt,
   });
-  const codes = { cash: `JC08-${tag}-A`, other: `JC08-${tag}-B` };
+  const codes = { cash: `JC08-${tag}-A`, other: `JC08-${tag}-B`, shown: `JC08-${tag}-D` };
   for (const code of Object.values(codes)) expect((await issue(campaign.id, code)).state).toBe('published');
   const page = await (await browser.newContext()).newPage();
   const me = await signUp(page, 'jc08me');
@@ -216,6 +219,18 @@ test(`${J} #1 opens /campaigns/mine: my vouchers, an honest empty state when non
   await expect(codeForm(page).getByRole('textbox', { name: 'Code' })).toBeVisible();
   await expect(codeForm(page).getByRole('button', { name: 'Check this code' })).toBeVisible();
   await expect(codeForm(page).getByRole('button', { name: 'Claim this voucher' })).toBeVisible();
+  // With a voucher: another person's /campaigns/mine lists it with its state and its expiry.
+  const otherPage = await (await browser.newContext()).newPage();
+  const holder = await signUp(otherPage, 'jc08hold');
+  const held = (await (await api(holder)).post('/api/campaigns/trpc/vouchers.claim', { code: codes.shown })).body?.result?.data;
+  expect(held, 'the holder claims a voucher').toMatchObject({ state: 'claimed' });
+  await openWallet(otherPage);
+  const heldRow = voucherRow(otherPage, held.id);
+  await expect(heldRow.getByTestId('voucher-state')).toHaveText('Claimed');
+  // Its expiry is the campaign's use-by, shown as a date and time.
+  expect(Date.parse(held.useBy)).toBe(Date.parse(useByAt));
+  await expect(heldRow.getByTestId('voucher-use-by')).toHaveText(/^Use by .*\d/);
+  await otherPage.context().close();
   run.write({ me, walletKey, wallet: ownWallet, campaignId: campaign.id, codes });
 });
 
@@ -326,7 +341,7 @@ test(`${J} #5 redeems the voucher, pressing twice: one redemption, recorded owed
   );
   expect(receipt.transfers.filter((t) => t.to === wallet)).toHaveLength(1);
 
-  // A lost reply: a second voucher redeemed while the ledger gives no answer (svc-ledger stopped). Nothing is owed or
+  // A lost reply: a second voucher redeemed whole, for its face value, while the ledger gives no answer (svc-ledger stopped). Nothing is owed or
   // sent; the redemption stays open, pending retry. Once the ledger is back, the reconciler records it owed under the same
   // key and it is paid once.
   const code = `JC08-${tag}-L`;
@@ -337,10 +352,11 @@ test(`${J} #5 redeems the voucher, pressing twice: one redemption, recorded owed
   let lost;
   try {
     tool('local-test-stack.mjs', 'stop', 'ledger');
-    lost = (await client.post('/api/campaigns/trpc/vouchers.redeem', { voucherId: claimed.id, amount: PART, sequence: 1 })).body;
+    lost = (await client.post('/api/campaigns/trpc/vouchers.redeem', { voucherId: claimed.id, amount: FACE, sequence: 1 })).body;
     expect(lost?.result?.data, JSON.stringify(lost).slice(0, 400)).toBeTruthy();
     const open = lost.result.data.redemption.reward;
-    expect(['unknown', 'pending_retry', 'posting', 'qualified']).toContain(open.state);
+    // No answer from the ledger: the owe post's outcome is unknown, which the reconciler retries under the same key.
+    expect(open.state).toBe('unknown');
     expect(open.owed).toBeNull();
     expect(open.payout).toBeNull();
     await page.reload();
@@ -355,8 +371,10 @@ test(`${J} #5 redeems the voucher, pressing twice: one redemption, recorded owed
   await expect.poll(async () => (await redemptionOf(me, claimed.id, 1))?.reward.state, { timeout: 180_000 }).toBe('paid');
   const finished = await redemptionOf(me, claimed.id, 1);
   expect(finished.reward.rewardKey).toBe(lost.result.data.redemption.reward.rewardKey);
+  // The voucher's whole face value, recorded owed once and paid once.
+  expect(finished.amount).toBe(FACE);
   await paidOnce(me, finished, wallet);
-  expect(await chainUsd(wallet)).toBe(lostBefore + usdUnits(PART));
+  expect(await chainUsd(wallet)).toBe(lostBefore + usdUnits(FACE));
   // The first voucher's redemption still has its one payment.
   await paidOnce(me, await redemptionOf(me, voucherId, 1), wallet);
   run.write({ ...run.read(), paidVoucherId: claimed.id });
