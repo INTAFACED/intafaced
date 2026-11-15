@@ -24,10 +24,11 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { localStackState } from './local-test-state.mjs';
 import { LOCAL_TEST_DEVICE_KEY, localTestDeviceCookie, localTestDeviceState } from './local-test-device.mjs';
+import { STACK_PORTS } from './local-test-facts.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const REPO = path.resolve(path.dirname(SCRIPT), '..', '..');
-export const UPSTREAM = { host: '127.0.0.1', port: 3210 };
+export const UPSTREAM = { host: '127.0.0.1', port: STACK_PORTS.customer };
 export const UPSTREAM_ORIGIN = `http://${UPSTREAM.host}:${UPSTREAM.port}`;
 export const GATE_COOKIE = 'try_gate';
 export const DEMO = { handle: 'trydemo', email: 'try-demo@local-test.invalid' };

@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test, expect } from './journey.mjs';
-import { api, journeyState } from './stack.mjs';
+import { api, journeyState, STACK_PORTS, stackUrl } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import {
   NAME,
@@ -208,7 +208,7 @@ function redeliverFill(userId) {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
   const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], {
     cwd: path.join(root, 'packages', 'events'),
-    env: { ...process.env, NATS_URL: 'nats://127.0.0.1:14232', NATS_STREAM_PREFIX: 'LOCAL_TEST', USER_ID: userId },
+    env: { ...process.env, NATS_URL: `nats://127.0.0.1:${STACK_PORTS.nats}`, NATS_STREAM_PREFIX: 'LOCAL_TEST', USER_ID: userId },
     encoding: 'utf8',
     timeout: 60_000,
   });
@@ -219,7 +219,7 @@ function redeliverFill(userId) {
 /** Until svc-notify's paper fill consumer has taken and acknowledged every message on the bus. */
 async function notifyConsumerCaughtUp() {
   await expect(async () => {
-    const info = await fetch('http://127.0.0.1:18232/jsz?consumers=true').then((r) => r.json());
+    const info = await fetch(`${stackUrl('natsMonitor')}/jsz?consumers=true`).then((r) => r.json());
     const consumer = info.account_details
       ?.flatMap((a) => a.stream_detail ?? [])
       .filter((st) => st.name === 'LOCAL_TEST_QUANT')

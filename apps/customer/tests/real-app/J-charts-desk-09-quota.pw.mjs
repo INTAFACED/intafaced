@@ -1,7 +1,7 @@
 // World: market
 import { test, expect } from './journey.mjs';
 import { signUp } from './desk.mjs';
-import { EDGE, ORIGIN, bestPrices, tool } from './stack.mjs';
+import { bestPrices, EDGE, ORIGIN, stackUrl, tool } from './stack.mjs';
 import { answerAfterNavigation } from './navigation.mjs';
 
 // J-charts-desk-09 #8, in the running app (docs/roadmap/journeys.json): a person hits the alert quota, and an alert that
@@ -60,7 +60,7 @@ const cents = (text) => {
 const fromCents = (n) => `${n / 100n}.${String(n % 100n).padStart(2, '0')}`;
 
 // svc-notify's own readiness on the TEST stack: `alerts.sweep.lastAt` is when its last alert sweep finished.
-const NOTIFY = 'http://127.0.0.1:14510';
+const NOTIFY = stackUrl('notify');
 const lastSweepAt = async () => (await (await fetch(`${NOTIFY}/ready`)).json()).alerts.sweep.lastAt;
 
 /** A TEST price on the 0.01 tick: the last price times percent / 100, worked in scaled bigint. */

@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
 import { makeContext } from '../../../../tooling/scripts/local-test-gates.mjs';
-import { ROOT, signUpInBrowser, tool } from './stack.mjs';
+import { ROOT, signUpInBrowser, STACK_PORTS, tool } from './stack.mjs';
 
 // J-identity-06 #4, in the running app (docs/roadmap/journeys.json): I set a shorter idle sign-out; a shorter value than
 // the owner's applies, a longer value is refused, and the fourth sign-in beyond the owner's cap ends the oldest device.
@@ -23,7 +23,7 @@ function person(prefix) {
 async function identityDb() {
   const ctx = await makeContext({ log: () => undefined });
   const postgres = createRequire(path.join(ROOT, 'services', 'svc-identity', 'package.json'))('postgres');
-  const port = ctx.marker.ports.postgres ?? 15460;
+  const port = ctx.marker.ports.postgres ?? STACK_PORTS.postgres;
   return postgres(`postgres://svc_identity:${encodeURIComponent(ctx.secrets.pgService)}@127.0.0.1:${port}/intafaced_local_test`, {
     max: 1,
     onnotice: () => {},

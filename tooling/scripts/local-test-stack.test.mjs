@@ -1594,15 +1594,19 @@ console.log('local-test-stack: customer folder override checks passed');
 
 // No stack service listens on a port the test chain uses: the TEST venue first took 14533, the chain's second gate, and
 // every restart that started it refused with "in use by a process this script did not start" (journeys run 42524275189).
+// Nor does one slot's stack take another slot's port (LOCAL_STACK_SLOT 0 to 3), its second workers' included.
 {
-  const { CHAIN_PORTS } = await import('./local-test-chain.mjs');
-  const table = /const PORTS = \{([\s\S]*?)\n\};/.exec(source)?.[1] ?? '';
-  const stackPorts = [...table.matchAll(/'?[\w-]+'?: (\d{4,5}),/g)].map((m) => Number(m[1]));
-  assert.ok(stackPorts.length > 20, 'the stack port table was read');
-  const clash = stackPorts.filter((port) => Object.values(CHAIN_PORTS).includes(port));
-  assert.deepEqual(clash, [], `stack ports also used by the test chain: ${clash.join(', ')}`);
-  assert.equal(new Set(stackPorts).size, stackPorts.length, 'every stack port is used once');
-  console.log('local-test-stack: no stack port collides with the test chain or with another stack port');
+  const { slotPorts } = await import('./local-test-facts.mjs');
+  const held = [0, 1, 2, 3].flatMap((slot) => {
+    const { stack, fixSockets, hooks, chain } = slotPorts(slot);
+    const workers = Array.from({ length: 20 }, (_, i) => stack.edge + 400 + i);
+    return [...Object.values(stack), ...Object.values(fixSockets), ...Object.values(hooks), ...Object.values(chain), ...workers];
+  });
+  assert.ok(held.length > 4 * 40, 'the port tables were read');
+  const clash = held.filter((port, i) => held.indexOf(port) !== i);
+  assert.deepEqual(clash, [], `ports held twice: ${clash.join(', ')}`);
+  assert.equal(slotPorts(0).stack.customer, 3210, 'slot 0 keeps the ports the stack always had');
+  console.log('local-test-stack: every port of every slot, the test chain and second workers included, is held once');
 }
 
 // A start never calls the stack's own running service a stranger: matching's own process answered its health late on a

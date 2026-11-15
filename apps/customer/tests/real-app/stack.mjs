@@ -3,7 +3,14 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { LOCAL_TEST_DEVICE_KEY, localStackState, localTestDeviceState } from '../../../../tooling/scripts/local-test-facts.mjs';
+import {
+  JOURNEY_TMP,
+  LOCAL_TEST_DEVICE_KEY,
+  localStackState,
+  localTestDeviceState,
+  stackUrl,
+} from '../../../../tooling/scripts/local-test-facts.mjs';
+export { HOOK_PORTS, STACK_PORTS, stackUrl } from '../../../../tooling/scripts/local-test-facts.mjs';
 
 // The parts of a real-app journey that are not the customer's browser: the stack's own tools (the TEST operators,
 // TEST funding, the other TEST trader) and the customer's own API through Edge, to read what the ledger holds.
@@ -21,15 +28,16 @@ export async function signOutBrowser(context) {
 }
 
 export const ROOT = fileURLToPath(new URL('../../../..', import.meta.url));
-export const EDGE = 'http://127.0.0.1:14500';
-export const LEDGER = 'http://127.0.0.1:14501';
-export const ORIGIN = 'http://127.0.0.1:3210';
+// The stack's addresses come from its one port table (LOCAL_STACK_SLOT moves them all).
+export const EDGE = stackUrl('edge');
+export const LEDGER = stackUrl('ledger');
+export const ORIGIN = stackUrl('customer');
 // The stack's own rule for its state folder (LOCAL_STACK_STATE, else per user, else /var/lib as root).
 const STATE = localStackState();
 
 /** A file in the running stack's own state folder (for example the stand-in engine's hold file). */
 export const stackFile = (name) => path.join(STATE, name);
-const RUN = process.env.JOURNEY_RUN_DIR ?? '/tmp/intafaced-real-app';
+const RUN = process.env.JOURNEY_RUN_DIR ?? JOURNEY_TMP;
 
 /**
  * The shared-world state of this worker's current journey file (journey.mjs, `worldBetweenFiles`): which file it is,

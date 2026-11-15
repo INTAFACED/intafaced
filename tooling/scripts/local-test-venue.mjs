@@ -24,6 +24,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { TEST_CHAIN_ID } from './local-test-chain.mjs';
+import { STACK_PORTS } from './local-test-facts.mjs';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 /** The built simulator. The stack builds it with svc-trade (a dev dependency there); a bare run says how to build it. */
@@ -125,7 +126,7 @@ export async function serveTestVenue({ host, port, appEnv, chainId, rpcUrl = '',
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   serveTestVenue({
     host: process.env.TEST_VENUE_HOST ?? '127.0.0.1',
-    port: Number(process.env.TEST_VENUE_PORT ?? '14560'),
+    port: Number(process.env.TEST_VENUE_PORT ?? STACK_PORTS['test-venue']),
     // The RAW value: unset, blank and anything but dev or test refuse.
     appEnv: process.env.APP_ENV,
     chainId: testVenueChainId(process.env.TEST_VENUE_CHAIN_ID),

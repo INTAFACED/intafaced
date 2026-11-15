@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { HOOK_PORTS } from '../local-test-facts.mjs';
 
 /**
  * The stack's empty notice board: `LOCAL_STACK_NOTIFY_NOTICES=off` on a start or restart of notify runs svc-notify on a
@@ -48,7 +49,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     // LOCAL TEST only (J-charts-desk-10): the alert webhook ports and resend schedule, the labelled values in
     // tooling/profiles/test-owner-values/notify.json, and the loopback switch, since the journey's endpoint is on this machine.
     // Production has neither value until the owner sets them: a webhook cannot be saved, and nothing is resent.
-    NOTIFY_ALERT_WEBHOOK_PORTS: '443,14590',
+    NOTIFY_ALERT_WEBHOOK_PORTS: `443,${HOOK_PORTS.alert}`,
     NOTIFY_ALERT_WEBHOOK_RETRY_SECONDS: '5,5,5',
     NOTIFY_ALERT_WEBHOOK_TEST_LOOPBACK: 'on',
     // LOCAL_STACK_NOTIFY_EMAIL=on (a journey's restart only, J-charts-desk-10 #5): the TEST email stand-in writes every email,
