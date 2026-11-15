@@ -4,6 +4,8 @@ import { t as moreCopy } from '../more/copy';
 import { AlgoHome } from './AlgoHome';
 import { BacktestRoom } from './BacktestRoom';
 import { StrategiesRoom } from './StrategiesRoom';
+import { LimitsRoom } from './LimitsRoom';
+import { limitsCopy } from './limits-copy';
 import { StrategyPage } from './StrategyPage';
 import { SharedRoom, SharedStrategy } from './SharedRooms';
 import { teamCopy } from './team-copy';
@@ -114,6 +116,14 @@ export function quantRoute(
       title: previewCopy.t(room === 'editor' ? 'editorTitle' : room === 'tester' ? 'testerTitle' : 'optimiseTitle'),
       description: previewCopy.t('label'),
       content: <Room key={userId ?? 'anonymous'} paper={paper} />,
+    };
+  }
+  // Every limit a developer's runs meet (J-algo-dev-12 #4).
+  if (pathname === '/quant/limits') {
+    return {
+      title: limitsCopy.t('title'),
+      description: limitsCopy.t('description'),
+      content: <LimitsRoom key={userId ?? 'anonymous'} paper={paper} />,
     };
   }
   if (pathname === '/quant/strategies') {

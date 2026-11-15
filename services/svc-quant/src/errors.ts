@@ -4,6 +4,12 @@ export const QUANT_SANDBOX_TIMEOUT = 'quant.sandbox_timeout' as const;
 export const QUANT_SANDBOX_SYNTAX = 'quant.sandbox_syntax' as const;
 export const QUANT_SANDBOX_MAX_OPS_UNSET = 'quant.sandbox_max_ops_unset' as const;
 export const QUANT_SANDBOX_MAX_SOURCE_UNSET = 'quant.sandbox_max_source_unset' as const;
+/** A sandbox limit of the plan (wall-clock, memory, output) the owner has not set: no run starts (AL-limits-02). */
+export const QUANT_SANDBOX_LIMIT_UNSET = 'quant.sandbox_limit_unset' as const;
+/** A run's variables reached the plan's memory limit: it ends before the text is made. */
+export const QUANT_SANDBOX_MEMORY = 'quant.sandbox_memory' as const;
+/** A run's log reached the plan's output limit: it ends with the log cut at the limit. */
+export const QUANT_SANDBOX_OUTPUT = 'quant.sandbox_output' as const;
 export const QUANT_VENUE_VAULT_UNSET = 'quant.venue_vault_unset' as const;
 export const QUANT_STUDIO_RISK_BLOCK_REQUIRED = 'quant.studio_risk_block_required' as const;
 export const QUANT_BACKTEST_LAKE_MISSING = 'quant.backtest_lake_missing' as const;
@@ -136,6 +142,9 @@ export type QuantCode =
   | typeof QUANT_SANDBOX_SYNTAX
   | typeof QUANT_SANDBOX_MAX_OPS_UNSET
   | typeof QUANT_SANDBOX_MAX_SOURCE_UNSET
+  | typeof QUANT_SANDBOX_LIMIT_UNSET
+  | typeof QUANT_SANDBOX_MEMORY
+  | typeof QUANT_SANDBOX_OUTPUT
   | typeof QUANT_VENUE_VAULT_UNSET
   | typeof QUANT_STUDIO_RISK_BLOCK_REQUIRED
   | typeof QUANT_BACKTEST_LAKE_MISSING

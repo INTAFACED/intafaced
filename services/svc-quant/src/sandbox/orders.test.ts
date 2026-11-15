@@ -5,7 +5,7 @@ import { runIsolate } from './isolate.js';
 
 // J-algo-dev-05 #1 #2 #4 #5 #6: the paper book's orders obey their types, sizing and pre-trade checks.
 // Every figure is a TEST simulation input; the fee is a labelled TEST 10 bps.
-const limits = { maxOps: 5_000, maxSource: 8_000 };
+const limits = { maxOps: 5_000, maxSource: 8_000, run: { wallClockMs: 5_000, memoryBytes: 1_000_000, outputBytes: 1_000_000 } };
 const run = (source: string, cash = '1000', feeBps: string | null = '10') =>
   runIsolate('javascript', source, createPaperBook({ startingCash: cash, venueVaultSet: false, feeBps }), limits, true);
 const kinds = (ran: ReturnType<typeof run>, order: string) => ran.events.filter((e) => e.order === order).map((e) => e.kind);

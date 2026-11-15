@@ -12,7 +12,11 @@ import {
   type QuotaRepository,
   type QuotaResource,
   type QuotaSeed,
+  type SandboxLimit,
+  type SandboxLimitRow,
   type TierRow,
+  isSandboxLimit,
+  SANDBOX_LIMITS,
 } from './quota.js';
 
 function relation(schema: string, table: string): string {
@@ -53,6 +57,7 @@ export function createPostgresQuota(sql: Sql, options: PostgresQuotaOptions): { 
   const assignments = relation(schema, 'quota_assignments');
   const audit = relation(schema, 'quota_audit');
   const tiersTable = relation(schema, 'compute_tiers');
+  const sandboxTable = relation(schema, 'sandbox_limits');
   const now = options.now ?? (() => new Date());
   const seed = options.seed ?? null;
   let seeded: Promise<void> | null = null;
@@ -74,6 +79,17 @@ export function createPostgresQuota(sql: Sql, options: PostgresQuotaOptions): { 
            VALUES ($1, $2, $3::numeric, 'TEST profile seeded on the local and CI stack', 'svc-quant:test-seed', $4)
            ON CONFLICT (profile, resource) DO NOTHING`,
           [seed.profile, resource, value, now().toISOString()],
+        );
+      }
+      for (const limit of SANDBOX_LIMITS) {
+        const value = seed.sandbox?.[limit];
+        if (value === undefined) continue;
+        await query(
+          sql,
+          `INSERT INTO ${sandboxTable} (profile, limit_name, limit_value, reason, set_by, set_at)
+           VALUES ($1, $2, $3::numeric, 'TEST profile seeded on the local and CI stack', 'svc-quant:test-seed', $4)
+           ON CONFLICT (profile, limit_name) DO NOTHING`,
+          [seed.profile, limit, value, now().toISOString()],
         );
       }
     })().catch((err) => {
@@ -131,6 +147,50 @@ export function createPostgresQuota(sql: Sql, options: PostgresQuotaOptions): { 
     async limits(profile) {
       await ensureSeed();
       return limitsIn(sql, profile);
+    },
+
+    async sandboxLimits(profile) {
+      await ensureSeed();
+      const rows = await query<{ limit_name: string; limit_value: string | null; set_at: Date | string }>(
+        sql,
+        `SELECT limit_name, limit_value::text AS limit_value, set_at FROM ${sandboxTable} WHERE profile = $1`,
+        [profile],
+      );
+      return rows
+        .filter((row) => isSandboxLimit(row.limit_name))
+        .map((row): SandboxLimitRow => ({ limit: row.limit_name as SandboxLimit, value: whole(row.limit_value), setAt: iso(row.set_at) }));
+    },
+
+    async setSandboxLimit(input) {
+      await ensureSeed();
+      const request = { profile: input.profile, limit: input.limit, value: input.value === null ? null : input.value.toString() };
+      return sql.begin(async (tx) => {
+        await query(tx, `SELECT pg_advisory_xact_lock(hashtext($1))`, [`${schema}.quota.key:${input.idempotencyKey}`]);
+        const prior = await priorWrite<{ profile: string; limit: SandboxLimit; value: string | null; setAt: string }>(
+          tx,
+          input.idempotencyKey,
+          'sandbox',
+          (stored) => stored.profile === request.profile && stored.limit === request.limit && stored.value === request.value,
+        );
+        if (prior) return { ...prior, value: whole(prior.value) };
+        const at = now().toISOString();
+        await query(
+          tx,
+          `INSERT INTO ${sandboxTable} (profile, limit_name, limit_value, reason, set_by, set_at)
+           VALUES ($1, $2, $3::numeric, $4, $5, $6)
+           ON CONFLICT (profile, limit_name) DO UPDATE
+             SET limit_value = EXCLUDED.limit_value, reason = EXCLUDED.reason, set_by = EXCLUDED.set_by, set_at = EXCLUDED.set_at`,
+          [input.profile, input.limit, request.value, input.reason, input.actor, at],
+        );
+        const response = { ...request, setAt: at };
+        await query(
+          tx,
+          `INSERT INTO ${audit} (idempotency_key, action, request, response, reason, actor, at)
+           VALUES ($1, 'sandbox', $2::jsonb, $3::jsonb, $4, $5, $6)`,
+          [input.idempotencyKey, request, response, input.reason, input.actor, at],
+        );
+        return { ...response, limit: input.limit, value: input.value };
+      });
     },
 
     async set(input) {
