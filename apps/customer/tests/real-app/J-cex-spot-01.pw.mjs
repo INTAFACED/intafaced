@@ -255,6 +255,20 @@ test(`${J} #3 passes the trading checks (legal name, country confirmed, sanction
   await expect(page.getByRole('button', { name: 'Buy BTC' })).toBeDisabled();
   expect(wallet.requests.length).toBe(asked);
   expect(await venueOpenOrders(who, owner)).toHaveLength(0);
+  // Our place door accepts this order from the verified person: the exact intent the desk previewed, prepared under this
+  // person's session and signed by their own TEST wallet key, goes past verification to the venue, which answers
+  // definitely on funds (the venue account holds nothing until #4) and never on permission. No order rests and nothing is
+  // locked on the venue or held in our ledger.
+  const intent = answer.request().postDataJSON().intent;
+  const placed = await placeThroughDoor(await api(who), owner, intent);
+  expect(placed.prepared.status, JSON.stringify(placed.prepared.body).slice(0, 400)).toBe(200);
+  expect(placed.sent.status, JSON.stringify(placed.sent.body).slice(0, 400)).toBe(200);
+  expect(placed.sent.body.outcome, JSON.stringify(placed.sent.body).slice(0, 400)).toMatchObject({
+    definite: true,
+    accepted: false,
+    refusal: { code: 'insufficient_balance' },
+  });
+  expect(await venueOpenOrders(who, owner)).toHaveLength(0);
   expect(wireUnits((await venueBalance(who, owner, 'USDC')).locked)).toBe(0n);
   expect(held(await (await api(who)).balances(), 'USDT')).toBe(0n);
 
@@ -283,6 +297,16 @@ test(`${J} #3 passes the trading checks (legal name, country confirmed, sanction
     await hitPage.getByRole('textbox', { name: 'Amount' }).first().fill('0.001');
     await expect(hitPage.getByRole('button', { name: 'Buy BTC' })).toBeDisabled();
     await expect(hitPage.locator('#dk-reason-buy')).not.toContainText(/screen|sanction/i);
+    // The hold, not the empty venue account, is what refuses: the desk shows no money-check refusal, and our place door
+    // refuses this person's same order before it is ever signed or sent to the venue, which the verified person's passes.
+    await expect(hitPage.locator('#dk-reason-buy')).not.toBeEmpty();
+    await expect(hitPage.getByTestId('venue-ticket-short')).toHaveCount(0);
+    const hitOwner = hitWallet.address.toLowerCase();
+    const hold = await placeThroughDoor(await api(listed), hitOwner, intent);
+    expect(hold.prepared.status, JSON.stringify(hold.prepared.body).slice(0, 400)).not.toBe(200);
+    expect(hold.prepared.body.prepared).toBeUndefined();
+    expect(String(hold.prepared.body.intafacedCode ?? '')).not.toMatch(/^trade\.venue\./);
+    expect(hold.sent).toBeNull();
   } finally {
     await hitContext.close();
   }
@@ -311,6 +335,34 @@ test(`${J} #3 passes the trading checks (legal name, country confirmed, sanction
     restartWith('identity', 'LOCAL_STACK_IDENTITY_SANCTIONS_LIST', true);
   }
 });
+
+/**
+ * One order through our place door by API, as `session`: prepare it for `owner`, sign the venue's typed data with the run's
+ * TEST wallet key, and submit it. A refused prepare is returned with `sent` null: nothing was signed or sent.
+ */
+async function placeThroughDoor(session, owner, intent) {
+  const prepared = await session.post('/api/v1/venue/prepare', {
+    owner,
+    signer: { role: 'owner', address: owner },
+    intent,
+    actionKey: null,
+    stepUpApprovalId: null,
+  });
+  if (prepared.status !== 200) return { prepared, sent: null };
+  const p = prepared.body.prepared;
+  const t = p.typedData;
+  const signature = await privateKeyToAccount(personKey()).signTypedData({
+    domain: t.domain,
+    types: t.types,
+    primaryType: t.primaryType,
+    message: t.message,
+  });
+  const sent = await session.post('/api/v1/venue/submit', {
+    actionKey: prepared.body.actionKey,
+    signature: { digest: p.digest, signature, signedBy: owner },
+  });
+  return { prepared, sent };
+}
 
 /** The run's one TEST wallet key, kept in the run file (mode 600), made on first use. */
 function personKey() {
