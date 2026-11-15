@@ -47,10 +47,20 @@ export function signedHeaders(
 }
 
 /** Makes a live key through the form and returns its secret, read once from "Your new key" (with its signing secret, if shown, kept for withKey). */
-export async function makeKey(page, { name = 'bot-1', preset = 'Trade', ips = '' } = {}) {
+export async function makeKey(page, { name = 'bot-1', preset = 'Trade', ips = '', scopes } = {}) {
   await page.goto('/uc/safe/api-keys/new');
   await page.getByLabel('Key name').fill(name);
-  await page.getByLabel(preset, { exact: true }).check();
+  if (scopes) {
+    // Exactly these permissions: "Choose", then every offered box ticked or cleared to match.
+    await page.getByLabel('Choose', { exact: true }).check();
+    const boxes = page.locator('input[type="checkbox"][name="scope"]');
+    await expect(boxes.first()).toBeVisible();
+    for (const box of await boxes.all()) {
+      if (scopes.includes(await box.getAttribute('value'))) await box.check();
+      else await box.uncheck();
+    }
+    for (const scope of scopes) await expect(page.locator(`input[name="scope"][value="${scope}"]`), `${scope} is offered`).toBeChecked();
+  } else await page.getByLabel(preset, { exact: true }).check();
   await page.getByLabel('IP addresses (one per line, optional)').fill(ips);
   await page.getByRole('button', { name: 'Create with a passkey', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Your new key' })).toBeVisible();
