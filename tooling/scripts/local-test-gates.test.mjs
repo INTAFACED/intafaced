@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createDecipheriv } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -69,7 +69,7 @@ import {
   TRADE_CANCELS,
 } from './local-test-gates.mjs';
 import { draftFounderVault } from './local-test-founders.mjs';
-import { TEST_SPOT_LISTINGS, UNQUOTED_TEST_SPOT, localTestDatabaseUrl } from './seed-spot-test-listing.mjs';
+import { TEST_SPOT_LISTINGS, UNQUOTED_TEST_SPOT, UNTRADED_TEST_SPOT, localTestDatabaseUrl } from './seed-spot-test-listing.mjs';
 import { TEST_KYB_ENTITY_TYPES, TEST_KYB_UPLOAD_RULES } from './seed-pay-kyb-test-requirements.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -465,6 +465,19 @@ assert.deepEqual(
       [l.symbol],
     );
   }
+  // The charts' market with no trades stays untraded: unquoted, open, and named by no journey but the charts' helper
+  // (J-charts-desk-04 #4 found every market traded once another journey traded IFC/USDC, #8509 run 43731598319).
+  assert.ok(UNQUOTED_TEST_SPOT.includes(UNTRADED_TEST_SPOT), `${UNTRADED_TEST_SPOT} stays unquoted`);
+  assert.equal(TEST_SPOT_LISTINGS.find((l) => l.symbol === UNTRADED_TEST_SPOT)?.status ?? 'active', 'active');
+  const realApp = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'apps', 'customer', 'tests', 'real-app');
+  const naming = readdirSync(realApp).filter(
+    (f) => f.endsWith('.mjs') && readFileSync(join(realApp, f), 'utf8').includes(`'${UNTRADED_TEST_SPOT}'`),
+  );
+  assert.deepEqual(
+    naming,
+    ['charts-desk-studies.mjs'],
+    `only the charts' helper names ${UNTRADED_TEST_SPOT}: a journey that trades it gives the charts' empty market a tape`,
+  );
   // The spot seed refuses production and any database that does not look local or test.
   const local = 'postgres://u:p@127.0.0.1:15460/intafaced_local_test';
   assert.equal(localTestDatabaseUrl(local, {}), local);
