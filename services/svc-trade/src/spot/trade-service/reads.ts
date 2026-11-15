@@ -6,7 +6,7 @@
  */
 import type { Timeframe } from '@intafaced/exchange-contract';
 import { requireScope, type Principal } from '@intafaced/auth';
-import { parseAmount } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { queryCandlesFromFills, assertCandleRangeWithinCap, exportOhlcv, OHLC_RECENT_ROW_CAP } from '../candles.js';
 import { publicTapePrint } from '../public-tape.js';
 import { orderIdFor } from '../ids.js';
@@ -318,6 +318,31 @@ export async function everyFillOfOrder(svc: TradeServiceInternal, principal: Pri
   return rows.map(toFill);
 }
 
+/**
+ * Every fill of several of the caller's orders, keyed by order id, in one read (the order reads' cost, average and
+ * fee: #4677). Only the caller's own fills are read; an id with none is absent from the map.
+ */
+export async function everyFillOfOrders(
+  svc: TradeServiceInternal,
+  principal: Principal,
+  orderIds: readonly string[],
+): Promise<Map<string, FillRecord[]>> {
+  requireScope(principal, 'trade:read');
+  const out = new Map<string, FillRecord[]>();
+  if (orderIds.length === 0) return out;
+  const rows = await svc.sql<FillRow[]>`
+    SELECT * FROM trade.fills WHERE order_id = ANY(${[...orderIds]}::uuid[]) AND user_id = ${principal.userId}
+     ORDER BY ts ASC, sequence ASC, id ASC
+  `;
+  for (const row of rows) {
+    const fill = toFill(row);
+    const list = out.get(fill.orderId);
+    if (list) list.push(fill);
+    else out.set(fill.orderId, [fill]);
+  }
+  return out;
+}
+
 export async function marketById(svc: TradeServiceInternal, marketId: string): Promise<Market | null> {
   const rows = await svc.sql<MarketRow[]>`
     SELECT id, symbol, base_asset, quote_asset, kind, tick_size, lot_size,
@@ -392,6 +417,35 @@ export async function publicTape(svc: TradeServiceInternal, marketId: string, li
       ts: row.ts,
     }),
   );
+}
+
+/**
+ * Volume that traded at or through `price` on the side a resting order on `side` waits for, since `sinceMs`: for a
+ * resting buy, taker sells printed at or below its price; for a resting sell, taker buys printed at or above it. One row
+ * per match (the taker leg), summed in SQL so no page cuts it short. Seeded orders are counted here, unlike on the public
+ * tape: the queue this volume is set against counts every resting order, seeded ones included, so both sides of the
+ * estimate measure the same book. Feeds the queue fill estimate (queue-position.ts); a read only.
+ */
+export async function tradedThrough(
+  svc: TradeServiceInternal,
+  marketId: string,
+  side: OrderSide,
+  price: Amount,
+  sinceMs: number,
+): Promise<Amount> {
+  const taker: OrderSide = side === 'buy' ? 'sell' : 'buy';
+  const at = formatAmount(price);
+  const through = side === 'buy' ? svc.sql`f.price <= ${at}::numeric` : svc.sql`f.price >= ${at}::numeric`;
+  const [row] = await svc.sql<Array<{ volume: string | null }>>`
+    SELECT sum(f.qty)::text AS volume
+      FROM trade.fills f
+     WHERE f.market_id = ${marketId}
+       AND f.liquidity = 'taker'
+       AND f.side = ${taker}
+       AND ${through}
+       AND f.ts >= ${new Date(sinceMs)}
+  `;
+  return row?.volume ? parseAmount(row.volume) : 0n;
 }
 
 /**

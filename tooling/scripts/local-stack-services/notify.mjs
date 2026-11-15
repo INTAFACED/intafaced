@@ -1,10 +1,26 @@
 import path from 'node:path';
 
+/**
+ * The stack's empty notice board: `LOCAL_STACK_NOTIFY_NOTICES=off` on a start or restart of notify runs svc-notify on a
+ * database of its own, made new on each such start with svc-notify's migrations and nothing else, so no notice is
+ * published (local-test-stack.mjs resetNotifyEmptyNotices). /notice can then be seen with none published
+ * (J-support-public-07 #5) while the shared stack's notices stay where they are. The stack records which database
+ * notify runs on, and a start that wants the other one restarts notify onto it.
+ */
+export const NOTIFY_EMPTY_NOTICES_DB = 'intafaced_local_test_notify_empty';
+export const notifyNoticesOff = (env = process.env) => env.LOCAL_STACK_NOTIFY_NOTICES === 'off';
+/** `url` with its database name replaced by the empty notice board's; the role, password, host, port and query stay. */
+export function onEmptyNoticesDb(url) {
+  const u = new URL(url);
+  u.pathname = `/${NOTIFY_EMPTY_NOTICES_DB}`;
+  return u.toString();
+}
+
 export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => ({
   name: 'notify',
   env: () => ({
     ...c('svc-notify', PORTS.notify),
-    DATABASE_URL: dbUrl('svc_notify', secrets),
+    DATABASE_URL: notifyNoticesOff() ? onEmptyNoticesDb(dbUrl('svc_notify', secrets)) : dbUrl('svc_notify', secrets),
     // Publishing a notice spends a four-eyes approval held by identity; without it every publish refuses.
     IDENTITY_URL: urlOf('identity'),
     TRADE_URL: urlOf('trade'),
@@ -29,6 +45,18 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     NOTIFY_ALERT_FREQUENCIES: 'every_crossing',
     NOTIFY_ALERT_BURST_WINDOW_MINUTES: '10',
     NOTIFY_ALERT_BURST_MAX_TRIGGERS: '5',
+    // LOCAL TEST only (J-charts-desk-10): the alert webhook ports and resend schedule, the labelled values in
+    // tooling/profiles/test-owner-values/notify.json, and the loopback switch, since the journey's endpoint is on this machine.
+    // Production has neither value until the owner sets them: a webhook cannot be saved, and nothing is resent.
+    NOTIFY_ALERT_WEBHOOK_PORTS: '443,14590',
+    NOTIFY_ALERT_WEBHOOK_RETRY_SECONDS: '5,5,5',
+    NOTIFY_ALERT_WEBHOOK_TEST_LOOPBACK: 'on',
+    // LOCAL_STACK_NOTIFY_EMAIL=on (a journey's restart only, J-charts-desk-10 #5): the TEST email stand-in writes every email,
+    // labelled TEST, to a file in this stack's state folder. Off, as in production with no email gateway, email refuses honestly.
+    // A person confirms their address with a code the stand-in writes there, so the code key is set with it, and only then.
+    ...(process.env.LOCAL_STACK_NOTIFY_EMAIL === 'on'
+      ? { NOTIFY_EMAIL_TEST_OUTBOX: path.join(STATE, 'notify-mail-outbox.log'), NOTIFY_VERIFY_CODE_PEPPER: secrets.notifyVerifyCode }
+      : {}),
     // LOCAL TEST only: the page of svc-trade's market list the alert marks read (trade's own cap). Unset, every live
     // quote refuses notify.markets_list_limit_unset and no alert can fire on the stack.
     NOTIFY_MARKETS_LIST_LIMIT: '500',
@@ -40,8 +68,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     // this stack's state folder (refused at boot unless APP_ENV is exactly dev or test). Production has no sender until
     // the owner configures the email gateway, and every confirmation waits with vendor.email.
     NOTIFY_STATUS_LINK_SECRET: secrets.notifyStatusLink,
-    NOTIFY_STATUS_MAIL_TRANSPORT: 'local-outbox',
-    NOTIFY_STATUS_MAIL_OUTBOX: path.join(STATE, 'status-mail-outbox.log'),
+    // LOCAL_STACK_NOTIFY_STATUS_MAIL=off (a journey's restart only, J-support-public-19 #5): no status mail sender, as in
+    // production before the owner configures the email gateway, so delivery rows wait pending and name vendor.email.
+    ...(process.env.LOCAL_STACK_NOTIFY_STATUS_MAIL === 'off'
+      ? {}
+      : { NOTIFY_STATUS_MAIL_TRANSPORT: 'local-outbox', NOTIFY_STATUS_MAIL_OUTBOX: path.join(STATE, 'status-mail-outbox.log') }),
     // The customer site's address on this stack, where Edge serves the status badge: the founder console builds badge
     // snippets on it. The local outbox above writes app paths and does not read it.
     NOTIFY_PUBLIC_ORIGIN: CUSTOMER_ORIGIN,

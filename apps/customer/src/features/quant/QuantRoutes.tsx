@@ -5,6 +5,12 @@ import { AlgoHome } from './AlgoHome';
 import { BacktestRoom } from './BacktestRoom';
 import { StrategiesRoom } from './StrategiesRoom';
 import { StrategyPage } from './StrategyPage';
+import { SharedRoom, SharedStrategy } from './SharedRooms';
+import { teamCopy } from './team-copy';
+import { LiveRun, LiveRuns } from './LiveRun';
+import { liveRunCopy } from './live-run-copy';
+import { EditorRoom, OptimiseRoom, TesterRoom } from './PreviewRooms';
+import { previewCopy } from './preview-copy';
 import { strategyPageCopy } from './strategy-page-copy';
 import { strategiesCopy } from './strategies-copy';
 import { algoCopy } from './algo-copy';
@@ -36,6 +42,54 @@ export function quantRoute(
       title: strategyPageCopy.t('roomTitle'),
       description: strategyPageCopy.t('description'),
       content: <StrategyPage key={`${userId ?? 'anonymous'}:${strategyId}`} strategyId={strategyId} paper={paper} />,
+    };
+  }
+  // Strategies other people shared with the caller, and one of them (J-algo-dev-08).
+  if (pathname === '/quant/shared') {
+    return {
+      title: teamCopy.t('sharedTitle'),
+      description: teamCopy.t('sharedIntro'),
+      content: <SharedRoom key={userId ?? 'anonymous'} paper={paper} />,
+    };
+  }
+  const shared = /^\/quant\/shared\/([^/]+)$/.exec(pathname);
+  if (shared) {
+    let strategyId = shared[1]!;
+    try {
+      strategyId = decodeURIComponent(strategyId);
+    } catch {
+      // A broken escape is sent as it is, and the service answers that no such strategy is shared.
+    }
+    return {
+      title: teamCopy.t('sharedTitle'),
+      description: teamCopy.t('sharedIntro'),
+      content: <SharedStrategy key={`${userId ?? 'anonymous'}:${strategyId}`} strategyId={strategyId} paper={paper} />,
+    };
+  }
+  // A live strategy run on the person's own venue sub-account (J-algo-dev-07), and the list of them.
+  if (pathname === '/quant/live') {
+    return {
+      title: liveRunCopy.t('listTitle'),
+      description: liveRunCopy.t('description'),
+      content: <LiveRuns key={userId ?? 'anonymous'} />,
+    };
+  }
+  const live = /^\/quant\/live\/([0-9a-fA-F-]{36})$/.exec(pathname);
+  if (live) {
+    return {
+      title: liveRunCopy.t('roomTitle'),
+      description: liveRunCopy.t('description'),
+      content: <LiveRun key={`${userId ?? 'anonymous'}:${live[1]}`} runId={live[1]!.toLowerCase()} />,
+    };
+  }
+  // The Preview rooms (AL-order-01): full layouts on TEST sample data; every engine action is refused by name.
+  if (pathname === '/quant/editor' || pathname === '/quant/tester' || pathname === '/quant/optimise') {
+    const room = pathname.slice('/quant/'.length) as 'editor' | 'tester' | 'optimise';
+    const Room = room === 'editor' ? EditorRoom : room === 'tester' ? TesterRoom : OptimiseRoom;
+    return {
+      title: previewCopy.t(room === 'editor' ? 'editorTitle' : room === 'tester' ? 'testerTitle' : 'optimiseTitle'),
+      description: previewCopy.t('label'),
+      content: <Room key={userId ?? 'anonymous'} paper={paper} />,
     };
   }
   if (pathname === '/quant/strategies') {

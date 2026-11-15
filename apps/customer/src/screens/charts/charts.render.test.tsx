@@ -137,6 +137,7 @@ beforeEach(() => {
     delayedBoundarySeconds: 30,
     renderBudgetMs: 500,
     orderProtectionBps: 500,
+    queueFillWindowSeconds: 300,
     dataClass: 'real_time',
   };
 });
@@ -393,6 +394,7 @@ describe('chart workbench', () => {
     world.candles = { status: 'empty' };
     await open();
     expect(host.textContent).toContain('No trades in this period');
+    expect(host.textContent).toContain('This market has no volume in the loaded bars.');
     act(() => root?.unmount());
     world.candles = { status: 'error', retry: () => undefined };
     root = null;

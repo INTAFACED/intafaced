@@ -13,6 +13,7 @@ import type { Sql, TransactionSql } from 'postgres';
 import {
   bankTransferKey,
   formatAmount,
+  LedgerError,
   POST_IN_FLIGHT_BOUND_SECONDS,
   provesPostNotCommitted,
   parseAmount,
@@ -20,7 +21,7 @@ import {
   type LedgerClient,
   type LedgerTx,
 } from '@intafaced/ledger-client';
-import { BankError } from '../errors.js';
+import { BankError, LedgerFrozenRefusal } from '../errors.js';
 import { accountForSpace, type SpaceService } from '../spaces/space-service.js';
 import type { TransferService } from './transfer-service.js';
 import { BookedTransferConflict } from './booked-transfer.js';
@@ -83,6 +84,8 @@ export interface TransferQuote {
   readonly perTransferLimit: string;
   readonly dailyLimit: string;
   readonly spentToday: string;
+  /** The daily limit less what was sent today, never below zero (BK-acct-04). */
+  readonly remainingToday: string;
   readonly fee: string;
   readonly feeBlocker: 'bank.personal_transfer_fee_unwired' | null;
   readonly withinPerTransfer: boolean;
@@ -434,7 +437,8 @@ export class PersonalPayService {
       // adopt whatever else is booked under it, including an own-space move.
       if (isDefinitePersonalRefusal(err)) {
         await this.abandon(input.transferId, requestId);
-        throw err;
+        // The posting freeze, proved not posted: a definite refusal on the wire (J-identity-14 #2).
+        throw err instanceof LedgerError && err.code === 'ledger.frozen' ? new LedgerFrozenRefusal(err) : err;
       }
       // Timeout, network, or 5xx: the post may still land. Keep the reservation
       // and the request claim. Adopt the key only when its entries are this send.
@@ -659,6 +663,19 @@ export class PersonalPayService {
     return results;
   }
 
+  /**
+   * Whether `userId` sent the transfer `transferId`, posted or still in flight (reserved, or held for review) (J-bank-18 #3, asked by svc-support for a scam report). One
+   * boolean: missing, someone else's and received-only all read false the same way.
+   */
+  async sentBy(userId: string, transferId: string): Promise<boolean> {
+    const rows = await this.sql<{ one: number }[]>`
+      SELECT 1 AS one FROM bank.personal_transfers
+       WHERE transfer_id = ${transferId} AND from_user_id = ${userId} AND status IN ('posted', 'reserved')
+       LIMIT 1
+    `;
+    return rows.length > 0;
+  }
+
   async get(actorUserId: string, ledgerTxId: string): Promise<PersonalTransferView> {
     const rows = await this.sql<TransferRow[]>`
       SELECT ${this.sql.unsafe(TRANSFER_COLS)}
@@ -692,6 +709,7 @@ export class PersonalPayService {
       perTransferLimit: formatAmount(per),
       dailyLimit: formatAmount(daily),
       spentToday: formatAmount(spent),
+      remainingToday: formatAmount(daily > spent ? daily - spent : 0n),
       fee: formatAmount(fee),
       feeBlocker: fee > 0n ? 'bank.personal_transfer_fee_unwired' : null,
       withinPerTransfer: amount <= per,
@@ -1709,7 +1727,7 @@ function sameTransfer(
  */
 function isDefinitePersonalRefusal(err: unknown): boolean {
   if (err instanceof BookedTransferConflict) return false;
-  if (err instanceof BankError) return true;
+  if (err instanceof BankError || err instanceof LedgerFrozenRefusal) return true;
   return provesPostNotCommitted(err);
 }
 

@@ -102,7 +102,17 @@ describe('catalog — the key set is closed and complete', () => {
     // A held tool call of an own agent in the inbox (J-agents-05 #4) adds two title keys and a body key.
     // A new device approved and signed in (I-signin-sessions-08, J-identity-06 #7) adds a title and a body key.
     // A copy skipped because the platform paused its lead or halted its market (J-copy-bots-otc-12 #1 #3) adds one reason body.
-    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(313);
+    // The ledger's custody-switch refusal, a money movement INTAFACED does not hold customer money for (OWNER 226), adds one error key.
+    // An agent key's held payout or refund (J-developer-15 #6) and the API explorer's refused live write (J-developer-15 #7) add two error keys.
+    // A trader you follow posting a new ad (J-p2p-12 #4) adds a title and a body key.
+    // A scheduled venue market delisting in every inbox (J-cex-spot-16 #8) adds a title and a body key.
+    // A moderator's deletion of a learner's discussion post (J-academy-18 #2) adds a title and a body key.
+    // A finished background run of an agent session in the inbox (J-agents-06 #2) adds a title and a body key.
+    // A price alert's body naming its market by symbol and the time it fired (J-charts-desk-10 #5) adds one body key.
+    // An API key revoked on an operator's leaked-key report (J-developer-07 #6) adds a title and a body key.
+    // A research answer refused for no source or no published uncertainty scale (J-agents-10 #4) adds two refusal keys.
+    // A paper strategy fill under the person's own fill alert (J-algo-dev-04 #6) adds a title and a body key.
+    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(331);
 
     for (const surface of ['common.', 'auth.', 'trade.', 'wallet.', 'p2p.', 'notify.', 'error.', 'support.', 'agents.', 'admin.']) {
       expect(

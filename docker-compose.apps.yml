@@ -189,6 +189,10 @@ services:
       # reaches the container. Do not default posting OFF — that would halt the
       # money plane on a clean clone.
       LEDGER_POSTING_ENABLED: ${LEDGER_POSTING_ENABLED:-true}
+      # The custody switch (OWNER 226: no customer money held at launch). Off unless the environment says on: this file
+      # is also staging's deployment unit. The TEST journey stacks (pnpm local:stack, the CX-8 boot) set it on for the
+      # journeys marked Later. tooling/ci/custody-layer-check.mjs fails if this default stops being off.
+      LEDGER_CUSTODY_LAYER: ${LEDGER_CUSTODY_LAYER:-off}
       # Owner-published reconcile cadence — pass-through, no compose default.
       # Blank refuses boot. Host may set 60 explicitly. Never invent 60.
       RECONCILE_CRON_MINUTES: ${RECONCILE_CRON_MINUTES:-}
@@ -509,10 +513,14 @@ services:
       # Journal lives on matchingjournal:/data/matching. Host `.env` can pin;
       # default stays the volume path so replay still works after replace.
       MATCHING_JOURNAL_PATH: ${MATCHING_JOURNAL_PATH:-/data/matching/engine_journal.ndjson}
-      # Engine kill-switch (env.ts boolish default true). Host `.env` can halt
-      # submissions before the journal. `${VAR:-false}` here would refuse every
-      # order on a clean clone while env.ts still reads as on.
-      MATCHING_ENGINE_ENABLED: ${MATCHING_ENGINE_ENABLED:-true}
+      # Engine kill-switch. Host `.env` can halt submissions before the journal.
+      # Off unless the host says on: our own book settles fills as customer
+      # money in our ledger, which this file (staging's unit) does not hold with
+      # custody off; env.ts refuses boot on "engine on, custody off" (OWNER 288).
+      # A host that sets LEDGER_CUSTODY_LAYER=on sets this on too.
+      MATCHING_ENGINE_ENABLED: ${MATCHING_ENGINE_ENABLED:-false}
+      # The custody switch, the same variable and default as svc-ledger's (OWNER 226), for the boot guard above.
+      LEDGER_CUSTODY_LAYER: ${LEDGER_CUSTODY_LAYER:-off}
       # Owner-published snapshot cadence — pass-through, no compose default.
       # Blank refuses boot. Host may set 500 explicitly. Never invent 500. 0 disables.
       MATCHING_SNAPSHOT_EVERY: ${MATCHING_SNAPSHOT_EVERY:-}
@@ -614,6 +622,7 @@ services:
       DATABASE_URL: postgres://svc_trade:${SVC_TRADE_DB_PASSWORD:-svc_trade}@postgres:5432/intafaced
       LEDGER_URL: http://svc-ledger:4001
       IDENTITY_URL: http://svc-identity:4002
+      AGENTS_URL: http://svc-agents:4008
       MATCHING_URL: http://svc-matching:4005
       TOKEN_URL: http://svc-token:4003
       # Access-token lifetime / iss / aud (authEnvSchema defaults 900 /
@@ -624,13 +633,21 @@ services:
       JWT_ACCESS_TTL_SECONDS: ${JWT_ACCESS_TTL_SECONDS:-900}
       JWT_ISSUER: ${JWT_ISSUER:-intafaced}
       JWT_AUDIENCE: ${JWT_AUDIENCE:-intafaced.api}
-      # Spot kill-switch (env.ts boolish default true). Host `.env` can halt
-      # new places; cancels still work. `${VAR:-false}` here would refuse every
-      # new spot order on a clean clone while env.ts still reads as on.
-      TRADE_SPOT_ENABLED: ${TRADE_SPOT_ENABLED:-true}
+      # Spot kill-switch for our own order book. Host `.env` can halt new
+      # places; cancels still work. Off unless the host says on: our own book
+      # settles fills as customer money in our ledger, which this file
+      # (staging's unit) does not hold with custody off; env.ts refuses boot on
+      # "spot on, custody off" (OWNER 288). A host that sets
+      # LEDGER_CUSTODY_LAYER=on sets this on too.
+      TRADE_SPOT_ENABLED: ${TRADE_SPOT_ENABLED:-false}
+      # The custody switch, the same variable and default as svc-ledger's (OWNER 226), for the boot guard above.
+      LEDGER_CUSTODY_LAYER: ${LEDGER_CUSTODY_LAYER:-off}
       # Worst price a market BUY may be funded at, above the best ask.
       # Empty = refuse market-buy hold (`trade.slippage_cap_unset`). Never invent 200.
       TRADE_MARKET_SLIPPAGE_CAP_BPS: ${TRADE_MARKET_SLIPPAGE_CAP_BPS:-}
+      # Widest venue spread (bps of the best bid) a venue spot market order is sent at.
+      # Empty = refuse every venue spot market order (`trade.spread_limit_unset`). Never invented.
+      TRADE_MARKET_SPREAD_LIMIT_BPS: ${TRADE_MARKET_SPREAD_LIMIT_BPS:-}
       # MAY A FUTURES MARKET ACCEPT AN ORDER? Default `false`, and the default is
       # the decision this line exists to make explicit rather than leave to a zod
       # schema nobody reads at deploy time.
@@ -741,6 +758,8 @@ services:
       TRADE_COPY_MIN_TIER: ${TRADE_COPY_MIN_TIER:-}
       # CB-copy-12 wait before a rejected lead applicant may apply again. Empty = applying again refuses.
       TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS: ${TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS:-}
+      TRADE_SIGNAL_MAX_ALERT_AGE_SECONDS: ${TRADE_SIGNAL_MAX_ALERT_AGE_SECONDS:-}
+      TRADE_SIGNAL_WEBHOOK_DAYS: ${TRADE_SIGNAL_WEBHOOK_DAYS:-}
       # PTX-M21 fee/rebate schedule — pass-through, no compose default.
       # Blank host → order preview refuses (never invent bps).
       TRADE_FEE_SCHEDULE: ${TRADE_FEE_SCHEDULE:-}
@@ -938,6 +957,9 @@ services:
       <<: [*service-env, *edge-secret, *internal-secret]
       SERVICE_NAME: svc-pay
       HTTP_PORT: '4006'
+      # The custody switch (OWNER 226), the same value as svc-ledger's. Off: hosted checkout pays the business's own wallet
+      # or the partner, and svc-pay books only our fee.
+      LEDGER_CUSTODY_LAYER: ${LEDGER_CUSTODY_LAYER:-off}
       DATABASE_URL: postgres://svc_pay:${SVC_PAY_DB_PASSWORD:-svc_pay}@postgres:5432/intafaced
       LEDGER_URL: http://svc-ledger:4001
       IDENTITY_URL: http://svc-identity:4002
@@ -979,6 +1001,8 @@ services:
       # exactly dev or test. `required` for every real deployment.
       PAY_MERCHANT_CONTROLS: ${PAY_MERCHANT_CONTROLS:-}
       PAY_DEFAULT_FEE_BPS: ${PAY_DEFAULT_FEE_BPS:-}
+      # Our fee rate with each payment partner, `<partner>=<bps>,…`: the owner's contract numbers, blank until set.
+      PAY_PARTNER_FEE_BPS: ${PAY_PARTNER_FEE_BPS:-}
       # Open-session cap + operator risk band. env.ts already names these;
       # blank risk band refuses — never invent `low`. Open-session cap: no git
       # default — blank refuses (never 25). Owner may set 25 explicitly (see
@@ -1161,6 +1185,10 @@ services:
       HTTP_PORT: '4009'
       DATABASE_URL: postgres://svc_bank:${SVC_BANK_DB_PASSWORD:-svc_bank}@postgres:5432/intafaced
       LEDGER_URL: http://svc-ledger:4001
+      # The custody switch, the same variable and default as svc-ledger's above (OWNER 226): off unless the environment says
+      # on. Off, svc-bank refuses a customer-balance post by name (bank.no_partner_bank) before svc-ledger would, and a card
+      # authorisation no partner holds refuses bank.partner_unset. One value for both services, so they never disagree.
+      LEDGER_CUSTODY_LAYER: ${LEDGER_CUSTODY_LAYER:-off}
       # Identity affiliate accrue/payout after loan house fees. env.ts is
       # optional with no localhost default; unset is a noop port. Fleet
       # identity only — not a rate, not JWT restamp, not #2194 quote/sweep keys.
@@ -1392,6 +1420,10 @@ services:
       # Background test runs of an own agent; unset refuses a new one.
       AGENTS_BACKGROUND_TEST_STEPS:
       AGENTS_BACKGROUND_STEP_MS:
+      # Background runs of sessions (J-agents-06): the most steps one may take; unset refuses a new one.
+      AGENTS_SESSION_RUN_MAX_STEPS:
+      # Research answers (J-agents-10 #4): the uncertainty scale, lowest first; unset refuses an answer about a market.
+      AGENTS_RESEARCH_UNCERTAINTY_SCALE:
       # Copy-intel live plane (Class X). Pass-through only — unset stays refuse-closed.
       LIVE_TRADE_COPY_LEADER_PLANE_OPEN:
       LIVE_TRADE_COPY_LEADER_IDS:
@@ -1476,6 +1508,10 @@ services:
       # mountain moves no value (§0.6) and a refund is a request it files, not a
       # transaction it posts.
       IDENTITY_URL: http://svc-identity:4002
+      # Read-only, for a request's links to the customer's own records (J-support-public-20 #1): svc-trade's
+      # support order read and svc-pay's one-boolean ownership door. Neither moves value.
+      TRADE_URL: http://svc-trade:4004
+      PAY_URL: http://svc-pay:4006
       # Access-token life + iss/aud (edge/identity defaults). Host `.env` can
       # pin them; without these lines the desk keeps schema-only 900 /
       # intafaced / intafaced.api. No JWT_ACCESS_SECRET here — the desk
@@ -1537,6 +1573,11 @@ services:
       # Pass-through only — no compose default. Silence still refuses
       # market.commission_not_configured.
       MARKET_HOUSE_COMMISSION_BPS: ${MARKET_HOUSE_COMMISSION_BPS:-}
+      # Signal providers' own fill count (J-copy-bots-otc-22). The provider criteria are owner values, pass-through
+      # only with no compose default: blank refuses every signal publish (market.provider_criteria_not_set).
+      TRADE_URL: http://svc-trade:4004
+      MARKET_SIGNAL_PROVIDER_MIN_TIER: ${MARKET_SIGNAL_PROVIDER_MIN_TIER:-}
+      MARKET_SIGNAL_PROVIDER_MIN_FILLS: ${MARKET_SIGNAL_PROVIDER_MIN_FILLS:-}
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4018']
     healthcheck: *healthcheck
@@ -1655,6 +1696,8 @@ services:
       # Owner-published isolate ceilings. Blank = sandbox refuses quant.sandbox_max_ops_unset / quant.sandbox_max_source_unset.
       SANDBOX_MAX_OPS: ${SANDBOX_MAX_OPS:-}
       SANDBOX_MAX_SOURCE: ${SANDBOX_MAX_SOURCE:-}
+      # Paper-book fee in basis points. Blank = every paper order refuses quant.paper_fee_unset (never invented as zero).
+      QUANT_PAPER_FEE_BPS: ${QUANT_PAPER_FEE_BPS:-}
       # Venue Vault trade-only pin. Blank = venue OMS refuses quant.venue_vault_unset.
       QUANT_VENUE_VAULT: ${QUANT_VENUE_VAULT:-}
       # Role svc_quant and schema quant come from postgres-init.
@@ -1843,6 +1886,18 @@ services:
       ACADEMY_LESSON_IMPORT_MAX_BYTES: ${ACADEMY_LESSON_IMPORT_MAX_BYTES:-}
       ACADEMY_UPLOAD_MAX_BYTES: ${ACADEMY_UPLOAD_MAX_BYTES:-}
       ACADEMY_TOPICS_LIST_LIMIT: ${ACADEMY_TOPICS_LIST_LIMIT:-}
+      ACADEMY_GRANT_AUDIT_PAGE_SIZE: ${ACADEMY_GRANT_AUDIT_PAGE_SIZE:-}
+      # J-academy-07 course payments: owner values, blank until set (nothing is sold while any is blank).
+      ACADEMY_PAYMENT_RPC_URL: ${ACADEMY_PAYMENT_RPC_URL:-}
+      ACADEMY_PAYMENT_CHAIN_ID: ${ACADEMY_PAYMENT_CHAIN_ID:-}
+      ACADEMY_PAYMENT_TOKEN_ADDRESS: ${ACADEMY_PAYMENT_TOKEN_ADDRESS:-}
+      ACADEMY_PAYMENT_TOKEN_DECIMALS: ${ACADEMY_PAYMENT_TOKEN_DECIMALS:-}
+      ACADEMY_PAYMENT_ASSET: ${ACADEMY_PAYMENT_ASSET:-}
+      ACADEMY_PAYMENT_RECEIVER: ${ACADEMY_PAYMENT_RECEIVER:-}
+      ACADEMY_PAYMENT_CONFIRMATIONS: ${ACADEMY_PAYMENT_CONFIRMATIONS:-}
+      ACADEMY_REFUND_SIGNER_URL: ${ACADEMY_REFUND_SIGNER_URL:-}
+      ACADEMY_PURCHASE_RECONCILE_SECONDS: ${ACADEMY_PURCHASE_RECONCILE_SECONDS:-}
+      LEDGER_URL: http://svc-ledger:4001
       ACADEMY_GRADER_LEASE_SECONDS: ${ACADEMY_GRADER_LEASE_SECONDS:-}
       ACADEMY_CERT_ISSUE_SWEEP_SECONDS: ${ACADEMY_CERT_ISSUE_SWEEP_SECONDS:-}
       ACADEMY_PROGRAMME_MAX_COURSES: ${ACADEMY_PROGRAMME_MAX_COURSES:-}
@@ -2077,6 +2132,7 @@ services:
       CUSTOMER_LIVEKIT_ORIGIN: ${CUSTOMER_LIVEKIT_ORIGIN:-}
       CUSTOMER_STORAGE_ORIGIN: ${CUSTOMER_STORAGE_ORIGIN:-}
       CUSTOMER_MEDIA_ORIGINS: ${CUSTOMER_MEDIA_ORIGINS:-}
+      CUSTOMER_SANDBOX_API_ORIGIN: ${CUSTOMER_SANDBOX_API_ORIGIN:-}
     # nginx proxies /api to the edge and /ws to the socket by SERVICE NAME, so
     # both must be resolvable on this network — the browser stays same-origin
     # and never learns a port.

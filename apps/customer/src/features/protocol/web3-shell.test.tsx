@@ -97,6 +97,14 @@ describe('Web3 shell', () => {
     ]);
     expect(swap).not.toMatch(/INTACHAIN mainnet/i);
   });
+  it('names an own-gap Swap blocker in the shared empty state, with no allowlist code', () => {
+    answers.chain = chain(84532);
+    const html = page('/dex');
+    const swap = /<li data-action="swap">([\s\S]*?)<\/li>/.exec(html)?.[1] ?? '';
+    expect(swap).toMatch(/<div class="protocol-actions__reason protocol-actions__gap" role="note"><div class="empty-state">/);
+    expect(swap).toMatch(/<h3>Blocked: [^<]+<\/h3>/);
+    expect(swap).not.toContain('data-not-connected');
+  });
   it('gives a block page its layout and names the indexer when it cannot be read, never a blank', () => {
     answers.chain = chain(84532);
     answers.keyed['explorer:block:84532:123456'] = {

@@ -108,6 +108,10 @@ export function readData(spec: ReadSpec, raw: unknown): ReadData | null {
   for (const [index, item] of list.entries()) {
     const cells = cellsOf(spec.columns, item);
     if (cells === null) return null;
+    if (spec.rowsWhere !== undefined) {
+      const at = isRecord(item) ? pick(item, spec.rowsWhere.key) : { found: false, value: undefined };
+      if (!at.found || at.value !== spec.rowsWhere.equals) continue;
+    }
     let id = String(index);
     if (spec.idKey !== undefined) {
       const found = isRecord(item) ? pick(item, spec.idKey) : { found: false, value: undefined };
@@ -125,7 +129,7 @@ export function readData(spec: ReadSpec, raw: unknown): ReadData | null {
     if (marker !== null && typeof marker !== 'string') return null;
     return { shape: 'list', rows, pageFull: marker !== null, nextCursor: marker };
   }
-  return { shape: 'list', rows, pageFull: spec.page !== undefined && rows.length >= spec.page };
+  return { shape: 'list', rows, pageFull: spec.page !== undefined && list.length >= spec.page };
 }
 
 /**

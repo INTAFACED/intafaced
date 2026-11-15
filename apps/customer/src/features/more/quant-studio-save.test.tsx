@@ -36,7 +36,7 @@ it('Backtest has no shared library, asks for a Studio strategy and makes no list
   expect(query.mock.calls.map((call) => (call as unknown[])[1])).not.toContain('studio.list');
 });
 
-it('Studio offers Save to library, off until the rules are complete, and reads the account library', () => {
+it('Studio offers Save to library, sends nothing until the rules are complete, and reads the account library', () => {
   query.mockClear();
   mutate.mockClear();
   vi.stubGlobal('location', {
@@ -48,7 +48,9 @@ it('Studio offers Save to library, off until the rules are complete, and reads t
   });
   const html = renderToStaticMarkup(<Quant mode="studio" />);
   vi.unstubAllGlobals();
-  expect(html).toMatch(/<button[^>]*disabled[^>]*>Save to library<\/button>/);
+  // Pressing Save on an incomplete form names what is blank and sends nothing (J-algo-dev-05 #4), so the button is not
+  // greyed out; the service is still never called below.
+  expect(html).toMatch(/<button[^>]*>Save to library<\/button>/);
   expect(html).toContain('Fill in a name, the starting cash, every block or signal rule input, and the three risk limits to save.');
   expect(html).toContain('Your strategy library');
   expect(html).not.toMatch(/Saving to a library is off/);

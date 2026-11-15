@@ -45,16 +45,27 @@ export const OWN_AGENT_CHILD_TABLES = [
   'own_agent_limits',
   'own_agent_usage_alerts',
   'own_agent_usage_limits',
+  'own_agent_payment_methods',
   // A review may name the approval request its call became, so reviews go first.
   'own_agent_reviews',
   'own_agent_reviewer_settings',
   'own_agent_approval_requests',
   'own_agent_rules',
+  'own_agent_policy_rules',
+  'own_agent_policy_settings',
+  'own_agent_account_access',
   'own_agent_consents',
   'own_agent_test_runs',
   'own_agent_eval_runs',
   'own_agent_eval_cases',
   'own_agent_background_runs',
+  // A delivery names its trigger and a run its schedule or trigger, so both go before them.
+  'own_agent_trigger_deliveries',
+  'own_agent_auto_runs',
+  'own_agent_triggers',
+  'own_agent_schedules',
+  'own_agent_memory',
+  'own_agent_data_controls',
 ] as const;
 
 /** Whether an account exists and is active, as identity answers; unread is any answer that is not a clear one. */

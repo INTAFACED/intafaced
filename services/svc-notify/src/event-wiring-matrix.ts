@@ -78,6 +78,18 @@ export const NOTIFY_EVENT_CONSUMERS: readonly NotifyConsumerRow[] = [
     effect: 'Inbox row for the seller when the buyer marks paid',
   },
   {
+    event: 'academyDiscussionPostDeleted',
+    durable: 'notify-academy-discussion-post-deleted',
+    subject: 'intafaced.academy.discussion_post.deleted',
+    effect: 'Inbox row for the author when a moderator deleted their discussion post with a reason',
+  },
+  {
+    event: 'p2pTraderPosted',
+    durable: 'notify-p2p-trader-posted',
+    subject: 'intafaced.p2p.trader.posted',
+    effect: 'Inbox row for each follower when a trader they follow posts a new public ad',
+  },
+  {
     event: 'p2pOfferPaused',
     durable: 'notify-p2p-offer-paused',
     subject: 'intafaced.p2p.offer.paused',
@@ -170,6 +182,13 @@ export const NOTIFY_EVENT_CONSUMERS: readonly NotifyConsumerRow[] = [
       'Inbox row agents.approval.requested for the owner of an own agent whose tool call waits for their approval, naming the action and linking to the Approvals inbox, once per request',
   },
   {
+    event: 'agentRunCompleted',
+    durable: 'notify-agent-run-completed',
+    subject: 'intafaced.agents.run.completed',
+    effect:
+      'Inbox row agents.run.completed for the person whose background agent run finished, linking to the run and its result, once per run; the email, SMS or push they asked for gets its delivery row even when no vendor is set',
+  },
+  {
     event: 'bankScheduledReminder',
     durable: 'notify-bank-scheduled-reminder',
     subject: 'intafaced.bank.scheduled_reminder.triggered',
@@ -189,6 +208,13 @@ export const NOTIFY_EVENT_CONSUMERS: readonly NotifyConsumerRow[] = [
       'Inbox row support.rate_request asking the owner to rate a resolved request; email where an address is confirmed, and with no email sender set its email row waits pending vendor.email',
   },
   {
+    event: 'quantOrderFilled',
+    durable: 'notify-quant-order-filled',
+    subject: 'intafaced.quant.order.filled',
+    effect:
+      'Inbox row quant.fill for the owner of a paper strategy run that filled under their fill alert, once per event id; the chosen out-of-app channels each get a delivery row, refused by name when no sender is set',
+  },
+  {
     event: 'agentActionRejected',
     durable: 'notify-agent-action-rejected',
     subject: 'intafaced.agents.action.rejected',
@@ -205,6 +231,12 @@ export const NOTIFY_EVENT_CONSUMERS: readonly NotifyConsumerRow[] = [
     durable: 'notify-ledger-freeze-updated',
     subject: 'intafaced.ledger.freeze.updated',
     effect: 'One audience-all inbox notice when the posting freeze is set or cleared (reason and actor never shown)',
+  },
+  {
+    event: 'venueDelistingScheduled',
+    durable: 'notify-venue-delisting',
+    subject: 'intafaced.trade.venue_delisting.created',
+    effect: 'One audience-all dated inbox notice when a venue market delisting is scheduled, once per notice key',
   },
 ] as const;
 

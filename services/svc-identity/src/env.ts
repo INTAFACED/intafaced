@@ -129,7 +129,7 @@ const schema = serviceEnvSchema
       /**
        * Owner-published affiliate commission accrual tiers (DIRECTION §8).
        * Blank / unset → unpublished; accrue refuses unless the request supplies
-       * tiers. JSON shape: { "published": true, "tiers": [{ "hop": 0, "rate": "0.10" }] }.
+       * tiers. JSON shape: { "published": true, "tiers": [{ "hop": 0, "rate": "<decimal 0..1>" }] }.
        * Malformed → fail boot (parseAccrualTierLawJson throws). Never invent rates.
        */
       IDENTITY_AFFILIATE_ACCRUAL_TIERS_JSON: z.string().optional().default(''),
@@ -233,6 +233,17 @@ const schema = serviceEnvSchema
        */
       IDENTITY_API_KEYS_MAX_BY_TIER: z.string().optional(),
       /**
+       * Owner-published cap on live keys bound to one sub-account (a portfolio-scoped key, DV-sub-accounts-01), a whole
+       * number. Blank refuses every portfolio-scoped create (`identity.portfolio_key_cap_unset`). Never git-default.
+       */
+      IDENTITY_PORTFOLIO_KEYS_MAX: z.string().optional(),
+      /**
+       * Owner-published developer roles for organisations (DV-console-01), joined by commas (`keys_admin,keys_read`).
+       * Blank is `roles not set`: no member has key authority and no role can be given (`identity.developer_roles_unset`).
+       * Never git-default. Parsed at start by `parseDeveloperRoles`; a malformed value stops the service.
+       */
+      IDENTITY_DEVELOPER_ROLES: z.string().optional(),
+      /**
        * Owner-published developer sandbox cap per verification level (`full=3`, levels none, basic, full, institutional).
        * Every account may hold one sandbox; blank, or a level left out, refuses a second (`identity.sandbox_cap_unset`).
        * Never git-default. Parsed at start by `parseSandboxCapByTier`; a malformed value stops the service.
@@ -251,6 +262,14 @@ const schema = serviceEnvSchema
        */
       IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS: z.string().optional(),
       /**
+       * Owner setting: API rate tiers for keys and the most a reviewer may grant one key (DV-limits-01, J-developer-06).
+       * JSON `{"tiers":[{"id":"base"|"sandbox","burst":n,"refillPerMinute":n}],"grantCeilingPerMinute":n|null}`. NO
+       * DEFAULT. Blank: no tier is set, so the key exchange hands the edge no limit and the edge refuses every key call
+       * (`edge.limits_unset`), the limits page shows the not-set banner and every limit request refuses
+       * `identity.rate_limits_unset`. Parsed at start by `parseRatePolicy`; a value that does not parse stops the service.
+       */
+      IDENTITY_API_RATE_LIMITS: z.string().optional(),
+      /**
        * Owner setting: the most seconds a sign-in may go without a refresh before its next refresh is refused
        * (`auth.session_idle`, I-signin-sessions-06). NO DEFAULT. Blank: no idle sign-out; a sign-in still ends at its
        * absolute lifetime. A person may choose a shorter one in Security. Parsed at start by `parseSessionLimits`.
@@ -261,6 +280,13 @@ const schema = serviceEnvSchema
        * oldest (I-signin-sessions-06). NO DEFAULT. Blank: no limit, and Security says so. Parsed by `parseSessionLimits`.
        */
       SESSION_MAX_CONCURRENT: z.string().optional(),
+      /**
+       * Owner setting: the longest a rotated key keeps working beside its replacement, in whole seconds (DV-keys-04,
+       * J-developer-07 #1). NO DEFAULT. Blank: a rotation with an overlap above 0 refuses
+       * `identity.key_rotate_overlap_unset`; an overlap of 0 still rotates. Parsed at start; anything but a whole number
+       * above 0 stops the service.
+       */
+      IDENTITY_API_KEY_ROTATE_OVERLAP_MAX_SECONDS: z.string().optional(),
       /**
        * Owner setting: the account product tiers an operator may move an account onto (J-ops-console-04 #11). A JSON list of
        * `{ id, name, terms: { ratePercent, monthlyFee, feeAssetId, dailyLimit, clearingDays } }`, terms as decimal strings or
@@ -352,6 +378,13 @@ const schema = serviceEnvSchema
        * `{"<country>": {"accepted": [{"type","label"}], "rejected": [...]}}` (a country not listed reads not published).
        * Parsed at start; malformed stops the service.
        */
+      /**
+       * Owner setting (J-cex-spot-01 #3, OWNER 258 (4)), NO DEFAULT: the sanctions list of persons the trading checks
+       * screen a legal name, date of birth and country against, as JSON `{"label", "entries": [{"legalName",
+       * "dateOfBirth", "country"}]}`. Unset refuses every check `kyc.screening_list_unset` and clears nothing. A list
+       * labelled TEST is refused outside APP_ENV dev or test. Parsed at start; malformed stops the service.
+       */
+      IDENTITY_SANCTIONS_PERSONS_LIST: z.string().optional(),
       IDENTITY_KYC_POA_MAX_AGE_DAYS: z.string().optional(),
       IDENTITY_KYC_POA_TYPES_BY_COUNTRY: z.string().optional(),
       /**
@@ -419,6 +452,23 @@ const schema = serviceEnvSchema
       /** Owner setting: how often the lapse sweep runs, in whole seconds. NO DEFAULT. Blank leaves the sweep timer off. */
       IDENTITY_REFERRAL_LAPSE_SWEEP_SECONDS: z.string().optional(),
       /**
+       * Owner setting: how many qualified invitees (people introduced directly whose verification was approved) a person
+       * needs to apply as an affiliate partner (CM-referral-05, J-campaigns-07 #1). NO DEFAULT. Blank refuses the eligibility
+       * read and every application (`partner.eligibility_unset`), writing nothing. Parsed by `parsePartnerMinQualified`.
+       */
+      IDENTITY_PARTNER_MIN_QUALIFIED_INVITEES: z.string().optional(),
+      /**
+       * Owner setting: how many days after a rejection a person may apply again as a partner (J-campaigns-07 #3). NO
+       * DEFAULT. Blank refuses a rejection (`partner.reapply_unset`), leaving the application open.
+       */
+      IDENTITY_PARTNER_REAPPLY_DAYS: z.string().optional(),
+      /**
+       * Owner setting: the partner programme depth, 1 to 5 levels of a sub-tree (RC-campaigns-07, J-campaigns-07 #4). NO
+       * DEFAULT. Blank refuses every commission accrual, dry-run and payout and the partner sub-tree
+       * (`affiliate.programme_depth_unset`). Parsed by `parseProgrammeDepth`; malformed stops the service.
+       */
+      IDENTITY_PARTNER_PROGRAMME_DEPTH: z.string().optional(),
+      /**
        * Owner setting: how many waiting entries one waitlist wave releases (RC-campaigns-03, J-campaigns-20 #3). NO DEFAULT.
        * Blank refuses every release (`drop.wave_unset`) and releases nobody. Parsed at start by `parseWaveSize`.
        */
@@ -448,6 +498,26 @@ const schema = serviceEnvSchema
         if (typeof v === 'string' && v.trim() === '') return undefined;
         return v;
       }, z.coerce.number().int().min(1).max(50).optional()),
+      /**
+       * Owner-published saved desk layout limits (C-workspace-02): layouts per account, deleted layouts kept for restoring,
+       * and the days a deleted layout can be restored in. Blank / unset → unpublished; a write that needs one refuses
+       * (`identity.desk_layout_*`). Never a default: the stack sets labelled TEST values only.
+       */
+      IDENTITY_DESK_LAYOUT_CAP: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(100).optional()),
+      IDENTITY_DESK_LAYOUT_RESTORE_CAP: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(200).optional()),
+      IDENTITY_DESK_LAYOUT_RESTORE_DAYS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(3650).optional()),
       /**
        * Signing key for pay QR codes and payment links (PP-send-request-11), at least 32 characters. Blank / unset →
        * not set up: issuing and resolving a code both refuse `identity.qr_key_unset`. A `local-test:` key is the local
@@ -513,6 +583,15 @@ const schema = serviceEnvSchema
         if (typeof v === 'string' && v.trim() === '') return undefined;
         return v;
       }, z.coerce.number().int().min(1).max(10_000_000).optional()),
+      /**
+       * Owner-published life of a staff invite's first-connection link, in seconds (J-ops-console-09 #2). NO DEFAULT:
+       * blank / unset → inviting refuses `identity.staff_invite_ttl_unset`.
+       */
+      IDENTITY_STAFF_INVITE_TTL_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(60).max(2_592_000).optional()),
       /**
        * Owner setting (OPS-change-control-01 CR-1): the approval policy of each governed action type
        * (`POLICY_GOVERNED_ACTION_TYPES` in contracts), a JSON object keyed by action type:
@@ -721,6 +800,22 @@ const schema = serviceEnvSchema
       }, z.string().optional()),
       /** Absolute file path for the local-outbox transport. Required when that transport is selected. */
       IDENTITY_LOCAL_MAIL_OUTBOX: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return typeof v === 'string' ? v.trim() : v;
+      }, z.string().optional()),
+      /**
+       * Text-message transport. Blank / unset → unwired; a phone sign-in link refuses `vendor.sms`. `local-outbox` is the
+       * only implemented transport and is refused at boot unless APP_ENV is exactly dev or test. Any other name refuses at
+       * boot. No SMS provider is configured here.
+       */
+      IDENTITY_SMS_TRANSPORT: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return typeof v === 'string' ? v.trim() : v;
+      }, z.string().optional()),
+      /** Absolute file path for the local-outbox text transport. Required when that transport is selected. */
+      IDENTITY_LOCAL_SMS_OUTBOX: z.preprocess((v) => {
         if (v === undefined || v === null) return undefined;
         if (typeof v === 'string' && v.trim() === '') return undefined;
         return typeof v === 'string' ? v.trim() : v;

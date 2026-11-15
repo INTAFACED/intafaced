@@ -5,7 +5,7 @@
  */
 import type { Sql } from 'postgres';
 import { ApiKeyAccountError, requireAccountId } from './api-key-account.js';
-import { bindApiKeyAccount } from './bind-api-key-account.js';
+import { assertPortfolioKeyRoom, bindApiKeyAccount } from './bind-api-key-account.js';
 import type { ApiKeyMinter } from './mint-api-key-ip.js';
 
 export async function mintApiKeyBoundToAccount(
@@ -21,6 +21,8 @@ export async function mintApiKeyBoundToAccount(
     domainWhitelist?: string[];
     expiresAt?: Date;
     mode?: 'live' | 'sandbox';
+    /** The owner's `IDENTITY_PORTFOLIO_KEYS_MAX`; blank (null) refuses before any key is made. */
+    portfolioKeyCap: number | null;
   },
 ): Promise<{ id: string; key: string; prefix: string; mode: 'live' | 'sandbox'; accountId: string }> {
   const accountId = requireAccountId(input.accountId);
@@ -34,6 +36,7 @@ export async function mintApiKeyBoundToAccount(
   if (acc.revoked) {
     throw new ApiKeyAccountError('Account is revoked', 'auth.account_revoked');
   }
+  await assertPortfolioKeyRoom(sql, input.userId, accountId, input.portfolioKeyCap);
 
   const minted = await minter.createApiKey({
     userId: input.userId,

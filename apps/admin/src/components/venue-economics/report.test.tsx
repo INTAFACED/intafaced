@@ -98,7 +98,10 @@ describe('venue economics report', () => {
   };
   const fees = {
     status: 'ok' as const,
-    assets: [{ assetId: 'USD', collected: '120.5', returned: '0.5', net: '120' }],
+    assets: [
+      { venueId: null, assetId: 'USD', earned: '120.5', returned: '0.5', net: '120', collected: null },
+      { venueId: 'test-venue', assetId: 'USDC', earned: '7.25', returned: '0', net: '7.25', collected: '3' },
+    ],
   };
 
   it('shows the ledger fee revenue per asset and a net per asset, a loss with its sign', () => {
@@ -120,6 +123,11 @@ describe('venue economics report', () => {
     );
     expect(html).toContain('data-testid="fees-table"');
     expect(html).toContain('120.5');
+    // Earned and collected are two columns: the venue earned 7.25 for us and paid 3; our own fee has nothing to collect.
+    expect(html).toContain('<td data-col="earned">7.25</td>');
+    expect(html).toContain('<td data-col="collected">3</td>');
+    expect(html).toContain('<td data-col="collected">No venue pays it</td>');
+    expect(html).not.toContain('<td data-col="collected">120.5</td>');
     expect(html).toContain('data-testid="net-table"');
     expect(html).toContain('-0.5');
     expect(html).toContain('Units are never mixed');

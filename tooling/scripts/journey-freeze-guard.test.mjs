@@ -1,5 +1,6 @@
 // The journey harness's posting-freeze guard (journey-freeze-guard.mjs; apps/customer/tests/real-app/journey.mjs).
 // Run: node --test tooling/scripts/journey-freeze-guard.test.mjs (also by the tooling-tests Doctrine gate).
+// Before a push: runs from .githooks/pre-push when the push changes a journey file (it takes under a second).
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';

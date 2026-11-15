@@ -201,7 +201,7 @@ describe('mounted freeze attribution — svc-ledger (D26-P2-01c)', () => {
 
     const health = await app.inject({ method: 'GET', url: '/health' });
     expect(health.statusCode).toBe(200);
-    expect(health.json()).toMatchObject({ ok: true, postingEnabled: false });
+    expect(health.json()).toMatchObject({ ok: true, postingEnabled: false, frozenCause: 'person', frozenBy: OPERATOR });
   });
 
   it('second operator freeze is 409 freeze_attributed — first reason stands, post stays frozen', async () => {

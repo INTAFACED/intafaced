@@ -1,13 +1,24 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { KIND_WORD, KINDS, RISK_SIGNALS, RISK_WORD, type Kind, type RiskSignal } from '@/lib/agents-fleet/model';
+import {
+  AUDIT_ACTION_WORD,
+  filterWords,
+  KIND_WORD,
+  KINDS,
+  RISK_SIGNALS,
+  RISK_WORD,
+  type Kind,
+  type RiskSignal,
+} from '@/lib/agents-fleet/model';
 
 /**
  * The agent fleet desk (AG-registry-01, AG-control-02): every agent on the platform as svc-agents stores it, with its
  * owner, publisher, channels and risk signals, the counts over the whole fleet, an audited CSV export of the filtered
  * rows, and the switches. Quarantine and a kind kill take one operator; every restore takes two distinct founders, and
- * the service holds that rule, not this page. A value not stored reads "not set", never a guess.
+ * the service holds that rule, not this page. A value not stored reads "not set", never a guess. Below the registry, the
+ * fleet's audit log as svc-agents stores it: one row per switch and per export, naming the operator, the filter and the
+ * count, re-read after every action.
  */
 
 interface Switch {
@@ -45,6 +56,26 @@ interface Registry {
   readonly riskFor: RiskSignal | '';
 }
 
+interface AuditRow {
+  readonly id: string;
+  readonly at: string;
+  readonly operatorId: string;
+  readonly action: string;
+  readonly agentRef: string | null;
+  readonly kind: string | null;
+  readonly reason: string | null;
+  readonly filter: Readonly<Record<string, string>>;
+  readonly rowCount: number | null;
+  readonly requestId: string;
+}
+
+interface Audit {
+  readonly rows: readonly AuditRow[];
+  readonly limit: number;
+  readonly handles: Readonly<Record<string, string>>;
+  readonly handlesUnread: boolean;
+}
+
 const NOT_SET = 'not set';
 const STATUS_WORD: Record<Row['status'], string> = {
   active: 'Active',
@@ -79,6 +110,8 @@ type Sheet =
 
 export function AgentsFleetDesk({ csrf }: { csrf: string }) {
   const [registry, setRegistry] = useState<Registry | null>(null);
+  const [audit, setAudit] = useState<Audit | null>(null);
+  const [auditProblem, setAuditProblem] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [risk, setRisk] = useState<RiskSignal | ''>('');
@@ -86,6 +119,7 @@ export function AgentsFleetDesk({ csrf }: { csrf: string }) {
   const [busy, setBusy] = useState(false);
   // Only the latest read fills the table: an earlier filter's answer that lands late is dropped.
   const latest = useRef(0);
+  const latestAudit = useRef(0);
 
   const post = useCallback(
     async (body: Record<string, unknown>): Promise<{ ok: true; data: unknown } | { ok: false; code: string }> => {
@@ -102,9 +136,22 @@ export function AgentsFleetDesk({ csrf }: { csrf: string }) {
     [csrf],
   );
 
+  const readAudit = useCallback(async () => {
+    const mine = ++latestAudit.current;
+    const answer = await post({ action: 'audit' });
+    if (mine !== latestAudit.current) return;
+    if (!answer.ok) {
+      setAuditProblem(say(answer.code));
+      return;
+    }
+    setAuditProblem(null);
+    setAudit(answer.data as Audit);
+  }, [post]);
+
   const read = useCallback(
     async (riskSignal: RiskSignal | '') => {
       const mine = ++latest.current;
+      void readAudit();
       const answer = await post({ action: 'registry', riskSignal });
       if (mine !== latest.current) return;
       if (!answer.ok) {
@@ -114,7 +161,7 @@ export function AgentsFleetDesk({ csrf }: { csrf: string }) {
       setProblem(null);
       setRegistry({ ...(answer.data as Omit<Registry, 'riskFor'>), riskFor: riskSignal });
     },
-    [post],
+    [post, readAudit],
   );
 
   useEffect(() => {
@@ -152,6 +199,7 @@ export function AgentsFleetDesk({ csrf }: { csrf: string }) {
     link.click();
     URL.revokeObjectURL(url);
     setNotice(`Export recorded in the audit log: ${rows} ${rows === 1 ? 'agent' : 'agents'}.`);
+    await readAudit();
   }
 
   const who = (id: string | null): string => (id === null ? NOT_SET : (registry?.handles[id.toLowerCase()] ?? id));
@@ -312,6 +360,12 @@ export function AgentsFleetDesk({ csrf }: { csrf: string }) {
           </section>
         </>
       )}
+      {auditProblem && (
+        <p role="alert" className="adm-callout" data-tone="warn">
+          The audit log could not be read: {auditProblem}
+        </p>
+      )}
+      {audit && <AuditLog audit={audit} />}
       {sheet && (
         <SheetDialog
           sheet={sheet}
@@ -337,6 +391,61 @@ export function AgentsFleetDesk({ csrf }: { csrf: string }) {
         />
       )}
     </div>
+  );
+}
+
+function AuditLog({ audit }: { audit: Audit }) {
+  const who = (id: string): string => audit.handles[id.toLowerCase()] ?? id;
+  return (
+    <section role="region" aria-label="Fleet audit log">
+      <h2>Fleet audit log</h2>
+      {audit.handlesUnread && <p className="dk-muted">Identity did not answer, so operators show as ids, not handles.</p>}
+      {audit.rows.length === 0 ? (
+        <p className="dk-muted">No switch or export has been recorded yet.</p>
+      ) : (
+        <div className="dk-table-wrap">
+          <table className="dk-table">
+            <thead>
+              <tr>
+                <th scope="col">When</th>
+                <th scope="col">Operator</th>
+                <th scope="col">Action</th>
+                <th scope="col">Agent or kind</th>
+                <th scope="col">Filter</th>
+                <th scope="col">Rows</th>
+                <th scope="col">Reason</th>
+                <th scope="col">Request</th>
+              </tr>
+            </thead>
+            <tbody>
+              {audit.rows.map((row) => (
+                <tr key={row.id}>
+                  <td>{row.at}</td>
+                  <td data-testid="audit-row-operator">{who(row.operatorId)}</td>
+                  <td>{AUDIT_ACTION_WORD[row.action] ?? row.action}</td>
+                  <td>
+                    {row.agentRef !== null ? (
+                      <code>{row.agentRef}</code>
+                    ) : row.kind !== null ? (
+                      (KIND_WORD[row.kind as Kind] ?? row.kind)
+                    ) : (
+                      '—'
+                    )}
+                  </td>
+                  <td>{row.action === 'export' ? filterWords(row.filter) : '—'}</td>
+                  <td data-testid="audit-row-count">{row.rowCount === null ? '—' : row.rowCount}</td>
+                  <td>{row.reason ?? '—'}</td>
+                  <td>
+                    <code>{row.requestId}</code>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="dk-muted">The newest {audit.limit} rows, newest first.</p>
+    </section>
   );
 }
 

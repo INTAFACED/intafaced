@@ -115,6 +115,51 @@ if (!available) {
       });
     };
 
+    it('a maintenance window may name one market (J-cex-spot-14 #5): the table takes it, and another unknown name is still refused', async () => {
+      n += 1;
+      const b = board();
+      const startsAt = new Date(T0 + 61 * 60_000).toISOString();
+      const draft = await b.draft(AUTHOR, {
+        kind: 'maintenance',
+        title: `TEST pg market maintenance ${run}-${n}`,
+        body: 'TEST',
+        startsAt,
+        components: ['market-btc-usdc'],
+        clientRequestId: `pg-mm-${run}-${n}`,
+      });
+      const published = await b.publish(AUTHOR, {
+        id: draft.id,
+        clientRequestId: `pg-mmp-${run}-${n}`,
+        approvalId: `pg-mma-${run}-${n}`,
+        operationId: `o-mm-${n}`,
+      });
+      const [row] = await client!<{ components: string[] }[]>`SELECT components FROM notify.notices WHERE id = ${published.id}`;
+      expect(row?.components).toEqual(['market-btc-usdc']);
+      // The database trigger widens only market names on a maintenance row; any other name the page lacks is refused there
+      // too (an unpublished draft, so only that trigger can answer).
+      const unpublished = await b.draft(AUTHOR, {
+        kind: 'maintenance',
+        title: `TEST pg market maintenance draft ${run}-${n}`,
+        body: 'TEST',
+        startsAt,
+        components: ['market-eth-usdc'],
+        clientRequestId: `pg-mmd-${run}-${n}`,
+      });
+      await expect(client!`UPDATE notify.notices SET components = '{not-on-the-page}' WHERE id = ${unpublished.id}`).rejects.toThrow(
+        /notice_component_unknown/,
+      );
+      await expect(
+        b.draft(AUTHOR, {
+          kind: 'maintenance',
+          title: `TEST pg unknown component ${run}-${n}`,
+          body: 'TEST',
+          startsAt,
+          components: ['not-on-the-page'],
+          clientRequestId: `pg-mu-${run}-${n}`,
+        }),
+      ).rejects.toMatchObject({ code: 'notify.notice_component_unknown' });
+    });
+
     it('stores the offsets with the notice, and lists moves and a closed window', async () => {
       const window = await publish(-5, [15, 5]);
       expect((await board().maintenanceNotice(window.id))?.reminderOffsets).toEqual([15, 5]);

@@ -176,8 +176,14 @@ export const ALLOWED_METHODS = 'GET, POST, OPTIONS';
  * `httpBatchStreamLink` does, and `edge-client.ts` uses `httpLink` for a reason
  * it documents. If a link that streams is ever adopted, this line is what has to
  * change with it, and the failure until it does is loud rather than subtle.
+ *
+ * `idempotency-key` and `x-api-explorer` are what the API explorer
+ * (`/developers/explorer`, DV-console-01) sends: a write's business key, and the
+ * tag that lets the edge refuse the explorer's writes with a live key
+ * (`explorer-guard.ts`). With a sandbox key the explorer calls the sandbox
+ * address, another origin, so both must be named here.
  */
-export const ALLOWED_REQUEST_HEADERS = 'authorization, content-type';
+export const ALLOWED_REQUEST_HEADERS = 'authorization, content-type, idempotency-key, x-api-explorer';
 
 /**
  * Ten minutes. Long enough that a terminal firing many calls preflights once,

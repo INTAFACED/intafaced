@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import type { Context } from '@intafaced/contracts';
 import { MemoryGroupBook } from './desk-groups.js';
+import { DeskRouting, type RoutingBook, type RoutingLogEntry } from './desk-routing.js';
 import { MemoryStaffBook, type StaffRole } from './desk-staff.js';
 import { createSupportRouter } from './router.js';
 import { SupportService } from './support-service.js';
@@ -30,17 +31,8 @@ async function ctx(userId: string): Promise<Context> {
 
 async function desk(allGroupsRoles: StaffRole[] = []) {
   const groups = new MemoryGroupBook();
-  const support = new SupportService(
-    undefined,
-    undefined,
-    undefined,
-    new MemoryStaffBook(),
-    undefined,
-    null,
-    undefined,
-    groups,
-    allGroupsRoles,
-  );
+  const staff = new MemoryStaffBook();
+  const support = new SupportService(undefined, undefined, undefined, staff, undefined, null, undefined, groups, allGroupsRoles);
   const router = createSupportRouter(support, undefined, undefined, support);
   const as = async (userId: string) => router.createCaller(await ctx(userId));
   const lead = await as(LEAD);
@@ -48,7 +40,7 @@ async function desk(allGroupsRoles: StaffRole[] = []) {
   await lead.staffAppoint({ userId: AGENT_A, role: 'agent', idempotencyKey: 'appoint-agent-a' });
   await lead.staffAppoint({ userId: AGENT_B, role: 'agent', idempotencyKey: 'appoint-agent-b' });
   const ticket = (subject: string) => support.createTicket({ userId: CUSTOMER, category: 'account', subject, body: 'Help me please' });
-  return { support, groups, as, lead, ticket };
+  return { support, groups, staff, as, lead, ticket };
 }
 
 /** Two groups, one ticket in each, one ungrouped, agent A in group one. */
@@ -184,5 +176,27 @@ describe('desk groups and visibility (SP-desk-04)', () => {
     const own = await support.createTicket({ userId: AGENT_A, category: 'account', subject: 'My own', body: 'My own question' });
     const a = await as(AGENT_A);
     await expect(a.get({ ticketId: own.id })).resolves.toMatchObject({ id: own.id });
+  });
+
+  it('a group log and the routing log name no request outside the reader’s groups', async () => {
+    const { support, groups, staff, one, two, inOne, inTwo } = await twoGroups();
+    // Agent A is in group one only: group two's log keeps its own rows but never names its request.
+    const twoForA = await support.groupHistory({ actorId: AGENT_A, groupId: two.id });
+    expect(twoForA.map((r) => r.subject)).not.toContain(inTwo.id);
+    expect(twoForA.map((r) => r.action)).toContain('member_added');
+    expect((await support.groupHistory({ actorId: AGENT_A, groupId: one.id })).map((r) => r.subject)).toContain(inOne.id);
+    // Agent B is in group two, so the same log names its request.
+    expect((await support.groupHistory({ actorId: AGENT_B, groupId: two.id })).map((r) => r.subject)).toContain(inTwo.id);
+
+    // The routing log's required-skill rows name a request: the same scope applies.
+    const rows: RoutingLogEntry[] = [
+      { action: 'required_skill_set', subject: inOne.id, value: 'fx', by: LEAD, at: '2026-11-09T00:00:00.000Z' },
+      { action: 'required_skill_set', subject: inTwo.id, value: 'fx', by: LEAD, at: '2026-11-09T00:00:01.000Z' },
+      { action: 'capacity_set', subject: AGENT_B, value: '2', by: LEAD, at: '2026-11-09T00:00:02.000Z' },
+    ];
+    const book = { log: async () => rows } as unknown as RoutingBook;
+    const routing = new DeskRouting(book, staff, groups, support);
+    expect((await routing.log(AGENT_A)).map((r) => r.subject)).toEqual([inOne.id, AGENT_B]);
+    expect((await routing.log(AGENT_B)).map((r) => r.subject)).toEqual([inTwo.id, AGENT_B]);
   });
 });

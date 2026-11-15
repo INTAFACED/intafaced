@@ -284,7 +284,8 @@ const sourceAsOfSchema = z.union([
 export const reconciliationAssetEvidenceSchema = z
   .object({
     assetId: assetIdSchema,
-    observed: reconciliationSignedDecimalSchema,
+    /** `unset` only beside `missing: 'ledger'`: the ledger holds no record, so there is no figure, not a zero. */
+    observed: z.union([reconciliationSignedDecimalSchema, z.literal('unset')]),
     expected: z.union([reconciliationSignedDecimalSchema, z.literal('unset')]),
     difference: z.union([reconciliationSignedDecimalSchema, z.literal('unset')]),
     tolerance: z.union([reconciliationDecimalSchema, z.literal('unset')]),
@@ -294,6 +295,11 @@ export const reconciliationAssetEvidenceSchema = z
      */
     reconcilingItems: reconciliationSignedDecimalSchema.optional(),
     residual: reconciliationSignedDecimalSchema.optional(),
+    /**
+     * The side that holds no record for this asset (OWNER 288, the honest reconcile): a break named "missing", never read
+     * as a zero. A row that names a missing side always fails its run.
+     */
+    missing: z.enum(['ledger', 'outside']).optional(),
   })
   .strict();
 
@@ -320,7 +326,13 @@ export const reconciliationControlRunSchema = z
   .object({
     id: z.string().uuid(),
     controlId: z.string().uuid(),
-    status: z.enum(['started', 'PASS', 'FAIL', 'ERROR', 'UNSET']),
+    /**
+     * NOTHING_TO_COMPARE: the run read both sides and compared no record, so it proves nothing and is never green (OWNER
+     * 288). PASS only when at least one record was compared and none differed.
+     */
+    status: z.enum(['started', 'PASS', 'FAIL', 'ERROR', 'UNSET', 'NOTHING_TO_COMPARE']),
+    /** How many records (asset figures with both sides known) the run compared. `readAt` is the time it read through. */
+    compared: z.number().int().nonnegative(),
     phase: z.union([unsetSchema, z.object({ status: z.literal('set'), value: z.string().min(1) }).strict()]),
     errorCode: z.union([unsetSchema, z.object({ status: z.literal('set'), value: z.string().min(1) }).strict()]),
     asOf: z.string().datetime({ offset: true }),

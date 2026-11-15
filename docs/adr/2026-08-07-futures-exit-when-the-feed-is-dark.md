@@ -1,5 +1,7 @@
 # ADR: futures exit when the feed is dark — refusing to price is not refusing to release
 
+> **Later: custody (OWNER 226).** This decision is for the custodial layer: INTAFACED holds no customer money at launch, so it applies when that layer is switched on, not to the launch build. It stays as written.
+
 **Status:** **Accepted — 2026-08-07.** Amends [`2026-08-05-futures-risk-and-mark-law.md`](2026-08-05-futures-risk-and-mark-law.md) (D-S-01 / D-S-07 futures half). Everything in that ADR stands except the one row named below.
 **Decision owner:** repo owner. **Written by:** Denon.
 **Reason this exists:** the earlier ADR's refuse table has a hole I put there, and the code implements the hole faithfully.

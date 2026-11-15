@@ -1,5 +1,7 @@
 # ADR: cross-plane reconciler — first deliverable; no crossing
 
+> **Later: custody (OWNER 226).** This decision is for the custodial layer: INTAFACED holds no customer money at launch, so it applies when that layer is switched on, not to the launch build. It stays as written.
+
 **Status:** **Proposed (spec).** No crossing is enabled. `svc-bridge` is **not** created by this file.  
 **Decision owner:** Nitro. **Written by:** Grok (agents).  
 **Spec id:** D-S-12 done-bar 1 · S-D7 first slice (ledger half).  

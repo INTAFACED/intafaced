@@ -103,6 +103,15 @@ export const logReadKey = (kind: ReadKind, operatorId: string, requestId: string
 const RETRY_WINDOW_MINUTES = 5;
 
 /**
+ * A read and its audit row commit together, at read committed like the rest of svc-agents. Serializable made two reads
+ * of one customer's log in flight at once (an operator changing two filters in a row) conflict on the count of that
+ * customer's reads, and a read that lost every retry was refused with the bare 40001. The audit row stays one per request
+ * by its unique business key, and each read's count still includes its own row.
+ */
+const readTransaction = <T>(sql: Sql, fn: (tx: Sql) => Promise<T>): Promise<T> =>
+  transaction(sql, fn, { isolation: 'read committed', maxAttempts: 5 });
+
+/**
  * Writes the read's audit row (once per key) and re-reads how many rows carry its key, and how many reads of this
  * customer's log there are in all, this one included. A key already written for a different customer, reason, filter or
  * action, or written more than RETRY_WINDOW_MINUTES ago, is refused, so a reused request id never reads without its own
@@ -267,7 +276,7 @@ export function opsLogRouter(sql: Sql | undefined, settings: OpsLogSettings) {
         guard(async () => {
           const reason = assertReason(settings, input.reason);
           const limit = assertLimit(settings);
-          return transaction(sqlOf(sql), async (tx) => {
+          return readTransaction(sqlOf(sql), async (tx) => {
             const { rows, more } = await readActions(tx, input.userId, input, limit);
             // The filter offers only names it accepts back, and a bounded list of them.
             const tools = await tx<{ tool: string }[]>`
@@ -307,7 +316,7 @@ export function opsLogRouter(sql: Sql | undefined, settings: OpsLogSettings) {
         guard(async () => {
           const reason = assertReason(settings, input.reason);
           const limit = assertLimit(settings);
-          return transaction(sqlOf(sql), async (tx) => {
+          return readTransaction(sqlOf(sql), async (tx) => {
             const { rows, more } = await readActions(tx, input.userId, input, limit);
             const audit = await recordRead(tx, {
               kind: 'export',
@@ -355,7 +364,7 @@ export function opsLogRouter(sql: Sql | undefined, settings: OpsLogSettings) {
           if (settings.retentionDays === null) throw new OpsLogRefusal('agents.transcript_retention_unset');
           const retentionDays = settings.retentionDays;
           if (retentionDays === 0) throw new OpsLogRefusal('agents.transcript_not_kept');
-          return transaction(sqlOf(sql), async (tx) => {
+          return readTransaction(sqlOf(sql), async (tx) => {
             const [action] = await tx<{ user_id: string; input_digest: string | null }[]>`
               SELECT user_id, input_digest FROM agents.agent_actions WHERE id = ${input.actionId}
             `;

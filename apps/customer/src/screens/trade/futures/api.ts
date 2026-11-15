@@ -87,6 +87,8 @@ export type AdlEvent = z.infer<typeof adlEventSchema>;
 
 /** What counts as futures margin for the account (`GET /futures/collateral`): cash with the haircut, and refused classes. */
 export const collateralSchema = z.object({
+  /** The venue whose margin rule this is. */
+  venue: z.object({ id: z.string(), name: z.string() }),
   assets: z.array(
     z.object({
       asset: z.string(),

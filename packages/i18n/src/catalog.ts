@@ -143,6 +143,9 @@ export const en = {
   'notify.outreach.follow_up.title': 'Following up on your INTAFACED enquiry',
   'notify.outreach.follow_up.body': 'The INTAFACED team is following up on your enquiry.\n\n{staffText}',
   'notify.trade.fill.body': '{side} {qty} on {marketId} at {price}.',
+  // A paper strategy fill under the person's own alert (AL-alerts-01): the body is their template, rendered by svc-quant.
+  'notify.quant.fill.title': 'Paper strategy fill (not a real order)',
+  'notify.quant.fill.body': '{message}',
   'notify.trade.order.terminal.title': 'Order {status}',
   'notify.trade.order.terminal.body': '{side} {qty} on {marketId} is {status}.',
   'notify.trade.market_halted.title': 'Market halted',
@@ -176,6 +179,16 @@ export const en = {
     other:
       'You removed the last payment method for {count} of your ads, so they are paused. Add a payment method they can be paid with, then resume them from My offers.',
   },
+  'notify.academy.discussion_post.deleted.title': {
+    one: 'A moderator deleted your post',
+    other: 'A moderator deleted your posts',
+  },
+  'notify.academy.discussion_post.deleted.body': {
+    one: 'A moderator deleted {count} of your posts in the {course} discussion. The reason given: {reason}',
+    other: 'A moderator deleted {count} of your posts in the {course} discussion. The reason given: {reason}',
+  },
+  'notify.p2p.trader.posted.title': 'A trader you follow posted an ad',
+  'notify.p2p.trader.posted.body': 'A trader you follow posted a new {asset} ad in {fiatCurrency}. Open their ads to see it.',
   'notify.p2p.remark_case.opened.title': 'A payment-note remark was reported',
   'notify.p2p.remark_case.opened.body':
     'The other person on this order reported a remark in a payment note. A case is open for staff to decide.',
@@ -192,6 +205,9 @@ export const en = {
   'notify.identity.security.new_device.title': 'New device sign-in',
   'notify.identity.security.new_device.body':
     'A new device was approved and signed in to your account. If this was not you, open Security, remove the device, sign out everywhere and contact Support.',
+  'notify.identity.security.api_key_revoked.title': 'API key revoked',
+  'notify.identity.security.api_key_revoked.body':
+    'One of your API keys was revoked because a copy of it was reported found where it should not be. Programs using it are now refused. Make a new key in Security and keep it out of code you share.',
   'notify.identity.security.factor_changed.body':
     'A way to sign in to your account changed. If this was not you, open Security, sign out everywhere and contact Support.',
   'notify.identity.rank.updated.title': 'Rank updated',
@@ -208,6 +224,8 @@ export const en = {
   'notify.agents.approval.requested.comment.title': 'Your agent wants to send a comment',
   'notify.agents.approval.requested.title': 'Your agent wants to use a tool that needs your approval',
   'notify.agents.approval.requested.body': 'It waits for your approval in the Approvals inbox. Nothing runs until you approve it.',
+  'notify.agents.run.completed.title': 'Your agent run finished',
+  'notify.agents.run.completed.body': 'Open the run to read its result.',
   'notify.pay.request_created.title': 'Payment request',
   'notify.pay.request_created.body': '{payeeHandle} asked you for {amount} {assetId}.',
   'notify.pay.request_paid.title': 'Request paid',
@@ -240,6 +258,9 @@ export const en = {
   'notify.trade.copy_stopped.body.lead_stopped': 'The leader was suspended, so this follow stopped copying. You can choose another leader.',
   'notify.trade.copy_stopped.body.risk_control': 'One of your risk limits stopped this follow. You can check your limits and follow again.',
   'notify.trade.copy_stopped.body.permission_ended': 'The copy permission for this follow ended. You can grant it again on the follow.',
+  'notify.trade.venue_delisting.title': '{symbol} is being delisted',
+  'notify.trade.venue_delisting.body':
+    '{symbol} leaves the markets on {delistsAt} (UTC). After that, new orders on it are refused. You can still close what you hold and cancel open orders.',
   'notify.bank.scheduled_reminder.title': 'Standing order coming up',
   'notify.bank.scheduled_reminder.body': 'Your standing order of {amount} {assetId} runs on {dueDate} (UTC). Make sure the money is there.',
   'notify.bank.scheduled_failed.title': 'Standing order did not go through',
@@ -277,6 +298,8 @@ export const en = {
   // v22.alerts — fire path uses these keys; missing catalog fell back to the key string.
   'notify.alert.price.crossed.title': 'Price alert',
   'notify.alert.price.crossed.body': '{marketId} crossed {direction} {targetPrice} (mark {markPrice}).',
+  // J-charts-desk-10: the market by its symbol and the time it fired, so an email holds the alert's market, level and time.
+  'notify.alert.price.fired.body': '{market} crossed {direction} {targetPrice} (mark {markPrice}) at {firedAt}.',
   // An alert the person named or wrote a message for shows their own words; the service renders placeholders before it sends.
   'notify.alert.price.crossed.named.title': '{name}',
   'notify.alert.price.crossed.message.body': '{message}',
@@ -291,10 +314,13 @@ export const en = {
   // ── errors ────────────────────────────────────────────────────────────────
   'error.insufficientFunds': 'Insufficient balance.',
   'error.generic': 'Something went wrong. Try again.',
+  'error.custodyLayerOff': 'INTAFACED does not hold customer money, so this money movement is not offered. Nothing was moved.',
   'error.network': 'No connection. Check your network.',
   'error.notFound': 'We could not find that.',
   'error.unauthorized': 'Sign in to continue.',
   'error.forbidden': 'You do not have access to this.',
+  'error.agentMoneyRefused': 'An agent key cannot send a payout or a refund. Nothing was sent.',
+  'error.explorerLiveWriteRefused': 'The API explorer only reads with a live key. Use a sandbox key to send a write. Nothing was sent.',
   'error.rateLimited': 'Too many requests. Wait a moment.',
   'error.validation.required': 'This field is required.',
   'error.validation.invalidAmount': 'Enter a valid amount.',
@@ -373,6 +399,10 @@ export const en = {
   'agents.refused.log_mine_limit_unset': 'Refused: a page size is required for your activity log — none was given.',
   'agents.refused.cursor_invalid': 'Refused: that page cursor is not valid — ask for the list again from the start.',
   'agents.refused.fee_asset_unset': 'Refused: the fee asset for settled usage is unset, so spend cannot be labelled.',
+  'agents.refused.provenance_missing':
+    'Refused: {market} could not be read, so an answer about it would have no source. Nothing was run and nothing was charged.',
+  'agents.refused.uncertainty_scale_unset':
+    'Refused: no uncertainty scale is published for research answers yet. Nothing was run and nothing was charged.',
   'agents.refused.kb_search_limit_unset': 'Refused: a page size is required to search support knowledge — none was given.',
   'agents.refused.overage_grace_exceeded':
     'Refused: {owed} {asset} of earlier usage is still unpaid, more than the {grace} {asset} allowed unpaid, so this run did not start. It is retried on its same charge before each run; add funds if your balance is short.',

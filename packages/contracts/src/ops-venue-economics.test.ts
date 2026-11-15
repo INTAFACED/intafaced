@@ -6,6 +6,7 @@ import {
   opsCostPeriodSchema,
   opsVenueEconomicsSchema,
 } from './ops-venue-economics.js';
+import { ledgerFeeRevenueAssetSchema } from './ledger-fee-revenue.js';
 
 describe('venue economics contract', () => {
   it('lists the seven spec categories', () => {
@@ -70,7 +71,13 @@ describe('venue economics contract', () => {
     };
     const ok = {
       ...base,
-      feeRevenue: { status: 'ok', assets: [{ assetId: 'USDT', collected: '12.5', returned: '0.5', net: '12' }] },
+      feeRevenue: {
+        status: 'ok',
+        assets: [
+          { venueId: null, assetId: 'USDT', earned: '12.5', returned: '0.5', net: '12', collected: null },
+          { venueId: 'test-venue', assetId: 'USDC', earned: '3', returned: '0', net: '3', collected: '1' },
+        ],
+      },
       net: { status: 'ok', byAsset: [{ asset: 'USDT', revenue: '12', costs: '15', net: '-3' }] },
     };
     expect(opsVenueEconomicsSchema.safeParse(ok).success).toBe(true);
@@ -80,5 +87,15 @@ describe('venue economics contract', () => {
         .success,
     ).toBe(false);
     expect(opsVenueEconomicsSchema.safeParse({ ...base, net: { status: 'unavailable', reason: 'guess' } }).success).toBe(false);
+  });
+
+  it('a fee revenue row says earned and collected apart, and never takes the old "collected" for earned (OWNER 288)', () => {
+    const row = { venueId: 'test-venue', assetId: 'USDC', earned: '3', returned: '0', net: '3', collected: '1' };
+    expect(ledgerFeeRevenueAssetSchema.safeParse(row).success).toBe(true);
+    // The figure before this change: one "collected" that summed earned fees, with no earned and no venue.
+    expect(ledgerFeeRevenueAssetSchema.safeParse({ assetId: 'USDC', collected: '3', returned: '0', net: '3' }).success).toBe(false);
+    const { collected: _collected, ...noCollected } = row;
+    expect(ledgerFeeRevenueAssetSchema.safeParse(noCollected).success).toBe(false);
+    expect(ledgerFeeRevenueAssetSchema.safeParse({ ...row, venueId: null, collected: null }).success).toBe(true);
   });
 });

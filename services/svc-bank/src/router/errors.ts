@@ -3,7 +3,7 @@ import { TRPCError } from '@intafaced/contracts';
 import { InsufficientFundsError, LedgerError } from '@intafaced/ledger-client';
 import { DualControlError } from '../dual-control.js';
 import { ActionApprovalConsumeError } from '../action-approval-consume.js';
-import { BankError, type BankErrorCode } from '../errors.js';
+import { BankError, LedgerFrozenRefusal, type BankErrorCode } from '../errors.js';
 import { userFacingBankMessage } from '../user-copy.js';
 
 /**
@@ -168,6 +168,36 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   // rules is 400.
   'bank.space_archived': 'CONFLICT',
   'bank.space_locked': 'CONFLICT',
+  'bank.not_offered_by_partner': 'PRECONDITION_FAILED',
+  'bank.partner_unavailable': 'SERVICE_UNAVAILABLE',
+  'bank.onramp_fee_not_known': 'PRECONDITION_FAILED',
+  'bank.test_partner_off': 'PRECONDITION_FAILED',
+  'bank.no_partner_bank': 'PRECONDITION_FAILED',
+  'bank.posting_frozen': 'SERVICE_UNAVAILABLE',
+  'bank.partner_balance_not_known': 'PRECONDITION_FAILED',
+  'bank.partner_custody_mismatch': 'PRECONDITION_FAILED',
+  'bank.partner_move_conflict': 'CONFLICT',
+  'bank.partner_insufficient_funds': 'CONFLICT',
+  'bank.partner_reply_lost': 'SERVICE_UNAVAILABLE',
+  'bank.partner_amount_invalid': 'BAD_REQUEST',
+  'bank.partner_stopped': 'SERVICE_UNAVAILABLE',
+  'bank.partner_stop_unreadable': 'SERVICE_UNAVAILABLE',
+  'bank.partner_path_not_built': 'PRECONDITION_FAILED',
+  'bank.partner_history_filter_unsupported': 'BAD_REQUEST',
+  'bank.partner_unset': 'PRECONDITION_FAILED',
+  'bank.card_partner_holds_unset': 'PRECONDITION_FAILED',
+  'bank.card_partner_mode_not_known': 'PRECONDITION_FAILED',
+  'bank.card_partner_balance_not_known': 'PRECONDITION_FAILED',
+  'bank.card_partner_capture_exceeds_hold': 'BAD_REQUEST',
+  'bank.card_partner_hold_closed': 'CONFLICT',
+  'bank.card_partner_refund_exceeds_capture': 'BAD_REQUEST',
+  'bank.card_partner_key_conflict': 'CONFLICT',
+  'bank.card_partner_hold_not_found': 'PRECONDITION_FAILED',
+  'bank.card_refund_not_built': 'PRECONDITION_FAILED',
+  'bank.card_refund_nothing_captured': 'CONFLICT',
+  'bank.card_refund_amount_conflict': 'CONFLICT',
+  'bank.card_control_invalid': 'BAD_REQUEST',
+  'bank.card_control_not_found': 'NOT_FOUND',
   'bank.schedule_inactive': 'CONFLICT',
   'bank.pool_closed': 'CONFLICT',
   'bank.pool_conflict': 'CONFLICT',
@@ -245,6 +275,21 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.cashback_rate_unset': 'PRECONDITION_FAILED',
   'bank.rank_unavailable': 'SERVICE_UNAVAILABLE',
   'bank.card_eligibility_unset': 'PRECONDITION_FAILED',
+  'bank.card_spend_assets_unset': 'PRECONDITION_FAILED',
+  'bank.card_pay_from_not_offered': 'PRECONDITION_FAILED',
+  'bank.card_pay_from_order_invalid': 'BAD_REQUEST',
+  'bank.card_funding_not_offered': 'PRECONDITION_FAILED',
+  'bank.card_funding_invalid': 'BAD_REQUEST',
+  'bank.card_dispute_not_found': 'NOT_FOUND',
+  'bank.card_dispute_invalid': 'BAD_REQUEST',
+  'bank.card_dispute_state': 'CONFLICT',
+  'bank.card_dispute_not_disputable': 'PRECONDITION_FAILED',
+  'bank.card_dispute_cap_unset': 'PRECONDITION_FAILED',
+  'bank.card_dispute_cap_exceeded': 'PRECONDITION_FAILED',
+  'bank.card_dispute_partner_unset': 'PRECONDITION_FAILED',
+  'bank.card_dispute_partner_mismatch': 'CONFLICT',
+  'bank.card_dispute_rules_unset': 'PRECONDITION_FAILED',
+  'bank.card_dispute_evidence_closed': 'CONFLICT',
   'bank.card_not_eligible': 'PRECONDITION_FAILED',
   'bank.card_count_limit': 'PRECONDITION_FAILED',
   'bank.card_use_limit_invalid': 'BAD_REQUEST',
@@ -398,6 +443,13 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.rewards_asset_ambiguous': 'PRECONDITION_FAILED',
   'bank.card_pan_issuer_unset': 'PRECONDITION_FAILED',
   'bank.card_pin_issuer_unset': 'PRECONDITION_FAILED',
+  'bank.card_pin_not_set': 'PRECONDITION_FAILED',
+  'bank.card_pin_try_limit_unset': 'PRECONDITION_FAILED',
+  'bank.card_3ds_issuer_unset': 'PRECONDITION_FAILED',
+  'bank.card_3ds_try_limit_unset': 'PRECONDITION_FAILED',
+  'bank.card_3ds_not_found': 'NOT_FOUND',
+  'bank.card_3ds_conflict': 'CONFLICT',
+  'bank.card_3ds_code_missing': 'BAD_REQUEST',
   'bank.card_wallet_issuer_unset': 'PRECONDITION_FAILED',
   'bank.no_ramp_rail': 'PRECONDITION_FAILED',
   'bank.live_ramp_unset': 'PRECONDITION_FAILED',
@@ -411,6 +463,8 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.onramp_instruction_missing': 'PRECONDITION_FAILED',
   'bank.add_money_request_missing': 'NOT_FOUND',
   'bank.onramp_paid_mismatch': 'CONFLICT',
+  'bank.onramp_delivery_missing': 'CONFLICT',
+  'bank.wallet_delivery_unproven': 'FORBIDDEN',
   'bank.offramp_fee_unset': 'PRECONDITION_FAILED',
   'bank.offramp_fee_inconsistent': 'PRECONDITION_FAILED',
   'bank.deposit_custody_unset': 'PRECONDITION_FAILED',
@@ -440,6 +494,7 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.payee_invite_unwired': 'PRECONDITION_FAILED',
   'bank.linked_account_unverified': 'PRECONDITION_FAILED',
   'rail.bank': 'PRECONDITION_FAILED',
+  'vendor.tax': 'PRECONDITION_FAILED',
   'bank.account_details_currencies_unset': 'PRECONDITION_FAILED',
   'bank.eligibility_unset': 'PRECONDITION_FAILED',
   'bank.fx_rate_unset': 'PRECONDITION_FAILED',
@@ -479,6 +534,12 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'portfolio.entries_do_not_sum': 'PRECONDITION_FAILED',
   'bank.statement_pdf_one_month': 'PRECONDITION_FAILED',
   'bank.statement_too_large': 'PRECONDITION_FAILED',
+  'bank.budget_unset': 'PRECONDITION_FAILED',
+  'bank.budget_invalid': 'BAD_REQUEST',
+  'bank.compare_months': 'BAD_REQUEST',
+  'bank.plans_unset': 'PRECONDITION_FAILED',
+  'bank.dormancy_rule_unset': 'PRECONDITION_FAILED',
+  'bank.plan_fee_unwired': 'PRECONDITION_FAILED',
   'bank.personal_transfer_terms_unset': 'PRECONDITION_FAILED',
   'bank.personal_transfer_fee_unwired': 'PRECONDITION_FAILED',
   'bank.pay_request_notify_unwired': 'PRECONDITION_FAILED',
@@ -602,6 +663,10 @@ export function toTrpcError(err: unknown): TRPCError {
     // precisely the one whose message nobody vetted, so it gets the generic answer.
     if (!Object.hasOwn(BANK_ERROR_STATUS, err.code)) return opaqueFailure(err, `bank.error:${String(err.code)}`);
     return new TRPCError({ code: BANK_ERROR_STATUS[err.code], message: publicDoorWireMessage(err), cause: err });
+  }
+  if (err instanceof LedgerFrozenRefusal) {
+    // The posting freeze, proved not posted: the ledger's own code and nothing else, never the book's internals.
+    return new TRPCError({ code: 'PRECONDITION_FAILED', message: 'ledger.frozen', cause: err });
   }
   if (err instanceof LedgerError) {
     // NOT `err.message`. `InsufficientFundsError` is handled above because it

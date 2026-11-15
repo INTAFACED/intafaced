@@ -1,3 +1,4 @@
+import { categoryKey, errorClassCopy, severityKey } from './error-class-copy';
 import { AUTH_ERROR_CATALOGUE } from '@intafaced/contracts/auth-errors';
 import { authErrorsCopy, causeKey, fixKey } from './auth-errors-copy';
 
@@ -8,6 +9,7 @@ import { authErrorsCopy, causeKey, fixKey } from './auth-errors-copy';
  */
 export function AuthErrorsCatalogue() {
   const { t } = authErrorsCopy.useCopy();
+  const cls = errorClassCopy.useCopy();
   return (
     <>
       <p className="muted">{t('lead')}</p>
@@ -20,18 +22,29 @@ export function AuthErrorsCatalogue() {
                 <th scope="col">{t('colCode')}</th>
                 <th scope="col">{t('colStatus')}</th>
                 <th scope="col">{t('colDetail')}</th>
+                <th scope="col">{cls.t('colSeverity')}</th>
+                <th scope="col">{cls.t('colCategory')}</th>
                 <th scope="col">{t('colCause')}</th>
                 <th scope="col">{t('colFix')}</th>
               </tr>
             </thead>
             <tbody>
               {AUTH_ERROR_CATALOGUE.map((entry) => (
-                <tr key={entry.anchor} id={entry.anchor} data-cause={entry.cause} data-code={entry.code}>
+                <tr
+                  key={entry.anchor}
+                  id={entry.anchor}
+                  data-cause={entry.cause}
+                  data-code={entry.code}
+                  data-severity={entry.severity}
+                  data-category={entry.category}
+                >
                   <th scope="row">
                     <code>{entry.code}</code>
                   </th>
                   <td>{entry.status}</td>
                   <td>{entry.intafacedCode ? <code>{entry.intafacedCode}</code> : t('noDetail')}</td>
+                  <td>{cls.t(severityKey(entry.severity))}</td>
+                  <td>{cls.t(categoryKey(entry.category))}</td>
                   <td>
                     {t(causeKey(entry.cause))}
                     {entry.answeredBy === 'trade' ? <span className="muted"> {t('answeredByTrade')}</span> : null}

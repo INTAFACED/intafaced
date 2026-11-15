@@ -51,6 +51,8 @@ export function TwoPersonForm(props: {
   proposeBody: () => Record<string, unknown>;
   applyBody: (approvalId: string) => Record<string, unknown>;
   canApply: boolean;
+  /** Called with the write's outcome once it is written (the room reads its state again). */
+  onWritten?: (outcome: Outcome<unknown>) => void;
   children: ReactNode;
 }) {
   const [refusal, setRefusal] = useState<Refusal | null>(null);
@@ -124,6 +126,9 @@ export function TwoPersonForm(props: {
           disabledReason="Fill the form as it was proposed and enter the approved request id."
           doneText="Written"
           run={() => tradeOpsAction(props.room, props.applyBody(approvalId.trim()))}
+          onDone={(o) => {
+            if (o.kind === 'ok') props.onWritten?.(o);
+          }}
         />
       </div>
     </form>

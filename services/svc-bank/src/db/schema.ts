@@ -962,6 +962,12 @@ export const cardAuthorizations = bank.table(
     status: loanEventStatusEnum('status').notNull().default('pending'),
     /** The hold. NULL on a decline, because a decline moves nothing. */
     holdLedgerTxId: text('hold_ledger_tx_id'),
+    /** `ledger` (the custodial layer) or `partner` (the card partner holds it; our ledger posts nothing). */
+    heldBy: text('money_book').notNull().default('ledger'),
+    /** The partner's reference for its hold, on a partner-held approval. */
+    partnerHoldRef: text('partner_hold_ref'),
+    /** `partner_holds` or `wallet_pull`, as the partner answered the hold. */
+    partnerMode: text('partner_mode'),
     decidedAt: tstz('decided_at').notNull().defaultNow(),
     createdAt: createdAt(),
     settledAt: tstz('settled_at'),
@@ -1047,6 +1053,9 @@ export const cardSettlements = bank.table(
     status: loanEventStatusEnum('status').notNull().default('pending'),
     ledgerTxId: text('ledger_tx_id'),
     rejectionCode: text('rejection_code'),
+    /** `ledger`, or `partner`: the partner moved it and `partnerRef` names its instruction. */
+    heldBy: text('money_book').notNull().default('ledger'),
+    partnerRef: text('partner_ref'),
     createdAt: createdAt(),
     settledAt: tstz('settled_at'),
   },
@@ -1087,6 +1096,13 @@ export const cardCashback = bank.table(
     rejectionCode: text('rejection_code'),
     createdAt: createdAt(),
     settledAt: tstz('settled_at'),
+    /** `ledger`: the custodial path. `wallet`: a partner-held capture's, owed and paid to the person's wallet by svc-campaigns. */
+    paidBy: text('paid_by').notNull().default('ledger'),
+    /** A wallet row's spend and the rank tier its rate came from. */
+    spend: amount('spend'),
+    tier: text('tier'),
+    /** When the rewards programme took a wallet row's hand-over. */
+    announcedAt: tstz('announced_at'),
   },
   (t) => [
     /** ONE CASHBACK PER AUTHORISATION, forever. */
@@ -1094,6 +1110,22 @@ export const cardCashback = bank.table(
     index('card_cashback_status_idx').on(t.status),
   ],
 );
+
+/**
+ * A MERCHANT'S REFUND OF A PARTNER-HELD CAPTURE (OWNER 226). One per authorisation, under
+ * `card.partner.refund:<authorisation>`; the money is the partner's to move, and nothing posts to our ledger.
+ */
+export const cardPartnerRefunds = bank.table('card_partner_refunds', {
+  authorizationId: uuid('authorization_id')
+    .primaryKey()
+    .references(() => cardAuthorizations.id),
+  amount: amount('amount').notNull(),
+  status: loanEventStatusEnum('status').notNull().default('pending'),
+  partnerRef: text('partner_ref'),
+  rejectionCode: text('rejection_code'),
+  createdAt: createdAt(),
+  settledAt: tstz('settled_at'),
+});
 
 // ── Ramps (§8.1 / D-S-09, crypto ledger half) ────────────────────────────────
 
@@ -1327,6 +1359,19 @@ export const addMoneyRequests = bank.table('add_money_requests', {
   creditedAt: tstz('credited_at'),
   creditedAmount: amount('credited_amount'),
   ledgerTxId: text('ledger_tx_id'),
+  // Migration 20261111102441: the partner's pay-in reference when the partner credited it (J-wallet-01 #3).
+  partnerPayInRef: text('partner_pay_in_ref'),
+  // Migration 20261112122912: when the partner said a credited payment was sent back, and the partner's reference for the
+  // return (J-bank-02 #7).
+  returnedAt: tstz('returned_at'),
+  returnRef: text('return_ref'),
+  // Migration 20261113031713: buy to wallet (J-dex-protocol-05 #4). The person's own wallet the partner delivers the
+  // purchase to, when it is not added to a balance here, and when and with which on-chain transfer the partner delivered.
+  walletAddress: text('wallet_address'),
+  deliveredAt: tstz('delivered_at'),
+  deliveryTx: text('delivery_tx'),
+  // The person's EIP-191 signature over the request id and the wallet, proving they control it.
+  walletSignature: text('wallet_signature'),
 });
 
 /**
@@ -1410,6 +1455,8 @@ export const railPayees = bank.table('rail_payees', {
   destinationKey: text('destination_key').notNull(),
   createdAt: createdAt(),
   removedAt: tstz('removed_at'),
+  /** When the person read the first-time payee scam warning for this recipient (J-bank-18 #2); null until then. */
+  scamWarningReadAt: tstz('scam_warning_read_at'),
 });
 
 /** Address custody issued. Not a locally derived key and not a balance. */
@@ -1491,6 +1538,8 @@ export const autoInvestRuns = bank.table(
     status: autoInvestRunStatusEnum('status').notNull().default('pending'),
     amount: amount('amount'),
     ledgerTxId: text('ledger_tx_id'),
+    /** A round-up the partner bank made (OWNER 226): its own move reference; nothing on the ledger. */
+    partnerMoveId: text('partner_move_id'),
     positionId: text('position_id'),
     rejectionCode: text('rejection_code'),
     createdAt: createdAt(),
@@ -1821,6 +1870,7 @@ export const schema = {
   loanLiquidations,
   cards,
   cardAuthorizations,
+  cardPartnerRefunds,
   cardConversions,
   cardSettlements,
   cardCashback,

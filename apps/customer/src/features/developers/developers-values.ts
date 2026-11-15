@@ -13,6 +13,7 @@ import type { Read } from './use-read';
 export const DEVELOPER_HOSTS_UNSET = 'trade.developer_hosts_unset';
 export const DEVELOPER_DATA_TERMS_UNSET = 'trade.developer_data_terms_unset';
 export const DEVELOPER_REGIONAL_RULE_UNSET = 'trade.developer_regional_rule_unset';
+export const DEVELOPER_BOT_POLICY_UNSET = 'trade.developer_bot_policy_unset';
 
 const hostsSchema = z.object({
   hosts: z.array(z.object({ protocol: z.enum(PROTOCOLS), environment: z.enum(ENVIRONMENTS), host: z.string().min(1).nullable() })),
@@ -26,6 +27,7 @@ const termsSchema = z.object({
   ),
 });
 const regionalRuleSchema = z.object({ rule: z.string().min(1) });
+const botPolicySchema = z.object({ policy: z.string().min(1) });
 type Term = (typeof DATA_TERMS)[number];
 export type DataProduct = (typeof DATA_PRODUCTS)[number];
 export type ProductTerms = Record<Term, string> | null;
@@ -82,4 +84,20 @@ export function regionalRuleView(
     return read.code === DEVELOPER_REGIONAL_RULE_UNSET ? { kind: 'unset', code: read.code } : { kind: 'failed' };
   }
   return { kind: 'set', rule: read.data.rule };
+}
+
+/** The owner's bot policy (J-cex-spot-15 #3), read signed out from svc-trade. */
+export const readBotPolicy = (api: ApiClient, signal: AbortSignal): Promise<ApiResult<z.infer<typeof botPolicySchema>>> =>
+  api.plain('trade', '/developer-portal/bot-policy', botPolicySchema, { signal });
+
+/**
+ * The bot policy: the owner's text, or not yet published with the code that says why. Any other failure (the service
+ * unreachable) is not "not yet published": the page shows the failure, and never a permission it has not read.
+ */
+export function botPolicyView(
+  read: Read<z.infer<typeof botPolicySchema>>,
+): { kind: 'loading' } | { kind: 'failed' } | { kind: 'set'; policy: string } | { kind: 'unset'; code: string } {
+  if (read.status === 'loading') return { kind: 'loading' };
+  if (read.status === 'failed') return read.code === DEVELOPER_BOT_POLICY_UNSET ? { kind: 'unset', code: read.code } : { kind: 'failed' };
+  return { kind: 'set', policy: read.data.policy };
 }

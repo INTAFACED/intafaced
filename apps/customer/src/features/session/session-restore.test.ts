@@ -189,6 +189,22 @@ describe('session controller', () => {
     return { ...net, controller, logout };
   }
 
+  it('refreshes at most once a minute when this device’s clock runs ahead of the server’s', async () => {
+    // Every token identity hands back already looks due here: its expiry is the server's time, a month behind this clock.
+    const { controller, calls } = build(() => ok(session('rotated', -30 * 86_400_000)));
+    await controller.start();
+    expect(calls).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(calls).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(calls).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(31_000);
+    expect(calls).toHaveLength(3);
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    expect(calls.length).toBeLessThanOrEqual(13);
+    expect(controller.getState().session?.accessToken).toBe('rotated');
+    controller.stop();
+  });
   it('starts restoring, and a valid cookie becomes an in-memory session', async () => {
     const { controller, calls } = build(() => ok(session('boot')));
     expect(controller.getState()).toEqual({ session: null, restoring: true, restoreFailed: false, notice: null });
@@ -304,6 +320,31 @@ describe('session controller', () => {
     expect(seen).toEqual([undefined]);
     controller.stop();
   });
+  it('logout drops the trading-session key this tab holds (J-wallet-22 #8): nothing on the device signs with it after', async () => {
+    const m = new Map<string, string>([
+      ['intafaced.venue-session-key:u-1', '{"address":"0x1"}'],
+      ['intafaced.other', 'kept'],
+    ]);
+    const sessionStorage = {
+      get length() {
+        return m.size;
+      },
+      key: (i: number) => [...m.keys()][i] ?? null,
+      removeItem: (k: string) => void m.delete(k),
+    };
+    vi.stubGlobal('window', { sessionStorage });
+    try {
+      const { controller } = build(() => ok(session('boot')));
+      await controller.start();
+      expect(m.has('intafaced.venue-session-key:u-1')).toBe(true);
+      await controller.logout();
+      expect([...m.keys()]).toEqual(['intafaced.other']);
+      controller.stop();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('logout waits for a refresh already in flight, so a late Set-Cookie cannot undo the clear', async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => (release = resolve));
@@ -467,6 +508,40 @@ describe('server-ended sessions and boot outages', () => {
     expect(controller.getState().session?.accessToken).toBe('back');
     expect(calls).toHaveLength(3);
     controller.stop();
+  });
+  it('a boot outage asks again on its own with growing pauses, keeping Retry on screen, and restores when identity answers', async () => {
+    // Identity is out for two boot flights (two calls each), then answers: nobody presses Retry (J-pay-03 #6, #8318).
+    const { controller, calls } = build((n) => (n <= 4 ? new Response('', { status: 503 }) : ok(session('back'))));
+    await controller.start();
+    expect(calls).toHaveLength(2);
+    expect(controller.getState()).toEqual({ session: null, restoring: false, restoreFailed: true, notice: null });
+    await vi.advanceTimersByTimeAsync(4_900);
+    expect(calls).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(calls).toHaveLength(4);
+    // Still out: the panel never flips to loading or to "Sign in"; the next pause is longer.
+    expect(controller.getState()).toEqual({ session: null, restoring: false, restoreFailed: true, notice: null });
+    await vi.advanceTimersByTimeAsync(9_800);
+    expect(calls).toHaveLength(4);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(calls).toHaveLength(5);
+    expect(controller.getState()).toMatchObject({ session: { accessToken: 'back' }, restoring: false, restoreFailed: false });
+    controller.stop();
+  });
+  it('a stopped controller, or one signed in meanwhile, asks no more after a boot outage', async () => {
+    const stopped = build(() => new Response('', { status: 503 }));
+    await stopped.controller.start();
+    stopped.controller.stop();
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(stopped.calls).toHaveLength(2);
+
+    const signedIn = build(() => new Response('', { status: 503 }));
+    await signedIn.controller.start();
+    signedIn.controller.commit(session('from-sign-in', 900_000));
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(signedIn.calls).toHaveLength(2);
+    expect(signedIn.controller.getState().session?.accessToken).toBe('from-sign-in');
+    signedIn.controller.stop();
   });
 });
 

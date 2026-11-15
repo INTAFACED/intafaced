@@ -33,6 +33,11 @@ import { AppsRoom } from './apps/AppsRoom';
 import { AuthErrorsCatalogue } from './errors/AuthErrorsCatalogue';
 import { SandboxRoutes } from './sandbox/SandboxRoutes';
 import { ErrorsPage } from './errors/TradeErrorsCatalogue';
+import { RateLimitsPage } from './rate-limits/RateLimitsPage';
+import { ExplorerPage } from './explorer/ExplorerPage';
+import { BotPolicyPage } from './trading/BotPolicyPage';
+import { OrderTypesPage } from './trading/OrderTypesPage';
+import { IdempotencyPage } from './idempotency/IdempotencyPage';
 import '../public/public-pages.css';
 
 const key = (id: string) => id.replace(/-/g, '_');
@@ -52,6 +57,11 @@ const PAGES: Record<PageSectionId, (props: { title: string }) => JSX.Element> = 
   status: () => <StatusPage />,
   authentication: AuthenticationPage,
   errors: ErrorsPage,
+  'rate-limits': RateLimitsPage,
+  explorer: ExplorerPage,
+  'order-types': OrderTypesPage,
+  'bot-policy': BotPolicyPage,
+  idempotency: IdempotencyPage,
 };
 
 /** /developers and the pages under it: the portal home, the base-address table and one page per section. Public: no sign-in needed. */

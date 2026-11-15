@@ -6,6 +6,7 @@ const en = {
   title: '{name}',
   description: 'Every version of one saved strategy, its release notes, a comparison of two versions and the code each run used.',
   back: 'All strategies',
+  openInStudio: 'Open in Studio',
   simulated: 'Simulated only. A strategy here never trades live.',
   inFolder: 'Folder: {folder}',
   noFolder: 'Folder: none',

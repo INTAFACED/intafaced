@@ -1,5 +1,7 @@
 # ADR: shared matching conformance — one spec both runtimes import
 
+> **Later: custody (OWNER 226), in part.** INTAFACED holds no customer money at launch. The part about fiat svc-matching conformance pins as the running house book applies when the custodial layer is switched on; the rest holds at launch. It stays as written.
+
 **Status:** **Proposed (spec).** Implement of INTACORE stays **parked**.  
 **Decision owner:** Nitro. **Written by:** Grok (agents).  
 **Spec id:** D-S-06 done-bar 3 (shared rows).  

@@ -43,6 +43,8 @@ export interface GroupBook {
   setTicketGroup(input: { ticketId: string; groupId: string | null; by: string; at: string }): Promise<'ok' | 'unknown_group'>;
   /** Ticket ids placed in a group, for list filtering. */
   groupedTickets(): Promise<Map<string, string>>;
+  /** One group's log, oldest first: every change with who made it. */
+  history(groupId: string): Promise<GroupLogEntry[]>;
 }
 
 export class MemoryGroupBook implements GroupBook {
@@ -125,6 +127,10 @@ export class MemoryGroupBook implements GroupBook {
 
   async groupedTickets(): Promise<Map<string, string>> {
     return new Map(this.tickets);
+  }
+
+  async history(groupId: string): Promise<GroupLogEntry[]> {
+    return this.log.filter((e) => e.groupId === groupId).map((e) => ({ ...e }));
   }
 }
 
@@ -287,6 +293,13 @@ export class SqlGroupBook implements GroupBook {
   async groupedTickets(): Promise<Map<string, string>> {
     const rows = await this.sql<{ ticket_id: string; group_id: string }[]>`SELECT ticket_id, group_id FROM support.ticket_groups`;
     return new Map(rows.map((r) => [r.ticket_id, r.group_id]));
+  }
+
+  async history(groupId: string): Promise<GroupLogEntry[]> {
+    const rows = await this.sql<{ group_id: string; action: GroupLogAction; subject: string | null; by: string; at: Date | string }[]>`
+      SELECT group_id, action, subject, "by", "at" FROM support.group_log WHERE group_id = ${groupId} ORDER BY id ASC
+    `;
+    return rows.map((r) => ({ groupId: r.group_id, action: r.action, subject: r.subject, by: r.by, at: iso(r.at) }));
   }
 }
 

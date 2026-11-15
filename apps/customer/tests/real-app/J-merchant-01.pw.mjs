@@ -1,6 +1,7 @@
 // World: stack
 import { test, expect } from './journey.mjs';
 import { MONEY_ROOMS, businessReadyPerson, everyRoomOpens, openBusiness, refusedPayCalls } from './merchant.mjs';
+import { answerAfterNavigation } from './navigation.mjs';
 
 // J-merchant-01, in the running app (docs/roadmap/journeys.json): open Business Pay and see my account as it really
 // is. The business is new and its verification not started, so its owner holds the onboarding grant only, not the
@@ -205,12 +206,15 @@ test(`${J} #2 a business with verification not started: its checklist, "Not veri
   // A fresh load, so the page reads it now rather than from what an earlier page kept.
   // The body is read as the response arrives: a read the reload cuts off has no body, so it is not the one.
   let sent = null;
-  const accessRead = page.waitForResponse(async (r) => {
-    if (!r.url().includes('merchant.myAccess') || r.status() !== 200) return false;
-    sent = await r.json().catch(() => null);
-    return sent !== null;
-  });
-  await page.reload();
+  const accessRead = await answerAfterNavigation(
+    page,
+    async (r) => {
+      if (!r.url().includes('merchant.myAccess') || r.status() !== 200) return false;
+      sent = await r.json().catch(() => null);
+      return sent !== null;
+    },
+    () => page.reload(),
+  );
   await accessRead;
   const memberships = (Array.isArray(sent) ? sent[0] : sent).result.data.memberships;
   expect(memberships).toHaveLength(1);
@@ -231,12 +235,15 @@ test(`${J} #2 a business with verification not started: its checklist, "Not veri
   await expect(page).toHaveURL(/\/pay\/onboarding$/);
   // The body is read as the response arrives: a read the reload cuts off has no body, so it is not the one.
   let progressBody = null;
-  const progressRead = page.waitForResponse(async (r) => {
-    if (!r.url().includes('merchant.onboarding.progress') || r.status() !== 200) return false;
-    progressBody = await r.json().catch(() => null);
-    return progressBody !== null;
-  });
-  await page.reload();
+  const progressRead = await answerAfterNavigation(
+    page,
+    async (r) => {
+      if (!r.url().includes('merchant.onboarding.progress') || r.status() !== 200) return false;
+      progressBody = await r.json().catch(() => null);
+      return progressBody !== null;
+    },
+    () => page.reload(),
+  );
   await progressRead;
   const progress = (Array.isArray(progressBody) ? progressBody[0] : progressBody).result.data;
   expect(progress.kybStatus).not.toBe('approved');
@@ -284,8 +291,11 @@ test(`${J} #5 the team page lists the five built-in roles and every permission e
   const who = await businessReadyPerson(page, 'mr', '/pay/onboarding');
   await openBusiness(page, who, 'TEST Roles Ltd');
   const refused = refusedPayCalls(page);
-  const answer = page.waitForResponse((r) => r.url().includes('merchantOps.permissions.catalogue'));
-  await page.goto('/pay/team');
+  const answer = await answerAfterNavigation(
+    page,
+    (r) => r.url().includes('merchantOps.permissions.catalogue'),
+    () => page.goto('/pay/team'),
+  );
   const sent = await (await answer).json();
   const catalogue = (Array.isArray(sent) ? sent[0] : sent).result.data;
   expect(catalogue.roles.map((r) => r.role)).toEqual(['owner', 'admin', 'finance', 'developer', 'viewer']);

@@ -29,8 +29,35 @@ export const API_KEY_CREATE_REFUSALS = [
   'identity.key_cap_reached',
   'identity.key_request_conflict',
   'identity.key_signing_unset',
+  'identity.key_lead_not_approved',
+  'identity.key_lead_check_unavailable',
+  'identity.key_account_required',
+  'identity.key_account_denied',
+  'identity.key_org_denied',
+  'identity.portfolio_key_cap_unset',
+  'identity.portfolio_key_cap_reached',
+  'auth.agent_scope_forbidden',
 ] as const;
 export type ApiKeyCreateRefusal = (typeof API_KEY_CREATE_REFUSALS)[number];
+
+/** A person's own key, or a key for an AI agent (DV-keys-05): tagged on the list and restricted at create. */
+export const API_KEY_KINDS = ['personal', 'agent'] as const;
+export type ApiKeyKind = (typeof API_KEY_KINDS)[number];
+
+/**
+ * The permissions an agent key never holds (DV-keys-05: "cannot hold refund, payout or configuration scopes"): refunds,
+ * payouts, withdrawals and bank writes (loan repayments, transfers, address changes) move money off the account or
+ * change where it goes, and the identity and merchant write scopes change its settings.
+ * Asking for one on an agent key refuses `auth.agent_scope_forbidden` at create.
+ */
+export const AGENT_KEY_FORBIDDEN_SCOPES = [
+  'pay:refund',
+  'pay:payout',
+  'trade:withdraw',
+  'bank:write',
+  'identity:write',
+  'pay:write',
+] as const;
 
 const isoInstant = z.string().refine((value) => {
   const time = Date.parse(value);
@@ -54,6 +81,18 @@ export const apiKeyCreateInputSchema = z
     ips: z.array(z.string().max(64)).max(API_KEY_LIST_MAX).optional(),
     /** The key stops working at this instant. Absent: no end date. */
     expiresAt: isoInstant.optional(),
+    /**
+     * A portfolio-scoped key (DV-sub-accounts-01): the master's own sub-account the key is bound to. The key then
+     * reaches only that account. Absent: a key of the person's own account.
+     */
+    accountId: z.string().guid().optional(),
+    /**
+     * An organisation key (DV-sub-accounts-01): the organisation the key is made for. It must name an account id
+     * too, and omitting one refuses (`identity.key_account_required`); an org id never widens what the key reaches.
+     */
+    orgId: z.string().guid().optional(),
+    /** `agent`: a key for an AI agent, tagged and restricted (DV-keys-05). Absent: a person's own key. */
+    kind: z.enum(API_KEY_KINDS).optional(),
   })
   .strict();
 export type ApiKeyCreateInput = z.infer<typeof apiKeyCreateInputSchema>;
@@ -91,6 +130,10 @@ export const apiKeyRecordSchema = z
     revokedBy: z.enum(API_KEY_REVOKED_BY).nullable(),
     /** The reason the person typed when they revoked it themselves. An operator's own note is never shown here. */
     revokeReason: codePointsAtMost(API_KEY_REVOKE_REASON_MAX).nullable(),
+    /** The sub-account a portfolio-scoped key is bound to (it reaches only that account). Null on the account's own keys. */
+    accountId: z.string().guid().nullable(),
+    /** A person's own key, or an agent key (DV-keys-05), which the list tags. */
+    kind: z.enum(API_KEY_KINDS),
   })
   .strict();
 export type ApiKeyRecord = z.infer<typeof apiKeyRecordSchema>;
@@ -164,6 +207,8 @@ export const apiKeyRevokeInputSchema = z
   .object({
     keyId: z.string().guid(),
     reason: codePointsAtMost(API_KEY_REVOKE_REASON_MAX).optional(),
+    /** An organisation's key, revoked by its owner or a member holding `keys_admin` (DV-console-01). */
+    orgId: z.string().guid().optional(),
   })
   .strict();
 export type ApiKeyRevokeInput = z.infer<typeof apiKeyRevokeInputSchema>;
@@ -255,6 +300,225 @@ export function apiKeyCreateRequestId(
     .map((key) => `${key.id}:${key.revoked ? 1 : 0}`)
     .sort()
     .join(',');
-  const asked = JSON.stringify([input.name, [...input.scopes].sort(), [...(input.ips ?? [])].sort(), input.expiresAt ?? null]);
+  // The sub-account, organisation and kind count only when asked, so a request without them keeps the id it had before.
+  const bound = [input.accountId ?? null, input.orgId ?? null, input.kind === 'agent' ? 'agent' : null];
+  const asked = JSON.stringify([
+    input.name,
+    [...input.scopes].sort(),
+    [...(input.ips ?? [])].sort(),
+    input.expiresAt ?? null,
+    ...(bound.every((part) => part === null) ? [] : bound),
+  ]);
   return `api-key-create:${userId.toLowerCase()}:${digest(seen)}:${digest(asked)}`;
 }
+
+/**
+ * The money actions an agent key may never take (J-developer-15 #6: "The payout is refused `auth.scope_denied` and no
+ * approval row is made"). The edge names the action from the route and asks identity whether the key is an agent key;
+ * an agent key's attempt is refused at the edge and nothing is forwarded or written, so the action never runs.
+ *
+ * `bank.call`: any call to the bank and card door (`/api/bank/`). An agent key has no bank or card authority at all
+ * (J-agents-21 #9: "the assistant tries to ... pay by card ... refused `auth.scope_denied`; no balance changes").
+ */
+export const AGENT_HELD_ACTIONS = ['pay.payout', 'pay.refund', 'bank.call'] as const;
+export type AgentHeldAction = (typeof AGENT_HELD_ACTIONS)[number];
+
+const bodyHash = z.string().regex(/^sha256:[0-9a-f]{64}$/);
+
+/** The edge's ask: this key attempted this action. Service-only (`svc-edge`). */
+export const agentKeyHoldInputSchema = z
+  .object({
+    userId: z.string().guid(),
+    keyId: z.string().guid(),
+    action: z.enum(AGENT_HELD_ACTIONS),
+    method: z.string().min(1).max(16),
+    path: z.string().min(1).max(512),
+    bodyHash,
+  })
+  .strict();
+export type AgentKeyHoldInput = z.infer<typeof agentKeyHoldInputSchema>;
+
+/** One held attempt, as its owner sees it. `waiting`: nothing was sent and nothing ran. */
+export const agentKeyApprovalSchema = z
+  .object({
+    id: z.string().guid(),
+    keyId: z.string().guid(),
+    keyName: z.string(),
+    action: z.enum(AGENT_HELD_ACTIONS),
+    method: z.string(),
+    path: z.string(),
+    status: z.literal('waiting'),
+    createdAt: z.string(),
+  })
+  .strict();
+export type AgentKeyApproval = z.infer<typeof agentKeyApprovalSchema>;
+
+/** The refusal an agent key's money action gets at the edge. */
+export const AGENT_KEY_ACTION_REFUSAL = 'auth.scope_denied' as const;
+
+/**
+ * `held: false`: the key is not an agent key, and the request goes on as any key's would. `held: true`: an agent key;
+ * the request is refused `auth.scope_denied` and nothing is written.
+ */
+export const agentKeyHoldOutputSchema = z.discriminatedUnion('held', [
+  z.object({ held: z.literal(false) }).strict(),
+  z.object({ held: z.literal(true), refusal: z.literal(AGENT_KEY_ACTION_REFUSAL) }).strict(),
+]);
+export type AgentKeyHoldOutput = z.infer<typeof agentKeyHoldOutputSchema>;
+
+export const agentKeyApprovalListInputSchema = z.object({ limit: z.number().int().min(1).max(200) }).strict();
+export const agentKeyApprovalListOutputSchema = z.object({ approvals: z.array(agentKeyApprovalSchema) }).strict();
+export type AgentKeyApprovalList = z.infer<typeof agentKeyApprovalListOutputSchema>;
+
+/**
+ * Developer-area roles in an organisation (DV-console-01). The organisation's admin is its owner and always manages its
+ * keys; a member holds at most one developer role. The owner value `IDENTITY_DEVELOPER_ROLES` publishes which roles
+ * exist; blank means `roles not set`: a member has no key authority and no role can be given.
+ */
+export const DEVELOPER_ROLES = ['keys_admin', 'keys_read'] as const;
+export type DeveloperRole = (typeof DEVELOPER_ROLES)[number];
+export const developerRoleSchema = z.enum(DEVELOPER_ROLES);
+
+/** Why the caller may not create or revoke the organisation's keys. */
+export const DEVELOPER_TEAM_REFUSALS = [
+  'identity.developer_roles_unset',
+  'identity.developer_role_read_only',
+  'identity.developer_role_none',
+] as const;
+export type DeveloperTeamRefusal = (typeof DEVELOPER_TEAM_REFUSALS)[number];
+
+export const developerTeamInputSchema = z.object({ orgId: z.string().guid() }).strict();
+export const developerTeamMemberSchema = z
+  .object({
+    userId: z.string().guid(),
+    email: z.string(),
+    orgRole: z.string(),
+    developerRole: developerRoleSchema.nullable(),
+    /** How many role changes were recorded for this member; a role change's request id names it (a business key). */
+    roleVersion: z.number().int().nonnegative(),
+  })
+  .strict();
+export const developerTeamSchema = z
+  .object({
+    orgId: z.string().guid(),
+    orgName: z.string(),
+    /** The roles the owner published; null is `roles not set`. */
+    rolesPublished: z.array(developerRoleSchema).nullable(),
+    /** `owner`: the organisation's admin. Null: a member with no developer role. */
+    myRole: z.enum(['owner', ...DEVELOPER_ROLES]).nullable(),
+    /** Null when the caller may create and revoke the organisation's keys; otherwise why not. */
+    manageRefusal: z.enum(DEVELOPER_TEAM_REFUSALS).nullable(),
+    /** Every member with their developer role; listed to the owner only. */
+    members: z.array(developerTeamMemberSchema),
+    keys: z.array(apiKeyRecordSchema),
+  })
+  .strict();
+export type DeveloperTeam = z.infer<typeof developerTeamSchema>;
+
+/** The owner gives a member a developer role, or takes it away (`role: null`). The request id makes a repeat a no-op. */
+export const developerSetRoleInputSchema = z
+  .object({
+    orgId: z.string().guid(),
+    userId: z.string().guid(),
+    role: developerRoleSchema.nullable(),
+    requestId: z.string().min(8).max(128),
+  })
+  .strict();
+export type DeveloperSetRoleInput = z.infer<typeof developerSetRoleInputSchema>;
+export const developerSetRoleOutputSchema = z
+  .object({ userId: z.string().guid(), role: developerRoleSchema.nullable(), changed: z.boolean() })
+  .strict();
+
+/**
+ * A key's call log (DV-keys-06, J-developer-08): one row per call the edge answered for an `ifc_…` key, with what was
+ * called and the HTTP status the edge answered. Never a body, a header value, the key or the caller's address: the edge
+ * sends the key's hash only so identity can find the key, and identity keeps only whether the caller's address was
+ * outside the key's IP list.
+ */
+export const API_KEY_CALL_LIMIT_MAX = 200;
+
+const callDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+/** The edge's report of one answered call. Only the edge may send it. */
+export const apiKeyCallRecordInputSchema = z
+  .object({
+    /** SHA-256 (hex) of the presented key, as identity stores it. Never the key. */
+    keyHash: z.string().regex(/^[0-9a-f]{64}$/),
+    /** The `x-request-id` the edge answered the call with: the business key, so a repeat report writes nothing new. */
+    requestId: z.string().min(1).max(128),
+    method: z.string().min(1).max(16),
+    /** The path without its query. */
+    path: z.string().min(1).max(512),
+    status: z.number().int().min(100).max(599),
+    /** The caller's address as the edge resolved it, used to set the outside-IP flag and never stored. */
+    clientIp: z.string().max(64).nullable(),
+    at: isoInstant,
+  })
+  .strict();
+export type ApiKeyCallRecordInput = z.infer<typeof apiKeyCallRecordInputSchema>;
+export const apiKeyCallRecordOutputSchema = z.object({ recorded: z.boolean() }).strict();
+export type ApiKeyCallRecordOutput = z.infer<typeof apiKeyCallRecordOutputSchema>;
+
+/** The owner's read of one key's log, newest first; `status`, `from` and `to` (UTC days, inclusive) narrow it. */
+export const apiKeyCallsInputSchema = z
+  .object({
+    keyId: z.string().guid(),
+    limit: z.number().int().min(1).max(API_KEY_CALL_LIMIT_MAX),
+    status: z.number().int().min(100).max(599).optional(),
+    from: callDay.optional(),
+    to: callDay.optional(),
+  })
+  .strict();
+export type ApiKeyCallsInput = z.infer<typeof apiKeyCallsInputSchema>;
+
+export const apiKeyCallSchema = z
+  .object({
+    requestId: z.string(),
+    method: z.string(),
+    path: z.string(),
+    status: z.number().int(),
+    outsideIpList: z.boolean(),
+    at: z.string(),
+  })
+  .strict();
+export type ApiKeyCall = z.infer<typeof apiKeyCallSchema>;
+
+export const apiKeyCallsOutputSchema = z.object({ keyId: z.string().guid(), asOf: z.string(), calls: z.array(apiKeyCallSchema) }).strict();
+export type ApiKeyCallsOutput = z.infer<typeof apiKeyCallsOutputSchema>;
+
+/**
+ * Rotate one live key (DV-keys-04, J-developer-07 #1 #2): a replacement with the same name, permissions, IP list and end
+ * date, and the old key kept working for `overlapSeconds` (0: it stops at once), never longer than the owner's maximum.
+ * A key that already has its replacement is not rotated again: the reply is that replacement, with no secret.
+ */
+export const apiKeyRotateInputSchema = z
+  .object({ keyId: z.string().guid(), overlapSeconds: z.number().int().min(0).max(31_536_000) })
+  .strict();
+export type ApiKeyRotateInput = z.infer<typeof apiKeyRotateInputSchema>;
+
+export const apiKeyRotateOutputSchema = z
+  .object({
+    record: apiKeyRecordSchema,
+    /** The new key, in this reply only. Null when this reply answers a rotation already made. */
+    key: z.string().nullable(),
+    signingSecret: z.string().nullable(),
+    /** The key it replaces, and the instant it stops working (now, for an overlap of 0). */
+    replaced: z.object({ id: z.string().guid(), endsAt: isoInstant }).strict(),
+    replayed: z.boolean(),
+  })
+  .strict();
+export type ApiKeyRotateOutput = z.infer<typeof apiKeyRotateOutputSchema>;
+
+/** Typed refusals of the rotate door, second-factor ones included. */
+export const API_KEY_ROTATE_REFUSALS = [
+  'auth.step_up_required',
+  'auth.step_up_expired',
+  'auth.mfa_invalid',
+  'auth.webauthn_invalid',
+  'identity.delegated_refused',
+  'identity.key_not_found',
+  'identity.key_not_live',
+  'identity.key_rotate_overlap_unset',
+  'identity.key_rotate_overlap_too_long',
+  'identity.key_signing_unset',
+] as const;

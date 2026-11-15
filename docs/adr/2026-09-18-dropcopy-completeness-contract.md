@@ -1,5 +1,7 @@
 # ADR: drop-copy completeness contract — replay, gap-fill, independent session
 
+> **Later: custody (OWNER 226).** This decision is for the custodial layer: INTAFACED holds no customer money at launch, so it applies when that layer is switched on, not to the launch build. It stays as written.
+
 **Status:** **Proposed (spec).** Completeness is **false** on tip. This file does not claim complete.  
 **Decision owner:** Nitro. **Written by:** Grok (agents).  
 **Plane:** Fiat house book only. INTACORE does not emit FIX.  

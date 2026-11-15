@@ -201,6 +201,8 @@ describe('a proposal', () => {
       thresholds: null,
       snapshotTimeUtc: null,
       effectiveAt: '',
+      // The base version sets no builder fee, so there is none to edit.
+      builderFees: [],
     });
   });
 

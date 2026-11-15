@@ -132,7 +132,7 @@ const messages = {
 
   // Profit and loss
   'Profit and loss': 'Profit and loss',
-  'Pnl indicator label': 'This is an indicator worked out from your own trades. It is not a tax form.',
+  'Pnl indicator label': 'Indicator, not tax advice. It is worked out from your own trades and is not a tax form.',
   'Pnl method rule':
     'Each sale is matched against the lots you bought, one lot at a time, using the method you pick. The fee on a buy is inside the cost: you paid the full price and received the coins less the fee, so the average price includes it. Coins that arrived by deposit or transfer have no cost recorded, so a sale of them has no result.',
   'Matching method': 'Matching method',
@@ -154,6 +154,15 @@ const messages = {
   'Carried rule':
     'Moving coins between your main account and your spaces is not a sale. The coins keep the date and cost they had, and their lots move with them.',
   'Spaces not followed': 'Moves to and from your spaces are not shown here right now',
+  'Venue account {owner}': 'Your venue account {owner}',
+  'Venue sub-account {owner} {sub}': 'Your venue sub-account {sub} under {owner}',
+  'Carried rule venue':
+    'Moving coins between your venue account and your own venue sub-account is not a sale. The coins keep the date and cost they had, and their lots move with them.',
+  'In your venue account': '(in your venue account)',
+  'Venue as of': 'Your venue account’s trades and coins, as the venue reported them at {time}.',
+  'Venue as of TEST':
+    'TEST venue: your venue account’s trades and coins, as the venue reported them at {time}. Every venue figure here is TEST.',
+  'Venue not read': 'Your venue account could not be read just now, so its trades are not shown and the realised total is not known',
   'Lots rule':
     'Each time coins reached you is a lot: bought on the exchange, deposited, paid as a reward or moved in. A sale uses lots by the method you pick.',
   Acquired: 'Acquired',
@@ -605,6 +614,7 @@ const messages = {
   'Tax effect disposal': 'Disposal',
   'Tax effect neutral': 'Neutral',
   'Tax effect not set': 'Not set',
+  'Tax effect test map': 'TEST: made up for this test stack, not a tax treatment anyone decided.',
   'Tax year note': 'Only calendar years (UTC) can be chosen. A tax year needs a start date that is not published.',
   'Withdrawal address': 'Withdrawal address',
   'Address hint': 'Part of an address, {min}+ characters',

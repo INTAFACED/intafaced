@@ -114,6 +114,8 @@ export type RefusalKind =
 const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.convert_spread_unset': 'convertSpreadUnset',
   'trade.slippage_cap_unset': 'slippageCapUnset',
+  // The owner's spread limit on a venue market order is blank: market orders pause the same way.
+  'trade.spread_limit_unset': 'slippageCapUnset',
   // No published price protection for a market order: refused, never a guessed floor.
   'trade.protection_unset': 'protectionUnset',
   // The operator's price band and open-order cap: the screen fills in the edges, the cap and the count it was given.
@@ -175,6 +177,7 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
 
   'trade.order_not_found': 'orderGone',
   'trade.order_not_open': 'orderGone',
+  'trade.queue_unavailable': 'tryAgain',
   'trade.convert_price_moved': 'priceMoved',
   'trade.price_not_accepted': 'priceMoved',
   'trade.convert_quote_expired': 'quoteExpired',
@@ -209,6 +212,7 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.self_trade': 'selfTrade',
   'trade.order_type_unsupported': 'orderTypeUnsupported',
   'trade.mode_limit_only': 'marketLimitOnly',
+  'trade.rpi_unavailable': 'optionUnsupported',
   'trade.mode_cancel_only': 'marketCancelOnly',
   'trade.mode_post_only': 'marketPostOnly',
   'trade.stp_mode_unsupported': 'optionUnsupported',

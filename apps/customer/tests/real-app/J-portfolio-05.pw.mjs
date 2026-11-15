@@ -311,7 +311,14 @@ test(`${J} #1 switches between all time, realised, unrealised, last transaction 
   expect(taken).toMatchObject({ amount: '0.001', assetId: 'BTC', status: 'processing' });
   expect(await partner('paid', { cashOutId: taken.requestId })).toMatchObject({ status: 'completed' });
   // From the tap to the partner's paid call: the coins left the balance somewhere in it.
-  run.write({ left: [leftFrom, Date.now()] });
+  const left = [leftFrom, Date.now()];
+  run.write({ left });
+  // The withdrawal is valued at the close of the minute it left in, worked out from the fills on every read. While that
+  // minute is open, any trade on this shared market moves the close between the hand count and the screen (main run
+  // 42943158075: the screen's $65.11 was a close the hand count, read moments before, had seen as $65.15). So both read
+  // it once the minute has ended (at most a minute's wait, plus time for a fill stamped in it to be stored).
+  const minuteOver = Math.floor(left[1] / 60_000) * 60_000 + 60_000;
+  await page.waitForTimeout(Math.max(0, minuteOver + 5_000 - Date.now()));
 
   // The book, read by hand: the sale is what arrived less what the buy cost; the withdrawal moved out 0.001 of the
   // deposit (FIFO: the bought lot was used up) at its value when it left, less the price entered for it.
@@ -347,10 +354,17 @@ test(`${J} #1 switches between all time, realised, unrealised, last transaction 
   expect(near(dollars(unrealised.view), dollars(unrealised.worth) - hand.openCost)).toBe(true);
   expect(unrealised.view).toBe(unrealised.unrealised);
 
-  // All time is realised plus unrealised, on the same price.
+  // All time is realised plus unrealised, on the same price, and each part is the hand count's. The page may still hold
+  // the price it drew Unrealised from, so the prices read around that view count too.
+  const allBefore = await lastPrice();
   const all = await snapshot(page, 'All time');
+  const allLasts = [...lasts, allBefore, await lastPrice()];
   expect(near(dollars(all.view), dollars(all.realised) + dollars(all.unrealised))).toBe(true);
   expect(hand.realised.map((r) => usd(r, true))).toContain(all.realised);
+  expect(
+    allLasts.some((last) => near(dollars(all.unrealised), openAt(last))),
+    `${all.unrealised} at ${allLasts}`,
+  ).toBe(true);
   await expect(page).not.toHaveURL(/view=/);
 
   // Last transaction: the newest trade is the sale (the deposit and the withdrawal are not trades), and its result.

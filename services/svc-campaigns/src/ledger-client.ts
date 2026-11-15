@@ -4,7 +4,8 @@ import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@in
 /**
  * svc-campaigns' client for svc-ledger: the shared HTTP client, signed as `svc-campaigns`. It posts only `rewardPay` (a
  * claimed task reward, from the one reward pot), `sweepFeesToRewards` (an approved pot funding) and the locked reward
- * recipes (`campaignRewardLock`, `campaignRewardUnlock`, `campaignRewardForfeit`), and reads back only its own keys
+ * recipes (`campaignRewardLock`, `campaignRewardUnlock`, `campaignRewardForfeit`), the launch Owe and Pay legs
+ * (`campaignBudgetFund`, `rewardOwe`, `rewardPayOut`), and reads back only its own keys
  * (`getTxByKey`). No database transaction is open around a post (`payouts.ts`).
  *
  *   - post: 10s per attempt, 2 retries, 25s for the whole call. Retrying is safe: the key is the intent's business key,

@@ -9,17 +9,37 @@ import { createAcademyRouter } from '../router.js';
 import { PENDING_OWNER_SETTINGS, settingsRegister, type SettingsEnv } from './register.js';
 
 const FULL: SettingsEnv = {
+  ACADEMY_PAYMENT_RPC_URL: 'http://127.0.0.1:14530',
+  ACADEMY_PAYMENT_CHAIN_ID: 84532,
+  ACADEMY_PAYMENT_TOKEN_ADDRESS: '0x000000000000000000000000000000000000d011',
+  ACADEMY_PAYMENT_TOKEN_DECIMALS: 6,
+  ACADEMY_PAYMENT_ASSET: 'USDC',
+  ACADEMY_PAYMENT_RECEIVER: '0x7e57ac4d00000000000000000000000000000007',
+  ACADEMY_PAYMENT_CONFIRMATIONS: 2,
+  ACADEMY_REFUND_SIGNER_URL: 'http://127.0.0.1:14535/academy-refund',
+  LEDGER_URL: 'http://127.0.0.1:4001',
   ACADEMY_OUTLINE_MAX_SECTIONS: 20,
   ACADEMY_OUTLINE_MAX_ITEMS: 200,
   ACADEMY_LESSON_IMPORT_MAX_BYTES: 8192,
   ACADEMY_BULK_FILE_MAX_BYTES: 65_536,
+  ACADEMY_BULK_ENROL_ROWS: 50,
+  ACADEMY_BULK_EMAIL_INACTIVE_DAYS: 30,
+  ACADEMY_REPORT_RETENTION_HOURS: 24,
+  ACADEMY_LEARNER_EXPORT_ROWS: 1000,
   ACADEMY_UPLOAD_MAX_BYTES: 1_048_576,
   ACADEMY_TOPICS_LIST_LIMIT: 100,
+  ACADEMY_GRANT_AUDIT_PAGE_SIZE: 50,
   ACADEMY_GRADER_LEASE_SECONDS: 900,
   ACADEMY_GRADE_REPORT_ROWS: 500,
+  ACADEMY_CERT_ISSUED_ROWS: 500,
+  ACADEMY_LEARNER_SUMMARIES_PAGE_SIZE: 50,
+  ACADEMY_REPORT_TASKS_PAGE_SIZE: 50,
+  ACADEMY_REPORT_CENTRE_RETENTION_MINUTES: 1440,
+  ACADEMY_REPORT_SWEEP_SECONDS: 10,
   ACADEMY_CERT_ISSUE_SWEEP_SECONDS: 60,
   ACADEMY_PROGRAMME_MAX_COURSES: 4,
   ACADEMY_POST_MAX_CHARS: 4000,
+  ACADEMY_CUSTOM_ROLE_LIMIT: 50,
   ACADEMY_POST_IMAGE_MAX_BYTES: 262144,
   ACADEMY_MESSAGE_MAX_CHARS: 4000,
   ACADEMY_UPLOAD_VIDEO_TYPES: ['video/webm'],
@@ -100,6 +120,14 @@ describe('settingsRegister (AC-order-02)', () => {
     expect(row({}, 'cert_verify_rate').refusalCode).toBe('academy.verify_rate_unset');
     expect(row({}, 'ambassador_ifc_pay_law').refusalCode).toBe('academy.ambassador_pay.rates_unset');
     expect(row({}, 'ambassador_revenue_share_law').refusalCode).toBe('academy.ambassador_revenue_share.rates_unset');
+    expect(row({}, 'course_payments')).toMatchObject({ state: 'not_set', store: 'env', refusalCode: 'academy.payments_off' });
+    expect(row({}, 'course_refund_signer')).toMatchObject({ state: 'not_set', refusalCode: 'academy.refund_sender_unset' });
+  });
+
+  it('course payments are set only when every payment value and the ledger are', () => {
+    expect(row(FULL, 'course_payments').state).toBe('set');
+    for (const key of ['ACADEMY_PAYMENT_RPC_URL', 'ACADEMY_PAYMENT_ASSET', 'ACADEMY_PAYMENT_CONFIRMATIONS', 'LEDGER_URL'] as const)
+      expect(row({ ...FULL, [key]: undefined }, 'course_payments').state).toBe('not_set');
   });
 
   it("stream provider 'none' is the not-chosen value, not set", () => {

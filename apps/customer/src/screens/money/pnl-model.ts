@@ -56,6 +56,8 @@ export interface AssetPnl {
   /** Unrealised as a ratio of cost ("0.25"); null when cost is zero or unknown. */
   unrealisedRatio: Decimal | null;
   reason: UnknownReason | null;
+  /** Present for a coin in the person's own venue account (`book.venue`); absent: our ledger. */
+  venueAccount?: string;
 }
 
 export interface PnlView {
@@ -101,6 +103,7 @@ export function pnlView(book: LotBookAnswer, rows: readonly MoneyRow[] | null): 
           unrealisedUsd: null,
           unrealisedRatio: null,
           reason: 'not_counted',
+          ...(line.venueAccount === undefined ? {} : { venueAccount: line.venueAccount }),
         });
       continue;
     }
@@ -110,7 +113,8 @@ export function pnlView(book: LotBookAnswer, rows: readonly MoneyRow[] | null): 
     if (cost === null)
       reason =
         book.residuals.includes('tax.lot_book_unreconciled') && dec(line.held)! < open + uncounted ? 'not_reconciled' : 'cost_unknown';
-    const value = valueOf(byAsset.get(line.assetId), open);
+    // A venue account's coins are not valued at our prices: the venue's own price is not read here, so it is not known.
+    const value = line.venueAccount === undefined ? valueOf(byAsset.get(line.assetId), open) : null;
     if (value === null && reason === null) reason = 'no_price';
     const unrealised = cost !== null && value !== null ? sub(value, cost) : null;
     assets.push({
@@ -124,6 +128,7 @@ export function pnlView(book: LotBookAnswer, rows: readonly MoneyRow[] | null): 
       unrealisedUsd: decOrNull(unrealised),
       unrealisedRatio: unrealised !== null && cost !== null && cost > 0n ? decOrNull(ratio(unrealised, cost)) : null,
       reason: unrealised === null ? (reason ?? 'cost_unknown') : null,
+      ...(line.venueAccount === undefined ? {} : { venueAccount: line.venueAccount }),
     });
   }
   const known = assets.filter((a) => a.reason !== 'not_counted').map((a) => dec(a.unrealisedUsd));
@@ -142,14 +147,25 @@ export function lotAssetFromQuery(search: string, assets: readonly string[]): st
   return raw !== null && assets.includes(raw) ? raw : (assets[0] ?? null);
 }
 
+/** Where a lot sits: `main`, a named space's id, or a venue account's key (`venue:…`). */
+export const lotAccountOf = (lot: LotBookLot): string => lot.venueAccount ?? lot.spaceId ?? 'main';
+
 export function lotsOf(book: LotBookAnswer, asset: string, account: LotAccount = 'all'): LotBookLot[] {
-  return book.lots.filter(
-    (lot) => lot.assetId === asset && (account === 'all' || (account === 'main' ? lot.spaceId === undefined : lot.spaceId === account)),
-  );
+  return book.lots.filter((lot) => lot.assetId === asset && (account === 'all' || lotAccountOf(lot) === account));
 }
 
-/** Where a lot sits: the main account, or one of the customer's named spaces (by id). `all`: every account. */
+/**
+ * Where a lot sits: the main account, one of the customer's named spaces (by id), or one of their own venue accounts
+ * (by key). `all`: every account.
+ */
 export type LotAccount = 'all' | 'main' | string;
+
+/** One of the person's own venue accounts the book lists, by key; null when the book does not list it. */
+export function venueAccountOf(book: LotBookAnswer, key: string): { owner: string; subAccount: string | null; asOf: string } | null {
+  if (book.venue?.status !== 'read') return null;
+  const found = book.venue.accounts.find((a) => a.account === key);
+  return found === undefined ? null : { owner: found.owner, subAccount: found.subAccount, asOf: found.asOf };
+}
 
 /** A named space the book follows, by id; null when the book does not list it. */
 export function spaceOf(book: LotBookAnswer, spaceId: string): { name: string; archived: boolean } | null {
@@ -160,9 +176,10 @@ export function spaceOf(book: LotBookAnswer, spaceId: string): { name: string; a
 
 /** The accounts that hold lots of this coin: main first, then each space in the order the book lists them. */
 export function lotAccounts(book: LotBookAnswer, asset: string): string[] {
-  const held = new Set(lotsOf(book, asset).map((lot) => lot.spaceId ?? 'main'));
+  const held = new Set(lotsOf(book, asset).map(lotAccountOf));
   const spaces = book.spaces?.status === 'read' ? book.spaces.list.map((s) => s.spaceId) : [];
-  return ['main', ...spaces].filter((id) => held.has(id));
+  const venues = book.venue?.status === 'read' ? book.venue.accounts.map((a) => a.account) : [];
+  return ['main', ...spaces, ...venues].filter((id) => held.has(id));
 }
 
 /** `?account=` picks whose lots are shown; absent or unknown is every account. */
@@ -195,10 +212,12 @@ export function pickableLots(book: LotBookAnswer, sale: LotBookSale): LotBookLot
     book.sales.filter((s) => s.assetId === sale.assetId && s.disposedAt >= sale.disposedAt).flatMap((s) => s.matches.map((m) => m.lotId)),
   );
   // A sale is a trade on the main account: a lot in a space, or one carried back to main after the sale, is not one it can use.
+  // A venue sale draws only on its own venue account's lots, and a ledger sale never on a venue lot.
   return book.lots.filter(
     (lot) =>
       lot.assetId === sale.assetId &&
       lot.spaceId === undefined &&
+      lot.venueAccount === sale.venueAccount &&
       lot.acquiredAt <= sale.disposedAt &&
       (lot.carriedFrom === undefined || lot.carriedFrom.movedAt <= sale.disposedAt) &&
       (lot.remaining !== '0' || usedFromHere.has(lot.id)),
@@ -313,7 +332,7 @@ export function pnlFigures(book: LotBookAnswer, rows: readonly MoneyRow[] | null
   } else if (lastBuy) {
     const remaining = dec(lastBuy.remaining)!;
     const cost = dec(lastBuy.remainingCostUsd);
-    const worth = remaining > 0n ? valueOf(byAsset.get(lastBuy.assetId), remaining) : 0n;
+    const worth = lastBuy.venueAccount !== undefined ? null : remaining > 0n ? valueOf(byAsset.get(lastBuy.assetId), remaining) : 0n;
     trade = {
       kind: 'buy',
       assetId: lastBuy.assetId,
@@ -340,7 +359,8 @@ export function pnlFigures(book: LotBookAnswer, rows: readonly MoneyRow[] | null
     day = known(0n);
     for (const lot of open) {
       const remaining = dec(lot.remaining)!;
-      const row = byAsset.get(lot.assetId);
+      // A venue lot is not valued at our prices (see pnlView).
+      const row = lot.venueAccount === undefined ? byAsset.get(lot.assetId) : undefined;
       const before = Date.parse(lot.acquiredAt) <= now - DAY_MS;
       if (before) {
         const move = dayMoveOf(row, remaining);

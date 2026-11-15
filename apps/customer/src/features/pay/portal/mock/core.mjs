@@ -343,6 +343,17 @@ export function createCoreMock(ctx) {
               return { assetCode, clearing: held ? fromU(held.clearing) : '0', available: held ? fromU(held.proceeds) : '0' };
             }),
           });
+        case 'merchantMetrics.partnerTerms':
+          // TEST: the stand-in partner has given no terms, so each reads "not known", as the TEST acquirer does by default.
+          return ok(route, {
+            merchantId: MERCHANT_ID,
+            partner: 'TEST',
+            asOf: iso(Date.now()),
+            reserveRule: { known: false },
+            shortfallCover: { known: false },
+            currencies: { known: false },
+            instantPayout: { known: false },
+          });
         case 'merchantOps.team.me':
           return scenario === 'new'
             ? refuse(route, 403, 'pay.merchant_ops_not_merchant')

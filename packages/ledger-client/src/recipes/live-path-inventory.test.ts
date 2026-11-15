@@ -79,6 +79,12 @@ const PINNED_SOCKETS: readonly { name: RecipeName; fingerprint: string }[] = [
   { name: 'buybackOrderHoldRelease', fingerprint: '10956b0267e4' },
   { name: 'buybackTakerFill', fingerprint: 'feb69e826223' },
   { name: 'bankTransferReversal', fingerprint: '56a8770216cd' },
+  { name: 'feeShareBudgetFund', fingerprint: '735444de9a10' },
+  { name: 'feeShareOwe', fingerprint: 'dc85cf8681c9' },
+  { name: 'feeSharePayOut', fingerprint: '8c5f9df47085' },
+  { name: 'partnerFeeSettle', fingerprint: 'fa297367e6cc' },
+  { name: 'feeGiveBackOwe', fingerprint: '3c7e9fe3e86f' },
+  { name: 'feeGiveBackPayOut', fingerprint: 'f7f6a98f3e44' },
 ];
 
 /**
@@ -98,9 +104,14 @@ const RECIPE_GATE_CATALOG = 'services/svc-ledger/src/recipe-gate.ts';
 const BUYBACK_PLACE = 'services/svc-trade/src/spot/trade-service/buyback.ts';
 const BUYBACK_ORDER = 'services/svc-trade/src/spot/buyback-order.ts';
 const BUYBACK_FILLS = 'services/svc-trade/src/spot/trade-service/fills.ts';
-
 const SOCKET_CALLER_ALLOWLIST: ReadonlyMap<RecipeName, readonly string[]> = new Map([
   ['marketMakerSeedFund', [RECIPE_GATE_CATALOG]],
+  ['feeShareBudgetFund', [RECIPE_GATE_CATALOG]],
+  ['feeShareOwe', [RECIPE_GATE_CATALOG]],
+  ['feeSharePayOut', [RECIPE_GATE_CATALOG]],
+  ['partnerFeeSettle', [RECIPE_GATE_CATALOG]],
+  ['feeGiveBackOwe', [RECIPE_GATE_CATALOG]],
+  ['feeGiveBackPayOut', [RECIPE_GATE_CATALOG]],
   ['tradeFillFeeCorrection', [RECIPE_GATE_CATALOG]],
   ['orderHoldAmend', [RECIPE_GATE_CATALOG]],
   ['marketListingFee', [RECIPE_GATE_CATALOG]],
@@ -121,11 +132,11 @@ describe('D26-P2-11 recipe matrix inventory (live path closure)', () => {
     expect(inventory.live.length + inventory.sockets.length).toBe(inventory.recipes.length);
   });
 
-  it('pins live vs §13 socket counts on tip (88 = 79 live + 9 socket)', () => {
+  it('pins live vs §13 socket counts on tip (106 = 91 live + 15 socket)', () => {
     const counts = countByKind(inventory);
-    expect(counts).toEqual({ live: 79, socket: 9 });
-    expect(inventory.recipes).toHaveLength(88);
-    expect(liveRecipeKeys(inventory)).toHaveLength(79);
+    expect(counts).toEqual({ live: 91, socket: 15 });
+    expect(inventory.recipes).toHaveLength(106);
+    expect(liveRecipeKeys(inventory)).toHaveLength(91);
     expect(socketRecipeKeys(inventory)).toEqual(PINNED_SOCKETS.map((s) => s.name).sort());
   });
 

@@ -80,6 +80,8 @@ export const developersCopy = defineCopy(
     merchantOpen: 'Open merchant developer tools',
     section_connectivity: 'Connectivity',
     section_data_terms: 'Market data terms',
+    section_order_types: 'Order types',
+    section_bot_policy: 'Bot policy',
     access_exchange:
       'Public market data needs no key. Your own orders, balances and positions need a key from your signed-in account, and a key does only what its permissions allow. Withdrawals are never reachable with a key.',
     access_institutional:
@@ -103,6 +105,8 @@ export const developersCopy = defineCopy(
     es: {
       section_connectivity: 'Conectividad',
       section_data_terms: 'Condiciones de los datos de mercado',
+      section_order_types: 'Tipos de orden',
+      section_bot_policy: 'Política de bots',
       access_exchange:
         'Los datos públicos de mercado no necesitan clave. Tus órdenes, saldos y posiciones necesitan una clave de tu cuenta con sesión iniciada, y una clave solo hace lo que permiten sus permisos. Los retiros nunca son posibles con una clave.',
       access_institutional:
@@ -126,6 +130,8 @@ export const developersCopy = defineCopy(
     fr: {
       section_connectivity: 'Connectivité',
       section_data_terms: 'Conditions des données de marché',
+      section_order_types: 'Types d’ordre',
+      section_bot_policy: 'Politique des bots',
       access_exchange:
         'Les données de marché publiques ne demandent pas de clé. Vos ordres, soldes et positions demandent une clé de votre compte connecté, et une clé ne fait que ce que ses autorisations permettent. Les retraits ne sont jamais accessibles avec une clé.',
       access_institutional:

@@ -228,11 +228,23 @@ test(`${J} #5 drags beyond the protection distance: a confirmation naming the di
   const sent = orderWrites();
   const previews = [];
   page.on('request', (r) => r.method() === 'POST' && new URL(r.url()).pathname === '/api/v1/orders/preview' && previews.push(r));
-  const last = await lastPrice();
   const target = await atBid(90); // 10% under the market
+  // The app reads the last price when the drag ends, and the TEST market maker may trade in between, so the last
+  // prices that count are the ones the stack gives from just before the drag to just after the confirmation shows:
+  // every BTC/USDT ticker answer the page receives in that time, and one read on each side (#7641).
+  const lasts = [await lastPrice()];
+  const onTicker = async (response) => {
+    if (new URL(response.url()).pathname !== `/api/v1/ticker/${encodeURIComponent('BTC/USDT')}` || !response.ok()) return;
+    const body = await response.json().catch(() => null);
+    const seen = body?.last ?? body?.close;
+    if (seen != null) lasts.push(seen);
+  };
+  page.on('response', onTicker);
   await dragLineTo(orderLines().first(), target);
   const ask = page.getByRole('alertdialog', { name: 'Beyond the protection distance' });
   await expect(ask).toBeVisible();
+  page.off('response', onTicker);
+  lasts.push(await lastPrice());
   // The distance named is the dragged price's distance from the last price, and the limit is the owner's TEST 5.00%.
   const text = await ask.textContent();
   const [, priceText, distance, limit] = text.match(
@@ -240,7 +252,8 @@ test(`${J} #5 drags beyond the protection distance: a confirmation naming the di
   );
   expect(limit).toBe('5.00');
   const dragged = Number(priceText.replaceAll(',', ''));
-  expect(Math.abs(Number(distance) - (Math.abs(dragged - Number(last)) / Number(last)) * 100)).toBeLessThan(0.1);
+  const gaps = lasts.map((last) => Math.abs(Number(distance) - (Math.abs(dragged - Number(last)) / Number(last)) * 100));
+  expect(Math.min(...gaps), `named ${distance}% against last prices ${lasts.join(', ')}`).toBeLessThan(0.1);
   expect(Number(distance)).toBeGreaterThan(5);
   // Before anything is sent: no order, replace or even a preview went out, and the order is as it was.
   await page.waitForTimeout(1000);

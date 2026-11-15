@@ -13,12 +13,16 @@ import { VerificationAttempts } from './VerificationAttempts';
 import { VerificationGuided } from './VerificationGuided';
 import { VerificationProofOfAddress } from './VerificationProofOfAddress';
 import { VerificationSelfie } from './VerificationSelfie';
+import { VerificationTradingChecks } from './VerificationTradingChecks';
+import { verificationTradingCopy } from './verification-trading-copy';
 import { KYC_LADDER_LEVELS } from '@intafaced/contracts/identity-kyc-levels';
+import { kycProfileSchema } from '@intafaced/contracts/identity-kyc-profile';
 import {
   finishVerification,
   readVerification,
   requestedTier,
   saveVerification,
+  bankStepsOpen,
   verificationBlocked,
   verificationKey,
   verificationLock,
@@ -48,6 +52,12 @@ type Known = {
   finalized?: boolean;
 };
 type Problem = 'storage' | 'locks' | 'another' | 'changed' | 'invalidCountry';
+/**
+ * Whether the ID and selfie steps show before the person asks for the bank's verification. They do not: trading asks for
+ * no ID document or selfie (J-cex-spot-01 #3, OWNER 258 (4)), so /verification leads with the trading checks and the
+ * bank's steps open on "Start verification for the bank".
+ */
+const BANK_ROUTE_OPEN = false;
 const emptyJournal: VerificationJournal = { records: [], failed: false };
 
 export function Verification() {
@@ -60,6 +70,19 @@ export function Verification() {
   const [review, setReview] = useState<Original | null>(null),
     [active, setActive] = useState<Original | null>(null),
     [known, setKnown] = useState<Known[]>([]);
+  // The ID and selfie steps are for the bank, never for trading (OWNER 258 (4)).
+  const [bankRoute, setBankRoute] = useState(BANK_ROUTE_OPEN);
+  const trading = verificationTradingCopy.useCopy();
+  // A guided draft the person left (J-identity-08 #2): its steps open on their own when they return.
+  const guidedDraft = useResource(
+    (signal) =>
+      userId
+        ? api.query('identity', 'kyc.profile.read', undefined, kycProfileSchema, { signal })
+        : Promise.resolve({ ok: true as const, data: null }),
+    `verification-bank-draft:${userId}`,
+  );
+  const [openedSearch] = useState(() => window.location.search);
+  const bankOpen = bankStepsOpen(bankRoute, openedSearch, guidedDraft.resource.status === 'ready' ? guidedDraft.resource.data : null);
   const [problem, setProblem] = useState<Problem | null>(null),
     [selected, setSelected] = useState<VerificationRecord | null>(null);
   // At the owner's limit on rejected requests the form holds until the lockout ends (I-kyc-compliance-10).
@@ -122,6 +145,7 @@ export function Verification() {
     setCountry('');
     setTier('basic');
     setProblem(null);
+    setBankRoute(BANK_ROUTE_OPEN);
     setLimit(50);
     setStored({ owner: userId, value: userId ? readVerification(userId) : emptyJournal });
   }, [api, userId]);
@@ -460,6 +484,7 @@ export function Verification() {
             <Copy k={problem ?? 'storage'} />
           </p>
         )}
+        <VerificationTradingChecks disabled={!userId || !api.canWrite()} onDone={reload} />
         <div className="verification__columns">
           <section data-testid="verification__list" className="verification__list" aria-label={t('records')}>
             {resource.status === 'loading' ? (
@@ -646,9 +671,25 @@ export function Verification() {
           <Loading />
         ) : (
           <>
-            {offeredTiers.length > 0 && <VerificationGuided tier={chosenTier} disabled={blocked} onSent={reload} />}
-            {/* Not the request form's hold either: a selfie is part of the request, so a lockout does not stop it. */}
-            <VerificationSelfie recordsKey={casesKey} disabled={!userId || !api.canWrite()} />
+            {bankOpen ? (
+              <>
+                {offeredTiers.length > 0 && <VerificationGuided tier={chosenTier} disabled={blocked} onSent={reload} />}
+                {/* Not the request form's hold either: a selfie is part of the request, so a lockout does not stop it. */}
+                <VerificationSelfie recordsKey={casesKey} disabled={!userId || !api.canWrite()} />
+              </>
+            ) : (
+              <section className="verification__bank" aria-label={trading.t('bankTitle')} data-testid="verification__bank">
+                <h2>
+                  <trading.Copy k="bankTitle" />
+                </h2>
+                <p className="muted">
+                  <trading.Copy k="bankBody" />
+                </p>
+                <Button variant="secondary" onClick={() => setBankRoute(true)}>
+                  <trading.Copy k="bankOpen" />
+                </Button>
+              </section>
+            )}
             {/* Not the request form's hold: an attempts lockout or a pending request does not stop proof of address. */}
             <VerificationProofOfAddress recordsKey={casesKey} disabled={!userId || !api.canWrite()} />
             <VerificationCapabilities recordsKey={casesKey} />

@@ -975,6 +975,241 @@ function extraShapePosts(): Array<{ name: RecipeName; post: PostRequest }> {
       }),
     },
     {
+      name: 'builderFeeEarn',
+      post: recipes.builderFeeEarn({
+        venueId: 'test-venue-sim',
+        venueAccount: '0x00000000000000000000000000000000000000a1',
+        fillId: 'f-builder',
+        assetId: 'USDC',
+        amount: AMT,
+        userId: U,
+      }),
+    },
+    {
+      name: 'builderFeeReceive',
+      post: recipes.builderFeeReceive({ venueId: 'test-venue-sim', claimId: 'p-builder', assetId: 'USDC', amount: AMT }),
+    },
+    {
+      name: 'ownFundsMove',
+      post: recipes.ownFundsMove({
+        from: { kind: 'venue-builder-account', venueId: 'test-venue-sim' },
+        to: { kind: 'treasury-wallet', walletId: 'test' },
+        assetId: 'USDC',
+        amount: AMT,
+        reference: '0xtest',
+      }),
+    },
+    // A move with its costs from the outside record: one cost (either kind), or both.
+    {
+      name: 'ownFundsMove',
+      post: recipes.ownFundsMove({
+        from: { kind: 'venue-builder-account', venueId: 'test-venue-sim' },
+        to: { kind: 'treasury-wallet', walletId: 'test' },
+        assetId: 'USDC',
+        amount: AMT,
+        reference: '0xtest-one-cost',
+        costs: [{ kind: 'venue-withdrawal-fee', paidTo: 'test-venue-sim', amount: AMT }],
+      }),
+    },
+    {
+      name: 'ownFundsMove',
+      post: recipes.ownFundsMove({
+        from: { kind: 'venue-builder-account', venueId: 'test-venue-sim' },
+        to: { kind: 'treasury-wallet', walletId: 'test' },
+        assetId: 'USDC',
+        amount: AMT,
+        reference: '0xtest-two-costs',
+        costs: [
+          { kind: 'venue-withdrawal-fee', paidTo: 'test-venue-sim', amount: AMT },
+          { kind: 'network-fee', paidTo: 'test-chain', amount: AMT },
+        ],
+      }),
+    },
+    {
+      name: 'campaignBudgetFund',
+      post: recipes.campaignBudgetFund({ campaignId: 'test-campaign', decisionId: 'approval-test', assetId: 'USDC', amount: AMT }),
+    },
+    {
+      name: 'rewardOwe',
+      // Shape sample only, never posted: a TEST ceiling, because the owner's ceiling is unset and Owe refuses without one.
+      post: recipes.rewardOwe({
+        campaignId: 'test-campaign',
+        rewardId: `campaign:test-campaign:${U}:test`,
+        userId: U,
+        kind: 'reward',
+        assetId: 'USDC',
+        amount: AMT,
+        ceiling: { perCampaign: AMT, total: AMT },
+        owedSoFar: { campaign: 0n, total: 0n },
+      }),
+    },
+    {
+      name: 'rewardPayOut',
+      post: recipes.rewardPayOut({
+        rewardId: `campaign:test-campaign:${U}:test`,
+        from: { kind: 'treasury-wallet', walletId: 'test' },
+        toWallet: '0x00000000000000000000000000000000000000c1',
+        chainTx: '0xtest',
+        assetId: 'USDC',
+        amount: AMT,
+      }),
+    },
+    {
+      name: 'feeShareBudgetFund',
+      post: recipes.feeShareBudgetFund({ venueId: 'test-venue', claimId: 'claim-test', assetId: 'USDC', claimAmount: AMT, amount: AMT }),
+    },
+    {
+      name: 'feeShareOwe',
+      // Shape sample only, never posted: a TEST rate, because the owner's share rate is unset and Owe refuses without one.
+      post: recipes.feeShareOwe({
+        venueId: 'test-venue',
+        venueAccount: '0xtest',
+        fillId: 'fill-test',
+        recipient: { kind: 'lead-trader', userId: U },
+        assetId: 'USDC',
+        feeEarned: AMT,
+        rate: { bps: 10_000 },
+        amount: AMT,
+        sharedSoFarOnFill: 0n,
+      }),
+    },
+    {
+      name: 'feeSharePayOut',
+      post: recipes.feeSharePayOut({
+        recipient: { kind: 'lead-trader', userId: U },
+        from: { kind: 'treasury-wallet', walletId: 'test' },
+        toWallet: '0x00000000000000000000000000000000000000c1',
+        chainTx: '0xtest',
+        assetId: 'USDC',
+        amount: AMT,
+      }),
+    },
+    {
+      name: 'chargeEarn',
+      // Shape sample only, never posted: a TEST price, because the owner's price is unset and Earn refuses without one.
+      post: recipes.chargeEarn({ module: 'agents', saleId: 'sale-test', userId: U, assetId: 'USDC', price: { perUnit: AMT }, units: 1n }),
+    },
+    {
+      name: 'chargeCollect',
+      post: recipes.chargeCollect({
+        module: 'agents',
+        userId: U,
+        to: { kind: 'treasury-wallet', walletId: 'test' },
+        paymentId: '0xtest',
+        assetId: 'USDC',
+        amount: AMT,
+      }),
+    },
+    {
+      name: 'academyPurchase',
+      post: recipes.academyPurchase({
+        course: 'test-course',
+        userId: U,
+        n: 1n,
+        assetId: 'USDC',
+        amount: AMT,
+        to: { kind: 'treasury-wallet', walletId: 'test' },
+        paymentId: `0x${'a'.repeat(64)}`,
+      }),
+    },
+    {
+      name: 'academyPurchaseRefund',
+      post: recipes.academyPurchaseRefund({
+        course: 'test-course',
+        userId: U,
+        n: 1n,
+        assetId: 'USDC',
+        amount: AMT,
+        from: { kind: 'treasury-wallet', walletId: 'test' },
+        paymentId: `0x${'b'.repeat(64)}`,
+      }),
+    },
+    {
+      // Collected by the person's partner into our own money at that partner (svc-agents meter.ts, J-agents-01).
+      name: 'chargeCollect',
+      post: recipes.chargeCollect({
+        module: 'agents',
+        userId: U,
+        to: { kind: 'partner-reserve', partnerId: 'test' },
+        paymentId: 'partner-payment-test',
+        assetId: 'USDC',
+        amount: AMT,
+      }),
+    },
+    {
+      name: 'partnerFeeEarn',
+      // Shape sample only, never posted: a TEST rate, because the owner's rate is unset and Earn refuses without one.
+      post: recipes.partnerFeeEarn({
+        partnerId: 'test-partner',
+        module: 'merchant',
+        paymentId: 'pay-test',
+        assetId: 'USDC',
+        grossAmount: AMT,
+        rate: { bps: 100 },
+      }),
+    },
+    {
+      name: 'partnerFeeEarn',
+      // The same recipe as svc-pay posts it at capture (J-merchant-04): our fee on a hosted-checkout payment the partner
+      // took, under module pay. Shape sample only, never posted.
+      post: recipes.partnerFeeEarn({
+        partnerId: 'test-partner',
+        module: 'pay',
+        paymentId: 'pay-test',
+        assetId: 'USDC',
+        grossAmount: AMT,
+        rate: { bps: 100 },
+      }),
+    },
+    {
+      name: 'merchantFeeEarn',
+      // Shape sample only, never posted: a TEST fee, because a blank fee refuses.
+      post: recipes.merchantFeeEarn({
+        module: 'pay',
+        merchantId: U,
+        paymentId: 'pay-test',
+        assetId: 'USDC',
+        grossAmount: AMT,
+        rate: { bps: 100 },
+      }),
+    },
+    {
+      name: 'partnerFeeSettle',
+      post: recipes.partnerFeeSettle({
+        partnerId: 'test-partner',
+        module: 'merchant',
+        to: { kind: 'treasury-wallet', walletId: 'test' },
+        settlementLineId: 'line-test',
+        assetId: 'USDC',
+        amount: AMT,
+      }),
+    },
+    {
+      name: 'feeGiveBackOwe',
+      // Shape sample only, never posted: TEST approvers and amounts.
+      post: recipes.feeGiveBackOwe({
+        venueId: 'test-venue',
+        venueAccount: '0xtest',
+        fillId: 'f-test',
+        userId: '11111111-1111-4111-8111-111111111111',
+        assetId: 'USDC',
+        feePaid: AMT,
+        amount: AMT,
+        approvers: ['test-approver-a', 'test-approver-b'],
+      }),
+    },
+    {
+      name: 'feeGiveBackPayOut',
+      post: recipes.feeGiveBackPayOut({
+        userId: '11111111-1111-4111-8111-111111111111',
+        from: { kind: 'treasury-wallet', walletId: 'test' },
+        toWallet: '0x00000000000000000000000000000000000000c1',
+        chainTx: '0xtest',
+        assetId: 'USDC',
+        amount: AMT,
+      }),
+    },
+    {
       name: 'tradeFillMakerRebate',
       post: recipes.tradeFillMakerRebate({ ...fill, fillId: 'f-rebate', makerFeeBps: 0, takerFeeBps: 10, makerRebateBps: 5 }),
     },

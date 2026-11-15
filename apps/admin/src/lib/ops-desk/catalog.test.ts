@@ -139,7 +139,14 @@ describe('the desks cover what the product order asks for', () => {
   it('bank: the operator reads of BANKOPS are on the desk, and the card freeze is a two-founder section action', () => {
     const procedures = allReads(DESKS.bank).map((r) => r.procedure);
     expect(procedures).toEqual(
-      expect.arrayContaining(['ops.poolTotals', 'ops.loanBook', 'ops.cardProgramme', 'ops.rampHealth', 'ops.businessApprovals']),
+      expect.arrayContaining([
+        'ops.poolTotals',
+        'ops.loanBook',
+        'ops.cardProgramme',
+        'ops.cardPartnerTerms',
+        'ops.rampHealth',
+        'ops.businessApprovals',
+      ]),
     );
     const cards = DESKS.bank.sections.find((s) => s.id === 'cards')!;
     expect(cards.sectionAction).toBe('bank.card.status');
@@ -358,7 +365,9 @@ describe('the desks cover what the product order asks for', () => {
     expect(token.unavailable.map((u) => u.id)).toEqual(['token.supply']);
   });
   it('protocol: chain, audit, indexer finality, DEX health the blockers panel and the listing control link, never INTACHAIN or audited', () => {
-    expect(sections('protocol')).toEqual(['chain', 'audit', 'indexer', 'dex', 'blockers', 'listing']);
+    expect(sections('protocol')).toEqual(['chain', 'audit', 'indexer', 'dex', 'blockers', 'listing', 'trust']);
+    // J-dex-protocol-30: the trust desk is its own panel, read from svc-protocol as the founder.
+    expect(DESKS.protocol.sections.find((s) => s.id === 'trust')).toMatchObject({ title: 'Trust and safety', panel: 'protocol.trust' });
     expect(allReads(DESKS.protocol).map((r) => `${r.module}.${r.procedure}`)).toEqual([
       'protocol.chainStatus',
       'protocol.auditStatus',

@@ -71,6 +71,8 @@ const messages = {
   'Trades, orders and transfers': 'Trades, orders and transfers',
   'Profit and loss': 'Profit and loss',
   'What your trades have made or lost': 'What your trades have made or lost',
+  'Algo editor': 'Algo editor',
+  'The strategy code editor, on sample data': 'The strategy code editor, on sample data',
   Markets: 'Markets',
   'Prices for every market': 'Prices for every market',
   'Charts, order book and orders': 'Charts, order book and orders',

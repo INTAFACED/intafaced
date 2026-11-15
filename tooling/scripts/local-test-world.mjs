@@ -36,6 +36,8 @@ import {
   localPgBin,
   localStackState,
   readLatestEmailConfirmToken,
+  stackCustodyOff,
+  custodyOffRefusal,
 } from './local-test-state.mjs';
 import * as gatesLocal from './local-test-gates.mjs';
 import { approvePending, makeContext as makeGatesContext, pendingKycCount } from './local-test-gates.mjs';
@@ -697,6 +699,9 @@ function guard() {
 async function cmdWatch() {
   const { paths: p } = guard();
   assertActiveLocalStack({ stateDir: p.stateDir, services: ['edge', 'identity', 'ledger', 'bank'] });
+  // Every move it makes is a person's balance in our ledger: custody-on only (OWNER 226, OWNER 288).
+  if (stackCustodyOff(p.stateDir))
+    die(custodyOffRefusal('the welcome-funds watcher (welcome deposits to each new person, a friend who sends money back)'), 3);
   const log = makeLogger(p.log);
   const secrets = readJson(p.secrets, null);
   if (!secrets) die('secrets.json missing in the local stack state directory');
@@ -754,6 +759,8 @@ async function cmdWatch() {
 async function cmdSeed() {
   const { paths: p } = guard();
   assertActiveLocalStack({ stateDir: p.stateDir, services: ['edge', 'identity', 'ledger', 'bank'] });
+  // Every move it makes is a person's balance in our ledger: custody-on only (OWNER 226, OWNER 288).
+  if (stackCustodyOff(p.stateDir)) die(custodyOffRefusal('the TEST world seed (welcome deposits and person-to-person transfers)'), 3);
   const log = makeLogger(p.log);
   const secrets = readJson(p.secrets, null);
   if (!secrets) die('secrets.json missing in the local stack state directory');

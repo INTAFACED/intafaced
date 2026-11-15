@@ -23,6 +23,7 @@ import {
   type Source,
 } from './blockers';
 import { protocolCopy as copy } from './copy';
+import { AssetLinkReview, VenueReadDocs } from './venue/AssetLink';
 import { ContractsPanel, type ChainRef, NetworkPanel, SupportedNetworksPanel } from './NetworkPanels';
 import { ChainHome } from './explorer/ChainHome';
 import { BlocksList } from './explorer/pages';
@@ -30,6 +31,8 @@ import { TokensNav } from './tokens/TokensRoom';
 import { PoolsList } from './pools/PoolsList';
 import { BridgeRoutes } from './rails/BridgeRoutes';
 import { AuditProducts } from './AuditProducts';
+import { VenueFunds } from './venue/VenueFunds';
+import { LendPanel } from './lend/LendPanel';
 import './explorer/explorer.css';
 import './protocol.css';
 
@@ -187,10 +190,10 @@ export function Actions({ actions, snapshot, t }: { actions: readonly ProtocolAc
                 // An outside dependency (the allowlist): the shell's one service-off sentence and code.
                 <ServiceOffNotice code={refusal} action={t(`act_${action}`)} className="protocol-actions__reason" role="note" />
               ) : (
-                // Our own gap or a plain state: its reason, never an allowlist code.
-                <p className="protocol-actions__reason" role="note">
-                  {t('blockedBy', { reason })}
-                </p>
+                // Our own gap or a plain state: its reason in the shared empty-state component, never an allowlist code.
+                <div className="protocol-actions__reason protocol-actions__gap" role="note">
+                  <EmptyState title={t('blockedBy', { reason })} />
+                </div>
               )}
               {listed.length > 1 && (
                 <details>
@@ -523,10 +526,12 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
         <EmptyState title={t('positionsEmpty')} />
       </Panel>
     );
+  else if (slug === 'dex' && tab === 'lend') body = <LendPanel api={api} t={t} />;
   else if (slug === 'dex' && tab === 'venue')
     body = (
       <>
         {venuePanel}
+        <VenueFunds api={api} t={t} />
         <QuoteDesk api={api} t={t} />
         <SupportedNetworksPanel t={t} chain={chainRef} />
       </>
@@ -550,7 +555,14 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
         </Panel>
       </>
     );
-  else if (slug === 'protocol' && tab === 'contracts') body = <ContractsPanel chain={chainRef} t={t} />;
+  else if (slug === 'protocol' && tab === 'contracts')
+    body = (
+      <>
+        <ContractsPanel chain={chainRef} t={t} />
+        <AssetLinkReview api={api} t={t} />
+        <VenueReadDocs api={api} t={t} />
+      </>
+    );
   else if (slug === 'protocol' && tab === 'rails')
     body = (
       <Panel title={t('railsTitle')}>

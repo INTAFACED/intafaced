@@ -177,6 +177,14 @@ const schema = serviceEnvSchema
         // At most a year: the edit check casts it to a Postgres int, and no window is longer than the order it reviews.
         z.coerce.number().int().min(1).max(31_536_000).optional(),
       ),
+      /**
+       * P-ads-merchant-22: how many of one trader's new ads a day reach their followers as a notice (whole number ≥ 1).
+       * Empty is unset: no follower notice is sent (the ad itself posts as usual). Never invent a figure.
+       */
+      P2P_FOLLOWER_NOTICES_PER_DAY: z.preprocess(
+        (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+        z.coerce.number().int().min(1).max(1000).optional(),
+      ),
       /** P-trade-orders-21: hours support has to review a completion appeal. Empty is unset → appeal refuses p2p.config_unset. */
       P2P_APPEAL_REVIEW_HOURS: z.preprocess(
         (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
@@ -191,6 +199,11 @@ const schema = serviceEnvSchema
         z.coerce.number().int().min(1).optional(),
       ),
       P2P_EXPORT_MAX_ROWS: z.preprocess(
+        (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+        z.coerce.number().int().min(1).optional(),
+      ),
+      /** Order-history exports per person per UTC day. Empty is unset, and trades.exportFile refuses p2p.config_unset. */
+      P2P_EXPORT_DAILY_QUOTA: z.preprocess(
         (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
         z.coerce.number().int().min(1).optional(),
       ),

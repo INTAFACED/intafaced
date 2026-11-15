@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 /**
  * Merge-seal step: a pull request that changes gate-file or look-baseline paths is sealed only when
- * the `CI review` job (.github/workflows/ci-review.yml) passed its `Verdict` step on the pull request's exact head.
+ * the `CI review` job (.github/workflows/ci-review.yml) passed its `Verdict` step on the pull request's exact head, and
+ * one that changes a journey test or shared test code only when the same job passed its `Test verdict` step there
+ * (JUDGE_CHECK; one model call answers both).
  *
  *   node tooling/ci/review-marker.mjs --self-test
  *   GH_TOKEN=... HEAD_SHA=... REPO=owner/name PR_NUMBER=... node tooling/ci/review-marker.mjs
@@ -18,8 +20,9 @@
  * that changes the code is reviewed afresh. (Failure it prevents: #7078 merged 12 minutes before its review, OWNER 154
  * (a); and a PASS comment from the one login every agent shares said nothing about who reviewed.)
  *
- * The seal waits up to REVIEW_WAIT_MS for the review before it fails, and the review job re-runs a red seal on its head
- * once it passes (ci-review.mjs), so nobody re-runs it by hand. Same requirement, later verdict: a head without the
+ * The seal waits up to REVIEW_WAIT_MS for the review before it fails, and the review run's last job (`Start the seal`,
+ * journey-seal.mjs START_JOB) re-runs the seal on its head once every input there has finished, so nobody re-runs it by
+ * hand. Same requirement, later verdict: a head without the
  * review still fails.
  *
  * Only gate-file and look-baseline changes need it (owner decisions 2026-10-22 and, for baselines,
@@ -28,142 +31,81 @@
  * same rule is applied to every pull request in the group, each against its own head, without waiting (sealMergeGroup).
  * The seal runs the default branch's copy of this file, so a pull request cannot change which of its files need the
  * review. A pull request that edits the workflow itself touches .github/workflows/, a gate file, which always needs the review.
- *
- * The comment and session helpers below (MARKER, sessionsForHead, commentSignoff, ...) stay exported for
- * review-signoff.mjs, which still runs until its retirement PR; nothing in the seal reads them any more.
  */
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { gateFilesTouched } from '../scripts/gate-file-guard.mjs';
+import { gateFilesTouched } from '../scripts/gate-files.mjs';
 import { BASELINE } from './look-baselines.mjs';
 import { judgeReason } from './test-judge.mjs';
+import { httpMessage, titleFor } from './api-budget.mjs';
 
 /** How long the seal waits for the review before it fails, and how often it looks. ci.yml's merge-seal timeout covers it. */
 const REVIEW_WAIT_MS = 20 * 60_000;
 const REVIEW_POLL_MS = 60_000; // each poll reads the head's and the branch's lists, the tree index and its review runs
 
-/** The comment line the sign-off workflow accepts, on its own line. */
-export const MARKER = /^Independent review: PASS ([0-9a-f]{40})[ \t]*$/im;
-
+/** The status the retired sign-off workflow posted (review-signoff.yml, retired in U4 C5). Nothing counts it: the seal
+ *  reads only the CI review's Verdict (ci-review.test.mjs plants one to prove it). */
 export const STATUS_CONTEXT = 'Independent review';
-
-const SESSION_ID = /session_[A-Za-z0-9]+/g;
-/**
- * A commit's session trailer, the `<Tool>-Session: <link>` line AGENTS.md, "Where a mistake costs more" names. Any word before `-Session:`
- * counts, so a renamed trailer still names its author (more author sessions, never fewer).
- */
-const SESSION_TRAILER = /^[A-Za-z]+-Session:/i;
-
-/** The sessions that wrote a pull request: every session id on a session-trailer line of its commit messages. */
-export function commitSessions(messages) {
-  const out = new Set();
-  for (const msg of messages ?? []) {
-    for (const line of String(msg ?? '').split('\n')) {
-      if (SESSION_TRAILER.test(line.trim())) for (const id of line.match(SESSION_ID) ?? []) out.add(id);
-    }
-  }
-  return out;
-}
-
-/**
- * The author sessions of head `sha`, from the pull request's commit list (GitHub's /pulls/{n}/commits: at most 250,
- * ordered by date, not by parent). Null when the list may not be whole for this head: the head is not in it (a push
- * in between) or GitHub's cap of 250 was reached. One rule for the seal and the sign-off workflow.
- */
-export function sessionsForHead(commits, sha) {
-  const list = commits ?? [];
-  const want = String(sha).toLowerCase();
-  if (list.length >= 250 || !list.some((c) => String(c?.sha ?? '').toLowerCase() === want)) return null;
-  return commitSessions(list.map((c) => c?.commit?.message));
-}
-
-/** A `Reviewer session:` line whose first word is the session, bare or as a link (tooling/ci/ci-review/REVIEW.md). */
-const REVIEWER_LINE = /^Reviewer session:\s*<?(?:https?:\/\/[^\s>]*\/)?(session_[A-Za-z0-9]+)\b/i;
-
-/**
- * The sessions a PASS names as its reviewer: the session written first on each `Reviewer session:` line. The rest of
- * the line may name the author ("Reviewer session: session_R (author is session_A)") without making it the author's
- * PASS. A comment with no such line counts every session id in it, so any other phrasing errs towards refusing.
- */
-export function passSessions(body) {
-  const lines = String(body ?? '').split('\n');
-  const named = lines.map((l) => REVIEWER_LINE.exec(l.trim())?.[1]).filter(Boolean);
-  return new Set(named.length > 0 ? named : lines.flatMap((l) => l.match(SESSION_ID) ?? []));
-}
-
-/** The sessions a PASS names on its `Reviewer session:` lines, and only those. */
-export function reviewerLineSessions(body) {
-  return String(body ?? '')
-    .split('\n')
-    .map((l) => REVIEWER_LINE.exec(l.trim())?.[1])
-    .filter(Boolean);
-}
-
-/**
- * Why a PASS does not count for the session it names, or null when it does. A PASS must name its reviewing session on
- * a line of its own, `Reviewer session: session_…` (AGENTS.md, "Where a mistake costs more"; a gate since OWNER 138 (1)(a), 31 Oct): without
- * one, nothing shows another session reviewed. A PASS that names the PR's own session does not count either (owner
- * decision 2026-10-30, OWNER 124 (4)): a session on one of the PR's session-trailer commit lines. `authorSessions` is
- * that Set, or null when the commits could not be read whole; then no PASS counts.
- */
-export function sessionRefusal(body, authorSessions) {
-  if (reviewerLineSessions(body).length === 0)
-    return 'it names no reviewing session; add a line of its own `Reviewer session: session_…` (AGENTS.md, "Where a mistake costs more")';
-  if (!(authorSessions instanceof Set)) return "the pull request's commits could not be read whole, so its sessions are unknown";
-  for (const id of passSessions(body)) {
-    if (authorSessions.has(id)) return `it names the pull request's own session (${id}); another session must review`;
-  }
-  return null;
-}
-
-/** True when the newest status of the review context on this head is a success. */
-export function hasSignoff(statuses) {
-  const mine = statuses.filter((s) => s?.context === STATUS_CONTEXT);
-  return mine.length > 0 && mine[0].state === 'success'; // the API lists newest first
-}
-
-/**
- * A PASS marker for exactly this head by a listed reviewer (the session rule is separate: sessionRefusal). `reviewers`
- * are lower-case logins from the default branch's reviewers.json, `author` is the pull request author's login.
- */
-export function markerFits(c, { sha, reviewers, requireDistinctFromAuthor, author }) {
-  const login = String(c?.user?.login ?? '').toLowerCase();
-  const m = MARKER.exec(c?.body ?? '');
-  if (!m || m[1].toLowerCase() !== String(sha).toLowerCase() || !reviewers.includes(login)) return false;
-  return !(requireDistinctFromAuthor && login === String(author ?? '').toLowerCase());
-}
-
-/**
- * Does a PASS comment sign off this head? `comments` are issue comments; `authorSessions` the sessions on the PR's
- * session-trailer commit lines, or null (unknown: nothing counts). Returns { ok, refused }, where `refused` lists the
- * fitting PASSes the session rule turned down, with why.
- */
-export function commentSignoff({ comments, authorSessions = null, ...who }) {
-  const refused = [];
-  for (const c of (comments ?? []).filter((x) => markerFits(x, who))) {
-    const reason = sessionRefusal(c.body, authorSessions);
-    if (!reason) return { ok: true, refused };
-    refused.push({ id: c.id, reason });
-  }
-  return { ok: false, refused };
-}
-
-export const hasCommentSignoff = (args) => commentSignoff(args).ok;
 
 /** The one workflow, job and step whose result seals a head (AGENTS.md, "Where a mistake costs more"). */
 export const REVIEW_WORKFLOW = '.github/workflows/ci-review.yml';
 export const REVIEW_JOB = 'CI review';
 export const VERDICT_STEP = 'Verdict';
 /**
- * The two verdicts the seal reads from REVIEW_WORKFLOW, each a job and its `Verdict` step: the CI review (gate files
- * and look baselines, reviewReason) and the test judge (journey tests and shared test code, test-judge.mjs
- * judgeReason). Both run in the same pull_request_target run, so the tree index and "a FAIL stands for its code"
- * cover both. (Failure the judge prevents: proof v2's post-merge reach reads voided 545 proofs over one harness change
- * that altered nothing the tests observe; project-state research/system-design-2026-11-07/E1-RESULT.md.)
+ * The two verdicts the seal reads from REVIEW_WORKFLOW's one job, REVIEW_JOB, made from one model call per head (U4,
+ * project-state #1574: "Fold the AI test judge into the one CI review, so a PR has one AI judge"): the review's part
+ * (gate files and look baselines, reviewReason) in its `Verdict` step, and the test part (journey tests and shared test
+ * code, test-judge.mjs judgeReason) in its `Test verdict` step. They stay two steps so each blocks only what it always
+ * blocked: a review FAIL on a test-only change doesn't block, and a test FAIL blocks whatever the review says. Both are
+ * in one run, so the tree index and "a FAIL stands for its code" cover both. (Failure the test part prevents: proof
+ * v2's post-merge reach reads voided 545 proofs over one harness change that altered nothing the tests observe;
+ * project-state research/system-design-2026-11-07/E1-RESULT.md.)
  */
 export const REVIEW_CHECK = { job: REVIEW_JOB, step: VERDICT_STEP, label: 'CI review' };
+export const TEST_VERDICT_STEP = 'Test verdict';
+/** The retired `Test judge` job, whose FAIL on the same code still stands (never its pass): ciReviewVerdict. */
 export const JUDGE_JOB = 'Test judge';
-export const JUDGE_CHECK = { job: JUDGE_JOB, step: VERDICT_STEP, label: 'test judge' };
+export const JUDGE_CHECK = {
+  job: REVIEW_JOB,
+  step: TEST_VERDICT_STEP,
+  label: 'test judge',
+  standingFails: [{ job: JUDGE_JOB, step: VERDICT_STEP }],
+};
+/**
+ * The step REVIEW_JOB runs instead of its verdicts when the reviewer call failed for a reason that is not the change
+ * (reviewer-error.mjs classify `down`; project-state OWNER 289 point 11: "No PR merges without its judge."): the job
+ * then concludes success with its verdict steps skipped, which `passed` below never reads as a pass (no verdict step
+ * concluded success), and the seal waits for the judge as for a review still running (journey-seal.mjs inputsGoing).
+ */
+export const JUDGE_DOWN_STEP = 'Judge down';
+/** The verdict steps of REVIEW_JOB: a FAIL in one never voids the other's PASS. */
+export const VERDICT_STEPS = [VERDICT_STEP, TEST_VERDICT_STEP];
+/** Whether a REVIEW_JOB job ended with the judge down: its Judge down step ran and no verdict step concluded. */
+export const isJudgeDown = (job) =>
+  job?.name === REVIEW_JOB &&
+  job?.status === 'completed' &&
+  (job.steps ?? []).some((s) => s?.name === JUDGE_DOWN_STEP && s?.conclusion === 'success') &&
+  !(job.steps ?? []).some((s) => VERDICT_STEPS.includes(s?.name) && ['success', 'failure'].includes(s?.conclusion));
+/**
+ * Whether a REVIEW_JOB job actually ran: not skipped and with steps. A title or body edit starts a CI review run whose
+ * job is skipped by its `if:` (0 steps; head e1d3ad61, run 42803694870), so the newest run on a head may hold no review.
+ */
+export const reviewRan = (job) => job?.name === REVIEW_JOB && job?.conclusion !== 'skipped' && (job?.steps ?? []).length > 0;
+/**
+ * A seal on a pull request that has already merged has nothing left to judge: it can't merge again or be reopened.
+ * Such seals ran, red, in 12 of the 66 failed seals from 04:46 to 13:54 UTC on 12 Nov 2026: an older red seal re-run
+ * by the green verdict that merged the pull request (clearOlderReds), or an edit just after the merge, judged it
+ * seconds later, when GitHub had already emptied the CI review run's `pull_requests` (so its PASS no longer counted,
+ * passedRun) and the named steps' check refused a closed pull request. Given the pull request as read now and the
+ * pull requests GitHub lists on `sha` (`/commits/{sha}/pulls`): the line that says so, or null when it isn't merged,
+ * its head is not `sha`, or another open pull request has this head (a green check on the commit would count for that
+ * one too). Pure.
+ */
+export function mergedNothingToSeal(pull, sha, onSha) {
+  if (!pull?.merged_at || pull?.head?.sha !== sha || !Array.isArray(onSha)) return null;
+  if (onSha.some((p) => p?.state === 'open' && Number(p?.number) !== Number(pull.number))) return null;
+  return `#${pull.number} merged at ${pull.merged_at}; a merged pull request has nothing left to seal`;
+}
 /** The only base a review counts for: a review of a pull request into another branch reviewed another diff. */
 export const REVIEW_BASE = 'main';
 const SHA40 = /^[0-9a-f]{40}$/;
@@ -229,6 +171,18 @@ export function indexesFirst(text) {
  */
 export async function ciReviewVerdict({ sha, runs, attempts, tree, base, number, check = REVIEW_CHECK }) {
   const { job: JOB, step: STEP, label } = check;
+  // A FAIL counts in the check's own step, and in a retired job's step it replaced (standingFails); a pass only in its own.
+  const failPairs = [{ job: JOB, step: STEP }, ...(check.standingFails ?? [])];
+  const failedIn = (job) =>
+    failPairs.some((p) => job?.name === p.job && (job.steps ?? []).find((s) => s?.name === p.step)?.conclusion === 'failure');
+  // A pass: the job finished, its step passed, and the job concluded success, or failed only in its other verdict step
+  // (a FAIL that blocks only its own concern). Any other failed step (the read, the call, the seal re-run) voids it.
+  const passed = (job, step) =>
+    job.status === 'completed' &&
+    step?.conclusion === 'success' &&
+    (job.conclusion === 'success' ||
+      (job.conclusion === 'failure' &&
+        (job.steps ?? []).every((s) => s?.conclusion !== 'failure' || (s?.name !== STEP && VERDICT_STEPS.includes(s?.name)))));
   const want = String(sha ?? '').toLowerCase();
   if (!SHA40.test(want)) return { ok: false, state: 'none', why: `"${sha}" is not a full head sha` };
   if (base !== REVIEW_BASE)
@@ -258,9 +212,9 @@ export async function ciReviewVerdict({ sha, runs, attempts, tree, base, number,
       const listed = String(run?.head_commit?.tree_id ?? '').toLowerCase();
       if (!mine || (SHA40.test(listed) ? listed : await tree(theirs)) !== mine) continue;
       for (const [i, jobs] of (await attempts(run)).entries()) {
-        for (const job of (jobs ?? []).filter((j) => j?.name === JOB)) {
+        for (const job of jobs ?? []) {
           if (String(job.head_sha ?? theirs).toLowerCase() !== theirs) continue;
-          if ((job.steps ?? []).find((s) => s?.name === STEP)?.conclusion === 'failure')
+          if (failedIn(job))
             return {
               ok: false,
               state: 'fail',
@@ -279,26 +233,35 @@ export async function ciReviewVerdict({ sha, runs, attempts, tree, base, number,
     };
   let passedIn = null;
   let pending = false;
+  let down = null;
   for (const run of own) {
     for (const [i, jobs] of (await attempts(run)).entries()) {
-      for (const job of (jobs ?? []).filter((j) => j?.name === JOB)) {
+      for (const job of jobs ?? []) {
         if (String(job.head_sha ?? want).toLowerCase() !== want) continue;
-        const step = (job.steps ?? []).find((s) => s?.name === STEP);
-        if (step?.conclusion === 'failure')
+        if (failedIn(job))
           return {
             ok: false,
             state: 'fail',
             why: `run ${run.id} attempt ${i + 1}: the ${label} found blocking findings on ${want}; a FAIL stands for its head, so push a fix`,
           };
+        if (job.name !== JOB) continue; // a retired job's FAIL stands (above); only the check's own job passes
         if (!intoMain(run)) continue; // reviewed against another base: neither a pass nor pending here
+        const step = (job.steps ?? []).find((s) => s?.name === STEP);
         if (job.status !== 'completed') pending = true;
-        else if (job.conclusion === 'success' && step?.conclusion === 'success') passedIn ??= `run ${run.id} attempt ${i + 1}`;
+        else if (passed(job, step)) passedIn ??= `run ${run.id} attempt ${i + 1}`;
+        else if (isJudgeDown(job)) down = `run ${run.id} attempt ${i + 1}`;
       }
     }
   }
   if (passedIn) return { ok: true, state: 'pass', why: `${label} passed on ${want} (${passedIn})` };
-  return pending
-    ? { ok: false, state: 'pending', why: `the ${label} on ${want} is still running` }
+  if (pending) return { ok: false, state: 'pending', why: `the ${label} on ${want} is still running` };
+  // A down judge is no verdict: never a pass, and the seal waits for the judge (journey-seal.mjs inputsGoing).
+  return down
+    ? {
+        ok: false,
+        state: 'none',
+        why: `the judge was down in ${down}, so ${want} has no ${label} verdict yet; the review re-runs when the judge is back`,
+      }
     : {
         ok: false,
         state: 'none',
@@ -307,7 +270,7 @@ export async function ciReviewVerdict({ sha, runs, attempts, tree, base, number,
 }
 
 /**
- * Why this change needs the independent review, or null when it does not: a gate file (gate-file-guard.mjs GATE_PATHS),
+ * Why this change needs the independent review, or null when it does not: a gate file (gate-files.mjs GATE_PATHS),
  * or a look baseline. Money and security code alone does not (owner decision
  * 2026-11-06). An empty file list fails closed.
  */
@@ -320,7 +283,7 @@ export function reviewReason(files) {
   return null;
 }
 
-/** The verdicts a change needs, each with why: the CI review's and the test judge's (both null when neither applies). */
+/** The verdicts a change needs, each with why: the CI review's two parts, its review and its test part (none when neither applies). */
 export function requiredChecks(files) {
   const out = [];
   const review = reviewReason(files);
@@ -364,6 +327,23 @@ export function groupPulls(commits, headRef) {
  * the head and on the pull request's branch, `io.attempts(run)` the jobs of each attempt, `io.tree(sha)` a commit's tree.
  * Returns { ok, state, why }.
  */
+/**
+ * Whether a verdict a change needs is missing only because the judge was down on its head: the seal then stops waiting
+ * for it (the catch-up re-runs the review and the seal when the judge is back). A change that needs no verdict merges
+ * without one, the judge up or down (owner decisions of 2026-10-22 and 2026-11-06; project-state OWNER 302). Returns that
+ * need, or null when the head's CI review was not down.
+ */
+export const judgeDownNeed = (verdict) =>
+  verdict?.state === 'none' && /the judge was down in run/.test(String(verdict.why ?? ''))
+    ? { check: REVIEW_CHECK, reason: 'the judge was down on this head, and this change needs its verdict' }
+    : null;
+
+/** A sign-off missing because the judge was down says so in its title, never a red that reads as the change's own (OWNER 289 point 11). */
+export const missingTitle = (why) =>
+  /the judge was down in run/.test(String(why ?? ''))
+    ? 'judge down: CI review (no verdict yet; the review re-runs when the judge is back)'
+    : 'Review sign-off missing';
+
 export async function lookForSignoff({ sha, io, branch, base, number, check = REVIEW_CHECK }) {
   return ciReviewVerdict({
     sha,
@@ -430,151 +410,6 @@ export async function sealMergeGroup({ commits, headRef, io, dryRun = false }) {
 }
 
 async function selfTest() {
-  const ok = { context: STATUS_CONTEXT, state: 'success' };
-  const cases = [
-    [[ok], true],
-    [[], false],
-    [[{ context: 'other', state: 'success' }], false],
-    [[{ context: STATUS_CONTEXT, state: 'failure' }, ok], false],
-    [[{ context: STATUS_CONTEXT, state: 'pending' }], false],
-    [[ok, { context: STATUS_CONTEXT, state: 'failure' }], true],
-  ];
-  for (const [statuses, want] of cases) {
-    if (hasSignoff(statuses) !== want) {
-      console.error('review-marker self-test failed for', JSON.stringify(statuses));
-      process.exit(1);
-    }
-  }
-  const sha = 'a'.repeat(40);
-  const markers = [
-    [`Independent review: PASS ${sha}`, true],
-    [`notes\nIndependent review: PASS ${sha}\nmore`, true],
-    [`Independent review: PASS ${sha} but not really`, false],
-    [`Independent review: FAIL ${sha}`, false],
-    [`Independent review: PASS for head ${sha}`, false],
-    ['Independent review: PASS aaaaaaaaa', false],
-    [`Independent review: PASS ${sha.toUpperCase()}`, true],
-  ];
-  for (const [body, want] of markers) {
-    if (MARKER.test(body) !== want) {
-      console.error('review-marker self-test failed for', JSON.stringify(body));
-      process.exit(1);
-    }
-  }
-  const reviewers = ['nino'];
-  const pass = (login, body) => ({ user: { login }, body });
-  const input = (comments, extra = {}) => ({
-    comments,
-    sha,
-    reviewers,
-    requireDistinctFromAuthor: false,
-    author: 'nino',
-    authorSessions: new Set(),
-    ...extra,
-  });
-  const commentCases = [
-    [input([pass('Nino', `Independent review: PASS ${sha}\nReviewer session: session_R9`)]), true],
-    // OWNER 138 (1)(a), 31 Oct: a PASS that names no reviewing session on its own line never counts.
-    [input([pass('Nino', `Independent review: PASS ${sha}`)]), false],
-    [input([pass('Nino', `Independent review: PASS ${sha}\nreviewed in session_R9`)]), false],
-    [input([pass('eve', `Independent review: PASS ${sha}`)]), false],
-    [input([pass('nino', `Independent review: PASS ${'b'.repeat(40)}`)]), false],
-    [input([pass('nino', `Independent review: PASS ${sha} but not really`)]), false],
-    [input([]), false],
-    // The author's own login never counts when the PR asks for a distinct reviewer, even with a session named.
-    [input([pass('nino', `Independent review: PASS ${sha}\nReviewer session: session_R9`)], { requireDistinctFromAuthor: true }), false],
-    [input([pass('nino', `Independent review: PASS ${sha}\nReviewer session: session_R9`)], { requireDistinctFromAuthor: false }), true],
-    [input([pass('nino', `x\nIndependent review: PASS ${sha}\nReviewer session: s`)]), false],
-    [input([pass('nino', `x\nIndependent review: PASS ${sha}\nReviewer session: session_R9`)]), true],
-    [
-      input([pass('nino', `Independent review: PASS ${sha}\nReviewer session: https://example.test/code/session_R1`)], {
-        authorSessions: new Set(['session_A1']),
-      }),
-      true,
-    ],
-    [
-      input([pass('nino', `Independent review: PASS ${sha}\nReviewer session: https://example.test/code/session_A1`)], {
-        authorSessions: new Set(['session_A1']),
-      }),
-      false,
-    ],
-    [input([pass('nino', `Independent review: PASS ${sha}\nsession_A1 (review)`)], { authorSessions: new Set(['session_A1']) }), false],
-    [
-      input([pass('nino', `Asked by session_A1.\nIndependent review: PASS ${sha}\nReviewer session: session_R1`)], {
-        authorSessions: new Set(['session_A1']),
-      }),
-      true,
-    ],
-    [input([pass('nino', `Independent review: PASS ${sha}\nReviewer session: session_R1`)], { authorSessions: null }), false],
-    [
-      input([pass('nino', `Independent review: PASS ${sha}\nReviewer session: this thread\nRan in session_A1`)], {
-        authorSessions: new Set(['session_A1']),
-      }),
-      false,
-    ],
-    [input([pass('nino', `Independent review: PASS ${sha}`)], { authorSessions: undefined }), false],
-    // #6849, 30 Oct: the reviewer's line also named the author; it is the reviewer's PASS.
-    [
-      input(
-        [pass('nino', `Independent review: PASS ${sha}\n\nReviewer session: session_R2 (INTAFACED R2 review; author is G, session_A1)`)],
-        { authorSessions: new Set(['session_A1']) },
-      ),
-      true,
-    ],
-    [
-      input([pass('nino', `Independent review: PASS ${sha}\nReviewer session: session_A1 (and session_R2)`)], {
-        authorSessions: new Set(['session_A1']),
-      }),
-      false,
-    ],
-    [
-      input([pass('nino', `Independent review: PASS ${sha}\nReviewer session: reviewing session_R1's notes, ran in session_A1`)], {
-        authorSessions: new Set(['session_A1']),
-      }),
-      false,
-    ],
-    [
-      input(
-        [pass('nino', `Independent review: PASS ${sha}\nReviewer session: <https://example.test/code/session_R2> (author session_A1)`)],
-        {
-          authorSessions: new Set(['session_A1']),
-        },
-      ),
-      true,
-    ],
-  ];
-  for (const [args, want] of commentCases) {
-    if (hasCommentSignoff(args) !== want) {
-      console.error('review-marker comment self-test failed for', JSON.stringify(args));
-      process.exit(1);
-    }
-  }
-  const cm = (sha, message) => ({ sha, commit: { message } });
-  const listed = [cm('h', 'b\nAgent-Session: session_A1'), cm('o', 'older but dated later')];
-  if (
-    sessionsForHead(listed, 'h')?.has('session_A1') !== true ||
-    sessionsForHead(listed, 'x') !== null ||
-    sessionsForHead(
-      Array.from({ length: 250 }, (_, i) => cm(i === 0 ? 'h' : `c${i}`, '')),
-      'h',
-    ) !== null ||
-    !commentSignoff(
-      input([pass('nino', `Independent review: PASS ${sha}\nReviewer session: session_A1`)], { authorSessions: new Set(['session_A1']) }),
-    ).refused[0]?.reason.includes('session_A1')
-  ) {
-    console.error('review-marker sessionsForHead / refusal self-test failed');
-    process.exit(1);
-  }
-  const msgs = [
-    'feat: x\n\nCo-Authored-By: an agent\nAgent-Session: https://example.test/code/session_A1',
-    'fix: y',
-    'z\ntool-session: session_B2 ',
-  ];
-  const got = [...commitSessions(msgs)].sort().join(',');
-  if (got !== 'session_A1,session_B2' || commitSessions(['see session_C3 in the body']).size !== 0) {
-    console.error('review-marker commit-session self-test failed:', got);
-    process.exit(1);
-  }
   // Gate files and look baselines need the review; money and security code alone no longer does
   // (2026-11-06). Every case the old rule had is kept, with its expected result under the new one.
   const reasonCases = [
@@ -618,22 +453,27 @@ async function selfTest() {
       process.exit(1);
     }
   }
-  await mergeGroupSelfTest(reviewers);
+  await mergeGroupSelfTest(['nino']); // a PASS comment from a reviewer login, which counts for nothing
   console.log('review-marker self-test ok');
 }
 
-/** A `CI review` job object as GitHub's jobs API returns it, with its Verdict step's conclusion. */
-export function reviewJob(sha, verdict = 'success', { status = 'completed' } = {}) {
+/**
+ * A `CI review` job object as GitHub's jobs API returns it, with its Verdict step's conclusion and, when `tests` is
+ * given, its Test verdict step's (without it, a job from before the test part was folded in).
+ */
+export function reviewJob(sha, verdict = 'success', { status = 'completed', tests } = {}) {
   const done = status === 'completed';
+  const steps = [
+    { name: 'Review', status, conclusion: done ? 'success' : null },
+    { name: VERDICT_STEP, status, conclusion: done ? verdict : null },
+  ];
+  if (tests !== undefined) steps.push({ name: TEST_VERDICT_STEP, status, conclusion: done ? tests : null });
   return {
     name: REVIEW_JOB,
     head_sha: sha,
     status,
-    conclusion: done ? (verdict === 'success' ? 'success' : 'failure') : null,
-    steps: [
-      { name: 'Review', status, conclusion: done ? 'success' : null },
-      { name: VERDICT_STEP, status, conclusion: done ? verdict : null },
-    ],
+    conclusion: done ? (steps.every((s) => s.conclusion === 'success') ? 'success' : 'failure') : null,
+    steps,
   };
 }
 
@@ -749,7 +589,11 @@ async function api(path, token, { missingOk = false } = {}) {
   });
   if (missingOk && res.status === 404) return null;
   if (!res.ok) {
-    console.error(`::error::could not read ${path} (HTTP ${res.status}); sealing fails closed`);
+    const msg = httpMessage(path, res);
+    const title = titleFor(msg, '');
+    console.error(
+      `::error${title ? ` title=${title}` : ''}::could not read ${path} (${msg.slice(msg.indexOf('HTTP'))}); sealing fails closed`,
+    );
     process.exit(1);
   }
   return res.json();
@@ -1119,6 +963,10 @@ async function main() {
   // main (the seal doesn't re-run on a retarget; the CI review does, and re-runs a red seal when it passes).
   const pull = PR_NUMBER ? await api(`/repos/${REPO}/pulls/${PR_NUMBER}`, GH_TOKEN) : null;
   const branch = String(pull?.head?.ref ?? '') || undefined;
+  if (PR_NUMBER && pull?.merged_at) {
+    const merged = mergedNothingToSeal(pull, HEAD_SHA, await api(`/repos/${REPO}/commits/${HEAD_SHA}/pulls?per_page=100`, GH_TOKEN));
+    if (merged) return console.log(merged);
+  }
   if (PR_NUMBER && pull?.base?.ref !== REVIEW_BASE) {
     console.error(
       `::error title=Not into ${REVIEW_BASE}::The seal passes only a pull request into ${REVIEW_BASE}; this one's base is ${pull?.base?.ref ?? 'unreadable'}. Point it at ${REVIEW_BASE}, then re-run this seal.`,
@@ -1126,6 +974,9 @@ async function main() {
     process.exit(1);
   }
   if (PR_NUMBER) {
+    // A change that needs no verdict merges without one, the judge up or down (project-state OWNER 302, 12 Nov 2026:
+    // "While the reviewer is down, a product pull request that it can only advise on merges on its tests and its
+    // journey; the reviewer reads it when it is back and anything it finds becomes a fix."; judge-down.mjs catchUpTargets).
     needs = requiredChecks(await readChangedFiles(REPO, PR_NUMBER, HEAD_SHA, GH_TOKEN));
     if (needs.length === 0) {
       console.log(
@@ -1160,8 +1011,10 @@ async function main() {
       } else if (verdict.state === 'fail') failed = true;
     }
     if (open.size === 0) return;
-    // A FAIL stands for this head and for its code: waiting can't change it.
-    if (failed || Date.now() + REVIEW_POLL_MS > deadline) break;
+    // A FAIL stands for this head and for its code: waiting can't change it. Nor can waiting on a down judge: the run
+    // that catches up when it is back starts this seal again (judge-down.mjs catchup), so no runner is held for it.
+    const allDown = [...open.keys()].every((l) => judgeDownNeed(last.get(l)));
+    if (failed || allDown || Date.now() + REVIEW_POLL_MS > deadline) break;
     if (attempt === 1)
       console.log(
         `${[...open.keys()].map((l) => last.get(l).why).join('; ')}; waiting up to ${REVIEW_WAIT_MS / 60_000} min, checking every ${REVIEW_POLL_MS / 1000}s`,
@@ -1170,7 +1023,7 @@ async function main() {
   }
   for (const [label, { reason }] of open)
     console.error(
-      `::error title=Review sign-off missing::No passing ${label} on ${HEAD_SHA}. This change needs one (${reason}): ${last.get(label)?.why}. The ${label} job runs on every push to an in-repo pull request (${REVIEW_WORKFLOW}) and re-runs this seal when it passes (AGENTS.md, "Where a mistake costs more"); a comment or a status counts for nothing.`,
+      `::error title=${missingTitle(last.get(label)?.why)}::No passing ${label} on ${HEAD_SHA}. This change needs one (${reason}): ${last.get(label)?.why}. The ${label} job runs on every push to an in-repo pull request (${REVIEW_WORKFLOW}) and re-runs this seal when it passes (AGENTS.md, "Where a mistake costs more"); a comment or a status counts for nothing.`,
     );
   process.exit(1);
 }
@@ -1178,6 +1031,6 @@ async function main() {
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href)
   main().catch((e) => {
     // Every unreadable list or bound ends here: the seal fails closed and says why.
-    console.error(`::error title=Review sign-off unreadable::${e.message}`);
+    console.error(`::error title=${titleFor(e.message, 'Review sign-off unreadable')}::${e.message}`);
     process.exit(1);
   });

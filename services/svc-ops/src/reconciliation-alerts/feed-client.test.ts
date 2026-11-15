@@ -9,7 +9,8 @@ function row(n: number, finishedAt: string) {
     run: {
       id: id(n),
       controlId: id(99),
-      status: 'PASS',
+      status: 'NOTHING_TO_COMPARE',
+      compared: 0,
       phase: { status: 'unset' },
       errorCode: { status: 'unset' },
       asOf: '2026-10-29T10:00:00.000Z',

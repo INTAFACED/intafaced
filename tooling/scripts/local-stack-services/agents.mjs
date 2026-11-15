@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { loadProfile } from '../owner-settings.mjs';
+import { NAVIGATOR_SIGNER_URL, TEST_CHAIN_ID } from '../local-test-chain.mjs';
 
 /** One labelled TEST value from this service's profile file; a missing one names the file instead of a bare TypeError. */
 function testValue(name) {
@@ -58,7 +59,46 @@ function approvalTtl() {
   };
 }
 
-export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
+/**
+ * The payment token a wallet payment method is checked against (J-agents-02 #4): with the stack's LOCAL TEST chain
+ * (tooling/scripts/local-test-chain.mjs, chain id 84532) its gate, and the seeded TEST USD token at its fixed address
+ * with its 6 decimals (services/svc-protocol/scripts/seed-test-chain.ts). TEST only, never a real chain or token. With no
+ * chain the four stay blank, as in production until the owner sets them, so a run of an agent whose payment method is a
+ * wallet refuses agents.funds_unread (payment_token_unset).
+ */
+function paymentToken(chain) {
+  if (!chain?.usdToken) return {};
+  return {
+    AGENTS_PAYMENT_RPC_URL: chain.rpcUrl,
+    AGENTS_PAYMENT_CHAIN_ID: String(TEST_CHAIN_ID),
+    AGENTS_PAYMENT_TOKEN_ADDRESS: chain.usdToken,
+    AGENTS_PAYMENT_TOKEN_DECIMALS: '6',
+  };
+}
+
+/**
+ * Where the Navigator trades inside the cap a person signed for its session key (J-agents-19 #4), on the stack's TEST
+ * chain: its node, its TEST signer (local-test-chain.mjs /navigator, the Navigator's TEST key address impersonated on
+ * anvil; svc-agents holds no key) and its market, the seeded router and the TEST WETH/B pool, spending wrapped TEST ETH,
+ * which the cap in TEST ETH measures one for one. With no chain, or with the signer off, all three stay blank, as in
+ * production, and a trade ask refuses by name.
+ */
+export function navigatorTrading(chain) {
+  if (process.env.LOCAL_STACK_AGENTS_NAVIGATOR_SIGNER === 'off') return {};
+  if (!chain?.router || !chain.wrappedNative || !chain.navigatorPool) return {};
+  return {
+    AGENTS_NAVIGATOR_ONCHAIN_RPC_URL: chain.rpcUrl,
+    AGENTS_NAVIGATOR_ONCHAIN_SENDER_URL: NAVIGATOR_SIGNER_URL,
+    AGENTS_NAVIGATOR_ONCHAIN_MARKET: JSON.stringify({
+      router: chain.router,
+      spendToken: chain.wrappedNative,
+      pools: [chain.navigatorPool],
+      slippageBps: Number(testValue('AGENTS_NAVIGATOR_ONCHAIN_SLIPPAGE_BPS')),
+    }),
+  };
+}
+
+export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, testChain }) => ({
   name: 'agents',
   env: () => ({
     ...c('svc-agents', PORTS.agents),
@@ -92,6 +132,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
     // LOCAL TEST background test runs of an own agent, slow enough to be quarantined mid-run (J-agents-14 #3).
     AGENTS_BACKGROUND_TEST_STEPS: testValue('AGENTS_BACKGROUND_TEST_STEPS'),
     AGENTS_BACKGROUND_STEP_MS: testValue('AGENTS_BACKGROUND_STEP_MS'),
+    AGENTS_SESSION_RUN_MAX_STEPS: testValue('AGENTS_SESSION_RUN_MAX_STEPS'),
+    // LOCAL TEST uncertainty scale of a Navigator research answer (J-agents-10 #4); production leaves it blank and an answer
+    // about a market refuses agents.uncertainty_scale_unset before the engine.
+    AGENTS_RESEARCH_UNCERTAINTY_SCALE: testValue('AGENTS_RESEARCH_UNCERTAINTY_SCALE'),
     // LOCAL TEST managed baseline for own agents' tools (J-agents-05 #1). `LOCAL_STACK_AGENTS_POLICY_BASELINE=off` leaves
     // it blank, so every own-agent tool call refuses agents.baseline_value_unset.
     ...(process.env.LOCAL_STACK_AGENTS_POLICY_BASELINE === 'off' ? {} : { AGENTS_POLICY_BASELINE: testValue('AGENTS_POLICY_BASELINE') }),
@@ -114,7 +158,22 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
     // restart leaves it blank (holding refuses agents.approval.ttl_unset); `=short` uses the short TEST wait, so a journey
     // can watch a request expire.
     ...approvalTtl(),
+    // LOCAL TEST public address of the Navigator's on-chain signer (J-agents-19): the session key a person grants on the
+    // stack's TEST chain. An address only, never a key. `LOCAL_STACK_AGENTS_NAVIGATOR_SIGNER=off` on a start or restart
+    // leaves it blank, so the on-chain panel shows the rail.crypto notice.
+    ...(process.env.LOCAL_STACK_AGENTS_NAVIGATOR_SIGNER === 'off'
+      ? {}
+      : { AGENTS_NAVIGATOR_ONCHAIN_SIGNER: testValue('AGENTS_NAVIGATOR_ONCHAIN_SIGNER') }),
+    // LOCAL TEST schedules of own agents (J-agents-07 #1 to #4): the owner's cadence values, and two due-run workers waking
+    // together every tick. Production leaves all four blank until the owner sets them: a new schedule refuses
+    // agents.schedule_cadence_unset and nothing runs on a clock.
+    AGENTS_SCHEDULE_MIN_INTERVAL_MINUTES: testValue('AGENTS_SCHEDULE_MIN_INTERVAL_MINUTES'),
+    AGENTS_SCHEDULE_DAILY_LIMIT: testValue('AGENTS_SCHEDULE_DAILY_LIMIT'),
+    AGENTS_SCHEDULE_TICK_MS: testValue('AGENTS_SCHEDULE_TICK_MS'),
+    AGENTS_SCHEDULE_WORKERS: testValue('AGENTS_SCHEDULE_WORKERS'),
     ...engine(STATE),
+    ...paymentToken(testChain?.() ?? null),
+    ...navigatorTrading(testChain?.() ?? null),
     // `LOCAL_STACK_AGENTS_IDENTITY=off` on a restart points this service's identity reads at a TEST address nothing
     // answers at, so identity is unavailable to it and a decision that needs the owner's account fails closed
     // (J-agents-05 #6). Sign-in and every other service keep the real identity service.

@@ -1,11 +1,28 @@
 import { z } from 'zod';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import {
+  IDENTITY_WATCHLISTS_CALLERS,
+  identityWatchlistsInputSchema,
+  identityWatchlistsSchema,
+  parseStoredWatchlists,
+  router,
+  scopedProcedure,
+  serviceProcedureFor,
+  TRPCError,
+  watchlistsAnswer,
+} from '@intafaced/contracts';
 import type { Sql } from 'postgres';
 import { SUPPORTED_LOCALES } from '@intafaced/i18n/locales';
 import { uiViewPreferenceSchema } from '@intafaced/contracts/ui-view-preferences';
 import { homeTilesPreferenceSchema } from '@intafaced/contracts/home-tiles-preferences';
-import { savedScreensPreferenceSchema, watchlistsPreferenceSchema } from '@intafaced/contracts/watchlists-preferences';
+import { tradeInstantPreferenceSchema } from '@intafaced/contracts/trade-instant-preferences';
+import {
+  savedScreensPreferenceSchema,
+  WATCHLISTS_NAMESPACE,
+  watchlistsPreferenceSchema,
+} from '@intafaced/contracts/watchlists-preferences';
 import { addressWatchesPreferenceSchema, tokenWatchlistPreferenceSchema } from '@intafaced/contracts/protocol-watch-preferences';
+import { deskLayoutsPreferenceSchema } from '@intafaced/contracts/desk-layouts-preferences';
+import { chartTemplatesPreferenceSchema } from '@intafaced/contracts/chart-templates-preferences';
 import { ACCOUNT_DISPLAY_NAMESPACE } from './account-display.js';
 import { getPreferences, PreferencesError, setPreferences, type PreferenceSettings, type PreferenceView } from './preferences.js';
 import { PREFERENCES_VERSION_CONFLICT, TRADE_VIEWS_NAMESPACE } from './trade-views.js';
@@ -33,10 +50,13 @@ const preference = z.union([
   accountDisplayPreference,
   uiViewPreferenceSchema,
   homeTilesPreferenceSchema,
+  tradeInstantPreferenceSchema,
   watchlistsPreferenceSchema,
   savedScreensPreferenceSchema,
   tokenWatchlistPreferenceSchema,
   addressWatchesPreferenceSchema,
+  deskLayoutsPreferenceSchema,
+  chartTemplatesPreferenceSchema,
 ]);
 const stored = z.literal('stored');
 const storedPreference = z.union([
@@ -44,10 +64,13 @@ const storedPreference = z.union([
   accountDisplayPreference.extend({ outcome: stored }).strict(),
   uiViewPreferenceSchema.extend({ outcome: stored }).strict(),
   homeTilesPreferenceSchema.extend({ outcome: stored }).strict(),
+  tradeInstantPreferenceSchema.extend({ outcome: stored }).strict(),
   watchlistsPreferenceSchema.extend({ outcome: stored }).strict(),
   savedScreensPreferenceSchema.extend({ outcome: stored }).strict(),
   tokenWatchlistPreferenceSchema.extend({ outcome: stored }).strict(),
   addressWatchesPreferenceSchema.extend({ outcome: stored }).strict(),
+  deskLayoutsPreferenceSchema.extend({ outcome: stored }).strict(),
+  chartTemplatesPreferenceSchema.extend({ outcome: stored }).strict(),
 ]);
 
 function preferenceError(error: unknown): never {
@@ -112,6 +135,25 @@ export function createPreferencesRouter(sql: Sql, settings?: PreferenceSettings)
             };
           } catch (error) {
             preferenceError(error);
+          }
+        }),
+      /**
+       * A person's watchlists for svc-notify's watchlist alerts (J-charts-desk-09 #7): each list's id, name and symbols. Service
+       * only: `serviceProcedureFor` proves the caller is svc-notify before the input is parsed. A read of the view record and
+       * nothing else; a POST only because the caller signs the body. A stored record that is not the shape refuses, so the
+       * caller says it has no answer instead of reading the lists as empty.
+       */
+      watchlistsFor: serviceProcedureFor(IDENTITY_WATCHLISTS_CALLERS)
+        .input(identityWatchlistsInputSchema)
+        .output(identityWatchlistsSchema)
+        .mutation(async ({ input }) => {
+          const [row] = await sql<Array<{ value: unknown }>>`
+            SELECT value FROM user_preferences WHERE user_id = ${input.userId} AND namespace = ${WATCHLISTS_NAMESPACE}
+          `;
+          try {
+            return watchlistsAnswer(parseStoredWatchlists(row?.value ?? null));
+          } catch {
+            throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'identity.watchlists_record_invalid' });
           }
         }),
     }),

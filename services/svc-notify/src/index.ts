@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { edgeTrustFromEnv } from '@intafaced/config';
-import { retainRawBody, s2sFromEnv, type StatusPage } from '@intafaced/contracts';
+import { createIdentityWatchlistsClient, retainRawBody, s2sFromEnv, type StatusPage } from '@intafaced/contracts';
 import { createGuestIngressContext } from './guests/context.js';
 import { GuestNotificationService } from './guests/service.js';
 import { channelGuestMailSender, GuestVerificationService, outboxGuestMailSender } from './guests/verification.js';
@@ -53,7 +53,17 @@ import { subscribeNotificationEvents } from './events.js';
 import { ALERT_SWEEP_INTERVAL_MS, AlertService, type AlertSweepReport } from './alerts/service.js';
 import { runAlertSweepPass } from './alerts/sweep-driver.js';
 import { PostgresAlertStore } from './alerts/store.js';
+import { PostgresWatchRuleStore, WatchRuleService } from './alerts/watch-rules.js';
 import { PostgresAlertTriggerLog } from './alerts/trigger-log.js';
+import {
+  ALERT_WEBHOOK_TICK_MS,
+  httpPostWebhook,
+  parseNumberList,
+  PostgresAlertWebhookStore,
+  runWebhookTick,
+  webhookTestLoopback,
+  type AlertWebhookPolicy,
+} from './alerts/webhook.js';
 import { createTradeHttpMarkSource } from './alerts/trade-http-mark.js';
 import { createDarkWhaleMarkSource, createTradeHttpWhaleMarkSource, parseWhaleFlowAllowlist } from './alerts/whale-mark.js';
 import { ALERT_KIND_UNPUBLISHED, UNPUBLISHED_ALERT_KINDS, type MarkSource } from './alerts/types.js';
@@ -150,6 +160,11 @@ await sql`SELECT changelog FROM notify.notices LIMIT 1`.catch(() => {
 });
 await sql`SELECT audience FROM notify.notices LIMIT 1`.catch(() => {
   throw new Error('notify.notices has no audience column — run migration 0034_notify_notice_audiences before starting svc-notify');
+});
+await sql`SELECT webhook_url FROM notify.price_alerts LIMIT 1`.catch(() => {
+  throw new Error(
+    'notify.price_alerts has no webhook_url column — run migration 20261114033918_notify_alert_delivery before starting svc-notify',
+  );
 });
 await sql`SELECT source FROM notify.price_alerts LIMIT 1`.catch(() => {
   throw new Error(
@@ -339,6 +354,22 @@ const whaleMarks: MarkSource =
         marketsLimit: env.NOTIFY_MARKETS_LIST_LIMIT,
       })
     : createDarkWhaleMarkSource();
+/**
+ * Alert webhooks (J-charts-desk-10): the owner's ports and retry schedule, both blank by default (blank ports refuse every webhook
+ * save; a blank schedule resends nothing), and the LOCAL TEST loopback switch, refused outside dev and test.
+ */
+const webhookPolicy: AlertWebhookPolicy = {
+  ports: parseNumberList(env.NOTIFY_ALERT_WEBHOOK_PORTS, 'NOTIFY_ALERT_WEBHOOK_PORTS', 1, 65535),
+  retrySeconds: parseNumberList(env.NOTIFY_ALERT_WEBHOOK_RETRY_SECONDS, 'NOTIFY_ALERT_WEBHOOK_RETRY_SECONDS', 1, 86_400),
+  testLoopback: webhookTestLoopback(env.NOTIFY_ALERT_WEBHOOK_TEST_LOOPBACK, env.APP_ENV),
+  timeoutMs: env.NOTIFY_GATEWAY_TIMEOUT_MS,
+};
+const alertWebhooks = new PostgresAlertWebhookStore(sql);
+await sql`SELECT 1 FROM notify.alert_webhook_deliveries LIMIT 1`.catch(() => {
+  throw new Error(
+    'notify.alert_webhook_deliveries is missing — run migration 20261114033918_notify_alert_delivery before starting svc-notify',
+  );
+});
 const alerts = new AlertService(
   new PostgresAlertStore(sql),
   alertMarks,
@@ -355,6 +386,18 @@ const alerts = new AlertService(
     burstMaxTriggers: env.NOTIFY_ALERT_BURST_MAX_TRIGGERS ?? null,
   },
   new PostgresAlertTriggerLog(sql),
+  { webhooks: alertWebhooks, policy: webhookPolicy },
+);
+/**
+ * Watchlist alerts (J-charts-desk-09 #7): the person's lists come from identity (`preferences.watchlistsFor`, svc-notify only),
+ * and the listed markets from the same trade market list the marks read. A blank IDENTITY_URL or service secret leaves the
+ * client unwired: a create refuses `identity.watchlists_unavailable` and the sweep adds nothing, saying why on each rule.
+ */
+const watchRules = new WatchRuleService(
+  alerts,
+  new PostgresWatchRuleStore(sql),
+  createIdentityWatchlistsClient({ identityUrl: process.env.IDENTITY_URL, secret: process.env.INTERNAL_SERVICE_SECRET, s2s: s2sKey }),
+  async () => (alertMarks.marketIdsBySymbol ? alertMarks.marketIdsBySymbol() : null),
 );
 /** Last alert sweep — see the interval below. Null until the first pass completes. */
 let lastAlertSweep: AlertSweepReport | null = null;
@@ -408,6 +451,7 @@ export const appRouter = createNotifyRouter(
       addressWindowMs: env.NOTIFY_GUEST_ADDRESS_WINDOW_MS,
     },
   ),
+  watchRules,
 );
 export type AppRouter = typeof appRouter;
 
@@ -583,12 +627,29 @@ const alertSweepRecorder = {
 
 // Boot pass — an interval-only driver made `/ready` read "never ran" and left
 // watches blind until the first tick.
-void runAlertSweepPass(alerts, alertSweepRecorder);
+void runAlertSweepPass(alerts, alertSweepRecorder, watchRules);
 
 const alertSweep = setInterval(() => {
-  void runAlertSweepPass(alerts, alertSweepRecorder);
+  void runAlertSweepPass(alerts, alertSweepRecorder, watchRules);
 }, ALERT_SWEEP_INTERVAL_MS);
 alertSweep.unref();
+
+/**
+ * THE ALERT WEBHOOK WORKER: posts each due webhook delivery and writes the attempt. Fail-safe like the sweeps above: a tick that
+ * cannot run logs and waits for the next; a delivery it claimed and did not settle is claimed again when its lease runs out.
+ */
+const postWebhook = httpPostWebhook(webhookPolicy);
+let webhookTickRunning = false;
+const alertWebhookWorker = setInterval(() => {
+  if (webhookTickRunning) return;
+  webhookTickRunning = true;
+  void runWebhookTick(alertWebhooks, postWebhook, webhookPolicy)
+    .catch((err) => app.log.error({ err }, 'svc-notify alert webhook tick failed — due webhooks wait for the next tick'))
+    .finally(() => {
+      webhookTickRunning = false;
+    });
+}, ALERT_WEBHOOK_TICK_MS);
+alertWebhookWorker.unref();
 
 /**
  * THE MAINTENANCE REMINDER SWEEP (SP-status-03): makes each published window's reminder rows and sends the due ones.
@@ -655,6 +716,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
     void (async () => {
       clearInterval(reaper);
       clearInterval(alertSweep);
+      clearInterval(alertWebhookWorker);
       for (const sub of subscriptions) await sub.unsubscribe().catch(() => undefined);
       await app.close();
       await bus.close();

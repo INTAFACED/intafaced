@@ -29,6 +29,8 @@ export interface MarketRow {
   maker_bps: string;
   taker_bps: string;
   listed_at: Date | null;
+  /** Absent on reads that do not select it. */
+  delists_at?: Date | null;
   asset_class: Market['assetClass'];
   schedule: Market['schedule'];
   paper: boolean;
@@ -89,6 +91,7 @@ export function toMarket(row: MarketRow): Market {
     makerBps: Number(row.maker_bps),
     takerBps: Number(row.taker_bps),
     listedAt: row.listed_at,
+    delistsAt: row.delists_at ?? null,
     assetClass: row.asset_class,
     schedule: row.schedule,
     paper: row.paper === true,

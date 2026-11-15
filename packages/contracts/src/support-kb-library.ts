@@ -111,7 +111,7 @@ export type SupportKbSaveSectionInput = z.infer<typeof supportKbSaveSectionInput
 
 /**
  * Publish an article typed in the desk. `baseRevision` 0 creates it; otherwise it is the revision the author read, and
- * a stale one refuses `support.kb.revision_stale`. A replay of the publish that made the current revision (same
+ * a stale one refuses `support.kb_revision_stale`. A replay of the publish that made the current revision (same
  * text, section, language and tags from the same `baseRevision`) returns that revision instead of refusing.
  */
 export const supportKbPublishTextInputSchema = z

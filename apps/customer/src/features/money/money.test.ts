@@ -49,6 +49,34 @@ it('shows one available projection without adding a primary alias or claiming he
   expect(result.coverage).toBe('partial');
 });
 
+it('reads a balance the partner bank holds, which no ledger account backs, and refuses one that says nothing about who holds it', async () => {
+  const partnerSpace = {
+    id: 'label',
+    assetId: 'USDT',
+    kind: 'primary',
+    name: 'Primary',
+    balance: '12.5',
+    goalTarget: null,
+    lockedUntil: null,
+    ledgerAccount: null,
+  };
+  const heldAt = { label: 'TEST partner', asOf: '2026-11-11T00:00:00.000Z', figure: 'known' };
+  const clientFor = (space: unknown) =>
+    createMoneyClient(
+      createApiClient({
+        fetch: async (input) => {
+          const url = new URL(String(input), 'http://localhost');
+          return url.pathname.endsWith('/spaces.list') ? wire([space]) : wire([]);
+        },
+      }),
+    );
+  const held = await clientFor({ ...partnerSpace, heldAt }).overview(owner, 50);
+  expect(held.spaces.ok).toBe(true);
+  expect(held.conflicts).toEqual([]);
+  expect(held.holdings).toEqual([{ assetId: 'USDT', available: '12.5', held: null, quantity: null }]);
+  await expect(clientFor(partnerSpace).spaces(50)).resolves.toMatchObject({ ok: false, reason: 'invalid_response' });
+});
+
 it('sends a reviewed transfer as an exact amount and preserves its request identity', async () => {
   let request: { path: string; body: unknown } | undefined;
   const api = createApiClient({
@@ -258,5 +286,44 @@ describe('a note and a payment reference travel with a transfer', () => {
     await createMoneyClient(api).transfer([from, to], draft);
     expect(requests[1]).toEqual(requests[0]);
     expect(requests[0]!.body.transferId).toBe(transferId);
+  });
+});
+
+describe('a move between spaces the partner bank holds (OWNER 226)', () => {
+  const from = {
+    id: '7880f322-b31d-4de1-a3eb-ebdd38f11709',
+    assetId: 'USDT',
+    kind: 'primary' as const,
+    name: 'Primary',
+    balance: '100',
+    goalTarget: null,
+    lockedUntil: null,
+    ledgerAccount: null,
+  };
+  const to = { ...from, id: '422cdfae-55ad-43b8-a36c-ac93d6e34715', kind: 'named' as const, name: 'Trip TEST' };
+  const move = (reply: unknown) =>
+    createMoneyClient(createApiClient({ fetch: async () => wire(reply) })).transfer([from, to], {
+      transferId: 'f4f21135-782d-4796-b6e8-342ef967e0ea',
+      fromSpaceId: from.id,
+      toSpaceId: to.id,
+      amount: '20',
+    });
+  const partnerMove = { id: 'TEST-move-1', label: 'TEST partner bank', movedAt: '2026-11-15T00:00:00.000Z' };
+
+  it('is confirmed with the partner’s move and says the ledger posted nothing', async () => {
+    const result = await move({ ledgerTxId: null, amount: '20', partnerMove });
+    expect(result).toMatchObject({ ok: true, data: { amount: '20', partnerMoveId: 'TEST-move-1', heldBy: 'TEST partner bank' } });
+    expect(result.ok && 'ledgerTxId' in result.data).toBe(false);
+    expect(result.ok && 'ledgerPosting' in result.data && result.data.ledgerPosting).toMatch(/^None/);
+  });
+
+  // An unreadable reply to a write can't prove nothing moved, so it is "uncertain", never a confirmation.
+  it('does not confirm a reply that names neither book, or both', async () => {
+    expect(await move({ ledgerTxId: null, amount: '20', partnerMove: null })).toMatchObject({ ok: false, reason: 'uncertain' });
+    expect(await move({ ledgerTxId: 'tx-1', amount: '20', partnerMove })).toMatchObject({ ok: false, reason: 'uncertain' });
+  });
+
+  it('still reads a ledger reply as before', async () => {
+    expect(await move({ ledgerTxId: 'tx-1', amount: '20', partnerMove: null })).toMatchObject({ ok: true, data: { ledgerTxId: 'tx-1' } });
   });
 });

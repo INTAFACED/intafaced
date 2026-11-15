@@ -1,3 +1,4 @@
+import type { KeyRateLimit } from '@intafaced/contracts/api-rate-limits';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
@@ -22,6 +23,7 @@ import {
 } from '../kyc/capabilities.js';
 import type { KycCapabilitiesOutput, KycCapability } from '@intafaced/contracts/identity-kyc-capabilities';
 import { assertAttemptsLeft, readKycAttempts, type KycAttemptLimit } from '../kyc/attempts.js';
+import { TRADING_CAPABILITIES, TRADING_CHECKS_REVIEWER, tradingOnly } from '../kyc/trading-checks.js';
 import type { KycAttempts } from '@intafaced/contracts/identity-kyc-attempts';
 import type { KycCase } from '@intafaced/contracts/identity-kyc-cases';
 import type { SelfFreezeState } from '@intafaced/contracts/identity';
@@ -95,6 +97,14 @@ import { queuePasswordChangedNotice } from './password-changed-notice.js';
 import { queueFactorChangedNotice } from './factor-changed-notice.js';
 import { applySelfFreeze, redeemFreezeLink, type FreezeLinkResult } from './freeze-link.js';
 import {
+  markCompromiseReviewed,
+  openCompromiseCase,
+  readCompromiseCase,
+  reportStolenFunds,
+  type OpenedCase,
+} from '../account/compromise.js';
+import type { CompromiseCase, CompromiseReviewItem } from '@intafaced/contracts/identity-compromise';
+import {
   cancelMfaReset,
   completeDueMfaReset,
   confirmMfaReset,
@@ -126,6 +136,9 @@ import {
 } from './trusted-devices.js';
 import {
   completePasswordReset,
+  completePasswordResetByCode,
+  passwordResetLimits,
+  type PasswordResetLimits,
   publishedPasswordResetTtlSeconds,
   relayMailOutbox,
   requestHandleRecovery,
@@ -234,6 +247,7 @@ export class AuthError extends Error {
       | 'auth.password_breached'
       | 'auth.reset_proof_invalid'
       | 'auth.reset_unwired'
+      | 'auth.reset_limit'
       | 'auth.email_confirm_invalid'
       | 'auth.email_confirm_unwired'
       | 'auth.email_confirm_rate_limited'
@@ -1336,6 +1350,51 @@ export class AuthService {
     return id;
   }
 
+  /**
+   * STAFF FIRST CONNECTION (J-ops-console-09 #2). An invited staff member sets their own password: this makes their
+   * identity account with the invited email, already confirmed (the one-time token reached that mailbox), and runs
+   * `claim` in the same transaction so the token is spent and the staff record bound to the account, or neither.
+   * The password passes the same rules as every sign-up. No session is opened: they sign in to the console after. As at
+   * sign-up, the browser it happened on (`deviceKey`, when it holds one) is trusted, so that first sign-in is not asked
+   * to approve itself.
+   */
+  async registerInvitedStaff(
+    input: { email: string; password: string; deviceKey?: string | null },
+    claim: (tx: Sql, userId: string) => Promise<void>,
+  ): Promise<string> {
+    const handle = `staff_${randomUUID().replace(/-/g, '').slice(0, 20)}`;
+    policyRefusal(() => {
+      assertPasswordShape(input.password);
+      assertPasswordNotIdentity(input.password, { handle, email: input.email });
+      assertPasswordNotBreached(input.password);
+    });
+    const passwordHash = await hashPassword(input.password);
+    let userId: string;
+    try {
+      userId = await transaction(this.sql, async (tx) => {
+        const id = await this.insertNewUser(tx, { handle, email: input.email, password: input.password }, passwordHash);
+        await tx`UPDATE users SET email_verified_at = now() WHERE id = ${id}`;
+        await claim(tx, id);
+        return id;
+      });
+    } catch (err) {
+      if (isUniqueViolation(err)) throw new AuthError('An account with that email already exists', 'auth.email_taken');
+      throw err;
+    }
+    await this.bus.publish('userCreated', { userId, handle }, { idempotencyKey: `user.created:${userId}` });
+    if (input.deviceKey) {
+      await trustDevice(this.sql, this.newDevicePolicy, {
+        userId,
+        label: deviceLabel(currentUserAgent()),
+        now: this.passwordResetNow(),
+        trustedBy: 'sign-up',
+        presentedKey: input.deviceKey,
+      });
+    }
+    this.log.warn({ audit: 'staff.first_connection', userId }, 'staff.first_connection');
+    return userId;
+  }
+
   /** After the account is committed: announce it, award the first XP, open a (non-MFA) session. */
   private async finishRegistration(userId: string, input: RegisterInput): Promise<SessionTokens> {
     await this.bus.publish(
@@ -1523,7 +1582,7 @@ export class AuthService {
   }
 
   /**
-   * The password checked, whatever the account's state: counted on the lockout first, the same answer for an unknown name
+   * The password checked, whatever the account's state (named by its handle, its email or the phone it signs in with): counted on the lockout first, the same answer for an unknown name
    * and a wrong password, and the counter cleared once it verified. The caller decides what the state allows.
    */
   private async verifyFirstFactor(input: { identifier: string; password: string }): Promise<{
@@ -1544,7 +1603,8 @@ export class AuthService {
         webauthn_creds: unknown;
       }>
     >`SELECT id, password_hash, status, totp_secret, passkey_second_step, webauthn_creds FROM users
-      WHERE handle = ${input.identifier} OR email = ${input.identifier}`;
+      WHERE handle = ${input.identifier} OR email = ${input.identifier}
+         OR id = (SELECT user_id FROM signin_phones WHERE phone = ${signinPhone(input.identifier)})`;
     const user = rows[0];
     // Reserve the password guess BEFORE verifying it (see attempt-lockout.ts). Unknown
     // identifiers have no row and keep answering `invalid_credentials`. A locked
@@ -1759,10 +1819,20 @@ export class AuthService {
     void this.claimConfirmedEmailInvites(userId).catch((err: unknown) => {
       this.log.warn({ userId, reason: err instanceof Error ? err.name : 'error' }, 'merchant email invite claim failed');
     });
-    const tier = await this.kycTier(userId);
+    const { tier, tradingCleared } = await this.sessionTier(userId);
     const { scopes, staff } = await this.sessionGrant(userId, options.mfa, sessionId);
     const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
-      { userId, sessionId, scopes, tier, mfa: options.mfa, familyId, trustedDeviceId: options.trustedDeviceId ?? null, ...staff },
+      {
+        userId,
+        sessionId,
+        scopes,
+        tier,
+        tradingCleared,
+        mfa: options.mfa,
+        familyId,
+        trustedDeviceId: options.trustedDeviceId ?? null,
+        ...staff,
+      },
       this.tokens,
     );
     return { accessToken, refreshToken, expiresAt: accessExpiresAt, sessionId, userId, mfaRequired: false };
@@ -1888,7 +1958,7 @@ export class AuthService {
       >`INSERT INTO sessions (user_id, family_id, refresh_hash, device, ip, user_agent, mfa, expires_at, trusted_device_id, active_at) VALUES (${session.user_id}, ${session.family_id}, ${hashToken(nextToken)}, ${options.device ?? session.device}, ${options.ip ?? currentRequestIp() ?? session.ip}, ${currentUserAgent() ?? session.user_agent}, ${session.mfa}, ${expiresAt}, ${session.trusted_device_id}, ${options.idle === true ? session.active_since : null}) RETURNING id`;
       const sessionId = nextSession[0]!.id;
       await tx`UPDATE sessions SET successor_id = ${sessionId}, successor_refresh = ${sealRefreshToken(this.tokens.secret, nextToken)} WHERE id = ${session.id}`;
-      const tier = await this.kycTier(session.user_id, tx);
+      const { tier, tradingCleared } = await this.sessionTier(session.user_id, tx);
       // Pay was resolved before the row lock. Do not call svc-pay again inside this transaction.
       const payScopes = session.user_id === peekedUserId && peekedScopes ? peekedScopes : this.defaultScopes();
       const decided = await this.founderScopesOn(payScopes, session.user_id, session.mfa, tx, {});
@@ -1900,6 +1970,7 @@ export class AuthService {
           sessionId,
           scopes,
           tier,
+          tradingCleared,
           mfa: session.mfa,
           familyId: session.family_id,
           trustedDeviceId: session.trusted_device_id,
@@ -2003,7 +2074,7 @@ export class AuthService {
     `;
     const successor = rows[0];
     if (!successor || successor.revoked || successor.expires_at.getTime() < Date.now()) return null;
-    const tier = await this.kycTier(successor.user_id, tx);
+    const { tier, tradingCleared } = await this.sessionTier(successor.user_id, tx);
     const scopes = successor.user_id === session.user_id && peekedScopes ? peekedScopes : this.defaultScopes();
     const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
       {
@@ -2011,6 +2082,7 @@ export class AuthService {
         sessionId: successor.id,
         scopes,
         tier,
+        tradingCleared,
         mfa: successor.mfa,
         familyId: successor.family_id,
         trustedDeviceId: successor.trusted_device_id,
@@ -2086,7 +2158,7 @@ export class AuthService {
       await tx`UPDATE sessions SET revoked = true WHERE id = ${successor.id}`;
       return 'idle';
     }
-    const tier = await this.kycTier(successor.user_id, tx);
+    const { tier, tradingCleared } = await this.sessionTier(successor.user_id, tx);
     const scopes = successor.user_id === session.user_id && peekedScopes ? peekedScopes : this.defaultScopes();
     const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
       {
@@ -2094,6 +2166,7 @@ export class AuthService {
         sessionId: successor.id,
         scopes,
         tier,
+        tradingCleared,
         mfa: successor.mfa,
         familyId: successor.family_id,
         trustedDeviceId: successor.trusted_device_id,
@@ -2276,6 +2349,11 @@ export class AuthService {
     return requestPasswordReset(this.resetDeps(), input);
   }
 
+  /** The owner's reset request cap and window, or null while the reset is unwired. The same for every visitor. */
+  passwordResetLimits(): PasswordResetLimits | null {
+    return passwordResetLimits(this.resetDeps());
+  }
+
   /** Same shape as `requestPasswordReset`: the username goes to a known address, a notice (if on) to any other. */
   async requestHandleRecovery(input: { email: string }): Promise<{ accepted: true }> {
     return requestHandleRecovery(this.resetDeps(), input);
@@ -2304,8 +2382,12 @@ export class AuthService {
    * Signed-out reset, step 2. A correct proof replaces the hash and ends every
    * session. This call does not sign the person in.
    */
-  async completePasswordReset(input: { email: string; code: string; newPassword: string }): Promise<void> {
-    const result = await completePasswordReset(this.resetDeps(), input);
+  async completePasswordReset(input: { email?: string | undefined; code: string; newPassword: string }): Promise<void> {
+    // From the mailed link the code comes alone (J-identity-03 #2); typed on the page, with the address.
+    const result =
+      input.email === undefined
+        ? await completePasswordResetByCode(this.resetDeps(), { code: input.code, newPassword: input.newPassword })
+        : await completePasswordReset(this.resetDeps(), { email: input.email, code: input.code, newPassword: input.newPassword });
     if (result.sessionsRevoked > 0) await syncNavigatorSessionsClosedForUser(this.sql, result.userId);
     this.log.warn({ userId: result.userId, sessionsRevoked: result.sessionsRevoked }, 'auth.password_reset');
   }
@@ -2339,6 +2421,50 @@ export class AuthService {
     if (result.changed) await syncNavigatorSessionsClosedForUser(this.sql, input.userId);
     this.log.warn({ userId: input.userId, reason: result.reason, changed: result.changed }, 'auth.self_frozen');
     return { frozen: true, reason: result.reason, since: result.since, changed: result.changed };
+  }
+
+  /**
+   * "My account is compromised" (I-signin-sessions-28, J-identity-13 #3). The same bar as the owner's own freeze: a
+   * signed-in person (never an API key or sub-account) and the current password, counted as a guess. Then, in one
+   * transaction, every session and API key ends, the owner's freeze (reason `compromise`) is set and one case opens
+   * (`account/compromise.ts`). While a case is open this returns it, after ending anything made since. Moves no money.
+   */
+  async startCompromise(input: { userId: string; actor: FactorActor; password: string }): Promise<OpenedCase> {
+    if (input.actor.delegated) {
+      throw new AuthError('Sign in yourself to secure your account; an API key or sub-account cannot', 'auth.mfa_required');
+    }
+    const rows = await this.sql<Array<{ password_hash: string; status: string }>>`
+      SELECT password_hash, status FROM users WHERE id = ${input.userId}`;
+    const user = rows[0];
+    if (!user) throw new AuthError('User not found', 'auth.not_found');
+    if (user.status === 'closed') throw new AuthError('Account is closed', 'auth.account_frozen');
+    await this.reserve(input.userId, 'password');
+    if (!(await verifyPassword(user.password_hash, input.password))) {
+      throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
+    }
+    await recordSuccess(this.sql, input.userId, 'password');
+    const opened = await transaction(this.sql, (tx) => openCompromiseCase(tx, input.userId));
+    if (opened.sessionsEnded > 0) await syncNavigatorSessionsClosedForUser(this.sql, input.userId);
+    this.log.warn({ userId: input.userId, caseId: opened.caseId, changed: opened.changed }, 'identity.compromise_started');
+    return opened;
+  }
+
+  /** The person's open compromised-account case, or null (J-identity-13 #3 to #5). */
+  async compromiseCase(userId: string, actor: FactorActor): Promise<CompromiseCase | null> {
+    if (actor.delegated) throw new AuthError('Sign in yourself; an API key or sub-account cannot', 'auth.mfa_required');
+    return readCompromiseCase(this.sql, userId);
+  }
+
+  /** A stolen-funds report as a note on the open case (J-identity-13 #5). Moves no money. */
+  async reportStolenFunds(input: { userId: string; actor: FactorActor; body: string; clientRequestId: string }) {
+    if (input.actor.delegated) throw new AuthError('Sign in yourself; an API key or sub-account cannot', 'auth.mfa_required');
+    return reportStolenFunds(this.sql, input);
+  }
+
+  /** The person reviewed their devices or addresses while the case is open (J-identity-13 #4). */
+  async markCompromiseReviewed(input: { userId: string; actor: FactorActor; item: CompromiseReviewItem }) {
+    if (input.actor.delegated) throw new AuthError('Sign in yourself; an API key or sub-account cannot', 'auth.mfa_required');
+    return markCompromiseReviewed(this.sql, input);
   }
 
   /**
@@ -2737,9 +2863,15 @@ export class AuthService {
     return { id: rows[0]!.id, key, prefix, mode, scopes: [...input.scopes] };
   }
 
-  async verifyApiKey(
-    key: string,
-  ): Promise<{ userId: string; scopes: string[]; keyId: string; mode: 'live' | 'sandbox'; domainWhitelist: string[] } | null> {
+  async verifyApiKey(key: string): Promise<{
+    userId: string;
+    scopes: string[];
+    keyId: string;
+    mode: 'live' | 'sandbox';
+    domainWhitelist: string[];
+    /** The sub-account a portfolio-scoped key is bound to (DV-sub-accounts-01); null on the account's own keys. */
+    accountId: string | null;
+  } | null> {
     const rows = await this.sql<
       Array<{
         id: string;
@@ -2748,14 +2880,22 @@ export class AuthService {
         expires_at: Date | null;
         mode: string | null;
         domain_whitelist: string[] | null;
+        account_id: string | null;
       }>
-    >`SELECT id, user_id, scopes, expires_at, mode, domain_whitelist FROM api_keys WHERE key_hash = ${hashToken(key)} AND revoked = false`;
+    >`SELECT id, user_id, scopes, expires_at, mode, domain_whitelist, account_id FROM api_keys WHERE key_hash = ${hashToken(key)} AND revoked = false`;
     const row = rows[0];
     if (!row) return null;
     if (row.expires_at && row.expires_at.getTime() < Date.now()) return null;
     await this.sql`UPDATE api_keys SET last_used_at = now() WHERE id = ${row.id}`;
     const mode: 'live' | 'sandbox' = row.mode === 'sandbox' ? 'sandbox' : 'live';
-    return { userId: row.user_id, scopes: row.scopes, keyId: row.id, mode, domainWhitelist: row.domain_whitelist ?? [] };
+    return {
+      userId: row.user_id,
+      scopes: row.scopes,
+      keyId: row.id,
+      mode,
+      domainWhitelist: row.domain_whitelist ?? [],
+      accountId: row.account_id ?? null,
+    };
   }
 
   /**
@@ -2791,6 +2931,8 @@ export class AuthService {
     requireSignature?: boolean;
     requireNonEmptyIpAllowlist?: boolean;
     ipAllowlist?: string[];
+    /** The key's rate limit for the edge (`installApiKeyRateExchange`); null while no tier is set. */
+    rateLimit?: KeyRateLimit | null;
   }> {
     const verified = await this.verifyApiKey(key);
     if (!verified) throw await this.deadApiKeyRefusal(key);
@@ -2801,16 +2943,24 @@ export class AuthService {
     const user = users[0];
     if (!user) throw new AuthError('Account not found', 'auth.not_found');
     if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen');
-    const tier = await this.kycTier(verified.userId);
+    if (verified.accountId) {
+      // A portfolio-scoped key lives only as long as its sub-account: a revoked (deleted) sub-account's key is dead.
+      const bound = await this.sql<Array<{ revoked: boolean }>>`SELECT revoked FROM sub_accounts WHERE id = ${verified.accountId}`;
+      if (!bound[0] || bound[0].revoked) throw new AuthError('API key is revoked', 'auth.api_key_revoked');
+    }
+    const { tier, tradingCleared } = await this.sessionTier(verified.userId);
     const { token: accessToken, expiresAt } = await issueAccessToken(
       {
         userId: verified.userId,
         sessionId: verified.keyId,
         scopes: verified.scopes,
         tier,
+        tradingCleared,
         mfa: false,
         apiKeyId: verified.keyId,
         keyEnv: verified.mode,
+        // The token carries the bound sub-account, so every service reads that account and no other (DV-sub-accounts-01).
+        ...(verified.accountId ? { subAccountId: verified.accountId } : {}),
       },
       this.tokens,
     );
@@ -2894,16 +3044,34 @@ export class AuthService {
     }
   }
 
-  async kycTier(userId: string, sql: Sql = this.sql): Promise<'none' | 'basic' | 'full' | 'institutional'> {
-    const rows = await sql<
-      Array<{ tier: 'basic' | 'full' | 'institutional' }>
-    >`SELECT tier FROM kyc_records WHERE user_id = ${userId} AND status = 'approved' AND (expires_at IS NULL OR expires_at > now())`;
-    const order = { basic: 1, full: 2, institutional: 3 } as const;
-    let best: 'none' | 'basic' | 'full' | 'institutional' = 'none';
+  /**
+   * What a token carries: the highest level an operator approved (a trading-checks clear is never one), and whether the
+   * trading checks cleared the person for trading (`trd`, read only by trading gates through `tradeTier`). So a trading
+   * clear opens trading and never the custody, transfer or withdrawal gates that read `tier` (OWNER 258 (4)).
+   */
+  async sessionTier(
+    userId: string,
+    sql: Sql = this.sql,
+  ): Promise<{ tier: 'none' | 'basic' | 'full' | 'institutional'; tradingCleared: boolean }> {
+    const rows = await sql<Array<{ tier: 'basic' | 'full' | 'institutional'; reviewed_by: string | null }>>`
+      SELECT tier, reviewed_by FROM kyc_records
+      WHERE user_id = ${userId} AND status = 'approved' AND (expires_at IS NULL OR expires_at > now())`;
+    const order = { none: 0, basic: 1, full: 2, institutional: 3 } as const;
+    let tier: 'none' | 'basic' | 'full' | 'institutional' = 'none';
+    let tradingCleared = false;
     for (const row of rows) {
-      if (best === 'none' || order[row.tier] > order[best as 'basic' | 'full' | 'institutional']) best = row.tier;
+      if (row.reviewed_by === TRADING_CHECKS_REVIEWER) tradingCleared = true;
+      else if (order[row.tier] > order[tier]) tier = row.tier;
     }
-    return best;
+    return { tier, tradingCleared };
+  }
+
+  /**
+   * The highest level an operator approved, unlapsed. A trading-checks clear is never one: it opens trading alone, read
+   * through the token's `trd` (`sessionTier`), so every gate and lookup that reads the level sees none (OWNER 258 (4)).
+   */
+  async kycTier(userId: string, sql: Sql = this.sql): Promise<'none' | 'basic' | 'full' | 'institutional'> {
+    return (await this.sessionTier(userId, sql)).tier;
   }
 
   async accountState(userId: string): Promise<AccountState | null> {
@@ -3145,9 +3313,12 @@ export class AuthService {
       const existing = await tx<
         KycRow[]
       >`SELECT id, user_id, tier, jurisdiction, provider_ref, status, reviewed_by, reviewed_at, expires_at, created_at FROM kyc_records WHERE user_id = ${input.userId} AND ((status = 'approved' AND (expires_at IS NULL OR expires_at > now())) OR (status = 'pending' AND tier = ${input.tier})) ORDER BY created_at DESC`;
-      const approved = existing.find((r) => r.status === 'approved' && TIER_ORDER[r.tier] >= TIER_ORDER[input.tier]);
+      // A trading-checks clear is never an approved level (OWNER 258 (4)): it never answers a request for the bank's own
+      // verification, and never counts as the level held.
+      const levels = existing.filter((r) => r.status !== 'approved' || r.reviewed_by !== TRADING_CHECKS_REVIEWER);
+      const approved = levels.find((r) => r.status === 'approved' && TIER_ORDER[r.tier] >= TIER_ORDER[input.tier]);
       if (approved) return toKycRecord(approved);
-      const pending = existing.find((r) => r.status === 'pending');
+      const pending = levels.find((r) => r.status === 'pending');
       if (pending) return toKycRecord(pending);
       // Inactive is a compliance decision: a request whose level would grant it again is refused (I-kyc-compliance-07).
       await assertRequestable(tx, this.kycCapabilities, input.userId, input.tier);
@@ -3159,7 +3330,7 @@ export class AuthService {
       const record = toKycRecord(inserted[0]!);
       // The case opens with the record, in this transaction (I-kyc-compliance-01).
       const caseId = await openKycCase(tx, record);
-      const heldTier = existing
+      const heldTier = levels
         .filter((r) => r.status === 'approved')
         .reduce<KycTier>((best, r) => (TIER_ORDER[r.tier] > TIER_ORDER[best] ? r.tier : best), 'none');
       await markRequested(tx, this.kycCapabilities, { userId: record.userId, tier: record.tier, heldTier, caseId, at: record.createdAt });
@@ -3193,7 +3364,9 @@ export class AuthService {
   async listKycCapabilities(userId: string, reasons: KycRejectReasons): Promise<KycCapabilitiesOutput> {
     const users = await this.sql<Array<{ id: string }>>`SELECT id FROM users WHERE id = ${userId}`;
     if (!users[0]) throw new AuthError('User not found', 'auth.not_found');
-    return listCapabilities(this.sql, this.kycCapabilities, userId, await this.kycTier(userId), reasons);
+    // A trading-checks clear holds trading alone, never the custody or transfer the level `basic` maps to.
+    const { tier, tradingCleared } = await this.sessionTier(userId);
+    return listCapabilities(this.sql, this.kycCapabilities, userId, tier, reasons, tradingCleared ? TRADING_CAPABILITIES : []);
   }
 
   /** Refuses (`kyc.capability_state`) what the decision would refuse, before the four-eyes approval is spent. */
@@ -3333,6 +3506,11 @@ export class AuthService {
       await releaseOnReject(tx, this.kycCapabilities, { userId: record.userId, tier: record.tier, caseId, by: input.reviewerId, at });
       return record;
     });
+  }
+
+  /** True when the level held was cleared by the trading checks alone (J-cex-spot-01 #3): it reads "for trading". */
+  async kycTradingOnly(userId: string): Promise<boolean> {
+    return tradingOnly(this.sql, userId);
   }
 
   private async announceKycApproval(record: { userId: string; tier: KycTier; jurisdiction: string }): Promise<void> {
@@ -3511,10 +3689,10 @@ export class AuthService {
     const pay = await this.scopesForNewAccessToken(input.userId);
     const scopes = [...pay];
     for (const scope of STEP_UP_SCOPES) if (!scopes.includes(scope)) scopes.push(scope);
-    const tier = await this.kycTier(input.userId);
+    const { tier, tradingCleared } = await this.sessionTier(input.userId);
     const claims = await this.sessionClaimsOf(input.userId, input.sessionId);
     const { token, expiresAt } = await issueAccessToken(
-      { userId: input.userId, sessionId: input.sessionId, scopes, tier, mfa: true, ...claims },
+      { userId: input.userId, sessionId: input.sessionId, scopes, tier, tradingCleared, mfa: true, ...claims },
       { ...this.tokens, accessTtlSeconds: Math.min(this.tokens.accessTtlSeconds, STEP_UP_TTL_SECONDS) },
     );
     return { accessToken: token, expiresAt, scopes };
@@ -3547,13 +3725,14 @@ export class AuthService {
       INSERT INTO pay_step_up_mints (audit_id, user_id, session_id, merchant_id, scopes, factor)
       VALUES (${randomUUID()}, ${input.userId}, ${input.sessionId}, ${input.merchantId}, ${[...requested]}, ${factor})
     `;
-    const tier = await this.kycTier(input.userId);
+    const { tier, tradingCleared } = await this.sessionTier(input.userId);
     const { token, expiresAt } = await issueAccessToken(
       {
         userId: input.userId,
         sessionId: input.sessionId,
         scopes,
         tier,
+        tradingCleared,
         mfa: true,
         ...claims,
         stepUpScopes: requested,
@@ -3885,13 +4064,14 @@ export class AuthService {
     }
     if (sub.revoked) throw new AuthError('Sub-account is revoked', 'auth.sub_account_revoked');
     if (Number(sub.frozen) !== 0) throw new AuthError('Sub-account is frozen', 'auth.sub_account_denied');
-    const tier = await this.kycTier(input.userId);
+    const { tier, tradingCleared } = await this.sessionTier(input.userId);
     const { token, expiresAt } = await issueAccessToken(
       {
         userId: input.userId,
         sessionId: input.sessionId,
         scopes: this.defaultScopes(),
         tier,
+        tradingCleared,
         mfa: session.mfa,
         familyId: session.family_id,
         trustedDeviceId: session.trusted_device_id,
@@ -4038,4 +4218,14 @@ function mapWebAuthnError(err: unknown): AuthError {
     return new AuthError(err.message, 'auth.webauthn_invalid');
   }
   return new AuthError('Invalid WebAuthn response', 'auth.webauthn_invalid');
+}
+
+/**
+ * A typed phone number in the form sign-in phones are stored in (`+` and digits), so "+49 151 2345-678" finds the number
+ * linked as "+491512345678"; anything that is not a phone number gives a value no row holds.
+ */
+export function signinPhone(identifier: string): string {
+  const trimmed = identifier.trim();
+  if (!/^\+[0-9 ()-]+$/.test(trimmed)) return '';
+  return `+${trimmed.replace(/\D/g, '')}`;
 }

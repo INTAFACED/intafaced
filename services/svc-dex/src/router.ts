@@ -21,6 +21,10 @@ import { triggerDepsFrom, triggerOrderRouter } from './order/trigger-order.js';
 import type { TriggerSettings } from './order/trigger-settings.js';
 import type { FillPort, PricePort } from './order/trigger-ports.js';
 import type { OrderBook } from './order/order-book.js';
+import { OrderSessions } from './auth/order-session.js';
+import { orderSessionRouter } from './auth/router.js';
+import { walletOrdersRouter } from './orders/router.js';
+import type { SessionStore } from './auth/session-store.js';
 
 /**
  * svc-dex — the Protocol Plane's front door (§17.5).
@@ -199,7 +203,19 @@ export interface DexRouterDeps {
     readonly fill?: FillPort;
     readonly book?: OrderBook;
   };
+  /**
+   * The wallet-signed order session (D-limit-dca-01). Omitted, every `auth.*` call refuses `dex.auth.session_unset`:
+   * nothing is written without the owner's secret, lifetimes and cap schedule.
+   */
+  readonly orderSessions?: OrderSessions;
 }
+
+const UNSET_SESSIONS = new OrderSessions({ secret: undefined, accessTtlSeconds: undefined, refreshTtlSeconds: undefined, cap: undefined }, {
+  spendNonce: () => false,
+  revokeSession: () => undefined,
+  revokeWalletBefore: () => undefined,
+  revoked: () => true,
+} satisfies SessionStore);
 
 /**
  * Map a refusal onto the wire.
@@ -350,6 +366,12 @@ export function createDexRouter(deps: DexRouterDeps) {
      * See `order/trigger-order.ts`.
      */
     order: triggerOrderRouter(trigger),
+
+    /** The wallet-signed order session. See `auth/order-session.ts`. */
+    auth: orderSessionRouter(deps.orderSessions ?? UNSET_SESSIONS),
+
+    /** The person's own wallet orders, read with the order session. See `orders/router.ts`. */
+    orders: walletOrdersRouter(trigger.book),
   });
 }
 

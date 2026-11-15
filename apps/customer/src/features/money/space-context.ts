@@ -16,6 +16,7 @@ export function currentSpace(rows: Space[], id: string, owner: string): Space | 
   if (matches.length !== 1) return undefined;
   const space = matches[0]!;
   const account = space.ledgerAccount;
+  if (!account) return space.heldAt ? space : undefined; // The partner bank holds it, so no ledger account can be checked.
   return account.kind === 'available' &&
     account.assetId === space.assetId &&
     (space.kind === 'primary'

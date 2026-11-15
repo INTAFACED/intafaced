@@ -21,6 +21,8 @@ export const chartOwnerValuesSchema = z.object({
   renderBudgetMs: count,
   /** How far from the last price, in basis points, a chart order may be moved before the person confirms the distance. */
   orderProtectionBps: count,
+  /** How far back, in seconds, traded volume is read for a resting order's fill estimate; blank shows no estimate. */
+  queueFillWindowSeconds: count,
   /** The market's data class, for the `?symbol=` asked; null when ops has not set it. */
   dataClass: z.enum(['real_time', 'delayed', 'end_of_day']).nullable(),
 });

@@ -58,6 +58,54 @@ export const RECIPE_MATRIX = {
       '§13 — TRD-0171 posts a fee correction as a new balanced entry under trade.fill.fee.correction. It leaves the original trade.fill row. No production writer posts this yet; the recipe-gate catalog samples it and does not ledger.post.',
   },
   tradeFillMakerRebate: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/spot/trade-service/fills.ts' },
+  builderFeeEarn: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/builder-fee/builder-fee-poster.ts' },
+  builderFeeReceive: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/builder-fee/builder-fee-collect.ts' },
+  ownFundsMove: { kind: 'live', module: 'treasury', proof: 'services/svc-trade/src/builder-fee/own-funds-sweep.ts' },
+  campaignBudgetFund: { kind: 'live', module: 'campaigns', proof: 'services/svc-campaigns/src/payouts.ts' },
+  rewardOwe: { kind: 'live', module: 'campaigns', proof: 'services/svc-campaigns/src/payouts.ts' },
+  rewardPayOut: { kind: 'live', module: 'campaigns', proof: 'services/svc-campaigns/src/reward-payer.ts' },
+  feeShareBudgetFund: {
+    kind: 'socket',
+    socket: '§13',
+    reason:
+      "§13 — sets collected builder-fee revenue aside for one venue's fee shares, keyed on the venue's claim. No production writer and no grant: fee shares wait for the owner's share rate (docs/adr/2026-11-10-launch-money-model.md, rule 1). The recipe-gate catalog samples it and does not ledger.post.",
+  },
+  feeShareOwe: {
+    kind: 'socket',
+    socket: '§13',
+    reason:
+      "§13 — a share of our fee on one fill owed to a lead trader or affiliate, from the venue's fee-share budget, keyed on the fill's earn key and the recipient. Refused with ledger.fee_share_rate_unset while the owner's share rate is unset, so no production writer and no grant (docs/adr/2026-11-10-launch-money-model.md, rule 1). The recipe-gate catalog samples it and does not ledger.post.",
+  },
+  feeSharePayOut: {
+    kind: 'socket',
+    socket: '§13',
+    reason:
+      "§13 — a fee share we owe paid from one of our own-funds places to the recipient's own wallet, keyed on the chain transaction. No production writer and no grant until fee shares can be owed (docs/adr/2026-11-10-launch-money-model.md, rule 1). The recipe-gate catalog samples it and does not ledger.post.",
+  },
+  chargeEarn: { kind: 'live', module: 'agents', proof: 'services/svc-agents/src/metering/meter.ts' },
+  chargeCollect: { kind: 'live', module: 'agents', proof: 'services/svc-agents/src/metering/meter.ts' },
+  academyPurchase: { kind: 'live', module: 'academy', proof: 'services/svc-academy/src/purchases/purchase-ledger.ts' },
+  academyPurchaseRefund: { kind: 'live', module: 'academy', proof: 'services/svc-academy/src/purchases/purchase-ledger.ts' },
+  partnerFeeEarn: { kind: 'live', module: 'pay', proof: 'services/svc-pay/src/payment-service/lifecycle.ts' },
+  merchantFeeEarn: { kind: 'live', module: 'pay', proof: 'services/svc-pay/src/payment-service/lifecycle.ts' },
+  partnerFeeSettle: {
+    kind: 'socket',
+    socket: '§13',
+    reason:
+      "§13 — our fees settled by a partner into our treasury wallet or our reserve at that partner, keyed on the partner's settlement line, refused above what it owes. No production writer and no grant until partner fees can be earned (docs/adr/2026-11-10-launch-money-model.md, rule 1). The recipe-gate catalog samples it and does not ledger.post.",
+  },
+  feeGiveBackOwe: {
+    kind: 'socket',
+    socket: '§13',
+    reason:
+      "§13 — a fee a customer paid on a fill, given back as goodwill: our builder-fee revenue down and what we owe them up, keyed fee-refund:<the fill's earn key>. Refused without two different approvers or above the fee paid on that fill. No production writer and no grant (docs/adr/2026-11-10-launch-money-model.md, rule 1). The recipe-gate catalog samples it and does not ledger.post.",
+  },
+  feeGiveBackPayOut: {
+    kind: 'socket',
+    socket: '§13',
+    reason:
+      "§13 — a fee give-back paid from one of our own-funds places to the customer's own wallet, keyed on the chain transaction, refused above what we owe them and above what the place holds. No production writer and no grant (docs/adr/2026-11-10-launch-money-model.md, rule 1). The recipe-gate catalog samples it and does not ledger.post.",
+  },
   orderHold: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/spot/trade-service/order-place.ts' },
   orderHoldRelease: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/spot/trade-service/holds.ts' },
   orderHoldAmend: {

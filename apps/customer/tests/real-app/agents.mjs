@@ -4,8 +4,9 @@ import { journeyState } from './stack.mjs';
 
 // Shared parts of the agents journeys (J-agents-NN) written ahead of their rooms. The Agents room is /agents (More),
 // with its sections as buttons in the "Agent sections" group; on the stack svc-agents runs with its five session agents
-// and published routing prices, and opening a session needs the agents:execute scope, which a standard TEST account does
-// not hold. A step whose room or control is not built fails at its first missing part within UNBUILT.
+// and published routing prices, and opening a session needs the agents:execute scope, which every signed-in person holds
+// (packages/auth/src/scopes.ts), a standard TEST account included. A step whose room or control is not built fails at
+// its first missing part within UNBUILT.
 // A table is found the way the app's DataTable draws one: a region named by the table's label, holding the table.
 
 /** The wait for a part a step needs that may not be built yet: short, so an unbuilt step fails fast and says where. */

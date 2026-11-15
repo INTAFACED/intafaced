@@ -1,5 +1,7 @@
 # ADR: futures risk and mark law — the engine must not be told what a position is worth
 
+> **Later: custody (OWNER 226).** This decision is for the custodial layer: INTAFACED holds no customer money at launch, so it applies when that layer is switched on, not to the launch build. It stays as written.
+
 **Status:** **Accepted — 2026-08-05.** Owner decision, stated and confirmed.
 **Decision owner:** repo owner. **Written by:** Denon.
 **Spec ids:** **D-S-01** (futures risk product law) and the futures half of **D-S-07** (oracle / mark policy). The lending half of D-S-07 is already law in `SPEC-LENDING-2026-08-02.md` (removed) §1 and is unchanged.

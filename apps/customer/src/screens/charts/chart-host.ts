@@ -46,6 +46,10 @@ export interface ChartApi {
     setHeight(height: number): void;
     getHeight(): number;
     getStretchFactor(): number;
+    /** The series drawn in this pane, in the order they were added. */
+    getSeries(): ChartSeries[];
+    /** The pane's own element (its row in the chart's layout), or null before it is laid out. */
+    getHTMLElement(): HTMLElement | null;
   }>;
   removePane(index: number): void;
   timeScale(): {

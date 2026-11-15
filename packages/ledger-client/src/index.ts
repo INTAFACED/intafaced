@@ -17,4 +17,5 @@ export * from './sharding.js';
 export * from './http-errors.js';
 export * from './post-outcome.js';
 export * from './http-client.js';
+export * from './custody-layer.js';
 export * from './recipes/index.js';

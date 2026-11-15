@@ -43,6 +43,8 @@ export type AffiliatePayoutRefuseCode =
   | 'affiliate.payout.self_referral'
   /** Operator froze the beneficiary after accrual. */
   | 'affiliate.payout.beneficiary_frozen'
+  /** The beneficiary's account is frozen, closed, archived or unknown: it takes no credit. */
+  | 'affiliate.payout.beneficiary_cannot_receive'
   /** Fan-out spans more than one asset — sum-to-zero is per asset. */
   | 'affiliate.payout.mixed_asset'
   /**

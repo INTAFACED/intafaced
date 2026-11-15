@@ -1,4 +1,5 @@
 // World: restart, stack
+// Stack: fresh
 import { test, expect } from './journey.mjs';
 import { forgetSession, nextCode } from './identity-factors.mjs';
 import {
@@ -15,6 +16,7 @@ import {
 } from './merchant.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { tool } from './stack.mjs';
+import { answerAfterNavigation } from './navigation.mjs';
 
 // J-merchant-02, in the running app (docs/roadmap/journeys.json): get verified and go live. Tests titled
 // "J-merchant-02 #<n>" prove a whole step; the others prove part of one and say which.
@@ -120,13 +122,27 @@ test(`${J} #1 starts onboarding and fills the business step: a saved draft that 
     await page.getByLabel('Contact email *').fill(owner.email);
   };
   const createButton = page.locator('form').getByRole('button', { name: 'Create my account' });
+  const expectBusinessDraft = async () => {
+    await expect(page.getByLabel('Legal business name *')).toHaveValue('TEST Draft Ltd');
+    await expect(page.getByLabel('Country code *')).toHaveValue('DE');
+    await expect(page.getByLabel('Type of business *')).toHaveValue('online shop');
+    await expect(page.getByLabel('Contact email *')).toHaveValue(owner.email);
+  };
 
   // With no starting fee published, the first step refuses to open an account: the room says why and the button stays
   // off, and the service refuses a create sent straight to it with its code. No account exists afterwards.
   try {
     payStarterFee(false);
-    // The owner's own token, taken from a pay call the room itself makes.
-    const own = page.waitForRequest((r) => r.url().includes('/api/pay/trpc/') && Boolean(r.headers().authorization));
+    // The owner's own token, taken from a pay call the room itself makes once it has loaded. A call the page before it
+    // made (it retries while pay restarts) carries that page's token, and this page's own session check rotates the
+    // session and revokes it, so a write sent with it is refused as signed out.
+    const own = page.waitForRequest(
+      (r) =>
+        r.url().includes('/api/pay/trpc/') &&
+        Boolean(r.headers().authorization) &&
+        !r.serviceWorker() &&
+        new URL(r.frame().url()).pathname === '/pay/onboarding/business',
+    );
     await page.goto('/pay/onboarding/business');
     const authorization = (await own).headers().authorization;
     const payCall = async (procedure, input) => {
@@ -149,18 +165,30 @@ test(`${J} #1 starts onboarding and fills the business step: a saved draft that 
     expect(create.status).toBe(412);
     expect(create.typed).toBe('pay.starter_fee_unpublished');
     expect((await payCall('merchant.me')).data).toBeNull();
-    // The room asks before a reload drops what was typed; the owner leaves anyway, and the cleared form shows the reload ran.
+    // Leaving and coming back: what was typed on the business step is still there, and the step still refuses.
     page.once('dialog', (dialog) => dialog.accept());
     await page.reload();
-    await expect(page.getByLabel('Legal business name *')).toHaveValue('');
+    await expectBusinessDraft();
     await expect(page.getByText('Opening new accounts isn’t possible here. INTAFACED has not set the starting fee')).toBeVisible();
     await expect(page.getByText('Your merchant account exists.')).toHaveCount(0);
   } finally {
     payStarterFee(true);
   }
 
-  // The stack's TEST starting fee published again: the same step opens the account.
+  // "A saved draft that survives leaving": the business step, filled and left (the personal home, then a sign-out with the
+  // browser's storage cleared and a fresh sign-in), opens again with what was typed, before any account exists.
+  // The draft saved above loads after the step opens. Typing before it arrives can land behind it (a fill's select-all
+  // runs on the empty field, then the draft fills it, then the text is typed after it), so the step is read loaded first.
   await page.goto('/pay/onboarding/business');
+  await expectBusinessDraft();
+  await fillBusiness();
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.goto('/home');
+  await forgetSession(page);
+  await signInWithCode(page, owner, '/pay/onboarding/business');
+  await expectBusinessDraft();
+
+  // The stack's TEST starting fee published again: the same step opens the account.
   await fillBusiness();
   await expect(page.getByText('Opening new accounts isn’t possible here')).toHaveCount(0);
   const created = page.waitForResponse((r) => r.url().includes('merchant.create') && r.request().method() === 'POST');
@@ -595,8 +623,11 @@ test(`${J} #2 the owner chooses the legal entity type; changing it returns the a
   await expect(app.getByRole('region', { name: 'Company details' })).toContainText('Not started');
 
   // The service holds it: after a reload the room reads the same from svc-pay.
-  const reread = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/pay/trpc/kyb.application.current');
-  await page.reload();
+  const reread = await answerAfterNavigation(
+    page,
+    (r) => new URL(r.url()).pathname === '/api/pay/trpc/kyb.application.current',
+    () => page.reload(),
+  );
   const current = (await (await reread).json()).result.data;
   expect(current).toMatchObject({ entityType: 'private_company', state: 'draft', dueAt: view.dueAt });
   expect(current.missing).toEqual(after.missing);
@@ -643,6 +674,8 @@ test(`${J} #3 the owner adds the people and documents a sole trader is asked for
   await expect(questions.getByRole('status')).toHaveText('Saved. This part is done.');
 
   const docs = app.getByRole('region', { name: 'Documents', exact: true });
+  // A sole trader is asked for proof of identity and proof of address, never a certificate of incorporation.
+  await expect(documentRows(docs)).toHaveText([/^Test proof of identity/, /^Test proof of address/]);
   await expect(docs).toContainText('Files up to 1.0 MB. Accepted: PDF, PNG.');
   await expect(docs).toContainText('The automatic document check isn’t connected');
   const identity = docs.getByRole('row', { name: /Test proof of identity/ });
@@ -722,7 +755,25 @@ test(`${J} #3 the owner adds the people and documents a sole trader is asked for
   await expect(reviewed.locator('input[type=file]')).toHaveCount(0);
   expect(uploads).toHaveLength(3);
   expect(refused).toEqual([]);
+
+  // "a sole trader is asked different documents from a company": another new owner starts a company's application, and
+  // the documents asked for are the company's (a certificate of incorporation and proof of address), not the sole trader's.
+  const other = await browser.newContext({ baseURL: new URL(page.url()).origin });
+  try {
+    const companyPage = await other.newPage();
+    const companyOwner = await businessReadyPerson(companyPage, 'mdk', '/pay/onboarding');
+    await openBusiness(companyPage, companyOwner, 'TEST Company Documents Ltd');
+    const companyApp = await startApplication(companyPage, 'Private company');
+    const companyDocs = companyApp.getByRole('region', { name: 'Documents', exact: true });
+    await expect(documentRows(companyDocs)).toHaveText([/^Test certificate of incorporation/, /^Test proof of address/]);
+    await expect(companyDocs.getByRole('row', { name: /Test proof of identity/ })).toHaveCount(0);
+  } finally {
+    await other.close();
+  }
 });
+
+/** The document rows a Documents region asks for, one per document, in the order shown. */
+const documentRows = (docs) => docs.getByRole('row').filter({ has: docs.page().locator('td') });
 
 test(`${J} #4 the owner answers an information request from the reviewer: a banner when one is past due, an infected file refused, and a closed request shows who closed it`, async ({
   page,
@@ -826,8 +877,11 @@ test(`${J} #7 the owner chooses the business category and reads its class rule; 
   const refused = refusedPayCalls(page);
   // "No rule set" while the table is empty: this step adds the stack's first category, so on a fresh stack (each
   // journeys shard starts one) svc-pay's own read of the table is empty here, and the room says so.
-  const categoryRead = page.waitForResponse((r) => r.url().includes('merchant.category.get') && r.request().method() === 'GET');
-  await page.goto('/pay/compliance');
+  const categoryRead = await answerAfterNavigation(
+    page,
+    (r) => r.url().includes('merchant.category.get') && r.request().method() === 'GET',
+    () => page.goto('/pay/compliance'),
+  );
   const firstRead = await categoryRead;
   expect(firstRead.status()).toBe(200);
   const before = (await firstRead.json()).result.data;
@@ -1029,7 +1083,7 @@ test(`${J} #6 reads the verification history and the activation state: append-on
   ]);
 
   // INTAFACED approves it: a new entry on top, the earlier one exactly as it was, times in order.
-  approveKyb(merchantId);
+  await approveKyb(merchantId);
   // An approved verification is not the service saying so: svc-pay records no activation on a KYB decision.
   expect(await openCompliance(() => page.reload())).toEqual(UNCONFIRMED);
   await expect(history.getByRole('listitem')).toHaveCount(2);
@@ -1150,8 +1204,11 @@ test(`${J} #6 reads the verification history and the activation state: append-on
   // business is restricted, each 403 (the withdrawn owner grant); they are taken out here so the end of the step still
   // proves nothing else was refused.
   const refusedBefore = refused.length;
-  const roomAsked = page.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/api/pay/trpc/merchant.me'));
-  await page.goto('/pay/compliance');
+  const roomAsked = await answerAfterNavigation(
+    page,
+    (r) => new URL(r.url()).pathname.endsWith('/api/pay/trpc/merchant.me'),
+    () => page.goto('/pay/compliance'),
+  );
   expect((await roomAsked).status(), "the room's own business read is refused while restricted").toBe(403);
   await expect(page.locator('main')).toBeVisible();
   await expect(page.locator('main')).not.toContainText(/Confirmed|Active since/);

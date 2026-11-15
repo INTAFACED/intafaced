@@ -174,7 +174,9 @@ describe('transfer notes on Postgres', () => {
     expect(aliceFeed.items.some((item) => item.txId === posted.ledgerTxId && item.note === 'for lunch')).toBe(true);
     expect(bobFeed.items.some((item) => item.txId === posted.ledgerTxId && item.note === 'for lunch')).toBe(true);
     expect(caraFeed.items.some((item) => item.note === 'for lunch')).toBe(false);
-    const hidden = await bank.activityRecords.forItems(CARA, [{ id: 'cara-line', txId: posted.ledgerTxId }]);
+    // The custodial path: a ledger transaction, and no partner move.
+    expect(posted.partnerMove).toBeNull();
+    const hidden = await bank.activityRecords.forItems(CARA, [{ id: 'cara-line', txId: posted.ledgerTxId! }]);
     expect(hidden.get('cara-line')?.note ?? null).toBeNull();
   });
 

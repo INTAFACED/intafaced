@@ -40,9 +40,9 @@ const FEE_EVENT = 'fee-evt-1';
 const PUBLISHED: AccrualTierLaw = {
   published: true,
   tiers: [
-    { hop: 0, rate: '0.10' },
-    { hop: 1, rate: '0.05' },
-    { hop: 2, rate: '0.02' },
+    { hop: 0, rate: '0.130' },
+    { hop: 1, rate: '0.07' },
+    { hop: 2, rate: '0.03' },
   ],
 };
 
@@ -179,7 +179,7 @@ describe('payout refuses when the owner has published no rate', () => {
   });
 
   it('a hop the owner priced with no tier refuses rather than paying zero or skipping', () => {
-    const lawHop0Only: AccrualTierLaw = { published: true, tiers: [{ hop: 0, rate: '0.10' }] };
+    const lawHop0Only: AccrualTierLaw = { published: true, tiers: [{ hop: 0, rate: '0.130' }] };
     // Rows exist for hops 0/1/2 (accrued when all three were published).
     try {
       planAffiliatePayout({ feeEventId: FEE_EVENT, rows: rows(), law: lawHop0Only });
@@ -189,13 +189,13 @@ describe('payout refuses when the owner has published no rate', () => {
     }
   });
 
-  it('rate formatting is not a rate change — "0.10" matches a published "0.1"', () => {
+  it('rate formatting is not a rate change — "0.130" matches a published "0.13"', () => {
     const sameRateDifferentText: AccrualTierLaw = {
       published: true,
       tiers: [
-        { hop: 0, rate: '0.1' },
-        { hop: 1, rate: '0.05' },
-        { hop: 2, rate: '0.02' },
+        { hop: 0, rate: '0.13' },
+        { hop: 1, rate: '0.07' },
+        { hop: 2, rate: '0.03' },
       ],
     };
     expect(() => assertPayoutRateProvenance(rows(), sameRateDifferentText)).not.toThrow();
@@ -211,18 +211,18 @@ describe('multi-tier fan-out across the tree', () => {
 
     const plan = planAffiliatePayout({ feeEventId: FEE_EVENT, rows: rows(), law: PUBLISHED });
     expect(plan.legs).toHaveLength(3);
-    expect(plan.totalCommission).toBe('17'); // 10 + 5 + 2 on a fee of 100
+    expect(plan.totalCommission).toBe('23'); // 13 + 7 + 3 on a fee of 100
 
     await postAffiliatePayout(ledger, plan);
 
     // Fan-out landed on every tier, at the published rate.
-    expect(await bal(ledger, userAvailable(HOP0, ASSET))).toBe('10');
-    expect(await bal(ledger, userAvailable(HOP1, ASSET))).toBe('5');
-    expect(await bal(ledger, userAvailable(HOP2, ASSET))).toBe('2');
+    expect(await bal(ledger, userAvailable(HOP0, ASSET))).toBe('13');
+    expect(await bal(ledger, userAvailable(HOP1, ASSET))).toBe('7');
+    expect(await bal(ledger, userAvailable(HOP2, ASSET))).toBe('3');
 
     // Sum-to-zero per asset: the pool funded all of it, nothing was minted, and
     // the rewards engine is a pass-through that ends flat.
-    expect(await bal(ledger, houseFees(AFFILIATE_PAYOUT_SOURCE_MODULE, ASSET))).toBe('83');
+    expect(await bal(ledger, houseFees(AFFILIATE_PAYOUT_SOURCE_MODULE, ASSET))).toBe('77');
     expect(await bal(ledger, rewardsEngine(ASSET))).toBe('0');
   });
 
@@ -285,10 +285,10 @@ describe('multi-tier fan-out across the tree', () => {
 
     await postAffiliatePayout(ledger, plan);
 
-    expect(await bal(ledger, userAvailable(HOP0, ASSET))).toBe('10');
-    expect(await bal(ledger, userAvailable(HOP1, ASSET))).toBe('5');
-    expect(await bal(ledger, userAvailable(HOP2, ASSET))).toBe('2');
-    expect(await bal(ledger, houseFees('trade', ASSET))).toBe('83');
+    expect(await bal(ledger, userAvailable(HOP0, ASSET))).toBe('13');
+    expect(await bal(ledger, userAvailable(HOP1, ASSET))).toBe('7');
+    expect(await bal(ledger, userAvailable(HOP2, ASSET))).toBe('3');
+    expect(await bal(ledger, houseFees('trade', ASSET))).toBe('77');
     // Identity pool was never funded and must stay empty (no cross-pool invent).
     expect(await bal(ledger, houseFees(AFFILIATE_PAYOUT_SOURCE_MODULE, ASSET))).toBe('0');
   });
@@ -440,15 +440,15 @@ describe('a retried payout pays once', () => {
     // Simulate a crash after the first leg: post only leg 0.
     await ledger.post(plan.legs[0]!.sweep);
     await ledger.post(plan.legs[0]!.payout);
-    expect(await bal(ledger, userAvailable(HOP0, ASSET))).toBe('10');
+    expect(await bal(ledger, userAvailable(HOP0, ASSET))).toBe('13');
     expect(await bal(ledger, userAvailable(HOP1, ASSET))).toBe('0'); // half-paid tree
 
     // Replay the whole plan.
     await postAffiliatePayout(ledger, plan);
 
-    expect(await bal(ledger, userAvailable(HOP0, ASSET))).toBe('10'); // not 20
-    expect(await bal(ledger, userAvailable(HOP1, ASSET))).toBe('5');
-    expect(await bal(ledger, userAvailable(HOP2, ASSET))).toBe('2');
+    expect(await bal(ledger, userAvailable(HOP0, ASSET))).toBe('13'); // not 26
+    expect(await bal(ledger, userAvailable(HOP1, ASSET))).toBe('7');
+    expect(await bal(ledger, userAvailable(HOP2, ASSET))).toBe('3');
     expect(await bal(ledger, rewardsEngine(ASSET))).toBe('0');
   });
 });
@@ -508,9 +508,9 @@ describe('self-referral is refused', () => {
       beneficiaryId: PAYER,
       payerId: PAYER,
       hop: 0,
-      rate: '0.10',
+      rate: '0.130',
       feeAmount: '100',
-      commissionAmount: '10',
+      commissionAmount: '13',
       asset: ASSET,
       accruedAt: new Date('2026-08-09T12:00:00.000Z'),
       sourceModule: AFFILIATE_PAYOUT_SOURCE_MODULE,
@@ -546,14 +546,14 @@ describe('the depth bound is enforced', () => {
       beneficiaryId: HOP2,
       payerId: PAYER,
       hop: MAX_PAYOUT_TIER_DEPTH, // one past the last payable hop (0-indexed)
-      rate: '0.02',
+      rate: '0.03',
       feeAmount: '100',
-      commissionAmount: '2',
+      commissionAmount: '3',
       asset: ASSET,
       accruedAt: new Date('2026-08-09T12:00:00.000Z'),
       sourceModule: AFFILIATE_PAYOUT_SOURCE_MODULE,
     };
-    const law: AccrualTierLaw = { published: true, tiers: [{ hop: MAX_PAYOUT_TIER_DEPTH, rate: '0.02' }] };
+    const law: AccrualTierLaw = { published: true, tiers: [{ hop: MAX_PAYOUT_TIER_DEPTH, rate: '0.03' }] };
 
     try {
       planAffiliatePayout({ feeEventId: FEE_EVENT, rows: [deepRow], law });
@@ -604,7 +604,7 @@ describe('fan-out integrity', () => {
   });
 
   it('a mixed-asset fan-out is refused — sum-to-zero is per asset', () => {
-    const mixed = [...rows(), { ...rows()[0]!, asset: 'BTC', beneficiaryId: HOP2, hop: 2, rate: '0.02', commissionAmount: '2' }];
+    const mixed = [...rows(), { ...rows()[0]!, asset: 'BTC', beneficiaryId: HOP2, hop: 2, rate: '0.03', commissionAmount: '3' }];
     try {
       planAffiliatePayout({ feeEventId: FEE_EVENT, rows: mixed, law: PUBLISHED });
       expect.unreachable('must refuse mixed assets');
@@ -650,8 +650,8 @@ describe('fan-out integrity', () => {
     const plan = planAffiliatePayout({ feeEventId: FEE_EVENT, rows: rows(PUBLISHED, fee), law: PUBLISHED });
     await postAffiliatePayout(ledger, plan);
 
-    // 10% of 33.333333333333333333, truncated at 18dp by decimalMul.
-    expect(await bal(ledger, userAvailable(HOP0, ASSET))).toBe('3.333333333333333333');
+    // 13% of 33.333333333333333333, truncated at 18dp by decimalMul.
+    expect(await bal(ledger, userAvailable(HOP0, ASSET))).toBe('4.333333333333333333');
     expect(await bal(ledger, rewardsEngine(ASSET))).toBe('0');
   });
 

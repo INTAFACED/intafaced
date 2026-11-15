@@ -5,6 +5,10 @@ import { createAdminApi, type LedgerOperatorCall } from './admin-api.js';
 import { stubApprovalConsumer, type ActionApprovalConsumer } from './action-approval-consume.js';
 import { KillSwitchState } from './kill-switch.js';
 
+// This file proves the blank-list refusal. Since OWNER 258 (1) a dev or test process with no env list screens with
+// the owner's unsigned rows (packages/config screening.ts), so the file keeps them out to stay on the blank list.
+process.env.INTAFACED_UNSIGNED_SANCTIONS_ROWS = 'off';
+
 // These suites read the live process env for the sanctions-screening posture. An
 // unset APP_ENV is production-like and refuses by design, so they declare the test env.
 vi.stubEnv('APP_ENV', 'test');

@@ -349,6 +349,8 @@ of the same idempotency key. `POST /reconcile` remains the operator report; it i
 
 `matching.engine` in the admin console, or `MATCHING_ENGINE_ENABLED=false`.
 
+**Follows the custody switch** (project-state OWNER.md item 288; `docs/adr/2026-11-10-launch-money-model.md`): our own order book settles every fill as customer money in our ledger, which INTAFACED does not hold with `LEDGER_CUSTODY_LAYER` off. So `MATCHING_ENGINE_ENABLED` unset is on only with `LEDGER_CUSTODY_LAYER=on`, and set on with custody off refuses boot (`resolveOwnOrderBook`, ledger-client). Set off always loads. `docker-compose.apps.yml` defaults it off; the local TEST stack and the CX-8 boot give svc-matching svc-ledger's custody value.
+
 **Effect when off:** every submission is refused with `engine_disabled` **before it is journalled** — the journal
 means "these were processed, in this order", and an input that was never processed does not belong in it. Cancels
 and depth reads keep working, so operators can drain a book rather than freeze it. `/ready` returns 503 so the load

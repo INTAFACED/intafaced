@@ -119,6 +119,7 @@ describe('LedgerService clock skew', () => {
   it('does not read the database clock on post when the bound is blank', async () => {
     let reads = 0;
     const service = new LedgerService({} as never, new MemoryEventBus(), {
+      custodyLayer: 'on',
       clockSkewBoundMs: null,
       readDatabaseNow: async () => {
         reads += 1;
@@ -210,7 +211,7 @@ describe('clock skew against postgres', () => {
 
   it('refuses a blank bound and blocks an explicit zero against a shifted app clock', async () => {
     const { sql } = opened();
-    const blank = new LedgerService(sql, new MemoryEventBus(), { clockSkewBoundMs: null });
+    const blank = new LedgerService(sql, new MemoryEventBus(), { custodyLayer: 'on', clockSkewBoundMs: null });
     const unset = await blank.clockSkew();
     expect(unset.ok).toBe(false);
     if (unset.ok) return;
@@ -227,10 +228,11 @@ describe('clock skew against postgres', () => {
     });
     await expect(blank.post(booked)).resolves.toMatchObject({ idempotencyKey: booked.idempotencyKey });
 
-    const wide = new LedgerService(sql, new MemoryEventBus(), { clockSkewBoundMs: 86_400_000 });
+    const wide = new LedgerService(sql, new MemoryEventBus(), { custodyLayer: 'on', clockSkewBoundMs: 86_400_000 });
     await expect(wide.clockSkew()).resolves.toMatchObject({ ok: true, code: null, boundMs: '86400000' });
 
     const zero = new LedgerService(sql, new MemoryEventBus(), {
+      custodyLayer: 'on',
       clockSkewBoundMs: 0,
       now: () => new Date(Date.now() + 60_000),
     });
@@ -250,10 +252,7 @@ describe('clock skew against postgres', () => {
     const { sql } = opened();
     const databaseNow = await readDatabaseNow(sql);
     let appNow = databaseNow;
-    const service = new LedgerService(sql, new MemoryEventBus(), {
-      clockSkewBoundMs: 1_000,
-      now: () => appNow,
-    });
+    const service = new LedgerService(sql, new MemoryEventBus(), { custodyLayer: 'on', clockSkewBoundMs: 1_000, now: () => appNow });
     const deposit = recipes.deposit({
       userId: USER,
       assetId: 'USDT',

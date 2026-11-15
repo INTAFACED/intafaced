@@ -4,22 +4,76 @@ import { UNBUILT, agentCard, agentSection, agentsRun, openAgents, openNavigatorS
 import { signIn } from './desk.mjs';
 import { existsSync, rmSync, writeFileSync } from 'node:fs';
 import { api, fromUnits, stackFile, toUnits } from './stack.mjs';
+import { ADMIN, founderSignIn } from './admin.mjs';
+import { setPartner } from './partner.mjs';
 
 // J-agents-01, in the running app (docs/roadmap/journeys.json): find an agent, check what it may do, and run it once.
-// One test per step, titled "J-agents-01 #<n>", run in order on one verified TEST account funded with TEST USDT. The
-// usage window settles once as a ledger fee charge equal to the stated window cost; a retried request id charges once.
-// The run uses the stack's TEST rate card (tooling/profiles/test-owner-values/agents.json) and the service's sandbox
-// engine; #5 to #7 check its cost against the published rate and the ledger's own balances, read through Edge.
+// One test per step, titled "J-agents-01 #<n>", run in order on one verified TEST account whose payment method is the
+// TEST partner bank: its money is held at the partner (`testPartner.set({ custody: 'off' })`, OWNER 226), funded there
+// with TEST USDT. INTAFACED keeps no prepaid balance for it. The usage window is recorded once in our ledger as owed by
+// the person (`charge:earned:agents:…`), equal to the stated window cost, and collected once from the partner balance
+// (`charge:collected:partner-reserve:test:…`, keyed on the partner's own payment id); a retried request id charges once,
+// and nothing else moves, in the partner's figures or in the person's own ledger balances. The run uses the stack's TEST
+// rate card (tooling/profiles/test-owner-values/agents.json) and the service's sandbox engine; #5 to #7 check its cost
+// against the published rate, the partner's own figures (svc-bank `spaces.list`, held at the TEST partner bank) and the
+// ledger's own transactions, read by a founder through the console's ledger lookup.
 // Not checkable on this stack: #1's empty state (the stack publishes five agents) and #2's ineligible agent (the TEST
 // account is eligible for every customer agent). #1's disabled agent is the Portfolio planner, which no customer can run
 // yet; J-agents-14 #7 checks a quarantined agent's card.
 const J = 'J-agents-01';
 const agents = agentsRun(J);
+/** The TEST partner bank's name for itself (svc-bank `partner/test-partner.ts` TEST_PARTNER_LABEL). */
+const PARTNER_BANK = 'TEST partner bank';
+/** #5's question: it names a market, so the platform reads that market before the engine runs (J-agents-10 #4). */
+const QUESTION = 'TEST: what moved BTC/USDT today?';
+/** What the person holds at the TEST partner at the start, in TEST USDT. */
+const AT_PARTNER = '10';
 
 test.describe.configure({ mode: 'default' });
 
 const main = (page) => page.getByRole('main');
 const workspace = (page) => main(page).getByRole('region', { name: 'Session workspace' });
+
+/** A guardrail refusal code in the detail page's words (apps/customer agents-catalogue-copy, English); a code it does
+ * not word stays the code itself. */
+const REFUSAL_WORDS = {
+  session_closed: 'The session is closed',
+  action_limit: 'The session’s action budget is spent',
+  tool_not_declared: 'This agent may never use it',
+  module_not_allowed: 'Its module is not granted to this agent',
+  mode_unknown: 'No known permission mode allows it',
+  mode_forbids_write: 'The permission mode does not allow changes',
+  withdraw_scope_required: 'Withdrawals need a separate grant',
+  tool_call_limit: 'Its calls for this session are used up',
+  approval_required: 'It waits for your approval',
+  place_idempotency_required: 'An order needs its own request key',
+  place_key_conflict: 'That request key already belongs to another order',
+  task_not_allowed: 'This agent may not run that task',
+  'copy_intel.returns_board_refused': 'Copy intelligence never ranks leaders by returns; nothing was run or charged',
+  output_limit: 'It asked for more output than allowed',
+  spend_limit: 'Its worst case would pass the spend cap',
+  price_unset: 'No rate is published for this task',
+  funds_insufficient: 'Your available balance is below its worst case',
+  funds_unread: 'Your balance could not be read, so it did not start',
+};
+const refusalWords = (code) => REFUSAL_WORDS[code.replace(/^agents\./, '')] ?? code;
+
+const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/**
+ * What a comparison column's "Who may use it" cell says for one agent's stored eligibility (svc-agents `agent.get`), in
+ * the page's English words: no rule; the person's plan granted; or left out, naming the very rule the service gives as
+ * the reason (plan, age or region) and, for a plan rule, the plans it is published for and the person's own.
+ */
+function verdictFor(e) {
+  if (e.rule === 'none') return /^No plan, age or region rule limits who may use it$/;
+  const plan = (value) => (value === 'none' || value === '' ? 'none (not verified)' : value);
+  if (e.eligible) return new RegExp(`^Your plan \\(${escape(plan(e.yourPlan))}\\) is one it is published for$`);
+  if (!e.published)
+    return new RegExp(`^Not on your ${escape(e.reason)}: no ${escape(e.reason)} is published for it, so no one can use it$`);
+  return new RegExp(
+    `^Not on your ${escape(e.reason)}: it is published for ${escape(e.plans.join(', '))}, and your account is on ${escape(plan(e.yourPlan))}$`,
+  );
+}
 
 /** The session #5 ran, from the run file; a later step after a failed #5 says so instead of using another session. */
 function ranSession() {
@@ -37,9 +91,57 @@ async function selectRanSession(page) {
   return main(page).getByRole('region', { name: 'Selected session' });
 }
 
-test(`${J} starts: a verified TEST account funded with TEST USDT, opening Agents from More`, async ({ page }) => {
+/** The person's USDT main balance as the partner reports it; the space says it is held at the TEST partner bank. */
+async function partnerUsdt() {
+  const res = await (
+    await api(agents.account())
+  ).get(`/api/bank/trpc/spaces.list?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`);
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  const main = res.body.result.data.find((s) => s.kind === 'primary' && s.assetId === 'USDT');
+  expect(main?.heldAt?.label, 'the person’s USDT is held at the TEST partner bank').toBe(PARTNER_BANK);
+  return main.balance;
+}
+
+/**
+ * Founder A, signed in to the console once, in a context of its own. One sign-in per step: each sign-in spends a fresh
+ * authenticator step (identity refuses a replayed one), so a sign-in per lookup waited for a new 30 s window on every
+ * lookup after the second, and #6's four lookups ran past the step's 90 s (main run 43653086390).
+ */
+async function founderConsole(browser) {
+  const context = await browser.newContext();
+  try {
+    const founder = await context.newPage();
+    await founderSignIn(founder);
+    return { founder, close: () => context.close() };
+  } catch (error) {
+    await context.close();
+    throw error;
+  }
+}
+
+/** svc-ledger's own record of a business key, traced by founder A through the console's ledger lookup. */
+async function ledgerTrace({ founder }, businessKey) {
+  const res = await founder.request.get(`${ADMIN}/api/ledger-lookup?businessKey=${encodeURIComponent(businessKey)}`);
+  expect(res.status(), (await res.text()).slice(0, 300)).toBe(200);
+  return await res.json();
+}
+
+/** The ledger keys of one usage window (packages/ledger-client recipes/charge.ts): earned, and collected on a payment. */
+const earnedKey = (chargeKey) => `charge:earned:agents:${chargeKey.replace(/^agent\.usage:/, '').replace(':', '.')}`;
+const collectedKey = (paymentRef) => `charge:collected:partner-reserve:test:USDT:${paymentRef}`;
+
+test(`${J} starts: a verified TEST account whose payment method is the TEST partner bank, funded there with TEST USDT, opening Agents from More`, async ({
+  page,
+}) => {
   test.setTimeout(240_000);
-  await agents.start(page, 'ag01');
+  const who = await agents.start(page, 'ag01');
+  // The person's money is held by the TEST partner bank, not by us, and paid in there once.
+  await setPartner(who, { custody: 'off' });
+  const funded = await (
+    await api(who)
+  ).post('/api/bank/trpc/testPartner.fund', { fundId: `${J}-${who.email}`.slice(0, 64), assetId: 'USDT', amount: AT_PARTNER });
+  expect(funded.status, JSON.stringify(funded.body).slice(0, 300)).toBe(200);
+  expect(await partnerUsdt()).toBe(AT_PARTNER);
   await signIn(page, agents.account());
   await page.goto('/more');
   await main(page)
@@ -52,16 +154,59 @@ test(`${J} starts: a verified TEST account funded with TEST USDT, opening Agents
 test(`${J} #1 opens Agents: the catalogue from the stored list with filters, sort and status; a disabled agent stays visible with its open button off`, async ({
   page,
 }) => {
+  // The catalogue is the stored list: the cards are exactly the agents svc-agents answers the page (agent.catalogue),
+  // no more and no fewer, each with its stored status. A card for an agent the stored list does not hold would be a
+  // sample card, which the step's words rule out (with none published, the empty state shows no card at all).
+  const catalogue = page.waitForResponse((r) => r.ok() && new URL(r.url()).pathname.endsWith('/api/agents/trpc/agent.catalogue'));
   await openAgents(page, agents);
   await expect(main(page).getByRole('heading', { name: 'Agent catalogue' })).toBeVisible();
+  const storedList = (await (await catalogue).json())?.result?.data ?? [];
+  expect(storedList.length, 'the stack publishes agents').toBeGreaterThan(0);
+  const LABEL = {
+    navigator: 'Navigator',
+    support: 'Support helper',
+    scanner: 'Market scanner',
+    merchant: 'Merchant watcher',
+    'copy-intel': 'Copy intelligence',
+    coach: 'Curriculum coach',
+    launch: 'Launch check',
+    growth: 'Growth drafts',
+    portfolio: 'Portfolio planner',
+    'risk-compliance': 'Risk and compliance',
+  };
+  const storedNames = storedList.map((row) => LABEL[row.agentId] ?? row.name ?? row.agentId).sort((a, b) => a.localeCompare(b));
+  const cardNames = (await main(page).getByRole('article').getByRole('heading', { level: 3 }).allInnerTexts()).sort((a, b) =>
+    a.localeCompare(b),
+  );
+  expect(cardNames, 'every card is a stored agent and every stored agent has a card').toEqual(storedNames);
+  for (const row of storedList)
+    await expect(agentCard(page, LABEL[row.agentId] ?? row.name ?? row.agentId).getByTestId('agent-status')).toHaveText(
+      row.enabled ? 'Enabled' : 'Disabled',
+    );
   // The stored list: the five session agents the stack registers, each a card.
   for (const name of ['Navigator', 'Support helper', 'Market scanner', 'Merchant watcher', 'Copy intelligence']) {
     await expect(agentCard(page, name)).toBeVisible();
   }
-  await expect(main(page).getByRole('textbox', { name: 'Search agents' })).toBeVisible();
-  await main(page).getByRole('combobox', { name: 'How it is used' }).selectOption({ label: 'Metered session' });
-  await expect(agentCard(page, 'Curriculum coach')).toHaveCount(0);
-  await main(page).getByRole('combobox', { name: 'How it is used' }).selectOption({ label: 'All' });
+  const shownNames = async () =>
+    (await main(page).getByRole('article').getByRole('heading', { level: 3 }).allInnerTexts()).sort((x, y) => x.localeCompare(y));
+  // Search narrows the stored cards to the ones whose name matches, and clearing it brings every one back.
+  const search = main(page).getByRole('textbox', { name: 'Search agents' });
+  await search.fill('nav');
+  await expect.poll(shownNames).toEqual(storedNames.filter((name) => /nav/i.test(name)));
+  expect(await shownNames()).toEqual(['Navigator']);
+  await search.fill('');
+  await expect.poll(shownNames).toEqual(storedNames);
+  // The kind filter keeps only the stored agents of that kind: metered sessions hide the room agents, and the room
+  // filter shows only them.
+  const SESSION = ['Navigator', 'Support helper', 'Market scanner', 'Merchant watcher', 'Copy intelligence'];
+  const ROOM = ['Curriculum coach', 'Launch check', 'Growth drafts'];
+  const kind = main(page).getByRole('combobox', { name: 'How it is used' });
+  await kind.selectOption({ label: 'Metered session' });
+  await expect.poll(shownNames).toEqual(storedNames.filter((name) => SESSION.includes(name)));
+  await kind.selectOption({ label: 'Inside a room' });
+  await expect.poll(shownNames).toEqual(storedNames.filter((name) => ROOM.includes(name)));
+  expect(await shownNames(), 'the stack stores at least one room agent').not.toEqual([]);
+  await kind.selectOption({ label: 'All' });
 
   const sort = main(page).getByRole('combobox', { name: 'Sort' });
   await expect(sort).toBeVisible(UNBUILT);
@@ -137,6 +282,79 @@ test(`${J} #2 selects two agents to compare: one table of tools, modes, caps and
         .getByRole('cell'),
     ).toHaveText([row, of(navigator), of(support)]);
   }
+  // Eligibility, from the stored guardrail: each agent states who may use it, and the table says per column whether
+  // this person may, naming the real reason (plan, age or region) when not.
+  for (const [g, who] of [
+    [navigator, 'navigator'],
+    [support, 'support'],
+  ])
+    expect(g, `${who}'s stored guardrail states who may use it`).toHaveProperty('eligibility');
+  const eligibility = compare.getByRole('row').filter({ has: page.getByRole('cell', { name: /eligib|who may use/i }) });
+  await expect(eligibility).toHaveCount(1);
+  const verdicts = eligibility.getByRole('cell');
+  await expect(verdicts).toHaveCount(3);
+  // Each column's verdict is that column's own stored eligibility, word for word.
+  await expect(verdicts.nth(1)).toHaveText(verdictFor(navigator.eligibility));
+  await expect(verdicts.nth(2)).toHaveText(verdictFor(support.eligibility));
+});
+
+test(`${J} #2 an agent the person is not eligible for shows the real reason (plan, age or region) in the comparison`, async ({
+  browser,
+}) => {
+  // A second person, signed up for this step only, who is not verified: an agent whose stored eligibility asks for more
+  // than this person has must say which rule (plan, age or region) leaves them out, in the comparison's own row.
+  const context = await browser.newContext();
+  try {
+    const page = await context.newPage();
+    const { signUpInBrowser } = await import('./stack.mjs');
+    const { randomBytes } = await import('node:crypto');
+    const handle = `ag01e${Date.now().toString(36)}${randomBytes(2).toString('hex')}`;
+    await signUpInBrowser(page, {
+      handle,
+      email: `${handle}@local-test.invalid`,
+      password: `TEST-${randomBytes(9).toString('base64url')}-9a`,
+    });
+    await page.goto('/agents');
+    // Both columns' stored guardrails, each read as the page asks for it: each must say this person is left out and why.
+    const read = (agentId) =>
+      page.waitForResponse(
+        (r) =>
+          r.ok() &&
+          r.request().method() === 'GET' &&
+          r.url().includes('/api/agents/trpc/agent.get') &&
+          decodeURIComponent(r.url()).includes(`"agentId":"${agentId}"`),
+        { timeout: 15_000 },
+      );
+    const reads = [read('navigator'), read('support')];
+    await agentCard(page, 'Navigator').getByRole('checkbox', { name: 'Compare' }).check(UNBUILT);
+    await agentCard(page, 'Support helper').getByRole('checkbox', { name: 'Compare' }).check();
+    await main(page).getByRole('button', { name: 'Compare 2 agents' }).click();
+    const guardrails = await Promise.all(reads.map(async (answer) => (await (await answer).json())?.result?.data));
+    for (const [g, who] of [
+      [guardrails[0], 'navigator'],
+      [guardrails[1], 'support'],
+    ]) {
+      expect(g, `${who}'s stored guardrail states who may use the agent`).toHaveProperty('eligibility');
+      // The unverified person is not eligible, for a named rule, with the service's own refusal code.
+      expect(g.eligibility, `${who}: ${JSON.stringify(g.eligibility)}`).toMatchObject({ eligible: false });
+      expect(['plan', 'age', 'region'], `${who}'s reason`).toContain(g.eligibility.reason);
+      expect(g.eligibility.code, `${who}'s refusal code`).toMatch(/^agents\.[a-z_]+$/);
+    }
+    const row = tableIn(main(page), 'Compare agents')
+      .getByRole('row')
+      .filter({ has: page.getByRole('cell', { name: /eligib|who may use/i }) });
+    await expect(row).toHaveCount(1);
+    // Each column, not the row as a whole, says the person is left out and names the rule.
+    const cells = row.getByRole('cell');
+    await expect(cells).toHaveCount(3);
+    // Each column names the very rule its own stored eligibility gives as the reason, with that column's plans.
+    for (const [i, g] of guardrails.entries()) {
+      await expect(cells.nth(i + 1)).toHaveText(verdictFor(g.eligibility));
+      await expect(cells.nth(i + 1)).toContainText(`Not on your ${g.eligibility.reason}`);
+    }
+  } finally {
+    await context.close();
+  }
 });
 
 test(`${J} #3 opens an agent's detail page: tools with inputs, outputs and refusal reasons; the permission mode; it acts as the person, never with broader access`, async ({
@@ -151,8 +369,29 @@ test(`${J} #3 opens an agent's detail page: tools with inputs, outputs and refus
   await expect(tools.getByRole('row').filter({ hasText: 'trade.quote' })).toBeVisible();
   for (const header of ['Inputs', 'Outputs', 'Refusals'])
     await expect(tools.getByRole('columnheader', { name: header })).toBeVisible(UNBUILT);
-  // A tool that publishes no shape says so, rather than showing an empty cell.
-  for (const cell of await tools.getByRole('cell').all()) await expect(cell).toHaveText(/\S/);
+  // Each declared tool, held to its stored guardrail row by row: its name, and every refusal it can return in words, in
+  // the stored order. The stored guardrail publishes no input or output shape for a tool, so each such cell says so in
+  // words, never an empty cell.
+  const declared = stored?.result?.data?.tools ?? [];
+  expect(declared.length, JSON.stringify(stored).slice(0, 400)).toBeGreaterThan(0);
+  const rows = tools.getByRole('row').filter({ has: page.getByRole('cell') });
+  await expect(rows).toHaveCount(declared.length);
+  for (const [i, tool] of declared.entries()) {
+    expect(tool.refusals.length, `${tool.name} declares the refusals it can return`).toBeGreaterThan(0);
+    const cells = rows.nth(i).getByRole('cell');
+    await expect(cells).toHaveCount(6);
+    await expect(cells.nth(0)).toHaveText(tool.name);
+    await expect(cells.nth(1)).toHaveText(tool.mode);
+    await expect(cells.nth(2)).toHaveText(tool.requiresApproval ? 'Required' : 'None needed');
+    // agent.get publishes no input or output shape for any tool, so both cells say so in words.
+    expect(tool, `${tool.name} publishes no input shape`).not.toHaveProperty('inputs');
+    expect(tool, `${tool.name} publishes no output shape`).not.toHaveProperty('outputs');
+    await expect(cells.nth(3)).toHaveText('Not published by this agent');
+    await expect(cells.nth(4)).toHaveText('Not published by this agent');
+    // Every refusal is worded, never left as its raw code.
+    for (const code of tool.refusals) expect(REFUSAL_WORDS[code.replace(/^agents\./, '')], `${tool.name}: ${code} has words`).toBeDefined();
+    await expect(cells.nth(5).getByRole('listitem')).toHaveText(tool.refusals.map(refusalWords));
+  }
   // The permission mode is the one svc-agents stores for Navigator, in its words: research only.
   expect(stored?.result?.data?.capacityMode, JSON.stringify(stored).slice(0, 400)).toBe('research_only');
   const mode = main(page).getByRole('term').filter({ hasText: 'Permission mode' });
@@ -226,8 +465,10 @@ test(`${J} #5 presses Run and confirms the spend ceiling: a run row before the e
   const sessionId = await openNavigatorSession(page, agents);
   agents.run.write({ sessionId });
   const before = await ledgerBalances();
+  const partnerBefore = await partnerUsdt();
   const ask = workspace(page).getByRole('textbox', { name: /^Ask the agent/ });
-  await ask.fill('Where do I place a limit order?');
+  // A question about a market, so the reply comes with findings: the market the platform read itself before the engine ran.
+  await ask.fill(QUESTION);
 
   // The stack's stand-in engine is held at its door (its hold file), so the run is read from the service itself while
   // the engine has not answered: the service's run row exists before the engine answers.
@@ -261,9 +502,29 @@ test(`${J} #5 presses Run and confirms the spend ceiling: a run row before the e
   }
   expect(first.status()).toBe(200);
   const run = (await first.json()).result.data;
-  // The reply is the engine's own answer to this request.
-  await expect(workspace(page).getByRole('region', { name: 'Reply' }).getByTestId('more-body')).toHaveText(run.text, { timeout: 60_000 });
+  // The reply is the engine's own answer to this request, sentence by sentence as the service returned it.
+  const reply = workspace(page).getByRole('region', { name: 'Reply' }).getByTestId('more-body');
+  await expect(reply).toBeVisible({ timeout: 60_000 });
   expect(run.text.trim()).not.toBe('');
+  const sentences = run.text
+    .split(/(?<=[.!?])\s+|\n+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+  await expect(reply.locator('span[lang="und"]')).toHaveText(sentences);
+  // With its findings: the one market the question names, read by the platform itself, with the figure and the time it
+  // was observed, shown with the reply and stored with the run.
+  expect(run.provenance?.sources, 'the reply carries its findings').toEqual([
+    { id: 'S1', market: 'BTC/USDT', measure: 'last_price', value: expect.stringMatching(/^\d+(\.\d+)?$/), observedAt: expect.any(String) },
+  ]);
+  const [finding] = run.provenance.sources;
+  const findings = workspace(page).getByRole('region', { name: 'Where this came from' });
+  await expect(findings.getByTestId('research-source')).toHaveCount(1);
+  await expect(findings.getByTestId('research-source')).toContainText(`[S1] BTC/USDT last traded price: ${finding.value}`);
+  await expect(findings.getByTestId('research-observed-at')).toHaveAttribute('datetime', finding.observedAt);
+  const stored = await agentsCall('run.get', { runId: run.runId }, 'GET');
+  expect(stored.status).toBe(200);
+  expect(stored.body.result.data.reply).toBe(run.text);
+  expect(stored.body.result.data.provenance.sources).toEqual(run.provenance.sources);
   // Its exact cost: the reported usage at the published rate, to the last place, shown on the row as the service billed it.
   const { cost } = await rateCardCost(run.action.task, run);
   expect(run.metered).toBe(true);
@@ -298,6 +559,7 @@ test(`${J} #5 presses Run and confirms the spend ceiling: a run row before the e
   expect(toUnits(usage.body.result.data.sessionTotal)).toBe(cost);
   expect(toUnits(usage.body.result.data.pending)).toBe(cost);
   expect(await ledgerBalances()).toEqual(before);
+  expect(await partnerUsdt()).toBe(partnerBefore);
   // The service's own record: the session holds exactly this one run, completed, and one executed engine response.
   const detail = await agentsCall('session.detail', { sessionId }, 'GET');
   expect(detail.body.result.data.runs).toEqual([{ requestId, startedAt: expect.any(String), state: 'completed' }]);
@@ -308,7 +570,7 @@ test(`${J} #5 presses Run and confirms the spend ceiling: a run row before the e
   expect(engineRuns[0].cost).toBe(run.cost);
 });
 
-test(`${J} #6 closes the session: open windows settle once; a closed session refuses further actions`, async ({ page }) => {
+test(`${J} #6 closes the session: open windows settle once; a closed session refuses further actions`, async ({ page, browser }) => {
   // The session #5 ran, with its usage window still open. A request this agent may not run is refused and logged first,
   // so the history #7 reads has a refusal in it; it bills nothing.
   const { cost } = agents.run.read();
@@ -330,6 +592,7 @@ test(`${J} #6 closes the session: open windows settle once; a closed session ref
   expect(toUnits(usage.body.result.data.pending)).toBe(toUnits(cost));
 
   const before = await ledgerBalances();
+  const partnerBefore = await partnerUsdt();
   const selected = await selectRanSession(page);
   await selected.getByRole('button', { name: 'Close session' }).click();
   await expect(selected.getByRole('status')).toContainText('Session closed. Usage settled.');
@@ -340,28 +603,63 @@ test(`${J} #6 closes the session: open windows settle once; a closed session ref
   await expect(settled).toHaveCount(1);
   await expect(settled.getByTestId('window-cost')).toHaveText(`${cost} USDT`);
   await expect(settled.getByTestId('charge-key')).toHaveText(/^agent\.usage:\S+$/);
-  // The ledger moved once, by the window's cost, as a fee from the account's USDT; nothing else moved.
+  const chargeKey = await settled.getByTestId('charge-key').innerText();
+  // Collected from the person's payment method: the partner's own payment, named with the partner.
+  const paidFrom = (await settled.getByTestId('paid-from').innerText()).trim();
+  const paymentRef = paidFrom.match(/^TEST partner bank, payment (\S+)$/)?.[1];
+  expect(paymentRef, `the window names the partner's payment: ${paidFrom}`).toBeTruthy();
+  // The partner took exactly the window's cost from the person's balance there, once.
+  expect(toUnits(partnerBefore) - toUnits(await partnerUsdt())).toBe(toUnits(cost));
+  // We keep no prepaid balance: the person's own ledger balances did not move at all.
   const after = await ledgerBalances();
-  expect(toUnits(before.USDT.total) - toUnits(after.USDT.total)).toBe(toUnits(cost));
-  expect(toUnits(before.USDT.free) - toUnits(after.USDT.free)).toBe(toUnits(cost));
-  expect(after.USDT.used).toBe(before.USDT.used);
-  expect({ ...after, USDT: undefined }).toEqual({ ...before, USDT: undefined });
+  expect(after).toEqual(before);
+  // Our ledger recorded the window once as owed by the person, equal to its cost: one transaction under the window's
+  // earned key, revenue up by the cost and the person's receivable down by it.
+  const desk = await founderConsole(browser);
+  try {
+    const earned = await ledgerTrace(desk, earnedKey(chargeKey));
+    expect(earned.found, `the ledger holds ${earnedKey(chargeKey)}`).toBe(true);
+    expect(earned.transaction).toMatchObject({ businessKey: earnedKey(chargeKey), module: 'agents', reason: 'charge.earned' });
+    expect(earned.transaction.postings).toHaveLength(2);
+    for (const posting of earned.transaction.postings) {
+      expect(posting).toMatchObject({ assetId: 'USDT' });
+      expect(toUnits(posting.amount)).toBe(toUnits(cost));
+    }
+    const owedAt = earned.transaction.postings.find((p) => p.side === 'source');
+    expect(toUnits(owedAt.balanceAfter) - toUnits(owedAt.balanceBefore)).toBe(-toUnits(cost));
+    // And collected once, keyed on the partner's payment: what the person owes comes back to zero, our money at the
+    // partner goes up by the cost.
+    const collected = await ledgerTrace(desk, collectedKey(paymentRef));
+    expect(collected.found, `the ledger holds ${collectedKey(paymentRef)}`).toBe(true);
+    expect(collected.transaction).toMatchObject({ businessKey: collectedKey(paymentRef), module: 'agents', reason: 'charge.collected' });
+    expect(collected.transaction.postings).toHaveLength(2);
+    for (const posting of collected.transaction.postings) expect(toUnits(posting.amount)).toBe(toUnits(cost));
+    const owedBack = collected.transaction.postings.find((p) => p.side === 'destination');
+    expect(owedBack.accountId).toBe(owedAt.accountId);
+    expect(toUnits(owedBack.balanceAfter)).toBe(0n);
 
-  // Closing again settles nothing more, and the closed session takes no new request.
-  await expect(selected.getByRole('button', { name: 'Close session' })).toHaveCount(0);
-  await expect(selected).toContainText('This session is closed.');
-  const closeAgain = await agentsCall('session.close', { sessionId: ranSession() });
-  expect(closeAgain.status).toBe(200);
-  expect(closeAgain.body.result.data.status).toBe('closed');
-  const afterRun = await agentsCall('run.complete', {
-    sessionId: ranSession(),
-    requestId: `${ranSession()}:after-close`,
-    task: agents.run.read().task,
-    messages: [{ role: 'user', content: 'TEST' }],
-  });
-  expect(afterRun.status).toBe(400);
-  expect(afterRun.body.error.data.cause.code).toBe('agents.session_closed');
-  expect(await ledgerBalances()).toEqual(after);
+    // Closing again settles nothing more, and the closed session takes no new request.
+    await expect(selected.getByRole('button', { name: 'Close session' })).toHaveCount(0);
+    await expect(selected).toContainText('This session is closed.');
+    const closeAgain = await agentsCall('session.close', { sessionId: ranSession() });
+    expect(closeAgain.status).toBe(200);
+    expect(closeAgain.body.result.data.status).toBe('closed');
+    const afterRun = await agentsCall('run.complete', {
+      sessionId: ranSession(),
+      requestId: `${ranSession()}:after-close`,
+      task: agents.run.read().task,
+      messages: [{ role: 'user', content: 'TEST' }],
+    });
+    expect(afterRun.status).toBe(400);
+    expect(afterRun.body.error.data.cause.code).toBe('agents.session_closed');
+    expect(await ledgerBalances()).toEqual(after);
+    // Nothing more left the partner balance, and the window's keys still name those same two transactions.
+    expect(toUnits(partnerBefore) - toUnits(await partnerUsdt())).toBe(toUnits(cost));
+    expect((await ledgerTrace(desk, earnedKey(chargeKey))).transaction.txId).toBe(earned.transaction.txId);
+    expect((await ledgerTrace(desk, collectedKey(paymentRef))).transaction.txId).toBe(collected.transaction.txId);
+  } finally {
+    await desk.close();
+  }
 });
 
 test(`${J} #7 opens session history: the run with exact usage, refusal codes as words and no prompt text; the selection survives a reload and another device`, async ({
@@ -387,7 +685,7 @@ test(`${J} #7 opens session history: the run with exact usage, refusal codes as 
   // The refusal #6 caused, in words and with its code.
   const refusal = history.getByRole('listitem').filter({ hasText: 'Refused' });
   await expect(refusal).toContainText('This agent may not run that task agents.task_not_allowed');
-  await expect(selected).not.toContainText('Where do I place a limit order?');
+  await expect(selected).not.toContainText(QUESTION);
 
   await page.reload();
   await agentSection(page, 'Sessions');

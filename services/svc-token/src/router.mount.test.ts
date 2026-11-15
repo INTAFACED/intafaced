@@ -9,6 +9,10 @@ import { createTokenRouter } from './router.js';
 import { TokenError, assertProposalListLimit, assertStakesListLimit, type StakeRecord, type TokenService } from './token-service.js';
 import { userCopy } from './user-copy.js';
 
+// This file proves the blank-list refusal. Since OWNER 258 (1) a dev or test process with no env list screens with
+// the owner's unsigned rows (packages/config screening.ts), so the file keeps them out to stay on the blank list.
+process.env.INTAFACED_UNSIGNED_SANCTIONS_ROWS = 'off';
+
 /**
  * Mount boundary for svc-token — stake/unstake/mintEpoch/yield/buyback must
  * only run for a principal the edge signed. A forgeable principal here is

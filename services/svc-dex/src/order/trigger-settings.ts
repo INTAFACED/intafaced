@@ -84,7 +84,7 @@ function optionalString() {
   return z.preprocess((v) => (blankEnv(v) ? undefined : v), z.string().optional());
 }
 
-function envTransform<T>(name: string, parse: (raw: string) => T) {
+export function envTransform<T>(name: string, parse: (raw: string) => T) {
   return optionalString().transform((raw, ctx) => {
     if (raw === undefined) return undefined;
     try {

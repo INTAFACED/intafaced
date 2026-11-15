@@ -138,10 +138,11 @@ describe('SupportContract searchKb / getKbArticle — public doors', () => {
 
 describe('phishing report contract (I-signin-sessions-27)', () => {
   it('accepts phishing as a category and still accepts the four older ones', () => {
-    for (const category of ['account', 'trading', 'deposit_withdraw', 'other', 'phishing']) {
+    // `scam` is a category since J-bank-18 #3 (BK-safe-02); an unknown category still refuses.
+    for (const category of ['account', 'trading', 'deposit_withdraw', 'other', 'phishing', 'scam']) {
       expect(supportTicketCategorySchema.safeParse(category).success, category).toBe(true);
     }
-    expect(supportTicketCategorySchema.safeParse('scam').success).toBe(false);
+    expect(supportTicketCategorySchema.safeParse('not_a_category').success).toBe(false);
   });
 
   it('create takes pasted headers and a client key, and older bodies still parse', () => {

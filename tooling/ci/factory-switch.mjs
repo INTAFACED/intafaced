@@ -34,7 +34,8 @@
  */
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { CI_WORKFLOW, recheckStep, SEAL } from './journey-seal.mjs';
+import { CI_WORKFLOW, recheckStep, SEAL, SEAL_WORKFLOWS } from './journey-seal.mjs';
+import { httpMessage, titleFor } from './api-budget.mjs';
 
 export const SWITCH_BRANCH = 'factory-switch';
 export const SWITCH_FILE = 'FACTORY';
@@ -57,9 +58,10 @@ export function judgeSwitch(text) {
 export async function readSwitch({ repo, token, fetchImpl = fetch }) {
   const path = `/repos/${repo}/contents/${SWITCH_FILE}?ref=${SWITCH_BRANCH}`;
   const res = await fetchImpl(`https://api.github.com${path}`, {
-    headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github.raw' },
+    // No token, no header: the repository is public, so a tokenless read (the builder's gate) is a plain read.
+    headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), accept: 'application/vnd.github.raw' },
   });
-  if (!res.ok) throw new Error(`GET ${path}: HTTP ${res.status}`);
+  if (!res.ok) throw new Error(httpMessage(path, res));
   return res.text();
 }
 
@@ -69,7 +71,7 @@ export async function switchProblem(opts) {
     const v = judgeSwitch(await readSwitch(opts));
     return v.pass ? null : { title: 'Factory paused', why: `${v.why}, so nothing merges (owner decision 2026-11-07)` };
   } catch (e) {
-    return { title: 'Factory switch unreadable', why: `${e.message}; the seal fails closed, so nothing merges` };
+    return { title: titleFor(e.message, 'Factory switch unreadable'), why: `${e.message}; the seal fails closed, so nothing merges` };
   }
 }
 
@@ -83,22 +85,36 @@ export function sweepWants(paused, seal) {
 }
 
 /** One open pull request's head on a flip: wait out a running seal, then re-run it if sweepWants says so. */
-export async function sweepHead({ repo, sha, paused, get, post, sleep, polls = 75, pollMs = 20_000 }) {
+export async function sweepHead({
+  repo,
+  sha,
+  paused,
+  get,
+  post,
+  sleep,
+  polls = 75,
+  pollMs = 20_000,
+  workflow = CI_WORKFLOW,
+  event = 'pull_request',
+}) {
   for (let poll = 1; ; poll++) {
-    const runs = (await get(`/repos/${repo}/actions/workflows/${CI_WORKFLOW}/runs?head_sha=${sha}&event=pull_request&per_page=100`))
+    const runs = (await get(`/repos/${repo}/actions/workflows/${workflow}/runs?head_sha=${sha}&event=${event}&per_page=100`))
       ?.workflow_runs;
-    if (!Array.isArray(runs)) throw new Error(`${CI_WORKFLOW} runs on ${sha}: not a list`);
+    if (!Array.isArray(runs)) throw new Error(`${workflow} runs on ${sha}: not a list`);
     const jobsByRun = new Map();
-    let step = recheckStep(runs, jobsByRun);
+    let step = recheckStep(runs, jobsByRun, event);
     while (step.act === 'jobs') {
       const jobs = (await get(`/repos/${repo}/actions/runs/${step.runId}/jobs?filter=latest&per_page=100`))?.jobs;
       if (!Array.isArray(jobs)) throw new Error(`run ${step.runId}'s jobs: not a list`);
       jobsByRun.set(step.runId, jobs);
-      step = recheckStep(runs, jobsByRun);
+      step = recheckStep(runs, jobsByRun, event);
     }
     if (step.act === 'done') return step.msg.replace('read the steps', 'read the switch');
+    // A seal still waiting for its inputs holds no verdict to flip: it reads the switch when its last input's Start the seal job starts it.
+    if (step.act === 'start') return `no verdict yet (${step.msg}); it reads the switch when it gives one`;
     if (step.act === 'fail') throw new Error(step.msg);
     if (step.act === 'rerun') {
+      // Only the newest seal run on a head is read by GitHub (recheckStep), so only it is swept.
       const seal = jobsByRun.get(step.runId).find((j) => String(j.id) === step.jobId);
       if (!sweepWants(paused, seal)) return `the seal (${seal?.conclusion}) is left as it is`;
       const { status, message = '' } = await post(`/repos/${repo}/actions/jobs/${step.jobId}/rerun`);
@@ -121,7 +137,15 @@ export async function sweep({ repo, base, paused, get, post, sleep, log = consol
     if (p.length < 100) break;
     if (page === 10) throw new Error('more than 1,000 open pull requests, not whole');
   }
-  const results = await Promise.allSettled(pulls.map((p) => sweepHead({ repo, sha: p.head.sha, paused, get, post, sleep })));
+  // Each seal on the head (SEAL_WORKFLOWS): every one must pass, so a flip re-runs each.
+  const results = await Promise.allSettled(
+    pulls.map(async (p) => {
+      const out = [];
+      for (const { workflow, event } of SEAL_WORKFLOWS)
+        out.push(`${workflow}: ${await sweepHead({ repo, sha: p.head.sha, paused, get, post, sleep, workflow, event })}`);
+      return out.join('; ');
+    }),
+  );
   let failed = 0;
   results.forEach((r, i) => {
     if (r.status === 'fulfilled') log(`#${pulls[i].number}: ${r.value}`);
@@ -139,7 +163,7 @@ function apiFor(token) {
   return {
     async get(path) {
       const res = await fetch(`https://api.github.com${path}`, { headers });
-      if (!res.ok) throw new Error(`GET ${path}: HTTP ${res.status}`);
+      if (!res.ok) throw new Error(httpMessage(path, res));
       return res.json();
     },
     async post(path) {
@@ -173,6 +197,6 @@ async function main() {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href)
   main().catch((e) => {
-    console.error(`::error title=Factory switch failed::${e.message}`);
+    console.error(`::error title=${titleFor(e.message, 'Factory switch failed')}::${e.message}`);
     process.exit(1);
   });

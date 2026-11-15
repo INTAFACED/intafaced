@@ -2,6 +2,8 @@
 import { test, expect } from './journey.mjs';
 import { chosePro, signIn, signUp } from './desk.mjs';
 import { ORIGIN } from './stack.mjs';
+import { clickPlot, openWorkbench, pick, pointText, rows } from './charts-desk.mjs';
+import { readFileSync } from 'node:fs';
 
 // J-charts-desk-07, in the running app (docs/roadmap/journeys.json): a pro trader arranges the spot desk. One test per
 // step, titled "J-charts-desk-07 #<n>", run in order on one TEST account. #1 and #2 are the desk's widget workspace on
@@ -144,6 +146,13 @@ const saveLayout = () => page.getByRole('button', { name: 'Save layout' });
 
 test(`${J} #3 saves the layout as "Scalp"; it appears in the list with its symbol and interval, and the same name asks to replace`, async () => {
   await openDesk();
+  // The interval the desk chart is on: its pressed chip, or the More button when it is one of the longer list.
+  const chart = page.getByTestId('dk-chart');
+  const pressed = chart.getByRole('group', { name: 'Chart intervals' }).locator('button[aria-pressed="true"]');
+  const shownLabel = (await pressed.count())
+    ? (await pressed.first().textContent()).trim()
+    : (await chart.locator('.dk-more').textContent()).replace('▾', '').trim();
+  const shownInterval = shownLabel.toLowerCase();
   await layouts().click();
   await saveLayout().click({ timeout: 5_000 });
   const dialog = page.getByRole('dialog', { name: 'Save layout' });
@@ -151,8 +160,8 @@ test(`${J} #3 saves the layout as "Scalp"; it appears in the list with its symbo
   await dialog.getByRole('button', { name: 'Save' }).click();
   await layouts().click();
   const row = layoutsMenu().getByRole('listitem').filter({ hasText: 'Scalp' });
-  await expect(row).toContainText('BTC/USDT');
-  await expect(row).toContainText(/\b(1m|3m|5m|15m|30m|1h|2h|4h|6h|12h|1d|1w)\b/);
+  // Its symbol and the interval the desk chart shows now, as the row writes them ("BTC/USDT · 15m").
+  await expect(row).toContainText(`BTC/USDT · ${shownInterval}`);
   await saveLayout().click();
   await page.getByRole('dialog', { name: 'Save layout' }).getByLabel('Layout name').fill('Scalp');
   await page.getByRole('dialog', { name: 'Save layout' }).getByRole('button', { name: 'Save' }).click();
@@ -166,18 +175,41 @@ test(`${J} #4 opens the same account on another device; the layout and its autos
   await openDesk();
   await layouts().click();
   await expect(layoutsMenu().getByRole('listitem').filter({ hasText: 'Scalp' })).toHaveCount(1, { timeout: 5_000 });
-  // An autosaved change on this device: the Classic preset inside "Scalp".
-  await layoutsMenu().getByRole('radio', { name: 'Classic' }).check();
-  await expect(layoutsMenu()).toContainText('Saved');
+  // An autosaved change on this device, one neither the saved "Scalp" nor a fresh device has: the order book dragged onto
+  // the markets list, so the two swap places. It is saved into "Scalp", the layout in use, once it settles.
+  const before = await widgetIds();
+  await layoutsMenu().getByRole('button', { name: 'Arrange widgets' }).click();
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.getByRole('button', { name: 'Move Order book' }).dragTo(widget('markets'), { targetPosition: { x: 40, y: 80 } });
+  const swapped = before.map((id) => (id === 'book' ? 'markets' : id === 'markets' ? 'book' : id));
+  await expect.poll(widgetIds).toEqual(swapped);
+  await layouts().click();
+  await expect(layoutsMenu()).toContainText('Saved to “Scalp”.');
   const other = await browser.newContext({ baseURL: ORIGIN });
   const second = await other.newPage();
   try {
+    await chosePro(second);
     await signIn(second, who);
     await second.goto(DESK);
+    const otherDesk = second.getByTestId('if-desk');
+    const otherIds = () =>
+      otherDesk.locator('[data-widget]').evaluateAll((nodes) =>
+        nodes
+          .filter((node) => node.getBoundingClientRect().width > 0)
+          .sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left)
+          .map((node) => node.getAttribute('data-widget')),
+      );
+    // A fresh device has no arrangement of its own (Classic is markets, chart, book): it opens the account's layout in
+    // use, "Scalp", with the change autosaved on the first device, the swapped order this device never arranged.
+    await expect.poll(otherIds).toEqual(swapped);
     await second.getByRole('button', { name: 'Layouts' }).click();
     const list = second.getByRole('dialog', { name: 'Desk layout' });
-    await expect(list.getByRole('listitem').filter({ hasText: 'Scalp' })).toHaveCount(1);
-    await expect(second.getByTestId('if-desk')).toHaveAttribute('data-preset', 'classic');
+    const scalp = list.getByRole('listitem').filter({ has: second.getByText('Scalp', { exact: true }) });
+    await expect(scalp).toHaveCount(1);
+    await expect(scalp).toContainText('BTC/USDT');
+    await scalp.getByRole('button', { name: 'Open' }).click();
+    // Opened from the list on this device, it is the same: the layout with its autosaved change.
+    await expect.poll(otherIds).toEqual(swapped);
   } finally {
     await other.close();
   }
@@ -186,30 +218,138 @@ test(`${J} #4 opens the same account on another device; the layout and its autos
 test(`${J} #5 copies, exports and deletes a layout, then recovers the deleted one with its charts`, async () => {
   await openDesk();
   await layouts().click();
-  const row = (name) => layoutsMenu().getByRole('listitem').filter({ hasText: name });
+  // A row by its exact name: "Scalp" must not also match "Scalp (copy)".
+  const row = (name) =>
+    layoutsMenu()
+      .getByRole('listitem')
+      .filter({ has: page.getByText(name, { exact: true }) });
   await row('Scalp').getByRole('button', { name: 'Copy' }).click({ timeout: 5_000 });
   await expect(row('Scalp (copy)')).toHaveCount(1);
   const download = page.waitForEvent('download');
   await row('Scalp').getByRole('button', { name: 'Export' }).click();
   const file = await download;
   expect(file.suggestedFilename()).toMatch(/Scalp.*\.json$/);
+  // The file is the layout itself: its name, the symbol and interval it was saved on, and the desk's widgets.
+  const exported = JSON.parse(readFileSync(await file.path(), 'utf8'));
+  expect(exported.kind).toBe('intafaced.desk-layout');
+  expect(exported.layout.name).toBe('Scalp');
+  expect(exported.layout.symbol).toBe('BTC/USDT');
+  expect(exported.layout.desk.order).toContain('chart');
+  const savedInterval = exported.layout.interval;
   await row('Scalp').getByRole('button', { name: 'Delete' }).click();
   await expect(row('Scalp')).toHaveCount(0);
   await layoutsMenu().getByRole('button', { name: 'Recently deleted' }).click();
   await layoutsMenu().getByRole('listitem').filter({ hasText: 'Scalp' }).getByRole('button', { name: 'Restore' }).click();
   await expect(row('Scalp')).toHaveCount(1);
+  // Back after a delete and a restore, the copy unchanged beside it.
+  await expect(row('Scalp (copy)')).toHaveCount(1);
+  // With its charts: from another market at another interval, opening it brings back its symbol and interval.
+  const label = (id) => (id === '1d' ? '1D' : id === '1w' ? '1W' : id);
+  const MAIN_CHIPS = ['1m', '5m', '15m', '1h', '4h', '1d'];
+  const elsewhere = savedInterval === '1h' ? '4h' : '1h';
+  await page.keyboard.press('Escape');
+  await page.goto('/trade/spot/ETH-USDT');
+  await expect(page.getByRole('button', { name: 'Buy ETH' })).toBeVisible();
+  const intervals = page.getByTestId('dk-chart').getByRole('group', { name: 'Chart intervals' });
+  await intervals.getByRole('button', { name: label(elsewhere), exact: true }).click();
+  await expect(intervals.getByRole('button', { name: label(elsewhere), exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await layouts().click();
   await row('Scalp').getByRole('button', { name: 'Open' }).click();
+  await expect(page).toHaveURL(/\/trade\/spot\/BTC-USDT$/);
+  await expect(page.getByRole('button', { name: 'Buy BTC' })).toBeVisible();
   await expect(widget('chart')).toBeVisible();
+  if (MAIN_CHIPS.includes(savedInterval)) {
+    await expect(intervals.getByRole('button', { name: label(savedInterval), exact: true })).toHaveAttribute('aria-pressed', 'true');
+  } else {
+    // An interval from More: the More button names it.
+    await expect(page.getByTestId('dk-chart').locator('.dk-more')).toContainText(label(savedInterval));
+  }
 });
 
-test(`${J} #6 saves a chart template with indicators and drawings and applies it to another symbol; the desk's chart options are honoured`, async () => {
-  await page.goto('/charts/BTC-USDT');
+test(`${J} #6 saves a chart template with indicators and drawings and applies it to another symbol; the desk's chart options are honoured`, async ({
+  browser,
+}) => {
+  const host = (p) => p.getByTestId('cw').getByTestId('wc-host');
+  const rsiSeries = async (p) =>
+    JSON.parse((await host(p).getAttribute('data-study-series')) ?? '[]').filter((x) => x.key.split(':')[0] === 'rsi-1');
+  const rsiChip = (p) => p.getByRole('button', { name: 'Settings for Relative Strength Index' });
+  const canvas = (p, symbol) => p.getByRole('img', { name: `Price chart of ${symbol}` }).first();
+
+  // On BTC/USDT: an indicator in a sub-pane, the Heikin Ashi style and a drawing on the price pane.
+  await openWorkbench(page);
+  await page.getByRole('button', { name: 'Indicators' }).click();
+  await page.getByRole('searchbox', { name: 'Search indicators' }).fill('rsi');
+  await page.getByRole('button', { name: 'Add Relative Strength Index', exact: true }).click();
+  await page.keyboard.press('Escape');
+  await expect(rsiChip(page)).toContainText('RSI 14');
+  await page.getByRole('group', { name: 'Chart style' }).first().getByRole('button', { name: 'Heikin Ashi', exact: true }).click();
+  await expect(canvas(page, 'BTC/USDT')).toHaveAttribute('data-style', 'heikin-ashi');
+  await pick(page, 'Horizontal line');
+  await clickPlot(page, 0.5, 0.3);
+  await expect(rows(page)).toHaveCount(1);
+  await expect(rows(page).first()).toHaveAttribute('data-kind', 'horizontal');
+  const drawnAt = await pointText(rows(page).first()).textContent();
+
   await page.getByRole('button', { name: 'Templates' }).click({ timeout: 5_000 });
   await page.getByRole('button', { name: 'Save as template' }).click();
   await page.getByLabel('Template name').fill('TEST studies');
   await page.getByRole('button', { name: 'Save template' }).click();
-  await page.goto('/charts/ETH-USDT');
-  await page.getByRole('button', { name: 'Templates' }).click();
-  await page.getByRole('menuitem', { name: 'TEST studies' }).click();
-  await expect(page.getByTestId('cw-template')).toHaveAttribute('data-template', 'TEST studies');
+  // Kept by the account before the page is left: leaving at once could cut the write off.
+  await expect(page.getByTestId('cw-template-saved')).toHaveAttribute('data-template', 'TEST studies');
+
+  // Another symbol on another device: nothing of this chart is there until the template is applied.
+  const other = await browser.newContext({ baseURL: ORIGIN });
+  const second = await other.newPage();
+  try {
+    await chosePro(second);
+    await signIn(second, who);
+    await second.goto('/charts/ETH-USDT');
+    await expect(host(second)).toBeVisible();
+    await expect(second.getByTestId('studies')).toBeVisible();
+    await expect(rsiChip(second)).toHaveCount(0);
+    await expect(canvas(second, 'ETH/USDT')).not.toHaveAttribute('data-style', 'heikin-ashi');
+    // The workbench is the full chart: every style, studies, drawings and templates are on.
+    await expect(second.locator('.cw-page')).toHaveAttribute(
+      'data-featureset',
+      'styles=candles,bars,line,area,columns,heikin-ashi studies=on drawings=on templates=on',
+    );
+    await second.getByRole('button', { name: 'Templates' }).click();
+    // The template holds the drawing, with the market it was drawn on.
+    const item = second.getByRole('menuitem', { name: 'TEST studies' });
+    await expect(item.getByTestId('cw-template-drawings')).toHaveText('Drawings: 1 on BTC/USDT');
+    await item.click();
+    await expect(second.getByTestId('cw-template')).toHaveAttribute('data-template', 'TEST studies');
+    // The study set is reproduced: RSI with its inputs, drawn in a sub-pane below the price pane, and the chart's style.
+    await expect(rsiChip(second)).toContainText('RSI 14');
+    await expect.poll(async () => (await rsiSeries(second)).length).toBeGreaterThan(0);
+    for (const series of await rsiSeries(second)) expect(series.pane).toBeGreaterThan(0);
+    await expect(canvas(second, 'ETH/USDT')).toHaveAttribute('data-style', 'heikin-ashi');
+    // Drawings belong to the prices and times they were drawn on: on ETH/USDT none is placed, and the chart says so.
+    await expect(rows(second)).toHaveCount(0);
+    await expect(second.getByTestId('cw-template')).toHaveAttribute('data-drawings-kept-for', 'BTC/USDT');
+    await expect(second.getByTestId('cw-template')).toContainText('stay with BTC/USDT');
+    // Applied on BTC/USDT on this device, which has no drawings of its own, the template places the drawing it kept.
+    await second.goto('/charts/BTC-USDT');
+    await expect(host(second)).toBeVisible();
+    await expect(rows(second)).toHaveCount(0);
+    await second.getByRole('button', { name: 'Templates' }).click();
+    await second.getByRole('menuitem', { name: 'TEST studies' }).click();
+    await expect(second.getByTestId('cw-template')).toHaveAttribute('data-drawings-placed', '1');
+    await expect(rows(second)).toHaveCount(1);
+    await expect(rows(second).first()).toHaveAttribute('data-kind', 'horizontal');
+    await expect(pointText(rows(second).first())).toHaveText(drawnAt ?? '');
+
+    // The spot desk's chart has its own options: candles and line, no indicators, drawings or templates, and the
+    // template's Heikin Ashi does not reach it.
+    await second.goto('/trade/spot/ETH-USDT');
+    const deskChart = second.getByTestId('dk-chart');
+    await expect(deskChart).toHaveAttribute('data-featureset', 'styles=candles,line studies=off drawings=off templates=off');
+    const deskStyles = deskChart.getByRole('group', { name: 'Chart style' });
+    await expect(deskStyles.getByRole('button')).toHaveText(['Candles', 'Line']);
+    await expect(deskChart.getByRole('button', { name: 'Templates' })).toHaveCount(0);
+    await expect(deskChart.getByRole('button', { name: 'Indicators' })).toHaveCount(0);
+    await expect(deskStyles.locator('[aria-pressed="true"]')).toHaveCount(1);
+  } finally {
+    await other.close();
+  }
 });

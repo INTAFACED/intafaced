@@ -64,6 +64,12 @@ export const DESK_ROOMS: readonly DeskRoom[] = [
     job: 'Vet who may lead copy trading with a second founder; set the lead criteria; suspend a lead.',
   },
   {
+    id: 'copy-settlements',
+    href: '/trade-ops/copy/settlements',
+    label: 'Copy settlements',
+    job: 'Each lead fee share against its ledger post and the builder fee the venue reports; held rows with their key; reconcile a window.',
+  },
+  {
     id: 'seeding',
     href: '/trade-ops/seeding',
     label: 'Seeding',
@@ -80,6 +86,12 @@ export const DESK_ROOMS: readonly DeskRoom[] = [
     href: '/trade-ops/maker-programme',
     label: 'Maker programme',
     job: 'Maker tiers, rebates, obligations and members, written with a second founder; clawback records.',
+  },
+  {
+    id: 'routing',
+    href: '/trade-ops/routing',
+    label: 'Routing',
+    job: 'Our users’ orders routed to each venue: volume and our builder fees as each venue reports them; house exposure none.',
   },
   {
     id: 'adapters',

@@ -52,6 +52,10 @@ import { stubApprovalConsumer } from './action-approval-consume.js';
 import { createBankRouter, type BankRouter } from './router.js';
 import { CRYPTO_LEDGER_PROGRAMME, NO_RAMP_PROGRAMME, RAMP_SETTINGS, rampProgrammeFor } from './ramps/rails.js';
 
+// This file proves the blank-list refusal. Since OWNER 258 (1) a dev or test process with no env list screens with
+// the owner's unsigned rows (packages/config screening.ts), so the file keeps them out to stay on the blank list.
+process.env.INTAFACED_UNSIGNED_SANCTIONS_ROWS = 'off';
+
 const SECRET = 'bank-promise-falsify-public-doors-secret-32b';
 const HOLDER = '11111111-1111-4111-8111-111111111111';
 const OPERATOR = '33333333-3333-4333-8333-333333333333';

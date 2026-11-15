@@ -176,7 +176,9 @@ import { createHash } from 'node:crypto';
 const fingerprint = (text) => createHash('sha256').update(text, 'utf8').digest('hex').slice(0, 12);
 
 const ROOT = process.cwd();
-const SKIP_DIRS = new Set(['node_modules', 'dist', '.turbo', '.next', 'coverage', 'vendor', '.git', 'drizzle']);
+// `.tools` is sbe-codec's JDK and Maven repo (git-ignored, no source lives there), and a Maven download
+// renames its temp files there while the walk runs (issue #7703).
+const SKIP_DIRS = new Set(['node_modules', 'dist', '.turbo', '.next', 'coverage', 'vendor', '.git', 'drizzle', '.tools']);
 const ROOTS = ['services', 'apps', 'packages'];
 
 /** Under 40 characters is a placeholder, not a reason. "TODO" is 4. */
@@ -189,10 +191,13 @@ const fail = (file, reason) => failures.push({ file, reason });
 
 function* walk(dir) {
   if (!existsSync(dir)) return;
-  for (const name of readdirSync(dir)) {
+  // The entry's own type, so a file that another process removes after the listing is never stat'ed.
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const name = entry.name;
     if (SKIP_DIRS.has(name)) continue;
     const full = join(dir, name);
-    if (statSync(full).isDirectory()) yield* walk(full);
+    const isDir = entry.isSymbolicLink() ? statSync(full).isDirectory() : entry.isDirectory();
+    if (isDir) yield* walk(full);
     else if (/\.(ts|tsx|mts)$/.test(name)) yield full;
   }
 }

@@ -43,6 +43,18 @@ export interface BookPick {
   nonce: number;
   /** Flatten from Assets: a market sell of `amount` (all that is free), reviewed at once. No price. */
   flatten?: true;
+  /**
+   * A DOM ladder click or a chart Buy/Sell (J-charts-desk-14): only `side`'s ticket takes it, as `type`, and opens its
+   * review once the order check allows it. Nothing is sent without the person's confirm.
+   */
+  review?: true;
+  side?: 'buy' | 'sell';
+  type?: 'limit' | 'market';
+  /**
+   * Instant placement is on (J-charts-desk-14 #6 and #7): the ticket sends once the order check and its preview allow it,
+   * with no review sheet. Set only from the account's own `trade.instant` record.
+   */
+  instant?: true;
 }
 
 const Row = memo(function Row({

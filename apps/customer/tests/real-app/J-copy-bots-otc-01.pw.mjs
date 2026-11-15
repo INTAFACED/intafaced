@@ -1,7 +1,9 @@
 // World: book, restart
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { test, expect } from './journey.mjs';
-import { EDGE, ORIGIN, api, fromUnits, fund, journeyState, tool, signOutBrowser, toUnits } from './stack.mjs';
+import { EDGE, ORIGIN, ROOT, api, fromUnits, fund, journeyState, tool, signOutBrowser, toUnits } from './stack.mjs';
 import { fundedTrader, signIn, signUp, verify } from './desk.mjs';
 import { listLeader, takeBest } from './copy.mjs';
 
@@ -13,6 +15,15 @@ const J = 'J-copy-bots-otc-01';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
 test.describe.configure({ mode: 'default' });
+
+/** The leader's share of the fee the stack publishes, as the Rules tab writes it: the TEST profile's basis points as a
+ * percent (tooling/profiles/test-owner-values/trade.json). No figure lives in this test. */
+const PUBLISHED_SHARE = `${
+  JSON.parse(
+    JSON.parse(readFileSync(path.join(ROOT, 'tooling/profiles/test-owner-values/trade.json'), 'utf8')).values.TRADE_COPY_FEE_SHARE_LAW
+      .value,
+  ).leaderShareBps / 100
+}%`;
 
 function state(key) {
   const value = run.read()[key];
@@ -53,7 +64,7 @@ test(`${J} #1 opens Copy trading: every tab, an empty tab says so with no placeh
   // The desk state comes from the service (TEST fee share and country list are published on this stack).
   await expect(page.getByText('Copy desk open')).toBeVisible();
   await tabs.getByRole('tab', { name: 'Rules', exact: true }).click();
-  await expect(page.getByText('10%')).toBeVisible();
+  await expect(page.getByText(PUBLISHED_SHARE)).toBeVisible();
 });
 
 test(`${J} #2 chooses the Futures tab and searches a name: only futures leaders, matched on the server in any case`, async ({ page }) => {

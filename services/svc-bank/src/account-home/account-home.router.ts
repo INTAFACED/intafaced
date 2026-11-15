@@ -1,3 +1,4 @@
+import { assertPartnerOffers } from '../partner/test-partner.js';
 import { z } from 'zod';
 import { router, scopedProcedure } from '@intafaced/contracts';
 import type { BankServices } from '../bank-service.js';
@@ -49,7 +50,7 @@ export function createAccountsRouter(
 }
 
 export function createCurrenciesRouter(
-  bank: Pick<BankServices, 'currencies' | 'profiles'>,
+  bank: Pick<BankServices, 'currencies' | 'profiles' | 'testPartner'>,
   guard: <T>(fn: () => Promise<T>) => Promise<T>,
 ) {
   return router({
@@ -75,6 +76,7 @@ export function createCurrenciesRouter(
       .output(currency)
       .mutation(({ ctx, input }) =>
         guard(async () => {
+          assertPartnerOffers(bank.testPartner, ctx.principal.userId, 'currencies');
           await bank.profiles.personalOnly(ctx.principal.userId, input.profile);
           return bank.currencies.add(ctx.principal.userId, input.assetId);
         }),
@@ -86,6 +88,7 @@ export function createCurrenciesRouter(
       .output(z.object({ assetId: z.string(), removed: z.literal(true) }))
       .mutation(({ ctx, input }) =>
         guard(async () => {
+          assertPartnerOffers(bank.testPartner, ctx.principal.userId, 'currencies');
           await bank.profiles.personalOnly(ctx.principal.userId, input.profile);
           return bank.currencies.remove(ctx.principal.userId, input.assetId);
         }),

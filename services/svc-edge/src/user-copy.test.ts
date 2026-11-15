@@ -32,6 +32,7 @@ describe('userCopy — catalog keys, never invented English', () => {
     expect(userCopy('edge.network_flagged')).toBe('You do not have access to this.');
     expect(userCopy('edge.network_dark')).toBe('No connection. Check your network.');
     expect(userCopy('edge.network_unconfigured')).toBe('Something went wrong. Try again.');
+    expect(userCopy('auth.scope_denied')).toBe('An agent key cannot send a payout or a refund. Nothing was sent.');
   });
 
   it('renders the dotted key when the key is not in the catalog', () => {

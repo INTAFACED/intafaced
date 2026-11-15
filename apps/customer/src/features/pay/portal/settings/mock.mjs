@@ -209,6 +209,11 @@ export function createSettingsMock(ctx) {
           }
         case 'merchantOps.kyb.current':
           return ok(route, state.kyb);
+        // The stand-in keeps no business-step draft: the form opens empty, as for a person who saved none.
+        case 'merchant.onboardingDraft':
+          return ok(route, null);
+        case 'merchant.saveOnboardingDraft':
+          return ok(route, null);
         case 'merchantOps.activation.get': {
           // The stand-in never records an activation, so it is never confirmed here; svc-pay's own record decides that.
           const status = state.merchant?.status ?? 'active';

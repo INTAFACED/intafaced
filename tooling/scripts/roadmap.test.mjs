@@ -8,10 +8,16 @@ import {
   buildIndex,
   buildJourneys,
   dependsOn,
+  finishLine,
+  finishLineProblems,
   journeyOrder,
   keepParkedNeeds,
   laneFor,
   liveJourneys,
+  isLaterStep,
+  isLaterJourney,
+  pullLaterDepsForward,
+  finishLineLines,
   parkedJourneys,
   parseJourneys,
   sliceIdCandidates,
@@ -225,7 +231,7 @@ test('the scoreboard counts a journey once every step passed in the real-app rep
           { title: 'J-cex-spot-01 #2 places a limit buy', ok: true, ...ok },
           { title: 'J-cex-spot-01 #3 shares the order', ok: false, tests: [{ status: 'unexpected' }] },
         ],
-        suites: [{ specs: [{ title: 'J-cex-spot-02 #1 presses twice', ok: true, tests: [{ status: 'flaky' }] }] }],
+        suites: [{ specs: [{ title: 'J-cex-spot-02 #1 presses twice', ok: true, tests: [{ status: 'expected' }] }] }],
       },
     ],
   };
@@ -460,4 +466,227 @@ test('a joined range names both slices; an id may touch `_`; a requirement id in
   ]);
   const [j] = parseJourneys(['## J-a-01: x', '- Order: 1', '| 1 | does | sees | CB-bots-02-CB-bots-19 | none |'].join('\n'), 'a', known);
   assert.deepEqual(j.steps[0].slices, ['CB-bots-02', 'CB-bots-19']);
+});
+
+// The finish line's order (OWNER 223 (3), OWNER 226; the factory plan of 8 Nov, R5 §2): a `Later: custody` journey stays
+// live, ranks after every launch journey, and is never Order 1.
+const finishMap = (later1 = '2', laterLine = '- Later: custody (OWNER 226)') =>
+  [
+    '## J-wallet-01: I see what I hold',
+    '- Persona: retail',
+    '- Tier: core',
+    '- Order: 1',
+    '',
+    '| # | The person does | They see | Slices | Proof |',
+    '| - | - | - | - | - |',
+    '| 1 | Opens Assets | Balances | W-balances-01 | none |',
+    '| 2 | Places an order | Locked | W-balances-01, W-balances-02 | none |',
+    '',
+    '## J-wallet-02: I deposit crypto',
+    '- Persona: pro-trader',
+    '- Tier: core',
+    `- Order: ${later1}`,
+    laterLine,
+    '',
+    '| # | The person does | They see | Slices | Proof |',
+    '| - | - | - | - | - |',
+    '| 1 | Opens Deposit | An address | W-deposit-01 | none |',
+    '',
+    '## J-wallet-16: I run reconciliation (finance)',
+    '- Persona: operator:finance',
+    '- Tier: core',
+    '- Order: 1',
+    '',
+    '| # | The person does | They see | Slices | Proof |',
+    '| - | - | - | - | - |',
+    '| 1 | Runs reconciliation | Breaks | W-balances-02 | none |',
+    '',
+    '## J-wallet-08: I look back at my activity',
+    '- Persona: retail',
+    '- Tier: core',
+    '- Order: 2',
+    '',
+    '| # | The person does | They see | Slices | Proof |',
+    '| - | - | - | - | - |',
+    '| 1 | Opens Activity | Rows | W-activity-01 | none |',
+  ].join('\n');
+
+test('a Later: custody line marks the journey later; it stays live and its slices rank after every launch Order', () => {
+  const journeys = parseJourneys(finishMap(), 'wallet');
+  assert.equal(journeys[1].later, 'custody');
+  assert.equal(journeys[0].later, undefined);
+  assert.deepEqual(finishLineProblems(journeys), []);
+  assert.equal(liveJourneys(journeys).length, 4, 'later is not parked: it stays live and in "finished"');
+  const order = journeyOrder(journeys);
+  assert.equal(order.get('W-deposit-01'), 4, 'a slice only a later journey needs comes after Orders 1 to 3');
+  assert.equal(order.get('W-activity-01'), 2);
+  assert.equal(order.get('W-balances-01'), 1);
+});
+
+const laterStepMap = (does = 'Later (OWNER 226): Proposes a trade bust') =>
+  [
+    '## J-cex-spot-18: I look up a routed order',
+    '- Persona: operator:support',
+    '- Tier: core',
+    '- Order: 1',
+    '',
+    '| # | The person does | They see | Slices | Proof |',
+    '| - | - | - | - | - |',
+    '| 1 | Looks up an order | The order | SP-ops-01 | none |',
+    `| 2 | ${does} | The bust | SP-ops-03 | none |`,
+    '| 3 | Exports | A file that says Later (OWNER 226): further on | SP-ops-01 | none |',
+  ].join('\n');
+
+test('a step whose cell starts "Later (OWNER 226):" is a later step: live, out of the open count, its slices queued later', () => {
+  const [j] = parseJourneys(laterStepMap(), 'cex-spot');
+  assert.deepEqual(
+    j.steps.map((st) => [st.n, st.later]),
+    [
+      [1, undefined],
+      [2, 'custody'],
+      [3, undefined],
+    ],
+  );
+  assert.equal(isLaterStep(j.steps[1]), true);
+  assert.deepEqual(finishLineProblems([j]), [], 'a later step at Order 1 is fine: the journey launches without it');
+  assert.deepEqual(
+    liveJourneys([j])[0].steps.map((st) => st.n),
+    [1, 2, 3],
+    'a later step stays live and in "finished"',
+  );
+  assert.equal(finishLine([j])[0].open, 2, 'the later step is not launch work');
+  const order = journeyOrder([j]);
+  assert.equal(order.get('SP-ops-03'), 4, 'a slice only a later step needs is queued with the later journeys');
+  assert.equal(order.get('SP-ops-01'), 1);
+});
+
+test('planted: a step that starts with "Later" in any other form is refused; plain words that start with "Later" are not', () => {
+  for (const does of [
+    'Later: Proposes a trade bust',
+    'later (OWNER 226): Proposes',
+    'Later (OWNER 223): Proposes',
+    '**Later (OWNER 226):** Proposes',
+  ])
+    assert.throws(
+      () => parseJourneys(laterStepMap(does), 'cex-spot'),
+      /J-cex-spot-18 #2 starts with "Later" but not "Later \(OWNER 226\):"/,
+      does,
+    );
+  const [j] = parseJourneys(laterStepMap('Later that day, opens the alert'), 'cex-spot');
+  assert.equal(j.steps[1].later, undefined);
+});
+
+test('review fixes: later steps share no launch work, totals say what is later, a bad step flag or an all-later Order 1 is refused', () => {
+  const [j] = parseJourneys(laterStepMap(), 'cex-spot');
+  const other = { id: 'J-cex-spot-30', persona: 'retail', order: 1, steps: [{ n: 1, slices: ['SP-ops-03'] }] };
+  assert.equal(finishLine([j, other]).find((e) => e.j.id === 'J-cex-spot-18').unblocks, 0, 'SP-ops-03 is shared only through a later step');
+  assert.equal(finishLine([j, other]).find((e) => e.j.id === 'J-cex-spot-30').unblocks, 0, 'nor does J-cex-spot-30 unblock it');
+  assert.match(
+    finishLineLines(finishLine([j]), null).join('\n'),
+    /J-cex-spot-18 .*\(2 steps \(\+1 later\);/,
+    'the total is launch steps, the later ones named apart',
+  );
+  const all = { ...j, steps: j.steps.map((st) => ({ ...st, later: 'custody' })) };
+  assert.equal(isLaterJourney(all), true);
+  assert.deepEqual(finishLineProblems([all]), [
+    'J-cex-spot-18 is at Order 1 with every live step later; Order 1 is the launch wedge, so give it Order 2 or 3',
+  ]);
+  assert.equal(finishLine([{ ...all, order: 2 }, other]).at(-1).j.id, 'J-cex-spot-18', 'an all-later journey ranks with the later ones');
+  const odd = structuredClone(j);
+  odd.steps[1].later = 'someday';
+  assert.match(finishLineProblems([odd]).join('\n'), /J-cex-spot-18 #2 is later for "someday"/);
+});
+
+test("review fix: a slice queued later that a launch slice depends on takes the launch slice's Order", () => {
+  const slices = [
+    { id: 'A-01', order: 1, depends: ['B-01'] },
+    { id: 'C-01', order: 2, depends: ['B-01'] },
+    { id: 'B-01', order: 4, depends: ['D-01'] },
+    { id: 'D-01', order: 4, depends: [] },
+    { id: 'E-01', order: 4, depends: [] },
+  ];
+  assert.deepEqual(
+    pullLaterDepsForward(slices).map((s) => [s.id, s.order]),
+    [
+      ['A-01', 1],
+      ['C-01', 2],
+      ['B-01', 1],
+      ['D-01', 1],
+      ['E-01', 4],
+    ],
+  );
+});
+
+test('planted: a later journey at Order 1, or a later reason other than custody, is refused', () => {
+  const atOne = parseJourneys(finishMap('1'), 'wallet');
+  assert.match(finishLineProblems(atOne).join('\n'), /J-wallet-02 is later \(custody\) at Order 1/);
+  assert.throws(() => parseJourneys(finishMap('2', '- Later: no'), 'wallet'), /the only later reason is "Later: custody"/);
+  const odd = structuredClone(parseJourneys(finishMap(), 'wallet'));
+  odd[1].later = 'someday';
+  assert.match(finishLineProblems(odd).join('\n'), /J-wallet-02 is later for "someday"/);
+  const dir = mkdtempSync(join(tmpdir(), 'roadmap-later-'));
+  mkdirSync(join(dir, 'modules', 'wallet', 'acceptance'), { recursive: true });
+  writeFileSync(join(dir, 'modules', 'wallet', 'acceptance', 'journeys.md'), finishMap('1'));
+  assert.throws(
+    () => buildJourneys(dir, new Set(['W-balances-01', 'W-balances-02', 'W-deposit-01', 'W-activity-01'])),
+    /later \(custody\) at Order 1/,
+  );
+  writeFileSync(join(dir, 'modules', 'wallet', 'acceptance', 'journeys.md'), finishMap('2'));
+  assert.equal(buildJourneys(dir, new Set(['W-balances-01', 'W-balances-02', 'W-deposit-01', 'W-activity-01'])).length, 4);
+});
+
+test('the finish line: launch before later, then Order, customers before operators, then the most shared slices, then the fewest open steps', () => {
+  const journeys = parseJourneys(finishMap(), 'wallet');
+  assert.deepEqual(
+    finishLine(journeys).map((e) => [e.rank, e.j.id, e.later, e.unblocks]),
+    [
+      [1, 'J-wallet-01', false, 1],
+      [2, 'J-wallet-16', false, 1],
+      [3, 'J-wallet-08', false, 0],
+      [4, 'J-wallet-02', true, 0],
+    ],
+  );
+  // With a report, the open steps break a tie: two Order 2 customer journeys sharing nothing, one with a passing step.
+  const two = [
+    {
+      id: 'J-m-01',
+      persona: 'retail',
+      order: 2,
+      steps: [
+        { n: 1, slices: ['A-1'] },
+        { n: 2, slices: ['A-1'] },
+      ],
+    },
+    {
+      id: 'J-m-02',
+      persona: 'retail',
+      order: 2,
+      steps: [
+        { n: 1, slices: ['B-1'] },
+        { n: 2, slices: ['B-1'] },
+      ],
+    },
+  ];
+  assert.deepEqual(
+    finishLine(two, new Set(['J-m-02#1'])).map((e) => [e.j.id, e.open]),
+    [
+      ['J-m-02', 1],
+      ['J-m-01', 2],
+    ],
+  );
+});
+
+test('a test that passed only on its retry is not a pass on the scoreboard (CI review on #7363, 1fbf031)', () => {
+  const report = {
+    suites: [
+      {
+        specs: [
+          { title: 'J-cex-spot-01 #1 signs up', ok: true, tests: [{ status: 'expected' }] },
+          { title: 'J-cex-spot-01 #2 places a limit buy', ok: true, tests: [{ status: 'flaky' }] },
+          { title: 'J-cex-spot-02 #1 presses twice', ok: true, tests: [{ status: 'expected' }, { status: 'flaky' }] },
+        ],
+      },
+    ],
+  };
+  assert.deepEqual([...passedSteps(report)], ['J-cex-spot-01#1']);
 });

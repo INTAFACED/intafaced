@@ -11,6 +11,16 @@ import {
 import { transaction } from '@intafaced/db';
 import { BankError } from '../errors.js';
 import { assertSpacesListLimit } from '../owner-list-limit.js';
+import { heldFigureWire, type ReportedFigureWire } from '@intafaced/venue-contracts';
+import {
+  custodialOnly,
+  partnerAccountFor,
+  partnerBalanceNotKnown,
+  partnerFigure,
+  reportedAmount,
+  type PartnerBalance,
+  type PartnerCustody,
+} from '../partner/partner-bank.js';
 import {
   RecipientStateUnavailableError,
   unconfiguredRecipientState,
@@ -35,6 +45,8 @@ export interface SpaceServiceOptions {
   readonly spaceLimit?: () => string | undefined;
   /** The owner's early-unlock wait in hours (`BANK_SPACE_UNLOCK_WAIT_HOURS`), read on each ask. */
   readonly unlockWaitHours?: () => string | undefined;
+  /** Whose bank money the partner holds (OWNER 226). Unset: nobody's, every balance is the ledger's as before. */
+  readonly custody?: PartnerCustody;
 }
 
 /** One message for frozen, closed and unknown. Never says which. */
@@ -155,8 +167,13 @@ function heldAvailable<B extends { account: { kind: string; assetId: string }; a
 }
 
 export interface SpaceView extends SpaceRecord {
-  /** Decimal string, straight from the ledger. Never persisted anywhere. */
+  /** Decimal string, straight from the ledger, or from the partner bank when it holds this money. Never persisted. */
   balance: string;
+  /**
+   * Set when the partner holds this money: whose figure it is, the partner's own time for it, and the displayed figure
+   * (b2 change 6: known or stale; an unknown figure refuses the read). Null: the ledger's.
+   */
+  heldAt: { readonly label: string; readonly asOf: string; readonly figure: ReportedFigureWire } | null;
 }
 
 export class SpaceService {
@@ -479,7 +496,36 @@ export class SpaceService {
    * will not catch it, but the code review must.
    */
   async balanceOf(space: Pick<SpaceRecord, 'id' | 'userId' | 'assetId' | 'kind'>): Promise<Amount> {
+    const partner = this.custody.bankFor(space.userId);
+    // Partner-held (OWNER 226): the partner's figure, refused by name when it has not reported one, never 0.
+    if (partner) return reportedAmount(await partner.balance(partnerAccountFor(space)));
     return (await this.ledger.balance(accountForSpace(space))).amount;
+  }
+
+  /** Whose bank money is where: the partner for a person it holds money for, otherwise the ledger. */
+  get custody(): PartnerCustody {
+    return this.options.custody ?? custodialOnly;
+  }
+
+  /**
+   * The currencies a person holds in their main balance, above zero: the ledger's available balances, or the partner's
+   * main balances when it holds their money.
+   */
+  private async heldMain(userId: string, assetId?: string): Promise<Array<{ assetId: string; amount: Amount }>> {
+    const partner = this.custody.bankFor(userId);
+    if (partner) {
+      // A main balance the partner has not reported refuses by name (`bank.partner_balance_not_known`), never dropped
+      // from the person's view and never read as 0.
+      return (await partner.balances(userId))
+        .filter((b) => b.account.spaceId === null)
+        .filter((b) => assetId === undefined || b.account.assetId === assetId)
+        .map((b) => ({ assetId: b.account.assetId, amount: reportedAmount(b) }))
+        .filter((b) => b.amount > 0n);
+    }
+    return heldAvailable(await this.ledger.balances('user', userId), assetId).map((b) => ({
+      assetId: b.account.assetId,
+      amount: b.amount,
+    }));
   }
 
   /**
@@ -496,8 +542,25 @@ export class SpaceService {
     await this.ensureHeldPrimaries(userId, assetId);
     const spaces = await this.list(userId, assetId, limit);
     const views: SpaceView[] = [];
+    const partner = this.custody.bankFor(userId);
+    // One partner read for every account it holds for the person; an account it has not listed is asked for by itself.
+    const reports = new Map<string, PartnerBalance>();
+    if (partner) for (const b of await partner.balances(userId)) reports.set(`${b.account.assetId}|${b.account.spaceId ?? ''}`, b);
     for (const space of spaces) {
-      views.push({ ...space, balance: formatAmount(await this.balanceOf(space)) });
+      if (partner) {
+        const account = partnerAccountFor(space);
+        const reported = reports.get(`${account.assetId}|${account.spaceId ?? ''}`) ?? (await partner.balance(account));
+        const figure = partnerFigure(reported, partner.staleAfterMs, new Date());
+        // Unknown is never shown as a figure, and never as 0: the read refuses, naming the partner.
+        if (figure.state === 'unknown') throw partnerBalanceNotKnown(reported.label);
+        views.push({
+          ...space,
+          balance: figure.amount,
+          heldAt: { label: reported.label, asOf: figure.asOf.toISOString(), figure: heldFigureWire(figure) },
+        });
+      } else {
+        views.push({ ...space, balance: formatAmount(await this.balanceOf(space)), heldAt: null });
+      }
     }
     return views;
   }
@@ -515,16 +578,16 @@ export class SpaceService {
    */
   async ensureHeldPrimaries(userId: string, assetId?: string): Promise<void> {
     try {
-      const held = heldAvailable(await this.ledger.balances('user', userId), assetId);
+      const held = await this.heldMain(userId, assetId);
       if (held.length === 0) return;
       const rows = await this.sql<Array<{ asset_id: string; removed: boolean }>>`
         SELECT asset_id, removed_at IS NOT NULL AS removed FROM bank.spaces WHERE user_id = ${userId} AND kind = 'primary'
       `;
       const known = new Map(rows.map((r) => [r.asset_id, r.removed]));
       for (const b of held) {
-        const removed = known.get(b.account.assetId);
-        if (removed === undefined) await this.ensurePrimary(userId, b.account.assetId);
-        else if (removed) await this.restoreCurrency(userId, b.account.assetId);
+        const removed = known.get(b.assetId);
+        if (removed === undefined) await this.ensurePrimary(userId, b.assetId);
+        else if (removed) await this.restoreCurrency(userId, b.assetId);
       }
     } catch (err) {
       console.error(
@@ -547,11 +610,9 @@ export class SpaceService {
    * only from `spaces` would hide their own money from them.
    */
   async unnamedAssets(userId: string): Promise<Array<{ assetId: string; balance: string }>> {
-    const balances = await this.ledger.balances('user', userId);
+    const held = await this.heldMain(userId);
     const named = new Set((await this.namedSpaces(userId)).map((s) => s.assetId));
-    return heldAvailable(balances)
-      .filter((b) => !named.has(b.account.assetId))
-      .map((b) => ({ assetId: b.account.assetId, balance: formatAmount(b.amount) }));
+    return held.filter((b) => !named.has(b.assetId)).map((b) => ({ assetId: b.assetId, balance: formatAmount(b.amount) }));
   }
 
   /** Resolve a space for a money path, refusing the states that must not move value. */

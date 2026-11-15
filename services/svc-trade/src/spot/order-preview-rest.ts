@@ -163,6 +163,11 @@ export interface SpotOrderPreviewRestDeps {
   feeDiscountBps?(userId: string): Promise<number>;
   /** The fee tier an order placed now would take, the same read place uses. Absent in tests means regular. */
   feeTier?(userId: string): Promise<string>;
+  /**
+   * The caller's own available (free) ledger balance in one asset, read-only: the hold place posts must fit in it, so
+   * a too-large order is refused here, before Confirm (#4679). Absent: the preview does not check the balance.
+   */
+  availableBalance?(userId: string, assetId: string): Promise<Amount>;
 }
 
 const ALLOWED_FIELDS = new Set([
@@ -507,6 +512,8 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
 
     let protectionPrice: Amount | null = null;
     let fundingPrice: Amount | null = limitPrice;
+    // A market sell's best bid: its fee is figured there, the most its proceeds can be (it fills at the bid or lower).
+    let sellBid: Amount | null = null;
     const needsBestAsk =
       (orderType === 'market' && side === 'buy') ||
       (orderType === 'limit' && side === 'buy' && (tif === 'GTC' || tif === 'GTD') && limitPrice !== null);
@@ -526,6 +533,7 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
       }
     } else if (orderType === 'market' && side === 'sell') {
       const bid = deps.bestBid ? await deps.bestBid(market.id) : null;
+      sellBid = bid ?? null;
       try {
         protectionPrice = sellProtectionPriceFor(market, bid ?? null, deps.slippageCapBps);
         const tolerance = validateSlippageTolerance(body.maxSlippageBps, orderType, deps.slippageCapBps);
@@ -555,6 +563,31 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
         const hold = holdFor(market, side, fundingPrice ?? 0n, qty);
         holdAsset = hold.assetId;
         holdAmount = hold.amount;
+      }
+    }
+    // The hold place posts comes out of the caller's own available balance; one that does not fit is refused at send
+    // with `ledger.insufficient_funds`, so the preview says it first. A sub-account order holds from that account,
+    // which this read does not cover. A balance that cannot be read is said, never taken as enough.
+    if (
+      deps.availableBalance &&
+      !market.paper &&
+      body.subAccountId == null &&
+      holdAsset !== null &&
+      holdAmount !== null &&
+      holdAmount > 0n
+    ) {
+      try {
+        const free = await deps.availableBalance(principal.userId, holdAsset);
+        if (free < holdAmount) {
+          refusals.push({
+            code: 'ledger.insufficient_funds',
+            field: 'holdAmount',
+            message: `this order holds ${formatAmount(holdAmount)} ${holdAsset} and ${formatAmount(free)} is available`,
+            data: { holdAmount: formatAmount(holdAmount), available: formatAmount(free), asset: holdAsset },
+          });
+        }
+      } catch {
+        refusals.push({ code: 'trade.balance_unavailable', field: 'holdAmount', message: 'your available balance could not be read' });
       }
     }
 
@@ -638,7 +671,9 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
         ? limitPrice !== null
         : fundingPrice !== null && (orderType !== 'market' || side === 'sell' || protectionPrice !== null)
     ) {
-      const notionalPrice = orderType === 'limit' ? limitPrice : (protectionPrice ?? fundingPrice);
+      // A market sell fills between its floor and the best bid, so the bid gives the most its fee can be (#4679).
+      const notionalPrice =
+        orderType === 'limit' ? limitPrice : side === 'sell' && protectionPrice !== null ? sellBid : (protectionPrice ?? fundingPrice);
       if (notionalPrice !== null && notionalPrice > 0n) {
         const quoteAmount = mul(notionalPrice, qty, 'floor');
         if (side === 'buy') {

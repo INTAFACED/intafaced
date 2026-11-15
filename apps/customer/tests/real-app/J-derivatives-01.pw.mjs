@@ -1,13 +1,18 @@
-// World: book
+// World: book, market
 import { test, expect } from './journey.mjs';
-import { api, journeyState, toUnits } from './stack.mjs';
+import { api, bestPrices, journeyState, toUnits, tool } from './stack.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
+import { HOLD_MAX_MS } from '../../../../tooling/scripts/local-test-market.mjs';
 
 // J-derivatives-01, in the running app (docs/roadmap/journeys.json): open a first futures position with isolated
 // margin, watch it, close 40 percent and then the rest. One test per step, titled "J-derivatives-01 #<n>", run in order
 // on one TEST account. The contract is the TEST perpetual `local-test-gates.mjs futures` lists; no agreement, knowledge
 // check or notice gates it (owner decision 2026-10-27). Every number is a TEST number on the local stack, read back
 // through the customer's own API.
+// Steps #1, #5, #6, #8, #9, #10 and #11 run on the TEST venue (J-derivatives-01-venue.pw.mjs carries their step titles).
+// Here they are titled "J-derivatives-01, part of #<n>, checked on our own ledger": the margin lock, the closes and the
+// ledger's figures stay checked, and the journeys verdict on main turns red when one fails after it passed on main
+// (tooling/ci/journey-verdict.mjs judge, project-state #2232).
 const J = 'J-derivatives-01';
 const DESK = '/trade/futures';
 const SYMBOL = 'BTC/USDT:USDT';
@@ -67,7 +72,7 @@ function writes(page) {
   return sent;
 }
 
-test(`${J} #1 opens /trade/futures and sees the whole desk`, async ({ page }) => {
+test(`${J}, part of #1, checked on our own ledger: opens /trade/futures and sees the whole desk`, async ({ page }) => {
   const who = await fundedTrader(page, 'jd', '1000');
   run.reset({ account: who });
   await desk(page);
@@ -159,7 +164,9 @@ test(`${J} #4 picks the contract and reads its strip: family, settle asset, cont
   expect([listed.family, listed.settleAsset, listed.contractSize]).toEqual(['linear', 'USDT', '0.001']);
 });
 
-test(`${J} #5 chooses the margin mode: isolated is live, cross and portfolio refuse and nothing changes`, async ({ page }) => {
+test(`${J}, part of #5, checked on our own ledger: chooses the margin mode: isolated is live, cross and portfolio refuse and nothing changes`, async ({
+  page,
+}) => {
   await desk(page);
   const sent = writes(page);
   const mode = page.getByRole('group', { name: 'Margin mode' });
@@ -188,7 +195,9 @@ async function fillTicket(page) {
   return ticket;
 }
 
-test(`${J} #6 types a TEST size and leverage and reviews: margin, fee, liquidation price and total from the preview`, async ({ page }) => {
+test(`${J}, part of #6, checked on our own ledger: types a TEST size and leverage and reviews: margin, fee, liquidation price and total from the preview`, async ({
+  page,
+}) => {
   await desk(page);
   const ticket = await fillTicket(page);
   for (const row of ['Initial margin', 'Liquidation price', 'Total to commit now']) {
@@ -220,30 +229,49 @@ test(`${J} #7 looks at the order types: market and limit offered, the rest liste
   expect(sent).toEqual([]);
 });
 
-test(`${J} #8 confirms "Open long": one position opens and its margin is locked`, async ({ page }) => {
+test(`${J}, part of #8, checked on our own ledger: confirms "Open long": one position opens and its margin is locked`, async ({ page }) => {
   const who = account();
   const before = (await (await api(who)).balances()).USDT;
-  await desk(page);
-  await expect(access(page).getByText('Open for your account')).toBeVisible();
-  const ticket = await fillTicket(page);
-  await expect(ticket.getByText('Total to commit now', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Open long' }).click();
-  const confirm = page.getByRole('alertdialog');
-  // 0.01 BTC sits above the first margin tier on the TEST book's depth, so the confirm names the tier it opens in
-  // (J-derivatives-02 #6) and the trader accepts it first.
-  await expect(confirm).toBeVisible();
-  const tier = confirm.getByRole('region', { name: 'New margin tier' });
-  if ((await tier.count()) > 0) await tier.getByRole('checkbox').click();
-  // A double press sends one order: the request id holds until the numbers change.
-  await confirm.getByRole('button', { name: 'Confirm open long' }).dblclick();
-  // The confirm re-checks the numbers; a mark that moved meanwhile shows the new figures, and the tier is ticked again.
-  const filled = page.getByText('Order filled');
-  await expect(filled.or(confirm.getByText('The numbers moved since you reviewed'))).toBeVisible({ timeout: 20_000 });
-  if (!(await filled.isVisible())) {
+  // Held from the review to the fill, as J-derivatives-02 #6 is: the margin tier is rated on the perp book's depth, and
+  // the TEST maker puts its new ladder up before it takes the old one down, so the depth can move between the confirm's
+  // re-check and the order. The tier the trader accepted (2) was then below the one svc-trade rated at the order, which
+  // refused trade.risk_limit_confirm_required and filled nothing (#7885: run 42917998286, shard 24, attempt 1). Held,
+  // both ladders rest as the maker's last cycle left them and nothing crosses them, so the review, the confirm and the
+  // order read one depth and one mark. Asked for once each book has both sides, and timed from before the ask.
+  await bestPrices('BTC/USDT', 50, 60_000);
+  await bestPrices(SYMBOL, 50, 60_000);
+  const heldAt = Date.now();
+  tool('local-test-market.mjs', 'hold', 'BTC/USDT');
+  tool('local-test-market.mjs', 'hold', SYMBOL);
+  try {
+    await bestPrices('BTC/USDT', 50, 60_000);
+    await bestPrices(SYMBOL, 50, 60_000);
+    await desk(page);
+    await expect(access(page).getByText('Open for your account')).toBeVisible();
+    const ticket = await fillTicket(page);
+    await expect(ticket.getByText('Total to commit now', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Open long' }).click();
+    const confirm = page.getByRole('alertdialog');
+    // 0.01 BTC sits above the first margin tier on the TEST book's depth, so the confirm names the tier it opens in
+    // (J-derivatives-02 #6) and the trader accepts it first.
+    await expect(confirm).toBeVisible();
+    const tier = confirm.getByRole('region', { name: 'New margin tier' });
     if ((await tier.count()) > 0) await tier.getByRole('checkbox').click();
-    await confirm.getByRole('button', { name: 'Confirm open long' }).click();
+    // A double press sends one order: the request id holds until the numbers change.
+    await confirm.getByRole('button', { name: 'Confirm open long' }).dblclick();
+    // The confirm re-checks the numbers; a mark that moved meanwhile shows the new figures, and the tier is ticked again.
+    const filled = page.getByText('Order filled');
+    await expect(filled.or(confirm.getByText('The numbers moved since you reviewed'))).toBeVisible({ timeout: 20_000 });
+    if (!(await filled.isVisible())) {
+      if ((await tier.count()) > 0) await tier.getByRole('checkbox').click();
+      await confirm.getByRole('button', { name: 'Confirm open long' }).click();
+    }
+    await expect(filled).toBeVisible({ timeout: 20_000 });
+    expect(Date.now() - heldAt, 'the hold lapsed before the open long filled').toBeLessThan(HOLD_MAX_MS);
+  } finally {
+    tool('local-test-market.mjs', 'release', SYMBOL);
+    tool('local-test-market.mjs', 'release', 'BTC/USDT');
   }
-  await expect(filled).toBeVisible({ timeout: 20_000 });
   const positions = await until(
     () => positionsOf(who),
     (list) => list.length === 1 && list[0].contracts === SIZE,
@@ -261,7 +289,9 @@ test(`${J} #8 confirms "Open long": one position opens and its margin is locked`
   expect(orders.filter((o) => !o.reduceOnly && o.status !== 'refused')).toHaveLength(1);
 });
 
-test(`${J} #9 opens the positions room: entry, mark, unrealised result, margin, leverage and liquidation price`, async ({ page }) => {
+test(`${J}, part of #9, checked on our own ledger: opens the positions room: entry, mark, unrealised result, margin, leverage and liquidation price`, async ({
+  page,
+}) => {
   const who = account();
   await desk(page);
   const [position] = await positionsOf(who);
@@ -273,12 +303,24 @@ test(`${J} #9 opens the positions room: entry, mark, unrealised result, margin, 
     expect(position[field], field).toMatch(/^\d+(\.\d+)?$/);
   }
   expect(position.unrealizedPnl).toMatch(/^-?\d+(\.\d+)?$/);
-  // Shown as the exact decimal the service sends (to eight places): the whole number and the cents must match.
-  const [whole, cents] = position.liquidationPrice.split('.');
-  await expect(row).toContainText(`${Number(whole).toLocaleString('en-US')}.${(cents ?? '').padEnd(2, '0').slice(0, 2)}`);
+  // Shown as the service's decimal to eight places, with the whole number grouped (the positions room's fmtPrice with no
+  // tick: at most eight places, half up; screens/trade/futures/PositionsTable.tsx, data/format.ts): sent
+  // with eight places or fewer it is shown digit for digit (52685.6 → 52,685.6, run 42446058427 shard 17; the old pad to
+  // two places failed on it); longer, it is shown rounded half up at the eighth (52754.49696969696969697 → 52,754.49696970,
+  // run 42448935569). Exact in bigint, never a float.
+  const [whole, fraction = ''] = position.liquidationPrice.split('.');
+  let shownWhole = BigInt(whole);
+  let shownFraction = fraction;
+  if (fraction.length > 8) {
+    let eight = BigInt(fraction.slice(0, 8)) + (fraction[8] >= '5' ? 1n : 0n);
+    if (eight === 10n ** 8n) [shownWhole, eight] = [shownWhole + 1n, 0n];
+    shownFraction = eight.toString().padStart(8, '0');
+  }
+  const grouped = shownWhole.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  await expect(row).toContainText(`${grouped}${shownFraction ? `.${shownFraction}` : ''}`);
 });
 
-test(`${J} #10 closes 40 percent, then the rest`, async ({ page }) => {
+test(`${J}, part of #10, checked on our own ledger: closes 40 percent, then the rest`, async ({ page }) => {
   const who = account();
   await desk(page);
   const [position] = await positionsOf(who);
@@ -316,7 +358,9 @@ test(`${J} #10 closes 40 percent, then the rest`, async ({ page }) => {
   expect(toUnits(usdt.used ?? '0')).toBe(0n);
 });
 
-test(`${J} #11 opens History and sees the closed position with its realised result`, async ({ page }) => {
+test(`${J}, part of #11, checked on our own ledger: opens History and sees the closed position with its realised result`, async ({
+  page,
+}) => {
   const who = account();
   const { body: closed } = await (await api(who)).get('/api/v1/positions/closed?limit=5');
   await desk(page);

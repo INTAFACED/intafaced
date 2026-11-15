@@ -28,6 +28,7 @@ import {
   claimWriteKey,
   disputeOpenForTrade,
   eitherBlocked,
+  lockContactPair,
   encodeOfferCursor,
   type BoardSort,
   finishWriteKey,
@@ -86,6 +87,7 @@ import {
   requireSetting,
   startOfUtcDay,
   RECEIPT_QUOTA_LOCK_CLASS,
+  EXPORT_QUOTA_LOCK_CLASS,
   type ExportFormat,
   type ExportPolicy,
 } from './export-receipt.js';
@@ -184,6 +186,7 @@ import {
   type MismatchReport,
 } from './amount-mismatch.js';
 import { railMismatch, type PaymentRail, type RailMismatch } from './rail-validate.js';
+import { CounterpartyStateUnavailableError, type CounterpartyStatePort } from './counterparty-state.js';
 import {
   ADVERTISER_TERMS_SETTING,
   AdvertiserTermsError,
@@ -253,6 +256,9 @@ export type P2pErrorCode =
   // P-ads-merchant-08: a presence schedule that is not a valid week, and a bulk action naming no ads or too many.
   | 'p2p.schedule_invalid'
   | 'p2p.maker_offline'
+  // #4689: the ad's maker is frozen, closed or unknown to identity (one code for all three), or identity could not say.
+  | 'p2p.counterparty_unavailable'
+  | 'p2p.counterparty_unverifiable'
   | 'p2p.bulk_scope_invalid'
   | 'p2p.edit_quota_reached'
   | 'p2p.offer_unfunded'
@@ -375,6 +381,7 @@ export type P2pErrorCode =
   | 'p2p.export_format_unbuilt'
   | 'p2p.export_range_too_large'
   | 'p2p.export_too_many_rows'
+  | 'p2p.export_quota_reached'
   | 'p2p.receipt_quota_reached'
   | 'p2p.receipt_not_available'
   | 'p2p.user_not_found'
@@ -384,6 +391,10 @@ export type P2pErrorCode =
   | 'p2p.chat_list_limit_unset'
   | 'p2p.export_range_invalid'
   | 'p2p.contact_self'
+  | 'p2p.block_open_order'
+  | 'p2p.appeal_decided'
+  | 'p2p.appeal_not_found'
+  | 'p2p.appeal_self_decision'
   | 'p2p.ops_offers_limit_unset'
   | 'p2p.ops_trades_limit_unset'
   | 'p2p.ops_cursor_invalid'
@@ -798,6 +809,11 @@ export interface P2pServiceOptions {
   offerLimits?: OfferLimitPolicy;
   /** P-trade-orders-21: hours support has to review a completion appeal. Unset → appeal refuses `p2p.config_unset`. */
   appealReviewHours?: number;
+  /**
+   * P-ads-merchant-22: how many of one trader's new ads a day reach their followers as a notice. Unset → no follower
+   * notice is written; the ad posts as usual.
+   */
+  followerNoticesPerDay?: number;
   /** P-trade-orders-14 owner caps for capped exports and receipts. Unset → those paths refuse `p2p.config_unset`. */
   exportPolicy?: ExportPolicy;
   /**
@@ -884,6 +900,12 @@ export interface P2pServiceOptions {
    * in it `p2p.config_unset`.
    */
   postingThresholds?: PostingThresholds;
+  /**
+   * #4689. Whether the ad's maker may be the other side of a new order (svc-identity's account status). `index.ts`
+   * always passes it, where no IDENTITY_URL refuses every take `p2p.counterparty_unverifiable`; omitted is a service
+   * built without it (tests).
+   */
+  counterpartyState?: CounterpartyStatePort;
 }
 
 /**
@@ -1040,6 +1062,17 @@ export const REMARK_MAX = 280;
 
 /** P-trade-orders-15: an ad's own release window is at least this long, the published release clock's own floor. */
 export const RELEASE_WINDOW_MIN_SECONDS = 60;
+
+/** P-ads-merchant-22: how many follower notices a post hands over itself; the sweep takes any more. */
+const FOLLOWER_FAST_PATH = 100;
+
+/** One followed-trader notice the sweep could not hand to the bus. */
+export interface FollowerNoticeSweepFailure {
+  readonly offerId: string;
+  readonly followerId: string;
+  readonly code: string | null;
+  readonly error: string;
+}
 
 /** One removal notice the sweep could not hand to the bus. */
 export interface OfferPauseSweepFailure {
@@ -1456,6 +1489,7 @@ export class P2pService {
   private readonly referencePrices: ReferencePriceSource | undefined;
   private readonly offerLimits: OfferLimitPolicy;
   private readonly appealReviewHours: number | undefined;
+  private readonly followerNoticesPerDay: number | undefined;
   private readonly exportPolicy: ExportPolicy;
   private readonly merchantStatusOf: ((userId: string) => Promise<MerchantStatus | null>) | undefined;
   private readonly instruments: TradeInstrumentAttacher;
@@ -1474,6 +1508,7 @@ export class P2pService {
   private readonly sellBalanceAtPost: boolean;
   private readonly adContentRules: AdContentRules;
   private readonly postingThresholds: PostingThresholds | undefined;
+  private readonly counterpartyState: CounterpartyStatePort | undefined;
   private tradingEnabled: boolean;
 
   /**
@@ -1502,6 +1537,7 @@ export class P2pService {
     this.referencePrices = options.referencePrices;
     this.offerLimits = options.offerLimits ?? NO_OFFER_LIMITS;
     this.appealReviewHours = options.appealReviewHours;
+    this.followerNoticesPerDay = options.followerNoticesPerDay;
     this.exportPolicy = options.exportPolicy ?? {};
     this.merchantStatusOf = options.merchantStatusOf;
     this.affiliateAccrue = options.affiliateAccrue ?? new NoopAffiliateAccrue();
@@ -1519,6 +1555,7 @@ export class P2pService {
     this.sellBalanceAtPost = options.sellBalanceAtPost === true;
     this.adContentRules = options.adContentRules ?? { status: 'absent' };
     this.postingThresholds = options.postingThresholds;
+    this.counterpartyState = options.counterpartyState;
   }
 
   /**
@@ -2322,6 +2359,8 @@ export class P2pService {
               subjectId: offerId,
             });
           }
+          // P-ads-merchant-22: the notices owed to this trader's followers, from the same commit as the ad.
+          await this.writeFollowerNotices(tx, rows[0]!);
           return { row: rows[0]! };
         },
         { isolation: 'read committed', maxAttempts: 1 },
@@ -2352,8 +2391,136 @@ export class P2pService {
       },
       { idempotencyKey: `p2p.offer:${offer.id}` },
     );
+    // The followers' notices are owed from the commit above. Handing them to the bus here is the fast path; if this
+    // process dies first, or the bus is down, the sweep hands them over on its next tick.
+    try {
+      await this.handOverFollowerNotices(offer.id);
+    } catch (err) {
+      recordSwallowed('p2p.trader_posted.publish', err);
+    }
 
     return offer;
+  }
+
+  /**
+   * P-ads-merchant-22: one outbox row per person who follows the maker of a newly posted public ad, written in the ad's
+   * own transaction. A private ad, a pair where either side blocked the other, and a trader past the owner's daily
+   * figure write none; a blank figure writes none. An ad is posted once and an edit never comes here, so a follower is
+   * told once per ad. Returns how many followers are owed a notice.
+   */
+  private async writeFollowerNotices(tx: Sql, row: OfferRow): Promise<number> {
+    const perDay = this.followerNoticesPerDay;
+    if (perDay === undefined || !Number.isInteger(perDay) || perDay < 1) return 0;
+    if ((row.visibility ?? 'public') !== 'public') return 0;
+    // One trader's posts count against the daily figure one at a time, so posts at the same moment cannot pass it together.
+    await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`p2p.follower_notices:${row.maker_id}`}, 0))`;
+    const today = await tx<Array<{ n: number }>>`
+      SELECT count(DISTINCT offer_id)::int AS n
+        FROM p2p.follower_notices
+       WHERE trader_id = ${row.maker_id} AND posted_at > now() - interval '1 day'
+    `;
+    if (Number(today[0]?.n ?? 0) >= perDay) return 0;
+    const written = await tx`
+      INSERT INTO p2p.follower_notices (offer_id, follower_id, trader_id, posted_at)
+      SELECT ${row.id}, c.owner_id, ${row.maker_id}, now()
+        FROM p2p.contacts c
+       WHERE c.kind = 'follow'
+         AND c.peer_id = ${row.maker_id}
+         AND c.owner_id <> ${row.maker_id}
+         AND NOT EXISTS (
+           SELECT 1 FROM p2p.contacts b
+            WHERE b.kind = 'block'
+              AND ((b.owner_id = c.owner_id AND b.peer_id = ${row.maker_id}) OR (b.owner_id = ${row.maker_id} AND b.peer_id = c.owner_id))
+         )
+      ON CONFLICT (offer_id, follower_id) DO NOTHING
+      RETURNING follower_id
+    `;
+    return written.length;
+  }
+
+  /**
+   * The fast path after a post: hands over at most FOLLOWER_FAST_PATH notices for one ad, so posting stays quick however
+   * many people follow the trader; the sweep hands over the rest. The bus and svc-notify dedupe on the pair.
+   */
+  private async handOverFollowerNotices(offerId: string): Promise<number> {
+    const owed = await this.sql<Array<{ follower_id: string; posted_at: Date }>>`
+      SELECT follower_id, posted_at FROM p2p.follower_notices
+       WHERE offer_id = ${offerId} AND handed_at IS NULL AND dropped_at IS NULL
+       ORDER BY posted_at ASC, follower_id ASC
+       LIMIT ${FOLLOWER_FAST_PATH}
+    `;
+    if (owed.length === 0) return 0;
+    const offer = await this.loadOfferRaw(offerId);
+    let sent = 0;
+    for (const row of owed) if (await this.handOverFollowerNotice(offer, row.follower_id, row.posted_at)) sent++;
+    return sent;
+  }
+
+  /**
+   * One notice, checked again at hand-over: if the pair has blocked each other since, or the ad is no longer up and
+   * public, it is dropped (stamped, never sent). Otherwise it goes to the bus, then is stamped as handed. Answers whether
+   * it was sent.
+   */
+  private async handOverFollowerNotice(offer: OfferRecord, followerId: string, postedAt: Date): Promise<boolean> {
+    const stale = offer.status !== 'active' || offer.visibility !== 'public' || (await eitherBlocked(this.sql, offer.makerId, followerId));
+    if (stale) {
+      await this.sql`
+        UPDATE p2p.follower_notices SET dropped_at = now()
+         WHERE offer_id = ${offer.id} AND follower_id = ${followerId} AND handed_at IS NULL AND dropped_at IS NULL
+      `;
+      return false;
+    }
+    await this.bus.publish(
+      'p2pTraderPosted',
+      {
+        offerId: offer.id,
+        traderId: offer.makerId,
+        followerId,
+        side: offer.side,
+        asset: offer.asset,
+        fiatCurrency: offer.fiatCurrency,
+        postedAt: postedAt.toISOString(),
+      },
+      { idempotencyKey: `p2p.trader.posted:${offer.id}:${followerId}` },
+    );
+    await this.sql`
+      UPDATE p2p.follower_notices SET handed_at = now()
+       WHERE offer_id = ${offer.id} AND follower_id = ${followerId} AND handed_at IS NULL AND dropped_at IS NULL
+    `;
+    return true;
+  }
+
+  /** Hand over every followed-trader notice still owed, oldest first; each ad is read once per sweep. */
+  async sweepFollowerNotices(limit?: number): Promise<{ sent: number; failures: FollowerNoticeSweepFailure[] }> {
+    const lim = assertSweepSettlementsLimit(limit);
+    const owed = await this.sql<Array<{ offer_id: string; follower_id: string; posted_at: Date }>>`
+      SELECT offer_id, follower_id, posted_at FROM p2p.follower_notices
+       WHERE handed_at IS NULL AND dropped_at IS NULL
+       ORDER BY posted_at ASC
+       LIMIT ${lim}
+    `;
+    let sent = 0;
+    const failures: FollowerNoticeSweepFailure[] = [];
+    const offers = new Map<string, Promise<OfferRecord>>();
+    for (const row of owed) {
+      try {
+        let offer = offers.get(row.offer_id);
+        if (!offer) {
+          offer = this.loadOfferRaw(row.offer_id);
+          offers.set(row.offer_id, offer);
+        }
+        if (await this.handOverFollowerNotice(await offer, row.follower_id, row.posted_at)) sent++;
+      } catch (err) {
+        const code = (err as { code?: unknown })?.code;
+        failures.push({
+          offerId: row.offer_id,
+          followerId: row.follower_id,
+          code: typeof code === 'string' ? code : null,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    return { sent, failures };
   }
 
   async listOffers(
@@ -2523,6 +2690,27 @@ export class P2pService {
       // A private ad relisted stays private: relisting never puts on the board what its maker kept off it.
       visibility: closed.visibility,
     });
+  }
+
+  /**
+   * #4689. The ad's maker is the other side of the order and is not the caller, so the edge's frozen/closed check on
+   * the caller never covers them. A frozen, closed or unknown maker refuses `p2p.counterparty_unavailable`, one code
+   * for all three; an unanswered check refuses `p2p.counterparty_unverifiable`. Either way nothing is reserved.
+   */
+  private async assertCounterpartyMayTrade(makerId: string, takerId: string): Promise<void> {
+    if (!this.counterpartyState || makerId === takerId) return;
+    let status;
+    try {
+      status = await this.counterpartyState.statusOf(makerId);
+    } catch (err) {
+      if (err instanceof CounterpartyStateUnavailableError) {
+        throw new P2pError('This ad cannot be checked right now; nothing was held. Try again shortly', 'p2p.counterparty_unverifiable');
+      }
+      throw err;
+    }
+    if (status !== 'active') {
+      throw new P2pError('This ad cannot take orders; nothing was held', 'p2p.counterparty_unavailable');
+    }
   }
 
   /**
@@ -3119,6 +3307,8 @@ export class P2pService {
     // missing offer mid-take. Take still refuses with the uniform message when
     // the destination is gone; get/list stay honest for strangers.
     const preview = await this.loadOfferRaw(input.offerId);
+    // #4689: before anything is reserved, and outside the transaction (a network call must not hold the offer lock).
+    await this.assertCounterpartyMayTrade(preview.makerId, input.takerId);
     const referencePrice =
       preview.priceType === 'float' ? ((await this.referencePrices?.price(preview.asset, preview.fiatCurrency)) ?? null) : null;
 
@@ -3175,6 +3365,8 @@ export class P2pService {
               // record raises limits platform-wide (§6.2 → §4.1).
               throw new P2pError('A maker cannot take their own offer', 'p2p.self_trade');
             }
+            // Under the pair lock a block takes too, so the two can never both commit (P-ads-merchant-22).
+            await lockContactPair(tx, offer.makerId, input.takerId);
             if (await eitherBlocked(tx, offer.makerId, input.takerId)) {
               throw new P2pError('p2p.blocked', 'p2p.blocked');
             }
@@ -5889,6 +6081,36 @@ export class P2pService {
     return toAppeal(inserted[0]);
   }
 
+  /**
+   * P-trade-orders-21: support decides a submitted appeal, once. An accepted appeal takes its order out of the person's
+   * completion denominator from that moment (`completionRates` reads the status); the decision columns are the audit
+   * row: who decided, when and why. The same decision sent again by the same person returns it; any other second
+   * decision refuses `p2p.appeal_decided`. Nobody decides their own appeal.
+   */
+  async decideCompletionAppeal(input: {
+    appealId: string;
+    actorId: string;
+    decision: 'accepted' | 'rejected';
+    reason: string;
+  }): Promise<AppealRecord> {
+    const reason = input.reason.trim();
+    if (!reason) throw new P2pError('p2p.reason_required', 'p2p.reason_required');
+    const updated = await this.sql<AppealRow[]>`
+      UPDATE p2p.completion_appeals
+         SET status = ${input.decision}, decided_by = ${input.actorId}, decided_at = now(), decision_reason = ${reason}
+       WHERE id = ${input.appealId} AND status = 'submitted' AND user_id <> ${input.actorId}
+      RETURNING *
+    `;
+    if (updated[0]) return toAppeal(updated[0]);
+    const rows = await this.sql<AppealRow[]>`SELECT * FROM p2p.completion_appeals WHERE id = ${input.appealId}`;
+    const current = rows[0];
+    if (!current) throw new P2pError('p2p.appeal_not_found', 'p2p.appeal_not_found');
+    if (current.user_id === input.actorId) throw new P2pError('p2p.appeal_self_decision', 'p2p.appeal_self_decision');
+    const record = toAppeal(current);
+    if (record.status === input.decision && record.decidedBy === input.actorId && record.decisionReason === reason) return record;
+    throw new P2pError('p2p.appeal_decided', 'p2p.appeal_decided');
+  }
+
   private async asReview<T>(fn: () => Promise<T>): Promise<T> {
     try {
       return await fn();
@@ -5995,7 +6217,13 @@ export class P2pService {
     if (input.attachment !== undefined) {
       throw new P2pError('p2p.chat_attachment_unwired', 'p2p.chat_attachment_unwired');
     }
-    await this.assertChatParticipant(input.tradeId, input.senderId, input.asModerator);
+    const trade = await this.assertChatParticipant(input.tradeId, input.senderId, input.asModerator);
+    // P-ads-merchant-22: a blocked pair cannot chat. Staff on an open dispute still can; the history stays readable.
+    // A block cannot be made while an order between the pair is open (`contacts.block`), so an open order between a
+    // blocked pair is one blocked before that rule; its parties keep talking until it ends, as the order needs them to.
+    const party = trade.buyerId === input.senderId || trade.sellerId === input.senderId;
+    if (party && isTerminal(trade.status) && (await eitherBlocked(this.sql, trade.buyerId, trade.sellerId)))
+      throw new P2pError('p2p.blocked', 'p2p.blocked');
     try {
       return await insertChatMessage(this.sql, input);
     } catch (err) {
@@ -6075,7 +6303,9 @@ export class P2pService {
 
   /**
    * P-trade-orders-14: `trades.export` under owner caps, with an audit row.
-   * Only CSV is built; xlsx/pdf refuse `p2p.export_format_unbuilt`.
+   * Only CSV is built; xlsx/pdf refuse `p2p.export_format_unbuilt`. The audit
+   * rows are the daily quota's counter: past it the export refuses
+   * `p2p.export_quota_reached` with the next UTC midnight.
    */
   async exportTrades(input: {
     userId: string;
@@ -6083,6 +6313,7 @@ export class P2pService {
     to: string;
     /** Omitted means csv, the format this endpoint has always served. */
     format?: ExportFormat;
+    now?: Date;
   }): Promise<{
     csv: string;
     rows: number;
@@ -6093,6 +6324,8 @@ export class P2pService {
       const format = assertFormatBuilt(input.format ?? 'csv');
       const maxRangeDays = requireSetting(this.exportPolicy.maxRangeDays, 'P2P_EXPORT_MAX_RANGE_DAYS');
       const maxRows = requireSetting(this.exportPolicy.maxRows, 'P2P_EXPORT_MAX_ROWS');
+      const daily = requireSetting(this.exportPolicy.exportDailyQuota, 'P2P_EXPORT_DAILY_QUOTA');
+      const now = input.now ?? new Date();
       const from = new Date(input.from);
       const to = new Date(input.to);
       if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from.getTime() > to.getTime()) {
@@ -6115,10 +6348,24 @@ export class P2pService {
            AND created_at >= ${from} AND created_at <= ${to}
          GROUP BY asset, fiat_currency ORDER BY asset, fiat_currency
       `;
-      await this.sql`
-        INSERT INTO p2p.export_audit (user_id, kind, format, range_from, range_to, row_count)
-        VALUES (${input.userId}, 'export', ${format}, ${from}, ${to}, ${file.rows})
-      `;
+      await transaction(this.sql, async (tx) => {
+        // One user's exports serialise, so two parallel clicks cannot both take the last export of the day.
+        await tx`SELECT pg_advisory_xact_lock(${EXPORT_QUOTA_LOCK_CLASS}, hashtext(${input.userId}))`;
+        const used = await tx<Array<{ today: number }>>`
+          SELECT count(*)::int AS today FROM p2p.export_audit
+           WHERE user_id = ${input.userId} AND kind = 'export' AND created_at >= ${startOfUtcDay(now)}
+        `;
+        if (Number(used[0]?.today ?? 0) >= daily) {
+          throw new P2pError(
+            `p2p.export_quota_reached: daily quota ${daily} used; resets at ${nextUtcMidnight(now).toISOString()}`,
+            'p2p.export_quota_reached',
+          );
+        }
+        await tx`
+          INSERT INTO p2p.export_audit (user_id, kind, format, range_from, range_to, row_count, created_at)
+          VALUES (${input.userId}, 'export', ${format}, ${from}, ${to}, ${file.rows}, ${now})
+        `;
+      });
       return {
         ...file,
         format,

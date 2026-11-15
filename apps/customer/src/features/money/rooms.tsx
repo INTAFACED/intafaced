@@ -1,4 +1,7 @@
 import { t as copyText, Text } from './copy';
+import { ComplaintRoom } from './complaint/ComplaintRoom';
+import { BereavementRoom } from './bereavement/BereavementRoom';
+import { ScamReportRoom } from './scam/ScamReportRoom';
 import { CardOrderRoom } from './CardOrder';
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
@@ -53,6 +56,7 @@ import { SharedPots } from './SharedPots';
 import { BillsPotActions } from './BillsPot';
 import { AccountHome } from './AccountHome';
 import { AddMoney } from './AddMoney';
+import { WalletProvider } from '../protocol/wallet/WalletProvider';
 import { addMoneyCopy } from './add-money-copy';
 import { LinkedAccounts } from './LinkedAccounts';
 import { DirectDebits } from './DirectDebits';
@@ -76,6 +80,8 @@ import { currentSpace, spaceContext } from './space-context';
 import { spaceCopy } from './space-copy';
 import { categoryLabel } from './analytics-copy';
 import { splitAnalytics } from './analytics-model';
+import { AnalyticsBudgets, AnalyticsCompare } from './AnalyticsBudgets';
+import { LimitsRoom, limitsCopy } from './LimitsRoom';
 import { GoalProgress, MovementBars } from './GoalAndMovement';
 import { availableRow, earnFormFacts, earnLiveRows, loanFormFacts, loanLiveRows } from './form-preview';
 import { RecipientPicker } from './RecipientPicker';
@@ -90,6 +96,7 @@ import { personSendStepUp, readPersonSendTerms } from './person-send-terms';
 import { cleanText, noteProblem, referenceProblem } from './transfer-message';
 import { assetSelectField, spaceTotals, useHoldings } from './holdings';
 import { StatementCentre } from './StatementCentre';
+import { StatementLetters, TaxStatements } from './StatementExtras';
 import { statementCentreCopy } from './statement-centre-copy';
 
 const bankRooms = ['Overview', 'Spaces', 'Transfers', 'Earn', 'Loans', 'Cards', 'Ramps', 'Analytics', 'Business'] as const;
@@ -1512,7 +1519,10 @@ function AddMoneyRoom() {
   const { t } = addMoneyCopy.useCopy();
   return (
     <BankPage room="Ramps" title={t('title')} description={t('description')}>
-      <AddMoney />
+      {/* The browser wallet's connection, so a purchase can be delivered straight to it (J-dex-protocol-05 #4). */}
+      <WalletProvider>
+        <AddMoney />
+      </WalletProvider>
     </BankPage>
   );
 }
@@ -1650,12 +1660,23 @@ function CalendarRoom() {
     </BankPage>
   );
 }
+/** `/bank/limits`: sending limits from the bank's quote, the fee schedules and the plan (BK-acct-04, J-bank-16 #6). */
+function LimitsPage() {
+  return (
+    <BankPage room="Overview" title={limitsCopy.t('title')} description={limitsCopy.t('description')}>
+      <LimitsRoom />
+    </BankPage>
+  );
+}
+
 /** `/bank/statements`: the statement and export centre, inside the Analytics room (J-portfolio-11, PF-statements-01). */
 function StatementsRoom() {
   const { t } = statementCentreCopy.useCopy();
   return (
     <BankPage room="Analytics" title={t('title')} description={t('description')}>
       <StatementCentre />
+      <StatementLetters />
+      <TaxStatements />
     </BankPage>
   );
 }
@@ -1713,6 +1734,12 @@ function Analytics() {
   return (
     <BankPage room="Analytics" description={copyText('rooms.ledger.movements.by.asset.and.date.movement')}>
       <StatementsLink />
+      {assetId && (
+        <>
+          <AnalyticsBudgets assetId={assetId} />
+          <AnalyticsCompare assetId={assetId} />
+        </>
+      )}
       <Section title={copyText('rooms.movement.window')}>
         <div className="money-analytics-form">
           <label className="field">
@@ -1862,6 +1889,9 @@ const bankServices = [
   { href: '/bank/analytics', label: 'nav.analytics', note: 'overview.analytics.note' },
   { href: '/bank/business', label: 'nav.business', note: 'overview.business.note' },
   { href: '/uc/record', label: 'index.money.activity', note: 'overview.activity.note' },
+  { href: '/bank/safety/scam', label: 'nav.scam', note: 'overview.scam.note' },
+  { href: '/bank/safety/complaint', label: 'nav.complaint', note: 'overview.complaint.note' },
+  { href: '/bank/safety/bereavement', label: 'nav.bereavement', note: 'overview.bereavement.note' },
 ] as const;
 /**
  * `/bank`: the first page of the neo-bank. It shows only what the bank answers (balances and spaces, each with its own
@@ -2119,6 +2149,12 @@ export function BankRoutes({ path, search, open }: { path: string; search: strin
       return <DirectDebitsRoom />;
     case '/bank/calendar':
       return <CalendarRoom />;
+    case '/bank/safety/complaint':
+      return <ComplaintRoom />;
+    case '/bank/safety/scam':
+      return <ScamReportRoom />;
+    case '/bank/safety/bereavement':
+      return <BereavementRoom />;
     case '/bank/recovery':
       return <RecoveryClaimRoom />;
     case '/bank/rules':
@@ -2149,6 +2185,8 @@ export function BankRoutes({ path, search, open }: { path: string; search: strin
       return <Analytics />;
     case '/bank/statements':
       return <StatementsRoom />;
+    case '/bank/limits':
+      return <LimitsPage />;
     case '/bank/business':
       return <Business open={open} />;
     case '/uc/record':

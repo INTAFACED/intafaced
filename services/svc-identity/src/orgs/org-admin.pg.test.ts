@@ -102,6 +102,8 @@ if (!available) {
 
     it('an admin removes a member in one step with a history row', async () => {
       const { admin, trader, org } = await orgWithTrader();
+      // A developer role (J-developer-15 #4) ends with the seat: someone added again later starts with none.
+      await db.sql`INSERT INTO org_developer_roles (org_id, user_id, role, updated_by) VALUES (${org.id}, ${trader.userId}, 'keys_admin', ${admin.userId})`;
       expect(await removeOrgMember(db.sql, admin.userId, org.id, trader.userId)).toEqual({
         orgId: org.id,
         userId: trader.userId,
@@ -112,6 +114,7 @@ if (!available) {
         { kind: 'member_removed', actor_id: admin.userId, subject_id: trader.userId, before: 'trader', after: null },
       ]);
       await expect(removeOrgMember(db.sql, admin.userId, org.id, trader.userId)).rejects.toMatchObject({ code: 'org.member_not_found' });
+      expect(await db.sql`SELECT 1 FROM org_developer_roles WHERE org_id = ${org.id} AND user_id = ${trader.userId}`).toHaveLength(0);
     });
 
     it('a member may leave; a non-admin cannot remove someone else; a non-member is refused', async () => {

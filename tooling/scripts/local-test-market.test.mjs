@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { readProcessIdentity } from './local-test-state.mjs';
 import {
   GuardError,
+  unquotedMarkets,
   assertLocalTarget,
   bandEdgeQuote,
   crossingQuote,
@@ -22,8 +23,19 @@ import {
   parseShift,
   shiftedMid,
   quoteOrder,
+  placingOrder,
+  shiftQuoted,
   crossesOn,
+  missedMinute,
   quotesInTheWay,
+  quotesThisCycle,
+  holdTaken,
+  HOLD_MAX_MS,
+  stillThisCycle,
+  stillTaken,
+  STILL_MAX_MS,
+  walkedMid,
+  takerCrosses,
   stackNotActive,
   STACK_INACTIVE_LIMIT_MS,
   fromScaled,
@@ -33,6 +45,8 @@ import {
   laterEdgeBudget,
   readEdgeBudget,
   tapeWindow,
+  TAPE_RETRY_WAITS_MS,
+  transientTapeRefusal,
   toScaled,
   toScaledFloor,
 } from './local-test-market.mjs';
@@ -77,6 +91,56 @@ try {
   ]) {
     assert.throws(() => assertLocalTarget({ home, urls: [url] }), GuardError, url);
   }
+
+  // 4b. A hold with no maker running is saved and returns; release and unshift clear it.
+  const holdFile = join(state, 'run', 'market-hold.json');
+  r = run(home, ['hold', 'BTC/USDT']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /BTC\/USDT held; the test market is not running/);
+  assert.ok(Number.isFinite(JSON.parse(readFileSync(holdFile, 'utf8'))['BTC/USDT']));
+  r = run(home, ['release', 'BTC/USDT']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(JSON.parse(readFileSync(holdFile, 'utf8')), {});
+  run(home, ['hold', 'BTC/USDT']);
+  r = run(home, ['unshift']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /hold released for BTC\/USDT/);
+  assert.deepEqual(JSON.parse(readFileSync(holdFile, 'utf8')), {});
+  r = run(home, ['hold', 'NOPE/USDT']);
+  assert.equal(r.status, 2, r.stderr);
+
+  // 4c. A hold left set by a file that never released it (a worker killed in J-cex-spot-08, a `market` file that holds the
+  // book; J-cex-spot-03 trades on the venue since #8140 and no longer holds it) does not outlive the
+  // file: the journeys' world restore, entering the next file, clears it (world-restore.mjs restoreWorld, `unshift`).
+  // Failure it prevents: a frozen BTC/USDT book for every journey file after it.
+  run(home, ['hold', 'BTC/USDT']);
+  assert.ok(Number.isFinite(JSON.parse(readFileSync(holdFile, 'utf8'))['BTC/USDT']));
+  const realApp = resolve(dirname(script), '../../apps/customer/tests/real-app');
+  const between = spawnSync(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `const w = await import(${JSON.stringify(join(realApp, 'world-restore.mjs'))});
+       await w.enterFile(${JSON.stringify(join(realApp, 'J-cex-spot-08.pw.mjs'))});
+       await w.enterFile(${JSON.stringify(join(realApp, 'J-cex-spot-04.pw.mjs'))});`,
+    ],
+    { env: { ...process.env, HOME: home, TEST_PARALLEL_INDEX: 'hold-leak' }, encoding: 'utf8' },
+  );
+  assert.equal(between.status, 0, between.stderr);
+  assert.deepEqual(JSON.parse(readFileSync(holdFile, 'utf8')), {}, 'a hold outlived the journey file that set it');
+  // 4d. Entering a journey file asks for a still market (no walk, no crossing) unless the file has a `// Market: live`
+  // line; with no maker running, the request waits in its file for the maker's next start. `live` clears it.
+  const stillFile = join(dirname(holdFile), 'market-still.json');
+  assert.ok(Number.isFinite(JSON.parse(readFileSync(stillFile, 'utf8')).askedAt), 'a journey file entered on a live market');
+  r = run(home, ['live']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /not running; it starts live when it does/);
+  assert.equal(existsSync(stillFile), false);
+  r = run(home, ['still']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /not running; it starts still when it does/);
+  assert.ok(Number.isFinite(JSON.parse(readFileSync(stillFile, 'utf8')).askedAt));
   // 5. Through the command line as well: a real-looking target never gets past the guard.
   r = run(home, ['start', '--edge-url', 'https://api.intafaced.com']);
   assert.equal(r.status, 1, r.stderr);
@@ -122,6 +186,32 @@ try {
   assert.throws(() => tapeWindow({ nowMs: now, trades: 7, stepMs: 1000, perBar: 7 }), /divide evenly/);
   assert.equal(TAPE_CLIENT_PREFIX, 'LTEST-TAPE-');
   assert.ok(`${TAPE_CLIENT_PREFIX}abcdef-${5000 * 5}`.length <= 64); // the order contract's client id limit
+}
+
+// 5c2. A tape order a service refused as unavailable is tried again, a few times; a refusal about the order is not.
+// The reasons are the ones the writer logged on 10 Nov (main's run 42745917050 shard 11, run 42760091859 shard 22).
+{
+  for (const reason of [
+    'refused authority.unavailable',
+    'refused HTTP 503 edge.venue_halt_unavailable',
+    'refused trade.matching_unavailable',
+    'refused HTTP 502 bad gateway',
+    'no result ',
+    'unknown trade.outcome_unknown',
+  ])
+    assert.equal(transientTapeRefusal(reason), true, reason);
+  for (const reason of [
+    'refused trade.price_band',
+    'refused trade.insufficient_funds',
+    'refused HTTP 400 validation',
+    'refused HTTP 429 edge.rate_limited',
+    'filled 0 of 0.5',
+    '',
+    undefined,
+  ])
+    assert.equal(transientTapeRefusal(reason), false, String(reason));
+  // A few tries within about 17 s in all: past a stall of a few seconds, never long enough to hide a service that is down.
+  assert.deepEqual(TAPE_RETRY_WAITS_MS, [2000, 5000, 10000]);
 }
 
 // 5d. The wait at the end of `history`: none while Edge says half its budget or more is left, until the window ends when
@@ -229,6 +319,82 @@ assert.equal(b.next(), a.next());
     ['L1', null],
     ['L2', 'L1'],
   ]);
+  // The TEST perp's ladder after its leader jumped 25% up, placed while last cycle's quotes still rest. The matching
+  // engine's self-trade prevention expires a standing quote, unfilled, when a new quote of the maker's meets it. Replayed
+  // quote by quote, the book must keep a bid and an ask throughout (J-derivatives-06 #1, run 42411089854: a market long
+  // found no ask between the maker's first new bid and its first new ask).
+  {
+    const ladderAt = (mid) =>
+      buildLadder({
+        mid: toScaled(mid),
+        tick: toScaled('0.01'),
+        lot: toScaled('0.0001'),
+        minAmount: toScaled('0.0001'),
+        minCost: toScaled('5'),
+        levels: 3,
+        halfSpreadBps: 6n,
+        stepBps: 9n,
+        levelNotional: toScaled('3000'),
+      });
+    const replay = (standing, placing) => {
+      const book = standing.map((q) => ({ ...q }));
+      const gaps = [];
+      for (const q of placing) {
+        const p = toScaled(q.price);
+        for (let i = book.length - 1; i >= 0; i -= 1) {
+          const o = book[i];
+          const op = toScaled(o.price);
+          if ((q.side === 'buy' && o.side === 'sell' && p >= op) || (q.side === 'sell' && o.side === 'buy' && p <= op)) book.splice(i, 1);
+        }
+        book.push(q);
+        for (const side of ['buy', 'sell'])
+          if (!book.some((o) => o.side === side)) gaps.push(`${side} side empty after ${q.side} ${q.price}`);
+      }
+      return gaps;
+    };
+    for (const [from, to] of [
+      ['52000', '65000'],
+      ['65000', '52000'],
+    ]) {
+      const standing = ladderAt(from).map((q, i) => ({ id: `old-${i}`, side: q.side, price: q.price }));
+      const fresh = ladderAt(to);
+      assert.deepEqual(replay(standing, placingOrder(fresh, standing)), [], `a jump from ${from} to ${to} keeps both sides`);
+      // Every quote is still placed, once.
+      assert.deepEqual(
+        [...placingOrder(fresh, standing)].sort((a, b) => a.price.localeCompare(b.price)),
+        [...fresh].sort((a, b) => a.price.localeCompare(b.price)),
+      );
+    }
+    // Nothing standing, or no new quote meeting one: the ladder goes up as built.
+    const calm = ladderAt('65000');
+    assert.equal(placingOrder(calm, null), calm);
+    assert.deepEqual(placingOrder(calm, []), calm);
+    assert.deepEqual(
+      placingOrder(
+        calm,
+        ladderAt('65001').map((q, i) => ({ id: `o${i}`, ...q })),
+      ).length,
+      calm.length,
+    );
+  }
+  // A `move` counts as on the book only once the maker has logged quoting it, at or after the move was asked. A line
+  // from before the move, another market's or another shift's, is not it (J-derivatives-04 #2 aimed from a book that
+  // still carried the stop half's -0.30%, main run 42419522734).
+  {
+    const log = [
+      '2026-11-07T22:12:43.900Z [TEST MARKET] BTC/USDT TEST PRICE mid 64800.97 USDT: 6/6 quotes resting',
+      '2026-11-07T22:12:43.901Z [TEST MARKET] BTC/USDT TEST PRICE shift -30 bps quoted',
+      '2026-11-07T22:12:56.100Z [TEST MARKET] BTC/USDC TEST PRICE shift 0 bps quoted',
+      '2026-11-07T22:12:56.500Z [TEST MARKET] BTC/USDT TEST PRICE shift 0 bps quoted',
+    ].join('\n');
+    const asked = new Date('2026-11-07T22:12:44.600Z');
+    assert.equal(shiftQuoted(log, 'BTC/USDT', 0n, asked), true);
+    assert.equal(shiftQuoted(log, 'BTC/USDT', -30n, asked), false, 'quoted before the move was asked');
+    assert.equal(shiftQuoted(log, 'BTC/USDT', 0n, new Date('2026-11-07T22:12:57Z')), false, 'not yet quoted');
+    assert.equal(shiftQuoted(log, 'BTC/USDT', -1000n, asked), false, 'another shift');
+    assert.equal(shiftQuoted(log.split('\n').slice(0, 3).join('\n'), 'BTC/USDT', 0n, asked), false, 'only another market');
+    assert.equal(shiftQuoted('', 'BTC/USDT', 0n, asked), false);
+  }
   // The leader's book mid, from the best bid and ask; an empty or unreadable side is no mid.
   assert.equal(bookMid({ bids: [['65000', '1']], asks: [['65001', '1']] }), toScaled('65000.5'));
   assert.equal(bookMid({ bids: [], asks: [['65001', '1']] }), null);
@@ -566,3 +732,254 @@ assert.equal(shiftedMid(toScaled('1'), 200n, toScaled('0.0001')), toScaled('1.02
 assert.equal(shiftedMid(toScaled('65000'), -600n, toScaled('0.01')), toScaled('61100'));
 assert.equal(shiftedMid(toScaled('1.00005'), 0n, toScaled('0.0001')), toScaled('1.00005'));
 assert.equal(shiftedMid(toScaled('1'), undefined, toScaled('0.0001')), toScaled('1'));
+
+// A held market is not quoted (no new ladder, no crossing); every other market is. The hold is in force only once a
+// cycle that started after it was asked for has passed the market by (J-cex-spot-03 #8, #7490).
+{
+  const holds = new Map([['BTC/USDT', 1_000]]);
+  assert.equal(quotesThisCycle('BTC/USDT', holds, 2_000), false);
+  assert.equal(quotesThisCycle('ETH/USDT', holds, 2_000), true);
+  assert.equal(quotesThisCycle('BTC/USDT', new Map(), 2_000), true);
+  // A hold left set (a worker killed mid-step runs no release) lapses on its own, but never inside one step's 90 s.
+  assert.ok(HOLD_MAX_MS > 90_000);
+  assert.equal(quotesThisCycle('BTC/USDT', holds, 1_000 + 90_000), false);
+  assert.equal(quotesThisCycle('BTC/USDT', holds, 1_000 + HOLD_MAX_MS + 1), true);
+  assert.equal(holdTaken({}, 'BTC/USDT', 1_000), false);
+  assert.equal(holdTaken({ 'BTC/USDT': 999 }, 'BTC/USDT', 1_000), false);
+  assert.equal(holdTaken({ 'BTC/USDT': 1_000 }, 'BTC/USDT', 1_000), false);
+  assert.equal(holdTaken({ 'BTC/USDT': 1_001 }, 'BTC/USDT', 1_000), true);
+  assert.equal(holdTaken({ 'ETH/USDT': 2_000 }, 'BTC/USDT', 1_000), false);
+}
+
+// A still market (the journeys' default, project-state #2065): the walk does not step and nothing crosses, so a price
+// read twice in one step reads the same unless someone traded. A `move` still shifts it. A still request left set (a
+// killed run) lapses on its own, but never inside one journey file's hour.
+{
+  const tick = toScaled('0.01');
+  const walk = () => createPriceWalk({ seed: 's', symbol: 'BTC/USDT', startScaled: toScaled('65000'), tickScaled: tick });
+  const still = walk();
+  const mids = Array.from({ length: 5 }, () => walkedMid(still, { still: true, shift: undefined, tick }));
+  assert.deepEqual(new Set(mids).size, 1, 'a still cycle quotes the same mid every time');
+  assert.equal(still.steps, 0);
+  assert.equal(walkedMid(still, { still: true, shift: 100n, tick }), shiftedMid(mids[0], 100n, tick));
+  const live = walk();
+  const moving = Array.from({ length: 5 }, () => walkedMid(live, { still: false, shift: undefined, tick }));
+  assert.ok(new Set(moving).size > 1, 'a live cycle steps the walk (the walk never freezes)');
+  assert.equal(live.steps, 5);
+  assert.equal(stillThisCycle(null, 2_000), false);
+  assert.equal(stillThisCycle({}, 2_000), false);
+  assert.equal(stillThisCycle({ askedAt: 1_000 }, 2_000), true);
+  assert.ok(STILL_MAX_MS >= 3_600_000);
+  assert.equal(stillThisCycle({ askedAt: 1_000 }, 1_000 + STILL_MAX_MS), true);
+  assert.equal(stillThisCycle({ askedAt: 1_000 }, 1_000 + STILL_MAX_MS + 1), false);
+  // The taker crosses on its turn in a live cycle and never in a still one (CI review on #7969: a shadowed name made it
+  // read a set of quotes, always truthy, so it never crossed in either mode).
+  const turn = [1, 2, 3, 4, 5, 6, 7].find((c) => crossesOn(c, 'BTC/USDT'));
+  assert.ok(turn);
+  assert.equal(takerCrosses({ still: false, cross: undefined, rested: 6, cycle: turn, symbol: 'BTC/USDT' }), true);
+  assert.equal(takerCrosses({ still: true, cross: undefined, rested: 6, cycle: turn, symbol: 'BTC/USDT' }), false);
+  assert.equal(takerCrosses({ still: false, cross: false, rested: 6, cycle: turn, symbol: 'BTC/USDT' }), false);
+  assert.equal(takerCrosses({ still: false, cross: undefined, rested: 0, cycle: turn, symbol: 'BTC/USDT' }), false);
+  // Off its turn, a market crosses when its last crossing was in an earlier UTC minute, so every live minute trades
+  // (#8390: on a loaded runner the turn alone left half the 1m bars of BTC/USDT without a trade).
+  const off = [1, 2, 3, 4, 5, 6, 7].find((c) => !crossesOn(c, 'BTC/USDT'));
+  const minute = 1_800_000_000_000 - (1_800_000_000_000 % 60_000);
+  assert.equal(missedMinute(undefined, minute + 5_000), false);
+  assert.equal(missedMinute(minute + 1_000, minute + 59_999), false);
+  assert.equal(missedMinute(minute + 59_000, minute + 60_000), true);
+  assert.equal(
+    takerCrosses({ still: false, rested: 6, cycle: off, symbol: 'BTC/USDT', nowMs: minute + 30_000, lastCrossMs: minute + 1_000 }),
+    false,
+  );
+  assert.equal(
+    takerCrosses({ still: false, rested: 6, cycle: off, symbol: 'BTC/USDT', nowMs: minute + 61_000, lastCrossMs: minute + 1_000 }),
+    true,
+  );
+  assert.equal(takerCrosses({ still: false, rested: 6, cycle: off, symbol: 'BTC/USDT', nowMs: minute + 61_000 }), false);
+  assert.equal(
+    takerCrosses({ still: true, rested: 6, cycle: off, symbol: 'BTC/USDT', nowMs: minute + 61_000, lastCrossMs: minute }),
+    false,
+  );
+  assert.equal(
+    takerCrosses({ still: false, cross: false, rested: 6, cycle: off, symbol: 'BTC/USDT', nowMs: minute + 61_000, lastCrossMs: minute }),
+    false,
+  );
+  // `still` and `live` return only on a cycle of the running maker that started after the ask and runs that way.
+  assert.equal(stillTaken(null, { still: true, askedAt: 1_000, pid: 7 }), false);
+  assert.equal(stillTaken({ pid: 7, startedAt: 1_000, still: true }, { still: true, askedAt: 1_000, pid: 7 }), false);
+  assert.equal(stillTaken({ pid: 8, startedAt: 2_000, still: true }, { still: true, askedAt: 1_000, pid: 7 }), false);
+  assert.equal(stillTaken({ pid: 7, startedAt: 2_000, still: false }, { still: true, askedAt: 1_000, pid: 7 }), false);
+  assert.equal(stillTaken({ pid: 7, startedAt: 2_000, still: true }, { still: true, askedAt: 1_000, pid: 7 }), true);
+  assert.equal(stillTaken({ pid: 7, startedAt: 2_000 }, { still: false, askedAt: 1_000, pid: 7 }), true);
+}
+
+// A maker restart is ready only once its newest run has quoted every market it named, the perpetual (quoted last) too.
+{
+  const T = (line) => `2026-11-07T13:32:40.000Z [TEST MARKET] ${line}`;
+  const older = [
+    T('LOCAL TEST MARKET — TEST PRICES, not a market feed, not real money. seed=7, requote every 3s'),
+    T('BTC/USDT: TEST PRICE reference 65000 USDT, walking from step 1 at 65000'),
+    T('BTC/USDT TEST PRICE mid 65000 USDT: 6/6 quotes resting'),
+  ];
+  const start = [
+    T('LOCAL TEST MARKET — TEST PRICES, not a market feed, not real money. seed=7, requote every 3s'),
+    T('BTC/USDT: TEST PRICE reference 65000 USDT, walking from step 40 at 65100'),
+    T("BTC/USDT:USDT: quoted around the BTC/USDT book's mid each cycle"),
+  ];
+  assert.deepEqual(unquotedMarkets(''), { announced: [], waiting: [] });
+  assert.deepEqual(unquotedMarkets(older.slice(0, 1).join('\n')), { announced: [], waiting: [] });
+  // The newest run counts, not an older one's quotes still in the log.
+  assert.deepEqual(unquotedMarkets([...older, ...start].join('\n')), {
+    announced: ['BTC/USDT', 'BTC/USDT:USDT'],
+    waiting: ['BTC/USDT', 'BTC/USDT:USDT'],
+  });
+  const spot = T('BTC/USDT TEST PRICE mid 65100 USDT: 6/6 quotes resting');
+  assert.deepEqual(unquotedMarkets([...older, ...start, spot].join('\n')).waiting, ['BTC/USDT:USDT']);
+  // A cycle that rested nothing on the perpetual is not quoted yet.
+  const none = T('BTC/USDT:USDT TEST PRICE mid 65100 USDT: 0/6 quotes resting; last refusal 400');
+  assert.deepEqual(unquotedMarkets([...older, ...start, spot, none].join('\n')).waiting, ['BTC/USDT:USDT']);
+  const perp = T('BTC/USDT:USDT TEST PRICE mid 65100 USDT: 6/6 quotes resting');
+  assert.deepEqual(unquotedMarkets([...older, ...start, spot, none, perp].join('\n')).waiting, []);
+}
+
+// `stop` waits for the market to exit and never reports success while it runs (#7485). On main run 42408792979, shard
+// 30, the market took longer than the old 20 s to stop; `stop` said "still cancelling orders" and exited 0, and the
+// next setup command refused, so the shard's 8 journeys sent no report. A virtual clock keeps this fast.
+{
+  const { waitForExit, STOP_CAP_MS } = await import('./local-test-market.mjs');
+  const clock = () => {
+    let t = 0;
+    return { now: () => t, pause: async (ms) => void (t += ms) };
+  };
+  // A market that needs 40 s, as shard 30's did, longer than the old 20 s wait: `stop` succeeds once it has exited.
+  {
+    const c = clock();
+    const exitsAt = 40_000;
+    assert.equal(await waitForExit(() => c.now() < exitsAt, { now: c.now, pause: c.pause }), true, 'a 40 s stop is waited out');
+    assert.ok(c.now() >= exitsAt && c.now() < exitsAt + 1_000, 'and returns within a poll of the exit');
+  }
+  // A market that never exits: the wait ends at the cap and says so, never success.
+  {
+    const c = clock();
+    assert.equal(await waitForExit(() => true, { now: c.now, pause: c.pause }), false, 'a market that never exits is not stopped');
+    assert.ok(c.now() >= STOP_CAP_MS && c.now() < STOP_CAP_MS + 1_000, 'the wait ends at the cap');
+  }
+  // One already gone needs no wait.
+  {
+    const c = clock();
+    assert.equal(await waitForExit(() => false, { now: c.now, pause: c.pause }), true);
+    assert.equal(c.now(), 0);
+  }
+  // The cap stays above shard 30's 40 s with margin, and under the 120 s a journey's tool() allows a stack tool.
+  assert.ok(STOP_CAP_MS >= 80_000 && STOP_CAP_MS < 120_000, `the stop cap is ${STOP_CAP_MS} ms`);
+  console.log('local-test-market: stop waits for the market to exit, up to its cap, and fails by name after it');
+}
+
+// The `stop` command itself: when the wait fails, it exits non-zero and names the pid; it never prints success.
+{
+  const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'local-test-market.mjs'), 'utf8');
+  const stop = src.slice(src.indexOf("if (cmd === 'stop') {"), src.indexOf("if (cmd === 'status') {"));
+  assert.match(
+    stop,
+    /if \(!\(await waitForExit\(\(\) => Boolean\(runningPid\(p\)\)\)\)\)\s+die\(`pid \$\{pid\} is still cancelling orders/,
+  );
+  assert.doesNotMatch(stop, /return console\.log\(`pid \$\{pid\} is still cancelling/, 'no exit-0 line while it runs');
+  console.log('local-test-market: a stop that times out exits non-zero by name');
+}
+
+// The cycle record (writeCycleRecord) and the journeys' reader of it (apps/customer/tests/real-app/market.mjs): what the
+// world restore and J-derivatives-04 wait on in place of the log's wording (docs/runbooks/harness-rewrite-plan.md, piece 1).
+{
+  const { writeCycleRecord, parseShift: makerParse } = await import('./local-test-market.mjs');
+  const harness = await import('../../apps/customer/tests/real-app/market.mjs');
+  const { unsettled, shiftQuotedIn, parseShift: journeyParse, makerSettled } = harness;
+
+  // Written whole: a reader sees the old record or the new one, never part of one.
+  const dir = mkdtempSync(join(tmpdir(), 'ltm-cycle-'));
+  const p = { runDir: join(dir, 'run'), cycleFile: join(dir, 'run', 'market-cycle.json') };
+  const quoted = (shiftBps = '0', resting = 6) => ({ held: false, resting, ladder: 6, shiftBps });
+  const rec = {
+    pid: 41,
+    runId: 'abc',
+    cycle: 3,
+    startedAt: 2_000,
+    endedAt: 2_500,
+    markets: { 'BTC/USDT': quoted(), 'BTC/USDT:USDT': quoted(null) },
+  };
+  writeCycleRecord(p, rec);
+  assert.deepEqual(JSON.parse(readFileSync(p.cycleFile, 'utf8')), rec);
+  assert.equal(existsSync(`${p.cycleFile}.${process.pid}.tmp`), false, 'no temporary file left');
+  rmSync(dir, { recursive: true, force: true });
+
+  // Settled: the running maker's whole cycle, started at or after `since`, with every market quoting, unheld, unshifted.
+  assert.deepEqual(unsettled(rec, { since: 2_000, pid: 41 }), []);
+  assert.deepEqual(unsettled(null, { since: 0, pid: 41 }), ['no whole cycle of the running maker yet']);
+  assert.deepEqual(unsettled(rec, { since: 0, pid: 42 }), ['no whole cycle of the running maker yet'], 'an earlier run');
+  assert.match(unsettled(rec, { since: 2_001, pid: 41 })[0], /^no cycle started since /, 'a cycle from before the restore');
+  const shifted = { ...rec, markets: { ...rec.markets, 'BTC/USDT': quoted('-30') } };
+  assert.deepEqual(unsettled(shifted, { since: 0, pid: 41 }), ['BTC/USDT still shifted -30 bps']);
+  const held = { ...rec, markets: { ...rec.markets, 'BTC/USDT': { held: true } } };
+  assert.deepEqual(unsettled(held, { since: 0, pid: 41 }), ['BTC/USDT held']);
+  const empty = { ...rec, markets: { ...rec.markets, 'BTC/USDT:USDT': quoted(null, 0) } };
+  assert.deepEqual(unsettled(empty, { since: 0, pid: 41 }), ['BTC/USDT:USDT not quoting']);
+  assert.deepEqual(unsettled({ ...rec, markets: {} }, { since: 0, pid: 41 }), ['no market in its newest cycle']);
+
+  // The wait returns as soon as a settled cycle is read, and says what was left when its time runs out.
+  const seq = [shifted, rec];
+  assert.deepEqual(await makerSettled({ since: 0, pause: 1, read: () => seq.shift() ?? rec, pid: () => 41 }), []);
+  assert.deepEqual(await makerSettled({ since: 0, ms: 5, pause: 1, read: () => held, pid: () => 41 }), ['BTC/USDT held']);
+
+  // A shift is quoted once a cycle that started at or after the move quoted it; a Date works as ms does.
+  const at = { symbol: 'BTC/USDT', pid: 41 };
+  assert.equal(shiftQuotedIn(shifted, { ...at, bps: -30n, since: 2_000 }), true);
+  assert.equal(shiftQuotedIn(shifted, { ...at, bps: -30n, since: new Date(2_000) }), true);
+  assert.equal(shiftQuotedIn(shifted, { ...at, bps: -30n, since: 2_001 }), false, 'quoted before the move was asked');
+  assert.equal(shiftQuotedIn(shifted, { ...at, bps: 0n, since: 0 }), false, 'another shift');
+  assert.equal(shiftQuotedIn(rec, { ...at, bps: 0n, since: 0 }), true, 'asking for the shift already quoted does not wait forever');
+  assert.equal(shiftQuotedIn(held, { ...at, bps: 0n, since: 0 }), false, 'a held market quoted nothing');
+  assert.equal(shiftQuotedIn(shifted, { ...at, pid: 42, bps: -30n, since: 0 }), false, 'another run');
+  const bare = { ...rec, markets: { ...rec.markets, 'BTC/USDT': quoted('-30', 0) } };
+  assert.equal(shiftQuotedIn(bare, { ...at, bps: -30n, since: 0 }), false, 'chosen but nothing rests at it');
+  const { shiftQuoted: waitShift } = harness;
+  await assert.rejects(waitShift('BTC/USDT', null, 0, { what: '1.234%' }), /BTC\/USDT: 1\.234% is not a TEST price shift/);
+  await assert.rejects(
+    waitShift('BTC/USDT', -30n, 0, { ms: 5, pause: 1, read: () => rec, pid: () => 41, what: '-0.30%' }),
+    /never quoted BTC\/USDT -0\.30% within 0\.005 s of the move/,
+  );
+  await waitShift('BTC/USDT', -30n, 0, { pause: 1, read: () => shifted, pid: () => 41 });
+
+  // The journeys' parseShift is the maker's rule.
+  for (const t of ['+2%', '-6%', '0.5%', '0%', '-50%', '-51%', '101%', '100%', '2', '1.234%', ' -0.30% ', '-1.25%', '', undefined])
+    assert.equal(journeyParse(t), makerParse(t), `parseShift(${JSON.stringify(t)})`);
+  console.log('local-test-market: the cycle record, and the journeys wait on it, not on the log');
+}
+
+// Custody off (OWNER 226, OWNER 288): on a stack whose svc-ledger runs LEDGER_CUSTODY_LAYER off, nothing that quotes,
+// trades, funds (a `local:fund` deposit to the maker's or taker's account) or writes tape history starts; each command
+// says so and exits 0, so the journeys setup goes on. The edge is a closed port, so a fault here reaches nothing real.
+{
+  const offHome = mkdtempSync(join(tmpdir(), 'local-test-market-custody-'));
+  const offState = join(offHome, '.intafaced', 'local-test-stack');
+  const edgeUrl = 'http://127.0.0.1:9';
+  try {
+    mkdirSync(join(offState, 'run'), { recursive: true });
+    writeFileSync(join(offState, 'LOCAL-TEST-STACK.json'), JSON.stringify({ kind: 'intafaced-local-test-stack', ports: { edge: 9 } }));
+    writeFileSync(join(offState, 'run', 'processes.json'), JSON.stringify({ ledger: { pid: 1, custodyLayer: 'off' } }));
+    for (const cmd of ['start', 'check', 'history', 'ensure']) {
+      const r = spawnSync(process.execPath, [script, cmd, '--edge-url', edgeUrl], {
+        env: { ...process.env, HOME: offHome },
+        encoding: 'utf8',
+        timeout: 30_000,
+      });
+      assert.equal(r.status, 0, `${cmd}: ${r.stderr}`);
+      assert.match(r.stdout, /custody off|LEDGER_CUSTODY_LAYER off/, cmd);
+      assert.match(r.stdout, cmd === 'history' ? /no TEST chart history written/ : /TEST market maker not started/, cmd);
+    }
+    assert.equal(existsSync(join(offState, 'run', 'market.json')), false, 'no maker was started');
+    assert.equal(existsSync(join(offState, 'market-accounts.json')), false, 'no maker account was made or funded');
+    assert.equal(existsSync(join(offState, 'logs', 'market.log')), false, 'nothing ran to log');
+  } finally {
+    rmSync(offHome, { recursive: true, force: true });
+  }
+  console.log('local-test-market: with custody off nothing quotes, trades, funds or writes history');
+}

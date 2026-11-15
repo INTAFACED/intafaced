@@ -63,6 +63,48 @@ Internal tRPC (§1). Every log query is scoped to `ctx.principal.userId` — an 
 
 "Person" is the signed-in session itself (`identity:write`, no `kid` or `sub_account`), as for spend limits. A draft's tools come only from `src/own/catalog.ts`; a tool that moves money is offered so it can be refused (`agents.own.money_tool`) and is never stored; each read tool declares its input and output shapes and the refusals its route returns (AG-tools-01), and one with no declared shape is refused (`agents.tool_shape_missing`) and never granted to a session; and a blank per-session cap stays blank (`agents.spend.cap_unset` blocks publishing). Building an agent moves no value. Table: `own_agents` (migration `0005`).
 
+### Schedules and event triggers of own agents (AG-sessions-02, J-agents-07 #1 to #4)
+
+| Procedure              | Scope                    | Input                                                        | Output                                                            |
+| ---------------------- | ------------------------ | ------------------------------------------------------------ | ----------------------------------------------------------------- |
+| `own.schedules.list`   | `agents:read`, person    | `{ id }`                                                     | the owner's cadence values and each schedule with its occurrences |
+| `own.schedules.create` | `agents:execute`, person | `{ id, createKey, repeat, intervalMinutes, perRunCap, ask }` | the schedule; the same create key is the same schedule            |
+| `own.schedules.cancel` | `agents:execute`, person | `{ id, scheduleId }`                                         | the schedule, cancelled: no next occurrence                       |
+| `own.triggers.list`    | `agents:read`, person    | `{ id }`                                                     | each trigger with its deliveries and runs                         |
+| `own.triggers.create`  | `agents:execute`, person | `{ id, createKey, subject, perRunCap, ask }`                 | the trigger                                                       |
+
+A schedule is due at once and then every interval the person set, never below the owner's minimum
+(`AGENTS_SCHEDULE_MIN_INTERVAL_MINUTES`); with that or the daily limit (`AGENTS_SCHEDULE_DAILY_LIMIT`) blank, a new
+schedule refuses `agents.schedule_cadence_unset`, and a repeating one with its interval blank refuses
+`agents.schedule.min_interval_unset`. The due-run workers (`AGENTS_SCHEDULE_WORKERS`, waking every
+`AGENTS_SCHEDULE_TICK_MS`; blank leaves them off) each read what is due before any claims; a claim is made under the
+schedule's row lock and writes one `own_agent_auto_runs` row keyed `agents:schedule:<schedule>:<ordinal>`, so two workers
+make one run and the other only counts its wake. A trigger's event writes one row keyed `agents:trigger:<trigger>:<event id>`.
+Each run is the agent's own run on a session of its own, admitted on the agent's switch, the cap per run (the session's
+ceiling), the person's caps for the agent and the daily limit: anything blank skips it `agents.schedule_blocked` with
+the reason, and nothing runs. A crash leaves the row `claimed`; after its lease a tick resumes it under the same key, so
+the meter's request id stops a second engine call. Cancelling a schedule does not stop a run already running. No value
+moves here: the run's window is charged like any run's. Tables: `own_agent_schedules`, `own_agent_triggers`,
+`own_agent_auto_runs`, `own_agent_trigger_deliveries` (migration `20261113210533`).
+
+### The Navigator on-chain (RC-agents-01, J-agents-19)
+
+The Navigator may act on the test network through a session key the person grants on their own smart account and can revoke. svc-agents never moves value through INTAFACED, holds no key and signs nothing (svc-protocol builds the unsigned grant and revoke; the person's wallet signs both; the Navigator's signer, outside this service, sends its trades) and never claims chain state: whether the key is granted, live, spent or revoked is read from the chain.
+
+| Procedure                   | Scope            | Input                                                                           | Output                                                                                                                                                                                              |
+| --------------------------- | ---------------- | ------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `navigator.onchain.signer`  | `agents:read`    | `{ chainId }`                                                                   | the signer's public address on the test network                                                                                                                                                     |
+| `navigator.onchain.bind`    | `agents:execute` | `{ chainId, account, specHash, spendLimitWei, validUntil, targets, selectors }` | the binding the person prepared, keyed `agents:onchain:navigator:<chain>:<account>:<key>`                                                                                                           |
+| `navigator.onchain.revoke`  | `agents:execute` | `{ chainId, account }`                                                          | the binding, marked revoking once                                                                                                                                                                   |
+| `navigator.onchain.binding` | `agents:read`    | `{ chainId, account }`                                                          | the binding or null                                                                                                                                                                                 |
+| `navigator.ask`             | `agents:execute` | `{ sessionId, requestId, text }`                                                | a trade inside the signed cap, sent once and tagged by the assistant (keyed `agents:navigator:order:<session>:<request>`), or `none`; refuses above the cap, with no live key and to move money out |
+| `navigator.orders`          | `agents:read`    | `{ sessionId }`                                                                 | the session's orders by the assistant                                                                                                                                                               |
+| `navigator.trading`         | `agents:read`    | none                                                                            | the live key's cap from the chain, what orders hold and what is left, or null                                                                                                                       |
+
+Refusals: a mainnet (`audit.external`), no configured signer (`rail.crypto`), any other chain (`agents.onchain_chain_unsupported`), a blank cap (`agents.session_key_cap_unset`), no expiry (`agents.session_key_expiry_unset`) and an approve, permit or transfer selector (`agents.session_key_selector_forbidden`; svc-protocol refuses it first). The session key is always the configured signer, never the body's. The same scope again returns the first row; a new scope for the same key (each prepared grant has its own expiry, so its own hash) replaces what was prepared and clears an earlier revoke request. Bindings are unique per person, so one person never learns another bound the same account.
+
+**Inside the cap you signed the Navigator does not ask; above it the trade is refused; it never moves money out.** An ask that names a trade (swap, buy, sell, trade or order as a whole word) is placed by the Navigator through the person's live key: `swap <amount> <token> for <token>` in a pool of `AGENTS_NAVIGATOR_ONCHAIN_MARKET` that the grant also names. The cap is the key's own `spendLimitWei`, read from the chain, so the Navigator spends only the market's `spendToken` (wrapped native, which the cap measures one for one). Every order under that grant that has not reverted or been refused holds part of the cap, with what the chain says the key already moved; the check runs before anything is built and again under the grant's advisory lock as the order is written. The order is keyed `agents:navigator:order:<session>:<request id>`, so a retried ask is the same order and is sent once. svc-agents builds `executeWithSession` (the router's `swapExactIn`, recipient the account itself, value 0) and hands it to `AGENTS_NAVIGATOR_ONCHAIN_SENDER_URL`; the account contract checks scope, expiry and recipient again. Refusals, before anything is signed: `agents.navigator_money_out_forbidden` (a withdrawal, or a send, transfer or payment to an address), `agents.navigator_trade_over_cap`, `agents.navigator_no_live_key`, `agents.navigator_trade_unparsed`, `agents.navigator_trade_cap_unit`, `agents.navigator_trade_out_of_scope`, `agents.navigator_market_unset` (node or market blank), `agents.navigator_trade_unquoted` and `rail.crypto` (no signer). No engine is called and nothing is charged for a trade ask. On the local stack the signer is `local-test-chain.mjs` `/navigator`, which sends the call from the Navigator's TEST key address by anvil impersonation. Tables: `navigator_onchain_bindings`, `navigator_orders`; `navigator_approval_requests` is no longer written.
+
 `requestId` on `run.complete` is supplied by the caller and is the anti-double-bill handle: a client that retries after a timeout reuses it.
 
 ### Metered agent runs
@@ -125,7 +167,7 @@ The thin useful path on the gateway itself is `runUsefulPath` in `src/useful-pat
 
 No payload carries a prompt, an answer, or a model identifier. §10 keeps user content out of general stores and a durable event stream is one; §0.7 keeps vendor names out of anything shipped. Consumers get counts and codes — anything more detailed is a query against `agent_actions` under the caller's own authorisation.
 
-**Consumes** — nothing yet. Compliance screening of refusals (§8.8) consumes `action.rejected` when svc-core-ops lands.
+**Consumes** — `trade.fill.settled` (durable `agents-own-trigger-fill-settled`, mounted from `index.ts`), for the triggers of a person's own agents (AG-sessions-02): the person's own fill runs each of their active triggers on that subject once per fill id; the run row's business key in Postgres is the seen-set, so a redelivery or a restart never runs it twice. Compliance screening of refusals (§8.8) consumes `action.rejected` when svc-core-ops lands.
 
 ---
 
@@ -271,6 +313,7 @@ ACADEMY_URL=http://svc-academy:4016      # coach spine; blank = empty catalog re
 AGENTS_LOG_READ_REASONS=                 # owner's comma-separated reasons for an operator log read; blank refuses every read
 AGENTS_OPS_ACTIONS_LIMIT=                # rows one operator read shows (1-500); blank refuses
 AGENTS_TRANSCRIPT_RETENTION_DAYS=        # days a prompt text is kept (0-3650); blank refuses a transcript read, 0 keeps none
+AGENTS_NAVIGATOR_ONCHAIN_SIGNER=         # public address of the Navigator's on-chain signer (never a key); blank refuses rail.crypto
 
 # Only when AGENTS_PROVIDER=upstream. Secrets come from vault in prod (§9).
 AGENTS_UPSTREAM_BASE_URL=https://…

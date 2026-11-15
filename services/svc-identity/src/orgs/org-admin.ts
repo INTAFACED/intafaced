@@ -101,6 +101,8 @@ export async function removeOrgMember(
       if (admins.length <= 1) throw new OrgAdminError('An organization must keep at least one admin', 'org.last_admin');
     }
     await tx`DELETE FROM organization_members WHERE org_id = ${org} AND user_id = ${member}`;
+    // A developer role (J-developer-15 #4) ends with the seat, so someone removed and added again starts with none.
+    await tx`DELETE FROM org_developer_roles WHERE org_id = ${org} AND user_id = ${member}`;
     await tx`
       INSERT INTO organization_history (org_id, actor_id, kind, subject_id, before)
       VALUES (${org}, ${actor}, 'member_removed', ${member}, ${target.role})

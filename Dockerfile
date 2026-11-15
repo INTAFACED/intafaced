@@ -63,6 +63,7 @@ COPY apps/invitation/package.json            apps/invitation/
 COPY apps/mobile/package.json                apps/mobile/
 
 COPY packages/academy-ambassadors-pay/package.json packages/academy-ambassadors-pay/
+COPY packages/assistant-mcp/package.json     packages/assistant-mcp/
 COPY packages/auth/package.json              packages/auth/
 COPY packages/config/package.json            packages/config/
 COPY packages/connect-data-lake/package.json packages/connect-data-lake/
@@ -88,6 +89,8 @@ COPY packages/telemetry/package.json         packages/telemetry/
 COPY packages/ui/package.json                packages/ui/
 COPY packages/venue-adapter/package.json     packages/venue-adapter/
 COPY packages/venue-contracts/package.json   packages/venue-contracts/
+COPY packages/venue-sim/package.json         packages/venue-sim/
+COPY packages/venue-hyperliquid/package.json packages/venue-hyperliquid/
 
 COPY services/svc-academy/package.json       services/svc-academy/
 COPY services/svc-agents/package.json        services/svc-agents/

@@ -3,6 +3,7 @@ import type { Sql, TransactionSql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import { parseAmount, type Amount } from '@intafaced/ledger-client';
 import { AgentError } from '../errors.js';
+import { fundsRefusalParams, fundsShortfall, readFunds, type FundsReading } from '../funds.js';
 import { windowCost, type UsageGroup } from '../metering/pricing.js';
 import type { SpendGate, SpendLimitView, SpendPeriod, SpendReservationView } from './gate.js';
 import { canonicalAmount, decideReservation, parseSpendAmount, parseSpendLimitInput, periodStart, type SpendScope } from './limits.js';
@@ -317,7 +318,7 @@ export class UserSpendStore implements SpendGate {
      */
     agentCap?: string | null;
     /** The person's available balance, read under this reservation's lock (see `SpendGate.reserve`). */
-    funds?: () => Promise<Amount | null>;
+    funds?: () => Promise<Amount | FundsReading>;
     /**
      * The owner's overage grace: unpaid usage in sealed windows up to this much does not count against the balance,
      * so a run whose own worst case the balance covers still starts. Blank forgives nothing.
@@ -446,27 +447,26 @@ export class UserSpendStore implements SpendGate {
           const exposed = await exposure(tx, input.userId, assetId);
           const grace = input.overageGrace ?? 0n;
           const owed = exposed.owed - (exposed.sealedUnpaid < grace ? exposed.sealedUnpaid : grace);
-          let available: Amount | null;
-          try {
-            available = await input.funds();
-          } catch {
-            available = null;
-          }
-          if (available === null) {
+          const outcome = await readFunds(input.funds);
+          if (!outcome.ok) {
             // The balance was not read, so the person is told that, not that they are short.
             throw new AgentError(
               `Available balance could not be read to cover ${canonicalAmount(amount)} ${assetId}`,
               'agents.funds_unread',
               'agents.refused.funds_unread',
-              { worstCase: canonicalAmount(amount), asset: assetId },
+              fundsRefusalParams(canonicalAmount(amount), assetId, outcome),
             );
           }
-          if (available - owed < amount) {
+          const short = fundsShortfall(outcome.reading, owed, amount);
+          if (short !== null) {
+            const unread = !short.ok;
             throw new AgentError(
-              `Available balance does not cover ${canonicalAmount(amount)} ${assetId} after ${canonicalAmount(owed)} owed`,
-              'agents.funds_insufficient',
-              'agents.refused.funds_insufficient',
-              { worstCase: canonicalAmount(amount), asset: assetId },
+              unread
+                ? `Available balance could not be read to cover ${canonicalAmount(amount)} ${assetId}`
+                : `Available balance does not cover ${canonicalAmount(amount)} ${assetId} after ${canonicalAmount(owed)} owed`,
+              unread ? 'agents.funds_unread' : 'agents.funds_insufficient',
+              unread ? 'agents.refused.funds_unread' : 'agents.refused.funds_insufficient',
+              fundsRefusalParams(canonicalAmount(amount), assetId, short),
             );
           }
         }

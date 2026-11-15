@@ -153,6 +153,41 @@ function ctxOf(userId: string, scopes: string[]) {
       ).toHaveLength(2);
     });
 
+    it('reads the audit log back: one row per export and per switch, naming the operator, the filter, the count and the request', async () => {
+      await founder(FOUNDER_A).export({ riskSignal: 'no_owner', requestId: 'agents-fleet:export:a1' });
+      await founder(FOUNDER_A).export({ riskSignal: 'no_owner', requestId: 'agents-fleet:export:a1' });
+      await founder(FOUNDER_B).quarantine({ ref: `own:${OWN}`, reason: 'TEST quarantine', requestId: 'agents-fleet:quarantine:b1' });
+      const { rows, limit } = await founder(FOUNDER_A).audit();
+      expect(limit).toBe(50);
+      expect(rows.map(({ id: _id, at: _at, ...rest }) => rest)).toEqual([
+        {
+          operatorId: FOUNDER_B,
+          action: 'quarantine',
+          agentRef: `own:${OWN}`,
+          kind: null,
+          reason: 'TEST quarantine',
+          filter: {},
+          rowCount: null,
+          requestId: 'agents-fleet:quarantine:b1',
+        },
+        {
+          operatorId: FOUNDER_A,
+          action: 'export',
+          agentRef: null,
+          kind: null,
+          reason: null,
+          filter: { riskSignal: 'no_owner' },
+          rowCount: 2,
+          requestId: 'agents-fleet:export:a1',
+        },
+      ]);
+      // One read shows at most the owner's page size, newest first; blank refuses by its code.
+      expect((await founder(FOUNDER_A, 1).audit()).rows.map((row) => row.action)).toEqual(['quarantine']);
+      await expect(founder(FOUNDER_A, null).audit()).rejects.toMatchObject({ message: 'agents.registry_list_limit_unset' });
+      const customer = fleetRouter(sql, { registryLimit: 50 }).createCaller(ctxOf(CUSTOMER, ['agents:read']));
+      await expect(customer.audit()).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    });
+
     it('quarantines with a reason, refuses new work as disabled, and restores only with two distinct founders', async () => {
       const ref = `own:${OWN}`;
       await expect(founder(FOUNDER_A).quarantine({ ref, reason: '  ', requestId: 'req-fleet-q0' })).rejects.toMatchObject({

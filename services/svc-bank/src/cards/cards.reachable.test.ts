@@ -67,6 +67,13 @@ const MIGRATIONS = [
   '0035_card_controls.sql',
   '0040_bank_ops_reads.sql',
   '20261106013335_card_orders.sql',
+  '20261108230236_card_blocks.sql',
+  // Partner-held authorisations (OWNER 226): the `money_book` columns every card read selects.
+  '20261108231000_card_partner_held.sql',
+  // The issuer's `recurring` flag (J-bank-14 #6), which every card read selects.
+  '20261110040000_card_recurring.sql',
+  // Cashback on partner-held spend (J-bank-13 #7): `paid_by`, which every cashback read and retry selects.
+  '20261115090000_card_cashback_to_wallet.sql',
 ].map((f) => readFileSync(join(here, '..', '..', 'drizzle', f), 'utf8'));
 
 const EDGE_SECRET = 'a-bank-cards-reachability-edge-secret-long-enough';

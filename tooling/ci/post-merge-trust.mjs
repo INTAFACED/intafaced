@@ -15,14 +15,29 @@
  *
  * Real-app journeys (per journey step; the run's own conclusion is its verdict against the baseline of steps not built
  * yet, tooling/ci/journey-verdict.mjs, and this job compares steps whatever that verdict is):
- *   The run is compared with the two finished runs before it. A step that passed two runs ago and failed in both the
- *   run before and this one is broken for real (the next run is the re-run, at no extra cost): open (or comment on)
- *   one "Journey broken on main: <J-id>" issue per journey, naming the commits between the last run it passed and the
- *   first run it failed. A journey's issue closes when every step it names passes again.
+ *   The run is compared with the finished run before it. This job opens no break issue: a step that passed and then
+ *   failed outright starts the journeys revert at once (journeys-revert.mjs trigger), which opens the journey's
+ *   "Journey broken on main: <J-id>" issue with the revert, or, when no single merge explains it, runs the step alone
+ *   on main's head and opens a `flaky` issue (it passes) or the `regression` break issue (it fails again). The wait for
+ *   a second red run is gone (the programme lead, 12 Nov 2026). A journey's issue closes here when every step it names
+ *   passes again.
  *   The run summary lists the steps newly passing and newly failing against the run before.
+ *   A shard that sent no report (no `real-app-journeys-shard-<n>` artifact: abandoned, cancelled by the platform, or
+ *   its stack or browser never started) on a red first attempt, after that attempt's own checks: re-run its failed jobs
+ *   once, then judge the next attempt (project-state #1786, 10 Nov). Only when every failed shard job sent no report and
+ *   every such shard has a job: a shard that reported keeps its reds, and the whole run is never re-run. A shard with no
+ *   report on the re-run, or one not re-run, still counts its journeys as not passing.
  *   A shard that hit its time limit (the job's, or the limit the shard puts on its own journeys so it still reports):
  *   open (or comment on) one "Broken on main: Real-app journeys (time limit)" issue naming the jobs; it closes on the
  *   next run where no job hit its limit.
+ *   A step the run's verdict set aside (the artifact's set-aside.json, journey-verdict.mjs: it failed, then passed on its
+ *   retry, on main, and it is not money): open one "Set aside on main until <date>: <step>" issue naming its owner and
+ *   end date, once per set-aside (never again once closed); its owner may close it with the fix, and it closes itself
+ *   on the first run after its end date.
+ *   A step that failed, then passed on its retry, on main, that no set-aside tracks (set-aside.json's `flaky`; a pass,
+ *   money step or not, by the lead's decision of 12 Nov 2026 under OWNER 296 and 297): open one "Flaky step on main:
+ *   <step>" issue, labelled `flaky`, naming its area, unless one is open already (or the older "Flaky money step on
+ *   main" one). Its owner closes it with the fix; the step never counts as proven from that run meanwhile.
  *
  * A job that hits its time limit ends "cancelled", not "timed_out", like a run replaced by a newer one. A cancelled
  * run whose job carries GitHub's "exceeded the maximum execution time" annotation counts as timed out (red).
@@ -33,9 +48,10 @@
  *        node tooling/ci/post-merge-trust.mjs
  */
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { readReport } from './journey-verdict.mjs';
 
 export const JOURNEYS_WORKFLOW = 'Real-app journeys';
 export const JOURNEYS_ARTIFACT = 'real-app-journeys';
@@ -48,7 +64,9 @@ const CANCELLED_LOOKUPS = 20;
 
 /**
  * Each journey step in a Playwright JSON report: "passed", "failed" or "skipped". The key is "J-<module>-NN#<step>",
- * as in tooling/scripts/roadmap.mjs passedSteps. A step with any test that did not end expected or flaky failed.
+ * as in tooling/scripts/roadmap.mjs passedSteps. A step with any test that did not end expected failed: a test that
+ * passed only on its retry (Playwright's "flaky", on main since JOURNEY_RETRIES) is not a pass, money step or not, so
+ * it never closes a journey's issue nor counts as passing (CI review on #7363, 1fbf031).
  */
 export function stepStates(report) {
   const states = new Map();
@@ -61,7 +79,7 @@ export function stepStates(report) {
       const state =
         tests.length && tests.every((t) => t.status === 'skipped')
           ? 'skipped'
-          : tests.length && tests.every((t) => t.status === 'expected' || t.status === 'flaky')
+          : tests.length && tests.every((t) => t.status === 'expected')
             ? 'passed'
             : 'failed';
       const had = states.get(key);
@@ -71,6 +89,16 @@ export function stepStates(report) {
   };
   for (const suite of report?.suites ?? []) walk(suite);
   return states;
+}
+
+/** Tests with no step title in journey files (journey-verdict.mjs readReport `tests`) that passed in `before`, on the
+ *  first try or the retry, and failed in `now`. Sorted. */
+export function newlyBrokenTests(before, now) {
+  const was = readReport(before).tests;
+  return Object.entries(readReport(now).tests)
+    .filter(([k, s]) => s === 'failed' && (was[k] === 'passed' || was[k] === 'flaky'))
+    .map(([k]) => k)
+    .sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
 }
 
 const sortKeys = (keys) => [...keys].sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
@@ -84,17 +112,6 @@ export function stepChanges(before, now) {
     if (state === 'failed' && before.get(key) === 'passed') newlyFailing.push(key);
   }
   return { newlyPassing: sortKeys(newlyPassing), newlyFailing: sortKeys(newlyFailing) };
-}
-
-/** Steps that passed in `older`, then failed in both `previous` and `now`: confirmed breaks, grouped by journey. */
-export function confirmedBreaks(older, previous, now) {
-  const byJourney = new Map();
-  for (const [key, state] of now) {
-    if (state !== 'failed' || previous.get(key) !== 'failed' || older.get(key) !== 'passed') continue;
-    const journey = key.split('#')[0];
-    byJourney.set(journey, sortKeys([...(byJourney.get(journey) ?? []), key]));
-  }
-  return new Map([...byJourney].sort(([a], [b]) => a.localeCompare(b, 'en', { numeric: true })));
 }
 
 /** What to do with a finished whole-run check. `previous` is the conclusion of the finished run before it. */
@@ -123,6 +140,70 @@ export const outsideCause = (check) => (OUTSIDE_CAUSES[check] ? ['', OUTSIDE_CAU
 export const checkIssueTitle = (check) => `Broken on main: ${check}`;
 export const timeLimitIssueTitle = (check) => `Broken on main: ${check} (time limit)`;
 export const journeyIssueTitle = (journey) => `Journey broken on main: ${journey}`;
+export const setAsideIssueTitle = (row) => `Set aside on main until ${String(row.until).slice(0, 10)}: ${row.step.replace('#', ' #')}`;
+
+/** The issue for a step the verdict set aside (a row of set-aside.json). */
+export function setAsideIssueBody(row, runUrl) {
+  const until = String(row.until).slice(0, 16).replace('T', ' ');
+  return [
+    `\`${row.step.replace('#', ' #')}\` failed, then passed on its retry, on main (first in run ${row.since}; this issue comes from [this run](${runUrl})), so the machine set it aside until ${until} UTC (tooling/ci/journey-verdict.mjs).`,
+    '',
+    `- Owner: ${row.owner} (its journey's module in docs/roadmap/journeys.json).`,
+    '- Until then it still runs and each run shows its result, it does not count as proven, and its failure does not turn main red, unless it fails outright in two runs in a row (broken, not flaky).',
+    `- After ${until} UTC, a failure on every try turns main's journeys verdict red again; a pass only on its retry is a pass with its own \`flaky\` issue.`,
+    `- Fix the test or the code it checks, never by weakening the test${row.file ? `: apps/customer/tests/real-app/${row.file}` : ''}.`,
+    '',
+    `<!-- set-aside: ${row.step} -->`,
+    '_Opened by tooling/ci/post-merge-trust.mjs. A money step is never set aside._',
+  ].join('\n');
+}
+
+/**
+ * What to do with the set-aside issues: `rows` is set-aside.json's steps, `issues` every set-aside issue (open or closed,
+ * by title). Opens one for each active row that has none yet; closes the open one of each row whose set-aside ended.
+ */
+export function setAsideIssueActions(rows, issues) {
+  const byTitle = new Map((issues ?? []).map((i) => [i.title, i]));
+  const ok = (rows ?? []).filter((r) => typeof r?.step === 'string');
+  return {
+    open: ok.filter((r) => r.active && !byTitle.has(setAsideIssueTitle(r))),
+    close: ok
+      .filter((r) => !r.active && byTitle.get(setAsideIssueTitle(r))?.state === 'open')
+      .map((r) => ({ row: r, issue: byTitle.get(setAsideIssueTitle(r)) })),
+  };
+}
+export const flakyIssueTitle = (row) => `Flaky step on main: ${row.step.replace('#', ' #')}`;
+/** The title the same issue had before 12 Nov 2026, while only money steps got one: still open ones count. */
+const oldFlakyIssueTitle = (row) => `Flaky money step on main: ${row.step.replace('#', ' #')}`;
+
+/** The issue for a step that failed, then passed on its retry, on main (a row of set-aside.json's `flaky`). */
+export function flakyIssueBody(row, runUrl) {
+  return [
+    `\`${row.step.replace('#', ' #')}\` failed, then passed on its retry, on main in [this run](${runUrl}) (tooling/ci/journey-verdict.mjs).`,
+    '',
+    `- Owner: ${row.owner ?? 'no area named: its journey names no module in docs/roadmap/journeys.json'}.`,
+    "- It is a pass: it doesn't turn main red (the lead's decision of 12 Nov 2026 under OWNER 296 and 297), but it never counts as proven from that run.",
+    '- Failing on every try on main still bisects and reverts the commit that broke it.',
+    `- Fix the race in the test or the code it checks, never by weakening the test${row.file ? `: apps/customer/tests/real-app/${row.file}` : ''}. A rare real bug can look like this.`,
+    '',
+    `<!-- flaky-step: ${row.step} -->`,
+    // A money step (setAsideGuard; a row with no `money` counts as money): project-state's pull ranks its fix first.
+    ...(row.money !== false ? [`<!-- money-flaky: ${row.step} -->`] : []),
+    '_Opened by tooling/ci/post-merge-trust.mjs._',
+  ].join('\n');
+}
+
+/** Which flaky rows get an issue: `rows` is set-aside.json's `flaky`, `issues` the open ones (by title, old or new). */
+export function flakyIssueActions(rows, issues) {
+  const open = new Set((issues ?? []).filter((i) => i.state === 'open').map((i) => i.title));
+  const seen = new Set();
+  return (rows ?? []).filter((r) => {
+    if (typeof r?.step !== 'string' || seen.has(r.step)) return false;
+    seen.add(r.step);
+    return !open.has(flakyIssueTitle(r)) && !open.has(oldFlakyIssueTitle(r));
+  });
+}
+
 const CHECK_RED = /failed twice on `([0-9a-f]{7,40})`/g;
 const STEPS_MARK = /<!-- steps: ([^>]*) -->/g;
 
@@ -198,6 +279,61 @@ async function gh(method, path, body, { alreadyRunningOk = false } = {}) {
   return { status: res.status, json: text ? JSON.parse(text) : null };
 }
 
+const SHARD_JOB = /^Journeys \(shard (\d+) of (\d+)\)$/;
+const SHARD_ARTIFACT = /^real-app-journeys-shard-(\d+)$/;
+
+/**
+ * The shards with no report: `jobs` the run's latest jobs, `artifacts` its artifact names. Every shard 1..N counts, N
+ * from the shard jobs' "of N", since a shard GitHub abandoned may have no job at all (run 42669837919: 25 of 32 jobs).
+ * Returns "shard <n> of <N>" for each shard whose `real-app-journeys-shard-<n>` artifact is missing.
+ */
+export function shardsWithoutReport(jobs, artifacts) {
+  const totals = (jobs ?? []).map((j) => SHARD_JOB.exec(j?.name ?? '')?.[2]).filter(Boolean);
+  if (!totals.length) return [];
+  const total = Math.max(...totals.map(Number));
+  const sent = new Set((artifacts ?? []).map((n) => SHARD_ARTIFACT.exec(n)?.[1]).filter(Boolean));
+  return Array.from({ length: total }, (_, i) => String(i + 1))
+    .filter((n) => !sent.has(n))
+    .map((n) => `shard ${n} of ${total}`);
+}
+
+/** Whether GitHub took a re-run request: a 2xx, or the "already running" 403 that gh() lets through. */
+export const rerunTaken = (r) => Boolean(r?.alreadyRunning) || (Number.isInteger(r?.status) && r.status >= 200 && r.status < 300);
+
+/**
+ * Whether to re-run a red journeys run's failed jobs once because a shard sent no report. Only on its first attempt, and
+ * only when that re-run can bring back nothing but the missing reports: every shard with no report has a job (an
+ * abandoned shard with none may not come back with "re-run failed jobs", and re-running the whole run would retry shards
+ * that reported reds), and every failed shard job is one with no report (a failed shard that did report keeps its
+ * result; a shard whose journeys failed passes its job, so it is never re-run). `jobs` the run's latest jobs, `missing`
+ * shardsWithoutReport(). Otherwise its red stands as reported. Returns { rerun, why }.
+ */
+export function shardRerun({ attempt, conclusion, jobs, missing }) {
+  if (!(attempt <= 1 && conclusion === 'failure' && missing.length > 0)) return { rerun: false };
+  const shardName = (j) => {
+    const m = SHARD_JOB.exec(j?.name ?? '');
+    return m ? `shard ${m[1]} of ${m[2]}` : null;
+  };
+  const withJob = new Set((jobs ?? []).map(shardName).filter(Boolean));
+  if (!missing.every((m) => withJob.has(m)))
+    return { rerun: false, why: 'a shard with no report has no job (abandoned), so only a person may re-run the whole run' };
+  const failed = (jobs ?? []).filter((j) => shardName(j) && j.conclusion && j.conclusion !== 'success' && j.conclusion !== 'skipped');
+  if (!failed.every((j) => missing.includes(shardName(j))))
+    return { rerun: false, why: 'a failed shard also sent a report, and a re-run would replace it' };
+  return { rerun: true };
+}
+
+async function missingShardReports(repo, runId) {
+  const { json: jobs } = await gh('GET', `/repos/${repo}/actions/runs/${runId}/jobs?filter=latest&per_page=100`);
+  const { json: arts } = await gh('GET', `/repos/${repo}/actions/runs/${runId}/artifacts?per_page=100`);
+  if (!Array.isArray(jobs?.jobs) || !Array.isArray(arts?.artifacts)) throw new Error(`could not read run ${runId}'s jobs or artifacts`);
+  const missing = shardsWithoutReport(
+    jobs.jobs,
+    arts.artifacts.filter((a) => !a.expired).map((a) => a.name),
+  );
+  return { missing, jobs: jobs.jobs };
+}
+
 /** The names of a run's jobs (latest attempt) that hit their time limit. */
 async function timedOutJobs(repo, runId) {
   const { json } = await gh('GET', `/repos/${repo}/actions/runs/${runId}/jobs?per_page=100`);
@@ -249,13 +385,25 @@ async function issueTexts(repo, issue) {
   return [issue.body, ...(comments ?? []).map((c) => c.body)];
 }
 
-async function upsertIssue(repo, title, body) {
+/**
+ * The labels a builder's pick rule reads (project-state BUILDER.md, pick 1; OWNER 289 item 6): a journey's break issue
+ * is a `regression`, as is a whole check's or a time limit's (#7910 opened bare and no builder could see it), a step that failed then passed on its retry is `flaky`. The bisect adds `main-unknown-red` when it
+ * can trace a red to no single merge (journeys-revert.mjs). Every issue stays the one main trust opens: no second issue.
+ */
+export const ISSUE_LABELS = { break: ['regression'], setAside: ['flaky'] };
+
+/** The POST /issues payload: the title, the body and the issue's labels, when it has any. Pure. */
+export const newIssuePayload = (title, body, labels = []) => ({ title, body, ...(labels.length ? { labels } : {}) });
+
+async function upsertIssue(repo, title, body, labels = []) {
   const existing = await findOpenIssue(repo, title);
   if (existing) {
     await gh('POST', `/repos/${repo}/issues/${existing.number}/comments`, { body });
+    // An issue opened before the labels existed gets them on its next comment.
+    if (labels.length) await gh('POST', `/repos/${repo}/issues/${existing.number}/labels`, { labels });
     return `commented on #${existing.number}`;
   }
-  const { json } = await gh('POST', `/repos/${repo}/issues`, { title, body });
+  const { json } = await gh('POST', `/repos/${repo}/issues`, newIssuePayload(title, body, labels));
   return `opened #${json?.number}`;
 }
 
@@ -269,8 +417,9 @@ async function between(repo, from, to) {
   return { commits: json?.commits ?? [], url: `https://github.com/${repo}/compare/${from.slice(0, 10)}...${to.slice(0, 10)}` };
 }
 
-/** The journeys report of a run, or null when the run kept none (the stack or browser did not start). */
-async function journeyReport(repo, runId) {
+/** A JSON file of a run's journeys artifact (its report by default), or null when the run kept none (the stack or browser
+ *  did not start). */
+async function journeyReport(repo, runId, file = 'report.json') {
   const { json } = await gh('GET', `/repos/${repo}/actions/runs/${runId}/artifacts?name=${JOURNEYS_ARTIFACT}&per_page=5`);
   const artifact = (json?.artifacts ?? []).find((a) => a.name === JOURNEYS_ARTIFACT && !a.expired);
   if (!artifact) return null;
@@ -285,7 +434,7 @@ async function journeyReport(repo, runId) {
     writeFileSync(zip, Buffer.from(await res.arrayBuffer()));
     const entry = execFileSync('unzip', ['-Z1', zip], { encoding: 'utf8' })
       .split('\n')
-      .find((e) => e.endsWith('journeys/report.json') || e === 'report.json');
+      .find((e) => e.endsWith(`journeys/${file}`) || e === file);
     if (!entry) return null;
     return JSON.parse(execFileSync('unzip', ['-p', zip, entry], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 }));
   } finally {
@@ -323,7 +472,7 @@ async function wholeRunCheck(ctx) {
       '',
       '_Opened by tooling/ci/post-merge-trust.mjs. Nothing is skipped or blocked; fix or revert the commit._',
     ].join('\n');
-    console.log(await upsertIssue(repo, checkIssueTitle(name), body));
+    console.log(await upsertIssue(repo, checkIssueTitle(name), body, ISSUE_LABELS.break));
     return;
   }
   if (action === 'still-red') {
@@ -332,7 +481,14 @@ async function wholeRunCheck(ctx) {
     if (open) return console.log(`#${open.number} already tracks it`);
     const lastGreen = (await earlierRuns(repo, ctx.workflowId, runId, ctx.createdAt, 100)).find((r) => r.conclusion === 'success');
     const range = lastGreen ? await between(repo, lastGreen.head_sha, sha) : null;
-    console.log(await upsertIssue(repo, checkIssueTitle(name), untrackedRedBody({ name, sha, runId, runUrl, prev, lastGreen, range })));
+    console.log(
+      await upsertIssue(
+        repo,
+        checkIssueTitle(name),
+        untrackedRedBody({ name, sha, runId, runUrl, prev, lastGreen, range }),
+        ISSUE_LABELS.break,
+      ),
+    );
   }
   if (action === 'green') {
     const issue = await findOpenIssue(repo, checkIssueTitle(name));
@@ -368,6 +524,40 @@ export function untrackedRedBody({ name, sha, runId, runUrl, prev, lastGreen, ra
   ].join('\n');
 }
 
+/** The one issue for shards that sent no report on two attempts in a row (or that GitHub wouldn't re-run). */
+export const LOST_SHARD_TITLE = 'Broken on main: Real-app journeys (shard lost)';
+
+/**
+ * Opens (or comments on) the lost-shard issue, labelled so a builder's pick reads it (the lead's decision of 12 Nov 2026,
+ * items 3 and 4: a shard with no report is run again by code until it has a report or has failed the same way twice,
+ * then one labelled issue); closes it on a run where every shard reported.
+ */
+/** The lost-shard issue's body. Pure. */
+export function lostShardBody({ missing, sha, runId, runUrl, attempt, why }) {
+  return [
+    `${missing.map((m) => `\`${m}\``).join(', ')} sent no report on \`${sha.slice(0, 10)}\` ([run ${runId}](${runUrl}), attempt ${attempt}${why ? `; ${why}` : ', after its one re-run'}), so ${missing.length === 1 ? 'its' : 'their'} journeys count as not passing.`,
+    '',
+    "Read the shard job's log for the step that died before the tests (a runner lost, a package mirror down, the stack not starting); never skip a journey to get past it.",
+    '',
+    '_Opened by tooling/ci/post-merge-trust.mjs. It closes itself on the next run where every shard reports._',
+  ].join('\n');
+}
+
+async function lostShardCheck({ repo, runId, sha, runUrl, attempt }, missing, why) {
+  if (missing.length) {
+    const body = lostShardBody({ missing, sha, runId, runUrl, attempt, why });
+    return `- Shards with no report: ${missing.join(', ')}: ${await upsertIssue(repo, LOST_SHARD_TITLE, body, ISSUE_LABELS.break)}`;
+  }
+  const issue = await findOpenIssue(repo, LOST_SHARD_TITLE);
+  if (!issue) return null;
+  await closeIssue(
+    repo,
+    issue,
+    `Every shard of [run ${runId}](${runUrl}) on \`${sha.slice(0, 10)}\` sent its report. Closing.\n\n_Closed by tooling/ci/post-merge-trust.mjs._`,
+  );
+  return `- Shards with no report: none, closed #${issue.number}`;
+}
+
 /** Opens (or comments on) the time-limit issue when jobs hit their limit; closes it on a run where none did. */
 async function timeLimitCheck({ repo, name, runId, sha, runUrl, timedOut }) {
   const title = timeLimitIssueTitle(name);
@@ -375,11 +565,11 @@ async function timeLimitCheck({ repo, name, runId, sha, runUrl, timedOut }) {
     const body = [
       `${timedOut.map((j) => `\`${j}\``).join(', ')} hit a time limit on \`${sha.slice(0, 10)}\` ([run ${runId}](${runUrl})), so ${timedOut.length === 1 ? 'its' : 'their'} journeys did not finish and count as not passing.`,
       '',
-      'Find the step that hangs, or give the journeys more shards (MAX_SHARDS in tooling/scripts/journey-shards.mjs); never shorten or skip a journey to fit.',
+      'Find the step that hangs, or give the journeys more shards (MAIN_MAX_SHARDS for main, MAX_SHARDS elsewhere, in tooling/scripts/journey-shards.mjs); never shorten or skip a journey to fit.',
       '',
       '_Opened by tooling/ci/post-merge-trust.mjs. It closes itself on the next run where no job hits its limit._',
     ].join('\n');
-    return `- Time limit: ${timedOut.join(', ')}: ${await upsertIssue(repo, title, body)}`;
+    return `- Time limit: ${timedOut.join(', ')}: ${await upsertIssue(repo, title, body, ISSUE_LABELS.break)}`;
   }
   const issue = await findOpenIssue(repo, title);
   if (!issue) return null;
@@ -391,15 +581,97 @@ async function timeLimitCheck({ repo, name, runId, sha, runUrl, timedOut }) {
   return `- Closed #${issue.number} (no job hit its time limit)`;
 }
 
+/** One issue per step the run's verdict set aside, naming its owner and end date. */
+async function setAsideCheck({ repo, runId, runUrl }) {
+  const list = await journeyReport(repo, runId, 'set-aside.json');
+  if (!list?.steps?.length) return null;
+  const q = encodeURIComponent(`repo:${repo} is:issue in:title "Set aside on main until"`);
+  const { json: found } = await gh('GET', `/search/issues?q=${q}&per_page=100`);
+  const { open, close } = setAsideIssueActions(list.steps, found?.items ?? []);
+  const lines = [];
+  for (const row of open) {
+    const { json } = await gh(
+      'POST',
+      `/repos/${repo}/issues`,
+      newIssuePayload(setAsideIssueTitle(row), setAsideIssueBody(row, runUrl), ISSUE_LABELS.setAside),
+    );
+    lines.push(`- ${row.step} set aside until ${row.until} (owner: ${row.owner}): opened #${json?.number}`);
+  }
+  for (const { row, issue } of close) {
+    await closeIssue(
+      repo,
+      issue,
+      `The set-aside of ${row.step.replace('#', ' #')} ended on ${row.until}: a failure on every try now turns main's journeys verdict red, and a pass only on its retry opens its own \`flaky\` issue ([run](${runUrl})).\n\n_Closed by tooling/ci/post-merge-trust.mjs._`,
+    );
+    lines.push(`- ${row.step}: set-aside ended, closed #${issue.number}`);
+  }
+  return lines;
+}
+
+/** One open `flaky` issue per step that passed only on its retry in this run and no set-aside tracks. */
+async function flakyCheck({ repo, runId, runUrl }) {
+  const list = await journeyReport(repo, runId, 'set-aside.json');
+  // `moneyFlaky`: the same list in a run from before 12 Nov 2026.
+  const rows = list?.flaky ?? list?.moneyFlaky ?? [];
+  if (!rows.length) return null;
+  const q = encodeURIComponent(`repo:${repo} is:issue is:open in:title "on main" Flaky`);
+  const { json: found } = await gh('GET', `/search/issues?q=${q}&per_page=100`);
+  const lines = [];
+  for (const row of flakyIssueActions(rows, found?.items ?? [])) {
+    const { json } = await gh('POST', `/repos/${repo}/issues`, {
+      title: flakyIssueTitle(row),
+      body: flakyIssueBody(row, runUrl),
+      labels: ['flaky'],
+    });
+    lines.push(`- ${row.step} passed only on its retry (owner: ${row.owner ?? 'none named'}): opened #${json?.number}`);
+  }
+  return lines;
+}
+
 async function journeysCheck(ctx) {
   const timeLine = await timeLimitCheck(ctx);
   if (timeLine) summary(['### Journeys time limit', '', timeLine]);
+  const asideLines = await setAsideCheck(ctx);
+  if (asideLines?.length) summary(['### Set aside by the machine', '', ...asideLines]);
+  const flakyLines = await flakyCheck(ctx);
+  if (flakyLines?.length) summary(['### Steps that passed only on their retry', '', ...flakyLines]);
+  // A shard that sent no report: re-run its failed jobs once, after this attempt's own checks above, and judge the next
+  // attempt instead (project-state #1786, 10 Nov). Never a shard that reported, and never the whole run.
+  const { missing, jobs } = await missingShardReports(ctx.repo, ctx.runId);
+  const again = shardRerun({ attempt: ctx.attempt, conclusion: ctx.conclusion, jobs, missing });
+  if (again.rerun) {
+    const r = await gh('POST', `/repos/${ctx.repo}/actions/runs/${ctx.runId}/rerun-failed-jobs`, undefined, { alreadyRunningOk: true });
+    // Hand the verdict to the next attempt only when GitHub took the re-run (or one is already going); a refused or
+    // failed request falls through, so this attempt's red is still judged and reported (CI review note on 65c75ec16).
+    if (rerunTaken(r))
+      return summary([
+        '### Shards with no report',
+        '',
+        `${missing.length} shard(s) sent no report on attempt ${ctx.attempt}: ${missing.join(', ')}. Re-ran the failed jobs once (${r.status}); no shard that reported is re-run, and the next attempt is judged instead.`,
+      ]);
+    summary([
+      '### Shards with no report',
+      '',
+      `${missing.length} shard(s) sent no report on attempt ${ctx.attempt}: ${missing.join(', ')}. GitHub didn't take the re-run (${r.status}), so this attempt is judged as it is: their journeys count as not passing.`,
+      await lostShardCheck(ctx, missing, `GitHub didn't take its re-run (${r.status})`),
+    ]);
+  } else if (missing.length)
+    summary([
+      '### Shards with no report',
+      '',
+      `${missing.length} shard(s) sent no report on attempt ${ctx.attempt}: ${missing.join(', ')}. Their journeys count as not passing${again.why ? `; not re-run: ${again.why}` : ''}.`,
+      await lostShardCheck(ctx, missing, again.why ? `not re-run: ${again.why}` : null),
+    ]);
+  else {
+    const closed = await lostShardCheck(ctx, [], null);
+    if (closed) summary(['### Shards with no report', '', closed]);
+  }
   const { repo, runId, sha, runUrl, earlier } = ctx;
   const now = await journeyReport(repo, runId);
   if (!now)
     return summary([`### Journeys against earlier runs`, '', `Run ${runId} kept no journey report, so there is nothing to compare.`]);
   const nowStates = stepStates(now);
-  const [prevRun, olderRun] = earlier;
+  const [prevRun] = earlier;
   const prev = prevRun ? await journeyReport(repo, prevRun.id) : null;
   const lines = ['### Journeys against earlier runs', ''];
   if (!prev) {
@@ -411,7 +683,14 @@ async function journeysCheck(ctx) {
   lines.push(`Against [run ${prevRun.id}](${prevRun.html_url}) (\`${prevRun.head_sha.slice(0, 10)}\`):`, '');
   lines.push(`- Newly passing (${newlyPassing.length}): ${newlyPassing.join(', ') || 'none'}`);
   lines.push(
-    `- Newly broken (${newlyFailing.length}): ${newlyFailing.join(', ') || 'none'}${newlyFailing.length ? ' (an issue opens if the next run fails them too)' : ''}`,
+    `- Newly broken (${newlyFailing.length}): ${newlyFailing.join(', ') || 'none'}${newlyFailing.length ? ' (the journeys revert decides each one)' : ''}`,
+  );
+  // Tests in journey files with no step title (project-state #2232): the run's verdict turns red when one that passed
+  // on main fails (journey-verdict.mjs judge), so a red here is named beside the steps. They start no revert: the
+  // revert reads steps.
+  const testsBroken = newlyBrokenTests(prev, now);
+  lines.push(
+    `- Tests with no step title newly broken (${testsBroken.length}): ${testsBroken.map((k) => `\`${k.split('#test ')[1]}\``).join(', ') || 'none'}${testsBroken.length ? " (the run's verdict judges them; no revert starts for them)" : ''}`,
   );
 
   // Close journey issues whose named steps all pass now. One search for all of them (search allows 30 calls a minute).
@@ -427,26 +706,6 @@ async function journeysCheck(ctx) {
     lines.push(`- Closed #${issue.number} (${journey} passes again)`);
   }
 
-  const older = olderRun ? await journeyReport(repo, olderRun.id) : null;
-  if (!older) {
-    lines.push('', 'No third finished run kept a report, so no break can be confirmed yet.');
-    return summary(lines);
-  }
-  const breaks = confirmedBreaks(stepStates(older), prevStates, nowStates);
-  if (breaks.size) {
-    const { commits, url } = await between(repo, olderRun.head_sha, prevRun.head_sha);
-    for (const [journey, steps] of breaks) {
-      const body = [
-        `${steps.join(', ')} passed on \`${olderRun.head_sha.slice(0, 10)}\` ([run ${olderRun.id}](${olderRun.html_url})), then failed on \`${prevRun.head_sha.slice(0, 10)}\` ([run ${prevRun.id}](${prevRun.html_url})) and again on \`${sha.slice(0, 10)}\` ([run ${runId}](${runUrl})).`,
-        '',
-        ...breakingCommitLines(commits, url),
-        '',
-        `<!-- steps: ${steps.join(', ')} -->`,
-        '_Opened by tooling/ci/post-merge-trust.mjs. It closes itself when these steps pass again._',
-      ].join('\n');
-      lines.push(`- Confirmed broken: ${steps.join(', ')}: ${await upsertIssue(repo, journeyIssueTitle(journey), body)}`);
-    }
-  }
   summary(lines);
 }
 
@@ -476,7 +735,12 @@ function selfTest() {
     [['J-a-01#1', 'failed']],
     'a failing duplicate title wins',
   );
-  eq([...stepStates(report(spec('J-a-01 #1 x', 'flaky')))], [['J-a-01#1', 'passed']], 'flaky counts as passed');
+  eq([...stepStates(report(spec('J-a-01 #1 x', 'flaky')))], [['J-a-01#1', 'failed']], 'a pass only on the retry is not a pass');
+  eq(
+    [...stepStates(report(spec('J-a-01 #1 x', 'expected'), spec('J-a-01 #1 y', 'flaky')))],
+    [['J-a-01#1', 'failed']],
+    'one test passing only on its retry fails the step',
+  );
   const m = (o) => new Map(Object.entries(o));
   eq(
     stepChanges(
@@ -486,20 +750,18 @@ function selfTest() {
     { newlyPassing: ['J-a-01#1'], newlyFailing: ['J-a-01#2', 'J-a-01#10'] },
     'newly passing and failing; skipped and new steps are neither; numeric order',
   );
-  eq(
-    [
-      ...confirmedBreaks(
-        m({ 'J-a-01#1': 'passed', 'J-a-01#2': 'passed', 'J-b-01#1': 'passed', 'J-c-01#1': 'failed' }),
-        m({ 'J-a-01#1': 'failed', 'J-a-01#2': 'failed', 'J-b-01#1': 'failed', 'J-c-01#1': 'failed' }),
-        m({ 'J-a-01#1': 'failed', 'J-a-01#2': 'passed', 'J-b-01#1': 'failed', 'J-c-01#1': 'failed' }),
-      ),
-    ],
-    [
-      ['J-a-01', ['J-a-01#1']],
-      ['J-b-01', ['J-b-01#1']],
-    ],
-    'a break is confirmed only after passing, then failing twice in a row; never-passed steps open nothing',
-  );
+  {
+    const t = (title, status) => ({ title, file: 'J-a-01.pw.mjs', tests: [{ status }] });
+    const r = (...specs) => ({ suites: [{ file: 'J-a-01.pw.mjs', specs }] });
+    const before = r(t('J-a-01, part of #1: ledger', 'expected'), t('J-a-01 starts: unbuilt', 'unexpected'), t('J-a-01 #2 y', 'expected'));
+    const now = r(t('J-a-01, part of #1: ledger', 'unexpected'), t('J-a-01 starts: unbuilt', 'unexpected'), t('J-a-01 #2 y', 'unexpected'));
+    eq(
+      newlyBrokenTests(before, now),
+      ['J-a-01#test J-a-01.pw.mjs › J-a-01, part of #1: ledger'],
+      'a test with no step title that passed and now fails is named; one never passing and a step are not',
+    );
+    eq(newlyBrokenTests(before, before), [], 'known-good: nothing newly broken');
+  }
   eq(decideCheck({ conclusion: 'failure', attempt: 1, previous: 'success' }), 'rerun', 'first red after green re-runs');
   eq(decideCheck({ conclusion: 'failure', attempt: 2, previous: 'success' }), 'broken', 'red after re-run is a break');
   eq(decideCheck({ conclusion: 'timed_out', attempt: 2, previous: 'success' }), 'broken', 'a timeout counts as red');
@@ -592,7 +854,119 @@ function selfTest() {
   );
   eq(breakingCommitLines([], 'u')[0].startsWith('No commit changed between these runs'), true, 'same commit: no breaking commit named');
   eq(breakingCommitLines([c('a'.repeat(40), 'x')], 'u'), ['The breaking commit:', '- `aaaaaaaaaa` x'], 'one breaking commit');
-  console.log('✓ post-merge-trust --self-test OK (28 fixtures)');
+  const row = {
+    step: 'J-a-01#3',
+    until: '2026-11-14T06:00:00.000Z',
+    since: 1700,
+    active: true,
+    owner: 'the alpha area',
+    file: 'J-a-01.pw.mjs',
+  };
+  eq(setAsideIssueTitle(row), 'Set aside on main until 2026-11-14: J-a-01 #3', 'set-aside issue title');
+  const mf = { step: 'J-a-05#1', file: 'J-a-05.pw.mjs', owner: 'the alpha area' };
+  eq(flakyIssueTitle(mf), 'Flaky step on main: J-a-05 #1', 'flaky issue title');
+  eq(
+    flakyIssueActions(
+      [mf, mf, { ...mf, step: 'J-a-05#2' }, { ...mf, step: 'J-a-05#3' }, { ...mf, step: 'J-a-05#4' }, { file: 'x' }],
+      [
+        { title: flakyIssueTitle({ step: 'J-a-05#2' }), state: 'open' },
+        { title: flakyIssueTitle({ step: 'J-a-05#3' }), state: 'closed' },
+        { title: 'Flaky money step on main: J-a-05 #4', state: 'open' },
+      ],
+    ).map((r) => r.step),
+    ['J-a-05#1', 'J-a-05#3'],
+    'a flaky step gets one issue while none is open (an older money-flaky title counts): once per step, again after its last one closed',
+  );
+  if (!/never counts as proven/.test(flakyIssueBody(mf, 'u'))) throw new Error('the flaky issue says it is never proven');
+  // A money step's issue carries the mark project-state's pull reads to rank its fix first (intafaced #8379 had none).
+  eq(flakyIssueBody({ ...mf, money: true }, 'u').includes('<!-- money-flaky: J-a-05#1 -->'), true, 'a money step is marked money-flaky');
+  eq(flakyIssueBody({ ...mf, money: false }, 'u').includes('money-flaky'), false, 'a non-money step is not');
+  eq(flakyIssueBody(mf, 'u').includes('<!-- money-flaky: J-a-05#1 -->'), true, 'a row with no money field counts as money');
+  const lost = lostShardBody({ missing: ['shard 2 of 4'], sha: 'a'.repeat(40), runId: 9, runUrl: 'u', attempt: 2, why: null });
+  if (!/`shard 2 of 4` sent no report on `aaaaaaaaaa` \(\[run 9\]\(u\), attempt 2, after its one re-run\)/.test(lost))
+    throw new Error('the lost-shard issue names the shard, the commit, the run and its attempt');
+  eq(LOST_SHARD_TITLE, 'Broken on main: Real-app journeys (shard lost)', 'one lost-shard issue title');
+  eq(newIssuePayload(LOST_SHARD_TITLE, lost, ISSUE_LABELS.break).labels, ['regression'], 'the lost-shard issue opens labelled');
+  const shardJobs = [1, 2, 3, 4].map((n) => ({ name: `Journeys (shard ${n} of 4)` })).concat([{ name: 'Real-app journeys' }]);
+  eq(
+    shardsWithoutReport(shardJobs, ['real-app-journeys-shard-1', 'real-app-journeys-shard-3', 'real-app-journeys', 'x-shard-2']),
+    ['shard 2 of 4', 'shard 4 of 4'],
+    'the shards that sent no report, by their own artifact only',
+  );
+  eq(
+    shardsWithoutReport(shardJobs.slice(0, 2), ['real-app-journeys-shard-1', 'real-app-journeys-shard-2']),
+    ['shard 3 of 4', 'shard 4 of 4'],
+    'a shard with no job at all (abandoned) still counts as sending no report',
+  );
+  eq(shardsWithoutReport([{ name: 'Real-app journeys' }], []), [], 'no shard job: nothing ran to count');
+  eq(
+    shardsWithoutReport(
+      shardJobs,
+      [1, 2, 3, 4].map((n) => `real-app-journeys-shard-${n}`),
+    ),
+    [],
+    'every shard reported',
+  );
+  const jobsOf = (states) => Object.entries(states).map(([n, c]) => ({ name: `Journeys (shard ${n} of 4)`, conclusion: c }));
+  const shardsOk = jobsOf({ 1: 'success', 2: 'failure', 3: 'success', 4: 'success' });
+  eq(rerunTaken({ status: 201, json: null }), true, 'a 201 re-run is taken');
+  eq(rerunTaken({ status: 403, json: null, alreadyRunning: true }), true, 'already running is taken');
+  for (const status of [404, 422, 500, 0]) eq(rerunTaken({ status, json: null }), false, `a ${status} re-run is not taken`);
+  const go = (o) => shardRerun({ attempt: 1, conclusion: 'failure', jobs: shardsOk, missing: ['shard 2 of 4'], ...o }).rerun;
+  eq(go({}), true, 'a red first attempt whose only failed shard sent no report re-runs its failed jobs');
+  eq(go({ attempt: 2 }), false, 'once only: the re-run is judged as it is');
+  eq(go({ missing: [] }), false, 'every shard reported: no re-run');
+  eq(go({ conclusion: 'success' }), false, 'a green run is not re-run');
+  eq(
+    go({ jobs: jobsOf({ 1: 'failure', 2: 'failure', 3: 'success', 4: 'success' }) }),
+    false,
+    'a failed shard that sent its report is never re-run: its reds stand',
+  );
+  eq(go({ jobs: jobsOf({ 1: 'success', 3: 'success', 4: 'success' }) }), false, 'a missing shard with no job: no re-run of the whole run');
+  const ended = { ...row, step: 'J-a-01#4', active: false };
+  const acts = setAsideIssueActions(
+    [row, ended, { ...row, step: 'J-a-01#5' }, { ...row, step: 'J-a-01#6' }],
+    [
+      { title: setAsideIssueTitle(ended), state: 'open', number: 4 },
+      { title: setAsideIssueTitle({ ...row, step: 'J-a-01#5' }), state: 'open', number: 5 },
+      { title: setAsideIssueTitle({ ...row, step: 'J-a-01#6' }), state: 'closed', number: 6 },
+    ],
+  );
+  eq(
+    acts.open.map((r) => r.step),
+    ['J-a-01#3'],
+    'an issue opens once per active set-aside, never again once closed',
+  );
+  eq(
+    acts.close.map((c) => c.issue.number),
+    [4],
+    'an ended set-aside closes its open issue',
+  );
+  const body = setAsideIssueBody(row, 'https://x/runs/9');
+  eq(
+    ['Owner: the alpha area', '2026-11-14 06:00 UTC', 'J-a-01.pw.mjs', 'does not count as proven'].every((t) => body.includes(t)),
+    true,
+    'set-aside issue names owner, end date and file',
+  );
+  // OWNER 289 item 6: the break issue is a regression and the set-aside issue is flaky, so a builder's pick finds them.
+  eq(
+    newIssuePayload('Journey broken on main: J-a-01', 'b', ISSUE_LABELS.break),
+    { title: 'Journey broken on main: J-a-01', body: 'b', labels: ['regression'] },
+    'a break issue opens labelled regression',
+  );
+  eq(
+    newIssuePayload('Set aside on main until x: J-a-01 #1', 'b', ISSUE_LABELS.setAside).labels,
+    ['flaky'],
+    'a set-aside issue opens labelled flaky',
+  );
+  eq(newIssuePayload('Broken on main: CI', 'b'), { title: 'Broken on main: CI', body: 'b' }, 'no labels asked, none sent');
+  // Every path that opens an issue for a red main passes its labels (RULING 7 item 1: no path opens one bare; #7910 did).
+  const src = readFileSync(new URL(import.meta.url), 'utf8');
+  const bare = [...src.matchAll(/upsertIssue\(repo, (?:[^()]|\([^()]*\)|\{[^}]*\})*\)/g)]
+    .map((m) => m[0])
+    .filter((c) => !c.includes('ISSUE_LABELS.') && !c.includes('labels = []'));
+  eq(bare, [], 'no caller opens an issue without labels');
+  console.log('✓ post-merge-trust --self-test OK (39 fixtures)');
 }
 
 async function main() {
@@ -615,7 +989,7 @@ async function main() {
   const conclusion = runConclusion(rawConclusion, timedOut);
   if (!COUNTED.has(conclusion)) return console.log(`${name} run ${runId}: ${conclusion}, nothing to compare`);
   const journeys = name === JOURNEYS_WORKFLOW;
-  const earlier = await earlierRuns(repo, workflowId, runId, run.created_at, journeys ? 2 : 1);
+  const earlier = await earlierRuns(repo, workflowId, runId, run.created_at, 1);
   const ctx = { repo, name, runId, attempt, conclusion, sha, runUrl, earlier, timedOut, workflowId, createdAt: run.created_at };
   return journeys ? journeysCheck(ctx) : wholeRunCheck(ctx);
 }

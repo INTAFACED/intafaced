@@ -54,9 +54,12 @@ export const moreCopy = defineCopy('more', {
   'Chain tile': 'Chain',
   'DEX tile': 'DEX',
   'Protocol tile': 'Protocol',
-  'DEX line': 'Swap and liquidity, with what blocks each action',
-  'Chain line': 'Blocks, validators and chain status',
-  'Protocol line': 'Contracts, rails and audit',
+  // A Web3 tile's line: "Blocked:" and the room's standing blockers in short words (J-home-ia-02 #2). The room says each in full.
+  'Blocked by': 'Blocked: {blockers}',
+  'Blocker no_execution_path': 'nothing submits trades',
+  'Blocker no_chain_service': 'no chain service',
+  'Blocker no_bridge_service': 'no bridge service',
+  'Blocker not_audited': 'not audited',
   'P2P tile': 'Person-to-person',
   'P2P line': 'Offers, orders and counterparties',
 });

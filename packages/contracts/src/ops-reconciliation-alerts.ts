@@ -330,7 +330,7 @@ export const opsReconciliationPeriodSchema = z
     lastStatus: reconciliationControlRunSchema.shape.status,
     open: z.number().int().nonnegative(),
     acknowledged: z.number().int().nonnegative(),
-    /** True only when the latest evaluation passed and no alert in the period is open or acknowledged. An ERROR or UNSET period is never green. */
+    /** True only when the latest evaluation passed and no alert in the period is open or acknowledged. An ERROR, UNSET or NOTHING_TO_COMPARE period is never green. */
     green: z.boolean(),
   })
   .strict();

@@ -27,6 +27,7 @@ export const ANTI_PHISHING_MAIL_PURPOSES: ReadonlySet<MailPurpose> = new Set<Mai
   'login-code',
   'new-device-code',
   'withdraw-address-approval',
+  'support-chat-email',
   'password-changed',
   'mfa-reset-code',
   'mfa-reset-started',

@@ -66,7 +66,7 @@ function assertTierShape(raw: unknown, path: string): TierRate {
  *
  * Shape:
  *   { "published": false }
- *   { "published": true, "tiers": [{ "hop": 0, "rate": "0.10" }, ...] }
+ *   { "published": true, "tiers": [{ "hop": 0, "rate": "<decimal 0..1>" }, ...] }
  */
 export function parseAccrualTierLawJson(raw: string | null | undefined): AccrualTierLaw {
   const trimmed = (raw ?? '').trim();

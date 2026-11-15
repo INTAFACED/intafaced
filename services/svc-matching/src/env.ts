@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { parseCustodyLayer, resolveOwnOrderBook } from '@intafaced/ledger-client';
 import { parseOperatorIds } from './action-approval-consume.js';
 import {
   baseEnvSchema,
@@ -60,16 +61,36 @@ const schema = baseEnvSchema
        * does not belong in it.
        *
        * Trim first. After trim, `0` / `false` / `off` / `no`, blank, and
-       * whitespace disable. Unset stays enabled. `true` / `yes` / `on` / `1`
-       * enable. A boolean is used as-is.
+       * whitespace disable. `true` / `yes` / `on` / `1` enable. A boolean is
+       * used as-is. Unset follows the custody switch (`resolveOwnOrderBook`,
+       * ledger-client): enabled only when LEDGER_CUSTODY_LAYER is on, because
+       * every fill of our own book settles as customer money in our ledger.
+       * Enabled with custody off refuses boot.
        */
       MATCHING_ENGINE_ENABLED: z
         .union([z.boolean(), z.string()])
-        .default(true)
+        .optional()
         .transform((v) => {
+          if (v === undefined) return undefined;
           if (typeof v === 'boolean') return v;
           const token = v.trim().toLowerCase();
           return !['', '0', 'false', 'off', 'no'].includes(token);
+        }),
+
+      /**
+       * The custody switch (OWNER 226), the same value svc-ledger reads, with its parser: unset or blank is `off`, any
+       * value but `on` or `off` refuses to start. Read here only to decide whether our own engine runs.
+       */
+      LEDGER_CUSTODY_LAYER: z
+        .string()
+        .optional()
+        .transform((raw, ctx) => {
+          try {
+            return parseCustodyLayer(raw);
+          } catch (err) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: err instanceof Error ? err.message : String(err) });
+            return z.NEVER;
+          }
         }),
 
       /**
@@ -125,7 +146,16 @@ const schema = baseEnvSchema
           }
         }),
     }),
-  );
+  )
+  .transform((raw, ctx) => {
+    // The boot guard: our own order book never runs with the custodial layer off (OWNER 288).
+    const book = resolveOwnOrderBook('MATCHING_ENGINE_ENABLED', raw.MATCHING_ENGINE_ENABLED, raw.LEDGER_CUSTODY_LAYER);
+    if ('refusal' in book) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['MATCHING_ENGINE_ENABLED'], message: book.refusal });
+      return z.NEVER;
+    }
+    return { ...raw, MATCHING_ENGINE_ENABLED: book.enabled };
+  });
 
 export const matchingEnvSchema = schema;
 export const env = loadEnv(schema);

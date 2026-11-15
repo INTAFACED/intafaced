@@ -12,7 +12,7 @@
  * 5. Paths: docker-compose.apps.yml (svc-matching block only) + env.ts
  * 6. RED: pin fails if cadence default is 500, compose bakes 500, or sibling
  *    matching keys are restamped
- * 7. Collision: MATCHING_ENGINE_ENABLED stays default true. JOURNAL_PATH stays
+ * 7. Collision: MATCHING_ENGINE_ENABLED follows the custody switch (compose default false). JOURNAL_PATH stays
  *    volume default. No MATCHING_RULEBOOK_VERSION (the journal is the rulebook's source).
  */
 import { readFileSync } from 'node:fs';
@@ -43,12 +43,12 @@ describe('compose passes MATCHING_SNAPSHOT_EVERY empty into svc-matching', () =>
   const envTs = readFileSync(join(ROOT, 'services/svc-matching/src/env.ts'), 'utf8');
   const block = matchingComposeBlock();
 
-  it('env.ts refuses blank cadence — no 500 default; kill-switch stays true', () => {
+  it('env.ts refuses blank cadence — no 500 default; kill-switch follows the custody switch', () => {
     expect(envTs).not.toMatch(/MATCHING_SNAPSHOT_EVERY:[\s\S]{0,400}\.default\(500\)/);
     expect(envTs).toMatch(
       /MATCHING_SNAPSHOT_EVERY:\s*z\.preprocess\(\s*\(v\) => \(v === undefined \|\| \(typeof v === 'string' && v\.trim\(\) === ''\) \? undefined : v\),\s*z\.coerce\.number\(\)\.int\(\)\.min\(0\),\s*\)/,
     );
-    expect(envTs).toMatch(/MATCHING_ENGINE_ENABLED:[\s\S]{0,400}\.default\(true\)/);
+    expect(envTs).toMatch(/resolveOwnOrderBook\('MATCHING_ENGINE_ENABLED'/);
   });
 
   it('svc-matching compose line is empty pass-through — no invented 500', () => {
@@ -61,7 +61,7 @@ describe('compose passes MATCHING_SNAPSHOT_EVERY empty into svc-matching', () =>
   });
 
   it('does not restamp kill-switch / journal / rulebook or invent 500', () => {
-    expect(block).toMatch(/MATCHING_ENGINE_ENABLED:\s*\$\{MATCHING_ENGINE_ENABLED:-true\}/);
+    expect(block).toMatch(/MATCHING_ENGINE_ENABLED:\s*\$\{MATCHING_ENGINE_ENABLED:-false\}/);
     expect(block).toMatch(/MATCHING_JOURNAL_PATH:\s*\$\{MATCHING_JOURNAL_PATH:-\/data\/matching\/engine_journal\.ndjson\}/);
     expect(block).not.toMatch(/^\s*MATCHING_RULEBOOK_VERSION:/m);
     expect(block).toMatch(/HTTP_PORT:\s*'4005'/);

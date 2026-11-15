@@ -1,0 +1,971 @@
+// World: book
+import { test, expect } from './journey.mjs';
+import { api, bestPrices, EDGE, fromUnits, ORIGIN, otherTrader, toUnits } from './stack.mjs';
+import { awayBid, chosePro, deskPath, free, fundedTrader, held, openOrders, placements, reviewSheet, signIn } from './desk.mjs';
+
+// J-charts-desk-14 "I read the order flow: time and sales, depth, ladder and the DOM, and trade from the ladder", in the
+// running app (docs/roadmap/journeys.json). One test per step, titled "J-charts-desk-14 #<n>", on one TEST account
+// funded with TEST USDT, signed in on the spot desk with its chart open. Every price is read from the stack's own book,
+// never typed in. Money line: a ladder order is the desk's own order (its review, its confirm, its hold), and nothing is
+// sent from a click without the review.
+const J = 'J-charts-desk-14';
+const SYMBOL = 'BTC/USDT';
+const OTHER = 'ETH/USDT';
+// Client order ids are business keys, unique per account and market, at most 64 characters: the step's tag and this run's
+// mark keep them short and different on every run on the same stack.
+const RUN = Date.now().toString(36);
+const SMALL = '0.001'; // about 65 TEST USDT at the TEST market maker's price
+const LARGE = '0.005';
+const BETWEEN = '0.003';
+
+let page;
+let who;
+test.beforeAll(async ({ browser }) => {
+  const context = await browser.newContext({ baseURL: ORIGIN, viewport: { width: 1440, height: 1800 } });
+  page = await context.newPage();
+  await chosePro(page);
+  who = await fundedTrader(page, 'jcd14', '2000');
+  await signIn(page, who);
+  // Some BTC to sell from the chart in #5: a market buy on the real book, filled against the TEST market maker.
+  const bought = await (
+    await api(who)
+  ).post('/api/v1/orders', {
+    symbol: SYMBOL,
+    type: 'market',
+    side: 'buy',
+    amount: '0.001',
+    clientOrderId: `jcd14-setup-${RUN}`,
+  });
+  expect(bought.status, JSON.stringify(bought.body).slice(0, 300)).toBeLessThan(300);
+});
+test.afterAll(async () => {
+  await page?.context().close();
+});
+
+const dom = () => page.getByRole('region', { name: 'Depth of market' });
+const ladder = () => dom().getByRole('grid', { name: 'Depth of market' });
+const rows = () => dom().getByTestId('of-ladder-row');
+const tapeRegion = () => page.getByRole('region', { name: 'Time and sales' });
+const chartTrade = () => page.getByRole('group', { name: 'Trade from the chart' });
+const buyForm = () => page.locator('form[data-testid="dk-form"][data-side="buy"]');
+const sellForm = () => page.locator('form[data-testid="dk-form"][data-side="sell"]');
+
+/** A decimal string as one canonical form: no thousands separators, no unit, no trailing zeros. */
+const canon = (text) =>
+  String(text)
+    .replace(/[^\d.]/g, '')
+    .replace(/(\.\d*?)0+$/, '$1')
+    .replace(/\.$/, '');
+const same = (a, b) => toUnits(canon(a) || '0') === toUnits(canon(b) || '0');
+
+/** The value the review shows under a label. */
+const reviewValue = (label) => reviewSheet(page).locator(`dt:text-is("${label}") + dd`);
+
+async function market(symbol = SYMBOL) {
+  const res = await fetch(`${EDGE}/api/v1/markets?limit=500`, { headers: { origin: ORIGIN } });
+  const list = await res.json();
+  const row = list.find((m) => m.symbol === symbol);
+  expect(row, `${symbol} is listed`).toBeTruthy();
+  return row;
+}
+
+async function openDesk(symbol = SYMBOL) {
+  await page.goto(deskPath(symbol));
+  await expect(page.getByRole('button', { name: `Buy ${symbol.split('/')[0]}` })).toBeVisible();
+}
+
+/** Open the DOM from the chart's own button, unless it is already showing. */
+async function openDom() {
+  const button = page.getByTestId('dk-chart').getByRole('button', { name: /^(Open|Close) DOM$/ });
+  if ((await button.getAttribute('aria-pressed')) !== 'true') await button.click();
+  await expect(dom()).toBeVisible();
+}
+
+async function setLadder(columns, step) {
+  await dom().getByLabel('Columns').selectOption({ label: columns });
+  await dom().getByLabel('Price step').selectOption({ label: step });
+}
+
+/** The ladder and the depth chart as the page has them, read in one go so both come from one render. */
+async function readFlow() {
+  return page.evaluate(() => {
+    const region = document.querySelector('[data-testid="of-dom"]');
+    const grid = region?.querySelector('[data-testid="of-ladder"]');
+    const chart = region?.querySelector('[data-testid="of-depth-chart"]');
+    const rowsRead = [...(region?.querySelectorAll('[data-testid="of-ladder-row"]') ?? [])].map((row) => ({
+      price: row.getAttribute('data-price'),
+      bid: row.getAttribute('data-bid'),
+      ask: row.getAttribute('data-ask'),
+      myBid: row.getAttribute('data-my-bid'),
+      highlight: row.getAttribute('data-highlight'),
+    }));
+    return {
+      symbol: region?.getAttribute('data-symbol'),
+      nonce: region?.getAttribute('data-book-nonce'),
+      step: grid?.getAttribute('data-step'),
+      bestBid: grid?.getAttribute('data-best-bid'),
+      bestAsk: grid?.getAttribute('data-best-ask'),
+      bidTotal: grid?.getAttribute('data-bid-total'),
+      askTotal: grid?.getAttribute('data-ask-total'),
+      rows: rowsRead,
+      chart: chart
+        ? {
+            nonce: chart.getAttribute('data-book-nonce'),
+            bidTotal: chart.getAttribute('data-bid-total'),
+            askTotal: chart.getAttribute('data-ask-total'),
+            bids: (chart.getAttribute('data-bid-points') ?? '').split(' ').filter(Boolean),
+            asks: (chart.getAttribute('data-ask-points') ?? '').split(' ').filter(Boolean),
+          }
+        : null,
+    };
+  });
+}
+
+/** The best bid and ask the stack's book has now matches what the ladder shows (the ladder polls every 2 s). */
+async function ladderMatchesBook(symbol) {
+  await expect
+    .poll(
+      async () => {
+        const flow = await readFlow();
+        const { bid, ask } = await bestPrices(symbol);
+        return flow.symbol === symbol && same(flow.bestBid, bid) && same(flow.bestAsk, ask);
+      },
+      { timeout: 20_000, message: `the ladder shows ${symbol}'s best bid and ask` },
+    )
+    .toBe(true);
+}
+
+test(`${J} #1 opens the DOM from the chart; it binds to the chart's symbol and re-binds when the symbol changes`, async () => {
+  await openDesk();
+  await openDom();
+  await expect(dom()).toHaveAttribute('data-symbol', SYMBOL);
+  await expect(dom().getByRole('heading', { name: `Depth of market for ${SYMBOL}` })).toBeVisible();
+  await ladderMatchesBook(SYMBOL);
+  // A ladder setting, to see that it follows the DOM to the next symbol.
+  await setLadder('Double', '2 ticks');
+  await expect(dom()).toHaveAttribute('data-columns', 'double');
+
+  // The chart's symbol changes from the desk's own market list.
+  await page.getByTestId('dk-left').getByTestId('dk-mk-row').filter({ hasText: OTHER }).first().locator('a.dk-mk-link').click();
+  await expect(page).toHaveURL(new RegExp(`${deskPath(OTHER)}$`));
+  await expect(page.getByTestId('if-desk')).toHaveAttribute('data-market', OTHER);
+  // The DOM is still open, now bound to the new symbol, with the same ladder settings.
+  await expect(dom()).toHaveAttribute('data-symbol', OTHER);
+  await expect(dom().getByRole('heading', { name: `Depth of market for ${OTHER}` })).toBeVisible();
+  await expect(dom()).toHaveAttribute('data-columns', 'double');
+  await expect(dom()).toHaveAttribute('data-step-ticks', '2');
+  await setLadder('Single', '1 tick');
+  await ladderMatchesBook(OTHER);
+  // Back to BTC/USDT: bound again.
+  await openDesk(SYMBOL);
+  await expect(dom()).toHaveAttribute('data-symbol', SYMBOL);
+  await ladderMatchesBook(SYMBOL);
+});
+
+test(`${J} #2 reads time and sales and the depth chart: the tape with filters and the depth curve from the same book`, async () => {
+  // Two prints of known size on the real book: a small one and a larger one, both market buys.
+  const client = await api(who);
+  for (const [n, amount] of [
+    [1, SMALL],
+    [2, LARGE],
+  ]) {
+    const res = await client.post('/api/v1/orders', {
+      symbol: SYMBOL,
+      type: 'market',
+      side: 'buy',
+      amount,
+      clientOrderId: `jcd14-print-${n}-${RUN}`,
+    });
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBeLessThan(300);
+  }
+  await openDesk();
+  await openDom();
+  await setLadder('Single', '1 tick');
+  const tapeRows = () => tapeRegion().getByTestId('of-tape-row');
+  const amounts = async () => (await tapeRows().evaluateAll((els) => els.map((el) => el.getAttribute('data-amount')))).map(canon);
+  const values = async () => (await tapeRows().evaluateAll((els) => els.map((el) => el.getAttribute('data-value')))).map(canon);
+  const hiddenNote = tapeRegion().getByTestId('of-tape-hidden');
+
+  // No minimum: the small print is on the tape and nothing is hidden.
+  await tapeRegion().getByLabel('Hide trades under').fill('');
+  await expect.poll(async () => (await amounts()).some((a) => same(a, SMALL)), { timeout: 15_000 }).toBe(true);
+  await expect(hiddenNote).toHaveAttribute('data-hidden', '0');
+
+  // A minimum of 0.003 BTC: every print under it leaves the tape and is counted as hidden; the large one stays.
+  await tapeRegion().getByLabel('Units').selectOption({ label: 'BTC' });
+  await tapeRegion().getByLabel('Hide trades under').fill(BETWEEN);
+  await expect.poll(async () => (await amounts()).every((a) => toUnits(a) >= toUnits(BETWEEN))).toBe(true);
+  // The large market buy may fill across levels: its prints add up to it at least once on the tape.
+  expect((await amounts()).length).toBeGreaterThan(0);
+  expect((await amounts()).some((a) => same(a, SMALL))).toBe(false);
+  await expect.poll(async () => Number(await hiddenNote.getAttribute('data-hidden'))).toBeGreaterThanOrEqual(1);
+  const hidden = await hiddenNote.getAttribute('data-hidden');
+  const total = await hiddenNote.getAttribute('data-total');
+  await expect(hiddenNote).toHaveText(`${hidden} of ${total} trades are below the minimum and hidden.`);
+
+  // The same filter in quote units: 50 USDT lets the small print (about 65 USDT) back on, and hides anything smaller.
+  await tapeRegion().getByLabel('Units').selectOption({ label: 'USDT' });
+  await tapeRegion().getByLabel('Hide trades under').fill('50');
+  await expect.poll(async () => (await amounts()).some((a) => same(a, SMALL))).toBe(true);
+  expect((await values()).every((v) => toUnits(v) >= toUnits('50'))).toBe(true);
+
+  // Accumulate at price: no two rows next to each other share a price and side any more.
+  await tapeRegion().getByLabel('Hide trades under').fill('');
+  await tapeRegion().getByLabel('Accumulate at price').check();
+  const pairs = await tapeRows().evaluateAll((els) => els.map((el) => `${el.getAttribute('data-price')}|${el.getAttribute('data-side')}`));
+  for (let i = 1; i < pairs.length; i++) expect(pairs[i], `rows ${i - 1} and ${i}`).not.toBe(pairs[i - 1]);
+  await tapeRegion().getByLabel('Accumulate at price').uncheck();
+
+  // The depth curve is drawn from the same book as the ladder: the same engine sequence, the same totals, and its first
+  // point on each side is the ladder's best price with the size there.
+  const chart = page.getByRole('img', { name: new RegExp(`^Depth chart of ${SYMBOL.replace('/', '\\/')}`) });
+  await expect(chart).toBeVisible();
+  await expect
+    .poll(async () => {
+      const flow = await readFlow();
+      if (!flow.chart || flow.nonce !== flow.chart.nonce) return 'not one book';
+      const bestBidRow = flow.rows.find((r) => r.highlight === 'best-bid');
+      const bestAskRow = flow.rows.find((r) => r.highlight === 'best-ask');
+      const [bidPrice, bidCum] = flow.chart.bids[0].split(':');
+      const [askPrice, askCum] = flow.chart.asks[0].split(':');
+      return [
+        flow.chart.bidTotal === flow.bidTotal,
+        flow.chart.askTotal === flow.askTotal,
+        same(bidPrice, bestBidRow.price) && same(bidCum, bestBidRow.bid),
+        same(askPrice, bestAskRow.price) && same(askCum, bestAskRow.ask),
+        same(flow.chart.bids.at(-1).split(':')[1], flow.bidTotal),
+        same(flow.chart.asks.at(-1).split(':')[1], flow.askTotal),
+      ].every(Boolean);
+    })
+    .toBe(true);
+  // The cumulative curve only grows outward from the touch.
+  const flow = await readFlow();
+  for (const side of [flow.chart.bids, flow.chart.asks])
+    for (let i = 1; i < side.length; i++) expect(toUnits(side[i].split(':')[1])).toBeGreaterThan(toUnits(side[i - 1].split(':')[1]));
+  // Pointing at the curve reads the cumulative size at a price of that book.
+  const box = await chart.boundingBox();
+  await page.mouse.move(box.x + box.width * 0.25, box.y + box.height / 2);
+  const readout = page.getByTestId('of-depth-readout');
+  await expect(readout).toHaveText(/^Cumulative [\d.,]+ BTC at [\d.,]+$/);
+  const pointed = `${await readout.getAttribute('data-price')}:${await readout.getAttribute('data-amount')}`;
+  const now = await readFlow();
+  expect([...now.chart.bids, ...now.chart.asks]).toContain(pointed);
+});
+
+test(`${J} #3 sets the ladder to double columns with a price step of 2 ticks; prices group by the step with highlights`, async () => {
+  const { precision } = await market();
+  const tick = toUnits(precision.price);
+  const step = tick * 2n;
+  // A resting bid of my own, well under the touch, so the ladder has my order to highlight.
+  const price = await awayBid(90);
+  const placed = await (
+    await api(who)
+  ).post('/api/v1/orders', {
+    symbol: SYMBOL,
+    type: 'limit',
+    side: 'buy',
+    price,
+    amount: SMALL,
+    timeInForce: 'GTC',
+    clientOrderId: `jcd14-rest-3-${RUN}`,
+  });
+  expect(placed.status, JSON.stringify(placed.body).slice(0, 300)).toBeLessThan(300);
+
+  await openDesk();
+  await openDom();
+  await setLadder('Double', '2 ticks');
+  await expect(dom()).toHaveAttribute('data-columns', 'double');
+  await expect(dom()).toHaveAttribute('data-step-ticks', '2');
+  // Double columns: my bids and my asks each have their own column beside the book's.
+  for (const name of ['My bids', 'Bids (BTC)', 'Price (USDT)', 'Asks (BTC)', 'My asks'])
+    await expect(ladder().getByRole('columnheader', { name })).toBeVisible();
+  expect(same(await ladder().getAttribute('data-step'), fromUnits(step))).toBe(true);
+
+  await expect
+    .poll(
+      async () => {
+        const flow = await readFlow();
+        if (flow.rows.length === 0) return 'no rows';
+        // Every row sits on the 2-tick step, highest first.
+        for (const row of flow.rows) if (toUnits(row.price) % step !== 0n) return `off step ${row.price}`;
+        for (let i = 1; i < flow.rows.length; i++)
+          if (toUnits(flow.rows[i].price) >= toUnits(flow.rows[i - 1].price)) return 'not highest first';
+        // Grouping moves size between prices, never adds or loses any.
+        const bids = flow.rows.reduce((s, r) => s + (r.bid ? toUnits(r.bid) : 0n), 0n);
+        const asks = flow.rows.reduce((s, r) => s + (r.ask ? toUnits(r.ask) : 0n), 0n);
+        if (bids !== toUnits(flow.bidTotal) || asks !== toUnits(flow.askTotal)) return 'sizes not conserved';
+        // The best bid and the best ask are highlighted: the highest bucket with bids and the lowest with asks.
+        const withBids = flow.rows.filter((r) => r.bid);
+        const withAsks = flow.rows.filter((r) => r.ask);
+        const bestBid = flow.rows.filter((r) => r.highlight === 'best-bid');
+        const bestAsk = flow.rows.filter((r) => r.highlight === 'best-ask');
+        if (bestBid.length !== 1 || bestBid[0].price !== withBids[0].price) return 'best bid not highlighted';
+        if (bestAsk.length !== 1 || bestAsk[0].price !== withAsks.at(-1).price) return 'best ask not highlighted';
+        // My resting bid is in its bucket, in my bids column, highlighted as mine.
+        const bucket = (toUnits(price) / step) * step;
+        const mine = flow.rows.find((r) => toUnits(r.price) === bucket);
+        if (!mine || !same(mine.myBid, SMALL) || mine.highlight !== 'mine') return `my bid at ${price} not shown`;
+        return 'ok';
+      },
+      { timeout: 20_000 },
+    )
+    .toBe('ok');
+  // The raw best bid rounds down into its bucket, the raw best ask up: a bucket never shows a better price than it has.
+  await expect
+    .poll(async () => {
+      const flow = await readFlow();
+      const { bid, ask } = await bestPrices(SYMBOL);
+      const down = (toUnits(bid) / step) * step;
+      const up = toUnits(ask) % step === 0n ? toUnits(ask) : (toUnits(ask) / step + 1n) * step;
+      return toUnits(flow.bestBid) === down && toUnits(flow.bestAsk) === up;
+    })
+    .toBe(true);
+  // One tick again shows more prices than two ticks did, or the same when every level is already on the step.
+  const grouped = (await readFlow()).rows.length;
+  await setLadder('Single', '1 tick');
+  await expect(ladder().getByRole('columnheader', { name: 'My orders' })).toBeVisible();
+  await expect.poll(async () => (await readFlow()).rows.length).toBeGreaterThanOrEqual(grouped);
+});
+
+test(`${J} #4 clicks a ladder ask; the ticket fills with the price and the review opens, and nothing is sent`, async () => {
+  await openDesk();
+  await openDom();
+  await setLadder('Single', '1 tick');
+  await chartTrade().getByLabel('Click size (BTC)').fill(SMALL);
+  const sent = placements(page);
+
+  // The best ask on the ladder.
+  const askRow = rows().and(page.locator('[data-highlight="best-ask"]'));
+  await expect(askRow).toHaveCount(1);
+  const askPrice = await askRow.getAttribute('data-price');
+  const preview = page.waitForResponse((r) => r.url().includes('/api/v1/orders/preview') && r.request().method() === 'POST');
+  await askRow.getByTestId('of-ask-cell').click();
+  // The review opens on its own: a limit buy at the clicked ask, the click's amount.
+  const review = reviewSheet(page);
+  await expect(review).toBeVisible();
+  await expect(review).toContainText('Review your buy');
+  expect((await preview).status()).toBe(200);
+  expect(same(await reviewValue('Price').innerText(), askPrice), `review price vs ${askPrice}`).toBe(true);
+  await expect(reviewValue('Amount')).toContainText(SMALL);
+  // Nothing went to the market.
+  expect(sent).toEqual([]);
+  await review.getByRole('button', { name: 'Cancel' }).click();
+  await expect(review).toHaveCount(0);
+  // The ticket holds the clicked price and the amount (read once the review is closed: a open review hides the page).
+  expect(same(await buyForm().getByRole('textbox', { name: 'Price' }).inputValue(), askPrice)).toBe(true);
+  expect(same(await buyForm().getByRole('textbox', { name: 'Amount' }).inputValue(), SMALL)).toBe(true);
+  await page.waitForTimeout(1_000);
+  expect(sent).toEqual([]);
+
+  // Money line: a ladder order holds exactly as a desk order. A buy from the ask column at a price under the touch rests;
+  // once confirmed, the USDT held grows by exactly what the review said, and the same order typed on the desk's ticket
+  // is checked to the same hold.
+  const before = await (await api(who)).balances();
+  // The ladder's lowest bid row, clicked in the ask column: a buy limit under the touch, so it rests on the book.
+  const lowest = rows().last();
+  const restPrice = await lowest.getAttribute('data-price');
+  expect(toUnits(restPrice)).toBeLessThan(toUnits(askPrice));
+  await lowest.getByTestId('of-ask-cell').click();
+  await expect(review).toBeVisible();
+  const reviewedPrice = canon(await reviewValue('Price').innerText());
+  expect(same(reviewedPrice, restPrice)).toBe(true);
+  const hold = canon(await reviewValue('We’ll set aside').innerText());
+  expect(toUnits(hold)).toBeGreaterThan(0n);
+  const typed = await (
+    await api(who)
+  ).post('/api/v1/orders/preview', {
+    symbol: SYMBOL,
+    side: 'buy',
+    type: 'limit',
+    price: reviewedPrice,
+    amount: SMALL,
+    timeInForce: 'GTC',
+    postOnly: false,
+    clientOrderId: `jcd14-typed-${RUN}`,
+  });
+  expect(typed.status, JSON.stringify(typed.body).slice(0, 300)).toBe(200);
+  expect(same(typed.body.holdAmount, hold), `desk hold ${typed.body.holdAmount} vs ladder hold ${hold}`).toBe(true);
+  await page.getByRole('button', { name: 'Confirm buy' }).click();
+  await expect(review).toHaveCount(0, { timeout: 15_000 });
+  await expect
+    .poll(async () => (await openOrders(who)).some((o) => same(o.price, reviewedPrice) && same(o.amount, SMALL) && o.side === 'buy'))
+    .toBe(true);
+  const after = await (await api(who)).balances();
+  expect(held(after, 'USDT') - held(before, 'USDT')).toBe(toUnits(hold));
+  // One order went, with the review's own number.
+  expect(sent).toHaveLength(1);
+});
+
+test(`${J} #5 uses Buy and Sell buttons on the chart; each shows the live spread, and a type the market does not list refuses`, async () => {
+  // BTC to sell: a market buy on the real book (the setup's buy leaves a little under its amount once its fee is taken).
+  const bought = await (
+    await api(who)
+  ).post('/api/v1/orders', {
+    symbol: SYMBOL,
+    type: 'market',
+    side: 'buy',
+    amount: '0.002',
+    clientOrderId: `jcd14-buy-5-${RUN}`,
+  });
+  expect(bought.status, JSON.stringify(bought.body).slice(0, 300)).toBeLessThan(300);
+  await openDesk();
+  const group = chartTrade();
+  const buy = group.getByTestId('of-chart-buy');
+  const sell = group.getByTestId('of-chart-sell');
+  const spread = group.getByTestId('of-chart-spread');
+  // Each button carries the live touch, and the spread between them is the book's best ask less its best bid.
+  await expect
+    .poll(
+      async () => {
+        const { bid, ask } = await bestPrices(SYMBOL);
+        const shown = {
+          bid: await sell.getAttribute('data-price'),
+          ask: await buy.getAttribute('data-price'),
+          spread: await spread.getAttribute('data-spread'),
+        };
+        return same(shown.bid, bid) && same(shown.ask, ask) && same(shown.spread, fromUnits(toUnits(ask) - toUnits(bid)));
+      },
+      { timeout: 20_000, message: 'the chart buttons follow the live book' },
+    )
+    .toBe(true);
+  await expect(buy).toHaveText(/^Buy [\d.,]+$/);
+  await expect(sell).toHaveText(/^Sell [\d.,]+$/);
+  await expect(spread).toHaveText(/^Spread [\d.,]+$/);
+  // Each shows the spread: it is each button's own description.
+  const spreadText = await spread.innerText();
+  await expect(buy).toHaveAccessibleDescription(spreadText);
+  await expect(sell).toHaveAccessibleDescription(spreadText);
+  expect(same(await buy.innerText(), await buy.getAttribute('data-price'))).toBe(true);
+  expect(same(await sell.innerText(), await sell.getAttribute('data-price'))).toBe(true);
+
+  const sent = placements(page);
+  await group.getByLabel('Click size (BTC)').fill(SMALL);
+  // Buy at market: the ticket's Market tab takes it and the review opens; nothing is sent.
+  await group.getByLabel('Order kind').selectOption({ label: 'Market' });
+  await buy.click();
+  const review = reviewSheet(page);
+  await expect(review).toContainText('Review your buy');
+  await expect(reviewValue('Price')).toHaveText('Market price');
+  await expect(reviewValue('Amount')).toContainText(SMALL);
+  await review.getByRole('button', { name: 'Cancel' }).click();
+  await expect(review).toHaveCount(0);
+  // Sell, limit at the touch: the review is a sell at the best bid the button showed.
+  await group.getByLabel('Order kind').selectOption({ label: 'Limit at the touch' });
+  const bidShown = await sell.getAttribute('data-price');
+  await sell.click();
+  await expect(review).toContainText('Review your sell');
+  expect(same(await reviewValue('Price').innerText(), bidShown)).toBe(true);
+  await review.getByRole('button', { name: 'Cancel' }).click();
+  await expect(review).toHaveCount(0);
+  expect(same(await sellForm().getByRole('textbox', { name: 'Price' }).inputValue(), bidShown)).toBe(true);
+
+  // A type the market does not take: the desk's existing reason, and no review, no draft.
+  await group.getByLabel('Order kind').selectOption({ label: 'Trailing stop' });
+  const ticketBefore = await buyForm().getByRole('textbox', { name: 'Price' }).inputValue();
+  await buy.click();
+  const note = group.getByTestId('of-chart-note');
+  await expect(note).toHaveAttribute('data-code', 'trade.order_type_unsupported');
+  await expect(note).toHaveText("That order type isn't offered. This market takes limit and market orders only.");
+  await expect(review).toHaveCount(0);
+  expect(await buyForm().getByRole('textbox', { name: 'Price' }).inputValue()).toBe(ticketBefore);
+  await page.waitForTimeout(1_000);
+  expect(sent).toEqual([]);
+});
+
+// One-click trading (J-charts-desk-14 #6 and #7): the instant placement switch, the size presets, close and cancel.
+const oneClick = () => dom().getByRole('region', { name: 'One-click trading' });
+const instantSwitch = () => oneClick().getByRole('switch', { name: 'Instant placement' });
+const instantStatus = () => oneClick().getByTestId('of-instant-status');
+const summary = () => page.getByTestId('of-instant-summary');
+
+/** The account's own `trade.instant` record, read from identity as the signed-in person. */
+async function instantRecord() {
+  const input = encodeURIComponent(JSON.stringify({ namespace: 'trade.instant' }));
+  const res = await (await api(who)).get(`/api/identity/trpc/preferences.get?input=${input}`);
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  return res.body.result.data;
+}
+
+/** Turn instant placement on through its settings summary, accepting the agreement. */
+async function turnInstantOn() {
+  await instantSwitch().click();
+  await expect(summary()).toBeVisible();
+  await summary().getByLabel('I understand that my clicks will send orders without a review.').check();
+  const write = page.waitForResponse((r) => r.url().includes('preferences.set') && r.request().method() === 'POST');
+  await summary().getByRole('button', { name: 'Turn on instant placement' }).click();
+  expect((await write).status()).toBe(200);
+  await expect(summary()).toHaveCount(0);
+  await expect(instantSwitch()).toHaveAttribute('aria-checked', 'true');
+}
+
+async function turnInstantOff() {
+  const write = page.waitForResponse((r) => r.url().includes('preferences.set') && r.request().method() === 'POST');
+  await instantSwitch().click();
+  expect((await write).status()).toBe(200);
+  await expect(instantSwitch()).toHaveAttribute('aria-checked', 'false');
+}
+
+/**
+ * Press a button and return the amount and price it showed at that very moment. The read and the click run in one
+ * browser task, so the book cannot requote between them: what is returned is exactly what the press acted on.
+ */
+async function pressShowing(button) {
+  return button.evaluate((el) => {
+    const shown = { amount: el.getAttribute('data-amount'), price: el.getAttribute('data-price') };
+    el.click();
+    return shown;
+  });
+}
+
+/** The cancels the browser sends (DELETE /api/v1/orders/<id>), by order id, from now on. */
+function cancels() {
+  const sent = [];
+  page.on('request', (request) => {
+    const path = new URL(request.url()).pathname;
+    if (request.method() === 'DELETE' && path.startsWith('/api/v1/orders/'))
+      sent.push(decodeURIComponent(path.slice('/api/v1/orders/'.length)));
+  });
+  return sent;
+}
+
+/**
+ * Press one-click cancel on the ladder row whose bucket holds `price` (single column, one tick). The row is found and its
+ * button pressed in one browser task, so a requote that shifts the ladder cannot move the press onto a neighbouring row.
+ */
+async function pressRowCancel(price) {
+  const want = canon(price);
+  await expect
+    .poll(
+      () =>
+        dom().evaluate((region, target) => {
+          const canonical = (text) =>
+            String(text)
+              .replace(/[^\d.]/g, '')
+              .replace(/(\.\d*?)0+$/, '$1')
+              .replace(/\.$/, '');
+          const row = [...region.querySelectorAll('[data-testid="of-ladder-row"]')].find(
+            (el) => canonical(el.getAttribute('data-price') ?? '') === target,
+          );
+          const button = row?.querySelector('[data-testid="of-row-cancel"]');
+          if (!(button instanceof HTMLButtonElement) || button.disabled) return false;
+          button.click();
+          return true;
+        }, want),
+      { timeout: 20_000, message: `one-click cancel on the ladder row at ${price}` },
+    )
+    .toBe(true);
+}
+
+/** A resting buy of mine, placed over the API, far under the touch. Returns its id and price. */
+async function restingBid(tag, percent) {
+  const price = await awayBid(percent);
+  const placed = await (
+    await api(who)
+  ).post('/api/v1/orders', {
+    symbol: SYMBOL,
+    type: 'limit',
+    side: 'buy',
+    price,
+    amount: SMALL,
+    timeInForce: 'GTC',
+    clientOrderId: `jcd14-${tag}-${RUN}`,
+  });
+  expect(placed.status, JSON.stringify(placed.body).slice(0, 300)).toBeLessThan(300);
+  return { id: placed.body.id, price };
+}
+
+test(`${J} #6 turns instant placement on: a click sends after the settings summary; off, it always reviews`, async () => {
+  test.setTimeout(150_000);
+  await openDesk();
+  await openDom();
+  await setLadder('Single', '1 tick');
+  await chartTrade().getByLabel('Click size (BTC)').fill(SMALL);
+  const sent = placements(page);
+  const review = reviewSheet(page);
+
+  // Off by default: the switch reads off, the account holds nothing, and a ladder click opens the review.
+  await expect(instantSwitch()).toHaveAttribute('aria-checked', 'false');
+  await expect(instantStatus()).toHaveText('Off: every click opens the review first.');
+  const before = await instantRecord();
+  expect(before.value === null || before.value.on === false).toBe(true);
+  await rows().last().getByTestId('of-ask-cell').click();
+  await expect(review).toBeVisible();
+  await review.getByRole('button', { name: 'Cancel' }).click();
+  await expect(review).toHaveCount(0);
+  expect(sent).toEqual([]);
+
+  // Turning it on shows the settings summary first. Keeping it off changes nothing, and Turn on waits for the agreement.
+  await instantSwitch().click();
+  await expect(summary()).toBeVisible();
+  await expect(summary()).toContainText('Turn on instant placement?');
+  await expect(summary()).toContainText('sends the order at once at the click size. There is no review.');
+  await expect(summary()).toContainText('A market order still opens the review, because its price can move.');
+  await expect(summary()).toContainText('Every order is still checked');
+  await expect(summary()).toContainText('You can turn it off at any time with one click.');
+  await expect(summary().getByRole('button', { name: 'Turn on instant placement' })).toBeDisabled();
+  await summary().getByRole('button', { name: 'Keep it off' }).click();
+  await expect(summary()).toHaveCount(0);
+  await expect(instantSwitch()).toHaveAttribute('aria-checked', 'false');
+  const kept = await instantRecord();
+  expect(kept.value === null || kept.value.on === false).toBe(true);
+
+  // Accepted: the account holds the agreement and the moment it was accepted, and the switch says since when.
+  const accepted = Date.now();
+  await turnInstantOn();
+  const record = await instantRecord();
+  expect(record.value.on).toBe(true);
+  expect(record.value.agreement).toBe('instant-placement-v1');
+  expect(Date.parse(record.value.agreedAt)).toBeGreaterThanOrEqual(accepted - 5_000);
+  expect(Date.parse(record.value.agreedAt)).toBeLessThanOrEqual(Date.now() + 5_000);
+  await expect(instantStatus()).toHaveAttribute('data-agreed-at', record.value.agreedAt);
+  await expect(instantStatus()).toContainText(/^On since .+: a click sends at once, with no review\.$/);
+  await expect(dom().getByTestId('of-ladder-hint')).toHaveText(
+    'Instant placement is on: a click sends at that price at once, at the click size.',
+  );
+
+  // On: a ladder click sends one order at once, with no review, holding exactly what the same order checked on the desk
+  // holds. The lowest bid row's ask cell is a buy under the touch, so it rests.
+  const lowest = rows().last();
+  const restPrice = await lowest.getAttribute('data-price');
+  const typed = await (
+    await api(who)
+  ).post('/api/v1/orders/preview', {
+    symbol: SYMBOL,
+    side: 'buy',
+    type: 'limit',
+    price: restPrice,
+    amount: SMALL,
+    timeInForce: 'GTC',
+    postOnly: false,
+    clientOrderId: `jcd14-typed-6-${RUN}`,
+  });
+  expect(typed.status, JSON.stringify(typed.body).slice(0, 300)).toBe(200);
+  const heldBefore = held(await (await api(who)).balances(), 'USDT');
+  await lowest.getByTestId('of-ask-cell').click();
+  await expect.poll(() => sent.length, { timeout: 15_000 }).toBe(1);
+  await expect(review).toHaveCount(0);
+  expect(sent[0]).toMatchObject({ symbol: SYMBOL, side: 'buy', type: 'limit' });
+  expect(same(sent[0].price, restPrice)).toBe(true);
+  expect(same(sent[0].amount, SMALL)).toBe(true);
+  // The order number is the desk's business key for this person and order, never a bare random id.
+  expect(sent[0].clientOrderId).toMatch(/^desk:[^:]+:[0-9a-f]+-[0-9a-f]+$/);
+  await expect
+    .poll(async () => (await openOrders(who)).filter((o) => same(o.price, restPrice) && same(o.amount, SMALL) && o.side === 'buy').length)
+    .toBeGreaterThanOrEqual(1);
+  await expect.poll(async () => held(await (await api(who)).balances(), 'USDT') - heldBefore).toBe(toUnits(typed.body.holdAmount));
+  await page.waitForTimeout(1_000);
+  expect(sent).toHaveLength(1);
+
+  // A market order from the chart still opens the review with instant placement on: its price can move.
+  await chartTrade().getByLabel('Order kind').selectOption({ label: 'Market' });
+  await chartTrade().getByTestId('of-chart-buy').click();
+  await expect(review).toContainText('Review your buy');
+  await expect(reviewValue('Price')).toHaveText('Market price');
+  await review.getByRole('button', { name: 'Cancel' }).click();
+  await expect(review).toHaveCount(0);
+  expect(sent).toHaveLength(1);
+
+  // It is the account's setting: a fresh load of the desk still has it on.
+  await openDesk();
+  await openDom();
+  await expect(instantSwitch()).toHaveAttribute('aria-checked', 'true');
+
+  // Off is one click, with no summary, and a click reviews again.
+  await turnInstantOff();
+  await expect(instantStatus()).toHaveText('Off: every click opens the review first.');
+  expect((await instantRecord()).value).toEqual({ on: false, agreement: null, agreedAt: null });
+  await setLadder('Single', '1 tick');
+  await chartTrade().getByLabel('Click size (BTC)').fill(SMALL);
+  await rows().last().getByTestId('of-ask-cell').click();
+  await expect(review).toBeVisible();
+  await review.getByRole('button', { name: 'Cancel' }).click();
+  await expect(review).toHaveCount(0);
+  await page.waitForTimeout(1_000);
+  expect(sent).toHaveLength(1);
+});
+
+test(`${J} #7 one-click close, cancel and size presets each act once with the reviewed or the instant setting`, async () => {
+  test.setTimeout(180_000);
+  // Size presets are the person's own quick sizes, set in Account, Trading.
+  await page.goto('/view');
+  await page.getByLabel('Quick sizes').fill(`${SMALL}, ${BETWEEN}`);
+  await page.getByRole('button', { name: 'Save quick sizes' }).click();
+  await expect(page.getByText('Quick sizes saved.')).toBeVisible();
+
+  await openDesk();
+  await openDom();
+  await setLadder('Single', '1 tick');
+  const sent = placements(page);
+  const cancelled = cancels();
+  const review = reviewSheet(page);
+  const clickSize = chartTrade().getByLabel('Click size (BTC)');
+  await expect(instantSwitch()).toHaveAttribute('aria-checked', 'false');
+
+  // A preset fills the click size and sends nothing.
+  const presets = oneClick().getByRole('group', { name: 'Size presets' }).getByTestId('of-preset');
+  await expect(presets).toHaveCount(2);
+  await oneClick()
+    .getByRole('button', { name: `${BETWEEN} BTC` })
+    .click();
+  await expect(clickSize).toHaveValue(BETWEEN);
+  await expect(oneClick().getByRole('button', { name: `${BETWEEN} BTC` })).toHaveAttribute('aria-pressed', 'true');
+  await oneClick()
+    .getByRole('button', { name: `${SMALL} BTC` })
+    .click();
+  await expect(clickSize).toHaveValue(SMALL);
+  await page.waitForTimeout(1_000);
+  expect(sent).toEqual([]);
+
+  // Reviewed (instant off). A ladder click at the preset's size opens the review at that size and sends nothing; its
+  // Confirm sends exactly one order, at the preset's size and the row's price, which then rests on the venue.
+  const reviewedRow = rows().last();
+  const reviewedPrice = await reviewedRow.getAttribute('data-price');
+  await reviewedRow.getByTestId('of-ask-cell').click();
+  await expect(review).toContainText('Review your buy');
+  await expect(reviewValue('Amount')).toContainText(canon(SMALL));
+  await page.waitForTimeout(1_000);
+  expect(sent).toEqual([]);
+  const confirmBuy = review.getByRole('button', { name: 'Confirm buy' });
+  await expect(confirmBuy).toBeEnabled({ timeout: 15_000 });
+  await confirmBuy.click();
+  await expect.poll(() => sent.length, { timeout: 15_000 }).toBe(1);
+  await expect(review).toHaveCount(0);
+  expect(sent[0]).toMatchObject({ symbol: SYMBOL, side: 'buy', type: 'limit' });
+  expect(same(sent[0].amount, SMALL)).toBe(true);
+  expect(same(sent[0].price, reviewedPrice)).toBe(true);
+  await expect
+    .poll(async () => (await openOrders(who)).some((o) => o.clientOrderId === sent[0].clientOrderId && same(o.amount, SMALL)), {
+      timeout: 15_000,
+    })
+    .toBe(true);
+  await page.waitForTimeout(1_000);
+  expect(sent).toHaveLength(1);
+
+  // Reviewed (instant off). One-click cancel on my order's row: a review names it, nothing is cancelled until confirmed,
+  // then exactly one cancel goes for exactly that order.
+  const first = await restingBid('cancel-7a', 80);
+  await pressRowCancel(first.price);
+  const cancelReview = page.getByTestId('of-cancel-review');
+  await expect(cancelReview).toContainText('Cancel this order?');
+  await expect(cancelReview.getByTestId('of-cancel-line')).toHaveCount(1);
+  await expect(cancelReview.getByTestId('of-cancel-line')).toHaveAttribute('data-order-id', first.id);
+  await page.waitForTimeout(1_000);
+  expect(cancelled).toEqual([]);
+  expect((await openOrders(who)).some((o) => o.id === first.id)).toBe(true);
+  await cancelReview.getByRole('button', { name: 'Cancel order' }).click();
+  await expect(cancelReview).toHaveCount(0);
+  await expect.poll(async () => (await openOrders(who)).some((o) => o.id === first.id), { timeout: 15_000 }).toBe(false);
+  expect(cancelled).toEqual([first.id]);
+
+  // Reviewed one-click close: a limit sell of every free BTC lot at the best bid, in the review; nothing is sent.
+  const close = oneClick().getByTestId('of-close-all');
+  await expect(close).toBeEnabled({ timeout: 15_000 });
+  const { amount: freeShown, price: bidShown } = await pressShowing(close);
+  expect(toUnits(freeShown)).toBeGreaterThan(0n);
+  await expect(review).toContainText('Review your sell');
+  expect(same(await reviewValue('Price').innerText(), bidShown)).toBe(true);
+  await expect(reviewValue('Amount')).toContainText(canon(freeShown));
+  await review.getByRole('button', { name: 'Cancel' }).click();
+  await expect(review).toHaveCount(0);
+  await page.waitForTimeout(1_000);
+  expect(sent).toHaveLength(1);
+
+  // Reviewed one-click close, confirmed: exactly one limit sell of every free BTC lot at the bid the button showed, and
+  // the BTC it sells is no longer free.
+  const btcFreeReviewed = free(await (await api(who)).balances(), 'BTC');
+  await expect(close).toBeEnabled();
+  const { amount: freeConfirmed, price: bidConfirmed } = await pressShowing(close);
+  expect(toUnits(freeConfirmed)).toBeGreaterThan(0n);
+  await expect(review).toContainText('Review your sell');
+  expect(same(await reviewValue('Price').innerText(), bidConfirmed)).toBe(true);
+  await expect(reviewValue('Amount')).toContainText(canon(freeConfirmed));
+  expect(sent).toHaveLength(1);
+  const confirmSell = review.getByRole('button', { name: 'Confirm sell' });
+  await expect(confirmSell).toBeEnabled({ timeout: 15_000 });
+  await confirmSell.click();
+  await expect.poll(() => sent.length, { timeout: 15_000 }).toBe(2);
+  await expect(review).toHaveCount(0);
+  expect(sent[1]).toMatchObject({ symbol: SYMBOL, side: 'sell', type: 'limit' });
+  expect(same(sent[1].price, bidConfirmed)).toBe(true);
+  expect(same(sent[1].amount, freeConfirmed)).toBe(true);
+  await expect
+    .poll(async () => free(await (await api(who)).balances(), 'BTC') <= btcFreeReviewed - toUnits(freeConfirmed), { timeout: 15_000 })
+    .toBe(true);
+  await page.waitForTimeout(1_000);
+  expect(sent).toHaveLength(2);
+
+  // Instant. One-click cancel acts at once: no review, one cancel for that order.
+  await turnInstantOn();
+  const second = await restingBid('cancel-7b', 81);
+  await pressRowCancel(second.price);
+  await expect.poll(() => cancelled.length, { timeout: 15_000 }).toBe(2);
+  await expect(cancelReview).toHaveCount(0);
+  expect(cancelled[1]).toBe(second.id);
+  await expect.poll(async () => (await openOrders(who)).some((o) => o.id === second.id), { timeout: 15_000 }).toBe(false);
+
+  // A preset with instant on: a ladder click sends once, at the preset's size.
+  await oneClick()
+    .getByRole('button', { name: `${SMALL} BTC` })
+    .click();
+  const lowest = rows().last();
+  const restPrice = await lowest.getAttribute('data-price');
+  await lowest.getByTestId('of-ask-cell').click();
+  await expect.poll(() => sent.length, { timeout: 15_000 }).toBe(3);
+  await expect(review).toHaveCount(0);
+  expect(same(sent[2].amount, SMALL)).toBe(true);
+  expect(same(sent[2].price, restPrice)).toBe(true);
+  await expect
+    .poll(async () => (await openOrders(who)).some((o) => o.clientOrderId === sent[2].clientOrderId && same(o.amount, SMALL)), {
+      timeout: 15_000,
+    })
+    .toBe(true);
+
+  // The reviewed close sold the free BTC: buy a little on the real book (filled by the TEST market maker), so the
+  // instant close has something to sell. The account reports the BTC free first; the desk reads balances every 15 s.
+  const btcFreeBeforeTopUp = free(await (await api(who)).balances(), 'BTC');
+  const topUp = await (
+    await api(who)
+  ).post('/api/v1/orders', { symbol: SYMBOL, type: 'market', side: 'buy', amount: BETWEEN, clientOrderId: `jcd14-topup-7-${RUN}` });
+  expect(topUp.status, JSON.stringify(topUp.body).slice(0, 300)).toBeLessThan(300);
+  await expect
+    .poll(async () => free(await (await api(who)).balances(), 'BTC') > btcFreeBeforeTopUp, {
+      timeout: 15_000,
+      message: 'the market buy left free BTC on the account',
+    })
+    .toBe(true);
+  await expect
+    .poll(async () => toUnits(canon((await close.getAttribute('data-amount')) ?? '') || '0') > 0n, {
+      timeout: 45_000,
+      message: 'one-click close shows the free BTC to sell',
+    })
+    .toBe(true);
+
+  // Instant one-click close: one limit sell of every free lot at the best bid the button shows, sent at once.
+  const btcFreeBefore = free(await (await api(who)).balances(), 'BTC');
+  await expect(close).toBeEnabled();
+  const { amount: freeNow, price: bidNow } = await pressShowing(close);
+  await expect.poll(() => sent.length, { timeout: 15_000 }).toBe(4);
+  await expect(review).toHaveCount(0);
+  expect(sent[3]).toMatchObject({ symbol: SYMBOL, side: 'sell', type: 'limit' });
+  expect(same(sent[3].price, bidNow)).toBe(true);
+  expect(same(sent[3].amount, freeNow)).toBe(true);
+  // The sell either filled at the bid or rests there: the BTC it took is no longer free.
+  await expect
+    .poll(async () => {
+      const after = await (await api(who)).balances();
+      return free(after, 'BTC') <= btcFreeBefore - toUnits(freeNow);
+    })
+    .toBe(true);
+  await page.waitForTimeout(1_000);
+  expect(sent).toHaveLength(4);
+
+  await turnInstantOff();
+});
+
+test(`${J} #8 reads my place in the queue and the fill chance of a resting order: from the book, with the estimate's basis`, async () => {
+  // A price no one rests at yet, well under the touch, so the queue there is exactly the orders this step places.
+  const { body: deep } = await fetch(`${EDGE}/api/v1/orderbook/${encodeURIComponent(SYMBOL)}?limit=500`, {
+    headers: { origin: ORIGIN },
+  }).then(async (res) => ({ body: await res.json() }));
+  const taken = new Set((deep.bids ?? []).map(([p]) => toUnits(canon(p) || '0')));
+  let price = await awayBid(85);
+  while (taken.has(toUnits(price))) price = fromUnits(toUnits(price) - toUnits('1'));
+  // Two other TEST accounts rest first, then me: two orders and their sizes are ahead of mine.
+  const taker = await api(otherTrader());
+  const second = await api(await fundedTrader(page, 'jcd14q', '500'));
+  const mineClient = await api(who);
+  const rest = async (client, amount, tag) => {
+    const res = await client.post('/api/v1/orders', {
+      symbol: SYMBOL,
+      type: 'limit',
+      side: 'buy',
+      price,
+      amount,
+      timeInForce: 'GTC',
+      clientOrderId: `jcd14-q8-${tag}-${RUN}`,
+    });
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBeLessThan(300);
+    return res.body.id;
+  };
+  const placed = [];
+  try {
+    const first = await rest(taker, '0.002', 'a');
+    placed.push([taker, first]);
+    placed.push([second, await rest(second, SMALL, 'b')]);
+    const mine = await rest(mineClient, SMALL, 'me');
+    placed.push([mineClient, mine]);
+
+    // What the book says at that price: the total resting there is the size ahead of me plus my own.
+    const level = async () => {
+      const { body } = await bestPrices(SYMBOL, 500);
+      const row = (body.bids ?? []).find(([p]) => toUnits(canon(p) || '0') === toUnits(price));
+      return row ? toUnits(canon(row[1])) : 0n;
+    };
+    await expect.poll(level, { timeout: 15_000 }).toBe(toUnits('0.002') + toUnits(SMALL) + toUnits(SMALL));
+    const sizeAheadOnBook = (await level()) - toUnits(SMALL);
+    expect(sizeAheadOnBook).toBe(toUnits('0.003'));
+
+    // The service's own answer for my order: from the native queue, the same as the book.
+    const read = await mineClient.get(`/api/v1/orders/${mine}/queue`);
+    expect(read.status, JSON.stringify(read.body).slice(0, 300)).toBe(200);
+    expect(read.body).toMatchObject({ orderId: mine, symbol: SYMBOL, side: 'buy', ordersAhead: 2, source: 'native_l3' });
+    expect(toUnits(read.body.sizeAhead)).toBe(sizeAheadOnBook);
+    // No other maker's id or single size is on the wire: only the count and the sum.
+    for (const [, id] of placed.slice(0, 2)) expect(JSON.stringify(read.body)).not.toContain(id);
+    // The estimate is served with its basis, the TEST stack's owner window, and it is that basis's own ratio.
+    const basis = read.body.fillProbabilityBasis;
+    expect(basis).toMatchObject({ method: 'traded_through_window' });
+    expect(basis.windowSeconds).toBeGreaterThan(0);
+    expect(toUnits(basis.sizeToFill)).toBe(sizeAheadOnBook + toUnits(SMALL));
+    const ratio = (toUnits(basis.tradedThrough) * 10n ** 18n) / toUnits(basis.sizeToFill);
+    const capped = ratio > 10n ** 18n ? 10n ** 18n : ratio;
+    expect(toUnits(read.body.fillProbability)).toBe((capped / 10n ** 14n) * 10n ** 14n);
+    // The traded volume holds every sell printed at or below my price inside the window: at least what the public tape
+    // shows there (the tape leaves out prints with a seeded maker, which the queue, and so the estimate, counts).
+    const until = Number(read.body.serverTime);
+    const since = until - basis.windowSeconds * 1000;
+    const { body: tape } = await mineClient.get(`/api/v1/trades/${encodeURIComponent(SYMBOL)}?limit=500&since=${since}`);
+    const through = (Array.isArray(tape) ? tape : [])
+      .filter((p) => p.side === 'sell' && p.timestamp <= until && toUnits(canon(p.price)) <= toUnits(price))
+      .reduce((sum, p) => sum + toUnits(canon(p.amount)), 0n);
+    expect(toUnits(basis.tradedThrough)).toBeGreaterThanOrEqual(through);
+
+    // The DOM shows the same place and the chance with its basis, on my resting order's row.
+    await signIn(page, who);
+    await openDesk();
+    await openDom();
+    const queue = dom().getByRole('region', { name: 'My place in the queue' });
+    const row = queue.getByTestId('of-queue-row').and(page.locator(`[data-order-id="${mine}"]`));
+    await expect(row).toHaveAttribute('data-state', 'ready', { timeout: 30_000 });
+    await expect(row).toHaveAttribute('data-orders-ahead', '2');
+    expect(toUnits(canon(await row.getAttribute('data-size-ahead')))).toBe(sizeAheadOnBook);
+    await expect(row).toHaveAttribute('data-source', 'native_l3');
+    await expect(row.getByTestId('of-queue-ahead')).toHaveText(/^2 orders ahead, 0\.0030* BTC ahead of you$/);
+    expect(toUnits(canon(await row.getAttribute('data-chance')))).toBe((capped / 10n ** 14n) * 10n ** 14n);
+    await expect(row.getByTestId('of-queue-chance')).toHaveText(/^Estimated chance of a fill: \d+\.\d{2}%$/);
+    await expect(row.getByTestId('of-queue-basis')).toContainText(
+      new RegExp(`traded at or through this price in the last ${basis.windowSeconds} seconds, against the 0\\.0040* BTC that must trade`),
+    );
+    await expect(row.getByTestId('of-queue-basis')).toContainText('From the matching engine’s own queue.');
+
+    // The first order at that price has nothing ahead: its owner reads that, from the same queue.
+    const theirs = await taker.get(`/api/v1/orders/${first}/queue`);
+    expect(theirs.status).toBe(200);
+    expect(theirs.body).toMatchObject({ ordersAhead: 0, sizeAhead: '0' });
+    // Another person's order id refuses exactly as an order that does not exist: no existence leak.
+    const foreign = await mineClient.get(`/api/v1/orders/${first}/queue`);
+    const missing = await mineClient.get(`/api/v1/orders/${'0'.repeat(8)}-0000-4000-8000-${'0'.repeat(12)}/queue`);
+    expect(foreign.status).toBe(404);
+    expect(foreign.body.intafacedCode).toBe('trade.order_not_found');
+    expect([missing.status, missing.body.intafacedCode]).toEqual([foreign.status, foreign.body.intafacedCode]);
+  } finally {
+    for (const [client, id] of placed) await client.delete(`/api/v1/orders/${id}?symbol=${encodeURIComponent(SYMBOL)}`);
+  }
+  // Once cancelled, my order is not in the queue: the read says it is not open.
+  const [, mine] = placed.at(-1) ?? [];
+  if (mine) {
+    const gone = await mineClient.get(`/api/v1/orders/${mine}/queue`);
+    expect(gone.status).toBe(409);
+    expect(gone.body.intafacedCode).toBe('trade.order_not_open');
+  }
+});

@@ -200,6 +200,70 @@ describe('poller: request budget', () => {
     poller.dispose();
   });
 
+  it('over budget, waiting reads take turns: a slow read is never starved by fast ones', async () => {
+    // The desk with four resting orders in its DOM: each order's place in the queue reads every 3 s, which with the book
+    // and the tape asks for more than the budget. Open orders (every 10 s) must still refresh well inside 20 s.
+    const poller = createPoller({ visibility: visibility(), budgetPerMinute: 120 });
+    const plan: Array<[string, number]> = [
+      ['book', 2_000],
+      ['tape', 3_000],
+      ['queue:1', 3_000],
+      ['queue:2', 3_000],
+      ['queue:3', 3_000],
+      ['queue:4', 3_000],
+      ['ticker', 5_000],
+      ['panel', 10_000],
+      ['balances', 15_000],
+      ['lists', 15_000],
+    ];
+    const stops = plan.map(([key, ms]) =>
+      poller
+        .source(
+          key,
+          counter((n) => ok(n)),
+          { intervalMs: ms },
+        )
+        .subscribe(() => undefined),
+    );
+    const reads: number[] = [];
+    const orders: Fetcher<number> = async () => {
+      reads.push(Date.now());
+      return ok(reads.length);
+    };
+    stops.push(poller.source('orders', orders, { intervalMs: 10_000 }).subscribe(() => undefined));
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    expect(poller.stats().deferred).toBeGreaterThan(0);
+    expect(poller.stats().peakPerMinute).toBeLessThanOrEqual(120);
+    const gaps = reads.slice(1).map((at, i) => at - (reads[i] ?? at));
+    // Every 10 s plus its turn in line; before the line and the pacing, a burst left it 25 s without a read.
+    expect(Math.max(...gaps)).toBeLessThanOrEqual(16_000);
+    stops.forEach((s) => s());
+    poller.dispose();
+  });
+
+  it('over budget, a refresh after a save goes to the front of the line', async () => {
+    const poller = createPoller({ visibility: visibility(), budgetPerMinute: 120 });
+    const stops = Array.from({ length: 12 }, (_, i) =>
+      poller
+        .source(
+          `fast${i}`,
+          counter((n) => ok(n)),
+          { intervalMs: 1_000 },
+        )
+        .subscribe(() => undefined),
+    );
+    const orders = counter((n) => ok(n));
+    stops.push(poller.source('orders', orders, { intervalMs: 60_000 }).subscribe(() => undefined));
+    await vi.advanceTimersByTimeAsync(30_000);
+    const before = orders.mock.calls.length;
+    poller.refresh('orders');
+    // The bucket refills one read in 0.6 s: the refresh is the next read, ahead of every fast one waiting.
+    await vi.advanceTimersByTimeAsync(700);
+    expect(orders.mock.calls.length).toBe(before + 1);
+    stops.forEach((s) => s());
+    poller.dispose();
+  });
+
   it('the Home plan fits too (<= 30 per minute)', async () => {
     const poller = createPoller({ visibility: visibility() });
     const keys: Array<[string, number]> = [

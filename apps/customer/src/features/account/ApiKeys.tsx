@@ -1,11 +1,13 @@
-import { useMemo, useRef, useState, type FormEvent } from 'react';
+import { useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import type { ApiKeyRecord } from '@intafaced/contracts/api-keys';
 import type { ApiResult } from '../../shared/api';
 import { useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
 import { Button, Dialog, Failure, Field, Loading } from '../../shared/ui';
 import { apiKeysCopy as copy, type ApiKeysPlainKey } from './api-keys-copy';
-import { changeRefusal, readDeveloperKeys, revokeDeveloperKey } from './developer-keys-api';
+import { changeRefusal, readDeveloperKeys, readKeySubaccounts, revokeDeveloperKey } from './developer-keys-api';
+import { OrgKeys } from './OrgKeys';
+import { RevokeAllKeys } from './ApiKeysRevokeAll';
 import './security.css';
 import './api-keys.css';
 
@@ -65,7 +67,7 @@ export function RevokedReason({ apiKey }: { apiKey: ApiKeyRecord }) {
   );
 }
 
-type Sheet = {
+export type Sheet = {
   key: ApiKeyRecord;
   busy: boolean;
   refusal: ApiKeysPlainKey | null;
@@ -76,7 +78,7 @@ type Sheet = {
  * The revoke sheet: what happens, an optional reason, and one Revoke. No second factor, so a key can always be
  * switched off; the service records the person and their reason, and the list then shows it on the row.
  */
-function RevokeSheet({ sheet, onClose, onSubmit }: { sheet: Sheet; onClose: () => void; onSubmit: (reason: string) => void }) {
+export function RevokeSheet({ sheet, onClose, onSubmit }: { sheet: Sheet; onClose: () => void; onSubmit: (reason: string) => void }) {
   const { t } = copy.useCopy();
   return (
     <Dialog title={t('revokeTitle')} onClose={onClose}>
@@ -122,9 +124,18 @@ export function ApiKeys() {
   const { t, languageFor, requestedLocale } = copy.useCopy();
   const { api, userId } = useSession();
   const { resource, reload } = useResource((signal) => readDeveloperKeys(api, signal), `developer-keys:${userId}`);
+  // The names of the sub-accounts keys are bound to; a key whose sub-account is not listed shows its id instead.
+  const { resource: subaccounts } = useResource((signal) => readKeySubaccounts(api, signal), `developer-key-subaccounts:${userId}`);
+  const labels = useMemo(
+    () => new Map(subaccounts.status === 'ready' ? subaccounts.data.map((row) => [row.id, row.nickname ?? row.label]) : []),
+    [subaccounts],
+  );
   const [sheet, setSheet] = useState<Sheet | null>(null);
   const [notice, setNotice] = useState<ApiKeysPlainKey | null>(null);
   const sending = useRef(false);
+  // The Account column (J-developer-15 #1) shows once the person has a sub-account or a key bound to one; with a single
+  // account every row would only say "This account".
+  const showAccount = labels.size > 0 || (resource.status === 'ready' && resource.data.keys.some((key) => key.accountId !== null));
   const when = useMemo(
     () => new Intl.DateTimeFormat(requestedLocale, { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' }),
     [requestedLocale],
@@ -188,6 +199,13 @@ export function ApiKeys() {
                   : t('capUsed', { live: resource.data.cap.live, limit: resource.data.cap.limit })}
             </p>
           </section>
+          <RevokeAllKeys
+            liveKeys={resource.data.keys.filter((key) => stateOf(key, now) === 'stateActive').length}
+            onDone={() => {
+              setNotice(null);
+              reload();
+            }}
+          />
           {resource.data.keys.length === 0 ? (
             <p role="status">{t('empty')}</p>
           ) : (
@@ -198,6 +216,7 @@ export function ApiKeys() {
                     <th scope="col">{t('colName')}</th>
                     <th scope="col">{t('colPrefix')}</th>
                     <th scope="col">{t('colMode')}</th>
+                    {showAccount && <th scope="col">{t('colAccount')}</th>}
                     <th scope="col">{t('colScopes')}</th>
                     <th scope="col">{t('colIps')}</th>
                     <th scope="col">{t('colCreated')}</th>
@@ -216,11 +235,30 @@ export function ApiKeys() {
                           <a className="text-link" href={`/uc/safe/api-keys/${key.id}`}>
                             <bdi lang="und">{key.name}</bdi>
                           </a>
+                          {key.kind === 'agent' && (
+                            <>
+                              {' '}
+                              <span data-testid="api-keys__agent" className="badge">
+                                {t('agentBadge')}
+                              </span>
+                            </>
+                          )}
                         </th>
                         <td>
                           <code lang="und">{key.prefix}</code>
                         </td>
                         <td>{t(key.mode === 'live' ? 'modeLive' : 'modeSandbox')}</td>
+                        {showAccount && (
+                          <td data-testid="api-keys__account">
+                            {key.accountId === null ? (
+                              t('accountOwn')
+                            ) : (
+                              <>
+                                {t('subaccount')}: <bdi lang="und">{labels.get(key.accountId) ?? key.accountId}</bdi>
+                              </>
+                            )}
+                          </td>
+                        )}
                         <td>
                           <bdi lang="und">{key.scopes.join(', ')}</bdi>
                         </td>
@@ -252,6 +290,7 @@ export function ApiKeys() {
           )}
         </>
       )}
+      <OrgKeys at={at} />
       <ConnectedApps />
       {sheet && <RevokeSheet sheet={sheet} onClose={() => !sheet.busy && setSheet(null)} onSubmit={(reason) => void revoke(reason)} />}
     </div>

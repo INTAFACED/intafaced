@@ -1,5 +1,7 @@
 # ADR: `p2p:moderate` scope mint stays refuse / owner-gated (PKT-C8)
 
+> **Later: custody (OWNER 226).** This decision is for the custodial layer: INTAFACED holds no customer money at launch, so it applies when that layer is switched on, not to the launch build. It stays as written.
+
 **Status:** **Accepted — 2026-08-15.** Owner sign-off. Agents do not invent who moderates.
 **Decision owner:** repo owner (Denon). **Written by:** Denon.
 **Packet:** PKT-C8 — `docs/ops/owner-ruling-packet.json` (removed).

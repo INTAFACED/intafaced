@@ -179,6 +179,9 @@ export const payoffQuoteSchema = z.object({
 });
 export type PayoffQuote = z.infer<typeof payoffQuoteSchema>;
 /** A signed statement file from `bank.statements.export`: the whole account, or one space (BK-pots-02). */
+/** Per coin, the net of a set of posted lines (J-bank-16 #1): money in minus money out. Not a balance. */
+export const lineTotalSchema = z.object({ asset: z.string(), net: signedDecimalSchema, lines: z.number().int().nonnegative() });
+export type LineTotal = z.infer<typeof lineTotalSchema>;
 export const statementFileSchema = z.object({
   format: z.enum(['csv', 'pdf']),
   filename: z.string(),
@@ -186,7 +189,14 @@ export const statementFileSchema = z.object({
   bodyBase64: z.string(),
   sha256: z.string(),
   rowCount: z.number().int().nonnegative(),
+  totals: z.array(lineTotalSchema).optional(),
 });
+/** `bank.statements.totals`: the same fold over the same lines as a statement, for any range. */
+export const lineTotalsSchema = z.object({ totals: z.array(lineTotalSchema), lines: z.number().int().nonnegative() });
+/** `bank.statements.tax.list`: tax statements for a year (refused `vendor.tax` while no provider is connected). */
+export const taxStatementsSchema = z.object({ items: z.array(z.object({ id: z.string() })) });
+/** `bank.letters.request` (refused `rail.bank` while no banking partner is connected). */
+export const letterRequestSchema = z.object({ id: z.string() });
 /** One background export from `bank.statements.jobs` (PF-statements-02): what was asked, and where it is. */
 export const statementJobSchema = z.object({
   id: z.string(),
@@ -685,7 +695,7 @@ export const addMoneyRequestSchema = z.object({
   method: z.enum(ADD_MONEY_METHODS),
   country: z.string(),
   rail: z.enum(['rail.bank', 'rail.card']),
-  status: z.enum(['opening', 'refused', 'opened', 'pending', 'credited']),
+  status: z.enum(['opening', 'refused', 'opened', 'pending', 'credited', 'returned', 'delivered']),
   refusalCode: z.string().nullable(),
   onramp: z
     .object({
@@ -708,6 +718,13 @@ export const addMoneyRequestSchema = z.object({
   creditedAt: z.string().nullable().default(null),
   // What the ledger credited: the quote's receive amount, never anything else. Null until credited.
   creditedAmount: money.nullable().default(null),
+  // When the partner said the payment was sent back and the credit was taken out once; null unless it was returned.
+  returnedAt: z.string().nullable().default(null),
+  // Buy to wallet (J-dex-protocol-05 #4): the person's own wallet the partner delivers to, or null for a balance here; when
+  // it delivered and its on-chain transfer, null until then. Nothing is credited here for a wallet purchase.
+  walletAddress: z.string().nullable().default(null),
+  deliveredAt: z.string().nullable().default(null),
+  deliveryTx: z.string().nullable().default(null),
 });
 export type AddMoneyRequest = z.infer<typeof addMoneyRequestSchema>;
 /** svc-bank `bank.linkedAccounts.*` (J-bank-02 #6): the person's own accounts at other banks, each with its state. */
@@ -741,6 +758,8 @@ export const directDebitCollectionSchema = z.object({
   status: z.enum(['upcoming', 'processing', 'collected', 'failed', 'rejected']),
   failureCode: z.string().nullable(),
   ledgerTxId: z.string().nullable(),
+  /** The partner's move that collected it, when the partner bank holds the money (OWNER 226); null otherwise. */
+  partnerMoveId: z.string().nullable().default(null),
   presentedAt: z.string(),
   settledAt: z.string().nullable(),
   failureFee: z.null(),
@@ -780,6 +799,8 @@ export const directDebitWrites = {
     mandate: directDebitMandateSchema,
     rejected: z.array(z.string()),
     tooLate: z.array(z.object({ collectionId: z.string(), code: z.literal('bank.dd_too_late') })),
+    /** The partner the block was sent to, when it holds the money; null on the custodial layer. */
+    sentTo: z.string().nullable().default(null),
   }),
   unblock: z.object({ mandate: directDebitMandateSchema }),
   requestRefund: z.object({ collection: directDebitCollectionSchema, created: z.boolean() }),
@@ -838,6 +859,8 @@ export const cashOutQuoteSchema = z.object({
   assetId: z.string(),
   amount: money,
   available: money,
+  /** Who holds the balance read: the partner bank's label when it holds this person's money, else null (the ledger). */
+  heldAt: z.string().nullable().default(null),
   account: linkedAccountSchema,
   rail: z.literal('rail.bank'),
   fee: money.nullable(),
@@ -849,7 +872,7 @@ export const cashOutQuoteSchema = z.object({
   standIn: z.string().nullable().default(null),
 });
 export type CashOutQuote = z.infer<typeof cashOutQuoteSchema>;
-export const CASH_OUT_STATUSES = ['refused', 'processing', 'completed', 'failed', 'returned'] as const;
+export const CASH_OUT_STATUSES = ['refused', 'processing', 'completed', 'failed', 'cancelled', 'returned'] as const;
 export const cashOutRequestSchema = z.object({
   requestId: z.string(),
   assetId: z.string(),
@@ -863,25 +886,41 @@ export const cashOutRequestSchema = z.object({
   receiveCurrency: z.string().nullable().default(null),
   payoutRef: z.string().nullable().default(null),
   ledgerTxId: z.string().nullable().default(null),
+  heldAt: z.string().nullable().default(null),
+  partnerMoveId: z.string().nullable().default(null),
   failureCode: z.string().nullable().default(null),
   returnedAmount: money.nullable().default(null),
   remainsPaidOut: money.nullable().default(null),
   createdAt: z.string(),
   completedAt: z.string().nullable().default(null),
   failedAt: z.string().nullable().default(null),
+  cancelledAt: z.string().nullable().default(null),
   returnedAt: z.string().nullable().default(null),
 });
 export type CashOutRequest = z.infer<typeof cashOutRequestSchema>;
 export const cashOutReceiptSchema = z.object({
   fileName: z.string(),
   text: z.string(),
-  ledgerTxId: z.string(),
+  /** The ledger transaction that paid it out; null when the partner bank holds the money and the ledger posted nothing. */
+  ledgerTxId: z.string().nullable(),
+  partnerMoveId: z.string().nullable().default(null),
   sha256: z.string(),
   signature: z.string(),
 });
 export type CashOutReceipt = z.infer<typeof cashOutReceiptSchema>;
 /** svc-bank `bank.railSends.*` (J-bank-04 #1): send to a bank account over a bank rail, each rail with its own form. */
 export const BANK_RAILS = ['ach', 'wire', 'instant', 'sepa', 'proxy'] as const;
+/** `bank.safety.regionNotice` (BK-safe-01, J-bank-18 #1): why a transfer refuses from a blocked region. */
+export const regionNoticeSchema = z.object({
+  region: z.string(),
+  blocked: z.boolean(),
+  code: z.string().nullable(),
+  restriction: z.string().nullable(),
+  blockedBy: z.string().nullable(),
+  wording: z.string().nullable(),
+});
+export type RegionNotice = z.infer<typeof regionNoticeSchema>;
+
 export const railRequirementsSchema = z.object({
   rails: z.array(
     z.object({
@@ -920,6 +959,8 @@ export const railPayeeSchema = z.object({
   verificationRail: z.string(),
   addedAt: z.string(),
   cooling: z.object({ state: z.enum(['unset', 'active', 'open']), endsAt: z.string().nullable() }),
+  /** The first-time payee scam warning (J-bank-18 #2): unread until the person reads it for this recipient. */
+  scamWarning: z.object({ state: z.enum(['unread', 'read']), readAt: z.string().nullable() }),
 });
 export type RailPayee = z.infer<typeof railPayeeSchema>;
 export const railPayeeRemovedSchema = z.object({ payeeId: z.string(), removed: z.literal(true) });
@@ -997,6 +1038,244 @@ export const recoveryWrites = {
   }),
   execute: z.object({ claim: recoveryClaimSchema, round: z.number().int().nullable(), sweeps: z.array(recoverySweepSchema) }),
 };
+/** BK-acct-08 (J-bank-16 #4): one budget with this month's spend, as the bank folds it. */
+export const budgetSchema = z.object({
+  assetId: z.string(),
+  category: z.string(),
+  period: z.string(),
+  target: money,
+  spent: money,
+  progressBps: z.number().int(),
+  alertBps: z.number().int(),
+  alert: z.enum(['new', 'seen']).nullable(),
+  alertShownAt: z.string().nullable(),
+});
+/** BK-acct-08 (J-bank-16 #5): months side by side by category; a month with no movement is "0". */
+export const monthCompareSchema = z.object({
+  assetId: z.string(),
+  months: z.array(z.string()),
+  categories: z.array(z.object({ category: z.string(), byMonth: z.array(money), change: z.string() })),
+  totalOutflow: z.array(money),
+  totalInflow: z.array(money),
+});
+export const leftToSpendSchema = z.object({ assetId: z.string(), period: z.string(), target: money, spent: money, left: z.string() });
+/** BK-acct-04 (J-bank-16 #6): the owner's plans and the person's own; a paid plan names its blocker. */
+const planSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  tier: z.string(),
+  price: money,
+  assetId: z.string(),
+  period: z.literal('month'),
+});
+export const plansSchema = z.object({
+  plans: z.array(planSchema.extend({ blocker: z.literal('bank.plan_fee_unwired').nullable() })),
+  current: planSchema,
+});
+/** BK-acct-04 (J-bank-16 #6): the partner's send limit and fee for a partner-held person, each null until it says. */
+export const partnerLimitsSchema = z.discriminatedUnion('held', [
+  z.object({ held: z.literal(false) }),
+  z.object({
+    held: z.literal(true),
+    label: z.string(),
+    assetId: z.string(),
+    dailyLimit: money.nullable(),
+    usedToday: money.nullable(),
+    remainingToday: money.nullable(),
+    sendFee: money.nullable(),
+    asOf: z.string().nullable(),
+  }),
+]);
+/**
+ * J-wallet-01 #3: svc-bank `partnerHolds`. What a partner-held person can withdraw from their main balance at the partner,
+ * and what the partner still holds back of their purchases, each with its release time, and each release once. `reported:
+ * false` is a partner that does not report its holds: held back and withdrawable read "not reported", never 0.
+ */
+const partnerHoldSchema = z.object({
+  id: z.string(),
+  assetId: z.string(),
+  amount: money,
+  paidBy: z.enum(['card', 'bank_pull']),
+  releaseAt: z.string(),
+});
+export const partnerHoldsSchema = z.discriminatedUnion('held', [
+  z.object({ held: z.literal(false) }),
+  z.object({
+    held: z.literal(true),
+    label: z.string(),
+    reported: z.boolean(),
+    asOf: z.string().nullable(),
+    balances: z.array(
+      z.object({
+        assetId: z.string(),
+        balance: money.nullable(),
+        balanceAsOf: z.string().nullable(),
+        heldBack: money.nullable(),
+        withdrawable: money.nullable(),
+      }),
+    ),
+    holds: z.array(partnerHoldSchema),
+    released: z.array(partnerHoldSchema.extend({ releasedAt: z.string() })),
+  }),
+]);
+export type PartnerHolds = z.infer<typeof partnerHoldsSchema>;
+/** BK-acct-04: the owner's account fee table; `set: false` is none published. */
+export const accountFeesSchema = z.object({
+  set: z.boolean(),
+  lines: z.array(z.object({ id: z.string(), label: z.string(), fee: money, assetId: z.string() })),
+});
+
+/** Pay from (J-bank-29 #1 #2): svc-bank `cards.payFrom` and `cards.setPayFromOrder`. Each null is "not known". */
+const payFromSchema = z.object({
+  test: z.boolean(),
+  custodyMode: z.enum(['partner_holds', 'wallet_pull']).nullable(),
+  settlementAssetId: z.string().nullable(),
+  assets: z.array(
+    z.object({
+      assetId: z.string(),
+      state: z.enum(['offered', 'not_offered', 'not_known', 'not_listed']),
+      partnerBalance: z.string().nullable(),
+      rate: z.string().nullable(),
+      rateAsOf: z.string().nullable(),
+    }),
+  ),
+  order: z.array(z.string()).nullable(),
+  notUsedForCards: z.array(z.enum(['trading', 'agent'])),
+});
+
+/**
+ * svc-bank `cards.controls.*` (J-bank-14 #1, BK-cctl-01): the categories a card can block, its live blocks of a
+ * category, a merchant or a country, and the history of its temporary lock, newest first.
+ */
+export const cardControlsSchema = z.object({
+  categories: z.array(z.string()),
+  controls: z.array(
+    z.object({ id: z.string(), kind: z.enum(['category', 'merchant', 'country']), value: z.string(), createdAt: z.string() }),
+  ),
+  history: z.array(
+    z.object({
+      id: z.string(),
+      status: z.enum(['active', 'frozen', 'closed']),
+      actor: z.enum(['owner', 'holder', 'operator', 'system']),
+      at: z.string(),
+    }),
+  ),
+});
+export type CardControls = z.infer<typeof cardControlsSchema>;
+
+/**
+ * svc-bank card details, PIN and phone wallets (J-bank-14 #3 #4, BK-cctl-03, BK-cctl-04): which the issuer offers, the
+ * revealed details and PIN with when to drop them, and the wallets the card was added to. `test` marks the TEST
+ * partner's stand-ins, which the screen labels TEST.
+ */
+export const cardSecretsOfferedSchema = z.object({
+  details: z.boolean(),
+  pin: z.boolean(),
+  wallet: z.boolean(),
+  test: z.boolean(),
+  /** The card partner itself does not add this person's cards to a phone wallet (J-bank-13 #8). */
+  walletNotOffered: z.boolean().default(false),
+});
+export const cardRevealSchema = z.object({
+  pan: z.string(),
+  expiry: z.string(),
+  cvv: z.string(),
+  expiresAt: z.string(),
+  test: z.boolean(),
+});
+export const cardPinRevealSchema = z.object({ pin: z.string(), expiresAt: z.string(), test: z.boolean() });
+export const cardWalletTokensSchema = z.object({
+  test: z.boolean(),
+  tokens: z.array(
+    z.object({ id: z.string(), wallet: z.enum(['apple', 'google']), state: z.enum(['added', 'paused', 'closed']), addedAt: z.string() }),
+  ),
+});
+export type CardWalletTokens = z.infer<typeof cardWalletTokensSchema>;
+/** A 3D Secure challenge as svc-bank answers it (J-bank-14 #5). `testCode` is the TEST partner's code, TEST stack only. */
+export const cardThreeDSChallengeSchema = z.object({
+  id: z.string(),
+  cardId: z.string(),
+  challengeRef: z.string(),
+  amount: z.string(),
+  merchant: z.string().nullable(),
+  merchantCountry: z.string().nullable(),
+  state: z.enum(['open', 'approved', 'locked']),
+  /** Null while the owner has not set the count. */
+  triesLeft: z.number().int().nullable(),
+  authorizationId: z.string().nullable(),
+  /** The completed authorisation's own decision: an approved code can still meet a declined purchase. */
+  decision: z.enum(['approved', 'declined']).nullable(),
+  declineCode: z.string().nullable(),
+  createdAt: z.string(),
+  testCode: z.string().nullable(),
+});
+export type CardThreeDSChallenge = z.infer<typeof cardThreeDSChallengeSchema>;
+/** One card fraud report (J-bank-14 #7). */
+export const cardFraudReportSchema = z.object({
+  id: z.string(),
+  cardId: z.string(),
+  authorizationId: z.string(),
+  state: z.literal('open'),
+  createdAt: z.string(),
+});
+export type CardFraudReport = z.infer<typeof cardFraudReportSchema>;
+
+/** J-bank-15: a cardholder's own card dispute, as svc-bank `cards.disputes.*` answers it. The money is the partner's. */
+const disputeStateSchema = z.enum(['opened', 'representment', 'arbitration', 'closed']);
+export const cardDisputeCaseSchema = z.object({
+  id: z.string(),
+  cardId: z.string(),
+  authorizationRef: z.string(),
+  assetId: z.string(),
+  amount: money,
+  reason: z.string(),
+  state: disputeStateSchema,
+  test: z.boolean(),
+  provisionalCredit: z.object({
+    state: z.enum(['none', 'asked', 'credited']),
+    amount: money.nullable(),
+    partnerRef: z.string().nullable(),
+    at: z.string().nullable(),
+  }),
+  decision: z
+    .object({
+      outcome: z.enum(['cardholder', 'merchant', 'withdrawn']),
+      reason: z.string().nullable(),
+      creditSettlement: z.enum(['final', 'reversed']).nullable(),
+      creditSettlementPartnerRef: z.string().nullable(),
+      closedAt: z.string(),
+    })
+    .nullable(),
+  createdAt: z.string(),
+  events: z.array(
+    z.object({
+      sequence: z.number().int(),
+      kind: z.enum(['opened', 'evidence', 'representment', 'arbitration', 'provisional_credit', 'closed']),
+      fromState: disputeStateSchema.nullable(),
+      toState: disputeStateSchema,
+      by: z.enum(['you', 'support']),
+      detail: z.string().nullable(),
+      afterSubmission: z.boolean(),
+      at: z.string(),
+    }),
+  ),
+});
+export const cardDisputeFormSchema = z.object({
+  test: z.boolean(),
+  rules: z.object({ windowDays: z.number().int(), evidenceAfterSubmission: z.boolean() }).nullable(),
+  charge: z.object({
+    authorizationRef: z.string(),
+    assetId: z.string(),
+    merchant: z.string().nullable(),
+    captured: money,
+    disputable: money,
+    settledAt: z.string().nullable(),
+  }),
+  deadline: z.string().nullable(),
+  standing: z.enum(['disputable', 'declined', 'not_settled', 'refunded', 'already_disputed', 'window_closed', 'rules_unset']),
+  disputeId: z.string().nullable(),
+});
+
 export const bankReads = {
   'accounts.features': accountTermsSchema,
   'accounts.profile': bankProfileSchema,
@@ -1020,6 +1299,7 @@ export const bankReads = {
   'transfers.quote': transferQuoteSchema,
   'cashOut.requests': z.array(cashOutRequestSchema),
   'railSends.requirements': railRequirementsSchema,
+  'safety.regionNotice': regionNoticeSchema,
   'railSends.list': z.array(railSendSchema),
   'railSends.payees': z.array(railPayeeSchema),
   'activity.list': z.object({ items: z.array(incomingLineSchema), nextCursor: z.string().nullable() }),
@@ -1032,6 +1312,8 @@ export const bankReads = {
       amount: money,
       status: z.string(),
       ledgerTxId: z.string().nullable(),
+      /** The partner bank's move for this occurrence when it holds the money (OWNER 226); null on the ledger path. */
+      partnerMoveId: z.string().nullable().default(null),
       rejectionCode: z.string().nullable(),
     }),
   ),
@@ -1072,6 +1354,7 @@ export const bankReads = {
   }),
   'cards.programme': programmeSchema,
   'cards.catalogue': cardCatalogueSchema,
+  'cards.payFrom': payFromSchema,
   'cards.delivery': cardDeliverySchema,
   'cards.cashback': z.object({
     tier: z.enum(['none', 'standard', 'metal', 'obsidian']),
@@ -1081,6 +1364,8 @@ export const bankReads = {
     paid: money,
     unpaid: money,
     refused: money,
+    /** Owed by INTAFACED on partner-held spend and paid to the person's own wallet (My rewards); never spendable here. */
+    toWallet: money,
     payments: z.array(
       z.object({
         authorizationId: z.string(),
@@ -1089,6 +1374,8 @@ export const bankReads = {
         status: z.string(),
         rejectionCode: z.string().nullable(),
         ledgerTxId: z.string().nullable(),
+        paidBy: z.enum(['ledger', 'wallet']),
+        announced: z.boolean(),
       }),
     ),
     paying: z.boolean(),
@@ -1096,16 +1383,45 @@ export const bankReads = {
   }),
   'cards.uses': z.object({ cardId: z.string(), usesAllowed: z.number().int().nullable(), usesMade: z.number().int() }),
   'cards.list': z.array(cardSchema),
+  'cards.controls.get': cardControlsSchema,
+  'cards.secretsOffered': cardSecretsOfferedSchema,
+  'cards.walletTokens': cardWalletTokensSchema,
+  'cards.threeDS.list': z.object({ challenges: z.array(cardThreeDSChallengeSchema) }),
+  'cards.fraud.list': z.object({ reports: z.array(cardFraudReportSchema) }),
+  'cards.disputes.form': cardDisputeFormSchema,
+  'cards.disputes.list': z.array(cardDisputeCaseSchema.omit({ events: true })),
+  'cards.disputes.get': cardDisputeCaseSchema,
+  /** One row per merchant that charges the card on file (J-bank-14 #6), newest first. */
+  'cards.recurring': z.array(
+    z.object({
+      merchant: z.string().nullable(),
+      merchantCountry: z.string().nullable(),
+      payments: z.number().int(),
+      firstAt: z.string(),
+      lastAt: z.string(),
+      lastAmount: money,
+    }),
+  ),
   'cards.authorizations': z.array(
     z.object({
       id: z.string(),
       authorizationRef: z.string(),
       amount: money,
       merchantCategory: z.string().nullable(),
+      /** The merchant and its country as the issuer named them (J-bank-14 #1); null when it named none. */
+      merchant: z.string().nullable().default(null),
+      merchantCountry: z.string().nullable().default(null),
+      /** The issuer flagged a merchant charging the card on file on an agreed schedule (J-bank-14 #6). */
+      recurring: z.boolean().default(false),
       decision: z.enum(['approved', 'declined']),
       declineCode: z.string().nullable(),
       status: z.string(),
       decidedAt: z.string(),
+      /** The merchant's refund of this payment, as recorded; the partner moves it and our ledger posts nothing. */
+      refund: z
+        .object({ amount: money, status: z.enum(['pending', 'settled', 'rejected']), at: z.string() })
+        .nullable()
+        .default(null),
       conversion: z
         .object({ settlementAssetId: z.string(), settlementAmount: money, rate: money, rateQuality: z.string(), rateAsOf: z.string() })
         .nullable(),
@@ -1126,6 +1442,19 @@ export const bankReads = {
   }),
   'autoInvest.list': z.array(ruleSchema),
   'analytics.spend': analyticsSchema,
+  'analytics.budgets': z.array(budgetSchema),
+  'analytics.leftToSpend': leftToSpendSchema,
+  'analytics.compare': monthCompareSchema,
+  'plans.list': plansSchema,
+  'fees.account': accountFeesSchema,
+  'fees.partner': partnerLimitsSchema,
+  partnerHolds: partnerHoldsSchema,
+  'fees.schedule.get': z.object({
+    published: z.boolean(),
+    entries: z.array(
+      z.object({ assetId: z.string(), fee: money, free: z.boolean(), feeBlocker: z.string().nullable(), publishedAt: z.string() }),
+    ),
+  }),
   'business.list': businessListSchema,
   'business.pending': z.array(pendingApprovalSchema),
   'business.members': teamSchema,
@@ -1142,6 +1471,8 @@ export const spaceLockStateSchema = z.object({
   unlockRequestedAt: z.string().datetime({ offset: true }).nullable(),
 });
 export const bankWrites = {
+  'analytics.setBudget': budgetSchema,
+  'analytics.budgetAlertShown': budgetSchema,
   'spaces.create': z.object({ id: z.string(), name: z.string() }),
   'ramps.destinations.rename': destinationSchema,
   'spaces.archive': z.object({ archived: z.literal(true) }),
@@ -1152,7 +1483,18 @@ export const bankWrites = {
   // The bills pot (BK-pots-03): the space that pays bills, and whether a standing order from it tops it up from the account.
   'spaces.setBillsPot': z.object({ spaceId: z.string(), assetId: z.string(), fallback: z.boolean() }),
   'spaces.clearBillsPot': z.object({ spaceId: z.string(), billsPot: z.null() }),
-  'transfers.create': z.object({ ledgerTxId: z.string(), amount: money }),
+  // A move into a space: the ledger's transaction, or, where the partner bank holds both sides (OWNER 226), the partner's
+  // one move and no ledger transaction. Exactly one book made it; a reply naming neither, or both, is never a confirmation.
+  'transfers.create': z
+    .object({
+      ledgerTxId: z.string().min(1).nullable(),
+      amount: money,
+      partnerMove: z
+        .object({ id: z.string().min(1), label: z.string().min(1), movedAt: z.string() })
+        .nullable()
+        .optional(),
+    })
+    .refine((data) => (data.ledgerTxId === null) === (data.partnerMove != null)),
   // A personal send echoes the note and reference it stored, so the review can be checked against them.
   'transfers.toUser': z.object({ ledgerTxId: z.string(), amount: money, note: z.string().nullable(), reference: z.string().nullable() }),
   'transfers.schedule': z.object({ id: z.string(), nextRunAt: z.string() }),
@@ -1193,10 +1535,22 @@ export const bankWrites = {
   'cards.order': cardSchema,
   'cards.acceptTerms': z.object({ id: z.string(), version: z.string(), acceptedAt: z.string() }),
   'cards.updateShipping': cardDeliverySchema,
+  'cards.setPayFromOrder': payFromSchema,
   'cards.activate': cardSchema,
   'cards.replace': cardSchema,
   'cards.setLimits': cardSchema,
   'cards.setChannels': cardSchema,
+  'cards.controls.block': cardControlsSchema,
+  'cards.controls.lift': cardControlsSchema,
+  'cards.reveal': cardRevealSchema,
+  'cards.pin.reveal': cardPinRevealSchema,
+  'cards.pin.set': z.object({ ok: z.literal(true) }),
+  'cards.walletProvision': z.object({ payload: z.string(), expiresAt: z.string(), test: z.boolean() }),
+  'cards.threeDS.answer': cardThreeDSChallengeSchema,
+  'cards.fraud.report': cardFraudReportSchema,
+  'cards.disputes.open': cardDisputeCaseSchema,
+  'cards.disputes.evidence': cardDisputeCaseSchema,
+  'cards.disputes.withdraw': cardDisputeCaseSchema,
   'autoInvest.createDca': ruleSchema,
   'autoInvest.createThresholdSweep': ruleSchema,
   'autoInvest.createRoundUp': ruleSchema,

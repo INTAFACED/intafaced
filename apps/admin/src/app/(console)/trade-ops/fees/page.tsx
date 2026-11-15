@@ -1,7 +1,7 @@
 import { requireFounderPage } from '@/lib/founder-page';
 import { DeskPage } from '@/components/trade-ops/desk-page';
 import { FeesRoom } from '@/components/trade-ops/fees-room';
-import { loadFeesDesk } from '@/lib/trade-ops/fees-calls';
+import { loadFeesDesk, readBuilderCaps } from '@/lib/trade-ops/fees-calls';
 
 /**
  * Fees and convert (J-cex-spot-17): fee versions by pair group and the two-person write of a new one, VIP thresholds and
@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function FeesPage() {
   const { session, config } = await requireFounderPage();
-  const view = await loadFeesDesk({ session, config });
+  const [view, builderCaps] = await Promise.all([loadFeesDesk({ session, config }), readBuilderCaps({ session, config })]);
   const fees = view.fees;
   return (
     <DeskPage
@@ -22,7 +22,7 @@ export default async function FeesPage() {
       state={fees.kind === 'ok' ? 'live' : fees.kind === 'unknown' ? 'unknown' : 'refused'}
       stateReason={fees.kind === 'ok' ? undefined : fees.kind === 'unknown' ? fees.message : fees.code}
     >
-      <FeesRoom initial={view} />
+      <FeesRoom initial={view} builderCaps={builderCaps} />
     </DeskPage>
   );
 }

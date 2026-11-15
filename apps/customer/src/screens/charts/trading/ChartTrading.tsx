@@ -50,6 +50,8 @@ export interface ChartTradingProps {
   protectionWhy?: 'loading' | 'unavailable' | 'unset' | null;
   /** A bar replay is showing past bars: no order is placed or moved from a chart that doesn't show the market now. */
   replaying?: boolean;
+  /** The person's chart setting: the order button on the price scale. Off, the context menu still opens the ticket. */
+  orderButton?: boolean;
 }
 
 /** A pointer that moves less than this many pixels between down and up is a click on the line, not a drag. */
@@ -62,7 +64,7 @@ const isLineOrder = (order: Order, symbol: string) =>
  * Where the price pane sits in the chart, from the host's top: the panes above it (a study moved up) and their separators.
  * The library measures a pane's coordinates from that pane's own top, and the overlay is laid over the whole host.
  */
-function pricePane(host: ChartHost): { index: number; top: number; height: number } {
+export function pricePane(host: ChartHost): { index: number; top: number; height: number } {
   const index = host.main.getPane().paneIndex();
   const panes = host.chart.panes();
   let top = 0;
@@ -74,7 +76,15 @@ function pricePane(host: ChartHost): { index: number; top: number; height: numbe
 /** The library draws one pixel between panes. */
 const PANE_SEPARATOR_PX = 1;
 
-export function ChartTrading({ host, market, refusal, protectionBps, protectionWhy = null, replaying = false }: ChartTradingProps) {
+export function ChartTrading({
+  host,
+  market,
+  refusal,
+  protectionBps,
+  protectionWhy = null,
+  replaying = false,
+  orderButton = true,
+}: ChartTradingProps) {
   const { t } = chartsCopy.useCopy();
   const { userId, api: client } = useSession();
   const env = useDataEnv();
@@ -452,7 +462,7 @@ export function ChartTrading({ host, market, refusal, protectionBps, protectionW
                 </button>
               );
             })}
-            {cursor && !locked && (
+            {cursor && !locked && orderButton && (
               <button
                 type="button"
                 className="ct-plus"

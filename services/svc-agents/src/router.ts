@@ -34,12 +34,15 @@ import { presentLeaderDirectory, sortDirectoryByLeaderId } from './copy-intel/di
 import { runCopyIntelStatsSession } from './copy-intel/session-run.js';
 import { describeMerchantPolicy } from './merchant/policy.js';
 import { describeNavigatorPolicy } from './navigator/policy.js';
+import { navigatorOnchainRoutes } from './navigator/onchain-routes.js';
+import type { NavigatorChain, NavigatorMarket, NavigatorSender } from './navigator/onchain-trade.js';
 import { describeCopyIntelPolicy } from './copy-intel/policy.js';
 import { describeSupportPolicy } from './support-agent/policy.js';
 import { watchApprovalFixtures } from './merchant/watch.js';
 import { runMerchantWatchSession } from './merchant/session-run.js';
 import type { PayMetricsPort } from './merchant/pay-metrics-port.js';
 import type { SpotTickersPort } from './scanner/spot-tickers-port.js';
+import type { ResearchEnvironment } from '@intafaced/contracts/agents-research';
 import type { CopyLeaderFixturesPort } from './copy-intel/live-leader-fixtures-port.js';
 import { REFUSAL_CODES, serialiseGuardrail, toolRefusalCodes } from './fleet/guardrails.js';
 import { draftTicketComment } from './support-agent/comment-draft.js';
@@ -56,6 +59,8 @@ import { envCoachGrounding, runCoachSession, type CoachGrounding } from './coach
 import { describeCoachPolicy } from './coach/policy.js';
 import { coachRunRoutes } from './coach/router.js';
 import { runRoutes } from './runs/routes.js';
+import { backgroundRunRoutes } from './runs/background-routes.js';
+import type { SessionRunSettings } from './runs/background.js';
 import { sessionEventsRoute } from './runs/session-events.js';
 import type { RunStore } from './runs/store.js';
 import { NO_TIER_LAWS, type TierLaws } from './tier-laws.js';
@@ -64,6 +69,7 @@ import { planRebalance } from './portfolio-agent/plan.js';
 import { readOwnHoldings, type HoldingsLedger, type PortfolioPriceSource } from './portfolio-agent/holdings.js';
 import { marketplaceInstallDoor } from './fleet/install.js';
 import { listCatalogue } from './ops/catalogue.js';
+import { agentEligibility } from './fleet/eligibility.js';
 import { listSessions } from './ops/ops-sessions.js';
 import { engineForTasks, engineOfAdapter, resolveRoute, routeIsMetered, type RouteDef, type RouteEngine } from './gateway/routing.js';
 import { spendRouter } from './spend/routes.js';
@@ -75,6 +81,9 @@ import { teamRouter } from './team/routes.js';
 import { opsLogRouter, parseReasons, type OpsLogSettings } from './oplog/routes.js';
 import { fleetRouter, type FleetSettings } from './fleet/control.js';
 import type { BackgroundSettings } from './own/background.js';
+import type { Cadence } from './own/automation.js';
+import type { LinkedWalletsPort } from './own/payment-method.js';
+import type { RetentionPeriods } from './own/memory.js';
 
 /**
  * The internal tRPC surface (§1: "Fastify + tRPC (internal) / REST (public)").
@@ -310,6 +319,17 @@ export interface AgentsRouterDeps {
   readonly fleet?: FleetSettings;
   /** Background test runs of own agents (AG-control-02). Absent is blank: a new background run refuses. */
   readonly ownBackground?: BackgroundSettings;
+  /** The owner's cadence values for own agents' schedules (AG-sessions-02). Absent is blank: a new schedule refuses. */
+  readonly ownCadence?: Cadence;
+  /** Background runs of a person's sessions (AG-sessions-04, J-agents-06). Absent is blank: a new one refuses. */
+  readonly sessionRuns?: SessionRunSettings;
+  /**
+   * Research answers' provenance (RC-agents-09): the owner's uncertainty scale (null is blank: a research answer refuses
+   * agents.uncertainty_scale_unset) and where this deployment's market data is. Absent is blank.
+   */
+  readonly research?: { readonly scale: readonly string[] | null; readonly environment: ResearchEnvironment };
+  /** Identity's list of a person's linked wallets, for an own agent's payment method (J-agents-02 #4). */
+  readonly ownLinkedWallets?: LinkedWalletsPort | null;
   readonly gateway: ModelGateway;
   readonly meter: UsageMeter;
   readonly feeAssetId: string;
@@ -364,8 +384,20 @@ export interface AgentsRouterDeps {
   readonly ownAssistantModel?: string | null;
   /** Owner value: how long an own agent's held call waits for the person, in seconds (AG-approvals-01). Blank refuses holding. */
   readonly ownApprovalTtlSeconds?: number | null;
+  /** The owner's retention periods in days (AG-guardrails-04); a kind left out is "not set". */
+  readonly ownRetention?: RetentionPeriods;
   /** AGENTS_REVIEWER_MODEL: the automatic reviewer's model (AG-approvals-02); blank sends every call to the person. */
   readonly ownReviewerModel?: string | null;
+  /**
+   * AGENTS_NAVIGATOR_ONCHAIN_SIGNER: the public address of the Navigator's on-chain signer (RC-agents-01), never a key.
+   * Absent or blank: `navigator.onchain.*` refuses `rail.crypto`.
+   */
+  readonly navigatorOnchainSigner?: string | null;
+  /**
+   * The Navigator's trading through the key the person signed (J-agents-19 #4): its signer, the chain it reads and the
+   * market it may trade. Absent: a trade ask refuses `rail.crypto` or `agents.navigator_market_unset`.
+   */
+  readonly navigatorTrading?: { sender: NavigatorSender | null; market: NavigatorMarket | null; chain: NavigatorChain | null };
   /** Agents schema. Absent on route stubs that never list sessions or the catalogue. */
   readonly sql?: Sql;
   /** Caller's balances. Read-only: the plan path calls `balances` and nothing else. */
@@ -608,10 +640,29 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
               }),
               engine: z.enum(['sandbox', 'live', 'unknown']),
               metered: z.boolean(),
+              /** Who may use the agent under its published law, and whether this person may (fleet/eligibility.ts). */
+              eligibility: z.discriminatedUnion('rule', [
+                z.object({
+                  rule: z.literal('none'),
+                  eligible: z.literal(true),
+                  reason: z.null(),
+                  code: z.null(),
+                  yourPlan: z.string(),
+                }),
+                z.object({
+                  rule: z.literal('plan'),
+                  published: z.boolean(),
+                  plans: z.array(z.string()),
+                  yourPlan: z.string(),
+                  eligible: z.boolean(),
+                  reason: z.literal('plan').nullable(),
+                  code: z.string().nullable(),
+                }),
+              ]),
             })
             .nullable(),
         )
-        .query(({ input }) =>
+        .query(({ ctx, input }) =>
           guard(async () => {
             const definition = await runtime.agentDefinition(input.agentId);
             if (!definition) return null;
@@ -640,6 +691,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
               },
               engine: flagged.engine,
               metered: flagged.metered,
+              eligibility: agentEligibility(guardrail.agentId, tierLaws, ctx.principal.tier),
             };
           }),
         ),
@@ -725,6 +777,12 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
                 state: z.enum(['open', 'unpaid', 'settled']),
                 amount: z.string().nullable(),
                 chargeKey: z.string().nullable(),
+                /**
+                 * How a settled window was paid: `ledger` (the custodial fee charge), or `partner` with the partner's own
+                 * name and payment id (earned as owed, then collected from the person's payment method). Null until paid.
+                 */
+                paidBy: z.enum(['ledger', 'partner']).nullable(),
+                payment: z.object({ ref: z.string(), label: z.string() }).nullable(),
               }),
             ),
             /**
@@ -752,9 +810,12 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
                 charged_amount: string | null;
                 charge_key: string | null;
                 charge_tx_id: string | null;
+                paid_by: 'ledger' | 'partner' | null;
+                payment_ref: string | null;
+                payment_label: string | null;
               }>
             >`
-              SELECT window_id, opened_at, sealed_at, charged_amount::text, charge_key, charge_tx_id
+              SELECT window_id, opened_at, sealed_at, charged_amount::text, charge_key, charge_tx_id, paid_by, payment_ref, payment_label
                 FROM agents.usage_windows
                WHERE session_id = ${session.id}
                ORDER BY opened_at, window_id
@@ -784,6 +845,12 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
                 state: row.sealed_at === null ? ('open' as const) : row.charge_tx_id ? ('settled' as const) : ('unpaid' as const),
                 amount: row.charged_amount === null ? null : formatAmount(parseAmount(row.charged_amount)),
                 chargeKey: row.charge_key,
+                // A window paid before `paid_by` was kept was a ledger fee charge: that was the only path.
+                paidBy:
+                  row.charge_tx_id && row.sealed_at !== null && row.charged_amount !== null && parseAmount(row.charged_amount) > 0n
+                    ? (row.paid_by ?? 'ledger')
+                    : null,
+                payment: row.paid_by === 'partner' && row.payment_ref ? { ref: row.payment_ref, label: row.payment_label ?? '' } : null,
               })),
               runs: runs.map((run) => ({
                 requestId: run.request_id,
@@ -891,7 +958,10 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
       events: sessionEventsRoute(deps, { guard, ownedSession }),
     }),
 
-    run: router(runRoutes(deps, { guard, executeProcedure, ownedSession })),
+    run: router({
+      ...runRoutes(deps, { guard, executeProcedure, ownedSession }),
+      background: router(backgroundRunRoutes(deps, { guard, executeProcedure, ownedSession })),
+    }),
 
     usage: router({
       /** What the current window would cost if it settled now. Bills nothing. */
@@ -1610,6 +1680,19 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
      * Spec: docs/ops/trk/agents.navigator.md Stage 2.
      */
     navigator: router({
+      /**
+       * On-chain access through a session key the person can revoke, and the approval request every trade ask becomes
+       * (RC-agents-01, J-agents-19). The key is a ceiling, not consent; nothing here moves value or builds a call.
+       */
+      ...navigatorOnchainRoutes({
+        sql,
+        signer: deps.navigatorOnchainSigner ?? null,
+        sender: deps.navigatorTrading?.sender ?? null,
+        market: deps.navigatorTrading?.market ?? null,
+        chain: deps.navigatorTrading?.chain ?? null,
+        linkedWallets: deps.ownLinkedWallets ?? null,
+        session: (sessionId) => runtime.session(sessionId),
+      }),
       policy: publicProcedure
         .output(
           z.object({
@@ -4051,8 +4134,11 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
       tokenLifetimeMinutes: deps.ownTokenLifetimeMinutes ?? null,
       assistantModel: deps.ownAssistantModel ?? null,
       approvalTtlSeconds: deps.ownApprovalTtlSeconds ?? null,
+      retention: deps.ownRetention ?? {},
       reviewerModel: deps.ownReviewerModel ?? null,
       background: deps.ownBackground ?? null,
+      linkedWallets: deps.ownLinkedWallets ?? null,
+      cadence: deps.ownCadence ?? null,
     }),
     /** A business team's agent roles, pool, projects, runs and usage (AG-governance-01). Membership is svc-bank's, read per call. */
     team: teamRouter({ sql, membership: deps.teamMembership, feeAssetId, runtime }),

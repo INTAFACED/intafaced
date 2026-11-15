@@ -1,5 +1,7 @@
 # ADR: listing / delisting policy — what may list, and the refuse path
 
+> **Later: custody (OWNER 226), in part.** INTAFACED holds no customer money at launch. The part about delist/halt must not confiscate open customer holds; real-money futures list gate on insurance fund balance applies when the custodial layer is switched on; the rest holds at launch. It stays as written.
+
 **Status:** **Accepted — 2026-08-12 (structural gates).** Blank-policy fail-closed is **Accepted 2026-08-15** in [`2026-08-15-listing-policy-refuse-blank.md`](2026-08-15-listing-policy-refuse-blank.md) (`trade.listing_policy_unset`; blank ≠ default allow).  
 **Decision owner:** repo owner (Denon). **Written by:** Denon.  
 **Board:** D26-P0-06 — Listing / delisting policy (DIRECTION §8 item 5; board label “§8.5”).  

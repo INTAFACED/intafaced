@@ -238,19 +238,25 @@ function read0016(): string {
 }
 
 describe('a legacy short digest cannot launder a rewritten key or meta', () => {
-  let adminUrl = '';
   let adminStop: () => Promise<void> = async () => undefined;
   let db: TestDb | undefined;
+  let historical: TestDb | undefined;
+  let metaDb: TestDb | undefined;
   let engine: PostgresLedger;
   const opened: TestDb[] = [];
 
+  // Each database is created and migrated here, under the hook's budget: three
+  // migrated databases inside one test's 5 s budget timed out on a loaded runner (#7607).
   beforeAll(async () => {
     const admin = await openH8aAdmin();
-    adminUrl = admin.url;
     adminStop = admin.stop;
     db = await createTestDb({ service: 'ledger_txhash_short', url: admin.url, migrations });
     opened.push(db);
     engine = new PostgresLedger(db.sql);
+    historical = await createTestDb({ service: 'ledger_txhash_hist', url: admin.url, migrations: priorMigrations });
+    opened.push(historical);
+    metaDb = await createTestDb({ service: 'ledger_txhash_meta', url: admin.url, migrations: priorMigrations });
+    opened.push(metaDb);
   }, 120_000);
 
   afterAll(async () => {
@@ -285,9 +291,10 @@ describe('a legacy short digest cannot launder a rewritten key or meta', () => {
     expect(formatAmount((await engine.balance(userAvailable(USER, 'USDT'))).amount)).toBe('10');
     const rows = await db.sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM ledger_tx`;
     expect(rows[0]?.n).toBe('1');
+  });
 
-    const historical = await createTestDb({ service: 'ledger_txhash_hist', url: adminUrl, migrations: priorMigrations });
-    opened.push(historical);
+  it('a key rewritten on a row posted before the bind does not launder through its claim', async () => {
+    if (!historical) throw new Error('H8a: historical test db not opened');
     const histEngine = new PostgresLedger(historical.sql);
     const hist = await insertHistoricalDeposit(historical, 'bind-hist');
     await historical.sql.unsafe(rewriteSchemaSql(read0016(), 'ledger', historical.schema));
@@ -312,9 +319,10 @@ describe('a legacy short digest cannot launder a rewritten key or meta', () => {
     expect(formatAmount((await histEngine.balance(userAvailable(USER, 'USDT'))).amount)).toBe('10');
     const histRows = await historical.sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM ledger_tx`;
     expect(histRows[0]?.n).toBe('1');
+  });
 
-    const metaDb = await createTestDb({ service: 'ledger_txhash_meta', url: adminUrl, migrations: priorMigrations });
-    opened.push(metaDb);
+  it('meta rewritten on a row posted before the bind does not launder through its claim', async () => {
+    if (!metaDb) throw new Error('H8a: meta test db not opened');
     const metaEngine = new PostgresLedger(metaDb.sql);
     const metaRow = await insertHistoricalDeposit(metaDb, 'bind-meta');
     await metaDb.sql.unsafe(rewriteSchemaSql(read0016(), 'ledger', metaDb.schema));

@@ -1,5 +1,7 @@
 # ADR: S-D2 — INTACORE module map (house book vs chain book)
 
+> **Later: custody (OWNER 226), in part.** INTAFACED holds no customer money at launch. The row that maps custodial balances, bank, pay and cards to the ledger applies when the custodial layer is switched on; the rest holds at launch. It stays as written.
+
 **Status:** **Accepted — 2026-09-18** as **spec**. Implement of P1 stays **parked**.  
 **Decision owner:** Nitro. **Written by:** Grok (agents).  
 **Spec id:** S-D2 (Shehzad board).  

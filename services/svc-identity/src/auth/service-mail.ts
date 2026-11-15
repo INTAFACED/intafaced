@@ -23,6 +23,7 @@ import { serviceOfRequest, type IdentityS2s } from '../s2s-door.js';
 /** The one service allowed to ask for each purpose. */
 export const SERVICE_MAIL_CALLERS: Readonly<Record<ServiceMailPurpose, string>> = {
   'withdraw-address-approval': 'svc-bank',
+  'support-chat-email': 'svc-support',
 };
 
 /** The longest a link may be shown as valid for. */

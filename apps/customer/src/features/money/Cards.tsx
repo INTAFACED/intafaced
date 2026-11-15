@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState } from 'react';
+import { DecisionMerchant, DeclineReason } from './CardBlocks';
 import type { z } from 'zod';
 import { Button } from '../../shared/ui';
 import { displayAmount } from '../../shared/money';
@@ -11,8 +12,9 @@ import { CardControlPanels, CardFace, OrderCard } from './CardPanels';
 import { maskedPan, orderBlock, type OrderBlock } from './card-controls';
 import { useHoldings } from './holdings';
 import { useSession } from '../session/session';
-import { CardCashback, CardJourney } from './CardJourney';
+import { CardCashback, CardJourney, CardPayFrom } from './CardJourney';
 import { cardOrderCopy } from './card-order-copy';
+import { cardFeedCopy } from './card-feed-copy';
 
 type CardRecord = z.infer<typeof cardSchema>;
 type CardDecision = z.infer<(typeof bankReads)['cards.authorizations']>[number];
@@ -205,6 +207,7 @@ export function CardActions({
 
 function Decision({ row, asset }: { row: CardDecision; asset: string }) {
   const { Copy } = cardCopy.useCopy();
+  const feed = cardFeedCopy.useCopy();
   return (
     <article className="money-card-decision">
       <header>
@@ -260,6 +263,16 @@ function Decision({ row, asset }: { row: CardDecision; asset: string }) {
           {row.authorizationRef === '' ? <Copy k="emptyReference" /> : row.authorizationRef}
         </dd>
       </dl>
+      <DecisionMerchant merchant={row.merchant ?? null} country={row.merchantCountry ?? null} />
+      {row.recurring && <p className="money-caption">{feed.t('feedRecurring')}</p>}
+      {row.refund && (
+        <dl className="money-card-refund" data-refund={row.refund.status}>
+          <dt>{feed.t('feedRefund')}</dt>
+          <dd>
+            <CardQuantity value={row.refund.amount} asset={asset} />
+          </dd>
+        </dl>
+      )}
       {row.declineCode !== null && (
         <dl className="money-card-decline">
           <dt>
@@ -270,6 +283,7 @@ function Decision({ row, asset }: { row: CardDecision; asset: string }) {
           </dd>
         </dl>
       )}
+      {row.declineCode ? <DeclineReason code={row.declineCode} /> : null}
       {row.conversion && (
         <div className="money-card-conversion">
           <h5>
@@ -556,6 +570,7 @@ export function OwnerCards({ open }: { open: (spec: ActionSpec) => void }) {
         {order.t('getCard')}
       </a>
       <CardCashback />
+      <CardPayFrom />
       <OrderCard open={open} programme={orderProgramme} assets={orderAssets} />
       {selected && (
         <section className="money-selected-card" aria-labelledby="money-selected-card-heading">

@@ -47,6 +47,13 @@ async function fillsOf(who, id) {
   return body;
 }
 
+/** The person's newest ledger lines on their own balance (a page of 200), through the service. */
+async function ledgerLines(who) {
+  const { status, body } = await (await client(who)).get('/api/v1/ledger?limit=200');
+  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  return body.entries;
+}
+
 /** The order ids a history or desk table links to, in the order shown. */
 async function linkedIds(table) {
   const hrefs = await table.locator('a[data-testid="dk-order-link"]').evaluateAll((links) => links.map((a) => a.getAttribute('href')));
@@ -232,7 +239,10 @@ test(`${J} #4 reads the fills of a partly filled order, then cancel gives back e
   let price;
   const partlyFilled = (o) => o?.status === 'open' && o.filled !== '0';
   for (let attempt = 0; attempt < 3 && !partlyFilled(part); attempt++) {
-    const { bid } = await bestPrices();
+    // Priced from the maker's two-sided quote, not the bare top of the book: with another journey's far bid on top,
+    // 1% under it is under the 10% price band around the middle of bid and ask, and the sale below was refused 400
+    // (issue #7354; #6 met the same band, runs 631 to 640 on main).
+    const { bid } = await makerQuote();
     const tick = toUnits('0.01');
     price = fromUnits(((toUnits(bid) * 99n) / 100n / tick) * tick);
     order = await place(who, { type: 'limit', side: 'buy', amount: '0.002', price, timeInForce: 'GTC' }, `part${attempt}`);
@@ -251,7 +261,7 @@ test(`${J} #4 reads the fills of a partly filled order, then cancel gives back e
         timeInForce: 'IOC',
         clientOrderId: `${J}-4-${order.id}-${sale}`,
       });
-      expect(sell.status).toBeLessThan(300);
+      expect(sell.status, JSON.stringify(sell.body).slice(0, 300)).toBeLessThan(300);
       await expect
         .poll(async () => (await orderById(who, order.id)).filled, { timeout: 5_000 })
         .not.toBe('0')
@@ -278,6 +288,7 @@ test(`${J} #4 reads the fills of a partly filled order, then cancel gives back e
   const openHolds = (await openOrders(who)).reduce((sum, o) => sum + toUnits(o.hold?.amount ?? '0'), 0n);
   expect(held(balances, 'USDT')).toBe(openHolds);
   const freeBefore = toUnits(balances.USDT.free);
+  const linesBefore = new Set((await ledgerLines(who)).map((l) => l.id));
 
   await page.getByRole('button', { name: 'Cancel order' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Cancelled.' })).toContainText(
@@ -289,6 +300,26 @@ test(`${J} #4 reads the fills of a partly filled order, then cancel gives back e
   expect(held(after, 'USDT')).toBe(openHolds - toUnits(part.hold.amount));
   // The filled part stays filled.
   expect((await orderById(who, order.id)).filled).toBe(part.filled);
+
+  // Reads the fills again: exactly the same fills, which add up to the filled part, and the page lists exactly them.
+  const fillsAfter = await fillsOf(who, order.id);
+  expect(fillsAfter.map((f) => f.id).sort()).toEqual(fills.map((f) => f.id).sort());
+  expect(fillsAfter.reduce((sum, f) => sum + toUnits(f.amount), 0n)).toBe(toUnits(part.filled));
+  await page.reload();
+  await expect(page.getByTestId('page-heading')).toContainText('Cancelled');
+  await expect(page.getByTestId('orders-fill')).toHaveCount(fills.length);
+  // The cancelled remainder has no fill, so it carries no fee row and no ledger entry: the cancel's one line on the
+  // person's balance is the USDT hold coming back, and no new line is a fill, a fee or our builder fee.
+  const posted = (await ledgerLines(who)).filter((l) => !linesBefore.has(l.id));
+  expect(
+    posted.map((l) => [l.currency, toUnits(l.amount)]),
+    JSON.stringify(posted),
+  ).toEqual([['USDT', toUnits(part.hold.amount)]]);
+  expect(posted[0].type, JSON.stringify(posted)).toMatch(/release/);
+  expect(
+    posted.filter((l) => /^trade\./.test(l.type)),
+    JSON.stringify(posted),
+  ).toEqual([]);
 });
 
 test(`${J} #5 opens a fill's detail: price, amount, maker or taker, fee rate, fee asset and rank discount`, async ({ page }) => {
@@ -337,7 +368,7 @@ test(`${J} #6 a stop that fired says why: its stop price, the price that reached
     timeInForce: 'IOC',
     clientOrderId: `${J}-6-${order.id}`,
   });
-  expect(lift.status).toBeLessThan(300);
+  expect(lift.status, JSON.stringify(lift.body).slice(0, 300)).toBeLessThan(300);
   await expect.poll(async () => (await orderById(who, order.id)).triggered ?? null, { timeout: 30_000 }).not.toBeNull();
   await expect.poll(async () => (await orderById(who, order.id)).filled, { timeout: 30_000 }).toBe('0.001');
   const fired = await orderById(who, order.id);

@@ -51,6 +51,8 @@ export const statusCopy = defineCopy('public-status', {
   maintenanceLoading: 'Loading the maintenance schedule…',
   maintenanceFailed: 'Couldn’t load the maintenance schedule.',
   windowNotSet: 'time not set',
+  endNotSet: 'End time not set',
+  marketMaintenance: 'Maintenance',
   windowTo: 'to',
   noticesLink: 'Open notices',
   componentsTitle: 'Components',

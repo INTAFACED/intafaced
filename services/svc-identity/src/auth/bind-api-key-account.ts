@@ -39,6 +39,31 @@ export async function bindApiKeyAccount(
   return { id: row.id, accountId: row.account_id };
 }
 
+/**
+ * The owner's cap on live keys bound to one sub-account (`IDENTITY_PORTFOLIO_KEYS_MAX`, DV-sub-accounts-01), for the
+ * programmatic bind and mint doors as for the key form. Blank refuses; at the cap refuses. `exceptKeyId` is the key
+ * being bound, so binding a key already on this account again is not counted twice.
+ */
+export async function assertPortfolioKeyRoom(
+  sql: Sql,
+  userId: string,
+  accountId: string,
+  cap: number | null,
+  exceptKeyId: string | null = null,
+): Promise<void> {
+  if (cap === null) {
+    throw new ApiKeyAccountError('The number of keys a sub-account may hold is not set', 'identity.portfolio_key_cap_unset');
+  }
+  const live = await sql<Array<{ n: number }>>`
+    SELECT count(*)::int AS n FROM api_keys
+    WHERE user_id = ${userId} AND account_id = ${accountId} AND revoked = false AND (expires_at IS NULL OR expires_at > now())
+      AND id IS DISTINCT FROM ${exceptKeyId}
+  `;
+  if ((live[0]?.n ?? 0) >= cap) {
+    throw new ApiKeyAccountError('This sub-account holds as many keys as it may', 'identity.portfolio_key_cap_reached');
+  }
+}
+
 export async function assertApiKeyAccount(
   sql: Sql,
   userId: string,

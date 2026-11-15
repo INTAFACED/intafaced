@@ -6,6 +6,11 @@
       "value": "150",
       "note": "Worst price a market buy may be funded at above the best ask."
     },
+    "TRADE_MARKET_SPREAD_LIMIT_BPS": {
+      "service": "trade",
+      "value": "100",
+      "note": "Widest venue spread a venue spot market order is sent at."
+    },
     "TRADE_CONVERT_SPREAD_BPS": {
       "service": "trade",
       "value": "25",
@@ -48,8 +53,8 @@
     },
     "TRADE_COPY_FEE_SHARE_LAW": {
       "service": "trade",
-      "value": "{\"published\": true, \"leaderShareBps\": 2000, \"earningsCapPerFollower\": \"5000.00\", \"decayRoundTrips\": 100, \"decayShareBps\": 2500}",
-      "note": "TEST copy fee share, not the owner's figures (those are set on the host; see the private records): 20% of the trading fee on copied orders, capped at 5000 per follower, a quarter of that after 100 round trips."
+      "value": "{\"published\": true, \"leaderShareBps\": 1234, \"earningsCapPerFollower\": \"5000.00\", \"decayRoundTrips\": 100, \"decayShareBps\": 2500}",
+      "note": "LOCAL TEST ONLY, not an owner decision: a synthetic copy fee share (the owner's figures are set on the host; see the private records). 12.34% of the trading fee on copied orders, a value chosen to look synthetic, capped at 5000 per follower, a quarter of that after 100 round trips."
     },
     "TRADE_COPY_JURISDICTION_LAW": {
       "service": "trade",
@@ -70,6 +75,16 @@
       "service": "trade",
       "value": "60",
       "note": "TEST wait of 60 seconds before a rejected lead applicant may apply again, so J-copy-bots-otc-10 #4 sees the wait refuse and then end on the real clock."
+    },
+    "TRADE_SIGNAL_MAX_ALERT_AGE_SECONDS": {
+      "service": "trade",
+      "value": "20",
+      "note": "TEST maximum chart alert age of 20 seconds, so J-copy-bots-otc-20 #2 sees an hour-old alert refused as stale. Not an owner decision."
+    },
+    "TRADE_SIGNAL_WEBHOOK_DAYS": {
+      "service": "trade",
+      "value": "30",
+      "note": "TEST life of 30 days for a chart alert webhook's place grant, so J-copy-bots-otc-20 can create one. Not an owner decision."
     },
     "TRADE_BOTS_VERIFICATION_LEVEL": {
       "service": "trade",
@@ -135,6 +150,86 @@
       "service": "trade",
       "value": "{\"ticker\":{\"entitlement\":\"TEST: any visitor, no account\",\"redistribution\":\"TEST: allowed with attribution\",\"retention\":\"TEST: no limit\",\"privacy\":\"TEST: no personal data\",\"commercial\":\"TEST: free\"},\"depth_l1\":{\"entitlement\":\"TEST: any visitor, no account\",\"redistribution\":\"TEST: allowed with attribution\",\"retention\":\"TEST: no limit\",\"privacy\":\"TEST: no personal data\",\"commercial\":\"TEST: free\"},\"depth_l2\":{\"entitlement\":\"TEST: signed-in account\",\"redistribution\":\"TEST: not allowed\",\"retention\":\"TEST: 24 hours\",\"privacy\":\"TEST: no personal data\",\"commercial\":\"TEST: free\"},\"candles\":{\"entitlement\":\"TEST: any visitor, no account\",\"redistribution\":\"TEST: allowed with attribution\",\"retention\":\"TEST: no limit\",\"privacy\":\"TEST: no personal data\",\"commercial\":\"TEST: free\"},\"trades\":{\"entitlement\":\"TEST: signed-in account\",\"redistribution\":\"TEST: not allowed\",\"retention\":\"TEST: 30 days\",\"privacy\":\"TEST: no personal data\",\"commercial\":\"TEST: free\"}}",
       "note": "LOCAL TEST ONLY, not an owner decision: data terms for five products; index is left out so its row reads not set (J-developer-01 #6)."
+    },
+    "TRADE_USER_VENUE_BUILDER_ADDRESS": {
+      "service": "trade",
+      "value": "0x116d8f7751e72306d499dd61ae826e46a726c632",
+      "note": "LOCAL TEST ONLY, not an owner decision: the builder address on the TEST venue simulator (B1 user-venue door), the one TRADE_BUILDER_KEY_SEED's TEST key signs for (J-campaigns-03: the sweep of our builder fees). It receives only TEST builder fees in the simulator's memory."
+    },
+    "TRADE_BUILDER_KEY_SEED": {
+      "service": "trade",
+      "value": "intafaced LOCAL TEST builder key seed - public, holds nothing real",
+      "note": "LOCAL TEST ONLY, a public phrase and never a secret: the seed the TEST stack's builder key derives from (src/builder-fee/wire.ts builderKeyFor), so the sweep can sign the TEST builder address's withdrawal on the TEST venue. The real seed is a secret the owner sets; blank, the sweep waits trade.builder_signer_unset."
+    },
+    "TRADE_OWN_FUNDS_FLOAT": {
+      "service": "trade",
+      "value": "2",
+      "note": "LOCAL TEST ONLY, not an owner decision (OWNER 288 Q4: the float is his): 2 TEST USDC left in our builder account at the TEST venue, which covers the TEST venue's 1 USDC withdrawal fee. Blank, the sweep waits trade.own_funds_float_unset."
+    },
+    "TRADE_OWN_FUNDS_SWEEP_INTERVAL_MS": {
+      "service": "trade",
+      "value": "3000",
+      "note": "LOCAL TEST ONLY, not an owner decision (OWNER 288 Q4: the schedule is his): a sweep run every 3 seconds on the test stack, so a journey sees a move inside its run. Blank, nothing is swept."
+    },
+    "TRADE_OWN_FUNDS_WALLET": {
+      "service": "trade",
+      "value": "test-chain:rewards=0x00000000000000000000000000000000ce510001",
+      "note": "LOCAL TEST ONLY, not an owner decision: INTAFACED's TEST rewards wallet on the stack's TEST chain (no key; svc-campaigns pays rewards from it by impersonating it on that anvil only, J-campaigns-03). Blank, the sweep waits trade.own_funds_wallet_unset."
+    },
+    "TRADE_USER_VENUE_BUILDER_FEE_BPS": {
+      "service": "trade",
+      "value": "0.5",
+      "note": "LOCAL TEST ONLY, not an owner decision: half a basis point of notional as our builder fee on the TEST venue simulator. Blank, every venue order refuses builder_fee_not_published; LOCAL_STACK_USER_VENUE_BUILDER_FEE=off leaves it blank."
+    },
+    "TRADE_AGENT_ACCOUNT_CEILING": {
+      "service": "trade",
+      "value": "500",
+      "note": "LOCAL TEST ONLY, not an owner decision: the most any person's agent-account cap may be, TEST 500 USDC (J-agents-21). Blank refuses every create agents.account_ceiling_unset; LOCAL_STACK_AGENT_ACCOUNT_CEILING=off leaves it blank for one restart (J-agents-21 #1)."
+    },
+    "TRADE_AGENT_ACCOUNT_ASSET": {
+      "service": "trade",
+      "value": "USDC",
+      "note": "LOCAL TEST ONLY, not an owner decision: the one asset an agent account is funded in and its cap counted in, the TEST venue's quote asset. Blank refuses every create agents.account_asset_unset."
+    },
+    "TRADE_AGENT_KEY_SEED": {
+      "service": "trade",
+      "value": "intafaced LOCAL TEST agent key seed - public, holds nothing real",
+      "note": "LOCAL TEST ONLY, a public phrase and never a secret: the seed the TEST stack's venue agent keys derive from (src/venue/agent-key.ts). Every key from it holds nothing anywhere but the TEST venue's memory. The real seed is a secret the owner sets; blank refuses every create agents.agent_key_unset."
+    },
+    "TRADE_AGENT_MAX_ORDER_NOTIONAL": {
+      "service": "trade",
+      "value": "100",
+      "note": "LOCAL TEST ONLY, not an owner decision: the largest notional of one assistant order, TEST 100 USDC (the drain bounds, J-agents-21). Blank refuses every agent order agents.order_bound_unset."
+    },
+    "TRADE_AGENT_WORST_PRICE_BPS": {
+      "service": "trade",
+      "value": "200",
+      "note": "LOCAL TEST ONLY, not an owner decision: the worst price an assistant order may name, 2% from the mark. Blank refuses every agent order agents.price_bound_unset."
+    },
+    "TRADE_AGENT_MARKETS": {
+      "service": "trade",
+      "value": "BTC-USDC,BTC-PERP",
+      "note": "LOCAL TEST ONLY, not an owner decision: the markets an assistant may trade on the TEST venue. Blank refuses every agent order agents.markets_unset."
+    },
+    "TRADE_QUANT_LIVE_HEARTBEAT_MS": {
+      "service": "trade",
+      "value": "3000",
+      "note": "LOCAL TEST ONLY, not an owner decision: a live strategy run with no heartbeat for 3 seconds reads unknown and goes to the reconciler (J-algo-dev-07 #4). Blank refuses every live start quant.heartbeat_interval_unset."
+    },
+    "TRADE_AGENT_MAX_LEVERAGE": {
+      "service": "trade",
+      "value": "5",
+      "note": "LOCAL TEST ONLY, not an owner decision: the highest leverage cap a person may set on an agent account, 5x (J-agents-21 #16). Blank refuses every leverage cap agents.limit_ceiling_unset."
+    },
+    "TRADE_AGENT_MAX_DAILY_LOSS": {
+      "service": "trade",
+      "value": "100",
+      "note": "LOCAL TEST ONLY, not an owner decision: the highest daily-loss cap a person may set on an agent account, TEST 100 USDC (J-agents-21 #16). Blank refuses every daily-loss cap agents.limit_ceiling_unset."
+    },
+    "TRADE_USER_VENUE_ORDERS_PAGE_MAX": {
+      "service": "trade",
+      "value": "50",
+      "note": "LOCAL TEST ONLY, not an owner decision: the largest page of GET /api/v1/venue/orders on the TEST venue (J-developer-05 #6). Blank, every list refuses trade.venue_orders_page_max_unset; LOCAL_STACK_USER_VENUE_ORDERS_PAGE_MAX=off leaves it blank."
     }
   }
 }

@@ -9,6 +9,7 @@ import type { Sql } from 'postgres';
 import { isValidPositivePrice } from './decimal.js';
 import {
   ALERT_CONDITIONS,
+  ALERT_OUT_CHANNELS,
   conditionOfDirection,
   directionOfCondition,
   isAlertPriceSource,
@@ -29,7 +30,12 @@ import {
 
 export class AlertValidationError extends Error {
   readonly code:
-    'alert.invalid_price' | 'alert.invalid_market' | 'alert.invalid_direction' | 'alert.invalid_source' | 'alert.kind_unpublished';
+    | 'alert.invalid_price'
+    | 'alert.invalid_market'
+    | 'alert.invalid_direction'
+    | 'alert.invalid_source'
+    | 'alert.kind_unpublished'
+    | 'alert.channel_invalid';
   constructor(code: AlertValidationError['code'], message: string) {
     super(message);
     this.name = 'AlertValidationError';
@@ -197,6 +203,8 @@ export class MemoryAlertStore implements AlertStore {
       burstStartedAt: null,
       burstCount: 0,
       source,
+      channels: input.channels ? [...input.channels] : null,
+      webhookUrl: input.webhookUrl ?? null,
     };
     this.byId.set(row.id, row);
     return row;
@@ -345,11 +353,11 @@ export class PostgresAlertStore implements AlertStore {
     const { kind, source } = assertCreate(input);
     const id = randomUUID();
     const insert = (sql: Sql) => sql<AlertRow[]>`
-      INSERT INTO notify.price_alerts (id, user_id, market_id, kind, direction, target_price, status, condition, name, message, expires_at, extra_conditions, frequency, source)
+      INSERT INTO notify.price_alerts (id, user_id, market_id, kind, direction, target_price, status, condition, name, message, expires_at, extra_conditions, frequency, source, channels, webhook_url)
       VALUES (${id}, ${input.userId}, ${input.marketId.trim()}, ${kind}, ${directionOf(input)}, ${input.targetPrice.trim()}, 'active',
         ${conditionOf(input)}, ${input.name ?? null}, ${input.message ?? null}, ${input.expiresAt ?? null}, ${sql.json((input.extras ?? []) as never)},
-        ${input.frequency ?? 'once'}, ${source})
-      RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at, stop_reason, burst_started_at, burst_count, source
+        ${input.frequency ?? 'once'}, ${source}, ${input.channels ? sql.json([...input.channels] as never) : null}, ${input.webhookUrl ?? null})
+      RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at, stop_reason, burst_started_at, burst_count, source, channels, webhook_url
     `;
     if (input.maxOpen === undefined) return mapRow((await insert(this.sql))[0]!);
     const maxOpen = input.maxOpen;
@@ -366,31 +374,8 @@ export class PostgresAlertStore implements AlertStore {
   }
 
   async createMany(inputs: readonly CreatePriceAlertInput[], maxOpen: number): Promise<readonly PriceAlert[]> {
-    const first = inputs[0];
-    if (!first) return [];
-    const sources = inputs.map((input) => assertCreate(input).source);
-    // One transaction under the same per-person lock a single create takes, so the batch is all in or all out.
-    return this.sql.begin(async (tx) => {
-      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`notify.alert_quota:${first.userId}`}, 0))`;
-      const [counted] = await tx<{ n: number }[]>`
-        SELECT count(*)::int AS n FROM notify.price_alerts
-        WHERE user_id = ${first.userId} AND kind = 'price' AND status IN ('active', 'stopped')
-      `;
-      const held = counted?.n ?? 0;
-      if (held + inputs.length > maxOpen) throw new AlertQuotaReachedError(maxOpen, held, inputs.length);
-      const rows: PriceAlert[] = [];
-      for (const [i, input] of inputs.entries()) {
-        const [row] = await tx<AlertRow[]>`
-          INSERT INTO notify.price_alerts (id, user_id, market_id, kind, direction, target_price, status, condition, name, message, expires_at, extra_conditions, frequency, source)
-          VALUES (${randomUUID()}, ${input.userId}, ${input.marketId.trim()}, 'price', ${directionOf(input)}, ${input.targetPrice.trim()}, 'active',
-            ${conditionOf(input)}, ${input.name ?? null}, ${input.message ?? null}, ${input.expiresAt ?? null}, ${tx.json((input.extras ?? []) as never)},
-            ${input.frequency ?? 'once'}, ${sources[i]!})
-          RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at, stop_reason, burst_started_at, burst_count, source
-        `;
-        rows.push(mapRow(row!));
-      }
-      return rows;
-    });
+    if (inputs.length === 0) return [];
+    return this.sql.begin((tx) => insertPriceAlerts(tx as unknown as Sql, inputs, maxOpen));
   }
 
   async countOpen(userId: string, kind: SourcedAlertKind): Promise<number> {
@@ -405,13 +390,13 @@ export class PostgresAlertStore implements AlertStore {
     const rows =
       limit == null
         ? await this.sql<AlertRow[]>`
-            SELECT id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at, stop_reason, burst_started_at, burst_count, source
+            SELECT id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at, stop_reason, burst_started_at, burst_count, source, channels, webhook_url
             FROM notify.price_alerts
             WHERE user_id = ${userId}
             ORDER BY created_at DESC
           `
         : await this.sql<AlertRow[]>`
-            SELECT id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at, stop_reason, burst_started_at, burst_count, source
+            SELECT id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at, stop_reason, burst_started_at, burst_count, source, channels, webhook_url
             FROM notify.price_alerts
             WHERE user_id = ${userId}
             ORDER BY created_at DESC
@@ -422,7 +407,7 @@ export class PostgresAlertStore implements AlertStore {
 
   async get(userId: string, id: string): Promise<PriceAlert | null> {
     const rows = await this.sql<AlertRow[]>`
-      SELECT id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at, stop_reason, burst_started_at, burst_count, source
+      SELECT id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at, stop_reason, burst_started_at, burst_count, source, channels, webhook_url
       FROM notify.price_alerts
       WHERE user_id = ${userId} AND id = ${id}
       LIMIT 1
@@ -432,7 +417,7 @@ export class PostgresAlertStore implements AlertStore {
 
   async listActiveByMarket(marketId: string): Promise<readonly PriceAlert[]> {
     const rows = await this.sql<AlertRow[]>`
-      SELECT id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at, stop_reason, burst_started_at, burst_count, source
+      SELECT id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at, stop_reason, burst_started_at, burst_count, source, channels, webhook_url
       FROM notify.price_alerts
       WHERE market_id = ${marketId} AND status = 'active'
     `;
@@ -454,7 +439,7 @@ export class PostgresAlertStore implements AlertStore {
       UPDATE notify.price_alerts
       SET status = 'fired', fired_at = ${at}
       WHERE user_id = ${userId} AND id = ${id} AND status = 'active'
-      RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at, stop_reason, burst_started_at, burst_count, source
+      RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at, stop_reason, burst_started_at, burst_count, source, channels, webhook_url
     `;
     return rows[0] ? mapRow(rows[0]) : null;
   }
@@ -464,7 +449,7 @@ export class PostgresAlertStore implements AlertStore {
       UPDATE notify.price_alerts
       SET status = 'cancelled', updated_at = now()
       WHERE user_id = ${userId} AND id = ${id} AND status IN ('active', 'stopped')
-      RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at, stop_reason, burst_started_at, burst_count, source
+      RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at, stop_reason, burst_started_at, burst_count, source, channels, webhook_url
     `;
     if (rows[0]) return mapRow(rows[0]);
     return this.get(userId, id);
@@ -477,7 +462,7 @@ export class PostgresAlertStore implements AlertStore {
           message = ${next.message}, expires_at = ${next.expiresAt}, extra_conditions = ${this.sql.json(next.extras as never)},
           frequency = ${next.frequency}, source = ${next.source}, last_side = NULL, updated_at = ${at}
       WHERE user_id = ${userId} AND id = ${id} AND status IN ('active', 'stopped')
-      RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at, stop_reason, burst_started_at, burst_count, source
+      RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at, stop_reason, burst_started_at, burst_count, source, channels, webhook_url
     `;
     return rows[0] ? mapRow(rows[0]) : null;
   }
@@ -489,7 +474,7 @@ export class PostgresAlertStore implements AlertStore {
       UPDATE notify.price_alerts
       SET status = ${to}, last_side = NULL, stop_reason = NULL, burst_started_at = NULL, burst_count = 0, updated_at = ${at}
       WHERE user_id = ${userId} AND id = ${id} AND status = ${from}
-      RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at, stop_reason, burst_started_at, burst_count, source
+      RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at, stop_reason, burst_started_at, burst_count, source, channels, webhook_url
     `;
     if (rows[0]) return mapRow(rows[0]);
     return this.get(userId, id);
@@ -529,7 +514,7 @@ export class PostgresAlertStore implements AlertStore {
     // The row is locked while the window is counted, so two sweeps cannot both count into the same window.
     return this.sql.begin(async (tx) => {
       const [row] = await tx<AlertRow[]>`
-        SELECT id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at, stop_reason, burst_started_at, burst_count, source
+        SELECT id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at, stop_reason, burst_started_at, burst_count, source, channels, webhook_url
         FROM notify.price_alerts
         WHERE user_id = ${userId} AND id = ${id} AND status = 'active' AND fire_count = ${fireCount}
         FOR UPDATE
@@ -545,7 +530,7 @@ export class PostgresAlertStore implements AlertStore {
             status = ${stop ? 'stopped' : 'active'}, stop_reason = ${stop ? 'burst' : null},
             updated_at = ${stop ? at : row.updated_at}
         WHERE user_id = ${userId} AND id = ${id}
-        RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at, stop_reason, burst_started_at, burst_count, source
+        RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at, stop_reason, burst_started_at, burst_count, source, channels, webhook_url
       `;
       return updated ? mapRow(updated) : null;
     });
@@ -576,6 +561,8 @@ type AlertRow = {
   burst_started_at: Date | null;
   burst_count: number;
   source: AlertPriceSource;
+  channels: string[] | null;
+  webhook_url: string | null;
 };
 
 function mapRow(r: AlertRow): PriceAlert {
@@ -603,6 +590,8 @@ function mapRow(r: AlertRow): PriceAlert {
     burstStartedAt: r.burst_started_at,
     burstCount: r.burst_count,
     source: storedSource(r),
+    channels: r.channels === null ? null : ALERT_OUT_CHANNELS.filter((c) => r.channels!.includes(c)),
+    webhookUrl: r.webhook_url,
   };
 }
 
@@ -610,4 +599,38 @@ function mapRow(r: AlertRow): PriceAlert {
 function storedSource(r: AlertRow): AlertPriceSource {
   if (isAlertPriceSource(r.source)) return r.source;
   throw new Error(`notify.price_alerts ${r.id} has an unknown source ${String(r.source)} — refuse rather than evaluate it on the mark`);
+}
+
+/**
+ * Insert several price alerts for one person inside the caller's transaction: all of them or none. Takes the per-person quota
+ * lock a single create takes, counts the open price alerts and refuses with `AlertQuotaReachedError` when these would pass
+ * `maxOpen`. Shared by `createMany` and the watchlist rules, which write their own row in the same transaction.
+ */
+export async function insertPriceAlerts(
+  tx: Sql,
+  inputs: readonly CreatePriceAlertInput[],
+  maxOpen: number,
+): Promise<readonly PriceAlert[]> {
+  const first = inputs[0];
+  if (!first) return [];
+  const sources = inputs.map((input) => assertCreate(input).source);
+  await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`notify.alert_quota:${first.userId}`}, 0))`;
+  const [counted] = await tx<{ n: number }[]>`
+    SELECT count(*)::int AS n FROM notify.price_alerts
+    WHERE user_id = ${first.userId} AND kind = 'price' AND status IN ('active', 'stopped')
+  `;
+  const held = counted?.n ?? 0;
+  if (held + inputs.length > maxOpen) throw new AlertQuotaReachedError(maxOpen, held, inputs.length);
+  const rows: PriceAlert[] = [];
+  for (const [i, input] of inputs.entries()) {
+    const [row] = await tx<AlertRow[]>`
+      INSERT INTO notify.price_alerts (id, user_id, market_id, kind, direction, target_price, status, condition, name, message, expires_at, extra_conditions, frequency, source, channels, webhook_url)
+      VALUES (${randomUUID()}, ${input.userId}, ${input.marketId.trim()}, 'price', ${directionOf(input)}, ${input.targetPrice.trim()}, 'active',
+        ${conditionOf(input)}, ${input.name ?? null}, ${input.message ?? null}, ${input.expiresAt ?? null}, ${tx.json((input.extras ?? []) as never)},
+        ${input.frequency ?? 'once'}, ${sources[i]!}, ${input.channels ? tx.json([...input.channels] as never) : null}, ${input.webhookUrl ?? null})
+      RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at, stop_reason, burst_started_at, burst_count, source, channels, webhook_url
+    `;
+    rows.push(mapRow(row!));
+  }
+  return rows;
 }

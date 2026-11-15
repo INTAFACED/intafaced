@@ -38,8 +38,8 @@ describe('userCopy — catalog keys, never invented English', () => {
     expect(terminal).not.toMatch(/ /);
     expect(terminal).not.toMatch(/comment refused|ticket is terminal/i);
 
-    const stale = userCopy('support.kb.revision_stale');
-    expect(stale).toBe('support.kb.revision_stale');
+    const stale = userCopy('support.kb_revision_stale');
+    expect(stale).toBe('support.kb_revision_stale');
     expect(stale).not.toMatch(/ /);
     expect(stale).not.toMatch(/revision is stale|KB article refused/i);
 

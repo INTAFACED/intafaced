@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { createApiClient, type ApiResult } from '../../shared/api';
+import { forgetDeviceSessionKeys } from '../../shared/device-session-key';
 
 /**
  * What the page holds about a sign-in. There is no refresh token here, on purpose: the server keeps it in the HttpOnly
@@ -281,6 +282,13 @@ function refusedByIdentity(result: ApiResult<unknown>): boolean {
 /** Refresh this long before the access token expires. */
 const REFRESH_LEAD_MS = 30_000;
 const MAX_TIMER_MS = 2_147_483_647;
+/**
+ * The least time between two silent refreshes. A device whose clock runs ahead of the server's sees every fresh token as
+ * already due, and without this floor would refresh again at once, without end, until identity rate-limits the person
+ * and every read fails "Too many requests" (J-bank-16 #1, run 42191788272). The server judges a token by its own clock,
+ * so a token refreshed a minute ago is still good there.
+ */
+const MIN_REFRESH_GAP_MS = 60_000;
 
 /**
  * The sign-in, held in memory only: the access token lives in this closure and nowhere else (no storage, no cookie the
@@ -321,6 +329,8 @@ export function createSessionController(
     tell({ type: 'used', at });
   }
   let failures = 0;
+  /** When the last silent refresh was asked for, by this tab's clock: the next one waits at least MIN_REFRESH_GAP_MS. */
+  let lastSilentAt = Number.NEGATIVE_INFINITY;
   let boot: Promise<void> | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let channel: ChannelLike | null = null;
@@ -331,6 +341,28 @@ export function createSessionController(
   let reentry: Promise<ApiResult<Session>> | null = null;
   let reentryTimer: ReturnType<typeof setTimeout> | undefined;
   let reentryFailures = 0;
+  /** After a boot outage the Retry panel shows, and the cookie is tried again on its own with growing pauses. */
+  let bootRetryTimer: ReturnType<typeof setTimeout> | undefined;
+  let bootFailures = 0;
+  function stopBootRetry() {
+    if (bootRetryTimer !== undefined) clearTimeout(bootRetryTimer);
+    bootRetryTimer = undefined;
+  }
+  /**
+   * The boot refresh got no answer: show Retry (the cookie is untouched), and ask again by itself, so a blip in the
+   * account service does not leave the person on Retry until they press it. The panel stays while it asks.
+   */
+  function bootOutage() {
+    set({ session: null, restoring: false, restoreFailed: true, notice: null });
+    stopBootRetry();
+    if (!active) return;
+    const delay = Math.min(BACKOFF_MAX_MS, BACKOFF_FIRST_MS * 2 ** bootFailures);
+    bootFailures += 1;
+    bootRetryTimer = setTimeout(() => {
+      bootRetryTimer = undefined;
+      if (active && !state.session && state.restoreFailed) boot = bootRefresh();
+    }, delay);
+  }
 
   function set(next: SessionState) {
     state = next;
@@ -356,11 +388,13 @@ export function createSessionController(
       signOut(null);
       return;
     }
-    const delay = retryDelay ?? Math.max(0, Math.min(MAX_TIMER_MS, deadline - now() - REFRESH_LEAD_MS));
+    const due = Math.max(0, Math.min(MAX_TIMER_MS, deadline - now() - REFRESH_LEAD_MS));
+    const delay = retryDelay ?? Math.max(due, lastSilentAt + MIN_REFRESH_GAP_MS - now());
     timer = setTimeout(() => void silent(session), delay);
   }
   async function silent(forSession: Session) {
     timer = undefined;
+    lastSilentAt = now();
     const started = epoch;
     const outcome = await refresher.refresh({ unused });
     if (outcome.kind === 'session') refreshedAt = now();
@@ -458,7 +492,7 @@ export function createSessionController(
           return answer;
         }
         if (mode === 'boot') {
-          set({ session: null, restoring: false, restoreFailed: true, notice: null });
+          bootOutage();
           return answer;
         }
         if (reentryTimer !== undefined) clearTimeout(reentryTimer);
@@ -481,6 +515,8 @@ export function createSessionController(
     else if (wanted) memory.write(wanted);
     epoch += 1;
     failures = 0;
+    stopBootRetry();
+    bootFailures = 0;
     set({ session: value, restoring: false, restoreFailed: false, notice });
     arm();
   }
@@ -499,6 +535,10 @@ export function createSessionController(
     epoch += 1;
     failures = 0;
     disarm();
+    stopBootRetry();
+    bootFailures = 0;
+    // A trading session's key on this device ends with the sign-out (J-wallet-22 #8): nothing here signs with it again.
+    forgetDeviceSessionKeys();
     set({ session: null, restoring: false, restoreFailed: false, notice });
   }
   function clear() {
@@ -551,7 +591,7 @@ export function createSessionController(
     } else if (outcome.kind === 'signed_out') signOut(noticeFor(outcome.code));
     // A definite refusal at boot: retrying cannot help, so the visitor goes to sign-in rather than an endless Retry.
     else if (outcome.kind === 'refused') signOut(null);
-    else set({ session: null, restoring: false, restoreFailed: true, notice: null });
+    else bootOutage();
   }
   async function serverLogout(): Promise<ApiResult<{ ok: true }>> {
     // A refresh already in flight would set a fresh cookie after the logout cleared it.
@@ -595,6 +635,7 @@ export function createSessionController(
       disarm();
       if (reentryTimer !== undefined) clearTimeout(reentryTimer);
       reentryTimer = undefined;
+      stopBootRetry();
       if (channel) {
         channel.onmessage = null;
         channel.close();
@@ -604,6 +645,7 @@ export function createSessionController(
     /** After a boot outage: try the cookie again. */
     retryRestore(): Promise<void> {
       if (state.restoring || state.session) return boot ?? Promise.resolve();
+      stopBootRetry();
       set({ session: null, restoring: true, restoreFailed: false, notice: null });
       boot = bootRefresh();
       return boot;

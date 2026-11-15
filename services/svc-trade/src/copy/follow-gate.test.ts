@@ -35,10 +35,10 @@ const SESSION = '00000000-0000-4000-8000-0000000000d1';
 const NOW = new Date('2026-10-23T00:00:00.000Z');
 const fee: CopyFeeShareLaw = {
   published: true,
-  leaderShareBps: 1000,
+  leaderShareBps: 1337,
   earningsCapPerFollower: '100',
   decayRoundTrips: 0,
-  decayShareBps: 1000,
+  decayShareBps: 4321,
 };
 const jur: CopyJurisdictionLaw = { published: true, allowedRegions: ['SG'] };
 

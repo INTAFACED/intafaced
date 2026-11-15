@@ -14,6 +14,9 @@
  *   - names, in a step of journeys.json, a slice id that isn't in docs/roadmap/slices.json, the slice records journeys.json
  *     is built from (roadmap.mjs `--index` keeps only ids that are slice headings, so an unknown one was typed by hand);
  *   - has a journeys.json that isn't the shape `--index` writes (a journey id used twice, a step number used twice, ...);
+ *   - puts a journey marked later (`"later": "custody"`, OWNER 226) at Order 1, the launch wedge, or marks one later for
+ *     any reason but custody (roadmap.mjs finishLineProblems, which `--index` also enforces): the customer-first order
+ *     (OWNER 223 (3)) can't be undone by hand-editing journeys.json;
  *   - has a docs/ROADMAP.md other than the one the base's roadmap.mjs builds from the pull request's slices.json and
  *     journeys.json (what `roadmap.mjs --check` checks, with the base's code, so a pull request can't change both the
  *     page and the code that writes it).
@@ -31,13 +34,17 @@
  * roadmap.mjs (what is live, and how the page is built) is the base's too; the pull request's copy runs only while the
  * base has none (the pull request that adds it). Its tests are tooling/ci/journey-list-guard.test.mjs.
  *
+ * The base is where the checkout meets `--base-ref` (their merge base), so main moving on after the pull request's
+ * merge was made isn't read as the pull request dropping what main added.
+ *
  *   node tooling/ci/journey-list-guard.mjs [--base-ref origin/main]     (from the pull request's checkout)
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { compose, liveJourneys } from '../scripts/roadmap.mjs';
+import { compose, finishLineProblems, liveJourneys } from '../scripts/roadmap.mjs';
+import { diffBase } from './ci-affected.mjs';
 import { linesOutsideCode } from './journey-seal.mjs';
 
 export const JOURNEYS_PATH = 'docs/roadmap/journeys.json';
@@ -106,6 +113,7 @@ export function shapeProblems(journeys) {
         out.push(`${id} #${st?.n}: its slices are not a list of slice ids`);
     }
   }
+  if (!out.length) out.push(...finishLineProblems(journeys));
   return out;
 }
 
@@ -221,9 +229,15 @@ async function bodyFromEnv() {
 
 async function main(argv) {
   const at = argv.indexOf('--base-ref');
-  const baseRef = at === -1 ? 'origin/main' : argv[at + 1];
+  const ref = at === -1 ? 'origin/main' : argv[at + 1];
   const cwd = process.cwd();
   const read = (p) => readFileSync(join(cwd, p), 'utf8');
+  // The base is the main this checkout was built on (merge base with `ref`), not `ref`'s tip. CI checks out the merge
+  // GitHub made when the pull request last changed, and the queue can start the job hours later, after main has added
+  // journeys; against the tip, the pull request "removed" them (intafaced#7686, 9 Nov: merge on dbf18372b, main at
+  // fc33cdb13 after #7648). What the pull request drops is what its tree lacks against that main.
+  const baseRef = diffBase((args) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }), ref);
+  if (baseRef === ref) console.error(`journey-list-guard: no merge base with ${ref}; judging against its tip`);
   let baseText;
   try {
     baseText = execFileSync('git', ['show', `${baseRef}:${JOURNEYS_PATH}`], { cwd, encoding: 'utf8', maxBuffer: 64 * 2 ** 20 });
@@ -239,7 +253,8 @@ async function main(argv) {
   const roadmapFresh = shapeProblems(head).length ? false : (await compose(slices, head, roadmap)) === roadmap;
   const v = await judge({ base, head, slices, roadmapFresh, body: bodyFromEnv });
   for (const l of v.lines) console.error(`journey-list-guard: ${l}`);
-  if (v.ok) console.log(`journey-list-guard: ok (${head.length} journeys against ${baseRef}'s ${base.length})`);
+  if (v.ok)
+    console.log(`journey-list-guard: ok (${head.length} journeys; the base, ${ref} at ${baseRef.slice(0, 12)}, has ${base.length})`);
   return v.ok ? 0 : 1;
 }
 

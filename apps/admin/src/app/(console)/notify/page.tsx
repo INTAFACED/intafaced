@@ -7,6 +7,8 @@ import { RecipientsPanel, type NotConnected } from '@/components/notify-recipien
 import { loadNotify } from '@/lib/notify/server';
 import { loadNotifyConfig } from '@/lib/notify/config-server';
 import { loadRecipients } from '@/lib/notify/recipients-server';
+import { loadSearchMisses } from '@/lib/notify/search-misses-server';
+import { SearchMissesPanel } from '@/components/notify-search-misses';
 
 /**
  * Notify delivery health: per-channel outcomes and failures from svc-notify, with the time they were read. Read-only. Below it, the channel and template settings, also read-only.
@@ -15,10 +17,11 @@ import { loadRecipients } from '@/lib/notify/recipients-server';
 export default async function NotifyPage() {
   requireModulePage('notify');
   const founder = await requireFounderPage();
-  const [health, config, recipients] = await Promise.all([
+  const [health, config, recipients, searchMisses] = await Promise.all([
     loadNotify(founder),
     loadNotifyConfig(founder),
     loadRecipients(founder, 'quarantined'),
+    loadSearchMisses(founder),
   ]);
   const notConnected: Record<string, string> = {};
   if (config.channels.kind === 'ok') for (const c of config.channels.data) if (c.notConnected) notConnected[c.channel] = c.notConnected;
@@ -44,6 +47,7 @@ export default async function NotifyPage() {
       <NotifyDesk initial={health} />
       <RecipientsPanel initial={recipients} notConnected={notConnected satisfies NotConnected} />
       <NotifyConfigDesk view={config} />
+      <SearchMissesPanel part={searchMisses} />
     </>
   );
 }

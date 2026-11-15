@@ -77,6 +77,7 @@ function failedReport(): ReconciliationReport {
     chain: { ok: true, length: 1 },
     totals: { USDT: '1' },
     unbalancedAssets: ['USDT'],
+    result: 'mismatch',
   };
 }
 
@@ -88,6 +89,7 @@ function greenReport(): ReconciliationReport {
     chain: { ok: true, length: 1 },
     totals: { USDT: '0' },
     unbalancedAssets: [],
+    result: 'matched',
   };
 }
 
@@ -141,6 +143,7 @@ describe('balance snapshot names the chain tip its own proof read', () => {
     let postedWhileProofOpen = false;
 
     const run = await runSnapshotReconciliation(db!.sql, {
+      custodyLayer: 'on',
       async prove(tx) {
         balancesUnderSnapshot = await tx<Array<{ id: string; balance: string }>>`
           SELECT id::text AS id, balance::text AS balance FROM accounts ORDER BY id
@@ -220,6 +223,7 @@ describe('balance snapshot names the chain tip its own proof read', () => {
 
     let tipFree = false;
     const run = await runSnapshotReconciliation(db!.sql, {
+      custodyLayer: 'on',
       async prove() {
         // FOR UPDATE NOWAIT on the singleton succeeds: the proof holds no lock on it.
         await db!.sql`SELECT seq FROM chain_tip WHERE id = true FOR UPDATE NOWAIT`;
@@ -248,7 +252,7 @@ describe('balance snapshot names the chain tip its own proof read', () => {
       INSERT INTO balance_snapshots (account_id, as_of, balance) VALUES (${account!.id}, now() - interval '2 hours', 25)
     `;
 
-    const run = await runSnapshotReconciliation(db!.sql);
+    const run = await runSnapshotReconciliation(db!.sql, { custodyLayer: 'on' });
     expect(run.outcome).toBe('ok');
 
     const rows = await db!.sql<Array<{ chain_tip_seq: string | null; chain_tip_hash: string | null; through_entry_id: string | null }>>`

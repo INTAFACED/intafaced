@@ -34,6 +34,23 @@ describe('outreach public settings', () => {
     expect(outreachPublicProblem('partnerTerms', 'x'.repeat(20_001))).toBe('too_long');
   });
 
+  it('takes a store link as a whole https link, kept exactly as written once trimmed', () => {
+    expect(outreachPublicProblem('appStoreUrl', 'https://apps.apple.com/app/id0000000000')).toBeNull();
+    expect(outreachPublicProblem('appStoreUrl', 'https://play.google.com/store/apps/details?id=test.app')).toBeNull();
+    const parsed = set({ appStoreUrl: ' https://apps.apple.com/app/id0000000000 ' });
+    expect(parsed.success && parsed.data.appStoreUrl).toBe('https://apps.apple.com/app/id0000000000');
+  });
+
+  it('refuses a store link that is not https, carries a user or password, or is not a link', () => {
+    expect(outreachPublicProblem('appStoreUrl', 'http://apps.apple.com/app/id0000000000')).toBe('not_https');
+    expect(outreachPublicProblem('appStoreUrl', 'http://127.0.0.1:3220/app')).toBe('not_https');
+    expect(outreachPublicProblem('appStoreUrl', 'javascript:alert(1)')).not.toBeNull();
+    expect(outreachPublicProblem('appStoreUrl', 'https://user:pw@apps.apple.com/app')).toBe('not_a_link');
+    expect(outreachPublicProblem('appStoreUrl', 'apps.apple.com/app')).toBe('not_a_link');
+    expect(outreachPublicProblem('appStoreUrl', `https://apps.apple.com/${'x'.repeat(300)}`)).toBe('too_long');
+    expect(set({ appStoreUrl: 'http://apps.apple.com/app' }).success).toBe(false);
+  });
+
   it('needs at least one setting, and null clears one', () => {
     expect(set({}).success).toBe(false);
     expect(set({ partnerTerms: null }).success).toBe(true);

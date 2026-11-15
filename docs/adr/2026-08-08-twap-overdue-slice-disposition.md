@@ -1,5 +1,7 @@
 # ADR: what a TWAP does with overdue slices — the interval is the promise
 
+> **Later: custody (OWNER 226), in part.** INTAFACED holds no customer money at launch. The done bar measured on ledger balances applies when the custodial layer is switched on; the rest holds at launch. It stays as written.
+
 **Status:** **Accepted — 2026-08-08.** This is the ruling `docs/BUILD-STOP-TRADE-2026-08-08.md` (removed) §4 asked for. It unblocks defect 1 of the three that made the adversarial pass return **DO NOT MOUNT** on the TWAP scheduler.
 **Decision owner:** repo owner. **Written by:** Denon.
 **Spec:** the algo half of **D-S-04**, extending [`adr/2026-08-04-algo-execution-law.md`](2026-08-04-algo-execution-law.md) (TWAP only, icebergs out). That ADR stands unchanged.

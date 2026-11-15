@@ -1,4 +1,5 @@
 import { loadSweepStaleAfterSeconds } from './custody/sweeps/service.js';
+import { registerWithdrawalAddressRoute, withdrawalAddresses } from './withdrawal-addresses.js';
 import { randomUUID } from 'node:crypto';
 import { MerchantAccountControls } from './merchant-account-controls.js';
 import { drainPendingPayoutIdentityIntents } from './payout-admission.js';
@@ -57,6 +58,7 @@ import postgres from 'postgres';
 import { env } from './env.js';
 import { readMerchantStarterFee } from './starter-fee.js';
 import { registerClosureCheckRoute, runPayClosureCheck } from './closure-check.js';
+import { recordOwned, registerSupportRecordOwnershipRoute } from './support-record-ownership.js';
 import { CustodyDepositBook } from './custody/deposits/book.js';
 import { CustodyDepositService } from './custody/deposits/service.js';
 import { registerCustodyDepositRoutes } from './custody/deposits/routes.js';
@@ -81,6 +83,7 @@ import { recordingChainFor } from './rails/recording-chain.js';
 import { createLedgerClient, createReceiptAssetPlaces } from './ledger-client.js';
 import { BankPayoutAbsentAdapter } from './rails/bank-payout.js';
 import { CardSandboxAdapter } from './rails/card-sandbox.js';
+import { readPartnerTerms } from './partner-terms.js';
 import { bankTransferSandboxFromEnv } from './rails/bank-transfer-sandbox.js';
 import { readPayerNameMatchRule } from './payer-name/match.js';
 import { CryptoNativeAdapter } from './rails/crypto-native.js';
@@ -99,6 +102,7 @@ import {
   railPostureStatus,
   selectPublicCheckoutRail,
   shouldRegisterCardSandbox,
+  testAcquirerSwitchesAllowed,
 } from './rails/posture.js';
 import { createPayRouter } from './router.js';
 import { createSandboxFundsRouter } from './developer-sandbox-funds/router.js';
@@ -147,7 +151,8 @@ import { setOverCapNoticeLogger } from './control/guards.js';
 import { registerCaptureReconcileRoutes } from './capture-reconcile-routes.js';
 import { setCaptureReconcileLogger } from './capture-reconcile.js';
 import { loadTeamEmailInviteLimit } from './merchant-ops/team-email.js';
-import { loadWebhookRetryLimit } from './merchant-ops/webhooks.js';
+import { loadWebhookRetryLimit, loadWebhookSettings, testDnsResolver } from './merchant-ops/webhooks.js';
+import { systemResolver } from './webhook-url-guard.js';
 import { readProductImageRule } from './catalog/image-rules.js';
 import { readCheckoutLogoRule } from './checkout-branding/logo-rules.js';
 import { registerMerchantEmailInviteRoutes } from './merchant-ops/team-email-claim-routes.js';
@@ -252,21 +257,25 @@ const bankTransferRail = bankTransferSandboxFromEnv(process.env, env.PAY_WEBHOOK
 /** RC-merchant-09: the owner's payer-name rule. Blank holds every bank transfer for review; an unknown value refuses boot. */
 const payerNameMatchRule = readPayerNameMatchRule(process.env);
 
+/**
+ * The labelled TEST acquirer (mock acquirer), registered only when `shouldRegisterCardSandbox` says so. Kept by name so
+ * the webhook route can hand it the TEST partner's signed terms reports (`partner.terms`, the stack's `card-terms`).
+ */
+const cardRail = shouldRegisterCardSandbox(process.env)
+  ? new CardSandboxAdapter({
+      secret: env.PAY_CARD_SANDBOX_WEBHOOK_SECRET,
+      toleranceSeconds: env.PAY_WEBHOOK_TOLERANCE_SECONDS,
+      noteMalformedEvidenceDueBy: (eventId) => evidenceDueByLog.warn(eventId),
+    })
+  : null;
+
 const rails = new RailRegistry([
   cryptoRail,
   // Always registered. mode:'absent' — not a sandbox, so staging/prod boot is
   // fine. Merchants who ask for bank settlement get pay.rail_not_live before any
   // hold, instead of a silent "rail unknown" or a card-sandbox lie.
   new BankPayoutAbsentAdapter(),
-  ...(shouldRegisterCardSandbox(process.env)
-    ? [
-        new CardSandboxAdapter({
-          secret: env.PAY_CARD_SANDBOX_WEBHOOK_SECRET,
-          toleranceSeconds: env.PAY_WEBHOOK_TOLERANCE_SECONDS,
-          noteMalformedEvidenceDueBy: (eventId) => evidenceDueByLog.warn(eventId),
-        }),
-      ]
-    : []),
+  ...(cardRail ? [cardRail] : []),
   ...(bankTransferRail ? [bankTransferRail] : []),
 ]);
 
@@ -320,10 +329,19 @@ const checkoutRoutingProfiles = withSuccessRates(REFERENCE_RAIL_ROUTING_PROFILES
  * Durable journal — Memory alone is not multi-replica safe.
  * Does not move value; enqueue runs after money commits.
  */
+/** The owner's webhook values (J-developer-10): each blank refuses by name, none is defaulted. */
+const webhookSettings = loadWebhookSettings(process.env);
+// LOCAL TEST DNS answers for TEST names, so a journey can show a name that resolves to a private address being refused.
+if (process.env.PAY_WEBHOOK_TEST_DNS?.trim() && !isExplicitDevOrTestEnv(process.env)) {
+  throw new Error('PAY_WEBHOOK_TEST_DNS is a LOCAL TEST setting; svc-pay refuses it outside APP_ENV dev or test');
+}
+const webhookTestDns = testDnsResolver(process.env.PAY_WEBHOOK_TEST_DNS, systemResolver);
 const merchantWebhooks = new MerchantWebhookService(new PostgresMerchantWebhookStore(sql), {
   // SSRF guard: http and loopback receivers only under an EXPLICIT dev/test APP_ENV.
   // Read the raw process env, not `env.APP_ENV`, which defaults an unset value to `dev`.
   allowLocalHttp: isExplicitDevOrTestEnv(process.env),
+  // Blank: nothing is sent; deliveries wait and the dashboard says why.
+  retryScheduleSeconds: webhookSettings.retryScheduleSeconds ?? null,
 });
 
 const payoutDestinations = new MerchantPayoutDestinationStore(sql);
@@ -445,6 +463,8 @@ const pay = new PayService(sql, ledger, rails, {
   identityAuthorityGuard: createPayfacAuthorityGuard(subMerchants),
   payoutDestinations,
   defaultFeeBps: env.PAY_DEFAULT_FEE_BPS,
+  partnerFeeBps: env.PAY_PARTNER_FEE_BPS,
+  custodyLayer: env.LEDGER_CUSTODY_LAYER,
   valueMovement: railPosture.policy,
   // NOT `railPosture.policy`. `PAY_ALLOW_SANDBOX_RAILS` relaxes the payout gate
   // for a pilot or a demo — a statement about people inside this deployment. A
@@ -757,6 +777,7 @@ export const appRouter = mergeRouters(
     metrics,
     registries: { sql, approvals: actionApprovals },
     sql,
+    partnerTerms: (merchantId) => readPartnerTerms(rails.list(), merchantId),
     // Places come from the published ledger asset registry. Null or blank stays unset.
     receiptPlaces: createReceiptAssetPlaces(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, s2sKey),
     depositSettings: { sql, approvals: actionApprovals },
@@ -767,6 +788,7 @@ export const appRouter = mergeRouters(
     catalog: { sql, imageRule: readProductImageRule(process.env) },
     checkoutBranding: { sql, logoRule: readCheckoutLogoRule(process.env) },
     checkoutMethods: { sql, rails: () => pay.checkoutMethodRails() },
+    receivingWallet: { sql },
     limits: { sql, approvals: actionApprovals, reader: withdrawalLimitReader },
     custody: {
       sql,
@@ -786,6 +808,8 @@ export const appRouter = mergeRouters(
     disputeFundsLedger: ledger,
     webhooksAllowLocalHttp: isExplicitDevOrTestEnv(process.env),
     webhookRetry: loadWebhookRetryLimit(process.env),
+    webhookSettings,
+    webhookResolver: webhookTestDns,
     teamEmailInvite,
     disputes: disputeCases,
     pay,
@@ -981,6 +1005,13 @@ registerClosureCheckRoute(app, {
   check: (input) => runPayClosureCheck(sql, input),
 });
 
+registerSupportRecordOwnershipRoute(app, {
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
+  installRawBody: false,
+  owned: (input) => recordOwned(sql, input),
+});
+
 const custodyDeposits = new CustodyDepositService({ sql, chain, registries: createRegistryReader(sql) });
 registerCustodyDepositRoutes(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
@@ -989,6 +1020,13 @@ registerCustodyDepositRoutes(app, {
   catalogue: () => custodyDeposits.catalogue(),
   address: (input) => custodyDeposits.address(input),
   records: (input) => custodyDepositBook.records(input),
+});
+
+registerWithdrawalAddressRoute(app, {
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
+  installRawBody: false,
+  addresses: (input) => withdrawalAddresses(sql, input),
 });
 
 registerSubscriptionCycleRoutes(app, {
@@ -1051,10 +1089,19 @@ await registerPublicPayRest(app, {
 });
 
 /** Drain outbound merchant webhook deliveries (ADR §2.4 retry). */
+let webhookDrainPausedLogged = false;
 const webhookDrain = setInterval(() => {
-  void merchantWebhooks.processDue(25).catch((err) => {
-    app.log.warn({ err }, 'merchant webhook drain failed');
-  });
+  void merchantWebhooks
+    .processDue(25)
+    .then((pass) => {
+      // Said once, not every 15 seconds: the owner has not set a retry policy, so nothing is sent.
+      if (pass.paused && !webhookDrainPausedLogged)
+        app.log.warn({ code: pass.paused }, 'merchant webhooks: no retry policy set, nothing is sent');
+      webhookDrainPausedLogged = Boolean(pass.paused);
+    })
+    .catch((err) => {
+      app.log.warn({ err }, 'merchant webhook drain failed');
+    });
 }, 15_000);
 webhookDrain.unref?.();
 
@@ -1181,6 +1228,13 @@ await app.register(async (webhookScope) => {
       // The TEST bank books a verified transfer before the delivery is applied, as the in-memory chain does above.
       if (bankTransferRail && request.params.railId === bankTransferRail.id)
         bankTransferRail.receive(bankTransferRail.verifyWebhook(delivery));
+      // The TEST acquirer's own report of its terms for one business: kept on the adapter, never a payment event.
+      if (cardRail && request.params.railId === cardRail.id) {
+        const terms = cardRail.receivePartnerTerms(delivery, { allowed: testAcquirerSwitchesAllowed(process.env) });
+        if (terms === 'applied' || terms === 'stale') return reply.code(200).send({ received: true, terms, duplicate: terms === 'stale' });
+        if (terms === 'malformed') return reply.code(400).send({ error: 'malformed partner terms report' });
+        if (terms === 'refused') return reply.code(403).send({ error: 'TEST partner switches are refused outside dev and test' });
+      }
       const outcome = await pay.handleWebhook(request.params.railId, delivery);
       // A duplicate is a 200. A rail that gets anything else will keep retrying
       // a delivery we have already handled, forever.
@@ -1278,11 +1332,12 @@ if (chain instanceof EvmLiveChain && env.PAY_CRYPTO_WATCHER_ENABLED === 'true') 
     chain,
     async () => [
       ...(
-        await sql<Array<{ id: string; currency: string }>>`
-          SELECT id, currency FROM pay.payments
-           WHERE rail_adapter = 'crypto-native' AND rail_ref IS NOT NULL AND status IN ('created', 'authorized')
+        await sql<Array<{ id: string; currency: string; address: string | null }>>`
+          SELECT p.id, p.currency, a.address FROM pay.payments p
+            LEFT JOIN pay.merchant_receive_addresses a ON a.payment_id = p.id
+           WHERE p.rail_adapter = 'crypto-native' AND p.rail_ref IS NOT NULL AND p.status IN ('created', 'authorized')
         `
-      ).map((row) => ({ paymentId: row.id, assetId: row.currency })),
+      ).map((row) => ({ paymentId: row.id, assetId: row.currency, ...(row.address ? { address: row.address } : {}) })),
       ...(await listIssuedDepositWatches(sql)),
     ],
     (msg, extra) => app.log.warn(extra ?? {}, msg),

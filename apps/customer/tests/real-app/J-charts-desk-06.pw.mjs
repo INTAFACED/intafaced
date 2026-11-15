@@ -1,7 +1,32 @@
 // World: none
 import { test, expect } from './journey.mjs';
-import { clickPlot, figureLines, openWorkbench, pick, plot, pointText, pricesOf, rowNamed, rows, timesOf } from './charts-desk.mjs';
+import { figureLines, openWorkbench, pick, plot as barPlot, pointText, pricesOf, rowNamed, rows, timesOf } from './charts-desk.mjs';
 import { openOrders, signUp } from './desk.mjs';
+
+/** The chart's panes as the drawings read them: each pane's index, top and height in pixels from the chart's top. */
+const paneBoxes = (page) =>
+  page
+    .getByTestId('cw')
+    .getByTestId('wc-host')
+    .evaluate((el) => el.readPaneBoxes());
+
+/**
+ * A point on the chart's price pane: across, on the loaded bar `fx` picks; down, at `fy` of the price pane's own height,
+ * on a whole pixel as a mouse gives. The indicator panes under the price pane (the default Volume pane) take their own
+ * clicks, so a fraction of the whole chart's height would land a low click on them.
+ */
+async function plot(page, fx, fy) {
+  const { x } = await barPlot(page, fx, 0.5);
+  const box = await page.getByTestId('cw').getByTestId('wc-host').boundingBox();
+  const price = (await paneBoxes(page)).find((b) => b.index === 0);
+  if (!box || !price) throw new Error('the chart has no price pane');
+  return { x, y: box.y + Math.round(price.top + price.height * fy) };
+}
+
+async function clickPlot(page, fx, fy) {
+  const p = await plot(page, fx, fy);
+  await page.mouse.click(p.x, p.y);
+}
 
 // J-charts-desk-06 "I mark up a trade idea with Fibonacci, channels, patterns and position boxes", in the running app. One
 // test per step, titled "J-charts-desk-06 #<n>", run in order in one browser context (drawings are kept on this device).
@@ -9,7 +34,7 @@ import { openOrders, signUp } from './desk.mjs';
 // is a fresh TEST account, so step 5 can read the account's open orders from Edge and show the position box placed none.
 //
 // The brush needs the owner's point cap on this workbench; the TEST stack sets a TEST value, and with it blank step 4's
-// stroke is refused with its typed message and the step fails. Bar 50 and bar 80 are placed by fraction of the chart's width, so the figures are checked against the stored points, not the bar indexes.
+// stroke is refused with its typed message and the step fails. Step 1 places its points on loaded bars 50 and 80 and checks they are stored on those bars.
 const J = 'J-charts-desk-06';
 const LEVELS = ['0', '0.236', '0.382', '0.5', '0.618', '0.786', '1'];
 const EXTENSION = ['0', '0.618', '1', '1.618', '2.618'];
@@ -80,6 +105,98 @@ async function handleAt(row, index) {
 /** Test arithmetic only: the expected figure at two decimals, for the fixture's own points. */
 const cents = (value) => (Math.round(value * 100) / 100).toFixed(2);
 
+// Every bar in view, one pointer position per pixel, read like `barCentres` from the crosshair. Keeps each bar's own time
+// and its index among the loaded bars (the chart's data-view-from is the logical index at the left edge).
+const indexed = new WeakMap();
+
+async function loadedBars(page, box) {
+  if (indexed.has(page)) return indexed.get(page);
+  const host = page.getByTestId('cw').getByTestId('wc-host');
+  // Bars 50 and 80 of the chart need its history in (the stack writes 210 bars at 15m); a thin chart fails here, by name.
+  await expect.poll(async () => Number(await host.getAttribute('data-bars')), { message: 'the chart has its history' }).toBeGreaterThan(80);
+  await expect(host).toHaveAttribute('data-view-from', /\d/);
+  const view = async () => ({
+    from: Number(await host.getAttribute('data-view-from')),
+    to: Number(await host.getAttribute('data-view-to')),
+    loaded: Number(await host.getAttribute('data-bars')),
+    // The first and last loaded bars' own times, as the series holds them (ms).
+    firstAt: Number(await host.getAttribute('data-drawn-first')),
+    lastAt: Number(await host.getAttribute('data-drawn-last')),
+  });
+  const before = await view();
+  const seen = new Map();
+  for (let x = 0; x <= Math.floor(box.width); x++) {
+    await page.mouse.move(box.x + x, box.y + box.height * 0.5);
+    const time = await page.locator('[data-crosshair]').first().getAttribute('data-crosshair');
+    if (!time) continue;
+    const bar = seen.get(time) ?? { time: Number(time), min: x, max: x };
+    bar.max = x;
+    seen.set(time, bar);
+  }
+  const { from, to, loaded, firstAt, lastAt } = await view();
+  const shown = JSON.stringify({ from, to, loaded });
+  if (JSON.stringify({ from: before.from, to: before.to, loaded: before.loaded }) !== shown)
+    throw new Error(`the chart moved during the sweep: ${JSON.stringify(before)} then ${shown}`);
+  const bars = [...seen.values()].sort((a, b) => a.time - b.time);
+  // The edge bars may show only in part: the chart points pixel x at bar ceil(to - (width - 1 - x) / spacing), so a
+  // fractional left edge still shows bar ceil(from) - 1 in its first pixel. Index from the loaded bar the sweep reached
+  // by its own time (the first, else the last), never from the rounded edge (#7978: from 0.3 found one bar more).
+  let first;
+  if (bars[0]?.time * 1000 === firstAt) first = 0;
+  else if (bars.at(-1)?.time * 1000 === lastAt) first = loaded - bars.length;
+  else throw new Error(`the sweep reached neither the first nor the last loaded bar (view ${shown})`);
+  const last = first + bars.length - 1;
+  // A bar narrower than a pixel can't be pointed at, and a skipped bar would shift every index after it: the swept bars
+  // must run without a gap from the one in the first pixel to the one in the last.
+  // Bars ceil(from)..floor(to) show whole and must be found; one more at either edge may show in part.
+  const [mayFirst, mayLast] = [Math.max(0, Math.ceil(from) - 1), Math.min(loaded - 1, Math.ceil(to))];
+  const [mustFirst, mustLast] = [Math.max(0, Math.ceil(from)), Math.min(loaded - 1, Math.floor(to))];
+  const gapless = first >= mayFirst && first <= mustFirst && last >= mustLast && last <= mayLast;
+  const ends = (bars[0].time * 1000 !== firstAt || first === 0) && (bars.at(-1).time * 1000 !== lastAt || last === loaded - 1);
+  if (!gapless || !ends) throw new Error(`the sweep found bars ${first}..${last} of the ${mustFirst}..${mustLast} in view (${shown})`);
+  const byIndex = new Map(bars.map((bar, i) => [first + i, bar]));
+  indexed.set(page, byIndex);
+  return byIndex;
+}
+
+/**
+ * Clicks loaded bar `index` (0 is the first loaded bar) at `fy` of the price pane's height, and answers that bar's own time
+ * in seconds. The indicator panes under the price pane take their own clicks.
+ */
+async function clickBar(page, index, fy) {
+  const box = await page.getByTestId('cw').getByTestId('wc-host').boundingBox();
+  if (!box) throw new Error('the chart has no box on the page');
+  const bar = (await loadedBars(page, box)).get(index);
+  if (!bar) throw new Error(`loaded bar ${index} is not in view`);
+  const price = (await paneBoxes(page)).find((b) => b.index === 0);
+  if (!price) throw new Error('the chart has no price pane');
+  await page.mouse.click(box.x + (bar.min + bar.max) / 2, box.y + Math.round(price.top + price.height * fy));
+  return bar.time;
+}
+
+/** A shown decimal as a whole number of 10^-places units. */
+function units(text, places) {
+  const negative = text.startsWith('-');
+  const [whole, fraction = ''] = text.replace('-', '').split('.');
+  if (fraction.length > places) throw new Error(`${text} has more than ${places} decimals`);
+  const value = BigInt(whole + fraction.padEnd(places, '0'));
+  return negative ? -value : value;
+}
+
+/**
+ * Test arithmetic only: `base + (from - to) * level` at two decimals, half away from zero, worked in whole units as the
+ * step's "at the tick size" means. A float sum can land just under an exact half-cent and round a cent low (#7587).
+ */
+function levelCents(base, from, to, level) {
+  const [PRICE, LEVEL] = [8, 3];
+  const exact = units(base, PRICE) * 10n ** BigInt(LEVEL) + (units(from, PRICE) - units(to, PRICE)) * units(level, LEVEL);
+  const cent = 10n ** BigInt(PRICE + LEVEL - 2);
+  const magnitude = exact < 0n ? -exact : exact;
+  const count = (magnitude + cent / 2n) / cent;
+  const text = `${count / 100n}.${String(count % 100n).padStart(2, '0')}`;
+  return exact < 0n && count > 0n ? `-${text}` : text;
+}
+
 test.describe.configure({ mode: 'serial' });
 
 let page;
@@ -96,11 +213,12 @@ test.afterAll(async () => {
 
 test(`${J} #1 draws a Fibonacci retracement, and its levels are the figures of the two points at the tick`, async () => {
   await pick(page, 'Fib retracement');
-  await clickPlot(page, 0.3, 0.3);
-  await clickPlot(page, 0.6, 0.6);
+  const barTimes = [await clickBar(page, 50, 0.3), await clickBar(page, 80, 0.6)];
   const row = rowNamed(page, /^Fib retracement \d+$/);
-  const [a, b] = pricesOf(await pointText(row).textContent()).map(Number);
-  const expected = LEVELS.map((level) => `${level} at ${cents(b + (a - b) * Number(level))}`);
+  const placed = await pointText(row).textContent();
+  expect(timesOf(placed).map(ms), 'the two points are on bar 50 and bar 80').toEqual(barTimes.map((t) => t * 1000));
+  const [a, b] = pricesOf(placed);
+  const expected = LEVELS.map((level) => `${level} at ${levelCents(b, a, b, level)}`);
   const shown = await figureLines(row).allTextContents();
   expect(shown).toEqual(expected);
 });
@@ -167,8 +285,8 @@ test(`${J} #3 adds a Gann fan and a Fibonacci extension, each from its stated ru
   await clickPlot(page, 0.4, 0.5);
   await clickPlot(page, 0.5, 0.6);
   const extension = rowNamed(page, /^Fib extension \d+$/);
-  const [a, b, c] = pricesOf(await pointText(extension).textContent()).map(Number);
-  const expected = EXTENSION.map((level) => `${level} at ${cents(c + (b - a) * Number(level))}`);
+  const [a, b, c] = pricesOf(await pointText(extension).textContent());
+  const expected = EXTENSION.map((level) => `${level} at ${levelCents(c, b, a, level)}`);
   expect(await figureLines(extension).allTextContents()).toEqual(expected);
 });
 

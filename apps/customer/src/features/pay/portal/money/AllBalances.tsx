@@ -6,6 +6,8 @@ import { MoneyText } from '../ui/MoneyText';
 import { MoneyFailure } from './common';
 import { mc } from './copy';
 import type { SettlementAssets } from './settlement-assets-api';
+import type { PartnerTerms } from './partner-terms-api';
+import { PartnerCurrencyNotes } from './PartnerTerms';
 
 type Row = { assetCode: string; clearing: string; available: string };
 
@@ -17,11 +19,14 @@ type Row = { assetCode: string; clearing: string; available: string };
 export function AllBalances({
   held,
   enabled,
+  partner,
   retry,
   test,
 }: {
   held: readonly Row[];
   enabled: Resource<SettlementAssets>;
+  /** The acquiring partner's terms: an asset it has said it does not offer reads "not offered by the partner". */
+  partner?: Resource<PartnerTerms>;
   retry: () => void;
   test: boolean;
 }) {
@@ -54,6 +59,7 @@ export function AllBalances({
           })}
         />
       )}
+      {partner && <PartnerCurrencyNotes terms={partner} assets={rows.map((r) => r.assetCode)} />}
       {enabled.status === 'loading' && held.length === 0 && <PortalLoading rows={2} />}
       {enabled.status === 'failed' && <MoneyFailure result={enabled.failure} retry={retry} />}
     </PaySection>

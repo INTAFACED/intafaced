@@ -16,8 +16,30 @@ export const KINDS = ['customer_built', 'product'] as const;
 export type Kind = (typeof KINDS)[number];
 export const KIND_WORD: Record<Kind, string> = { customer_built: 'Customer-built', product: 'Product' };
 
+/** What each audit row records, as the desk names it. */
+export const AUDIT_ACTION_WORD: Record<string, string> = {
+  export: 'Export',
+  quarantine: 'Quarantine',
+  restore_request: 'Restore requested',
+  restore: 'Restore',
+  kill_kind: 'Kill a kind',
+  restore_kind_request: 'Kind restore requested',
+  restore_kind: 'Kind restore',
+  reassign: 'Reassign',
+};
+
+/** An export's filter as the desk names it: "All agents", or "Risk signal: <signal>". */
+export function filterWords(filter: Readonly<Record<string, string>>): string {
+  const risk = filter.riskSignal;
+  const parts = Object.entries(filter).map(([key, value]) =>
+    key === 'riskSignal' && risk && risk in RISK_WORD ? `Risk signal: ${RISK_WORD[risk as RiskSignal]}` : `${key}: ${value}`,
+  );
+  return parts.length === 0 ? 'All agents' : parts.join(', ');
+}
+
 export type FleetAction =
   | { readonly action: 'registry'; readonly riskSignal: RiskSignal | null }
+  | { readonly action: 'audit' }
   | { readonly action: 'export'; readonly riskSignal: RiskSignal | null; readonly requestId: string }
   | { readonly action: 'quarantine'; readonly ref: string; readonly reason: string | null; readonly requestId: string }
   | { readonly action: 'restore'; readonly ref: string; readonly requestId: string }
@@ -39,6 +61,7 @@ export function parseFleetAction(body: unknown): FleetAction | null {
   if (risk !== null && !RISK_SIGNALS.includes(risk as RiskSignal)) return null;
   const riskSignal = risk as RiskSignal | null;
   if (b.action === 'registry') return { action: 'registry', riskSignal };
+  if (b.action === 'audit') return { action: 'audit' };
   const requestId = typeof b.requestId === 'string' && REQUEST_ID.test(b.requestId) ? b.requestId : null;
   if (!requestId) return null;
   if (b.action === 'export') return { action: 'export', riskSignal, requestId };

@@ -132,6 +132,30 @@ describe('payload hash equals the owning service’s own function', () => {
       payloadHashFor({ kind: 'academy.residency.decide', id, decision: 'rejected' }),
     );
   });
+  it('academy certificate revoke and exception (J-academy-17 #5 #6): the hash svc-academy consumes, the reason inside it', () => {
+    const publicId = '0123456789abcdef0123456789abcdef';
+    const userId = '9f8e7d6c-1111-4222-8333-444455556666';
+    const reason = 'TEST issued in error, revoke it';
+    expect(payloadHashFor({ kind: 'academy.cert.revoke', publicId, reason })).toBe(
+      academyActionPayloadHash('academy.cert.revoke', { publicId, reason }),
+    );
+    expect(payloadHashFor({ kind: 'academy.cert.revoke', publicId, reason })).not.toBe(
+      payloadHashFor({ kind: 'academy.cert.revoke', publicId, reason: `${reason}!` }),
+    );
+    expect(payloadHashFor({ kind: 'academy.cert.exception', userId, certId: 'foundations-v1', reason })).toBe(
+      academyActionPayloadHash('academy.cert.exception', { userId, certId: 'foundations-v1', reason }),
+    );
+    for (const kind of ['academy.cert.revoke', 'academy.cert.exception'] as const) {
+      const request = kind === 'academy.cert.revoke' ? { kind, publicId, reason } : { kind, userId, certId: 'foundations-v1', reason };
+      expect(proposeInputFor(request)).toMatchObject({
+        actionType: kind,
+        targetService: 'svc-academy',
+        targetId: kind,
+        expectedVersion: '1',
+        policyVersion: 'v1',
+      });
+    }
+  });
   it('the decision is part of the vendor hash: approve and reject never share one', () => {
     const base = {
       kind: 'market.vendor.vet',
@@ -167,6 +191,42 @@ describe('card freeze and listing takedown hashes equal the services’ own func
     expect(payloadHashFor({ kind: 'bank.card.status', cardId, status: 'frozen', reason: 'owner reported the card stolen' })).not.toBe(
       payloadHashFor({ kind: 'bank.card.status', cardId, status: 'active', reason: 'owner reported the card stolen' }),
     );
+  });
+  it('bank.ops.requestCardProgrammeFunding binds the kind, amount and threshold as svc-bank consumes them; the reason is not in it (J-bank-26 #6)', () => {
+    const fund = {
+      kind: 'bank.card.funding',
+      fundingKind: 'fund',
+      amount: '1000',
+      threshold: '',
+      reason: 'TEST top up for the month',
+    } as const;
+    expect(payloadHashFor(fund)).toBe(
+      bankActionPayloadHash('bank.ops.requestCardProgrammeFunding', { kind: 'fund', amount: '1000', threshold: '' }),
+    );
+    expect(payloadHashFor({ ...fund, reason: 'a different reason entirely' })).toBe(payloadHashFor(fund));
+    expect(payloadHashFor({ ...fund, amount: '1001' })).not.toBe(payloadHashFor(fund));
+    expect(payloadHashFor({ ...fund, fundingKind: 'defund' })).not.toBe(payloadHashFor(fund));
+    const reload = { ...fund, fundingKind: 'auto_reload', threshold: '500' } as const;
+    expect(payloadHashFor(reload)).toBe(
+      bankActionPayloadHash('bank.ops.requestCardProgrammeFunding', { kind: 'auto_reload', amount: '1000', threshold: '500' }),
+    );
+    expect(proposeInputFor(fund)).toMatchObject({
+      actionType: 'bank.ops.requestCardProgrammeFunding',
+      targetService: 'svc-bank',
+      targetId: 'bank.ops.requestCardProgrammeFunding',
+    });
+  });
+  it('a programme funding packet is read only in shape: a threshold only on auto reload, a positive amount, a real reason', () => {
+    const ok = { kind: 'bank.card.funding', fundingKind: 'fund', amount: '1000', threshold: '', reason: 'TEST top up for the month' };
+    expect(readDeskRequest(ok)).toEqual(ok);
+    expect(readDeskRequest({ ...ok, fundingKind: 'auto_reload', threshold: '500' })).toMatchObject({ threshold: '500' });
+    expect(readDeskRequest({ ...ok, threshold: '500' })).toBeNull();
+    expect(readDeskRequest({ ...ok, fundingKind: 'auto_reload' })).toBeNull();
+    expect(readDeskRequest({ ...ok, amount: '0' })).toBeNull();
+    expect(readDeskRequest({ ...ok, amount: '-1' })).toBeNull();
+    expect(readDeskRequest({ ...ok, fundingKind: 'withdraw' })).toBeNull();
+    expect(readDeskRequest({ ...ok, reason: 'short' })).toBeNull();
+    expect(readDeskRequest({ ...ok, extra: 'x' })).toBeNull();
   });
   it('market.takedown binds the listing AND the reason, so a changed reason is a different request', () => {
     expect(payloadHashFor({ kind: 'market.listing.takedown', listingId, reason: 'sells a forbidden product' })).toBe(

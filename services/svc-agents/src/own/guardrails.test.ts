@@ -347,6 +347,7 @@ if (!available) {
           cost: '0',
           assetId: expect.any(String),
           occurredAt: held.request.createdAt,
+          messageParams: {},
         },
       ]);
       expect(await executed('support.ticket.comment')).toBe(0);

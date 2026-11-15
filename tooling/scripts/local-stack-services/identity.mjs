@@ -5,6 +5,23 @@ import { confirmFounderEmails } from '../local-test-founders.mjs';
 import { founderTotp, makeContext } from '../local-test-gates.mjs';
 import { LOCAL_TEST_DEVICE_KEY } from '../local-test-device.mjs';
 
+/**
+ * LOCAL TEST ONLY. The one TEST membership tier identity publishes when it starts or restarts with
+ * `LOCAL_STACK_IDENTITY_MEMBERSHIP=test` (J-wallet-01 #6, "with config set, the tier"). It is not an owner decision:
+ * without the switch the tiers stay blank, as production is until the owner publishes them. It lives here, not in the
+ * profile file, because a rig loads that file whole and every other journey must see membership not offered.
+ */
+export const TEST_MEMBERSHIP_TIERS = Object.freeze([
+  Object.freeze({
+    id: 'test-plus',
+    name: 'TEST Plus',
+    price: '9.99',
+    assetId: 'USDT',
+    periodDays: 30,
+    perks: Object.freeze(['TEST perk: not an owner decision']),
+  }),
+]);
+
 /** One labelled TEST value from this service's profile file; a missing one names the file instead of a bare TypeError. */
 function testValue(name) {
   const entry = loadProfile().values[name];
@@ -44,7 +61,21 @@ export async function confirmLocalFounderEmails({ STATE, marker, edgeUrl, say })
   }
 }
 
-export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORIGIN, identityFounderEnv }) => ({
+/**
+ * `LOCAL_STACK_IDENTITY_SCREENING=unset` on a start or restart runs identity alone with no blocked list at all, as a build
+ * is before the owner sets one: the caller's list is left out (never replaced by a value of this script's), the unsigned
+ * rows are kept out, and the fail-closed refusal stays on, so sign-up's "the list is not set" can be seen (J-identity-01
+ * #9). It only ever makes identity stricter.
+ */
+function screeningSwitch(env) {
+  if (process.env.LOCAL_STACK_IDENTITY_SCREENING !== 'unset') return env;
+  const out = { ...env, INTAFACED_UNSIGNED_SANCTIONS_ROWS: 'off', INTAFACED_SCREENING_FAIL_CLOSED: 'on' };
+  delete out.INTAFACED_SANCTIONS_REGIONS;
+  delete out.INTAFACED_SANCTIONS_LIST_SOURCE;
+  return out;
+}
+
+const service = ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORIGIN, identityFounderEnv }) => ({
   name: 'identity',
   env: () => ({
     ...c('svc-identity', PORTS.identity),
@@ -72,6 +103,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     // test accounts; "LOCAL TEST — not a real approval".
     IDENTITY_ACTION_APPROVAL_TTL_SECONDS: '600',
     IDENTITY_ACTION_APPROVAL_POLICIES: testValue('IDENTITY_ACTION_APPROVAL_POLICIES'),
+    // LOCAL TEST life of a staff invite's first-connection link (J-ops-console-09 #2), labelled TEST in the same profile,
+    // never an owner decision. Blank refuses every invite (identity.staff_invite_ttl_unset).
+    IDENTITY_STAFF_INVITE_TTL_SECONDS: testValue('IDENTITY_STAFF_INVITE_TTL_SECONDS'),
     // LOCAL TEST ONLY. The identity service refuses email confirmation until a mail
     // transport, a lifetime, and a rate budget are published. local-outbox is refused
     // at boot unless APP_ENV is exactly dev or test. These numbers are for this stack,
@@ -82,6 +116,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     ...(process.env.LOCAL_STACK_IDENTITY_MAIL === 'off'
       ? {}
       : { IDENTITY_MAIL_TRANSPORT: 'local-outbox', IDENTITY_LOCAL_MAIL_OUTBOX: path.join(STATE, 'email-outbox.log') }),
+    // LOCAL TEST ONLY: texted codes (a phone to sign in with, J-identity-02 #1) go to a LOCAL-TEST outbox file beside the
+    // mail one, never to a phone; refused at boot outside APP_ENV dev or test. No SMS provider is connected.
+    IDENTITY_SMS_TRANSPORT: 'local-outbox',
+    IDENTITY_LOCAL_SMS_OUTBOX: path.join(STATE, 'sms-outbox.log'),
     IDENTITY_EMAIL_CONFIRM_TTL_SECONDS: '600',
     IDENTITY_EMAIL_CONFIRM_RATE_MAX: '5',
     IDENTITY_EMAIL_CONFIRM_RATE_WINDOW_SECONDS: '3600',
@@ -127,7 +165,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     IDENTITY_NEW_DEVICE_CHECK: testValue('IDENTITY_NEW_DEVICE_CHECK'),
     IDENTITY_NEW_DEVICE_TTL_SECONDS: testValue('IDENTITY_NEW_DEVICE_TTL_SECONDS'),
     IDENTITY_NEW_DEVICE_MAX_ATTEMPTS: testValue('IDENTITY_NEW_DEVICE_MAX_ATTEMPTS'),
-    IDENTITY_MFA_RESET_WAIT_SECONDS: testValue('IDENTITY_MFA_RESET_WAIT_SECONDS'),
+    // `LOCAL_STACK_IDENTITY_MFA_RESET_WAIT=off` on a start or restart leaves the reset's waiting time blank, as production is
+    // until the owner sets it, so its refusal pointing to Support can be seen (J-identity-05 #2).
+    ...(process.env.LOCAL_STACK_IDENTITY_MFA_RESET_WAIT === 'off'
+      ? {}
+      : { IDENTITY_MFA_RESET_WAIT_SECONDS: testValue('IDENTITY_MFA_RESET_WAIT_SECONDS') }),
     IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS: testValue('IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS'),
     // LOCAL TEST: a trade-ops operator may restrict one account's trading with a second person's approval (J-identity-08 #7).
     // Off by default, where identity keeps refusing the change with operator.denied.
@@ -149,6 +191,15 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
       ? {}
       : { IDENTITY_KYC_POA_MAX_AGE_DAYS: testValue('IDENTITY_KYC_POA_MAX_AGE_DAYS') }),
     IDENTITY_KYC_POA_TYPES_BY_COUNTRY: testValue('IDENTITY_KYC_POA_TYPES_BY_COUNTRY'),
+    // The trading checks' sanctions list of persons (J-cex-spot-01 #3): one labelled TEST person from the profile, never a
+    // real name or an owner list. `LOCAL_STACK_IDENTITY_SANCTIONS_LIST=off` on a start or restart leaves it blank, as
+    // production is until the owner sets one, so the check's kyc.screening_list_unset refusal can be seen.
+    ...(process.env.LOCAL_STACK_IDENTITY_SANCTIONS_LIST === 'off'
+      ? {}
+      : { IDENTITY_SANCTIONS_PERSONS_LIST: testValue('IDENTITY_SANCTIONS_PERSONS_LIST') }),
+    // `LOCAL_STACK_IDENTITY_MEMBERSHIP=test` on a start or restart publishes the one TEST membership tier above, so the
+    // published tier can be seen (J-wallet-01 #6); without it the tiers are blank and Account says membership is not offered.
+    ...(process.env.LOCAL_STACK_IDENTITY_MEMBERSHIP === 'test' ? { IDENTITY_MEMBERSHIP_TIERS: JSON.stringify(TEST_MEMBERSHIP_TIERS) } : {}),
     IDENTITY_KYC_HANDOFF_TTL_SECONDS: testValue('IDENTITY_KYC_HANDOFF_TTL_SECONDS'),
     // `LOCAL_STACK_IDENTITY_KYC_ATTEMPTS=off` on a start or restart leaves the attempt limit blank (all three), so the
     // page's "no limit is set" can be seen too (J-identity-08 #4).
@@ -200,6 +251,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     IDENTITY_WATCHLIST_LIST_CAP: '10',
     IDENTITY_WATCHLIST_SYMBOL_CAP: '100',
     IDENTITY_SAVED_SCREEN_CAP: '10',
+    // Saved desk layout limits (C-workspace-02): explicit LOCAL TEST values, not owner limits (the owner has not
+    // published them; blank refuses every write that needs one). 10 layouts, 20 deleted layouts kept for 7 days.
+    IDENTITY_DESK_LAYOUT_CAP: '10',
+    IDENTITY_DESK_LAYOUT_RESTORE_CAP: '20',
+    IDENTITY_DESK_LAYOUT_RESTORE_DAYS: '7',
     // The closure checks a close runs first (customer closure and the console's staff close): svc-bank, svc-trade and
     // svc-p2p answer for their own open products and balances, signed with this stack's shared service secret.
     IDENTITY_CLOSURE_BANK_URL: urlOf('bank'),
@@ -212,6 +268,13 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     ...(process.env.LOCAL_STACK_IDENTITY_KEY_CAP === 'off'
       ? {}
       : { IDENTITY_API_KEYS_MAX_BY_TIER: 'none=3,basic=3,full=3,institutional=3' }),
+    // Keys per sub-account (J-developer-15 #2): an explicit LOCAL TEST value, not an owner limit. Blank refuses every
+    // sub-account key with identity.portfolio_key_cap_unset; `LOCAL_STACK_IDENTITY_PORTFOLIO_KEY_CAP=off` on a start or
+    // restart leaves it blank so that refusal can be seen.
+    ...(process.env.LOCAL_STACK_IDENTITY_PORTFOLIO_KEY_CAP === 'off' ? {} : { IDENTITY_PORTFOLIO_KEYS_MAX: '2' }),
+    // Developer roles in an organisation (J-developer-15 #4): an explicit LOCAL TEST role set, not the owner's. Blank is
+    // `roles not set`; `LOCAL_STACK_IDENTITY_DEVELOPER_ROLES=off` on a start or restart leaves it blank so that state can be seen.
+    ...(process.env.LOCAL_STACK_IDENTITY_DEVELOPER_ROLES === 'off' ? {} : { IDENTITY_DEVELOPER_ROLES: 'keys_admin,keys_read' }),
     // LOCAL TEST named developer sandboxes (J-developer-02 #2, #3), labelled in the same profile, never an owner decision.
     // The code keeps no default: blank refuses a second sandbox with identity.sandbox_cap_unset, and
     // `LOCAL_STACK_IDENTITY_SANDBOX_CAP=off` on a start or restart leaves it blank so that refusal can be seen.
@@ -219,6 +282,16 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
       ? {}
       : { IDENTITY_SANDBOXES_MAX_BY_TIER: testValue('IDENTITY_SANDBOXES_MAX_BY_TIER') }),
     IDENTITY_SANDBOX_BASE_URL: testValue('IDENTITY_SANDBOX_BASE_URL'),
+    // LOCAL TEST API rate tiers and grant ceiling (J-developer-06), labelled in the same profile, never an owner decision.
+    // Blank refuses every key call at the edge (edge.limits_unset) and every limit request (identity.rate_limits_unset);
+    // `LOCAL_STACK_IDENTITY_RATE_LIMITS=off` on a start or restart leaves it blank so those can be seen.
+    ...(process.env.LOCAL_STACK_IDENTITY_RATE_LIMITS === 'off' ? {} : { IDENTITY_API_RATE_LIMITS: testValue('IDENTITY_API_RATE_LIMITS') }),
+    // LOCAL TEST longest rotation overlap (J-developer-07 #1), labelled in the same profile, never an owner decision. Blank
+    // refuses a rotation with an overlap above 0; `LOCAL_STACK_IDENTITY_KEY_ROTATE_OVERLAP_MAX=off` on a restart leaves it
+    // blank so that refusal can be seen.
+    ...(process.env.LOCAL_STACK_IDENTITY_KEY_ROTATE_OVERLAP_MAX === 'off'
+      ? {}
+      : { IDENTITY_API_KEY_ROTATE_OVERLAP_MAX_SECONDS: testValue('IDENTITY_API_KEY_ROTATE_OVERLAP_MAX_SECONDS') }),
     // LOCAL TEST idle period for API keys (J-developer-03 #9), labelled in the same profile, never an owner decision: the
     // key detail shows it; no dormant sweep is built, so it ends no key. Blank shows `not set`.
     IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS: testValue('IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS'),
@@ -252,11 +325,19 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     // LOCAL TEST sign-in challenge (I-signin-sessions-30, J-identity-02 #2), labelled TEST in the same profile; the key is
     // this stack's own (secrets.json). `LOCAL_STACK_IDENTITY_SIGNIN_CHALLENGE_AFTER=<n>` on a start or restart sets the
     // failure count, so a journey can see the challenge; a plain restart puts the TEST value back.
+    // `LOCAL_STACK_IDENTITY_SIGNIN_CHALLENGE_ROUND=<label>` beside it signs with a key derived from the stack's secret and
+    // that label. Identity counts an address's failures under a hash keyed by it, so the journey starts from no failures
+    // and its own 15-minute window, not one the run's earlier wrong passwords opened that could close mid-step (#7988).
     IDENTITY_SIGNIN_CHALLENGE_AFTER_FAILURES:
       process.env.LOCAL_STACK_IDENTITY_SIGNIN_CHALLENGE_AFTER || testValue('IDENTITY_SIGNIN_CHALLENGE_AFTER_FAILURES'),
     IDENTITY_SIGNIN_CHALLENGE_BITS: testValue('IDENTITY_SIGNIN_CHALLENGE_BITS'),
     IDENTITY_SIGNIN_CHALLENGE_TTL_SECONDS: testValue('IDENTITY_SIGNIN_CHALLENGE_TTL_SECONDS'),
-    IDENTITY_SIGNIN_CHALLENGE_KEY: secrets.identitySigninChallenge,
+    IDENTITY_SIGNIN_CHALLENGE_KEY:
+      process.env.LOCAL_STACK_IDENTITY_SIGNIN_CHALLENGE_ROUND && secrets.identitySigninChallenge
+        ? createHmac('sha256', secrets.identitySigninChallenge)
+            .update(`local-test:signin-challenge-round:${process.env.LOCAL_STACK_IDENTITY_SIGNIN_CHALLENGE_ROUND}`)
+            .digest('hex')
+        : secrets.identitySigninChallenge,
     // LOCAL TEST one-tap share tags (RC-campaigns-06, J-campaigns-05 #2): the visit limit is labelled TEST in the same
     // profile; the signing key is derived from this stack's own sign-in challenge secret (secrets.json), so it is valid
     // nowhere else and needs no new secret name. `LOCAL_STACK_IDENTITY_SHARE_TAG_KEY=off` leaves it blank, as production is
@@ -270,6 +351,17 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     // (referral.lapse_period_unset); a blank cadence leaves the sweep timer off.
     IDENTITY_REFERRAL_LAPSE_PERIOD_SECONDS: testValue('IDENTITY_REFERRAL_LAPSE_PERIOD_SECONDS'),
     IDENTITY_REFERRAL_LAPSE_SWEEP_SECONDS: testValue('IDENTITY_REFERRAL_LAPSE_SWEEP_SECONDS'),
+    // LOCAL TEST partner programme (J-campaigns-07), same profile: the qualified invitee count, the reapply wait and the
+    // programme depth. `LOCAL_STACK_IDENTITY_PARTNER_ELIGIBILITY=off` on a start or restart leaves the count blank, so
+    // partner.eligibility_unset can be seen (#1); `LOCAL_STACK_IDENTITY_PARTNER_DEPTH=off` leaves the depth blank, so the
+    // sub-tree, accrual and payout refuse with affiliate.programme_depth_unset (#4). A plain restart puts both back.
+    ...(process.env.LOCAL_STACK_IDENTITY_PARTNER_ELIGIBILITY === 'off'
+      ? {}
+      : { IDENTITY_PARTNER_MIN_QUALIFIED_INVITEES: testValue('IDENTITY_PARTNER_MIN_QUALIFIED_INVITEES') }),
+    IDENTITY_PARTNER_REAPPLY_DAYS: testValue('IDENTITY_PARTNER_REAPPLY_DAYS'),
+    ...(process.env.LOCAL_STACK_IDENTITY_PARTNER_DEPTH === 'off'
+      ? {}
+      : { IDENTITY_PARTNER_PROGRAMME_DEPTH: testValue('IDENTITY_PARTNER_PROGRAMME_DEPTH') }),
     // LOCAL TEST waitlist wave size (J-campaigns-20 #3), same profile. Blank refuses every release (drop.wave_unset).
     IDENTITY_WAITLIST_WAVE_SIZE: testValue('IDENTITY_WAITLIST_WAVE_SIZE'),
     // LOCAL TEST founder pair only: local_test_founder_a / local_test_founder_b from
@@ -277,3 +369,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     ...identityFounderEnv(),
   }),
 });
+
+export default (deps) => {
+  const def = service(deps);
+  return { ...def, env: () => screeningSwitch(def.env()) };
+};

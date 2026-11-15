@@ -5,7 +5,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { mustInclude, repoRoot, walk } from './browser-entry-closure.lib.mjs';
+import { exportTarget, mustInclude, repoRoot, walk } from './browser-entry-closure.lib.mjs';
 
 function readText(path) {
   return readFileSync(resolve(repoRoot, path), 'utf8');
@@ -19,12 +19,13 @@ function sourceShape() {
   if (!/from ['"]@intafaced\/config\/modules['"]/.test(instruments)) problems.push('instruments-missing-config-modules');
   if (/from ['"]@intafaced\/config['"]/.test(instruments)) problems.push('instruments-still-imports-config-root');
   if (!contractsIndex.includes("export * from './instruments.js'")) problems.push('contracts-root-dropped-instruments');
-  const instrumentsExport = contractsPkg.exports?.['./instruments'];
-  if (instrumentsExport?.default !== './dist/instruments.js' || instrumentsExport?.types !== './dist/instruments.d.ts') {
+  const exportsOf = contractsPkg.exports ?? {};
+  const instrumentsTypes = (exportsOf['./instruments'] ?? exportsOf['./*'])?.types?.replace('*', 'instruments');
+  if (exportTarget(exportsOf, './instruments') !== './dist/instruments.js' || instrumentsTypes !== './dist/instruments.d.ts') {
     problems.push('contracts-instruments-export');
   }
-  if (contractsPkg.exports?.['.']?.default !== './dist/index.js') problems.push('contracts-root-export');
-  if (contractsPkg.exports?.['./identity']?.default !== './dist/identity.js') problems.push('identity-subpath-moved');
+  if (exportTarget(exportsOf, '.') !== './dist/index.js') problems.push('contracts-root-export');
+  if (exportTarget(exportsOf, './identity') !== './dist/identity.js') problems.push('identity-subpath-moved');
   return problems;
 }
 
@@ -61,6 +62,10 @@ const pureEntries = [
   ['contracts-identity-dist', 'packages/contracts/dist/identity.js'],
   ['contracts-account-controls-source', 'packages/contracts/src/account-controls.ts'],
   ['contracts-account-controls-dist', 'packages/contracts/dist/account-controls.js'],
+  // The customer app's support and safety rooms read it (J-bank-18): a signed door imported here took every public room
+  // down with `Buffer is not defined` (#7687).
+  ['contracts-support-safety-source', 'packages/contracts/src/support-safety.ts'],
+  ['contracts-support-safety-dist', 'packages/contracts/dist/support-safety.js'],
 ];
 
 const unsafeEntries = [
