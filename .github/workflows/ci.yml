@@ -135,6 +135,8 @@ jobs:
           PR_AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
           PR_COMMITS: ${{ github.event.pull_request.commits }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          # Check 7 reads this pull request's earlier heads' failed Tests jobs (actions: read above).
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         # Main's copy runs in a worktree of main, so every import it has is main's too (rules-from-main.test.mjs).
         run: |
           guard=tooling/ci/test-diff-guard.mjs
