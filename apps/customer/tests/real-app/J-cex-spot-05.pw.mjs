@@ -573,7 +573,9 @@ test(`${J} #8 presses Flatten on a held coin: one reviewed market sell of all of
   expect(placed).toMatchObject({ side: 'sell', type: 'market', status: 'filled', symbol: SPOT });
   expect(sameDecimal(placed.filled, START_BTC)).toBe(true);
   expect(toUnits((await venueBalance(owner, 'BTC')).free)).toBe(0n);
-  const fills = (await venueRecord(owner, '/fills')).value.filter((f) => f.venueClientOrderId === cloid);
+  const fills = (await venueRecord(owner, '/fills', { since: new Date(0).toISOString() })).value.filter(
+    (f) => f.venueClientOrderId === cloid,
+  );
   expect(fills.reduce((sum, f) => sum + toUnits(f.amount), 0n)).toBe(toUnits(START_BTC));
   // Nothing left to flatten: the control goes, and no second sell can be made of the same coin.
   await expect(flatten).toHaveCount(0, { timeout: 20_000 });

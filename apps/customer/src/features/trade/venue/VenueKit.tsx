@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Badge } from '@intafaced/ui';
+import { Badge, Checkbox } from '@intafaced/ui';
 import { Button, DataTable } from '../../../shared/ui';
 import { usePreferences } from '../../../shared/preferences';
 import { displayAmount } from '../../../shared/money';
@@ -677,11 +677,10 @@ export function OrdersTable({
               {select ? (
                 <td data-cell="select">
                   {o.venueClientOrderId && (o.status === 'open' || o.status === 'partially_filled') ? (
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       aria-label={select.label(o.venueClientOrderId)}
                       checked={select.selected.has(o.venueClientOrderId)}
-                      onChange={() => select.onToggle(o.venueClientOrderId!)}
+                      onCheckedChange={() => select.onToggle(o.venueClientOrderId!)}
                     />
                   ) : null}
                 </td>
