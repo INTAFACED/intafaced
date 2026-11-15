@@ -4,6 +4,7 @@ import {
   VenueRefusalError,
   type UserVenue,
   type UserVenueAccount,
+  type UserVenueBuilderClaim,
   type UserVenueFill,
   type VenueBuilderTotal,
 } from '@intafaced/venue-contracts';
@@ -47,7 +48,17 @@ const twoFills = () => [fill('t1', '0.25'), fill('t2', '0.4')];
 
 type Totals = 'none' | 'not_known' | 'refused' | 'down' | readonly VenueBuilderTotal[];
 
-/** A venue that reports `fills` for A, and its own builder totals for our address as `totals` says. */
+/** The claims of builder fees the venue records (its claim record), whatever builder they paid. */
+let claims: UserVenueBuilderClaim[] = [];
+const claim = (claimId: string, amount: string): UserVenueBuilderClaim => ({
+  claimId,
+  builder: BUILDER,
+  asset: 'USDC',
+  amount: a(amount),
+  claimedAt: new Date('2026-11-10T01:30:00.000Z'),
+});
+
+/** A venue that reports `fills` for A, its own builder totals for our address as `totals` says, and its claim record. */
 function venueWith(fills: UserVenueFill[], totals: Totals): () => Promise<UserVenue> {
   const venue = {
     venue: { id: VENUE, displayName: 'TEST totals venue', kind: 'test' },
@@ -66,6 +77,9 @@ function venueWith(fills: UserVenueFill[], totals: Totals): () => Promise<UserVe
             if (totals === 'not_known') return { value: { known: false }, asOf: TOTALS_AT };
             return { value: { known: true, value: { builder, assets: totals } }, asOf: TOTALS_AT };
           },
+          async builderClaims() {
+            return { value: claims, asOf: TOTALS_AT };
+          },
         }),
   } as unknown as UserVenue;
   return async () => venue;
@@ -75,6 +89,7 @@ let ledger: MemoryLedger;
 let store: InMemoryBuilderFeeStore;
 const accounts = (): BuilderFeeAccount[] => [{ userId: USER, account: A, since }];
 beforeEach(() => {
+  claims = [];
   ledger = new MemoryLedger({ idempotencyConflict: 'refuse' });
   store = new InMemoryBuilderFeeStore(accounts);
 });
@@ -148,6 +163,7 @@ describe("the venue's own totals decide (OWNER 288 change 1e)", () => {
   });
 
   it('a payout the ledger received counts in its earned total and leaves the venue owing the rest', async () => {
+    claims = [claim('claim-1', '0.1')];
     await ledger.post(recipes.builderFeeReceive({ venueId: VENUE, claimId: 'claim-1', assetId: 'USDC', amount: a('0.1') }));
     // Received before it was earned here, so the receivable runs 0.1 ahead until the fills post; then 0.55 is owed.
     const v = await recon(twoFills(), venueTotals('0.65', '0.55'));
@@ -157,6 +173,40 @@ describe("the venue's own totals decide (OWNER 288 change 1e)", () => {
       ],
     });
     expect(v.verdict).toBe('matched');
+  });
+
+  it('J-derivatives-17 #1: our collected fees swept on from the builder account to our wallet leave the earned total matched', async () => {
+    // The venue paid the whole 0.65 out (one claim); the ledger received it, then the own-funds sweep moved 0.6 of it on to
+    // our wallet. What we earned at the venue is still 0.65: the builder account's balance (0.05) is not what we earned.
+    claims = [claim('claim-1', '0.65')];
+    await ledger.post(recipes.builderFeeReceive({ venueId: VENUE, claimId: 'claim-1', assetId: 'USDC', amount: a('0.65') }));
+    await ledger.post(
+      recipes.ownFundsMove({
+        from: { kind: 'venue-builder-account', venueId: VENUE },
+        to: { kind: 'treasury-wallet', walletId: 'test-chain:rewards' },
+        assetId: 'USDC',
+        amount: a('0.6'),
+        reference: '0xsweep1',
+      }),
+    );
+    const v = await recon(twoFills(), venueTotals('0.65', '0'));
+    expect(v.venueTotals).toMatchObject({
+      rows: [{ ledgerEarned: '0.65', venueEarned: '0.65', ledgerOwed: '0', venueUnclaimed: '0', earnedMatched: true, owedMatched: true }],
+    });
+    expect(v).toMatchObject({ verdict: 'matched', matched: true });
+  });
+
+  it('a claim the venue records that the ledger has not received yet keeps the earned total and stays owed, a break', async () => {
+    claims = [claim('claim-1', '0.1')];
+    const v = await recon(twoFills(), venueTotals('0.65', '0.55'));
+    // claim-1 is not received: earned still matches, and the ledger still says 0.65 is owed against the venue's 0.55
+    // unclaimed, a break until Collect posts it.
+    expect(v.venueTotals).toMatchObject({
+      rows: [
+        { ledgerEarned: '0.65', venueEarned: '0.65', earnedMatched: true, ledgerOwed: '0.65', venueUnclaimed: '0.55', owedMatched: false },
+      ],
+    });
+    expect(v.verdict).toBe('break');
   });
 
   it('a fee asset only the venue reports is a row and a break, never left out', async () => {
