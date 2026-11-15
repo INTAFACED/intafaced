@@ -126,13 +126,20 @@ test(`${J} #1 the agent directory shows availability and groups; an agent goes b
   const staff = page.getByTestId('staff-panel');
   // Window blank (as in production): the directory says automatic offline is not set.
   await expect(staff.getByTestId('staff-policy')).toContainText('Automatic offline is not set');
-  for (const id of Object.values(people)) await expect(staff.getByTestId(`staff-${id}`)).toBeVisible();
+  // Each person's row: its availability (nobody has set one on this new desk: offline) and its groups (teams). The desk has
+  // no groups yet (#3 reads it so), so every row's groups cell says None.
+  const availability = (id) => staff.getByTestId(`staff-${id}`).getByRole('cell').nth(3);
   await expect(staff.getByRole('columnheader', { name: 'Groups (teams)' })).toBeVisible();
-  await expect(staff.getByTestId(`staff-groups-${people.b}`)).toHaveText('None');
-  // The agent toggles busy on its own session; the directory shows it.
+  await expect(staff.getByRole('columnheader', { name: 'Availability' })).toBeVisible();
+  for (const id of Object.values(people)) {
+    await expect(availability(id)).toHaveText('offline');
+    await expect(staff.getByTestId(`staff-groups-${id}`)).toHaveText('None');
+  }
+  // The agent toggles busy on its own session; the directory shows it, and nobody else's availability moves.
   await setAvailability('agent', people.b, 'busy');
   await page.getByRole('button', { name: 'Refresh staff' }).click();
-  await expect(staff.getByTestId(`staff-${people.b}`)).toContainText('busy');
+  await expect(availability(people.b)).toHaveText('busy');
+  for (const id of [people.lead, people.c, people.d, people.e]) await expect(availability(id)).toHaveText('offline');
   await setAvailability('agent', people.b, 'online');
 
   // With a TEST window of 5 seconds, an agent set online who sends no heartbeat reads offline once it passes.
@@ -140,10 +147,10 @@ test(`${J} #1 the agent directory shows availability and groups; an agent goes b
   await setAvailability('lead', people.c, 'online', `TEST ${J} #1 start a shift`);
   await page.reload();
   await expect(staff.getByTestId('staff-policy')).toContainText('5 seconds');
-  await expect(staff.getByTestId(`staff-${people.c}`)).toContainText('online');
+  await expect(availability(people.c)).toHaveText('online');
   await page.waitForTimeout(6_500);
   await page.getByRole('button', { name: 'Refresh staff' }).click();
-  await expect(staff.getByTestId(`staff-${people.c}`)).toContainText('offline');
+  await expect(availability(people.c)).toHaveText('offline');
   await ownDesk(undefined);
   await page.reload();
   await expect(staff.getByTestId('staff-policy')).toContainText('Automatic offline is not set');
