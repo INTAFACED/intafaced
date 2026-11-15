@@ -1,6 +1,6 @@
 // The lint ratchet on planted pull requests in a throwaway repository: a rise fails and names the rule, a rise paid for
 // in the same file passes, a change that switches the rule off in its own .oxlintrc.json is still judged by main's, a
-// moved function passes, a new rule only prints for its first days, and a rule that replaced a deleted test enforces now.
+// moved function passes, a rule named in printOnly only prints, and a rule that replaced a test of added files fails there.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -8,7 +8,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeF
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { compare, enforcesFrom, ruleOf } from './lint-ratchet.mjs';
+import { compare, ruleOf } from './lint-ratchet.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SCRIPT = join(ROOT, 'tooling', 'ci', 'lint-ratchet.mjs');
@@ -65,8 +65,7 @@ function repo(starts) {
     done: () => rmSync(dir, { recursive: true, force: true }),
   };
 }
-// no-double-cast started long ago, so it enforces; no-promise-copy replaced a deleted test, so it enforces from the start.
-const ENFORCING = { printOnlyDays: 7, enforceFromStart: ['garden/no-promise-copy'], started: { 'garden/no-double-cast': '2000-01-01' } };
+const ENFORCING = {};
 
 test('a pull request adding one `as unknown as` fails and names the rule', skip, () => {
   const r = repo(ENFORCING);
@@ -74,7 +73,7 @@ test('a pull request adding one `as unknown as` fails and names the rule', skip,
     const { code, out } = r.pr({ 'src/b.ts': CAST });
     assert.equal(code, 1, out);
     assert.match(out, /garden\/no-double-cast rose from 0 to 1/u);
-    assert.match(out, /src\/b\.ts/u);
+    assert.match(out, /src\/b\.ts:1 {2}`as unknown as` turns type checking off here: narrow with a type guard/u);
   } finally {
     r.done();
   }
@@ -120,19 +119,19 @@ test('a function moved from one file to a new one does not fail', skip, () => {
   }
 });
 
-test('a rule in its first 7 days prints the rise and the day it starts failing, and fails nothing', skip, () => {
-  const r = repo({ printOnlyDays: 7, enforceFromStart: [], started: {} });
+test('a rule named in printOnly prints the rise and fails nothing', skip, () => {
+  const r = repo({ printOnly: { 'garden/no-double-cast': 'a planted reason' } });
   try {
     const { code, out } = r.pr({ 'src/b.ts': CAST });
     assert.equal(code, 0, out);
-    assert.match(out, /rose \+1; prints only, fails from \d{4}-\d{2}-\d{2}/u);
+    assert.match(out, /rose \+1; prints only/u);
   } finally {
     r.done();
   }
 });
 
-test('a rule that replaced a deleted test enforces from its first day', skip, () => {
-  const r = repo({ printOnlyDays: 7, enforceFromStart: ['garden/no-promise-copy'], started: {} });
+test('a copy rule fails a planted promise in the Trade lane', skip, () => {
+  const r = repo(ENFORCING);
   try {
     const { code, out } = r.pr({ 'apps/customer/src/screens/trade/x/copy.ts': "export const a = { title: 'Coming soon' };\n" });
     assert.equal(code, 1, out);
@@ -142,39 +141,22 @@ test('a rule that replaced a deleted test enforces from its first day', skip, ()
   }
 });
 
-test('the verdict: names, dates and sums', () => {
+test('the verdict: names and sums', () => {
   assert.equal(ruleOf({ code: 'garden(no-double-cast)' }), 'garden/no-double-cast');
   assert.equal(ruleOf({ message: 'Unused oxlint-disable directive (no problems were reported).' }), 'unused-suppression');
-  assert.equal(enforcesFrom('x/y', { printOnlyDays: 7, started: {} }, '2026-11-20T10:00:00Z'), '2026-11-27');
-  assert.equal(enforcesFrom('x/y', { enforceFromStart: ['x/y'] }, '2026-11-20'), null);
-  const v = compare({ 'a/b': { f: 1 } }, { 'a/b': { f: 1, g: 1 } }, { enforceFromStart: ['a/b'] }, null);
+  const v = compare({ 'a/b': { f: 1 } }, { 'a/b': { f: 1, g: 1 } }, {});
   assert.equal(v.failing.length, 1);
-  assert.deepEqual(v.failing[0].files, ['f', 'g']);
-  assert.equal(compare({ 'a/b': { f: 2 } }, { 'a/b': { g: 1 } }, { enforceFromStart: ['a/b'] }, null).failing.length, 0, 'a fall passes');
+  assert.deepEqual(v.failing[0].files, ['g'], 'only the file that rose');
+  assert.equal(compare({ 'a/b': { f: 2 } }, { 'a/b': { g: 1 } }, {}).failing.length, 0, 'a fall passes');
 });
 
-test('a rule that replaced a test of added files fails at once in an added file, and only prints a rise in an existing one', skip, () => {
-  const starts = { printOnlyDays: 7, enforceFromStart: [], enforceAddedFromStart: ['garden/no-double-cast'], started: {} };
-  const added = repo(starts);
+test('a rule that replaced a test of added files fails in an added file even when a removal pays for it', skip, () => {
+  const r = repo({ failInAddedFiles: ['garden/no-double-cast'] });
   try {
-    const { code, out } = added.pr({ 'src/b.ts': CAST });
+    const { code, out } = r.pr({ 'src/a.ts': 'export const n = Number("1") + 1;\n', 'src/b.ts': CAST });
     assert.equal(code, 1, out);
     assert.match(out, /garden\/no-double-cast fires in file\(s\) this change adds \(src\/b\.ts\)/u);
   } finally {
-    added.done();
-  }
-  const existing = repo(starts);
-  try {
-    const { code, out } = existing.pr({
-      'src/a.ts': `${CAST}export function moved() {
-  return ("x" as unknown as number) * 2;
-}
-export const m = ("3" as unknown as number);
-`,
-    });
-    assert.equal(code, 0, out);
-    assert.match(out, /rose \+1; prints only/u);
-  } finally {
-    existing.done();
+    r.done();
   }
 });

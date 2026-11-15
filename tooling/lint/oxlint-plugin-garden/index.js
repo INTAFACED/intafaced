@@ -1,6 +1,6 @@
 // oxlint JS plugin: the weeds INTAFACED is known to grow. Plain ESM, no dependencies.
-// Loaded by the root .oxlintrc.json ("jsPlugins"), rules "garden/<name>". Advice only: nothing in CI runs it yet
-// (project-state garden stake-01 part A); the local check (stake-02) prints its findings.
+// Loaded by the root .oxlintrc.json ("jsPlugins"), rules "garden/<name>". tooling/ci/lint-ratchet.mjs fails a change whose
+// touched files gain a finding, in CI and before a push; tooling/lint/ratchet.json names the few rules that only print.
 import { copyRules } from './copy-rules.js';
 import { moneyRules } from './money-rules.js';
 import { duplicateRules } from './duplicate-rules.js';
@@ -14,7 +14,11 @@ const isFn = (n) => n && (n.type === 'ArrowFunctionExpression' || n.type === 'Fu
 const noLocalHelper = {
   meta: { type: 'suggestion', docs: { description: 'Import the shared helper instead of defining a local isRecord/sleep/unreachable.' } },
   create(context) {
-    const report = (node, name) => context.report({ node, message: `local helper '${name}': import the shared one` });
+    const report = (node, name) =>
+      context.report({
+        node,
+        message: `local helper '${name}': import the shared one (isRecord from @intafaced/contracts/guards, sleep from @intafaced/contracts/sleep)`,
+      });
     return {
       FunctionDeclaration(node) {
         if (node.id && HELPER_NAMES.has(node.id.name)) report(node.id, node.id.name);
@@ -36,7 +40,10 @@ const noDoubleCast = {
         if (inner?.type === 'TSAsExpression' && inner.typeAnnotation?.type === 'TSUnknownKeyword') {
           context.report({
             node,
-            message: '`as unknown as` turns type checking off here: narrow with a type guard or a schema parse, or fix the source type',
+            message:
+              '`as unknown as` turns type checking off here: narrow with a type guard or a schema parse, or fix the source type. ' +
+              'A partial test fake takes a single `as T`, which still checks the fields it writes; a test that passes a wrong type ' +
+              'on purpose suppresses the line with `-- why`',
           });
         }
       },
