@@ -1,9 +1,9 @@
 /** Browser hop for the campaign watch desk. Same-origin BFF only; the CSRF nonce is fetched per change. */
 import { founderMutationHeaders } from '@/lib/founder-browser';
 import type { RuleAnswer } from './builder-browser';
+import { isRecord } from '@intafaced/contracts/guards';
 
 const URL_ = '/api/more-ops/campaigns/watch';
-const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value && typeof value === 'object' && !Array.isArray(value));
 
 function answerOf<T>(answer: unknown, unknown: string): RuleAnswer<T> {
   // The console's own route shaped it from the service's schema-checked answer (watch-server.ts).

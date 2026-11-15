@@ -26,6 +26,7 @@ import {
   ACCOUNT_LIMIT_RAILS,
   type AccountLimitRail,
 } from '@intafaced/contracts/account-controls';
+import { isRecord } from '@intafaced/contracts/guards';
 
 /**
  * The request a founder hands to the other founder.
@@ -354,10 +355,6 @@ export interface ApprovalPacket {
   readonly expiresAt: string;
   /** Who proposed it (identity user id). Display only; identity decides. */
   readonly requesterId: string;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
 /** Identity's tier ids: lowercase letters, digits, `_` and `-`, at most 32. */

@@ -7,7 +7,7 @@
   },
   "ignorePatterns": ["**/vendor/**", "**/dist/**", "**/build/**", "**/.next/**", "**/coverage/**", "**/out/**"],
   "rules": {
-    "garden/no-local-helper": "off",
+    "garden/no-local-helper": "error",
     "garden/no-double-cast": "error",
     "garden/require-suppression-reason": "error",
     "garden/no-real-clock-wait-in-tests": "error",
