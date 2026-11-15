@@ -384,8 +384,9 @@ test(`${J} #4 reports a lost phone or a compromised account from the bank: step-
   const save = async (checks, password) => {
     for (const box of await form.getByRole('checkbox').all()) await box.uncheck();
     for (const name of checks) await form.getByLabel(name).check();
-    await form.getByLabel('Allowance').fill('5');
-    await form.getByLabel('In', { exact: true }).selectOption('USDT');
+    await form.getByRole('textbox', { name: /^Allowance/ }).fill('5');
+    // A label around a select names it with the chosen option too ("Asset USDT"), so it is found by its role.
+    await form.getByRole('combobox', { name: /^Asset/ }).selectOption('USDT');
     await form.getByLabel('Your password').fill(password);
     await form.getByRole('button', { name: 'Save extra checks' }).click();
   };

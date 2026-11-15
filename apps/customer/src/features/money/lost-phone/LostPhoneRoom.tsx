@@ -43,7 +43,7 @@ const copy = defineCopy('money.lost-phone', {
   control_secret_qr: 'A secret QR code',
   control_video_fallback: 'A video call',
   allowanceLabel: 'Allowance',
-  assetLabel: 'In',
+  assetLabel: 'Asset',
   passwordLabel: 'Your password',
   saveExtras: 'Save extra checks',
   removeExtras: 'Remove extra checks',
