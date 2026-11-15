@@ -21,6 +21,7 @@ const SECRET = 'a-quant-library-test-edge-secret-long-enough';
 const edgeContext = createEdgeContext({ secret: SECRET, serviceName: 'svc-quant' });
 const OWNER = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const READER = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const OPERATOR = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const HOUR = 3_600_000;
 const T0 = Date.parse('2026-10-20T00:00:00.000Z');
 const NOW = T0 + 48 * HOUR;
@@ -36,19 +37,19 @@ const RULES: QuantSignalRules = {
   exit: { stopLossPercent: '', takeProfitPercent: '' },
 };
 
-function signed(userId: string) {
+function signed(userId: string, scopes: string[] = ['trade:read']) {
   const raw = encodePrincipal({
     sub: userId,
     userId,
     sid: '22222222-2222-4222-8222-222222222222',
-    scopes: ['trade:read'],
+    scopes,
     tier: 'basic' as const,
     mfa: false,
     expiresAt: new Date(Date.now() + 60_000),
   });
   return edgeContext({
     headers: { 'x-intafaced-region': 'DE', [EDGE_PRINCIPAL_HEADER]: raw, [EDGE_SIGNATURE_HEADER]: signPrincipalHeader(raw, SECRET, 'DE') },
-    id: `req-${userId}`,
+    id: `req-${userId}-${scopes.join(',')}`,
   });
 }
 
@@ -80,7 +81,12 @@ function setup(owner: { licences?: string[] | null; checklist?: typeof CHECKLIST
       checklist: owner.checklist === undefined ? CHECKLIST : owner.checklist,
     },
   });
-  return { owner: app.createCaller(signed(OWNER)), reader: app.createCaller(signed(READER)) };
+  return {
+    owner: app.createCaller(signed(OWNER)),
+    reader: app.createCaller(signed(READER)),
+    opsRead: app.createCaller(signed(OPERATOR, ['admin:read'])),
+    opsWrite: app.createCaller(signed(OPERATOR, ['admin:write'])),
+  };
 }
 type Caller = ReturnType<typeof setup>['owner'];
 
@@ -276,5 +282,101 @@ describe('library (AL-library-02)', () => {
     const page = await t.reader.library.review({ listingId, text: 'TEST clear rules.' });
     expect(page.reviews).toEqual([expect.objectContaining({ reviewerId: READER, text: 'TEST clear rules.' })]);
     expect((await t.reader.library.review({ listingId, text: 'TEST again.' })).reviews).toHaveLength(1);
+  });
+});
+
+describe('library moderation (AL-library-03)', () => {
+  async function listed(t: ReturnType<typeof setup>, name: string) {
+    const saved = await strategy(t.owner, name);
+    await backtest(t.owner, saved.id);
+    return (await publish(t.owner, saved.id, { title: `TEST ${name}`, visibility: 'protected' })).listingId;
+  }
+  const pageSize = (t: ReturnType<typeof setup>, value: string | null) =>
+    t.opsWrite.ops.criteria.set({
+      name: 'library.queuePageSize',
+      value,
+      reason: 'LOCAL TEST',
+      idempotencyKey: `size:${value}:${Math.random()}`,
+    });
+
+  it('refuses the queue while the page size is blank, then lists every listing oldest first with its facts and no source', async () => {
+    const t = setup();
+    const first = await listed(t, 'first');
+    const second = await listed(t, 'second');
+    await expect(t.opsRead.ops.library.queue()).rejects.toThrow('quant.library_queue_limit_unset');
+    await pageSize(t, '1');
+    const page = await t.opsRead.ops.library.queue();
+    expect(page.pageSize).toBe(1);
+    expect(page.entries.map((row) => row.listingId)).toEqual([first]);
+    expect(page.entries[0]).toMatchObject({ state: 'listed', visibility: 'protected', facts: { stale: false }, audit: [], disputes: [] });
+    expect(JSON.stringify(page)).not.toContain('source');
+    const next = await t.opsRead.ops.library.queue({ cursor: page.nextCursor });
+    expect(next.entries.map((row) => row.listingId)).toEqual([second]);
+    await expect(t.owner.ops.library.queue()).rejects.toThrow();
+  });
+
+  it('hides with a reason: out of the library, the record stays, one audit row; unhide brings it back with another', async () => {
+    const t = setup();
+    const listingId = await listed(t, 'hide');
+    await pageSize(t, '50');
+    const hidden = await t.opsWrite.ops.library.hide({ listingId, reason: 'TEST rule 3', seq: 0 });
+    expect(hidden.state).toBe('hidden');
+    expect(hidden.audit).toEqual([expect.objectContaining({ seq: 0, action: 'hide', actor: OPERATOR, reason: 'TEST rule 3' })]);
+    expect((await t.reader.library.browse({ limit: 50 })).entries.map((row) => row.listingId)).not.toContain(listingId);
+    await expect(t.reader.library.get({ listingId })).rejects.toThrow('quant.listing_not_found');
+    await expect(t.reader.library.preview({ listingId })).rejects.toThrow('quant.listing_not_found');
+    expect((await t.owner.library.mine()).listings.map((row) => row.listingId)).toContain(listingId);
+    // The same key again is the first row; a second hide on a hidden listing refuses.
+    expect((await t.opsWrite.ops.library.hide({ listingId, reason: 'TEST rule 3', seq: 0 })).audit).toHaveLength(1);
+    await expect(t.opsWrite.ops.library.hide({ listingId, reason: 'TEST again', seq: 1 })).rejects.toThrow(
+      'quant.moderation_state_invalid',
+    );
+    const back = await t.opsWrite.ops.library.unhide({ listingId, reason: 'TEST appeal upheld', seq: 1 });
+    expect(back.state).toBe('listed');
+    expect(back.audit.map((row) => row.action)).toEqual(['hide', 'unhide']);
+    expect((await t.reader.library.browse({ limit: 50 })).entries.map((row) => row.listingId)).toContain(listingId);
+  });
+
+  it('refuses a removal without a reason and changes nothing; a removal with one is final', async () => {
+    const t = setup();
+    const listingId = await listed(t, 'remove');
+    await pageSize(t, '50');
+    await expect(t.opsWrite.ops.library.remove({ listingId, reason: '   ', seq: 0 })).rejects.toThrow('quant.moderation_reason_required');
+    const after = (await t.opsRead.ops.library.queue()).entries.find((row) => row.listingId === listingId)!;
+    expect(after).toMatchObject({ state: 'listed', audit: [] });
+    const removed = await t.opsWrite.ops.library.remove({ listingId, reason: 'TEST rule 5', seq: 0 });
+    expect(removed.state).toBe('removed');
+    await expect(t.opsWrite.ops.library.unhide({ listingId, reason: 'TEST', seq: 1 })).rejects.toThrow('quant.moderation_state_invalid');
+    await expect(t.reader.library.clone({ listingId })).rejects.toThrow('quant.listing_not_found');
+    await expect(t.reader.ops.library.remove({ listingId, reason: 'TEST', seq: 1 })).rejects.toThrow();
+  });
+
+  it('stores a dispute with its ticket reference and resolves it once with a reason', async () => {
+    const t = setup();
+    const listingId = await listed(t, 'dispute');
+    await expect(t.opsWrite.ops.library.dispute.open({ listingId, reason: 'TEST copied', ticketRef: ' ', seq: 0 })).rejects.toThrow(
+      'quant.dispute_ticket_required',
+    );
+    await expect(t.opsWrite.ops.library.dispute.open({ listingId, reason: '', ticketRef: 'TEST-1', seq: 0 })).rejects.toThrow(
+      'quant.moderation_reason_required',
+    );
+    const opened = await t.opsWrite.ops.library.dispute.open({ listingId, reason: 'TEST copied', ticketRef: 'TEST-1', seq: 0 });
+    expect(opened.disputes).toEqual([
+      expect.objectContaining({ ticketRef: 'TEST-1', state: 'open', openedBy: OPERATOR, resolution: null }),
+    ]);
+    expect(
+      (await t.opsWrite.ops.library.dispute.open({ listingId, reason: 'TEST copied', ticketRef: 'TEST-1', seq: 0 })).disputes,
+    ).toHaveLength(1);
+    const disputeId = opened.disputes[0]!.disputeId;
+    await expect(t.opsWrite.ops.library.dispute.resolve({ disputeId, reason: '' })).rejects.toThrow('quant.moderation_reason_required');
+    const resolved = await t.opsWrite.ops.library.dispute.resolve({ disputeId, reason: 'TEST original author confirmed' });
+    expect(resolved.disputes[0]).toMatchObject({
+      state: 'resolved',
+      ticketRef: 'TEST-1',
+      resolution: { actor: OPERATOR, reason: 'TEST original author confirmed' },
+    });
+    const again = await t.opsWrite.ops.library.dispute.resolve({ disputeId, reason: 'TEST other' });
+    expect(again.disputes[0]!.resolution!.reason).toBe('TEST original author confirmed');
+    await expect(t.opsWrite.ops.library.dispute.resolve({ disputeId: 'nope', reason: 'TEST' })).rejects.toThrow('quant.dispute_not_found');
   });
 });

@@ -2,7 +2,17 @@ import { randomUUID } from 'node:crypto';
 import type { QuantLibraryTag, QuantListingVisibility } from '@intafaced/contracts';
 import type { Sql } from 'postgres';
 import { QuantError } from '../errors.js';
-import type { AccessAction, LibraryRepository, StoredAccess, StoredClone, StoredListing, StoredReview } from './repository.js';
+import type { QuantModerationAction } from '@intafaced/contracts';
+import type {
+  AccessAction,
+  LibraryRepository,
+  StoredAccess,
+  StoredClone,
+  StoredDispute,
+  StoredListing,
+  StoredModeration,
+  StoredReview,
+} from './repository.js';
 
 function relation(schema: string, table: string): string {
   if (!/^[a-z][a-z0-9_]*$/.test(schema) || !/^[a-z_]+$/.test(table)) throw new Error(`refusing sql identifier ${schema}.${table}`);
@@ -91,12 +101,61 @@ const reviewOf = (row: ReviewSql): StoredReview => ({
   createdAt: iso(row.created_at),
 });
 
+interface ModerationSql {
+  listing_id: string;
+  seq: number;
+  action: QuantModerationAction;
+  actor: string;
+  reason: string;
+  at: Date | string;
+}
+interface DisputeSql {
+  id: string;
+  listing_id: string;
+  seq: number;
+  opened_by: string;
+  reason: string;
+  ticket_ref: string;
+  opened_at: Date | string;
+  resolved_by: string | null;
+  resolved_reason: string | null;
+  resolved_at: Date | string | null;
+}
+const moderationOf = (row: ModerationSql): StoredModeration => ({
+  listingId: row.listing_id,
+  seq: row.seq,
+  action: row.action,
+  actor: row.actor,
+  reason: row.reason,
+  at: iso(row.at),
+});
+const disputeOf = (row: DisputeSql): StoredDispute => ({
+  id: row.id,
+  listingId: row.listing_id,
+  seq: row.seq,
+  openedBy: row.opened_by,
+  reason: row.reason,
+  ticketRef: row.ticket_ref,
+  openedAt: iso(row.opened_at),
+  resolution:
+    row.resolved_by !== null && row.resolved_at !== null
+      ? { actor: row.resolved_by, reason: row.resolved_reason ?? '', at: iso(row.resolved_at) }
+      : null,
+});
+
 /** The strategy library in the service's own schema (J-algo-dev-09). */
 export function createPostgresLibraryRepository(sql: Sql, schema = 'quant'): LibraryRepository {
   const listings = relation(schema, 'library_listings');
   const access = relation(schema, 'library_access');
   const clones = relation(schema, 'library_clones');
   const reviews = relation(schema, 'library_reviews');
+  const moderation = relation(schema, 'library_moderation');
+  const disputes = relation(schema, 'library_disputes');
+  const resolutions = relation(schema, 'library_dispute_resolutions');
+  const MODERATION = 'listing_id, seq, action, actor, reason, at';
+  const DISPUTE = `d.id, d.listing_id, d.seq, d.opened_by, d.reason, d.ticket_ref, d.opened_at,
+    r.actor AS resolved_by, r.reason AS resolved_reason, r.at AS resolved_at`;
+  const DISPUTES = `${disputes} d LEFT JOIN ${resolutions} r ON r.dispute_id = d.id`;
   const query = <T>(text: string, params: readonly unknown[]): Promise<T[]> => sql.unsafe(text, params as never[]);
   const LISTING =
     'id, seq, owner_id, write_key, strategy_id, strategy_version, run_id, title, description, tags, visibility, licence, checklist_version, listed_at';
@@ -201,6 +260,65 @@ export function createPostgresLibraryRepository(sql: Sql, schema = 'quant'): Lib
         listingId,
       ]);
       return rows.map(reviewOf);
+    },
+    async queue({ afterSeq, limit }) {
+      const rows = await query<ListingSql>(`SELECT ${LISTING} FROM ${listings} WHERE seq > $1 ORDER BY seq LIMIT $2`, [afterSeq, limit]);
+      return rows.map(listingOf);
+    },
+    async moderation(listingId) {
+      const rows = await query<ModerationSql>(`SELECT ${MODERATION} FROM ${moderation} WHERE listing_id = $1 ORDER BY row_id`, [listingId]);
+      return rows.map(moderationOf);
+    },
+    async moderationOf(listingIds) {
+      if (!listingIds.length) return [];
+      const rows = await query<ModerationSql>(
+        `SELECT ${MODERATION} FROM ${moderation} WHERE listing_id = ANY($1::text[]) ORDER BY row_id`,
+        [[...listingIds]],
+      );
+      return rows.map(moderationOf);
+    },
+    async moderate(input) {
+      await query(
+        `INSERT INTO ${moderation} (listing_id, seq, action, actor, reason, at) VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (listing_id, seq) DO NOTHING`,
+        [input.listingId, input.seq, input.action, input.actor, input.reason, input.at.toISOString()],
+      );
+      const rows = await query<ModerationSql>(`SELECT ${MODERATION} FROM ${moderation} WHERE listing_id = $1 AND seq = $2`, [
+        input.listingId,
+        input.seq,
+      ]);
+      return moderationOf(rows[0]!);
+    },
+    async openDispute(input) {
+      await query(
+        `INSERT INTO ${disputes} (id, listing_id, seq, opened_by, reason, ticket_ref, opened_at) VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (listing_id, seq) DO NOTHING`,
+        [randomUUID(), input.listingId, input.seq, input.openedBy, input.reason, input.ticketRef, input.at.toISOString()],
+      );
+      const rows = await query<DisputeSql>(`SELECT ${DISPUTE} FROM ${DISPUTES} WHERE d.listing_id = $1 AND d.seq = $2`, [
+        input.listingId,
+        input.seq,
+      ]);
+      return disputeOf(rows[0]!);
+    },
+    async dispute(id) {
+      const rows = await query<DisputeSql>(`SELECT ${DISPUTE} FROM ${DISPUTES} WHERE d.id = $1`, [id]);
+      return rows[0] ? disputeOf(rows[0]) : null;
+    },
+    async disputes(listingIds) {
+      if (!listingIds.length) return [];
+      const rows = await query<DisputeSql>(`SELECT ${DISPUTE} FROM ${DISPUTES} WHERE d.listing_id = ANY($1::text[]) ORDER BY d.row_id`, [
+        [...listingIds],
+      ]);
+      return rows.map(disputeOf);
+    },
+    async resolveDispute({ id, actor, reason, at }) {
+      await query(
+        `INSERT INTO ${resolutions} (dispute_id, actor, reason, at) VALUES ($1, $2, $3, $4) ON CONFLICT (dispute_id) DO NOTHING`,
+        [id, actor, reason, at.toISOString()],
+      );
+      const rows = await query<DisputeSql>(`SELECT ${DISPUTE} FROM ${DISPUTES} WHERE d.id = $1`, [id]);
+      return disputeOf(rows[0]!);
     },
   };
 }
