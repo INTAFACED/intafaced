@@ -3515,10 +3515,8 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     const order = deps.findClientOrder
       ? await deps.findClientOrder(principal, { marketId: market.id, symbol, clientOrderId: req.params.clientOrderId })
       : null;
-    if (!order) {
-      throw new TradeError('order not found', 'trade.order_not_found');
-      return null;
-    }
+    // Not found throws: both callers answer it through sendDomainError as a 404 trade.order_not_found.
+    if (!order) throw new TradeError('order not found', 'trade.order_not_found');
     return order;
   }
 
