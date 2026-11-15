@@ -433,7 +433,10 @@ if (!available) {
         envelopeId: `env-${eventId}`,
         occurredAt: new Date().toISOString(),
       });
+      // Each delivery reads its triggers before it opens a transaction, so fill b starts only once a's is open: the
+      // first begin is then always a's, whichever read returns first (#8447).
       aDelivered = deliverTriggerEvent(limited, fill('fill-a'));
+      await aBegan;
       await Promise.all([aDelivered, deliverTriggerEvent(limited, fill('fill-b'))]);
       const [listed] = await person.own.triggers.list({ id });
       expect(listed!.runs.map((r) => [r.eventId, r.state]).sort()).toEqual([
