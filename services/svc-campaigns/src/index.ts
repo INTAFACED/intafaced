@@ -4,15 +4,21 @@ import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/a
 import { edgeTrustFromEnv } from '@intafaced/config';
 import { createEdgeContext, s2sFromEnv } from '@intafaced/contracts';
 import { JetStreamEventBus } from '@intafaced/events';
+import { parseAmount } from '@intafaced/ledger-client';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 import { CampaignService, parseTimeZone } from './campaigns.js';
 import { parseRuleLimit } from './rules.js';
 import { createLedgerClient } from './ledger-client.js';
 import { createMarketNames } from './markets.js';
+import { ReferralService } from './referrals.js';
 import { createParticipantClient } from './participants.js';
 import { PayoutSaga } from './payouts.js';
+import { RewardPayer, rewardsPaidToWallet } from './reward-payer.js';
+import { ledgerPostingEnabled, testRewardChain } from './test-chain.js';
 import { TaskService } from './tasks.js';
+import { createVenueDepositSource } from './venue-deposits.js';
 import { VoucherService } from './vouchers.js';
+import { WatchService } from './watch.js';
 import { DropService } from './drops.js';
 import { env } from './env.js';
 import { createCampaignsRouter, type CampaignsRouter } from './router.js';
@@ -54,9 +60,28 @@ const campaigns = new CampaignService({ sql, timeZone: () => timeZone, participa
 const ledger =
   env.LEDGER_URL && env.INTERNAL_SERVICE_SECRET ? createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : null;
 const reconcileAfterSeconds = env.CAMPAIGNS_RECONCILE_AFTER_SECONDS ?? null;
-const saga = ledger ? new PayoutSaga({ sql, ledger, reconcileAfterSeconds }) : null;
+const ceilingOf = (raw: string | undefined) => (raw === undefined ? null : parseAmount(raw));
+// The owner's reward ceiling (OWNER 288). Blank stays blank: every Owe refuses `ledger.reward_ceiling_unset`.
+const rewardCeiling = {
+  perCampaign: ceilingOf(env.CAMPAIGNS_REWARD_CEILING_PER_CAMPAIGN),
+  total: ceilingOf(env.CAMPAIGNS_REWARD_CEILING_TOTAL),
+};
+const saga = ledger ? new PayoutSaga({ sql, ledger, reconcileAfterSeconds, rewardCeiling }) : null;
 const markets = env.TRADE_URL ? createMarketNames({ tradeUrl: env.TRADE_URL }) : null;
+// The welcome deposit task's reads (J-campaigns-04 #2): the person's connected wallets and the venue's deposits.
+const venueDeposits =
+  env.PROTOCOL_URL && env.TRADE_URL && env.INTERNAL_SERVICE_SECRET
+    ? createVenueDepositSource({
+        protocolUrl: env.PROTOCOL_URL,
+        tradeUrl: env.TRADE_URL,
+        internalSecret: env.INTERNAL_SERVICE_SECRET,
+        ...(s2sKey ? { s2s: s2sKey } : {}),
+      })
+    : null;
 const tasks = new TaskService({
+  venueDeposits,
+  // What we have paid each wallet as rewards (J-campaigns-04 #3): a deposit counts only above it.
+  rewardsPaidTo: rewardsPaidToWallet(sql),
   sql,
   participants,
   saga,
@@ -64,6 +89,8 @@ const tasks = new TaskService({
   timeZone: () => timeZone,
   rollbackWindowSeconds: env.CAMPAIGNS_ROLLBACK_WINDOW_SECONDS ?? null,
 });
+/** Referral programmes (CM-referral-02): each invitee once, and their own events that count towards qualifying. */
+const referrals = new ReferralService({ sql, markets });
 
 const attemptLimits =
   env.CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ACCOUNT && env.CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ADDRESS && env.CAMPAIGNS_VOUCHER_ATTEMPT_WINDOW_SECONDS
@@ -75,8 +102,27 @@ const attemptLimits =
     : null;
 const vouchers = new VoucherService({ sql, participants, campaigns, saga, attemptLimits: () => attemptLimits });
 
-const appRouter = createCampaignsRouter(drops, campaigns, tasks, vouchers);
-const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, ...edgeTrustFromEnv(env), serviceName: env.SERVICE_NAME });
+// The watch desk's owner values (J-campaigns-17); each blank refuses what needs it, never a default.
+const watchLimits = {
+  codeBatchMax: env.CAMPAIGNS_CODE_BATCH_MAX ?? null,
+  exportLinkSeconds: env.CAMPAIGNS_EXPORT_LINK_SECONDS ?? null,
+  alerts: {
+    budget_low: env.CAMPAIGNS_ALERT_BUDGET_LEFT_PERCENT ?? null,
+    redemptions_spike: env.CAMPAIGNS_ALERT_REDEMPTIONS_PER_HOUR ?? null,
+  },
+};
+const watch = new WatchService({ sql, campaigns, limits: () => watchLimits });
+
+const appRouter = createCampaignsRouter(drops, campaigns, tasks, vouchers, watch, referrals);
+// svc-trade's fee-saver ask (`service.feeSaver`, J-campaigns-09) is a service call: the caller is named by its own key,
+// or by the shared secret where keys are not wired.
+const edgeContext = createEdgeContext({
+  secret: env.EDGE_PRINCIPAL_SECRET,
+  ...edgeTrustFromEnv(env),
+  serviceName: env.SERVICE_NAME,
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  ...(s2s.serviceVerifier && s2s.s2sMode ? { serviceVerifier: s2s.serviceVerifier, s2sMode: s2s.s2sMode } : {}),
+});
 
 let bus: JetStreamEventBus | null = null;
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
@@ -154,6 +200,7 @@ async function attachBus(): Promise<void> {
     );
     bus = connected;
     void attachWelcome(connected);
+    void attachCardCashback(connected);
   } catch (err) {
     app.log.error({ err }, 'svc-campaigns could not attach to trade.fill.settled: task progress waits, trying again');
     await connected?.close().catch(() => undefined);
@@ -164,8 +211,9 @@ async function attachBus(): Promise<void> {
   }
 }
 /**
- * The welcome checklist (CM-rewards-hub-03): each account's sign-up opens its window, and its first verification, crypto
- * deposit and spot fill tick its tasks. Each event is kept once, by account and kind, so a redelivery is a no-op. These
+ * The welcome checklist (CM-rewards-hub-03): each account's sign-up opens its window, and its first verification and
+ * spot fill tick its tasks. Its deposit task is read from the venue, not the bus (J-campaigns-04 #2; tasks.ts
+ * `readWelcomeDeposit`): a credit svc-pay posts to an account in our book is not a deposit into the person's venue account. Each event is kept once, by account and kind, so a redelivery is a no-op. These
  * read `identity`'s stream too, so they attach on their own: if that stream is missing they are tried again, and task
  * progress and earning rules above keep running.
  */
@@ -192,24 +240,91 @@ async function attachWelcome(connected: JetStreamEventBus): Promise<void> {
       { durable: 'campaigns-welcome-kyc-approved' },
     );
     await connected.subscribe(
-      'payDepositCreditPosted',
-      async (deposit) => {
-        await tasks.onWelcomeEvent({ userId: deposit.userId, event: 'pay.deposit', eventId: deposit.depositId, at: deposit.creditedAt });
-      },
-      { durable: 'campaigns-welcome-deposit-credited' },
-    );
-    await connected.subscribe(
       'fillSettled',
       async (fill) => {
         await tasks.onWelcomeEvent({ userId: fill.userId, event: 'trade.fill', eventId: fill.fillId, at: fill.ts });
       },
       { durable: 'campaigns-welcome-fill-settled' },
     );
+    // Referral progress (CM-referral-02): each invitee once from their attach, then their own verify, deposit and fills,
+    // each kept once by its event id. Each has its own durable consumer, so one that fails is tried again on its own.
+    await connected.subscribe(
+      'referralCreated',
+      async (edge) => {
+        await referrals.onAttached(edge);
+      },
+      { durable: 'campaigns-referral-attached' },
+    );
+    await connected.subscribe(
+      'kycApproved',
+      async (kyc, envelope) => {
+        await referrals.onVerified({ userId: kyc.userId, tier: kyc.tier, eventId: envelope.idempotencyKey, at: envelope.occurredAt });
+      },
+      { durable: 'campaigns-referral-kyc-approved' },
+    );
+    await connected.subscribe(
+      'payDepositCreditPosted',
+      async (deposit) => {
+        await referrals.onDeposit({
+          userId: deposit.userId,
+          depositId: deposit.depositId,
+          asset: deposit.assetId,
+          amount: deposit.amount,
+          at: deposit.creditedAt,
+        });
+      },
+      { durable: 'campaigns-referral-deposit-credited' },
+    );
+    await connected.subscribe(
+      'fillSettled',
+      async (fill) => {
+        await referrals.onFill({
+          userId: fill.userId,
+          fillId: fill.fillId,
+          marketId: fill.marketId,
+          quoteAmount: fill.quoteAmount,
+          at: fill.ts,
+        });
+      },
+      { durable: 'campaigns-referral-fill-settled' },
+    );
   } catch (err) {
     app.log.error({ err }, 'svc-campaigns could not attach the welcome checklist events: it waits, trying again');
     if (!stopping && bus === connected) {
       welcomeRetry = setTimeout(() => void attachWelcome(connected), BUS_RETRY_MS);
       welcomeRetry.unref();
+    }
+  }
+}
+/**
+ * Cashback earned on card spend the card partner holds (J-bank-13 #7): svc-bank announces it once per authorisation, and
+ * an earning rule on `bank.card_cashback.earned` owes it in USDC and the payer pays it to the person's own wallet. Keyed
+ * by the authorisation, so a redelivery owes nothing twice. It reads `bank`'s stream, so it attaches on its own and is
+ * tried again if that stream is missing; everything above keeps running.
+ */
+let cashbackRetry: NodeJS.Timeout | null = null;
+async function attachCardCashback(connected: JetStreamEventBus): Promise<void> {
+  try {
+    await connected.subscribe(
+      'bankCardCashbackEarned',
+      async (earned) => {
+        if (!saga) app.log.warn({ authorizationId: earned.authorizationId }, 'earning skipped: campaigns.reward_saga_unwired');
+        await tasks.onEarningEvent({
+          trigger: 'bank.card_cashback.earned',
+          eventId: earned.authorizationId,
+          userId: earned.userId,
+          at: earned.earnedAt,
+          values: { amount: earned.spend, cashback: earned.cashback },
+          assets: { amount: earned.assetId, cashback: earned.assetId },
+        });
+      },
+      { durable: 'campaigns-earn-card-cashback' },
+    );
+  } catch (err) {
+    app.log.error({ err }, 'svc-campaigns could not attach bank.card_cashback.earned: card cashback waits, trying again');
+    if (!stopping && bus === connected) {
+      cashbackRetry = setTimeout(() => void attachCardCashback(connected), BUS_RETRY_MS);
+      cashbackRetry.unref();
     }
   }
 }
@@ -232,6 +347,45 @@ const reconciler =
     : null;
 reconciler?.unref();
 
+// Paying owed rewards to the customer's own wallet (J-campaigns-03 #2 #3): from our own-funds place, on the LOCAL TEST
+// chain only. Any owner value or TEST chain fact blank: none runs, and an owed reward stays owed.
+const payWallet = /^(.+)=(0x[0-9a-fA-F]{40})$/.exec(env.CAMPAIGNS_REWARD_PAY_WALLET ?? '');
+const payer =
+  ledger &&
+  env.LEDGER_URL &&
+  payWallet &&
+  env.CAMPAIGNS_REWARD_PAY_INTERVAL_MS &&
+  env.CAMPAIGNS_TEST_CHAIN_RPC_URL &&
+  env.CAMPAIGNS_TEST_CHAIN_TOKEN &&
+  env.CAMPAIGNS_TEST_CHAIN_TOKEN_DECIMALS !== undefined &&
+  env.CAMPAIGNS_TEST_CHAIN_ID
+    ? new RewardPayer({
+        sql,
+        ledger,
+        chain: testRewardChain({
+          rpcUrl: env.CAMPAIGNS_TEST_CHAIN_RPC_URL,
+          token: env.CAMPAIGNS_TEST_CHAIN_TOKEN,
+          chainId: env.CAMPAIGNS_TEST_CHAIN_ID,
+        }),
+        wallet: { walletId: payWallet[1]!, address: payWallet[2]!, tokenDecimals: env.CAMPAIGNS_TEST_CHAIN_TOKEN_DECIMALS },
+        postingEnabled: ledgerPostingEnabled(env.LEDGER_URL),
+      })
+    : null;
+let paying = false;
+const payTimer = payer
+  ? setInterval(() => {
+      if (paying) return;
+      paying = true;
+      payer
+        .pass()
+        .catch((err: unknown) => app.log.error({ err }, 'reward payment pass failed'))
+        .finally(() => {
+          paying = false;
+        });
+    }, env.CAMPAIGNS_REWARD_PAY_INTERVAL_MS)
+  : null;
+payTimer?.unref();
+
 // Voucher expiry (J-campaigns-08): marks each claimed voucher whose use-by passed `expired`, once, and drops code
 // attempts older than the attempt window, which nothing counts any more. It moves no value, so
 // it runs whether or not the ledger is connected; a redemption after the use-by refuses whether or not it has run.
@@ -239,6 +393,8 @@ const VOUCHER_EXPIRY_MS = 15_000;
 const voucherExpiry = setInterval(() => {
   vouchers.expire().catch((err: unknown) => app.log.error({ err }, 'voucher expiry failed'));
   vouchers.pruneAttempts().catch((err: unknown) => app.log.error({ err }, 'voucher attempt prune failed'));
+  // Expired export files are deleted, and a job a stopped runner left queued is run (J-campaigns-17 #6).
+  watch.sweepExports().catch((err: unknown) => app.log.error({ err }, 'export sweep failed'));
 }, VOUCHER_EXPIRY_MS);
 voucherExpiry.unref();
 
@@ -247,20 +403,24 @@ if (!participantsWired) {
   app.log.warn('IDENTITY_URL or INTERNAL_SERVICE_SECRET is unset: campaigns with exclusions or a region list read unread');
 }
 if (!markets) app.log.warn('TRADE_URL is unset: a task step that names a market counts no fill');
+if (!venueDeposits) app.log.warn('PROTOCOL_URL, TRADE_URL or INTERNAL_SERVICE_SECRET is unset: the welcome deposit task reads unread');
 if (!saga)
   app.log.warn(
     'LEDGER_URL or INTERNAL_SERVICE_SECRET is unset: every claim refuses campaigns.reward_saga_unwired and no earning rule pays',
   );
-app.log.info({ port: env.HTTP_PORT, participants: participantsWired, ledger: Boolean(saga) }, 'svc-campaigns ready');
+if (!payer) app.log.warn('no reward payer: an owed reward stays owed (campaigns.reward_payout_unavailable)');
+app.log.info({ port: env.HTTP_PORT, participants: participantsWired, ledger: Boolean(saga), payer: Boolean(payer) }, 'svc-campaigns ready');
 
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     void (async () => {
       stopping = true;
       if (reconciler) clearInterval(reconciler);
+      if (payTimer) clearInterval(payTimer);
       clearInterval(voucherExpiry);
       if (busRetry) clearTimeout(busRetry);
       if (welcomeRetry) clearTimeout(welcomeRetry);
+      if (cashbackRetry) clearTimeout(cashbackRetry);
       await app.close();
       await bus?.close();
       await sql.end({ timeout: 2 });

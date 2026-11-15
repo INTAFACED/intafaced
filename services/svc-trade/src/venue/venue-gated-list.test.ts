@@ -36,6 +36,8 @@ async function mount(builder: BuilderFeeValue | null, account: { code: string; m
     store: new InMemoryPreparedActionStore(),
     stepUp: { require: async () => ({ stepUpEventId: 'x', consumedAt: null, replayed: false }) },
     builder,
+    // Blank: the gated list places no order, so the market protection is never read.
+    slippageCapBps: null,
     now: () => new Date(),
     listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', ...PERPS])),
   });

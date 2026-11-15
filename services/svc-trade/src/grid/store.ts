@@ -2,7 +2,7 @@ import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { parseAlgoPlaceGrant } from '../algo/durable-principal.js';
 import type { GridLevelPlan } from './plan.js';
-import type { GridBot, GridOrder, GridReserve, GridStatus, GridWithdrawal } from './types.js';
+import type { GridBot, GridOrder, GridReserve, GridStatus, GridTopUp, GridWithdrawal } from './types.js';
 
 export interface GridStore {
   findBot(botId: string): Promise<GridBot | null>;
@@ -48,6 +48,22 @@ export interface GridStore {
     key: { withdrawalId: string; botId: string; userId: string; asset: string; at: Date },
     decide: (state: { reserve: GridReserve | null; usedToday: Amount }) => GridWithdrawal,
   ): Promise<{ created: boolean; withdrawal: GridWithdrawal }>;
+  findTopUp(topUpId: string): Promise<GridTopUp | null>;
+  /**
+   * Under the owner's reserve lock for the asset, in one transaction: a top-up already stored under the key is answered
+   * as it is (`created: false`); otherwise `decide` gets the bot as stored and the unreleased grid reserves of the owner
+   * and asset less what their open buys hold, and either throws (nothing is written) or returns the top-up and the new
+   * level plan. The top-up row is stored while the bot's investment, levels and reinit count and its reserve row are
+   * raised together, only while the bot still has the investment `decide` saw.
+   */
+  topUp(
+    key: { topUpId: string; botId: string; userId: string; asset: string },
+    decide: (state: {
+      bot: GridBot;
+      reserve: GridReserve | null;
+      gridUnused: Amount;
+    }) => Promise<{ topUp: GridTopUp; levels: readonly GridLevelPlan[] }>,
+  ): Promise<{ created: boolean; topUp: GridTopUp }>;
 }
 
 type ClosedStatus = Exclude<GridOrder['status'], 'open'>;
@@ -73,6 +89,8 @@ export class MemoryGridStore implements GridStore {
   private readonly reserves = new Map<string, GridReserve>();
   private readonly orders = new Map<string, GridOrder>();
   private readonly withdrawals = new Map<string, GridWithdrawal>();
+  private readonly topUps = new Map<string, GridTopUp>();
+  private topUpTail: Promise<unknown> = Promise.resolve();
 
   async findBot(botId: string) {
     return this.bots.get(botId) ?? null;
@@ -152,6 +170,33 @@ export class MemoryGridStore implements GridStore {
     if (reserve) this.reserves.set(key.botId, { ...reserve, amount: withdrawal.reserveAfter });
     return { created: true, withdrawal };
   }
+  async findTopUp(topUpId: string) {
+    return this.topUps.get(topUpId) ?? null;
+  }
+  async topUp(
+    key: { topUpId: string; botId: string; userId: string; asset: string },
+    decide: (state: {
+      bot: GridBot;
+      reserve: GridReserve | null;
+      gridUnused: Amount;
+    }) => Promise<{ topUp: GridTopUp; levels: readonly GridLevelPlan[] }>,
+  ) {
+    // One at a time, as the reserve lock serialises them on PostgreSQL.
+    const run = this.topUpTail.then(async () => {
+      const existing = this.topUps.get(key.topUpId);
+      if (existing) return { created: false, topUp: existing };
+      const bot = this.bots.get(key.botId);
+      if (!bot) throw new Error(`grid top-up ${key.topUpId}: no bot ${key.botId}`);
+      const reserve = this.reserves.get(key.botId) ?? null;
+      const { topUp, levels } = await decide({ bot, reserve, gridUnused: await this.sumUnusedReserves(key.userId, key.asset) });
+      this.topUps.set(topUp.topUpId, topUp);
+      this.bots.set(bot.botId, { ...bot, investment: topUp.investmentAfter, levels, reinitCount: bot.reinitCount + 1 });
+      if (reserve) this.reserves.set(bot.botId, { ...reserve, amount: reserve.amount + topUp.amount });
+      return { created: true, topUp };
+    });
+    this.topUpTail = run.catch(() => undefined);
+    return run;
+  }
   async listOrders(botId: string) {
     return [...this.orders.values()]
       .filter((o) => o.botId === botId)
@@ -173,6 +218,7 @@ interface BotRow {
   grid_count: number;
   investment: string;
   levels: unknown;
+  reinit_count: number;
   status: GridStatus;
   status_reason: string | null;
   place_grant: unknown;
@@ -244,6 +290,38 @@ const withdrawalFromRow = (row: WithdrawalRow): GridWithdrawal => ({
   appliedAt: row.applied_at,
 });
 
+interface TopUpRow {
+  top_up_key: string;
+  bot_id: string;
+  user_id: string;
+  request_id: string;
+  request_hash: string;
+  asset: string;
+  amount: string;
+  investment_before: string;
+  investment_after: string;
+  free_before: string;
+  applied_at: Date;
+}
+
+const topUpFromRow = (row: TopUpRow): GridTopUp => ({
+  topUpId: row.top_up_key,
+  botId: row.bot_id,
+  userId: row.user_id,
+  requestId: row.request_id,
+  requestHash: row.request_hash,
+  asset: row.asset,
+  amount: parseAmount(row.amount),
+  investmentBefore: parseAmount(row.investment_before),
+  investmentAfter: parseAmount(row.investment_after),
+  freeBefore: parseAmount(row.free_before),
+  appliedAt: row.applied_at,
+});
+
+const TOP_UP_COLUMNS = `top_up_key, bot_id, user_id, request_id, request_hash, asset, amount::text AS amount,
+  investment_before::text AS investment_before, investment_after::text AS investment_after, free_before::text AS free_before,
+  applied_at`;
+
 const WITHDRAWAL_COLUMNS = `withdrawal_key, bot_id, user_id, request_id, request_hash, asset, amount::text AS amount,
   profit_before::text AS profit_before, profit_after::text AS profit_after, reserve_before::text AS reserve_before,
   reserve_after::text AS reserve_after, daily_cap::text AS daily_cap, cap_withdrawn_today::text AS cap_withdrawn_today,
@@ -279,6 +357,7 @@ function botFromRow(row: BotRow): GridBot {
     gridCount: row.grid_count,
     investment: parseAmount(row.investment),
     levels: levelsFromJson(row.bot_id, row.levels),
+    reinitCount: row.reinit_count,
     status: row.status,
     statusReason: row.status_reason,
     placeGrant: grant,
@@ -315,7 +394,7 @@ const orderFromRow = (row: OrderRow): GridOrder => ({
 
 const BOT_COLUMNS = `bot_id, user_id, client_request_id, request_hash, market_id, symbol, base_asset, quote_asset,
   lower_price::text AS lower_price, upper_price::text AS upper_price, grid_count, investment::text AS investment,
-  levels, status, status_reason, place_grant, created_at, updated_at`;
+  levels, reinit_count, status, status_reason, place_grant, created_at, updated_at`;
 
 const ORDER_COLUMNS = `client_order_id, bot_id, level_index, side, cycle, order_id, price::text AS price, qty::text AS qty,
   order_hold::text AS order_hold, status, pair_profit::text AS pair_profit, placed_at, closed_at`;
@@ -485,6 +564,50 @@ export class SqlGridStore implements GridStore {
       if (lowered.length !== 1) throw new Error(`grid withdrawal ${w.withdrawalId}: the reserve changed under the lock`);
       return { created: true, withdrawal: w };
     })) as { created: boolean; withdrawal: GridWithdrawal };
+  }
+
+  async findTopUp(topUpId: string) {
+    const rows = await this.sql.unsafe<TopUpRow[]>(`SELECT ${TOP_UP_COLUMNS} FROM grid_bot_top_ups WHERE top_up_key = $1`, [topUpId]);
+    return rows[0] ? topUpFromRow(rows[0]) : null;
+  }
+
+  async topUp(
+    key: { topUpId: string; botId: string; userId: string; asset: string },
+    decide: (state: {
+      bot: GridBot;
+      reserve: GridReserve | null;
+      gridUnused: Amount;
+    }) => Promise<{ topUp: GridTopUp; levels: readonly GridLevelPlan[] }>,
+  ) {
+    return (await this.sql.begin(async (tx) => {
+      const store = new SqlGridStore(tx as unknown as Sql);
+      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${reserveLockKey(key.userId, key.asset)}, 0))`;
+      const existing = await store.findTopUp(key.topUpId);
+      if (existing) return { created: false, topUp: existing };
+      const bots = await tx.unsafe<BotRow[]>(`SELECT ${BOT_COLUMNS} FROM grid_bots WHERE bot_id = $1 FOR UPDATE`, [key.botId]);
+      if (!bots[0]) throw new Error(`grid top-up ${key.topUpId}: no bot ${key.botId}`);
+      const bot = botFromRow(bots[0]);
+      const reserve = await store.getReserve(key.botId);
+      const { topUp: t, levels } = await decide({ bot, reserve, gridUnused: await store.sumUnusedReserves(key.userId, key.asset) });
+      await tx`
+        INSERT INTO grid_bot_top_ups (top_up_key, bot_id, user_id, request_id, request_hash, asset, amount, investment_before,
+                                      investment_after, free_before, applied_at)
+        VALUES (${t.topUpId}, ${t.botId}, ${t.userId}, ${t.requestId}, ${t.requestHash}, ${t.asset}, ${formatAmount(t.amount)},
+                ${formatAmount(t.investmentBefore)}, ${formatAmount(t.investmentAfter)}, ${formatAmount(t.freeBefore)}, ${t.appliedAt})`;
+      const raised = await tx`
+        UPDATE grid_bots
+           SET investment = ${formatAmount(t.investmentAfter)}, levels = ${tx.json(levelsToJson(levels) as never)},
+               reinit_count = reinit_count + 1, updated_at = ${t.appliedAt}
+         WHERE bot_id = ${t.botId} AND investment = ${formatAmount(t.investmentBefore)}
+        RETURNING bot_id`;
+      if (raised.length !== 1) throw new Error(`grid top-up ${t.topUpId}: the investment changed under the lock`);
+      const reserved = await tx`
+        UPDATE grid_bot_reserves SET amount = amount + ${formatAmount(t.amount)}
+         WHERE bot_id = ${t.botId} AND released_at IS NULL
+        RETURNING bot_id`;
+      if (reserved.length !== 1) throw new Error(`grid top-up ${t.topUpId}: the bot's reserve is released`);
+      return { created: true, topUp: t };
+    })) as { created: boolean; topUp: GridTopUp };
   }
 
   async listOrders(botId: string) {

@@ -499,7 +499,7 @@ export const FEATURES = [
       'packages/venue-contracts/src/latency.ts',
     ],
     note:
-      '**Done 2026-08-22:** MD/trade/account factories for binance/bybit/okx; live-network CI smoke; OMS wire + operator cred pass-through on svc-execution compose. ' +
+      '**Done 2026-08-22:** MD/trade/account factories for binance/bybit/okx; live-network smoke (by hand since 15 Nov 2026); OMS wire + operator cred pass-through on svc-execution compose. ' +
       'Honest gaps closed — refuse-closed without operator credentials; no invented mids.',
   }),
   f('connect.venue-vault', 'Venue Vault — per-user external API keys, HSM-backed, withdrawal refused (§27)', {

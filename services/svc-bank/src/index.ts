@@ -1,4 +1,5 @@
 import { parseStatementJobsTestHold, startStatementJobWorker } from './statements/statement-jobs.js';
+import { failingHistoryPages, parseActivityTestFault } from './activity/activity-test-fault.js';
 import type { z } from 'zod';
 import Fastify from 'fastify';
 import postgres from 'postgres';
@@ -35,11 +36,12 @@ import { globalPortsFor } from './personal-pay/global-sim.js';
 import { parseSendReviewRule } from './transfers/send-review.js';
 import { readStrangerHoldDays } from './holds/received-holds.js';
 import { onrampStandInFor } from './ramps/onramp-sim.js';
-import { testPartnerAccountDetails, testPartnerFor } from './partner/test-partner.js';
+import { moneyHeldBy, testPartnerAccountDetails, testPartnerFor } from './partner/test-partner.js';
+import { firstAdministrator, registerAgentsUsagePayment } from './agents/usage-payment.js';
 import { taxEffectsFor } from './activity/tax-effects.js';
 import { cardTermsOrNone, partnerReservesRead } from './partner/reserves.js';
 import { cashOutPartnerFor } from './cash-out/payout-sim.js';
-import { onrampPartnerFor, payinPaidBody } from './ramps/payin-sim.js';
+import { onrampPartnerFor, payinPaidBody, payinReturnedBody } from './ramps/payin-sim.js';
 import { registerPayinSimPage } from './ramps/payin-sim-page.js';
 import {
   payoutCancelledBody,
@@ -158,7 +160,12 @@ const assetRegistry = createLedgerAssetRegistry(env.LEDGER_URL, env.INTERNAL_SER
 /** Who takes add-money payments: unset unless the TEST stand-in was chosen, which refuses to boot outside dev/test. */
 const onrampPartner = onrampPartnerFor(
   env.BANK_ONRAMP_PARTNER,
-  { catalogueJson: env.BANK_PAYIN_SIM_JSON, pageUrl: env.BANK_PAYIN_SIM_PAGE_URL, returnUrl: env.BANK_PAYIN_SIM_RETURN_URL },
+  {
+    catalogueJson: env.BANK_PAYIN_SIM_JSON,
+    pageUrl: env.BANK_PAYIN_SIM_PAGE_URL,
+    returnUrl: env.BANK_PAYIN_SIM_RETURN_URL,
+    deliverUrl: env.BANK_PAYIN_SIM_DELIVER_URL,
+  },
   { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV },
 );
 
@@ -219,7 +226,10 @@ const bank = createBankServices(sql, ledger, history, {
     : unconfiguredBusinessDirectory(),
   // `bank.activity.list`: svc-ledger `historyPage` (read-only), cursors signed under the service secret.
   activity: {
-    pages: createLedgerHistoryPages(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s),
+    // The TEST fault (J-home-ia-01 #5) fails every history read; boot refuses it outside an explicit dev or test process.
+    pages: parseActivityTestFault(env.BANK_ACTIVITY_TEST_FAULT, { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV })
+      ? failingHistoryPages()
+      : createLedgerHistoryPages(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s),
     cursorSecret: env.INTERNAL_SERVICE_SECRET,
     // Where the person's own svc-pay withdrawals went (J-portfolio-03 #2), asked by withdrawal id; svc-pay's tables stay its own.
     payWithdrawals: createPayWithdrawalAddressesClient({ payUrl: env.PAY_URL, secret: env.INTERNAL_SERVICE_SECRET }),
@@ -285,6 +295,13 @@ const bank = createBankServices(sql, ledger, history, {
       rates: parseCashbackRates(env.BANK_CARD_CASHBACK_RATES_JSON),
       ...(env.IDENTITY_URL ? { rankTier: createIdentityRankTier(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s) } : {}),
       simulatorPays: cardSimCashbackFor(env.BANK_CARD_SIM_CASHBACK, { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV }),
+    },
+    /**
+     * Cashback earned on a partner-held capture (J-bank-13 #7) is handed to the rewards programme on the bus, once per
+     * authorisation; svc-campaigns owes it in USDC and pays it to the person's own wallet. Publishing moves no value.
+     */
+    cashbackEarned: async (earned) => {
+      await bus.publish('bankCardCashbackEarned', { ...earned }, { idempotencyKey: `bank.card_cashback:${earned.authorizationId}` });
     },
     /**
      * THE JIT CONVERSION RATE (§18), and what this wiring does NOT claim.
@@ -468,6 +485,19 @@ const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 })
 retainRawBody(app);
 registerClosureCheck(app, { sql, ledger, secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s });
 registerAgentsTeamMembership(app, { secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s, read: (u, b) => teamMembershipFor(sql, u, b) });
+// How a person pays for agent usage, and one payment of a sealed window, carried out by their partner (J-agents-01).
+registerAgentsUsagePayment(app, {
+  secret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
+  freeze: ledgerPostingFreeze(env.LEDGER_URL),
+  businessPayer: (businessId) => firstAdministrator(sql, businessId),
+  heldBy: (userId) => {
+    const held = moneyHeldBy(testPartner, userId, env.LEDGER_CUSTODY_LAYER);
+    return held === 'partner' && testPartner
+      ? { kind: 'partner', bank: testPartner.bank, partnerId: 'test' }
+      : { kind: held === 'partner' ? 'none' : held };
+  },
+});
 
 app.get('/health', async () => ({ ok: true, service: env.SERVICE_NAME }));
 app.get('/ready', async () =>
@@ -799,6 +829,8 @@ jobDoor('/internal/jobs/payout-sim/returned', payoutReturnedBody, (b) =>
  * with it) is where the payer approves.
  */
 jobDoor('/internal/jobs/payin-sim/paid', payinPaidBody, (b) => bank.addMoney.paid(b));
+/** The same partner says a credited payment was sent back (J-bank-02 #7): the credit is taken out once, as it reports. */
+jobDoor('/internal/jobs/payin-sim/returned', payinReturnedBody, (b) => bank.addMoney.returned(b));
 /**
  * The printer's and courier's side of a physical card (BK-cissue-03, J-bank-13 #4): a card produced, shipped, delivered.
  * A signed job door, never a customer or a staff session. No printer or courier is connected (`hardware`): on any

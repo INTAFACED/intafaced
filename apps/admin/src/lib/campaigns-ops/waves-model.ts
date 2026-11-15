@@ -1,3 +1,4 @@
+import { isRecord } from '@intafaced/contracts/guards';
 /**
  * Waitlist waves as svc-identity returns them (`waitlist.waves.list`, RC-campaigns-03). The reader is strict: a shape that is
  * not exactly this makes the whole read invalid, so the desk never prints a guess. Operator ids only, never emails.
@@ -19,10 +20,6 @@ export interface WavesState {
   readonly nextWave: number;
   readonly waiting: number;
   readonly waves: readonly Wave[];
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
 const whole = (v: unknown, min: number): v is number => typeof v === 'number' && Number.isInteger(v) && v >= min;

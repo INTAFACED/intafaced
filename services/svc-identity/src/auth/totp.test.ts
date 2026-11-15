@@ -124,6 +124,23 @@ describe('verification', () => {
     expect(matchTotpStep(secret, code, { at: now })).toBe(counter);
     expect(matchTotpStep(secret, '000000', { at: now })).toBeNull();
   });
+
+  // The RFC 6238 SHA-1 seed gives the same six digits at counters 153567 and 153569: a real collision, the kind that
+  // refused a fresh sign-in code on main (#8482, J-bank-05 #2) when the spent step matched first.
+  it('matches a fresh code to its own unspent step when it equals a spent step’s code', () => {
+    const seed = base32Encode(Buffer.from('12345678901234567890'));
+    const key = base32Decode(seed);
+    expect(hotp(key, 153567n)).toBe('468457');
+    expect(hotp(key, 153569n)).toBe('468457');
+    const at = new Date(153568 * 30_000 + 1_000);
+    // Without a spent step the oldest step in the window matches, as before.
+    expect(matchTotpStep(seed, '468457', { at })).toBe(153567n);
+    // With 153567 and 153568 spent, the code is still 153569's, inside the window: it matches that step.
+    expect(matchTotpStep(seed, '468457', { at, after: 153568n })).toBe(153569n);
+    // A replay finds no unspent step: every step its digits match is spent.
+    expect(matchTotpStep(seed, '468457', { at, after: 153569n })).toBeNull();
+    expect(matchTotpStep(seed, hotp(key, 153568n), { at, after: 153568n })).toBeNull();
+  });
 });
 
 describe('secrets and enrolment', () => {

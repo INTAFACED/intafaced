@@ -31,7 +31,17 @@ const fleetRows = (page) =>
     .filter({ has: page.getByRole('cell') });
 const ownRow = (page) => fleet(page).getByRole('row').filter({ hasText: OWN_AGENT }).filter({ hasText: agents.account().handle });
 const statusOf = (row) => row.getByTestId('fleet-status');
-const openFleet = (page, key) => openFounderDesk(page, '/more-ops/agents', 'Agent fleet', key);
+/**
+ * The fleet desk, opened as a founder, once its registry is read: the heading shows before svc-agents (and identity, for
+ * the handles) answer, and every row and switch waits on that answer. Waiting for the counts here keeps a step's
+ * fail-fast click (UNBUILT) about a missing control, not a slow read (run 43216992630: #4's Restore click ran out
+ * while the registry read was still in flight, then passed on its retry).
+ */
+async function openFleet(page, key) {
+  const founder = await openFounderDesk(page, '/more-ops/agents', 'Agent fleet', key);
+  await expect(page.getByTestId('fleet-total'), 'the registry is read').toHaveText(/^\d+$/);
+  return founder;
+}
 const auditLog = (page) => tableIn(page.getByRole('main'), 'Fleet audit log');
 /** The audit log's rows for one request id, which the page sent with the action. */
 const auditRows = (page, requestId) => auditLog(page).getByRole('row').filter({ hasText: requestId });

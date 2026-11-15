@@ -10,7 +10,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, CUSTOMER_ORIGIN }) => ({
     DATABASE_URL: dbUrl('svc_quant', secrets),
     TRADE_URL: urlOf('trade'),
     ...profileEnvFor('quant', 'dev'),
-    // TEST: the only site that may frame a shared result is this stack's own customer app.
-    QUANT_EMBED_ORIGINS: CUSTOMER_ORIGIN,
+    // TEST: the only site that may frame a shared result is this stack's own customer app. `off` leaves the list blank,
+    // so a journey can see the embed snippet refused while the link still opens (J-algo-dev-02 #7).
+    QUANT_EMBED_ORIGINS: process.env.LOCAL_STACK_QUANT_EMBED_ORIGINS === 'off' ? '' : CUSTOMER_ORIGIN,
   }),
 });

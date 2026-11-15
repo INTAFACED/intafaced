@@ -10,6 +10,7 @@ import { createProtocolApi } from '../api';
 import { safetyCopy } from './safety-copy';
 import { walletCopy } from './copy';
 import { useWallet } from './WalletProvider';
+import { AccountModePanel } from './AccountModePanel';
 
 /**
  * /wallet/accounts (D-portfolio-wallet-02): the accounts the connected wallet controls on this network, read from the
@@ -29,6 +30,7 @@ export function AccountsPanel() {
   const headers = [t('hdr_account'), t('hdr_address'), t('hdr_status')];
   return (
     <>
+      <AccountModePanel />
       <Panel title={t('subAccountsTitle')}>
         <p className="muted">{t('subAccountsNote')}</p>
         {owner ? (

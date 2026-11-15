@@ -20,6 +20,7 @@ import type { AccrualStore } from './accrual-store.js';
 import { AccrualRateRefuseError } from './commission-rate-law.js';
 import type { AccrualTierLaw } from './commission-rate-law.js';
 import { CommissionError } from './commission.js';
+import { AffiliateProgrammeDepthUnsetError, requireProgrammeDepth } from './programme-depth.js';
 
 /** Callers that own a live fee pool this mountain may accrue from. */
 export const AFFILIATE_PRODUCER_SOURCE_BY_SERVICE = {
@@ -53,6 +54,8 @@ export type AffiliateProducerAccrueDeps = {
   readonly freeze: { frozenIds(): Promise<ReadonlySet<string>> };
   readonly accruals: AccrualStore;
   readonly accrualTierLaw: AccrualTierLaw | undefined;
+  /** The partner programme depth (RC-campaigns-07). Undefined (blank) refuses every accrual. */
+  readonly programmeDepth: number | undefined;
   /** Stamps the payer's latest fee event for the referral lapse (CM-referral-01 RF-4), whether or not it earns commission. */
   readonly activity?: { recordFeeEvent(userId: string): Promise<void> };
 };
@@ -103,6 +106,7 @@ export function registerAffiliateProducerAccrue(app: FastifyInstance, deps: Affi
     try {
       // A fee event is activity even when it earns nothing (rates unset, a frozen referrer, a zero rate).
       await deps.activity?.recordFeeEvent(body.userId);
+      const maxDepth = requireProgrammeDepth(deps.programmeDepth);
       const parent = await deps.referral.loadParentMap();
       const frozen = await deps.freeze.frozenIds();
       const out = accrueTreeUnderRateAuthority({
@@ -117,6 +121,7 @@ export function registerAffiliateProducerAccrue(app: FastifyInstance, deps: Affi
         parent,
         law: deps.accrualTierLaw ?? { published: false },
         frozenBeneficiaryIds: frozen,
+        maxDepth,
         mode: 'durable',
       });
       const inserted = await deps.accruals.saveRows(out.rows);
@@ -138,6 +143,9 @@ export function registerAffiliateProducerAccrue(app: FastifyInstance, deps: Affi
         })),
       });
     } catch (err) {
+      if (err instanceof AffiliateProgrammeDepthUnsetError) {
+        return reply.code(412).send({ error: err.message, code: err.code });
+      }
       if (err instanceof AccrualRateRefuseError) {
         return reply.code(412).send({
           error: err.message,

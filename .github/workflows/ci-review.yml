@@ -35,9 +35,12 @@ jobs:
     # TEST_VERDICT_STEP): rename them together.
     name: CI review
     # In-repo pull requests into main only; of `edited` events, only a base change (a title or body edit needs no review).
+    # Not a draft: a build's PR is a draft while its journey is proven by hand (project-state BUILDER.md), and is
+    # reviewed and proof-read once, when `ready_for_review` marks it ready, so no head is read twice. A draft can't merge.
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.pull_request.base.ref == 'main' &&
+      !github.event.pull_request.draft &&
       (github.event.action != 'edited' || github.event.changes.base)
     runs-on: ubuntu-24.04
     # Healthy run: a few minutes, under 10 with the test part; a shared-harness change sends up to 1.5 MB.
@@ -150,6 +153,8 @@ jobs:
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           CLAUDE_CODE_OAUTH_TOKEN_2: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_2 }}
+          KEY_DRILL_PR: ${{ vars.CI_REVIEW_KEY_DRILL_PR }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           dir="$RUNNER_TEMP/review"
           # The second key (project-state#2180): kept in an unexported variable, so a call sees one key, as before. Only
@@ -167,8 +172,16 @@ jobs:
             CLAUDE_CODE_OAUTH_TOKEN="${second}"
             answered_on=second
           }
+          # The key drill: the repository variable CI_REVIEW_KEY_DRILL_PR names one pull request whose first call is sent
+          # with a key that cannot be valid, so the API refuses it and the fallback above must answer on the second key.
+          # It proves the second key on a real review without waiting for the first to run out. It skips no call and
+          # changes no verdict: with no second key it does nothing, and unset (the default) nothing here changes.
+          if [ -n "$KEY_DRILL_PR" ] && [ "$KEY_DRILL_PR" = "$PR_NUMBER" ] && [ -n "$second" ]; then
+            echo "::warning::key drill for #$PR_NUMBER (repository variable CI_REVIEW_KEY_DRILL_PR): the first call is sent with a refused key, so the second key must answer"
+            CLAUDE_CODE_OAUTH_TOKEN="placeholder-the-api-refuses"
+          fi
           if [ -f "$dir/skip-reviewer" ]; then
-            echo "the diff step already decided (too large to review even in parts)"
+            echo "the diff step already decided (an exact automatic revert, or too large to review even in parts)"
             exec node "$GITHUB_WORKSPACE/tooling/ci/ci-review.mjs" read "$dir"
           fi
           if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
@@ -249,9 +262,13 @@ jobs:
       # The step the seal reads for gate files and look baselines: it fails only on a well-formed FAIL of the review
       # part, which then stands for this head and its code. Skipped when the judge is down: no answer is no verdict, so
       # the seal reads none (review-marker.mjs isJudgeDown) and waits, never a PASS and never a FAIL that would stand.
+      # From a branch's third FAIL in a row it also says to stop fixing and test the belief the fixes shared (ci-review.mjs
+      # premiseLines; the token reads this branch's runs and logs). Words only: no verdict changes.
       - name: Verdict
         id: verdict
         if: steps.review.outputs.kind != 'down'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node tooling/ci/ci-review.mjs judge "$RUNNER_TEMP/review"
 
       # The step the seal reads for journey tests and shared test code (review-marker.mjs JUDGE_CHECK): the same answer's

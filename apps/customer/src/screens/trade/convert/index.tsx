@@ -40,6 +40,8 @@ import { OTC_DESK_ID, OtcConvert } from './OtcConvert';
 import { RecentConversions } from './RecentConversions';
 import { RouteCard } from './RouteCard';
 import { LimitConvert } from './LimitConvert';
+import { classifyRefusal } from '../../../data';
+import { TradingHoldReason } from '../../../features/account/TradingHoldReason';
 import { useConvertPairs } from './use-pairs';
 import { canAccept, holdProgress, spreadPercent, validUntilClock } from './breakdown';
 import { defaultPair, edgeFor, edges, fromAssets, planConvert, reviewAmount, spendCap, toAssets, type Edge } from './convert-model';
@@ -227,7 +229,11 @@ function ConvertCard({
   const [picker, setPicker] = useState<'from' | 'to' | null>(null);
   const [reviewing, setReviewing] = useState<Reviewing>(null);
   const [accepting, setAccepting] = useState(false);
-  const [dialogMessage, setDialogMessage] = useState<{ text: string; action?: { label: string; href: string } } | null>(null);
+  const [dialogMessage, setDialogMessage] = useState<{
+    text: string;
+    action?: { label: string; href: string };
+    code?: string | null;
+  } | null>(null);
   const [result, setResult] = useState<Fill | null>(null);
   const [attempt, setAttempt] = useState<{ ref: AcceptRef; id: string } | null>(null);
   const swappedAt = useRef(0);
@@ -429,6 +435,7 @@ function ConvertCard({
         setDialogMessage({
           text: `${outcome.copy.title}. ${outcome.copy.body}${outcome.code ? ` (Ref ${outcome.code.trim().slice(0, 80)})` : ''}`,
           action,
+          code: outcome.code,
         });
         setAttempt(null);
         // The balance may be why: read it again now rather than in half a minute.
@@ -721,6 +728,7 @@ function ConvertCard({
               action={state.copy.action}
             />
           ) : null}
+          {state.status === 'refused' && !paused && state.kind === 'tradingOnHold' ? <TradingHoldReason /> : null}
           {state.status === 'depth' ? (
             <p data-testid="cvt-note" className="cvt-note">
               {t('Too big')}
@@ -833,6 +841,8 @@ function ConvertCard({
               {dialogMessage.text} {dialogMessage.action ? <a href={dialogMessage.action.href}>{dialogMessage.action.label}</a> : null}
             </p>
           ) : null}
+          {/* J-identity-14 #2: a trading hold gives the restriction's stored reason here too, in the status page's words. */}
+          {dialogMessage && classifyRefusal(dialogMessage.code) === 'tradingOnHold' ? <TradingHoldReason /> : null}
           <AlertDialogFooter>
             <AlertDialogClose render={<Button variant="secondary" size={40} />} disabled={accepting}>
               {t('Cancel')}

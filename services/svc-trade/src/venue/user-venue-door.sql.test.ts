@@ -91,6 +91,7 @@ describe('UserVenueDoor on SqlPreparedActionStore (Postgres) against the TEST si
       store,
       stepUp: { require: async () => ({ stepUpEventId: 'x', consumedAt: null, replayed: false }) },
       builder: null,
+      slippageCapBps: null,
       now: () => new Date(),
       listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
     });

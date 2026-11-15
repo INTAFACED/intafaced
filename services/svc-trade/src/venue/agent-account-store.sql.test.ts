@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { compare, parseAmount } from '@intafaced/ledger-client/money';
-import { netFunding, SqlAgentAccountStore, type AgentAccountRecord, type AgentMoveRecord } from './agent-account-store.js';
+import { netFunding, NO_LIMITS, SqlAgentAccountStore, type AgentAccountRecord, type AgentMoveRecord } from './agent-account-store.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -33,6 +33,7 @@ const account: AgentAccountRecord = {
   name: 'assistant-0000000000d1',
   asset: 'USDC',
   cap: a('200'),
+  limits: NO_LIMITS,
   agentAddress: '0x00000000000000000000000000000000000000a1',
   fundAmount: a('150'),
   status: 'opening',
@@ -68,6 +69,22 @@ describe('SqlAgentAccountStore on Postgres (trade.user_venue_agent_accounts, tra
     expect((await store.moves(USER, ACCOUNT)).map((m) => m.amount)).toEqual([a('150')]);
     const opened = await store.update(USER, ACCOUNT, { subAccount: '0xsub', status: 'open', openedAt: new Date() });
     expect((await store.find(USER, ACCOUNT))?.status).toBe(opened.status);
+  });
+
+  it("keeps the person's own caps (J-agents-21 #16): written under the row lock, read back as set, and a zero refused", async () => {
+    const store = new SqlAgentAccountStore(db!.sql);
+    const limits = { maxOrderNotional: a('50'), maxLeverage: 2, maxDailyLoss: a('25.5') };
+    await store.lockedUpdate(USER, ACCOUNT, async () => ({ limits }));
+    expect((await store.find(USER, ACCOUNT))?.limits).toEqual(limits);
+    // Another field's update leaves them as they were.
+    await store.update(USER, ACCOUNT, { cap: a('200') });
+    expect((await store.find(USER, ACCOUNT))?.limits).toEqual(limits);
+    await expect(
+      db!.sql`UPDATE trade.user_venue_agent_accounts SET max_order_notional = '0' WHERE account_id = ${ACCOUNT}`,
+    ).rejects.toThrow(/max_order_ck/);
+    await expect(db!.sql`UPDATE trade.user_venue_agent_accounts SET max_leverage = 0 WHERE account_id = ${ACCOUNT}`).rejects.toThrow(
+      /max_leverage_ck/,
+    );
   });
 
   it('two moves reserved at once are judged one after the other under the row lock: the second sees the first', async () => {

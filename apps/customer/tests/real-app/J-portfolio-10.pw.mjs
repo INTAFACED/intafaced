@@ -6,8 +6,9 @@ import { api, EDGE, ORIGIN, toUnits } from './stack.mjs';
 // J-portfolio-10, in the running app (docs/roadmap/journeys.json): I open a coin and see my own position in it. One test
 // per step, titled "J-portfolio-10 #<n>". One TEST trader, verified and funded with TEST USDT through the real ledger,
 // buys BTC twice at market on the desk, so the coin page has a holding, a lot book and fills of its own to show.
-// #3 shows the asset registry's networks (svc-bank `assets.list`); the registry holds no contract or links yet, and no
-// circulating supply is published, so market cap reads "not published".
+// #3 shows the asset registry's networks (svc-bank `assets.list`) and, where the registry knows them, each network's
+// contract and links (BTC knows none; USDC's TEST row does); no circulating supply is published, so market cap reads
+// "not published".
 const J = 'J-portfolio-10';
 
 test.describe.configure({ mode: 'serial' });
@@ -200,24 +201,50 @@ test(`${J} #3 reads stats and network details: market cap reads "not published" 
   await expect(network.locator('.coin-stats__value')).toHaveText(
     btc && btc.networks.length > 0 ? btc.networks.map((row) => row.label).join(', ') : 'not listed',
   );
-  // Contract and links "where known": the registry is where the page would know them, and BTC's row (and each of its
-  // networks) holds no contract address and no link, so none is known and the stats show none: no contract row, no
-  // address, and no link at all.
-  const CONTRACT = /contract|address|link|url|explorer|website|homepage/i;
-  for (const row of registry.filter((entry) => entry.assetId === 'BTC')) {
-    expect(
-      Object.keys(row).filter((key) => CONTRACT.test(key)),
-      'the registry row holds no contract or link',
-    ).toEqual([]);
-    for (const net of row.networks)
-      expect(
-        Object.keys(net).filter((key) => CONTRACT.test(key)),
-        `network ${net.label}`,
-      ).toEqual([]);
-  }
+  // Contract and links "where known": the registry is where the page knows them. BTC's row (when it has one) knows no
+  // contract and no link on any network, so its stats show no contract, no address and no link at all.
+  for (const row of registry.filter((entry) => entry.assetId === 'BTC'))
+    for (const net of row.networks) {
+      expect(net.contract, `BTC on ${net.label}`).toBeNull();
+      expect(net.links, `BTC on ${net.label}`).toEqual([]);
+    }
+  await expect(stats.getByTestId('coin-network-detail')).toHaveCount(0);
   await expect(stats.locator('a')).toHaveCount(0);
   await expect(stats).not.toContainText(/contract|explorer|website/i);
   await expect(stats).not.toContainText(/0x[0-9a-f]{6,}/i);
+
+  // Where they are known: a coin whose registry row names a contract and links on a network shows exactly those, one row
+  // per such network, and no row for a network that knows neither. USDC's TEST row is the stack's one with both.
+  const usdc = registry.find((row) => row.assetId === 'USDC' && row.state === 'active');
+  expect(usdc, 'USDC is in the registry').toBeDefined();
+  const known = usdc.networks.filter((net) => net.contract !== null || net.links.length > 0);
+  expect(known.length, 'the registry knows a contract or link for USDC on some network').toBeGreaterThan(0);
+  expect(known.length, 'and not on every network, so the page must leave one out').toBeLessThan(usdc.networks.length);
+  await page.goto('/coin/USDC');
+  const usdcStats = page.getByTestId('coin-stats');
+  await expect(usdcStats.getByTestId('coin-network').locator('.coin-stats__value')).toHaveText(
+    usdc.networks.map((net) => net.label).join(', '),
+  );
+  const details = usdcStats.getByTestId('coin-network-detail');
+  await expect(details).toHaveCount(known.length);
+  for (const [i, net] of known.entries()) {
+    const detail = details.nth(i);
+    await expect(detail).toHaveAttribute('data-network', net.networkId);
+    await expect(detail).toContainText(`On ${net.label}`);
+    if (net.contract === null) await expect(detail.getByTestId('coin-contract')).toHaveCount(0);
+    else await expect(detail.getByTestId('coin-contract')).toHaveText(net.contract);
+    const links = detail.getByTestId('coin-link');
+    await expect(links).toHaveCount(net.links.length);
+    for (const [k, link] of net.links.entries()) {
+      await expect(links.nth(k)).toHaveText(link.label);
+      await expect(links.nth(k)).toHaveAttribute('href', link.url);
+      await expect(links.nth(k)).toHaveAttribute('rel', 'noopener noreferrer');
+    }
+  }
+  // Nothing beyond what the registry knows: every link and address in the stats is one of those.
+  expect(await usdcStats.locator('a').evaluateAll((as) => as.map((a) => a.getAttribute('href')))).toEqual(
+    known.flatMap((net) => net.links.map((link) => link.url)),
+  );
 });
 
 test(`${J} #4 reads "Your position": quantity, average price, cost basis and result from the lot book`, async ({ page }) => {

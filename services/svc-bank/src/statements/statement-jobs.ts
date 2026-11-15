@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { BankError } from '../errors.js';
 import type { StatementFile, StatementReport, StatementRequest, StatementService } from './statement-service.js';
+import { sleep } from '@intafaced/contracts/sleep';
 
 /**
  * Background exports with a document centre (PF-statements-02, J-portfolio-11 #4 and #5).
@@ -116,8 +117,6 @@ export function statementJobKey(plan: {
     ':',
   );
 }
-
-const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 export class StatementJobService {
   constructor(

@@ -4,6 +4,7 @@ import { founderMutationHeaders } from '@/lib/founder-browser';
 import type { RefusalView } from '@/lib/desk/refusal-copy';
 import type { Outcome } from './model';
 import type { PayHaltsRead } from './types';
+import { isRecord } from '@intafaced/contracts/guards';
 
 export interface HaltRequest {
   readonly action: 'halt' | 'clear' | 'confirm_clear';
@@ -26,10 +27,6 @@ export type HaltReply =
   | { readonly ok: false; readonly refusal: RefusalView };
 
 const OUTCOMES: readonly string[] = ['changed', 'noop', 'conflict', 'pending_confirmation'];
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
 
 const UNKNOWN: HaltReply = {
   ok: false,

@@ -61,6 +61,17 @@ export interface CardPartnerTerms {
    * and it refuses to start outside dev or test.
    */
   readonly secrets?: 'test';
+  /**
+   * The partner's rules for a cardholder's own dispute (J-bank-15 #1, #3): how many days after a charge settles it takes a
+   * dispute, and whether it takes the cardholder's evidence once the representment is submitted. `null` is "not known":
+   * filing then refuses `bank.card_dispute_rules_unset`, never a guessed window.
+   */
+  readonly disputeRules: CardDisputeRules | null;
+}
+
+export interface CardDisputeRules {
+  readonly windowDays: number;
+  readonly evidenceAfterSubmission: boolean;
 }
 
 /** TEST: how old the TEST partner card says its figures may be before they are stale. A real partner declares its own. */
@@ -86,6 +97,7 @@ export const NOTHING_REPORTED: CardPartnerTerms = {
   figuresStaleAfterMs: CARD_SIM_FIGURES_STALE_AFTER_MS,
   fundingAssetId: null,
   fundingOffers: null,
+  disputeRules: null,
 };
 
 const assetId = z.string().regex(/^[A-Z0-9]{2,16}$/);
@@ -123,6 +135,12 @@ const simShape = z
     fundingOffers: z.object({ fund: z.boolean(), defund: z.boolean(), autoReload: z.boolean() }).strict().nullable(),
     // Optional, unlike the unknowns above: absent is a partner that offers no card secrets, which refuses, never a guess.
     secrets: z.literal('test').optional(),
+    // Optional: absent is "not known", the same as null, so filing a dispute refuses by name.
+    disputeRules: z
+      .object({ windowDays: z.number().int().min(1).max(540), evidenceAfterSubmission: z.boolean() })
+      .strict()
+      .nullable()
+      .optional(),
   })
   .strict();
 
@@ -162,7 +180,7 @@ export function cardSimPartnerFor(
   if (d.spendFrom && new Set(d.spendFrom).size !== d.spendFrom.length) {
     throw new Error(`${BANK_CARD_SIM_PARTNER_ENV} lists an asset twice in spendFrom`);
   }
-  return { test: true, ...d, figuresStaleAfterMs: CARD_SIM_FIGURES_STALE_AFTER_MS };
+  return { test: true, ...d, disputeRules: d.disputeRules ?? null, figuresStaleAfterMs: CARD_SIM_FIGURES_STALE_AFTER_MS };
 }
 
 /** The words every surface shows for an unknown. One constant so no surface can print a 0 or a guess instead. */
