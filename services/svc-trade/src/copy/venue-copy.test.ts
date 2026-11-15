@@ -4,7 +4,7 @@ import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
 import type { Principal } from '@intafaced/auth';
 import { StepUpCheckError, type StepUpCheck } from '@intafaced/contracts';
-import { formatAmount, parseAmount } from '@intafaced/ledger-client/money';
+import { parseAmount } from '@intafaced/ledger-client/money';
 import type { PreparedVenueAction, UserVenueAccount } from '@intafaced/venue-contracts';
 import { startTestVenueServer, type TestVenueSimulator, type TestVenueTypedData } from '@intafaced/venue-sim';
 import { AgentAccounts, parseAgentAccountValues, type AgentAccountView } from '../venue/agent-account.js';
@@ -271,33 +271,6 @@ describe('copy trading on the venue (TEST venue)', { timeout: 120_000 }, () => {
     const [position] = (await desk.positions({ followId: FOLLOW, followerId: FOLLOWER }))!;
     expect(position).toMatchObject({ orderId: key, status: 'open', reportedBy: { test: true } });
     expect(position!.bought).toBe(bought - onVenue.filter((f) => f.feeAsset === 'BTC').reduce((s, f) => s + f.venueFee + f.builderFee, 0n));
-  });
-
-  it("lists each copy with who placed it and its fills, the venue's fee and our builder fee as the venue reports them (J-copy-bots-otc-01 #8)", async () => {
-    const since = new Date(Date.now() - 1);
-    await leaderBuys('0.002', 1);
-    await copyNewFills(since);
-    const [copy] = (await desk.copiedOrders(FOLLOW, FOLLOWER))!;
-    const record = (await accountStore.find(FOLLOWER, accountId))!;
-    const cloid = (await actions.find(FOLLOWER, copy!.orderId))!.prepared.venueClientOrderId!;
-    const onVenue = (await subFills()).filter((f) => f.venueClientOrderId === cloid);
-    expect(onVenue.length).toBeGreaterThan(0);
-    // Placed by the agent permission on the sub-account, never by the person's own wallet.
-    expect(copy!.venue!.placedBy).toBe(record.agentAddress.toLowerCase());
-    expect(copy!.venue!.placedBy).not.toBe(followerKey.address.toLowerCase());
-    expect(copy!.venue).toMatchObject({ test: true, venueName: sim.venue.displayName });
-    // Exactly the venue's own fills of that copy, with their fees as the venue charged them.
-    expect(copy!.venue!.fills).toEqual(
-      onVenue.map((f) => ({
-        fillId: f.fillId,
-        amount: formatAmount(f.amount),
-        price: formatAmount(f.price),
-        venueFee: formatAmount(f.venueFee),
-        builderFee: formatAmount(f.builderFee),
-        feeAsset: f.feeAsset,
-        filledAt: f.filledAt.toISOString(),
-      })),
-    );
   });
 
   it('closes one copied position with one venue order under copy.close:<followId>:<fillId>, sent once; the position reads closed as the venue reports it', async () => {

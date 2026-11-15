@@ -192,26 +192,6 @@ export const copyPositionSchema = z.object({
   price: decimalSchema,
   status: z.string(),
   placedAt: z.string(),
-  /** On a follow that copies on the venue: who placed it, and its fills with their fees, as the venue reports them. */
-  venue: z
-    .object({
-      venueName: z.string(),
-      test: z.boolean(),
-      asOf: z.string(),
-      placedBy: z.string(),
-      fills: z.array(
-        z.object({
-          fillId: z.string(),
-          amount: decimalSchema,
-          price: decimalSchema,
-          venueFee: decimalSchema,
-          builderFee: decimalSchema,
-          feeAsset: z.string(),
-          filledAt: z.string(),
-        }),
-      ),
-    })
-    .optional(),
 });
 export type CopyPosition = z.infer<typeof copyPositionSchema>;
 
@@ -405,13 +385,6 @@ export type TwapRequest = {
   participationBps?: number;
 };
 
-/** copy.checkVenueFollow (svc-trade copy-service.ts): a venue follow checked with nothing written, or the follow its key made. */
-export const venueFollowCheckSchema = z.union([
-  z.object({ followId: z.string(), follow: copyFollowSchema }),
-  z.object({ followId: z.string(), follow: z.null(), quoteAsset: z.string(), maxAggregateExposure: decimalSchema }),
-]);
-export type VenueFollowCheck = z.infer<typeof venueFollowCheckSchema>;
-
 export function createRoomApi(api: ApiClient) {
   const tools = createToolApi(api);
   return {
@@ -440,10 +413,6 @@ export function createRoomApi(api: ApiClient) {
       }),
     follows: tools.copyFollows,
     follow: (input: FollowRequest) => api.mutate('trade', 'copy.follow', input, copyFollowSchema),
-    /** Start copying on the venue, checked: every gate and term, with nothing written (J-copy-bots-otc-01 #5 #7). */
-    checkVenueFollow: (input: FollowRequest) => api.mutate('trade', 'copy.checkVenueFollow', input, venueFollowCheckSchema),
-    /** A follow that copies onto one of the person's own open agent accounts (svc-trade venue-copy.ts). */
-    venueFollow: (input: FollowRequest & { agentAccountId: string }) => api.mutate('trade', 'copy.follow', input, copyFollowSchema),
     followAction: tools.copyAction,
     /** Lets the service place each copy as this person. The one-time key it answers with is never kept. */
     grantCopying: (followId: string) => api.mutate('trade', 'copy.grantSessionKey', { followId }, copyFollowSchema),
