@@ -92,13 +92,14 @@ export const venueAccount = async (owner) => ({ venueId: (await venueInfo()).id,
 
 /**
  * The venue's own record for `owner`, read directly (what the desk must equal). `base` is the TEST venue read: the
- * first by default, or TEST_VENUE_B for a journey that routes across both.
+ * first by default, or TEST_VENUE_B for a journey that routes across both. `subAccount` reads one of the owner's
+ * sub-accounts instead of the main account.
  */
-export async function venueRecord(owner, path, extra = {}, base = TEST_VENUE) {
+export async function venueRecord(owner, path, extra = {}, base = TEST_VENUE, subAccount = null) {
   const at = await testVenueAt(base, '/venue');
   expect(at.status, JSON.stringify(at.body)).toBe(200);
   expect(at.body.label).toBe('TEST');
-  const account = { venueId: at.body.venue.id, owner: owner.toLowerCase(), subAccount: null };
+  const account = { venueId: at.body.venue.id, owner: owner.toLowerCase(), subAccount };
   const { status, body } = await testVenueAt(base, path, { account, ...extra });
   expect(status, JSON.stringify(body)).toBe(200);
   return body;

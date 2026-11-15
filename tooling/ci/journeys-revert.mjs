@@ -8,6 +8,8 @@
  *            revert jobs at once, with the commit that passed, this one, this run and the broken steps. Waiting for the
  *            next full run as well cost a run of 40 to 55 minutes out of OWNER 180's 2 hours (bisect run 14: the revert
  *            opened 72 minutes after the first red finished). A flaky step never counts: the verdict sets it aside.
+ *            A step new to main (absent from the run before) that fails outright on its first run, in a journey file
+ *            the commits between the two runs added or changed, is reverted the same way (revertSteps' `changed`).
  *   early    Main's own journeys run, beside its shards (real-app-journeys.yml `early-break`): reads each shard's report as
  *            its job ends and, on a step that passed in the run before and failed outright in that shard, starts the same
  *            revert jobs at once, before the other shards and the whole run end (plant 1, project-state #2065: its failing
@@ -57,6 +59,7 @@ import { SUBSCRIBES, loadMap, runsBehind } from './journey-reach-map.mjs';
 import { evaluateGateFileRule } from '../scripts/gate-file-guard.mjs';
 import { parseJobs, parseTests } from './bisect-main.mjs';
 import { AUTO_REVERT_AUTHOR, AUTO_REVERT_BRANCH } from './exact-revert.mjs';
+import { moneyGuardAt } from './journey-verdict.mjs';
 
 const SHA = /^[0-9a-f]{40}$/;
 const STEP = /^J-[a-z0-9-]+-\d+#\d+$/;
@@ -103,13 +106,30 @@ export function outrightStates(report) {
 }
 
 /** The steps to revert for, from the two newest runs' reports (oldest first): passed in `previous`, failed outright in
- *  `now`. Sorted. A step red in `previous` as well started its revert a run ago, so it never starts another. */
-export function revertSteps(previous, now) {
+ *  `now`. Sorted. A step red in `previous` as well started its revert a run ago, so it never starts another.
+ *  `changed` (the journey file names the commits between the two runs added or changed, or null): a step absent from
+ *  `previous` that fails outright in `now`, in one of those files, is new to main and broke on its first run, so it takes
+ *  the same revert; its culprit is the merge that brought it (14 Nov 2026: J-algo-dev-04 #3, new in #8371, failed on
+ *  main's first run that held it and nothing started, as it had never passed before). A step that never passed in a file
+ *  no commit between the runs touched is not reverted. */
+export function revertSteps(previous, now, changed = null) {
   const before = stepStates(previous);
+  const failed = outrightFailures(now);
   return [...outrightStates(now)]
-    .filter(([key, state]) => state === 'failed' && before.get(key) === 'passed')
+    .filter(([key, state]) => state === 'failed' && (before.get(key) === 'passed' || (!before.has(key) && changed?.has(failed.get(key)))))
     .map(([key]) => key)
     .sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
+}
+
+/** The journey file names (`J-x.pw.mjs`) among a compare's changed paths, added, changed or renamed to. Pure. */
+export function journeyFilesChanged(files) {
+  return new Set(
+    (files ?? [])
+      .filter((f) => f?.status !== 'removed')
+      .map((f) => String(f?.filename ?? ''))
+      .filter((f) => f.startsWith(REAL_APP) && f.endsWith('.pw.mjs'))
+      .map((f) => f.split('/').pop()),
+  );
 }
 
 export function parseSteps(text) {
@@ -329,6 +349,20 @@ async function startSettle(gh, repo, { steps, redRun }) {
   return startRevert(gh, repo, { good: json.sha, bad: json.sha, steps, redRun, settle: true });
 }
 
+/** The journey files the commits from `base` to `head` added or changed (revertSteps' `changed`), or null when the
+ *  compare can't be read, so only steps that passed before count. */
+async function changedBetween(gh, repo, base, head) {
+  if (base === head) return new Set();
+  const files = [];
+  for (let page = 1; page <= 30; page++) {
+    const { status, json } = await gh('GET', `/repos/${repo}/compare/${base}...${head}?per_page=100&page=${page}`);
+    if (status !== 200 || !Array.isArray(json?.files)) return page === 1 ? null : journeyFilesChanged(files);
+    files.push(...json.files);
+    if (json.files.length < 100) break;
+  }
+  return journeyFilesChanged(files);
+}
+
 /** Main's finished journeys runs before `run`, newest first (the runs post-merge-trust.mjs compares with). */
 async function earlierRuns(gh, repo, workflowId, run) {
   const { json } = await gh('GET', `/repos/${repo}/actions/workflows/${workflowId}/runs?branch=main&status=completed&per_page=100`);
@@ -358,10 +392,10 @@ async function trigger(env) {
   if (!prevRun) return summary(['Journeys revert: no earlier finished run on main; nothing to compare.']);
   const [now, prev] = [await runReport(gh, repo, run.id, env.GH_TOKEN), await runReport(gh, repo, prevRun.id, env.GH_TOKEN)];
   if (!now || !prev) return summary(['Journeys revert: one of the two runs kept no journey report; nothing is reverted.']);
-  const steps = revertSteps(prev, now);
+  const steps = revertSteps(prev, now, await changedBetween(gh, repo, prevRun.head_sha, run.head_sha));
   if (!steps.length)
     return summary([
-      `Journeys revert: no step passed on \`${prevRun.head_sha.slice(0, 10)}\` and then failed outright; nothing to revert.`,
+      `Journeys revert: no step passed on \`${prevRun.head_sha.slice(0, 10)}\` (or came new in a journey file changed since) and then failed outright; nothing to revert.`,
     ]);
   if (prevRun.head_sha === run.head_sha) {
     const settled = await startSettle(gh, repo, { steps, redRun: run.id });
@@ -375,7 +409,7 @@ async function trigger(env) {
   summary([
     `### Journeys revert`,
     '',
-    `${steps.join(', ')} passed on \`${prevRun.head_sha.slice(0, 10)}\` (run ${prevRun.id}) and failed outright on \`${run.head_sha.slice(0, 10)}\` (run ${run.id}).`,
+    `${steps.join(', ')} passed (or came new) on \`${prevRun.head_sha.slice(0, 10)}\` (run ${prevRun.id}) and failed outright on \`${run.head_sha.slice(0, 10)}\` (run ${run.id}).`,
     started === null
       ? 'Dispatch failed.'
       : started.length
@@ -658,7 +692,7 @@ async function openRevert(env, revoke) {
   const parents = git('log', '-1', '--format=%P', sha).split(' ').filter(Boolean).length;
   const files = git('diff-tree', '--no-commit-id', '--name-only', '-r', '-m', '--first-parent', sha).split('\n').filter(Boolean);
 
-  const { mintToken } = await import('./factory-builder.mjs');
+  const { mintToken } = await import('./app-token.mjs');
   const dry = process.env.DRY_RUN === '1';
   if (!dry) need(env, 'FACTORY_APP_KEY');
   const token = dry ? env.GH_TOKEN : await mintToken({ pem: env.FACTORY_APP_KEY, repo, spec: REVERT_TOKEN });
@@ -868,7 +902,7 @@ async function refresh(env) {
   }
   if (picked.length) {
     if (process.env.DRY_RUN !== '1') need(env, 'FACTORY_APP_KEY');
-    const { mintToken } = await import('./factory-builder.mjs');
+    const { mintToken } = await import('./app-token.mjs');
     const dry = process.env.DRY_RUN === '1';
     const token = dry ? env.GH_TOKEN : await mintToken({ pem: env.FACTORY_APP_KEY, repo, spec: REVERT_TOKEN });
     if (token && !dry) console.log(`::add-mask::${token}`);
@@ -931,6 +965,37 @@ function selfTest() {
   eq(revertSteps(pass, flaky), [], 'planted fault: a pass on the retry reverts nothing (the verdict sets it aside)');
   eq(revertSteps(pass, pass), [], 'known-good: green runs revert nothing');
   eq(revertSteps(red, red), [], 'a step already red started its revert a run ago, so it never starts another');
+  {
+    // 14 Nov 2026, replayed: the run before holds no J-algo-dev-04 at all, main's first run with it fails #3 outright, and
+    // the merge between the runs added its file. The revert starts; the merge that brought it is its culprit.
+    const at = (j, specs) => ({ suites: [{ title: `${j}.pw.mjs`, file: `${j}.pw.mjs`, specs }] });
+    const s = (title, status) => ({ title, file: title.split(' ')[0] + '.pw.mjs', tests: [{ status }] });
+    const before = at('J-algo-dev-03', [s('J-algo-dev-03 #1 x', 'expected')]);
+    const after = joinReports([
+      before,
+      at('J-algo-dev-04', [s('J-algo-dev-04 #1 a', 'expected'), s('J-algo-dev-04 #3 c', 'unexpected'), s('J-algo-dev-04 #4 d', 'flaky')]),
+    ]);
+    const added = journeyFilesChanged([
+      { filename: 'apps/customer/tests/real-app/J-algo-dev-04.pw.mjs', status: 'added' },
+      { filename: 'apps/customer/src/x.ts', status: 'modified' },
+      { filename: 'apps/customer/tests/real-app/J-old.pw.mjs', status: 'removed' },
+    ]);
+    eq([...added], ['J-algo-dev-04.pw.mjs'], 'the journey files a compare added or changed, not one it removed');
+    eq(revertSteps(before, after, added), ['J-algo-dev-04#3'], 'a step new to main that fails outright on its first run is reverted');
+    eq(
+      revertSteps(before, after, new Set(['J-other.pw.mjs'])),
+      [],
+      'a step that never passed, in a file no commit between touched, is not',
+    );
+    eq(revertSteps(before, after, null), [], 'no compare read: only a step that passed before counts');
+    const wasRed = joinReports([before, at('J-algo-dev-04', [s('J-algo-dev-04 #3 c', 'unexpected')])]);
+    eq(revertSteps(wasRed, after, added), [], 'a step already red in the run before started its revert then');
+    eq(
+      commitReaches(['apps/customer/tests/real-app/J-algo-dev-04.pw.mjs'], ['J-algo-dev-04.pw.mjs'], null, () => true).reaches,
+      true,
+      'the merge that added the journey file reaches it, so the probe runs on it',
+    );
+  }
   eq(parseSteps('J-a-01#2, J-a-01#10 J-a-01#2'), ['J-a-01#2', 'J-a-01#10'], 'steps parse, dedupe, numeric order');
   let threw = false;
   try {
@@ -1159,6 +1224,25 @@ function selfTest() {
       at: 't',
     });
   const passed = settle(true);
+  // A money step's flaky issue carries the mark project-state's pull reads (intafaced #8379: J-cex-spot-01 #8 had none).
+  const marked = settleNotes({
+    steps: ['J-a-01#2', 'J-b-01#1', 'J-c-01#1'],
+    back: true,
+    sha: A,
+    runUrl: 'u',
+    redRunUrl: 'https://x/actions/runs/42',
+    at: 't',
+    money: { 'J-a-01#2': true, 'J-b-01#1': false },
+  }).map((n) => /<!-- money-flaky: (\S+) -->/.exec(n.body)?.[1] ?? null);
+  eq(
+    marked,
+    ['J-a-01#2', null, 'J-c-01#1'],
+    'a money step (or one the guard does not know) is marked money-flaky; a non-money step is not',
+  );
+  const guard = moneyGuardAt('.');
+  eq(guard['J-cex-spot-01#8'], true, "the guard at this checkout calls J-cex-spot-01 #8 money, as main's verdict did");
+  const real = settleNotes({ steps: ['J-cex-spot-01#8'], back: true, sha: A, runUrl: 'u', redRunUrl: 'r', at: 't', money: guard })[0].body;
+  eq(real.includes('<!-- money-flaky: J-cex-spot-01#8 -->'), true, "#8379's step, settled flaky, opens marked money-flaky");
   eq(
     passed.map((n) => [n.title, n.labels, n.opens]),
     [
@@ -1287,7 +1371,7 @@ function selfTest() {
     [1, 5],
     "only main's runs still going on another commit than the revert's are weighed",
   );
-  console.log('✓ journeys-revert --self-test OK (84 fixtures)');
+  console.log('✓ journeys-revert --self-test OK (90 fixtures)');
 }
 
 async function selfTestRevoke() {
@@ -1412,6 +1496,7 @@ async function early(env, { sleep = (ms) => new Promise((r) => setTimeout(r, ms)
     return summary(['Journeys revert, early: no earlier finished run on another commit to compare with; the run-end start decides.']);
   const prev = await runReport(gh, repo, prevRun.id, env.GH_TOKEN);
   if (!prev) return summary([`Journeys revert, early: run ${prevRun.id} kept no report; the run-end start decides.`]);
+  const changed = await changedBetween(gh, repo, prevRun.head_sha, env.HEAD_SHA);
   const seen = new Set();
   const lines = ['### Journeys revert, as each shard ends', ''];
   const start = now();
@@ -1425,11 +1510,11 @@ async function early(env, { sleep = (ms) => new Promise((r) => setTimeout(r, ms)
         lines.push(`- shard ${shard}: no report kept`);
         continue;
       }
-      const steps = revertSteps(prev, report);
+      const steps = revertSteps(prev, report, changed);
       if (!steps.length) continue;
       const started = await startRevert(gh, repo, { good: prevRun.head_sha, bad: env.HEAD_SHA, steps, redRun: env.RUN_ID });
       lines.push(
-        `- shard ${shard}: ${steps.join(', ')} passed on \`${prevRun.head_sha.slice(0, 10)}\` and failed outright here: ${started === null ? 'dispatch failed' : started.length ? `main-bisect.yml started for ${started.join(', ')}` : 'already started'}`,
+        `- shard ${shard}: ${steps.join(', ')} passed (or came new) on \`${prevRun.head_sha.slice(0, 10)}\` and failed outright here: ${started === null ? 'dispatch failed' : started.length ? `main-bisect.yml started for ${started.join(', ')}` : 'already started'}`,
       );
     }
     const shards = jobs.filter((j) => shardOf(j.name));
@@ -1586,7 +1671,7 @@ export const flakyStepTitle = (step) => `Flaky step on main: ${step.replace('#',
  * false: the steps fail again, one `regression` break issue per journey at once, closed by Main trust when they pass.
  * null: the run broke before it said, one `main-unknown-red` break issue per journey. Pure.
  */
-export function settleNotes({ steps, back, sha, runUrl, redRunUrl, at }) {
+export function settleNotes({ steps, back, sha, runUrl, redRunUrl, at, money = {} }) {
   const record = (list) =>
     `<!-- ${SETTLE_MARK} ${JSON.stringify({ v: 1, steps: list, red_run: Number(/runs\/(\d+)/.exec(redRunUrl)?.[1]) || null, sha, run: runUrl, result: back === true ? 'pass' : back === false ? 'fail' : 'unfinished', at })} -->`;
   const head = `main's head \`${sha.slice(0, 10)}\``;
@@ -1596,7 +1681,7 @@ export function settleNotes({ steps, back, sha, runUrl, redRunUrl, at }) {
       title: flakyStepTitle(step),
       labels: ['flaky'],
       opens: true,
-      body: `\`${step.replace('#', ' #')}\` failed on main ([red run](${redRunUrl})), traced to no single merge, and passed run alone on ${head} ([settle run](${runUrl})). It is flaky, not broken: main counts it green, and it never counts as proven from the red run. Fix the race in the test or the code it checks, never by weakening the test.\n\n<!-- flaky: ${step} -->\n${record([step])}\n${tail}`,
+      body: `\`${step.replace('#', ' #')}\` failed on main ([red run](${redRunUrl})), traced to no single merge, and passed run alone on ${head} ([settle run](${runUrl})). It is flaky, not broken: main counts it green, and it never counts as proven from the red run. Fix the race in the test or the code it checks, never by weakening the test.\n\n<!-- flaky: ${step} -->\n${(money[step] ?? true) ? `<!-- money-flaky: ${step} -->\n` : ''}${record([step])}\n${tail}`,
     }));
   return journeysOf(steps).map((journey) => {
     const list = steps.filter((s) => s.split('#')[0] === journey);
@@ -1653,6 +1738,16 @@ export function parseRecord(body) {
   }
 }
 
+/** The money guard at this checkout; when it can't be read, every step counts as money ({}: unknown means money). */
+function guardOrAllMoney() {
+  try {
+    return moneyGuardAt('.');
+  } catch (e) {
+    console.error(`the money guard could not be read (${e.message}): every step counts as money`);
+    return {};
+  }
+}
+
 async function back(env) {
   need(env, 'GITHUB_REPOSITORY', 'STEPS', 'BAD', 'RUN_URL');
   if (!SHA.test(env.BAD)) throw new Error('BAD must be a full commit sha');
@@ -1681,6 +1776,8 @@ async function back(env) {
       runUrl: env.RUN_URL,
       redRunUrl: `https://github.com/${env.GITHUB_REPOSITORY}/actions/runs/${env.RED_RUN}`,
       at: new Date().toISOString(),
+      // The set-aside's money guard at this checkout (main): a money step's flaky issue carries `money-flaky`.
+      money: guardOrAllMoney(),
     });
     summary([
       `### Journeys settle: ${back === true ? 'flaky, main counts green' : back === false ? 'broken on main' : 'did not finish'}`,

@@ -196,7 +196,9 @@ export class CoursePurchases {
         VALUES (${course.id}, ${course.slug}, ${input.userId}, ${n}, ${purchaseKeyOf(course.slug, input.userId, n)}, ${course.price},
                 ${course.price_asset!}, ${settings.chainId}, ${settings.token}, ${settings.decimals}, ${settings.receiver}, ${wallet},
                 ${fromBlock.toString()}, 'awaiting_signature', ${now}, ${now})
-        ON CONFLICT (course_id, user_id, n) DO NOTHING
+        -- No conflict target: purchase_key and (course_id, user_id, n) name the same intent, and Postgres checks
+        -- purchase_key first, so a target naming only one lets two presses at once raise on the other (#8378).
+        ON CONFLICT DO NOTHING
         RETURNING *
       `;
     }

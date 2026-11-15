@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import {
@@ -60,6 +60,27 @@ describe('svc-ops health — liveness is not a custodial stamp', () => {
     const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'router.ts'), 'utf8');
     expect(src).not.toMatch(/custodial:\s*z\.literal\(false\)/);
     expect(src).not.toMatch(/custodial:\s*false\s+as const/);
+  });
+});
+
+describe('svc-ops mount — strict screening', () => {
+  // vitest.config.ts turns screening off for business fixtures; this test arms the production default
+  // (unset INTAFACED_SCREENING_FAIL_CLOSED) and a blank list, and proves a signed request refuses.
+  it('refuses a signed request with unconfigured screening and writes nothing', async () => {
+    const service = new OpsService({ warehouseEnv: {} });
+    const api = createOpsRouter(service).createCaller(await signed());
+    vi.stubEnv('INTAFACED_SCREENING_FAIL_CLOSED', undefined);
+    vi.stubEnv('INTAFACED_REGION_FAIL_CLOSED', undefined);
+    vi.stubEnv('INTAFACED_UNSIGNED_SANCTIONS_ROWS', 'off');
+    try {
+      await expect(api.createContact({ displayName: 'Ada', email: 'ada@example.com' })).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+        cause: { decision: { code: 'denied.screening_unconfigured' } },
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    await expect(api.contacts({ limit: 50 })).resolves.toMatchObject({ contacts: [] });
   });
 });
 

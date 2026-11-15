@@ -486,6 +486,6 @@ test(`${J} #8 with a mail address and no mail provider for Academy, enrolment wo
   await expect(block.getByText(/^You are enrolled on the Free track since /)).toBeVisible();
   expect((await enrolments(who)).filter((row) => row.pathSlug === first)).toHaveLength(1);
   await expect(block.locator('[data-not-connected="vendor.email"]')).toHaveText(
-    'The activation mail needs an email delivery provider. It is switched off in this build. vendor.email',
+    'The activation mail needs an email sender. It is switched off in this build. vendor.email',
   );
 });

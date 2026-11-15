@@ -391,7 +391,7 @@ test(`${J} #7 asking to continue by email: the chat continues in the email threa
     const notice = room.getByTestId('support-chat-email-notice');
     await expect(notice).toBeVisible();
     await expect(notice.locator('[data-not-connected="vendor.email"]')).toContainText(
-      'Continuing this chat by email needs an email delivery provider.',
+      'Continuing this chat by email needs an email sender.',
     );
     await expect(notice).toContainText('vendor.email');
     await expect(room).not.toHaveAttribute('data-chat-status', 'closed');

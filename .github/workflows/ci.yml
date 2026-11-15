@@ -81,9 +81,8 @@ jobs:
       actions: read # the journey baseline guard downloads the journeys runs' reports on main
       pull-requests: read # the journey list guard reads the pull request's current body
     steps:
-      # fetch-depth: 0 — the value-gate step at the end of this job needs
-      # `origin/main` and ten ancestor subjects. The default is 1, which gives
-      # it neither, and a gate that can see nothing must never print clean.
+      # fetch-depth: 0 — full history with `origin/main`. It was first set for
+      # value-gate (removed); later steps may compare against main, so it stays.
       # 49 MiB of pack for 818 commits; the pnpm install below costs more.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -136,6 +135,8 @@ jobs:
           PR_AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
           PR_COMMITS: ${{ github.event.pull_request.commits }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          # Check 7 reads this pull request's earlier heads' failed Tests jobs (actions: read above).
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         # Main's copy runs in a worktree of main, so every import it has is main's too (rules-from-main.test.mjs).
         run: |
           guard=tooling/ci/test-diff-guard.mjs

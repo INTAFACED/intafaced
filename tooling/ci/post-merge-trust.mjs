@@ -187,6 +187,8 @@ export function flakyIssueBody(row, runUrl) {
     `- Fix the race in the test or the code it checks, never by weakening the test${row.file ? `: apps/customer/tests/real-app/${row.file}` : ''}. A rare real bug can look like this.`,
     '',
     `<!-- flaky-step: ${row.step} -->`,
+    // A money step (setAsideGuard; a row with no `money` counts as money): project-state's pull ranks its fix first.
+    ...(row.money !== false ? [`<!-- money-flaky: ${row.step} -->`] : []),
     '_Opened by tooling/ci/post-merge-trust.mjs._',
   ].join('\n');
 }
@@ -876,6 +878,10 @@ function selfTest() {
     'a flaky step gets one issue while none is open (an older money-flaky title counts): once per step, again after its last one closed',
   );
   if (!/never counts as proven/.test(flakyIssueBody(mf, 'u'))) throw new Error('the flaky issue says it is never proven');
+  // A money step's issue carries the mark project-state's pull reads to rank its fix first (intafaced #8379 had none).
+  eq(flakyIssueBody({ ...mf, money: true }, 'u').includes('<!-- money-flaky: J-a-05#1 -->'), true, 'a money step is marked money-flaky');
+  eq(flakyIssueBody({ ...mf, money: false }, 'u').includes('money-flaky'), false, 'a non-money step is not');
+  eq(flakyIssueBody(mf, 'u').includes('<!-- money-flaky: J-a-05#1 -->'), true, 'a row with no money field counts as money');
   const lost = lostShardBody({ missing: ['shard 2 of 4'], sha: 'a'.repeat(40), runId: 9, runUrl: 'u', attempt: 2, why: null });
   if (!/`shard 2 of 4` sent no report on `aaaaaaaaaa` \(\[run 9\]\(u\), attempt 2, after its one re-run\)/.test(lost))
     throw new Error('the lost-shard issue names the shard, the commit, the run and its attempt');

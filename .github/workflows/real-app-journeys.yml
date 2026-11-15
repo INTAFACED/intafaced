@@ -201,7 +201,14 @@ jobs:
               echo "::error::the journeys input holds something other than journey file names, spaces and commas"
               exit 1
             fi
-            { echo "mode=run"; echo "target=$JOURNEYS_TARGET"; } >> "$GITHUB_OUTPUT"
+            # Every file of each journey it names (journey-touch.mjs dispatchTarget), as a pull request's run takes them, so
+            # a step in a sibling file never reads as missing. Main's copy first; the branch's only until main has
+            # --dispatch; the input as given if neither can say.
+            target=$(node "$GITHUB_WORKSPACE/.base/tooling/ci/journey-touch.mjs" --dispatch 2>/dev/null) ||
+              target=$(node tooling/ci/journey-touch.mjs --dispatch 2>/dev/null) || target="$JOURNEYS_TARGET"
+            [[ "$target" =~ ^[A-Za-z0-9._,\ -]*$ ]] || target="$JOURNEYS_TARGET"
+            [ "$target" != "$JOURNEYS_TARGET" ] && echo "every file of each journey named runs: $target"
+            { echo "mode=run"; echo "target=$target"; } >> "$GITHUB_OUTPUT"
             exit 0
           fi
           if [ "$DRAFT" = true ] || [ "$SAME_REPO" != true ]; then
