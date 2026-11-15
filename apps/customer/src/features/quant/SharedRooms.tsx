@@ -1,10 +1,11 @@
 import { quantPaperListSchema, quantPaperRunSchema } from '@intafaced/contracts/quant-algo';
 import { quantSharedListSchema, quantSharedOpenSchema, type QuantSharedOpen } from '@intafaced/contracts/quant-team';
 import { useState } from 'react';
+import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, EmptyState, Failure, Field, Panel } from '../../shared/ui';
-import { Read, TextArea } from '../more/common';
+import { Read, Select, TextArea } from '../more/common';
 import { preservePaperHref } from '../more/trade-context';
 import { useApi } from '../session/session';
 import { QuantRooms } from './QuantRooms';
@@ -228,6 +229,12 @@ function OwnerRuns({ strategyId }: { strategyId: string }) {
           )
         }
       </Read>
+      <Read resource={runs.resource} retry={runs.reload}>
+        {(data) => {
+          const running = data.runs.filter((row) => row.state === 'running');
+          return running.length ? <SharedManualOrder strategyId={strategyId} runIds={running.map((row) => row.runId)} /> : null;
+        }}
+      </Read>
       {note && (
         <p role="status" data-testid="quant-shared-run-note">
           {note}
@@ -240,5 +247,72 @@ function OwnerRuns({ strategyId }: { strategyId: string }) {
       )}
       {failure && <Failure result={failure} />}
     </section>
+  );
+}
+
+/**
+ * A manual order to one of the owner's running paper runs. Without live control it is refused as permission denied; with
+ * it, refused by name, since a paper run trades only by its own rules. Nothing is ever sent.
+ */
+function SharedManualOrder({ strategyId, runIds }: { strategyId: string; runIds: string[] }) {
+  const api = useApi();
+  const { t } = teamCopy.useCopy();
+  const [runId, setRunId] = useState(runIds[0] ?? '');
+  const [side, setSide] = useState<'buy' | 'sell'>('buy');
+  const [size, setSize] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [refused, setRefused] = useState<{ code: string; text: string } | null>(null);
+  const [failure, setFailure] = useState<Failed | null>(null);
+  const chosen = runIds.includes(runId) ? runId : (runIds[0] ?? '');
+  async function send() {
+    if (busy) return;
+    setBusy(true);
+    setRefused(null);
+    setFailure(null);
+    const res = await api.mutate('quant', 'team.order', { strategyId, runId: chosen, side, size: size.trim() }, z.never());
+    setBusy(false);
+    if (res.ok) return;
+    const code = refusalCode(res);
+    if (code === 'quant.permission_denied') setRefused({ code, text: t('orderNoLiveControl') });
+    else if (code === 'quant.paper_manual_order_unsupported') setRefused({ code, text: t('orderPaperOnly') });
+    else setFailure(res);
+  }
+  return (
+    <form
+      data-testid="quant-shared-order"
+      aria-label={t('orderTitle')}
+      onSubmit={(event) => {
+        event.preventDefault();
+        void send();
+      }}
+    >
+      <h4>{t('orderTitle')}</h4>
+      <p className="muted">{t('orderIntro')}</p>
+      <Select
+        label={t('orderRun')}
+        value={chosen}
+        onChange={setRunId}
+        options={runIds.map((id) => ({ value: id, label: t('orderRunOf', { run: id.slice(0, 8) }) }))}
+      />
+      <Select
+        label={t('orderSide')}
+        value={side}
+        onChange={(v) => setSide(v as 'buy' | 'sell')}
+        options={[
+          { value: 'buy', label: t('orderBuy') },
+          { value: 'sell', label: t('orderSell') },
+        ]}
+      />
+      <Field label={t('orderSize')} inputMode="decimal" value={size} onChange={(event) => setSize(event.currentTarget.value)} />
+      <Button type="submit" disabled={busy}>
+        {t('orderSend')}
+      </Button>
+      {refused && (
+        <p role="alert" data-testid="quant-shared-order-refusal" data-code={refused.code}>
+          {refused.text}
+        </p>
+      )}
+      {failure && <Failure result={failure} />}
+    </form>
   );
 }

@@ -285,3 +285,56 @@ describe('removing a teammate (AL-team-01)', () => {
     expect((await t.mate.team.stop({ strategyId: s.id, runId: run.runId })).state).toBe('stopped');
   });
 });
+
+describe('a manual order from a teammate (AL-team-01)', () => {
+  const start = (t: ReturnType<typeof setup>, strategyId: string) =>
+    t.owner.paper.start({
+      strategyId,
+      strategyVersion: 1,
+      cash: '1000',
+      holdings: [],
+      feed: 'own_venue',
+      costs: { feeRole: 'taker', slippageBps: '5', delayBars: '0' },
+      ordinal: 0,
+    });
+
+  it('without live control refuses as permission denied, and the run trades on untouched', async () => {
+    const t = setup();
+    await t.plan('5');
+    const s = await saved(t);
+    await t.owner.team.set({ strategyId: s.id, memberId: MATE, role: 'edit', liveControl: false });
+    const run = await start(t, s.id);
+    const before = await t.owner.paper.get({ runId: run.runId });
+    await expect(t.mate.team.order({ strategyId: s.id, runId: run.runId, side: 'buy', size: '0.01' })).rejects.toThrow(
+      /^quant\.permission_denied — /,
+    );
+    await expect(t.mate.team.order({ strategyId: s.id, runId: run.runId, side: 'buy', size: '0.01' })).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
+    const after = await t.owner.paper.get({ runId: run.runId });
+    expect(after.state).toBe('running');
+    expect(after.trades).toEqual(before.trades);
+    expect(after.position).toEqual(before.position);
+  });
+
+  it('with live control refuses by name, since a paper run takes no manual order; another run or a stranger is not found', async () => {
+    const t = setup();
+    await t.plan('5');
+    const s = await saved(t);
+    await t.owner.team.set({ strategyId: s.id, memberId: MATE, role: 'edit', liveControl: true });
+    const run = await start(t, s.id);
+    await expect(t.mate.team.order({ strategyId: s.id, runId: run.runId, side: 'sell', size: '0.01' })).rejects.toThrow(
+      /^quant\.paper_manual_order_unsupported — /,
+    );
+    await expect(t.mate.team.order({ strategyId: s.id, runId: 'no-such-run', side: 'sell', size: '0.01' })).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
+    await expect(t.other.team.order({ strategyId: s.id, runId: run.runId, side: 'sell', size: '0.01' })).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
+    await expect(t.mate.team.order({ strategyId: s.id, runId: run.runId, side: 'sell', size: '1e3' })).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+    });
+    expect((await t.owner.paper.get({ runId: run.runId })).state).toBe('running');
+  });
+});
