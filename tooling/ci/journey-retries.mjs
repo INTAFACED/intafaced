@@ -31,7 +31,6 @@ export const JUDGE_ONLY = [
   'tooling/ci/api-budget.mjs',
   'tooling/ci/bisect-main.mjs',
   'tooling/ci/exact-revert.mjs',
-  'tooling/ci/factory-builder.mjs',
   'tooling/ci/factory-switch.mjs',
   'tooling/ci/journey-reach-map.json',
   'tooling/ci/journey-reach-map.mjs',
