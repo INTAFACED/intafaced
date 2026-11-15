@@ -27,7 +27,7 @@ function app(principal: Principal, calls: string[]) {
       calls.push('stop');
       return { state: 'stopped' };
     },
-  } as Pick<LiveRuns, 'start' | 'stop'> as LiveRuns; // oxlint-disable-line garden(no-double-cast) -- a fake of the two methods these routes call
+  } as Pick<LiveRuns, 'start' | 'stop'> as LiveRuns;
   const server = Fastify();
   attachLiveRunRoutes(server, runs, {
     requirePrincipal: () => principal,
