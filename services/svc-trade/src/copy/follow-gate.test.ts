@@ -11,7 +11,7 @@ import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryLedger, parseAmount, recipes } from '@intafaced/ledger-client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { readyTestAdmission } from '../controls/test-admission.js';
-import { CopyService } from './copy-service.js';
+import { CopyService, type VenueFollowsPort } from './copy-service.js';
 import { CopyError } from './errors.js';
 import { assertMayFollow, assertReserveFits, copyFollowIdFor, copyQuoteAsset, parseCopyMinTier } from './follow-gate.js';
 import { MemoryCopyFollowStore, SqlCopyFollowStore, type CopyFollowStore } from './follow-store.js';
@@ -74,6 +74,7 @@ async function setup(
     usdt?: string;
     sqlDirectory?: Sql;
     gridUnusedReserves?: (userId: string, asset: string) => Promise<bigint>;
+    venueFollows?: VenueFollowsPort;
   } = {},
 ) {
   const ledger = new MemoryLedger();
@@ -90,6 +91,7 @@ async function setup(
     minTier: opts.minTier === undefined ? 'full' : opts.minTier,
     store,
     ...(opts.gridUnusedReserves ? { gridUnusedReserves: opts.gridUnusedReserves } : {}),
+    ...(opts.venueFollows ? { venueFollows: opts.venueFollows } : {}),
     ...(opts.sqlDirectory ? { directory: sqlLeaderDirectory(opts.sqlDirectory, { now: () => NOW, feeShareLaw: fee }) } : {}),
     now: () => NOW,
   });
@@ -459,5 +461,69 @@ describe('the reserve row on Postgres', () => {
                                 max_aggregate_exposure, expires_at, fixed_order_size)
       VALUES ('cap-check', ${FOLLOWER}, ${LEADER}, 'SG', '[]'::jsonb, 10, 100, now() + interval '1 day', 11)
     `).rejects.toThrow(/copy_follows_fixed_order_size_ck/);
+  });
+});
+
+describe('start copying on the venue, checked first (J-copy-bots-otc-01 #5 #7)', () => {
+  /** The venue desk's port: records every bind, so a check that bound an account would show. */
+  function venueDesk() {
+    const binds: string[] = [];
+    const port: VenueFollowsPort = {
+      bind: async (_follower, followId, accountId) => {
+        binds.push(`${followId}:${accountId}`);
+      },
+      copiedOrders: async () => null,
+    };
+    return { binds, port };
+  }
+  const ACCOUNT = '00000000-0000-4000-8000-0000000000a1';
+  const venueInput = (over: Record<string, unknown> = {}) => input({ permittedMarkets: ['BTC-USDC'], ...over });
+
+  it('refuses each gate and term by its code, binding nothing and writing nothing', async () => {
+    const desk = venueDesk();
+    const ctx = await setup({ venueFollows: desk.port });
+    const sub = principal({ sub_account: '00000000-0000-4000-8000-0000000000e1' } as Partial<Principal>);
+    for (const [who, over, code] of [
+      [principal({ tier: 'basic' }), {}, 'trade.tier_insufficient'],
+      [sub, {}, 'trade.copy_subaccount_refused'],
+      [principal(), { region: 'US' }, 'trade.copy_jurisdiction_blocked'],
+      [principal(), { fixedOrderSize: '0' }, 'trade.copy_envelope_invalid'],
+      [principal(), { fixedOrderSize: '100.01' }, 'trade.copy_fixed_size_above_cap'],
+    ] as const) {
+      await refusedWithNothingWritten(ctx, () => ctx.copy.checkVenueFollow(who, venueInput(over)), code);
+    }
+    const blank = new CopyService(new MemoryLedger(), {
+      accountAdmission: readyTestAdmission(),
+      feeShareLaw: fee,
+      jurisdictionLaw: { published: false },
+      minTier: 'full',
+      venueFollows: desk.port,
+    });
+    await expect(blank.checkVenueFollow(principal(), venueInput())).rejects.toMatchObject({ code: 'trade.copy_jurisdiction_blank' });
+    expect(desk.binds).toEqual([]);
+  });
+
+  it('passes a follow that would start, writing nothing; once started, the same key answers that follow', async () => {
+    const desk = venueDesk();
+    const ctx = await setup({ venueFollows: desk.port });
+    const checked = await ctx.copy.checkVenueFollow(principal(), venueInput());
+    expect(checked).toEqual({
+      followId: copyFollowIdFor(FOLLOWER, LEADER, 'start-copy-0001'),
+      follow: null,
+      quoteAsset: 'USDC',
+      maxAggregateExposure: '500',
+    });
+    expect(await ctx.store.listFollowsByFollower(FOLLOWER)).toEqual([]);
+    expect(desk.binds).toEqual([]);
+    const started = await ctx.copy.startVenueFollow(principal(), { ...venueInput(), agentAccountId: ACCOUNT });
+    expect(desk.binds).toEqual([`${checked.followId}:${ACCOUNT}`]);
+    const again = await ctx.copy.checkVenueFollow(principal(), venueInput());
+    expect(again.followId).toBe(checked.followId);
+    expect(again.follow).toMatchObject({ followId: started.followId, fixedOrderSize: '25' });
+  });
+
+  it('refuses while copy on the venue is not connected', async () => {
+    const ctx = await setup();
+    await expect(ctx.copy.checkVenueFollow(principal(), venueInput())).rejects.toMatchObject({ code: 'trade.copy_unavailable' });
   });
 });
