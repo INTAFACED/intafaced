@@ -336,7 +336,7 @@ test(`${J} #3 the draw is run: while the owner decision is open, the refusal nam
   const { campaignId, ann, commitment } = state('campaignId', 'ann', 'commitment');
   const { ctx, pair } = await operators();
   const a = await pair.a.campaignsOpsToken();
-  for (const door of ['ops.draw.run', 'ops.draw.settle']) {
+  for (const door of ['ops.campaigns.draw.run', 'ops.campaigns.draw.settle']) {
     const res = await ctx.edge.mutate('campaigns', door, { campaignId, reason: `TEST ${J} run ${RUN}` }, a);
     expect(res.status, `${door}: ${res.text.slice(0, 300)}`).toBe(412);
     expect(res.json?.error?.message ?? '').toContain(`${QUESTION} [owner.decision]`);

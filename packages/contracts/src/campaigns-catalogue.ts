@@ -729,7 +729,7 @@ export const drawBoardSchema = z
   .strict();
 export type DrawBoard = z.infer<typeof drawBoardSchema>;
 export const drawBoardInputSchema = z.object({ campaignId: id }).strict();
-/** `ops.draw.run` and `ops.draw.settle`: refused `owner.decision` while the decision is open. */
+/** `ops.campaigns.draw.run` and `ops.campaigns.draw.settle`: refused `owner.decision` while the decision is open. */
 export const drawRunInputSchema = z.object({ campaignId: id, reason: z.string().trim().min(3).max(500) }).strict();
 
 /** The full stored definition, as operators see it. */
