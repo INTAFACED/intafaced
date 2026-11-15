@@ -216,7 +216,14 @@ import {
   QUANT_REALISM_CHECKLIST_UNACCEPTED,
   QUANT_REALISM_CHECKLIST_UNSET,
   QUANT_REVIEW_NEEDS_RUN,
+  QUANT_IDEMPOTENCY_KEY_REUSED,
 } from './errors.js';
+import {
+  claimKeyIdempotency,
+  createMemoryKeyIdempotencyRepository,
+  type KeyIdempotencyRepository,
+  type QuantContext,
+} from './key-api/key-api.js';
 import { createMemoryLifecycleRepository } from './lifecycle/memory-repository.js';
 import type { LifecycleRepository } from './lifecycle/repository.js';
 import { evaluateGate, GATE_CRITERION_NAMES, gateCriteriaOf, OWNER_CRITERION_FORMAT, verdictCriteriaOf } from './lifecycle/gate.js';
@@ -390,7 +397,10 @@ function toTrpc(err: unknown): never {
         ? 'NOT_FOUND'
         : err.code === QUANT_PERMISSION_DENIED || err.code === QUANT_LISTING_ACCESS_DENIED || err.code === QUANT_LISTING_SOURCE_PROTECTED
           ? 'FORBIDDEN'
-          : err.code === QUANT_EDIT_LOCKED || err.code === QUANT_LISTING_STALE || err.code === QUANT_MODERATION_STATE_INVALID
+          : err.code === QUANT_EDIT_LOCKED ||
+              err.code === QUANT_LISTING_STALE ||
+              err.code === QUANT_MODERATION_STATE_INVALID ||
+              err.code === QUANT_IDEMPOTENCY_KEY_REUSED
             ? 'CONFLICT'
             : err.code === QUANT_SANDBOX_UNWIRED ||
                 err.code === QUANT_SANDBOX_MAX_OPS_UNSET ||
@@ -592,6 +602,8 @@ export interface QuantRouterDeps extends SandboxDeps {
   readonly strategies?: StrategyRepository;
   /** Omitted in tests: an in-memory run log. Production passes Postgres. */
   readonly runs?: RunRepository;
+  /** Where a key's backtest start keeps its `Idempotency-Key` (J-algo-dev-14). Omitted: in memory (tests). */
+  readonly keyIdempotency?: KeyIdempotencyRepository;
   /** Omitted refuses by naming the missing database. Production passes Postgres. */
   readonly disclosure?: DisclosureRepository;
   /** Omitted refuses by naming the missing database. Production passes Postgres. */
@@ -676,6 +688,7 @@ function alertView(row: StoredAlert) {
 
 export function createQuantRouter(deps: QuantRouterDeps) {
   const strategies = deps.strategies ?? openStrategyRepository({}).repository;
+  const keyIdempotency = deps.keyIdempotency ?? createMemoryKeyIdempotencyRepository();
   const runs = deps.runs ?? createMemoryRunRepository('runResultCap' in deps ? deps.runResultCap : RUN_RESULT_MAX_BYTES);
   const lake = deps.lake ?? missingLake();
   const history = deps.history ?? missingHistory();
@@ -2537,6 +2550,8 @@ export function createQuantRouter(deps: QuantRouterDeps) {
           withQuantSpan('quant.backtest.start', { language: 'rules' }, async () => {
             try {
               const accountId = accountOf(ctx, input.accountId);
+              // A key sends an Idempotency-Key; the same key for a different request runs nothing (J-algo-dev-14 #4).
+              await claimKeyIdempotency(ctx as QuantContext, accountId, 'backtest.start', input, keyIdempotency, new Date(now()));
               const found = await strategies.get({ accountId, id: input.strategyId });
               const version = found && !found.deletedAt ? found.versions.find((row) => row.version === input.strategyVersion) : undefined;
               if (!found || !version) missingStrategy();

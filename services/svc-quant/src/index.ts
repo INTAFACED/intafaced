@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { edgeTrustFromEnv } from '@intafaced/config';
 import { createEdgeContext } from '@intafaced/contracts';
@@ -10,6 +11,7 @@ import { openTemplateRepository } from './templates/open.js';
 import { env } from './env.js';
 import { quantReadyHonesty } from './ready-honesty.js';
 import { createQuantRouter } from './router.js';
+import { idempotencyKeyHeaderOf, openKeyIdempotencyRepository, refuseKeyCall } from './key-api/key-api.js';
 import { openRunRepository } from './runs/open.js';
 import { openStrategyRepository } from './studio/open.js';
 import { openQuota } from './quota/open.js';
@@ -54,6 +56,10 @@ const quota = openQuota(
   { defaultProfile: env.QUANT_DEFAULT_QUOTA_PROFILE ?? null, seed: parseQuotaSeed(env.QUANT_TEST_QUOTA_SEED) },
 );
 const strategies = openStrategyRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX }, quota.gate);
+const keyIdempotency = openKeyIdempotencyRepository(
+  { DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX },
+  (url, max) => postgres(url, { max, onnotice: () => undefined }),
+);
 const runs = openRunRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX }, quota.gate);
 const disclosure = openDisclosureRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
 const templates = openTemplateRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
@@ -104,6 +110,7 @@ export const appRouter = createQuantRouter({
   },
   strategies: strategies.repository,
   runs: runs.repository,
+  keyIdempotency: keyIdempotency.repository,
   disclosure: disclosure.repository,
   templates: templates.repository,
   quota: quota.repository,
@@ -140,7 +147,15 @@ await app.register(fastifyTRPCPlugin, {
   prefix: '/trpc',
   trpcOptions: {
     router: appRouter,
-    createContext: ({ req }) => edgeContext(req),
+    // A key reaches only the strategy API, each procedure under its scope (J-algo-dev-14); a session is unchanged.
+    createContext: ({ req, info }) => {
+      const ctx = edgeContext(req);
+      refuseKeyCall(
+        ctx.principal,
+        info.calls.map((call) => call.path),
+      );
+      return { ...ctx, idempotencyKeyHeader: idempotencyKeyHeaderOf(req.headers) };
+    },
   } satisfies FastifyTRPCPluginOptions<AppRouter>['trpcOptions'],
 });
 
@@ -215,6 +230,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       await library.close();
       await strategies.close();
       await runs.close();
+      await keyIdempotency.close();
       await disclosure.close();
       await templates.close();
       await quota.close();
