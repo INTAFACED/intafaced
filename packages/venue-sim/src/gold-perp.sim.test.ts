@@ -94,7 +94,16 @@ describe('TEST venue simulator: the TEST gold perpetual (J-derivatives-21)', () 
   it("#1 lists XAU-PERP with the venue's own listing, oracle and mark rules, cap, hours and live feed; BTC keeps its rules unpublished", async () => {
     const w = world();
     const markets = (await w.sim.markets(null)).value;
-    expect(markets.map((m) => m.symbol)).toEqual(['BTC-USDC', 'BTC-PERP', 'ETH-USDC', 'ETH-PERP', XAU, 'XSTK-PERP', 'XSTD-PERP']);
+    expect(markets.map((m) => m.symbol)).toEqual([
+      'BTC-USDC',
+      'BTC-PERP',
+      'ETH-USDC',
+      'ETH-PERP',
+      XAU,
+      'XSTK-PERP',
+      'XSTD-PERP',
+      'XRSK-PERP',
+    ]);
     const xau = markets.find((m) => m.symbol === XAU)!;
     expect(xau).toMatchObject({
       kind: 'perpetual',

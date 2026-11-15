@@ -260,6 +260,8 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/quant/strategies': { template: 'record-list' },
   '/quant/strategies/:strategyId': { template: 'reading' },
   '/quant/studio': { template: 'desk' },
+  '/quant/shared': { template: 'record-list' },
+  '/quant/shared/:strategyId': { template: 'reading' },
   '/quant/live': { template: 'record-list' },
   '/quant/live/:runId': { template: 'desk' },
   '/quant/backtest': { template: 'desk' },

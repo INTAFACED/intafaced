@@ -716,8 +716,17 @@ function parseWelcome(input: CampaignTasks): CampaignTasks {
 function parseTasks(type: CampaignType, input: CampaignTasks): CampaignTasks {
   if (type === 'welcome') return parseWelcome(input);
   if (type !== 'task') throw new CampaignsError('campaigns.tasks_invalid', 'Only a task campaign has steps');
-  if (input.steps.some((s) => s.event !== 'trade.fill' || s.reward) || (input.welcomeWindowSeconds ?? null) !== null) {
-    throw new CampaignsError('campaigns.tasks_invalid', 'A task campaign counts spot fills, with one reward for the campaign');
+  const counted = (s: CampaignTasks['steps'][number]) => s.event === 'trade.fill' || s.event === 'pay.deposit';
+  if (input.steps.some((s) => !counted(s) || s.reward) || (input.welcomeWindowSeconds ?? null) !== null) {
+    throw new CampaignsError(
+      'campaigns.tasks_invalid',
+      'A task campaign counts spot fills and venue deposits, with one reward for the campaign',
+    );
+  }
+  // A deposit step (J-campaigns-02 #1) is the first USDC deposit the venue credited from a connected wallet: one event, on
+  // no market or side, never a streak.
+  if (input.steps.some((s) => s.event === 'pay.deposit' && (s.count !== 1 || s.market || s.side || s.streakDays))) {
+    throw new CampaignsError('campaigns.tasks_invalid', 'A deposit step is one venue deposit, on no market or side, never a streak');
   }
   if (input.steps.some((s) => s.streakDays && s.count !== 1)) {
     throw new CampaignsError('campaigns.tasks_invalid', 'A streak step counts one event a day: its count is 1');

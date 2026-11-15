@@ -574,6 +574,29 @@ function ResultSummary({ result }: { result: QuantBacktestResult }) {
             })
           : t('cashAccount')}
       </p>
+      <h4>{t('riskEventsTitle')}</h4>
+      {result.riskEvents.length ? (
+        <ul>
+          {result.riskEvents.map((event) => (
+            <li
+              key={event.ts}
+              data-testid="quant-risk-event"
+              data-kind={event.kind}
+              data-mode={event.mode}
+              data-ts={event.ts}
+              data-equity={event.equity}
+              data-floor={event.floor}
+            >
+              <span lang="zxx">{utcText(event.ts)}</span>{' '}
+              {t(event.mode === 'close_out' ? 'riskEventCloseOut' : 'riskEvent', { equity: event.equity, floor: event.floor })}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="muted" data-testid="quant-risk-events-none">
+          {t(result.assumptions.includes('equity_stop_at_bar_low') ? 'riskEventsNone' : 'riskEventsUnset')}
+        </p>
+      )}
       <p lang="zxx" data-testid="quant-bar-run-id">
         {t('runId', { id: result.runId })}
       </p>

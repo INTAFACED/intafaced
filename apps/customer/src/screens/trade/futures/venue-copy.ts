@@ -36,6 +36,7 @@ export const MARKET_RULE_WORDS = {
   'Open interest value': '{size} {base} open, as the venue reports it',
   'Open interest cap': 'Open-interest cap',
   'Open interest cap value': 'At most {cap} {base} open, set by its deployer',
+  'Open interest venue cap value': 'At most {cap} {base} open, set by the venue',
   'Open interest no cap': 'No cap set by its deployer',
   // A deployer's halt or a split that settled the market's positions (J-derivatives-27 #9 #10): the venue's report.
   event_deployer_halt:

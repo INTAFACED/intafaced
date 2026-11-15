@@ -4,6 +4,7 @@ import {
   LedgerError,
   REWARD_ASSET,
   classifyPostOutcome,
+  formatAmount,
   parseAmount,
   recipes,
   type Amount,
@@ -54,7 +55,16 @@ export interface RewardChain {
   receipt(hash: string): Promise<boolean | null>;
   /** Every transfer of exactly `units` from `from` to `to` since `fromBlock`, oldest first. */
   find(from: string, to: string, units: bigint, fromBlock: bigint): Promise<readonly string[]>;
+  /**
+   * What a mined transaction cost its sender in the chain's own coin, from its receipt (gas used times the price paid),
+   * in that coin's smallest unit; null when unread. Absent: the chain does not say, and the fee is recorded as unknown.
+   */
+  networkFee?(hash: string): Promise<bigint | null>;
 }
+
+/** The coin a network fee is paid in on the chain rewards are paid on, and its decimals (18 on an EVM chain). */
+export const NETWORK_FEE_ASSET = 'ETH';
+const NETWORK_FEE_DECIMALS = 18;
 
 /** Our own-funds place rewards are paid from: its ledger id (`<chain>:<name>`) and its address on the chain. */
 export interface RewardWallet {
@@ -91,6 +101,21 @@ type PaymentRow = {
 export function unitsOf(amount: Amount, decimals: number): bigint | null {
   const scale = 10n ** BigInt(18 - decimals);
   return amount % scale === 0n ? amount / scale : null;
+}
+
+/**
+ * What INTAFACED has paid one wallet as rewards, in USDC, from our own payout records (J-campaigns-04 #3): every payment
+ * to it that left or may have left our wallet. Only a payment the chain refused or reverted (`failed`) is left out; one
+ * still `sending` is counted, because it may have landed and its money could come back as a deposit. The welcome deposit
+ * task counts a deposit only above this, so reward money sent back ticks nothing.
+ */
+export function rewardsPaidToWallet(sql: Sql): (wallet: string) => Promise<Amount> {
+  return async (wallet) => {
+    const [row] = await sql<{ paid: string | null }[]>`
+      SELECT sum(amount)::text AS paid FROM campaigns.reward_payments
+      WHERE to_wallet = ${wallet.toLowerCase()} AND asset = ${REWARD_ASSET} AND state <> 'failed'`;
+    return row?.paid ? parseAmount(row.paid) : 0n;
+  };
 }
 
 export class RewardPayer {
@@ -283,12 +308,16 @@ export class RewardPayer {
       }
       return false;
     }
+    // The network fee is our wallet's cost, as the chain's receipt states it; unread, it is recorded as unknown (null).
+    const feeUnits = this.chain.networkFee ? await this.chain.networkFee(chainTx).catch(() => null) : null;
+    const fee = feeUnits === null ? null : formatAmount(feeUnits * 10n ** BigInt(18 - NETWORK_FEE_DECIMALS));
     return transaction(this.sql, async (tx) => {
       await tx`
         UPDATE campaigns.reward_payments SET state = 'booked', paid_tx_id = ${txId}, reason = NULL, updated_at = now()
         WHERE reward_key = ${p.reward_key} AND state = 'sent'`;
       const paid = await tx`
         UPDATE campaigns.reward_intents SET state = 'paid', ledger_tx_id = ${txId}, paid_at = now(), paid_chain_tx = ${chainTx},
+          paid_network_fee = ${fee}, paid_network_fee_asset = ${fee === null ? null : NETWORK_FEE_ASSET},
           reason = NULL, updated_at = now()
         WHERE reward_key = ${p.reward_key} AND state = 'owed' AND pay_to_wallet = ${p.to_wallet}`;
       if (paid.count === 0) return false;

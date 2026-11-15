@@ -273,6 +273,7 @@ describe('HTTP answers', () => {
       'XAU-PERP',
       'XSTK-PERP',
       'XSTD-PERP',
+      'XRSK-PERP',
     ]);
 
     // A resting order placed while trading stays as it is through every state change.

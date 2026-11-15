@@ -171,6 +171,9 @@ function CaseBody({ d, asOf }: { d: DisputeCase; asOf: string }) {
             <Fact label="Decision" testId="dispute-outcome">
               {OUTCOME_LABEL[d.decision.outcome]}
             </Fact>
+            <Fact label="Reason" testId="dispute-decision-reason">
+              {d.decision.reason ?? 'None recorded'}
+            </Fact>
             <Fact label="Who bears the fraud loss" testId="dispute-loss">
               {lossWords(d.decision)}
             </Fact>

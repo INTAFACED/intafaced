@@ -261,6 +261,7 @@ describe('svc-academy mount — the router is actually mounted', () => {
         'programmes',
         'programme',
         'admin.revokeCert',
+        'admin.grantCertException',
         'certPaths',
         'admin.certIssueRule',
         'admin.setVideoTracks',

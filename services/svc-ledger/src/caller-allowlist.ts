@@ -41,6 +41,8 @@ export const LEDGER_POST_ALLOWLIST = {
   },
   'svc-agents': {
     feeCharge: g('agents', 'services/svc-agents/src/metering/meter.ts'),
+    chargeEarn: g('agents', 'services/svc-agents/src/metering/meter.ts'),
+    chargeCollect: g('agents', 'services/svc-agents/src/metering/meter.ts'),
   },
   'svc-bank': {
     bankTransfer: g('bank', 'services/svc-bank/src/transfers/transfer-service.ts'),

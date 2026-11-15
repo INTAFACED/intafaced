@@ -1768,6 +1768,7 @@ const academySections: readonly DeskSection[] = [
               bundle: 'Part of a bundle',
               membership: 'Part of a membership',
               issue: 'Certificate',
+              exception: 'Certificate issued as an exception',
             },
           }),
           text('reference', 'Reference', { detail: true }),
