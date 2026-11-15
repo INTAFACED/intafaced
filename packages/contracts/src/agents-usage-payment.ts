@@ -13,6 +13,10 @@ import { z } from 'zod';
  *   collect  one payment from the person's main balance at the partner to INTAFACED's own account there, under the
  *            window's business key: the same key is the same payment, once, however many times it is asked.
  *
+ * A business team's run (J-agents-11) is paid by the business: the request names `businessId`, the member is still
+ * `userId`, and svc-bank answers for the business's payment method (its first administrator's main balance at the
+ * partner; a business account holds no money of its own), never the member's.
+ *
  * `heldBy: 'ledger'` is the custodial layer (the journeys marked Later): the window is charged on the ledger as before.
  * `heldBy: 'none'` is a person with no payment method: nothing can be collected, and a run refuses before it starts.
  * Amounts are decimal strings, never numbers.
@@ -24,7 +28,15 @@ const decimal = z.string().regex(/^\d{1,30}(\.\d{1,18})?$/);
 const asset = z.string().regex(/^[A-Z0-9]{2,16}$/);
 
 export const agentsUsagePaymentRequestSchema = z.discriminatedUnion('action', [
-  z.object({ action: z.literal('read'), userId: z.string().uuid(), assetId: asset }).strict(),
+  z
+    .object({
+      action: z.literal('read'),
+      userId: z.string().uuid(),
+      assetId: asset,
+      /** A team run's business: the business pays, not the member (`userId`). */
+      businessId: z.string().uuid().optional(),
+    })
+    .strict(),
   z
     .object({
       action: z.literal('collect'),
@@ -33,6 +45,8 @@ export const agentsUsagePaymentRequestSchema = z.discriminatedUnion('action', [
       amount: decimal,
       /** The window's business key (`agent.usage:<session>:<window>`): one key is one payment. */
       chargeKey: z.string().regex(/^agent\.usage:[^\s]{1,160}$/),
+      /** A team run's business: the business pays, not the member (`userId`). */
+      businessId: z.string().uuid().optional(),
     })
     .strict(),
 ]);

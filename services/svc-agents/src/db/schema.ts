@@ -267,6 +267,8 @@ export const usageWindows = agents.table(
     paymentRef: text('payment_ref'),
     /** The partner's name for itself, as it reported the payment. */
     paymentLabel: text('payment_label'),
+    /** A team run's window: the business that owes it (J-agents-11), written when it is earned; else null. */
+    owedByBusiness: text('owed_by_business'),
     createdAt: createdAt(),
   },
   (t) => [

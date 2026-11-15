@@ -4,6 +4,8 @@ import type { PartnerAccountRef, PostingFreeze } from '../partner/partner-bank.j
 import { collectUsagePayment, partnerIntafacedAccount, readUsagePayment, type UsagePaymentDeps } from './usage-payment.js';
 
 const USER = '11111111-1111-4111-8111-111111111111';
+const MEMBER = '33333333-3333-4333-8333-333333333333';
+const BUSINESS = '44444444-4444-4444-8444-444444444444';
 const KEY = 'agent.usage:22222222-2222-4222-8222-222222222222:2026-11-15#0012';
 const open: PostingFreeze = { postingEnabled: async () => true };
 const frozen: PostingFreeze = { postingEnabled: async () => false };
@@ -14,6 +16,8 @@ function setup(freeze: PostingFreeze = open) {
   partner.fund(USER, { fundId: 'fund-usage-1', assetId: 'USDT', amount: 10_000_000_000_000_000_000n });
   const deps: UsagePaymentDeps = {
     freeze,
+    // The business's payer is USER, its first administrator; any other business is closed or unknown.
+    businessPayer: async (businessId) => (businessId === BUSINESS ? USER : null),
     heldBy: (userId) =>
       partner.switches(userId).custody === 'off' ? { kind: 'partner', bank: partner.bank, partnerId: 'test' } : { kind: 'ledger' },
   };
@@ -79,5 +83,40 @@ describe('agent usage payment at the partner (J-agents-01)', () => {
     );
     expect(later).toEqual(made);
     expect(await has()).toBe(10_000_000_000_000_000_000n - 12_300_000_000_000_000n);
+  });
+
+  it("a team run is paid by the business from its administrator's partner balance, never the member's (J-agents-11)", async () => {
+    const { deps, partner, has } = setup();
+    partner.set(MEMBER, { custody: 'off' });
+    partner.fund(MEMBER, { fundId: 'fund-usage-member', assetId: 'USDT', amount: 1_000_000_000_000_000_000n });
+    expect(await readUsagePayment(deps, MEMBER, 'USDT', BUSINESS)).toMatchObject({ heldBy: 'partner', available: '10' });
+    const team = (businessId: string) =>
+      collectUsagePayment(deps, { action: 'collect', userId: MEMBER, assetId: 'USDT', amount: '0.0123', chargeKey: KEY, businessId });
+    const paid = await team(BUSINESS);
+    expect(paid).toMatchObject({ ok: true, amount: '0.0123' });
+    expect(await team(BUSINESS)).toEqual(paid);
+    expect(await has()).toBe(10_000_000_000_000_000_000n - 12_300_000_000_000_000n);
+    expect(await has({ userId: MEMBER, assetId: 'USDT', spaceId: null })).toBe(1_000_000_000_000_000_000n);
+    expect(await has(partnerIntafacedAccount('USDT'))).toBe(12_300_000_000_000_000n);
+  });
+
+  it('a closed or unknown business has no payment method: nothing is read or collected from the member', async () => {
+    const { deps, partner, has } = setup();
+    partner.set(MEMBER, { custody: 'off' });
+    partner.fund(MEMBER, { fundId: 'fund-usage-member', assetId: 'USDT', amount: 1_000_000_000_000_000_000n });
+    const other = '55555555-5555-4555-8555-555555555555';
+    expect(await readUsagePayment(deps, MEMBER, 'USDT', other)).toEqual({ heldBy: 'none' });
+    expect(
+      await collectUsagePayment(deps, {
+        action: 'collect',
+        userId: MEMBER,
+        assetId: 'USDT',
+        amount: '0.0123',
+        chargeKey: KEY,
+        businessId: other,
+      }),
+    ).toEqual({ ok: false, reason: 'not_partner_held' });
+    expect(await has({ userId: MEMBER, assetId: 'USDT', spaceId: null })).toBe(1_000_000_000_000_000_000n);
+    expect(await has(partnerIntafacedAccount('USDT'))).toBe(0n);
   });
 });
