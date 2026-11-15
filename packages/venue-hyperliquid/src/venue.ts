@@ -506,6 +506,12 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
       status: null,
       maxOrderQty: null,
       maxOrderNotional: null,
+      // The smallest order value, price band and open-order cap are rules the venue states in its documentation, not
+      // figures this adapter reads from the info API: each is not published here, never typed in. On spot our door then
+      // refuses an order naming the missing rule (trade.venue_rule_unpublished, J-cex-spot-04 #6) until it is read.
+      minOrderNotional: null,
+      priceBandBps: null,
+      maxOpenOrders: null,
       // Who listed it (a HIP-3 deployer), its oracle and mark rules, trading hours, feed state and home-market session
       // are not read from the info API by this adapter yet: each is not known, never guessed.
       listedBy: { known: false },

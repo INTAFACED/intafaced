@@ -82,6 +82,7 @@ import { teamRouter } from './team/routes.js';
 import { opsLogRouter, parseReasons, type OpsLogSettings } from './oplog/routes.js';
 import { alertsRouter } from './alerts/routes.js';
 import { fleetRouter, type FleetSettings } from './fleet/control.js';
+import { readRouteOverrides, routeDeskProcedures, type RouteChangeStore, type RouteTableSync } from './gateway/route-changes.js';
 import type { BackgroundSettings } from './own/background.js';
 import type { Cadence } from './own/automation.js';
 import type { LinkedWalletsPort } from './own/payment-method.js';
@@ -319,6 +320,11 @@ export interface AgentsRouterDeps {
   readonly opsLog?: OpsLogSettings;
   /** The operator fleet registry's owner values (AG-registry-01). Absent is blank: the registry read refuses. */
   readonly fleet?: FleetSettings;
+  /**
+   * Founders' changes to the routing table (J-agents-20): the store and the sync that lays them over the configured
+   * table. Absent: the founders' route desk refuses `agents.capability_unavailable`; `routes.list` is unchanged.
+   */
+  readonly routeChanges?: { readonly store: RouteChangeStore; readonly sync: RouteTableSync };
   /** Background test runs of own agents (AG-control-02). Absent is blank: a new background run refuses. */
   readonly ownBackground?: BackgroundSettings;
   /** The owner's cadence values for own agents' schedules (AG-sessions-02). Absent is blank: a new schedule refuses. */
@@ -610,6 +616,16 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
             };
           }),
         ),
+      // The founders' desk over the same table: provider and model aliases, and changes made by two founders (J-agents-20).
+      ...routeDeskProcedures({
+        sql,
+        gateway,
+        store: deps.routeChanges?.store,
+        sync: deps.routeChanges?.sync,
+        feeAssetId,
+        routeEngine,
+        overrides: readRouteOverrides,
+      }),
     }),
 
     agent: router({

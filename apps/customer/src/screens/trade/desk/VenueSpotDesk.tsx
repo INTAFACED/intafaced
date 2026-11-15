@@ -72,6 +72,7 @@ import { zoneName } from './time';
 import { spotVenueCopy } from './venue-copy';
 import { VenueMarketPanel } from './VenueMarketData';
 import { NotOfferedTypes, UnitFlag, VenueSelfTradeSelect, VenueTifSelect } from './VenueOrderOptions';
+import { VenueMarketRules } from './VenueMarketRules';
 import {
   HeldDraft,
   amountForValue,
@@ -88,6 +89,7 @@ import {
   shortAddress,
   slippageLimit,
   ticketProblem,
+  unpublishedRules,
   withdrawStep,
   type DepositRoute,
   type PendingOrder,
@@ -353,6 +355,7 @@ export function VenueSpotDesk({ status, market }: { status: VenueUp; market: Ven
           {found}
         </p>
       ) : null}
+      <VenueMarketRules market={market} venueName={status.venue.displayName} />
       <Tabs value={type} onValueChange={(value) => setType(value as VenueOrderType)} data-testid="dk-order" className="dk-panel dk-order">
         <div className="dk-order-head">
           <TabsList className="dk-tabs" aria-label={t('Order type')}>
@@ -845,6 +848,16 @@ function VenueSideForm({
           <p className="dk-note">{t('Checking verification')}</p>
         ) : access === 'unread' ? (
           <p className="dk-note">{t('Verification unread')}</p>
+        ) : issue === 'rule_unpublished' ? (
+          <p className="dk-note dk-note--bad" role="alert" data-code="trade.venue_rule_unpublished">
+            {t('Rule unpublished', {
+              venue: status.venue.displayName,
+              symbol: market.symbol,
+              rules: unpublishedRules(market)
+                .map((rule) => t(rule === 'min' ? 'Rule name min' : rule === 'band' ? 'Rule name band' : 'Rule name cap'))
+                .join(', '),
+            })}
+          </p>
         ) : !owner ? (
           <p className="dk-note">{t('Connect to trade')}</p>
         ) : issue === 'no_cap' && type === 'market' ? (
