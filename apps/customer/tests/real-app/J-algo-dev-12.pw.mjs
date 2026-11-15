@@ -266,10 +266,31 @@ test(`${J} #4 opens the developer limits page: every limit with its current valu
     { limit: 'output_bytes', value: '200000' },
   ]);
   // The plan's quotas are on the same page, as the usage view counts them.
+  // Every quota of the plan, each with the value #2 set or "not set", and its use as svc-quant counts it.
   const usage = page.getByTestId('quant-usage');
-  await expect(usage.locator('tr[data-resource="runs"]')).toHaveAttribute('data-limit', '5');
-  await expect(usage.locator('tr[data-resource="strategies"]')).toHaveAttribute('data-limit', '3');
-  await expect(usage.locator('tr[data-resource="collaborators"]')).toHaveAttribute('data-limit', '2');
+  const PLAN_QUOTAS = {
+    strategies: ['Saved strategies', '3'],
+    versions: ['Versions on one strategy (the most)', null],
+    concurrent_runs: ['Concurrent runs', '2'],
+    paper_runs: ['Paper runs', null],
+    runs: ['Stored runs', '5'],
+    log_lines: ['Stored log lines', null],
+    storage: ['Source and result storage (bytes)', '10000000'],
+    collaborators: ['Collaborators per strategy', '2'],
+    notifications: ['Notifications per day', null],
+  };
+  const counted = await usageOf(dev);
+  expect(counted.resources.map((r) => r.resource).sort()).toEqual(Object.keys(PLAN_QUOTAS).sort());
+  await expect(usage.locator('tr[data-resource]')).toHaveCount(Object.keys(PLAN_QUOTAS).length);
+  for (const [resource, [label, limit]] of Object.entries(PLAN_QUOTAS)) {
+    const row = usage.locator(`tr[data-resource="${resource}"]`);
+    const used = counted.resources.find((r) => r.resource === resource).used;
+    expect(counted.resources.find((r) => r.resource === resource).limit, resource).toBe(limit);
+    await expect(row, resource).toHaveAttribute('data-limit', limit ?? '');
+    await expect(row.getByRole('rowheader'), resource).toHaveText(label);
+    await expect(row.getByRole('cell').nth(0), resource).toHaveText(used);
+    await expect(row.getByRole('cell').nth(1), resource).toHaveText(limit ?? 'not set');
+  }
 
   // As the developer will hit them: with every limit set the run starts now, and a log over the output limit ends it by name.
   await sandboxRun(page);
