@@ -72,6 +72,24 @@ const SKIP = /\b(?:(?:it|test|describe|suite)\.(?:skip|todo|only|fixme|skipIf|ru
 // The repo's journalled no-database branch: `describe.skip('<suite> (Postgres unavailable)', ...)`. The suite
 // runs in full when the database is up; the skip-honesty gates account for the skip. Exact title shape only.
 const PG_UNAVAILABLE_SKIP = /^\s*describe\.skip\(\s*'[^']+ \(Postgres unavailable\)'\s*,/;
+// The same branch through `packages/db`'s one sanctioned probe, `postgresAvailable`, which throws on CI
+// (`postgresRequired`), so the suite can't skip there: `describe.skipIf(!ready)(…)` / `describe.runIf(ready)(…)` on a
+// name the file assigns from `await postgresAvailable(…)`, or `describe.skip('<suite> (Postgres unavailable — <hint>)', …)`
+// in a file that calls it. Any other condition, title or file stays a finding. (project-state#2512: intafaced #8404,
+// #8387 and #8377 lost five pushes to these shapes, all already gated by the probe.)
+const PROBED = /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*await\s+postgresAvailable\s*\(/g;
+const PROBED_SKIP = /^\s*describe\.(?:skipIf\(\s*!\s*([A-Za-z_$][\w$]*)\s*\)|runIf\(\s*([A-Za-z_$][\w$]*)\s*\))\s*\(/;
+const PROBED_TITLE_SKIP = /^\s*describe\.skip\(\s*(['"`])[^'"`]+ \(Postgres unavailable[^)'"`]*\)\1\s*,/;
+
+/** The part of a skip line the probe accounts for removed, so what is left is judged; `file` is the test file at HEAD. */
+export function withoutProbedSkip(line, file) {
+  const l = line.replace(PG_UNAVAILABLE_SKIP, '');
+  if (l !== line || !/\bpostgresAvailable\s*\(/.test(file ?? '')) return l;
+  const names = new Set([...(file ?? '').matchAll(PROBED)].map((m) => m[1]));
+  const m = PROBED_SKIP.exec(line);
+  if (m && names.has(m[1] ?? m[2])) return line.slice(m[0].length);
+  return line.replace(PROBED_TITLE_SKIP, '');
+}
 const ASSERT = /\b(?:expect(?:\.\w+)?|assert(?:\.\w+)?|t\.(?:is|equal|deepEqual|throws|true|false|truthy|falsy))\s*\(/g;
 const WEAK_MATCHER = /\.(?:toBeDefined|toBeTruthy|toBeFalsy|toBeUndefined|not\.toBeNull|toBeInstanceOf|toBeAttached)\s*\(/;
 const STRONG_MATCHER =
@@ -107,7 +125,7 @@ export function judge(changes, { judgeRuns = false } = {}) {
       continue;
     }
     for (const l of c.added) {
-      if (SKIP.test(l.replace(PG_UNAVAILABLE_SKIP, '')))
+      if (SKIP.test(withoutProbedSkip(l, c.text ?? c.added.join('\n'))))
         problems.push({ path: c.path, why: `skip/todo/only added: ${l.trim().slice(0, 100)}` });
     }
     if (c.status === 'M') {
@@ -321,7 +339,9 @@ function collect(base) {
         else if (l.startsWith('-')) removed.push(l.slice(1));
       }
     }
-    return { path, status: status[0], removed, added, sourceExists: status === 'D' ? sourceFor(path) : true };
+    // The file at HEAD, so a Postgres skip can be read against the probe it is gated by (withoutProbedSkip).
+    const text = status === 'D' || BASELINE.test(path) ? '' : git(['show', `HEAD:${path}`]);
+    return { path, status: status[0], removed, added, text, sourceExists: status === 'D' ? sourceFor(path) : true };
   });
 }
 
@@ -342,6 +362,32 @@ async function selfTest() {
     'second skip on the same line still flagged',
   );
   eq(t({ added: ["  describe.skip('account closure', () => {"] }).length, 1, 'other describe.skip still flagged');
+  // project-state#2512: the probe-gated no-database skips intafaced #8404, #8387 and #8377 lost pushes to.
+  const probe = "import { postgresAvailable } from '@intafaced/db/testing';\nconst ready = await postgresAvailable(databaseUrl);\n";
+  const pg = (line, text = probe + line) => t({ status: 'A', added: [line], text }).length;
+  eq(pg("describe.skipIf(!ready)('strategy risk store on Postgres (AL-risk-01)', () => {"), 0, '#8404: skipIf(!probed) is fine');
+  eq(pg("describe.runIf(ready)('strategy team store on Postgres', () => {"), 0, 'runIf(probed) is fine');
+  eq(
+    pg("  describe.skip('svc-agents partner payment (Postgres unavailable — start docker compose)', () => {"),
+    0,
+    '#8377: titled no-database skip in a probed file is fine',
+  );
+  eq(pg("describe.skipIf(!other)('x', () => {"), 1, 'skipIf on a name the probe did not set: flagged');
+  eq(pg("describe.skipIf(true)('x', () => {"), 1, 'skipIf(true): flagged');
+  eq(pg("describe.skipIf(!ready || fast)('x', () => {"), 1, 'skipIf on more than the probe: flagged');
+  eq(pg("describe.skipIf(!ready)('x', () => { it.skip('y', () => {}); });"), 1, 'second skip after a probed one: flagged');
+  eq(pg("describe.skipIf(!ready)('x', () => {", "describe.skipIf(!ready)('x', () => {"), 1, 'skipIf without the probe: flagged');
+  eq(
+    pg("describe.skipIf(!ready)('x', () => {", 'const ready = true; // postgresAvailable(\n'),
+    1,
+    'a name not assigned from the probe: flagged',
+  );
+  eq(
+    pg("  describe.skip('x (Postgres unavailable — start docker compose)', () => {", 'const ready = true;\n'),
+    1,
+    'titled skip in a file without the probe: flagged',
+  );
+  eq(pg("  it.skipIf(!ready)('x', () => {"), 1, 'it.skipIf: flagged');
   eq(t({ added: ["  it.skip('x (Postgres unavailable)', () => {})"] }).length, 1, 'it.skip still flagged');
   eq(t({ added: ["  it('skips the empty case', () => {"] }).length, 0, 'word skip in a title is fine');
   eq(t({ removed: ['  expect(a).toBe(1);', '  expect(b).toBe(2);'], added: ['  expect(a).toBe(1);'] }).length, 1, 'fewer assertions');
