@@ -55,6 +55,8 @@ import { BillsPotService } from './spaces/bills-pot.js';
 import { BusinessService } from './business/business-service.js';
 import { BusinessTeamService } from './business/business-team.js';
 import { BusinessBillsService } from './business/business-bills.js';
+import { BusinessPayoutsService } from './business/business-payouts.js';
+import { BusinessCardsService } from './business/business-cards.js';
 import { BusinessLookupLimiter, unconfiguredBusinessDirectory, type BusinessDirectoryPort } from './business/business-directory.js';
 import { PortfolioService, type PortfolioServiceOptions } from './portfolio/portfolio-service.js';
 import { ActivityService, type ActivityServiceOptions } from './activity/activity-service.js';
@@ -178,6 +180,10 @@ export interface BankServices {
   readonly businessTeam: BusinessTeamService;
   /** J-bank-20: the business's supplier bills: inbox, duplicates, vendors, Bill Pay limits, approvals and partner-held payments. */
   readonly businessBills: BusinessBillsService;
+  /** J-bank-21: the business's bulk payment runs, contractors and invoices, and crypto payroll signed by its own wallet. */
+  readonly businessPayouts: BusinessPayoutsService;
+  /** J-bank-22: the business's team cards with per-purchase limits, receipts, and reimbursements paid at the partner. */
+  readonly businessCards: BusinessCardsService;
   readonly bills: BillPayService;
   readonly globalSend: GlobalSendService;
   readonly globalHolds: GlobalHoldService;
@@ -664,6 +670,13 @@ export function createBankServices(
     autoInvest,
     business,
     businessTeam,
+    businessPayouts: new BusinessPayoutsService(sql, businessTeam, { postingFreeze, noteRefusal: partnerRefusals.note }),
+    businessCards: new BusinessCardsService(sql, businessTeam, {
+      postingFreeze,
+      noteRefusal: partnerRefusals.note,
+      custody,
+      testNetwork: options.testPartner != null,
+    }),
     businessBills: new BusinessBillsService(sql, businessTeam, {
       reader: () => options.billReader,
       postingFreeze,

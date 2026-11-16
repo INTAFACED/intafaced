@@ -10,6 +10,9 @@ import { bankActionPayloadHash } from '../action-approval-consume.js';
 import { plainNote, plainReference } from '../transfers/personal-pay.js';
 import {
   billPayBinding,
+  bulkRunConfirmBinding,
+  reimbursementPayBinding,
+  contractorBatchBinding,
   createTransferBinding,
   teamAcceptInviteBinding,
   teamApproveBinding,
@@ -131,5 +134,27 @@ describe('a step-up approval for paying a business bill is spendable at the bank
       const { actor: _actor, ...fields } = b.fields;
       expect(identityHash(b.actionType, 'businessBills.pay', PAY, fields)).toBe(bankActionPayloadHash(b.actionType, b.fields));
     }
+  });
+});
+
+describe('a step-up approval for a business bulk run or contractor batch is spendable at the bank door (J-bank-21)', () => {
+  it('confirming a run and paying a batch', () => {
+    const RUN = '89898989-8989-4989-8989-898989898989';
+    const ACC = '9a9a9a9a-9a9a-4a9a-8a9a-9a9a9a9a9a9a';
+    const r = bulkRunConfirmBinding({ actor: ACTOR, runId: RUN });
+    const { actor: _a, ...rf } = r.fields;
+    expect(identityHash(r.actionType, 'businessPayouts.confirmRun', RUN, rf)).toBe(bankActionPayloadHash(r.actionType, r.fields));
+    const b = contractorBatchBinding({ actor: ACTOR, accountId: ACC, batchId: RUN });
+    const { actor: _b, ...bf } = b.fields;
+    expect(identityHash(b.actionType, 'businessPayouts.payBatch', RUN, bf)).toBe(bankActionPayloadHash(b.actionType, b.fields));
+  });
+});
+
+describe('a step-up approval for paying a business reimbursement is spendable at the bank door (J-bank-22)', () => {
+  it('approving and paying a claim', () => {
+    const CLAIM = '7b7b7b7b-7b7b-4b7b-8b7b-7b7b7b7b7b7b';
+    const r = reimbursementPayBinding({ actor: ACTOR, claimId: CLAIM });
+    const { actor: _a, ...rf } = r.fields;
+    expect(identityHash(r.actionType, 'businessCards.approveAndPay', CLAIM, rf)).toBe(bankActionPayloadHash(r.actionType, r.fields));
   });
 });
