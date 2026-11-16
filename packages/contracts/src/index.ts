@@ -139,6 +139,7 @@ export * from './merchant-activation.js';
 export * from './merchant-stores.js';
 export * from './quant-disclosure.js';
 export * from './quant-algo.js';
+export * from './quant-research.js';
 export * from './trade-signal-alerts.js';
 export * from './quant-team.js';
 export * from './quant-library.js';

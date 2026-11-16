@@ -545,6 +545,9 @@ const messages = {
   'Strategies trading your own venue sub-accounts': 'Strategies trading your own venue sub-accounts',
   'Algo dev limits': 'Algo dev limits',
   'Every limit your strategy runs meet, with its value': 'Every limit your strategy runs meet, with its value',
+  'Market data lake': 'Market data lake',
+  'Ticks, order books and fills the lake keeps, with coverage and gaps':
+    'Ticks, order books and fills the lake keeps, with coverage and gaps',
   'Live run': 'Live run',
   'Shared with me': 'Shared with me',
   'Strategy library': 'Strategy library',
@@ -958,6 +961,9 @@ export const navigationCopy: ReturnType<typeof defineCopy<typeof messages>> = de
     'Strategies trading your own venue sub-accounts': 'Estrategias que operan en tus propias subcuentas del mercado',
     'Algo dev limits': 'Límites de Algo dev',
     'Every limit your strategy runs meet, with its value': 'Cada límite que encuentran las ejecuciones de tus estrategias, con su valor',
+    'Market data lake': 'Lago de datos de mercado',
+    'Ticks, order books and fills the lake keeps, with coverage and gaps':
+      'Ticks, libros de órdenes y operaciones que guarda el lago, con su cobertura y sus huecos',
     'Live run': 'Ejecución en vivo',
     'Shared with me': 'Compartidas conmigo',
     'Strategy library': 'Biblioteca de estrategias',
@@ -1376,6 +1382,9 @@ export const navigationCopy: ReturnType<typeof defineCopy<typeof messages>> = de
     'Strategies trading your own venue sub-accounts': 'Stratégies qui négocient sur vos propres sous-comptes de la plateforme',
     'Algo dev limits': 'Limites Algo dev',
     'Every limit your strategy runs meet, with its value': 'Chaque limite que rencontrent les exécutions de vos stratégies, avec sa valeur',
+    'Market data lake': 'Lac de données de marché',
+    'Ticks, order books and fills the lake keeps, with coverage and gaps':
+      'Ticks, carnets d’ordres et exécutions que garde le lac, avec leur couverture et leurs trous',
     'Live run': 'Exécution en direct',
     'Shared with me': 'Partagées avec moi',
     'Strategy library': 'Bibliothèque de stratégies',

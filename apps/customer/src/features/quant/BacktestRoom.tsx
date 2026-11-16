@@ -31,6 +31,8 @@ import { useApi } from '../session/session';
 import { equityGeometry, tradesCsv, tradesCsvName } from './backtest-chart';
 import { backtestCopy } from './backtest-copy';
 import { ReportTab, ShareTab, type CreatedShare } from './ReportShare';
+import { MonteCarloPanel } from './MonteCarloPanel';
+import { researchCopy } from './research-copy';
 import { ChecksTab, LogText, MetricsTab } from './result-figures';
 import { reportCopy } from './report-copy';
 import { RunHistory } from './RunHistory';
@@ -424,7 +426,7 @@ function FeeLedger({ symbol }: { symbol: string }) {
   );
 }
 
-const RESULT_TABS = ['summary', 'metrics', 'checks', 'charts', 'trades', 'log', 'report', 'share'] as const;
+const RESULT_TABS = ['summary', 'metrics', 'checks', 'charts', 'trades', 'montecarlo', 'log', 'report', 'share'] as const;
 const CHART_W = 1000;
 const CHART_H = 300;
 type ResultTab = (typeof RESULT_TABS)[number];
@@ -450,6 +452,7 @@ function BacktestResult({ result }: { result: QuantBacktestResult }) {
           checks: t('tabChecks'),
           charts: t('tabCharts'),
           trades: t('tabTrades'),
+          montecarlo: researchCopy.t('mcTitle'),
           log: t('tabLog'),
           report: reportCopy.t('tabReport'),
           share: reportCopy.t('tabShare'),
@@ -460,6 +463,7 @@ function BacktestResult({ result }: { result: QuantBacktestResult }) {
       {tab === 'checks' && <ChecksTab checks={result.checks} />}
       {tab === 'charts' && <ResultCharts result={result} />}
       {tab === 'trades' && <ResultTrades result={result} />}
+      {tab === 'montecarlo' && <MonteCarloPanel runId={result.runId} />}
       {tab === 'log' && <ResultLog result={result} />}
       {tab === 'report' && <ReportTab runId={result.runId} />}
       {tab === 'share' && <ShareTab runId={result.runId} created={created} />}
