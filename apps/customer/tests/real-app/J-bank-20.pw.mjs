@@ -160,10 +160,14 @@ async function inBusiness(page, who, name, path = '/bank/business/bills') {
   await signIn(page, who);
   await page.goto('/home');
   for (let attempt = 1; ; attempt++) {
+    // The account's write of the pick, when it goes out; a pick it already holds writes nothing, so this waits a bounded time.
+    const saved = page
+      .waitForResponse((r) => r.url().includes('/preferences.set') && r.request().method() === 'POST', { timeout: 5_000 })
+      .catch(() => null);
     await page.getByRole('button', { name: 'Account menu' }).click();
     await page.getByTestId('profile-business').filter({ hasText: name }).click();
     await page.waitForURL('**/pay/merchant');
-    await page.waitForTimeout(1500);
+    await saved;
     await page.goto('/bank/business/bills');
     const shown = page.getByTestId('bills-business');
     await expect(shown).toBeVisible();
