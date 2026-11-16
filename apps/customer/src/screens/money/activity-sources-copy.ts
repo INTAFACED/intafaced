@@ -55,4 +55,5 @@ export const sourcesCopy = defineCopy('money.activity-sources', {
   Date: 'Date',
   Amount: 'Amount',
   Status: 'Status',
+  'Source reference {ref}': 'Reference {ref}',
 });

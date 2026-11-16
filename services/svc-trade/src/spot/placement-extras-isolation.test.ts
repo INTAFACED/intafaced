@@ -87,7 +87,7 @@ async function build(seen: PlaceOrderInput[]) {
       seen.push(BINDERS.reduce<PlaceOrderInput>((acc, bind) => bind(acc), input));
       return fakeOrder({ marketId: market.id });
     },
-  } as unknown as PrivateRestDeps;
+  } as PrivateRestDeps;
   registerPrivateRest(app, deps);
   await app.ready();
   return app;

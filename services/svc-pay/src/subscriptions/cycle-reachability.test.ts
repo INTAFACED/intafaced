@@ -114,7 +114,7 @@ async function mountTrpc(subs: Partial<Record<keyof SubscriptionService, unknown
     getMerchantByUserId: async (userId: string) => (userId === USER ? ({ id: MERCHANT } as never) : null),
   } as unknown as PayService;
 
-  const router = mergeRouters(createSubscriptionRouter(subs as unknown as SubscriptionService, pay, null));
+  const router = mergeRouters(createSubscriptionRouter(subs as SubscriptionService, pay, null));
 
   const app = Fastify({ logger: false });
   await app.register(fastifyTRPCPlugin, {

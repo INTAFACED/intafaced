@@ -24,7 +24,7 @@ function blankParamsSql(row: Record<string, unknown>): Sql {
     if (q.includes('FROM token.stakes')) return Promise.resolve([]);
     throw new Error(`unexpected query: ${q}`);
   };
-  return fn as unknown as Sql;
+  return fn as Sql;
 }
 
 function service(row: Record<string, unknown>) {

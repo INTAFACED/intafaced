@@ -349,6 +349,10 @@ export const NOT_GATES = {
     "not a gate: the node:test file that a workflow step running main's copy of a script runs it from a worktree of main, never from single files copied out with `git show` (their imports went stale and the Test-diff guard died with ERR_MODULE_NOT_FOUND, INTAFACED/project-state#2284), with planted faults. tooling-tests.mjs runs it with every other tooling test.",
   'workflow-concurrency.test.mjs':
     "not a gate: the node:test file of the workflows' concurrency shape (one run per pull request; a main journeys run never cancelled and in one group, OWNER 206; a superseded branch journeys run cancelled), with planted faults for each. tooling-tests.mjs runs it with every other tooling test.",
+  'model-check.mjs':
+    "the plan of model-check.yml: which TLA+ models a change is checked against (every model, when a modelled service, a path a COVERS.md names or the check itself changes), failing on a model nothing runs. Not a doctrine gate: it needs the pull request's changed files, and the models need Java and minutes, so the Model check workflow runs it; its tests are model-check.test.mjs.",
+  'model-check.test.mjs':
+    'not a gate: the node:test file of model-check.mjs (every model found, the plan on the repo and on planted trees, the workflow shape). tooling-tests.mjs runs it.',
   'journey-verdict.mjs':
     "the Real-app journeys run's verdict against docs/runbooks/journey-baseline.json, run by the Real-app journeys job of real-app-journeys.yml on a finished run's merged report. Not a doctrine gate: it needs a run's report, its baseline's named run and the pass history since, so a laptop verify has no input. Its tests are journey-verdict.test.mjs, run in the `changes` job of ci.yml.",
   'journey-verdict.test.mjs':

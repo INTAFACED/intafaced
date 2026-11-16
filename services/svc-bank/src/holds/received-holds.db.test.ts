@@ -97,7 +97,7 @@ describe('holds on received funds: a stranger’s payment waits, and is accepted
         const value = Reflect.get(target, prop, receiver);
         return typeof value === 'function' ? value.bind(target) : value;
       },
-    }) as unknown as LedgerClient;
+    }) as LedgerClient;
     bank = createBankServices(db.sql, client as MemoryLedger, memoryLedgerHistory(ledger), {
       nativeAssetId: 'IFC',
       recipients: memoryRecipientState(),

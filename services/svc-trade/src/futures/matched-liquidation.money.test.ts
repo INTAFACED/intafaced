@@ -820,7 +820,7 @@ describe('svc-trade liquidation by reduce-only IOC in the book (slice 7, PG-back
           if (ref.ownerId !== 'insurance-fund' || !drained || reads++ === 0) return real;
           return { ...real, amount: A('3') };
         },
-      } as unknown as LedgerClient;
+      } as LedgerClient;
       const svc = build({}, view);
       expect((await tick({ svc, adl: adlDeps() })).items.find((i) => i.positionId === alice.id)).toMatchObject({
         outcome: 'skipped_insurance_underfunded',
@@ -867,7 +867,7 @@ describe('svc-trade liquidation by reduce-only IOC in the book (slice 7, PG-back
           }
           return tx;
         },
-      } as unknown as LedgerClient;
+      } as LedgerClient;
       const svc = build({}, view);
       expect((await tick({ svc, adl: adlDeps() })).items.find((i) => i.positionId === alice.id)).toMatchObject({ outcome: 'errored' });
       expect(await rungs()).toMatchObject([{ kind: 'matched', state: 'planned' }]);
@@ -976,7 +976,7 @@ describe('svc-trade liquidation by reduce-only IOC in the book (slice 7, PG-back
           if (ref.ownerId === 'insurance-fund') throw new Error('ledger read timed out');
           return ledger.balance(ref);
         },
-      } as unknown as LedgerClient;
+      } as LedgerClient;
       await tick({ svc: build({}, blind) });
       expect(parseAmount((await liquidationOrders())[0]!.limit_price)).toBe(A('90'));
       expect(await bal(FUND)).toBe(A('10'));
@@ -1083,7 +1083,7 @@ describe('svc-trade liquidation by reduce-only IOC in the book (slice 7, PG-back
           }
           return tx;
         },
-      } as unknown as LedgerClient;
+      } as LedgerClient;
       const first = await tick({ svc: build({}, crashing) });
       expect(first.items.find((i) => i.positionId === alice.id)).toMatchObject({ outcome: 'errored' });
       expect(await sql`SELECT 1 FROM trade.futures_order_fills WHERE state = 'pending'`).toHaveLength(1);
@@ -1179,7 +1179,7 @@ describe('svc-trade liquidation by reduce-only IOC in the book (slice 7, PG-back
           }
           return tx;
         },
-      } as unknown as LedgerClient;
+      } as LedgerClient;
       const a = tick({ svc: build({}, slow) });
       while (!blocked) await new Promise((resolve) => setTimeout(resolve, 5));
       expect((await tick()).items.find((i) => i.positionId === alice.id)).toMatchObject({

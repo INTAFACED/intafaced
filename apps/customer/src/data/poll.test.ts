@@ -21,7 +21,7 @@ function visibility(): VisibilitySource & { set(visible: boolean): void } {
 
 function counter<T>(make: (n: number) => Outcome<T>) {
   const fn = vi.fn(async () => make(fn.mock.calls.length));
-  return fn as unknown as Fetcher<T> & { mock: { calls: unknown[] } };
+  return fn as Fetcher<T> & { mock: { calls: unknown[] } };
 }
 
 const ok = <T>(data: T): Outcome<T> => ({ ok: true, data });
@@ -514,7 +514,7 @@ describe('poller: refresh after a save', () => {
           pending.push(resolve);
           signal.addEventListener('abort', () => reject(new Error('aborted')));
         }),
-    ) as unknown as Fetcher<string>;
+    ) as Fetcher<string>;
     const source = poller.source('book', fetcher, { intervalMs: 60_000 });
     const stop = source.subscribe(() => undefined);
     await vi.advanceTimersByTimeAsync(1);

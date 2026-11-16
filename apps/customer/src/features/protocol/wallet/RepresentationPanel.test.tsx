@@ -15,7 +15,7 @@ let host: HTMLDivElement, root: Root;
 
 const mount = async (accept: ProtocolApi['representationAccept']) => {
   const ends: RepresentationEnd[] = [];
-  const api = { representationAccept: accept } as unknown as ProtocolApi;
+  const api = { representationAccept: accept } as ProtocolApi;
   await act(async () => {
     root.render(<RepresentationPanel address={ADDR} status={STATUS} api={api} onEnd={(end) => ends.push(end)} />);
   });

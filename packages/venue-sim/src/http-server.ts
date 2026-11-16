@@ -43,9 +43,10 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *        /sub-accounts {account}, /transfer {account,nonce}   (UserVenueSubAccountReads, on the main account)
  *        /market-margin {account,symbol}                  the owner's balance in a market deployer's own margin account
  *        /settlements {account,since}                     the account's settlements in a deployer's halt or a split
+ *        /scheduled-cancel {account}                      the account's scheduled cancel (J-cex-spot-07): its time and last firing
  *   TEST controls (never part of UserVenue):
  *   POST /test/deposit {account,asset,amount,depositRef}   idempotent by depositRef
- *        /test/switches {venueDown?,unlistPerpetuals?,declaredAgentPermissionReach?,amendsInPlace?,cancelsPerAction?,withdrawalFee?,networkFee?,depositExplorerTxUrl?}   each fee a MaybeKnown<Amount>
+ *        /test/switches {venueDown?,unlistPerpetuals?,declaredAgentPermissionReach?,amendsInPlace?,cancelsPerAction?,scheduledCancelMinLeadMs?,withdrawalFee?,networkFee?,depositExplorerTxUrl?}   each fee a MaybeKnown<Amount>
  *        /test/account-switches {owner,down?,loseAnswers?,failAfterSend?,submitDelayMs?}   one owner's account only, so a journey can
  *                                                         take the venue away from its own person and no one else's:
  *                                                         `down` refuses every call on that owner's account venue_down;
@@ -749,6 +750,8 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       if (!(since instanceof Date)) throw new VenueWireError('since is required (an ISO time)');
       return sim.settlements(account(body), since);
     }
+    case '/scheduled-cancel':
+      return sim.scheduledCancel(account(body));
     // ── TEST controls ──
     case '/test/deposit': {
       const amount = body.amount;
@@ -775,6 +778,12 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
           throw new VenueWireError('cancelsPerAction must be a whole number above 1, or null');
         sim.declareCancelsPerAction(n);
       }
+      if (body.scheduledCancelMinLeadMs !== undefined) {
+        const n = body.scheduledCancelMinLeadMs;
+        if (n !== null && !(typeof n === 'number' && Number.isInteger(n) && n >= 0))
+          throw new VenueWireError('scheduledCancelMinLeadMs must be a whole number of ms, or null');
+        sim.declareScheduledCancel(n);
+      }
       if (body.withdrawalFee !== undefined) sim.switches.withdrawalFee = maybeKnownAmount(body.withdrawalFee, 'withdrawalFee');
       if (body.networkFee !== undefined) sim.switches.networkFee = maybeKnownAmount(body.networkFee, 'networkFee');
       if (body.depositExplorerTxUrl === null || typeof body.depositExplorerTxUrl === 'string') {
@@ -790,6 +799,7 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
         declaredAgentPermissionReach: sim.venue.agentPermissionReach,
         amendsInPlace: sim.venue.amendsInPlace === true,
         cancelsPerAction: sim.venue.cancelsPerAction ?? null,
+        scheduledCancelMinLeadMs: sim.venue.scheduledCancel?.minLeadMs ?? null,
         withdrawalFee: sim.switches.withdrawalFee,
         networkFee: sim.switches.networkFee,
         depositExplorerTxUrl: sim.switches.depositExplorerTxUrl,
@@ -1020,9 +1030,14 @@ export interface StartTestVenueOptions {
   readonly amendsInPlace?: boolean;
   /** The most orders it cancels in one signed action (`cancel_orders`); default: one cancel per signature. */
   readonly cancelsPerAction?: number;
+  /** The least time ahead it takes a scheduled cancel (`schedule_cancel`), in ms; default: no scheduled cancel offered. */
+  readonly scheduledCancelMinLeadMs?: number;
   /** The deposit route `GET /venue` names (the TEST chain's watcher is started by the caller, chain-deposits.ts). */
   readonly deposit?: UserVenueDepositRoute | null;
 }
+
+/** How often the TEST venue checks its scheduled cancels between calls. */
+const SCHEDULED_CANCEL_SWEEP_MS = 250;
 
 /** Start the TEST venue on loopback. Refuses outside APP_ENV dev/test and on a non-loopback host. */
 export async function startTestVenueServer(
@@ -1040,9 +1055,20 @@ export async function startTestVenueServer(
     ...(opts.ordersPerAction !== undefined ? { ordersPerAction: opts.ordersPerAction } : {}),
     ...(opts.amendsInPlace ? { amendsInPlace: true } : {}),
     ...(opts.cancelsPerAction !== undefined ? { cancelsPerAction: opts.cancelsPerAction } : {}),
+    ...(opts.scheduledCancelMinLeadMs !== undefined ? { scheduledCancelMinLeadMs: opts.scheduledCancelMinLeadMs } : {}),
   });
   refuseTestVenueOutsideTest(sim.venue, opts.appEnv);
   const server = http.createServer(testVenueHandler(sim, opts.deposit ?? null));
+  // A scheduled cancel fires on the venue's own clock, when nobody is talking to it (J-cex-spot-07 #3).
+  const sweep = setInterval(() => {
+    try {
+      sim.runScheduledCancels();
+    } catch {
+      /* a TEST sweep that throws is tried again on the next tick */
+    }
+  }, SCHEDULED_CANCEL_SWEEP_MS);
+  sweep.unref();
+  server.once('close', () => clearInterval(sweep));
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
     server.listen(opts.port, opts.host, () => resolve());

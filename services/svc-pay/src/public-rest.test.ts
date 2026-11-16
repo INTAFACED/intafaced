@@ -1333,7 +1333,7 @@ describe('the rail reference for a team member (M-adv-payments-core-01)', () => 
       allows: async (userId: string | undefined, merchantId: string, permission: string) =>
         userId === STRANGER && merchantId === MERCHANT && (permission === 'payments.read' || permission === 'settlements.read'),
       activeRole: async (userId: string | undefined, merchantId: string) => (userId === STRANGER && merchantId === MERCHANT ? role : null),
-    }) as unknown as MerchantTeamRead;
+    }) as MerchantTeamRead;
   const member = () => signed(principal({ sub: STRANGER, userId: STRANGER }));
 
   for (const role of ['viewer', 'developer'] as const) {

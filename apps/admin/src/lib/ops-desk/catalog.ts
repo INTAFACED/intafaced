@@ -382,6 +382,11 @@ const bankSections: readonly DeskSection[] = [
         label: 'Card disputes',
         why: 'The dispute queue and each case are on their own pages.',
       },
+      {
+        href: '/bank-ops/cards',
+        label: 'Card programme',
+        why: 'The set-up checklist, configuration, authorisation rules, 3DS, cardholders, the decision log, reports, staff roles and bulk issue are on their own page.',
+      },
     ],
   },
   {

@@ -1158,7 +1158,7 @@ describe('a merchant reaches their own rows and nobody else’s', () => {
     const teamSql = ((_strings: TemplateStringsArray, ...values: unknown[]) => {
       asked.push(values);
       return Promise.resolve(values[0] === '33333333-3333-4333-8333-333333333333' ? [{ '?column?': 1 }] : []);
-    }) as unknown as Sql;
+    }) as Sql;
     const onTeam = createPayRouter(
       { ...stub.service, getMerchantByUserId: async () => null } as unknown as PayService,
       rails,
@@ -1503,7 +1503,7 @@ describe('leftover treasury mutates consume identity approval', () => {
   });
 
   it('openDispute answers a named precondition error, not a 500 and not a recorded case, when the ledger refuses the opening for funds', async () => {
-    const service = stub.service as unknown as { openChargeback: unknown };
+    const service = stub.service as { openChargeback: unknown };
     service.openChargeback = async () => {
       throw new InsufficientFundsError('acct', 'USDT', '40.5', '0');
     };

@@ -95,7 +95,7 @@ describe('screening desk (real Postgres)', () => {
     const g = guards();
     try {
       await g.beforeUserMoneyWithdrawal!({
-        tx: (over.tx ?? db.sql) as unknown as Sql,
+        tx: (over.tx ?? db.sql) as Sql,
         userId: over.userId ?? USER,
         assetId: 'USDT',
         amount: over.amount ?? 5n * 10n ** 18n,

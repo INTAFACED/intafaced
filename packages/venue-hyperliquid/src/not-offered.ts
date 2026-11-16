@@ -15,6 +15,8 @@ export const NOT_OFFERED: Readonly<Record<Exclude<VenueIntent['kind'], BuiltInte
   amend_order: 'amend is not offered by this adapter yet: cancel and place a new order',
   replace_order: 'a cancel-and-replace signed once is not offered by this adapter yet: cancel, then place',
   cancel_orders: 'cancelling several orders in one signed action is not offered by this adapter yet',
+  // Hyperliquid has one (`scheduleCancel`); this adapter's descriptor declares none until it is wired and cross-checked.
+  schedule_cancel: 'a scheduled cancel is not offered by this adapter yet',
   create_sub_account: 'sub-accounts are not offered by this adapter yet',
   sub_account_transfer: 'sub-accounts are not offered by this adapter yet',
   market_margin_transfer: "a HIP-3 deployer's own margin account is not offered by this adapter yet",

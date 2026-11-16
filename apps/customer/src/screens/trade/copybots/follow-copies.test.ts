@@ -3,7 +3,7 @@ import { skipWords } from './FollowCopies';
 import { allowedActions, copyingSwitch, isCloseOnly, stateWord, type Follow } from './FollowDetail';
 
 const follow = (relationshipState: string) =>
-  ({ relationshipState, sessionKeyGranted: true, sessionKeyRevoked: false, permittedMarkets: ['BTC/USDT'] }) as unknown as Follow;
+  ({ relationshipState, sessionKeyGranted: true, sessionKeyRevoked: false, permittedMarkets: ['BTC/USDT'] }) as Follow;
 
 describe('a close-only follow (CB-copy-09)', () => {
   it('reads Stopping, cannot be paused, resumed or stopped again, and can still be left or closed out', () => {

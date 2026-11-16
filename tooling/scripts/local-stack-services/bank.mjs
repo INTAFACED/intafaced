@@ -398,6 +398,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     ...moneyOutStepUp(),
     ...cardPartner(),
     ...disputeCap(),
+    BANK_CARDHOLDER_SANCTIONS: testValue('BANK_CARDHOLDER_SANCTIONS'),
     // No send review rule unless `LOCAL_STACK_BANK_PERSONAL_SEND_REVIEW=on` on a restart (J-pay-01 #6).
     ...sendReview(),
     // Nothing moves money in the background of a test stack.

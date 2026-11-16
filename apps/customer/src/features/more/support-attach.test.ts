@@ -12,7 +12,7 @@ describe('reading a file to attach', () => {
       size: 24 * 1024 * 1024 + 1,
       type: 'video/mp4',
       arrayBuffer: () => Promise.reject(new Error('must not read')),
-    } as unknown as Blob;
+    } as Blob;
     expect(await readAttachment(huge)).toEqual({ ok: false, reason: 'tooLarge' });
   });
 
@@ -33,7 +33,7 @@ describe('reading a file to attach', () => {
   });
 
   it('refuses a file the browser cannot read', async () => {
-    const broken = { size: 4, type: 'text/plain', arrayBuffer: () => Promise.reject(new Error('gone')) } as unknown as Blob;
+    const broken = { size: 4, type: 'text/plain', arrayBuffer: () => Promise.reject(new Error('gone')) } as Blob;
     expect(await readAttachment(broken)).toEqual({ ok: false, reason: 'unreadable' });
   });
 });

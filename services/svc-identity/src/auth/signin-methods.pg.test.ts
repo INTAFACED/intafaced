@@ -73,7 +73,7 @@ if (!available) {
       if (!approvalId) throw new SecurityStepUpError('identity.step_up_required');
       stepUps.push({ scope, fields });
     },
-  } as unknown as SecurityStepUp;
+  } as SecurityStepUp;
   const social = new SocialSignin(db.sql, { providers: new Map(), flowTtlSeconds: undefined });
   const methodsRouter = createSigninMethodsRouter(db.sql, stepUp, { wallet: walletConfig, social });
   const callerFor = (userId: string) =>
@@ -82,7 +82,7 @@ if (!available) {
       service: null,
       region: 'DE',
       requestId: 'req-methods',
-    } as unknown as Context);
+    } as Context);
   const codeOf = async (p: Promise<unknown>) =>
     (
       (await p.then(
@@ -240,7 +240,7 @@ if (!available) {
           service: null,
           region: 'DE',
           requestId: 'req-phone',
-        } as unknown as Context);
+        } as Context);
       const later = (ms: number) => (clock = new Date(clock.getTime() + ms));
       const PHONE = '+447700900123';
       beforeEach(() => {
@@ -377,7 +377,7 @@ if (!available) {
           service: null,
           region: 'DE',
           requestId: 'req-social',
-        } as unknown as Context);
+        } as Context);
       const who = await person();
       const other = await person();
       const started = await as(who.userId).linkProviderStart({ provider: 'fake' });

@@ -201,7 +201,7 @@ if (!available) {
         [await ctx(op.userId, op.sessionId, ['admin:write'], true, { kid: randomUUID() }), 'operator.denied'],
         [await ctx(op.userId, op.sessionId, ['admin:write'], true, { service: 'svc-trade' }), 'operator.denied'],
         [await ctx(op.userId, op.sessionId, ['admin:write'], false), 'mfa.required'],
-        [{ principal: null, service: null, region: 'DE', requestId: 'x' } as unknown as Context, 'operator.denied'],
+        [{ principal: null, service: null, region: 'DE', requestId: 'x' } as Context, 'operator.denied'],
       ];
       for (const [context, code] of refusals) {
         await expect(revokeApiKeyForUser(db.sql, context, input)).rejects.toMatchObject({ code });

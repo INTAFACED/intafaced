@@ -5,9 +5,7 @@ const T1 = '22222222-2222-4222-8222-222222222222';
 const W1 = 'AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA';
 
 const refused = (message: string, status = 412) =>
-  ({ kind: 'refused', refusal: { message, code: null, status }, requestId: null }) as unknown as Parameters<
-    typeof explainVerificationFailure
-  >[0];
+  ({ kind: 'refused', refusal: { message, code: null, status }, requestId: null }) as Parameters<typeof explainVerificationFailure>[0];
 
 describe('the gate, as the console sends and reads it', () => {
   it('sends a check of one of the four kinds or one of the three reads, and nothing else', () => {

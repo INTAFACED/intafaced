@@ -69,7 +69,7 @@ function sqlWhereUpdateMisses(): Sql {
     }
     return Promise.resolve([]);
   };
-  return tag as unknown as Sql;
+  return tag as Sql;
 }
 
 /** The conditional update matches and returns the stream room this call wrote. */
@@ -89,7 +89,7 @@ function sqlWhereUpdateStores(): Sql {
     if (text.includes('SELECT') && text.includes('academy.sessions')) return Promise.resolve([sessionRow('scheduled', null)]);
     return Promise.resolve([]);
   };
-  return tag as unknown as Sql;
+  return tag as Sql;
 }
 
 describe('startSession when the conditional update matches no row', () => {

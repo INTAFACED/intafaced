@@ -36,6 +36,7 @@ import { customerCardsProcedure } from '../ops/customer-cards.js';
 import { transferDetailProcedure } from '../ops/transfer-detail.js';
 import { authorizationGetProcedure } from '../ops/authorization-detail.js';
 import { businessApprovalsProcedure } from '../ops/business-approvals.js';
+import { cardProgrammeOpsProcedures } from '../ops/card-programme-ops.js';
 import { cardDisputeProcedures } from '../ops/card-disputes.js';
 import { ADJUST_LOAN_INTEREST_ACTION, correctionApprovalFields } from '../loans/loan-adjustments.js';
 import { amountString, actionApprovalFields, heldSendOutput, partnerFiguresOutput, signedAmountString } from './shared.js';
@@ -1133,6 +1134,8 @@ export function createOpsRouter(c: BankRouterContext) {
     setCardStatus: setCardStatusProcedure(bank, consumeOpsApproval, guard),
     /** J-bank-27: card disputes worked by support (queue, case, evidence, representment, arbitration, credit, decision). */
     ...cardDisputeProcedures(bank, guard),
+    /** J-bank-26: the card programme desk for support and finance (settings, rules, cardholders, log, roles, bulk issue). */
+    ...cardProgrammeOpsProcedures(bank, guard),
     rampHealth: rampHealthProcedure(bank, guard),
     /** J-cex-spot-17 #8: the fiat buy prices customers were given, with their exact fees. Read only. */
     onrampQuotes: onrampQuotesProcedure(() => bank.transferOps.sql, guard),

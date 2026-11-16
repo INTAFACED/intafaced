@@ -132,7 +132,7 @@ describe("a key's own rotation request", () => {
   it('a key or a sub-account cannot approve through the person door, before anything is read', async () => {
     const { userId, keys } = await holder();
     const { requestId } = await requestRotation(db.sql, { userId, keyId: keys[0]!, overlapSeconds: 0 });
-    const deps = { sql: db.sql } as unknown as DeveloperKeysDeps;
+    const deps = { sql: db.sql } as DeveloperKeysDeps;
     for (const caller of [
       { userId, sid: 's', kid: keys[0]!, scopes: ['identity:write'] },
       { userId, sid: 's', sub_account: randomUUID(), scopes: ['identity:write'] },

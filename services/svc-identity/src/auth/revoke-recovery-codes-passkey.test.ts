@@ -22,7 +22,7 @@ function fakeSql(row: { webauthn_creds: unknown; recovery_code_hashes?: unknown 
   return Object.assign(fn, {
     json: (value: unknown) => value,
     bag,
-  }) as unknown as Parameters<typeof revokeAllRecoveryCodesAfterPasskey>[0] & {
+  }) as Parameters<typeof revokeAllRecoveryCodesAfterPasskey>[0] & {
     bag: { updates: unknown[] };
   };
 }

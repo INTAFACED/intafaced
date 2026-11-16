@@ -189,7 +189,7 @@ async function snapshotCatalog(db: TestDatabase): Promise<CatalogSnapshot> {
 /** What `pnpm db:generate` would emit from `schema.ts` against an empty database. */
 async function generateFromSchemaTs(): Promise<string[]> {
   const empty = drizzleKit.generateDrizzleJson({});
-  const current = drizzleKit.generateDrizzleJson(schema as unknown as Record<string, unknown>);
+  const current = drizzleKit.generateDrizzleJson(schema as Record<string, unknown>);
   return drizzleKit.generateMigration(empty, current);
 }
 

@@ -139,7 +139,7 @@ describe('HttpDepthSource', () => {
     const s = source((async (_url: unknown, init?: RequestInit) => {
       seen.push(init ?? {});
       return new Response(JSON.stringify({ markets: ['BTC-USDT'] }), { status: 200 });
-    }) as unknown as typeof globalThis.fetch);
+    }) as typeof globalThis.fetch);
 
     await s.markets();
 
@@ -154,7 +154,7 @@ describe('HttpDepthSource', () => {
     const s = source((async (url: unknown) => {
       urls.push(String(url));
       return new Response(JSON.stringify({ bids: [], asks: [], sequence: 0 }), { status: 200 });
-    }) as unknown as typeof globalThis.fetch);
+    }) as typeof globalThis.fetch);
 
     await s.snapshot('BTC/USDT', 25);
 

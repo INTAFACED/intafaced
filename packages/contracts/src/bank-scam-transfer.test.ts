@@ -61,7 +61,7 @@ describe('bank scam transfer client', () => {
     ['a short secret', { bankUrl: 'http://bank.internal', secret: 'short' }],
   ])('answers unavailable without fetching for %s', async (_name, options) => {
     const fetcher = vi.fn();
-    const client = createBankScamTransferClient({ ...options, fetcher: fetcher as unknown as typeof fetch });
+    const client = createBankScamTransferClient({ ...options, fetcher: fetcher as typeof fetch });
     await expect(client.check(input)).resolves.toEqual({ state: 'unavailable' });
     expect(fetcher).not.toHaveBeenCalled();
   });
@@ -75,7 +75,7 @@ describe('bank scam transfer client', () => {
     const client = createBankScamTransferClient({
       bankUrl: 'http://bank.internal',
       secret: SECRET,
-      fetcher: vi.fn(answer) as unknown as typeof fetch,
+      fetcher: vi.fn(answer) as typeof fetch,
     });
     await expect(client.check(input)).resolves.toEqual({ state: 'unavailable' });
   });
