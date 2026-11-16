@@ -653,6 +653,7 @@ export const features: readonly Feature[] = [
       '/uc/promotion/mycards',
       '/uc/promotion/mypromotion',
       '/uc/promotion/points',
+      '/uc/promotion/perks',
       '/uc/invitingmining',
       '/uc/paydividends',
     ],

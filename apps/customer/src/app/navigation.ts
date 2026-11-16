@@ -1285,6 +1285,12 @@ export const rooms: readonly Room[] = [
     description: 'Points wallet, expiry, catalogue and conversion',
     area: 'person',
   },
+  {
+    path: '/uc/promotion/perks',
+    title: 'Tier and perks',
+    description: 'Loyalty tier, fee multiplier, next tier and VIP trial pass',
+    area: 'person',
+  },
   { path: '/uc/invitingmining', title: 'Invitations', description: 'Your invitation activity', area: 'person' },
   { path: '/uc/paydividends', title: 'Dividend records', description: 'Your dividend history', area: 'person' },
   { path: '/uc/trade', title: 'Trading settings', description: 'Personal trade settings', area: 'person', alias: '/view' },
