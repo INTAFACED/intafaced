@@ -162,7 +162,7 @@ describe('business bill pay (J-bank-20)', () => {
     Buffer.from(`TEST BILL\nVendor: ${vendor}\nReference: ${reference}\nAmount: ${amount}\nDue: ${due}\n${note}`).toString('base64');
   const tomorrow = () => new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
 
-  async function upload(owner: ReturnType<typeof as>, accountId: string, content: string, billId = randomUUID()) {
+  async function upload(owner: ReturnType<typeof as>, accountId: string, content: string, billId: string = randomUUID()) {
     return owner.businessBills.upload({ accountId, billId, fileName: 'bill.txt', contentType: 'text/plain', contentBase64: content });
   }
 
