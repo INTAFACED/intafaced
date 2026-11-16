@@ -10,6 +10,9 @@ import { CampaignService, parseTimeZone } from './campaigns.js';
 import { createCompetitionFillSource } from './competition-fills.js';
 import { CompetitionService } from './competitions.js';
 import { DrawService } from './draws.js';
+import { DistributionService } from './distributions.js';
+import { PoolService } from './pools.js';
+import { createEquitySource } from './venue-equity.js';
 import { parseRuleLimit } from './rules.js';
 import { createLedgerClient } from './ledger-client.js';
 import { createMarketNames } from './markets.js';
@@ -162,7 +165,35 @@ const draws = new DrawService({
   log: (msg, detail) => app.log.warn({ ...detail }, msg),
 });
 
-const appRouter = createCampaignsRouter(drops, campaigns, tasks, vouchers, watch, referrals, competitions, draws);
+/**
+ * Airdrop distributions and reward pools (J-campaigns-13): venue equity and fills read through svc-trade (TRADE_URL and
+ * INTERNAL_SERVICE_SECRET; unset, every read is unread and nothing is owed), shares rounded to the paying token's
+ * decimals, owed and paid through the saga and the payer.
+ */
+const tradeReads =
+  env.TRADE_URL && env.INTERNAL_SERVICE_SECRET
+    ? { tradeUrl: env.TRADE_URL, internalSecret: env.INTERNAL_SERVICE_SECRET, ...(s2sKey ? { s2s: s2sKey } : {}) }
+    : null;
+const equity = tradeReads ? createEquitySource(tradeReads) : null;
+const distributions = new DistributionService({
+  sql,
+  saga,
+  equity,
+  payTo: (accountId, forwarded) => tasks.recordPayTo(accountId, forwarded),
+  payDecimals: env.CAMPAIGNS_TEST_CHAIN_TOKEN_DECIMALS ?? null,
+  log: (msg, detail) => app.log.warn({ ...detail }, msg),
+});
+const pools = new PoolService({
+  sql,
+  saga,
+  fills: tradeReads ? createCompetitionFillSource(tradeReads) : null,
+  equity,
+  payTo: (accountId, forwarded) => tasks.recordPayTo(accountId, forwarded),
+  payDecimals: env.CAMPAIGNS_TEST_CHAIN_TOKEN_DECIMALS ?? null,
+  log: (msg, detail) => app.log.warn({ ...detail }, msg),
+});
+
+const appRouter = createCampaignsRouter(drops, campaigns, tasks, vouchers, watch, referrals, competitions, draws, distributions, pools);
 // svc-trade's fee-saver ask (`service.feeSaver`, J-campaigns-09) is a service call: the caller is named by its own key,
 // or by the shared secret where keys are not wired.
 const edgeContext = createEdgeContext({
@@ -476,6 +507,20 @@ const drawTick = setInterval(() => {
     });
 }, COMPETITION_TICK_MS);
 drawTick.unref();
+
+// Airdrops (J-campaigns-13): each one past its snapshot time is read and its shares owed once. Reward pools: each ended
+// day is settled once.
+let distributing = false;
+const distributionTick = setInterval(() => {
+  if (distributing) return;
+  distributing = true;
+  Promise.all([distributions.tick(), pools.tick()])
+    .catch((err: unknown) => app.log.error({ err }, 'distribution or pool pass failed'))
+    .finally(() => {
+      distributing = false;
+    });
+}, COMPETITION_TICK_MS);
+distributionTick.unref();
 voucherExpiry.unref();
 
 await app.listen({ host: env.HTTP_HOST, port: env.HTTP_PORT });
@@ -500,6 +545,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       clearInterval(voucherExpiry);
       clearInterval(competitionTick);
       clearInterval(drawTick);
+      clearInterval(distributionTick);
       if (busRetry) clearTimeout(busRetry);
       if (welcomeRetry) clearTimeout(welcomeRetry);
       if (cashbackRetry) clearTimeout(cashbackRetry);

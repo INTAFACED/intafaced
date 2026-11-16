@@ -109,6 +109,17 @@ export const CAMPAIGN_REFUSAL_CODES = [
   'campaigns.draw_invalid',
   'campaigns.draw_unset',
   'campaigns.not_draw',
+  // J-campaigns-13: an airdrop distribution and a reward pool paying daily.
+  'campaigns.distribution_invalid',
+  'campaigns.distribution_unset',
+  'campaigns.not_distribution',
+  'campaigns.snapshot_not_due',
+  'campaigns.pool_invalid',
+  'campaigns.pool_unset',
+  'campaigns.not_pool',
+  'campaigns.pool_day_open',
+  'campaigns.pool_day_unknown',
+  'campaigns.equity_unread',
   'owner.decision',
 ] as const;
 export type CampaignRefusalCode = (typeof CAMPAIGN_REFUSAL_CODES)[number];
@@ -732,6 +743,182 @@ export const drawBoardInputSchema = z.object({ campaignId: id }).strict();
 /** `ops.campaigns.draw.run` and `ops.campaigns.draw.settle`: refused `owner.decision` while the decision is open. */
 export const drawRunInputSchema = z.object({ campaignId: id, reason: z.string().trim().min(3).max(500) }).strict();
 
+// ── Airdrop distributions and dividends (CM-airdrop-campaigns-01, J-campaigns-13 #1 to #3) ─────────────────────────
+
+/** What a distribution pays out: an airdrop of INTAFACED's own pool is built; a dividend waits for the owner (OWNER 87). */
+export const DISTRIBUTION_KINDS = ['airdrop', 'dividend'] as const;
+export type DistributionKind = (typeof DISTRIBUTION_KINDS)[number];
+
+/**
+ * A `distribution` campaign's terms. The pool is the campaign's budget, INTAFACED's own money. At `snapshotAt` each
+ * account that joined by then is read once from the venue: its equity there in `equityAsset`. Each account's share is
+ * the pool times its equity over the equity of every account counted, the shares summing exactly to the pool; an
+ * account whose equity is negative is excluded, and one whose equity cannot be read is named and held out, never
+ * counted as zero. Blank fields refuse activation `campaigns.distribution_unset`; a `dividend` refuses `owner.decision`.
+ */
+export const campaignDistributionSchema = z
+  .object({
+    kind: z.enum(DISTRIBUTION_KINDS),
+    snapshotAt: iso.nullable(),
+    equityAsset: asset.nullable(),
+  })
+  .strict();
+export type CampaignDistribution = z.infer<typeof campaignDistributionSchema>;
+
+/** The question a dividend waits on, named in plain words wherever it refuses. */
+export const DIVIDEND_OWNER_QUESTION =
+  'Does INTAFACED pay dividends to holders of its token, from which revenue, and under what legal form?';
+
+/** A decimal that may be negative: a venue equity as the venue reports it. */
+const signedDecimal = z.string().regex(/^-?(0|[1-9]\d{0,19})(\.\d{1,18})?$/);
+
+/**
+ * How one account stood at a snapshot. `counted`: its equity is in the total and its share is `share` (null when it
+ * rounds to nothing). `excluded_negative`: its equity was below zero. `held_out`: its equity could not be read
+ * (`heldOut` names why); it is not in the total and is owed nothing from this run. `waiting`: the snapshot is being taken.
+ */
+export const DISTRIBUTION_STANDINGS = ['counted', 'excluded_negative', 'held_out', 'waiting'] as const;
+
+/** One distribution as the account that took part sees it, with its payout once the share is paid. */
+export const distributionRecordSchema = z
+  .object({
+    campaignId: id,
+    campaignName: z.string(),
+    kind: z.literal('airdrop'),
+    snapshotAt: iso,
+    asset,
+    pool: campaignDecimal,
+    standing: z.enum(DISTRIBUTION_STANDINGS),
+    equity: signedDecimal.nullable(),
+    equityAsset: asset,
+    equityAsOf: iso.nullable(),
+    heldOut: z.string().nullable(),
+    share: campaignDecimal.nullable(),
+    rewardKey: z.string().nullable(),
+    /** The share's reward state: owed until it is paid to the connected wallet, then `paid`. Null with no share. */
+    state: z.string().nullable(),
+    /** The chain transaction that paid the share to the connected wallet; null until paid. */
+    chainTx: z.string().nullable(),
+    toWallet: z.string().nullable(),
+  })
+  .strict();
+export type DistributionRecord = z.infer<typeof distributionRecordSchema>;
+export const distributionsMineInputSchema = z.object({ kind: z.enum(DISTRIBUTION_KINDS) }).strict();
+export const distributionsMineSchema = z.object({ records: z.array(distributionRecordSchema) }).strict();
+export type DistributionsMine = z.infer<typeof distributionsMineSchema>;
+
+/** `ops.campaigns.distribution.run`: takes the snapshot now if it is due, or resumes a run that stopped part way. */
+export const distributionRunInputSchema = z.object({ campaignId: id, reason: z.string().trim().min(3).max(500) }).strict();
+export const distributionRunSchema = z
+  .object({
+    campaignId: id,
+    snapshotAt: iso,
+    state: z.enum(['reading', 'owed']),
+    pool: campaignDecimal,
+    totalEquity: campaignDecimal.nullable(),
+    counted: z.number().int().min(0),
+    excludedNegative: z.number().int().min(0),
+    heldOut: z.number().int().min(0),
+    sharesTotal: campaignDecimal.nullable(),
+  })
+  .strict();
+export type DistributionRun = z.infer<typeof distributionRunSchema>;
+
+// ── Reward pools paying daily (CM-airdrop-campaigns-02, J-campaigns-13 #4 #5) ───────────────────────────────────────
+
+/**
+ * A `pool` campaign's terms. Its pool is the campaign's budget, INTAFACED's own money, paid out one day's slice at a
+ * time. A day is `daySeconds` long from the campaign's start (a calendar day is 86 400). When a day has ended it is
+ * settled once: each entrant's activity is the notional of the venue's fills of their orders placed through INTAFACED
+ * during that day, in `activityAsset`; an entrant whose venue equity in that asset is below `minBalance` earns nothing
+ * that day and is left out of the total. Each share is the slice times the entrant's activity over the total, up to
+ * `perUserCap`; what a cap keeps back stays in the pool. Shares plus the unspent remainder equal the slice. Every blank
+ * refuses activation `campaigns.pool_unset`.
+ */
+export const campaignPoolSchema = z
+  .object({
+    activityAsset: asset.nullable(),
+    dailySlice: campaignDecimal.nullable(),
+    perUserCap: campaignDecimal.nullable(),
+    minBalance: campaignDecimal.nullable(),
+    daySeconds: z
+      .number()
+      .int()
+      .min(60)
+      .max(31 * 86_400)
+      .nullable(),
+  })
+  .strict();
+export type CampaignPool = z.infer<typeof campaignPoolSchema>;
+
+/** One account's line of a settled day. */
+export const poolDayMineSchema = z
+  .object({
+    activity: campaignDecimal,
+    balance: signedDecimal,
+    balanceAsOf: iso,
+    /** False when the venue equity was below the minimum balance: nothing that day. */
+    eligible: z.boolean(),
+    share: campaignDecimal,
+    /** True when the per-user cap held the share back. */
+    capped: z.boolean(),
+    rewardKey: z.string().nullable(),
+    state: z.string().nullable(),
+    chainTx: z.string().nullable(),
+  })
+  .strict();
+
+export const poolDaySchema = z
+  .object({
+    day: z.number().int().positive(),
+    startsAt: iso,
+    endsAt: iso,
+    settledAt: iso.nullable(),
+    slice: campaignDecimal,
+    totalActivity: campaignDecimal.nullable(),
+    sharesTotal: campaignDecimal.nullable(),
+    remainder: campaignDecimal.nullable(),
+    mine: poolDayMineSchema.nullable(),
+  })
+  .strict();
+export type PoolDay = z.infer<typeof poolDaySchema>;
+
+/** `pool.board`: a pool's terms, each day that has started with the caller's share once settled, and today as it stands. */
+export const poolBoardSchema = z
+  .object({
+    campaignId: id,
+    asset,
+    pool: campaignDecimal,
+    activityAsset: asset,
+    dailySlice: campaignDecimal,
+    perUserCap: campaignDecimal,
+    minBalance: campaignDecimal,
+    daySeconds: z.number().int().positive(),
+    joined: z.boolean(),
+    days: z.array(poolDaySchema),
+    /** The day under way, with the caller's venue equity read now; null when none is under way or the caller has not joined. */
+    today: z
+      .object({
+        day: z.number().int().positive(),
+        endsAt: iso,
+        balance: signedDecimal.nullable(),
+        balanceAsOf: iso.nullable(),
+        /** True when the balance read is below the minimum: nothing today. Null while it could not be read. */
+        belowMinimum: z.boolean().nullable(),
+        unread: z.string().nullable(),
+      })
+      .strict()
+      .nullable(),
+  })
+  .strict();
+export type PoolBoard = z.infer<typeof poolBoardSchema>;
+export const poolBoardInputSchema = z.object({ campaignId: id }).strict();
+/** `ops.campaigns.pool.settle`: settles one ended day, once; settling it again returns the day as it was settled. */
+export const poolSettleInputSchema = z
+  .object({ campaignId: id, day: z.number().int().positive(), reason: z.string().trim().min(3).max(500) })
+  .strict();
+export const poolSettleSchema = z.object({ settled: z.boolean(), day: poolDaySchema.omit({ mine: true }) }).strict();
+
 /** The full stored definition, as operators see it. */
 export const campaignSchema = z.object({
   id,
@@ -760,6 +947,10 @@ export const campaignSchema = z.object({
   competition: campaignCompetitionSchema.nullish(),
   /** A draw's terms (CM-promotions-events-02); absent or null for any other campaign. */
   draw: campaignDrawSchema.nullish(),
+  /** A distribution's terms (CM-airdrop-campaigns-01); absent or null for any other campaign. */
+  distribution: campaignDistributionSchema.nullish(),
+  /** A reward pool's terms (CM-airdrop-campaigns-02); absent or null for any other campaign. */
+  pool: campaignPoolSchema.nullish(),
   /** A voucher campaign's claim-by and use-by times; absent or null for any other campaign. */
   vouchers: z.lazy(() => voucherWindowSchema).nullish(),
   /** Earning rules, in the order they are checked (CM-rewards-hub-05). */
@@ -828,6 +1019,10 @@ export const campaignViewSchema = z.object({
   competition: campaignCompetitionSchema.nullish(),
   /** A draw's terms; null for any other campaign. */
   draw: campaignDrawSchema.nullish(),
+  /** A distribution's terms; null for any other campaign. */
+  distribution: campaignDistributionSchema.nullish(),
+  /** A reward pool's terms; null for any other campaign. */
+  pool: campaignPoolSchema.nullish(),
   mine: participationSchema.nullable(),
   /** Read on a campaign's own page only; the catalogue and My campaigns leave it null. */
   eligibility: campaignEligibilitySchema.nullable(),
@@ -911,6 +1106,10 @@ export const campaignDefinitionInputSchema = z
     competition: campaignCompetitionSchema.nullish(),
     /** Only for a `draw` campaign (anything else refuses `campaigns.draw_invalid`): its terms. */
     draw: campaignDrawSchema.nullish(),
+    /** Only for a `distribution` campaign (anything else refuses `campaigns.distribution_invalid`): its terms. */
+    distribution: campaignDistributionSchema.nullish(),
+    /** Only for a `pool` campaign (anything else refuses `campaigns.pool_invalid`): its terms. */
+    pool: campaignPoolSchema.nullish(),
   })
   .strict();
 export type CampaignDefinitionInput = z.infer<typeof campaignDefinitionInputSchema>;
