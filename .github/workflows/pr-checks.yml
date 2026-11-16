@@ -1,7 +1,6 @@
 # PR checks: Gitleaks and Dependency audit in one workflow. They used to be separate workflows
 # (gitleaks.yml, supply-chain.yml). Job names are unchanged, so required checks still match.
-# The Gate-file guard is its own workflow (gate-file-guard.yml), because it alone reads the PR
-# title: a title or body edit re-runs the guard there, and no longer re-runs these two jobs.
+# Neither reads the PR title, so `edited` is not a trigger: a title or body edit runs nothing here.
 #
 # ---- Gitleaks ----
 # FH-SEC-02 / SECURITY-WHEN-PLAIN Track A — gitleaks always-on

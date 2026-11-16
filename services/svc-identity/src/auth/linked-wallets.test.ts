@@ -34,8 +34,15 @@ function post(payload: unknown, service = 'svc-agents') {
 }
 
 describe('POST /internal/linked-wallets', () => {
-  it('lists only svc-agents as a reader', () => {
-    expect([...LINKED_WALLET_READERS]).toEqual(['svc-agents']);
+  it('lists only svc-agents and svc-academy as readers', () => {
+    expect([...LINKED_WALLET_READERS]).toEqual(['svc-agents', 'svc-academy']);
+  });
+
+  it("answers svc-academy, which checks a course purchase is paid from the buyer's own wallet (J-academy-07)", async () => {
+    const server = await app(async () => ANSWER);
+    const res = await server.inject(post({ userId: USER }, 'svc-academy'));
+    expect(res.statusCode).toBe(200);
+    expect(linkedWalletsSchema.parse(res.json())).toEqual(ANSWER);
   });
 
   it('needs service credentials, and only svc-agents may ask', async () => {

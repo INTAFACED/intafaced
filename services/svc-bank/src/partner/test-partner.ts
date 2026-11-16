@@ -24,6 +24,13 @@ import type {
   PartnerPurchases,
   PartnerReturn,
 } from './partner-purchases.js';
+import type { PartnerDirectDebits, PartnerMandate } from './partner-direct-debits.js';
+import {
+  CLOSURE_PAYOUT_KEY,
+  testPartnerCompliance,
+  type PartnerCompliance,
+  type TestPartnerComplianceDoors,
+} from './partner-compliance.js';
 
 /**
  * THE TEST PARTNER BANK AND THE TEST RAMP, AND THEY ARE TEST FIXTURES (CUSTODY-DELTA §4; OWNER 226).
@@ -75,7 +82,7 @@ export const TEST_PURCHASE_HOLD_DAYS: Readonly<Record<PartnerPaidBy, number>> = 
 export const TEST_PARTNER_MERCHANT = 'partner:test-merchant';
 
 /** What a partner may not offer. `currencies` is the partner's currency accounts (J-bank-01 #3). */
-export const PARTNER_FEATURES = ['currencies', 'spaces', 'pots', 'joint'] as const;
+export const PARTNER_FEATURES = ['currencies', 'spaces', 'pots', 'joint', 'phone_wallet'] as const;
 export type PartnerFeature = (typeof PARTNER_FEATURES)[number];
 
 export interface TestPartnerSwitches {
@@ -139,6 +146,16 @@ export interface TestPartnerSwitches {
    * its TEST hold time (`TEST_PURCHASE_HOLD_DAYS`).
    */
   readonly purchaseHold: 'live' | 'expired';
+  /**
+   * `held`: the partner holds this person's bank account under a legal hold, so closing it refuses
+   * `bank.closure_legal_hold` and a pending closure's payout waits (J-bank-17 #5). `none` (the default): no hold.
+   */
+  readonly legalHold: 'none' | 'held';
+  /**
+   * `not_accepted`: the partner does not accept our identity case from Verification, so onboarding asks for its own
+   * check (J-bank-17 #1). `accepted` (the default): a person verified with us has the identity step done with our case.
+   */
+  readonly identityCase: 'accepted' | 'not_accepted';
 }
 
 export const SWITCHES_OFF: TestPartnerSwitches = Object.freeze({
@@ -156,6 +173,8 @@ export const SWITCHES_OFF: TestPartnerSwitches = Object.freeze({
   accountDetails: 'none',
   purchaseHolds: 'reported',
   purchaseHold: 'live',
+  legalHold: 'none',
+  identityCase: 'accepted',
 });
 
 /** The partner's reserve as it reports it. An amount it has not told us is null, read as "not known", never 0. */
@@ -166,6 +185,12 @@ export interface TestPartnerFund {
   readonly fundId: string;
   readonly assetId: string;
   readonly amount: Amount;
+}
+
+/** One person's page of the TEST partner's own book (`TestPartner.record`). */
+export interface TestPartnerRecord {
+  readonly accounts: readonly { readonly account: PartnerAccountRef; readonly amount: Amount }[];
+  readonly moves: readonly PartnerMove[];
 }
 
 export interface TestPartner {
@@ -180,9 +205,22 @@ export interface TestPartner {
    * TEST money"). Once per `fundId`; the same id with another body refuses `bank.partner_move_conflict`.
    */
   fund(userId: string, funding: TestPartnerFund): PartnerBalance;
+  /**
+   * The TEST partner's own book for one person, as it keeps it: every account it holds for them with the amount in it,
+   * and every move and pay-in on their record, oldest first. Read straight from the book, never through `bank`, so no
+   * switch (down, unknown or stale figures) shapes it: it is what the partner holds, for a test to compare the app with.
+   */
+  record(userId: string): TestPartnerRecord;
   /** The TEST partner as the ramp's partner: it credits a paid purchase and reports what it holds back of it. */
   readonly purchases: PartnerPurchases;
+  /** The TEST partner as the bank a direct debit collects from: it keeps each mandate's block (J-bank-06 #4). */
+  readonly directDebits: PartnerDirectDebits;
+  /** The TEST partner's compliance record of each person's bank account: onboarding, requests, reviews, closure, data (J-bank-17). */
+  readonly compliance: PartnerCompliance & TestPartnerComplianceDoors;
 }
+
+/** The TEST partner's own reason code for a collection on a mandate the person blocked with it. */
+export const TEST_PARTNER_DD_BLOCKED = 'test_partner.dd_mandate_blocked';
 
 /**
  * The most people the adapter keeps switches for. The local stack signs up a few hundred per run; past this the oldest
@@ -227,6 +265,10 @@ export function testPartner(): TestPartner {
   /** Each purchase returned, by person and key: one key is one return. */
   const returns = new Map<string, PartnerReturn>();
   const releasedHolds = new Map<string, PartnerPurchaseRelease[]>();
+  /** Each mandate the person blocked with the partner, by person and mandate, with the partner's time for it. */
+  const ddBlocks = new Map<string, Date>();
+  /** People whose bank account is closing or closed: no move in or out of it but a closure's payout (J-bank-17 #5). */
+  const restricted = new Set<string>();
   let seq = 0;
   /**
    * Unique to this process, so a move reference is never reused after a restart: a note kept in svc-bank's database
@@ -343,6 +385,12 @@ export function testPartner(): TestPartner {
       // outbound-payments account, the person it goes to.
       const person = request.from.userId === PARTNER_PAYOUTS_OWNER ? request.to.userId : request.from.userId;
       if (switches(person).down) throw partnerDown();
+      if (!request.key.startsWith(CLOSURE_PAYOUT_KEY) && (restricted.has(request.from.userId) || restricted.has(request.to.userId))) {
+        throw new BankError(
+          'This bank account is closing or closed, so the partner bank makes no move in or out of it. Nothing was moved.',
+          'bank.account_restricted',
+        );
+      }
       if (byKey.size >= MAX_MOVES) throw partnerDown();
       if (request.amount <= 0n) throw new BankError('A partner move needs an amount above zero.', 'bank.partner_amount_invalid');
       if (request.from.assetId !== request.to.assetId) {
@@ -430,11 +478,68 @@ export function testPartner(): TestPartner {
     },
   };
 
+  const mandate = (userId: string, mandateId: string): PartnerMandate => {
+    const blockedAt = ddBlocks.get(`${userId}|${mandateId}`) ?? null;
+    return Object.freeze({
+      mandateId,
+      blocked: blockedAt !== null,
+      blockedAt,
+      refusalCode: blockedAt ? TEST_PARTNER_DD_BLOCKED : null,
+      label: TEST_PARTNER_LABEL,
+    });
+  };
+  const directDebits: PartnerDirectDebits = {
+    label: TEST_PARTNER_LABEL,
+    async block(userId, mandateId) {
+      const key = `${userId}|${mandateId}`;
+      if (!ddBlocks.has(key)) {
+        if (switches(userId).down) throw partnerDown();
+        if (ddBlocks.size >= MAX_MOVES) throw partnerDown();
+        ddBlocks.set(key, new Date());
+      }
+      return mandate(userId, mandateId);
+    },
+    async unblock(userId, mandateId) {
+      const key = `${userId}|${mandateId}`;
+      if (ddBlocks.has(key)) {
+        if (switches(userId).down) throw partnerDown();
+        ddBlocks.delete(key);
+      }
+      return mandate(userId, mandateId);
+    },
+    async mandate(userId, mandateId) {
+      if (switches(userId).down) throw partnerDown();
+      return mandate(userId, mandateId);
+    },
+  };
+
+  const compliance = testPartnerCompliance({
+    label: TEST_PARTNER_LABEL,
+    bank,
+    restrict: (userId, on) => {
+      if (on) restricted.add(userId);
+      else restricted.delete(userId);
+    },
+    identityCaseAccepted: (userId) => switches(userId).identityCase === 'accepted',
+    legalHold: (userId) => switches(userId).legalHold === 'held',
+  });
+
   return {
     label: TEST_PARTNER_LABEL,
     switches,
     set,
     bank,
+    directDebits,
+    compliance,
+    record(userId) {
+      const accounts: { account: PartnerAccountRef; amount: Amount }[] = [];
+      for (const [key, amount] of held) {
+        const [owner, assetId, space] = key.split('|') as [string, string, string];
+        if (owner === userId)
+          accounts.push(Object.freeze({ account: Object.freeze({ userId, assetId, spaceId: space === 'main' ? null : space }), amount }));
+      }
+      return Object.freeze({ accounts: Object.freeze(accounts), moves: Object.freeze([...(byPerson.get(userId) ?? [])]) });
+    },
     fund(userId, funding) {
       const account: PartnerAccountRef = { userId, assetId: funding.assetId, spaceId: null };
       // Per person: one person's fund id never collides with, or tells anything about, another's.
@@ -447,6 +552,12 @@ export function testPartner(): TestPartner {
         return funded(account);
       }
       if (switches(userId).down) throw partnerDown();
+      if (restricted.has(userId)) {
+        throw new BankError(
+          'This bank account is closing or closed, so the partner bank takes no payment into it.',
+          'bank.account_restricted',
+        );
+      }
       if (funding.amount <= 0n) throw new BankError('TEST funding needs an amount above zero.', 'bank.partner_amount_invalid');
       funds.set(fundKey, { userId, assetId: funding.assetId, amount: funding.amount });
       held.set(accountKey(account), (held.get(accountKey(account)) ?? 0n) + funding.amount);
@@ -567,6 +678,13 @@ export function testPartnerPurchases(partner: TestPartner | null | undefined): {
   return { purchasesFor: (userId) => (partner && partner.switches(userId).custody === 'off' ? partner.purchases : null) };
 }
 
+/** The TEST partner as the bank a direct debit collects from, for a person it holds money for; none for anyone else. */
+export function testPartnerDirectDebits(partner: TestPartner | null | undefined): {
+  directDebitsFor(userId: string): PartnerDirectDebits | null;
+} {
+  return { directDebitsFor: (userId) => (partner && partner.switches(userId).custody === 'off' ? partner.directDebits : null) };
+}
+
 /** Why the service will not start with the adapter chosen. */
 export class TestPartnerRefusedError extends Error {
   readonly code = 'bank.test_partner_outside_dev_test' as const;
@@ -596,6 +714,7 @@ const FEATURE_WORDS: Record<PartnerFeature, string> = {
   spaces: 'spaces',
   pots: 'pots',
   joint: 'joint accounts and shared pots',
+  phone_wallet: 'adding a card to a phone wallet',
 };
 
 /**

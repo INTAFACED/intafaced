@@ -17,8 +17,9 @@ import { lockBusiness, MANAGERS, readTeam, requireRole, effectiveRoles, stale, T
 /**
  * A business team's runs, held actions and usage (AG-governance-01, AG-usage-03). Each call reads the team from
  * svc-bank first, so a member removed from the business is refused at their next call, and checks the team role the
- * call needs as it stands now (deny wins). A run is a run of the member's own agent: metered per usage window and
- * charged to the member's own account on that window's key; the business pool only limits it (team/hold.ts).
+ * call needs as it stands now (deny wins). A run is a run of the member's own agent: metered per usage window, owed by
+ * the business on that window's key, naming the member, and collected from the business's payment method (on the
+ * custodial layer, charged to the member's own account); the business pool only limits it (team/hold.ts).
  */
 
 interface HeldRow {
@@ -122,7 +123,7 @@ export class TeamRuns {
   }
 
   /**
-   * Closes the member's team session once its windows are settled, each charged to their own account on its own key.
+   * Closes the member's team session once its windows are settled, each owed by the business on its own key.
    * Settling what was already used does not wait on membership: a member removed since still pays what they ran.
    */
   async close(input: { userId: string; sessionId: string }) {
@@ -229,11 +230,26 @@ export class TeamRuns {
       throw new TeamError('This needs the spend_reader team role', 'agents.team_role_required');
     }
     const ids = team.members.map((m) => m.userId);
-    const windows = await this.sql<Array<{ member_user_id: string; session_id: string; window_id: string; charged_amount: string }>>`
-      SELECT t.member_user_id, w.session_id::text, w.window_id, w.charged_amount::text
+    const windows = await this.sql<
+      Array<{
+        member_user_id: string;
+        session_id: string;
+        window_id: string;
+        charged_amount: string;
+        charge_key: string | null;
+        charge_tx_id: string | null;
+        paid_by: string | null;
+        payment_ref: string | null;
+        payment_label: string | null;
+        owed_by_business: string | null;
+      }>
+    >`
+      SELECT t.member_user_id, w.session_id::text, w.window_id, w.charged_amount::text, w.charge_key, w.charge_tx_id,
+             w.paid_by, w.payment_ref, w.payment_label, w.owed_by_business
         FROM agents.usage_windows w
         JOIN agents.team_sessions t ON t.session_id = w.session_id
        WHERE t.business_id = ${team.businessId} AND t.member_user_id = ANY(${ids}) AND w.sealed_at IS NOT NULL
+       ORDER BY w.sealed_at DESC, w.window_id DESC
     `;
     const records = windows.length
       ? await this.sql<
@@ -295,6 +311,25 @@ export class TeamRuns {
           })),
       };
     });
-    return { businessId: team.businessId, assetId: this.feeAssetId, members, sealedTotal: formatAmount(businessTotal) };
+    return {
+      businessId: team.businessId,
+      assetId: this.feeAssetId,
+      members,
+      sealedTotal: formatAmount(businessTotal),
+      // A window with nothing billable posts nothing and is owed by no one; it is left out here as it charged nothing.
+      windows: windows
+        .filter((w) => parseAmount(w.charged_amount) > 0n)
+        .map((w) => ({
+          userId: w.member_user_id,
+          sessionId: w.session_id,
+          windowId: w.window_id,
+          chargeKey: w.charge_key,
+          amount: formatAmount(parseAmount(w.charged_amount)),
+          // Written when the business's charge is earned; any other window is the custodial charge to the member.
+          owedBy: w.owed_by_business === null ? ('member' as const) : ('business' as const),
+          state: w.charge_tx_id === null ? ('owed' as const) : ('settled' as const),
+          payment: w.paid_by === 'partner' && w.payment_ref ? { ref: w.payment_ref, label: w.payment_label ?? '' } : null,
+        })),
+    };
   }
 }

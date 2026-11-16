@@ -3,7 +3,7 @@ import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { signUp } from './desk.mjs';
 import { asDesk, deskPeople } from './help-centre.mjs';
-import { api, tool } from './stack.mjs';
+import { api, toolAwaited } from './stack.mjs';
 
 // J-support-public-12, in the running app (docs/roadmap/journeys.json): a support lead decides who sees which requests and
 // who gets them. Tests titled "J-support-public-12 #<n>" prove a whole step. The lead (founder A) works in the founder
@@ -18,15 +18,19 @@ const RUN = Date.now().toString(36);
 
 test.describe.configure({ mode: 'serial' });
 
-/** Restart svc-support with these LOCAL TEST switches set for the restart only (undefined leaves one unset). */
-function restartSupport(switches) {
+/**
+ * Restart svc-support with these LOCAL TEST switches set for the restart only (undefined leaves one unset). Awaited, so
+ * this worker's event loop sees Edge close an idle keep-alive socket while the restart runs; a blocking restart left
+ * that socket in the pool and the next sign-in through Edge failed with "other side closed" (#8395, as #7449).
+ */
+async function restartSupport(switches) {
   const before = Object.fromEntries(Object.keys(switches).map((k) => [k, process.env[k]]));
   for (const [k, v] of Object.entries(switches)) {
     if (v === undefined) delete process.env[k];
     else process.env[k] = v;
   }
   try {
-    tool('local-test-stack.mjs', 'restart', 'support');
+    await toolAwaited('local-test-stack.mjs', 'restart', 'support');
   } finally {
     for (const [k, v] of Object.entries(before)) {
       if (v === undefined) delete process.env[k];
@@ -63,7 +67,7 @@ let customerApi;
 
 test.beforeAll(async ({ browser }) => {
   test.setTimeout(240_000);
-  ownDesk(undefined, { fresh: true });
+  await ownDesk(undefined, { fresh: true });
   const { lead, agent } = await deskPeople();
   const page = await browser.newPage();
   // Three TEST accounts the lead appoints as agents (they never sign in to the desk), and one customer.
@@ -80,8 +84,8 @@ test.beforeAll(async ({ browser }) => {
   people = { lead, b: agent, c, d, e };
 });
 
-test.afterAll(() => {
-  restartSupport({
+test.afterAll(async () => {
+  await restartSupport({
     LOCAL_STACK_SUPPORT_CATALOGUE: undefined,
     LOCAL_STACK_SUPPORT_CATALOGUE_KEEP: undefined,
     LOCAL_STACK_SUPPORT_HEARTBEAT_WINDOW: undefined,
@@ -122,25 +126,32 @@ test(`${J} #1 the agent directory shows availability and groups; an agent goes b
   const staff = page.getByTestId('staff-panel');
   // Window blank (as in production): the directory says automatic offline is not set.
   await expect(staff.getByTestId('staff-policy')).toContainText('Automatic offline is not set');
-  for (const id of Object.values(people)) await expect(staff.getByTestId(`staff-${id}`)).toBeVisible();
+  // Each person's row: its availability (nobody has set one on this new desk: offline) and its groups (teams). The desk has
+  // no groups yet (#3 reads it so), so every row's groups cell says None.
+  const availability = (id) => staff.getByTestId(`staff-${id}`).getByRole('cell').nth(3);
   await expect(staff.getByRole('columnheader', { name: 'Groups (teams)' })).toBeVisible();
-  await expect(staff.getByTestId(`staff-groups-${people.b}`)).toHaveText('None');
-  // The agent toggles busy on its own session; the directory shows it.
+  await expect(staff.getByRole('columnheader', { name: 'Availability' })).toBeVisible();
+  for (const id of Object.values(people)) {
+    await expect(availability(id)).toHaveText('offline');
+    await expect(staff.getByTestId(`staff-groups-${id}`)).toHaveText('None');
+  }
+  // The agent toggles busy on its own session; the directory shows it, and nobody else's availability moves.
   await setAvailability('agent', people.b, 'busy');
   await page.getByRole('button', { name: 'Refresh staff' }).click();
-  await expect(staff.getByTestId(`staff-${people.b}`)).toContainText('busy');
+  await expect(availability(people.b)).toHaveText('busy');
+  for (const id of [people.lead, people.c, people.d, people.e]) await expect(availability(id)).toHaveText('offline');
   await setAvailability('agent', people.b, 'online');
 
   // With a TEST window of 5 seconds, an agent set online who sends no heartbeat reads offline once it passes.
-  ownDesk('5');
+  await ownDesk('5');
   await setAvailability('lead', people.c, 'online', `TEST ${J} #1 start a shift`);
   await page.reload();
   await expect(staff.getByTestId('staff-policy')).toContainText('5 seconds');
-  await expect(staff.getByTestId(`staff-${people.c}`)).toContainText('online');
+  await expect(availability(people.c)).toHaveText('online');
   await page.waitForTimeout(6_500);
   await page.getByRole('button', { name: 'Refresh staff' }).click();
-  await expect(staff.getByTestId(`staff-${people.c}`)).toContainText('offline');
-  ownDesk(undefined);
+  await expect(availability(people.c)).toHaveText('offline');
+  await ownDesk(undefined);
   await page.reload();
   await expect(staff.getByTestId('staff-policy')).toContainText('Automatic offline is not set');
   await page.close();
@@ -323,7 +334,7 @@ test(`${J} #6 round robin for three online agents: five new requests go out in t
   const got = [];
   for (const n of [1, 2, 3]) got.push(await place(n));
   // A restart of svc-support between the third and fourth request: the stored cursor carries on.
-  ownDesk(undefined);
+  await ownDesk(undefined);
   expect((await desk('lead', 'query', 'routingOverview')).groups.find((g) => g.groupId === routed.group.id).cursorUserId).toBe(turn[2]);
   for (const n of [4, 5]) got.push(await place(n));
   expect(got).toEqual([turn[0], turn[1], turn[2], turn[0], turn[1]]);

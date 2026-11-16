@@ -45,6 +45,10 @@ export class RecordingChain implements CryptoChainPort {
     return this.inner.acceptanceAddress(paymentId, assetId);
   }
 
+  watchAddress(paymentId: string, assetId: string, address: string): Promise<string> {
+    return this.inner.watchAddress(paymentId, assetId, address);
+  }
+
   inboundTransfer(address: string): Promise<ConfirmedTransfer | null> {
     return this.inner.inboundTransfer(address);
   }

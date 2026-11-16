@@ -50,7 +50,7 @@ describe('listedVendors limit unset refuse', () => {
     const start = src.indexOf('listed: publicProcedure');
     const end = src.indexOf('history:', start);
     const fn = src.slice(start, end === -1 ? undefined : end);
-    expect(fn).toContain('listedVendors({ limit: input?.limit })');
+    expect(fn).toContain('listedVendors({ limit: input?.limit, signal })');
     expect(fn).not.toMatch(/input\?\.limit \?\? 20/);
     expect(fn).not.toMatch(/\?\? 20/);
   });

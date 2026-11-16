@@ -6,7 +6,8 @@
  * commit and the failing test files. This walks the first-parent commits between them with a binary search, running
  * only those test files at each probe, so it takes about log2(n) probes instead of one full suite per commit. A probe
  * counts as failed only if it fails twice (one re-run confirms, as everywhere else); nothing is skipped or changed.
- * A red CI job that names no test file but has a probe here (JOB_PROBES: Doctrine gates runs `pnpm gates`) is
+ * A red CI job that names no test file but has a probe here (JOB_PROBES: Doctrine gates runs `pnpm gates`; Typecheck &
+ * build runs what that job runs on every push to main, `pnpm build` then `pnpm typecheck`) is
  * searched the same way with that job's own command. The result is a comment on the culprit's pull request and on the
  * "Main is red" issue, and the culprit as this job's output, which main-bisect.yml's revert job opens a revert for
  * only when the culprit's parent passes on this runner (confirmBlame); else nothing is blamed
@@ -28,7 +29,13 @@ const SHA = /^[0-9a-f]{40}$/;
 const TEST_PATH = /^(apps|services|packages|tooling)\/[\w.-]+\/[\w./@-]+\.(test|spec)\.[cm]?[jt]sx?$/;
 export const MAX_COMMITS = 200;
 /** CI jobs on main whose failure names no test file, with the command that decides them: each probe runs it twice. */
-export const JOB_PROBES = { 'Doctrine gates': ['pnpm', 'gates'] };
+export const JOB_PROBES = {
+  'Doctrine gates': ['pnpm', 'gates'],
+  // ci.yml's build job on main (FULL): the whole repo built, then typechecked. A type error main's merges make between
+  // them is found and reverted like a journeys red (the programme lead, 13 Nov 2026; on 10 Nov main's build was red from
+  // 13:52 to 16:15 UTC on venue-hyperliquid's TS2420 (run 42828463480), and PRs merged with main failed on it).
+  'Typecheck & build': ['sh', '-c', 'pnpm build && pnpm typecheck'],
+};
 /**
  * The pick 1 labels of the "Main is red" issue (project-state BUILDER.md; RULING 7, project-state #2065): it opens as
  * `main-unknown-red` (main-trust.mjs) and switches to `regression` once this bisect names the merge that broke it.
@@ -273,6 +280,8 @@ function selfTest() {
   assert(threw, 'a non-path is refused');
   assert(SHA.test('a'.repeat(40)) && !SHA.test('main'), 'only full shas are accepted');
   assert(parseJobs('Doctrine gates').join() === 'Doctrine gates', 'a probed job is taken');
+  assert(parseJobs('Typecheck & build').join() === 'Typecheck & build', 'a build red is probed (ci.yml build job name)');
+  assert(JOB_PROBES['Typecheck & build'].join(' ') === 'sh -c pnpm build && pnpm typecheck', "the build job's own commands on main");
   assert(parseJobs('').length === 0, 'no jobs is none');
   threw = false;
   try {

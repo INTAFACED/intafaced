@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { parseAmount } from '@intafaced/ledger-client/money';
-import type { PreparedVenueAction, UserVenueAccount } from '@intafaced/venue-contracts';
+import { venueClientOrderId, type PreparedVenueAction, type UserVenueAccount } from '@intafaced/venue-contracts';
 import { SqlPreparedActionStore } from '../venue/prepared-action-store.js';
 import { BUILDER_FEE_READ_OVERLAP_MS, SqlBuilderFeeStore } from './builder-fee-store.js';
 
@@ -194,5 +194,84 @@ describe('SqlPreparedActionStore.sentBuilderFeeOrders on Postgres (OWNER 288 1b)
         '0x0123',
       ])),
     ]).toEqual(['0x0123']);
+  });
+});
+
+describe('SqlPreparedActionStore: orders signed together are ours order by order (J-derivatives-03 #9)', () => {
+  let db: TestDatabase | undefined;
+  beforeAll(async () => {
+    db = await createTestDatabase({ service: 'trade', url: adminUrl(), migrations });
+  }, 120_000);
+  afterAll(async () => {
+    await db?.drop();
+  }, 30_000);
+
+  const leg = (part: string, reduceOnly: boolean) => ({
+    kind: 'place_order' as const,
+    symbol: 'ETH-PERP',
+    side: 'sell' as const,
+    type: 'market' as const,
+    amount: parseAmount('1'),
+    price: parseAmount('2900'),
+    timeInForce: 'IOC' as const,
+    reduceOnly,
+    clientOrderKey: `reverse:${OWNER}:sql:${part}`,
+    builderFee: { builder: OWNER, feeBps: parseAmount('0.5') },
+  });
+  const together: PreparedVenueAction = {
+    ...prepared('300', '60000'),
+    intent: { kind: 'place_orders', actionKey: `reverse:${OWNER}:sql`, orders: [leg('close', true), leg('open', false)] },
+    venueClientOrderId: null,
+    builderFee: null,
+    digest: '0xdigest300',
+  };
+  const ids = ['close', 'open'].map((part) => venueClientOrderId('test-venue-sim', `reverse:${OWNER}:sql:${part}`));
+
+  it('the fee poster, the recon and the routing view each read every order of the action by its own client id', async () => {
+    const actions = new SqlPreparedActionStore(db!.sql);
+    const account = { owner: OWNER, subAccount: null };
+    const at = new Date('2026-11-15T00:00:00.000Z');
+    // A plain order beside it, so the one query keeps finding both shapes.
+    await actions.insertOnce(USER, `order:${USER}:sent:1`, prepared('200', '60000'), at);
+    await actions.signOnce(USER, `order:${USER}:sent:1`, { digest: '0xdigest200', signature: '0xsig', signedBy: OWNER }, at);
+    await actions.recordOutcome(
+      USER,
+      `order:${USER}:sent:1`,
+      { definite: true, accepted: true, venueRef: 'v1', order: null, asOf: at },
+      at,
+    );
+    await actions.insertOnce(USER, `reverse:${OWNER}:sql`, together, at);
+    expect([...(await actions.sentBuilderFeeOrders('test-venue-sim', account, ids))]).toEqual([]);
+    await actions.signOnce(USER, `reverse:${OWNER}:sql`, { digest: '0xdigest300', signature: '0xsig', signedBy: OWNER }, at);
+    expect([...(await actions.sentBuilderFeeOrders('test-venue-sim', account, [...ids, '0x0123', 'elsewhere']))].sort()).toEqual(
+      [...ids, '0x0123'].sort(),
+    );
+    // The venue took the action; it filled the close and refused the open: only the close carried our fee on the venue.
+    await actions.recordOutcome(
+      USER,
+      `reverse:${OWNER}:sql`,
+      {
+        definite: true,
+        accepted: true,
+        venueRef: null,
+        order: null,
+        legs: [
+          { definite: true, accepted: true, venueRef: 'v2', order: null, asOf: at },
+          { definite: true, accepted: false, refusal: { venueId: 'test-venue-sim', code: 'venue_rejected', detail: 'TEST' }, asOf: at },
+        ],
+        asOf: at,
+      },
+      at,
+    );
+    expect([...(await actions.builderFeeOrders('test-venue-sim', [...ids, '0x0123'])).entries()].sort()).toEqual(
+      [
+        [ids[0], parseAmount('0.5')],
+        ['0x0123', parseAmount('0.5')],
+      ].sort(),
+    );
+    expect((await actions.routedOrders(new Date('2026-11-16T00:00:00.000Z'), 10)).map((o) => o.venueClientOrderId).sort()).toEqual(
+      [...ids, '0x0123'].sort(),
+    );
+    expect([...(await actions.sentBuilderFeeOrders('another-venue', account, ids))]).toEqual([]);
   });
 });

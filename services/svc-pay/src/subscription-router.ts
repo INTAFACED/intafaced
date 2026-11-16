@@ -423,7 +423,7 @@ export function createSubscriptionRouter(subscriptions: SubscriptionService, pay
             }),
             dunning: z.object({
               maxAttemptsPerCycle: z.number().int().positive(),
-              then: z.literal('stall_named'),
+              afterLimit: z.literal('stall_named'),
               stallReason: z.literal('arrears'),
             }),
             preChargeNotify: z.object({

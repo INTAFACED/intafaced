@@ -1,10 +1,7 @@
 /** Browser hop for the incident desk. Same-origin BFF only; the CSRF nonce is fetched per change. */
 import { founderMutationHeaders } from '@/lib/founder-browser';
 import { publishApprovalOf, type IncidentDeskReply, type IncidentDeskView } from './incidents-model';
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
+import { isRecord } from '@intafaced/contracts/guards';
 
 export async function fetchIncidentDesk(): Promise<IncidentDeskView | null> {
   try {

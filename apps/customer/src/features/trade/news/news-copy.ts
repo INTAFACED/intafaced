@@ -44,6 +44,21 @@ const en = {
   published: 'Published',
   openCalendar: 'Open the economic calendar',
   openNews: 'Open news',
+  categoryMarkets: 'Markets',
+  categoryCrypto: 'Crypto',
+  categoryMacro: 'Macro',
+  categoryCompany: 'Company',
+  categoryRegulation: 'Regulation',
+  languageEn: 'English',
+  languageEs: 'Spanish',
+  languageFr: 'French',
+  appliedNone: 'No filter applied. {count} stored items.',
+  appliedSome: 'Filtered by {filters}. {shown} of {count} stored items match.',
+  widgetOpen: 'News',
+  widgetClose: 'Hide news',
+  widgetTitle: 'News for {symbol}',
+  widgetEmpty: 'The store holds no items for {symbol}, so there is nothing to list.',
+  widgetAll: 'Open news for every market',
 } as const;
 export type NewsCopyKey = keyof typeof en;
 export const newsCopy = defineCopy('trade.news', en);

@@ -34,6 +34,7 @@ export const developersCopy = defineCopy(
     section_rate_limits: 'Rate limits',
     section_errors: 'Errors',
     section_idempotency: 'Idempotency',
+    section_quant: 'Strategy API',
     section_versioning: 'Versioning',
     section_changelog: 'Changelog',
     section_fix: 'FIX',

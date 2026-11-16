@@ -55,6 +55,20 @@ import {
  * CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ACCOUNT, CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ADDRESS and CAMPAIGNS_VOUCHER_ATTEMPT_WINDOW_SECONDS
  * (owner values, CM-eligibility-rules-04): how many voucher code checks and claims one account, and one source address,
  * may make in the window. Any blank: every check and claim refuses `campaigns.attempt_limit_unset`. NO DEFAULT.
+ *
+ * The watch desk's owner values (J-campaigns-17). CAMPAIGNS_CODE_BATCH_MAX: the most codes one batch generate or CSV
+ * import makes; blank refuses both `campaigns.code_batch_limit_unset`. CAMPAIGNS_EXPORT_LINK_SECONDS: how long an export's
+ * download link works; blank refuses every export `campaigns.export_validity_unset`. CAMPAIGNS_ALERT_BUDGET_LEFT_PERCENT and
+ * CAMPAIGNS_ALERT_REDEMPTIONS_PER_HOUR: the two alert thresholds; blank reads "not set" and the alert refuses to be switched
+ * on `campaigns.alert_threshold_unset`. NO DEFAULT for any of them.
+ *
+ * Paying an owed reward to the customer's own wallet (J-campaigns-03 #2 #3, `reward-payer.ts`). CAMPAIGNS_REWARD_PAY_WALLET
+ * is our own-funds place rewards are paid from, `<chain>:<name>=<0x address>` (the treasury wallet our collected builder
+ * fees are moved to); CAMPAIGNS_REWARD_PAY_INTERVAL_MS how often owed rewards are looked at. Both owner values, NO DEFAULT:
+ * either blank and no payer runs, so an owed reward stays owed (`campaigns.reward_payout_unavailable`). Today the payer
+ * pays only on the LOCAL TEST chain (CAMPAIGNS_TEST_CHAIN_RPC_URL, CAMPAIGNS_TEST_CHAIN_TOKEN, CAMPAIGNS_TEST_CHAIN_ID:
+ * a loopback anvil, where the wallet has no key and anvil sends for it); with no TEST chain no payer runs either, since a
+ * real chain needs the owner's own signing key.
  */
 const blankAsAbsent = <T extends z.ZodTypeAny>(inner: T) =>
   z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), inner);
@@ -98,6 +112,26 @@ const schema = baseEnvSchema
       CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ACCOUNT: blankAsAbsent(z.coerce.number().int().min(1).max(1_000_000).optional()),
       CAMPAIGNS_VOUCHER_ATTEMPTS_PER_ADDRESS: blankAsAbsent(z.coerce.number().int().min(1).max(1_000_000).optional()),
       CAMPAIGNS_VOUCHER_ATTEMPT_WINDOW_SECONDS: blankAsAbsent(z.coerce.number().int().min(1).max(31_536_000).optional()),
+      CAMPAIGNS_CODE_BATCH_MAX: blankAsAbsent(z.coerce.number().int().min(1).max(20_000).optional()),
+      CAMPAIGNS_EXPORT_LINK_SECONDS: blankAsAbsent(z.coerce.number().int().min(1).max(604_800).optional()),
+      CAMPAIGNS_ALERT_BUDGET_LEFT_PERCENT: blankAsAbsent(z.coerce.number().int().min(1).max(99).optional()),
+      CAMPAIGNS_ALERT_REDEMPTIONS_PER_HOUR: blankAsAbsent(z.coerce.number().int().min(1).max(10_000_000).optional()),
+      CAMPAIGNS_REWARD_PAY_WALLET: blankAsAbsent(
+        z
+          .string()
+          .regex(/^[a-z0-9][a-z0-9_-]*:[a-z0-9][a-z0-9_-]*=0x[0-9a-fA-F]{40}$/)
+          .optional(),
+      ),
+      CAMPAIGNS_REWARD_PAY_INTERVAL_MS: blankAsAbsent(z.coerce.number().int().min(1_000).max(86_400_000).optional()),
+      CAMPAIGNS_TEST_CHAIN_RPC_URL: blankAsAbsent(z.string().url().optional()),
+      CAMPAIGNS_TEST_CHAIN_TOKEN: blankAsAbsent(
+        z
+          .string()
+          .regex(/^0x[0-9a-fA-F]{40}$/)
+          .optional(),
+      ),
+      CAMPAIGNS_TEST_CHAIN_TOKEN_DECIMALS: blankAsAbsent(z.coerce.number().int().min(0).max(18).optional()),
+      CAMPAIGNS_TEST_CHAIN_ID: blankAsAbsent(z.coerce.number().int().positive().optional()),
     }),
   );
 

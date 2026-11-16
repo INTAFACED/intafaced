@@ -74,7 +74,11 @@ describe('quotas on Postgres (AL-limits-01)', () => {
   const quota = createPostgresQuota(sql, {
     schema: SCHEMA,
     defaultProfile: 'TEST seeded',
-    seed: { profile: 'TEST seeded', limits: { strategies: '2', versions: '5', concurrent_runs: '5', runs: '2', storage: '10000000' } },
+    seed: {
+      profile: 'TEST seeded',
+      limits: { strategies: '2', versions: '5', concurrent_runs: '5', runs: '2', storage: '10000000' },
+      sandbox: { wall_clock_ms: '5000', memory_bytes: '1000000', output_bytes: '1000000' },
+    },
   });
   const app = createQuantRouter({
     wired: true,
@@ -101,6 +105,7 @@ describe('quotas on Postgres (AL-limits-01)', () => {
       'drizzle/20261030142944_quant_release_notes.sql',
       'drizzle/20261107080000_quant_quotas.sql',
       'drizzle/20261112110000_quant_compute_tiers.sql',
+      'drizzle/20261116090000_quant_sandbox_limits.sql',
     ]) {
       const migration = readFileSync(join(SERVICE, file), 'utf8').replaceAll('"quant"', `"${SCHEMA}"`).replaceAll("'quant'", `'${SCHEMA}'`);
       await sql.unsafe(migration);

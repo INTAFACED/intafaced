@@ -4,7 +4,7 @@ import nodePath from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { ORIGIN, api, restartWith } from './stack.mjs';
+import { api, ORIGIN, restartWith, STACK_PORTS } from './stack.mjs';
 import { signIn, signUp } from './desk.mjs';
 import { staffSignIn } from './staff.mjs';
 import { makeContext } from '../../../../tooling/scripts/local-test-gates.mjs';
@@ -65,7 +65,7 @@ async function staff(kind, procedure, input) {
 async function academyDb(read) {
   const ctx = await makeContext({ log: () => undefined });
   const postgres = createRequire(nodePath.join(REPO, 'services', 'svc-academy', 'package.json'))('postgres');
-  const port = ctx.marker.ports.postgres ?? 15460;
+  const port = ctx.marker.ports.postgres ?? STACK_PORTS.postgres;
   const sql = postgres(`postgres://svc_academy:${encodeURIComponent(ctx.secrets.pgService)}@127.0.0.1:${port}/intafaced_local_test`, {
     max: 1,
     onnotice: () => {},

@@ -22,6 +22,7 @@ import {
 } from './pow.js';
 import { recordShareRejection } from './share-rejections.js';
 import { persistBlankRewardShares, persistWindowShares, readStoredEpoch, workerNameOf, PG_UNAVAILABLE } from './window-store.js';
+import { isRecord } from '@intafaced/contracts/guards';
 
 export const MINING_UNAUTHENTICATED = 'mining.unauthenticated' as const;
 
@@ -203,10 +204,6 @@ function prefixedHash(parts: readonly string[]): string {
  */
 function powInvalidKey(windowId: string, minerId: string, workerName: string, shareId: string): string {
   return `pow-invalid:${prefixedHash([windowId, minerId, workerName, shareId])}`;
-}
-
-function isRecord(raw: unknown): raw is Record<string, unknown> {
-  return !!raw && typeof raw === 'object' && !Array.isArray(raw);
 }
 
 type JobRefusal = { idempotencyKey: string; minerId: string; reasonCode: 'mining.job_source_unconfigured' | 'job_not_found' };

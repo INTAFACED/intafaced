@@ -334,6 +334,8 @@ export type BankErrorCode =
   | 'bank.card_dispute_partner_unset'
   /** The card partner answered a provisional credit with another amount than the one asked; nothing was recorded. */
   | 'bank.card_dispute_partner_mismatch'
+  | 'bank.card_dispute_rules_unset'
+  | 'bank.card_dispute_evidence_closed'
   /** Cards are not offered to residents of the country given. */
   | 'bank.card_not_eligible'
   /** The person already holds as many active cards of this kind as the programme allows. */
@@ -438,6 +440,8 @@ export type BankErrorCode =
   | 'bank.add_money_request_missing'
   /** The partner said a pay-in was paid in another amount or currency than the payment it opened. Nothing is credited. */
   | 'bank.onramp_paid_mismatch'
+  | 'bank.onramp_delivery_missing'
+  | 'bank.wallet_delivery_unproven'
   /**
    * Crypto off-ramp has no published fee schedule. Zero is not assumed.
    * Kind fiat still refuses `bank.fiat_ramp_socket` before this.
@@ -576,6 +580,12 @@ export type BankErrorCode =
   | 'bank.security_lock_unavailable'
   /** No IDENTITY_URL: this deployment cannot check the security lock, so address changes and sends refuse. A deployment gap. */
   | 'bank.security_lock_unset'
+  /** The person's own step-up extras hold a send above their allowance while a chosen check cannot be done (BK-safe-01). Nothing was sent. */
+  | 'bank.extra_controls_pending'
+  /** Identity could not answer the extra-checks read (outage, timeout, bad reply). Nothing was sent; retry. */
+  | 'bank.extra_controls_unavailable'
+  /** No IDENTITY_URL: this deployment cannot read the extra checks, so sends to another person refuse. A deployment gap. */
+  | 'bank.extra_controls_unset'
   /** The owner froze the account themselves (I-account-lifecycle-08): no address change and nothing sent until they lift it. */
   | 'bank.account_frozen_self'
   /** The address was approved already, so there is nothing to approve or mail. */
@@ -1144,7 +1154,50 @@ export type BankErrorCode =
   /** A card control names a category the programme doesn't list, an empty merchant, or a country that isn't two letters. */
   | 'bank.card_control_invalid'
   /** The control to lift is not a live control of this card. */
-  | 'bank.card_control_not_found';
+  | 'bank.card_control_not_found'
+  // ── Bank account onboarding, reviews and closure at the partner (BK-acct-05, BK-acct-06; J-bank-17) ───────
+  /** The owner has not published their requirements for a bank account (BANK_ONBOARDING_REQUIREMENTS_JSON) (BK-acct-05). */
+  | 'bank.onboarding_requirements_unset'
+  /** The owner has not published the size cap and types for an answer to an information request (BANK_INFO_REQUEST_UPLOAD_JSON). */
+  | 'bank.info_request_upload_unset'
+  /** The partner has no such information request for this person. */
+  | 'bank.info_request_not_found'
+  /** An information request takes one answer: it is already under review. */
+  | 'bank.info_request_not_open'
+  /** An information request past the partner's deadline takes no answer here. */
+  | 'bank.info_request_past_deadline'
+  /** An answer's file type is not one the owner allows. */
+  | 'bank.info_request_type_not_allowed'
+  /** An answer's file is over the owner's size cap. */
+  | 'bank.info_request_too_large'
+  /** An answer's file is empty or not base64. */
+  | 'bank.info_request_file_invalid'
+  /** The partner has no such periodic review for this person. */
+  | 'bank.review_not_found'
+  /** A periodic review is already answered. */
+  | 'bank.review_not_open'
+  /** The partner holds the account under a legal hold, so it is not closed or paid out (BK-acct-06). */
+  | 'bank.closure_legal_hold'
+  /** Closing an account that holds money needs a destination for the balance (BK-acct-06). */
+  | 'bank.closure_destination_required'
+  /** A closure of this account is already under way. */
+  | 'bank.closure_pending'
+  /** A closure id reused with another destination. */
+  | 'bank.closure_conflict'
+  /** No closure is waiting for its payout. */
+  | 'bank.closure_not_found'
+  /** The bank account is already closed. */
+  | 'bank.account_closed'
+  /** The bank account is closing or closed: the partner makes no move in or out of it but the closure payout. */
+  | 'bank.account_restricted'
+  /** Only a closed account can be reopened. */
+  | 'bank.account_not_closed'
+  /** The owner has not published how long a closed account may be reopened (BANK_REOPEN_WINDOW_DAYS). */
+  | 'bank.reopen_window_unset'
+  /** The account closed longer ago than the owner's reopen window. */
+  | 'bank.reopen_window_passed'
+  /** A data request id reused for another kind of request. */
+  | 'bank.data_request_conflict';
 
 export class BankError extends Error {
   constructor(

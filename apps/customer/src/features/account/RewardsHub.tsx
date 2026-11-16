@@ -116,9 +116,11 @@ function Row({ reward: r }: { reward: MyReward }) {
         : t('why_held_ended', { when: when(r.holdUntil) })
       : r.state === 'posted' && r.postedAt
         ? t('why_posted', { when: when(r.postedAt) })
-        : r.state === 'held' || r.state === 'posted'
-          ? ''
-          : t(`why_${r.state as Exclude<MyReward['state'], 'locked' | 'settling' | 'held' | 'posted' | 'owed'>}`, { reason }));
+        : r.state === 'paid' && r.payout
+          ? t('why_paid', { wallet: r.payout.toWallet, when: when(r.payout.at) })
+          : r.state === 'held' || r.state === 'posted' || r.state === 'paid'
+            ? ''
+            : t(`why_${r.state as Exclude<MyReward['state'], 'locked' | 'settling' | 'held' | 'posted' | 'owed' | 'paid'>}`, { reason }));
   return (
     <tr data-testid="reward-row" data-status={r.status} data-state={r.state} data-reward-key={r.rewardKey} data-campaign={r.campaignId}>
       <td>
@@ -162,7 +164,23 @@ function Row({ reward: r }: { reward: MyReward }) {
             ) : null}
           </>
         ) : null}
-        {r.ledgerTxId ? (
+        {r.payout ? (
+          <>
+            {' '}
+            {/* The chain's own record of the payment, in the app's explorer: it left our wallet for theirs, never a balance. */}
+            <a
+              className="text-link"
+              data-testid="reward-chain-tx"
+              data-tx={r.payout.chainTx}
+              href={`/chain/tx/${encodeURIComponent(r.payout.chainTx)}`}
+              lang="zxx"
+            >
+              {t('chainTxLink', { tx: r.payout.chainTx })}
+            </a>
+          </>
+        ) : null}
+        {/* A posted reward's transaction is in the customer's own activity; a paid one's booking is ours, not theirs. */}
+        {r.ledgerTxId && r.state !== 'paid' ? (
           <>
             {' '}
             <a
@@ -188,6 +206,10 @@ function owedWhy(r: MyReward, t: T, when: (iso: string) => string, left: (second
     const holdLeft = r.holdUntil ? (new Date(r.holdUntil).getTime() - Date.now()) / 1000 : 0;
     if (r.holdUntil && holdLeft > 0) return t('why_owed_held', { left: left(holdLeft), when: when(r.holdUntil) });
     if (r.reason?.startsWith('account.')) return t('why_owed_withheld', { reason: r.reason });
+    if (r.reason === 'ledger.frozen') return t('why_owed_frozen');
+    if (r.reason === 'campaigns.reward_wallet_short') return t('why_owed_wallet_short');
+    if (r.reason === 'campaigns.no_connected_wallet') return t('why_owed_no_wallet');
+    if (r.reason && r.reason !== 'campaigns.reward_payout_unavailable') return t('why_owed_stuck', { reason: r.reason });
     return t('why_owed', { when: when(r.owed?.at ?? r.createdAt) });
   }
   if (r.state === 'pending_retry' && r.reason?.startsWith('ledger.reward_ceiling_')) return t('why_ceiling', { reason: r.reason });

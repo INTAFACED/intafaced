@@ -1,4 +1,5 @@
-import { testPartnerCustody, testPartnerPurchases, type TestPartner } from './partner/test-partner.js';
+import { parseBankAccountTerms, type BankAccountTerms } from './onboarding/bank-account-terms.js';
+import { testPartnerCustody, testPartnerDirectDebits, testPartnerPurchases, type TestPartner } from './partner/test-partner.js';
 import type { PartnerPurchaseCustody } from './partner/partner-purchases.js';
 import {
   bankCustodyLayer,
@@ -7,7 +8,7 @@ import {
   type PartnerCustody,
   type PostingFreeze,
 } from './partner/partner-bank.js';
-import { moneyHeldBy } from './partner/test-partner.js';
+import { assertPartnerOffers, moneyHeldBy } from './partner/test-partner.js';
 import { freezeGuardedCardHolds, testPartnerCardHolds } from './cards/partner-card-holds.js';
 import { NOTHING_REPORTED } from './cards/partner-terms.js';
 import { AssetPauseService } from './ops/asset-pause.js';
@@ -96,6 +97,8 @@ import { emptyBillPorts, emptyGlobalPorts, type BillPorts, type GlobalPorts } fr
  */
 
 export interface BankServices {
+  /** The owner's values for onboarding, information requests and reopening a bank account (J-bank-17); null is unpublished. */
+  readonly bankAccountTerms: BankAccountTerms;
   /** The owner's notice for a blocked region (`BANK_BLOCKED_REGION_NOTICE`, BK-safe-01). No default: blank reads "not published". */
   readonly blockedRegionNotice?: string | undefined;
   /** The TEST partner bank and ramp with their switches (CUSTODY-DELTA §4), on a dev or test stack only; null elsewhere. */
@@ -285,6 +288,10 @@ export interface BankServiceOptions {
   earnRiskWording?: string | undefined;
   /** The owner's notice for a blocked region (`BANK_BLOCKED_REGION_NOTICE`, BK-safe-01). No default: blank reads "not published". */
   blockedRegionNotice?: string | undefined;
+  /** `BANK_ONBOARDING_REQUIREMENTS_JSON`, `BANK_INFO_REQUEST_UPLOAD_JSON`, `BANK_REOPEN_WINDOW_DAYS` (J-bank-17). No defaults. */
+  onboardingRequirements?: string | undefined;
+  infoRequestUpload?: string | undefined;
+  reopenWindowDays?: string | undefined;
   /** Owner-published currencies an account may hold (`BANK_ACCOUNT_CURRENCIES`). No default: blank refuses an add. */
   accountCurrencies?: string | undefined;
   /** Owner-published number of live named spaces per account (`BANK_SPACE_LIMIT`). No default: blank refuses a create. */
@@ -422,6 +429,7 @@ export function createBankServices(
     securityLock: options.ramps?.securityLock,
     reviewRule: options.sendReviewRule ?? null,
     remindPolicy: options.remindPolicy ?? null,
+    custody,
   });
   const assetPauses = new AssetPauseService(sql);
   // The supply pause lives in the deposit path so auto-invest cannot go around it.
@@ -493,6 +501,10 @@ export function createBankServices(
     ...(options.cards ?? {}),
     heldBy: options.cards?.heldBy ?? ((userId) => moneyHeldBy(options.testPartner, userId, custodyLayer)),
     partnerHolds,
+    // The TEST partner's own "not offered" switch for phone wallets (J-bank-13 #8); no partner, the issuer alone decides.
+    assertWalletOffered:
+      options.cards?.assertWalletOffered ??
+      (options.testPartner ? (userId: string) => assertPartnerOffers(options.testPartner, userId, 'phone_wallet') : null),
     onCaptureSettled: options.cards?.onCaptureSettled ?? ((event) => autoInvest.applyRoundUp(event)),
     // A card linked to a shared pot: every change of its status is a line in the pot's log, in the card's transaction.
     onStatusChanged: options.cards?.onStatusChanged ?? ((tx, change) => sharedPots.noteCardStatus(tx, change)),
@@ -568,11 +580,18 @@ export function createBankServices(
     options.holdCancelHours !== undefined ? options.holdCancelHours : process.env[BANK_GLOBAL_HOLD_CANCEL_HOURS_ENV],
   );
   globalSend.screenWith((sendId) => globalHolds.screen(sendId));
-  const directDebits = new DirectDebitService(sql, ledger, spaces, options.directDebitScheme ?? unsetDirectDebitScheme);
+  const directDebits = new DirectDebitService(
+    sql,
+    ledger,
+    spaces,
+    options.directDebitScheme ?? unsetDirectDebitScheme,
+    testPartnerDirectDebits(options.testPartner),
+  );
 
   const recovery = new RecoveryClaimService(sql, ledger, spaces, options.identityRecovery ?? unconfiguredIdentityRecovery());
 
   return {
+    bankAccountTerms: parseBankAccountTerms(options),
     blockedRegionNotice: options.blockedRegionNotice,
     testPartner: options.testPartner ?? null,
     taxEffects: options.taxEffects ?? null,

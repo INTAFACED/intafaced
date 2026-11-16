@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { AGENT_ORDERS_PATH, attachAgentAccountRoutes } from './agent-account-rest.js';
 import { attachOwnAgentTradingRoutes } from './own-agent-trading-rest.js';
+import { attachProtectionRoutes } from './protections-rest.js';
 import { attachUserVenueRoutes, type UserVenueRestDeps } from './user-venue-rest.js';
 
 // J-agents-21 #9 at the routes: an API key connected to an agent account calls the assistant's order route and no other
@@ -26,6 +27,7 @@ async function mount(principal: Principal, agentKeyConfined: UserVenueRestDeps['
   attachUserVenueRoutes(app, null, deps);
   attachAgentAccountRoutes(app, null, deps, null);
   attachOwnAgentTradingRoutes(app, null, deps);
+  attachProtectionRoutes(app, null, deps);
   await app.ready();
 }
 
@@ -45,6 +47,10 @@ const OTHER_ROUTES = [
   { method: 'GET', url: `/api/v1/venue/positions?owner=${OWNER}` },
   { method: 'GET', url: '/api/v1/venue/agent-accounts' },
   { method: 'POST', url: '/api/v1/venue/submit', payload: { actionKey: 'order:x:1', signature: {} } },
+  // A position's protections (J-derivatives-03): its list, a new one, and the approval of the protection agent key.
+  { method: 'GET', url: `/api/v1/venue/protections?owner=${OWNER}` },
+  { method: 'POST', url: '/api/v1/venue/protections', payload: { owner: OWNER } },
+  { method: 'POST', url: '/api/v1/venue/protection-agent/prepare', payload: { owner: OWNER } },
 ] as const;
 
 describe('a connected agent key on the venue routes (J-agents-21 #9)', () => {
