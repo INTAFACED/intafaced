@@ -28,7 +28,7 @@ const history: UserVenueOrderRecord[] = Array.from({ length: 25 }, (_, i) => {
   const n = 25 - i;
   return { order: order(n, n % 5 === 0 ? 'sell' : 'buy', n % 5 === 0 ? 'filled' : 'canceled'), placedAt: new Date(NOW - i * 60_000) };
 });
-const read = { value: history, asOf: new Date(NOW) };
+const read = { venueId: 'test-venue', value: history, asOf: new Date(NOW) };
 const refusal = (fn: () => unknown) => {
   try {
     fn();
