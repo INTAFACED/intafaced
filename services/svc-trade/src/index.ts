@@ -111,6 +111,8 @@ import { registerQuantLiveDeployRest } from './quant/live-deploy-rest.js';
 import { registerPromoRest } from './spot/promo-rest.js';
 import { registerSpotOrderPreviewRest } from './spot/order-preview-rest.js';
 import { registerFeeTierRest } from './spot/fee-tier-rest.js';
+import { registerTierPassGrant } from './spot/tier-pass-internal.js';
+import { endExpiredPasses } from './spot/tier-passes.js';
 import { registerVipRest } from './spot/vip-rest.js';
 import { installRouteInventory } from './route-inventory.js';
 import { SqlPreparedActionStore } from './venue/prepared-action-store.js';
@@ -1514,6 +1516,19 @@ registerFeeTierRest(app, {
   bootSchedule: feeSchedule,
   snapshotsRunning: env.TRADE_FEE_TIER_JOBS_INTERVAL_MS !== null && env.TRADE_FEE_TIER_JOBS_INTERVAL_MS > 0,
 });
+// VIP trial passes granted by svc-campaigns (J-campaigns-14): the grant door, and a sweep that ends each pass once its
+// span is over (a read of the fee tier ends it too, whichever comes first).
+registerTierPassGrant(app, {
+  sql,
+  secret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
+  scheduleAt: (at) => feeScheduleAt(sql, feeSchedule, at),
+});
+setInterval(() => {
+  endExpiredPasses(sql, new Date()).catch((err: unknown) =>
+    process.stderr.write(`${JSON.stringify({ level: 'warn', msg: 'trade.tier_passes.end_failed', message: String(err) })}\n`),
+  );
+}, 5_000).unref();
 registerVipRest(app, {
   edgeSecret: env.EDGE_PRINCIPAL_SECRET,
   edgeTrust: edgeTrustFromEnv(env),
