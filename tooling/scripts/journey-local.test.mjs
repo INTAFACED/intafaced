@@ -132,7 +132,7 @@ test('custody off: no market maker wait, history or second start', async () => {
   ]);
 });
 
-test('interrupted: the child is killed and the stack it started is stopped', async () => {
+test('interrupted: the child is killed, the stack it started is stopped, and the run ends 130, not 1', async () => {
   const w = world();
   let release;
   w.io.run = async (argv) => {
@@ -141,15 +141,17 @@ test('interrupted: the child is killed and the stack it started is stopped', asy
       .map((a) => a.split('/').pop())
       .join(' ');
     w.calls.push(key);
-    if (key === 'local-test-stack.mjs start') await new Promise((r) => (release = r));
+    if (key === 'local-test-stack.mjs start') return new Promise((r) => (release = r));
     return { code: 0, text: '' };
   };
   const running = journeyLocal({ ids: ['J-x-01'] }, w.io);
   await new Promise((r) => setImmediate(r));
-  assert.equal(await w.signal(), 130);
+  const handled = w.signal();
+  release({ code: 1, text: '' }); // the killed start's own failure races the signal (proof run 43782013433, case 3)
+  assert.equal(await handled, 130);
+  assert.equal(await running, 130);
   assert.deepEqual(w.calls, ['local-test-stack.mjs start', 'kill', 'local-test-stack.mjs stop']);
-  release();
-  void running;
+  assert.deepEqual(w.said, ['local:stack journey: interrupted; stopping what it started']);
 });
 
 test('a name with no journey file is a usage error before anything starts', async () => {

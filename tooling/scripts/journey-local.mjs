@@ -138,100 +138,111 @@ export async function journeyLocal(opts, io) {
   const hadStack = io.ourStack();
   let started = false;
   let stopping = null;
+  // Set by a signal: the interrupted child's own failure then says nothing and the run ends 130, never 1 (proof run
+  // 43782013433, case 3: the killed step's exit raced the signal's).
+  let interrupted = null;
   const stop = async () => {
     if (!started || keep || hadStack) return;
     stopping ??= io.run(['node', STACK, 'stop'], { capture: false });
     await stopping;
   };
-  io.onSignal(async () => {
-    io.say('local:stack journey: interrupted; stopping what it started');
-    await io.killChild();
-    await stop();
-    return 130;
-  });
+  io.onSignal(
+    () =>
+      (interrupted ??= (async () => {
+        io.say('local:stack journey: interrupted; stopping what it started');
+        await io.killChild();
+        await stop();
+        return 130;
+      })()),
+  );
+  const code = await body();
+  return interrupted ? interrupted : code;
 
-  // 1. The stack: a free slot, started (or this checkout's own, already running).
-  started = true;
-  const start = await io.run(['node', STACK, 'start', ...(only ? ['--only', only] : [])], { capture: true });
-  const why = refusal(start.text);
-  const ready = start.code === 0 || (only && start.code === 1 && !why && onlyReady(start.text, only).ready);
-  if (!ready) {
-    if (why && /every slot is held/.test(why)) {
-      started = false; // the start claimed nothing
-      io.say(`local:stack journey: no free slot: every local stack slot is held. ${instead}`);
-      return 3;
+  async function body() {
+    const say = (line) => interrupted || io.say(line); // an interrupted run says only that it was
+    // 1. The stack: a free slot, started (or this checkout's own, already running).
+    started = true;
+    const start = await io.run(['node', STACK, 'start', ...(only ? ['--only', only] : [])], { capture: true });
+    const why = refusal(start.text);
+    const ready = start.code === 0 || (only && start.code === 1 && !why && onlyReady(start.text, only).ready);
+    if (!ready) {
+      if (why && /every slot is held/.test(why)) {
+        started = false; // the start claimed nothing
+        say(`local:stack journey: no free slot: every local stack slot is held. ${instead}`);
+        return 3;
+      }
+      await stop();
+      if (why) {
+        say(`local:stack journey: the local start refused (${why}). ${instead}`);
+        return 3;
+      }
+      const bad = only ? onlyReady(start.text, only).bad : [];
+      say(`local:stack journey: the stack did not come up healthy${bad.length ? ` (${bad.join(', ')})` : ''}; see the table above`);
+      return 1;
     }
-    await stop();
-    if (why) {
-      io.say(`local:stack journey: the local start refused (${why}). ${instead}`);
-      return 3;
-    }
-    const bad = only ? onlyReady(start.text, only).bad : [];
-    io.say(`local:stack journey: the stack did not come up healthy${bad.length ? ` (${bad.join(', ')})` : ''}; see the table above`);
-    return 1;
-  }
-  const slot = io.slot();
-  const customer = `http://127.0.0.1:${slotPorts(slot).stack.customer}`;
-  io.say(`local:stack journey: stack up on slot ${slot} (${customer})`);
+    const slot = io.slot();
+    const customer = `http://127.0.0.1:${slotPorts(slot).stack.customer}`;
+    say(`local:stack journey: stack up on slot ${slot} (${customer})`);
 
-  // 2. Readied as a Real-app journeys shard is (.github/workflows/real-app-journeys.yml, "Open the TEST markets ...").
-  const step = async (argv, what) => {
-    const r = await io.run(argv, { capture: false });
-    if (r.code !== 0) throw new Error(`${what} exited ${r.code}`);
-  };
-  try {
-    await step(['node', STACK, 'restart', 'matching'], 'restart matching');
-    await step(['node', path.join(HERE, 'local-test-gates.mjs'), 'apply'], 'local-test-gates apply');
-    const custody = await io.run(['node', STACK, 'custody'], { capture: true });
-    await step(['node', path.join(HERE, 'local-test-market.mjs')], 'local-test-market');
-    if (custody.text.trim() !== 'off') {
-      await io.waitForTaker();
-      await step(['node', path.join(HERE, 'local-test-market.mjs'), 'stop'], 'local-test-market stop');
-      await step(['node', path.join(HERE, 'local-test-gates.mjs'), 'verify'], 'local-test-gates verify');
-      const past = await io.run(['node', path.join(HERE, 'journey-market-past.mjs'), ...files], { capture: true });
-      if (past.code !== 0 || past.text.trim() !== 'none')
-        await step(['node', path.join(HERE, 'local-test-market.mjs'), 'history', '--markets', 'journeys'], 'TEST chart history');
+    // 2. Readied as a Real-app journeys shard is (.github/workflows/real-app-journeys.yml, "Open the TEST markets ...").
+    const step = async (argv, what) => {
+      const r = await io.run(argv, { capture: false });
+      if (r.code !== 0) throw new Error(`${what} exited ${r.code}`);
+    };
+    try {
+      await step(['node', STACK, 'restart', 'matching'], 'restart matching');
+      await step(['node', path.join(HERE, 'local-test-gates.mjs'), 'apply'], 'local-test-gates apply');
+      const custody = await io.run(['node', STACK, 'custody'], { capture: true });
       await step(['node', path.join(HERE, 'local-test-market.mjs')], 'local-test-market');
-    } else await step(['node', path.join(HERE, 'local-test-gates.mjs'), 'verify'], 'local-test-gates verify');
-    await io
-      .run(['node', path.join(HERE, 'local-test-seed.mjs'), 'apply', '--state', io.state()], {
-        capture: false,
-        env: { LOCAL_TEST: '1' },
-      })
-      .then((r) => {
-        if (r.code !== 0) throw new Error(`local-test-seed apply exited ${r.code}`);
-      });
-  } catch (e) {
-    io.say(`local:stack journey: the stack could not be readied: ${e.message}`);
-    await stop();
-    return 1;
-  }
+      if (custody.text.trim() !== 'off') {
+        await io.waitForTaker();
+        await step(['node', path.join(HERE, 'local-test-market.mjs'), 'stop'], 'local-test-market stop');
+        await step(['node', path.join(HERE, 'local-test-gates.mjs'), 'verify'], 'local-test-gates verify');
+        const past = await io.run(['node', path.join(HERE, 'journey-market-past.mjs'), ...files], { capture: true });
+        if (past.code !== 0 || past.text.trim() !== 'none')
+          await step(['node', path.join(HERE, 'local-test-market.mjs'), 'history', '--markets', 'journeys'], 'TEST chart history');
+        await step(['node', path.join(HERE, 'local-test-market.mjs')], 'local-test-market');
+      } else await step(['node', path.join(HERE, 'local-test-gates.mjs'), 'verify'], 'local-test-gates verify');
+      await io
+        .run(['node', path.join(HERE, 'local-test-seed.mjs'), 'apply', '--state', io.state()], {
+          capture: false,
+          env: { LOCAL_TEST: '1' },
+        })
+        .then((r) => {
+          if (r.code !== 0) throw new Error(`local-test-seed apply exited ${r.code}`);
+        });
+    } catch (e) {
+      say(`local:stack journey: the stack could not be readied: ${e.message}`);
+      await stop();
+      return 1;
+    }
 
-  // 3. The journeys, waited for to the end.
-  const report = path.join(io.out, 'report.json');
-  const results = path.join(io.out, 'results');
-  io.rm(report);
-  const pw = await io.run(['pnpm', 'exec', 'playwright', 'test', '--config', CONFIG, '--output', results], {
-    capture: false,
-    env: { JOURNEY_FILES: files.join(' '), JOURNEY_REPORT: report },
-  });
-  let code = 1;
-  const r = io.readJson(report);
-  if (!r) io.say(`local:stack journey: FAIL: Playwright exited ${pw.code} and wrote no report`);
-  else {
-    const got = readReport(r);
-    for (const f of got.failed) io.say(`local:stack journey: FAIL ${f}`);
-    if (!got.failed.length && got.passed > 0 && pw.code === 0) {
-      code = 0;
-      io.say(`local:stack journey: PASS ${files.join(' ')}: ${got.passed} passed${got.skipped ? `, ${got.skipped} skipped` : ''}`);
-    } else if (!got.failed.length) io.say(`local:stack journey: FAIL: ${got.passed} passed, Playwright exited ${pw.code}`);
+    // 3. The journeys, waited for to the end.
+    const report = path.join(io.out, 'report.json');
+    const results = path.join(io.out, 'results');
+    io.rm(report);
+    const pw = await io.run(['pnpm', 'exec', 'playwright', 'test', '--config', CONFIG, '--output', results], {
+      capture: false,
+      env: { JOURNEY_FILES: files.join(' '), JOURNEY_REPORT: report },
+    });
+    let code = 1;
+    const r = io.readJson(report);
+    if (!r) say(`local:stack journey: FAIL: Playwright exited ${pw.code} and wrote no report`);
+    else {
+      const got = readReport(r);
+      for (const f of got.failed) say(`local:stack journey: FAIL ${f}`);
+      if (!got.failed.length && got.passed > 0 && pw.code === 0) {
+        code = 0;
+        say(`local:stack journey: PASS ${files.join(' ')}: ${got.passed} passed${got.skipped ? `, ${got.skipped} skipped` : ''}`);
+      } else if (!got.failed.length) say(`local:stack journey: FAIL: ${got.passed} passed, Playwright exited ${pw.code}`);
+    }
+    say(`Pictures: ${results}   (each test's end, one per page)`);
+    if (keep || hadStack) say(`Open: ${customer}   (the stack is left running; stop it: pnpm local:stack:stop)`);
+    else say(`Open: ${customer} while it runs: add --keep to leave the stack up and look at the pages live`);
+    say("A local pass never counts: the proof is the Real-app journeys run on the PR's exact head.");
+    await stop();
+    return code;
   }
-  io.say(`Pictures: ${results}   (each test's end, one per page)`);
-  if (keep || hadStack) io.say(`Open: ${customer}   (the stack is left running; stop it: pnpm local:stack:stop)`);
-  else io.say(`Open: ${customer} while it runs: add --keep to leave the stack up and look at the pages live`);
-  io.say("A local pass never counts: the proof is the Real-app journeys run on the PR's exact head.");
-  await stop();
-  return code;
 }
 
 // ── The real outside world ──────────────────────────────────────────────────
@@ -319,7 +330,8 @@ export async function main(argv) {
       signalled = true;
       process.exit((await onSignal?.()) ?? 130);
     });
-  process.exit(await journeyLocal(opts, io));
+  const code = await journeyLocal(opts, io);
+  if (!signalled) process.exit(code); // else the signal's handler exits 130 once its stop ends
 }
 
 function gitBranch() {
