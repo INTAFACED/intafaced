@@ -1734,32 +1734,45 @@ console.log('local-test-stack: customer folder override checks passed');
       [30, 20],
       [20, 1],
     ]);
+  const names = (top) => () =>
+    new Map([
+      [40, 'node'],
+      [30, '/bin/zsh'],
+      [20, top],
+    ]);
+  assert.deepEqual(
+    agentOwner(chain, names('agent'), () => ({ startedAt: 42 })),
+    { pid: 20, startedAt: 42 },
+    'a start records the first process above it that is not a shell or launcher: the agent',
+  );
+  const nested = () =>
+    new Map([
+      [process.pid, 50],
+      [50, 40],
+      [40, 30],
+      [30, 20],
+      [20, 1],
+    ]);
   assert.deepEqual(
     agentOwner(
-      chain,
+      nested,
       () =>
         new Map([
-          [40, 'node'],
-          [30, '/bin/zsh'],
-          [20, 'claude'],
+          [50, 'pnpm'],
+          [40, 'bash'],
+          [30, '-zsh'],
+          [20, 'agent'],
         ]),
-      () => ({ startedAt: 42 }),
+      () => ({ startedAt: 7 }),
     ),
-    { pid: 20, startedAt: 42 },
-    'a start records the nearest claude or codex above it',
+    { pid: 20, startedAt: 7 },
+    'a shell inside a shell is passed over too: the owner is never a shell that ends with its command',
   );
+  assert.equal(agentOwner(chain, names('zsh')), null, 'only launchers up to launchd: no owner, the folder test decides');
   assert.equal(
-    agentOwner(
-      chain,
-      () =>
-        new Map([
-          [40, 'node'],
-          [30, 'zsh'],
-          [20, 'login'],
-        ]),
-    ),
+    agentOwner(chain, names('agent'), () => null),
     null,
-    "a person's terminal records none",
+    'an agent whose start time cannot be read records none',
   );
 
   console.log('local-test-stack: a slot whose owner is gone is taken back, and a live owner keeps its own');

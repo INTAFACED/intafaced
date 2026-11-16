@@ -2319,7 +2319,7 @@ function stopGoneOwner({ slot, claim }) {
 /**
  * `reap`: stops every stack whose owner is gone, so a finished build's stack never holds a slot or the Mac's memory.
  * A live owner's stack is never touched. `--dry-run` only names them; `--slot <n>` reaps that slot alone; `--json` prints
- * one object per gone owner ({ slot, repo, pid, takenAt, stopped }). The pull runs it each round (claude-hub
+ * one object per gone owner ({ slot, repo, pid, takenAt, stopped }). The Mac's pull runs it each round (the hub's
  * machine/run/stack-reap.py). Failure it prevents: on 16 Nov the stack of J-cex-spot-06, whose PR merged at 02:20 UTC,
  * still ran at 04:24 UTC with 34 processes while builders waited on a loaded Mac.
  */
@@ -2382,16 +2382,41 @@ export function ownerGone(
   return ![...inCheckout].some(([pid, cwd]) => (cwd === root || cwd.startsWith(`${root}/`)) && !ofStack(pid));
 }
 /**
- * The agent process this start runs under: the nearest `claude` or `codex` above it, with its start time, recorded in the
- * slot claim so its owner reads present while that agent lives, whatever folder it works in (a scratchpad checkout's
- * agent sits in its own worktree). Null when there is none (a person's terminal) or `ps` can't be read.
+ * The agent process this start runs under, with its start time, recorded in the slot claim so its owner reads present
+ * while that agent lives, whatever folder it works in (a scratchpad checkout's agent sits in its own worktree). It is the
+ * first process above this one that is not a shell or a launcher (`LAUNCHERS`): an agent's command runs as
+ * `node` <- `zsh` <- the agent, and the shell ends with each command while the agent lives on. No agent is named, so
+ * any agent counts; a start under a long-lived app (a terminal) records that app and is never reaped while it runs.
+ * Null when only launchers lead to launchd, or `ps` can't be read.
  */
+const LAUNCHERS = new Set([
+  'node',
+  'pnpm',
+  'npm',
+  'npx',
+  'corepack',
+  'zsh',
+  'bash',
+  'sh',
+  'dash',
+  'fish',
+  'env',
+  'nohup',
+  'timeout',
+  'gtimeout',
+  'caffeinate',
+  'xargs',
+  'make',
+  'tee',
+  'script',
+  'time',
+]);
 export function agentOwner(parents = processParents, names = processNames, identity = readProcessIdentity) {
   const ppid = parents();
   const comm = names();
   if (!ppid || !comm) return null;
   for (let p = ppid.get(process.pid), n = 0; p > 1 && n < 64; p = ppid.get(p), n++)
-    if (/^(claude|codex)$/i.test(path.basename(comm.get(p) ?? ''))) {
+    if (!LAUNCHERS.has(path.basename(comm.get(p) ?? '').replace(/^-/, ''))) {
       const id = identity(p);
       return id ? { pid: p, startedAt: id.startedAt } : null;
     }
