@@ -317,6 +317,11 @@ export type BankRouterOptions = {
    * `stepUpApprovalId` (a same-person identity approval).
    */
   stepUp?: StepUpGate;
+  /**
+   * Strong customer authentication for a business statement that reaches back past the partner's age for it (J-bank-23
+   * #3). Always required, whatever the money-out rule says: omitted, it fails closed (`bank.step_up_unavailable`).
+   */
+  statementStepUp?: StepUpGate;
   /** The person's own step-up extras (BK-safe-01), read per send to another person. Omitted: no extras are checked (router tests). */
   extraControls?: ExtraControlsPort;
   /** BK-loan-09: owner-published missed-payment policy. Omitted: `loans.missedPaymentPolicy` reads `not_set`. */

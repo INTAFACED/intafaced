@@ -86,6 +86,14 @@ export const TEST_PURCHASE_HOLD_DAYS: Readonly<Record<PartnerPaidBy, number>> = 
 /** The stand-in merchant a TEST payment at the partner goes to (`testPartner.spend`). It is on no person's list of balances. */
 export const TEST_PARTNER_MERCHANT = 'partner:test-merchant';
 
+/**
+ * The TEST partner's statement rules (J-bank-23 #3), as a partner bank declares its own: it keeps 400 days of history, and a
+ * statement reaching back further than 90 days asks for a fresh strong customer authentication. TEST values, on the
+ * TEST partner only; a real partner states its own.
+ */
+export const TEST_PARTNER_HISTORY_DAYS = 400;
+export const TEST_PARTNER_SCA_AFTER_DAYS = 90;
+
 /** What a partner may not offer. `currencies` is the partner's currency accounts (J-bank-01 #3). */
 export const PARTNER_FEATURES = ['currencies', 'spaces', 'pots', 'joint', 'phone_wallet'] as const;
 export type PartnerFeature = (typeof PARTNER_FEATURES)[number];
@@ -469,6 +477,39 @@ export function testPartner(): TestPartner {
         if (query.assetId === undefined || move.from.assetId === query.assetId) out.push(move);
       }
       return out;
+    },
+    historyRules: Object.freeze({
+      label: TEST_PARTNER_LABEL,
+      historyDays: TEST_PARTNER_HISTORY_DAYS,
+      scaAfterDays: TEST_PARTNER_SCA_AFTER_DAYS,
+    }),
+    // The partner's own statement, worked out from its book alone: the closing balance is what the account holds now less
+    // every line after the period, the opening is the closing less the period's lines, and the count is the period's lines.
+    async statement(account: PartnerAccountRef, range: { from: Date; to: Date }) {
+      if (switches(account.userId).down) throw partnerDown();
+      const key = accountKey(account);
+      let closing = held.get(key) ?? 0n;
+      let net = 0n;
+      let lines = 0;
+      for (const move of byPerson.get(account.userId) ?? []) {
+        const signed = (sameAccount(move.to, account) ? move.amount : 0n) - (sameAccount(move.from, account) ? move.amount : 0n);
+        if (!sameAccount(move.to, account) && !sameAccount(move.from, account)) continue;
+        if (move.movedAt >= range.to) closing -= signed;
+        else if (move.movedAt >= range.from) {
+          net += signed;
+          lines += 1;
+        }
+      }
+      return Object.freeze({
+        account: Object.freeze({ ...account }),
+        label: TEST_PARTNER_LABEL,
+        from: range.from,
+        to: range.to,
+        opening: closing - net,
+        closing,
+        lines,
+        asOf: new Date(),
+      });
     },
     async limits(userId, assetId) {
       const dayStart = new Date(new Date().toISOString().slice(0, 10)).getTime();

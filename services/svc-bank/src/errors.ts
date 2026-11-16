@@ -788,6 +788,17 @@ export type BankErrorCode =
   /** A receipt file with no name, of a type we do not take, empty or over 512 KiB. */
   | 'bank.receipt_invalid'
   | 'bank.reimbursement_not_found'
+  // ── Business books (J-bank-23; BK-bexp-03, BK-bexp-04, BK-bexp-05) ──
+  /** A coding rule's payee text, a category or a GL code not in shape, or a bulk code of no lines or too many. */
+  | 'bank.business_books_field_invalid'
+  /** A line named for coding is not on the business's statement for the period. */
+  | 'bank.business_line_not_found'
+  /** A statement starts before the partner's history window. */
+  | 'bank.statement_history_window'
+  /** Our lines do not give the partner statement's closing balance or line count: no file is made. */
+  | 'bank.statement_mismatch'
+  /** The partner offers no statement, or does not say how far back its record reaches. */
+  | 'bank.partner_statement_unavailable'
   | 'bank.business_rejected'
   | 'bank.business_cancelled'
   /**
