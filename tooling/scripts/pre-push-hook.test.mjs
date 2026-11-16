@@ -291,3 +291,35 @@ test('no oxlint in the worktree: the ratchet is skipped with one line, never ref
     p.done();
   }
 });
+
+// The CI review's size count (review-before-push.mjs --size), planted: it names what it was given and answers `code`.
+const sizeStep = (code) => ({
+  'tooling/scripts/review-before-push.mjs': `console.log('size step:', process.argv.slice(2).join(' '));\nprocess.exit(${code});\n`,
+});
+
+test("the CI review's size count runs on the pushed head and branch, and its refusal refuses the push", () => {
+  const p = plant({ prettier: 'exit 0', base: sizeStep(1) });
+  try {
+    const head = git(p.work, 'rev-parse', 'HEAD').trim();
+    const r = p.push('feat');
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, new RegExp(`size step: --size --head ${head} --branch feat`));
+  } finally {
+    p.done();
+  }
+});
+
+test("the size count's pass lets the push through, and a push that only deletes a branch never counts", () => {
+  const p = plant({ prettier: 'exit 0', base: sizeStep(0) });
+  try {
+    const r = p.push('feat');
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /size step: --size --head [0-9a-f]{40} --branch feat/);
+    writeFileSync(join(p.work, 'tooling', 'scripts', 'review-before-push.mjs'), sizeStep(1)['tooling/scripts/review-before-push.mjs']);
+    const d = spawnSync('git', ['push', 'origin', ':refs/heads/feat'], { cwd: p.work, encoding: 'utf8', env: BUILDER });
+    assert.equal(d.status, 0, `${d.stdout}${d.stderr}`);
+    assert.doesNotMatch(`${d.stdout}${d.stderr}`, /size step/);
+  } finally {
+    p.done();
+  }
+});

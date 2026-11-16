@@ -1,0 +1,67 @@
+import { areaRooms } from './room';
+
+/** The person area's rooms, in the order lookup and search meet them (`rooms` in ../navigation.ts). */
+export const personRooms = areaRooms('person', [
+  { path: '/uc', title: 'Account', description: 'Your account and security', area: 'person', alias: '/uc/account' },
+  {
+    path: '/oauth/authorize',
+    title: 'Authorise an app',
+    description: 'Allow or deny an app that asked to use your account',
+    area: 'person',
+    hidden: true,
+  },
+  { path: '/uc/account', title: 'Account', description: 'Your profile and account ID', area: 'person', screen: 'account' },
+  { path: '/uc/safe', title: 'Security', description: 'Passkeys, sign-in checks and your devices', area: 'person', screen: 'account' },
+  {
+    path: '/uc/safe/compromised',
+    title: 'My account is compromised',
+    description: 'End every sign-in and key, freeze the account and work through a checklist',
+    area: 'person',
+    hidden: true,
+    screen: 'account',
+  },
+  {
+    path: '/uc/safe/api-keys',
+    title: 'API keys',
+    description: 'Keys for your own programs to read and trade',
+    area: 'person',
+    screen: 'account',
+  },
+  {
+    path: '/uc/safe/api-keys/new',
+    title: 'Create an API key',
+    description: 'A new key with only the permissions it needs',
+    area: 'person',
+    screen: 'account',
+  },
+  {
+    path: '/uc/safe/api-keys/:keyId',
+    title: 'API key',
+    description: 'One key: its end date, idle expiry and IP policy',
+    area: 'person',
+    hidden: true,
+    screen: 'account',
+  },
+  { path: '/verification', title: 'Verification', description: 'Verification status and documents', area: 'person', screen: 'account' },
+  { path: '/identbusiness', title: 'Business verification', description: 'Open a verified company account', area: 'person' },
+  { path: '/view', title: 'Display', description: 'Theme, language and display preferences', area: 'person', screen: 'account' },
+  { path: '/notifications', title: 'Notifications', description: 'Your account notifications', area: 'person', screen: 'notifications' },
+  { path: '/uc/promotion', title: 'Promotions', description: 'Referral activity', area: 'person' },
+  { path: '/uc/promotion/mycards', title: 'Promotion cards', description: 'Your promotion cards', area: 'person' },
+  { path: '/uc/promotion/mypromotion', title: 'My promotions', description: 'Referral activity', area: 'person' },
+  {
+    path: '/uc/promotion/points',
+    title: 'Points programme',
+    description: 'Points wallet, expiry, catalogue and conversion',
+    area: 'person',
+  },
+  {
+    path: '/uc/promotion/perks',
+    title: 'Tier and perks',
+    description: 'Loyalty tier, fee multiplier, next tier and VIP trial pass',
+    area: 'person',
+  },
+  { path: '/uc/invitingmining', title: 'Invitations', description: 'Your invitation activity', area: 'person' },
+  { path: '/uc/paydividends', title: 'Dividend records', description: 'Your dividend history', area: 'person' },
+  { path: '/uc/trade', title: 'Trading settings', description: 'Personal trade settings', area: 'person', alias: '/view' },
+]);

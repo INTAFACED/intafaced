@@ -136,6 +136,10 @@ export const venueMarketSchema = z.object({
     z.array(z.object({ fromNotional: decimalSchema, maxLeverageBps: z.number().int().positive(), maintenanceRate: decimalSchema })),
   ).optional(),
   collateral: maybeKnown(z.array(z.object({ asset: z.string(), haircut: maybeKnown(decimalSchema) }))).optional(),
+  // The venue's own trading state for the market, null where it reports none, and our listing's routing beside it
+  // (J-charts-desk-15 #6: the chart refuses order entry naming either). Absent from an older door: not reported.
+  status: z.enum(['trading', 'halted', 'cancel_only', 'delisted']).nullable().optional(),
+  listing: z.object({ routing: z.enum(['show', 'close_only', 'stop']), delisted: z.boolean().optional() }).optional(),
 });
 export type VenueMarket = z.infer<typeof venueMarketSchema>;
 /** One of the venue's published margin tiers (J-derivatives-02 #2). */

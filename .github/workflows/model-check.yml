@@ -1,0 +1,48 @@
+# Model check: the OneHold TLA+ model of one order's hold (services/svc-trade/model, #8560) on every pull request that
+# changes the model or the code it covers (services/svc-trade/model/COVERS.md). The check is the model's own
+# check.sh: the code as it is must pass every rule, and each deliberately broken variant must fail on its rule.
+#
+# Not a required check: a required check must run on every PR, and this one filters by path. A red here is a finding
+# about the covered code or a model that no longer says what the code does; COVERS.md says which.
+#
+# Cost: one job, no build and no services; Java is the runner's own (JAVA_HOME_21_X64), the TLA+ tools are fetched
+# pinned by URL and SHA-256. About 20 seconds of model checking.
+name: Model check
+
+on:
+  pull_request:
+    paths:
+      - services/svc-trade/model/**
+      - services/svc-trade/src/spot/trade-service/holds.ts
+      - services/svc-trade/src/spot/trade-service/fills.ts
+      - services/svc-trade/src/spot/trade-service/events.ts
+      - services/svc-trade/src/spot/trade-service/order-change.ts
+      - services/svc-trade/src/spot/trade-service/reconcile.ts
+      - services/svc-trade/src/spot/ioc-place.ts
+      - services/svc-trade/src/spot/gtd-gtt-place.ts
+      - services/svc-trade/src/spot/option-place.ts
+      - services/svc-matching/src/engine/book.ts
+      - .github/workflows/model-check.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: model-check-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  onehold:
+    name: OneHold model
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Model-check the hold of one order
+        run: |
+          set -o pipefail
+          start=$(date +%s)
+          JAVA="$JAVA_HOME_21_X64/bin/java" services/svc-trade/model/check.sh
+          echo "model check took $(( $(date +%s) - start ))s"

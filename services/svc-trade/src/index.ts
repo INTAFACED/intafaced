@@ -111,6 +111,8 @@ import { registerQuantLiveDeployRest } from './quant/live-deploy-rest.js';
 import { registerPromoRest } from './spot/promo-rest.js';
 import { registerSpotOrderPreviewRest } from './spot/order-preview-rest.js';
 import { registerFeeTierRest } from './spot/fee-tier-rest.js';
+import { registerTierPassGrant } from './spot/tier-pass-internal.js';
+import { endExpiredPasses } from './spot/tier-passes.js';
 import { registerVipRest } from './spot/vip-rest.js';
 import { installRouteInventory } from './route-inventory.js';
 import { SqlPreparedActionStore } from './venue/prepared-action-store.js';
@@ -212,6 +214,7 @@ import { canonicalizeCopyFillId } from './copy/fee-share.js';
 import { parseCopyFeeShareLawJson, parseCopyJurisdictionLawJson } from './copy/fee-share-law.js';
 import { parseCopyMetricDefinitionsJson } from './copy/leader-profile.js';
 import { parseCopyMinTier } from './copy/follow-gate.js';
+import { parseCopyMinInvestment, parseCopyOwnerDay } from './copy/follow-rules.js';
 import { CopyService } from './copy/copy-service.js';
 import { freeSpotBalance } from './copy/follow-gate.js';
 import { GridService } from './grid/grid-service.js';
@@ -424,6 +427,8 @@ const copyFeeShareLaw = parseCopyFeeShareLawJson(env.TRADE_COPY_FEE_SHARE_LAW);
 const copyJurisdictionLaw = parseCopyJurisdictionLawJson(env.TRADE_COPY_JURISDICTION_LAW);
 const copyMetricDefinitions = parseCopyMetricDefinitionsJson(env.TRADE_COPY_METRIC_DEFINITIONS);
 const copyMinTier = parseCopyMinTier(env.TRADE_COPY_MIN_TIER);
+const copyMinInvestment = parseCopyMinInvestment(env.TRADE_COPY_MIN_INVESTMENT);
+const copyOwnerDay = parseCopyOwnerDay(env.TRADE_COPY_DAY_START_UTC_OFFSET_MINUTES);
 const copyStore = new SqlCopyFollowStore(sql);
 const placeFollowerOrder: PlaceFollowerOrderPort = async (principal, input) => {
   if (!input.followId) throw new TradingControlError('auth.credential_denied');
@@ -610,6 +615,8 @@ const copy = new CopyService(ledger, {
   jurisdictionLaw: copyJurisdictionLaw,
   metricDefinitions: copyMetricDefinitions,
   minTier: copyMinTier,
+  minInvestment: copyMinInvestment,
+  ownerDay: copyOwnerDay,
   store: copyStore,
   directory: leaderDirectory,
   placeFollowerOrder: async (principal, input) => {
@@ -1514,6 +1521,19 @@ registerFeeTierRest(app, {
   bootSchedule: feeSchedule,
   snapshotsRunning: env.TRADE_FEE_TIER_JOBS_INTERVAL_MS !== null && env.TRADE_FEE_TIER_JOBS_INTERVAL_MS > 0,
 });
+// VIP trial passes granted by svc-campaigns (J-campaigns-14): the grant door, and a sweep that ends each pass once its
+// span is over (a read of the fee tier ends it too, whichever comes first).
+registerTierPassGrant(app, {
+  sql,
+  secret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
+  scheduleAt: (at) => feeScheduleAt(sql, feeSchedule, at),
+});
+setInterval(() => {
+  endExpiredPasses(sql, new Date()).catch((err: unknown) =>
+    process.stderr.write(`${JSON.stringify({ level: 'warn', msg: 'trade.tier_passes.end_failed', message: String(err) })}\n`),
+  );
+}, 5_000).unref();
 registerVipRest(app, {
   edgeSecret: env.EDGE_PRINCIPAL_SECRET,
   edgeTrust: edgeTrustFromEnv(env),

@@ -13,6 +13,7 @@ import { DrawService } from './draws.js';
 import { DistributionService } from './distributions.js';
 import { PoolService } from './pools.js';
 import { createEquitySource } from './venue-equity.js';
+import { TrialPassService, createTierPassDoor } from './trial-passes.js';
 import { parseRuleLimit } from './rules.js';
 import { createLedgerClient } from './ledger-client.js';
 import { createMarketNames } from './markets.js';
@@ -193,7 +194,23 @@ const pools = new PoolService({
   log: (msg, detail) => app.log.warn({ ...detail }, msg),
 });
 
-const appRouter = createCampaignsRouter(drops, campaigns, tasks, vouchers, watch, referrals, competitions, draws, distributions, pools);
+// VIP trial passes (J-campaigns-14): granted here, held by svc-trade (TRADE_URL and INTERNAL_SERVICE_SECRET; unset, a
+// grant refuses `campaigns.trial_pass_unreachable`).
+const trialPasses = new TrialPassService({ sql, door: tradeReads ? createTierPassDoor(tradeReads) : null });
+
+const appRouter = createCampaignsRouter(
+  drops,
+  campaigns,
+  tasks,
+  vouchers,
+  watch,
+  referrals,
+  competitions,
+  draws,
+  distributions,
+  pools,
+  trialPasses,
+);
 // svc-trade's fee-saver ask (`service.feeSaver`, J-campaigns-09) is a service call: the caller is named by its own key,
 // or by the shared secret where keys are not wired.
 const edgeContext = createEdgeContext({

@@ -267,16 +267,23 @@ async function openVenue(page, who, privateKey, { beforeVenue = null } = {}) {
   return wallet;
 }
 
-/** After a reload: the browser wallet may come back by itself (it is still authorised); otherwise it is connected again. */
+/**
+ * After a reload: the browser wallet may come back by itself (it is still authorised); otherwise it is connected again.
+ * The room shows "Connect <wallet>" until the wallet's own restore lands, which can be just after the button appears: a
+ * click on it then waits for a button that is gone (failure it prevents: run 43793401437, #2 timed out on that click with
+ * the wallet already back and the room on "Connection expired"). So it presses only while the button is there, and
+ * passes only once the room shows the wallet back.
+ */
 async function walletBack(page) {
   const again = page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` });
-  await expect(
-    page
-      .getByRole('heading', { name: 'Connected' })
-      .or(page.getByRole('heading', { name: 'Connection expired' }))
-      .or(again),
-  ).toBeVisible();
-  if (await again.isVisible()) await again.click();
+  const back = page
+    .getByRole('heading', { name: 'Connected' })
+    .or(page.getByRole('heading', { name: 'Connection expired' }))
+    .or(page.getByRole('button', { name: 'Connect to my account' }));
+  await expect(async () => {
+    if (!(await back.isVisible()) && (await again.isVisible())) await again.click({ timeout: 2_000 }).catch(() => {});
+    await expect(back).toBeVisible({ timeout: 3_000 });
+  }).toPass({ timeout: 60_000 });
 }
 
 /** The venue's free TEST USDC for this wallet, read through the door: a whole number of TEST USDC in this journey. */

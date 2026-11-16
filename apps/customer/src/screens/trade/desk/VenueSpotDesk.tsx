@@ -82,6 +82,7 @@ import { placesOf } from './text';
 import { zoneName } from './time';
 import { spotVenueCopy } from './venue-copy';
 import { VenueMarketPanel } from './VenueMarketData';
+import { VenueChartOrders } from './VenueChartOrders';
 import { NotOfferedTypes, UnitFlag, VenueSelfTradeSelect, VenueTifSelect } from './VenueOrderOptions';
 import { VenueMarketRules } from './VenueMarketRules';
 import { VenueCancelMany, VenueEditOrder } from './VenueOrderChanges';
@@ -363,6 +364,12 @@ export function VenueSpotDesk({
   const onLadderPick = (p: LadderPick) =>
     pick(p.side, 'limit', p.price, clickAmountOk(clickAmount, market.lotSize) ? clickAmount.trim() : '');
   const onChartTrade = (p: ChartPick) => pick(p.side, p.type, p.price, p.amount);
+  // An order placed on the chart itself (J-charts-desk-15): its key kept as the ticket's are, so the desk's Cancel names it.
+  const chartPlaced = (intent: OrderIntent, answer: ActionResult) => {
+    if ((answer.kind === 'outcome' || answer.kind === 'unknown') && answer.clientOrderId)
+      placedKeys?.set(answer.clientOrderId, intent.clientOrderKey);
+    account.reload();
+  };
   // One-click close: every free lot of the base sold as a limit at the venue's best bid, the price the button shows.
   const freeBase = account.balances.data?.value.find((b) => b.asset === market.baseAsset)?.free ?? null;
   const closable = freeBase === null ? null : (flattenable(freeBase, market.lotSize) ?? '');
@@ -455,6 +462,19 @@ export function VenueSpotDesk({
             refused={notOffered}
           />
         }
+        chartOrders={(host) => (
+          <VenueChartOrders
+            host={host}
+            market={market}
+            venueName={status.venue.displayName}
+            owner={owner}
+            openOrders={account.openOrders.data?.value ?? null}
+            run={run}
+            resend={(intent) => resend(intent)}
+            onPlaced={chartPlaced}
+            onChanged={account.reload}
+          />
+        )}
       />
       {dom.open ? (
         <VenueOrderFlow

@@ -6,7 +6,7 @@
  */
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
-import { formatAmount, parseAmount, recipes, type Amount } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount, recipes, sub, type Amount } from '@intafaced/ledger-client';
 import { appendOrderEvent, parentIdFromClientOrder } from '../../orders/order-events.js';
 import { FeeScheduleError, REGULAR_FEE_TIER, fundedMakerRebateBps, makerRebateBpsFor, type OwnerFeeSchedule } from '../fee-schedule.js';
 import { fillPayAmounts, fillReceivablesSurviveFees, ratesForFill as feeRatesForFill } from '../fees.js';
@@ -28,6 +28,7 @@ import { attributionFromOrder, withLedgerAttribution } from '../auth-attribution
 import { buybackReleasePost, holdAccountOf, isBuybackUser } from '../buyback-order.js';
 import { TradeError, type Market, type OrderRecord, type OrderStatus, type RecoveryReason } from '../types.js';
 import type { PlaceOrderInput, TradeServiceInternal } from '../trade-service.js';
+import { fillsProveNoFill } from './internal.js';
 
 // ── Holds: the only two things that can happen to one ─────────────────────
 
@@ -227,12 +228,58 @@ export async function remainingHold(svc: TradeServiceInternal, sql: Sql, order: 
  * remainder is `hold - Σ fills`, so the filled part is never released and the
  * unfilled part is never released twice.
  */
+/**
+ * What a closer knows, when it ends an order `cancelled` or `expired`, about how much the engine executed before the
+ * order left the book (#8560). Required for those two statuses, so a new closer that has not answered the question
+ * does not compile.
+ *
+ * `engineLeftQty` is the engine's own remainder for the order (its cancellation's `remainingQty`). The engine then
+ * executed `qty - engineLeftQty`, and until `trade.fills` shows at least that much, `finalize` refuses with
+ * `trade.cancel_ahead_of_fill`: the fill the engine matched may still be on its way (a taker's settlement, the fill
+ * consumer), and releasing now would hand back the slice of the hold that fill draws, after which its `tradeFill`
+ * fails on an empty hold. The hold stays; the engine's cancel event (`releaseOnCancelEvent`) is redelivered and
+ * closes the order once the fill is written.
+ *
+ * `engineMissSighted` is the reconcile's, for an order the engine's book no longer lists. An order the engine filled
+ * in full leaves the book at once while its fill reaches `trade.fills` later, so one look at a miss and no fill row is
+ * not proof that nothing is owed (#8560). `finalize` releases only when, under the row lock, the order's engine miss
+ * was first sighted (`trade.operator_sweep_sightings`, cleared whenever the book lists it again) at least the owner's
+ * floor ago (`TRADE_OPERATOR_SWEEP_MIN_AGE_SECONDS`) and `trade.fills` and `filled_qty` still show no fill; otherwise
+ * it refuses with `trade.engine_miss_unproven` and the hold stays.
+ *
+ * `noEngineFill` is for a closer that has no engine remainder and says why none is owed: the engine never had the
+ * order, a paper market (it never writes a fill), no hold left to release, or an OCO parent whose legs' settled fills
+ * were checked (`ocoExecutionSettled`).
+ */
+export type CancelEvidence =
+  | { readonly engineLeftQty: Amount }
+  | { readonly engineMissSighted: { readonly floorSeconds: number } }
+  | { readonly noEngineFill: 'never_on_engine' | 'paper_market' | 'no_hold' | 'oco_legs_settled' };
+
+export async function finalize(
+  svc: TradeServiceInternal,
+  orderId: string,
+  status: Extract<OrderStatus, 'filled' | 'rejected'>,
+  reason?: string | null,
+): Promise<void>;
+export async function finalize(
+  svc: TradeServiceInternal,
+  orderId: string,
+  status: Extract<OrderStatus, 'cancelled' | 'expired'>,
+  reason: string | null | undefined,
+  evidence: CancelEvidence,
+): Promise<void>;
 export async function finalize(
   svc: TradeServiceInternal,
   orderId: string,
   status: Extract<OrderStatus, 'cancelled' | 'filled' | 'expired' | 'rejected'>,
   reason?: string | null,
+  evidence?: CancelEvidence,
 ): Promise<void> {
+  if ((status === 'cancelled' || status === 'expired') && evidence === undefined) {
+    // The overloads make this unreachable from typed code; refuse rather than release unguarded if it is reached.
+    throw new TradeError(`order ${orderId}: a ${status} close names no engine evidence`, 'trade.cancel_ahead_of_fill');
+  }
   // An engine OCO leg is not an order row: it closes its parent, and only once no leg is left resting.
   if (ocoLegParent(orderId) !== null) {
     const parent = await svc.findOrder(settlementOrderId(orderId));
@@ -250,6 +297,59 @@ export async function finalize(
 
       const order = toOrder(row);
       if (order.status !== 'open' && order.status !== 'pending' && order.status !== 'recovery_required') return null;
+
+      // Under the row lock, so a closer cannot pass this check and then release after another closer did.
+      if (evidence && 'engineLeftQty' in evidence) {
+        const engineFilled = sub(order.qty, evidence.engineLeftQty);
+        if (engineFilled > 0n) {
+          const [written] = await tx<Array<{ qty: string }>>`
+            SELECT COALESCE(SUM(qty), 0)::text AS qty FROM trade.fills WHERE order_id = ${orderId}
+          `;
+          const recorded = parseAmount(written?.qty ?? '0');
+          // A house market-maker stub row (qty is its first fill, not the engine size) and an amend that has not
+          // committed yet read as "nothing more filled", as they did when this check lived in each closer.
+          if (recorded < engineFilled) {
+            throw new TradeError(
+              `order ${orderId}: the engine filled ${formatAmount(engineFilled)} but ${formatAmount(recorded)} is settled; the cancel waits for the fill`,
+              'trade.cancel_ahead_of_fill',
+              { engineFilled: formatAmount(engineFilled), settled: formatAmount(recorded) },
+            );
+          }
+        }
+      }
+
+      if (evidence && 'engineMissSighted' in evidence) {
+        const floor = evidence.engineMissSighted.floorSeconds;
+        if (!Number.isInteger(floor) || floor <= 0) {
+          throw new TradeError(
+            `order ${orderId}: an engine miss is released only after the owner's floor, and none is set`,
+            'trade.engine_miss_unproven',
+          );
+        }
+        const [proof] = await tx<Array<{ count: string; qty: string; first_seen_at: Date | null; due: boolean | null }>>`
+          SELECT (SELECT COUNT(*)::text FROM trade.fills WHERE order_id = ${orderId}) AS count,
+                 (SELECT COALESCE(SUM(qty), 0)::text FROM trade.fills WHERE order_id = ${orderId}) AS qty,
+                 s.first_seen_at,
+                 (s.first_seen_at <= now() - make_interval(secs => ${floor})) AS due
+            FROM (SELECT 1) one
+            LEFT JOIN trade.operator_sweep_sightings s ON s.order_id = ${orderId}
+        `;
+        const fills = { count: Number(proof?.count ?? '0'), qty: parseAmount(proof?.qty ?? '0') };
+        if (!fillsProveNoFill(order.filledQty, fills)) {
+          throw new TradeError(
+            `order ${orderId}: the engine no longer lists it but trade.fills show ${formatAmount(fills.qty)}; the hold stays`,
+            'trade.engine_miss_unproven',
+          );
+        }
+        if (proof?.due !== true) {
+          throw new TradeError(
+            proof?.first_seen_at
+              ? `order ${orderId}: its engine miss was first seen at ${proof.first_seen_at.toISOString()}, less than ${floor}s ago; a full fill may still be settling`
+              : `order ${orderId}: its engine miss has not been sighted before; a full fill may still be settling`,
+            'trade.engine_miss_unproven',
+          );
+        }
+      }
 
       const remaining = await svc.remainingHold(tx, order);
       // A qty-down orderHoldRelease can commit under its amend version before
