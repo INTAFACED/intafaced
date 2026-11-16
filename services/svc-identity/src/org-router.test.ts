@@ -91,7 +91,7 @@ function store(users: string[], orgs: OrgRow[], members: MemberRow[]) {
     }
     throw new Error(`unexpected sql: ${text}`);
   };
-  return fn as unknown as Parameters<typeof createOrg>[0];
+  return fn as Parameters<typeof createOrg>[0];
 }
 
 const codeOf = (err: unknown) => (err as { code?: string }).code;
