@@ -4,6 +4,7 @@
 // that changes a journey file runs the marked tooling tests that read journey files, and a red one refuses it. The lint
 // ratchet (tooling/ci/lint-ratchet.mjs, a Doctrine gate) runs on the pushed files and refuses a rise; CI's other Doctrine gates
 // (gates.mjs --before-push) run too, and a red one refuses the push. Without the install either refuses, naming the command.
+// The unit tests related to the pushed files (related-tests-before-push.mjs) run outside CI, and a red one refuses the push.
 // Each case is a throwaway repo holding the real .githooks/pre-push, pushing to a local bare remote.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -365,6 +366,44 @@ test('no node_modules in the worktree: the push is refused, with how to install 
     assert.equal(r.code, 1, r.out);
     assert.match(r.out, /the Doctrine gates need this worktree's install — push refused\. Install it: pnpm install --frozen-lockfile/);
     assert.doesNotMatch(r.out, /gates step/);
+  } finally {
+    p.done();
+  }
+});
+
+// The related unit tests (tooling/scripts/related-tests-before-push.mjs), planted: it says it ran and answers `code`.
+const relatedStep = (code) => ({
+  'tooling/scripts/related-tests-before-push.mjs': `console.log('related step ran');\n${code ? "console.error('  ✖ a unit test failed — push refused (1 s, services/x):\\n      src/a.test.ts > breaks');\n" : ''}process.exit(${code});\n`,
+});
+
+test('a red related unit test refuses the push with the test it names (#8670)', () => {
+  const p = plant({ prettier: 'exit 0', base: { ...gatesStep(0), ...relatedStep(1) } });
+  try {
+    const r = p.push();
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, /related step ran/);
+    assert.match(r.out, /a unit test failed — push refused[\s\S]*src\/a\.test\.ts > breaks/);
+  } finally {
+    p.done();
+  }
+});
+
+test('green related unit tests let the push through; a delete-only push and a push inside CI never run them', () => {
+  const p = plant({ prettier: 'exit 0', base: { ...gatesStep(0), ...relatedStep(0) } });
+  try {
+    const r = p.push('feat');
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /related step ran/);
+    writeFileSync(
+      join(p.work, 'tooling', 'scripts', 'related-tests-before-push.mjs'),
+      relatedStep(1)['tooling/scripts/related-tests-before-push.mjs'],
+    );
+    const ci = p.push('feat-ci', { ...BUILDER, CI: 'true' });
+    assert.equal(ci.code, 0, ci.out);
+    assert.doesNotMatch(ci.out, /related step ran/);
+    const d = spawnSync('git', ['push', 'origin', ':refs/heads/feat'], { cwd: p.work, encoding: 'utf8', env: BUILDER });
+    assert.equal(d.status, 0, `${d.stdout}${d.stderr}`);
+    assert.doesNotMatch(`${d.stdout}${d.stderr}`, /related step ran/);
   } finally {
     p.done();
   }
