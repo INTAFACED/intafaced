@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -320,6 +320,20 @@ test('no-number-money: the customer app never makes money a float, and chartValu
       'export const a = (o: { priceUsd: string }) => Number(o.priceUsd);\nexport const b = (amount_in: string) => Number(amount_in);\nexport const c = (bar: { c: string }) => Number(bar.c);\nexport const d = (prices: string[]) => prices.map(Number);\n',
     [`${C}features/x/venue.ts`]:
       'export const a = (o: { px: string; markPx: string }) => Number(o.px) + Number(o.markPx);\nexport const b = (prices: string[]) => prices.map((p) => Number(p));\nexport const c = (amount: string) => parseInt(amount, 10);\n',
+    [`${C}features/x/callbacks.ts`]: [
+      'export const a = (amounts: string[]) => amounts.map((p) => {\n  return Number(p);\n});',
+      'export const b = (amounts: string[]) => amounts.map(function (p) {\n  return Number(p);\n});',
+      'export const c = (amounts: string[]) => amounts.reduce((s, x) => s + Number(x), 0);',
+      'export const d = (amounts: string[]) => Array.from(amounts, Number);',
+      'export const e = (amounts: string[]) => amounts.map(Number.parseFloat);',
+      'export const f = (amount: string) => Number(String(amount));',
+      'export const g = (ids: string[], amounts: string[]) => ids.map((p) => Number(p)).concat(amounts.length);',
+      '',
+    ].join('\n'),
+    [`${C}features/x/alias.ts`]:
+      "import { chartValue as cv } from '../../shared/chart-value';\nexport const s = (a: string) => String(cv(a));\n",
+    [`${C}features/x/counts.ts`]:
+      'export const a = (o: { widthPx: string; lastSeenAt: string; totalPages: string; pageSize: string }) =>\n  Number(o.widthPx) + Number(o.lastSeenAt) + Number(o.totalPages) + Number(o.pageSize);\n',
     [`${C}features/x/rates.ts`]:
       'export const a = (feeBps: string) => Number(feeBps);\nexport const b = (m: { open: boolean }) => Number(m.open);\nexport const c = (ids: string[]) => ids.map(Number);\nexport const d = (ids: string[]) => ids.map((id) => Number(id));\nexport const e = (page: string) => parseInt(page, 10);\n',
     [`${C}data/poll.spec.ts`]: 'export const ms = (s: string) => Number(s);\n',
@@ -365,6 +379,9 @@ test('no-number-money: the customer app never makes money a float, and chartValu
   fires(`${C}features/x/names.ts`, 3);
   fires(`${C}features/x/parts.ts`, 4);
   fires(`${C}features/x/venue.ts`, 4);
+  fires(`${C}features/x/callbacks.ts`, 6);
+  fires(`${C}features/x/alias.ts`);
+  fires(`${C}features/x/counts.ts`, 0);
   fires(`${C}features/x/rates.ts`, 0);
   fires(`${C}data/poll.spec.ts`);
   fires(`${C}data/poll.ts`);
@@ -383,6 +400,25 @@ test('no-number-money: the customer app never makes money a float, and chartValu
   ])
     fires(`${C}${quiet}`, 0);
   fires('services/svc-x/src/rate.ts', 0);
+});
+
+// The deleted scanner tests asserted their folders held their files; the rule names its folders by path, so a moved or
+// emptied folder must fail here rather than switch the strict judgement off without a sound.
+test('no-number-money: the money folders it judges strictly still hold their source files', () => {
+  const src = join(ROOT, 'apps', 'customer', 'src');
+  const sources = (dir, deep) =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+      e.isDirectory()
+        ? deep && !e.name.startsWith('__')
+          ? sources(join(dir, e.name), deep)
+          : []
+        : /\.tsx?$/u.test(e.name) && !/\.test\.tsx?$/u.test(e.name)
+          ? [e.name]
+          : [],
+    );
+  assert.ok(sources(join(src, 'data'), true).length > 8, 'apps/customer/src/data');
+  assert.ok(sources(join(src, 'screens', 'trade', 'desk'), false).length > 10, 'apps/customer/src/screens/trade/desk');
+  assert.ok(sources(join(src, 'screens', 'trade', 'options'), false).length > 8, 'apps/customer/src/screens/trade/options');
 });
 
 test('no-random-request-key: a random key fires directly, in a template and through a const; a held key does not', skip, () => {

@@ -106,7 +106,12 @@ const MONEY_WORDS = new Set(
     ' ',
   ),
 );
-const NOT_MONEY_WORDS = new Set('bps pct percent ratio rate count index ms seconds places digits decimals precision'.split(' '));
+const NOT_MONEY_WORDS = new Set(
+  'bps pct percent ratio rate count index ms seconds places digits decimals precision width height page pages contrast seen'.split(' '),
+);
+/** Callback parameters that are the elements of a money-named array (`amounts.reduce((s, x) => s + Number(x))`), with the
+ * array's name; set while the call's callback is walked. */
+let heldMoney = new Map();
 const CANDLE_FIELDS = new Set(['o', 'h', 'l', 'c', 'v']);
 const unwrap = (n) =>
   ['ChainExpression', 'TSAsExpression', 'TSNonNullExpression', 'TSSatisfiesExpression', 'ParenthesizedExpression'].includes(n?.type)
@@ -116,6 +121,7 @@ const unwrap = (n) =>
  * or a candle's field (`bar.c`); else null. */
 function moneyName(arg) {
   const n = unwrap(arg);
+  if (n?.type === 'Identifier' && heldMoney.get(n.name)?.length) return `${n.name} (an element of ${heldMoney.get(n.name).at(-1)})`;
   if (n?.type === 'MemberExpression' && !n.computed && CANDLE_FIELDS.has(n.property?.name))
     return `${nameOf(n.object) ?? '…'}.${n.property.name}`;
   const name = nameOf(n);
@@ -145,7 +151,10 @@ function nameOf(n) {
     case 'MemberExpression':
       return propName(n) ?? (n.computed ? nameOf(n.object) : null);
     case 'CallExpression':
+      if (n.callee?.type === 'Identifier' && ['String', 'Number'].includes(n.callee.name)) return nameOf(n.arguments[0]);
       return n.callee?.type === 'MemberExpression' ? nameOf(n.callee.object) : n.callee?.type === 'Identifier' ? n.callee.name : null;
+    case 'TemplateLiteral':
+      return n.expressions.length === 1 && n.quasis.every((q) => q.value?.cooked === '') ? nameOf(n.expressions[0]) : null;
     case 'LogicalExpression':
       return nameOf(n.left);
     case 'ChainExpression':
@@ -177,7 +186,10 @@ function customerFloats(context, strictOnly = false) {
   if (strictOnly && !strict) return {};
   const exitFile = rel === EXIT_FILE;
   const exitValues = new Set(); // local consts that hold a chartValue() result
-  const isExit = (n) => n?.type === 'CallExpression' && n.callee?.type === 'Identifier' && n.callee.name === EXIT;
+  const exitNames = new Set([EXIT]); // chartValue and the local names it is imported as
+  heldMoney = new Map();
+  const held = []; // per call: the callback parameters it put in heldMoney
+  const isExit = (n) => n?.type === 'CallExpression' && n.callee?.type === 'Identifier' && exitNames.has(n.callee.name);
   /** Is this value a chartValue() result: the call, a const holding one, or arithmetic, Math.* or a branch of them?
    * A value the chart computes from one (a pixel from priceToCoordinate) is not. */
   const holdsExit = (n) => {
@@ -237,22 +249,33 @@ function customerFloats(context, strictOnly = false) {
       const kind = floatCall(node);
       if (kind) return void (node.arguments[0] && float(node, kind, node.arguments[0]));
       const c = node.callee;
-      if (c?.type === 'MemberExpression' && !c.computed && c.property?.name === 'map') {
-        const fn = node.arguments[0];
-        if (fn?.type === 'Identifier' && ['Number', 'parseFloat', 'parseInt'].includes(fn.name)) float(node, `.map(${fn.name})`, c.object);
-        // `.map((p) => Number(p))`: the same conversion, judged by the array's name.
-        const param = isFunction(fn) && fn.params[0]?.type === 'Identifier' ? fn.params[0].name : null;
-        const body = fn?.body?.type === 'BlockStatement' ? null : unwrap(fn?.body);
-        const inner = body?.type === 'CallExpression' ? floatCall(body) : null;
-        if (param && inner && unwrap(body.arguments[0])?.type === 'Identifier' && unwrap(body.arguments[0]).name === param)
-          float(node, `.map(… ${inner})`, c.object, true);
+      const method = c?.type === 'MemberExpression' && !c.computed ? c.property?.name : null;
+      const array = ARRAY_METHODS.has(method) ? moneyName(c.object) : null;
+      const fn = node.arguments[0];
+      if (array && floatFn(fn)) float(node, `.${method}(${floatFn(fn)})`, c.object, true);
+      if (array && isFunction(fn)) {
+        // The callback's element is the array's: `amounts.map((p) => { return Number(p); })` is judged as `Number(amount)`.
+        const params = (method.startsWith('reduce') ? [fn.params[1]] : method === 'sort' ? fn.params.slice(0, 2) : [fn.params[0]])
+          .filter((x) => x?.type === 'Identifier')
+          .map((x) => x.name);
+        for (const name of params) heldMoney.set(name, [...(heldMoney.get(name) ?? []), nameOf(c.object) ?? array]);
+        held.push([node, params]);
       }
+      if (c?.type === 'MemberExpression' && c.object?.name === 'Array' && c.property?.name === 'from' && floatFn(node.arguments[1]))
+        float(node, `Array.from(…, ${floatFn(node.arguments[1])})`, node.arguments[0], true);
       if (strict && c?.type === 'MemberExpression' && !c.computed && c.property?.name === 'toFixed') float(node, '.toFixed()', c.object);
       if (c?.type === 'Identifier' && TEXT_CALLS.has(c.name) && node.arguments.some(holdsExit)) leak(node, `${c.name}()`);
       if (c?.type === 'MemberExpression' && !c.computed && TEXT_METHODS.has(c.property?.name)) {
         if (holdsExit(c.object)) leak(node, `.${c.property.name}()`);
         else if (['format', 'stringify'].includes(c.property.name) && node.arguments.some(holdsExit)) leak(node, `.${c.property.name}()`);
       }
+    },
+    'CallExpression:exit'(node) {
+      if (held.at(-1)?.[0] !== node) return;
+      for (const name of held.pop()[1]) heldMoney.get(name)?.pop();
+    },
+    ImportSpecifier(node) {
+      if ((node.imported?.name ?? node.imported?.value) === EXIT) exitNames.add(node.local.name);
     },
     NewExpression(node) {
       if (node.callee?.type === 'Identifier' && node.callee.name === 'Number' && node.arguments[0])
@@ -273,6 +296,29 @@ function customerFloats(context, strictOnly = false) {
     },
   };
 }
+const ARRAY_METHODS = new Set([
+  'map',
+  'flatMap',
+  'forEach',
+  'filter',
+  'some',
+  'every',
+  'find',
+  'findIndex',
+  'sort',
+  'reduce',
+  'reduceRight',
+]);
+/** `Number`, `parseFloat`, `parseInt`, `Number.parseFloat` or `Number.parseInt` passed as a callback: its name, else null. */
+const floatFn = (fn) =>
+  fn?.type === 'Identifier' && ['Number', 'parseFloat', 'parseInt'].includes(fn.name)
+    ? fn.name
+    : fn?.type === 'MemberExpression' &&
+        !fn.computed &&
+        fn.object?.name === 'Number' &&
+        ['parseFloat', 'parseInt'].includes(fn.property?.name)
+      ? `Number.${fn.property.name}`
+      : null;
 const isFunction = (n) => n?.type === 'ArrowFunctionExpression' || n?.type === 'FunctionExpression';
 const functionName = (n) => (n?.type === 'FunctionDeclaration' ? n.id?.name : n?.type === 'VariableDeclarator' ? n.id?.name : null);
 
