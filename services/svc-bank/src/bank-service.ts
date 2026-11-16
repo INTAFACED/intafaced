@@ -654,6 +654,8 @@ export function createBankServices(
     business,
     businessTeam: new BusinessTeamService(sql, custody, options.directory ?? unconfiguredBusinessDirectory(), {
       inviteMinutes: () => options.businessInviteMinutes,
+      postingFreeze,
+      noteRefusal: partnerRefusals.note,
     }),
     bills,
     globalSend,

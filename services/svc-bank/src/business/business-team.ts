@@ -4,11 +4,14 @@ import { transaction } from '@intafaced/db';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import {
+  assertPostingEnabled,
   NO_PARTNER_BANK_CODE,
   partnerPayoutsAccount,
   type PartnerAccountRef,
   type PartnerBank,
+  type NoteRefusal,
   type PartnerCustody,
+  type PostingFreeze,
 } from '../partner/partner-bank.js';
 import { BusinessDirectoryError, normaliseEmailQuery, normaliseHandleQuery, type BusinessDirectoryPort } from './business-directory.js';
 import { BUSINESS_ROLE_CAPABILITIES, BUSINESS_ROLES, roleCan, type BusinessMemberRole } from './business-policy.js';
@@ -266,6 +269,12 @@ export interface TeamSpend {
 export interface BusinessTeamOptions {
   /** `BANK_BUSINESS_INVITE_MINUTES`, read on each call. */
   readonly inviteMinutes: () => string | undefined;
+  /**
+   * svc-ledger's platform-wide posting freeze, the money kill switch. Every door that can send a payment asks it before it
+   * writes anything, and the partner wrapper asks it again before each move; a freeze that cannot be read refuses.
+   */
+  readonly postingFreeze: PostingFreeze;
+  readonly noteRefusal?: NoteRefusal;
 }
 
 function forbidden(permission: BusinessPermission): BankError {
@@ -595,13 +604,17 @@ export class BusinessTeamService {
       await this.activeAccount(tx, input.accountId);
       const me = await this.member(tx, input.accountId, input.actorUserId);
       this.need(me, 'manage_team');
-      const granted = input.roleId ? (await this.roleIn(tx, input.accountId, input.roleId)).permissions : builtInPermissions(input.role!);
-      const beyond = granted.filter((p) => !permissionsOf(me).includes(p as BusinessPermission));
-      if (beyond.length > 0) {
-        throw new BankError(
-          `You cannot invite someone to a role that grants ${beyond.join(', ')}, which you do not hold.`,
-          'bank.business_role_grant_exceeds',
-        );
+      if (input.roleId) {
+        const granted = (await this.roleIn(tx, input.accountId, input.roleId)).permissions;
+        const beyond = granted.filter((p) => !permissionsOf(me).includes(p as BusinessPermission));
+        if (beyond.length > 0) {
+          throw new BankError(
+            `You cannot invite someone to a role that grants ${beyond.join(', ')}, which you do not hold.`,
+            'bank.business_role_grant_exceeds',
+          );
+        }
+      } else {
+        this.assertMayGrantBuiltIn(me, input.role!);
       }
       const prior = await this.inviteRow(tx, input.inviteId);
       if (prior) {
@@ -641,6 +654,16 @@ export class BusinessTeamService {
       }
       if (old.status !== 'open') {
         throw new BankError(`This invite is ${old.status} and cannot be sent again.`, 'bank.business_invite_inactive');
+      }
+      // Sending it again is granting it again: the one who sends must hold the role it carries.
+      if (old.role) this.assertMayGrantBuiltIn(me, old.role);
+      else if (old.custom_role_id) {
+        const beyond = (await this.roleIn(tx, old.account_id, old.custom_role_id)).permissions.filter(
+          (p) => !permissionsOf(me).includes(p as BusinessPermission),
+        );
+        if (beyond.length > 0) {
+          throw new BankError(`You cannot send an invite to a role that grants ${beyond.join(', ')}.`, 'bank.business_role_grant_exceeds');
+        }
       }
       const token = randomBytes(24).toString('base64url');
       await tx`
@@ -794,9 +817,14 @@ export class BusinessTeamService {
         prior.payment_type === input.paymentType &&
         amountOf(prior.amount) === input.amount;
       if (!same) throw new BankError('This payment id is already used on different terms.', 'bank.business_request_conflict');
-      if (prior.status === 'sending') await this.send(prior);
+      if (prior.status === 'sending') {
+        await this.moneyMayMove();
+        await this.send(prior);
+      }
       return this.payment(prior.id, input.makerUserId);
     }
+    // A payment no rule holds is sent at once: while posting is frozen nothing is recorded or sent.
+    await this.moneyMayMove();
     const created = await transaction(this.sql, async (tx) => {
       const account = await this.activeAccount(tx, input.accountId);
       const me = await this.member(tx, input.accountId, input.makerUserId);
@@ -837,6 +865,8 @@ export class BusinessTeamService {
    * sent, it reads the instruction back by its key and makes it at most once.
    */
   async approve(input: { paymentId: string; approverUserId: string }): Promise<TeamPayment> {
+    // The approval that completes the count sends: while posting is frozen no approval is recorded.
+    await this.moneyMayMove();
     const decided = await transaction(this.sql, async (tx) => {
       const row = await this.paymentRow(tx, input.paymentId, true);
       const me = await this.member(tx, row.account_id, input.approverUserId);
@@ -892,6 +922,7 @@ export class BusinessTeamService {
 
   /** Sends a payment whose answer from the partner was not definite, under the same key: made at most once. */
   async resend(input: { paymentId: string; userId: string }): Promise<TeamPayment> {
+    await this.moneyMayMove();
     const row = await this.paymentRow(this.sql, input.paymentId);
     const me = await this.member(this.sql, row.account_id, input.userId);
     if (row.maker_user_id !== input.userId) this.need(me, 'approve');
@@ -1076,6 +1107,28 @@ export class BusinessTeamService {
       );
     }
     return minutes;
+  }
+
+  /** Refuses `bank.posting_frozen` while posting is frozen, or while the freeze cannot be read. */
+  private async moneyMayMove(): Promise<void> {
+    await assertPostingEnabled(this.options.postingFreeze, 'bank_move', this.options.noteRefusal);
+  }
+
+  /**
+   * A built-in role may be granted only by someone who holds all of it: every team permission it carries, and every
+   * capability the older business doors give it (`sign` among them, which no team permission names).
+   */
+  private assertMayGrantBuiltIn(me: MemberRow, role: BusinessMemberRole): void {
+    const beyond = [
+      ...builtInPermissions(role).filter((p) => !permissionsOf(me).includes(p)),
+      ...BUSINESS_ROLE_CAPABILITIES[role].filter((c) => !roleCan(me.role, c) && !(BUSINESS_PERMISSIONS as readonly string[]).includes(c)),
+    ];
+    if (beyond.length > 0) {
+      throw new BankError(
+        `You cannot invite someone to a role that grants ${[...new Set(beyond)].join(', ')}, which you do not hold.`,
+        'bank.business_role_grant_exceeds',
+      );
+    }
   }
 
   private need(me: MemberRow, permission: BusinessPermission): void {

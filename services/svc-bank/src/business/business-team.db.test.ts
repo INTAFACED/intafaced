@@ -77,6 +77,7 @@ describe('business bank team and approval rules (J-bank-19)', () => {
   let ledger: MemoryLedger;
   let partner: TestPartner;
   let inviteMinutes: string | undefined;
+  let postingFreeze: { postingEnabled: () => Promise<boolean> } | undefined;
 
   beforeAll(async () => {
     const raw = process.env.TEST_DATABASE_URL?.trim();
@@ -101,6 +102,7 @@ describe('business bank team and approval rules (J-bank-19)', () => {
     ledger = new MemoryLedger();
     partner = testPartner();
     inviteMinutes = '2';
+    postingFreeze = { postingEnabled: async () => true };
   });
 
   function as(userId: string) {
@@ -123,7 +125,7 @@ describe('business bank team and approval rules (J-bank-19)', () => {
       nativeAssetId: 'IFC',
       recipients: memoryRecipientState(),
       testPartner: partner,
-      postingFreeze: { postingEnabled: async () => true },
+      ...(postingFreeze ? { postingFreeze } : {}),
       directory: memoryBusinessDirectory(PEOPLE),
       get businessInviteMinutes() {
         return inviteMinutes;
@@ -411,6 +413,55 @@ describe('business bank team and approval rules (J-bank-19)', () => {
     // The same id on other terms is refused, never a second payment.
     expect(await refused(owner.businessTeam.propose({ ...input, amount: '701' }))).toBe('bank.business_request_conflict');
     expect(ledger.journal()).toEqual([]);
+  });
+
+  it('while posting is frozen, or the freeze cannot be read, no business payment is recorded, approved or sent', async () => {
+    const { accountId, owner } = await business();
+    await join(accountId, owner, A1, { role: 'checker' });
+    await owner.businessTeam.addRule({ accountId, ruleId: randomUUID(), overAmount: '1000', payee: null, paymentType: null, approvals: 1 });
+    const held = randomUUID();
+    await owner.businessTeam.propose({ accountId, paymentId: held, payee: 'TEST Supplier', paymentType: 'domestic', amount: '1500' });
+    const atOnce = { accountId, paymentId: randomUUID(), payee: 'TEST Supplier', paymentType: 'domestic' as const, amount: '700' };
+    for (const freeze of [{ postingEnabled: async () => false }, undefined]) {
+      postingFreeze = freeze;
+      // A caller is built over the freeze as it now stands.
+      expect(await refused(as(OWNER).businessTeam.propose(atOnce))).toBe('bank.posting_frozen');
+      expect(await refused(as(A1).businessTeam.approve({ paymentId: held }))).toBe('bank.posting_frozen');
+      expect(await refused(as(OWNER).businessTeam.resend({ paymentId: held }))).toBe('bank.posting_frozen');
+    }
+    expect((await owner.businessTeam.payments({ accountId })).map((p) => p.id)).toEqual([held]);
+    expect(await owner.businessTeam.payment({ paymentId: held })).toMatchObject({ status: 'pending', approvals: [] });
+    const sent = (await partner.bank.moves(`business:${accountId}`, { limit: 50 })).filter((m) =>
+      m.key.startsWith('bank.business.payment:'),
+    );
+    expect(sent).toEqual([]);
+    expect((await partner.bank.balance({ userId: `business:${accountId}`, assetId: 'USDT', spaceId: null })).amount).toBe(
+      parseAmount('10000'),
+    );
+    // Lifted: the same approval goes through and sends once.
+    postingFreeze = { postingEnabled: async () => true };
+    expect(await as(A1).businessTeam.approve({ paymentId: held })).toMatchObject({ status: 'sent' });
+    expect(ledger.journal()).toEqual([]);
+  });
+
+  it('a built-in role is granted only by someone who holds all of it: the office manager cannot invite a signer', async () => {
+    const { accountId, owner } = await business();
+    const office = await owner.businessTeam.createRole({
+      accountId,
+      roleId: randomUUID(),
+      name: 'Office',
+      permissions: ['view', 'manage_team'],
+    });
+    await join(accountId, owner, OFFICE, { roleId: office.id });
+    const invite = (role: string) => ({ accountId, inviteId: randomUUID(), email: null, role: role as never, roleId: null });
+    expect(await refused(as(OFFICE).businessTeam.invite(invite('signer')))).toBe('bank.business_role_grant_exceeds');
+    expect(await refused(as(OFFICE).businessTeam.invite(invite('checker')))).toBe('bank.business_role_grant_exceeds');
+    expect((await as(OFFICE).businessTeam.invite(invite('viewer'))).invite.role).toBe('viewer');
+    // The owner holds sign: their signer invite stands, and the office manager cannot send it again.
+    const made = await owner.businessTeam.invite(invite('signer'));
+    expect(await refused(as(OFFICE).businessTeam.resendInvite({ accountId, inviteId: made.invite.id, newInviteId: randomUUID() }))).toBe(
+      'bank.business_role_grant_exceeds',
+    );
   });
 
   it('a partner refusal that moved nothing closes the payment as refused', async () => {
