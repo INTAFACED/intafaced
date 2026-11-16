@@ -36,6 +36,7 @@ import { createSubAccountOwnershipClient } from './spot/sub-account-ownership.js
 import { createEmailProofClient } from './spot/email-proof.js';
 import { createLedgerClient } from './ledger-client.js';
 import { createLedgerPages } from './statements/ledger-history.js';
+import { VenueStatements } from './venue/venue-statements.js';
 import { StatementExports } from './statements/statement-export.js';
 import { registerClosureCheck } from './closure/closure-check.js';
 import { registerTrackRecord } from './signals/track-record.js';
@@ -1810,6 +1811,8 @@ registerPrivateRest(app, {
   venueProtections,
   liveRuns,
   venueSellQuotes,
+  // J-cex-spot-07 #5: the statement export on the venue's own records, when the user-venue door is on.
+  venueStatements: userVenueRouter ? new VenueStatements(sql) : null,
   algo: trade,
   rfqExport: (principal, query) => trade.rfqExport(principal, query),
   statements: { ledger: ledgerPages, exports: new StatementExports(sql, ledgerPages) },

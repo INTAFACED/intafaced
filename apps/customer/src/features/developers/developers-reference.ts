@@ -1052,6 +1052,31 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     summary: "Your positions the venue settled and orders it cancelled when a market's deployer halted it or it split",
   },
   {
+    name: 'venueScheduledCancel',
+    method: 'GET',
+    path: '/api/v1/venue/scheduled-cancel',
+    product: 'accounts',
+    access: 'private',
+    summary: "When the venue's own scheduled cancel cancels every open order of your venue account, and when it last did",
+  },
+  {
+    name: 'createVenueStatement',
+    method: 'POST',
+    path: '/api/v1/venue/statements',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      "Ask for a statement of your venue account's orders, trades and money movements over a finished range, from the venue's own records",
+  },
+  {
+    name: 'fetchVenueStatementFile',
+    method: 'GET',
+    path: '/api/v1/venue/statements/:id/file',
+    product: 'accounts',
+    access: 'private',
+    summary: 'The file of one finished venue statement, with its SHA-256',
+  },
+  {
     name: 'venueBuilderFeeApproval',
     method: 'GET',
     path: '/api/v1/venue/builder-fee-approval',

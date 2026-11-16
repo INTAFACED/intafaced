@@ -351,6 +351,10 @@ function LineRow({
                 </>
               ) : null}
             </span>
+            {/* The source's own reference (J-cex-spot-07 #6): a transaction hash, a fill id, a deposit or a partner move id. */}
+            <span data-testid="money-act__ref" className="money-act__sub money-act__ref">
+              {t('Source reference {ref}', { ref: line.ref })}
+            </span>
           </span>
         </div>
       </td>

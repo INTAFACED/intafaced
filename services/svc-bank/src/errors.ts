@@ -752,6 +752,70 @@ export type BankErrorCode =
   | 'bank.bill_payment_not_sent'
   | 'bank.bill_not_found'
   | 'bank.bill_payment_not_found'
+  // ── Business bulk payments, contractors and crypto payroll (J-bank-21; BK-bpay-01, BK-bpay-02, RC-bank-05) ──
+  /** A bulk payment file with no header naming its columns, no lines, too many lines, or over 256 KiB. */
+  | 'bank.bulk_file_invalid'
+  /** The business's partner balance does not cover a run's total: nothing was sent, add money and confirm again. */
+  | 'bank.bulk_run_unfunded'
+  /** A run with no valid line: there is nothing to send. */
+  | 'bank.bulk_run_empty'
+  | 'bank.bulk_run_not_found'
+  /** A contractor, invoice or payroll field not in shape. */
+  | 'bank.contractor_field_invalid'
+  | 'bank.contractor_not_found'
+  /** The contractor already has an invoice with this number. */
+  | 'bank.contractor_invoice_duplicate'
+  /** An invoice in a batch is already being paid or paid. */
+  | 'bank.contractor_invoice_not_open'
+  /** An onboarding link we do not know. */
+  | 'bank.contractor_invite_invalid'
+  /** An onboarding link already used by someone else. */
+  | 'bank.contractor_invite_used'
+  /** A payroll wallet address or offer not in shape. */
+  | 'bank.payroll_wallet_invalid'
+  /** Crypto payroll needs the business's own wallet connected first: it signs every run. */
+  | 'bank.payroll_wallet_missing'
+  /** A payroll member with no wallet address. */
+  | 'bank.contractor_wallet_missing'
+  /** A signature not from the wallet named: nothing was connected or signed. */
+  | 'bank.payroll_signature_invalid'
+  // ── Business cards and expenses (J-bank-22; BK-bcard-01, BK-bexp-01, BK-bexp-02) ──
+  /** A card limit, merchant, amount, receipt rule or claim description not in shape. */
+  | 'bank.business_card_field_invalid'
+  /** No business card or card purchase with that id is yours to see. */
+  | 'bank.business_card_not_found'
+  | 'bank.business_card_frozen'
+  /** A receipt file with no name, of a type we do not take, empty or over 512 KiB. */
+  | 'bank.receipt_invalid'
+  | 'bank.reimbursement_not_found'
+  // ── The bank API (J-bank-24; BK-bdev-01, BK-bdev-02) ──
+  /** The partner quotes no move between a person's own accounts. Nothing was asked. */
+  | 'bank.partner_quote_unavailable'
+  /** No quote by that id is the caller's. */
+  | 'bank.quote_not_found'
+  /** The quote is past its valid-until: ask for a new one. Nothing was moved. */
+  | 'bank.quote_expired'
+  /** The partner does not say what the move costs, so it is not made on an unknown figure. Nothing was moved. */
+  | 'bank.partner_fee_unknown'
+  /** The same dedupe id or idempotency key was used before for a different instruction. Nothing was moved. */
+  | 'bank.idempotency_conflict'
+  /** No payment by that id is the caller's. */
+  | 'bank.payment_not_found'
+  /** A webhook URL that is not https, points inside our network, or does not resolve. Nothing was saved. */
+  | 'bank.webhook_url_invalid'
+  /** No webhook endpoint by that id is the caller's. */
+  | 'bank.webhook_endpoint_not_found'
+  // ── Business books (J-bank-23; BK-bexp-03, BK-bexp-04, BK-bexp-05) ──
+  /** A coding rule's payee text, a category or a GL code not in shape, or a bulk code of no lines or too many. */
+  | 'bank.business_books_field_invalid'
+  /** A line named for coding is not on the business's statement for the period. */
+  | 'bank.business_line_not_found'
+  /** A statement starts before the partner's history window. */
+  | 'bank.statement_history_window'
+  /** Our lines do not give the partner statement's closing balance or line count: no file is made. */
+  | 'bank.statement_mismatch'
+  /** The partner offers no statement, or does not say how far back its record reaches. */
+  | 'bank.partner_statement_unavailable'
   | 'bank.business_rejected'
   | 'bank.business_cancelled'
   /**

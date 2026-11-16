@@ -5,6 +5,9 @@ import { ScamReportRoom } from './scam/ScamReportRoom';
 import { LostPhoneRoom } from './lost-phone/LostPhoneRoom';
 import { BusinessJoinRoom, BusinessPaymentRoom, BusinessTeamRoom } from './business-team/BusinessTeamRoom';
 import { BusinessBillRoom, BusinessBillsRoom } from './business-bills/BusinessBillsRoom';
+import { BusinessPayoutsRoom, ContractorJoinRoom } from './business-payouts/BusinessPayoutsRoom';
+import { BusinessCardsRoom } from './business-cards/BusinessCardsRoom';
+import { BusinessBooksRoom } from './business-books/BusinessBooksRoom';
 import { CardOrderRoom } from './CardOrder';
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
@@ -2183,6 +2186,14 @@ export function BankRoutes({ path, search, open }: { path: string; search: strin
       return <BusinessBillsRoom />;
     case '/bank/business/bill':
       return <BusinessBillRoom search={search} />;
+    case '/bank/business/payouts':
+      return <BusinessPayoutsRoom />;
+    case '/bank/business/cards':
+      return <BusinessCardsRoom />;
+    case '/bank/business/books':
+      return <BusinessBooksRoom />;
+    case '/bank/business/contractor-join':
+      return <ContractorJoinRoom search={search} />;
     case '/bank/safety/bereavement':
       return <BereavementRoom />;
     case '/bank/recovery':

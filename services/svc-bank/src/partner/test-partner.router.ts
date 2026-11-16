@@ -29,6 +29,7 @@ const switches = z
     purchaseHold: z.enum(['live', 'expired']),
     legalHold: z.enum(['none', 'held']),
     identityCase: z.enum(['accepted', 'not_accepted']),
+    bankRail: z.enum(['none', 'test']),
   })
   .strict();
 
@@ -58,7 +59,7 @@ function out(partner: TestPartner, userId: string, now: TestPartnerSwitches) {
  * `bank.test_partner_off`, because there is no TEST partner to switch.
  */
 export function createTestPartnerRouter(
-  bank: Pick<BankServices, 'testPartner' | 'cards' | 'partnerCustody' | 'businessTeam'>,
+  bank: Pick<BankServices, 'testPartner' | 'cards' | 'partnerCustody' | 'businessTeam' | 'bankApi'>,
   guard: Guard,
 ) {
   return router({
@@ -77,6 +78,21 @@ export function createTestPartnerRouter(
         guard(async () => {
           const partner = on(bank.testPartner);
           return out(partner, ctx.principal.userId, partner.set(ctx.principal.userId, input));
+        }),
+      ),
+    /**
+     * The TEST partner reports one of the person's pending bank API payments completed (J-bank-24 #5), recorded as a
+     * partner's report would be: one state change, one webhook delivery per endpoint. Asked again, the partner replays the
+     * same report and nothing is recorded (`recorded: false`). Off the TEST stack it refuses.
+     */
+    settlePayment: scopedProcedure('bank:write', { module: 'bank' })
+      .input(z.object({ paymentId: z.string().guid() }).strict())
+      .output(z.object({ paymentId: z.string(), state: z.string(), version: z.number().int(), recorded: z.boolean() }))
+      .mutation(({ ctx, input }) =>
+        guard(async () => {
+          on(bank.testPartner);
+          const done = await bank.bankApi.settleTestPayment(ctx.principal.userId, input.paymentId);
+          return { paymentId: done.payment.id, state: done.payment.state, version: done.payment.version, recorded: done.recorded };
         }),
       ),
     /**
@@ -116,6 +132,24 @@ export function createTestPartnerRouter(
           const account = businessPartnerAccount(input.accountId, assetId);
           const now = partner.fund(account.userId, { fundId: input.fundId, assetId, amount: parseAmount(input.amount) });
           return { label: now.label, assetId, balance: formatAmount(now.amount!), asOf: now.asOf!.toISOString() };
+        }),
+      ),
+    /**
+     * The TEST partner's own statement of the owner's business account over `[from, to)` (J-bank-23 #3), straight from its
+     * book: what a statement file is checked against, for a test to compare the files with. Off the TEST stack it refuses.
+     */
+    businessStatement: scopedProcedure('bank:read', { module: 'bank' })
+      .input(z.object({ accountId: z.string().guid(), from: z.string().datetime(), to: z.string().datetime() }).strict())
+      .output(z.object({ label: z.string(), opening: z.string(), closing: z.string(), lines: z.number().int().nonnegative() }))
+      .query(({ ctx, input }) =>
+        guard(async () => {
+          const partner = on(bank.testPartner);
+          const { assetId } = await bank.businessTeam.assertOwner(input.accountId, ctx.principal.userId);
+          const st = await partner.bank.statement!(businessPartnerAccount(input.accountId, assetId), {
+            from: new Date(input.from),
+            to: new Date(input.to),
+          });
+          return { label: st.label, opening: formatAmount(st.opening), closing: formatAmount(st.closing), lines: st.lines };
         }),
       ),
     /**

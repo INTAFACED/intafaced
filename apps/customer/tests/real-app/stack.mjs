@@ -52,9 +52,14 @@ export const worldState = {
   read() {
     try {
       const state = JSON.parse(readFileSync(WORLD_FILE, 'utf8'));
-      return { file: state.file ?? null, makerArgs: state.makerArgs ?? null, accounts: state.accounts ?? [] };
+      return {
+        file: state.file ?? null,
+        makerArgs: state.makerArgs ?? null,
+        accounts: state.accounts ?? [],
+        venueId: state.venueId ?? null,
+      };
     } catch {
-      return { file: null, makerArgs: null, accounts: [] };
+      return { file: null, makerArgs: null, accounts: [], venueId: null };
     }
   },
   write(state) {
