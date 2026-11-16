@@ -597,7 +597,7 @@ const RUN_AS_SCRIPT = process.argv[1] !== undefined && resolve(process.argv[1]) 
 if (RUN_AS_SCRIPT) await main();
 
 /** One gate as its own process: whether it passed, what it printed and how long it took. */
-function runGate(gate) {
+export function runGate(gate) {
   const started = process.hrtime.bigint();
   return new Promise((done) => {
     // The default 1 MB cut the tooling tests' output before its `not ok` lines (CI run 43623577056, 14 Nov).
