@@ -732,7 +732,7 @@ export function runLedgerConformance(name: string, createHarness: () => Promise<
         const retry = await ledger.post({
           ...request,
           entries: [...request.entries].reverse(),
-          meta: { ...(request.meta ?? {}), retriedAt: 'later' },
+          meta: { ...request.meta, retriedAt: 'later' },
           correlationId: 'a-fresh-trace-id',
         });
         expect(retry.id).toBe(first.id);
