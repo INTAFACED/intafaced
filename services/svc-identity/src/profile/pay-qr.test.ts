@@ -12,7 +12,7 @@ function recordingSql(rows: Array<{ id: string; handle: string }>) {
   const sql = ((_strings: TemplateStringsArray, ...values: unknown[]) => {
     reads.push(values);
     return Promise.resolve(rows);
-  }) as unknown as Sql;
+  }) as Sql;
   return { sql, reads };
 }
 
