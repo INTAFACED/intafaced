@@ -38,7 +38,7 @@ run() {
   printf 'CONSTANTS H = 2  Q = 1  R = 2  Paths = {%s}\nSPECIFICATION Spec\nINVARIANTS Conservation PaysOnce NoReleaseOfOwed EveryFillPaid\nCHECK_DEADLOCK FALSE\n' "$paths" > "$d/OneHold.cfg"
   local status=0
   ( cd "$d" && "$java" -XX:+UseSerialGC -Xmx512m -cp "$jar" tlc2.TLC -workers 1 -config OneHold.cfg OneHold.tla > out.txt 2>&1 ) || status=$?
-  local states; states="$(grep -Eo '[0-9,]+ distinct states found' "$d/out.txt" | head -1 || true)"
+  local states; states="$(grep -Eo '[0-9,]+ distinct states found' "$d/out.txt" | tail -1 || true)"
   if [ "$expect" = pass ]; then
     if [ "$status" -eq 0 ] && grep -q 'No error has been found' "$d/out.txt"; then echo "ok   $name: no error, $states"
     else echo "FAIL $name: expected no error (exit $status)"; sed -n '1,60p' "$d/out.txt"; failed=1; fi

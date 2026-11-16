@@ -13,15 +13,15 @@
 services/svc-trade/model/check.sh
 ```
 
-It needs Java 11 or later (`java` on the PATH, or `JAVA=/path/to/java`). It downloads the TLA+ tools pinned to v1.7.4 by URL and SHA-256 into `~/.cache/intafaced-tla`. It exits 0 only when the code passes every rule and each broken variant below fails on the rule it breaks. It takes about 20 seconds, the download included.
+It needs Java 11 or later (`java` on the PATH, or `JAVA=/path/to/java`). It downloads the TLA+ tools pinned to v1.7.4 by URL and SHA-256 into `~/.cache/intafaced-tla`. It exits 0 only when the code passes every rule and each broken variant below fails on the rule it breaks. It takes about 20 seconds (18 s on the Mac, 21 s on a GitHub runner), the download included.
 
-| Run                       | Closers in play                                                         | Expected                                 |
-| ------------------------- | ----------------------------------------------------------------------- | ---------------------------------------- |
-| `code-cancel-mass-stp`    | a person's cancel, cancel all, a self-trade pull                        | no error (about 153,000 distinct states) |
-| `code-expiry-sweep`       | a person's cancel, an expiry or IOC remainder, the operator's reconcile | no error (about 173,000 distinct states) |
-| `broken-mass-skips-guard` | cancel all finalizes without the engine's remainder, the #8560 bug      | NoReleaseOfOwed violated                 |
-| `broken-no-fill-key`      | a fill posts without its `trade.fill:<id>` key                          | PaysOnce violated                        |
-| `broken-sum-ignores-rows` | the release ignores fill rows already written                           | NoReleaseOfOwed violated                 |
+| Run                       | Closers in play                                                         | Expected                           |
+| ------------------------- | ----------------------------------------------------------------------- | ---------------------------------- |
+| `code-cancel-mass-stp`    | a person's cancel, cancel all, a self-trade pull                        | no error (278,602 distinct states) |
+| `code-expiry-sweep`       | a person's cancel, an expiry or IOC remainder, the operator's reconcile | no error (278,602 distinct states) |
+| `broken-mass-skips-guard` | cancel all finalizes without the engine's remainder, the #8560 bug      | NoReleaseOfOwed violated           |
+| `broken-no-fill-key`      | a fill posts without its `trade.fill:<id>` key                          | PaysOnce violated                  |
+| `broken-sum-ignores-rows` | the release ignores fill rows already written                           | NoReleaseOfOwed violated           |
 
 ## What it covers
 
