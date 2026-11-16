@@ -75,6 +75,8 @@ import { anvilBin, chainRecordPath, chainStatus, CHAIN_PORTS, GATE_URL, runSeedS
 import {
   anotherCheckoutsStack,
   claimSlot,
+  dropClaim,
+  SLOTS,
   FIX_SOCKET_PORTS,
   localStackSlot,
   releaseSlot,
@@ -2299,6 +2301,46 @@ async function refuseOtherStack() {
     if (!ours && (await portOpen(PORTS[name]))) portTaken(PORTS[name], name);
 }
 
+/**
+ * Stops the stack of a slot whose owner is gone, with this script's own `stop`, run on that slot and in that claim's own
+ * state folder (a claim may name its own LOCAL_STACK_STATE), and lets the claim go once nothing of the stack is left.
+ */
+function stopGoneOwner({ slot, claim }) {
+  say(
+    `  slot ${slot}: its owner ${claim.repo} is gone (start pid ${claim.pid} ended, no process left in that checkout but its stack); stopping that stack`,
+  );
+  const env = { ...process.env, LOCAL_STACK_SLOT: String(slot), ...(claim.state ? { LOCAL_STACK_STATE: claim.state } : {}) };
+  const r = spawnSync(process.execPath, [SCRIPT, 'stop'], { stdio: 'inherit', env });
+  const left = slotClaims()[slot];
+  if (!left.live) dropClaim(slot, claim);
+  return r.status === 0 && !left.live;
+}
+
+/**
+ * `reap`: stops every stack whose owner is gone, so a finished build's stack never holds a slot or the Mac's memory.
+ * A live owner's stack is never touched. `--dry-run` only names them; `--slot <n>` reaps that slot alone; `--json` prints
+ * one object per gone owner ({ slot, repo, pid, takenAt, stopped }). The pull runs it each round (claude-hub
+ * machine/run/stack-reap.py). Failure it prevents: on 16 Nov the stack of J-cex-spot-06, whose PR merged at 02:20 UTC,
+ * still ran at 04:24 UTC with 34 processes while builders waited on a loaded Mac.
+ */
+function cmdReap(args) {
+  const dry = args.includes('--dry-run');
+  const json = args.includes('--json');
+  const at = args.indexOf('--slot');
+  const only = at >= 0 ? Number(args[at + 1]) : null;
+  if (at >= 0 && !SLOTS.includes(only)) fail(`--slot must be one of ${SLOTS.join(', ')}`, 2);
+  const out = [];
+  for (const c of slotClaims()) {
+    if (!c.claim || !c.live || (only !== null && c.slot !== only) || !ownerGone(c.claim)) continue;
+    const row = { slot: c.slot, repo: c.claim.repo, pid: c.claim.pid, takenAt: c.claim.takenAt ?? null, stopped: false };
+    if (!dry) row.stopped = stopGoneOwner(c);
+    else if (!json) say(`  slot ${c.slot}: owner ${c.claim.repo} is gone; would stop its stack`);
+    out.push(row);
+  }
+  if (json) process.stdout.write(`${JSON.stringify(out)}\n`);
+  else if (!out.length) say('  reap: every stack on this Mac has its owner');
+}
+
 /** Runs this command again on the slot just claimed for this checkout, and exits with its status. */
 function runOnSlot(slot, state) {
   say(`  slot ${slot}: taken for this checkout (ports +${slot * 1000}, state ${state})`);
@@ -2386,10 +2428,7 @@ async function takeSlot() {
   // that slot, and the slot claimed. A live owner's slot is never touched.
   for (const c of slotClaims()) {
     if (!c.claim || !c.live || c.claim.repo === REPO || !ownerGone(c.claim)) continue;
-    say(
-      `  slot ${c.slot}: its owner ${c.claim.repo} is gone (start pid ${c.claim.pid} ended, no process left in that checkout but its stack); stopping that stack`,
-    );
-    spawnSync(process.execPath, [SCRIPT, 'stop'], { stdio: 'inherit', env: { ...process.env, LOCAL_STACK_SLOT: String(c.slot) } });
+    stopGoneOwner(c);
     const state = localStackState(os.homedir(), { ...process.env, LOCAL_STACK_SLOT: String(c.slot) });
     if (slotClaims()[c.slot].live || !claimSlot(c.slot, { state })) continue;
     if (c.slot === SLOT) return;
@@ -4394,7 +4433,7 @@ if (runningAsCli()) await runCli();
 async function runCli() {
   const [cmd = 'start', ...rest] = process.argv.slice(2);
   // A start takes a free slot itself; every other command here acts on the stack the slot points at.
-  const borrowed = ['start', 'plan'].includes(cmd) || cmd.startsWith('__') ? null : anotherCheckoutsStack();
+  const borrowed = ['start', 'plan', 'reap'].includes(cmd) || cmd.startsWith('__') ? null : anotherCheckoutsStack();
   if (borrowed) fail(borrowed);
   if (cmd === '__serve-customer')
     serveCustomer(Number(rest[0]) || PORTS.customer); // the port argument is for tests only
@@ -4441,6 +4480,7 @@ async function runCli() {
   else if (cmd === 'start') await cmdStart(rest);
   else if (cmd === 'build') await cmdBuild(rest);
   else if (cmd === 'stop') await cmdStop(rest);
+  else if (cmd === 'reap') cmdReap(rest);
   else if (cmd === 'plan') cmdPlan(rest);
   else if (cmd === 'csp-report') cmdCspReport(rest);
   else if (cmd === 'restart') await cmdRestart(rest);

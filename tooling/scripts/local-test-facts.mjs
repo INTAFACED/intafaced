@@ -105,6 +105,14 @@ export function claimSlot(slot, { state, pid = process.pid, home = os.homedir() 
   }
 }
 
+/** Lets go of `slot`'s claim when it is still exactly `claim` and nothing of its stack is left (a gone owner's, reaped). */
+export function dropClaim(slot, claim, home = os.homedir()) {
+  const now = slotClaims(home)[slot];
+  if (now.live || !now.claim || now.claim.repo !== claim.repo || now.claim.pid !== claim.pid) return false;
+  fs.rmSync(slotFile(slot, home), { force: true });
+  return true;
+}
+
 /** Lets this checkout's slot go (a full `stop`). */
 export function releaseSlot(home = os.homedir()) {
   for (const { slot, claim } of slotClaims(home)) if (claim?.repo === CHECKOUT) fs.rmSync(slotFile(slot, home), { force: true });
