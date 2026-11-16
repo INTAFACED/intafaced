@@ -19,6 +19,7 @@
     "garden/own-gap-wording": "error",
     "garden/no-number-money": "error",
     "garden/no-random-request-key": "error",
+    "garden/no-shared-market-on-book": "error",
     "garden/no-local-scale": "error",
     "garden/no-hand-decimal-parse": "error",
     "garden/no-hand-trpc-unwrap": "error",
