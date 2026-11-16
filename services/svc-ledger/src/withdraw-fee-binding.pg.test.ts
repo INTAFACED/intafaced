@@ -96,7 +96,7 @@ describe('a withdrawal fee bound to its posted hold (Postgres)', () => {
       post: (req: PostRequest) => engine.post(req),
       getTxByKey: (key: string) => engine.getTxByKey(key),
       balance: (ref: Parameters<PostgresLedger['balance']>[0]) => engine.balance(ref),
-    } as unknown as LedgerService;
+    } as LedgerService;
   }, 120_000);
 
   afterAll(async () => {
