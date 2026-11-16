@@ -1,7 +1,7 @@
 // garden/count-zero-needs-shown: in a journey step, a count of 0 proves something is absent only on a page that has drawn.
 // `await page.goto(url); await expect(page.getByTestId('campaign-budget-left')).toHaveCount(0);` (J-campaigns-01 #3 at
 // #8498) passes the moment the navigation returns, before the room has rendered anything, so it would pass on a page that
-// later shows the line. The fix is `absentIn(container, locator)` (apps/customer/tests/real-app/absent.mjs), which shows
+// later shows the line. The fix is `absentIn(container, locator)` (the `absent` module beside the journey files), which shows
 // the container first. A count of 0 is judged by what came before it in the same step: it is fine after a check that
 // something is shown (toBeVisible, toHaveText, toContainText, toHaveCount(n > 0), ...), and flagged when a navigation
 // (goto, reload, goBack, goForward) comes after the last such check.
@@ -148,7 +148,7 @@ const countZeroNeedsShown = {
           node,
           message:
             'a count of 0 right after a navigation, with nothing shown since, passes before the page has drawn: use ' +
-            '`absentIn(container, locator)` from ./absent.mjs, which shows the container the thing would sit in first',
+            '`absentIn(container, locator)` from the `absent` module beside the journey files, which shows the container the thing would sit in first',
         });
       },
     };
