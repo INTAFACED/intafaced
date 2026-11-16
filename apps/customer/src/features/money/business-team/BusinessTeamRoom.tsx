@@ -26,6 +26,7 @@ import { defineCopy } from '../../../shared/i18n';
 import type { ApiResult } from '../../../shared/api';
 import { useResource, type Resource } from '../../../shared/resource';
 import { useSession } from '../../session/session';
+import { useHeldId, type HeldId } from './held-id';
 
 /**
  * A business bank team and its approval rules (J-bank-19; BK-biz-01 to BK-biz-04), on the flow template.
@@ -235,13 +236,20 @@ function useChange(after: () => void) {
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState<Failed | null>(null);
   const [notice, setNotice] = useState('');
-  async function run<S>(procedure: string, body: unknown, schema: ZodType<S>, done?: (data: S) => string): Promise<S | null> {
+  async function run<S>(
+    procedure: string,
+    body: unknown,
+    schema: ZodType<S>,
+    done?: (data: S) => string,
+    held?: HeldId,
+  ): Promise<S | null> {
     if (busy) return null;
     setBusy(true);
     setFailed(null);
     setNotice('');
     const out = await api.mutate('bank', procedure, body, schema);
     setBusy(false);
+    held?.settle(out);
     if (!out.ok) {
       setFailed(out);
       after();
@@ -388,6 +396,11 @@ function TeamParts({ o, reloadTop, t }: { o: BusinessTeamOverview; reloadTop: ()
   const invites = useBank('businessTeam.invites', manage ? input : null, z.array(businessTeamInviteSchema), key, rev);
   const rules = useBank('businessTeam.rules', input, z.array(businessTeamRuleSchema), key, rev);
   const payments = useBank('businessTeam.payments', input, z.array(businessTeamPaymentSchema), key, rev);
+  // Each form keeps its request's id until the bank answers it (useHeldId), so a press after a lost answer is the same request.
+  const roleId = useHeldId();
+  const inviteId = useHeldId();
+  const ruleId = useHeldId();
+  const paymentId = useHeldId();
   const change = useChange(() => {
     setRev((n) => n + 1);
     reloadTop();
@@ -437,9 +450,10 @@ function TeamParts({ o, reloadTop, t }: { o: BusinessTeamOverview; reloadTop: ()
             void change
               .run(
                 'businessTeam.createRole',
-                { accountId, roleId: newId(), name: roleName.trim(), permissions: rolePerms },
+                { accountId, roleId: roleId.id, name: roleName.trim(), permissions: rolePerms },
                 businessTeamRoleSchema,
                 (r) => t('roleCreated', { name: r.name }),
+                roleId,
               )
               .then((r) => {
                 if (r) {
@@ -580,8 +594,10 @@ function TeamParts({ o, reloadTop, t }: { o: BusinessTeamOverview; reloadTop: ()
               void change
                 .run(
                   'businessTeam.invite',
-                  { accountId, inviteId: newId(), email, ...roleChoice(inviteRole) },
+                  { accountId, inviteId: inviteId.id, email, ...roleChoice(inviteRole) },
                   businessTeamInviteMadeSchema,
+                  undefined,
+                  inviteId,
                 )
                 .then((made) => {
                   if (made) {
@@ -699,7 +715,7 @@ function TeamParts({ o, reloadTop, t }: { o: BusinessTeamOverview; reloadTop: ()
                   'businessTeam.addRule',
                   {
                     accountId,
-                    ruleId: newId(),
+                    ruleId: ruleId.id,
                     overAmount: ruleOver.trim(),
                     payee: rulePayee.trim() || null,
                     paymentType: ruleType || null,
@@ -707,6 +723,7 @@ function TeamParts({ o, reloadTop, t }: { o: BusinessTeamOverview; reloadTop: ()
                   },
                   businessTeamRuleSchema,
                   () => t('ruleSaved'),
+                  ruleId,
                 )
                 .then((r) => {
                   if (r) {
@@ -774,9 +791,10 @@ function TeamParts({ o, reloadTop, t }: { o: BusinessTeamOverview; reloadTop: ()
               void change
                 .run(
                   'businessTeam.propose',
-                  { accountId, paymentId: newId(), payee: payee.trim(), paymentType: payType, amount: payAmount.trim() },
+                  { accountId, paymentId: paymentId.id, payee: payee.trim(), paymentType: payType, amount: payAmount.trim() },
                   businessTeamPaymentSchema,
                   () => t('proposed'),
+                  paymentId,
                 )
                 .then((p) => {
                   if (p) {
@@ -825,6 +843,7 @@ function SpendPart({ o, t }: { o: BusinessTeamOverview; t: T }) {
   const [rev, setRev] = useState(0);
   const spend = useBank('businessTeam.spend', { accountId }, businessTeamSpendSchema, accountId, rev);
   const manage = o.me.permissions.includes('manage_team');
+  const departmentId = useHeldId();
   const change = useChange(() => setRev((n) => n + 1));
   const [name, setName] = useState('');
   const [budget, setBudget] = useState('');
@@ -893,8 +912,10 @@ function SpendPart({ o, t }: { o: BusinessTeamOverview; t: T }) {
                   void change
                     .run(
                       'businessTeam.addDepartment',
-                      { accountId, departmentId: newId(), name: name.trim(), budget: budget.trim() || null },
+                      { accountId, departmentId: departmentId.id, name: name.trim(), budget: budget.trim() || null },
                       businessTeamDepartmentSchema,
+                      undefined,
+                      departmentId,
                     )
                     .then((d) => {
                       if (d) {

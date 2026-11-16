@@ -336,6 +336,24 @@ describe('business bank team and approval rules (J-bank-19)', () => {
     expect(await owner.businessTeam.payments({ accountId })).toEqual([]);
   });
 
+  it('a payment sent at once whose partner answer is lost, pressed again with the same id, moves once', async () => {
+    const { accountId, owner } = await business();
+    const paymentId = randomUUID();
+    const input = { accountId, paymentId, payee: 'TEST Supplier', paymentType: 'domestic' as const, amount: '700' };
+    partner.set(`business:${accountId}`, { nextReply: 'lost' });
+    expect(await refused(owner.businessTeam.propose(input))).toBe('bank.partner_reply_lost');
+    // The form sends the same id again (held-id.ts): the bank reads the move back by its key.
+    const again = await owner.businessTeam.propose(input);
+    expect(again).toMatchObject({ status: 'sent', approvalsNeeded: 0 });
+    const moves = await partner.bank.moves(`business:${accountId}`, { limit: 50 });
+    expect(moves.filter((m) => m.key === businessPaymentKey(paymentId))).toHaveLength(1);
+    expect(await owner.businessTeam.propose(input)).toMatchObject({ status: 'sent', partnerMoveId: again.partnerMoveId });
+    expect(await partner.bank.moves(`business:${accountId}`, { limit: 50 })).toHaveLength(1);
+    // The same id on other terms is refused, never a second payment.
+    expect(await refused(owner.businessTeam.propose({ ...input, amount: '701' }))).toBe('bank.business_request_conflict');
+    expect(ledger.journal()).toEqual([]);
+  });
+
   it('a partner refusal that moved nothing closes the payment as refused', async () => {
     const { accountId, owner } = await business();
     const paymentId = randomUUID();
