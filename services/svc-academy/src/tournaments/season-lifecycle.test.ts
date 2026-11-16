@@ -98,7 +98,6 @@ import {
   seasonStatusLineTokenCount,
   parseSeasonStatusLine,
   seasonStatusLineMatches,
-  parseSeasonStatusLineDetailed,
   seasonStatusLineDetailedConsistent,
   seasonCountInRange,
   liveSeasonCountAtLeast,

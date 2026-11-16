@@ -11,10 +11,10 @@ import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
-import { MemoryLedger, parseAmount as amt, recipes, userAvailable, type PostRequest } from '@intafaced/ledger-client';
+import { MemoryLedger, parseAmount as amt, recipes, userAvailable } from '@intafaced/ledger-client';
 import { memoryLedgerHistory } from '../analytics/ledger-history.js';
 import { createBankServices } from '../bank-service.js';
-import { createBankRouter, type BankRouter } from '../router.js';
+import { createBankRouter } from '../router.js';
 import { fixedPriceSource } from './prices.js';
 import { DEFAULT_LIQUIDATION_POLICY } from './risk.js';
 
@@ -31,11 +31,6 @@ const MIGRATIONS = readdirSync(drizzle)
   .map((f) => readFileSync(join(drizzle, f), 'utf8'));
 
 const DB_URL = process.env.TEST_DATABASE_URL ?? 'postgres://intafaced_ops:intafaced_ops@localhost:5433/intafaced_test';
-
-type WireBody = {
-  result?: { data?: unknown };
-  error?: { message?: string; data?: { code?: string; httpStatus?: number } };
-};
 
 const db: TestDatabase = await createTestDatabase({ service: 'bank', url: DB_URL, migrations: MIGRATIONS });
 const sql = db.sql;
@@ -66,30 +61,6 @@ function signedHeaders(p: Principal = principal()): Record<string, string> {
     'x-intafaced-region': 'DE',
     'content-type': 'application/json',
   };
-}
-
-async function mountDoors(bank: ReturnType<typeof createBankServices>): Promise<FastifyInstance> {
-  const router = createBankRouter(bank);
-  const app = Fastify({ logger: false });
-  await app.register(fastifyTRPCPlugin, {
-    prefix: '/trpc',
-    trpcOptions: {
-      router,
-      createContext: ({ req }) => edgeContext(req),
-    } satisfies FastifyTRPCPluginOptions<BankRouter>['trpcOptions'],
-  });
-  await app.ready();
-  return app;
-}
-
-async function post(
-  app: FastifyInstance,
-  path: string,
-  input: Record<string, unknown>,
-  headers: Record<string, string> = signedHeaders(),
-): Promise<{ statusCode: number; body: WireBody }> {
-  const res = await app.inject({ method: 'POST', url: `/trpc/${path}`, headers, payload: input });
-  return { statusCode: res.statusCode, body: res.json() as WireBody };
 }
 
 async function fund(ledger: MemoryLedger, userId: string, assetId: string, value: string) {

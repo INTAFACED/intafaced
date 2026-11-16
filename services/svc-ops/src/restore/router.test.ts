@@ -1,14 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
-import { createEdgeContext, encodePrincipal, signPrincipalHeader, type ActionApproval } from '@intafaced/contracts';
-import {
-  OPS_CUSTODY_CHAIN_UNWIRED,
-  OPS_CUSTODY_KEYS_UNPUBLISHED,
-  OPS_CUSTODY_LEDGER_UNWIRED,
-  OPS_RESTORE_ARCHIVE_UNCONFIGURED,
-  OPS_RESTORE_ARCHIVE_UNPROBED,
-  OPS_RESTORE_STORAGE_UNCONFIGURED,
-} from '../codes.js';
+import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
+import { OPS_RESTORE_ARCHIVE_UNCONFIGURED, OPS_RESTORE_ARCHIVE_UNPROBED, OPS_RESTORE_STORAGE_UNCONFIGURED } from '../codes.js';
 import { OpsService } from '../ops-service.js';
 import { createMemoryRestoreStore } from '../restore-store.js';
 import { createRestoreDesk } from './desk.js';

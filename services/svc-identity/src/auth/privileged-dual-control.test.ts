@@ -4,13 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { TRPCError } from '@intafaced/contracts';
 import type { AuthService } from './auth-service.js';
-import type { FreezeService } from '../affiliates/freeze-service.js';
-import {
-  installFreezeDualControl,
-  installPrivilegedDualControl,
-  requirePrivilegedDualControl,
-  stubActionApprovals,
-} from './privileged-dual-control.js';
+import { installPrivilegedDualControl, requirePrivilegedDualControl, stubActionApprovals } from './privileged-dual-control.js';
 
 const ACTOR = '11111111-1111-4111-8111-111111111111';
 const CONFIRM = '22222222-2222-4222-8222-222222222222';
