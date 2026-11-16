@@ -40,6 +40,11 @@ export interface RampPartnerBook {
   paid(orderId: string): void;
   returned(orderId: string): void;
   report(now?: Date): RampPartnerReport;
+  /**
+   * LOCAL TEST age door: the partner's clock passes `ms` for one order (its open time and its quote's expiry move back),
+   * so a journey sees a quote run out at the partner without waiting on the wall clock. False for an order it never opened.
+   */
+  age(orderId: string, ms: number): boolean;
 }
 
 interface Order {
@@ -83,6 +88,13 @@ export function rampPartnerBook(label: string, clock: () => Date = () => new Dat
     returned(orderId) {
       const order = at(orderId);
       if (order && order.paidAt && !order.returnedAt) order.returnedAt = clock();
+    },
+    age(orderId, ms) {
+      const order = at(orderId);
+      if (!order || !Number.isInteger(ms) || ms <= 0) return false;
+      order.openedAt = new Date(order.openedAt.getTime() - ms);
+      if (order.quoteExpiresAt) order.quoteExpiresAt = new Date(order.quoteExpiresAt.getTime() - ms);
+      return true;
     },
     report(now = clock()) {
       const counts = Object.fromEntries(RAMP_PARTNER_ORDER_STATES.map((s) => [s, 0])) as Record<RampPartnerOrderState, number>;

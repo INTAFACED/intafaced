@@ -34,6 +34,15 @@ describe("the ramp partner's own report (J-bank-28 #3)", () => {
     expect(book.report().orders).toMatchObject({ opened: 1, expired: 0, returned: 0 });
   });
 
+  it("the TEST age door moves one order's clock back, and its quote runs out at the partner", () => {
+    const book = rampPartnerBook('TEST ramp', () => at(0));
+    book.opened('o', at(600));
+    expect(book.age('o', 601_000)).toBe(true);
+    expect(book.age('missing', 1000)).toBe(false);
+    expect(book.age('o', 0)).toBe(false);
+    expect(book.report().orders).toMatchObject({ opened: 0, expired: 1 });
+  });
+
   it('with no partner the desk reads no data, never zero', () => {
     expect(rampMetricsView(null)).toEqual({ partner: null });
   });

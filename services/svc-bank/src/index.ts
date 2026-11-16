@@ -927,6 +927,19 @@ if (rampBook) {
       .header('cache-control', 'no-store')
       .send({ label: 'TEST', value: rampMetricsView(rampBook.report()).partner });
   });
+  // The TEST age door: the partner's clock passes for one order it opened (no wall-clock wait in a journey).
+  app.post('/test-ramp-partner/age', async (req, reply) => {
+    if (!onLoopback(req.socket.remoteAddress)) return reply.code(403).send({ error: 'loopback only' });
+    const body = (req.body ?? {}) as { orderId?: unknown; seconds?: unknown };
+    if (typeof body.orderId !== 'string' || typeof body.seconds !== 'number') {
+      return reply.code(400).send({ error: 'orderId and seconds are required' });
+    }
+    const aged = rampBook.age(body.orderId, Math.round(body.seconds * 1000));
+    return reply
+      .code(aged ? 200 : 404)
+      .header('cache-control', 'no-store')
+      .send(aged ? { label: 'TEST', aged: true } : { error: 'no such order' });
+  });
 }
 /**
  * LOCAL TEST: the TEST card partner's own book on loopback (`cards/test-card-partner-record.ts`), so a journey compares

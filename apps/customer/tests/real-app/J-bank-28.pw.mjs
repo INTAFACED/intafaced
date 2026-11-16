@@ -4,7 +4,7 @@ import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { DEVICE_KEY, EDGE, ORIGIN, api as stackApi, tool } from './stack.mjs';
 import { signUp, verify } from './desk.mjs';
-import { setPartner, withPartner } from './partner.mjs';
+import { setPartner } from './partner.mjs';
 import { STACK_PORTS } from '../../../../tooling/scripts/local-test-facts.mjs';
 
 // J-bank-28, in the running app (docs/roadmap/journeys.json): I watch earn pools, ramps and direct debits (finance), on
@@ -12,7 +12,8 @@ import { STACK_PORTS } from '../../../../tooling/scripts/local-test-facts.mjs';
 // so the stack runs its TEST stand-ins: the pay-in partner for add money (`payin-sim`, with the TEST rate stand-in
 // `ramp-sim`), the TEST partner bank that holds each person's money (`custody: 'off'`) and answers for their direct
 // debits, and the TEST direct debit scheme (`dd-sim`), whose signed job doors this file calls as the scheme would.
-//   #3 makes four TEST add-money orders (paid, approved, opened, and one whose quote the TEST ramp says ran out), and the
+//   #3 makes four TEST add-money orders (paid, approved, opened, and one left unapproved until its quote runs out at the
+//      partner, through a TEST age door on the partner's own book: no wall-clock wait), and the
 //      desk's orders by state, partner health and quote expiries match the partner's own report, read on loopback
 //      straight from the stand-in (svc-bank src/ramps/ramp-partner-book.ts), never through the app. For one restart the
 //      stack runs with no pay-in partner (LOCAL_STACK_BANK_ONRAMP_PARTNER=off) and the desk reads "no data", not zero.
@@ -140,10 +141,9 @@ function restartBank(switches) {
   }
 }
 
-/** One add-money order at the TEST pay-in partner: pay by bank from NL, `amount` USDT. Answers the request it opened. */
-async function openOrder(own, method = 'pay_by_bank') {
-  const started = await own.mutate('addMoney.start', { requestId: randomUUID(), assetId: 'USDT', amount: '10', method, country: 'NL' });
-  return started;
+/** One add-money order at the TEST pay-in partner: pay by bank from NL, 10 USDT. Answers the request it opened. */
+async function openOrder(own) {
+  return own.mutate('addMoney.start', { requestId: randomUUID(), assetId: 'USDT', amount: '10', method: 'pay_by_bank', country: 'NL' });
 }
 /** The payer approves an order on the partner's own page (its approve button's form post). */
 async function approve(onrampId) {
@@ -161,8 +161,7 @@ test(`${J} #3 reads ramp metrics: orders by state, partner health and quote expi
   expect((await own.mutate('currencies.add', { assetId: 'USDT' })).ok).toBe(true);
   const before = counts(await rampReport());
 
-  // Four TEST orders at the partner: one paid, one approved by the payer, one only opened, and one whose quote the TEST
-  // ramp says ran out (its own word, `rampQuote: 'expired'`), which the app refuses as expired.
+  // Four TEST orders at the partner: one paid, one approved by the payer, one only opened, and one whose quote runs out.
   const paid = await openOrder(own);
   expect(paid, JSON.stringify(paid).slice(0, 300)).toMatchObject({ ok: true, data: { status: 'opened' } });
   await approve(paid.data.onramp.onrampId);
@@ -172,11 +171,12 @@ test(`${J} #3 reads ramp metrics: orders by state, partner health and quote expi
   await approve(approved.data.onramp.onrampId);
   const opened = await openOrder(own);
   expect(opened.ok).toBe(true);
-  await withPartner(who, { custody: 'off', rampQuote: 'expired' }, async () => {
-    const expired = await openOrder(own, 'card');
-    expect(expired.ok ? expired.data.refusalCode : expired.code, JSON.stringify(expired).slice(0, 300)).toBe('bank.onramp_quote_expired');
-  });
-  await setPartner(who, { custody: 'off' });
+  // The fourth order is opened and never approved; the partner's clock passes past its quote (the TEST age door on its
+  // own book, no wall-clock wait), so at the partner its quote ran out unpaid.
+  const lapsed = await openOrder(own);
+  expect(lapsed.ok).toBe(true);
+  const lapsedId = lapsed.data.onramp.onrampId;
+  expect((await partnerRecord('/test-ramp-partner/age', { orderId: lapsedId, seconds: 3600 })).status).toBe(200);
 
   const report = await rampReport();
   const after = counts(report);
@@ -201,10 +201,11 @@ test(`${J} #3 reads ramp metrics: orders by state, partner health and quote expi
   await expect(metrics.getByTestId('ramp-quote-expiries')).toHaveAttribute('data-count', String(report.quoteExpiries.count));
   const shownExpiries = await metrics.getByTestId('ramp-quote-expiry').evaluateAll((els) => els.map((e) => e.getAttribute('data-order')));
   expect(shownExpiries).toEqual(report.quoteExpiries.latest.map((e) => e.orderId));
-  // The order the partner opened on the quote it says ran out is in its expiries, and none of the other three is.
-  const mine = new Set([paid, approved, opened].map((o) => o.data.onramp.onrampId));
-  expect(report.quoteExpiries.latest.some((e) => mine.has(e.orderId))).toBe(false);
-  expect(report.quoteExpiries.latest.length).toBeGreaterThan(0);
+  // The order whose quote ran out is in the partner's expiries and on the desk, and none of the other three is.
+  expect(report.quoteExpiries.latest.map((e) => e.orderId)).toContain(lapsedId);
+  await expect(metrics.locator(`[data-testid="ramp-quote-expiry"][data-order="${lapsedId}"]`)).toBeVisible();
+  const others = new Set([paid, approved, opened].map((o) => o.data.onramp.onrampId));
+  expect(report.quoteExpiries.latest.some((e) => others.has(e.orderId))).toBe(false);
   await page.context().close();
 
   // With no pay-in partner at all, the desk says "no data", never zero orders.
