@@ -275,7 +275,7 @@ describe('svc-trade order-route-reconcile (H8a PG-hard)', () => {
   });
 
   describe('CX-9 reconcile — open+hold no engine', () => {
-    it('releases remainder once when engine misses and trade.fills prove empty', async () => {
+    it('releases remainder once when engine misses and trade.fills prove empty, on a miss first sighted the floor ago', async () => {
       await fund(ALICE, 'USDT', '1000');
       const order = await trade.placeOrder(principalFor(ALICE), {
         marketId: btcusdt.id,
@@ -289,7 +289,14 @@ describe('svc-trade order-route-reconcile (H8a PG-hard)', () => {
       expect(await heldFor(ALICE, 'USDT', order.id)).toBe('200');
 
       matching.scriptCancelMiss(order.id);
-      const result = await trade.reconcileOrder(order.id);
+      // The first look at the miss records it and keeps the hold: a full fill may still be settling (#8560).
+      const first = await trade.reconcileOrder(order.id, { engineMissFloorSeconds: 60 });
+      expect(first.case).toBe('open_hold_no_engine_unknown');
+      expect(first.action).toBe('fail_closed');
+      expect(await heldFor(ALICE, 'USDT', order.id)).toBe('200');
+      // The owner's floor later, the book still misses it and trade.fills still show no fill.
+      await sql`UPDATE trade.operator_sweep_sightings SET first_seen_at = now() - interval '61 seconds' WHERE order_id = ${order.id}`;
+      const result = await trade.reconcileOrder(order.id, { engineMissFloorSeconds: 60 });
 
       expect(result.case).toBe('open_hold_no_engine');
       expect(result.action).toBe('released');

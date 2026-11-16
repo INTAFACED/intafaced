@@ -148,7 +148,7 @@ describe('#8560: an engine miss is not proof of no fill (PG-hard)', () => {
     expect(await t.hold()).toBe(amt('50'));
 
     // The book no longer lists the order and trade.fills shows nothing yet: one look cannot tell this from a lost order.
-    const result = await t.trade.reconcileOrder(t.resting.id);
+    const result = await t.trade.reconcileOrder(t.resting.id, { engineMissFloorSeconds: 60 });
     // Soft, so a failing run also shows what then happens to the taker's fill.
     expect.soft(result.action).not.toBe('released');
     expect.soft(await t.hold()).toBe(amt('50'));
@@ -160,5 +160,38 @@ describe('#8560: an engine miss is not proof of no fill (PG-hard)', () => {
     expect(await t.fillsOfResting()).toBe('1.000000000000000000');
     expect(await t.status()).toBe('filled');
     expect(await t.hold()).toBe(0n);
+  });
+
+  it('releases an engine miss only after the owner floor, never without one, and a listing in between starts the wait again', async () => {
+    const t = await filledButNotSettled();
+    // No fill ever lands here: the order behaves as one the engine lost.
+    const backdate = () =>
+      db.sql`UPDATE trade.operator_sweep_sightings SET first_seen_at = now() - interval '61 seconds' WHERE order_id = ${t.resting.id}`;
+
+    // No floor set: an engine miss is never released by the reconcile.
+    const unset = await t.trade.reconcileOrder(t.resting.id);
+    expect(unset.action).toBe('fail_closed');
+    expect(unset.detail).toContain('TRADE_OPERATOR_SWEEP_MIN_AGE_SECONDS is not set');
+    expect(await t.hold()).toBe(amt('50'));
+
+    // First sighting with the floor: recorded, hold kept.
+    expect((await t.trade.reconcileOrder(t.resting.id, { engineMissFloorSeconds: 60 })).action).toBe('fail_closed');
+    await backdate();
+    // The book lists it again: the earlier miss was not continuous, and its sighting is gone.
+    t.matching.scriptLive(t.resting.id, t.market.id, '1', 1, ALICE);
+    await t.trade.reconcileOrder(t.resting.id, { engineMissFloorSeconds: 60, leaveLive: true });
+    t.matching.scriptCancelMiss(t.resting.id);
+    const fresh = await t.trade.reconcileOrder(t.resting.id, { engineMissFloorSeconds: 60 });
+    expect(fresh.action).toBe('fail_closed');
+    expect(fresh.detail).toContain('less than 60s ago');
+    expect(await t.hold()).toBe(amt('50'));
+
+    // A continuous miss the floor old, and trade.fills still empty: released once.
+    await backdate();
+    const released = await t.trade.reconcileOrder(t.resting.id, { engineMissFloorSeconds: 60 });
+    expect(released.case).toBe('open_hold_no_engine');
+    expect(released.action).toBe('released');
+    expect(await t.hold()).toBe(0n);
+    expect(await t.status()).toBe('cancelled');
   });
 });

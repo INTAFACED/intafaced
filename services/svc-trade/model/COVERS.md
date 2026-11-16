@@ -42,7 +42,7 @@ Each step in the model names the code it stands for. A change to any of these is
 
 The same race on the real services, with a real Postgres: `src/spot/hold-release-race.pg.test.ts`, one test per closer.
 
-Not covered: OCO parents (`finalizeOcoWhenNoLegLive`, `oco-cancel.ts`; their own check is `ocoExecutionSettled`), the hold-unknown paths (`never_on_engine`), paper markets, and the reconcile sweep's engine-miss branch, which releases when `trade.fills` shows no fill. A full fill whose settlement is still on its way also shows no fill there; the operator's sweep (`admin/service.ts`) waits for two sightings a floor apart before acting, and the operator's single-order reconcile does not.
+Not covered: OCO parents (`finalizeOcoWhenNoLegLive`, `oco-cancel.ts`; their own check is `ocoExecutionSettled`), the hold-unknown paths (`never_on_engine`), paper markets, and the reconcile's engine-miss branch. A full fill whose settlement is still on its way shows no fill row there, so `finalize`'s `engineMissSighted` releases only on a miss first sighted the owner's floor ago with no listing since, and only while `trade.fills` still show no fill; the model has no clock, so that wait is proven by `src/spot/engine-miss-release.pg.test.ts`, not here.
 
 ## Last confirmed
 
