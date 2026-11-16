@@ -83,7 +83,7 @@ function flakyLedger(inner: MemoryLedger): { ledger: LedgerClient; fail: (plan: 
       const value = Reflect.get(target, prop, receiver) as unknown;
       return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
     },
-  }) as unknown as LedgerClient;
+  }) as LedgerClient;
   return { ledger, fail: (plan) => plans.push(plan) };
 }
 
