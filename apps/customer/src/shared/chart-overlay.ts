@@ -9,6 +9,7 @@
  *   scale taking every line in, so a line far from the bars stays on the chart to read and to drag.
  */
 import { useEffect, useRef, useState } from 'react';
+import type { ChartValue } from './chart-value';
 
 export interface CrosshairPoint {
   point?: { x: number; y: number };
@@ -30,14 +31,6 @@ export interface OverlayHost {
     applyOptions(options: Record<string, unknown>): void;
   };
   element: HTMLElement;
-}
-
-/**
- * A venue price (a decimal string) as the chart's own float, only to place it on the price scale. Never used for an
- * amount that is sent, locked or shown as money: those stay decimal strings.
- */
-export function chartPrice(price: string): number {
-  return Number(price);
 }
 
 /** How often the overlay is drawn again with no event: the price scale moves as new bars arrive. */
@@ -92,7 +85,7 @@ export function useChartOverlay(
 
 /** One line on the chart's canvas. `token` names the colour role (`--if-up`), read from the app's theme when drawn. */
 export interface PriceLineSpec {
-  price: number;
+  price: ChartValue;
   token: string;
   lineWidth: number;
   /** The library's line style: 0 solid, 2 dashed. */
