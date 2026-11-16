@@ -40,6 +40,7 @@ import {
   type UserVenueMarket,
   type UserVenueMarketStatus,
   type UserVenueOrder,
+  type UserVenueOrderRecord,
   type UserVenuePosition,
   type UserVenueSubAccount,
   type UserVenueSession,
@@ -327,6 +328,8 @@ interface OrderState {
   order: UserVenueOrder;
   readonly account: AccountState;
   readonly seq: number;
+  /** When the venue took the order (its order history, J-cex-spot-06 #1). */
+  readonly placedAt: Date;
   readonly builderFee: { readonly builder: string; readonly feeBps: Amount } | null;
   readonly leverageBps: number | null;
   readonly marginMode: VenueMarginMode | null;
@@ -1489,6 +1492,14 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     return this.asOf(this.account(account).orders.get(cloid)?.order ?? null);
   }
 
+  async orderHistory(account: UserVenueAccount): Promise<AsOf<readonly UserVenueOrderRecord[]>> {
+    this.up();
+    const list = [...this.account(account).orders.values()]
+      .sort((a, b) => b.seq - a.seq)
+      .map((o) => ({ order: o.order, placedAt: o.placedAt }));
+    return this.asOf(list);
+  }
+
   async fills(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueFill[]>> {
     this.up();
     return this.asOf(this.account(account).fills.filter((f) => f.filledAt.getTime() >= since.getTime()));
@@ -2293,6 +2304,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     const order: OrderState = {
       account: state,
       seq: this.seqCounter,
+      placedAt: this.clock(),
       builderFee,
       leverageBps: setting?.leverageBps ?? null,
       marginMode: setting?.marginMode ?? null,
@@ -2609,6 +2621,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     const order: OrderState = {
       account: state,
       seq: this.seqCounter,
+      placedAt: this.clock(),
       builderFee,
       leverageBps: setting.leverageBps,
       marginMode: setting.marginMode,

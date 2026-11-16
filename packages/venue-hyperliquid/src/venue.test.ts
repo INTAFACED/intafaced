@@ -685,6 +685,37 @@ describe('reads: the venue record, decimal strings to scaled bigints', () => {
     expect(() => mapOrderStatus('somethingNew')).toThrow();
   });
 
+  it('order history: every state the venue reports, newest placed first, with when it was placed (J-cex-spot-06 #1)', async () => {
+    const fake = fakeVenue();
+    const order = (oid: number, sz: string, origSz: string, timestamp: number) => ({
+      coin: 'ETH',
+      side: 'B',
+      limitPx: '2000',
+      sz,
+      origSz,
+      oid,
+      cloid: `0x${String(oid).padStart(32, '0')}`,
+      tif: 'Gtc',
+      orderType: 'Limit',
+      reduceOnly: false,
+      timestamp,
+    });
+    fake.info.historicalOrders = () => [
+      { order: order(1, '0', '0.5', NOW - 3000), status: 'filled', statusTimestamp: NOW - 2000 },
+      { order: order(3, '0.3', '0.5', NOW - 1000), status: 'open', statusTimestamp: NOW - 1000 },
+      { order: order(2, '0.5', '0.5', NOW - 2000), status: 'canceled', statusTimestamp: NOW - 1500 },
+    ];
+    const history = (await venueWith(fake).orderHistory(account)).value;
+    expect(fake.infoTypes).toContain('historicalOrders');
+    expect(history.map((r) => [r.order.venueOrderId, r.order.status, r.order.filled, r.placedAt.getTime()])).toEqual([
+      ['3', 'partially_filled', parseAmount('0.2'), NOW - 1000],
+      ['2', 'canceled', ZERO, NOW - 2000],
+      ['1', 'filled', parseAmount('0.5'), NOW - 3000],
+    ]);
+    // A cancelled order locks nothing; the open one still locks its remainder's margin.
+    expect(history[1]!.order.locked).toBe(ZERO);
+  });
+
   it('open orders: a spot buy holds its notional; a perp order its margin at the account leverage', async () => {
     const fake = fakeVenue();
     fake.info.frontendOpenOrders = () => [

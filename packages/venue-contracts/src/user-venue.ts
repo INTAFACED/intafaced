@@ -676,6 +676,15 @@ export interface UserVenueOrder {
  * sent (the order's own status says how it filled); `failed` when it was triggered and the venue could not carry it
  * out, with the venue's reason in its own words (`failure`) and the position left as it was.
  */
+/**
+ * One order in the venue's own order history (J-cex-spot-06 #1): the order as the venue reports it now, and when the venue
+ * says it was placed.
+ */
+export interface UserVenueOrderRecord {
+  readonly order: UserVenueOrder;
+  readonly placedAt: Date;
+}
+
 export interface UserVenueOrderTrigger extends VenueTrigger {
   readonly state: 'waiting' | 'triggered' | 'failed';
   readonly triggeredAt: Date | null;
@@ -1376,6 +1385,12 @@ export interface UserVenue {
   positions(account: UserVenueAccount): Promise<AsOf<readonly UserVenuePosition[]>>;
   /** By the signed action's nonce, the only id the venue knows it by. `null` is a confirmed miss. */
   withdrawal(account: UserVenueAccount, nonce: string): Promise<AsOf<UserVenueWithdrawal | null>>;
+  /**
+   * The account's orders in every state, newest placed first, as the venue keeps them (J-cex-spot-06 #1): open, filled,
+   * partly filled and cancelled. A venue keeps a bounded history (Hyperliquid: its 2000 most recent orders). Optional: a
+   * venue that publishes no order history leaves it out, and the door refuses the read `not_offered`.
+   */
+  orderHistory?(account: UserVenueAccount): Promise<AsOf<readonly UserVenueOrderRecord[]>>;
   /**
    * The on-chain deposits the venue has seen for this account, newest first (J-dex-protocol-05 #2). Optional: a venue
    * that publishes no deposit list leaves it out, and the door refuses the read `not_offered`.

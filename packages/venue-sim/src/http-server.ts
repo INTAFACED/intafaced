@@ -37,7 +37,7 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *   GET  /health, GET /venue                         descriptor, chain id, label TEST, and the deposit route (or null)
  *   POST /markets {account|null}, /preview {account,intent}, /prepare {account,signer,intent},
  *        /submit {prepared,signature}, /balances|/open-orders|/positions|/agents {account},
- *        /order-by-client-id {account,venueClientOrderId}, /fills {account,since}, /withdrawal {account,nonce}, /deposits {account},
+ *        /order-history {account}, /order-by-client-id {account,venueClientOrderId}, /fills {account,since}, /withdrawal {account,nonce}, /deposits {account},
  *        /builder-fee-approval {account,builder}, /builder-totals {builder}, /builder-claims {builder},
  *        /leverage {account,symbol}, /book {symbol,depth},
  *        /sub-accounts {account}, /transfer {account,nonce}   (UserVenueSubAccountReads, on the main account)
@@ -712,6 +712,8 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       return figuresAsSwitched(sim, account(body).owner, await sim.positions(account(body)));
     case '/agents':
       return sim.agents(account(body));
+    case '/order-history':
+      return sim.orderHistory(account(body));
     case '/order-by-client-id':
       return sim.orderByClientId(account(body), str(body, 'venueClientOrderId'));
     case '/order-signer':

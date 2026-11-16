@@ -138,6 +138,8 @@ const DATE_FIELDS: ReadonlySet<string> = new Set([
   // VenuePrint and VenueCandle (J-cex-spot-01 #5)
   'tradedAt',
   'openAt',
+  // UserVenueOrderRecord (J-cex-spot-06 #1)
+  'placedAt',
 ]);
 
 /**
