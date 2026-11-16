@@ -111,7 +111,7 @@ describe('money into a space, and its statement (BK-pots-02)', () => {
       scopes: ['bank:read', 'bank:write'],
       tier: 'full',
       mfa: true,
-    } as unknown as Principal;
+    } as Principal;
     const raw = encodePrincipal({ ...principal, expiresAt: new Date(Date.now() + 60_000) } as Principal);
     const edge = createEdgeContext({ secret: SECRET, serviceName: 'svc-bank' });
     return createBankRouter(bank).createCaller(

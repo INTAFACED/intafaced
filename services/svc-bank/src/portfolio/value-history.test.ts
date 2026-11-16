@@ -301,7 +301,7 @@ function callerFor(portfolio: PortfolioService, userId: string) {
     mfa: false,
     expiresAt: new Date(Date.now() + 60_000),
   } as Principal);
-  return createBankRouter({ portfolio } as unknown as BankServices).createCaller(
+  return createBankRouter({ portfolio } as BankServices).createCaller(
     createEdgeContext({ secret: SECRET, serviceName: 'svc-bank' })({
       headers: {
         'x-intafaced-principal': raw,

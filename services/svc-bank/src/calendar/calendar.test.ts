@@ -169,8 +169,7 @@ describe('the merged window', () => {
           ],
         },
         loans: {
-          loansOf: async () =>
-            [{ status: 'active' }, { status: 'repaid' }] as unknown as Awaited<ReturnType<CalendarDeps['loans']['loansOf']>>,
+          loansOf: async () => [{ status: 'active' }, { status: 'repaid' }] as Awaited<ReturnType<CalendarDeps['loans']['loansOf']>>,
         },
       }),
     );

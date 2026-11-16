@@ -79,7 +79,7 @@ function build(rows: CardRecord[]) {
       return rows.filter((r) => r.userId === userId).slice(0, limit);
     },
   };
-  const router = createBankRouter({ cards } as unknown as BankServices);
+  const router = createBankRouter({ cards } as BankServices);
   return { asked, as: (userId: string, scopes: string[]) => router.createCaller(signed(userId, scopes)) };
 }
 
