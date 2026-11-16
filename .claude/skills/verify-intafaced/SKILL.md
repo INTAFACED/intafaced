@@ -17,16 +17,16 @@ A local pass never counts as proof. The proof is the Real-app journeys run on th
 
 The journeys reach those through the same harness, so drive them through a journey step too.
 
-**Isolation:** up to four stacks run at once, one per checkout, each in its own slot with its own ports (all but one: the TEST miner door listens on 3999 in every slot, so drive a mining-pool step only when no other slot is up), state folder and journey results. A slot's state folder is long-lived: a stop keeps its data, so the database holds the accounts, orders and trades of every earlier run in that slot, by any checkout. Step tests make their own TEST person, so this rarely matters; a file marked `// Stack: fresh` needs a new state folder (`LOCAL_STACK_STATE`, in `docs/LOCAL-TEST-STACK.md`). Never drive a stack this checkout did not start: the doctor refuses one, and so do the journeys' config and helpers. With every slot held, `launch` exits 3. Prove the change on CI's stack instead: `gh workflow run real-app-journeys.yml --ref <branch> -f journeys="<J-id>.pw.mjs"`.
+**Isolation:** up to four stacks run at once, one per checkout, each in its own slot with its own ports (all but one: the TEST miner door listens on 3999 in every slot, so drive a mining-pool step only when the doctor's line says `other slots up: none`), state folder and journey results. A slot's state folder is long-lived: a stop keeps its data, so the database holds the accounts, orders and trades of every earlier run in that slot, by any checkout. Step tests make their own TEST person, so this rarely matters; a file marked `// Stack: fresh` needs a new state folder (`LOCAL_STACK_STATE`, in `docs/LOCAL-TEST-STACK.md`). Never drive a stack this checkout did not start: the doctor refuses one, and so do the journeys' config and helpers. With every slot held, `launch` exits 3. Prove the change on CI's stack instead: `gh workflow run real-app-journeys.yml --ref <branch> -f journeys="<J-id>.pw.mjs"`.
 
 ## Launch
 
-**Pick the feature first.** Run `pnpm local:stack verify map` (it needs no stack) and read the journey's file, as Drive says. Its Gotchas name what the launch must provide. A journey that reads past trades is launched with its id, so its first drive is not refused.
+**Pick the feature first.** Run `pnpm local:stack verify map` (it needs no stack), pick a journey in `.claude/skills/verify-intafaced/features/index.md`, and read its `features/<J-id>.md` (Drive below says what each part means). Its Gotchas name what the launch must provide. A journey that reads past trades is launched with its id, so its first drive is not refused.
 
 ```sh
 pnpm local:stack verify launch                 # this checkout's stack, built, started and readied
 pnpm local:stack verify launch J-charts-desk-01 # also writes the TEST chart history when that journey reads past trades
-pnpm local:stack verify launch --only edge,identity,trade,matching,ledger,customer,bank   # only these (a first start names the journeys' core six)
+pnpm local:stack verify launch --only edge,identity,trade,matching,ledger,customer,bank   # only these services
 ```
 
 It starts the stack, or reuses this checkout's running one. It builds only when the source changed since the last build, and it migrates every schema of a service it starts. From an empty state folder, it also enrols the TEST founders. Then it readies the stack once, the way a journeys shard is readied: matching restarted, the TEST gates, the TEST market maker and the TEST content (`readyStack` in `tooling/scripts/journey-local.mjs`). It ends by running the doctor, which prints one line, `verify: doctor: worth driving (<checks> ok; ...)`, or every check when one fails.
@@ -61,7 +61,7 @@ Its checks, one line each:
 - `build`: the running processes are on the build on disk, and the source has not changed since that build.
 - `readied`: `verify launch` readied this very stack.
 
-It ends `verify: doctor: worth driving` (exit 0) or `verify: doctor: not worth driving (<check>). Fix: <command>` (exit 1). Run it first whenever anything looks off. `drive` and `look` run it themselves, print its one line, and refuse an instance it fails.
+It ends `verify: doctor: worth driving` (exit 0) or `verify: doctor: not worth driving (<check>). Fix: <command>` (exit 1). Above that it names every other slot that is up (`other slots up: none`, or each slot and its checkout); that is no check, only what shares the machine. Run it first whenever anything looks off. `drive` and `look` run it themselves, print its one line, and refuse an instance it fails.
 
 ## Drive
 
@@ -98,7 +98,7 @@ It runs `tooling/scripts/verify-look.pw.mjs` through the same config and harness
 
 Every `drive` and `look` keeps one run folder: `.verify/runs/<UTC time>-<label>/`, in this checkout and ignored by git.
 
-- `summary.md`: what was driven, the exact command (it starts with `cd` to the checkout, so it can be pasted as it stands), the commit and whether `git status` was clean, the slot and address, start and end, exit code, and each test with PASS or FAIL, its `file:line` and its first error line. Under "What the harness said" are any `WORLD RESTORE` lines: the harness putting the shared test world back after the journey file that ran last in this slot, which may be another checkout's or an earlier run's (its record is in `/tmp/intafaced-real-app`, `-<slot>` after a slot above 0). Such a line says what could not be put back. Read it before you trust a step that reads the shared order book or a market.
+- `summary.md`: what was driven, the exact command to run it again (it starts with `cd` to the checkout and writes to a new temporary folder, `$OUT`, so a paste never empties this run's folder), the commit and whether `git status` was clean, the slot and address, start and end, exit code, and each test with PASS or FAIL, its `file:line` and its first error line. Under "What the harness said" are any `WORLD RESTORE` lines: the harness putting the shared test world back after the journey file that ran last in this slot, which may be another checkout's or an earlier run's (its record is in `/tmp/intafaced-real-app`, `-<slot>` after a slot above 0). Such a line says what could not be put back. Read it before you trust a step that reads the shared order book or a market.
 - `output.log`: everything the run printed.
 - `summary.json`: the same, for a script.
 - `report.json`: Playwright's JSON report.

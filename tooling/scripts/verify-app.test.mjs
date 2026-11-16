@@ -19,6 +19,7 @@ import {
   lsofPorts,
   parseHealth,
   planDrive,
+  againCommand,
   installedAnvil,
   reportTests,
   stackId,
@@ -356,7 +357,19 @@ test('evidence: each test with its verdict, first error line and screenshots; th
   };
   const md = summaryMarkdown(run);
   assert.match(md, /^# J-x-01-s1: FAIL$/m);
-  assert.match(md, /- Command: `JOURNEY_FILES="J-x-01\.pw\.mjs" pnpm exec playwright test`/);
+  assert.match(
+    md,
+    /- Command \(runs it again, writing to a new temporary folder, \$OUT, never this one\): `JOURNEY_FILES="J-x-01\.pw\.mjs" pnpm exec playwright test`/,
+  );
+  assert.equal(
+    againCommand(
+      '/w x',
+      { JOURNEY_FILES: 'J-a.pw.mjs J-b.pw.mjs', JOURNEY_REPORT: '/w x/.verify/runs/r1/report.json' },
+      ['pnpm', 'exec', 'playwright', 'test', '--output', '/w x/.verify/runs/r1/results', '--grep', 'J-a #2 (\\D|$)'],
+      '/w x/.verify/runs/r1',
+    ),
+    `cd '/w x' && OUT="$(mktemp -d)" && JOURNEY_FILES='J-a.pw.mjs J-b.pw.mjs' JOURNEY_REPORT="$OUT"/report.json pnpm exec playwright test --output "$OUT"/results --grep 'J-a #2 (\\D|$)'`,
+  );
   assert.match(md, /## What the harness said\n\nNo WORLD RESTORE line in output\.log: /);
   assert.match(md, /- Code: abc, with uncommitted edits \(2 path\(s\) in git status\), branch fix\/1/);
   assert.match(

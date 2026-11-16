@@ -401,13 +401,27 @@ export function shellWord(w) {
   return /^[A-Za-z0-9_@%+=:,./-]+$/.test(w) ? w : `'${String(w).replace(/'/g, `'\\''`)}'`;
 }
 
+/**
+ * The command that runs a drive or look again, for a shell: every path inside the kept run folder `dir` becomes one in a
+ * new temporary folder, `$OUT`, since Playwright empties its --output folder before a run and the report would be
+ * written over, so a paste never touches the evidence it is read from.
+ */
+export function againCommand(checkout, env, argv, dir) {
+  const word = (v) => {
+    const rest = String(v).startsWith(dir) ? String(v).slice(dir.length) : null;
+    return rest === null ? shellWord(v) : `"$OUT"${rest ? shellWord(rest) : ''}`;
+  };
+  const vars = Object.entries(env).map(([k, v]) => `${k}=${word(v)}`);
+  return `cd ${shellWord(checkout)} && OUT="$(mktemp -d)" && ${[...vars, ...argv.map(word)].join(' ')}`;
+}
+
 /** The run's summary.md: what was driven, how, on what, and what each test showed. */
 export function summaryMarkdown(run) {
   const lines = [
     `# ${run.label}: ${run.verdict}`,
     '',
     `- What: ${run.what}`,
-    `- Command: \`${run.command}\``,
+    `- Command (runs it again, writing to a new temporary folder, $OUT, never this one): \`${run.command}\``,
     `- Code: ${run.head}, ${run.dirty ? `with uncommitted edits (${run.dirty} path(s) in git status)` : 'clean (git status empty)'}, ${run.branch === 'HEAD' ? 'detached HEAD' : `branch ${run.branch}`}`,
     `- Stack: slot ${run.slot}, ${run.customer}`,
     `- Started ${run.startedAt}, ended ${run.endedAt}, exit ${run.exit}`,
@@ -670,11 +684,17 @@ async function doctor(io, { quiet = false } = {}) {
   }
   const checks = doctorChecks({ claim, status, plan, launch: readJson(LAUNCH), stack: currentStackId(claim) });
   const ok = checks.every((c) => c.ok);
+  // Not a check: what else runs beside this stack. The TEST miner door (3999) is the one port every slot shares.
+  const others = slotClaims()
+    .filter((c) => c.live && c.claim?.repo !== CHECKOUT)
+    .map((c) => `slot ${c.slot} (${c.claim.repo})`);
+  const othersLine = `other slots up: ${others.length ? others.join(', ') : 'none'}`;
   if (!quiet || !ok) {
     for (const c of checks) io.say(`${PREFIX} doctor ${c.ok ? 'ok ' : 'NOT'} ${c.name}: ${c.detail}`);
+    io.say(`${PREFIX} doctor ${othersLine}`);
     const first = checks.find((c) => !c.ok);
     io.say(ok ? `${PREFIX} doctor: worth driving` : `${PREFIX} doctor: not worth driving (${first.name}). Fix: ${first.fix}`);
-  } else io.say(`${PREFIX} doctor: worth driving (${checks.map((c) => c.name).join(', ')} ok; ${RUN} doctor prints each)`);
+  } else io.say(`${PREFIX} doctor: worth driving (${checks.map((c) => c.name).join(', ')} ok; ${othersLine}; ${RUN} doctor prints each)`);
   return { ok, checks, claim };
 }
 
@@ -785,7 +805,7 @@ async function drive(opts, io) {
     path.join(dir, 'results'),
     ...(plan.grep ? ['--grep', plan.grep] : []),
   ];
-  const command = `cd ${shellWord(CHECKOUT)} && JOURNEY_FILES=${shellWord(plan.files.join(' '))} JOURNEY_REPORT=${shellWord(report)} ${argv.map(shellWord).join(' ')}`;
+  const command = againCommand(CHECKOUT, { JOURNEY_FILES: plan.files.join(' '), JOURNEY_REPORT: report }, argv, dir);
   const startedAt = new Date().toISOString();
   io.say(`${PREFIX} drive: ${opts.id} ${plan.steps.map((n) => `#${n}`).join(' ')} in ${plan.files.join(', ')}`);
   const pw = await io.run(argv, { capture: true, env: { JOURNEY_FILES: plan.files.join(' '), JOURNEY_REPORT: report } });
@@ -816,9 +836,7 @@ async function look(opts, io) {
     ...(opts.selector ? { VERIFY_LOOK_SELECTOR: opts.selector } : {}),
     JOURNEY_REPORT: report,
   };
-  const command = `cd ${shellWord(CHECKOUT)} && ${Object.entries(env)
-    .map(([k, v]) => `${k}=${shellWord(v)}`)
-    .join(' ')} ${argv.map(shellWord).join(' ')}`;
+  const command = againCommand(CHECKOUT, env, argv, dir);
   const startedAt = new Date().toISOString();
   io.say(
     `${PREFIX} look: ${opts.path}${opts.signUp ? ' as a new TEST person' : ' signed out'}${opts.selector ? `, element ${opts.selector}` : ''}`,
