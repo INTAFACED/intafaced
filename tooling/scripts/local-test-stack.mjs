@@ -2361,9 +2361,14 @@ function runOnSlot(slot, state) {
  */
 export function ownerGone(
   claim,
-  { alive = (pid) => Boolean(readProcessIdentity(pid)), cwds = processCwds, parents = processParents } = {},
+  { alive = (pid) => Boolean(readProcessIdentity(pid)), identity = readProcessIdentity, cwds = processCwds, parents = processParents } = {},
 ) {
   if (!claim?.repo || alive(claim.pid)) return false;
+  // The agent that started the stack (agentOwner), while that same process lives: its working folder may be anywhere.
+  if (claim.owner?.pid) {
+    const id = identity(claim.owner.pid);
+    if (id && (!claim.owner.startedAt || Math.abs(id.startedAt - claim.owner.startedAt) < 2000)) return false;
+  }
   if (!fs.existsSync(claim.repo)) return true;
   const inCheckout = cwds();
   const ppid = parents();
@@ -2375,6 +2380,33 @@ export function ownerGone(
   };
   const root = path.resolve(claim.repo);
   return ![...inCheckout].some(([pid, cwd]) => (cwd === root || cwd.startsWith(`${root}/`)) && !ofStack(pid));
+}
+/**
+ * The agent process this start runs under: the nearest `claude` or `codex` above it, with its start time, recorded in the
+ * slot claim so its owner reads present while that agent lives, whatever folder it works in (a scratchpad checkout's
+ * agent sits in its own worktree). Null when there is none (a person's terminal) or `ps` can't be read.
+ */
+export function agentOwner(parents = processParents, names = processNames, identity = readProcessIdentity) {
+  const ppid = parents();
+  const comm = names();
+  if (!ppid || !comm) return null;
+  for (let p = ppid.get(process.pid), n = 0; p > 1 && n < 64; p = ppid.get(p), n++)
+    if (/^(claude|codex)$/i.test(path.basename(comm.get(p) ?? ''))) {
+      const id = identity(p);
+      return id ? { pid: p, startedAt: id.startedAt } : null;
+    }
+  return null;
+}
+/** Every process's command name (`ps -o comm`), or null when it cannot be read. */
+function processNames() {
+  const r = spawnSync('ps', ['-axo', 'pid=,comm='], { encoding: 'utf8' });
+  if (r.status !== 0) return null;
+  const out = new Map();
+  for (const line of r.stdout.trim().split('\n')) {
+    const m = line.trim().match(/^(\d+)\s+(.*)$/);
+    if (m) out.set(Number(m[1]), m[2]);
+  }
+  return out;
 }
 /** Every process's working folder (`lsof -d cwd`), or null when it cannot be read. */
 function processCwds() {
@@ -2410,7 +2442,7 @@ async function takeSlot() {
     `${slot}: ${claim && live ? `${claim.repo} (pid ${claim.pid})` : 'a process with no claim on its ports'}`;
   const claims = slotClaims();
   if (process.env.LOCAL_STACK_SLOT !== undefined || claims.some((c) => c.claim?.repo === REPO)) {
-    if (claimSlot(SLOT, { state: STATE })) return;
+    if (claimSlot(SLOT, { state: STATE, owner: agentOwner() })) return;
     fail(`refusing: slot ${holder(claims[SLOT])} holds it; leave LOCAL_STACK_SLOT unset and the start takes a free slot`);
   }
   for (const c of claims) {
@@ -2420,7 +2452,7 @@ async function takeSlot() {
     const oursRunning = fs.existsSync(marker) && readJson(marker).repo === REPO && stackPids(state).some((pid) => readProcessIdentity(pid));
     const { postgres, nats, edge, customer } = slotPorts(c.slot).stack;
     if (!oursRunning && (await Promise.all([postgres, nats, edge, customer].map(portOpen))).some(Boolean)) continue;
-    if (!claimSlot(c.slot, { state })) continue;
+    if (!claimSlot(c.slot, { state, owner: agentOwner() })) continue;
     if (c.slot === SLOT) return;
     runOnSlot(c.slot, state);
   }
@@ -2430,7 +2462,7 @@ async function takeSlot() {
     if (!c.claim || !c.live || c.claim.repo === REPO || !ownerGone(c.claim)) continue;
     stopGoneOwner(c);
     const state = localStackState(os.homedir(), { ...process.env, LOCAL_STACK_SLOT: String(c.slot) });
-    if (slotClaims()[c.slot].live || !claimSlot(c.slot, { state })) continue;
+    if (slotClaims()[c.slot].live || !claimSlot(c.slot, { state, owner: agentOwner() })) continue;
     if (c.slot === SLOT) return;
     runOnSlot(c.slot, state);
   }

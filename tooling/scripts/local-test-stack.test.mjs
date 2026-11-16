@@ -1707,5 +1707,60 @@ console.log('local-test-stack: customer folder override checks passed');
     true,
     'a removed checkout has no owner',
   );
+  // An agent working outside the checkout (a scratchpad checkout's agent sits in its own worktree) owns the slot while
+  // that same process lives (fresh review on #8599).
+  const owned = { ...claim, owner: { pid: 700, startedAt: 1000 } };
+  const onlyStack = () => new Map([[500, `${repo}/services/svc-edge`]]);
+  assert.equal(
+    ownerGone(owned, { alive: dead, identity: (pid) => (pid === 700 ? { startedAt: 1500 } : null), cwds: onlyStack, parents }),
+    false,
+    'the recorded agent still running, elsewhere: the owner is present',
+  );
+  assert.equal(
+    ownerGone(owned, { alive: dead, identity: (pid) => (pid === 700 ? { startedAt: 999_000 } : null), cwds: onlyStack, parents }),
+    true,
+    'its pid reused by another process: the owner is gone',
+  );
+  assert.equal(
+    ownerGone(owned, { alive: dead, identity: () => null, cwds: onlyStack, parents }),
+    true,
+    'the agent ended: the owner is gone',
+  );
+  const { agentOwner } = await import('./local-test-stack.mjs');
+  const chain = () =>
+    new Map([
+      [process.pid, 40],
+      [40, 30],
+      [30, 20],
+      [20, 1],
+    ]);
+  assert.deepEqual(
+    agentOwner(
+      chain,
+      () =>
+        new Map([
+          [40, 'node'],
+          [30, '/bin/zsh'],
+          [20, 'claude'],
+        ]),
+      () => ({ startedAt: 42 }),
+    ),
+    { pid: 20, startedAt: 42 },
+    'a start records the nearest claude or codex above it',
+  );
+  assert.equal(
+    agentOwner(
+      chain,
+      () =>
+        new Map([
+          [40, 'node'],
+          [30, 'zsh'],
+          [20, 'login'],
+        ]),
+    ),
+    null,
+    "a person's terminal records none",
+  );
+
   console.log('local-test-stack: a slot whose owner is gone is taken back, and a live owner keeps its own');
 }
