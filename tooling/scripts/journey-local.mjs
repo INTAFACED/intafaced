@@ -23,6 +23,10 @@
  * Exit: 0 every test passed; 1 a test failed or the stack could not be readied; 2 a usage error; 3 no local stack (every
  * slot held, or the start refused): the line says what to do instead; 130 interrupted.
  *
+ * It writes `.jr/run.json`: the tree of the checkout it ran (tracked and untracked files, as `git add -A` would commit
+ * them), the files, when it started and its exit code (null until it ends). The Mac refuses a journey branch's first
+ * push without a PASS of the tree pushed (a PreToolUse hook on the Mac).
+ *
  * A local pass never counts as proof: the proof is the Real-app journeys run on the pull request's exact head.
  * Why one command (project-state #2561, rows 13 and 20): the words for doing this by hand were rewritten seven times in
  * four days, and 1 of 24 builders on 15 Nov ran a local journey it could trust.
@@ -155,7 +159,14 @@ export async function journeyLocal(opts, io) {
         return 130;
       })()),
   );
+  // What this run ran and how it ended, for the Mac's first-push check (a PreToolUse hook on the Mac): the first push
+  // of a journey branch goes after a PASS (or a refused start) on the exact tree pushed. `code` stays null until the
+  // run ends, so an interrupted or crashed run never reads as a pass; `pid` lets the check tell a run still going from
+  // one that died without its end record.
+  const ran = { tree: io.tree?.() ?? null, files, startedAt: io.now?.() ?? Date.now(), pid: process.pid, code: null };
+  io.record?.(ran);
   const code = await body();
+  if (!interrupted) io.record?.({ ...ran, code });
   return interrupted ? interrupted : code;
 
   async function body() {
@@ -272,6 +283,14 @@ export async function main(argv) {
       }
     },
     rm: (f) => fs.rmSync(f, { force: true }),
+    tree: () => workTree(),
+    now: () => Date.now(),
+    record: (ran) => {
+      try {
+        fs.mkdirSync(OUT, { recursive: true });
+        fs.writeFileSync(path.join(OUT, 'run.json'), `${JSON.stringify(ran)}\n`);
+      } catch {}
+    },
     // Its own process group, so a signal reaches the start's own re-run of itself on its slot, and Ctrl-C reaches it
     // only through this script (which then stops the stack).
     run: (argv, { capture, env = {} }) =>
@@ -332,6 +351,23 @@ export async function main(argv) {
     });
   const code = await journeyLocal(opts, io);
   if (!signalled) process.exit(code); // else the signal's handler exits 130 once its stop ends
+}
+
+/** The tree `git add -A` would commit now, built in a copy of the index so the real one is untouched; null outside git. */
+export function workTree(cwd = CHECKOUT, out = OUT) {
+  const tmp = path.join(out, `index.${process.pid}`);
+  try {
+    const git = (args, env = {}) =>
+      execFileSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    fs.mkdirSync(out, { recursive: true });
+    fs.copyFileSync(path.resolve(cwd, git(['rev-parse', '--git-path', 'index'])), tmp);
+    git(['add', '-A'], { GIT_INDEX_FILE: tmp });
+    return git(['write-tree'], { GIT_INDEX_FILE: tmp });
+  } catch {
+    return null;
+  } finally {
+    fs.rmSync(tmp, { force: true });
+  }
 }
 
 function gitBranch() {
