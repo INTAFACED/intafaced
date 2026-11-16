@@ -423,7 +423,7 @@ test(`${J} starts: a funded TEST account with a passkey and two keys; two Naviga
  * router, so a read added to the router fails on its own pull request rather than here on main (#8495).
  */
 async function readInputs() {
-  const { sessionReadInputs } = await import(new URL('../../../../services/svc-agents/dist/session-reads.js', import.meta.url).href);
+  const { sessionReadInputs } = await import(new URL('../../../../services/svc-agents/dist/router.js', import.meta.url).href);
   return sessionReadInputs({
     sessionId: kept('sessionId'),
     runId: kept('runId'),
