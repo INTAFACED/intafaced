@@ -26,7 +26,7 @@
  * Exit 0 = clean. Exit 1 = a name would have shipped.
  */
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';
-import { basename, join, relative, resolve, sep } from 'node:path';
+import { join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const ROOT = process.cwd();
