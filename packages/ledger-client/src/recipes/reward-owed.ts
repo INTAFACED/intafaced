@@ -257,3 +257,35 @@ export function rewardPayOut(input: RewardPayOutInput): PostRequest {
     entries: [credit(owed, input.amount), debit(place, input.amount)],
   };
 }
+
+export interface RewardReclaimInput {
+  readonly campaignId: string;
+  /** The owed reward's decision record key, as it was owed. */
+  readonly rewardId: string;
+  /** The risk case's decision to cancel it (no spaces or colons). */
+  readonly caseId: string;
+  readonly assetId: string;
+  /** What is still owed for this reward, never more: the owed pot is a `module` account and cannot go below zero. */
+  readonly amount: Amount;
+}
+
+/**
+ * Cancel a reward we owe and have not paid (J-campaigns-18 #4, a risk decision): `campaigns:owed:<rewardId>` → the rewards
+ * engine, where its budget came from, under `campaigns:reclaim:<rewardId>`, so one reward is reclaimed once. Our own
+ * accounts only: nothing is taken from a customer, and a reward already paid to the customer's own wallet is never pulled
+ * back (there is no recipe for it). More than is still owed is refused by the ledger (`ledger.insufficient_funds`).
+ */
+export function rewardReclaim(input: RewardReclaimInput): PostRequest {
+  const campaignId = requireCampaignId(input.campaignId);
+  const rewardId = requireRewardId(input.rewardId, campaignId);
+  const caseId = requireReference('caseId', input.caseId);
+  const assetId = requireUsdc(input.assetId);
+  requirePositive('reward reclaim amount', input.amount);
+  return {
+    idempotencyKey: requireKey(`campaigns:reclaim:${rewardId}`),
+    module: MODULE,
+    reason: 'campaigns.reward.reclaimed',
+    meta: { campaignId, rewardId, caseId },
+    entries: [credit(rewardOwedAccount(rewardId), input.amount), debit(rewardsEngine(assetId), input.amount)],
+  };
+}

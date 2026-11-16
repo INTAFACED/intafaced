@@ -41,6 +41,16 @@
       "value": "test-chain:rewards=0x00000000000000000000000000000000ce510001",
       "note": "LOCAL TEST ONLY, not an owner decision: INTAFACED's TEST rewards wallet on the stack's TEST chain, the same one svc-trade's sweep moves our collected TEST builder fees to (TRADE_OWN_FUNDS_WALLET). It has no key: svc-campaigns pays owed rewards from it by impersonating it on that anvil only (J-campaigns-03 #2 #3). Blank, no payer runs and an owed reward stays owed."
     },
+    "CAMPAIGNS_RISK_APPEAL_WINDOW_SECONDS": {
+      "service": "campaigns",
+      "value": "900",
+      "note": "TEST: how long after a revocation a customer may appeal, so J-campaigns-18 #5 can file an appeal inside it. Blank refuses every revocation. Not an owner decision."
+    },
+    "CAMPAIGNS_RISK_SIGNAL_THRESHOLD": {
+      "service": "campaigns",
+      "value": "2",
+      "note": "TEST: how many distinct risk signals hold an account's new rewards for review, so J-campaigns-18 #2 sees one account held and another below it untouched. Blank, a reward of an account with a signal waits. Not an owner decision."
+    },
     "CAMPAIGNS_ROLLBACK_WINDOW_SECONDS": {
       "service": "campaigns",
       "value": "86400",

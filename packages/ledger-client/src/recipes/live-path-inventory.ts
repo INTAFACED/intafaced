@@ -64,6 +64,7 @@ export const RECIPE_MATRIX = {
   campaignBudgetFund: { kind: 'live', module: 'campaigns', proof: 'services/svc-campaigns/src/payouts.ts' },
   rewardOwe: { kind: 'live', module: 'campaigns', proof: 'services/svc-campaigns/src/payouts.ts' },
   rewardPayOut: { kind: 'live', module: 'campaigns', proof: 'services/svc-campaigns/src/reward-payer.ts' },
+  rewardReclaim: { kind: 'live', module: 'campaigns', proof: 'services/svc-campaigns/src/risk.ts' },
   feeShareBudgetFund: {
     kind: 'socket',
     socket: '§13',

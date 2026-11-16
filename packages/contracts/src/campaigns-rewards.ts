@@ -11,10 +11,17 @@ import { BONUS_APPLIES_TO, KYC_GATES, TASK_EVENTS } from './campaigns-tasks.js';
  * `unknown`: the answer was lost; only the same key is ever posted again. `withheld`: the account is frozen, nothing is
  * posted. `failed`: a definite refusal proved nothing was booked. `forfeited`: claimed after the claim window closed.
  * `held`: claimed and on hold for the campaign's risk-review period; it is released (to `qualified`, then posted) once
- * when the hold ends, or withheld if the account is no longer active then.
+ * when the hold ends, or withheld if the account is no longer active then. `review`: held by the risk control
+ * (J-campaigns-18): its account's own signals passed the owner's threshold; it keeps its place in the budget, nothing is
+ * owed or posted, and only a person moves it (reason `risk.review`, or `risk.withheld` once a person withheld it).
+ * `reclaiming`: an owed reward a risk decision is cancelling; the payer never pays it, and its reclaim posts once.
+ * `cancelled`: reclaimed by a risk decision, once (`campaigns:reclaim:`); it holds nothing.
  */
 export const REWARD_STATES = [
   'held',
+  'review',
+  'reclaiming',
+  'cancelled',
   'qualified',
   'posting',
   'owed',
@@ -47,6 +54,7 @@ export const redemptionAttemptSchema = z.object({
     'unknown',
     'withheld',
     'forfeited',
+    'cancelled',
   ]),
   reason: z.string().nullable(),
 });
@@ -205,6 +213,9 @@ export const REWARD_STATUSES = ['on_hold', 'still_open', 'owed', 'paid', 'locked
 export type RewardStatus = (typeof REWARD_STATUSES)[number];
 export const REWARD_STATUS_OF = {
   held: 'on_hold',
+  review: 'on_hold',
+  reclaiming: 'owed',
+  cancelled: 'closed',
   withheld: 'on_hold',
   qualified: 'still_open',
   posting: 'still_open',

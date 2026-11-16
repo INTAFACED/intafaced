@@ -187,12 +187,20 @@ export class RewardPayer {
         continue;
       }
       const fromBlock = await this.chain.head();
-      // Recorded before the send: a send that throws after the chain took it is found next pass, never sent again.
-      const [made] = await this.sql<{ reward_key: string }[]>`
-        INSERT INTO campaigns.reward_payments (reward_key, from_place, to_wallet, asset, amount, units, from_block, sent_at)
-        VALUES (${r.reward_key}, ${this.wallet.walletId}, ${r.pay_to_wallet}, ${REWARD_ASSET}, ${r.amount}, ${units.toString()},
-          ${fromBlock.toString()}, ${this.now()})
-        ON CONFLICT (reward_key) DO NOTHING RETURNING reward_key`;
+      // Recorded before the send: a send that throws after the chain took it is found next pass, never sent again. The
+      // reward row is locked and read again first: a risk revocation (`risk.ts`) takes the same lock, so a reward it moved
+      // to `reclaiming` is never recorded for payment, and one recorded here is never reclaimed.
+      const made = await transaction(this.sql, async (tx) => {
+        const [still] = await tx<{ reward_key: string }[]>`
+          SELECT reward_key FROM campaigns.reward_intents WHERE reward_key = ${r.reward_key} AND state = 'owed' FOR UPDATE`;
+        if (!still) return null;
+        const [row] = await tx<{ reward_key: string }[]>`
+          INSERT INTO campaigns.reward_payments (reward_key, from_place, to_wallet, asset, amount, units, from_block, sent_at)
+          VALUES (${r.reward_key}, ${this.wallet.walletId}, ${r.pay_to_wallet}, ${REWARD_ASSET}, ${r.amount}, ${units.toString()},
+            ${fromBlock.toString()}, ${this.now()})
+          ON CONFLICT (reward_key) DO NOTHING RETURNING reward_key`;
+        return row ?? null;
+      });
       if (!made) continue;
       sent += 1;
       let hash: string;
