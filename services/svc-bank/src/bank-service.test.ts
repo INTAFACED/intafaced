@@ -3125,6 +3125,12 @@ describe('svc-bank money PG-hard', () => {
         'cash_out_requests.returned_amount': 'a RECORD of what came back on one returned payout; credited once with its ledger tx id',
         'rail_send_intents.amount':
           'the amount the customer asked to send over a bank rail on one intent; kept refused, never held or posted from here',
+        // ── The bank API (J-bank-24): the partner's figures and the caller's instructions, never a balance ──
+        'api_move_quotes.amount': "the partner's QUOTE: what one move between the person's own accounts would move; written once",
+        'api_move_quotes.fee': "the partner's QUOTE of what it takes for that move; null when it does not say; written once",
+        'api_move_quotes.receives': "the partner's QUOTE of what arrives; null when the fee is not known; written once",
+        'api_payments.amount':
+          'the INSTRUCTION of one payment out through the API; the partner holds and moves the money, nothing posts here',
 
         // ── Auto-invest (§31:805 F-plane) ────────────────────────────────────
         // Rules are instructions; runs are write-once records. No running balance.

@@ -23,7 +23,15 @@ import type { Sql } from 'postgres';
 import { z } from 'zod';
 import { BankError } from '../errors.js';
 import type { PartnerCardHolds } from '../cards/partner-card-holds.js';
-import type { NoteRefusal, PartnerAccountRef, PartnerBank, PartnerCustody, PartnerMoveRequest, PartnerMovesQuery } from './partner-bank.js';
+import type {
+  NoteRefusal,
+  PartnerAccountRef,
+  PartnerBank,
+  PartnerCustody,
+  PartnerMoveRequest,
+  PartnerMovesQuery,
+  PartnerPaymentRequest,
+} from './partner-bank.js';
 
 export const PARTNER_STOP_KINDS = ['bank_move', 'card_hold', 'card_capture', 'card_release', 'card_refund'] as const;
 export type PartnerStopKind = (typeof PARTNER_STOP_KINDS)[number];
@@ -291,6 +299,19 @@ export function stopGuardedCustody(custody: PartnerCustody, partnerId: string, g
           ? { statement: (account: PartnerAccountRef, range: { from: Date; to: Date }) => bank.statement!(account, range) }
           : {}),
         ...(bank.historyRules ? { historyRules: bank.historyRules } : {}),
+        // A quote moves nothing, so it stays open; a payment out is a move and asks the stop first (J-bank-24).
+        ...(bank.quoteMove ? { quoteMove: bank.quoteMove.bind(bank) } : {}),
+        ...(bank.payments
+          ? {
+              payments: Object.freeze({
+                paymentByKey: (key: string) => bank.payments!.paymentByKey(key),
+                pay: async (request: PartnerPaymentRequest) => {
+                  await assertOpenCounted(gate, partnerId, 'bank_move', note);
+                  return bank.payments!.pay(request);
+                },
+              }),
+            }
+          : {}),
         move: async (request: PartnerMoveRequest) => {
           await assertOpenCounted(gate, partnerId, 'bank_move', note);
           return bank.move(request);
