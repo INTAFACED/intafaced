@@ -94,7 +94,7 @@ const OPEN_FLAG = Symbol.for('intafaced.trade.collateralHaircutOpen');
 
 export function installCollateralHaircutOpen(ctor: typeof PositionService): void {
   const proto = ctor.prototype as unknown as {
-    open: (input: OpenPositionInput, principal?: Principal) => Promise<unknown>;
+    open: PositionService['open'];
     [OPEN_FLAG]?: true;
   };
   if (proto[OPEN_FLAG]) return;
