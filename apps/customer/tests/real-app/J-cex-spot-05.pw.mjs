@@ -618,8 +618,10 @@ test(`${J} #7 looks at the Positions tab: not applicable to cash spot, and no ze
   const s = state();
   await openVenueDesk(page, s.account, DESK, s.walletKey);
   await page.getByTestId('venue-bottom').getByRole('tab', { name: 'Positions' }).click();
-  const panel = page.getByTestId('venue-bottom').getByRole('tabpanel');
-  await expect(page.getByTestId('venue-positions-na')).toHaveText('Not applicable: cash spot holds balances, not positions');
+  // The Positions panel by name: while the tabs animate, the outgoing Open orders panel stays mounted (inert) for a
+  // moment, so an unnamed tabpanel locator can match both (#8591).
+  const panel = page.getByTestId('venue-bottom').getByRole('tabpanel', { name: 'Positions' });
+  await expect(panel.getByTestId('venue-positions-na')).toHaveText('Not applicable: cash spot holds balances, not positions');
   await expect(panel.locator('table, tr')).toHaveCount(0);
   await expect(panel).not.toContainText(/\b0(\.0+)?\s*BTC\b/);
 });
