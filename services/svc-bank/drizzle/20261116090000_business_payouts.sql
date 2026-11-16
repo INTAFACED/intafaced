@@ -149,7 +149,7 @@ CREATE TABLE IF NOT EXISTS "bank"."business_contractor_invites" (
   "token_sha256" text NOT NULL UNIQUE,
   "created_by" text NOT NULL,
   "created_at" timestamptz NOT NULL DEFAULT now(),
-  "used_by" text,
+  "joined_by" text,
   "contractor_id" uuid REFERENCES "bank"."business_contractors" ("id"),
   "used_at" timestamptz
 );

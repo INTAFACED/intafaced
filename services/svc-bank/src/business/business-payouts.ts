@@ -663,15 +663,15 @@ export class BusinessPayoutsService {
   }): Promise<{ contractorId: string; businessName: string }> {
     return transaction(this.sql, async (tx) => {
       const invite = (
-        await tx<Array<{ id: string; account_id: string; used_at: Date | null; contractor_id: string | null; used_by: string | null }>>`
-        SELECT id, account_id, used_at, contractor_id, used_by FROM bank.business_contractor_invites
+        await tx<Array<{ id: string; account_id: string; used_at: Date | null; contractor_id: string | null; joined_by: string | null }>>`
+        SELECT id, account_id, used_at, contractor_id, joined_by FROM bank.business_contractor_invites
          WHERE token_sha256 = ${sha256(input.token)} FOR UPDATE
       `
       )[0];
       if (!invite) throw new BankError('This onboarding link is not one we know.', 'bank.contractor_invite_invalid');
       const account = await this.accountRow(tx, invite.account_id);
       if (invite.used_at) {
-        if (invite.used_by === input.userId && invite.contractor_id)
+        if (invite.joined_by === input.userId && invite.contractor_id)
           return { contractorId: invite.contractor_id, businessName: account.name };
         throw new BankError('This onboarding link was already used.', 'bank.contractor_invite_used');
       }
@@ -679,7 +679,7 @@ export class BusinessPayoutsService {
       const contractorId = randomUUID();
       await this.insertContractor(tx, { ...input, accountId: invite.account_id, contractorId, onboarded: 'self' });
       await tx`
-        UPDATE bank.business_contractor_invites SET used_by = ${input.userId}, contractor_id = ${contractorId}::uuid, used_at = now()
+        UPDATE bank.business_contractor_invites SET joined_by = ${input.userId}, contractor_id = ${contractorId}::uuid, used_at = now()
          WHERE id = ${invite.id}::uuid
       `;
       return { contractorId, businessName: account.name };
