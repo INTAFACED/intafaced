@@ -6,7 +6,9 @@
 \* on from, to and units only). One or two payer processes (`Procs`): one service, or two replicas. A process does one
 \* reward at a time (the `paying` flag in index.ts) and can die at any step and start again idle.
 EXTENDS Integers, Sequences, FiniteSets
-CONSTANTS Procs, Rewards, Fixed   \* Fixed: a transfer not found is never proof it was not taken (the proposed fix)
+\* The spec is the code as it is now, with #8581's fix: a transfer not found is never proof it was not taken. The line
+\* tagged `fix:` is that fix; check.sh's `before-fix` run gives up on absence again and shows the finding.
+CONSTANTS Procs, Rewards
 NULL == 0
 
 VARIABLES
@@ -70,7 +72,7 @@ StartSettle(p, r) ==
 FailCAS(r) == pay' = [pay EXCEPT ![r] = IF @ = "sending" THEN "failed" ELSE @]
 
 \* The hashes already claimed, then chain.find(from, to, units, from_block): mined transfers only, oldest first, the
-\* first one not claimed. None: give up once LOST_PAYMENT_AFTER_MS has passed. Found: UPDATE chain_tx (UNIQUE: a hash
+\* first one not claimed. None: the payment stays open, past LOST_PAYMENT_AFTER_MS too (`unconfirmed`, a reason only). Found: UPDATE chain_tx (UNIQUE: a hash
 \* another row holds throws, and this payment is looked at again next pass).
 Find(p) ==
   /\ pc[p] = "find"
@@ -78,7 +80,7 @@ Find(p) ==
          claimed == {txOf[x] : x \in Rewards} \ {NULL}
          found == {h \in Hashes : h > base[r] /\ chain[h].s = "mined" /\ h \notin claimed}
      IN IF found = {}
-        THEN /\ IF late[r] /\ ~Fixed THEN FailCAS(r) ELSE UNCHANGED pay   \* Fixed: absence is not proof; it stays open
+        THEN /\ IF late[r] /\ FALSE THEN FailCAS(r) ELSE UNCHANGED pay                  \* fix: absence is not proof
              /\ Idle(p) /\ UNCHANGED txOf
         ELSE LET h == CHOOSE h \in found : \A g \in found : h <= g IN
              IF \E x \in Rewards : txOf[x] = h

@@ -24,7 +24,7 @@ import { PAYOUT_UNAVAILABLE, PayoutSaga, ledgerRewardId } from './payouts.js';
 import {
   FROZEN,
   NO_WALLET,
-  PAYMENT_NOT_TAKEN,
+  PAYMENT_UNCONFIRMED,
   RewardPayer,
   WALLET_SHORT,
   rewardsPaidToWallet,
@@ -638,7 +638,10 @@ if (!db) {
       await reconciles('20');
     });
 
-    it('a send the chain never took is given up after the wait, never sent again, and the reward stays owed for a person', async () => {
+    // Rewritten for #8581 (row d76): it said such a send is given up as `failed` with `campaigns.reward_payment_not_taken`.
+    // What it guarded still holds here (never sent again, owed, one line for a person); the send is now still looked for,
+    // because a transfer the node took may be mined after the wait (the test below and RewardPay.tla guard that).
+    it('a send not found on the chain after the wait is never sent again, stays looked for, and the reward stays owed for a person', async () => {
       await seed('50', '20');
       const reward = await claimed();
       const send = world.chain.send;
@@ -653,8 +656,11 @@ if (!db) {
       await payer.pass();
       expect(world.transfers).toEqual([]);
       const after = await recordOf(reward.rewardKey);
-      expect(after).toMatchObject({ state: 'owed', reason: PAYMENT_NOT_TAKEN, payout: null });
-      expect(after.attempts.filter((a) => a.reason === PAYMENT_NOT_TAKEN)).toHaveLength(1);
+      expect(after).toMatchObject({ state: 'owed', reason: PAYMENT_UNCONFIRMED, payout: null });
+      expect(after.attempts.filter((a) => a.reason === PAYMENT_UNCONFIRMED)).toHaveLength(1);
+      const [payment] = await db!.sql<{ state: string; chain_tx: string | null }[]>`
+        SELECT state, chain_tx FROM campaigns.reward_payments WHERE reward_key = ${reward.rewardKey}`;
+      expect(payment).toEqual({ state: 'sending', chain_tx: null });
       await reconciles('20');
     });
 

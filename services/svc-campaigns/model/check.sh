@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# Model-checks RewardPay.tla: every rule the code keeps must hold, the promise the code breaks must be shown broken
-# (until the fix lands), the fix must keep every rule, and each deliberately broken variant must fail on the rule it
-# breaks. Exit 0 only when all of that holds. Needs Java 11+ (`java` on PATH, or $JAVA).
+# Model-checks RewardPay.tla: the code as it is now must keep every rule, the code before #8581's fix must be shown
+# breaking the promise, and each deliberately broken variant must fail on the rule it breaks. Exit 0 only when all of that holds. Needs Java 11+ (`java` on PATH, or $JAVA).
 # The TLA+ tools are pinned to v1.7.4 by URL and SHA-256 and cached in ${TLA_CACHE:-~/.cache/intafaced-tla}.
 set -euo pipefail
 
@@ -27,9 +26,9 @@ trap 'rm -rf "$work"' EXIT
 failed=0
 KEPT="OneSendPerReward PaidOnAMinedTransfer OneTransferOneReward BookedOnAMinedTransfer BookedOnce"
 
-# run <name> <procs> <fixed> <invariants> <expect: "pass" or the invariant that must be violated> [<sed expression>]
+# run <name> <procs> <invariants> <expect: "pass" or the invariant that must be violated> [<sed expression>]
 run() {
-  local name="$1" procs="$2" fixed="$3" invariants="$4" expect="$5" breaks="${6:-}" d="$work/$1"
+  local name="$1" procs="$2" invariants="$3" expect="$4" breaks="${5:-}" d="$work/$1"
   mkdir -p "$d"
   if [ -n "$breaks" ]; then
     sed -E "$breaks" "$here/RewardPay.tla" > "$d/RewardPay.tla"
@@ -37,8 +36,8 @@ run() {
   else
     cp "$here/RewardPay.tla" "$d/RewardPay.tla"
   fi
-  printf 'CONSTANTS Procs = {%s}  Rewards = {"a", "b"}  Fixed = %s\nSPECIFICATION Spec\nCONSTRAINT Bound\nINVARIANTS %s\nCHECK_DEADLOCK FALSE\n' \
-    "$procs" "$fixed" "$invariants" > "$d/RewardPay.cfg"
+  printf 'CONSTANTS Procs = {%s}  Rewards = {"a", "b"}\nSPECIFICATION Spec\nCONSTRAINT Bound\nINVARIANTS %s\nCHECK_DEADLOCK FALSE\n' \
+    "$procs" "$invariants" > "$d/RewardPay.cfg"
   local status=0
   ( cd "$d" && "$java" -XX:+UseSerialGC -Xmx512m -cp "$jar" tlc2.TLC -workers 1 -config RewardPay.cfg RewardPay.tla > out.txt 2>&1 ) || status=$?
   local states; states="$(grep -Eo '[0-9,]+ distinct states found' "$d/out.txt" | tail -1 || true)"
@@ -52,20 +51,19 @@ run() {
   fi
 }
 
-# The code as it is keeps every rule but the promise, with one payer and with two.
-run code-one-payer  '"p1"'       FALSE "$KEPT" pass
-run code-two-payers '"p1", "p2"' FALSE "$KEPT" pass
-# The finding: the code gives a payment up while its transfer can still land. Expected until the fix lands.
-run code-gives-up-live-send '"p1"' FALSE NeverGiveUpOnALiveSend NeverGiveUpOnALiveSend
-# The fix keeps every rule, the promise included.
-run fixed-two-payers '"p1", "p2"' TRUE "NeverGiveUpOnALiveSend $KEPT" pass
+ALL="NeverGiveUpOnALiveSend $KEPT"
+# The code as it is now keeps every rule, the promise included, with one payer and with two (replicas).
+run code-one-payer  '"p1"'       "$ALL" pass
+run code-two-payers '"p1", "p2"' "$ALL" pass
+# The code before #8581's fix gave a payment up while its transfer could still land: the finding.
+run before-fix '"p1"' NeverGiveUpOnALiveSend NeverGiveUpOnALiveSend 's/IF late\[r\] \/\\ FALSE THEN FailCAS/IF late[r] THEN FailCAS/'
 
 # Broken on purpose, each failing on the rule it exists for.
 # 1. No payment row before the send (no ON CONFLICT (reward_key)): a second pass sends the same reward again.
-run broken-no-row-before-send '"p1"' FALSE "$KEPT" OneSendPerReward 's/intent\[r\] = "owed" \/\\ pay\[r\] = "none"/intent[r] = "owed" \/\\ pay[r] \\in {"none", "sending"}/'
+run broken-no-row-before-send '"p1"' "$ALL" OneSendPerReward 's/intent\[r\] = "owed" \/\\ pay\[r\] = "none"/intent[r] = "owed" \/\\ pay[r] \\in {"none", "sending"}/'
 # 2. find() takes a hash another reward already holds (no claimed set, no UNIQUE chain_tx): one transfer pays two.
-run broken-no-claimed-set '"p1"' FALSE "$KEPT" OneTransferOneReward 's/IF \\E x \\in Rewards : txOf\[x\] = h$/IF FALSE/; s/chain\[h\]\.s = "mined" \/\\ h \\notin claimed/chain[h].s = "mined"/'
+run broken-no-claimed-set '"p1"' "$ALL" OneTransferOneReward 's/IF \\E x \\in Rewards : txOf\[x\] = h$/IF FALSE/; s/chain\[h\]\.s = "mined" \/\\ h \\notin claimed/chain[h].s = "mined"/'
 # 3. A reverted receipt read as success: a payment is booked on a transfer that never moved the money.
-run broken-revert-as-paid '"p1"' FALSE "$KEPT" BookedOnAMinedTransfer 's/\[\] chain\[h\]\.s = "reverted"( +)-> \/\\ FailCAS\(r\) \/\\ Idle\(p\)/[] FALSE\1-> UNCHANGED pay/; s/\[\] chain\[h\]\.s = "mined"( +)->/[] chain[h].s \\in {"mined", "reverted"} ->/'
+run broken-revert-as-paid '"p1"' "$ALL" BookedOnAMinedTransfer 's/\[\] chain\[h\]\.s = "reverted"( +)-> \/\\ FailCAS\(r\) \/\\ Idle\(p\)/[] FALSE\1-> UNCHANGED pay/; s/\[\] chain\[h\]\.s = "mined"( +)->/[] chain[h].s \\in {"mined", "reverted"} ->/'
 
 exit "$failed"
