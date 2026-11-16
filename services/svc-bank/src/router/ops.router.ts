@@ -1140,7 +1140,7 @@ export function createOpsRouter(c: BankRouterContext) {
     ...cardProgrammeOpsProcedures(bank, guard),
     rampHealth: rampHealthProcedure(bank, guard),
     /** J-bank-28 #3: ramp orders by state, partner health and quote expiries, as the ramp partner reports them. Read only. */
-    rampMetrics: rampMetricsProcedure(() => bank.onrampPartner, guard),
+    rampMetrics: rampMetricsProcedure(() => bank.addMoney.partner, guard),
     /** J-bank-28 #4: the partner's direct debit mandates with state, blocks and refunds, and its failures by reason. Read only. */
     directDebitMandates: directDebitMandatesProcedure(
       () => ({
