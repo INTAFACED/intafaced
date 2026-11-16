@@ -36,17 +36,17 @@ describe('W6 honesty residuals', () => {
   });
 
   it('applyWebhook dispute.opened posts via openChargeback or named refuse; voided still absent', () => {
-    expect(railAdapter).toMatch(/dispute\.|'voided'|\"voided\"/);
+    expect(railAdapter).toMatch(/dispute\.|'voided'|"voided"/);
     const apply = webhooks.match(/export async function applyWebhook\([\s\S]*?\n\}/);
     expect(apply, 'applyWebhook missing').toBeTruthy();
     const applySrc = apply?.[0];
     expect(applySrc, 'applyWebhook source missing').toEqual(expect.any(String));
     const body = stripComments(applySrc as string);
-    expect(body).toMatch(/case\s+['\"]dispute\.opened['\"]/);
+    expect(body).toMatch(/case\s+['"]dispute\.opened['"]/);
     expect(body).toMatch(/postChargebackOpenOrRefuse/);
     expect(body).toMatch(/bookDisputeResolution/);
-    expect(body).not.toMatch(/case\s+['\"]voided['\"]/);
-    expect(body).toMatch(/case\s+['\"]refunded['\"]/);
+    expect(body).not.toMatch(/case\s+['"]voided['"]/);
+    expect(body).toMatch(/case\s+['"]refunded['"]/);
   });
 
   it('payment-service posts won and shortfall through chargeback-ledger, not inline recipes', () => {

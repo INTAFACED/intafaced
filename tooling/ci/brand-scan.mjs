@@ -454,8 +454,8 @@ function collectVendorProductFiles() {
   const JAVA_COPY_EXT = new Set(['.ftl', '.html', '.htm', '.md', '.mdx', '.json', '.yml', '.yaml', '.txt']);
   function isJavaCopyResource(name) {
     const lower = name.toLowerCase();
-    if (/^application(\-.+)?\.properties$/.test(lower)) return false;
-    if (/^bootstrap(\-.+)?\.(properties|ya?ml)$/.test(lower)) return false;
+    if (/^application(-.+)?\.properties$/.test(lower)) return false;
+    if (/^bootstrap(-.+)?\.(properties|ya?ml)$/.test(lower)) return false;
     if (/^logback/.test(lower)) return false;
     if (lower.endsWith('.properties')) return true; // messages_*.properties etc.
     const dot = lower.lastIndexOf('.');
