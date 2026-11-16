@@ -216,6 +216,23 @@ describe('sharedPots', () => {
     });
     await caller(bank, PARTNER).sharedPots.accept({ inviteId: answered.inviteId });
     expect(await ageSharedPotInvite(sql)(answered.inviteId, 60_000)).toBeNull();
+    // Declined and cancelled are answered too: neither is aged.
+    const declined = await caller(bank, OWNER).sharedPots.invite({
+      inviteId: randomUUID(),
+      spaceId: pot.id,
+      handle: 'Tom_Third',
+      role: 'viewer',
+    });
+    await caller(bank, THIRD).sharedPots.decline({ inviteId: declined.inviteId });
+    expect(await ageSharedPotInvite(sql)(declined.inviteId, 60_000)).toBeNull();
+    const cancelled = await caller(bank, OWNER).sharedPots.invite({
+      inviteId: randomUUID(),
+      spaceId: pot.id,
+      handle: 'Tom_Third',
+      role: 'viewer',
+    });
+    await caller(bank, OWNER).sharedPots.cancelInvite({ inviteId: cancelled.inviteId });
+    expect(await ageSharedPotInvite(sql)(cancelled.inviteId, 60_000)).toBeNull();
     expect(await ageSharedPotInvite(sql)(randomUUID(), 60_000)).toBeNull();
     expect(await ageSharedPotInvite(sql)('not-a-uuid', 60_000)).toBeNull();
   });
