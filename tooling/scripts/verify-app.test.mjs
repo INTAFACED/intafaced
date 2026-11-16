@@ -8,6 +8,8 @@ import { fileURLToPath } from 'node:url';
 import {
   STEP_TITLE,
   doctorChecks,
+  shellWord,
+  titlePattern,
   featureMarkdown,
   indexMarkdown,
   journeyIndex,
@@ -47,6 +49,16 @@ test(\`\${J} #3 reads the chart's candles\`, async ({ page }) => {
   await page.goto("/room");
 });
 test('J-y-02 #10 a literal title', async () => {});
+`;
+const SHARED = `// World: book
+import { test } from './journey.mjs';
+import { journeyState } from './stack.mjs';
+import { testChain } from './dex.mjs';
+const J = 'J-s-01';
+const run = journeyState(J);
+test(\`\${J} #1 signs up\`, async () => {});
+test(\`\${J} #2 buys 0.01 for \${price} USDT\`, async () => {});
+test(\`\${J} #3 sells\`, async () => {});
 `;
 const files = { 'J-x-01.pw.mjs': SERIAL, 'J-x-01-more.pw.mjs': PLAIN };
 const index = journeyIndex(Object.keys(files), (f) => files[f]);
@@ -95,20 +107,43 @@ test('index: a journey across two files, its steps, and each file’s facts', ()
   assert.deepEqual([...index.get('J-y-02').steps.keys()], [10]);
 });
 
-test('drive plan: one step greps that step only; a serial file runs whole; a missing step is named', () => {
+test('drive plan: a step alone greps that step; where tests hand a person on, every test up to the step runs', () => {
   const one = planDrive('J-x-01', [3], index.get('J-x-01'));
   assert.deepEqual(one.files, ['J-x-01-more.pw.mjs']);
+  assert.deepEqual(one.chained, []);
   const re = new RegExp(one.grep);
   assert.ok(re.test('J-x-01-more.pw.mjs J-x-01 #3 reads the chart'));
   assert.ok(!re.test('J-x-01 #30 something else'));
   assert.ok(!re.test('J-x-01 #1 opens'));
   assert.deepEqual(one.past, ['J-x-01-more.pw.mjs']);
+  // The serial file: #2 runs with the start and #1 before it, which made the person #2 acts as.
   const serial = planDrive('J-x-01', [2], index.get('J-x-01'));
-  assert.equal(serial.grep, null);
-  assert.deepEqual(serial.serial, ['J-x-01.pw.mjs']);
+  assert.deepEqual(serial.chained, [{ file: 'J-x-01.pw.mjs', tests: 3 }]);
+  const chain = new RegExp(serial.grep);
+  for (const t of ['J-x-01 starts: a TEST person', 'J-x-01 #1 opens the room', 'J-x-01 #2 pays across two lines'])
+    assert.ok(chain.test(t), t);
+  // A journeyState file that is not serial is chained the same way, and only up to the last step asked for.
+  const shared = journeyIndex(['J-s-01.pw.mjs'], () => SHARED).get('J-s-01');
+  const two = planDrive('J-s-01', [2], shared);
+  assert.deepEqual(two.chained, [{ file: 'J-s-01.pw.mjs', tests: 2 }]);
+  const re2 = new RegExp(two.grep);
+  assert.ok(re2.test('J-s-01 #1 signs up') && re2.test('J-s-01 #2 buys 0.01 for 12 USDT'));
+  assert.ok(!re2.test('J-s-01 #3 sells'));
+  // Both kinds in one drive: the plain file's steps and the chained file's tests.
+  const both = planDrive('J-x-01', [2, 3], index.get('J-x-01'));
+  assert.deepEqual(both.files, ['J-x-01-more.pw.mjs', 'J-x-01.pw.mjs']);
+  assert.ok(new RegExp(both.grep).test('J-x-01 #3 reads') && new RegExp(both.grep).test('J-x-01 starts: a TEST person'));
   assert.deepEqual(planDrive('J-x-01', [], index.get('J-x-01')).steps, [1, 2, 3]);
   assert.match(planDrive('J-x-01', [4], index.get('J-x-01')).error, /no test titled #4 \(it has #1 #2 #3\)/);
   assert.match(planDrive('J-z-03', [1], undefined).error, /no test is titled J-z-03/);
+});
+
+test('a title as a pattern, and a word for a shell: literal, with what a shell or regex would read quoted', () => {
+  assert.equal(titlePattern('J-a-01 #1 pays 0.5 (TEST) ${amount} now'), 'J-a-01 #1 pays 0\\.5 \\(TEST\\) .* now');
+  assert.ok(new RegExp(titlePattern('J-a-01 #1 pays ${x} in USDT')).test('J-a-01 #1 pays 12.5 in USDT'));
+  assert.equal(shellWord('--config'), '--config');
+  assert.equal(shellWord('J-x-01 #(?:1|2)\\b'), "'J-x-01 #(?:1|2)\\b'");
+  assert.equal(shellWord("it's"), "'it'\\''s'");
 });
 
 const JOURNEY = {
@@ -139,7 +174,10 @@ test('feature file: H1, one paragraph, then exactly the four sections in order, 
     md,
     /Run `pnpm local:stack verify drive J-x-01 '#3'`\. It passes when `apps\/customer\/tests\/real-app\/J-x-01-more\.pw\.mjs:4` passes/,
   );
-  assert.match(md, /`J-x-01\.pw\.mjs` runs serially/);
+  assert.match(md, /`J-x-01\.pw\.mjs` runs serially: a later step acts as the TEST person an earlier one made/);
+  const shared = featureMarkdown({ ...JOURNEY, id: 'J-s-01' }, journeyIndex(['J-s-01.pw.mjs'], () => SHARED).get('J-s-01'));
+  assert.match(shared, /`J-s-01\.pw\.mjs` hands state from test to test \(journeyState\)/);
+  assert.match(shared, /`J-s-01\.pw\.mjs` uses the TEST chain: on a stack without one/);
   assert.match(md, /launch with `pnpm local:stack verify launch J-x-01`/);
   assert.match(md, /Steps #5 have no test titled with them/);
   assert.match(md, /Marked in journeys\.json: #4 later \(custody\)/);
@@ -206,6 +244,9 @@ const failing = (input) =>
 
 test('doctor: worth driving only when every check holds; each failure names its check and its fix', () => {
   assert.deepEqual(failing(healthy), []);
+  assert.equal(doctorChecks(healthy).find((c) => c.name === 'build').detail, 'running the build of abc');
+  const edited = { ...healthy, plan: { ...healthy.plan, build: { ...healthy.plan.build, edits: true } } };
+  assert.match(doctorChecks(edited).find((c) => c.name === 'build').detail, /with this checkout's uncommitted edits$/);
   assert.match(doctorChecks(healthy)[0].detail, /slot 1, this checkout's, Customer at http:\/\/127\.0\.0\.1:4210/);
   const none = doctorChecks({ ...healthy, claim: null });
   assert.deepEqual(
@@ -304,6 +345,6 @@ test('evidence: each test with its verdict, first error line and screenshots; th
   assert.match(md, /^# J-x-01-s1: FAIL$/m);
   assert.match(md, /- Command: `JOURNEY_FILES="J-x-01\.pw\.mjs" pnpm exec playwright test`/);
   assert.match(md, /- Code: abc with uncommitted edits on branch fix\/1/);
-  assert.match(md, /- PASSED J-x-01 #1 opens\n {2}- screenshot: results\/a\/test-finished-1\.png/);
-  assert.match(md, /- FAILED J-x-01 #2 pays: Error: expect\(locator\)\.toBeVisible\(\) failed\n {2}- trace: results\/b\/trace\.zip/);
+  assert.match(md, /- PASS J-x-01 #1 opens\n {2}- screenshot: results\/a\/test-finished-1\.png/);
+  assert.match(md, /- FAIL J-x-01 #2 pays: Error: expect\(locator\)\.toBeVisible\(\) failed\n {2}- trace: results\/b\/trace\.zip/);
 });

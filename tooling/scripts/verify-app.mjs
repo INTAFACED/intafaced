@@ -148,12 +148,18 @@ export function journeyIndex(files, read) {
     } catch {
       world = 'unread'; // a `// World:` line in words of its own, not the harness's parts
     }
+    const plain = withoutComments(src);
     const facts = {
       serial: /test\.describe\.configure\(\{\s*mode:\s*'serial'/.test(src),
+      // Its tests hand state on (stack.mjs journeyState): a later step acts as the person or account an earlier one made.
+      shared: /\bjourneyState\(/.test(plain),
+      // It uses the TEST chain, which the stack runs only when an anvil binary is installed.
+      chain: /\btestChain\b|local-test-chain|\binstallTestWallet\b/.test(plain),
+      titles,
       world: world instanceof Set ? [...world] : world,
       fresh: stackFresh(src),
       live: marketLive(src),
-      past: READS_PAST.test(withoutComments(src)),
+      past: READS_PAST.test(plain),
       paths: pagePaths(src),
       others: 0,
     };
@@ -233,8 +239,14 @@ export function featureMarkdown(j, found) {
   out.push('', '## Gotchas', '');
   const gotchas = [];
   for (const [f, i] of found?.files ?? []) {
-    if (i.serial)
-      gotchas.push(`\`${f}\` runs serially (its steps share one TEST person), so driving one of its steps runs the whole file.`);
+    if (i.serial || i.shared)
+      gotchas.push(
+        `\`${f}\` ${i.serial ? 'runs serially' : 'hands state from test to test (journeyState)'}: a later step acts as the TEST person an earlier one made, so a drive of one step runs that file's tests up to it, and says so.`,
+      );
+    if (i.chain)
+      gotchas.push(
+        `\`${f}\` uses the TEST chain: on a stack without one (launch prints \`chain: no anvil binary\`, the doctor's health shows \`svc-indexer absent (no TEST chain)\`) its chain steps fail; report that as the missing precondition.`,
+      );
     if (i.past)
       gotchas.push(
         `\`${f}\` reads past trades (charts, candles, the tape): launch with \`${RUN} launch ${j.id}\` so the TEST chart history is written, or its steps fail on an empty chart.`,
@@ -246,7 +258,7 @@ export function featureMarkdown(j, found) {
     if (i.live) gotchas.push(`\`${f}\` waits for the TEST market's own trades (\`// Market: live\`).`);
     if (i.others)
       gotchas.push(
-        `\`${f}\` has ${i.others} test(s) that prove no step (a start, an end, or a part of a step); ${i.serial ? 'its whole-file drive runs them too' : 'a step drive leaves them out'}.`,
+        `\`${f}\` has ${i.others} test(s) that prove no step (a start, an end, or a part of a step); ${i.serial || i.shared ? 'a drive runs those before its step too' : 'a step drive leaves them out'}.`,
       );
   }
   const unproven = j.steps.filter((st) => !found?.steps.has(st.n) && !marks(st).length).map((st) => `#${st.n}`);
@@ -287,7 +299,19 @@ export function indexMarkdown(journeys, index) {
   return `${out.join('\n')}`;
 }
 
-/** The files a drive of these steps runs, and the --grep that picks the step tests (all of them when `steps` is empty). */
+/** A test's title as a --grep pattern: literal, with any `${…}` the source left in standing for anything. */
+export function titlePattern(title) {
+  return title
+    .split(/\$\{[^}]*\}/)
+    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('.*');
+}
+
+/**
+ * The files a drive of these steps runs, and the --grep that picks its tests (every step when `steps` is empty). In a
+ * file whose tests hand state on (serial, or journeyState) a step acts as the person an earlier test made, so there the
+ * drive runs every test of the file up to the last step asked for (`chained`); elsewhere only the step tests.
+ */
 export function planDrive(id, steps, found) {
   if (!found || found.steps.size === 0) return { error: `no test is titled ${id} #<n> in apps/customer/tests/real-app` };
   const want = steps.length ? steps : [...found.steps.keys()].sort((a, b) => a - b);
@@ -299,12 +323,24 @@ export function planDrive(id, steps, found) {
         .map((n) => `#${n}`)
         .join(' ')})`,
     };
-  const files = [...new Set(want.flatMap((n) => found.steps.get(n).map((t) => t.file)))].sort();
-  // A serial file's steps share one person: a step alone would run without the steps before it, so the whole file runs.
-  const serial = files.filter((f) => found.files.get(f)?.serial);
+  const tests = want.flatMap((n) => found.steps.get(n));
+  const files = [...new Set(tests.map((t) => t.file))].sort();
   const esc = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const grep = serial.length ? null : `${esc} #(?:${want.join('|')})\\b`;
-  return { files, grep, steps: want, serial, past: files.filter((f) => found.files.get(f)?.past) };
+  const parts = [];
+  const chained = [];
+  const plain = [];
+  for (const f of files) {
+    const info = found.files.get(f);
+    if (info?.serial || info?.shared) {
+      const last = Math.max(...tests.filter((t) => t.file === f).map((t) => t.line));
+      const upTo = info.titles.filter((t) => t.line <= last);
+      chained.push({ file: f, tests: upTo.length });
+      parts.push(...upTo.map((t) => titlePattern(t.title)));
+    } else plain.push(f);
+  }
+  if (plain.length) parts.unshift(`${esc} #(?:${want.join('|')})\\b`);
+  const grep = parts.length === 1 ? parts[0] : parts.map((p) => `(?:${p})`).join('|');
+  return { files, grep, steps: want, chained, past: files.filter((f) => found.files.get(f)?.past) };
 }
 
 // ── Reading a Playwright JSON report ────────────────────────────────────────
@@ -340,6 +376,14 @@ export function reportTests(report) {
   return out;
 }
 
+/** How a test's status is printed: the words the skill uses. */
+const WORD = { passed: 'PASS', failed: 'FAIL', skipped: 'SKIP' };
+
+/** One word for a shell, quoted when it holds anything a shell would read (`#`, spaces, brackets, quotes). */
+export function shellWord(w) {
+  return /^[A-Za-z0-9_@%+=:,./-]+$/.test(w) ? w : `'${String(w).replace(/'/g, `'\\''`)}'`;
+}
+
 /** The run's summary.md: what was driven, how, on what, and what each test showed. */
 export function summaryMarkdown(run) {
   const lines = [
@@ -355,7 +399,7 @@ export function summaryMarkdown(run) {
     '',
   ];
   for (const t of run.tests) {
-    lines.push(`- ${t.status.toUpperCase()} ${t.title}${t.error ? `: ${t.error}` : ''}`);
+    lines.push(`- ${WORD[t.status]} ${t.title}${t.error ? `: ${t.error}` : ''}`);
     for (const s of t.shots) lines.push(`  - screenshot: ${path.relative(run.dir, s)}`);
     if (t.trace) lines.push(`  - trace: ${path.relative(run.dir, t.trace)}`);
   }
@@ -420,7 +464,7 @@ export function doctorChecks({ claim, status, plan, launch, stack }) {
         ? `the source changed since the last build (a start would build: ${[build.backend !== 'none' ? `backend ${build.backend}` : null, build.customer ? 'customer' : null].filter(Boolean).join(', ')})`
         : stale.length
           ? `running on an older build: ${stale.join(', ')}`
-          : `running the build of ${build.head?.slice(0, 10) ?? 'this checkout'} with this checkout's edits`,
+          : `running the build of ${build.head?.slice(0, 10) ?? 'this checkout'}${build.edits ? " with this checkout's uncommitted edits" : ''}`,
     `${RUN} launch`,
   );
   const same = Boolean(stack) && launch?.stack === stack;
@@ -428,7 +472,7 @@ export function doctorChecks({ claim, status, plan, launch, stack }) {
     same && Boolean(launch?.readiedAt),
     'readied',
     same && launch?.readiedAt
-      ? `readied ${launch.readiedAt}${launch.history ? ', TEST chart history written' : ''}`
+      ? `readied ${launch.readiedAt}${launch.history ? ', TEST chart history step run (a market that already had trades keeps its own)' : ''}`
       : 'this stack was not readied by verify launch (gates, market, TEST content)',
     `${RUN} launch`,
   );
@@ -617,11 +661,12 @@ async function drive(opts, io) {
   const launchRec = readJson(LAUNCH);
   if (plan.past.length && !launchRec?.history) {
     io.say(
-      `${PREFIX} drive: ${plan.past.join(', ')} read past trades and this stack has no TEST chart history. Fix: ${RUN} launch ${opts.id}`,
+      `${PREFIX} drive: ${plan.past.join(', ')} read past trades and this stack has not run the TEST chart history step. Fix: ${RUN} launch ${opts.id}`,
     );
     return 1;
   }
-  for (const f of plan.serial) io.say(`${PREFIX} drive: ${f} runs serially (one TEST person through its steps), so the whole file runs`);
+  for (const c of plan.chained)
+    io.say(`${PREFIX} drive: ${c.file} hands its TEST person from test to test, so its first ${c.tests} test(s), up to the step, run`);
   const label = `${opts.id}${opts.steps.length ? `-${opts.steps.map((n) => `s${n}`).join('-')}` : ''}`;
   const dir = newRunDir(label);
   const report = path.join(dir, 'report.json');
@@ -636,7 +681,7 @@ async function drive(opts, io) {
     path.join(dir, 'results'),
     ...(plan.grep ? ['--grep', plan.grep] : []),
   ];
-  const command = `JOURNEY_FILES="${plan.files.join(' ')}" ${argv.join(' ')}`;
+  const command = `JOURNEY_FILES=${shellWord(plan.files.join(' '))} ${argv.map(shellWord).join(' ')}`;
   const startedAt = new Date().toISOString();
   io.say(`${PREFIX} drive: ${opts.id} ${plan.steps.map((n) => `#${n}`).join(' ')} in ${plan.files.join(', ')}`);
   const pw = await io.run(argv, { capture: false, env: { JOURNEY_FILES: plan.files.join(' '), JOURNEY_REPORT: report } });
@@ -668,8 +713,8 @@ async function look(opts, io) {
   };
   const command = `${Object.entries(env)
     .filter(([k]) => k !== 'JOURNEY_REPORT')
-    .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
-    .join(' ')} ${argv.join(' ')}`;
+    .map(([k, v]) => `${k}=${shellWord(v)}`)
+    .join(' ')} ${argv.map(shellWord).join(' ')}`;
   const startedAt = new Date().toISOString();
   io.say(
     `${PREFIX} look: ${opts.path}${opts.signUp ? ' as a new TEST person' : ' signed out'}${opts.selector ? `, element ${opts.selector}` : ''}`,
@@ -709,7 +754,7 @@ function finishRun(io, { dir, label, what, command, startedAt, exit, report, cla
     .sort();
   writeJson(path.join(dir, 'summary.json'), run);
   fs.writeFileSync(path.join(dir, 'summary.md'), summaryMarkdown(run));
-  for (const t of tests) io.say(`${PREFIX} ${t.status.toUpperCase()} ${t.title}${t.error ? `: ${t.error}` : ''}`);
+  for (const t of tests) io.say(`${PREFIX} ${WORD[t.status]} ${t.title}${t.error ? `: ${t.error}` : ''}`);
   if (!tests.length) io.say(`${PREFIX} FAIL: Playwright exited ${exit} and reported no test`);
   io.say(`${PREFIX} ${run.verdict}. Evidence: ${path.relative(CHECKOUT, dir)}/summary.md (kept after ${RUN} stop)`);
   return passed ? 0 : 1;

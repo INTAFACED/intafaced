@@ -17,9 +17,11 @@ A local pass never counts as proof. The proof is the Real-app journeys run on th
 
 The journeys reach those through the same harness, so drive them through a journey step too.
 
-**Isolation:** up to four stacks run at once, one per checkout, each in its own slot with its own ports, state folder and journey results. Never drive a stack this checkout did not start: the doctor refuses one, and so do the journeys' config and helpers. With every slot held, `launch` exits 3. Prove the change on CI's stack instead: `gh workflow run real-app-journeys.yml --ref <branch> -f journeys="<J-id>.pw.mjs"`.
+**Isolation:** up to four stacks run at once, one per checkout, each in its own slot with its own ports, state folder and journey results. A slot's state folder is long-lived: a stop keeps its data, so the database holds the accounts, orders and trades of every earlier run in that slot, by any checkout. Step tests make their own TEST person, so this rarely matters; a file marked `// Stack: fresh` needs a new state folder (`LOCAL_STACK_STATE`, in `docs/LOCAL-TEST-STACK.md`). Never drive a stack this checkout did not start: the doctor refuses one, and so do the journeys' config and helpers. With every slot held, `launch` exits 3. Prove the change on CI's stack instead: `gh workflow run real-app-journeys.yml --ref <branch> -f journeys="<J-id>.pw.mjs"`.
 
 ## Launch
+
+**Pick the feature first.** Run `pnpm local:stack verify map` (it needs no stack) and read the journey's file, as Drive says. Its Gotchas name what the launch must provide. A journey that reads past trades is launched with its id, so its first drive is not refused.
 
 ```sh
 pnpm local:stack verify launch                 # this checkout's stack, built, started and readied
@@ -30,6 +32,8 @@ pnpm local:stack verify launch --only edge,identity,trade,matching,ledger,custom
 It starts the stack, or reuses this checkout's running one. It builds only when the source changed since the last build, and it migrates every schema of a service it starts. From an empty state folder, it also enrols the TEST founders. Then it readies the stack once, the way a journeys shard is readied: matching restarted, the TEST gates, the TEST market maker and the TEST content (`readyStack` in `tooling/scripts/journey-local.mjs`). It ends by running the doctor.
 
 **Ready** is the last line: `verify: launch: ready in <n>s: http://127.0.0.1:<port> (slot <n>; ...)`, exit 0. Any other end means it is not usable. The line above it says why, and `pnpm local:stack verify doctor` names the check that failed.
+
+**No TEST chain without anvil.** When no anvil binary is installed, launch prints `chain: no anvil binary` and the health table shows `svc-indexer absent (no TEST chain)`. That is still ready, but a step on the TEST chain then fails: report the chain as the missing precondition. The feature file names each file that uses the chain.
 
 **After a source edit,** run `launch` again. The start rebuilds what the edit touched. It restarts only the services whose build changed. The Customer server reads its files from disk on every request, so a Customer-only edit needs no restart. Readying is not repeated on the same stack.
 
@@ -73,7 +77,7 @@ Quote `'#1'` or write `1`: an unquoted `#1` starts a shell comment, and the driv
 
 The tests reach the app as a person does: they sign up through the app's own form, open pages by path and act through roles, labels and `data-testid` handles. Where a journey names another actor (an operator, TEST funding, another trader), they use the stack's own tools. Two cases change what runs:
 
-- A file that runs serially (its steps share one TEST person) runs whole. The drive says so.
+- Some files hand a TEST person or account from test to test: a serial file, or one using `journeyState`. There a later step acts as the person an earlier test made, so a drive of one step runs that file's tests from the first up to the step. The drive says so.
 - A journey that reads past trades refuses on a stack without the TEST chart history and names the launch that writes it.
 
 **One page, for a look the journey tests do not take** (a layout, one element's size, a room before its test exists):

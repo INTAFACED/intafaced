@@ -7,13 +7,14 @@ This folder is the maintained source for verifying what a person can do in INTAF
 - `pnpm local:stack verify launch` ended `ready`, and `pnpm local:stack verify doctor` ends `worth driving`.
 - The stack is this checkout's own, in its own slot: Customer at `http://127.0.0.1:3210` plus 1000 × slot. The doctor prints it.
 - The stack was readied by `launch`: the TEST gates applied, the TEST market maker quoting, and the TEST content seeded (earn pools, loan products, house inventory, the TEST P2P method).
-- A journey that reads past trades was launched with its id (`launch <J-id>`), so the TEST chart history exists.
+- A journey that reads past trades was launched with its id (`launch <J-id>`), so the TEST chart history step ran (a market that already had trades keeps its own).
+- A journey on the TEST chain needs a stack with one (an anvil binary installed); without it, its chain steps fail and the reason is that precondition.
 - Never drive an instance this run did not start.
 
 ## Driving conventions
 
-- Drive a step through its own test: `pnpm local:stack verify drive <J-id> '#<n>'`. Most step tests sign up a TEST person of their own; read the step's test for where it starts.
-- A file that runs serially shares one TEST person across its steps. A drive of one of its steps runs the whole file, and says so.
+- Drive a step through its own test: `pnpm local:stack verify drive <J-id> '#<n>'`. A step test may act as the TEST person an earlier test in its file made (a serial file, or `journeyState`): the drive then runs that file's tests up to the step, and says so. The feature file's Gotchas name such files.
+- A slot's database keeps earlier runs' data (a stop keeps it). Never read a count or a list as fresh unless the file says `// Stack: fresh` and the state folder is new.
 - Each file's `// World:` line names what it changes in the shared stack (orders on the book, service restarts, gates, the posting freeze, the stack's tools). The harness puts the world back between files.
 - For a page no step test covers yet, use `pnpm local:stack verify look <path> [--sign-up] [--selector <css>]`.
 - The tests act through roles, accessible names, labels and `data-testid` or `data-*` handles, never through coordinates or tab order.

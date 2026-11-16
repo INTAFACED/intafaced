@@ -2763,7 +2763,7 @@ function cmdPlan(flags) {
   const bp = buildPlan(flags.includes('--rebuild'), act);
   const customer = { source: act.source, dir: act.dir ?? null, error: act.error ?? null, wouldBuild: bp.customer };
   // What the next start would build: backend 'none' while the stamp still vouches for the source on disk (backendDecision).
-  const build = { backend: bp.backend, customer: bp.customer, head: bp.head };
+  const build = { backend: bp.backend, customer: bp.customer, head: bp.head, edits: bp.edits !== '' };
   if (flags.includes('--json'))
     return say(
       JSON.stringify(
