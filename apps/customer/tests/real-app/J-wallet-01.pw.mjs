@@ -261,10 +261,12 @@ test(`${J} #1 opens Assets: the wallet's assets read from the chain and the venu
   const wallet = page.getByTestId('source-wallet');
   await expect(wallet).toHaveAttribute('data-source', 'chain');
   await expect(wallet.locator('[data-testid="source-wallet-block"]')).toHaveAttribute('data-block', /^\d+$/, { timeout: 30_000 });
-  const block = await wallet.locator('[data-testid="source-wallet-block"]').getAttribute('data-block');
+  const [block, blockTime] = await wallet
+    .locator('[data-testid="source-wallet-block"]')
+    .evaluate((shown) => [shown.getAttribute('data-block'), shown.querySelector('time')?.getAttribute('datetime') ?? null]);
   const chain = await chainAt(owner, block);
   expect(chain.usd).toBe(100_000_000n);
-  await expect(wallet.locator('[data-testid="source-wallet-block"] time')).toHaveAttribute('datetime', chain.time);
+  expect(blockTime, `the time shown with block ${block} is that block's own time`).toBe(chain.time);
   await expect(wallet.getByTestId('source-wallet-network')).toHaveText(`Base Sepolia test network (chain ${CHAIN_ID})`);
   const totals = wallet.getByRole('region', { name: 'Totals on Base Sepolia test network' });
   await expect(totals.locator('tr[data-asset="TESTUSD"] [data-cell="amount"]')).toHaveText(shownUnits(chain.usd, 6));
