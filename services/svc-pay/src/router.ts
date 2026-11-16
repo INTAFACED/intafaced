@@ -631,7 +631,7 @@ export function createPayRouter(
       }),
 
     merchant: router({
-      ...(portal?.merchant ?? {}),
+      ...portal?.merchant,
       /**
        * Ownership: userId is always the authenticated principal. Body userId
        * was dropped so a caller with pay:write cannot create a merchant under
