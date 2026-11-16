@@ -11,6 +11,7 @@ const en = {
   chipConnected: '{name} · {address}',
   chipWrongNetwork: 'Wrong network · {address}',
   chipChecking: 'Connecting…',
+  restoring: 'Checking your wallet…',
   connectTitle: 'Connect a wallet',
   connectNone: 'No wallet found in this browser. Install or open a wallet that supports browser connections, then reload.',
   connectButton: 'Connect {name}',

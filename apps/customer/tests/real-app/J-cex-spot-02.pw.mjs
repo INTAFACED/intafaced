@@ -6,6 +6,7 @@ import { test, expect } from './journey.mjs';
 import { api, fromUnits, journeyState, toUnits } from './stack.mjs';
 import { reviewSheet, signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
+import { connectWhenAsked } from './dex.mjs';
 import { ownSpotMarket, venueListingWrite } from './own-market.mjs';
 import {
   continueInWallet,
@@ -523,20 +524,12 @@ const operatorsWrite = (symbol, action, procedure, fields, expectedVersion) =>
 /** A fresh TEST spot market on the TEST venue, listed by two operators and open: no other file trades it. */
 const freshListedMarket = (tag) => ownSpotMarket(J, 'JS2', tag);
 
-/**
- * Another venue desk in the same signed-in page, its TEST wallet already installed (a page takes it once). The desk may
- * restore the still-authorised wallet on its own, so Connect is pressed only while no address shows.
- */
+/** Another venue desk in the same signed-in page, its TEST wallet already installed (a page takes it once). */
 async function deskAgain(page, wallet, path) {
   await page.goto(path);
   await expect(page.getByTestId('venue-header')).toBeVisible({ timeout: 30_000 });
   const address = page.getByTestId('venue-wallet-address');
-  const connect = page.getByRole('button', { name: 'Connect TEST Wallet' });
-  await expect(async () => {
-    if (await address.isVisible()) return;
-    await connect.click({ timeout: 2_000 });
-    await expect(address).toBeVisible({ timeout: 5_000 });
-  }).toPass({ timeout: 30_000 });
+  await connectWhenAsked(page, address);
   await expect(address).toHaveText(wallet.address);
 }
 

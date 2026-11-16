@@ -5,8 +5,8 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { api, journeyState, restartWithSetting, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
-import { CHAIN_ID, fundOnTestChain, testChain } from './dex.mjs';
-import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs';
+import { CHAIN_ID, connectWhenAsked, fundOnTestChain, testChain } from './dex.mjs';
+import { installTestWallet, testWalletKey } from './test-wallet.mjs';
 import { setPartner } from './partner.mjs';
 import { ownSpotMarket } from './own-market.mjs';
 import {
@@ -589,13 +589,7 @@ test(`${J} #6 opens history: every wallet, venue and partner movement with its s
   await page.goto('/money/activity');
   const list = page.getByTestId('activity-by-source');
   await expect(list).toBeVisible({ timeout: 30_000 });
-  const address = page.getByTestId('venue-wallet-address');
-  const connect = page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` });
-  await expect(async () => {
-    if (await address.isVisible()) return;
-    await connect.click({ timeout: 2_000 });
-    await expect(address).toBeVisible({ timeout: 5_000 });
-  }).toPass({ timeout: 30_000 });
+  await connectWhenAsked(page, page.getByTestId('venue-wallet-address'));
 
   // Every movement each source reports, one row each, and nothing else: no line of our own ledger.
   const rows = list.getByTestId('money-act');

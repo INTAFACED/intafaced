@@ -6,6 +6,7 @@ import { approverSessions, makeContext, twoPerson } from '../../../../tooling/sc
 import { api, fromUnits, journeyState, restartWithSetting, toUnits } from './stack.mjs';
 import { reviewSheet, signIn, signUp, verify } from './desk.mjs';
 import { installTestWallet, testWalletKey } from './test-wallet.mjs';
+import { connectWhenAsked } from './dex.mjs';
 import {
   continueInWallet,
   openVenueDesk,
@@ -318,15 +319,9 @@ async function openWithWallet(page, s, path) {
   const wallet = wallets.get(page);
   await signIn(page, s.account);
   await page.goto(path);
-  const connect = page.getByRole('button', { name: 'Connect TEST Wallet' });
   const address = page.getByTestId('venue-wallet-address');
-  await expect(connect.or(address).first()).toBeVisible({ timeout: 30_000 });
-  // The wallet may reconnect by itself between seeing the button and clicking it (CI run 43788805484 #4 waited on a
-  // button that had gone): click only while it is there, until the address shows.
-  await expect(async () => {
-    if (await connect.isVisible()) await connect.click({ timeout: 2_000 });
-    await expect(address).toHaveText(wallet.address.toLowerCase(), { timeout: 2_000 });
-  }).toPass({ timeout: 30_000 });
+  await connectWhenAsked(page, address);
+  await expect(address).toHaveText(wallet.address.toLowerCase());
   return wallet;
 }
 
