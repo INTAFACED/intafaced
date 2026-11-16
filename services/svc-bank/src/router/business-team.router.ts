@@ -55,14 +55,15 @@ const spendView = (s: TeamSpend) => ({
  */
 export function createBusinessTeamRouter(c: BankRouterContext) {
   const { bank, stepUpEnforced, requireStepUp } = c;
-  const team = bank.businessTeam;
+  // Read on each call, never at mount: a router built over a partial service (the preview doors) must not touch it.
+  const team = () => bank.businessTeam;
   return router({
     overview: scopedProcedure('bank:read', { module: 'bank' })
       .input(accountInput)
       .output(businessTeamOverviewSchema)
       .query(({ ctx, input }) =>
         guard(async () => {
-          const o = await team.overview(input.accountId, ctx.principal.userId);
+          const o = await team().overview(input.accountId, ctx.principal.userId);
           return {
             ...o,
             partner: o.partner
@@ -78,35 +79,35 @@ export function createBusinessTeamRouter(c: BankRouterContext) {
     members: scopedProcedure('bank:read', { module: 'bank' })
       .input(accountInput)
       .output(z.array(businessTeamMemberSchema))
-      .query(({ ctx, input }) => guard(() => team.members(input.accountId, ctx.principal.userId))),
+      .query(({ ctx, input }) => guard(() => team().members(input.accountId, ctx.principal.userId))),
     roles: scopedProcedure('bank:read', { module: 'bank' })
       .input(accountInput)
       .output(z.array(businessTeamRoleSchema))
-      .query(({ ctx, input }) => guard(async () => (await team.roles(input.accountId, ctx.principal.userId)).map(roleView))),
+      .query(({ ctx, input }) => guard(async () => (await team().roles(input.accountId, ctx.principal.userId)).map(roleView))),
     advisors: scopedProcedure('bank:read', { module: 'bank' })
       .input(accountInput)
       .output(z.array(businessTeamAdvisorSchema))
-      .query(({ ctx, input }) => guard(async () => (await team.advisors(input.accountId, ctx.principal.userId)).map(advisorView))),
+      .query(({ ctx, input }) => guard(async () => (await team().advisors(input.accountId, ctx.principal.userId)).map(advisorView))),
     invites: scopedProcedure('bank:read', { module: 'bank' })
       .input(accountInput)
       .output(z.array(businessTeamInviteSchema))
-      .query(({ ctx, input }) => guard(async () => (await team.invites(input.accountId, ctx.principal.userId)).map(inviteView))),
+      .query(({ ctx, input }) => guard(async () => (await team().invites(input.accountId, ctx.principal.userId)).map(inviteView))),
     rules: scopedProcedure('bank:read', { module: 'bank' })
       .input(accountInput)
       .output(z.array(businessTeamRuleSchema))
-      .query(({ ctx, input }) => guard(async () => (await team.rules(input.accountId, ctx.principal.userId)).map(ruleView))),
+      .query(({ ctx, input }) => guard(async () => (await team().rules(input.accountId, ctx.principal.userId)).map(ruleView))),
     payments: scopedProcedure('bank:read', { module: 'bank' })
       .input(accountInput)
       .output(z.array(businessTeamPaymentSchema))
-      .query(({ ctx, input }) => guard(async () => (await team.payments(input.accountId, ctx.principal.userId)).map(paymentView))),
+      .query(({ ctx, input }) => guard(async () => (await team().payments(input.accountId, ctx.principal.userId)).map(paymentView))),
     payment: scopedProcedure('bank:read', { module: 'bank' })
       .input(z.object({ paymentId: z.string().guid() }).strict())
       .output(businessTeamPaymentSchema)
-      .query(({ ctx, input }) => guard(async () => paymentView(await team.payment(input.paymentId, ctx.principal.userId)))),
+      .query(({ ctx, input }) => guard(async () => paymentView(await team().payment(input.paymentId, ctx.principal.userId)))),
     spend: scopedProcedure('bank:read', { module: 'bank' })
       .input(accountInput)
       .output(businessTeamSpendSchema)
-      .query(({ ctx, input }) => guard(async () => spendView(await team.spend(input.accountId, ctx.principal.userId)))),
+      .query(({ ctx, input }) => guard(async () => spendView(await team().spend(input.accountId, ctx.principal.userId)))),
 
     createRole: scopedProcedure('bank:write', { module: 'bank' })
       .input(
@@ -120,20 +121,22 @@ export function createBusinessTeamRouter(c: BankRouterContext) {
           .strict(),
       )
       .output(businessTeamRoleSchema)
-      .mutation(({ ctx, input }) => guard(async () => roleView(await team.createRole({ ...input, actorUserId: ctx.principal.userId })))),
+      .mutation(({ ctx, input }) => guard(async () => roleView(await team().createRole({ ...input, actorUserId: ctx.principal.userId })))),
     assignRole: scopedProcedure('bank:write', { module: 'bank' })
       .input(z.object({ accountId: z.string().guid(), userId: z.string().min(1).max(128), roleId: z.string().guid().nullable() }).strict())
       .output(businessTeamMemberSchema)
-      .mutation(({ ctx, input }) => guard(() => team.assignRole({ ...input, actorUserId: ctx.principal.userId }))),
+      .mutation(({ ctx, input }) => guard(() => team().assignRole({ ...input, actorUserId: ctx.principal.userId }))),
     addAdvisor: scopedProcedure('bank:write', { module: 'bank' })
       .input(z.object({ accountId: z.string().guid(), handle: z.string().min(1).max(64) }).strict())
       .output(businessTeamAdvisorSchema)
-      .mutation(({ ctx, input }) => guard(async () => advisorView(await team.addAdvisor({ ...input, actorUserId: ctx.principal.userId })))),
+      .mutation(({ ctx, input }) =>
+        guard(async () => advisorView(await team().addAdvisor({ ...input, actorUserId: ctx.principal.userId }))),
+      ),
     approveAdvisor: scopedProcedure('bank:write', { module: 'bank' })
       .input(z.object({ accountId: z.string().guid(), userId: z.string().min(1).max(128) }).strict())
       .output(businessTeamAdvisorSchema)
       .mutation(({ ctx, input }) =>
-        guard(async () => advisorView(await team.approveAdvisor({ ...input, actorUserId: ctx.principal.userId }))),
+        guard(async () => advisorView(await team().approveAdvisor({ ...input, actorUserId: ctx.principal.userId }))),
       ),
     invite: scopedProcedure('bank:write', { module: 'bank' })
       .input(
@@ -150,7 +153,7 @@ export function createBusinessTeamRouter(c: BankRouterContext) {
       .output(businessTeamInviteMadeSchema)
       .mutation(({ ctx, input }) =>
         guard(async () => {
-          const made = await team.invite({ ...input, actorUserId: ctx.principal.userId });
+          const made = await team().invite({ ...input, actorUserId: ctx.principal.userId });
           return { invite: inviteView(made.invite), token: made.token };
         }),
       ),
@@ -159,7 +162,7 @@ export function createBusinessTeamRouter(c: BankRouterContext) {
       .output(businessTeamInviteMadeSchema)
       .mutation(({ ctx, input }) =>
         guard(async () => {
-          const made = await team.resendInvite({ ...input, actorUserId: ctx.principal.userId });
+          const made = await team().resendInvite({ ...input, actorUserId: ctx.principal.userId });
           return { invite: inviteView(made.invite), token: made.token };
         }),
       ),
@@ -167,12 +170,12 @@ export function createBusinessTeamRouter(c: BankRouterContext) {
       .input(z.object({ accountId: z.string().guid(), inviteId: z.string().guid() }).strict())
       .output(businessTeamInviteSchema)
       .mutation(({ ctx, input }) =>
-        guard(async () => inviteView(await team.revokeInvite({ ...input, actorUserId: ctx.principal.userId }))),
+        guard(async () => inviteView(await team().revokeInvite({ ...input, actorUserId: ctx.principal.userId }))),
       ),
     acceptInvite: scopedProcedure('bank:write', { module: 'bank' })
       .input(z.object({ token: z.string().min(1).max(128) }).strict())
       .output(businessTeamJoinedSchema)
-      .mutation(({ ctx, input }) => guard(() => team.acceptInvite({ token: input.token, userId: ctx.principal.userId }))),
+      .mutation(({ ctx, input }) => guard(() => team().acceptInvite({ token: input.token, userId: ctx.principal.userId }))),
     addRule: scopedProcedure('bank:write', { module: 'bank' })
       .input(
         z
@@ -189,7 +192,7 @@ export function createBusinessTeamRouter(c: BankRouterContext) {
       .output(businessTeamRuleSchema)
       .mutation(({ ctx, input }) =>
         guard(async () =>
-          ruleView(await team.addRule({ ...input, overAmount: parseAmount(input.overAmount), actorUserId: ctx.principal.userId })),
+          ruleView(await team().addRule({ ...input, overAmount: parseAmount(input.overAmount), actorUserId: ctx.principal.userId })),
         ),
       ),
     propose: scopedProcedure('bank:write', { module: 'bank' })
@@ -207,7 +210,7 @@ export function createBusinessTeamRouter(c: BankRouterContext) {
       .output(businessTeamPaymentSchema)
       .mutation(({ ctx, input }) =>
         guard(async () =>
-          paymentView(await team.propose({ ...input, amount: parseAmount(input.amount), makerUserId: ctx.principal.userId })),
+          paymentView(await team().propose({ ...input, amount: parseAmount(input.amount), makerUserId: ctx.principal.userId })),
         ),
       ),
     /** One approval. The one that completes the rule's count sends the partner instruction, once. */
@@ -223,21 +226,21 @@ export function createBusinessTeamRouter(c: BankRouterContext) {
               input.stepUpApprovalId,
             );
           }
-          return paymentView(await team.approve({ paymentId: input.paymentId, approverUserId: ctx.principal.userId }));
+          return paymentView(await team().approve({ paymentId: input.paymentId, approverUserId: ctx.principal.userId }));
         }),
       ),
     reject: scopedProcedure('bank:write', { module: 'bank' })
       .input(z.object({ paymentId: z.string().guid() }).strict())
       .output(businessTeamPaymentSchema)
       .mutation(({ ctx, input }) =>
-        guard(async () => paymentView(await team.reject({ paymentId: input.paymentId, userId: ctx.principal.userId }))),
+        guard(async () => paymentView(await team().reject({ paymentId: input.paymentId, userId: ctx.principal.userId }))),
       ),
     /** A payment whose partner answer was not definite, sent again under the same key: made at most once. */
     resend: scopedProcedure('bank:write', { module: 'bank' })
       .input(z.object({ paymentId: z.string().guid() }).strict())
       .output(businessTeamPaymentSchema)
       .mutation(({ ctx, input }) =>
-        guard(async () => paymentView(await team.resend({ paymentId: input.paymentId, userId: ctx.principal.userId }))),
+        guard(async () => paymentView(await team().resend({ paymentId: input.paymentId, userId: ctx.principal.userId }))),
       ),
     addDepartment: scopedProcedure('bank:write', { module: 'bank' })
       .input(
@@ -253,7 +256,7 @@ export function createBusinessTeamRouter(c: BankRouterContext) {
       .output(businessTeamDepartmentSchema)
       .mutation(({ ctx, input }) =>
         guard(async () => {
-          const d = await team.addDepartment({
+          const d = await team().addDepartment({
             ...input,
             budget: input.budget === null ? null : parseAmount(input.budget),
             actorUserId: ctx.principal.userId,
@@ -266,6 +269,6 @@ export function createBusinessTeamRouter(c: BankRouterContext) {
         z.object({ accountId: z.string().guid(), userId: z.string().min(1).max(128), departmentId: z.string().guid().nullable() }).strict(),
       )
       .output(businessTeamMemberSchema)
-      .mutation(({ ctx, input }) => guard(() => team.setDepartment({ ...input, actorUserId: ctx.principal.userId }))),
+      .mutation(({ ctx, input }) => guard(() => team().setDepartment({ ...input, actorUserId: ctx.principal.userId }))),
   });
 }
