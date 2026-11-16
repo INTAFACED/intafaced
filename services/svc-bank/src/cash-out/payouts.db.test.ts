@@ -600,6 +600,79 @@ describe('cash out that pays out, with the TEST payout stand-in (J-bank-03 #4/#5
       expect(await atPartner()).toBe(parseAmount('5'));
     });
 
+    // The request's session lock lives on one connection. If that connection drops while the body runs (a failover, a
+    // reset socket), Postgres frees the lock at once and the body carries on, on the pool's other connections. A replay
+    // of the same request then drives it at the same time. A partner refusal keeps nothing under its key, so the replay's
+    // move under that same key can be made after the first driver was refused.
+    it('a request refused while its lock was lost never leaves the money taken: a refused request took nothing', async () => {
+      const id = await usable();
+      const partner = partnerBank!;
+      await partner.bank.move({ key: 'TEST-drain', from: main, to: { ...main, spaceId: 'TEST-space' }, amount: parseAmount('45') });
+      const svc = services();
+      const realQuote = svc.cashOut.quote.bind(svc.cashOut);
+      svc.cashOut.quote = async (userId, ask) => ({ ...(await realQuote(userId, { ...ask, amount: '5' })), amount: ask.amount });
+      // Each driver's move is answered, then held back on its way to the driver until the test lets it go.
+      const realMove = partner.bank.move.bind(partner.bank);
+      const gate = () => {
+        let arrive!: () => void;
+        let open!: () => void;
+        const reached = new Promise<void>((res) => (arrive = res));
+        const wait = new Promise<void>((res) => (open = res));
+        return { reached, arrive, open, wait };
+      };
+      const gates = [gate(), gate()];
+      let calls = 0;
+      (partner.bank as { move: typeof realMove }).move = async (request) => {
+        if (!request.key.startsWith('bank.cash-out:')) return realMove(request);
+        const g = gates[calls++]!;
+        const answer = await realMove(request).then(
+          (move) => ({ move }),
+          (err: unknown) => ({ err }),
+        );
+        g.arrive();
+        await g.wait;
+        if ('err' in answer) throw answer.err;
+        return answer.move;
+      };
+      const requestId = randomUUID();
+      const ask = { requestId, assetId: 'USDT', amount: '20', linkedAccountId: id };
+      // Driver A: the partner refuses its move for funds; the answer is on its way back.
+      const first = svc.cashOut.start(ADA, ask).then(
+        (v) => ({ v }),
+        (err: unknown) => ({ err }),
+      );
+      await gates[0]!.reached;
+      // A's lock connection drops: Postgres frees the lock.
+      const dropped = await sql<Array<{ ok: boolean }>>`
+        SELECT pg_terminate_backend(l.pid) AS ok FROM pg_locks l
+         WHERE l.locktype = 'advisory' AND l.granted AND l.pid <> pg_backend_pid()
+           AND l.database = (SELECT oid FROM pg_database WHERE datname = current_database())
+      `;
+      expect(dropped.length).toBeGreaterThan(0);
+      // The money arrives, and a replay of the same request drives it: its move under the same key is made.
+      partner.fund(ADA, { fundId: 'cash-out-partner-fund-ada-3', assetId: 'USDT', amount: parseAmount('20') });
+      const second = svc.cashOut.start(ADA, ask).then(
+        (v) => ({ v }),
+        (err: unknown) => ({ err }),
+      );
+      await gates[1]!.reached;
+      // A's refusal arrives and is recorded; then the replay's move arrives.
+      gates[0]!.open();
+      await first;
+      gates[1]!.open();
+      await second;
+      (partner.bank as { move: typeof realMove }).move = realMove;
+      const [row] = await sql<Array<{ status: string; partner_move_id: string | null }>>`
+        SELECT status, partner_move_id FROM bank.cash_out_requests WHERE id = ${requestId}::uuid
+      `;
+      const moved = await partner.bank.moveByKey(`bank.cash-out:${requestId}`);
+      // Either the request took the money and says so, or it was refused and the money is still the customer's.
+      expect([
+        ['processing', true, '5'],
+        ['refused', false, '25'],
+      ]).toContainEqual([row?.status, moved !== null && row?.partner_move_id === moved.id, formatAmount(await atPartner())]);
+    });
+
     it('paid closes it with no ledger post; the receipt names the partner payout and its signature verifies', async () => {
       const id = await usable();
       const { requestId, partnerMoveId } = await start(id, '20');
