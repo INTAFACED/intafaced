@@ -332,6 +332,16 @@ test('no-number-money: the customer app never makes money a float, and chartValu
     ].join('\n'),
     [`${C}features/x/alias.ts`]:
       "import { chartValue as cv } from '../../shared/chart-value';\nexport const s = (a: string) => String(cv(a));\n",
+    [`${C}features/x/space.ts`]:
+      "import * as ns from '../../shared/chart-value';\nexport const s = (a: string) => String(ns.chartValue(a));\n",
+    [`${C}features/x/shown.tsx`]:
+      'import { chartValue } from \'../../shared/chart-value\';\nexport const P = ({ a }: { a: string }) => <span title="x">{chartValue(a)}</span>;\nexport const L = ({ a }: { a: string }) => <Line price={chartValue(a)} />;\n',
+    [`${C}features/x/book.ts`]: [
+      'export const a = (bids: [string, string][]) => bids.map(([p, s]) => Number(p) * Number(s));',
+      'export function b(amounts: string[]) {\n  let t = 0;\n  for (const p of amounts) t += Number(p);\n  return t;\n}',
+      'export const c = (p: string) => Number(p);',
+      '',
+    ].join('\n'),
     [`${C}features/x/counts.ts`]:
       'export const a = (o: { widthPx: string; lastSeenAt: string; totalPages: string; pageSize: string }) =>\n  Number(o.widthPx) + Number(o.lastSeenAt) + Number(o.totalPages) + Number(o.pageSize);\n',
     [`${C}features/x/rates.ts`]:
@@ -381,6 +391,9 @@ test('no-number-money: the customer app never makes money a float, and chartValu
   fires(`${C}features/x/venue.ts`, 4);
   fires(`${C}features/x/callbacks.ts`, 6);
   fires(`${C}features/x/alias.ts`);
+  fires(`${C}features/x/space.ts`);
+  fires(`${C}features/x/shown.tsx`);
+  fires(`${C}features/x/book.ts`, 3);
   fires(`${C}features/x/counts.ts`, 0);
   fires(`${C}features/x/rates.ts`, 0);
   fires(`${C}data/poll.spec.ts`);

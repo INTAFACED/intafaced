@@ -189,7 +189,14 @@ function customerFloats(context, strictOnly = false) {
   const exitNames = new Set([EXIT]); // chartValue and the local names it is imported as
   heldMoney = new Map();
   const held = []; // per call: the callback parameters it put in heldMoney
-  const isExit = (n) => n?.type === 'CallExpression' && n.callee?.type === 'Identifier' && exitNames.has(n.callee.name);
+  const exitSpaces = new Set(); // `import * as ns`: ns.chartValue()
+  const isExit = (n) =>
+    n?.type === 'CallExpression' &&
+    ((n.callee?.type === 'Identifier' && exitNames.has(n.callee.name)) ||
+      (n.callee?.type === 'MemberExpression' &&
+        !n.callee.computed &&
+        exitSpaces.has(n.callee.object?.name) &&
+        n.callee.property?.name === EXIT));
   /** Is this value a chartValue() result: the call, a const holding one, or arithmetic, Math.* or a branch of them?
    * A value the chart computes from one (a pixel from priceToCoordinate) is not. */
   const holdsExit = (n) => {
@@ -256,6 +263,7 @@ function customerFloats(context, strictOnly = false) {
       if (array && isFunction(fn)) {
         // The callback's element is the array's: `amounts.map((p) => { return Number(p); })` is judged as `Number(amount)`.
         const params = (method.startsWith('reduce') ? [fn.params[1]] : method === 'sort' ? fn.params.slice(0, 2) : [fn.params[0]])
+          .flatMap((x) => (x?.type === 'ArrayPattern' ? x.elements : [x]))
           .filter((x) => x?.type === 'Identifier')
           .map((x) => x.name);
         for (const name of params) heldMoney.set(name, [...(heldMoney.get(name) ?? []), nameOf(c.object) ?? array]);
@@ -270,9 +278,27 @@ function customerFloats(context, strictOnly = false) {
         else if (['format', 'stringify'].includes(c.property.name) && node.arguments.some(holdsExit)) leak(node, `.${c.property.name}()`);
       }
     },
+    ForOfStatement(node) {
+      const array = moneyName(node.right);
+      const id = node.left?.type === 'VariableDeclaration' ? node.left.declarations[0]?.id : null;
+      if (!array || !id) return;
+      const params = (id.type === 'ArrayPattern' ? id.elements : [id]).filter((x) => x?.type === 'Identifier').map((x) => x.name);
+      for (const name of params) heldMoney.set(name, [...(heldMoney.get(name) ?? []), nameOf(node.right) ?? array]);
+      held.push([node, params]);
+    },
+    'ForOfStatement:exit'(node) {
+      if (held.at(-1)?.[0] !== node) return;
+      for (const name of held.pop()[1]) heldMoney.get(name)?.pop();
+    },
+    JSXExpressionContainer(node) {
+      if (['JSXElement', 'JSXFragment'].includes(node.parent?.type) && holdsExit(node.expression)) leak(node, 'JSX text');
+    },
     'CallExpression:exit'(node) {
       if (held.at(-1)?.[0] !== node) return;
       for (const name of held.pop()[1]) heldMoney.get(name)?.pop();
+    },
+    ImportNamespaceSpecifier(node) {
+      exitSpaces.add(node.local.name);
     },
     ImportSpecifier(node) {
       if ((node.imported?.name ?? node.imported?.value) === EXIT) exitNames.add(node.local.name);
