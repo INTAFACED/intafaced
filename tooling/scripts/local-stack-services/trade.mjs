@@ -69,6 +69,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
     // LOCAL TEST tape history (local-test-market.mjs history): svc-trade's signed route that moves TEST tape fills
     // into the past. svc-trade refuses to start with it outside APP_ENV dev/test (spot/local-test-tape.ts).
     TRADE_LOCAL_TEST_TAPE_RETIME: 'on',
+    // The TEST age door (packages/service-kit test-age.ts): a journey makes one TEST OTC quote older instead of waiting
+    // out its expiry or settle window. svc-trade refuses to start with it outside APP_ENV dev/test or under NODE_ENV=production.
+    TEST_AGE_DOOR: 'on',
     // 100,000: an order above it is still one the TEST book's depth can mark when split (J-derivatives-02 #5).
     TRADE_MAX_ORDER: '100000',
     TRADE_MAX_POSITION: '5000000',
