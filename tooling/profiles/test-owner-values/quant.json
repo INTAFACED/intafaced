@@ -105,6 +105,31 @@
       "service": "quant",
       "value": "{\"version\": \"TEST v1\", \"items\": [\"TEST The backtest includes fees, slippage and delay.\", \"TEST The results are a historical simulation, not a forecast.\", \"TEST The description promises no return.\"]}",
       "note": "TEST realism checklist a developer accepts before publishing (J-algo-dev-09 #2); the real wording is owner and lawyer content."
+    },
+    "QUANT_MONTECARLO_RUNS": {
+      "service": "quant",
+      "value": "1000",
+      "note": "TEST paths one Monte Carlo resampling draws, so a journey reads percentiles of a finished TEST backtest (J-algo-dev-16 #3)."
+    },
+    "QUANT_MONTECARLO_MIN_TRADES": {
+      "service": "quant",
+      "value": "2",
+      "note": "TEST fewest closed round trips a backtest needs before it is resampled, low enough for a short TEST tape (J-algo-dev-16 #3)."
+    },
+    "QUANT_LAKE_SYMBOLS": {
+      "service": "quant",
+      "value": "BTC/USDT,ETH/USDT",
+      "note": "TEST symbols the market data lake captures from the stack's own exchange (J-algo-dev-16 #2)."
+    },
+    "QUANT_LAKE_CAPTURE_SECONDS": {
+      "service": "quant",
+      "value": "2",
+      "note": "TEST seconds between lake capture passes, short so a journey sees a paused capture read as a gap within seconds (J-algo-dev-16 #2)."
+    },
+    "QUANT_LAKE_RETENTION_DAYS": {
+      "service": "quant",
+      "value": "7",
+      "note": "TEST days the lake keeps a captured row (J-algo-dev-16 #2)."
     }
   }
 }

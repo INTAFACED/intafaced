@@ -118,6 +118,26 @@ export function localStackSlot(env = process.env, home = os.homedir()) {
   }
   return slotClaims(home).find((c) => c.claim?.repo === CHECKOUT)?.slot ?? 0;
 }
+/**
+ * Why this checkout must not act on the stack its slot points at, or null. A checkout that holds no claim reads slot 0,
+ * and when slot 0 is another checkout's live stack, a journey run or a stack command here would act on that stack: its
+ * ports, its data and its run folder (Playwright empties `<run folder>/results` as it begins). Failure it prevents: on
+ * 15 Nov, with all four slots held, a journey run from a checkout whose start was refused ran against slot 0's stack.
+ */
+export function anotherCheckoutsStack(env = process.env, home = os.homedir()) {
+  if (env.LOCAL_STACK_SLOT !== undefined || env.LOCAL_STACK_STATE !== undefined) return null;
+  const claims = slotClaims(home);
+  if (claims.some((c) => c.claim?.repo === CHECKOUT)) return null;
+  const zero = claims[0];
+  if (!zero.claim || !zero.live || zero.claim.repo === CHECKOUT) return null;
+  const free = claims.filter((c) => !(c.claim && c.live)).map((c) => c.slot);
+  return (
+    `refusing: this checkout has no stack of its own, and slot 0 is ${zero.claim.repo}'s (pid ${zero.claim.pid}). ` +
+    (free.length
+      ? `Start yours first: pnpm local:stack takes a free slot (${free.join(', ')} free now).`
+      : "Every slot is held now; prove the journey on CI's stack instead (Real-app journeys, workflow_dispatch with journeys).")
+  );
+}
 // The stack's one table of ports, before the slot's shift. Every script and journey reads a port from here.
 const BASE_PORTS = {
   postgres: 15460,

@@ -28,7 +28,7 @@ import {
   fmtPrice,
 } from './deps';
 import type { InstantState, InstantWrite } from './instant';
-import type { DeskMarket } from './market';
+import type { FlowMarket } from './order-flow';
 import { flowCopy } from './order-flow-copy';
 import { placesOf } from './text';
 import type { Preferences } from '../../../shared/preferences';
@@ -148,7 +148,7 @@ export function OneClickBar({
   bestBid,
   onCloseAll,
 }: {
-  market: DeskMarket;
+  market: FlowMarket;
   instant: InstantControl;
   zone: Zone;
   /** The person's quick sizes, in the base asset. */
@@ -211,30 +211,41 @@ export function OneClickBar({
 }
 
 type CancelState = 'idle' | 'busy' | 'done' | 'uncertain' | 'refused';
+/** What one cancel request came to: done, refused, or an answer we couldn't read (never retried). */
+export type CancelOutcome = 'done' | 'uncertain' | 'refused';
+
+/** One of my working orders on a ladder row, as the cancel review names it. */
+export interface CancelRow {
+  id: string;
+  side: 'buy' | 'sell';
+  remaining: string;
+  price: string | null;
+}
 
 /**
  * One-click cancel on a ladder row: my orders in that row's bucket. Off: a review naming each order, then one cancel per
- * order. On: the same cancels at once. A press while one is running does nothing.
+ * order. On: the same cancels at once. A press while one is running does nothing. `cancelOne` sends one cancel for one
+ * order (today's engine, or the venue's signed cancel) and is never retried here.
  */
-export function RowCancel({
+export function RowCancelView<O extends CancelRow>({
   market,
   orders,
   instant,
   onDone,
+  cancelOne,
 }: {
-  market: DeskMarket;
-  orders: readonly Order[];
+  market: FlowMarket;
+  orders: readonly O[];
   instant: boolean;
   onDone: () => void;
+  cancelOne: (order: O) => Promise<CancelOutcome>;
 }) {
   const { t } = flowCopy.useCopy();
-  const env = useDataEnv();
-  const api = useDeskApi();
   const busy = useRef(false);
   const [state, setState] = useState<CancelState>('idle');
   const [asking, setAsking] = useState(false);
   const amountPlaces = placesOf(market.lotSize);
-  const describe = (order: Order) =>
+  const describe = (order: O) =>
     t('Cancel line', {
       side: order.side === 'buy' ? t('Side buy') : t('Side sell'),
       amount: fmtAmount(order.remaining, { places: amountPlaces }),
@@ -246,12 +257,13 @@ export function RowCancel({
     if (busy.current) return;
     busy.current = true;
     setState('busy');
+    // The review closes on confirm: a venue cancel is signed in the wallet, whose own sheet must be the only one showing.
+    setAsking(false);
     let outcome: CancelState = 'done';
     for (const order of orders) {
-      env.poller.recordExternalRequest();
-      // One DELETE per order per press. Nothing retries it: on a doubtful answer the person checks Open orders.
-      const result = await api.cancel(order);
-      if (!result.ok) outcome = result.reason === 'uncertain' ? 'uncertain' : outcome === 'uncertain' ? outcome : 'refused';
+      // One cancel per order per press. Nothing retries it: on a doubtful answer the person checks Open orders.
+      const result = await cancelOne(order);
+      if (result !== 'done') outcome = result === 'uncertain' ? 'uncertain' : outcome === 'uncertain' ? outcome : 'refused';
     }
     busy.current = false;
     setState(outcome);
@@ -310,4 +322,26 @@ export function RowCancel({
       </AlertDialog>
     </>
   );
+}
+
+/** One-click cancel on today's desk: one DELETE per order on our engine. */
+export function RowCancel({
+  market,
+  orders,
+  instant,
+  onDone,
+}: {
+  market: FlowMarket;
+  orders: readonly Order[];
+  instant: boolean;
+  onDone: () => void;
+}) {
+  const env = useDataEnv();
+  const api = useDeskApi();
+  const cancelOne = async (order: Order): Promise<CancelOutcome> => {
+    env.poller.recordExternalRequest();
+    const result = await api.cancel(order);
+    return result.ok ? 'done' : result.reason === 'uncertain' ? 'uncertain' : 'refused';
+  };
+  return <RowCancelView market={market} orders={orders} instant={instant} onDone={onDone} cancelOne={cancelOne} />;
 }

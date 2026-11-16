@@ -2,6 +2,16 @@ import { z } from 'zod';
 import {
   publicJurisdictionProcedure,
   publicProcedure,
+  quantApprovalDecideInputSchema,
+  quantApprovalPolicySchema,
+  quantApprovalPolicySetInputSchema,
+  quantApprovalRequestInputSchema,
+  quantApprovalStateSchema,
+  quantLakeCaptureInputSchema,
+  quantLakeCatalogueInputSchema,
+  quantLakeCatalogueSchema,
+  quantMonteCarloInputSchema,
+  quantMonteCarloSchema,
   quantDisclosureAcceptInputSchema,
   quantDisclosureAcceptKey,
   quantDisclosureAcceptOutputSchema,
@@ -115,9 +125,17 @@ import {
   quantMyListingsSchema,
   quantReviewInputSchema,
 } from '@intafaced/contracts';
-import { parseAmount } from '@intafaced/ledger-client/money';
+import { formatAmount, parseAmount } from '@intafaced/ledger-client/money';
 import type { BacktestCostModel } from '@intafaced/quant-honesty';
 import { missingLake, type BacktestLake } from './backtest/lake.js';
+import { monteCarlo } from './backtest/montecarlo.js';
+import {
+  approvalContentHash,
+  createMemoryApprovalRepository,
+  type ApprovalRepository,
+  type StoredApproval,
+} from './approval/repository.js';
+import { coverageOf, LAKE_KINDS, type LakeSettings, type LakeStore } from './lake/lake.js';
 import { missingFees, missingHistory, type FeePort, type HistoryPort } from './engine/ports.js';
 import {
   BACKTEST_HISTORY_PAGE_MAX,
@@ -160,6 +178,19 @@ import {
   QUANT_EMBED_ORIGINS_UNSET,
   QUANT_RUN_NOT_FOUND,
   QUANT_RUN_NOT_SIMULATED,
+  QUANT_MONTECARLO_RUNS_UNSET,
+  QUANT_MONTECARLO_MIN_TRADES_UNSET,
+  QUANT_MONTECARLO_TRADES_INSUFFICIENT,
+  QUANT_LAKE_STORE_UNSET,
+  QUANT_LAKE_RETENTION_UNSET,
+  QUANT_LAKE_SYMBOL_UNKNOWN,
+  QUANT_APPROVAL_POLICY_UNSET,
+  QUANT_APPROVAL_REQUIRED,
+  QUANT_APPROVAL_SELF_REVIEW,
+  QUANT_APPROVAL_HASH_STALE,
+  QUANT_APPROVAL_NOT_FOUND,
+  QUANT_APPROVAL_NOT_REVIEWER,
+  QUANT_APPROVAL_DECIDED,
   QUANT_SHARE_NOT_FOUND,
   QUANT_SHARE_RATE_LIMITED,
   QUANT_SHARE_RATE_UNSET,
@@ -363,6 +394,17 @@ const runOutput = z
     ticks: z.object({ label: z.literal('TEST'), path: z.record(z.string(), z.array(z.string())) }),
     venue: z.literal('internal'),
     venueVault: z.enum(['unset', 'set']),
+    // A run stored before the limits were reported is read back without them.
+    limits: z
+      .object({
+        wallClockMs: z.number().int().nullable(),
+        memoryBytes: z.number().int().nullable(),
+        outputBytes: z.number().int().nullable(),
+        maxOps: z.number().int().nullable(),
+        maxSource: z.number().int().nullable(),
+      })
+      .nullable()
+      .default(null),
   })
   .merge(simulatedStamp);
 
@@ -395,12 +437,18 @@ function toTrpc(err: unknown): never {
       err.code === QUANT_LISTING_NOT_FOUND ||
       err.code === QUANT_DISPUTE_NOT_FOUND
         ? 'NOT_FOUND'
-        : err.code === QUANT_PERMISSION_DENIED || err.code === QUANT_LISTING_ACCESS_DENIED || err.code === QUANT_LISTING_SOURCE_PROTECTED
+        : err.code === QUANT_PERMISSION_DENIED ||
+            err.code === QUANT_LISTING_ACCESS_DENIED ||
+            err.code === QUANT_LISTING_SOURCE_PROTECTED ||
+            err.code === QUANT_APPROVAL_SELF_REVIEW ||
+            err.code === QUANT_APPROVAL_NOT_REVIEWER
           ? 'FORBIDDEN'
           : err.code === QUANT_EDIT_LOCKED ||
               err.code === QUANT_LISTING_STALE ||
               err.code === QUANT_MODERATION_STATE_INVALID ||
-              err.code === QUANT_IDEMPOTENCY_KEY_REUSED
+              err.code === QUANT_IDEMPOTENCY_KEY_REUSED ||
+              err.code === QUANT_APPROVAL_HASH_STALE ||
+              err.code === QUANT_APPROVAL_DECIDED
             ? 'CONFLICT'
             : err.code === QUANT_SANDBOX_UNWIRED ||
                 err.code === QUANT_SANDBOX_MAX_OPS_UNSET ||
@@ -439,6 +487,13 @@ function toTrpc(err: unknown): never {
                 err.code === QUANT_LIBRARY_QUEUE_LIMIT_UNSET ||
                 err.code === QUANT_LIVE_DISABLED ||
                 err.code === QUANT_LIVE_DEPLOY_UNAVAILABLE ||
+                err.code === QUANT_MONTECARLO_RUNS_UNSET ||
+                err.code === QUANT_MONTECARLO_MIN_TRADES_UNSET ||
+                err.code === QUANT_MONTECARLO_TRADES_INSUFFICIENT ||
+                err.code === QUANT_LAKE_STORE_UNSET ||
+                err.code === QUANT_LAKE_RETENTION_UNSET ||
+                err.code === QUANT_APPROVAL_POLICY_UNSET ||
+                err.code === QUANT_APPROVAL_REQUIRED ||
                 err.code === 'quant.venue_vault_unset'
               ? 'PRECONDITION_FAILED'
               : err.code === QUANT_DATABASE_URL_UNSET || err.code === QUANT_DATABASE_POOL_MAX_UNSET
@@ -518,6 +573,14 @@ const strategyDetail = strategyHead.extend({
   versions: z.array(strategyVersionRecord),
 });
 
+/**
+ * One strategy as `studio.get` answers it, with what the account's live approval policy allows (J-algo-dev-16 #4): the
+ * live runner (svc-trade) starts a version only when the policy is off or that version holds a current approval.
+ */
+const strategyDetailForLive = strategyDetail.extend({
+  liveApproval: z.object({ required: z.boolean(), approvedVersions: z.array(z.number().int().positive()) }),
+});
+
 const costEvidence = z.object({
   kind: z.string(),
   source: z.string(),
@@ -585,6 +648,12 @@ const backtestOutput = z
 
 export interface QuantRouterDeps extends SandboxDeps {
   readonly lake?: BacktestLake;
+  /** The live approval policy and approvals (J-algo-dev-16 #4). Omitted: an in-memory store. */
+  readonly approvals?: ApprovalRepository;
+  /** Monte Carlo owner values (J-algo-dev-16 #3): resampled paths per run and the fewest round trips. Blank refuses. */
+  readonly monteCarlo?: { readonly runs: number | null; readonly minTrades: number | null };
+  /** The market data lake (J-algo-dev-16 #2). Omitted, or with no symbols or interval: `quant.lake_store_unset`. */
+  readonly dataLake?: { readonly store: LakeStore; readonly settings: LakeSettings };
   /** The bar backtest's closed-candle read. Omitted refuses `quant.backtest_lake_missing`. */
   readonly history?: HistoryPort;
   /** The published fee schedule read. Omitted refuses `quant.cost_unset` naming fees. */
@@ -715,6 +784,75 @@ export function createQuantRouter(deps: QuantRouterDeps) {
     const stored = await risk.get({ accountId, strategyId });
     if (!stored?.caps.equityFloor) return null;
     return { floor: parseAmount(stored.caps.equityFloor), policy: stored.floorPolicy ?? DEFAULT_FLOOR_POLICY };
+  }
+
+  const approvals = deps.approvals ?? createMemoryApprovalRepository();
+
+  /** The hash an approval of one version binds to now: its rules and the strategy's risk settings as stored. */
+  async function approvalHashOf(found: StrategyDetail, strategyVersion: number): Promise<string> {
+    const v = found.versions.find((row) => row.version === strategyVersion);
+    if (!v) missingStrategy();
+    const stored = await risk.get({ accountId: found.accountId, strategyId: found.id });
+    return approvalContentHash({
+      version: { source: v.source, cash: v.cash, blocks: v.blocks, modules: v.modules, risk: v.risk },
+      risk: stored ? { caps: stored.caps, floorPolicy: stored.floorPolicy ?? null } : null,
+    });
+  }
+
+  /** An approval counts for live use while its decision is approved and its hash is the version's hash now. */
+  async function approvedVersionsOf(found: StrategyDetail, rows: readonly StoredApproval[]): Promise<number[]> {
+    const out: number[] = [];
+    for (const row of rows) {
+      if (row.decision !== 'approved' || out.includes(row.strategyVersion)) continue;
+      if (!found.versions.some((v) => v.version === row.strategyVersion)) continue;
+      if ((await approvalHashOf(found, row.strategyVersion)) === row.contentHash) out.push(row.strategyVersion);
+    }
+    return out;
+  }
+
+  /** The owner's strategy, or one shared with the caller; the caller's place on it. Anyone else: not found. */
+  async function approvalStrategy(
+    callerId: string,
+    strategyId: string,
+  ): Promise<{ found: StrategyDetail; member: StoredCollaborator | null }> {
+    const own = await strategies.get({ accountId: callerId, id: strategyId });
+    if (own && !own.deletedAt) return { found: own, member: null };
+    const { member, found } = await sharedStrategy(callerId, strategyId);
+    return { found, member };
+  }
+
+  async function approvalStateOf(callerId: string, strategyId: string) {
+    const { found, member } = await approvalStrategy(callerId, strategyId);
+    const [policy, rows] = await Promise.all([approvals.policy(found.accountId), approvals.approvals(found.id)]);
+    const contentHash = await approvalHashOf(found, found.version);
+    const approved = await approvedVersionsOf(found, rows);
+    const allowed = policy?.required !== true || approved.includes(found.version);
+    const view = [];
+    for (const row of rows) {
+      const live = found.versions.some((v) => v.version === row.strategyVersion);
+      view.push({
+        approvalId: row.id,
+        strategyVersion: row.strategyVersion,
+        contentHash: row.contentHash,
+        requester: row.requester,
+        reviewer: row.reviewer,
+        decision: row.decision,
+        reason: row.reason,
+        requestedAt: row.requestedAt,
+        decidedAt: row.decidedAt,
+        current: live && (await approvalHashOf(found, row.strategyVersion)) === row.contentHash,
+      });
+    }
+    return {
+      strategyId: found.id,
+      ownerId: found.accountId,
+      policy: { required: policy ? policy.required : null, setAt: policy?.setAt ?? null },
+      version: found.version,
+      contentHash,
+      live: { allowed, code: allowed ? null : QUANT_APPROVAL_REQUIRED },
+      approvals: view,
+      canDecide: member !== null,
+    };
   }
 
   /**
@@ -1126,12 +1264,16 @@ export function createQuantRouter(deps: QuantRouterDeps) {
 
       get: publicJurisdictionProcedure('quant', 'fiat')
         .input(z.object({ id: z.string().min(1), ...accountField }))
-        .output(strategyDetail)
+        .output(strategyDetailForLive)
         .query(async ({ input, ctx }) => {
           try {
             const found = await strategies.get({ accountId: accountOf(ctx, input.accountId), id: input.id });
             if (!found) missingStrategy();
-            return found;
+            const [policy, rows] = await Promise.all([approvals.policy(found.accountId), approvals.approvals(found.id)]);
+            return {
+              ...found,
+              liveApproval: { required: policy?.required === true, approvedVersions: await approvedVersionsOf(found, rows) },
+            };
           } catch (err) {
             toTrpc(err);
           }
@@ -2643,6 +2785,52 @@ export function createQuantRouter(deps: QuantRouterDeps) {
           }
         }),
 
+      /**
+       * Monte Carlo resampling of one finished bar backtest of the caller's (RC-algo-dev-04; J-algo-dev-16 #3): the
+       * owner's path count and fewest round trips, the caller's seed. Deterministic, so the same run, count and seed
+       * read back the same distribution every time; nothing is stored and nothing moves.
+       */
+      monteCarlo: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantMonteCarloInputSchema.extend(accountField))
+        .output(quantMonteCarloSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            const userId = accountOf(ctx, input.accountId);
+            const row = await runs.get({ userId, id: input.runId });
+            const stored = row && isBarBacktest(row) ? readStoredBacktest(row.response) : null;
+            if (!row || !stored) throw new QuantError(QUANT_RUN_NOT_FOUND, 'run not found');
+            const owner = deps.monteCarlo ?? { runs: null, minTrades: null };
+            if (owner.runs === null) {
+              throw new QuantError(QUANT_MONTECARLO_RUNS_UNSET, 'QUANT_MONTECARLO_RUNS — how many paths a resampling draws is not set');
+            }
+            if (owner.minTrades === null) {
+              throw new QuantError(
+                QUANT_MONTECARLO_MIN_TRADES_UNSET,
+                'QUANT_MONTECARLO_MIN_TRADES — the fewest round trips a run needs to be resampled is not set',
+              );
+            }
+            const floor = stored.strategyId ? await equityStopOf(userId, stored.strategyId) : null;
+            const result = monteCarlo({
+              trades: stored.trades,
+              startCash: stored.totals.startCash,
+              ruinLevel: floor ? formatAmount(floor.floor) : null,
+              runs: owner.runs,
+              seed: input.seed,
+              minTrades: owner.minTrades,
+            });
+            return {
+              runId: row.id,
+              ...result,
+              startCash: stored.totals.startCash,
+              simulated: true as const,
+              live: false as const,
+              claimLabel: 'Simulated resampling of a historical simulation — not a forecast' as const,
+            };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
       /** The caller's own bar backtests, newest first, with label, version and outcome (AL-backtest-03). */
       history: publicJurisdictionProcedure('quant', 'fiat')
         .input(
@@ -2840,6 +3028,211 @@ export function createQuantRouter(deps: QuantRouterDeps) {
             }
           }),
       }),
+    }),
+
+    /**
+     * The account's live approval policy and the approvals of a strategy's versions (RC-algo-dev-01; J-algo-dev-16 #4).
+     * The policy is the account owner's own choice and has no default: unset, it reads not set and asks nothing of a live
+     * start. With it on, the live runner starts a version only once a different member, a teammate the strategy is
+     * shared with, approved that exact version; any change to its rules (a new version) or to the strategy's risk
+     * settings leaves the approval behind.
+     */
+    approval: router({
+      policy: router({
+        get: publicJurisdictionProcedure('quant', 'fiat')
+          .input(z.object({ ...accountField }).optional())
+          .output(quantApprovalPolicySchema)
+          .query(async ({ input, ctx }) => {
+            try {
+              const policy = await approvals.policy(accountOf(ctx, input?.accountId));
+              return { required: policy ? policy.required : null, setAt: policy?.setAt ?? null };
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+        set: publicJurisdictionProcedure('quant', 'fiat')
+          .input(quantApprovalPolicySetInputSchema.extend(accountField))
+          .output(quantApprovalPolicySchema)
+          .mutation(async ({ input, ctx }) => {
+            try {
+              const accountId = accountOf(ctx, input.accountId);
+              const stored = await approvals.setPolicy({
+                accountId,
+                required: input.required,
+                key: `quant.approval_policy:${accountId}:${input.idempotencyKey}`,
+                actor: ctx.principal?.userId ?? accountId,
+                at: new Date(now()),
+              });
+              return { required: stored.required, setAt: stored.setAt };
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+      }),
+
+      /** One strategy's approvals and whether its newest version may go live now. The owner or a teammate reads it. */
+      get: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ strategyId: z.string().min(1).max(128), ...accountField }))
+        .output(quantApprovalStateSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            return await approvalStateOf(accountOf(ctx, input.accountId), input.strategyId);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      /**
+       * The owner asks for an independent review of one version, bound to its hash now, under
+       * `quant.approval:<strategy>:v<n>:<hash8>:request`: the same ask again is the same request. With no policy set it
+       * refuses `quant.approval_policy_unset`.
+       */
+      request: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantApprovalRequestInputSchema.extend(accountField))
+        .output(quantApprovalStateSchema)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const found = await strategies.get({ accountId, id: input.strategyId });
+            if (!found || found.deletedAt) missingStrategy();
+            const policy = await approvals.policy(accountId);
+            if (!policy) {
+              throw new QuantError(QUANT_APPROVAL_POLICY_UNSET, 'this account has not set whether live use needs an independent review');
+            }
+            const hash = await approvalHashOf(found, input.strategyVersion);
+            await approvals.request({
+              key: `quant.approval:${found.id}:v${input.strategyVersion}:${hash.slice(0, 8)}:request`,
+              accountId,
+              strategyId: found.id,
+              strategyVersion: input.strategyVersion,
+              contentHash: hash,
+              requester: ctx.principal?.userId ?? accountId,
+              requestedAt: new Date(now()).toISOString(),
+            });
+            return await approvalStateOf(accountId, found.id);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      /**
+       * A teammate decides one request, once. The requester, or the owner on their own strategy, refuses
+       * `quant.approval_self_review`; a request whose version or risk settings changed since refuses
+       * `quant.approval_hash_stale`; a decided request answers its decision again when the same reviewer sends the
+       * same decision, and refuses `quant.approval_decided` otherwise.
+       */
+      decide: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantApprovalDecideInputSchema.extend(accountField))
+        .output(quantApprovalStateSchema)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            const callerId = accountOf(ctx, input.accountId);
+            const { found, member } = await approvalStrategy(callerId, input.strategyId);
+            const row = await approvals.get(input.approvalId);
+            if (!row || row.strategyId !== found.id) throw new QuantError(QUANT_APPROVAL_NOT_FOUND, 'approval request not found');
+            if (callerId === row.requester || callerId === found.accountId) {
+              throw new QuantError(
+                QUANT_APPROVAL_SELF_REVIEW,
+                'a different member must review this version; you cannot approve your own request',
+              );
+            }
+            if (!member) throw new QuantError(QUANT_APPROVAL_NOT_REVIEWER, 'only a teammate this strategy is shared with can review it');
+            if (row.decision !== 'pending') {
+              if (row.reviewer === callerId && row.decision === input.decision) return await approvalStateOf(callerId, found.id);
+              throw new QuantError(QUANT_APPROVAL_DECIDED, `this request was already ${row.decision}`);
+            }
+            if (
+              !found.versions.some((v) => v.version === row.strategyVersion) ||
+              (await approvalHashOf(found, row.strategyVersion)) !== row.contentHash
+            ) {
+              throw new QuantError(
+                QUANT_APPROVAL_HASH_STALE,
+                `version ${row.strategyVersion} changed after this request; ask for a new review`,
+              );
+            }
+            const decided = await approvals.decide({
+              id: row.id,
+              reviewer: callerId,
+              decision: input.decision,
+              reason: input.reason,
+              at: new Date(now()),
+            });
+            if (!decided) {
+              const again = await approvals.get(row.id);
+              if (!(again?.reviewer === callerId && again.decision === input.decision)) {
+                throw new QuantError(QUANT_APPROVAL_DECIDED, 'this request was already decided');
+              }
+            }
+            return await approvalStateOf(callerId, found.id);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+    }),
+
+    /**
+     * The market data lake (RC-algo-dev-02; J-algo-dev-16 #2): what the lake holds of the exchange's own public ticks,
+     * book snapshots and taker fills, per symbol, with its coverage, its gaps and the retention. A read; writes nothing.
+     */
+    lake: router({
+      catalogue: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantLakeCatalogueInputSchema)
+        .output(quantLakeCatalogueSchema)
+        .query(async ({ input }) => {
+          try {
+            const lake = deps.dataLake;
+            if (!lake || lake.settings.symbols.length === 0 || lake.settings.captureSeconds === null) {
+              throw new QuantError(
+                QUANT_LAKE_STORE_UNSET,
+                'QUANT_LAKE_SYMBOLS and QUANT_LAKE_CAPTURE_SECONDS — the lake captures nothing on this deployment',
+              );
+            }
+            if (lake.settings.retentionDays === null) {
+              throw new QuantError(QUANT_LAKE_RETENTION_UNSET, 'QUANT_LAKE_RETENTION_DAYS — how long the lake keeps a row is not set');
+            }
+            const { captureSeconds, retentionDays } = lake.settings;
+            if (input?.symbol && !lake.settings.symbols.includes(input.symbol)) {
+              throw new QuantError(QUANT_LAKE_SYMBOL_UNKNOWN, `the lake does not capture ${input.symbol}`);
+            }
+            const at = now();
+            const keptFrom = new Date(at - retentionDays * 86_400_000).toISOString();
+            const symbols = [];
+            for (const symbol of lake.settings.symbols) {
+              if (input?.symbol && symbol !== input.symbol) continue;
+              const [change] = await lake.store.changes(symbol, 1);
+              const datasets = [];
+              for (const kind of LAKE_KINDS) {
+                if (input?.kind && kind !== input.kind) continue;
+                const [extent, passes, latest] = await Promise.all([
+                  lake.store.extent(symbol, kind),
+                  lake.store.passes(symbol, kind, keptFrom),
+                  lake.store.latest(symbol, kind, 5),
+                ]);
+                const { ranges, holes } = coverageOf(passes, captureSeconds);
+                datasets.push({
+                  kind,
+                  rows: extent.count,
+                  first: extent.first,
+                  last: extent.last,
+                  coverage: ranges,
+                  gaps: holes,
+                  latest: latest.map((row) => ({ observedAt: row.observedAt, payload: row.payload })),
+                });
+              }
+              symbols.push({ symbol, capturing: change ? change.capturing : true, datasets });
+            }
+            return {
+              captureSeconds,
+              retentionDays,
+              keptFrom,
+              asOf: new Date(at).toISOString(),
+              symbols,
+              source: 'INTAFACED exchange public market data' as const,
+            };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
     }),
 
     sandbox: router({
@@ -3076,6 +3469,40 @@ export function createQuantRouter(deps: QuantRouterDeps) {
     preview: createPreviewRouter(),
 
     ops: router({
+      /**
+       * Pauses or resumes the lake's capture of one symbol (J-algo-dev-16 #2): one insert-only row with the actor and the
+       * reason, under the caller's key. While paused nothing is captured, so that time reads as a gap.
+       */
+      lake: router({
+        capture: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
+          .input(quantLakeCaptureInputSchema)
+          .output(z.object({ symbol: z.string(), capturing: z.boolean(), reason: z.string(), actor: z.string(), at: z.string() }))
+          .mutation(async ({ input, ctx }) => {
+            try {
+              const lake = deps.dataLake;
+              if (!lake || lake.settings.symbols.length === 0 || lake.settings.captureSeconds === null) {
+                throw new QuantError(
+                  QUANT_LAKE_STORE_UNSET,
+                  'QUANT_LAKE_SYMBOLS and QUANT_LAKE_CAPTURE_SECONDS — the lake captures nothing on this deployment',
+                );
+              }
+              if (!lake.settings.symbols.includes(input.symbol)) {
+                throw new QuantError(QUANT_LAKE_SYMBOL_UNKNOWN, `the lake does not capture ${input.symbol}`);
+              }
+              const row = await lake.store.change({
+                symbol: input.symbol,
+                capturing: input.capturing,
+                reason: input.reason,
+                actor: ctx.principal.userId,
+                key: `quant.lake_capture:${input.symbol}:${input.idempotencyKey}`,
+                at: new Date(now()).toISOString(),
+              });
+              return { symbol: row.symbol, capturing: row.capturing, reason: row.reason, actor: row.actor, at: row.at };
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+      }),
       strategy: router({
         /**
          * Support's read of one strategy (J-algo-dev-08): the source only while the owner's time-boxed grant is active,
