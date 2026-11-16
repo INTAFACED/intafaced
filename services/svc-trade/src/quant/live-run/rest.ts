@@ -13,6 +13,10 @@
  *
  * Reads need trade:read, writes trade:write, every route the trade jurisdiction and the person's own session or key
  * (an agent account's key is refused). Amounts travel as decimal strings. A refusal answers `intafacedCode`.
+ *
+ * Starting a run is deploying a strategy, and the strategy API has no deploy (J-algo-dev-14 #6): a key's start answers
+ * 404 `quant.key_no_such_endpoint` and nothing is stored. A strategy goes live only from the screen, where the person's
+ * wallet signs. Every other route takes a key under the same rules as the screen.
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { EDGE_PRINCIPAL_HEADER, EDGE_SIGNATURE_HEADER } from '@intafaced/contracts';
@@ -25,6 +29,14 @@ import { refusedAgentKey, venueRefusalReply, type UserVenueRestDeps } from '../.
 import { LiveRunError, type LiveRuns } from './live-runs.js';
 
 export const LIVE_RUNS_PATH = '/api/v1/quant/live-runs';
+
+/** The answer a key gets where the strategy API has no endpoint (svc-quant's `quant.key_no_such_endpoint`). */
+export const KEY_NO_DEPLOY = {
+  code: 'NotFound',
+  message: 'There is no endpoint to deploy a strategy with an API key; a strategy goes live only from the screen',
+  intafacedCode: 'quant.key_no_such_endpoint',
+  docs: '/developers/quant',
+} as const;
 
 export function liveRunReply(reply: FastifyReply, err: unknown) {
   if (err instanceof LiveRunError) {
@@ -52,9 +64,13 @@ export function attachLiveRunRoutes(
   runs: LiveRuns | null,
   deps: UserVenueRestDeps & { readonly regionOf: (req: FastifyRequest) => string },
 ): void {
-  async function admit(req: FastifyRequest, reply: FastifyReply, scope: Scope): Promise<Principal | null> {
+  async function admit(req: FastifyRequest, reply: FastifyReply, scope: Scope, keyAllowed = true): Promise<Principal | null> {
     const principal = deps.requirePrincipal(req, reply);
     if (!principal) return null;
+    if (!keyAllowed && principal.kid) {
+      void reply.code(404).send(KEY_NO_DEPLOY);
+      return null;
+    }
     if (await refusedAgentKey(reply, principal, deps)) return null;
     try {
       requireScope(principal, scope);
@@ -94,7 +110,7 @@ export function attachLiveRunRoutes(
   });
 
   app.post(LIVE_RUNS_PATH, privateWrite, async (req, reply) => {
-    const principal = await admit(req, reply, 'trade:write');
+    const principal = await admit(req, reply, 'trade:write', false);
     if (!principal) return;
     return answer(reply, async (r) => r.start(principal, forwardedOf(req), body(req), deps.regionOf(req)));
   });

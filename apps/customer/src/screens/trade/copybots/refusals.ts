@@ -28,6 +28,18 @@ const COPY: Readonly<Record<string, Words>> = {
     title: 'Copy trading isn’t available right now',
     body: 'The copy service isn’t switched on here. Nothing was followed and no money moved.',
   },
+  'trade.copy_venue_wallet_rejected': {
+    title: 'Your wallet did not sign',
+    body: 'The copy permission was not signed, so nothing was sent and nothing is followed.',
+  },
+  'trade.copy_venue_wallet_failed': {
+    title: 'Your wallet could not sign',
+    body: 'The copy permission was not signed, so nothing was sent and nothing is followed. Try again.',
+  },
+  'trade.copy_venue_refused': {
+    title: 'The venue refused it',
+    body: 'Your wallet signed, but the venue did not accept it, so nothing is followed. Try again.',
+  },
   'trade.copy_self_follow': { title: 'You can’t follow yourself', body: 'Choose a different leader.' },
   'trade.copy_already_following': { title: 'You already follow this leader', body: 'Open it in My follows to change it.' },
   'trade.copy_not_following': { title: 'You don’t follow that leader', body: 'Check My follows and try again.' },
@@ -46,6 +58,10 @@ const COPY: Readonly<Record<string, Words>> = {
     body: 'Leaders aren’t ranked by how much they earned, so there are no top lists or trending boards. Every listed leader is shown in the order they were listed.',
   },
   'trade.copy_settle_refused': { title: 'Fee share was not settled', body: 'Nothing was charged beyond the normal trading fee.' },
+  'trade.copy_settlement_window_required': {
+    title: 'Choose a window',
+    body: 'A settlement reconcile needs a time window. Nothing was read.',
+  },
   'trade.copy_leader_fill_not_found': { title: 'That leader trade wasn’t found', body: 'It may be too old, or it isn’t one you can copy.' },
   'trade.copy_auto_mirror_place_socket': {
     title: 'Automatic copying is switched off',
@@ -480,6 +496,10 @@ const GRID: Readonly<Record<string, Words>> = {
     title: 'A stop keeps what the bot bought',
     body: 'Selling the bought coins when the bot stops isn’t built. Stop it and keep them.',
   },
+  'trade.api_withdraw_not_allowed': {
+    title: 'No API key or bot can withdraw',
+    body: 'Withdraw from the venue with your own wallet: you sign it there. Nothing was moved.',
+  },
   'trade.grid_not_running': { title: 'This grid bot has already stopped', body: 'Refresh to see its final state.' },
   'trade.bots_grid_topup_amount_invalid': {
     title: 'Enter an amount to top up',
@@ -523,9 +543,56 @@ const GRID: Readonly<Record<string, Words>> = {
   },
 };
 
+/** Signal publishing (svc-market `signals.*`, J-copy-bots-otc-22). */
+const SIGNALS: Readonly<Record<string, Words>> = {
+  'market.provider_criteria_not_set': {
+    title: 'Signal provider criteria are not set',
+    body: 'The platform hasn’t set what a signal provider needs, so no signal can be published. Nothing was published.',
+  },
+  'market.provider_criteria_not_met': {
+    title: 'You don’t meet the signal provider criteria',
+    body: 'A provider needs the verification level and the trading record shown here. Nothing was published.',
+  },
+  'market.provider_record_unavailable': {
+    title: 'Your trading record can’t be read right now',
+    body: 'Vetting needs it, so nothing was published. Try again shortly.',
+  },
+  'market.price_not_set': { title: 'Enter a price', body: 'A monthly fee needs its price. Nothing was published.' },
+  'market.subscription_period_unset': { title: 'Enter the period', body: 'A monthly fee needs how many days one payment covers.' },
+  'market.strategy_profit_share_forbidden': {
+    title: 'A profit share isn’t allowed',
+    body: 'A signal can’t charge a share of its subscribers’ profit. Choose free or a monthly fee. Nothing was published.',
+  },
+  'market.subscription_recurring_not_built': {
+    title: 'Recurring subscriptions aren’t built',
+    body: 'A buyer pays one period at a time; nothing renews by itself. Nothing was published.',
+  },
+  'market.vendor_not_found': { title: 'Apply to sell in the Market first', body: 'A signal is published by an approved Market seller.' },
+  'market.vendor_not_approved': {
+    title: 'Your Market seller application isn’t approved',
+    body: 'A signal is published by an approved Market seller. Nothing was published.',
+  },
+  'market.signal_not_found': { title: 'That signal wasn’t found', body: 'It may not be yours. Check My signals.' },
+  'market.signal_key_conflict': { title: 'Start a new form', body: 'This form was already used for a different signal.' },
+  'market.listing_invalid_price': { title: 'Check the price', body: 'The price must be a positive amount.' },
+  'market.signal_recommended_amount_invalid': {
+    title: 'Check the recommended amount',
+    body: 'It must be a positive amount, or left empty.',
+  },
+  'market.commission_not_configured': {
+    title: 'Market fees aren’t set',
+    body: 'A monthly fee signal is sold in the Market, which is closed until its commission is set. Nothing was published.',
+  },
+  'market.slots_exhausted': {
+    title: 'You have no free listing slot',
+    body: 'A monthly fee signal takes one Market listing slot. Archive one, or stake for more.',
+  },
+  'market.earnings_vendor_required': { title: 'No earnings', body: 'Earnings show once you sell in the Market.' },
+};
+
 export function roomRefusal(failure: Extract<ApiResult<unknown>, { ok: false }>): RefusalCopy & { code: string | null } {
   const code = failure.code ?? null;
-  const words = code ? (COPY[code] ?? BOTS[code] ?? GRID[code] ?? DEVICE[code]) : undefined;
+  const words = code ? (COPY[code] ?? BOTS[code] ?? GRID[code] ?? DEVICE[code] ?? SIGNALS[code]) : undefined;
   if (words) return { ...words, code };
   if (failure.reason === 'unreachable') {
     return { title: 'Can’t reach the service', body: 'Nothing was changed. Check your connection and try again.', code };
@@ -544,4 +611,9 @@ export function roomRefusal(failure: Extract<ApiResult<unknown>, { ok: false }>)
   return { ...refusalCopy(code ?? 'unknown'), code };
 }
 
-export const KNOWN_ROOM_CODES: readonly string[] = [...Object.keys(COPY), ...Object.keys(BOTS), ...Object.keys(GRID)];
+export const KNOWN_ROOM_CODES: readonly string[] = [
+  ...Object.keys(COPY),
+  ...Object.keys(BOTS),
+  ...Object.keys(GRID),
+  ...Object.keys(SIGNALS),
+];

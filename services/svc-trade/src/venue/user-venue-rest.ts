@@ -7,6 +7,9 @@
  *   GET  /api/v1/venue/best-prices?symbol=BTC-USDC         the venue's best bid and ask (a market order's worst price)
  *   GET  /api/v1/venue/funding-history?base=BTC&since=<ISO>  public: the funding the venue published on our listed
  *                                                      perpetual on that asset (a chart's funding study, J-charts-desk-04 #6)
+ *   GET  /api/v1/venue/book?symbol=BTC-USDC&depth=20    the venue's own book on a market we list (J-cex-spot-01 #5)
+ *   GET  /api/v1/venue/trades?symbol=BTC-USDC&limit=50  the venue's newest prints there, newest first
+ *   GET  /api/v1/venue/candles?symbol=BTC-USDC&interval=15m&limit=240   candles of the venue's prints, oldest first
  *   GET  /api/v1/venue/balances?owner=0x…              (and orders/open, positions, agents, builder-fee-approval)
  *   GET  /api/v1/venue/orders/by-client-id?owner=&clientOrderId=
  *   GET  /api/v1/venue/fills?owner=&since=<ISO>
@@ -21,6 +24,10 @@
  *   POST /api/v1/venue/route-preview { owner, intent }       the venue chosen for the order, and why (#2, #4)
  *   GET  /api/v1/venue/orders?owner=&cursor=&limit=      this person's orders on the account, oldest first, a page at a time
  *   GET  /api/v1/venue/orders/by-key?idempotencyKey=|actionKey=   one order by its key: accepted, unknown, refused, not_sent
+ *   GET  /api/v1/venue/orders/history?owner=&side=&status=&symbol=&from=&to=&limit=&before=   the account's orders as the
+ *                                                      venue keeps them, newest first, a page at a time (J-cex-spot-06 #1)
+ *   GET  /api/v1/venue/orders/record?owner=&clientOrderId=   our record of one order: the amendments the venue accepted
+ *                                                      (#10) and our builder fee on it with any discount (#5)
  *   GET  /api/v1/venue/session?owner=0x…               this sign-in's trading session, read against the venue's agents
  *   POST /api/v1/venue/session/start { owner, agentAddress }   the owner's one approval for a fresh session key (prepared)
  *   POST /api/v1/venue/session/end   { owner }                 the owner's revoke of this sign-in's session key (prepared)
@@ -58,6 +65,8 @@ import {
   type VenueIntent,
   type VenueSignature,
   type VenueSigner,
+  type VenueCandleInterval,
+  VENUE_CANDLE_INTERVALS,
 } from '@intafaced/venue-contracts';
 import { toCcxtError } from '../ccxt-errors.js';
 import { privateRead, privateWrite, publicRead } from '../route-inventory.js';
@@ -78,6 +87,8 @@ export interface UserVenueRestDeps {
    * (`trade.slippage_cap_unset`). Never a default.
    */
   slippageCapBps?: number | null;
+  /** The owner's spread limit for a spot market order (TRADE_MARKET_SPREAD_LIMIT_BPS), or null when blank, as `best-prices` answers it. */
+  spreadLimitBps?: number | null;
   /** Convert's sell quotes priced by the venue (J-cex-spot-17 #8); absent, the route answers the door's own refusal. */
   sellQuotes?: VenueSellQuotes | null;
   /**
@@ -274,7 +285,12 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
         throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: 'this venue publishes no book' });
       const best = await venue.bestPrices(req.query.symbol);
       const cap = deps.slippageCapBps ?? null;
-      return { ...best, slippageCapBps: cap === null ? { known: false } : { known: true, value: String(cap) } };
+      const spread = deps.spreadLimitBps ?? null;
+      return {
+        ...best,
+        slippageCapBps: cap === null ? { known: false } : { known: true, value: String(cap) },
+        spreadLimitBps: spread === null ? { known: false } : { known: true, value: String(spread) },
+      };
     });
   });
 
@@ -286,6 +302,37 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
       const since = new Date(req.query.since ?? '');
       if (Number.isNaN(since.getTime())) throw new VenueWireError('since is required (an ISO time)');
       return d.fundingHistory(base, since);
+    });
+  });
+
+  // J-cex-spot-01 #5: the venue's public book, prints and candles on a market we list, as the spot desk draws them. Gated
+  // as `markets` and `best-prices` are: venue market data is for a person the trade jurisdiction admits.
+  const whole = (raw: string | undefined, name: string, most: number, fallback: number) => {
+    if (raw === undefined) return fallback;
+    const n = /^\d{1,3}$/.test(raw) ? Number(raw) : NaN;
+    if (!(n >= 1 && n <= most)) throw new VenueWireError(`${name} is a whole number from 1 to ${most}`);
+    return n;
+  };
+  const symbolOf = (raw: string | undefined) => {
+    if (!raw || !/^[A-Za-z0-9]{1,20}-[A-Za-z0-9]{1,20}$/.test(raw)) throw new VenueWireError('symbol is the venue market, as BTC-USDC');
+    return raw;
+  };
+  type MarketQuery = Query & { depth?: string; limit?: string; interval?: string };
+  app.get<{ Querystring: MarketQuery }>('/api/v1/venue/book', privateRead, async (req, reply) => {
+    if (!(await admit(req, reply, 'trade:read'))) return;
+    return answer(reply, async (d) => d.marketBook(symbolOf(req.query.symbol), whole(req.query.depth, 'depth', 50, 20)));
+  });
+  app.get<{ Querystring: MarketQuery }>('/api/v1/venue/trades', privateRead, async (req, reply) => {
+    if (!(await admit(req, reply, 'trade:read'))) return;
+    return answer(reply, async (d) => d.marketTrades(symbolOf(req.query.symbol), whole(req.query.limit, 'limit', 500, 50)));
+  });
+  app.get<{ Querystring: MarketQuery }>('/api/v1/venue/candles', privateRead, async (req, reply) => {
+    if (!(await admit(req, reply, 'trade:read'))) return;
+    return answer(reply, async (d) => {
+      const interval = req.query.interval ?? '';
+      if (!Object.hasOwn(VENUE_CANDLE_INTERVALS, interval))
+        throw new VenueWireError(`interval is one of ${Object.keys(VENUE_CANDLE_INTERVALS).join(', ')}`);
+      return d.marketCandles(symbolOf(req.query.symbol), interval as VenueCandleInterval, whole(req.query.limit, 'limit', 500, 240));
     });
   });
 
@@ -540,6 +587,26 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     const principal = await admit(req, reply, 'trade:read');
     if (!principal) return;
     return answer(reply, async (d) => d.orders(principal, req.query.owner ?? '', req.query.cursor, req.query.limit), req.query.venueId);
+  });
+
+  // J-cex-spot-06 #1 #7: the account's order history as the venue keeps it, filtered and paged; #10: our record of one order.
+  app.get<{ Querystring: Query & Record<string, string | undefined> }>('/api/v1/venue/orders/history', privateRead, async (req, reply) => {
+    if (!(await admit(req, reply, 'trade:read'))) return;
+    return answer(
+      reply,
+      async (d) => d.orderHistory(await d.account(req.query.owner ?? '', req.query.subAccount ?? null), req.query),
+      req.query.venueId,
+    );
+  });
+  app.get<{ Querystring: Query }>('/api/v1/venue/orders/record', privateRead, async (req, reply) => {
+    const principal = await admit(req, reply, 'trade:read');
+    if (!principal) return;
+    return answer(
+      reply,
+      async (d) =>
+        d.orderRecord(principal, await d.account(req.query.owner ?? '', req.query.subAccount ?? null), req.query.clientOrderId ?? ''),
+      req.query.venueId,
+    );
   });
 
   // Read on the venue the order was prepared for (venue-router.ts doorOfAction).

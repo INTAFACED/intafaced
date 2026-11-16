@@ -45,7 +45,7 @@ const calls: Record<string, Call> = {
   ipsBind: (a) => a.ipsBind('TEST-key-1', ['203.0.113.10']),
   ipsUnbind: (a) => a.ipsUnbind('TEST-key-1', '203.0.113.10'),
   endpointsList: (a) => a.endpointsList(undefined, '', ''),
-  endpointCreate: (a) => a.endpointCreate('https://receiver.example/new'),
+  endpointCreate: (a) => a.endpointCreate('https://receiver.example/new', ['payment.captured']),
   endpointUpdate: (a) => a.endpointUpdate('TEST-endpoint-1', 'https://receiver.example/other'),
   endpointDisable: (a) => a.endpointDisable('TEST-endpoint-1'),
   endpointRotate: (a) => a.endpointRotate('TEST-endpoint-1', ID),
@@ -55,6 +55,11 @@ const calls: Record<string, Call> = {
     return a.deliveryRetry(failed.ok ? failed.data.items[0]!.id : 'none', ID);
   },
   webhookHealth: (a) => a.webhookHealth(),
+  deliveryAttempts: (a) => a.deliveryAttempts('TEST-delivery-4'),
+  deliveriesRecover: (a) => a.deliveriesRecover('TEST-endpoint-1', new Date(Date.now() - 86_400_000).toISOString(), ID),
+  webhookPolicy: (a) => a.webhookPolicy(),
+  webhookCatalogue: (a) => a.webhookCatalogue(),
+  webhookGuide: (a) => a.webhookGuide(),
   reportJobs: (a) => a.reportJobs(undefined, {}),
   reportRequest: (a) => a.reportRequest({ requestId: ID, kind: 'fees', filters: {} }),
   reportDownload: (a) => a.reportDownload(ID),
@@ -97,7 +102,7 @@ describe('the developers, reports and analytics client against the stand-in', ()
   });
   it('refuses a change to a webhook for a role that may only read', async () => {
     const { api } = clientFor('active', 'viewer');
-    const result = await api.endpointCreate('https://receiver.example/new');
+    const result = await api.endpointCreate('https://receiver.example/new', ['payment.captured']);
     expect(result.ok).toBe(false);
   });
   it('keeps the exact decimal strings the service sent', async () => {

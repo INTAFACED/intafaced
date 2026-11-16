@@ -146,3 +146,19 @@ export function useLastTrade(symbol: string): Loadable<number | null> {
     ),
   );
 }
+
+/**
+ * The newest trade time this tab has read for each market, kept for the session after the tape stops answering, so a chart
+ * opened during our own outage still names its last tick ("Down ... Last trade <time>."). Only ever the time a read
+ * returned, never a guess, and never a reason to call the chart live (data-status.ts).
+ */
+const lastTradeSeen = new Map<string, number>();
+
+/** Notes the newest trade a read returned and gives the newest one this tab has seen for the market, or null. */
+export function rememberLastTrade(symbol: string, read: Loadable<number | null>): number | null {
+  if (read.status === 'ready' && read.data !== null) {
+    const known = lastTradeSeen.get(symbol);
+    if (known === undefined || read.data > known) lastTradeSeen.set(symbol, read.data);
+  }
+  return lastTradeSeen.get(symbol) ?? null;
+}

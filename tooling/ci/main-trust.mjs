@@ -26,6 +26,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { JOB_PROBES, RED_LABELS } from './bisect-main.mjs';
+import { refusalDetail } from './refusal.mjs';
 
 const GROUPS = ['apps', 'services', 'packages'];
 export const LAST_GREEN_BRANCH = 'last-green';
@@ -87,11 +88,11 @@ async function gh(method, path, body) {
     },
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (res.status === 403 || res.status === 429) {
-    // AGENTS.md: a 403 or 429 from GitHub is a stop. No retry, no loop.
-    throw new Error(`GitHub ${res.status} on ${method} ${path}: stopping, not retrying`);
-  }
   const text = await res.text();
+  if (res.status === 403 || res.status === 429) {
+    // AGENTS.md: a 403 or 429 from GitHub is a stop. No retry, no loop. GitHub's own reason goes in the stop line.
+    throw new Error(`GitHub ${res.status} on ${method} ${path}: stopping, not retrying${refusalDetail(res.headers, text)}`);
+  }
   return { status: res.status, json: text ? JSON.parse(text) : null };
 }
 
@@ -237,6 +238,14 @@ function selfTest() {
     'a failed Doctrine gates job is probed by its command; a job with no probe is left to its test files',
   );
   eq(probedJobs([{ name: 'Doctrine gates', conclusion: 'success' }]), [], 'a green job is not probed');
+  eq(
+    probedJobs([
+      { name: 'Typecheck & build', conclusion: 'failure' },
+      { name: 'Tests (2/16)', conclusion: 'failure' },
+    ]),
+    ['Typecheck & build'],
+    "main's build red (run 42828463480, 10 Nov) starts the bisect by its own command",
+  );
   eq(decide({ conclusion: 'failure', attempt: 2 }), 'real-red', 'second red is real');
   eq(decide({ conclusion: 'success', attempt: 2 }), 'green-after-rerun', 'green after re-run');
   eq(decide({ conclusion: 'success', attempt: 1 }), 'green', 'plain green');
@@ -355,7 +364,7 @@ async function selfTestPaths() {
     ],
     'a flaky unit test opens "Flaky on main" as flaky-test, kept when the owner cannot be assigned',
   );
-  console.log('✓ main-trust --self-test OK (19 fixtures)');
+  console.log('✓ main-trust --self-test OK (20 fixtures)');
 }
 
 async function main() {

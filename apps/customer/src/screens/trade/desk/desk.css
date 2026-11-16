@@ -100,6 +100,14 @@
   .dk-pair {
     font: 600 var(--if-text-lg)/var(--if-leading-lg) var(--if-font-ui);
   }
+  .dk-test {
+    padding: 0 var(--if-space-1-5);
+    border: 1px dashed var(--if-fg-2);
+    border-radius: var(--if-r-xs);
+    font: 600 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-mono);
+    letter-spacing: 0.04em;
+    color: var(--if-fg);
+  }
   .dk-icon-btn {
     display: inline-flex;
     align-items: center;

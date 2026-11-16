@@ -282,8 +282,9 @@ export function createControlGuards(deps: ControlGuardDeps): PartialPayGuards {
       });
       // Same transaction as the audit row, but its own savepoint: a notice-table
       // failure must not roll back a capture whose ledger post already landed.
-      // A muted `limit_threshold` preference records nothing and does not stop
-      // the metric or the span event.
+      // The notice is the business's; a person who muted `limit_threshold` does
+      // not see it (their own preference, applied when they read the feed), and
+      // neither the notice nor a mute stops the metric or the span event.
       //
       // `sql.begin` remembers every rejected statement and rolls the transaction
       // back at the end, even when the caller caught it. Its savepoint helper is

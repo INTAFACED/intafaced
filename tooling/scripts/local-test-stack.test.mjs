@@ -498,6 +498,27 @@ const script = resolve(here, 'local-test-stack.mjs');
   console.log('local-test-stack: bank BK-xfer-07 TEST values come from the bank profile');
 }
 
+// The ws process carries the multiplexed door's TEST values from the ws profile, verbatim, so the door mounts on this
+// stack and takes subscriptions (#8311) instead of staying down on ws.mux_idle_unset.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const { loadProfile } = await import('./owner-settings.mjs');
+  const ws = localTestServiceEnvs().find((service) => service.name === 'ws');
+  const profile = loadProfile().values;
+  for (const name of [
+    'WS_MUX_IDLE_MS',
+    'WS_MUX_MAX_SEATS',
+    'WS_MUX_MAX_SUBSCRIPTIONS',
+    'WS_MUX_MAX_OPS_PER_SECOND',
+    'WS_MAX_CONNECTIONS',
+    'WS_HIGH_WATER_BYTES',
+  ]) {
+    assert.equal(profile[name]?.service, 'ws', `${name} is not in the ws profile`);
+    assert.equal(ws.env[name], profile[name].value, `ws env ${name} differs from the ws profile`);
+  }
+  console.log('local-test-stack: ws multiplexed door TEST values come from the ws profile');
+}
+
 // The token process carries the TEST proposer rule and proposal limit from the token profile, verbatim, so a governance
 // journey meets the rule instead of the unset refusal.
 {
@@ -1594,13 +1615,97 @@ console.log('local-test-stack: customer folder override checks passed');
 
 // No stack service listens on a port the test chain uses: the TEST venue first took 14533, the chain's second gate, and
 // every restart that started it refused with "in use by a process this script did not start" (journeys run 42524275189).
+// Nor does one slot's stack take another slot's port (LOCAL_STACK_SLOT 0 to 3), its second workers' included.
 {
-  const { CHAIN_PORTS } = await import('./local-test-chain.mjs');
-  const table = /const PORTS = \{([\s\S]*?)\n\};/.exec(source)?.[1] ?? '';
-  const stackPorts = [...table.matchAll(/'?[\w-]+'?: (\d{4,5}),/g)].map((m) => Number(m[1]));
-  assert.ok(stackPorts.length > 20, 'the stack port table was read');
-  const clash = stackPorts.filter((port) => Object.values(CHAIN_PORTS).includes(port));
-  assert.deepEqual(clash, [], `stack ports also used by the test chain: ${clash.join(', ')}`);
-  assert.equal(new Set(stackPorts).size, stackPorts.length, 'every stack port is used once');
-  console.log('local-test-stack: no stack port collides with the test chain or with another stack port');
+  const { slotPorts } = await import('./local-test-facts.mjs');
+  const held = [0, 1, 2, 3].flatMap((slot) => {
+    const { stack, fixSockets, hooks, chain } = slotPorts(slot);
+    const workers = Array.from({ length: 20 }, (_, i) => stack.edge + 400 + i);
+    return [...Object.values(stack), ...Object.values(fixSockets), ...Object.values(hooks), ...Object.values(chain), ...workers];
+  });
+  assert.ok(held.length > 4 * 40, 'the port tables were read');
+  const clash = held.filter((port, i) => held.indexOf(port) !== i);
+  assert.deepEqual(clash, [], `ports held twice: ${clash.join(', ')}`);
+  assert.equal(slotPorts(0).stack.customer, 3210, 'slot 0 keeps the ports the stack always had');
+  console.log('local-test-stack: every port of every slot, the test chain and second workers included, is held once');
+}
+
+// A start never calls the stack's own running service a stranger: matching's own process answered its health late on a
+// busy runner and `restart notify` refused port 14505 as "in use by a process this script did not start" (journeys run
+// 43663982223, J-support-public-07 #5, #8434). Its own process is waited for; only a port with no matching record refuses.
+{
+  const { portDecision } = await import('./local-test-stack.mjs');
+  assert.equal(portDecision({ owned: true, healthy: true, portInUse: true }), 'ready');
+  assert.equal(portDecision({ owned: true, healthy: false, portInUse: true }), 'wait', 'its own late service is waited for, not refused');
+  assert.equal(portDecision({ owned: false, healthy: false, portInUse: true }), 'refuse', "a stranger's port still refuses");
+  assert.equal(portDecision({ owned: false, healthy: false, portInUse: false }), 'start');
+  assert.match(
+    source,
+    /if \(decision === 'wait'\) return waitHealthy\(def\.name, url, rec\.pid\);/,
+    'startNodeService waits on its own late service',
+  );
+  console.log("local-test-stack: a start waits for the stack's own late service and refuses only a stranger's port");
+}
+
+// A slot whose owner is gone is taken back; a live owner's never (takeSlot, ownerGone). Failure it prevents: on 16 Nov
+// slots 0 and 1 were held by the stacks of two settled builders whose PRs had merged, so a counted build found every
+// slot held (project-state#2553 comment 6903867491).
+{
+  const { ownerGone } = await import('./local-test-stack.mjs');
+  const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs');
+  const repo = mkdtempSync(join(tmpdir(), 'owner-'));
+  const state = join(repo, 'state');
+  mkdirSync(join(state, 'run'), { recursive: true });
+  writeFileSync(join(state, 'run', 'processes.json'), JSON.stringify({ edge: { pid: 500 } }));
+  const claim = { repo, pid: 400, state };
+  const parents = () =>
+    new Map([
+      [500, 1],
+      [501, 500],
+      [600, 1],
+    ]);
+  const dead = () => false;
+  assert.equal(
+    ownerGone(claim, { alive: (pid) => pid === 400, cwds: () => new Map(), parents }),
+    false,
+    'a start still running owns its slot',
+  );
+  assert.equal(
+    ownerGone(claim, {
+      alive: dead,
+      cwds: () =>
+        new Map([
+          [500, `${repo}/services/svc-edge`],
+          [501, repo],
+        ]),
+      parents,
+    }),
+    true,
+    'only the stack and its children left in the checkout: the owner is gone',
+  );
+  assert.equal(
+    ownerGone(claim, {
+      alive: dead,
+      cwds: () =>
+        new Map([
+          [500, repo],
+          [600, repo],
+        ]),
+      parents,
+    }),
+    false,
+    "a builder's agent working in the checkout owns its slot",
+  );
+  assert.equal(
+    ownerGone(claim, { alive: dead, cwds: () => new Map([[600, `${repo}-other`]]), parents }),
+    true,
+    'a sibling folder with the same prefix is not the checkout',
+  );
+  assert.equal(ownerGone(claim, { alive: dead, cwds: () => null, parents }), false, 'processes unreadable: the owner counts as present');
+  assert.equal(
+    ownerGone({ ...claim, repo: join(repo, 'removed') }, { alive: dead, cwds: () => null, parents }),
+    true,
+    'a removed checkout has no owner',
+  );
+  console.log('local-test-stack: a slot whose owner is gone is taken back, and a live owner keeps its own');
 }

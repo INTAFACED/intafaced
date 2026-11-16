@@ -189,9 +189,30 @@ describe('rewardOwe and rewardPayOut on the book', () => {
     const p = pay('10', '0xpay1');
     await ledger.post(p);
     await ledger.post(p);
-    expect(p.idempotencyKey).toBe(`campaigns:reward-paid:campaign:${CAMPAIGN}:${USER}:first-trade:0xpay1`);
+    expect(p.idempotencyKey).toBe('campaigns:reward-paid:0xpay1');
     expect(await bal(campaignBudgetAccount(CAMPAIGN))).toBe('20');
     expect(await bal(treasuryWallet('base:ops', 'USDC'))).toBe('-20');
+  });
+
+  it('one chain transaction pays one reward: the same transaction booked against a second reward is refused and moves nothing', async () => {
+    await ourMoneyAtTheWallet('30');
+    await fundBudget('30');
+    const other = `campaign:${CAMPAIGN}:${USER}:second-trade`;
+    await ledger.post(owe());
+    await ledger.post(owe({ rewardId: other }));
+    await ledger.post(pay('10', '0xpay1'));
+    await expect(ledger.post(pay('10', '0xpay1', other))).rejects.toBeInstanceOf(LedgerError);
+    expect(await bal(rewardOwedAccount(other))).toBe('10');
+    expect(await bal(treasuryWallet('base:ops', 'USDC'))).toBe('-20');
+  });
+
+  it("keys a campaign task reward's payment within the ledger's 200 characters", () => {
+    const uuid = '0f5b1c7e-9a7d-4c4e-8f5e-2b7a1d9c3e4f';
+    const rewardId = `campaign:${uuid}:task-${uuid}-${uuid}-once`;
+    const chainTx = `0x${'ab'.repeat(32)}`;
+    const p = recipes.rewardPayOut({ rewardId, from: WALLET, toWallet: CUSTOMER_WALLET, chainTx, assetId: 'USDC', amount: amt('1') });
+    expect(p.idempotencyKey).toBe(`campaigns:reward-paid:${chainTx}`);
+    expect(p.meta).toMatchObject({ rewardId, chainTx });
   });
 
   it('invariant: budget + owed + paid out equals what was set aside, and what we hold falls by exactly what we paid', async () => {

@@ -11,6 +11,7 @@ const en = {
   editor: 'Editor',
   tester: 'Tester',
   optimise: 'Optimiser',
+  data: 'Data',
   execution: 'Execution',
   title: 'Algo dev',
   description: 'Build a strategy, test it on history and run it on paper. Nothing here trades live.',

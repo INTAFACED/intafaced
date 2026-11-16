@@ -24,7 +24,9 @@ export function gridTrpcError(error: unknown): unknown {
         ? 'CONFLICT'
         : error.code === 'trade.grid_unavailable'
           ? 'SERVICE_UNAVAILABLE'
-          : 'BAD_REQUEST';
+          : error.code === 'trade.api_withdraw_not_allowed'
+            ? 'FORBIDDEN'
+            : 'BAD_REQUEST';
     return new TRPCError({ code, message: error.message, cause: error });
   }
   // Identity's step-up codes reach the person unchanged: confirm again (403), or identity could not check it (503).

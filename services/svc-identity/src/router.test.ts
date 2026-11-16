@@ -150,6 +150,12 @@ function stubServices(): Stub {
     deactivateKycCapability: record('deactivateKycCapability', () => capabilitiesRead),
     getKycRecord: record('getKycRecord', () => kycRecord()),
     kycTier: record('kycTier', () => 'none' as const),
+    accountState: record('accountState', (userId: string) => ({
+      userId,
+      status: 'active' as const,
+      kycTier: 'basic' as const,
+      archived: false,
+    })),
     approveKycRecord: record('approveKycRecord', () =>
       kycRecord({ status: 'approved', reviewedBy: OPERATOR, reviewedAt: new Date('2026-07-28T09:00:00.000Z') }),
     ),
@@ -1934,10 +1940,29 @@ describe('affiliates.payout on the mount', () => {
     return ledger;
   }
 
-  async function mounted(opts: { law?: typeof publishedLaw | undefined; ledger?: MemoryLedger; depth?: number | undefined } = {}) {
+  async function mounted(
+    opts: {
+      law?: typeof publishedLaw | undefined;
+      ledger?: MemoryLedger;
+      depth?: number | undefined;
+      /** Account status of one beneficiary; everyone else is active. */
+      account?: { userId: string; status: 'frozen' | 'closed' };
+    } = {},
+  ) {
     const store = new MemoryAccrualStore();
     await store.saveRows([accrualRow(), accrualRow({ beneficiaryId: BENE1, hop: 1, rate: '0.07', commissionAmount: '7' })]);
-    const r = createIdentityRouter(stub.auth, stub.rank, {
+    const account = opts.account;
+    const auth = account
+      ? (Object.assign(Object.create(stub.auth) as AuthService, {
+          accountState: async (userId: string) => ({
+            userId,
+            status: userId === account.userId ? account.status : ('active' as const),
+            kycTier: 'basic' as const,
+            archived: false,
+          }),
+        }) as AuthService)
+      : stub.auth;
+    const r = createIdentityRouter(auth, stub.rank, {
       registrationOpen: true,
       accruals: store,
       accrualTierLaw: opts.law,
@@ -1999,6 +2024,26 @@ describe('affiliates.payout on the mount', () => {
     // Not `affiliate.payout.invalid` — the rate gate ran first, on zero rows.
     expect((err as { cause?: { code?: string } }).cause?.code).toBe('affiliate.payout.rates_unset');
   });
+
+  // #4689: the account itself, not only the programme's freeze. One frozen or closed node stops the whole tree.
+  for (const status of ['frozen', 'closed'] as const) {
+    it(`a ${status} beneficiary account refuses the payout, dry run included, and moves nothing`, async () => {
+      const ledger = await fundedLedger();
+      const { router: r } = await mounted({ law: publishedLaw, ledger, account: { userId: BENE1, status } });
+      const api = r.createCaller(await ctx(['admin:write'], { userId: OPERATOR }));
+      for (const dryRun of [true, false]) {
+        const err = await api.affiliates
+          .payout({ feeEventId: FEE_EVT, dryRun, approvalId: 'appr-1', operationId: 'op-1' })
+          .catch((e: unknown) => e);
+        expect(codeOf(err)).toBe('PRECONDITION_FAILED');
+        expect((err as { cause?: { code?: string } }).cause?.code).toBe('affiliate.payout.beneficiary_cannot_receive');
+      }
+      expect(await bal(ledger, houseFees('identity', ASSET_U))).toBe('100');
+      expect(await bal(ledger, userAvailable(BENE0, ASSET_U))).toBe('0');
+      expect(await bal(ledger, userAvailable(BENE1, ASSET_U))).toBe('0');
+      expect(await bal(ledger, rewardsEngine(ASSET_U))).toBe('0');
+    });
+  }
 
   it('with a published rate the route pays the whole tree, and balances prove it', async () => {
     const ledger = await fundedLedger();

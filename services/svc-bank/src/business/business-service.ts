@@ -381,8 +381,8 @@ export class BusinessService {
 
     const account = await transaction(this.sql, async (tx) => {
       const inserted = await tx<AccountRow[]>`
-        INSERT INTO bank.business_accounts (id, name, asset_id, spend_threshold, status)
-        VALUES (${input.accountId}::uuid, ${name}, ${input.assetId}, ${threshold}::numeric, 'active')
+        INSERT INTO bank.business_accounts (id, name, asset_id, spend_threshold, status, owner_user_id)
+        VALUES (${input.accountId}::uuid, ${name}, ${input.assetId}, ${threshold}::numeric, 'active', ${input.creatorUserId})
         ON CONFLICT (id) DO NOTHING
         RETURNING id, name, asset_id, spend_threshold, status, created_at
       `;
@@ -426,7 +426,8 @@ export class BusinessService {
       const rows = await tx<MemberRow[]>`
         INSERT INTO bank.business_members (account_id, user_id, role)
         VALUES (${input.accountId}::uuid, ${input.userId}, ${input.role})
-        ON CONFLICT (account_id, user_id) DO UPDATE SET role = EXCLUDED.role
+        -- A built-in role set here is the member's whole role: a named role (J-bank-19) or advisor seat no longer applies.
+        ON CONFLICT (account_id, user_id) DO UPDATE SET role = EXCLUDED.role, custom_role_id = NULL, advisor = false
         RETURNING account_id, user_id, role
       `;
       return toMember(rows[0]!);
@@ -799,7 +800,7 @@ export class BusinessService {
         return { accountId: input.accountId, userId: input.userId, role: input.role };
       }
       await tx`
-        UPDATE bank.business_members SET role = ${input.role}
+        UPDATE bank.business_members SET role = ${input.role}, custom_role_id = NULL, advisor = false
          WHERE account_id = ${input.accountId}::uuid AND user_id = ${input.userId}
       `;
       return { accountId: input.accountId, userId: input.userId, role: input.role };
@@ -1370,7 +1371,18 @@ export class BusinessService {
          WHERE id = ${approval.id}::uuid AND status = 'approved' AND ledger_tx_id IS NULL
         RETURNING id
       `;
-      if (closed[0]) await this.releaseHold(approval);
+      if (closed[0]) {
+        try {
+          await this.releaseHold(approval);
+        } catch (releaseError) {
+          // A concurrent approve whose recipient check passed may have posted the
+          // settle after our check: the hold is spent and the release is refused.
+          // The posted settle is the fact, so the row records it.
+          const posted = await this.ledger.getTxByKey(`bank.business.settle:${approval.id}`);
+          if (!posted) throw releaseError;
+          return this.recordSettled(approval, posted.id);
+        }
+      }
       throw refusal;
     }
     const request = recipes.businessApprovalSettle({
@@ -1407,12 +1419,26 @@ export class BusinessService {
         throw new BankError('The settle did not post and the hold was released', 'bank.business_rejected');
       }
     }
-    await this.sql`
-        UPDATE bank.business_approvals
-           SET ledger_tx_id = ${settled.id}
-         WHERE id = ${approval.id}::uuid
-      `;
-    return { transferId: approval.id, ledgerTxId: settled.id };
+    return this.recordSettled(approval, settled.id);
+  }
+
+  /**
+   * Record a posted settle on its row. The post is the fact: a row a concurrent
+   * approve closed as `rejected` (its recipient check refused after this one
+   * passed) is set back to `approved`, because its hold went to the recipient
+   * and can no longer be released. A row naming another transaction is refused.
+   */
+  private async recordSettled(approval: BusinessApproval, ledgerTxId: string): Promise<{ transferId: string; ledgerTxId: string }> {
+    const recorded = await this.sql<Array<{ id: string }>>`
+      UPDATE bank.business_approvals
+         SET ledger_tx_id = ${ledgerTxId}, status = 'approved', rejection_code = NULL
+       WHERE id = ${approval.id}::uuid
+         AND (status = 'approved' OR (status = 'rejected' AND rejection_code = ${'bank.recipient_cannot_receive'}))
+         AND (ledger_tx_id IS NULL OR ledger_tx_id = ${ledgerTxId})
+      RETURNING id
+    `;
+    if (!recorded[0]) throw new BankError('The proposal no longer names this transfer', 'bank.business_request_conflict');
+    return { transferId: approval.id, ledgerTxId };
   }
 
   /** The settle destination, refusing a recipient who cannot receive (unless this settle already posted). */

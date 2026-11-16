@@ -8,6 +8,7 @@ import { ContactError, type ContactDeps, type ContactLog } from './contact-commo
 import { EmailChange } from './email-change.js';
 import { PhoneChange } from './phone-change.js';
 import type { createCompromiseRouter } from './compromise-router.js';
+import type { createSafetyRouter } from './safety-router.js';
 
 const accepted = z.object({ accepted: z.literal(true) });
 const ok = z.object({ ok: z.literal(true) });
@@ -52,7 +53,11 @@ function toTrpc(err: unknown): never {
   throw err;
 }
 
-export function createAccountRouter(account: AccountChange | undefined, compromised: ReturnType<typeof createCompromiseRouter>) {
+export function createAccountRouter(
+  account: AccountChange | undefined,
+  compromised: ReturnType<typeof createCompromiseRouter>,
+  safety: ReturnType<typeof createSafetyRouter>,
+) {
   const email = (): EmailChange => {
     if (!account) throw new ContactError('identity.account_unwired');
     return account.email;
@@ -64,6 +69,7 @@ export function createAccountRouter(account: AccountChange | undefined, compromi
 
   return router({
     compromised,
+    safety,
     email: router({
       begin: protectedProcedure
         .input(z.object({ newEmail: z.string().max(320), stepUpApprovalId: z.string().guid() }).strict())

@@ -27,6 +27,7 @@ import { MemoryLedger, marketMaker, parseAmount as amt, recipes, userAvailable, 
 import { LoanService, marketMakerVenue } from './loan-service.js';
 import { fixedPriceSource } from './prices.js';
 import { DEFAULT_LIQUIDATION_POLICY } from './risk.js';
+import { sleep } from '@intafaced/contracts/sleep';
 
 const BORROWER = '11111111-1111-4111-8111-111111111111';
 const PAYER = '99999999-9999-4999-8999-999999999999';
@@ -48,10 +49,6 @@ const sql = db.sql;
 afterAll(async () => {
   await db.drop();
 }, 30_000);
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 async function fund(ledger: MemoryLedger, userId: string, assetId: string, value: string) {
   await ledger.post(

@@ -3,7 +3,7 @@ import { TRPCError } from '@intafaced/contracts';
 import { InsufficientFundsError, LedgerError } from '@intafaced/ledger-client';
 import { DualControlError } from '../dual-control.js';
 import { ActionApprovalConsumeError } from '../action-approval-consume.js';
-import { BankError, type BankErrorCode } from '../errors.js';
+import { BankError, LedgerFrozenRefusal, type BankErrorCode } from '../errors.js';
 import { userFacingBankMessage } from '../user-copy.js';
 
 /**
@@ -227,6 +227,30 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.business_closed': 'CONFLICT',
   'bank.business_not_member': 'CONFLICT',
   'bank.business_role_forbidden': 'CONFLICT',
+  'bank.business_role_invalid': 'BAD_REQUEST',
+  'bank.business_role_grant_exceeds': 'FORBIDDEN',
+  'bank.business_role_name_taken': 'CONFLICT',
+  'bank.business_role_not_found': 'NOT_FOUND',
+  'bank.business_owner_only': 'FORBIDDEN',
+  'bank.business_advisor_not_found': 'NOT_FOUND',
+  'bank.business_already_member': 'CONFLICT',
+  'bank.business_invalid_handle': 'BAD_REQUEST',
+  'bank.business_person_not_found': 'NOT_FOUND',
+  'bank.business_invalid_email': 'BAD_REQUEST',
+  'bank.business_invite_lifetime_unset': 'PRECONDITION_FAILED',
+  'bank.business_invite_expired': 'PRECONDITION_FAILED',
+  'bank.business_invite_revoked': 'PRECONDITION_FAILED',
+  'bank.business_invite_replaced': 'PRECONDITION_FAILED',
+  'bank.business_invite_used': 'CONFLICT',
+  'bank.business_invite_not_found': 'NOT_FOUND',
+  'bank.business_invite_inactive': 'CONFLICT',
+  'bank.business_invite_wrong_person': 'FORBIDDEN',
+  'bank.business_rule_invalid': 'BAD_REQUEST',
+  'bank.business_payee_invalid': 'BAD_REQUEST',
+  'bank.business_approvers_short': 'PRECONDITION_FAILED',
+  'bank.business_already_approved': 'CONFLICT',
+  'bank.business_budget_invalid': 'BAD_REQUEST',
+  'bank.business_department_not_found': 'NOT_FOUND',
   'bank.business_invalid_threshold': 'CONFLICT',
   'bank.business_invalid_name': 'CONFLICT',
   'bank.business_approval_inactive': 'CONFLICT',
@@ -288,6 +312,8 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.card_dispute_cap_exceeded': 'PRECONDITION_FAILED',
   'bank.card_dispute_partner_unset': 'PRECONDITION_FAILED',
   'bank.card_dispute_partner_mismatch': 'CONFLICT',
+  'bank.card_dispute_rules_unset': 'PRECONDITION_FAILED',
+  'bank.card_dispute_evidence_closed': 'CONFLICT',
   'bank.card_not_eligible': 'PRECONDITION_FAILED',
   'bank.card_count_limit': 'PRECONDITION_FAILED',
   'bank.card_use_limit_invalid': 'BAD_REQUEST',
@@ -461,6 +487,8 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.onramp_instruction_missing': 'PRECONDITION_FAILED',
   'bank.add_money_request_missing': 'NOT_FOUND',
   'bank.onramp_paid_mismatch': 'CONFLICT',
+  'bank.onramp_delivery_missing': 'CONFLICT',
+  'bank.wallet_delivery_unproven': 'FORBIDDEN',
   'bank.offramp_fee_unset': 'PRECONDITION_FAILED',
   'bank.offramp_fee_inconsistent': 'PRECONDITION_FAILED',
   'bank.deposit_custody_unset': 'PRECONDITION_FAILED',
@@ -500,6 +528,8 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.recipient_check_unset': 'PRECONDITION_FAILED',
   'bank.security_locked': 'PRECONDITION_FAILED',
   'bank.security_lock_unset': 'PRECONDITION_FAILED',
+  'bank.extra_controls_pending': 'PRECONDITION_FAILED',
+  'bank.extra_controls_unset': 'PRECONDITION_FAILED',
   'bank.account_frozen_self': 'PRECONDITION_FAILED',
   'bank.address_approval_not_pending': 'CONFLICT',
   'bank.address_approval_same_device': 'PRECONDITION_FAILED',
@@ -535,6 +565,27 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.compare_months': 'BAD_REQUEST',
   'bank.plans_unset': 'PRECONDITION_FAILED',
   'bank.dormancy_rule_unset': 'PRECONDITION_FAILED',
+  'bank.onboarding_requirements_unset': 'PRECONDITION_FAILED',
+  'bank.info_request_upload_unset': 'PRECONDITION_FAILED',
+  'bank.info_request_not_found': 'NOT_FOUND',
+  'bank.info_request_not_open': 'CONFLICT',
+  'bank.info_request_past_deadline': 'PRECONDITION_FAILED',
+  'bank.info_request_type_not_allowed': 'BAD_REQUEST',
+  'bank.info_request_too_large': 'BAD_REQUEST',
+  'bank.info_request_file_invalid': 'BAD_REQUEST',
+  'bank.review_not_found': 'NOT_FOUND',
+  'bank.review_not_open': 'CONFLICT',
+  'bank.closure_legal_hold': 'PRECONDITION_FAILED',
+  'bank.closure_destination_required': 'PRECONDITION_FAILED',
+  'bank.closure_pending': 'CONFLICT',
+  'bank.closure_conflict': 'CONFLICT',
+  'bank.closure_not_found': 'NOT_FOUND',
+  'bank.account_closed': 'CONFLICT',
+  'bank.account_restricted': 'PRECONDITION_FAILED',
+  'bank.account_not_closed': 'CONFLICT',
+  'bank.reopen_window_unset': 'PRECONDITION_FAILED',
+  'bank.reopen_window_passed': 'PRECONDITION_FAILED',
+  'bank.data_request_conflict': 'CONFLICT',
   'bank.plan_fee_unwired': 'PRECONDITION_FAILED',
   'bank.personal_transfer_terms_unset': 'PRECONDITION_FAILED',
   'bank.personal_transfer_fee_unwired': 'PRECONDITION_FAILED',
@@ -611,6 +662,7 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   // Identity could not answer; nothing was posted. Retry with the same id.
   'bank.recipient_check_unavailable': 'SERVICE_UNAVAILABLE',
   'bank.security_lock_unavailable': 'SERVICE_UNAVAILABLE',
+  'bank.extra_controls_unavailable': 'SERVICE_UNAVAILABLE',
   // Identity could not confirm the step-up approval; nothing was posted.
   'bank.step_up_unavailable': 'SERVICE_UNAVAILABLE',
   'bank.party_handles_unavailable': 'SERVICE_UNAVAILABLE',
@@ -659,6 +711,10 @@ export function toTrpcError(err: unknown): TRPCError {
     // precisely the one whose message nobody vetted, so it gets the generic answer.
     if (!Object.hasOwn(BANK_ERROR_STATUS, err.code)) return opaqueFailure(err, `bank.error:${String(err.code)}`);
     return new TRPCError({ code: BANK_ERROR_STATUS[err.code], message: publicDoorWireMessage(err), cause: err });
+  }
+  if (err instanceof LedgerFrozenRefusal) {
+    // The posting freeze, proved not posted: the ledger's own code and nothing else, never the book's internals.
+    return new TRPCError({ code: 'PRECONDITION_FAILED', message: 'ledger.frozen', cause: err });
   }
   if (err instanceof LedgerError) {
     // NOT `err.message`. `InsufficientFundsError` is handled above because it

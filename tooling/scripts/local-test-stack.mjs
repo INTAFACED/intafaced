@@ -72,6 +72,18 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { apiSecurityHeaders, securityHeaders } from '../../apps/customer/deployment/render-security-headers.mjs';
 import { APEX_DESCRIPTOR_PATH, APEX_PRODUCT } from '../../apps/customer/deployment/host-dispatch.mjs';
 import { anvilBin, chainRecordPath, chainStatus, CHAIN_PORTS, GATE_URL, runSeedScript, TEST_CHAIN_ID } from './local-test-chain.mjs';
+import {
+  anotherCheckoutsStack,
+  claimSlot,
+  FIX_SOCKET_PORTS,
+  localStackSlot,
+  releaseSlot,
+  slotClaims,
+  slotEnv,
+  slotPorts,
+  STACK_PORTS,
+  stackPids,
+} from './local-test-facts.mjs';
 import { reduceMaps } from './journey-reach.mjs';
 import { runMvnSync } from './mvn-run.mjs';
 import { marketStatus } from './local-test-market.mjs';
@@ -133,6 +145,7 @@ import {
   stackCustodyLayer,
   stackCustodyOff,
   custodyOffRefusal,
+  DEFAULT_SERVICES,
 } from './local-test-state.mjs';
 
 // ── Paths and ports ─────────────────────────────────────────────────────────
@@ -140,6 +153,7 @@ import {
 const SCRIPT = fileURLToPath(import.meta.url);
 const REPO = path.resolve(path.dirname(SCRIPT), '..', '..');
 const STATE = localStackState();
+const SLOT = localStackSlot();
 const P = {
   marker: path.join(STATE, 'LOCAL-TEST-STACK.json'),
   secrets: path.join(STATE, 'secrets.json'),
@@ -166,68 +180,8 @@ const P = {
   adminBuildId: path.join(REPO, 'apps', 'admin', '.next', 'BUILD_ID'),
 };
 
-const PORTS = {
-  postgres: 15460,
-  nats: 14232,
-  natsMonitor: 18232,
-  edge: 14500,
-  ledger: 14501,
-  identity: 14502,
-  trade: 14504,
-  matching: 14505,
-  pay: 14506,
-  bank: 14509,
-  // Services the Customer app calls through Edge (More door, Notifications, P2P, Trade tools).
-  token: 14503,
-  agents: 14507,
-  p2p: 14508,
-  notify: 14510,
-  academy: 14511,
-  support: 14512,
-  market: 14513,
-  blueprint: 14514,
-  quant: 14515,
-  execution: 14516,
-  tax: 14517,
-  'mining-pool': 14518,
-  // The outreach intake behind the invitation site, and the founders' CRM.
-  ops: 14519,
-  // The Web3 rooms' read side; its RPC is the TEST chain's gate (local-test-chain.mjs, 14530-14532) when anvil is found.
-  protocol: 14520,
-  // The chain explorer's read model; follows the TEST chain through the same gate (local-stack-services/indexer.mjs).
-  indexer: 14524,
-  // The Protocol plane's order door: the wallet-signed order session and the person's own vault orders (J-dex-protocol-10).
-  dex: 14529,
-  // LOCAL TEST stand-in for the object store Academy signs video URLs for (local-video-store.mjs).
-  'video-store': 14521,
-  // Seasons, limited drops and the TGE claim (the drop room).
-  campaigns: 14522,
-  // The live market-data and private streams the Customer app opens through /ws.
-  ws: 14523,
-  // LOCAL TEST statements of each rail stand-in's own records, read by svc-ledger's per-rail outside controls
-  // (local-test-rail-statements.mjs).
-  'rail-statements': 14525,
-  // The LOCAL TEST venue simulator behind svc-trade's user-venue door (local-test-venue.mjs). Started only with
-  // LOCAL_STACK_USER_VENUE=on (userVenueOn).
-  'test-venue': 14560,
-  // The second LOCAL TEST venue (J-derivatives-28, routing over two venues). Started only with LOCAL_STACK_USER_VENUE=two.
-  'test-venue-b': 14562,
-  // The LOCAL TEST embedded-wallet provider (local-test-wallet-provider.mjs, J-wallet-22): svc-protocol's provider on
-  // this stack. It holds its TEST keys in its own state file, never in a svc-* database. Always started with protocol.
-  'test-wallet-provider': 14561,
-  // The FIX adapter (svc-fix, Java): its HTTP listener (health, drop-copy ingest, the adapter status). Its two FIX
-  // sockets are FIX_SOCKET_PORTS, kept out of this table: one key here is one service (the marker's inventory).
-  fix: 14526,
-  customer: 3210,
-  invitation: 3220,
-  // LOCAL TEST stand-in for the apex host (the host check); the real apex site is not in this repo.
-  apex: 3260,
-  admin: 3100,
-  // LOCAL TEST HTTPS front for the founder console (local-test-team-tls.mjs): the Customer build's Team link.
-  'team-tls': 3143,
-};
-/** svc-fix's order-entry and drop-copy FIX sockets (local-stack-services/fix.mjs): ports of the fix service, not services. */
-const FIX_SOCKET_PORTS = { orderEntry: 14527, dropCopy: 14528 };
+// Every port, shifted by LOCAL_STACK_SLOT, lives in local-test-facts.mjs.
+const PORTS = STACK_PORTS;
 const HOST = '127.0.0.1';
 const CUSTOMER_ORIGIN = `http://${HOST}:${PORTS.customer}`;
 // LOCAL TEST: WebAuthn (passkeys) cannot use an IP address as its relying-party ID, so the same Customer
@@ -293,6 +247,12 @@ const fail = (msg, code = 1) => {
   process.stderr.write(`\nlocal-test-stack: ${msg}\n`);
   process.exit(code);
 };
+/** A port this stack wants is held by a process it did not start: most often another checkout's stack on the same slot. */
+const portTaken = (port, what, seen) =>
+  fail(
+    `port ${port} (${what}) is held by a process this stack did not start${seen ? ` (${seen})` : ''}; ` +
+      'stop it, or start again without LOCAL_STACK_SLOT: a start takes a free slot',
+  );
 const readJson = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
 function writePrivate(file, text) {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
@@ -303,7 +263,14 @@ const sha256File = (file) => crypto.createHash('sha256').update(fs.readFileSync(
 
 function baseEnv() {
   // A clean environment: nothing from the caller's shell leaks into services.
-  return { PATH: PNPM_PATH, HOME: os.homedir(), LANG: 'en_US.UTF-8', TMPDIR: path.join(STATE, 'tmp'), LOCAL_STACK_STATE: STATE };
+  return {
+    PATH: PNPM_PATH,
+    HOME: os.homedir(),
+    LANG: 'en_US.UTF-8',
+    TMPDIR: path.join(STATE, 'tmp'),
+    LOCAL_STACK_STATE: STATE,
+    ...slotEnv(),
+  };
 }
 
 function freeGb() {
@@ -358,6 +325,7 @@ const SECRET_NAMES = [
   'identityFlowSubject', // identity's key for sign-up and recovery flows (address identifier and code hash)
   'identitySigninChallenge', // identity's key for sign-in challenge tokens and the per-address failure count (I-signin-sessions-30)
   'notifyStatusLink', // notify's key for the signed links in status subscription mail
+  'notifyVerifyCode', // notify's TEST key for address-confirmation codes, set only with the TEST email stand-in (LOCAL_STACK_NOTIFY_EMAIL=on)
   'notifySupportService', // svc-support's own secret for svc-notify's guest verification door (NOTIFY_SUPPORT_SERVICE_SECRET on both)
   'supportGuestAddress', // svc-support's key that seals a guest's email address (SUPPORT_GUEST_ADDRESS_KEY, 32 bytes as hex)
   'academyVideoStore', // the TEST video store's signing key, shared with academy (local-video-store.mjs)
@@ -1590,7 +1558,7 @@ async function waitHealthy(name, url, pid, timeoutMs = 90_000) {
 async function startNats() {
   const procs = readProcs();
   if (ownedAlive(procs.nats) && (await httpGet(`http://${HOST}:${PORTS.natsMonitor}/healthz`)).status === 200) return;
-  if (await portOpen(PORTS.nats)) fail(`port ${PORTS.nats} is in use by a process this script did not start`);
+  if (await portOpen(PORTS.nats)) portTaken(PORTS.nats, 'nats');
   fs.mkdirSync(P.natsdata, { recursive: true, mode: 0o700 });
   writePrivate(
     P.natsConf,
@@ -1693,8 +1661,7 @@ async function startTestChain(secrets) {
     return [];
   }
   if (!ownedAlive(procs.chain)) {
-    for (const port of Object.values(CHAIN_PORTS))
-      if (await portOpen(port)) fail(`port ${port} (TEST chain) is in use by a process this script did not start`);
+    for (const port of Object.values(CHAIN_PORTS)) if (await portOpen(port)) portTaken(port, 'TEST chain');
     // A new anvil starts empty: whatever an earlier record named is gone with the old node, and so is every block a
     // service stored from it.
     fs.rmSync(chainRecordPath(STATE), { force: true });
@@ -1789,6 +1756,17 @@ function opsOutreachEnv() {
   };
 }
 
+/**
+ * What a start does with a stack service's port (pure): `ready` when the stack's own recorded process answers its health;
+ * `wait` when it is the stack's own process but its health is late (a busy runner, #8434), so the start waits for it as
+ * it waits for a new one; `start` when the port is free; `refuse` only when a process the stack has no record of holds it.
+ * Before #8434 the late-health case was refused as a stranger's port, and `restart notify` failed on matching's own port.
+ */
+export function portDecision({ owned, healthy, portInUse }) {
+  if (owned) return healthy ? 'ready' : 'wait';
+  return portInUse ? 'refuse' : 'start';
+}
+
 async function startNodeService(def) {
   const env = def.env();
   const port = Number(env.HTTP_PORT);
@@ -1796,8 +1774,21 @@ async function startNodeService(def) {
   const url = `http://${HOST}:${port}/health`;
   const build = currentBuild('backendBuild');
   await stopForNewBuild(def.name, procs[def.name], build, port);
-  if (ownedAlive(readProcs()[def.name]) && (await httpGet(url, 2000)).status === 200) return;
-  if (await portOpen(port)) fail(`port ${port} (${def.name}) is in use by a process this script did not start`);
+  const rec = readProcs()[def.name];
+  const owned = ownedAlive(rec);
+  const healthy = owned && (await httpGet(url, 2000)).status === 200;
+  const decision = portDecision({ owned, healthy, portInUse: !owned && (await portOpen(port)) });
+  if (decision === 'ready') return;
+  if (decision === 'wait') return waitHealthy(def.name, url, rec.pid);
+  if (decision === 'refuse') {
+    // Which check failed, so a refusal on CI names its cause: no record, or a record ps does not match (#7488, #8434).
+    const seen = rec?.pid
+      ? psCommand(rec.pid)
+        ? `pid ${rec.pid} does not match its record`
+        : `recorded pid ${rec.pid} is gone`
+      : 'no record';
+    portTaken(port, def.name, seen);
+  }
   for (const d of ['matching', 'execution']) fs.mkdirSync(path.join(P.data, d), { recursive: true, mode: 0o700 });
   if (def.name === 'identity') writeFounderPinStamp(STATE, env);
   const entry = path.join(REPO, 'services', `svc-${def.name}`, 'dist', def.entry ?? 'index.js');
@@ -1814,7 +1805,7 @@ async function startNodeService(def) {
 }
 
 /** Second workers listen here, above every port in PORTS, so one never takes a stopped stack service's port. */
-const SECOND_WORKER_PORT_BASE = 14900;
+const SECOND_WORKER_PORT_BASE = PORTS.edge + 400;
 
 /**
  * A second worker of one running service: the same settings and the same database, NATS and peers, on a free port
@@ -1897,7 +1888,7 @@ async function startCustomer() {
   const procs = readProcs();
   const url = `${CUSTOMER_ORIGIN}/`;
   if (ownedAlive(procs.customer) && (await httpGet(url, 2000)).status === 200) return;
-  if (await portOpen(PORTS.customer)) fail(`port ${PORTS.customer} (customer) is in use by a process this script did not start`);
+  if (await portOpen(PORTS.customer)) portTaken(PORTS.customer, 'customer');
   const env = { ...baseEnv(), CUSTOMER_WS_URL: customerWsUpstream() };
   const pid = startProc('customer', [process.execPath, SCRIPT, '__serve-customer'], env, REPO, { build });
   await waitHealthy('customer', url, pid, 20_000);
@@ -1908,8 +1899,7 @@ async function startVideoStore(secrets) {
   const procs = readProcs();
   const url = `${urlOf('video-store')}/health`;
   if (ownedAlive(procs['video-store']) && (await httpGet(url, 2000)).status === 200) return;
-  if (await portOpen(PORTS['video-store']))
-    fail(`port ${PORTS['video-store']} (video-store) is in use by a process this script did not start`);
+  if (await portOpen(PORTS['video-store'])) portTaken(PORTS['video-store'], 'video-store');
   const env = { ...baseEnv(), LOCAL_VIDEO_STORE_SECRET: secrets.academyVideoStore };
   const pid = startProc('video-store', [process.execPath, SCRIPT, '__serve-video-store'], env, REPO);
   await waitHealthy('video-store', url, pid, 20_000);
@@ -1920,8 +1910,7 @@ async function startRailStatements() {
   const procs = readProcs();
   const url = `${urlOf('rail-statements')}/health`;
   if (ownedAlive(procs['rail-statements']) && (await httpGet(url, 2000)).status === 200) return;
-  if (await portOpen(PORTS['rail-statements']))
-    fail(`port ${PORTS['rail-statements']} (rail-statements) is in use by a process this script did not start`);
+  if (await portOpen(PORTS['rail-statements'])) portTaken(PORTS['rail-statements'], 'rail-statements');
   const pid = startProc('rail-statements', [process.execPath, SCRIPT, '__serve-rail-statements'], baseEnv(), REPO);
   await waitHealthy('rail-statements', url, pid, 20_000);
 }
@@ -1934,8 +1923,7 @@ async function startTestWalletProvider() {
   const procs = readProcs();
   const url = `${urlOf('test-wallet-provider')}/health`;
   if (ownedAlive(procs['test-wallet-provider']) && (await httpGet(url, 2000)).status === 200) return;
-  if (await portOpen(PORTS['test-wallet-provider']))
-    fail(`port ${PORTS['test-wallet-provider']} (test-wallet-provider) is in use by a process this script did not start`);
+  if (await portOpen(PORTS['test-wallet-provider'])) portTaken(PORTS['test-wallet-provider'], 'test-wallet-provider');
   const pid = startProc(
     'test-wallet-provider',
     [process.execPath, SCRIPT, '__serve-test-wallet-provider'],
@@ -1962,7 +1950,7 @@ async function startTestVenue(name = 'test-venue') {
   const procs = readProcs();
   const url = `${urlOf(name)}/health`;
   if (ownedAlive(procs[name]) && (await httpGet(url, 2000)).status === 200) return;
-  if (await portOpen(PORTS[name])) fail(`port ${PORTS[name]} (${name}) is in use by a process this script did not start`);
+  if (await portOpen(PORTS[name])) portTaken(PORTS[name], name);
   // With the TEST chain running, the first venue takes deposits of its TEST USD and pays withdrawals there (J-wallet-09
   // #3, #5). It reads anvil directly, not svc-protocol's gate: a journey that shuts the gate shuts it for svc-protocol
   // alone. The second TEST venue (J-derivatives-28) takes no chain deposits: its journeys fund it with TEST deposits.
@@ -1987,7 +1975,7 @@ async function startInvitation() {
   const url = `${INVITATION_ORIGIN}/`;
   if (ownedAlive(procs.invitation) && (await httpGet(url, 2000)).status === 200) return;
   if (!fs.existsSync(path.join(P.invitationDist, 'index.html'))) fail('invitation build missing; run with --rebuild');
-  if (await portOpen(PORTS.invitation)) fail(`port ${PORTS.invitation} (invitation) is in use by a process this script did not start`);
+  if (await portOpen(PORTS.invitation)) portTaken(PORTS.invitation, 'invitation');
   const pid = startProc('invitation', [process.execPath, SCRIPT, '__serve-invitation'], baseEnv(), REPO, { build });
   await waitHealthy('invitation', url, pid, 20_000);
 }
@@ -2013,7 +2001,7 @@ async function startApex() {
   const url = `${APEX_ORIGIN}/`;
   writeApexStandIn();
   if (ownedAlive(procs.apex) && (await httpGet(url, 2000)).status === 200) return;
-  if (await portOpen(PORTS.apex)) fail(`port ${PORTS.apex} (apex) is in use by a process this script did not start`);
+  if (await portOpen(PORTS.apex)) portTaken(PORTS.apex, 'apex');
   const pid = startProc('apex', [process.execPath, SCRIPT, '__serve-apex'], baseEnv(), REPO);
   await waitHealthy('apex', url, pid, 20_000);
 }
@@ -2073,7 +2061,7 @@ async function startAdmin(secrets) {
     say('  admin: restarting so the console holds a fresh LOCAL TEST treasury token');
     await stopProc('admin', procs.admin);
   }
-  if (await portOpen(PORTS.admin)) fail(`port ${PORTS.admin} (admin) is in use by a process this script did not start`);
+  if (await portOpen(PORTS.admin)) portTaken(PORTS.admin, 'admin');
   if (!fs.existsSync(P.adminBuildId)) fail('founder console build missing; run with --rebuild');
   treasury ??= await consoleTreasuryEnv();
   const pid = startProc('admin', [process.execPath, SCRIPT, '__serve-admin'], { ...adminEnv(secrets), ...treasury.env }, P.admin, {
@@ -2105,7 +2093,7 @@ async function startTeamTls() {
   }
   if (ownedAlive(procs['team-tls']) && (await teamTlsAnswers(cert))) return;
   if (ownedAlive(procs['team-tls'])) await stopProc('team-tls', procs['team-tls']);
-  if (await portOpen(PORTS['team-tls'])) fail(`port ${PORTS['team-tls']} (team-tls) is in use by a process this script did not start`);
+  if (await portOpen(PORTS['team-tls'])) portTaken(PORTS['team-tls'], 'team-tls');
   const pid = startProc('team-tls', [process.execPath, SCRIPT, '__serve-team-tls'], baseEnv(), REPO);
   const t0 = Date.now();
   while (Date.now() - t0 < 20_000) {
@@ -2275,7 +2263,8 @@ function onlyFlag(flags) {
  * so a checkout of the same commit with no edits that receives these outputs and the stamp starts without building, and
  * any difference (another commit, an edit, a missing output) rebuilds exactly as a cold start would.
  */
-function cmdBuild(flags) {
+async function cmdBuild(flags) {
+  await takeSlot();
   say('INTAFACED local test stack: build only');
   say(`  repo ${REPO}`);
   say(`  state ${STATE}`);
@@ -2292,7 +2281,128 @@ function cmdBuild(flags) {
   say(`  build: stamp ${P.buildStamp}`);
 }
 
+/**
+ * Before anything is built or written: another checkout's running stack, in this state folder or on this slot's ports,
+ * would be rebuilt under it or collide with it. Refuse in one line that names the slot to set.
+ */
+async function refuseOtherStack() {
+  const was = fs.existsSync(P.marker) ? readJson(P.marker).repo : undefined;
+  const procs = readProcs();
+  if (was && was !== REPO && Object.values(procs).some(ownedAlive))
+    fail(`the stack in ${STATE} runs from ${was}; give this checkout its own LOCAL_STACK_STATE, or leave it unset`);
+  for (const [name, ours] of [
+    ['postgres', pgRunning()],
+    ['nats', ownedAlive(procs.nats)],
+    ['edge', ownedAlive(procs.edge)],
+    ['customer', ownedAlive(procs.customer)],
+  ])
+    if (!ours && (await portOpen(PORTS[name]))) portTaken(PORTS[name], name);
+}
+
+/** Runs this command again on the slot just claimed for this checkout, and exits with its status. */
+function runOnSlot(slot, state) {
+  say(`  slot ${slot}: taken for this checkout (ports +${slot * 1000}, state ${state})`);
+  const r = spawnSync(process.execPath, [SCRIPT, ...process.argv.slice(2)], {
+    stdio: 'inherit',
+    env: { ...process.env, LOCAL_STACK_SLOT: String(slot) },
+  });
+  process.exit(r.status ?? 1);
+}
+
+/**
+ * A slot claim whose owner is gone: the start that took it has ended, and no process is left working in its checkout
+ * except the stack itself (its recorded processes, its Postgres and their children). A builder's agent works with its
+ * checkout as its folder, so while the agent runs, the claim is its. When the processes cannot be listed, the owner
+ * counts as present. Failure it prevents: on 16 Nov, slot 0 and slot 1 were held by stacks whose builders had settled
+ * and whose PRs had merged (#8500 at 14:20 UTC, #8552 at 23:17 UTC 15 Nov), so the counted build J-bank-19 found every
+ * slot held at 00:13 UTC and ran no local stack (project-state#2553 comment 6903867491).
+ */
+export function ownerGone(
+  claim,
+  { alive = (pid) => Boolean(readProcessIdentity(pid)), cwds = processCwds, parents = processParents } = {},
+) {
+  if (!claim?.repo || alive(claim.pid)) return false;
+  if (!fs.existsSync(claim.repo)) return true;
+  const inCheckout = cwds();
+  const ppid = parents();
+  if (!inCheckout || !ppid) return false;
+  const stack = new Set(stackPids(claim.state ?? ''));
+  const ofStack = (pid) => {
+    for (let p = pid, n = 0; p > 1 && n < 64; p = ppid.get(p), n++) if (stack.has(p)) return true;
+    return false;
+  };
+  const root = path.resolve(claim.repo);
+  return ![...inCheckout].some(([pid, cwd]) => (cwd === root || cwd.startsWith(`${root}/`)) && !ofStack(pid));
+}
+/** Every process's working folder (`lsof -d cwd`), or null when it cannot be read. */
+function processCwds() {
+  const r = spawnSync('lsof', ['-n', '-d', 'cwd', '-Fpn'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  if (r.error || !r.stdout) return null;
+  const out = new Map();
+  let pid = 0;
+  for (const line of r.stdout.split('\n'))
+    if (line[0] === 'p') pid = Number(line.slice(1));
+    else if (line[0] === 'n' && pid) out.set(pid, line.slice(1));
+  return out;
+}
+/** Every process's parent (`ps`), or null when it cannot be read. */
+function processParents() {
+  const r = spawnSync('ps', ['-axo', 'pid=,ppid='], { encoding: 'utf8' });
+  if (r.status !== 0) return null;
+  const out = new Map();
+  for (const line of r.stdout.trim().split('\n')) {
+    const [pid, ppid] = line.trim().split(/\s+/).map(Number);
+    if (pid) out.set(pid, ppid);
+  }
+  return out;
+}
+
+/**
+ * The slot this start runs on, taken before anything is built or written, so a second start sees it at once.
+ * LOCAL_STACK_SLOT set (a person's choice, or the run again below): that slot is claimed or the start refuses. Unset:
+ * this checkout keeps its slot, or claims the first free one (no live claim and none of its ports held) and runs itself
+ * again on it.
+ */
+async function takeSlot() {
+  const holder = ({ slot, claim, live }) =>
+    `${slot}: ${claim && live ? `${claim.repo} (pid ${claim.pid})` : 'a process with no claim on its ports'}`;
+  const claims = slotClaims();
+  if (process.env.LOCAL_STACK_SLOT !== undefined || claims.some((c) => c.claim?.repo === REPO)) {
+    if (claimSlot(SLOT, { state: STATE })) return;
+    fail(`refusing: slot ${holder(claims[SLOT])} holds it; leave LOCAL_STACK_SLOT unset and the start takes a free slot`);
+  }
+  for (const c of claims) {
+    if (c.claim && c.live) continue;
+    const state = localStackState(os.homedir(), { ...process.env, LOCAL_STACK_SLOT: String(c.slot) });
+    const marker = path.join(state, 'LOCAL-TEST-STACK.json');
+    const oursRunning = fs.existsSync(marker) && readJson(marker).repo === REPO && stackPids(state).some((pid) => readProcessIdentity(pid));
+    const { postgres, nats, edge, customer } = slotPorts(c.slot).stack;
+    if (!oursRunning && (await Promise.all([postgres, nats, edge, customer].map(portOpen))).some(Boolean)) continue;
+    if (!claimSlot(c.slot, { state })) continue;
+    if (c.slot === SLOT) return;
+    runOnSlot(c.slot, state);
+  }
+  // Every slot is held. One whose owner is gone is taken back: its stack is stopped by this script's own stop for
+  // that slot, and the slot claimed. A live owner's slot is never touched.
+  for (const c of slotClaims()) {
+    if (!c.claim || !c.live || c.claim.repo === REPO || !ownerGone(c.claim)) continue;
+    say(
+      `  slot ${c.slot}: its owner ${c.claim.repo} is gone (start pid ${c.claim.pid} ended, no process left in that checkout but its stack); stopping that stack`,
+    );
+    spawnSync(process.execPath, [SCRIPT, 'stop'], { stdio: 'inherit', env: { ...process.env, LOCAL_STACK_SLOT: String(c.slot) } });
+    const state = localStackState(os.homedir(), { ...process.env, LOCAL_STACK_SLOT: String(c.slot) });
+    if (slotClaims()[c.slot].live || !claimSlot(c.slot, { state })) continue;
+    if (c.slot === SLOT) return;
+    runOnSlot(c.slot, state);
+  }
+  fail(
+    `refusing: every slot is held (${slotClaims().map(holder).join('; ')}); stop one with \`local-test-stack.mjs stop\` in its checkout`,
+  );
+}
+
 async function cmdStart(flags) {
+  await takeSlot();
+  await refuseOtherStack();
   const s2sMode = checkedS2sMode();
   say('INTAFACED local test stack');
   say(`  repo ${REPO}`);
@@ -2301,6 +2411,11 @@ async function cmdStart(flags) {
   if (free < MIN_FREE_GB) fail(`only ${free.toFixed(1)} GB free on / (need >= ${MIN_FREE_GB} GB so free space stays above 12 GB)`);
   for (const b of [`${PG_BIN}/pg_ctl`, `${PG_BIN}/initdb`, `${PG_BIN}/psql`])
     if (!fs.existsSync(b)) fail(`missing ${b} (install PostgreSQL 16 via Homebrew)`);
+  // A first start without the core services leaves a stack the journey helpers refuse (assertActiveLocalStack).
+  const only = onlyFlag(flags);
+  const missingCore = DEFAULT_SERVICES.filter((n) => only && !only.includes(n));
+  if (missingCore.length && !DEFAULT_SERVICES.some((n) => ownedAlive(readProcs()[n])))
+    fail(`refusing: the journeys need ${DEFAULT_SERVICES.join(',')} running; add ${missingCore.join(',')} to --only`, 2);
   const secrets = loadOrCreateSecrets();
   // Each stack starts with no recorded CSP violations, so `csp-report --fail` speaks only of this run.
   fs.rmSync(P.cspViolations, { force: true });
@@ -2329,7 +2444,6 @@ async function cmdStart(flags) {
     );
   }
   adoptEnvCustomerDist();
-  const only = onlyFlag(flags);
   ensureNatsBinary();
   ensureBuilt(flags.includes('--rebuild'));
   ensureInvitationBuilt(flags.includes('--rebuild'));
@@ -2455,7 +2569,7 @@ async function cmdStart(flags) {
  */
 function ensureMarket() {
   const r = spawnSync(process.execPath, [path.join(path.dirname(SCRIPT), 'local-test-market.mjs'), 'ensure'], {
-    env: { PATH: process.env.PATH, HOME: os.homedir(), LOCAL_STACK_STATE: STATE },
+    env: { PATH: process.env.PATH, HOME: os.homedir(), LOCAL_STACK_STATE: STATE, ...slotEnv() },
     encoding: 'utf8',
   });
   const text = `${r.stdout ?? ''}${r.stderr ?? ''}`.trim().split('\n').filter(Boolean).join(' | ');
@@ -2509,6 +2623,7 @@ async function cmdStop(names = []) {
   }
   say('  Data is kept in the state directory. Start again with: pnpm local:stack');
   if (bad) process.exit(1);
+  releaseSlot();
 }
 
 // ── plan / restart ──────────────────────────────────────────────────────────
@@ -2576,6 +2691,8 @@ async function cmdRestart(names) {
   if (names.length === 0 || bad.length)
     fail(`restart needs service names from: ${known.join(', ')}${bad.length ? ` (unknown: ${bad.join(', ')})` : ''}`, 2);
   checkedS2sMode();
+  await takeSlot();
+  await refuseOtherStack();
   await cmdStop(names);
   await cmdStart([]);
 }
@@ -3851,13 +3968,15 @@ function canonicalAmount(amount) {
 
 /**
  * Whether `address` is the stack's own custody: a deposit address svc-pay issued, or the acceptance address it gave a
- * merchant's crypto payment (both land on rail crypto-native). The custodian's own lists of its addresses, not a ledger figure.
+ * merchant's crypto payment in our custody (both land on rail crypto-native). The custodian's own lists of its addresses, not
+ * a ledger figure. A payment paid to the business's own wallet (custody `merchant_wallet`, launch money model) is not ours.
  */
 function custodyAddress(address) {
   const secrets = readJson(P.secrets);
   const sql = `SELECT 1 FROM pay.custody_deposit_addresses WHERE lower(address) = lower(:'address')
                UNION ALL
-               SELECT 1 FROM pay.payments WHERE rail_adapter = 'crypto-native' AND lower(rail_ref) = lower(:'address')
+               SELECT 1 FROM pay.payments WHERE rail_adapter = 'crypto-native' AND custody = 'platform'
+                                            AND lower(rail_ref) = lower(:'address')
                LIMIT 1`;
   const found = psql(secrets, sql, {
     db: DB_NAME,
@@ -3890,6 +4009,49 @@ function chainRecord(movement) {
     if (err instanceof RailRecordError) fail(`refusing: the TEST chain record: ${err.message}`, 2);
     throw err;
   }
+}
+
+/**
+ * `ledger-posts <payment-id | reference>`: every transaction the stack's ledger holds under a key that ends with this
+ * payment's id, with its legs, as JSON: `{ paymentId, custody, posts: [{ key, module, reason, legs: [...] }] }`, each leg's
+ * owner, kind, asset, direction and amount. A reference is the one the payer was shown (an address, a bank reference),
+ * read from svc-pay's own payments. A journey reads it to see what the ledger booked for one payment (J-merchant-04: only
+ * our fee, once). It reads svc-pay's and svc-ledger's own tables; it writes nothing.
+ */
+function cmdLedgerPosts(rawArgs) {
+  const [given, ...extra] = rawArgs;
+  if (!given || extra.length > 0 || given.length > 200 || /\s/.test(given))
+    fail('usage: node tooling/scripts/local-test-stack.mjs ledger-posts <payment-id | reference>', 2);
+  const secrets = localFixtureSecrets();
+  const asPay = (sql, vars) => psql(secrets, sql, { db: DB_NAME, user: 'svc_pay', password: secrets.pgService, vars, tuples: true });
+  const found = asPay(
+    `SELECT id::text || ' ' || custody FROM pay.payments WHERE id::text = :'given' OR lower(rail_ref) = lower(:'given')`,
+    { given },
+  )
+    .trim()
+    .split('\n')
+    .filter(Boolean);
+  if (found.length !== 1) fail(`no single payment "${given}" in the local svc-pay database (found ${found.length})`);
+  const [paymentId, custody] = found[0].split(' ');
+  const sql = `SELECT COALESCE(json_agg(row_to_json(t) ORDER BY t.seq), '[]'::json)::text FROM (
+                 SELECT tx.seq, tx.idempotency_key AS key, tx.module, tx.reason,
+                        (SELECT json_agg(json_build_object('ownerType', a.owner_type, 'ownerId', a.owner_id, 'kind', a.kind,
+                                                           'assetId', e.asset_id, 'direction', e.direction,
+                                                           'amount', trim_scale(e.amount)::text) ORDER BY e.id)
+                           FROM ledger.ledger_entries e JOIN ledger.accounts a ON a.id = e.account_id
+                          WHERE e.tx_id = tx.id) AS legs
+                   FROM ledger.ledger_tx tx
+                  WHERE tx.idempotency_key LIKE '%:' || :'paymentId') t`;
+  const posts = psql(secrets, sql, {
+    db: DB_NAME,
+    user: 'svc_ledger',
+    password: secrets.pgService,
+    vars: { paymentId },
+    tuples: true,
+  });
+  process.stdout.write(
+    `${JSON.stringify({ paymentId, custody, posts: JSON.parse(posts.trim()).map(({ seq: _seq, ...post }) => post) })}\n`,
+  );
 }
 
 /** Guards: a chain event only ever goes to the local stack's own svc-pay. Returns the stack's crypto webhook secret. */
@@ -4231,6 +4393,9 @@ if (runningAsCli()) await runCli();
 
 async function runCli() {
   const [cmd = 'start', ...rest] = process.argv.slice(2);
+  // A start takes a free slot itself; every other command here acts on the stack the slot points at.
+  const borrowed = ['start', 'plan'].includes(cmd) || cmd.startsWith('__') ? null : anotherCheckoutsStack();
+  if (borrowed) fail(borrowed);
   if (cmd === '__serve-customer')
     serveCustomer(Number(rest[0]) || PORTS.customer); // the port argument is for tests only
   else if (cmd === '__serve-invitation') serveCustomer(PORTS.invitation, SITES.invitation);
@@ -4274,7 +4439,7 @@ async function runCli() {
   else if (cmd === 'start' && rest[0] === 'customer-dist')
     cmdCustomerDist(rest.slice(1)); // pnpm local:stack customer-dist <path>
   else if (cmd === 'start') await cmdStart(rest);
-  else if (cmd === 'build') cmdBuild(rest);
+  else if (cmd === 'build') await cmdBuild(rest);
   else if (cmd === 'stop') await cmdStop(rest);
   else if (cmd === 'plan') cmdPlan(rest);
   else if (cmd === 'csp-report') cmdCspReport(rest);
@@ -4288,6 +4453,7 @@ async function runCli() {
   else if (cmd === 'chain-deposit') await cmdChainDeposit(rest);
   else if (cmd === 'chain-reorg') await cmdChainReorg(rest);
   else if (cmd === 'bank-transfer') await cmdBankTransfer(rest);
+  else if (cmd === 'ledger-posts') cmdLedgerPosts(rest);
   else if (cmd === 'card-funds') await cmdCardFunds(rest);
   else if (cmd === 'card-terms') await cmdCardTerms(rest);
   else if (cmd === 'card-dispute') await cmdCardDispute(rest);

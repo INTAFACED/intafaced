@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { decodeFunctionData, encodeFunctionData, toFunctionSelector } from 'viem';
 import type { Address, Hex } from 'viem';
 import type { Principal } from '@intafaced/auth';
@@ -163,6 +163,34 @@ describe('svc-protocol mount — authorisation', () => {
       message: expect.stringContaining('never invent 50'),
     });
     expect(read).toBe(false);
+  });
+});
+
+describe('svc-protocol mount — strict screening', () => {
+  // vitest.config.ts turns screening off for business fixtures; this test arms the production default
+  // (unset INTAFACED_SCREENING_FAIL_CLOSED) and a blank list, and proves a signed request refuses.
+  it('refuses a signed request with unconfigured screening before reading the registry', async () => {
+    let read = false;
+    const deps = stubDeps({
+      registry: {
+        accountsOf: async () => {
+          read = true;
+          return [];
+        },
+      },
+    });
+    vi.stubEnv('INTAFACED_SCREENING_FAIL_CLOSED', undefined);
+    vi.stubEnv('INTAFACED_REGION_FAIL_CLOSED', undefined);
+    vi.stubEnv('INTAFACED_UNSIGNED_SANCTIONS_ROWS', 'off');
+    try {
+      await expect(createProtocolRouter(deps).createCaller(signed()).myAccounts({ limit: 1 })).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+        cause: { decision: { code: 'denied.screening_unconfigured' } },
+      });
+      expect(read).toBe(false);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
 

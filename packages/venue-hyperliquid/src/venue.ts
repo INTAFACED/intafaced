@@ -18,6 +18,7 @@ import {
   type UserVenueLeverage,
   type UserVenueMarket,
   type UserVenueOrder,
+  type UserVenueOrderRecord,
   type UserVenuePosition,
   type UserVenueWithdrawal,
   type VenueAssetAmount,
@@ -530,6 +531,8 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
       contractSize: { known: false },
       mark: { known: false },
       funding: { known: false },
+      // Its self-trade rule is not read from the venue by this adapter: not known, never guessed.
+      selfTrade: { known: false },
     }));
     return this.asOf(list);
   }
@@ -860,11 +863,19 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
         throw refusal(venueId, 'not_offered', 'revoking an agent is not offered by this adapter yet');
       case 'amend_order':
         throw refusal(venueId, 'not_offered', 'amend is not offered by this adapter yet: cancel and place a new order');
+      case 'replace_order':
+        throw refusal(venueId, 'not_offered', 'a cancel-and-replace signed once is not offered by this adapter yet: cancel, then place');
+      case 'cancel_orders':
+        throw refusal(venueId, 'not_offered', 'cancelling several orders in one signed action is not offered by this adapter yet');
       case 'create_sub_account':
       case 'sub_account_transfer':
         throw refusal(venueId, 'not_offered', 'sub-accounts are not offered by this adapter yet');
       case 'market_margin_transfer':
         throw refusal(venueId, 'not_offered', "a HIP-3 deployer's own margin account is not offered by this adapter yet");
+      case 'place_orders':
+        // The venue takes several orders in one `order` action, but this adapter does not build or read one yet, and its
+        // descriptor declares no `ordersPerAction`: each order is signed on its own.
+        throw refusal(venueId, 'not_offered', 'orders signed together are not offered by this adapter yet: sign each order on its own');
     }
   }
 
@@ -1126,6 +1137,28 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
     const lev = this.leverageLookup(account);
     const list: UserVenueOrder[] = [];
     for (const r of raw) list.push(await this.toOrder(account, obj(r, 'open order'), null, lev));
+    return this.asOf(list);
+  }
+
+  /**
+   * The account's order history (J-cex-spot-06 #1): Hyperliquid's `historicalOrders`, its 2000 most recent orders, each
+   * the order as last reported with its status. An open entry's part-filled state comes from its sizes; the time placed is
+   * the order's own `timestamp`. Newest placed first.
+   */
+  async orderHistory(account: UserVenueAccount): Promise<AsOf<readonly UserVenueOrderRecord[]>> {
+    const raw = arr(await this.info({ type: 'historicalOrders', user: this.user(account) }), 'historical orders');
+    const lev = this.leverageLookup(account);
+    const list: UserVenueOrderRecord[] = [];
+    for (const entry of raw) {
+      const wrapped = obj(entry, 'historical order');
+      const order = obj(wrapped.order, 'historical order.order');
+      const status = mapOrderStatus(str(wrapped.status, 'historical order status'));
+      list.push({
+        order: await this.toOrder(account, order, status === 'open' ? null : status, lev),
+        placedAt: new Date(int(order.timestamp, 'order timestamp')),
+      });
+    }
+    list.sort((a, b) => b.placedAt.getTime() - a.placedAt.getTime());
     return this.asOf(list);
   }
 

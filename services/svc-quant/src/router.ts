@@ -2,6 +2,16 @@ import { z } from 'zod';
 import {
   publicJurisdictionProcedure,
   publicProcedure,
+  quantApprovalDecideInputSchema,
+  quantApprovalPolicySchema,
+  quantApprovalPolicySetInputSchema,
+  quantApprovalRequestInputSchema,
+  quantApprovalStateSchema,
+  quantLakeCaptureInputSchema,
+  quantLakeCatalogueInputSchema,
+  quantLakeCatalogueSchema,
+  quantMonteCarloInputSchema,
+  quantMonteCarloSchema,
   quantDisclosureAcceptInputSchema,
   quantDisclosureAcceptKey,
   quantDisclosureAcceptOutputSchema,
@@ -28,6 +38,8 @@ import {
   quantTemplateDetailSchema,
   quantTemplateIdSchema,
   quantTemplateListOutputSchema,
+  quantTemplateListingInputSchema,
+  quantTemplateListingSchema,
   quantTemplatePublishInputSchema,
   quantTemplateVersionSchema,
   router,
@@ -41,6 +53,12 @@ import {
   quantQuotaProfileSchema,
   quantQuotaSchema,
   quantQuotaSetInputSchema,
+  quantSandboxLimitSetInputSchema,
+  quantSandboxLimitSetOutputSchema,
+  quantLimitsSchema,
+  quantEscapeCorpusInputSchema,
+  quantEscapeCorpusSchema,
+  QUANT_SANDBOX_LIMITS,
   quantQuotaSetOutputSchema,
   quantTierListSchema,
   quantTierSetInputSchema,
@@ -51,17 +69,73 @@ import {
   quantPaperListSchema,
   quantPaperRunSchema,
   quantPaperStartInputSchema,
+  QUANT_ALERT_LIST_MAX,
+  quantAlertCreateInputSchema,
+  quantAlertListSchema,
+  quantAlertSchema,
+  quantNotifySetInputSchema,
+  quantRiskScreenSchema,
+  quantRiskSetInputSchema,
+  quantRiskTradingInputSchema,
+  quantNotifySettingsSchema,
   quantCriteriaSchema,
   quantCriteriaSetInputSchema,
   quantLifecycleSchema,
   quantPromoteInputSchema,
+  quantLiveCheckInputSchema,
+  quantLiveCheckSchema,
+  quantLiveDeployInputSchema,
+  type QuantLiveCheck,
   quantPromoteOutputSchema,
+  quantPromotionAuditSchema,
+  QUANT_PROMOTION_AUDIT_PAGE,
   QUANT_OWNER_CRITERIA,
+  quantDisputeOpenInputSchema,
+  quantDisputeResolveInputSchema,
+  quantModerationEntrySchema,
+  quantModerationInputSchema,
+  quantModerationQueueInputSchema,
+  quantModerationQueueSchema,
   type QuantLifecycle,
   type QuantStage,
+  QUANT_SUPPORT_GRANT_MAX_SECONDS,
+  QUANT_SUPPORT_GRANT_MIN_SECONDS,
+  quantEditLockSchema,
+  quantSharedListSchema,
+  quantSharedOpenSchema,
+  quantSupportGrantInputSchema,
+  quantSupportSourceSchema,
+  quantTeamRemoveInputSchema,
+  quantTeamSaveInputSchema,
+  quantTeamSchema,
+  quantTeamSetInputSchema,
+  quantAccessRequestInputSchema,
+  quantAccessSetInputSchema,
+  quantLibraryBrowseInputSchema,
+  quantLibraryOptionsSchema,
+  quantLibraryPageSchema,
+  quantLineageReadSchema,
+  quantLineageSchema,
+  quantListingCheckInputSchema,
+  quantListingCheckSchema,
+  quantListingPageSchema,
+  quantListingPreviewSchema,
+  quantListingPublishInputSchema,
+  quantListingSchema,
+  quantMyListingsSchema,
+  quantReviewInputSchema,
 } from '@intafaced/contracts';
+import { formatAmount, parseAmount } from '@intafaced/ledger-client/money';
 import type { BacktestCostModel } from '@intafaced/quant-honesty';
 import { missingLake, type BacktestLake } from './backtest/lake.js';
+import { monteCarlo } from './backtest/montecarlo.js';
+import {
+  approvalContentHash,
+  createMemoryApprovalRepository,
+  type ApprovalRepository,
+  type StoredApproval,
+} from './approval/repository.js';
+import { coverageOf, LAKE_KINDS, type LakeSettings, type LakeStore } from './lake/lake.js';
 import { missingFees, missingHistory, type FeePort, type HistoryPort } from './engine/ports.js';
 import {
   BACKTEST_HISTORY_PAGE_MAX,
@@ -104,6 +178,19 @@ import {
   QUANT_EMBED_ORIGINS_UNSET,
   QUANT_RUN_NOT_FOUND,
   QUANT_RUN_NOT_SIMULATED,
+  QUANT_MONTECARLO_RUNS_UNSET,
+  QUANT_MONTECARLO_MIN_TRADES_UNSET,
+  QUANT_MONTECARLO_TRADES_INSUFFICIENT,
+  QUANT_LAKE_STORE_UNSET,
+  QUANT_LAKE_RETENTION_UNSET,
+  QUANT_LAKE_SYMBOL_UNKNOWN,
+  QUANT_APPROVAL_POLICY_UNSET,
+  QUANT_APPROVAL_REQUIRED,
+  QUANT_APPROVAL_SELF_REVIEW,
+  QUANT_APPROVAL_HASH_STALE,
+  QUANT_APPROVAL_NOT_FOUND,
+  QUANT_APPROVAL_NOT_REVIEWER,
+  QUANT_APPROVAL_DECIDED,
   QUANT_SHARE_NOT_FOUND,
   QUANT_SHARE_RATE_LIMITED,
   QUANT_SHARE_RATE_UNSET,
@@ -127,19 +214,62 @@ import {
   QUANT_STUDIO_RISK_BLOCK_REQUIRED,
   QUANT_QUOTA_EXCEEDED,
   QUANT_QUOTA_PROFILE_UNSET,
+  QUANT_SANDBOX_LIMIT_UNSET,
   QUANT_QUOTA_REASON_UNSET,
   QUANT_QUOTA_UNSET,
   QUANT_PAPER_LIST_LIMIT_UNSET,
   QUANT_BACKTEST_RULES_REQUIRED,
   QUANT_CRITERIA_REASON_UNSET,
+  QUANT_EDIT_LOCK_UNSET,
+  QUANT_EDIT_LOCKED,
+  QUANT_PAPER_MANUAL_ORDER_UNSUPPORTED,
+  QUANT_GRANT_INVALID,
+  QUANT_PERMISSION_DENIED,
+  QUANT_TEAM_MEMBER_INVALID,
+  QUANT_LIVE_DISABLED,
+  QUANT_LIVE_PLAN_UNSUPPORTED,
+  QUANT_LIVE_ORDER_TYPE_UNSUPPORTED,
+  QUANT_LIVE_DEPLOY_UNAVAILABLE,
   QUANT_GATE_CRITERIA_UNSET,
+  QUANT_RISK_CAP_INVALID,
+  QUANT_RISK_CAP_UNSET,
   QUANT_STAGE_TRANSITION_INVALID,
   QuantError,
+  QUANT_LIBRARY_LICENCES_UNSET,
+  QUANT_LISTING_ACCESS_DENIED,
+  QUANT_LISTING_CHECK_FAILED,
+  QUANT_LISTING_NOT_FOUND,
+  QUANT_DISPUTE_NOT_FOUND,
+  QUANT_LIBRARY_QUEUE_LIMIT_UNSET,
+  QUANT_MODERATION_STATE_INVALID,
+  QUANT_LISTING_SOURCE_PROTECTED,
+  QUANT_LISTING_STALE,
+  QUANT_REALISM_CHECKLIST_UNACCEPTED,
+  QUANT_REALISM_CHECKLIST_UNSET,
+  QUANT_REVIEW_NEEDS_RUN,
+  QUANT_IDEMPOTENCY_KEY_REUSED,
 } from './errors.js';
+import {
+  claimKeyIdempotency,
+  createMemoryKeyIdempotencyRepository,
+  type KeyIdempotencyRepository,
+  type QuantContext,
+} from './key-api/key-api.js';
 import { createMemoryLifecycleRepository } from './lifecycle/memory-repository.js';
 import type { LifecycleRepository } from './lifecycle/repository.js';
 import { evaluateGate, GATE_CRITERION_NAMES, gateCriteriaOf, OWNER_CRITERION_FORMAT, verdictCriteriaOf } from './lifecycle/gate.js';
 import { paperKey, paperSettingsOf, paperView } from './paper/view.js';
+import { openNotifyRepository } from './notify/open.js';
+import { createMemoryRiskRepository } from './risk/memory-repository.js';
+import type { RiskRepository } from './risk/repository.js';
+import { checkCaps, checkTradingOn, DEFAULT_FLOOR_POLICY, riskScreenOf } from './risk/rules.js';
+import { createMemoryTeamRepository } from './team/memory-repository.js';
+import { createMemoryLibraryRepository } from './library/memory-repository.js';
+import type { LibraryRepository } from './library/repository.js';
+import { createLibrary, type RealismChecklist } from './library/service.js';
+import { grantActive, lockLive, type StoredCollaborator, type StoredLock, type TeamRepository } from './team/repository.js';
+import type { NotifyRepository, StoredAlert } from './notify/repository.js';
+import { alertKey, checkChannels, checkTemplate } from './notify/rules.js';
 import type { StoredPaperRun } from './runs/types.js';
 import { createMemoryQuota } from './quota/memory.js';
 import { parseLimit, parseWhole, type QuotaRepository } from './quota/quota.js';
@@ -157,17 +287,26 @@ import { trackRun } from './runs/track.js';
 import type { RunResultBody } from './runs/types.js';
 import { sandboxSourceInputMax } from './sandbox/max.js';
 import { runSandbox, type SandboxDeps } from './sandbox/run.js';
+import { requireRunLimits, type RunLimits } from './sandbox/limits.js';
+import { CONTROL_RUN, ESCAPE_CORPUS } from './sandbox/escape-corpus.js';
 import { compileSignalRules, templateSource } from './studio/modules.js';
 import { versionDiff } from './studio/diff.js';
 import { buildSavedStrategy } from './studio/save.js';
 import { assertStudioListLimit, STUDIO_LIST_LIMIT_CAP } from './studio/list-limit.js';
 import { idempotencyConflict, requireClientStrategyId, requireIdempotencyKey } from './studio/keys.js';
 import { openStrategyRepository } from './studio/open.js';
-import { draftOf, type StrategyOrganisation, type StrategyRepository, type WriteReceipt } from './studio/repository.js';
+import {
+  draftOf,
+  type StrategyDetail,
+  type StrategyOrganisation,
+  type StrategyRepository,
+  type WriteReceipt,
+} from './studio/repository.js';
 import { requireStudioOperator, resolveStudioAccount, STUDIO_SERVICE_ALLOWLIST } from './studio/scope.js';
 import { publicResultOf, reportOf } from './report/document.js';
 import type { ShareRepository } from './share/repository.js';
 import { withQuantSpan } from './tracing.js';
+import { liveCheck } from './live/check.js';
 import { createPreviewRouter } from './preview/preview.js';
 
 const simulatedStamp = z.object({
@@ -255,6 +394,17 @@ const runOutput = z
     ticks: z.object({ label: z.literal('TEST'), path: z.record(z.string(), z.array(z.string())) }),
     venue: z.literal('internal'),
     venueVault: z.enum(['unset', 'set']),
+    // A run stored before the limits were reported is read back without them.
+    limits: z
+      .object({
+        wallClockMs: z.number().int().nullable(),
+        memoryBytes: z.number().int().nullable(),
+        outputBytes: z.number().int().nullable(),
+        maxOps: z.number().int().nullable(),
+        maxSource: z.number().int().nullable(),
+      })
+      .nullable()
+      .default(null),
   })
   .merge(simulatedStamp);
 
@@ -283,56 +433,91 @@ function toTrpc(err: unknown): never {
       err.code === QUANT_RUN_NOT_FOUND ||
       err.code === QUANT_SHARE_NOT_FOUND ||
       err.code === QUANT_VERSION_NOT_FOUND ||
-      err.code === QUANT_TEMPLATE_NOT_FOUND
+      err.code === QUANT_TEMPLATE_NOT_FOUND ||
+      err.code === QUANT_LISTING_NOT_FOUND ||
+      err.code === QUANT_DISPUTE_NOT_FOUND
         ? 'NOT_FOUND'
-        : err.code === QUANT_SANDBOX_UNWIRED ||
-            err.code === QUANT_SANDBOX_MAX_OPS_UNSET ||
-            err.code === QUANT_SANDBOX_MAX_SOURCE_UNSET ||
-            err.code === QUANT_PAPER_FEE_UNSET ||
-            err.code === QUANT_BACKTEST_LAKE_MISSING ||
-            err.code === QUANT_BACKTEST_FILLS_MISSING ||
-            err.code === QUANT_STUDIO_LIST_LIMIT_UNSET ||
-            err.code === QUANT_TEMPLATE_LIST_LIMIT_UNSET ||
-            err.code === QUANT_RUN_UNFINISHED ||
-            err.code === QUANT_RUN_NOT_SIMULATED ||
-            err.code === QUANT_RUN_RESULT_CAP_UNSET ||
-            err.code === QUANT_RUN_RESULT_TOO_LARGE ||
-            err.code === QUANT_CLAIM_PNL_UNSET ||
-            err.code === QUANT_DISCLOSURE_UNSET ||
-            err.code === QUANT_EMBED_ORIGINS_UNSET ||
-            err.code === QUANT_SHARE_RATE_UNSET ||
-            err.code === QUANT_RELEASE_NOTE_LIMIT_UNSET ||
-            err.code === QUANT_SHARE_WINDOW_UNSET ||
-            err.code === QUANT_SHARE_RATE_LIMITED ||
-            err.code === QUANT_SIGNAL_RULES_SANDBOX ||
-            err.code === QUANT_QUOTA_UNSET ||
-            err.code === QUANT_QUOTA_EXCEEDED ||
-            err.code === QUANT_QUOTA_PROFILE_UNSET ||
-            err.code === QUANT_GATE_CRITERIA_UNSET ||
-            err.code === QUANT_STAGE_TRANSITION_INVALID ||
-            err.code === 'quant.venue_vault_unset'
-          ? 'PRECONDITION_FAILED'
-          : err.code === QUANT_DATABASE_URL_UNSET || err.code === QUANT_DATABASE_POOL_MAX_UNSET
-            ? 'PRECONDITION_FAILED'
-            : err.code === QUANT_STUDIO_RISK_BLOCK_REQUIRED ||
-                err.code === QUANT_BACKTEST_WALK_FORWARD_REQUIRED ||
-                err.code === QUANT_BACKTEST_SURFACE_REFUSED ||
-                err.code === QUANT_ENVIRONMENT_REQUIRED ||
-                err.code === QUANT_ENVIRONMENT_UNKNOWN ||
-                err.code === QUANT_SIMULATED_AS_LIVE ||
-                err.code === QUANT_CASH_UNSET ||
-                err.code === QUANT_CLIENT_STRATEGY_ID_UNSET ||
-                err.code === QUANT_IDEMPOTENCY_KEY_UNSET ||
-                err.code === QUANT_IDEMPOTENCY_CONFLICT ||
-                err.code === QUANT_STRATEGY_VERSION_UNSET ||
-                err.code === QUANT_LIST_CURSOR_INVALID ||
-                err.code === QUANT_OPS_RUNS_LIMIT_UNSET ||
-                err.code === QUANT_OPS_RUNS_FROM_UNSET ||
-                err.code === QUANT_OPS_RUNS_TO_UNSET
-              ? 'BAD_REQUEST'
-              : err.code === 'quant.sandbox_timeout'
-                ? 'TIMEOUT'
-                : 'BAD_REQUEST';
+        : err.code === QUANT_PERMISSION_DENIED ||
+            err.code === QUANT_LISTING_ACCESS_DENIED ||
+            err.code === QUANT_LISTING_SOURCE_PROTECTED ||
+            err.code === QUANT_APPROVAL_SELF_REVIEW ||
+            err.code === QUANT_APPROVAL_NOT_REVIEWER
+          ? 'FORBIDDEN'
+          : err.code === QUANT_EDIT_LOCKED ||
+              err.code === QUANT_LISTING_STALE ||
+              err.code === QUANT_MODERATION_STATE_INVALID ||
+              err.code === QUANT_IDEMPOTENCY_KEY_REUSED ||
+              err.code === QUANT_APPROVAL_HASH_STALE ||
+              err.code === QUANT_APPROVAL_DECIDED
+            ? 'CONFLICT'
+            : err.code === QUANT_SANDBOX_UNWIRED ||
+                err.code === QUANT_SANDBOX_MAX_OPS_UNSET ||
+                err.code === QUANT_SANDBOX_MAX_SOURCE_UNSET ||
+                err.code === QUANT_PAPER_FEE_UNSET ||
+                err.code === QUANT_BACKTEST_LAKE_MISSING ||
+                err.code === QUANT_BACKTEST_FILLS_MISSING ||
+                err.code === QUANT_STUDIO_LIST_LIMIT_UNSET ||
+                err.code === QUANT_TEMPLATE_LIST_LIMIT_UNSET ||
+                err.code === QUANT_RUN_UNFINISHED ||
+                err.code === QUANT_RUN_NOT_SIMULATED ||
+                err.code === QUANT_RUN_RESULT_CAP_UNSET ||
+                err.code === QUANT_RUN_RESULT_TOO_LARGE ||
+                err.code === QUANT_CLAIM_PNL_UNSET ||
+                err.code === QUANT_DISCLOSURE_UNSET ||
+                err.code === QUANT_EMBED_ORIGINS_UNSET ||
+                err.code === QUANT_SHARE_RATE_UNSET ||
+                err.code === QUANT_RELEASE_NOTE_LIMIT_UNSET ||
+                err.code === QUANT_SHARE_WINDOW_UNSET ||
+                err.code === QUANT_SHARE_RATE_LIMITED ||
+                err.code === QUANT_SIGNAL_RULES_SANDBOX ||
+                err.code === QUANT_QUOTA_UNSET ||
+                err.code === QUANT_QUOTA_EXCEEDED ||
+                err.code === QUANT_QUOTA_PROFILE_UNSET ||
+                err.code === QUANT_SANDBOX_LIMIT_UNSET ||
+                err.code === QUANT_GATE_CRITERIA_UNSET ||
+                err.code === QUANT_RISK_CAP_UNSET ||
+                err.code === QUANT_STAGE_TRANSITION_INVALID ||
+                err.code === QUANT_EDIT_LOCK_UNSET ||
+                err.code === QUANT_PAPER_MANUAL_ORDER_UNSUPPORTED ||
+                err.code === QUANT_LIBRARY_LICENCES_UNSET ||
+                err.code === QUANT_REALISM_CHECKLIST_UNSET ||
+                err.code === QUANT_REALISM_CHECKLIST_UNACCEPTED ||
+                err.code === QUANT_LISTING_CHECK_FAILED ||
+                err.code === QUANT_REVIEW_NEEDS_RUN ||
+                err.code === QUANT_LIBRARY_QUEUE_LIMIT_UNSET ||
+                err.code === QUANT_LIVE_DISABLED ||
+                err.code === QUANT_LIVE_DEPLOY_UNAVAILABLE ||
+                err.code === QUANT_MONTECARLO_RUNS_UNSET ||
+                err.code === QUANT_MONTECARLO_MIN_TRADES_UNSET ||
+                err.code === QUANT_MONTECARLO_TRADES_INSUFFICIENT ||
+                err.code === QUANT_LAKE_STORE_UNSET ||
+                err.code === QUANT_LAKE_RETENTION_UNSET ||
+                err.code === QUANT_APPROVAL_POLICY_UNSET ||
+                err.code === QUANT_APPROVAL_REQUIRED ||
+                err.code === 'quant.venue_vault_unset'
+              ? 'PRECONDITION_FAILED'
+              : err.code === QUANT_DATABASE_URL_UNSET || err.code === QUANT_DATABASE_POOL_MAX_UNSET
+                ? 'PRECONDITION_FAILED'
+                : err.code === QUANT_STUDIO_RISK_BLOCK_REQUIRED ||
+                    err.code === QUANT_BACKTEST_WALK_FORWARD_REQUIRED ||
+                    err.code === QUANT_BACKTEST_SURFACE_REFUSED ||
+                    err.code === QUANT_ENVIRONMENT_REQUIRED ||
+                    err.code === QUANT_ENVIRONMENT_UNKNOWN ||
+                    err.code === QUANT_SIMULATED_AS_LIVE ||
+                    err.code === QUANT_CASH_UNSET ||
+                    err.code === QUANT_CLIENT_STRATEGY_ID_UNSET ||
+                    err.code === QUANT_IDEMPOTENCY_KEY_UNSET ||
+                    err.code === QUANT_IDEMPOTENCY_CONFLICT ||
+                    err.code === QUANT_STRATEGY_VERSION_UNSET ||
+                    err.code === QUANT_LIST_CURSOR_INVALID ||
+                    err.code === QUANT_OPS_RUNS_LIMIT_UNSET ||
+                    err.code === QUANT_OPS_RUNS_FROM_UNSET ||
+                    err.code === QUANT_OPS_RUNS_TO_UNSET ||
+                    err.code === QUANT_RISK_CAP_INVALID
+                  ? 'BAD_REQUEST'
+                  : err.code === 'quant.sandbox_timeout'
+                    ? 'TIMEOUT'
+                    : 'BAD_REQUEST';
     throw new TRPCError({ code, message: err.message, cause: err });
   }
   throw err;
@@ -386,6 +571,14 @@ const strategyHead = strategyVersionRecord.extend({
 
 const strategyDetail = strategyHead.extend({
   versions: z.array(strategyVersionRecord),
+});
+
+/**
+ * One strategy as `studio.get` answers it, with what the account's live approval policy allows (J-algo-dev-16 #4): the
+ * live runner (svc-trade) starts a version only when the policy is off or that version holds a current approval.
+ */
+const strategyDetailForLive = strategyDetail.extend({
+  liveApproval: z.object({ required: z.boolean(), approvedVersions: z.array(z.number().int().positive()) }),
 });
 
 const costEvidence = z.object({
@@ -455,6 +648,12 @@ const backtestOutput = z
 
 export interface QuantRouterDeps extends SandboxDeps {
   readonly lake?: BacktestLake;
+  /** The live approval policy and approvals (J-algo-dev-16 #4). Omitted: an in-memory store. */
+  readonly approvals?: ApprovalRepository;
+  /** Monte Carlo owner values (J-algo-dev-16 #3): resampled paths per run and the fewest round trips. Blank refuses. */
+  readonly monteCarlo?: { readonly runs: number | null; readonly minTrades: number | null };
+  /** The market data lake (J-algo-dev-16 #2). Omitted, or with no symbols or interval: `quant.lake_store_unset`. */
+  readonly dataLake?: { readonly store: LakeStore; readonly settings: LakeSettings };
   /** The bar backtest's closed-candle read. Omitted refuses `quant.backtest_lake_missing`. */
   readonly history?: HistoryPort;
   /** The published fee schedule read. Omitted refuses `quant.cost_unset` naming fees. */
@@ -472,6 +671,8 @@ export interface QuantRouterDeps extends SandboxDeps {
   readonly strategies?: StrategyRepository;
   /** Omitted in tests: an in-memory run log. Production passes Postgres. */
   readonly runs?: RunRepository;
+  /** Where a key's backtest start keeps its `Idempotency-Key` (J-algo-dev-14). Omitted: in memory (tests). */
+  readonly keyIdempotency?: KeyIdempotencyRepository;
   /** Omitted refuses by naming the missing database. Production passes Postgres. */
   readonly disclosure?: DisclosureRepository;
   /** Omitted refuses by naming the missing database. Production passes Postgres. */
@@ -481,6 +682,26 @@ export interface QuantRouterDeps extends SandboxDeps {
    * gate is passed to the strategy and run repositories, which enforce it. Omitted in unit tests: no profile applies.
    */
   readonly quota?: QuotaRepository;
+  /**
+   * Strategy notification channels and fill alerts (AL-live-06, AL-alerts-01). Omitted refuses by naming the missing
+   * database; unit tests pass the in-memory store.
+   */
+  readonly notify?: NotifyRepository;
+  /** A strategy's risk screen (AL-risk-01). */
+  readonly risk?: RiskRepository;
+  /** Strategy teams, edit locks and support grants (J-algo-dev-08). Omitted in unit tests: an in-memory store with no team. */
+  readonly team?: TeamRepository;
+  /**
+   * The strategy library (J-algo-dev-09) and the owner's licence list and realism checklist; either blank refuses
+   * publishing by name. Omitted in unit tests: an in-memory store with both blank.
+   */
+  readonly library?: {
+    readonly repository: LibraryRepository;
+    readonly licences: readonly string[] | null;
+    readonly checklist: RealismChecklist | null;
+  };
+  /** `QUANT_EDIT_LOCK_SECONDS`: how long an edit lock lasts. Null is blank: taking a lock refuses `quant.edit_lock_unset`. */
+  readonly editLockSeconds?: number | null;
   /**
    * The lifecycle store (AL-lifecycle-01): stage rows, gate decisions and the owner criteria an operator sets at
    * runtime. Omitted in unit tests: an in-memory store with nothing set.
@@ -522,8 +743,21 @@ const accountField = { accountId: z.string().guid().optional() };
 const writeKeyField = { idempotencyKey: z.string().optional().nullable() };
 const clientIdField = { clientStrategyId: z.string().optional().nullable() };
 
+/** A stored alert as the screen reads it. */
+function alertView(row: StoredAlert) {
+  return {
+    alertId: row.id,
+    strategyId: row.strategyId,
+    strategyVersion: row.strategyVersion,
+    event: 'fill' as const,
+    template: row.template,
+    createdAt: row.createdAt,
+  };
+}
+
 export function createQuantRouter(deps: QuantRouterDeps) {
   const strategies = deps.strategies ?? openStrategyRepository({}).repository;
+  const keyIdempotency = deps.keyIdempotency ?? createMemoryKeyIdempotencyRepository();
   const runs = deps.runs ?? createMemoryRunRepository('runResultCap' in deps ? deps.runResultCap : RUN_RESULT_MAX_BYTES);
   const lake = deps.lake ?? missingLake();
   const history = deps.history ?? missingHistory();
@@ -533,7 +767,93 @@ export function createQuantRouter(deps: QuantRouterDeps) {
   const disclosure = deps.disclosure ?? openDisclosureRepository({}).repository;
   const templates = deps.templates ?? openTemplateRepository({}).repository;
   const quota = deps.quota ?? createMemoryQuota({ defaultProfile: null }).repository;
+  const notify = deps.notify ?? openNotifyRepository({}).repository;
+  const risk = deps.risk ?? createMemoryRiskRepository();
   const lifecycle = deps.lifecycle ?? createMemoryLifecycleRepository();
+
+  /** The account's strategy, not in the bin; anything else is not found. */
+  async function liveStrategy(accountId: string, strategyId: string) {
+    const found = await strategies.get({ accountId, id: strategyId });
+    if (!found || found.deletedAt) missingStrategy();
+    return found;
+  }
+  const newestVersion = (strategy: { readonly versions: readonly { readonly version: number }[] }) =>
+    Math.max(...strategy.versions.map((row) => row.version));
+  /** The strategy's equity-stop floor for a backtest, or null while the risk screen leaves it blank. */
+  async function equityStopOf(accountId: string, strategyId: string) {
+    const stored = await risk.get({ accountId, strategyId });
+    if (!stored?.caps.equityFloor) return null;
+    return { floor: parseAmount(stored.caps.equityFloor), policy: stored.floorPolicy ?? DEFAULT_FLOOR_POLICY };
+  }
+
+  const approvals = deps.approvals ?? createMemoryApprovalRepository();
+
+  /** The hash an approval of one version binds to now: its rules and the strategy's risk settings as stored. */
+  async function approvalHashOf(found: StrategyDetail, strategyVersion: number): Promise<string> {
+    const v = found.versions.find((row) => row.version === strategyVersion);
+    if (!v) missingStrategy();
+    const stored = await risk.get({ accountId: found.accountId, strategyId: found.id });
+    return approvalContentHash({
+      version: { source: v.source, cash: v.cash, blocks: v.blocks, modules: v.modules, risk: v.risk },
+      risk: stored ? { caps: stored.caps, floorPolicy: stored.floorPolicy ?? null } : null,
+    });
+  }
+
+  /** An approval counts for live use while its decision is approved and its hash is the version's hash now. */
+  async function approvedVersionsOf(found: StrategyDetail, rows: readonly StoredApproval[]): Promise<number[]> {
+    const out: number[] = [];
+    for (const row of rows) {
+      if (row.decision !== 'approved' || out.includes(row.strategyVersion)) continue;
+      if (!found.versions.some((v) => v.version === row.strategyVersion)) continue;
+      if ((await approvalHashOf(found, row.strategyVersion)) === row.contentHash) out.push(row.strategyVersion);
+    }
+    return out;
+  }
+
+  /** The owner's strategy, or one shared with the caller; the caller's place on it. Anyone else: not found. */
+  async function approvalStrategy(
+    callerId: string,
+    strategyId: string,
+  ): Promise<{ found: StrategyDetail; member: StoredCollaborator | null }> {
+    const own = await strategies.get({ accountId: callerId, id: strategyId });
+    if (own && !own.deletedAt) return { found: own, member: null };
+    const { member, found } = await sharedStrategy(callerId, strategyId);
+    return { found, member };
+  }
+
+  async function approvalStateOf(callerId: string, strategyId: string) {
+    const { found, member } = await approvalStrategy(callerId, strategyId);
+    const [policy, rows] = await Promise.all([approvals.policy(found.accountId), approvals.approvals(found.id)]);
+    const contentHash = await approvalHashOf(found, found.version);
+    const approved = await approvedVersionsOf(found, rows);
+    const allowed = policy?.required !== true || approved.includes(found.version);
+    const view = [];
+    for (const row of rows) {
+      const live = found.versions.some((v) => v.version === row.strategyVersion);
+      view.push({
+        approvalId: row.id,
+        strategyVersion: row.strategyVersion,
+        contentHash: row.contentHash,
+        requester: row.requester,
+        reviewer: row.reviewer,
+        decision: row.decision,
+        reason: row.reason,
+        requestedAt: row.requestedAt,
+        decidedAt: row.decidedAt,
+        current: live && (await approvalHashOf(found, row.strategyVersion)) === row.contentHash,
+      });
+    }
+    return {
+      strategyId: found.id,
+      ownerId: found.accountId,
+      policy: { required: policy ? policy.required : null, setAt: policy?.setAt ?? null },
+      version: found.version,
+      contentHash,
+      live: { allowed, code: allowed ? null : QUANT_APPROVAL_REQUIRED },
+      approvals: view,
+      canDecide: member !== null,
+    };
+  }
 
   /**
    * One version's lifecycle (AL-lifecycle-01): its stage rows and gate decisions, and the gate as it reads now, from this
@@ -584,6 +904,36 @@ export function createQuantRouter(deps: QuantRouterDeps) {
       asOf: new Date(now()).toISOString(),
     };
   }
+  /**
+   * The deploy wizard's compile check of one version (AL-live-02; J-algo-dev-06 #6), with the platform's live switch as
+   * the owner set it now (`live.enabled`; blank, unreadable or anything but `on` is off). Writes nothing.
+   */
+  async function liveCheckOf(accountId: string, strategyId: string, strategyVersion: number): Promise<QuantLiveCheck> {
+    const found = await strategies.get({ accountId, id: strategyId });
+    const version = found && !found.deletedAt ? found.versions.find((row) => row.version === strategyVersion) : undefined;
+    if (!found || !version) missingStrategy();
+    const reading = liveCheck(version);
+    return {
+      strategyId: found.id,
+      strategyVersion,
+      name: version.name,
+      plan: reading.plan,
+      orderTypes: reading.orderTypes,
+      compiles: reading.compiles,
+      liveEnabled: await liveSwitchOn(),
+      asOf: new Date(now()).toISOString(),
+    };
+  }
+
+  /** The platform's live switch: on only when an operator stored `on`. Any failure to read it is off. */
+  async function liveSwitchOn(): Promise<boolean> {
+    try {
+      return (await lifecycle.criteria()).some((row) => row.name === 'live.enabled' && row.value === 'on');
+    } catch {
+      return false;
+    }
+  }
+
   /** A paper run as the screen reads it, from its own strategy version. */
   async function presentPaper(accountId: string, paper: StoredPaperRun) {
     const found = await strategies.get({ accountId, id: paper.run.strategyId ?? '' });
@@ -595,6 +945,19 @@ export function createQuantRouter(deps: QuantRouterDeps) {
       { fees, history },
       now(),
     );
+  }
+  /**
+   * The sandbox limits a run of this account meets (J-algo-dev-12): the applied plan's, each required. Called before the
+   * run is recorded or started, so a blank limit refuses by name and nothing runs. A call with no signed account reads
+   * the default plan (the nil id is never an account).
+   */
+  async function runLimitsFor(accountId: string | null): Promise<RunLimits> {
+    const applied = await quota.applied(accountId ?? '00000000-0000-0000-0000-000000000000');
+    return requireRunLimits(applied, applied ? await quota.sandboxLimits(applied.name) : []);
+  }
+  /** Sandbox deps for one run, with that run's plan limits. */
+  function runDeps(run: RunLimits): SandboxDeps {
+    return { ...deps, limits: { ...deps.limits, run } };
   }
   /** The reason an operator gives for a quota write: required, so every audit row says why. */
   function quotaReason(raw: string): string {
@@ -694,6 +1057,121 @@ export function createQuantRouter(deps: QuantRouterDeps) {
     if (!found || found.deletedAt || !found.versions.some((row) => row.version === strategyVersion)) missingStrategy();
   }
 
+  const team = deps.team ?? createMemoryTeamRepository();
+  const library = createLibrary({
+    library: deps.library?.repository ?? createMemoryLibraryRepository(),
+    strategies,
+    runs,
+    licences: deps.library?.licences ?? null,
+    checklist: deps.library?.checklist ?? null,
+    queuePageSize: async () => (await lifecycle.criteria()).find((row) => row.name === 'library.queuePageSize')?.value ?? null,
+    now,
+  });
+  const editLockSeconds = deps.editLockSeconds ?? null;
+
+  /** The caller's own, undeleted strategy. Anything else reads as not found. */
+  async function ownStrategy(accountId: string, strategyId: string): Promise<StrategyDetail> {
+    const found = await strategies.get({ accountId, id: strategyId });
+    if (!found || found.deletedAt) missingStrategy();
+    return found;
+  }
+
+  function lockView(lock: StoredLock | null, accountId: string) {
+    const at = new Date(now());
+    return lockLive(lock, at)
+      ? { held: true, holderId: lock.holderId, mine: lock.holderId === accountId, expiresAt: lock.expiresAt }
+      : { held: false, holderId: null, mine: false, expiresAt: null };
+  }
+
+  /** The owner's view of a strategy's team. */
+  async function teamOf(ownerId: string, strategyId: string) {
+    const at = new Date(now());
+    const [members, lock, grants, reads] = await Promise.all([
+      team.collaborators(strategyId),
+      team.lock(strategyId),
+      team.grants(strategyId),
+      team.reads(strategyId),
+    ]);
+    return {
+      strategyId,
+      ownerId,
+      collaborators: members.map((row) => ({
+        memberId: row.memberId,
+        role: row.role,
+        liveControl: row.liveControl,
+        addedAt: row.addedAt,
+        updatedAt: row.updatedAt,
+      })),
+      lock: lockView(lock, ownerId),
+      grants: grants.map((row) => ({ grantId: row.id, createdAt: row.createdAt, expiresAt: row.expiresAt, active: grantActive(row, at) })),
+      reads: reads.map((row) => ({ readAt: row.readAt, reader: row.reader, granted: row.granted })),
+      asOf: at.toISOString(),
+    };
+  }
+
+  /** A strategy shared with the caller, with the caller's permission. Not shared (or removed, or deleted) is not found. */
+  async function sharedStrategy(accountId: string, strategyId: string): Promise<{ member: StoredCollaborator; found: StrategyDetail }> {
+    const member = await team.membership({ strategyId, memberId: accountId });
+    if (!member) missingStrategy();
+    const found = await strategies.get({ accountId: member.ownerId, id: strategyId });
+    if (!found || found.deletedAt) missingStrategy();
+    return { member, found };
+  }
+
+  async function sharedView(accountId: string, member: StoredCollaborator, found: StrategyDetail) {
+    return {
+      strategyId: found.id,
+      ownerId: found.accountId,
+      role: member.role,
+      liveControl: member.liveControl,
+      name: found.name,
+      version: found.version,
+      source: found.source,
+      releaseNote: found.releaseNote,
+      versions: found.versions.map((row) => ({
+        version: row.version,
+        name: row.name,
+        createdAt: row.createdAt,
+        releaseNote: row.releaseNote,
+      })),
+      lock: lockView(await team.lock(found.id), accountId),
+    };
+  }
+
+  /** The owner, or a teammate with edit, may hold the lock. Anyone else: not found, or view only. */
+  async function editableBy(accountId: string, strategyId: string): Promise<string> {
+    const own = await strategies.get({ accountId, id: strategyId });
+    if (own && !own.deletedAt) return own.id;
+    const { member, found } = await sharedStrategy(accountId, strategyId);
+    if (member.role !== 'edit') {
+      throw new QuantError(QUANT_PERMISSION_DENIED, 'this strategy is shared with you to view only, so you cannot take its edit lock');
+    }
+    return found.id;
+  }
+
+  /** Takes or renews the caller's lock, or refuses naming when another person's lock lapses. */
+  async function takeEditLock(strategyId: string, holderId: string): Promise<StoredLock> {
+    if (editLockSeconds === null) {
+      throw new QuantError(QUANT_EDIT_LOCK_UNSET, 'QUANT_EDIT_LOCK_SECONDS — how long an edit lock lasts is not set');
+    }
+    const attempt = await team.takeLock({ strategyId, holderId, at: new Date(now()), ttlMs: editLockSeconds * 1000 });
+    if (!attempt.taken) {
+      throw new QuantError(
+        QUANT_EDIT_LOCKED,
+        `another person holds the edit lock until ${attempt.lock.expiresAt}; take it after it lapses`,
+      );
+    }
+    return attempt.lock;
+  }
+
+  /** The owner's own save waits while a teammate's live lock holds the strategy. */
+  async function refuseWhileLocked(accountId: string, strategyId: string): Promise<void> {
+    const lock = await team.lock(strategyId);
+    if (lockLive(lock, new Date(now())) && lock.holderId !== accountId) {
+      throw new QuantError(QUANT_EDIT_LOCKED, `another person holds the edit lock until ${lock.expiresAt}; take it after it lapses`);
+    }
+  }
+
   return router({
     health: publicProcedure
       .output(z.object({ ok: z.literal(true), service: z.literal('svc-quant') }))
@@ -786,12 +1264,16 @@ export function createQuantRouter(deps: QuantRouterDeps) {
 
       get: publicJurisdictionProcedure('quant', 'fiat')
         .input(z.object({ id: z.string().min(1), ...accountField }))
-        .output(strategyDetail)
+        .output(strategyDetailForLive)
         .query(async ({ input, ctx }) => {
           try {
             const found = await strategies.get({ accountId: accountOf(ctx, input.accountId), id: input.id });
             if (!found) missingStrategy();
-            return found;
+            const [policy, rows] = await Promise.all([approvals.policy(found.accountId), approvals.approvals(found.id)]);
+            return {
+              ...found,
+              liveApproval: { required: policy?.required === true, approvedVersions: await approvedVersionsOf(found, rows) },
+            };
           } catch (err) {
             toTrpc(err);
           }
@@ -822,6 +1304,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
             if (prior) idempotencyConflict(prior.operation);
             const existing = await strategies.get({ accountId, id: input.id });
             if (!existing) missingStrategy();
+            await refuseWhileLocked(accountId, existing.id);
             const built = buildSavedStrategy(input, input.id);
             const releaseNote = releaseNoteOf(input.releaseNote);
             return await strategies.revise({
@@ -1014,6 +1497,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
                 throw new QuantError(QUANT_SIGNAL_RULES_SANDBOX, 'signal rules run on bars in a backtest, not in the sandbox');
               }
               const idempotencyKey = requireIdempotencyKey(input.idempotencyKey);
+              const run = await runLimitsFor(accountId);
               return await trackRun(
                 runs,
                 {
@@ -1032,7 +1516,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
                       environment: input.environment ?? found.environment,
                       presentedAs: input.presentedAs ?? found.environment,
                     },
-                    deps,
+                    runDeps(run),
                   ),
                 (value, err) => ({
                   detail: err || !value ? null : sandboxBody(value),
@@ -1105,7 +1589,11 @@ export function createQuantRouter(deps: QuantRouterDeps) {
         .query(async ({ input, ctx }) => {
           try {
             const accountId = accountOf(ctx, input?.accountId);
-            const [applied, counts] = await Promise.all([quota.applied(accountId), quota.counts(accountId)]);
+            const [applied, counts, collaborators] = await Promise.all([
+              quota.applied(accountId),
+              quota.counts(accountId),
+              team.mostCollaborators(accountId),
+            ]);
             const limits = applied ? await quota.limits(applied.name) : [];
             const used: Record<(typeof QUANT_QUOTA_RESOURCES)[number], bigint> = {
               strategies: counts.strategies,
@@ -1113,11 +1601,11 @@ export function createQuantRouter(deps: QuantRouterDeps) {
               concurrent_runs: counts.running,
               paper_runs: counts.paperRuns,
               runs: counts.runs,
-              // Nothing stores these yet: no log line is kept apart from its run's result, no collaborator can be added
-              // and no notice is sent, so the stored count is zero.
+              // Nothing stores these yet: no log line is kept apart from its run's result and no notice is sent, so the
+              // stored count is zero. Collaborators: the most any one of the account's strategies has.
               log_lines: 0n,
               storage: counts.storage,
-              collaborators: 0n,
+              collaborators,
               notifications: 0n,
             };
             return {
@@ -1129,6 +1617,615 @@ export function createQuantRouter(deps: QuantRouterDeps) {
               }),
               asOf: new Date().toISOString(),
             };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+    }),
+
+    limits: router({
+      /**
+       * Every limit the caller's runs meet (J-algo-dev-12 #4), as the sandbox will apply it: the applied plan's sandbox
+       * limits (null: not set, and then no run starts) and the two ceilings every plan shares.
+       */
+      get: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ ...accountField }).optional())
+        .output(quantLimitsSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input?.accountId);
+            const applied = await quota.applied(accountId);
+            const rows = applied ? await quota.sandboxLimits(applied.name) : [];
+            const ceiling = (value: number | undefined) => (typeof value === 'number' && Number.isInteger(value) ? String(value) : null);
+            return {
+              profile: applied?.name ?? null,
+              source: applied?.source ?? null,
+              sandbox: QUANT_SANDBOX_LIMITS.map((limit) => {
+                const value = rows.find((row) => row.limit === limit)?.value ?? null;
+                return { limit, value: value === null ? null : value.toString() };
+              }),
+              ceilings: { maxOps: ceiling(deps.limits.maxOps), maxSource: ceiling(deps.limits.maxSource) },
+              asOf: new Date().toISOString(),
+            };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+    }),
+
+    /**
+     * Strategy teams (J-algo-dev-08, AL-team-01). The owner shares a strategy with a teammate by their account id, as
+     * view or edit, with or without live control (stopping the owner's paper runs). One edit lock per strategy keeps two
+     * people from saving over each other; it lapses after the owner's `QUANT_EDIT_LOCK_SECONDS`. Support reads the
+     * source only under the owner's time-boxed grant (`ops.strategy.source`), and every support read writes an audit row
+     * the owner sees here. A teammate's save is a new version of the owner's strategy, counted on the owner's plan.
+     */
+    /**
+     * The strategy library (J-algo-dev-09, AL-library-01 and AL-library-02). A developer checks one version and its
+     * text, accepts the owner's realism checklist and publishes it; anyone signed in browses open and protected listings
+     * in registration order (never by return), opens an invite-only one only under the owner's grant, clones an open
+     * one into their own library with its lineage, and reviews one only after running their clone. No money moves.
+     */
+    library: router({
+      options: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ ...accountField }).optional())
+        .output(quantLibraryOptionsSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            accountOf(ctx, input?.accountId);
+            return library.options();
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+      check: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantListingCheckInputSchema.extend(accountField))
+        .output(quantListingCheckSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            return await library.check(accountOf(ctx, input.accountId), input);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+      publish: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantListingPublishInputSchema.extend(accountField))
+        .output(quantListingSchema)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            return await library.publish(accountOf(ctx, input.accountId), input);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+      mine: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ ...accountField }).optional())
+        .output(quantMyListingsSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            return { listings: await library.mine(accountOf(ctx, input?.accountId)) };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+      browse: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantLibraryBrowseInputSchema.extend(accountField))
+        .output(quantLibraryPageSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            accountOf(ctx, input.accountId);
+            return await library.browse({ tag: input.tag ?? null, limit: input.limit, cursor: input.cursor ?? null });
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+      preview: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ listingId: z.string().min(1).max(64), ...accountField }))
+        .output(quantListingPreviewSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            return await library.preview(accountOf(ctx, input.accountId), input.listingId);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+      get: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ listingId: z.string().min(1).max(64), ...accountField }))
+        .output(quantListingPageSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            return await library.get(accountOf(ctx, input.accountId), input.listingId);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+      request: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantAccessRequestInputSchema.extend(accountField))
+        .output(quantListingPreviewSchema)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            return await library.request(accountOf(ctx, input.accountId), input);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+      grant: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantAccessSetInputSchema.extend(accountField))
+        .output(quantListingSchema)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            return await library.setAccess(accountOf(ctx, input.accountId), input, 'grant');
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+      revoke: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantAccessSetInputSchema.extend(accountField))
+        .output(quantListingSchema)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            return await library.setAccess(accountOf(ctx, input.accountId), input, 'revoke');
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+      clone: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ listingId: z.string().min(1).max(64), ...accountField }))
+        .output(quantLineageSchema)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            return await library.clone(accountOf(ctx, input.accountId), input.listingId);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+      lineage: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ strategyId: z.string().min(1).max(128), ...accountField }))
+        .output(quantLineageReadSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            return { lineage: await library.lineage(accountOf(ctx, input.accountId), input.strategyId) };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+      review: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantReviewInputSchema.extend(accountField))
+        .output(quantListingPageSchema)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            return await library.review(accountOf(ctx, input.accountId), input);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+    }),
+
+    team: router({
+      get: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ strategyId: z.string().min(1).max(128), ...accountField }))
+        .output(quantTeamSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const found = await ownStrategy(accountId, input.strategyId);
+            return await teamOf(accountId, found.id);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      /** Adds a teammate or changes their permission. A new one counts against the plan's collaborators per strategy. */
+      set: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantTeamSetInputSchema.extend(accountField))
+        .output(quantTeamSchema)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const found = await ownStrategy(accountId, input.strategyId);
+            const memberId = input.memberId.trim().toLowerCase();
+            if (!z.string().guid().safeParse(memberId).success) {
+              throw new QuantError(QUANT_TEAM_MEMBER_INVALID, 'memberId — not an account id');
+            }
+            if (memberId === accountId.toLowerCase()) {
+              throw new QuantError(QUANT_TEAM_MEMBER_INVALID, 'memberId — the owner already has every permission');
+            }
+            await team.upsert({
+              strategyId: found.id,
+              ownerId: accountId,
+              memberId,
+              role: input.role,
+              liveControl: input.liveControl,
+              at: new Date(now()),
+            });
+            return await teamOf(accountId, found.id);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      /** Removes a teammate: their next request is not found. A run already going is left as it is. */
+      remove: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantTeamRemoveInputSchema.extend(accountField))
+        .output(quantTeamSchema)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const found = await ownStrategy(accountId, input.strategyId);
+            await team.remove({ strategyId: found.id, memberId: input.memberId.toLowerCase() });
+            return await teamOf(accountId, found.id);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      /** A time-boxed grant for support to read the source, under `quant.grant:<strategy>:<seq>` (seq: grants the screen read). */
+      grant: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantSupportGrantInputSchema.extend(accountField))
+        .output(quantTeamSchema)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const found = await ownStrategy(accountId, input.strategyId);
+            if (input.seconds < QUANT_SUPPORT_GRANT_MIN_SECONDS || input.seconds > QUANT_SUPPORT_GRANT_MAX_SECONDS) {
+              throw new QuantError(
+                QUANT_GRANT_INVALID,
+                `seconds — a support grant lasts from ${QUANT_SUPPORT_GRANT_MIN_SECONDS} to ${QUANT_SUPPORT_GRANT_MAX_SECONDS} seconds`,
+              );
+            }
+            await team.createGrant({
+              strategyId: found.id,
+              ownerId: accountId,
+              key: `quant.grant:${found.id}:${input.seq}`,
+              at: new Date(now()),
+              seconds: input.seconds,
+            });
+            return await teamOf(accountId, found.id);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      /** The strategies shared with the caller, and the caller's own account id, which an owner adds them by. */
+      shared: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ ...accountField }).optional())
+        .output(quantSharedListSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input?.accountId);
+            const rows = await team.sharedWith(accountId);
+            const out = [];
+            for (const row of rows) {
+              const found = await strategies.get({ accountId: row.ownerId, id: row.strategyId });
+              if (!found || found.deletedAt) continue;
+              out.push({
+                strategyId: found.id,
+                ownerId: row.ownerId,
+                name: found.name,
+                version: found.version,
+                role: row.role,
+                liveControl: row.liveControl,
+              });
+            }
+            return { accountId, strategies: out };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      /** A shared strategy as the teammate reads it. Not shared with the caller (or removed) is not found. */
+      open: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ strategyId: z.string().min(1).max(128), ...accountField }))
+        .output(quantSharedOpenSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const { member, found } = await sharedStrategy(accountId, input.strategyId);
+            return await sharedView(accountId, member, found);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      /**
+       * A teammate's save: a new version of the owner's strategy with the name and note given, under
+       * `quant.team.save:<strategy>:<member>:v<base>`. View only refuses `quant.permission_denied`; another person's live
+       * lock refuses `quant.edit_locked`; saving takes or renews the caller's lock.
+       */
+      save: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantTeamSaveInputSchema.extend(accountField))
+        .output(quantSharedOpenSchema)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const { member, found } = await sharedStrategy(accountId, input.strategyId);
+            if (member.role !== 'edit') {
+              throw new QuantError(QUANT_PERMISSION_DENIED, 'this strategy is shared with you to view only, so you cannot save it');
+            }
+            const key = `quant.team.save:${found.id}:${accountId}:v${input.baseVersion}`;
+            const prior = await strategies.replay(found.accountId, key);
+            if (prior?.operation === 'revise') return await sharedView(accountId, member, prior.response);
+            if (prior) idempotencyConflict(prior.operation);
+            await takeEditLock(found.id, accountId);
+            const base = found.versions.find((row) => row.version === input.baseVersion);
+            if (!base) throw new QuantError(QUANT_VERSION_NOT_FOUND, `version ${input.baseVersion} not found`);
+            const { version: _v, createdAt: _c, ...draft } = base;
+            const saved = await strategies.revise({
+              accountId: found.accountId,
+              id: found.id,
+              idempotencyKey: key,
+              draft: { ...draft, name: input.name.trim(), releaseNote: releaseNoteOf(input.releaseNote) },
+            });
+            return await sharedView(accountId, member, saved);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      /** Takes or renews the edit lock: the owner or an edit teammate. Another person's live lock refuses `quant.edit_locked`. */
+      lock: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ strategyId: z.string().min(1).max(128), ...accountField }))
+        .output(quantEditLockSchema)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const strategyId = await editableBy(accountId, input.strategyId);
+            return lockView(await takeEditLock(strategyId, accountId), accountId);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      /** Lets the caller's own edit lock go. Not holding it changes nothing. */
+      unlock: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ strategyId: z.string().min(1).max(128), ...accountField }))
+        .output(quantEditLockSchema)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const strategyId = await editableBy(accountId, input.strategyId);
+            await team.releaseLock({ strategyId, holderId: accountId });
+            return lockView(await team.lock(strategyId), accountId);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      /** The owner's paper runs of a shared strategy, newest first, as the teammate sees them. */
+      paperRuns: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ strategyId: z.string().min(1).max(128), ...accountField }))
+        .output(quantPaperListSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const { found } = await sharedStrategy(accountId, input.strategyId);
+            const rows = await runs.paperRuns({ userId: found.accountId, strategyId: found.id, limit: QUANT_PAPER_LIST_MAX });
+            return {
+              runs: rows.map((row) => ({
+                runId: row.run.id,
+                strategyId: row.run.strategyId ?? '',
+                strategyVersion: row.run.strategyVersion ?? 1,
+                state: row.run.finished ? ('stopped' as const) : ('running' as const),
+                startedAt: row.run.started,
+                stoppedAt: row.run.finished,
+                cash: row.settings.cash,
+                feed: row.settings.feed,
+              })),
+              counts: [],
+            };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      /**
+       * A teammate's manual order to the owner's paper run of a shared strategy: without live control it refuses
+       * `quant.permission_denied`, and nothing is sent. With live control it refuses `quant.paper_manual_order_unsupported`:
+       * a paper run trades only by its own rules, so no manual order is ever placed on one. Not shared is not found.
+       */
+      order: publicJurisdictionProcedure('quant', 'fiat')
+        .input(
+          z.object({
+            strategyId: z.string().min(1).max(128),
+            runId: z.string().min(1).max(128),
+            side: z.enum(['buy', 'sell']),
+            size: z.string().regex(/^(?:0|[1-9]\d{0,17})(?:\.\d{1,18})?$/, 'size — a decimal string'),
+            ...accountField,
+          }),
+        )
+        .output(z.never())
+        .mutation(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const { member, found } = await sharedStrategy(accountId, input.strategyId);
+            if (!member.liveControl) {
+              throw new QuantError(
+                QUANT_PERMISSION_DENIED,
+                'you were given no live control of this strategy, so you cannot send its runs a manual order; nothing was sent',
+              );
+            }
+            const paper = await runs.paperRun({ userId: found.accountId, id: input.runId });
+            if (!paper || paper.run.strategyId !== found.id) throw new QuantError(QUANT_RUN_NOT_FOUND, 'run not found');
+            throw new QuantError(
+              QUANT_PAPER_MANUAL_ORDER_UNSUPPORTED,
+              'a paper run trades only by its own rules and takes no manual order; nothing was sent',
+            );
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      /** Stops the owner's paper run of a shared strategy: only with live control, else `quant.permission_denied`. */
+      stop: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ strategyId: z.string().min(1).max(128), runId: z.string().min(1).max(128), ...accountField }))
+        .output(quantPaperRunSchema)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const { member, found } = await sharedStrategy(accountId, input.strategyId);
+            if (!member.liveControl) {
+              throw new QuantError(
+                QUANT_PERMISSION_DENIED,
+                'you were given no live control of this strategy, so you cannot stop its runs; nothing was stopped',
+              );
+            }
+            const paper = await runs.paperRun({ userId: found.accountId, id: input.runId });
+            if (!paper || paper.run.strategyId !== found.id) throw new QuantError(QUANT_RUN_NOT_FOUND, 'run not found');
+            if (!paper.run.finished) {
+              try {
+                await runs.finish({
+                  id: paper.run.id,
+                  userId: found.accountId,
+                  outcome: 'stopped',
+                  stored: { detail: null, response: { stopped: true } },
+                });
+              } catch (err) {
+                if (!(err instanceof QuantError) || err.code !== QUANT_RUN_IMMUTABLE) throw err;
+              }
+            }
+            const stopped = await runs.paperRun({ userId: found.accountId, id: input.runId });
+            if (!stopped) throw new QuantError(QUANT_RUN_NOT_FOUND, 'run not found');
+            return await presentPaper(found.accountId, stopped);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+    }),
+
+    /**
+     * A strategy's notification channels (AL-live-06). In-app is always on; email, SMS and push are kept and go out through
+     * svc-notify, refused there by name while the platform has no sender. A webhook or chat app refuses
+     * `quant.notify_channel_unavailable` and nothing is saved. Another account's strategy is not found.
+     */
+    notify: router({
+      get: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ strategyId: z.string().min(1).max(128), ...accountField }))
+        .output(quantNotifySettingsSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const found = await strategies.get({ accountId, id: input.strategyId });
+            if (!found || found.deletedAt) missingStrategy();
+            const saved = await notify.settings({ accountId, strategyId: found.id });
+            return {
+              strategyId: found.id,
+              channels: saved ? [...saved.channels] : ['inapp' as const],
+              updatedAt: saved?.updatedAt ?? null,
+            };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+      set: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantNotifySetInputSchema.extend(accountField))
+        .output(quantNotifySettingsSchema)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const found = await strategies.get({ accountId, id: input.strategyId });
+            if (!found || found.deletedAt) missingStrategy();
+            const channels = checkChannels(input.channels);
+            const saved = await notify.saveSettings({ accountId, strategyId: found.id, channels });
+            return { strategyId: found.id, channels: [...saved.channels], updatedAt: saved.updatedAt };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+    }),
+
+    /**
+     * A strategy's risk screen (AL-risk-01): the developer's own caps, each blank until set and never assumed, and the
+     * trading switch. The switch is off by default, turns on only with every cap set (`quant.risk_cap_unset` names each
+     * blank one, and it stays off), and holds only for the version it was turned on for: a new version reads it off.
+     * The equity-stop floor applies to every bar backtest of the strategy. Another account's strategy is not found.
+     */
+    risk: router({
+      get: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ strategyId: z.string().min(1).max(128), ...accountField }))
+        .output(quantRiskScreenSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const found = await liveStrategy(accountId, input.strategyId);
+            return riskScreenOf(found.id, newestVersion(found), await risk.get({ accountId, strategyId: found.id }));
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+      set: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantRiskSetInputSchema.extend(accountField))
+        .output(quantRiskScreenSchema)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const found = await liveStrategy(accountId, input.strategyId);
+            const { caps, floorPolicy } = checkCaps(input.caps, input.floorPolicy);
+            const saved = await risk.saveCaps({ accountId, strategyId: found.id, caps, floorPolicy });
+            // A cap cleared while trading is on turns the switch off: it never stays on with a blank cap.
+            const latest = newestVersion(found);
+            if (saved.tradingVersion !== null && Object.values(caps).some((value) => value === null)) {
+              return riskScreenOf(found.id, latest, await risk.setTrading({ accountId, strategyId: found.id, version: null }));
+            }
+            return riskScreenOf(found.id, latest, saved);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+      trading: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantRiskTradingInputSchema.extend(accountField))
+        .output(quantRiskScreenSchema)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const found = await liveStrategy(accountId, input.strategyId);
+            const latest = newestVersion(found);
+            if (input.on) checkTradingOn(await risk.get({ accountId, strategyId: found.id }));
+            const saved = await risk.setTrading({ accountId, strategyId: found.id, version: input.on ? latest : null });
+            return riskScreenOf(found.id, latest, saved);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+    }),
+
+    /**
+     * Fill alerts (AL-alerts-01): one strategy version and a message template from allow-listed fields. The alert keeps
+     * the version, never the parameters, so a later change to the strategy leaves it as it was. The server announces each
+     * fill once, with no browser open (`notify/sweep.ts`). An unknown field refuses `alert.template_invalid`.
+     */
+    alert: router({
+      list: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ strategyId: z.string().min(1).max(128), ...accountField }))
+        .output(quantAlertListSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const found = await strategies.get({ accountId, id: input.strategyId });
+            if (!found || found.deletedAt) missingStrategy();
+            const rows = await notify.alerts({ accountId, strategyId: found.id, limit: QUANT_ALERT_LIST_MAX });
+            return { alerts: rows.map(alertView) };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+      create: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantAlertCreateInputSchema.extend(accountField))
+        .output(quantAlertSchema)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const found = await strategies.get({ accountId, id: input.strategyId });
+            if (!found || found.deletedAt) missingStrategy();
+            const key = alertKey(found.id, accountId, input.ordinal);
+            const version = found.versions.find((row) => row.version === input.strategyVersion);
+            if (!version) throw new QuantError(QUANT_VERSION_NOT_FOUND, `version ${input.strategyVersion} not found`);
+            const template = checkTemplate(input.template);
+            const existing = await notify.alerts({ accountId, strategyId: found.id, limit: QUANT_ALERT_LIST_MAX });
+            if (existing.length >= QUANT_ALERT_LIST_MAX && !existing.some((row) => row.key === key)) {
+              throw new QuantError('quant.params_invalid', `alerts — a strategy holds at most ${QUANT_ALERT_LIST_MAX} alerts`);
+            }
+            const saved = await notify.createAlert({ accountId, strategyId: found.id, strategyVersion: version.version, template, key });
+            return alertView(saved);
           } catch (err) {
             toTrpc(err);
           }
@@ -1380,6 +2477,57 @@ export function createQuantRouter(deps: QuantRouterDeps) {
         ),
     }),
 
+    live: router({
+      /** The deploy wizard's compile check of one version: what it would place live and whether it can. Writes nothing. */
+      check: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantLiveCheckInputSchema.extend(accountField))
+        .output(quantLiveCheckSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            return await liveCheckOf(accountOf(ctx, input.accountId), input.strategyId, input.strategyVersion);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      /**
+       * Deploy (AL-live-02; J-algo-dev-06 #7). With the platform's live switch off it refuses `quant.live_disabled` and
+       * nothing is written: no deploy intent, no run, nothing asked of the wallet. A version the runner can't trade
+       * refuses with the compile check's code. With live on and a version that compiles, the funding move and the live
+       * run after it are absent from this service (J-algo-dev-06 #8 builds them), so it refuses `quant.live_deploy_unavailable`
+       * and still writes nothing. No money moves on any path.
+       */
+      deploy: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantLiveDeployInputSchema.extend(accountField))
+        .output(z.never())
+        .mutation(async ({ input, ctx }) =>
+          withQuantSpan('quant.live.deploy', { language: 'none' }, async () => {
+            try {
+              const check = await liveCheckOf(accountOf(ctx, input.accountId), input.strategyId, input.strategyVersion);
+              if (!check.liveEnabled) {
+                throw new QuantError(
+                  QUANT_LIVE_DISABLED,
+                  'live trading for strategies is switched off on INTAFACED; nothing was deployed and nothing was stored',
+                );
+              }
+              const refused = check.orderTypes.find((row) => !row.supported);
+              if (refused) {
+                throw new QuantError(
+                  refused.code === 'quant.live_plan_unsupported' ? QUANT_LIVE_PLAN_UNSUPPORTED : QUANT_LIVE_ORDER_TYPE_UNSUPPORTED,
+                  `${refused.source} — a live deploy can't place it; nothing was stored`,
+                );
+              }
+              throw new QuantError(
+                QUANT_LIVE_DEPLOY_UNAVAILABLE,
+                'this build makes no funding move and starts no live run; nothing was stored',
+              );
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+        ),
+    }),
+
     backtest: router({
       run: publicJurisdictionProcedure('quant', 'fiat')
         .input(
@@ -1544,12 +2692,20 @@ export function createQuantRouter(deps: QuantRouterDeps) {
           withQuantSpan('quant.backtest.start', { language: 'rules' }, async () => {
             try {
               const accountId = accountOf(ctx, input.accountId);
+              // A key sends an Idempotency-Key; the same key for a different request runs nothing (J-algo-dev-14 #4).
+              await claimKeyIdempotency(ctx as QuantContext, accountId, 'backtest.start', input, keyIdempotency, new Date(now()));
               const found = await strategies.get({ accountId, id: input.strategyId });
               const version = found && !found.deletedAt ? found.versions.find((row) => row.version === input.strategyVersion) : undefined;
               if (!found || !version) missingStrategy();
               const prepared = await prepareBacktest(
                 input,
-                { id: found.id, version: version.version, modules: version.modules, risk: version.risk },
+                {
+                  id: found.id,
+                  version: version.version,
+                  modules: version.modules,
+                  risk: version.risk,
+                  equityStop: await equityStopOf(accountId, found.id),
+                },
                 fees,
                 now(),
                 // The owner's out-of-sample criteria as they stand now: an operator's stored value wins over the boot one.
@@ -1624,6 +2780,52 @@ export function createQuantRouter(deps: QuantRouterDeps) {
             const stored = row && isBarBacktest(row) ? readStoredBacktest(row.response) : null;
             if (!row || !stored) throw new QuantError(QUANT_RUN_NOT_FOUND, 'run not found');
             return presentBacktest(stored, row.id);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      /**
+       * Monte Carlo resampling of one finished bar backtest of the caller's (RC-algo-dev-04; J-algo-dev-16 #3): the
+       * owner's path count and fewest round trips, the caller's seed. Deterministic, so the same run, count and seed
+       * read back the same distribution every time; nothing is stored and nothing moves.
+       */
+      monteCarlo: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantMonteCarloInputSchema.extend(accountField))
+        .output(quantMonteCarloSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            const userId = accountOf(ctx, input.accountId);
+            const row = await runs.get({ userId, id: input.runId });
+            const stored = row && isBarBacktest(row) ? readStoredBacktest(row.response) : null;
+            if (!row || !stored) throw new QuantError(QUANT_RUN_NOT_FOUND, 'run not found');
+            const owner = deps.monteCarlo ?? { runs: null, minTrades: null };
+            if (owner.runs === null) {
+              throw new QuantError(QUANT_MONTECARLO_RUNS_UNSET, 'QUANT_MONTECARLO_RUNS — how many paths a resampling draws is not set');
+            }
+            if (owner.minTrades === null) {
+              throw new QuantError(
+                QUANT_MONTECARLO_MIN_TRADES_UNSET,
+                'QUANT_MONTECARLO_MIN_TRADES — the fewest round trips a run needs to be resampled is not set',
+              );
+            }
+            const floor = stored.strategyId ? await equityStopOf(userId, stored.strategyId) : null;
+            const result = monteCarlo({
+              trades: stored.trades,
+              startCash: stored.totals.startCash,
+              ruinLevel: floor ? formatAmount(floor.floor) : null,
+              runs: owner.runs,
+              seed: input.seed,
+              minTrades: owner.minTrades,
+            });
+            return {
+              runId: row.id,
+              ...result,
+              startCash: stored.totals.startCash,
+              simulated: true as const,
+              live: false as const,
+              claimLabel: 'Simulated resampling of a historical simulation — not a forecast' as const,
+            };
           } catch (err) {
             toTrpc(err);
           }
@@ -1828,6 +3030,211 @@ export function createQuantRouter(deps: QuantRouterDeps) {
       }),
     }),
 
+    /**
+     * The account's live approval policy and the approvals of a strategy's versions (RC-algo-dev-01; J-algo-dev-16 #4).
+     * The policy is the account owner's own choice and has no default: unset, it reads not set and asks nothing of a live
+     * start. With it on, the live runner starts a version only once a different member, a teammate the strategy is
+     * shared with, approved that exact version; any change to its rules (a new version) or to the strategy's risk
+     * settings leaves the approval behind.
+     */
+    approval: router({
+      policy: router({
+        get: publicJurisdictionProcedure('quant', 'fiat')
+          .input(z.object({ ...accountField }).optional())
+          .output(quantApprovalPolicySchema)
+          .query(async ({ input, ctx }) => {
+            try {
+              const policy = await approvals.policy(accountOf(ctx, input?.accountId));
+              return { required: policy ? policy.required : null, setAt: policy?.setAt ?? null };
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+        set: publicJurisdictionProcedure('quant', 'fiat')
+          .input(quantApprovalPolicySetInputSchema.extend(accountField))
+          .output(quantApprovalPolicySchema)
+          .mutation(async ({ input, ctx }) => {
+            try {
+              const accountId = accountOf(ctx, input.accountId);
+              const stored = await approvals.setPolicy({
+                accountId,
+                required: input.required,
+                key: `quant.approval_policy:${accountId}:${input.idempotencyKey}`,
+                actor: ctx.principal?.userId ?? accountId,
+                at: new Date(now()),
+              });
+              return { required: stored.required, setAt: stored.setAt };
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+      }),
+
+      /** One strategy's approvals and whether its newest version may go live now. The owner or a teammate reads it. */
+      get: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ strategyId: z.string().min(1).max(128), ...accountField }))
+        .output(quantApprovalStateSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            return await approvalStateOf(accountOf(ctx, input.accountId), input.strategyId);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      /**
+       * The owner asks for an independent review of one version, bound to its hash now, under
+       * `quant.approval:<strategy>:v<n>:<hash8>:request`: the same ask again is the same request. With no policy set it
+       * refuses `quant.approval_policy_unset`.
+       */
+      request: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantApprovalRequestInputSchema.extend(accountField))
+        .output(quantApprovalStateSchema)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const found = await strategies.get({ accountId, id: input.strategyId });
+            if (!found || found.deletedAt) missingStrategy();
+            const policy = await approvals.policy(accountId);
+            if (!policy) {
+              throw new QuantError(QUANT_APPROVAL_POLICY_UNSET, 'this account has not set whether live use needs an independent review');
+            }
+            const hash = await approvalHashOf(found, input.strategyVersion);
+            await approvals.request({
+              key: `quant.approval:${found.id}:v${input.strategyVersion}:${hash.slice(0, 8)}:request`,
+              accountId,
+              strategyId: found.id,
+              strategyVersion: input.strategyVersion,
+              contentHash: hash,
+              requester: ctx.principal?.userId ?? accountId,
+              requestedAt: new Date(now()).toISOString(),
+            });
+            return await approvalStateOf(accountId, found.id);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      /**
+       * A teammate decides one request, once. The requester, or the owner on their own strategy, refuses
+       * `quant.approval_self_review`; a request whose version or risk settings changed since refuses
+       * `quant.approval_hash_stale`; a decided request answers its decision again when the same reviewer sends the
+       * same decision, and refuses `quant.approval_decided` otherwise.
+       */
+      decide: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantApprovalDecideInputSchema.extend(accountField))
+        .output(quantApprovalStateSchema)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            const callerId = accountOf(ctx, input.accountId);
+            const { found, member } = await approvalStrategy(callerId, input.strategyId);
+            const row = await approvals.get(input.approvalId);
+            if (!row || row.strategyId !== found.id) throw new QuantError(QUANT_APPROVAL_NOT_FOUND, 'approval request not found');
+            if (callerId === row.requester || callerId === found.accountId) {
+              throw new QuantError(
+                QUANT_APPROVAL_SELF_REVIEW,
+                'a different member must review this version; you cannot approve your own request',
+              );
+            }
+            if (!member) throw new QuantError(QUANT_APPROVAL_NOT_REVIEWER, 'only a teammate this strategy is shared with can review it');
+            if (row.decision !== 'pending') {
+              if (row.reviewer === callerId && row.decision === input.decision) return await approvalStateOf(callerId, found.id);
+              throw new QuantError(QUANT_APPROVAL_DECIDED, `this request was already ${row.decision}`);
+            }
+            if (
+              !found.versions.some((v) => v.version === row.strategyVersion) ||
+              (await approvalHashOf(found, row.strategyVersion)) !== row.contentHash
+            ) {
+              throw new QuantError(
+                QUANT_APPROVAL_HASH_STALE,
+                `version ${row.strategyVersion} changed after this request; ask for a new review`,
+              );
+            }
+            const decided = await approvals.decide({
+              id: row.id,
+              reviewer: callerId,
+              decision: input.decision,
+              reason: input.reason,
+              at: new Date(now()),
+            });
+            if (!decided) {
+              const again = await approvals.get(row.id);
+              if (!(again?.reviewer === callerId && again.decision === input.decision)) {
+                throw new QuantError(QUANT_APPROVAL_DECIDED, 'this request was already decided');
+              }
+            }
+            return await approvalStateOf(callerId, found.id);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+    }),
+
+    /**
+     * The market data lake (RC-algo-dev-02; J-algo-dev-16 #2): what the lake holds of the exchange's own public ticks,
+     * book snapshots and taker fills, per symbol, with its coverage, its gaps and the retention. A read; writes nothing.
+     */
+    lake: router({
+      catalogue: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantLakeCatalogueInputSchema)
+        .output(quantLakeCatalogueSchema)
+        .query(async ({ input }) => {
+          try {
+            const lake = deps.dataLake;
+            if (!lake || lake.settings.symbols.length === 0 || lake.settings.captureSeconds === null) {
+              throw new QuantError(
+                QUANT_LAKE_STORE_UNSET,
+                'QUANT_LAKE_SYMBOLS and QUANT_LAKE_CAPTURE_SECONDS — the lake captures nothing on this deployment',
+              );
+            }
+            if (lake.settings.retentionDays === null) {
+              throw new QuantError(QUANT_LAKE_RETENTION_UNSET, 'QUANT_LAKE_RETENTION_DAYS — how long the lake keeps a row is not set');
+            }
+            const { captureSeconds, retentionDays } = lake.settings;
+            if (input?.symbol && !lake.settings.symbols.includes(input.symbol)) {
+              throw new QuantError(QUANT_LAKE_SYMBOL_UNKNOWN, `the lake does not capture ${input.symbol}`);
+            }
+            const at = now();
+            const keptFrom = new Date(at - retentionDays * 86_400_000).toISOString();
+            const symbols = [];
+            for (const symbol of lake.settings.symbols) {
+              if (input?.symbol && symbol !== input.symbol) continue;
+              const [change] = await lake.store.changes(symbol, 1);
+              const datasets = [];
+              for (const kind of LAKE_KINDS) {
+                if (input?.kind && kind !== input.kind) continue;
+                const [extent, passes, latest] = await Promise.all([
+                  lake.store.extent(symbol, kind),
+                  lake.store.passes(symbol, kind, keptFrom),
+                  lake.store.latest(symbol, kind, 5),
+                ]);
+                const { ranges, holes } = coverageOf(passes, captureSeconds);
+                datasets.push({
+                  kind,
+                  rows: extent.count,
+                  first: extent.first,
+                  last: extent.last,
+                  coverage: ranges,
+                  gaps: holes,
+                  latest: latest.map((row) => ({ observedAt: row.observedAt, payload: row.payload })),
+                });
+              }
+              symbols.push({ symbol, capturing: change ? change.capturing : true, datasets });
+            }
+            return {
+              captureSeconds,
+              retentionDays,
+              keptFrom,
+              asOf: new Date(at).toISOString(),
+              symbols,
+              source: 'INTAFACED exchange public market data' as const,
+            };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+    }),
+
     sandbox: router({
       capabilities: publicJurisdictionProcedure('quant', 'fiat').query(() => ({
         isolate: deps.wired ? ('wired' as const) : ('unwired' as const),
@@ -1853,6 +3260,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
             try {
               const idempotencyKey = requireIdempotencyKey(input.idempotencyKey);
               const userId = ctx.principal ? (ctx.principal.sub_account ?? ctx.principal.userId) : null;
+              const run = await runLimitsFor(userId);
               return await trackRun(
                 runs,
                 {
@@ -1862,7 +3270,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
                   strategyId: null,
                   strategyVersion: null,
                 },
-                async () => runSandbox(input, deps),
+                async () => runSandbox(input, runDeps(run)),
                 (value, err) => ({
                   detail: err || !value ? null : sandboxBody(value),
                   response: err ? null : value,
@@ -2061,6 +3469,69 @@ export function createQuantRouter(deps: QuantRouterDeps) {
     preview: createPreviewRouter(),
 
     ops: router({
+      /**
+       * Pauses or resumes the lake's capture of one symbol (J-algo-dev-16 #2): one insert-only row with the actor and the
+       * reason, under the caller's key. While paused nothing is captured, so that time reads as a gap.
+       */
+      lake: router({
+        capture: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
+          .input(quantLakeCaptureInputSchema)
+          .output(z.object({ symbol: z.string(), capturing: z.boolean(), reason: z.string(), actor: z.string(), at: z.string() }))
+          .mutation(async ({ input, ctx }) => {
+            try {
+              const lake = deps.dataLake;
+              if (!lake || lake.settings.symbols.length === 0 || lake.settings.captureSeconds === null) {
+                throw new QuantError(
+                  QUANT_LAKE_STORE_UNSET,
+                  'QUANT_LAKE_SYMBOLS and QUANT_LAKE_CAPTURE_SECONDS — the lake captures nothing on this deployment',
+                );
+              }
+              if (!lake.settings.symbols.includes(input.symbol)) {
+                throw new QuantError(QUANT_LAKE_SYMBOL_UNKNOWN, `the lake does not capture ${input.symbol}`);
+              }
+              const row = await lake.store.change({
+                symbol: input.symbol,
+                capturing: input.capturing,
+                reason: input.reason,
+                actor: ctx.principal.userId,
+                key: `quant.lake_capture:${input.symbol}:${input.idempotencyKey}`,
+                at: new Date(now()).toISOString(),
+              });
+              return { symbol: row.symbol, capturing: row.capturing, reason: row.reason, actor: row.actor, at: row.at };
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+      }),
+      strategy: router({
+        /**
+         * Support's read of one strategy (J-algo-dev-08): the source only while the owner's time-boxed grant is active,
+         * else metadata only. Every read, granted or not, writes one audit row the owner sees in `team.get`.
+         */
+        source: scopedProcedure('admin:read', { module: 'quant', plane: 'fiat' })
+          .input(z.object({ strategyId: z.string().min(1).max(128), ownerId: z.string().guid() }))
+          .output(quantSupportSourceSchema)
+          .query(async ({ input, ctx }) => {
+            try {
+              const found = await strategies.get({ accountId: input.ownerId, id: input.strategyId });
+              if (!found || found.deletedAt) missingStrategy();
+              const grant = await team.recordRead({ strategyId: found.id, reader: ctx.principal.userId, at: new Date(now()) });
+              return {
+                strategyId: found.id,
+                ownerId: found.accountId,
+                name: found.name,
+                version: found.version,
+                versions: found.versions.length,
+                granted: grant !== null,
+                grantExpiresAt: grant?.expiresAt ?? null,
+                source: grant ? found.source : null,
+              };
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+      }),
+
       runs: scopedProcedure('admin:read', { module: 'quant', plane: 'fiat' })
         .input(
           z
@@ -2148,6 +3619,93 @@ export function createQuantRouter(deps: QuantRouterDeps) {
             toTrpc(err);
           }
         }),
+
+      /**
+       * Library moderation (J-algo-dev-10, AL-library-03). The review queue reads with `admin:read`; hide, unhide, remove
+       * and the disputes write with `admin:write`, each one audit row naming the founder from their own token and the
+       * reason. Operators never see a listing's source. No money moves.
+       */
+      library: router({
+        queue: scopedProcedure('admin:read', { module: 'quant', plane: 'fiat' })
+          .input(quantModerationQueueInputSchema)
+          .output(quantModerationQueueSchema)
+          .query(async ({ input }) => {
+            try {
+              return await library.queue({ cursor: input?.cursor ?? null });
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+        hide: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
+          .input(quantModerationInputSchema)
+          .output(quantModerationEntrySchema)
+          .mutation(async ({ input, ctx }) => {
+            try {
+              return await library.moderate(ctx.principal.userId, input, 'hide');
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+        unhide: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
+          .input(quantModerationInputSchema)
+          .output(quantModerationEntrySchema)
+          .mutation(async ({ input, ctx }) => {
+            try {
+              return await library.moderate(ctx.principal.userId, input, 'unhide');
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+        remove: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
+          .input(quantModerationInputSchema)
+          .output(quantModerationEntrySchema)
+          .mutation(async ({ input, ctx }) => {
+            try {
+              return await library.moderate(ctx.principal.userId, input, 'remove');
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+        dispute: router({
+          open: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
+            .input(quantDisputeOpenInputSchema)
+            .output(quantModerationEntrySchema)
+            .mutation(async ({ input, ctx }) => {
+              try {
+                return await library.openDispute(ctx.principal.userId, input);
+              } catch (err) {
+                toTrpc(err);
+              }
+            }),
+          resolve: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
+            .input(quantDisputeResolveInputSchema)
+            .output(quantModerationEntrySchema)
+            .mutation(async ({ input, ctx }) => {
+              try {
+                return await library.resolveDispute(ctx.principal.userId, input);
+              } catch (err) {
+                toTrpc(err);
+              }
+            }),
+        }),
+      }),
+
+      lifecycle: router({
+        /**
+         * The promotion audit (AL-lifecycle-01, J-algo-dev-13 #3): every stored gate decision across accounts, newest
+         * first, with the one stage row an approval wrote, who pressed and the criteria the gate judged by.
+         */
+        audit: scopedProcedure('admin:read', { module: 'quant', plane: 'fiat' })
+          .output(quantPromotionAuditSchema)
+          .query(async () => {
+            try {
+              const found = await lifecycle.audit(QUANT_PROMOTION_AUDIT_PAGE);
+              return { rows: found.rows.map((row) => ({ ...row })), total: found.total, asOf: new Date().toISOString() };
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+      }),
 
       criteria: router({
         /** Every owner criterion an operator can set at runtime, with where its value comes from now. */
@@ -2279,24 +3837,91 @@ export function createQuantRouter(deps: QuantRouterDeps) {
             }
           }),
 
-        /** One profile's limits as stored. */
+        /** Sets one sandbox limit of one profile (J-algo-dev-12); blank is "not set". A reason is required and kept with the actor. */
+        sandbox: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
+          .input(quantSandboxLimitSetInputSchema)
+          .output(quantSandboxLimitSetOutputSchema)
+          .mutation(async ({ input, ctx }) => {
+            try {
+              const reason = quotaReason(input.reason);
+              const saved = await quota.setSandboxLimit({
+                profile: input.profile,
+                limit: input.limit,
+                value: parseWhole(input.limit, input.value),
+                reason,
+                actor: ctx.principal.userId,
+                idempotencyKey: input.idempotencyKey,
+              });
+              return { ...saved, value: saved.value === null ? null : saved.value.toString() };
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+
+        /** One profile's limits and sandbox limits as stored. */
         profile: scopedProcedure('admin:read', { module: 'quant', plane: 'fiat' })
           .input(z.object({ profile: z.string().trim().min(1).max(80) }))
           .output(quantQuotaProfileSchema)
           .query(async ({ input }) => {
             try {
-              const rows = await quota.limits(input.profile);
+              const [rows, sandboxRows] = await Promise.all([quota.limits(input.profile), quota.sandboxLimits(input.profile)]);
               return {
                 profile: input.profile,
                 limits: QUANT_QUOTA_RESOURCES.map((resource) => {
                   const row = rows.find((r) => r.resource === resource);
                   return { resource, limit: row?.limit == null ? null : row.limit.toString(), setAt: row?.setAt ?? null };
                 }),
+                sandbox: QUANT_SANDBOX_LIMITS.map((limit) => {
+                  const row = sandboxRows.find((r) => r.limit === limit);
+                  return { limit, value: row?.value == null ? null : row.value.toString(), setAt: row?.setAt ?? null };
+                }),
               };
             } catch (err) {
               toTrpc(err);
             }
           }),
+      }),
+
+      sandbox: router({
+        /**
+         * Runs the escape corpus against the sandbox under one profile's limits (J-algo-dev-12 #5, ENGINE T-14). Each case
+         * goes through the same door as a developer's run; each must end in a typed refusal, and the control run after
+         * them must still run. Nothing is stored and no order reaches anything: the paper book of each case is its own.
+         */
+        corpus: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
+          .input(quantEscapeCorpusInputSchema)
+          .output(quantEscapeCorpusSchema)
+          .mutation(async ({ input }) =>
+            withQuantSpan('quant.ops.sandbox.corpus', { language: 'none' }, async () => {
+              try {
+                const run = requireRunLimits({ name: input.profile, source: 'assigned' }, await quota.sandboxLimits(input.profile));
+                const sandboxDeps = runDeps(run);
+                const attempt = (language: (typeof ESCAPE_CORPUS)[number]['language'], source: string) => {
+                  try {
+                    const ran = runSandbox({ language, source, cash: '1000', environment: 'paper', presentedAs: 'paper' }, sandboxDeps);
+                    return { ok: true as const, code: null, message: 'ran', logs: ran.logs };
+                  } catch (err) {
+                    if (err instanceof QuantError) return { ok: false as const, code: err.code as string, message: err.message, logs: [] };
+                    // Anything untyped is a hole in the sandbox, reported as one rather than thrown past the corpus.
+                    return { ok: false as const, code: null, message: err instanceof Error ? err.message : 'untyped failure', logs: [] };
+                  }
+                };
+                const cases = ESCAPE_CORPUS.map((c) => {
+                  const out = attempt(c.language, c.source);
+                  return { id: c.id, attack: c.attack, language: c.language, code: out.code, message: out.message };
+                });
+                const control = attempt(CONTROL_RUN.language, CONTROL_RUN.source);
+                return {
+                  profile: input.profile,
+                  cases,
+                  control: { ok: control.ok, code: control.code, logs: control.logs },
+                  asOf: new Date().toISOString(),
+                };
+              } catch (err) {
+                toTrpc(err);
+              }
+            }),
+          ),
       }),
 
       template: router({
@@ -2318,6 +3943,26 @@ export function createQuantRouter(deps: QuantRouterDeps) {
                   idempotencyKey: input.idempotencyKey,
                 });
                 return { ...published };
+              } catch (err) {
+                toTrpc(err);
+              }
+            }),
+          ),
+
+        /** Withdraws a starter template from the list or restores it. Its versions stay; the row records who, why and when. */
+        listing: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
+          .input(quantTemplateListingInputSchema)
+          .output(quantTemplateListingSchema)
+          .mutation(async ({ input, ctx }) =>
+            withQuantSpan('quant.ops.template.listing', { language: 'none' }, async () => {
+              try {
+                return await templates.setListed({
+                  id: input.id,
+                  listed: input.listed,
+                  reason: input.reason,
+                  setBy: ctx.principal.userId,
+                  idempotencyKey: input.idempotencyKey,
+                });
               } catch (err) {
                 toTrpc(err);
               }

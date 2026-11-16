@@ -8,6 +8,9 @@ export const DISPUTE_STATES = ['opened', 'representment', 'arbitration', 'closed
 export type DisputeState = (typeof DISPUTE_STATES)[number];
 export const DISPUTE_OUTCOMES = ['cardholder', 'merchant'] as const;
 export type DisputeOutcome = (typeof DISPUTE_OUTCOMES)[number];
+/** How a case closed: support's decision, or the cardholder withdrawing their own case (J-bank-15). Support decides only the two. */
+export const DISPUTE_CLOSURES = [...DISPUTE_OUTCOMES, 'withdrawn'] as const;
+export type DisputeClosure = (typeof DISPUTE_CLOSURES)[number];
 const EVENT_KINDS = ['opened', 'evidence', 'representment', 'arbitration', 'provisional_credit', 'closed'] as const;
 type EventKind = (typeof EVENT_KINDS)[number];
 const BEARERS = ['partner', 'programme', 'cardholder'] as const;
@@ -27,9 +30,10 @@ export const EVENT_LABEL: Readonly<Record<EventKind, string>> = {
   provisional_credit: 'Provisional credit (the partner’s)',
   closed: 'Decided and closed',
 };
-export const OUTCOME_LABEL: Readonly<Record<DisputeOutcome, string>> = {
+export const OUTCOME_LABEL: Readonly<Record<DisputeClosure, string>> = {
   cardholder: 'For the cardholder',
   merchant: 'For the merchant',
+  withdrawn: 'Withdrawn by the cardholder',
 };
 const BEARER_WORDS: Readonly<Record<Bearer, string>> = {
   partner: 'The partner',
@@ -81,7 +85,8 @@ export interface DisputeSummary {
   readonly test: boolean;
   readonly credit: { state: 'none' | 'asked' | 'credited'; amount: string | null; partnerRef: string | null; at: string | null };
   readonly decision: {
-    outcome: DisputeOutcome;
+    outcome: DisputeClosure;
+    reason: string | null;
     lossStatus: 'reported' | 'not_known';
     lossBearer: Bearer | null;
     lossTerms: string | null;
@@ -118,7 +123,8 @@ export function parseSummary(raw: unknown): DisputeSummary | null {
   if (r.decision !== null) {
     const d = rec(r.decision);
     if (!d) return null;
-    if (!(oneOf(DISPUTE_OUTCOMES, d.outcome) && oneOf(['reported', 'not_known'] as const, d.lossStatus))) return null;
+    if (!(oneOf(DISPUTE_CLOSURES, d.outcome) && oneOf(['reported', 'not_known'] as const, d.lossStatus))) return null;
+    if (!(d.reason === undefined || strOrNull(d.reason))) return null;
     if (!(d.lossBearer === null || oneOf(BEARERS, d.lossBearer)) || !strOrNull(d.lossTerms) || !str(d.closedAt)) return null;
     if (
       !(d.creditSettlement === null || oneOf(['final', 'reversed'] as const, d.creditSettlement)) ||
@@ -130,6 +136,7 @@ export function parseSummary(raw: unknown): DisputeSummary | null {
       return null;
     decision = {
       outcome: d.outcome,
+      reason: typeof d.reason === 'string' ? d.reason : null,
       lossStatus: d.lossStatus,
       lossBearer: d.lossBearer as Bearer | null,
       lossTerms: d.lossTerms,

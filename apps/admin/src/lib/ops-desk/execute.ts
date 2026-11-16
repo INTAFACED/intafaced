@@ -7,6 +7,7 @@ import { treasuryTransport } from '@/lib/ledger/reconciliation-server';
 import { codeInText, explainRefusal, isKnownCode } from '@/lib/desk/refusal-copy';
 import { marketTargetId, poolTargetId } from '@intafaced/contracts/protocol-ops';
 import { normaliseCostAmount } from '@/lib/venue-economics/model';
+import { isRecord } from '@intafaced/contracts/guards';
 
 /**
  * Run an approved Market or Academy request against the owning service, as the signed-in founder.
@@ -16,10 +17,6 @@ import { normaliseCostAmount } from '@/lib/venue-economics/model';
  * service's operator scope (market:ops, admin:write) and a verified second factor; the service checks both itself and
  * its refusal is shown in words (admin-BACKEND-NEEDS.md, item 27).
  */
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
 
 interface VetAnswer {
   readonly changed: boolean;
@@ -51,6 +48,32 @@ interface ResidencyAnswer {
 export function readResidencyAnswer(raw: unknown): ResidencyAnswer | null {
   if (!isRecord(raw) || typeof raw.id !== 'string' || typeof raw.status !== 'string') return null;
   return { id: raw.id, status: raw.status };
+}
+
+interface CertRevocationAnswer {
+  readonly publicId: string;
+  readonly reason: string;
+  readonly revokedAt: string;
+}
+
+export function readCertRevocationAnswer(raw: unknown): CertRevocationAnswer | null {
+  if (!isRecord(raw) || typeof raw.publicId !== 'string' || typeof raw.reason !== 'string' || typeof raw.revokedAt !== 'string')
+    return null;
+  return { publicId: raw.publicId, reason: raw.reason, revokedAt: raw.revokedAt };
+}
+
+interface CertExceptionAnswer {
+  readonly publicId: string;
+  readonly userId: string;
+  readonly certId: string;
+  readonly reason: string;
+}
+
+export function readCertExceptionAnswer(raw: unknown): CertExceptionAnswer | null {
+  if (!isRecord(raw)) return null;
+  const { publicId, userId, certId, reason } = raw;
+  if (typeof publicId !== 'string' || typeof userId !== 'string' || typeof certId !== 'string' || typeof reason !== 'string') return null;
+  return { publicId, userId, certId, reason };
 }
 
 interface CardStatusAnswer {
@@ -322,6 +345,37 @@ export function opsExecute(ctx: FounderCallContext): ExecuteFn {
       const a = result.data;
       if (a.id !== request.id || a.status !== request.decision) return WRONG_STATE;
       return { ok: true, detail: `svc-academy answered and its returned application is ${a.status}.` };
+    }
+    if (request.kind === 'academy.cert.revoke') {
+      const result = await founderCall(
+        ctx,
+        'academy',
+        'admin.revokeCert',
+        'POST',
+        { publicId: request.publicId, reason: request.reason, ...ids },
+        readCertRevocationAnswer,
+      );
+      if (result.kind !== 'ok') return failureRefusal('svc-academy', 'academy', result);
+      const a = result.data;
+      if (a.publicId !== request.publicId) return WRONG_STATE;
+      return { ok: true, detail: `svc-academy answered: certificate ${a.publicId} is revoked, recorded ${a.revokedAt} ("${a.reason}").` };
+    }
+    if (request.kind === 'academy.cert.exception') {
+      const result = await founderCall(
+        ctx,
+        'academy',
+        'admin.grantCertException',
+        'POST',
+        { userId: request.userId, certId: request.certId, reason: request.reason, ...ids },
+        readCertExceptionAnswer,
+      );
+      if (result.kind !== 'ok') return failureRefusal('svc-academy', 'academy', result);
+      const a = result.data;
+      if (a.userId !== request.userId || a.certId !== request.certId) return WRONG_STATE;
+      return {
+        ok: true,
+        detail: `svc-academy answered: certificate ${a.certId} is issued to ${a.userId} as an exception, code ${a.publicId} ("${a.reason}").`,
+      };
     }
     if (request.kind === 'bank.card.status') {
       const result = await founderCall(

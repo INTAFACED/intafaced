@@ -1,8 +1,7 @@
 /** Browser hop for staff enrolment, course email and learner exports (J-academy-15). Same-origin BFF only. */
 import { founderMutationHeaders } from '@/lib/founder-browser';
 import type { EnrolmentReply } from './enrolment-model';
-
-const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value && typeof value === 'object' && !Array.isArray(value));
+import { isRecord } from '@intafaced/contracts/guards';
 
 export async function fetchView<T>(query: string): Promise<T | null> {
   try {

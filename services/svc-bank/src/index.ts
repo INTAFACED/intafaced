@@ -1,6 +1,8 @@
 import { parseStatementJobsTestHold, startStatementJobWorker } from './statements/statement-jobs.js';
+import { createIdentityExtraControls, unconfiguredExtraControls } from './safety/extra-controls.js';
+import { failingHistoryPages, parseActivityTestFault } from './activity/activity-test-fault.js';
 import type { z } from 'zod';
-import Fastify from 'fastify';
+import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { edgeTrustFromEnv } from '@intafaced/config';
@@ -35,12 +37,14 @@ import { globalPortsFor } from './personal-pay/global-sim.js';
 import { parseSendReviewRule } from './transfers/send-review.js';
 import { readStrangerHoldDays } from './holds/received-holds.js';
 import { onrampStandInFor } from './ramps/onramp-sim.js';
-import { testPartnerAccountDetails, testPartnerFor } from './partner/test-partner.js';
+import { moneyHeldBy, testPartnerAccountDetails, testPartnerFor } from './partner/test-partner.js';
+import { firstAdministrator, registerAgentsUsagePayment } from './agents/usage-payment.js';
 import { taxEffectsFor } from './activity/tax-effects.js';
 import { cardTermsOrNone, partnerReservesRead } from './partner/reserves.js';
 import { cashOutPartnerFor } from './cash-out/payout-sim.js';
 import { onrampPartnerFor, payinPaidBody, payinReturnedBody } from './ramps/payin-sim.js';
 import { registerPayinSimPage } from './ramps/payin-sim-page.js';
+import { answerTestPartnerRecord, onLoopback, TEST_PARTNER_RECORD_BASE } from './partner/test-partner-record.js';
 import {
   payoutCancelledBody,
   payoutFailedBody,
@@ -158,7 +162,12 @@ const assetRegistry = createLedgerAssetRegistry(env.LEDGER_URL, env.INTERNAL_SER
 /** Who takes add-money payments: unset unless the TEST stand-in was chosen, which refuses to boot outside dev/test. */
 const onrampPartner = onrampPartnerFor(
   env.BANK_ONRAMP_PARTNER,
-  { catalogueJson: env.BANK_PAYIN_SIM_JSON, pageUrl: env.BANK_PAYIN_SIM_PAGE_URL, returnUrl: env.BANK_PAYIN_SIM_RETURN_URL },
+  {
+    catalogueJson: env.BANK_PAYIN_SIM_JSON,
+    pageUrl: env.BANK_PAYIN_SIM_PAGE_URL,
+    returnUrl: env.BANK_PAYIN_SIM_RETURN_URL,
+    deliverUrl: env.BANK_PAYIN_SIM_DELIVER_URL,
+  },
   { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV },
 );
 
@@ -219,7 +228,10 @@ const bank = createBankServices(sql, ledger, history, {
     : unconfiguredBusinessDirectory(),
   // `bank.activity.list`: svc-ledger `historyPage` (read-only), cursors signed under the service secret.
   activity: {
-    pages: createLedgerHistoryPages(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s),
+    // The TEST fault (J-home-ia-01 #5) fails every history read; boot refuses it outside an explicit dev or test process.
+    pages: parseActivityTestFault(env.BANK_ACTIVITY_TEST_FAULT, { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV })
+      ? failingHistoryPages()
+      : createLedgerHistoryPages(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s),
     cursorSecret: env.INTERNAL_SERVICE_SECRET,
     // Where the person's own svc-pay withdrawals went (J-portfolio-03 #2), asked by withdrawal id; svc-pay's tables stay its own.
     payWithdrawals: createPayWithdrawalAddressesClient({ payUrl: env.PAY_URL, secret: env.INTERNAL_SERVICE_SECRET }),
@@ -285,6 +297,13 @@ const bank = createBankServices(sql, ledger, history, {
       rates: parseCashbackRates(env.BANK_CARD_CASHBACK_RATES_JSON),
       ...(env.IDENTITY_URL ? { rankTier: createIdentityRankTier(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s) } : {}),
       simulatorPays: cardSimCashbackFor(env.BANK_CARD_SIM_CASHBACK, { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV }),
+    },
+    /**
+     * Cashback earned on a partner-held capture (J-bank-13 #7) is handed to the rewards programme on the bus, once per
+     * authorisation; svc-campaigns owes it in USDC and pays it to the person's own wallet. Publishing moves no value.
+     */
+    cashbackEarned: async (earned) => {
+      await bus.publish('bankCardCashbackEarned', { ...earned }, { idempotencyKey: `bank.card_cashback:${earned.authorizationId}` });
     },
     /**
      * THE JIT CONVERSION RATE (§18), and what this wiring does NOT claim.
@@ -377,11 +396,15 @@ const bank = createBankServices(sql, ledger, history, {
   /** The staking risk wording (BK-earn-04): the owner's, blank refuses. */
   earnRiskWording: env.BANK_EARN_RISK_WORDING_JSON,
   blockedRegionNotice: env.BANK_BLOCKED_REGION_NOTICE,
+  onboardingRequirements: env.BANK_ONBOARDING_REQUIREMENTS_JSON,
+  infoRequestUpload: env.BANK_INFO_REQUEST_UPLOAD_JSON,
+  reopenWindowDays: env.BANK_REOPEN_WINDOW_DAYS,
   accountCurrencies: env.BANK_ACCOUNT_CURRENCIES,
   spaceLimit: env.BANK_SPACE_LIMIT,
   spaceUnlockWaitHours: env.BANK_SPACE_UNLOCK_WAIT_HOURS,
   incomeSorterMinCredit: env.BANK_INCOME_SORTER_MIN_CREDIT,
   sharedPotInviteMinutes: env.BANK_SHARED_POT_INVITE_MINUTES,
+  businessInviteMinutes: env.BANK_BUSINESS_INVITE_MINUTES,
   sharedPotPeopleCap: env.BANK_SHARED_POT_PEOPLE_CAP,
   /** Account details and the eligibility statement: owner-published lists, no banking partner wired (`rail.bank`). */
   accountDetails: {
@@ -443,6 +466,11 @@ const approvalConsumer = env.IDENTITY_URL
   : unwiredApprovalConsumer();
 
 export const appRouter = createBankRouter(bank, {
+  // The person's own extra checks (BK-safe-01): read from identity on every send to another person. No IDENTITY_URL refuses
+  // those sends with bank.extra_controls_unset rather than acting as if no extras were set.
+  extraControls: env.IDENTITY_URL
+    ? createIdentityExtraControls(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, undefined, ledgerS2s)
+    : unconfiguredExtraControls(),
   scheduledTransfersEnabled: env.SCHEDULED_TRANSFERS_ENABLED,
   interestAccrualEnabled: env.INTEREST_ACCRUAL_ENABLED,
   loanAccrualEnabled: env.LOAN_ACCRUAL_ENABLED,
@@ -468,6 +496,19 @@ const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 })
 retainRawBody(app);
 registerClosureCheck(app, { sql, ledger, secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s });
 registerAgentsTeamMembership(app, { secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s, read: (u, b) => teamMembershipFor(sql, u, b) });
+// How a person pays for agent usage, and one payment of a sealed window, carried out by their partner (J-agents-01).
+registerAgentsUsagePayment(app, {
+  secret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
+  freeze: ledgerPostingFreeze(env.LEDGER_URL),
+  businessPayer: (businessId) => firstAdministrator(sql, businessId),
+  heldBy: (userId) => {
+    const held = moneyHeldBy(testPartner, userId, env.LEDGER_CUSTODY_LAYER);
+    return held === 'partner' && testPartner
+      ? { kind: 'partner', bank: testPartner.bank, partnerId: 'test' }
+      : { kind: held === 'partner' ? 'none' : held };
+  },
+});
 
 app.get('/health', async () => ({ ok: true, service: env.SERVICE_NAME }));
 app.get('/ready', async () =>
@@ -809,6 +850,23 @@ jobDoor('/internal/jobs/payin-sim/returned', payinReturnedBody, (b) => bank.addM
  */
 jobDoor('/internal/jobs/card-sim/shipment', cardShipmentJobBody, (b) => bank.cardOrders.recordShipment(b));
 if (onrampPartner) registerPayinSimPage(app, bank.addMoney, onrampPartner);
+/**
+ * LOCAL TEST: the TEST partner bank's own book on loopback (`partner/test-partner-record.ts`), so a journey compares what
+ * the app shows with what the partner itself recorded. Mounted only with the TEST partner, which refuses to start outside
+ * `dev`/`test`; a caller off loopback is refused.
+ */
+if (testPartner) {
+  const record = testPartner;
+  const read = async (req: FastifyRequest, reply: FastifyReply) => {
+    if (!onLoopback(req.socket.remoteAddress)) return reply.code(403).send({ error: 'loopback only' });
+    const below = req.url.split('?')[0]!.slice(TEST_PARTNER_RECORD_BASE.length);
+    const [status, body] = answerTestPartnerRecord(record, req.method, below, req.body ?? null);
+    return reply.code(status).header('cache-control', 'no-store').send(body);
+  };
+  app.get(`${TEST_PARTNER_RECORD_BASE}/venue`, read);
+  app.post(`${TEST_PARTNER_RECORD_BASE}/balances`, read);
+  app.post(`${TEST_PARTNER_RECORD_BASE}/moves`, read);
+}
 jobDoor('/internal/jobs/redrive-cash-outs', redriveBody, async (b) => recoveryCounts(await bank.cashOut.redrive(b.limit)));
 
 /**

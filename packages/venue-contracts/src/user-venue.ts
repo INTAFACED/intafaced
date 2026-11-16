@@ -76,6 +76,33 @@ export interface VenueSigner {
 
 export type VenueTimeInForce = 'GTC' | 'IOC' | 'ALO';
 
+/**
+ * The price a venue trigger order is judged on: the venue's mark, or its last traded price. A source a market does not
+ * list in `triggerSources` refuses `not_offered` at prepare. An index trigger is never a venue trigger here: where the
+ * venue lists none, our engine judges it on the venue's published index (`UserVenueMarket.index`).
+ */
+export type VenueTriggerSource = 'mark' | 'last';
+export const VENUE_TRIGGER_SOURCES: readonly VenueTriggerSource[] = ['mark', 'last'];
+
+/**
+ * A trigger order's trigger (Hyperliquid: an order's `trigger` with `tpsl`, read 2026-11-12): the order rests on the
+ * venue, unseen by the book, until its source crosses `price`, then it is sent as the order it carries (a market order
+ * at its worst price, or a limit at its price). A take profit fires when the price moves in the position's favour to
+ * `price`, a stop loss when it moves against it; for a sell (closing a long) that is at or above, and at or below,
+ * `price`; for a buy the other way round. A trigger order is always reduce-only: it closes, never opens or grows.
+ */
+export interface VenueTrigger {
+  readonly price: Amount;
+  readonly source: VenueTriggerSource;
+  readonly role: 'take_profit' | 'stop_loss';
+}
+
+/**
+ * What the venue does when a new order would trade against the same account's own resting order (J-cex-spot-03 #8):
+ * cancel the resting one, cancel the new one, or cancel both. A venue applies its own rule; none is chosen per order.
+ */
+export type VenueSelfTradeMode = 'cancel_resting' | 'cancel_new' | 'cancel_both';
+
 export interface PlaceUserOrderIntent {
   readonly kind: 'place_order';
   readonly symbol: string;
@@ -88,6 +115,16 @@ export interface PlaceUserOrderIntent {
   /** `ALO` is post-only. A market order is sent as `IOC` at its worst price. */
   readonly timeInForce: VenueTimeInForce;
   readonly reduceOnly: boolean;
+  /**
+   * Set on a trigger order: it rests on the venue until `trigger.source` crosses `trigger.price`, then is sent as this
+   * order. Absent or `null`: an ordinary order, sent to the book at once.
+   */
+  readonly trigger?: VenueTrigger | null;
+  /**
+   * Set on a trigger order attached to an entry order (Hyperliquid's `normalTpsl` grouping): the entry's own
+   * `clientOrderKey`. It arms on what the entry has filled and no more, and waits while the entry has filled nothing.
+   */
+  readonly parentClientOrderKey?: string | null;
   /**
    * The business key of this intent (AGENTS.md floor 3), e.g.
    * `order:<userId>:<deskSession>:<n>`. Never a random id: a retry of the same
@@ -136,12 +173,41 @@ export interface UserVenueLeverage {
   readonly marginMode: VenueMarginMode;
 }
 
+/**
+ * A change to one resting order in place (J-cex-spot-05 #2), named by the venue's own client id so an order placed from
+ * any page or device can be changed: `amount` is the amount left after the change and `price` its price. Offered only on
+ * a venue whose descriptor declares `amendsInPlace`; elsewhere the change is a `replace_order`, signed once. Stored under
+ * the caller's business key (`amend:<owner>:<client id>:<amount>`).
+ */
 export interface AmendUserOrderIntent {
   readonly kind: 'amend_order';
   readonly symbol: string;
-  readonly clientOrderKey: string;
+  readonly venueClientOrderId: string;
   readonly amount: Amount;
   readonly price: Amount;
+}
+
+/**
+ * One resting order cancelled and a new one placed in its place, in one signed action (J-cex-spot-05 #2, #4): the venue
+ * cancels `venueClientOrderId` first (its lock released once), then places `order` under its own client order key. The
+ * venue answers both (`legs`: the cancel, then the order): a refused replacement leaves the original cancelled, and it is
+ * never said to be safe. A replacement whose original is no longer resting is not placed.
+ */
+export interface ReplaceUserOrderIntent {
+  readonly kind: 'replace_order';
+  readonly symbol: string;
+  readonly venueClientOrderId: string;
+  readonly order: PlaceUserOrderIntent;
+}
+
+/**
+ * Several resting orders cancelled in one signed action (J-cex-spot-05 #5, #6), each named by the venue's client id. The
+ * venue answers each (`legs`, in the order sent): one unknown or already final is reported and the rest are cancelled.
+ * Offered only on a venue whose descriptor declares `cancelsPerAction`; at most that many ids.
+ */
+export interface CancelUserOrdersIntent {
+  readonly kind: 'cancel_orders';
+  readonly orders: readonly { readonly symbol: string; readonly venueClientOrderId: string }[];
 }
 
 export interface CancelUserOrderIntent {
@@ -255,11 +321,30 @@ export interface MarketMarginTransferIntent {
   readonly moveKey: string;
 }
 
+/**
+ * Several orders the venue takes in one signed action, applied in the order given (Hyperliquid: one `order` action with
+ * several `orders`, grouping `na`, read 2026-11-15): the wallet signs once, and each order keeps its own client order key,
+ * so each is placed at most once and read back by its own client id. Offered only on a venue whose descriptor declares
+ * `ordersPerAction` of at least the number of orders (`ordersTakenTogether`); elsewhere each order is signed on its own.
+ * J-derivatives-03 #9's one-tap reverse sends its close and its open this way. The venue answers each order apart
+ * (`legs` on the accepted outcome): one refused does not undo the other.
+ */
+export interface PlaceUserOrdersIntent {
+  readonly kind: 'place_orders';
+  /** At least two, each an ordinary order with its own business key. */
+  readonly orders: readonly PlaceUserOrderIntent[];
+  /** The business key of the whole action (e.g. `reverse:<owner>:<draft>`), never a random id: a retry re-sends the same bytes. */
+  readonly actionKey: string;
+}
+
 export type VenueIntent =
   | PlaceUserOrderIntent
+  | PlaceUserOrdersIntent
   | UpdateLeverageIntent
   | AmendUserOrderIntent
+  | ReplaceUserOrderIntent
   | CancelUserOrderIntent
+  | CancelUserOrdersIntent
   | WithdrawIntent
   | ApproveBuilderFeeIntent
   | ApproveAgentIntent
@@ -349,6 +434,12 @@ export type VenueSubmitOutcome =
       readonly accepted: true;
       readonly venueRef: string | null;
       readonly order: UserVenueOrder | null;
+      /**
+       * A `place_orders` action: the venue's own answer for each of its orders, in the order sent; a `cancel_orders`
+       * action: its answer for each cancel; a `replace_order`: the cancel, then the replacement. The action is accepted
+       * when the venue took the signed action; each part may still be refused on its own.
+       */
+      readonly legs?: readonly VenueLegOutcome[];
       readonly asOf: Date;
     }
   | {
@@ -367,6 +458,9 @@ export type VenueSubmitOutcome =
        */
       readonly reason: 'timeout' | 'connection_lost' | 'venue_error_after_send' | 'already_submitted';
     };
+
+/** The venue's definite answer for one order of a `place_orders` action. */
+export type VenueLegOutcome = Extract<VenueSubmitOutcome, { definite: true }>;
 
 /** True when the caller must read back before anything else: the answer is not definite. */
 export function needsReadBack(outcome: VenueSubmitOutcome): outcome is Extract<VenueSubmitOutcome, { definite: false }> {
@@ -500,6 +594,20 @@ export interface VenueBuilderTotal {
   readonly unclaimed: Amount;
 }
 
+/**
+ * One claim of builder fees, as the venue itself records it (J-derivatives-17; launch money model, rule 5): the venue paid
+ * `amount` of the builder's earned fees into the builder's own account at the venue. `claimId` is the venue's own id for
+ * it, so a claim read twice is one claim.
+ */
+export interface UserVenueBuilderClaim {
+  readonly claimId: string;
+  /** The builder address the venue paid, lowercase. */
+  readonly builder: string;
+  readonly asset: string;
+  readonly amount: Amount;
+  readonly claimedAt: Date;
+}
+
 export interface UserVenueBalance {
   readonly asset: string;
   /** Free to trade or withdraw. */
@@ -551,6 +659,36 @@ export interface UserVenueOrder {
   readonly locked: Amount;
   readonly lockedAsset: string;
   readonly reduceOnly: boolean;
+  /** A trigger order's trigger and where it stands, as the venue reports it; absent or `null` on an ordinary order. */
+  readonly trigger?: UserVenueOrderTrigger | null;
+  /** On a trigger order attached to an entry: the entry's venue client order id. */
+  readonly parentClientOrderId?: string | null;
+  /**
+   * Why the venue cancelled it, where it says: `position_closed` when the position it closed is gone (a trigger order
+   * or a reduce-only order is cancelled with it, so the other leg of a pair never fires on nothing); `linked` when the
+   * other trigger order attached to the same entry filled first, so this one never closes what that one already did.
+   */
+  readonly cancelReason?: 'position_closed' | 'linked' | null;
+}
+
+/**
+ * A trigger order's state on the venue: `waiting` while its source has not crossed its price; `triggered` once it was
+ * sent (the order's own status says how it filled); `failed` when it was triggered and the venue could not carry it
+ * out, with the venue's reason in its own words (`failure`) and the position left as it was.
+ */
+/**
+ * One order in the venue's own order history (J-cex-spot-06 #1): the order as the venue reports it now, and when the venue
+ * says it was placed.
+ */
+export interface UserVenueOrderRecord {
+  readonly order: UserVenueOrder;
+  readonly placedAt: Date;
+}
+
+export interface UserVenueOrderTrigger extends VenueTrigger {
+  readonly state: 'waiting' | 'triggered' | 'failed';
+  readonly triggeredAt: Date | null;
+  readonly failure: string | null;
 }
 
 export interface UserVenuePosition {
@@ -589,6 +727,11 @@ export interface UserVenueWithdrawal {
    * shown as "not known", never as 0.
    */
   readonly networkFee: MaybeKnown<Amount>;
+  /**
+   * The chain transaction that paid a `done` withdrawal, lowercase, when the venue reports it. Absent when it does not:
+   * never made up, and a reader that needs it waits (J-campaigns-03: a move of our own funds is keyed by it).
+   */
+  readonly txHash?: string;
 }
 
 /**
@@ -637,6 +780,21 @@ export interface UserVenueDeposit {
   readonly seenAt: Date;
   /** The transfer on the network's explorer, as the venue links it; `null` when the network has no explorer. */
   readonly explorerUrl: string | null;
+}
+
+/**
+ * One credit of coins into an account from outside it, as the venue records it (J-portfolio-02 #6): a deposit, or a
+ * transfer in from another address. Its cost is not known to the venue; INTAFACED keeps no copy and the ledger posts
+ * nothing.
+ */
+export interface UserVenueArrival {
+  /** The venue's own id for the credit (a deposit's `depositRef`): the same credit always has the same id. */
+  readonly arrivalId: string;
+  readonly kind: 'deposit' | 'transfer_in';
+  readonly asset: string;
+  readonly amount: Amount;
+  /** The venue's own time for the credit. */
+  readonly arrivedAt: Date;
 }
 
 /** The venue's id for one on-chain deposit: the same transfer always gives the same id, so a replay credits nothing. */
@@ -751,6 +909,26 @@ export interface UserVenueMarketMargin extends UserVenueMarginAccountRule {
   /** Locked by resting orders or used as margin on the market's positions. */
   readonly locked: Amount;
   readonly total: Amount;
+}
+
+/**
+ * One of a perpetual's margin tiers as the venue publishes it (J-derivatives-02 #2): from a position notional of
+ * `fromNotional` (in the quote asset) upward, the most leverage the venue allows and the maintenance margin rate it
+ * charges (a scaled fraction of notional, `parseAmount('0.025')` is 2.5%). The venue's figures, never ours.
+ */
+export interface UserVenueMarginTier {
+  readonly fromNotional: Amount;
+  readonly maxLeverageBps: number;
+  readonly maintenanceRate: Amount;
+}
+
+/**
+ * One asset the venue takes as margin on a market (J-derivatives-02 #3): the asset, and the haircut the venue applies to
+ * it (a scaled fraction, `parseAmount('0.02')` is 2%), or `known: false` where the venue publishes none.
+ */
+export interface UserVenueCollateral {
+  readonly asset: string;
+  readonly haircut: MaybeKnown<Amount>;
 }
 
 /** A market's open interest as the venue reports it: the size open now, and the cap its deployer set (`null`: none). */
@@ -872,6 +1050,30 @@ export interface UserVenueMarket {
   readonly contractSize: MaybeKnown<Amount>;
   readonly mark: MaybeKnown<Amount>;
   readonly funding: MaybeKnown<UserVenueFunding>;
+  /**
+   * The prices this venue judges its trigger orders on for this market (empty: it takes no trigger orders here). A
+   * trigger on any other source refuses `not_offered` at prepare. Optional on the wire for venues that report none.
+   */
+  readonly triggerSources?: readonly VenueTriggerSource[];
+  /** The venue's published index (oracle) price for the market now, or `known: false` where it publishes none. */
+  readonly index?: MaybeKnown<Amount>;
+
+  /**
+   * The venue's own self-trade rule on this market, as it publishes it, or `known: false` (absent from an older venue:
+   * not published). Never our guess of what the venue does.
+   */
+  readonly selfTrade?: MaybeKnown<VenueSelfTradeMode>;
+
+  /**
+   * The venue's published margin tiers for a perpetual, lowest notional first, or `known: false` where it publishes none
+   * (shown as "not published by this venue", never a tier of ours). Optional on the wire for venues that report none.
+   */
+  readonly marginTiers?: MaybeKnown<readonly UserVenueMarginTier[]>;
+  /**
+   * What the venue takes as margin on this market, each asset with its haircut, or `known: false` where it publishes no
+   * list. Nothing else the account holds counts toward buying power. Optional on the wire for venues that report none.
+   */
+  readonly collateral?: MaybeKnown<readonly UserVenueCollateral[]>;
 }
 
 /** One settled funding interval as the venue published it: when it settled and its signed rate per interval. */
@@ -914,6 +1116,50 @@ export interface VenueBook {
   readonly symbol: string;
   readonly bids: readonly VenueBookLevel[];
   readonly asks: readonly VenueBookLevel[];
+}
+
+/**
+ * One public trade print on a venue market, as the venue publishes it (J-cex-spot-01 #5: the spot desk's tape and its
+ * ticker's last price). `takerSide` is the side that crossed, or `null` where the venue does not publish it.
+ */
+export interface VenuePrint {
+  readonly tradeId: string;
+  readonly symbol: string;
+  readonly price: Amount;
+  readonly amount: Amount;
+  readonly takerSide: 'buy' | 'sell' | null;
+  readonly tradedAt: Date;
+}
+
+/** The candle intervals a venue's `candles` read takes, in seconds by name. */
+export const VENUE_CANDLE_INTERVALS = {
+  '1m': 60,
+  '3m': 180,
+  '5m': 300,
+  '15m': 900,
+  '30m': 1_800,
+  '1h': 3_600,
+  '2h': 7_200,
+  '4h': 14_400,
+  '6h': 21_600,
+  '12h': 43_200,
+  '1d': 86_400,
+  '1w': 604_800,
+} as const;
+export type VenueCandleInterval = keyof typeof VENUE_CANDLE_INTERVALS;
+
+/**
+ * One candle of a venue market's own prints (J-cex-spot-01 #5: the spot desk's chart): an interval with at least one
+ * print, its first, highest, lowest and last price and the base traded. An interval with no print is not sent; the
+ * chart carries the previous close across it.
+ */
+export interface VenueCandle {
+  readonly openAt: Date;
+  readonly openPrice: Amount;
+  readonly highPrice: Amount;
+  readonly lowPrice: Amount;
+  readonly closePrice: Amount;
+  readonly baseVolume: Amount;
 }
 
 /** One figure of a preview: an amount in a named asset. */
@@ -988,6 +1234,52 @@ export interface UserVenueDescriptor extends VenueDescriptor {
    * that declares none has its figures refused (`venueFigure` throws), never given a silent default.
    */
   readonly figureStaleAfterMs?: number;
+  /**
+   * The longest an agent permission with an end date may last on this venue, from the moment it is approved (J-agents-21
+   * #19): an assistant's key that ends later than this is refused at connect, naming it. A venue that declares none has
+   * every dated key refused (`agents.venue_agent_expiry_max_unknown`), never given a silent default. A permission with no
+   * end date is the venue's own `validUntil: null` and is not bounded by this.
+   */
+  readonly agentValidityMaxMs?: number;
+  /**
+   * How far an agent permission approved on one of the owner's sub-accounts reaches (J-agents-21 #3 and its money line):
+   * `own_account_only` when the venue lets that agent trade the sub-account it was approved on and nothing else, so the
+   * venue itself holds the agent account's cap; `owner_accounts` when the venue lets it act for the owner's other
+   * accounts too, so the app says so before the wallet signs and our policy check is the only limit. A venue that
+   * declares none is read as `owner_accounts` (`agentPermissionReach`): a limit nobody declared is never promised.
+   */
+  readonly agentPermissionReach?: AgentPermissionReach;
+  /**
+   * The most orders this venue takes in one signed action (`place_orders`). A venue that declares none takes one order
+   * per signature (`ordersTakenTogether` reads it as 1), so a close and an open are each signed.
+   */
+  readonly ordersPerAction?: number;
+  /**
+   * True when this venue changes a resting order's amount in place (`amend_order`), keeping its place in the queue. A
+   * venue that declares none is changed by a cancel-and-replace signed once (`replace_order`).
+   */
+  readonly amendsInPlace?: boolean;
+  /** The most orders this venue cancels in one signed action (`cancel_orders`). None declared: one cancel per signature. */
+  readonly cancelsPerAction?: number;
+}
+
+/** The most orders the venue cancels in one signed action; 0 when it declares none (`cancel_orders` is not offered). */
+export function cancelsTakenTogether(venue: Pick<UserVenueDescriptor, 'cancelsPerAction'>): number {
+  const n = venue.cancelsPerAction;
+  return typeof n === 'number' && Number.isSafeInteger(n) && n > 0 ? n : 0;
+}
+
+/** The most orders the venue takes in one signed action; 1 when it declares none. */
+export function ordersTakenTogether(venue: Pick<UserVenueDescriptor, 'ordersPerAction'>): number {
+  const n = venue.ordersPerAction;
+  return typeof n === 'number' && Number.isSafeInteger(n) && n > 1 ? n : 1;
+}
+
+export type AgentPermissionReach = 'own_account_only' | 'owner_accounts';
+
+/** The venue's declared reach of a sub-account's agent permission; undeclared reads as reaching the owner's accounts. */
+export function agentPermissionReach(venue: UserVenueDescriptor): AgentPermissionReach {
+  return venue.agentPermissionReach === 'own_account_only' ? 'own_account_only' : 'owner_accounts';
 }
 
 /** True for the TEST simulator and any testnet or partner sandbox. */
@@ -1030,6 +1322,19 @@ export interface UserVenue {
    * its funding history leaves it out, and the chart then refuses the study by name.
    */
   fundingHistory?(symbol: string, since: Date): Promise<AsOf<readonly VenueFundingRow[]>>;
+
+  /**
+   * The newest `limit` public prints on `symbol`, newest first, no account (J-cex-spot-01 #5: the desk's tape). Refuses
+   * `unknown_market` for a symbol it does not list. Optional: a venue (or an adapter) that does not read its prints leaves
+   * it out, and the desk then shows the tape refused by name.
+   */
+  trades?(symbol: string, limit: number): Promise<AsOf<readonly VenuePrint[]>>;
+
+  /**
+   * The newest `limit` candles of `symbol`'s own prints on `interval`, oldest first, no account (J-cex-spot-01 #5: the
+   * desk's chart). Refuses `unknown_market` for a symbol it does not list. Optional, as `trades`.
+   */
+  candles?(symbol: string, interval: VenueCandleInterval, limit: number): Promise<AsOf<readonly VenueCandle[]>>;
 
   // ── signed actions ─────────────────────────────────────────────────────
   /**
@@ -1081,10 +1386,22 @@ export interface UserVenue {
   /** By the signed action's nonce, the only id the venue knows it by. `null` is a confirmed miss. */
   withdrawal(account: UserVenueAccount, nonce: string): Promise<AsOf<UserVenueWithdrawal | null>>;
   /**
+   * The account's orders in every state, newest placed first, as the venue keeps them (J-cex-spot-06 #1): open, filled,
+   * partly filled and cancelled. A venue keeps a bounded history (Hyperliquid: its 2000 most recent orders). Optional: a
+   * venue that publishes no order history leaves it out, and the door refuses the read `not_offered`.
+   */
+  orderHistory?(account: UserVenueAccount): Promise<AsOf<readonly UserVenueOrderRecord[]>>;
+  /**
    * The on-chain deposits the venue has seen for this account, newest first (J-dex-protocol-05 #2). Optional: a venue
    * that publishes no deposit list leaves it out, and the door refuses the read `not_offered`.
    */
   deposits?(account: UserVenueAccount): Promise<AsOf<readonly UserVenueDeposit[]>>;
+  /**
+   * The coins credited to this account from outside it (a deposit, or a transfer from another address), oldest first, as
+   * the venue records them (J-portfolio-02 #6). Not a fill and not a move between the person's own accounts. Optional: a
+   * venue whose adapter does not read them leaves it out, and a coin that arrived that way stays unknown in the lot book.
+   */
+  arrivals?(account: UserVenueAccount): Promise<AsOf<readonly UserVenueArrival[]>>;
   /**
    * The owner's balance in the margin account a market's deployer keeps for it (`UserVenueMarket.marginAccount`), read on
    * the main account. A market with none refuses `not_offered`. Absent on an adapter that does not read it.
@@ -1100,6 +1417,11 @@ export interface UserVenue {
    * does not read them; the recon then reads the venue's totals as not known.
    */
   builderTotals?(builder: string): Promise<AsOf<MaybeKnown<VenueBuilderTotals>>>;
+  /**
+   * Every claim of builder fees the venue records for `builder`, oldest first (J-derivatives-17: "the venue records each
+   * claim of our builder fees"). Absent on an adapter that does not read the claim record; nothing is then collected.
+   */
+  builderClaims?(builder: string): Promise<AsOf<readonly UserVenueBuilderClaim[]>>;
   agents(account: UserVenueAccount): Promise<AsOf<readonly UserVenueAgent[]>>;
   /**
    * The account's leverage setting on `symbol`, or `null` when none is set

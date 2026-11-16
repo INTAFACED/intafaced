@@ -29,6 +29,7 @@ import type {
   StopInput,
 } from './api';
 import { futuresRefusal, type FuturesRefusal } from './refusals';
+import { sleep as pause } from '@intafaced/contracts/sleep';
 
 export type Intent =
   | { op: 'open'; input: OpenInput }
@@ -210,7 +211,6 @@ export interface WriteResult {
 const REVERSE_WORKING = new Set<Reverse['status']>(['closing', 'opening']);
 const REVERSE_RESENDS = 4;
 const REVERSE_RESEND_MS = 750;
-const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 async function sendAdjustment(
   api: FuturesApi,

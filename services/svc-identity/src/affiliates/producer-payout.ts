@@ -3,8 +3,8 @@
  *
  * Accrue (`/internal/affiliates/accrue`) writes durable rows and posts nothing.
  * This door is the money half: planAffiliatePayout + postAffiliatePayout through
- * ledger-client. Refuse-closed on unset / unpublished rates and frozen
- * beneficiaries. No invented rates. Does not wire trade/pay callers.
+ * ledger-client. Refuse-closed on unset / unpublished rates, frozen
+ * beneficiaries, and beneficiaries whose account is frozen or closed. No invented rates. Does not wire trade/pay callers.
  */
 
 import type { FastifyInstance } from 'fastify';
@@ -12,6 +12,7 @@ import { retainRawBody } from '@intafaced/contracts';
 import type { LedgerClient } from '@intafaced/ledger-client';
 import { z } from 'zod';
 import { serviceOfRequest, type IdentityS2s } from '../s2s-door.js';
+import { beneficiariesWhoCannotReceive, type AccountStandingReader } from './account-standing.js';
 import { AffiliatePayoutRefuseError, AFFILIATE_PAYOUT_RESIDUAL } from './admin-tree-read.js';
 import type { AccrualStore } from './accrual-store.js';
 import type { AccrualTierLaw } from './commission-rate-law.js';
@@ -29,6 +30,8 @@ export type AffiliateProducerPayoutDeps = {
   /** Per-service keys (S2S v3). Unset keeps the shared secret alone. */
   readonly s2s?: IdentityS2s;
   readonly freeze: { frozenIds(): Promise<ReadonlySet<string>> };
+  /** Each beneficiary's account state (`AuthService.accountState`): a frozen or closed account is never paid. */
+  readonly accounts: AccountStandingReader;
   readonly accruals: AccrualStore;
   readonly accrualTierLaw: AccrualTierLaw | undefined;
   /** The partner programme depth (RC-campaigns-07). Undefined (blank) refuses every payout. */
@@ -98,11 +101,13 @@ export function registerAffiliateProducerPayout(app: FastifyInstance, deps: Affi
 
       const rows = await deps.accruals.listByFeeEvent(feeEventId);
       const frozen = await deps.freeze.frozenIds();
+      const cannotReceive = await beneficiariesWhoCannotReceive(deps.accounts, rows);
       const plan = planAffiliatePayout({
         feeEventId,
         rows,
         law,
         frozenBeneficiaryIds: frozen,
+        cannotReceiveBeneficiaryIds: cannotReceive,
         maxTierDepth,
       });
       const receipt = await postAffiliatePayout(deps.ledger, plan);

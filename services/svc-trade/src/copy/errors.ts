@@ -29,6 +29,7 @@ export type CopyErrorCode =
   | 'trade.copy_pnl_fee_forbidden'
   | 'trade.copy_ranking_forbidden'
   | 'trade.copy_settle_refused'
+  | 'trade.copy_settlement_window_required'
   | 'trade.copy_leader_fill_not_found'
   | 'trade.copy_auto_mirror_place_socket'
   | 'trade.copy_place_disabled'

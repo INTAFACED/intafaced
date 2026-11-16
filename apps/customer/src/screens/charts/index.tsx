@@ -34,6 +34,7 @@ import { isChartStyle, type ColourScheme } from './chart-style';
 import { WatchlistPanel } from '../../features/watchlists/WatchlistPanel';
 import { chartHrefFor, WATCHLIST_DRAG_TYPE } from '../../features/watchlists/links';
 import { TemplatesMenu } from './TemplatesMenu';
+import { NewsWidget } from '../../features/trade/news/NewsWidget';
 import { drawingsFrom, styleFrom, studiesFrom, type ChartTemplate } from './templates';
 import { templatesCopy } from './templates-copy';
 import { FEATURESETS, describeFeatureset, styleOnDesk } from './featureset';
@@ -66,7 +67,7 @@ function MarketSelect({
   return (
     <label className="cw-select">
       <span>{label}</span>
-      <select value={value} onChange={(event) => onChoose(event.target.value)}>
+      <select data-testid="cw-market" value={value} onChange={(event) => onChoose(event.target.value)}>
         {markets.map((market) => (
           <option key={market.symbol} value={market.symbol}>
             {market.symbol}
@@ -217,6 +218,7 @@ function Page({
           <MarketSelect label={t('Choose a market')} value={market.symbol} markets={markets} onChoose={chooseMarket} />
           <TradeLink symbol={market.symbol} />
           {FEATURES.templates ? <TemplatesMenu current={currentChart} onApply={applyTemplate} /> : null}
+          <NewsWidget key={market.symbol} symbol={market.symbol} />
         </div>
       </header>
       {applied && 'refused' in applied ? (
