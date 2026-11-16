@@ -126,6 +126,41 @@ export function readReport(report) {
 }
 
 /**
+ * Readies a started stack as a Real-app journeys shard is readied (.github/workflows/real-app-journeys.yml, "Open the TEST
+ * markets ..."): matching restarted, the TEST gates, the TEST market maker, the chart history when `files` read the past,
+ * the TEST content. Throws on the first step that fails. Shared by `journey` and `verify launch` (verify-app.mjs).
+ * `files` null writes no chart history (a launch for no journey in particular); returns whether it wrote it.
+ */
+export async function readyStack(io, files) {
+  let history = false;
+  const step = async (argv, what) => {
+    const r = await io.run(argv, { capture: false });
+    if (r.code !== 0) throw new Error(`${what} exited ${r.code}`);
+  };
+  await step(['node', STACK, 'restart', 'matching'], 'restart matching');
+  await step(['node', path.join(HERE, 'local-test-gates.mjs'), 'apply'], 'local-test-gates apply');
+  const custody = await io.run(['node', STACK, 'custody'], { capture: true });
+  await step(['node', path.join(HERE, 'local-test-market.mjs')], 'local-test-market');
+  if (custody.text.trim() !== 'off') {
+    await io.waitForTaker();
+    await step(['node', path.join(HERE, 'local-test-market.mjs'), 'stop'], 'local-test-market stop');
+    await step(['node', path.join(HERE, 'local-test-gates.mjs'), 'verify'], 'local-test-gates verify');
+    const past = files === null ? null : await io.run(['node', path.join(HERE, 'journey-market-past.mjs'), ...files], { capture: true });
+    if (past && (past.code !== 0 || past.text.trim() !== 'none')) {
+      await step(['node', path.join(HERE, 'local-test-market.mjs'), 'history', '--markets', 'journeys'], 'TEST chart history');
+      history = true;
+    }
+    await step(['node', path.join(HERE, 'local-test-market.mjs')], 'local-test-market');
+  } else await step(['node', path.join(HERE, 'local-test-gates.mjs'), 'verify'], 'local-test-gates verify');
+  const seed = await io.run(['node', path.join(HERE, 'local-test-seed.mjs'), 'apply', '--state', io.state()], {
+    capture: false,
+    env: { LOCAL_TEST: '1' },
+  });
+  if (seed.code !== 0) throw new Error(`local-test-seed apply exited ${seed.code}`);
+  return { history };
+}
+
+/**
  * The whole run, with every outside effect passed in so the test can drive it: `run(argv, { env, capture })` starts a
  * child and resolves { code, text }, `say` prints a line, `ourStack()` says whether this checkout already has a live
  * stack, `slot()` reads this checkout's slot after the start, `readJson`, `branch`, `onSignal(fn)`.
@@ -195,33 +230,9 @@ export async function journeyLocal(opts, io) {
     const customer = `http://127.0.0.1:${slotPorts(slot).stack.customer}`;
     say(`local:stack journey: stack up on slot ${slot} (${customer})`);
 
-    // 2. Readied as a Real-app journeys shard is (.github/workflows/real-app-journeys.yml, "Open the TEST markets ...").
-    const step = async (argv, what) => {
-      const r = await io.run(argv, { capture: false });
-      if (r.code !== 0) throw new Error(`${what} exited ${r.code}`);
-    };
+    // 2. Readied as a Real-app journeys shard is (readyStack).
     try {
-      await step(['node', STACK, 'restart', 'matching'], 'restart matching');
-      await step(['node', path.join(HERE, 'local-test-gates.mjs'), 'apply'], 'local-test-gates apply');
-      const custody = await io.run(['node', STACK, 'custody'], { capture: true });
-      await step(['node', path.join(HERE, 'local-test-market.mjs')], 'local-test-market');
-      if (custody.text.trim() !== 'off') {
-        await io.waitForTaker();
-        await step(['node', path.join(HERE, 'local-test-market.mjs'), 'stop'], 'local-test-market stop');
-        await step(['node', path.join(HERE, 'local-test-gates.mjs'), 'verify'], 'local-test-gates verify');
-        const past = await io.run(['node', path.join(HERE, 'journey-market-past.mjs'), ...files], { capture: true });
-        if (past.code !== 0 || past.text.trim() !== 'none')
-          await step(['node', path.join(HERE, 'local-test-market.mjs'), 'history', '--markets', 'journeys'], 'TEST chart history');
-        await step(['node', path.join(HERE, 'local-test-market.mjs')], 'local-test-market');
-      } else await step(['node', path.join(HERE, 'local-test-gates.mjs'), 'verify'], 'local-test-gates verify');
-      await io
-        .run(['node', path.join(HERE, 'local-test-seed.mjs'), 'apply', '--state', io.state()], {
-          capture: false,
-          env: { LOCAL_TEST: '1' },
-        })
-        .then((r) => {
-          if (r.code !== 0) throw new Error(`local-test-seed apply exited ${r.code}`);
-        });
+      await readyStack(io, files);
     } catch (e) {
       say(`local:stack journey: the stack could not be readied: ${e.message}`);
       await stop();
@@ -258,15 +269,10 @@ export async function journeyLocal(opts, io) {
 
 // ── The real outside world ──────────────────────────────────────────────────
 
-export async function main(argv) {
-  const opts = parseArgs(argv);
-  if (opts.error) {
-    process.stdout.write(`local:stack journey: ${opts.error}\n`);
-    process.exit(2);
-  }
+/** The outside world journeyLocal and verify-app.mjs act on: this checkout, its slot's stack, child processes. */
+export function realIo() {
   let child = null;
-  let onSignal = null;
-  const io = {
+  return {
     dir: JOURNEY_DIR,
     exists: fs.existsSync,
     out: OUT,
@@ -329,9 +335,6 @@ export async function main(argv) {
       } catch {}
       await Promise.race([gone, new Promise((r) => setTimeout(r, 15_000))]);
     },
-    onSignal: (fn) => {
-      onSignal = fn;
-    },
     waitForTaker: async () => {
       const log = path.join(localStackStateFor(localStackSlot()), 'logs', 'market.log');
       for (let i = 0; i < 30; i++) {
@@ -340,6 +343,21 @@ export async function main(argv) {
         } catch {}
         await new Promise((r) => setTimeout(r, 2000));
       }
+    },
+  };
+}
+
+export async function main(argv) {
+  const opts = parseArgs(argv);
+  if (opts.error) {
+    process.stdout.write(`local:stack journey: ${opts.error}\n`);
+    process.exit(2);
+  }
+  let onSignal = null;
+  const io = {
+    ...realIo(),
+    onSignal: (fn) => {
+      onSignal = fn;
     },
   };
   let signalled = false;

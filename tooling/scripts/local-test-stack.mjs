@@ -31,6 +31,8 @@
  *   pnpm local:stack journey <J-id> [--only a,b] [--keep]
  *                                         take a free slot, start and ready the stack, run the journey, print PASS or the
  *                                         failing step, and stop what it started (journey-local.mjs)
+ *   pnpm local:stack verify <command>     launch, doctor, drive, look, map, evidence, stop: the verify-intafaced skill's
+ *                                         helpers (verify-app.mjs, .claude/skills/verify-intafaced/SKILL.md)
  *   pnpm local:stack plan                 print services, ports and Edge wiring; changes nothing
  *   node tooling/scripts/local-test-stack.mjs build [--rebuild] [--no-admin]   the builds `start` runs (services,
  *                                         Customer, console unless --no-admin, invitation site) and their stamp, and
@@ -2749,6 +2751,8 @@ function cmdPlan(flags) {
     // A Java service is built as its jar (ensureFixJar), not as a Node package.
     java: Boolean(d.java),
     running: ownedAlive(procs[d.name]),
+    // Started on the build on disk now; false means a start would restart it onto the newer build (verify doctor reads it).
+    onCurrentBuild: onCurrentBuild(procs[d.name], currentBuild('backendBuild')),
   }));
   const edgeEnv = defs.find((d) => d.name === 'edge').env();
   const edgeUpstreams = Object.fromEntries([
@@ -2758,10 +2762,12 @@ function cmdPlan(flags) {
   const act = activeCustomerDist();
   const bp = buildPlan(flags.includes('--rebuild'), act);
   const customer = { source: act.source, dir: act.dir ?? null, error: act.error ?? null, wouldBuild: bp.customer };
+  // What the next start would build: backend 'none' while the stamp still vouches for the source on disk (backendDecision).
+  const build = { backend: bp.backend, customer: bp.customer, head: bp.head, edits: bp.edits !== '' };
   if (flags.includes('--json'))
     return say(
       JSON.stringify(
-        { host: HOST, stateDir: STATE, services, edgeUpstreams, backendPackages: BACKEND_PKGS, schemas: SCHEMAS, customer },
+        { host: HOST, stateDir: STATE, services, edgeUpstreams, backendPackages: BACKEND_PKGS, schemas: SCHEMAS, customer, build },
         null,
         2,
       ),
@@ -4550,6 +4556,8 @@ async function runCli() {
     cmdCustomerDist(rest.slice(1)); // pnpm local:stack customer-dist <path>
   else if (cmd === 'start' && rest[0] === 'journey')
     await (await import('./journey-local.mjs')).main(rest.slice(1)); // pnpm local:stack journey <J-id>: start, run, stop
+  else if (cmd === 'start' && rest[0] === 'verify')
+    await (await import('./verify-app.mjs')).main(rest.slice(1)); // pnpm local:stack verify <command>: the verify-intafaced skill
   else if (cmd === 'start') await cmdStart(rest);
   else if (cmd === 'build') await cmdBuild(rest);
   else if (cmd === 'stop') await cmdStop(rest);
