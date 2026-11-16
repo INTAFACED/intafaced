@@ -587,6 +587,13 @@ const schema = serviceEnvSchema
       BANK_CARD_DISPUTE_CAP_JSON: z.string().optional(),
 
       /**
+       * The owner's cardholder sanctions list (J-bank-26 #2): names separated by `|`, each screened against every new card
+       * programme cardholder and their beneficial owners. NO DEFAULT. Blank refuses `bank.cardholder_screening_unset`
+       * and no cardholder is created.
+       */
+      BANK_CARDHOLDER_SANCTIONS: z.string().optional(),
+
+      /**
        * Owner-published risk wording for staking-style earn pools as JSON (BK-earn-04): `{ "slashing": "<text>",
        * "ownership": "<text>" }`, what slashing means for a saver and who owns a staked saving. NO DEFAULT. Blank / unset / not in shape → `earn.riskDisclosure` refuses
        * `bank.earn_risk_wording_unset` and the pool page says the wording is not published, never that there is no risk.

@@ -336,6 +336,34 @@ export type BankErrorCode =
   | 'bank.card_dispute_partner_mismatch'
   | 'bank.card_dispute_rules_unset'
   | 'bank.card_dispute_evidence_closed'
+  /** A card reassign named the cardholder that already holds it. (J-bank-26) */
+  | 'bank.card_reassign_same'
+  /** A card with an authorisation still held for its holder cannot move to another cardholder. (J-bank-26) */
+  | 'bank.card_reassign_open_hold'
+  /** A card programme staff member with the viewer role cannot change programme settings (J-bank-26 #7). (J-bank-26) */
+  | 'bank.card_programme_viewer'
+  /** A card programme setting, rule, cardholder or staff request is not in shape. (J-bank-26) */
+  | 'bank.card_programme_invalid'
+  /** An operator cannot change their own card programme role. (J-bank-26) */
+  | 'bank.card_programme_staff_self'
+  /** No card programme rule with that key or id. (J-bank-26) */
+  | 'bank.card_rule_not_found'
+  /** That rule step is not open in the rule's state (promote a rule not in shadow, roll back with nothing promoted). (J-bank-26) */
+  | 'bank.card_rule_state'
+  /** The cardholder fails the KYC or KYB gate: no verified account, or a business with no verified beneficial owner. Recorded in the review queue. (J-bank-26) */
+  | 'bank.cardholder_unverified'
+  /** The cardholder sanctions list (BANK_CARDHOLDER_SANCTIONS) is not set, so no cardholder can be screened or created. (J-bank-26) */
+  | 'bank.cardholder_screening_unset'
+  /** The cardholder is in the review queue (a screening match or a gate gap) and can hold no new card. (J-bank-26) */
+  | 'bank.cardholder_under_review'
+  /** No cardholder with that id. (J-bank-26) */
+  | 'bank.cardholder_not_found'
+  /** A cardholder request key was reused with other details. (J-bank-26) */
+  | 'bank.cardholder_conflict'
+  /** A bulk card file has a bad row; nothing was issued. (J-bank-26) */
+  | 'bank.card_bulk_invalid'
+  /** svc-bank has no signing secret, so a card programme report cannot be exported signed (J-bank-26 #7). */
+  | 'bank.card_report_signing_unset'
   /** Cards are not offered to residents of the country given. */
   | 'bank.card_not_eligible'
   /** The person already holds as many active cards of this kind as the programme allows. */
