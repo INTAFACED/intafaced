@@ -1,13 +1,13 @@
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { expect } from './journey.mjs';
-import { api, toUnits, tool } from './stack.mjs';
+import { api, stackUrl, tool, toUnits } from './stack.mjs';
 import { venueRecord } from './venue.mjs';
 
 // The person's venue account, read from the stack's LOCAL TEST venue (packages/venue-sim) itself, never our ledger,
 // engine or door. svc-trade's door is off unless LOCAL_STACK_USER_VENUE=on: `venueOn` and `venueOff` switch it. All TEST.
 
 /** The LOCAL TEST venue's own loopback address (local-test-stack.mjs PORTS['test-venue']). */
-export const TEST_VENUE = 'http://127.0.0.1:14560';
+export const TEST_VENUE = stackUrl('test-venue');
 
 /** The venue's markets for the venue journeys (local-test-venue.mjs: BTC-USDC cash spot, BTC-PERP isolated only). */
 export const VENUE_SPOT = 'BTC-USDC';

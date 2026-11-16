@@ -3,7 +3,19 @@ import { randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
-import { ROOT, api, fromUnits, fund, journeyState, signUpInBrowser, toUnits, signOutBrowser, tool } from './stack.mjs';
+import {
+  api,
+  fromUnits,
+  fund,
+  journeyState,
+  ROOT,
+  signOutBrowser,
+  signUpInBrowser,
+  STACK_PORTS,
+  stackUrl,
+  tool,
+  toUnits,
+} from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
 import { withPartner } from './partner.mjs';
@@ -623,7 +635,7 @@ function redeliverPayment(ledgerTxId) {
     console.log(JSON.stringify(payload));`;
   const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], {
     cwd: path.join(ROOT, 'packages', 'events'),
-    env: { ...process.env, NATS_URL: 'nats://127.0.0.1:14232', NATS_STREAM_PREFIX: 'LOCAL_TEST', LEDGER_TX: ledgerTxId },
+    env: { ...process.env, NATS_URL: `nats://127.0.0.1:${STACK_PORTS.nats}`, NATS_STREAM_PREFIX: 'LOCAL_TEST', LEDGER_TX: ledgerTxId },
     encoding: 'utf8',
     timeout: 60_000,
   });
@@ -634,7 +646,7 @@ function redeliverPayment(ledgerTxId) {
 /** Until svc-notify's consumer of posted personal sends has taken and acknowledged every message on the bus. */
 async function noticesCaughtUp() {
   await expect(async () => {
-    const info = await fetch('http://127.0.0.1:18232/jsz?consumers=true').then((r) => r.json());
+    const info = await fetch(`${stackUrl('natsMonitor')}/jsz?consumers=true`).then((r) => r.json());
     const consumer = info.account_details
       ?.flatMap((a) => a.stream_detail ?? [])
       .flatMap((st) => st.consumer_detail ?? [])

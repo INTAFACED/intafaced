@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { edgeTrustFromEnv } from '@intafaced/config';
 import { createEdgeContext } from '@intafaced/contracts';
@@ -10,6 +11,7 @@ import { openTemplateRepository } from './templates/open.js';
 import { env } from './env.js';
 import { quantReadyHonesty } from './ready-honesty.js';
 import { createQuantRouter } from './router.js';
+import { idempotencyKeyHeaderOf, openKeyIdempotencyRepository, refuseKeyCall } from './key-api/key-api.js';
 import { openRunRepository } from './runs/open.js';
 import { openStrategyRepository } from './studio/open.js';
 import { openQuota } from './quota/open.js';
@@ -21,6 +23,8 @@ import { openLibraryRepository } from './library/open.js';
 import { parseLicences, parseRealismChecklist } from './library/service.js';
 import { sweepFillAlerts } from './notify/sweep.js';
 import { openLifecycleRepository } from './lifecycle/open.js';
+import { openApprovalRepository } from './approval/repository.js';
+import { capturePass, createMemoryLakeStore, createPostgresLakeStore, type LakeSettings } from './lake/lake.js';
 import { parseQuotaSeed } from './quota/quota.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 
@@ -54,6 +58,10 @@ const quota = openQuota(
   { defaultProfile: env.QUANT_DEFAULT_QUOTA_PROFILE ?? null, seed: parseQuotaSeed(env.QUANT_TEST_QUOTA_SEED) },
 );
 const strategies = openStrategyRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX }, quota.gate);
+const keyIdempotency = openKeyIdempotencyRepository(
+  { DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX },
+  (url, max) => postgres(url, { max, onnotice: () => undefined }),
+);
 const runs = openRunRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX }, quota.gate);
 const disclosure = openDisclosureRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
 const templates = openTemplateRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
@@ -64,6 +72,19 @@ const risk = openRiskRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_
 // Strategy teams (J-algo-dev-08): a new collaborator counts against the owner's plan inside the insert's transaction.
 const team = openTeamRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX }, quota.gate);
 const library = openLibraryRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
+// The live approval policy and approvals (J-algo-dev-16 #4).
+const approvals = openApprovalRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
+// The market data lake (J-algo-dev-16 #2): its own rows in svc-quant's schema, captured from svc-trade's public routes.
+const lakeSettings: LakeSettings = {
+  symbols: (env.QUANT_LAKE_SYMBOLS ?? '')
+    .split(',')
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0),
+  captureSeconds: env.QUANT_LAKE_CAPTURE_SECONDS === undefined ? null : Number(env.QUANT_LAKE_CAPTURE_SECONDS),
+  retentionDays: env.QUANT_LAKE_RETENTION_DAYS === undefined ? null : Number(env.QUANT_LAKE_RETENTION_DAYS),
+};
+const lakeSql = env.DATABASE_URL && env.DATABASE_POOL_MAX ? postgres(env.DATABASE_URL, { max: 2, onnotice: () => undefined }) : null;
+const lakeStore = lakeSql ? createPostgresLakeStore(lakeSql) : createMemoryLakeStore();
 
 function embedOrigins(raw: string | undefined): readonly string[] | null {
   if (!raw) return null;
@@ -104,6 +125,7 @@ export const appRouter = createQuantRouter({
   },
   strategies: strategies.repository,
   runs: runs.repository,
+  keyIdempotency: keyIdempotency.repository,
   disclosure: disclosure.repository,
   templates: templates.repository,
   quota: quota.repository,
@@ -117,6 +139,12 @@ export const appRouter = createQuantRouter({
   },
   editLockSeconds: env.QUANT_EDIT_LOCK_SECONDS === undefined ? null : Number(env.QUANT_EDIT_LOCK_SECONDS),
   lifecycle: lifecycle.repository,
+  approvals: approvals.repository,
+  monteCarlo: {
+    runs: env.QUANT_MONTECARLO_RUNS === undefined ? null : Number(env.QUANT_MONTECARLO_RUNS),
+    minTrades: env.QUANT_MONTECARLO_MIN_TRADES === undefined ? null : Number(env.QUANT_MONTECARLO_MIN_TRADES),
+  },
+  dataLake: { store: lakeStore, settings: lakeSettings },
   releaseNoteMax: env.QUANT_RELEASE_NOTE_MAX === undefined ? null : Number(env.QUANT_RELEASE_NOTE_MAX),
   share: {
     repository: shares.repository,
@@ -140,7 +168,15 @@ await app.register(fastifyTRPCPlugin, {
   prefix: '/trpc',
   trpcOptions: {
     router: appRouter,
-    createContext: ({ req }) => edgeContext(req),
+    // A key reaches only the strategy API, each procedure under its scope (J-algo-dev-14); a session is unchanged.
+    createContext: ({ req, info }) => {
+      const ctx = edgeContext(req);
+      refuseKeyCall(
+        ctx.principal,
+        info.calls.map((call) => call.path),
+      );
+      return { ...ctx, idempotencyKeyHeader: idempotencyKeyHeaderOf(req.headers) };
+    },
   } satisfies FastifyTRPCPluginOptions<AppRouter>['trpcOptions'],
 });
 
@@ -203,10 +239,27 @@ const fillSweep = setInterval(() => {
 }, FILL_SWEEP_MS);
 fillSweep.unref();
 
+// The lake's capture (J-algo-dev-16 #2): one pass per interval while symbols, interval, svc-trade and the store are set.
+// A pass that fails stores nothing and the next one tries again; the time it missed reads as a gap.
+let capturing: Promise<unknown> | null = null;
+const lakeCapture =
+  lakeSql && env.TRADE_URL && lakeSettings.symbols.length > 0 && lakeSettings.captureSeconds !== null
+    ? setInterval(() => {
+        if (capturing) return;
+        capturing = capturePass({ tradeUrl: env.TRADE_URL!, settings: lakeSettings, store: lakeStore, now: () => Date.now() })
+          .catch((err: unknown) => app.log.warn({ err }, 'svc-quant: lake capture pass failed; the next pass tries again'))
+          .finally(() => {
+            capturing = null;
+          });
+      }, lakeSettings.captureSeconds * 1000)
+    : null;
+lakeCapture?.unref();
+
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     void (async () => {
       clearInterval(fillSweep);
+      if (lakeCapture) clearInterval(lakeCapture);
       await app.close();
       await bus?.close();
       await notify.close();
@@ -215,10 +268,13 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       await library.close();
       await strategies.close();
       await runs.close();
+      await keyIdempotency.close();
       await disclosure.close();
       await templates.close();
       await quota.close();
       await lifecycle.close();
+      await approvals.close();
+      await lakeSql?.end({ timeout: 5 });
       process.exit(0);
     })();
   });

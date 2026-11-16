@@ -173,12 +173,41 @@ export interface UserVenueLeverage {
   readonly marginMode: VenueMarginMode;
 }
 
+/**
+ * A change to one resting order in place (J-cex-spot-05 #2), named by the venue's own client id so an order placed from
+ * any page or device can be changed: `amount` is the amount left after the change and `price` its price. Offered only on
+ * a venue whose descriptor declares `amendsInPlace`; elsewhere the change is a `replace_order`, signed once. Stored under
+ * the caller's business key (`amend:<owner>:<client id>:<amount>`).
+ */
 export interface AmendUserOrderIntent {
   readonly kind: 'amend_order';
   readonly symbol: string;
-  readonly clientOrderKey: string;
+  readonly venueClientOrderId: string;
   readonly amount: Amount;
   readonly price: Amount;
+}
+
+/**
+ * One resting order cancelled and a new one placed in its place, in one signed action (J-cex-spot-05 #2, #4): the venue
+ * cancels `venueClientOrderId` first (its lock released once), then places `order` under its own client order key. The
+ * venue answers both (`legs`: the cancel, then the order): a refused replacement leaves the original cancelled, and it is
+ * never said to be safe. A replacement whose original is no longer resting is not placed.
+ */
+export interface ReplaceUserOrderIntent {
+  readonly kind: 'replace_order';
+  readonly symbol: string;
+  readonly venueClientOrderId: string;
+  readonly order: PlaceUserOrderIntent;
+}
+
+/**
+ * Several resting orders cancelled in one signed action (J-cex-spot-05 #5, #6), each named by the venue's client id. The
+ * venue answers each (`legs`, in the order sent): one unknown or already final is reported and the rest are cancelled.
+ * Offered only on a venue whose descriptor declares `cancelsPerAction`; at most that many ids.
+ */
+export interface CancelUserOrdersIntent {
+  readonly kind: 'cancel_orders';
+  readonly orders: readonly { readonly symbol: string; readonly venueClientOrderId: string }[];
 }
 
 export interface CancelUserOrderIntent {
@@ -313,7 +342,9 @@ export type VenueIntent =
   | PlaceUserOrdersIntent
   | UpdateLeverageIntent
   | AmendUserOrderIntent
+  | ReplaceUserOrderIntent
   | CancelUserOrderIntent
+  | CancelUserOrdersIntent
   | WithdrawIntent
   | ApproveBuilderFeeIntent
   | ApproveAgentIntent
@@ -404,8 +435,9 @@ export type VenueSubmitOutcome =
       readonly venueRef: string | null;
       readonly order: UserVenueOrder | null;
       /**
-       * A `place_orders` action only: the venue's own answer for each of its orders, in the order sent. The action is
-       * accepted when the venue took the signed action; each order may still be refused on its own.
+       * A `place_orders` action: the venue's own answer for each of its orders, in the order sent; a `cancel_orders`
+       * action: its answer for each cancel; a `replace_order`: the cancel, then the replacement. The action is accepted
+       * when the venue took the signed action; each part may still be refused on its own.
        */
       readonly legs?: readonly VenueLegOutcome[];
       readonly asOf: Date;
@@ -644,6 +676,15 @@ export interface UserVenueOrder {
  * sent (the order's own status says how it filled); `failed` when it was triggered and the venue could not carry it
  * out, with the venue's reason in its own words (`failure`) and the position left as it was.
  */
+/**
+ * One order in the venue's own order history (J-cex-spot-06 #1): the order as the venue reports it now, and when the venue
+ * says it was placed.
+ */
+export interface UserVenueOrderRecord {
+  readonly order: UserVenueOrder;
+  readonly placedAt: Date;
+}
+
 export interface UserVenueOrderTrigger extends VenueTrigger {
   readonly state: 'waiting' | 'triggered' | 'failed';
   readonly triggeredAt: Date | null;
@@ -1213,6 +1254,19 @@ export interface UserVenueDescriptor extends VenueDescriptor {
    * per signature (`ordersTakenTogether` reads it as 1), so a close and an open are each signed.
    */
   readonly ordersPerAction?: number;
+  /**
+   * True when this venue changes a resting order's amount in place (`amend_order`), keeping its place in the queue. A
+   * venue that declares none is changed by a cancel-and-replace signed once (`replace_order`).
+   */
+  readonly amendsInPlace?: boolean;
+  /** The most orders this venue cancels in one signed action (`cancel_orders`). None declared: one cancel per signature. */
+  readonly cancelsPerAction?: number;
+}
+
+/** The most orders the venue cancels in one signed action; 0 when it declares none (`cancel_orders` is not offered). */
+export function cancelsTakenTogether(venue: Pick<UserVenueDescriptor, 'cancelsPerAction'>): number {
+  const n = venue.cancelsPerAction;
+  return typeof n === 'number' && Number.isSafeInteger(n) && n > 0 ? n : 0;
 }
 
 /** The most orders the venue takes in one signed action; 1 when it declares none. */
@@ -1331,6 +1385,12 @@ export interface UserVenue {
   positions(account: UserVenueAccount): Promise<AsOf<readonly UserVenuePosition[]>>;
   /** By the signed action's nonce, the only id the venue knows it by. `null` is a confirmed miss. */
   withdrawal(account: UserVenueAccount, nonce: string): Promise<AsOf<UserVenueWithdrawal | null>>;
+  /**
+   * The account's orders in every state, newest placed first, as the venue keeps them (J-cex-spot-06 #1): open, filled,
+   * partly filled and cancelled. A venue keeps a bounded history (Hyperliquid: its 2000 most recent orders). Optional: a
+   * venue that publishes no order history leaves it out, and the door refuses the read `not_offered`.
+   */
+  orderHistory?(account: UserVenueAccount): Promise<AsOf<readonly UserVenueOrderRecord[]>>;
   /**
    * The on-chain deposits the venue has seen for this account, newest first (J-dex-protocol-05 #2). Optional: a venue
    * that publishes no deposit list leaves it out, and the door refuses the read `not_offered`.

@@ -212,6 +212,16 @@ export const features: readonly Feature[] = [
     tab: 'money',
   },
   {
+    id: 'bank-account',
+    label: 'Your bank account',
+    paths: ['/bank/account'],
+    status: 'blocked',
+    reason:
+      "Onboarding, information requests, reviews, closure and data requests are the partner bank's; the owner's requirements, an answer's size cap and the reopen window are owner values: blank, each refuses with its own code",
+    unlock: 'J-bank-17 #1 #2 #4 #5 #6 passing on main',
+    tab: 'money',
+  },
+  {
     id: 'bank-limits',
     label: 'Limits, fees and plan',
     paths: ['/bank/limits'],
@@ -584,6 +594,7 @@ export const features: readonly Feature[] = [
       '/quant/live',
       '/quant/live/:runId',
       '/quant/limits',
+      '/quant/data',
       '/quant/backtest',
       '/quant/editor',
       '/quant/tester',

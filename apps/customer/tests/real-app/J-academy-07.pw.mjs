@@ -6,7 +6,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { CHAIN_ID, TOKEN_USD, connectWallet, fundOnTestChain, testChain } from './dex.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
-import { api } from './stack.mjs';
+import { api, STACK_PORTS } from './stack.mjs';
 import { installTestWallet, testWalletKey } from './test-wallet.mjs';
 import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
 
@@ -176,7 +176,7 @@ const REPO = fileURLToPath(new URL('../../../../', import.meta.url));
 async function purchaseRows(courseId) {
   const { ctx } = await founders();
   const postgres = createRequire(nodePath.join(REPO, 'services', 'svc-academy', 'package.json'))('postgres');
-  const port = ctx.marker.ports.postgres ?? 15460;
+  const port = ctx.marker.ports.postgres ?? STACK_PORTS.postgres;
   const sql = postgres(`postgres://svc_academy:${encodeURIComponent(ctx.secrets.pgService)}@127.0.0.1:${port}/intafaced_local_test`, {
     max: 1,
     onnotice: () => {},

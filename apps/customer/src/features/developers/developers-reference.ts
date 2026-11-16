@@ -996,6 +996,22 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     summary: 'One venue order by its client order id: how an answer that was not definite is read back',
   },
   {
+    name: 'venueOrderHistory',
+    method: 'GET',
+    path: '/api/v1/venue/orders/history',
+    product: 'accounts',
+    access: 'private',
+    summary: 'Your venue order history as the venue keeps it, filtered by side, state, market and time placed, a page at a time',
+  },
+  {
+    name: 'venueOrderRecord',
+    method: 'GET',
+    path: '/api/v1/venue/orders/record',
+    product: 'accounts',
+    access: 'private',
+    summary: 'Our record of one venue order: when it was placed, each accepted amendment, and the builder fee it was signed with',
+  },
+  {
     name: 'venueFills',
     method: 'GET',
     path: '/api/v1/venue/fills',
@@ -1337,7 +1353,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     product: 'accounts',
     access: 'private',
     summary:
-      'Start a saved order-block strategy live on one of your own venue sub-accounts; a blank restart-attempt, state-on-restart or cap setting is refused with the field named, and the answer is the agent permission for your wallet to sign',
+      'Start a saved order-block strategy live on one of your own venue sub-accounts, from a signed-in session only (an API key answers 404 quant.key_no_such_endpoint: there is no deploy by key); a blank restart-attempt, state-on-restart or cap setting is refused with the field named, and the answer is the agent permission for your wallet to sign',
   },
   {
     name: 'liveRun',

@@ -1,4 +1,5 @@
 import { parseStatementJobsTestHold, startStatementJobWorker } from './statements/statement-jobs.js';
+import { createIdentityExtraControls, unconfiguredExtraControls } from './safety/extra-controls.js';
 import { failingHistoryPages, parseActivityTestFault } from './activity/activity-test-fault.js';
 import type { z } from 'zod';
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
@@ -395,6 +396,9 @@ const bank = createBankServices(sql, ledger, history, {
   /** The staking risk wording (BK-earn-04): the owner's, blank refuses. */
   earnRiskWording: env.BANK_EARN_RISK_WORDING_JSON,
   blockedRegionNotice: env.BANK_BLOCKED_REGION_NOTICE,
+  onboardingRequirements: env.BANK_ONBOARDING_REQUIREMENTS_JSON,
+  infoRequestUpload: env.BANK_INFO_REQUEST_UPLOAD_JSON,
+  reopenWindowDays: env.BANK_REOPEN_WINDOW_DAYS,
   accountCurrencies: env.BANK_ACCOUNT_CURRENCIES,
   spaceLimit: env.BANK_SPACE_LIMIT,
   spaceUnlockWaitHours: env.BANK_SPACE_UNLOCK_WAIT_HOURS,
@@ -461,6 +465,11 @@ const approvalConsumer = env.IDENTITY_URL
   : unwiredApprovalConsumer();
 
 export const appRouter = createBankRouter(bank, {
+  // The person's own extra checks (BK-safe-01): read from identity on every send to another person. No IDENTITY_URL refuses
+  // those sends with bank.extra_controls_unset rather than acting as if no extras were set.
+  extraControls: env.IDENTITY_URL
+    ? createIdentityExtraControls(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, undefined, ledgerS2s)
+    : unconfiguredExtraControls(),
   scheduledTransfersEnabled: env.SCHEDULED_TRANSFERS_ENABLED,
   interestAccrualEnabled: env.INTEREST_ACCRUAL_ENABLED,
   loanAccrualEnabled: env.LOAN_ACCRUAL_ENABLED,

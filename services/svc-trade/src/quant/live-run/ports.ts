@@ -16,6 +16,11 @@ export interface StrategyVersionRead {
   readonly blocks: ReadonlyArray<{ readonly side: 'buy' | 'sell'; readonly symbol: string; readonly qty: string }>;
   /** True when the version trades by signal rules rather than order blocks. */
   readonly signalRules: boolean;
+  /**
+   * The account's live approval policy as svc-quant reads it (J-algo-dev-16 #4): on, and this version holds no current
+   * approval by a different member, means it may not go live. A svc-quant answer without it reads as no policy.
+   */
+  readonly approvalRequired: boolean;
 }
 
 export interface StrategySource {
@@ -46,13 +51,21 @@ export function createQuantStrategySource(baseUrl: string, fetchFn: typeof globa
       }
       if (response.status === 404) return null;
       if (!response.ok) throw new StrategySourceUnavailable(`svc-quant refused the read (${response.status})`);
-      const head = unwrapTrpcData(body) as { versions?: unknown } | null;
+      const head = unwrapTrpcData(body) as { versions?: unknown; liveApproval?: unknown } | null;
       const versions = Array.isArray(head?.versions) ? (head.versions as Array<Record<string, unknown>>) : null;
       if (!versions) throw new StrategySourceUnavailable('svc-quant answered outside its contract');
       const v = versions.find((x) => x.version === version);
       if (!v) return null;
       const blocks = Array.isArray(v.blocks) ? (v.blocks as StrategyVersionRead['blocks']) : [];
-      return { name: String(v.name ?? ''), version, blocks, signalRules: v.modules !== null && v.modules !== undefined };
+      const approval = head?.liveApproval as { required?: unknown; approvedVersions?: unknown } | undefined;
+      const approved = Array.isArray(approval?.approvedVersions) && approval.approvedVersions.includes(version);
+      return {
+        name: String(v.name ?? ''),
+        version,
+        blocks,
+        signalRules: v.modules !== null && v.modules !== undefined,
+        approvalRequired: approval?.required === true && !approved,
+      };
     },
   };
 }

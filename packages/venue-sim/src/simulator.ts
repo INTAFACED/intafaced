@@ -13,6 +13,9 @@ import {
   type UserVenueBuilderClaim,
   type PlaceUserOrderIntent,
   type PlaceUserOrdersIntent,
+  type ReplaceUserOrderIntent,
+  type CancelUserOrdersIntent,
+  cancelsTakenTogether,
   type VenueLegOutcome,
   type PreparedVenueAction,
   type UserVenue,
@@ -37,6 +40,7 @@ import {
   type UserVenueMarket,
   type UserVenueMarketStatus,
   type UserVenueOrder,
+  type UserVenueOrderRecord,
   type UserVenuePosition,
   type UserVenueSubAccount,
   type UserVenueSession,
@@ -288,6 +292,10 @@ export interface SimOptions {
    * none declared, so it takes one order per signature.
    */
   readonly ordersPerAction?: number;
+  /** True when this TEST venue lowers a resting order's amount in place (`amend_order`), as its descriptor declares it. */
+  readonly amendsInPlace?: boolean;
+  /** The most orders this TEST venue cancels in one signed action (`cancel_orders`). Default: none declared. */
+  readonly cancelsPerAction?: number;
 }
 
 interface AccountState {
@@ -320,6 +328,8 @@ interface OrderState {
   order: UserVenueOrder;
   readonly account: AccountState;
   readonly seq: number;
+  /** When the venue took the order (its order history, J-cex-spot-06 #1). */
+  readonly placedAt: Date;
   readonly builderFee: { readonly builder: string; readonly feeBps: Amount } | null;
   readonly leverageBps: number | null;
   readonly marginMode: VenueMarginMode | null;
@@ -373,6 +383,22 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
    */
   declareAgentPermissionReach(reach: AgentPermissionReach): void {
     this.venue = { ...this.venue, agentPermissionReach: reach };
+  }
+  /**
+   * TEST: whether the descriptor declares an amend in place (`amendsInPlace`), so a journey can show the app's other branch,
+   * a reviewed cancel-and-replace, against the same running venue (J-cex-spot-05 #2). A door reads it when it connects.
+   */
+  declareAmendsInPlace(on: boolean): void {
+    const { amendsInPlace: _dropped, ...rest } = this.venue;
+    this.venue = on ? { ...rest, amendsInPlace: true } : rest;
+  }
+  /**
+   * TEST: how many cancels the descriptor declares it takes in one signed action (`cancelsPerAction`); `null` declares
+   * none, so a cancel goes one per signature. A door reads it when it connects (J-cex-spot-05 #5, #6).
+   */
+  declareCancelsPerAction(n: number | null): void {
+    const { cancelsPerAction: _dropped, ...rest } = this.venue;
+    this.venue = n === null ? rest : { ...rest, cancelsPerAction: n };
   }
   /** The chain id every action's EIP-712 domain names. */
   readonly chainId: number;
@@ -447,6 +473,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       // An agent approved on a sub-account is live only in that account's state (`agentLive`), so it trades nothing else.
       agentPermissionReach: 'own_account_only',
       ...(options.ordersPerAction !== undefined ? { ordersPerAction: options.ordersPerAction } : {}),
+      ...(options.amendsInPlace ? { amendsInPlace: true } : {}),
+      ...(options.cancelsPerAction !== undefined ? { cancelsPerAction: options.cancelsPerAction } : {}),
     };
     this.clock = options.clock;
     this.chainId = testVenueDomain(options.chainId ?? TEST_VENUE_CHAIN_ID).chainId;
@@ -591,6 +619,16 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   setMarketFees(symbol: string, fees: { makerFeeBps: MaybeKnown<Amount>; takerFeeBps: MaybeKnown<Amount> }): void {
     const market = this.market(symbol);
     this.marketsBySymbol.set(symbol, { ...market, makerFeeBps: fees.makerFeeBps, takerFeeBps: fees.takerFeeBps });
+  }
+
+  /**
+   * TEST control: the prices a trigger order on this perpetual may be judged on (J-cex-spot-06 #6 turns them on for
+   * BTC-PERP for its file and back off after it). `[]` takes no trigger order there. A waiting trigger order stays as it is.
+   */
+  setTriggerSources(symbol: string, sources: readonly VenueTriggerSource[]): void {
+    const market = this.market(symbol);
+    if (market.kind !== 'perpetual') refuse(this.venue.id, 'not_offered', `${symbol} is cash spot: no trigger orders`);
+    this.marketsBySymbol.set(symbol, { ...market, triggerSources: [...new Set(sources)] });
   }
 
   /**
@@ -1120,7 +1158,13 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     this.up();
     this.validate(account, signer, intent);
     const cloid =
-      intent.kind === 'place_order' || intent.kind === 'cancel_order' ? venueClientOrderId(this.venue.id, intent.clientOrderKey) : null;
+      intent.kind === 'place_order' || intent.kind === 'cancel_order'
+        ? venueClientOrderId(this.venue.id, intent.clientOrderKey)
+        : intent.kind === 'replace_order'
+          ? venueClientOrderId(this.venue.id, intent.order.clientOrderKey)
+          : intent.kind === 'amend_order'
+            ? intent.venueClientOrderId
+            : null;
     const builderFee: PreparedVenueAction['builderFee'] =
       intent.kind === 'place_order' && intent.builderFee
         ? { builder: intent.builderFee.builder.toLowerCase(), feeBps: intent.builderFee.feeBps }
@@ -1218,9 +1262,57 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       case 'approve_builder_fee':
         if (compare(intent.maxFeeBps, ZERO) < 0) refuse(this.venue.id, 'venue_rejected', 'a builder fee approval cannot be negative');
         return;
-      case 'amend_order':
-        refuse(this.venue.id, 'not_offered', 'amend is not offered on the TEST venue simulator: cancel and place a new order');
-      // falls through: refuse never returns
+      case 'amend_order': {
+        if (!this.venue.amendsInPlace)
+          refuse(this.venue.id, 'not_offered', `${this.venue.displayName} does not amend in place: cancel and replace the order`);
+        const resting = this.restingOrder(state, intent.symbol, intent.venueClientOrderId);
+        if (compare(intent.price, resting.order.price) !== 0)
+          refuse(this.venue.id, 'not_offered', 'a new price is not an amend in place: cancel and replace the order');
+        if (compare(intent.amount, ZERO) <= 0) refuse(this.venue.id, 'venue_rejected', 'the amount left must be positive');
+        if (compare(intent.amount, resting.order.remaining) >= 0)
+          refuse(this.venue.id, 'not_offered', `${this.venue.displayName} amends in place only to lower the amount left`);
+        this.checkOrderOnItsFace(state, {
+          kind: 'place_order',
+          symbol: intent.symbol,
+          side: resting.order.side,
+          type: resting.order.type,
+          amount: intent.amount,
+          price: intent.price,
+          timeInForce: resting.order.timeInForce,
+          reduceOnly: resting.order.reduceOnly,
+          clientOrderKey: 'amend:check',
+          builderFee: null,
+        });
+        return;
+      }
+      case 'replace_order': {
+        if (intent.order?.kind !== 'place_order') refuse(this.venue.id, 'venue_rejected', 'a replacement is an order');
+        if (intent.order.symbol !== intent.symbol)
+          refuse(this.venue.id, 'venue_rejected', 'the replacement is on the market of the order it replaces');
+        if (intent.order.trigger || intent.order.parentClientOrderKey)
+          refuse(this.venue.id, 'not_offered', 'a trigger order is not placed as a replacement');
+        if (venueClientOrderId(this.venue.id, intent.order.clientOrderKey) === intent.venueClientOrderId)
+          refuse(this.venue.id, 'venue_rejected', 'the replacement has a client id of its own');
+        this.market(intent.symbol);
+        this.validate(account, signer, intent.order);
+        return;
+      }
+      case 'cancel_orders': {
+        const most = cancelsTakenTogether(this.venue);
+        if (most < 1) refuse(this.venue.id, 'not_offered', `${this.venue.displayName} cancels one order per signature`);
+        if (!Array.isArray(intent.orders) || intent.orders.length < 1)
+          refuse(this.venue.id, 'venue_rejected', 'a batch cancel names at least one order');
+        if (intent.orders.length > most)
+          refuse(this.venue.id, 'not_offered', `${this.venue.displayName} cancels at most ${most} orders in one signed action`);
+        const ids = new Set(intent.orders.map((o) => o?.venueClientOrderId));
+        if (ids.size !== intent.orders.length) refuse(this.venue.id, 'venue_rejected', 'each order in a batch cancel is named once');
+        for (const o of intent.orders) {
+          if (typeof o?.venueClientOrderId !== 'string' || o.venueClientOrderId === '')
+            refuse(this.venue.id, 'venue_rejected', 'each order in a batch cancel is named by its client id');
+          this.market(o.symbol);
+        }
+        return;
+      }
       case 'cancel_order':
         this.market(intent.symbol);
         venueClientOrderId(this.venue.id, intent.clientOrderKey); // refuses a key that is not a business key
@@ -1351,7 +1443,9 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
           : []
         : prepared.intent.kind === 'place_orders' && outcome.definite && outcome.accepted
           ? prepared.intent.orders.filter((_, i) => outcome.legs?.[i]?.accepted).map((o) => o.clientOrderKey)
-          : [];
+          : prepared.intent.kind === 'replace_order' && outcome.definite && outcome.accepted && outcome.legs?.[1]?.accepted
+            ? [prepared.intent.order.clientOrderKey]
+            : [];
     if (placedKeys.length > 0 && recovered) {
       const signers = this.orderSigners.get(key) ?? new Map<string, VenueSigner>();
       this.orderSigners.set(key, signers);
@@ -1406,6 +1500,14 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   async orderByClientId(account: UserVenueAccount, cloid: string): Promise<AsOf<UserVenueOrder | null>> {
     this.up();
     return this.asOf(this.account(account).orders.get(cloid)?.order ?? null);
+  }
+
+  async orderHistory(account: UserVenueAccount): Promise<AsOf<readonly UserVenueOrderRecord[]>> {
+    this.up();
+    const list = [...this.account(account).orders.values()]
+      .sort((a, b) => b.seq - a.seq)
+      .map((o) => ({ order: o.order, placedAt: o.placedAt }));
+    return this.asOf(list);
   }
 
   async fills(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueFill[]>> {
@@ -1836,8 +1938,105 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     return market;
   }
 
+  /** A live order of this account on `symbol`, by its client id; refuses `unknown_order` or `order_final`. */
+  private restingOrder(state: AccountState, symbol: string, cloid: string): OrderState {
+    const found = state.orders.get(cloid);
+    if (!found || found.order.symbol !== symbol) refuse(this.venue.id, 'unknown_order', `no order ${cloid} on ${symbol}`);
+    if (!isLive(found)) refuse(this.venue.id, 'order_final', `the order is already ${found.order.status}`);
+    return found;
+  }
+
+  /** The signer's authority and the action's face, checked again at submit: a definite refusal, or null. */
+  private refusalAtSubmit(prepared: PreparedVenueAction): VenueSubmitOutcome | null {
+    try {
+      assertSignerMaySign(prepared.account, prepared.signer, prepared.intent);
+      if (prepared.signer.role === 'agent' && !this.agentLive(this.account(prepared.account), prepared.signer.address))
+        refuse(this.venue.id, 'signer_not_authorised', 'the agent key is not approved on this account, or has expired');
+      this.validate(prepared.account, prepared.signer, prepared.intent);
+      return null;
+    } catch (error) {
+      if (error instanceof VenueRefusalError)
+        return {
+          definite: true,
+          accepted: false,
+          refusal: { venueId: this.venue.id, code: error.refusal.code, detail: error.refusal.detail },
+          asOf: this.clock(),
+        };
+      throw error;
+    }
+  }
+
+  /** One cancel inside a signed action: the venue's own answer for that order. */
+  private cancelOne(state: AccountState, symbol: string, cloid: string): VenueLegOutcome {
+    const now = this.clock();
+    const found = state.orders.get(cloid);
+    if (!found || found.order.symbol !== symbol)
+      return {
+        definite: true,
+        accepted: false,
+        refusal: { venueId: this.venue.id, code: 'unknown_order', detail: `no order ${cloid} on ${symbol}` },
+        asOf: now,
+      };
+    if (!isLive(found)) {
+      // A repeat cancel reports the same outcome.
+      if (found.order.status === 'canceled')
+        return { definite: true, accepted: true, venueRef: found.order.venueOrderId, order: found.order, asOf: now };
+      return {
+        definite: true,
+        accepted: false,
+        refusal: { venueId: this.venue.id, code: 'order_final', detail: `the order is already ${found.order.status}` },
+        asOf: now,
+      };
+    }
+    this.release(found, 'canceled');
+    return { definite: true, accepted: true, venueRef: found.order.venueOrderId, order: found.order, asOf: now };
+  }
+
+  /**
+   * A cancel-and-replace signed once: the original is cancelled first (its lock released once), then the replacement is
+   * placed under its own client id. Sent again, it answers as the first time: the replacement already placed is the
+   * same order, and the original stays cancelled.
+   */
+  private applyReplace(prepared: PreparedVenueAction, intent: ReplaceUserOrderIntent): VenueSubmitOutcome {
+    const state = this.account(prepared.account);
+    const now = this.clock();
+    const newId = venueClientOrderId(this.venue.id, intent.order.clientOrderKey);
+    const placed = state.orders.get(newId);
+    const original = state.orders.get(intent.venueClientOrderId);
+    if (placed && original) {
+      const leg: VenueLegOutcome = { definite: true, accepted: true, venueRef: placed.order.venueOrderId, order: placed.order, asOf: now };
+      return {
+        definite: true,
+        accepted: true,
+        venueRef: null,
+        order: null,
+        legs: [this.cancelOne(state, intent.symbol, intent.venueClientOrderId), leg],
+        asOf: now,
+      };
+    }
+    const refusal = this.refusalAtSubmit(prepared);
+    if (refusal) return refusal;
+    const cancel = this.cancelOne(state, intent.symbol, intent.venueClientOrderId);
+    if (!cancel.accepted) return cancel;
+    const leg = this.apply({ ...prepared, intent: intent.order, venueClientOrderId: newId });
+    this.runTriggers();
+    if (!leg.definite) throw new Error('a TEST venue order answers definitely');
+    return { definite: true, accepted: true, venueRef: null, order: null, legs: [cancel, leg], asOf: now };
+  }
+
+  /** Several cancels signed once: each order answered on its own, in the order named. */
+  private applyCancels(prepared: PreparedVenueAction, intent: CancelUserOrdersIntent): VenueSubmitOutcome {
+    const refusal = this.refusalAtSubmit(prepared);
+    if (refusal) return refusal;
+    const state = this.account(prepared.account);
+    const legs = intent.orders.map((o) => this.cancelOne(state, o.symbol, o.venueClientOrderId));
+    return { definite: true, accepted: true, venueRef: null, order: null, legs, asOf: this.clock() };
+  }
+
   private apply(prepared: PreparedVenueAction): VenueSubmitOutcome {
     if (prepared.intent.kind === 'place_orders') return this.applyTogether(prepared, prepared.intent);
+    if (prepared.intent.kind === 'replace_order') return this.applyReplace(prepared, prepared.intent);
+    if (prepared.intent.kind === 'cancel_orders') return this.applyCancels(prepared, prepared.intent);
     const state = this.account(prepared.account);
     const intent = prepared.intent;
     const now = this.clock();
@@ -1906,8 +2105,18 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         this.release(existing, 'canceled');
         return accepted(existing.order.venueOrderId, existing.order);
       }
-      case 'amend_order':
-        return refused('not_offered', 'amend is not offered on the TEST venue simulator: cancel and place a new order');
+      case 'amend_order': {
+        // Lowered in place: the same order, its place in the queue (`seq`) kept, its lock cut by what the cut amount locked.
+        const resting = this.restingOrder(state, intent.symbol, intent.venueClientOrderId);
+        const o = resting.order;
+        const cut = sub(o.remaining, intent.amount);
+        const freed = min(o.locked, mul(resting.lockPerUnit, cut, 'floor'));
+        const balance = this.lockBalance(state, resting.marginAccount, o.lockedAsset);
+        balance.locked = sub(balance.locked, freed);
+        balance.free = add(balance.free, freed);
+        resting.order = { ...o, amount: add(o.filled, intent.amount), remaining: intent.amount, locked: sub(o.locked, freed) };
+        return accepted(resting.order.venueOrderId, resting.order);
+      }
       case 'withdraw': {
         const fee = this.switches.withdrawalFee.known ? this.switches.withdrawalFee.value : this.switches.unpublishedWithdrawalFee;
         const balance = this.balance(state, intent.asset);
@@ -2105,6 +2314,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     const order: OrderState = {
       account: state,
       seq: this.seqCounter,
+      placedAt: this.clock(),
       builderFee,
       leverageBps: setting?.leverageBps ?? null,
       marginMode: setting?.marginMode ?? null,
@@ -2421,6 +2631,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     const order: OrderState = {
       account: state,
       seq: this.seqCounter,
+      placedAt: this.clock(),
       builderFee,
       leverageBps: setting.leverageBps,
       marginMode: setting.marginMode,

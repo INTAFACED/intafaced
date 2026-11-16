@@ -123,7 +123,7 @@ interface SentOrder {
 }
 
 /**
- * The orders a stored action places: the one order of a `place_order`, or each order of a `place_orders` (orders signed
+ * The orders a stored action places: the one order of a `place_order` or a `replace_order`'s replacement, or each order of a `place_orders` (orders signed
  * together, J-derivatives-03 #9), each under its own client id and accepted as the venue answered that order. Any other
  * action places none. The builder-fee poster, the recon and the routing view read orders through this, so an order sent
  * together with another is ours exactly as one sent alone.
@@ -133,6 +133,18 @@ export function ordersOf({ prepared, lastOutcome }: Pick<StoredVenueAction, 'pre
   if (prepared.intent.kind === 'place_order') {
     if (prepared.venueClientOrderId === null) return [];
     return [{ venueClientOrderId: prepared.venueClientOrderId, feeBps: prepared.builderFee?.feeBps ?? null, accepted: took }];
+  }
+  if (prepared.intent.kind === 'replace_order') {
+    // A cancel-and-replace places its replacement (the second answer) under the replacement's own client id.
+    const placed = took && lastOutcome?.definite && lastOutcome.accepted ? lastOutcome.legs?.[1] : undefined;
+    const order = prepared.intent.order;
+    return [
+      {
+        venueClientOrderId: venueClientOrderId(prepared.venueId, order.clientOrderKey),
+        feeBps: order.builderFee?.feeBps ?? null,
+        accepted: placed?.accepted === true,
+      },
+    ];
   }
   if (prepared.intent.kind !== 'place_orders') return [];
   const legs = took && lastOutcome?.definite && lastOutcome.accepted ? (lastOutcome.legs ?? []) : [];
@@ -347,7 +359,7 @@ export class SqlPreparedActionStore implements PreparedActionStore {
   async routedOrders(until: Date, limit: number): Promise<readonly RoutedOrder[]> {
     const rows = await this.sql<{ venue_id: string; prepared: unknown }[]>`
       SELECT venue_id, prepared FROM trade.user_venue_actions
-      WHERE kind IN ('place_order', 'place_orders') AND signature IS NOT NULL AND signed_at <= ${until}
+      WHERE kind IN ('place_order', 'place_orders', 'replace_order') AND signature IS NOT NULL AND signed_at <= ${until}
       ORDER BY signed_at DESC LIMIT ${limit}`;
     const out: RoutedOrder[] = [];
     for (const row of rows) {
@@ -465,7 +477,7 @@ export class SqlPreparedActionStore implements PreparedActionStore {
       SELECT user_id, business_key, created_at, prepared, signature, last_outcome FROM trade.user_venue_actions
       WHERE venue_id = ${venueId} AND signature IS NOT NULL
         AND ((kind = 'place_order' AND prepared->>'venueClientOrderId' = ANY(${this.sql.array([...venueClientOrderIds])}))
-          OR kind = 'place_orders')
+          OR kind IN ('place_orders', 'replace_order'))
       ORDER BY created_at, user_id, business_key`;
     const wanted = new Set(venueClientOrderIds);
     // Orders signed together carry no one client id of their own: each of their orders is matched in ordersOf.
@@ -485,7 +497,7 @@ export class SqlPreparedActionStore implements PreparedActionStore {
       SELECT user_id, business_key, prepared, signature, last_outcome FROM trade.user_venue_actions
       WHERE venue_id = ${venueId} AND signature IS NOT NULL
         AND ((kind = 'place_order' AND prepared->>'venueClientOrderId' = ANY(${this.sql.array([...venueClientOrderIds])}))
-          OR kind = 'place_orders')
+          OR kind IN ('place_orders', 'replace_order'))
         AND lower(prepared->'account'->>'owner') = lower(${account.owner})`;
     const wanted = new Set(venueClientOrderIds);
     for (const row of rows.map(fromRow)) for (const id of sentWithOurFee(row, venueId, account)) if (wanted.has(id)) out.add(id);

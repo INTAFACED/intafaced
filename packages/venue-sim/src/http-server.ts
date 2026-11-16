@@ -37,7 +37,7 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *   GET  /health, GET /venue                         descriptor, chain id, label TEST, and the deposit route (or null)
  *   POST /markets {account|null}, /preview {account,intent}, /prepare {account,signer,intent},
  *        /submit {prepared,signature}, /balances|/open-orders|/positions|/agents {account},
- *        /order-by-client-id {account,venueClientOrderId}, /fills {account,since}, /withdrawal {account,nonce}, /deposits {account},
+ *        /order-history {account}, /order-by-client-id {account,venueClientOrderId}, /fills {account,since}, /withdrawal {account,nonce}, /deposits {account},
  *        /builder-fee-approval {account,builder}, /builder-totals {builder}, /builder-claims {builder},
  *        /leverage {account,symbol}, /book {symbol,depth},
  *        /sub-accounts {account}, /transfer {account,nonce}   (UserVenueSubAccountReads, on the main account)
@@ -45,7 +45,7 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *        /settlements {account,since}                     the account's settlements in a deployer's halt or a split
  *   TEST controls (never part of UserVenue):
  *   POST /test/deposit {account,asset,amount,depositRef}   idempotent by depositRef
- *        /test/switches {venueDown?,unlistPerpetuals?,declaredAgentPermissionReach?,withdrawalFee?,networkFee?,depositExplorerTxUrl?}   each fee a MaybeKnown<Amount>
+ *        /test/switches {venueDown?,unlistPerpetuals?,declaredAgentPermissionReach?,amendsInPlace?,cancelsPerAction?,withdrawalFee?,networkFee?,depositExplorerTxUrl?}   each fee a MaybeKnown<Amount>
  *        /test/account-switches {owner,down?,loseAnswers?,failAfterSend?,submitDelayMs?}   one owner's account only, so a journey can
  *                                                         take the venue away from its own person and no one else's:
  *                                                         `down` refuses every call on that owner's account venue_down;
@@ -55,6 +55,7 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *                                                         that long (at most 10 s) before the venue applies it
  *        /test/settle-withdrawals, /test/set-mark {symbol,price}   the mark moves; a trigger order it crosses fires
  *        /test/set-index {symbol,price}                   a perpetual's TEST index (oracle) price, as the venue publishes it
+ *        /test/market-triggers {symbol,sources}           the prices a perpetual's trigger orders may be judged on ([]: none)
  *        /test/pull-ladder {symbol,side: 'bid'|'ask'}     the TEST makers cancel that side of the market's seeded ladder
  *        /test/ladder-mid {symbol,price}               the TEST makers rest that market's seeded ladder again around price (its mid)
  *        /test/builder-claim {builder}                     the builder claims every unclaimed builder fee into its own account
@@ -712,6 +713,8 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       return figuresAsSwitched(sim, account(body).owner, await sim.positions(account(body)));
     case '/agents':
       return sim.agents(account(body));
+    case '/order-history':
+      return sim.orderHistory(account(body));
     case '/order-by-client-id':
       return sim.orderByClientId(account(body), str(body, 'venueClientOrderId'));
     case '/order-signer':
@@ -762,6 +765,16 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
           throw new VenueWireError("declaredAgentPermissionReach must be 'own_account_only' or 'owner_accounts'");
         sim.declareAgentPermissionReach(reach);
       }
+      if (body.amendsInPlace !== undefined) {
+        if (typeof body.amendsInPlace !== 'boolean') throw new VenueWireError('amendsInPlace must be true or false');
+        sim.declareAmendsInPlace(body.amendsInPlace);
+      }
+      if (body.cancelsPerAction !== undefined) {
+        const n = body.cancelsPerAction;
+        if (n !== null && !(typeof n === 'number' && Number.isInteger(n) && n > 1))
+          throw new VenueWireError('cancelsPerAction must be a whole number above 1, or null');
+        sim.declareCancelsPerAction(n);
+      }
       if (body.withdrawalFee !== undefined) sim.switches.withdrawalFee = maybeKnownAmount(body.withdrawalFee, 'withdrawalFee');
       if (body.networkFee !== undefined) sim.switches.networkFee = maybeKnownAmount(body.networkFee, 'networkFee');
       if (body.depositExplorerTxUrl === null || typeof body.depositExplorerTxUrl === 'string') {
@@ -775,6 +788,8 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
         unlistPerpetuals: sim.switches.unlistPerpetuals,
         builderTotalsUnknown: sim.switches.builderTotalsUnknown,
         declaredAgentPermissionReach: sim.venue.agentPermissionReach,
+        amendsInPlace: sim.venue.amendsInPlace === true,
+        cancelsPerAction: sim.venue.cancelsPerAction ?? null,
         withdrawalFee: sim.switches.withdrawalFee,
         networkFee: sim.switches.networkFee,
         depositExplorerTxUrl: sim.switches.depositExplorerTxUrl,
@@ -876,6 +891,13 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       sim.setOpenInterestCap(symbol, cap as Amount | null);
       const market = (await sim.markets(null)).value.find((m) => m.symbol === symbol);
       return { openInterest: market?.openInterest ?? { known: false }, label: 'TEST' };
+    }
+    case '/test/market-triggers': {
+      const sources = body.sources;
+      if (!Array.isArray(sources) || sources.some((x) => x !== 'mark' && x !== 'last'))
+        throw new VenueWireError('sources is a list of "mark" and "last" ([] for none)');
+      sim.setTriggerSources(str(body, 'symbol'), sources as ('mark' | 'last')[]);
+      return { ok: true, label: 'TEST' };
     }
     case '/test/market-fees': {
       const fee = (k: string): MaybeKnown<Amount> => {
@@ -994,6 +1016,10 @@ export interface StartTestVenueOptions {
   readonly displayName?: string;
   /** The most orders it takes in one signed action (`place_orders`); default one per signature. */
   readonly ordersPerAction?: number;
+  /** True when it lowers a resting order in place (`amend_order`); default: changed by cancel-and-replace. */
+  readonly amendsInPlace?: boolean;
+  /** The most orders it cancels in one signed action (`cancel_orders`); default: one cancel per signature. */
+  readonly cancelsPerAction?: number;
   /** The deposit route `GET /venue` names (the TEST chain's watcher is started by the caller, chain-deposits.ts). */
   readonly deposit?: UserVenueDepositRoute | null;
 }
@@ -1012,6 +1038,8 @@ export async function startTestVenueServer(
     ...(opts.id ? { id: opts.id } : {}),
     ...(opts.displayName ? { displayName: opts.displayName } : {}),
     ...(opts.ordersPerAction !== undefined ? { ordersPerAction: opts.ordersPerAction } : {}),
+    ...(opts.amendsInPlace ? { amendsInPlace: true } : {}),
+    ...(opts.cancelsPerAction !== undefined ? { cancelsPerAction: opts.cancelsPerAction } : {}),
   });
   refuseTestVenueOutsideTest(sim.venue, opts.appEnv);
   const server = http.createServer(testVenueHandler(sim, opts.deposit ?? null));

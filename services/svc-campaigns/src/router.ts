@@ -59,6 +59,17 @@ import {
   FEE_SAVER_CALLERS,
   feeSaverAnswerSchema,
   competitionBoardInputSchema,
+  drawBoardInputSchema,
+  drawBoardSchema,
+  drawRunInputSchema,
+  distributionRunInputSchema,
+  distributionRunSchema,
+  distributionsMineInputSchema,
+  distributionsMineSchema,
+  poolBoardInputSchema,
+  poolBoardSchema,
+  poolSettleInputSchema,
+  poolSettleSchema,
   competitionBoardSchema,
   feeSaverAskInputSchema,
   voucherIssueInputSchema,
@@ -72,6 +83,9 @@ import {
 } from '@intafaced/contracts/campaigns-catalogue';
 import type { CampaignService } from './campaigns.js';
 import type { CompetitionService } from './competitions.js';
+import type { DrawService } from './draws.js';
+import type { DistributionService } from './distributions.js';
+import type { PoolService } from './pools.js';
 import { CampaignsError } from './codes.js';
 import type { DropService } from './drops.js';
 import type { ReferralService } from './referrals.js';
@@ -185,6 +199,19 @@ const STATUS: Record<CampaignsRefusalCode | CampaignRefusalCode, TRPCError['code
   'campaigns.seats_full': 'CONFLICT',
   'campaigns.not_competition': 'BAD_REQUEST',
   'campaigns.fills_unread': 'SERVICE_UNAVAILABLE',
+  'campaigns.draw_invalid': 'BAD_REQUEST',
+  'campaigns.draw_unset': 'PRECONDITION_FAILED',
+  'campaigns.not_draw': 'BAD_REQUEST',
+  'campaigns.distribution_invalid': 'BAD_REQUEST',
+  'campaigns.distribution_unset': 'PRECONDITION_FAILED',
+  'campaigns.not_distribution': 'BAD_REQUEST',
+  'campaigns.snapshot_not_due': 'PRECONDITION_FAILED',
+  'campaigns.pool_invalid': 'BAD_REQUEST',
+  'campaigns.pool_unset': 'PRECONDITION_FAILED',
+  'campaigns.not_pool': 'BAD_REQUEST',
+  'campaigns.pool_day_open': 'PRECONDITION_FAILED',
+  'campaigns.pool_day_unknown': 'NOT_FOUND',
+  'campaigns.equity_unread': 'SERVICE_UNAVAILABLE',
   'owner.decision': 'PRECONDITION_FAILED',
   'campaigns.window_unset': 'PRECONDITION_FAILED',
   'campaigns.timezone_unset': 'BAD_REQUEST',
@@ -239,6 +266,9 @@ export function createCampaignsRouter(
   watch: WatchService,
   referrals?: ReferralService,
   competitions?: CompetitionService,
+  draws?: DrawService,
+  distributions?: DistributionService,
+  pools?: PoolService,
 ) {
   return router({
     health: publicProcedure
@@ -299,6 +329,68 @@ export function createCampaignsRouter(
           try {
             if (!competitions) throw new CampaignsError('campaigns.store_unwired', 'Competitions are not wired');
             return await competitions.board({
+              campaignId: input.campaignId,
+              accountId: ctx.principal!.userId,
+              forwarded: forwardedPrincipalHeaders(ctx),
+            });
+          } catch (err) {
+            mapError(err);
+          }
+        }),
+    }),
+
+    draw: router({
+      /**
+       * One draw's board (J-campaigns-12): odds, prize table, the caller's own chances and the cap for their user type, the
+       * seed's commitment and the entry list's hash, and why the draw does not run. The account is the signed principal's.
+       */
+      board: scopedProcedure('campaigns:read', guard)
+        .input(drawBoardInputSchema)
+        .output(drawBoardSchema)
+        .query(async ({ ctx, input }) => {
+          try {
+            if (!draws) throw new CampaignsError('campaigns.store_unwired', 'Draws are not wired');
+            return await draws.board({ campaignId: input.campaignId, accountId: ctx.principal!.userId });
+          } catch (err) {
+            mapError(err);
+          }
+        }),
+    }),
+
+    distribution: router({
+      /**
+       * The caller's own distributions (J-campaigns-13 #1 #2 #3): each airdrop they joined, how they stood at its snapshot,
+       * their share and the chain transaction that paid it. Dividends refuse `owner.decision` naming the question.
+       */
+      mine: scopedProcedure('campaigns:read', guard)
+        .input(distributionsMineInputSchema)
+        .output(distributionsMineSchema)
+        .query(async ({ ctx, input }) => {
+          try {
+            if (!distributions) throw new CampaignsError('campaigns.store_unwired', 'Distributions are not wired');
+            return await distributions.mine({
+              kind: input.kind,
+              accountId: ctx.principal!.userId,
+              forwarded: forwardedPrincipalHeaders(ctx),
+            });
+          } catch (err) {
+            mapError(err);
+          }
+        }),
+    }),
+
+    pool: router({
+      /**
+       * One reward pool's board (J-campaigns-13 #4 #5): its terms, each day with the caller's share once settled, and today
+       * with the caller's venue balance read now. The account is the signed principal's.
+       */
+      board: scopedProcedure('campaigns:read', guard)
+        .input(poolBoardInputSchema)
+        .output(poolBoardSchema)
+        .query(async ({ ctx, input }) => {
+          try {
+            if (!pools) throw new CampaignsError('campaigns.store_unwired', 'Reward pools are not wired');
+            return await pools.board({
               campaignId: input.campaignId,
               accountId: ctx.principal!.userId,
               forwarded: forwardedPrincipalHeaders(ctx),
@@ -608,6 +700,68 @@ export function createCampaignsRouter(
               mapError(err);
             }
           }),
+        /**
+         * Running and settling a draw (J-campaigns-12 #3): refused `owner.decision` while the owner's decision on chance-based
+         * rewards is open; the attempt is audited with its reason and nothing is drawn or paid.
+         */
+        draw: router({
+          run: opsProcedure
+            .input(drawRunInputSchema)
+            .output(z.never())
+            .mutation(async ({ ctx, input }) => {
+              try {
+                if (!draws) throw new CampaignsError('campaigns.store_unwired', 'Draws are not wired');
+                return await draws.refuseRun({ ...input, actor: ctx.principal!.userId, action: 'run' });
+              } catch (err) {
+                mapError(err);
+              }
+            }),
+          settle: opsProcedure
+            .input(drawRunInputSchema)
+            .output(z.never())
+            .mutation(async ({ ctx, input }) => {
+              try {
+                if (!draws) throw new CampaignsError('campaigns.store_unwired', 'Draws are not wired');
+                return await draws.refuseRun({ ...input, actor: ctx.principal!.userId, action: 'settle' });
+              } catch (err) {
+                mapError(err);
+              }
+            }),
+        }),
+        /**
+         * An airdrop's snapshot (J-campaigns-13 #2): taken now if it is due, or resumed where it stopped; run again it
+         * returns the run as it stands and owes nothing twice. The operator and their reason are audited.
+         */
+        distribution: router({
+          run: opsProcedure
+            .input(distributionRunInputSchema)
+            .output(distributionRunSchema)
+            .mutation(async ({ ctx, input }) => {
+              try {
+                if (!distributions) throw new CampaignsError('campaigns.store_unwired', 'Distributions are not wired');
+                return await distributions.run(input.campaignId, { actor: ctx.principal!.userId, reason: input.reason });
+              } catch (err) {
+                mapError(err);
+              }
+            }),
+        }),
+        /**
+         * Settling one ended day of a reward pool (J-campaigns-13 #5), once: settled again it returns the day as it was
+         * settled and owes nothing twice. The operator and their reason are audited.
+         */
+        pool: router({
+          settle: opsProcedure
+            .input(poolSettleInputSchema)
+            .output(poolSettleSchema)
+            .mutation(async ({ ctx, input }) => {
+              try {
+                if (!pools) throw new CampaignsError('campaigns.store_unwired', 'Reward pools are not wired');
+                return await pools.settle(input.campaignId, input.day, { actor: ctx.principal!.userId, reason: input.reason });
+              } catch (err) {
+                mapError(err);
+              }
+            }),
+        }),
         /** submit, approve (a second person), activate, pause, resume, end, close, archive. */
         transition: opsProcedure
           .input(campaignTransitionInputSchema)

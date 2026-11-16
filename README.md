@@ -28,7 +28,7 @@ Full board: **[docs/TRACKER.md](docs/TRACKER.md)**
 
 ## Run it
 
-Needs Node 20 or newer, pnpm 10 and Docker (`package.json`).
+Needs Node 20 or newer and pnpm 10 (`package.json`). Docker is needed only for `pnpm platform:up` and `pnpm infra:up` below. The local test stack that journeys run on, `pnpm local:stack`, needs no Docker: it starts its own Postgres 16, NATS and services on the Mac ([`docs/LOCAL-TEST-STACK.md`](docs/LOCAL-TEST-STACK.md)).
 
 **The whole platform: every service, both apps, and the infrastructure.**
 

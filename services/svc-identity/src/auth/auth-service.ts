@@ -151,7 +151,8 @@ export { isEmailConfirmed };
 import { generateRecoveryCodes, generateSecret, matchTotpStep, totpUri } from './totp.js';
 import { encryptTotpSecret, materializeTotpSecret, parseTotpSecretKey } from './totp-crypto.js';
 import { apiKeyOriginAllowed } from './api-key-origin.js';
-import { currentRequestIp, currentUserAgent } from './request-meta.js';
+import { currentRequestIp, currentRequestRegion, currentUserAgent } from './request-meta.js';
+import { recordSignInSignal } from '../account/safety.js';
 import { recordSuccess, reserveAttempt, type AttemptKind } from './attempt-lockout.js';
 import { matchInvite, type FounderEnrolmentConfig } from './founder-enrolment.js';
 import { SqlPendingTotpEnrolmentStore, type PendingTotpEnrolmentStore } from './pending-totp-store.js';
@@ -1815,6 +1816,8 @@ export class AuthService {
     const sessionId = inserted.rows[0]!.id;
     const familyId = inserted.rows[0]!.family_id;
     void syncNavigatorSessionOpen(this.sql, sessionId, userId);
+    // The location signal (BK-safe-01): kept only under the person's consent, and never fails the sign-in.
+    await recordSignInSignal(this.sql, { userId, sessionId, region: currentRequestRegion() }, (detail, msg) => this.log.warn(detail, msg));
     // Pay is not on the sign-in path. A slow or refused claim must not delay or fail the session.
     void this.claimConfirmedEmailInvites(userId).catch((err: unknown) => {
       this.log.warn({ userId, reason: err instanceof Error ? err.name : 'error' }, 'merchant email invite claim failed');
@@ -2447,6 +2450,29 @@ export class AuthService {
     if (opened.sessionsEnded > 0) await syncNavigatorSessionsClosedForUser(this.sql, input.userId);
     this.log.warn({ userId: input.userId, caseId: opened.caseId, changed: opened.changed }, 'identity.compromise_started');
     return opened;
+  }
+
+  /**
+   * The person's own password, for a change to their step-up extras (BK-safe-01). Counts on the password lockout like a
+   * sign-in. An API key or sub-account is refused: the person signs in themselves.
+   */
+  async confirmOwnPassword(input: { userId: string; actor: FactorActor; password: string }): Promise<void> {
+    if (input.actor.delegated) throw new AuthError('Sign in yourself; an API key or sub-account cannot', 'auth.mfa_required');
+    const rows = await this.sql<Array<{ password_hash: string; status: string }>>`
+      SELECT password_hash, status FROM users WHERE id = ${input.userId}`;
+    const user = rows[0];
+    if (!user) throw new AuthError('User not found', 'auth.not_found');
+    if (user.status === 'closed') throw new AuthError('Account is closed', 'auth.account_frozen');
+    await this.reserve(input.userId, 'password');
+    if (!(await verifyPassword(user.password_hash, input.password))) {
+      throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
+    }
+    await recordSuccess(this.sql, input.userId, 'password');
+  }
+
+  /** The database the account's own safety settings live in (account/safety.ts). */
+  get safetySql(): Sql {
+    return this.sql;
   }
 
   /** The person's open compromised-account case, or null (J-identity-13 #3 to #5). */

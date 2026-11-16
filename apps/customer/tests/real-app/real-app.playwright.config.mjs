@@ -1,5 +1,9 @@
 import { defineConfig } from '@playwright/test';
-import { JOURNEY_TMP, localTestDeviceState, stackUrl } from '../../../../tooling/scripts/local-test-facts.mjs';
+import { JOURNEY_TMP, anotherCheckoutsStack, localTestDeviceState, stackUrl } from '../../../../tooling/scripts/local-test-facts.mjs';
+
+// Never run on another checkout's stack (local-test-facts.mjs anotherCheckoutsStack).
+const borrowed = anotherCheckoutsStack();
+if (borrowed) throw new Error(borrowed);
 
 // Journeys in the running app: `pnpm local:stack` must be up, on the same LOCAL_STACK_SLOT (Customer on 127.0.0.1:3210 in slot 0). Nothing is mocked; each
 // spec drives the browser and, where the journey names another actor (an operator, TEST funding, another trader),

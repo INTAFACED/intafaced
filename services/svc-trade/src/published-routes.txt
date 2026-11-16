@@ -102,7 +102,9 @@ GET /api/v1/venue/markets/:symbol/venues private trade:read
 GET /api/v1/venue/orders private trade:read
 GET /api/v1/venue/orders/by-client-id private trade:read
 GET /api/v1/venue/orders/by-key private trade:read
+GET /api/v1/venue/orders/history private trade:read
 GET /api/v1/venue/orders/open private trade:read
+GET /api/v1/venue/orders/record private trade:read
 GET /api/v1/venue/own-agents/:agentId/allowances private trade:read
 GET /api/v1/venue/own-agents/:agentId/orders private trade:read
 GET /api/v1/venue/own-agents/:agentId/rebalances private trade:read
