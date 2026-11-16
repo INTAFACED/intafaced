@@ -978,7 +978,7 @@ describe('desk acceptance (shared test postgres)', () => {
       marketById: (marketId: string) => trade.marketById(marketId),
       lifecycleForMarket: (market: Market) => READY_MARKET_LIFECYCLE.snapshot(market),
       placeOrder: (principal: Principal, input: PlaceOrderInput) => trade.placeOrder(principal, input),
-    } as unknown as PrivateRestDeps);
+    } as PrivateRestDeps);
     const headers = signedHeaders();
     const body = { symbol: 'BTC/USDT', type: 'limit', side: 'buy', amount: '10', price: '100', clientOrderId: 'plain-1' };
     const first = await app.inject({ method: 'POST', url: '/api/v1/orders', headers, payload: body });
@@ -1139,7 +1139,7 @@ describe('desk acceptance (shared test postgres)', () => {
         if (calls === 1) throw new TradeError('lost reply', 'trade.hold_unknown');
         return order;
       },
-    } as unknown as PrivateRestDeps);
+    } as PrivateRestDeps);
     const headers = signedHeaders();
     const body = {
       symbol: 'BTC/USDT',

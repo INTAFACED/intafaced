@@ -250,7 +250,7 @@ describe('svc-trade bracket: entry, then one sell OCO for what was received (H8a
    * ended the entry places nothing and the sweep must.
    */
   function failNextExitPlace() {
-    const own = trade as unknown as { placeOrder: TradeService['placeOrder'] };
+    const own = trade as { placeOrder: TradeService['placeOrder'] };
     const real = TradeService.prototype.placeOrder;
     own.placeOrder = async function (this: TradeService, principal, input) {
       if (/^(bracket:.+:exit|oto:.+:close)$/.test(input.clientOrderId ?? '')) {
