@@ -219,6 +219,15 @@ export interface TestPartner {
   readonly compliance: PartnerCompliance & TestPartnerComplianceDoors;
 }
 
+/**
+ * The TEST partner as the rest of svc-bank holds it: its switches, record, ramp, direct debits and compliance doors, and
+ * never its raw `bank`. A move at the partner goes through `BankServices.partnerCustody`, which asks the posting freeze
+ * and the operator's partner stop before each one (`freezeGuardedCustody`, `stopGuardedCustody`); a raw `bank.move`
+ * asks neither (J-bank-16 `testPartner.spend`, 10 Nov; the agents usage payment until 16 Nov). Only `createBankServices`
+ * takes the whole `TestPartner`, to build that custody.
+ */
+export type TestPartnerDoors = Omit<TestPartner, 'bank'>;
+
 /** The TEST partner's own reason code for a collection on a mandate the person blocked with it. */
 export const TEST_PARTNER_DD_BLOCKED = 'test_partner.dd_mandate_blocked';
 
@@ -721,7 +730,7 @@ const FEATURE_WORDS: Record<PartnerFeature, string> = {
  * The partner-held door's check: the partner down refuses first, then a feature it does not offer. Without the adapter
  * nothing is refused here.
  */
-export function assertPartnerOffers(partner: TestPartner | null | undefined, userId: string, feature: PartnerFeature): void {
+export function assertPartnerOffers(partner: TestPartnerDoors | null | undefined, userId: string, feature: PartnerFeature): void {
   if (!partner) return;
   const now = partner.switches(userId);
   if (now.down) throw new BankError('The partner bank is not answering. Nothing was sent or changed.', 'bank.partner_unavailable');
@@ -738,19 +747,19 @@ export function assertPartnerOffers(partner: TestPartner | null | undefined, use
  * features: a send to a person, and a standing order's create, change or resume. Cancel and pause stay open while it is
  * down, like freezing a card: they only stop money leaving.
  */
-export function assertPartnerAnswering(partner: TestPartner | null | undefined, userId: string): void {
+export function assertPartnerAnswering(partner: TestPartnerDoors | null | undefined, userId: string): void {
   if (partner?.switches(userId).down) {
     throw new BankError('The partner bank is not answering. Nothing was sent or changed.', 'bank.partner_unavailable');
   }
 }
 
 /** Whether the partner says what a move costs. Without the adapter the caller's own published fee stands. */
-export function partnerFeeKnown(partner: TestPartner | null | undefined, userId: string): boolean {
+export function partnerFeeKnown(partner: TestPartnerDoors | null | undefined, userId: string): boolean {
   return !partner || partner.switches(userId).fee === 'known';
 }
 
 /** The reserve the partner requires of us, as it reports it. Without the adapter, null: no partner has said anything. */
-export function partnerReserve(partner: TestPartner | null | undefined, userId: string): PartnerReserve | null {
+export function partnerReserve(partner: TestPartnerDoors | null | undefined, userId: string): PartnerReserve | null {
   if (!partner) return null;
   return partner.switches(userId).reserve === 'required' ? { required: true, amount: null } : { required: false };
 }
@@ -761,13 +770,13 @@ export function partnerReserve(partner: TestPartner | null | undefined, userId: 
  * person's partner account shows; this is the programme's, the same for everyone. Without the adapter, null: no partner
  * has said anything.
  */
-export function programmeReserve(partner: TestPartner | null | undefined): PartnerReserve | null {
+export function programmeReserve(partner: TestPartnerDoors | null | undefined): PartnerReserve | null {
   if (!partner) return null;
   return { required: true, amount: null };
 }
 
 /** Whether the ramp says a quote it gave has expired, whatever its own time said. */
-export function rampQuoteExpired(partner: TestPartner | null | undefined, userId: string): boolean {
+export function rampQuoteExpired(partner: TestPartnerDoors | null | undefined, userId: string): boolean {
   return !!partner && partner.switches(userId).rampQuote === 'expired';
 }
 
@@ -779,7 +788,7 @@ export function rampQuoteExpired(partner: TestPartner | null | undefined, userId
  */
 export type MoneyHeldBy = 'ledger' | 'partner' | 'none';
 
-export function moneyHeldBy(partner: TestPartner | null | undefined, userId: string, custodyLayer: 'on' | 'off'): MoneyHeldBy {
+export function moneyHeldBy(partner: TestPartnerDoors | null | undefined, userId: string, custodyLayer: 'on' | 'off'): MoneyHeldBy {
   if (partner && partner.switches(userId).custody === 'off') return 'partner';
   return custodyLayer === 'on' ? 'ledger' : 'none';
 }
@@ -793,7 +802,7 @@ export function partnerUnset(): BankError {
 }
 
 /** Refuses a ramp quote whose fee the ramp does not give: no fee, so no pay amount, and nothing is kept. */
-export function assertRampFeeKnown(partner: TestPartner | null | undefined, userId: string): void {
+export function assertRampFeeKnown(partner: TestPartnerDoors | null | undefined, userId: string): void {
   if (partner && partner.switches(userId).rampFee === 'unknown') {
     throw new BankError(
       'The partner gave no fee for this purchase, so what you would pay is not known. Nothing was kept or charged.',
@@ -807,7 +816,7 @@ export function assertRampFeeKnown(partner: TestPartner | null | undefined, user
  * as a banking partner would, with one set per currency labelled TEST (its bank is the TEST partner bank, and every value
  * says TEST, so nothing reads as a real account); otherwise there is no partner and the service answers `rail.bank`.
  */
-export function testPartnerAccountDetails(partner: TestPartner): (userId: string) => AccountDetailsPartner | undefined {
+export function testPartnerAccountDetails(partner: TestPartnerDoors): (userId: string) => AccountDetailsPartner | undefined {
   const details = (userId: string, currency: string): AccountDetailSet => ({
     id: `test-partner:${userId}:${currency}`,
     accountNumber: `TEST-${currency}-${userId.replace(/-/g, '').toUpperCase()}`,

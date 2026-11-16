@@ -1,6 +1,6 @@
 import { formatAmount } from '@intafaced/ledger-client';
 import type { PartnerAccountRef, PartnerMove } from './partner-bank.js';
-import { TEST_PARTNER_LABEL, type TestPartner } from './test-partner.js';
+import { TEST_PARTNER_LABEL, type TestPartnerDoors } from './test-partner.js';
 
 /**
  * LOCAL TEST: the TEST partner bank's own book, read straight from the stand-in on loopback (J-bank-03 #4/#5).
@@ -33,7 +33,7 @@ const moveLine = (m: PartnerMove) => ({
 });
 
 /** One request's answer: `[status, body]`. `path` is below the base (`/venue`, `/balances`, `/moves`). */
-export function answerTestPartnerRecord(partner: TestPartner, method: string, path: string, body: unknown): [number, unknown] {
+export function answerTestPartnerRecord(partner: TestPartnerDoors, method: string, path: string, body: unknown): [number, unknown] {
   if (path === '/venue') {
     if (method !== 'GET') return [405, { error: 'GET only' }];
     return [200, { label: 'TEST', venue: { id: TEST_PARTNER_RECORD_ID, displayName: TEST_PARTNER_LABEL } }];

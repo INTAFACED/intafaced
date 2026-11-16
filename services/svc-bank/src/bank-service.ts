@@ -1,5 +1,11 @@
 import { parseBankAccountTerms, type BankAccountTerms } from './onboarding/bank-account-terms.js';
-import { testPartnerCustody, testPartnerDirectDebits, testPartnerPurchases, type TestPartner } from './partner/test-partner.js';
+import {
+  testPartnerCustody,
+  testPartnerDirectDebits,
+  testPartnerPurchases,
+  type TestPartner,
+  type TestPartnerDoors,
+} from './partner/test-partner.js';
 import type { PartnerPurchaseCustody } from './partner/partner-purchases.js';
 import {
   bankCustodyLayer,
@@ -104,7 +110,7 @@ export interface BankServices {
   /** The owner's notice for a blocked region (`BANK_BLOCKED_REGION_NOTICE`, BK-safe-01). No default: blank reads "not published". */
   readonly blockedRegionNotice?: string | undefined;
   /** The TEST partner bank and ramp with their switches (CUSTODY-DELTA §4), on a dev or test stack only; null elsewhere. */
-  readonly testPartner: TestPartner | null;
+  readonly testPartner: TestPartnerDoors | null;
   /** What each kind of activity line means for tax: the owner's map, the TEST one on a test stack, or null (refused). */
   readonly taxEffects: TaxEffectMap | null;
   /** Who holds each person's bank money: the partner, or (null) the custodial layer. */

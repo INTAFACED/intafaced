@@ -37,8 +37,8 @@ import { globalPortsFor } from './personal-pay/global-sim.js';
 import { parseSendReviewRule } from './transfers/send-review.js';
 import { readStrangerHoldDays } from './holds/received-holds.js';
 import { onrampStandInFor } from './ramps/onramp-sim.js';
-import { moneyHeldBy, testPartnerAccountDetails, testPartnerFor } from './partner/test-partner.js';
-import { firstAdministrator, registerAgentsUsagePayment } from './agents/usage-payment.js';
+import { testPartnerAccountDetails, testPartnerFor, type TestPartnerDoors } from './partner/test-partner.js';
+import { firstAdministrator, registerAgentsUsagePayment, usagePaymentHeldBy } from './agents/usage-payment.js';
 import { taxEffectsFor } from './activity/tax-effects.js';
 import { cardTermsOrNone, partnerReservesRead } from './partner/reserves.js';
 import { cashOutPartnerFor } from './cash-out/payout-sim.js';
@@ -174,13 +174,15 @@ const onrampPartner = onrampPartnerFor(
 );
 
 /** The TEST partner bank and ramp: none unless chosen, and it refuses to boot outside dev/test. It holds no money. */
-const testPartner = testPartnerFor(env.BANK_TEST_PARTNER, { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV });
+const wholeTestPartner = testPartnerFor(env.BANK_TEST_PARTNER, { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV });
+/** Everything below holds it without its raw bank: a move at the partner goes through `bank.partnerCustody` (floor 4). */
+const testPartner: TestPartnerDoors | null = wholeTestPartner;
 
 /** What each kind of activity line means for tax: the owner's map once set; a TEST one only when chosen on dev/test. */
 const taxEffects = taxEffectsFor(env.BANK_TAX_EFFECTS, { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV });
 
 const bank = createBankServices(sql, ledger, history, {
-  testPartner,
+  testPartner: wholeTestPartner,
   taxEffects,
   // The custody switch (OWNER 226): off unless set; the TEST stack pins it on.
   custodyLayer: env.LEDGER_CUSTODY_LAYER,
@@ -506,12 +508,7 @@ registerAgentsUsagePayment(app, {
   s2s: doorS2s,
   freeze: ledgerPostingFreeze(env.LEDGER_URL),
   businessPayer: (businessId) => firstAdministrator(sql, businessId),
-  heldBy: (userId) => {
-    const held = moneyHeldBy(testPartner, userId, env.LEDGER_CUSTODY_LAYER);
-    return held === 'partner' && testPartner
-      ? { kind: 'partner', bank: testPartner.bank, partnerId: 'test' }
-      : { kind: held === 'partner' ? 'none' : held };
-  },
+  heldBy: usagePaymentHeldBy(testPartner, bank.partnerCustody, env.LEDGER_CUSTODY_LAYER),
 });
 
 app.get('/health', async () => ({ ok: true, service: env.SERVICE_NAME }));

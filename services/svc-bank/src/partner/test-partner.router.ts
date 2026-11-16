@@ -7,7 +7,13 @@ import { amountString, partnerFiguresOutput } from '../router/shared.js';
 import type { BankServices } from '../bank-service.js';
 import { NO_PARTNER_BANK_CODE, partnerPayoutsAccount } from './partner-bank.js';
 import { businessPartnerAccount } from '../business/business-team.js';
-import { PARTNER_FEATURES, TEST_PARTNER_MERCHANT, partnerReserve, type TestPartner, type TestPartnerSwitches } from './test-partner.js';
+import {
+  PARTNER_FEATURES,
+  TEST_PARTNER_MERCHANT,
+  partnerReserve,
+  type TestPartnerDoors,
+  type TestPartnerSwitches,
+} from './test-partner.js';
 
 type Guard = <T>(fn: () => Promise<T>) => Promise<T>;
 
@@ -41,14 +47,14 @@ const view = switches.extend({
   ]),
 });
 
-function on(partner: TestPartner | null): TestPartner {
+function on(partner: TestPartnerDoors | null): TestPartnerDoors {
   if (!partner) {
     throw new BankError('The TEST partner switches exist only on a stack that runs the TEST partner bank.', 'bank.test_partner_off');
   }
   return partner;
 }
 
-function out(partner: TestPartner, userId: string, now: TestPartnerSwitches) {
+function out(partner: TestPartnerDoors, userId: string, now: TestPartnerSwitches) {
   return { label: partner.label, ...now, notOffered: [...now.notOffered], partnerReserve: partnerReserve(partner, userId)! };
 }
 
