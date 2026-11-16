@@ -40,11 +40,13 @@
  *        (the tooling tests read the workflows too); every other gate runs as always. `--base <ref>` compares against
  *        another ref (a stacked branch). An unreadable diff runs everything. CI and main never pass the flag: they
  *        keep the full run (U4, project-state #1574).
+ *   node tooling/ci/gates.mjs --before-push
+ *        what .githooks/pre-push runs: every gate but LEFT_TO_CI_BEFORE_PUSH, all at once.
  */
 import { readdirSync, existsSync, readFileSync } from 'node:fs';
 import { join, basename, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 
 const ROOT = process.cwd();
 const CI_DIR = join(ROOT, 'tooling', 'ci');
@@ -454,7 +456,7 @@ export const NOT_GATES = {
   'app-token.test.mjs':
     'not a gate: the node:test file of app-token.mjs (the JWT verifies only with its key; a token granted more or other permissions than asked is refused). tooling-tests.mjs runs it with every other tooling test.',
   'gates.test.mjs':
-    'not a gate: the node:test file of gates.mjs --changed (a product-only diff leaves out only the tooling tests; a tooling/ or .github/ diff, an uncommitted or untracked tooling file and an unreadable diff run every gate; a full run is unchanged). tooling-tests.mjs runs it with every other tooling test.',
+    'not a gate: the node:test file of gates.mjs --changed (a product-only diff leaves out only the tooling tests; a tooling/ or .github/ diff, an uncommitted or untracked tooling file and an unreadable diff run every gate; a full run is unchanged) and --before-push (every gate but LEFT_TO_CI_BEFORE_PUSH, each a gate with its reason). tooling-tests.mjs runs it with every other tooling test.',
   'gates.mjs': 'this runner — it is the list, so it cannot be an entry in itself.',
   'dod-gate.mjs':
     'run by `pnpm gate`, separately and last — it walks every service and is the §14 Definition of Done, not a repo-wide scan. verify runs it after build/typecheck/test. CI runs it as a reported, non-blocking step at the end of the `gates` job.',
@@ -509,6 +511,11 @@ function manifestCheck() {
     if (!existsSync(join(ROOT, gate.script))) problems.push(`gate "${gate.id}" points at ${gate.script}, which does not exist.`);
   }
 
+  const ids = new Set(GATES.map((g) => g.id));
+  for (const id of Object.keys(LEFT_TO_CI_BEFORE_PUSH)) {
+    if (!ids.has(id)) problems.push(`LEFT_TO_CI_BEFORE_PUSH names "${id}", which is not a gate. Remove the entry.`);
+  }
+
   // The other half of the drift: CI must consume THIS list, not its own copy.
   const workflow = join(ROOT, '.github', 'workflows', 'ci.yml');
   if (existsSync(workflow) && !/pnpm\s+gates\b/.test(readFileSync(workflow, 'utf8'))) {
@@ -531,6 +538,23 @@ export function gatesToRun(gates, changed) {
   if (changed === null) return gates;
   const reachesTooling = changed.some((p) => TOOLING_TEST_PATHS.some((prefix) => p.startsWith(prefix)));
   return reachesTooling ? gates : gates.filter((g) => g.id !== 'tooling-tests');
+}
+
+// ── --before-push: the gates .githooks/pre-push runs, all at once ───────────
+/** The gates a push leaves to CI, each with why. Every other gate reads the pushed tree in seconds and runs before it. */
+export const LEFT_TO_CI_BEFORE_PUSH = {
+  'tooling-tests': 'about four minutes on the Mac; the hook runs the ones that read journey files itself',
+  'truth-check': 'the hook runs it itself, on every push',
+  'lint-ratchet': "the hook runs it itself, on the pushed files with main's rules",
+  'cross-package-reads': 'the hook runs it itself when a test or what it checks changed',
+  'secret-scan-mutation': 'proves secret-scan on planted files (19 s on the Mac): only a change to the scanner reaches it',
+  'money-property-mutation':
+    'rewrites packages/ledger-client/src/money.ts in place and runs vitest per mutant (15 s): only a change to the money primitives reaches it',
+  'empty-denominator': 'runs every gate against an empty tree (21 s on the Mac): only a change to a gate reaches it',
+};
+
+export function gatesBeforePush(gates) {
+  return gates.filter((g) => !Object.hasOwn(LEFT_TO_CI_BEFORE_PUSH, g.id));
 }
 
 /**
@@ -570,15 +594,37 @@ export const GATE_OUTPUT_MAX = 64 * 1024 * 1024;
 
 const RUN_AS_SCRIPT = process.argv[1] !== undefined && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url));
 
-if (RUN_AS_SCRIPT) main();
+if (RUN_AS_SCRIPT) await main();
 
-function main() {
+/** One gate as its own process: whether it passed, what it printed and how long it took. */
+function runGate(gate) {
+  const started = process.hrtime.bigint();
+  return new Promise((done) => {
+    // The default 1 MB cut the tooling tests' output before its `not ok` lines (CI run 43623577056, 14 Nov).
+    execFile(
+      process.execPath,
+      [join(ROOT, gate.script), ...(gate.args ?? [])],
+      { encoding: 'utf8', cwd: ROOT, maxBuffer: GATE_OUTPUT_MAX },
+      (err, stdout, stderr) => {
+        if (!err && stderr) process.stderr.write(stderr);
+        done({
+          ok: !err,
+          output: err ? (stdout ?? '') + (stderr ?? '') : stdout,
+          ms: Number((process.hrtime.bigint() - started) / 1000000n),
+        });
+      },
+    );
+  });
+}
+
+async function main() {
+  const beforePush = process.argv.includes('--before-push');
   const changedOnly = process.argv.includes('--changed');
   // `--base <ref>` for a branch stacked on another (default origin/main).
   const baseAt = process.argv.indexOf('--base');
   const base = baseAt > 0 ? process.argv[baseAt + 1] : 'origin/main';
   const changed = changedOnly ? changedSinceMain(ROOT, base) : null;
-  const gates = gatesToRun(GATES, changed);
+  const gates = beforePush ? gatesBeforePush(GATES) : gatesToRun(GATES, changed);
 
   if (process.argv.includes('--list')) {
     for (const gate of gates) console.log(gate.id);
@@ -594,31 +640,22 @@ function main() {
 
   console.log(`\n══ DOCTRINE GATES (${gates.length}) ══\n`);
   if (changedOnly && changed === null) console.log(`  --changed: the diff against ${base} is unreadable, so every gate runs\n`);
+  else if (beforePush) console.log(`  --before-push: all at once; left to CI: ${Object.keys(LEFT_TO_CI_BEFORE_PUSH).join(', ')}\n`);
   else if (gates.length < GATES.length)
     console.log('  --changed: nothing under tooling/ or .github/ changed, so the tooling tests are left to CI\n');
 
   const failed = [];
   const advisoryNoise = [];
   let totalMs = 0;
+  const runStarted = process.hrtime.bigint();
 
-  for (const gate of gates) {
-    const started = process.hrtime.bigint();
-    let ok = true;
-    let output = '';
+  // CI runs one gate at a time; a push runs its gates at once and still reports them in the list's order.
+  const results = [];
+  if (beforePush) results.push(...(await Promise.all(gates.map(runGate))));
+  else for (const gate of gates) results.push(await runGate(gate));
 
-    try {
-      output = execFileSync(process.execPath, [join(ROOT, gate.script), ...(gate.args ?? [])], {
-        encoding: 'utf8',
-        cwd: ROOT,
-        // The default 1 MB cut the tooling tests' output before its `not ok` lines (CI run 43623577056, 14 Nov).
-        maxBuffer: GATE_OUTPUT_MAX,
-      });
-    } catch (err) {
-      ok = false;
-      output = (err.stdout ?? '') + (err.stderr ?? '');
-    }
-
-    const ms = Number((process.hrtime.bigint() - started) / 1000000n);
+  for (const [i, gate] of gates.entries()) {
+    const { ok, output, ms } = results[i];
     totalMs += ms;
 
     // Every gate is run. None is skipped because an earlier one failed — you
@@ -660,5 +697,6 @@ function main() {
     process.exit(1);
   }
 
-  console.log(`\n✓ all ${gates.length} doctrine gates passed — ${totalMs}ms total\n`);
+  const wallMs = Number((process.hrtime.bigint() - runStarted) / 1000000n);
+  console.log(`\n✓ all ${gates.length} doctrine gates passed — ${totalMs}ms total${beforePush ? `, ${wallMs}ms at once` : ''}\n`);
 }

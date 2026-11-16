@@ -8,7 +8,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { GATES, gatesToRun, changedSinceMain } from './gates.mjs';
+import { GATES, gatesToRun, changedSinceMain, gatesBeforePush, LEFT_TO_CI_BEFORE_PUSH } from './gates.mjs';
 
 const ids = (gates) => gates.map((g) => g.id);
 const allButTooling = ids(GATES).filter((id) => id !== 'tooling-tests');
@@ -104,4 +104,18 @@ test('an unreadable diff (no origin/main, or not a repo) is null, so every gate 
   } finally {
     rmSync(plain, { recursive: true, force: true });
   }
+});
+
+test('--before-push runs every gate but those it leaves to CI, each named with why, and the boundary scan among them', () => {
+  const left = Object.keys(LEFT_TO_CI_BEFORE_PUSH);
+  assert.deepEqual(
+    ids(gatesBeforePush(GATES)),
+    ids(GATES).filter((id) => !left.includes(id)),
+  );
+  for (const id of left) {
+    assert.ok(ids(GATES).includes(id), `${id} is not a gate`);
+    assert.ok(LEFT_TO_CI_BEFORE_PUSH[id].length >= 20, `${id} needs its reason`);
+  }
+  for (const id of ['boundary', 'brand', 'reachability', 'secrets', 'migrations']) assert.ok(ids(gatesBeforePush(GATES)).includes(id), id);
+  assert.ok(!ids(gatesBeforePush(GATES)).includes('money-property-mutation'));
 });
