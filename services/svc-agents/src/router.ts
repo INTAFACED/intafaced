@@ -58,6 +58,9 @@ import { refuseIdentityKycReviewWrite } from './risk-compliance/kyc-review-write
 import { envCoachGrounding, runCoachSession, type CoachGrounding } from './coach/grounded-session.js';
 import { describeCoachPolicy } from './coach/policy.js';
 import { coachRunRoutes } from './coach/router.js';
+// The session API's reads with an input each, kept beside the router and compared with it (session-reads.test.ts);
+// J-agents-12 #1 reads them from here, through the built router it already loads.
+export { isSessionRead, sessionReadInputs, type SessionReadIds } from './session-reads.js';
 import { runRoutes } from './runs/routes.js';
 import { backgroundRunRoutes } from './runs/background-routes.js';
 import type { SessionRunSettings } from './runs/background.js';
