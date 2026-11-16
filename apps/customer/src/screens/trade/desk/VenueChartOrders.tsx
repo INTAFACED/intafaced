@@ -21,7 +21,7 @@
 import { useMemo, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { displayAmount } from '../../../shared/money';
-import { useChartOverlay, useChartPriceLines } from '../../../shared/chart-overlay';
+import { chartPrice, useChartOverlay, useChartPriceLines } from '../../../shared/chart-overlay';
 import {
   canonicalDecimal,
   draftId,
@@ -175,7 +175,7 @@ export function VenueChartOrders({ host, market, venueName, owner, openOrders, r
       ...(projected
         ? [
             {
-              price: Number(projected),
+              price: chartPrice(projected),
               token: token(side),
               lineWidth: 1,
               lineStyle: 2,
@@ -184,7 +184,7 @@ export function VenueChartOrders({ host, market, venueName, owner, openOrders, r
           ]
         : []),
       ...lineOrders.map((order) => ({
-        price: Number(order.price),
+        price: chartPrice(order.price),
         token: token(order.side),
         lineWidth: 2,
         lineStyle: 0,
@@ -387,7 +387,7 @@ export function VenueChartOrders({ host, market, venueName, owner, openOrders, r
   const stage = host?.element.parentElement ?? null;
   const pane = host ? pricePane(host) : null;
   const yOf = (value: string | null | undefined) => {
-    const y = host && pane && value ? host.main.priceToCoordinate(Number(value)) : null;
+    const y = host && pane && value ? host.main.priceToCoordinate(chartPrice(value)) : null;
     return y === null || !pane ? null : pane.top + y;
   };
   const projectedY = yOf(projected);

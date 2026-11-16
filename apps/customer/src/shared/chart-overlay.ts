@@ -32,6 +32,14 @@ export interface OverlayHost {
   element: HTMLElement;
 }
 
+/**
+ * A venue price (a decimal string) as the chart's own float, only to place it on the price scale. Never used for an
+ * amount that is sent, locked or shown as money: those stay decimal strings.
+ */
+export function chartPrice(price: string): number {
+  return Number(price);
+}
+
 /** How often the overlay is drawn again with no event: the price scale moves as new bars arrive. */
 const REDRAW_MS = 1000;
 
