@@ -614,8 +614,13 @@ test(`${J} #7 opens team spend and departments: by-member totals equal the partn
       ).id;
     await joinByApi(own, w.accountId, w.book, { roleId: role });
   }
-  // A small TEST payment under every rule, sent at once, so the owner has a partner line whatever ran before.
-  ok(
+  // A small TEST payment under every rule, sent at once, so the owner has a partner line whatever ran before. The
+  // partner's own balance for the business, read before and after, shows the line is real at the partner.
+  const ownerBefore = ok(await own.query('businessTeam.spend', { accountId: w.accountId })).members.find(
+    (m) => m.handle === w.owner.handle,
+  );
+  const partnerBefore = ok(await own.query('businessTeam.overview', { accountId: w.accountId })).partner.amount;
+  const small = ok(
     await own.mutate('businessTeam.propose', {
       accountId: w.accountId,
       paymentId: randomUUID(),
@@ -624,6 +629,14 @@ test(`${J} #7 opens team spend and departments: by-member totals equal the partn
       amount: '12.50',
     }),
   );
+  expect(small).toMatchObject({
+    status: 'sent',
+    approvalsNeeded: 0,
+    rule: null,
+    partnerMoveId: expect.stringMatching(/^test-partner-move-/),
+  });
+  const partnerAfter = ok(await own.query('businessTeam.overview', { accountId: w.accountId })).partner.amount;
+  expect(units(partnerBefore) - units(partnerAfter)).toBe(units('12.50'));
 
   await inBusiness(page, w.owner, w.name, '/bank/business/spend');
   const depName = `Operations TEST ${RUN}`;
@@ -648,15 +661,17 @@ test(`${J} #7 opens team spend and departments: by-member totals equal the partn
   }
   const ownerRow = rows.filter({ hasText: w.owner.handle });
   const ownerTotal = await ownerRow.getAttribute('data-partner');
-  expect(Number(ownerTotal)).toBeGreaterThanOrEqual(12.5);
-  expect(Number(await ownerRow.getAttribute('data-lines'))).toBeGreaterThanOrEqual(1);
+  // The owner's partner total grew by exactly what left the business's account at the partner, in one more line.
+  expect(units(ownerTotal) - units(ownerBefore.partnerTotal)).toBe(units(partnerBefore) - units(partnerAfter));
+  expect(Number(await ownerRow.getAttribute('data-lines'))).toBe(ownerBefore.partnerLines + 1);
   await expect(dep).toHaveAttribute('data-spent', ownerTotal);
   const spend = ok(await own.query('businessTeam.spend', { accountId: w.accountId }));
   expect(spend).toMatchObject({ scope: 'team', partnerLabel: PARTNER_BANK });
   const sent = ok(await own.query('businessTeam.payments', { accountId: w.accountId })).filter(
     (p) => p.status === 'sent' && p.makerUserId === me(spend, w.owner),
   );
-  expect(sent.reduce((sum, p) => sum + Number(p.amount), 0)).toBe(Number(ownerTotal));
+  expect(sent.reduce((sum, p) => sum + units(p.amount), 0n)).toBe(units(ownerTotal));
+  expect(sent.map((p) => p.id)).toContain(small.id);
 
   // The Bookkeeper has no team spend grant: only their own line, and no departments.
   await signedInAt(page, w.book, '/home');
@@ -668,6 +683,14 @@ test(`${J} #7 opens team spend and departments: by-member totals equal the partn
   await expect(page.getByTestId('team-spend-member')).toHaveAttribute('data-handle', w.book.handle);
   await expect(page.getByTestId('team-department')).toHaveCount(0);
 });
+
+/** A decimal string as a whole number of 10^-8 units, so sums of money never pass through a float. */
+function units(amount) {
+  const m = /^(-?)(\d+)(?:\.(\d{1,8}))?$/.exec(String(amount));
+  if (!m) throw new Error(`not a decimal amount: ${amount}`);
+  const v = BigInt(m[2]) * 100_000_000n + BigInt((m[3] ?? '').padEnd(8, '0'));
+  return m[1] ? -v : v;
+}
 
 /** The owner's user id in a spend read, by handle. */
 function me(spend, who) {
