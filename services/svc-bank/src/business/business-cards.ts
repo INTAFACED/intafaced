@@ -172,12 +172,6 @@ export interface BusinessCardsOptions {
   readonly testNetwork: boolean;
 }
 
-interface AccountRow {
-  id: string;
-  name: string;
-  asset_id: string;
-  status: 'active' | 'closed';
-}
 interface CardRow {
   id: string;
   account_id: string;
