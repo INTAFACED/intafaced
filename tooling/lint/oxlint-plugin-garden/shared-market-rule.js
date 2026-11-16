@@ -2,7 +2,7 @@
 // J-cex-spot-02 #7 read the TEST venue maker's bids on 'BTC-USDC' and priced a buy one tick over them; on the shared
 // stack a bid J-bank-13 had left resting above filled the second trader's sell at once, and #7 failed only when J-bank-13
 // ran first (issue #8546, 420 minutes of red full runs on #8509). The fix is a market no other file trades:
-// ownSpotMarket(J, prefix, tag) from apps/customer/tests/real-app/own-market.mjs.
+// ownSpotMarket(J, prefix, tag), from the `own-market` module beside the journey files.
 //
 // What is judged, in journey files (apps/customer/tests/real-app/*.pw.mjs), per step (`test(...)` callback):
 // - it reads or rests on a book: a string naming a book route (`/book`, `/orderbook`, `/best-prices`), directly or
@@ -138,7 +138,7 @@ const noSharedMarketOnBook = {
             message:
               `this step prices off a book on a shared market${via ? ` (through ${via}())` : ''}, which other journeys trade, so ` +
               'what they leave resting decides what its orders meet: price on a market of its own, ' +
-              "`const market = await ownSpotMarket(J, '<prefix>', '<tag>')` from ./own-market.mjs, as J-cex-spot-02 #7 does",
+              "`const market = await ownSpotMarket(J, '<prefix>', '<tag>')` from the `own-market` module beside the journey files, as J-cex-spot-02 #7 does",
           });
         }
       },
