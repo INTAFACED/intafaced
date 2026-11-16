@@ -210,6 +210,19 @@ export interface CancelUserOrdersIntent {
   readonly orders: readonly { readonly symbol: string; readonly venueClientOrderId: string }[];
 }
 
+/**
+ * The venue's own scheduled cancel (J-cex-spot-07, the dead-man switch): at `time` the venue itself cancels every open
+ * order of the account, whatever placed it, unless a later signed `schedule_cancel` moved the time or removed it. `time:
+ * null` removes it (timeout 0). `timeoutSec` is the timeout the person chose, kept beside the time it gave so a retry of
+ * the same key is the same action. Offered only on a venue whose descriptor declares `scheduledCancel`.
+ */
+export interface ScheduleCancelIntent {
+  readonly kind: 'schedule_cancel';
+  readonly timeoutSec: number;
+  /** ISO time the venue cancels at, or `null` to remove the schedule. */
+  readonly time: string | null;
+}
+
 export interface CancelUserOrderIntent {
   readonly kind: 'cancel_order';
   readonly symbol: string;
@@ -345,6 +358,7 @@ export type VenueIntent =
   | ReplaceUserOrderIntent
   | CancelUserOrderIntent
   | CancelUserOrdersIntent
+  | ScheduleCancelIntent
   | WithdrawIntent
   | ApproveBuilderFeeIntent
   | ApproveAgentIntent
@@ -666,9 +680,10 @@ export interface UserVenueOrder {
   /**
    * Why the venue cancelled it, where it says: `position_closed` when the position it closed is gone (a trigger order
    * or a reduce-only order is cancelled with it, so the other leg of a pair never fires on nothing); `linked` when the
-   * other trigger order attached to the same entry filled first, so this one never closes what that one already did.
+   * other trigger order attached to the same entry filled first, so this one never closes what that one already did;
+   * `scheduled_cancel` when the account's scheduled cancel (`schedule_cancel`, J-cex-spot-07) reached its time.
    */
-  readonly cancelReason?: 'position_closed' | 'linked' | null;
+  readonly cancelReason?: 'position_closed' | 'linked' | 'scheduled_cancel' | null;
 }
 
 /**
@@ -732,6 +747,8 @@ export interface UserVenueWithdrawal {
    * never made up, and a reader that needs it waits (J-campaigns-03: a move of our own funds is keyed by it).
    */
   readonly txHash?: string;
+  /** When the venue took the signed withdrawal, where it reports it (J-cex-spot-07 #5: a statement places it by this). */
+  readonly requestedAt?: Date;
 }
 
 /**
@@ -1261,6 +1278,19 @@ export interface UserVenueDescriptor extends VenueDescriptor {
   readonly amendsInPlace?: boolean;
   /** The most orders this venue cancels in one signed action (`cancel_orders`). None declared: one cancel per signature. */
   readonly cancelsPerAction?: number;
+  /**
+   * The venue's own scheduled cancel (`schedule_cancel`, J-cex-spot-07): declared, with the least time ahead it accepts a
+   * cancel time (`minLeadMs`). A venue that declares none offers no scheduled cancel, and the app says so.
+   */
+  readonly scheduledCancel?: { readonly minLeadMs: number };
+}
+
+/** The venue's scheduled cancel as it records it for one account: when it cancels, and what it last did. */
+export interface UserVenueScheduledCancel {
+  /** When the venue cancels every open order of the account; `null` when nothing is scheduled. */
+  readonly cancelsAt: Date | null;
+  /** The last time the schedule fired, and how many orders it cancelled then; `null` when it never fired. */
+  readonly lastFired: { readonly firedAt: Date; readonly canceled: number } | null;
 }
 
 /** The most orders the venue cancels in one signed action; 0 when it declares none (`cancel_orders` is not offered). */
@@ -1409,6 +1439,12 @@ export interface UserVenue {
   marketMargin?(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueMarketMargin>>;
   /** The account's settlements in market events (a deployer's halt, a split) since `since`, oldest first. Absent: not read. */
   settlements?(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueSettlement[]>>;
+
+  /**
+   * The venue's scheduled cancel for this account (J-cex-spot-07), as the venue records it. Present only on a venue whose
+   * descriptor declares `scheduledCancel`.
+   */
+  scheduledCancel?(account: UserVenueAccount): Promise<AsOf<UserVenueScheduledCancel>>;
   /** The most the account has approved for `builder`, in bps; zero when never approved. */
   builderFeeApproval(account: UserVenueAccount, builder: string): Promise<AsOf<Amount>>;
   /**

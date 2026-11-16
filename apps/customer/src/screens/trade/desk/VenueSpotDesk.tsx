@@ -86,6 +86,8 @@ import { VenueChartOrders } from './VenueChartOrders';
 import { NotOfferedTypes, UnitFlag, VenueSelfTradeSelect, VenueTifSelect } from './VenueOrderOptions';
 import { VenueMarketRules } from './VenueMarketRules';
 import { VenueCancelMany, VenueEditOrder } from './VenueOrderChanges';
+import { VenueDeadMan } from './VenueDeadMan';
+import { VenueStatement } from './VenueStatement';
 import {
   HeldDraft,
   amountForValue,
@@ -590,6 +592,7 @@ export function VenueSpotDesk({
         <a className="text-link" data-testid="venue-history-link" href="/trade/orders?product=venue">
           {orders('historyTitle')}
         </a>
+        <VenueStatement status={status} owner={owner} />
         <TabsPanel value="open">
           <OrdersTable
             orders={account.openOrders.data}
@@ -612,6 +615,7 @@ export function VenueSpotDesk({
                 }),
             }}
           />
+          <VenueDeadMan status={status} owner={owner} run={run} onFired={account.reload} />
           <VenueCancelMany
             orders={account.openOrders.data?.value ?? []}
             market={market}

@@ -103,6 +103,9 @@ export const TEST_VENUE_DEPOSIT_TERMS = { minimum: '5', confirmations: 3, networ
  */
 export const TEST_VENUE_DEPOSIT_EXPLORER = '/chain/tx/';
 
+/** The least time ahead the first TEST venue takes a scheduled cancel (J-cex-spot-07): 5 s, as Hyperliquid's own rule. TEST. */
+export const FIRST_TEST_VENUE_SCHEDULED_CANCEL_MIN_LEAD_MS = 5_000;
+
 /**
  * The deposit route for this venue, or null when the TEST chain or its token is not given. Its chain is the stack's TEST
  * chain (anvil, TEST_APP_CHAIN_ID), whatever chain the venue's signing domain names (TEST_VENUE_CHAIN_ID).
@@ -136,7 +139,12 @@ export async function serveTestVenue({ host, port, appEnv, chainId, rpcUrl = '',
   // the second takes one order per signature, so the app's other branch runs against a venue too.
   const which = second
     ? { id: id ? `${id}-b` : SECOND_TEST_VENUE.id, displayName: SECOND_TEST_VENUE.displayName }
-    : { ...(id ? { id } : {}), ordersPerAction: FIRST_TEST_VENUE_ORDERS_PER_ACTION };
+    : {
+        ...(id ? { id } : {}),
+        ordersPerAction: FIRST_TEST_VENUE_ORDERS_PER_ACTION,
+        // The first TEST venue has a scheduled cancel, as the venue it stands for does (J-cex-spot-07): at least 5 s ahead.
+        scheduledCancelMinLeadMs: FIRST_TEST_VENUE_SCHEDULED_CANCEL_MIN_LEAD_MS,
+      };
   const started = await sim.startTestVenueServer({ host, port, appEnv, chainId, deposit, ...which });
   const seeded = await sim.seedTestVenue(started.sim, second ? { levelSize: SECOND_TEST_VENUE.levelSize } : {});
   const log = (line) => process.stdout.write(`${JSON.stringify(line)}\n`);
