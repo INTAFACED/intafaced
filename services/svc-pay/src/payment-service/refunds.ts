@@ -23,7 +23,7 @@ import { classifySettlementTx, readSettlementBook, settlementIdempotencyKey } fr
 import { type RailResult } from '../rails/rail-adapter.js';
 import { assertRailMayMoveValue } from '../rails/posture.js';
 import { withMoneySpan, withRailSpan } from '../tracing.js';
-import type { PayService, PayServiceInternal, PaymentView } from '../payment-service.js';
+import type { PayServiceInternal, PaymentView } from '../payment-service.js';
 import { PayError, appendEvent, countEvents, lockPayment, railPayload, readPayment, refuseUnusableRail, totalsFor } from './internal.js';
 
 /**

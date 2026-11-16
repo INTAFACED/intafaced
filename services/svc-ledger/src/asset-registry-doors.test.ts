@@ -65,7 +65,7 @@ function registry(asked: unknown[]): LedgerService {
       if (body?.operationId === 'reused') throw new LedgerError('reused', ASSET_OPERATION_CONFLICT);
       return USDT;
     },
-  } as unknown as LedgerService;
+  } as LedgerService;
 }
 
 async function s2s(asked: unknown[]) {

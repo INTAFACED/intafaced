@@ -6,8 +6,6 @@ import type { ChatMessage, ChatPage, ChatSent, Contacts } from '../schemas';
  * rules (no double-posting, how a refusal reads, when to poll) are tested without a browser.
  */
 
-type Failed = Extract<ApiResult<unknown>, { ok: false }>;
-
 // ── Refusals ────────────────────────────────────────────────────────────────────────────────────────────────────
 
 export type ServiceFailure =

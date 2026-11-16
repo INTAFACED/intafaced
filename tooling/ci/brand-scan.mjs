@@ -26,7 +26,7 @@
  * Exit 0 = clean. Exit 1 = a name would have shipped.
  */
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';
-import { basename, join, relative, resolve, sep } from 'node:path';
+import { join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const ROOT = process.cwd();
@@ -454,8 +454,8 @@ function collectVendorProductFiles() {
   const JAVA_COPY_EXT = new Set(['.ftl', '.html', '.htm', '.md', '.mdx', '.json', '.yml', '.yaml', '.txt']);
   function isJavaCopyResource(name) {
     const lower = name.toLowerCase();
-    if (/^application(\-.+)?\.properties$/.test(lower)) return false;
-    if (/^bootstrap(\-.+)?\.(properties|ya?ml)$/.test(lower)) return false;
+    if (/^application(-.+)?\.properties$/.test(lower)) return false;
+    if (/^bootstrap(-.+)?\.(properties|ya?ml)$/.test(lower)) return false;
     if (/^logback/.test(lower)) return false;
     if (lower.endsWith('.properties')) return true; // messages_*.properties etc.
     const dot = lower.lastIndexOf('.');

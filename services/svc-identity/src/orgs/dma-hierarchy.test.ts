@@ -44,7 +44,7 @@ function store(users: string[], orgs: OrgRow[], members: MemberRow[]) {
     get writes() {
       return writes;
     },
-  }) as unknown as Parameters<typeof createDmaHierarchyProduct>[0]['sql'] & { writes: number };
+  }) as Parameters<typeof createDmaHierarchyProduct>[0]['sql'] & { writes: number };
 }
 
 const A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';

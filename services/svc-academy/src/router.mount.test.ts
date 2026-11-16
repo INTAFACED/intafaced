@@ -164,7 +164,7 @@ function stubAcademy(overrides: Partial<AcademyService> = {}): AcademyService {
       };
     }),
     ...overrides,
-  } as unknown as AcademyService;
+  } as AcademyService;
 }
 
 describe('svc-academy mount — the router is actually mounted', () => {
@@ -897,7 +897,7 @@ describe('svc-academy mount — the paper drill gate is reachable, and refuses l
         simulated: true as const,
         venue: 'paper' as const,
         realMoney: true,
-      })) as unknown as AcademyService['paperOpsStatus'],
+      })) as AcademyService['paperOpsStatus'],
     });
     await expect(createAcademyRouter(academy).createCaller(signed()).paperOpsStatus()).rejects.toMatchObject({
       code: 'INTERNAL_SERVER_ERROR',

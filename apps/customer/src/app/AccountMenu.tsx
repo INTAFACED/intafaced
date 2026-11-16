@@ -2,7 +2,7 @@
 import { useId } from 'react';
 import { z } from 'zod';
 import { SegmentedControl } from '@intafaced/ui';
-import { fetchMe, meSchema } from '../data/identity';
+import { meSchema } from '../data/identity';
 import { useAccountViewStatus } from '../features/account/ViewSync';
 import { verificationStatus } from '../features/account/verification-guards';
 import { useSession } from '../features/session/session';

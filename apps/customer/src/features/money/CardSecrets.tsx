@@ -6,7 +6,7 @@ import { useSession } from '../session/session';
 import type { StepUpBegin } from '../account/security-step-up';
 import { ResourceView, useBankRead } from './components';
 import { bankWrites, type cardSchema, type CardWalletTokens } from './contracts';
-import { DepthPanel, DisabledAction, Fact } from './DepthParts';
+import { DisabledAction, Fact } from './DepthParts';
 import { Refusal } from './CardJourney';
 import { StepUpConfirm } from './StepUpConfirm';
 import { cardDepthCopy } from './card-depth-copy';

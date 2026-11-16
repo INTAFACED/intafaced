@@ -35,7 +35,7 @@ function log(topics: readonly Hex[], data: Hex, logIndex = 0): RawLog {
     transactionHash: `0x${'cd'.repeat(32)}` as Hex,
     transactionIndex: 0,
     removed: false,
-  } as unknown as RawLog;
+  } as RawLog;
 }
 
 function bookLevelLog(side: number, price: bigint, quantity: bigint, logIndex = 0, market: Hex = MARKET): RawLog {

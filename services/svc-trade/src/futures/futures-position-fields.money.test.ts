@@ -18,7 +18,6 @@ import {
   recipes,
   userAvailable,
   type Amount,
-  futuresLossSink,
   type LedgerClient,
 } from '@intafaced/ledger-client';
 import { MemoryEventBus } from '@intafaced/events';

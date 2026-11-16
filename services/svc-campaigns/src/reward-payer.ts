@@ -27,9 +27,12 @@ import { ledgerRewardId } from './payouts.js';
  *   `campaigns.reward_wallet_short`.
  *
  * One payment per reward (`reward_payments`, keyed by the reward): the row (where to, how much, the chain's head) is
- * written BEFORE the send, so a send that threw is looked up on the chain by those facts and never sent twice; a send the
- * chain never took (not found after `LOST_PAYMENT_AFTER_MS`) or a reverted one is `failed`, never sent again, and the
- * reward stays owed with that reason for a person. Once the receipt succeeds the payment is booked, and only the ledger's
+ * written BEFORE the send, so a send that threw is looked up on the chain by those facts and never sent twice. A send
+ * not found on the chain after `LOST_PAYMENT_AFTER_MS` is never given up: a transfer the node took may still be mined
+ * later (J-campaigns-03: an unknown chain result is read back from the chain, never sent again). It stays `sending`, is
+ * looked for on every pass, and the reward stays owed with reason `campaigns.reward_payment_unconfirmed` for a person
+ * (#8581, services/svc-campaigns/model/RewardPay.tla). A reverted one is `failed`, never sent again, and the reward stays
+ * owed with that reason for a person. Once the receipt succeeds the payment is booked, and only the ledger's
  * answer makes the reward `paid`. A refused or lost booking leaves the payment `sent` and the reward owed with the reason;
  * the next pass books the same key again, so the ledger answers a booking that landed with its first transaction.
  */
@@ -38,12 +41,13 @@ type Sql = postgres.Sql;
 
 export const WALLET_SHORT = 'campaigns.reward_wallet_short';
 export const NO_WALLET = 'campaigns.no_connected_wallet';
-export const PAYMENT_NOT_TAKEN = 'campaigns.reward_payment_not_taken';
+/** A send not found on the chain after the wait: still looked for, never sent again (#8581). */
+export const PAYMENT_UNCONFIRMED = 'campaigns.reward_payment_unconfirmed';
 export const PAYMENT_REVERTED = 'campaigns.reward_payment_reverted';
 export const AMOUNT_UNPAYABLE = 'campaigns.reward_amount_unpayable';
 export const FROZEN = 'ledger.frozen';
 
-/** How long a send with no answer is looked for on the chain before it counts as never taken (the TEST chain mines at once). */
+/** How long a send with no answer is looked for on the chain before its reward says so (the TEST chain mines at once). */
 export const LOST_PAYMENT_AFTER_MS = 60_000;
 
 /** What the payer needs from a chain: our wallet's token balance, one token transfer from it, and its receipt. */
@@ -183,12 +187,20 @@ export class RewardPayer {
         continue;
       }
       const fromBlock = await this.chain.head();
-      // Recorded before the send: a send that throws after the chain took it is found next pass, never sent again.
-      const [made] = await this.sql<{ reward_key: string }[]>`
-        INSERT INTO campaigns.reward_payments (reward_key, from_place, to_wallet, asset, amount, units, from_block, sent_at)
-        VALUES (${r.reward_key}, ${this.wallet.walletId}, ${r.pay_to_wallet}, ${REWARD_ASSET}, ${r.amount}, ${units.toString()},
-          ${fromBlock.toString()}, ${this.now()})
-        ON CONFLICT (reward_key) DO NOTHING RETURNING reward_key`;
+      // Recorded before the send: a send that throws after the chain took it is found next pass, never sent again. The
+      // reward row is locked and read again first: a risk revocation (`risk.ts`) takes the same lock, so a reward it moved
+      // to `reclaiming` is never recorded for payment, and one recorded here is never reclaimed.
+      const made = await transaction(this.sql, async (tx) => {
+        const [still] = await tx<{ reward_key: string }[]>`
+          SELECT reward_key FROM campaigns.reward_intents WHERE reward_key = ${r.reward_key} AND state = 'owed' FOR UPDATE`;
+        if (!still) return null;
+        const [row] = await tx<{ reward_key: string }[]>`
+          INSERT INTO campaigns.reward_payments (reward_key, from_place, to_wallet, asset, amount, units, from_block, sent_at)
+          VALUES (${r.reward_key}, ${this.wallet.walletId}, ${r.pay_to_wallet}, ${REWARD_ASSET}, ${r.amount}, ${units.toString()},
+            ${fromBlock.toString()}, ${this.now()})
+          ON CONFLICT (reward_key) DO NOTHING RETURNING reward_key`;
+        return row ?? null;
+      });
       if (!made) continue;
       sent += 1;
       let hash: string;
@@ -222,12 +234,12 @@ export class RewardPayer {
       SELECT p.reward_key, i.campaign_id, p.to_wallet, p.amount::text AS amount, p.units::text AS units,
         p.from_block::text AS from_block, p.sent_at, p.chain_tx, p.state, i.reason
       FROM campaigns.reward_payments p JOIN campaigns.reward_intents i ON i.reward_key = p.reward_key
-      WHERE p.state IN ('sending', 'sent') ORDER BY p.created_at LIMIT ${limit}`;
+      WHERE p.state IN ('sending', 'sent') ORDER BY p.updated_at, p.created_at LIMIT ${limit}`;
     let paid = 0;
     for (const p of open) {
       try {
         if (await this.settle(p)) paid += 1;
-      } catch (err) {
+      } catch {
         // A chain read that failed: this payment is looked at again next pass, the others still are.
       }
     }
@@ -247,7 +259,7 @@ export class RewardPayer {
           .find((h) => !claimed.has(h));
         if (found === undefined) {
           if (this.now().getTime() - p.sent_at.getTime() < LOST_PAYMENT_AFTER_MS) return false;
-          await this.fail(p, PAYMENT_NOT_TAKEN);
+          await this.unconfirmed(p);
           return false;
         }
         hash = found;
@@ -262,6 +274,28 @@ export class RewardPayer {
       await this.sql`UPDATE campaigns.reward_payments SET state = 'sent', updated_at = now() WHERE reward_key = ${p.reward_key}`;
     }
     return this.book(p, hash!);
+  }
+
+  /**
+   * A send not found on the chain after the wait. It may still be mined, so it is neither failed nor sent again: it stays
+   * `sending` and is looked for on every pass. The reward says why it waits (one `unknown` line), and the payment goes to
+   * the back of the open list so payments that can still settle are not crowded out.
+   */
+  private async unconfirmed(p: PaymentRow): Promise<void> {
+    await transaction(this.sql, async (tx) => {
+      const looked = await tx`
+        UPDATE campaigns.reward_payments SET reason = ${PAYMENT_UNCONFIRMED}, updated_at = now()
+        WHERE reward_key = ${p.reward_key} AND state = 'sending' AND chain_tx IS NULL`;
+      if (looked.count === 0 || p.reason === PAYMENT_UNCONFIRMED) return;
+      const changed = await tx`
+        UPDATE campaigns.reward_intents SET reason = ${PAYMENT_UNCONFIRMED}, updated_at = now()
+        WHERE reward_key = ${p.reward_key} AND state = 'owed' AND reason IS NOT DISTINCT FROM ${p.reason}`;
+      if (changed.count > 0) {
+        await tx`
+          INSERT INTO campaigns.redemption_attempts (reward_key, outcome, reason)
+          VALUES (${p.reward_key}, 'unknown', ${PAYMENT_UNCONFIRMED})`;
+      }
+    });
   }
 
   /** Never sent again: the reward stays owed with the reason, for a person to look at. */

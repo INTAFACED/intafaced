@@ -197,7 +197,7 @@ describe('runEngineLedgerReconcileTick — no silent release of funded missing',
         throw new Error('DELETE must not run on refuse path');
       }
       return [];
-    }, {}) as unknown as import('postgres').Sql;
+    }, {}) as import('postgres').Sql;
 
     const ledgerPost = vi.fn();
     const ledger = {
@@ -278,7 +278,7 @@ describe('runEngineLedgerReconcileTick — no silent release of funded missing',
         return [{ id: orderId }];
       }
       return [];
-    }, {}) as unknown as import('postgres').Sql;
+    }, {}) as import('postgres').Sql;
 
     const ledgerPost = vi.fn();
     const ledger = {
@@ -346,7 +346,7 @@ describe('runEngineLedgerReconcileTick — no silent release of funded missing',
         return [];
       }
       return [];
-    }, {}) as unknown as import('postgres').Sql;
+    }, {}) as import('postgres').Sql;
 
     const result = await runEngineLedgerReconcileTick({
       sql,
@@ -400,7 +400,7 @@ describe('runEngineLedgerReconcileTick — no silent release of funded missing',
         throw new Error('drift path must not mutate orders or markets');
       }
       return [];
-    }, {}) as unknown as import('postgres').Sql;
+    }, {}) as import('postgres').Sql;
 
     const ledgerPost = vi.fn();
     const ledger = {

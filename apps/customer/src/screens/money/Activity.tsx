@@ -55,7 +55,6 @@ import {
   TabsTab,
   useActivity,
   type ActivityFeed,
-  type ActivityItem,
   type ActivityKind,
   type Loadable,
 } from './deps';

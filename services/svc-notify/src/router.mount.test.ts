@@ -67,7 +67,7 @@ function stubNotify(overrides: Partial<NotifyService> = {}): NotifyService {
     markRead: vi.fn(async () => 0),
     markAllRead: vi.fn(async () => 0),
     ...overrides,
-  } as unknown as NotifyService;
+  } as NotifyService;
 }
 
 describe('svc-notify mount — authorisation', () => {

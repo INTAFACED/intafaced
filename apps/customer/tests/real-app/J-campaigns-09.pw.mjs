@@ -6,6 +6,7 @@ import { test, expect } from './journey.mjs';
 import { ROOT, api, fromUnits, journeyState, tool, toUnits } from './stack.mjs';
 import { reviewSheet, signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
+import { connectWhenAsked } from './dex.mjs';
 import {
   continueInWallet,
   openVenueDesk,
@@ -148,16 +149,8 @@ const desk = async (page) => {
   } else {
     await page.goto(DESK);
     await expect(page.getByTestId('venue-header')).toBeVisible({ timeout: 30_000 });
-    // The desk shows Connect first and then restores the still-authorised wallet on its own, so the button can go between
-    // seeing it and pressing it (#8286: run 43542420436 waited out #2 on it): press it only while no address is shown,
-    // and never wait on a button that has gone (as J-derivatives-28 does, #8049).
     const address = page.getByTestId('venue-wallet-address');
-    const connect = page.getByRole('button', { name: 'Connect TEST Wallet' });
-    await expect(async () => {
-      if (await address.isVisible()) return;
-      await connect.click({ timeout: 2_000 });
-      await expect(address).toBeVisible({ timeout: 5_000 });
-    }).toPass({ timeout: 30_000 });
+    await connectWhenAsked(page, address);
     await expect(address).toHaveText(wallet.address);
   }
   return { ...s, wallet, owner: wallet.address };

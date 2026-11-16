@@ -23,7 +23,15 @@ import type { Sql } from 'postgres';
 import { z } from 'zod';
 import { BankError } from '../errors.js';
 import type { PartnerCardHolds } from '../cards/partner-card-holds.js';
-import type { NoteRefusal, PartnerAccountRef, PartnerBank, PartnerCustody, PartnerMoveRequest, PartnerMovesQuery } from './partner-bank.js';
+import type {
+  NoteRefusal,
+  PartnerAccountRef,
+  PartnerBank,
+  PartnerCustody,
+  PartnerMoveRequest,
+  PartnerMovesQuery,
+  PartnerPaymentRequest,
+} from './partner-bank.js';
 
 export const PARTNER_STOP_KINDS = ['bank_move', 'card_hold', 'card_capture', 'card_release', 'card_refund'] as const;
 export type PartnerStopKind = (typeof PARTNER_STOP_KINDS)[number];
@@ -286,6 +294,24 @@ export function stopGuardedCustody(custody: PartnerCustody, partnerId: string, g
         moveByKey: (key: string) => bank.moveByKey(key),
         moves: (userId: string, query: PartnerMovesQuery) => bank.moves(userId, query),
         limits: (userId: string, assetId: string) => bank.limits(userId, assetId),
+        // Reads stay open under a stop, as they do under the freeze (J-bank-23: the partner's statement and history rules).
+        ...(bank.statement
+          ? { statement: (account: PartnerAccountRef, range: { from: Date; to: Date }) => bank.statement!(account, range) }
+          : {}),
+        ...(bank.historyRules ? { historyRules: bank.historyRules } : {}),
+        // A quote moves nothing, so it stays open; a payment out is a move and asks the stop first (J-bank-24).
+        ...(bank.quoteMove ? { quoteMove: bank.quoteMove.bind(bank) } : {}),
+        ...(bank.payments
+          ? {
+              payments: Object.freeze({
+                paymentByKey: (key: string) => bank.payments!.paymentByKey(key),
+                pay: async (request: PartnerPaymentRequest) => {
+                  await assertOpenCounted(gate, partnerId, 'bank_move', note);
+                  return bank.payments!.pay(request);
+                },
+              }),
+            }
+          : {}),
         move: async (request: PartnerMoveRequest) => {
           await assertOpenCounted(gate, partnerId, 'bank_move', note);
           return bank.move(request);
@@ -319,6 +345,7 @@ export function stopGuardedCardHolds(
     test: holds.test,
     figures: (input: { userId: string; assetId: string }) => holds.figures(input),
     holdState: (input: { holdKey: string }) => holds.holdState(input),
+    ...(holds.captured ? { captured: holds.captured.bind(holds) } : {}),
     hold: async (input: Parameters<PartnerCardHolds['hold']>[0]) => {
       await assertOpenCounted(gate, partnerId, 'card_hold', note);
       return holds.hold(input);

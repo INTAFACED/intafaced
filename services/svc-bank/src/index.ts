@@ -1,11 +1,11 @@
 import { parseStatementJobsTestHold, startStatementJobWorker } from './statements/statement-jobs.js';
 import { createIdentityExtraControls, unconfiguredExtraControls } from './safety/extra-controls.js';
 import { failingHistoryPages, parseActivityTestFault } from './activity/activity-test-fault.js';
-import type { z } from 'zod';
+import { z } from 'zod';
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
-import { edgeTrustFromEnv } from '@intafaced/config';
+import { edgeTrustFromEnv, isExplicitDevOrTest } from '@intafaced/config';
 import {
   createEdgeContext,
   createPayCustodyDepositClient,
@@ -54,6 +54,8 @@ import {
   redriveBody,
 } from './cash-out/job-bodies.js';
 import { directDebitSchemeFor } from './direct-debits/scheme.js';
+import { BILL_RETURN_REASONS } from './business/business-bills.js';
+import { billView } from './router/business-bills.router.js';
 import { ddRunBody, ddSimCollectionBody, ddSimMandateBody } from './direct-debits/job-bodies.js';
 import { scheduledNoticesBody } from './rules/job-bodies.js';
 import { incomeSorterBody } from './sorter/income-sorter.js';
@@ -179,6 +181,8 @@ const taxEffects = taxEffectsFor(env.BANK_TAX_EFFECTS, { APP_ENV: process.env.AP
 
 const bank = createBankServices(sql, ledger, history, {
   testPartner,
+  // J-bank-24 #5: a webhook endpoint on loopback, over http, only on an explicit dev or test stack (the URL guard's hatch).
+  bankApi: { allowLocalHttp: isExplicitDevOrTest(env.APP_ENV) && process.env.NODE_ENV !== 'production' },
   taxEffects,
   // The custody switch (OWNER 226): off unless set; the TEST stack pins it on.
   custodyLayer: env.LEDGER_CUSTODY_LAYER,
@@ -264,6 +268,11 @@ const bank = createBankServices(sql, ledger, history, {
   },
   /** The owner's card dispute cap (J-bank-27 #4). Blank refuses `bank.card_dispute_cap_unset`; malformed refuses to start. */
   cardDisputeCap: parseDisputeCap(env.BANK_CARD_DISPUTE_CAP_JSON),
+  /** The card programme desk (J-bank-26): the cardholder sanctions list, and the simulator on a dev or test stack only. */
+  cardProgramme: {
+    sanctions: () => env.BANK_CARDHOLDER_SANCTIONS,
+    simulatorAllowed: isExplicitDevOrTest(env.APP_ENV) && process.env.NODE_ENV !== 'production',
+  },
   /**
    * THE OTHER HALF THAT WAS MISSING, and it was missing in the same shape.
    *
@@ -405,6 +414,8 @@ const bank = createBankServices(sql, ledger, history, {
   incomeSorterMinCredit: env.BANK_INCOME_SORTER_MIN_CREDIT,
   sharedPotInviteMinutes: env.BANK_SHARED_POT_INVITE_MINUTES,
   businessInviteMinutes: env.BANK_BUSINESS_INVITE_MINUTES,
+  // The TEST bill reader stands in only where the TEST partner bank does.
+  billReader: testPartner ? env.BANK_BILL_READER : undefined,
   sharedPotPeopleCap: env.BANK_SHARED_POT_PEOPLE_CAP,
   /** Account details and the eligibility statement: owner-published lists, no banking partner wired (`rail.bank`). */
   accountDetails: {
@@ -479,6 +490,8 @@ export const appRouter = createBankRouter(bank, {
   autoInvestConvertWired: usableTradeConvertUrl(env.TRADE_URL),
   approvals: approvalConsumer,
   stepUp: createStepUpGate({ mode: env.BANK_STEP_UP_MONEY_OUT, approvals: approvalConsumer, store: new SqlStepUpUseStore(sql) }),
+  // A business statement reaching back past the partner's strong customer authentication age always needs one (J-bank-23 #3).
+  statementStepUp: createStepUpGate({ mode: 'required', approvals: approvalConsumer, store: new SqlStepUpUseStore(sql) }),
 });
 export type AppRouter = typeof appRouter;
 
@@ -834,6 +847,19 @@ jobDoor('/internal/jobs/payout-sim/returned', payoutReturnedBody, (b) =>
   bank.cashOut.returned(b.cashOutId, { amount: b.amount, assetId: b.assetId, reason: b.reason }),
 );
 /**
+ * A business's bill payments (J-bank-20 #4, #5). `bill-pay/run-due` sends the scheduled payments whose day has come, once
+ * each (a cancelled one is never picked up). `bill-pay/returned` is the partner's report that the payee's bank sent a
+ * payment back: the amount is given back to the business's partner account once. Signed job doors, never a customer's.
+ */
+jobDoor('/internal/jobs/bill-pay/run-due', z.object({ limit: z.number().int().min(1).max(500) }).strict(), (b) =>
+  bank.businessBills.runDue(b),
+);
+jobDoor(
+  '/internal/jobs/bill-pay/returned',
+  z.object({ paymentId: z.string().guid(), reason: z.enum(BILL_RETURN_REASONS) }).strict(),
+  async (b) => billView(await bank.businessBills.returned(b)),
+);
+/**
  * The pay-in partner's side of add money (J-bank-02 #3, #5): it says a payment it opened was paid, and the bank credits
  * the quote's receive amount once. A signed job door, never a customer or a staff session: with no partner wired it
  * refuses `bank.fiat_ramp_socket`. On the stack only the TEST stand-in (`payin-sim`) answers, and its page (mounted only
@@ -947,6 +973,7 @@ const recoveryJobs = startBankRecoveryJobs({
   transferNotices: { announceUnannounced: (limit) => bank.personalPay.announceUnannounced(limit) },
   cashOuts: bank.cashOut,
   receivedHolds: bank.receivedHolds,
+  webhookDeliveries: bank.bankApi,
   onWarn: (message) => app.log.warn(message),
   onError: (name, err) => app.log.error({ err, job: name }, 'bank recovery job tick failed'),
   onResult: (name, counts) =>

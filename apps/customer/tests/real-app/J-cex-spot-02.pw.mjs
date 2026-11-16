@@ -1,12 +1,13 @@
 // World: book, gates, restart, stack
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { api, fromUnits, journeyState, toUnits } from './stack.mjs';
 import { reviewSheet, signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
-import { approverSessions, makeContext, twoPerson } from '../../../../tooling/scripts/local-test-gates.mjs';
+import { connectWhenAsked } from './dex.mjs';
+import { ownSpotMarket, venueListingWrite } from './own-market.mjs';
 import {
   continueInWallet,
   openVenueDesk,
@@ -516,79 +517,19 @@ test(`${J} #7 the numbers change between Review and Confirm: the new numbers sho
 
 // ── #8: a halted market, by the venue or by our operators ──────────────────────────────────────────────────────────
 
-let operators;
-async function ops() {
-  if (!operators) {
-    const ctx = await makeContext({ log: () => undefined });
-    operators = { ctx, sessions: await approverSessions(ctx) };
-  }
-  return operators;
-}
-
-/** Keys sorted, no spaces: the canonical form svc-trade hashes (services/svc-trade/src/admin/common.ts payloadHash). */
-function canonical(value) {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
-  const keys = Object.keys(value)
-    .filter((k) => value[k] !== undefined)
-    .sort();
-  return `{${keys.map((k) => `${JSON.stringify(k)}:${canonical(value[k])}`).join(',')}}`;
-}
-const hashOf = (body) => `sha256:${createHash('sha256').update(canonical(body)).digest('hex')}`;
-const trpcData = (res) => res.json?.result?.data?.json ?? res.json?.result?.data;
-
 /** Two operators change one venue market's listing through svc-trade's own two-person door (setup for #8). */
-async function operatorsWrite(symbol, action, procedure, fields, expectedVersion) {
-  const { ctx, sessions } = await ops();
-  const venueId = (await venueInfo()).id;
-  const reason = `LOCAL TEST ${J}: ${procedure} ${symbol}`;
-  const ids = await twoPerson(ctx, sessions, {
-    actionType: action,
-    targetService: 'svc-trade',
-    targetId: `venue-listing:${venueId}:${symbol}`,
-    expectedVersion,
-    payloadHash: hashOf({ actionType: action, venueId, symbol, ...fields, expectedVersion, reason }),
-    policyVersion: 'trade-venue-markets-v1',
-  });
-  const res = await ctx.edge.mutate(
-    'trade',
-    `admin.venueMarkets.${procedure}`,
-    { symbol, ...fields, expectedVersion, reason, ...ids },
-    await sessions.a.tradeOpsToken(),
-  );
-  expect(trpcData(res)?.listing?.version, res.text.slice(0, 300)).toBe(Number(expectedVersion) + 1);
-}
+const operatorsWrite = (symbol, action, procedure, fields, expectedVersion) =>
+  venueListingWrite(J, symbol, action, procedure, fields, expectedVersion);
 
 /** A fresh TEST spot market on the TEST venue, listed by two operators and open: no other file trades it. */
-async function freshListedMarket(tag) {
-  const base = `JS2${tag}${randomBytes(3).toString('hex').toUpperCase()}`;
-  const symbol = `${base}-USDC`;
-  const added = await testVenue('/test/market-add', {
-    symbol,
-    baseAsset: base,
-    quoteAsset: 'USDC',
-    maxOrderQty: null,
-    maxOrderNotional: null,
-  });
-  expect(added.status, JSON.stringify(added.body)).toBe(200);
-  await operatorsWrite(symbol, 'trade.venue_listing_set', 'listingSet', { opensAt: new Date(Date.now() - 60_000).toISOString() }, '0');
-  return { symbol, base };
-}
+const freshListedMarket = (tag) => ownSpotMarket(J, 'JS2', tag);
 
-/**
- * Another venue desk in the same signed-in page, its TEST wallet already installed (a page takes it once). The desk may
- * restore the still-authorised wallet on its own, so Connect is pressed only while no address shows.
- */
+/** Another venue desk in the same signed-in page, its TEST wallet already installed (a page takes it once). */
 async function deskAgain(page, wallet, path) {
   await page.goto(path);
   await expect(page.getByTestId('venue-header')).toBeVisible({ timeout: 30_000 });
   const address = page.getByTestId('venue-wallet-address');
-  const connect = page.getByRole('button', { name: 'Connect TEST Wallet' });
-  await expect(async () => {
-    if (await address.isVisible()) return;
-    await connect.click({ timeout: 2_000 });
-    await expect(address).toBeVisible({ timeout: 5_000 });
-  }).toPass({ timeout: 30_000 });
+  await connectWhenAsked(page, address);
   await expect(address).toHaveText(wallet.address);
 }
 

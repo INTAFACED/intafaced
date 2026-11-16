@@ -188,7 +188,7 @@ function signed(scopes: string[]) {
     tier: 'none',
     mfa: false,
     expiresAt: new Date(Date.now() + 60_000),
-  } as unknown as Principal;
+  } as Principal;
   const raw = encodePrincipal(p);
   return edgeContext({
     headers: {

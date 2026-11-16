@@ -117,6 +117,21 @@ async function listedMakers(client) {
   return read.body.result.data;
 }
 
+/**
+ * Picks BTC/USDT in the `name` pair select inside `scope` and waits until the select shows it and its list is closed.
+ * The select can swallow an option click that lands as its list opens, leaving the list open over the form (#8640), so
+ * the pick is clicked again until the select reads BTC/USDT.
+ */
+async function pickPair(page, scope, name, options = {}) {
+  const select = scope.getByRole('combobox', { name });
+  await expect(async () => {
+    if ((await select.getAttribute('aria-expanded')) !== 'true') await select.click({ timeout: 5_000 });
+    await page.getByRole('option', { name: 'BTC/USDT', exact: true }).click({ timeout: 5_000 });
+    await expect(select).toHaveAttribute('aria-expanded', 'false', { timeout: 2_000 });
+    await expect(select).toContainText('BTC/USDT', { timeout: 1_000 });
+  }).toPass({ intervals: [250, 500, 1_000], ...options });
+}
+
 /** Ticks each named provider in the request form's Providers group. */
 async function pickProviders(page, names, options) {
   const group = request(page).getByRole('group', { name: 'Providers' });
@@ -129,8 +144,7 @@ async function pickProviders(page, names, options) {
  */
 async function askRefused(page, quantity, providers = [HOUSE]) {
   const answer = page.waitForResponse((res) => res.url().includes('rfq.quote'));
-  await request(page).getByRole('combobox', { name: 'Pair' }).click();
-  await page.getByRole('option', { name: 'BTC/USDT', exact: true }).click();
+  await pickPair(page, request(page), 'Pair');
   await request(page).getByRole('textbox', { name: 'Quantity' }).fill(quantity);
   await pickProviders(page, providers);
   await page.getByRole('button', { name: 'Request price' }).click();
@@ -188,8 +202,7 @@ async function openOtc(page) {
 
 /** Asks the house desk for a price on `quantity` BTC against USDT and returns the open quote card. */
 async function ask(page, quantity = '0.5') {
-  await request(page).getByRole('combobox', { name: 'Pair' }).click(UNBUILT);
-  await page.getByRole('option', { name: 'BTC/USDT', exact: true }).click(UNBUILT);
+  await pickPair(page, request(page), 'Pair', { timeout: 15_000 });
   await request(page).getByRole('textbox', { name: 'Quantity' }).fill(quantity, UNBUILT);
   await pickProviders(page, [HOUSE], UNBUILT);
   await page.getByRole('button', { name: 'Request price' }).click(UNBUILT);
@@ -553,8 +566,7 @@ async function shownBoard(page) {
  */
 async function askFrom(page, quantity, providers) {
   const answer = page.waitForResponse((res) => res.url().includes('rfq.quote'));
-  await request(page).getByRole('combobox', { name: 'Pair' }).click();
-  await page.getByRole('option', { name: 'BTC/USDT', exact: true }).click();
+  await pickPair(page, request(page), 'Pair');
   await request(page).getByRole('textbox', { name: 'Quantity' }).fill(quantity);
   await pickProviders(page, providers);
   await page.getByRole('button', { name: 'Request price' }).click();
@@ -913,8 +925,7 @@ test(`${J} #9 Convert at the desk price: the range, the quoted price and the set
   const panel = otcConvert(page);
   await expect(panel).toBeVisible();
   // Only pairs on the desk's asset list are offered; BTC/USDT is the one the stack prices (its one TEST mid).
-  await panel.getByRole('combobox', { name: 'Desk pair' }).click();
-  await page.getByRole('option', { name: 'BTC/USDT', exact: true }).click();
+  await pickPair(page, panel, 'Desk pair');
   await expect(panel.getByRole('combobox', { name: 'Desk pair' })).toContainText('BTC/USDT');
 
   // The size range on the page is the one the desk publishes, read back.
@@ -976,8 +987,7 @@ test(`${J} #9 Convert at the desk price: the range, the quoted price and the set
     tradeConvertBounds(false);
     expect(await convertBounds(me)).toBeNull();
     await page.goto('/trade/convert');
-    await panel.getByRole('combobox', { name: 'Desk pair' }).click();
-    await page.getByRole('option', { name: 'BTC/USDT', exact: true }).click();
+    await pickPair(page, panel, 'Desk pair');
     await expect(panel.getByTestId('convert-otc-range')).toHaveText(
       'Desk size range:Not setThe desk has no size range for conversions, so a request refuses.',
     );

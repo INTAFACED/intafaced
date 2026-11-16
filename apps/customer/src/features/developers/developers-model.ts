@@ -58,6 +58,7 @@ export const SECTIONS: readonly Section[] = [
   { id: 'protocols', audience: 'institutional', waitsFor: 'DV-websocket-01' },
   { id: 'webhooks', audience: 'embedded', published: { href: '/pay/developer/webhooks' } },
   { id: 'sandbox', audience: 'embedded', published: { href: '/developers/sandbox' } },
+  { id: 'business-cards', audience: 'embedded', published: { href: '/bank/business/cards#card-api' } },
   { id: 'apps', audience: 'broker', published: { href: '/developers/apps' } },
   { id: 'quickstart', audience: 'practice', page: true },
   { id: 'sdks', audience: 'practice', waitsFor: 'DV-tools-01' },

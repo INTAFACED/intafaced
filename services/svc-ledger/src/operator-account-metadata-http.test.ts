@@ -93,7 +93,7 @@ async function desk(opts: { failAccess?: boolean; readError?: Error; writeError?
         change: { ...CHANGE, action: 'delete' as const, before: 'TEST', after: null, revision: 2, approverId: 'b' },
       };
     },
-  } as unknown as LedgerService;
+  } as LedgerService;
   const app: FastifyInstance = Fastify({ logger: false });
   registerOperatorHttp(app, ledger, tokens, approvals);
   await app.ready();

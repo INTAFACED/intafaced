@@ -10,7 +10,7 @@ import { protocolCopy } from '../copy';
 import { Actions, toSource } from '../ParkedProtocolRoom';
 import '../protocol.css';
 import { walletCopy } from './copy';
-import { APP_CHAIN_ID, shortAddress } from './eip1193';
+import { APP_CHAIN_ID } from './eip1193';
 import { AccountsPanel } from './AccountsPanel';
 import { ActivityPanel } from './ActivityPanel';
 import { AddressBookPanel } from './AddressBookPanel';

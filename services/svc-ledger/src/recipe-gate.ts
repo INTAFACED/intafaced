@@ -1055,6 +1055,16 @@ function extraShapePosts(): Array<{ name: RecipeName; post: PostRequest }> {
       }),
     },
     {
+      name: 'rewardReclaim',
+      post: recipes.rewardReclaim({
+        campaignId: 'test-campaign',
+        rewardId: `campaign:test-campaign:${U}:test`,
+        caseId: 'risk-test',
+        assetId: 'USDC',
+        amount: AMT,
+      }),
+    },
+    {
       name: 'feeShareBudgetFund',
       post: recipes.feeShareBudgetFund({ venueId: 'test-venue', claimId: 'claim-test', assetId: 'USDC', claimAmount: AMT, amount: AMT }),
     },

@@ -66,7 +66,7 @@ function sessionStore(sessions: SessionRow[]) {
       return writes;
     },
     sessions,
-  }) as unknown as Parameters<typeof listSessions>[0] & { writes: number; sessions: SessionRow[] };
+  }) as Parameters<typeof listSessions>[0] & { writes: number; sessions: SessionRow[] };
 }
 
 const A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';

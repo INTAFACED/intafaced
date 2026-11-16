@@ -323,7 +323,7 @@ describe('the chain reads', () => {
           return 9n;
         },
       },
-    } as unknown as ProtocolChain;
+    } as ProtocolChain;
     expect(await contractChain(chain).head()).toBe(9n);
     expect(asked).toEqual([{ cacheTime: 0 }]);
   });

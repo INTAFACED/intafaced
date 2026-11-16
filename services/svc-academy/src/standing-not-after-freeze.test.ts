@@ -59,7 +59,7 @@ function sqlPausingAfterStandingsRead(sql: Sql, afterRead: () => Promise<void>):
   let armed = true;
   const wrap = (inner: Sql): Sql => {
     const invoke = (strings: TemplateStringsArray, ...values: unknown[]) => {
-      const query = (inner as unknown as (s: TemplateStringsArray, ...v: unknown[]) => Promise<unknown>)(strings, ...values);
+      const query = (inner as (s: TemplateStringsArray, ...v: unknown[]) => Promise<unknown>)(strings, ...values);
       const text = strings.join(' ');
       const standingsRead =
         armed &&

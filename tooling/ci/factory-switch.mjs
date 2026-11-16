@@ -34,7 +34,7 @@
  */
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { CI_WORKFLOW, recheckStep, SEAL, SEAL_WORKFLOWS } from './journey-seal.mjs';
+import { CI_WORKFLOW, recheckStep, SEAL_WORKFLOWS } from './journey-seal.mjs';
 import { httpMessage, titleFor } from './api-budget.mjs';
 
 export const SWITCH_BRANCH = 'factory-switch';

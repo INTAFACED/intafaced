@@ -3125,6 +3125,12 @@ describe('svc-bank money PG-hard', () => {
         'cash_out_requests.returned_amount': 'a RECORD of what came back on one returned payout; credited once with its ledger tx id',
         'rail_send_intents.amount':
           'the amount the customer asked to send over a bank rail on one intent; kept refused, never held or posted from here',
+        // ── The bank API (J-bank-24): the partner's figures and the caller's instructions, never a balance ──
+        'api_move_quotes.amount': "the partner's QUOTE: what one move between the person's own accounts would move; written once",
+        'api_move_quotes.fee': "the partner's QUOTE of what it takes for that move; null when it does not say; written once",
+        'api_move_quotes.receives': "the partner's QUOTE of what arrives; null when the fee is not known; written once",
+        'api_payments.amount':
+          'the INSTRUCTION of one payment out through the API; the partner holds and moves the money, nothing posts here',
 
         // ── Auto-invest (§31:805 F-plane) ────────────────────────────────────
         // Rules are instructions; runs are write-once records. No running balance.
@@ -3141,6 +3147,36 @@ describe('svc-bank money PG-hard', () => {
         'business_departments.budget': 'a POLICY budget the owner set for one department; never written by a money path',
         'business_payment_rules.over_amount': 'a POLICY threshold above which a payment needs approvals; instruction, not a holding',
         'business_payments.amount': 'an INSTRUCTION: one payment proposed to the partner bank; written once when proposed',
+        // Bill pay (J-bank-20): the partner holds the business's money; these are a document's figure, policies and instructions.
+        'business_bills.amount': 'a RECORD of what one bill says it asks for, reviewed by a person; never a holding',
+        'business_bill_vendors.cap': 'a POLICY: the most a pre-approved vendor’s bill may be and still skip approvers',
+        'business_bill_limits.per_payment': 'a POLICY Bill Pay limit the business set; blank refuses every payment',
+        'business_bill_limits.daily': 'a POLICY Bill Pay limit the business set; blank refuses every payment',
+        'business_bill_limits.monthly': 'a POLICY Bill Pay limit the business set; blank refuses every payment',
+        'business_bill_payments.amount': 'an INSTRUCTION: one bill payment sent to the partner bank under its key; written once',
+        'business_bill_splits.amount': 'a RECORD: one category line beside the partner’s one payment; written once with it',
+        // Bulk payments, contractors and crypto payroll (J-bank-21): the partner or the business's own wallet holds the money.
+        'business_bulk_runs.amount': 'an INSTRUCTION: one bulk run sent to the partner bank under its run key; written once at import',
+        'business_bulk_runs.threshold': 'a POLICY: the business’s own threshold as it stood when the run was confirmed',
+        'business_bulk_lines.amount': 'a RECORD: one recipient line beside the partner’s one instruction; written once at import',
+        'business_contractor_invoices.amount': 'a RECORD of what one contractor invoice asks for; never a holding',
+        'business_contractor_batches.amount':
+          'an INSTRUCTION: one contractor batch for the partner’s payout rail under its key; written once',
+        'business_contractor_batch_lines.amount': 'a RECORD: one invoice line beside the batch’s one instruction; written once with it',
+        'business_crypto_payroll_members.amount': 'a POLICY: what one member of a recurring crypto payroll is paid each run',
+        'business_crypto_payroll_runs.amount':
+          'a RECORD of what the business’s own wallet signed for one month; INTAFACED holds none of it',
+        'business_crypto_payslips.amount': 'a RECORD: one payslip of a run the business’s own wallet signed; never a holding',
+        // Business cards and expenses (J-bank-22): the partner holds the business's and the member's money.
+        'business_cards.per_purchase_limit': 'a POLICY: the most one purchase on a business card may be; over it the card declines',
+        'business_card_purchases.amount':
+          'an INSTRUCTION: one card capture sent to the partner bank under its purchase key; a declined one moves nothing',
+        'business_card_purchases.receipt_over': 'a POLICY: the business’s receipt rule as it stood when the purchase was captured',
+        'business_card_limit_requests.amount': 'a RECORD of the declined purchase an over-limit request asks the admins about',
+        'business_expense_policies.receipt_over': 'a POLICY the business set: a captured purchase over it needs a receipt',
+        'business_reimbursements.amount': 'an INSTRUCTION: one reimbursement sent to the partner bank under its claim key; written once',
+        'business_reimbursements.member_before': 'a RECORD of the member’s balance as the partner reported it just before the move',
+        'business_reimbursements.member_after': 'a RECORD of the member’s balance as the partner reported it just after the move',
         'dormancy_notices.fee': 'a RECORD of the fee one notice named; the debit, if any, is the partner move it names',
         'budgets.target':
           'a POLICY: the monthly target the person chose for one spend category; spend is folded from the partner record or the ledger',

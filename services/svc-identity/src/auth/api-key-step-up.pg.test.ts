@@ -28,7 +28,6 @@ import {
   buildAuthenticatorData,
   buildClientDataJSON,
   coseKeyFromJwk,
-  generateChallenge,
   type AuthenticationResponseJSON,
   type RegistrationResponseJSON,
 } from './webauthn.js';
@@ -178,19 +177,11 @@ if (!available) {
     return started;
   }
 
-  function allow(userId: string, merchantId = MERCHANT) {
-    grants.set(`${userId}:${merchantId}`, { refundsCreate: true, payoutSend: true });
-  }
-
   async function enrolPasskey(userId: string) {
     const authenticator = syncedPasskey();
     const options = await auth.startWebauthnRegistration(userId, PASSWORD_SESSION);
     await auth.confirmWebauthnRegistration(userId, PASSWORD_SESSION, authenticator.registrationResponse(options.challenge));
     return authenticator;
-  }
-
-  function replayProof(assertion: AuthenticationResponseJSON, challenge: string) {
-    return { webauthn: assertion, webauthnChallenge: challenge };
   }
 
   const signingKey = randomBytes(32);

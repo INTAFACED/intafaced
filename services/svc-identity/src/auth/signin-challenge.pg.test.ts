@@ -74,7 +74,7 @@ if (!(await postgresAvailable(URL))) {
     const handle = `sc${process.pid}${++counter}`;
     return auth.register({ handle, email: `${handle}@example.com`, password: PASSWORD, region: 'DE' }).then(() => handle);
   };
-  const anon = { principal: null, service: null, region: 'DE', requestId: 'req-signin-challenge' } as unknown as Context;
+  const anon = { principal: null, service: null, region: 'DE', requestId: 'req-signin-challenge' } as Context;
   const callerWith = (policy: SignInChallengePolicy) =>
     createIdentityRouter(auth, rank, {
       registrationOpen: true,

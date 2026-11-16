@@ -62,6 +62,8 @@ describe('holds on received funds: a stranger’s payment waits, and is accepted
   let router: ReturnType<typeof createBankRouter>;
   /** When set, the next post under a key with this prefix fails before it reaches the ledger (a lost step). */
   let failNext: string | null;
+  /** When set, the next post under this exact key waits on its way to the ledger until `open` is called (a slow request). */
+  let gate: { key: string; reached: () => void; opened: Promise<void> } | null;
 
   beforeAll(async () => {
     db = await createTestDatabase({ service: 'bank', url: adminUrl(), migrations });
@@ -74,6 +76,7 @@ describe('holds on received funds: a stranger’s payment waits, and is accepted
   async function build(holdDays: number | null) {
     ledger = new MemoryLedger();
     failNext = null;
+    gate = null;
     // The bank's own client, with a switch that loses one hold post before it is sent.
     const client = new Proxy(ledger, {
       get(target, prop, receiver) {
@@ -83,12 +86,18 @@ describe('holds on received funds: a stranger’s payment waits, and is accepted
               failNext = null;
               throw new Error('connection reset before the post was sent');
             }
+            if (gate && request.idempotencyKey === gate.key) {
+              const held = gate;
+              gate = null;
+              held.reached();
+              await held.opened;
+            }
             return target.post(request);
           };
         const value = Reflect.get(target, prop, receiver);
         return typeof value === 'function' ? value.bind(target) : value;
       },
-    }) as unknown as LedgerClient;
+    }) as LedgerClient;
     bank = createBankServices(db.sql, client as MemoryLedger, memoryLedgerHistory(ledger), {
       nativeAssetId: 'IFC',
       recipients: memoryRecipientState(),
@@ -329,6 +338,75 @@ describe('holds on received funds: a stranger’s payment waits, and is accepted
     expect(await bob.holds.waiting()).toEqual([]);
     expect(posts('pay.recv.hold:')).toHaveLength(0);
     expect(await bank.receivedHolds.sweep(10, new Date(Date.now() + 9 * 60_000))).toEqual([]);
+  });
+
+  /** Holds the next post under `key` on its way to the ledger: `reached` resolves when it is held, `open()` lets it go. */
+  function slow(key: string) {
+    let reached!: () => void;
+    let open!: () => void;
+    const at = new Promise<void>((resolve) => (reached = resolve));
+    gate = { key, reached, opened: new Promise<void>((resolve) => (open = resolve)) };
+    return { reached: at, open };
+  }
+
+  // ReceivedHold.tla (services/svc-bank/model), NeverStranded: once a payment's hold lands, its row is never lapsed, so
+  // the money set aside can always be reached. Two placers work on one `placing` row: the send's own `placeFor` and the
+  // recovery timer. Each test ends with the hold either held with the money in it, or lapsed with nothing in it.
+  async function strandSetup(transferIds: string[]) {
+    const bob = await caller(BOB);
+    await bob.holds.setRule({ strangers: 'hold' });
+    for (const id of transferIds) {
+      failNext = 'pay.recv.hold:';
+      await pay(CY, BOB, id, '5');
+    }
+    // In the instant before the holds, Bob spends the payments; the timer's attempt is refused for funds.
+    await pay(BOB, ADA, 'strand-spent', formatAmount(parseAmount('5') * BigInt(transferIds.length)));
+    expect(await available(BOB)).toBe('0');
+    await bank.receivedHolds.sweep(10);
+    const rows = await db.sql<Array<{ refused_at: Date | null }>>`SELECT refused_at FROM bank.received_holds ORDER BY created_at`;
+    expect(rows.every((r) => r.refused_at !== null)).toBe(true);
+  }
+  async function reachable(transferId: string) {
+    const [row] = await db.sql<Array<{ state: string }>>`SELECT state FROM bank.received_holds WHERE transfer_id = ${transferId}`;
+    expect([
+      ['held', '5'],
+      ['lapsed', '0'],
+    ]).toContainEqual([row?.state, await held(BOB, transferId)]);
+  }
+
+  it('a hold request still on its way from a later attempt never lands in a hold the timer has lapsed', async () => {
+    await strandSetup(['strand-a']);
+    const later = new Date(Date.now() + 8 * 60_000);
+    // The send's own placer tries again past the bound; its request is slow on its way to the ledger.
+    const request = slow('pay.recv.hold:strand-a');
+    const first = bank.receivedHolds.placeFor('strand-a', later);
+    await request.reached;
+    // The timer's own attempt is refused for funds, and the refusal it read is older than the bound.
+    await bank.receivedHolds.sweep(10, later);
+    // Bob is paid by someone he knows, then the slow request arrives.
+    await pay(ADA, BOB, 'strand-a-in', '5');
+    request.open();
+    await first;
+    await bank.receivedHolds.sweep(10, new Date(Date.now() + 9 * 60_000));
+    await reachable('strand-a');
+  });
+
+  it('a placer that read the row before the timer lapsed it never posts the hold after', async () => {
+    await strandSetup(['strand-b0', 'strand-b']);
+    const later = new Date(Date.now() + 8 * 60_000);
+    // The timer's pass reads both rows, then waits on the first one's request.
+    const request = slow('pay.recv.hold:strand-b0');
+    const pass = bank.receivedHolds.sweep(10, later);
+    await request.reached;
+    // Meanwhile the send's own placer is refused for funds on the second row and lapses it.
+    await bank.receivedHolds.placeFor('strand-b', later);
+    const [lapsed] = await db.sql<Array<{ state: string }>>`SELECT state FROM bank.received_holds WHERE transfer_id = 'strand-b'`;
+    expect(lapsed?.state).toBe('lapsed');
+    // Bob is paid by someone he knows; the timer goes on to the second row with what it read before.
+    await pay(ADA, BOB, 'strand-b-in', '10');
+    request.open();
+    await pass;
+    await reachable('strand-b');
   });
 
   it('an Accept whose ledger post fails is still recorded, answers as accepted, and the recovery timer finishes it once', async () => {

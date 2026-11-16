@@ -581,9 +581,9 @@ describe('probe L: the margin release comes up short (the position must never st
     assetId: 'USDT',
     kind: 'collateral',
     purpose: 'position:pos-1',
-  } as unknown as AccountRef;
-  const avail = { ownerType: 'user', ownerId: USER, assetId: 'USDT', kind: 'available' } as unknown as AccountRef;
-  const fees = { ownerType: 'house', ownerId: 'fees:trade', assetId: 'USDT', kind: 'available' } as unknown as AccountRef;
+  } as AccountRef;
+  const avail = { ownerType: 'user', ownerId: USER, assetId: 'USDT', kind: 'available' } as AccountRef;
+  const fees = { ownerType: 'house', ownerId: 'fees:trade', assetId: 'USDT', kind: 'available' } as AccountRef;
 
   /** A stored closing rung: loss 70 from a 100 margin, release 30 — as the planner would have written it. */
   async function storedRung(h: ReturnType<typeof harness>) {
@@ -720,10 +720,10 @@ describe('probes M / N: the pot shrank after planning and the LOSS is refused', 
     assetId: 'USDT',
     kind: 'collateral',
     purpose: 'position:pos-1',
-  } as unknown as AccountRef;
-  const fees = { ownerType: 'house', ownerId: 'fees:trade', assetId: 'USDT', kind: 'available' } as unknown as AccountRef;
-  const insAcct = { ownerType: 'house', ownerId: 'insurance-fund', assetId: 'USDT', kind: 'available' } as unknown as AccountRef;
-  const avail = { ownerType: 'user', ownerId: USER, assetId: 'USDT', kind: 'available' } as unknown as AccountRef;
+  } as AccountRef;
+  const fees = { ownerType: 'house', ownerId: 'fees:trade', assetId: 'USDT', kind: 'available' } as AccountRef;
+  const insAcct = { ownerType: 'house', ownerId: 'insurance-fund', assetId: 'USDT', kind: 'available' } as AccountRef;
+  const avail = { ownerType: 'user', ownerId: USER, assetId: 'USDT', kind: 'available' } as AccountRef;
 
   async function store(
     h: ReturnType<typeof harness>,
@@ -985,9 +985,9 @@ describe('refused insurance leg on replay (kind-specific): a PARTIAL rung re-ame
     assetId: 'USDT',
     kind: 'collateral',
     purpose: 'position:pos-1',
-  } as unknown as AccountRef;
-  const fees = { ownerType: 'house', ownerId: 'fees:trade', assetId: 'USDT', kind: 'available' } as unknown as AccountRef;
-  const insAcct = { ownerType: 'house', ownerId: 'insurance-fund', assetId: 'USDT', kind: 'available' } as unknown as AccountRef;
+  } as AccountRef;
+  const fees = { ownerType: 'house', ownerId: 'fees:trade', assetId: 'USDT', kind: 'available' } as AccountRef;
+  const insAcct = { ownerType: 'house', ownerId: 'insurance-fund', assetId: 'USDT', kind: 'available' } as AccountRef;
 
   /** A stored rung whose loss has a 20 pot leg and a 5 insurance leg. A partial rung has none of these today (equity > 0), so it is stored by hand. */
   async function storeRung(h: ReturnType<typeof harness>, kind: 'partial' | 'closing') {

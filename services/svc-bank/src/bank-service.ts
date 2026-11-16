@@ -52,8 +52,9 @@ import { SharedPotService } from './spaces/shared-pots.js';
 import { RecoveryClaimService } from './recovery/recovery-claims.js';
 import { unconfiguredIdentityRecovery, type IdentityRecoveryPort } from './recovery/identity-recovery.js';
 import { BillsPotService } from './spaces/bills-pot.js';
-import { BusinessService } from './business/business-service.js';
-import { BusinessTeamService } from './business/business-team.js';
+import { composeCardProgrammeServices, type CardProgrammeServiceOptions, type CardProgrammeServices } from './cards/programme/compose.js';
+import { composeBusinessServices, type BusinessServiceOptions, type BusinessServices } from './business/compose.js';
+import { composeDeveloperApiServices, type DeveloperApiServiceOptions, type DeveloperApiServices } from './developer-api/compose.js';
 import { BusinessLookupLimiter, unconfiguredBusinessDirectory, type BusinessDirectoryPort } from './business/business-directory.js';
 import { PortfolioService, type PortfolioServiceOptions } from './portfolio/portfolio-service.js';
 import { ActivityService, type ActivityServiceOptions } from './activity/activity-service.js';
@@ -94,10 +95,12 @@ import { emptyBillPorts, emptyGlobalPorts, type BillPorts, type GlobalPorts } fr
  *
  * The composition root is one function so the wiring is visible in one place —
  * including that `SpendAnalytics` gets a READ port over the ledger and no
- * writer at all.
+ * writer at all. An area with services of its own composes them in its own
+ * `compose.ts` (the business bank: `business/compose.ts`), and this function
+ * spreads it; `bank-service.compose.test.ts` holds the line.
  */
 
-export interface BankServices {
+export interface BankServices extends BusinessServices, DeveloperApiServices, CardProgrammeServices {
   /** The owner's values for onboarding, information requests and reopening a bank account (J-bank-17); null is unpublished. */
   readonly bankAccountTerms: BankAccountTerms;
   /** The owner's notice for a blocked region (`BANK_BLOCKED_REGION_NOTICE`, BK-safe-01). No default: blank reads "not published". */
@@ -172,9 +175,6 @@ export interface BankServices {
   /** W-balances-05: svc-ledger's supported asset and network list, every state, as customers read it. */
   readonly supportedAssets: { list(): Promise<SupportedAssetView[]> };
   readonly autoInvest: AutoInvestService;
-  readonly business: BusinessService;
-  /** J-bank-19: the business's own roles, advisors, invites, approval rules, partner-held payments and team spend. */
-  readonly businessTeam: BusinessTeamService;
   readonly bills: BillPayService;
   readonly globalSend: GlobalSendService;
   readonly globalHolds: GlobalHoldService;
@@ -196,7 +196,7 @@ export interface BankServices {
   };
 }
 
-export interface BankServiceOptions {
+export interface BankServiceOptions extends BusinessServiceOptions, DeveloperApiServiceOptions, CardProgrammeServiceOptions {
   /** `BANK_PERSONAL_SEND_REVIEW_JSON`, parsed: the owner's send review rule. Unset, no send is held. */
   sendReviewRule?: SendReviewRule | null;
   /** `BANK_REQUEST_REMIND_POLICY_JSON`, parsed: the owner's reminder cap per window. Null refuses every reminder. */
@@ -305,8 +305,6 @@ export interface BankServiceOptions {
   incomeSorterMinCredit?: string | undefined;
   /** Owner-set minutes a shared pot invite lasts (`BANK_SHARED_POT_INVITE_MINUTES`). No default: blank refuses sharing. */
   sharedPotInviteMinutes?: string | undefined;
-  /** Owner-set minutes a business team invite lasts (`BANK_BUSINESS_INVITE_MINUTES`). No default: blank refuses every invite. */
-  businessInviteMinutes?: string | undefined;
   /** Owner-set people one pot may be shared with (`BANK_SHARED_POT_PEOPLE_CAP`). No default: blank refuses sharing. */
   sharedPotPeopleCap?: string | undefined;
   /**
@@ -447,13 +445,13 @@ export function createBankServices(
   const analytics = new SpendAnalytics(spaces, history, custody);
   const budgets = new BudgetService(sql, analytics);
   const portfolio = new PortfolioService(ledger, spaces, {
-    ...(options.portfolio ?? {}),
+    ...options.portfolio,
     transferFees: { feesFor: (userId, txIds) => personalPay.feesFor(userId, txIds) },
     assets: options.portfolio?.assets ?? options.assetRegistry ?? null,
   });
   const activityRecords = new ActivityRecordService(sql);
   const activity = new ActivityService(spaces, {
-    ...(options.activity ?? {}),
+    ...options.activity,
     custody,
     records: activityRecords,
     transferFacts: { forTransfers: (userId, txIds) => personalPay.factsFor(userId, txIds) },
@@ -503,7 +501,7 @@ export function createBankServices(
       )
     : null;
   const cards = new CardService(sql, ledger, {
-    ...(options.cards ?? {}),
+    ...options.cards,
     heldBy: options.cards?.heldBy ?? ((userId) => moneyHeldBy(options.testPartner, userId, custodyLayer)),
     partnerHolds,
     // The TEST partner's own "not offered" switch for phone wallets (J-bank-13 #8); no partner, the issuer alone decides.
@@ -560,15 +558,6 @@ export function createBankServices(
   const railPayees = new PayeeService(sql, () =>
     options.payeeCoolingHours !== undefined ? options.payeeCoolingHours : process.env[BANK_PAYEE_COOLING_HOURS_ENV],
   );
-  const business = new BusinessService(
-    sql,
-    ledger,
-    spaces,
-    transfers,
-    options.directory ?? unconfiguredBusinessDirectory(),
-    directoryLookups,
-  );
-
   const bills = new BillPayService(sql, ledger, spaces, options.bills ?? emptyBillPorts());
   const globalSend = new GlobalSendService(
     sql,
@@ -604,6 +593,7 @@ export function createBankServices(
     sorter,
     billsPots,
     sharedPots,
+    ...composeDeveloperApiServices({ sql, spaces, sharedPots, custody, testPartner: options.testPartner ?? null }, options),
     recovery,
     transfers,
     personalPay,
@@ -632,6 +622,16 @@ export function createBankServices(
     cards,
     cardOrders,
     cardDisputes,
+    ...composeCardProgrammeServices(
+      {
+        sql,
+        cards,
+        directory: options.directory ?? unconfiguredBusinessDirectory(),
+        identity: options.recipients,
+        exportSecret: options.receiptSecret,
+      },
+      options,
+    ),
     ramps,
     addMoney,
     linkedAccounts,
@@ -651,12 +651,21 @@ export function createBankServices(
     deposits,
     supportedAssets,
     autoInvest,
-    business,
-    businessTeam: new BusinessTeamService(sql, custody, options.directory ?? unconfiguredBusinessDirectory(), {
-      inviteMinutes: () => options.businessInviteMinutes,
-      postingFreeze,
-      noteRefusal: partnerRefusals.note,
-    }),
+    ...composeBusinessServices(
+      {
+        sql,
+        ledger,
+        spaces,
+        transfers,
+        custody,
+        postingFreeze,
+        noteRefusal: partnerRefusals.note,
+        directory: options.directory ?? unconfiguredBusinessDirectory(),
+        directoryLookups,
+        testPartner: options.testPartner != null,
+      },
+      options,
+    ),
     bills,
     globalSend,
     globalHolds,
@@ -701,8 +710,8 @@ export {
   RampService,
   DepositService,
   AutoInvestService,
-  BusinessService,
 };
+export { BusinessService } from './business/business-service.js';
 export { BankError, type BankErrorCode } from './errors.js';
 export {
   createIdentityRecipientState,

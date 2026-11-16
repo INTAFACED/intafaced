@@ -52,7 +52,6 @@ import {
   readSealedSnapshot,
   SIGNED_VOTE_UNAVAILABLE,
   sealFromRow,
-  sealSnapshot,
   type PowerHistoryEntry,
   type ProposalPower,
   type SnapshotSeal,

@@ -21,7 +21,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { router, scopedProcedure } from '@intafaced/contracts';
 import type { Context } from '@intafaced/contracts';
 import { findUnguardedFounderProcedures } from '../../src/namespaces/index.js';
-import { ADMIN_SCOPES, callRest, callTrpc, createWorld, ctxOf, keyOf, principal, sessionOf, type Outcome, type World } from './fixture.js';
+import { ADMIN_SCOPES, callRest, callTrpc, createWorld, ctxOf, keyOf, sessionOf, type Outcome, type World } from './fixture.js';
 import { COMPLIANCE_PROCS, FOUNDER_EXTRA, FOUNDER_FLAG_OFF, FOUNDER_INPUTS, FOUNDER_PREFIXES } from './procedures.js';
 
 type Verdict = 'allowed' | 'refused' | 'unavailable' | `other:${string}`;
@@ -55,7 +55,7 @@ describe('G: founder-only procedures', () => {
 
   beforeAll(async () => {
     w = await createWorld();
-    const all = Object.keys((w.appRouter as unknown as { _def: { procedures: Record<string, unknown> } })._def.procedures);
+    const all = Object.keys((w.appRouter as { _def: { procedures: Record<string, unknown> } })._def.procedures);
     inventoried = all.filter((p) => FOUNDER_PREFIXES.some((x) => p.startsWith(x))).sort();
     paths = [...inventoried, ...FOUNDER_EXTRA].sort();
     for (const extra of FOUNDER_EXTRA) expect(all, `${extra} no longer exists: update FOUNDER_EXTRA`).toContain(extra);
@@ -294,7 +294,7 @@ describe('G: founder-only procedures', () => {
         ).toBe(true);
     });
     it('compliance decides are mounted beside decideKyb and are not founder-only paths', () => {
-      const all = Object.keys((w.appRouter as unknown as { _def: { procedures: Record<string, unknown> } })._def.procedures);
+      const all = Object.keys((w.appRouter as { _def: { procedures: Record<string, unknown> } })._def.procedures);
       for (const path of COMPLIANCE_PROCS) {
         expect(all, path).toContain(path);
         expect(FOUNDER_PREFIXES.some((prefix) => path.startsWith(prefix))).toBe(false);
@@ -363,7 +363,7 @@ describe('G: founder-only procedures', () => {
       expect(foreign).toMatchObject({ kind: 'error', code: 'FORBIDDEN' });
     });
     it('the self-guarded operator surfaces are pinned: a new accountControls.* / merchantState.* procedure must be added to FOUNDER_EXTRA', () => {
-      const all = Object.keys((w.appRouter as unknown as { _def: { procedures: Record<string, unknown> } })._def.procedures);
+      const all = Object.keys((w.appRouter as { _def: { procedures: Record<string, unknown> } })._def.procedures);
       const operatorish = all.filter((p) => p.startsWith('accountControls.') || p.startsWith('merchantState.')).sort();
       expect(operatorish).toEqual([...FOUNDER_EXTRA].sort());
     });

@@ -77,7 +77,7 @@ function history(read: { fromMs: number; toMs: number }[] = []): HistoryPort {
     },
   };
 }
-const fees: FeePort = { wired: true, fee: async () => ({ version: 'local-test:v1', makerBps: 8, takerBps: 10 }) } as unknown as FeePort;
+const fees: FeePort = { wired: true, fee: async () => ({ version: 'local-test:v1', makerBps: 8, takerBps: 10 }) } as FeePort;
 
 function setup(options: { concurrent?: string } = {}) {
   let offset = 0;

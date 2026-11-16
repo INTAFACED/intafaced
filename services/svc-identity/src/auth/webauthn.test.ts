@@ -149,7 +149,7 @@ function makeSharedChallengeSql() {
     { json: (v: unknown) => v },
   );
 
-  return { sql: sql as unknown as import('postgres').Sql, table };
+  return { sql: sql as import('postgres').Sql, table };
 }
 
 describe('SqlChallengeStore (shared backend — multi-pod simulation)', () => {

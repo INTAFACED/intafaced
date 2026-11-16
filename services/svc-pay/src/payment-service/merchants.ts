@@ -9,7 +9,7 @@ import { kybBindingMatches, loadKybDecisionBinding } from '../kyb-decision-bindi
 import { transaction } from '@intafaced/db';
 import { cleanMerchantName, MERCHANT_NAME_MAX, resolveMerchantNames } from '../merchant-names.js';
 import { assertCategoryApprovable } from '../onboarding-policy/category.js';
-import type { KybActor, MerchantRecord, MerchantRow, PayService, PayServiceInternal } from '../payment-service.js';
+import type { KybActor, MerchantRecord, MerchantRow, PayServiceInternal } from '../payment-service.js';
 import { PayError, assertFeeBps, kybDecisionReason, recordKybEvent, toMerchant } from './internal.js';
 
 // ── Merchants ──────────────────────────────────────────────────────────────

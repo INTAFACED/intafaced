@@ -66,7 +66,7 @@ async function withRun(handlers, mutate, assertions) {
   const stub = await stubs(handlers);
   try {
     const receiptFile = join(temp, 'host-dispatch.json');
-    const env = { ...stub.env, ...(mutate ?? {}) };
+    const env = { ...stub.env, ...mutate };
     await assertions({
       stub,
       env,

@@ -12,6 +12,9 @@
  * clock, `body` what `read` made of it, JSON by default), and `doc` is what `navigate` returned (the new document's
  * response for `page.reload()` or `page.goto()`). The caller checks them; this asserts nothing.
  */
+/** The browser's words for a response body it no longer holds (Chromium's Network.getResponseBody). */
+export const GONE = /No (?:data found for resource|resource) with given identifier/;
+
 export async function responseAfterNavigation(page, match, { navigate = () => page.reload(), read = (r) => r.json() } = {}) {
   let navigated = false;
   let docRequest = null;
@@ -29,10 +32,28 @@ export async function responseAfterNavigation(page, match, { navigate = () => pa
   page.on('request', requested);
   page.on('framenavigated', committed);
   try {
+    // The body is read inside the wait, as each fresh match arrives. A match whose body the browser no longer holds is
+    // a request the new page itself let go of (aborted and asked again, or left by a further navigation), never an
+    // answer the test can check: the wait takes the page's next match instead (J-wallet-04 #7 on #8634, after #8061).
+    // Any other read error fails at once, and a wait that sees only such bodies fails with the browser's own error.
+    let gone = null;
+    let res = null;
     const answer = page
-      .waitForResponse((r) => navigated && fresh(r) && match(r))
-      .then(async (r) => ({ status: r.status(), startedAt: r.request().timing().startTime, body: await read(r) }));
-    const [res, doc] = await Promise.all([answer, navigate()]);
+      .waitForResponse(async (r) => {
+        if (!(navigated && fresh(r) && (await match(r)))) return false;
+        try {
+          res = { status: r.status(), startedAt: r.request().timing().startTime, body: await read(r) };
+          return true;
+        } catch (err) {
+          if (!GONE.test(String(err?.message))) throw err;
+          gone = err;
+          return false;
+        }
+      })
+      .catch((err) => {
+        throw gone ?? err;
+      });
+    const [, doc] = await Promise.all([answer, navigate()]);
     return { res, doc };
   } finally {
     page.off('framenavigated', committed);

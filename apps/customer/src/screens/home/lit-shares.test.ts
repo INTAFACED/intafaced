@@ -9,7 +9,7 @@ const holding = (asset: string, share: string | null, cls: 'cash' | 'crypto' = '
     share,
     class: cls,
     usdValue: share === null ? null : (Number(share) * 10_000).toFixed(2),
-  }) as unknown as HomePortfolio['holdings'][number];
+  }) as HomePortfolio['holdings'][number];
 const sum = (parts: SpherePart[]) => parts.reduce((a, b) => a + b.percent, 0n);
 
 describe('sphereShares', () => {

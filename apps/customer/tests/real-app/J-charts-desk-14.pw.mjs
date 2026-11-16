@@ -363,27 +363,35 @@ async function pressShowing(button) {
   });
 }
 
-/** Press one-click cancel on the ladder row whose bucket holds `price` (single column, one tick), in one browser task. */
-async function pressRowCancel(page, price) {
+/**
+ * Press one-click cancel on the ladder row whose bucket holds `price` (single column, one tick), in one browser task; with
+ * `count`, only once the row's cancel names that many of my orders (the page has read them all).
+ */
+async function pressRowCancel(page, price, count = null) {
   const want = canon(price);
+  const label = count === null ? null : count === 1 ? 'Cancel my order at ' : `Cancel my ${count} orders at `;
   await expect
     .poll(
       () =>
-        dom(page).evaluate((region, target) => {
-          const c = (text) =>
-            String(text)
-              .replace(/[^\d.]/g, '')
-              .replace(/(\.\d*?)0+$/, '$1')
-              .replace(/\.$/, '');
-          const row = [...region.querySelectorAll('[data-testid="of-ladder-row"]')].find(
-            (el) => c(el.getAttribute('data-price') ?? '') === target,
-          );
-          const button = row?.querySelector('[data-testid="of-row-cancel"]');
-          if (!(button instanceof HTMLButtonElement) || button.disabled) return false;
-          button.click();
-          return true;
-        }, want),
-      { timeout: 20_000, message: `one-click cancel on the ladder row at ${price}` },
+        dom(page).evaluate(
+          (region, [target, prefix]) => {
+            const c = (text) =>
+              String(text)
+                .replace(/[^\d.]/g, '')
+                .replace(/(\.\d*?)0+$/, '$1')
+                .replace(/\.$/, '');
+            const row = [...region.querySelectorAll('[data-testid="of-ladder-row"]')].find(
+              (el) => c(el.getAttribute('data-price') ?? '') === target,
+            );
+            const button = row?.querySelector('[data-testid="of-row-cancel"]');
+            if (!(button instanceof HTMLButtonElement) || button.disabled) return false;
+            if (prefix !== null && !(button.getAttribute('aria-label') ?? '').startsWith(prefix)) return false;
+            button.click();
+            return true;
+          },
+          [want, label],
+        ),
+      { timeout: 20_000, message: `one-click cancel on the ladder row at ${price}${label === null ? '' : `, naming ${count}`}` },
     )
     .toBe(true);
 }
@@ -1027,20 +1035,24 @@ test(`${J} #7 one-click close, cancel and size presets each act once with the re
   // nothing is cancelled until confirmed, then one signed venue cancel for exactly that order.
   await pressAskCell(page, 4);
   await expect(review).toContainText('Review your buy');
+  // The order is named by the venue client id its own prepare returned: an earlier step's resting buy can share its price
+  // and size once the book has moved, so a match by price and size could name that one instead.
+  const restPrepared = page.waitForResponse(
+    (r) => new URL(r.url()).pathname === '/api/v1/venue/prepare' && r.request().method() === 'POST',
+  );
   await review.getByRole('button', { name: 'Confirm buy' }).click();
   await continueInWallet(page);
   await expect.poll(submits, { timeout: 20_000 }).toBe(2);
   const rest = door.of('prepare').at(-1).body.intent;
-  let restId = null;
-  await expect
-    .poll(async () => {
-      const o = (await venueOpen(owner)).find((x) => sameDecimal(x.price, rest.price) && sameDecimal(x.amount, SMALL));
-      restId = o?.venueClientOrderId ?? null;
-      return restId !== null;
-    })
-    .toBe(true);
+  const restId = (await (await restPrepared).json()).prepared.venueClientOrderId;
+  expect(restId).toBeTruthy();
+  await expect.poll(async () => (await venueByClientId(owner, restId))?.status, { timeout: 20_000 }).toBe('open');
+  expect(sameDecimal((await venueByClientId(owner, restId)).price, rest.price)).toBe(true);
   expect(signatures(w)).toBe(2);
-  await pressRowCancel(page, rest.price);
+  // The row's cancel is pressed once the page has read every order of mine the venue holds at that row: the review names
+  // what the page has read, and the step's claim is that it names exactly my orders there.
+  const mineAtRow = (await venueOpen(owner)).filter((o) => sameDecimal(o.price, rest.price)).length;
+  await pressRowCancel(page, rest.price, mineAtRow);
   await expect(cancelReview).toBeVisible();
   const lines = cancelReview.getByTestId('of-cancel-line');
   const named = await lines.evaluateAll((els) => els.map((el) => el.getAttribute('data-order-id')));
@@ -1226,6 +1238,9 @@ test(`${J} #8 reads my place in the queue and the fill chance of a resting order
             .filter((p) => Date.parse(p.tradedAt) >= start && Date.parse(p.tradedAt) <= end)
             .reduce((t, p) => t + toUnits(p.amount), 0n);
           if (toUnits(shown['data-traded']) !== traded) return `traded ${shown['data-traded']} vs ${fromUnits(traded)}`;
+          // The DOM polls the book and the tape apart, so for one poll its book can already hold the print while the tape it
+          // read (and stamps as data-tape-as-of) is from before it: that readout is true as of its tape, so wait for the next.
+          if (traded < toUnits(SMALL)) return `the tape as of ${shown['data-tape-as-of']} predates the print`;
           const toFill = aheadMost + remaining;
           if (toUnits(shown['data-to-fill']) !== toFill) return 'to fill';
           const one = 10n ** 18n;

@@ -243,7 +243,7 @@ function navigatorDeps(opts: { reply: string; trade?: NavigatorTradeDataPort; sc
         metered: true,
         windowId: '2026-11-14T08',
         action,
-      } as unknown as ThinkResult;
+      } as ThinkResult;
     },
   } as unknown as AgentsRouterDeps['runtime'];
   const runStore = createMemoryRunStore();

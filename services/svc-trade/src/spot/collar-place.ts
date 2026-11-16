@@ -36,18 +36,6 @@ function flagFromRaw(value: unknown): boolean | null {
   return Boolean(value);
 }
 
-function readBound(raw: unknown): Amount | null {
-  if (raw == null) return null;
-  if (typeof raw === 'string' && raw.trim() === '') return null;
-  try {
-    const qty = typeof raw === 'string' || typeof raw === 'number' ? parseAmount(String(raw)) : (raw as Amount);
-    if (qty <= ZERO) return null;
-    return qty;
-  } catch {
-    return null;
-  }
-}
-
 /** Caller collar. Missing, null, or false is not set. */
 export function readCollar(order: { readonly collar?: boolean | null }): boolean {
   return order.collar === true;

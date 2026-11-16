@@ -336,6 +336,34 @@ export type BankErrorCode =
   | 'bank.card_dispute_partner_mismatch'
   | 'bank.card_dispute_rules_unset'
   | 'bank.card_dispute_evidence_closed'
+  /** A card reassign named the cardholder that already holds it. (J-bank-26) */
+  | 'bank.card_reassign_same'
+  /** A card with an authorisation still held for its holder cannot move to another cardholder. (J-bank-26) */
+  | 'bank.card_reassign_open_hold'
+  /** A card programme staff member with the viewer role cannot change programme settings (J-bank-26 #7). (J-bank-26) */
+  | 'bank.card_programme_viewer'
+  /** A card programme setting, rule, cardholder or staff request is not in shape. (J-bank-26) */
+  | 'bank.card_programme_invalid'
+  /** An operator cannot change their own card programme role. (J-bank-26) */
+  | 'bank.card_programme_staff_self'
+  /** No card programme rule with that key or id. (J-bank-26) */
+  | 'bank.card_rule_not_found'
+  /** That rule step is not open in the rule's state (promote a rule not in shadow, roll back with nothing promoted). (J-bank-26) */
+  | 'bank.card_rule_state'
+  /** The cardholder fails the KYC or KYB gate: no verified account, or a business with no verified beneficial owner. Recorded in the review queue. (J-bank-26) */
+  | 'bank.cardholder_unverified'
+  /** The cardholder sanctions list (BANK_CARDHOLDER_SANCTIONS) is not set, so no cardholder can be screened or created. (J-bank-26) */
+  | 'bank.cardholder_screening_unset'
+  /** The cardholder is in the review queue (a screening match or a gate gap) and can hold no new card. (J-bank-26) */
+  | 'bank.cardholder_under_review'
+  /** No cardholder with that id. (J-bank-26) */
+  | 'bank.cardholder_not_found'
+  /** A cardholder request key was reused with other details. (J-bank-26) */
+  | 'bank.cardholder_conflict'
+  /** A bulk card file has a bad row; nothing was issued. (J-bank-26) */
+  | 'bank.card_bulk_invalid'
+  /** svc-bank has no signing secret, so a card programme report cannot be exported signed (J-bank-26 #7). */
+  | 'bank.card_report_signing_unset'
   /** Cards are not offered to residents of the country given. */
   | 'bank.card_not_eligible'
   /** The person already holds as many active cards of this kind as the programme allows. */
@@ -725,6 +753,97 @@ export type BankErrorCode =
   | 'bank.business_approval_not_found'
   | 'bank.business_approval_inactive'
   | 'bank.business_self_approve'
+  // ── Business bill pay (J-bank-20; BK-bill-01 to BK-bill-03) ──
+  /** A bill file with no name, empty, or over 1 MiB. */
+  | 'bank.bill_file_invalid'
+  /** A bill field, vendor cap, limit or split line not in shape. */
+  | 'bank.bill_field_invalid'
+  /** A bill edited or sent on while it is not in the inbox. */
+  | 'bank.bill_not_editable'
+  /** A bill sent on before it names a vendor, an amount and a due date. */
+  | 'bank.bill_incomplete'
+  /** A bill flagged as a possible duplicate, not yet cleared: it is not paid. */
+  | 'bank.bill_duplicate_uncleared'
+  /** A bill paid before it is approved. */
+  | 'bank.bill_not_approved'
+  /** A split whose lines do not add up to the bill exactly. */
+  | 'bank.split_total_mismatch'
+  /** A scheduled payment for today or earlier. */
+  | 'bank.bill_schedule_invalid'
+  /** A Bill Pay limit is blank: no bill is paid until the business sets all three. */
+  | 'bank.bill_limit_unset'
+  /** A bill payment over a Bill Pay limit. */
+  | 'bank.bill_limit_exceeded'
+  /** A cancel of a bill payment already sent to the partner. */
+  | 'bank.bill_payment_sent'
+  /** A return reported for a bill payment that was never sent. */
+  | 'bank.bill_payment_not_sent'
+  | 'bank.bill_not_found'
+  | 'bank.bill_payment_not_found'
+  // ── Business bulk payments, contractors and crypto payroll (J-bank-21; BK-bpay-01, BK-bpay-02, RC-bank-05) ──
+  /** A bulk payment file with no header naming its columns, no lines, too many lines, or over 256 KiB. */
+  | 'bank.bulk_file_invalid'
+  /** The business's partner balance does not cover a run's total: nothing was sent, add money and confirm again. */
+  | 'bank.bulk_run_unfunded'
+  /** A run with no valid line: there is nothing to send. */
+  | 'bank.bulk_run_empty'
+  | 'bank.bulk_run_not_found'
+  /** A contractor, invoice or payroll field not in shape. */
+  | 'bank.contractor_field_invalid'
+  | 'bank.contractor_not_found'
+  /** The contractor already has an invoice with this number. */
+  | 'bank.contractor_invoice_duplicate'
+  /** An invoice in a batch is already being paid or paid. */
+  | 'bank.contractor_invoice_not_open'
+  /** An onboarding link we do not know. */
+  | 'bank.contractor_invite_invalid'
+  /** An onboarding link already used by someone else. */
+  | 'bank.contractor_invite_used'
+  /** A payroll wallet address or offer not in shape. */
+  | 'bank.payroll_wallet_invalid'
+  /** Crypto payroll needs the business's own wallet connected first: it signs every run. */
+  | 'bank.payroll_wallet_missing'
+  /** A payroll member with no wallet address. */
+  | 'bank.contractor_wallet_missing'
+  /** A signature not from the wallet named: nothing was connected or signed. */
+  | 'bank.payroll_signature_invalid'
+  // ── Business cards and expenses (J-bank-22; BK-bcard-01, BK-bexp-01, BK-bexp-02) ──
+  /** A card limit, merchant, amount, receipt rule or claim description not in shape. */
+  | 'bank.business_card_field_invalid'
+  /** No business card or card purchase with that id is yours to see. */
+  | 'bank.business_card_not_found'
+  | 'bank.business_card_frozen'
+  /** A receipt file with no name, of a type we do not take, empty or over 512 KiB. */
+  | 'bank.receipt_invalid'
+  | 'bank.reimbursement_not_found'
+  // ── The bank API (J-bank-24; BK-bdev-01, BK-bdev-02) ──
+  /** The partner quotes no move between a person's own accounts. Nothing was asked. */
+  | 'bank.partner_quote_unavailable'
+  /** No quote by that id is the caller's. */
+  | 'bank.quote_not_found'
+  /** The quote is past its valid-until: ask for a new one. Nothing was moved. */
+  | 'bank.quote_expired'
+  /** The partner does not say what the move costs, so it is not made on an unknown figure. Nothing was moved. */
+  | 'bank.partner_fee_unknown'
+  /** The same dedupe id or idempotency key was used before for a different instruction. Nothing was moved. */
+  | 'bank.idempotency_conflict'
+  /** No payment by that id is the caller's. */
+  | 'bank.payment_not_found'
+  /** A webhook URL that is not https, points inside our network, or does not resolve. Nothing was saved. */
+  | 'bank.webhook_url_invalid'
+  /** No webhook endpoint by that id is the caller's. */
+  | 'bank.webhook_endpoint_not_found'
+  // ── Business books (J-bank-23; BK-bexp-03, BK-bexp-04, BK-bexp-05) ──
+  /** A coding rule's payee text, a category or a GL code not in shape, or a bulk code of no lines or too many. */
+  | 'bank.business_books_field_invalid'
+  /** A line named for coding is not on the business's statement for the period. */
+  | 'bank.business_line_not_found'
+  /** A statement starts before the partner's history window. */
+  | 'bank.statement_history_window'
+  /** Our lines do not give the partner statement's closing balance or line count: no file is made. */
+  | 'bank.statement_mismatch'
+  /** The partner offers no statement, or does not say how far back its record reaches. */
+  | 'bank.partner_statement_unavailable'
   | 'bank.business_rejected'
   | 'bank.business_cancelled'
   /**

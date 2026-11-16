@@ -95,5 +95,11 @@ export interface ChartHost {
   symbol: string;
 }
 
+/**
+ * What a chart other than the workbench's (the venue desk's `PriceChart`) hands to trading from the chart
+ * (J-charts-desk-15): the library's chart, its main price series, the element it draws in and the market's tick.
+ */
+export type ChartOrderHost = Pick<ChartHost, 'chart' | 'main' | 'element' | 'tickSize'>;
+
 /** An add-on draws on the host and returns the function that removes all it added. */
 export type ChartAddon = (host: ChartHost, bars: readonly Candle[]) => () => void;

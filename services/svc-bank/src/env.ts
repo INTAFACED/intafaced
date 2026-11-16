@@ -587,6 +587,13 @@ const schema = serviceEnvSchema
       BANK_CARD_DISPUTE_CAP_JSON: z.string().optional(),
 
       /**
+       * The owner's cardholder sanctions list (J-bank-26 #2): names separated by `|`, each screened against every new card
+       * programme cardholder and their beneficial owners. NO DEFAULT. Blank refuses `bank.cardholder_screening_unset`
+       * and no cardholder is created.
+       */
+      BANK_CARDHOLDER_SANCTIONS: z.string().optional(),
+
+      /**
        * Owner-published risk wording for staking-style earn pools as JSON (BK-earn-04): `{ "slashing": "<text>",
        * "ownership": "<text>" }`, what slashing means for a saver and who owns a staked saving. NO DEFAULT. Blank / unset / not in shape → `earn.riskDisclosure` refuses
        * `bank.earn_risk_wording_unset` and the pool page says the wording is not published, never that there is no risk.
@@ -660,6 +667,14 @@ const schema = serviceEnvSchema
        * whole number → every team invite refuses `bank.business_invite_lifetime_unset`. Boot stays up.
        */
       BANK_BUSINESS_INVITE_MINUTES: z.string().optional(),
+
+      /**
+       * Who reads an uploaded business bill (J-bank-20 #1). `off` | `test-lines`. NO ENGINE IS CHOSEN. `off`: every field
+       * is typed by hand. `test-lines` is a TEST stand-in that reads a TEST bill's labelled lines, shown as "Preview · sample
+       * data"; it is read only where the TEST partner bank runs (BANK_TEST_PARTNER=test, dev or test stacks), and ignored
+       * everywhere else.
+       */
+      BANK_BILL_READER: z.enum(['off', 'test-lines']).default('off'),
 
       /**
        * Owner-set number of people one pot may be shared with, open invites included (BK-acct-09), 1 to 50. NO DEFAULT.
