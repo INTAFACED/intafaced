@@ -112,6 +112,8 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/bank/business/join': { template: 'flow', migrated: { file: 'features/money/business-team/BusinessTeamRoom.tsx' } },
   '/bank/business/bills': { template: 'flow', migrated: { file: 'features/money/business-bills/BusinessBillsRoom.tsx' } },
   '/bank/business/bill': { template: 'flow', migrated: { file: 'features/money/business-bills/BusinessBillsRoom.tsx' } },
+  '/bank/business/payouts': { template: 'flow', migrated: { file: 'features/money/business-payouts/BusinessPayoutsRoom.tsx' } },
+  '/bank/business/contractor-join': { template: 'flow', migrated: { file: 'features/money/business-payouts/BusinessPayoutsRoom.tsx' } },
   '/trade': { template: 'catalogue' },
   '/trade/spot/:pair': { template: 'desk' },
   '/charts': { template: 'desk' },

@@ -752,6 +752,33 @@ export type BankErrorCode =
   | 'bank.bill_payment_not_sent'
   | 'bank.bill_not_found'
   | 'bank.bill_payment_not_found'
+  // ── Business bulk payments, contractors and crypto payroll (J-bank-21; BK-bpay-01, BK-bpay-02, RC-bank-05) ──
+  /** A bulk payment file with no header naming its columns, no lines, too many lines, or over 256 KiB. */
+  | 'bank.bulk_file_invalid'
+  /** The business's partner balance does not cover a run's total: nothing was sent, add money and confirm again. */
+  | 'bank.bulk_run_unfunded'
+  /** A run with no valid line: there is nothing to send. */
+  | 'bank.bulk_run_empty'
+  | 'bank.bulk_run_not_found'
+  /** A contractor, invoice or payroll field not in shape. */
+  | 'bank.contractor_field_invalid'
+  | 'bank.contractor_not_found'
+  /** The contractor already has an invoice with this number. */
+  | 'bank.contractor_invoice_duplicate'
+  /** An invoice in a batch is already being paid or paid. */
+  | 'bank.contractor_invoice_not_open'
+  /** An onboarding link we do not know. */
+  | 'bank.contractor_invite_invalid'
+  /** An onboarding link already used by someone else. */
+  | 'bank.contractor_invite_used'
+  /** A payroll wallet address or offer not in shape. */
+  | 'bank.payroll_wallet_invalid'
+  /** Crypto payroll needs the business's own wallet connected first: it signs every run. */
+  | 'bank.payroll_wallet_missing'
+  /** A payroll member with no wallet address. */
+  | 'bank.contractor_wallet_missing'
+  /** A signature not from the wallet named: nothing was connected or signed. */
+  | 'bank.payroll_signature_invalid'
   | 'bank.business_rejected'
   | 'bank.business_cancelled'
   /**
