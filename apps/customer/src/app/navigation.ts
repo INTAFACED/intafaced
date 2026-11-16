@@ -13,7 +13,7 @@ export type { Door, Room } from './rooms/room';
 
 /**
  * Every room, joined from the area files in `rooms/` in this order (lookup takes the first match, search lists in this
- * order). Add a room to its area's file, never here (project-state #2616; `rooms/rooms.test.ts`).
+ * order). Add a room to its area's file, never here (project-state issue 2616; `rooms/rooms.test.ts`).
  */
 export const rooms: readonly Room[] = [
   ...publicRooms,

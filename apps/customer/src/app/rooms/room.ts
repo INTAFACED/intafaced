@@ -31,7 +31,7 @@ export type RoomIn<A extends Area> = Room & { area: A };
 
 /**
  * One area's rooms. Each area keeps its rows in its own file (`rooms/<area>.ts`) so a journey that adds a room edits
- * that area's file, never one shared table (project-state #2616): `navigation.ts` only joins them, in area order.
+ * that area's file, never one shared table (project-state issue 2616): `navigation.ts` only joins them, in area order.
  */
 export function areaRooms<A extends Area>(_area: A, list: readonly NoInfer<RoomIn<A>>[]): readonly RoomIn<A>[] {
   return list;
