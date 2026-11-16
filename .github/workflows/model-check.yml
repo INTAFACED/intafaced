@@ -1,48 +1,120 @@
-# Model check: the OneHold TLA+ model of one order's hold (services/svc-trade/model, #8560) on every pull request that
-# changes the model or the code it covers (services/svc-trade/model/COVERS.md). The check is the model's own
-# check.sh: the code as it is must pass every rule, and each deliberately broken variant must fail on its rule.
+# Model check: every TLA+ model in the repo (services/<service>/model/, found by tooling/ci/model-check.mjs) on every
+# pull request that touches a modelled service, a file a model's COVERS.md names, or this check. Each model's check.sh
+# must pass the code as it is and show each deliberately broken version failing on its rule.
 #
-# Not a required check: a required check must run on every PR, and this one filters by path. A red here is a finding
-# about the covered code or a model that no longer says what the code does; COVERS.md says which.
+# Every pull request gets the `Model check` verdict, a pass when nothing modelled changed, so it can be made required
+# without a path filter. Not required yet.
 #
-# Cost: one job, no build and no services; Java is the runner's own (JAVA_HOME_21_X64), the TLA+ tools are fetched
-# pinned by URL and SHA-256. About 20 seconds of model checking.
+# Cost: the plan is one short job; each model is its own job, no build and no services. Java is the runner's own
+# (JAVA_HOME_21_X64), the TLA+ tools are fetched pinned by URL and SHA-256.
 name: Model check
 
 on:
   pull_request:
+  push:
+    branches: [main]
     paths:
-      - services/svc-trade/model/**
-      - services/svc-trade/src/spot/trade-service/holds.ts
-      - services/svc-trade/src/spot/trade-service/fills.ts
-      - services/svc-trade/src/spot/trade-service/events.ts
-      - services/svc-trade/src/spot/trade-service/order-change.ts
-      - services/svc-trade/src/spot/trade-service/reconcile.ts
-      - services/svc-trade/src/spot/ioc-place.ts
-      - services/svc-trade/src/spot/gtd-gtt-place.ts
-      - services/svc-trade/src/spot/option-place.ts
-      - services/svc-matching/src/engine/book.ts
+      - services/**
       - .github/workflows/model-check.yml
+      - tooling/ci/model-check.mjs
+  workflow_dispatch:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
-  group: model-check-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  group: model-check-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  onehold:
-    name: OneHold model
+  plan:
+    name: Which models
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    outputs:
+      run: ${{ steps.plan.outputs.run }}
+      models: ${{ steps.plan.outputs.models }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Model-check the hold of one order
+      - name: Plan
+        id: plan
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          PR: ${{ github.event.pull_request.number }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
         run: |
-          set -o pipefail
+          set -euo pipefail
+          changed="$RUNNER_TEMP/changed.txt"
+          all=false
+          case "$EVENT" in
+            pull_request)
+              gh api "repos/$REPO/pulls/$PR/files?per_page=100" --paginate --jq '.[] | .filename, (.previous_filename // empty)' > "$changed"
+              # GitHub lists at most 3,000 files of a pull request: past that, check every model.
+              [ "$(wc -l < "$changed")" -lt 3000 ] || all=true ;;
+            push)
+              if [ -z "$BEFORE" ] || [ "$BEFORE" = 0000000000000000000000000000000000000000 ]; then all=true
+              else
+                gh api "repos/$REPO/compare/$BEFORE...$AFTER" > "$RUNNER_TEMP/compare.json"
+                jq -r '.files[] | .filename, (.previous_filename // empty)' "$RUNNER_TEMP/compare.json" > "$changed"
+                # The compare lists at most 300 files: past that, check every model.
+                [ "$(jq '.files | length' "$RUNNER_TEMP/compare.json")" -lt 300 ] || all=true
+              fi ;;
+            *) all=true ;;
+          esac
+          if [ "$all" = true ]; then node tooling/ci/model-check.mjs plan --all
+          else node tooling/ci/model-check.mjs plan < "$changed"; fi
+
+  model:
+    name: ${{ matrix.model.name }} model
+    needs: plan
+    if: needs.plan.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        model: ${{ fromJSON(needs.plan.outputs.models) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Model-check ${{ matrix.model.dir }}
+        env:
+          CHECK: ${{ matrix.model.check }}
+          NAME: ${{ matrix.model.name }}
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/model.log"
           start=$(date +%s)
-          JAVA="$JAVA_HOME_21_X64/bin/java" services/svc-trade/model/check.sh
-          echo "model check took $(( $(date +%s) - start ))s"
+          JAVA="$JAVA_HOME_21_X64/bin/java" "$CHECK" 2>&1 | tee "$log"
+          took=$(( $(date +%s) - start ))
+          real=$(grep -cE '^ok +[^:]+: no error' "$log" || true)
+          broken=$(grep -cE '^ok +[^:]+: .* violated as it should be' "$log" || true)
+          { echo "### $NAME model: ${took}s"; echo '```'; cat "$log"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          echo "model check took ${took}s: $real real run(s) with no error, $broken broken version(s) failing as they should"
+          [ "$real" -ge 1 ] || { echo "::error::$CHECK ran no real version of the model that passes"; exit 1; }
+          [ "$broken" -ge 1 ] || { echo "::error::$CHECK showed no deliberately broken version failing: nothing proves the model can fail"; exit 1; }
+
+  verdict:
+    name: Model check
+    needs: [plan, model]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Verdict
+        env:
+          PLAN: ${{ needs.plan.result }}
+          RUN: ${{ needs.plan.outputs.run }}
+          MODELS: ${{ needs.model.result }}
+        run: |
+          [ "$PLAN" = success ] || { echo "::error::the plan did not succeed ($PLAN)"; exit 1; }
+          if [ "$RUN" != true ]; then echo "no modelled service touched: nothing to check"; exit 0; fi
+          [ "$MODELS" = success ] || { echo "::error::a model check did not pass ($MODELS)"; exit 1; }
+          echo "every model passed, and each showed its broken versions failing"

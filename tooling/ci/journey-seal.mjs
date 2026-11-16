@@ -78,7 +78,7 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { JOURNEYS_ARTIFACT, fetchInputs, isMainRun, judge, manifestsAt, readReport, rootInputs } from './journey-verdict.mjs';
 import { RUN_FILE, journeyTouch, namedInputs, namedJourneyIds, pathKind, printable, stackImporters } from './journey-touch.mjs';
-import { SUBSCRIBES, builtMap, loadMap, newerMap, runsBehind } from './journey-reach-map.mjs';
+import { SUBSCRIBES, builtMap, headWanted, loadMap, newerMap, readHead, runsBehind } from './journey-reach-map.mjs';
 import { groupPulls, isJudgeDown, mergedNothingToSeal, requiredChecks, reviewRan } from './review-marker.mjs';
 import { DEFER_MARK, TOUCH_JOB } from './main-first.mjs';
 import { httpMessage, titleFor } from './api-budget.mjs';
@@ -725,6 +725,12 @@ export function makeIo(repo, token) {
       (await api(`/repos/${repo}/compare/${base}...${head}?per_page=1`, token))?.merge_base_commit?.sha ?? null,
     rangeOf: (from, to) => rangeFromCommits((path) => api(path, token), repo, from, to),
     files: (n) => pullFiles((path) => api(path, token), repo, n),
+    // A folder's entry names at a commit (journey-reach-map.mjs loadersReach): the contents API lists up to 1,000.
+    dirNames: async (dir, ref) => {
+      const list = await api(`/repos/${repo}/contents/${dir.split('/').map(encodeURIComponent).join('/')}?ref=${ref}`, token);
+      if (!Array.isArray(list) || list.length >= 1000) throw new Error(`${dir} could not be listed whole`);
+      return list.map((e) => String(e?.name));
+    },
     // The journey files in the head's real-app folder (the contents API lists up to 1,000 entries; there are ~270).
     journeyFiles: async (ref) => {
       const list = await api(`/repos/${repo}/contents/apps/customer/tests/real-app?ref=${ref}`, token);
@@ -1334,7 +1340,7 @@ export async function namedSealInputs({ io, pull, head }) {
   });
 }
 
-export async function reachInputs({ io, paths, head, text }) {
+export async function reachInputs({ io, paths, head, base, text }) {
   const kinds = paths.map((p) => [p, pathKind(p)]);
   const product = kinds.filter(([, k]) => k.product).map(([p]) => p);
   // Any other full path makes the whole change full, so nothing below would be used: read nothing.
@@ -1362,8 +1368,33 @@ export async function reachInputs({ io, paths, head, text }) {
     }
     subs.set(p, t === undefined ? true : t !== null && SUBSCRIBES.test(t));
   }
+  // What a customer file no run recorded is judged by (journey-reach-map.mjs loadersReach), read as the touch job reads
+  // it from its checkout of the head (journey-touch.mjs checkoutHead); a read that fails leaves it unknown, which is full.
+  const want = headWanted(map, paths);
+  let headIn = null;
+  if (want)
+    try {
+      const mb = await io.mergeBase(base, head);
+      if (!SHA40.test(String(mb))) throw new Error('no merge base');
+      headIn = await readHead(map, want, {
+        read: (p) => text(p, head),
+        list: (d) => io.dirNames(d, head),
+        mergeBase: mb,
+        atBase: async (u) => (await text(u, mb)) !== null,
+        compare: io.compare,
+      });
+    } catch {
+      headIn = {};
+    }
   // io.reachMode: a test's stand-in for REACH_MAP_MODE; the seal itself never sets it.
-  return { map, behind, journeyFiles, subscribes: (p) => subs.get(p) ?? false, ...(io.reachMode ? { mode: io.reachMode } : {}) };
+  return {
+    map,
+    behind,
+    journeyFiles,
+    subscribes: (p) => subs.get(p) ?? false,
+    head: headIn,
+    ...(io.reachMode ? { mode: io.reachMode } : {}),
+  };
 }
 
 /** One pull request's head, judged. */
@@ -1430,7 +1461,12 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
     ? { mode: 'none', full: [], files: [] }
     : auto?.ok
       ? { mode: 'files', full: [], files: auto.files, reach: [auto.why] }
-      : journeyTouch(paths, (f) => atHead.get(f) ?? true, named ? null : await reachInputs({ io, paths, head, text }), named);
+      : journeyTouch(
+          paths,
+          (f) => atHead.get(f) ?? true,
+          named ? null : await reachInputs({ io, paths, head, base: pull.base?.sha, text }),
+          named,
+        );
   // A stack file narrowed to the journeys using it (theo-01 part 2) no longer needs the full run as shared setup.
   const narrowed = new Set(reach.stack ?? []);
   const shared = paths.filter((p) => isSharedSetup(p) && !narrowed.has(p));

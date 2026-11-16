@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitest/config';
+import { TEST_BUDGET } from '../../tooling/vitest/budget.mjs';
 
 // Business fixtures isolate the blank screening socket. Mounted-request tests
 // explicitly arm strict policy; production defaults remain unchanged.
@@ -11,9 +12,8 @@ import { defineConfig } from 'vitest/config';
 // the older rule and goes red at random. Same remedy as svc-p2p and svc-token.
 export default defineConfig({
   test: {
+    ...TEST_BUDGET,
     fileParallelism: false,
-    testTimeout: 30_000,
-    hookTimeout: 30_000,
     env: {
       APP_ENV: 'test',
       INTAFACED_SCREENING_FAIL_CLOSED: 'off',

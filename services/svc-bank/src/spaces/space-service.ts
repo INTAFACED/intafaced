@@ -212,6 +212,19 @@ export class SpaceService {
   }
 
   /**
+   * Refuse a debit from a user identity says cannot send. The edge holds this for a person's own requests; a path with no
+   * edge in front of it (a withdrawal svc-pay asks for, a standing order on bank's own timer) asks here. Frozen, closed
+   * and unknown give `bank.sender_cannot_send`; an outage or a missing identity keeps its retryable/operator code.
+   */
+  async assertCanSend(userId: string): Promise<void> {
+    await this.assertCanReceive(userId).catch((err: unknown) => {
+      if (err instanceof BankError && err.code === 'bank.recipient_cannot_receive')
+        throw new BankError('The sending account cannot send money right now; nothing was sent.', 'bank.sender_cannot_send');
+      throw err;
+    });
+  }
+
+  /**
    * The user's main balance in an asset, given a name.
    *
    * Created on demand rather than at registration: a user who has never held

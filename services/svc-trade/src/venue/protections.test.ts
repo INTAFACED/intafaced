@@ -29,7 +29,7 @@ const person = {
   tier: 'basic',
   mfa: false,
   expiresAt: new Date(Date.now() + 600_000),
-} as unknown as Principal;
+} as Principal;
 const wallet = privateKeyToAccount(keccak256(toHex('intafaced TEST wallet svc-trade protections')));
 const owner = wallet.address.toLowerCase();
 const BUILDER = '0x00000000000000000000000000000000000000b3';
@@ -293,7 +293,7 @@ describe('venue protections (J-derivatives-03)', { timeout: 60_000 }, () => {
     await long('1');
     await send(await p.prepareAgent(person, owner)).catch(() => undefined);
     // Arming checks the level as the door checks a new order: a person below trading arms nothing.
-    const below = { ...person, tier: 'none' } as unknown as Principal;
+    const below = { ...person, tier: 'none' } as Principal;
     await expect(p.create(below, base({ kind: 'trailing_stop', trailingDistance: '20' }), REGION)).rejects.toMatchObject({
       code: 'tier.insufficient',
     });

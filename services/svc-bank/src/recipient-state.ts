@@ -27,7 +27,7 @@
  * to one code and one message, matching identity's uniform `{ found: false }`.
  */
 
-import { accountStateSchema, serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import { accountStateSchema, serviceCallSigner, type AccountState, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
 
 export type RecipientStatus = 'active' | 'frozen' | 'closed' | 'not_found';
 
@@ -46,6 +46,11 @@ export class RecipientStateUnavailableError extends Error {
 export interface RecipientStatePort {
   /** Resolves the account status, or throws `RecipientStateUnavailableError`. */
   statusOf(userId: string): Promise<RecipientStatus>;
+  /**
+   * The account's status and KYC tier as identity derives them (the card programme's KYC gate, J-bank-26 #2), or
+   * `not_found`; throws `RecipientStateUnavailableError` like `statusOf`. A port without it leaves the gate refusing.
+   */
+  accountOf?(userId: string): Promise<Pick<AccountState, 'status' | 'kycTier'> | 'not_found'>;
 }
 
 /**
@@ -88,8 +93,12 @@ export function createIdentityRecipientState(
 ): RecipientStatePort {
   const base = baseUrl.replace(/\/+$/, '');
   const sign = serviceCallSigner({ service: 'svc-bank', audience: 'svc-identity', legacySecret: internalSecret, s2s });
-  return {
+  const port: RecipientStatePort = {
     async statusOf(userId) {
+      const state = await port.accountOf!(userId);
+      return state === 'not_found' ? 'not_found' : state.status;
+    },
+    async accountOf(userId) {
       const id = userId.trim();
       // An empty id is not a lookup; do not send it to identity as `/account/`.
       if (!id) return 'not_found';
@@ -126,9 +135,10 @@ export function createIdentityRecipientState(
         });
         throw new RecipientStateUnavailableError('identity returned an unreadable recipient status');
       }
-      return parsed.data.status;
+      return { status: parsed.data.status, kycTier: parsed.data.kycTier };
     },
   };
+  return port;
 }
 
 /**
@@ -139,7 +149,7 @@ export function createIdentityRecipientState(
  */
 export function memoryRecipientState(
   statuses: Readonly<Record<string, RecipientStatus>> = {},
-  options: { strict?: boolean } = {},
+  options: { strict?: boolean; tiers?: Readonly<Record<string, AccountState['kycTier']>> } = {},
 ): RecipientStatePort & {
   set(userId: string, status: RecipientStatus): void;
   failWith(error: RecipientStateUnavailableError | null): void;
@@ -158,6 +168,12 @@ export function memoryRecipientState(
       asked.push(userId);
       if (failure) throw failure;
       return table.get(userId) ?? (options.strict ? 'not_found' : 'active');
+    },
+    async accountOf(userId) {
+      asked.push(userId);
+      if (failure) throw failure;
+      const status = table.get(userId) ?? (options.strict ? 'not_found' : 'active');
+      return status === 'not_found' ? 'not_found' : { status, kycTier: options.tiers?.[userId] ?? 'full' };
     },
   };
 }

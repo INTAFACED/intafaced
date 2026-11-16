@@ -17,7 +17,6 @@
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { isScope } from '@intafaced/auth';
-import type { ApiKeyRecord } from '@intafaced/contracts/api-keys';
 import {
   SANDBOX_NAME_MAX,
   isSandboxKeyScope,

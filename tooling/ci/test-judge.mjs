@@ -25,7 +25,7 @@
 import { readFileSync, writeFileSync, mkdirSync, appendFileSync, existsSync, readdirSync, realpathSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { join, dirname, posix } from 'node:path';
+import { join, posix } from 'node:path';
 import { pathToFileURL } from 'node:url';
 // The default branch's copy: the job runs this file from the default branch's checkout (ci-review.yml), never the pull
 // request's, so the money rule below is main's.
@@ -283,7 +283,7 @@ export function parseDiff(text) {
     }
     if (!cur.hunk && line.startsWith('new file mode')) cur.oldPath = null;
     if (!cur.hunk && line.startsWith('deleted file mode')) cur.newPath = null;
-    if (!cur.hunk && (/^Binary files /.test(line) || line.startsWith('GIT binary patch'))) cur.binary = true;
+    if (!cur.hunk && (line.startsWith('Binary files ') || line.startsWith('GIT binary patch'))) cur.binary = true;
     if (!cur.hunk && /^(rename|copy) from /.test(line)) {
       cur.moved = line.startsWith('rename') ? 'rename' : 'copy';
       cur.oldPath = line.replace(/^(rename|copy) from /, '');

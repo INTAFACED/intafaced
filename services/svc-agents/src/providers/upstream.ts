@@ -412,7 +412,7 @@ export class UpstreamModelProvider implements ModelProvider {
           // The key is placed on the request and nowhere else: not on a span,
           // not in a log line, not in an error message (§9 secrets via vault).
           [this.config.authHeader ?? 'x-api-key']: `${this.config.authPrefix ?? ''}${this.config.apiKey}`,
-          ...(this.config.headers ?? {}),
+          ...this.config.headers,
         },
         body: JSON.stringify(body),
         signal: controller.signal,

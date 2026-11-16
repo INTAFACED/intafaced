@@ -76,7 +76,7 @@ describe('money in a review is exact, wherever it was opened from', () => {
       evidence: [],
       responses: [],
       payment: null,
-    } as unknown as DisputeDetail;
+    } as DisputeDetail;
     const out = renderToString(<DisputeDetailView portal={portal} dispute={{ status: 'ready', data: dispute }} reload={noop} />);
     expect(out).toContain(AMOUNT);
   });

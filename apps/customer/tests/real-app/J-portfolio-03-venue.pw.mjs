@@ -5,8 +5,8 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { api, journeyState } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
-import { CHAIN_ID, fundOnTestChain, testChain } from './dex.mjs';
-import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs';
+import { CHAIN_ID, connectWhenAsked, fundOnTestChain, testChain } from './dex.mjs';
+import { installTestWallet, testWalletKey } from './test-wallet.mjs';
 import { setPartner } from './partner.mjs';
 import { otherTraderKey, otherTraderRun, testVenue, venueAccount, venueForThisFile, venueInfo, venueRecord } from './venue.mjs';
 
@@ -268,13 +268,7 @@ test(`${J} #1 opens /money/activity on the launch model: every movement from the
   await page.goto('/money/activity');
   const list = page.getByTestId('activity-by-source');
   await expect(list).toBeVisible({ timeout: 30_000 });
-  const address = page.getByTestId('venue-wallet-address');
-  const connect = page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` });
-  await expect(async () => {
-    if (await address.isVisible()) return;
-    await connect.click({ timeout: 2_000 });
-    await expect(address).toBeVisible({ timeout: 5_000 });
-  }).toPass({ timeout: 30_000 });
+  await connectWhenAsked(page, page.getByTestId('venue-wallet-address'));
 
   const rows = list.getByTestId('money-act');
   const expected = walletMoves.length + fills.length + deposits.length + partner.length;

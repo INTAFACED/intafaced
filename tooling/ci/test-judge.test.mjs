@@ -27,7 +27,6 @@ import {
   JUDGE_SCHEMA,
   moneyGuard,
   setAsideDays,
-  setAsideRefusal,
   retryProblem,
   mainSetAsideDays,
   setAsideCap,
@@ -83,7 +82,7 @@ test("the judge covers every file proof v2's reach reads covered (project-state 
   // the judge stands in for those reads only if every file they named is judged here.
   const TEST_CONFIG = /^tooling\/(scripts\/local-stack-services|profiles\/test-owner-values)\//;
   const reachKind = (f) =>
-    TEST_CONFIG.test(f) || /(^|\/)tests\/real-app\//.test(f) || (/^tooling\/scripts\/[^/]+\.mjs$/.test(f) && !/\.test\.mjs$/.test(f));
+    TEST_CONFIG.test(f) || /(^|\/)tests\/real-app\//.test(f) || (/^tooling\/scripts\/[^/]+\.mjs$/.test(f) && !f.endsWith('.test.mjs'));
   const tree = execFileSync('git', ['ls-files'], { encoding: 'utf8', maxBuffer: 64 << 20 })
     .split('\n')
     .filter(Boolean);
@@ -106,7 +105,7 @@ test("the judge covers every file proof v2's reach reads covered (project-state 
 test('no drift: every file the journey tests and look sweeps import on this tree is judged', () => {
   const dir = 'apps/customer/tests/real-app';
   const entries = readdirSync(dir)
-    .filter((f) => /\.pw\.mjs$/.test(f))
+    .filter((f) => f.endsWith('.pw.mjs'))
     .map((f) => `${dir}/${f}`);
   const read = (p) => {
     try {

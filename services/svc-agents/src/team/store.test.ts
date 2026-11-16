@@ -365,7 +365,7 @@ if (!available) {
         sql,
         feeAssetId: 'IFC',
         ...(membership ? { teamMembership: membership } : {}),
-      } as unknown as AgentsRouterDeps);
+      } as AgentsRouterDeps);
 
     it("answers the caller's business and carries each refusal's code", async () => {
       const app = appFor(teamPort(state));

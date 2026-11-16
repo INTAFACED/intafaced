@@ -81,7 +81,7 @@ if (!available) {
       if (!approvalId) throw new SecurityStepUpError('identity.step_up_required');
       stepUps.push({ scope, fields });
     },
-  } as unknown as SecurityStepUp;
+  } as SecurityStepUp;
   const FOUNDER = '00000000-0000-4000-8000-00000000f0f0';
   const recoveryRouter = createRecoveryKeysRouter(new RecoveryKeys(db.sql, stepUp, [FOUNDER]));
   const callerFor = (userId: string, extra: Record<string, unknown> = {}, scopes = ['identity:read', 'identity:write']) =>
@@ -90,7 +90,7 @@ if (!available) {
       service: null,
       region: 'DE',
       requestId: 'req-recovery',
-    } as unknown as Context);
+    } as Context);
   const codeOf = async (p: Promise<unknown>) =>
     (
       (await p.then(

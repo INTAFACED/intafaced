@@ -355,7 +355,7 @@ describe('a person not verified for trading', () => {
       venue: { id: 'test-venue', displayName: 'TEST venue' },
       test: true,
       builder: null,
-    } as unknown as VenueUp;
+    } as VenueUp;
     const html = renderToStaticMarkup(<VenueVerifyDesk status={status} symbol="BTC-USDC" />);
     const shown = text(html);
     expect(html).toContain('data-access="verify"');

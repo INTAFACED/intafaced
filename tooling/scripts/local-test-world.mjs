@@ -34,7 +34,6 @@ import {
   assertActiveLocalStack,
   localEmailOutboxPath,
   localPgBin,
-  localStackState,
   readLatestEmailConfirmToken,
   stackCustodyOff,
   custodyOffRefusal,

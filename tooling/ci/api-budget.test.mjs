@@ -2,7 +2,7 @@
 // refusals of 13 Nov 2026 (run 43358106834, seal run 43358114181).
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { BUDGET_MARK, BUDGET_TITLE, budgetLine, httpMessage, isBudgetResponse, isBudgetText, titleFor } from './api-budget.mjs';
+import { BUDGET_TITLE, budgetLine, httpMessage, isBudgetResponse, isBudgetText, titleFor } from './api-budget.mjs';
 import { summarize } from './why-red.mjs';
 
 const answer = (status, headers = {}) => ({ status, ok: false, headers: new Headers(headers) });

@@ -68,7 +68,7 @@ describe('tRPC copy.listMyFollows limit unset refuse (no invented 50)', () => {
         return [];
       },
     } as unknown as CopyService;
-    const caller = createTradeRouter({} as unknown as TradeService, undefined, copy).createCaller(signed());
+    const caller = createTradeRouter({} as TradeService, undefined, copy).createCaller(signed());
 
     await expect(caller.copy.listMyFollows()).rejects.toMatchObject({
       code: 'BAD_REQUEST',

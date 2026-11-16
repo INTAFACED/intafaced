@@ -12,7 +12,7 @@ import { WatchShell } from '../watch/AddressPage';
 import { APP_CHAIN_ID } from '../wallet/eip1193';
 import { liquidityCopy } from './copy';
 import { amountText, bpsPercent, toUnits } from './format';
-import { isNoNetwork, plainReason, refusalCode } from './liquidity-api';
+import { isNoNetwork, plainReason } from './liquidity-api';
 import { NoWalletNote, useLiquiditySigning } from './signing';
 
 const SHARE_DECIMALS = 18;

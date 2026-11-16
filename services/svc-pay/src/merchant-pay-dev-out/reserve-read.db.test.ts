@@ -43,7 +43,7 @@ describe('merchantControl.reserve (recorded, not withheld)', () => {
         throw new Error('no founder in this suite');
       },
       control: new ControlService(sql, ownerAccessPorts(sql), { now: () => NOW }),
-    }).createCaller(ctxOf(userId)) as unknown as {
+    }).createCaller(ctxOf(userId)) as {
       merchantControl: { reserve: (input: { merchantId: string }) => Promise<Awaited<ReturnType<typeof readMerchantReserve>>> };
     };
 

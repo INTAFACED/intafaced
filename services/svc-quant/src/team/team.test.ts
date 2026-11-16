@@ -50,8 +50,8 @@ function signed(userId: string, scopes: string[] = ['trade:read']) {
   });
 }
 
-const history: HistoryPort = { wired: true, bars: async () => [] } as unknown as HistoryPort;
-const fees: FeePort = { wired: true, fee: async () => ({ version: 'local-test:v1', makerBps: 8, takerBps: 10 }) } as unknown as FeePort;
+const history: HistoryPort = { wired: true, bars: async () => [] } as HistoryPort;
+const fees: FeePort = { wired: true, fee: async () => ({ version: 'local-test:v1', makerBps: 8, takerBps: 10 }) } as FeePort;
 
 function setup(editLockSeconds: number | null = 20) {
   let offset = 0;

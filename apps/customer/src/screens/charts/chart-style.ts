@@ -6,6 +6,7 @@
  * shown as text are still formatted from the service's decimal strings.
  */
 import type { Candle } from '../../data/types';
+import { chartValue } from '../../shared/chart-value';
 import { toSeconds } from '../trade/chart/chart-data';
 
 export const CHART_STYLES = ['candles', 'bars', 'line', 'area', 'columns', 'heikin-ashi'] as const;
@@ -47,10 +48,10 @@ export function heikinAshi(candles: readonly Candle[]): Array<{ time: number; op
   const out: Array<{ time: number; open: number; high: number; low: number; close: number }> = [];
   let prev: { open: number; close: number } | null = null;
   for (const c of candles) {
-    const o = Number(c.o);
-    const h = Number(c.h);
-    const l = Number(c.l);
-    const cl = Number(c.c);
+    const o = chartValue(c.o);
+    const h = chartValue(c.h);
+    const l = chartValue(c.l);
+    const cl = chartValue(c.c);
     const close = (o + h + l + cl) / 4;
     const open: number = prev ? (prev.open + prev.close) / 2 : (o + cl) / 2;
     out.push({ time: toSeconds(c.t), open, high: Math.max(h, open, close), low: Math.min(l, open, close), close });
@@ -73,10 +74,20 @@ export const SERIES_KIND: Readonly<Record<ChartStyle, SeriesKind>> = {
 /** Every point of the series for a style, oldest first. */
 export function seriesPoints(style: ChartStyle, candles: readonly Candle[], colors: SchemeColors): unknown[] {
   if (style === 'heikin-ashi') return heikinAshi(candles);
-  if (style === 'line' || style === 'area') return candles.map((c) => ({ time: toSeconds(c.t), value: Number(c.c) }));
+  if (style === 'line' || style === 'area') return candles.map((c) => ({ time: toSeconds(c.t), value: chartValue(c.c) }));
   if (style === 'columns')
-    return candles.map((c) => ({ time: toSeconds(c.t), value: Number(c.c), color: Number(c.c) >= Number(c.o) ? colors.up : colors.down }));
-  return candles.map((c) => ({ time: toSeconds(c.t), open: Number(c.o), high: Number(c.h), low: Number(c.l), close: Number(c.c) }));
+    return candles.map((c) => ({
+      time: toSeconds(c.t),
+      value: chartValue(c.c),
+      color: chartValue(c.c) >= chartValue(c.o) ? colors.up : colors.down,
+    }));
+  return candles.map((c) => ({
+    time: toSeconds(c.t),
+    open: chartValue(c.o),
+    high: chartValue(c.h),
+    low: chartValue(c.l),
+    close: chartValue(c.c),
+  }));
 }
 
 /** Library options for the main series of a style in a scheme. */

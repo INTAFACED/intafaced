@@ -297,7 +297,7 @@ if (!(await postgresAvailable(TEST_URL))) {
           service: null,
           region: 'DE',
           requestId: 'req-status',
-        } as unknown as Context);
+        } as Context);
       expect((await caller(['identity:read']).accountStatus.mine()).state).toBe('active');
       await expect(caller(['identity:read']).accountStatus.of({ userId: other })).rejects.toMatchObject({ code: 'FORBIDDEN' });
       expect((await caller(['admin:read']).accountStatus.of({ userId: other })).state).toBe('frozen');
@@ -310,7 +310,7 @@ if (!(await postgresAvailable(TEST_URL))) {
           service,
           region: 'DE',
           requestId: 'req-status',
-        } as unknown as Context);
+        } as Context);
       await expect(as({ kid: 'key-1' }).accountStatus.of({ userId: other })).rejects.toMatchObject({ code: 'FORBIDDEN' });
       await expect(as({ sub_account: 'sub-1' }).accountStatus.of({ userId: other })).rejects.toMatchObject({ code: 'FORBIDDEN' });
       await expect(as({}, 'svc-ops').accountStatus.of({ userId: other })).rejects.toMatchObject({ code: 'FORBIDDEN' });

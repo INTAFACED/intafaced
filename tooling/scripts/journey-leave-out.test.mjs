@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { readFileSync } from 'node:fs';
 import { journeysOf, parseLog, planLeaveOut, testListText } from './journey-leave-out.mjs';
 
 const A = 'a'.repeat(40);

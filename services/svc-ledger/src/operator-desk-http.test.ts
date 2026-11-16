@@ -107,7 +107,7 @@ async function desk(opts: { failAccess?: boolean; failRead?: boolean } = {}) {
         asOf: '2026-10-24T12:01:00.000Z',
       };
     },
-  } as unknown as LedgerService;
+  } as LedgerService;
   const app: FastifyInstance = Fastify({ logger: false });
   registerOperatorHttp(app, ledger, tokens, stubApprovalConsumer(CONFIRM));
   await app.ready();

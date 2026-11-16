@@ -98,6 +98,11 @@ export interface PartnerCardHolds {
   refund(input: { key: string; holdKey: string; amount: string }): Promise<PartnerMoveAnswer>;
   /** The hold as the partner reports it now, or null when the partner has no record of it. */
   holdState(input: { holdKey: string }): Promise<PartnerHoldReport | null>;
+  /**
+   * What the partner has captured for this cardholder in this asset, as it reports it (J-bank-26 #5), or null when it
+   * reports no such figure. A partner without this read leaves it out, and the figure reads "not known".
+   */
+  captured?(input: { userId: string; assetId: string }): Promise<string | null>;
 }
 
 /** The partner said no to an instruction. Nothing moved at the partner. */
@@ -121,6 +126,7 @@ export function freezeGuardedCardHolds(holds: PartnerCardHolds, freeze: PostingF
     test: holds.test,
     figures: (input: { userId: string; assetId: string }) => holds.figures(input),
     holdState: (input: { holdKey: string }) => holds.holdState(input),
+    ...(holds.captured ? { captured: holds.captured.bind(holds) } : {}),
     hold: async (input: Parameters<PartnerCardHolds['hold']>[0]) => {
       await assertPostingEnabled(freeze, 'card_hold', note);
       return holds.hold(input);
@@ -297,6 +303,13 @@ export function testPartnerCardHolds(options: {
       const book = books.get(`${userId}|${assetId}`);
       if (book) for (const h of [...book.open]) runOut(h);
       return figuresOf(userId, assetId);
+    },
+
+    captured: async ({ userId, assetId }) => {
+      if (bookOf(userId, assetId) === null) return null;
+      let sum = 0n;
+      for (const h of holds.values()) if (h.userId === userId && h.assetId === assetId) sum += h.captured;
+      return formatAmount(sum);
     },
 
     hold: async ({ key, userId, assetId, amount }) =>

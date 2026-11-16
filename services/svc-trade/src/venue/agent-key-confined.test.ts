@@ -13,8 +13,8 @@ import { attachUserVenueRoutes, type UserVenueRestDeps } from './user-venue-rest
 
 const USER = '11111111-1111-4111-8111-1111111111d1';
 const KEY = '22222222-2222-4222-8222-2222222222d2';
-const session = { userId: USER, sub: USER, sid: 's-1', scopes: ['trade:read', 'trade:write'] } as unknown as Principal;
-const apiKey = { ...session, kid: KEY } as unknown as Principal;
+const session = { userId: USER, sub: USER, sid: 's-1', scopes: ['trade:read', 'trade:write'] } as Principal;
+const apiKey = { ...session, kid: KEY } as Principal;
 const OWNER = '0x00000000000000000000000000000000000000a1';
 const ACCOUNT = '33333333-3333-4333-8333-3333333333d3';
 

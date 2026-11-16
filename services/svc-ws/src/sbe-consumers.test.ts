@@ -2,7 +2,6 @@
  * J-cex-spot-20 #3: the SBE tape's consumers from the adapter's own record, one row per open `format=sbe` socket with
  * the last tape sequence sent, read only by svc-edge with the dedicated read key.
  */
-import type { IncomingMessage } from 'node:http';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { WebSocket } from 'ws';

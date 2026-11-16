@@ -256,7 +256,7 @@ describe("a person's own agent trading their venue sub-account under an allowanc
     attachOwnAgentTradingRoutes(app, trading, {
       requirePrincipal: () => person,
       requireTradeJurisdiction: () => true,
-    } as unknown as Parameters<typeof attachOwnAgentTradingRoutes>[2]);
+    } as Parameters<typeof attachOwnAgentTradingRoutes>[2]);
     await app.ready();
     try {
       const url = `/api/v1/venue/own-agents/${AGENT}`;

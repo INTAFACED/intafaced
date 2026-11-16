@@ -32,7 +32,7 @@ function client(body: unknown, status = 200) {
   const fetcher = (async (url: string, init: RequestInit) => {
     calls.push({ url, body: String(init.body), headers: init.headers as Record<string, string> });
     return new Response(JSON.stringify(body), { status });
-  }) as unknown as typeof fetch;
+  }) as typeof fetch;
   return { calls, feed: createEvaluationFeedClient({ ledgerUrl: 'http://ledger.test/', secret: SECRET, fetcher }) };
 }
 

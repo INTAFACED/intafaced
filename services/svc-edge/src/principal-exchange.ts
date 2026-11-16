@@ -13,7 +13,7 @@ import {
 } from './api-key-account.js';
 import { assertUserNotFrozen, optionalUserStatusFromExchange, KeyUserStatusError } from './api-key-user-status.js';
 import { assertApiKeyOrigin, optionalOriginAllowlistFromExchange, KeyOriginError } from './api-key-origin.js';
-import { assertApiKeyIp, optionalIpAllowlist, optionalIpAllowlistFromExchange, KeyIpError } from './api-key-ip.js';
+import { assertApiKeyIp, optionalIpAllowlistFromExchange, KeyIpError } from './api-key-ip.js';
 import { hashBody, ipAllowlistSatisfied, optionalFlag, readRequestSignHeaders, type RequestSignMaterial } from './api-key-request-sign.js';
 import { assertApiKeyProduct, optionalProductScopesFromExchange, requestProduct, KeyProductError } from './api-key-product.js';
 import { readEdgeAuthority } from './live-authority.js';

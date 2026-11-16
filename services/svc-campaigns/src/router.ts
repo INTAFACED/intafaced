@@ -90,6 +90,19 @@ import type { DistributionService } from './distributions.js';
 import type { TrialPassService } from './trial-passes.js';
 import type { PoolService } from './pools.js';
 import { CampaignsError } from './codes.js';
+import type { RiskService } from './risk.js';
+import {
+  myRiskCaseSchema,
+  riskAppealDecideInputSchema,
+  riskAppealInputSchema,
+  riskCaseInputSchema,
+  riskCaseSchema,
+  riskQueueSchema,
+  riskRevokeInputSchema,
+  riskSignalInputSchema,
+  riskSignalResultSchema,
+  riskWithholdInputSchema,
+} from '@intafaced/contracts/campaigns-risk';
 import type { DropService } from './drops.js';
 import type { ReferralService } from './referrals.js';
 import type { TaskService } from './tasks.js';
@@ -221,6 +234,13 @@ const STATUS: Record<CampaignsRefusalCode | CampaignRefusalCode, TRPCError['code
   'campaigns.trial_pass_refused': 'PRECONDITION_FAILED',
   'campaigns.trial_pass_unreachable': 'SERVICE_UNAVAILABLE',
   'owner.decision': 'PRECONDITION_FAILED',
+  'campaigns.risk_threshold_unset': 'PRECONDITION_FAILED',
+  'campaigns.appeal_window_unset': 'PRECONDITION_FAILED',
+  'campaigns.appeal_window_closed': 'CONFLICT',
+  'campaigns.appeal_not_open': 'CONFLICT',
+  'campaigns.appeal_same_person': 'FORBIDDEN',
+  'campaigns.risk_case_unknown': 'NOT_FOUND',
+  'campaigns.risk_reward_not_held': 'CONFLICT',
   'campaigns.window_unset': 'PRECONDITION_FAILED',
   'campaigns.timezone_unset': 'BAD_REQUEST',
   'campaigns.timezone_not_platform': 'BAD_REQUEST',
@@ -278,7 +298,12 @@ export function createCampaignsRouter(
   distributions?: DistributionService,
   pools?: PoolService,
   trialPasses?: TrialPassService,
+  risk?: RiskService,
 ) {
+  const riskOf = (): RiskService => {
+    if (!risk) throw new CampaignsError('campaigns.store_unwired', 'The risk review is not wired');
+    return risk;
+  };
   return router({
     health: publicProcedure
       .output(z.object({ ok: z.literal(true), service: z.literal('svc-campaigns') }))
@@ -652,7 +677,93 @@ export function createCampaignsRouter(
         }),
     }),
 
+    /** The signed-in customer's own risk case and their appeal (J-campaigns-18 #5). */
+    risk: router({
+      mine: scopedProcedure('campaigns:read', guard)
+        .output(myRiskCaseSchema)
+        .query(async ({ ctx }) => {
+          try {
+            return await riskOf().mine(ctx.principal!.userId);
+          } catch (err) {
+            mapError(err);
+          }
+        }),
+      appeal: scopedProcedure('campaigns:write', guard)
+        .input(riskAppealInputSchema)
+        .output(myRiskCaseSchema)
+        .mutation(async ({ ctx, input }) => {
+          try {
+            return await riskOf().appeal({ accountId: ctx.principal!.userId, text: input.text });
+          } catch (err) {
+            mapError(err);
+          }
+        }),
+    }),
+
     ops: router({
+      /**
+       * The risk review desk (J-campaigns-18): signals, the queue, one account's case, withholding a held reward, revoking
+       * an account's rewards, and the appeal's decision by a second person. The operator is recorded from their own token.
+       */
+      risk: router({
+        signal: opsProcedure
+          .input(riskSignalInputSchema)
+          .output(riskSignalResultSchema)
+          .mutation(async ({ ctx, input }) => {
+            try {
+              return await riskOf().recordSignal(input, ctx.principal!.userId);
+            } catch (err) {
+              mapError(err);
+            }
+          }),
+        queue: opsProcedure.output(riskQueueSchema).query(async () => {
+          try {
+            return await riskOf().queue();
+          } catch (err) {
+            mapError(err);
+          }
+        }),
+        case: opsProcedure
+          .input(riskCaseInputSchema)
+          .output(riskCaseSchema)
+          .query(async ({ input }) => {
+            try {
+              return await riskOf().caseOf(input.accountId);
+            } catch (err) {
+              mapError(err);
+            }
+          }),
+        withhold: opsProcedure
+          .input(riskWithholdInputSchema)
+          .output(riskCaseSchema)
+          .mutation(async ({ ctx, input }) => {
+            try {
+              return await riskOf().withhold({ ...input, actor: ctx.principal!.userId });
+            } catch (err) {
+              mapError(err);
+            }
+          }),
+        revoke: opsProcedure
+          .input(riskRevokeInputSchema)
+          .output(riskCaseSchema)
+          .mutation(async ({ ctx, input }) => {
+            try {
+              return await riskOf().revoke({ ...input, actor: ctx.principal!.userId });
+            } catch (err) {
+              mapError(err);
+            }
+          }),
+        decideAppeal: opsProcedure
+          .input(riskAppealDecideInputSchema)
+          .output(riskCaseSchema)
+          .mutation(async ({ ctx, input }) => {
+            try {
+              return await riskOf().decideAppeal({ ...input, actor: ctx.principal!.userId });
+            } catch (err) {
+              mapError(err);
+            }
+          }),
+      }),
       campaigns: router({
         list: opsProcedure.output(z.array(campaignSchema)).query(async () => {
           try {

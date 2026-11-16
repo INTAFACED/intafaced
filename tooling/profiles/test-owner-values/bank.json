@@ -265,6 +265,11 @@
       "service": "bank",
       "value": "{\"USDC\": \"100.00\"}",
       "note": "TEST card dispute cap (J-bank-27 #4): the most one USDC dispute may be provisionally credited or decided for the cardholder, small so a journey can see a dispute above it refused. Not an owner decision; blank refuses bank.card_dispute_cap_unset."
+    },
+    "BANK_CARDHOLDER_SANCTIONS": {
+      "service": "bank",
+      "value": "LOCAL TEST Sanctioned Cardholder",
+      "note": "TEST cardholder sanctions list (J-bank-26 #2): one made-up name, so a journey can see a screening match land in the review queue. Not a real list and not an owner decision; blank refuses bank.cardholder_screening_unset."
     }
   }
 }

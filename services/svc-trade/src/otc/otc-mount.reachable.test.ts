@@ -188,7 +188,7 @@ async function buildDesk(
           now: () => now,
         });
 
-  const appRouter = createTradeRouter({} as unknown as TradeService, otc, undefined);
+  const appRouter = createTradeRouter({} as TradeService, otc, undefined);
   const edgeContext = createEdgeContext({ secret: SECRET, serviceName: 'svc-trade' });
 
   const app = Fastify();

@@ -1014,7 +1014,7 @@ describe('svc-trade position-service (H8a PG-hard)', () => {
         side: 'long',
         size: amt('1'),
         leverage: amt('10'),
-        marginMode: 'cross' as unknown as 'isolated',
+        marginMode: 'cross' as 'isolated',
       }),
     ).rejects.toMatchObject({ code: 'trade.cross_margin_unsupported' });
 
@@ -1033,7 +1033,7 @@ describe('svc-trade position-service (H8a PG-hard)', () => {
         side: 'long',
         size: amt('1'),
         leverage: amt('10'),
-        marginMode: 'portfolio' as unknown as 'isolated',
+        marginMode: 'portfolio' as 'isolated',
       }),
     ).rejects.toMatchObject({ code: 'trade.portfolio_margin_unset' });
     expect((await ledger.balance(userAvailable(ALICE, 'USDT'))).amount).toBe(before);

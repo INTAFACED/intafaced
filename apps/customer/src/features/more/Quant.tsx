@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import { useApi, useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
-import { decimalSchema, signedDecimalSchema, displayAmount, parseAmount } from '../../shared/money';
+import { decimalSchema, signedDecimalSchema, displayAmount } from '../../shared/money';
 import { Button, Failure, Field, Loading, Panel } from '../../shared/ui';
 import { Details, presentActionFailure, Read, Select, TextArea, useAction } from './common';
 import { limitsCopy } from '../quant/limits-copy';

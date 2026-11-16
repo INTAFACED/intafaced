@@ -23,7 +23,7 @@ runLedgerConformance('MemoryLedger', async () => ({
   totalsByAsset: async () => conformanceLedger.totalsByAsset(),
 }));
 import { formatAmount, parseAmount as amt, sum } from './money.js';
-import { assertBalanced, assertPairedLocks, assertPurposedHolds, assertValidPost, LOCK_KINDS } from './client.js';
+import { assertBalanced, assertPairedLocks, assertValidPost, LOCK_KINDS } from './client.js';
 import { ACCOUNT_KINDS, ACCOUNT_KIND_CLASS } from './types.js';
 import {
   futuresLossSink,
@@ -555,7 +555,7 @@ describe('INVARIANT 3 — locks are funded from the owner’s own available bala
   it('refuses a credit on an unknown kind as funding for a lock', () => {
     const unknown = {
       ...userAvailable(USER_A, 'BTC'),
-      kind: 'receivable' as unknown as ReturnType<typeof userAvailable>['kind'],
+      kind: 'receivable' as ReturnType<typeof userAvailable>['kind'],
     };
     const locks = [
       userHold(USER_A, 'BTC', 'order:test'),

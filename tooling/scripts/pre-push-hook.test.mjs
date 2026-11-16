@@ -2,7 +2,8 @@
 // line instead of being refused; formatting still refuses when prettier is there; a direct push to main is still refused;
 // CI's checks (tooling/scripts/ci-checks.mjs) never run here: they run on GitHub, on the branch and then on the PR. A push
 // that changes a journey file runs the marked tooling tests that read journey files, and a red one refuses it. The lint
-// ratchet (tooling/ci/lint-ratchet.mjs, a Doctrine gate) runs on the pushed files when oxlint is installed, and refuses a rise.
+// ratchet (tooling/ci/lint-ratchet.mjs, a Doctrine gate) runs on the pushed files and refuses a rise; CI's other Doctrine gates
+// (gates.mjs --before-push) run too, and a red one refuses the push. Without the install either refuses, naming the command.
 // Each case is a throwaway repo holding the real .githooks/pre-push, pushing to a local bare remote.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -281,12 +282,12 @@ test('a push that holds every lint rule goes through with the ratchet run', () =
   }
 });
 
-test('no oxlint in the worktree: the ratchet is skipped with one line, never refused', () => {
+test('no oxlint in the worktree: the push is refused, with how to install it, never let through unchecked', () => {
   const p = plant({ prettier: 'exit 0', base: { ...RATCHET, ...copy([]) }, change: copy(["paidOwed: 'Owed, not collected yet',"]) });
   try {
     const r = p.push();
-    assert.equal(r.code, 0, r.out);
-    assert.match(r.out, /lint-ratchet — no oxlint in this worktree; skipped/);
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, /lint-ratchet needs this worktree's oxlint — push refused\. Install it: pnpm install --frozen-lockfile/);
   } finally {
     p.done();
   }
@@ -319,6 +320,51 @@ test("the size count's pass lets the push through, and a push that only deletes 
     const d = spawnSync('git', ['push', 'origin', ':refs/heads/feat'], { cwd: p.work, encoding: 'utf8', env: BUILDER });
     assert.equal(d.status, 0, `${d.stdout}${d.stderr}`);
     assert.doesNotMatch(`${d.stdout}${d.stderr}`, /size step/);
+  } finally {
+    p.done();
+  }
+});
+
+// CI's Doctrine gates (tooling/ci/gates.mjs --before-push), planted: it names what it was given and answers `code`.
+const gatesStep = (code) => ({
+  'tooling/ci/gates.mjs': `console.log('gates step:', process.argv.slice(2).join(' '));\n${code ? "console.error('✖ BOUNDARY SCAN FAILED — 1 violation(s)');\n" : ''}process.exit(${code});\n`,
+});
+
+test("a red Doctrine gate refuses the push with the gate's own message (#8616's first head, the boundary scan)", () => {
+  const p = plant({ prettier: 'exit 0', base: gatesStep(1) });
+  try {
+    const r = p.push();
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, /gates step: --before-push/);
+    assert.match(r.out, /BOUNDARY SCAN FAILED — 1 violation\(s\)/);
+    assert.match(r.out, /a Doctrine gate failed — push refused/);
+  } finally {
+    p.done();
+  }
+});
+
+test('green Doctrine gates let the push through; a push that only deletes a branch never runs them', () => {
+  const p = plant({ prettier: 'exit 0', base: gatesStep(0) });
+  try {
+    const r = p.push('feat');
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /gates step: --before-push/);
+    writeFileSync(join(p.work, 'tooling', 'ci', 'gates.mjs'), gatesStep(1)['tooling/ci/gates.mjs']);
+    const d = spawnSync('git', ['push', 'origin', ':refs/heads/feat'], { cwd: p.work, encoding: 'utf8', env: BUILDER });
+    assert.equal(d.status, 0, `${d.stdout}${d.stderr}`);
+    assert.doesNotMatch(`${d.stdout}${d.stderr}`, /gates step/);
+  } finally {
+    p.done();
+  }
+});
+
+test('no node_modules in the worktree: the push is refused, with how to install it, before any gate runs', () => {
+  const p = plant({ base: gatesStep(0) });
+  try {
+    const r = p.push();
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, /the Doctrine gates need this worktree's install — push refused\. Install it: pnpm install --frozen-lockfile/);
+    assert.doesNotMatch(r.out, /gates step/);
   } finally {
     p.done();
   }

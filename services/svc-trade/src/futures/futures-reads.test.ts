@@ -160,7 +160,7 @@ describe('open with a blank leverage cap', () => {
         ];
       }
       throw new Error(`unexpected sql ${text}`);
-    }) as unknown as ConstructorParameters<typeof PositionService>[0];
+    }) as ConstructorParameters<typeof PositionService>[0];
     const ledger = new MemoryLedger();
     const positions = new PositionService(sql, ledger, {
       emailProof: new StubEmailProof(),

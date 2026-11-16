@@ -15,7 +15,7 @@ import { UserVenueDoor, type BuilderFeeValue } from './user-venue-door.js';
 import { attachUserVenueRoutes } from './user-venue-rest.js';
 import { UserVenueRouter } from './venue-router.js';
 
-const USER = { userId: '11111111-1111-4111-8111-1111111111c1', sid: 's-1', scopes: ['trade:read', 'trade:write'] } as unknown as Principal;
+const USER = { userId: '11111111-1111-4111-8111-1111111111c1', sid: 's-1', scopes: ['trade:read', 'trade:write'] } as Principal;
 const key = privateKeyToAccount(keccak256(toHex('intafaced TEST wallet svc-trade venue rest')));
 const owner = key.address.toLowerCase();
 

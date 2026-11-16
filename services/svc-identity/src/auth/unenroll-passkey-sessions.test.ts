@@ -95,7 +95,7 @@ function combinedStore(users: UserRow[], sessions: SessionRow[]) {
     users,
     sessions,
     written,
-  }) as unknown as Parameters<typeof unenrollPasskeyAndRevokeSessions>[0] & {
+  }) as Parameters<typeof unenrollPasskeyAndRevokeSessions>[0] & {
     sessionWrites: number;
     users: UserRow[];
     sessions: SessionRow[];

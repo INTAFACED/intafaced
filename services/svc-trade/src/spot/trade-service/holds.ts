@@ -563,7 +563,7 @@ export async function submitBookedHoldUnknown(svc: TradeServiceInternal, order: 
       clientOrderId: order.clientOrderId ?? undefined,
       subAccountId: order.subAccountId ?? undefined,
       ...(storedTrigger === undefined ? {} : { stopPx: parseAmount(storedTrigger) }),
-      ...(ocoIntent ?? {}),
+      ...ocoIntent,
     } as PlaceOrderInput,
     order.type,
     order.tif,

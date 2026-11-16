@@ -140,7 +140,7 @@ import { VipApplicationStore, parseVipProofKey } from './spot/vip-applications.j
 import { assertMakerRebatesPayable, parseFeeScheduleJson } from './spot/fee-schedule.js';
 import { feeScheduleAt } from './spot/fee-schedule-store.js';
 import { feeTierAt } from './spot/fee-tier-store.js';
-import { PositionService, FuturesError } from './futures/position-service.js';
+import { PositionService } from './futures/position-service.js';
 import { readOpenInterestLimits } from './futures/open-interest-limits.js';
 import {
   bandInForce,
@@ -235,6 +235,8 @@ import { registerBuybackDoor } from './spot/buyback-door.js';
 import { registerMarketLifecycleRoutes } from './market-lifecycle-routes.js';
 import { localTestTapeRetimeEnabled } from './spot/local-test-tape.js';
 import { registerLocalTestTapeRoutes } from './spot/local-test-tape-routes.js';
+import { testAgeDoorOpen } from '@intafaced/service-kit';
+import { ageOtcQuote, registerTestAgeDoor } from './test-age-door.js';
 import { logTrpcServerFault } from './trpc-error-log.js';
 
 registerProcessHooks(
@@ -252,6 +254,8 @@ assertNoLocalTestFixtures(process.env);
 // LOCAL TEST tape retime (chart history on a fresh stack): throws here, before any connection, if the flag is on
 // outside explicit dev/test. Off, the route does not exist.
 const localTestTapeRetime = localTestTapeRetimeEnabled(process.env);
+// The TEST age door: throws here if TEST_AGE_DOOR is on outside explicit dev/test or under NODE_ENV=production.
+const testAgeDoor = testAgeDoorOpen(process.env);
 
 const sql = postgres(env.DATABASE_URL, {
   max: env.DATABASE_POOL_MAX,
@@ -1578,6 +1582,13 @@ registerBuybackDoor(app, {
 if (localTestTapeRetime) {
   registerLocalTestTapeRoutes(app, { internalSecret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s, sql, installRawBody: false });
 }
+registerTestAgeDoor(app, {
+  open: testAgeDoor,
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
+  subjects: { 'otc-quote': ageOtcQuote(sql) },
+  installRawBody: false,
+});
 const copyLeaderFixturesStore = createCopyLeaderFixturesStore(sql);
 registerCopyLeaderFixturesRoutes(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,

@@ -4,7 +4,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { publishedLiquidationLimitsFrom } from './liquidation-limits.js';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import Fastify from 'fastify';
 import { serviceAuthHeadersForBody } from '@intafaced/contracts';
 import { parseAmount as amt } from '@intafaced/ledger-client';

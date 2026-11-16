@@ -158,7 +158,7 @@ describe('internal notes', () => {
   it('the lists above are every procedure a customer token reaches', async () => {
     const { router, customer } = await desk();
     const reachable: string[] = [];
-    for (const path of Object.keys((router as unknown as { _def: { procedures: Record<string, unknown> } })._def.procedures)) {
+    for (const path of Object.keys((router as { _def: { procedures: Record<string, unknown> } })._def.procedures)) {
       const call = (customer as unknown as Record<string, (input: unknown) => Promise<unknown>>)[path]!;
       const refused = await call({}).then(
         () => null,
