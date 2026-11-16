@@ -315,6 +315,8 @@ export interface VenueOrderPage {
 
 /** Our own record of one venue order (`UserVenueDoor.orderRecord`, J-cex-spot-06 #5 #10). */
 export interface VenueOrderRecordOfOurs {
+  /** When the venue says the order was placed; null on a venue that keeps no order history. */
+  readonly placedAt: Date | null;
   readonly amendments: readonly VenueAmendment[];
   readonly builderFee: {
     /** The rate the order was signed with, scaled bps. */
@@ -1548,7 +1550,7 @@ export class UserVenueDoor {
         published !== null && published > 0n && charged < published ? Number(((published - charged) * 10_000n) / published) : 0;
       builderFee = { chargedBps: charged, publishedBps: published, discountBps: published === null ? null : discountBps };
     }
-    return { amendments: amendTrail(rows, account, cloid), builderFee };
+    return { placedAt: placed?.placedAt ?? null, amendments: amendTrail(rows, account, cloid), builderFee };
   }
 
   private async orderState(userId: string, row: StoredVenueAction): Promise<VenueOrderByKey> {

@@ -622,6 +622,16 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   }
 
   /**
+   * TEST control: the prices a trigger order on this perpetual may be judged on (J-cex-spot-06 #6 turns them on for
+   * BTC-PERP for its file and back off after it). `[]` takes no trigger order there. A waiting trigger order stays as it is.
+   */
+  setTriggerSources(symbol: string, sources: readonly VenueTriggerSource[]): void {
+    const market = this.market(symbol);
+    if (market.kind !== 'perpetual') refuse(this.venue.id, 'not_offered', `${symbol} is cash spot: no trigger orders`);
+    this.marketsBySymbol.set(symbol, { ...market, triggerSources: [...new Set(sources)] });
+  }
+
+  /**
    * TEST control: the most leverage the venue now allows on a perpetual (bps; a deployer raising or lowering its cap).
    * A held leverage setting stays as it was; an opening order at a setting above the new cap refuses `leverage_above_cap`.
    */
