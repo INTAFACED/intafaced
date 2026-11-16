@@ -646,7 +646,6 @@ export type TradeServiceInternal = { [K in keyof TradeService]: TradeService[K] 
   finalizeIfComplete: TradeService['finalizeIfComplete'];
   publishXp: TradeService['publishXp'];
   publishOrderUpdated: TradeService['publishOrderUpdated'];
-  refuseCancelAheadOfFill: TradeService['refuseCancelAheadOfFill'];
   replayStoredAlgo: TradeService['replayStoredAlgo'];
   installAlgoPlaceGrant: TradeService['installAlgoPlaceGrant'];
   requireMarket: TradeService['requireMarket'];
@@ -1508,11 +1507,21 @@ export class TradeService {
     return holds.remainingHold(this.internal, sql, order);
   }
 
+  private async finalize(orderId: string, status: Extract<OrderStatus, 'filled' | 'rejected'>, reason?: string | null): Promise<void>;
+  private async finalize(
+    orderId: string,
+    status: Extract<OrderStatus, 'cancelled' | 'expired'>,
+    reason: string | null | undefined,
+    evidence: holds.CancelEvidence,
+  ): Promise<void>;
   private async finalize(
     orderId: string,
     status: Extract<OrderStatus, 'cancelled' | 'filled' | 'expired' | 'rejected'>,
     reason?: string | null,
+    evidence?: holds.CancelEvidence,
   ): Promise<void> {
+    if (status === 'cancelled' || status === 'expired')
+      return holds.finalize(this.internal, orderId, status, reason, evidence as holds.CancelEvidence);
     return holds.finalize(this.internal, orderId, status, reason);
   }
 
@@ -1642,10 +1651,6 @@ export class TradeService {
    */
   async releaseOnCancelEvent(orderId: string, remainingQty: string, reason?: string): Promise<void> {
     return events.releaseOnCancelEvent(this.internal, orderId, remainingQty, reason);
-  }
-
-  private async refuseCancelAheadOfFill(orderId: string, remainingQty: Amount): Promise<void> {
-    return events.refuseCancelAheadOfFill(this.internal, orderId, remainingQty);
   }
 
   // ── Reads ─────────────────────────────────────────────────────────────────

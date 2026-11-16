@@ -178,12 +178,24 @@ MESSAGE
   fi
 done < "$PUSHED"
 
+# The CI review's size rule, by the review's own diff step on local git (review-before-push.mjs --size): the bytes it
+# will count and its refusal, before the push. #8463 and #8491 were each refused for size after a whole round (15 Nov).
+if [ -f "$TOP/tooling/scripts/review-before-push.mjs" ]; then
+  while read -r _lref lsha rref _rsha; do
+    [ "$lsha" = "0000000000000000000000000000000000000000" ] && continue
+    if ! (CDPATH= cd -- "$TOP" && node tooling/scripts/review-before-push.mjs --size --head "$lsha" --branch "${rref#refs/heads/}") </dev/null; then
+      rm -f "$PUSHED"
+      exit 1
+    fi
+  done < "$PUSHED"
+fi
+
 # CI's checks (gates, build, typecheck, tests) run on GitHub, not here: on the branch before the pull request
 # (`gh workflow run ci.yml --ref <branch>`, which prints the run's URL), then on the pull request. On the Mac they took
 # 13 to 91 minutes a push under three builders and 8 of 17 tries ended for reasons outside the change; GitHub runs them
 # in 9 to 20. This hook keeps only what takes seconds: formatting of the pushed files, the agent-rule check, the
-# tooling tests that read journey files (when one is pushed), the lint ratchet on the pushed files and the refusal of
-# main. `node tooling/scripts/ci-checks.mjs` still runs CI's checks here by hand, to diagnose a red.
+# tooling tests that read journey files (when one is pushed), the lint ratchet on the pushed files, the CI review's size
+# count and the refusal of main. `node tooling/scripts/ci-checks.mjs` still runs CI's checks here by hand, to diagnose a red.
 if [ -z "${CI:-}" ] && grep -qv ' 0000000000000000000000000000000000000000 ' "$PUSHED"; then
   echo "CI's checks run on GitHub: gh workflow run ci.yml -R INTAFACED/intafaced --ref <branch>, before the pull request" >&2
 fi

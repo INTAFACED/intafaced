@@ -4,6 +4,7 @@ import { BereavementRoom } from './bereavement/BereavementRoom';
 import { ScamReportRoom } from './scam/ScamReportRoom';
 import { LostPhoneRoom } from './lost-phone/LostPhoneRoom';
 import { BusinessJoinRoom, BusinessPaymentRoom, BusinessTeamRoom } from './business-team/BusinessTeamRoom';
+import { BusinessBillRoom, BusinessBillsRoom } from './business-bills/BusinessBillsRoom';
 import { CardOrderRoom } from './CardOrder';
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
@@ -2178,6 +2179,10 @@ export function BankRoutes({ path, search, open }: { path: string; search: strin
       return <BusinessPaymentRoom search={search} />;
     case '/bank/business/join':
       return <BusinessJoinRoom />;
+    case '/bank/business/bills':
+      return <BusinessBillsRoom />;
+    case '/bank/business/bill':
+      return <BusinessBillRoom search={search} />;
     case '/bank/safety/bereavement':
       return <BereavementRoom />;
     case '/bank/recovery':

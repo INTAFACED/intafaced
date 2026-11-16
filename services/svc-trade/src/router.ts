@@ -524,6 +524,11 @@ const copyFollowInput = z.object({
   clientRequestId: z.string().min(8).max(120),
   /** Quote amount each copied order uses. Omitted means no fixed size. */
   fixedOrderSize: decimal.optional(),
+  /** How each copy is sized; multiplier is accepted and refused (owner decision). Omitted → fixed amount. */
+  sizingMode: z.enum(['fixed_amount', 'smart_sync', 'multiplier']).optional(),
+  /** Most copied into one market, and per owner day. Omitted → not set. */
+  maxPerMarket: decimal.optional(),
+  maxPerDay: decimal.optional(),
   /**
    * One of the follower's own open agent accounts: the follow then copies on the venue, each copy a venue order
    * on that account placed by its agent permission, and nothing is held from a balance of ours (venue-copy.ts).
@@ -1745,6 +1750,23 @@ export function createTradeRouter(
             return agentAccountId
               ? copy.startVenueFollow(ctx.principal, { ...rest, agentAccountId: agentAccountId.toLowerCase() })
               : copy.startFollow(ctx.principal, rest);
+          }),
+        ),
+
+      /** Edit limits on a follow (J-copy-bots-otc-02): the sizing mode is locked; a blank cap clears it. */
+      amendFollow: scopedProcedure('trade:write', { module: 'trade' })
+        .input(
+          z.object({
+            followId: z.string().min(1).max(64),
+            sizingMode: z.enum(['fixed_amount', 'smart_sync', 'multiplier']).optional(),
+            maxPerMarket: z.union([decimal, z.literal('')]).optional(),
+            maxPerDay: z.union([decimal, z.literal('')]).optional(),
+          }),
+        )
+        .mutation(({ ctx, input }) =>
+          guard(async () => {
+            if (!copy) throw new CopyError('Copy trading is unavailable', 'trade.copy_unavailable');
+            return copy.amendFollow(ctx.principal, input);
           }),
         ),
 

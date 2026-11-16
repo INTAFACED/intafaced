@@ -51,6 +51,7 @@ import { createRecoveryRouter } from './recovery/recovery.router.js';
 import { createRampsRouter } from './router/ramps.router.js';
 import { createBusinessRouter } from './router/business.router.js';
 import { createBusinessTeamRouter } from './router/business-team.router.js';
+import { createBusinessBillsRouter } from './router/business-bills.router.js';
 
 /**
  * svc-bank's API.
@@ -107,6 +108,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
   const ramps = createRampsRouter(c);
   const business = createBusinessRouter(c);
   const businessTeam = createBusinessTeamRouter(c);
+  const businessBills = createBusinessBillsRouter(c);
 
   return router({
     health: publicProcedure
@@ -358,6 +360,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     autoInvest,
     business,
     businessTeam,
+    businessBills,
     analytics,
     plans: limitsTables.plans,
     partnerHolds: limitsTables.partnerHolds,

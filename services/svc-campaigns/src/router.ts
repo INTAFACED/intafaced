@@ -63,6 +63,8 @@ import {
   drawBoardSchema,
   drawRunInputSchema,
   distributionRunInputSchema,
+  trialPassGrantInputSchema,
+  trialPassGrantSchema,
   distributionRunSchema,
   distributionsMineInputSchema,
   distributionsMineSchema,
@@ -85,6 +87,7 @@ import type { CampaignService } from './campaigns.js';
 import type { CompetitionService } from './competitions.js';
 import type { DrawService } from './draws.js';
 import type { DistributionService } from './distributions.js';
+import type { TrialPassService } from './trial-passes.js';
 import type { PoolService } from './pools.js';
 import { CampaignsError } from './codes.js';
 import type { DropService } from './drops.js';
@@ -212,6 +215,11 @@ const STATUS: Record<CampaignsRefusalCode | CampaignRefusalCode, TRPCError['code
   'campaigns.pool_day_open': 'PRECONDITION_FAILED',
   'campaigns.pool_day_unknown': 'NOT_FOUND',
   'campaigns.equity_unread': 'SERVICE_UNAVAILABLE',
+  'campaigns.trial_pass_invalid': 'BAD_REQUEST',
+  'campaigns.trial_pass_unset': 'PRECONDITION_FAILED',
+  'campaigns.not_trial_pass': 'BAD_REQUEST',
+  'campaigns.trial_pass_refused': 'PRECONDITION_FAILED',
+  'campaigns.trial_pass_unreachable': 'SERVICE_UNAVAILABLE',
   'owner.decision': 'PRECONDITION_FAILED',
   'campaigns.window_unset': 'PRECONDITION_FAILED',
   'campaigns.timezone_unset': 'BAD_REQUEST',
@@ -269,6 +277,7 @@ export function createCampaignsRouter(
   draws?: DrawService,
   distributions?: DistributionService,
   pools?: PoolService,
+  trialPasses?: TrialPassService,
 ) {
   return router({
     health: publicProcedure
@@ -740,6 +749,24 @@ export function createCampaignsRouter(
               try {
                 if (!distributions) throw new CampaignsError('campaigns.store_unwired', 'Distributions are not wired');
                 return await distributions.run(input.campaignId, { actor: ctx.principal!.userId, reason: input.reason });
+              } catch (err) {
+                mapError(err);
+              }
+            }),
+        }),
+        /**
+         * A VIP trial pass granted as a campaign's reward (J-campaigns-14 #2 #3): the live `trial_pass` campaign's tier,
+         * for its span, to one account, once per campaign and account; a later pass replaces the one in force. svc-trade
+         * holds it and charges the account's orders at its tier. The operator and their reason are audited.
+         */
+        trialPass: router({
+          grant: opsProcedure
+            .input(trialPassGrantInputSchema)
+            .output(trialPassGrantSchema)
+            .mutation(async ({ ctx, input }) => {
+              try {
+                if (!trialPasses) throw new CampaignsError('campaigns.store_unwired', 'Trial passes are not wired');
+                return await trialPasses.grant(input.campaignId, input.accountId, { actor: ctx.principal!.userId, reason: input.reason });
               } catch (err) {
                 mapError(err);
               }
