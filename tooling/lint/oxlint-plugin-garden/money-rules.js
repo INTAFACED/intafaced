@@ -96,7 +96,7 @@ const noNumberMoney = {
 const CUSTOMER = /\/apps\/customer\/src\/(.+)$/u;
 const SOURCE = /\.tsx?$/u;
 const STRICT = [
-  (rel) => /^data\//u.test(rel) && !rel.split('/').some((d) => d.startsWith('__')) && !/chart|sparkline/iu.test(rel.split('/').pop()),
+  (rel) => rel.startsWith('data/') && !rel.split('/').some((d) => d.startsWith('__')) && !/chart|sparkline/iu.test(rel.split('/').pop()),
   (rel) => /^screens\/trade\/desk\/[^/]+$/u.test(rel),
   (rel) => /^screens\/trade\/options\/[^/]+$/u.test(rel),
 ];
