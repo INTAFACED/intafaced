@@ -5,8 +5,8 @@
 // ownSpotMarket(J, prefix, tag) from apps/customer/tests/real-app/own-market.mjs.
 //
 // What is judged, in journey files (apps/customer/tests/real-app/*.pw.mjs), per step (`test(...)` callback):
-// - it reads a book: a string naming a book or resting-order route (`/book`, `/orderbook`, `/best-prices`), directly or
-//   through a function of the same file that does, or a call whose name says it (`venueBook`, `awayBid`, `bestAsk`);
+// - it reads or rests on a book: a string naming a book route (`/book`, `/orderbook`, `/best-prices`), directly or
+//   through a function of the same file that does, or a call whose name says it (`venueBook`, `awayBid`, `restingBid`, `bestAsk`);
 // - it prices or places an order: a `price` field, the ticket's 'Price' box, or a call such as `placeOrder`, `restBuy`
 //   (a step that only compares the desk's book with the venue's, as J-cex-spot-01 #5 does on the market its words name,
 //   prices nothing and is not judged);
@@ -136,8 +136,8 @@ const noSharedMarketOnBook = {
           context.report({
             node: shared ?? fn,
             message:
-              `this step reads a book on a shared market${via ? ` (through ${via}())` : ''}, which other journeys trade, so ` +
-              'what they leave resting decides what this step meets: price on a market of its own, ' +
+              `this step prices off a book on a shared market${via ? ` (through ${via}())` : ''}, which other journeys trade, so ` +
+              'what they leave resting decides what its orders meet: price on a market of its own, ' +
               "`const market = await ownSpotMarket(J, '<prefix>', '<tag>')` from ./own-market.mjs, as J-cex-spot-02 #7 does",
           });
         }
