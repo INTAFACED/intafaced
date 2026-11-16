@@ -12,6 +12,7 @@
     "garden/require-suppression-reason": "error",
     "garden/no-real-clock-wait-in-tests": "error",
     "garden/no-wait-for-timeout": "error",
+    "garden/count-zero-needs-shown": "error",
     "garden/no-promise-copy": "error",
     "garden/pay-portal-copy": "error",
     "garden/no-hand-schema": "error",
