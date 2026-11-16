@@ -811,7 +811,7 @@ export const STACK_INACTIVE_LIMIT_MS = 5 * 60_000;
 
 /** Whether `err` is the stack guard's refusal because a service is not up (`assertActiveLocalStack`), nothing else. */
 export function stackNotActive(err) {
-  return /^refusing: selected local stack is not active \(/.test(String(err?.message ?? ''));
+  return String(err?.message ?? '').startsWith('refusing: selected local stack is not active (');
 }
 
 /**

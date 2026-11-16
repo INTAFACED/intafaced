@@ -524,7 +524,7 @@ async function focusInfo(page, within) {
     const anchor = el.closest('a[href]');
     const outlineVisible =
       (cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) > 0 && !/rgba\(\s*\d+,\s*\d+,\s*\d+,\s*0\s*\)/.test(cs.outlineColor)) ||
-      (cs.boxShadow !== 'none' && !/^rgba\(0, 0, 0, 0\)/.test(cs.boxShadow));
+      (cs.boxShadow !== 'none' && !cs.boxShadow.startsWith('rgba(0, 0, 0, 0)'));
     return {
       tag: el.tagName,
       role: el.getAttribute('role') ?? '',
