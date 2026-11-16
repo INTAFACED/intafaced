@@ -43,7 +43,7 @@ const NOW = Date.parse('2026-10-15T12:00:00.000Z');
 const ME = 'TEST-me';
 const ready = <T,>(data: T): Resource<T> => ({ status: 'ready', data });
 const noop = () => undefined;
-const portal = { userId: ME } as unknown as PortalApi;
+const portal = { userId: ME } as PortalApi;
 const DEST = { railId: 'crypto-native', destinationKind: 'crypto', destinationMasked: '0x7a3f…4421' };
 const approval = (patch: Partial<Approval>): Approval => ({
   approvalId: 'cc000001-0000-4000-8000-000000000001',

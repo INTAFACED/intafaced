@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { VenueUp } from '../../features/trade/venue-api';
 import { launchStanding } from './HomeStanding';
 
-const venue = { available: true } as unknown as VenueUp;
+const venue = { available: true } as VenueUp;
 
 describe('launchStanding (J-home-ia-01 #1, J-cex-spot-01 #1)', () => {
   it('is null while the user-venue door is off', () => {
