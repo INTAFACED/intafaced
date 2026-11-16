@@ -109,7 +109,7 @@ const USED = (sql: Sql) => sql`
   ELSE COALESCE((SELECT sum(i.amount) FROM campaigns.reward_intents i
     WHERE i.campaign_id = v.campaign_id AND i.account_id = v.claimed_by
       AND left(i.period, length('voucher:' || v.id || ':')) = 'voucher:' || v.id || ':'
-      AND i.state NOT IN ('failed', 'forfeited', 'withheld')), 0) END)::text`;
+      AND i.state NOT IN ('failed', 'forfeited', 'withheld', 'cancelled')), 0) END)::text`;
 
 const SELECT_VOUCHER = (sql: Sql) => sql`
   SELECT v.id, v.campaign_id, v.code, v.code_last4, v.state, v.face_asset, v.face_amount::text AS face_amount, v.kind, v.fee_discount_bps,

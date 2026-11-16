@@ -16,6 +16,7 @@ import {
 import { earningRuleSchema } from './campaigns-earning.js';
 import { CAMPAIGN_KIND_REFUSAL_CODES, campaignKindTerms, customerKindTerms } from './campaigns-kinds.js';
 import { participationRulesSchema } from './campaigns-rules.js';
+import { RISK_REFUSAL_CODES } from './campaigns-risk.js';
 import { campaignTasksSchema } from './campaigns-tasks.js';
 import { campaignLimitsSchema, feeSaverTermsSchema, voucherWindowSchema } from './campaigns-vouchers.js';
 
@@ -140,6 +141,8 @@ export const CAMPAIGN_REFUSAL_CODES = [
   'campaigns.export_unknown',
   'campaigns.export_not_ready',
   'campaigns.export_expired',
+  // J-campaigns-18: the risk review desk.
+  ...RISK_REFUSAL_CODES,
   ...CAMPAIGN_KIND_REFUSAL_CODES,
   'owner.decision',
 ] as const;

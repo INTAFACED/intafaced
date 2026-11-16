@@ -2250,6 +2250,11 @@ const moreSections: readonly DeskSection[] = [
         why: 'Running campaigns counted from svc-campaigns: KPIs, trends, alerts, and each campaign’s participation, vouchers, redemptions, code batches and exports.',
       },
       {
+        href: '/more-ops/campaigns/risk',
+        label: 'Risk review',
+        why: 'Accounts with duplicate-account, device and anti-churn signals: held rewards, withholding, revoking and appeals decided by a second person.',
+      },
+      {
         href: '/more-ops/campaigns',
         label: 'Campaigns desk and builder',
         why: 'Every campaign in svc-campaigns, the builder, the two-founder approval and the calendar.',

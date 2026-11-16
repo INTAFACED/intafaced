@@ -20,6 +20,7 @@ import { createMarketNames } from './markets.js';
 import { ReferralService } from './referrals.js';
 import { createParticipantClient } from './participants.js';
 import { PayoutSaga } from './payouts.js';
+import { RiskService } from './risk.js';
 import { RewardPayer, rewardsPaidToWallet } from './reward-payer.js';
 import { ledgerPostingEnabled, testRewardChain } from './test-chain.js';
 import { TaskService } from './tasks.js';
@@ -73,7 +74,16 @@ const rewardCeiling = {
   perCampaign: ceilingOf(env.CAMPAIGNS_REWARD_CEILING_PER_CAMPAIGN),
   total: ceilingOf(env.CAMPAIGNS_REWARD_CEILING_TOTAL),
 };
-const saga = ledger ? new PayoutSaga({ sql, ledger, reconcileAfterSeconds, rewardCeiling }) : null;
+// The risk review (J-campaigns-18): every reward passes its account check before anything is owed or posted.
+const risk = new RiskService({
+  sql,
+  ledger,
+  participants: participantsWired ? participants : null,
+  threshold: env.CAMPAIGNS_RISK_SIGNAL_THRESHOLD ?? null,
+  appealWindowSeconds: env.CAMPAIGNS_RISK_APPEAL_WINDOW_SECONDS ?? null,
+});
+const saga = ledger ? new PayoutSaga({ sql, ledger, reconcileAfterSeconds, rewardCeiling, gate: risk }) : null;
+if (saga) risk.useSaga(saga);
 const markets = env.TRADE_URL ? createMarketNames({ tradeUrl: env.TRADE_URL }) : null;
 // The welcome deposit task's reads (J-campaigns-04 #2): the person's connected wallets and the venue's deposits.
 const venueDeposits =
@@ -210,6 +220,7 @@ const appRouter = createCampaignsRouter(
   distributions,
   pools,
   trialPasses,
+  risk,
 );
 // svc-trade's fee-saver ask (`service.feeSaver`, J-campaigns-09) is a service call: the caller is named by its own key,
 // or by the shared secret where keys are not wired.
@@ -238,6 +249,8 @@ app.get('/ready', async (_req, reply) => {
       voucherAttempts: attemptLimits ? 'set' : 'campaigns.attempt_limit_unset',
       ledger: saga ? 'set' : 'campaigns.reward_saga_unwired',
       reconciler: saga && reconcileAfterSeconds ? 'set' : 'campaigns.reconcile_unset',
+      riskThreshold: risk.threshold === null ? 'campaigns.risk_threshold_unset' : 'set',
+      appealWindow: risk.appealWindowSeconds === null ? 'campaigns.appeal_window_unset' : 'set',
       bus: bus ? 'attached' : 'unreachable',
     };
   } catch {
