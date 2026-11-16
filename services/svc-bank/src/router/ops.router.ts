@@ -28,6 +28,8 @@ import { createEarnPoolProcedure, setEarnPoolRateProcedure, setEarnPoolStatusPro
 import { publishTransferTermsProcedure } from '../transfers/transfer-terms.js';
 import { DestinationFraudList, destinationFraudListProcedure, setDestinationFraudListingProcedure } from '../ramps/fraud-list.js';
 import { rampHealthProcedure } from '../ops/ramp-health.js';
+import { rampMetricsProcedure } from '../ops/ramp-metrics.js';
+import { directDebitMandatesProcedure } from '../ops/direct-debit-mandates.js';
 import { onrampFeesNotKnownProcedure, onrampQuotesProcedure } from '../ops/onramp-quotes.js';
 import { transferHealthProcedure } from '../ops/transfer-health.js';
 import { failedTransfersProcedure } from '../ops/failed-transfers.js';
@@ -1137,6 +1139,16 @@ export function createOpsRouter(c: BankRouterContext) {
     /** J-bank-26: the card programme desk for support and finance (settings, rules, cardholders, log, roles, bulk issue). */
     ...cardProgrammeOpsProcedures(bank, guard),
     rampHealth: rampHealthProcedure(bank, guard),
+    /** J-bank-28 #3: ramp orders by state, partner health and quote expiries, as the ramp partner reports them. Read only. */
+    rampMetrics: rampMetricsProcedure(() => bank.addMoney.partner, guard),
+    /** J-bank-28 #4: the partner's direct debit mandates with state, blocks and refunds, and its failures by reason. Read only. */
+    directDebitMandates: directDebitMandatesProcedure(
+      () => ({
+        report: bank.testPartner ? () => bank.testPartner!.directDebitReport() : null,
+        details: (ids) => bank.directDebits.opsMandateDetails(ids),
+      }),
+      guard,
+    ),
     /** J-cex-spot-17 #8: the fiat buy prices customers were given, with their exact fees. Read only. */
     onrampQuotes: onrampQuotesProcedure(() => bank.transferOps.sql, guard),
     /** J-cex-spot-17 #8: the buy asks the partner's ramp gave no fee for, read as "not known". Read only. */
