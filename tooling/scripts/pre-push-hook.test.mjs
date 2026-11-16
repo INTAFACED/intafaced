@@ -2,8 +2,8 @@
 // line instead of being refused; formatting still refuses when prettier is there; a direct push to main is still refused;
 // CI's checks (tooling/scripts/ci-checks.mjs) never run here: they run on GitHub, on the branch and then on the PR. A push
 // that changes a journey file runs the marked tooling tests that read journey files, and a red one refuses it. The lint
-// ratchet (tooling/ci/lint-ratchet.mjs, a Doctrine gate) runs on the pushed files when oxlint is installed, and refuses a rise.
-// CI's other Doctrine gates (gates.mjs --before-push) run when the worktree is installed, and a red one refuses the push.
+// ratchet (tooling/ci/lint-ratchet.mjs, a Doctrine gate) runs on the pushed files and refuses a rise; CI's other Doctrine gates
+// (gates.mjs --before-push) run too, and a red one refuses the push. Without the install either refuses, naming the command.
 // Each case is a throwaway repo holding the real .githooks/pre-push, pushing to a local bare remote.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -282,12 +282,12 @@ test('a push that holds every lint rule goes through with the ratchet run', () =
   }
 });
 
-test('no oxlint in the worktree: the ratchet is skipped with one line, never refused', () => {
+test('no oxlint in the worktree: the push is refused, with how to install it, never let through unchecked', () => {
   const p = plant({ prettier: 'exit 0', base: { ...RATCHET, ...copy([]) }, change: copy(["paidOwed: 'Owed, not collected yet',"]) });
   try {
     const r = p.push();
-    assert.equal(r.code, 0, r.out);
-    assert.match(r.out, /lint-ratchet — no oxlint in this worktree; skipped/);
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, /lint-ratchet needs this worktree's oxlint — push refused\. Install it: pnpm install --frozen-lockfile/);
   } finally {
     p.done();
   }
@@ -358,12 +358,12 @@ test('green Doctrine gates let the push through; a push that only deletes a bran
   }
 });
 
-test('no node_modules in the worktree: the Doctrine gates are skipped with one line, never refused', () => {
-  const p = plant({ base: gatesStep(1) });
+test('no node_modules in the worktree: the push is refused, with how to install it, before any gate runs', () => {
+  const p = plant({ base: gatesStep(0) });
   try {
     const r = p.push();
-    assert.equal(r.code, 0, r.out);
-    assert.match(r.out, /doctrine gates — no node_modules in this worktree; skipped/);
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, /the Doctrine gates need this worktree's install — push refused\. Install it: pnpm install --frozen-lockfile/);
     assert.doesNotMatch(r.out, /gates step/);
   } finally {
     p.done();

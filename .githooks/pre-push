@@ -123,9 +123,12 @@ fi
 
 # CI's lint ratchet (a Doctrine gate), the same command on the files this push touches against origin/main, with main's
 # rules: under 2 seconds. A push that raised a rule was otherwise first seen as a red Doctrine gates job minutes after it
-# (J-campaigns-03 and J-agents-01 on 14 Nov, each a push spent on garden/no-promise-copy in a copy file). It needs this
-# worktree's oxlint; without it (before the install) it is skipped, never refused, and CI still runs it.
-if [ -x "$TOP/node_modules/.bin/oxlint" ] && [ -f "$TOP/tooling/ci/lint-ratchet.mjs" ]; then
+# (J-campaigns-03 and J-agents-01 on 14 Nov, each a push spent on garden/no-promise-copy in a copy file).
+if [ -f "$TOP/tooling/ci/lint-ratchet.mjs" ] && [ ! -x "$TOP/node_modules/.bin/oxlint" ]; then
+  echo "  ✖ lint-ratchet needs this worktree's oxlint — push refused. Install it: pnpm install --frozen-lockfile --prefer-offline" >&2
+  exit 1
+fi
+if [ -f "$TOP/tooling/ci/lint-ratchet.mjs" ]; then
   # --rules-ref: this hook runs on the Mac against origin/main; without it, under GITHUB_ACTIONS (its own tests in CI)
   # the gate fetches the repository's main, which shares no history with a test's planted repository.
   if ! (CDPATH= cd -- "$TOP" && node tooling/ci/lint-ratchet.mjs --rules-ref origin/main) </dev/null; then
@@ -138,8 +141,6 @@ if [ -x "$TOP/node_modules/.bin/oxlint" ] && [ -f "$TOP/tooling/ci/lint-ratchet.
 MSG
     exit 1
   fi
-else
-  echo "lint-ratchet — no oxlint in this worktree; skipped (pnpm install --frozen-lockfile --prefer-offline); CI checks it" >&2
 fi
 
 # CI's cross-package read scan (1.6 s on CI) when a test or what it checks changed: else a red after the push (4, 13-14 Nov).
@@ -181,7 +182,9 @@ done < "$PUSHED"
 # CI's Doctrine gates that read the pushed tree, all at once, as CI would fail them (#8616's first red, the boundary scan).
 if grep -qv ' 0000000000000000000000000000000000000000 ' "$PUSHED" && [ -f "$TOP/tooling/ci/gates.mjs" ]; then
   if [ ! -d "$TOP/node_modules" ]; then
-    echo "doctrine gates — no node_modules in this worktree; skipped (pnpm install --frozen-lockfile --prefer-offline); CI checks them" >&2
+    echo "  ✖ the Doctrine gates need this worktree's install — push refused. Install it: pnpm install --frozen-lockfile --prefer-offline" >&2
+    rm -f "$PUSHED"
+    exit 1
   elif ! (CDPATH= cd -- "$TOP" && node tooling/ci/gates.mjs --before-push) </dev/null; then
     echo "  ✖ a Doctrine gate failed — push refused. Its name, its message and why it exists are above; CI's Doctrine gates job runs it too." >&2
     rm -f "$PUSHED"
