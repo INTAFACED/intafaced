@@ -10,6 +10,7 @@ import { ModelGateway } from './gateway/gateway.js';
 import { parseOwnTemplates } from './own/catalog.js';
 import { parsePolicyBaseline } from './own/guardrails.js';
 import { parseAmount, userAvailable } from '@intafaced/ledger-client';
+import { RouteChangeStore, RouteTableSync } from './gateway/route-changes.js';
 import { DEFAULT_ROUTING_TABLE, parseRoutingTable, unpricedTable, type RoutingTable } from './gateway/routing.js';
 import { createLedgerClient } from './ledger-client.js';
 import { createAffiliateAccrueClient } from './affiliate-accrue.js';
@@ -40,6 +41,7 @@ import { tradeTickerPrices } from './portfolio-agent/trade-prices.js';
 import { createAgentsRouter, type AgentsRouter } from './router.js';
 import { parseTierLaws } from './tier-laws.js';
 import { parseReasons, purgeExpiredTranscripts } from './oplog/routes.js';
+import { evaluateAlertRules } from './alerts/routes.js';
 import { advanceBackgroundRuns } from './own/background.js';
 import { deliverTriggerEvent, tickSchedules, type AutoRunDeps } from './own/automation.js';
 import { OWN_RUN_TASK, ownGuardrail } from './own/routes.js';
@@ -128,7 +130,10 @@ function buildRoutingTable(): RoutingTable {
 
 const primaryProvider = buildPrimaryProvider();
 const providers: readonly ModelProvider[] = [primaryProvider];
-const gateway = new ModelGateway(providers, buildRoutingTable());
+// The configured table. Founders' confirmed changes to ceilings and rates are laid over it once the database is open
+// (J-agents-20); provider and model aliases are only ever this table's.
+const configuredRoutingTable = buildRoutingTable();
+const gateway = new ModelGateway(providers, configuredRoutingTable);
 
 const bus = await JetStreamEventBus.connect({
   servers: env.NATS_URL,
@@ -150,6 +155,14 @@ const ledger = createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, s
 const usagePayment = env.BANK_URL
   ? createHttpUsagePaymentPort({ bankUrl: env.BANK_URL, internalSecret: env.INTERNAL_SERVICE_SECRET, ...(s2sKey ? { s2s: s2sKey } : {}) })
   : ledgerOnlyPayment;
+
+const routeSync = new RouteTableSync(sql, gateway, configuredRoutingTable);
+await routeSync.refresh();
+routeSync.start();
+const routeChanges = {
+  sync: routeSync,
+  store: new RouteChangeStore({ sql, sync: routeSync, windowMinutes: env.AGENTS_USAGE_WINDOW_MINUTES }),
+};
 
 const meter = new UsageMeter(sql, ledger, {
   payment: usagePayment,
@@ -267,6 +280,7 @@ const ownCadence = {
 };
 
 const appRouter = createAgentsRouter({
+  routeChanges,
   runtime,
   // Parsed at boot: a malformed law stops the service here, never opens or closes a door at a call.
   tierLaws: parseTierLaws(env.AGENTS_TIER_LAWS),
@@ -408,6 +422,21 @@ sweepUnpublished();
 const unpublishedTimer = setInterval(sweepUnpublished, 60_000);
 unpublishedTimer.unref();
 
+// The agent alert evaluator (AG-analytics-02): every rule over its current and previous window, once a minute. One alert
+// per rule and window, by its unique key, so this timer, "Evaluate now" and another replica never write a second one.
+let evaluatingAlerts = false;
+const alertTimer = setInterval(() => {
+  if (evaluatingAlerts) return;
+  evaluatingAlerts = true;
+  evaluateAlertRules(sql)
+    .then(() => runtime.publishAgentAlerts())
+    .catch((err: unknown) => app.log.warn({ err }, 'agent alert rules were not evaluated'))
+    .finally(() => {
+      evaluatingAlerts = false;
+    });
+}, 60_000);
+alertTimer.unref();
+
 // Background test runs of own agents take one step per period, re-reading the agent's switches at each (AG-control-02).
 // Blank leaves the ticker off, and a new background run refuses agents.background_unset.
 if (env.AGENTS_BACKGROUND_STEP_MS) {
@@ -490,6 +519,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
     void (async () => {
       clearInterval(transcriptPurge);
       clearInterval(unpublishedTimer);
+      clearInterval(alertTimer);
       if (scheduleTimer) clearInterval(scheduleTimer);
       // Draining, not dropping: an in-flight settlement finishes before exit.
       await app.close();

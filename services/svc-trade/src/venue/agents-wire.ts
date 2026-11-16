@@ -15,6 +15,7 @@ import { createAgentKeyCallReader, createAgentKeyReader } from './agent-key-read
 import { AgentActivity, SqlAgentOrderCallStore } from './agent-order-calls.js';
 import { AgentOrders } from './agent-orders.js';
 import { SqlAllowanceStore } from './own-agent-allowance-store.js';
+import { OwnAgentRebalance, SqlRebalanceStore } from './own-agent-rebalance.js';
 import { createOwnAgentPolicy } from './own-agent-policy-client.js';
 import { OwnAgentTrading } from './own-agent-trading.js';
 import type { UserVenueDoor } from './user-venue-door.js';
@@ -87,5 +88,18 @@ export function wireVenueAgents(deps: {
         now: () => new Date(),
       })
     : null;
-  return { agentAccountStore, agentAccountValues, agentAccounts, agentOrders, agentActivity, agentDesk, ownAgentTrading };
+  // The Portfolio planner's rebalance of that sub-account (J-agents-18 #1 #2): proposed here, placed through the allowance.
+  const ownAgentRebalance = ownAgentTrading
+    ? new OwnAgentRebalance({ trading: ownAgentTrading, store: new SqlRebalanceStore(sql), now: () => new Date() })
+    : null;
+  return {
+    agentAccountStore,
+    agentAccountValues,
+    agentAccounts,
+    agentOrders,
+    agentActivity,
+    agentDesk,
+    ownAgentTrading,
+    ownAgentRebalance,
+  };
 }

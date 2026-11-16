@@ -98,6 +98,34 @@ export const CAMPAIGN_REFUSAL_CODES = [
   'campaigns.export_expired',
   'campaigns.referral_invalid',
   'campaigns.criteria_unset',
+  // J-campaigns-11: a trading competition (campaigns-competition.ts).
+  'campaigns.competition_invalid',
+  'campaigns.competition_unset',
+  'campaigns.prize_pool_short',
+  'campaigns.seats_full',
+  'campaigns.not_competition',
+  'campaigns.fills_unread',
+  // J-campaigns-12: a lucky draw (CM-promotions-events-02).
+  'campaigns.draw_invalid',
+  'campaigns.draw_unset',
+  'campaigns.not_draw',
+  // J-campaigns-13: an airdrop distribution and a reward pool paying daily.
+  'campaigns.distribution_invalid',
+  'campaigns.distribution_unset',
+  'campaigns.not_distribution',
+  'campaigns.snapshot_not_due',
+  'campaigns.pool_invalid',
+  'campaigns.pool_unset',
+  'campaigns.not_pool',
+  'campaigns.pool_day_open',
+  'campaigns.pool_day_unknown',
+  'campaigns.equity_unread',
+  // J-campaigns-14: a VIP trial pass granted as a reward.
+  'campaigns.trial_pass_invalid',
+  'campaigns.trial_pass_unset',
+  'campaigns.not_trial_pass',
+  'campaigns.trial_pass_refused',
+  'campaigns.trial_pass_unreachable',
   'owner.decision',
 ] as const;
 export type CampaignRefusalCode = (typeof CAMPAIGN_REFUSAL_CODES)[number];
@@ -539,6 +567,418 @@ export const myInviteesSchema = z.object({ invitees: z.array(myInviteeSchema).ma
 export type MyInvitees = z.infer<typeof myInviteesSchema>;
 export const myInviteesInputSchema = z.object({}).strict();
 
+// ── Trading competitions (CM-promotions-events-01, J-campaigns-11) ─────────────────────────────────────────────────
+
+/**
+ * What a competition ranks by. Only `volume` is built: ranking by returns waits for the owner (OWNER 87) and refuses
+ * activation `owner.decision`.
+ */
+export const COMPETITION_BASES = ['volume', 'returns'] as const;
+export type CompetitionBasis = (typeof COMPETITION_BASES)[number];
+
+/** One prize of the table: the place it is for, and what that place is paid from the pool. */
+export const competitionPrizeSchema = z.object({ rank: z.number().int().min(1).max(100), amount: campaignDecimal }).strict();
+/** A milestone tier: the volume that reaches it, and the prize each entrant who reaches it is queued once. */
+export const competitionMilestoneSchema = z.object({ volume: campaignDecimal, amount: campaignDecimal }).strict();
+
+/**
+ * A `competition` campaign's terms. The prize pool is the campaign's budget (its asset and limit): every prize is
+ * INTAFACED's own money, owed once and paid once to the winner's connected wallet. Volume is the notional of the venue's
+ * own fills of orders placed through INTAFACED, in `volumeAsset` (the quote asset of the markets that count), counted once
+ * per fill; a fill with no builder fee of ours (zero or below) adds nothing. `threshold` is the volume an entrant needs to
+ * rank for a place prize; `seats` how many may enter. Every value is the operator's: blank refuses activation
+ * `campaigns.competition_unset`, never a default.
+ */
+export const campaignCompetitionSchema = z
+  .object({
+    basis: z.enum(COMPETITION_BASES),
+    volumeAsset: asset.nullable(),
+    threshold: campaignDecimal.nullable(),
+    seats: z.number().int().min(1).max(100_000).nullable(),
+    prizes: z.array(competitionPrizeSchema).max(100),
+    milestones: z.array(competitionMilestoneSchema).max(10),
+  })
+  .strict();
+export type CampaignCompetition = z.infer<typeof campaignCompetitionSchema>;
+
+/** One place on the leaderboard: entrants are shown by their seat, never by who they are, and the caller is marked. */
+export const competitionStandingSchema = z
+  .object({
+    rank: z.number().int().positive(),
+    seat: z.number().int().positive(),
+    you: z.boolean(),
+    volume: campaignDecimal,
+    fills: z.number().int().min(0),
+    /** True once the volume reaches the threshold, so the place can win its prize. */
+    qualifies: z.boolean(),
+  })
+  .strict();
+
+/** A milestone as the caller sees it: reached or not, and its prize queued (owed) once when reached. */
+export const competitionMilestoneViewSchema = z
+  .object({
+    tier: z.number().int().positive(),
+    volume: campaignDecimal,
+    amount: campaignDecimal,
+    reached: z.boolean(),
+    reachedAt: iso.nullable(),
+    rewardKey: z.string().nullable(),
+  })
+  .strict();
+
+/**
+ * `competition.board`: the competition's terms, seats left, the leaderboard (volume, high to low; a tie keeps the
+ * earlier seat first, so the order never changes between reads), the caller's own entry and milestones, and the period's
+ * settlement once it closed. `asOf` is when the venue's fills were last read; `unread` names a read that failed.
+ */
+export const competitionBoardSchema = z
+  .object({
+    campaignId: id,
+    period: z.string(),
+    basis: z.enum(COMPETITION_BASES),
+    volumeAsset: asset,
+    threshold: campaignDecimal,
+    prizeAsset: asset,
+    pool: campaignDecimal,
+    prizes: z.array(competitionPrizeSchema),
+    seats: z.number().int().positive(),
+    seatsLeft: z.number().int().min(0),
+    closesAt: iso,
+    closed: z.boolean(),
+    standings: z.array(competitionStandingSchema).max(500),
+    mine: z
+      .object({ seat: z.number().int().positive(), joinedAt: iso, volume: campaignDecimal, rank: z.number().int().positive() })
+      .strict()
+      .nullable(),
+    milestones: z.array(competitionMilestoneViewSchema),
+    settlement: z
+      .object({
+        settledAt: iso,
+        winners: z.array(
+          z
+            .object({ rank: z.number().int().positive(), seat: z.number().int().positive(), you: z.boolean(), amount: campaignDecimal })
+            .strict(),
+        ),
+        /** Every prize owed from the pool: places and milestones. */
+        prizesTotal: campaignDecimal,
+        /** What is left of the pool: pool less every prize. */
+        remainder: campaignDecimal,
+      })
+      .strict()
+      .nullable(),
+    asOf: iso.nullable(),
+    unread: z.string().nullable(),
+  })
+  .strict();
+export type CompetitionBoard = z.infer<typeof competitionBoardSchema>;
+export const competitionBoardInputSchema = z.object({ campaignId: id }).strict();
+
+// ── Lucky draws (CM-promotions-events-02, J-campaigns-12) ──────────────────────────────────────────────────────────
+
+/** The user types a draw caps chances by: the verification level svc-identity reports for the account. */
+export const DRAW_USER_TYPES = ['none', 'basic', 'full', 'institutional'] as const;
+export type DrawUserType = (typeof DRAW_USER_TYPES)[number];
+
+/** The most chances one user type may hold: blank refuses activation `campaigns.draw_unset`, never a default. */
+export const drawCapSchema = z.object({ userType: z.enum(DRAW_USER_TYPES), cap: z.number().int().min(0).max(10_000).nullable() }).strict();
+
+/**
+ * A `draw` campaign's terms. Chances are earned by activity: `chancesPerFill` for each fill the venue reports of an order
+ * the entrant placed through INTAFACED after joining (our builder fee above zero), counted once per fill, up to the cap
+ * for the entrant's user type. The prize table is paid from the campaign's budget, each prize to a different entrant.
+ * Running, settling and paying a draw wait for the owner's decision on chance-based rewards (OWNER 87): until it is
+ * recorded they refuse `owner.decision`, and nothing is paid.
+ */
+export const campaignDrawSchema = z
+  .object({
+    chancesPerFill: z.number().int().min(1).max(100).nullable(),
+    caps: z.array(drawCapSchema).max(DRAW_USER_TYPES.length),
+    prizes: z.array(competitionPrizeSchema).max(100),
+  })
+  .strict();
+export type CampaignDraw = z.infer<typeof campaignDrawSchema>;
+
+/** The question a draw's run waits on, named in plain words wherever it refuses. */
+export const DRAW_OWNER_QUESTION = 'Does INTAFACED run chance-based rewards such as a lucky draw, and under what legal form?';
+
+/**
+ * `draw.board`: a draw's terms, the odds as they stand (each prize goes to one chance drawn from every chance held, one
+ * prize per entrant), the caller's own chances and the cap for their user type, and the draw's audit trail: the seed's
+ * commitment (SHA-256 of the seed, fixed before any entry) and the hash of the entry list as it stands. `running` names
+ * why the draw does not run; `revealed` and `winners` stay empty until a draw has run, which it never does while the
+ * owner decision is open.
+ */
+export const drawBoardSchema = z
+  .object({
+    campaignId: id,
+    prizeAsset: asset,
+    pool: campaignDecimal,
+    prizes: z.array(competitionPrizeSchema),
+    chancesPerFill: z.number().int().positive(),
+    caps: z.array(z.object({ userType: z.enum(DRAW_USER_TYPES), cap: z.number().int().min(0) }).strict()),
+    closesAt: iso,
+    closed: z.boolean(),
+    entrants: z.number().int().min(0),
+    totalChances: z.number().int().min(0),
+    /** SHA-256 of the seed, hex. */
+    commitment: z.string().regex(/^[0-9a-f]{64}$/),
+    /** SHA-256 of the entry list (each entrant's id hash and chances, in join order), hex. */
+    entryHash: z.string().regex(/^[0-9a-f]{64}$/),
+    mine: z
+      .object({
+        joinedAt: iso,
+        /** Null while svc-identity could not be read; chances then stay as last counted. */
+        userType: z.enum(DRAW_USER_TYPES).nullable(),
+        cap: z.number().int().min(0).nullable(),
+        chances: z.number().int().min(0),
+        fills: z.number().int().min(0),
+        /** True once the chances reached the cap: further activity adds none. */
+        capped: z.boolean(),
+      })
+      .strict()
+      .nullable(),
+    running: z.object({ code: z.literal('owner.decision'), question: z.string() }).strict(),
+    revealed: z.object({ seed: z.string(), entryHash: z.string() }).strict().nullable(),
+    winners: z.array(z.object({ rank: z.number().int().positive(), you: z.boolean(), amount: campaignDecimal }).strict()),
+    asOf: iso.nullable(),
+    unread: z.string().nullable(),
+  })
+  .strict();
+export type DrawBoard = z.infer<typeof drawBoardSchema>;
+export const drawBoardInputSchema = z.object({ campaignId: id }).strict();
+/** `ops.campaigns.draw.run` and `ops.campaigns.draw.settle`: refused `owner.decision` while the decision is open. */
+export const drawRunInputSchema = z.object({ campaignId: id, reason: z.string().trim().min(3).max(500) }).strict();
+
+// ── Airdrop distributions and dividends (CM-airdrop-campaigns-01, J-campaigns-13 #1 to #3) ─────────────────────────
+
+/** What a distribution pays out: an airdrop of INTAFACED's own pool is built; a dividend waits for the owner (OWNER 87). */
+export const DISTRIBUTION_KINDS = ['airdrop', 'dividend'] as const;
+export type DistributionKind = (typeof DISTRIBUTION_KINDS)[number];
+
+/**
+ * A `distribution` campaign's terms. The pool is the campaign's budget, INTAFACED's own money. At `snapshotAt` each
+ * account that joined by then is read once from the venue: its equity there in `equityAsset`. Each account's share is
+ * the pool times its equity over the equity of every account counted, the shares summing exactly to the pool; an
+ * account whose equity is negative is excluded, and one whose equity cannot be read is named and held out, never
+ * counted as zero. Blank fields refuse activation `campaigns.distribution_unset`; a `dividend` refuses `owner.decision`.
+ */
+export const campaignDistributionSchema = z
+  .object({
+    kind: z.enum(DISTRIBUTION_KINDS),
+    snapshotAt: iso.nullable(),
+    equityAsset: asset.nullable(),
+  })
+  .strict();
+export type CampaignDistribution = z.infer<typeof campaignDistributionSchema>;
+
+/** The question a dividend waits on, named in plain words wherever it refuses. */
+export const DIVIDEND_OWNER_QUESTION =
+  'Does INTAFACED pay dividends to holders of its token, from which revenue, and under what legal form?';
+
+/** A decimal that may be negative: a venue equity as the venue reports it. */
+const signedDecimal = z.string().regex(/^-?(0|[1-9]\d{0,19})(\.\d{1,18})?$/);
+
+/**
+ * How one account stood at a snapshot. `counted`: its equity is in the total and its share is `share` (null when it
+ * rounds to nothing). `excluded_negative`: its equity was below zero. `held_out`: its equity could not be read
+ * (`heldOut` names why); it is not in the total and is owed nothing from this run. `waiting`: the snapshot is being taken.
+ */
+export const DISTRIBUTION_STANDINGS = ['counted', 'excluded_negative', 'held_out', 'waiting'] as const;
+
+/** One distribution as the account that took part sees it, with its payout once the share is paid. */
+export const distributionRecordSchema = z
+  .object({
+    campaignId: id,
+    campaignName: z.string(),
+    kind: z.literal('airdrop'),
+    snapshotAt: iso,
+    asset,
+    pool: campaignDecimal,
+    standing: z.enum(DISTRIBUTION_STANDINGS),
+    equity: signedDecimal.nullable(),
+    equityAsset: asset,
+    equityAsOf: iso.nullable(),
+    heldOut: z.string().nullable(),
+    share: campaignDecimal.nullable(),
+    rewardKey: z.string().nullable(),
+    /** The share's reward state: owed until it is paid to the connected wallet, then `paid`. Null with no share. */
+    state: z.string().nullable(),
+    /** The chain transaction that paid the share to the connected wallet; null until paid. */
+    chainTx: z.string().nullable(),
+    toWallet: z.string().nullable(),
+  })
+  .strict();
+export type DistributionRecord = z.infer<typeof distributionRecordSchema>;
+export const distributionsMineInputSchema = z.object({ kind: z.enum(DISTRIBUTION_KINDS) }).strict();
+export const distributionsMineSchema = z.object({ records: z.array(distributionRecordSchema) }).strict();
+export type DistributionsMine = z.infer<typeof distributionsMineSchema>;
+
+/** `ops.campaigns.distribution.run`: takes the snapshot now if it is due, or resumes a run that stopped part way. */
+export const distributionRunInputSchema = z.object({ campaignId: id, reason: z.string().trim().min(3).max(500) }).strict();
+export const distributionRunSchema = z
+  .object({
+    campaignId: id,
+    snapshotAt: iso,
+    state: z.enum(['reading', 'owed']),
+    pool: campaignDecimal,
+    totalEquity: campaignDecimal.nullable(),
+    counted: z.number().int().min(0),
+    excludedNegative: z.number().int().min(0),
+    heldOut: z.number().int().min(0),
+    sharesTotal: campaignDecimal.nullable(),
+  })
+  .strict();
+export type DistributionRun = z.infer<typeof distributionRunSchema>;
+
+// ── Reward pools paying daily (CM-airdrop-campaigns-02, J-campaigns-13 #4 #5) ───────────────────────────────────────
+
+/**
+ * A `pool` campaign's terms. Its pool is the campaign's budget, INTAFACED's own money, paid out one day's slice at a
+ * time. A day is `daySeconds` long from the campaign's start (a calendar day is 86 400). When a day has ended it is
+ * settled once: each entrant's activity is the notional of the venue's fills of their orders placed through INTAFACED
+ * during that day, in `activityAsset`; an entrant whose venue equity in that asset is below `minBalance` earns nothing
+ * that day and is left out of the total. Each share is the slice times the entrant's activity over the total, up to
+ * `perUserCap`; what a cap keeps back stays in the pool. Shares plus the unspent remainder equal the slice. Every blank
+ * refuses activation `campaigns.pool_unset`.
+ */
+export const campaignPoolSchema = z
+  .object({
+    activityAsset: asset.nullable(),
+    dailySlice: campaignDecimal.nullable(),
+    perUserCap: campaignDecimal.nullable(),
+    minBalance: campaignDecimal.nullable(),
+    daySeconds: z
+      .number()
+      .int()
+      .min(60)
+      .max(31 * 86_400)
+      .nullable(),
+  })
+  .strict();
+export type CampaignPool = z.infer<typeof campaignPoolSchema>;
+
+/** One account's line of a settled day. */
+export const poolDayMineSchema = z
+  .object({
+    activity: campaignDecimal,
+    balance: signedDecimal,
+    balanceAsOf: iso,
+    /** False when the venue equity was below the minimum balance: nothing that day. */
+    eligible: z.boolean(),
+    share: campaignDecimal,
+    /** True when the per-user cap held the share back. */
+    capped: z.boolean(),
+    rewardKey: z.string().nullable(),
+    state: z.string().nullable(),
+    chainTx: z.string().nullable(),
+  })
+  .strict();
+
+export const poolDaySchema = z
+  .object({
+    day: z.number().int().positive(),
+    startsAt: iso,
+    endsAt: iso,
+    settledAt: iso.nullable(),
+    slice: campaignDecimal,
+    totalActivity: campaignDecimal.nullable(),
+    sharesTotal: campaignDecimal.nullable(),
+    remainder: campaignDecimal.nullable(),
+    mine: poolDayMineSchema.nullable(),
+  })
+  .strict();
+export type PoolDay = z.infer<typeof poolDaySchema>;
+
+/** `pool.board`: a pool's terms, each day that has started with the caller's share once settled, and today as it stands. */
+export const poolBoardSchema = z
+  .object({
+    campaignId: id,
+    asset,
+    pool: campaignDecimal,
+    activityAsset: asset,
+    dailySlice: campaignDecimal,
+    perUserCap: campaignDecimal,
+    minBalance: campaignDecimal,
+    daySeconds: z.number().int().positive(),
+    joined: z.boolean(),
+    days: z.array(poolDaySchema),
+    /** The day under way, with the caller's venue equity read now; null when none is under way or the caller has not joined. */
+    today: z
+      .object({
+        day: z.number().int().positive(),
+        endsAt: iso,
+        balance: signedDecimal.nullable(),
+        balanceAsOf: iso.nullable(),
+        /** True when the balance read is below the minimum: nothing today. Null while it could not be read. */
+        belowMinimum: z.boolean().nullable(),
+        unread: z.string().nullable(),
+      })
+      .strict()
+      .nullable(),
+  })
+  .strict();
+export type PoolBoard = z.infer<typeof poolBoardSchema>;
+export const poolBoardInputSchema = z.object({ campaignId: id }).strict();
+/** `ops.campaigns.pool.settle`: settles one ended day, once; settling it again returns the day as it was settled. */
+export const poolSettleInputSchema = z
+  .object({ campaignId: id, day: z.number().int().positive(), reason: z.string().trim().min(3).max(500) })
+  .strict();
+export const poolSettleSchema = z.object({ settled: z.boolean(), day: poolDaySchema.omit({ mine: true }) }).strict();
+
+// ── VIP trial passes (CM-vip-tiers-01, J-campaigns-14 #2 to #4) ─────────────────────────────────────────────────────
+
+/**
+ * A `trial_pass` campaign's terms: the fee tier its pass grants (a tier of the owner's tier programme on spend) and for
+ * how many seconds. A pass is granted once per campaign and person, keyed `trial-pass:<campaign>:<account>`, and held by
+ * svc-trade, which charges an order at the pass's tier while it is in force. A later pass replaces the one in force, and
+ * a pass ends once. It pays nothing, so the campaign has no budget or reward. Blank terms refuse activation
+ * `campaigns.trial_pass_unset`.
+ */
+export const campaignTrialPassSchema = z
+  .object({
+    tierId: z
+      .string()
+      .trim()
+      .regex(/^[A-Za-z0-9_.-]{1,64}$/)
+      .refine((tier) => tier !== 'regular', 'a pass grants a tier above regular')
+      .nullable(),
+    seconds: z
+      .number()
+      .int()
+      .min(60)
+      .max(366 * 86_400)
+      .nullable(),
+  })
+  .strict();
+export type CampaignTrialPass = z.infer<typeof campaignTrialPassSchema>;
+
+/** `ops.campaigns.trialPass.grant`: grants a live trial pass campaign's pass to one account, once. */
+export const trialPassGrantInputSchema = z.object({ campaignId: id, accountId: id, reason: z.string().trim().min(3).max(500) }).strict();
+
+/** A pass as svc-trade holds it. */
+export const trialPassSchema = z
+  .object({
+    passKey: z.string(),
+    campaignId: id,
+    tierId: z.string(),
+    startsAt: iso,
+    endsAt: iso,
+    grantedAt: iso,
+    endedAt: iso.nullable(),
+    endReason: z.enum(['expired', 'replaced']).nullable(),
+    replacedBy: z.string().nullable(),
+  })
+  .strict();
+export type TrialPass = z.infer<typeof trialPassSchema>;
+export const trialPassGrantSchema = z
+  .object({ pass: trialPassSchema, granted: z.boolean(), replaced: trialPassSchema.nullable() })
+  .strict();
+export type TrialPassGrant = z.infer<typeof trialPassGrantSchema>;
+
+/** The question a tier on a points basis waits on (OWNER 87), named in plain words wherever it is shown. */
+export const POINTS_TIER_OWNER_QUESTION =
+  'Should a loyalty tier be reached on points, and with which thresholds and point values? Until the owner decides, tiers are reached on spend only.';
+
 /** The full stored definition, as operators see it. */
 export const campaignSchema = z.object({
   id,
@@ -563,6 +1003,16 @@ export const campaignSchema = z.object({
   limits: z.lazy(() => campaignLimitsSchema).nullish(),
   /** A referral campaign's programme (CM-referral-02); absent or null for any other campaign. */
   referral: campaignReferralSchema.nullish(),
+  /** A competition's terms (CM-promotions-events-01); absent or null for any other campaign. */
+  competition: campaignCompetitionSchema.nullish(),
+  /** A draw's terms (CM-promotions-events-02); absent or null for any other campaign. */
+  draw: campaignDrawSchema.nullish(),
+  /** A distribution's terms (CM-airdrop-campaigns-01); absent or null for any other campaign. */
+  distribution: campaignDistributionSchema.nullish(),
+  /** A reward pool's terms (CM-airdrop-campaigns-02); absent or null for any other campaign. */
+  pool: campaignPoolSchema.nullish(),
+  /** A trial pass's terms (CM-vip-tiers-01); absent or null for any other campaign. */
+  trialPass: z.lazy(() => campaignTrialPassSchema).nullish(),
   /** A voucher campaign's claim-by and use-by times; absent or null for any other campaign. */
   vouchers: z.lazy(() => voucherWindowSchema).nullish(),
   /** Earning rules, in the order they are checked (CM-rewards-hub-05). */
@@ -627,6 +1077,16 @@ export const campaignViewSchema = z.object({
   /** Null reads "not set". */
   reward: campaignRewardSchema.nullable(),
   tasks: campaignTasksSchema.nullable(),
+  /** A competition's terms; null for any other campaign. */
+  competition: campaignCompetitionSchema.nullish(),
+  /** A draw's terms; null for any other campaign. */
+  draw: campaignDrawSchema.nullish(),
+  /** A distribution's terms; null for any other campaign. */
+  distribution: campaignDistributionSchema.nullish(),
+  /** A reward pool's terms; null for any other campaign. */
+  pool: campaignPoolSchema.nullish(),
+  /** A trial pass's terms; null for any other campaign. */
+  trialPass: z.lazy(() => campaignTrialPassSchema).nullish(),
   mine: participationSchema.nullable(),
   /** Read on a campaign's own page only; the catalogue and My campaigns leave it null. */
   eligibility: campaignEligibilitySchema.nullable(),
@@ -706,6 +1166,16 @@ export const campaignDefinitionInputSchema = z
     limits: z.lazy(() => campaignLimitsSchema).nullish(),
     /** Only for a `referral` campaign (anything else refuses `campaigns.referral_invalid`): its programme. */
     referral: campaignReferralSchema.nullish(),
+    /** Only for a `competition` campaign (anything else refuses `campaigns.competition_invalid`): its terms. */
+    competition: campaignCompetitionSchema.nullish(),
+    /** Only for a `draw` campaign (anything else refuses `campaigns.draw_invalid`): its terms. */
+    draw: campaignDrawSchema.nullish(),
+    /** Only for a `distribution` campaign (anything else refuses `campaigns.distribution_invalid`): its terms. */
+    distribution: campaignDistributionSchema.nullish(),
+    /** Only for a `pool` campaign (anything else refuses `campaigns.pool_invalid`): its terms. */
+    pool: campaignPoolSchema.nullish(),
+    /** Only for a `trial_pass` campaign (anything else refuses `campaigns.trial_pass_invalid`): its terms. */
+    trialPass: z.lazy(() => campaignTrialPassSchema).nullish(),
   })
   .strict();
 export type CampaignDefinitionInput = z.infer<typeof campaignDefinitionInputSchema>;
@@ -855,6 +1325,10 @@ export const voucherRedemptionSchema = z.object({
     reason: z.string().nullable(),
     ledgerTxId: z.string().nullable(),
     postedAt: iso.nullable(),
+    /** A USDC redemption on the launch path (J-campaigns-08 #5): when INTAFACED recorded it owed, under its ledger transaction. */
+    owed: z.object({ txId: z.string(), at: iso }).nullable().default(null),
+    /** Its one payment to the connected wallet, once paid: the chain transaction, the wallet and when. */
+    payout: z.object({ chainTx: z.string(), toWallet: z.string(), at: iso }).nullable().default(null),
   }),
 });
 export type VoucherRedemption = z.infer<typeof voucherRedemptionSchema>;

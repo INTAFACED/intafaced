@@ -1,11 +1,10 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import postgres from 'postgres';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
-import { assertTestDatabase, postgresAvailable } from '@intafaced/db';
+import { createTestDatabase, postgresAvailable, resolveTestDatabaseUrl } from '@intafaced/db';
 import { EVENT_CATALOG, MemoryEventBus } from '@intafaced/events';
 import { MemoryLedger } from '@intafaced/ledger-client';
 import { ModelGateway } from '../gateway/gateway.js';
@@ -32,7 +31,9 @@ import { OWN_RUN_TASK, ownGuardrail } from './routes.js';
  * has no further occurrence; the same event delivered twice, or again after a restart, is one run.
  */
 
-const URL = process.env.TEST_DATABASE_URL_AGENTS ?? 'postgres://svc_agents:svc_agents@localhost:5433/intafaced_test';
+// Its own database, made from the migrations (createTestDatabase): no other test file's rows can reach these tests.
+// Sharing intafaced_test let spend/store.test.ts's leftover spend limit refuse every run here (#8305, project-state #2615).
+const URL = resolveTestDatabaseUrl(undefined, 'postgres://intafaced_ops:intafaced_ops@localhost:5433/intafaced_test');
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzleDir = join(here, '..', '..', 'drizzle');
 const migrations = readdirSync(drizzleDir)
@@ -105,13 +106,8 @@ if (!available) {
     it('skipped', () => undefined);
   });
 } else {
-  const sql = postgres(URL, {
-    max: 8,
-    connection: { search_path: 'agents,public', application_name: 'svc-agents-own-automation-test' },
-    onnotice: () => undefined,
-  });
-  await assertTestDatabase(sql, 'svc-agents');
-  let lockConn: Awaited<ReturnType<typeof sql.reserve>>;
+  const db = await createTestDatabase({ service: 'agents', url: URL, migrations });
+  const sql = db.sql;
 
   function people() {
     const table = parseRoutingTable({
@@ -152,35 +148,12 @@ if (!available) {
     (await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM agents.agent_actions WHERE kind = 'completion' AND status = 'executed'`)[0]!
       .n;
 
-  beforeAll(async () => {
-    lockConn = await sql.reserve();
-    await lockConn`select pg_advisory_lock(842671)`;
-    try {
-      for (const migration of migrations) await sql.unsafe(migration);
-    } finally {
-      await lockConn`select pg_advisory_unlock(842671)`;
-    }
-  }, 120_000);
-
   beforeEach(async () => {
-    await lockConn`select pg_advisory_lock(842671)`;
-    // user_spend_limits too: another file in the same run (spend/store.test.ts) leaves a person-level limit for this
-    // USER in another asset, and a run in USDT is then rightly refused (agents.spend_limit).
-    await sql`
-      TRUNCATE agents.own_agent_trigger_deliveries, agents.own_agent_auto_runs, agents.own_agent_triggers, agents.own_agent_schedules,
-               agents.own_agent_session_versions, agents.own_agent_limits, agents.own_agents, agents.spend_reservations,
-               agents.user_spend_limits, agents.think_claims, agents.usage_records, agents.usage_windows, agents.agent_actions, agents.agent_sessions
-      RESTART IDENTITY CASCADE
-    `;
-  });
-
-  afterEach(async () => {
-    await lockConn`select pg_advisory_unlock(842671)`;
+    await db.truncateAll();
   });
 
   afterAll(async () => {
-    lockConn.release();
-    await sql.end({ timeout: 5 });
+    await db.drop();
   });
 
   describe('schedules through the service (J-agents-07 #1 #2 #4)', () => {

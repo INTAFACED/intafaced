@@ -1,3 +1,4 @@
+import { parseBankAccountTerms, type BankAccountTerms } from './onboarding/bank-account-terms.js';
 import { testPartnerCustody, testPartnerDirectDebits, testPartnerPurchases, type TestPartner } from './partner/test-partner.js';
 import type { PartnerPurchaseCustody } from './partner/partner-purchases.js';
 import {
@@ -52,6 +53,8 @@ import { RecoveryClaimService } from './recovery/recovery-claims.js';
 import { unconfiguredIdentityRecovery, type IdentityRecoveryPort } from './recovery/identity-recovery.js';
 import { BillsPotService } from './spaces/bills-pot.js';
 import { BusinessService } from './business/business-service.js';
+import { BusinessTeamService } from './business/business-team.js';
+import { BusinessBillsService } from './business/business-bills.js';
 import { BusinessLookupLimiter, unconfiguredBusinessDirectory, type BusinessDirectoryPort } from './business/business-directory.js';
 import { PortfolioService, type PortfolioServiceOptions } from './portfolio/portfolio-service.js';
 import { ActivityService, type ActivityServiceOptions } from './activity/activity-service.js';
@@ -96,6 +99,8 @@ import { emptyBillPorts, emptyGlobalPorts, type BillPorts, type GlobalPorts } fr
  */
 
 export interface BankServices {
+  /** The owner's values for onboarding, information requests and reopening a bank account (J-bank-17); null is unpublished. */
+  readonly bankAccountTerms: BankAccountTerms;
   /** The owner's notice for a blocked region (`BANK_BLOCKED_REGION_NOTICE`, BK-safe-01). No default: blank reads "not published". */
   readonly blockedRegionNotice?: string | undefined;
   /** The TEST partner bank and ramp with their switches (CUSTODY-DELTA §4), on a dev or test stack only; null elsewhere. */
@@ -169,6 +174,10 @@ export interface BankServices {
   readonly supportedAssets: { list(): Promise<SupportedAssetView[]> };
   readonly autoInvest: AutoInvestService;
   readonly business: BusinessService;
+  /** J-bank-19: the business's own roles, advisors, invites, approval rules, partner-held payments and team spend. */
+  readonly businessTeam: BusinessTeamService;
+  /** J-bank-20: the business's supplier bills: inbox, duplicates, vendors, Bill Pay limits, approvals and partner-held payments. */
+  readonly businessBills: BusinessBillsService;
   readonly bills: BillPayService;
   readonly globalSend: GlobalSendService;
   readonly globalHolds: GlobalHoldService;
@@ -285,6 +294,10 @@ export interface BankServiceOptions {
   earnRiskWording?: string | undefined;
   /** The owner's notice for a blocked region (`BANK_BLOCKED_REGION_NOTICE`, BK-safe-01). No default: blank reads "not published". */
   blockedRegionNotice?: string | undefined;
+  /** `BANK_ONBOARDING_REQUIREMENTS_JSON`, `BANK_INFO_REQUEST_UPLOAD_JSON`, `BANK_REOPEN_WINDOW_DAYS` (J-bank-17). No defaults. */
+  onboardingRequirements?: string | undefined;
+  infoRequestUpload?: string | undefined;
+  reopenWindowDays?: string | undefined;
   /** Owner-published currencies an account may hold (`BANK_ACCOUNT_CURRENCIES`). No default: blank refuses an add. */
   accountCurrencies?: string | undefined;
   /** Owner-published number of live named spaces per account (`BANK_SPACE_LIMIT`). No default: blank refuses a create. */
@@ -295,6 +308,10 @@ export interface BankServiceOptions {
   incomeSorterMinCredit?: string | undefined;
   /** Owner-set minutes a shared pot invite lasts (`BANK_SHARED_POT_INVITE_MINUTES`). No default: blank refuses sharing. */
   sharedPotInviteMinutes?: string | undefined;
+  /** Owner-set minutes a business team invite lasts (`BANK_BUSINESS_INVITE_MINUTES`). No default: blank refuses every invite. */
+  businessInviteMinutes?: string | undefined;
+  /** The bill reader (`BANK_BILL_READER`): `test-lines` on the TEST stack only. Blank: every bill field is typed by hand. */
+  billReader?: string | undefined;
   /** Owner-set people one pot may be shared with (`BANK_SHARED_POT_PEOPLE_CAP`). No default: blank refuses sharing. */
   sharedPotPeopleCap?: string | undefined;
   /**
@@ -422,6 +439,7 @@ export function createBankServices(
     securityLock: options.ramps?.securityLock,
     reviewRule: options.sendReviewRule ?? null,
     remindPolicy: options.remindPolicy ?? null,
+    custody,
   });
   const assetPauses = new AssetPauseService(sql);
   // The supply pause lives in the deposit path so auto-invest cannot go around it.
@@ -580,9 +598,16 @@ export function createBankServices(
     testPartnerDirectDebits(options.testPartner),
   );
 
+  const businessTeam = new BusinessTeamService(sql, custody, options.directory ?? unconfiguredBusinessDirectory(), {
+    inviteMinutes: () => options.businessInviteMinutes,
+    postingFreeze,
+    noteRefusal: partnerRefusals.note,
+  });
+
   const recovery = new RecoveryClaimService(sql, ledger, spaces, options.identityRecovery ?? unconfiguredIdentityRecovery());
 
   return {
+    bankAccountTerms: parseBankAccountTerms(options),
     blockedRegionNotice: options.blockedRegionNotice,
     testPartner: options.testPartner ?? null,
     taxEffects: options.taxEffects ?? null,
@@ -638,6 +663,12 @@ export function createBankServices(
     supportedAssets,
     autoInvest,
     business,
+    businessTeam,
+    businessBills: new BusinessBillsService(sql, businessTeam, {
+      reader: () => options.billReader,
+      postingFreeze,
+      noteRefusal: partnerRefusals.note,
+    }),
     bills,
     globalSend,
     globalHolds,

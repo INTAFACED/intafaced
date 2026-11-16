@@ -9,6 +9,7 @@ import { requireScope, type Principal } from '@intafaced/auth';
 import { TradeError, type OrderRecord } from './types.js';
 import { TradeService } from './trade-service.js';
 import type { MatchingClient } from './matching-client.js';
+import type { CancelEvidence } from './trade-service/holds.js';
 
 export const OCO_SIBLING_TERMINAL = 'oco_sibling_terminal' as const;
 
@@ -48,7 +49,7 @@ export function installOcoCancel(ctor: typeof TradeService): void {
     const host = this as unknown as {
       matching: MatchingClient;
       findOrder: (id: string) => Promise<OrderRecord | null>;
-      finalize: (orderId: string, status: 'cancelled' | 'filled' | 'expired' | 'rejected') => Promise<void>;
+      finalize: (orderId: string, status: 'cancelled', reason: undefined, evidence: CancelEvidence) => Promise<void>;
       sql: Sql;
       recordOcoLegEnd: (legId: string, remainingQty: string, reason?: string | null) => Promise<void>;
       ocoExecutionSettled: (parentId: string, opts?: { requireBothLegs?: boolean }) => Promise<boolean>;
@@ -105,7 +106,7 @@ export function installOcoCancel(ctor: typeof TradeService): void {
         if (!(await host.ocoExecutionSettled(orderId, { requireBothLegs: false }))) {
           throw new TradeError('an OCO leg filled while cancelling; retry', 'trade.matching_unavailable');
         }
-        await host.finalize(orderId, 'cancelled');
+        await host.finalize(orderId, 'cancelled', undefined, { noEngineFill: 'oco_legs_settled' });
         const settled = await host.findOrder(orderId);
         if (!settled) throw new TradeError(`order ${orderId} vanished during OCO cancel`, 'trade.order_not_found');
         return settled;

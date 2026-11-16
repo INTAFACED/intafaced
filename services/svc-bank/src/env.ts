@@ -601,6 +601,27 @@ const schema = serviceEnvSchema
       BANK_BLOCKED_REGION_NOTICE: z.string().optional(),
 
       /**
+       * The owner's own requirements for holding a bank account, shown beside the partner's in onboarding (BK-acct-05,
+       * J-bank-17 #1), as a JSON array of plain sentences. NO DEFAULT. Blank / unset / not in shape → onboarding shows the
+       * partner's steps and requirements and names the owner's as not published (`bank.onboarding_requirements_unset`).
+       */
+      BANK_ONBOARDING_REQUIREMENTS_JSON: z.string().optional(),
+
+      /**
+       * The owner's size cap and file types for an answer to the partner's information request (BK-acct-05, J-bank-17 #2):
+       * `{ "allowedTypes": ["application/pdf"], "maxBytes": n }`. NO DEFAULT. Blank / unset / not in shape → an answer
+       * refuses `bank.info_request_upload_unset` and nothing is sent to the partner.
+       */
+      BANK_INFO_REQUEST_UPLOAD_JSON: z.string().optional(),
+
+      /**
+       * The owner's window, in whole days after a bank account closed, in which it may be reopened (BK-acct-06, J-bank-17
+       * #6). NO DEFAULT. Blank / unset / not a whole number of days from 1 to 3650 → reopening refuses
+       * `bank.reopen_window_unset`.
+       */
+      BANK_REOPEN_WINDOW_DAYS: z.string().optional(),
+
+      /**
        * Owner-published currencies an account may hold, comma separated asset ids ("USDT,USDC,BTC"). NO DEFAULT. Blank /
        * unset → adding a currency refuses `bank.account_currencies_unset`; an asset not on the list refuses
        * `bank.asset_unknown`. Removing a currency needs no list.
@@ -633,6 +654,20 @@ const schema = serviceEnvSchema
        * number → inviting someone to a pot, and accepting an invite, refuse `bank.joint_unset`. Boot stays up.
        */
       BANK_SHARED_POT_INVITE_MINUTES: z.string().optional(),
+
+      /**
+       * Owner-set minutes a business team invite stays open (J-bank-19 #3), 1 to 43200. NO DEFAULT. Blank / unset / not a
+       * whole number → every team invite refuses `bank.business_invite_lifetime_unset`. Boot stays up.
+       */
+      BANK_BUSINESS_INVITE_MINUTES: z.string().optional(),
+
+      /**
+       * Who reads an uploaded business bill (J-bank-20 #1). `off` | `test-lines`. NO ENGINE IS CHOSEN. `off`: every field
+       * is typed by hand. `test-lines` is a TEST stand-in that reads a TEST bill's labelled lines, shown as "Preview · sample
+       * data"; it is read only where the TEST partner bank runs (BANK_TEST_PARTNER=test, dev or test stacks), and ignored
+       * everywhere else.
+       */
+      BANK_BILL_READER: z.enum(['off', 'test-lines']).default('off'),
 
       /**
        * Owner-set number of people one pot may be shared with, open invites included (BK-acct-09), 1 to 50. NO DEFAULT.

@@ -6,6 +6,7 @@ import { installNativeQtyUpAmend } from './qty-up-amend.js';
 import type { EngineAmendRequest, EngineCancellation, EngineFill, EngineSubmitRequest, MatchingClient } from './matching-client.js';
 import type { Market } from './types.js';
 import { carriedPlacementBody } from './placement-extras.js';
+import type { CancelEvidence } from './trade-service/holds.js';
 
 /**
  * Place an option through the matching door that landed in #3484.
@@ -214,7 +215,12 @@ export function installOptionPlace(ctor: typeof TradeService): void {
     placeOrder: (principal: Principal, input: PlaceOrderInput) => Promise<{ id: string; status: string }>;
     toEngineRequest: (...args: unknown[]) => EngineSubmitRequest;
     settleOutcome: (market: Market, fills: readonly EngineFill[], cancellations: readonly EngineCancellation[]) => Promise<void>;
-    finalize: (orderId: string, status: 'cancelled' | 'filled' | 'expired' | 'rejected', reason?: string | null) => Promise<void>;
+    finalize: (
+      orderId: string,
+      status: 'cancelled' | 'expired',
+      reason: string | null | undefined,
+      evidence: CancelEvidence,
+    ) => Promise<void>;
     [FLAG]?: true;
   };
   if (proto[FLAG]) return;
@@ -355,7 +361,13 @@ export function installOptionPlace(ctor: typeof TradeService): void {
     }
     await origSettle.call(this, market, fills, rest);
     for (const c of expired) {
-      await proto.finalize.call(this, c.orderId, 'expired', c.reason);
+      // The engine's remainder says how much it executed first (#8560): an order another submission partly matched
+      // may still have that fill on its way, and `finalize` then refuses; the engine's cancel event closes it later.
+      try {
+        await proto.finalize.call(this, c.orderId, 'expired', c.reason, { engineLeftQty: parseAmount(c.remainingQty) });
+      } catch (err) {
+        if (!(err instanceof TradeError && err.code === 'trade.cancel_ahead_of_fill')) throw err;
+      }
     }
   };
 }

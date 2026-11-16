@@ -268,6 +268,12 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     // pot may be shared with. Unset, inviting and accepting refuse bank.joint_unset and no pot is shared.
     BANK_SHARED_POT_INVITE_MINUTES: testValue('BANK_SHARED_POT_INVITE_MINUTES'),
     BANK_SHARED_POT_PEOPLE_CAP: testValue('BANK_SHARED_POT_PEOPLE_CAP'),
+    // LOCAL TEST value from the bank profile (J-bank-19 #3): how long a business team invite stays open. Unset, every team
+    // invite refuses bank.business_invite_lifetime_unset.
+    BANK_BUSINESS_INVITE_MINUTES: testValue('BANK_BUSINESS_INVITE_MINUTES'),
+    // LOCAL TEST value from the bank profile (J-bank-20 #1): the TEST bill reader, which reads a TEST bill's labelled lines
+    // and is shown as "Preview · sample data". It runs only beside the TEST partner bank; unset, every field is typed by hand.
+    BANK_BILL_READER: testValue('BANK_BILL_READER'),
     BANK_ACCOUNT_DETAILS_CURRENCIES: 'EUR,GBP,USD',
     // LOCAL TEST values, not owner decisions: how many withdrawal addresses one person may save, and how long a
     // new one waits before money may leave to it. Unset, the address book refuses saves and lists every row as
@@ -288,6 +294,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     BANK_CARD_CASHBACK_RATES_JSON: testValue('BANK_CARD_CASHBACK_RATES_JSON'),
     BANK_PLANS_JSON: testValue('BANK_PLANS_JSON'),
     BANK_DORMANCY_RULES_JSON: testValue('BANK_DORMANCY_RULES_JSON'),
+    // LOCAL TEST bank account values (J-bank-17): the owner's onboarding requirements, an answer's size cap, the reopen window.
+    BANK_ONBOARDING_REQUIREMENTS_JSON: testValue('BANK_ONBOARDING_REQUIREMENTS_JSON'),
+    BANK_INFO_REQUEST_UPLOAD_JSON: testValue('BANK_INFO_REQUEST_UPLOAD_JSON'),
+    BANK_REOPEN_WINDOW_DAYS: testValue('BANK_REOPEN_WINDOW_DAYS'),
     BANK_CARD_SIM_CASHBACK: 'test',
     ...addressBookCap(),
     ...offrampCooling(),

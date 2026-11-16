@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { ExtraControlsPort } from '../safety/extra-controls.js';
 import { TRPCError } from '@intafaced/contracts';
 import type { ActionApprovalConsumer } from '../action-approval-consume.js';
 import { BankError } from '../errors.js';
@@ -316,6 +317,8 @@ export type BankRouterOptions = {
    * `stepUpApprovalId` (a same-person identity approval).
    */
   stepUp?: StepUpGate;
+  /** The person's own step-up extras (BK-safe-01), read per send to another person. Omitted: no extras are checked (router tests). */
+  extraControls?: ExtraControlsPort;
   /** BK-loan-09: owner-published missed-payment policy. Omitted: `loans.missedPaymentPolicy` reads `not_set`. */
   loanMissedPaymentPolicy?: LoanMissedPaymentPolicy | null;
 };

@@ -24,6 +24,10 @@
  *   POST /api/v1/venue/route-preview { owner, intent }       the venue chosen for the order, and why (#2, #4)
  *   GET  /api/v1/venue/orders?owner=&cursor=&limit=      this person's orders on the account, oldest first, a page at a time
  *   GET  /api/v1/venue/orders/by-key?idempotencyKey=|actionKey=   one order by its key: accepted, unknown, refused, not_sent
+ *   GET  /api/v1/venue/orders/history?owner=&side=&status=&symbol=&from=&to=&limit=&before=   the account's orders as the
+ *                                                      venue keeps them, newest first, a page at a time (J-cex-spot-06 #1)
+ *   GET  /api/v1/venue/orders/record?owner=&clientOrderId=   our record of one order: the amendments the venue accepted
+ *                                                      (#10) and our builder fee on it with any discount (#5)
  *   GET  /api/v1/venue/session?owner=0x…               this sign-in's trading session, read against the venue's agents
  *   POST /api/v1/venue/session/start { owner, agentAddress }   the owner's one approval for a fresh session key (prepared)
  *   POST /api/v1/venue/session/end   { owner }                 the owner's revoke of this sign-in's session key (prepared)
@@ -583,6 +587,26 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     const principal = await admit(req, reply, 'trade:read');
     if (!principal) return;
     return answer(reply, async (d) => d.orders(principal, req.query.owner ?? '', req.query.cursor, req.query.limit), req.query.venueId);
+  });
+
+  // J-cex-spot-06 #1 #7: the account's order history as the venue keeps it, filtered and paged; #10: our record of one order.
+  app.get<{ Querystring: Query & Record<string, string | undefined> }>('/api/v1/venue/orders/history', privateRead, async (req, reply) => {
+    if (!(await admit(req, reply, 'trade:read'))) return;
+    return answer(
+      reply,
+      async (d) => d.orderHistory(await d.account(req.query.owner ?? '', req.query.subAccount ?? null), req.query),
+      req.query.venueId,
+    );
+  });
+  app.get<{ Querystring: Query }>('/api/v1/venue/orders/record', privateRead, async (req, reply) => {
+    const principal = await admit(req, reply, 'trade:read');
+    if (!principal) return;
+    return answer(
+      reply,
+      async (d) =>
+        d.orderRecord(principal, await d.account(req.query.owner ?? '', req.query.subAccount ?? null), req.query.clientOrderId ?? ''),
+      req.query.venueId,
+    );
   });
 
   // Read on the venue the order was prepared for (venue-router.ts doorOfAction).

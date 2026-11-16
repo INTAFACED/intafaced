@@ -6,7 +6,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { CHAIN_ID, TOKEN_USD, connectWallet, fundOnTestChain, testChain } from './dex.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
-import { api } from './stack.mjs';
+import { api, STACK_PORTS } from './stack.mjs';
 import { installTestWallet, testWalletKey } from './test-wallet.mjs';
 import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
 
@@ -176,7 +176,7 @@ const REPO = fileURLToPath(new URL('../../../../', import.meta.url));
 async function purchaseRows(courseId) {
   const { ctx } = await founders();
   const postgres = createRequire(nodePath.join(REPO, 'services', 'svc-academy', 'package.json'))('postgres');
-  const port = ctx.marker.ports.postgres ?? 15460;
+  const port = ctx.marker.ports.postgres ?? STACK_PORTS.postgres;
   const sql = postgres(`postgres://svc_academy:${encodeURIComponent(ctx.secrets.pgService)}@127.0.0.1:${port}/intafaced_local_test`, {
     max: 1,
     onnotice: () => {},
@@ -398,13 +398,18 @@ test(`${J} #5 a second Buy or a lost reply is still one purchase and no second s
   const { panel, wallet } = await openCourse(page, slug);
 
   // The answer to Buy is lost after Academy stored the purchase: the wallet is not asked, and a reload shows the stored one.
+  // A lost reply counts only once its abort has landed: unrouting a handler still between fetch and abort makes Playwright
+  // continue that request itself, and the abort then throws "Route is already handled" (#8497).
+  let lost = 0;
   await page.route('**/api/academy/trpc/buyCourse**', async (route) => {
     await route.fetch();
     await route.abort('connectionreset');
+    lost += 1;
   });
   await panel.getByRole('button', { name: 'Buy', exact: true }).click();
   // The screen re-reads the stored purchase by itself: the one intent, waiting on a signature it will not ask for again.
   await expect(panel.getByTestId('academy-purchase-state')).toHaveAttribute('data-state', 'awaiting_signature', { timeout: 20_000 });
+  await expect.poll(() => lost).toBe(1);
   await page.unroute('**/api/academy/trpc/buyCourse**');
   expect(transferSends(wallet)).toHaveLength(0);
   await expect(signSheet(page)).toHaveCount(0);
@@ -424,9 +429,9 @@ test(`${J} #5 a second Buy or a lost reply is still one purchase and no second s
   // The answer to the payment report is lost after Academy stored it: the screen re-reads, and the payment is settled once.
   let reported = 0;
   await page.route('**/api/academy/trpc/submitCoursePayment**', async (route) => {
-    reported += 1;
     await route.fetch();
     await route.abort('connectionreset');
+    reported += 1;
   });
   await panel.getByRole('button', { name: 'Buy', exact: true }).dblclick();
   await expect(signSheet(page)).toHaveCount(1);

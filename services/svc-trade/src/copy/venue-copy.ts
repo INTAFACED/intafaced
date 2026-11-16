@@ -394,11 +394,16 @@ export class VenueCopy {
     const b = await this.bound(followId);
     if (!b) return null;
     const out = [];
-    for (const m of [...(await this.deps.placedMirrors(followId))].reverse()) {
+    const mirrors = [...(await this.deps.placedMirrors(followId))].reverse();
+    // The sub-account's fills since the first copy, read once: each copy's own fills are the ones under its client order id.
+    const first = mirrors.at(-1)?.placedAt ?? null;
+    const fills = first ? await b.venue.fills(b.sub, new Date(first.getTime() - 60_000)) : null;
+    for (const m of mirrors) {
       const row = await this.deps.actions.find(followerId, m.orderKey);
       const cloid = row?.prepared.venueClientOrderId ?? null;
       const order = cloid ? (await b.venue.orderByClientId(b.sub, cloid)).value : null;
       const intent = row?.prepared.intent.kind === 'place_order' ? row.prepared.intent : null;
+      const own = cloid && fills ? fills.value.filter((f) => f.venueClientOrderId === cloid) : [];
       out.push({
         orderId: m.orderKey,
         market: m.symbol,
@@ -408,6 +413,22 @@ export class VenueCopy {
         price: formatAmount(order?.price ?? intent?.price ?? 0n),
         status: order?.status ?? (row?.signature ? 'unknown' : 'pending'),
         placedAt: m.placedAt.toISOString(),
+        venue: {
+          venueName: b.venue.venue.displayName,
+          test: isTestVenue(b.venue.venue),
+          asOf: (fills?.asOf ?? new Date()).toISOString(),
+          // Who signed the copy: the agent permission on the follower's sub-account, never the person's wallet.
+          placedBy: (row?.signature?.signedBy ?? row?.prepared.signer.address ?? b.account.agentAddress).toLowerCase(),
+          fills: own.map((f) => ({
+            fillId: f.fillId,
+            amount: formatAmount(f.amount),
+            price: formatAmount(f.price),
+            venueFee: formatAmount(f.venueFee),
+            builderFee: formatAmount(f.builderFee),
+            feeAsset: f.feeAsset,
+            filledAt: f.filledAt.toISOString(),
+          })),
+        },
       });
     }
     return out;

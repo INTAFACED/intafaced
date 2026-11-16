@@ -7,7 +7,7 @@ import { test, expect } from './journey.mjs';
 import { CHAIN_ID, TOKEN_A, TOKEN_B, UNBUILT, connectWallet, dexRun, fundOnTestChain, testChain } from './dex.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
-import { api, journeyState, ROOT, tool } from './stack.mjs';
+import { api, journeyState, ROOT, stackUrl, tool } from './stack.mjs';
 import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs';
 
 // J-dex-protocol-05, in the running app (docs/roadmap/journeys.json): move value between a trading venue, the wallet and
@@ -54,7 +54,7 @@ const TEST_USD = '0x000000000000000000000000000000000000d011';
 const MINIMUM = '5';
 const CONFIRMATIONS = 3;
 /** The TEST venue's own TEST controls (packages/venue-sim src/http-server.ts), on the stack's loopback port. */
-const TEST_VENUE = 'http://127.0.0.1:14560';
+const TEST_VENUE = stackUrl('test-venue');
 /** The TEST chain's explorer, as the TEST venue links a deposit (tooling/scripts/local-test-venue.mjs). */
 const EXPLORER = '/chain/tx/';
 /** The trading venue's calls and public balances (services/svc-protocol/contracts/venue/SovereignVenue.sol). */
@@ -267,16 +267,23 @@ async function openVenue(page, who, privateKey, { beforeVenue = null } = {}) {
   return wallet;
 }
 
-/** After a reload: the browser wallet may come back by itself (it is still authorised); otherwise it is connected again. */
+/**
+ * After a reload: the browser wallet may come back by itself (it is still authorised); otherwise it is connected again.
+ * The room shows "Connect <wallet>" until the wallet's own restore lands, which can be just after the button appears: a
+ * click on it then waits for a button that is gone (failure it prevents: run 43793401437, #2 timed out on that click with
+ * the wallet already back and the room on "Connection expired"). So it presses only while the button is there, and
+ * passes only once the room shows the wallet back.
+ */
 async function walletBack(page) {
   const again = page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` });
-  await expect(
-    page
-      .getByRole('heading', { name: 'Connected' })
-      .or(page.getByRole('heading', { name: 'Connection expired' }))
-      .or(again),
-  ).toBeVisible();
-  if (await again.isVisible()) await again.click();
+  const back = page
+    .getByRole('heading', { name: 'Connected' })
+    .or(page.getByRole('heading', { name: 'Connection expired' }))
+    .or(page.getByRole('button', { name: 'Connect to my account' }));
+  await expect(async () => {
+    if (!(await back.isVisible()) && (await again.isVisible())) await again.click({ timeout: 2_000 }).catch(() => {});
+    await expect(back).toBeVisible({ timeout: 3_000 });
+  }).toPass({ timeout: 60_000 });
 }
 
 /** The venue's free TEST USDC for this wallet, read through the door: a whole number of TEST USDC in this journey. */

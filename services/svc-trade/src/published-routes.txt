@@ -102,9 +102,12 @@ GET /api/v1/venue/markets/:symbol/venues private trade:read
 GET /api/v1/venue/orders private trade:read
 GET /api/v1/venue/orders/by-client-id private trade:read
 GET /api/v1/venue/orders/by-key private trade:read
+GET /api/v1/venue/orders/history private trade:read
 GET /api/v1/venue/orders/open private trade:read
+GET /api/v1/venue/orders/record private trade:read
 GET /api/v1/venue/own-agents/:agentId/allowances private trade:read
 GET /api/v1/venue/own-agents/:agentId/orders private trade:read
+GET /api/v1/venue/own-agents/:agentId/rebalances private trade:read
 GET /api/v1/venue/positions private trade:read
 GET /api/v1/venue/protection-agent private trade:read
 GET /api/v1/venue/protections private trade:read
@@ -184,6 +187,9 @@ POST /api/v1/venue/own-agents/:agentId/allowances/:id/revoke private trade:write
 POST /api/v1/venue/own-agents/:agentId/allowances/:id/submit private trade:write
 POST /api/v1/venue/own-agents/:agentId/orders private trade:write
 POST /api/v1/venue/own-agents/:agentId/orders/preview private trade:write
+POST /api/v1/venue/own-agents/:agentId/rebalances private trade:write
+POST /api/v1/venue/own-agents/:agentId/rebalances/:id/approve private trade:write
+POST /api/v1/venue/own-agents/:agentId/rebalances/:id/reject private trade:write
 POST /api/v1/venue/prepare private trade:write
 POST /api/v1/venue/preview private trade:write
 POST /api/v1/venue/protection-agent/prepare private trade:write

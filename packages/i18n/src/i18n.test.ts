@@ -113,7 +113,8 @@ describe('catalog — the key set is closed and complete', () => {
     // A research answer refused for no source or no published uncertainty scale (J-agents-10 #4) adds two refusal keys.
     // A paper strategy fill under the person's own fill alert (J-algo-dev-04 #6) adds a title and a body key.
     // The agent dashboard's range refusals, a blank From, a blank To or not a range of days (J-agents-13 #1), add three refusal keys.
-    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(334);
+    // An operator's agent alert in the inbox (J-agents-16 #3) adds a title and a body key.
+    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(336);
 
     for (const surface of ['common.', 'auth.', 'trade.', 'wallet.', 'p2p.', 'notify.', 'error.', 'support.', 'agents.', 'admin.']) {
       expect(

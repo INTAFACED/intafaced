@@ -38,6 +38,8 @@ const en = {
   redeemNote: 'A redemption is paid to your account from the reward pot; it shows in My rewards too.',
   redemptions: 'Redemptions',
   redemption: '{amount} {asset}: {state}',
+  paidTo: 'to {wallet}',
+  chainTx: 'chain transaction {tx}',
   state_generated: 'Not published',
   state_published: 'Not claimed',
   state_active: 'Active',

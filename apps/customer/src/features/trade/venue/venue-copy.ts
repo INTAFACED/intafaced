@@ -60,6 +60,8 @@ export const venueCopy = defineCopy('trade.venue', {
   'Fee asset': 'Fee asset',
   'Realised result': 'Realised result',
   Cancel: 'Cancel',
+  Edit: 'Edit',
+  'Edit order': 'Edit order {id}',
   'Cancel again': 'Cancel again',
   'No open orders': 'No open orders on the venue.',
   'No fills': 'No fills on the venue.',

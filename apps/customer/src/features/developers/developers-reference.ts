@@ -996,6 +996,22 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     summary: 'One venue order by its client order id: how an answer that was not definite is read back',
   },
   {
+    name: 'venueOrderHistory',
+    method: 'GET',
+    path: '/api/v1/venue/orders/history',
+    product: 'accounts',
+    access: 'private',
+    summary: 'Your venue order history as the venue keeps it, filtered by side, state, market and time placed, a page at a time',
+  },
+  {
+    name: 'venueOrderRecord',
+    method: 'GET',
+    path: '/api/v1/venue/orders/record',
+    product: 'accounts',
+    access: 'private',
+    summary: 'Our record of one venue order: when it was placed, each accepted amendment, and the builder fee it was signed with',
+  },
+  {
     name: 'venueFills',
     method: 'GET',
     path: '/api/v1/venue/fills',
@@ -1337,7 +1353,7 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     product: 'accounts',
     access: 'private',
     summary:
-      'Start a saved order-block strategy live on one of your own venue sub-accounts; a blank restart-attempt, state-on-restart or cap setting is refused with the field named, and the answer is the agent permission for your wallet to sign',
+      'Start a saved order-block strategy live on one of your own venue sub-accounts, from a signed-in session only (an API key answers 404 quant.key_no_such_endpoint: there is no deploy by key); a blank restart-attempt, state-on-restart or cap setting is refused with the field named, and the answer is the agent permission for your wallet to sign',
   },
   {
     name: 'liveRun',
@@ -1415,6 +1431,41 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     product: 'accounts',
     access: 'private',
     summary: 'Your own agent’s orders, each read back from the venue by its client order id',
+  },
+  {
+    name: 'ownAgentRebalances',
+    method: 'GET',
+    path: '/api/v1/venue/own-agents/:agentId/rebalances',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      'The Portfolio planner’s rebalance proposals for your own agent’s sub-account, newest first: holdings as the venue reports them, each order, and whether you approved or rejected it',
+  },
+  {
+    name: 'ownAgentRebalancePropose',
+    method: 'POST',
+    path: '/api/v1/venue/own-agents/:agentId/rebalances',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      'Ask the Portfolio planner for a rebalance to your targets (proposalId and each asset’s percent): the market orders it proposes, and nothing is sent; a blank target is refused naming the asset',
+  },
+  {
+    name: 'ownAgentRebalanceApprove',
+    method: 'POST',
+    path: '/api/v1/venue/own-agents/:agentId/rebalances/:id/approve',
+    product: 'accounts',
+    access: 'private',
+    summary:
+      'Approve a proposal: refused whole when its orders need more than the allowance has left; otherwise each order is placed by the agent permission, once, and approving again reads the same orders back',
+  },
+  {
+    name: 'ownAgentRebalanceReject',
+    method: 'POST',
+    path: '/api/v1/venue/own-agents/:agentId/rebalances/:id/reject',
+    product: 'accounts',
+    access: 'private',
+    summary: 'Reject a proposal: nothing is sent, nothing changes, and it is never approved',
   },
   {
     name: 'venueOrders',
