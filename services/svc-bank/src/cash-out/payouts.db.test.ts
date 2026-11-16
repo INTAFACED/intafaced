@@ -634,6 +634,14 @@ describe('cash out that pays out, with the TEST payout stand-in (J-bank-03 #4/#5
         if ('err' in answer) throw answer.err;
         return answer.move;
       };
+      // Each session lock's connection, as the lock helper reserves it.
+      const realReserve = sql.reserve.bind(sql);
+      const reserved: Array<Awaited<ReturnType<typeof realReserve>>> = [];
+      (sql as { reserve: typeof realReserve }).reserve = async () => {
+        const r = await realReserve();
+        reserved.push(r);
+        return r;
+      };
       const requestId = randomUUID();
       const ask = { requestId, assetId: 'USDT', amount: '20', linkedAccountId: id };
       // Driver A: the partner refuses its move for funds; the answer is on its way back.
@@ -642,13 +650,10 @@ describe('cash out that pays out, with the TEST payout stand-in (J-bank-03 #4/#5
         (err: unknown) => ({ err }),
       );
       await gates[0]!.reached;
-      // A's lock connection drops: Postgres frees the lock.
-      const dropped = await sql<Array<{ ok: boolean }>>`
-        SELECT pg_terminate_backend(l.pid) AS ok FROM pg_locks l
-         WHERE l.locktype = 'advisory' AND l.granted AND l.pid <> pg_backend_pid()
-           AND l.database = (SELECT oid FROM pg_database WHERE datname = current_database())
-      `;
-      expect(dropped.length).toBeGreaterThan(0);
+      // A's lock connection drops: Postgres frees the lock, and A's body carries on. (Freed here on that same idle
+      // connection, which is what Postgres does for a dropped one; really ending it also breaks the driver's later unlock.)
+      expect(reserved).toHaveLength(1);
+      await reserved[0]!`SELECT pg_advisory_unlock_all()`;
       // The money arrives, and a replay of the same request drives it: its move under the same key is made.
       partner.fund(ADA, { fundId: 'cash-out-partner-fund-ada-3', assetId: 'USDT', amount: parseAmount('20') });
       const second = svc.cashOut.start(ADA, ask).then(
@@ -662,6 +667,7 @@ describe('cash out that pays out, with the TEST payout stand-in (J-bank-03 #4/#5
       gates[1]!.open();
       await second;
       (partner.bank as { move: typeof realMove }).move = realMove;
+      (sql as { reserve: typeof realReserve }).reserve = realReserve;
       const [row] = await sql<Array<{ status: string; partner_move_id: string | null }>>`
         SELECT status, partner_move_id FROM bank.cash_out_requests WHERE id = ${requestId}::uuid
       `;
