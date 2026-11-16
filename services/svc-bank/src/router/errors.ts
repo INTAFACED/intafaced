@@ -283,6 +283,11 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.payroll_wallet_missing': 'PRECONDITION_FAILED',
   'bank.contractor_wallet_missing': 'PRECONDITION_FAILED',
   'bank.payroll_signature_invalid': 'BAD_REQUEST',
+  'bank.business_card_field_invalid': 'BAD_REQUEST',
+  'bank.business_card_not_found': 'NOT_FOUND',
+  'bank.business_card_frozen': 'PRECONDITION_FAILED',
+  'bank.receipt_invalid': 'BAD_REQUEST',
+  'bank.reimbursement_not_found': 'NOT_FOUND',
   'bank.business_rejected': 'CONFLICT',
   'bank.business_cancelled': 'CONFLICT',
   // CONFLICT rather than BAD_REQUEST: the request is well-formed, it just
