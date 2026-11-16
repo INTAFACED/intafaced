@@ -622,7 +622,7 @@ test(`${J} #3 watches a held reward when its release time passes: paid once to t
     expect(Date.now(), 'the freeze must be on before the hold ends').toBeLessThan(frozenUntil);
     await agePast('campaigns', 'reward', second.reward.rewardKey, second.reward.holdUntil);
     // The hold ended with posting frozen: the payment is refused by the freeze before anything is sent, so it stays owed
-    // and nothing is paid, with the freeze's own reason, from the first pay pass after the hold ended.
+    // and nothing is paid, with the freeze's own reason, once a pay pass after the hold has run.
     await expect.poll(async () => (await progressOf(me, frozenHold.id)).reward.reason, { timeout: 60_000 }).toBe('ledger.frozen');
     const heldBack = (await progressOf(me, frozenHold.id)).reward;
     expect(heldBack).toMatchObject({ state: 'owed', reason: 'ledger.frozen', payout: null });

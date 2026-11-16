@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
-import { rawBodyOf, serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { rawBodyOf, serviceAuthHeaders, serviceAuthHeadersForBody } from '@intafaced/contracts';
 import { TEST_AGE_PATH, registerTestAgeDoor, type TestAgeSubject } from '@intafaced/service-kit';
 import { describe, expect, it } from 'vitest';
 
@@ -50,6 +50,8 @@ describe("svc-campaigns' TEST age door", () => {
     expect((await call(TEST_AGE_PATH, AGE, {})).statusCode).toBe(401);
     const edited = serviceAuthHeadersForBody('local-test-stack', SECRET, JSON.stringify({ ...AGE, ms: 1 }));
     expect((await call(TEST_AGE_PATH, AGE, edited)).statusCode).toBe(401);
+    // A v1 signature binds no body, so it could carry any body: the door requires the body-bound form.
+    expect((await call(TEST_AGE_PATH, AGE, serviceAuthHeaders('local-test-stack', SECRET))).statusCode).toBe(401);
     const edge = serviceAuthHeadersForBody('svc-edge', SECRET, JSON.stringify(AGE));
     expect((await call(TEST_AGE_PATH, AGE, edge)).json()).toMatchObject({ error: 'test_age.unauthenticated' });
     expect(calls).toEqual([]);

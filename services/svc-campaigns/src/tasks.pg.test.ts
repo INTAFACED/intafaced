@@ -1125,6 +1125,22 @@ if (!db) {
       await locksReconcile();
     });
 
+    it('the TEST age door: a lock already decided and still settling is not aged', async () => {
+      await earnFees('100');
+      await fundPot('TEST-lock-age-settling', '100');
+      const c = await joined({ tasks: LOCKED });
+      await complete(c.id);
+      const { reward } = await tasks.claim({ campaignId: c.id, accountId: ME });
+      await ageReward(db!.sql)(reward.rewardKey, 601_000 + LOCK_FILL_GRACE_SECONDS * 1000);
+      wire.mode.frozen = true;
+      expect(await tasks.settleLocks()).toBe(1);
+      const settling = (await tasks.progress({ campaignId: c.id, accountId: ME })).reward!;
+      expect(settling.state).toBe('settling');
+      expect(await ageReward(db!.sql)(reward.rewardKey, 60_000)).toBeNull();
+      expect((await tasks.progress({ campaignId: c.id, accountId: ME })).reward).toEqual(settling);
+      wire.mode.frozen = false;
+    });
+
     it('the TEST age door: a decided reward, or one that is not there, is not aged', async () => {
       const c = await joined();
       await earnFees('10');
