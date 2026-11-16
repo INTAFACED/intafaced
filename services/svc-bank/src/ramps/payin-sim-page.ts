@@ -59,6 +59,7 @@ export function registerPayinSimPage(
   const deliver = async (request: AddMoneyRequestView) => {
     if (!partner.deliver || !request.walletAddress || !request.onramp) return;
     const deliveryTx = await partner.deliver({ to: request.walletAddress, assetId: request.assetId, amount: request.amount });
+    partner.book?.paid(request.onramp.onrampId);
     await addMoney.paid({
       requestId: request.requestId,
       paidAmount: request.onramp.payAmount,
@@ -96,6 +97,8 @@ export function registerPayinSimPage(
       if (!params.success) return reply.code(400).send({ error: 'not a payment id', code: 'bank.validation_failed' });
       try {
         const { request, returnUrl, approvedNow } = await addMoney.approved(params.data.onrampId);
+        // The partner's own book: its page saw the payer approve this order (J-bank-28 #3).
+        partner.book?.approved(params.data.onrampId);
         if (approvedNow && request.walletAddress) {
           void deliver(request).catch((err: unknown) =>
             app.log.warn({ err, requestId: request.requestId }, 'payin-sim: the TEST partner did not deliver the wallet purchase'),

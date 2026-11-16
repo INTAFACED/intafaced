@@ -27,7 +27,14 @@ import type {
   PartnerPurchases,
   PartnerReturn,
 } from './partner-purchases.js';
-import type { PartnerDirectDebits, PartnerMandate } from './partner-direct-debits.js';
+import type {
+  PartnerDirectDebitFailure,
+  PartnerDirectDebitRefund,
+  PartnerDirectDebitReport,
+  PartnerDirectDebits,
+  PartnerMandate,
+  PartnerMandateLine,
+} from './partner-direct-debits.js';
 import {
   CLOSURE_PAYOUT_KEY,
   testPartnerCompliance,
@@ -240,6 +247,18 @@ export interface TestPartner {
   readonly purchases: PartnerPurchases;
   /** The TEST partner as the bank a direct debit collects from: it keeps each mandate's block (J-bank-06 #4). */
   readonly directDebits: PartnerDirectDebits;
+  /**
+   * The TEST partner's report of every direct debit it answers for, read straight from its book (J-bank-28 #4): each
+   * mandate it knows with its state and block, each collection it refused with its own reason, and each refund it made.
+   */
+  directDebitReport(): PartnerDirectDebitReport;
+  /**
+   * The TEST partner gives a collected debit back under the scheme's refund guarantee (J-bank-28 #4): ONE move from its
+   * outbound-payments account back to the account the collection came from, under `bank.dd.refund:<mandate>:<collection>`,
+   * so asking again answers the same refund and the person is credited once. A collection it never moved refuses
+   * `bank.dd_refund_not_collected`, nothing moved.
+   */
+  refundDirectDebit(userId: string, mandateId: string, collectionId: string): PartnerDirectDebitRefund;
   /** The TEST partner's compliance record of each person's bank account: onboarding, requests, reviews, closure, data (J-bank-17). */
   readonly compliance: PartnerCompliance & TestPartnerComplianceDoors;
   /**
@@ -251,6 +270,16 @@ export interface TestPartner {
 
 /** The TEST partner's own reason code for a collection on a mandate the person blocked with it. */
 export const TEST_PARTNER_DD_BLOCKED = 'test_partner.dd_mandate_blocked';
+
+/** The prefix of a direct debit collection's partner move key (`direct-debits.ts` collectionPartnerKey). */
+const DD_COLLECTION_KEY = 'bank.dd.collection:';
+
+/** The mandate and collection a direct debit collection's partner key names, or null for any other move. */
+function ddCollectionOf(key: string): { mandateId: string; collectionId: string } | null {
+  if (!key.startsWith(DD_COLLECTION_KEY)) return null;
+  const [mandateId, collectionId, ...rest] = key.slice(DD_COLLECTION_KEY.length).split(':');
+  return mandateId && collectionId && rest.length === 0 ? { mandateId, collectionId } : null;
+}
 
 /**
  * The most people the adapter keeps switches for. The local stack signs up a few hundred per run; past this the oldest
@@ -297,6 +326,28 @@ export function testPartner(): TestPartner {
   const releasedHolds = new Map<string, PartnerPurchaseRelease[]>();
   /** Each mandate the person blocked with the partner, by person and mandate, with the partner's time for it. */
   const ddBlocks = new Map<string, Date>();
+  /** Each mandate the partner knows, by person and mandate, with when it first heard of it (J-bank-28 #4). */
+  const ddKnown = new Map<string, { readonly userId: string; readonly mandateId: string; readonly knownAt: Date }>();
+  /** Each collection the partner refused, by person, mandate and collection: one collection is one refusal. */
+  const ddFailures = new Map<string, PartnerDirectDebitFailure>();
+  /** Each refund the partner made, by person, mandate and collection: one collection is refunded once. */
+  const ddRefunds = new Map<string, PartnerDirectDebitRefund>();
+  const knowMandate = (userId: string, mandateId: string) => {
+    const key = `${userId}|${mandateId}`;
+    if (!ddKnown.has(key) && ddKnown.size < MAX_MOVES) ddKnown.set(key, Object.freeze({ userId, mandateId, knownAt: new Date() }));
+  };
+  const ddRefused = (userId: string, mandateId: string, collectionId: string, code: string) => {
+    knowMandate(userId, mandateId);
+    const key = `${userId}|${mandateId}|${collectionId}`;
+    if (!ddFailures.has(key) && ddFailures.size < MAX_MOVES) {
+      ddFailures.set(key, Object.freeze({ userId, mandateId, collectionId, code, at: new Date() }));
+    }
+  };
+  /** A collection's move the partner refuses for want of money is on its record as a refused collection. */
+  const refusedForFunds = (request: PartnerMoveRequest) => {
+    const dd = ddCollectionOf(request.key);
+    if (dd) ddRefused(request.from.userId, dd.mandateId, dd.collectionId, 'bank.partner_insufficient_funds');
+  };
   /** People whose bank account is closing or closed: no move in or out of it but a closure's payout (J-bank-17 #5). */
   const restricted = new Set<string>();
   let seq = 0;
@@ -441,6 +492,7 @@ export function testPartner(): TestPartner {
       const fromKey = accountKey(request.from);
       const has = held.get(fromKey) ?? 0n;
       if (has < request.amount) {
+        refusedForFunds(request);
         throw new BankError(
           `The partner reports ${formatAmount(has)} ${request.from.assetId} in this account, less than ${formatAmount(request.amount)}. Nothing was moved.`,
           'bank.partner_insufficient_funds',
@@ -449,6 +501,7 @@ export function testPartner(): TestPartner {
       // What the partner still holds back of a purchase stays where it is until its release time (J-wallet-01 #3).
       const back = heldBack(request.from);
       if (back > 0n && has - back < request.amount) {
+        refusedForFunds(request);
         throw new BankError(
           `The partner holds back ${formatAmount(back)} ${request.from.assetId} of a purchase until its release time, so ${formatAmount(has - back)} can move now, less than ${formatAmount(request.amount)}. Nothing was moved.`,
           'bank.partner_insufficient_funds',
@@ -659,6 +712,7 @@ export function testPartner(): TestPartner {
         if (ddBlocks.size >= MAX_MOVES) throw partnerDown();
         ddBlocks.set(key, new Date());
       }
+      knowMandate(userId, mandateId);
       return mandate(userId, mandateId);
     },
     async unblock(userId, mandateId) {
@@ -669,9 +723,16 @@ export function testPartner(): TestPartner {
       }
       return mandate(userId, mandateId);
     },
-    async mandate(userId, mandateId) {
+    async mandate(userId, mandateId, forCollection) {
       if (switches(userId).down) throw partnerDown();
-      return mandate(userId, mandateId);
+      knowMandate(userId, mandateId);
+      const answer = mandate(userId, mandateId);
+      if (forCollection !== undefined && answer.blocked) ddRefused(userId, mandateId, forCollection, answer.refusalCode!);
+      return answer;
+    },
+    async setUp(userId, mandateId) {
+      if (switches(userId).down) throw partnerDown();
+      knowMandate(userId, mandateId);
     },
   };
 
@@ -692,6 +753,61 @@ export function testPartner(): TestPartner {
     set,
     bank,
     directDebits,
+    directDebitReport() {
+      const mandates: PartnerMandateLine[] = [...ddKnown.values()].map((m) => {
+        const blockedAt = ddBlocks.get(`${m.userId}|${m.mandateId}`) ?? null;
+        return Object.freeze({ ...m, state: blockedAt ? 'blocked' : 'active', blockedAt });
+      });
+      return Object.freeze({
+        label: TEST_PARTNER_LABEL,
+        asOf: new Date(),
+        mandates,
+        failures: [...ddFailures.values()],
+        refunds: [...ddRefunds.values()],
+      });
+    },
+    refundDirectDebit(userId, mandateId, collectionId) {
+      const key = `${userId}|${mandateId}|${collectionId}`;
+      const done = ddRefunds.get(key);
+      if (done) return done;
+      const collected = byKey.get(`${DD_COLLECTION_KEY}${mandateId}:${collectionId}`);
+      if (!collected || collected.from.userId !== userId) {
+        throw new BankError('The partner collected nothing on that debit, so there is nothing to refund.', 'bank.dd_refund_not_collected');
+      }
+      if (ddRefunds.size >= MAX_MOVES) throw partnerDown();
+      // The partner's own move back, keyed so a retry is the same refund; it shares the move book's checks and record.
+      const moved = byKey.get(`bank.dd.refund:${mandateId}:${collectionId}`);
+      const back =
+        moved ??
+        (() => {
+          seq += 1;
+          const move: PartnerMove = Object.freeze({
+            id: `test-partner-move-${boot}-${String(seq).padStart(12, '0')}`,
+            key: `bank.dd.refund:${mandateId}:${collectionId}`,
+            from: collected.to,
+            to: collected.from,
+            amount: collected.amount,
+            movedAt: new Date(),
+            label: TEST_PARTNER_LABEL,
+          });
+          const fromKey = accountKey(move.from);
+          held.set(fromKey, (held.get(fromKey) ?? 0n) - move.amount);
+          held.set(accountKey(move.to), (held.get(accountKey(move.to)) ?? 0n) + move.amount);
+          remember(move);
+          return move;
+        })();
+      const refund: PartnerDirectDebitRefund = Object.freeze({
+        userId,
+        mandateId,
+        collectionId,
+        assetId: back.to.assetId,
+        amount: back.amount,
+        moveId: back.id,
+        refundedAt: back.movedAt,
+      });
+      ddRefunds.set(key, refund);
+      return refund;
+    },
     compliance,
     settlePayment,
     record(userId) {

@@ -44,6 +44,7 @@ import { cardTermsOrNone, partnerReservesRead } from './partner/reserves.js';
 import { cashOutPartnerFor } from './cash-out/payout-sim.js';
 import { onrampPartnerFor, payinPaidBody, payinReturnedBody } from './ramps/payin-sim.js';
 import { registerPayinSimPage } from './ramps/payin-sim-page.js';
+import { rampMetricsView } from './ops/ramp-metrics.js';
 import { answerTestPartnerRecord, onLoopback, TEST_PARTNER_RECORD_BASE } from './partner/test-partner-record.js';
 import {
   answerTestCardPartnerRecord,
@@ -873,9 +874,18 @@ jobDoor(
  * refuses `bank.fiat_ramp_socket`. On the stack only the TEST stand-in (`payin-sim`) answers, and its page (mounted only
  * with it) is where the payer approves.
  */
-jobDoor('/internal/jobs/payin-sim/paid', payinPaidBody, (b) => bank.addMoney.paid(b));
+jobDoor('/internal/jobs/payin-sim/paid', payinPaidBody, async (b) => {
+  const request = await bank.addMoney.paid(b);
+  // The partner's own book (J-bank-28 #3): it said this order was paid.
+  if (request.onramp) onrampPartner?.book?.paid(request.onramp.onrampId);
+  return request;
+});
 /** The same partner says a credited payment was sent back (J-bank-02 #7): the credit is taken out once, as it reports. */
-jobDoor('/internal/jobs/payin-sim/returned', payinReturnedBody, (b) => bank.addMoney.returned(b));
+jobDoor('/internal/jobs/payin-sim/returned', payinReturnedBody, async (b) => {
+  const request = await bank.addMoney.returned(b);
+  if (request.onramp) onrampPartner?.book?.returned(request.onramp.onrampId);
+  return request;
+});
 /**
  * The printer's and courier's side of a physical card (BK-cissue-03, J-bank-13 #4): a card produced, shipped, delivered.
  * A signed job door, never a customer or a staff session. No printer or courier is connected (`hardware`): on any
@@ -900,6 +910,23 @@ if (testPartner) {
   app.get(`${TEST_PARTNER_RECORD_BASE}/venue`, read);
   app.post(`${TEST_PARTNER_RECORD_BASE}/balances`, read);
   app.post(`${TEST_PARTNER_RECORD_BASE}/moves`, read);
+  app.post(`${TEST_PARTNER_RECORD_BASE}/direct-debits`, read);
+  app.post(`${TEST_PARTNER_RECORD_BASE}/dd-refund`, read);
+}
+/**
+ * LOCAL TEST: the TEST ramp partner's own report on loopback (J-bank-28 #3), so a journey compares the finance desk's ramp
+ * metrics with what the partner itself recorded. Mounted only with the pay-in stand-in, which refuses to start outside
+ * `dev`/`test`; a caller off loopback is refused.
+ */
+const rampBook = onrampPartner?.book;
+if (rampBook) {
+  app.get('/test-ramp-partner/report', async (req, reply) => {
+    if (!onLoopback(req.socket.remoteAddress)) return reply.code(403).send({ error: 'loopback only' });
+    return reply
+      .code(200)
+      .header('cache-control', 'no-store')
+      .send({ label: 'TEST', value: rampMetricsView(rampBook.report()).partner });
+  });
 }
 /**
  * LOCAL TEST: the TEST card partner's own book on loopback (`cards/test-card-partner-record.ts`), so a journey compares

@@ -274,6 +274,8 @@ export async function createOnramp(
     assetId: quote.asset_id,
     amount: formatAmount(parseAmount(quote.amount)),
     ...(input.walletAddress ? { walletAddress: input.walletAddress } : {}),
+    // The TEST ramp's own word that its quote ran out (its `rampQuote: 'expired'` switch) reaches its book as an expiry now.
+    quoteExpiresAt: rampQuoteExpired(deps.testRamp, input.userId) ? new Date() : quote.expires_at,
   });
   if (!instruction) {
     throw new BankError(

@@ -107,6 +107,8 @@ export interface BankServices extends BusinessServices, DeveloperApiServices, Ca
   readonly blockedRegionNotice?: string | undefined;
   /** The TEST partner bank and ramp with their switches (CUSTODY-DELTA §4), on a dev or test stack only; null elsewhere. */
   readonly testPartner: TestPartner | null;
+  /** The partner that opens add-money payments and reports its ramp orders (J-bank-28 #3); null when none is wired. */
+  readonly onrampPartner?: OnrampPartner | null;
   /** What each kind of activity line means for tax: the owner's map, the TEST one on a test stack, or null (refused). */
   readonly taxEffects: TaxEffectMap | null;
   /** Who holds each person's bank money: the partner, or (null) the custodial layer. */
@@ -588,6 +590,7 @@ export function createBankServices(
     bankAccountTerms: parseBankAccountTerms(options),
     blockedRegionNotice: options.blockedRegionNotice,
     testPartner: options.testPartner ?? null,
+    onrampPartner: options.onrampPartner ?? null,
     taxEffects: options.taxEffects ?? null,
     spaces,
     sorter,
