@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -303,7 +303,8 @@ test('no-number-money: a money field accepted as a number and converted fires; a
   assert.ok(!has(out, 'services/svc-x/src/desk.test.ts', 'garden(no-number-money)'), 'tests are not judged');
 });
 
-// What apps/customer/src/{data,screens/trade/desk,screens/trade/options}/money-paths.test.ts held, and the customer app beyond.
+// What apps/customer/src/{data,screens/trade/desk,screens/trade/options}/money-paths.test.ts judge, held at the moment of
+// writing, and the customer app beyond.
 test('no-number-money: the customer app never makes money a float, and chartValue() is the one way onto a chart', skip, () => {
   const C = 'apps/customer/src/';
   const out = lint({
@@ -413,25 +414,6 @@ test('no-number-money: the customer app never makes money a float, and chartValu
   ])
     fires(`${C}${quiet}`, 0);
   fires('services/svc-x/src/rate.ts', 0);
-});
-
-// The deleted scanner tests asserted their folders held their files; the rule names its folders by path, so a moved or
-// emptied folder must fail here rather than switch the strict judgement off without a sound.
-test('no-number-money: the money folders it judges strictly still hold their source files', () => {
-  const src = join(ROOT, 'apps', 'customer', 'src');
-  const sources = (dir, deep) =>
-    readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
-      e.isDirectory()
-        ? deep && !e.name.startsWith('__')
-          ? sources(join(dir, e.name), deep)
-          : []
-        : /\.tsx?$/u.test(e.name) && !/\.test\.tsx?$/u.test(e.name)
-          ? [e.name]
-          : [],
-    );
-  assert.ok(sources(join(src, 'data'), true).length > 8, 'apps/customer/src/data');
-  assert.ok(sources(join(src, 'screens', 'trade', 'desk'), false).length > 10, 'apps/customer/src/screens/trade/desk');
-  assert.ok(sources(join(src, 'screens', 'trade', 'options'), false).length > 8, 'apps/customer/src/screens/trade/options');
 });
 
 test('no-random-request-key: a random key fires directly, in a template and through a const; a held key does not', skip, () => {
