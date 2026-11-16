@@ -85,7 +85,8 @@ export type SequenceResult =
 /** How long a step may wait to be mined before the next one is given up (the person's wallet still holds the first). */
 const STEP_MINED_TIMEOUT_MS = 120_000;
 
-export type WalletStatus = 'disconnected' | 'connecting' | 'connected';
+/** `restoring`: a remembered wallet is being asked, without a prompt, whether it is still authorised; nothing inside renders. */
+export type WalletStatus = 'restoring' | 'disconnected' | 'connecting' | 'connected';
 export interface WalletState {
   status: WalletStatus;
   wallets: DiscoveredWallet[];
@@ -211,7 +212,10 @@ export function WalletProvider({
   const { language } = usePreferences();
   const { t } = walletCopy.forLocale(language);
   const [wallets, setWallets] = useState<DiscoveredWallet[]>([]);
-  const [status, setStatus] = useState<WalletStatus>('disconnected');
+  const store = useMemo(browserStore, []);
+  const [status, setStatus] = useState<WalletStatus>(() => (remembered(store) ? 'restoring' : 'disconnected'));
+  // Every wallet this page will see has answered discovery: the request was made once the page had loaded.
+  const [discovered, setDiscovered] = useState(!discovery);
   const [connected, setConnected] = useState<DiscoveredWallet | null>(null);
   const [address, setAddress] = useState<string | null>(null);
   const [chainId, setChainId] = useState<number | null>(null);
@@ -219,12 +223,24 @@ export function WalletProvider({
   const [pending, setPending] = useState<Pending | null>(null);
   const [sequence, setSequence] = useState<PendingSequence | null>(null);
   const [idleMinutes, setIdleMinutes] = useState<number | null>(null);
-  const store = useMemo(browserStore, []);
   const restored = useRef(false);
 
   useEffect(() => {
-    if (!discovery || typeof window === 'undefined') return;
-    return discoverWallets(window, setWallets);
+    if (!discovery || typeof window === 'undefined') {
+      setDiscovered(true);
+      return;
+    }
+    const stop = discoverWallets(window, setWallets);
+    if (document.readyState === 'complete') {
+      setDiscovered(true);
+      return stop;
+    }
+    const loaded = () => setDiscovered(true);
+    window.addEventListener('load', loaded, { once: true });
+    return () => {
+      window.removeEventListener('load', loaded);
+      stop();
+    };
   }, [discovery]);
 
   const adopt = useCallback((wallet: DiscoveredWallet, accounts: unknown, chain: unknown) => {
@@ -272,21 +288,27 @@ export function WalletProvider({
 
   // A wallet that is still authorised comes back without a prompt (eth_accounts never asks).
   useEffect(() => {
-    if (restored.current || status !== 'disconnected') return;
+    if (restored.current || status !== 'restoring') return;
     const rdns = remembered(store);
     const wallet = rdns ? wallets.find((entry) => entry.info.rdns === rdns) : undefined;
-    if (!wallet) return;
+    if (!wallet) {
+      if (discovered) setStatus('disconnected');
+      return;
+    }
     restored.current = true;
     void (async () => {
       try {
         const accounts = await wallet.provider.request({ method: 'eth_accounts' });
-        if (!firstAddress(accounts)) return remember(store, null);
+        if (!firstAddress(accounts)) {
+          remember(store, null);
+          return setStatus('disconnected');
+        }
         adopt(wallet, accounts, await wallet.provider.request({ method: 'eth_chainId' }));
       } catch {
-        /* the wallet will be asked again when the person presses Connect */
+        setStatus('disconnected');
       }
     })();
-  }, [wallets, status, store, adopt]);
+  }, [wallets, discovered, status, store, adopt]);
 
   // A move to another room cancels a sheet that is still open: the room that asked for it is gone.
   const scopeRef = useRef(scope);
@@ -543,7 +565,13 @@ export function WalletProvider({
   };
   return (
     <Context.Provider value={api}>
-      {children}
+      {status === 'restoring' ? (
+        <p className="muted" role="status" aria-busy="true" data-wallet="restoring">
+          {t('restoring')}
+        </p>
+      ) : (
+        children
+      )}
       {sequence && (
         <SequenceSheet
           sequence={sequence.sequence}

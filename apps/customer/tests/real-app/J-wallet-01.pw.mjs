@@ -5,8 +5,8 @@ import { test, expect } from './journey.mjs';
 import { api, fund, journeyState, restartWithSetting } from './stack.mjs';
 import { TEST_MEMBERSHIP_TIERS } from '../../../../tooling/scripts/local-stack-services/identity.mjs';
 import { confirm, signIn, signUp, verify } from './desk.mjs';
-import { CHAIN_ID, fundOnTestChain, testChain } from './dex.mjs';
-import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs';
+import { CHAIN_ID, connectWhenAsked, fundOnTestChain, testChain } from './dex.mjs';
+import { installTestWallet, testWalletKey } from './test-wallet.mjs';
 import { setPartner } from './partner.mjs';
 import {
   continueInWallet,
@@ -116,26 +116,6 @@ async function signOnVenue(walletKey, intent) {
 }
 
 const openOrders = async (owner) => (await venueRecord(owner, '/open-orders')).value;
-
-/**
- * Connects the TEST wallet when the page asks for it, until `connected` shows. A page opened again in the same tab may
- * restore the connection itself, and then shows no Connect button.
- */
-async function connectWhenAsked(page, connected) {
-  const connect = page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` });
-  await expect
-    .poll(
-      async () => {
-        if (await connected.isVisible().catch(() => false)) return true;
-        // A short click: the page may restore the connection and drop the button mid-click, and a click with no limit
-        // of its own would then wait out the whole poll instead of letting it look again.
-        if (await connect.isVisible().catch(() => false)) await connect.click({ timeout: 2_000 }).catch(() => undefined);
-        return false;
-      },
-      { timeout: 30_000, intervals: [500] },
-    )
-    .toBe(true);
-}
 
 /**
  * Signed in with the TEST wallet on the TEST chain in this page: the wallet is installed once per page (a second install
