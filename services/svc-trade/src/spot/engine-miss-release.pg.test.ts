@@ -89,13 +89,13 @@ describe('#8560: an engine miss is not proof of no fill (PG-hard)', () => {
 
     // #2658: the order row is `open` with its hold before the engine has its submit. A reconcile that looks in that
     // window sees a miss; the engine then rests the order, and lists it while nobody looks.
-    let lookBeforeRest: Awaited<ReturnType<typeof trade.reconcileOrder>> | null = null;
+    const look: { beforeRest: Awaited<ReturnType<typeof trade.reconcileOrder>> | null } = { beforeRest: null };
     if (options.lookWhileSubmitting !== undefined) {
       const floorSeconds = options.lookWhileSubmitting;
       const restSubmit = matching.submit.bind(matching);
       matching.submit = async (marketId: string, request: EngineSubmitRequest): Promise<EngineSubmitResult> => {
         matching.submit = restSubmit;
-        lookBeforeRest = await trade.reconcileOrder(request.orderId, { engineMissFloorSeconds: floorSeconds });
+        look.beforeRest = await trade.reconcileOrder(request.orderId, { engineMissFloorSeconds: floorSeconds });
         return restSubmit(marketId, request);
       };
     }
@@ -152,7 +152,19 @@ describe('#8560: an engine miss is not proof of no fill (PG-hard)', () => {
     const fillsOfResting = async () =>
       (await db.sql<Array<{ qty: string }>>`SELECT COALESCE(SUM(qty), 0)::text AS qty FROM trade.fills WHERE order_id = ${resting.id}`)[0]
         ?.qty;
-    return { trade, matching, ledger, market, resting, deliver, takerSettled, hold, status, fillsOfResting, lookBeforeRest };
+    return {
+      trade,
+      matching,
+      ledger,
+      market,
+      resting,
+      deliver,
+      takerSettled,
+      hold,
+      status,
+      fillsOfResting,
+      lookBeforeRest: look.beforeRest,
+    };
   }
 
   it("the operator's single-order reconcile, while the engine's full fill of the order is unsettled, keeps the 50 USDT that fill draws", async () => {
