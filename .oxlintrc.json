@@ -30,6 +30,7 @@
     "garden/no-hand-typed-patch": "error",
     "garden/no-either-state-match": "error",
     "garden/no-made-up-principal": "error",
+    "garden/exact-locator": "error",
     "typescript/no-explicit-any": "error",
     "react-hooks/exhaustive-deps": "error",
     "react/refs": "off",
