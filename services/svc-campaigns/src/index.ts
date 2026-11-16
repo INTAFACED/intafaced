@@ -5,6 +5,7 @@ import { edgeTrustFromEnv } from '@intafaced/config';
 import { createEdgeContext, s2sFromEnv } from '@intafaced/contracts';
 import { JetStreamEventBus } from '@intafaced/events';
 import { parseAmount } from '@intafaced/ledger-client';
+import { registerTestAgeDoor, testAgeDoorOpen } from '@intafaced/service-kit';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 import { CampaignService, parseTimeZone } from './campaigns.js';
 import { createCompetitionFillSource } from './competition-fills.js';
@@ -30,6 +31,7 @@ import { WatchService } from './watch.js';
 import { DropService } from './drops.js';
 import { env } from './env.js';
 import { createCampaignsRouter, type CampaignsRouter } from './router.js';
+import { ageReward } from './test-age-door.js';
 import { parseTgeSchedule } from './tge.js';
 
 registerProcessHooks(
@@ -47,6 +49,9 @@ registerProcessHooks(
  * CAMPAIGNS_PLATFORM_TIME_ZONE boots and refuses every activation and join `campaigns.timezone_unset`.
  */
 const tgeSchedule = parseTgeSchedule(env.CAMPAIGNS_TGE_SCHEDULE_JSON);
+// The TEST age door (packages/service-kit test-age.ts): off unless TEST_AGE_DOOR=on, which refuses to start outside a
+// TEST stack, so it is read before anything opens.
+const testAgeDoor = testAgeDoorOpen(process.env);
 const sql = postgres(env.DATABASE_URL, {
   max: env.DATABASE_POOL_MAX,
   ssl: env.DATABASE_SSL ? 'require' : false,
@@ -256,6 +261,17 @@ app.get('/ready', async (_req, reply) => {
   } catch {
     return reply.code(503).send({ ok: false, service: env.SERVICE_NAME, database: 'unavailable' });
   }
+});
+
+// Its own plugin scope: the raw body its signature check needs is kept for this one route, and every other route reads
+// JSON as before.
+await app.register(async (scope) => {
+  registerTestAgeDoor(scope, {
+    open: testAgeDoor,
+    internalSecret: env.INTERNAL_SERVICE_SECRET,
+    s2s: s2s.serviceVerifier && s2s.s2sMode ? { verifier: s2s.serviceVerifier, mode: s2s.s2sMode } : undefined,
+    subjects: { reward: ageReward(sql) },
+  });
 });
 
 await app.register(fastifyTRPCPlugin, {

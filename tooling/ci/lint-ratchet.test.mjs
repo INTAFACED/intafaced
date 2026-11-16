@@ -143,7 +143,10 @@ test("main's ratchet.json fails a new fixed wait in a journey and in a unit test
     assert.equal(failed.code, 1, failed.out);
     assert.match(failed.out, /garden\/no-wait-for-timeout rose from 0 to 1/u);
     assert.match(failed.out, /garden\/no-real-clock-wait-in-tests rose from 0 to 1/u);
-    assert.match(failed.out, /agePast \(the test-age helper in apps\/customer\/tests\/real-app; svc-trade has the door today/u);
+    assert.match(
+      failed.out,
+      /agePast \(the test-age helper in apps\/customer\/tests\/real-app; svc-trade and svc-campaigns have the door today/u,
+    );
   } finally {
     r.done();
   }

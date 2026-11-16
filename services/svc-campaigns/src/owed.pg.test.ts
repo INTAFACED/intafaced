@@ -23,6 +23,7 @@ import type { CampaignDefinitionInput, CampaignTasks } from '@intafaced/contract
 import { CampaignService } from './campaigns.js';
 import { PAYOUT_UNAVAILABLE, PayoutSaga, ledgerRewardId } from './payouts.js';
 import { TaskService, rewardKeyOf } from './tasks.js';
+import { ageReward } from './test-age-door.js';
 
 /**
  * The launch reward path against real Postgres and the in-memory reference ledger (launch money model, OWNER 288;
@@ -372,6 +373,30 @@ if (!db) {
       expect(reward.state).toBe('owed');
       expect(reward.owed?.txId).toBe((await book.getTxByKey(`campaigns:owe:${ledgerRewardId(c.id, rewardKeyOf(c.id, ME, 'once'))}`))?.id);
       expect(await owedOnBook(reward.rewardKey)).toBe(parseAmount('10'));
+      expect(await reconciles()).toBe(parseAmount('10'));
+    });
+
+    it('the TEST age door: an owed reward made a hold earlier is released for payment once by the next pass at the real time', async () => {
+      await seedRewardsEngine('50');
+      const c = await joined({ tasks: { ...STEPS, holdSeconds: 3600 } });
+      await complete(c.id);
+      const claimed = await tasks.claim({ campaignId: c.id, accountId: ME });
+      expect(claimed.reward.state).toBe('owed');
+      const posts = wire.mode.posts.length;
+      await tasks.releaseHolds();
+      expect((await tasks.myRewards({ accountId: ME })).rewards[0]!.status).toBe('on_hold');
+      const aged = await ageReward(db!.sql)(claimed.reward.rewardKey, 3_601_000);
+      expect(aged).toMatchObject({ state: 'owed' });
+      expect(Date.parse(aged!.holdUntil!)).toBe(Date.parse(claimed.reward.holdUntil!) - 3_601_000);
+      expect(clock).toBeNull();
+      await tasks.releaseHolds();
+      await tasks.releaseHolds();
+      const mine = await tasks.myRewards({ accountId: ME });
+      expect(mine.rewards[0]).toMatchObject({ status: 'owed', state: 'owed' });
+      const attempts = (await tasks.progress({ campaignId: c.id, accountId: ME })).reward!.attempts;
+      expect(attempts.filter((a) => a.outcome === 'released')).toHaveLength(1);
+      // Aging moves no money: the reward was owed once, at its claim, and nothing more is posted.
+      expect(wire.mode.posts.length).toBe(posts);
       expect(await reconciles()).toBe(parseAmount('10'));
     });
 

@@ -1,9 +1,5 @@
-import type { FastifyInstance } from 'fastify';
 import type { Sql } from 'postgres';
-import { retainRawBody, verifyServiceRequest, type ServiceAuthMode, type ServiceVerifier } from '@intafaced/contracts';
-import { answerTestAgeDoor, type TestAgeSubject } from '@intafaced/service-kit';
-
-export const TEST_AGE_PATH = '/internal/test/age' as const;
+import type { TestAgeSubject } from '@intafaced/service-kit';
 
 const iso = (v: Date | string | null): string | null => (v === null ? null : new Date(v).toISOString());
 
@@ -27,34 +23,5 @@ export function ageOtcQuote(sql: Sql): TestAgeSubject {
   };
 }
 
-/**
- * The TEST age door (packages/service-kit test-age.ts), always mounted: closed, it answers `test_age.door_closed`.
- * Body-bound service auth, always: a replayed or edited body is refused. svc-edge's own key is refused too: the edge
- * signs every request it forwards, so a call it signed is a customer's, never the stack's.
- */
-export function registerTestAgeDoor(
-  app: FastifyInstance,
-  deps: {
-    readonly open: boolean;
-    readonly internalSecret: string;
-    /** Per-service keys (S2S v3). Unset: the shared secret alone, as before. */
-    readonly s2s?: { readonly verifier: ServiceVerifier; readonly mode: ServiceAuthMode };
-    readonly subjects: Readonly<Record<string, TestAgeSubject>>;
-    /** Isolated tests install retention. Production index already called `retainRawBody`. */
-    readonly installRawBody?: boolean;
-  },
-): void {
-  if (deps.installRawBody !== false) retainRawBody(app);
-  app.post(TEST_AGE_PATH, async (req, reply) => {
-    const auth = verifyServiceRequest(req, {
-      verifier: deps.s2s?.verifier,
-      mode: deps.s2s?.mode,
-      legacySecret: deps.internalSecret,
-      bodyBindMode: 'require',
-    });
-    if (auth.service === null || auth.service === 'svc-edge') return reply.code(401).send({ error: 'trade.unauthenticated' });
-    const answer = await answerTestAgeDoor(deps.open, deps.subjects, req.body);
-    if (answer.status === 200) req.log.warn({ ...answer.body, caller: auth.service }, 'TEST record aged');
-    return reply.code(answer.status).send(answer.body);
-  });
-}
+/** The door's route is service-kit's, one for every service; svc-trade names only what it ages. */
+export { TEST_AGE_PATH, registerTestAgeDoor } from '@intafaced/service-kit';

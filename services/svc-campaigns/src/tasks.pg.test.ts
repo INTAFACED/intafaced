@@ -21,6 +21,7 @@ import { CampaignService, zonedClock } from './campaigns.js';
 import { CampaignsError } from './codes.js';
 import { PayoutSaga, REWARD_REASON, answerOf } from './payouts.js';
 import { createMarketNames, type MarketNames } from './markets.js';
+import { ageReward } from './test-age-door.js';
 import { TaskService, LOCK_FILL_GRACE_SECONDS, earningPeriodOf, meetsGate, rewardKeyOf, stepMatches, type FillEvent } from './tasks.js';
 
 /**
@@ -110,12 +111,15 @@ const LISTED: MarketNames = {
 };
 
 let fills = 0;
+// A fill counts from its join on (`created_at <= ts`). Postgres stamps the join to the microsecond and a JavaScript time
+// has whole milliseconds, so a fill made in the join's own millisecond read as before it, and a step was not counted
+// (`expected 1 to be 3` in complete(), most runs on a fast machine). A fill made now is a millisecond after.
 const fill = (userId: string, over: Partial<FillEvent> = {}): FillEvent => ({
   fillId: `fill-${(fills += 1)}`,
   userId,
   marketId: BTC_USDT,
   side: 'buy',
-  ts: new Date().toISOString(),
+  ts: new Date(Date.now() + 1).toISOString(),
   ...over,
 });
 
@@ -1054,6 +1058,100 @@ if (!db) {
       await saga.reconcile();
       expect(await free(ME)).toBe(parseAmount('3'));
       await reconciles(parseAmount('100'));
+    });
+
+    // ── The TEST age door (packages/service-kit test-age.ts): a reward made earlier, read at the real time ────────────
+
+    it('the TEST age door: an aged hold is released by the next pass at the real time, and paid once', async () => {
+      const c = await joined({ tasks: { ...STEPS, holdSeconds: 600 } });
+      await earnFees('10');
+      await fundPot('TEST-pot-age-1', '10');
+      await complete(c.id);
+      const claimed = await tasks.claim({ campaignId: c.id, accountId: ME });
+      const before = (await tasks.progress({ campaignId: c.id, accountId: ME })).reward!;
+      expect(await tasks.releaseHolds()).toBe(0);
+      const aged = await ageReward(db!.sql)(claimed.reward.rewardKey, 601_000);
+      expect(aged).toMatchObject({ state: 'held', lockedAt: null, lockUntil: null });
+      // Every one of its times moved back by exactly what was asked, so the gaps between them stay as they were.
+      const after = (await tasks.progress({ campaignId: c.id, accountId: ME })).reward!;
+      expect(Date.parse(after.holdUntil!)).toBe(Date.parse(before.holdUntil!) - 601_000);
+      expect(Date.parse(after.createdAt)).toBe(Date.parse(before.createdAt) - 601_000);
+      expect(aged!.holdUntil).toBe(after.holdUntil);
+      expect(Date.parse(after.holdUntil!)).toBeLessThan(Date.now());
+      // No fake clock: the service's own time, and the hold has ended.
+      expect(clock).toBeNull();
+      expect((await Promise.all([tasks.releaseHolds(), tasks.releaseHolds()])).reduce((a, b) => a + b, 0)).toBe(1);
+      await reconcileLater();
+      const p = await tasks.progress({ campaignId: c.id, accountId: ME });
+      expect(p.reward!.attempts.map((a) => a.outcome)).toEqual(['held', 'released', 'posted']);
+      expect(await free(ME)).toBe(parseAmount('10'));
+      await reconciles(parseAmount('10'));
+    });
+
+    it('the TEST age door: an aged lock past its grace forfeits on the next pass, not inside the grace', async () => {
+      await earnFees('100');
+      await fundPot('TEST-lock-age', '100');
+      const locked = await joined({ tasks: LOCKED });
+      await complete(locked.id);
+      const { reward } = await tasks.claim({ campaignId: locked.id, accountId: ME });
+      // Past its end but inside the grace for late fills: still nothing decided.
+      await ageReward(db!.sql)(reward.rewardKey, 601_000);
+      expect(await tasks.settleLocks()).toBe(0);
+      const aged = await ageReward(db!.sql)(reward.rewardKey, LOCK_FILL_GRACE_SECONDS * 1000);
+      expect(Date.parse(aged!.lockUntil!) - Date.parse(aged!.lockedAt!)).toBe(600_000);
+      expect(await tasks.settleLocks()).toBe(1);
+      expect((await tasks.claim({ campaignId: locked.id, accountId: ME })).reward).toMatchObject({
+        state: 'forfeited',
+        reason: 'campaigns.lock_condition_failed',
+      });
+      expect(clock).toBeNull();
+      await locksReconcile();
+    });
+
+    it('the TEST age door: an aged bonus expires on the next pass', async () => {
+      await earnFees('100');
+      await fundPot('TEST-bonus-age', '100');
+      const bonus = await joined({ tasks: BONUS });
+      await complete(bonus.id);
+      const b = await tasks.claim({ campaignId: bonus.id, accountId: ME });
+      expect(await tasks.settleLocks()).toBe(0);
+      await ageReward(db!.sql)(b.reward.rewardKey, 601_000);
+      expect(await tasks.settleLocks()).toBe(1);
+      expect((await tasks.progress({ campaignId: bonus.id, accountId: ME })).reward).toMatchObject({
+        state: 'forfeited',
+        reason: 'campaigns.bonus_expired',
+      });
+      expect(clock).toBeNull();
+      await locksReconcile();
+    });
+
+    it('the TEST age door: a lock already decided and still settling is not aged', async () => {
+      await earnFees('100');
+      await fundPot('TEST-lock-age-settling', '100');
+      const c = await joined({ tasks: LOCKED });
+      await complete(c.id);
+      const { reward } = await tasks.claim({ campaignId: c.id, accountId: ME });
+      await ageReward(db!.sql)(reward.rewardKey, 601_000 + LOCK_FILL_GRACE_SECONDS * 1000);
+      wire.mode.frozen = true;
+      expect(await tasks.settleLocks()).toBe(1);
+      const settling = (await tasks.progress({ campaignId: c.id, accountId: ME })).reward!;
+      expect(settling.state).toBe('settling');
+      expect(await ageReward(db!.sql)(reward.rewardKey, 60_000)).toBeNull();
+      expect((await tasks.progress({ campaignId: c.id, accountId: ME })).reward).toEqual(settling);
+      wire.mode.frozen = false;
+    });
+
+    it('the TEST age door: a decided reward, or one that is not there, is not aged', async () => {
+      const c = await joined();
+      await earnFees('10');
+      await fundPot('TEST-pot-age-3', '10');
+      await complete(c.id);
+      const claimed = await tasks.claim({ campaignId: c.id, accountId: ME });
+      expect(claimed.reward.state).toBe('posted');
+      const before = (await tasks.progress({ campaignId: c.id, accountId: ME })).reward!;
+      expect(await ageReward(db!.sql)(claimed.reward.rewardKey, 60_000)).toBeNull();
+      expect(await ageReward(db!.sql)('task:none:none:none', 60_000)).toBeNull();
+      expect((await tasks.progress({ campaignId: c.id, accountId: ME })).reward).toEqual(before);
     });
   });
 }
