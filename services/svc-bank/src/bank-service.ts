@@ -52,12 +52,7 @@ import { SharedPotService } from './spaces/shared-pots.js';
 import { RecoveryClaimService } from './recovery/recovery-claims.js';
 import { unconfiguredIdentityRecovery, type IdentityRecoveryPort } from './recovery/identity-recovery.js';
 import { BillsPotService } from './spaces/bills-pot.js';
-import { BusinessService } from './business/business-service.js';
-import { BusinessTeamService } from './business/business-team.js';
-import { BusinessBillsService } from './business/business-bills.js';
-import { BusinessPayoutsService } from './business/business-payouts.js';
-import { BusinessCardsService } from './business/business-cards.js';
-import { BusinessBooksService } from './business/business-books.js';
+import { composeBusinessServices, type BusinessServiceOptions, type BusinessServices } from './business/compose.js';
 import { BankApiService, type BankApiOptions } from './developer-api/bank-api.js';
 import { BusinessLookupLimiter, unconfiguredBusinessDirectory, type BusinessDirectoryPort } from './business/business-directory.js';
 import { PortfolioService, type PortfolioServiceOptions } from './portfolio/portfolio-service.js';
@@ -99,10 +94,12 @@ import { emptyBillPorts, emptyGlobalPorts, type BillPorts, type GlobalPorts } fr
  *
  * The composition root is one function so the wiring is visible in one place —
  * including that `SpendAnalytics` gets a READ port over the ledger and no
- * writer at all.
+ * writer at all. An area with services of its own composes them in its own
+ * `compose.ts` (the business bank: `business/compose.ts`), and this function
+ * spreads it; `bank-service.compose.test.ts` holds the line.
  */
 
-export interface BankServices {
+export interface BankServices extends BusinessServices {
   /** The owner's values for onboarding, information requests and reopening a bank account (J-bank-17); null is unpublished. */
   readonly bankAccountTerms: BankAccountTerms;
   /** The owner's notice for a blocked region (`BANK_BLOCKED_REGION_NOTICE`, BK-safe-01). No default: blank reads "not published". */
@@ -177,17 +174,6 @@ export interface BankServices {
   /** W-balances-05: svc-ledger's supported asset and network list, every state, as customers read it. */
   readonly supportedAssets: { list(): Promise<SupportedAssetView[]> };
   readonly autoInvest: AutoInvestService;
-  readonly business: BusinessService;
-  /** J-bank-19: the business's own roles, advisors, invites, approval rules, partner-held payments and team spend. */
-  readonly businessTeam: BusinessTeamService;
-  /** J-bank-20: the business's supplier bills: inbox, duplicates, vendors, Bill Pay limits, approvals and partner-held payments. */
-  readonly businessBills: BusinessBillsService;
-  /** J-bank-21: the business's bulk payment runs, contractors and invoices, and crypto payroll signed by its own wallet. */
-  readonly businessPayouts: BusinessPayoutsService;
-  /** J-bank-22: the business's team cards with per-purchase limits, receipts, and reimbursements paid at the partner. */
-  readonly businessCards: BusinessCardsService;
-  /** J-bank-23: the business's books: the accounting connection record, coding rules and four-format statements. */
-  readonly businessBooks: BusinessBooksService;
   /** J-bank-24: the bank API: accounts with filters, moves on the partner's quote, payments out and their webhooks. */
   readonly bankApi: BankApiService;
   readonly bills: BillPayService;
@@ -211,7 +197,7 @@ export interface BankServices {
   };
 }
 
-export interface BankServiceOptions {
+export interface BankServiceOptions extends BusinessServiceOptions {
   /** J-bank-24: the bank API's webhook delivery (dev/test loopback hatch, transport, resolver). The TEST partner is passed in here. */
   bankApi?: Omit<BankApiOptions, 'testPartner'>;
   /** `BANK_PERSONAL_SEND_REVIEW_JSON`, parsed: the owner's send review rule. Unset, no send is held. */
@@ -322,10 +308,6 @@ export interface BankServiceOptions {
   incomeSorterMinCredit?: string | undefined;
   /** Owner-set minutes a shared pot invite lasts (`BANK_SHARED_POT_INVITE_MINUTES`). No default: blank refuses sharing. */
   sharedPotInviteMinutes?: string | undefined;
-  /** Owner-set minutes a business team invite lasts (`BANK_BUSINESS_INVITE_MINUTES`). No default: blank refuses every invite. */
-  businessInviteMinutes?: string | undefined;
-  /** The bill reader (`BANK_BILL_READER`): `test-lines` on the TEST stack only. Blank: every bill field is typed by hand. */
-  billReader?: string | undefined;
   /** Owner-set people one pot may be shared with (`BANK_SHARED_POT_PEOPLE_CAP`). No default: blank refuses sharing. */
   sharedPotPeopleCap?: string | undefined;
   /**
@@ -579,15 +561,6 @@ export function createBankServices(
   const railPayees = new PayeeService(sql, () =>
     options.payeeCoolingHours !== undefined ? options.payeeCoolingHours : process.env[BANK_PAYEE_COOLING_HOURS_ENV],
   );
-  const business = new BusinessService(
-    sql,
-    ledger,
-    spaces,
-    transfers,
-    options.directory ?? unconfiguredBusinessDirectory(),
-    directoryLookups,
-  );
-
   const bills = new BillPayService(sql, ledger, spaces, options.bills ?? emptyBillPorts());
   const globalSend = new GlobalSendService(
     sql,
@@ -611,12 +584,6 @@ export function createBankServices(
     options.directDebitScheme ?? unsetDirectDebitScheme,
     testPartnerDirectDebits(options.testPartner),
   );
-
-  const businessTeam = new BusinessTeamService(sql, custody, options.directory ?? unconfiguredBusinessDirectory(), {
-    inviteMinutes: () => options.businessInviteMinutes,
-    postingFreeze,
-    noteRefusal: partnerRefusals.note,
-  });
 
   const recovery = new RecoveryClaimService(sql, ledger, spaces, options.identityRecovery ?? unconfiguredIdentityRecovery());
 
@@ -677,21 +644,21 @@ export function createBankServices(
     deposits,
     supportedAssets,
     autoInvest,
-    business,
-    businessTeam,
-    businessPayouts: new BusinessPayoutsService(sql, businessTeam, { postingFreeze, noteRefusal: partnerRefusals.note }),
-    businessBooks: new BusinessBooksService(sql, businessTeam),
-    businessCards: new BusinessCardsService(sql, businessTeam, {
-      postingFreeze,
-      noteRefusal: partnerRefusals.note,
-      custody,
-      testNetwork: options.testPartner != null,
-    }),
-    businessBills: new BusinessBillsService(sql, businessTeam, {
-      reader: () => options.billReader,
-      postingFreeze,
-      noteRefusal: partnerRefusals.note,
-    }),
+    ...composeBusinessServices(
+      {
+        sql,
+        ledger,
+        spaces,
+        transfers,
+        custody,
+        postingFreeze,
+        noteRefusal: partnerRefusals.note,
+        directory: options.directory ?? unconfiguredBusinessDirectory(),
+        directoryLookups,
+        testPartner: options.testPartner != null,
+      },
+      options,
+    ),
     bills,
     globalSend,
     globalHolds,
@@ -736,8 +703,8 @@ export {
   RampService,
   DepositService,
   AutoInvestService,
-  BusinessService,
 };
+export { BusinessService } from './business/business-service.js';
 export { BankError, type BankErrorCode } from './errors.js';
 export {
   createIdentityRecipientState,
