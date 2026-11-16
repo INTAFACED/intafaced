@@ -93,7 +93,7 @@ import { reduceMaps } from './journey-reach.mjs';
 import { runMvnSync } from './mvn-run.mjs';
 import { marketStatus } from './local-test-market.mjs';
 import { serveRailStatements } from './local-test-rail-statements.mjs';
-import { serveTestVenue, testVenueChainId, userVenueCount, userVenueSwitchOn } from './local-test-venue.mjs';
+import { serveTestVenue, testVenueChainId, testVenueId, userVenueCount, userVenueSwitchOn } from './local-test-venue.mjs';
 import { serveTestWalletProvider, TEST_WALLET_PROVIDER_CLIENT_PATH } from './local-test-wallet-provider.mjs';
 import { ensureTestCert, httpsGetTrusting, serveTeamTls } from './local-test-team-tls.mjs';
 import { serveVideoStore } from './local-video-store.mjs';
@@ -1960,9 +1960,18 @@ async function startTestVenue(name = 'test-venue') {
   // #3, #5). It reads anvil directly, not svc-protocol's gate: a journey that shuts the gate shuts it for svc-protocol
   // alone. The second TEST venue (J-derivatives-28) takes no chain deposits: its journeys fund it with TEST deposits.
   const chain = name === 'test-venue' ? testChain() : null;
+  // The venue's id: `LOCAL_STACK_TEST_VENUE_ID`, which the journeys set fresh for each file (world-restore.mjs
+  // `ownVenueFor`); blank keeps the simulator's own. Both venues read it (the second is `<id>-b`).
+  let venueId;
+  try {
+    venueId = testVenueId(process.env.LOCAL_STACK_TEST_VENUE_ID) ?? '';
+  } catch (err) {
+    fail(`LOCAL_STACK_${err.message}`, 2);
+  }
   const env = {
     ...baseEnv(),
     APP_ENV: 'dev',
+    TEST_VENUE_ID: venueId,
     TEST_VENUE_CHAIN_ID: String(testVenueChainId(process.env.TEST_VENUE_CHAIN_ID)),
     TEST_VENUE_RPC_URL: chain?.usdToken ? `http://${HOST}:${CHAIN_PORTS.anvil}` : '',
     TEST_VENUE_DEPOSIT_TOKEN: chain?.usdToken ?? '',
@@ -4526,6 +4535,7 @@ async function runCli() {
       chainId: testVenueChainId(process.env.TEST_VENUE_CHAIN_ID),
       rpcUrl: process.env.TEST_VENUE_RPC_URL,
       depositToken: process.env.TEST_VENUE_DEPOSIT_TOKEN,
+      id: testVenueId(process.env.TEST_VENUE_ID),
     });
   else if (cmd === '__serve-test-venue-b')
     await serveTestVenue({
@@ -4534,6 +4544,7 @@ async function runCli() {
       appEnv: process.env.APP_ENV,
       chainId: testVenueChainId(process.env.TEST_VENUE_CHAIN_ID),
       second: true,
+      id: testVenueId(process.env.TEST_VENUE_ID),
     });
   else if (cmd === 'start' && rest[0] === 'customer-dist')
     cmdCustomerDist(rest.slice(1)); // pnpm local:stack customer-dist <path>
