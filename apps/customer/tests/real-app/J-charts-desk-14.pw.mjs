@@ -840,7 +840,16 @@ test(`${J} #5 uses Buy and Sell buttons on the chart; each shows the live spread
   await expect(page.locator('[data-not-offered="stop"]')).toHaveText('Stop: not offered by this venue');
   await expect(review).toHaveCount(0);
   await page.waitForTimeout(1_000);
-  expect(door.of('preview')).toHaveLength(previews);
+  // The Stop press drafts nothing: any preview since is the ticket refreshing the sell draft it already holds (same
+  // client order key, same limit price), never a stop and never a new order.
+  const since = door
+    .of('preview')
+    .slice(previews)
+    .map((c) => c.body.intent);
+  for (const intent of since) {
+    expect(intent.type).not.toBe('stop');
+    expect(intent).toMatchObject({ clientOrderKey: sold.clientOrderKey, side: 'sell', type: 'limit', price: sold.price });
+  }
   expect(door.sent()).toEqual([]);
   expect(signatures(wallet)).toBe(0);
   expect(await venueOpen(owner)).toEqual(openBefore);
