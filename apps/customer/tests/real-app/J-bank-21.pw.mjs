@@ -220,6 +220,9 @@ test(`${J} #2 funds and confirms the batch: a funding step; at or above the thre
   expect(small).toMatchObject({ status: 'sent', total: '300', approvalsNeeded: 0, threshold: THRESHOLD });
   expect(small.partnerKey).toBe(`bank.business.bulk-pay:${small.id}`);
   expect(small.partnerMoveId).toBeTruthy();
+  // One instruction for all recipients: the partner took both lines in it.
+  expect(small.partnerPayees).toBe(2);
+  await expect(page.getByTestId('bulk-payees')).toHaveAttribute('data-count', '2');
   expect(await held(own, accountId)).toBe('700');
   // Sent once: confirming again answers the same run and the same partner move, and nothing more moves.
   const again = ok(await own.mutate('businessPayouts.confirmRun', { runId: small.id }));
@@ -376,7 +379,8 @@ test(`${J} #4 pays the contractor batch: approval rules apply; the intent row is
   await expect(page.getByTestId('batch-row')).toHaveAttribute('data-status', 'sent');
   await expect(page.getByTestId('batch-status')).toHaveText(`Paid through ${PARTNER_BANK}’s payout rail`);
   const sent = ok(await own.query('businessPayouts.batches', { accountId }))[0];
-  expect(sent).toMatchObject({ id: intent.id, status: 'sent', refusalCode: null });
+  expect(sent).toMatchObject({ id: intent.id, status: 'sent', refusalCode: null, partnerPayees: 1 });
+  await expect(page.getByTestId('batch-payees')).toHaveAttribute('data-count', '1');
   expect(sent.partnerMoveId).toBeTruthy();
   expect(sent.approvals).toHaveLength(1);
   expect(ok(await own.query('businessPayouts.contractors', { accountId }))[0].invoices[0].status).toBe('paid');

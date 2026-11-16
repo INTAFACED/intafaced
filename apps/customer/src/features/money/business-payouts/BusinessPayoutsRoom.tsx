@@ -80,6 +80,7 @@ const copy = defineCopy('money.business-payouts', {
   run_declined: 'Declined by the partner bank: nothing moved',
   runKey: 'Run key',
   partnerRef: 'Partner reference',
+  partnerPayees: 'Recipients in the one instruction: {count}',
   contractorsTitle: 'Contractors',
   contractorsEmpty: 'No contractors yet.',
   name: 'Name',
@@ -491,6 +492,15 @@ function RunView({
             · {t('partnerRef')}: <code data-testid="bulk-move">{run.partnerMoveId}</code>
           </>
         ) : null}
+        {run.partnerPayees !== null ? (
+          <>
+            {' '}
+            ·{' '}
+            <span data-testid="bulk-payees" data-count={run.partnerPayees}>
+              {t('partnerPayees', { count: String(run.partnerPayees) })}
+            </span>
+          </>
+        ) : null}
       </p>
       {run.partnerReasonText ? <p>{run.partnerReasonText}</p> : null}
     </div>
@@ -664,6 +674,15 @@ function BatchRow({ b, label, me, change, t }: { b: BusinessContractorBatch; lab
     <li data-testid="batch-row" data-id={b.id} data-status={b.status} data-refusal={b.refusalCode ?? ''}>
       <span data-testid="batch-status">{status}</span> · {b.total} {b.assetId} ·{' '}
       {b.lines.map((l) => `${l.contractorName} ${l.number}`).join(', ')} · <code>{b.partnerKey}</code>
+      {b.partnerPayees !== null ? (
+        <>
+          {' '}
+          ·{' '}
+          <span data-testid="batch-payees" data-count={b.partnerPayees}>
+            {t('partnerPayees', { count: String(b.partnerPayees) })}
+          </span>
+        </>
+      ) : null}
       {b.partnerReasonText ? ` · ${b.partnerReasonText}` : ''}
       {b.status === 'awaiting_approval' && b.createdBy !== me ? (
         <Button

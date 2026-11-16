@@ -55,6 +55,8 @@ export const businessBulkRunSchema = z
     approvals: z.array(approval),
     partnerKey: z.string(),
     partnerMoveId: z.string().nullable(),
+    /** How many recipients the partner's one instruction carried; null before it is sent. */
+    partnerPayees: z.number().int().nullable(),
     partnerReason: z.string().nullable(),
     partnerReasonText: z.string().nullable(),
     createdAt: iso,
@@ -104,6 +106,8 @@ export const businessContractorBatchSchema = z
     lines: z.array(z.object({ invoiceId: z.string(), contractorName: z.string(), number: z.string(), amount }).strict()),
     partnerKey: z.string(),
     partnerMoveId: z.string().nullable(),
+    /** How many recipients the partner's one instruction carried; null before it is sent. */
+    partnerPayees: z.number().int().nullable(),
     /** `rail.bank` when no partner payout rail carries it; the partner's code when it declined. */
     refusalCode: z.string().nullable(),
     partnerReasonText: z.string().nullable(),

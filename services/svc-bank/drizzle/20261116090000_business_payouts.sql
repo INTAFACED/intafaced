@@ -25,6 +25,8 @@ CREATE TABLE IF NOT EXISTS "bank"."business_bulk_runs" (
   "confirmed_at" timestamptz,
   "partner_key" text NOT NULL UNIQUE,
   "partner_move_id" text,
+  -- How many recipients the partner's one instruction carried, as the partner took it.
+  "partner_payees" integer,
   "partner_reason" text,
   "partner_reason_text" text,
   "sent_at" timestamptz,
@@ -116,6 +118,8 @@ CREATE TABLE IF NOT EXISTS "bank"."business_contractor_batches" (
   "rule_id" uuid REFERENCES "bank"."business_payment_rules" ("id"),
   "partner_key" text NOT NULL UNIQUE,
   "partner_move_id" text,
+  -- How many recipients the partner's one instruction carried, as the partner took it.
+  "partner_payees" integer,
   "refusal_code" text,
   "partner_reason_text" text,
   "sent_at" timestamptz,

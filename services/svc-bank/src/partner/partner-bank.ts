@@ -84,12 +84,25 @@ export interface PartnerBalance {
   readonly label: string;
 }
 
+/** One recipient of a payout the partner carries out to outside bank accounts (J-bank-21): who, where and how much. */
+export interface PartnerPayee {
+  readonly name: string;
+  readonly iban: string;
+  readonly amount: Amount;
+  readonly reference: string | null;
+}
+
 export interface PartnerMoveRequest {
   /** The business key. One key is one move at the partner, however many times it is sent. */
   readonly key: string;
   readonly from: PartnerAccountRef;
   readonly to: PartnerAccountRef;
   readonly amount: Amount;
+  /**
+   * For a payout to outside accounts through the partner's payout rail: every recipient, adding up to `amount` exactly.
+   * One instruction carries them all; the partner refuses a list that does not add up (`bank.partner_amount_invalid`).
+   */
+  readonly payees?: readonly PartnerPayee[];
 }
 
 export interface PartnerMove {
@@ -101,6 +114,8 @@ export interface PartnerMove {
   readonly amount: Amount;
   readonly movedAt: Date;
   readonly label: string;
+  /** The recipients the instruction carried, as the partner took them; absent for a move between accounts. */
+  readonly payees?: readonly PartnerPayee[];
 }
 
 export interface PartnerMovesQuery {

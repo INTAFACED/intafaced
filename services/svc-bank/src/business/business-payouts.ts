@@ -9,6 +9,7 @@ import {
   partnerPayoutsAccount,
   type NoteRefusal,
   type PartnerBank,
+  type PartnerPayee,
   type PostingFreeze,
 } from '../partner/partner-bank.js';
 import { recoverPersonalSignAddress } from '../ramps/wallet-ownership.js';
@@ -25,7 +26,7 @@ import { businessPartnerAccount, pickRule, type BusinessPermission, type Busines
  *                a line that fails is in the validation report with its code and sends nothing, and nothing is held at
  *                import. Confirming the run is the funding step: the business's partner balance must cover the total
  *                (`bank.bulk_run_unfunded`, nothing changes). At or above the business's own threshold the run waits for
- *                an approver who is not the person who confirmed it. Then one instruction to the partner for every line,
+ *                an approver who is not the person who confirmed it. Then one instruction to the partner carrying every line,
  *                `bank.business.bulk-pay:<run id>`, stored before it is sent and sent once; a lost answer is read back by
  *                its key, never sent again blind. A second run cannot reuse the key: the same id on another file is
  *                `bank.business_request_conflict`, and the key is the id's, so it is never blank.
@@ -186,6 +187,8 @@ export interface BulkRun {
   approvals: Array<{ userId: string; approvedAt: Date }>;
   partnerKey: string;
   partnerMoveId: string | null;
+  /** How many recipients the partner's one instruction carried, as the partner took it; null before it is sent. */
+  partnerPayees: number | null;
   partnerReason: string | null;
   partnerReasonText: string | null;
   createdAt: Date;
@@ -229,6 +232,8 @@ export interface ContractorBatch {
   lines: Array<{ invoiceId: string; contractorName: string; number: string; amount: Amount }>;
   partnerKey: string;
   partnerMoveId: string | null;
+  /** How many recipients the partner's one instruction carried, as the partner took it; null before it is sent. */
+  partnerPayees: number | null;
   refusalCode: string | null;
   partnerReasonText: string | null;
   createdAt: Date;
@@ -301,6 +306,7 @@ interface RunRow {
   confirmed_by: string | null;
   partner_key: string;
   partner_move_id: string | null;
+  partner_payees: number | null;
   partner_reason: string | null;
   partner_reason_text: string | null;
   created_at: Date;
@@ -318,6 +324,7 @@ interface BatchRow {
   rule_id: string | null;
   partner_key: string;
   partner_move_id: string | null;
+  partner_payees: number | null;
   refusal_code: string | null;
   partner_reason_text: string | null;
   created_at: Date;
@@ -727,15 +734,24 @@ export class BusinessPayoutsService {
     if (seat.partner) await this.moneyMayMove();
     const rules = await this.team.ruleList(input.accountId);
     const created = await transaction(this.sql, async (tx) => {
-      const invoices = await tx<Array<{ id: string; account_id: string; status: InvoiceStatus; amount: string; asset_id: string }>>`
-        SELECT id, account_id, status, amount, asset_id FROM bank.business_contractor_invoices
-         WHERE id = ANY(${ids}::uuid[]) ORDER BY id FOR UPDATE
+      const invoices = await tx<
+        Array<{ id: string; account_id: string; status: InvoiceStatus; amount: string; asset_id: string; iban: string | null }>
+      >`
+        SELECT i.id, i.account_id, i.status, i.amount, i.asset_id, c.iban FROM bank.business_contractor_invoices i
+          JOIN bank.business_contractors c ON c.id = i.contractor_id
+         WHERE i.id = ANY(${ids}::uuid[]) ORDER BY i.id FOR UPDATE OF i
       `;
       if (invoices.length !== ids.length || invoices.some((i) => i.account_id !== input.accountId)) {
         throw new BankError('Every invoice in a batch is this business’s.', 'bank.contractor_not_found');
       }
       const taken = invoices.find((i) => i.status !== 'open');
       if (taken) throw new BankError('An invoice in this batch is already being paid or paid.', 'bank.contractor_invoice_not_open');
+      if (invoices.some((i) => !i.iban)) {
+        throw new BankError(
+          'A contractor in this batch has no payout IBAN, so the payout rail cannot pay them.',
+          'bank.contractor_field_invalid',
+        );
+      }
       if (invoices.some((i) => i.asset_id !== seat.account.assetId)) {
         throw new BankError(`Every invoice is in ${seat.account.assetId}, the account’s asset.`, 'bank.asset_mismatch');
       }
@@ -1008,6 +1024,14 @@ export class BusinessPayoutsService {
     const seat = await this.team.seat(run.account_id, input.userId);
     this.need(seat.permissions, 'propose');
     if (run.status === 'signed') return this.payrollView(run.payroll_id);
+    // Signed by the business's own wallet as it is now: a run prepared for a wallet since replaced is not signed by it.
+    const current = await this.walletOf(this.sql, run.account_id);
+    if (!current || current.address !== run.wallet_address) {
+      throw new BankError(
+        'The business’s wallet changed since this run was prepared. Prepare a new run for the wallet connected now.',
+        'bank.payroll_wallet_missing',
+      );
+    }
     if (recoverPersonalSignAddress(run.message, input.signature) !== run.wallet_address) {
       throw new BankError(
         'That signature is not from the business’s own wallet. The run stays unsigned.',
@@ -1025,7 +1049,11 @@ export class BusinessPayoutsService {
 
   private async sendRun(row: RunRow, partner: PartnerBank | null): Promise<void> {
     if (!partner) throw noPartner();
-    const answer = await this.sendOnce(partner, row.partner_key, row.account_id, row.asset_id, parseAmount(row.amount));
+    const lines = await this.sql<Array<{ name: string; iban: string; amount: string; reference: string | null }>>`
+      SELECT name, iban, amount, reference FROM bank.business_bulk_lines WHERE run_id = ${row.id}::uuid ORDER BY line
+    `;
+    const payees = lines.map((l) => ({ name: l.name, iban: l.iban, amount: parseAmount(l.amount), reference: l.reference }));
+    const answer = await this.sendOnce(partner, row.partner_key, row.account_id, row.asset_id, parseAmount(row.amount), payees);
     if (answer.declined) {
       await this.sql`
         UPDATE bank.business_bulk_runs SET status = 'declined', partner_reason = ${answer.declined.code},
@@ -1035,14 +1063,22 @@ export class BusinessPayoutsService {
       return;
     }
     await this.sql`
-      UPDATE bank.business_bulk_runs SET status = 'sent', partner_move_id = ${answer.move.id}, sent_at = ${answer.move.movedAt}, answered_at = now()
+      UPDATE bank.business_bulk_runs SET status = 'sent', partner_move_id = ${answer.move.id}, partner_payees = ${answer.move.payees?.length ?? null},
+             sent_at = ${answer.move.movedAt}, answered_at = now()
        WHERE id = ${row.id}::uuid AND status = 'sending'
     `;
   }
 
   private async sendBatch(row: BatchRow, partner: PartnerBank | null): Promise<void> {
     if (!partner) throw noPartner();
-    const answer = await this.sendOnce(partner, row.partner_key, row.account_id, row.asset_id, parseAmount(row.amount));
+    const lines = await this.sql<Array<{ name: string; iban: string; amount: string; number: string }>>`
+      SELECT c.name, c.iban, l.amount, i.number FROM bank.business_contractor_batch_lines l
+        JOIN bank.business_contractor_invoices i ON i.id = l.invoice_id
+        JOIN bank.business_contractors c ON c.id = i.contractor_id
+       WHERE l.batch_id = ${row.id}::uuid ORDER BY i.id
+    `;
+    const payees = lines.map((l) => ({ name: l.name, iban: l.iban, amount: parseAmount(l.amount), reference: l.number }));
+    const answer = await this.sendOnce(partner, row.partner_key, row.account_id, row.asset_id, parseAmount(row.amount), payees);
     await transaction(this.sql, async (tx) => {
       if (answer.declined) {
         const done = await tx`
@@ -1056,7 +1092,8 @@ export class BusinessPayoutsService {
         return;
       }
       const done = await tx`
-        UPDATE bank.business_contractor_batches SET status = 'sent', partner_move_id = ${answer.move.id}, sent_at = ${answer.move.movedAt}, answered_at = now()
+        UPDATE bank.business_contractor_batches SET status = 'sent', partner_move_id = ${answer.move.id}, partner_payees = ${answer.move.payees?.length ?? null},
+               sent_at = ${answer.move.movedAt}, answered_at = now()
          WHERE id = ${row.id}::uuid AND status = 'sending' RETURNING id
       `;
       if (done.length > 0) {
@@ -1076,11 +1113,15 @@ export class BusinessPayoutsService {
     accountId: string,
     assetId: string,
     amount: Amount,
-  ): Promise<{ declined: null; move: { id: string; movedAt: Date } } | { declined: { code: string; text: string }; move: null }> {
+    payees: readonly PartnerPayee[],
+  ): Promise<
+    | { declined: null; move: { id: string; movedAt: Date; payees?: readonly PartnerPayee[] | undefined } }
+    | { declined: { code: string; text: string }; move: null }
+  > {
     try {
       const move =
         (await partner.moveByKey(key)) ??
-        (await partner.move({ key, from: businessPartnerAccount(accountId, assetId), to: partnerPayoutsAccount(assetId), amount }));
+        (await partner.move({ key, from: businessPartnerAccount(accountId, assetId), to: partnerPayoutsAccount(assetId), amount, payees }));
       return { declined: null, move };
     } catch (err) {
       if (err instanceof BankError && DEFINITE_REFUSALS.has(err.code)) {
@@ -1208,6 +1249,7 @@ export class BusinessPayoutsService {
       approvals: approvals.map((a) => ({ userId: a.approver_user_id, approvedAt: a.approved_at })),
       partnerKey: row.partner_key,
       partnerMoveId: row.partner_move_id,
+      partnerPayees: row.partner_payees,
       partnerReason: row.partner_reason,
       partnerReasonText: row.partner_reason_text,
       createdAt: row.created_at,
@@ -1238,6 +1280,7 @@ export class BusinessPayoutsService {
       lines: lines.map((l) => ({ invoiceId: l.invoice_id, contractorName: l.name, number: l.number, amount: parseAmount(l.amount) })),
       partnerKey: row.partner_key,
       partnerMoveId: row.partner_move_id,
+      partnerPayees: row.partner_payees,
       refusalCode: row.refusal_code,
       partnerReasonText: row.partner_reason_text,
       createdAt: row.created_at,

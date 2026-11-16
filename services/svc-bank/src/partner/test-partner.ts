@@ -54,6 +54,11 @@ import {
  * `NODE_ENV=production`, the service refuses to start, as `svc-pay`'s `rails/posture.ts` refuses sandbox rails. Off (the
  * default) there is no adapter and every switch read is "off": nothing changes.
  */
+/** A payee list as one comparable string: the same recipients in the same order are the same instruction. */
+function payeesKey(payees: PartnerMoveRequest['payees']): string {
+  return payees ? JSON.stringify(payees.map((p) => [p.name, p.iban, p.amount.toString(), p.reference])) : '';
+}
+
 export const TEST_PARTNER_SETTINGS = ['off', 'test'] as const;
 export type TestPartnerSetting = (typeof TEST_PARTNER_SETTINGS)[number];
 
@@ -376,7 +381,12 @@ export function testPartner(): TestPartner {
       // The partner deduplicates on the key first: a retry is answered with the move it made, even while it is down.
       const prior = byKey.get(request.key);
       if (prior) {
-        if (!sameAccount(prior.from, request.from) || !sameAccount(prior.to, request.to) || prior.amount !== request.amount) {
+        if (
+          !sameAccount(prior.from, request.from) ||
+          !sameAccount(prior.to, request.to) ||
+          prior.amount !== request.amount ||
+          payeesKey(prior.payees) !== payeesKey(request.payees)
+        ) {
           throw moveConflict(request.key);
         }
         return prior;
@@ -393,6 +403,12 @@ export function testPartner(): TestPartner {
       }
       if (byKey.size >= MAX_MOVES) throw partnerDown();
       if (request.amount <= 0n) throw new BankError('A partner move needs an amount above zero.', 'bank.partner_amount_invalid');
+      if (request.payees) {
+        const sum = request.payees.reduce((total, p) => total + p.amount, 0n);
+        if (request.payees.length === 0 || request.payees.some((p) => p.amount <= 0n) || sum !== request.amount) {
+          throw new BankError('A payout’s recipients must add up to its amount exactly. Nothing was moved.', 'bank.partner_amount_invalid');
+        }
+      }
       if (request.from.assetId !== request.to.assetId) {
         throw new BankError('A partner move stays in one currency; convert first.', 'bank.asset_mismatch');
       }
@@ -423,6 +439,7 @@ export function testPartner(): TestPartner {
         amount: request.amount,
         movedAt: new Date(),
         label: TEST_PARTNER_LABEL,
+        ...(request.payees ? { payees: Object.freeze(request.payees.map((p) => Object.freeze({ ...p }))) } : {}),
       });
       held.set(fromKey, has - request.amount);
       held.set(accountKey(request.to), (held.get(accountKey(request.to)) ?? 0n) + request.amount);

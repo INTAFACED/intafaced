@@ -21,6 +21,7 @@ import { MemoryLedger, parseAmount } from '@intafaced/ledger-client';
 import { createBankServices, memoryRecipientState } from '../bank-service.js';
 import { memoryLedgerHistory } from '../analytics/ledger-history.js';
 import { createBankRouter } from '../router.js';
+import { partnerPayoutsAccount } from '../partner/partner-bank.js';
 import { testPartner, type TestPartner } from '../partner/test-partner.js';
 import { memoryBusinessDirectory, type DirectoryPerson } from './business-directory.js';
 import { bulkPayKey, contractorBatchKey, cryptoPayrollKey, parseBulkCsv } from './business-payouts.js';
@@ -208,7 +209,29 @@ describe('business bulk payments, contractors and crypto payroll (J-bank-21)', (
     const out = (await moves(accountId)).filter((m) => m.key === bulkPayKey(runId));
     expect(out).toHaveLength(1);
     expect(out[0]!.amount).toBe(parseAmount('300'));
+    // The one instruction carries every valid line as its recipients, and nothing from the report.
+    expect(out[0]!.payees?.map((p) => [p.name, p.iban, p.amount, p.reference])).toEqual([
+      ['TEST Ana', IBANS[0], parseAmount('100'), 'Nov'],
+      ['TEST Ben', IBANS[1], parseAmount('150.5'), 'Nov'],
+      ['TEST Cy', IBANS[2], parseAmount('49.5'), 'Nov'],
+    ]);
+    expect(sent.partnerPayees).toBe(3);
     expect(ledger.journal()).toEqual([]);
+  });
+
+  it('the partner refuses an instruction whose recipients do not add up to it, and moves nothing', async () => {
+    const { accountId } = await business();
+    const from = BUSINESS(accountId);
+    const key = `bank.business.bulk-pay:${randomUUID()}`;
+    const payee = { name: 'TEST Ana', iban: IBANS[0]!, reference: null };
+    const to = partnerPayoutsAccount('USDT');
+    await expect(
+      partner.bank.move({ key, from, to, amount: parseAmount('300'), payees: [{ ...payee, amount: parseAmount('100') }] }),
+    ).rejects.toMatchObject({ code: 'bank.partner_amount_invalid' });
+    await expect(partner.bank.move({ key, from, to, amount: parseAmount('300'), payees: [] })).rejects.toMatchObject({
+      code: 'bank.partner_amount_invalid',
+    });
+    expect(await moves(accountId)).toEqual([]);
   });
 
   it('a second run cannot reuse or blank the run key', async () => {
@@ -285,7 +308,12 @@ describe('business bulk payments, contractors and crypto payroll (J-bank-21)', (
     const sent = await as(A1).businessPayouts.approveBatch({ batchId });
     expect(sent.status).toBe('sent');
     expect(await held(accountId)).toBe(parseAmount('500'));
-    expect((await moves(accountId)).filter((m) => m.key === contractorBatchKey(batchId))).toHaveLength(1);
+    const batchOut = (await moves(accountId)).filter((m) => m.key === contractorBatchKey(batchId));
+    expect(batchOut).toHaveLength(1);
+    expect(batchOut[0]!.payees?.map((p) => [p.name, p.iban, p.amount, p.reference])).toEqual([
+      ['TEST Dev Co', IBANS[0], parseAmount('500'), 'TEST-INV-1'],
+    ]);
+    expect(sent.partnerPayees).toBe(1);
     expect((await owner.businessPayouts.contractors({ accountId }))[0]!.invoices[0]!.status).toBe('paid');
     expect(ledger.journal()).toEqual([]);
   });
@@ -360,6 +388,14 @@ describe('business bulk payments, contractors and crypto payroll (J-bank-21)', (
     const signed = await owner.businessPayouts.signRun({ runId: run.id, signature: personalSign(run.message, KEY) });
     expect(signed.runs[0]!.status).toBe('signed');
     expect(signed.runs[0]!.walletAddress).toBe(address);
+
+    // The business replaces its wallet: a run prepared for the old one is no longer signed by it.
+    const later = (await owner.businessPayouts.prepareRun({ payrollId, period: '2027-01' })).runs.find((r) => r.period === '2027-01')!;
+    const next = await owner.businessPayouts.walletOffer({ accountId, address: addressOf(OTHER_KEY) });
+    await owner.businessPayouts.connectWallet({ offerId: next.offerId, signature: personalSign(next.message, OTHER_KEY) });
+    expect(await refused(owner.businessPayouts.signRun({ runId: later.id, signature: personalSign(later.message, KEY) }))).toBe(
+      'bank.payroll_wallet_missing',
+    );
     // INTAFACED holds none of it: the partner balance and the ledger are untouched.
     expect(await held(accountId)).toBe(parseAmount('1000'));
     expect(ledger.journal()).toEqual([]);
