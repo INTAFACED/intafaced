@@ -157,7 +157,7 @@ describe('catalog — the key set is closed and complete', () => {
   });
 
   it('accepts a complete catalog through defineCatalog', () => {
-    const clone = defineCatalog(structuredClone(en) as unknown as Catalog);
+    const clone = defineCatalog(structuredClone(en) as Catalog);
     expect(coverage(clone).missing).toEqual([]);
   });
 
