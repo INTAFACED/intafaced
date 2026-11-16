@@ -316,6 +316,11 @@ test('no-number-money: the customer app never makes money a float, and chartValu
     [`${C}features/x/held.ts`]: 'export function f(p: string) {\n  const y = chartValue(p) * 2;\n  return y.toFixed(2);\n}\n',
     [`${C}features/x/names.ts`]:
       'export const a = (o: { price: string }) => parseFloat(o.price);\nexport const b = (amount: string) => +amount;\nexport const c = (t: string) => Number(t.trim()) + Number.parseFloat(feeTotal);\n',
+    [`${C}features/x/parts.ts`]:
+      'export const a = (o: { priceUsd: string }) => Number(o.priceUsd);\nexport const b = (amount_in: string) => Number(amount_in);\nexport const c = (bar: { c: string }) => Number(bar.c);\nexport const d = (prices: string[]) => prices.map(Number);\n',
+    [`${C}features/x/rates.ts`]:
+      'export const a = (feeBps: string) => Number(feeBps);\nexport const b = (m: { open: boolean }) => Number(m.open);\nexport const c = (ids: string[]) => ids.map(Number);\n',
+    [`${C}data/poll.spec.ts`]: 'export const ms = (s: string) => Number(s);\n',
     // The folders the scanner tests judged: every float conversion, whatever it is called.
     [`${C}data/poll.ts`]: 'export const ms = (s: string) => Number(s);\n',
     [`${C}data/deep/fixed.ts`]: 'export const f = (n: number) => n.toFixed(2);\n',
@@ -356,6 +361,9 @@ test('no-number-money: the customer app never makes money a float, and chartValu
   fires(`${C}features/x/label.ts`);
   fires(`${C}features/x/held.ts`);
   fires(`${C}features/x/names.ts`, 3);
+  fires(`${C}features/x/parts.ts`, 4);
+  fires(`${C}features/x/rates.ts`, 0);
+  fires(`${C}data/poll.spec.ts`);
   fires(`${C}data/poll.ts`);
   fires(`${C}data/deep/fixed.ts`);
   fires(`${C}screens/trade/desk/Book.tsx`);

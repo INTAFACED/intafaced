@@ -175,7 +175,7 @@ export function ChartTrading({
     if (projected)
       lines.push(
         host.main.createPriceLine({
-          price: Number(projected),
+          price: chartValue(projected),
           color: colour(side),
           lineWidth: 1,
           lineStyle: 2,
@@ -195,7 +195,7 @@ export function ChartTrading({
         }),
       );
     // The price scale takes in every line, so an order far from the bars is still on the chart to read and to drag.
-    const prices = [projected, ...lineOrders.map((order) => order.price)].filter((p): p is string => !!p).map(Number);
+    const prices = [projected, ...lineOrders.map((order) => order.price)].filter((p): p is string => !!p).map((p) => chartValue(p));
     if (prices.length > 0)
       host.main.applyOptions({
         autoscaleInfoProvider: (original: () => { priceRange: { minValue: number; maxValue: number } } | null) => {

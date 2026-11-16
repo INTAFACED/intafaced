@@ -222,11 +222,11 @@ function chartBars(rows: readonly OHLCV[], type: string): Bar[] {
     .map((row) => {
       const raw = {
         time: Math.floor(row[0] / 1000),
-        open: Number(row[1]),
-        high: Number(row[2]),
-        low: Number(row[3]),
-        close: Number(row[4]),
-        volume: Number(row[5]),
+        open: chartValue(row[1]),
+        high: chartValue(row[2]),
+        low: chartValue(row[3]),
+        close: chartValue(row[4]),
+        volume: chartValue(row[5]),
       };
       if (
         !Object.values(raw).every(Number.isFinite) ||
@@ -877,12 +877,19 @@ export function MarketChart({
           (!showLiquidation && kind === 'liquidation') ||
           value === null ||
           parseAmount(value) <= 0n ||
-          !Number.isFinite(Number(value))
+          !Number.isFinite(chartValue(value))
         )
           continue;
         const resolvedColor = getComputedStyle(document.documentElement).getPropertyValue(color.slice(4, -1)).trim();
         positionLines.current.push(
-          series.createPriceLine({ price: Number(value), color: resolvedColor, title, lineWidth: 1, lineStyle: 2, axisLabelVisible: true }),
+          series.createPriceLine({
+            price: chartValue(value),
+            color: resolvedColor,
+            title,
+            lineWidth: 1,
+            lineStyle: 2,
+            axisLabelVisible: true,
+          }),
         );
       }
     }

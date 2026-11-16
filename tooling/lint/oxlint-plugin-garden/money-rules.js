@@ -75,7 +75,8 @@ const noNumberMoney = {
     },
   },
   create(context) {
-    if (isTest(context)) return {};
+    // A test-like file in a money folder is judged as the old scanners judged it: only *.test.* files were left out.
+    if (isTest(context)) return /\.test\.[cm]?[jt]sx?$/u.test(String(context.filename)) ? {} : customerFloats(context, true);
     const check = (node) => {
       for (const c of checksIn(node.test)) {
         const numberBranch = c.negated ? node.alternate : node.consequent;
@@ -100,8 +101,32 @@ const STRICT = [
   (rel) => /^screens\/trade\/desk\/[^/]+$/u.test(rel),
   (rel) => /^screens\/trade\/options\/[^/]+$/u.test(rel),
 ];
-const MONEY_NAME =
-  /(?:^|[a-z])(?:amount|balance|fee|price|notional|total|minor|cents|units|cost|pnl|margin|collateral|equity|premium|strike|payout|principal|volume|size|qty|quantity)s?$/iu;
+const MONEY_WORDS = new Set(
+  'amount balance fee price notional total minor cents units cost pnl margin collateral equity premium strike payout principal volume size qty quantity'.split(
+    ' ',
+  ),
+);
+const NOT_MONEY_WORDS = new Set('bps pct percent ratio rate count index ms seconds places digits decimals precision'.split(' '));
+const CANDLE_FIELDS = new Set(['o', 'h', 'l', 'c', 'v']);
+const unwrap = (n) =>
+  ['ChainExpression', 'TSAsExpression', 'TSNonNullExpression', 'TSSatisfiesExpression', 'ParenthesizedExpression'].includes(n?.type)
+    ? unwrap(n.expression)
+    : n;
+/** The value's name when it says money: a money word anywhere in it (`priceUsd`, `amount_in`) and no rate word (`feeBps`),
+ * or a candle's field (`bar.c`); else null. */
+function moneyName(arg) {
+  const n = unwrap(arg);
+  if (n?.type === 'MemberExpression' && !n.computed && CANDLE_FIELDS.has(n.property?.name))
+    return `${nameOf(n.object) ?? '…'}.${n.property.name}`;
+  const name = nameOf(n);
+  if (!name) return null;
+  const parts = name
+    .split(/_|-|(?<=[a-z0-9])(?=[A-Z])/u)
+    .map((w) => w.toLowerCase())
+    .filter(Boolean);
+  if (parts.some((w) => NOT_MONEY_WORDS.has(w))) return null;
+  return parts.some((w) => MONEY_WORDS.has(w) || (w.endsWith('s') && MONEY_WORDS.has(w.slice(0, -1)))) ? name : null;
+}
 const EXIT = 'chartValue';
 const EXIT_FILE = 'shared/chart-value.ts';
 const FLOAT_FIX =
@@ -143,11 +168,12 @@ function floatCall(n) {
   return 'Number()';
 }
 
-function customerFloats(context) {
+function customerFloats(context, strictOnly = false) {
   const path = String(context.filename).split('\\').join('/');
   const rel = CUSTOMER.exec(path)?.[1];
   if (!rel || !SOURCE.test(rel)) return {};
   const strict = STRICT.some((inFolder) => inFolder(rel));
+  if (strictOnly && !strict) return {};
   const exitFile = rel === EXIT_FILE;
   const exitValues = new Set(); // local consts that hold a chartValue() result
   const isExit = (n) => n?.type === 'CallExpression' && n.callee?.type === 'Identifier' && n.callee.name === EXIT;
@@ -190,8 +216,8 @@ function customerFloats(context) {
   };
   const float = (node, kind, arg) => {
     if (inExit) return;
-    const name = nameOf(arg);
-    if (name && MONEY_NAME.test(name)) context.report({ node, message: `\`${name}\` is money and ${kind} makes it a float: ${FLOAT_FIX}` });
+    const name = moneyName(arg);
+    if (name) context.report({ node, message: `\`${name}\` is money and ${kind} makes it a float: ${FLOAT_FIX}` });
     else if (strict)
       context.report({ node, message: `${kind} in a money folder (data/, the desk, the Options room) makes a float: ${FLOAT_FIX}` });
   };
@@ -210,6 +236,9 @@ function customerFloats(context) {
       const kind = floatCall(node);
       if (kind) return void (node.arguments[0] && float(node, kind, node.arguments[0]));
       const c = node.callee;
+      const mapped = node.arguments[0]?.type === 'Identifier' && ['Number', 'parseFloat'].includes(node.arguments[0].name);
+      if (c?.type === 'MemberExpression' && !c.computed && c.property?.name === 'map' && mapped)
+        float(node, `.map(${node.arguments[0].name})`, c.object);
       if (strict && c?.type === 'MemberExpression' && !c.computed && c.property?.name === 'toFixed') float(node, '.toFixed()', c.object);
       if (c?.type === 'Identifier' && TEXT_CALLS.has(c.name) && node.arguments.some(holdsExit)) leak(node, `${c.name}()`);
       if (c?.type === 'MemberExpression' && !c.computed && TEXT_METHODS.has(c.property?.name)) {

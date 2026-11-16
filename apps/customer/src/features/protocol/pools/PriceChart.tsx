@@ -29,7 +29,7 @@ export function candleGeometry(candles: readonly PoolCandle[], window: { start: 
       x,
       wick: { y1: y(c.high), y2: y(c.low) },
       body: { x: x - body / 2, y: Math.min(open, close), width: body, height: Math.max(Math.abs(open - close), 1) },
-      rising: Number(c.close) >= Number(c.open),
+      rising: chartValue(c.close) >= chartValue(c.open),
     };
   });
 }
