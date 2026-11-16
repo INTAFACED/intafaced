@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { TIMEFRAME_MS } from '@intafaced/exchange-contract/schemas';
 import { DataTable } from '../../../shared/ui';
 import { displayAmount } from '../../../shared/money';
@@ -37,7 +37,21 @@ export function venueChartCandles(rows: readonly VenueCandle[], interval: ChartI
  * The venue market's own ticker, book, chart and tape on the spot desk (J-cex-spot-01 #5): every figure is the venue's,
  * read through svc-trade's user-venue door, with the venue's as-of time. Nothing here comes from our engine.
  */
-export function VenueMarketPanel({ market, test, venueName }: { market: VenueMarket; test: boolean; venueName: string }) {
+export function VenueMarketPanel({
+  market,
+  test,
+  venueName,
+  chartTools,
+  chartTrade,
+}: {
+  market: VenueMarket;
+  test: boolean;
+  venueName: string;
+  /** Controls on the chart's bar (J-charts-desk-14: the chart's market and Open DOM). */
+  chartTools?: ReactNode;
+  /** Buy and Sell on the chart, under it (J-charts-desk-14 #5). */
+  chartTrade?: ReactNode;
+}) {
   const { t } = spotVenueCopy.useCopy();
   const d = deskCopy.useCopy().t;
   const venue = useVenueApi();
@@ -126,6 +140,7 @@ export function VenueMarketPanel({ market, test, venueName }: { market: VenueMar
               </button>
             ))}
           </div>
+          {chartTools}
         </div>
         <div className="dk-chart-body">
           {chart === null ? (
@@ -148,6 +163,7 @@ export function VenueMarketPanel({ market, test, venueName }: { market: VenueMar
             />
           )}
         </div>
+        {chartTrade}
       </div>
 
       <Tabs value={tab} onValueChange={(x) => setTab(x as typeof tab)} data-testid="venue-book-tape">

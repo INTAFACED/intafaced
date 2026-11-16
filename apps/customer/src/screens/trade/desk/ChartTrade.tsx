@@ -6,13 +6,23 @@
  */
 import { memo, useId, useState } from 'react';
 import { fmtPrice, refusalCopy } from './deps';
-import type { DeskMarket } from './market';
 import { flowCopy } from './order-flow-copy';
-import { spreadOf } from './order-flow';
+import { spreadOf, type FlowMarket } from './order-flow';
 import { scaled, type Reference } from './order-math';
 import { UNSUPPORTED_TYPES } from './tif';
 
-export type ChartOrderType = 'market' | 'limit' | (typeof UNSUPPORTED_TYPES)[number];
+export type ChartOrderType = 'market' | 'limit' | string;
+
+/**
+ * An order type the chart lists that this market does not take: its name in the kind list, and the reason (with its code)
+ * a press shows instead of making a draft.
+ */
+export interface RefusedChartType {
+  id: string;
+  label: string;
+  reason: string;
+  code: string;
+}
 
 export interface ChartPick {
   side: 'buy' | 'sell';
@@ -30,15 +40,27 @@ export function clickAmountOk(amount: string, lotSize: string): boolean {
 }
 
 interface Props {
-  market: DeskMarket;
+  market: FlowMarket;
   reference: Reference | null;
   amount: string;
   onAmount: (amount: string) => void;
   onTrade: (pick: ChartPick) => void;
+  /** The types this market refuses; none given, today's desk's (trailing stop, `trade.order_type_unsupported`). */
+  refused?: readonly RefusedChartType[];
 }
 
-export const ChartTrade = memo(function ChartTrade({ market, reference, amount, onAmount, onTrade }: Props) {
+export const ChartTrade = memo(function ChartTrade({ market, reference, amount, onAmount, onTrade, refused }: Props) {
   const { t } = flowCopy.useCopy();
+  const todays = (): RefusedChartType[] => {
+    const words = refusalCopy('trade.order_type_unsupported');
+    return UNSUPPORTED_TYPES.map((kind) => ({
+      id: kind,
+      label: t('Type trailing'),
+      reason: `${words.title}. ${words.body}`,
+      code: 'trade.order_type_unsupported',
+    }));
+  };
+  const refusedTypes = refused ?? todays();
   const id = useId();
   const [type, setType] = useState<ChartOrderType>('market');
   const [note, setNote] = useState<{ tone: 'bad'; text: string; code?: string } | null>(null);
@@ -50,8 +72,8 @@ export const ChartTrade = memo(function ChartTrade({ market, reference, amount, 
   const press = (side: 'buy' | 'sell') => {
     setNote(null);
     if (type !== 'market' && type !== 'limit') {
-      const words = refusalCopy('trade.order_type_unsupported');
-      setNote({ tone: 'bad', text: `${words.title}. ${words.body}`, code: 'trade.order_type_unsupported' });
+      const why = refusedTypes.find((kind) => kind.id === type);
+      if (why) setNote({ tone: 'bad', text: why.reason, code: why.code });
       return;
     }
     if (amount.trim() === '') return setNote({ tone: 'bad', text: t('Click amount first') });
@@ -99,9 +121,9 @@ export const ChartTrade = memo(function ChartTrade({ market, reference, amount, 
         >
           <option value="market">{t('Type market')}</option>
           <option value="limit">{t('Type limit')}</option>
-          {UNSUPPORTED_TYPES.map((kind) => (
-            <option key={kind} value={kind}>
-              {t('Type trailing')}
+          {refusedTypes.map((kind) => (
+            <option key={kind.id} value={kind.id}>
+              {kind.label}
             </option>
           ))}
         </select>

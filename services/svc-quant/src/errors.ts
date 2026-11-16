@@ -38,6 +38,23 @@ export const QUANT_IDEMPOTENCY_KEY_INVALID = 'quant.idempotency_key_invalid' as 
 export const QUANT_IDEMPOTENCY_KEY_REUSED = 'quant.idempotency_key_reused' as const;
 export const QUANT_RUN_UNFINISHED = 'quant.run_unfinished' as const;
 export const QUANT_RUN_NOT_SIMULATED = 'quant.run_not_simulated' as const;
+/** Monte Carlo resampling of a finished backtest (RC-algo-dev-04; J-algo-dev-16 #3): owner values blank, or too few trips. */
+export const QUANT_MONTECARLO_RUNS_UNSET = 'quant.montecarlo_runs_unset' as const;
+export const QUANT_MONTECARLO_MIN_TRADES_UNSET = 'quant.montecarlo_min_trades_unset' as const;
+export const QUANT_MONTECARLO_TRADES_INSUFFICIENT = 'quant.montecarlo_trades_insufficient' as const;
+/** The market data lake (RC-algo-dev-02; J-algo-dev-16 #2): no capture configured, or retention blank. */
+export const QUANT_LAKE_STORE_UNSET = 'quant.lake_store_unset' as const;
+export const QUANT_LAKE_RETENTION_UNSET = 'quant.lake_retention_unset' as const;
+export const QUANT_LAKE_SYMBOL_UNKNOWN = 'quant.lake_symbol_unknown' as const;
+/** The account's approval policy for live use (RC-algo-dev-01; J-algo-dev-16 #4). */
+export const QUANT_APPROVAL_POLICY_UNSET = 'quant.approval_policy_unset' as const;
+export const QUANT_APPROVAL_REQUIRED = 'quant.approval_required' as const;
+export const QUANT_APPROVAL_SELF_REVIEW = 'quant.approval_self_review' as const;
+export const QUANT_APPROVAL_HASH_STALE = 'quant.approval_hash_stale' as const;
+export const QUANT_APPROVAL_NOT_FOUND = 'quant.approval_not_found' as const;
+export const QUANT_APPROVAL_NOT_REVIEWER = 'quant.approval_not_reviewer' as const;
+export const QUANT_APPROVAL_DECIDED = 'quant.approval_decided' as const;
+/** A sandbox run asked for a language whose runtime this deployment does not run. */
 export const QUANT_RUN_RESULT_CAP_UNSET = 'quant.run_result_cap_unset' as const;
 export const QUANT_RUN_RESULT_TOO_LARGE = 'quant.run_result_too_large' as const;
 export const QUANT_CLAIM_PNL_UNSET = 'quant.claim_pnl_unset' as const;
@@ -249,6 +266,19 @@ export type QuantCode =
   | typeof QUANT_IDEMPOTENCY_KEY_REQUIRED
   | typeof QUANT_IDEMPOTENCY_KEY_INVALID
   | typeof QUANT_IDEMPOTENCY_KEY_REUSED
+  | typeof QUANT_MONTECARLO_RUNS_UNSET
+  | typeof QUANT_MONTECARLO_MIN_TRADES_UNSET
+  | typeof QUANT_MONTECARLO_TRADES_INSUFFICIENT
+  | typeof QUANT_LAKE_STORE_UNSET
+  | typeof QUANT_LAKE_RETENTION_UNSET
+  | typeof QUANT_LAKE_SYMBOL_UNKNOWN
+  | typeof QUANT_APPROVAL_POLICY_UNSET
+  | typeof QUANT_APPROVAL_REQUIRED
+  | typeof QUANT_APPROVAL_SELF_REVIEW
+  | typeof QUANT_APPROVAL_HASH_STALE
+  | typeof QUANT_APPROVAL_NOT_FOUND
+  | typeof QUANT_APPROVAL_NOT_REVIEWER
+  | typeof QUANT_APPROVAL_DECIDED
   | 'quant.params_invalid';
 
 export class QuantError extends Error {

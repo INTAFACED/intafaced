@@ -37,7 +37,7 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *   GET  /health, GET /venue                         descriptor, chain id, label TEST, and the deposit route (or null)
  *   POST /markets {account|null}, /preview {account,intent}, /prepare {account,signer,intent},
  *        /submit {prepared,signature}, /balances|/open-orders|/positions|/agents {account},
- *        /order-by-client-id {account,venueClientOrderId}, /fills {account,since}, /withdrawal {account,nonce}, /deposits {account},
+ *        /order-history {account}, /order-by-client-id {account,venueClientOrderId}, /fills {account,since}, /withdrawal {account,nonce}, /deposits {account},
  *        /builder-fee-approval {account,builder}, /builder-totals {builder}, /builder-claims {builder},
  *        /leverage {account,symbol}, /book {symbol,depth},
  *        /sub-accounts {account}, /transfer {account,nonce}   (UserVenueSubAccountReads, on the main account)
@@ -55,6 +55,7 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *                                                         that long (at most 10 s) before the venue applies it
  *        /test/settle-withdrawals, /test/set-mark {symbol,price}   the mark moves; a trigger order it crosses fires
  *        /test/set-index {symbol,price}                   a perpetual's TEST index (oracle) price, as the venue publishes it
+ *        /test/market-triggers {symbol,sources}           the prices a perpetual's trigger orders may be judged on ([]: none)
  *        /test/pull-ladder {symbol,side: 'bid'|'ask'}     the TEST makers cancel that side of the market's seeded ladder
  *        /test/ladder-mid {symbol,price}               the TEST makers rest that market's seeded ladder again around price (its mid)
  *        /test/builder-claim {builder}                     the builder claims every unclaimed builder fee into its own account
@@ -712,6 +713,8 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       return figuresAsSwitched(sim, account(body).owner, await sim.positions(account(body)));
     case '/agents':
       return sim.agents(account(body));
+    case '/order-history':
+      return sim.orderHistory(account(body));
     case '/order-by-client-id':
       return sim.orderByClientId(account(body), str(body, 'venueClientOrderId'));
     case '/order-signer':
@@ -888,6 +891,13 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       sim.setOpenInterestCap(symbol, cap as Amount | null);
       const market = (await sim.markets(null)).value.find((m) => m.symbol === symbol);
       return { openInterest: market?.openInterest ?? { known: false }, label: 'TEST' };
+    }
+    case '/test/market-triggers': {
+      const sources = body.sources;
+      if (!Array.isArray(sources) || sources.some((x) => x !== 'mark' && x !== 'last'))
+        throw new VenueWireError('sources is a list of "mark" and "last" ([] for none)');
+      sim.setTriggerSources(str(body, 'symbol'), sources as ('mark' | 'last')[]);
+      return { ok: true, label: 'TEST' };
     }
     case '/test/market-fees': {
       const fee = (k: string): MaybeKnown<Amount> => {

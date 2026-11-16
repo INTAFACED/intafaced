@@ -3,6 +3,7 @@ import { Badge, Checkbox } from '@intafaced/ui';
 import { Button, DataTable } from '../../../shared/ui';
 import { usePreferences } from '../../../shared/preferences';
 import { displayAmount } from '../../../shared/money';
+import { formatAmount, mul, parseAmount } from '@intafaced/money-math';
 import { useSession } from '../../session/session';
 import { StepUpConfirm } from '../../money/StepUpConfirm';
 import { WalletProvider, useWallet } from '../../protocol/wallet/WalletProvider';
@@ -553,10 +554,13 @@ export function FillsTable({
   test,
   symbol,
   tagOf,
+  withTotal = false,
 }: {
   fills: AsOf<VenueFill[]> | null;
   test: boolean;
   symbol?: string;
+  /** Given, each row also has its total, price times size in the quote asset (Activity, Trades: J-cex-spot-06 #8). */
+  withTotal?: boolean;
   /** The person's own tag on an order, by client id; given, the table has a Tag column. */
   tagOf?: (clientOrderId: string) => string | undefined;
 }) {
@@ -577,6 +581,7 @@ export function FillsTable({
             t('Side'),
             t('Price'),
             t('Amount'),
+            ...(withTotal ? [t('Total')] : []),
             t('Role'),
             t('Venue fee'),
             t('Our builder fee'),
@@ -596,6 +601,11 @@ export function FillsTable({
               <td className="numeric" data-cell="amount">
                 {displayAmount(f.amount)}
               </td>
+              {withTotal ? (
+                <td className="numeric" data-cell="total">
+                  {displayAmount(fillTotal(f))} {f.symbol.split('-')[1] ?? ''}
+                </td>
+              ) : null}
               <td data-cell="role">{word(t, 'role', f.role)}</td>
               <td className="numeric" data-cell="venue-fee">
                 {f.venueFee}
@@ -615,6 +625,11 @@ export function FillsTable({
       <AsOfLine asOf={fills?.asOf ?? null} />
     </div>
   );
+}
+
+/** A fill's total: its price times its size, exact (both are the venue's decimals). */
+export function fillTotal(f: VenueFill): string {
+  return formatAmount(mul(parseAmount(f.price), parseAmount(f.amount), 'half-up'));
 }
 
 /**
@@ -685,7 +700,15 @@ export function OrdersTable({
                   ) : null}
                 </td>
               ) : null}
-              <td>{o.symbol}</td>
+              <td>
+                {o.venueClientOrderId ? (
+                  <a className="text-link" data-testid="venue-order-link" href={`/trade/orders/${o.venueClientOrderId}`}>
+                    {o.symbol}
+                  </a>
+                ) : (
+                  o.symbol
+                )}
+              </td>
               <td>{word(t, 'side', o.side)}</td>
               <td>{word(t, 'type', o.type)}</td>
               <td data-cell="tif">{word(t, 'tif', o.timeInForce)}</td>

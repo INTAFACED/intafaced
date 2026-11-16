@@ -84,6 +84,7 @@ export type LiveRunCode =
   | 'quant.live_plan_unsupported'
   | 'quant.live_plan_unavailable'
   | 'quant.studio_not_found'
+  | 'quant.approval_required'
   | 'quant.live_sub_account_unknown'
   | 'quant.live_run_reused'
   | 'quant.run_not_found'
@@ -488,6 +489,16 @@ export class LiveRuns {
       throw error;
     }
     if (!version) fail('quant.studio_not_found', 'no saved strategy with that id and version on this account', 404);
+    // The account's live approval policy (J-algo-dev-16 #4): a version a different member has not approved, or one whose
+    // rules or risk settings changed since, starts nothing.
+    if (version.approvalRequired) {
+      fail(
+        'quant.approval_required',
+        `version ${strategyVersion} needs a different member's approval before it can go live; nothing was stored`,
+        409,
+        { strategyVersion },
+      );
+    }
     if (version.signalRules || version.blocks.length === 0) {
       fail(
         'quant.live_plan_unsupported',

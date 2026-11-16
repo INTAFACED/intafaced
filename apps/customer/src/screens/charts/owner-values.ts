@@ -51,6 +51,28 @@ export function useChartOwnerValues(symbol: string): Loadable<ChartOwnerValues> 
   );
 }
 
+/**
+ * The owner's counts alone, for a market our engine does not list (a venue market: J-charts-desk-14's venue DOM), so no
+ * data class is asked for and an unknown symbol is never sent.
+ */
+export function useChartOwnerCounts(): Loadable<ChartOwnerValues> {
+  const env = useDataEnv();
+  return useSource(
+    useMemo(
+      () =>
+        env.poller.source<ChartOwnerValues>(
+          'chart-owner-values',
+          (signal) =>
+            env.api.rest('/charts/owner-values', chartOwnerValuesSchema, { signal }) as Promise<
+              { ok: true; data: ChartOwnerValues } | { ok: false; reason: string; code?: string; status?: number }
+            >,
+          { intervalMs: OWNER_VALUES_POLL_MS },
+        ),
+      [env],
+    ),
+  );
+}
+
 /** One value from a read, or why it cannot be used: still loading, the read failed, or the owner has not set it. */
 export function ownerValue<K extends keyof ChartOwnerValues>(
   read: Loadable<ChartOwnerValues>,
