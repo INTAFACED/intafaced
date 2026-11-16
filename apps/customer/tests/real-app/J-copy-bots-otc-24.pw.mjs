@@ -4,6 +4,7 @@ import { test, expect } from './journey.mjs';
 import { approverSessions, makeContext, setFeeDiscountSchedule } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { api, fromUnits, fund, journeyState, signOutBrowser, toUnits, tool } from './stack.mjs';
 import { fundedTrader, signIn, signUp } from './desk.mjs';
+import { agePast } from './test-age.mjs';
 
 // J-copy-bots-otc-24, in the running app (docs/roadmap/journeys.json): ask the quote desk at /otc for a firm price on a
 // large trade and settle it. One test per step, titled "J-copy-bots-otc-24 #<n>". The trader is a TEST account on the
@@ -616,7 +617,7 @@ test(`${J} #5 board of requests: one quote per provider asked, grouped by status
   await settledCard.getByRole('button', { name: 'Settle', exact: true }).click();
   await dialog(page).getByRole('button', { name: 'Settle now' }).click();
   await expect(settledCard.getByTestId('phase-line')).toContainText('Settled. The trade is complete.');
-  await page.waitForTimeout(Math.max(0, Date.parse((await rfq(expiring)).expiresAt) - Date.now()) + 1_000);
+  await agePast('trade', 'otc-quote', expiring, (await rfq(expiring)).expiresAt);
 
   // One request to three providers, ticked in this order.
   await page.goto('/otc');
@@ -826,7 +827,7 @@ test(`${J} #7 deferred settle: one posting inside the window, refused past it, "
 
   // After the window: the other accepted quote refuses to settle, and nothing moves.
   const lateBound = await rfq(lateId);
-  await page.waitForTimeout(Math.max(0, Date.parse(lateBound.settleBy) - Date.now()) + 1_000);
+  await agePast('trade', 'otc-quote', lateId, lateBound.settleBy);
   await page.goto(`/otc?quoteId=${lateId}`);
   await expect(card(page).getByTestId('phase-line')).toContainText('Accepted, not settled');
   await card(page).getByRole('button', { name: 'Settle', exact: true }).click();
@@ -852,7 +853,7 @@ test(`${J} #7 deferred settle: one posting inside the window, refused past it, "
       /^Not set: no deferral, settle by the quote expiry \d{2} [A-Z][a-z]{2}, \d{2}:\d{2}/,
     );
     const beforeBlank = await balances();
-    await page.waitForTimeout(Math.max(0, Date.parse(blankBound.expiresAt) - Date.now()) + 1_000);
+    await agePast('trade', 'otc-quote', blankId, blankBound.expiresAt);
     await page.goto(`/otc?quoteId=${blankId}`);
     await card(page).getByRole('button', { name: 'Settle', exact: true }).click();
     await dialog(page).getByRole('button', { name: 'Settle now' }).click();
@@ -870,9 +871,9 @@ test(`${J} #8 expiry then re-price: the old quote stays expired, a new one exist
   await openOtc(page);
   const quote = await ask(page);
   const oldId = await quote.getAttribute('data-quote-id');
-  const old = await rfq(oldId);
+  const asked = await rfq(oldId);
   const before = await balances();
-  await page.waitForTimeout(Math.max(0, Date.parse(old.expiresAt) - Date.now()) + 1_000);
+  const old = { ...asked, expiresAt: (await agePast('trade', 'otc-quote', oldId, asked.expiresAt)).expiresAt };
   // The service, not the screen's clock, says it expired.
   await quote.getByRole('button', { name: 'Check status' }).click();
   await expect(quote.getByTestId('phase-line')).toContainText('Expired.');
