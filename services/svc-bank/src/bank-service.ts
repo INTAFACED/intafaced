@@ -53,7 +53,7 @@ import { RecoveryClaimService } from './recovery/recovery-claims.js';
 import { unconfiguredIdentityRecovery, type IdentityRecoveryPort } from './recovery/identity-recovery.js';
 import { BillsPotService } from './spaces/bills-pot.js';
 import { composeBusinessServices, type BusinessServiceOptions, type BusinessServices } from './business/compose.js';
-import { BankApiService, type BankApiOptions } from './developer-api/bank-api.js';
+import { composeDeveloperApiServices, type DeveloperApiServiceOptions, type DeveloperApiServices } from './developer-api/compose.js';
 import { BusinessLookupLimiter, unconfiguredBusinessDirectory, type BusinessDirectoryPort } from './business/business-directory.js';
 import { PortfolioService, type PortfolioServiceOptions } from './portfolio/portfolio-service.js';
 import { ActivityService, type ActivityServiceOptions } from './activity/activity-service.js';
@@ -99,7 +99,7 @@ import { emptyBillPorts, emptyGlobalPorts, type BillPorts, type GlobalPorts } fr
  * spreads it; `bank-service.compose.test.ts` holds the line.
  */
 
-export interface BankServices extends BusinessServices {
+export interface BankServices extends BusinessServices, DeveloperApiServices {
   /** The owner's values for onboarding, information requests and reopening a bank account (J-bank-17); null is unpublished. */
   readonly bankAccountTerms: BankAccountTerms;
   /** The owner's notice for a blocked region (`BANK_BLOCKED_REGION_NOTICE`, BK-safe-01). No default: blank reads "not published". */
@@ -174,8 +174,6 @@ export interface BankServices extends BusinessServices {
   /** W-balances-05: svc-ledger's supported asset and network list, every state, as customers read it. */
   readonly supportedAssets: { list(): Promise<SupportedAssetView[]> };
   readonly autoInvest: AutoInvestService;
-  /** J-bank-24: the bank API: accounts with filters, moves on the partner's quote, payments out and their webhooks. */
-  readonly bankApi: BankApiService;
   readonly bills: BillPayService;
   readonly globalSend: GlobalSendService;
   readonly globalHolds: GlobalHoldService;
@@ -197,9 +195,7 @@ export interface BankServices extends BusinessServices {
   };
 }
 
-export interface BankServiceOptions extends BusinessServiceOptions {
-  /** J-bank-24: the bank API's webhook delivery (dev/test loopback hatch, transport, resolver). The TEST partner is passed in here. */
-  bankApi?: Omit<BankApiOptions, 'testPartner'>;
+export interface BankServiceOptions extends BusinessServiceOptions, DeveloperApiServiceOptions {
   /** `BANK_PERSONAL_SEND_REVIEW_JSON`, parsed: the owner's send review rule. Unset, no send is held. */
   sendReviewRule?: SendReviewRule | null;
   /** `BANK_REQUEST_REMIND_POLICY_JSON`, parsed: the owner's reminder cap per window. Null refuses every reminder. */
@@ -596,7 +592,7 @@ export function createBankServices(
     sorter,
     billsPots,
     sharedPots,
-    bankApi: new BankApiService(sql, spaces, sharedPots, custody, { ...options.bankApi, testPartner: options.testPartner ?? null }),
+    ...composeDeveloperApiServices({ sql, spaces, sharedPots, custody, testPartner: options.testPartner ?? null }, options),
     recovery,
     transfers,
     personalPay,
