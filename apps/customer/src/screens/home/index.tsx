@@ -26,7 +26,6 @@ import {
   useTickers,
   type Loadable,
   type HomePortfolio,
-  type TickerRow,
   Loading,
 } from './deps';
 import { InfoTip } from './InfoTip';

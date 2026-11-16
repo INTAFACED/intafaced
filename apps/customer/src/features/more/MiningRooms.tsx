@@ -47,7 +47,6 @@ type Room = 'Overview' | 'Workers' | 'Shares' | 'Rewards';
 type Health = { resource: Resource<MiningHealth>; reload: () => void };
 type Read<T> = { resource: Resource<T>; reload: () => void };
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
-type Translate = ReturnType<typeof miningDepthCopy.useCopy>['t'];
 
 export function MiningRooms({ room, health }: { room: Room; health: Health }) {
   const { Copy, t } = miningDepthCopy.useCopy();
