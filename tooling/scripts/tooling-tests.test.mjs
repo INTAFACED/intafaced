@@ -5,9 +5,9 @@
 // Run: node --test tooling/scripts/tooling-tests.test.mjs (also by the tooling-tests Doctrine gate).
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -142,7 +142,17 @@ test('end to end: a red tooling test is named on the first lines of stdout and i
 test("gates.mjs keeps a gate's whole output: the tooling tests' TAP is over execFileSync's default 1 MB", async () => {
   const { GATE_OUTPUT_MAX } = await import('../ci/gates.mjs');
   assert.ok(GATE_OUTPUT_MAX >= 64 * 1024 * 1024);
-  const src = readFileSync(join(ROOT, 'tooling/ci/gates.mjs'), 'utf8');
-  const call = src.slice(src.indexOf('output = execFileSync(process.execPath, [join(ROOT, gate.script)'));
-  assert.match(call.slice(0, 400), /maxBuffer: GATE_OUTPUT_MAX/, "the gate runner's execFileSync passes the larger buffer");
+  // The runner itself, on a planted gate printing 2 MB (twice the default) and then failing: its last line survives.
+  const { runGate } = await import('../ci/gates.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'gate-output-'));
+  try {
+    const big = join(dir, 'big.mjs');
+    writeFileSync(big, "process.stdout.write('x'.repeat(2 * 1024 * 1024) + '\\nnot ok 1 - the last line\\n');\nprocess.exitCode = 1;\n");
+    const r = await runGate({ id: 'big', script: relative(process.cwd(), big) });
+    assert.equal(r.ok, false);
+    assert.ok(r.output.length > 2 * 1024 * 1024, `the runner kept ${r.output.length} bytes`);
+    assert.match(r.output, /not ok 1 - the last line\n$/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
