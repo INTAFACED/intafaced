@@ -4,12 +4,12 @@
  * Moved out of `trade-service.ts` as it was (owner decision 2026-10-23): `TradeService` keeps one method per
  * function here, which passes itself as `svc`.
  */
-import { formatAmount } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { holdAccountOf } from '../buyback-order.js';
 import { withMoneySpan } from '../../tracing.js';
 import { ocoLegParent, settlementOrderId } from '../oco-legs.js';
 import { HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS } from '../hold-outcome.js';
-import { type ReconcileResult } from '../types.js';
+import { TradeError, type ReconcileResult } from '../types.js';
 import type { TradeServiceInternal } from '../trade-service.js';
 import { fillsProveNoFill } from './internal.js';
 
@@ -132,7 +132,7 @@ export async function reconcileOrder(svc: TradeServiceInternal, orderId: string,
     // any release — unknown fills are a named break, not a refund.
     if (order.status === 'recovery_required') {
       if (holdBal === 0n) {
-        await svc.finalize(orderId, 'cancelled');
+        await svc.finalize(orderId, 'cancelled', undefined, { noEngineFill: 'no_hold' });
         return {
           orderId,
           case: 'recovery_required_no_hold',
@@ -165,7 +165,7 @@ export async function reconcileOrder(svc: TradeServiceInternal, orderId: string,
           detail: `trade.reconcile_unknown_engine_miss: recovery-required (${order.recoveryReason ?? 'unknown'}) absent from engine; trade.fills count=${recoveryFills.count} qty=${formatAmount(recoveryFills.qty)} filled_qty=${formatAmount(order.filledQty)} — hold retained`,
         };
       }
-      await svc.finalize(orderId, 'cancelled');
+      await svc.finalize(orderId, 'cancelled', undefined, { noEngineFill: 'fills_prove_none' });
       return {
         orderId,
         case: 'recovery_required_absent',
@@ -184,7 +184,7 @@ export async function reconcileOrder(svc: TradeServiceInternal, orderId: string,
         await svc.matching.cancel(order.marketId, orderId);
       }
       // Terminalize without release (remainder already 0). Do not invent money.
-      await svc.finalize(orderId, 'cancelled');
+      await svc.finalize(orderId, 'cancelled', undefined, { noEngineFill: 'no_hold' });
       return {
         orderId,
         case: 'open_engine_no_hold',
@@ -230,10 +230,40 @@ export async function reconcileOrder(svc: TradeServiceInternal, orderId: string,
             detail: 'OCO legs executed more than has settled; hold retained until the late fill settles',
           };
         }
+        await svc.finalize(orderId, 'cancelled', undefined, { noEngineFill: 'oco_legs_settled' });
       } else {
-        await svc.matching.cancel(order.marketId, orderId);
+        // The engine may have matched part of this order a moment ago with that fill not written yet (#8560). Its
+        // own remainder says how much it executed; `finalize` refuses until the fills show that much, and the hold
+        // stays. A cancel that took nothing off the book (it filled, or moved) is not a release either.
+        const pulled = await svc.matching.cancel(order.marketId, orderId);
+        if (!pulled.cancelled || !pulled.cancellation) {
+          return {
+            orderId,
+            case: 'open_hold_no_engine_unknown',
+            action: 'fail_closed',
+            holdBefore,
+            engineLive: true,
+            detail: 'engine list showed the order live but its cancel took nothing off the book; hold retained, no refund',
+          };
+        }
+        await svc.sql`
+          UPDATE trade.orders SET engine_left_qty = ${pulled.cancellation.remainingQty}::numeric
+           WHERE id = ${orderId} AND engine_left_qty IS NULL
+        `;
+        try {
+          await svc.finalize(orderId, 'cancelled', undefined, { engineLeftQty: parseAmount(pulled.cancellation.remainingQty) });
+        } catch (err) {
+          if (!(err instanceof TradeError && err.code === 'trade.cancel_ahead_of_fill')) throw err;
+          return {
+            orderId,
+            case: 'open_hold_no_engine_unknown',
+            action: 'fail_closed',
+            holdBefore,
+            engineLive: true,
+            detail: `${err.message}; hold retained until the fill settles and the engine's cancel event closes it`,
+          };
+        }
       }
-      await svc.finalize(orderId, 'cancelled');
       return {
         orderId,
         case: 'open_hold_engine_cleared',
@@ -256,7 +286,7 @@ export async function reconcileOrder(svc: TradeServiceInternal, orderId: string,
       };
     }
 
-    await svc.finalize(orderId, 'cancelled');
+    await svc.finalize(orderId, 'cancelled', undefined, { noEngineFill: 'fills_prove_none' });
     return {
       orderId,
       case: 'open_hold_no_engine',

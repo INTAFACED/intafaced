@@ -30,6 +30,7 @@ import {
   type CampaignDraw,
   type CampaignDistribution,
   type CampaignPool,
+  type CampaignTrialPass,
   type MyCampaigns,
   type Participation,
   type ParticipationRules,
@@ -121,6 +122,8 @@ type CampaignRow = {
   distribution: CampaignDistribution | null;
   /** A reward pool's terms (CM-airdrop-campaigns-02); null for any other campaign. */
   pool: CampaignPool | null;
+  /** A trial pass's terms (CM-vip-tiers-01); null for any other campaign. */
+  trial_pass: CampaignTrialPass | null;
   /** What the campaign's reward intents reserve or spent, from `campaigns.campaign_rows`; absent on a RETURNING row. */
   budget_drawn?: string;
   created_by: string;
@@ -282,7 +285,9 @@ export function gateOf(row: CampaignRow, timeZone: string | null): CampaignGate[
   // A fee-saver coupon campaign moves no value (ENGINE VC-9): it has no reward pot to draw and no reward to pay, so neither
   // is asked for; its terms are its vouchers' discount and orders, which the definition cannot leave blank.
   const feeSaver = row.type === 'voucher' && Boolean(row.vouchers?.feeSaver);
-  if (!feeSaver && (!row.budget_asset || row.budget_limit === null)) missing.push({ code: 'campaigns.budget_unset', field: 'budget' });
+  // A trial pass moves no value either: it grants a fee tier for a span, so it has no budget.
+  if (!feeSaver && row.type !== 'trial_pass' && (!row.budget_asset || row.budget_limit === null))
+    missing.push({ code: 'campaigns.budget_unset', field: 'budget' });
   if (!row.participation) missing.push({ code: 'campaigns.rules_unset', field: 'participation' });
   else if (row.participation.regionScope === 'listed' && !row.participation.restrictedRegions?.length) {
     missing.push({ code: 'campaigns.region_list_unset', field: 'restrictedRegions' });
@@ -303,6 +308,8 @@ export function gateOf(row: CampaignRow, timeZone: string | null): CampaignGate[
   // A distribution and a reward pool pay shares of their pool, the campaign's budget, in the budget's asset.
   const distribution = row.type === 'distribution';
   const pool = row.type === 'pool';
+  // A trial pass grants a fee tier for a span: it pays nothing, so it asks for no reward or budget.
+  const trialPass = row.type === 'trial_pass';
   if (
     !welcome &&
     !feeSaver &&
@@ -311,6 +318,7 @@ export function gateOf(row: CampaignRow, timeZone: string | null): CampaignGate[
     !draw &&
     !distribution &&
     !pool &&
+    !trialPass &&
     (!row.reward_asset || row.reward_amount === null)
   ) {
     missing.push({ code: 'campaigns.reward_unset', field: 'reward' });
@@ -320,11 +328,12 @@ export function gateOf(row: CampaignRow, timeZone: string | null): CampaignGate[
   if (draw) missing.push(...drawGaps(row.draw, row.budget_limit));
   if (distribution) missing.push(...distributionGaps(row.distribution, row.starts_at, row.ends_at));
   if (pool) missing.push(...poolGaps(row.pool, row.budget_limit));
+  if (trialPass) missing.push(...trialPassGaps(row.trial_pass));
   const rewardAssets = welcome
     ? (row.tasks?.steps ?? []).flatMap((s) => (s.reward ? [s.reward.asset] : []))
     : referral
       ? [row.referral?.rewards.referrer?.asset, row.referral?.rewards.referee?.asset].filter(Boolean)
-      : competition || draw || distribution || pool
+      : competition || draw || distribution || pool || trialPass
         ? []
         : [row.reward_asset];
   if (row.budget_asset && rewardAssets.some((a) => a && a !== row.budget_asset)) {
@@ -419,6 +428,7 @@ function toCampaign(r: CampaignRow, timeZone: string | null, now: Date, change: 
     draw: r.draw,
     distribution: r.distribution,
     pool: r.pool,
+    trialPass: r.trial_pass,
     earning: r.earning,
     createdBy: r.created_by,
     submittedBy: r.submitted_by,
@@ -460,6 +470,7 @@ function inputOf(d: Definition): CampaignDefinitionInput {
     ...(d.draw ? { draw: d.draw } : {}),
     ...(d.distribution ? { distribution: d.distribution } : {}),
     ...(d.pool ? { pool: d.pool } : {}),
+    ...(d.trialPass ? { trialPass: d.trialPass } : {}),
     // Blank stays blank; otherwise left out, which reads the platform zone.
     ...(d.timeZoneBlank ? { timeZone: null } : {}),
   };
@@ -492,6 +503,7 @@ function rowWith(r: CampaignRow, d: Definition): CampaignRow {
     draw: d.draw,
     distribution: d.distribution,
     pool: d.pool,
+    trial_pass: d.trialPass,
   };
 }
 
@@ -521,6 +533,7 @@ function inputOfRow(r: CampaignRow): CampaignDefinitionInput {
     draw: r.draw,
     distribution: r.distribution,
     pool: r.pool,
+    trialPass: r.trial_pass,
   });
 }
 
@@ -559,6 +572,7 @@ function toView(
     draw: c.draw,
     distribution: c.distribution,
     pool: c.pool,
+    trialPass: c.trialPass,
     mine,
     eligibility,
   };
@@ -636,6 +650,7 @@ type Definition = {
   draw: CampaignDraw | null;
   distribution: CampaignDistribution | null;
   pool: CampaignPool | null;
+  trialPass: CampaignTrialPass | null;
 };
 
 /**
@@ -706,6 +721,7 @@ export function parseDefinition(input: CampaignDefinitionInput, platformZone: st
     draw: input.draw ? parseDraw(type as CampaignType, input.draw) : null,
     distribution: input.distribution ? parseDistribution(type as CampaignType, input.distribution) : null,
     pool: input.pool ? parsePool(type as CampaignType, input.pool) : null,
+    trialPass: input.trialPass ? parseTrialPass(type as CampaignType, input.trialPass) : null,
   };
 }
 
@@ -827,6 +843,21 @@ function distributionGaps(d: CampaignDistribution | null, startsAt: Date | null,
   }
   if (!d.equityAsset) out.push({ code: 'campaigns.distribution_unset', field: 'equityAsset' });
   return out;
+}
+
+/** A trial pass's terms (CM-vip-tiers-01), stored the same way every time. Only a `trial_pass` campaign has them. */
+function parseTrialPass(type: CampaignType, input: CampaignTrialPass): CampaignTrialPass {
+  if (type !== 'trial_pass') throw new CampaignsError('campaigns.trial_pass_invalid', 'Only a trial pass campaign has trial pass terms');
+  return { tierId: input.tierId?.trim() || null, seconds: input.seconds ?? null };
+}
+
+/** What a trial pass still lacks before it can go live: the tier it grants and for how long. */
+function trialPassGaps(t: CampaignTrialPass | null): CampaignGate['missing'] {
+  if (!t) return [{ code: 'campaigns.trial_pass_unset', field: 'trialPass' }];
+  const missing: CampaignGate['missing'] = [];
+  if (!t.tierId) missing.push({ code: 'campaigns.trial_pass_unset', field: 'trialPass.tierId' });
+  if (t.seconds === null) missing.push({ code: 'campaigns.trial_pass_unset', field: 'trialPass.seconds' });
+  return missing;
 }
 
 /** A reward pool's terms (CM-airdrop-campaigns-02), stored the same way every time. Only a `pool` campaign has them. */
@@ -1079,6 +1110,7 @@ function sameDefinition(r: CampaignRow, d: Definition): boolean {
     canonical(r.draw) === canonical(d.draw) &&
     canonical(r.distribution) === canonical(d.distribution) &&
     canonical(r.pool) === canonical(d.pool) &&
+    canonical(r.trial_pass) === canonical(d.trialPass) &&
     r.time_zone_blank === d.timeZoneBlank
   );
 }
@@ -1134,14 +1166,14 @@ export class CampaignService {
         await this.checkCampaignRule(tx, d);
         const [row] = await tx<CampaignRow[]>`
           INSERT INTO campaigns.campaigns (id, name, type, rules, starts_at, ends_at, weekdays, hours_from, hours_to,
-            participation, budget_asset, budget_limit, reward_asset, reward_amount, tasks, time_zone_blank, earning, vouchers, limits, referral, competition, draw, distribution, pool, created_by)
+            participation, budget_asset, budget_limit, reward_asset, reward_amount, tasks, time_zone_blank, earning, vouchers, limits, referral, competition, draw, distribution, pool, trial_pass, created_by)
           VALUES (${id}, ${d.name}, ${d.type}, ${d.rules}, ${d.startsAt}, ${d.endsAt}, ${d.weekdays}, ${d.hoursFrom},
             ${d.hoursTo}, ${d.participation ? tx.json(d.participation) : null}, ${d.budgetAsset}, ${d.budgetLimit},
             ${d.rewardAsset}, ${d.rewardAmount}, ${d.tasks ? tx.json(d.tasks as unknown as postgres.JSONValue) : null}, ${d.timeZoneBlank}, ${tx.json(d.earning as unknown as postgres.JSONValue)},
             ${d.vouchers ? tx.json(d.vouchers) : null}, ${d.limits ? tx.json(d.limits as unknown as postgres.JSONValue) : null},
             ${d.referral ? tx.json(d.referral) : null}, ${d.competition ? tx.json(d.competition) : null},
             ${d.draw ? tx.json(d.draw) : null}, ${d.distribution ? tx.json(d.distribution) : null},
-            ${d.pool ? tx.json(d.pool) : null}, ${input.actor})
+            ${d.pool ? tx.json(d.pool) : null}, ${d.trialPass ? tx.json(d.trialPass) : null}, ${input.actor})
           RETURNING *`;
         await audit(tx, input.actor, 'campaign.create', id, { name: d.name, type: d.type });
         return toCampaign(row!, this.timeZone(), this.now());
@@ -1190,6 +1222,7 @@ export class CampaignService {
             draw = ${d.draw ? tx.json(d.draw) : null},
             distribution = ${d.distribution ? tx.json(d.distribution) : null},
             pool = ${d.pool ? tx.json(d.pool) : null},
+            trial_pass = ${d.trialPass ? tx.json(d.trialPass) : null},
             revision = revision + 1, updated_at = now()
           WHERE id = ${input.id}
           RETURNING *, (SELECT budget_drawn FROM campaigns.campaign_rows WHERE id = ${input.id}) AS budget_drawn`;
@@ -1302,6 +1335,7 @@ export class CampaignService {
             draw = ${d.draw ? tx.json(d.draw) : null},
             distribution = ${d.distribution ? tx.json(d.distribution) : null},
             pool = ${d.pool ? tx.json(d.pool) : null},
+            trial_pass = ${d.trialPass ? tx.json(d.trialPass) : null},
         revision = ${open.revision}, submitted_by = ${open.submitted_by}, approved_by = ${actor},
         approved_revision = ${open.revision}, updated_at = now()
       WHERE id = ${row.id}`;

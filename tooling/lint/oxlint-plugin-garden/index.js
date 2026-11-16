@@ -2,10 +2,13 @@
 // Loaded by the root .oxlintrc.json ("jsPlugins"), rules "garden/<name>". tooling/ci/lint-ratchet.mjs fails a change whose
 // touched files gain a finding, in CI and before a push; tooling/lint/ratchet.json names the few rules that only print.
 import { copyRules } from './copy-rules.js';
+import { absentRules } from './absent-rule.js';
 import { moneyRules } from './money-rules.js';
+import { sharedMarketRules } from './shared-market-rule.js';
 import { duplicateRules } from './duplicate-rules.js';
 import { potetoRules } from './poteto-rules.js';
 import { handTypedPatchRules } from './hand-typed-patch-rule.js';
+import { eitherStateRules } from './either-state-rule.js';
 
 const TEST_FILE = /(\.(test|spec|testkit)\.[cm]?[jt]sx?$)|(\.pw\.[cm]?[jt]s$)|(\/(test|tests|__tests__)\/)/u;
 const isTest = (context) => TEST_FILE.test(context.filename ?? context.getFilename());
@@ -185,9 +188,12 @@ export default {
     'no-real-clock-wait-in-tests': noRealClockWaitInTests,
     'no-wait-for-timeout': noWaitForTimeout,
     ...copyRules,
+    ...absentRules,
     ...moneyRules,
+    ...sharedMarketRules,
     ...duplicateRules,
     ...potetoRules,
     ...handTypedPatchRules,
+    ...eitherStateRules,
   },
 };

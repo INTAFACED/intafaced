@@ -28,6 +28,9 @@
  *   http://127.0.0.1:3260 (the host check's apex; the real apex is deployed outside this repo) · the founder console
  *   (apps/admin, a production Next build) on http://127.0.0.1:3100
  *
+ *   pnpm local:stack journey <J-id> [--only a,b] [--keep]
+ *                                         take a free slot, start and ready the stack, run the journey, print PASS or the
+ *                                         failing step, and stop what it started (journey-local.mjs)
  *   pnpm local:stack plan                 print services, ports and Edge wiring; changes nothing
  *   node tooling/scripts/local-test-stack.mjs build [--rebuild] [--no-admin]   the builds `start` runs (services,
  *                                         Customer, console unless --no-admin, invitation site) and their stamp, and
@@ -2299,6 +2302,64 @@ async function refuseOtherStack() {
     if (!ours && (await portOpen(PORTS[name]))) portTaken(PORTS[name], name);
 }
 
+/** Runs this command again on the slot just claimed for this checkout, and exits with its status. */
+function runOnSlot(slot, state) {
+  say(`  slot ${slot}: taken for this checkout (ports +${slot * 1000}, state ${state})`);
+  const r = spawnSync(process.execPath, [SCRIPT, ...process.argv.slice(2)], {
+    stdio: 'inherit',
+    env: { ...process.env, LOCAL_STACK_SLOT: String(slot) },
+  });
+  process.exit(r.status ?? 1);
+}
+
+/**
+ * A slot claim whose owner is gone: the start that took it has ended, and no process is left working in its checkout
+ * except the stack itself (its recorded processes, its Postgres and their children). A builder's agent works with its
+ * checkout as its folder, so while the agent runs, the claim is its. When the processes cannot be listed, the owner
+ * counts as present. Failure it prevents: on 16 Nov, slot 0 and slot 1 were held by stacks whose builders had settled
+ * and whose PRs had merged (#8500 at 14:20 UTC, #8552 at 23:17 UTC 15 Nov), so the counted build J-bank-19 found every
+ * slot held at 00:13 UTC and ran no local stack (project-state#2553 comment 6903867491).
+ */
+export function ownerGone(
+  claim,
+  { alive = (pid) => Boolean(readProcessIdentity(pid)), cwds = processCwds, parents = processParents } = {},
+) {
+  if (!claim?.repo || alive(claim.pid)) return false;
+  if (!fs.existsSync(claim.repo)) return true;
+  const inCheckout = cwds();
+  const ppid = parents();
+  if (!inCheckout || !ppid) return false;
+  const stack = new Set(stackPids(claim.state ?? ''));
+  const ofStack = (pid) => {
+    for (let p = pid, n = 0; p > 1 && n < 64; p = ppid.get(p), n++) if (stack.has(p)) return true;
+    return false;
+  };
+  const root = path.resolve(claim.repo);
+  return ![...inCheckout].some(([pid, cwd]) => (cwd === root || cwd.startsWith(`${root}/`)) && !ofStack(pid));
+}
+/** Every process's working folder (`lsof -d cwd`), or null when it cannot be read. */
+function processCwds() {
+  const r = spawnSync('lsof', ['-n', '-d', 'cwd', '-Fpn'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  if (r.error || !r.stdout) return null;
+  const out = new Map();
+  let pid = 0;
+  for (const line of r.stdout.split('\n'))
+    if (line[0] === 'p') pid = Number(line.slice(1));
+    else if (line[0] === 'n' && pid) out.set(pid, line.slice(1));
+  return out;
+}
+/** Every process's parent (`ps`), or null when it cannot be read. */
+function processParents() {
+  const r = spawnSync('ps', ['-axo', 'pid=,ppid='], { encoding: 'utf8' });
+  if (r.status !== 0) return null;
+  const out = new Map();
+  for (const line of r.stdout.trim().split('\n')) {
+    const [pid, ppid] = line.trim().split(/\s+/).map(Number);
+    if (pid) out.set(pid, ppid);
+  }
+  return out;
+}
+
 /**
  * The slot this start runs on, taken before anything is built or written, so a second start sees it at once.
  * LOCAL_STACK_SLOT set (a person's choice, or the run again below): that slot is claimed or the start refuses. Unset:
@@ -2322,12 +2383,20 @@ async function takeSlot() {
     if (!oursRunning && (await Promise.all([postgres, nats, edge, customer].map(portOpen))).some(Boolean)) continue;
     if (!claimSlot(c.slot, { state })) continue;
     if (c.slot === SLOT) return;
-    say(`  slot ${c.slot}: taken for this checkout (ports +${c.slot * 1000}, state ${state})`);
-    const r = spawnSync(process.execPath, [SCRIPT, ...process.argv.slice(2)], {
-      stdio: 'inherit',
-      env: { ...process.env, LOCAL_STACK_SLOT: String(c.slot) },
-    });
-    process.exit(r.status ?? 1);
+    runOnSlot(c.slot, state);
+  }
+  // Every slot is held. One whose owner is gone is taken back: its stack is stopped by this script's own stop for
+  // that slot, and the slot claimed. A live owner's slot is never touched.
+  for (const c of slotClaims()) {
+    if (!c.claim || !c.live || c.claim.repo === REPO || !ownerGone(c.claim)) continue;
+    say(
+      `  slot ${c.slot}: its owner ${c.claim.repo} is gone (start pid ${c.claim.pid} ended, no process left in that checkout but its stack); stopping that stack`,
+    );
+    spawnSync(process.execPath, [SCRIPT, 'stop'], { stdio: 'inherit', env: { ...process.env, LOCAL_STACK_SLOT: String(c.slot) } });
+    const state = localStackState(os.homedir(), { ...process.env, LOCAL_STACK_SLOT: String(c.slot) });
+    if (slotClaims()[c.slot].live || !claimSlot(c.slot, { state })) continue;
+    if (c.slot === SLOT) return;
+    runOnSlot(c.slot, state);
   }
   fail(
     `refusing: every slot is held (${slotClaims().map(holder).join('; ')}); stop one with \`local-test-stack.mjs stop\` in its checkout`,
@@ -4372,6 +4441,8 @@ async function runCli() {
     });
   else if (cmd === 'start' && rest[0] === 'customer-dist')
     cmdCustomerDist(rest.slice(1)); // pnpm local:stack customer-dist <path>
+  else if (cmd === 'start' && rest[0] === 'journey')
+    await (await import('./journey-local.mjs')).main(rest.slice(1)); // pnpm local:stack journey <J-id>: start, run, stop
   else if (cmd === 'start') await cmdStart(rest);
   else if (cmd === 'build') await cmdBuild(rest);
   else if (cmd === 'stop') await cmdStop(rest);
