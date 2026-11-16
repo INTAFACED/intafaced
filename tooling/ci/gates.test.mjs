@@ -4,11 +4,12 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { execFileSync } from 'node:child_process';
-import { GATES, gatesToRun, changedSinceMain, gatesBeforePush, LEFT_TO_CI_BEFORE_PUSH } from './gates.mjs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { GATES, NOT_GATES, gatesToRun, changedSinceMain, gatesBeforePush, LEFT_TO_CI_BEFORE_PUSH } from './gates.mjs';
 
 const ids = (gates) => gates.map((g) => g.id);
 const allButTooling = ids(GATES).filter((id) => id !== 'tooling-tests');
@@ -118,4 +119,49 @@ test('--before-push runs every gate but those it leaves to CI, each named with w
   }
   for (const id of ['boundary', 'brand', 'reachability', 'secrets', 'migrations']) assert.ok(ids(gatesBeforePush(GATES)).includes(id), id);
   assert.ok(!ids(gatesBeforePush(GATES)).includes('money-property-mutation'));
+});
+
+// The real runner on a planted root: every gate a stub, so the manifest check holds and only the planted reds fail.
+function stubRoot(stub) {
+  const dir = mkdtempSync(join(tmpdir(), 'gates-before-push-'));
+  mkdirSync(join(dir, 'tooling', 'ci'), { recursive: true });
+  copyFileSync(join(dirname(fileURLToPath(import.meta.url)), 'gates.mjs'), join(dir, 'tooling', 'ci', 'gates.mjs'));
+  for (const file of Object.keys(NOT_GATES)) if (file !== 'gates.mjs') writeFileSync(join(dir, 'tooling', 'ci', file), '');
+  for (const gate of GATES) {
+    mkdirSync(dirname(join(dir, gate.script)), { recursive: true });
+    writeFileSync(join(dir, gate.script), stub(gate.id));
+  }
+  const run = (...args) => spawnSync(process.execPath, ['tooling/ci/gates.mjs', ...args], { cwd: dir, encoding: 'utf8' });
+  return { run, done: () => rmSync(dir, { recursive: true, force: true }) };
+}
+
+test('--before-push refuses on a red gate with its own message, reports in the list order, and never runs a gate left to CI', () => {
+  const first = ids(gatesBeforePush(GATES))[0];
+  const r = stubRoot((id) => {
+    if (id === 'boundary') return "console.error('BOUNDARY SCAN FAILED: planted');\nprocess.exitCode = 1;\n";
+    if (Object.hasOwn(LEFT_TO_CI_BEFORE_PUSH, id)) return `console.error('${id} ran');\nprocess.exitCode = 1;\n`;
+    // The first gate in the list finishes last, so a report in finishing order would show.
+    if (id === first) return "setTimeout(() => console.log('first done'), 500);\n";
+    return "console.log('clean');\n";
+  });
+  try {
+    const out = r.run('--before-push');
+    assert.equal(out.status, 1, `${out.stdout}${out.stderr}`);
+    assert.match(out.stderr, new RegExp(`✖ 1 of ${gatesBeforePush(GATES).length} DOCTRINE GATE\\(S\\) FAILED`));
+    assert.match(out.stderr, /── boundary [\s\S]*BOUNDARY SCAN FAILED: planted/);
+    for (const id of Object.keys(LEFT_TO_CI_BEFORE_PUSH)) assert.doesNotMatch(`${out.stdout}${out.stderr}`, new RegExp(`${id} ran`));
+    const reported = [...out.stdout.matchAll(/^ {2}[✓✖] (\S+)/gm)].map((m) => m[1]);
+    assert.deepEqual(reported, ids(gatesBeforePush(GATES)));
+
+    const green = stubRoot(() => "console.log('clean');\n");
+    try {
+      const ok = green.run('--before-push');
+      assert.equal(ok.status, 0, `${ok.stdout}${ok.stderr}`);
+      assert.match(ok.stdout, new RegExp(`✓ all ${gatesBeforePush(GATES).length} doctrine gates passed — \\d+ms total, \\d+ms at once`));
+    } finally {
+      green.done();
+    }
+  } finally {
+    r.done();
+  }
 });
