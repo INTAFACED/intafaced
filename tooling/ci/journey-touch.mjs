@@ -67,7 +67,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { JOURNEY_TEST, isSharedSetup } from './journey-seal.mjs';
-import { SUBSCRIBES, builtMap, headWanted, loadMap, newerMap, reachSelect, runsBehind } from './journey-reach-map.mjs';
+import { SUBSCRIBES, builtMap, headWanted, loadMap, newerMap, reachSelect, readHead, runsBehind } from './journey-reach-map.mjs';
 
 /** A journey test file the Real-app journeys run runs by name: directly in the real-app folder, ending `.pw.mjs`. */
 export const RUN_FILE = /^apps\/customer\/tests\/real-app\/([A-Za-z0-9._-]+\.pw\.mjs)$/;
@@ -579,33 +579,34 @@ export const subscribesIn =
   };
 
 /**
- * What headWanted names, read from a checkout of the head (journey-reach-map.mjs loadersReach's `head`): each changed
- * file's text (null for a removed one), each folder's entries, and which unknown files `atBase(path)` (async) finds on
- * the pull request's merge base. null when nothing is wanted; { } (read as unknown, full) when a read fails.
+ * What headWanted names, read from a checkout of the head (journey-reach-map.mjs readHead, loadersReach's `head`), with
+ * `base()` (async): { mergeBase, atBase, compare }, the pull request's merge base, whether it holds a path, and GitHub's
+ * compare. null when nothing is wanted; { } (read as unknown, full) when a read fails.
  */
-export async function checkoutHead(map, paths, { root = '.', atBase }) {
+export async function checkoutHead(map, paths, { root = '.', base }) {
   const want = headWanted(map, paths);
   if (!want) return null;
   try {
-    const texts = new Map(want.texts.map((p) => [p, existsSync(`${root}/${p}`) ? readFileSync(`${root}/${p}`, 'utf8') : null]));
-    const dirs = new Map(want.dirs.map((d) => [d, new Set(readdirSync(`${root}/${d}`))]));
-    const based = new Set();
-    for (const u of want.unknown) if (await atBase(u)) based.add(u);
-    return { texts, dirs, based };
+    return await readHead(map, want, {
+      read: (p) => (existsSync(`${root}/${p}`) ? readFileSync(`${root}/${p}`, 'utf8') : null),
+      list: (d) => readdirSync(`${root}/${d}`),
+      ...(await base()),
+    });
   } catch {
     return {};
   }
 }
 
-/** Whether a path is on the pull request's merge base with its base branch (GitHub's compare and contents APIs, GH_TOKEN),
- *  for checkoutHead. Throws when it can't be told. */
+/** The pull request's merge base with its base branch, whether a path is on it, and GitHub's compare (GH_TOKEN), for
+ *  checkoutHead. Throws when the merge base can't be told. */
 async function mergeBaseReader() {
   const repo = process.env.GITHUB_REPOSITORY || 'INTAFACED/intafaced';
   const sha = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
   const base = process.env.GITHUB_BASE_REF || 'main';
   const mb = JSON.parse(ghApi(`repos/${repo}/compare/${encodeURIComponent(base)}...${sha}?per_page=1`))?.merge_base_commit?.sha;
   if (!/^[0-9a-f]{40}$/.test(String(mb))) throw new Error('no merge base');
-  return async (p) => {
+  const compare = async (a, b) => JSON.parse(ghApi(`repos/${repo}/compare/${a}...${b}`));
+  const atBase = async (p) => {
     const res = await fetch(`https://api.github.com/repos/${repo}/contents/${p.split('/').map(encodeURIComponent).join('/')}?ref=${mb}`, {
       headers: {
         authorization: `Bearer ${process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN ?? ''}`,
@@ -616,6 +617,7 @@ async function mergeBaseReader() {
     if (!res.ok) throw new Error(`contents: HTTP ${res.status}`);
     return true;
   };
+  return { mergeBase: mb, atBase, compare };
 }
 
 /** How many of main's finished full runs came after the map's newest run, read with gh (GH_TOKEN), or null. The same
@@ -725,18 +727,12 @@ async function main() {
       repo,
     });
     const map = newerMap(built, loadMap());
-    let atBase = null;
     reach = {
       map,
       behind: behindFromApi(map),
       journeyFiles: checkoutJourneyFiles(),
       subscribes: subscribesIn(),
-      head: await checkoutHead(map, paths, {
-        atBase: async (p) => {
-          atBase ??= await mergeBaseReader();
-          return atBase(p);
-        },
-      }),
+      head: await checkoutHead(map, paths, { base: mergeBaseReader }),
     };
   }
   const texts = paths.some((p) => pathKind(p).stack) ? checkoutJourneyTexts() : null;

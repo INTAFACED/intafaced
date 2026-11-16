@@ -78,7 +78,7 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { JOURNEYS_ARTIFACT, fetchInputs, isMainRun, judge, manifestsAt, readReport, rootInputs } from './journey-verdict.mjs';
 import { RUN_FILE, journeyTouch, namedInputs, namedJourneyIds, pathKind, printable, stackImporters } from './journey-touch.mjs';
-import { SUBSCRIBES, builtMap, headWanted, loadMap, newerMap, runsBehind } from './journey-reach-map.mjs';
+import { SUBSCRIBES, builtMap, headWanted, loadMap, newerMap, readHead, runsBehind } from './journey-reach-map.mjs';
 import { groupPulls, isJudgeDown, mergedNothingToSeal, requiredChecks, reviewRan } from './review-marker.mjs';
 import { DEFER_MARK, TOUCH_JOB } from './main-first.mjs';
 import { httpMessage, titleFor } from './api-budget.mjs';
@@ -1374,17 +1374,15 @@ export async function reachInputs({ io, paths, head, base, text }) {
   let headIn = null;
   if (want)
     try {
-      const texts = new Map();
-      for (const p of want.texts) texts.set(p, await text(p, head));
-      const dirs = new Map();
-      for (const d of want.dirs) dirs.set(d, new Set(await io.dirNames(d, head)));
-      const based = new Set();
-      if (want.unknown.length) {
-        const mb = await io.mergeBase(base, head);
-        if (!SHA40.test(String(mb))) throw new Error('no merge base');
-        for (const u of want.unknown) if ((await text(u, mb)) !== null) based.add(u);
-      }
-      headIn = { texts, dirs, based };
+      const mb = await io.mergeBase(base, head);
+      if (!SHA40.test(String(mb))) throw new Error('no merge base');
+      headIn = await readHead(map, want, {
+        read: (p) => text(p, head),
+        list: (d) => io.dirNames(d, head),
+        mergeBase: mb,
+        atBase: async (u) => (await text(u, mb)) !== null,
+        compare: io.compare,
+      });
     } catch {
       headIn = {};
     }

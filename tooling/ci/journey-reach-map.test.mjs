@@ -22,6 +22,9 @@ import {
   moduleKeys,
   pathReach,
   headWanted,
+  patchText,
+  readHead,
+  sinceMap,
   mapText,
   verifyMap,
   loadMap,
@@ -803,16 +806,23 @@ test('headWanted, the seal and the touch job: the head is read only for a custom
     runs: async () => [],
     dirNames: async (d) => (d.endsWith('/tax') ? ['TaxRoom.tsx', 'New.tsx', 'index.ts'] : ['tax']),
     mergeBase: async () => MB,
+    // Main changed main.tsx since the map's head: its new side is read, and it counts as newer than the map.
+    compare: async (a, b) =>
+      a === HEAD && b === MB
+        ? { status: 'ahead', files: [{ filename: `${SRC}/main.tsx`, status: 'modified', patch: '@@ -1 +1 @@\n+x' }] }
+        : null,
   };
   const text = async (p, ref) => (ref === MB ? (p === index ? 'x' : null) : p.endsWith('TaxRoom.tsx') ? "import './tax.css';" : '');
   const r = await reachInputs({ io, paths, head: HEAD, base: 'c'.repeat(40), text });
-  assert.deepEqual([...r.head.texts.keys()], [paths[0], paths[1], fresh, index]);
-  assert.deepEqual([...r.head.based], [index], 'index.ts is on the merge base: main added it after the map');
+  assert.deepEqual([...r.head.texts.keys()], [paths[0], paths[1], fresh, index, `${SRC}/main.tsx`]);
+  assert.deepEqual([...r.head.based], [`${SRC}/main.tsx`, index], 'index.ts is on the merge base: main added it after the map');
   assert.deepEqual([...r.head.dirs.get(`${SRC}/features/tax`)], ['TaxRoom.tsx', 'New.tsx', 'index.ts']);
   const broken = await reachInputs({ io, paths, head: HEAD, base: 'c'.repeat(40), text: async () => { throw new Error('HTTP 502'); } }); // prettier-ignore
   assert.deepEqual(broken.head, {}, 'a read that fails leaves the head unknown: full');
   const noList = await reachInputs({ io: { ...io, dirNames: undefined }, paths, head: HEAD, base: 'c'.repeat(40), text });
   assert.deepEqual(noList.head, {});
+  const noCompare = await reachInputs({ io: { ...io, compare: undefined }, paths, head: HEAD, base: 'c'.repeat(40), text });
+  assert.deepEqual(noCompare.head, {}, "main's changes since the map unread: full");
   // The touch job reads the same from its checkout of the head.
   const root = mkdtempSync(join(tmpdir(), 'reach-head-'));
   try {
@@ -820,20 +830,109 @@ test('headWanted, the seal and the touch job: the head is read only for a custom
     writeFileSync(join(root, SRC, 'features/tax/TaxRoom.tsx'), "import './tax.css';");
     writeFileSync(join(root, SRC, 'features/tax/New.tsx'), '');
     writeFileSync(join(root, SRC, 'features/tax/index.ts'), 'x');
-    const h = await checkoutHead(LOADERS, paths, { root, atBase: async (p) => p === index });
-    assert.deepEqual([...h.texts.keys()], [paths[0], paths[1], fresh, index]);
+    const base =
+      (over = {}) =>
+      async () => ({ mergeBase: MB, atBase: async (p) => p === index, compare: io.compare, ...over });
+    const h = await checkoutHead(LOADERS, paths, { root, base: base() });
+    assert.deepEqual([...h.texts.keys()], [paths[0], paths[1], fresh, index, `${SRC}/main.tsx`]);
     assert.equal(h.texts.get(paths[0]), null, 'removed at the head');
-    assert.deepEqual([...h.based], [index]);
+    assert.deepEqual([...h.based], [`${SRC}/main.tsx`, index]);
     assert.deepEqual([...h.dirs.get(`${SRC}/features/tax`)].sort(), ['New.tsx', 'TaxRoom.tsx', 'index.ts']);
-    assert.deepEqual(await checkoutHead(LOADERS, paths, { root, atBase: async () => { throw new Error('HTTP 502'); } }), {}); // prettier-ignore
-    assert.equal(await checkoutHead(MAP, paths, { root, atBase: async () => false }), null);
+    assert.deepEqual(await checkoutHead(LOADERS, paths, { root, base: base({ atBase: async () => { throw new Error('HTTP 502'); } }) }), {}); // prettier-ignore
+    assert.deepEqual(await checkoutHead(LOADERS, paths, { root, base: async () => { throw new Error('no merge base'); } }), {}); // prettier-ignore
+    assert.equal(await checkoutHead(MAP, paths, { root, base: base() }), null);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
+test('planted: what main changed between the map and the merge base loads a file too (sinceMap, patchText)', async () => {
+  const MB = 'b'.repeat(40);
+  const map = { runs: [{ head: HEAD }] };
+  const patch = "@@ -1,2 +1,2 @@\n import a from './a';\n-import b from './b';\n+import c from './c';\n@@ -40 +40 @@\n+const m = import(";
+  const plus = patchText(patch, '+');
+  assert.ok(importTargets(plus, `${SRC}/app/x.ts`).includes(`${SRC}/app/c`), 'the new side’s import');
+  assert.match(plus, /import\(\n;/, 'a hunk ends cut off: its open load reads as computed');
+  assert.doesNotMatch(patchText(patch, '-'), /^import c from/m, 'the old side holds no added line');
+  const files = [
+    { filename: `${SRC}/app/x.ts`, status: 'modified', patch },
+    { filename: `${SRC}/app/gone.ts`, status: 'removed' },
+    { filename: `${SRC}/app/to.ts`, previous_filename: `${SRC}/app/from.ts`, status: 'renamed', patch: '@@ -1 +1 @@\n+y' },
+    { filename: `${SRC}/app/big.ts`, status: 'modified' },
+    { filename: `${SRC}/app/x.test.ts`, status: 'modified', patch },
+    { filename: 'docs/a.md', status: 'modified', patch },
+    { filename: 'tooling/scripts/s.mjs', status: 'added', patch: "@@ -0,0 +1 @@\n+import '../../apps/customer/src/a.ts';" },
+  ];
+  const ahead = await sinceMap(map, MB, async (a, b) => (a === HEAD && b === MB ? { status: 'ahead', files } : null));
+  assert.deepEqual(
+    [...ahead].map(([f, t]) => [f, t === undefined ? 'read' : t === null ? 'gone' : 'patch']),
+    [
+      [`${SRC}/app/x.ts`, 'patch'],
+      [`${SRC}/app/gone.ts`, 'gone'],
+      [`${SRC}/app/to.ts`, 'read'],
+      [`${SRC}/app/from.ts`, 'gone'],
+      [`${SRC}/app/big.ts`, 'read'],
+      ['tooling/scripts/s.mjs', 'patch'],
+    ],
+  );
+  // A merge base older than the map: the map's head compared from it, read on its old side.
+  const behind = await sinceMap(map, MB, async (a, b) =>
+    a === HEAD ? { status: 'behind', files: [] } : a === MB && b === HEAD ? { status: 'ahead', files } : null,
+  );
+  assert.equal(behind.get(`${SRC}/app/gone.ts`), undefined, 'removed since, no patch given: the merge base holds it, read it');
+  assert.equal(behind.get(`${SRC}/app/from.ts`), undefined, 'renamed since: the merge base holds the old name, read it');
+  assert.equal(behind.get(`${SRC}/app/to.ts`), null);
+  assert.equal(behind.get('tooling/scripts/s.mjs'), null, 'added since: the merge base doesn’t hold it');
+  assert.match(behind.get(`${SRC}/app/x.ts`), /import b from/);
+  assert.deepEqual([...(await sinceMap(map, HEAD, async () => null))], [], 'the merge base is the map’s head');
+  const throws = (compare, mb = MB, m = map) => assert.rejects(sinceMap(m, mb, compare));
+  await throws(async () => ({ status: 'diverged', files: [] }));
+  await throws(async () => ({ status: 'ahead', files: Array.from({ length: 300 }, (_, i) => ({ filename: `docs/${i}.md` })) }), MB);
+  await throws(async () => ({ status: 'ahead' }));
+  await throws(async () => ({ status: 'ahead', files: [] }), 'main');
+  await throws(async () => ({ status: 'ahead', files: [] }), MB, { runs: [] });
+  // The map's graph is read at its newest run's head.
+  const seen = [];
+  const graphed = build(RUNS, { graph: (sha) => (seen.push(sha), { importers: { [`${SRC}/app/n.ts`]: [] }, built: [], computed: [] }) });
+  assert.deepEqual(seen, [HEAD]);
+  assert.deepEqual(graphed.importers, { [`${SRC}/app/n.ts`]: [] });
+  // The checker's case: a file this pull request adds, loaded by a changed file, and by a glob main added after the map.
+  const fresh = `${SRC}/features/tax/TaxRules.tsx`;
+  const want = { texts: [fresh, `${SRC}/features/bank/Cards.tsx`], unknown: [fresh], dirs: [`${SRC}/features/tax`] };
+  const pr = {
+    [fresh]: 'export const x = 1;',
+    [`${SRC}/features/bank/Cards.tsx`]: "import { x } from '../tax/TaxRules';",
+  };
+  const glob = {
+    filename: `${SRC}/features/tax/TaxRoom.tsx`,
+    status: 'modified',
+    patch: "@@ -3 +3 @@\n+const all = import.meta.glob('./*.tsx');",
+  };
+  const head = (changed) =>
+    readHead(LOADERS, want, {
+      read: async (p) => pr[p] ?? null,
+      list: async () => ['TaxRoom.tsx', 'TaxRules.tsx', 'tax.css'],
+      mergeBase: MB,
+      atBase: async () => false,
+      compare: async () => ({ status: 'ahead', files: changed }),
+    });
+  assert.deepEqual(names(loaders(fresh, await head([]))), [BANK], 'nothing on main loads it: its own loader’s journeys');
+  assert.deepEqual(names(loaders(fresh, await head([glob]))), [BANK, TAX], 'the glob main added loads it: TaxRoom’s journeys too');
+  const imp = { ...glob, patch: "@@ -3 +3 @@\n+import { x } from './TaxRules';" };
+  assert.deepEqual(names(loaders(fresh, await head([imp]))), [BANK, TAX], 'an import main added');
+  const cut = { ...glob, patch: "@@ -3,2 +3,2 @@\n const all = import(\n+  './TaxRules'\n@@ -9 +9 @@\n+x" };
+  assert.deepEqual(names(loaders(fresh, await head([cut]))), [BANK, TAX], 'an import whose keyword the patch cuts off');
+  const added = { filename: `${SRC}/features/tax/Other.tsx`, status: 'added', patch: "@@ -0,0 +1 @@\n+import './TaxRules';" };
+  assert.match(loaders(fresh, await head([added])).full, /Other.tsx is newer than the map/, 'a file main added that loads it');
+  // A recorded file the build runs loads it: what the build emits, no record ties to a journey.
+  const docs = { ...glob, filename: `${SRC}/app/docs.ts`, patch: "@@ -1 +1 @@\n+import '../features/tax/TaxRules';" };
+  assert.match(loaders(fresh, await head([docs])).full, /its build\) runs apps\/customer\/src\/app\/docs.ts/);
+});
+
 test('customerImporters on this repository: who loads a style sheet, the build’s own files, a file only a test loads', () => {
   const { importers, built, computed } = customerImporters();
+  const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT_DIR, encoding: 'utf8' }).trim();
+  assert.deepEqual(customerImporters(ROOT_DIR, head), customerImporters(ROOT_DIR), 'read at a commit, the same as its checkout');
   assert.ok(importers[`${SRC}/features/trade/news/news.css`].includes(`${SRC}/features/trade/news/NewsRooms.tsx`));
   assert.ok(importers[`${SRC}/main.tsx`].includes('apps/customer/index.html'));
   assert.ok(built.includes(`${SRC}/app/boot.ts`), 'vite.config.ts imports it');

@@ -36,10 +36,11 @@
  *     changed file itself subscribes;
  *   - apps/customer/src/…: the journeys whose pages ran a function of that file or loaded a built script holding it.
  *     A file no journey reached (a new file, a style sheet, one the build doesn't map) runs only where a file loading it
- *     runs, so it takes the journeys of the files that load it at the head (main's `importers`, and the pull request's
- *     own changed files that name it), followed up through files no journey reached either. Full when the map holds no
- *     `importers`, the head can't be read, a file the map doesn't know is on the pull request's merge base (main added
- *     it after the map was built) or shares its import name with another at the head (`x.ts` beside `x.tsx`: an
+ *     runs, so it takes the journeys of the files that load it at the head (`importers`, read at the map's newest run's
+ *     head; the files main changed since, up to the pull request's merge base; and the pull request's own changed files
+ *     that name it), followed up through files no journey reached either. Full when the map holds no `importers`, the
+ *     head or main's changes since the map can't be read whole, a file the map doesn't know is on the pull request's
+ *     merge base (main added it after the map was built) or shares its import name with another at the head (`x.ts` beside `x.tsx`: an
  *     unchanged import may now load it), the app's Node code runs it (`built`), something outside the customer source
  *     or a page loads it, or the chain ends at a file nothing but tests loads;
  *   - packages/x/…: the journeys whose pages ran its built code (the customer bundles `packages/x/dist`, read back to
@@ -435,6 +436,81 @@ export function headWanted(map, paths) {
   return { texts: ps.filter((p) => GRAPH_FILE.test(p)), unknown, dirs: [...dirs].sort() };
 }
 
+/**
+ * The text a file holds on one side of GitHub's patch of it (`side`: '+' the new, '-' the old): each hunk's context and
+ * that side's lines, the hunks kept apart by `;` so no load runs from one into the next, then each quoted string of the
+ * patch as an import of its own (a hunk may cut a load off from its keyword): more loads, never fewer.
+ */
+export function patchText(patch, side) {
+  const hunks = String(patch)
+    .split(/^@@.*$/m)
+    .slice(1)
+    .map((h) =>
+      h
+        .split('\n')
+        .filter((l) => l.startsWith(' ') || l.startsWith(side))
+        .map((l) => l.slice(1))
+        .join('\n'),
+    );
+  const quoted = [...String(patch).matchAll(/(['"`])([^'"`\n]+)\1/g)].map((m) => `import ${m[1]}${m[2]}${m[1]}`);
+  return `${[...hunks, ...quoted].join('\n;\n')}\n;\n`;
+}
+
+/**
+ * What main changed between the commit the map's file graph was read at (its newest run's head) and the pull request's
+ * merge base, either way round: each script, style sheet and page under apps, packages, services and tooling
+ * (GRAPH_FILE, not a test), mapped to what the merge base holds of it, where it may load a file `importers` doesn't
+ * name: patchText of its patch, null when the merge base doesn't hold it, undefined when the patch doesn't say (none
+ * given, or a rename or copy, whose unchanged lines are new to the graph): read the file. `compare(a, b)`: GitHub's
+ * compare of a...b. Throws when it can't be told whole (GitHub lists at most 300 files).
+ */
+export async function sinceMap(map, mergeBase, compare) {
+  const from = map?.runs?.[0]?.head;
+  const SHA = /^[0-9a-f]{40}$/;
+  if (!SHA.test(String(from)) || !SHA.test(String(mergeBase))) throw new Error('no commits to compare');
+  const out = new Map();
+  if (from === mergeBase) return out;
+  let c = await compare(from, mergeBase);
+  // A merge base older than the map: its side is the old one of the map's head compared from it.
+  const ahead = c?.status !== 'behind';
+  if (!ahead) c = await compare(mergeBase, from);
+  if (!['ahead', 'identical'].includes(c?.status) || !Array.isArray(c.files) || c.files.length >= 300)
+    throw new Error("main's changes since the map couldn't be listed whole");
+  const graph = (p) => typeof p === 'string' && /^(apps|packages|services|tooling)\//.test(p) && GRAPH_FILE.test(p) && !isTest(p);
+  const put = (p, t) => {
+    if (graph(p) && !out.has(p)) out.set(p, t);
+  };
+  for (const f of c.files) {
+    const told = typeof f?.patch === 'string' && f.patch !== '' && !['renamed', 'copied'].includes(f?.status);
+    if (ahead) {
+      put(f?.filename, f?.status === 'removed' ? null : told ? patchText(f.patch, '+') : undefined);
+      if (f?.status === 'renamed') put(f?.previous_filename, null);
+    } else {
+      if (f?.status === 'renamed') put(f?.filename, null);
+      put(f?.previous_filename ?? f?.filename, f?.status === 'added' ? null : told ? patchText(f.patch, '-') : undefined);
+    }
+  }
+  return out;
+}
+
+/**
+ * loadersReach's `head` for what headWanted names (`want`), with main's changes since the map (sinceMap): `read(path)`
+ * a file's text at the head (null when it has none), `list(dir)` a folder's entry names there, `mergeBase` the pull
+ * request's merge base, `atBase(path)` whether it holds a path, `compare` sinceMap's. Throws when anything can't be read.
+ */
+export async function readHead(map, want, { read, list, mergeBase, atBase, compare }) {
+  const since = await sinceMap(map, mergeBase, compare);
+  const texts = new Map();
+  for (const p of want.texts) texts.set(p, await read(p));
+  for (const [p, t] of since) if (!texts.has(p)) texts.set(p, t === undefined ? await read(p) : t);
+  const dirs = new Map();
+  for (const d of want.dirs) dirs.set(d, new Set(await list(d)));
+  // Every file main changed since the map counts as newer than it.
+  const based = new Set(since.keys());
+  for (const u of want.unknown) if (await atBase(u)) based.add(u);
+  return { texts, dirs, based };
+}
+
 /** What a spec without an extension may resolve to (Vite's and TypeScript's lookup). */
 const RESOLVED = ['.ts', '.tsx', '.mts', '.js', '.jsx', '.mjs', '.cjs', '.json'];
 /** A load whose target the text doesn't spell: a glob, a computed dynamic import, require.context. In the customer
@@ -480,22 +556,48 @@ export function moduleKeys(f) {
   return keys;
 }
 
+/** The texts of `files` at commit `at`, read in one `git cat-file --batch`: a lookup, undefined for a path that is no blob. */
+function blobs(git, at, files) {
+  const out = git(['cat-file', '--batch'], Buffer.from(files.map((f) => `${at}:${f}\n`).join('')));
+  const texts = new Map();
+  let i = 0;
+  for (const f of files) {
+    const nl = out.indexOf(10, i);
+    const head = /^[0-9a-f]{40} (\w+) (\d+)$/.exec(out.toString('utf8', i, nl));
+    i = nl + 1;
+    if (!head) continue; // "<spec> missing": nothing follows
+    if (head[1] === 'blob') texts.set(f, out.toString('utf8', i, i + Number(head[2])));
+    i += Number(head[2]) + 1;
+  }
+  return (f) => texts.get(f);
+}
+
 /**
  * Who loads each customer source file (every file under apps/customer/src but a unit test), from the text of every
  * script, style sheet and page under apps, packages, services and tooling (importTargets): { importers: { file: [path] },
  * built, computed }. A test (isTest) loads nothing here. A customer file that loads something it doesn't spell
  * (COMPUTED_LOAD) is taken to load every customer file; `computed` lists them, since they load a new file too. `built`: the customer files the app's own Node code runs (its
  * build config, deployment scripts and scaffolds: apps/customer outside src, the pages and tests aside), followed down
- * through their imports; a change there reaches what the build emits, which no record ties to a journey.
+ * through their imports; a change there reaches what the build emits, which no record ties to a journey. `at`: the
+ * commit to read (the map reads its newest run's head, so what main changed since is known: sinceMap), else the checkout.
  */
-export function customerImporters(root = ROOT) {
-  const all = execFileSync('git', ['ls-files', 'apps', 'packages', 'services', 'tooling'], {
-    cwd: root,
-    encoding: 'utf8',
-    maxBuffer: 64 * 2 ** 20,
-  })
+export function customerImporters(root = ROOT, at = null) {
+  const git = (args, input) =>
+    execFileSync('git', args, { cwd: root, input, encoding: input ? 'buffer' : 'utf8', maxBuffer: 1024 * 2 ** 20 });
+  const all = (
+    at
+      ? git(['ls-tree', '-r', '--name-only', at, '--', 'apps', 'packages', 'services', 'tooling'])
+      : git(['ls-files', 'apps', 'packages', 'services', 'tooling'])
+  )
     .split('\n')
     .filter(Boolean);
+  const read = at
+    ? blobs(
+        git,
+        at,
+        all.filter((f) => GRAPH_FILE.test(f) && !isTest(f)),
+      )
+    : (f) => readFileSync(join(root, f), 'utf8');
   const targets = all.filter((f) => f.startsWith(CUSTOMER_DIR) && !isTest(f));
   const byKey = new Map();
   for (const t of targets) for (const k of moduleKeys(t)) byKey.set(k, [...(byKey.get(k) ?? []), t]);
@@ -506,10 +608,11 @@ export function customerImporters(root = ROOT) {
     if (!GRAPH_FILE.test(f) || isTest(f)) continue;
     let text;
     try {
-      text = readFileSync(join(root, f), 'utf8');
+      text = read(f);
     } catch {
       continue;
     }
+    if (typeof text !== 'string') continue;
     const to = new Set(importTargets(text, f).flatMap((p) => byKey.get(p) ?? []));
     if (f.startsWith(CUSTOMER_DIR) && COMPUTED_LOAD.test(text)) {
       computed.push(f);
@@ -563,6 +666,7 @@ export function buildMap({
   importers = null,
   built = [],
   computed = [],
+  graph = null,
   baseline = null,
   minRuns = MIN_RUNS,
 }) {
@@ -585,6 +689,8 @@ export function buildMap({
       mode: 'full',
       why: `built from ${whole.length} whole main run(s) holding records; it needs ${minRuns}, so every product change runs the full suite`,
     };
+  // The file graph read at the newest run's head (customerImporters), so what main changed since is known (sinceMap).
+  if (graph) ({ importers, built, computed } = graph(whole[0].head));
   const journeys = [...whole[0].files].sort();
   const reach = whole.map((r) => runReach(r.records, services));
   const full = {};
@@ -823,6 +929,7 @@ function loadersReach(map, path, head) {
     if (!loaders.length) return { full: `${why}, and nothing but tests loads ${f} (an entry, or a file outside the app)` };
     for (const g of loaders) {
       if (!g.startsWith(CUSTOMER_DIR) || /\.html?$/.test(g)) return { full: `${why}, and ${g} loads ${f}, which no record covers` };
+      if (map.built?.includes(g)) return { full: `${why}, and the customer app's own Node code (its build) runs ${g}, which loads it` };
       const js = map.customer?.[g];
       if (js?.length) for (const j of js) out.add(j);
       else queue.push(g);
@@ -962,7 +1069,7 @@ function downloadReport(id) {
 }
 
 /** The map's keys read from the checkout's code rather than from the runs. */
-const WORKSPACE_KEYS = new Set(['consumers', 'dependents', 'harness', 'subscribers', 'money', 'importers', 'built', 'computed']);
+const WORKSPACE_KEYS = new Set(['consumers', 'dependents', 'harness', 'subscribers', 'money']);
 
 /** The map as the builder writes it: one line of JSON and a newline. */
 export const mapText = (map) => `${JSON.stringify(map)}\n`;
@@ -975,11 +1082,7 @@ export const mapText = (map) => `${JSON.stringify(map)}\n`;
  */
 export function workspaceInputs(root = ROOT) {
   const ws = workspace(root);
-  const { importers, built, computed } = customerImporters(root);
   return {
-    importers,
-    built,
-    computed,
     services: new Set(ws.dirs.filter((d) => SERVICE_DIR.test(d))),
     consumers: consumersOf(ws),
     dependents: dependentPackages(ws),
@@ -1019,6 +1122,8 @@ function buildFromMain({ ids, until, root = ROOT } = {}) {
   return buildMap({
     runs,
     ...inputs,
+    // The file graph is main's at the newest whole run's head (fetched here, as filesAt above needs), whatever the checkout.
+    graph: (sha) => customerImporters(ROOT, sha),
     // main's baseline, never the pull request's: `verify` runs main's builder from a worktree of main (ROOT), and the code
     // keys alone follow `--workspace`, so a pull request can't edit the baseline to narrow what its map selects.
     baseline: rootInputs(ROOT).baseline,
