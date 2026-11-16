@@ -23,7 +23,7 @@ runLedgerConformance('MemoryLedger', async () => ({
   totalsByAsset: async () => conformanceLedger.totalsByAsset(),
 }));
 import { formatAmount, parseAmount as amt, sum } from './money.js';
-import { assertBalanced, assertPairedLocks, assertPurposedHolds, assertValidPost, LOCK_KINDS } from './client.js';
+import { assertBalanced, assertPairedLocks, assertValidPost, LOCK_KINDS } from './client.js';
 import { ACCOUNT_KINDS, ACCOUNT_KIND_CLASS } from './types.js';
 import {
   futuresLossSink,
