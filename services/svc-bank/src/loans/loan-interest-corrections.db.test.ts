@@ -67,7 +67,7 @@ function context(p: Principal) {
       'content-type': 'application/json',
     },
     id: `req-${randomUUID()}`,
-  } as unknown as Parameters<typeof edgeContext>[0]);
+  } as Parameters<typeof edgeContext>[0]);
 }
 
 /**

@@ -514,7 +514,7 @@ describe('customer card procedures (PG-hard)', () => {
     const ledger = new MemoryLedger();
     const { issuer, calls } = countingLiveIssuer();
     const cards = new CardService(sql, ledger, { issuer, clock: () => NOW });
-    const bank = { cards } as unknown as BankServices;
+    const bank = { cards } as BankServices;
     const user = caller(bank, ['bank:read', 'bank:write']);
     await sql.unsafe(SIMULATED_DOWN);
     try {
@@ -541,7 +541,7 @@ describe('customer card procedures (PG-hard)', () => {
     await sql`TRUNCATE bank.card_secret_audits, bank.card_commands, bank.card_cashback, bank.card_settlements, bank.card_conversions, bank.card_authorizations, bank.cards RESTART IDENTITY CASCADE`;
     const ledger = new MemoryLedger();
     const cards = new CardService(sql, ledger, { issuer: liveIssuer(), clock: () => NOW });
-    const bank = { cards } as unknown as BankServices;
+    const bank = { cards } as BankServices;
     const identity = new FakeIdentity();
     const user = caller(bank, ['bank:read', 'bank:write'], createStepUpGate({ mode: 'required', approvals: identity, clock: () => NOW }));
     await sql.unsafe(SIMULATED_DOWN);
@@ -1155,7 +1155,7 @@ describe('customer card procedures (PG-hard)', () => {
     await sql`TRUNCATE bank.card_secret_audits, bank.card_commands, bank.card_cashback, bank.card_settlements, bank.card_conversions, bank.card_authorizations, bank.cards RESTART IDENTITY CASCADE`;
     const ledger = new MemoryLedger();
     const cards = new CardService(sql, ledger, { issuer: liveIssuer(), clock: () => NOW });
-    const bank = { cards } as unknown as BankServices;
+    const bank = { cards } as BankServices;
     const user = caller(bank);
     await sql.unsafe(SIMULATED_DOWN);
     try {

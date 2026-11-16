@@ -70,7 +70,7 @@ function build(opts: {
   const ledger = {
     balances: async (ownerType: string, ownerId: string) =>
       opts.balances.filter((r) => r.account.ownerType === ownerType && r.account.ownerId === ownerId),
-  } as unknown as Pick<LedgerClient, 'balances'>;
+  } as Pick<LedgerClient, 'balances'>;
   const lister: SpaceLister = { namedSpaces: async (userId) => (opts.spaces ?? []).filter((s) => s.userId === userId) };
   let calls = 0;
   const pages: LedgerHistoryPages = {
@@ -85,10 +85,10 @@ function build(opts: {
     },
   };
   const portfolio = new PortfolioService(ledger, lister, { pages });
-  return createBankRouter({ portfolio } as unknown as BankServices).createCaller(signed(ALICE));
+  return createBankRouter({ portfolio } as BankServices).createCaller(signed(ALICE));
 }
 
-const space = { id: SPACE, userId: ALICE, kind: 'named', name: 'Holiday' } as unknown as SpaceRecord;
+const space = { id: SPACE, userId: ALICE, kind: 'named', name: 'Holiday' } as SpaceRecord;
 
 describe('bank.portfolio.balanceEntries', () => {
   it('lists the entries newest first and says they sum to the balance', async () => {
@@ -159,16 +159,16 @@ describe('bank.portfolio.balanceEntries', () => {
     const caller = build({
       balances: [],
       history: {},
-      spaces: [{ id: SPACE, userId: BOB, kind: 'named', name: 'Bob' } as unknown as SpaceRecord],
+      spaces: [{ id: SPACE, userId: BOB, kind: 'named', name: 'Bob' } as SpaceRecord],
     });
     await expect(caller.portfolio.balanceEntries({ assetId: 'BTC', accountId: SPACE })).rejects.toBeDefined();
     await expect(caller.portfolio.balanceEntries({ assetId: 'BTC', userId: BOB } as never)).rejects.toBeDefined();
   });
 
   it('refuses when no history source is wired', async () => {
-    const ledger = { balances: async () => [] } as unknown as Pick<LedgerClient, 'balances'>;
+    const ledger = { balances: async () => [] } as Pick<LedgerClient, 'balances'>;
     const portfolio = new PortfolioService(ledger, { namedSpaces: async () => [] });
-    const caller = createBankRouter({ portfolio } as unknown as BankServices).createCaller(signed(ALICE));
+    const caller = createBankRouter({ portfolio } as BankServices).createCaller(signed(ALICE));
     await expect(caller.portfolio.balanceEntries({ assetId: 'BTC' })).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
   });
 });

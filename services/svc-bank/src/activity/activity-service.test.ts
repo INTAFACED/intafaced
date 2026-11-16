@@ -550,7 +550,7 @@ function signed(p: Principal) {
 const anonymous = () => edgeContext({ headers: { 'x-intafaced-region': 'DE' }, id: 'req-anon' });
 
 function callerFor(service: ActivityService, p: Principal) {
-  return createBankRouter({ activity: service } as unknown as BankServices).createCaller(signed(p));
+  return createBankRouter({ activity: service } as BankServices).createCaller(signed(p));
 }
 
 describe('bank.activity.list through the router', () => {
@@ -577,7 +577,7 @@ describe('bank.activity.list through the router', () => {
     expect(bobs.items.map((i) => i.txId)).toEqual(['b-dep']);
     expect(asked.map((a) => a.ownerId)).toEqual([BOB]);
 
-    const caller = callerFor(service, principal(ALICE)) as unknown as { activity: { list: (i: unknown) => Promise<unknown> } };
+    const caller = callerFor(service, principal(ALICE)) as { activity: { list: (i: unknown) => Promise<unknown> } };
     await expect(caller.activity.list({ limit: 10, userId: BOB })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
     await expect(caller.activity.list({ limit: 10, ownerId: BOB_SPACE, ownerType: 'subaccount' })).rejects.toMatchObject({
       code: 'BAD_REQUEST',
@@ -587,7 +587,7 @@ describe('bank.activity.list through the router', () => {
 
   it('refuses an anonymous caller and a token without bank:read, and reads nothing', async () => {
     const { service, asked } = build(rows, spaces);
-    const bank = { activity: service } as unknown as BankServices;
+    const bank = { activity: service } as BankServices;
     await expect(createBankRouter(bank).createCaller(anonymous()).activity.list({ limit: 5 })).rejects.toMatchObject({
       code: 'UNAUTHORIZED',
     });

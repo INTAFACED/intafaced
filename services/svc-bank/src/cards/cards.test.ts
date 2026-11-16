@@ -756,7 +756,7 @@ describe('svc-bank cards PG-hard', () => {
             if (tx.idempotencyKey.startsWith('withdraw.hold:')) throw new Error('svc-ledger unreachable');
             return ledger.post(tx);
           },
-        } as unknown as MemoryLedger,
+        } as MemoryLedger,
         { issuer: cardSim() },
       );
 
@@ -834,7 +834,7 @@ describe('svc-bank cards PG-hard', () => {
             if (tx.idempotencyKey.startsWith('withdraw.hold:')) throw new Error('svc-ledger unreachable');
             return ledger.post(tx);
           },
-        } as unknown as MemoryLedger,
+        } as MemoryLedger,
         { issuer: cardSim() },
       );
 
@@ -868,7 +868,7 @@ describe('svc-bank cards PG-hard', () => {
             if (tx.idempotencyKey.startsWith('withdraw.hold:')) throw new Error('svc-ledger unreachable');
             return ledger.post(tx);
           },
-        } as unknown as MemoryLedger,
+        } as MemoryLedger,
         { issuer: cardSim() },
       );
 
@@ -984,7 +984,7 @@ describe('svc-bank cards PG-hard', () => {
           if (tx.idempotencyKey.startsWith(keyPrefix)) throw failure();
           return ledger.post(tx);
         },
-      } as unknown as MemoryLedger;
+      } as MemoryLedger;
       return new CardService(sql, client, { issuer: cardSim() });
     };
 
@@ -1034,7 +1034,7 @@ describe('svc-bank cards PG-hard', () => {
           }
           return receipt;
         },
-      } as unknown as MemoryLedger;
+      } as MemoryLedger;
       const lossyCards = new CardService(sql, lossy, { issuer: cardSim() });
 
       await expect(lossyCards.capture({ cardId: card.id, authorizationRef: 'auth-1', amount: amt('120') })).rejects.toThrow(
@@ -1242,7 +1242,7 @@ describe('svc-bank cards PG-hard', () => {
             }
             return ledger.post(tx);
           },
-        } as unknown as MemoryLedger,
+        } as MemoryLedger,
         { issuer: cardSim() },
       );
 
@@ -1318,7 +1318,7 @@ describe('svc-bank cards PG-hard', () => {
             }
             return ledger.post(tx);
           },
-        } as unknown as MemoryLedger,
+        } as MemoryLedger,
         { issuer: cardSim() },
       );
 
@@ -1517,7 +1517,7 @@ describe('svc-bank cards PG-hard', () => {
             if (tx.idempotencyKey === rewardKey(missed.id)) throw new Error('svc-ledger unreachable');
             return ledger.post(tx);
           },
-        } as unknown as MemoryLedger,
+        } as MemoryLedger,
         { issuer: connectedIssuer() },
       );
 
@@ -1963,7 +1963,7 @@ describe('svc-bank cards PG-hard', () => {
             if (tx.idempotencyKey.startsWith('withdraw.hold:')) throw new Error('svc-ledger unreachable');
             return ledger.post(tx);
           },
-        } as unknown as MemoryLedger;
+        } as MemoryLedger;
         const broken = new CardService(sql, failing, { issuer: cardSim(), rates: source, clock: () => NOW });
         const card = await broken.issue({
           cardId: randomUUID(),
