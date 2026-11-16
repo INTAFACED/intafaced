@@ -1,5 +1,5 @@
 import { defineConfig } from 'vitest/config';
+import { TEST_BUDGET } from '../../tooling/vitest/budget.mjs';
 
-// A TEST seed signs every TEST maker's ladder level (six laddered markets since J-derivatives-03's ETH-PERP), which
-// takes a few seconds on a busy runner: past vitest's 5 s default, a test that seeds timed out before it asserted.
-export default defineConfig({ test: { testTimeout: 30_000 } });
+// The shared budget (tooling/vitest/budget.mjs): a TEST seed signs every maker ladder level, a few seconds on a busy runner.
+export default defineConfig({ test: { ...TEST_BUDGET } });
