@@ -376,18 +376,75 @@ describe('recipient cannot receive — svc-bank refuses before posting', () => {
 
     // The sender's freeze is enforced at the edge (recipient-state.ts), but a standing order runs on svc-bank's own timer
     // and never passes the edge. A frozen account's money must not keep leaving by its standing orders.
-    it('a SENDER frozen after scheduling: the run posts nothing and the recipient is not paid', async () => {
+    it.each(['frozen', 'closed', 'not_found'] as const)(
+      'a SENDER %s after scheduling: the run records bank.sender_cannot_send, posts nothing, the recipient is not paid',
+      async (status) => {
+        const schedule = await order();
+        identity.set(SENDER, status);
+        const before = journalKeys();
+
+        const report = await bank.transfers.runDueTransfers({ now: new Date('2026-01-01T10:00:00Z'), limit: 200 });
+
+        expect(report.settled).toBe(0);
+        expect(report.rejected).toBe(1);
+        expect(report.failures).toEqual([]);
+        expect(journalKeys()).toEqual(before);
+        const runs = await bank.transfers.executions(schedule.id, 50);
+        expect(runs).toHaveLength(1);
+        expect(runs[0]).toMatchObject({ status: 'rejected', rejectionCode: 'bank.sender_cannot_send' });
+        expect(await available(RECIPIENT)).toBe('0');
+        expect(await available(SENDER)).toBe('100');
+      },
+    );
+
+    it('identity down for the SENDER check does NOT consume the occurrence; it settles once identity says active', async () => {
       const schedule = await order();
+      const now = new Date('2026-01-01T10:00:00Z');
+      // Recipient answers active; the next ask (the sender's) fails.
+      const port = identity;
+      let calls = 0;
+      const realStatusOf = port.statusOf.bind(port);
+      port.statusOf = async (userId: string) => {
+        calls += 1;
+        if (userId === SENDER) throw new RecipientStateUnavailableError('down');
+        return realStatusOf(userId);
+      };
+
+      const down = await bank.transfers.runDueTransfers({ now, limit: 200 });
+      expect(calls).toBeGreaterThan(0);
+      expect(down.settled).toBe(0);
+      expect(down.failures).toHaveLength(1);
+      expect(await bank.transfers.executions(schedule.id, 50)).toHaveLength(0);
+      expect(await available(RECIPIENT)).toBe('0');
+
+      port.statusOf = realStatusOf;
+      const up = await bank.transfers.runDueTransfers({ now, limit: 200 });
+      expect(up.settled).toBe(1);
+      expect(await available(RECIPIENT)).toBe('25');
+      expect(await available(SENDER)).toBe('75');
+    });
+
+    it("a frozen SENDER's move between their own spaces is not a payment out: it settles, and identity is not asked", async () => {
+      const from = await sender();
+      const pot = await bank.spaces.create({ userId: SENDER, assetId: 'USDT', name: 'Pot' });
+      const schedule = await bank.transfers.schedule({
+        scheduleId: randomUUID(),
+        userId: SENDER,
+        fromSpaceId: from.id,
+        toSpaceId: pot.id,
+        amount: amt('25'),
+        cadence: 'monthly',
+        startsAt: new Date('2026-01-01T09:00:00Z'),
+      });
       identity.set(SENDER, 'frozen');
-      const before = journalKeys();
+      const askedBefore = identity.asked.length;
 
       const report = await bank.transfers.runDueTransfers({ now: new Date('2026-01-01T10:00:00Z'), limit: 200 });
 
-      expect(report.settled).toBe(0);
-      expect(journalKeys()).toEqual(before);
-      expect(await available(RECIPIENT)).toBe('0');
-      expect(await available(SENDER)).toBe('100');
-      expect(schedule.id).toBeTruthy();
+      expect(report.settled).toBe(1);
+      expect(identity.asked.slice(askedBefore)).toEqual([]);
+      expect(formatAmount(await bank.spaces.balanceOf(pot))).toBe('25');
+      expect((await bank.transfers.executions(schedule.id, 50))[0]).toMatchObject({ status: 'settled' });
     });
 
     it('identity down at run time does NOT consume the occurrence; it settles when identity is back', async () => {

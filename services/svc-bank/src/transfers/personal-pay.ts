@@ -300,7 +300,7 @@ export class PersonalPayService {
     private readonly sql: Sql,
     private readonly ledger: Pick<LedgerClient, 'getTx' | 'getTxByKey' | 'balance'>,
     private readonly transfers: Pick<TransferService, 'transferToUser'>,
-    private readonly spaces: Pick<SpaceService, 'get' | 'findPrimary' | 'ensurePrimary' | 'assertCanReceive'>,
+    private readonly spaces: Pick<SpaceService, 'get' | 'findPrimary' | 'ensurePrimary' | 'assertCanReceive' | 'assertCanSend'>,
     private readonly options: {
       handles?: PartyHandlePort;
       notices?: PersonalRequestNotices;
@@ -601,11 +601,7 @@ export class PersonalPayService {
       if (!(await this.ledger.getTxByKey(bankTransferKey('p2p', input.transferId, 0))))
         await assertSecurityLockOpen(this.options.securityLock ?? unconfiguredSecurityLock(), input.fromUserId, 'a withdrawal');
       // No edge stands in front of this door, so the sender's own account state is asked here, as it is for a receiver.
-      await this.spaces.assertCanReceive(input.fromUserId).catch((err: unknown) => {
-        if (err instanceof BankError && err.code === 'bank.recipient_cannot_receive')
-          throw new BankError('The sending account cannot send money right now; nothing was sent.', 'bank.sender_cannot_send');
-        throw err;
-      });
+      await this.spaces.assertCanSend(input.fromUserId);
       const from =
         (await this.spaces.findPrimary(input.fromUserId, input.assetId)) ??
         (await this.spaces.ensurePrimary(input.fromUserId, input.assetId));
