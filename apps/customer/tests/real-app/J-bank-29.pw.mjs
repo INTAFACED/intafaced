@@ -312,14 +312,14 @@ async function founders() {
   return gatesCtx;
 }
 /** One card-issuer event through the bank's ops door, approved by two founders as the simulator's stand-in requires. */
-async function cardEvent(actionType, procedure, fields) {
+async function cardEvent(actionType, procedure, fields, hashed = fields) {
   const { gates, ctx, sessions } = await founders();
   const approval = await gates.twoPerson(ctx, sessions, {
     actionType,
     targetService: 'svc-bank',
     targetId: actionType,
     expectedVersion: '1',
-    payloadHash: gates.bankPayloadHash(actionType, fields),
+    payloadHash: gates.bankPayloadHash(actionType, hashed),
     policyVersion: gates.MARKERS.policyVersion,
   });
   const res = await ctx.edge.mutate('bank', procedure, { ...fields, ...approval }, await sessions.a.treasuryToken());
@@ -335,12 +335,10 @@ const cardOf = () => {
 /** A TEST merchant's charge in USDC, as the card network's message reaches the bank (the card-sim network call). */
 async function charge(amount, merchant) {
   const ref = `jb29-${randomUUID()}`;
-  const decided = await cardEvent('bank.card_authorize', 'ops.cardAuthorize', {
-    cardId: cardOf(),
-    authorizationRef: ref,
-    amount,
-    merchant,
-  });
+  // The founders' approval binds the card, the reference and the amount, as the ops door checks it; the merchant rides
+  // with the issuer's message.
+  const bound = { cardId: cardOf(), authorizationRef: ref, amount };
+  const decided = await cardEvent('bank.card_authorize', 'ops.cardAuthorize', { ...bound, merchant }, bound);
   return { ...decided, ref };
 }
 /** The card's decisions, as svc-bank holds them. */
