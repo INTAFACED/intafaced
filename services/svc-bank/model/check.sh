@@ -72,4 +72,7 @@ run broken-hold-key-repeats '"inline", "sweep"' "$ALL" HoldOnce 's/IF holdKey TH
 # 5. A claim that does not check the row is still held: Deny after Accept flips a released payment to returning.
 run broken-claim-without-cas '"sweep"' "$ALL" OutcomeMatches 's/state = "held"$/state \\notin {"placing", "lapsed"}/'
 
+# The CashOutLock model (#8597) shares this folder; CI runs one check.sh per folder, so it runs from here.
+"$here/check-cashout.sh" || failed=1
+
 exit "$failed"

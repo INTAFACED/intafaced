@@ -12,7 +12,7 @@
 services/svc-bank/model/check-cashout.sh
 ```
 
-It needs Java 11 or later (`java` on the PATH, or `JAVA=/path/to/java`). It downloads the TLA+ tools pinned to v1.7.4 by URL and SHA-256 into `~/.cache/intafaced-tla`. It takes a few seconds. `SHOW_TRACE=1` prints the order of events for each violation.
+The folder's `check.sh`, which CI's model check runs, runs it after the ReceivedHold model. It needs Java 11 or later (`java` on the PATH, or `JAVA=/path/to/java`). It downloads the TLA+ tools pinned to v1.7.4 by URL and SHA-256 into `~/.cache/intafaced-tla`. It takes a few seconds. `SHOW_TRACE=1` prints the order of events for each violation.
 
 | Run                           | What                                                          | Expected                                     |
 | ----------------------------- | ------------------------------------------------------------- | -------------------------------------------- |
