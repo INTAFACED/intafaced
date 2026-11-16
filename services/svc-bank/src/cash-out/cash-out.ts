@@ -36,6 +36,11 @@
  * and every ledger post is keyed by the request, so nothing is held or paid twice. Until then the amount sits in this
  * request's own hold, visible, never in another request's.
  *
+ * The request's lock is a session lock on one connection; if that connection drops, Postgres frees it while the driver
+ * carries on, so two drivers can run at once (#8597). A partner move made under the order key after another driver
+ * recorded the request refused is given back once under the back key, by that driver or, if it crashed, by the re-drive
+ * job. A refused request takes nothing.
+ *
  * The request id is the customer's business key for one ask: the same id on the same terms is the same request, and on
  * other terms, or from someone else, is `bank.ramp_conflict`.
  */
@@ -446,7 +451,9 @@ export class CashOutService {
 
   /**
    * Requests left `processing` before their hold or the partner's acceptance, oldest first, driven on again. Each comes
-   * back `completed` once the partner has it or it was closed, or `failed` while it is still left (with why).
+   * back `completed` once the partner has it or it was closed, or `failed` while it is still left (with why). Then
+   * partner-held requests refused in the last day whose order key has a move nobody gave back: given back once, each
+   * `completed`.
    */
   async redrive(limit: number): Promise<{ id: string; outcome: 'completed' | 'failed'; reason?: string }[]> {
     const rows = await this.sql<RequestRow[]>`
@@ -464,6 +471,23 @@ export class CashOutService {
         results.push(left ? { id: row.id, outcome: 'failed', reason: 'bank.cash_out_partner_gone' } : { id: row.id, outcome: 'completed' });
       } catch (err) {
         // One that cannot be driven now does not stop the others: it is picked up on the next pass.
+        results.push({ id: row.id, outcome: 'failed', reason: err instanceof BankError ? err.code : 'bank.cash_out_redrive_failed' });
+      }
+    }
+    // A partner-held request refused while it was being driven, whose move a driver that lost its lock made anyway and
+    // then crashed before giving it back. Such a move is made within one drive's span, so a day back is enough.
+    const refused = await this.sql<RequestRow[]>`
+      SELECT * FROM bank.cash_out_requests
+       WHERE status = 'refused' AND custodian IS NOT NULL AND partner_back_move_id IS NULL
+         AND refusal_code = 'bank.cash_out_over_available'
+         AND created_at > now() - interval '1 day' AND created_at < now() - interval '1 minute'
+       ORDER BY created_at DESC LIMIT ${limit}
+    `;
+    for (const row of refused) {
+      try {
+        const after = await withSessionAdvisoryLock(this.sql, LOCK, row.id, async () => this.giveBackRefused((await this.row(row.id))!));
+        if (after.partner_back_move_id) results.push({ id: row.id, outcome: 'completed' });
+      } catch (err) {
         results.push({ id: row.id, outcome: 'failed', reason: err instanceof BankError ? err.code : 'bank.cash_out_redrive_failed' });
       }
     }
@@ -570,7 +594,15 @@ export class CashOutService {
           `,
           );
         }
-        now = await this.moved(now.id, 'processing', this.sql`partner_move_id = ${moveId}`);
+        try {
+          now = await this.moved(now.id, 'processing', this.sql`partner_move_id = ${moveId}`);
+        } catch (err) {
+          // The lock's connection dropped while this ran (Postgres frees a dropped session's lock at once), and another
+          // driver recorded the request refused before this move was made. A refused request took nothing: give it back.
+          const after = err instanceof BankError && err.code === 'bank.ramp_conflict' ? await this.row(now.id) : undefined;
+          if (after?.status !== 'refused') throw err;
+          return this.giveBackRefused(after);
+        }
       }
       if (now.custodian === null && !now.hold_ledger_tx_id) {
         const booked = await this.bookedHold(now);
@@ -617,6 +649,30 @@ export class CashOutService {
       }
       return now;
     });
+  }
+
+  /**
+   * A partner-held request recorded refused whose order key still has a move (a driver that lost its lock moved it
+   * after another recorded the refusal): the amount goes back to the main balance once, under the back key. With no
+   * move under the key, or already given back, it comes back unchanged.
+   */
+  private async giveBackRefused(row: RequestRow): Promise<RequestRow> {
+    if (row.status !== 'refused' || row.custodian === null || row.partner_back_move_id) return row;
+    const bank = this.heldBank(row);
+    if (!(await bank.moveByKey(cashOutMoveKey(row.id)))) return row;
+    const back = await bank.move({
+      key: cashOutBackKey(row.id),
+      from: partnerPayoutsAccount(row.asset_id),
+      to: mainAccount(row.user_id, row.asset_id),
+      amount: parseAmount(row.amount),
+    });
+    const rows = await this.sql<RequestRow[]>`
+      UPDATE bank.cash_out_requests SET partner_back_move_id = ${back.id}
+       WHERE id = ${row.id}::uuid AND status = 'refused' AND (partner_back_move_id IS NULL OR partner_back_move_id = ${back.id})
+       RETURNING *
+    `;
+    if (!rows[0]) throw new BankError('The cash-out changed while it was being given back', 'bank.ramp_conflict');
+    return rows[0];
   }
 
   /** The partner bank that holds a partner-held request's money; not answering refuses, nothing changed. */

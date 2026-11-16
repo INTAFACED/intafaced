@@ -34,7 +34,7 @@ test("the repo's own tree: every model is found, none unwired", () => {
   const { models, errors } = findModels(ROOT);
   assert.deepEqual(errors, []);
   assert.deepEqual(models.map((m) => `${m.dir}:${m.name}`).sort(), [
-    'services/svc-bank/model:ReceivedHold',
+    'services/svc-bank/model:CashOutLock+ReceivedHold',
     'services/svc-campaigns/model:RewardPay',
     'services/svc-trade/model:OneHold',
   ]);
