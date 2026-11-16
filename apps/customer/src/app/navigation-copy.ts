@@ -230,6 +230,10 @@ const messages = {
   'Join a business': 'Join a business',
   'Accept an invitation to a business bank team': 'Accept an invitation to a business bank team',
   Bills: 'Bills',
+  'Bulk payments': 'Bulk payments',
+  'Pay your team and contractors in bulk': 'Pay your team and contractors in bulk',
+  'Join as a contractor': 'Join as a contractor',
+  'Add your own payout details for a business': 'Add your own payout details for a business',
   'Your suppliers’ bills: the inbox, approvals and payments': 'Your suppliers’ bills: the inbox, approvals and payments',
   'Review the bill, its approvals and its payments': 'Review the bill, its approvals and its payments',
   'Secure the account, extra checks for large sends and your sign-in location':
@@ -758,6 +762,10 @@ export const navigationCopy: ReturnType<typeof defineCopy<typeof messages>> = de
     'Join a business': 'Unirse a una empresa',
     'Accept an invitation to a business bank team': 'Acepta una invitación al equipo bancario de una empresa',
     Bills: 'Facturas',
+    'Bulk payments': 'Pagos masivos',
+    'Pay your team and contractors in bulk': 'Paga a tu equipo y a tus contratistas en bloque',
+    'Join as a contractor': 'Unirse como contratista',
+    'Add your own payout details for a business': 'Añade tus datos de cobro para una empresa',
     'Your suppliers’ bills: the inbox, approvals and payments': 'Las facturas de tus proveedores: bandeja, aprobaciones y pagos',
     'Review the bill, its approvals and its payments': 'Revisa la factura, sus aprobaciones y sus pagos',
     'Secure the account, extra checks for large sends and your sign-in location':
@@ -1199,6 +1207,10 @@ export const navigationCopy: ReturnType<typeof defineCopy<typeof messages>> = de
     'Join a business': 'Rejoindre une entreprise',
     'Accept an invitation to a business bank team': 'Accepte une invitation dans l’équipe bancaire d’une entreprise',
     Bills: 'Factures',
+    'Bulk payments': 'Paiements groupés',
+    'Pay your team and contractors in bulk': 'Paie ton équipe et tes prestataires en une fois',
+    'Join as a contractor': 'Rejoindre comme prestataire',
+    'Add your own payout details for a business': 'Ajoute tes coordonnées de paiement pour une entreprise',
     'Your suppliers’ bills: the inbox, approvals and payments': 'Les factures de tes fournisseurs : boîte, approbations et paiements',
     'Review the bill, its approvals and its payments': 'Vérifie la facture, ses approbations et ses paiements',
     'Secure the account, extra checks for large sends and your sign-in location':

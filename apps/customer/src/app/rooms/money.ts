@@ -276,6 +276,21 @@ export const moneyRooms = areaRooms('money', [
     business: true,
   },
   {
+    path: '/bank/business/payouts',
+    title: 'Bulk payments',
+    description: 'Pay your team and contractors in bulk',
+    door: 'Money',
+    area: 'money',
+    business: true,
+  },
+  {
+    path: '/bank/business/contractor-join',
+    title: 'Join as a contractor',
+    description: 'Add your own payout details for a business',
+    door: 'Money',
+    area: 'money',
+  },
+  {
     path: '/bank/business/join',
     title: 'Join a business',
     description: 'Accept an invitation to a business bank team',
