@@ -276,7 +276,7 @@ export class PoolService {
           keys.push(key);
         }
         await tx`
-          INSERT INTO campaigns.pool_day_shares (campaign_id, day, account_id, activity, balance, balance_as_of, eligible, share,
+          INSERT INTO campaigns.pool_day_shares (campaign_id, day, account_id, activity, venue_equity, equity_as_of, eligible, share,
             capped, reward_key)
           VALUES (${row.id}, ${day}, ${s.accountId}, ${amount(s.activity)}, ${amount(s.balance)}, ${s.balanceAsOf}, ${s.eligible},
             ${amount(s.share)}, ${s.capped}, ${key})`;
@@ -355,7 +355,7 @@ export class PoolService {
         chain_tx: string | null;
       }[]
     >`
-      SELECT s.day, s.activity::text AS activity, s.balance::text AS balance, s.balance_as_of, s.eligible, s.share::text AS share,
+      SELECT s.day, s.activity::text AS activity, s.venue_equity::text AS balance, s.equity_as_of AS balance_as_of, s.eligible, s.share::text AS share,
         s.capped, s.reward_key, i.state AS intent_state, pay.chain_tx
       FROM campaigns.pool_day_shares s
       LEFT JOIN campaigns.reward_intents i ON i.reward_key = s.reward_key

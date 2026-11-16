@@ -88,8 +88,9 @@ CREATE TABLE IF NOT EXISTS campaigns.pool_day_shares (
   day integer NOT NULL,
   account_id text NOT NULL,
   activity numeric(38, 18) NOT NULL CHECK (activity >= 0),
-  balance numeric(38, 18) NOT NULL,
-  balance_as_of timestamptz NOT NULL,
+  -- The venue equity read for this entrant at the settle (the venue's own figure, kept as read; no balance of ours).
+  venue_equity numeric(38, 18) NOT NULL,
+  equity_as_of timestamptz NOT NULL,
   eligible boolean NOT NULL,
   share numeric(38, 18) NOT NULL CHECK (share >= 0),
   capped boolean NOT NULL,
