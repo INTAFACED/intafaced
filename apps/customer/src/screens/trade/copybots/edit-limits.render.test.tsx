@@ -20,24 +20,29 @@ const follow = {
   maxPerMarket: '25',
   maxPerDay: '100',
   relationshipState: 'ACTIVE',
-} as unknown as Parameters<typeof EditLimits>[0]['follow'];
+} as Parameters<typeof EditLimits>[0]['follow'];
 const api = {
   amendFollow: async (input: unknown) => {
     sent.push(input);
     return { ok: true, data: follow } as ApiResult<unknown>;
   },
-} as unknown as RoomApi;
-const guard = {
+} as RoomApi;
+const guard: WriteGuard = {
   busy: false,
   locked: false,
+  pending: null,
+  storageOk: true,
   failure: null,
   setFailure: () => undefined,
-  run: async (_id: unknown, call: () => Promise<ApiResult<unknown>>, done: (d: unknown) => void) => {
+  run: async <T,>(_id: unknown, call: () => Promise<ApiResult<T>>, done: (d: T) => void) => {
     const r = await call();
     if (r.ok) done(r.data);
     return r.ok;
   },
-} as unknown as WriteGuard;
+  clear: () => undefined,
+  settle: () => undefined,
+  signedIn: true,
+};
 
 /** Types into a box as a person does: the browser's own value setter, then the input event React listens to. */
 function type(box: HTMLInputElement, text: string) {
