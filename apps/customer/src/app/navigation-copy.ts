@@ -229,6 +229,9 @@ const messages = {
   'The rule that applied, each approval and the result': 'The rule that applied, each approval and the result',
   'Join a business': 'Join a business',
   'Accept an invitation to a business bank team': 'Accept an invitation to a business bank team',
+  Bills: 'Bills',
+  'Your suppliers’ bills: the inbox, approvals and payments': 'Your suppliers’ bills: the inbox, approvals and payments',
+  'Review the bill, its approvals and its payments': 'Review the bill, its approvals and its payments',
   'Secure the account, extra checks for large sends and your sign-in location':
     'Secure the account, extra checks for large sends and your sign-in location',
   'Report a scam': 'Report a scam',
@@ -754,6 +757,9 @@ export const navigationCopy: ReturnType<typeof defineCopy<typeof messages>> = de
     'The rule that applied, each approval and the result': 'La regla aplicada, cada aprobación y el resultado',
     'Join a business': 'Unirse a una empresa',
     'Accept an invitation to a business bank team': 'Acepta una invitación al equipo bancario de una empresa',
+    Bills: 'Facturas',
+    'Your suppliers’ bills: the inbox, approvals and payments': 'Las facturas de tus proveedores: bandeja, aprobaciones y pagos',
+    'Review the bill, its approvals and its payments': 'Revisa la factura, sus aprobaciones y sus pagos',
     'Secure the account, extra checks for large sends and your sign-in location':
       'Protege la cuenta, controles extra para envíos grandes y tu ubicación al entrar',
     'Report a scam': 'Denunciar una estafa',
@@ -1192,6 +1198,9 @@ export const navigationCopy: ReturnType<typeof defineCopy<typeof messages>> = de
     'The rule that applied, each approval and the result': 'La règle appliquée, chaque approbation et le résultat',
     'Join a business': 'Rejoindre une entreprise',
     'Accept an invitation to a business bank team': 'Accepte une invitation dans l’équipe bancaire d’une entreprise',
+    Bills: 'Factures',
+    'Your suppliers’ bills: the inbox, approvals and payments': 'Les factures de tes fournisseurs : boîte, approbations et paiements',
+    'Review the bill, its approvals and its payments': 'Vérifie la facture, ses approbations et ses paiements',
     'Secure the account, extra checks for large sends and your sign-in location':
       'Sécurisez le compte, ajoutez des contrôles aux gros envois et votre position à la connexion',
     'Report a scam': 'Signaler une arnaque',

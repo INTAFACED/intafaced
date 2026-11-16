@@ -662,6 +662,14 @@ const schema = serviceEnvSchema
       BANK_BUSINESS_INVITE_MINUTES: z.string().optional(),
 
       /**
+       * Who reads an uploaded business bill (J-bank-20 #1). `off` | `test-lines`. NO ENGINE IS CHOSEN. `off`: every field
+       * is typed by hand. `test-lines` is a TEST stand-in that reads a TEST bill's labelled lines, shown as "Preview · sample
+       * data"; it is read only where the TEST partner bank runs (BANK_TEST_PARTNER=test, dev or test stacks), and ignored
+       * everywhere else.
+       */
+      BANK_BILL_READER: z.enum(['off', 'test-lines']).default('off'),
+
+      /**
        * Owner-set number of people one pot may be shared with, open invites included (BK-acct-09), 1 to 50. NO DEFAULT.
        * Blank / unset → inviting and accepting refuse `bank.joint_unset`. Boot stays up.
        */

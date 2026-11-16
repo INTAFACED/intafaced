@@ -266,6 +266,15 @@ export function teamAssignRoleBinding(i: { actor: string; accountId: string; use
   };
 }
 
+/** Paying a business's bill (J-bank-20): the bill and the attempt's own id, and its day when scheduled ('' when paid now). */
+export function billPayBinding(i: { actor: string; billId: string; paymentId: string; scheduledFor: string | null }): DoorBinding {
+  return {
+    actionType: 'bank.step_up.businessBills.pay',
+    operationKey: i.paymentId,
+    fields: { actor: i.actor, billId: i.billId, paymentId: i.paymentId, scheduledFor: i.scheduledFor ?? '' },
+  };
+}
+
 export function removeMemberBinding(i: { actor: string; accountId: string; userId: string; requestId: string }): DoorBinding {
   return {
     actionType: 'bank.step_up.business.removeMember',
