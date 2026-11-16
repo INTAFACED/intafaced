@@ -140,7 +140,7 @@ import { VipApplicationStore, parseVipProofKey } from './spot/vip-applications.j
 import { assertMakerRebatesPayable, parseFeeScheduleJson } from './spot/fee-schedule.js';
 import { feeScheduleAt } from './spot/fee-schedule-store.js';
 import { feeTierAt } from './spot/fee-tier-store.js';
-import { PositionService, FuturesError } from './futures/position-service.js';
+import { PositionService } from './futures/position-service.js';
 import { readOpenInterestLimits } from './futures/open-interest-limits.js';
 import {
   bandInForce,

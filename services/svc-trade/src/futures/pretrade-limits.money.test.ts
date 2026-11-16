@@ -1,4 +1,4 @@
-import { PositionService, TradeService, readyTestAdmission } from '../controls/test-admission.js';
+import { PositionService, TradeService } from '../controls/test-admission.js';
 import { toCcxtError } from '../ccxt-errors.js';
 import { PositionService as ProductionPositionService } from './position-service.js';
 import { TradeService as ProductionTradeService } from '../spot/trade-service.js';
