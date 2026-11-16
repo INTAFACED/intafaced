@@ -64,25 +64,6 @@ function signedHeaders(p: Principal = principal()): Record<string, string> {
   };
 }
 
-function mandateRecord() {
-  return {
-    id: MANDATE,
-    merchantId: MERCHANT,
-    customerId: 'cust-1',
-    assetId: 'USDT',
-    amount: amt('10'),
-    ceiling: null,
-    cadence: 'monthly' as const,
-    startsAt: new Date('2026-01-01T00:00:00.000Z'),
-    endsAt: null,
-    railAdapter: null,
-    railMandateRef: null,
-    status: 'active' as const,
-    cancelledAt: null,
-    createdAt: new Date('2026-01-01T00:00:00.000Z'),
-  };
-}
-
 function subRecord(overrides: Record<string, unknown> = {}) {
   return {
     id: SUB,
