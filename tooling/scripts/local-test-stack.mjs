@@ -78,6 +78,8 @@ import { anvilBin, chainRecordPath, chainStatus, CHAIN_PORTS, GATE_URL, runSeedS
 import {
   anotherCheckoutsStack,
   claimSlot,
+  dropClaim,
+  SLOTS,
   FIX_SOCKET_PORTS,
   localStackSlot,
   releaseSlot,
@@ -2302,6 +2304,46 @@ async function refuseOtherStack() {
     if (!ours && (await portOpen(PORTS[name]))) portTaken(PORTS[name], name);
 }
 
+/**
+ * Stops the stack of a slot whose owner is gone, with this script's own `stop`, run on that slot and in that claim's own
+ * state folder (a claim may name its own LOCAL_STACK_STATE), and lets the claim go once nothing of the stack is left.
+ */
+function stopGoneOwner({ slot, claim }) {
+  say(
+    `  slot ${slot}: its owner ${claim.repo} is gone (start pid ${claim.pid} ended, no process left in that checkout but its stack); stopping that stack`,
+  );
+  const env = { ...process.env, LOCAL_STACK_SLOT: String(slot), ...(claim.state ? { LOCAL_STACK_STATE: claim.state } : {}) };
+  const r = spawnSync(process.execPath, [SCRIPT, 'stop'], { stdio: 'inherit', env });
+  const left = slotClaims()[slot];
+  if (!left.live) dropClaim(slot, claim);
+  return r.status === 0 && !left.live;
+}
+
+/**
+ * `reap`: stops every stack whose owner is gone, so a finished build's stack never holds a slot or the Mac's memory.
+ * A live owner's stack is never touched. `--dry-run` only names them; `--slot <n>` reaps that slot alone; `--json` prints
+ * one object per gone owner ({ slot, repo, pid, takenAt, stopped }). The Mac's pull runs it each round (the hub's
+ * machine/run/stack-reap.py). Failure it prevents: on 16 Nov the stack of J-cex-spot-06, whose PR merged at 02:20 UTC,
+ * still ran at 04:24 UTC with 34 processes while builders waited on a loaded Mac.
+ */
+function cmdReap(args) {
+  const dry = args.includes('--dry-run');
+  const json = args.includes('--json');
+  const at = args.indexOf('--slot');
+  const only = at >= 0 ? Number(args[at + 1]) : null;
+  if (at >= 0 && !SLOTS.includes(only)) fail(`--slot must be one of ${SLOTS.join(', ')}`, 2);
+  const out = [];
+  for (const c of slotClaims()) {
+    if (!c.claim || !c.live || (only !== null && c.slot !== only) || !ownerGone(c.claim)) continue;
+    const row = { slot: c.slot, repo: c.claim.repo, pid: c.claim.pid, takenAt: c.claim.takenAt ?? null, stopped: false };
+    if (!dry) row.stopped = stopGoneOwner(c);
+    else if (!json) say(`  slot ${c.slot}: owner ${c.claim.repo} is gone; would stop its stack`);
+    out.push(row);
+  }
+  if (json) process.stdout.write(`${JSON.stringify(out)}\n`);
+  else if (!out.length) say('  reap: every stack on this Mac has its owner');
+}
+
 /** Runs this command again on the slot just claimed for this checkout, and exits with its status. */
 function runOnSlot(slot, state) {
   say(`  slot ${slot}: taken for this checkout (ports +${slot * 1000}, state ${state})`);
@@ -2322,9 +2364,14 @@ function runOnSlot(slot, state) {
  */
 export function ownerGone(
   claim,
-  { alive = (pid) => Boolean(readProcessIdentity(pid)), cwds = processCwds, parents = processParents } = {},
+  { alive = (pid) => Boolean(readProcessIdentity(pid)), identity = readProcessIdentity, cwds = processCwds, parents = processParents } = {},
 ) {
   if (!claim?.repo || alive(claim.pid)) return false;
+  // The agent that started the stack (agentOwner), while that same process lives: its working folder may be anywhere.
+  if (claim.owner?.pid) {
+    const id = identity(claim.owner.pid);
+    if (id && (!claim.owner.startedAt || Math.abs(id.startedAt - claim.owner.startedAt) < 2000)) return false;
+  }
   if (!fs.existsSync(claim.repo)) return true;
   const inCheckout = cwds();
   const ppid = parents();
@@ -2336,6 +2383,58 @@ export function ownerGone(
   };
   const root = path.resolve(claim.repo);
   return ![...inCheckout].some(([pid, cwd]) => (cwd === root || cwd.startsWith(`${root}/`)) && !ofStack(pid));
+}
+/**
+ * The agent process this start runs under, with its start time, recorded in the slot claim so its owner reads present
+ * while that agent lives, whatever folder it works in (a scratchpad checkout's agent sits in its own worktree). It is the
+ * first process above this one that is not a shell or a launcher (`LAUNCHERS`): an agent's command runs as
+ * `node` <- `zsh` <- the agent, and the shell ends with each command while the agent lives on. No agent is named, so
+ * any agent counts; a start under a long-lived app (a terminal) records that app and is never reaped while it runs.
+ * Null when only launchers lead to launchd, or `ps` can't be read.
+ */
+const LAUNCHERS = new Set([
+  'node',
+  'pnpm',
+  'npm',
+  'npx',
+  'corepack',
+  'zsh',
+  'bash',
+  'sh',
+  'dash',
+  'fish',
+  'env',
+  'nohup',
+  'timeout',
+  'gtimeout',
+  'caffeinate',
+  'xargs',
+  'make',
+  'tee',
+  'script',
+  'time',
+]);
+export function agentOwner(parents = processParents, names = processNames, identity = readProcessIdentity) {
+  const ppid = parents();
+  const comm = names();
+  if (!ppid || !comm) return null;
+  for (let p = ppid.get(process.pid), n = 0; p > 1 && n < 64; p = ppid.get(p), n++)
+    if (!LAUNCHERS.has(path.basename(comm.get(p) ?? '').replace(/^-/, ''))) {
+      const id = identity(p);
+      return id ? { pid: p, startedAt: id.startedAt } : null;
+    }
+  return null;
+}
+/** Every process's command name (`ps -o comm`), or null when it cannot be read. */
+function processNames() {
+  const r = spawnSync('ps', ['-axo', 'pid=,comm='], { encoding: 'utf8' });
+  if (r.status !== 0) return null;
+  const out = new Map();
+  for (const line of r.stdout.trim().split('\n')) {
+    const m = line.trim().match(/^(\d+)\s+(.*)$/);
+    if (m) out.set(Number(m[1]), m[2]);
+  }
+  return out;
 }
 /** Every process's working folder (`lsof -d cwd`), or null when it cannot be read. */
 function processCwds() {
@@ -2371,7 +2470,7 @@ async function takeSlot() {
     `${slot}: ${claim && live ? `${claim.repo} (pid ${claim.pid})` : 'a process with no claim on its ports'}`;
   const claims = slotClaims();
   if (process.env.LOCAL_STACK_SLOT !== undefined || claims.some((c) => c.claim?.repo === REPO)) {
-    if (claimSlot(SLOT, { state: STATE })) return;
+    if (claimSlot(SLOT, { state: STATE, owner: agentOwner() })) return;
     fail(`refusing: slot ${holder(claims[SLOT])} holds it; leave LOCAL_STACK_SLOT unset and the start takes a free slot`);
   }
   for (const c of claims) {
@@ -2381,7 +2480,7 @@ async function takeSlot() {
     const oursRunning = fs.existsSync(marker) && readJson(marker).repo === REPO && stackPids(state).some((pid) => readProcessIdentity(pid));
     const { postgres, nats, edge, customer } = slotPorts(c.slot).stack;
     if (!oursRunning && (await Promise.all([postgres, nats, edge, customer].map(portOpen))).some(Boolean)) continue;
-    if (!claimSlot(c.slot, { state })) continue;
+    if (!claimSlot(c.slot, { state, owner: agentOwner() })) continue;
     if (c.slot === SLOT) return;
     runOnSlot(c.slot, state);
   }
@@ -2389,12 +2488,9 @@ async function takeSlot() {
   // that slot, and the slot claimed. A live owner's slot is never touched.
   for (const c of slotClaims()) {
     if (!c.claim || !c.live || c.claim.repo === REPO || !ownerGone(c.claim)) continue;
-    say(
-      `  slot ${c.slot}: its owner ${c.claim.repo} is gone (start pid ${c.claim.pid} ended, no process left in that checkout but its stack); stopping that stack`,
-    );
-    spawnSync(process.execPath, [SCRIPT, 'stop'], { stdio: 'inherit', env: { ...process.env, LOCAL_STACK_SLOT: String(c.slot) } });
+    stopGoneOwner(c);
     const state = localStackState(os.homedir(), { ...process.env, LOCAL_STACK_SLOT: String(c.slot) });
-    if (slotClaims()[c.slot].live || !claimSlot(c.slot, { state })) continue;
+    if (slotClaims()[c.slot].live || !claimSlot(c.slot, { state, owner: agentOwner() })) continue;
     if (c.slot === SLOT) return;
     runOnSlot(c.slot, state);
   }
@@ -4397,7 +4493,7 @@ if (runningAsCli()) await runCli();
 async function runCli() {
   const [cmd = 'start', ...rest] = process.argv.slice(2);
   // A start takes a free slot itself; every other command here acts on the stack the slot points at.
-  const borrowed = ['start', 'plan'].includes(cmd) || cmd.startsWith('__') ? null : anotherCheckoutsStack();
+  const borrowed = ['start', 'plan', 'reap'].includes(cmd) || cmd.startsWith('__') ? null : anotherCheckoutsStack();
   if (borrowed) fail(borrowed);
   if (cmd === '__serve-customer')
     serveCustomer(Number(rest[0]) || PORTS.customer); // the port argument is for tests only
@@ -4446,6 +4542,7 @@ async function runCli() {
   else if (cmd === 'start') await cmdStart(rest);
   else if (cmd === 'build') await cmdBuild(rest);
   else if (cmd === 'stop') await cmdStop(rest);
+  else if (cmd === 'reap') cmdReap(rest);
   else if (cmd === 'plan') cmdPlan(rest);
   else if (cmd === 'csp-report') cmdCspReport(rest);
   else if (cmd === 'restart') await cmdRestart(rest);
