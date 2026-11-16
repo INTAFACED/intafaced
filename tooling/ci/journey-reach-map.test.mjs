@@ -21,7 +21,7 @@ import {
   importTargets,
   moduleKeys,
   pathReach,
-  textsWanted,
+  headWanted,
   mapText,
   verifyMap,
   loadMap,
@@ -32,13 +32,13 @@ import {
   serviceDir,
   sourceOwner,
 } from './journey-reach-map.mjs';
-import { journeyTouch } from './journey-touch.mjs';
+import { checkoutHead, journeyTouch } from './journey-touch.mjs';
 import { JOURNEYS_WORKFLOW, reachInputs, sealPull } from './journey-seal.mjs';
 import { manifestsAt, moneyCodeDirs } from './journey-verdict.mjs';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT_DIR = fileURLToPath(new URL('../..', import.meta.url));
@@ -604,22 +604,37 @@ test('planted: each full fallback', () => {
 // ---- A customer file no run recorded takes the journeys of the files that load it (#8648) ----
 
 const SRC = 'apps/customer/src';
-const LOADERS = build(RUNS, {
-  importers: {
-    [`${SRC}/features/tax/tax.css`]: [`${SRC}/features/tax/TaxRoom.tsx`],
-    [`${SRC}/features/bank/cards.css`]: [`${SRC}/features/bank/bank.css`],
-    [`${SRC}/features/bank/bank.css`]: [`${SRC}/features/bank/Cards.tsx`, `${SRC}/features/bank/Cards.test.tsx`],
-    [`${SRC}/app/registry.ts`]: [`${SRC}/app/registry.test.ts`],
-    [`${SRC}/app/boot.ts`]: [`${SRC}/main.tsx`, 'apps/customer/vite.config.ts'],
-    [`${SRC}/app/docs.ts`]: [`${SRC}/main.tsx`],
-    [`${SRC}/screens/harness/main.tsx`]: [`${SRC}/screens/harness/index.html`],
-    [`${SRC}/screens/rooms/x.ts`]: [`${SRC}/screens/rooms/load.ts`],
-    [`${SRC}/screens/rooms/load.ts`]: [`${SRC}/main.tsx`],
-  },
-  built: [`${SRC}/app/docs.ts`],
-  computed: [`${SRC}/screens/rooms/load.ts`],
-});
-const loaders = (path, texts = new Map()) => pathReach(LOADERS, path, false, texts);
+const IMPORTERS = {
+  [`${SRC}/features/tax/tax.css`]: [`${SRC}/features/tax/TaxRoom.tsx`],
+  [`${SRC}/features/bank/cards.css`]: [`${SRC}/features/bank/bank.css`],
+  [`${SRC}/features/bank/bank.css`]: [`${SRC}/features/bank/Cards.tsx`, `${SRC}/features/bank/Cards.test.tsx`],
+  [`${SRC}/app/registry.ts`]: [`${SRC}/app/registry.test.ts`],
+  [`${SRC}/app/pw-only.ts`]: [`${SRC}/app/pw-only.pw.mjs`],
+  [`${SRC}/app/boot.ts`]: [`${SRC}/main.tsx`, 'apps/customer/vite.config.ts'],
+  [`${SRC}/app/docs.ts`]: [`${SRC}/main.tsx`],
+  [`${SRC}/screens/harness/main.tsx`]: [`${SRC}/screens/harness/index.html`],
+  [`${SRC}/screens/rooms/load.ts`]: [`${SRC}/main.tsx`],
+};
+const LOADERS = build(RUNS, { importers: IMPORTERS, built: [`${SRC}/app/docs.ts`] });
+const COMPUTED = build(RUNS, { importers: IMPORTERS, computed: [`${SRC}/screens/rooms/load.ts`] });
+/**
+ * loadersReach's `head` as a checkout of it reads: the changed files' `texts`, the unknown files the merge base holds
+ * (`based`), and each folder's entries: every file the map knows and every changed file still at the head, plus `extra`.
+ */
+const at = (texts = [], { based = [], extra = [], map = LOADERS } = {}) => {
+  const dirs = new Map();
+  const files = [
+    ...Object.keys(map.customer),
+    ...Object.keys(map.importers ?? {}),
+    ...texts.filter(([, t]) => t !== null).map(([f]) => f),
+    ...extra,
+  ];
+  for (const f of files)
+    for (let d = posix.dirname(f), n = posix.basename(f); d !== '.'; n = posix.basename(d), d = posix.dirname(d))
+      dirs.set(d, (dirs.get(d) ?? new Set()).add(n));
+  return { texts: new Map(texts), based: new Set(based), dirs };
+};
+const loaders = (path, head = at(), map = LOADERS) => pathReach(map, path, false, head);
 const names = (r) => (r.journeys ?? []).map((i) => LOADERS.journeys[i]).sort();
 
 test('importTargets: every way a file names another to load, resolved against it; packages left out', () => {
@@ -672,31 +687,42 @@ test('planted: a customer file no run recorded takes the journeys of the files t
     [BANK],
     'followed up through a style sheet no run recorded; a unit test loads nothing',
   );
-  // A new file takes the journeys of the changed files that load it at the head.
+  // A file this pull request adds takes the journeys of the changed files that load it at the head.
   const fresh = `${SRC}/features/tax/TaxRules.tsx`;
-  const head = new Map([
+  const texts = [
     [fresh, 'export const x = 1;'],
     [`${SRC}/features/tax/TaxRoom.tsx`, "import { x } from './TaxRules';"],
     [`${SRC}/features/bank/Cards.tsx`, "import { x } from '../tax/TaxRules.js';"],
     [`${SRC}/features/tax/TaxRules.test.tsx`, "import { x } from './TaxRules';"],
-  ]);
-  assert.deepEqual(names(loaders(fresh, head)), [BANK, TAX]);
+  ];
+  assert.deepEqual(names(loaders(fresh, at(texts))), [BANK, TAX]);
   assert.deepEqual(
-    reachSelect({ map: LOADERS, paths: [fresh, `${SRC}/features/tax/TaxRoom.tsx`], behind: 0, atHead: FILES, texts: head, mode: 'reach' })
-      .files,
+    reachSelect({
+      map: LOADERS,
+      paths: [fresh, `${SRC}/features/tax/TaxRoom.tsx`],
+      behind: 0,
+      atHead: FILES,
+      head: at(texts),
+      mode: 'reach',
+    }).files,
     [BANK, POPUP, TAX],
     'through reachSelect: the selection holds what its loaders reach',
   );
-  // A new file a computed load can reach (a glob in its folder) takes that loader too.
+  // A customer file that loads what it doesn't spell (a glob, a computed import) may load any customer file.
+  const y = `${SRC}/features/tax/y.ts`;
   assert.deepEqual(
-    names(loaders(`${SRC}/screens/rooms/y.ts`, new Map([[`${SRC}/screens/rooms/y.ts`, '']]))),
+    names(loaders(y, at([[y, '']], { map: COMPUTED }), COMPUTED)),
     [BANK, TAX],
-    'load.ts loads every file in its folder; main.tsx loads load.ts',
+    'load.ts may load it; main.tsx loads load.ts',
   );
-  const via = new Map([[`${SRC}/x/glob.ts`, "const all = import.meta.glob('./*.ts');"]]);
+  assert.deepEqual(names(loaders(`${SRC}/features/tax/tax.css`, at([], { map: COMPUTED }), COMPUTED)), [BANK, TAX]);
+  const glob = [
+    [`${SRC}/x/new.ts`, ''],
+    [`${SRC}/y/glob.ts`, "const all = import.meta.glob('../x/*.ts');"],
+  ];
   assert.match(
-    loaders(`${SRC}/x/new.ts`, via).full,
-    /nothing but tests loads apps\/customer\/src\/x\/glob.ts/,
+    loaders(`${SRC}/x/new.ts`, at(glob)).full,
+    /nothing but tests loads apps\/customer\/src\/y\/glob.ts/,
     'a changed file that globs loads it',
   );
 });
@@ -706,41 +732,104 @@ test('planted: where the map cannot know who loads a customer file, it is full',
     assert.ok(r.full, JSON.stringify(r));
     assert.match(r.full, why);
   };
-  full(pathReach(MAP, `${SRC}/features/tax/tax.css`, false, new Map()), /^no journey was recorded running this customer source file$/);
+  full(pathReach(MAP, `${SRC}/features/tax/tax.css`, false, at()), /^no journey was recorded running this customer source file$/);
   full(loaders(`${SRC}/features/tax/tax.css`, null), /the files that load it at the head couldn't be read/);
+  full(loaders(`${SRC}/features/tax/tax.css`, {}), /the files that load it at the head couldn't be read/, 'a read that failed');
   full(loaders(`${SRC}/app/registry.ts`), /nothing but tests loads/);
-  full(loaders(`${SRC}/features/tax/Brand.tsx`), /nothing but tests loads/, 'a new file nothing changed loads');
+  full(loaders(`${SRC}/app/pw-only.ts`), /nothing but tests loads/, 'a Playwright file in the source is its own config’s test');
+  const brand = `${SRC}/features/tax/Brand.tsx`;
+  full(loaders(brand, at([[brand, '']])), /nothing but tests loads/, 'a new file nothing changed loads');
+  // A file the map doesn't know that this pull request doesn't add: main added it after the map was built, and files the
+  // map never read may load it (the checker's case: a follow-up to a file merged hours earlier).
+  const rules = `${SRC}/features/tax/TaxRules.tsx`;
+  const follow = [
+    [rules, 'export const x = 2;'],
+    [`${SRC}/features/tax/TaxRoom.tsx`, "import { x } from './TaxRules';"],
+  ];
+  full(loaders(rules, at(follow, { based: [rules] })), /TaxRules.tsx is newer than the map/);
+  full(
+    loaders(rules, at([[`${SRC}/features/tax/TaxRoom.tsx`, "import { x } from './TaxRules';"]])),
+    /is newer than the map/,
+    'not a changed file',
+  );
   full(loaders(`${SRC}/app/boot.ts`), /apps\/customer\/vite.config.ts loads/, 'loaded from outside the customer source');
   full(loaders(`${SRC}/app/docs.ts`), /the customer app's own Node code \(its build\) runs/);
   full(loaders(`${SRC}/screens/harness/main.tsx`), /index.html loads/, 'a page loads it');
+  const ts = `${SRC}/features/tax/TaxRoom.ts`;
   full(
-    loaders(`${SRC}/features/tax/TaxRoom.ts`, new Map([[`${SRC}/features/bank/Cards.tsx`, "import '../tax/TaxRoom';"]])),
-    /is new and shares its import name with apps\/customer\/src\/features\/tax\/TaxRoom.tsx/,
+    loaders(ts, at([[ts, '']])),
+    /is new and shares its import name with TaxRoom.tsx/,
     'a new x.ts beside x.tsx: an unchanged import may now load it',
   );
+  const fees = `${SRC}/features/tax/Fees.ts`;
   full(
-    loaders(`${SRC}/features/tax/tax.css`, new Map([['tooling/scripts/x.mjs', "import '../../apps/customer/src/features/tax/tax.css';"]])),
+    loaders(fees, at([[fees, '']], { extra: [`${SRC}/features/tax/Fees.tsx`] })),
+    /shares its import name with Fees.tsx/,
+    'beside a file main added after the map was built: the head’s own folder says so',
+  );
+  const index = `${SRC}/features/tax/index.ts`;
+  full(
+    loaders(index, at([[index, '']], { extra: [`${SRC}/features/tax.tsx`] })),
+    /shares its import name with tax.tsx/,
+    'x/index.ts beside x.tsx',
+  );
+  full(loaders(fees, { ...at([[fees, '']]), dirs: new Map() }), /couldn't be listed at the head/);
+  full(
+    loaders(`${SRC}/features/tax/tax.css`, at([['tooling/scripts/x.mjs', "import '../../apps/customer/src/features/tax/tax.css';"]])),
     /tooling\/scripts\/x.mjs loads/,
     'a changed file outside the customer source that loads it',
   );
-  const sel = reachSelect({ map: LOADERS, paths: [`${SRC}/app/registry.ts`], behind: 0, atHead: FILES, texts: new Map(), mode: 'reach' });
+  const sel = reachSelect({ map: LOADERS, paths: [`${SRC}/app/registry.ts`], behind: 0, atHead: FILES, head: at(), mode: 'reach' });
   assert.equal(sel.mode, 'full');
   assert.match(sel.why, /nothing but tests/);
 });
 
-test('textsWanted and the seal: the changed files are read only for a customer file the map has no record of', async () => {
-  const paths = [`${SRC}/features/tax/tax.css`, `${SRC}/features/tax/TaxRoom.tsx`, 'services/svc-tax/README.md'];
-  assert.deepEqual(textsWanted(LOADERS, paths), paths.slice(0, 2));
-  assert.deepEqual(textsWanted(LOADERS, [`${SRC}/features/tax/TaxRoom.tsx`]), [], 'every customer file recorded: nothing read');
-  assert.deepEqual(textsWanted(MAP, paths), [], 'a map with no importers reads nothing');
-  const io = { mainRuns: async () => [], journeyFiles: async () => FILES, reachMap: async () => LOADERS, runs: async () => [] };
-  const read = [];
-  const text = async (p) => (read.push(p), p.endsWith('TaxRoom.tsx') ? "import './tax.css';" : '.a{}');
-  const r = await reachInputs({ io, paths: paths.slice(0, 2), head: HEAD, text });
-  assert.deepEqual([...r.texts.keys()], paths.slice(0, 2));
-  assert.deepEqual(read, paths.slice(0, 2));
-  const broken = await reachInputs({ io, paths: paths.slice(0, 2), head: HEAD, text: async () => { throw new Error('HTTP 502'); } }); // prettier-ignore
-  assert.equal(broken.texts, null, 'a read that fails leaves the texts unknown: full');
+test('headWanted, the seal and the touch job: the head is read only for a customer file the map has no record of', async () => {
+  const fresh = `${SRC}/features/tax/New.tsx`;
+  const index = `${SRC}/features/tax/index.ts`;
+  const paths = [`${SRC}/features/tax/tax.css`, `${SRC}/features/tax/TaxRoom.tsx`, 'services/svc-tax/README.md', fresh, index];
+  assert.deepEqual(headWanted(LOADERS, paths), {
+    texts: [paths[0], paths[1], fresh, index],
+    unknown: [fresh, index],
+    dirs: [`${SRC}/features`, `${SRC}/features/tax`],
+  });
+  assert.equal(headWanted(LOADERS, [`${SRC}/features/tax/TaxRoom.tsx`]), null, 'every customer file recorded: nothing read');
+  assert.equal(headWanted(MAP, paths), null, 'a map with no importers reads nothing');
+  const MB = 'b'.repeat(40);
+  const io = {
+    mainRuns: async () => [],
+    journeyFiles: async () => FILES,
+    reachMap: async () => LOADERS,
+    runs: async () => [],
+    dirNames: async (d) => (d.endsWith('/tax') ? ['TaxRoom.tsx', 'New.tsx', 'index.ts'] : ['tax']),
+    mergeBase: async () => MB,
+  };
+  const text = async (p, ref) => (ref === MB ? (p === index ? 'x' : null) : p.endsWith('TaxRoom.tsx') ? "import './tax.css';" : '');
+  const r = await reachInputs({ io, paths, head: HEAD, base: 'c'.repeat(40), text });
+  assert.deepEqual([...r.head.texts.keys()], [paths[0], paths[1], fresh, index]);
+  assert.deepEqual([...r.head.based], [index], 'index.ts is on the merge base: main added it after the map');
+  assert.deepEqual([...r.head.dirs.get(`${SRC}/features/tax`)], ['TaxRoom.tsx', 'New.tsx', 'index.ts']);
+  const broken = await reachInputs({ io, paths, head: HEAD, base: 'c'.repeat(40), text: async () => { throw new Error('HTTP 502'); } }); // prettier-ignore
+  assert.deepEqual(broken.head, {}, 'a read that fails leaves the head unknown: full');
+  const noList = await reachInputs({ io: { ...io, dirNames: undefined }, paths, head: HEAD, base: 'c'.repeat(40), text });
+  assert.deepEqual(noList.head, {});
+  // The touch job reads the same from its checkout of the head.
+  const root = mkdtempSync(join(tmpdir(), 'reach-head-'));
+  try {
+    mkdirSync(join(root, SRC, 'features/tax'), { recursive: true });
+    writeFileSync(join(root, SRC, 'features/tax/TaxRoom.tsx'), "import './tax.css';");
+    writeFileSync(join(root, SRC, 'features/tax/New.tsx'), '');
+    writeFileSync(join(root, SRC, 'features/tax/index.ts'), 'x');
+    const h = await checkoutHead(LOADERS, paths, { root, atBase: async (p) => p === index });
+    assert.deepEqual([...h.texts.keys()], [paths[0], paths[1], fresh, index]);
+    assert.equal(h.texts.get(paths[0]), null, 'removed at the head');
+    assert.deepEqual([...h.based], [index]);
+    assert.deepEqual([...h.dirs.get(`${SRC}/features/tax`)].sort(), ['New.tsx', 'TaxRoom.tsx', 'index.ts']);
+    assert.deepEqual(await checkoutHead(LOADERS, paths, { root, atBase: async () => { throw new Error('HTTP 502'); } }), {}); // prettier-ignore
+    assert.equal(await checkoutHead(MAP, paths, { root, atBase: async () => false }), null);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('customerImporters on this repository: who loads a style sheet, the build’s own files, a file only a test loads', () => {
@@ -755,6 +844,7 @@ test('customerImporters on this repository: who loads a style sheet, the build�
   assert.equal(built.includes(`${SRC}/main.tsx`), false, 'the app itself is not the build’s Node code');
   assert.deepEqual(importers[`${SRC}/app/room-templates.ts`], [], 'only its unit test imports it; a scaffold reads it as text');
   for (const f of computed) assert.match(f, /^apps\/customer\/src\//);
+  assert.equal(importers[`${SRC}/features/pay/portal/w3c2.pw.mjs`], undefined, 'a Playwright file in the source is a test');
   for (const [f, v] of Object.entries(importers)) {
     assert.doesNotMatch(f, /\.(test|spec)\./);
     for (const g of v) assert.doesNotMatch(g, /\.(test|spec)\.[cm]?[jt]sx?$/, `${f}: a unit test loads nothing`);

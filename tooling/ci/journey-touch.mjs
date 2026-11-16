@@ -67,7 +67,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { JOURNEY_TEST, isSharedSetup } from './journey-seal.mjs';
-import { SUBSCRIBES, builtMap, loadMap, newerMap, reachSelect, runsBehind, textsWanted } from './journey-reach-map.mjs';
+import { SUBSCRIBES, builtMap, headWanted, loadMap, newerMap, reachSelect, runsBehind } from './journey-reach-map.mjs';
 
 /** A journey test file the Real-app journeys run runs by name: directly in the real-app folder, ending `.pw.mjs`. */
 export const RUN_FILE = /^apps\/customer\/tests\/real-app\/([A-Za-z0-9._-]+\.pw\.mjs)$/;
@@ -437,7 +437,7 @@ function kindOf(p) {
 /**
  * What a pull request with these changed paths must run. `atHead(file)`: whether a journey test file still exists at
  * the head (a removed file runs nothing). `reach`: what the touched-journeys map needs (journey-reach-map.mjs
- * reachSelect: { map, behind, journeyFiles, subscribes, texts }), or null: then every product path is full. With it, product
+ * reachSelect: { map, behind, journeyFiles, subscribes, head }), or null: then every product path is full. With it, product
  * paths run only the journeys whose recorded reach touches them, when every other path allows it and the map can speak
  * for each of them; anything else is full. Returns { mode: 'full'|'files'|'none', full: [{ path, why }], files: [names],
  * reach?: [lines] }. `named`: what namedInputs gives for a pull request that names a journey, or null; with it, product
@@ -473,7 +473,7 @@ export function journeyTouch(paths, atHead = () => true, reach = null, named = n
       behind: reach.behind,
       atHead: reach.journeyFiles,
       subscribes: reach.subscribes,
-      texts: reach.texts ?? null,
+      head: reach.head ?? null,
       ...(reach.mode ? { mode: reach.mode } : {}),
     });
     if (sel.mode === 'files') {
@@ -578,14 +578,44 @@ export const subscribesIn =
     return existsSync(f) && SUBSCRIBES.test(readFileSync(f, 'utf8'));
   };
 
-/** The changed files textsWanted names, in a checkout of the head: path to text, null for a removed one; null when one
- *  can't be read. */
-export function checkoutTexts(map, paths, root = '.') {
+/**
+ * What headWanted names, read from a checkout of the head (journey-reach-map.mjs loadersReach's `head`): each changed
+ * file's text (null for a removed one), each folder's entries, and which unknown files `atBase(path)` (async) finds on
+ * the pull request's merge base. null when nothing is wanted; { } (read as unknown, full) when a read fails.
+ */
+export async function checkoutHead(map, paths, { root = '.', atBase }) {
+  const want = headWanted(map, paths);
+  if (!want) return null;
   try {
-    return new Map(textsWanted(map, paths).map((p) => [p, existsSync(`${root}/${p}`) ? readFileSync(`${root}/${p}`, 'utf8') : null]));
+    const texts = new Map(want.texts.map((p) => [p, existsSync(`${root}/${p}`) ? readFileSync(`${root}/${p}`, 'utf8') : null]));
+    const dirs = new Map(want.dirs.map((d) => [d, new Set(readdirSync(`${root}/${d}`))]));
+    const based = new Set();
+    for (const u of want.unknown) if (await atBase(u)) based.add(u);
+    return { texts, dirs, based };
   } catch {
-    return null;
+    return {};
   }
+}
+
+/** Whether a path is on the pull request's merge base with its base branch (GitHub's compare and contents APIs, GH_TOKEN),
+ *  for checkoutHead. Throws when it can't be told. */
+async function mergeBaseReader() {
+  const repo = process.env.GITHUB_REPOSITORY || 'INTAFACED/intafaced';
+  const sha = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  const base = process.env.GITHUB_BASE_REF || 'main';
+  const mb = JSON.parse(ghApi(`repos/${repo}/compare/${encodeURIComponent(base)}...${sha}?per_page=1`))?.merge_base_commit?.sha;
+  if (!/^[0-9a-f]{40}$/.test(String(mb))) throw new Error('no merge base');
+  return async (p) => {
+    const res = await fetch(`https://api.github.com/repos/${repo}/contents/${p.split('/').map(encodeURIComponent).join('/')}?ref=${mb}`, {
+      headers: {
+        authorization: `Bearer ${process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN ?? ''}`,
+        accept: 'application/vnd.github.raw+json',
+      },
+    });
+    if (res.status === 404) return false;
+    if (!res.ok) throw new Error(`contents: HTTP ${res.status}`);
+    return true;
+  };
 }
 
 /** How many of main's finished full runs came after the map's newest run, read with gh (GH_TOKEN), or null. The same
@@ -695,12 +725,18 @@ async function main() {
       repo,
     });
     const map = newerMap(built, loadMap());
+    let atBase = null;
     reach = {
       map,
       behind: behindFromApi(map),
       journeyFiles: checkoutJourneyFiles(),
       subscribes: subscribesIn(),
-      texts: checkoutTexts(map, paths),
+      head: await checkoutHead(map, paths, {
+        atBase: async (p) => {
+          atBase ??= await mergeBaseReader();
+          return atBase(p);
+        },
+      }),
     };
   }
   const texts = paths.some((p) => pathKind(p).stack) ? checkoutJourneyTexts() : null;
