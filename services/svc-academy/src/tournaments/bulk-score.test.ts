@@ -16,7 +16,6 @@ import {
   bulkScoreExportText,
   parseBulkScoreExportLine,
   bulkScoreStatusLine,
-  bulkScoreStatusLineIsEmptyOk,
   parseBulkScoreStatusLine,
   bulkScoreStatusLineMatches,
   bulkAcceptedInRange,

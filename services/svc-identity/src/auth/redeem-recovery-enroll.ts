@@ -11,7 +11,7 @@ import { transaction } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import type { StoredPasskey } from './enroll-passkey.js';
 import { queueFactorChangedNotice } from './factor-changed-notice.js';
-import { assertOwnLiveSession, redeemRecoveryCode, type RecoveryRedeemCode } from './recovery-redeem.js';
+import { redeemRecoveryCode, type RecoveryRedeemCode } from './recovery-redeem.js';
 
 export class RedeemRecoveryEnrollError extends Error {
   constructor(

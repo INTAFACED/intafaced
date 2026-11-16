@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { issueAccessToken, verifyAccessToken, type Principal } from '@intafaced/auth';
+import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import { verifyServiceHeaders, type CurrentAuthorityInput } from '@intafaced/contracts';
 import { readEdgeAuthority as readAuthority, resetEdgeAuthorityState } from './live-authority.js';
 import { exchangePrincipal } from './principal-exchange.js';

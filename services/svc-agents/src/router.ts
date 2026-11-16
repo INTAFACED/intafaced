@@ -82,7 +82,7 @@ import type { OwnTemplate } from './own/catalog.js';
 import type { PolicyBaseline } from './own/guardrails.js';
 import type { TeamMembershipPort } from './team/membership.js';
 import { teamRouter } from './team/routes.js';
-import { opsLogRouter, parseReasons, type OpsLogSettings } from './oplog/routes.js';
+import { opsLogRouter, type OpsLogSettings } from './oplog/routes.js';
 import { alertsRouter } from './alerts/routes.js';
 import { fleetRouter, type FleetSettings } from './fleet/control.js';
 import { readRouteOverrides, routeDeskProcedures, type RouteChangeStore, type RouteTableSync } from './gateway/route-changes.js';

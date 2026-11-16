@@ -5,7 +5,6 @@ import {
   isAcademyErrorCode,
   academyUnavailableErrorCodes,
   academyErrorCatalogBoardCard,
-  academyErrorCatalogStatusLine,
   parseAcademyErrorCatalogStatusLine,
   academyErrorCatalogStatusLineMatches,
   academyErrorCatalogExportHeader,

@@ -5,7 +5,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeEach, expect, it } from 'vitest';
 import Fastify from 'fastify';
 import { retainRawBody, serviceAuthHeadersForBody } from '@intafaced/contracts';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';

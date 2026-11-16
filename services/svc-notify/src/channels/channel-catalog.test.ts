@@ -7,7 +7,6 @@ import {
   channelCatalogSize,
   outOfAppChannelCount,
   channelCatalogBoardCard,
-  channelCatalogStatusLine,
   parseChannelCatalogStatusLine,
   channelCatalogStatusLineMatches,
   channelCatalogExportHeader,

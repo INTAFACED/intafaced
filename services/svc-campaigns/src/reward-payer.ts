@@ -231,7 +231,7 @@ export class RewardPayer {
     for (const p of open) {
       try {
         if (await this.settle(p)) paid += 1;
-      } catch (err) {
+      } catch {
         // A chain read that failed: this payment is looked at again next pass, the others still are.
       }
     }

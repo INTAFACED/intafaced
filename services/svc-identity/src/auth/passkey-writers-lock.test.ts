@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db';
 import { createTestDb } from '../fixture-truncate.testkit.js';
-import { checkMayAddFactor, type FactorActor } from './factor-gate.js';
+import { type FactorActor } from './factor-gate.js';
 import { enrollPasskey, toRegistrationResponseJSON, type PasskeyCeremony, type StoredPasskey } from './enroll-passkey.js';
 import { toAuthenticationResponseJSON, verifyPasskey, type VerifyPasskeyCeremony } from './verify-passkey.js';
 import { unenrollPasskey } from './unenroll-passkey.js';

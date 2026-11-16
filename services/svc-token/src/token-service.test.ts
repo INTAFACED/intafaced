@@ -8,7 +8,6 @@ import { trace } from '@opentelemetry/api';
 import { MemoryEventBus } from '@intafaced/events';
 import {
   MemoryLedger,
-  InsufficientFundsError,
   LedgerError,
   formatAmount,
   parseAmount as amt,
