@@ -779,7 +779,7 @@ test('planted: where the map cannot know who loads a customer file, it is full',
   full(loaders(fees, { ...at([[fees, '']]), dirs: new Map() }), /couldn't be listed at the head/);
   full(
     loaders(`${SRC}/features/tax/tax.css`, at([['tooling/scripts/x.mjs', "import '../../apps/customer/src/features/tax/tax.css';"]])),
-    /tooling\/scripts\/x.mjs loads/,
+    /tooling\/scripts\/x.mjs, which runs in Node, loads/,
     'a changed file outside the customer source that loads it',
   );
   const sel = reachSelect({ map: LOADERS, paths: [`${SRC}/app/registry.ts`], behind: 0, atHead: FILES, head: at(), mode: 'reach' });
@@ -926,7 +926,42 @@ test('planted: what main changed between the map and the merge base loads a file
   assert.match(loaders(fresh, await head([added])).full, /Other.tsx is newer than the map/, 'a file main added that loads it');
   // A recorded file the build runs loads it: what the build emits, no record ties to a journey.
   const docs = { ...glob, filename: `${SRC}/app/docs.ts`, patch: "@@ -1 +1 @@\n+import '../features/tax/TaxRules';" };
-  assert.match(loaders(fresh, await head([docs])).full, /its build\) runs apps\/customer\/src\/app\/docs.ts/);
+  assert.match(loaders(fresh, await head([docs])).full, /apps\/customer\/src\/app\/docs.ts, which runs in Node, loads/);
+  // What runs in Node grows after the map (the checker's round 3 case): a file read at the head that the harness or the
+  // build runs, loading a customer file the map doesn't hold as run there, may run it in every journey.
+  const node = (filename, line) => ({ filename, status: 'modified', patch: `@@ -1 +1,2 @@\n x\n+${line}` });
+  const harnessed = { ...LOADERS, harness: [...LOADERS.harness, `${SRC}/features/bank/Cards.tsx`] };
+  const nodeHead = (changed, map = LOADERS) =>
+    readHead(map, want, {
+      read: async (p) => pr[p] ?? null,
+      list: async () => ['TaxRoom.tsx', 'TaxRules.tsx', 'tax.css'],
+      mergeBase: MB,
+      atBase: async () => false,
+      compare: async () => ({ status: 'ahead', files: changed }),
+    });
+  for (const [why, files, map] of [
+    ['the harness runs a recorded loader', [], harnessed],
+    [
+      'a harness script starts loading a customer file',
+      [node('tooling/scripts/s.mjs', "import '../../apps/customer/src/features/bank/Cards.tsx';")],
+    ],
+    ['the build starts loading a customer file', [node('apps/customer/vite.config.ts', "import './src/features/bank/Cards';")]],
+    [
+      'a journey file starts loading one',
+      [node('apps/customer/tests/real-app/helpers/x.mjs', "import '../../../src/features/bank/Cards.tsx';")],
+    ],
+  ])
+    assert.ok(loaders(fresh, await nodeHead(files, map), map).full, why);
+  assert.match(
+    loaders(`${SRC}/features/bank/cards.css`, at([], { map: harnessed }), harnessed).full,
+    /the journey harness runs apps\/customer\/src\/features\/bank\/Cards.tsx, which loads it/,
+    'a recorded loader the harness runs, from main’s graph',
+  );
+  assert.deepEqual(
+    names(loaders(fresh, await nodeHead([node('apps/customer/vite.config.ts', "import './src/app/docs';")]))),
+    [BANK],
+    'loading what the build already runs changes nothing',
+  );
 });
 
 test('customerImporters on this repository: who loads a style sheet, the build’s own files, a file only a test loads', () => {

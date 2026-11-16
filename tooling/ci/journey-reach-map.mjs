@@ -891,6 +891,20 @@ function loadersReach(map, path, head) {
   if (!(texts instanceof Map) || !(based instanceof Set) || !(dirs instanceof Map))
     return { full: `${why}, and the files that load it at the head couldn't be read` };
   const known = (f) => Object.hasOwn(map.customer ?? {}, f) || Object.hasOwn(map.importers, f);
+  // What runs in Node (the harness, the app's build) may have grown since the map: a file read at the head that runs
+  // there and loads a customer file the map doesn't hold as run there may now run it in every journey.
+  const inNode = new Set([...(map.harness ?? []), ...(map.built ?? [])].flatMap((h) => moduleKeys(h)));
+  const nodeRuns = (g) =>
+    inNode.has(g) ||
+    (map.harness ?? []).some((h) => g.startsWith(`${h}/`)) ||
+    g.startsWith('tooling/scripts/') ||
+    g.startsWith(`${REAL_APP}/`) ||
+    (g.startsWith('apps/customer/') && !g.startsWith(CUSTOMER_DIR) && !g.startsWith('apps/customer/tests/') && !/\.html?$/.test(g));
+  for (const [g, t] of texts) {
+    if (typeof t !== 'string' || !nodeRuns(g)) continue;
+    const to = importTargets(t, g).find((x) => x.startsWith(CUSTOMER_DIR) && !inNode.has(x));
+    if (to) return { full: `${why}, and ${g}, which runs in Node, loads ${to}, which the map doesn't hold as run there` };
+  }
   const stem = (n) => (RESOLVED.includes(posix.extname(n)) ? n.slice(0, -posix.extname(n).length) : null);
   const out = new Set();
   const seen = new Set();
@@ -930,6 +944,7 @@ function loadersReach(map, path, head) {
     for (const g of loaders) {
       if (!g.startsWith(CUSTOMER_DIR) || /\.html?$/.test(g)) return { full: `${why}, and ${g} loads ${f}, which no record covers` };
       if (map.built?.includes(g)) return { full: `${why}, and the customer app's own Node code (its build) runs ${g}, which loads it` };
+      if (map.harness?.includes(g)) return { full: `${why}, and the journey harness runs ${g}, which loads it` };
       const js = map.customer?.[g];
       if (js?.length) for (const j of js) out.add(j);
       else queue.push(g);
