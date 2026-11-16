@@ -304,8 +304,10 @@ async function settle(page) {
     const now = await page.evaluate(
       () => `${document.documentElement.scrollHeight}:${document.body.innerText.length}:${document.querySelectorAll('*').length}`,
     );
-    if (now !== last) ((last = now), (stableSince = Date.now()));
-    else if (Date.now() - stableSince >= 1_000) return true;
+    if (now !== last) {
+      last = now;
+      stableSince = Date.now();
+    } else if (Date.now() - stableSince >= 1_000) return true;
     await page.waitForTimeout(150);
   }
   return false;
@@ -402,7 +404,7 @@ async function prepare(page, target = {}) {
     await page.addInitScript(
       ([key, view]) => {
         try {
-          localStorage.getItem(key) ?? localStorage.setItem(key, JSON.stringify(view));
+          if (localStorage.getItem(key) === null) localStorage.setItem(key, JSON.stringify(view));
         } catch {
           // A frame with no storage (about:blank, sandboxed) keeps the app's own default.
         }

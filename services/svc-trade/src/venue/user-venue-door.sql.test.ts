@@ -64,7 +64,8 @@ describe('UserVenueDoor on SqlPreparedActionStore (Postgres) against the TEST si
   afterAll(async () => {
     await new Promise<void>((r) => {
       server?.closeAllConnections();
-      server ? server.close(() => r()) : r();
+      if (server) server.close(() => r());
+      else r();
     });
     await db?.drop();
   }, 30_000);
