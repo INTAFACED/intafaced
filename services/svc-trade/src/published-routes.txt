@@ -111,8 +111,10 @@ GET /api/v1/venue/own-agents/:agentId/rebalances private trade:read
 GET /api/v1/venue/positions private trade:read
 GET /api/v1/venue/protection-agent private trade:read
 GET /api/v1/venue/protections private trade:read
+GET /api/v1/venue/scheduled-cancel private trade:read
 GET /api/v1/venue/session private trade:read
 GET /api/v1/venue/settlements private trade:read
+GET /api/v1/venue/statements/:id/file private trade:read
 GET /api/v1/venue/status private trade:read
 GET /api/v1/venue/sub-accounts private trade:read
 GET /api/v1/venue/trades private trade:read
@@ -197,6 +199,7 @@ POST /api/v1/venue/protections private trade:write
 POST /api/v1/venue/route-preview private trade:write
 POST /api/v1/venue/session/end private trade:write
 POST /api/v1/venue/session/start private trade:write
+POST /api/v1/venue/statements private trade:write
 POST /api/v1/venue/submit private trade:write
 POST /api/v1/vip/applications private trade:write
 PUT /api/v1/futures/position-mode private trade:write

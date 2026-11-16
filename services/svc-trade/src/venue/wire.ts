@@ -87,6 +87,8 @@ export function wireUserVenue(deps: {
         slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
         spreadLimitBps: env.TRADE_MARKET_SPREAD_LIMIT_BPS,
         ordersPageMax: parseOrdersPageMax(env.TRADE_USER_VENUE_ORDERS_PAGE_MAX),
+        // J-cex-spot-07: the owner's published dead-man timeouts arm the venue's own scheduled cancel.
+        scheduledCancelTimeouts: env.TRADE_CANCEL_ALL_AFTER_TIMEOUTS_SEC,
         // J-cex-spot-17: the builder-fee version in force when an order is prepared, by venue and market group.
         builderFeesAt: async (at) => (await builderFeesAt(sql, at)).book,
         now: () => new Date(),

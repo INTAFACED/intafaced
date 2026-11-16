@@ -700,6 +700,8 @@ describe('the deposit route and a withdrawal read back through the door (J-walle
       status: 'pending',
       fee: { known: true, value: a('1') },
       networkFee: { known: false },
+      // When the venue took it (J-cex-spot-07 #5: a statement places the withdrawal by this time).
+      requestedAt: expect.any(Date),
     });
     sim.settleWithdrawals();
     expect((await venue.withdrawal(account, prepared.prepared.nonce)).value?.status).toBe('done');

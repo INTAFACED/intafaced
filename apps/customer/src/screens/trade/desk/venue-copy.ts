@@ -209,4 +209,39 @@ export const spotVenueCopy = defineCopy('trade.desk.venue', {
   'Withdraw to': 'To your wallet',
   'Withdraw send': 'Withdraw and sign in your wallet',
   'Withdraw amount bad': 'Enter an amount to withdraw.',
+
+  // Dead-man switch on the venue (J-cex-spot-07): the venue's own scheduled cancel
+  'Dead man off': 'Auto-cancel: off',
+  'Dead man on': 'Auto-cancel at {time}',
+  'Dead man checking': 'Auto-cancel: checking…',
+  'Dead man unknown': 'Auto-cancel: couldn’t check',
+  'Dead man not offered label': 'Auto-cancel: not offered by this venue',
+  'Dead man title': 'Auto-cancel if you go quiet',
+  'Dead man intro':
+    '{venue} itself cancels every open order on your venue account at the time shown, unless you refresh it in time. Each change is signed in your wallet. Other people’s orders are never touched.',
+  'Dead man not offered': 'Not offered by this venue: {venue} has no scheduled cancel, so auto-cancel can’t be turned on here.',
+  'Dead man not published': 'No auto-cancel times are published, so it can’t be turned on.',
+  'Dead man after': 'Cancel after',
+  'Dead man seconds': '{count} seconds',
+  'Dead man other': 'Other',
+  'Dead man other seconds': 'Seconds',
+  'Dead man arm': 'Turn on',
+  'Dead man refresh': 'Refresh now',
+  'Dead man disarm': 'Turn off',
+  'Dead man close': 'Close',
+  'Dead man armed': 'On, on the venue’s own scheduled cancel. Unless refreshed, your open orders are cancelled at {time}.',
+  'Dead man disarmed': 'Off. Nothing will be cancelled.',
+  'Dead man fired': 'The time passed: the venue cancelled {count} open orders at {time}.',
+  'Dead man refused timeout': 'That time isn’t offered. Choose one of: {list} seconds.',
+  'Dead man refused': 'Auto-cancel didn’t change: {detail}',
+  'Dead man rejected': 'You cancelled in your wallet. Auto-cancel didn’t change.',
+  'Dead man unknown answer': 'The venue’s answer didn’t arrive. Check auto-cancel before you change it again.',
+
+  // Statement on the venue's own records (J-cex-spot-07 #5)
+  'Statement open': 'Statement…',
+  'Statement title': 'Download a statement',
+  'Statement intro':
+    'One file of your venue account’s orders, trades and money movements for the days you pick, as {venue} records them. Nothing moves.',
+  'Statement ready': 'Ready: {orders} orders, {trades} trades and {movements} money movements. Statement {id}.',
+  'Statement failed': 'We couldn’t make that statement: {reason}.',
 });
