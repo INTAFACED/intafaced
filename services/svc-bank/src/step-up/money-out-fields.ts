@@ -289,6 +289,27 @@ export function contractorBatchBinding(i: { actor: string; accountId: string; ba
   };
 }
 
+/** Approving and paying a member's reimbursement claim (J-bank-22 #5): the claim's own id is its one partner move's key. */
+export function reimbursementPayBinding(i: { actor: string; claimId: string }): DoorBinding {
+  return {
+    actionType: 'bank.step_up.businessCards.approveAndPay',
+    operationKey: i.claimId,
+    fields: { actor: i.actor, claimId: i.claimId },
+  };
+}
+
+/**
+ * A business statement reaching back past the partner's strong customer authentication age (J-bank-23 #3): one approval
+ * for one export id over one exact period, which every format of that period's export may use.
+ */
+export function bookStatementBinding(i: { actor: string; accountId: string; exportId: string; from: string; to: string }): DoorBinding {
+  return {
+    actionType: 'bank.step_up.businessBooks.exportStatement',
+    operationKey: i.exportId,
+    fields: { actor: i.actor, accountId: i.accountId, exportId: i.exportId, from: i.from, to: i.to },
+  };
+}
+
 export function removeMemberBinding(i: { actor: string; accountId: string; userId: string; requestId: string }): DoorBinding {
   return {
     actionType: 'bank.step_up.business.removeMember',

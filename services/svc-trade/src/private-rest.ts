@@ -1,3 +1,4 @@
+import type { VenueStatements } from './venue/venue-statements.js';
 import { attachApiKeyRotationRoutes, type ApiKeyRotationClient } from './account/api-key-rotation-rest.js';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { requireScope, tradeTier, type Principal } from '@intafaced/auth';
@@ -242,6 +243,8 @@ export interface PrivateRestDeps {
   liveRuns?: LiveRuns | null;
   /** Convert's sell quotes priced by the venue (J-cex-spot-17 #8); absent with the door. */
   venueSellQuotes?: VenueSellQuotes | null;
+  /** The statement export on the venue's own records (J-cex-spot-07 #5). Absent: its routes answer 503. */
+  venueStatements?: VenueStatements | null;
   /** The algo engine's calls (CB-execution-08). Absent: every `/api/v1/algo` door answers 503 `trade.algo_unavailable`. */
   algo?: AlgoRestPort;
   rfqExport?(principal: Principal, query: { from?: string; to?: string }): Promise<string>;
@@ -1464,6 +1467,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     slippageCapBps: deps.userVenueSlippageCapBps ?? null,
     spreadLimitBps: deps.userVenueSpreadLimitBps ?? null,
     sellQuotes: deps.venueSellQuotes ?? null,
+    venueStatements: deps.venueStatements ?? null,
     agentKeyConfined,
   });
   attachAgentAccountRoutes(

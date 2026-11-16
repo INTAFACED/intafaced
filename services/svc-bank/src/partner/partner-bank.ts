@@ -159,6 +159,122 @@ export interface PartnerBank {
   moves(userId: string, query: PartnerMovesQuery): Promise<PartnerMove[]>;
   /** The partner's send limit and fee for the person in one currency (J-bank-16 #6). */
   limits(userId: string, assetId: string): Promise<PartnerSendLimits>;
+  /**
+   * The partner's own statement of one account over `[from, to)` (J-bank-23 #3). A partner that offers none leaves it out,
+   * and a statement export refuses `bank.partner_statement_unavailable`. Refuses `bank.partner_unavailable` when down.
+   */
+  statement?(account: PartnerAccountRef, range: { from: Date; to: Date }): Promise<PartnerStatement>;
+  /** The partner's history window and strong customer authentication rule for statements; absent when it declares none. */
+  readonly historyRules?: PartnerHistoryRules;
+  /**
+   * The partner's quote for one move between two of a person's own accounts (J-bank-24 #3): the exact figures it will move
+   * them on, until its valid-until. A partner that quotes none leaves it out, and the bank API refuses
+   * `bank.partner_quote_unavailable`. Refuses `bank.partner_unavailable` when down.
+   */
+  quoteMove?(request: {
+    readonly from: PartnerAccountRef;
+    readonly to: PartnerAccountRef;
+    readonly amount: Amount;
+  }): Promise<PartnerMoveQuote>;
+  /**
+   * Payments out over the partner's own bank rails (J-bank-24 #4): a partner with none leaves it out, and every payment
+   * is refused `rail.bank` with its intent row kept.
+   */
+  readonly payments?: PartnerPayments;
+}
+
+/** The partner's quote for one move between a person's own accounts: what it moves, what it takes, what arrives. */
+export interface PartnerMoveQuote {
+  /** The partner's own reference for the quote. */
+  readonly quoteId: string;
+  readonly from: PartnerAccountRef;
+  readonly to: PartnerAccountRef;
+  /** What leaves `from`. */
+  readonly amount: Amount;
+  /** What the partner takes for the move; null when it does not say ("not known", never 0). */
+  readonly fee: Amount | null;
+  /** What arrives in `to`; null when the fee is not known. */
+  readonly receives: Amount | null;
+  readonly quotedAt: Date;
+  readonly validUntil: Date;
+  readonly label: string;
+}
+
+/** How a payment out travels: an instant payment, or ACH. */
+export const PARTNER_PAYMENT_METHODS = ['instant', 'ach'] as const;
+export type PartnerPaymentMethod = (typeof PARTNER_PAYMENT_METHODS)[number];
+
+/** A transfer's lifecycle at the partner: made and pending, then completed, or cancelled or reversed. */
+export const PARTNER_TRANSFER_STATES = ['pending', 'completed', 'cancelled', 'reversed'] as const;
+export type PartnerTransferState = (typeof PARTNER_TRANSFER_STATES)[number];
+
+export interface PartnerPaymentRecipient {
+  readonly name: string;
+  readonly accountNumber: string;
+  readonly routingNumber: string;
+}
+
+export interface PartnerPaymentRequest {
+  /** The business key: the partner makes one payment under it. */
+  readonly key: string;
+  readonly from: PartnerAccountRef;
+  readonly method: PartnerPaymentMethod;
+  readonly recipient: PartnerPaymentRecipient;
+  readonly amount: Amount;
+}
+
+/** A payment as the partner reports it: its state and the version of that state, from 1, rising by one per change. */
+export interface PartnerPayment {
+  readonly id: string;
+  readonly key: string;
+  readonly from: PartnerAccountRef;
+  readonly method: PartnerPaymentMethod;
+  readonly amount: Amount;
+  readonly state: PartnerTransferState;
+  readonly version: number;
+  /** The state before this one; null for the first (the payment was made pending). */
+  readonly previous: PartnerTransferState | null;
+  readonly changedAt: Date;
+  readonly label: string;
+}
+
+export interface PartnerPayments {
+  /**
+   * Make one payment under its key. A retry under the same key answers with the payment made; a different payment under
+   * it refuses `bank.partner_move_conflict`. Refuses `rail.bank` when the partner carries no rail for this person.
+   */
+  pay(request: PartnerPaymentRequest): Promise<PartnerPayment>;
+  /** The payment made under a key, as it stands now, or null. */
+  paymentByKey(key: string): Promise<PartnerPayment | null>;
+}
+
+/**
+ * The partner's own statement of one account over one period (J-bank-23 #3): its opening and closing balance and how many
+ * lines it lists, as the partner works them out from its own record. A statement file we make is checked against it: the
+ * same closing balance and the same line count, or no file.
+ */
+export interface PartnerStatement {
+  readonly account: PartnerAccountRef;
+  readonly label: string;
+  /** Inclusive. */
+  readonly from: Date;
+  /** Exclusive, as every history range is. */
+  readonly to: Date;
+  readonly opening: Amount;
+  readonly closing: Amount;
+  /** How many lines the partner's statement lists for the period: every move and pay-in on the account. */
+  readonly lines: number;
+  /** The partner's own time for the statement. */
+  readonly asOf: Date;
+}
+
+/** How far back the partner's record reaches, and from how old a line it asks for a fresh strong customer authentication. */
+export interface PartnerHistoryRules {
+  readonly label: string;
+  /** The partner keeps no line older than this many days before now. */
+  readonly historyDays: number;
+  /** A statement reaching back further than this many days needs a fresh strong customer authentication. */
+  readonly scaAfterDays: number;
 }
 
 /** Which path holds a person's bank money: the partner, or (null) the custodial layer as before. */
@@ -275,6 +391,23 @@ export function freezeGuardedCustody(custody: PartnerCustody, freeze: PostingFre
         moveByKey: (key: string) => bank.moveByKey(key),
         moves: (userId: string, query: PartnerMovesQuery) => bank.moves(userId, query),
         limits: (userId: string, assetId: string) => bank.limits(userId, assetId),
+        ...(bank.statement
+          ? { statement: (account: PartnerAccountRef, range: { from: Date; to: Date }) => bank.statement!(account, range) }
+          : {}),
+        ...(bank.historyRules ? { historyRules: bank.historyRules } : {}),
+        // A quote moves nothing, so it stays open; a payment out is a move and asks the freeze first (J-bank-24).
+        ...(bank.quoteMove ? { quoteMove: bank.quoteMove.bind(bank) } : {}),
+        ...(bank.payments
+          ? {
+              payments: Object.freeze({
+                paymentByKey: (key: string) => bank.payments!.paymentByKey(key),
+                pay: async (request: PartnerPaymentRequest) => {
+                  await assertPostingEnabled(freeze, 'bank_move', note);
+                  return bank.payments!.pay(request);
+                },
+              }),
+            }
+          : {}),
         move: async (request: PartnerMoveRequest) => {
           await assertPostingEnabled(freeze, 'bank_move', note);
           return bank.move(request);

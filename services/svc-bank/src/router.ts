@@ -53,6 +53,9 @@ import { createBusinessRouter } from './router/business.router.js';
 import { createBusinessTeamRouter } from './router/business-team.router.js';
 import { createBusinessBillsRouter } from './router/business-bills.router.js';
 import { createBusinessPayoutsRouter } from './router/business-payouts.router.js';
+import { createBusinessCardsRouter } from './router/business-cards.router.js';
+import { createBusinessBooksRouter } from './router/business-books.router.js';
+import { createBankApiRouter } from './router/bank-api.router.js';
 
 /**
  * svc-bank's API.
@@ -111,6 +114,9 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
   const businessTeam = createBusinessTeamRouter(c);
   const businessBills = createBusinessBillsRouter(c);
   const businessPayouts = createBusinessPayoutsRouter(c);
+  const businessCards = createBusinessCardsRouter(c);
+  const businessBooks = createBusinessBooksRouter(c);
+  const bankApi = createBankApiRouter(c);
 
   return router({
     health: publicProcedure
@@ -364,6 +370,9 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     businessTeam,
     businessBills,
     businessPayouts,
+    businessCards,
+    businessBooks,
+    bankApi,
     analytics,
     plans: limitsTables.plans,
     partnerHolds: limitsTables.partnerHolds,

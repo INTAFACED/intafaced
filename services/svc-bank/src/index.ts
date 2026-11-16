@@ -5,7 +5,7 @@ import { z } from 'zod';
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
-import { edgeTrustFromEnv } from '@intafaced/config';
+import { edgeTrustFromEnv, isExplicitDevOrTest } from '@intafaced/config';
 import {
   createEdgeContext,
   createPayCustodyDepositClient,
@@ -181,6 +181,8 @@ const taxEffects = taxEffectsFor(env.BANK_TAX_EFFECTS, { APP_ENV: process.env.AP
 
 const bank = createBankServices(sql, ledger, history, {
   testPartner,
+  // J-bank-24 #5: a webhook endpoint on loopback, over http, only on an explicit dev or test stack (the URL guard's hatch).
+  bankApi: { allowLocalHttp: isExplicitDevOrTest(env.APP_ENV) && process.env.NODE_ENV !== 'production' },
   taxEffects,
   // The custody switch (OWNER 226): off unless set; the TEST stack pins it on.
   custodyLayer: env.LEDGER_CUSTODY_LAYER,
@@ -483,6 +485,8 @@ export const appRouter = createBankRouter(bank, {
   autoInvestConvertWired: usableTradeConvertUrl(env.TRADE_URL),
   approvals: approvalConsumer,
   stepUp: createStepUpGate({ mode: env.BANK_STEP_UP_MONEY_OUT, approvals: approvalConsumer, store: new SqlStepUpUseStore(sql) }),
+  // A business statement reaching back past the partner's strong customer authentication age always needs one (J-bank-23 #3).
+  statementStepUp: createStepUpGate({ mode: 'required', approvals: approvalConsumer, store: new SqlStepUpUseStore(sql) }),
 });
 export type AppRouter = typeof appRouter;
 
@@ -964,6 +968,7 @@ const recoveryJobs = startBankRecoveryJobs({
   transferNotices: { announceUnannounced: (limit) => bank.personalPay.announceUnannounced(limit) },
   cashOuts: bank.cashOut,
   receivedHolds: bank.receivedHolds,
+  webhookDeliveries: bank.bankApi,
   onWarn: (message) => app.log.warn(message),
   onError: (name, err) => app.log.error({ err, job: name }, 'bank recovery job tick failed'),
   onResult: (name, counts) =>

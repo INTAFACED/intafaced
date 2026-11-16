@@ -24,6 +24,9 @@ export const CUSTOMER_STEP_UP_CHALLENGE_TTL_SECONDS = 120;
 
 const AMOUNT_RE = /^\d+(\.\d{1,18})?$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** An instant as `Date.prototype.toISOString` writes it, the one form svc-bank hashes a statement period in. */
+const isoInstant = (value: string) =>
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value) && new Date(value).toISOString() === value;
 
 /** A send's note as svc-bank `plainNote` keeps it: trimmed, not blank, plain text up to 140 characters. */
 const sendNote = (value: string) =>
@@ -241,6 +244,27 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
     emptyOk: [],
     decimalFields: [],
     fixed: {},
+  },
+  {
+    scope: 'bank.step_up.businessCards.approveAndPay',
+    purpose: 'businessCards.approveAndPay',
+    clientFields: ['claimId'],
+    targetField: 'claimId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
+    scope: 'bank.step_up.businessBooks.exportStatement',
+    purpose: 'businessBooks.exportStatement',
+    clientFields: ['accountId', 'exportId', 'from', 'to'],
+    targetField: 'accountId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+    shapes: { accountId: (v) => UUID_RE.test(v), exportId: (v) => UUID_RE.test(v), from: isoInstant, to: isoInstant },
   },
   {
     scope: 'bank.step_up.business.setMemberRole',
