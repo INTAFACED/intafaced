@@ -13,7 +13,6 @@ import { TradeService } from '../controls/test-admission.js';
  * 5. Paths: trade-service.ts openOrders
  * 6. RED: omitting limit returns every open order
  */
-import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import type { OrderRow } from './rows.js';
