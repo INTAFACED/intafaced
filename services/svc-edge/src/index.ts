@@ -43,7 +43,7 @@ import { hostedCheckoutHeaders, hostedCheckoutLocation, isHostedCheckoutPath, up
 import { statusBadgeHeaders } from './status-badge-proxy.js';
 import { idempotencyHeaders } from './idempotency-headers.js';
 import { readyUpstreamHonesty } from './ready-honesty.js';
-import { edgeS2sFromEnv, signProxyHeaders } from './s2s.js';
+import { edgeS2sFromEnv } from './s2s.js';
 import { isS2sPath, resolve, resolveUpstreamBase, UPSTREAMS } from './routes.js';
 import { withEdgeSpan } from './tracing.js';
 import { userCopy } from './user-copy.js';
@@ -626,14 +626,9 @@ await app.register(async (api) => {
 
     const body = upstreamBody(req.method, req.body);
     const upstreamUrl = `${resolved.base}${target.path}${url.search}`;
-    // With the edge's own key, the key signature covers this exact forward; otherwise the headers are untouched.
-    const upstreamHeaders = signProxyHeaders(edgeS2s, target.upstream.module, {
-      method: req.method,
-      url: upstreamUrl,
-      // The edge's request id replaces any the caller sent, so a service log line and the reply name the same call.
-      headers: { ...prepareUpstreamRequestHeaders(url.pathname, exchanged.headers), [REQUEST_ID_HEADER]: String(req.id) },
-      body,
-    });
+    // The forward carries no service signature: only the user principal the edge signed.
+    // The edge's request id replaces any the caller sent, so a service log line and the reply name the same call.
+    const upstreamHeaders = { ...prepareUpstreamRequestHeaders(url.pathname, exchanged.headers), [REQUEST_ID_HEADER]: String(req.id) };
 
     return withEdgeSpan(
       'edge.proxy',
