@@ -2,8 +2,8 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { api, fromUnits, journeyState, toUnits } from './stack.mjs';
-import { reviewSheet, signUp, verify } from './desk.mjs';
+import { api, fromUnits, journeyState, otherTrader, toUnits } from './stack.mjs';
+import { awayBid as engineAwayBid, reviewSheet, signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import { approverSessions, makeContext, twoPerson } from '../../../../tooling/scripts/local-test-gates.mjs';
 import {
@@ -51,6 +51,8 @@ const ownerOf = (s) => privateKeyToAccount(s.walletKey).address.toLowerCase();
 
 // ── the TEST venue's own record ──
 
+/** Today's engine market, read only for the engine queue read's privacy checks in #8. */
+const ENGINE_SYMBOL = 'BTC/USDT';
 const venueOpen = async (owner) => (await venueRecord(owner, '/open-orders')).value;
 const venueByClientId = async (owner, venueClientOrderId) =>
   (await venueRecord(owner, '/order-by-client-id', { venueClientOrderId })).value;
@@ -922,7 +924,7 @@ test(`${J} #6 turns instant placement on: a click sends after the settings summa
   expect(intent).toMatchObject({ symbol: SYMBOL, side: 'buy', type: 'limit', timeInForce: 'GTC' });
   expect(same(intent.price, restPrice) && same(intent.amount, SMALL)).toBe(true);
   // The order's key is the desk's business key for this person and draft, never a bare random id.
-  expect(intent.clientOrderKey).toMatch(/^order:/);
+  expect(intent.clientOrderKey).toMatch(new RegExp(`^order:${owner}:${SYMBOL.toLowerCase()}:[0-9a-z]+$`));
   expect(door.of('submit')[0].body.actionKey).toBe(intent.clientOrderKey);
   await expect
     .poll(async () => (await venueOpen(owner)).filter((o) => sameDecimal(o.price, restPrice) && sameDecimal(o.amount, SMALL)).length, {
@@ -1244,6 +1246,23 @@ test(`${J} #8 reads my place in the queue and the fill chance of a resting order
       new RegExp(`traded at or through this price in the last ${fillWindow} seconds, against at most 0\\.0020* BTC that must trade`),
     );
     await expect(row.getByTestId('of-queue-basis')).toContainText('From the venue’s own published book and trades.');
+
+    // Nothing of another person's order is on my page: my row names my own order and the level's sum, never the order
+    // ahead's key, its venue id or its owner.
+    const aheadOwner = otherTraderKey(ahead).address.toLowerCase();
+    const aheadOrder = (await venueOpen(aheadOwner)).find((o) => sameDecimal(o.price, price));
+    expect(aheadOrder?.venueClientOrderId, 'the order ahead rests on the TEST venue').toBeTruthy();
+    const rowHtml = (await row.evaluate((el) => el.outerHTML)).toLowerCase();
+    for (const theirs of [aheadKey, aheadOrder.venueClientOrderId, aheadOwner]) expect(rowHtml).not.toContain(theirs.toLowerCase());
+    // My own reads through the venue door name only my orders: the order ahead's id, read on my account, is the same
+    // nothing as an id no one has, so the door tells me nothing of whether it exists.
+    const mineClient = await api(s.account);
+    const byId = (id) => mineClient.get(`/api/v1/venue/orders/by-client-id?owner=${owner}&clientOrderId=${encodeURIComponent(id)}`);
+    const foreignRead = await byId(aheadOrder.venueClientOrderId);
+    const missingRead = await byId(`0x${'0'.repeat(32)}`);
+    expect(foreignRead.status, JSON.stringify(foreignRead.body).slice(0, 300)).toBe(200);
+    expect(foreignRead.body.value).toBeNull();
+    expect([missingRead.status, missingRead.body.value]).toEqual([foreignRead.status, foreignRead.body.value]);
     expect(await ledgerView(s.account)).toEqual(ledgerBefore);
   } finally {
     // Leave the venue's spread as it was: both resting orders at that price are cancelled, each by its own key's owner.
@@ -1251,4 +1270,49 @@ test(`${J} #8 reads my place in the queue and the fill chance of a resting order
     await personRun(s.walletKey, { kind: 'cancel_order', symbol: SYMBOL, clientOrderKey: mine.clientOrderKey }).catch(() => undefined);
   }
   await expect.poll(async () => (await venueByClientId(owner, mine.venueClientOrderId)).status, { timeout: 15_000 }).toBe('canceled');
+  // Once cancelled, my order is no longer in the queue: the DOM lists no queue row for it, and the venue door's own read
+  // of it says canceled, never open.
+  await expect(
+    dom(page).getByRole('region', { name: 'My place in the queue' }).locator(`[data-order-id="${mine.venueClientOrderId}"]`),
+  ).toHaveCount(0, { timeout: 30_000 });
+  const gone = await (
+    await api(s.account)
+  ).get(`/api/v1/venue/orders/by-client-id?owner=${owner}&clientOrderId=${encodeURIComponent(mine.venueClientOrderId)}`);
+  expect(gone.status, JSON.stringify(gone.body).slice(0, 300)).toBe(200);
+  expect(gone.body.value?.status).toBe('canceled');
+
+  // Today's engine queue read keeps its privacy: another person's order id refuses exactly as an order that does not
+  // exist (no existence leak), its owner reads it, and once cancelled it is not open.
+  const other = await api(otherTrader());
+  const engine = await api(s.account);
+  const away = await engineAwayBid(85, ENGINE_SYMBOL);
+  const rested = await other.post('/api/v1/orders', {
+    symbol: ENGINE_SYMBOL,
+    type: 'limit',
+    side: 'buy',
+    price: away,
+    amount: SMALL,
+    timeInForce: 'GTC',
+    clientOrderId: `jcd14-q8-other-${randomBytes(4).toString('hex')}`,
+  });
+  expect(rested.status, JSON.stringify(rested.body).slice(0, 300)).toBeLessThan(300);
+  const theirId = rested.body.id;
+  let cancelled = false;
+  try {
+    const own = await other.get(`/api/v1/orders/${theirId}/queue`);
+    expect(own.status, JSON.stringify(own.body).slice(0, 300)).toBe(200);
+    const foreign = await engine.get(`/api/v1/orders/${theirId}/queue`);
+    const missing = await engine.get(`/api/v1/orders/${'0'.repeat(8)}-0000-4000-8000-${'0'.repeat(12)}/queue`);
+    expect(foreign.status).toBe(404);
+    expect(foreign.body.intafacedCode).toBe('trade.order_not_found');
+    expect([missing.status, missing.body.intafacedCode]).toEqual([foreign.status, foreign.body.intafacedCode]);
+    const del = await other.delete(`/api/v1/orders/${theirId}?symbol=${encodeURIComponent(ENGINE_SYMBOL)}`);
+    expect(del.status, JSON.stringify(del.body).slice(0, 300)).toBeLessThan(300);
+    cancelled = true;
+    const closed = await other.get(`/api/v1/orders/${theirId}/queue`);
+    expect(closed.status).toBe(409);
+    expect(closed.body.intafacedCode).toBe('trade.order_not_open');
+  } finally {
+    if (!cancelled) await other.delete(`/api/v1/orders/${theirId}?symbol=${encodeURIComponent(ENGINE_SYMBOL)}`).catch(() => undefined);
+  }
 });
