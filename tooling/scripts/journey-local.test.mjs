@@ -2,7 +2,11 @@
 // Run: node --test tooling/scripts/journey-local.test.mjs
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { journeyFiles, journeyLocal, onlyReady, parseArgs, readReport, refusal } from './journey-local.mjs';
+import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { journeyFiles, journeyLocal, onlyReady, parseArgs, readReport, refusal, workTree } from './journey-local.mjs';
 
 const ALL_HELD =
   '\nlocal-test-stack: refusing: every slot is held (0: /w/a (pid 1); 1: /w/b (pid 2); 2: /w/c (pid 3); 3: /w/d (pid 4)); stop one with `local-test-stack.mjs stop` in its checkout\n';
@@ -183,4 +187,62 @@ test('parts', () => {
     ),
     { passed: 1, failed: [], skipped: 1 },
   );
+});
+
+test('run.json: the tree ran is recorded with code null at the start and the exit code at the end', async () => {
+  for (const [w, want] of [
+    [world(), 0],
+    [world({ rep: report([['J-x-01 #1 opens', 'unexpected', 'boom']]), pw: 1 }), 1],
+    [world({ answers: { 'local-test-stack.mjs start': { code: 1, text: ALL_HELD } } }), 3],
+  ]) {
+    const records = [];
+    Object.assign(w.io, { tree: () => 'abc123', now: () => 1700000000000, record: (r) => records.push(r) });
+    assert.equal(await journeyLocal({ ids: ['J-x-01'] }, w.io), want);
+    assert.deepEqual(records, [
+      { tree: 'abc123', files: ['J-x-01.pw.mjs'], startedAt: 1700000000000, code: null },
+      { tree: 'abc123', files: ['J-x-01.pw.mjs'], startedAt: 1700000000000, code: want },
+    ]);
+  }
+});
+
+test('run.json: an interrupted run keeps code null, so it never reads as a pass', async () => {
+  const w = world();
+  const records = [];
+  Object.assign(w.io, { tree: () => 't', now: () => 1, record: (r) => records.push(r) });
+  const run = w.io.run;
+  w.io.run = async (argv, o) => {
+    if (argv[0] === 'pnpm') await w.signal();
+    return run(argv, o);
+  };
+  assert.equal(await journeyLocal({ ids: ['J-x-01'] }, w.io), 130);
+  assert.deepEqual(
+    records.map((r) => r.code),
+    [null],
+  );
+});
+
+test('workTree: the tree git add -A would commit, untracked files in, ignored ones out, the index untouched', () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'jl-tree-'));
+  const git = (...a) =>
+    execFileSync('git', a, {
+      cwd: d,
+      encoding: 'utf8',
+      env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' },
+    }).trim();
+  git('init', '-q');
+  fs.writeFileSync(path.join(d, '.gitignore'), '/.jr/\n');
+  fs.writeFileSync(path.join(d, 'a.ts'), 'a\n');
+  git('add', '-A');
+  git('commit', '-qm', 'one');
+  const committed = git('rev-parse', 'HEAD^{tree}');
+  assert.equal(workTree(d, path.join(d, '.jr')), committed);
+  fs.writeFileSync(path.join(d, 'b.ts'), 'b\n');
+  const withB = workTree(d, path.join(d, '.jr'));
+  assert.notEqual(withB, committed);
+  assert.equal(git('status', '--porcelain'), '?? b.ts');
+  git('add', '-A');
+  git('commit', '-qm', 'two');
+  assert.equal(git('rev-parse', 'HEAD^{tree}'), withB);
+  assert.equal(workTree(path.join(os.tmpdir(), 'no-such-dir-jl'), path.join(d, '.jr')), null);
+  fs.rmSync(d, { recursive: true, force: true });
 });
