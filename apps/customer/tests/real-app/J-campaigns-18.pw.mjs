@@ -406,17 +406,28 @@ test(`${J} #3 withholds a held reward: it stays withheld with its reservation; n
   const { abe, third, heldKey } = state('abe', 'third', 'heldKey');
   const { page } = await desk(browser, 'a', abe.accountId);
   await page.getByLabel('Reason').fill(`TEST ${J} shares a device with another account and duplicates a third`);
+  const sql = await campaignsDb();
+  const drawn = async () => (await sql`SELECT budget_drawn FROM campaigns.campaign_rows WHERE id = ${third}`)[0].budget_drawn;
+  const before = await drawn();
   const row = rewardOnCase(page, heldKey);
   await row.getByRole('button', { name: 'Withhold' }).click();
   await expect(row).toHaveAttribute('data-reason', 'risk.withheld');
   await expect(row).toHaveAttribute('data-state', 'review');
   await expect(page.locator('[data-testid="risk-action"][data-action="withhold"]')).toHaveCount(1);
-  // Its reservation stays: the airdrop's budget still counts it as drawn.
-  const sql = await campaignsDb();
-  const [budget] = await sql`SELECT budget_drawn FROM campaigns.campaign_rows WHERE id = ${third}`;
-  expect(Number(budget.budget_drawn)).toBeGreaterThan(0);
+  // Its reservation stays: the held share's own amount is still drawn on the airdrop's budget, which the withhold left
+  // exactly as it was. The budget less every other reserving share is this share's amount.
   const [kept] = await sql`SELECT amount::text AS amount FROM campaigns.reward_intents WHERE reward_key = ${heldKey} AND state = 'review'`;
-  expect(kept).toBeTruthy();
+  expect(kept.amount).toMatch(/^0\.0*[1-9]/);
+  expect(await drawn()).toBe(before);
+  const [own] = await sql`
+    SELECT (r.budget_drawn::numeric - COALESCE((SELECT sum(i.amount) FROM campaigns.reward_intents i
+      WHERE i.campaign_id = ${third} AND i.reward_key <> ${heldKey}
+        AND i.state NOT IN ('failed', 'forfeited', 'withheld', 'cancelled')), 0))::text AS reserved,
+      (r.budget_drawn::numeric - COALESCE((SELECT sum(i.amount) FROM campaigns.reward_intents i
+      WHERE i.campaign_id = ${third} AND i.reward_key <> ${heldKey}
+        AND i.state NOT IN ('failed', 'forfeited', 'withheld', 'cancelled')), 0)) = ${kept.amount}::numeric AS matches
+    FROM campaigns.campaign_rows r WHERE r.id = ${third}`;
+  expect(own.matches, `reserved ${own.reserved}, held share ${kept.amount}`).toBe(true);
   // No ledger call: nothing set aside, owed or reclaimed for it.
   const rewardId = rewardIdOf(third, heldKey);
   for (const key of [`campaigns:owe:${rewardId}`, `campaigns:reclaim:${rewardId}`]) {
