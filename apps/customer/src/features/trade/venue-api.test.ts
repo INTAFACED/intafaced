@@ -54,7 +54,7 @@ describe('venue client', () => {
       { name: 'chainId', type: 'uint256' },
     ]);
     const venueDigest = hashTypedData(SIM_TYPED as Parameters<typeof hashTypedData>[0]);
-    const walletDigest = hashTypedData(asWallet as unknown as Parameters<typeof hashTypedData>[0]);
+    const walletDigest = hashTypedData(asWallet as Parameters<typeof hashTypedData>[0]);
     expect(walletDigest).toBe(venueDigest);
     expect(refuseReason({ kind: 'typedData', typedData: asWallet })).toBeNull();
   });

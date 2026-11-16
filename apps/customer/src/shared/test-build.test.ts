@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { isTestBuild } from './test-build';
 
-const page = (ids: string[]) => ({ getElementById: (id: string) => (ids.includes(id) ? ({ id } as unknown as HTMLElement) : null) });
+const page = (ids: string[]) => ({ getElementById: (id: string) => (ids.includes(id) ? ({ id } as HTMLElement) : null) });
 
 describe('isTestBuild', () => {
   it('is true only when the page carries the local test stack banner', () => {
