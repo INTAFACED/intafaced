@@ -391,6 +391,23 @@ test(`${J} #3 trades on the venue through INTAFACED: volume counts once per venu
   const since = new Date(Date.now() - 1_000).toISOString();
   await readyToSell(winner, '3');
   await readyToSell(rival, '2');
+  {
+    const s = 'plant-sliver-' + RUN;
+    await testDeposit(otherTraderKey(s).address, 'BTC', '1', 'seed:' + s + ':BTC:' + Date.now());
+    const r = await otherTraderRun(s, {
+      kind: 'place_order',
+      symbol: 'BTC-USDC',
+      side: 'sell',
+      type: 'limit',
+      amount: '0.0003',
+      price: PRICE,
+      timeInForce: 'GTC',
+      reduceOnly: false,
+      clientOrderKey: 'order:' + s + ':' + Date.now(),
+      builderFee: null,
+    });
+    expect(r).toMatchObject({ definite: true, accepted: true });
+  }
   // Through INTAFACED: two sells for the winner, one for the rival.
   await sellThroughUs(winner, 2);
   await sellThroughUs(rival, 1);
@@ -408,18 +425,29 @@ test(`${J} #3 trades on the venue through INTAFACED: volume counts once per venu
     clientOrderKey: `order:${J}:${RUN}:direct:${Date.now()}`,
     builderFee: null,
   });
+  // Each order fills in full, but in as many venue fills as the book splits it into: a sell meets the TEST makers' bid at
+  // PRICE before this step's own, and an earlier journey on the same stack may have left that bid part-filled, so one
+  // 0.5 sell can fill against both (run 43800724154: three fills for two orders). The orders and their sizes are fixed;
+  // the count of fills is the venue's, and the board must count exactly that.
   let mine;
   let theirs;
+  const orderFills = (fills) => [new Set(fills.map((f) => f.venueClientOrderId)).size, sumDecimal(fills.map((f) => f.amount))];
   await expect
     .poll(
       async () => {
         mine = await venueFills(winner, since);
         theirs = await venueFills(rival, since);
-        return [mine.ours.length, mine.without.length, theirs.ours.length];
+        return [orderFills(mine.ours), orderFills(mine.without), orderFills(theirs.ours)];
       },
       { timeout: 30_000 },
     )
-    .toEqual([2, 1, 1]);
+    .toEqual([
+      [2, '1'],
+      [1, '0.25'],
+      [1, SELL],
+    ]);
+  expect(mine.ours.every((f) => f.venueClientOrderId && sumDecimal([f.price]) === PRICE)).toBe(true);
+  expect(theirs.ours.every((f) => f.venueClientOrderId && sumDecimal([f.price]) === PRICE)).toBe(true);
   // What the venue itself reports: the notional of each fill of an order placed through INTAFACED.
   const expected = sumDecimal(mine.ours.map(notionalOf));
   const expectedRival = sumDecimal(theirs.ours.map(notionalOf));
@@ -429,8 +457,8 @@ test(`${J} #3 trades on the venue through INTAFACED: volume counts once per venu
   await signIn(page, winner.who);
   const room = await openCompetition(page, campaignId);
   const wanted = [
-    [1, 2, true, expected, 2],
-    [2, 1, false, expectedRival, 1],
+    [1, 2, true, expected, mine.ours.length],
+    [2, 1, false, expectedRival, theirs.ours.length],
   ];
   await expect
     .poll(async () => (await page.reload(), await openCompetition(page, campaignId), shownStandings(page)), { timeout: 60_000 })
@@ -451,8 +479,8 @@ test(`${J} #3 trades on the venue through INTAFACED: volume counts once per venu
   }
   const board = await boardOf(rival.who, campaignId);
   expect(board.standings.map((s) => [s.rank, s.seat, s.you, s.volume, s.fills])).toEqual([
-    [1, 2, false, expected, 2],
-    [2, 1, true, expectedRival, 1],
+    [1, 2, false, expected, mine.ours.length],
+    [2, 1, true, expectedRival, theirs.ours.length],
   ]);
   expect(board.standings.every((s) => s.qualifies)).toBe(true);
 });
