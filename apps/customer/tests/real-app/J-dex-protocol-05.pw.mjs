@@ -4,7 +4,7 @@ import path from 'node:path';
 import { createPublicClient, decodeFunctionData, defineChain, encodeFunctionData, formatUnits, http, parseAbi } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { CHAIN_ID, TOKEN_A, TOKEN_B, UNBUILT, connectWallet, dexRun, fundOnTestChain, testChain } from './dex.mjs';
+import { CHAIN_ID, TOKEN_A, TOKEN_B, UNBUILT, connectWallet, connectWhenAsked, dexRun, fundOnTestChain, testChain } from './dex.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
 import { api, journeyState, ROOT, stackUrl, tool } from './stack.mjs';
@@ -267,23 +267,13 @@ async function openVenue(page, who, privateKey, { beforeVenue = null } = {}) {
   return wallet;
 }
 
-/**
- * After a reload: the browser wallet may come back by itself (it is still authorised); otherwise it is connected again.
- * The room shows "Connect <wallet>" until the wallet's own restore lands, which can be just after the button appears: a
- * click on it then waits for a button that is gone (failure it prevents: run 43793401437, #2 timed out on that click with
- * the wallet already back and the room on "Connection expired"). So it presses only while the button is there, and
- * passes only once the room shows the wallet back.
- */
+/** After a reload: the browser wallet back in the room, restored by itself or connected again. */
 async function walletBack(page) {
-  const again = page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` });
   const back = page
     .getByRole('heading', { name: 'Connected' })
     .or(page.getByRole('heading', { name: 'Connection expired' }))
     .or(page.getByRole('button', { name: 'Connect to my account' }));
-  await expect(async () => {
-    if (!(await back.isVisible()) && (await again.isVisible())) await again.click({ timeout: 2_000 }).catch(() => {});
-    await expect(back).toBeVisible({ timeout: 3_000 });
-  }).toPass({ timeout: 60_000 });
+  await connectWhenAsked(page, back);
 }
 
 /** The venue's free TEST USDC for this wallet, read through the door: a whole number of TEST USDC in this journey. */
