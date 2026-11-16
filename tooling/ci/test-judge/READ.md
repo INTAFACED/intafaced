@@ -10,7 +10,7 @@ For each step listed under `ANSWER FOR`, read its words (the journey's title, it
 - **WEAK:** at least one named branch or clause isn't asserted, or the check is shallow: a placeholder, a presence-only check, a disjunction that accepts either branch, a browser-side rewrite of the server's answer, or seeded state in place of the flow the step names.
 - **MISMATCH:** the test asserts a different outcome from the step.
 
-A step whose own words are a refusal is FAITHFUL when its test proves that exact typed refusal and that nothing moved (`refusal: true`).
+A step whose own words are a refusal is FAITHFUL when its test proves that exact typed refusal and that nothing moved (`refusal: true`). Judge the test as it is at the head, whatever it was before. The test must reach the running product for what the step names: anything that answers in the product's place, or stops a request, an action or a read from reaching it, makes it WEAK.
 
 ## The picture: does the screen show it?
 
