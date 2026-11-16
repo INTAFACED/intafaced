@@ -52,6 +52,7 @@ import { SharedPotService } from './spaces/shared-pots.js';
 import { RecoveryClaimService } from './recovery/recovery-claims.js';
 import { unconfiguredIdentityRecovery, type IdentityRecoveryPort } from './recovery/identity-recovery.js';
 import { BillsPotService } from './spaces/bills-pot.js';
+import { composeCardProgrammeServices, type CardProgrammeServiceOptions, type CardProgrammeServices } from './cards/programme/compose.js';
 import { composeBusinessServices, type BusinessServiceOptions, type BusinessServices } from './business/compose.js';
 import { composeDeveloperApiServices, type DeveloperApiServiceOptions, type DeveloperApiServices } from './developer-api/compose.js';
 import { BusinessLookupLimiter, unconfiguredBusinessDirectory, type BusinessDirectoryPort } from './business/business-directory.js';
@@ -99,7 +100,7 @@ import { emptyBillPorts, emptyGlobalPorts, type BillPorts, type GlobalPorts } fr
  * spreads it; `bank-service.compose.test.ts` holds the line.
  */
 
-export interface BankServices extends BusinessServices, DeveloperApiServices {
+export interface BankServices extends BusinessServices, DeveloperApiServices, CardProgrammeServices {
   /** The owner's values for onboarding, information requests and reopening a bank account (J-bank-17); null is unpublished. */
   readonly bankAccountTerms: BankAccountTerms;
   /** The owner's notice for a blocked region (`BANK_BLOCKED_REGION_NOTICE`, BK-safe-01). No default: blank reads "not published". */
@@ -195,7 +196,7 @@ export interface BankServices extends BusinessServices, DeveloperApiServices {
   };
 }
 
-export interface BankServiceOptions extends BusinessServiceOptions, DeveloperApiServiceOptions {
+export interface BankServiceOptions extends BusinessServiceOptions, DeveloperApiServiceOptions, CardProgrammeServiceOptions {
   /** `BANK_PERSONAL_SEND_REVIEW_JSON`, parsed: the owner's send review rule. Unset, no send is held. */
   sendReviewRule?: SendReviewRule | null;
   /** `BANK_REQUEST_REMIND_POLICY_JSON`, parsed: the owner's reminder cap per window. Null refuses every reminder. */
@@ -621,6 +622,16 @@ export function createBankServices(
     cards,
     cardOrders,
     cardDisputes,
+    ...composeCardProgrammeServices(
+      {
+        sql,
+        cards,
+        directory: options.directory ?? unconfiguredBusinessDirectory(),
+        identity: options.recipients,
+        exportSecret: options.receiptSecret,
+      },
+      options,
+    ),
     ramps,
     addMoney,
     linkedAccounts,

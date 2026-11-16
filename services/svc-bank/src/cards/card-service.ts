@@ -59,6 +59,8 @@ import {
   type PartnerMoveAnswer,
 } from './partner-card-holds.js';
 import { partnerUnset, type MoneyHeldBy } from '../partner/test-partner.js';
+import { ProgrammeDecisionStore } from './programme/decision-store.js';
+import { ruleDeclines, ruleWords, threeDsDecision, type ThreeDsResult, type TraceStep } from './programme/rules.js';
 import {
   assertFundingOffered,
   fundingOfferStates,
@@ -855,6 +857,43 @@ export class CardService {
     }
   }
 
+  /**
+   * Move a card to another person (J-bank-26 #8, BK-cops-08). A card holds no money, so nothing moves; the card draws on
+   * its new holder's balance from the next authorisation. Refused for a closed card, for a card with an approved
+   * authorisation not yet captured or given back (whose hold is the first holder's), and over the new holder's count limit.
+   * Runs inside `tx`, so the caller records the move in the same transaction.
+   */
+  async reassignOwner(tx: Sql, cardId: string, toUserId: string): Promise<{ fromUserId: string; card: CardRecord }> {
+    this.assertModuleEnabled();
+    this.assertIssuerMayMutate();
+    await tx`SELECT pg_advisory_xact_lock(hashtext(${`card-count:${toUserId}`}))`;
+    const [row] = await tx<Array<{ user_id: string; status: string; card_type: 'virtual' | 'physical' }>>`
+      SELECT user_id, status, card_type FROM bank.cards WHERE id = ${cardId} FOR UPDATE
+    `;
+    if (!row) throw new BankError(`Card ${cardId} not found`, 'bank.card_not_found');
+    if (row.status === 'closed') throw new BankError('A closed card cannot be reassigned (bank.card_not_active)', 'bank.card_not_active');
+    if (row.user_id === toUserId)
+      throw new BankError('The card already belongs to that cardholder (bank.card_reassign_same)', 'bank.card_reassign_same');
+    const [open] = await tx<Array<{ n: number }>>`
+      SELECT count(*)::int AS n FROM bank.card_authorizations a
+       WHERE a.card_id = ${cardId} AND a.decision = 'approved'
+         AND NOT EXISTS (SELECT 1 FROM bank.card_settlements s WHERE s.authorization_id = a.id AND s.status = 'settled')
+    `;
+    if (Number(open?.n ?? 0) > 0) {
+      throw new BankError(
+        'This card has an authorisation still held for its holder; it can be reassigned once that is captured or given back (bank.card_reassign_open_hold)',
+        'bank.card_reassign_open_hold',
+      );
+    }
+    const limits = this.programmeTerms?.limits ?? null;
+    if (limits) await this.assertUnderCount(tx, toUserId, row.card_type, limits[row.card_type]);
+    await tx`UPDATE bank.cards SET user_id = ${toUserId}, updated_at = now() WHERE id = ${cardId}`;
+    const [moved] = await tx<CardRow[]>`
+      SELECT id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, status, cashback_bps, per_authorization_limit::text AS per_authorization_limit, daily_limit::text AS daily_limit, monthly_limit::text AS monthly_limit, cash_limit::text AS cash_limit, channel_online, channel_contactless, channel_atm, channel_abroad, card_type, shipping_address, replaces_card_id, replaced_by_card_id, replace_reason, frozen_by, activated_at, uses_allowed, design_id, delivery_speed, residence_country FROM bank.cards WHERE id = ${cardId}
+    `;
+    return { fromUserId: row.user_id, card: toCard(moved!) };
+  }
+
   /** Active or frozen cards of one kind this person holds: what the count limit counts. A closed card is not held. */
   async heldCount(userId: string, cardType: 'virtual' | 'physical', sql: Sql = this.sql): Promise<number> {
     const [row] = await sql<Array<{ n: number }>>`
@@ -1293,6 +1332,59 @@ export class CardService {
     return new Map(rows.map((r) => [r.asset_id, { held: parseAmount(r.held), captured: parseAmount(r.captured) }]));
   }
 
+  /**
+   * One cardholder's card funds (J-bank-26 #5, BK-cops-04): per asset, this app's open holds and captures on the person's
+   * cards beside the card partner's own figures for the person, as the partner reports them. The difference is the
+   * partner's minus the app's; a figure the partner does not report is "not known" (null), never 0. Reads only.
+   */
+  async cardholderFunds(userId: string): Promise<
+    Array<{
+      assetId: string;
+      appHeld: Amount;
+      appCaptured: Amount;
+      partnerHeld: Amount | null;
+      partnerCaptured: Amount | null;
+      test: boolean;
+    }>
+  > {
+    const rows = await this.sql<Array<{ asset_id: string; held: string; captured: string }>>`
+      SELECT k.asset_id,
+             COALESCE(SUM(GREATEST(a.amount - COALESCE((
+               SELECT SUM(s.amount) FROM bank.card_settlements s WHERE s.authorization_id = a.id AND s.status = 'settled'
+             ), 0), 0)) FILTER (WHERE a.decision = 'approved' AND a.status = 'settled'), 0)::text AS held,
+             COALESCE(SUM((
+               SELECT COALESCE(SUM(s.amount), 0) FROM bank.card_settlements s
+                WHERE s.authorization_id = a.id AND s.kind = 'capture' AND s.status = 'settled'
+             )), 0)::text AS captured
+        FROM bank.cards k
+        LEFT JOIN bank.card_authorizations a ON a.card_id = k.id
+       WHERE k.user_id = ${userId}
+       GROUP BY k.asset_id
+       ORDER BY k.asset_id
+    `;
+    const partner = this.heldByOf(userId) === 'partner' ? this.partnerHolds : null;
+    return Promise.all(
+      rows.map(async (r) => {
+        let partnerHeld: Amount | null = null;
+        let partnerCaptured: Amount | null = null;
+        if (partner) {
+          const figures = await partner.figures({ userId, assetId: r.asset_id });
+          const captured = partner.captured ? await partner.captured({ userId, assetId: r.asset_id }) : null;
+          partnerHeld = figures.held === null ? null : parseAmount(figures.held);
+          partnerCaptured = captured === null ? null : parseAmount(captured);
+        }
+        return {
+          assetId: r.asset_id,
+          appHeld: parseAmount(r.held),
+          appCaptured: parseAmount(r.captured),
+          partnerHeld,
+          partnerCaptured,
+          test: partner?.test ?? false,
+        };
+      }),
+    );
+  }
+
   async countProgramme(): Promise<{ issued: number; active: number; frozen: number }> {
     const rows = await this.sql<Array<{ issued: number; active: number; frozen: number }>>`
       SELECT count(*)::int AS issued,
@@ -1638,6 +1730,8 @@ export class CardService {
     pin?: string;
     /** The issuer's flag for a merchant charging a card on file on an agreed schedule (J-bank-14 #6). Omitted is false. */
     recurring?: boolean;
+    /** The cardholder's 3DS challenge answer on an online payment, when one was done (J-bank-26 #4). */
+    threeDs?: ThreeDsResult;
   }): Promise<AuthorizationRecord> {
     this.assertModuleEnabled();
     this.assertIssuerMayMutate();
@@ -1684,6 +1778,7 @@ export class CardService {
         span.setAttribute('intafaced.card_funding_amount', formatAmount(fundingAmount));
         span.setAttribute('intafaced.card_channel', channel);
 
+        const trace: TraceStep[] = [];
         const declineCode = await this.declineReason(
           card,
           fundingAmount,
@@ -1691,7 +1786,12 @@ export class CardService {
           input,
           partnerAvailable,
           input.pin === undefined ? undefined : { pin: input.pin, authorizationRef: input.authorizationRef },
+          trace,
         );
+        const traced = async (row: AuthorizationRecord, last?: TraceStep): Promise<AuthorizationRecord> => {
+          await this.recordTrace(row.id, last ? [...trace, last] : trace);
+          return row;
+        };
 
         if (declineCode) {
           span.setAttribute('intafaced.card_decision', 'declined');
@@ -1705,7 +1805,7 @@ export class CardService {
             heldBy,
           });
           await this.tellIssuer(card, declined, { decision: 'declined', reason: declineCode });
-          return declined;
+          return traced(declined);
         }
 
         const claimed = await this.recordDecision({
@@ -1723,13 +1823,19 @@ export class CardService {
           if (claimed.declineCode === 'bank.card_use_limit_reached') {
             await this.tellIssuer(card, claimed, { decision: 'declined', reason: claimed.declineCode });
           }
-          return claimed;
+          return traced(claimed, { check: 'Card use limit', result: 'decline', detail: `Declined: ${claimed.declineCode}.` });
         }
         const finished = await this.commitHold(card, claimed, input.amount);
-        if (finished.decision === 'declined') return finished;
+        if (finished.decision === 'declined') {
+          return traced(finished, { check: 'Hold', result: 'decline', detail: `The hold was refused: ${finished.declineCode}.` });
+        }
 
         span.setAttribute('intafaced.card_decision', 'approved');
-        return finished;
+        return traced(finished, {
+          check: 'Hold',
+          result: 'pass',
+          detail: finished.heldBy === 'partner' ? 'Approved: the card partner holds the amount.' : 'Approved: the amount is held.',
+        });
       },
     );
   }
@@ -1828,47 +1934,121 @@ export class CardService {
     card: CardRecord,
     fundingAmount: Amount,
     channel: CardChannel,
-    at: AuthorizationMerchant,
+    at: AuthorizationMerchant & { readonly threeDs?: ThreeDsResult },
     partnerAvailable: Amount | null = null,
     pin?: { pin: string; authorizationRef: string },
+    trace: TraceStep[] = [],
   ): Promise<string | null> {
-    if (card.status !== 'active' || cardInactive(card)) return 'bank.card_not_active';
+    // Each check is a step of the authorisation's trace (J-bank-26 #3), so support reads why it was decided.
+    const step = (check: string, code: string | null, passed: string): string | null => {
+      trace.push(code ? { check, result: 'decline', detail: `Declined: ${code}.` } : { check, result: 'pass', detail: passed });
+      return code;
+    };
+    const amount = `${formatAmount(fundingAmount)} ${card.assetId}`;
+    if (step('Card status', card.status !== 'active' || cardInactive(card) ? 'bank.card_not_active' : null, 'The card is active.')) {
+      return 'bank.card_not_active';
+    }
     // The person's own blocks (J-bank-14 #1): a blocked category, merchant or country declines before any limit or
     // balance is read, so nothing is held for it.
     const blocked = blockedBy(await new CardControlStore(this.sql).list(card.id), at);
-    if (blocked) return blocked;
+    if (step('Cardholder’s own controls', blocked, 'No category, merchant or country the cardholder blocked.')) return blocked;
+    // The programme's promoted authorisation rules (J-bank-26 #1): a rule in shadow decides nothing.
+    const programme = new ProgrammeDecisionStore(this.sql);
+    const rules = await programme.activeRules();
+    const ruleInput = { assetId: card.assetId, amount: fundingAmount, channel, merchantCategory: at.merchantCategory ?? null };
+    const hit = rules.find((r) => ruleDeclines(r.params, ruleInput));
+    if (hit) {
+      trace.push({
+        check: 'Programme rules',
+        result: 'decline',
+        detail: `Declined by rule “${hit.name}” version ${hit.version}: it ${ruleWords(hit.params)}.`,
+      });
+      return 'bank.card_rule_declined';
+    }
+    trace.push({
+      check: 'Programme rules',
+      result: 'pass',
+      detail: rules.length === 0 ? 'No programme rule is promoted.' : `None of ${rules.length} promoted rules declines it.`,
+    });
     if (pin !== undefined) {
       const pinDecline = await this.pinDecline(card, pin.pin, pin.authorizationRef);
-      if (pinDecline) return pinDecline;
+      if (step('PIN', pinDecline, 'The PIN matched.')) return pinDecline;
     }
     // THE CEILING IS IN THE FUNDING ASSET, and it is checked against the
     // CONVERTED amount. A limit denominated in the asset the card draws on is a
     // limit on what may leave the user's balance, which is the thing a ceiling
     // protects; a settlement-denominated limit is a spending-tier concept and
     // belongs with tiering, which is not built here.
-    if (fundingAmount > card.perAuthorizationLimit) return 'bank.card_limit_exceeded';
-    if (!channelOpen(card, channel)) return 'bank.card_channel_off';
+    const limit = `${formatAmount(card.perAuthorizationLimit)} ${card.assetId}`;
+    if (
+      step(
+        'Per-payment limit',
+        fundingAmount > card.perAuthorizationLimit ? 'bank.card_limit_exceeded' : null,
+        `${amount} is within the card’s limit of ${limit}.`,
+      )
+    ) {
+      return 'bank.card_limit_exceeded';
+    }
+    if (step('Channel', channelOpen(card, channel) ? null : 'bank.card_channel_off', `The ${channel} channel is on for this card.`)) {
+      return 'bank.card_channel_off';
+    }
+    // 3DS for an online payment (J-bank-26 #4): the programme's policy and its SCA exemption.
+    const threeDs = threeDsDecision(await programme.threeDsPolicy(), {
+      channel,
+      assetId: card.assetId,
+      amount: fundingAmount,
+      ...(at.threeDs ? { result: at.threeDs } : {}),
+    });
+    if (threeDs) {
+      trace.push(threeDs.step);
+      if (threeDs.decline) return threeDs.decline;
+    }
 
     const now = this.clock();
     if (card.dailyLimit !== null) {
       const spent = await this.approvedSpend(card.id, startOfUtc(now, 'day'));
-      if (spent + fundingAmount > card.dailyLimit) return 'bank.card_daily_limit_exceeded';
+      if (
+        step('Daily limit', spent + fundingAmount > card.dailyLimit ? 'bank.card_daily_limit_exceeded' : null, 'Within the daily limit.')
+      ) {
+        return 'bank.card_daily_limit_exceeded';
+      }
     }
     if (card.monthlyLimit !== null) {
       const spent = await this.approvedSpend(card.id, startOfUtc(now, 'month'));
-      if (spent + fundingAmount > card.monthlyLimit) return 'bank.card_monthly_limit_exceeded';
+      if (
+        step(
+          'Monthly limit',
+          spent + fundingAmount > card.monthlyLimit ? 'bank.card_monthly_limit_exceeded' : null,
+          'Within the monthly limit.',
+        )
+      ) {
+        return 'bank.card_monthly_limit_exceeded';
+      }
     }
     if (channel === 'atm' && card.cashLimit !== null) {
       const spent = await this.approvedSpend(card.id, startOfUtc(now, 'day'), 'atm');
-      if (spent + fundingAmount > card.cashLimit) return 'bank.card_cash_limit_exceeded';
+      if (
+        step('Cash limit', spent + fundingAmount > card.cashLimit ? 'bank.card_cash_limit_exceeded' : null, 'Within the daily cash limit.')
+      ) {
+        return 'bank.card_cash_limit_exceeded';
+      }
     }
 
     // A partner-held person's money is the partner's figure, never a read of our ledger (which holds none of it). The
     // partner's own hold answer is still the one that decides, as the ledger's post is on the custodial path.
-    if (partnerAvailable !== null) return partnerAvailable < fundingAmount ? 'bank.card_partner_insufficient_funds' : null;
+    if (partnerAvailable !== null) {
+      return step(
+        'Funds at the card partner',
+        partnerAvailable < fundingAmount ? 'bank.card_partner_insufficient_funds' : null,
+        `The partner reports ${formatAmount(partnerAvailable)} ${card.assetId} available, enough for ${amount}.`,
+      );
+    }
     const balance = (await this.ledger.balance(userAvailable(card.userId, card.assetId))).amount;
-    if (balance < fundingAmount) return 'ledger.insufficient_funds';
-    return null;
+    return step(
+      'Available balance',
+      balance < fundingAmount ? 'ledger.insufficient_funds' : null,
+      `The available balance covers ${amount}.`,
+    );
   }
 
   // ── The rate ───────────────────────────────────────────────────────────────
@@ -1917,6 +2097,26 @@ export class CardService {
     `;
     const row = rows[0];
     return row ? { rate: parseAmount(row.rate), acceptedAt: row.rate_as_of } : null;
+  }
+
+  /**
+   * The decision's trace (J-bank-26 #3), written once beside it. Like the issuer's answer, a write that fails never undoes
+   * the decision: the desk reads "no trace recorded" for that authorisation, never a made-up one.
+   */
+  private async recordTrace(authorizationId: string, steps: readonly TraceStep[]): Promise<void> {
+    try {
+      await new ProgrammeDecisionStore(this.sql).recordTrace(authorizationId, steps);
+    } catch (err) {
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          service: 'svc-bank',
+          event: 'bank.card_trace_unrecorded',
+          authorizationId,
+          reason: err instanceof Error ? err.name : 'unknown',
+        }),
+      );
+    }
   }
 
   /**

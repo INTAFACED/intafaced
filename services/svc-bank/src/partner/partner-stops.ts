@@ -345,6 +345,7 @@ export function stopGuardedCardHolds(
     test: holds.test,
     figures: (input: { userId: string; assetId: string }) => holds.figures(input),
     holdState: (input: { holdKey: string }) => holds.holdState(input),
+    ...(holds.captured ? { captured: holds.captured.bind(holds) } : {}),
     hold: async (input: Parameters<PartnerCardHolds['hold']>[0]) => {
       await assertOpenCounted(gate, partnerId, 'card_hold', note);
       return holds.hold(input);

@@ -268,6 +268,11 @@ const bank = createBankServices(sql, ledger, history, {
   },
   /** The owner's card dispute cap (J-bank-27 #4). Blank refuses `bank.card_dispute_cap_unset`; malformed refuses to start. */
   cardDisputeCap: parseDisputeCap(env.BANK_CARD_DISPUTE_CAP_JSON),
+  /** The card programme desk (J-bank-26): the cardholder sanctions list, and the simulator on a dev or test stack only. */
+  cardProgramme: {
+    sanctions: () => env.BANK_CARDHOLDER_SANCTIONS,
+    simulatorAllowed: isExplicitDevOrTest(env.APP_ENV) && process.env.NODE_ENV !== 'production',
+  },
   /**
    * THE OTHER HALF THAT WAS MISSING, and it was missing in the same shape.
    *
