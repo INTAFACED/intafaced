@@ -1,5 +1,8 @@
 import { quantApiCopy } from './quant-api-copy';
 import { QUANT_API_ENDPOINTS } from './quant-api-endpoints';
+import { QUANT_PYTHON_CLIENT } from './python-client';
+
+const PYTHON_HREF = `data:text/x-python;charset=utf-8,${encodeURIComponent(QUANT_PYTHON_CLIENT)}`;
 
 /** /developers/quant (J-algo-dev-14; AL-api-01): the strategy API, what a key may call on Algo dev and what it can't. */
 export function QuantApiPage({ title }: { title: string }) {
@@ -48,6 +51,16 @@ export function QuantApiPage({ title }: { title: string }) {
             </tbody>
           </table>
         </div>
+      </section>
+      <section className="pub-card" id="python" aria-labelledby="quant-python" data-testid="developers-quant-python">
+        <h2 id="quant-python">{t('pyTitle')}</h2>
+        <p>{t('pyBody')}</p>
+        <p data-testid="developers-quant-python-install">
+          <code lang="und">{t('pyInstall')}</code>
+        </p>
+        <a className="text-link" href={PYTHON_HREF} download="intafaced_quant.py" data-testid="developers-quant-python-download">
+          {t('pyDownload')}
+        </a>
       </section>
       <section className="pub-card" aria-labelledby="quant-idem" data-testid="developers-quant-idempotency">
         <h2 id="quant-idem">{t('idemTitle')}</h2>

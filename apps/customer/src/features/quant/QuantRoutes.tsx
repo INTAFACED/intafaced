@@ -18,6 +18,8 @@ import { previewCopy } from './preview-copy';
 import { strategyPageCopy } from './strategy-page-copy';
 import { strategiesCopy } from './strategies-copy';
 import { algoCopy } from './algo-copy';
+import { LakeRoom } from './LakeRoom';
+import { researchCopy } from './research-copy';
 
 const MODES = { '/quant/studio': 'studio', '/quant/backtest': 'backtest', '/quant/sandbox': 'sandbox' } as const;
 
@@ -116,6 +118,14 @@ export function quantRoute(
       title: previewCopy.t(room === 'editor' ? 'editorTitle' : room === 'tester' ? 'testerTitle' : 'optimiseTitle'),
       description: previewCopy.t('label'),
       content: <Room key={userId ?? 'anonymous'} paper={paper} />,
+    };
+  }
+  // The market data lake (J-algo-dev-16 #2).
+  if (pathname === '/quant/data') {
+    return {
+      title: researchCopy.t('dataTitle'),
+      description: researchCopy.t('dataIntro'),
+      content: <LakeRoom key={userId ?? 'anonymous'} paper={paper} />,
     };
   }
   // Every limit a developer's runs meet (J-algo-dev-12 #4).

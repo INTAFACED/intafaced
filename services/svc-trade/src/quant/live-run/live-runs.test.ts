@@ -65,9 +65,24 @@ const noStepUp: StepUpCheck = {
 
 const strategies: StrategySource = {
   async version(_forwarded, id, version) {
-    if (id === 'signal') return { name: 'TEST signal', version, blocks: [], signalRules: true };
+    if (id === 'signal') return { name: 'TEST signal', version, blocks: [], signalRules: true, approvalRequired: false };
+    if (id === 'unapproved') {
+      return {
+        name: 'TEST unapproved',
+        version,
+        blocks: [{ side: 'buy', symbol: 'BTC-PERP', qty: '0.01' }],
+        signalRules: false,
+        approvalRequired: true,
+      };
+    }
     if (id !== 'trend' || version !== 1) return null;
-    return { name: 'TEST trend', version: 1, blocks: [{ side: 'buy', symbol: 'BTC-PERP', qty: '0.01' }], signalRules: false };
+    return {
+      name: 'TEST trend',
+      version: 1,
+      blocks: [{ side: 'buy', symbol: 'BTC-PERP', qty: '0.01' }],
+      signalRules: false,
+      approvalRequired: false,
+    };
   },
 };
 
@@ -233,6 +248,8 @@ describe('a live strategy run: stop, liquidate, manual orders, recovery and the 
     expect(blank.detail).toEqual({ field: 'restartAttempts' });
     expect((await refused(runs.start(person, {}, terms({ strategyId: 'signal' }), 'DE'))).code).toBe('quant.live_plan_unsupported');
     expect((await refused(runs.start(person, {}, terms({ strategyId: 'missing' }), 'DE'))).code).toBe('quant.studio_not_found');
+    // The account's approval policy is on and this version holds no current approval by a different member (J-algo-dev-16 #4).
+    expect((await refused(runs.start(person, {}, terms({ strategyId: 'unapproved' }), 'DE'))).code).toBe('quant.approval_required');
     expect(await store.listForUser(USER)).toEqual([]);
   });
 

@@ -24,6 +24,11 @@ export const quantApiCopy = defineCopy('developers-quant', {
   epLiveRuns: 'Your live strategy runs',
   epStop: 'Stop a live run: open orders are cancelled and the position is kept; the same seq again changes nothing',
   epLiquidate: 'Liquidate a live run: stop, then one reduce-only close per position',
+  pyTitle: 'Python client',
+  pyBody:
+    'One Python module wraps these endpoints: list and read your projects and runs, start a backtest with your own Idempotency-Key, and stop or liquidate a live run. A refusal raises QuantApiError with the service’s code. Decimals stay strings, and a float in a request is refused. strategy_template() returns a Python strategy the sandbox runs. It needs Python 3.11 and nothing else.',
+  pyInstall: 'Save it next to your code as intafaced_quant.py, then: from intafaced_quant import QuantClient, strategy_template',
+  pyDownload: 'Download intafaced_quant.py',
   idemTitle: 'One run per Idempotency-Key',
   idemBody:
     'A backtest started with a key must carry an Idempotency-Key header: 1 to 128 visible characters with no spaces. The same key with the same request reads back the one stored run. The same key with a different request answers 409 quant.idempotency_key_reused and runs nothing. With no header it answers 400 quant.idempotency_key_required.',

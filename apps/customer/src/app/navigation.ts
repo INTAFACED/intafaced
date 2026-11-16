@@ -1045,6 +1045,7 @@ export const rooms: readonly Room[] = [
       ['quant/library', 'Strategy library', 'Strategies people published for others to run and review'],
       ['quant/live', 'Live runs', 'Strategies trading your own venue sub-accounts'],
       ['quant/limits', 'Algo dev limits', 'Every limit your strategy runs meet, with its value'],
+      ['quant/data', 'Market data lake', 'Ticks, order books and fills the lake keeps, with coverage and gaps'],
       ['quant/backtest', 'Backtest', 'Review strategy results'],
       ['quant/editor', 'Code editor', 'Preview · sample data: the strategy code editor'],
       ['quant/tester', 'Strategy tester', 'Preview · sample data: replay a strategy tick by tick'],

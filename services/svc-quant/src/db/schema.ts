@@ -120,3 +120,61 @@ export const apiIdempotency = quant.table(
   },
   (t) => [primaryKey({ columns: [t.accountId, t.idempotencyKey] })],
 );
+
+/** The account owner's live approval policy (J-algo-dev-16 #4): no row is "not set". */
+export const approvalPolicies = quant.table('approval_policies', {
+  accountId: uuid('account_id').primaryKey(),
+  required: boolean('required').notNull(),
+  writeKey: text('write_key').notNull(),
+  actor: uuid('actor').notNull(),
+  setAt: tstz('set_at').notNull(),
+});
+
+/** One approval request of one strategy version, bound to its content hash; decided once by another member. */
+export const strategyApprovals = quant.table('strategy_approvals', {
+  id: uuid('id').primaryKey(),
+  requestKey: text('request_key').notNull().unique(),
+  accountId: uuid('account_id').notNull(),
+  strategyId: text('strategy_id').notNull(),
+  strategyVersion: integer('strategy_version').notNull(),
+  contentHash: text('content_hash').notNull(),
+  requester: uuid('requester').notNull(),
+  reviewer: uuid('reviewer'),
+  decision: text('decision').notNull(),
+  reason: text('reason').notNull(),
+  requestedAt: tstz('requested_at').notNull(),
+  decidedAt: tstz('decided_at'),
+});
+
+/** The market data lake (J-algo-dev-16 #2): the exchange's own public ticks, book snapshots and taker fills. */
+export const lakeRows = quant.table('lake_rows', {
+  sourceKey: text('source_key').primaryKey(),
+  kind: text('kind').notNull(),
+  symbol: text('symbol').notNull(),
+  observedAt: tstz('observed_at').notNull(),
+  payload: jsonb('payload').notNull(),
+});
+
+/** One capture pass of one symbol and kind: ok, or a hole with its reason. */
+export const lakePasses = quant.table(
+  'lake_passes',
+  {
+    symbol: text('symbol').notNull(),
+    kind: text('kind').notNull(),
+    at: tstz('at').notNull(),
+    ok: boolean('ok').notNull(),
+    reason: text('reason'),
+  },
+  (t) => [primaryKey({ columns: [t.symbol, t.kind, t.at] })],
+);
+
+/** Insert-only: an operator paused or resumed capture of one symbol, with a reason. */
+export const lakeCaptureChanges = quant.table('lake_capture_changes', {
+  id: uuid('id').primaryKey(),
+  symbol: text('symbol').notNull(),
+  capturing: boolean('capturing').notNull(),
+  reason: text('reason').notNull(),
+  actor: text('actor').notNull(),
+  writeKey: text('write_key').notNull().unique(),
+  at: tstz('at').notNull(),
+});
