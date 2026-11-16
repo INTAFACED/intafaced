@@ -121,7 +121,7 @@ function stubSupport(overrides: Partial<SupportService> = {}): SupportService {
       published: false,
     })),
     ...overrides,
-  } as unknown as SupportService;
+  } as SupportService;
 }
 
 const CITATION = {
@@ -776,7 +776,7 @@ describe('svc-support mount', () => {
     const caller = createSupportRouter(support).createCaller(signed(op));
     // The input schema is strict about this on purpose: `support:ops` plus a
     // free-text user id would be an authority no scope grants.
-    await expect(caller.accountState({ ticketId: TICKET, userId: USER } as unknown as { ticketId: string })).rejects.toMatchObject({
+    await expect(caller.accountState({ ticketId: TICKET, userId: USER } as { ticketId: string })).rejects.toMatchObject({
       code: 'BAD_REQUEST',
     });
     expect(support.readAccountState).not.toHaveBeenCalled();

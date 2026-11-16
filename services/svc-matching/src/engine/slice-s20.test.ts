@@ -295,7 +295,7 @@ describe('TRD-0333 option trigger types and a trigger without a price', () => {
     const result = book.submit({
       orderId: SL,
       accountId: 'desk',
-      type: 'stop_market' as unknown as EngineOrder['type'],
+      type: 'stop_market' as EngineOrder['type'],
       side: 'sell',
       qty: A('1'),
       price: null,

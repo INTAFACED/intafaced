@@ -30,7 +30,7 @@ describe('createJobHost', () => {
   it('does not invent ticks — no auto-start jobs', () => {
     const host = createJobHost({
       setIntervalFn: vi.fn(() => 1) as unknown as typeof setInterval,
-      clearIntervalFn: vi.fn() as unknown as typeof clearInterval,
+      clearIntervalFn: vi.fn() as typeof clearInterval,
     });
     expect(host.list()).toEqual([]);
   });

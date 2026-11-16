@@ -61,7 +61,7 @@ type SnapshotStanding = { rank: number; userId: string; score: number; updatedAt
 function sqlThatFreezesAfterSeasonRead(sql: Sql, freeze: () => Promise<void>): Sql {
   let armed = true;
   const invoke = (strings: TemplateStringsArray, ...values: unknown[]) => {
-    const query = (sql as unknown as (s: TemplateStringsArray, ...v: unknown[]) => Promise<unknown>)(strings, ...values);
+    const query = (sql as (s: TemplateStringsArray, ...v: unknown[]) => Promise<unknown>)(strings, ...values);
     const text = strings.join(' ');
     const seasonRead = armed && text.includes('FROM academy.tournament_seasons') && text.includes('WHERE id') && !text.includes('UPDATE');
     if (!seasonRead) return query;
@@ -79,7 +79,7 @@ function sqlThatFreezesAfterSeasonRead(sql: Sql, freeze: () => Promise<void>): S
       }
       return value;
     },
-  }) as unknown as Sql;
+  }) as Sql;
 }
 
 describe('non-freeze season status write', () => {

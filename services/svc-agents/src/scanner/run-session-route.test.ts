@@ -161,10 +161,10 @@ describe('scanner.runSession route', () => {
   it('AG-sessions-01: a body naming its own tier or law is rejected before the gate', async () => {
     const router = createAgentsRouter(stubDeps()).createCaller(signed(principal({ tier: 'none' })));
     const body = { plane: 'live' as const, signalInputsLaw: SEALED_ABS_CHANGE_X_LOG_VOLUME_LAW, tickers: [ticker] };
-    await expect(router.scanner.runSession({ ...body, userTier: 'basic' } as unknown as typeof body)).rejects.toMatchObject({
+    await expect(router.scanner.runSession({ ...body, userTier: 'basic' } as typeof body)).rejects.toMatchObject({
       code: 'BAD_REQUEST',
     });
-    await expect(router.scanner.runSession({ ...body, law } as unknown as typeof body)).rejects.toMatchObject({
+    await expect(router.scanner.runSession({ ...body, law } as typeof body)).rejects.toMatchObject({
       code: 'BAD_REQUEST',
     });
   });
