@@ -92,10 +92,10 @@ export function VenueOrderFlow({
     `venue-dom-tape:${market.symbol}`,
     VENUE_POLL_MS,
   );
-  const book = useMemo(() => loadableOf(bookRead, venueBookAsOrderBook), [bookRead.data, bookRead.failure]); // eslint-disable-line react-hooks/exhaustive-deps
+  const book = useMemo(() => loadableOf(bookRead, venueBookAsOrderBook), [bookRead.data, bookRead.failure]); // eslint-disable-line react-hooks/exhaustive-deps -- the poll returns a new wrapper each render; only its data and failure change the book
   const tape = useMemo<Loadable<readonly TapePrint[]>>(
     () => loadableOf(tapeRead, (read) => venuePrintsAsTape(read.value)),
-    [tapeRead.data, tapeRead.failure], // eslint-disable-line react-hooks/exhaustive-deps
+    [tapeRead.data, tapeRead.failure], // eslint-disable-line react-hooks/exhaustive-deps -- the poll returns a new wrapper each render; only its data and failure change the tape
   );
   const mine = useMemo<VenueRow[]>(
     () =>

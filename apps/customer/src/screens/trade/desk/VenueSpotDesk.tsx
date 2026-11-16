@@ -333,7 +333,7 @@ export function VenueSpotDesk({
   const flowMarket = useMemo(() => flowMarketOf(market), [market]);
   const bestBid = best.data?.value.bid ?? null;
   const bestAsk = best.data?.value.ask ?? null;
-  const reference = useMemo(() => (best.data ? { bestBid, bestAsk } : null), [best.data !== null, bestBid, bestAsk]); // eslint-disable-line react-hooks/exhaustive-deps
+  const reference = useMemo(() => (best.data ? { bestBid, bestAsk } : null), [best.data !== null, bestBid, bestAsk]); // eslint-disable-line react-hooks/exhaustive-deps -- a new read with the same prices keeps the same reference, so the chart group does not redraw
   /**
    * A draft from the DOM or the chart on one side's ticket: a limit at its price or a market order at the protection's
    * worst price. It opens the venue review unless instant placement is on and it is a limit; a market order always reviews.
