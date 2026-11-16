@@ -1,10 +1,11 @@
 // The lint ratchet on planted pull requests in a throwaway repository: a rise fails and names the rule, a rise paid for
 // in the same file passes, a change that switches the rule off in its own .oxlintrc.json is still judged by main's, a
-// moved function passes, a rule named in printOnly only prints, and a rule that replaced a test of added files fails there.
+// moved function passes, a rule named in printOnly only prints, a new fixed wait fails under main's own ratchet.json,
+// and a rule that replaced a test of added files fails there.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -25,7 +26,7 @@ const CONFIG = {
 };
 
 /** A repository whose main holds the config, the real plugin and `starts`; returns helpers to plant a pull request. */
-function repo(starts) {
+function repo(starts, config = CONFIG) {
   const dir = mkdtempSync(join(tmpdir(), 'lint-ratchet-'));
   const git = (...args) => execFileSync('git', args, { cwd: dir, env: ENV, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   const write = (files) => {
@@ -46,7 +47,7 @@ function repo(starts) {
   symlinkSync(join(ROOT, 'node_modules'), join(dir, 'node_modules'));
   write({
     '.gitignore': 'node_modules\n',
-    '.oxlintrc.json': CONFIG,
+    '.oxlintrc.json': config,
     'tooling/lint/ratchet.json': starts,
     'src/a.ts': `${CAST}export function moved() {\n  return ("x" as unknown as number) * 2;\n}\n`,
   });
@@ -127,6 +128,34 @@ test('a rule named in printOnly prints the rise and fails nothing', skip, () => 
     assert.match(out, /rose \+1; prints only/u);
   } finally {
     r.done();
+  }
+});
+
+test("main's ratchet.json fails a new fixed wait in a journey and in a unit test, and keeps one that says why", skip, () => {
+  const starts = JSON.parse(readFileSync(join(ROOT, 'tooling', 'lint', 'ratchet.json'), 'utf8'));
+  const waits = { 'garden/no-wait-for-timeout': 'error', 'garden/no-real-clock-wait-in-tests': 'error' };
+  const r = repo(starts, { ...CONFIG, rules: { ...CONFIG.rules, ...waits } });
+  try {
+    const failed = r.pr({
+      'apps/customer/tests/real-app/x.pw.mjs': 'export async function t(page) {\n  await page.waitForTimeout(61_000);\n}\n',
+      'src/x.test.ts': 'export async function t() {\n  await new Promise((r) => setTimeout(r, 50));\n}\n',
+    });
+    assert.equal(failed.code, 1, failed.out);
+    assert.match(failed.out, /garden\/no-wait-for-timeout rose from 0 to 1/u);
+    assert.match(failed.out, /garden\/no-real-clock-wait-in-tests rose from 0 to 1/u);
+    assert.match(failed.out, /agePast \(the test-age helper in apps\/customer\/tests\/real-app; svc-trade has the door today/u);
+  } finally {
+    r.done();
+  }
+  const k = repo(starts, { ...CONFIG, rules: { ...CONFIG.rules, ...waits } });
+  try {
+    const kept = k.pr({
+      'apps/customer/tests/real-app/y.pw.mjs':
+        'export async function t(page) {\n  // oxlint-disable-next-line garden/no-wait-for-timeout -- proves no second toast arrives\n  await page.waitForTimeout(500);\n}\n',
+    });
+    assert.equal(kept.code, 0, kept.out);
+  } finally {
+    k.done();
   }
 });
 
