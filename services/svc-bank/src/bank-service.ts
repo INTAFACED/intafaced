@@ -445,13 +445,13 @@ export function createBankServices(
   const analytics = new SpendAnalytics(spaces, history, custody);
   const budgets = new BudgetService(sql, analytics);
   const portfolio = new PortfolioService(ledger, spaces, {
-    ...(options.portfolio ?? {}),
+    ...options.portfolio,
     transferFees: { feesFor: (userId, txIds) => personalPay.feesFor(userId, txIds) },
     assets: options.portfolio?.assets ?? options.assetRegistry ?? null,
   });
   const activityRecords = new ActivityRecordService(sql);
   const activity = new ActivityService(spaces, {
-    ...(options.activity ?? {}),
+    ...options.activity,
     custody,
     records: activityRecords,
     transferFacts: { forTransfers: (userId, txIds) => personalPay.factsFor(userId, txIds) },
@@ -501,7 +501,7 @@ export function createBankServices(
       )
     : null;
   const cards = new CardService(sql, ledger, {
-    ...(options.cards ?? {}),
+    ...options.cards,
     heldBy: options.cards?.heldBy ?? ((userId) => moneyHeldBy(options.testPartner, userId, custodyLayer)),
     partnerHolds,
     // The TEST partner's own "not offered" switch for phone wallets (J-bank-13 #8); no partner, the issuer alone decides.
