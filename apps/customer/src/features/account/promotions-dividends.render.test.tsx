@@ -20,29 +20,33 @@ describe('/uc/promotion subroutes', () => {
     expect(promotionsViewFor('/uc/promotion/mypromotion?x=1')).toBe('records');
     expect(promotionsViewFor('/uc/invitingmining')).toBe('overview');
     expect(promotionsViewFor('/uc/promotion/points')).toBe('points');
+    expect(promotionsViewFor('/uc/promotion/perks')).toBe('perks');
   });
 
-  it('draws four tabs and marks only the open one as current', () => {
+  it('draws five tabs and marks only the open one as current', () => {
     for (const [view, open] of [
       ['overview', '/uc/promotion'],
       ['link', '/uc/promotion/mycards'],
       ['records', '/uc/promotion/mypromotion'],
       ['points', '/uc/promotion/points'],
+      ['perks', '/uc/promotion/perks'],
     ] as const) {
       const html = renderToString(<PromotionTabs view={view} />);
-      expect(html.match(/<a /g)?.length).toBe(4);
+      expect(html.match(/<a /g)?.length).toBe(5);
       expect(html.match(/aria-current="page"/g)?.length).toBe(1);
       expect(html).toMatch(new RegExp(`href="${open}"[^>]*aria-current="page"|aria-current="page"[^>]*href="${open}"`));
       expect(html).toContain('Invitation link');
       expect(html).toContain('Referral records');
       expect(html).toContain('Points programme');
+      expect(html).toContain('Tier and perks');
     }
   });
 
   it('has the new labels in Spanish and French', () => {
     for (const locale of ['es', 'fr'] as const) {
       const copy = promotionsCopy.forLocale(locale);
-      for (const key of ['tabsLabel', 'tabOverview', 'tabLink', 'tabRecords'] as const) expect(copy.t(key)).not.toBe(promotionsCopy.t(key));
+      for (const key of ['tabsLabel', 'tabOverview', 'tabLink', 'tabRecords', 'tabPerks'] as const)
+        expect(copy.t(key)).not.toBe(promotionsCopy.t(key));
     }
   });
 });

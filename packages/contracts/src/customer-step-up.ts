@@ -212,6 +212,17 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
     fixed: {},
   },
   {
+    scope: 'bank.step_up.businessBills.pay',
+    purpose: 'businessBills.pay',
+    clientFields: ['billId', 'paymentId', 'scheduledFor'],
+    targetField: 'paymentId',
+    targetRequired: true,
+    // A payment made now has no day.
+    emptyOk: ['scheduledFor'],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
     scope: 'bank.step_up.business.setMemberRole',
     purpose: 'business.setMemberRole',
     clientFields: ['accountId', 'userId', 'role', 'requestId'],
