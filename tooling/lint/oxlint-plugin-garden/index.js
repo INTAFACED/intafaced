@@ -123,10 +123,10 @@ const containsSetTimeout = (node) => {
   return found;
 };
 // What a fixed wait in a test becomes. A record's expiry or window passing: age that record with the TEST age door
-// (agePast in apps/customer/tests/real-app/test-age.mjs; only svc-trade mounts it so far). Something that happens: await its locator, response or event.
+// (agePast, the test-age helper in apps/customer/tests/real-app; only svc-trade mounts it so far). Something that happens: await its locator, response or event.
 // A unit test's timer: vi.useFakeTimers(). Proving nothing happens for a while has no event: keep the wait and say why.
 const waitFix = (rule) =>
-  `an expiry or window: age the record with agePast (apps/customer/tests/real-app/test-age.mjs; svc-trade has the door today, another service mounts packages/service-kit test-age.ts first); an outcome: await its locator, response or event; a unit test's timer: vi.useFakeTimers(); proving nothing happens: keep the wait with \`// oxlint-disable-next-line garden/${rule} -- why\``;
+  `an expiry or window: age the record with agePast (the test-age helper in apps/customer/tests/real-app; svc-trade has the door today, another service mounts packages/service-kit test-age.ts first); an outcome: await its locator, response or event; a unit test's timer: vi.useFakeTimers(); proving nothing happens: keep the wait with \`// oxlint-disable-next-line garden/${rule} -- why\``;
 const SLEEP_CALLS = new Set(['sleep', 'delay', 'wait', 'pause', 'waitMs']);
 const noRealClockWaitInTests = {
   meta: { type: 'problem', docs: { description: 'Tests wait on an event or a fake clock, never on the wall clock.' } },
