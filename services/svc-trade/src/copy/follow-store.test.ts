@@ -674,7 +674,7 @@ function mockSettleSql(opts?: {
     events.push(`unknown:${text.slice(0, 80)}`);
     return Promise.resolve([]);
   };
-  return { sql: sql as unknown as Sql, events, byFill };
+  return { sql: sql as Sql, events, byFill };
 }
 
 describe('SqlCopyFollowStore runFeeShareSettleOnce (order, no Postgres)', () => {

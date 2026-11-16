@@ -38,7 +38,7 @@ const MARKET = {
   minNotional: A('1'),
   status: 'active',
   paper: false,
-} as unknown as Market;
+} as Market;
 
 /** Identity's consume, as it answers an approval it minted for this person and scope (contracts step-up-check). */
 function identity(fail?: unknown, user = ALICE) {
@@ -113,7 +113,7 @@ class StubTrade {
       status: 'open',
       holdAsset: input.side === 'buy' ? 'USDT' : 'BTC',
       holdAmount: input.side === 'buy' ? mul(price, input.qty, 'ceil') : input.qty,
-    } as unknown as OrderRecord;
+    } as OrderRecord;
     this.orders.set(id, record);
     if (this.lostAt !== null && this.placed.length - 1 === this.lostAt) {
       throw Object.assign(new Error('timeout'), { code: 'trade.place_timeout' });
@@ -125,7 +125,7 @@ class StubTrade {
     const o = this.orders.get(orderId)!;
     this.orders.set(orderId, { ...o, status: 'filled', filledQty: o.qty });
     this.fills.set(orderId, [
-      { orderId, price: o.price!, qty: o.qty, quoteAmount: mul(o.price!, o.qty, 'floor'), feeAsset, feeAmount } as unknown as FillRecord,
+      { orderId, price: o.price!, qty: o.qty, quoteAmount: mul(o.price!, o.qty, 'floor'), feeAsset, feeAmount } as FillRecord,
     ]);
   }
 }
@@ -498,7 +498,7 @@ describe('grid after review: wind-down, lost places, races and replays (CB-bots-
         quoteAmount: mul(sell.price!, half, 'floor'),
         feeAsset: 'USDT',
         feeAmount: 0n,
-      } as unknown as FillRecord,
+      } as FillRecord,
     ]);
     await service.tick((await store.findBot(view.botId))!);
     const after = await service.get(verified(), view.botId);

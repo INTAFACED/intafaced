@@ -30,7 +30,7 @@ describe('chart alert webhooks (CB-bots-api-signal-01)', () => {
         return [];
       },
       { json: (v: unknown) => v },
-    ) as unknown as SignalPorts['sql'];
+    ) as SignalPorts['sql'];
     const desk = new SignalDesk({
       sql,
       now: () => new Date('2026-11-07T10:00:00Z'),
@@ -129,7 +129,7 @@ describe('a webhook prepares an order only for a person who may place a trade or
         return [];
       },
       { json: (v: unknown) => v },
-    ) as unknown as SignalPorts['sql'];
+    ) as SignalPorts['sql'];
     const desk = new SignalDesk({
       sql,
       now: () => NOW,

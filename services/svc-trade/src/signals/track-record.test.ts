@@ -13,7 +13,7 @@ function fakeSql(answer: () => Array<{ n: number; first: Date | null }>): { sql:
   const sql = ((_strings: TemplateStringsArray, ...values: unknown[]) => {
     seen.push(values);
     return Promise.resolve(answer());
-  }) as unknown as Sql;
+  }) as Sql;
   return { sql, seen };
 }
 

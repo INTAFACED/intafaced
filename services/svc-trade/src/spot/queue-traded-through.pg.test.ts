@@ -31,7 +31,7 @@ const db: TestDatabase = await createTestDatabase({ service: 'trade', url: admin
 afterAll(async () => {
   await db.drop();
 }, 60_000);
-const svc = { sql: db.sql } as unknown as TradeServiceInternal;
+const svc = { sql: db.sql } as TradeServiceInternal;
 const USER = '11111111-1111-4111-8111-111111111111';
 const NOW = Date.parse('2026-11-09T00:00:00.000Z');
 
