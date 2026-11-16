@@ -22,6 +22,8 @@ import {
   type TypedDataDocument,
 } from './eip1193';
 
+/** How long a remembered wallet has to answer `eth_accounts` (it never prompts) before the room is shown disconnected. */
+export const RESTORE_TIMEOUT_MS = 5_000;
 /** Remembered only to restore the same wallet without a prompt. Storage may be absent or blocked; the page works without it. */
 const REMEMBER_KEY = 'if.web3.wallet';
 function remembered(store: Pick<Storage, 'getItem'> | undefined): string | null {
@@ -313,16 +315,26 @@ export function WalletProvider({
       return;
     }
     restored.current = true;
+    let answered = false;
+    const unanswered = setTimeout(() => {
+      answered = true;
+      setStatus('disconnected');
+    }, RESTORE_TIMEOUT_MS);
     void (async () => {
       try {
         const accounts = await wallet.provider.request({ method: 'eth_accounts' });
+        const chain = firstAddress(accounts) ? await wallet.provider.request({ method: 'eth_chainId' }) : null;
+        if (answered) return;
         if (!firstAddress(accounts)) {
           remember(store, null);
           return setStatus('disconnected');
         }
-        adopt(wallet, accounts, await wallet.provider.request({ method: 'eth_chainId' }));
+        adopt(wallet, accounts, chain);
       } catch {
-        setStatus('disconnected');
+        if (!answered) setStatus('disconnected');
+      } finally {
+        answered = true;
+        clearTimeout(unanswered);
       }
     })();
   }, [wallets, discovered, status, store, adopt]);

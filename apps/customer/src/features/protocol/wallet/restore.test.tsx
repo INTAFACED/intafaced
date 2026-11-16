@@ -1,10 +1,10 @@
 // @vitest-environment happy-dom
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WalletBar } from '../../trade/venue/VenueKit';
 import type { DiscoveredWallet } from './eip1193';
-import { WalletProvider } from './WalletProvider';
+import { RESTORE_TIMEOUT_MS, WalletProvider } from './WalletProvider';
 
 const ADDR = '0x2222222222222222222222222222222222222222';
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -74,6 +74,23 @@ describe('a remembered wallet', () => {
     expect(connectButton()?.textContent).toBe('Connect Test Wallet');
     expect(shownAddress()).toBeNull();
     expect(sessionStorage.getItem('if.web3.wallet')).toBeNull();
+  });
+
+  it('whose wallet never answers is shown disconnected once the restore has had its time, and a late answer is not adopted', async () => {
+    vi.useFakeTimers();
+    try {
+      sessionStorage.setItem('if.web3.wallet', 'test.wallet');
+      installed(slowWallet());
+      await render();
+      expect(connectButton()).toBeUndefined();
+      await act(async () => vi.advanceTimersByTime(RESTORE_TIMEOUT_MS));
+      expect(connectButton()?.textContent).toBe('Connect Test Wallet');
+      await act(async () => answer([ADDR]));
+      expect(shownAddress()).toBeNull();
+      expect(connectButton()?.textContent).toBe('Connect Test Wallet');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('whose wallet is not in this browser any more shows the room as disconnected', async () => {
