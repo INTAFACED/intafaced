@@ -441,6 +441,7 @@ export function CopyRoom({ path }: { path: string }) {
         onClose={() => setOpenFollowId(null)}
         api={api}
         guard={guard}
+        desk={desk.data}
         onChanged={follows.reload}
         venue={venueMode.mode === 'on' && openFollow !== null && openFollow.permittedMarkets.every(isVenueMarket)}
       />

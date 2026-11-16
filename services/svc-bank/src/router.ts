@@ -50,6 +50,9 @@ import { createSharedPotsRouter } from './spaces/shared-pots.router.js';
 import { createRecoveryRouter } from './recovery/recovery.router.js';
 import { createRampsRouter } from './router/ramps.router.js';
 import { createBusinessRouter } from './router/business.router.js';
+import { createBusinessTeamRouter } from './router/business-team.router.js';
+import { createBusinessBillsRouter } from './router/business-bills.router.js';
+import { createBusinessPayoutsRouter } from './router/business-payouts.router.js';
 
 /**
  * svc-bank's API.
@@ -105,6 +108,9 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
   const autoInvest = createAutoInvestRouter(c);
   const ramps = createRampsRouter(c);
   const business = createBusinessRouter(c);
+  const businessTeam = createBusinessTeamRouter(c);
+  const businessBills = createBusinessBillsRouter(c);
+  const businessPayouts = createBusinessPayoutsRouter(c);
 
   return router({
     health: publicProcedure
@@ -355,6 +361,9 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     }),
     autoInvest,
     business,
+    businessTeam,
+    businessBills,
+    businessPayouts,
     analytics,
     plans: limitsTables.plans,
     partnerHolds: limitsTables.partnerHolds,

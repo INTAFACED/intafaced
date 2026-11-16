@@ -56,7 +56,7 @@ console.log('local-test-facts: node built-ins only, and every script hands out t
 // builders started cold on the fixed ports at 09:02 and 09:03 UTC, 15 Nov; neither was refused, since a stack still
 // building holds no port, and the first failed after six minutes on `pg_ctl start failed (port 15460 busy?)`.
 {
-  const { mkdtempSync, mkdirSync, writeFileSync, existsSync } = await import('node:fs');
+  const { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
   const home = mkdtempSync(join(tmpdir(), 'slots-'));
@@ -91,5 +91,11 @@ console.log('local-test-facts: node built-ins only, and every script hands out t
   assert.equal(facts.claimSlot(1, { state: 's', home }), true, 'a dead claim is taken over');
   assert.equal(facts.localStackSlot({ LOCAL_STACK_SLOT: '2' }, home), 2, 'LOCAL_STACK_SLOT names one by hand');
   assert.throws(() => facts.localStackSlot({ LOCAL_STACK_SLOT: '4' }, home), /must be 0, 1, 2 or 3/);
+  other(2, dead);
+  const gone = JSON.parse(readFileSync(join(home, '.intafaced', 'slots', '2.json'), 'utf8'));
+  assert.equal(facts.dropClaim(2, { ...gone, pid: 1 }, home), false, 'a reap lets go only of the claim it read');
+  assert.equal(facts.dropClaim(2, gone, home), true, "a reaped owner's dead claim is let go");
+  assert.equal(existsSync(join(home, '.intafaced', 'slots', '2.json')), false, 'and its slot is free');
+  assert.equal(facts.dropClaim(3, facts.slotClaims(home)[3].claim, home), false, 'a live stack keeps its claim');
   console.log('local-test-facts: a live slot claim is never taken, a dead one is, and a stop lets it go');
 }

@@ -684,11 +684,101 @@ export type BankErrorCode =
   | 'bank.business_closed'
   | 'bank.business_not_member'
   | 'bank.business_role_forbidden'
+  // ── Business bank team and approval rules (J-bank-19; BK-biz-01 to BK-biz-04) ──
+  /** A named role with no permission, or one not on the list. */
+  | 'bank.business_role_invalid'
+  /** A role, invite or assignment granting a permission the actor does not hold. Nothing was created. */
+  | 'bank.business_role_grant_exceeds'
+  /** The business already has a role or department of that name. */
+  | 'bank.business_role_name_taken'
+  | 'bank.business_role_not_found'
+  /** Only the business's owner may do this (approve an advisor, fund its TEST partner account). */
+  | 'bank.business_owner_only'
+  | 'bank.business_advisor_not_found'
+  | 'bank.business_already_member'
+  | 'bank.business_invalid_handle'
+  | 'bank.business_person_not_found'
+  | 'bank.business_invalid_email'
+  /** BANK_BUSINESS_INVITE_MINUTES is blank: no team invite is sent until the owner sets it. */
+  | 'bank.business_invite_lifetime_unset'
+  /** An invite opened after its owner-set lifetime; the business can send it again. */
+  | 'bank.business_invite_expired'
+  | 'bank.business_invite_revoked'
+  /** An invite that was sent again: only the newest link works. */
+  | 'bank.business_invite_replaced'
+  | 'bank.business_invite_used'
+  | 'bank.business_invite_not_found'
+  /** Resend or revoke of an invite that is no longer open. */
+  | 'bank.business_invite_inactive'
+  /** An email invite opened by an account with another email. */
+  | 'bank.business_invite_wrong_person'
+  | 'bank.business_rule_invalid'
+  | 'bank.business_payee_invalid'
+  /** The rule asks for more distinct approvers than the business has besides the maker. */
+  | 'bank.business_approvers_short'
+  /** One person approving the same payment twice: approvers are distinct. */
+  | 'bank.business_already_approved'
+  | 'bank.business_budget_invalid'
+  | 'bank.business_department_not_found'
   | 'bank.business_invalid_threshold'
   | 'bank.business_invalid_name'
   | 'bank.business_approval_not_found'
   | 'bank.business_approval_inactive'
   | 'bank.business_self_approve'
+  // ── Business bill pay (J-bank-20; BK-bill-01 to BK-bill-03) ──
+  /** A bill file with no name, empty, or over 1 MiB. */
+  | 'bank.bill_file_invalid'
+  /** A bill field, vendor cap, limit or split line not in shape. */
+  | 'bank.bill_field_invalid'
+  /** A bill edited or sent on while it is not in the inbox. */
+  | 'bank.bill_not_editable'
+  /** A bill sent on before it names a vendor, an amount and a due date. */
+  | 'bank.bill_incomplete'
+  /** A bill flagged as a possible duplicate, not yet cleared: it is not paid. */
+  | 'bank.bill_duplicate_uncleared'
+  /** A bill paid before it is approved. */
+  | 'bank.bill_not_approved'
+  /** A split whose lines do not add up to the bill exactly. */
+  | 'bank.split_total_mismatch'
+  /** A scheduled payment for today or earlier. */
+  | 'bank.bill_schedule_invalid'
+  /** A Bill Pay limit is blank: no bill is paid until the business sets all three. */
+  | 'bank.bill_limit_unset'
+  /** A bill payment over a Bill Pay limit. */
+  | 'bank.bill_limit_exceeded'
+  /** A cancel of a bill payment already sent to the partner. */
+  | 'bank.bill_payment_sent'
+  /** A return reported for a bill payment that was never sent. */
+  | 'bank.bill_payment_not_sent'
+  | 'bank.bill_not_found'
+  | 'bank.bill_payment_not_found'
+  // ── Business bulk payments, contractors and crypto payroll (J-bank-21; BK-bpay-01, BK-bpay-02, RC-bank-05) ──
+  /** A bulk payment file with no header naming its columns, no lines, too many lines, or over 256 KiB. */
+  | 'bank.bulk_file_invalid'
+  /** The business's partner balance does not cover a run's total: nothing was sent, add money and confirm again. */
+  | 'bank.bulk_run_unfunded'
+  /** A run with no valid line: there is nothing to send. */
+  | 'bank.bulk_run_empty'
+  | 'bank.bulk_run_not_found'
+  /** A contractor, invoice or payroll field not in shape. */
+  | 'bank.contractor_field_invalid'
+  | 'bank.contractor_not_found'
+  /** The contractor already has an invoice with this number. */
+  | 'bank.contractor_invoice_duplicate'
+  /** An invoice in a batch is already being paid or paid. */
+  | 'bank.contractor_invoice_not_open'
+  /** An onboarding link we do not know. */
+  | 'bank.contractor_invite_invalid'
+  /** An onboarding link already used by someone else. */
+  | 'bank.contractor_invite_used'
+  /** A payroll wallet address or offer not in shape. */
+  | 'bank.payroll_wallet_invalid'
+  /** Crypto payroll needs the business's own wallet connected first: it signs every run. */
+  | 'bank.payroll_wallet_missing'
+  /** A payroll member with no wallet address. */
+  | 'bank.contractor_wallet_missing'
+  /** A signature not from the wallet named: nothing was connected or signed. */
+  | 'bank.payroll_signature_invalid'
   | 'bank.business_rejected'
   | 'bank.business_cancelled'
   /**

@@ -1646,3 +1646,134 @@ console.log('local-test-stack: customer folder override checks passed');
   );
   console.log("local-test-stack: a start waits for the stack's own late service and refuses only a stranger's port");
 }
+
+// A slot whose owner is gone is taken back; a live owner's never (takeSlot, ownerGone). Failure it prevents: on 16 Nov
+// slots 0 and 1 were held by the stacks of two settled builders whose PRs had merged, so a counted build found every
+// slot held (project-state#2553 comment 6903867491).
+{
+  const { ownerGone } = await import('./local-test-stack.mjs');
+  const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs');
+  const repo = mkdtempSync(join(tmpdir(), 'owner-'));
+  const state = join(repo, 'state');
+  mkdirSync(join(state, 'run'), { recursive: true });
+  writeFileSync(join(state, 'run', 'processes.json'), JSON.stringify({ edge: { pid: 500 } }));
+  const claim = { repo, pid: 400, state };
+  const parents = () =>
+    new Map([
+      [500, 1],
+      [501, 500],
+      [600, 1],
+    ]);
+  const dead = () => false;
+  assert.equal(
+    ownerGone(claim, { alive: (pid) => pid === 400, cwds: () => new Map(), parents }),
+    false,
+    'a start still running owns its slot',
+  );
+  assert.equal(
+    ownerGone(claim, {
+      alive: dead,
+      cwds: () =>
+        new Map([
+          [500, `${repo}/services/svc-edge`],
+          [501, repo],
+        ]),
+      parents,
+    }),
+    true,
+    'only the stack and its children left in the checkout: the owner is gone',
+  );
+  assert.equal(
+    ownerGone(claim, {
+      alive: dead,
+      cwds: () =>
+        new Map([
+          [500, repo],
+          [600, repo],
+        ]),
+      parents,
+    }),
+    false,
+    "a builder's agent working in the checkout owns its slot",
+  );
+  assert.equal(
+    ownerGone(claim, { alive: dead, cwds: () => new Map([[600, `${repo}-other`]]), parents }),
+    true,
+    'a sibling folder with the same prefix is not the checkout',
+  );
+  assert.equal(ownerGone(claim, { alive: dead, cwds: () => null, parents }), false, 'processes unreadable: the owner counts as present');
+  assert.equal(
+    ownerGone({ ...claim, repo: join(repo, 'removed') }, { alive: dead, cwds: () => null, parents }),
+    true,
+    'a removed checkout has no owner',
+  );
+  // An agent working outside the checkout (a scratchpad checkout's agent sits in its own worktree) owns the slot while
+  // that same process lives (fresh review on #8599).
+  const owned = { ...claim, owner: { pid: 700, startedAt: 1000 } };
+  const onlyStack = () => new Map([[500, `${repo}/services/svc-edge`]]);
+  assert.equal(
+    ownerGone(owned, { alive: dead, identity: (pid) => (pid === 700 ? { startedAt: 1500 } : null), cwds: onlyStack, parents }),
+    false,
+    'the recorded agent still running, elsewhere: the owner is present',
+  );
+  assert.equal(
+    ownerGone(owned, { alive: dead, identity: (pid) => (pid === 700 ? { startedAt: 999_000 } : null), cwds: onlyStack, parents }),
+    true,
+    'its pid reused by another process: the owner is gone',
+  );
+  assert.equal(
+    ownerGone(owned, { alive: dead, identity: () => null, cwds: onlyStack, parents }),
+    true,
+    'the agent ended: the owner is gone',
+  );
+  const { agentOwner } = await import('./local-test-stack.mjs');
+  const chain = () =>
+    new Map([
+      [process.pid, 40],
+      [40, 30],
+      [30, 20],
+      [20, 1],
+    ]);
+  const names = (top) => () =>
+    new Map([
+      [40, 'node'],
+      [30, '/bin/zsh'],
+      [20, top],
+    ]);
+  assert.deepEqual(
+    agentOwner(chain, names('agent'), () => ({ startedAt: 42 })),
+    { pid: 20, startedAt: 42 },
+    'a start records the first process above it that is not a shell or launcher: the agent',
+  );
+  const nested = () =>
+    new Map([
+      [process.pid, 50],
+      [50, 40],
+      [40, 30],
+      [30, 20],
+      [20, 1],
+    ]);
+  assert.deepEqual(
+    agentOwner(
+      nested,
+      () =>
+        new Map([
+          [50, 'pnpm'],
+          [40, 'bash'],
+          [30, '-zsh'],
+          [20, 'agent'],
+        ]),
+      () => ({ startedAt: 7 }),
+    ),
+    { pid: 20, startedAt: 7 },
+    'a shell inside a shell is passed over too: the owner is never a shell that ends with its command',
+  );
+  assert.equal(agentOwner(chain, names('zsh')), null, 'only launchers up to launchd: no owner, the folder test decides');
+  assert.equal(
+    agentOwner(chain, names('agent'), () => null),
+    null,
+    'an agent whose start time cannot be read records none',
+  );
+
+  console.log('local-test-stack: a slot whose owner is gone is taken back, and a live owner keeps its own');
+}

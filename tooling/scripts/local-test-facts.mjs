@@ -80,10 +80,10 @@ export function slotClaims(home = os.homedir()) {
  * Claims `slot` for this checkout, atomically: true when it is now this checkout's. Two starts that both see a dead
  * claim move it aside under their own names, and only one of them then creates the file (`wx`).
  */
-export function claimSlot(slot, { state, pid = process.pid, home = os.homedir() }) {
+export function claimSlot(slot, { state, pid = process.pid, owner = null, home = os.homedir() }) {
   const file = slotFile(slot, home);
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-  const mine = JSON.stringify({ repo: CHECKOUT, pid, state, takenAt: new Date().toISOString() });
+  const mine = JSON.stringify({ repo: CHECKOUT, pid, state, takenAt: new Date().toISOString(), ...(owner ? { owner } : {}) });
   const now = slotClaims(home)[slot];
   if (now.claim?.repo === CHECKOUT) {
     fs.writeFileSync(file, mine, { mode: 0o600 });
@@ -103,6 +103,14 @@ export function claimSlot(slot, { state, pid = process.pid, home = os.homedir() 
   } catch {
     return false;
   }
+}
+
+/** Lets go of `slot`'s claim when it is still exactly `claim` and nothing of its stack is left (a gone owner's, reaped). */
+export function dropClaim(slot, claim, home = os.homedir()) {
+  const now = slotClaims(home)[slot];
+  if (now.live || !now.claim || now.claim.repo !== claim.repo || now.claim.pid !== claim.pid) return false;
+  fs.rmSync(slotFile(slot, home), { force: true });
+  return true;
 }
 
 /** Lets this checkout's slot go (a full `stop`). */

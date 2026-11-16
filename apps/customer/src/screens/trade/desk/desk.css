@@ -370,6 +370,14 @@
   .dk-chart {
     height: clamp(220px, calc(100vh - 638px), 430px);
   }
+  /* The venue desk's chart (VenueMarketData): its bar, canvas and Buy/Sell in one column of the chart's height. */
+  .dk-chart--venue {
+    display: flex;
+    flex-direction: column;
+  }
+  .dk-chart--venue > * {
+    flex-shrink: 0;
+  }
   .dk-chart:fullscreen {
     height: 100vh;
     background: var(--if-bg);

@@ -28,6 +28,10 @@ export const COPY_SKIP_REASONS = [
   'insufficient_funds',
   /** The copy would have gone past the follower's per-order or total limit. */
   'max_copy_total',
+  /** The copy would have gone past the follower's most per contract. */
+  'per_contract_cap',
+  /** The copy would have gone past the follower's most per owner day; copying resumes the next owner day. */
+  'daily_cap',
   /** The copy's price was further from the leader's than the follower's slippage limit. */
   'copy_slippage_exceeded',
   /** A leader close found nothing copied left open to close. */
@@ -52,6 +56,8 @@ const BY_COPY_CODE: Partial<Record<string, CopySkipReason>> = {
   'trade.copy_limit_unevaluable': 'risk_control',
   'trade.copy_limit_missing': 'risk_control',
   'trade.copy_cap_exceeded': 'max_copy_total',
+  'trade.copy_market_cap_reached': 'per_contract_cap',
+  'trade.copy_daily_cap_reached': 'daily_cap',
   'trade.copy_slippage_exceeded': 'copy_slippage_exceeded',
   'trade.copy_reserve_exceeds_balance': 'insufficient_funds',
   'trade.copy_position_closed': 'position_closed',

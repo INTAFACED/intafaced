@@ -8,7 +8,18 @@ import { describe, expect, it } from 'vitest';
 import { bindCustomerStepUp } from '@intafaced/contracts';
 import { bankActionPayloadHash } from '../action-approval-consume.js';
 import { plainNote, plainReference } from '../transfers/personal-pay.js';
-import { createTransferBinding, toUserBinding } from './money-out-fields.js';
+import {
+  billPayBinding,
+  bulkRunConfirmBinding,
+  contractorBatchBinding,
+  createTransferBinding,
+  teamAcceptInviteBinding,
+  teamApproveBinding,
+  teamAssignRoleBinding,
+  teamInviteBinding,
+  teamProposeBinding,
+  toUserBinding,
+} from './money-out-fields.js';
 
 const ACTOR = '11111111-1111-4111-8111-111111111111';
 const base = {
@@ -69,5 +80,71 @@ describe('a step-up approval for a send is spendable at the bank door', () => {
     expect(approved).not.toBe(bankActionPayloadHash(sent.actionType, sent.fields));
     const bare = toUserBinding({ actor: ACTOR, ...base, toUserId });
     expect(approved).not.toBe(bankActionPayloadHash(bare.actionType, bare.fields));
+  });
+});
+
+describe('a step-up approval for a business team door is spendable at the bank door (J-bank-19)', () => {
+  const ACCOUNT = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+  const PAYMENT = '45454545-4545-4545-8545-454545454545';
+  const INVITE = '56565656-5656-4656-8656-565656565656';
+  const USER_B = '99999999-9999-4999-8999-999999999999';
+  const same = (b: { actionType: string; fields: Record<string, string> }, purpose: string, target: string) => {
+    const { actor: _actor, ...fields } = b.fields;
+    expect(identityHash(b.actionType, purpose, target, fields)).toBe(bankActionPayloadHash(b.actionType, b.fields));
+  };
+  it('propose and approve', () => {
+    same(
+      teamProposeBinding({
+        actor: ACTOR,
+        accountId: ACCOUNT,
+        paymentId: PAYMENT,
+        payee: 'TEST Supplier',
+        paymentType: 'domestic',
+        amount: '6000.00',
+      }),
+      'businessTeam.propose',
+      'TEST Supplier',
+    );
+    same(teamApproveBinding({ actor: ACTOR, paymentId: PAYMENT }), 'businessTeam.approve', PAYMENT);
+  });
+  it('an email invite, a link invite with a custom role, joining and assigning a role', () => {
+    same(
+      teamInviteBinding({ actor: ACTOR, accountId: ACCOUNT, inviteId: INVITE, email: 'new@test.example', role: 'checker', roleId: null }),
+      'businessTeam.invite',
+      INVITE,
+    );
+    same(
+      teamInviteBinding({ actor: ACTOR, accountId: ACCOUNT, inviteId: INVITE, email: null, role: null, roleId: PAYMENT }),
+      'businessTeam.invite',
+      INVITE,
+    );
+    const tokenHash = 'a'.repeat(64);
+    same(teamAcceptInviteBinding({ actor: ACTOR, tokenHash }), 'businessTeam.acceptInvite', tokenHash);
+    same(teamAssignRoleBinding({ actor: ACTOR, accountId: ACCOUNT, userId: USER_B, roleId: null }), 'businessTeam.assignRole', USER_B);
+  });
+});
+
+describe('a step-up approval for paying a business bill is spendable at the bank door (J-bank-20)', () => {
+  it('paid now and scheduled', () => {
+    const BILL = '67676767-6767-4767-8767-676767676767';
+    const PAY = '78787878-7878-4878-8878-787878787878';
+    for (const scheduledFor of [null, '2026-12-01']) {
+      const b = billPayBinding({ actor: ACTOR, billId: BILL, paymentId: PAY, scheduledFor });
+      const { actor: _actor, ...fields } = b.fields;
+      expect(identityHash(b.actionType, 'businessBills.pay', PAY, fields)).toBe(bankActionPayloadHash(b.actionType, b.fields));
+    }
+  });
+});
+
+describe('a step-up approval for a business bulk run or contractor batch is spendable at the bank door (J-bank-21)', () => {
+  it('confirming a run and paying a batch', () => {
+    const RUN = '89898989-8989-4989-8989-898989898989';
+    const ACC = '9a9a9a9a-9a9a-4a9a-8a9a-9a9a9a9a9a9a';
+    const r = bulkRunConfirmBinding({ actor: ACTOR, runId: RUN });
+    const { actor: _a, ...rf } = r.fields;
+    expect(identityHash(r.actionType, 'businessPayouts.confirmRun', RUN, rf)).toBe(bankActionPayloadHash(r.actionType, r.fields));
+    const b = contractorBatchBinding({ actor: ACTOR, accountId: ACC, batchId: RUN });
+    const { actor: _b, ...bf } = b.fields;
+    expect(identityHash(b.actionType, 'businessPayouts.payBatch', RUN, bf)).toBe(bankActionPayloadHash(b.actionType, b.fields));
   });
 });

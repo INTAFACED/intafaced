@@ -2147,6 +2147,62 @@ test('#1574 readGoing: the re-check leaves the seal alone while an input on the 
   await assert.rejects(readGoing({ get: async () => ({}), repo: 'o/r', sha: HEAD, pulls: [] }), /not a list/);
 });
 
+test('project-state #2548: the re-check never leaves the seal for a CI review run that has not started (#8574, 363a0e9b)', async () => {
+  const { readGoing, inputsGoing } = await import('./journey-seal.mjs');
+  // #8574 at 02:05:07 UTC, 16 Nov 2026: `gh pr ready` and an edit started two CI review runs on one head. 663 reviewed and
+  // ran its Start the seal; 130, the edit's, waited `pending` behind it in the head's concurrency group, then skipped every
+  // job, its Start the seal too. The re-check left the seal for 130's end, so no seal ever ran.
+  const get = async (path) => {
+    if (path.includes('/workflows/ci.yml/runs'))
+      return { workflow_runs: [{ id: 1, head_sha: HEAD, event: 'pull_request', status: 'completed' }] };
+    if (path.includes('/workflows/ci-review.yml/runs'))
+      return {
+        workflow_runs: [
+          { id: 43789888663, head_sha: HEAD, event: 'pull_request_target', status: 'in_progress' },
+          { id: 43789888130, head_sha: HEAD, event: 'pull_request_target', status: 'pending' },
+        ],
+      };
+    if (path.includes('/workflows/real-app-journeys.yml/runs'))
+      return { workflow_runs: [{ id: 3, head_sha: HEAD, event: 'pull_request', status: 'completed' }] };
+    if (path.includes('/runs/43789888663/jobs'))
+      return {
+        jobs: [
+          { name: 'CI review', status: 'completed', conclusion: 'success' },
+          { name: 'Proof read', status: 'completed', conclusion: 'success' },
+          { name: 'Fix issue after merge', status: 'completed', conclusion: 'skipped' },
+          { name: 'Start the seal', status: 'in_progress' },
+        ],
+      };
+    if (path.includes('/runs/43789888130/jobs')) return { jobs: [] };
+    if (path.includes('/runs/3/jobs')) return { jobs: [] };
+    if (path.includes('/files')) return [{ filename: 'services/svc-agents/src/own/automation.test.ts' }];
+    throw new Error(path);
+  };
+  const pulls = [{ number: 8574, title: 'test(svc-agents): automation.test.ts gets its own database' }];
+  // The re-check (unstarted false): nothing is going, so it starts the seal.
+  assert.deepEqual(await readGoing({ get, repo: 'o/r', sha: HEAD, pulls, unstarted: false }), []);
+  // The seal's own wait still waits for the pending run, so a review that does run still gives the one verdict.
+  assert.deepEqual(await readGoing({ get, repo: 'o/r', sha: HEAD, pulls, settle: false }), [
+    'the CI review run 43789888663 (in_progress)',
+    'the CI review run 43789888130 (pending)',
+  ]);
+  // Only the review's runs are passed over: CI's and the journeys' Start the seal run on every in-repo pull request.
+  const sha = HEAD;
+  const runsOf = {
+    'ci.yml': [{ id: 1, head_sha: sha, event: 'pull_request', status: 'queued' }],
+    'ci-review.yml': [
+      { id: 2, head_sha: sha, event: 'pull_request_target', status: 'pending' },
+      { id: 4, head_sha: sha, event: 'pull_request_target', status: 'in_progress' },
+    ],
+    'real-app-journeys.yml': [{ id: 3, head_sha: sha, event: 'pull_request', status: 'pending' }],
+  };
+  assert.deepEqual(inputsGoing({ sha, runsOf, needJourneys: true, unstarted: false }), [
+    'CI run 1 (queued)',
+    'the CI review run 4 (in_progress)',
+    'Real-app journeys run 3 (pending)',
+  ]);
+});
+
 test('CI review on e1ba6699: a green verdict never stands while its inputs change; an edit re-judges at once', async () => {
   const { sealNow, whileGoing, readVerdicts, CI_JOBS_NAME } = await import('./journey-seal.mjs');
   const newCi = `jobs:\n  merge-seal:\n    name: ${CI_JOBS_NAME}\n`;

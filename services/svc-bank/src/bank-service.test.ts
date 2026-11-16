@@ -3138,6 +3138,29 @@ describe('svc-bank money PG-hard', () => {
           'the PROPOSED floor on one dual-control request; written once, applied by copying it onto the account',
         'business_approvals.amount': 'a RECORD of one proposed/approved transfer; written once',
         'business_payroll_lines.amount': 'a RECORD of one payroll line; written once with the run',
+        'business_departments.budget': 'a POLICY budget the owner set for one department; never written by a money path',
+        'business_payment_rules.over_amount': 'a POLICY threshold above which a payment needs approvals; instruction, not a holding',
+        'business_payments.amount': 'an INSTRUCTION: one payment proposed to the partner bank; written once when proposed',
+        // Bill pay (J-bank-20): the partner holds the business's money; these are a document's figure, policies and instructions.
+        'business_bills.amount': 'a RECORD of what one bill says it asks for, reviewed by a person; never a holding',
+        'business_bill_vendors.cap': 'a POLICY: the most a pre-approved vendor’s bill may be and still skip approvers',
+        'business_bill_limits.per_payment': 'a POLICY Bill Pay limit the business set; blank refuses every payment',
+        'business_bill_limits.daily': 'a POLICY Bill Pay limit the business set; blank refuses every payment',
+        'business_bill_limits.monthly': 'a POLICY Bill Pay limit the business set; blank refuses every payment',
+        'business_bill_payments.amount': 'an INSTRUCTION: one bill payment sent to the partner bank under its key; written once',
+        'business_bill_splits.amount': 'a RECORD: one category line beside the partner’s one payment; written once with it',
+        // Bulk payments, contractors and crypto payroll (J-bank-21): the partner or the business's own wallet holds the money.
+        'business_bulk_runs.amount': 'an INSTRUCTION: one bulk run sent to the partner bank under its run key; written once at import',
+        'business_bulk_runs.threshold': 'a POLICY: the business’s own threshold as it stood when the run was confirmed',
+        'business_bulk_lines.amount': 'a RECORD: one recipient line beside the partner’s one instruction; written once at import',
+        'business_contractor_invoices.amount': 'a RECORD of what one contractor invoice asks for; never a holding',
+        'business_contractor_batches.amount':
+          'an INSTRUCTION: one contractor batch for the partner’s payout rail under its key; written once',
+        'business_contractor_batch_lines.amount': 'a RECORD: one invoice line beside the batch’s one instruction; written once with it',
+        'business_crypto_payroll_members.amount': 'a POLICY: what one member of a recurring crypto payroll is paid each run',
+        'business_crypto_payroll_runs.amount':
+          'a RECORD of what the business’s own wallet signed for one month; INTAFACED holds none of it',
+        'business_crypto_payslips.amount': 'a RECORD: one payslip of a run the business’s own wallet signed; never a holding',
         'dormancy_notices.fee': 'a RECORD of the fee one notice named; the debit, if any, is the partner move it names',
         'budgets.target':
           'a POLICY: the monthly target the person chose for one spend category; spend is folded from the partner record or the ledger',

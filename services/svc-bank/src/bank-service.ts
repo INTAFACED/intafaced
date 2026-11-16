@@ -53,6 +53,9 @@ import { RecoveryClaimService } from './recovery/recovery-claims.js';
 import { unconfiguredIdentityRecovery, type IdentityRecoveryPort } from './recovery/identity-recovery.js';
 import { BillsPotService } from './spaces/bills-pot.js';
 import { BusinessService } from './business/business-service.js';
+import { BusinessTeamService } from './business/business-team.js';
+import { BusinessBillsService } from './business/business-bills.js';
+import { BusinessPayoutsService } from './business/business-payouts.js';
 import { BusinessLookupLimiter, unconfiguredBusinessDirectory, type BusinessDirectoryPort } from './business/business-directory.js';
 import { PortfolioService, type PortfolioServiceOptions } from './portfolio/portfolio-service.js';
 import { ActivityService, type ActivityServiceOptions } from './activity/activity-service.js';
@@ -172,6 +175,12 @@ export interface BankServices {
   readonly supportedAssets: { list(): Promise<SupportedAssetView[]> };
   readonly autoInvest: AutoInvestService;
   readonly business: BusinessService;
+  /** J-bank-19: the business's own roles, advisors, invites, approval rules, partner-held payments and team spend. */
+  readonly businessTeam: BusinessTeamService;
+  /** J-bank-20: the business's supplier bills: inbox, duplicates, vendors, Bill Pay limits, approvals and partner-held payments. */
+  readonly businessBills: BusinessBillsService;
+  /** J-bank-21: the business's bulk payment runs, contractors and invoices, and crypto payroll signed by its own wallet. */
+  readonly businessPayouts: BusinessPayoutsService;
   readonly bills: BillPayService;
   readonly globalSend: GlobalSendService;
   readonly globalHolds: GlobalHoldService;
@@ -302,6 +311,10 @@ export interface BankServiceOptions {
   incomeSorterMinCredit?: string | undefined;
   /** Owner-set minutes a shared pot invite lasts (`BANK_SHARED_POT_INVITE_MINUTES`). No default: blank refuses sharing. */
   sharedPotInviteMinutes?: string | undefined;
+  /** Owner-set minutes a business team invite lasts (`BANK_BUSINESS_INVITE_MINUTES`). No default: blank refuses every invite. */
+  businessInviteMinutes?: string | undefined;
+  /** The bill reader (`BANK_BILL_READER`): `test-lines` on the TEST stack only. Blank: every bill field is typed by hand. */
+  billReader?: string | undefined;
   /** Owner-set people one pot may be shared with (`BANK_SHARED_POT_PEOPLE_CAP`). No default: blank refuses sharing. */
   sharedPotPeopleCap?: string | undefined;
   /**
@@ -588,6 +601,12 @@ export function createBankServices(
     testPartnerDirectDebits(options.testPartner),
   );
 
+  const businessTeam = new BusinessTeamService(sql, custody, options.directory ?? unconfiguredBusinessDirectory(), {
+    inviteMinutes: () => options.businessInviteMinutes,
+    postingFreeze,
+    noteRefusal: partnerRefusals.note,
+  });
+
   const recovery = new RecoveryClaimService(sql, ledger, spaces, options.identityRecovery ?? unconfiguredIdentityRecovery());
 
   return {
@@ -647,6 +666,13 @@ export function createBankServices(
     supportedAssets,
     autoInvest,
     business,
+    businessTeam,
+    businessPayouts: new BusinessPayoutsService(sql, businessTeam, { postingFreeze, noteRefusal: partnerRefusals.note }),
+    businessBills: new BusinessBillsService(sql, businessTeam, {
+      reader: () => options.billReader,
+      postingFreeze,
+      noteRefusal: partnerRefusals.note,
+    }),
     bills,
     globalSend,
     globalHolds,
