@@ -188,7 +188,7 @@ export function waitOver({ steps, pictures, runs }) {
   return { over: true, why: 'every journeys run on this head has finished' };
 }
 
-async function wait(readDir, picDir, env = process.env) {
+async function waitForPictures(readDir, picDir, env = process.env) {
   if (existsSync(join(readDir, 'skip.txt'))) return 'no read, no wait';
   const { required } = JSON.parse(readFileSync(join(readDir, 'meta.json'), 'utf8'));
   const repo = env.GITHUB_REPOSITORY;
@@ -222,7 +222,7 @@ async function wait(readDir, picDir, env = process.env) {
 async function main() {
   const [cmd, ...rest] = process.argv.slice(2);
   const pos = rest.filter((a, i) => !a.startsWith('--') && !(i > 0 && rest[i - 1] === '--run'));
-  if (cmd === 'wait') return void console.log(await wait(pos[0], pos[1]));
+  if (cmd === 'wait') return void console.log(await waitForPictures(pos[0], pos[1]));
   if (cmd === 'attach') return void console.log(attach(pos[0], pos[1]));
   if (cmd === 'fetch') {
     const id = rest[rest.indexOf('--run') + 1];
