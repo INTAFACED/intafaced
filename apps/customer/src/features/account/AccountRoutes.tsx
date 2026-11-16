@@ -1,6 +1,5 @@
-import { copy, Text } from './copy';
+import { copy } from './copy';
 import { Failure } from '../../shared/ui';
-import type { ApiResult } from '../../shared/api';
 import { View } from './View';
 import { Verification } from './Verification';
 import { Security } from './Security';
@@ -44,16 +43,4 @@ function AccountRooms({ path }: { path: string }) {
   if (clean?.startsWith('/uc/promotion') || clean === '/uc/invitingmining') return <Promotions path={path} />;
   if (clean === '/uc/paydividends') return <Dividends />;
   return <Account />;
-}
-function ResultNotice({ result }: { result: ApiResult<unknown> | null }) {
-  if (!result) return null;
-  return result.ok ? (
-    <p className="notice" role="status">
-      <Text k="accountroutes.the.service.confirmed.the.action" />
-    </p>
-  ) : (
-    <div lang="und">
-      <Failure result={result} />
-    </div>
-  );
 }

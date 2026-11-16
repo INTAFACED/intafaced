@@ -51,7 +51,6 @@ const runSchema = z.object({
     .nullable()
     .optional(),
 });
-type Run = z.infer<typeof runSchema>;
 const orderSchema = z.object({
   seq: z.number(),
   actionKey: z.string(),
