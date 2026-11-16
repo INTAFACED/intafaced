@@ -205,7 +205,7 @@ export function ChartTrading({
           const base = original();
           const low = Math.min(...prices, base?.priceRange.minValue ?? Infinity);
           const high = Math.max(...prices, base?.priceRange.maxValue ?? -Infinity);
-          return { ...(base ?? {}), priceRange: { minValue: low, maxValue: high } };
+          return { ...base, priceRange: { minValue: low, maxValue: high } };
         },
       });
     return () => {
