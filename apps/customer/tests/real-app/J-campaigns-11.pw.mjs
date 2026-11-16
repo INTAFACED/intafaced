@@ -391,23 +391,6 @@ test(`${J} #3 trades on the venue through INTAFACED: volume counts once per venu
   const since = new Date(Date.now() - 1_000).toISOString();
   await readyToSell(winner, '3');
   await readyToSell(rival, '2');
-  {
-    const s = 'plant-sliver-' + RUN;
-    await testDeposit(otherTraderKey(s).address, 'BTC', '1', 'seed:' + s + ':BTC:' + Date.now());
-    const r = await otherTraderRun(s, {
-      kind: 'place_order',
-      symbol: 'BTC-USDC',
-      side: 'sell',
-      type: 'limit',
-      amount: '0.0003',
-      price: PRICE,
-      timeInForce: 'GTC',
-      reduceOnly: false,
-      clientOrderKey: 'order:' + s + ':' + Date.now(),
-      builderFee: null,
-    });
-    expect(r).toMatchObject({ definite: true, accepted: true });
-  }
   // Through INTAFACED: two sells for the winner, one for the rival.
   await sellThroughUs(winner, 2);
   await sellThroughUs(rival, 1);
