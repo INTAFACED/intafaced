@@ -69,3 +69,18 @@ test('a carried principal, a rebuilt grant, tests, mocks and the issuers pass', 
   });
   assert.deepEqual(out, []);
 });
+
+test('a tier written in through `as const`, `satisfies` or a plain template still fires', skip, () => {
+  const out = findings({
+    [SVC]: [
+      "export const a = (userId) => ({ userId, scopes: ['trade:write'], tier: 'basic' as const });",
+      "export const b = (userId) => ({ userId, scopes: ['trade:write'], tier: 'basic' satisfies string });",
+      "export const c = (userId) => ({ userId, scopes: ['trade:write'], tier: `basic` });",
+    ].join('\n'),
+  });
+  assert.equal(out.length, 3, out.join('\n'));
+  assert.ok(
+    out.every((l) => l.includes("`tier: 'basic'`")),
+    out.join('\n'),
+  );
+});

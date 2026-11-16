@@ -16,6 +16,15 @@ const ISSUERS = /(?:^|\/)(?:packages\/auth|services\/svc-identity)\/src\//u;
 
 const keyOf = (p) => (p.type === 'Property' && !p.computed ? (p.key?.name ?? (p.key?.type === 'Literal' ? p.key.value : null)) : null);
 
+// The tier as written, through `as const`, `satisfies` and `!`; a template with no `${}` is a string too.
+const tierText = (value) => {
+  let v = value;
+  while (v && (v.type === 'TSAsExpression' || v.type === 'TSSatisfiesExpression' || v.type === 'TSNonNullExpression')) v = v.expression;
+  if (v?.type === 'Literal' && typeof v.value === 'string') return v.value;
+  if (v?.type === 'TemplateLiteral' && v.expressions.length === 0) return v.quasis.map((q) => q.value.cooked).join('');
+  return null;
+};
+
 const noMadeUpPrincipal = {
   meta: { type: 'problem', docs: { description: 'Product code never writes a principal with its tier spelled in.' } },
   create(context) {
@@ -28,11 +37,12 @@ const noMadeUpPrincipal = {
         const props = new Map(node.properties.map((p) => [keyOf(p), p]).filter(([k]) => k));
         const tier = props.get('tier');
         if (!tier || !props.has('scopes') || !(props.has('userId') || props.has('sub'))) return;
-        if (tier.value?.type !== 'Literal' || typeof tier.value.value !== 'string') return;
+        const text = tierText(tier.value);
+        if (text === null) return;
         context.report({
           node: tier,
           message:
-            `a principal with \`tier: '${tier.value.value}'\` written in claims a level nobody checked, so every tier check ` +
+            `a principal with \`tier: '${text}'\` written in claims a level nobody checked, so every tier check ` +
             'passes it: act with the principal the request carried, or rebuild a stored one with principalFromAlgoGrant ' +
             '(svc-trade src/algo/durable-principal.ts), which takes the tier the person was verified at',
         });
