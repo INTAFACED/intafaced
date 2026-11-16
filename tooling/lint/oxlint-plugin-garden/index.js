@@ -7,6 +7,7 @@ import { moneyRules } from './money-rules.js';
 import { sharedMarketRules } from './shared-market-rule.js';
 import { duplicateRules } from './duplicate-rules.js';
 import { potetoRules } from './poteto-rules.js';
+import { handTypedPatchRules } from './hand-typed-patch-rule.js';
 import { eitherStateRules } from './either-state-rule.js';
 
 const TEST_FILE = /(\.(test|spec|testkit)\.[cm]?[jt]sx?$)|(\.pw\.[cm]?[jt]s$)|(\/(test|tests|__tests__)\/)/u;
@@ -192,6 +193,7 @@ export default {
     ...sharedMarketRules,
     ...duplicateRules,
     ...potetoRules,
+    ...handTypedPatchRules,
     ...eitherStateRules,
   },
 };
