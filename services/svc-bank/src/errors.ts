@@ -684,6 +684,42 @@ export type BankErrorCode =
   | 'bank.business_closed'
   | 'bank.business_not_member'
   | 'bank.business_role_forbidden'
+  // ── Business bank team and approval rules (J-bank-19; BK-biz-01 to BK-biz-04) ──
+  /** A named role with no permission, or one not on the list. */
+  | 'bank.business_role_invalid'
+  /** A role, invite or assignment granting a permission the actor does not hold. Nothing was created. */
+  | 'bank.business_role_grant_exceeds'
+  /** The business already has a role or department of that name. */
+  | 'bank.business_role_name_taken'
+  | 'bank.business_role_not_found'
+  /** Only the business's owner may do this (approve an advisor, fund its TEST partner account). */
+  | 'bank.business_owner_only'
+  | 'bank.business_advisor_not_found'
+  | 'bank.business_already_member'
+  | 'bank.business_invalid_handle'
+  | 'bank.business_person_not_found'
+  | 'bank.business_invalid_email'
+  /** BANK_BUSINESS_INVITE_MINUTES is blank: no team invite is sent until the owner sets it. */
+  | 'bank.business_invite_lifetime_unset'
+  /** An invite opened after its owner-set lifetime; the business can send it again. */
+  | 'bank.business_invite_expired'
+  | 'bank.business_invite_revoked'
+  /** An invite that was sent again: only the newest link works. */
+  | 'bank.business_invite_replaced'
+  | 'bank.business_invite_used'
+  | 'bank.business_invite_not_found'
+  /** Resend or revoke of an invite that is no longer open. */
+  | 'bank.business_invite_inactive'
+  /** An email invite opened by an account with another email. */
+  | 'bank.business_invite_wrong_person'
+  | 'bank.business_rule_invalid'
+  | 'bank.business_payee_invalid'
+  /** The rule asks for more distinct approvers than the business has besides the maker. */
+  | 'bank.business_approvers_short'
+  /** One person approving the same payment twice: approvers are distinct. */
+  | 'bank.business_already_approved'
+  | 'bank.business_budget_invalid'
+  | 'bank.business_department_not_found'
   | 'bank.business_invalid_threshold'
   | 'bank.business_invalid_name'
   | 'bank.business_approval_not_found'

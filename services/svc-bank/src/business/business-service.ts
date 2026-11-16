@@ -381,8 +381,8 @@ export class BusinessService {
 
     const account = await transaction(this.sql, async (tx) => {
       const inserted = await tx<AccountRow[]>`
-        INSERT INTO bank.business_accounts (id, name, asset_id, spend_threshold, status)
-        VALUES (${input.accountId}::uuid, ${name}, ${input.assetId}, ${threshold}::numeric, 'active')
+        INSERT INTO bank.business_accounts (id, name, asset_id, spend_threshold, status, owner_user_id)
+        VALUES (${input.accountId}::uuid, ${name}, ${input.assetId}, ${threshold}::numeric, 'active', ${input.creatorUserId})
         ON CONFLICT (id) DO NOTHING
         RETURNING id, name, asset_id, spend_threshold, status, created_at
       `;
