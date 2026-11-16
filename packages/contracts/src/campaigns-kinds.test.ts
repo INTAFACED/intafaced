@@ -56,7 +56,7 @@ const CATALOGUE_OWN_CODE_COUNT = 81;
 
 describe('campaign kinds live in files of their own (project-state #2654)', () => {
   it('campaigns-catalogue.ts declares only the campaign object and its catalogue', () => {
-    const declared = [...catalogue.matchAll(/^export (?:const|type|function|interface) (\w+)/gm)].map((m) => m[1]);
+    const declared = [...catalogue.matchAll(/^export (?:const|type|function|interface) (\w+)/gm)].map((m) => m[1] ?? '');
     expect(
       declared.filter((name) => !CATALOGUE_OWN.includes(name)),
       FIX,
