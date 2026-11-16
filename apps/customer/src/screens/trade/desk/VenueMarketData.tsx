@@ -10,6 +10,7 @@ import { forwardFill, type OhlcvRow } from '../../../data/derive';
 import type { Candle } from '../../../data/types';
 import { CHART_INTERVALS, type ChartInterval } from '../chart/candles';
 import { PriceChart } from '../chart/PriceChart';
+import type { ChartOrderHost } from '../../charts/chart-host';
 import { deskCopy } from './copy';
 import { StateBlock, Tabs, TabsList, TabsPanel, TabsTab } from './deps';
 import { zoneName } from './time';
@@ -43,6 +44,7 @@ export function VenueMarketPanel({
   venueName,
   chartTools,
   chartTrade,
+  chartOrders,
 }: {
   market: VenueMarket;
   test: boolean;
@@ -51,6 +53,8 @@ export function VenueMarketPanel({
   chartTools?: ReactNode;
   /** Buy and Sell on the chart, under it (J-charts-desk-14 #5). */
   chartTrade?: ReactNode;
+  /** Placing and moving orders on the chart itself (J-charts-desk-15), drawn with the chart's host once it is ready. */
+  chartOrders?: (host: ChartOrderHost | null) => ReactNode;
 }) {
   const { t } = spotVenueCopy.useCopy();
   const d = deskCopy.useCopy().t;
@@ -69,6 +73,7 @@ export function VenueMarketPanel({
   };
   const [tab, setTab] = useState<'book' | 'tape'>('book');
   const [interval, setChartInterval] = useState<ChartInterval>('15m');
+  const [host, setHost] = useState<ChartOrderHost | null>(null);
   const book = usePolled((signal) => venue.book(market.symbol, BOOK_DEPTH, signal), `venue-book:${market.symbol}`, VENUE_POLL_MS);
   const tape = usePolled((signal) => venue.trades(market.symbol, TAPE_ROWS, signal), `venue-tape:${market.symbol}`, VENUE_POLL_MS);
   const candles = usePolled(
@@ -131,7 +136,8 @@ export function VenueMarketPanel({
         </div>
       </dl>
 
-      <div className="dk-chart" data-testid="venue-chart">
+      {/* A flex column, as today's desk chart is (ChartPanel): the canvas takes the height the bar and Buy/Sell leave. */}
+      <div className="dk-chart dk-chart--venue" data-testid="venue-chart">
         <div className="dk-chart-bar">
           <div className="dk-chips" role="group" aria-label={d('Chart intervals')}>
             {CHART_INTERVALS.map((id) => (
@@ -142,7 +148,7 @@ export function VenueMarketPanel({
           </div>
           {chartTools}
         </div>
-        <div className="dk-chart-body">
+        <div className="dk-chart-canvas">
           {chart === null ? (
             <p className="muted" role="status">
               {t('Reading the venue')}
@@ -160,11 +166,14 @@ export function VenueMarketPanel({
               fills={[]}
               timeZone={zoneName(timeZone)}
               labels={labels}
+              onHost={chartOrders ? setHost : undefined}
             />
           )}
         </div>
         {chartTrade}
       </div>
+      {/* Below the chart's fixed-height box: the ticket and reviews would otherwise take the chart's own height. */}
+      {chartOrders?.(chart !== null && chart.length > 0 ? host : null)}
 
       <Tabs value={tab} onValueChange={(x) => setTab(x as typeof tab)} data-testid="venue-book-tape">
         <TabsList divider className="dk-tabs">

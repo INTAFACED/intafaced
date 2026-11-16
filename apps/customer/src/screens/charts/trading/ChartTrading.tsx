@@ -30,6 +30,7 @@ import type { ChartHost } from '../chart-host';
 import { chartsCopy } from '../copy';
 import { OWNER_VALUE_UNSET } from '../owner-values';
 import { onTick, protectionCheck, samePrice, snapToTick } from './chart-orders';
+import './chart-trading.css';
 
 type Side = 'buy' | 'sell';
 type Note = { tone: 'good' | 'bad'; text: string; code?: string };
@@ -64,7 +65,7 @@ const isLineOrder = (order: Order, symbol: string) =>
  * Where the price pane sits in the chart, from the host's top: the panes above it (a study moved up) and their separators.
  * The library measures a pane's coordinates from that pane's own top, and the overlay is laid over the whole host.
  */
-export function pricePane(host: ChartHost): { index: number; top: number; height: number } {
+export function pricePane(host: Pick<ChartHost, 'chart' | 'main'>): { index: number; top: number; height: number } {
   const index = host.main.getPane().paneIndex();
   const panes = host.chart.panes();
   let top = 0;
