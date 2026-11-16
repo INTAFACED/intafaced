@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { navigate } from '../../../app/location';
 import { compare, dec, ratio, str, sub, times, toFixedString } from '../../../data/decimal';
 import type { ApiResult } from '../../../shared/api';
 import { displayAmount } from '../../../shared/money';
 import { usePreferences } from '../../../shared/preferences';
+import { useResource } from '../../../shared/resource';
 import { Button, DataTable, EmptyState, Failure, Loading, Page } from '../../../shared/ui';
 import { useSession } from '../../session/session';
 import { zoneName } from '../../../screens/trade/desk/time';
@@ -16,7 +17,6 @@ import { venueOrdersCopy } from './venue-orders-copy';
 import './orders.css';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
-type V = ReturnType<typeof venueCopy.useCopy>['t'];
 
 /** A venue client order id (`0x` and 32 hex): the address `/trade/orders/<id>` of a venue order, never an engine order id. */
 export const VENUE_ORDER_ID = /^0x[0-9a-f]{32}$/i;
@@ -179,32 +179,33 @@ function VenueHistory({ path, owner, test }: { path: string; owner: string; test
   const time = useDayTime();
   const search = new URL(path, location.origin).search;
   const params = useMemo(() => readVenueParams(search), [search]);
-  const [state, setState] = useState<HistoryState>({ status: 'loading' });
-  const [revision, setRevision] = useState(0);
+  // `round` is the Refresh count: a new round, or new filters, reads the first page again and drops the older pages read.
+  const [round, setRound] = useState(0);
+  const key = `venue-history:${owner}:${search}:${round}`;
+  const { resource } = useResource((signal) => api.orderHistory(owner, historyQuery(params, null), signal), key);
+  const [more, setMore] = useState<{ key: string; state: HistoryState } | null>(null);
+  const refused = (failure: Refusal): HistoryState =>
+    failure.code === 'trade.invalid_filter'
+      ? { status: 'refused', words: failure.message }
+      : failure.code === 'trade.invalid_cursor'
+        ? { status: 'refused', words: t('refusedCursor') }
+        : { status: 'failed', failure };
+  const first: HistoryState =
+    resource.status === 'loading'
+      ? { status: 'loading' }
+      : resource.status === 'failed'
+        ? refused(resource.failure)
+        : { status: 'ready', rows: resource.data.orders, next: resource.data.next, asOf: resource.data.asOf, loadingMore: false };
+  const state = more && more.key === key && resource.status === 'ready' ? more.state : first;
+  const setState = (next: HistoryState) => setMore({ key, state: next });
   const set = (next: Partial<VenueHistoryParams>) => navigate(`/trade/orders${writeVenueParams({ ...params, ...next })}`, true);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    setState({ status: 'loading' });
-    void api.orderHistory(owner, historyQuery(params, null), controller.signal).then((result) => {
-      if (controller.signal.aborted) return;
-      if (result.ok)
-        setState({ status: 'ready', rows: result.data.orders, next: result.data.next, asOf: result.data.asOf, loadingMore: false });
-      else if (result.code === 'trade.invalid_filter') setState({ status: 'refused', words: result.message });
-      else if (result.code === 'trade.invalid_cursor') setState({ status: 'refused', words: t('refusedCursor') });
-      else setState({ status: 'failed', failure: result });
-    });
-    return () => controller.abort();
-  }, [api, owner, params, revision]);
 
   async function older() {
     if (state.status !== 'ready' || !state.next || state.loadingMore) return;
     setState({ ...state, loadingMore: true });
     const result = await api.orderHistory(owner, historyQuery(params, state.next));
     if (!result.ok) {
-      setState(
-        result.code === 'trade.invalid_cursor' ? { status: 'refused', words: t('refusedCursor') } : { status: 'failed', failure: result },
-      );
+      setState(refused(result));
       return;
     }
     const seen = new Set(state.rows.map((r) => r.order.venueClientOrderId));
@@ -272,7 +273,7 @@ function VenueHistory({ path, owner, test }: { path: string; owner: string; test
           <p>{state.words}</p>
         </div>
       ) : null}
-      {state.status === 'failed' ? <Failure result={state.failure} retry={() => setRevision((n) => n + 1)} /> : null}
+      {state.status === 'failed' ? <Failure result={state.failure} retry={() => setRound((n) => n + 1)} /> : null}
       {state.status === 'ready' ? (
         state.rows.length === 0 ? (
           <p className="muted">{t('none')}</p>
@@ -356,47 +357,22 @@ function VenueOrderBody({ owner, clientOrderId, test }: { owner: string; clientO
   const v = venueCopy.useCopy().t;
   const api = useVenueApi();
   const time = useDayTime();
-  const [order, setOrder] = useState<Read<{ order: VenueOrder | null; asOf: string }>>({ status: 'loading' });
-  const [record, setRecord] = useState<Read<VenueOrderRecord> | { status: 'missing' }>({ status: 'loading' });
-  const [fills, setFills] = useState<Read<VenueFill[]>>({ status: 'loading' });
-  const [revision, setRevision] = useState(0);
+  const [round, setRound] = useState(0);
+  const key = `${owner}:${clientOrderId}:${round}`;
+  const order = useResource((signal) => api.orderByClientId(owner, clientOrderId, signal), `venue-order:${key}`).resource;
+  // Our record of the order, then the venue's fills since it was placed, kept to this order.
+  const record = useResource(async (signal) => {
+    const ours = await api.orderRecord(owner, clientOrderId, signal);
+    if (!ours.ok) return ours;
+    const read = await api.fills(owner, ours.data.placedAt ?? new Date(0).toISOString(), signal);
+    const fills: Read<VenueFill[]> = read.ok
+      ? { status: 'ready', data: read.data.value.filter((f) => f.venueClientOrderId === clientOrderId) }
+      : { status: 'failed', failure: read };
+    return { ok: true as const, data: { ours: ours.data, fills } };
+  }, `venue-order-record:${key}`).resource;
   // The price unit is the market's own quote asset as the venue lists it: a perpetual's symbol (BTC-PERP) doesn't name it.
-  const [markets, setMarkets] = useState<{ symbol: string; quoteAsset: string }[] | null>(null);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    const { signal } = controller;
-    void api.markets(signal).then((result) => {
-      if (!signal.aborted && result.ok) setMarkets(result.data.value);
-    });
-    void api.orderByClientId(owner, clientOrderId, signal).then((result) => {
-      if (!signal.aborted)
-        setOrder(
-          result.ok
-            ? { status: 'ready', data: { order: result.data.value, asOf: result.data.asOf } }
-            : { status: 'failed', failure: result },
-        );
-    });
-    void api.orderRecord(owner, clientOrderId, signal).then(async (result) => {
-      if (signal.aborted) return;
-      if (!result.ok) {
-        setRecord(result.code === 'trade.venue_order_not_found' ? { status: 'missing' } : { status: 'failed', failure: result });
-        return;
-      }
-      setRecord({ status: 'ready', data: result.data });
-      const since = result.data.placedAt ?? new Date(0).toISOString();
-      const read = await api.fills(owner, since, signal);
-      if (!signal.aborted)
-        setFills(
-          read.ok
-            ? { status: 'ready', data: read.data.value.filter((f) => f.venueClientOrderId === clientOrderId) }
-            : { status: 'failed', failure: read },
-        );
-    });
-    return () => controller.abort();
-  }, [api, owner, clientOrderId, revision]);
-
-  const retry = () => setRevision((n) => n + 1);
+  const markets = useResource((signal) => api.markets(signal), `venue-markets:${round}`).resource;
+  const retry = () => setRound((n) => n + 1);
   const missing = (
     <EmptyState title={t('notFoundTitle')}>
       <p>{t('notFoundBody')}</p>
@@ -404,11 +380,11 @@ function VenueOrderBody({ owner, clientOrderId, test }: { owner: string; clientO
   );
   if (order.status === 'loading' || record.status === 'loading') return <Loading label={t('historyTitle')} />;
   if (order.status === 'failed') return <Failure result={order.failure} retry={retry} />;
-  if (!order.data.order || record.status === 'missing') return missing;
+  if (!order.data.value || (record.status === 'failed' && record.failure.code === 'trade.venue_order_not_found')) return missing;
   if (record.status === 'failed') return <Failure result={record.failure} retry={retry} />;
-  const o = order.data.order;
-  const ours = record.data;
-  const market = markets?.find((m) => m.symbol === o.symbol);
+  const o = order.data.value;
+  const { ours, fills } = record.data;
+  const market = markets.status === 'ready' ? markets.data.value.find((m) => m.symbol === o.symbol) : undefined;
   const quote = market ? market.quoteAsset : '';
   const base = o.symbol.split('-')[0] ?? '';
   const ended = o.status === 'canceled' || o.status === 'rejected' || o.status === 'expired';
@@ -439,7 +415,6 @@ function VenueOrderBody({ owner, clientOrderId, test }: { owner: string; clientO
         {o.trigger ? <TriggerRows order={o} quote={quote} time={time} /> : null}
       </dl>
       <h3>{t('fills')}</h3>
-      {fills.status === 'loading' ? <Loading label={t('fills')} /> : null}
       {fills.status === 'failed' ? <Failure result={fills.failure} retry={retry} /> : null}
       {fills.status === 'ready' ? (
         fills.data.length === 0 ? (
@@ -497,10 +472,18 @@ function rankDiscount(t: ReturnType<typeof venueOrdersCopy.useCopy>['t'], ours: 
   return t('rankOff', { pct: toFixedString(dec(String(fee.discountBps))! / 100n, 2) });
 }
 
+/** The venue's trigger price source in our words; a source we have no words for reads as the venue names it. */
+function sourceWord(t: ReturnType<typeof venueOrdersCopy.useCopy>['t'], source: string): string {
+  if (source === 'mark') return t('source_mark');
+  if (source === 'last') return t('source_last');
+  if (source === 'oracle') return t('source_oracle');
+  return source;
+}
+
 function TriggerRows({ order, quote, time }: { order: VenueOrder; quote: string; time: (iso: string) => string }) {
   const { t } = venueOrdersCopy.useCopy();
   const trigger = order.trigger!;
-  const source = word(t as unknown as V, 'source', trigger.source);
+  const source = sourceWord(t, trigger.source);
   const price = `${displayAmount(trigger.price)} ${quote}`;
   const why =
     trigger.state === 'failed'

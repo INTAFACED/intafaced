@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef } from 'react';
 import { useVenueMode } from '../../features/trade/use-venue-mode';
-import type { AsOf, VenueFill } from '../../features/trade/venue-api';
 import { FillsTable as VenueFillsTable, VenueFrame, WalletBar, useOwner, useVenueApi } from '../../features/trade/venue/VenueKit';
 import '../trade/desk/desk.css';
 import { deskCopy } from '../trade/desk/copy';
 import { useClosedOrders, useDeskMarkets, useFills, useOpenOrders, useRefreshPrivate } from '../trade/desk/data';
 import { FillsTable, LoadState, OrdersTable, precisionOf } from '../trade/desk/OrderTables';
 import { StateBlock } from './deps';
+import { useResource } from '../../shared/resource';
 import type { Order } from '../../features/trade/trade-api';
 import { FILLS_PAGE, symbolHasAsset, tradesEmpty } from './activity-view';
 import { moneyCopy } from './copy';
@@ -120,17 +120,13 @@ const EVERY_FILL = new Date(0).toISOString();
 
 function VenueFills({ test, asset }: { test: boolean; asset: string | null }) {
   const owner = useOwner();
+  return owner ? <OwnerVenueFills owner={owner} test={test} asset={asset} /> : null;
+}
+
+function OwnerVenueFills({ owner, test, asset }: { owner: string; test: boolean; asset: string | null }) {
   const api = useVenueApi();
-  const [fills, setFills] = useState<AsOf<VenueFill[]> | null>(null);
-  useEffect(() => {
-    if (!owner) return;
-    const controller = new AbortController();
-    void api.fills(owner, EVERY_FILL, controller.signal).then((result) => {
-      if (!controller.signal.aborted && result.ok) setFills(result.data);
-    });
-    return () => controller.abort();
-  }, [api, owner]);
-  if (!owner) return null;
+  const { resource } = useResource((signal) => api.fills(owner, EVERY_FILL, signal), `venue-fills:${owner}`);
+  const fills = resource.status === 'ready' ? resource.data : null;
   const shown = fills && asset ? { ...fills, value: fills.value.filter((f) => f.symbol.split('-').includes(asset)) } : fills;
   // Newest first, as the rest of Activity reads.
   const sorted = shown ? { ...shown, value: [...shown.value].sort((a, b) => b.filledAt.localeCompare(a.filledAt)) } : null;

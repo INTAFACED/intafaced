@@ -76,24 +76,24 @@ describe('venue order history (J-cex-spot-06 #1)', () => {
 
 describe('the amend trail (J-cex-spot-06 #10)', () => {
   const account = { venueId: 'test-venue', owner: '0x' + 'a'.repeat(40), subAccount: null };
-  const row = (key: string, amount: string, at: number, outcome: StoredVenueAction['lastOutcome'], on = account): StoredVenueAction =>
-    ({
-      userId: 'u1',
-      businessKey: key,
-      createdAt: new Date(at),
-      prepared: {
-        account: on,
-        intent: {
-          kind: 'amend_order',
-          symbol: 'BTC-USDC',
-          venueClientOrderId: cloid(1),
-          amount: parseAmount(amount),
-          price: parseAmount('40000'),
-        },
+  const row = (key: string, amount: string, at: number, outcome: StoredVenueAction['lastOutcome'], on = account): StoredVenueAction => ({
+    userId: 'u1',
+    businessKey: key,
+    createdAt: new Date(at),
+    // Only the account and the amend intent are read: the rest of a prepared action is left out of this fake.
+    prepared: {
+      account: on,
+      intent: {
+        kind: 'amend_order',
+        symbol: 'BTC-USDC',
+        venueClientOrderId: cloid(1),
+        amount: parseAmount(amount),
+        price: parseAmount('40000'),
       },
-      signature: { digest: '0x', signature: '0x', signedBy: account.owner },
-      lastOutcome: outcome,
-    }) as unknown as StoredVenueAction;
+    } as StoredVenueAction['prepared'],
+    signature: { digest: '0x', signature: '0x', signedBy: account.owner } as StoredVenueAction['signature'],
+    lastOutcome: outcome,
+  });
   const accepted = (at: number) => ({ definite: true as const, accepted: true as const, venueRef: '1', order: null, asOf: new Date(at) });
 
   it('lists each amendment the venue accepted, oldest first, at the venue’s time; never a refused, unanswered or other account’s one', () => {
