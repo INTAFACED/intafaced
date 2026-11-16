@@ -16,6 +16,7 @@ import {
   journeyIndex,
   pagePaths,
   parseArgs,
+  lsofPorts,
   parseHealth,
   planDrive,
   installedAnvil,
@@ -223,10 +224,11 @@ test('health table: the rows only, not the lines printed after it', () => {
     "  Customer: this checkout's own build (/w/apps/customer/dist)",
   ].join('\n');
   assert.deepEqual(parseHealth(text), [
-    { name: 'postgres', health: 'ok' },
-    { name: 'svc-bank', health: 'DOWN (0)' },
-    { name: 'team-tls', health: 'ok' },
+    { name: 'postgres', pid: null, health: 'ok' },
+    { name: 'svc-bank', pid: 12, health: 'DOWN (0)' },
+    { name: 'team-tls', pid: 13, health: 'ok' },
   ]);
+  assert.deepEqual(lsofPorts('p51983\nf21\nn127.0.0.1:3999\nf22\nn*:14523\np7\nf5\nn[::1]:3999\n'), [3999, 14523]);
   assert.deepEqual(parseHealth('no table here'), []);
 });
 
@@ -355,6 +357,7 @@ test('evidence: each test with its verdict, first error line and screenshots; th
   const md = summaryMarkdown(run);
   assert.match(md, /^# J-x-01-s1: FAIL$/m);
   assert.match(md, /- Command: `JOURNEY_FILES="J-x-01\.pw\.mjs" pnpm exec playwright test`/);
+  assert.match(md, /## What the harness said\n\nNo WORLD RESTORE line in output\.log: /);
   assert.match(md, /- Code: abc, with uncommitted edits \(2 path\(s\) in git status\), branch fix\/1/);
   assert.match(
     summaryMarkdown({ ...run, dirty: 0, branch: 'HEAD', notes: ['WORLD RESTORE after J-a-01.pw.mjs: x: cancel-all answered 403'] }),

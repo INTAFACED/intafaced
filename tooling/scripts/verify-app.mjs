@@ -425,14 +425,16 @@ export function summaryMarkdown(run) {
     for (const s of t.shots) lines.push(`  - screenshot: ${path.relative(run.dir, s)}`);
     if (t.trace) lines.push(`  - trace: ${path.relative(run.dir, t.trace)}`);
   }
+  lines.push('', '## What the harness said', '');
   if (run.notes?.length)
     lines.push(
-      '',
-      '## What the harness said',
-      '',
       "Lines the journeys harness printed while it put the shared test world back (world-restore.mjs). One naming another file is that file's run, earlier in this slot; the whole output is output.log.",
       '',
       ...run.notes.map((n) => `- ${n}`),
+    );
+  else
+    lines.push(
+      'No WORLD RESTORE line in output.log: the journeys harness prints one only for what it could not put back (world-restore.mjs), so nothing was left out of place.',
     );
   if (run.files?.length) lines.push('', '## Files kept', '', ...run.files.map((f) => `- ${f}`));
   lines.push('', "A local pass never counts as proof: the proof is the Real-app journeys run on the PR's exact head.");
@@ -522,7 +524,7 @@ export function parseHealth(text) {
     if (!inTable) continue;
     const m = /^\s{2}(\S+(?: \(TEST\))?)\s+(\S+)\s+(\S+)\s+(.+)$/.exec(l);
     if (!m) break; // the table ends at its first line that is not a row
-    rows.push({ name: m[1].replace(/ \(TEST\)$/, ''), health: m[4].trim() });
+    rows.push({ name: m[1].replace(/ \(TEST\)$/, ''), pid: /^\d+$/.test(m[3]) ? Number(m[3]) : null, health: m[4].trim() });
   }
   return rows;
 }
@@ -615,9 +617,28 @@ const listDir = (d) => {
   }
 };
 
-/** The ports of `slot` that something still answers on, each tried once on 127.0.0.1. */
-async function portsAnswering(slot) {
-  const ports = [...new Set(Object.values(slotPorts(slot)).flatMap((group) => Object.values(group)))];
+/** The TCP ports `lsof -F n` output says are listened on: its `n<host>:<port>` lines. */
+export function lsofPorts(text) {
+  return [...new Set([...String(text ?? '').matchAll(/^n.*:(\d+)$/gm)].map((m) => Number(m[1])))];
+}
+
+/**
+ * Where this stack listens, read before it stops: the slot's ports, and every port a process its health table names
+ * (and finds ok) listens on, so one no slot shifts (the TEST miner door, 3999) is checked too. Rows for pids an earlier
+ * stack in the slot left in the record read `absent` or `DOWN` and are left out. Without lsof, the slot's ports alone.
+ */
+function stackPorts(slot, statusText) {
+  const pids = parseHealth(statusText)
+    .filter((r) => r.pid && r.health.startsWith('ok'))
+    .map((r) => r.pid);
+  const held = pids.length
+    ? lsofPorts(spawnSync('lsof', ['-nP', '-a', '-iTCP', '-sTCP:LISTEN', '-p', pids.join(','), '-F', 'n'], { encoding: 'utf8' }).stdout)
+    : [];
+  return [...new Set([...Object.values(slotPorts(slot)).flatMap((group) => Object.values(group)), ...held])].sort((a, b) => a - b);
+}
+
+/** Which of `ports` something still answers on, each tried once on 127.0.0.1. */
+async function portsAnswering(ports) {
   const answers = (port) =>
     new Promise((resolve) => {
       const s = net.connect({ host: '127.0.0.1', port });
@@ -631,7 +652,7 @@ async function portsAnswering(slot) {
     });
   const open = [];
   for (const p of ports) if (await answers(p)) open.push(p);
-  return { ports, open };
+  return open;
 }
 
 async function doctor(io, { quiet = false } = {}) {
@@ -904,6 +925,7 @@ async function stop(io) {
     kept();
     return 1;
   }
+  const ports = stackPorts(claim.slot, (await io.run(['node', STACK, 'status'], { capture: true, echo: false })).text);
   // The TEST market maker launch's readying started is no process the stack records: its own stop ends it by its pid file
   // (and cancels its resting TEST orders) before the stack goes, so it never loops on against a stack that is gone.
   const market = await io.run(['node', path.join(HERE, 'local-test-market.mjs'), 'stop'], { capture: false });
@@ -913,18 +935,18 @@ async function stop(io) {
   writeJson(LAUNCH, { ...rec, stoppedAt: new Date().toISOString() });
   // The check an agent would make by hand: nothing answers on any of this slot's ports. A process still closing gets
   // ten seconds; one that answers after that is named, by port, for `lsof -nP -iTCP:<port>` to name its pid.
-  let left = await portsAnswering(claim.slot);
-  for (let i = 0; i < 10 && left.open.length; i++) {
+  let left = await portsAnswering(ports);
+  for (let i = 0; i < 10 && left.length; i++) {
     await new Promise((res) => setTimeout(res, 1000));
-    left = await portsAnswering(claim.slot);
+    left = await portsAnswering(ports);
   }
   io.say(
-    left.open.length
-      ? `${PREFIX} stop: still answering on slot ${claim.slot}'s port(s) ${left.open.join(', ')}; lsof -nP -iTCP:<port> -sTCP:LISTEN names the process`
-      : `${PREFIX} stop: nothing answers on any of slot ${claim.slot}'s ${left.ports.length} ports`,
+    left.length
+      ? `${PREFIX} stop: still answering on port(s) ${left.join(', ')} of this stack; lsof -nP -iTCP:<port> -sTCP:LISTEN names the process`
+      : `${PREFIX} stop: nothing answers on any of the stack's ${ports.length} ports (slot ${claim.slot}'s own, and each one its processes listened on): ${ports.join(', ')}`,
   );
   kept();
-  return r.code === 0 && market.code === 0 && !left.open.length ? 0 : 1;
+  return r.code === 0 && market.code === 0 && !left.length ? 0 : 1;
 }
 
 function map(opts, io) {
