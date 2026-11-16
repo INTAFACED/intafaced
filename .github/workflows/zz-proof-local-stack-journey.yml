@@ -93,7 +93,8 @@ jobs:
           sleep 20
           kill -INT $run; wait $run; code=$?
           set -e
-          tail -30 case3.txt
+          grep -E '^local:stack journey: ' case3.txt
+          grep -c ': stopped$' case3.txt
           echo "exit $code"
           ls ~/.intafaced/slots/
           ! grep -l "$GITHUB_WORKSPACE" ~/.intafaced/slots/*.json
