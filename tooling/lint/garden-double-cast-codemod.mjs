@@ -162,14 +162,19 @@ function runPackage(pkgArg, write) {
     writeAll();
     const fresh = newErrors(baseline, parseTsc(tsc(pkg, config)));
     if (!fresh.length) break;
-    if (round === 8) {
+    // An error in a file the codemod did not rewrite cannot be put back site by site: stop and put everything back.
+    const elsewhere = fresh.filter((e) => !plans.has(resolve(pkg, e.file)));
+    if (round === 8 || elsewhere.length) {
       for (const [file, bytes] of originals) writeFileSync(file, bytes);
-      return { name, refused: `still ${fresh.length} new type error(s) after 7 rounds; every file put back`, fresh };
+      const why = elsewhere.length
+        ? `${elsewhere.length} new type error(s) in files it did not rewrite`
+        : `still ${fresh.length} new type error(s) after 7 rounds`;
+      return { name, refused: `${why}; every file put back`, fresh: elsewhere.length ? elsewhere : fresh };
     }
     for (const e of fresh) {
       const file = resolve(pkg, e.file);
       const list = plans.get(file);
-      if (!list) continue;
+      if (!list) continue; // already put back this round
       const inside = (p) =>
         (e.line > p.at.line || (e.line === p.at.line && e.col >= p.at.col)) &&
         (e.line < p.endAt.line || (e.line === p.endAt.line && e.col <= p.endAt.col));
