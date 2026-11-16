@@ -135,19 +135,42 @@ function custodyOff(inner: MemoryLedger) {
   return { ledger, mode };
 }
 
-/** An in-memory TEST chain: token balances, every transfer it took, and a send that can throw after it was taken. */
+/**
+ * An in-memory TEST chain: token balances, every transfer it took, and a send that can throw after it was taken.
+ * `holdNext` keeps the next transfer it takes waiting to be mined, as a real chain's pending pool does, until `mine()`.
+ */
 function testChain() {
   const balances = new Map<string, bigint>();
   const transfers: { hash: string; from: string; to: string; units: bigint; block: bigint }[] = [];
-  const mode = { throwAfterTaking: false, revertNext: false, reverted: new Set<string>() };
+  const pending: { hash: string; from: string; to: string; units: bigint }[] = [];
+  const mode = { throwAfterTaking: false, revertNext: false, holdNext: false, reverted: new Set<string>() };
   let block = 1n;
+  let taken = 0;
+  /** Mines every transfer the chain took and holds, in the order it took them. */
+  const mine = () => {
+    for (const t of pending.splice(0)) {
+      block += 1n;
+      balances.set(t.from, (balances.get(t.from) ?? 0n) - t.units);
+      balances.set(t.to, (balances.get(t.to) ?? 0n) + t.units);
+      transfers.push({ ...t, block });
+    }
+  };
   const chain: RewardChain = {
     head: async () => block,
     holds: async (from) => balances.get(from) ?? 0n,
     async send(from, to, units) {
       const have = balances.get(from) ?? 0n;
       if (have < units) throw new Error('TEST chain: transfer amount exceeds balance');
-      const hash = `0x${(transfers.length + 1).toString(16).padStart(64, 'a')}`;
+      const hash = `0x${(taken += 1).toString(16).padStart(64, 'a')}`;
+      if (mode.holdNext) {
+        mode.holdNext = false;
+        pending.push({ hash, from, to, units });
+        if (mode.throwAfterTaking) {
+          mode.throwAfterTaking = false;
+          throw new Error('TEST chain: the answer was lost after the node took it');
+        }
+        return hash;
+      }
       block += 1n;
       if (mode.revertNext) {
         mode.revertNext = false;
@@ -169,7 +192,7 @@ function testChain() {
     find: async (from, to, units, fromBlock) =>
       transfers.filter((t) => t.from === from && t.to === to && t.units === units && t.block >= fromBlock).map((t) => t.hash),
   };
-  return { chain, balances, transfers, mode };
+  return { chain, balances, transfers, pending, mode, mine };
 }
 
 let book: MemoryLedger;
@@ -632,6 +655,60 @@ if (!db) {
       const after = await recordOf(reward.rewardKey);
       expect(after).toMatchObject({ state: 'owed', reason: PAYMENT_NOT_TAKEN, payout: null });
       expect(after.attempts.filter((a) => a.reason === PAYMENT_NOT_TAKEN)).toHaveLength(1);
+      await reconciles('20');
+    });
+
+    // RewardPay.tla (services/svc-campaigns/model), NeverGiveUpOnALiveSend: a payment is given up only when its transfer
+    // can no longer land. A transfer not found on the chain may still be waiting to be mined.
+    it('a send the node took, whose answer was lost and which is mined after the wait, is booked once it lands, never left as not taken', async () => {
+      await seed('50', '20');
+      const reward = await claimed();
+      world.mode.holdNext = true;
+      world.mode.throwAfterTaking = true;
+      expect(await payer.pass()).toEqual({ sent: 1, paid: 0 });
+      expect(world.pending).toHaveLength(1);
+      clock = new Date(Date.now() + 2 * 60_000);
+      await payer.pass();
+      world.mine();
+      await payer.pass();
+      await payer.pass();
+      expect(world.transfers).toHaveLength(1);
+      expect(await recordOf(reward.rewardKey)).toMatchObject({ state: 'paid', payout: { chainTx: world.transfers[0]!.hash } });
+      await reconciles('20');
+    });
+
+    it('a second payer never gives up a payment whose send the first payer still has in flight', async () => {
+      await seed('50', '20');
+      const reward = await claimed();
+      // The first payer's send has not reached the node yet when a second payer (another replica) looks at the payment.
+      const send = world.chain.send;
+      let reached!: () => void;
+      const inFlight = new Promise<void>((resolve) => (reached = resolve));
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => (release = resolve));
+      world.chain.send = async (from, to, units) => {
+        reached();
+        await gate;
+        return send(from, to, units);
+      };
+      const first = payer.pass();
+      await inFlight;
+      world.chain.send = send;
+      const second = new RewardPayer({
+        sql: db!.sql,
+        ledger: wire.ledger,
+        chain: world.chain,
+        wallet: WALLET,
+        postingEnabled: async () => posting,
+        now: () => new Date(Date.now() + 2 * 60_000),
+      });
+      await second.pass();
+      release();
+      await first;
+      await payer.pass();
+      await second.pass();
+      expect(world.transfers).toHaveLength(1);
+      expect(await recordOf(reward.rewardKey)).toMatchObject({ state: 'paid', payout: { chainTx: world.transfers[0]!.hash } });
       await reconciles('20');
     });
 
