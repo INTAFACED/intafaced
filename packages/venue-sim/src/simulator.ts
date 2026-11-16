@@ -40,6 +40,7 @@ import {
   type UserVenueMarket,
   type UserVenueMarketStatus,
   type UserVenueOrder,
+  type UserVenueOrderRecord,
   type UserVenuePosition,
   type UserVenueSubAccount,
   type UserVenueSession,
@@ -327,6 +328,8 @@ interface OrderState {
   order: UserVenueOrder;
   readonly account: AccountState;
   readonly seq: number;
+  /** When the venue took the order (its order history, J-cex-spot-06 #1). */
+  readonly placedAt: Date;
   readonly builderFee: { readonly builder: string; readonly feeBps: Amount } | null;
   readonly leverageBps: number | null;
   readonly marginMode: VenueMarginMode | null;
@@ -616,6 +619,16 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   setMarketFees(symbol: string, fees: { makerFeeBps: MaybeKnown<Amount>; takerFeeBps: MaybeKnown<Amount> }): void {
     const market = this.market(symbol);
     this.marketsBySymbol.set(symbol, { ...market, makerFeeBps: fees.makerFeeBps, takerFeeBps: fees.takerFeeBps });
+  }
+
+  /**
+   * TEST control: the prices a trigger order on this perpetual may be judged on (J-cex-spot-06 #6 turns them on for
+   * BTC-PERP for its file and back off after it). `[]` takes no trigger order there. A waiting trigger order stays as it is.
+   */
+  setTriggerSources(symbol: string, sources: readonly VenueTriggerSource[]): void {
+    const market = this.market(symbol);
+    if (market.kind !== 'perpetual') refuse(this.venue.id, 'not_offered', `${symbol} is cash spot: no trigger orders`);
+    this.marketsBySymbol.set(symbol, { ...market, triggerSources: [...new Set(sources)] });
   }
 
   /**
@@ -1489,6 +1502,14 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     return this.asOf(this.account(account).orders.get(cloid)?.order ?? null);
   }
 
+  async orderHistory(account: UserVenueAccount): Promise<AsOf<readonly UserVenueOrderRecord[]>> {
+    this.up();
+    const list = [...this.account(account).orders.values()]
+      .sort((a, b) => b.seq - a.seq)
+      .map((o) => ({ order: o.order, placedAt: o.placedAt }));
+    return this.asOf(list);
+  }
+
   async fills(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueFill[]>> {
     this.up();
     return this.asOf(this.account(account).fills.filter((f) => f.filledAt.getTime() >= since.getTime()));
@@ -2293,6 +2314,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     const order: OrderState = {
       account: state,
       seq: this.seqCounter,
+      placedAt: this.clock(),
       builderFee,
       leverageBps: setting?.leverageBps ?? null,
       marginMode: setting?.marginMode ?? null,
@@ -2609,6 +2631,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     const order: OrderState = {
       account: state,
       seq: this.seqCounter,
+      placedAt: this.clock(),
       builderFee,
       leverageBps: setting.leverageBps,
       marginMode: setting.marginMode,

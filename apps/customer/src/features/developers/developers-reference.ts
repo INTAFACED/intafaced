@@ -996,6 +996,22 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     summary: 'One venue order by its client order id: how an answer that was not definite is read back',
   },
   {
+    name: 'venueOrderHistory',
+    method: 'GET',
+    path: '/api/v1/venue/orders/history',
+    product: 'accounts',
+    access: 'private',
+    summary: 'Your venue order history as the venue keeps it, filtered by side, state, market and time placed, a page at a time',
+  },
+  {
+    name: 'venueOrderRecord',
+    method: 'GET',
+    path: '/api/v1/venue/orders/record',
+    product: 'accounts',
+    access: 'private',
+    summary: 'Our record of one venue order: when it was placed, each accepted amendment, and the builder fee it was signed with',
+  },
+  {
     name: 'venueFills',
     method: 'GET',
     path: '/api/v1/venue/fills',
