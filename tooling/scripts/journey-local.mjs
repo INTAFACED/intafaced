@@ -25,7 +25,7 @@
  *
  * It writes `.jr/run.json`: the tree of the checkout it ran (tracked and untracked files, as `git add -A` would commit
  * them), the files, when it started and its exit code (null until it ends). The Mac refuses a journey branch's first
- * push without a PASS of the tree pushed (claude-hub machine/claude/hooks/first-push-check.py).
+ * push without a PASS of the tree pushed (a PreToolUse hook on the Mac).
  *
  * A local pass never counts as proof: the proof is the Real-app journeys run on the pull request's exact head.
  * Why one command (project-state #2561, rows 13 and 20): the words for doing this by hand were rewritten seven times in
@@ -159,7 +159,7 @@ export async function journeyLocal(opts, io) {
         return 130;
       })()),
   );
-  // What this run ran and how it ended, for the Mac's first-push check (claude-hub first-push-check.py): the first push
+  // What this run ran and how it ended, for the Mac's first-push check (a PreToolUse hook on the Mac): the first push
   // of a journey branch goes after a PASS (or a refused start) on the exact tree pushed. `code` stays null until the
   // run ends, so an interrupted or crashed run never reads as a pass.
   const ran = { tree: io.tree?.() ?? null, files, startedAt: io.now?.() ?? Date.now(), code: null };
