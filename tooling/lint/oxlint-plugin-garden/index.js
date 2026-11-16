@@ -2,6 +2,7 @@
 // Loaded by the root .oxlintrc.json ("jsPlugins"), rules "garden/<name>". tooling/ci/lint-ratchet.mjs fails a change whose
 // touched files gain a finding, in CI and before a push; tooling/lint/ratchet.json names the few rules that only print.
 import { copyRules } from './copy-rules.js';
+import { absentRules } from './absent-rule.js';
 import { moneyRules } from './money-rules.js';
 import { duplicateRules } from './duplicate-rules.js';
 import { potetoRules } from './poteto-rules.js';
@@ -184,6 +185,7 @@ export default {
     'no-real-clock-wait-in-tests': noRealClockWaitInTests,
     'no-wait-for-timeout': noWaitForTimeout,
     ...copyRules,
+    ...absentRules,
     ...moneyRules,
     ...duplicateRules,
     ...potetoRules,
