@@ -1226,6 +1226,9 @@ test(`${J} #8 reads my place in the queue and the fill chance of a resting order
             .filter((p) => Date.parse(p.tradedAt) >= start && Date.parse(p.tradedAt) <= end)
             .reduce((t, p) => t + toUnits(p.amount), 0n);
           if (toUnits(shown['data-traded']) !== traded) return `traded ${shown['data-traded']} vs ${fromUnits(traded)}`;
+          // The DOM polls the book and the tape apart, so for one poll its book can already hold the print while the tape it
+          // read (and stamps as data-tape-as-of) is from before it: that readout is true as of its tape, so wait for the next.
+          if (traded < toUnits(SMALL)) return `the tape as of ${shown['data-tape-as-of']} predates the print`;
           const toFill = aheadMost + remaining;
           if (toUnits(shown['data-to-fill']) !== toFill) return 'to fill';
           const one = 10n ** 18n;
