@@ -40,12 +40,13 @@ const PEOPLE: DirectoryPerson[] = [
 ].map(([userId, handle]) => ({ userId: userId!, handle: handle!, email: `${handle}@example.test`, status: 'active' as const }));
 const RECIPIENT = { name: 'TEST Supplier Inc', accountNumber: '000123456789', routingNumber: '021000021' };
 
-function principal(userId: string): Principal {
+/** The person signed in with a second factor (`trade:withdraw`), or, `key`, an API key: never more than bank:read and bank:write. */
+function principal(userId: string, key = false): Principal {
   return {
     sub: userId,
     userId,
     sid: SID,
-    scopes: ['bank:read', 'bank:write'],
+    scopes: key ? ['bank:read', 'bank:write'] : ['bank:read', 'bank:write', 'trade:withdraw'],
     tier: 'full',
     mfa: true,
     expiresAt: new Date(Date.now() + 60_000),
@@ -125,8 +126,8 @@ describe('the bank API (J-bank-24)', () => {
     });
   }
   let bank = services();
-  function as(userId: string) {
-    const raw = encodePrincipal(principal(userId));
+  function as(userId: string, key = false) {
+    const raw = encodePrincipal(principal(userId, key));
     const edge = createEdgeContext({ secret: SECRET, serviceName: 'svc-bank' });
     return createBankRouter(bank).createCaller(
       edge({
@@ -244,6 +245,11 @@ describe('the bank API (J-bank-24)', () => {
   it('a payment with no rail is refused rail.bank with its intent row kept; with the rail, instant and ACH are each one partner payment', async () => {
     const { owner, main } = await start();
     const ask = { fromAccountId: main.id, recipient: RECIPIENT, amount: '10' };
+    // An API key never sends money off the platform: a payment out takes the person's own session after its second factor.
+    expect(await refused(as(OWNER, true).bankApi.createPayment({ ...ask, idempotencyKey: 'jb24-pay-key', method: 'ach' }))).toBe(
+      'scope.denied',
+    );
+    expect((await owner.bankApi.payments({ limit: 10 })).items).toEqual([]);
     expect(await refused(owner.bankApi.createPayment({ ...ask, idempotencyKey: 'jb24-pay-none', method: 'instant' }))).toBe('rail.bank');
     expect(await refused(owner.bankApi.createPayment({ ...ask, idempotencyKey: 'jb24-pay-none', method: 'instant' }))).toBe('rail.bank');
     expect((await owner.bankApi.payments({ limit: 10 })).items).toEqual([

@@ -1,11 +1,14 @@
 // World: stack
 import { createHmac, randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
+import path from 'node:path';
 import { test, expect } from './journey.mjs';
-import { api, journeyState } from './stack.mjs';
+import { EDGE, ORIGIN, ROOT, api, journeyState, json } from './stack.mjs';
+import { PASSKEY_ORIGIN, addAuthenticator, addPasskey, forgetSession, nextCode, virtualAuthenticator } from './identity-factors.mjs';
+import { signInWithCode } from './merchant.mjs';
 import { signUp, verify } from './desk.mjs';
 import { absentIn } from './absent.mjs';
-import { holderAgain, keyHolder, withKey } from './developer.mjs';
+import { withKey } from './developer.mjs';
 
 // J-bank-24, in the running app (docs/roadmap/journeys.json): I connect my systems to the bank API. One test per step,
 // titled "J-bank-24 #<n>", run in order on one TEST account with a passkey (its second factor), whose bank money the
@@ -13,6 +16,8 @@ import { holderAgain, keyHolder, withKey } from './developer.mjs';
 // TEST 100 USDT (`testPartner.fund`, the partner's figure, no ledger post). A second TEST account shares one pot with it.
 // The person's program is this test calling Edge with the key made in #1 (`withKey`); the TEST partner's own doors
 // (switches, funding, a payment's completion) are called with the person's session, as the stack's stand-in partner.
+// A payment out moves money off the platform, so it takes the person's own session after its second factor (an
+// authenticator, added before the passkey), as every money-out door does; the key is refused it.
 // The webhook receiver is this test's own TEST server on loopback (the URL guard's dev/test hatch). The ledger posts
 // nothing: every figure checked is the partner's, and the person's ledger balance stays as it was.
 const J = 'J-bank-24';
@@ -48,8 +53,12 @@ async function keyCall(kind, procedure, input) {
     : { ok: false, status: res.status, code: code(res.body), body: res.body };
 }
 
-/** The person's own session, for the TEST partner's doors and the app's own transfers. */
+/**
+ * A person's own session, for the TEST partner's doors and the app's own transfers. The journey's person has an
+ * authenticator, so their session signs in with its code; the other holder of the joint account has none.
+ */
 async function session(who) {
+  if (who.email === run.read().who?.email) return moneySession(who);
   const own = await api(who);
   const answer = (res) =>
     res.status === 200 ? { ok: true, data: res.body.result.data } : { ok: false, status: res.status, code: code(res.body), body: res.body };
@@ -59,6 +68,51 @@ async function session(who) {
     mutate: async (procedure, input) => answer(await own.post(`/api/bank/trpc/${procedure}`, input)),
     balances: () => own.balances(),
   };
+}
+
+/**
+ * The person's own session signed in with an authenticator code. A payment out takes the money-out scope
+ * (`trade:withdraw`), which no API key ever holds: the session confirms it is the person with a fresh code
+ * (`auth.stepUp`), as the app's withdraw does, and sends the payment with that short-lived confirmation.
+ */
+let signedIn = null;
+async function moneySession(who) {
+  if (signedIn) return signedIn;
+  const { totp } = await import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'));
+  const freshCode = async () => {
+    const next = await nextCode(totp, run.read().secret, run.read().step);
+    run.write({ step: next.step });
+    return next.code;
+  };
+  const own = await api(who, { totpCode: await freshCode() });
+  const answer = (res) =>
+    res.status === 200 ? { ok: true, data: res.body.result.data } : { ok: false, status: res.status, code: code(res.body), body: res.body };
+  let confirmed = null;
+  const confirmation = async () => {
+    // The confirmation lasts five minutes (STEP_UP_TTL_SECONDS); one older than four is asked again.
+    if (confirmed && Date.now() - confirmed.at < 240_000) return confirmed.token;
+    const stepped = await own.post('/api/identity/trpc/auth.stepUp', { totpCode: await freshCode() });
+    const token = stepped.body?.result?.data?.accessToken;
+    if (!token) throw new Error(`step-up refused: ${stepped.status} ${JSON.stringify(stepped.body).slice(0, 300)}`);
+    confirmed = { token, at: Date.now() };
+    return token;
+  };
+  signedIn = {
+    userId: own.userId,
+    query: async (procedure, input) => answer(await own.get(trpcPath(procedure, input))),
+    mutate: async (procedure, input) => answer(await own.post(`/api/bank/trpc/${procedure}`, input)),
+    /** `bankApi.createPayment` with the person's fresh confirmation. */
+    pay: async (input) => {
+      const res = await fetch(`${EDGE}/api/bank/trpc/bankApi.createPayment`, {
+        method: 'POST',
+        headers: { origin: ORIGIN, 'content-type': 'application/json', authorization: `Bearer ${await confirmation()}` },
+        body: JSON.stringify(input),
+      }).then(json);
+      return answer(res);
+    },
+    balances: () => own.balances(),
+  };
+  return signedIn;
 }
 
 const okData = (res, what) => {
@@ -84,13 +138,28 @@ test.beforeAll(async ({ browser }) => {
   hookUrl = `http://127.0.0.1:${hook.address().port}/jb24/${RUN}`;
 
   const kept = run.read();
+  const { totp } = await import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'));
+  page = await (await browser.newContext({ baseURL: PASSKEY_ORIGIN })).newPage();
+  await virtualAuthenticator(page);
   if (kept.who) {
-    page = await holderAgain(browser, kept.who);
+    // A retry signs the same person in again, with the authenticator's next code.
+    const again = { ...kept.who, totp, secret: kept.secret, step: kept.step };
+    await signInWithCode(page, again, '/uc/safe');
+    run.write({ step: again.step });
     return;
   }
-  const made = await keyHolder(browser, 'jb24');
-  page = made.page;
-  run.reset({ who: made.who });
+  // The person's two second factors: an authenticator first (its code signs the money-out session in #4 and #5), then
+  // signed in again with its code, a passkey (it approves the key in #1), as J-developer-02 sets them up.
+  const who = await signUp(page, 'jb24');
+  await verify(page, who);
+  await signInWithCode(page, who, '/uc/safe');
+  const { secret, step } = await addAuthenticator(page, totp);
+  Object.assign(who, { totp, secret, step });
+  await forgetSession(page);
+  await signInWithCode(page, who, '/uc/safe');
+  await addPasskey(page);
+  const { totp: _fn, secret: kept2, step: at, ...person } = who;
+  run.reset({ who: person, secret: kept2, step: at });
 });
 
 test.afterAll(async () => {
@@ -104,7 +173,9 @@ test(`${J} #1 creates a token and approves it with SCA: the token's scopes; the 
   await page.getByRole('link', { name: /key/i }).first().click();
   await expect(page).toHaveURL(/\/uc\/safe\/api-keys/);
   await page.goto('/uc/safe/api-keys/new');
-  await page.getByLabel('Key name').fill('TEST bank books');
+  // A name of its own each attempt: a worker restart signs in as the same person, whose earlier key keeps its name.
+  const keyName = `TEST bank books ${Date.now().toString(36)}`;
+  await page.getByLabel('Key name').fill(keyName);
   await page.getByRole('checkbox', { name: /^bank:read\b/ }).check();
   await page.getByRole('checkbox', { name: /^bank:write\b/ }).check();
   // The strong customer authentication: the passkey (the virtual authenticator) approves this create, once.
@@ -118,11 +189,11 @@ test(`${J} #1 creates a token and approves it with SCA: the token's scopes; the 
   await page.getByRole('button', { name: 'Done' }).click();
   await expect(page).toHaveURL(/\/uc\/safe\/api-keys$/);
   // The token's scopes are listed with it; the secret is not shown again anywhere.
-  const row = page.getByRole('row', { name: /TEST bank books/ });
+  const row = page.getByRole('row', { name: keyName });
   await expect(row).toContainText('bank:read, bank:write');
   await expect(page.getByText(key)).toHaveCount(0);
   await page.reload();
-  const listed = page.getByRole('row', { name: /TEST bank books/ });
+  const listed = page.getByRole('row', { name: keyName });
   await absentIn(page.locator('main'), page.locator('main').getByText(key));
   await expect(listed).toContainText('bank:read, bank:write');
   await absentIn(page.locator('main'), page.locator('main').getByTestId('api-keys__key'));
@@ -249,11 +320,18 @@ test(`${J} #3 moves a balance with a quote: the partner's quote with the exact f
 
 test(`${J} #4 creates an instant and an ACH payment: the transfer in its lifecycle through the partner; with no rail the notice with rail.bank`, async () => {
   const { who, mainId } = run.read();
-  const own = await session(who);
   const ask = { fromAccountId: mainId, recipient: RECIPIENT, amount: '10' };
+  // A payment out moves money off the platform: the key is refused, as the keys page says, and nothing is kept.
+  const byKey = await keyCall('mutation', 'bankApi.createPayment', { ...ask, idempotencyKey: `jb24-key-${RUN}`, method: 'ach' });
+  expect(byKey).toMatchObject({ ok: false, status: 403 });
+  // The person's own session makes the payments, through the same bank API, each with a fresh confirmation of their
+  // second factor; the session alone, unconfirmed, is refused too.
+  const own = await moneySession(who);
+  const unconfirmed = await own.mutate('bankApi.createPayment', { ...ask, idempotencyKey: `jb24-bare-${RUN}`, method: 'ach' });
+  expect(unconfirmed).toMatchObject({ ok: false, status: 403 });
   // No rail: the notice names rail.bank, and the payment's intent row is kept refused.
   okData(await own.mutate('testPartner.set', { bankRail: 'none' }), 'no rail');
-  const noRail = await keyCall('mutation', 'bankApi.createPayment', { ...ask, idempotencyKey: `jb24-none-${RUN}`, method: 'instant' });
+  const noRail = await own.pay({ ...ask, idempotencyKey: `jb24-none-${RUN}`, method: 'instant' });
   expect(noRail).toMatchObject({ ok: false, code: 'rail.bank' });
   expect(JSON.stringify(noRail.body)).toContain('needs rail.bank. It is switched off in this build.');
   const kept = okData(await keyCall('query', 'bankApi.payments', { limit: 20 }), 'payments').items;
@@ -262,25 +340,21 @@ test(`${J} #4 creates an instant and an ACH payment: the transfer in its lifecyc
     refusalCode: 'rail.bank',
     method: 'instant',
   });
+  expect(kept.find((p) => p.idempotencyKey === `jb24-key-${RUN}`)).toBeUndefined();
 
   // With the TEST partner's rail: each payment is made pending through the partner, once per key.
   okData(await own.mutate('testPartner.set', { bankRail: 'test' }), 'the TEST rail');
-  const instant = okData(
-    await keyCall('mutation', 'bankApi.createPayment', { ...ask, idempotencyKey: `jb24-instant-${RUN}`, method: 'instant' }),
-    'instant',
-  );
-  const ach = okData(
-    await keyCall('mutation', 'bankApi.createPayment', { ...ask, idempotencyKey: `jb24-ach-${RUN}`, method: 'ach' }),
-    'ACH',
-  );
+  const instant = okData(await own.pay({ ...ask, idempotencyKey: `jb24-instant-${RUN}`, method: 'instant' }), 'instant');
+  const ach = okData(await own.pay({ ...ask, idempotencyKey: `jb24-ach-${RUN}`, method: 'ach' }), 'ACH');
   expect(instant).toMatchObject({ method: 'instant', state: 'pending', version: 1, heldAt: PARTNER, amount: '10' });
   expect(ach).toMatchObject({ method: 'ach', state: 'pending', version: 1, heldAt: PARTNER, amount: '10' });
-  const retried = okData(
-    await keyCall('mutation', 'bankApi.createPayment', { ...ask, idempotencyKey: `jb24-ach-${RUN}`, method: 'ach' }),
-    'ACH again',
-  );
+  const retried = okData(await own.pay({ ...ask, idempotencyKey: `jb24-ach-${RUN}`, method: 'ach' }), 'ACH again');
   expect(retried).toMatchObject({ id: ach.id, state: 'pending' });
-  expect(okData(await keyCall('query', 'bankApi.payment', { paymentId: ach.id }), 'ACH read')).toMatchObject({ state: 'pending' });
+  // The program reads the transfer's lifecycle with the key.
+  expect(okData(await keyCall('query', 'bankApi.payment', { paymentId: ach.id }), 'ACH read')).toMatchObject({
+    state: 'pending',
+    heldAt: PARTNER,
+  });
   // Two payments of TEST 10 left the main balance at the partner, once each.
   expect(okData(await keyCall('query', 'bankApi.accounts', { type: 'standard', limit: 5 }), 'main').items[0]).toMatchObject({
     balance: '35',
@@ -291,7 +365,7 @@ test(`${J} #4 creates an instant and an ACH payment: the transfer in its lifecyc
 
 test(`${J} #5 receives the webhook when a transfer goes from pending to completed: one delivery with previous and current state; a replay is de-duplicated`, async () => {
   const { who, achId, ledgerBefore } = run.read();
-  const own = await session(who);
+  const own = await moneySession(who);
   const endpoint = okData(await keyCall('mutation', 'bankApi.createWebhook', { endpointId: randomUUID(), url: hookUrl }), 'endpoint');
   expect(endpoint.secret).toMatch(/^whsec_[0-9a-f]{64}$/);
 
@@ -305,7 +379,7 @@ test(`${J} #5 receives the webhook when a transfer goes from pending to complete
   expect(replay).toMatchObject({ state: 'completed', version: 2, recorded: false });
   // A later change is delivered after the replay was answered: by then any second copy of the first would have arrived.
   const later = okData(
-    await keyCall('mutation', 'bankApi.createPayment', {
+    await own.pay({
       idempotencyKey: `jb24-later-${RUN}`,
       fromAccountId: run.read().mainId,
       method: 'instant',

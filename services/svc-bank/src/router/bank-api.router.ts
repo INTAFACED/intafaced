@@ -116,8 +116,9 @@ const deliveryView = (d: ApiDelivery) => ({ ...d, deliveredAt: iso(d.deliveredAt
 
 /**
  * `bankApi.*` (J-bank-24; BK-bdev-01, BK-bdev-02): the bank API a person's own program calls with an API key they approved
- * with a second factor, or the person signed in. Reads take `bank:read`, everything that moves money or adds an endpoint
- * `bank:write`. Every figure and every move is the partner bank's; nothing here posts to the ledger (`developer-api/bank-api.ts`).
+ * with a second factor, or the person signed in. Reads take `bank:read`; a move between the person's own accounts and an
+ * endpoint take `bank:write`; a payment out takes `trade:withdraw`, the person's own signed-in session after its second
+ * factor, never a key, as the keys page promises ("No key can withdraw or move money off the platform"). Every figure and every move is the partner bank's; nothing here posts to the ledger (`developer-api/bank-api.ts`).
  */
 export function createBankApiRouter(c: BankRouterContext) {
   const api = () => c.bank.bankApi;
@@ -136,7 +137,9 @@ export function createBankApiRouter(c: BankRouterContext) {
       .input(z.object({ quoteId: z.string().min(1).max(128), dedupeId: businessKey }).strict())
       .output(moveOut)
       .mutation(({ ctx, input }) => guard(async () => moveView(await api().move(ctx.principal.userId, input)))),
-    createPayment: scopedProcedure('bank:write', { module: 'bank' })
+    // A payment out moves money off the platform: like every money-out door (`railSends.send`) it takes `trade:withdraw`,
+    // which only the person's own session holds, after its second factor. No API key ever holds it (`INTERACTIVE_ONLY_SCOPES`).
+    createPayment: scopedProcedure('trade:withdraw', { module: 'bank' })
       .input(
         z
           .object({
