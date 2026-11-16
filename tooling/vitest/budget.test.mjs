@@ -3,9 +3,11 @@
 // #8309, #8605). It reads each package's `test` script and its vitest config as text; it runs nothing.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { TEST_BUDGET } from './budget.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const AREAS = ['apps', 'packages', 'services', 'tooling'];
@@ -40,7 +42,16 @@ export function missingBudget(pkg, root = ROOT) {
   const text = readFileSync(file, 'utf8');
   if (!/from ['"][./]*(?:tooling\/)?vitest\/budget\.mjs['"]/u.test(text))
     return `${file.slice(root.length + 1)} does not import tooling/vitest/budget.mjs`;
-  if (!/\.\.\.TEST_BUDGET\b/u.test(text)) return `${file.slice(root.length + 1)} does not spread TEST_BUDGET into test`;
+  const rel = file.slice(root.length + 1);
+  const spread = text.search(/\.\.\.TEST_BUDGET\b/u);
+  if (spread < 0) return `${rel} does not spread TEST_BUDGET into test`;
+  // A package may wait longer (tooling/pay-sim), never shorter, and only after the spread: a key before it is
+  // silently replaced by the budget.
+  for (const m of text.matchAll(/\b(testTimeout|hookTimeout)\s*:\s*([\d_]+)/gu)) {
+    const [, key, raw] = m;
+    if (m.index < spread) return `${rel} sets ${key} before ...TEST_BUDGET, which replaces it`;
+    if (Number(raw.replaceAll('_', '')) < TEST_BUDGET[key]) return `${rel} shortens ${key} below the budget (${raw})`;
+  }
   return null;
 }
 
@@ -61,4 +72,34 @@ test('every package whose tests run on vitest takes the shared budget', () => {
 test('a let-off names a package that still runs vitest', () => {
   const pkgs = new Set(vitestPackages());
   for (const p of Object.keys(NOT_YET)) assert.ok(pkgs.has(p), `${p} is let off but no longer runs vitest: drop it from NOT_YET`);
+});
+
+test('the check refuses each way a config can lose the budget, and passes one that keeps it', () => {
+  const root = mkdtempSync(join(tmpdir(), 'vitest-budget-'));
+  try {
+    const plant = (name, config) => {
+      const dir = join(root, 'services', name);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({ scripts: { test: 'vitest run' } }));
+      if (config !== null) writeFileSync(join(dir, 'vitest.config.ts'), config);
+    };
+    const imp = "import { TEST_BUDGET } from '../../tooling/vitest/budget.mjs';\n";
+    plant('no-config', null);
+    plant('no-import', 'export default { test: { testTimeout: 30_000 } };');
+    plant('no-spread', `${imp}export default { test: {} };`);
+    plant('shorter', `${imp}export default { test: { ...TEST_BUDGET, hookTimeout: 10_000 } };`);
+    plant('before', `${imp}export default { test: { testTimeout: 60_000, ...TEST_BUDGET } };`);
+    plant('longer', `${imp}export default { test: { ...TEST_BUDGET, testTimeout: 60_000 } };`);
+    plant('kept', `${imp}export default { test: { ...TEST_BUDGET } };`);
+    const why = Object.fromEntries(vitestPackages(root).map((p) => [p.split('/')[1], missingBudget(p, root)]));
+    assert.match(why['no-config'], /no vitest config/u);
+    assert.match(why['no-import'], /does not import/u);
+    assert.match(why['no-spread'], /does not spread/u);
+    assert.match(why.shorter, /shortens hookTimeout/u);
+    assert.match(why.before, /sets testTimeout before/u);
+    assert.equal(why.longer, null);
+    assert.equal(why.kept, null);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
