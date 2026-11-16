@@ -456,7 +456,7 @@ function collectVendorProductFiles() {
     const lower = name.toLowerCase();
     if (/^application(-.+)?\.properties$/.test(lower)) return false;
     if (/^bootstrap(-.+)?\.(properties|ya?ml)$/.test(lower)) return false;
-    if (/^logback/.test(lower)) return false;
+    if (lower.startsWith('logback')) return false;
     if (lower.endsWith('.properties')) return true; // messages_*.properties etc.
     const dot = lower.lastIndexOf('.');
     if (dot < 0) return false;

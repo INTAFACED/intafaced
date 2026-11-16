@@ -493,7 +493,7 @@ export function ownerItems(text, numbers) {
   let cur = null;
   for (const l of lines) {
     const m = /^(\d{1,4})\. /.exec(l);
-    if (m || /^#/.test(l)) cur = m && out.has(Number(m[1])) ? Number(m[1]) : null;
+    if (m || l.startsWith('#')) cur = m && out.has(Number(m[1])) ? Number(m[1]) : null;
     if (cur !== null) out.set(cur, out.get(cur) === null ? l : `${out.get(cur)}\n${l}`);
   }
   return out;

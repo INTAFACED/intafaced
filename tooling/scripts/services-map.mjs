@@ -130,7 +130,7 @@ function requiredEnv(service, slices) {
   for (const m of src.matchAll(/\.merge\(\s*(\w+)\s*\)|^const schema = (\w+)/gm)) {
     const name = m[1] ?? m[2];
     if (slices.has(name)) fields.push(...slices.get(name));
-    else if (/EnvSchema$/.test(name)) unresolved.push(name);
+    else if (name.endsWith('EnvSchema')) unresolved.push(name);
   }
   const own = /z\.object\(\{([\s\S]*)\}\)/.exec(src);
   if (own) fields.push(...fieldsOf(own[1], helpers));

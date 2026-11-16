@@ -292,7 +292,7 @@ function packageDeps(root) {
       const json = JSON.parse(readFileSync(pj, 'utf8'));
       for (const k of ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']) {
         for (const n of Object.keys(json[k] ?? {})) {
-          if (/^@intafaced\/svc-/.test(n)) out.push({ rule: 'B-deps', file: `${group}/${d}/package.json`, detail: `${k} ${n}` });
+          if (n.startsWith('@intafaced/svc-')) out.push({ rule: 'B-deps', file: `${group}/${d}/package.json`, detail: `${k} ${n}` });
         }
       }
     }

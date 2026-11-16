@@ -283,7 +283,7 @@ export function parseDiff(text) {
     }
     if (!cur.hunk && line.startsWith('new file mode')) cur.oldPath = null;
     if (!cur.hunk && line.startsWith('deleted file mode')) cur.newPath = null;
-    if (!cur.hunk && (/^Binary files /.test(line) || line.startsWith('GIT binary patch'))) cur.binary = true;
+    if (!cur.hunk && (line.startsWith('Binary files ') || line.startsWith('GIT binary patch'))) cur.binary = true;
     if (!cur.hunk && /^(rename|copy) from /.test(line)) {
       cur.moved = line.startsWith('rename') ? 'rename' : 'copy';
       cur.oldPath = line.replace(/^(rename|copy) from /, '');
