@@ -121,7 +121,7 @@ What counts as proof:
 pnpm local:stack verify stop
 ```
 
-It stops the stack only when `verify launch` started it, through the stack's own stop. That stop ends exactly the processes the stack recorded, each checked by pid file and command line, then Postgres, and frees the slot. Nothing is ever stopped by name or pattern. A stack this checkout already had running before `launch` is left running, and the line says so. The evidence stays in `.verify/runs/`, and the line names it.
+It stops the stack only when `verify launch` started it. First the TEST market maker that launch's readying started is stopped through its own stop (by its pid file; it cancels its resting TEST orders), then the stack through the stack's own stop. That stop ends exactly the processes the stack recorded, each checked by pid file and command line, then Postgres, and frees the slot. Nothing is ever stopped by name or pattern. A stack this checkout already had running before `launch` is left running, and the line says so. The evidence stays in `.verify/runs/`, and the line names it.
 
 Run `stop` after a failed attempt too, so a broken try strands no process or port. Ctrl-C on any verify command stops only its own child and leaves the stack up for `stop`.
 

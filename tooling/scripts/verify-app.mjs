@@ -688,7 +688,7 @@ async function drive(opts, io) {
   return finishRun(io, {
     dir,
     label,
-    what: `journey ${opts.id}, steps ${plan.steps.map((n) => `#${n}`).join(' ')}`,
+    what: `journey ${opts.id}, steps ${plan.steps.map((n) => `#${n}`).join(' ')}${plan.chained.length ? `, with the tests before them in ${plan.chained.map((c) => c.file).join(', ')}` : ''}`,
     command,
     startedAt,
     exit: pw.code,
@@ -801,11 +801,15 @@ async function stop(io) {
     kept();
     return 1;
   }
+  // The TEST market maker launch's readying started is no process the stack records: its own stop ends it by its pid file
+  // (and cancels its resting TEST orders) before the stack goes, so it never loops on against a stack that is gone.
+  const market = await io.run(['node', path.join(HERE, 'local-test-market.mjs'), 'stop'], { capture: false });
   // The stack's own stop: only the processes its records name, checked by pid file and command line, then Postgres.
   const r = await io.run(['node', STACK, 'stop'], { capture: false });
+  if (market.code !== 0) io.say(`${PREFIX} stop: the TEST market maker's own stop exited ${market.code}; its line above says why`);
   writeJson(LAUNCH, { ...rec, stoppedAt: new Date().toISOString() });
   kept();
-  return r.code === 0 ? 0 : 1;
+  return r.code === 0 && market.code === 0 ? 0 : 1;
 }
 
 function map(opts, io) {
