@@ -28,6 +28,9 @@
  *   http://127.0.0.1:3260 (the host check's apex; the real apex is deployed outside this repo) · the founder console
  *   (apps/admin, a production Next build) on http://127.0.0.1:3100
  *
+ *   pnpm local:stack journey <J-id> [--only a,b] [--keep]
+ *                                         take a free slot, start and ready the stack, run the journey, print PASS or the
+ *                                         failing step, and stop what it started (journey-local.mjs)
  *   pnpm local:stack plan                 print services, ports and Edge wiring; changes nothing
  *   node tooling/scripts/local-test-stack.mjs build [--rebuild] [--no-admin]   the builds `start` runs (services,
  *                                         Customer, console unless --no-admin, invitation site) and their stamp, and
@@ -4438,6 +4441,8 @@ async function runCli() {
     });
   else if (cmd === 'start' && rest[0] === 'customer-dist')
     cmdCustomerDist(rest.slice(1)); // pnpm local:stack customer-dist <path>
+  else if (cmd === 'start' && rest[0] === 'journey')
+    await (await import('./journey-local.mjs')).main(rest.slice(1)); // pnpm local:stack journey <J-id>: start, run, stop
   else if (cmd === 'start') await cmdStart(rest);
   else if (cmd === 'build') await cmdBuild(rest);
   else if (cmd === 'stop') await cmdStop(rest);
