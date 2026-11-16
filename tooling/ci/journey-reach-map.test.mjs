@@ -22,6 +22,7 @@ import {
   moduleKeys,
   pathReach,
   headWanted,
+  nodeTargets,
   patchText,
   readHead,
   sinceMap,
@@ -756,7 +757,7 @@ test('planted: where the map cannot know who loads a customer file, it is full',
     'not a changed file',
   );
   full(loaders(`${SRC}/app/boot.ts`), /apps\/customer\/vite.config.ts loads/, 'loaded from outside the customer source');
-  full(loaders(`${SRC}/app/docs.ts`), /the customer app's own Node code \(its build\) runs/);
+  full(loaders(`${SRC}/app/docs.ts`), /Node code \(the journey harness or the app's build\) runs/);
   full(loaders(`${SRC}/screens/harness/main.tsx`), /index.html loads/, 'a page loads it');
   const ts = `${SRC}/features/tax/TaxRoom.ts`;
   full(
@@ -957,6 +958,34 @@ test('planted: what main changed between the map and the merge base loads a file
     /the journey harness runs apps\/customer\/src\/features\/bank\/Cards.tsx, which loads it/,
     'a recorded loader the harness runs, from main’s graph',
   );
+  // Node code that builds a load's path (the checker's round 4 case): its quoted paths count, and pieces of one are full.
+  for (const [why, file, line] of [
+    ['a harness script', 'tooling/scripts/s.mjs', "await import(path.join(ROOT, 'apps/customer/src/features/bank/Cards.tsx'));"],
+    ['the build', 'apps/customer/vite.config.ts', "await runnerImport(resolve(__dirname, 'src/features/bank/Cards.tsx'));"],
+    [
+      'a journey helper',
+      'apps/customer/tests/real-app/helpers/x.mjs',
+      "await import(pathToFileURL(join(HERE, '../../../src/features/bank/Cards.tsx')).href);",
+    ],
+    ['a path in pieces', 'tooling/scripts/s.mjs', "await import(path.join(ROOT, 'apps', 'customer', 'src', name));"],
+    ['a template path', 'tooling/scripts/s.mjs', 'await import(`${HERE}/../../apps/x/src/${name}`);'],
+  ]) {
+    assert.ok(loaders(fresh, await nodeHead([node(file, line)])).full, why);
+    // GitHub gives no patch: the file is read whole at the head.
+    pr[file] = line;
+    assert.ok(loaders(fresh, await nodeHead([{ filename: file, status: 'modified' }])).full, `${why}, read whole`);
+    delete pr[file];
+  }
+  assert.deepEqual(
+    nodeTargets("await import(path.join(ROOT, 'services/svc-x/dist/a.js'));", 'tooling/scripts/s.mjs'),
+    { targets: [], any: false },
+    'a built path elsewhere names no customer file',
+  );
+  assert.deepEqual(
+    nodeTargets("const title = 'customer src';", 'tooling/scripts/s.mjs'),
+    { targets: [], any: false },
+    'no load built from a path: plain text',
+  );
   assert.deepEqual(
     names(loaders(fresh, await nodeHead([node('apps/customer/vite.config.ts', "import './src/app/docs';")]))),
     [BANK],
@@ -976,6 +1005,7 @@ test('customerImporters on this repository: who loads a style sheet, the build�
     'vite.config.ts loads it with new URL() and runs it in the build',
   );
   assert.equal(built.includes(`${SRC}/main.tsx`), false, 'the app itself is not the build’s Node code');
+  for (const h of harnessImports().filter((x) => x.startsWith(`${SRC}/`))) assert.ok(built.includes(h), `the harness runs ${h}`);
   assert.deepEqual(importers[`${SRC}/app/room-templates.ts`], [], 'only its unit test imports it; a scaffold reads it as text');
   for (const f of computed) assert.match(f, /^apps\/customer\/src\//);
   assert.equal(importers[`${SRC}/features/pay/portal/w3c2.pw.mjs`], undefined, 'a Playwright file in the source is a test');

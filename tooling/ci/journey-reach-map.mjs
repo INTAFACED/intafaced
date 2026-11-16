@@ -556,6 +556,38 @@ export function moduleKeys(f) {
   return keys;
 }
 
+/** Code that runs in Node: the journey harness (tooling/scripts, the real-app files) and the customer app's own
+ *  (its build config, deployment scripts and scaffolds: apps/customer outside src and tests, pages aside). */
+const nodeRoot = (f) =>
+  f.startsWith('tooling/scripts/') ||
+  f.startsWith(`${REAL_APP}/`) ||
+  (f.startsWith('apps/customer/') && !f.startsWith(CUSTOMER_DIR) && !f.startsWith('apps/customer/tests/') && !/\.html?$/.test(f));
+/** A load Node code may build its path for: a dynamic import or require of a non-literal, or Vite's own loaders. */
+const NODE_LOAD = /\b(?:import|require)\s*\(\s*(?!['"\s])|\brunnerImport\b|\bssrLoadModule\b|\bcreateRequire\b/;
+
+/**
+ * What a Node file's text loads: importTargets, and when it builds a load's path (NODE_LOAD), every quoted string that
+ * names a path, from the file (`./`, `../`), the repository root (`apps/customer/src/…`, also inside a longer string)
+ * or the customer app (`src/…`). `any`: such a file also quotes a customer path in pieces (`'customer', 'src'`) or
+ * a path with a `src` folder it doesn't spell whole (`${HERE}/../src/x.ts`), so it may load any customer file.
+ */
+export function nodeTargets(text, file) {
+  const out = new Set(importTargets(text, file));
+  let any = false;
+  if (NODE_LOAD.test(String(text))) {
+    const quoted = [...String(text).matchAll(/(['"`])([^'"`\n]*)\1/g)].map((m) => m[2].split(/[?#]/)[0]);
+    any = /customer['"`]\s*,\s*['"`]src['"`]/.test(String(text));
+    for (const s of quoted) {
+      const at = s.indexOf(CUSTOMER_DIR);
+      if (/^\.\.?\//.test(s)) out.add(posix.normalize(posix.join(posix.dirname(file), s)));
+      else if (at >= 0) out.add(posix.normalize(s.slice(at)));
+      else if (file.startsWith('apps/customer/') && /^\/?src\//.test(s)) out.add(posix.normalize(`apps/customer/${s.replace(/^\//, '')}`));
+      else if (!/\s/.test(s) && !/^(apps|packages|services|tooling)\//.test(s) && /\/src(\/|$)/.test(s)) any = true;
+    }
+  }
+  return { targets: [...out].filter((p) => !p.startsWith('..')).map((p) => p.replace(/\/$/, '')), any };
+}
+
 /** The texts of `files` at commit `at`, read in one `git cat-file --batch`: a lookup, undefined for a path that is no blob. */
 function blobs(git, at, files) {
   const out = git(['cat-file', '--batch'], Buffer.from(files.map((f) => `${at}:${f}\n`).join('')));
@@ -576,9 +608,10 @@ function blobs(git, at, files) {
  * Who loads each customer source file (every file under apps/customer/src but a unit test), from the text of every
  * script, style sheet and page under apps, packages, services and tooling (importTargets): { importers: { file: [path] },
  * built, computed }. A test (isTest) loads nothing here. A customer file that loads something it doesn't spell
- * (COMPUTED_LOAD) is taken to load every customer file; `computed` lists them, since they load a new file too. `built`: the customer files the app's own Node code runs (its
- * build config, deployment scripts and scaffolds: apps/customer outside src, the pages and tests aside), followed down
- * through their imports; a change there reaches what the build emits, which no record ties to a journey. `at`: the
+ * (COMPUTED_LOAD) is taken to load every customer file; `computed` lists them, since they load a new file too. `built`:
+ * the customer files Node code runs (nodeRoot: the journey harness and the app's build; nodeTargets), followed down
+ * through their imports; a change there reaches every journey, or what the build emits, which no record ties to a
+ * journey. `at`: the
  * commit to read (the map reads its newest run's head, so what main changed since is known: sinceMap), else the checkout.
  */
 export function customerImporters(root = ROOT, at = null) {
@@ -613,7 +646,9 @@ export function customerImporters(root = ROOT, at = null) {
       continue;
     }
     if (typeof text !== 'string') continue;
-    const to = new Set(importTargets(text, f).flatMap((p) => byKey.get(p) ?? []));
+    const node = nodeRoot(f) ? nodeTargets(text, f) : { targets: importTargets(text, f), any: false };
+    const to = new Set(node.targets.flatMap((p) => byKey.get(p) ?? []));
+    if (node.any) for (const t of targets) to.add(t);
     if (f.startsWith(CUSTOMER_DIR) && COMPUTED_LOAD.test(text)) {
       computed.push(f);
       for (const t of targets) to.add(t);
@@ -622,9 +657,7 @@ export function customerImporters(root = ROOT, at = null) {
     loads.set(f, to);
     for (const t of to) importers.get(t).add(f);
   }
-  const queue = [...loads.keys()].filter(
-    (f) => f.startsWith('apps/customer/') && !f.startsWith(CUSTOMER_DIR) && !f.startsWith('apps/customer/tests/') && !/\.html?$/.test(f),
-  );
+  const queue = [...loads.keys()].filter(nodeRoot);
   const built = new Set();
   while (queue.length)
     for (const t of loads.get(queue.shift()) ?? []) {
@@ -894,15 +927,12 @@ function loadersReach(map, path, head) {
   // What runs in Node (the harness, the app's build) may have grown since the map: a file read at the head that runs
   // there and loads a customer file the map doesn't hold as run there may now run it in every journey.
   const inNode = new Set([...(map.harness ?? []), ...(map.built ?? [])].flatMap((h) => moduleKeys(h)));
-  const nodeRuns = (g) =>
-    inNode.has(g) ||
-    (map.harness ?? []).some((h) => g.startsWith(`${h}/`)) ||
-    g.startsWith('tooling/scripts/') ||
-    g.startsWith(`${REAL_APP}/`) ||
-    (g.startsWith('apps/customer/') && !g.startsWith(CUSTOMER_DIR) && !g.startsWith('apps/customer/tests/') && !/\.html?$/.test(g));
+  const nodeRuns = (g) => inNode.has(g) || (map.harness ?? []).some((h) => g.startsWith(`${h}/`)) || nodeRoot(g);
   for (const [g, t] of texts) {
     if (typeof t !== 'string' || !nodeRuns(g)) continue;
-    const to = importTargets(t, g).find((x) => x.startsWith(CUSTOMER_DIR) && !inNode.has(x));
+    const node = nodeTargets(t, g);
+    if (node.any) return { full: `${why}, and ${g}, which runs in Node, builds a path it may load a customer file by` };
+    const to = node.targets.find((x) => x.startsWith(CUSTOMER_DIR) && !inNode.has(x));
     if (to) return { full: `${why}, and ${g}, which runs in Node, loads ${to}, which the map doesn't hold as run there` };
   }
   const stem = (n) => (RESOLVED.includes(posix.extname(n)) ? n.slice(0, -posix.extname(n).length) : null);
@@ -913,7 +943,7 @@ function loadersReach(map, path, head) {
     const f = queue.shift();
     if (seen.has(f)) continue;
     seen.add(f);
-    if (map.built?.includes(f)) return { full: `${why}, and the customer app's own Node code (its build) runs ${f}` };
+    if (map.built?.includes(f)) return { full: `${why}, and Node code (the journey harness or the app's build) runs ${f}` };
     if (map.harness?.includes(f)) return { full: `${why}, and the journey harness imports ${f}` };
     const keys = new Set(moduleKeys(f));
     if (!known(f)) {
@@ -943,7 +973,8 @@ function loadersReach(map, path, head) {
     if (!loaders.length) return { full: `${why}, and nothing but tests loads ${f} (an entry, or a file outside the app)` };
     for (const g of loaders) {
       if (!g.startsWith(CUSTOMER_DIR) || /\.html?$/.test(g)) return { full: `${why}, and ${g} loads ${f}, which no record covers` };
-      if (map.built?.includes(g)) return { full: `${why}, and the customer app's own Node code (its build) runs ${g}, which loads it` };
+      if (map.built?.includes(g))
+        return { full: `${why}, and Node code (the journey harness or the app's build) runs ${g}, which loads it` };
       if (map.harness?.includes(g)) return { full: `${why}, and the journey harness runs ${g}, which loads it` };
       const js = map.customer?.[g];
       if (js?.length) for (const j of js) out.add(j);
