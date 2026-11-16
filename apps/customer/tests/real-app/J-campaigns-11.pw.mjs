@@ -8,6 +8,7 @@ import { api, journeyState, tool } from './stack.mjs';
 import { installTestWallet, TEST_WALLET } from './test-wallet.mjs';
 import { otherTraderKey, otherTraderRun, testDeposit, testVenue, venueForThisFile, venueRecord } from './venue.mjs';
 import { chainReceipt, rewardFunds, sumDecimal } from './reward-funds.mjs';
+import { ownSpotMarket } from './own-market.mjs';
 
 // J-campaigns-11, in the running app (docs/roadmap/journeys.json): enter a trading competition. One test per step, titled
 // "J-campaigns-11 #<n>", run in order. The competition is this run's TEST campaign, made by the stack's two LOCAL TEST
@@ -139,8 +140,13 @@ async function trader(browser, prefix) {
 async function door(p, intent, actionKey) {
   const session = await api(p.who);
   const signer = { role: 'owner', address: p.wallet };
-  const prepared = await session.post('/api/v1/venue/prepare', { owner: p.wallet, signer, intent, ...(actionKey ? { actionKey } : {}) });
-  expect(prepared.status, JSON.stringify(prepared.body).slice(0, 400)).toBe(200);
+  // A market listed a moment ago may not be in our door's market list yet: it re-reads the venue's list on a miss, at most
+  // every few seconds (user-venue-door.ts MARKET_MISS_REREAD_MS), so prepare (which places nothing) is asked again.
+  let prepared;
+  await expect(async () => {
+    prepared = await session.post('/api/v1/venue/prepare', { owner: p.wallet, signer, intent, ...(actionKey ? { actionKey } : {}) });
+    expect(prepared.status, JSON.stringify(prepared.body).slice(0, 400)).toBe(200);
+  }).toPass({ timeout: 30_000, intervals: [2_000] });
   const t = prepared.body.prepared.typedData;
   const signature = await privateKeyToAccount(p.key).signTypedData({
     domain: t.domain,
@@ -178,13 +184,13 @@ async function directly(p, intent) {
 }
 
 let orders = 0;
-/** A TEST bid for `amount` BTC at PRICE from another TEST trader on the venue, so the person's sells fill against it. */
-async function restingBid(amount) {
+/** A TEST bid for `amount` of the market's base at PRICE from another TEST trader, so the person's sells fill against it. */
+async function restingBid(market, amount) {
   const buyer = `${J}-buyer-${RUN}-${(orders += 1)}`;
   await testDeposit(otherTraderKey(buyer).address, 'USDC', '200000', `seed:${buyer}:USDC:${Date.now()}`);
   const bid = await otherTraderRun(buyer, {
     kind: 'place_order',
-    symbol: 'BTC-USDC',
+    symbol: market.symbol,
     side: 'buy',
     type: 'limit',
     amount,
@@ -197,20 +203,20 @@ async function restingBid(amount) {
   expect(bid, JSON.stringify(bid).slice(0, 300)).toMatchObject({ definite: true, accepted: true });
 }
 
-/** The person's venue account holds TEST BTC, and they approve our builder fee through the door once. */
-async function readyToSell(p, btc) {
+/** The person's venue account holds the market's TEST base asset, and they approve our builder fee through the door once. */
+async function readyToSell(p, market, amount) {
   const account = { venueId: (await testVenue('/venue')).body.venue.id, owner: p.wallet, subAccount: null };
   const funded = await testVenue('/test/deposit', {
     account,
-    asset: 'BTC',
-    amount: btc,
-    depositRef: `84532:${keccak256(toHex(`${J} ${RUN} ${p.wallet} BTC ${Date.now()}`))}:0`,
+    asset: market.base,
+    amount,
+    depositRef: `84532:${keccak256(toHex(`${J} ${RUN} ${p.wallet} ${market.base} ${Date.now()}`))}:0`,
   });
   expect(funded.status, JSON.stringify(funded.body)).toBe(200);
   const status = (await (await api(p.who)).get('/api/v1/venue/status')).body;
   expect(status, JSON.stringify(status).slice(0, 300)).toMatchObject({ enabled: true, test: true });
   const markets = await testVenue('/markets', { account: null });
-  const cap = markets.body.value.find((m) => m.symbol === 'BTC-USDC').builderFeeCapBps.value;
+  const cap = markets.body.value.find((m) => m.symbol === market.symbol).builderFeeCapBps.value;
   await door(
     p,
     { kind: 'approve_builder_fee', builder: status.builder.address, maxFeeBps: cap },
@@ -218,13 +224,13 @@ async function readyToSell(p, btc) {
   );
 }
 
-/** Sells SELL BTC at PRICE through INTAFACED's venue door, `n` times, each into a TEST bid. */
-async function sellThroughUs(p, n) {
-  await restingBid(String(Number(SELL) * n));
+/** Sells SELL of the market's base at PRICE through INTAFACED's venue door, `n` times, each into a TEST bid. */
+async function sellThroughUs(p, market, n) {
+  await restingBid(market, String(Number(SELL) * n));
   for (let i = 0; i < n; i += 1) {
     await door(p, {
       kind: 'place_order',
-      symbol: 'BTC-USDC',
+      symbol: market.symbol,
       side: 'sell',
       type: 'limit',
       amount: SELL,
@@ -389,16 +395,20 @@ test(`${J} #3 trades on the venue through INTAFACED: volume counts once per venu
   test.setTimeout(300_000);
   const { campaignId, winner, rival } = state('campaignId', 'winner', 'rival');
   const since = new Date(Date.now() - 1_000).toISOString();
-  await readyToSell(winner, '3');
-  await readyToSell(rival, '2');
+  // A book this step owns: a fresh TEST market no other file trades. On the shared BTC-USDC book the stack's TEST ladder
+  // rests a bid at PRICE, and what an earlier file in the shard took of it decided whether a sell here met one bid or
+  // split across two, so the fill count moved with the run order (#8596: three fills for two sells after J-agents-18).
+  const market = await ownSpotMarket(J, 'JCX', 'V');
+  await readyToSell(winner, market, '3');
+  await readyToSell(rival, market, '2');
   // Through INTAFACED: two sells for the winner, one for the rival.
-  await sellThroughUs(winner, 2);
-  await sellThroughUs(rival, 1);
+  await sellThroughUs(winner, market, 2);
+  await sellThroughUs(rival, market, 1);
   // Through another front end, with no INTAFACED fee: the venue fills it, and it adds nothing.
-  await restingBid('0.25');
+  await restingBid(market, '0.25');
   await directly(winner, {
     kind: 'place_order',
-    symbol: 'BTC-USDC',
+    symbol: market.symbol,
     side: 'sell',
     type: 'limit',
     amount: '0.25',
@@ -408,18 +418,29 @@ test(`${J} #3 trades on the venue through INTAFACED: volume counts once per venu
     clientOrderKey: `order:${J}:${RUN}:direct:${Date.now()}`,
     builderFee: null,
   });
+  // Each order fills in full, but in as many venue fills as the book splits it into: a sell meets the TEST makers' bid at
+  // PRICE before this step's own, and an earlier journey on the same stack may have left that bid part-filled, so one
+  // 0.5 sell can fill against both (run 43800724154: three fills for two orders). The orders and their sizes are fixed;
+  // the count of fills is the venue's, and the board must count exactly that.
   let mine;
   let theirs;
+  const orderFills = (fills) => [new Set(fills.map((f) => f.venueClientOrderId)).size, sumDecimal(fills.map((f) => f.amount))];
   await expect
     .poll(
       async () => {
         mine = await venueFills(winner, since);
         theirs = await venueFills(rival, since);
-        return [mine.ours.length, mine.without.length, theirs.ours.length];
+        return [orderFills(mine.ours), orderFills(mine.without), orderFills(theirs.ours)];
       },
       { timeout: 30_000 },
     )
-    .toEqual([2, 1, 1]);
+    .toEqual([
+      [2, '1'],
+      [1, '0.25'],
+      [1, SELL],
+    ]);
+  expect(mine.ours.every((f) => f.venueClientOrderId && sumDecimal([f.price]) === PRICE)).toBe(true);
+  expect(theirs.ours.every((f) => f.venueClientOrderId && sumDecimal([f.price]) === PRICE)).toBe(true);
   // What the venue itself reports: the notional of each fill of an order placed through INTAFACED.
   const expected = sumDecimal(mine.ours.map(notionalOf));
   const expectedRival = sumDecimal(theirs.ours.map(notionalOf));
@@ -429,8 +450,8 @@ test(`${J} #3 trades on the venue through INTAFACED: volume counts once per venu
   await signIn(page, winner.who);
   const room = await openCompetition(page, campaignId);
   const wanted = [
-    [1, 2, true, expected, 2],
-    [2, 1, false, expectedRival, 1],
+    [1, 2, true, expected, mine.ours.length],
+    [2, 1, false, expectedRival, theirs.ours.length],
   ];
   await expect
     .poll(async () => (await page.reload(), await openCompetition(page, campaignId), shownStandings(page)), { timeout: 60_000 })
@@ -451,8 +472,8 @@ test(`${J} #3 trades on the venue through INTAFACED: volume counts once per venu
   }
   const board = await boardOf(rival.who, campaignId);
   expect(board.standings.map((s) => [s.rank, s.seat, s.you, s.volume, s.fills])).toEqual([
-    [1, 2, false, expected, 2],
-    [2, 1, true, expectedRival, 1],
+    [1, 2, false, expected, mine.ours.length],
+    [2, 1, true, expectedRival, theirs.ours.length],
   ]);
   expect(board.standings.every((s) => s.qualifies)).toBe(true);
 });

@@ -109,7 +109,7 @@ async function sizeStep() {
     const branch = arg('--branch');
     const main = sh('git', 'rev-parse', 'origin/main');
     if (sh('git', 'merge-base', main, head) === head) return; // nothing on this branch that main lacks
-    const ps = process.env.PROJECT_STATE_DIR ?? join(homedir(), 'code/project-state');
+    const ps = process.env.PROJECT_STATE_DIR || join(homedir(), 'code/project-state');
     // The open pull request's number (gh, about 0.8 s) is read while the count runs: only its length counts, so a count
     // made with a four-digit stand-in is the count, and is redone only for a number of another length.
     const prRead = new Promise((done) => {
@@ -167,7 +167,7 @@ async function sizeStep() {
     [
       `✖ the CI review will refuse this change for its size — push refused.`,
       `The review's own words on this head: ${v.over}`,
-      `Counted by its own diff step (ci-review.mjs writeReviewInputs) on local git (${on}, GitHub's main; ${at}).`,
+      `Counted by its own diff step (ci-review.mjs writeReviewInputs) on local git: ${what} (${on}, GitHub's main; ${at}).`,
       'Fix: split the change into pull requests that each fit; --no-verify pushes it anyway.',
     ].join('\n  '),
   );

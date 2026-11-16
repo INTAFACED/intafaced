@@ -50,6 +50,11 @@ export const SAME_PERSON_ACTION_TYPES = [
   'bank.step_up.businessTeam.assignRole',
   // Paying a business's bill from its partner-held account (J-bank-20).
   'bank.step_up.businessBills.pay',
+  // Confirming a bulk payment run and paying a contractor batch from a business's partner-held account (J-bank-21).
+  'bank.step_up.businessPayouts.confirmRun',
+  'bank.step_up.businessPayouts.payBatch',
+  // Approving and paying a member's reimbursement from a business's partner-held account (J-bank-22).
+  'bank.step_up.businessCards.approveAndPay',
   'bank.step_up.cards.unfreeze',
   'bank.step_up.cards.issue',
   'bank.step_up.cards.setLimits',
