@@ -53,6 +53,9 @@ export const venueStatusSchema = z.union([
     builder: z.object({ address, feeBps: decimalSchema }).nullable(),
     // J-derivatives-03 #9: the most orders the venue takes in one signed action; above 1, a reverse is signed once.
     ordersPerAction: z.number().int().positive().optional(),
+    // J-cex-spot-05: whether the venue lowers an order in place, and how many it cancels in one signed action (0: one each).
+    amendsInPlace: z.boolean().optional(),
+    cancelsPerAction: z.number().int().min(0).optional(),
     // J-derivatives-28: true when more than one venue is configured; the ticket then routes over them.
     routes: z.boolean().optional(),
   }),
@@ -76,6 +79,14 @@ export const venueMarketSchema = z.object({
   maxLeverageBps: z.number().int().positive().nullable(),
   tickSize: decimalSchema,
   lotSize: decimalSchema,
+  // The venue's published smallest order value (quote), price band (bps around the middle of its book) and open-order
+  // cap per account, each null where the venue publishes none (J-cex-spot-04). Absent from an older door: not published.
+  minOrderNotional: decimalSchema.nullable().optional(),
+  priceBandBps: decimalSchema.nullable().optional(),
+  maxOpenOrders: z.number().int().positive().nullable().optional(),
+  // The venue's largest order, null where it reports none.
+  maxOrderQty: decimalSchema.nullable().optional(),
+  maxOrderNotional: decimalSchema.nullable().optional(),
   makerFeeBps: maybeKnown(signedDecimalSchema),
   takerFeeBps: maybeKnown(signedDecimalSchema),
   // The venue's own published words for the market, each "not published" where the venue gives none (J-derivatives-21).
@@ -125,6 +136,10 @@ export const venueMarketSchema = z.object({
     z.array(z.object({ fromNotional: decimalSchema, maxLeverageBps: z.number().int().positive(), maintenanceRate: decimalSchema })),
   ).optional(),
   collateral: maybeKnown(z.array(z.object({ asset: z.string(), haircut: maybeKnown(decimalSchema) }))).optional(),
+  // The venue's own trading state for the market, null where it reports none, and our listing's routing beside it
+  // (J-charts-desk-15 #6: the chart refuses order entry naming either). Absent from an older door: not reported.
+  status: z.enum(['trading', 'halted', 'cancel_only', 'delisted']).nullable().optional(),
+  listing: z.object({ routing: z.enum(['show', 'close_only', 'stop']), delisted: z.boolean().optional() }).optional(),
 });
 export type VenueMarket = z.infer<typeof venueMarketSchema>;
 /** One of the venue's published margin tiers (J-derivatives-02 #2). */
@@ -219,8 +234,41 @@ export const venueOrderSchema = z.object({
   locked: decimalSchema,
   lockedAsset: z.string(),
   reduceOnly: z.boolean(),
+  /** A trigger order's trigger, as the venue reports it (J-cex-spot-06 #6); absent on an ordinary order. */
+  trigger: z
+    .object({
+      price: decimalSchema,
+      source: z.string(),
+      role: z.string(),
+      state: z.enum(['waiting', 'triggered', 'failed']),
+      triggeredAt: isoTime.nullable(),
+      failure: z.string().nullable(),
+    })
+    .nullable()
+    .optional(),
+  /** Why the venue cancelled it, where it says (`position_closed`, `linked`). */
+  cancelReason: z.string().nullable().optional(),
 });
 export type VenueOrder = z.infer<typeof venueOrderSchema>;
+
+/** One page of the venue's own order history (`GET /venue/orders/history`, J-cex-spot-06 #1), newest placed first. */
+export const venueHistoryPageSchema = z.object({
+  orders: z.array(z.object({ order: venueOrderSchema, placedAt: isoTime })),
+  next: z.string().nullable(),
+  asOf: isoTime,
+});
+export type VenueHistoryPage = z.infer<typeof venueHistoryPageSchema>;
+export type VenueHistoryQuery = { side?: string; status?: string; from?: string; to?: string; limit?: string; before?: string };
+
+/** Our own record of one venue order (`GET /venue/orders/record`): the amendments the venue accepted and our builder fee. */
+export const venueOrderRecordSchema = z.object({
+  placedAt: isoTime.nullable(),
+  amendments: z.array(z.object({ actionKey: z.string(), amount: decimalSchema, price: decimalSchema, recordedAt: isoTime })),
+  builderFee: z
+    .object({ chargedBps: decimalSchema, publishedBps: decimalSchema.nullable(), discountBps: z.number().int().nullable() })
+    .nullable(),
+});
+export type VenueOrderRecord = z.infer<typeof venueOrderRecordSchema>;
 
 /**
  * One order the person's door kept, read back from the venue (`GET /venue/orders`): `origin` is `agent:<keyId>` when their
@@ -577,6 +625,11 @@ export type VenueIntent =
   // Orders the venue takes in one signed action (J-derivatives-03 #9), each keyed `<actionKey>:<part>`.
   | { kind: 'place_orders'; actionKey: string; orders: OrderIntent[] }
   | { kind: 'cancel_order'; symbol: string; clientOrderKey: string }
+  // J-cex-spot-05: a resting order lowered in place, replaced in one signed action, or several cancelled in one, each
+  // named by the venue's own client id, so an order placed from any page can be changed.
+  | { kind: 'amend_order'; symbol: string; venueClientOrderId: string; amount: string; price: string }
+  | { kind: 'replace_order'; symbol: string; venueClientOrderId: string; order: OrderIntent }
+  | { kind: 'cancel_orders'; orders: Array<{ symbol: string; venueClientOrderId: string }> }
   | { kind: 'update_leverage'; symbol: string; leverageBps: number; marginMode: VenueMarginMode }
   | { kind: 'approve_builder_fee'; builder: string; maxFeeBps: string }
   | { kind: 'withdraw'; asset: string; amount: string; destination: string; withdrawalKey: string }
@@ -629,6 +682,14 @@ export const keys = {
       ? `builder-approval:${part(owner)}:${part(venueId)}:${part(builder)}:${maxFeeBps}`
       : `builder-approval:${part(owner)}:${part(builder)}:${maxFeeBps}`,
   withdraw: (owner: string, draft: string) => `withdraw:${part(owner)}:${draft}`,
+  /** One lowering of a resting order, by the venue's client id and the amount left: the same change asked twice is one. */
+  amend: (owner: string, venueClientOrderId: string, amount: string) =>
+    `amend:${part(owner)}:${part(venueClientOrderId)}:${canonicalDecimal(amount)}`,
+  /** One reviewed cancel-and-replace; its replacement is placed under `<key>:new`'s own client id. */
+  replace: (owner: string, draft: string) => `replace:${part(owner)}:${draft}`,
+  replacement: (owner: string, symbol: string, draft: string) => `order:${part(owner)}:${part(symbol)}:replace-${draft}`,
+  /** One confirmed batch cancel. */
+  cancelBatch: (owner: string, draft: string) => `cancel-batch:${part(owner)}:${draft}`,
   marketMargin: (owner: string, symbol: string, direction: 'into_market' | 'out_of_market', draft: string) =>
     `market-margin:${part(owner)}:${part(symbol)}:${direction === 'into_market' ? 'in' : 'out'}:${draft}`,
 };
@@ -735,6 +796,12 @@ export function venueApi(api: ApiClient) {
     keptOrders: (owner: string, cursor?: string, signal?: AbortSignal) => read('/orders', venueOrderPageSchema, { owner, cursor }, signal),
     /** The person's agent accounts, each with its owner wallet and venue sub-account (J-agents-21). */
     agentAccounts: (signal?: AbortSignal) => read('/agent-accounts', z.object({ accounts: z.array(agentAccountRowSchema) }), {}, signal),
+    /** The account's orders in every state as the venue keeps them, filtered and a page at a time (J-cex-spot-06 #1). */
+    orderHistory: (owner: string, query: VenueHistoryQuery, signal?: AbortSignal) =>
+      read('/orders/history', venueHistoryPageSchema, { owner, ...query }, signal),
+    /** Our record of one order: amendments the venue accepted, and our builder fee on it (J-cex-spot-06 #5 #10). */
+    orderRecord: (owner: string, clientOrderId: string, signal?: AbortSignal) =>
+      read('/orders/record', venueOrderRecordSchema, { owner, clientOrderId }, signal),
     orderByClientId: (owner: string, clientOrderId: string, signal?: AbortSignal) =>
       read('/orders/by-client-id', asOf(venueOrderSchema.nullable()), { owner, clientOrderId }, signal),
     fills: (owner: string, since: string, signal?: AbortSignal) => read('/fills', asOf(z.array(venueFillSchema)), { owner, since }, signal),
@@ -760,9 +827,18 @@ export function venueApi(api: ApiClient) {
     withdrawal: (owner: string, nonce: string, signal?: AbortSignal) =>
       api.rest(`/venue/withdrawals/${encodeURIComponent(nonce)}`, asOf(venueWithdrawalSchema.nullable()), { query: { owner }, signal }),
     preview: (owner: string, intent: OrderIntent) => write('/preview', asOf(venuePreviewSchema), { owner, intent }),
-    prepare: (input: { owner: string; intent: VenueIntent; actionKey?: string; stepUpApprovalId?: string | null; venueId?: string }) =>
+    prepare: (input: {
+      owner: string;
+      /** One of the person's own sub-accounts under `owner`, which the wallet signs for as its owner; omitted is the main account. */
+      subAccount?: string | null;
+      intent: VenueIntent;
+      actionKey?: string;
+      stepUpApprovalId?: string | null;
+      venueId?: string;
+    }) =>
       write('/prepare', preparedAnswerSchema, {
         ...(input.venueId ? { venueId: input.venueId } : {}),
+        ...(input.subAccount ? { subAccount: input.subAccount } : {}),
         owner: input.owner,
         signer: { role: 'owner', address: input.owner },
         intent: input.intent,

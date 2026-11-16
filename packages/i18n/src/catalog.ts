@@ -221,6 +221,8 @@ export const en = {
   'notify.agents.usage_alert.crossed.title': 'Agent spend passed your alert',
   'notify.agents.usage_alert.crossed.body':
     'Your agent has spent {amount} {asset} in {month}, reaching the alert you set at {alertAt} {asset}. Open the agent to see its limits.',
+  'notify.agents.alert.fired.title': 'Agent alert: {rule}',
+  'notify.agents.alert.fired.body': '{measure} was {value} from {from} to {to}, above the rule’s threshold of {threshold}.',
   'notify.agents.approval.requested.comment.title': 'Your agent wants to send a comment',
   'notify.agents.approval.requested.title': 'Your agent wants to use a tool that needs your approval',
   'notify.agents.approval.requested.body': 'It waits for your approval in the Approvals inbox. Nothing runs until you approve it.',

@@ -110,3 +110,37 @@
 .quant-source [data-op='added'] {
   color: var(--if-up-text);
 }
+
+/* The Data room (J-algo-dev-16 #2): one coverage bar per dataset; a gap is the bar's own background, never filled. */
+.quant-lake-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--if-space-3);
+}
+.quant-lake-symbol {
+  display: grid;
+  gap: var(--if-space-2);
+  margin-block: var(--if-space-3);
+}
+.quant-lake-dataset {
+  display: grid;
+  gap: var(--if-space-1);
+}
+.quant-lake-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--if-space-0-5) var(--if-space-3);
+  margin: 0;
+}
+.quant-lake-bar {
+  position: relative;
+  block-size: 0.75rem;
+  background: var(--if-panel);
+  border-radius: var(--if-r-sm);
+  overflow: hidden;
+}
+.quant-lake-covered {
+  position: absolute;
+  inset-block: 0;
+  background: var(--if-lime);
+}

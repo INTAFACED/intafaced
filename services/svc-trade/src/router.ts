@@ -1,5 +1,7 @@
 import { builderFeeAdminRouter, type BuilderFeeReconReader } from './builder-fee/builder-fee-admin.js';
 import { agentDeskAdminRouter } from './venue/agent-desk-admin.js';
+import { quantLiveAdminRouter } from './quant/live-run/halts-admin.js';
+import type { StrategyHaltDesk } from './quant/live-run/halts.js';
 import type { AgentDesk } from './venue/agent-desk.js';
 import { z } from 'zod';
 import { gridRouter } from './grid/router.js';
@@ -504,6 +506,41 @@ function presentFill(fill: FillRecord) {
  * hold just rejects it again — while an unreachable engine must, because the
  * order may not have been placed at all.
  */
+/** copy.follow's input, and copy.checkVenueFollow's without the agent account. */
+const copyFollowInput = z.object({
+  leaderId: z.string().min(1).max(120).optional(),
+  leaderRef: z.string().min(1).max(80).optional(),
+  region: z.string().min(1).max(16),
+  permittedMarkets: z.array(z.string().min(1).max(64)).min(1).max(64),
+  maxNotionalPerOrder: decimal,
+  maxAggregateExposure: decimal,
+  maxLoss: decimal.optional(),
+  maxSlippageBps: z.number().int().min(1).max(10_000).optional(),
+  maxConcurrent: z.number().int().min(1).max(2_147_483_647).optional(),
+  maxDrawdown: decimal.optional(),
+  maxLeverage: z.union([z.string(), z.number()]).optional(),
+  expiresAt: z.string().datetime(),
+  /** The request's own key: a second press with the same key returns the same follow. */
+  clientRequestId: z.string().min(8).max(120),
+  /** Quote amount each copied order uses. Omitted means no fixed size. */
+  fixedOrderSize: decimal.optional(),
+  /**
+   * One of the follower's own open agent accounts: the follow then copies on the venue, each copy a venue order
+   * on that account placed by its agent permission, and nothing is held from a balance of ours (venue-copy.ts).
+   */
+  agentAccountId: z.string().uuid().optional(),
+  leaderSettings: z
+    .object({
+      maxAllocation: decimal.optional(),
+      permittedInstruments: z.array(z.string().min(1).max(64)).max(64).optional(),
+      maxLoss: decimal.optional(),
+      maxSlippageBps: z.number().int().min(1).max(10_000).optional(),
+      maxConcurrent: z.number().int().min(1).max(2_147_483_647).optional(),
+      maxDrawdown: decimal.optional(),
+    })
+    .optional(),
+});
+
 export function toTrpcError(err: unknown): TRPCError {
   const historyError = convertHistoryTrpcError(err);
   if (historyError) return historyError;
@@ -912,6 +949,7 @@ export function createTradeRouter(
   venueActivity?: OwnVenueActivityDeps,
   signals?: SignalDesk,
   agentDesk?: AgentDesk | null,
+  quantHalts?: StrategyHaltDesk | null,
 ) {
   const placeAttempts = new PlaceAttemptBook();
   /** The lead desk's refusals carry their code at the end of the message, where the console reads it. */
@@ -962,6 +1000,7 @@ export function createTradeRouter(
       insuranceAdminRouter(insuranceTopups),
       builderFeeAdminRouter(builderFees),
       agentDeskAdminRouter(agentDesk),
+      quantLiveAdminRouter(quantHalts),
     ),
     /** `support.tradeSummary`: read-only, svc-support only (D-ops-06). The case check is svc-support's; this door audits the read. */
     support: supportTradeSummaryRouter(supportSummary),
@@ -1695,41 +1734,7 @@ export function createTradeRouter(
         .query(() => (copy ? copy.opsStatus() : presentCopyOpsStatus(unmountedCopyDeskFacts()))),
 
       follow: scopedProcedure('trade:write', { module: 'trade' })
-        .input(
-          z.object({
-            leaderId: z.string().min(1).max(120).optional(),
-            leaderRef: z.string().min(1).max(80).optional(),
-            region: z.string().min(1).max(16),
-            permittedMarkets: z.array(z.string().min(1).max(64)).min(1).max(64),
-            maxNotionalPerOrder: decimal,
-            maxAggregateExposure: decimal,
-            maxLoss: decimal.optional(),
-            maxSlippageBps: z.number().int().min(1).max(10_000).optional(),
-            maxConcurrent: z.number().int().min(1).max(2_147_483_647).optional(),
-            maxDrawdown: decimal.optional(),
-            maxLeverage: z.union([z.string(), z.number()]).optional(),
-            expiresAt: z.string().datetime(),
-            /** The request's own key: a second press with the same key returns the same follow. */
-            clientRequestId: z.string().min(8).max(120),
-            /** Quote amount each copied order uses. Omitted means no fixed size. */
-            fixedOrderSize: decimal.optional(),
-            /**
-             * One of the follower's own open agent accounts: the follow then copies on the venue, each copy a venue order
-             * on that account placed by its agent permission, and nothing is held from a balance of ours (venue-copy.ts).
-             */
-            agentAccountId: z.string().uuid().optional(),
-            leaderSettings: z
-              .object({
-                maxAllocation: decimal.optional(),
-                permittedInstruments: z.array(z.string().min(1).max(64)).max(64).optional(),
-                maxLoss: decimal.optional(),
-                maxSlippageBps: z.number().int().min(1).max(10_000).optional(),
-                maxConcurrent: z.number().int().min(1).max(2_147_483_647).optional(),
-                maxDrawdown: decimal.optional(),
-              })
-              .optional(),
-          }),
-        )
+        .input(copyFollowInput)
         .mutation(({ ctx, input }) =>
           guard(async () => {
             if (!copy) {
@@ -1740,6 +1745,22 @@ export function createTradeRouter(
             return agentAccountId
               ? copy.startVenueFollow(ctx.principal, { ...rest, agentAccountId: agentAccountId.toLowerCase() })
               : copy.startFollow(ctx.principal, rest);
+          }),
+        ),
+
+      /**
+       * Start copying on the venue, checked and not written (J-copy-bots-otc-01 #5 #7): the wizard asks this before the
+       * follower's wallet opens an agent account for the follow, so a refused gate or term writes and signs nothing.
+       */
+      checkVenueFollow: scopedProcedure('trade:write', { module: 'trade' })
+        .input(copyFollowInput.omit({ agentAccountId: true }))
+        .mutation(({ ctx, input }) =>
+          guard(async () => {
+            if (!copy) {
+              logRefusalSpec('trade.copy_jurisdiction_blank');
+              throw new CopyError(COPY_JURISDICTION_RESIDUAL, 'trade.copy_jurisdiction_blank', COPY_JURISDICTION_RESIDUAL);
+            }
+            return copy.checkVenueFollow(ctx.principal, input);
           }),
         ),
 

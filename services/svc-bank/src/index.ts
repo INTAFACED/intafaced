@@ -1,7 +1,8 @@
 import { parseStatementJobsTestHold, startStatementJobWorker } from './statements/statement-jobs.js';
+import { createIdentityExtraControls, unconfiguredExtraControls } from './safety/extra-controls.js';
 import { failingHistoryPages, parseActivityTestFault } from './activity/activity-test-fault.js';
-import type { z } from 'zod';
-import Fastify from 'fastify';
+import { z } from 'zod';
+import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { edgeTrustFromEnv } from '@intafaced/config';
@@ -43,6 +44,7 @@ import { cardTermsOrNone, partnerReservesRead } from './partner/reserves.js';
 import { cashOutPartnerFor } from './cash-out/payout-sim.js';
 import { onrampPartnerFor, payinPaidBody, payinReturnedBody } from './ramps/payin-sim.js';
 import { registerPayinSimPage } from './ramps/payin-sim-page.js';
+import { answerTestPartnerRecord, onLoopback, TEST_PARTNER_RECORD_BASE } from './partner/test-partner-record.js';
 import {
   payoutCancelledBody,
   payoutFailedBody,
@@ -52,6 +54,8 @@ import {
   redriveBody,
 } from './cash-out/job-bodies.js';
 import { directDebitSchemeFor } from './direct-debits/scheme.js';
+import { BILL_RETURN_REASONS } from './business/business-bills.js';
+import { billView } from './router/business-bills.router.js';
 import { ddRunBody, ddSimCollectionBody, ddSimMandateBody } from './direct-debits/job-bodies.js';
 import { scheduledNoticesBody } from './rules/job-bodies.js';
 import { incomeSorterBody } from './sorter/income-sorter.js';
@@ -394,11 +398,17 @@ const bank = createBankServices(sql, ledger, history, {
   /** The staking risk wording (BK-earn-04): the owner's, blank refuses. */
   earnRiskWording: env.BANK_EARN_RISK_WORDING_JSON,
   blockedRegionNotice: env.BANK_BLOCKED_REGION_NOTICE,
+  onboardingRequirements: env.BANK_ONBOARDING_REQUIREMENTS_JSON,
+  infoRequestUpload: env.BANK_INFO_REQUEST_UPLOAD_JSON,
+  reopenWindowDays: env.BANK_REOPEN_WINDOW_DAYS,
   accountCurrencies: env.BANK_ACCOUNT_CURRENCIES,
   spaceLimit: env.BANK_SPACE_LIMIT,
   spaceUnlockWaitHours: env.BANK_SPACE_UNLOCK_WAIT_HOURS,
   incomeSorterMinCredit: env.BANK_INCOME_SORTER_MIN_CREDIT,
   sharedPotInviteMinutes: env.BANK_SHARED_POT_INVITE_MINUTES,
+  businessInviteMinutes: env.BANK_BUSINESS_INVITE_MINUTES,
+  // The TEST bill reader stands in only where the TEST partner bank does.
+  billReader: testPartner ? env.BANK_BILL_READER : undefined,
   sharedPotPeopleCap: env.BANK_SHARED_POT_PEOPLE_CAP,
   /** Account details and the eligibility statement: owner-published lists, no banking partner wired (`rail.bank`). */
   accountDetails: {
@@ -460,6 +470,11 @@ const approvalConsumer = env.IDENTITY_URL
   : unwiredApprovalConsumer();
 
 export const appRouter = createBankRouter(bank, {
+  // The person's own extra checks (BK-safe-01): read from identity on every send to another person. No IDENTITY_URL refuses
+  // those sends with bank.extra_controls_unset rather than acting as if no extras were set.
+  extraControls: env.IDENTITY_URL
+    ? createIdentityExtraControls(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, undefined, ledgerS2s)
+    : unconfiguredExtraControls(),
   scheduledTransfersEnabled: env.SCHEDULED_TRANSFERS_ENABLED,
   interestAccrualEnabled: env.INTEREST_ACCRUAL_ENABLED,
   loanAccrualEnabled: env.LOAN_ACCRUAL_ENABLED,
@@ -823,6 +838,19 @@ jobDoor('/internal/jobs/payout-sim/returned', payoutReturnedBody, (b) =>
   bank.cashOut.returned(b.cashOutId, { amount: b.amount, assetId: b.assetId, reason: b.reason }),
 );
 /**
+ * A business's bill payments (J-bank-20 #4, #5). `bill-pay/run-due` sends the scheduled payments whose day has come, once
+ * each (a cancelled one is never picked up). `bill-pay/returned` is the partner's report that the payee's bank sent a
+ * payment back: the amount is given back to the business's partner account once. Signed job doors, never a customer's.
+ */
+jobDoor('/internal/jobs/bill-pay/run-due', z.object({ limit: z.number().int().min(1).max(500) }).strict(), (b) =>
+  bank.businessBills.runDue(b),
+);
+jobDoor(
+  '/internal/jobs/bill-pay/returned',
+  z.object({ paymentId: z.string().guid(), reason: z.enum(BILL_RETURN_REASONS) }).strict(),
+  async (b) => billView(await bank.businessBills.returned(b)),
+);
+/**
  * The pay-in partner's side of add money (J-bank-02 #3, #5): it says a payment it opened was paid, and the bank credits
  * the quote's receive amount once. A signed job door, never a customer or a staff session: with no partner wired it
  * refuses `bank.fiat_ramp_socket`. On the stack only the TEST stand-in (`payin-sim`) answers, and its page (mounted only
@@ -839,6 +867,23 @@ jobDoor('/internal/jobs/payin-sim/returned', payinReturnedBody, (b) => bank.addM
  */
 jobDoor('/internal/jobs/card-sim/shipment', cardShipmentJobBody, (b) => bank.cardOrders.recordShipment(b));
 if (onrampPartner) registerPayinSimPage(app, bank.addMoney, onrampPartner);
+/**
+ * LOCAL TEST: the TEST partner bank's own book on loopback (`partner/test-partner-record.ts`), so a journey compares what
+ * the app shows with what the partner itself recorded. Mounted only with the TEST partner, which refuses to start outside
+ * `dev`/`test`; a caller off loopback is refused.
+ */
+if (testPartner) {
+  const record = testPartner;
+  const read = async (req: FastifyRequest, reply: FastifyReply) => {
+    if (!onLoopback(req.socket.remoteAddress)) return reply.code(403).send({ error: 'loopback only' });
+    const below = req.url.split('?')[0]!.slice(TEST_PARTNER_RECORD_BASE.length);
+    const [status, body] = answerTestPartnerRecord(record, req.method, below, req.body ?? null);
+    return reply.code(status).header('cache-control', 'no-store').send(body);
+  };
+  app.get(`${TEST_PARTNER_RECORD_BASE}/venue`, read);
+  app.post(`${TEST_PARTNER_RECORD_BASE}/balances`, read);
+  app.post(`${TEST_PARTNER_RECORD_BASE}/moves`, read);
+}
 jobDoor('/internal/jobs/redrive-cash-outs', redriveBody, async (b) => recoveryCounts(await bank.cashOut.redrive(b.limit)));
 
 /**

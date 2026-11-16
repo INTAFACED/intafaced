@@ -1,7 +1,7 @@
 // World: book
 // Market: live
 import { test, expect } from './journey.mjs';
-import { journeyState } from './stack.mjs';
+import { journeyState, STACK_PORTS } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { tapeWindow } from './tape.mjs';
 import { userIdOf } from './copy.mjs';
@@ -612,7 +612,7 @@ async function quantDb(read) {
   const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
   const ctx = await gates.makeContext({ log: () => {} });
   const postgres = createRequire(nodePath.join(REPO, 'services', 'svc-quant', 'package.json'))('postgres');
-  const port = ctx.marker.ports.postgres ?? 15460;
+  const port = ctx.marker.ports.postgres ?? STACK_PORTS.postgres;
   const sql = postgres(`postgres://svc_quant:${encodeURIComponent(ctx.secrets.pgService)}@127.0.0.1:${port}/intafaced_local_test`, {
     max: 1,
     onnotice: () => {},

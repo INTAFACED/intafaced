@@ -1,4 +1,5 @@
 import { parseKycRequirementsByLevel, parseKycReviewHoursByLevel } from './kyc/levels.js';
+import { extraControlsFor } from './account/safety.js';
 import { parseKycRejectReasons, relayKycCaseEvents } from './kyc/cases.js';
 import { parseKycCapabilitiesByLevel } from './kyc/capabilities.js';
 import { parseKycAttemptLimit } from './kyc/attempts.js';
@@ -757,6 +758,7 @@ const social = new SocialSignin(sql, { providers: new Map(), flowTtlSeconds: env
 export const appRouter = mergeRouters(
   createIdentityRouter(auth, rank, {
     registrationOpen: env.REGISTRATION_OPEN,
+    extraControlsMin: env.IDENTITY_EXTRA_CONTROLS_MIN,
     // One budget per person across every replica and restart (#4689).
     handleLookupLimiter: new PgHandleLookupLimiter(sql),
     // The code-less register door is for the dev and test stacks' own tools only.
@@ -1009,8 +1011,12 @@ app.addHook('onRequest', (req, _reply, done) => {
   const clientProduct = typeof productHeader === 'string' ? productHeader.trim() : undefined;
   const rawAgent = req.headers['user-agent'];
   const userAgent = typeof rawAgent === 'string' ? rawAgent : undefined;
+  const rawRegion = req.headers['x-intafaced-region'];
+  const region = typeof rawRegion === 'string' ? rawRegion : undefined;
   requestIpAls.run(clientIp || undefined, () => {
-    requestProductAls.run(clientProduct || undefined, () => requestMetaAls.run({ ip: clientIp || undefined, userAgent }, () => done()));
+    requestProductAls.run(clientProduct || undefined, () =>
+      requestMetaAls.run({ ip: clientIp || undefined, userAgent, region }, () => done()),
+    );
   });
 });
 
@@ -1303,6 +1309,22 @@ app.get<{ Params: { userId: string } }>('/internal/security-lock/:userId', async
     return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
   }
   return view;
+});
+
+/**
+ * A person's step-up extras (BK-safe-01, J-bank-18 #4), `extraControlsForSchema`. svc-bank reads it on every send to
+ * another person and holds a send above the allowance; it keeps no copy. Service credentials only. A malformed id is a
+ * 404, which the caller refuses on; a read error is a 500, which it also refuses on.
+ */
+app.get<{ Params: { userId: string } }>('/internal/extra-controls/:userId', async (req, reply) => {
+  if (serviceOfRequest(req, env.INTERNAL_SERVICE_SECRET, env.INTERNAL_SERVICE_BODY_BIND, doorS2s).service === null) {
+    return reply.code(401).send({ error: 'service credentials required', code: 'identity.unauthenticated' });
+  }
+  const userId = req.params.userId;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) {
+    return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
+  }
+  return extraControlsFor(sql, userId);
 });
 
 /** A support agent's withdrawal freeze from a customer's request (J-support-public-20 #7): svc-support only. */

@@ -22,6 +22,7 @@ import { KycSelfieDecide } from '@/components/kyc-selfie-decide';
 import { TransferLookup, TransferRecord } from '@/components/pay-transfer';
 import { ProtocolBlockers } from '@/components/protocol-blockers';
 import { ProtocolTrust } from '@/components/protocol-trust';
+import { AgentsRoutesDesk } from '@/components/agents-routes-desk';
 import type { Part } from '@/lib/desk/part';
 import { fetchDesk, fetchPage } from '@/lib/ops-desk/browser';
 import { DESKS } from '@/lib/ops-desk/catalog';
@@ -365,6 +366,7 @@ export function SectionView({
       ))}
       {section.panel === 'protocol.blockers' && <ProtocolBlockers view={view} />}
       {section.panel === 'protocol.trust' && <ProtocolTrust />}
+      {section.panel === 'agents.routes' && <AgentsRoutesDesk />}
       {section.unavailable.length > 0 && (
         <div className="dk-stack" data-testid="unavailable">
           {section.unavailable.map((u) => (

@@ -24,6 +24,7 @@ import { assertPlaceEligible } from '../../spot/place-eligibility.js';
 import { agentAddressFor, agentKeyFor } from '../../venue/agent-key.js';
 import type { UserVenueDoor } from '../../venue/user-venue-door.js';
 import { AccountFreezeUnavailable, StrategySourceUnavailable, type AccountFreezeRead, type StrategySource } from './ports.js';
+import type { HaltView, StrategyHaltRead } from './halts.js';
 import {
   liveApproveKey,
   liveLiquidateKey,
@@ -83,6 +84,7 @@ export type LiveRunCode =
   | 'quant.live_plan_unsupported'
   | 'quant.live_plan_unavailable'
   | 'quant.studio_not_found'
+  | 'quant.approval_required'
   | 'quant.live_sub_account_unknown'
   | 'quant.live_run_reused'
   | 'quant.run_not_found'
@@ -96,6 +98,8 @@ export type LiveRunCode =
   | 'quant.order_rejected'
   | 'quant.nothing_to_liquidate'
   | 'quant.stop_unavailable'
+  | 'quant.strategy_halted'
+  | 'quant.halt_unavailable'
   | 'quant.live_test_only';
 
 export class LiveRunError extends Error {
@@ -148,6 +152,11 @@ export interface LiveRunsDeps {
    * tier it started with. Throws when identity can't be asked; null means not wired, and then no run trades.
    */
   readonly liveTier: ((userId: string) => Promise<Principal['tier']>) | null;
+  /**
+   * The risk desk's halts (halts.ts, J-algo-dev-11): a halted strategy's runs place no new order and a new run of it is
+   * refused, while a reduce-only exit passes. A halt that can't be read is never read as no halt. Null: none wired.
+   */
+  readonly halts?: StrategyHaltRead | null;
   readonly now: () => Date;
 }
 
@@ -182,6 +191,8 @@ export interface LiveRunView {
   /** What the wallet is asked to sign next (the run's agent permission), if anything. */
   readonly next: { readonly actionKey: string; readonly prepared: PreparedVenueAction; readonly signed: boolean } | null;
   readonly test: boolean;
+  /** The risk desk's halt standing on this run's strategy (J-algo-dev-11), on the list and the run's own read. */
+  readonly halt?: { readonly reason: string; readonly scope: 'one' | 'all'; readonly haltedAt: string } | null;
 }
 
 export interface LiveOrderView {
@@ -365,6 +376,34 @@ export class LiveRuns {
     }
   }
 
+  /** The halt standing on a strategy now. Throws `quant.halt_unavailable` when it can't be read. */
+  private async haltOf(userId: string, strategyId: string): Promise<HaltView | null> {
+    const halts = this.deps.halts;
+    if (!halts) return null;
+    try {
+      return await halts.haltOf(userId, strategyId);
+    } catch {
+      fail('quant.halt_unavailable', 'the risk desk’s halts could not be read just now, so nothing new is placed; nothing changed', 503);
+    }
+  }
+
+  private async assertNotHalted(userId: string, strategyId: string, action: string): Promise<void> {
+    const halt = await this.haltOf(userId, strategyId);
+    if (halt) {
+      fail(
+        'quant.strategy_halted',
+        `INTAFACED's risk desk halted this strategy (${halt.reason}), so ${action} is refused; a reduce-only exit (Liquidate) still passes. Your position stays in your own venue account.`,
+        423,
+        { haltReason: halt.reason, haltScope: halt.scope },
+      );
+    }
+  }
+
+  private async withHalt<T extends LiveRunView>(view: T, userId: string): Promise<T> {
+    const halt = await this.haltOf(userId, view.strategyId).catch(() => null);
+    return { ...view, halt: halt ? { reason: halt.reason, scope: halt.scope, haltedAt: halt.haltedAt } : null };
+  }
+
   // ── the start (the run the journey starts from; the deploy wizard of J-algo-dev-06 asks this) ───────────────────
 
   /**
@@ -395,6 +434,8 @@ export class LiveRuns {
         ? req.strategyId.trim()
         : fail('quant.live_request_invalid', 'strategyId is required', 400, { field: 'strategyId' });
     const strategyVersion = seqOf(req.strategyVersion);
+    // A halted strategy starts no new run (J-algo-dev-11), before anything is stored.
+    await this.assertNotHalted(principal.userId, strategyId, 'a new live run');
     const attemptsRaw =
       typeof req.restartAttempts === 'string'
         ? req.restartAttempts.trim()
@@ -448,6 +489,16 @@ export class LiveRuns {
       throw error;
     }
     if (!version) fail('quant.studio_not_found', 'no saved strategy with that id and version on this account', 404);
+    // The account's live approval policy (J-algo-dev-16 #4): a version a different member has not approved, or one whose
+    // rules or risk settings changed since, starts nothing.
+    if (version.approvalRequired) {
+      fail(
+        'quant.approval_required',
+        `version ${strategyVersion} needs a different member's approval before it can go live; nothing was stored`,
+        409,
+        { strategyVersion },
+      );
+    }
     if (version.signalRules || version.blocks.length === 0) {
       fail(
         'quant.live_plan_unsupported',
@@ -557,7 +608,7 @@ export class LiveRuns {
 
   async list(principal: Principal): Promise<readonly LiveRunView[]> {
     const test = await this.isTest();
-    return (await this.deps.store.listForUser(principal.userId)).map((r) => this.view(r, null, test));
+    return Promise.all((await this.deps.store.listForUser(principal.userId)).map((r) => this.withHalt(this.view(r, null, test), r.userId)));
   }
 
   /** The run, its orders read back by key, the sub-account as the venue reports it now, and its log. Reads only, except a frozen person's permission. */
@@ -610,7 +661,7 @@ export class LiveRuns {
       venueError = `${venue.venue.displayName} could not be read just now: ${error.refusal.detail}`;
     }
     return {
-      ...this.view(r, null, isTestVenue(venue.venue)),
+      ...(await this.withHalt(this.view(r, null, isTestVenue(venue.venue)), r.userId)),
       orders,
       venue: snapshot,
       venueError,
@@ -858,6 +909,8 @@ export class LiveRuns {
         : fail('quant.live_request_invalid', 'symbol is required', 400, { field: 'symbol' });
     const size = amountOf(req.size, 'size', 'quant.live_request_invalid');
     await this.assertNotFrozen(r0, 'a manual order');
+    // A manual order opens risk; a halted strategy takes none (J-algo-dev-11). Liquidate is the reduce-only exit.
+    await this.assertNotHalted(r0.userId, r0.strategyId, 'a new order');
     return this.locked(r0, async () => {
       const r = (await this.deps.store.find(r0.userId, r0.runId))!;
       const venue = await this.venue();
@@ -1112,6 +1165,22 @@ export class LiveRuns {
               );
             const refusal = eligibility(tier, run.region);
             if (refusal) return this.held(run, 'not_eligible', `${refusal}: the run places no order and restarts nothing while it stands.`);
+            // The risk desk's halt (J-algo-dev-11): no new order and no restart while it stands; one that can't be read
+            // holds the run too. A reduce-only exit (Liquidate) is the person's and still passes.
+            let halt: HaltView | null;
+            try {
+              halt = this.deps.halts ? await this.deps.halts.haltOf(run.userId, run.strategyId) : null;
+            } catch {
+              return this.held(run, 'halt_unread', 'The risk desk’s halts could not be read, so the run places no order until they can.');
+            }
+            if (halt)
+              return this.held(
+                run,
+                'halted',
+                `Halted by INTAFACED's risk desk (${halt.reason}): the run places no new order. Liquidate, a reduce-only exit, still passes.`,
+              );
+            if (this.heldFor.get(this.id(run)) === 'halted')
+              await this.log(run, 'halt_lifted', 'The risk desk restored this strategy: the run trades again.');
             this.heldFor.delete(this.id(run));
             if (this.workers.has(this.id(run)) && run.state === 'running') return this.step(run, tier);
             return this.recover(run, tier);

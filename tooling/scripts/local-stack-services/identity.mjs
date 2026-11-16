@@ -211,6 +211,10 @@ const service = ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_OR
           IDENTITY_KYC_LOCKOUT_HOURS: testValue('IDENTITY_KYC_LOCKOUT_HOURS'),
         }),
     IDENTITY_SUPPORT_RECOVERY_LINK_TTL_SECONDS: testValue('IDENTITY_SUPPORT_RECOVERY_LINK_TTL_SECONDS'),
+    // The owner's least number of step-up extras (J-bank-18 #4): a TEST value. `LOCAL_STACK_IDENTITY_EXTRA_CONTROLS_MIN=off`
+    // on a restart leaves it blank, as production is, so setting extras refuses identity.extra_controls_unset.
+    IDENTITY_EXTRA_CONTROLS_MIN:
+      process.env.LOCAL_STACK_IDENTITY_EXTRA_CONTROLS_MIN === 'off' ? '' : testValue('IDENTITY_EXTRA_CONTROLS_MIN'),
     // LOCAL TEST ONLY, not an owner decision (W-withdraw-09): a security lock ends one day after its unlock is asked
     // for, so a journey can see the lock still holding with its end time.
     IDENTITY_SECURITY_LOCK_UNLOCK_WAIT_SECONDS: '86400',

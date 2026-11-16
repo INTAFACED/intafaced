@@ -4,9 +4,12 @@ import {
   draftId,
   keys,
   onStep,
+  type KeptSignature,
   type OrderIntent,
+  type VenueBalance,
   type VenueBestPrices,
   type VenueMarket,
+  type VenuePreview,
   type VenueSelfTradeMode,
   type VenueTimeInForce,
 } from '../../../features/trade/venue-api';
@@ -108,10 +111,32 @@ export function tagProblem(tag: string): boolean {
 }
 
 /** Why the ticket is not an order yet, or null when it is one the venue can be asked about. */
-export type TicketProblem = 'amount' | 'price' | 'amount_step' | 'price_step' | 'no_book' | 'no_cap';
+export type TicketProblem = 'rule_unpublished' | 'amount' | 'price' | 'amount_step' | 'price_step' | 'no_book' | 'no_cap';
 
-/** `capSet` false: the owner's protection is blank, so a market order is refused (`trade.slippage_cap_unset`). */
+/** A rule a spot order is checked against, which the venue may leave unpublished (J-cex-spot-04 #6). */
+export type VenueRule = 'min' | 'band' | 'cap';
+
+/** The rules the venue does not publish for this market, in the order the desk names them. */
+export function unpublishedRules(market: VenueMarket): VenueRule[] {
+  const out: VenueRule[] = [];
+  if (market.minOrderNotional == null) out.push('min');
+  if (market.priceBandBps == null) out.push('band');
+  if (market.maxOpenOrders == null) out.push('cap');
+  return out;
+}
+
+/** A band in bps as a percent string, exact: "9500" is "95", "250" is "2.5". */
+export function bpsAsPercent(bps: string): string {
+  return formatAmount(parseAmount(bps) / 100n);
+}
+
+/**
+ * `capSet` false: the owner's protection is blank, so a market order is refused (`trade.slippage_cap_unset`). A spot
+ * market whose venue publishes no smallest order value, band or open-order cap takes no order at all: the desk never
+ * stands in a default (`trade.venue_rule_unpublished`, refused by our door too).
+ */
 export function ticketProblem(fields: TicketFields, market: VenueMarket, worst: string | null, capSet = true): TicketProblem | null {
+  if (market.kind === 'spot' && unpublishedRules(market).length > 0) return 'rule_unpublished';
   if (!fields.amount.trim() || !isDecimal(fields.amount)) return 'amount';
   if (!onStep(fields.amount, market.lotSize)) return 'amount_step';
   if (fields.type === 'market') return !capSet ? 'no_cap' : worst === null ? 'no_book' : null;
@@ -221,4 +246,71 @@ export function withdrawStep(amount: string, approval: { id: string | null } | n
   if (toTokenUnits(amount, 18) === null) return { step: 'refuse', why: 'amount' };
   if (approval === null) return { step: 'step_up' };
   return { step: 'sign', stepUpApprovalId: approval.id };
+}
+
+/**
+ * Whether the venue's preview of one order moved between Review and Confirm (J-cex-spot-02 #7): any figure the review
+ * showed (the lock, the role, either fee, what fills now). A moved preview is shown and asked again; nothing is sent.
+ */
+export function previewMoved(reviewed: VenuePreview, now: VenuePreview): boolean {
+  return JSON.stringify(reviewed) !== JSON.stringify(now);
+}
+
+/**
+ * What an order locks that the venue account does not have free (J-cex-spot-02 #6), from the venue's own figures: the
+ * preview's lock against the free balance of the asset it locks. Null when it is covered.
+ */
+export function lockShortfall(
+  preview: Pick<VenuePreview, 'lock'>,
+  balances: readonly Pick<VenueBalance, 'asset' | 'free'>[],
+): { asset: string; lock: string; free: string } | null {
+  const free = balances.find((b) => b.asset === preview.lock.asset)?.free ?? '0';
+  return parseAmount(preview.lock.amount) > parseAmount(free) ? { asset: preview.lock.asset, lock: preview.lock.amount, free } : null;
+}
+
+/** An order the venue gave no definite answer to: its client id, its business key and the intent sent under it. */
+export interface PendingOrder {
+  clientOrderId: string;
+  key: string;
+  intent: OrderIntent;
+  /**
+   * The signed bytes sent under the key, when this tab signed it: "Send the same order again" re-sends them, so a lost
+   * answer never asks the wallet a second time, even after a reload. A signed order, never a key.
+   */
+  signature?: KeptSignature;
+}
+
+/**
+ * This browser tab's orders with no definite answer yet, per owner (sessionStorage, so a reload keeps them; J-cex-spot-02
+ * #4): while one is listed, the desk sends no new order. Storage may be blocked; the page then keeps them in memory.
+ */
+export function pendingOrders(owner: string) {
+  const name = `if.venue.pending.${owner}`;
+  let memory: PendingOrder[] = [];
+  const read = (): PendingOrder[] => {
+    try {
+      const raw = sessionStorage.getItem(name);
+      const parsed: unknown = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? (parsed as PendingOrder[]) : [];
+    } catch {
+      return memory;
+    }
+  };
+  const write = (next: PendingOrder[]) => {
+    memory = next;
+    try {
+      sessionStorage.setItem(name, JSON.stringify(next));
+    } catch {
+      /* blocked storage: the page keeps them */
+    }
+  };
+  return {
+    list: read,
+    add(order: PendingOrder) {
+      write([...read().filter((p) => p.clientOrderId !== order.clientOrderId), order]);
+    },
+    remove(clientOrderId: string) {
+      write(read().filter((p) => p.clientOrderId !== clientOrderId));
+    },
+  };
 }

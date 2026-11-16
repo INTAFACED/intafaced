@@ -5,6 +5,8 @@ import {
   BONUS_APPLIES_TO,
   CAMPAIGN_TYPES,
   CUSTOMER_CAMPAIGN_STATES,
+  DIVIDEND_OWNER_QUESTION,
+  DRAW_USER_TYPES,
   PARKED_CAMPAIGN_TYPES,
   type Campaign,
   type CampaignAction,
@@ -24,6 +26,11 @@ import {
   type VoucherWindow,
   type CampaignLimits,
   type CampaignReferral,
+  type CampaignCompetition,
+  type CampaignDraw,
+  type CampaignDistribution,
+  type CampaignPool,
+  type CampaignTrialPass,
   type MyCampaigns,
   type Participation,
   type ParticipationRules,
@@ -107,6 +114,16 @@ type CampaignRow = {
   limits: CampaignLimits | null;
   /** A referral campaign's programme (CM-referral-02); null for any other campaign. */
   referral: CampaignReferral | null;
+  /** A competition's terms (CM-promotions-events-01); null for any other campaign. */
+  competition: CampaignCompetition | null;
+  /** A draw's terms (CM-promotions-events-02); null for any other campaign. */
+  draw: CampaignDraw | null;
+  /** A distribution's terms (CM-airdrop-campaigns-01); null for any other campaign. */
+  distribution: CampaignDistribution | null;
+  /** A reward pool's terms (CM-airdrop-campaigns-02); null for any other campaign. */
+  pool: CampaignPool | null;
+  /** A trial pass's terms (CM-vip-tiers-01); null for any other campaign. */
+  trial_pass: CampaignTrialPass | null;
   /** What the campaign's reward intents reserve or spent, from `campaigns.campaign_rows`; absent on a RETURNING row. */
   budget_drawn?: string;
   created_by: string;
@@ -263,10 +280,14 @@ const isParked = (type: CampaignType) => (PARKED_CAMPAIGN_TYPES as readonly stri
 export function gateOf(row: CampaignRow, timeZone: string | null): CampaignGate['missing'] {
   const missing: CampaignGate['missing'] = [];
   if (isParked(row.type)) missing.push({ code: 'owner.decision', field: 'type' });
+  // A dividend waits for the owner's decision (OWNER 87); an airdrop of our own pool does not.
+  if (row.type === 'distribution' && row.distribution?.kind === 'dividend') missing.push({ code: 'owner.decision', field: 'dividend' });
   // A fee-saver coupon campaign moves no value (ENGINE VC-9): it has no reward pot to draw and no reward to pay, so neither
   // is asked for; its terms are its vouchers' discount and orders, which the definition cannot leave blank.
   const feeSaver = row.type === 'voucher' && Boolean(row.vouchers?.feeSaver);
-  if (!feeSaver && (!row.budget_asset || row.budget_limit === null)) missing.push({ code: 'campaigns.budget_unset', field: 'budget' });
+  // A trial pass moves no value either: it grants a fee tier for a span, so it has no budget.
+  if (!feeSaver && row.type !== 'trial_pass' && (!row.budget_asset || row.budget_limit === null))
+    missing.push({ code: 'campaigns.budget_unset', field: 'budget' });
   if (!row.participation) missing.push({ code: 'campaigns.rules_unset', field: 'participation' });
   else if (row.participation.regionScope === 'listed' && !row.participation.restrictedRegions?.length) {
     missing.push({ code: 'campaigns.region_list_unset', field: 'restrictedRegions' });
@@ -280,15 +301,41 @@ export function gateOf(row: CampaignRow, timeZone: string | null): CampaignGate[
   const welcome = row.type === 'welcome';
   // A referral campaign gives each side its own reward (CM-referral-03): the referrer always, the invitee when double sided.
   const referral = row.type === 'referral';
-  if (!welcome && !feeSaver && !referral && (!row.reward_asset || row.reward_amount === null)) {
+  // A competition pays its prize table from its pool, the campaign's budget, in the budget's asset.
+  const competition = row.type === 'competition';
+  // A draw pays its prize table from the campaign's budget, in the budget's asset.
+  const draw = row.type === 'draw';
+  // A distribution and a reward pool pay shares of their pool, the campaign's budget, in the budget's asset.
+  const distribution = row.type === 'distribution';
+  const pool = row.type === 'pool';
+  // A trial pass grants a fee tier for a span: it pays nothing, so it asks for no reward or budget.
+  const trialPass = row.type === 'trial_pass';
+  if (
+    !welcome &&
+    !feeSaver &&
+    !referral &&
+    !competition &&
+    !draw &&
+    !distribution &&
+    !pool &&
+    !trialPass &&
+    (!row.reward_asset || row.reward_amount === null)
+  ) {
     missing.push({ code: 'campaigns.reward_unset', field: 'reward' });
   }
   if (referral) missing.push(...referralGaps(row.referral));
+  if (competition) missing.push(...competitionGaps(row.competition, row.budget_limit));
+  if (draw) missing.push(...drawGaps(row.draw, row.budget_limit));
+  if (distribution) missing.push(...distributionGaps(row.distribution, row.starts_at, row.ends_at));
+  if (pool) missing.push(...poolGaps(row.pool, row.budget_limit));
+  if (trialPass) missing.push(...trialPassGaps(row.trial_pass));
   const rewardAssets = welcome
     ? (row.tasks?.steps ?? []).flatMap((s) => (s.reward ? [s.reward.asset] : []))
     : referral
       ? [row.referral?.rewards.referrer?.asset, row.referral?.rewards.referee?.asset].filter(Boolean)
-      : [row.reward_asset];
+      : competition || draw || distribution || pool || trialPass
+        ? []
+        : [row.reward_asset];
   if (row.budget_asset && rewardAssets.some((a) => a && a !== row.budget_asset)) {
     missing.push({ code: 'campaigns.budget_asset_mismatch', field: 'budget' });
   }
@@ -336,7 +383,9 @@ function refuseGate(missing: CampaignGate['missing']): void {
   const names = missing.map((m) => m.field).join(', ');
   const message =
     first.code === 'owner.decision'
-      ? 'This campaign type waits for an owner decision'
+      ? first.field === 'dividend'
+        ? DIVIDEND_OWNER_QUESTION
+        : 'This campaign type waits for an owner decision'
       : `The campaign cannot go live until these are set: ${names}`;
   throw new CampaignsError(first.code, message);
 }
@@ -375,6 +424,11 @@ function toCampaign(r: CampaignRow, timeZone: string | null, now: Date, change: 
     vouchers: r.vouchers,
     limits: r.limits,
     referral: r.referral,
+    competition: r.competition,
+    draw: r.draw,
+    distribution: r.distribution,
+    pool: r.pool,
+    trialPass: r.trial_pass,
     earning: r.earning,
     createdBy: r.created_by,
     submittedBy: r.submitted_by,
@@ -412,6 +466,11 @@ function inputOf(d: Definition): CampaignDefinitionInput {
     ...(d.vouchers ? { vouchers: d.vouchers } : {}),
     ...(d.limits ? { limits: d.limits } : {}),
     ...(d.referral ? { referral: d.referral } : {}),
+    ...(d.competition ? { competition: d.competition } : {}),
+    ...(d.draw ? { draw: d.draw } : {}),
+    ...(d.distribution ? { distribution: d.distribution } : {}),
+    ...(d.pool ? { pool: d.pool } : {}),
+    ...(d.trialPass ? { trialPass: d.trialPass } : {}),
     // Blank stays blank; otherwise left out, which reads the platform zone.
     ...(d.timeZoneBlank ? { timeZone: null } : {}),
   };
@@ -440,6 +499,11 @@ function rowWith(r: CampaignRow, d: Definition): CampaignRow {
     vouchers: d.vouchers,
     limits: d.limits,
     referral: d.referral,
+    competition: d.competition,
+    draw: d.draw,
+    distribution: d.distribution,
+    pool: d.pool,
+    trial_pass: d.trialPass,
   };
 }
 
@@ -465,6 +529,11 @@ function inputOfRow(r: CampaignRow): CampaignDefinitionInput {
     vouchers: r.vouchers,
     limits: r.limits,
     referral: r.referral,
+    competition: r.competition,
+    draw: r.draw,
+    distribution: r.distribution,
+    pool: r.pool,
+    trialPass: r.trial_pass,
   });
 }
 
@@ -499,6 +568,11 @@ function toView(
     budget: c.budget,
     reward: c.reward,
     tasks: c.tasks,
+    competition: c.competition,
+    draw: c.draw,
+    distribution: c.distribution,
+    pool: c.pool,
+    trialPass: c.trialPass,
     mine,
     eligibility,
   };
@@ -572,6 +646,11 @@ type Definition = {
   vouchers: VoucherWindow | null;
   limits: CampaignLimits | null;
   referral: CampaignReferral | null;
+  competition: CampaignCompetition | null;
+  draw: CampaignDraw | null;
+  distribution: CampaignDistribution | null;
+  pool: CampaignPool | null;
+  trialPass: CampaignTrialPass | null;
 };
 
 /**
@@ -638,7 +717,179 @@ export function parseDefinition(input: CampaignDefinitionInput, platformZone: st
     vouchers: input.vouchers ? parseVoucherWindow(type as CampaignType, input.vouchers) : null,
     limits: input.limits ? limitsOf(input.limits) : null,
     referral: input.referral ? parseReferral(type as CampaignType, input.referral) : null,
+    competition: input.competition ? parseCompetition(type as CampaignType, input.competition) : null,
+    draw: input.draw ? parseDraw(type as CampaignType, input.draw) : null,
+    distribution: input.distribution ? parseDistribution(type as CampaignType, input.distribution) : null,
+    pool: input.pool ? parsePool(type as CampaignType, input.pool) : null,
+    trialPass: input.trialPass ? parseTrialPass(type as CampaignType, input.trialPass) : null,
   };
+}
+
+/**
+ * A competition's terms (CM-promotions-events-01), stored the same way every time. Blanks stay blank for the gate to
+ * name. Only a `competition` campaign has them; each place has one prize and each milestone tier a higher volume than
+ * the one before.
+ */
+function parseCompetition(type: CampaignType, input: CampaignCompetition): CampaignCompetition {
+  if (type !== 'competition') {
+    throw new CampaignsError('campaigns.competition_invalid', 'Only a competition campaign has competition terms');
+  }
+  const prizes = [...input.prizes].sort((a, b) => a.rank - b.rank);
+  prizes.forEach((p, i) => {
+    if (p.rank !== i + 1) throw new CampaignsError('campaigns.competition_invalid', 'The prize table names each place once, from first');
+    if (parseAmount18(p.amount) <= 0n) throw new CampaignsError('campaigns.competition_invalid', 'Every prize is above zero');
+  });
+  for (let i = 0; i < input.milestones.length; i += 1) {
+    const m = input.milestones[i]!;
+    if (parseAmount18(m.amount) <= 0n || parseAmount18(m.volume) <= 0n) {
+      throw new CampaignsError('campaigns.competition_invalid', 'A milestone has a volume and a prize above zero');
+    }
+    if (i > 0 && parseAmount18(m.volume) <= parseAmount18(input.milestones[i - 1]!.volume)) {
+      throw new CampaignsError('campaigns.competition_invalid', 'Each milestone tier needs more volume than the one before');
+    }
+  }
+  return {
+    basis: input.basis,
+    volumeAsset: input.volumeAsset,
+    threshold: input.threshold === null ? null : decimalOf(input.threshold),
+    seats: input.seats,
+    prizes: prizes.map((p) => ({ rank: p.rank, amount: decimalOf(p.amount) })),
+    milestones: input.milestones.map((m) => ({ volume: decimalOf(m.volume), amount: decimalOf(m.amount) })),
+  };
+}
+
+/**
+ * What a competition still lacks before it can go live: ranking by returns waits for the owner, each blank term, a prize
+ * table, and a pool that covers every prize it could pay (each place, and every seat reaching every milestone).
+ */
+function competitionGaps(c: CampaignCompetition | null, poolLimit: string | null): CampaignGate['missing'] {
+  if (!c) return [{ code: 'campaigns.competition_unset', field: 'competition' }];
+  const out: CampaignGate['missing'] = [];
+  if (c.basis === 'returns') out.push({ code: 'owner.decision', field: 'rankingBasis' });
+  if (c.volumeAsset === null) out.push({ code: 'campaigns.competition_unset', field: 'volumeAsset' });
+  if (c.threshold === null) out.push({ code: 'campaigns.competition_unset', field: 'threshold' });
+  if (c.seats === null) out.push({ code: 'campaigns.competition_unset', field: 'seats' });
+  if (c.prizes.length === 0) out.push({ code: 'campaigns.reward_unset', field: 'prizes' });
+  if (c.seats !== null && poolLimit !== null) {
+    const places = c.prizes.reduce((n, p) => n + parseAmount18(p.amount), 0n);
+    const milestones = c.milestones.reduce((n, m) => n + parseAmount18(m.amount), 0n) * BigInt(c.seats);
+    if (places + milestones > parseAmount18(poolLimit)) out.push({ code: 'campaigns.prize_pool_short', field: 'budget' });
+  }
+  return out;
+}
+
+/**
+ * A draw's terms (CM-promotions-events-02), stored the same way every time. Blanks stay blank for the gate to name. Only
+ * a `draw` campaign has them; each place has one prize above zero, and each user type one cap.
+ */
+function parseDraw(type: CampaignType, input: CampaignDraw): CampaignDraw {
+  if (type !== 'draw') throw new CampaignsError('campaigns.draw_invalid', 'Only a draw campaign has draw terms');
+  const prizes = [...input.prizes].sort((a, b) => a.rank - b.rank);
+  prizes.forEach((p, i) => {
+    if (p.rank !== i + 1) throw new CampaignsError('campaigns.draw_invalid', 'The prize table names each place once, from first');
+    if (parseAmount18(p.amount) <= 0n) throw new CampaignsError('campaigns.draw_invalid', 'Every prize is above zero');
+  });
+  if (new Set(input.caps.map((c) => c.userType)).size !== input.caps.length) {
+    throw new CampaignsError('campaigns.draw_invalid', 'Each user type has one cap');
+  }
+  return {
+    chancesPerFill: input.chancesPerFill,
+    caps: input.caps.map((c) => ({ userType: c.userType, cap: c.cap })),
+    prizes: prizes.map((p) => ({ rank: p.rank, amount: decimalOf(p.amount) })),
+  };
+}
+
+/**
+ * What a draw still lacks before it can go live: chances per fill, a cap for every user type, a prize table, and a budget
+ * that covers every prize. Running it is a separate door that waits for the owner (OWNER 87).
+ */
+function drawGaps(d: CampaignDraw | null, poolLimit: string | null): CampaignGate['missing'] {
+  if (!d) return [{ code: 'campaigns.draw_unset', field: 'draw' }];
+  const out: CampaignGate['missing'] = [];
+  if (d.chancesPerFill === null) out.push({ code: 'campaigns.draw_unset', field: 'chancesPerFill' });
+  for (const userType of DRAW_USER_TYPES) {
+    const cap = d.caps.find((c) => c.userType === userType);
+    if (!cap || cap.cap === null) out.push({ code: 'campaigns.draw_unset', field: `cap.${userType}` });
+  }
+  if (d.prizes.length === 0) out.push({ code: 'campaigns.reward_unset', field: 'prizes' });
+  if (poolLimit !== null && d.prizes.reduce((n, p) => n + parseAmount18(p.amount), 0n) > parseAmount18(poolLimit)) {
+    out.push({ code: 'campaigns.prize_pool_short', field: 'budget' });
+  }
+  return out;
+}
+
+/**
+ * A distribution's terms (CM-airdrop-campaigns-01), stored the same way every time. Blanks stay blank for the gate to
+ * name. Only a `distribution` campaign has them.
+ */
+function parseDistribution(type: CampaignType, input: CampaignDistribution): CampaignDistribution {
+  if (type !== 'distribution') {
+    throw new CampaignsError('campaigns.distribution_invalid', 'Only a distribution campaign has distribution terms');
+  }
+  const snapshotAt = input.snapshotAt ? parseWindowTime(input.snapshotAt, 'The snapshot time').toISOString() : null;
+  return { kind: input.kind, snapshotAt, equityAsset: input.equityAsset };
+}
+
+/**
+ * What a distribution still lacks before it can go live: its snapshot time, inside the campaign's time frame, and the
+ * asset equity is read in. A dividend is refused `owner.decision` by the gate itself.
+ */
+function distributionGaps(d: CampaignDistribution | null, startsAt: Date | null, endsAt: Date | null): CampaignGate['missing'] {
+  if (!d) return [{ code: 'campaigns.distribution_unset', field: 'distribution' }];
+  const out: CampaignGate['missing'] = [];
+  if (!d.snapshotAt) out.push({ code: 'campaigns.distribution_unset', field: 'snapshotAt' });
+  else if ((startsAt && new Date(d.snapshotAt) < startsAt) || (endsAt && new Date(d.snapshotAt) > endsAt)) {
+    out.push({ code: 'campaigns.distribution_invalid', field: 'snapshotAt' });
+  }
+  if (!d.equityAsset) out.push({ code: 'campaigns.distribution_unset', field: 'equityAsset' });
+  return out;
+}
+
+/** A trial pass's terms (CM-vip-tiers-01), stored the same way every time. Only a `trial_pass` campaign has them. */
+function parseTrialPass(type: CampaignType, input: CampaignTrialPass): CampaignTrialPass {
+  if (type !== 'trial_pass') throw new CampaignsError('campaigns.trial_pass_invalid', 'Only a trial pass campaign has trial pass terms');
+  return { tierId: input.tierId?.trim() || null, seconds: input.seconds ?? null };
+}
+
+/** What a trial pass still lacks before it can go live: the tier it grants and for how long. */
+function trialPassGaps(t: CampaignTrialPass | null): CampaignGate['missing'] {
+  if (!t) return [{ code: 'campaigns.trial_pass_unset', field: 'trialPass' }];
+  const missing: CampaignGate['missing'] = [];
+  if (!t.tierId) missing.push({ code: 'campaigns.trial_pass_unset', field: 'trialPass.tierId' });
+  if (t.seconds === null) missing.push({ code: 'campaigns.trial_pass_unset', field: 'trialPass.seconds' });
+  return missing;
+}
+
+/** A reward pool's terms (CM-airdrop-campaigns-02), stored the same way every time. Only a `pool` campaign has them. */
+function parsePool(type: CampaignType, input: CampaignPool): CampaignPool {
+  if (type !== 'pool') throw new CampaignsError('campaigns.pool_invalid', 'Only a pool campaign has pool terms');
+  const amount = (raw: string | null) => (raw === null ? null : decimalOf(raw));
+  if (input.dailySlice !== null && parseAmount18(input.dailySlice) <= 0n) {
+    throw new CampaignsError('campaigns.pool_invalid', 'The daily slice is above zero');
+  }
+  if (input.perUserCap !== null && parseAmount18(input.perUserCap) <= 0n) {
+    throw new CampaignsError('campaigns.pool_invalid', 'The per-user cap is above zero');
+  }
+  return {
+    activityAsset: input.activityAsset,
+    dailySlice: amount(input.dailySlice),
+    perUserCap: amount(input.perUserCap),
+    minBalance: amount(input.minBalance),
+    daySeconds: input.daySeconds,
+  };
+}
+
+/** What a reward pool still lacks before it can go live: every term, and a budget that covers at least one day's slice. */
+function poolGaps(p: CampaignPool | null, poolLimit: string | null): CampaignGate['missing'] {
+  if (!p) return [{ code: 'campaigns.pool_unset', field: 'pool' }];
+  const out: CampaignGate['missing'] = [];
+  for (const field of ['activityAsset', 'dailySlice', 'perUserCap', 'minBalance', 'daySeconds'] as const) {
+    if (p[field] === null) out.push({ code: 'campaigns.pool_unset', field });
+  }
+  if (poolLimit !== null && p.dailySlice !== null && parseAmount18(p.dailySlice) > parseAmount18(poolLimit)) {
+    out.push({ code: 'campaigns.prize_pool_short', field: 'budget' });
+  }
+  return out;
 }
 
 /**
@@ -855,6 +1106,11 @@ function sameDefinition(r: CampaignRow, d: Definition): boolean {
     canonical(r.vouchers) === canonical(d.vouchers) &&
     canonical(r.limits) === canonical(d.limits) &&
     canonical(r.referral) === canonical(d.referral) &&
+    canonical(r.competition) === canonical(d.competition) &&
+    canonical(r.draw) === canonical(d.draw) &&
+    canonical(r.distribution) === canonical(d.distribution) &&
+    canonical(r.pool) === canonical(d.pool) &&
+    canonical(r.trial_pass) === canonical(d.trialPass) &&
     r.time_zone_blank === d.timeZoneBlank
   );
 }
@@ -910,12 +1166,14 @@ export class CampaignService {
         await this.checkCampaignRule(tx, d);
         const [row] = await tx<CampaignRow[]>`
           INSERT INTO campaigns.campaigns (id, name, type, rules, starts_at, ends_at, weekdays, hours_from, hours_to,
-            participation, budget_asset, budget_limit, reward_asset, reward_amount, tasks, time_zone_blank, earning, vouchers, limits, referral, created_by)
+            participation, budget_asset, budget_limit, reward_asset, reward_amount, tasks, time_zone_blank, earning, vouchers, limits, referral, competition, draw, distribution, pool, trial_pass, created_by)
           VALUES (${id}, ${d.name}, ${d.type}, ${d.rules}, ${d.startsAt}, ${d.endsAt}, ${d.weekdays}, ${d.hoursFrom},
             ${d.hoursTo}, ${d.participation ? tx.json(d.participation) : null}, ${d.budgetAsset}, ${d.budgetLimit},
             ${d.rewardAsset}, ${d.rewardAmount}, ${d.tasks ? tx.json(d.tasks as unknown as postgres.JSONValue) : null}, ${d.timeZoneBlank}, ${tx.json(d.earning as unknown as postgres.JSONValue)},
             ${d.vouchers ? tx.json(d.vouchers) : null}, ${d.limits ? tx.json(d.limits as unknown as postgres.JSONValue) : null},
-            ${d.referral ? tx.json(d.referral) : null}, ${input.actor})
+            ${d.referral ? tx.json(d.referral) : null}, ${d.competition ? tx.json(d.competition) : null},
+            ${d.draw ? tx.json(d.draw) : null}, ${d.distribution ? tx.json(d.distribution) : null},
+            ${d.pool ? tx.json(d.pool) : null}, ${d.trialPass ? tx.json(d.trialPass) : null}, ${input.actor})
           RETURNING *`;
         await audit(tx, input.actor, 'campaign.create', id, { name: d.name, type: d.type });
         return toCampaign(row!, this.timeZone(), this.now());
@@ -960,6 +1218,11 @@ export class CampaignService {
             earning = ${tx.json(d.earning as unknown as postgres.JSONValue)}, vouchers = ${d.vouchers ? tx.json(d.vouchers) : null},
             limits = ${d.limits ? tx.json(d.limits as unknown as postgres.JSONValue) : null},
             referral = ${d.referral ? tx.json(d.referral) : null},
+            competition = ${d.competition ? tx.json(d.competition) : null},
+            draw = ${d.draw ? tx.json(d.draw) : null},
+            distribution = ${d.distribution ? tx.json(d.distribution) : null},
+            pool = ${d.pool ? tx.json(d.pool) : null},
+            trial_pass = ${d.trialPass ? tx.json(d.trialPass) : null},
             revision = revision + 1, updated_at = now()
           WHERE id = ${input.id}
           RETURNING *, (SELECT budget_drawn FROM campaigns.campaign_rows WHERE id = ${input.id}) AS budget_drawn`;
@@ -1068,6 +1331,11 @@ export class CampaignService {
         earning = ${tx.json(d.earning as unknown as postgres.JSONValue)}, vouchers = ${d.vouchers ? tx.json(d.vouchers) : null},
             limits = ${d.limits ? tx.json(d.limits as unknown as postgres.JSONValue) : null},
             referral = ${d.referral ? tx.json(d.referral) : null},
+            competition = ${d.competition ? tx.json(d.competition) : null},
+            draw = ${d.draw ? tx.json(d.draw) : null},
+            distribution = ${d.distribution ? tx.json(d.distribution) : null},
+            pool = ${d.pool ? tx.json(d.pool) : null},
+            trial_pass = ${d.trialPass ? tx.json(d.trialPass) : null},
         revision = ${open.revision}, submitted_by = ${open.submitted_by}, approved_by = ${actor},
         approved_revision = ${open.revision}, updated_at = now()
       WHERE id = ${row.id}`;
@@ -1500,6 +1768,21 @@ export class CampaignService {
       const outside = outsideWindow(row, now, timeZone);
       if (outside === 'day') throw new CampaignsError('campaign.outside_window', 'This campaign does not run today');
       if (outside === 'hour') throw new CampaignsError('campaign.outside_window', 'This campaign does not run at this hour');
+      // A competition has seats (J-campaigns-11 #2): joins for one competition take its seats one at a time, so two joins
+      // for the last seat give it to one and refuse the other `campaigns.seats_full`. The caller's own entry, made by a
+      // press that held the lock first, comes back as their participation, never as a refusal.
+      let seat: number | null = null;
+      if (row.type === 'competition') {
+        await tx`SELECT pg_advisory_xact_lock(hashtext(${`campaigns:competition-seats:${row.id}`}))`;
+        const [mineNow] = await tx<ParticipationRow[]>`SELECT * FROM campaigns.participations WHERE participation_key = ${key}`;
+        if (mineNow) return { participation: toParticipation(mineNow), created: false };
+        const seats = row.competition?.seats ?? null;
+        if (seats === null) throw new CampaignsError('campaigns.competition_unset', 'This competition has no seat count set');
+        const [taken] = await tx<{ n: number }[]>`
+          SELECT count(*)::int AS n FROM campaigns.competition_entries WHERE campaign_id = ${row.id}`;
+        if (taken!.n >= seats) throw new CampaignsError('campaigns.seats_full', 'Every seat in this competition is taken');
+        seat = taken!.n + 1;
+      }
       const [made] = await tx<ParticipationRow[]>`
         INSERT INTO campaigns.participations (participation_key, campaign_id, account_id, revision)
         VALUES (${key}, ${input.campaignId}, ${input.accountId}, ${row.revision})
@@ -1508,6 +1791,11 @@ export class CampaignService {
       if (!made) {
         const [first] = await tx<ParticipationRow[]>`SELECT * FROM campaigns.participations WHERE participation_key = ${key}`;
         return { participation: toParticipation(first!), created: false };
+      }
+      if (seat !== null) {
+        await tx`
+          INSERT INTO campaigns.competition_entries (campaign_id, account_id, seat, joined_at)
+          VALUES (${row.id}, ${input.accountId}, ${seat}, ${made.created_at})`;
       }
       await audit(tx, input.accountId, 'campaign.join', input.campaignId, { participationKey: key, revision: row.revision });
       return { participation: toParticipation(made), created: true };

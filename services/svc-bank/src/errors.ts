@@ -580,6 +580,12 @@ export type BankErrorCode =
   | 'bank.security_lock_unavailable'
   /** No IDENTITY_URL: this deployment cannot check the security lock, so address changes and sends refuse. A deployment gap. */
   | 'bank.security_lock_unset'
+  /** The person's own step-up extras hold a send above their allowance while a chosen check cannot be done (BK-safe-01). Nothing was sent. */
+  | 'bank.extra_controls_pending'
+  /** Identity could not answer the extra-checks read (outage, timeout, bad reply). Nothing was sent; retry. */
+  | 'bank.extra_controls_unavailable'
+  /** No IDENTITY_URL: this deployment cannot read the extra checks, so sends to another person refuse. A deployment gap. */
+  | 'bank.extra_controls_unset'
   /** The owner froze the account themselves (I-account-lifecycle-08): no address change and nothing sent until they lift it. */
   | 'bank.account_frozen_self'
   /** The address was approved already, so there is nothing to approve or mail. */
@@ -678,11 +684,74 @@ export type BankErrorCode =
   | 'bank.business_closed'
   | 'bank.business_not_member'
   | 'bank.business_role_forbidden'
+  // ── Business bank team and approval rules (J-bank-19; BK-biz-01 to BK-biz-04) ──
+  /** A named role with no permission, or one not on the list. */
+  | 'bank.business_role_invalid'
+  /** A role, invite or assignment granting a permission the actor does not hold. Nothing was created. */
+  | 'bank.business_role_grant_exceeds'
+  /** The business already has a role or department of that name. */
+  | 'bank.business_role_name_taken'
+  | 'bank.business_role_not_found'
+  /** Only the business's owner may do this (approve an advisor, fund its TEST partner account). */
+  | 'bank.business_owner_only'
+  | 'bank.business_advisor_not_found'
+  | 'bank.business_already_member'
+  | 'bank.business_invalid_handle'
+  | 'bank.business_person_not_found'
+  | 'bank.business_invalid_email'
+  /** BANK_BUSINESS_INVITE_MINUTES is blank: no team invite is sent until the owner sets it. */
+  | 'bank.business_invite_lifetime_unset'
+  /** An invite opened after its owner-set lifetime; the business can send it again. */
+  | 'bank.business_invite_expired'
+  | 'bank.business_invite_revoked'
+  /** An invite that was sent again: only the newest link works. */
+  | 'bank.business_invite_replaced'
+  | 'bank.business_invite_used'
+  | 'bank.business_invite_not_found'
+  /** Resend or revoke of an invite that is no longer open. */
+  | 'bank.business_invite_inactive'
+  /** An email invite opened by an account with another email. */
+  | 'bank.business_invite_wrong_person'
+  | 'bank.business_rule_invalid'
+  | 'bank.business_payee_invalid'
+  /** The rule asks for more distinct approvers than the business has besides the maker. */
+  | 'bank.business_approvers_short'
+  /** One person approving the same payment twice: approvers are distinct. */
+  | 'bank.business_already_approved'
+  | 'bank.business_budget_invalid'
+  | 'bank.business_department_not_found'
   | 'bank.business_invalid_threshold'
   | 'bank.business_invalid_name'
   | 'bank.business_approval_not_found'
   | 'bank.business_approval_inactive'
   | 'bank.business_self_approve'
+  // ── Business bill pay (J-bank-20; BK-bill-01 to BK-bill-03) ──
+  /** A bill file with no name, empty, or over 1 MiB. */
+  | 'bank.bill_file_invalid'
+  /** A bill field, vendor cap, limit or split line not in shape. */
+  | 'bank.bill_field_invalid'
+  /** A bill edited or sent on while it is not in the inbox. */
+  | 'bank.bill_not_editable'
+  /** A bill sent on before it names a vendor, an amount and a due date. */
+  | 'bank.bill_incomplete'
+  /** A bill flagged as a possible duplicate, not yet cleared: it is not paid. */
+  | 'bank.bill_duplicate_uncleared'
+  /** A bill paid before it is approved. */
+  | 'bank.bill_not_approved'
+  /** A split whose lines do not add up to the bill exactly. */
+  | 'bank.split_total_mismatch'
+  /** A scheduled payment for today or earlier. */
+  | 'bank.bill_schedule_invalid'
+  /** A Bill Pay limit is blank: no bill is paid until the business sets all three. */
+  | 'bank.bill_limit_unset'
+  /** A bill payment over a Bill Pay limit. */
+  | 'bank.bill_limit_exceeded'
+  /** A cancel of a bill payment already sent to the partner. */
+  | 'bank.bill_payment_sent'
+  /** A return reported for a bill payment that was never sent. */
+  | 'bank.bill_payment_not_sent'
+  | 'bank.bill_not_found'
+  | 'bank.bill_payment_not_found'
   | 'bank.business_rejected'
   | 'bank.business_cancelled'
   /**
@@ -1148,7 +1217,50 @@ export type BankErrorCode =
   /** A card control names a category the programme doesn't list, an empty merchant, or a country that isn't two letters. */
   | 'bank.card_control_invalid'
   /** The control to lift is not a live control of this card. */
-  | 'bank.card_control_not_found';
+  | 'bank.card_control_not_found'
+  // ── Bank account onboarding, reviews and closure at the partner (BK-acct-05, BK-acct-06; J-bank-17) ───────
+  /** The owner has not published their requirements for a bank account (BANK_ONBOARDING_REQUIREMENTS_JSON) (BK-acct-05). */
+  | 'bank.onboarding_requirements_unset'
+  /** The owner has not published the size cap and types for an answer to an information request (BANK_INFO_REQUEST_UPLOAD_JSON). */
+  | 'bank.info_request_upload_unset'
+  /** The partner has no such information request for this person. */
+  | 'bank.info_request_not_found'
+  /** An information request takes one answer: it is already under review. */
+  | 'bank.info_request_not_open'
+  /** An information request past the partner's deadline takes no answer here. */
+  | 'bank.info_request_past_deadline'
+  /** An answer's file type is not one the owner allows. */
+  | 'bank.info_request_type_not_allowed'
+  /** An answer's file is over the owner's size cap. */
+  | 'bank.info_request_too_large'
+  /** An answer's file is empty or not base64. */
+  | 'bank.info_request_file_invalid'
+  /** The partner has no such periodic review for this person. */
+  | 'bank.review_not_found'
+  /** A periodic review is already answered. */
+  | 'bank.review_not_open'
+  /** The partner holds the account under a legal hold, so it is not closed or paid out (BK-acct-06). */
+  | 'bank.closure_legal_hold'
+  /** Closing an account that holds money needs a destination for the balance (BK-acct-06). */
+  | 'bank.closure_destination_required'
+  /** A closure of this account is already under way. */
+  | 'bank.closure_pending'
+  /** A closure id reused with another destination. */
+  | 'bank.closure_conflict'
+  /** No closure is waiting for its payout. */
+  | 'bank.closure_not_found'
+  /** The bank account is already closed. */
+  | 'bank.account_closed'
+  /** The bank account is closing or closed: the partner makes no move in or out of it but the closure payout. */
+  | 'bank.account_restricted'
+  /** Only a closed account can be reopened. */
+  | 'bank.account_not_closed'
+  /** The owner has not published how long a closed account may be reopened (BANK_REOPEN_WINDOW_DAYS). */
+  | 'bank.reopen_window_unset'
+  /** The account closed longer ago than the owner's reopen window. */
+  | 'bank.reopen_window_passed'
+  /** A data request id reused for another kind of request. */
+  | 'bank.data_request_conflict';
 
 export class BankError extends Error {
   constructor(

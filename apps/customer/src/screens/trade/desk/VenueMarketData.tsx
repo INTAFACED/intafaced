@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { TIMEFRAME_MS } from '@intafaced/exchange-contract/schemas';
 import { DataTable } from '../../../shared/ui';
 import { displayAmount } from '../../../shared/money';
@@ -10,6 +10,7 @@ import { forwardFill, type OhlcvRow } from '../../../data/derive';
 import type { Candle } from '../../../data/types';
 import { CHART_INTERVALS, type ChartInterval } from '../chart/candles';
 import { PriceChart } from '../chart/PriceChart';
+import type { ChartOrderHost } from '../../charts/chart-host';
 import { deskCopy } from './copy';
 import { StateBlock, Tabs, TabsList, TabsPanel, TabsTab } from './deps';
 import { zoneName } from './time';
@@ -37,7 +38,24 @@ export function venueChartCandles(rows: readonly VenueCandle[], interval: ChartI
  * The venue market's own ticker, book, chart and tape on the spot desk (J-cex-spot-01 #5): every figure is the venue's,
  * read through svc-trade's user-venue door, with the venue's as-of time. Nothing here comes from our engine.
  */
-export function VenueMarketPanel({ market, test, venueName }: { market: VenueMarket; test: boolean; venueName: string }) {
+export function VenueMarketPanel({
+  market,
+  test,
+  venueName,
+  chartTools,
+  chartTrade,
+  chartOrders,
+}: {
+  market: VenueMarket;
+  test: boolean;
+  venueName: string;
+  /** Controls on the chart's bar (J-charts-desk-14: the chart's market and Open DOM). */
+  chartTools?: ReactNode;
+  /** Buy and Sell on the chart, under it (J-charts-desk-14 #5). */
+  chartTrade?: ReactNode;
+  /** Placing and moving orders on the chart itself (J-charts-desk-15), drawn with the chart's host once it is ready. */
+  chartOrders?: (host: ChartOrderHost | null) => ReactNode;
+}) {
   const { t } = spotVenueCopy.useCopy();
   const d = deskCopy.useCopy().t;
   const venue = useVenueApi();
@@ -55,6 +73,7 @@ export function VenueMarketPanel({ market, test, venueName }: { market: VenueMar
   };
   const [tab, setTab] = useState<'book' | 'tape'>('book');
   const [interval, setChartInterval] = useState<ChartInterval>('15m');
+  const [host, setHost] = useState<ChartOrderHost | null>(null);
   const book = usePolled((signal) => venue.book(market.symbol, BOOK_DEPTH, signal), `venue-book:${market.symbol}`, VENUE_POLL_MS);
   const tape = usePolled((signal) => venue.trades(market.symbol, TAPE_ROWS, signal), `venue-tape:${market.symbol}`, VENUE_POLL_MS);
   const candles = usePolled(
@@ -117,7 +136,8 @@ export function VenueMarketPanel({ market, test, venueName }: { market: VenueMar
         </div>
       </dl>
 
-      <div className="dk-chart" data-testid="venue-chart">
+      {/* A flex column, as today's desk chart is (ChartPanel): the canvas takes the height the bar and Buy/Sell leave. */}
+      <div className="dk-chart dk-chart--venue" data-testid="venue-chart">
         <div className="dk-chart-bar">
           <div className="dk-chips" role="group" aria-label={d('Chart intervals')}>
             {CHART_INTERVALS.map((id) => (
@@ -126,8 +146,9 @@ export function VenueMarketPanel({ market, test, venueName }: { market: VenueMar
               </button>
             ))}
           </div>
+          {chartTools}
         </div>
-        <div className="dk-chart-body">
+        <div className="dk-chart-canvas">
           {chart === null ? (
             <p className="muted" role="status">
               {t('Reading the venue')}
@@ -145,10 +166,14 @@ export function VenueMarketPanel({ market, test, venueName }: { market: VenueMar
               fills={[]}
               timeZone={zoneName(timeZone)}
               labels={labels}
+              onHost={chartOrders ? setHost : undefined}
             />
           )}
         </div>
+        {chartTrade}
       </div>
+      {/* Below the chart's fixed-height box: the ticket and reviews would otherwise take the chart's own height. */}
+      {chartOrders?.(chart !== null && chart.length > 0 ? host : null)}
 
       <Tabs value={tab} onValueChange={(x) => setTab(x as typeof tab)} data-testid="venue-book-tape">
         <TabsList divider className="dk-tabs">

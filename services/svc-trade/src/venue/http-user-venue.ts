@@ -23,6 +23,7 @@ import {
   type UserVenueSettlement,
   type UserVenueMarket,
   type UserVenueOrder,
+  type UserVenueOrderRecord,
   type UserVenuePosition,
   type UserVenueSubAccount,
   type UserVenueSubAccountReads,
@@ -289,6 +290,10 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
 
   orderByClientId(account: UserVenueAccount, venueClientOrderId: string): Promise<AsOf<UserVenueOrder | null>> {
     return this.read('/order-by-client-id', { account, venueClientOrderId });
+  }
+
+  orderHistory(account: UserVenueAccount): Promise<AsOf<readonly UserVenueOrderRecord[]>> {
+    return this.read('/order-history', { account });
   }
 
   fills(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueFill[]>> {
