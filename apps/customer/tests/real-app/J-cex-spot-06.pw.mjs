@@ -27,7 +27,8 @@ import {
 // orders. The spot steps trade a TEST spot market of this file's own (a fresh symbol the TEST venue lists by its
 // `/test/market-add` control, listed for INTAFACED by svc-trade's two-person door, as J-cex-spot-04-venue does), so no
 // other journey's order is in its book; another TEST trader rests its asks and bids and takes the other side. #6's stop
-// is on BTC-PERP, the TEST venue's perpetual, since the venue offers no trigger orders on cash spot.
+// is on BTC-PERP, the TEST venue's perpetual, with trigger orders on for this file by the TEST venue's /test/market-triggers
+// control and off again after it: the venue offers no trigger orders on cash spot.
 //
 // Every order, fill, fee and state is read from the stack's TEST venue itself (packages/venue-sim, through venueRecord),
 // never our engine; our ledger is read only for our builder fee on a fill (one entry, earned once) and to show nothing of
@@ -46,7 +47,9 @@ const BID = '99';
 
 test.describe.configure({ mode: 'default' });
 venueForThisFile(test);
-const ORDER_CHANGES = { amendsInPlace: true };
+// It also cancels an order placed elsewhere by its client id (up to 20 in one signed action), so the desk can cancel the
+// orders this file placed through the door (#4, #7).
+const ORDER_CHANGES = { amendsInPlace: true, cancelsPerAction: 20 };
 test.beforeAll(async () => {
   test.setTimeout(240_000);
   expect((await testVenue('/test/switches', ORDER_CHANGES)).body).toMatchObject(ORDER_CHANGES);
@@ -57,7 +60,8 @@ test.afterAll(async () => {
   const s = run.read();
   // Nothing of this file is left resting on BTC-PERP for the next file, and the venue amends in place no more.
   if (s.walletKey) await cancelEverything(s, PERP).catch(() => undefined);
-  await testVenue('/test/switches', { amendsInPlace: false });
+  await testVenue('/test/switches', { amendsInPlace: false, cancelsPerAction: null });
+  await testVenue('/test/market-triggers', { symbol: PERP, sources: [] });
 });
 
 // ── setup, not steps ──
@@ -87,7 +91,13 @@ const trpcData = (res) => res.json?.result?.data?.json ?? res.json?.result?.data
 async function freshMarket() {
   const base = `J06${randomBytes(3).toString('hex').toUpperCase()}`;
   const symbol = `${base}-USDC`;
-  const added = await testVenue('/test/market-add', { symbol, baseAsset: base, quoteAsset: 'USDC' });
+  const added = await testVenue('/test/market-add', {
+    symbol,
+    baseAsset: base,
+    quoteAsset: 'USDC',
+    maxOrderQty: '1000',
+    maxOrderNotional: '1000000',
+  });
   expect(added.status, JSON.stringify(added.body)).toBe(200);
   const { ctx, sessions } = await ops();
   const venueId = (await venueInfo()).id;
@@ -301,9 +311,11 @@ async function startsLine(browser) {
 }
 
 /** Signs in, installs the TEST wallet with the run's key and opens `path`, connecting the wallet when it isn't yet. */
+const wallets = new WeakMap();
 async function openWithWallet(page, s, path) {
   const { chainId } = await venueInfo();
-  const wallet = await installTestWallet(page, { chainId, privateKey: s.walletKey });
+  if (!wallets.has(page)) wallets.set(page, await installTestWallet(page, { chainId, privateKey: s.walletKey }));
+  const wallet = wallets.get(page);
   await signIn(page, s.account);
   await page.goto(path);
   const connect = page.getByRole('button', { name: 'Connect TEST Wallet' });
@@ -614,11 +626,17 @@ test(`${J} #6 opens a triggered stop order: why it triggered, the trigger price 
   const owner = ownerOf(s);
   // A small TEST long on BTC-PERP, the TEST venue's perpetual, and a stop loss under it judged on the last trade price.
   expect(await testDeposit(owner, 'USDC', '2000', `84532:0x${randomBytes(32).toString('hex')}:0`)).toBe(true);
-  const leverage = await door(s, { kind: 'update_leverage', symbol: PERP, leverageBps: 10_000, marginMode: 'isolated' });
+  const leverage = await door(
+    s,
+    { kind: 'update_leverage', symbol: PERP, leverageBps: 10_000, marginMode: 'isolated' },
+    `leverage:${owner}:${PERP}:isolated:10000:${fresh()}`,
+  );
   expect(leverage.outcome).toMatchObject({ definite: true, accepted: true });
   const top = (await testVenue('/best-prices', { symbol: PERP })).body.value;
   const entry = await order(s, PERP, 'buy', top.ask, '0.001', 'IOC', 'long');
   await expect.poll(async () => (await venueOrder(s, entry.cloid)).status, { timeout: 20_000 }).toBe('filled');
+  // TEST control: BTC-PERP takes trigger orders judged on the last trade price for this file only (put back after it).
+  expect((await testVenue('/test/market-triggers', { symbol: PERP, sources: ['last'] })).status).toBe(200);
   const { bid } = (await testVenue('/best-prices', { symbol: PERP })).body.value;
   const triggerPrice = bid;
   // The stop's limit, 2% under the trigger on the market's whole-dollar tick: it sells into the bids once it fires.
@@ -696,9 +714,10 @@ test(`${J} #7 reads one order in each state on the desk, in history and on its d
   test.setTimeout(300_000);
   const s = state();
   // A partly filled order, resting again, so each state is on the desk at once.
-  const partly = await order(s, s.symbol, 'buy', '99.5', '0.4', 'GTC', 'partly');
+  // Priced above anything of the person's left resting, so the other trader's sale meets this order first.
+  const partly = await order(s, s.symbol, 'buy', '99.6', '0.4', 'GTC', 'partly');
   run.write({ keys: { ...run.read().keys, [partly.key]: partly.cloid } });
-  await makerSells(s.symbol, '99.5', '0.2');
+  await makerSells(s.symbol, '99.6', '0.2');
   await expect.poll(async () => (await venueOrder(s, partly.cloid)).status, { timeout: 20_000 }).toBe('partially_filled');
 
   const wallet = await openVenueDesk(page, s.account, `/trade/spot/${s.symbol}`, s.walletKey);
@@ -733,9 +752,9 @@ test(`${J} #7 reads one order in each state on the desk, in history and on its d
   await expect(deskRow(partly.cloid)).toHaveText('Cancelled', { timeout: 20_000 });
   states[partly.cloid] = 'Cancelled';
   // Partly filled, on all three while it rested, read before the cancel above: a second one rests now for history and detail.
-  const resting = await order(s, s.symbol, 'buy', '99.5', '0.4', 'GTC', 'partly2');
+  const resting = await order(s, s.symbol, 'buy', '99.7', '0.4', 'GTC', 'partly2');
   run.write({ keys: { ...run.read().keys, [resting.key]: resting.cloid } });
-  await makerSells(s.symbol, '99.5', '0.2');
+  await makerSells(s.symbol, '99.7', '0.2');
   await expect.poll(async () => (await venueOrder(s, resting.cloid)).status, { timeout: 20_000 }).toBe('partially_filled');
   await page.reload();
   await expect(page.getByTestId('venue-wallet-address')).toHaveText(ownerOf(s), { timeout: 30_000 });
@@ -788,8 +807,8 @@ test(`${J} #9 amends an order's quantity and opens it while the venue's answer i
   expect(sameDecimal(before.amount, '0.3')).toBe(true);
   await openWithWallet(page, s, `/trade/orders/${s.ids.open}`);
   await expect(fact(page, 'Amount')).toHaveText(`${shown(before.amount)} ${s.base}`);
-  // TEST switch: the venue holds its answer to this account's next submits for 8 s.
-  const held = await testVenue('/test/account-switches', { owner, submitDelayMs: 8_000 });
+  // TEST switch: the venue holds its answer to this account's next submits for 4 s, inside our door's 5 s wait for it.
+  const held = await testVenue('/test/account-switches', { owner, submitDelayMs: 4_000 });
   expect(held.status, JSON.stringify(held.body)).toBe(200);
   try {
     const amendKey = `amend:${owner}:${s.ids.open}:0.2`;
@@ -799,11 +818,13 @@ test(`${J} #9 amends an order's quantity and opens it while the venue's answer i
       amendKey,
     );
     // While the answer is held, the venue still has the old quantity, and so does the page.
-    await new Promise((resolve) => setTimeout(resolve, 2_000));
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
     expect(sameDecimal((await venueOrder(s, s.ids.open)).amount, '0.3')).toBe(true);
-    await page.reload();
-    await expect(page.getByTestId('venue-wallet-address')).toHaveText(owner, { timeout: 30_000 });
+    const reread = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/orders/by-client-id');
+    await page.getByRole('button', { name: 'Refresh' }).click();
+    await reread;
     await expect(fact(page, 'Amount')).toHaveText(`${shown(before.amount)} ${s.base}`);
+    expect(sameDecimal((await venueOrder(s, s.ids.open)).amount, '0.3')).toBe(true);
     await expect(page.getByTestId('venue-order-changes')).toHaveCount(0);
     const answered = await sending;
     expect(answered.outcome).toMatchObject({ definite: true, accepted: true });
@@ -813,8 +834,7 @@ test(`${J} #9 amends an order's quantity and opens it while the venue's answer i
   // After the answer: the venue records the new quantity, and the page shows it, with the change listed.
   const after = await venueOrder(s, s.ids.open);
   expect(sameDecimal(after.amount, '0.2')).toBe(true);
-  await page.reload();
-  await expect(page.getByTestId('venue-wallet-address')).toHaveText(owner, { timeout: 30_000 });
+  await page.getByRole('button', { name: 'Refresh' }).click();
   await expect(fact(page, 'Amount')).toHaveText(`${shown(after.amount)} ${s.base}`);
   await expect(page.getByTestId('venue-order-changes').locator('li')).toHaveCount(1);
 });
