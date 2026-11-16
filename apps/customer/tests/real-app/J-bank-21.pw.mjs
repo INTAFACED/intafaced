@@ -95,6 +95,8 @@ async function world(page) {
 /** A business of the step's own: TEST 1000 USDT at the TEST partner, threshold 500, the approver on its team, its wallet connected. */
 async function business(w, tag) {
   const own = await bank(w.owner);
+  // The owner's bank money at the TEST partner, set again each time: a stack restart puts the switch back.
+  ok(await own.mutate('testPartner.set', { custody: 'off' }));
   const accountId = randomUUID();
   const name = `TEST Payroll ${tag} ${RUN}`;
   ok(await own.mutate('business.create', { accountId, name, assetId: 'USDT', spendThreshold: THRESHOLD }));
