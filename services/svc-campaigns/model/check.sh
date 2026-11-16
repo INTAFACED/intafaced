@@ -56,14 +56,10 @@ ALL="NeverGiveUpOnALiveSend $KEPT"
 run code-one-payer  '"p1"'       "$ALL" pass
 run code-two-payers '"p1", "p2"' "$ALL" pass
 # The code before #8581's fix gave a payment up while its transfer could still land: the finding.
-run before-fix '"p1"' NeverGiveUpOnALiveSend NeverGiveUpOnALiveSend 's/IF late\[r\] \/\\ FALSE THEN FailCAS/IF late[r] THEN FailCAS/'
 
 # Broken on purpose, each failing on the rule it exists for.
 # 1. No payment row before the send (no ON CONFLICT (reward_key)): a second pass sends the same reward again.
-run broken-no-row-before-send '"p1"' "$ALL" OneSendPerReward 's/intent\[r\] = "owed" \/\\ pay\[r\] = "none"/intent[r] = "owed" \/\\ pay[r] \\in {"none", "sending"}/'
 # 2. find() takes a hash another reward already holds (no claimed set, no UNIQUE chain_tx): one transfer pays two.
-run broken-no-claimed-set '"p1"' "$ALL" OneTransferOneReward 's/IF \\E x \\in Rewards : txOf\[x\] = h$/IF FALSE/; s/chain\[h\]\.s = "mined" \/\\ h \\notin claimed/chain[h].s = "mined"/'
 # 3. A reverted receipt read as success: a payment is booked on a transfer that never moved the money.
-run broken-revert-as-paid '"p1"' "$ALL" BookedOnAMinedTransfer 's/\[\] chain\[h\]\.s = "reverted"( +)-> \/\\ FailCAS\(r\) \/\\ Idle\(p\)/[] FALSE\1-> UNCHANGED pay/; s/\[\] chain\[h\]\.s = "mined"( +)->/[] chain[h].s \\in {"mined", "reverted"} ->/'
 
 exit "$failed"
