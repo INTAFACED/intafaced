@@ -36,8 +36,8 @@ afterEach(async () => {
 async function stack(): Promise<Harness> {
   const reached: string[] = [];
   const service = Fastify({ logger: false, maxParamLength: 5_000 });
-  service.all('/internal/test/age', async () => {
-    reached.push('/internal/test/age');
+  service.all('/internal/job', async () => {
+    reached.push('/internal/job');
     return { door: 'internal' };
   });
   service.all('/internal', async () => {
@@ -76,44 +76,44 @@ async function stack(): Promise<Harness> {
   return harness;
 }
 
-/** Every way tonight's checker and this builder found to spell `/internal` so a router behind the edge serves it. */
+/** Spellings of `/internal` so a router behind the edge serves it. */
 const ATTACKS = [
-  '/api/trade/%69nternal/test/age',
-  '/api/trade/inte%72nal/test/age',
-  '/api/trade/%69%6e%74%65%72%6e%61%6c/test/age',
-  '/api/trade/%49nternal/test/age',
-  '/api/trade/%2Finternal/test/age',
-  '/api/trade/%2finternal/test/age',
-  '/api/trade//internal/test/age',
-  '/api/trade/internal%2Ftest%2Fage',
-  '/api/trade/%252Finternal/test/age',
-  '/api/trade/%2569nternal/test/age',
-  '/api/trade/./internal/test/age',
-  '/api/trade/%2e/internal/test/age',
-  '/api/trade/x/../internal/test/age',
-  '/api/trade/x/%2e%2e/internal/test/age',
-  '/api/trade/x/..%2finternal/test/age',
-  '/api/trade\\internal/test/age',
-  '/api/trade/%5Cinternal/test/age',
-  '/api/trade/internal;x/test/age',
-  '/api/trade/internal%3Bx/test/age',
-  '/api/trade/INTERNAL/test/age',
-  '/api/trade/%EF%BD%89nternal/test/age',
-  '/api/trade/internal%09/test/age',
-  '/api/trade/%09internal/test/age',
-  '/api/trade/internal%00/test/age',
-  '/api/trade/internal%20/test/age',
-  '/api/trade/internal./test/age',
-  '/api/trade/%C0%AFinternal/test/age',
-  '/api/trade/%E0%80%AEinternal/test/age',
-  '/api/trade/%zzinternal/test/age',
-  '/api/trade/%internal/test/age',
+  '/api/trade/%69nternal/job',
+  '/api/trade/inte%72nal/job',
+  '/api/trade/%69%6e%74%65%72%6e%61%6c/job',
+  '/api/trade/%49nternal/job',
+  '/api/trade/%2Finternal/job',
+  '/api/trade/%2finternal/job',
+  '/api/trade//internal/job',
+  '/api/trade/internal%2Fjob',
+  '/api/trade/%252Finternal/job',
+  '/api/trade/%2569nternal/job',
+  '/api/trade/./internal/job',
+  '/api/trade/%2e/internal/job',
+  '/api/trade/x/../internal/job',
+  '/api/trade/x/%2e%2e/internal/job',
+  '/api/trade/x/..%2finternal/job',
+  '/api/trade\\internal/job',
+  '/api/trade/%5Cinternal/job',
+  '/api/trade/internal;x/job',
+  '/api/trade/internal%3Bx/job',
+  '/api/trade/INTERNAL/job',
+  '/api/trade/%EF%BD%89nternal/job',
+  '/api/trade/internal%09/job',
+  '/api/trade/%09internal/job',
+  '/api/trade/internal%00/job',
+  '/api/trade/internal%20/job',
+  '/api/trade/internal./job',
+  '/api/trade/%C0%AFinternal/job',
+  '/api/trade/%E0%80%AEinternal/job',
+  '/api/trade/%zzinternal/job',
+  '/api/trade/%internal/job',
   '/api/trade/%69nternal',
   '/api/trade/internal',
-  '/api/trade/internal/test/age',
-  '/api/trade/internal/test/age?x=1',
-  '/%61pi/trade/internal/test/age',
-  '/api/%74rade/internal/test/age',
+  '/api/trade/internal/job',
+  '/api/trade/internal/job?x=1',
+  '/%61pi/trade/internal/job',
+  '/api/%74rade/internal/job',
 ];
 
 describe('a service door is not reachable through the edge by any spelling of its path', () => {
@@ -131,7 +131,7 @@ describe('a service door is not reachable through the edge by any spelling of it
 
   it('the encoded path from project-state #2703 is refused before any route decision', async () => {
     const h = await stack();
-    const res = await h.edge.inject({ method: 'GET', url: '/api/trade/%69nternal/test/age' });
+    const res = await h.edge.inject({ method: 'GET', url: '/api/trade/%69nternal/job' });
     expect(res.statusCode).toBe(400);
     expect(res.json()).toMatchObject({ code: 'edge.unresolvable_path' });
     expect(h.reached).toEqual([]);
@@ -159,7 +159,7 @@ describe('a service door is not reachable through the edge by any spelling of it
 describe('each layer holds on its own', () => {
   it('the resolver refuses a path not in normal form, whatever it names', () => {
     for (const url of [
-      '/api/trade/%69nternal/test/age',
+      '/api/trade/%69nternal/job',
       '/api/pay/%74rpc/settlement.payout',
       '/api/pay/trpc/settlement%2Epayout',
       '/api/trade//internal/x',

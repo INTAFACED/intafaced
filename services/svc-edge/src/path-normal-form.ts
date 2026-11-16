@@ -7,7 +7,7 @@
  * The edge compares paths as strings: `/internal/` is not a public door, `/api/bank/` is held for agent keys, a kill
  * refuses `/api/trade/...` but lets a cancel out. The service behind it does not route on that string. Its router
  * decodes percent-escapes first, so `/%69nternal/x` is served by the `/internal/x` handler while the edge's string
- * comparison saw something else and forwarded it, signed with the edge's own key (project-state #2703).
+ * comparison saw something else and forwarded it (project-state #2703).
  *
  * Decoding cleverly on the edge's side would mean predicting every router behind it. Refusing is simpler: a client
  * that builds its URLs with any standard encoder never sends the forms below, so a request that does is refused 400

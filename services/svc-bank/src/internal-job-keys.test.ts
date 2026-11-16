@@ -79,7 +79,7 @@ describe('svc-bank job doors with service keys', () => {
     expect(requireInternalJobHmac(req.headers, SECRET, raw, { req, verifier: f.verifier(), mode: 'keypair' })).toBe(false);
   });
 
-  it('a call signed as svc-edge is refused: the edge forwards the internet and never runs a bank job', () => {
+  it('a call signed as svc-edge is refused: the edge never runs a bank job', () => {
     for (const mode of ['dual', 'keypair'] as const) {
       const edge = fleet('svc-edge');
       expect(call(keyedHeaders(edge), edge, mode), mode).toBe(false);

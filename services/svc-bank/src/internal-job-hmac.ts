@@ -34,9 +34,8 @@ export function requireInternalJobHmac(
 }
 
 /**
- * Any service may run a job, except svc-edge: the edge never calls svc-bank's `/internal` doors, and it signs every
- * request it forwards from the internet with its own key, so a call signed as svc-edge here came from outside
- * (project-state #2703).
+ * Any service may run a job, except svc-edge: the edge never calls svc-bank's `/internal` doors, so a call that names
+ * it here is not the edge doing its own work (project-state #2703).
  */
 function jobCaller(service: string | null): boolean {
   return service !== null && service !== 'svc-edge';
