@@ -1,4 +1,5 @@
-import type { NavigationCopyKey } from '../navigation-copy';
+import type { NavigationCopyKey, SharedNavigationCopyKey } from '../navigation-copy';
+import type { UiLocale } from '../../shared/locale';
 import type { ScreenId } from '../screen-types';
 
 export type Door = 'Home' | 'Money' | 'Trade' | 'Pay' | 'More';
@@ -33,6 +34,24 @@ export type RoomIn<A extends Area> = Room & { area: A };
  * One area's rooms. Each area keeps its rows in its own file (`rooms/<area>.ts`) so a journey that adds a room edits
  * that area's file, never one shared table (project-state issue 2616): `navigation.ts` only joins them, in area order.
  */
-export function areaRooms<A extends Area>(_area: A, list: readonly NoInfer<RoomIn<A>>[]): readonly RoomIn<A>[] {
+export function areaRooms<A extends Area, const T extends Record<string, string>>(
+  _area: A,
+  _copy: AreaCopy<T>,
+  list: readonly NoInfer<RoomIn<A> & Labelled<(keyof T & string) | SharedNavigationCopyKey>>[],
+): readonly RoomIn<A>[] {
   return list;
+}
+
+/**
+ * One area's room labels: English, and each other language as written (a key left out falls back to English). A row's
+ * title and description must be a key of its own area's copy or a shared one (`areaRooms`), so a journey that adds a
+ * room writes its labels in that area's file, beside the row, never in ../navigation-copy.ts (project-state issue 2617).
+ * A label a second area needs moves to `sharedNavigationCopy` there.
+ */
+export type AreaCopy<T extends Record<string, string>> = { readonly en: T } & {
+  readonly [L in Exclude<UiLocale, 'en'>]?: Partial<Record<keyof T, string>>;
+};
+type Labelled<K> = { title: K; description: K };
+export function areaCopy<const T extends Record<string, string>>(copy: AreaCopy<T>): AreaCopy<T> {
+  return copy;
 }

@@ -310,7 +310,7 @@ test(`${J} #3 adds a contractor and stores an invoice of TEST 500.00: the contra
   await ledgerUnchanged(w);
 });
 
-test(`${J} #4 pays the contractor batch: approval rules apply; the intent row is written first; paid through the partner's payout rail`, async ({
+test(`${J} #4 pays the contractor batch: approval rules apply; the intent row is written first; paid through the partner's payout rail, or with no rail the notice with rail.bank`, async ({
   page,
 }) => {
   test.setTimeout(900_000);
@@ -386,6 +386,49 @@ test(`${J} #4 pays the contractor batch: approval rules apply; the intent row is
   });
   expect(await held(own, accountId)).toBe('500');
   await ledgerUnchanged(w);
+
+  // With no rail: a business whose money no partner bank holds (the approver's own, its bank money not at the TEST
+  // partner) pays a batch. The intent row is kept, refused with the notice naming rail.bank; nothing moves or posts.
+  const mine = await bank(w.approver);
+  const approverLedger = await (await ledgerApi(w.approver)).balances();
+  const noRail = randomUUID();
+  const noRailName = `TEST Payroll norail ${RUN}`;
+  ok(await mine.mutate('business.create', { accountId: noRail, name: noRailName, assetId: 'USDT', spendThreshold: THRESHOLD }));
+  expect(ok(await mine.query('businessTeam.overview', { accountId: noRail })).partner).toBeNull();
+  const other = randomUUID();
+  ok(
+    await mine.mutate('businessPayouts.addContractor', {
+      accountId: noRail,
+      contractorId: other,
+      name: 'TEST Dev Studio',
+      email: null,
+      iban: IBANS[2],
+      walletAddress: null,
+    }),
+  );
+  ok(
+    await mine.mutate('businessPayouts.addInvoice', {
+      contractorId: other,
+      invoiceId: randomUUID(),
+      number: 'TEST-INV-42',
+      amount: '500.00',
+      dueDate: null,
+    }),
+  );
+  await inBusiness(page, w.approver, noRailName);
+  const payNoRail = page.getByRole('form', { name: 'Pay selected invoices' });
+  await payNoRail.getByLabel(/Pay invoice TEST-INV-42/).check();
+  await payNoRail.getByRole('button', { name: 'Pay selected invoices' }).click();
+  const refusedRow = page.getByTestId('batch-row');
+  await expect(refusedRow).toHaveAttribute('data-status', 'refused');
+  await expect(refusedRow).toHaveAttribute('data-refusal', 'rail.bank');
+  await expect(refusedRow.getByTestId('batch-status')).toContainText('no partner payout rail carries it here (rail.bank)');
+  const kept = ok(await mine.query('businessPayouts.batches', { accountId: noRail }));
+  expect(kept).toHaveLength(1);
+  expect(kept[0]).toMatchObject({ status: 'refused', refusalCode: 'rail.bank', total: '500', partnerMoveId: null, sentAt: null });
+  expect(kept[0].partnerKey).toBe(`bank.business.contractor-batch:${kept[0].id}`);
+  expect(ok(await mine.query('businessPayouts.contractors', { accountId: noRail }))[0].invoices[0].status).toBe('open');
+  expect(await (await ledgerApi(w.approver)).balances()).toEqual(approverLedger);
 });
 
 test(`${J} #5 sets up recurring crypto payroll with payslips and contractor self-onboarding: each run is signed by the business's own wallet; INTAFACED holds no vault`, async ({
