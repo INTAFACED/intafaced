@@ -275,6 +275,29 @@ export function billPayBinding(i: { actor: string; billId: string; paymentId: st
   };
 }
 
+/** Confirming a business's bulk payment run (J-bank-21 #2): the run's own id is its one partner instruction's key. */
+export function bulkRunConfirmBinding(i: { actor: string; runId: string }): DoorBinding {
+  return { actionType: 'bank.step_up.businessPayouts.confirmRun', operationKey: i.runId, fields: { actor: i.actor, runId: i.runId } };
+}
+
+/** Paying a business's contractor batch (J-bank-21 #4): the batch's own id and the account it pays from. */
+export function contractorBatchBinding(i: { actor: string; accountId: string; batchId: string }): DoorBinding {
+  return {
+    actionType: 'bank.step_up.businessPayouts.payBatch',
+    operationKey: i.batchId,
+    fields: { actor: i.actor, accountId: i.accountId, batchId: i.batchId },
+  };
+}
+
+/** Approving and paying a member's reimbursement claim (J-bank-22 #5): the claim's own id is its one partner move's key. */
+export function reimbursementPayBinding(i: { actor: string; claimId: string }): DoorBinding {
+  return {
+    actionType: 'bank.step_up.businessCards.approveAndPay',
+    operationKey: i.claimId,
+    fields: { actor: i.actor, claimId: i.claimId },
+  };
+}
+
 export function removeMemberBinding(i: { actor: string; accountId: string; userId: string; requestId: string }): DoorBinding {
   return {
     actionType: 'bank.step_up.business.removeMember',

@@ -41,6 +41,7 @@ export const developersCopy = defineCopy(
     section_protocols: 'Choosing a protocol',
     section_webhooks: 'Webhooks',
     section_sandbox: 'Sandbox',
+    section_business_cards: 'Business cards API',
     section_apps: 'Registered apps',
     section_quickstart: 'Quickstart',
     section_sdks: 'Libraries',

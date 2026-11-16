@@ -87,15 +87,15 @@ async function openVenue(page, who, privateKey, { rpcUrl = null, beforeVenue = n
 }
 
 /**
- * After a reload the browser wallet may come back by itself (it is still authorised), and its Connect button can show for a
- * moment before it does: a click on it then waits for a button that is gone. The person presses Connect only while the
- * room still asks for it, until `settled` shows.
+ * After a reload the browser wallet comes back by itself (it is still authorised: WalletProvider asks eth_accounts,
+ * which never prompts), so Connect shows until that answer lands and can vanish under a press. Press it only while it
+ * is still there, and try again until the room shows `settled`.
  */
-async function reconnectAfterReload(page, settled) {
+async function backAfterReload(page, settled) {
   const again = page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` });
   await expect(async () => {
-    if (await again.isVisible()) await again.click({ timeout: 5_000 });
-    await expect(settled).toBeVisible({ timeout: 5_000 });
+    if (await again.isVisible()) await again.click({ timeout: 2_000 });
+    await expect(settled).toBeVisible({ timeout: 2_000 });
   }).toPass({ timeout: 60_000 });
 }
 
@@ -248,7 +248,7 @@ test(`${J} #2 signs with the wallet: it shows connected with its expiry; INTAFAC
   // The connection is the service's: a reload reads it back with the same expiry.
   await page.reload();
   // The browser wallet may come back by itself (it is still authorised); otherwise the person connects it again.
-  await reconnectAfterReload(page, page.getByRole('heading', { name: 'Connected' }));
+  await backAfterReload(page, page.getByRole('heading', { name: 'Connected' }));
   await expect(page.getByTestId('venue-connection-expires')).toHaveAttribute('datetime', expiresAt);
 });
 
@@ -371,7 +371,7 @@ test(`${J} #3 deposits TEST USDC from the wallet into the venue account: the use
   expect(read.body.value.find((b) => b.asset === 'USDC')).toMatchObject({ free: DEPOSIT, locked: '0' });
   // A reload reads the venue's figure again, never a figure the app kept: still exactly the deposit, credited once.
   await page.reload();
-  await reconnectAfterReload(page, figure.filter({ hasText: `${DEPOSIT} TEST USDC` }));
+  await backAfterReload(page, page.getByRole('heading', { name: 'Connected' }));
   await expect(figure).toHaveText(`${DEPOSIT} TEST USDC`);
 
   // The ledger posts nothing: the person's ledger balances are the same as before.
@@ -416,7 +416,7 @@ test(`${J} #4 lets the connection expire: every signed action refuses until the 
     ['Withdraw TEST USDC', 'withdraw'],
   ]) {
     await page.reload();
-    await reconnectAfterReload(page, page.getByRole('heading', { name: 'Connection expired' }));
+    await backAfterReload(page, page.getByRole('heading', { name: 'Connection expired' }));
     await expect(page.getByText('protocol.venue_connection_expired')).toHaveCount(0);
     await expect(page.getByText('Your wallet must sign again')).toHaveCount(0);
     const authorized = page.waitForResponse(
