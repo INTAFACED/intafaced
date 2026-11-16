@@ -9,10 +9,9 @@
 const TEST_FILE = /(\.(test|spec|testkit)\.[cm]?[jt]sx?$)|(\.pw\.[cm]?[jt]s$)|(\/(test|tests|__tests__)\/)/u;
 const MESSAGE = (name) =>
   `'${name}' on a prototype patch has a hand-written type, so the compiler stops checking the real method's arguments, ` +
-  `overloads and return (how three closers skipped finalize's cancel evidence, #8563). Type it from the class itself, ` +
-  `as <Class>['${name}']: TradeServiceInternal['${name}'] (trade-service.ts) for TradeService's private methods, ` +
-  `MatchingEngine['${name}'] or PositionService['${name}'] for public ones. Forward every argument ` +
-  `(...args: Parameters<...>). New behaviour goes in the class or its area file, not in a new patch.`;
+  `overloads and return (how three closers skipped finalize's cancel evidence, #8563). Type it from the class itself: ` +
+  `TradeServiceInternal['${name}'] for TradeService (trade-service.ts), <Class>['${name}'] for another class. Forward every ` +
+  `argument (...args: Parameters<...>). New behaviour goes in the class or its area file, not in a new patch.`;
 
 const isPrototype = (n) => n?.type === 'MemberExpression' && !n.computed && n.property?.name === 'prototype';
 /** The expression under any stack of `as` casts. */
