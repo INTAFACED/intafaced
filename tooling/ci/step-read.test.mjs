@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseStepWords } from './test-judge.mjs';
@@ -15,6 +15,7 @@ import {
   secondReason,
   writeReads,
 } from './step-read.mjs';
+import { attach, picturesIn, waitOver } from './step-pictures.mjs';
 
 const HEAD = 'a'.repeat(40);
 const BASE = 'b'.repeat(40);
@@ -80,6 +81,23 @@ const fakeSrc = (diff = DIFF, head = {}) => {
 };
 const answer = (reads) => JSON.stringify({ type: 'result', subtype: 'success', is_error: false, structured_output: { reads } });
 const env = { GITHUB_RUN_ID: '42', GITHUB_RUN_ATTEMPT: '1', GITHUB_REPOSITORY: 'INTAFACED/intafaced' };
+// Shards unpacked as step-pictures.mjs fetchRun leaves them: <run>-<attempt>/<artifact>/ holding the report.json and the
+// pictures under their absolute paths less the leading slash, as real-app-journeys.yml uploads them. `tests`: title -> has
+// a picture. `runs`: more run folders, newest last.
+const shards = (tests, { root = tmp(), run = '900-1' } = {}) => {
+  const art = join(root, run, 'real-app-journeys-shard-1');
+  const specs = Object.entries(tests).map(([title, has], i) => {
+    const path = `/tmp/intafaced-real-app/results/t${i}/test-finished-1.png`;
+    if (has) {
+      mkdirSync(join(art, `tmp/intafaced-real-app/results/t${i}`), { recursive: true });
+      writeFileSync(join(art, path.slice(1)), 'png');
+    }
+    return { title, tests: [{ results: [{ status: 'passed', attachments: [{ name: 'screenshot', contentType: 'image/png', path }] }] }] };
+  });
+  mkdirSync(join(art, 'home/runner/work/_temp/journeys'), { recursive: true });
+  writeFileSync(join(art, 'home/runner/work/_temp/journeys/report.json'), JSON.stringify({ suites: [{ suites: [{ specs }] }] }));
+  return root;
+};
 
 test('a step whose own test changed is read, with its words and its journey file whole; the schema is reads only', async () => {
   const dir = tmp();
@@ -208,7 +226,8 @@ test('planted WEAK: the read records WEAK, the status fails, and the step words 
   const dir = tmp();
   await writeReads(dir, { src: fakeSrc(), base: BASE, head: HEAD, pr: 7, loadWords: words, runId: RUN });
   const leak = 'it never checks that the balance equals the deposit exactly';
-  writeFileSync(join(dir, 'answer.json'), answer([{ step: 'J-x-01 #2', verdict: 'WEAK', refusal: false, note: leak }]));
+  attach(dir, shards({ 'J-x-01 #2 sees': true }));
+  writeFileSync(join(dir, 'answer.json'), answer([{ step: 'J-x-01 #2', verdict: 'WEAK', refusal: false, note: leak, picture: 'SHOWN' }]));
   const v = cmdRead(dir, env);
   assert.equal(v.ok, true);
   const raw = readFileSync(join(dir, 'read.json'), 'utf8');
@@ -223,7 +242,10 @@ test('planted WEAK: the read records WEAK, the status fails, and the step words 
   for (const secret of ['deposit exactly', 'private balance', 'hidden page', 'quiet desk']) assert.ok(!raw.includes(secret), secret);
   assert.equal(readFileSync(join(dir, 'status.tsv'), 'utf8'), "failure\t1 WEAK (the CI review's proof read)\n");
   // The control: FAITHFUL is a success.
-  writeFileSync(join(dir, 'answer.json'), answer([{ step: 'J-x-01 #2', verdict: 'FAITHFUL', refusal: false, note: 'a.pw.mjs:7 toBe' }]));
+  writeFileSync(
+    join(dir, 'answer.json'),
+    answer([{ step: 'J-x-01 #2', verdict: 'FAITHFUL', refusal: false, note: 'a.pw.mjs:7 toBe', picture: 'SHOWN' }]),
+  );
   assert.equal(cmdRead(dir, env).ok, true);
   assert.match(readFileSync(join(dir, 'status.tsv'), 'utf8'), /^success\t1 FAITHFUL/);
 });
@@ -242,12 +264,14 @@ test('fails closed: an unanswered step, a bad verdict, an errored call or a miss
     })(),
   });
   const ok = [
-    { step: 'J-x-01 #1', verdict: 'FAITHFUL', refusal: false, note: 'n' },
-    { step: 'J-wallet-01 #1', verdict: 'FAITHFUL', refusal: false, note: 'n' },
+    { step: 'J-x-01 #1', verdict: 'FAITHFUL', refusal: false, note: 'n', picture: 'SHOWN' },
+    { step: 'J-wallet-01 #1', verdict: 'FAITHFUL', refusal: false, note: 'n', picture: 'SHOWN' },
   ];
   for (const [why, text] of [
     ['unanswered', answer(ok.slice(0, 1))],
     ['bad verdict', answer([{ ...ok[0], verdict: 'FINE' }, ok[1]])],
+    ['no picture answer', answer([{ ...ok[0], picture: undefined }, ok[1]])],
+    ['bad picture answer', answer([{ ...ok[0], picture: 'FINE' }, ok[1]])],
     ['errored', JSON.stringify({ type: 'result', subtype: 'error_max_turns', is_error: true })],
     ['not JSON', 'oops'],
     ['answered twice', answer([ok[0], ok[1], { ...ok[1], step: 'J-wallet-01#1', verdict: 'WEAK' }])],
@@ -330,4 +354,89 @@ test('in a serial file, a change to one step reads it and every step below it; n
   assert.deepEqual(await read(JFILE), ['J-x-01 #1'], 'a parallel file: only the step changed');
   assert.deepEqual(laterInSerial(SERIAL, 'J-x-01', new Set(['J-x-01 #2'])), ['J-x-01 #2'], 'nothing above the change');
   assert.deepEqual(laterInSerial(SERIAL, 'J-x-01', new Set()), []);
+});
+
+// project-state #2693: J-charts-desk-14 (#8569) merged with eight FAITHFUL reads while its chart had zero height; the
+// picture of each step's end screen, from the journeys run on the head, is now the read's input too.
+test('#2693: each step gets its own end picture from the newest run; a step with none is NOT READ and never a pass', async () => {
+  const dir = tmp();
+  await writeReads(dir, { src: fakeSrc(DOCS), base: BASE, head: HEAD, pr: 7, title: 'svc: J-x-01 #1 #2', loadWords: words, runId: RUN });
+  const root = shards({ 'J-x-01 #1 does': true, 'J-x-01 #2 sees': false }, { run: '900-1' });
+  shards({ 'J-x-01 #1 does': true }, { root, run: '901-1' });
+  const pics = picturesIn(root);
+  assert.equal(pics.get('J-x-01#1').run, '901', 'the newest run gives the picture');
+  assert.equal(pics.has('J-x-01#2'), false, 'a listed picture that is not in the artifact is no picture');
+  assert.equal(attach(dir, root), 'pictures: 1 of 2 step(s)');
+  const prompt = readFileSync(join(dir, 'prompt.txt'), 'utf8');
+  assert.match(
+    prompt,
+    /BEGIN PICTURES[^\n]*\nJ-x-01 #1: \/.*901-1\/real-app-journeys-shard-1\/tmp\/intafaced-real-app\/results\/t0\/test-finished-1\.png\nJ-x-01 #2: no picture \(answer picture NOT READ\)\nEND PICTURES\nAnswer with the structured reads only\.$/,
+  );
+  // The reader can't make a step with no picture pass by answering SHOWN.
+  writeFileSync(
+    join(dir, 'answer.json'),
+    answer([
+      { step: 'J-x-01 #1', verdict: 'FAITHFUL', refusal: false, note: 'n', picture: 'SHOWN' },
+      { step: 'J-x-01 #2', verdict: 'FAITHFUL', refusal: false, note: 'n', picture: 'SHOWN' },
+    ]),
+  );
+  assert.equal(cmdRead(dir, env).ok, true);
+  const doc = JSON.parse(readFileSync(join(dir, 'read.json'), 'utf8'));
+  assert.deepEqual(
+    doc.steps.map((s) => s.picture.seen),
+    ['SHOWN', 'NOT READ'],
+  );
+  assert.deepEqual(doc.steps[0].picture, { seen: 'SHOWN', file: 't0/test-finished-1.png', run: '901', capped: false });
+  assert.equal(readFileSync(join(dir, 'status.tsv'), 'utf8'), "failure\t2 FAITHFUL, 1 picture NOT READ (the CI review's proof read)\n");
+});
+
+test('#2693 planted: a BROKEN picture caps a FAITHFUL verdict at WEAK; NOT SHOWN keeps it', async () => {
+  const dir = tmp();
+  await writeReads(dir, { src: fakeSrc(DOCS), base: BASE, head: HEAD, pr: 7, title: 'svc: J-x-01 #1 #2', loadWords: words, runId: RUN });
+  attach(dir, shards({ 'J-x-01 #1 does': true, 'J-x-01 #2 sees': true }));
+  writeFileSync(
+    join(dir, 'answer.json'),
+    answer([
+      { step: 'J-x-01 #1', verdict: 'FAITHFUL', refusal: false, note: 'n', picture: 'BROKEN' },
+      { step: 'J-x-01 #2', verdict: 'FAITHFUL', refusal: false, note: 'n', picture: 'NOT SHOWN' },
+    ]),
+  );
+  assert.equal(cmdRead(dir, env).ok, true);
+  const doc = JSON.parse(readFileSync(join(dir, 'read.json'), 'utf8'));
+  assert.deepEqual(
+    doc.steps.map((s) => [s.readers[0].verdict, s.picture.seen, s.picture.capped]),
+    [
+      ['WEAK', 'BROKEN', true],
+      ['FAITHFUL', 'NOT SHOWN', false],
+    ],
+  );
+  assert.match(readFileSync(join(dir, 'status.tsv'), 'utf8'), /^failure\t1 FAITHFUL, 1 WEAK, 1 picture BROKEN/);
+});
+
+test('#2693: the wait ends when every step has its picture or every journeys run on the head has finished, not while one is deferred', () => {
+  const pictures = new Map([['J-x-01#1', {}]]);
+  assert.equal(waitOver({ steps: ['J-x-01 #1'], pictures, runs: [] }).over, true);
+  assert.equal(waitOver({ steps: ['J-x-01 #1', 'J-x-01 #2'], pictures, runs: [] }).over, false);
+  assert.equal(waitOver({ steps: ['J-x-01 #2'], pictures, runs: [{ id: 1, status: 'in_progress' }] }).over, false);
+  assert.equal(waitOver({ steps: ['J-x-01 #2'], pictures, runs: [{ id: 1, status: 'completed', deferred: true }] }).over, false);
+  assert.equal(waitOver({ steps: ['J-x-01 #2'], pictures, runs: [{ id: 1, status: 'completed' }] }).over, true);
+});
+
+test('#2693 review S5 planted: a picture that is a link, or that climbs out of its shard, is no picture', async () => {
+  const { symlinkSync } = await import('node:fs');
+  const root = shards({ 'J-x-01 #1 does': true, 'J-x-01 #2 sees': false, 'J-x-01 #3 climbs': false });
+  const art = join(root, '900-1', 'real-app-journeys-shard-1');
+  const report = join(art, 'home/runner/work/_temp/journeys/report.json');
+  const doc = JSON.parse(readFileSync(report, 'utf8'));
+  const secret = join(root, 'secret.png');
+  writeFileSync(secret, 'key');
+  // #2: its picture is a link to a file outside the shard; #3: its path climbs out of the shard.
+  mkdirSync(join(art, 'tmp/intafaced-real-app/results/t1'), { recursive: true });
+  symlinkSync(secret, join(art, 'tmp/intafaced-real-app/results/t1/test-finished-1.png'));
+  doc.suites[0].suites[0].specs[2].tests[0].results[0].attachments[0].path = '/../../secret.png';
+  writeFileSync(report, JSON.stringify(doc));
+  const pics = picturesIn(root);
+  assert.equal(pics.has('J-x-01#1'), true, 'the control: a plain file inside its shard is a picture');
+  assert.equal(pics.has('J-x-01#2'), false, 'a link');
+  assert.equal(pics.has('J-x-01#3'), false, 'a path out of the shard');
 });
