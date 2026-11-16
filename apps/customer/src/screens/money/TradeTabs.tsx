@@ -1,4 +1,7 @@
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useVenueMode } from '../../features/trade/use-venue-mode';
+import type { AsOf, VenueFill } from '../../features/trade/venue-api';
+import { FillsTable as VenueFillsTable, VenueFrame, WalletBar, useOwner, useVenueApi } from '../../features/trade/venue/VenueKit';
 import '../trade/desk/desk.css';
 import { deskCopy } from '../trade/desk/copy';
 import { useClosedOrders, useDeskMarkets, useFills, useOpenOrders, useRefreshPrivate } from '../trade/desk/data';
@@ -41,6 +44,7 @@ export function TradesPanel({ asset = null, fill = null }: { asset?: string | nu
   const orders = useOrderIndex();
   return (
     <div data-testid="money-trade-tab" className="money-trade-tab">
+      <VenueTrades asset={asset} />
       <LoadState load={fills} thing="trades">
         {(all) => {
           const rows = asset ? all.filter((fill) => symbolHasAsset(fill.symbol, asset)) : all;
@@ -93,6 +97,44 @@ export function TradesPanel({ asset = null, fill = null }: { asset?: string | nu
       </LoadState>
     </div>
   );
+}
+
+/**
+ * The trades on the person's own venue account (J-cex-spot-06 #8), when trading there is on: one row per venue fill with
+ * its price, total and both fees, the venue's and our builder fee, read from the venue itself for the connected wallet.
+ */
+function VenueTrades({ asset }: { asset: string | null }) {
+  const mode = useVenueMode();
+  if (mode.mode !== 'on') return null;
+  return (
+    <VenueFrame mode={mode}>
+      <section data-testid="money-venue-trades" className="money-trade-tab">
+        <WalletBar />
+        <VenueFills test={mode.status.available ? mode.status.test : false} asset={asset} />
+      </section>
+    </VenueFrame>
+  );
+}
+
+const EVERY_FILL = new Date(0).toISOString();
+
+function VenueFills({ test, asset }: { test: boolean; asset: string | null }) {
+  const owner = useOwner();
+  const api = useVenueApi();
+  const [fills, setFills] = useState<AsOf<VenueFill[]> | null>(null);
+  useEffect(() => {
+    if (!owner) return;
+    const controller = new AbortController();
+    void api.fills(owner, EVERY_FILL, controller.signal).then((result) => {
+      if (!controller.signal.aborted && result.ok) setFills(result.data);
+    });
+    return () => controller.abort();
+  }, [api, owner]);
+  if (!owner) return null;
+  const shown = fills && asset ? { ...fills, value: fills.value.filter((f) => f.symbol.split('-').includes(asset)) } : fills;
+  // Newest first, as the rest of Activity reads.
+  const sorted = shown ? { ...shown, value: [...shown.value].sort((a, b) => b.filledAt.localeCompare(a.filledAt)) } : null;
+  return <VenueFillsTable fills={sorted} test={test} withTotal />;
 }
 
 export function OrdersPanel() {

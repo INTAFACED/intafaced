@@ -50,6 +50,7 @@ import {
 import { bpsPercent, builderApproved, carriesBuilderFee } from '../../../features/trade/venue/VenueReview';
 import { SubAccountsPanel } from '../../../features/trade/venue/SubAccounts';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
+import { venueOrdersCopy } from '../../../features/trade/orders/venue-orders-copy';
 import { tradeAccess } from '../markets/TradeAccess';
 import { deskCopy } from './copy';
 import {
@@ -225,6 +226,7 @@ export function VenueSpotDesk({
   const { t } = spotVenueCopy.useCopy();
   const v = venueCopy.useCopy().t;
   const d = deskCopy.useCopy().t;
+  const orders = venueOrdersCopy.useCopy().t;
   const owner = useOwner();
   const venue = useVenueApi();
   const account = useVenueAccount(owner);
@@ -437,6 +439,9 @@ export function VenueSpotDesk({
           <TabsTab value="positions">{v('Positions')}</TabsTab>
         </TabsList>
         <OutcomeLine result={lastResult} owner={owner} />
+        <a className="text-link" data-testid="venue-history-link" href="/trade/orders?product=venue">
+          {orders('historyTitle')}
+        </a>
         <TabsPanel value="open">
           <OrdersTable
             orders={account.openOrders.data}
