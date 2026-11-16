@@ -1203,15 +1203,21 @@ export class TransferService {
           // (GitHub issue #4621). Plain reads, no lock needed.
           from = await this.spaces.resolveForDebit(schedule.fromSpaceId, now, tx);
           to = await this.spaces.resolveForCredit(schedule.toSpaceId, { actingUserId: from.userId }, tx);
+          // The sender's freeze is held at the edge, and this run never passes the edge: a frozen, closed or unknown
+          // sender's order to another person posts nothing. A move between the sender's own spaces leaves no account.
+          if (to.userId !== from.userId) await this.spaces.assertCanSend(from.userId);
         } catch (err) {
-          // `bank.recipient_cannot_receive` is a refusal of this occurrence like a
+          // `bank.recipient_cannot_receive` and `bank.sender_cannot_send` are refusals of this occurrence like a
           // lock or an archive: recorded on the run, one code, no state named.
           // `bank.recipient_check_unavailable` / `_unset` are NOT here: identity
           // being down must not consume the occurrence, so they rethrow and the
           // claim rolls back for the next pass.
           if (
             err instanceof BankError &&
-            (err.code === 'bank.space_locked' || err.code === 'bank.space_archived' || err.code === 'bank.recipient_cannot_receive')
+            (err.code === 'bank.space_locked' ||
+              err.code === 'bank.space_archived' ||
+              err.code === 'bank.recipient_cannot_receive' ||
+              err.code === 'bank.sender_cannot_send')
           ) {
             // Crash window: claim rolled back (or never committed settle) AFTER
             // ledger.post already moved value under bank.transfer.sched:<id>:<n>. A
