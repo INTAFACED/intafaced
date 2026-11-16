@@ -102,7 +102,7 @@ const STRICT = [
   (rel) => /^screens\/trade\/options\/[^/]+$/u.test(rel),
 ];
 const MONEY_WORDS = new Set(
-  'amount balance fee price notional total minor cents units cost pnl margin collateral equity premium strike payout principal volume size qty quantity'.split(
+  'amount balance fee price notional total minor cents units cost pnl margin collateral equity premium strike payout principal volume size qty quantity px sz mark bid ask mid last spot oracle high low'.split(
     ' ',
   ),
 );
@@ -163,6 +163,7 @@ function floatCall(n) {
   const c = n.callee;
   const name = c?.type === 'Identifier' ? c.name : c?.type === 'MemberExpression' && !c.computed ? c.property?.name : null;
   if (name === 'parseFloat') return 'parseFloat()';
+  if (name === 'parseInt') return 'parseInt()';
   if (name !== 'Number') return null;
   if (c.type === 'MemberExpression' && !['globalThis', 'window', 'self'].includes(c.object?.name)) return null;
   return 'Number()';
@@ -214,11 +215,11 @@ function customerFloats(context, strictOnly = false) {
   const leaveFn = (node) => {
     if (exitFile && functionName(node) === EXIT) inExit -= 1;
   };
-  const float = (node, kind, arg) => {
+  const float = (node, kind, arg, byNameOnly = kind.includes('parseInt')) => {
     if (inExit) return;
     const name = moneyName(arg);
     if (name) context.report({ node, message: `\`${name}\` is money and ${kind} makes it a float: ${FLOAT_FIX}` });
-    else if (strict)
+    else if (strict && !byNameOnly)
       context.report({ node, message: `${kind} in a money folder (data/, the desk, the Options room) makes a float: ${FLOAT_FIX}` });
   };
   const leak = (node, what) => context.report({ node, message: `${what} of a chartValue() result: ${EXIT_FIX}` });
@@ -236,9 +237,16 @@ function customerFloats(context, strictOnly = false) {
       const kind = floatCall(node);
       if (kind) return void (node.arguments[0] && float(node, kind, node.arguments[0]));
       const c = node.callee;
-      const mapped = node.arguments[0]?.type === 'Identifier' && ['Number', 'parseFloat'].includes(node.arguments[0].name);
-      if (c?.type === 'MemberExpression' && !c.computed && c.property?.name === 'map' && mapped)
-        float(node, `.map(${node.arguments[0].name})`, c.object);
+      if (c?.type === 'MemberExpression' && !c.computed && c.property?.name === 'map') {
+        const fn = node.arguments[0];
+        if (fn?.type === 'Identifier' && ['Number', 'parseFloat', 'parseInt'].includes(fn.name)) float(node, `.map(${fn.name})`, c.object);
+        // `.map((p) => Number(p))`: the same conversion, judged by the array's name.
+        const param = isFunction(fn) && fn.params[0]?.type === 'Identifier' ? fn.params[0].name : null;
+        const body = fn?.body?.type === 'BlockStatement' ? null : unwrap(fn?.body);
+        const inner = body?.type === 'CallExpression' ? floatCall(body) : null;
+        if (param && inner && unwrap(body.arguments[0])?.type === 'Identifier' && unwrap(body.arguments[0]).name === param)
+          float(node, `.map(… ${inner})`, c.object, true);
+      }
       if (strict && c?.type === 'MemberExpression' && !c.computed && c.property?.name === 'toFixed') float(node, '.toFixed()', c.object);
       if (c?.type === 'Identifier' && TEXT_CALLS.has(c.name) && node.arguments.some(holdsExit)) leak(node, `${c.name}()`);
       if (c?.type === 'MemberExpression' && !c.computed && TEXT_METHODS.has(c.property?.name)) {

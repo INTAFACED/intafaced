@@ -318,8 +318,10 @@ test('no-number-money: the customer app never makes money a float, and chartValu
       'export const a = (o: { price: string }) => parseFloat(o.price);\nexport const b = (amount: string) => +amount;\nexport const c = (t: string) => Number(t.trim()) + Number.parseFloat(feeTotal);\n',
     [`${C}features/x/parts.ts`]:
       'export const a = (o: { priceUsd: string }) => Number(o.priceUsd);\nexport const b = (amount_in: string) => Number(amount_in);\nexport const c = (bar: { c: string }) => Number(bar.c);\nexport const d = (prices: string[]) => prices.map(Number);\n',
+    [`${C}features/x/venue.ts`]:
+      'export const a = (o: { px: string; markPx: string }) => Number(o.px) + Number(o.markPx);\nexport const b = (prices: string[]) => prices.map((p) => Number(p));\nexport const c = (amount: string) => parseInt(amount, 10);\n',
     [`${C}features/x/rates.ts`]:
-      'export const a = (feeBps: string) => Number(feeBps);\nexport const b = (m: { open: boolean }) => Number(m.open);\nexport const c = (ids: string[]) => ids.map(Number);\n',
+      'export const a = (feeBps: string) => Number(feeBps);\nexport const b = (m: { open: boolean }) => Number(m.open);\nexport const c = (ids: string[]) => ids.map(Number);\nexport const d = (ids: string[]) => ids.map((id) => Number(id));\nexport const e = (page: string) => parseInt(page, 10);\n',
     [`${C}data/poll.spec.ts`]: 'export const ms = (s: string) => Number(s);\n',
     // The folders the scanner tests judged: every float conversion, whatever it is called.
     [`${C}data/poll.ts`]: 'export const ms = (s: string) => Number(s);\n',
@@ -362,6 +364,7 @@ test('no-number-money: the customer app never makes money a float, and chartValu
   fires(`${C}features/x/held.ts`);
   fires(`${C}features/x/names.ts`, 3);
   fires(`${C}features/x/parts.ts`, 4);
+  fires(`${C}features/x/venue.ts`, 4);
   fires(`${C}features/x/rates.ts`, 0);
   fires(`${C}data/poll.spec.ts`);
   fires(`${C}data/poll.ts`);
