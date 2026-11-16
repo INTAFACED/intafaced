@@ -66,6 +66,8 @@ const STEP = /^J-[a-z0-9-]+-\d+#\d+$/;
 const STEP_TITLE = /^(J-[a-z0-9-]+-\d+)\s+#(\d+)\b/;
 const BASE = /^(?!.*\.\.)(?!\/)[A-Za-z0-9._/-]{1,200}$/;
 const REAL_APP = 'apps/customer/tests/real-app/';
+/** The artifact real-app-journeys.yml keeps a push run's leave-out list in ("Keep the leave-out list"). */
+export const LEAVE_OUT_ARTIFACT = 'real-app-journeys-leave-out';
 export const MAX_COMMITS = 200;
 export const BRANCH_PREFIX = 'revert/auto-';
 /** The App token `open` writes with: intafaced only, never workflows. */
@@ -112,13 +114,29 @@ export function outrightStates(report) {
  *  the same revert; its culprit is the merge that brought it (14 Nov 2026: J-algo-dev-04 #3, new in #8371, failed on
  *  main's first run that held it and nothing started, as it had never passed before). A step that never passed in a file
  *  no commit between the runs touched is not reverted. */
-export function revertSteps(previous, now, changed = null) {
+export function revertSteps(previous, now, changed = null, leftOut = new Set()) {
   const before = stepStates(previous);
+  // A step the run before left out (journey-leave-out.mjs) was left out because it is unbuilt and failed in a recent run
+  // on main: it counts as red there, as it would have been had it run. It is not new to main (15 Nov 2026, #8535:
+  // J-agents-18 #5, red by name since #6990, was left out of run 43735359940; #8518 changed its file, so it ran again,
+  // failed as it always does, and was taken for a new step that broke).
+  for (const key of leftOut) if (!before.has(key)) before.set(key, 'failed');
   const failed = outrightFailures(now);
   return [...outrightStates(now)]
     .filter(([key, state]) => state === 'failed' && (before.get(key) === 'passed' || (!before.has(key) && changed?.has(failed.get(key)))))
     .map(([key]) => key)
     .sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
+}
+
+/** The step keys a run's leave-out list (journey-leave-out.mjs testListText: `file › describe › title`, one per line)
+ *  names. Pure. */
+export function leftOutSteps(text) {
+  const out = new Set();
+  for (const line of String(text ?? '').split('\n')) {
+    const m = STEP_TITLE.exec(line.split(' › ').at(-1)?.trim() ?? '');
+    if (m) out.add(`${m[1]}#${Number(m[2])}`);
+  }
+  return out;
 }
 
 /** The journey file names (`J-x.pw.mjs`) among a compare's changed paths, added, changed or renamed to. Pure. */
@@ -270,6 +288,28 @@ async function runReport(gh, repo, runId, token, { partial = false, shards = nul
   return reports.some(Boolean) ? joinReports(reports.filter(Boolean)) : null;
 }
 
+/** The step keys run `runId` left out (its `real-app-journeys-leave-out` artifact), or an empty set when it kept none: a
+ *  run that left nothing out, or one before the list was kept. */
+async function runLeftOut(gh, repo, runId, token) {
+  const { json } = await gh('GET', `/repos/${repo}/actions/runs/${runId}/artifacts?per_page=100`);
+  const artifact = (json?.artifacts ?? []).find((a) => !a.expired && a.name === LEAVE_OUT_ARTIFACT);
+  if (!artifact) return new Set();
+  const res = await fetch(artifact.archive_download_url, { headers: token ? { authorization: `Bearer ${token}` } : {} });
+  if (res.status === 403 || res.status === 429) throw new Error(`GitHub ${res.status} on the leave-out list of run ${runId}: stopping`);
+  if (!res.ok) return new Set();
+  const dir = mkdtempSync(join(tmpdir(), 'revert-'));
+  try {
+    const zip = join(dir, 'a.zip');
+    writeFileSync(zip, Buffer.from(await res.arrayBuffer()));
+    const entry = execFileSync('unzip', ['-Z1', zip], { encoding: 'utf8' })
+      .split('\n')
+      .find((e) => e.endsWith('leave-out.txt'));
+    return entry ? leftOutSteps(execFileSync('unzip', ['-p', zip, entry], { encoding: 'utf8', maxBuffer: 64 * 2 ** 20 })) : new Set();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 async function artifactReport(artifact, runId, token) {
   const res = await fetch(artifact.archive_download_url, { headers: token ? { authorization: `Bearer ${token}` } : {} });
   if (res.status === 403 || res.status === 429) throw new Error(`GitHub ${res.status} on the artifact of run ${runId}: stopping`);
@@ -392,7 +432,12 @@ async function trigger(env) {
   if (!prevRun) return summary(['Journeys revert: no earlier finished run on main; nothing to compare.']);
   const [now, prev] = [await runReport(gh, repo, run.id, env.GH_TOKEN), await runReport(gh, repo, prevRun.id, env.GH_TOKEN)];
   if (!now || !prev) return summary(['Journeys revert: one of the two runs kept no journey report; nothing is reverted.']);
-  const steps = revertSteps(prev, now, await changedBetween(gh, repo, prevRun.head_sha, run.head_sha));
+  const steps = revertSteps(
+    prev,
+    now,
+    await changedBetween(gh, repo, prevRun.head_sha, run.head_sha),
+    await runLeftOut(gh, repo, prevRun.id, env.GH_TOKEN),
+  );
   if (!steps.length)
     return summary([
       `Journeys revert: no step passed on \`${prevRun.head_sha.slice(0, 10)}\` (or came new in a journey file changed since) and then failed outright; nothing to revert.`,
@@ -988,6 +1033,25 @@ function selfTest() {
       'a step that never passed, in a file no commit between touched, is not',
     );
     eq(revertSteps(before, after, null), [], 'no compare read: only a step that passed before counts');
+    // 15 Nov 2026, replayed (#8535): run 43735359940 left out J-agents-18 #5, unbuilt and red by name; #8518 changed
+    // its file, and the next run failed it outright as always. Left out is red before, not new: nothing starts. The
+    // same step absent with no leave-out list still starts (the J-algo-dev-04 case above), so the planted fault holds.
+    const list = leftOutSteps(
+      'J-agents-18.pw.mjs › J-agents-18 #5 opens the Launch, Risk and Compliance, and Growth agent pages: run history\n' +
+        'J-x-01.pw.mjs › a describe › J-x-01 #12 y\n\nnot a step line\n',
+    );
+    eq([...list], ['J-agents-18#5', 'J-x-01#12'], 'the leave-out list names its steps by key, describe titles and all');
+    const ag18 = (specs) => ({ suites: [{ title: 'J-agents-18.pw.mjs', file: 'J-agents-18.pw.mjs', specs }] });
+    const prev18 = ag18([s('J-agents-18 #3 c', 'unexpected'), s('J-agents-18 #4 d', 'expected')]);
+    const now18 = ag18([s('J-agents-18 #3 c', 'unexpected'), s('J-agents-18 #4 d', 'expected'), s('J-agents-18 #5 e', 'unexpected')]);
+    const touched = new Set(['J-agents-18.pw.mjs']);
+    eq(revertSteps(prev18, now18, touched, list), [], 'a step the run before left out counts as red there: no revert');
+    eq(revertSteps(prev18, now18, touched), ['J-agents-18#5'], 'planted fault: without the list it reads as new and starts');
+    eq(
+      revertSteps(ag18([s('J-agents-18 #3 c', 'unexpected'), s('J-agents-18 #5 e', 'expected')]), now18, touched, list),
+      ['J-agents-18#5'],
+      'a step that passed in the run before still starts, whatever the list says',
+    );
     const wasRed = joinReports([before, at('J-algo-dev-04', [s('J-algo-dev-04 #3 c', 'unexpected')])]);
     eq(revertSteps(wasRed, after, added), [], 'a step already red in the run before started its revert then');
     eq(
@@ -1497,6 +1561,7 @@ async function early(env, { sleep = (ms) => new Promise((r) => setTimeout(r, ms)
   const prev = await runReport(gh, repo, prevRun.id, env.GH_TOKEN);
   if (!prev) return summary([`Journeys revert, early: run ${prevRun.id} kept no report; the run-end start decides.`]);
   const changed = await changedBetween(gh, repo, prevRun.head_sha, env.HEAD_SHA);
+  const leftOut = await runLeftOut(gh, repo, prevRun.id, env.GH_TOKEN);
   const seen = new Set();
   const lines = ['### Journeys revert, as each shard ends', ''];
   const start = now();
@@ -1510,7 +1575,7 @@ async function early(env, { sleep = (ms) => new Promise((r) => setTimeout(r, ms)
         lines.push(`- shard ${shard}: no report kept`);
         continue;
       }
-      const steps = revertSteps(prev, report, changed);
+      const steps = revertSteps(prev, report, changed, leftOut);
       if (!steps.length) continue;
       const started = await startRevert(gh, repo, { good: prevRun.head_sha, bad: env.HEAD_SHA, steps, redRun: env.RUN_ID });
       lines.push(

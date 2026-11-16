@@ -72,7 +72,7 @@
  *   GH_TOKEN=... REPO=... SHA=... [PR_NUMBER=...] [OLD_TITLE=...] [OLD_BODY=...] node tooling/ci/journey-seal.mjs --recheck   (re-runs the seal)
  */
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -782,7 +782,20 @@ export function makeIo(repo, token) {
 /** The default branch's checkout this script runs from (ci.yml runs the base's copy): its baseline and money rule. */
 const BASE_ROOT = fileURLToPath(new URL('../..', import.meta.url));
 let base = null;
-const baseInputs = () => (base ??= { ...rootInputs(BASE_ROOT), reports: new Map() });
+const baseInputs = () => (base ??= { ...rootInputs(BASE_ROOT), onMain: journeyFilesAt(BASE_ROOT), reports: new Map() });
+
+/**
+ * The journey files a checkout holds (`apps/customer/tests/real-app/*.pw.mjs`), as a set of names, or null when the
+ * folder can't be read. The seal reads it from the default branch's checkout it runs from, never from the pull request's
+ * head, so a pull request can't shorten what a full run must hold by deleting or renaming a file itself.
+ */
+export function journeyFilesAt(root) {
+  try {
+    return new Set(readdirSync(join(root, 'apps/customer/tests/real-app')).filter((f) => f.endsWith('.pw.mjs')));
+  } catch {
+    return null;
+  }
+}
 
 /** One run's verdict, as journey-verdict.mjs would print it with the default branch's baseline, and the journey files
  *  of the full suite (the baseline's named run) its report lacks. GET only, through gh (GH_TOKEN). */
@@ -797,7 +810,12 @@ export function fullVerdict({ repo, report, run, inputs, read = fetchInputs }) {
   if (!Array.isArray(got.named.ran))
     return { red: [...red, { step: '(input)', why: "the named run's report has no list of the files it ran" }], failing: 0, missing: [] };
   const have = new Set(report.ran ?? []);
-  const missing = got.named.ran.filter((f) => !have.has(f));
+  // A file the named run ran that the default branch no longer has (deleted or renamed there since, as #8485 deleted
+  // J-home-ia-06-blocked.pw.mjs) can't run, so it is not missing (#8505: every full run after it read as short).
+  // `inputs.onMain` is main's own file list (`journeyFilesAt`); without one, every file still counts, so the rule
+  // fails closed.
+  const onMain = inputs.onMain instanceof Set ? inputs.onMain : null;
+  const missing = got.named.ran.filter((f) => !have.has(f) && (onMain === null || onMain.has(f)));
   // A run short of journey files (targeted, or a shard lost) is judged on the files it has, as a targeted run's own
   // verdict is: a red step there fails the seal; only a run clean on all it has is passed over (judgeFullRun).
   const target = missing.length ? have : null;
@@ -1611,14 +1629,18 @@ export async function settleRuns(runs, jobsOf) {
  * with the judge down (`judgeDown`, set by readGoing on the head's newest run: review-marker.mjs isJudgeDown) counts as
  * still going when `needJudge` (readGoing sets it when a pull request's change needs the review's verdict), so its seal waits for the judge exactly as for a review
  * still running, and is started when a review on the head next finishes (project-state OWNER 289 point 11: "A judge
- * that stops shows as 'judge down' ... never as red PRs. No PR merges without its judge."). Pure.
+ * that stops shows as 'judge down' ... never as red PRs. No PR merges without its judge."). `unstarted` false (the
+ * re-check, readGoing): a CI review run not yet started (UNSTARTED) is not counted, since only a run whose review job runs
+ * starts the seal at its end (ci-review.yml's seal-start skips with it), and the seal the re-check starts waits for that
+ * run in WAIT_STEP all the same. Pure.
  */
-export function inputsGoing({ sha, runsOf, needJourneys, needJudge = false }) {
+export function inputsGoing({ sha, runsOf, needJourneys, needJudge = false, unstarted = true }) {
   const out = [];
   for (const { workflow, event, what, journeys, judge } of SEAL_INPUTS) {
     if (journeys && !needJourneys) continue;
     for (const r of runsOf?.[workflow] ?? []) {
       if (r?.head_sha !== sha || (event && r?.event !== event)) continue;
+      if (judge && !unstarted && UNSTARTED.includes(r?.status)) continue;
       if (r?.status !== 'completed') out.push(`${what} run ${r.id} (${r.status})`);
       else if (journeys && r?.deferred === true)
         out.push(`${what} run ${r.id} (deferred behind main's journeys; it is re-run once main's shards are queued)`);
@@ -1628,6 +1650,14 @@ export function inputsGoing({ sha, runsOf, needJourneys, needJudge = false }) {
   }
   return out;
 }
+
+/**
+ * A run's statuses before any of its jobs starts. A CI review run waits as `pending` in its head's concurrency group behind
+ * the run already reviewing that head; a title or body edit's run then skips every job, its Start the seal too. The
+ * re-check that left the seal for such a run's end left it for good: intafaced #8574's seal never ran on 363a0e9b, 16 Nov
+ * 2026, after `gh pr ready` and its edit at 02:03:59 UTC started runs 43789888663 and 43789888130 (project-state #2548).
+ */
+export const UNSTARTED = ['requested', 'queued', 'pending', 'waiting'];
 
 /** Whether the change needs a journeys run: its title names steps, or its paths reach a journey (journey-touch.mjs). */
 export const needsJourneys = (pull, files) => namesSteps(pull?.title ?? '') || journeyTouch(files).mode !== 'none';
@@ -1908,7 +1938,7 @@ export const REVIEW_RUNS_READ = 5;
  * judge for every pull request: the head's finished CI review runs' jobs are read, newest first, until one actually
  * reviewed (review-marker.mjs reviewRan).
  */
-export async function readGoing({ get, repo, sha, pulls, settle = true }) {
+export async function readGoing({ get, repo, sha, pulls, settle = true, unstarted = true }) {
   const runsOf = {};
   for (const { workflow, event } of SEAL_INPUTS) {
     const runs = (
@@ -1968,7 +1998,7 @@ export async function readGoing({ get, repo, sha, pulls, settle = true }) {
       break;
     }
   }
-  return inputsGoing({ sha, runsOf, needJourneys, needJudge });
+  return inputsGoing({ sha, runsOf, needJourneys, needJudge, unstarted });
 }
 
 /**
@@ -2088,7 +2118,9 @@ async function recheck({ repo, token }) {
   // running, and the next CI completion would start it all again (the CI review on 7a7eb9a0, 8 Nov 2026).
   // The seal's inputs on this head (SEAL_INPUTS): while one is still going, merge-seal.yml's seal is left alone, since
   // that input's own end starts this re-check again; so the seal gives one verdict, once they have all finished.
-  const going = await readGoing({ get, repo, sha: SHA, pulls: named });
+  // A CI review run not yet started is not waited for (inputsGoing `unstarted`): its end may start nothing, and the seal
+  // started now waits for it in WAIT_STEP.
+  const going = await readGoing({ get, repo, sha: SHA, pulls: named, unstarted: false });
   for (const { workflow, event } of sealsToRecheck(FINISHED)) {
     if (
       workflow !== CI_WORKFLOW &&

@@ -111,6 +111,8 @@ import { registerQuantLiveDeployRest } from './quant/live-deploy-rest.js';
 import { registerPromoRest } from './spot/promo-rest.js';
 import { registerSpotOrderPreviewRest } from './spot/order-preview-rest.js';
 import { registerFeeTierRest } from './spot/fee-tier-rest.js';
+import { registerTierPassGrant } from './spot/tier-pass-internal.js';
+import { endExpiredPasses } from './spot/tier-passes.js';
 import { registerVipRest } from './spot/vip-rest.js';
 import { installRouteInventory } from './route-inventory.js';
 import { SqlPreparedActionStore } from './venue/prepared-action-store.js';
@@ -118,6 +120,7 @@ import { UserVenueDoorError } from './venue/user-venue-door.js';
 import { wireUserVenue } from './venue/wire.js';
 import { wireVenueAgents } from './venue/agents-wire.js';
 import { LiveRuns, parseLiveRunValues } from './quant/live-run/live-runs.js';
+import { StrategyHaltDesk } from './quant/live-run/halts.js';
 import { createIdentityFreezeRead, createQuantStrategySource } from './quant/live-run/ports.js';
 import { SqlLiveRunStore } from './quant/live-run/sql-store.js';
 import { VenueProtections } from './venue/protections.js';
@@ -472,12 +475,13 @@ const userVenueWiring = wireUserVenue({ app, sql, bus, stepUp, perks, outS2s, do
 const { userVenueDoors, userVenue, userVenueRouter, userVenueStore, venueListings, venueDelistingNotices, venueSellQuotes } =
   userVenueWiring;
 // The agents beside the door, each off with it (src/venue/agents-wire.ts).
-const { agentAccountStore, agentAccountValues, agentAccounts, agentOrders, agentActivity, agentDesk, ownAgentTrading } = wireVenueAgents({
-  sql,
-  userVenue,
-  stepUp,
-  outS2s,
-});
+const { agentAccountStore, agentAccountValues, agentAccounts, agentOrders, agentActivity, agentDesk, ownAgentTrading, ownAgentRebalance } =
+  wireVenueAgents({
+    sql,
+    userVenue,
+    stepUp,
+    outS2s,
+  });
 // A position's protections on the person's own venue account (J-derivatives-03): the venue's trigger orders through the
 // door, and our engine for the kinds the venue lacks, signed by the protection key the person approved. Off with the door.
 const protectionTier = createLiveTierClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
@@ -515,6 +519,13 @@ if (venueProtections && protectionEngineMs > 0) {
 // from svc-quant as the person, the owner's freeze read from svc-identity. Off with the door; TRADE_QUANT_LIVE not `on`
 // refuses every start. The supervisor watches every running run's heartbeat and recovers a dead process.
 const liveRunTier = createLiveTierClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
+// The risk desk's halt of one strategy or every strategy (J-algo-dev-11): one operator halts one, two founders halt
+// every one or restore. The live runs read it; the approvals book is the trade ops desk's (bound below).
+const quantHalts = new StrategyHaltDesk({
+  sql,
+  approvals: { consume: (input) => tradeOpsApprovals.consume(input) },
+  now: () => new Date(),
+});
 const liveRuns = userVenue
   ? new LiveRuns({
       door: userVenue,
@@ -531,6 +542,7 @@ const liveRuns = userVenue
       freeze: createIdentityFreezeRead(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s),
       // Read on every supervisor pass: a run never trades on the tier it started with (signals/live-tier.ts, as an alert).
       liveTier: (userId) => liveRunTier.tierOf(userId),
+      halts: quantHalts,
       now: () => new Date(),
     })
   : null;
@@ -799,6 +811,7 @@ export const appRouter = createTradeRouter(
   { venue: userVenue ? () => userVenue.venue() : null, store: new SqlPreparedActionStore(sql) },
   signalDesk,
   agentDesk,
+  quantHalts,
 );
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({
@@ -1503,6 +1516,19 @@ registerFeeTierRest(app, {
   bootSchedule: feeSchedule,
   snapshotsRunning: env.TRADE_FEE_TIER_JOBS_INTERVAL_MS !== null && env.TRADE_FEE_TIER_JOBS_INTERVAL_MS > 0,
 });
+// VIP trial passes granted by svc-campaigns (J-campaigns-14): the grant door, and a sweep that ends each pass once its
+// span is over (a read of the fee tier ends it too, whichever comes first).
+registerTierPassGrant(app, {
+  sql,
+  secret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
+  scheduleAt: (at) => feeScheduleAt(sql, feeSchedule, at),
+});
+setInterval(() => {
+  endExpiredPasses(sql, new Date()).catch((err: unknown) =>
+    process.stderr.write(`${JSON.stringify({ level: 'warn', msg: 'trade.tier_passes.end_failed', message: String(err) })}\n`),
+  );
+}, 5_000).unref();
 registerVipRest(app, {
   edgeSecret: env.EDGE_PRINCIPAL_SECRET,
   edgeTrust: edgeTrustFromEnv(env),
@@ -1775,6 +1801,7 @@ registerPrivateRest(app, {
   agentOrders,
   agentActivity,
   ownAgentTrading,
+  ownAgentRebalance,
   venueProtections,
   liveRuns,
   venueSellQuotes,

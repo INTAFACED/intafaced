@@ -1034,6 +1034,28 @@ export const agentUsageAlertCrossed = defineEvent(
  * has not run. It carries the tool id and the request, never the call's input: what the agent wants to write is the
  * person's content, read in the Approvals inbox under their own authorisation.
  */
+export const agentAlertFired = defineEvent(
+  'agents',
+  'alert',
+  'triggered',
+  1,
+  z.object({
+    /** The business key, one per rule and window: `agents.alert:<rule id>:<window start>`. */
+    alertKey: z.string().min(1).max(200),
+    alertId: z.string().guid(),
+    /** The operator who stored the rule: the alert goes to their inbox. */
+    userId: userIdSchema,
+    ruleName: z.string().min(1).max(80),
+    measure: z.enum(['refusal_rate', 'failure_rate', 'cost']),
+    /** Decimal strings, never numbers: percent of the window's actions for a rate, the fee asset for cost. */
+    value: z.string().regex(/^\d{1,20}(\.\d{1,18})?$/),
+    threshold: z.string().regex(/^\d{1,20}(\.\d{1,18})?$/),
+    windowStart: z.string().datetime({ offset: true }),
+    windowEnd: z.string().datetime({ offset: true }),
+  }),
+  'An operator’s agent alert rule went above its threshold in one window (AG-analytics-02). Published once per rule and window while alert notifications are on.',
+);
+
 export const agentApprovalRequested = defineEvent(
   'agents',
   'approval',
@@ -1542,7 +1564,10 @@ export const personalTransferPosted = defineEvent(
     recipientUserId: userIdSchema,
     amount: amountSchema,
     assetId: assetIdSchema,
-    ledgerTxId: z.string().min(1).max(128),
+    /** The ledger transaction of a send on the custodial layer; null when the partner bank moved it. */
+    ledgerTxId: z.string().min(1).max(128).nullable(),
+    /** The partner bank's move of a send it holds the money for (OWNER 226); absent or null on the custodial layer. */
+    partnerMoveId: z.string().min(1).max(128).nullable().optional(),
     postedAt: z.string().datetime({ offset: true }),
   }),
   'A personal send posted. svc-notify writes pay.transfer_sent for the sender and pay.transfer_received for the recipient.',
@@ -2225,6 +2250,7 @@ export const EVENT_CATALOG = {
   agentActionRejected,
   agentUsageSettled,
   agentUsageAlertCrossed,
+  agentAlertFired,
   agentApprovalRequested,
   agentRunCompleted,
   p2pOfferCreated,

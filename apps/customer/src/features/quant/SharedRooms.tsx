@@ -1,4 +1,5 @@
 import { quantPaperListSchema, quantPaperRunSchema } from '@intafaced/contracts/quant-algo';
+import { ApprovalPanel } from './ApprovalPanel';
 import { quantSharedListSchema, quantSharedOpenSchema, type QuantSharedOpen } from '@intafaced/contracts/quant-team';
 import { useState } from 'react';
 import { z } from 'zod';
@@ -105,6 +106,7 @@ export function SharedStrategy({ strategyId, paper }: { strategyId: string; pape
                 {data.role === 'edit' && <EditLock strategyId={data.strategyId} lock={data.lock} onChange={reload} />}
                 <SharedSave data={data} onSaved={reload} />
                 <OwnerRuns strategyId={data.strategyId} />
+                <ApprovalPanel strategyId={data.strategyId} owner={false} />
               </div>
             </Panel>
           )}

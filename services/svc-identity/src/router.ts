@@ -157,6 +157,7 @@ import { createProfileRouter } from './profile/profile-router.js';
 import type { AccountChange } from './account/account-router.js';
 import { createAccountRouter } from './account/account-router.js';
 import { createCompromiseRouter } from './account/compromise-router.js';
+import { createSafetyRouter } from './account/safety-router.js';
 import { createAccountClosureRouter } from './closure/closure-router.js';
 import type { AccountClosureService } from './closure/closure-service.js';
 import { createSubAccountFeatureProcedures } from './sub-accounts/sub-account-features-router.js';
@@ -1091,6 +1092,8 @@ export function createIdentityRouter(
     profile?: ProfileService;
     /** Email and phone change. Absent → those doors refuse closed. */
     account?: AccountChange;
+    /** The owner's least number of step-up extras (`IDENTITY_EXTRA_CONTROLS_MIN`). Absent or null → setting extras refuses. */
+    extraControlsMin?: number | null;
     /** Account closure. Absent → the door refuses `identity.close_disabled`. */
     closure?: AccountClosureService;
     /** Sub-account delete. Absent → `subAccounts.delete` refuses `identity.sub_account_check_unavailable`. */
@@ -1346,7 +1349,11 @@ export function createIdentityRouter(
     }),
 
     profile: createProfileRouter(options.profile, options.antiPhishing),
-    account: createAccountRouter(options.account, createCompromiseRouter(auth, privilegedUserIds)),
+    account: createAccountRouter(
+      options.account,
+      createCompromiseRouter(auth, privilegedUserIds),
+      createSafetyRouter(auth, privilegedUserIds, () => options.extraControlsMin ?? null),
+    ),
     accountClosure: createAccountClosureRouter(options.closure),
 
     users: router({

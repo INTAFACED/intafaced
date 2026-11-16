@@ -153,11 +153,12 @@ export function createMoneyClient(api: ApiClient) {
         body,
         z
           .object({
-            // A move between the person's own spaces that the partner bank holds (OWNER 226) is one partner move and
-            // posts nothing to the ledger: its reply names the partner's move and no ledger transaction.
+            // A move the partner bank holds the money for (OWNER 226), between the person's own spaces or to another
+            // person (J-bank-04 #4), is one partner move and posts nothing to the ledger: its reply names the partner's
+            // move and no ledger transaction.
             ledgerTxId: z.string().min(1).nullable(),
             partnerMove: z
-              .object({ id: z.string().min(1), label: z.string().min(1), movedAt: z.string() })
+              .object({ id: z.string().min(1), label: z.string().min(1), movedAt: z.string().optional() })
               .nullable()
               .optional(),
             amount: decimalSchema.refine(
@@ -167,8 +168,8 @@ export function createMoneyClient(api: ApiClient) {
             note: z.string().nullable().optional(),
             reference: z.string().nullable().optional(),
           })
-          // Exactly one book made the move: the ledger's transaction, or (between own spaces only) the partner's move.
-          .refine((data) => (data.ledgerTxId === null) === (!toPerson && data.partnerMove != null), {
+          // Exactly one book made the move: the ledger's transaction, or the partner's move.
+          .refine((data) => (data.ledgerTxId === null) === (data.partnerMove != null), {
             message: copyText('client.transfer.names.one.book'),
           })
           // A send to a person echoes what it stored. The reply must be the note and reference that were reviewed.

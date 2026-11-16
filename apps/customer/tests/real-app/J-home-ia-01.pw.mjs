@@ -1,7 +1,7 @@
 // World: book, restart
 import { createHash } from 'node:crypto';
 import { test, expect } from './journey.mjs';
-import { ORIGIN, api, bestPrices, fund, restartWithSetting, toUnits } from './stack.mjs';
+import { api, bestPrices, fund, ORIGIN, restartWithSetting, toUnits } from './stack.mjs';
 import { fundedTrader, openOrders, signIn, signUp, verify } from './desk.mjs';
 import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
 
@@ -153,7 +153,7 @@ test(`${J}, with the user-venue door off: the eye hides amounts and keeps prices
   await expect(page.getByRole('button', { name: 'Show balances' }).first()).toBeVisible();
 
   // A second device: a fresh browser with nothing stored, signed in as the same person.
-  const other = await browser.newContext({ baseURL: 'http://127.0.0.1:3210', viewport: { width: 1440, height: 900 } });
+  const other = await browser.newContext({ baseURL: ORIGIN, viewport: { width: 1440, height: 900 } });
   const second = await other.newPage();
   await signIn(second, who);
   await second.goto('/');
@@ -223,7 +223,7 @@ test(`${J} #5 Recent activity lists the three newest movements to the last digit
   }
 
   // A new, verified account with nothing in it has nothing to list, and says so instead of showing sample rows.
-  const fresh = await browser.newContext({ baseURL: 'http://127.0.0.1:3210', viewport: { width: 1440, height: 900 } });
+  const fresh = await browser.newContext({ baseURL: ORIGIN, viewport: { width: 1440, height: 900 } });
   const empty = await fresh.newPage();
   const nobody = await signUp(empty, 'hme');
   // Before verification the bank refuses the read: Home says what the card will hold once verified, not a bare

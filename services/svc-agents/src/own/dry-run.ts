@@ -13,7 +13,7 @@ import type {
 } from '@intafaced/contracts/agents-own';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { OWN_TOOL_DOORS, OWN_TOOLS, OwnAgentRefusal } from './catalog.js';
-import { OwnConsentStore, OwnRuleStore, stricter, type PolicyBaseline, type RuleChoice } from './guardrails.js';
+import { effectiveRequirement, OwnConsentStore, OwnRuleStore, stricter, type PolicyBaseline, type RuleChoice } from './guardrails.js';
 import { readOwnCaps } from './limits.js';
 import { decideApproval, guardedEngineRun } from './content-guard.js';
 import { decideMemory, runMemoryOf, OwnMemoryStore, withheldAsk, type MemoryDecision } from './memory.js';
@@ -62,7 +62,7 @@ export async function dryRunToolCall(
   const { dataClass, module } = entry;
   const consented = await new OwnConsentStore(sql).granted(input.ownerId, input.agent.id, dataClass);
   checks.push(consented ? passed('consent') : failed('consent', 'agents.consent_required'));
-  const required = baseline[dataClass];
+  const required = await effectiveRequirement(sql, baseline, dataClass);
   checks.push(required ? passed('baseline') : failed('baseline', 'agents.baseline_value_unset'));
   let choice: RuleChoice | null = null;
   if (required) {

@@ -37,7 +37,7 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *   GET  /health, GET /venue                         descriptor, chain id, label TEST, and the deposit route (or null)
  *   POST /markets {account|null}, /preview {account,intent}, /prepare {account,signer,intent},
  *        /submit {prepared,signature}, /balances|/open-orders|/positions|/agents {account},
- *        /order-by-client-id {account,venueClientOrderId}, /fills {account,since}, /withdrawal {account,nonce}, /deposits {account},
+ *        /order-history {account}, /order-by-client-id {account,venueClientOrderId}, /fills {account,since}, /withdrawal {account,nonce}, /deposits {account},
  *        /builder-fee-approval {account,builder}, /builder-totals {builder}, /builder-claims {builder},
  *        /leverage {account,symbol}, /book {symbol,depth},
  *        /sub-accounts {account}, /transfer {account,nonce}   (UserVenueSubAccountReads, on the main account)
@@ -45,7 +45,7 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *        /settlements {account,since}                     the account's settlements in a deployer's halt or a split
  *   TEST controls (never part of UserVenue):
  *   POST /test/deposit {account,asset,amount,depositRef}   idempotent by depositRef
- *        /test/switches {venueDown?,unlistPerpetuals?,declaredAgentPermissionReach?,withdrawalFee?,networkFee?,depositExplorerTxUrl?}   each fee a MaybeKnown<Amount>
+ *        /test/switches {venueDown?,unlistPerpetuals?,declaredAgentPermissionReach?,amendsInPlace?,cancelsPerAction?,withdrawalFee?,networkFee?,depositExplorerTxUrl?}   each fee a MaybeKnown<Amount>
  *        /test/account-switches {owner,down?,loseAnswers?,failAfterSend?,submitDelayMs?}   one owner's account only, so a journey can
  *                                                         take the venue away from its own person and no one else's:
  *                                                         `down` refuses every call on that owner's account venue_down;
@@ -55,6 +55,7 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *                                                         that long (at most 10 s) before the venue applies it
  *        /test/settle-withdrawals, /test/set-mark {symbol,price}   the mark moves; a trigger order it crosses fires
  *        /test/set-index {symbol,price}                   a perpetual's TEST index (oracle) price, as the venue publishes it
+ *        /test/market-triggers {symbol,sources}           the prices a perpetual's trigger orders may be judged on ([]: none)
  *        /test/pull-ladder {symbol,side: 'bid'|'ask'}     the TEST makers cancel that side of the market's seeded ladder
  *        /test/ladder-mid {symbol,price}               the TEST makers rest that market's seeded ladder again around price (its mid)
  *        /test/builder-claim {builder}                     the builder claims every unclaimed builder fee into its own account
@@ -64,10 +65,14 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *        /test/lose-answers {account,count}               the account's next `count` submits apply, answer not definite
  *        /test/expire-agent {account,agentAddress}        the agent's expiry passes now (it stays listed, expired)
  *        /test/market-status {symbol,status}             the market's own state: trading|halted|cancel_only|delisted|null
- *        /test/market-limits {symbol,maxOrderQty,maxOrderNotional}   decimal strings, or null for "not reported"
+ *        /test/market-limits {symbol,maxOrderQty?,maxOrderNotional?,minOrderNotional?,priceBandBps?,maxOpenOrders?}
+ *                                                         decimal strings (the cap a whole number), or null for "not
+ *                                                         reported"; a key left out keeps that rule
  *        /test/market-fees {symbol,makerFeeBps,takerFeeBps}   decimal bps, or null for "not published"
- *        /test/market-add {symbol,baseAsset,quoteAsset,maxOrderQty,maxOrderNotional}   one more TEST cash spot market,
- *                                                         tick 0.1, lot 0.001, no ladder; refused if already listed
+ *        /test/market-add {symbol,baseAsset,quoteAsset,maxOrderQty,maxOrderNotional,minOrderNotional?,priceBandBps?,
+ *                          maxOpenOrders?}               one more TEST cash spot market, tick 0.1, lot 0.001, no ladder,
+ *                                                         TEST_SPOT_RULES unless named (null: not published); refused
+ *                                                         if already listed
  *        /test/feed {symbol,state: 'live'|'stale'}        an oracle market's feed goes stale (the oracle stops) or live
  *        /test/session {symbol,state: 'open'|'off_hours',published?}  a stock perpetual's home market closes (the
  *                                                         venue's off-hours mode applies) or opens again; `published:
@@ -81,6 +86,19 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *
  * TEST ONLY: `startTestVenueServer` refuses to start unless APP_ENV is exactly `dev` or `test`, and binds loopback.
  */
+
+/**
+ * The rules the TEST venue publishes on its cash spot markets (J-cex-spot-04 #2): the smallest order value, a price band
+ * around the middle of its own book, and the most open orders one account may hold, in the shape a real venue publishes
+ * them (Hyperliquid publishes a 10-unit quote minimum on spot and 1000 open orders per account by default). TEST figures,
+ * set loose so no journey's TEST order on the shared markets meets them: 1 USDC, 95% (9500 bps) of the book's middle,
+ * 1000 orders. A journey that proves the rules lists a market of its own (`/test/market-add`) with its own figures.
+ */
+export const TEST_SPOT_RULES = {
+  minOrderNotional: parseAmount('1'),
+  priceBandBps: parseAmount('9500'),
+  maxOpenOrders: 1000,
+} as const;
 
 /** The venue itself as the lister of its own markets (the BTC markets). */
 const VENUE_LISTED = { kind: 'venue', name: 'TEST venue simulator' } as const;
@@ -112,6 +130,7 @@ export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
     maxOrderNotional: parseAmount('100000000'),
     // TEST: the venue's own cap on a builder fee, 1% on spot (the figure Hyperliquid publishes for its builder codes).
     builderFeeCapBps: { known: true, value: parseAmount('100') },
+    ...TEST_SPOT_RULES,
   },
   {
     symbol: 'BTC-PERP',
@@ -158,6 +177,7 @@ export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
     maxOrderNotional: parseAmount('2000000'),
     // TEST: the same spot builder-fee cap as BTC-USDC.
     builderFeeCapBps: { known: true, value: parseAmount('100') },
+    ...TEST_SPOT_RULES,
   },
 
   {
@@ -693,6 +713,8 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       return figuresAsSwitched(sim, account(body).owner, await sim.positions(account(body)));
     case '/agents':
       return sim.agents(account(body));
+    case '/order-history':
+      return sim.orderHistory(account(body));
     case '/order-by-client-id':
       return sim.orderByClientId(account(body), str(body, 'venueClientOrderId'));
     case '/order-signer':
@@ -743,6 +765,16 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
           throw new VenueWireError("declaredAgentPermissionReach must be 'own_account_only' or 'owner_accounts'");
         sim.declareAgentPermissionReach(reach);
       }
+      if (body.amendsInPlace !== undefined) {
+        if (typeof body.amendsInPlace !== 'boolean') throw new VenueWireError('amendsInPlace must be true or false');
+        sim.declareAmendsInPlace(body.amendsInPlace);
+      }
+      if (body.cancelsPerAction !== undefined) {
+        const n = body.cancelsPerAction;
+        if (n !== null && !(typeof n === 'number' && Number.isInteger(n) && n > 1))
+          throw new VenueWireError('cancelsPerAction must be a whole number above 1, or null');
+        sim.declareCancelsPerAction(n);
+      }
       if (body.withdrawalFee !== undefined) sim.switches.withdrawalFee = maybeKnownAmount(body.withdrawalFee, 'withdrawalFee');
       if (body.networkFee !== undefined) sim.switches.networkFee = maybeKnownAmount(body.networkFee, 'networkFee');
       if (body.depositExplorerTxUrl === null || typeof body.depositExplorerTxUrl === 'string') {
@@ -756,6 +788,8 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
         unlistPerpetuals: sim.switches.unlistPerpetuals,
         builderTotalsUnknown: sim.switches.builderTotalsUnknown,
         declaredAgentPermissionReach: sim.venue.agentPermissionReach,
+        amendsInPlace: sim.venue.amendsInPlace === true,
+        cancelsPerAction: sim.venue.cancelsPerAction ?? null,
         withdrawalFee: sim.switches.withdrawalFee,
         networkFee: sim.switches.networkFee,
         depositExplorerTxUrl: sim.switches.depositExplorerTxUrl,
@@ -858,6 +892,13 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       const market = (await sim.markets(null)).value.find((m) => m.symbol === symbol);
       return { openInterest: market?.openInterest ?? { known: false }, label: 'TEST' };
     }
+    case '/test/market-triggers': {
+      const sources = body.sources;
+      if (!Array.isArray(sources) || sources.some((x) => x !== 'mark' && x !== 'last'))
+        throw new VenueWireError('sources is a list of "mark" and "last" ([] for none)');
+      sim.setTriggerSources(str(body, 'symbol'), sources as ('mark' | 'last')[]);
+      return { ok: true, label: 'TEST' };
+    }
     case '/test/market-fees': {
       const fee = (k: string): MaybeKnown<Amount> => {
         const v = body[k];
@@ -875,7 +916,15 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
         if (typeof v !== 'bigint') throw new VenueWireError(`${k} is a decimal string or null`);
         return v as Amount;
       };
-      sim.setMarketLimits(str(body, 'symbol'), { maxOrderQty: limit('maxOrderQty'), maxOrderNotional: limit('maxOrderNotional') });
+      // The published rules (J-cex-spot-04): a key left out keeps the rule as it is, null takes it away.
+      const rule = (k: string): Amount | null | undefined => (k in body ? limit(k) : undefined);
+      sim.setMarketLimits(str(body, 'symbol'), {
+        maxOrderQty: rule('maxOrderQty'),
+        maxOrderNotional: rule('maxOrderNotional'),
+        minOrderNotional: rule('minOrderNotional'),
+        priceBandBps: rule('priceBandBps'),
+        maxOpenOrders: 'maxOpenOrders' in body ? openOrdersCap(body.maxOpenOrders) : undefined,
+      });
       return { ok: true, label: 'TEST' };
     }
     case '/test/market-add': {
@@ -910,12 +959,24 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
         maxOrderNotional: cap('maxOrderNotional'),
         // TEST: the same spot builder-fee cap as BTC-USDC.
         builderFeeCapBps: { known: true, value: parseAmount('100') },
+        // The published rules: TEST_SPOT_RULES unless the body names its own (null: not published).
+        minOrderNotional: 'minOrderNotional' in body ? cap('minOrderNotional') : TEST_SPOT_RULES.minOrderNotional,
+        priceBandBps: 'priceBandBps' in body ? cap('priceBandBps') : TEST_SPOT_RULES.priceBandBps,
+        maxOpenOrders: 'maxOpenOrders' in body ? openOrdersCap(body.maxOpenOrders) : TEST_SPOT_RULES.maxOpenOrders,
       });
       return { ok: true, symbol, label: 'TEST' };
     }
     default:
       return undefined;
   }
+}
+
+/** A TEST open-order cap from a body: a whole number above zero, or null for "not published". */
+function openOrdersCap(v: unknown): number | null {
+  if (v === null) return null;
+  if (typeof v !== 'number' || !Number.isInteger(v) || v <= 0)
+    throw new VenueWireError('maxOpenOrders is a whole number above zero, or null');
+  return v;
 }
 
 /** The HTTP handler for one simulator. Bodies are capped at 1 MiB. */
@@ -955,6 +1016,10 @@ export interface StartTestVenueOptions {
   readonly displayName?: string;
   /** The most orders it takes in one signed action (`place_orders`); default one per signature. */
   readonly ordersPerAction?: number;
+  /** True when it lowers a resting order in place (`amend_order`); default: changed by cancel-and-replace. */
+  readonly amendsInPlace?: boolean;
+  /** The most orders it cancels in one signed action (`cancel_orders`); default: one cancel per signature. */
+  readonly cancelsPerAction?: number;
   /** The deposit route `GET /venue` names (the TEST chain's watcher is started by the caller, chain-deposits.ts). */
   readonly deposit?: UserVenueDepositRoute | null;
 }
@@ -973,6 +1038,8 @@ export async function startTestVenueServer(
     ...(opts.id ? { id: opts.id } : {}),
     ...(opts.displayName ? { displayName: opts.displayName } : {}),
     ...(opts.ordersPerAction !== undefined ? { ordersPerAction: opts.ordersPerAction } : {}),
+    ...(opts.amendsInPlace ? { amendsInPlace: true } : {}),
+    ...(opts.cancelsPerAction !== undefined ? { cancelsPerAction: opts.cancelsPerAction } : {}),
   });
   refuseTestVenueOutsideTest(sim.venue, opts.appEnv);
   const server = http.createServer(testVenueHandler(sim, opts.deposit ?? null));

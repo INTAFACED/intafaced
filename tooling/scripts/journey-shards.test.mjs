@@ -226,17 +226,18 @@ test('the planner as the workflow calls it with no report plans the full suite a
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const shards = JSON.parse(run);
-  assert.equal(shards.length, MAX_SHARDS, `${shards.length} shards`);
+  // Well past the 8-shard floor #8032 fell to: the untimed suite is far over 32 shards of 10 minutes, so it plans past
+  // the old pull-request ceiling, within main's.
+  assert.ok(shards.length > MAX_SHARDS && shards.length <= MAIN_MAX_SHARDS, `${shards.length} shards`);
   assert.deepEqual(shards.flatMap((s) => s.split(' ')).sort(), journeyFiles(JOURNEY_DIR));
 });
 
-// Main's run aims each shard at the floor, up to its own ceiling, so a break is named as its shorter shard ends; every
-// other full run (a pull request's, a manual run on a branch) keeps the longest-file target and MAX_SHARDS.
-test('a run on main plans 10-minute shards up to 64; any other full run keeps the longest-file target and 32', () => {
+// Every full run aims each shard at the floor, up to main's ceiling, so a pull request's journey meets the same
+// neighbours as on main (MAIN_MAX_SHARDS: #8509's runs 43731598319 and 43745698376 went red in shards of 10 files on
+// steps main passed in shards of 3 to 6). A targeted run keeps its own plan.
+test('every full run, on main or off it, plans 10-minute shards up to 64, the same plan from the same reports', () => {
   const min = 60_000;
-  const durations = new Map([['a', 26 * min]]);
-  assert.deepEqual(fullPlan(durations, true), { target: MIN_TARGET_MINUTES * min, max: MAIN_MAX_SHARDS });
-  assert.deepEqual(fullPlan(durations, false), { target: 16 * min, max: MAX_SHARDS });
+  assert.deepEqual(fullPlan(), { target: MIN_TARGET_MINUTES * min, max: MAIN_MAX_SHARDS });
   assert.equal(MAIN_MAX_SHARDS, 64);
   const plan = (args) =>
     JSON.parse(
@@ -246,9 +247,11 @@ test('a run on main plans 10-minute shards up to 64; any other full run keeps th
       }),
     );
   const main = plan(['--main']);
-  // With no report every step counts UNTIMED_STEP_MS: more shards than any other full run gets, never past main's ceiling.
+  // With no report every step counts UNTIMED_STEP_MS: more shards than the old 32, never past main's ceiling.
   assert.ok(main.length > MAX_SHARDS && main.length <= MAIN_MAX_SHARDS, `${main.length} shards`);
   assert.deepEqual(main.flatMap((s) => s.split(' ')).sort(), journeyFiles(JOURNEY_DIR));
+  // A pull request's full run (no --main) gets the very same shards, each with the same files.
+  assert.deepEqual(plan([]), main);
   // --only wins: a targeted run is never main's, so --main never lifts its cap.
   assert.ok(plan(['--main', '--only', 'J-wallet-05']).length <= TARGETED_MAX_SHARDS);
 });

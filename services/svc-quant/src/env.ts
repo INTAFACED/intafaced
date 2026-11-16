@@ -174,6 +174,31 @@ const schema = baseEnvSchema
        */
       QUANT_EDIT_LOCK_SECONDS: blankable(z.string().regex(/^[1-9]\d{0,5}$/)),
       /**
+       * Monte Carlo resampling of a finished backtest (J-algo-dev-16 #3): how many paths one resampling draws, up to
+       * 10000, and the fewest closed round trips a run needs. NO DEFAULT: blank refuses `quant.montecarlo_runs_unset` or
+       * `quant.montecarlo_min_trades_unset`.
+       */
+      QUANT_MONTECARLO_RUNS: blankable(z.string().regex(/^(?:[1-9]\d{0,3}|10000)$/)),
+      QUANT_MONTECARLO_MIN_TRADES: blankable(z.string().regex(/^[1-9]\d{0,3}$/)),
+      /**
+       * The market data lake (J-algo-dev-16 #2): the symbols it captures (comma-separated), the seconds between capture
+       * passes and the days a row is kept. NO DEFAULT: blank symbols or interval capture nothing and the catalogue
+       * refuses `quant.lake_store_unset`; blank retention refuses `quant.lake_retention_unset`.
+       */
+      QUANT_LAKE_SYMBOLS: blankable(z.string().max(1000)),
+      QUANT_LAKE_CAPTURE_SECONDS: blankable(z.string().regex(/^[1-9]\d{0,4}$/)),
+      QUANT_LAKE_RETENTION_DAYS: blankable(z.string().regex(/^[1-9]\d{0,3}$/)),
+      /**
+       * The licences a library listing may carry (J-algo-dev-09), `|`-separated. Owner and lawyer content. NO DEFAULT:
+       * blank refuses every publish check `quant.library_licences_unset`.
+       */
+      QUANT_LIBRARY_LICENCES: blankable(z.string()),
+      /**
+       * The realism checklist a developer accepts before publishing, as JSON `{ "version": "...", "items": ["..."] }`.
+       * Owner and lawyer content. NO DEFAULT: blank or unreadable refuses publishing `quant.realism_checklist_unset`.
+       */
+      QUANT_REALISM_CHECKLIST: blankable(z.string()),
+      /**
        * The owner's default quota profile (AL-limits-01): the profile an account with no assignment falls under. NO
        * DEFAULT: blank, every counted write (a strategy, a version, a run) refuses `quant.quota_profile_unset`.
        */

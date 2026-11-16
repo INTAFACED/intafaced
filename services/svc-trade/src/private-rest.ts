@@ -100,6 +100,7 @@ import { attachGridRestRoutes } from './grid/grid-rest.js';
 import { attachUserVenueRoutes } from './venue/user-venue-rest.js';
 import { attachAgentAccountRoutes } from './venue/agent-account-rest.js';
 import type { AgentActivity } from './venue/agent-order-calls.js';
+import type { OwnAgentRebalance } from './venue/own-agent-rebalance.js';
 import { attachOwnAgentTradingRoutes } from './venue/own-agent-trading-rest.js';
 import { attachProtectionRoutes } from './venue/protections-rest.js';
 import type { VenueProtections } from './venue/protections.js';
@@ -233,6 +234,8 @@ export interface PrivateRestDeps {
   agentActivity?: AgentActivity | null;
   /** A person's own agent trading their venue sub-account under an allowance (J-agents-08 #3 to #7). Off with the door. */
   ownAgentTrading?: OwnAgentTrading | null;
+  /** The Portfolio planner's rebalance of that sub-account, proposed, approved or rejected (J-agents-18 #1 #2). Off with the door. */
+  ownAgentRebalance?: OwnAgentRebalance | null;
   /** A position's protections on the person's own venue account (J-derivatives-03); off with the door. */
   venueProtections?: VenueProtections | null;
   /** Live strategy runs (J-algo-dev-07); null with the user-venue door off. */
@@ -1470,7 +1473,12 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     agentOrders,
     deps.agentActivity ?? null,
   );
-  attachOwnAgentTradingRoutes(app, deps.ownAgentTrading ?? null, { requirePrincipal, requireTradeJurisdiction, agentKeyConfined });
+  attachOwnAgentTradingRoutes(
+    app,
+    deps.ownAgentTrading ?? null,
+    { requirePrincipal, requireTradeJurisdiction, agentKeyConfined },
+    deps.ownAgentRebalance ?? null,
+  );
   attachLiveRunRoutes(app, deps.liveRuns ?? null, {
     requirePrincipal,
     requireTradeJurisdiction,

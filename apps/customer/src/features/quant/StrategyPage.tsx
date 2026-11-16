@@ -18,6 +18,8 @@ import { QuantRooms } from './QuantRooms';
 import { StrategyLifecycle } from './StrategyLifecycle';
 import { StrategyRisk } from './StrategyRisk';
 import { StrategyTeam } from './StrategyTeam';
+import { ApprovalPanel } from './ApprovalPanel';
+import { StrategyLineage, StrategyPublish } from './StrategyPublish';
 import { strategyPageCopy } from './strategy-page-copy';
 import './algo.css';
 
@@ -49,6 +51,7 @@ export function StrategyPage({ strategyId, paper }: { strategyId: string; paper:
       <Read resource={detail.resource} retry={detail.reload}>
         {(strategy) => (
           <>
+            <StrategyLineage strategy={strategy} />
             <StrategyVersions strategy={strategy} />
             <p>
               <a className="text-link" href={preservePaperHref(`/quant/studio?open=${encodeURIComponent(strategy.id)}`, paper)}>
@@ -61,6 +64,8 @@ export function StrategyPage({ strategyId, paper }: { strategyId: string; paper:
             <StrategyAlerts strategy={strategy} />
             <StrategyLifecycle strategy={strategy} />
             <StrategyTeam strategy={strategy} />
+            <ApprovalPanel strategyId={strategy.id} owner />
+            <StrategyPublish strategy={strategy} />
           </>
         )}
       </Read>

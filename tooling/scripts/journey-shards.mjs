@@ -4,6 +4,7 @@
 // sat together and shard 2 ran 36 minutes while shard 4 ran 3, so every run waited about 20 minutes on one shard.)
 //
 // Usage: node tooling/scripts/journey-shards.mjs --shards <n | auto> [--report <report.json>]... [--only "<files>"] [--main]
+// (`--main` is accepted and changes nothing: every full run plans as main's.)
 // Prints a JSON array with one string per shard: that shard's journey files (relative to the journey folder),
 // separated by spaces. Each file counts the longest time of each of its tests' titles across the reports, wherever that
 // test ran (titleEstimates; a file whose titles can't be read counts its own longest time), so a shard that was cut short
@@ -53,7 +54,7 @@ export const MAX_TARGET_MINUTES = 25;
 // 32 shards and the same 36 with 40 or 56, so 32 costs main's verdict about nothing and leaves the rest for CI.
 export const MIN_SHARDS = 8;
 export const MAX_SHARDS = 32;
-// A run on main (`--main`: a push, the daily run, a manual full run there) aims every shard at MIN_TARGET_MINUTES of
+// A full run (on main: a push, the daily run, a manual full run; off it: a pull request's or a branch's) aims every shard at MIN_TARGET_MINUTES of
 // journeys, up to MAIN_MAX_SHARDS, so a break is named sooner: the journeys revert starts as the failing shard ends
 // (real-app-journeys.yml early-break), not when the run ends, and that shard ends with its own journeys, not with the
 // longest file. The run's own end still waits on the longest file (J-wallet-05, 25.8 minutes in run 5027). Measured
@@ -62,8 +63,13 @@ export const MAX_SHARDS = 32;
 // most 4 waited at any minute, and the median wait was 2 seconds (505 shard jobs: 6 s at most). Replaying the reports of
 // main's runs 5011, 5020 and 5027 (a shard's setup 8.0 minutes at the median, its journeys 0.94 of their planned time):
 // with 32 shards a step's shard ended at 28.7 minutes at the median, with 64 at 17.8, for 1,179 runner-minutes a run
-// instead of 923. Pull-request runs keep MAX_SHARDS and the targeted cap; 32 more runners for about 18 minutes is well
-// under the 235 that ran with nothing waiting.
+// instead of 923. 32 more runners for about 18 minutes is well under the 235 that ran with nothing waiting.
+// Every full run plans this way, a pull request's and a manual one on a branch too (fullPlan), so a journey meets the
+// same neighbours in its shard as on main. (Failure it prevents: 15 Nov 2026, #8509's full runs planned 32 shards and
+// went red on J-charts-desk-04 #4, run 43731598319, "no open spot market is without trades on this stack", in a shard of
+// 10 files, and on J-cex-spot-02 #7, run 43745698376, in a shard of 10, while main's runs 43730198295, 43732941860 and
+// 43745093079 planned 64 and passed them in shards of 3 to 6: steps that read the shared stack failed only beside a pull
+// request's extra neighbours, and the pull request waited 420 minutes.) A targeted run keeps its own plan.
 export const MAIN_MAX_SHARDS = 64;
 // The workflow stops a shard's journeys after this (Playwright's globalTimeout), so the shard still reports.
 const JOURNEY_LIMIT_MINUTES = Number(process.env.JOURNEY_GLOBAL_TIMEOUT_MS || 3_600_000) / 60_000;
@@ -278,9 +284,12 @@ export function planCovers(plan, files, fresh = new Set()) {
   return problems;
 }
 
-/** The full suite's target on main (MIN_TARGET_MINUTES) or elsewhere (shardTarget), and its ceiling. Pure, for the tests. */
-export function fullPlan(durations, main) {
-  return main ? { target: MIN_TARGET_MINUTES * 60_000, max: MAIN_MAX_SHARDS } : { target: shardTarget(durations), max: MAX_SHARDS };
+/**
+ * The full suite's target and ceiling, the same on main and off it (MAIN_MAX_SHARDS says why). A targeted run plans from
+ * shardTarget and MAX_SHARDS instead. Pure, for the tests.
+ */
+export function fullPlan() {
+  return { target: MIN_TARGET_MINUTES * 60_000, max: MAIN_MAX_SHARDS };
 }
 
 /** How many shards keep each one's journeys near `targetMs`, between `min` and `max`. */
@@ -377,8 +386,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const argv = process.argv.slice(2);
   const asked = argv[argv.indexOf('--shards') + 1];
   const only = argv.includes('--only') ? argv[argv.indexOf('--only') + 1] : null;
-  // A targeted run is never main's: --only wins.
-  const main = argv.includes('--main') && only === null;
+  // `--main` (the workflow passes it on main) no longer changes the plan: every full run plans as main's (fullPlan).
   const reports = argv.flatMap((a, i) => (argv[i - 1] === '--report' && fs.existsSync(a) ? [a] : []));
   if (!reports.length) console.error('journey-shards: no report from a finished run, so every step counts the same');
   const files = only === null ? journeyFiles(JOURNEY_DIR) : targetFiles(only, journeyFiles(JOURNEY_DIR));
@@ -397,7 +405,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   // Never more shards than files: a shard must have a file to run.
   // A targeted run takes as few stacks as its files need (from one), not the full suite's floor, and at most
   // TARGETED_MAX_SHARDS while every shard stays clear of the limit (targetedShards).
-  const { target, max } = fullPlan(durations, main);
+  const { target, max } = only === null ? fullPlan() : { target: shardTarget(durations), max: MAX_SHARDS };
   const shards =
     asked !== 'auto'
       ? Number(asked)
@@ -420,7 +428,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     process.exit(1);
   }
   console.error(
-    `journey-shards: ${files.length} files, about ${Math.round(totalMs / 60_000)} min in all, ${shards} shards aimed at about ${Math.round(target / 60_000)} min each${main ? ` (main: at most ${MAIN_MAX_SHARDS})` : ''}${only !== null ? ` (a targeted run: at most ${TARGETED_MAX_SHARDS} while each shard stays clear of the limit)` : ''}`,
+    `journey-shards: ${files.length} files, about ${Math.round(totalMs / 60_000)} min in all, ${shards} shards aimed at about ${Math.round(target / 60_000)} min each${only === null ? ` (a full run, on main or off it: at most ${MAIN_MAX_SHARDS})` : ''}${only !== null ? ` (a targeted run: at most ${TARGETED_MAX_SHARDS} while each shard stays clear of the limit)` : ''}`,
   );
   plan.forEach((bin, i) =>
     console.error(`shard ${i + 1}: ${bin.files.length} files, about ${Math.round(bin.ms / 60_000)} min by the last runs`),
@@ -433,7 +441,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   // Stderr, so the plan on stdout stays clean; the runner reads workflow commands from both.
   if (longest > JOURNEY_LIMIT_MINUTES - LIMIT_MARGIN_MINUTES)
     console.error(
-      `::warning::the longest shard needs about ${Math.round(longest)} of its ${JOURNEY_LIMIT_MINUTES} minutes of journeys; raise ${main ? 'MAIN_MAX_SHARDS' : 'MAX_SHARDS'} in tooling/scripts/journey-shards.mjs`,
+      `::warning::the longest shard needs about ${Math.round(longest)} of its ${JOURNEY_LIMIT_MINUTES} minutes of journeys; raise ${only === null ? 'MAIN_MAX_SHARDS' : 'MAX_SHARDS'} in tooling/scripts/journey-shards.mjs`,
     );
   process.stdout.write(JSON.stringify(plan.map((bin) => bin.files.join(' '))));
 }

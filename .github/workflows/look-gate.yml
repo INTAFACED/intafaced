@@ -10,20 +10,17 @@
 # judged by (the pull request's own copy runs only while main has none).
 name: Look gate
 
-# It runs on main after each merge, not on pull requests (project-state row d62, 14 Nov): nothing that decides a merge reads
-# it (the merge seal's inputs are CI, the CI review and the journeys a change needs), and on pull requests it took 3 runners
-# for a median 15 minutes on 1,587 runs in 7 days, beside the journey shards. A changed screen is still drawn and checked on
-# main's run after its merge, and by hand on any branch (workflow_dispatch).
+# It runs once a day on main and by hand on any branch (workflow_dispatch), not on pull requests (project-state row d62,
+# 14 Nov) and no longer after each merge (project-state #2589, 15 Nov): nothing that decides a merge reads it (the merge
+# seal's inputs are CI, the CI review and the journeys a change needs), and on main it diffs against itself, so it can
+# only report (policy.mjs: "no blocking path changed"); after each merge it held 3 runners for about 13 minutes, 82 times
+# in 24 hours. Its one reader is a builder taking new look baselines from a run's artifact (kept 7 days): the daily run
+# keeps one from main less than a day old, and a branch dispatches its own. Raw values on a changed room stay refused on
+# every pull request by look-drift.mjs.
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - 'apps/customer/**'
-      - 'apps/admin/**'
-      - 'packages/ui/**'
-      - 'tooling/ci/look-gate/**'
-      - '.github/workflows/look-gate.yml'
+  schedule:
+    - cron: '17 19 * * *' # 03:17 Bali
 
 permissions:
   contents: read

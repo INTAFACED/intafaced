@@ -744,6 +744,7 @@ async function earnBuilderFees(session) {
   );
   const buyer = `${J}-buyer-${RUN}`;
   await testDeposit(otherTraderKey(buyer).address, USDC, '400000', `seed:${buyer}:USDC`);
+  const bidKey = `order:${buyer}:bid:${Date.now()}`;
   const bid = await otherTraderRun(buyer, {
     kind: 'place_order',
     symbol: 'BTC-USDC',
@@ -753,33 +754,43 @@ async function earnBuilderFees(session) {
     price: '59990',
     timeInForce: 'GTC',
     reduceOnly: false,
-    clientOrderKey: `order:${buyer}:bid:${Date.now()}`,
+    clientOrderKey: bidKey,
     builderFee: null,
   });
   expect(bid, JSON.stringify(bid).slice(0, 300)).toMatchObject({ definite: true, accepted: true });
-  for (let i = 0; i < sells; i += 1) {
-    await door(session, {
-      kind: 'place_order',
-      symbol: 'BTC-USDC',
-      side: 'sell',
-      type: 'limit',
-      amount: String(size),
-      price: '59990',
-      timeInForce: 'GTC',
-      reduceOnly: false,
-      clientOrderKey: `order:${J}:${RUN}:${Date.now()}:${i}`,
-      builderFee: null,
-    });
+  // The TEST maker's own bid at this price sits ahead of the buyer's in time, so the sells fill it first and part of the
+  // buyer's bid is left resting above the maker's next level. It is cancelled once the sells are done, so no later file
+  // on this stack meets a TEST bid it did not place (#8546: J-cex-spot-02 #7's sell filled at once against the remainder).
+  try {
+    for (let i = 0; i < sells; i += 1) {
+      await door(session, {
+        kind: 'place_order',
+        symbol: 'BTC-USDC',
+        side: 'sell',
+        type: 'limit',
+        amount: String(size),
+        price: '59990',
+        timeInForce: 'GTC',
+        reduceOnly: false,
+        clientOrderKey: `order:${J}:${RUN}:${Date.now()}:${i}`,
+        builderFee: null,
+      });
+    }
+    await expect
+      .poll(
+        async () => {
+          const body = await venueRecord(traderOwner, '/fills', { since: since.toISOString() });
+          return body.value.filter((f) => f.feeAsset === USDC && !/^0(\.0+)?$/.test(f.builderFee)).length;
+        },
+        { timeout: 30_000 },
+      )
+      .toBeGreaterThanOrEqual(sells);
+  } finally {
+    const left = (await venueRecord(otherTraderKey(buyer).address, '/open-orders')).value.filter((o) => o.symbol === 'BTC-USDC');
+    if (left.length) await otherTraderRun(buyer, { kind: 'cancel_order', symbol: 'BTC-USDC', clientOrderKey: bidKey });
   }
-  await expect
-    .poll(
-      async () => {
-        const body = await venueRecord(traderOwner, '/fills', { since: since.toISOString() });
-        return body.value.filter((f) => f.feeAsset === USDC && !/^0(\.0+)?$/.test(f.builderFee)).length;
-      },
-      { timeout: 30_000 },
-    )
-    .toBeGreaterThanOrEqual(sells);
+  // Nothing of the buyer's rests on BTC-USDC now, as the venue's own record says.
+  expect((await venueRecord(otherTraderKey(buyer).address, '/open-orders')).value.filter((o) => o.symbol === 'BTC-USDC')).toEqual([]);
   return status.builder.address;
 }
 

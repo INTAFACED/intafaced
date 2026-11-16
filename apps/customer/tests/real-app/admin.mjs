@@ -3,11 +3,12 @@ import { test } from './journey.mjs';
 import path from 'node:path';
 import { founderStepRefused, founderTotp, makeContext, signInOnceMore } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { FOUNDER_VAULT_NAME, localTestAdminDeviceCookie } from '../../../../tooling/scripts/local-test-facts.mjs';
+import { EDGE, stackUrl } from './stack.mjs';
 
 // The founder console (apps/admin) for operator journeys. It runs beside the stack against the same Edge, and the founders
 // sign in with the stack's own LOCAL TEST founder pair (founders.json). Each TOTP code is taken through founderTotp, which
 // records the step it used, so the console never replays a code the gates or the world just spent.
-export const ADMIN = process.env.JOURNEY_ADMIN_URL ?? 'http://127.0.0.1:3100';
+export const ADMIN = process.env.JOURNEY_ADMIN_URL ?? stackUrl('admin');
 
 /** Fails with what to do when the console is not running, instead of a timeout on a blank page. */
 export async function assertAdminUp() {
@@ -15,7 +16,7 @@ export async function assertAdminUp() {
   if (!res.ok)
     throw new Error(
       `The founder console is not answering at ${ADMIN}/login (${res.status}). Start it against the stack's Edge: ` +
-        'APP_ENV=dev EDGE_URL=http://127.0.0.1:14500 ADMIN_ORIGIN=http://127.0.0.1:3100 ADMIN_SESSION_SECRET=<32 random bytes, base64url> ' +
+        `APP_ENV=dev EDGE_URL=${EDGE} ADMIN_ORIGIN=${stackUrl('admin')} ADMIN_SESSION_SECRET=<32 random bytes, base64url> ` +
         'pnpm --filter @intafaced/admin dev (or set JOURNEY_ADMIN_URL).',
     );
 }
