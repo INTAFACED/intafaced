@@ -25,7 +25,7 @@
 import { readFileSync, writeFileSync, mkdirSync, appendFileSync, existsSync, readdirSync, realpathSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { join, dirname, posix } from 'node:path';
+import { join, posix } from 'node:path';
 import { pathToFileURL } from 'node:url';
 // The default branch's copy: the job runs this file from the default branch's checkout (ci-review.yml), never the pull
 // request's, so the money rule below is main's.
