@@ -339,7 +339,11 @@ test(`${J} #3 invites a member by email or link: an invite to a new email; opene
     return link;
   };
 
-  // A link invite for the second approver, made first so it expires while the rest of the step runs.
+  // A link invite for the second approver, made first. The business already has invites from setting it up, so the
+  // step names this one by the id that was not listed before it.
+  const own = await bank(w.owner);
+  const listInvites = async () => ok(await own.query('businessTeam.invites', { accountId: w.accountId }));
+  const earlier = new Set((await listInvites()).map((i) => i.id));
   const toApprover = await send('', 'checker');
   await expect(toApprover).toContainText('Anyone signed in with it can join.');
   const expiringUrl = await toApprover.getByLabel('Invite link').inputValue();
@@ -360,8 +364,7 @@ test(`${J} #3 invites a member by email or link: an invite to a new email; opene
 
   // A third invite, revoked: its link refuses.
   const revokedUrl = await (await send('', 'viewer')).getByLabel('Invite link').inputValue();
-  const own = await bank(w.owner);
-  const listed = ok(await own.query('businessTeam.invites', { accountId: w.accountId }));
+  const listed = await listInvites();
   const revoked = listed.find((i) => i.kind === 'link' && i.role === 'viewer' && i.status === 'open');
   await invites.locator(`[data-invite="${revoked.id}"]`).getByRole('button', { name: 'Revoke' }).click();
   await expect(invites.locator(`[data-invite="${revoked.id}"]`)).toHaveAttribute('data-status', 'revoked');
@@ -383,9 +386,7 @@ test(`${J} #3 invites a member by email or link: an invite to a new email; opene
 
   // The approver's link, opened after its two minutes: refused by name, and it shows as expired to the owner. The TEST
   // age door makes that one invite two minutes older instead of waiting them out; no clock moves.
-  const links = ok(await own.query('businessTeam.invites', { accountId: w.accountId })).filter(
-    (i) => i.kind === 'link' && i.role === 'checker',
-  );
+  const links = (await listInvites()).filter((i) => !earlier.has(i.id) && i.kind === 'link' && i.role === 'checker');
   expect(links).toHaveLength(1);
   const [toChecker] = links;
   expect(toChecker.status).toBe('open');
