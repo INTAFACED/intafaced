@@ -214,6 +214,52 @@ describe('#8560: no closer releases a hold a matched fill still needs (PG-hard)'
     expect(await t.hold()).toBe(0n);
   });
 
+  it("an expiry of the resting order reported in another submission's answer, while 0.4 of it is matched and unsettled, keeps the 20 USDT", async () => {
+    const t = await matchedButNotSettled();
+    expect(await t.hold()).toBe(amt('50'));
+
+    // Bob places again; the engine's answer also reports that Alice's resting buy reached its expiry, with 0.6 left.
+    t.matching.script1((request, next) => {
+      const sequence = next();
+      return {
+        accepted: true,
+        sequence,
+        fills: [],
+        resting: {
+          kind: 'book',
+          orderId: request.orderId,
+          accountId: request.accountId,
+          side: request.side,
+          price: request.price ?? '0',
+          remaining: request.qty,
+          sequence,
+        },
+        rejected: null,
+        cancellations: [{ orderId: t.resting.id, accountId: ALICE, remainingQty: '0.6', sequence: next(), reason: 'expired' }],
+        triggered: [],
+      };
+    });
+    await t.trade.placeOrder(bob, {
+      marketId: t.market.id,
+      side: 'sell',
+      type: 'limit',
+      qty: amt('0.1'),
+      price: amt('60'),
+      clientOrderId: 'race-expiry',
+    });
+    expect.soft(await t.hold()).toBeGreaterThanOrEqual(amt('20'));
+    expect.soft(await t.status()).toBe('open');
+
+    t.deliver();
+    const taken = await t.takerSettled;
+    expect(taken.ok, taken.ok ? '' : String((taken as { error: unknown }).error)).toBe(true);
+    expect(await t.fillsOfResting()).toBe('0.400000000000000000');
+
+    await t.trade.releaseOnCancelEvent(t.resting.id, '0.6', 'expired');
+    expect(await t.status()).toBe('expired');
+    expect(await t.hold()).toBe(0n);
+  });
+
   it("a person's own cancel in the same window already waits (the guarded closer, as before)", async () => {
     const t = await matchedButNotSettled();
     expect((await t.trade.cancelOrder(alice, t.resting.id)).status).toBe('open');
