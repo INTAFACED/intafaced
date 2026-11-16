@@ -7,6 +7,7 @@ import { signIn } from './desk.mjs';
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { api, fund, journeyState, signOutBrowser, signUpInBrowser, tool } from './stack.mjs';
+import { agePast } from './test-age.mjs';
 import { installTestWallet, TEST_WALLET } from './test-wallet.mjs';
 import { CHAIN_ID, TOKEN_USD, fundOnTestChain, testChain } from './dex.mjs';
 import { GATE_URL } from '../../../../tooling/scripts/local-test-facts.mjs';
@@ -602,8 +603,8 @@ test(`${J} #3 watches a held reward when its release time passes: paid once to t
   await completeAll(me, [hold.id]);
   const claimed = await call(me, 'POST', 'tasks.claim', { campaignId: hold.id });
   await expect.poll(async () => (await progressOf(me, hold.id)).reward.state, { timeout: 60_000 }).toBe('owed');
-  const until = new Date(claimed.reward.holdUntil).getTime();
-  await page.waitForTimeout(Math.max(0, until - Date.now()));
+  // The hold ends: the TEST reward is made a hold's length earlier (the TEST age door), not waited out.
+  await agePast('campaigns', 'reward', claimed.reward.rewardKey, claimed.reward.holdUntil);
   // Paid once to the connected wallet, with its chain transaction.
   await expect.poll(async () => (await progressOf(me, hold.id)).reward.state, { timeout: 30_000 }).toBe('paid');
   await page.waitForTimeout(12_000);
@@ -613,13 +614,16 @@ test(`${J} #3 watches a held reward when its release time passes: paid once to t
   const frozenHold = await liveCampaign(`TEST hold under freeze ${tag}`, { holdSeconds: 75 });
   await completeAll(me, [frozenHold.id]);
   const second = await call(me, 'POST', 'tasks.claim', { campaignId: frozenHold.id });
+  // Owed at its claim, as the first is: the freeze is about its payment when the hold ends, not the debt.
+  await expect.poll(async () => (await progressOf(me, frozenHold.id)).reward.state, { timeout: 60_000 }).toBe('owed');
   try {
     await setPostingFreeze(browser, true);
     const frozenUntil = new Date(second.reward.holdUntil).getTime();
     expect(Date.now(), 'the freeze must be on before the hold ends').toBeLessThan(frozenUntil);
-    await page.waitForTimeout(Math.max(0, frozenUntil - Date.now()) + 12_000);
+    await agePast('campaigns', 'reward', second.reward.rewardKey, second.reward.holdUntil);
     // The hold ended with posting frozen: the payment is refused by the freeze before anything is sent, so it stays owed
-    // and nothing is paid, with the freeze's own reason.
+    // and nothing is paid, with the freeze's own reason, from the first pay pass after the hold ended.
+    await expect.poll(async () => (await progressOf(me, frozenHold.id)).reward.reason, { timeout: 60_000 }).toBe('ledger.frozen');
     const heldBack = (await progressOf(me, frozenHold.id)).reward;
     expect(heldBack).toMatchObject({ state: 'owed', reason: 'ledger.frozen', payout: null });
     const refused = heldBack.attempts.filter((a) => a.outcome === 'refused');
@@ -666,8 +670,9 @@ test(`${J} #4 fails the condition on a locked reward: it shows forfeited once an
   await expect(row(hub, locked.id).getByTestId('reward-why')).toContainText(`Locked until you complete “${LOCK_STEP.title}” (0 of 1)`);
 
   // The customer never sells: the lock ends without its step, and it is forfeited once.
-  await page.waitForTimeout(Math.max(0, new Date(reward.lock.until).getTime() - Date.now()));
-  // A locked reward forfeits a grace minute after its lock ends (late fills may still count), then on the next pass.
+  // A locked reward forfeits a grace minute after its lock ends (late fills may still count, svc-campaigns
+  // LOCK_FILL_GRACE_SECONDS), then on the next pass: the TEST reward is made that much earlier (the TEST age door).
+  await agePast('campaigns', 'reward', reward.rewardKey, new Date(Date.parse(reward.lock.until) + 60_000).toISOString());
   await expect.poll(async () => (await progressOf(me, locked.id)).reward.state, { timeout: 150_000 }).toBe('forfeited');
   hub = await openHub(page);
   await expect(row(hub, locked.id)).toHaveAttribute('data-status', 'closed');
@@ -773,7 +778,8 @@ test(`${J} #6 waits for a bonus to expire: a forfeit shows once and the restrict
   test.setTimeout(300_000);
   const { me, bonusId } = state('me', 'bonusId');
   const reward = (await progressOf(me, bonusId)).reward;
-  await page.waitForTimeout(Math.max(0, new Date(reward.lock.until).getTime() - Date.now()));
+  // The bonus expires: the TEST reward is made its expiry's length earlier (the TEST age door), not waited out.
+  await agePast('campaigns', 'reward', reward.rewardKey, reward.lock.until);
   await expect.poll(async () => (await progressOf(me, bonusId)).reward.state, { timeout: 60_000 }).toBe('forfeited');
   await signIn(page, me);
   const hub = await openHub(page);
