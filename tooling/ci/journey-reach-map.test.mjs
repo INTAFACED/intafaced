@@ -1006,6 +1006,24 @@ test('customerImporters on this repository: who loads a style sheet, the buildâ€
   );
   assert.equal(built.includes(`${SRC}/main.tsx`), false, 'the app itself is not the buildâ€™s Node code');
   for (const h of harnessImports().filter((x) => x.startsWith(`${SRC}/`))) assert.ok(built.includes(h), `the harness runs ${h}`);
+  // Node code that loads a customer folder or a templated path may load any customer file (round 5's static cases).
+  for (const [why, line] of [
+    ['a template', 'await import(`${ROOT}/apps/customer/src/app/${name}.ts`);'],
+    ['a folder', "for (const n of readdirSync(new URL('../../apps/customer/src/app/sub/', import.meta.url))) await import(n);"],
+  ]) {
+    const dir = mkdtempSync(join(tmpdir(), 'reach-node-'));
+    try {
+      mkdirSync(join(dir, SRC, 'app/sub'), { recursive: true });
+      mkdirSync(join(dir, 'tooling/scripts'), { recursive: true });
+      writeFileSync(join(dir, SRC, 'app/sub/x.ts'), 'export const x = 1;\n');
+      writeFileSync(join(dir, 'tooling/scripts/s.mjs'), `${line}\n`);
+      execFileSync('git', ['init', '-q'], { cwd: dir });
+      execFileSync('git', ['add', '-A'], { cwd: dir });
+      assert.ok(customerImporters(dir).built.includes(`${SRC}/app/sub/x.ts`), why);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
   assert.deepEqual(importers[`${SRC}/app/room-templates.ts`], [], 'only its unit test imports it; a scaffold reads it as text');
   for (const f of computed) assert.match(f, /^apps\/customer\/src\//);
   assert.equal(importers[`${SRC}/features/pay/portal/w3c2.pw.mjs`], undefined, 'a Playwright file in the source is a test');

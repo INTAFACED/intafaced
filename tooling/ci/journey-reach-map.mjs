@@ -648,7 +648,9 @@ export function customerImporters(root = ROOT, at = null) {
     if (typeof text !== 'string') continue;
     const node = nodeRoot(f) ? nodeTargets(text, f) : { targets: importTargets(text, f), any: false };
     const to = new Set(node.targets.flatMap((p) => byKey.get(p) ?? []));
-    if (node.any) for (const t of targets) to.add(t);
+    // A Node load of a customer path that names no file (a folder, a template) may load any customer file.
+    if (node.any || (nodeRoot(f) && node.targets.some((p) => `${p}/`.startsWith(CUSTOMER_DIR) && !byKey.has(p))))
+      for (const t of targets) to.add(t);
     if (f.startsWith(CUSTOMER_DIR) && COMPUTED_LOAD.test(text)) {
       computed.push(f);
       for (const t of targets) to.add(t);
