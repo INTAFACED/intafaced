@@ -6,6 +6,7 @@ import { displayAmount } from '../../../shared/money';
 import { usePreferences } from '../../../shared/preferences';
 import { Button, DataTable, EmptyState, Failure, Loading, Page } from '../../../shared/ui';
 import { useSession } from '../../session/session';
+import { zoneName } from '../../../screens/trade/desk/time';
 import { useVenueMode } from '../use-venue-mode';
 import type { VenueFill, VenueHistoryPage, VenueHistoryQuery, VenueOrder, VenueOrderRecord } from '../venue-api';
 import { AsOfLine, TestMark, VenueFrame, WalletBar, useOwner, useVenueApi, word } from '../venue/VenueKit';
@@ -72,7 +73,7 @@ function useDayTime(): (iso: string) => string {
   return (iso: string) => {
     try {
       return new Intl.DateTimeFormat('en-GB', {
-        timeZone,
+        timeZone: zoneName(timeZone),
         day: 'numeric',
         month: 'short',
         hour: '2-digit',
@@ -359,10 +360,15 @@ function VenueOrderBody({ owner, clientOrderId, test }: { owner: string; clientO
   const [record, setRecord] = useState<Read<VenueOrderRecord> | { status: 'missing' }>({ status: 'loading' });
   const [fills, setFills] = useState<Read<VenueFill[]>>({ status: 'loading' });
   const [revision, setRevision] = useState(0);
+  // The price unit is the market's own quote asset as the venue lists it: a perpetual's symbol (BTC-PERP) doesn't name it.
+  const [markets, setMarkets] = useState<{ symbol: string; quoteAsset: string }[] | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
     const { signal } = controller;
+    void api.markets(signal).then((result) => {
+      if (!signal.aborted && result.ok) setMarkets(result.data.value);
+    });
     void api.orderByClientId(owner, clientOrderId, signal).then((result) => {
       if (!signal.aborted)
         setOrder(
@@ -402,7 +408,8 @@ function VenueOrderBody({ owner, clientOrderId, test }: { owner: string; clientO
   if (record.status === 'failed') return <Failure result={record.failure} retry={retry} />;
   const o = order.data.order;
   const ours = record.data;
-  const quote = o.symbol.split('-')[1] ?? '';
+  const market = markets?.find((m) => m.symbol === o.symbol);
+  const quote = market ? market.quoteAsset : '';
   const base = o.symbol.split('-')[0] ?? '';
   const ended = o.status === 'canceled' || o.status === 'rejected' || o.status === 'expired';
   const reason =

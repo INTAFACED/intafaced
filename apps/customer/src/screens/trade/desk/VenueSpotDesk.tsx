@@ -237,6 +237,9 @@ export function VenueSpotDesk({
   const [tab, setTab] = useState<'open' | 'history' | 'positions'>('open');
   const [lastResult, setLastResult] = useState<ActionResult | null>(null);
   const [cancelledKeys, setCancelledKeys] = useState<Array<{ key: string; clientOrderId: string }>>([]);
+  // Orders placed elsewhere that this page cancelled by their client id: listed as the venue reads them, Cancelled, as
+  // the ones it placed are (J-cex-spot-06 #7: the same state words on the desk as in the history).
+  const [cancelledElsewhere, setCancelledElsewhere] = useState<string[]>([]);
   const [dialog, setDialog] = useState<'deposit' | 'withdraw' | null>(null);
   const [withdrawalNonce, setWithdrawalNonce] = useState<string | null>(null);
   const [editing, setEditing] = useState<VenueOrder | null>(null);
@@ -257,7 +260,10 @@ export function VenueSpotDesk({
   const tags = useMemo(() => (owner ? heldTags(owner) : null), [owner]);
   const tagOf = (clientOrderId: string) => tags?.get(clientOrderId);
   const best = usePolled((signal) => venue.bestPrices(market.symbol, signal), `best:${market.symbol}`, VENUE_POLL_MS);
-  const cancelled = useCancelledOrders(owner, cancelledKeys);
+  const cancelled = useCancelledOrders(owner, [
+    ...cancelledKeys,
+    ...cancelledElsewhere.map((clientOrderId) => ({ key: '', clientOrderId })),
+  ]);
   // The orders behind the venue's own fills on this market (newest last), and any this page placed: the filled ones
   // stay listed, Filled, read from the venue by client id.
   const filledIds = [
@@ -291,12 +297,13 @@ export function VenueSpotDesk({
       // An order this page did not place (another tab or device): named by the venue's client id, where the venue
       // cancels by it in a signed action.
       if (!owner || (status.cancelsPerAction ?? 0) < 1) return;
-      setLastResult(
-        await run(
-          { kind: 'cancel_orders', orders: [{ symbol: order.symbol, venueClientOrderId: order.venueClientOrderId }] },
-          { actionKey: keys.cancelBatch(owner, `one-${draftId()}`) },
-        ),
+      const id = order.venueClientOrderId;
+      const answer = await run(
+        { kind: 'cancel_orders', orders: [{ symbol: order.symbol, venueClientOrderId: id }] },
+        { actionKey: keys.cancelBatch(owner, `one-${draftId()}`) },
       );
+      setLastResult(answer);
+      if (answer.kind === 'outcome' && answer.outcome.accepted) setCancelledElsewhere((now) => (now.includes(id) ? now : [...now, id]));
       account.reload();
       return;
     }
