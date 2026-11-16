@@ -159,6 +159,42 @@ export interface PartnerBank {
   moves(userId: string, query: PartnerMovesQuery): Promise<PartnerMove[]>;
   /** The partner's send limit and fee for the person in one currency (J-bank-16 #6). */
   limits(userId: string, assetId: string): Promise<PartnerSendLimits>;
+  /**
+   * The partner's own statement of one account over `[from, to)` (J-bank-23 #3). A partner that offers none leaves it out,
+   * and a statement export refuses `bank.partner_statement_unavailable`. Refuses `bank.partner_unavailable` when down.
+   */
+  statement?(account: PartnerAccountRef, range: { from: Date; to: Date }): Promise<PartnerStatement>;
+  /** The partner's history window and strong customer authentication rule for statements; absent when it declares none. */
+  readonly historyRules?: PartnerHistoryRules;
+}
+
+/**
+ * The partner's own statement of one account over one period (J-bank-23 #3): its opening and closing balance and how many
+ * lines it lists, as the partner works them out from its own record. A statement file we make is checked against it: the
+ * same closing balance and the same line count, or no file.
+ */
+export interface PartnerStatement {
+  readonly account: PartnerAccountRef;
+  readonly label: string;
+  /** Inclusive. */
+  readonly from: Date;
+  /** Exclusive, as every history range is. */
+  readonly to: Date;
+  readonly opening: Amount;
+  readonly closing: Amount;
+  /** How many lines the partner's statement lists for the period: every move and pay-in on the account. */
+  readonly lines: number;
+  /** The partner's own time for the statement. */
+  readonly asOf: Date;
+}
+
+/** How far back the partner's record reaches, and from how old a line it asks for a fresh strong customer authentication. */
+export interface PartnerHistoryRules {
+  readonly label: string;
+  /** The partner keeps no line older than this many days before now. */
+  readonly historyDays: number;
+  /** A statement reaching back further than this many days needs a fresh strong customer authentication. */
+  readonly scaAfterDays: number;
 }
 
 /** Which path holds a person's bank money: the partner, or (null) the custodial layer as before. */
@@ -275,6 +311,10 @@ export function freezeGuardedCustody(custody: PartnerCustody, freeze: PostingFre
         moveByKey: (key: string) => bank.moveByKey(key),
         moves: (userId: string, query: PartnerMovesQuery) => bank.moves(userId, query),
         limits: (userId: string, assetId: string) => bank.limits(userId, assetId),
+        ...(bank.statement
+          ? { statement: (account: PartnerAccountRef, range: { from: Date; to: Date }) => bank.statement!(account, range) }
+          : {}),
+        ...(bank.historyRules ? { historyRules: bank.historyRules } : {}),
         move: async (request: PartnerMoveRequest) => {
           await assertPostingEnabled(freeze, 'bank_move', note);
           return bank.move(request);

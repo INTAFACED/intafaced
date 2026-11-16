@@ -119,6 +119,24 @@ export function createTestPartnerRouter(
         }),
       ),
     /**
+     * The TEST partner's own statement of the owner's business account over `[from, to)` (J-bank-23 #3), straight from its
+     * book: what a statement file is checked against, for a test to compare the files with. Off the TEST stack it refuses.
+     */
+    businessStatement: scopedProcedure('bank:read', { module: 'bank' })
+      .input(z.object({ accountId: z.string().guid(), from: z.string().datetime(), to: z.string().datetime() }).strict())
+      .output(z.object({ label: z.string(), opening: z.string(), closing: z.string(), lines: z.number().int().nonnegative() }))
+      .query(({ ctx, input }) =>
+        guard(async () => {
+          const partner = on(bank.testPartner);
+          const { assetId } = await bank.businessTeam.assertOwner(input.accountId, ctx.principal.userId);
+          const st = await partner.bank.statement!(businessPartnerAccount(input.accountId, assetId), {
+            from: new Date(input.from),
+            to: new Date(input.to),
+          });
+          return { label: st.label, opening: formatAmount(st.opening), closing: formatAmount(st.closing), lines: st.lines };
+        }),
+      ),
+    /**
      * TEST money leaving the person's main balance at the TEST partner bank (J-bank-16 Starts: "a month of TEST activity
      * at the partner"), once per `spendId`: a TEST `payment` to a stand-in merchant, or a TEST `payout` to the partner's
      * outbound-payments account. A real send to a person at the partner is not built, and this door is not that: it is
