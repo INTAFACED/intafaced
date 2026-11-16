@@ -192,6 +192,7 @@ export * from './identity-account-status.js';
 export * from './identity-compromise.js';
 export * from './identity-safety.js';
 export * from './bank-business-team.js';
+export * from './bank-business-bills.js';
 export * from './support-official-channels.js';
 export * from './identity-appeals.js';
 export * from './identity-signin-challenge.js';

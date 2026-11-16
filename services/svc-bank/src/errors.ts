@@ -725,6 +725,33 @@ export type BankErrorCode =
   | 'bank.business_approval_not_found'
   | 'bank.business_approval_inactive'
   | 'bank.business_self_approve'
+  // ── Business bill pay (J-bank-20; BK-bill-01 to BK-bill-03) ──
+  /** A bill file with no name, empty, or over 1 MiB. */
+  | 'bank.bill_file_invalid'
+  /** A bill field, vendor cap, limit or split line not in shape. */
+  | 'bank.bill_field_invalid'
+  /** A bill edited or sent on while it is not in the inbox. */
+  | 'bank.bill_not_editable'
+  /** A bill sent on before it names a vendor, an amount and a due date. */
+  | 'bank.bill_incomplete'
+  /** A bill flagged as a possible duplicate, not yet cleared: it is not paid. */
+  | 'bank.bill_duplicate_uncleared'
+  /** A bill paid before it is approved. */
+  | 'bank.bill_not_approved'
+  /** A split whose lines do not add up to the bill exactly. */
+  | 'bank.split_total_mismatch'
+  /** A scheduled payment for today or earlier. */
+  | 'bank.bill_schedule_invalid'
+  /** A Bill Pay limit is blank: no bill is paid until the business sets all three. */
+  | 'bank.bill_limit_unset'
+  /** A bill payment over a Bill Pay limit. */
+  | 'bank.bill_limit_exceeded'
+  /** A cancel of a bill payment already sent to the partner. */
+  | 'bank.bill_payment_sent'
+  /** A return reported for a bill payment that was never sent. */
+  | 'bank.bill_payment_not_sent'
+  | 'bank.bill_not_found'
+  | 'bank.bill_payment_not_found'
   | 'bank.business_rejected'
   | 'bank.business_cancelled'
   /**

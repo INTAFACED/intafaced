@@ -9,6 +9,7 @@ import { bindCustomerStepUp } from '@intafaced/contracts';
 import { bankActionPayloadHash } from '../action-approval-consume.js';
 import { plainNote, plainReference } from '../transfers/personal-pay.js';
 import {
+  billPayBinding,
   createTransferBinding,
   teamAcceptInviteBinding,
   teamApproveBinding,
@@ -118,5 +119,17 @@ describe('a step-up approval for a business team door is spendable at the bank d
     const tokenHash = 'a'.repeat(64);
     same(teamAcceptInviteBinding({ actor: ACTOR, tokenHash }), 'businessTeam.acceptInvite', tokenHash);
     same(teamAssignRoleBinding({ actor: ACTOR, accountId: ACCOUNT, userId: USER_B, roleId: null }), 'businessTeam.assignRole', USER_B);
+  });
+});
+
+describe('a step-up approval for paying a business bill is spendable at the bank door (J-bank-20)', () => {
+  it('paid now and scheduled', () => {
+    const BILL = '67676767-6767-4767-8767-676767676767';
+    const PAY = '78787878-7878-4878-8878-787878787878';
+    for (const scheduledFor of [null, '2026-12-01']) {
+      const b = billPayBinding({ actor: ACTOR, billId: BILL, paymentId: PAY, scheduledFor });
+      const { actor: _actor, ...fields } = b.fields;
+      expect(identityHash(b.actionType, 'businessBills.pay', PAY, fields)).toBe(bankActionPayloadHash(b.actionType, b.fields));
+    }
   });
 });

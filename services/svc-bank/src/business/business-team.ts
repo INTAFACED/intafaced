@@ -1065,6 +1065,43 @@ export class BusinessTeamService {
     return { assetId: account.asset_id };
   }
 
+  // ── For the business's bills (J-bank-20) ───────────────────────────────
+
+  /** The business, its partner bank (null when its money is not held at one) and the caller's permissions on it. */
+  async seat(
+    accountId: string,
+    userId: string,
+  ): Promise<{
+    account: { id: string; name: string; assetId: string; status: 'active' | 'closed' };
+    partner: PartnerBank | null;
+    permissions: BusinessPermission[];
+  }> {
+    const account = await this.account(this.sql, accountId);
+    const me = await this.member(this.sql, accountId, userId);
+    return {
+      account: { id: account.id, name: account.name, assetId: account.asset_id, status: account.status },
+      partner: this.partnerFor(account),
+      permissions: permissionsOf(me),
+    };
+  }
+
+  /** The members other than `exclude` who hold `approve`. */
+  async approverPool(accountId: string, exclude: string): Promise<string[]> {
+    return (await this.memberRows(this.sql, accountId))
+      .filter((m) => m.user_id !== exclude && permissionsOf(m).includes('approve'))
+      .map((m) => m.user_id);
+  }
+
+  /** The business's approval rules, as `pickRule` reads them. */
+  async ruleList(accountId: string): Promise<TeamRule[]> {
+    return (await this.ruleRows(this.sql, accountId)).map(toRule);
+  }
+
+  /** Public handles from svc-identity; a person with none is refused by name. */
+  async handlesOf(userIds: readonly string[]): Promise<Map<string, string>> {
+    return this.handles(userIds);
+  }
+
   // ── Internals ───────────────────────────────────────────────────────────
 
   private async send(row: PaymentRow): Promise<void> {

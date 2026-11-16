@@ -46,6 +46,11 @@
       "value": "2",
       "note": "TEST minutes a business team invite stays open, short so a journey can see one expire (J-bank-19 #3); not an owner decision."
     },
+    "BANK_BILL_READER": {
+      "service": "bank",
+      "value": "test-lines",
+      "note": "The TEST bill reader: it reads a TEST bill's labelled lines, shown as Preview · sample data (J-bank-20 #1); no reading engine is chosen, so this is not an owner decision."
+    },
     "BANK_SHARED_POT_PEOPLE_CAP": {
       "service": "bank",
       "value": "2",

@@ -1,7 +1,7 @@
 import { parseStatementJobsTestHold, startStatementJobWorker } from './statements/statement-jobs.js';
 import { createIdentityExtraControls, unconfiguredExtraControls } from './safety/extra-controls.js';
 import { failingHistoryPages, parseActivityTestFault } from './activity/activity-test-fault.js';
-import type { z } from 'zod';
+import { z } from 'zod';
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
@@ -54,6 +54,8 @@ import {
   redriveBody,
 } from './cash-out/job-bodies.js';
 import { directDebitSchemeFor } from './direct-debits/scheme.js';
+import { BILL_RETURN_REASONS } from './business/business-bills.js';
+import { billView } from './router/business-bills.router.js';
 import { ddRunBody, ddSimCollectionBody, ddSimMandateBody } from './direct-debits/job-bodies.js';
 import { scheduledNoticesBody } from './rules/job-bodies.js';
 import { incomeSorterBody } from './sorter/income-sorter.js';
@@ -405,6 +407,8 @@ const bank = createBankServices(sql, ledger, history, {
   incomeSorterMinCredit: env.BANK_INCOME_SORTER_MIN_CREDIT,
   sharedPotInviteMinutes: env.BANK_SHARED_POT_INVITE_MINUTES,
   businessInviteMinutes: env.BANK_BUSINESS_INVITE_MINUTES,
+  // The TEST bill reader stands in only where the TEST partner bank does.
+  billReader: testPartner ? env.BANK_BILL_READER : undefined,
   sharedPotPeopleCap: env.BANK_SHARED_POT_PEOPLE_CAP,
   /** Account details and the eligibility statement: owner-published lists, no banking partner wired (`rail.bank`). */
   accountDetails: {
@@ -832,6 +836,19 @@ jobDoor('/internal/jobs/payout-sim/failed', payoutFailedBody, (b) => bank.cashOu
 jobDoor('/internal/jobs/payout-sim/cancelled', payoutCancelledBody, (b) => bank.cashOut.cancel(b.cashOutId, b.reason));
 jobDoor('/internal/jobs/payout-sim/returned', payoutReturnedBody, (b) =>
   bank.cashOut.returned(b.cashOutId, { amount: b.amount, assetId: b.assetId, reason: b.reason }),
+);
+/**
+ * A business's bill payments (J-bank-20 #4, #5). `bill-pay/run-due` sends the scheduled payments whose day has come, once
+ * each (a cancelled one is never picked up). `bill-pay/returned` is the partner's report that the payee's bank sent a
+ * payment back: the amount is given back to the business's partner account once. Signed job doors, never a customer's.
+ */
+jobDoor('/internal/jobs/bill-pay/run-due', z.object({ limit: z.number().int().min(1).max(500) }).strict(), (b) =>
+  bank.businessBills.runDue(b),
+);
+jobDoor(
+  '/internal/jobs/bill-pay/returned',
+  z.object({ paymentId: z.string().guid(), reason: z.enum(BILL_RETURN_REASONS) }).strict(),
+  async (b) => billView(await bank.businessBills.returned(b)),
 );
 /**
  * The pay-in partner's side of add money (J-bank-02 #3, #5): it says a payment it opened was paid, and the bank credits

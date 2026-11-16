@@ -260,6 +260,22 @@ export const moneyRooms = areaRooms('money', [
     business: true,
   },
   {
+    path: '/bank/business/bills',
+    title: 'Bills',
+    description: 'Your suppliers’ bills: the inbox, approvals and payments',
+    door: 'Money',
+    area: 'money',
+    business: true,
+  },
+  {
+    path: '/bank/business/bill',
+    title: 'Bill',
+    description: 'Review the bill, its approvals and its payments',
+    door: 'Money',
+    area: 'money',
+    business: true,
+  },
+  {
     path: '/bank/business/join',
     title: 'Join a business',
     description: 'Accept an invitation to a business bank team',
