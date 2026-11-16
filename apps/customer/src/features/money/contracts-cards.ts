@@ -300,6 +300,14 @@ export const cardsReads = {
         .object({ amount: money, status: z.enum(['pending', 'settled', 'rejected']), at: z.string() })
         .nullable()
         .default(null),
+      /**
+       * A payment taken by the pay-from order (J-bank-29 #3 to #7): the order the partner walked, the asset it held from
+       * once it held (`amount` is then in it; the rate and its time are `conversion`), and what it captured and returned.
+       */
+      payFrom: z
+        .object({ order: z.array(z.string()), assetId: z.string().nullable(), captured: money.nullable(), returned: money.nullable() })
+        .nullable()
+        .default(null),
       conversion: z
         .object({ settlementAssetId: z.string(), settlementAmount: money, rate: money, rateQuality: z.string(), rateAsOf: z.string() })
         .nullable(),

@@ -387,5 +387,12 @@ export const partnerHoldReportOutput = z
     refunded: z.string(),
     open: z.string(),
     expiresAt: z.string().nullable(),
+    /** The asset the partner holds it in, when it says. */
+    assetId: z.string().optional(),
+    /** A hold by a pay-from order (J-bank-29): the merchant's amount, the partner's rate and the rate's time. */
+    conversion: z
+      .object({ settlementAssetId: z.string(), settlementAmount: z.string(), rate: z.string(), rateAsOf: z.string() })
+      .strict()
+      .optional(),
   })
   .strict();

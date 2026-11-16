@@ -18,6 +18,7 @@ import { partnerRefusalsProcedure } from '../partner/partner-refusals.js';
 import {
   cardPartnerTermsProcedure,
   cardProgrammeFundingProcedure,
+  cardPayFromReconciliationProcedure,
   cardProgrammeProcedure,
   requestCardProgrammeFundingProcedure,
   setCardStatusProcedure,
@@ -1131,6 +1132,8 @@ export function createOpsRouter(c: BankRouterContext) {
     cardPartnerTerms: cardPartnerTermsProcedure(bank, guard),
     /** Settlement reconciliation, stablecoin conversion and the partner's funding offers (J-bank-26 #6). Read only. */
     cardProgrammeFunding: cardProgrammeFundingProcedure(bank, guard),
+    /** Pay-from spend and open holds against the card partner's own reports, per asset (J-bank-29 #8). Read only. */
+    cardPayFromReconciliation: cardPayFromReconciliationProcedure(bank, guard),
     /** Fund, defund or set auto reload at the card partner, with a second founder's approval (J-bank-26 #6). */
     requestCardProgrammeFunding: requestCardProgrammeFundingProcedure(bank, consumeOpsApproval, guard),
     setCardStatus: setCardStatusProcedure(bank, consumeOpsApproval, guard),

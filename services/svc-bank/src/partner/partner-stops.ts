@@ -346,6 +346,15 @@ export function stopGuardedCardHolds(
     figures: (input: { userId: string; assetId: string }) => holds.figures(input),
     holdState: (input: { holdKey: string }) => holds.holdState(input),
     ...(holds.captured ? { captured: holds.captured.bind(holds) } : {}),
+    ...(holds.quote ? { quote: holds.quote.bind(holds) } : {}),
+    ...(holds.holdInOrder
+      ? {
+          holdInOrder: async (input: Parameters<NonNullable<PartnerCardHolds['holdInOrder']>>[0]) => {
+            await assertOpenCounted(gate, partnerId, 'card_hold', note);
+            return holds.holdInOrder!(input);
+          },
+        }
+      : {}),
     hold: async (input: Parameters<PartnerCardHolds['hold']>[0]) => {
       await assertOpenCounted(gate, partnerId, 'card_hold', note);
       return holds.hold(input);

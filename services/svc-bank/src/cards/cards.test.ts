@@ -84,6 +84,8 @@ const CARD_RECURRING = readFileSync(join(here, '..', '..', 'drizzle', '202611100
 const CASHBACK_TO_WALLET = readFileSync(join(here, '..', '..', 'drizzle', '20261115090000_card_cashback_to_wallet.sql'), 'utf8');
 /** The card programme's rules, 3DS policy and decision traces (J-bank-26), which every authorisation reads and writes. */
 const CARD_PROGRAMME_OPS = readFileSync(join(here, '..', '..', 'drizzle', '20261117000000_card_programme_ops.sql'), 'utf8');
+/** A payment by the pay-from order (J-bank-29): the order on each authorisation, and the partner's rate kind. */
+const PAY_FROM_HOLDS = readFileSync(join(here, '..', '..', 'drizzle', '20261117120000_card_pay_from_holds.sql'), 'utf8');
 
 const HOLDER = '11111111-1111-4111-8111-111111111111';
 const OTHER = '22222222-2222-4222-8222-222222222222';
@@ -432,6 +434,7 @@ describe('svc-bank cards PG-hard', () => {
         CARD_RECURRING,
         CASHBACK_TO_WALLET,
         CARD_PROGRAMME_OPS,
+        PAY_FROM_HOLDS,
       ],
     });
     sql = db.sql;

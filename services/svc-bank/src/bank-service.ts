@@ -15,7 +15,7 @@ import { AssetPauseService } from './ops/asset-pause.js';
 import { PartnerStopService, stopGuardedCardHolds, stopGuardedCustody, TEST_PARTNER_ID } from './partner/partner-stops.js';
 import { PartnerRefusalCounts } from './partner/partner-refusals.js';
 import type { Sql } from 'postgres';
-import type { CustodyLayerState, LedgerClient } from '@intafaced/ledger-client';
+import { parseAmount, type CustodyLayerState, type LedgerClient } from '@intafaced/ledger-client';
 import { SpaceService } from './spaces/space-service.js';
 import { TransferService } from './transfers/transfer-service.js';
 import { EarnService } from './earn/earn-service.js';
@@ -27,7 +27,7 @@ import { LoanService, type LoanServiceOptions } from './loans/loan-service.js';
 import { fixedPriceSource } from './loans/prices.js';
 import { CardService, type CardServiceOptions } from './cards/card-service.js';
 import { CardDisputeService, type DisputeCap } from './cards/card-disputes.js';
-import { noCardIssuer } from './cards/issuer.js';
+import { noCardIssuer, type CardIssuerAdapter } from './cards/issuer.js';
 import { CardOrderService } from './cards/card-orders.js';
 import { RampService, type RampServiceOptions } from './ramps/ramp-service.js';
 import { AddMoneyService } from './ramps/add-money.js';
@@ -490,6 +490,8 @@ export function createBankServices(
       ? testPartnerCardHolds({
           terms: () => (cardIssuer.partnerTerms ? cardIssuer.partnerTerms() : NOTHING_REPORTED),
           switches: (userId) => options.testPartner!.switches(userId),
+          // Its provisional dispute credits count in the same spendable figure (the issuer keeps them).
+          credited: (userId, assetId) => testCardCredited(cardIssuer, userId, assetId),
         })
       : null);
   const partnerHolds = unguardedHolds
@@ -792,3 +794,10 @@ export { rampProgrammeFor, BANK_CRYPTO_LEDGER_RAIL, RAMP_SETTINGS, type RampProg
 export { type OnrampRecord, type OfframpRecord, type RampKind, type RampServiceOptions } from './ramps/ramp-service.js';
 export { categorise, SPEND_CATEGORIES, type SpendCategory, type SpendSummary } from './analytics/spend.js';
 export { memoryLedgerHistory, type LedgerHistory, type LedgerEntryRecord } from './analytics/ledger-history.js';
+
+/** The TEST card partner's provisional credits to one cardholder in one asset, not reversed, as its own book holds them. */
+function testCardCredited(issuer: CardIssuerAdapter, userId: string, assetId: string): bigint {
+  const book = issuer.testRecord?.(userId);
+  if (!book) return 0n;
+  return book.credits.filter((c) => c.assetId === assetId && !c.reversed).reduce((sum, c) => sum + parseAmount(c.amount), 0n);
+}

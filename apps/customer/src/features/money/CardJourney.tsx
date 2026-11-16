@@ -514,6 +514,12 @@ function PayFromPanel({ view: p, reload }: { view: PayFrom; reload: () => void }
                 </td>
                 <td data-testid={`card-pay-from-${row.assetId}-rate`}>
                   {offeredRow ? known(row.rate, (v) => `${v} ${p.settlementAssetId ?? ''}`.trim()) : null}
+                  {offeredRow && row.rate !== null ? (
+                    <span className="money-caption" data-testid={`card-pay-from-${row.assetId}-rate-estimate`}>
+                      {' '}
+                      ({t('payFromEstimate')})
+                    </span>
+                  ) : null}
                 </td>
                 <td data-testid={`card-pay-from-${row.assetId}-rate-time`}>
                   {offeredRow ? (
@@ -529,6 +535,9 @@ function PayFromPanel({ view: p, reload }: { view: PayFrom; reload: () => void }
           })}
         </tbody>
       </table>
+      <p className="money-caption" data-testid="card-pay-from-estimate">
+        {t('payFromEstimateNote')}
+      </p>
       <p data-testid="card-pay-from-saved">
         {t('payFromSavedHead')}:{' '}
         {p.order
