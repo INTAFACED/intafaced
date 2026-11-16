@@ -105,7 +105,7 @@ const codeOf = async (p: Promise<unknown>) =>
     (err: unknown) => (err instanceof CampaignsError ? err.code : String(err)),
   );
 
-describe.skipIf(!db)('trial pass campaigns', () => {
+describe.skipIf(!available)('trial pass campaigns', () => {
   it('activate with the tier and span set and no budget or reward; blank terms refuse by name', async () => {
     const c = await live();
     expect((await campaigns.getForOps({ id: c.id })).trialPass).toEqual({ tierId: 'test-vip-1', seconds: 120 });
