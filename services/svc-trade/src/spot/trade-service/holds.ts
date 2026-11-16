@@ -28,6 +28,7 @@ import { attributionFromOrder, withLedgerAttribution } from '../auth-attribution
 import { buybackReleasePost, holdAccountOf, isBuybackUser } from '../buyback-order.js';
 import { TradeError, type Market, type OrderRecord, type OrderStatus, type RecoveryReason } from '../types.js';
 import type { PlaceOrderInput, TradeServiceInternal } from '../trade-service.js';
+import { fillsProveNoFill } from './internal.js';
 
 // ── Holds: the only two things that can happen to one ─────────────────────
 
@@ -239,13 +240,21 @@ export async function remainingHold(svc: TradeServiceInternal, sql: Sql, order: 
  * fails on an empty hold. The hold stays; the engine's cancel event (`releaseOnCancelEvent`) is redelivered and
  * closes the order once the fill is written.
  *
+ * `engineMissSighted` is the reconcile's, for an order the engine's book no longer lists. An order the engine filled
+ * in full leaves the book at once while its fill reaches `trade.fills` later, so one look at a miss and no fill row is
+ * not proof that nothing is owed (#8560). `finalize` releases only when, under the row lock, the order's engine miss
+ * was first sighted (`trade.operator_sweep_sightings`, cleared whenever the book lists it again) at least the owner's
+ * floor ago (`TRADE_OPERATOR_SWEEP_MIN_AGE_SECONDS`) and `trade.fills` and `filled_qty` still show no fill; otherwise
+ * it refuses with `trade.engine_miss_unproven` and the hold stays.
+ *
  * `noEngineFill` is for a closer that has no engine remainder and says why none is owed: the engine never had the
- * order, a paper market (it never writes a fill), the reconcile sweep's fill evidence proving none, no hold left to
- * release, or an OCO parent whose legs' settled fills were checked (`ocoExecutionSettled`).
+ * order, a paper market (it never writes a fill), no hold left to release, or an OCO parent whose legs' settled fills
+ * were checked (`ocoExecutionSettled`).
  */
 export type CancelEvidence =
   | { readonly engineLeftQty: Amount }
-  | { readonly noEngineFill: 'never_on_engine' | 'paper_market' | 'fills_prove_none' | 'no_hold' | 'oco_legs_settled' };
+  | { readonly engineMissSighted: { readonly floorSeconds: number } }
+  | { readonly noEngineFill: 'never_on_engine' | 'paper_market' | 'no_hold' | 'oco_legs_settled' };
 
 export async function finalize(
   svc: TradeServiceInternal,
@@ -306,6 +315,39 @@ export async function finalize(
               { engineFilled: formatAmount(engineFilled), settled: formatAmount(recorded) },
             );
           }
+        }
+      }
+
+      if (evidence && 'engineMissSighted' in evidence) {
+        const floor = evidence.engineMissSighted.floorSeconds;
+        if (!Number.isInteger(floor) || floor <= 0) {
+          throw new TradeError(
+            `order ${orderId}: an engine miss is released only after the owner's floor, and none is set`,
+            'trade.engine_miss_unproven',
+          );
+        }
+        const [proof] = await tx<Array<{ count: string; qty: string; first_seen_at: Date | null; due: boolean | null }>>`
+          SELECT (SELECT COUNT(*)::text FROM trade.fills WHERE order_id = ${orderId}) AS count,
+                 (SELECT COALESCE(SUM(qty), 0)::text FROM trade.fills WHERE order_id = ${orderId}) AS qty,
+                 s.first_seen_at,
+                 (s.first_seen_at <= now() - make_interval(secs => ${floor})) AS due
+            FROM (SELECT 1) one
+            LEFT JOIN trade.operator_sweep_sightings s ON s.order_id = ${orderId}
+        `;
+        const fills = { count: Number(proof?.count ?? '0'), qty: parseAmount(proof?.qty ?? '0') };
+        if (!fillsProveNoFill(order.filledQty, fills)) {
+          throw new TradeError(
+            `order ${orderId}: the engine no longer lists it but trade.fills show ${formatAmount(fills.qty)}; the hold stays`,
+            'trade.engine_miss_unproven',
+          );
+        }
+        if (proof?.due !== true) {
+          throw new TradeError(
+            proof?.first_seen_at
+              ? `order ${orderId}: its engine miss was first seen at ${proof.first_seen_at.toISOString()}, less than ${floor}s ago; a full fill may still be settling`
+              : `order ${orderId}: its engine miss has not been sighted before; a full fill may still be settling`,
+            'trade.engine_miss_unproven',
+          );
         }
       }
 

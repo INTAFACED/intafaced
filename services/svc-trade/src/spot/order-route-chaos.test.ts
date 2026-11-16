@@ -372,8 +372,13 @@ describe('svc-trade order-route-chaos (H8a PG-hard)', () => {
       expect((await service.cancelOrder(principalFor(ALICE), orderId)).status).toBe('recovery_required');
       expect(await heldFor(ALICE, 'USDT', orderId)).toBe('200');
 
-      // Recovery: reconcile reads the engine and the fills; nothing was matched, so the hold comes back once.
-      expect(await service.reconcileOrder(orderId)).toMatchObject({ action: 'released' });
+      // Recovery: reconcile reads the engine and the fills; nothing was matched, so the hold comes back once. Its first
+      // look at the miss records it and keeps the hold (a full fill may still be settling, #8560); the owner's floor
+      // later, with no listing in between and no fill, it releases.
+      expect(await service.reconcileOrder(orderId, { engineMissFloorSeconds: 60 })).toMatchObject({ action: 'fail_closed' });
+      expect(await heldFor(ALICE, 'USDT', orderId)).toBe('200');
+      await sql`UPDATE trade.operator_sweep_sightings SET first_seen_at = now() - interval '61 seconds' WHERE order_id = ${orderId}`;
+      expect(await service.reconcileOrder(orderId, { engineMissFloorSeconds: 60 })).toMatchObject({ action: 'released' });
       expect(await avail(ALICE, 'USDT')).toBe('1000');
       expect(await held(ALICE, 'USDT')).toBe('0');
       expect(postsWithReason('order.hold.released')).toHaveLength(1);

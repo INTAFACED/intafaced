@@ -136,6 +136,10 @@ export const venueMarketSchema = z.object({
     z.array(z.object({ fromNotional: decimalSchema, maxLeverageBps: z.number().int().positive(), maintenanceRate: decimalSchema })),
   ).optional(),
   collateral: maybeKnown(z.array(z.object({ asset: z.string(), haircut: maybeKnown(decimalSchema) }))).optional(),
+  // The venue's own trading state for the market, null where it reports none, and our listing's routing beside it
+  // (J-charts-desk-15 #6: the chart refuses order entry naming either). Absent from an older door: not reported.
+  status: z.enum(['trading', 'halted', 'cancel_only', 'delisted']).nullable().optional(),
+  listing: z.object({ routing: z.enum(['show', 'close_only', 'stop']), delisted: z.boolean().optional() }).optional(),
 });
 export type VenueMarket = z.infer<typeof venueMarketSchema>;
 /** One of the venue's published margin tiers (J-derivatives-02 #2). */
@@ -230,8 +234,41 @@ export const venueOrderSchema = z.object({
   locked: decimalSchema,
   lockedAsset: z.string(),
   reduceOnly: z.boolean(),
+  /** A trigger order's trigger, as the venue reports it (J-cex-spot-06 #6); absent on an ordinary order. */
+  trigger: z
+    .object({
+      price: decimalSchema,
+      source: z.string(),
+      role: z.string(),
+      state: z.enum(['waiting', 'triggered', 'failed']),
+      triggeredAt: isoTime.nullable(),
+      failure: z.string().nullable(),
+    })
+    .nullable()
+    .optional(),
+  /** Why the venue cancelled it, where it says (`position_closed`, `linked`). */
+  cancelReason: z.string().nullable().optional(),
 });
 export type VenueOrder = z.infer<typeof venueOrderSchema>;
+
+/** One page of the venue's own order history (`GET /venue/orders/history`, J-cex-spot-06 #1), newest placed first. */
+export const venueHistoryPageSchema = z.object({
+  orders: z.array(z.object({ order: venueOrderSchema, placedAt: isoTime })),
+  next: z.string().nullable(),
+  asOf: isoTime,
+});
+export type VenueHistoryPage = z.infer<typeof venueHistoryPageSchema>;
+export type VenueHistoryQuery = { side?: string; status?: string; from?: string; to?: string; limit?: string; before?: string };
+
+/** Our own record of one venue order (`GET /venue/orders/record`): the amendments the venue accepted and our builder fee. */
+export const venueOrderRecordSchema = z.object({
+  placedAt: isoTime.nullable(),
+  amendments: z.array(z.object({ actionKey: z.string(), amount: decimalSchema, price: decimalSchema, recordedAt: isoTime })),
+  builderFee: z
+    .object({ chargedBps: decimalSchema, publishedBps: decimalSchema.nullable(), discountBps: z.number().int().nullable() })
+    .nullable(),
+});
+export type VenueOrderRecord = z.infer<typeof venueOrderRecordSchema>;
 
 /**
  * One order the person's door kept, read back from the venue (`GET /venue/orders`): `origin` is `agent:<keyId>` when their
@@ -759,6 +796,12 @@ export function venueApi(api: ApiClient) {
     keptOrders: (owner: string, cursor?: string, signal?: AbortSignal) => read('/orders', venueOrderPageSchema, { owner, cursor }, signal),
     /** The person's agent accounts, each with its owner wallet and venue sub-account (J-agents-21). */
     agentAccounts: (signal?: AbortSignal) => read('/agent-accounts', z.object({ accounts: z.array(agentAccountRowSchema) }), {}, signal),
+    /** The account's orders in every state as the venue keeps them, filtered and a page at a time (J-cex-spot-06 #1). */
+    orderHistory: (owner: string, query: VenueHistoryQuery, signal?: AbortSignal) =>
+      read('/orders/history', venueHistoryPageSchema, { owner, ...query }, signal),
+    /** Our record of one order: amendments the venue accepted, and our builder fee on it (J-cex-spot-06 #5 #10). */
+    orderRecord: (owner: string, clientOrderId: string, signal?: AbortSignal) =>
+      read('/orders/record', venueOrderRecordSchema, { owner, clientOrderId }, signal),
     orderByClientId: (owner: string, clientOrderId: string, signal?: AbortSignal) =>
       read('/orders/by-client-id', asOf(venueOrderSchema.nullable()), { owner, clientOrderId }, signal),
     fills: (owner: string, since: string, signal?: AbortSignal) => read('/fills', asOf(z.array(venueFillSchema)), { owner, since }, signal),

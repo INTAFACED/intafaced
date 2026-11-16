@@ -9,6 +9,7 @@ import { Notifications } from './Notifications';
 import { BusinessVerification } from './BusinessVerification';
 import { Promotions } from './Promotions';
 import { PromotionPoints } from './PointsProgramme';
+import { PromotionPerks } from './PerksRoom';
 import { Dividends } from './Dividends';
 import { OAuthConsent } from './OAuthConsent';
 import { ApiKeys } from './ApiKeys';
@@ -39,6 +40,7 @@ function AccountRooms({ path }: { path: string }) {
   if (clean === '/notifications') return <Notifications />;
   if (clean === '/identbusiness') return <BusinessVerification />;
   if (clean?.replace(/\/+$/, '') === '/uc/promotion/points') return <PromotionPoints />;
+  if (clean?.replace(/\/+$/, '') === '/uc/promotion/perks') return <PromotionPerks />;
   if (clean?.startsWith('/uc/promotion') || clean === '/uc/invitingmining') return <Promotions path={path} />;
   if (clean === '/uc/paydividends') return <Dividends />;
   return <Account />;

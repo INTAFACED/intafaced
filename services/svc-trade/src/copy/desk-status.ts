@@ -3,6 +3,8 @@
  * Mounted and unmounted desks share this shape.
  */
 import { z } from 'zod';
+import { formatAmount } from '@intafaced/ledger-client';
+import type { CopyMinInvestment } from './follow-rules.js';
 import { autoMirrorPlaceStatus, COPY_AUTO_MIRROR_PLACE_SOCKET, COPY_PLACE_DISABLED_RESIDUAL } from './auto-mirror-place.js';
 import {
   COPY_DESK_BLOCKER_CODES,
@@ -36,6 +38,8 @@ export type CopyDeskFacts = {
   readonly fee: CopyFeeShareLaw;
   readonly jurisdiction: CopyJurisdictionLaw;
   readonly placeEnabled: boolean;
+  /** The owner's minimum investment per follow; unpublished refuses every follow. Missing → unpublished. */
+  readonly minInvestment?: CopyMinInvestment;
 };
 
 export function unmountedCopyDeskFacts(): CopyDeskFacts {
@@ -78,6 +82,7 @@ export function presentCustomerCopyDesk(facts: CopyDeskFacts) {
     jurisdictionPublished,
     blockers,
     autoMirrorPlace: { published: placeEnabled, socket: COPY_AUTO_MIRROR_PLACE_SOCKET },
+    minInvestment: facts.mounted && facts.minInvestment?.published ? formatAmount(facts.minInvestment.amount) : null,
   };
 }
 
@@ -122,6 +127,8 @@ export const copyDeskStatusOutput = z.object({
     published: z.boolean(),
     socket: z.string(),
   }),
+  /** The owner's minimum investment per follow in the quote asset; null when unpublished (every follow refuses). */
+  minInvestment: z.string().nullable(),
 });
 
 export const copyOpsStatusOutput = copyDeskStatusOutput.extend({

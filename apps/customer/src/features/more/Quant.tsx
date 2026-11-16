@@ -7,6 +7,8 @@ import { decimalSchema, signedDecimalSchema, displayAmount, parseAmount } from '
 import { Button, Failure, Field, Loading, Panel } from '../../shared/ui';
 import { Details, presentActionFailure, Read, Select, TextArea, useAction } from './common';
 import { limitsCopy } from '../quant/limits-copy';
+import { researchCopy } from '../quant/research-copy';
+import { PYTHON_TEMPLATE } from '../quant/python-template';
 import { sandboxLimitRefusalOf, sandboxLimitSentence } from '../quant/sandbox-limit-refusal';
 import { preservePaperHref } from './trade-context';
 import { authoredRefusal, type ApiResult } from '../../shared/api';
@@ -94,6 +96,16 @@ const runSchema = stamp.extend({
   ticks: z.object({ label: z.literal('TEST'), path: z.record(z.string(), z.array(z.string())) }),
   venue: z.literal('internal'),
   venueVault: z.enum(['unset', 'set']),
+  limits: z
+    .object({
+      wallClockMs: z.number().int().nullable(),
+      memoryBytes: z.number().int().nullable(),
+      outputBytes: z.number().int().nullable(),
+      maxOps: z.number().int().nullable(),
+      maxSource: z.number().int().nullable(),
+    })
+    .nullable()
+    .optional(),
 });
 /** A result table that carries its own name, so the fills and positions read as named tables. */
 function NamedTable({ headers, label, children }: { headers: readonly ReactNode[]; label: string; children: ReactNode }) {
@@ -341,6 +353,23 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                 hint={copyText('quant.user.supplied.simulation.input.separate.from.your')}
               />
               <TextArea label={copyText('quant.strategy.source')} value={source} onChange={setSource} maxLength={200000} />
+              <section aria-label={researchCopy.t('pyTitle')} data-testid="quant-python">
+                <h4>{researchCopy.t('pyTitle')}</h4>
+                <p className="muted">{researchCopy.t('pyIntro')}</p>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => {
+                    setLanguage('python');
+                    setSource(PYTHON_TEMPLATE);
+                  }}
+                >
+                  {researchCopy.t('pyTemplate')}
+                </Button>{' '}
+                <a className="text-link" href="/developers/quant#python" data-testid="quant-python-package">
+                  {researchCopy.t('pyPackage')}
+                </a>
+              </section>
               <Button
                 type="submit"
                 disabled={
@@ -404,6 +433,24 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                   </NamedTable>
                 )}
                 <PaperOrders events={result.events} legs={result.legs} ticks={result.ticks} />
+                {result.limits && (
+                  <NamedTable headers={[researchCopy.t('limitsTitle'), limitsCopy.t('value')]} label={researchCopy.t('limitsTitle')}>
+                    {(
+                      [
+                        ['wallClockMs', 'limitWall'],
+                        ['memoryBytes', 'limitMemory'],
+                        ['outputBytes', 'limitOutput'],
+                        ['maxOps', 'limitOps'],
+                        ['maxSource', 'limitSource'],
+                      ] as const
+                    ).map(([key, label]) => (
+                      <tr key={key} data-testid="quant-run-limit" data-limit={key} data-value={result.limits?.[key] ?? ''}>
+                        <th scope="row">{researchCopy.t(label)}</th>
+                        <td lang="zxx">{result.limits?.[key] ?? researchCopy.t('limitNotSet')}</td>
+                      </tr>
+                    ))}
+                  </NamedTable>
+                )}
               </>
             ) : (
               <p className="muted">
