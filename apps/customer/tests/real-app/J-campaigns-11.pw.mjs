@@ -245,6 +245,11 @@ async function venueFills(p, since) {
   return { ours, without: fills.filter((f) => !ours.includes(f)) };
 }
 
+const units18 = (x) => {
+  const [w, f = ''] = String(x).split('.');
+  return BigInt(w + f.padEnd(18, '0'));
+};
+
 const notionalOf = (f) => {
   const [pw, pf = ''] = f.price.split('.');
   const [aw, af = ''] = f.amount.split('.');
@@ -408,29 +413,36 @@ test(`${J} #3 trades on the venue through INTAFACED: volume counts once per venu
     clientOrderKey: `order:${J}:${RUN}:direct:${Date.now()}`,
     builderFee: null,
   });
+  // The venue matches a sell against its best, then oldest, bid, so a bid another trader left resting at or above PRICE
+  // can split one sell into two fills (#8595). Wait for every sell to be filled in full, by amount, and count the
+  // venue's own fills, however many there are.
   let mine;
   let theirs;
+  const filled = (fills) => sumDecimal(['0', ...fills.map((f) => f.amount)]);
   await expect
     .poll(
       async () => {
         mine = await venueFills(winner, since);
         theirs = await venueFills(rival, since);
-        return [mine.ours.length, mine.without.length, theirs.ours.length];
+        return [filled(mine.ours), filled(mine.without), filled(theirs.ours)];
       },
       { timeout: 30_000 },
     )
-    .toEqual([2, 1, 1]);
+    .toEqual([sumDecimal([SELL, SELL]), '0.25', SELL]);
+  // Each fill is the venue's, at the sell's limit price or better.
+  for (const f of [...mine.ours, ...mine.without, ...theirs.ours]) {
+    expect(f.side).toBe('sell');
+    expect(units18(f.price) >= units18(PRICE), `fill ${f.fillId} at ${f.price}`).toBe(true);
+  }
   // What the venue itself reports: the notional of each fill of an order placed through INTAFACED.
   const expected = sumDecimal(mine.ours.map(notionalOf));
   const expectedRival = sumDecimal(theirs.ours.map(notionalOf));
-  expect(expected).toBe('59990');
-  expect(expectedRival).toBe('29995');
   const page = await (await browser.newContext()).newPage();
   await signIn(page, winner.who);
   const room = await openCompetition(page, campaignId);
   const wanted = [
-    [1, 2, true, expected, 2],
-    [2, 1, false, expectedRival, 1],
+    [1, 2, true, expected, mine.ours.length],
+    [2, 1, false, expectedRival, theirs.ours.length],
   ];
   await expect
     .poll(async () => (await page.reload(), await openCompetition(page, campaignId), shownStandings(page)), { timeout: 60_000 })
@@ -451,8 +463,8 @@ test(`${J} #3 trades on the venue through INTAFACED: volume counts once per venu
   }
   const board = await boardOf(rival.who, campaignId);
   expect(board.standings.map((s) => [s.rank, s.seat, s.you, s.volume, s.fills])).toEqual([
-    [1, 2, false, expected, 2],
-    [2, 1, true, expectedRival, 1],
+    [1, 2, false, expected, mine.ours.length],
+    [2, 1, true, expectedRival, theirs.ours.length],
   ]);
   expect(board.standings.every((s) => s.qualifies)).toBe(true);
 });
