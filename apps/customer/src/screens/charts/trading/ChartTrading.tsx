@@ -59,7 +59,7 @@ export interface ChartTradingProps {
 /** A pointer that moves less than this many pixels between down and up is a click on the line, not a drag. */
 const DRAG_MIN_PX = 4;
 
-const isLineOrder = (order: Order, symbol: string) =>
+const isLineOrder = (order: Order, symbol: string): order is Order & { price: string } =>
   order.symbol === symbol && order.type === 'limit' && order.price !== null && order.price !== undefined;
 
 /**
@@ -110,7 +110,10 @@ export function ChartTrading({
   const signedIn = userId !== null;
 
   const lineOrders = useMemo(
-    () => (openOrders.status === 'ready' ? openOrders.data.filter((order) => isLineOrder(order, market.symbol)) : []),
+    () =>
+      openOrders.status === 'ready'
+        ? openOrders.data.filter((order): order is Order & { price: string } => isLineOrder(order, market.symbol))
+        : [],
     [openOrders, market.symbol],
   );
   // An order's hold moves the balance too: every private list is read again, not only the open orders.

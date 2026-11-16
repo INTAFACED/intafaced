@@ -950,7 +950,7 @@ export function MarketChart({
   };
   const lowerPanes = studies.filter((study) => ['Volume', 'RSI', 'MACD'].includes(study)).length;
   const pricePane = chartRef.current?.paneSize(0);
-  const chartOrders = orders.filter((order) => order.symbol === market.symbol && order.price !== null);
+  const chartOrders = orders.filter((order): order is Order & { price: string } => order.symbol === market.symbol && order.price !== null);
   const eligible = (order: Order) =>
     order.type === 'limit' && order.status === 'open' && !order.recoveryRequired && parseAmount(order.filled) === 0n;
   const orderCurrent = (order: Order) => history.current() && currentOrders.current.includes(order);
