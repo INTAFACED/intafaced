@@ -1,0 +1,102 @@
+# TEMPORARY: the proof run for `pnpm local:stack journey` on GitHub's runners. Removed again before the PR is ready.
+name: Proof (temporary) local stack journey
+on:
+  pull_request:
+    paths: ['.github/workflows/zz-proof-local-stack-journey.yml']
+permissions:
+  contents: read
+jobs:
+  proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    env:
+      INTAFACED_SANCTIONS_REGIONS: ${{ secrets.INTAFACED_SANCTIONS_REGIONS }}
+      INTAFACED_SANCTIONS_LIST_SOURCE: ${{ secrets.INTAFACED_SANCTIONS_LIST_SOURCE }}
+    steps:
+      - name: Paths
+        run: |
+          echo "LOCAL_STACK_NATS_BIN=$RUNNER_TEMP/nats-server" >> "$GITHUB_ENV"
+          echo "LOCAL_STACK_ANVIL_BIN=$RUNNER_TEMP/anvil" >> "$GITHUB_ENV"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - name: Put pnpm next to node
+        run: ln -sf "$(command -v pnpm)" "$(dirname "$(command -v node)")/pnpm"
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Get a nats-server binary
+        run: |
+          docker create --name nats-src nats:2.10.24-alpine
+          docker cp nats-src:/usr/local/bin/nats-server "$LOCAL_STACK_NATS_BIN"
+          docker rm nats-src
+          chmod +x "$LOCAL_STACK_NATS_BIN"
+      - name: Get an anvil launcher
+        run: |
+          docker pull ghcr.io/foundry-rs/foundry:v1.5.1
+          cat > "$LOCAL_STACK_ANVIL_BIN" <<'EOS'
+          #!/bin/sh
+          exec docker run --rm --init --network host ghcr.io/foundry-rs/foundry:v1.5.1 "anvil $*"
+          EOS
+          chmod +x "$LOCAL_STACK_ANVIL_BIN"
+      - name: Install the browser
+        timeout-minutes: 15
+        uses: ./.github/actions/browser
+
+      # Case 1: every slot held (four planted claims, each naming a live process of another checkout).
+      - name: 'Case 1: every slot held, one line, exit 3'
+        run: |
+          sleep 3600 & holder=$!
+          mkdir -p ~/.intafaced/slots
+          for n in 0 1 2 3; do
+            printf '{"repo":"/elsewhere/checkout-%s","pid":%s,"state":"/elsewhere/state-%s"}\n' $n $holder $n > ~/.intafaced/slots/$n.json
+          done
+          set +e
+          pnpm local:stack journey J-identity-14 > case1.txt 2>&1; code=$?
+          set -e
+          cat case1.txt
+          echo "exit $code"
+          kill $holder; rm -f ~/.intafaced/slots/*.json
+          [ "$code" = 3 ] && grep -q '^local:stack journey: no free slot: every local stack slot is held. Prove it on GitHub instead: gh workflow run real-app-journeys.yml' case1.txt
+
+      # Case 2, the night of 15 Nov (J-merchant-01, #8490): slot 0 held by another checkout, so this run takes slot 1, and
+      # every tool and journey must follow it there. J-identity-14 (proven on main) beside it.
+      - name: 'Case 2: slot 0 held, the journeys run end to end on slot 1, then the stack is stopped'
+        run: |
+          sleep 7200 & holder=$!
+          echo $holder > holder.pid
+          mkdir -p ~/.intafaced/slots
+          printf '{"repo":"/elsewhere/checkout-0","pid":%s,"state":"/elsewhere/state-0"}\n' $holder > ~/.intafaced/slots/0.json
+          set +e
+          pnpm local:stack journey J-merchant-01 J-identity-14 2>&1 | tee case2.txt; code=${PIPESTATUS[0]}
+          set -e
+          echo "exit $code"
+          grep -E '^(local:stack journey: |Pictures: |Open: )' case2.txt
+          ls ~/.intafaced/slots/
+          ! grep -l "$GITHUB_WORKSPACE" ~/.intafaced/slots/*.json
+          ! (exec 3<>/dev/tcp/127.0.0.1/4210) 2>/dev/null && echo "slot 1 customer port closed: the stack was stopped"
+          grep -q '^local:stack journey: stack up on slot 1 ' case2.txt
+          exit $code
+
+      # Case 3: interrupted while it runs (SIGINT, as Ctrl-C or a cancel sends): it stops what it started and frees the slot.
+      - name: 'Case 3: interrupted mid-run, the stack it started is stopped'
+        if: always()
+        run: |
+          set +e
+          node tooling/scripts/local-test-stack.mjs start journey J-identity-14 > case3.txt 2>&1 & run=$!
+          for _ in $(seq 1 600); do grep -q '^local:stack journey: stack up on slot' case3.txt && break; sleep 1; done
+          sleep 20
+          kill -INT $run; wait $run; code=$?
+          set -e
+          tail -30 case3.txt
+          echo "exit $code"
+          ls ~/.intafaced/slots/
+          ! grep -l "$GITHUB_WORKSPACE" ~/.intafaced/slots/*.json
+          ! (exec 3<>/dev/tcp/127.0.0.1/4210) 2>/dev/null
+          ! pgrep -f "$GITHUB_WORKSPACE/services/.*/dist" && echo "no service of this checkout left running"
+          [ "$code" = 130 ] && grep -q 'interrupted; stopping what it started' case3.txt
