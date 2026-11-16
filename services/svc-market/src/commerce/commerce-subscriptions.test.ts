@@ -61,7 +61,7 @@ function isExcludedAccessMax(text: string): boolean {
 /** Forward postgres.js, and hold the connection across a pause after the excluded max read. */
 function pauseAfterExcludedAccessMax(inner: Sql, afterRead: () => Promise<void>): Sql {
   const wrap = (source: Sql): Sql => {
-    const proxy = new Proxy(source as unknown as object, {
+    const proxy = new Proxy(source as object, {
       apply(target, _thisArg, argList: unknown[]) {
         const strings = argList[0] as TemplateStringsArray | undefined;
         const text = strings && Array.isArray(strings) ? strings.join('') : '';

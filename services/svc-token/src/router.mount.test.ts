@@ -134,7 +134,7 @@ function stubToken(overrides: Partial<TokenService> = {}): TokenService {
       execute: null,
     })),
     ...overrides,
-  } as unknown as TokenService;
+  } as TokenService;
 }
 
 describe('svc-token mount — authorisation', () => {

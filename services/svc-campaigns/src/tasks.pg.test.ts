@@ -1078,7 +1078,7 @@ describe('task rules', () => {
         reads += 1;
         expect(url.toString()).toBe('http://trade.test/api/v1/markets?limit=500');
         return new Response(JSON.stringify([{ id: BTC_USDT, symbol: 'BTC/USDT' }]), { status: 200 });
-      }) as unknown as typeof fetch,
+      }) as typeof fetch,
     });
     expect(await names.symbolOf(BTC_USDT)).toBe('BTC/USDT');
     expect(await names.symbolOf(BTC_USDT)).toBe('BTC/USDT');
@@ -1091,7 +1091,7 @@ describe('task rules', () => {
     expect(reads).toBe(2);
     const down = createMarketNames({
       tradeUrl: 'http://trade.test',
-      fetch: (async () => new Response('', { status: 503 })) as unknown as typeof fetch,
+      fetch: (async () => new Response('', { status: 503 })) as typeof fetch,
     });
     await expect(down.symbolOf(BTC_USDT)).rejects.toThrow('HTTP 503');
   });

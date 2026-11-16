@@ -129,7 +129,7 @@ const WEDGED_AFTER_MS = 15_000;
  */
 function within<T>(promise: Promise<T>, ms: number, value: T): Promise<T> {
   const expiry = new Promise<T>((resolve) => {
-    const timer = setTimeout(() => resolve(value), ms) as unknown as { unref?: () => void };
+    const timer = setTimeout(() => resolve(value), ms) as { unref?: () => void };
     timer.unref?.();
   });
   return Promise.race([promise, expiry]).catch(() => value);

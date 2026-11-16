@@ -273,7 +273,7 @@ describe('handleOmsPaperDoor body cannot open the server gate', () => {
         forgedCalls += 1;
         return { ...approvedTwap(id), status: 'paper' as const };
       },
-    } as unknown as ApprovedAlgoParentStore;
+    } as ApprovedAlgoParentStore;
 
     const shadowed = handleOmsPaperDoor(
       { parentClientOrderId: 'parent-twap', paper: { enabled: true }, parentStore: forged },
