@@ -170,6 +170,13 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
     TRADE_COPY_METRIC_DEFINITIONS: testValue('TRADE_COPY_METRIC_DEFINITIONS'),
     TRADE_COPY_MIN_TIER: testValue('TRADE_COPY_MIN_TIER'),
     TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS: testValue('TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS'),
+    // `LOCAL_STACK_TRADE_COPY_MIN_INVESTMENT=off` on a restart leaves the minimum blank, so J-copy-bots-otc-02 #2 sees
+    // every follow refused with `trade.copy_min_not_set`.
+    TRADE_COPY_MIN_INVESTMENT: process.env.LOCAL_STACK_TRADE_COPY_MIN_INVESTMENT === 'off' ? '' : testValue('TRADE_COPY_MIN_INVESTMENT'),
+    // `LOCAL_STACK_TRADE_COPY_DAY_START_UTC_OFFSET_MINUTES=<whole minutes>` on a restart moves the TEST owner day, so
+    // J-copy-bots-otc-02 #3 can see a real owner day begin within its run; it puts the TEST value back after.
+    TRADE_COPY_DAY_START_UTC_OFFSET_MINUTES:
+      process.env.LOCAL_STACK_TRADE_COPY_DAY_START_UTC_OFFSET_MINUTES ?? testValue('TRADE_COPY_DAY_START_UTC_OFFSET_MINUTES'),
     TRADE_SIGNAL_MAX_ALERT_AGE_SECONDS: testValue('TRADE_SIGNAL_MAX_ALERT_AGE_SECONDS'),
     TRADE_SIGNAL_WEBHOOK_DAYS: testValue('TRADE_SIGNAL_WEBHOOK_DAYS'),
     // LOCAL TEST, not an owner decision: the lowest tier that may create a bot. Blank refuses every bot
