@@ -161,8 +161,9 @@ export async function journeyLocal(opts, io) {
   );
   // What this run ran and how it ended, for the Mac's first-push check (a PreToolUse hook on the Mac): the first push
   // of a journey branch goes after a PASS (or a refused start) on the exact tree pushed. `code` stays null until the
-  // run ends, so an interrupted or crashed run never reads as a pass.
-  const ran = { tree: io.tree?.() ?? null, files, startedAt: io.now?.() ?? Date.now(), code: null };
+  // run ends, so an interrupted or crashed run never reads as a pass; `pid` lets the check tell a run still going from
+  // one that died without its end record.
+  const ran = { tree: io.tree?.() ?? null, files, startedAt: io.now?.() ?? Date.now(), pid: process.pid, code: null };
   io.record?.(ran);
   const code = await body();
   if (!interrupted) io.record?.({ ...ran, code });

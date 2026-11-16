@@ -199,8 +199,8 @@ test('run.json: the tree ran is recorded with code null at the start and the exi
     Object.assign(w.io, { tree: () => 'abc123', now: () => 1700000000000, record: (r) => records.push(r) });
     assert.equal(await journeyLocal({ ids: ['J-x-01'] }, w.io), want);
     assert.deepEqual(records, [
-      { tree: 'abc123', files: ['J-x-01.pw.mjs'], startedAt: 1700000000000, code: null },
-      { tree: 'abc123', files: ['J-x-01.pw.mjs'], startedAt: 1700000000000, code: want },
+      { tree: 'abc123', files: ['J-x-01.pw.mjs'], startedAt: 1700000000000, pid: process.pid, code: null },
+      { tree: 'abc123', files: ['J-x-01.pw.mjs'], startedAt: 1700000000000, pid: process.pid, code: want },
     ]);
   }
 });
