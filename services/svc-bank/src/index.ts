@@ -46,6 +46,11 @@ import { onrampPartnerFor, payinPaidBody, payinReturnedBody } from './ramps/payi
 import { registerPayinSimPage } from './ramps/payin-sim-page.js';
 import { answerTestPartnerRecord, onLoopback, TEST_PARTNER_RECORD_BASE } from './partner/test-partner-record.js';
 import {
+  answerTestCardPartnerRecord,
+  TEST_CARD_PARTNER_RECORD_BASE,
+  TEST_CARD_PARTNER_RECORD_PATHS,
+} from './cards/test-card-partner-record.js';
+import {
   payoutCancelledBody,
   payoutFailedBody,
   payoutPaidBody,
@@ -179,6 +184,14 @@ const testPartner = testPartnerFor(env.BANK_TEST_PARTNER, { APP_ENV: process.env
 /** What each kind of activity line means for tax: the owner's map once set; a TEST one only when chosen on dev/test. */
 const taxEffects = taxEffectsFor(env.BANK_TAX_EFFECTS, { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV });
 
+/** The card issuer adapter; `none` unless chosen. Held here so the simulator's TEST record can be mounted below. */
+const cardIssuer = cardIssuerFor(
+  env.BANK_CARD_ISSUER,
+  { APP_ENV: env.APP_ENV, NODE_ENV: process.env.NODE_ENV },
+  // The TEST partner card adapter's switches; refused at boot outside dev/test (CUSTODY-DELTA §4).
+  cardSimPartnerFor(env.BANK_CARD_SIM_PARTNER_JSON, { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV }),
+);
+
 const bank = createBankServices(sql, ledger, history, {
   testPartner,
   // J-bank-24 #5: a webhook endpoint on loopback, over http, only on an explicit dev or test stack (the URL guard's hatch).
@@ -287,12 +300,7 @@ const bank = createBankServices(sql, ledger, history, {
    * deployment gets by SAYING ANYTHING.
    */
   cards: {
-    issuer: cardIssuerFor(
-      env.BANK_CARD_ISSUER,
-      { APP_ENV: env.APP_ENV, NODE_ENV: process.env.NODE_ENV },
-      // The TEST partner card adapter's switches; refused at boot outside dev/test (CUSTODY-DELTA §4).
-      cardSimPartnerFor(env.BANK_CARD_SIM_PARTNER_JSON, { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV }),
-    ),
+    issuer: cardIssuer,
     /** The owner's list of assets a card may pay from (BK-ccrypto-01). Blank refuses `bank.card_spend_assets_unset`. */
     spendAssets: parseSpendAssets(env.BANK_CARD_SPEND_ASSETS),
     /** The owner's count of wrong PIN tries that block a card's PIN (J-bank-14 #3). Blank declines a PIN by name. */
@@ -892,6 +900,25 @@ if (testPartner) {
   app.get(`${TEST_PARTNER_RECORD_BASE}/venue`, read);
   app.post(`${TEST_PARTNER_RECORD_BASE}/balances`, read);
   app.post(`${TEST_PARTNER_RECORD_BASE}/moves`, read);
+}
+/**
+ * LOCAL TEST: the TEST card partner's own book on loopback (`cards/test-card-partner-record.ts`), so a journey compares
+ * the app's dispute credit, balance and loss liability with what the card partner itself recorded (J-bank-27 #3 #4).
+ * Mounted only when the issuer is the simulator, which refuses a live posture; a caller off loopback is refused.
+ */
+const cardRecord = cardIssuer.testRecord?.bind(cardIssuer);
+if (cardRecord) {
+  const recorder = { programme: cardIssuer.programme, testRecord: cardRecord };
+  const read = async (req: FastifyRequest, reply: FastifyReply) => {
+    if (!onLoopback(req.socket.remoteAddress)) return reply.code(403).send({ error: 'loopback only' });
+    const below = req.url.split('?')[0]!.slice(TEST_CARD_PARTNER_RECORD_BASE.length);
+    const [status, body] = answerTestCardPartnerRecord(recorder, req.method, below, req.body ?? null);
+    return reply.code(status).header('cache-control', 'no-store').send(body);
+  };
+  for (const path of TEST_CARD_PARTNER_RECORD_PATHS) {
+    if (path === '/venue') app.get(`${TEST_CARD_PARTNER_RECORD_BASE}${path}`, read);
+    else app.post(`${TEST_CARD_PARTNER_RECORD_BASE}${path}`, read);
+  }
 }
 jobDoor('/internal/jobs/redrive-cash-outs', redriveBody, async (b) => recoveryCounts(await bank.cashOut.redrive(b.limit)));
 
