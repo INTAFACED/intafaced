@@ -185,6 +185,8 @@ test(`${J} #1 chooses a sizing mode: smart sync and fixed amount offered, multip
 test(`${J} #2 sets a per-contract cap, a daily cap, a minimum investment and a leverage limit: no leverage field on a spot follow`, async ({
   page,
 }) => {
+  // Two trade restarts (the minimum blanked, then put back) take most of a minute each.
+  test.setTimeout(300_000);
   await signIn(page, state('follower'));
   const detail = await myFollow(page);
   await detail.getByRole('button', { name: 'Edit limits' }).click();
@@ -311,8 +313,12 @@ test(`${J} #3 a lead order past the per-contract cap: refused with the cap code,
 
     await page.waitForTimeout(Math.max(0, dayStarts.getTime() - Date.now()) + 5_000);
     await takeBest(leader, 'buy', '0.001', `${J}-3-btc4-${tag}`);
-    const after = await myFollow(page);
-    await expect(copiedOrders(after).filter({ hasText: 'BTC/USDT' })).toHaveCount(2, { timeout: 60_000 });
+    // The detail lists copied orders as it opened: reopen it until the new day's copy is there.
+    await expect(async () => {
+      const after = await myFollow(page);
+      await expect(copiedOrders(after).first()).toBeVisible();
+      await expect(copiedOrders(after).filter({ hasText: 'BTC/USDT' })).toHaveCount(2, { timeout: 5_000 });
+    }).toPass({ timeout: 60_000 });
     expect((await skips(follower, followId)).filter((s) => s.reason === 'daily_cap')).toHaveLength(1);
   } finally {
     await restartTrade({ LOCAL_STACK_TRADE_COPY_DAY_START_UTC_OFFSET_MINUTES: undefined });

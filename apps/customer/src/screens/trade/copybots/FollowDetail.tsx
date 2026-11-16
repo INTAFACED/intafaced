@@ -115,7 +115,20 @@ const ACTION_COPY: Record<FollowAction, { button: string; title: string; effect:
 // One key per close-all: the step-up confirms exactly this follow and this key, so each new close-all gets a new one.
 const newFlattenKey = () => `flatten-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
-export function FollowActions({ follow, api, guard, onDone }: { follow: Follow; api: RoomApi; guard: WriteGuard; onDone: () => void }) {
+/** `showFailure` is off while Edit limits is open: that form shows the shared guard's refusal itself, once. */
+export function FollowActions({
+  follow,
+  api,
+  guard,
+  onDone,
+  showFailure = true,
+}: {
+  follow: Follow;
+  api: RoomApi;
+  guard: WriteGuard;
+  onDone: () => void;
+  showFailure?: boolean;
+}) {
   const { t } = roomCopy.useCopy();
   const [asking, setAsking] = useState<FollowAction | null>(null);
   // A close-all sells at market, so it is confirmed with a passkey or authenticator code first (J-copy-bots-otc-03 #4).
@@ -157,7 +170,7 @@ export function FollowActions({ follow, api, guard, onDone }: { follow: Follow; 
             </li>
           ))}
       </ul>
-      {guard.failure ? <RefusalNote failure={guard.failure} /> : null}
+      {showFailure && guard.failure ? <RefusalNote failure={guard.failure} /> : null}
       <AlertDialog open={asking !== null} onOpenChange={(open) => !open && setAsking(null)}>
         <AlertDialogContent>
           {asking ? (
@@ -488,7 +501,7 @@ export function FollowDetail({
             <h3 className="cb-h3">{t('Automatic copying')}</h3>
             <CopyingSwitch follow={follow} api={api} guard={guard} onDone={onChanged} />
             <h3 className="cb-h3">{t('Change this follow')}</h3>
-            <FollowActions follow={follow} api={api} guard={guard} onDone={onChanged} />
+            <FollowActions follow={follow} api={api} guard={guard} onDone={onChanged} showFailure={!editing} />
             <InfoNote>
               {t(
                 'A position you copied is sold only when you close it, when you choose Close copied positions, or after a stop when the leader closes that trade.',
