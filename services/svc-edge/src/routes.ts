@@ -228,7 +228,29 @@ export function resolve(pathname: string): Resolved | null {
  * unlisted prefix: do not advertise that the job exists.
  */
 export function isS2sPath(path: string): boolean {
-  return path === '/internal' || path.startsWith('/internal/');
+  const name = firstSegmentName(path);
+  return name === null || name === 'internal';
+}
+
+/**
+ * The first segment of `path` as a router behind the edge could read it: escapes decoded, `\` read as `/`, empty
+ * segments skipped, a `;` parameter dropped, Unicode compatibility forms folded (`ｉ` is `i`), case and surrounding
+ * whitespace or dots ignored. The raw comparison it replaced let `/%69nternal/x` through (project-state #2703).
+ * Null for a path that cannot be decoded, which `isS2sPath` refuses: a path nobody can read is not a public door.
+ */
+function firstSegmentName(path: string): string | null {
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(path);
+  } catch {
+    return null;
+  }
+  const first = decoded.split(/[\\/]+/).find((segment) => segment.length > 0) ?? '';
+  return first
+    .split(';')[0]!
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/^[\s.]+|[\s.]+$/g, '');
 }
 
 /**

@@ -22,7 +22,7 @@ import {
   stampRateLimitRefuseHeaders,
   type RateLimitConfig,
 } from './hardening.js';
-import { KillSwitchState } from './kill-switch.js';
+import { KillSwitchState, resolvedPathname } from './kill-switch.js';
 import { adapterRead, FIX_STATUS_UPSTREAM_PATH, registerAdapterStatusRoute, SBE_STATUS_UPSTREAM_PATH } from './adapter-status-door.js';
 import { httpMatchingApprovalRead, httpMatchingControl, httpMatchingHealthRead, registerMatchingOperatorRoutes } from './matching-proxy.js';
 import { readMatchingUrl, registerMatchingVenueHaltGuard } from './matching-venue-halt.js';
@@ -427,8 +427,14 @@ await app.register(async (api) => {
   });
 
   api.all('/api/*', async (req, reply) => {
+    // The same resolver the onRequest guards read, so the proxy forwards exactly the path they judged. Null (a path
+    // not in normal form, or one with no single answer) was already refused there; refused here too as a belt.
+    const pathname = resolvedPathname(req.url);
+    if (pathname === null) {
+      return reply.code(400).send({ error: userCopy('edge.unresolvable_path'), code: 'edge.unresolvable_path' });
+    }
     const url = new URL(req.url, `http://${env.HTTP_HOST}`);
-    const target = resolve(url.pathname);
+    const target = resolve(pathname);
 
     if (!target) {
       // An unlisted prefix is not forwarded anywhere. An edge that proxies what

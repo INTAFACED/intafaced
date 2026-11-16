@@ -25,10 +25,19 @@ export function requireInternalJobHmac(
   keyed?: KeyedJobAuth,
 ): boolean {
   if (keyed) {
-    return (
+    return jobCaller(
       verifyServiceRequest(keyed.req, { verifier: keyed.verifier, mode: keyed.mode, legacySecret: secret, bodyBindMode: 'require' })
-        .service !== null
+        .service,
     );
   }
-  return verifyServiceHeaders(headers, secret, { rawBody, mode: 'require' }).service !== null;
+  return jobCaller(verifyServiceHeaders(headers, secret, { rawBody, mode: 'require' }).service);
+}
+
+/**
+ * Any service may run a job, except svc-edge: the edge never calls svc-bank's `/internal` doors, and it signs every
+ * request it forwards from the internet with its own key, so a call signed as svc-edge here came from outside
+ * (project-state #2703).
+ */
+function jobCaller(service: string | null): boolean {
+  return service !== null && service !== 'svc-edge';
 }
