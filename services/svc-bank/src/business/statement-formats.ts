@@ -114,10 +114,13 @@ export function bookMt940(s: BookStatement): string {
   return `${out.join('\r\n')}\r\n-\r\n`;
 }
 
+/** XML 1.0 takes no control character but tab, line feed and carriage return: the rest are left out. */
+const xmlChar = (c: string) => c.charCodeAt(0) >= 0x20 || c === '\t' || c === '\n' || c === '\r';
 const xml = (v: string) =>
-  v
-    .replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' })[c]!)
-    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '');
+  [...v]
+    .filter(xmlChar)
+    .join('')
+    .replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' })[c]!);
 
 /** ISO 20022 CAMT.053 (version 08): an OPBD and a CLBD balance, the entry count, and one Ntry per line under its id. */
 export function bookCamt053(s: BookStatement): string {
