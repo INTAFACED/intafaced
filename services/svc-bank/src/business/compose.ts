@@ -9,6 +9,7 @@ import { BusinessTeamService } from './business-team.js';
 import { BusinessBillsService } from './business-bills.js';
 import { BusinessPayoutsService } from './business-payouts.js';
 import { BusinessCardsService } from './business-cards.js';
+import { BusinessBooksService } from './business-books.js';
 import type { BusinessDirectoryPort, BusinessLookupLimiter } from './business-directory.js';
 
 /**
@@ -26,6 +27,8 @@ export interface BusinessServices {
   readonly businessPayouts: BusinessPayoutsService;
   /** J-bank-22: the business's team cards with per-purchase limits, receipts, and reimbursements paid at the partner. */
   readonly businessCards: BusinessCardsService;
+  /** J-bank-23: the business's books: the accounting connection record, coding rules and four-format statements. */
+  readonly businessBooks: BusinessBooksService;
 }
 
 export interface BusinessServiceOptions {
@@ -72,5 +75,6 @@ export function composeBusinessServices(ctx: BusinessComposeContext, options: Bu
       custody: ctx.custody,
       testNetwork: ctx.testPartner,
     }),
+    businessBooks: new BusinessBooksService(sql, businessTeam),
   };
 }

@@ -298,6 +298,18 @@ export function reimbursementPayBinding(i: { actor: string; claimId: string }): 
   };
 }
 
+/**
+ * A business statement reaching back past the partner's strong customer authentication age (J-bank-23 #3): one approval
+ * for one export id over one exact period, which every format of that period's export may use.
+ */
+export function bookStatementBinding(i: { actor: string; accountId: string; exportId: string; from: string; to: string }): DoorBinding {
+  return {
+    actionType: 'bank.step_up.businessBooks.exportStatement',
+    operationKey: i.exportId,
+    fields: { actor: i.actor, accountId: i.accountId, exportId: i.exportId, from: i.from, to: i.to },
+  };
+}
+
 export function removeMemberBinding(i: { actor: string; accountId: string; userId: string; requestId: string }): DoorBinding {
   return {
     actionType: 'bank.step_up.business.removeMember',
