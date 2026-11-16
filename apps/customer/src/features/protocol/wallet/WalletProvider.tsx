@@ -143,6 +143,20 @@ const Context = createContext<WalletApi>(empty);
 /** Outside a provider (a server render, a test) the wallet is simply not connected. */
 export const useWallet = (): WalletApi => useContext(Context);
 
+/** What sits behind a wallet: nothing renders until a remembered wallet has answered, so no control offers Connect first. */
+export function WalletGate({ children }: { children: ReactNode }) {
+  const { status } = useWallet();
+  const { language } = usePreferences();
+  const { t } = walletCopy.forLocale(language);
+  return status === 'restoring' ? (
+    <p className="muted" role="status" aria-busy="true" data-wallet="restoring">
+      {t('restoring')}
+    </p>
+  ) : (
+    children
+  );
+}
+
 interface PendingSequence {
   sequence: Sequence;
   account: string;
@@ -196,16 +210,19 @@ interface Pending {
  * `scope` names the room the provider serves. The Web3 frame keeps one provider across its rooms, so the connection
  * outlasts a move between them; a sheet still open when the room changes is cancelled, as nothing in it was sent.
  * `chainId` is the network the room signs on: the app's own (APP_CHAIN_ID) unless the room names another, as a venue
- * desk does with the chain its venue's signatures name.
+ * desk does with the chain its venue's signatures name. `gate={false}` leaves the gate to the frame, which places `WalletGate`
+ * around its room and keeps its own bar.
  */
 export function WalletProvider({
   children,
   discovery = true,
   scope,
   chainId: configured = APP_CHAIN_ID,
+  gate = true,
 }: {
   children: ReactNode;
   discovery?: boolean;
+  gate?: boolean;
   scope?: string;
   chainId?: number;
 }) {
@@ -565,13 +582,7 @@ export function WalletProvider({
   };
   return (
     <Context.Provider value={api}>
-      {status === 'restoring' ? (
-        <p className="muted" role="status" aria-busy="true" data-wallet="restoring">
-          {t('restoring')}
-        </p>
-      ) : (
-        children
-      )}
+      {gate ? <WalletGate>{children}</WalletGate> : children}
       {sequence && (
         <SequenceSheet
           sequence={sequence.sequence}
