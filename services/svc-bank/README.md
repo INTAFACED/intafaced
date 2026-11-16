@@ -719,3 +719,5 @@ The internal job doors, the closure check, svc-agents' business team read and `/
 ## Service keys: outgoing calls
 
 The calls to svc-identity (affiliate accrue and payout, recipient status, handle lookup, business directory, recovery estates and claim checks) and to svc-trade (auto-invest convert quote and execute) are signed with svc-bank's own key when `S2S_AUTH_MODE`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` are set (`S2S_KEYRING` lets the doors verify callers); `dual` also sends the shared secret, `keypair` the key only. Unset, they are signed with the shared secret exactly as before. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.
+
+<!-- probe #8645, never merged -->
