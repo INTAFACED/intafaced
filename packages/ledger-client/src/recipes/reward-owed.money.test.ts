@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { houseFees, rewardsEngine, treasuryWallet, venueBuilderAccount } from '../accounts.js';
+import { houseFees, rewardsEngine, treasuryWallet } from '../accounts.js';
 import { movesCustomerBalance } from '../custody-layer.js';
 import { MemoryLedger } from '../memory-ledger.js';
 import { formatAmount, parseAmount as amt } from '../money.js';
