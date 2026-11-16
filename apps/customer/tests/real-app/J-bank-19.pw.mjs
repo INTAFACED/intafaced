@@ -144,24 +144,31 @@ async function signedInAt(page, who, path) {
   await page.goto(path);
 }
 
-/** The owner's two TEST approval rules of step 5, by API when step 5 itself did not save them. */
+/** The payee and type of the TEST 6000.00 payment, which the over-5000 rule is keyed on. */
+const PAYEE = 'TEST Supplier GmbH';
+const PAY_TYPE = 'domestic';
+
+/**
+ * The owner's two TEST approval rules of step 5, by API when step 5 itself did not save them: over 1000 one approver for
+ * any payee and type, over 5000 two for the payment's own payee and type.
+ */
+const TEST_RULES = [
+  { overAmount: '1000', payee: null, paymentType: null, approvals: 1 },
+  { overAmount: '5000', payee: PAYEE, paymentType: PAY_TYPE, approvals: 2 },
+];
 async function rules(own, accountId) {
   const now = ok(await own.query('businessTeam.rules', { accountId }));
-  for (const [over, approvals] of [
-    ['1000', 1],
-    ['5000', 2],
-  ]) {
-    if (!now.some((r) => r.overAmount === over && r.payee === null && r.paymentType === null && r.approvals === approvals)) {
-      ok(
-        await own.mutate('businessTeam.addRule', {
-          accountId,
-          ruleId: randomUUID(),
-          overAmount: over,
-          payee: null,
-          paymentType: null,
-          approvals,
-        }),
-      );
+  for (const rule of TEST_RULES) {
+    if (
+      !now.some(
+        (r) =>
+          r.overAmount === rule.overAmount &&
+          r.payee === rule.payee &&
+          r.paymentType === rule.paymentType &&
+          r.approvals === rule.approvals,
+      )
+    ) {
+      ok(await own.mutate('businessTeam.addRule', { accountId, ruleId: randomUUID(), ...rule }));
     }
   }
 }
@@ -464,19 +471,23 @@ test(`${J} #5 sets approval rules by amount, payee and payment type: two TEST ru
     await form.getByRole('button', { name: 'Save rule' }).click();
     await expect(page.locator(`[data-testid="team-rule"][data-over="${over}"][data-approvals="${approvals}"]`)).toHaveCount(1);
   };
-  // Two TEST rules, each set by amount, payee and payment type: any payee and any type, over 1000 one approver, over 5000 two.
+  // Two TEST rules set by amount, payee and payment type: over 1000 one approver for any payee and type; over 5000 two for
+  // this payee's domestic payments.
   await save('1000', 1);
-  await save('5000', 2);
+  await save('5000', 2, { payee: PAYEE, type: PAY_TYPE });
   await expect(page.locator('[data-testid="team-rule"][data-over="1000"]')).toHaveText('Over 1000 USDT, any payee, any type: 1 approvers');
-  await expect(page.locator('[data-testid="team-rule"][data-over="5000"]')).toHaveText('Over 5000 USDT, any payee, any type: 2 approvers');
+  await expect(page.locator('[data-testid="team-rule"][data-over="5000"]')).toHaveText(`Over 5000 USDT, ${PAYEE}, domestic: 2 approvers`);
   const saved = ok(await own.query('businessTeam.rules', { accountId: w.accountId }));
-  expect(saved.filter((r) => r.overAmount === '1000' && r.approvals === 1 && r.payee === null && r.paymentType === null)).toHaveLength(1);
-  expect(saved.filter((r) => r.overAmount === '5000' && r.approvals === 2 && r.payee === null && r.paymentType === null)).toHaveLength(1);
+  for (const rule of TEST_RULES) {
+    expect(saved.filter((r) => r.overAmount === rule.overAmount && r.approvals === rule.approvals)).toEqual([
+      expect.objectContaining(rule),
+    ]);
+  }
 
   // The owner proposes TEST 6000.00: the over-5000 rule applies, two approvers, and nothing has been sent.
   const form = page.getByRole('form', { name: 'Propose payment' });
-  await form.getByLabel('Payee').fill('TEST Supplier GmbH');
-  await form.getByLabel('Payment type').selectOption({ label: 'domestic' });
+  await form.getByLabel('Payee').fill(PAYEE);
+  await form.getByLabel('Payment type').selectOption({ label: PAY_TYPE });
   await form.getByLabel('Amount (USDT)').fill('6000.00');
   await form.getByRole('button', { name: 'Propose payment' }).click();
   const row = page.locator('[data-testid="team-payment"][data-amount="6000"]').first();
@@ -487,7 +498,7 @@ test(`${J} #5 sets approval rules by amount, payee and payment type: two TEST ru
   expect(p).toMatchObject({
     amount: '6000',
     approvalsNeeded: 2,
-    rule: { overAmount: '5000', approvals: 2 },
+    rule: { overAmount: '5000', payee: PAYEE, paymentType: PAY_TYPE, approvals: 2 },
     partnerMoveId: null,
     status: 'pending',
   });
@@ -535,7 +546,7 @@ test(`${J} #6 opens the approval detail page and approves: the rule that applied
 
   // The page names the rule that applied. The owner proposed it and holds approve, and is refused.
   await signedInAt(page, w.owner, path);
-  await expect(page.getByTestId('team-payment-rule')).toHaveText('Over 5000 USDT, any payee, any type: 2 approvers');
+  await expect(page.getByTestId('team-payment-rule')).toHaveText(`Over 5000 USDT, ${PAYEE}, domestic: 2 approvers`);
   await expect(page.getByTestId('team-payment-rule')).toHaveAttribute('data-needed', '2');
   const me = ok(await own.query('businessTeam.overview', { accountId: w.accountId })).me;
   expect(me.permissions).toContain('approve');
