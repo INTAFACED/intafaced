@@ -64,6 +64,7 @@ const copy = defineCopy('money.business-books', {
   linesTitle: 'Lines',
   linesEmpty: 'No lines this month.',
   select: 'Select line {id}',
+  pick: 'Select',
   bulkTitle: 'Code the selected lines',
   bulk: 'Code {count} selected',
   coded: '{count} lines coded.',
@@ -379,7 +380,10 @@ function Line({
       data-coded-by={l.codedBy ?? ''}
     >
       {selectable ? (
-        <input type="checkbox" aria-label={t('select', { id: l.id })} checked={checked} onChange={(e) => onToggle(e.target.checked)} />
+        <label className="money-check">
+          <input type="checkbox" aria-label={t('select', { id: l.id })} checked={checked} onChange={(e) => onToggle(e.target.checked)} />
+          <span>{t('pick')}</span>
+        </label>
       ) : null}{' '}
       <span>{l.bookedAt.slice(0, 10)}</span> <span>{l.payee}</span> <span>{`${l.amount} ${asset}`}</span>{' '}
       <span>
