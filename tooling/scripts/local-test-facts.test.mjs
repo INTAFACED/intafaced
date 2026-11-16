@@ -67,9 +67,16 @@ console.log('local-test-facts: node built-ins only, and every script hands out t
   const dead = 2 ** 22 + 12345; // above every macOS and Linux pid limit: never a running process
   assert.equal(facts.localStackSlot({}, home), 0, 'no claim: slot 0, the stack as it always was');
   other(0, process.pid);
+  assert.match(
+    facts.anotherCheckoutsStack({}, home),
+    /refusing: this checkout has no stack of its own, and slot 0 is \/elsewhere's .*1, 2, 3 free now/,
+    "a checkout with no claim never acts on slot 0 when it is another checkout's live stack",
+  );
+  assert.equal(facts.anotherCheckoutsStack({ LOCAL_STACK_SLOT: '0' }, home), null, 'LOCAL_STACK_SLOT names one by hand');
   assert.equal(facts.claimSlot(0, { state: 's', home }), false, "a live claim of another checkout's start is never taken");
   assert.equal(facts.claimSlot(1, { state: 's', home }), true, 'the next free slot is');
   assert.equal(facts.localStackSlot({}, home), 1, "this checkout's scripts and journeys read the slot it claimed");
+  assert.equal(facts.anotherCheckoutsStack({}, home), null, 'a checkout with its own claim acts on its own slot');
   assert.equal(facts.claimSlot(1, { state: 's', home }), true, 'its own claim is kept on the next start');
   other(2, dead);
   assert.equal(facts.slotClaims(home)[2].live, false, 'a start killed mid-build, with no stack process left, is a dead claim');
