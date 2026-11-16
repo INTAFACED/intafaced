@@ -426,7 +426,8 @@ export class BusinessService {
       const rows = await tx<MemberRow[]>`
         INSERT INTO bank.business_members (account_id, user_id, role)
         VALUES (${input.accountId}::uuid, ${input.userId}, ${input.role})
-        ON CONFLICT (account_id, user_id) DO UPDATE SET role = EXCLUDED.role
+        -- A built-in role set here is the member's whole role: a named role (J-bank-19) or advisor seat no longer applies.
+        ON CONFLICT (account_id, user_id) DO UPDATE SET role = EXCLUDED.role, custom_role_id = NULL, advisor = false
         RETURNING account_id, user_id, role
       `;
       return toMember(rows[0]!);
@@ -799,7 +800,7 @@ export class BusinessService {
         return { accountId: input.accountId, userId: input.userId, role: input.role };
       }
       await tx`
-        UPDATE bank.business_members SET role = ${input.role}
+        UPDATE bank.business_members SET role = ${input.role}, custom_role_id = NULL, advisor = false
          WHERE account_id = ${input.accountId}::uuid AND user_id = ${input.userId}
       `;
       return { accountId: input.accountId, userId: input.userId, role: input.role };

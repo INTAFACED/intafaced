@@ -16,7 +16,7 @@ UPDATE "bank"."business_accounts" a
       LIMIT 1)
  WHERE a."owner_user_id" IS NULL;
 
--- A role the business names itself, with the permissions it grants. A member who holds one has exactly these.
+-- A role the business names itself, with the permissions it grants. A member who holds one has these on the team doors, and business_members.role is set to the built-in role it fits (never wider), which every older business door reads.
 CREATE TABLE IF NOT EXISTS "bank"."business_custom_roles" (
   "id" uuid PRIMARY KEY,
   "account_id" uuid NOT NULL REFERENCES "bank"."business_accounts" ("id"),

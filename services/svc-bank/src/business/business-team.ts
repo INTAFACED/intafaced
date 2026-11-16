@@ -11,7 +11,7 @@ import {
   type PartnerCustody,
 } from '../partner/partner-bank.js';
 import { BusinessDirectoryError, normaliseEmailQuery, normaliseHandleQuery, type BusinessDirectoryPort } from './business-directory.js';
-import { BUSINESS_ROLE_CAPABILITIES, type BusinessMemberRole } from './business-policy.js';
+import { BUSINESS_ROLE_CAPABILITIES, BUSINESS_ROLES, roleCan, type BusinessMemberRole } from './business-policy.js';
 
 /**
  * A BUSINESS BANK TEAM AND ITS APPROVAL RULES (J-bank-19; BK-biz-01 to BK-biz-04).
@@ -66,6 +66,23 @@ export function builtInPermissions(role: BusinessMemberRole): BusinessPermission
   const caps = BUSINESS_ROLE_CAPABILITIES[role];
   if (caps.includes('manage_team')) return [...BUSINESS_PERMISSIONS];
   return BUSINESS_PERMISSIONS.filter((p) => (caps as readonly string[]).includes(p));
+}
+
+/**
+ * The built-in role a member with a named role holds in `business_members.role`: the widest built-in role whose every
+ * capability the named role grants (ties go to the first in the table). Every older business door (proposing and
+ * approving transfers, the withdrawal approver check svc-pay asks, member management) reads that column, so a named
+ * role narrows them too and never leaves the member wider there than the role says. `sign` is never in a named role, so
+ * a named role never fits `admin`; a named role always includes `view`, so `viewer` always fits.
+ */
+export function fittedRole(permissions: readonly string[]): BusinessMemberRole {
+  let best: BusinessMemberRole = 'viewer';
+  for (const role of BUSINESS_ROLES) {
+    const caps = BUSINESS_ROLE_CAPABILITIES[role];
+    if (!caps.every((c) => permissions.includes(c))) continue;
+    if (caps.length > BUSINESS_ROLE_CAPABILITIES[best].length) best = role;
+  }
+  return best;
 }
 
 /** A whole number of minutes from 1 to 43200 (30 days), or null while the owner has not set it. */
@@ -387,6 +404,10 @@ export class BusinessTeamService {
     if (permissions.length === 0 || permissions.some((p) => !(BUSINESS_PERMISSIONS as readonly string[]).includes(p))) {
       throw new BankError('A role needs at least one permission from the list.', 'bank.business_role_invalid');
     }
+    // Every member reads the business; a role without view would hold more on the older doors than it says.
+    if (!permissions.includes('view')) {
+      throw new BankError('A role always includes view.', 'bank.business_role_invalid');
+    }
     return transaction(this.sql, async (tx) => {
       await this.activeAccount(tx, input.accountId);
       const me = await this.member(tx, input.accountId, input.actorUserId);
@@ -425,7 +446,11 @@ export class BusinessTeamService {
     });
   }
 
-  /** Gives a member a named role (or, with null, back to their built-in role), within the actor's own permissions. */
+  /**
+   * Gives a member a named role, within the actor's own permissions, and sets their built-in role to the one it fits
+   * (`fittedRole`), so every older door holds them to it too. With null the named role is taken away and the member keeps
+   * the built-in role they hold now; an administrator widens it through the member doors.
+   */
   async assignRole(input: { accountId: string; actorUserId: string; userId: string; roleId: string | null }): Promise<TeamMember> {
     return transaction(this.sql, async (tx) => {
       await this.activeAccount(tx, input.accountId);
@@ -446,11 +471,25 @@ export class BusinessTeamService {
             'bank.business_role_grant_exceeds',
           );
         }
+        const fitted = fittedRole(role.permissions);
+        if (roleCan(target.role, 'manage_team') && !roleCan(fitted, 'manage_team')) {
+          const managers = await tx<Array<{ role: BusinessMemberRole }>>`
+            SELECT role FROM bank.business_members WHERE account_id = ${input.accountId}::uuid FOR UPDATE
+          `;
+          if (managers.filter((m) => roleCan(m.role, 'manage_team')).length < 2) {
+            throw new BankError('The last administrator cannot be narrowed.', 'bank.business_last_admin');
+          }
+        }
+        await tx`
+          UPDATE bank.business_members SET custom_role_id = ${input.roleId}::uuid, role = ${fitted}
+           WHERE account_id = ${input.accountId}::uuid AND user_id = ${input.userId}
+        `;
+      } else {
+        await tx`
+          UPDATE bank.business_members SET custom_role_id = NULL
+           WHERE account_id = ${input.accountId}::uuid AND user_id = ${input.userId}
+        `;
       }
-      await tx`
-        UPDATE bank.business_members SET custom_role_id = ${input.roleId}::uuid
-         WHERE account_id = ${input.accountId}::uuid AND user_id = ${input.userId}
-      `;
       const row = await this.member(tx, input.accountId, input.userId);
       return this.toMember(row, await this.handles([input.userId]));
     });
@@ -663,9 +702,13 @@ export class BusinessTeamService {
       if (await this.memberOrNull(tx, locked.account_id, input.userId)) {
         throw new BankError('You are already on this business.', 'bank.business_already_member');
       }
+      // A named role seats the member on the built-in role it fits, so the older doors hold them to it too.
+      const seat = locked.custom_role_id
+        ? fittedRole((await this.roleIn(tx, locked.account_id, locked.custom_role_id)).permissions)
+        : (locked.role ?? 'viewer');
       await tx`
         INSERT INTO bank.business_members (account_id, user_id, role, custom_role_id)
-        VALUES (${locked.account_id}::uuid, ${input.userId}, ${locked.role ?? 'viewer'}, ${locked.custom_role_id}::uuid)
+        VALUES (${locked.account_id}::uuid, ${input.userId}, ${seat}, ${locked.custom_role_id}::uuid)
       `;
       await tx`
         UPDATE bank.business_invites SET status = 'accepted', accepted_by = ${input.userId}, decided_at = now()

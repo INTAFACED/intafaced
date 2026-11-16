@@ -20,7 +20,7 @@ import { memoryLedgerHistory } from '../analytics/ledger-history.js';
 import { createBankRouter } from '../router.js';
 import { testPartner, type TestPartner } from '../partner/test-partner.js';
 import { memoryBusinessDirectory, type DirectoryPerson } from './business-directory.js';
-import { businessPaymentKey, pickRule } from './business-team.js';
+import { businessPaymentKey, pickRule, fittedRole } from './business-team.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -104,19 +104,9 @@ describe('business bank team and approval rules (J-bank-19)', () => {
   });
 
   function as(userId: string) {
-    const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-      nativeAssetId: 'IFC',
-      recipients: memoryRecipientState(),
-      testPartner: partner,
-      postingFreeze: { postingEnabled: async () => true },
-      directory: memoryBusinessDirectory(PEOPLE),
-      get businessInviteMinutes() {
-        return inviteMinutes;
-      },
-    });
     const raw = encodePrincipal(principal(userId));
     const edge = createEdgeContext({ secret: SECRET, serviceName: 'svc-bank' });
-    return createBankRouter(bank).createCaller(
+    return createBankRouter(services()).createCaller(
       edge({
         headers: {
           'x-intafaced-principal': raw,
@@ -126,6 +116,19 @@ describe('business bank team and approval rules (J-bank-19)', () => {
         id: `req-${randomUUID()}`,
       }),
     );
+  }
+
+  function services() {
+    return createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
+      nativeAssetId: 'IFC',
+      recipients: memoryRecipientState(),
+      testPartner: partner,
+      postingFreeze: { postingEnabled: async () => true },
+      directory: memoryBusinessDirectory(PEOPLE),
+      get businessInviteMinutes() {
+        return inviteMinutes;
+      },
+    });
   }
 
   /** The owner's business with its money at the TEST partner: TEST 10000 USDT in the business's own partner account. */
@@ -186,6 +189,62 @@ describe('business bank team and approval rules (J-bank-19)', () => {
         as(BOOK).businessTeam.propose({ accountId, paymentId: randomUUID(), payee: 'x', paymentType: 'domestic', amount: '1' }),
       ),
     ).toBe('bank.business_role_forbidden');
+  });
+
+  it('a named role narrows the older business doors too: a checker made Bookkeeper cannot approve or propose there', async () => {
+    const { accountId, owner } = await business();
+    const book = await owner.businessTeam.createRole({
+      accountId,
+      roleId: randomUUID(),
+      name: 'Bookkeeper',
+      permissions: ['view', 'export'],
+    });
+    await join(accountId, owner, A1, { role: 'checker' });
+    await join(accountId, owner, A2, { role: 'admin' });
+    const bank = services();
+    expect(await bank.business.approverEligibility(accountId, A1)).toMatchObject({ state: 'eligible' });
+    await owner.businessTeam.assignRole({ accountId, userId: A1, roleId: book.id });
+    await owner.businessTeam.assignRole({ accountId, userId: A2, roleId: book.id });
+    // svc-pay's withdrawal approver check and the transfer doors read the same row: both are viewers there now.
+    expect(await bank.business.approverEligibility(accountId, A1)).toMatchObject({ state: 'role_cannot_approve', role: 'viewer' });
+    expect(await as(A1).business.myRole({ accountId })).toEqual({ role: 'viewer' });
+    expect(await as(A2).business.myRole({ accountId })).toEqual({ role: 'viewer' });
+    expect(
+      await refused(
+        as(A2).business.proposeTransfer({
+          accountId,
+          fromSpaceId: randomUUID(),
+          toSpaceId: randomUUID(),
+          amount: '1',
+          clientId: randomUUID(),
+        }),
+      ),
+    ).toBe('bank.business_role_forbidden');
+    expect(await refused(as(A2).business.addMember({ accountId, userId: BOOK, role: 'admin' }))).toBe('bank.business_role_forbidden');
+    // A role the inviter names seats the newcomer on the role it fits, never wider.
+    const pay = await owner.businessTeam.createRole({ accountId, roleId: randomUUID(), name: 'Payer', permissions: ['view', 'propose'] });
+    await join(accountId, owner, BOOK, { roleId: pay.id });
+    expect(await as(BOOK).business.myRole({ accountId })).toEqual({ role: 'maker' });
+    expect(await bank.business.approverEligibility(accountId, BOOK)).toMatchObject({ state: 'role_cannot_approve' });
+    // A role without view is refused: every member reads the business.
+    expect(await refused(owner.businessTeam.createRole({ accountId, roleId: randomUUID(), name: 'Export', permissions: ['export'] }))).toBe(
+      'bank.business_role_invalid',
+    );
+    // Setting a built-in role through the member door is the member's whole role again.
+    await owner.business.setMemberRole({ accountId, userId: A1, role: 'checker', requestId: randomUUID() });
+    expect((await owner.businessTeam.members({ accountId })).find((m) => m.userId === A1)).toMatchObject({
+      role: 'checker',
+      customRole: null,
+      permissions: ['view', 'approve'],
+    });
+  });
+
+  it('the roles a named role fits', () => {
+    expect(fittedRole(['view', 'export'])).toBe('viewer');
+    expect(fittedRole(['view', 'approve'])).toBe('checker');
+    expect(fittedRole(['view', 'propose', 'export'])).toBe('maker');
+    expect(fittedRole(['view', 'propose', 'approve', 'manage_team'])).toBe('non_signing_admin');
+    expect(fittedRole(['view', 'export', 'propose', 'approve', 'manage_team', 'team_spend'])).toBe('non_signing_admin');
   });
 
   it('#2 an advisor added by anyone but the owner waits, and only the owner approves; then they only read', async () => {
