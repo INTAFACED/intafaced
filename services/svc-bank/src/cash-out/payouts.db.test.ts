@@ -666,11 +666,12 @@ describe('cash out that pays out, with the TEST payout stand-in (J-bank-03 #4/#5
         SELECT status, partner_move_id FROM bank.cash_out_requests WHERE id = ${requestId}::uuid
       `;
       const moved = await partner.bank.moveByKey(`bank.cash-out:${requestId}`);
+      const left = await atPartner();
       // Either the request took the money and says so, or it was refused and the money is still the customer's.
       expect([
         ['processing', true, '5'],
         ['refused', false, '25'],
-      ]).toContainEqual([row?.status, moved !== null && row?.partner_move_id === moved.id, formatAmount(await atPartner())]);
+      ]).toContainEqual([row?.status, moved !== null && row?.partner_move_id === moved.id, left === null ? null : formatAmount(left)]);
     });
 
     it('paid closes it with no ledger post; the receipt names the partner payout and its signature verifies', async () => {
