@@ -1,8 +1,15 @@
+import { generateKeyPairSync } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
-import { serviceAuthHeadersForBody } from '@intafaced/contracts';
+import {
+  createServiceSigner,
+  createServiceVerifier,
+  serviceAuthHeadersForBody,
+  type Keyring,
+  type ServiceName,
+} from '@intafaced/contracts';
 import type { TestAgeSubject } from '@intafaced/service-kit';
 import { describe, expect, it } from 'vitest';
 import { TEST_AGE_PATH, registerTestAgeDoor } from './test-age-door.js';
@@ -64,6 +71,65 @@ describe('the TEST age door route', () => {
     expect((await call({ ...AGE, id: 'q2' })).json()).toMatchObject({ error: 'test_age.not_found' });
     expect((await call({ ...AGE, ms: -1 })).json()).toMatchObject({ error: 'test_age.invalid' });
     expect((await call({ ...AGE, subject: 'fills' })).json()).toMatchObject({ error: 'test_age.invalid' });
+  });
+});
+
+describe('the TEST age door with service keys', () => {
+  /** A fleet where `caller` holds a key, svc-trade verifies, and the door is open. */
+  async function keyed(caller: ServiceName) {
+    const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+    const pkcs8 = privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64url');
+    const x = publicKey.export({ format: 'der', type: 'spki' }).subarray(-32).toString('base64url');
+    const keyring: Keyring = [{ kid: `${caller}.a`, svc: caller, use: 's2s', x }];
+    const signer = createServiceSigner({ service: caller, kid: `${caller}.a`, privateKey: pkcs8, keyring });
+    const calls: string[] = [];
+    const instance = Fastify({ logger: false });
+    registerTestAgeDoor(instance, {
+      open: true,
+      internalSecret: SECRET,
+      s2s: { verifier: createServiceVerifier({ self: 'svc-trade', keyring, bootSecond: 0 }), mode: 'dual' },
+      subjects: {
+        'otc-quote': async (id) => {
+          calls.push(id);
+          return { expiresAt: '2026-11-17T00:00:00.000Z' };
+        },
+      },
+    });
+    await instance.ready();
+    const payload = JSON.stringify(AGE);
+    const headers = signer.headers({
+      audience: 'svc-trade',
+      method: 'POST',
+      url: new URL(`http://trade.test${TEST_AGE_PATH}`),
+      body: payload,
+      context: { contentType: 'application/json' },
+    });
+    const answer = await instance.inject({
+      method: 'POST',
+      url: TEST_AGE_PATH,
+      headers: { 'content-type': 'application/json', ...headers },
+      payload,
+    });
+    await instance.close();
+    return { status: answer.statusCode, calls };
+  }
+
+  it("refuses svc-edge's own key: the edge signs every request it forwards, so its call is a customer's", async () => {
+    const edge = await keyed('svc-edge');
+    expect(edge.status).toBe(401);
+    expect(edge.calls).toEqual([]);
+  });
+
+  it('refuses svc-edge naming itself over the shared secret too', async () => {
+    const { call, calls } = app(true);
+    expect((await call(AGE, serviceAuthHeadersForBody('svc-edge', SECRET, JSON.stringify(AGE)))).statusCode).toBe(401);
+    expect(calls).toEqual([]);
+  });
+
+  it("another service's key is a service call, and the open door ages its quote", async () => {
+    const ops = await keyed('svc-ops');
+    expect(ops.status).toBe(200);
+    expect(ops.calls).toEqual(['q1']);
   });
 });
 

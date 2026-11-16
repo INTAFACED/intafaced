@@ -40,7 +40,7 @@ export function testAgeDoorOpen(env: Readonly<Record<string, string | undefined>
   const raw = env[TEST_AGE_DOOR_ENV]?.trim().toLowerCase() ?? '';
   if (raw === '' || raw === 'off') return false;
   if (raw !== 'on') throw new TestAgeDoorBootError(`${TEST_AGE_DOOR_ENV} must be unset, off or on`);
-  if ((env.APP_ENV !== 'dev' && env.APP_ENV !== 'test') || env.NODE_ENV === 'production') {
+  if ((env.APP_ENV !== 'dev' && env.APP_ENV !== 'test') || env.NODE_ENV?.trim().toLowerCase() === 'production') {
     throw new TestAgeDoorBootError(
       `${TEST_AGE_DOOR_ENV}=on is a TEST stack's door and is refused unless APP_ENV is exactly dev or test and NODE_ENV is not production (got APP_ENV ${JSON.stringify(env.APP_ENV ?? null)}, NODE_ENV ${JSON.stringify(env.NODE_ENV ?? null)})`,
     );

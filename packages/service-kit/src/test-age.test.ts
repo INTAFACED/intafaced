@@ -37,6 +37,8 @@ describe('testAgeDoorOpen', () => {
       { TEST_AGE_DOOR: 'on', APP_ENV: ' test' },
       { TEST_AGE_DOOR: 'on', APP_ENV: 'test', NODE_ENV: 'production' },
       { TEST_AGE_DOOR: 'on', APP_ENV: 'dev', NODE_ENV: 'production' },
+      { TEST_AGE_DOOR: 'on', APP_ENV: 'test', NODE_ENV: 'Production' },
+      { TEST_AGE_DOOR: 'on', APP_ENV: 'dev', NODE_ENV: ' production ' },
     ]) {
       expect(() => testAgeDoorOpen(env), JSON.stringify(env)).toThrow(TestAgeDoorBootError);
     }

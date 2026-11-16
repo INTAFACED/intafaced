@@ -29,7 +29,8 @@ export function ageOtcQuote(sql: Sql): TestAgeSubject {
 
 /**
  * The TEST age door (packages/service-kit test-age.ts), always mounted: closed, it answers `test_age.door_closed`.
- * Body-bound service auth, always: a replayed or edited body is refused.
+ * Body-bound service auth, always: a replayed or edited body is refused. svc-edge's own key is refused too: the edge
+ * signs every request it forwards, so a call it signed is a customer's, never the stack's.
  */
 export function registerTestAgeDoor(
   app: FastifyInstance,
@@ -51,7 +52,7 @@ export function registerTestAgeDoor(
       legacySecret: deps.internalSecret,
       bodyBindMode: 'require',
     });
-    if (auth.service === null) return reply.code(401).send({ error: 'trade.unauthenticated' });
+    if (auth.service === null || auth.service === 'svc-edge') return reply.code(401).send({ error: 'trade.unauthenticated' });
     const answer = await answerTestAgeDoor(deps.open, deps.subjects, req.body);
     if (answer.status === 200) req.log.warn({ ...answer.body, caller: auth.service }, 'TEST record aged');
     return reply.code(answer.status).send(answer.body);

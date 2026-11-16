@@ -16,7 +16,7 @@ import { agePast } from './test-age.mjs';
 // account, so there is no outside settlement account (CB-otc-08's bank name-match needs a fiat settlement leg to a linked
 // bank account). The level gate of #3 is built; the name match has its own test, red by name with that blocker.
 // The stack publishes a TEST desk law (tooling/profiles/test-owner-values/trade.json): a 60 s firm quote and a 60 s
-// window to settle an accepted one, so #7 and #8 watch both run out on the real clock. Each step checks the service's
+// window to settle an accepted one; #7 and #8 age the quote past them through the TEST age door (test-age.mjs). Each step checks the service's
 // own record of the quote (rfq.get through Edge) and the ledger balance, not only the screen. Every request asks the
 // providers it picks from the owner's TEST provider list (CB-otc-01); the steps after #2 ask the house desk.
 // #5 asks three TEST outside providers at once; each is priced at its LOCAL TEST spread against the house inventory
@@ -872,6 +872,7 @@ test(`${J} #8 expiry then re-price: the old quote stays expired, a new one exist
   const quote = await ask(page);
   const oldId = await quote.getAttribute('data-quote-id');
   const asked = await rfq(oldId);
+  expect(Date.parse(asked.expiresAt) - Date.parse(asked.createdAt), 'the TEST desk law: a 60 s firm quote').toBe(60_000);
   const before = await balances();
   const old = { ...asked, expiresAt: (await agePast('trade', 'otc-quote', oldId, asked.expiresAt)).expiresAt };
   // The service, not the screen's clock, says it expired.
