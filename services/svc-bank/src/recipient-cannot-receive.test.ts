@@ -374,6 +374,22 @@ describe('recipient cannot receive — svc-bank refuses before posting', () => {
       expect(await available(RECIPIENT)).toBe('0');
     });
 
+    // The sender's freeze is enforced at the edge (recipient-state.ts), but a standing order runs on svc-bank's own timer
+    // and never passes the edge. A frozen account's money must not keep leaving by its standing orders.
+    it('a SENDER frozen after scheduling: the run posts nothing and the recipient is not paid', async () => {
+      const schedule = await order();
+      identity.set(SENDER, 'frozen');
+      const before = journalKeys();
+
+      const report = await bank.transfers.runDueTransfers({ now: new Date('2026-01-01T10:00:00Z'), limit: 200 });
+
+      expect(report.settled).toBe(0);
+      expect(journalKeys()).toEqual(before);
+      expect(await available(RECIPIENT)).toBe('0');
+      expect(await available(SENDER)).toBe('100');
+      expect(schedule.id).toBeTruthy();
+    });
+
     it('identity down at run time does NOT consume the occurrence; it settles when identity is back', async () => {
       const schedule = await order();
       identity.failWith(new RecipientStateUnavailableError('down'));
