@@ -11,7 +11,9 @@
  *   { v, mode: 'reach' | 'full', why?, runs: [{ id, head, created }], journeys: [file], full: { [file]: reason },
  *     services: { 'services/svc-x': [journey index] }, packages: { 'packages/x': [journey index] },
  *     customer: { 'apps/customer/src/…': [journey index] }, consumers: { 'packages/x': [consumer dir] },
- *     dependents: { 'packages/x': [package dir] }, harness: [dir], subscribers: [service dir], money: [dir] }
+ *     dependents: { 'packages/x': [package dir] }, harness: [dir], subscribers: [service dir], money: [dir],
+ *     importers?: { 'apps/customer/src/…': [path] } (only the customer files no run recorded), built?: [path],
+ *     computed?: [path] }
  * Built (buildMap) only from main's full runs that are whole: every journey file at the run's head in its report, and a
  * record for each. A journey whose record is incomplete (a reason code, or an afterAll record that never came) or that
  * has no record in a run where it existed reaches everything: it runs for every product change. With fewer than
@@ -33,7 +35,12 @@
  *     reached it, when svc-x subscribes to bus events (a handler that logs nothing is recorded nowhere), or when the
  *     changed file itself subscribes;
  *   - apps/customer/src/…: the journeys whose pages ran a function of that file or loaded a built script holding it.
- *     Full when no journey reached it (a new file, a style sheet, a file the build doesn't map);
+ *     A file no journey reached (a new file, a style sheet, one the build doesn't map) runs only where a file loading it
+ *     runs, so it takes the journeys of the files that load it at the head (main's `importers`, and the pull request's
+ *     own changed files that name it), followed up through files no journey reached either. Full when the map holds no
+ *     `importers`, the head's changed files can't be read, a new file shares its name with another (`x.ts` beside
+ *     `x.tsx`: an unchanged import may now load it), the app's Node code runs it (`built`), something outside the
+ *     customer source or a page loads it, or the chain ends at a file nothing but tests loads;
  *   - packages/x/…: the journeys whose pages ran its built code (the customer bundles `packages/x/dist`, read back to
  *     the package) and the journeys that reached a service depending on it. Full when the package is not in the map,
  *     when an app no record covers depends on it (apps/admin, apps/mobile, apps/invitation), when the journey harness
@@ -400,6 +407,121 @@ function resolveImport(root, p) {
   return null;
 }
 
+const CUSTOMER_DIR = 'apps/customer/src/';
+/** A unit test (vitest, node:test): no journeys run runs one, so it imports nothing into a journey. */
+const UNIT_TEST = /\.(test|spec)\.[cm]?[jt]sx?$/;
+/** The files whose text can name another file to load: scripts, style sheets and pages. */
+const GRAPH_FILE = /\.(?:[cm]?[jt]sx?|mts|cts|css|html?)$/;
+/** Whether pathReach needs the head's changed files' text (loadersReach) to answer for these paths, and which of them
+ *  to read: a customer source file the map holds no record of makes it read every changed script, style sheet and page. */
+export function textsWanted(map, paths) {
+  const ps = [...paths].map(String);
+  const want = ps.some((p) => p.startsWith(CUSTOMER_DIR) && !map?.customer?.[p]?.length) && map?.importers;
+  return want ? ps.filter((p) => GRAPH_FILE.test(p)) : [];
+}
+
+/** What a spec without an extension may resolve to (Vite's and TypeScript's lookup). */
+const RESOLVED = ['.ts', '.tsx', '.mts', '.js', '.jsx', '.mjs', '.cjs', '.json'];
+/** A load whose target the text doesn't spell: a glob, a computed dynamic import, require.context. */
+const COMPUTED_LOAD = /import\.meta\.glob|\bimport\s*\(\s*(?!['"\s])|\brequire\.context\s*\(/;
+
+/**
+ * The repository paths a file's text names to load: import and export specifiers, dynamic imports, require, `new URL()`,
+ * a style sheet's @import and url(), a page's src and href. Each resolved against the file (`/x` from the customer
+ * app's root), without its query or hash; a package name is left out. A path named in a comment counts too: more
+ * importers, never fewer.
+ */
+export function importTargets(text, file) {
+  const specs = [];
+  for (const m of String(text).matchAll(
+    /(?:\bfrom\s*|\bimport\s*\(\s*(?:\/\*[^*]*\*\/\s*)?|\bimport\s+|\brequire\s*\(\s*|\bnew\s+URL\s*\(\s*|@import\s+(?:url\(\s*)?|\burl\(\s*|\b(?:src|href)\s*=\s*)(['"`])([^'"`\n]+)\1/g,
+  ))
+    specs.push(m[2]);
+  for (const m of String(text).matchAll(/\burl\(\s*([^'"`)\s]+)\s*\)/g)) specs.push(m[1]);
+  const out = new Set();
+  for (const raw of specs) {
+    const s = raw.split(/[?#]/)[0];
+    let p = null;
+    if (/^\.\.?(\/|$)/.test(s)) p = posix.normalize(posix.join(posix.dirname(file), s));
+    else if (s.startsWith('/') && file.startsWith('apps/customer/')) p = posix.normalize(`apps/customer${s}`);
+    if (p && !p.startsWith('..')) out.add(p.replace(/\/$/, ''));
+  }
+  return [...out];
+}
+
+/** The paths an import spec may name a file by: itself, and for a script without its extension, as its folder when it
+ *  is an index file, and as `.js` for a `.ts` (TypeScript's spelling). */
+export function moduleKeys(f) {
+  const keys = [f];
+  const ext = posix.extname(f);
+  if (RESOLVED.includes(ext)) {
+    const base = f.slice(0, -ext.length);
+    keys.push(base);
+    if (posix.basename(base) === 'index') keys.push(posix.dirname(base));
+    if (ext === '.ts' || ext === '.tsx') keys.push(`${base}.js`, `${base}.jsx`);
+    if (ext === '.mts') keys.push(`${base}.mjs`);
+  }
+  return keys;
+}
+
+/**
+ * Who loads each customer source file (every file under apps/customer/src but a unit test), from the text of every
+ * script, style sheet and page under apps, packages, services and tooling (importTargets): { importers: { file: [path] },
+ * built, computed }. A unit test imports nothing here. A file that loads something it doesn't spell (COMPUTED_LOAD) is
+ * taken to load every customer file in its folder and below; `computed` lists those whose folder holds customer files,
+ * since they load a new file too. `built`: the customer files the app's own Node code runs (its
+ * build config, deployment scripts and scaffolds: apps/customer outside src, the pages and tests aside), followed down
+ * through their imports; a change there reaches what the build emits, which no record ties to a journey.
+ */
+export function customerImporters(root = ROOT) {
+  const all = execFileSync('git', ['ls-files', 'apps', 'packages', 'services', 'tooling'], {
+    cwd: root,
+    encoding: 'utf8',
+    maxBuffer: 64 * 2 ** 20,
+  })
+    .split('\n')
+    .filter(Boolean);
+  const targets = all.filter((f) => f.startsWith(CUSTOMER_DIR) && !UNIT_TEST.test(f));
+  const byKey = new Map();
+  for (const t of targets) for (const k of moduleKeys(t)) byKey.set(k, [...(byKey.get(k) ?? []), t]);
+  const importers = new Map(targets.map((t) => [t, new Set()]));
+  const loads = new Map();
+  const computed = [];
+  for (const f of all) {
+    if (!GRAPH_FILE.test(f) || UNIT_TEST.test(f)) continue;
+    let text;
+    try {
+      text = readFileSync(join(root, f), 'utf8');
+    } catch {
+      continue;
+    }
+    const to = new Set(importTargets(text, f).flatMap((p) => byKey.get(p) ?? []));
+    if (COMPUTED_LOAD.test(text)) {
+      const dir = `${posix.dirname(f)}/`;
+      if (CUSTOMER_DIR.startsWith(dir) || dir.startsWith(CUSTOMER_DIR)) computed.push(f);
+      for (const t of targets) if (t.startsWith(dir)) to.add(t);
+    }
+    to.delete(f);
+    loads.set(f, to);
+    for (const t of to) importers.get(t).add(f);
+  }
+  const queue = [...loads.keys()].filter(
+    (f) => f.startsWith('apps/customer/') && !f.startsWith(CUSTOMER_DIR) && !f.startsWith('apps/customer/tests/') && !/\.html?$/.test(f),
+  );
+  const built = new Set();
+  while (queue.length)
+    for (const t of loads.get(queue.shift()) ?? []) {
+      if (built.has(t)) continue;
+      built.add(t);
+      queue.push(t);
+    }
+  return {
+    importers: Object.fromEntries([...importers].sort(([a], [b]) => (a < b ? -1 : 1)).map(([t, s]) => [t, [...s].sort()])),
+    built: [...built].sort(),
+    computed: computed.sort(),
+  };
+}
+
 /** The services that subscribe to bus events, from their own non-test sources. */
 export function subscribers(root = ROOT) {
   const files = execFileSync('git', ['ls-files', 'services'], { cwd: root, encoding: 'utf8' })
@@ -424,6 +546,9 @@ export function buildMap({
   harness,
   subscribers: subs,
   money,
+  importers = null,
+  built = [],
+  computed = [],
   baseline = null,
   minRuns = MIN_RUNS,
 }) {
@@ -503,6 +628,14 @@ export function buildMap({
     harness: [...harness].sort(),
     subscribers: [...subs].sort(),
     money: [...new Set([...(money ?? []), ...MONEY_SERVICES])].sort(),
+    // Who loads each customer file no run recorded (customerImporters), for pathReach; recorded files need none.
+    ...(importers
+      ? {
+          importers: sorted(Object.fromEntries(Object.entries(importers).filter(([f]) => !Object.hasOwn(customer, f)))),
+          built: [...built].sort(),
+          computed: [...computed].sort(),
+        }
+      : {}),
   };
 }
 
@@ -626,10 +759,55 @@ export function mapProblem(map, behind, mode = REACH_MAP_MODE) {
 }
 
 /**
- * The journeys a product path's recorded reach touches: { journeys: [index] } or { full: why }. `subscribesHere`:
- * whether the changed file itself, at the head, calls the bus's subscribe.
+ * The journeys a customer source file no run recorded can reach: the recorded journeys of the files that load it, at the
+ * head (see the header, apps/customer/src). `texts`: the pull request's changed paths at the head, path to text (null:
+ * removed), or null when they couldn't be read.
  */
-export function pathReach(map, path, subscribesHere = false) {
+function loadersReach(map, path, texts) {
+  const why = 'no journey was recorded running this customer source file';
+  if (!map.importers || typeof map.importers !== 'object') return { full: why };
+  if (!(texts instanceof Map)) return { full: `${why}, and the files that load it at the head couldn't be read` };
+  const recorded = (f) => Object.hasOwn(map.customer ?? {}, f);
+  const known = (f) => recorded(f) || Object.hasOwn(map.importers, f);
+  const others = [...Object.keys(map.customer ?? {}), ...Object.keys(map.importers), ...texts.keys()];
+  const out = new Set();
+  const seen = new Set();
+  const queue = [path];
+  while (queue.length) {
+    const f = queue.shift();
+    if (seen.has(f)) continue;
+    seen.add(f);
+    if (map.built?.includes(f)) return { full: `${why}, and the customer app's own Node code (its build) runs ${f}` };
+    if (map.harness?.includes(f)) return { full: `${why}, and the journey harness imports ${f}` };
+    const keys = new Set(moduleKeys(f));
+    if (!known(f)) {
+      const twin = others.find((g) => g !== f && moduleKeys(g).some((k) => k !== g && keys.has(k)));
+      if (twin) return { full: `${f} is new and shares its import name with ${twin}, so an unchanged import may now load it` };
+    }
+    const from = new Set(map.importers[f] ?? []);
+    // A file that loads what it doesn't spell loads every file in its folder and below, a new one too.
+    for (const g of map.computed ?? []) if (g !== f && f.startsWith(`${posix.dirname(g)}/`)) from.add(g);
+    for (const [g, t] of texts) {
+      if (typeof t !== 'string' || g === f) continue;
+      if (importTargets(t, g).some((p) => keys.has(p)) || (COMPUTED_LOAD.test(t) && f.startsWith(`${posix.dirname(g)}/`))) from.add(g);
+    }
+    const loaders = [...from].filter((g) => !UNIT_TEST.test(g));
+    if (!loaders.length) return { full: `${why}, and nothing but tests loads ${f} (an entry, or a file outside the app)` };
+    for (const g of loaders) {
+      if (!g.startsWith(CUSTOMER_DIR) || /\.html?$/.test(g)) return { full: `${why}, and ${g} loads ${f}, which no record covers` };
+      const js = map.customer?.[g];
+      if (js?.length) for (const j of js) out.add(j);
+      else queue.push(g);
+    }
+  }
+  return out.size ? { journeys: [...out].sort((a, b) => a - b) } : { full: why };
+}
+
+/**
+ * The journeys a product path's recorded reach touches: { journeys: [index] } or { full: why }. `subscribesHere`:
+ * whether the changed file itself, at the head, calls the bus's subscribe. `texts`: loadersReach's.
+ */
+export function pathReach(map, path, subscribesHere = false, texts = null) {
   const p = String(path);
   const pkgOf = /^(packages\/[a-z0-9-]+)\//.exec(p)?.[1];
   if (map.harness?.includes(p) || (pkgOf && map.harness?.includes(pkgOf))) return { full: 'the journey harness imports it' };
@@ -646,7 +824,7 @@ export function pathReach(map, path, subscribesHere = false) {
   }
   if (p.startsWith('apps/customer/src/')) {
     const js = map.customer?.[p];
-    return js?.length ? { journeys: js } : { full: 'no journey was recorded running this customer source file' };
+    return js?.length ? { journeys: js } : loadersReach(map, p, texts);
   }
   const pkg = /^(packages\/[a-z0-9-]+)\//.exec(p)?.[1];
   if (pkg) {
@@ -670,10 +848,10 @@ export function pathReach(map, path, subscribesHere = false) {
 /**
  * The journeys a set of product paths reaches: { mode: 'files', files, because } or { mode: 'full', why }. `atHead`:
  * the journey files at the head (a Set of names), or null when they can't be listed. `subscribes(path)`: pathReach's
- * `subscribesHere`. Every journey the map can't speak for (its `full` journeys, and a journey file at the head it
+ * `subscribesHere`; `texts`: its `texts`. Every journey the map can't speak for (its `full` journeys, and a journey file at the head it
  * doesn't know) is selected too; a selection holding every journey at the head is the full run.
  */
-export function reachSelect({ map, paths, behind, atHead, subscribes = () => false, mode = REACH_MAP_MODE }) {
+export function reachSelect({ map, paths, behind, atHead, subscribes = () => false, texts = null, mode = REACH_MAP_MODE }) {
   const problem = mapProblem(map, behind, mode);
   if (problem) return { mode: 'full', why: problem };
   if (!(atHead instanceof Set)) return { mode: 'full', why: "the journey files at the head couldn't be listed" };
@@ -682,7 +860,7 @@ export function reachSelect({ map, paths, behind, atHead, subscribes = () => fal
   for (const p of paths) {
     let r;
     try {
-      r = pathReach(map, p, subscribes(p));
+      r = pathReach(map, p, subscribes(p), texts);
     } catch (e) {
       r = { full: `its reach couldn't be worked out (${e.message})` };
     }
@@ -756,7 +934,7 @@ function downloadReport(id) {
 }
 
 /** The map's keys read from the checkout's code rather than from the runs. */
-const WORKSPACE_KEYS = new Set(['consumers', 'dependents', 'harness', 'subscribers', 'money']);
+const WORKSPACE_KEYS = new Set(['consumers', 'dependents', 'harness', 'subscribers', 'money', 'importers', 'built', 'computed']);
 
 /** The map as the builder writes it: one line of JSON and a newline. */
 export const mapText = (map) => `${JSON.stringify(map)}\n`;
@@ -769,7 +947,11 @@ export const mapText = (map) => `${JSON.stringify(map)}\n`;
  */
 export function workspaceInputs(root = ROOT) {
   const ws = workspace(root);
+  const { importers, built, computed } = customerImporters(root);
   return {
+    importers,
+    built,
+    computed,
     services: new Set(ws.dirs.filter((d) => SERVICE_DIR.test(d))),
     consumers: consumersOf(ws),
     dependents: dependentPackages(ws),

@@ -78,7 +78,7 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { JOURNEYS_ARTIFACT, fetchInputs, isMainRun, judge, manifestsAt, readReport, rootInputs } from './journey-verdict.mjs';
 import { RUN_FILE, journeyTouch, namedInputs, namedJourneyIds, pathKind, printable, stackImporters } from './journey-touch.mjs';
-import { SUBSCRIBES, builtMap, loadMap, newerMap, runsBehind } from './journey-reach-map.mjs';
+import { SUBSCRIBES, builtMap, loadMap, newerMap, runsBehind, textsWanted } from './journey-reach-map.mjs';
 import { groupPulls, isJudgeDown, mergedNothingToSeal, requiredChecks, reviewRan } from './review-marker.mjs';
 import { DEFER_MARK, TOUCH_JOB } from './main-first.mjs';
 import { httpMessage, titleFor } from './api-budget.mjs';
@@ -1362,8 +1362,23 @@ export async function reachInputs({ io, paths, head, text }) {
     }
     subs.set(p, t === undefined ? true : t !== null && SUBSCRIBES.test(t));
   }
+  // The changed files a customer file no run recorded is judged by (journey-reach-map.mjs loadersReach), as the touch
+  // job reads them from its checkout of the head; one that can't be read leaves them all unknown, which is full.
+  let texts = new Map();
+  try {
+    for (const p of textsWanted(map, product.length ? paths : [])) texts.set(p, await text(p, head));
+  } catch {
+    texts = null;
+  }
   // io.reachMode: a test's stand-in for REACH_MAP_MODE; the seal itself never sets it.
-  return { map, behind, journeyFiles, subscribes: (p) => subs.get(p) ?? false, ...(io.reachMode ? { mode: io.reachMode } : {}) };
+  return {
+    map,
+    behind,
+    journeyFiles,
+    subscribes: (p) => subs.get(p) ?? false,
+    texts,
+    ...(io.reachMode ? { mode: io.reachMode } : {}),
+  };
 }
 
 /** One pull request's head, judged. */

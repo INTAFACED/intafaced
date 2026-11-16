@@ -67,7 +67,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { JOURNEY_TEST, isSharedSetup } from './journey-seal.mjs';
-import { SUBSCRIBES, builtMap, loadMap, newerMap, reachSelect, runsBehind } from './journey-reach-map.mjs';
+import { SUBSCRIBES, builtMap, loadMap, newerMap, reachSelect, runsBehind, textsWanted } from './journey-reach-map.mjs';
 
 /** A journey test file the Real-app journeys run runs by name: directly in the real-app folder, ending `.pw.mjs`. */
 export const RUN_FILE = /^apps\/customer\/tests\/real-app\/([A-Za-z0-9._-]+\.pw\.mjs)$/;
@@ -437,7 +437,7 @@ function kindOf(p) {
 /**
  * What a pull request with these changed paths must run. `atHead(file)`: whether a journey test file still exists at
  * the head (a removed file runs nothing). `reach`: what the touched-journeys map needs (journey-reach-map.mjs
- * reachSelect: { map, behind, journeyFiles, subscribes }), or null: then every product path is full. With it, product
+ * reachSelect: { map, behind, journeyFiles, subscribes, texts }), or null: then every product path is full. With it, product
  * paths run only the journeys whose recorded reach touches them, when every other path allows it and the map can speak
  * for each of them; anything else is full. Returns { mode: 'full'|'files'|'none', full: [{ path, why }], files: [names],
  * reach?: [lines] }. `named`: what namedInputs gives for a pull request that names a journey, or null; with it, product
@@ -473,6 +473,7 @@ export function journeyTouch(paths, atHead = () => true, reach = null, named = n
       behind: reach.behind,
       atHead: reach.journeyFiles,
       subscribes: reach.subscribes,
+      texts: reach.texts ?? null,
       ...(reach.mode ? { mode: reach.mode } : {}),
     });
     if (sel.mode === 'files') {
@@ -576,6 +577,16 @@ export const subscribesIn =
     const f = `${root}/${p}`;
     return existsSync(f) && SUBSCRIBES.test(readFileSync(f, 'utf8'));
   };
+
+/** The changed files textsWanted names, in a checkout of the head: path to text, null for a removed one; null when one
+ *  can't be read. */
+export function checkoutTexts(map, paths, root = '.') {
+  try {
+    return new Map(textsWanted(map, paths).map((p) => [p, existsSync(`${root}/${p}`) ? readFileSync(`${root}/${p}`, 'utf8') : null]));
+  } catch {
+    return null;
+  }
+}
 
 /** How many of main's finished full runs came after the map's newest run, read with gh (GH_TOKEN), or null. The same
  *  list the seal reads (journey-seal.mjs makeIo mainRuns: the newest 100, so a burst of cancelled runs can't hide the
@@ -684,7 +695,13 @@ async function main() {
       repo,
     });
     const map = newerMap(built, loadMap());
-    reach = { map, behind: behindFromApi(map), journeyFiles: checkoutJourneyFiles(), subscribes: subscribesIn() };
+    reach = {
+      map,
+      behind: behindFromApi(map),
+      journeyFiles: checkoutJourneyFiles(),
+      subscribes: subscribesIn(),
+      texts: checkoutTexts(map, paths),
+    };
   }
   const texts = paths.some((p) => pathKind(p).stack) ? checkoutJourneyTexts() : null;
   const named = namedInputs({
