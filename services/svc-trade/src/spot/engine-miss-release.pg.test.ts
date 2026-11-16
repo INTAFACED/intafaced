@@ -62,7 +62,7 @@ describe('#8560: an engine miss is not proof of no fill (PG-hard)', () => {
    * takes it off the book, but the answer to Bob, and with it the settlement of that fill, is held back until
    * `deliver()` is called.
    */
-  async function filledButNotSettled() {
+  async function filledButNotSettled(options: { lookWhileSubmitting?: number } = {}) {
     await db.sql`TRUNCATE trade.order_replace_requests, trade.fills, trade.orders, trade.markets RESTART IDENTITY CASCADE`;
     const ledger = new MemoryLedger();
     const matching = new StubMatching();
@@ -87,6 +87,18 @@ describe('#8560: an engine miss is not proof of no fill (PG-hard)', () => {
     await ledger.post(recipes.deposit({ userId: ALICE, assetId: 'USDT', amount: amt('1000'), rail: 'test', railRef: 'miss:a-usdt' }));
     await ledger.post(recipes.deposit({ userId: BOB, assetId: 'BTC', amount: amt('1'), rail: 'test', railRef: 'miss:b-btc' }));
 
+    // #2658: the order row is `open` with its hold before the engine has its submit. A reconcile that looks in that
+    // window sees a miss; the engine then rests the order, and lists it while nobody looks.
+    let lookBeforeRest: Awaited<ReturnType<typeof trade.reconcileOrder>> | null = null;
+    if (options.lookWhileSubmitting !== undefined) {
+      const floorSeconds = options.lookWhileSubmitting;
+      const restSubmit = matching.submit.bind(matching);
+      matching.submit = async (marketId: string, request: EngineSubmitRequest): Promise<EngineSubmitResult> => {
+        matching.submit = restSubmit;
+        lookBeforeRest = await trade.reconcileOrder(request.orderId, { engineMissFloorSeconds: floorSeconds });
+        return restSubmit(marketId, request);
+      };
+    }
     const resting = await trade.placeOrder(alice, {
       marketId: market.id,
       side: 'buy',
@@ -140,7 +152,7 @@ describe('#8560: an engine miss is not proof of no fill (PG-hard)', () => {
     const fillsOfResting = async () =>
       (await db.sql<Array<{ qty: string }>>`SELECT COALESCE(SUM(qty), 0)::text AS qty FROM trade.fills WHERE order_id = ${resting.id}`)[0]
         ?.qty;
-    return { trade, matching, ledger, market, resting, deliver, takerSettled, hold, status, fillsOfResting };
+    return { trade, matching, ledger, market, resting, deliver, takerSettled, hold, status, fillsOfResting, lookBeforeRest };
   }
 
   it("the operator's single-order reconcile, while the engine's full fill of the order is unsettled, keeps the 50 USDT that fill draws", async () => {
@@ -165,8 +177,12 @@ describe('#8560: an engine miss is not proof of no fill (PG-hard)', () => {
   it('releases an engine miss only after the owner floor, never without one, and a listing in between starts the wait again', async () => {
     const t = await filledButNotSettled();
     // No fill ever lands here: the order behaves as one the engine lost.
-    const backdate = () =>
-      db.sql`UPDATE trade.operator_sweep_sightings SET first_seen_at = now() - interval '61 seconds' WHERE order_id = ${t.resting.id}`;
+    // The floor passing: the sighting and the order's last change both move 61 seconds into the past, the sighting
+    // still after the change, as when a continuous miss has really been watched that long (#2658).
+    const backdate = async () => {
+      await db.sql`UPDATE trade.orders SET updated_at = now() - interval '62 seconds' WHERE id = ${t.resting.id}`;
+      await db.sql`UPDATE trade.operator_sweep_sightings SET first_seen_at = now() - interval '61 seconds' WHERE order_id = ${t.resting.id}`;
+    };
 
     // No floor set: an engine miss is never released by the reconcile.
     const unset = await t.trade.reconcileOrder(t.resting.id);
@@ -193,5 +209,31 @@ describe('#8560: an engine miss is not proof of no fill (PG-hard)', () => {
     expect(released.action).toBe('released');
     expect(await t.hold()).toBe(0n);
     expect(await t.status()).toBe('cancelled');
+  });
+
+  it('#2658: a miss seen while the submit was still on its way is no sighting, so the full fill after it keeps its 50 USDT', async () => {
+    const t = await filledButNotSettled({ lookWhileSubmitting: 60 });
+    // The look before the engine had the order: a miss, recorded, the hold kept.
+    expect(t.lookBeforeRest?.action).toBe('fail_closed');
+    const [seen] = await db.sql<
+      Array<{ n: number }>
+    >`SELECT COUNT(*)::int AS n FROM trade.operator_sweep_sightings WHERE order_id = ${t.resting.id}`;
+    expect(seen?.n).toBe(1);
+    // The engine then rested the order and filled it in full while nobody looked; that fill is still on its way.
+    // The floor passes on the old sighting only (the order really did change after it).
+    await db.sql`UPDATE trade.operator_sweep_sightings SET first_seen_at = now() - interval '61 seconds' WHERE order_id = ${t.resting.id}`;
+    expect(await t.hold()).toBe(amt('50'));
+
+    const result = await t.trade.reconcileOrder(t.resting.id, { engineMissFloorSeconds: 60 });
+    expect.soft(result.action).not.toBe('released');
+    expect.soft(await t.hold()).toBe(amt('50'));
+    expect.soft(await t.status()).toBe('open');
+
+    t.deliver();
+    const taken = await t.takerSettled;
+    expect(taken.ok, taken.ok ? '' : String((taken as { error: unknown }).error)).toBe(true);
+    expect(await t.fillsOfResting()).toBe('1.000000000000000000');
+    expect(await t.status()).toBe('filled');
+    expect(await t.hold()).toBe(0n);
   });
 });

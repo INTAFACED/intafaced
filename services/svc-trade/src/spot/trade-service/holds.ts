@@ -326,11 +326,14 @@ export async function finalize(
             'trade.engine_miss_unproven',
           );
         }
-        const [proof] = await tx<Array<{ count: string; qty: string; first_seen_at: Date | null; due: boolean | null }>>`
+        const [proof] = await tx<
+          Array<{ count: string; qty: string; first_seen_at: Date | null; due: boolean | null; stale: boolean | null }>
+        >`
           SELECT (SELECT COUNT(*)::text FROM trade.fills WHERE order_id = ${orderId}) AS count,
                  (SELECT COALESCE(SUM(qty), 0)::text FROM trade.fills WHERE order_id = ${orderId}) AS qty,
                  s.first_seen_at,
-                 (s.first_seen_at <= now() - make_interval(secs => ${floor})) AS due
+                 (s.first_seen_at <= now() - make_interval(secs => ${floor})) AS due,
+                 (s.first_seen_at < (SELECT o.updated_at FROM trade.orders o WHERE o.id = ${orderId})) AS stale
             FROM (SELECT 1) one
             LEFT JOIN trade.operator_sweep_sightings s ON s.order_id = ${orderId}
         `;
@@ -338,6 +341,15 @@ export async function finalize(
         if (!fillsProveNoFill(order.filledQty, fills)) {
           throw new TradeError(
             `order ${orderId}: the engine no longer lists it but trade.fills show ${formatAmount(fills.qty)}; the hold stays`,
+            'trade.engine_miss_unproven',
+          );
+        }
+        // A miss seen before the row last changed (its submit answered, it was marked for recovery) may have been an
+        // order the engine had not received yet: the engine can list it after that look, and fill it in full while
+        // nobody looks, so the floor counts only from a look the row has not moved since (#2658).
+        if (proof?.stale === true) {
+          throw new TradeError(
+            `order ${orderId}: its engine miss was seen at ${proof.first_seen_at?.toISOString()}, before the order last changed; the engine may have listed it since`,
             'trade.engine_miss_unproven',
           );
         }

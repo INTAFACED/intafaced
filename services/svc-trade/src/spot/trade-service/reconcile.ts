@@ -54,15 +54,26 @@ export interface ReconcileOptions {
  * the sighting and keeps the hold; a later look, the owner's floor after it with no listing in between, releases if
  * trade.fills still show no fill. Returns why the hold stays, or null when it was released.
  */
-async function releaseEngineMiss(svc: TradeServiceInternal, orderId: string, opts: ReconcileOptions): Promise<string | null> {
+async function releaseEngineMiss(
+  svc: TradeServiceInternal,
+  orderId: string,
+  opts: ReconcileOptions,
+  lookedAt: Date | null,
+): Promise<string | null> {
   const floor = opts.engineMissFloorSeconds ?? null;
-  if (floor === null) {
+  if (floor === null || lookedAt === null) {
     return 'trade.engine_miss_unproven: TRADE_OPERATOR_SWEEP_MIN_AGE_SECONDS is not set, and an engine miss is released only after a sighting that old; hold retained';
   }
+  // The sighting is when this look began, not when it ended: a submit that rests the order after the list but before
+  // this insert changes the row after the look, and `finalize` then refuses the sighting (#2658). A sighting older
+  // than the row's last change is replaced by this one, so the wait starts again from a look the row has not moved since.
   await svc.sql`
     INSERT INTO trade.operator_sweep_sightings (order_id, first_seen_at, sweep_request_id)
-    VALUES (${orderId}, now(), ${opts.sightedBy ?? 'reconcile'})
-    ON CONFLICT (order_id) DO NOTHING
+    VALUES (${orderId}, ${lookedAt}, ${opts.sightedBy ?? 'reconcile'})
+    ON CONFLICT (order_id) DO UPDATE
+      SET first_seen_at = EXCLUDED.first_seen_at, sweep_request_id = EXCLUDED.sweep_request_id
+      WHERE trade.operator_sweep_sightings.first_seen_at
+            < (SELECT o.updated_at FROM trade.orders o WHERE o.id = EXCLUDED.order_id)
   `;
   try {
     await svc.finalize(orderId, 'cancelled', undefined, { engineMissSighted: { floorSeconds: floor } });
@@ -147,6 +158,8 @@ export async function reconcileOrder(svc: TradeServiceInternal, orderId: string,
       };
     }
 
+    // When this look began, read before the list, so a sighting it records is never later than the miss it saw.
+    const lookedAt = opts.engineMissFloorSeconds == null ? null : ((await svc.sql<Array<{ at: Date }>>`SELECT now() AS at`)[0]?.at ?? null);
     // Non-destructive liveness: list before any cancel.
     const listed = await svc.matching.listOrders(order.marketId, orderId);
     const engineLive = listed.orders.some((o) => settlementOrderId(o.orderId) === orderId);
@@ -201,7 +214,7 @@ export async function reconcileOrder(svc: TradeServiceInternal, orderId: string,
           detail: `trade.reconcile_unknown_engine_miss: recovery-required (${order.recoveryReason ?? 'unknown'}) absent from engine; trade.fills count=${recoveryFills.count} qty=${formatAmount(recoveryFills.qty)} filled_qty=${formatAmount(order.filledQty)} — hold retained`,
         };
       }
-      const keptRecovery = await releaseEngineMiss(svc, orderId, opts);
+      const keptRecovery = await releaseEngineMiss(svc, orderId, opts, lookedAt);
       if (keptRecovery !== null) {
         return {
           orderId,
@@ -332,7 +345,7 @@ export async function reconcileOrder(svc: TradeServiceInternal, orderId: string,
       };
     }
 
-    const kept = await releaseEngineMiss(svc, orderId, opts);
+    const kept = await releaseEngineMiss(svc, orderId, opts, lookedAt);
     if (kept !== null) {
       return {
         orderId,
