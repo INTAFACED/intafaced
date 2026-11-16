@@ -681,9 +681,9 @@ function expireIncomingDue(book: OrderBook, order: EngineOrder, now: Date): Subm
 export function installOption(ctor: typeof OrderBook): void {
   if (!ctor) return;
   const proto = ctor.prototype as {
-    submit: (order: EngineOrder, now?: Date | null) => SubmitResult;
-    cancel: (orderId: string, reason?: 'expired' | 'requested') => { cancellation: CancelledRef | null };
-    amend: (cmd: EngineAmend, now?: Date | null) => AmendResult;
+    submit: OrderBook['submit'];
+    cancel: OrderBook['cancel'];
+    amend: OrderBook['amend'];
     [FLAG]?: boolean;
   };
   if (proto[FLAG]) return;
