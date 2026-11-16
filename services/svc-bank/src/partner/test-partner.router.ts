@@ -29,6 +29,7 @@ const switches = z
     purchaseHold: z.enum(['live', 'expired']),
     legalHold: z.enum(['none', 'held']),
     identityCase: z.enum(['accepted', 'not_accepted']),
+    bankRail: z.enum(['none', 'test']),
   })
   .strict();
 
@@ -58,7 +59,7 @@ function out(partner: TestPartner, userId: string, now: TestPartnerSwitches) {
  * `bank.test_partner_off`, because there is no TEST partner to switch.
  */
 export function createTestPartnerRouter(
-  bank: Pick<BankServices, 'testPartner' | 'cards' | 'partnerCustody' | 'businessTeam'>,
+  bank: Pick<BankServices, 'testPartner' | 'cards' | 'partnerCustody' | 'businessTeam' | 'bankApi'>,
   guard: Guard,
 ) {
   return router({
@@ -77,6 +78,21 @@ export function createTestPartnerRouter(
         guard(async () => {
           const partner = on(bank.testPartner);
           return out(partner, ctx.principal.userId, partner.set(ctx.principal.userId, input));
+        }),
+      ),
+    /**
+     * The TEST partner reports one of the person's pending bank API payments completed (J-bank-24 #5), recorded as a
+     * partner's report would be: one state change, one webhook delivery per endpoint. Asked again, the partner replays the
+     * same report and nothing is recorded (`recorded: false`). Off the TEST stack it refuses.
+     */
+    settlePayment: scopedProcedure('bank:write', { module: 'bank' })
+      .input(z.object({ paymentId: z.string().guid() }).strict())
+      .output(z.object({ paymentId: z.string(), state: z.string(), version: z.number().int(), recorded: z.boolean() }))
+      .mutation(({ ctx, input }) =>
+        guard(async () => {
+          on(bank.testPartner);
+          const done = await bank.bankApi.settleTestPayment(ctx.principal.userId, input.paymentId);
+          return { paymentId: done.payment.id, state: done.payment.state, version: done.payment.version, recorded: done.recorded };
         }),
       ),
     /**

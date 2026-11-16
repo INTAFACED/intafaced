@@ -58,6 +58,7 @@ import { BusinessBillsService } from './business/business-bills.js';
 import { BusinessPayoutsService } from './business/business-payouts.js';
 import { BusinessCardsService } from './business/business-cards.js';
 import { BusinessBooksService } from './business/business-books.js';
+import { BankApiService, type BankApiOptions } from './developer-api/bank-api.js';
 import { BusinessLookupLimiter, unconfiguredBusinessDirectory, type BusinessDirectoryPort } from './business/business-directory.js';
 import { PortfolioService, type PortfolioServiceOptions } from './portfolio/portfolio-service.js';
 import { ActivityService, type ActivityServiceOptions } from './activity/activity-service.js';
@@ -187,6 +188,8 @@ export interface BankServices {
   readonly businessCards: BusinessCardsService;
   /** J-bank-23: the business's books: the accounting connection record, coding rules and four-format statements. */
   readonly businessBooks: BusinessBooksService;
+  /** J-bank-24: the bank API: accounts with filters, moves on the partner's quote, payments out and their webhooks. */
+  readonly bankApi: BankApiService;
   readonly bills: BillPayService;
   readonly globalSend: GlobalSendService;
   readonly globalHolds: GlobalHoldService;
@@ -209,6 +212,8 @@ export interface BankServices {
 }
 
 export interface BankServiceOptions {
+  /** J-bank-24: the bank API's webhook delivery (dev/test loopback hatch, transport, resolver). The TEST partner is passed in here. */
+  bankApi?: Omit<BankApiOptions, 'testPartner'>;
   /** `BANK_PERSONAL_SEND_REVIEW_JSON`, parsed: the owner's send review rule. Unset, no send is held. */
   sendReviewRule?: SendReviewRule | null;
   /** `BANK_REQUEST_REMIND_POLICY_JSON`, parsed: the owner's reminder cap per window. Null refuses every reminder. */
@@ -624,6 +629,7 @@ export function createBankServices(
     sorter,
     billsPots,
     sharedPots,
+    bankApi: new BankApiService(sql, spaces, sharedPots, custody, { ...options.bankApi, testPartner: options.testPartner ?? null }),
     recovery,
     transfers,
     personalPay,

@@ -6,7 +6,10 @@ import {
   PARTNER_PAY_INS_OWNER,
   partnerPayInsAccount,
   PARTNER_PAYOUTS_OWNER,
+  partnerPayoutsAccount,
   type PartnerAccountRef,
+  type PartnerPayment,
+  type PartnerPaymentRequest,
   type PartnerBalance,
   type PartnerBank,
   type PartnerMove,
@@ -94,6 +97,9 @@ export const TEST_PARTNER_MERCHANT = 'partner:test-merchant';
 export const TEST_PARTNER_HISTORY_DAYS = 400;
 export const TEST_PARTNER_SCA_AFTER_DAYS = 90;
 
+/** TEST: how long a TEST partner quote for a move between a person's own accounts stands (J-bank-24 #3). Not a partner's terms. */
+export const TEST_PARTNER_QUOTE_MS = 60_000;
+
 /** What a partner may not offer. `currencies` is the partner's currency accounts (J-bank-01 #3). */
 export const PARTNER_FEATURES = ['currencies', 'spaces', 'pots', 'joint', 'phone_wallet'] as const;
 export type PartnerFeature = (typeof PARTNER_FEATURES)[number];
@@ -169,6 +175,11 @@ export interface TestPartnerSwitches {
    * check (J-bank-17 #1). `accepted` (the default): a person verified with us has the identity step done with our case.
    */
   readonly identityCase: 'accepted' | 'not_accepted';
+  /**
+   * `test`: the TEST partner carries this person's instant and ACH payments out (J-bank-24 #4), labelled TEST. `none`, the
+   * default, is a stack with no bank rail: every payment answers `rail.bank` and nothing moves.
+   */
+  readonly bankRail: 'none' | 'test';
 }
 
 export const SWITCHES_OFF: TestPartnerSwitches = Object.freeze({
@@ -188,6 +199,7 @@ export const SWITCHES_OFF: TestPartnerSwitches = Object.freeze({
   purchaseHold: 'live',
   legalHold: 'none',
   identityCase: 'accepted',
+  bankRail: 'none',
 });
 
 /** The partner's reserve as it reports it. An amount it has not told us is null, read as "not known", never 0. */
@@ -230,6 +242,11 @@ export interface TestPartner {
   readonly directDebits: PartnerDirectDebits;
   /** The TEST partner's compliance record of each person's bank account: onboarding, requests, reviews, closure, data (J-bank-17). */
   readonly compliance: PartnerCompliance & TestPartnerComplianceDoors;
+  /**
+   * The TEST partner reports a pending payment of the person's completed (J-bank-24 #5), and returns the payment as it now
+   * stands. Asked again it reports the same change, the same version, as a partner's replayed notice does.
+   */
+  settlePayment(userId: string, paymentId: string): PartnerPayment;
 }
 
 /** The TEST partner's own reason code for a collection on a mandate the person blocked with it. */
@@ -534,6 +551,93 @@ export function testPartner(): TestPartner {
         asOf: new Date(),
       });
     },
+    // The partner's quote for a move between a person's own accounts (J-bank-24 #3). The TEST partner takes nothing for one,
+    // and says so; with `fee: 'unknown'` it does not say, so the fee and what arrives read "not known", never 0.
+    async quoteMove(request) {
+      if (switches(request.from.userId).down) throw partnerDown();
+      if (request.amount <= 0n) throw new BankError('A partner move needs an amount above zero.', 'bank.partner_amount_invalid');
+      if (request.from.assetId !== request.to.assetId) {
+        throw new BankError('A partner move stays in one currency; convert first.', 'bank.asset_mismatch');
+      }
+      if (sameAccount(request.from, request.to)) throw new BankError('A transfer needs two different spaces', 'bank.same_space');
+      seq += 1;
+      const quotedAt = new Date();
+      const fee = switches(request.from.userId).fee === 'known' ? 0n : null;
+      return Object.freeze({
+        quoteId: `test-partner-quote-${boot}-${String(seq).padStart(12, '0')}`,
+        from: Object.freeze({ ...request.from }),
+        to: Object.freeze({ ...request.to }),
+        amount: request.amount,
+        fee,
+        receives: fee === null ? null : request.amount - fee,
+        quotedAt,
+        validUntil: new Date(quotedAt.getTime() + TEST_PARTNER_QUOTE_MS),
+        label: TEST_PARTNER_LABEL,
+      });
+    },
+    // Payments out over the TEST partner's rails (J-bank-24 #4): only for a person whose switch says the partner carries
+    // them (`bankRail: 'test'`); otherwise `rail.bank`, nothing moved. A payment is one partner move into the partner's
+    // outbound-payments account under the payment's key, made pending; `settlePayment` completes it.
+    payments: Object.freeze({
+      async pay(request: PartnerPaymentRequest) {
+        const prior = payments.get(request.key);
+        if (prior) {
+          const asked = paymentRequests.get(request.key)!;
+          if (
+            !sameAccount(asked.from, request.from) ||
+            asked.amount !== request.amount ||
+            asked.method !== request.method ||
+            JSON.stringify(asked.recipient) !== JSON.stringify(request.recipient)
+          ) {
+            throw moveConflict(request.key);
+          }
+          return prior;
+        }
+        if (switches(request.from.userId).bankRail !== 'test') {
+          throw new BankError(
+            `An ${request.method === 'ach' ? 'ACH' : 'instant'} payment needs rail.bank. It is switched off in this build.`,
+            'rail.bank',
+          );
+        }
+        if (payments.size >= MAX_MOVES) throw partnerDown();
+        await bank.move({ key: request.key, from: request.from, to: partnerPayoutsAccount(request.from.assetId), amount: request.amount });
+        seq += 1;
+        const made: PartnerPayment = Object.freeze({
+          id: `test-partner-payment-${boot}-${String(seq).padStart(12, '0')}`,
+          key: request.key,
+          from: Object.freeze({ ...request.from }),
+          method: request.method,
+          amount: request.amount,
+          state: 'pending',
+          version: 1,
+          previous: null,
+          changedAt: new Date(),
+          label: TEST_PARTNER_LABEL,
+        });
+        payments.set(request.key, made);
+        paymentRequests.set(request.key, Object.freeze({ ...request, recipient: Object.freeze({ ...request.recipient }) }));
+        return made;
+      },
+      paymentByKey: async (key: string) => payments.get(key) ?? null,
+    }),
+  };
+  /** Each payment the TEST partner made, by key, as it stands now, and the request it was made on. */
+  const payments = new Map<string, PartnerPayment>();
+  const paymentRequests = new Map<string, PartnerPaymentRequest>();
+  const settlePayment = (userId: string, paymentId: string): PartnerPayment => {
+    const found = [...payments.values()].find((p) => p.id === paymentId && p.from.userId === userId);
+    if (!found) throw new BankError('The TEST partner has no such payment of yours.', 'bank.payment_not_found');
+    // Settled already: the partner reports the same change again, the same version, as a real partner's replay does.
+    if (found.state !== 'pending') return found;
+    const done: PartnerPayment = Object.freeze({
+      ...found,
+      state: 'completed',
+      previous: 'pending',
+      version: found.version + 1,
+      changedAt: new Date(),
+    });
+    payments.set(found.key, done);
+    return done;
   };
 
   const mandate = (userId: string, mandateId: string): PartnerMandate => {
@@ -589,6 +693,7 @@ export function testPartner(): TestPartner {
     bank,
     directDebits,
     compliance,
+    settlePayment,
     record(userId) {
       const accounts: { account: PartnerAccountRef; amount: Amount }[] = [];
       for (const [key, amount] of held) {

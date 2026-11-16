@@ -788,6 +788,23 @@ export type BankErrorCode =
   /** A receipt file with no name, of a type we do not take, empty or over 512 KiB. */
   | 'bank.receipt_invalid'
   | 'bank.reimbursement_not_found'
+  // ── The bank API (J-bank-24; BK-bdev-01, BK-bdev-02) ──
+  /** The partner quotes no move between a person's own accounts. Nothing was asked. */
+  | 'bank.partner_quote_unavailable'
+  /** No quote by that id is the caller's. */
+  | 'bank.quote_not_found'
+  /** The quote is past its valid-until: ask for a new one. Nothing was moved. */
+  | 'bank.quote_expired'
+  /** The partner does not say what the move costs, so it is not made on an unknown figure. Nothing was moved. */
+  | 'bank.partner_fee_unknown'
+  /** The same dedupe id or idempotency key was used before for a different instruction. Nothing was moved. */
+  | 'bank.idempotency_conflict'
+  /** No payment by that id is the caller's. */
+  | 'bank.payment_not_found'
+  /** A webhook URL that is not https, points inside our network, or does not resolve. Nothing was saved. */
+  | 'bank.webhook_url_invalid'
+  /** No webhook endpoint by that id is the caller's. */
+  | 'bank.webhook_endpoint_not_found'
   // ── Business books (J-bank-23; BK-bexp-03, BK-bexp-04, BK-bexp-05) ──
   /** A coding rule's payee text, a category or a GL code not in shape, or a bulk code of no lines or too many. */
   | 'bank.business_books_field_invalid'
