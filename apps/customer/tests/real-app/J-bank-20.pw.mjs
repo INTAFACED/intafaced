@@ -150,14 +150,27 @@ async function held(own, accountId) {
   return ok(await own.query('businessTeam.overview', { accountId })).partner.amount;
 }
 
-/** `who` signed in, in Business mode on `name`, at `path`. */
+/**
+ * `who` signed in, in Business mode on `name`, at `path`. The pick is saved on the account's view record a moment later
+ * (shared/view-sync.ts), and that record wins on the next load; so the bills room is read until it names the business
+ * just picked, picking again if a load beat the save.
+ */
 async function inBusiness(page, who, name, path = '/bank/business/bills') {
   await signOutBrowser(page.context());
   await signIn(page, who);
   await page.goto('/home');
-  await page.getByRole('button', { name: 'Account menu' }).click();
-  await page.getByTestId('profile-business').filter({ hasText: name }).click();
-  await page.goto(path);
+  for (let attempt = 1; ; attempt++) {
+    await page.getByRole('button', { name: 'Account menu' }).click();
+    await page.getByTestId('profile-business').filter({ hasText: name }).click();
+    await page.waitForURL('**/pay/merchant');
+    await page.waitForTimeout(1500);
+    await page.goto('/bank/business/bills');
+    const shown = page.getByTestId('bills-business');
+    await expect(shown).toBeVisible();
+    if ((await shown.textContent()) === name || attempt === 3) break;
+  }
+  await expect(page.getByTestId('bills-business')).toHaveText(name);
+  if (path !== '/bank/business/bills') await page.goto(path);
 }
 
 async function ledgerUnchanged(w) {
@@ -176,7 +189,6 @@ test(`${J} #1 opens the bill inbox and uploads a bill twice: extracted data to r
   const file = { name: 'supplier-bill.txt', mimeType: 'text/plain', buffer: billFile(reference, '150.00', day(30)) };
 
   await inBusiness(page, w.owner, name);
-  await expect(page.getByTestId('bills-business')).toHaveText(name);
   await expect(page.getByTestId('bills-inbox')).toContainText('No bills yet.');
   const upload = page.getByRole('form', { name: 'Upload bill' });
   await upload.getByLabel('Bill file').setInputFiles(file);
@@ -235,7 +247,6 @@ test(`${J} #2 sets a pre-approved vendor with a cap and Bill Pay limits: a bill 
   const w = await world(page);
   const { own, accountId, name } = await business(w, 'vendor');
   await inBusiness(page, w.owner, name);
-  await expect(page.getByTestId('bills-business')).toHaveText(name);
 
   // The vendor and its TEST cap of 200.00.
   const vendor = page.getByRole('form', { name: 'Save vendor' });
