@@ -9,6 +9,7 @@ import {
   tradeDate,
   TradeFailure as Failure,
 } from './copy';
+import { chartValue } from '../../shared/chart-value';
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react';
 import type { OHLCV, Position } from '@intafaced/exchange-contract/schemas';
 import { TIMEFRAME_MS } from '@intafaced/exchange-contract/schemas';
@@ -826,7 +827,7 @@ export function MarketChart({
           shownPrices.add(exactPrice);
           orderLines.current.push(
             series.createPriceLine({
-              price: Number(order.price),
+              price: chartValue(order.price),
               color: '#e4bf72',
               lineWidth: 1,
               lineStyle: 2,
@@ -846,7 +847,7 @@ export function MarketChart({
       for (const fill of fills.resource.data)
         fillLines.current.push(
           series.createPriceLine({
-            price: Number(fill.price),
+            price: chartValue(fill.price),
             color:
               css.getPropertyValue(fill.side === 'buy' ? '--chart-up' : '--chart-down').trim() ||
               css.getPropertyValue(fill.side === 'buy' ? '--color-positive' : '--color-negative').trim(),
@@ -906,8 +907,8 @@ export function MarketChart({
     const low = rows.reduce((value, row) => (parseAmount(row[3]) < value ? parseAmount(row[3]) : value), parseAmount(rows[0]![3])),
       high = rows.reduce((value, row) => (parseAmount(row[2]) > value ? parseAmount(row[2]) : value), parseAmount(rows[0]![2]));
     if (low === high) return null;
-    const lowY = series.priceToCoordinate(Number(formatAmount(low))),
-      highY = series.priceToCoordinate(Number(formatAmount(high)));
+    const lowY = series.priceToCoordinate(chartValue(formatAmount(low))),
+      highY = series.priceToCoordinate(chartValue(formatAmount(high)));
     if (lowY === null || highY === null || lowY === highY) return null;
     // Prices stay scaled bigint. Only pixel geometry is rounded to a rational screen coordinate.
     const numerator = BigInt(Math.round((y - lowY) * 1000000)),
@@ -921,7 +922,7 @@ export function MarketChart({
   const draw = (drawing: Drawing, index: number) => {
     const positions = drawing.points.map(([time, price]) => [
       chartRef.current?.timeScale().timeToCoordinate(time),
-      seriesRef.current?.priceToCoordinate(Number(price)),
+      seriesRef.current?.priceToCoordinate(chartValue(price)),
     ]);
     const [a, b] = positions;
     if (!a || a[0] == null || a[1] == null) return null;
@@ -960,7 +961,7 @@ export function MarketChart({
     }
     for (const order of chartOrders) {
       const index = orders.indexOf(order);
-      const y = dragging?.id === order.id ? dragging.y : seriesRef.current?.priceToCoordinate(Number(order.price));
+      const y = dragging?.id === order.id ? dragging.y : seriesRef.current?.priceToCoordinate(chartValue(order.price));
       if (y == null) continue;
       if (!phone) {
         if (eligible(order) && y >= 0) targets.push({ order, index, x: 8, y });

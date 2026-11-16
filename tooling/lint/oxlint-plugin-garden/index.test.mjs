@@ -303,6 +303,77 @@ test('no-number-money: a money field accepted as a number and converted fires; a
   assert.ok(!has(out, 'services/svc-x/src/desk.test.ts', 'garden(no-number-money)'), 'tests are not judged');
 });
 
+// What apps/customer/src/{data,screens/trade/desk,screens/trade/options}/money-paths.test.ts held, and the customer app beyond.
+test('no-number-money: the customer app never makes money a float, and chartValue() is the one way onto a chart', skip, () => {
+  const C = 'apps/customer/src/';
+  const out = lint({
+    // #8644's two cases: the chart's float sent as an order's amount, and a money value made a float in shared/.
+    [`${C}screens/trade/desk/Ticket.tsx`]:
+      "import { chartValue } from '../../../shared/chart-value';\nexport const intent = (a: string) => ({ kind: 'place_order', amount: String(chartValue(a)) });\n",
+    [`${C}shared/send.ts`]: 'export function amountToSend(amount: string): number {\n  return Number(amount);\n}\n',
+    [`${C}features/x/body.ts`]: 'export const body = (a: string) => JSON.stringify({ amount: chartValue(a) });\n',
+    [`${C}features/x/label.ts`]: 'export const label = (p: string) => `${chartValue(p)} USD`;\n',
+    [`${C}features/x/held.ts`]: 'export function f(p: string) {\n  const y = chartValue(p) * 2;\n  return y.toFixed(2);\n}\n',
+    [`${C}features/x/names.ts`]:
+      'export const a = (o: { price: string }) => parseFloat(o.price);\nexport const b = (amount: string) => +amount;\nexport const c = (t: string) => Number(t.trim()) + Number.parseFloat(feeTotal);\n',
+    // The folders the scanner tests judged: every float conversion, whatever it is called.
+    [`${C}data/poll.ts`]: 'export const ms = (s: string) => Number(s);\n',
+    [`${C}data/deep/fixed.ts`]: 'export const f = (n: number) => n.toFixed(2);\n',
+    [`${C}screens/trade/desk/Book.tsx`]: 'export const n = (s: string) => +s;\n',
+    [`${C}screens/trade/options/Chain.tsx`]:
+      'export const n = (s: string) => new Number(s);\nexport const chartValue = (v: string) => Number(v);\n',
+    // Quiet: the exit itself, chart math on its result, names that are not money, the scanners' own exemptions, prose.
+    [`${C}shared/chart-value.ts`]: 'export function chartValue(value: string): number {\n  return Number(value);\n}\n',
+    [`${C}screens/trade/chart/depth.ts`]:
+      "import { chartValue } from '../../../shared/chart-value';\nexport const d = (h: { y(p: number): number }, price: string) => {\n  const y = h.y(chartValue(price));\n  return `M ${y.toFixed(1)}`;\n};\n",
+    [`${C}features/x/plain.ts`]:
+      'export const m = (minutes: string) => Number(minutes.trim()) * 60;\nexport const ok = (ms: number) => Number.isFinite(ms);\n',
+    [`${C}data/sparkline.ts`]: 'export const y = (s: string) => Number(s);\n',
+    [`${C}data/__fixtures__/book.ts`]: 'export const y = (s: string) => Number(s);\n',
+    [`${C}screens/trade/desk/chart/axis.ts`]: 'export const y = (s: string) => Number(s);\n',
+    [`${C}data/prose.ts`]:
+      "// never parseFloat(x) or Number(x)\nexport const s = 'Number(x) .toFixed(2)';\nexport const t = (a: number, b: number) => a + b;\n",
+    [`${C}data/poll.test.ts`]: 'export const ms = (amount: string) => Number(amount);\n',
+    'services/svc-x/src/rate.ts': 'export const r = (amount: string) => Number(amount);\n',
+  });
+  const fires = (file, n = 1) =>
+    assert.equal(
+      out.filter((l) => l.startsWith(`${file}:`) && l.includes('garden(no-number-money)')).length,
+      n,
+      `${file}\n${out.join('\n')}`,
+    );
+  fires(`${C}screens/trade/desk/Ticket.tsx`);
+  assert.ok(
+    out.some((l) => l.startsWith(`${C}screens/trade/desk/Ticket.tsx:`) && l.includes('send or show the decimal string it was made from')),
+    'the chart case names the fix',
+  );
+  fires(`${C}shared/send.ts`);
+  assert.ok(
+    out.some((l) => l.startsWith(`${C}shared/send.ts:`) && l.includes('`amount` is money') && l.includes('parseAmount/formatAmount')),
+    'the float case names the fix',
+  );
+  fires(`${C}features/x/body.ts`);
+  fires(`${C}features/x/label.ts`);
+  fires(`${C}features/x/held.ts`);
+  fires(`${C}features/x/names.ts`, 3);
+  fires(`${C}data/poll.ts`);
+  fires(`${C}data/deep/fixed.ts`);
+  fires(`${C}screens/trade/desk/Book.tsx`);
+  fires(`${C}screens/trade/options/Chain.tsx`, 2);
+  for (const quiet of [
+    'shared/chart-value.ts',
+    'screens/trade/chart/depth.ts',
+    'features/x/plain.ts',
+    'data/sparkline.ts',
+    'data/__fixtures__/book.ts',
+    'screens/trade/desk/chart/axis.ts',
+    'data/prose.ts',
+    'data/poll.test.ts',
+  ])
+    fires(`${C}${quiet}`, 0);
+  fires('services/svc-x/src/rate.ts', 0);
+});
+
 test('no-random-request-key: a random key fires directly, in a template and through a const; a held key does not', skip, () => {
   const out = lint({
     // The shape the CI review failed (apps/customer/src/screens/trade/copybots/WebhooksRoom.tsx).

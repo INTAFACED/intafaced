@@ -8,6 +8,7 @@
  * Colours come from the app's tokens at mount (`--if-*`), never from literals here.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { chartValue } from '../../../shared/chart-value';
 import { usePreferences } from '../../../shared/preferences';
 import type { Candle } from '../../../data/types';
 import type { ChartInterval } from './candles';
@@ -17,7 +18,6 @@ import {
   legendValues,
   movingAverage,
   planUpdate,
-  priceCoordinate,
   priceFormat,
   stepOf,
   toBar,
@@ -292,7 +292,7 @@ export function PriceChart({ candles, mode, interval, resetKey, tickSize, orderL
     lines.current.forEach((line) => series.removePriceLine(line));
     lines.current = orderLines.map((order) =>
       series.createPriceLine({
-        price: priceCoordinate(order.price),
+        price: chartValue(order.price),
         color: order.side === 'buy' ? c.up : c.down,
         lineWidth: 1,
         lineStyle: 2,

@@ -8,6 +8,7 @@
  * `null` means "no value here": too few bars, a flat series, a bucket with no volume or no prints. It is never zero.
  */
 import type { Candle } from '../../../data/types';
+import { chartValue } from '../../../shared/chart-value';
 
 export type Maybe = number | null;
 export const DAY_MS = 86_400_000;
@@ -433,8 +434,8 @@ export function volumeDelta(bars: readonly Candle[], prints: readonly Print[], s
     const i = index.get(Math.floor(print.t / stepMs) * stepMs);
     if (i === undefined) continue;
     seen[i] = true;
-    if (print.side === 'buy') buy[i] = buy[i]! + Number(print.amount);
-    else sell[i] = sell[i]! + Number(print.amount);
+    if (print.side === 'buy') buy[i] = buy[i]! + chartValue(print.amount);
+    else sell[i] = sell[i]! + chartValue(print.amount);
   }
   return bars.map((bar, i) => {
     if (!seen[i] || coveredFrom === null || bar.t < coveredFrom) return null;
@@ -470,7 +471,7 @@ export interface Profile {
  */
 export function volumeProfile(prints: readonly Print[], count: number): Profile | null {
   if (prints.length === 0 || count < 1) return null;
-  const prices = prints.map((p) => Number(p.price));
+  const prices = prints.map((p) => chartValue(p.price));
   const lo = Math.min(...prices);
   const hi = Math.max(...prices);
   const width = (hi - lo) / count;
@@ -483,8 +484,8 @@ export function volumeProfile(prints: readonly Print[], count: number): Profile 
   prints.forEach((print, n) => {
     const raw = width === 0 ? 0 : Math.floor((prices[n]! - lo) / width);
     const bin = bins[Math.min(Math.max(raw, 0), count - 1)]!;
-    if (print.side === 'buy') bin.buy += Number(print.amount);
-    else bin.sell += Number(print.amount);
+    if (print.side === 'buy') bin.buy += chartValue(print.amount);
+    else bin.sell += chartValue(print.amount);
   });
   let poc: number | null = null;
   let best = -1;

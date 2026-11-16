@@ -15,6 +15,7 @@
  * - While the market is halted, not open or unreadable, every order control on the chart is disabled and names why.
  */
 import { useEffect, useMemo, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { chartValue } from '../../../shared/chart-value';
 import { createPortal } from 'react-dom';
 import { useDataEnv } from '../../../data/hooks';
 import { fmtAmount, fmtPrice } from '../../../data/format';
@@ -185,7 +186,7 @@ export function ChartTrading({
     for (const order of lineOrders)
       lines.push(
         host.main.createPriceLine({
-          price: Number(order.price),
+          price: chartValue(order.price),
           color: colour(order.side),
           lineWidth: 2,
           lineStyle: 0,
@@ -406,7 +407,7 @@ export function ChartTrading({
   const stage = host?.element.parentElement ?? null;
   const paneTop = host ? pricePane(host).top : 0;
   const yOf = (value: string | null | undefined) => {
-    const y = host && value ? host.main.priceToCoordinate(Number(value)) : null;
+    const y = host && value ? host.main.priceToCoordinate(chartValue(value)) : null;
     return y === null ? null : paneTop + y;
   };
   const projectedY = yOf(projected);
