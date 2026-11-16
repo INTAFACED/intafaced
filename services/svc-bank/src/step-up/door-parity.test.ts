@@ -11,6 +11,7 @@ import { plainNote, plainReference } from '../transfers/personal-pay.js';
 import {
   billPayBinding,
   bulkRunConfirmBinding,
+  reimbursementPayBinding,
   contractorBatchBinding,
   createTransferBinding,
   teamAcceptInviteBinding,
@@ -146,5 +147,14 @@ describe('a step-up approval for a business bulk run or contractor batch is spen
     const b = contractorBatchBinding({ actor: ACTOR, accountId: ACC, batchId: RUN });
     const { actor: _b, ...bf } = b.fields;
     expect(identityHash(b.actionType, 'businessPayouts.payBatch', RUN, bf)).toBe(bankActionPayloadHash(b.actionType, b.fields));
+  });
+});
+
+describe('a step-up approval for paying a business reimbursement is spendable at the bank door (J-bank-22)', () => {
+  it('approving and paying a claim', () => {
+    const CLAIM = '7b7b7b7b-7b7b-4b7b-8b7b-7b7b7b7b7b7b';
+    const r = reimbursementPayBinding({ actor: ACTOR, claimId: CLAIM });
+    const { actor: _a, ...rf } = r.fields;
+    expect(identityHash(r.actionType, 'businessCards.approveAndPay', CLAIM, rf)).toBe(bankActionPayloadHash(r.actionType, r.fields));
   });
 });

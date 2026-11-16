@@ -779,6 +779,15 @@ export type BankErrorCode =
   | 'bank.contractor_wallet_missing'
   /** A signature not from the wallet named: nothing was connected or signed. */
   | 'bank.payroll_signature_invalid'
+  // ── Business cards and expenses (J-bank-22; BK-bcard-01, BK-bexp-01, BK-bexp-02) ──
+  /** A card limit, merchant, amount, receipt rule or claim description not in shape. */
+  | 'bank.business_card_field_invalid'
+  /** No business card or card purchase with that id is yours to see. */
+  | 'bank.business_card_not_found'
+  | 'bank.business_card_frozen'
+  /** A receipt file with no name, of a type we do not take, empty or over 512 KiB. */
+  | 'bank.receipt_invalid'
+  | 'bank.reimbursement_not_found'
   | 'bank.business_rejected'
   | 'bank.business_cancelled'
   /**

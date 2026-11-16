@@ -3161,6 +3161,16 @@ describe('svc-bank money PG-hard', () => {
         'business_crypto_payroll_runs.amount':
           'a RECORD of what the business’s own wallet signed for one month; INTAFACED holds none of it',
         'business_crypto_payslips.amount': 'a RECORD: one payslip of a run the business’s own wallet signed; never a holding',
+        // Business cards and expenses (J-bank-22): the partner holds the business's and the member's money.
+        'business_cards.per_purchase_limit': 'a POLICY: the most one purchase on a business card may be; over it the card declines',
+        'business_card_purchases.amount':
+          'an INSTRUCTION: one card capture sent to the partner bank under its purchase key; a declined one moves nothing',
+        'business_card_purchases.receipt_over': 'a POLICY: the business’s receipt rule as it stood when the purchase was captured',
+        'business_card_limit_requests.amount': 'a RECORD of the declined purchase an over-limit request asks the admins about',
+        'business_expense_policies.receipt_over': 'a POLICY the business set: a captured purchase over it needs a receipt',
+        'business_reimbursements.amount': 'an INSTRUCTION: one reimbursement sent to the partner bank under its claim key; written once',
+        'business_reimbursements.member_before': 'a RECORD of the member’s balance as the partner reported it just before the move',
+        'business_reimbursements.member_after': 'a RECORD of the member’s balance as the partner reported it just after the move',
         'dormancy_notices.fee': 'a RECORD of the fee one notice named; the debit, if any, is the partner move it names',
         'budgets.target':
           'a POLICY: the monthly target the person chose for one spend category; spend is folded from the partner record or the ledger',

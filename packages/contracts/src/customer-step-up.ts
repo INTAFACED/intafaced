@@ -243,6 +243,16 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
     fixed: {},
   },
   {
+    scope: 'bank.step_up.businessCards.approveAndPay',
+    purpose: 'businessCards.approveAndPay',
+    clientFields: ['claimId'],
+    targetField: 'claimId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
     scope: 'bank.step_up.business.setMemberRole',
     purpose: 'business.setMemberRole',
     clientFields: ['accountId', 'userId', 'role', 'requestId'],
