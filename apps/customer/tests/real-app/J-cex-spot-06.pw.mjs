@@ -415,7 +415,82 @@ test(`${J} #1 opens order history and filters by side, state and date: matching 
   expect(size.body.intafacedCode).toBe('trade.invalid_filter');
 });
 
+/**
+ * A small TEST long on BTC-PERP and a stop loss under it judged on the last trade price, fired by another TEST trader's
+ * sale at the best bid. `stopOrder(bid)` gives the stop its type, price and time in force: a limit under the bid fills
+ * once it fires; a market order whose worst price sits above every bid can't, and the venue rejects it. Returns the
+ * stop's client order id once it has triggered.
+ */
+/** "Why it ended", in the page's words for the reason the venue gives, or "Not recorded" where it gives none. */
+function endedWords(o) {
+  if (o.cancelReason === 'position_closed') return 'The position it closed is gone, so the venue cancelled it';
+  if (o.cancelReason === 'linked') return 'The other order attached to the same entry filled first';
+  if (o.status === 'rejected' && o.trigger?.failure) return `The venue refused it: ${o.trigger.failure}`;
+  return 'Not recorded';
+}
+
+async function firedStop(s, tag, stopOrder) {
+  const owner = ownerOf(s);
+  // A small TEST long on BTC-PERP, the TEST venue's perpetual, and a stop loss under it judged on the last trade price.
+  expect(await testDeposit(owner, 'USDC', '2000', `84532:0x${randomBytes(32).toString('hex')}:0`)).toBe(true);
+  const leverage = await door(
+    s,
+    { kind: 'update_leverage', symbol: PERP, leverageBps: 10_000, marginMode: 'isolated' },
+    `leverage:${owner}:${PERP}:isolated:10000:${fresh()}`,
+  );
+  expect(leverage.outcome).toMatchObject({ definite: true, accepted: true });
+  const top = (await testVenue('/best-prices', { symbol: PERP })).body.value;
+  const entry = await order(s, PERP, 'buy', top.ask, '0.001', 'IOC', 'long');
+  await expect.poll(async () => (await venueOrder(s, entry.cloid)).status, { timeout: 20_000 }).toBe('filled');
+  // TEST control: BTC-PERP takes trigger orders judged on the last trade price for this file only (put back after it).
+  expect((await testVenue('/test/market-triggers', { symbol: PERP, sources: ['last'] })).status).toBe(200);
+  const { bid } = (await testVenue('/best-prices', { symbol: PERP })).body.value;
+  const triggerPrice = bid;
+  const stopKey = `order:${J.toLowerCase()}:${tag}:${fresh()}`;
+  const stop = await door(s, {
+    kind: 'place_order',
+    symbol: PERP,
+    side: 'sell',
+    ...stopOrder(bid),
+    amount: '0.001',
+    reduceOnly: true,
+    trigger: { price: triggerPrice, source: 'last', role: 'stop_loss' },
+    clientOrderKey: stopKey,
+    builderFee: null,
+  });
+  expect(stop.outcome).toMatchObject({ definite: true, accepted: true });
+  const stopId = stop.prepared.venueClientOrderId;
+  run.write({ [tag]: stopId, keys: { ...run.read().keys, [stopKey]: stopId } });
+  // Another TEST trader sells at the best bid: the last trade prints at the stop's price, and the stop fires.
+  const seller = `${J} stop seller ${fresh()}`;
+  const sellerOwner = otherTraderKey(seller).address.toLowerCase();
+  expect(await testDeposit(sellerOwner, 'USDC', '2000', `84532:0x${randomBytes(32).toString('hex')}:0`)).toBe(true);
+  const sellerLeverage = await otherTraderRun(seller, {
+    kind: 'update_leverage',
+    symbol: PERP,
+    leverageBps: 10_000,
+    marginMode: 'isolated',
+  });
+  expect(sellerLeverage).toMatchObject({ accepted: true });
+  const print = await otherTraderRun(seller, {
+    kind: 'place_order',
+    symbol: PERP,
+    side: 'sell',
+    type: 'limit',
+    amount: '0.001',
+    price: triggerPrice,
+    timeInForce: 'IOC',
+    reduceOnly: false,
+    clientOrderKey: `order:${J.toLowerCase()}:print:${fresh()}`,
+    builderFee: null,
+  });
+  expect(print).toMatchObject({ accepted: true });
+  await expect.poll(async () => (await venueOrder(s, stopId)).trigger?.state, { timeout: 30_000 }).toMatch(/^(triggered|failed)$/);
+  return stopId;
+}
+
 test(`${J} #2 opens one order at /trade/orders/:id: status, fills, and the reject reason or "not recorded"`, async ({ page }) => {
+  test.setTimeout(240_000);
   const s = state();
   await openWithWallet(page, s, '/trade/orders?product=venue&status=filled');
   // Reached from the history: the row links to the order's own address.
@@ -438,13 +513,28 @@ test(`${J} #2 opens one order at /trade/orders/:id: status, fills, and the rejec
   expect(cancelled.status).toBe('canceled');
   await page.goto(`/trade/orders/${s.ids.cancelled}`);
   await expect(heading(page).locator('[data-cell="status"]')).toHaveText('Cancelled');
-  await expect(fact(page, 'Why it ended')).toHaveText(cancelled.cancelReason ? /.+/ : 'Not recorded');
+  await expect(fact(page, 'Why it ended')).toHaveText(endedWords(cancelled));
   await expect(page.getByText('Nothing has filled.')).toBeVisible();
   // An immediate-or-cancel order that could not fill reads the same, as the venue records no reason for it.
   const ended = (await venueHistory(s)).find((r) => r.order.timeInForce === 'IOC' && r.order.status === 'canceled').order;
   await page.goto(`/trade/orders/${ended.venueClientOrderId}`);
   await expect(heading(page).locator('[data-cell="status"]')).toHaveText('Cancelled');
-  await expect(fact(page, 'Why it ended')).toHaveText(ended.cancelReason ? /.+/ : 'Not recorded');
+  await expect(fact(page, 'Why it ended')).toHaveText(endedWords(ended));
+
+  // A rejected order: a stop whose worst price sits above every bid fires and can't fill, so the venue rejects it and
+  // says why. The page gives the venue's own reason.
+  const rejectedId = await firedStop(s, 'rejected', (bid) => ({
+    type: 'market',
+    price: ((toUnits(bid) * 102n) / 100n / toUnits('1') + 1n).toString(),
+    timeInForce: 'IOC',
+  }));
+  await expect.poll(async () => (await venueOrder(s, rejectedId)).status, { timeout: 30_000 }).toBe('rejected');
+  const rejected = await venueOrder(s, rejectedId);
+  expect(rejected.trigger.failure).toBeTruthy();
+  await page.goto(`/trade/orders/${rejectedId}`);
+  await expect(heading(page).locator('[data-cell="status"]')).toHaveText('Rejected');
+  await expect(fact(page, 'Why it ended')).toHaveText(`The venue refused it: ${rejected.trigger.failure}`);
+  await expect(page.getByText('Nothing has filled.')).toBeVisible();
 });
 
 test(`${J} #3 opens another person's order id: "Order not found", no hint it exists; cancel and list refuse too`, async ({ page }) => {
@@ -490,7 +580,7 @@ test(`${J} #3 opens another person's order id: "Order not found", no hint it exi
     }
     // Cancel: sent from the person's own account, the venue finds no such order there and refuses; theirs stays open.
     const cancel = await door(s, { kind: 'cancel_order', symbol: s.symbol, clientOrderKey: theirKey });
-    expect(cancel.outcome).toMatchObject({ definite: true, accepted: false });
+    expect(cancel.outcome).toMatchObject({ definite: true, accepted: false, refusal: { code: 'unknown_order' } });
     // List: the person's history holds none of their orders, and their id is no page marker here.
     expect((await venueHistory(s)).map((r) => r.order.venueClientOrderId)).not.toContain(theirId);
     const page2 = await mine.get(`/api/v1/venue/orders/history?owner=${owner}&before=${theirId}`);
@@ -623,66 +713,12 @@ test(`${J} #6 opens a triggered stop order: why it triggered, the trigger price 
 }) => {
   test.setTimeout(240_000);
   const s = state();
-  const owner = ownerOf(s);
-  // A small TEST long on BTC-PERP, the TEST venue's perpetual, and a stop loss under it judged on the last trade price.
-  expect(await testDeposit(owner, 'USDC', '2000', `84532:0x${randomBytes(32).toString('hex')}:0`)).toBe(true);
-  const leverage = await door(
-    s,
-    { kind: 'update_leverage', symbol: PERP, leverageBps: 10_000, marginMode: 'isolated' },
-    `leverage:${owner}:${PERP}:isolated:10000:${fresh()}`,
-  );
-  expect(leverage.outcome).toMatchObject({ definite: true, accepted: true });
-  const top = (await testVenue('/best-prices', { symbol: PERP })).body.value;
-  const entry = await order(s, PERP, 'buy', top.ask, '0.001', 'IOC', 'long');
-  await expect.poll(async () => (await venueOrder(s, entry.cloid)).status, { timeout: 20_000 }).toBe('filled');
-  // TEST control: BTC-PERP takes trigger orders judged on the last trade price for this file only (put back after it).
-  expect((await testVenue('/test/market-triggers', { symbol: PERP, sources: ['last'] })).status).toBe(200);
-  const { bid } = (await testVenue('/best-prices', { symbol: PERP })).body.value;
-  const triggerPrice = bid;
   // The stop's limit, 2% under the trigger on the market's whole-dollar tick: it sells into the bids once it fires.
-  const limit = ((toUnits(bid) * 98n) / 100n / toUnits('1')).toString();
-  const stopKey = `order:${J.toLowerCase()}:stop:${fresh()}`;
-  const stop = await door(s, {
-    kind: 'place_order',
-    symbol: PERP,
-    side: 'sell',
+  const stopId = await firedStop(s, 'stop', (bid) => ({
     type: 'limit',
-    amount: '0.001',
-    price: limit,
+    price: ((toUnits(bid) * 98n) / 100n / toUnits('1')).toString(),
     timeInForce: 'GTC',
-    reduceOnly: true,
-    trigger: { price: triggerPrice, source: 'last', role: 'stop_loss' },
-    clientOrderKey: stopKey,
-    builderFee: null,
-  });
-  expect(stop.outcome).toMatchObject({ definite: true, accepted: true });
-  const stopId = stop.prepared.venueClientOrderId;
-  run.write({ stop: stopId, keys: { ...run.read().keys, [stopKey]: stopId } });
-  // Another TEST trader sells at the best bid: the last trade prints at the stop's price, and the stop fires.
-  const seller = `${J} stop seller ${fresh()}`;
-  const sellerOwner = otherTraderKey(seller).address.toLowerCase();
-  expect(await testDeposit(sellerOwner, 'USDC', '2000', `84532:0x${randomBytes(32).toString('hex')}:0`)).toBe(true);
-  const sellerLeverage = await otherTraderRun(seller, {
-    kind: 'update_leverage',
-    symbol: PERP,
-    leverageBps: 10_000,
-    marginMode: 'isolated',
-  });
-  expect(sellerLeverage).toMatchObject({ accepted: true });
-  const print = await otherTraderRun(seller, {
-    kind: 'place_order',
-    symbol: PERP,
-    side: 'sell',
-    type: 'limit',
-    amount: '0.001',
-    price: triggerPrice,
-    timeInForce: 'IOC',
-    reduceOnly: false,
-    clientOrderKey: `order:${J.toLowerCase()}:print:${fresh()}`,
-    builderFee: null,
-  });
-  expect(print).toMatchObject({ accepted: true });
-  await expect.poll(async () => (await venueOrder(s, stopId)).trigger?.state, { timeout: 30_000 }).toBe('triggered');
+  }));
   await expect.poll(async () => (await venueOrder(s, stopId)).status, { timeout: 30_000 }).toBe('filled');
   const fired = await venueOrder(s, stopId);
   expect(fired.trigger.triggeredAt).toBeTruthy();
