@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type ReactNode } from 'react';
+import { useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { z, type ZodType } from 'zod';
 import { Button } from '@intafaced/ui';
 import { FlowTemplate, type RoomState } from '@intafaced/ui/lit/templates';
@@ -200,16 +200,33 @@ function signedOutState(t: T, path: string): RoomState {
   };
 }
 
-/** One read of the bank, keyed so a change reloads it. */
-function useBank<S>(procedure: string, input: unknown, schema: ZodType<S>, key: string): { resource: Resource<S>; reload: () => void } {
+/**
+ * One read of the bank. `base` names what is read (it changes when the business or payment does); `rev` reloads it. While
+ * a reload of the same read is on its way the last answer stays on screen, so a change never blanks the room and the
+ * refusal or link it just showed stays with it.
+ */
+function useBank<S>(
+  procedure: string,
+  input: unknown,
+  schema: ZodType<S>,
+  base: string,
+  rev = 0,
+): { resource: Resource<S>; reload: () => void } {
   const { api, userId } = useSession();
-  return useResource<S>(
+  const read = useResource<S>(
     (signal) =>
       userId && input !== null
         ? api.query('bank', procedure, input, schema, { signal })
         : Promise.resolve({ ok: false as const, reason: 'unauthorized' as const, message: '' }),
-    `team:${procedure}:${userId ?? 'out'}:${key}`,
+    `team:${procedure}:${userId ?? 'out'}:${base}:${rev}`,
   );
+  const kept = useRef<{ base: string; data: S } | null>(null);
+  const keyed = `${userId ?? 'out'}:${base}`;
+  if (read.resource.status === 'ready') kept.current = { base: keyed, data: read.resource.data };
+  if (read.resource.status === 'loading' && kept.current?.base === keyed) {
+    return { resource: { status: 'ready', data: kept.current.data }, reload: read.reload };
+  }
+  return read;
 }
 
 /** A change through the bank: the refusal it gives is kept to show, and every read reloads after a success. */
@@ -363,14 +380,14 @@ function TeamParts({ o, reloadTop, t }: { o: BusinessTeamOverview; reloadTop: ()
   const accountId = o.account.id;
   const input = { accountId };
   const [rev, setRev] = useState(0);
-  const key = `${accountId}:${rev}`;
-  const roles = useBank('businessTeam.roles', input, z.array(businessTeamRoleSchema), key);
-  const members = useBank('businessTeam.members', input, z.array(businessTeamMemberSchema), key);
-  const advisors = useBank('businessTeam.advisors', input, z.array(businessTeamAdvisorSchema), key);
+  const key = accountId;
+  const roles = useBank('businessTeam.roles', input, z.array(businessTeamRoleSchema), key, rev);
+  const members = useBank('businessTeam.members', input, z.array(businessTeamMemberSchema), key, rev);
+  const advisors = useBank('businessTeam.advisors', input, z.array(businessTeamAdvisorSchema), key, rev);
   const manage = o.me.permissions.includes('manage_team');
-  const invites = useBank('businessTeam.invites', manage ? input : null, z.array(businessTeamInviteSchema), key);
-  const rules = useBank('businessTeam.rules', input, z.array(businessTeamRuleSchema), key);
-  const payments = useBank('businessTeam.payments', input, z.array(businessTeamPaymentSchema), key);
+  const invites = useBank('businessTeam.invites', manage ? input : null, z.array(businessTeamInviteSchema), key, rev);
+  const rules = useBank('businessTeam.rules', input, z.array(businessTeamRuleSchema), key, rev);
+  const payments = useBank('businessTeam.payments', input, z.array(businessTeamPaymentSchema), key, rev);
   const change = useChange(() => {
     setRev((n) => n + 1);
     reloadTop();
@@ -806,7 +823,7 @@ function TeamParts({ o, reloadTop, t }: { o: BusinessTeamOverview; reloadTop: ()
 function SpendPart({ o, t }: { o: BusinessTeamOverview; t: T }) {
   const accountId = o.account.id;
   const [rev, setRev] = useState(0);
-  const spend = useBank('businessTeam.spend', { accountId }, businessTeamSpendSchema, `${accountId}:${rev}`);
+  const spend = useBank('businessTeam.spend', { accountId }, businessTeamSpendSchema, accountId, rev);
   const manage = o.me.permissions.includes('manage_team');
   const change = useChange(() => setRev((n) => n + 1));
   const [name, setName] = useState('');
@@ -948,7 +965,7 @@ export function BusinessPaymentRoom({ search }: { search: string }) {
   const paymentId = new URLSearchParams(search).get('id');
   const valid = paymentId !== null && /^[0-9a-f-]{36}$/i.test(paymentId);
   const [rev, setRev] = useState(0);
-  const read = useBank('businessTeam.payment', valid ? { paymentId } : null, businessTeamPaymentSchema, `${paymentId}:${rev}`);
+  const read = useBank('businessTeam.payment', valid ? { paymentId } : null, businessTeamPaymentSchema, paymentId ?? '-', rev);
   const p = read.resource.status === 'ready' ? read.resource.data : null;
   const overview = useBank('businessTeam.overview', p ? { accountId: p.accountId } : null, businessTeamOverviewSchema, p?.accountId ?? '-');
   const o = overview.resource.status === 'ready' ? overview.resource.data : null;
