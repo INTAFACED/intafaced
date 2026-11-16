@@ -19,7 +19,14 @@ import {
 } from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import type { TeamAdvisor, TeamInvite, TeamPayment, TeamRole, TeamRule, TeamSpend } from '../business/business-team.js';
-import { approveBinding } from '../step-up/money-out-fields.js';
+import { createHash } from 'node:crypto';
+import {
+  teamAcceptInviteBinding,
+  teamApproveBinding,
+  teamAssignRoleBinding,
+  teamInviteBinding,
+  teamProposeBinding,
+} from '../step-up/money-out-fields.js';
 import { amountString, stepUpApprovalField } from './shared.js';
 import { guard } from './errors.js';
 import type { BankRouterContext } from './context.js';
@@ -123,9 +130,30 @@ export function createBusinessTeamRouter(c: BankRouterContext) {
       .output(businessTeamRoleSchema)
       .mutation(({ ctx, input }) => guard(async () => roleView(await team().createRole({ ...input, actorUserId: ctx.principal.userId })))),
     assignRole: scopedProcedure('bank:write', { module: 'bank' })
-      .input(z.object({ accountId: z.string().guid(), userId: z.string().min(1).max(128), roleId: z.string().guid().nullable() }).strict())
+      .input(
+        z
+          .object({
+            accountId: z.string().guid(),
+            userId: z.string().min(1).max(128),
+            roleId: z.string().guid().nullable(),
+            stepUpApprovalId: stepUpApprovalField,
+          })
+          .strict(),
+      )
       .output(businessTeamMemberSchema)
-      .mutation(({ ctx, input }) => guard(() => team().assignRole({ ...input, actorUserId: ctx.principal.userId }))),
+      .mutation(({ ctx, input }) =>
+        guard(async () => {
+          const { stepUpApprovalId, ...rest } = input;
+          if (stepUpEnforced) {
+            await requireStepUp(
+              ctx.principal,
+              teamAssignRoleBinding({ actor: ctx.principal.userId, accountId: rest.accountId, userId: rest.userId, roleId: rest.roleId }),
+              stepUpApprovalId,
+            );
+          }
+          return team().assignRole({ ...rest, actorUserId: ctx.principal.userId });
+        }),
+      ),
     addAdvisor: scopedProcedure('bank:write', { module: 'bank' })
       .input(z.object({ accountId: z.string().guid(), handle: z.string().min(1).max(64) }).strict())
       .output(businessTeamAdvisorSchema)
@@ -147,13 +175,18 @@ export function createBusinessTeamRouter(c: BankRouterContext) {
             email: z.string().max(320).nullable(),
             role: z.enum(BUSINESS_TEAM_ROLES).nullable(),
             roleId: z.string().guid().nullable(),
+            stepUpApprovalId: stepUpApprovalField,
           })
           .strict(),
       )
       .output(businessTeamInviteMadeSchema)
       .mutation(({ ctx, input }) =>
         guard(async () => {
-          const made = await team().invite({ ...input, actorUserId: ctx.principal.userId });
+          const { stepUpApprovalId, ...rest } = input;
+          if (stepUpEnforced) {
+            await requireStepUp(ctx.principal, teamInviteBinding({ actor: ctx.principal.userId, ...rest }), stepUpApprovalId);
+          }
+          const made = await team().invite({ ...rest, actorUserId: ctx.principal.userId });
           return { invite: inviteView(made.invite), token: made.token };
         }),
       ),
@@ -173,9 +206,17 @@ export function createBusinessTeamRouter(c: BankRouterContext) {
         guard(async () => inviteView(await team().revokeInvite({ ...input, actorUserId: ctx.principal.userId }))),
       ),
     acceptInvite: scopedProcedure('bank:write', { module: 'bank' })
-      .input(z.object({ token: z.string().min(1).max(128) }).strict())
+      .input(z.object({ token: z.string().min(1).max(128), stepUpApprovalId: stepUpApprovalField }).strict())
       .output(businessTeamJoinedSchema)
-      .mutation(({ ctx, input }) => guard(() => team().acceptInvite({ token: input.token, userId: ctx.principal.userId }))),
+      .mutation(({ ctx, input }) =>
+        guard(async () => {
+          if (stepUpEnforced) {
+            const tokenHash = createHash('sha256').update(input.token, 'utf8').digest('hex');
+            await requireStepUp(ctx.principal, teamAcceptInviteBinding({ actor: ctx.principal.userId, tokenHash }), input.stepUpApprovalId);
+          }
+          return team().acceptInvite({ token: input.token, userId: ctx.principal.userId });
+        }),
+      ),
     addRule: scopedProcedure('bank:write', { module: 'bank' })
       .input(
         z
@@ -204,14 +245,20 @@ export function createBusinessTeamRouter(c: BankRouterContext) {
             payee: z.string().min(1).max(128),
             paymentType: z.enum(BUSINESS_PAYMENT_TYPES),
             amount: amountString,
+            stepUpApprovalId: stepUpApprovalField,
           })
           .strict(),
       )
       .output(businessTeamPaymentSchema)
       .mutation(({ ctx, input }) =>
-        guard(async () =>
-          paymentView(await team().propose({ ...input, amount: parseAmount(input.amount), makerUserId: ctx.principal.userId })),
-        ),
+        guard(async () => {
+          const { stepUpApprovalId, ...rest } = input;
+          // Money leaves here when no rule applies, so the maker confirms the exact payment as the business door asks.
+          if (stepUpEnforced) {
+            await requireStepUp(ctx.principal, teamProposeBinding({ actor: ctx.principal.userId, ...rest }), stepUpApprovalId);
+          }
+          return paymentView(await team().propose({ ...rest, amount: parseAmount(rest.amount), makerUserId: ctx.principal.userId }));
+        }),
       ),
     /** One approval. The one that completes the rule's count sends the partner instruction, once. */
     approve: scopedProcedure('bank:write', { module: 'bank' })
@@ -222,7 +269,7 @@ export function createBusinessTeamRouter(c: BankRouterContext) {
           if (stepUpEnforced) {
             await requireStepUp(
               ctx.principal,
-              approveBinding({ actor: ctx.principal.userId, approvalId: input.paymentId }),
+              teamApproveBinding({ actor: ctx.principal.userId, paymentId: input.paymentId }),
               input.stepUpApprovalId,
             );
           }
