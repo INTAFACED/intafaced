@@ -14,6 +14,7 @@ import { builderFeesAt } from './builder-fee-versions.js';
 import { createFeeSaverClient } from './fee-saver-client.js';
 import { HttpUserVenue } from './http-user-venue.js';
 import { registerInternalVenueDeposits } from './internal-deposits.js';
+import { registerInternalEquity } from './internal-equity.js';
 import { registerInternalOurFills } from './internal-our-fills.js';
 import { SqlPreparedActionStore } from './prepared-action-store.js';
 import { UserVenueDoor, parseBuilderFee, parseOrdersPageMax } from './user-venue-door.js';
@@ -115,6 +116,13 @@ export function wireUserVenue(deps: {
   // (J-campaigns-11 #3 #4).
   registerInternalOurFills(app, {
     fills: { venue: userVenue ? () => userVenue.venue() : null, store: userVenueStore, now: () => new Date() },
+    secret: env.INTERNAL_SERVICE_SECRET,
+    s2s: doorS2s,
+  });
+  // The primary venue's equity of one person in one asset, read by svc-campaigns' airdrop snapshots and reward pools'
+  // minimum balance (J-campaigns-13 #2 #4).
+  registerInternalEquity(app, {
+    equity: { venue: userVenue ? () => userVenue.venue() : null, store: userVenueStore, now: () => new Date() },
     secret: env.INTERNAL_SERVICE_SECRET,
     s2s: doorS2s,
   });
