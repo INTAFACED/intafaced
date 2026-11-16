@@ -91,13 +91,13 @@ describe('trade venue activity client', () => {
     const off = createTradeVenueActivityClient({
       tradeUrl: 'http://trade.internal',
       secret: SECRET,
-      fetcher: (async () => reply({ state: 'off' })) as unknown as typeof fetch,
+      fetcher: (async () => reply({ state: 'off' })) as typeof fetch,
     });
     await expect(off.read(input)).resolves.toEqual({ state: 'off' });
     const none = createTradeVenueActivityClient({
       tradeUrl: 'http://trade.internal',
       secret: SECRET,
-      fetcher: (async () => reply({ state: 'read', test: true, accounts: [] })) as unknown as typeof fetch,
+      fetcher: (async () => reply({ state: 'read', test: true, accounts: [] })) as typeof fetch,
     });
     await expect(none.read(input)).resolves.toEqual({ state: 'read', test: true, accounts: [] });
   });
@@ -111,7 +111,7 @@ describe('trade venue activity client', () => {
     ['a short secret', { tradeUrl: 'http://trade.internal', secret: 'short' }],
   ])('answers unavailable without fetching for %s', async (_name, options) => {
     const fetcher = vi.fn();
-    const client = createTradeVenueActivityClient({ ...options, fetcher: fetcher as unknown as typeof fetch });
+    const client = createTradeVenueActivityClient({ ...options, fetcher: fetcher as typeof fetch });
     await expect(client.read(input)).resolves.toEqual(UNAVAILABLE);
     await expect(client.read({ userId: '' })).resolves.toEqual(UNAVAILABLE);
     expect(fetcher).not.toHaveBeenCalled();
@@ -126,7 +126,7 @@ describe('trade venue activity client', () => {
     const client = createTradeVenueActivityClient({
       tradeUrl: 'http://trade.internal',
       secret: SECRET,
-      fetcher: fetcher as unknown as typeof fetch,
+      fetcher: fetcher as typeof fetch,
     });
     await expect(client.read(input)).resolves.toEqual(UNAVAILABLE);
   });
@@ -140,7 +140,7 @@ describe('trade venue activity client', () => {
       tradeUrl: 'http://trade.internal',
       secret: SECRET,
       timeoutMs: 20,
-      fetcher: fetcher as unknown as typeof fetch,
+      fetcher: fetcher as typeof fetch,
     });
     await expect(client.read(input)).resolves.toEqual(UNAVAILABLE);
   });

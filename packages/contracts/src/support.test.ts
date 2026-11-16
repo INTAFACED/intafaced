@@ -212,7 +212,7 @@ describe('ticket properties contract (SP-tickets-04)', () => {
     expect(
       supportTicketPropertiesSchema.safeParse({ ticketId, priority: null, ticketType: null, labels: [], updatedAt: null }).success,
     ).toBe(true);
-    const shape = Object.keys((supportTicketSchema as unknown as { shape: Record<string, unknown> }).shape);
+    const shape = Object.keys((supportTicketSchema as { shape: Record<string, unknown> }).shape);
     for (const key of ['priority', 'ticketType', 'labels']) expect(shape).not.toContain(key);
   });
 });
@@ -241,7 +241,7 @@ describe('ticket lifecycle (SP-tickets-04)', () => {
     expect(createTicketInputSchema.safeParse(base).success).toBe(true);
   });
   it('the owner-read ticket schema carries no desk lifecycle fact', () => {
-    const shape = Object.keys((supportTicketSchema as unknown as { shape: Record<string, unknown> }).shape);
+    const shape = Object.keys((supportTicketSchema as { shape: Record<string, unknown> }).shape);
     for (const key of ['waitingOn', 'waitingSince', 'firstPublicReplyAt']) expect(shape).not.toContain(key);
   });
 });
