@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { usePreferences } from '../../../shared/preferences';
 import { usePolled } from '../../../features/protocol/wallet/use-polled';
 import { draftId, keys, type VenueUp } from '../../../features/trade/venue-api';
@@ -26,18 +26,7 @@ type Note = { tone: 'good' | 'bad'; text: string } | null;
  * signature moves that time on ("Refresh now") or removes it ("Turn off", timeout 0). The time shown is always the
  * venue's own record, read back after every change. A venue with no scheduled cancel says so: not offered.
  */
-export function VenueDeadMan({
-  status,
-  owner,
-  run,
-  onFired,
-}: {
-  status: VenueUp;
-  owner: string | null;
-  run: RunAction;
-  /** Called when the venue's record shows it fired: the open orders it cancelled are read again. */
-  onFired: () => void;
-}) {
+export function VenueDeadMan({ status, owner, run }: { status: VenueUp; owner: string | null; run: RunAction }) {
   const { t } = spotVenueCopy.useCopy();
   const { timeZone } = usePreferences();
   const venue = useVenueApi();
@@ -57,23 +46,16 @@ export function VenueDeadMan({
   const [note, setNote] = useState<Note>(null);
   // A press whose answer was not definite keeps its key: pressed again, it is read back, never signed twice.
   const draft = useRef<string | null>(null);
-  // The venue's last firing this page has already shown.
-  const seenFiring = useRef<string | null | undefined>(undefined);
 
+  // A firing after this page opened is told once in the dialog; the open orders it cancelled leave Open orders on their
+  // own next read (VENUE_POLL_MS).
+  const [openedAt] = useState(() => Date.now());
   const fired = record?.lastFired ?? null;
-  useEffect(() => {
-    if (!read.data) return;
-    const at = fired?.firedAt ?? null;
-    if (seenFiring.current === undefined) {
-      seenFiring.current = at;
-      return;
-    }
-    if (at !== null && at !== seenFiring.current) {
-      seenFiring.current = at;
-      setNote({ tone: 'good', text: t('Dead man fired', { count: fired!.canceled, time: clockSeconds(Date.parse(at), timeZone) }) });
-      onFired();
-    }
-  }, [read.data, fired, onFired, t, timeZone]);
+  const firedNote: Note =
+    fired && Date.parse(fired.firedAt) > openedAt
+      ? { tone: 'good', text: t('Dead man fired', { count: fired.canceled, time: clockSeconds(Date.parse(fired.firedAt), timeZone) }) }
+      : null;
+  const shown = note ?? firedNote;
 
   const cancelsAt = record?.cancelsAt ? Date.parse(record.cancelsAt) : null;
   const label = !offered
@@ -162,17 +144,17 @@ export function VenueDeadMan({
                 ) : null}
               </fieldset>
             )}
-            {armed && !note ? (
+            {armed && !shown ? (
               <p className="dk-note" role="status">
                 {t('Dead man armed', { time: clockSeconds(cancelsAt, timeZone) })}
               </p>
             ) : null}
-            {note ? (
+            {shown ? (
               <p
-                className={note.tone === 'good' ? 'dk-note dk-note--good' : 'dk-note dk-note--bad'}
-                role={note.tone === 'good' ? 'status' : 'alert'}
+                className={shown.tone === 'good' ? 'dk-note dk-note--good' : 'dk-note dk-note--bad'}
+                role={shown.tone === 'good' ? 'status' : 'alert'}
               >
-                {note.text}
+                {shown.text}
               </p>
             ) : null}
             <AlertDialogFooter>

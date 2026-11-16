@@ -1,13 +1,14 @@
-// World: book, restart, stack
+// World: book, gates, restart, stack
 import { createHash, randomBytes } from 'node:crypto';
 import { createWalletClient, encodeFunctionData, http, parseAbi, parseUnits } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { api, fromUnits, journeyState, restartWithSetting, toUnits } from './stack.mjs';
+import { api, journeyState, restartWithSetting, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { CHAIN_ID, fundOnTestChain, testChain } from './dex.mjs';
 import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs';
 import { setPartner } from './partner.mjs';
+import { ownSpotMarket } from './own-market.mjs';
 import {
   continueInWallet,
   openVenueDesk,
@@ -33,18 +34,23 @@ import {
 // 30, 60 and 120 seconds (TRADE_CANCEL_ALL_AFTER_TIMEOUTS_SEC); the first TEST venue takes a scheduled cancel at least 5
 // seconds ahead (FIRST_TEST_VENUE_SCHEDULED_CANCEL_MIN_LEAD_MS). Every figure is TEST.
 const J = 'J-cex-spot-07';
-const DESK = '/trade/spot/BTC-USDC';
-const SPOT = 'BTC-USDC';
 const PUBLISHED = [10, 30, 60, 120];
 /** TEST USD the wallet sends to the venue's deposit address: the venue account's only funding. */
 const DEPOSIT = '60';
-/** TEST resting buys: small, far under the venue's bids, so only a cancel ends them. */
-const REST_AMOUNT = '0.0002';
+/**
+ * Every order of this file is on a TEST market of its own (ownSpotMarket), whose book only this file trades: a resting
+ * buy there meets nothing but a sell this file puts there (garden/no-shared-market-on-book). TEST amounts and prices.
+ */
+const AMOUNT = '1';
+const REST_PRICES = ['10', '9'];
+const TRADE_PRICE = '12';
 const PARTNER_BANK = 'TEST partner bank';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
 test.describe.configure({ mode: 'default' });
 venueForThisFile(test);
+
+const desk = (s) => `/trade/spot/${s.market.symbol}`;
 
 function state() {
   const s = run.read();
@@ -59,17 +65,6 @@ const venueOrder = async (owner, venueClientOrderId) => (await venueRecord(owner
 const schedule = async (owner) => (await venueRecord(owner, '/scheduled-cancel')).value;
 const usdcLocked = async (owner) => toUnits((await venueRecord(owner, '/balances')).value.find((b) => b.asset === 'USDC')?.locked ?? '0');
 
-/** The venue's best bid or ask on `symbol`, from its own book. */
-async function bestOf(side, symbol = SPOT) {
-  const { status, body } = await testVenue('/book', { symbol, depth: 1 });
-  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
-  const level = body.value[side === 'bid' ? 'bids' : 'asks'][0];
-  expect(level, `the TEST venue has ${side}s on ${symbol}`).toBeTruthy();
-  return toUnits(level.price);
-}
-/** A whole-dollar TEST price `percent` of the venue's best bid: a buy there rests and never fills. */
-const awayBid = async (percent) => fromUnits((((await bestOf('bid')) * BigInt(percent)) / 100n / toUnits('1')) * toUnits('1'));
-
 /** Our ledger's view of this account: nothing in this journey posts to it. */
 const ledgerView = async (who) => (await api(who)).balances();
 
@@ -78,13 +73,19 @@ const ledgerView = async (who) => (await api(who)).balances();
 async function throughUs(s, intent, actionKey) {
   const session = await api(s.account);
   const key = privateKeyToAccount(s.walletKey);
-  const prepared = await session.post('/api/v1/venue/prepare', {
-    owner: s.owner,
-    signer: { role: 'owner', address: s.owner },
-    intent,
-    ...(actionKey ? { actionKey } : {}),
-  });
-  expect(prepared.status, JSON.stringify(prepared.body).slice(0, 400)).toBe(200);
+  // A market listed a moment ago may not be in our door's market list yet: it re-reads the venue's list on a miss, at
+  // most every few seconds (user-venue-door.ts MARKET_MISS_REREAD_MS), so only the prepare, which signs and sends
+  // nothing, is asked again until it answers.
+  let prepared;
+  await expect(async () => {
+    prepared = await session.post('/api/v1/venue/prepare', {
+      owner: s.owner,
+      signer: { role: 'owner', address: s.owner },
+      intent,
+      ...(actionKey ? { actionKey } : {}),
+    });
+    expect(prepared.status, JSON.stringify(prepared.body).slice(0, 400)).toBe(200);
+  }).toPass({ timeout: 30_000, intervals: [2_000] });
   const t = prepared.body.prepared.typedData;
   const signature = await key.signTypedData({ domain: t.domain, types: t.types, primaryType: t.primaryType, message: t.message });
   const sent = await session.post('/api/v1/venue/submit', {
@@ -98,47 +99,48 @@ async function throughUs(s, intent, actionKey) {
 
 const buy = (s, tag, price, timeInForce = 'GTC') => ({
   kind: 'place_order',
-  symbol: SPOT,
+  symbol: s.market.symbol,
   side: 'buy',
   type: 'limit',
-  amount: REST_AMOUNT,
+  amount: AMOUNT,
   price,
   timeInForce,
   reduceOnly: false,
-  clientOrderKey: `order:${s.owner}:btc-usdc:js7${tag}${randomBytes(3).toString('hex')}`,
+  clientOrderKey: `order:${s.owner}:js7${tag}${randomBytes(3).toString('hex')}`,
   builderFee: null,
 });
 
 /** A TEST buy resting on the venue, placed through INTAFACED; returns its client id on the venue. */
-async function restThroughUs(s, tag, percent = 80) {
-  const outcome = await throughUs(s, buy(s, tag, await awayBid(percent)));
+async function restThroughUs(s, tag, price = REST_PRICES[0]) {
+  const outcome = await throughUs(s, buy(s, tag, price));
   expect(outcome.order).toMatchObject({ status: 'open' });
   return outcome.order.venueClientOrderId;
 }
 
-/** Another TEST customer's resting buy, signed and sent on the TEST venue directly by their own key. */
-async function otherRests(name) {
-  await testVenue('/test/deposit', {
-    account: await venueAccount(otherTraderKey(name).address),
-    asset: 'USDC',
-    amount: '1000',
-    depositRef: `seed:${name}:USDC`,
-  });
+/** Another TEST customer's resting order on `symbol`, signed and sent on the TEST venue directly by their own key. */
+async function otherRests(name, symbol, side, price, asset, funds) {
   const owner = otherTraderKey(name).address.toLowerCase();
+  const funded = await testVenue('/test/deposit', {
+    account: await venueAccount(owner),
+    asset,
+    amount: funds,
+    depositRef: `seed:${name}:${asset}`,
+  });
+  expect(funded.status, JSON.stringify(funded.body)).toBe(200);
   const answer = await otherTraderRun(name, {
     kind: 'place_order',
-    symbol: SPOT,
-    side: 'buy',
+    symbol,
+    side,
     type: 'limit',
-    amount: REST_AMOUNT,
-    price: await awayBid(75),
+    amount: AMOUNT,
+    price,
     timeInForce: 'GTC',
     reduceOnly: false,
     clientOrderKey: `order:${owner}:js7-other-${randomBytes(4).toString('hex')}`,
     builderFee: null,
   });
   expect(answer, JSON.stringify(answer).slice(0, 300)).toMatchObject({ accepted: true, order: { status: 'open' } });
-  return { owner, id: answer.order.venueClientOrderId, symbol: SPOT, key: answer.order };
+  return { owner, id: answer.order.venueClientOrderId };
 }
 
 // ── the desk ──
@@ -240,9 +242,11 @@ async function startsLine(browser) {
     expect(funded.status, JSON.stringify(funded.body)).toBe(200);
     expect(funded.body.result.data).toMatchObject({ label: PARTNER_BANK, assetId: 'USDT' });
 
-    const s = { account: who, walletKey, owner };
-    const orders = [await restThroughUs(s, 'a', 80), await restThroughUs(s, 'b', 70)];
-    run.write({ ledgerStart, txHash: txHash.toLowerCase(), orders });
+    // The file's own TEST market, listed by two operators, its book empty.
+    const market = await ownSpotMarket(J, 'JSS', 'A');
+    const s = { account: who, walletKey, owner, market };
+    const orders = [await restThroughUs(s, 'a', REST_PRICES[0]), await restThroughUs(s, 'b', REST_PRICES[1])];
+    run.write({ ledgerStart, txHash: txHash.toLowerCase(), orders, market });
   } finally {
     await page.close();
   }
@@ -256,7 +260,7 @@ test(`${J} #1 arms the switch with a timeout the owner has published: armed on t
   await startsLine(browser);
   const s = state();
   for (const id of s.orders) expect(await venueOrder(s.owner, id)).toMatchObject({ status: 'open' });
-  await openVenueDesk(page, s.account, DESK, s.walletKey);
+  await openVenueDesk(page, s.account, desk(s), s.walletKey);
   await expect(switchButton(page)).toHaveText('Auto-cancel: off', { timeout: 30_000 });
   expect((await schedule(s.owner)).cancelsAt).toBeNull();
   const box = await openSwitch(page);
@@ -287,7 +291,7 @@ test(`${J} #1 arms the switch with a timeout the owner has published: armed on t
   const other = await browser.newPage();
   try {
     expect((await testVenue('/venue')).body.venue.scheduledCancel).toBeUndefined();
-    const plain = await openVenueDesk(other, s.account, DESK, s.walletKey);
+    const plain = await openVenueDesk(other, s.account, desk(s), s.walletKey);
     const { displayName } = await venueInfo();
     await expect(switchButton(other)).toHaveText('Auto-cancel: not offered by this venue', { timeout: 30_000 });
     await switchButton(other).click();
@@ -323,7 +327,7 @@ test(`${J} #2 arms it with an unpublished timeout: refused with a typed reason, 
 }) => {
   test.setTimeout(180_000);
   const s = state();
-  const wallet = await openVenueDesk(page, s.account, DESK, s.walletKey);
+  const wallet = await openVenueDesk(page, s.account, desk(s), s.walletKey);
   const box = await openSwitch(page);
   await box.getByRole('radio', { name: 'Other' }).check();
   await box.getByRole('textbox', { name: 'Seconds', exact: true }).fill('7');
@@ -349,9 +353,16 @@ test(`${J} #3 stops talking past the deadline: every resting venue order placed 
   const mine = s.orders;
   for (const id of mine) expect(await venueOrder(s.owner, id)).toMatchObject({ status: 'open' });
   expect(await usdcLocked(s.owner)).toBeGreaterThan(0n);
-  const theirs = await otherRests(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}-${s.owner.slice(2, 10)}`);
+  const theirs = await otherRests(
+    `${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}-${s.owner.slice(2, 10)}`,
+    s.market.symbol,
+    'buy',
+    '8',
+    'USDC',
+    '1000',
+  );
 
-  await openVenueDesk(page, s.account, DESK, s.walletKey);
+  await openVenueDesk(page, s.account, desk(s), s.walletKey);
   for (const id of mine)
     await expect(page.getByTestId('venue-open-orders').locator(`tr[data-client-order-id="${id}"]`)).toHaveCount(1, { timeout: 30_000 });
   const box = await openSwitch(page);
@@ -386,8 +397,8 @@ test(`${J} #4 keeps refreshing, then disarms with timeout 0: nothing cancelled w
 }) => {
   test.setTimeout(240_000);
   const s = state();
-  const order = await restThroughUs(s, 'kept', 80);
-  await openVenueDesk(page, s.account, DESK, s.walletKey);
+  const order = await restThroughUs(s, 'kept');
+  await openVenueDesk(page, s.account, desk(s), s.walletKey);
   const box = await openSwitch(page);
   const first = await armFromDesk(page, box, 10, s.owner);
 
@@ -436,9 +447,17 @@ test(`${J} #5 requests a statement export of orders, trades and money movements 
 }) => {
   test.setTimeout(300_000);
   const s = state();
-  // A trade of the account's own: a TEST buy at the venue's best ask, placed through INTAFACED, filling at once.
-  const ask = await bestOf('ask');
-  const bought = await throughUs(s, buy(s, 'take', fromUnits(ask), 'IOC'));
+  // A trade of the account's own: another TEST customer rests a sell on the file's market, and the person's TEST buy at
+  // its price, placed through INTAFACED, fills against it at once.
+  await otherRests(
+    `${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}-maker-${s.owner.slice(2, 10)}`,
+    s.market.symbol,
+    'sell',
+    TRADE_PRICE,
+    s.market.base,
+    '5',
+  );
+  const bought = await throughUs(s, buy(s, 'take', TRADE_PRICE, 'IOC'));
   expect(bought.order).toMatchObject({ status: 'filled' });
   // A statement that ends today ends at the last whole minute that has been over for a minute: wait until that end is
   // past the trade, so it is inside the range.
@@ -446,7 +465,7 @@ test(`${J} #5 requests a statement export of orders, trades and money movements 
   const settledEnd = () => Math.floor((Date.now() - 60_000) / 60_000) * 60_000;
   await expect.poll(settledEnd, { timeout: 130_000, intervals: [1000] }).toBeGreaterThan(placedAt);
 
-  await openVenueDesk(page, s.account, DESK, s.walletKey);
+  await openVenueDesk(page, s.account, desk(s), s.walletKey);
   await page.getByRole('button', { name: 'Statement…' }).click();
   const box = page.getByRole('alertdialog').filter({ hasText: 'Download a statement' });
   const { displayName } = await venueInfo();

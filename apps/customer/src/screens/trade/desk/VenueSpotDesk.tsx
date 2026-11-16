@@ -615,7 +615,7 @@ export function VenueSpotDesk({
                 }),
             }}
           />
-          <VenueDeadMan status={status} owner={owner} run={run} onFired={account.reload} />
+          <VenueDeadMan status={status} owner={owner} run={run} />
           <VenueCancelMany
             orders={account.openOrders.data?.value ?? []}
             market={market}
