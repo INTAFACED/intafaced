@@ -86,6 +86,15 @@ describe('TEST venue simulator: trigger orders (J-derivatives-03)', { timeout: 6
     });
   });
 
+  it('a TEST control turns trigger orders on for a perpetual and back off (J-cex-spot-06 #6)', async () => {
+    const w = world();
+    w.sim.setTriggerSources('BTC-PERP', ['mark', 'last']);
+    expect((await w.sim.markets(null)).value.find((m) => m.symbol === 'BTC-PERP')!.triggerSources).toEqual(['mark', 'last']);
+    w.sim.setTriggerSources('BTC-PERP', []);
+    expect((await w.sim.markets(null)).value.find((m) => m.symbol === 'BTC-PERP')!.triggerSources).toEqual([]);
+    expect(() => w.sim.setTriggerSources('BTC-USDC', ['mark'])).toThrow(/cash spot/);
+  });
+
   it('#1 a take profit and a stop loss rest on the venue, waiting and off the book, each with its own venue order id', async () => {
     const w = await long();
     const book = (await w.sim.book(ETH, 10)).value;

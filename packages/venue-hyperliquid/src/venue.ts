@@ -18,6 +18,7 @@ import {
   type UserVenueLeverage,
   type UserVenueMarket,
   type UserVenueOrder,
+  type UserVenueOrderRecord,
   type UserVenuePosition,
   type UserVenueWithdrawal,
   type VenueAssetAmount,
@@ -1136,6 +1137,28 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
     const lev = this.leverageLookup(account);
     const list: UserVenueOrder[] = [];
     for (const r of raw) list.push(await this.toOrder(account, obj(r, 'open order'), null, lev));
+    return this.asOf(list);
+  }
+
+  /**
+   * The account's order history (J-cex-spot-06 #1): Hyperliquid's `historicalOrders`, its 2000 most recent orders, each
+   * the order as last reported with its status. An open entry's part-filled state comes from its sizes; the time placed is
+   * the order's own `timestamp`. Newest placed first.
+   */
+  async orderHistory(account: UserVenueAccount): Promise<AsOf<readonly UserVenueOrderRecord[]>> {
+    const raw = arr(await this.info({ type: 'historicalOrders', user: this.user(account) }), 'historical orders');
+    const lev = this.leverageLookup(account);
+    const list: UserVenueOrderRecord[] = [];
+    for (const entry of raw) {
+      const wrapped = obj(entry, 'historical order');
+      const order = obj(wrapped.order, 'historical order.order');
+      const status = mapOrderStatus(str(wrapped.status, 'historical order status'));
+      list.push({
+        order: await this.toOrder(account, order, status === 'open' ? null : status, lev),
+        placedAt: new Date(int(order.timestamp, 'order timestamp')),
+      });
+    }
+    list.sort((a, b) => b.placedAt.getTime() - a.placedAt.getTime());
     return this.asOf(list);
   }
 

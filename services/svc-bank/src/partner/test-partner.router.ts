@@ -6,6 +6,7 @@ import { BankError } from '../errors.js';
 import { amountString, partnerFiguresOutput } from '../router/shared.js';
 import type { BankServices } from '../bank-service.js';
 import { NO_PARTNER_BANK_CODE, partnerPayoutsAccount } from './partner-bank.js';
+import { businessPartnerAccount } from '../business/business-team.js';
 import { PARTNER_FEATURES, TEST_PARTNER_MERCHANT, partnerReserve, type TestPartner, type TestPartnerSwitches } from './test-partner.js';
 
 type Guard = <T>(fn: () => Promise<T>) => Promise<T>;
@@ -56,7 +57,10 @@ function out(partner: TestPartner, userId: string, now: TestPartnerSwitches) {
  * it does not offer, what it does not say, and whether it answers. Off the TEST stack every call refuses
  * `bank.test_partner_off`, because there is no TEST partner to switch.
  */
-export function createTestPartnerRouter(bank: Pick<BankServices, 'testPartner' | 'cards' | 'partnerCustody'>, guard: Guard) {
+export function createTestPartnerRouter(
+  bank: Pick<BankServices, 'testPartner' | 'cards' | 'partnerCustody' | 'businessTeam'>,
+  guard: Guard,
+) {
   return router({
     switches: scopedProcedure('bank:read', { module: 'bank' })
       .output(view)
@@ -91,6 +95,27 @@ export function createTestPartnerRouter(bank: Pick<BankServices, 'testPartner' |
             amount: parseAmount(input.amount),
           });
           return { label: now.label, assetId: input.assetId, balance: formatAmount(now.amount!), asOf: now.asOf!.toISOString() };
+        }),
+      ),
+    /**
+     * TEST money paid into a business's own account at the TEST partner bank, once per `fundId` (J-bank-19 Starts: the
+     * business bank account holds TEST money at the partner). Only the business's owner may, and only while their own
+     * bank money is the partner's (`custody: 'off'`). It is the partner's figure, not a ledger post: nothing is posted.
+     */
+    fundBusiness: scopedProcedure('bank:write', { module: 'bank' })
+      .input(z.object({ accountId: z.string().guid(), fundId: z.string().min(8).max(64), amount: amountString }).strict())
+      .output(z.object({ label: z.string(), assetId: z.string(), balance: z.string(), asOf: z.string().datetime() }))
+      .mutation(({ ctx, input }) =>
+        guard(async () => {
+          const partner = on(bank.testPartner);
+          const userId = ctx.principal.userId;
+          const { assetId } = await bank.businessTeam.assertOwner(input.accountId, userId);
+          if (!bank.partnerCustody.bankFor(userId)) {
+            throw new BankError('This business’s money is not held at the TEST partner bank.', NO_PARTNER_BANK_CODE);
+          }
+          const account = businessPartnerAccount(input.accountId, assetId);
+          const now = partner.fund(account.userId, { fundId: input.fundId, assetId, amount: parseAmount(input.amount) });
+          return { label: now.label, assetId, balance: formatAmount(now.amount!), asOf: now.asOf!.toISOString() };
         }),
       ),
     /**

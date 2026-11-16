@@ -3138,6 +3138,9 @@ describe('svc-bank money PG-hard', () => {
           'the PROPOSED floor on one dual-control request; written once, applied by copying it onto the account',
         'business_approvals.amount': 'a RECORD of one proposed/approved transfer; written once',
         'business_payroll_lines.amount': 'a RECORD of one payroll line; written once with the run',
+        'business_departments.budget': 'a POLICY budget the owner set for one department; never written by a money path',
+        'business_payment_rules.over_amount': 'a POLICY threshold above which a payment needs approvals; instruction, not a holding',
+        'business_payments.amount': 'an INSTRUCTION: one payment proposed to the partner bank; written once when proposed',
         'dormancy_notices.fee': 'a RECORD of the fee one notice named; the debit, if any, is the partner move it names',
         'budgets.target':
           'a POLICY: the monthly target the person chose for one spend category; spend is folded from the partner record or the ledger',

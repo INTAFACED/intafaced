@@ -73,6 +73,7 @@ import { apiSecurityHeaders, securityHeaders } from '../../apps/customer/deploym
 import { APEX_DESCRIPTOR_PATH, APEX_PRODUCT } from '../../apps/customer/deployment/host-dispatch.mjs';
 import { anvilBin, chainRecordPath, chainStatus, CHAIN_PORTS, GATE_URL, runSeedScript, TEST_CHAIN_ID } from './local-test-chain.mjs';
 import {
+  anotherCheckoutsStack,
   claimSlot,
   FIX_SOCKET_PORTS,
   localStackSlot,
@@ -4392,6 +4393,9 @@ if (runningAsCli()) await runCli();
 
 async function runCli() {
   const [cmd = 'start', ...rest] = process.argv.slice(2);
+  // A start takes a free slot itself; every other command here acts on the stack the slot points at.
+  const borrowed = ['start', 'plan'].includes(cmd) || cmd.startsWith('__') ? null : anotherCheckoutsStack();
+  if (borrowed) fail(borrowed);
   if (cmd === '__serve-customer')
     serveCustomer(Number(rest[0]) || PORTS.customer); // the port argument is for tests only
   else if (cmd === '__serve-invitation') serveCustomer(PORTS.invitation, SITES.invitation);
