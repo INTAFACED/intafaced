@@ -220,6 +220,15 @@ const messages = {
   'Report a death': 'Report a death',
   'Tell us that a customer has died': 'Tell us that a customer has died',
   'Lost phone or compromised account': 'Lost phone or compromised account',
+  'Team and approvals': 'Team and approvals',
+  'Roles, invites, approval rules and payments for your business': 'Roles, invites, approval rules and payments for your business',
+  'Team spend': 'Team spend',
+  'What each member spent, as the partner bank reports it, and departments':
+    'What each member spent, as the partner bank reports it, and departments',
+  'Payment approval': 'Payment approval',
+  'The rule that applied, each approval and the result': 'The rule that applied, each approval and the result',
+  'Join a business': 'Join a business',
+  'Accept an invitation to a business bank team': 'Accept an invitation to a business bank team',
   'Secure the account, extra checks for large sends and your sign-in location':
     'Secure the account, extra checks for large sends and your sign-in location',
   'Report a scam': 'Report a scam',
@@ -734,6 +743,15 @@ export const navigationCopy: ReturnType<typeof defineCopy<typeof messages>> = de
     'Report a death': 'Comunicar un fallecimiento',
     'Tell us that a customer has died': 'Avísanos de que un cliente ha fallecido',
     'Lost phone or compromised account': 'Teléfono perdido o cuenta comprometida',
+    'Team and approvals': 'Equipo y aprobaciones',
+    'Roles, invites, approval rules and payments for your business': 'Roles, invitaciones, reglas de aprobación y pagos de tu empresa',
+    'Team spend': 'Gasto del equipo',
+    'What each member spent, as the partner bank reports it, and departments':
+      'Lo que gastó cada miembro, según el banco socio, y los departamentos',
+    'Payment approval': 'Aprobación del pago',
+    'The rule that applied, each approval and the result': 'La regla aplicada, cada aprobación y el resultado',
+    'Join a business': 'Unirse a una empresa',
+    'Accept an invitation to a business bank team': 'Acepta una invitación al equipo bancario de una empresa',
     'Secure the account, extra checks for large sends and your sign-in location':
       'Protege la cuenta, controles extra para envíos grandes y tu ubicación al entrar',
     'Report a scam': 'Denunciar una estafa',
@@ -1159,6 +1177,16 @@ export const navigationCopy: ReturnType<typeof defineCopy<typeof messages>> = de
     'Report a death': 'Signaler un décès',
     'Tell us that a customer has died': 'Indiquez-nous qu’un client est décédé',
     'Lost phone or compromised account': 'Téléphone perdu ou compte compromis',
+    'Team and approvals': 'Équipe et approbations',
+    'Roles, invites, approval rules and payments for your business':
+      'Rôles, invitations, règles d’approbation et paiements de ton entreprise',
+    'Team spend': 'Dépenses de l’équipe',
+    'What each member spent, as the partner bank reports it, and departments':
+      'Ce que chaque membre a dépensé, selon la banque partenaire, et les services',
+    'Payment approval': 'Approbation du paiement',
+    'The rule that applied, each approval and the result': 'La règle appliquée, chaque approbation et le résultat',
+    'Join a business': 'Rejoindre une entreprise',
+    'Accept an invitation to a business bank team': 'Accepte une invitation dans l’équipe bancaire d’une entreprise',
     'Secure the account, extra checks for large sends and your sign-in location':
       'Sécurisez le compte, ajoutez des contrôles aux gros envois et votre position à la connexion',
     'Report a scam': 'Signaler une arnaque',

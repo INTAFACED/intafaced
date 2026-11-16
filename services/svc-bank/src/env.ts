@@ -656,6 +656,12 @@ const schema = serviceEnvSchema
       BANK_SHARED_POT_INVITE_MINUTES: z.string().optional(),
 
       /**
+       * Owner-set minutes a business team invite stays open (J-bank-19 #3), 1 to 43200. NO DEFAULT. Blank / unset / not a
+       * whole number → every team invite refuses `bank.business_invite_lifetime_unset`. Boot stays up.
+       */
+      BANK_BUSINESS_INVITE_MINUTES: z.string().optional(),
+
+      /**
        * Owner-set number of people one pot may be shared with, open invites included (BK-acct-09), 1 to 50. NO DEFAULT.
        * Blank / unset → inviting and accepting refuse `bank.joint_unset`. Boot stays up.
        */

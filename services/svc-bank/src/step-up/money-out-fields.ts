@@ -193,6 +193,79 @@ export function approveBinding(i: { actor: string; approvalId: string }): DoorBi
   };
 }
 
+/** A business-team payment (J-bank-19): the payee, type and amount the maker named, under its own id. */
+export function teamProposeBinding(i: {
+  actor: string;
+  accountId: string;
+  paymentId: string;
+  payee: string;
+  paymentType: string;
+  amount: string;
+}): DoorBinding {
+  return {
+    actionType: 'bank.step_up.businessTeam.propose',
+    operationKey: i.paymentId,
+    fields: {
+      actor: i.actor,
+      accountId: i.accountId,
+      paymentId: i.paymentId,
+      payee: i.payee,
+      paymentType: i.paymentType,
+      amount: i.amount,
+    },
+  };
+}
+
+/** One approval of one business-team payment: its own action type, so a business transfer's approval never spends here. */
+export function teamApproveBinding(i: { actor: string; paymentId: string }): DoorBinding {
+  return {
+    actionType: 'bank.step_up.businessTeam.approve',
+    operationKey: `${i.paymentId}:${i.actor}`,
+    fields: { actor: i.actor, paymentId: i.paymentId },
+  };
+}
+
+/** An invite: who it is for and the role it grants. A blank email (a link invite) and the role not given are ''. */
+export function teamInviteBinding(i: {
+  actor: string;
+  accountId: string;
+  inviteId: string;
+  email: string | null;
+  role: string | null;
+  roleId: string | null;
+}): DoorBinding {
+  return {
+    actionType: 'bank.step_up.businessTeam.invite',
+    operationKey: i.inviteId,
+    fields: {
+      actor: i.actor,
+      accountId: i.accountId,
+      inviteId: i.inviteId,
+      email: i.email ?? '',
+      role: i.role ?? '',
+      roleId: i.roleId ?? '',
+    },
+  };
+}
+
+/** Joining by an invite: bound to the sha256 of the link's secret, never the secret. */
+export function teamAcceptInviteBinding(i: { actor: string; tokenHash: string }): DoorBinding {
+  return {
+    actionType: 'bank.step_up.businessTeam.acceptInvite',
+    operationKey: i.tokenHash,
+    fields: { actor: i.actor, tokenHash: i.tokenHash },
+  };
+}
+
+/** Giving a member a custom role, or taking it away ('' roleId). */
+export function teamAssignRoleBinding(i: { actor: string; accountId: string; userId: string; roleId: string | null }): DoorBinding {
+  return {
+    actionType: 'bank.step_up.businessTeam.assignRole',
+    operationKey: `${i.accountId}:${i.userId}:${i.roleId ?? ''}`,
+    fields: { actor: i.actor, accountId: i.accountId, userId: i.userId, roleId: i.roleId ?? '' },
+  };
+}
+
 export function removeMemberBinding(i: { actor: string; accountId: string; userId: string; requestId: string }): DoorBinding {
   return {
     actionType: 'bank.step_up.business.removeMember',
