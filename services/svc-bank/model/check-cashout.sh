@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# Model-checks CashOutLock.tla: with the lock held the code keeps every rule; with the lock lost it breaks the promise
-# (the finding, until the fix lands); the proposed fix keeps every rule; each deliberately broken variant fails on the
-# rule it breaks. Exit 0 only when all of that holds. Needs Java 11+ (`java` on PATH, or $JAVA).
+# Model-checks CashOutLock.tla: the code (with its fix for #8597) keeps every rule, the lock held or lost; the code
+# before the fix breaks the promise with the lock lost; each deliberately broken variant fails on the rule it breaks. Exit 0 only when all of that holds. Needs Java 11+ (`java` on PATH, or $JAVA).
 # The TLA+ tools are pinned to v1.7.4 by URL and SHA-256 and cached in ${TLA_CACHE:-~/.cache/intafaced-tla}.
 set -euo pipefail
 
@@ -53,13 +52,12 @@ run() {
   fi
 }
 
-# With the lock held, the code keeps every rule.
-run code-lock-held FALSE FALSE "$ALL" pass
-# The finding: with the lock's connection dropped mid-body, a refused request is left with its money taken.
-run code-lock-lost      TRUE FALSE RefusedTookNothing RefusedTookNothing
-run code-lock-lost-kept TRUE FALSE "$KEPT" pass
-# The proposed fix keeps every rule, the lock lost or not.
-run fixed-lock-lost TRUE TRUE "$ALL" pass
+# The code (Fixed, #8597): with the lock held or lost, it keeps every rule.
+run code-lock-held FALSE TRUE "$ALL" pass
+run code-lock-lost TRUE TRUE "$ALL" pass
+# The code before the fix: with the lock's connection dropped mid-body, a refused request is left with its money taken.
+run unfixed-lock-lost      TRUE FALSE RefusedTookNothing RefusedTookNothing
+run unfixed-lock-lost-kept TRUE FALSE "$KEPT" pass
 
 # Broken on purpose, each failing on the rule it exists for, with the lock held.
 # 1. The row is not read again under the lock: a driver that read it before the other refused it moves anyway.

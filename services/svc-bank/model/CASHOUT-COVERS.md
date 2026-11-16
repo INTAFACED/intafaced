@@ -17,20 +17,18 @@ It needs Java 11 or later (`java` on the PATH, or `JAVA=/path/to/java`). It down
 | Run                           | What                                                          | Expected                                     |
 | ----------------------------- | ------------------------------------------------------------- | -------------------------------------------- |
 | `code-lock-held`              | the code, the lock never lost, every rule                     | no error (55 distinct states)                |
-| `code-lock-lost`              | the code, the lock's connection may drop, the promise         | **RefusedTookNothing violated**: the finding |
-| `code-lock-lost-kept`         | the code, the lock may drop, every other rule                 | no error (279 distinct states)               |
-| `fixed-lock-lost`             | the proposed fix, the lock may drop, every rule               | no error (295 distinct states)               |
+| `code-lock-lost`              | the code, the lock's connection may drop, every rule          | no error (295 distinct states)               |
+| `unfixed-lock-lost`           | the code before the fix, the lock may drop, the promise       | **RefusedTookNothing violated**: the finding |
+| `unfixed-lock-lost-kept`      | the code before the fix, the lock may drop, every other rule  | no error (279 distinct states)               |
 | `broken-no-reread`            | the row is not read again under the lock                      | RefusedTookNothing violated                  |
 | `broken-key-repeats`          | the partner does not deduplicate on the key                   | MovedOnce violated                           |
 | `broken-refuse-without-check` | the refusal is recorded without `WHERE status = 'processing'` | TakenStays violated                          |
-
-`code-lock-lost` passes the script while the code breaks the promise: it records the finding. When a fix lands it changes to `pass`.
 
 ## The finding
 
 The shortest order of events (`SHOW_TRACE=1`): driver A takes the lock, and its connection drops. A reads the row (`processing`) and the partner refuses its move for funds. The money arrives. Driver B takes the free lock and reads the row (`processing`). A records `refused`. B's move under the same key is made, and B's stamp (`WHERE status = 'processing'`) matches nothing and throws. The row says refused and the money sits in the partner's payouts account; `redrive` reads only `processing` rows, so nothing pays it out or gives it back.
 
-The proposed fix (`Fixed`): a driver whose move was made but whose stamp found the row no longer `processing` reads the row, and a `refused` one gets its money back under the request's back key (`bank.cash-out-back:<id>`), once. The schema already allows `partner_back_move_id` on a refused row. A crash between the stamp and the give-back is not modelled; the re-drive job would also need to look at refused rows whose key has a move.
+The fix (`Fixed`, `giveBackRefused` in the code, #8597): a driver whose move was made but whose stamp found the row no longer `processing` reads the row, and a `refused` one gets its money back under the request's back key (`bank.cash-out-back:<id>`), once, stamped as `partner_back_move_id`. A crash between the move and the give-back is not modelled; for it the re-drive job also looks at partner-held rows refused in the last day whose key has a move and nothing given back (`payouts.db.test.ts`, "a refused request whose move a crashed driver made anyway").
 
 The same on the real service with a real Postgres: `src/cash-out/payouts.db.test.ts`, "a request refused while its lock was lost never leaves the money taken".
 
@@ -43,11 +41,11 @@ The same on the real service with a real Postgres: `src/cash-out/payouts.db.test
 | `Read`     | `this.row(row.id)`; not `processing`, it returns                                                          |
 | `Move`     | `heldBank(now).move` under `cashOutMoveKey(now.id)`; the partner's key deduplication and funds check      |
 | `Record`   | `moved(id, 'processing', ...)`: `refused` on `bank.partner_insufficient_funds`, else `partner_move_id`    |
-| `GiveBack` | the proposed fix only                                                                                     |
+| `GiveBack` | `giveBackRefused`                                                                                         |
 | `Arrive`   | money reaching the customer's account at the partner                                                      |
 
 Not covered: the ledger (custodial) branch of `drive` and `partner.pay`, which follow the same pattern and are switched off at launch; the self-freeze check; a crash at any step.
 
 ## Last confirmed
 
-Against `origin/main` at `83b6b0ff54`, 16 Nov 2026. Whoever changes a covered function reruns `check-cashout.sh` and updates this line.
+Against this branch with the fix for #8597 (based on `origin/main` `83b6b0ff54`), 16 Nov 2026 UTC. Whoever changes a covered function reruns `check-cashout.sh` and updates this line.

@@ -8,8 +8,9 @@
 \* (`LoseLock`, only when CanLose). The partner deduplicates moves on their key and keeps nothing under a key it refused.
 \* The customer's money at the partner can arrive at any time.
 \*
-\* Fixed, the proposed fix: a driver whose move was made but whose stamp found the row no longer `processing` reads the
-\* row, and a `refused` one gets its money back under the request's back key (`bank.cash-out-back:<id>`).
+\* Fixed, the code since #8597 (`giveBackRefused`): a driver whose move was made but whose stamp found the row no longer
+\* `processing` reads the row, and a `refused` one gets its money back under the request's back key
+\* (`bank.cash-out-back:<id>`). Fixed = FALSE is the code before it.
 EXTENDS Integers, FiniteSets
 CONSTANTS Procs, CanLose, Fixed
 NULL == "none"
@@ -65,7 +66,7 @@ Record(p) ==
      ELSE /\ UNCHANGED <<status, wasTaken>>
           /\ IF Fixed /\ answer[p] = "ok" THEN Go(p, "giveback") /\ UNCHANGED lock ELSE Go(p, "done") /\ Release(p)
   /\ UNCHANGED <<bal, arrivals, moves, backed, answer>>
-\* Fixed: the row was refused while this driver's move was made: the money goes back under the back key, once.
+\* Fixed (`giveBackRefused`): the row was refused while this driver's move was made: the money goes back under the back key, once.
 GiveBack(p) == /\ pc[p] = "giveback"
                /\ IF status = "refused" /\ ~backed THEN bal' = bal + 1 /\ backed' = TRUE ELSE UNCHANGED <<bal, backed>>
                /\ Go(p, "done") /\ Release(p)
