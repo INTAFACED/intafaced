@@ -11,7 +11,7 @@ import { web3Copy } from './rooms/web3';
 
 // Explicit authored room labels only; route IDs and API content never enter this catalog.
 // Each area's room labels live beside its rows, as `<area>Copy` in rooms/<area>.ts: one shared file of every label was
-// edited by 16 merged PRs in 7 days (project-state #2617). This file keeps only the labels no single area owns (used by
+// edited by 16 merged PRs in 7 days (project-state issue 2617). This file keeps only the labels no single area owns (used by
 // rooms of more than one area, or by none) and joins every area's into the one catalog (rooms/rooms.test.ts).
 export const sharedNavigationCopy = {
   en: {

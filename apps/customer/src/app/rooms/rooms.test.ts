@@ -42,7 +42,7 @@ describe('the room table, one file per area', () => {
 });
 
 // The labels followed the same path: one shared catalog of every room's title and description was edited by 16 merged
-// PRs in 7 days (project-state #2617). Each area's labels live beside its rows (`<area>Copy`); `areaRooms` types a row's
+// PRs in 7 days (project-state issue 2617). Each area's labels live beside its rows (`<area>Copy`); `areaRooms` types a row's
 // labels to its own area's copy or the shared one, and this holds the shared one to labels no single area owns.
 describe('the room labels, one copy per area', () => {
   it('keeps in navigation-copy.ts only the labels no single area owns', () => {
