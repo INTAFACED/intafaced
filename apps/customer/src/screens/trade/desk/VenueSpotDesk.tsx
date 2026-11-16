@@ -61,12 +61,22 @@ import {
   AlertDialogTitle,
   AmountInput,
   Button,
+  navigate,
   refusalCopy,
   Tabs,
   TabsList,
   TabsPanel,
   TabsTab,
 } from './deps';
+import { useDeviceSetting } from '../../../features/trade/hooks';
+import { ChartTrade, clickAmountOk, type ChartPick, type RefusedChartType } from './ChartTrade';
+import { OneClickBar, type CancelOutcome } from './OneClick';
+import type { LadderPick } from './OrderFlow';
+import { DEFAULT_DOM, isDomSetting, type DomSetting } from './order-flow';
+import { flowCopy } from './order-flow-copy';
+import { useInstantPlacement } from './instant';
+import { VenueOrderFlow } from './VenueOrderFlow';
+import { flowMarketOf } from './venue-flow';
 import { placesOf } from './text';
 import { zoneName } from './time';
 import { spotVenueCopy } from './venue-copy';
@@ -84,6 +94,7 @@ import {
   draftSignature,
   intentOf,
   lockShortfall,
+  OTHER_ORDER_TYPES,
   pendingOrders,
   previewMoved,
   refusedAtHeldWorst,
@@ -240,7 +251,10 @@ export function VenueSpotDesk({
   const [editing, setEditing] = useState<VenueOrder | null>(null);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   // Flatten (J-cex-spot-05 #8): the sell ticket is filled with all the free base as a market sell and its review opened.
-  const flattenHandle = useRef<{ flatten: (amount: string, worst: string | null) => void }>(null);
+  // A ladder click, a chart Buy or Sell and one-click close (J-charts-desk-14) fill a ticket the same way.
+  const buyHandle = useRef<TicketHandle>(null);
+  const sellHandle = useRef<TicketHandle>(null);
+  const flattenHandle = sellHandle;
   const placedKeys = useMemo(() => (owner ? heldKeys(owner) : null), [owner]);
   // Orders with no definite answer yet (J-cex-spot-02 #3, #4): kept across a reload; while one is listed, no new order goes.
   const pendingStore = useMemo(() => (owner ? pendingOrders(owner) : null), [owner]);
@@ -274,6 +288,7 @@ export function VenueSpotDesk({
   const spreadSet = best.data?.spreadLimitBps?.known === true;
   const capSet = cap?.known === true && spreadSet;
 
+  const offeredTypes = market.orderTypes.filter((x): x is VenueOrderType => x === 'limit' || x === 'market');
   const fee = (m: VenueMarket['makerFeeBps']) => (m.known ? v('Fee bps', { bps: m.value }) : v('Not known'));
   const feeLine = v('Fee line spot', {
     symbol: market.symbol,
@@ -282,28 +297,73 @@ export function VenueSpotDesk({
     builder: status.builder ? v('Fee bps', { bps: status.builder.feeBps }) : v('Builder fee blank spot'),
   });
 
-  async function cancel(order: VenueOrder) {
-    if (!order.venueClientOrderId) return;
+  async function cancel(order: VenueOrder): Promise<CancelOutcome> {
+    if (!order.venueClientOrderId) return 'refused';
     const key = placedKeys?.get(order.venueClientOrderId) ?? cancelledKeys.find((c) => c.clientOrderId === order.venueClientOrderId)?.key;
     if (!key) {
       // An order this page did not place (another tab or device): named by the venue's client id, where the venue
       // cancels by it in a signed action.
-      if (!owner || (status.cancelsPerAction ?? 0) < 1) return;
-      setLastResult(
-        await run(
-          { kind: 'cancel_orders', orders: [{ symbol: order.symbol, venueClientOrderId: order.venueClientOrderId }] },
-          { actionKey: keys.cancelBatch(owner, `one-${draftId()}`) },
-        ),
+      if (!owner || (status.cancelsPerAction ?? 0) < 1) return 'refused';
+      const batch = await run(
+        { kind: 'cancel_orders', orders: [{ symbol: order.symbol, venueClientOrderId: order.venueClientOrderId }] },
+        { actionKey: keys.cancelBatch(owner, `one-${draftId()}`) },
       );
+      setLastResult(batch);
       account.reload();
-      return;
+      return cancelOutcome(batch);
     }
     const answer = await run({ kind: 'cancel_order', symbol: order.symbol, clientOrderKey: key });
     setLastResult(answer);
     if (answer.kind === 'outcome' && answer.outcome.accepted)
       setCancelledKeys((now) => (now.some((c) => c.key === key) ? now : [...now, { key, clientOrderId: order.venueClientOrderId! }]));
     account.reload();
+    return cancelOutcome(answer);
   }
+
+  // The DOM (J-charts-desk-14), bound to this desk's market: open or not and its ladder and tape settings are kept per
+  // device, as on today's desk; the symbol is never kept, so another market re-binds it with the same settings.
+  const { timeZone, quickSizes } = usePreferences();
+  const [dom, setDom] = useDeviceSetting<DomSetting>('trade-desk-dom', DEFAULT_DOM, isDomSetting);
+  const toggleDom = () => setDom((now) => ({ ...now, open: !now.open }));
+  const closeDom = () => setDom((now) => ({ ...now, open: false }));
+  // Instant placement: the account's own `trade.instant`, as on today's desk. Off, every click opens the venue review.
+  const instant = useInstantPlacement();
+  // The amount a ladder click or a chart Buy or Sell puts on the ticket.
+  const [clickAmount, setClickAmount] = useState('');
+  const flowMarket = useMemo(() => flowMarketOf(market), [market]);
+  const bestBid = best.data?.value.bid ?? null;
+  const bestAsk = best.data?.value.ask ?? null;
+  const reference = useMemo(() => (best.data ? { bestBid, bestAsk } : null), [best.data !== null, bestBid, bestAsk]); // eslint-disable-line react-hooks/exhaustive-deps -- a new read with the same prices keeps the same reference, so the chart group does not redraw
+  /**
+   * A draft from the DOM or the chart on one side's ticket: a limit at its price or a market order at the protection's
+   * worst price. It opens the venue review unless instant placement is on and it is a limit; a market order always reviews.
+   */
+  const pick = (side: VenueSide, kind: VenueOrderType, price: string, amount: string) => {
+    if (!offeredTypes.includes(kind)) return;
+    setType(kind);
+    const worstNow = kind === 'market' && cap?.known ? slippageLimit(side, best.data?.value ?? null, cap.value, market.tickSize) : null;
+    (side === 'buy' ? buyHandle : sellHandle).current?.pick({
+      type: kind,
+      price: kind === 'limit' ? price : '',
+      amount,
+      worst: worstNow,
+      instant: instant.on && kind === 'limit',
+    });
+  };
+  const onLadderPick = (p: LadderPick) =>
+    pick(p.side, 'limit', p.price, clickAmountOk(clickAmount, market.lotSize) ? clickAmount.trim() : '');
+  const onChartTrade = (p: ChartPick) => pick(p.side, p.type, p.price, p.amount);
+  // One-click close: every free lot of the base sold as a limit at the venue's best bid, the price the button shows.
+  const freeBase = account.balances.data?.value.find((b) => b.asset === market.baseAsset)?.free ?? null;
+  const closable = freeBase === null ? null : (flattenable(freeBase, market.lotSize) ?? '');
+  const notOffered: RefusedChartType[] = OTHER_ORDER_TYPES.filter((x) => !market.orderTypes.includes(x)).map((x) => ({
+    id: x,
+    label: word(v, 'type', x),
+    reason: `${word(v, 'type', x)}: ${v('Not offered')}`,
+    code: 'trade.venue.not_offered',
+  }));
+  const f = flowCopy.useCopy().t;
+  const spotMarkets = markets.filter((m) => m.kind === 'spot');
 
   const placed = (intent: OrderIntent, answer: ActionResult, tag: string) => {
     if ((answer.kind === 'outcome' || answer.kind === 'unknown') && answer.clientOrderId) {
@@ -348,12 +408,72 @@ export function VenueSpotDesk({
       tagOf(entry.clientOrderId) ?? '',
     );
 
-  const offeredTypes = market.orderTypes.filter((x): x is VenueOrderType => x === 'limit' || x === 'market');
   const route: DepositRoute | null = status.deposit ?? null;
   return (
     <div data-testid="if-desk" className="if-desk" data-market={market.symbol} data-venue="on">
       <VenueHeader status={status} title={t('Spot on venue', { symbol: market.symbol })} feeLine={feeLine} />
-      <VenueMarketPanel market={market} test={status.test} venueName={status.venue.displayName} />
+      <VenueMarketPanel
+        market={market}
+        test={status.test}
+        venueName={status.venue.displayName}
+        chartTools={
+          <div className="dk-chips dk-chips--right">
+            {spotMarkets.length > 1 ? (
+              <label className="of-field">
+                <span>{f('Chart market')}</span>
+                <select value={market.symbol} onChange={(event) => navigate(`/trade/spot/${event.target.value}`)}>
+                  {spotMarkets.map((m) => (
+                    <option key={m.symbol} value={m.symbol}>
+                      {m.symbol}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            <button type="button" aria-pressed={dom.open} data-testid="dk-open-dom" onClick={toggleDom}>
+              {dom.open ? f('Close DOM') : f('Open DOM')}
+            </button>
+          </div>
+        }
+        chartTrade={
+          <ChartTrade
+            market={flowMarket}
+            reference={reference}
+            amount={clickAmount}
+            onAmount={setClickAmount}
+            onTrade={onChartTrade}
+            refused={notOffered}
+          />
+        }
+      />
+      {dom.open ? (
+        <VenueOrderFlow
+          market={market}
+          test={status.test}
+          openOrders={account.openOrders.data?.value ?? null}
+          zone={timeZone}
+          setting={dom}
+          onSetting={setDom}
+          onPick={onLadderPick}
+          onClose={closeDom}
+          instant={instant.on}
+          oneClick={
+            <OneClickBar
+              market={flowMarket}
+              instant={instant}
+              zone={timeZone}
+              presets={quickSizes}
+              clickAmount={clickAmount}
+              onAmount={setClickAmount}
+              free={owner ? closable : null}
+              bestBid={bestBid}
+              onCloseAll={(amount, price) => pick('sell', 'limit', price, amount)}
+            />
+          }
+          cancelOne={cancel}
+          onCancelled={account.reload}
+        />
+      ) : null}
       <ReadProblem failure={account.balances.failure} venueName={status.venue.displayName} />
       <VenueAccountPanel
         status={status}
@@ -424,7 +544,7 @@ export function VenueSpotDesk({
                 onPlaced={placed}
                 waiting={pending.length > 0}
                 settledKeys={settledKeys}
-                {...(side === 'sell' ? { flattenHandle } : {})}
+                handle={side === 'sell' ? sellHandle : buyHandle}
               />
             ))}
           </div>
@@ -507,6 +627,30 @@ export function VenueSpotDesk({
       ) : null}
     </div>
   );
+}
+
+/** What a ticket is asked to hold by the DOM, the chart or one-click close (J-charts-desk-14). */
+interface TicketPick {
+  type: VenueOrderType;
+  /** A limit's price; '' for a market order. */
+  price: string;
+  amount: string;
+  /** A market order's worst price under the owner's protection, or null. */
+  worst: string | null;
+  /** Instant placement is on: a limit is checked and sent at once, with no review. */
+  instant: boolean;
+}
+
+/** How the desk fills one side's ticket from elsewhere on the page. */
+interface TicketHandle {
+  flatten: (amount: string, worst: string | null) => void;
+  pick: (pick: TicketPick) => void;
+}
+
+/** What one signed venue cancel came to, as one-click cancel reports it: a doubtful answer is never retried. */
+function cancelOutcome(answer: ActionResult): CancelOutcome {
+  if (answer.kind === 'outcome') return answer.outcome.accepted ? 'done' : 'refused';
+  return answer.kind === 'unknown' ? 'uncertain' : 'refused';
 }
 
 /** All of `free` on the venue's lot, or null when less than one lot is free: what Flatten sells. */
@@ -674,7 +818,7 @@ function VenueSideForm({
   onPlaced,
   waiting,
   settledKeys,
-  flattenHandle,
+  handle,
 }: {
   side: VenueSide;
   type: VenueOrderType;
@@ -695,7 +839,7 @@ function VenueSideForm({
   waiting: boolean;
   settledKeys: readonly string[];
   /** Flatten (J-cex-spot-05 #8): the sell ticket registers here how it types all the free base in and opens its review. */
-  flattenHandle?: Ref<{ flatten: (amount: string, worst: string | null) => void }>;
+  handle?: Ref<TicketHandle>;
 }) {
   const { t } = spotVenueCopy.useCopy();
   const d = deskCopy.useCopy().t;
@@ -806,7 +950,26 @@ function VenueSideForm({
 
   // Flatten: a market sell of `amount`, typed into this ticket and reviewed at once, under the key the draft holds for it,
   // so every retry of the same flatten sends the same client order id.
-  useImperativeHandle(flattenHandle, () => ({
+  useImperativeHandle(handle, () => ({
+    // A ladder click, a chart Buy or Sell or one-click close (J-charts-desk-14): the ticket shows the draft, and it is
+    // reviewed, or with instant placement on (a limit only) checked with the venue and sent at once. Either way it is the
+    // desk's own venue order: one key held for the draft, so one client order id and one signature however often it is
+    // pressed. Nothing is reviewed or sent without a size.
+    pick({ type: kind, price: at, amount: size, worst: worstNow, instant }: TicketPick) {
+      setUnit('base');
+      setValue('');
+      setPrice(kind === 'limit' ? at : '');
+      setAmount(size);
+      setResult(null);
+      setProblem(null);
+      if (size.trim() === '') return;
+      const f: TicketFields = { side, type: kind, price: kind === 'limit' ? at : '', amount: size, tif };
+      if (!draft || !owner || access !== 'verified' || waiting || ticketProblem(f, market, worstNow, capSet) !== null) return;
+      const hold = draft.hold(f, worstNow);
+      const order = intentOf(f, market, hold.worst, hold.key, capSet);
+      if (!order) return;
+      void (instant && kind === 'limit' ? sendNow(order) : reviewOf(order));
+    },
     flatten(all: string, worstNow: string | null) {
       // The ticket shows the same market sell the review holds, so its draft keeps the one key for it.
       setUnit('base');
@@ -831,6 +994,48 @@ function VenueSideForm({
     setReview({ intent: sell, preview: answer.data });
   }
 
+  /**
+   * Instant placement: the venue checks the order now, as the review would, and only an order it takes that the venue
+   * account can pay for goes to the wallet. One that needs a builder approval first opens the review, where it is asked.
+   */
+  async function sendNow(order: OrderIntent) {
+    if (!owner || sending.current) return;
+    sending.current = true;
+    const now = await venue.preview(owner, order);
+    if (!now.ok) {
+      sending.current = false;
+      setProblem(t('Not placeable', { detail: now.message }));
+      return;
+    }
+    const lacking = balances ? lockShortfall(now.data.value, balances) : null;
+    if (lacking) {
+      sending.current = false;
+      setProblem(t('Not enough free', { asset: lacking.asset, lock: displayAmount(lacking.lock), free: displayAmount(lacking.free) }));
+      return;
+    }
+    if (carriesBuilderFee(now.data.value.builderFee) && builderApproved(account, status) !== true) {
+      sending.current = false;
+      setMoved(false);
+      setReviewProblem(null);
+      setReview({ intent: order, preview: now.data });
+      return;
+    }
+    await send(order);
+  }
+
+  /** The order goes: the wallet signs it, then the venue answers under the ticket. `sending` is already held. */
+  async function send(order: OrderIntent) {
+    setReview(null);
+    setBusy(true);
+    setSent(order);
+    const answer = await run(order);
+    sending.current = false;
+    setBusy(false);
+    setResult(answer);
+    if (!keepsDraft(answer) || refusedAtHeldWorst(answer)) draft?.settle(order.clientOrderKey);
+    onPlaced(order, answer, tag.trim());
+  }
+
   async function confirm() {
     if (!review || sending.current || !owner) return;
     sending.current = true;
@@ -850,15 +1055,7 @@ function VenueSideForm({
       return;
     }
     // The review closes on Confirm: what follows is the wallet's, then the venue's answer under the ticket.
-    setReview(null);
-    setBusy(true);
-    setSent(sent);
-    const answer = await run(sent);
-    sending.current = false;
-    setBusy(false);
-    setResult(answer);
-    if (!keepsDraft(answer) || refusedAtHeldWorst(answer)) draft?.settle(sent.clientOrderKey);
-    onPlaced(sent, answer, tag.trim());
+    await send(sent);
   }
 
   const edit = (apply: () => void) => {
