@@ -507,7 +507,7 @@ test(`${J} #5 sets approval rules by amount, payee and payment type: two TEST ru
   const checker = await bank(w.a1);
   expect(ok(await checker.mutate('businessTeam.approve', { paymentId }))).toMatchObject({
     status: 'pending',
-    approvals: [{ userId: w.a1.userId }],
+    approvals: [{ handle: w.a1.handle }],
   });
   expect(await checker.mutate('businessTeam.approve', { paymentId })).toMatchObject({ ok: false, code: 'bank.business_already_approved' });
   await signedInAt(page, w.a1, `/bank/business/payment?id=${paymentId}`);
