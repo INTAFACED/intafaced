@@ -286,6 +286,11 @@ export function stopGuardedCustody(custody: PartnerCustody, partnerId: string, g
         moveByKey: (key: string) => bank.moveByKey(key),
         moves: (userId: string, query: PartnerMovesQuery) => bank.moves(userId, query),
         limits: (userId: string, assetId: string) => bank.limits(userId, assetId),
+        // Reads stay open under a stop, as they do under the freeze (J-bank-23: the partner's statement and history rules).
+        ...(bank.statement
+          ? { statement: (account: PartnerAccountRef, range: { from: Date; to: Date }) => bank.statement!(account, range) }
+          : {}),
+        ...(bank.historyRules ? { historyRules: bank.historyRules } : {}),
         move: async (request: PartnerMoveRequest) => {
           await assertOpenCounted(gate, partnerId, 'bank_move', note);
           return bank.move(request);

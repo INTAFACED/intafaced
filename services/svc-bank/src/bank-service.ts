@@ -57,6 +57,7 @@ import { BusinessTeamService } from './business/business-team.js';
 import { BusinessBillsService } from './business/business-bills.js';
 import { BusinessPayoutsService } from './business/business-payouts.js';
 import { BusinessCardsService } from './business/business-cards.js';
+import { BusinessBooksService } from './business/business-books.js';
 import { BusinessLookupLimiter, unconfiguredBusinessDirectory, type BusinessDirectoryPort } from './business/business-directory.js';
 import { PortfolioService, type PortfolioServiceOptions } from './portfolio/portfolio-service.js';
 import { ActivityService, type ActivityServiceOptions } from './activity/activity-service.js';
@@ -184,6 +185,8 @@ export interface BankServices {
   readonly businessPayouts: BusinessPayoutsService;
   /** J-bank-22: the business's team cards with per-purchase limits, receipts, and reimbursements paid at the partner. */
   readonly businessCards: BusinessCardsService;
+  /** J-bank-23: the business's books: the accounting connection record, coding rules and four-format statements. */
+  readonly businessBooks: BusinessBooksService;
   readonly bills: BillPayService;
   readonly globalSend: GlobalSendService;
   readonly globalHolds: GlobalHoldService;
@@ -671,6 +674,7 @@ export function createBankServices(
     business,
     businessTeam,
     businessPayouts: new BusinessPayoutsService(sql, businessTeam, { postingFreeze, noteRefusal: partnerRefusals.note }),
+    businessBooks: new BusinessBooksService(sql, businessTeam),
     businessCards: new BusinessCardsService(sql, businessTeam, {
       postingFreeze,
       noteRefusal: partnerRefusals.note,

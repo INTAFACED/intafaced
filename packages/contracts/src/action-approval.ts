@@ -55,6 +55,8 @@ export const SAME_PERSON_ACTION_TYPES = [
   'bank.step_up.businessPayouts.payBatch',
   // Approving and paying a member's reimbursement from a business's partner-held account (J-bank-22).
   'bank.step_up.businessCards.approveAndPay',
+  // Exporting a business statement that reaches back past the partner's strong customer authentication age (J-bank-23).
+  'bank.step_up.businessBooks.exportStatement',
   'bank.step_up.cards.unfreeze',
   'bank.step_up.cards.issue',
   'bank.step_up.cards.setLimits',

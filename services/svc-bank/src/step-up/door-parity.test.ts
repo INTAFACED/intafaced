@@ -12,6 +12,7 @@ import {
   billPayBinding,
   bulkRunConfirmBinding,
   reimbursementPayBinding,
+  bookStatementBinding,
   contractorBatchBinding,
   createTransferBinding,
   teamAcceptInviteBinding,
@@ -156,5 +157,20 @@ describe('a step-up approval for paying a business reimbursement is spendable at
     const r = reimbursementPayBinding({ actor: ACTOR, claimId: CLAIM });
     const { actor: _a, ...rf } = r.fields;
     expect(identityHash(r.actionType, 'businessCards.approveAndPay', CLAIM, rf)).toBe(bankActionPayloadHash(r.actionType, r.fields));
+  });
+});
+
+describe('a step-up approval for an older business statement is spendable at the bank door (J-bank-23)', () => {
+  it('exporting a statement past the partner’s strong customer authentication age', () => {
+    const ACCOUNT = '7c7c7c7c-7c7c-4c7c-8c7c-7c7c7c7c7c7c';
+    const b = bookStatementBinding({
+      actor: ACTOR,
+      accountId: ACCOUNT,
+      exportId: '7d7d7d7d-7d7d-4d7d-8d7d-7d7d7d7d7d7d',
+      from: '2026-07-01T00:00:00.000Z',
+      to: '2026-08-01T00:00:00.000Z',
+    });
+    const { actor: _a, ...bf } = b.fields;
+    expect(identityHash(b.actionType, 'businessBooks.exportStatement', ACCOUNT, bf)).toBe(bankActionPayloadHash(b.actionType, b.fields));
   });
 });

@@ -483,6 +483,8 @@ export const appRouter = createBankRouter(bank, {
   autoInvestConvertWired: usableTradeConvertUrl(env.TRADE_URL),
   approvals: approvalConsumer,
   stepUp: createStepUpGate({ mode: env.BANK_STEP_UP_MONEY_OUT, approvals: approvalConsumer, store: new SqlStepUpUseStore(sql) }),
+  // A business statement reaching back past the partner's strong customer authentication age always needs one (J-bank-23 #3).
+  statementStepUp: createStepUpGate({ mode: 'required', approvals: approvalConsumer, store: new SqlStepUpUseStore(sql) }),
 });
 export type AppRouter = typeof appRouter;
 
