@@ -1,8 +1,8 @@
 // garden/no-either-state-match: a journey step that accepts any of several states proves none of them.
 // `expect(['unknown', 'pending_retry', 'posting', 'qualified']).toContain(open.state)` (J-campaigns-08 #5 at #8512's head)
 // passes whichever of the four the service answered, so the step's own state is never pinned. A list of HTTP statuses
-// (`[401, 403]`) is a different question (which refusal), and is left to the reader. Five of the 21 weak
-// verdicts the proof reader gave on 15 Nov were this kind. Judged by the lint ratchet: a new copy fails, the copies on main
+// (`[401, 403]`) is a different question (which refusal), and is left to the reader. A replay over the 50
+// merged journey builds before 16 Nov found this one case (#8512:343). Judged by the lint ratchet: a new copy fails, the copies on main
 // are the baseline (tooling/ci/lint-ratchet.mjs).
 const JOURNEY = /(?:^|\/)apps\/customer\/tests\/real-app\/[^/]+\.pw\.mjs$/u;
 const isState = (n) => n?.type === 'Literal' && typeof n.value === 'string';
