@@ -18,6 +18,7 @@ import {
   parseArgs,
   parseHealth,
   planDrive,
+  installedAnvil,
   reportTests,
   stackId,
   stopDecision,
@@ -291,10 +292,18 @@ test('evidence: each test with its verdict, first error line and screenshots; th
         specs: [
           {
             title: 'J-x-01 #1 opens',
+            line: 12,
             tests: [
               {
                 status: 'expected',
-                results: [{ attachments: [{ name: 'screenshot', contentType: 'image/png', path: '/r/results/a/test-finished-1.png' }] }],
+                results: [
+                  {
+                    attachments: [
+                      { name: 'screenshot', contentType: 'image/png', path: '/r/results/a/test-finished-2.png' },
+                      { name: 'screenshot', contentType: 'image/png', path: '/r/results/a/test-finished-1.png' },
+                    ],
+                  },
+                ],
               },
             ],
           },
@@ -319,10 +328,10 @@ test('evidence: each test with its verdict, first error line and screenshots; th
   };
   const tests = reportTests(report);
   assert.deepEqual(
-    tests.map((t) => [t.title, t.status, t.error, t.shots, t.trace]),
+    tests.map((t) => [t.title, t.line, t.status, t.error, t.shots, t.trace]),
     [
-      ['J-x-01 #1 opens', 'passed', null, ['/r/results/a/test-finished-1.png'], null],
-      ['J-x-01 #2 pays', 'failed', 'Error: expect(locator).toBeVisible() failed', [], '/r/results/b/trace.zip'],
+      ['J-x-01 #1 opens', 12, 'passed', null, ['/r/results/a/test-finished-1.png', '/r/results/a/test-finished-2.png'], null],
+      ['J-x-01 #2 pays', null, 'failed', 'Error: expect(locator).toBeVisible() failed', [], '/r/results/b/trace.zip'],
     ],
   );
   assert.deepEqual(reportTests(null), []);
@@ -354,6 +363,35 @@ test('evidence: each test with its verdict, first error line and screenshots; th
   assert.deepEqual(harnessNotes('Running 1 test\n\u001b[2mWORLD RESTORE after J-b.pw.mjs: gone\u001b[22m\n  ✓ 1 x\n'), [
     'WORLD RESTORE after J-b.pw.mjs: gone',
   ]);
-  assert.match(md, /- PASS J-x-01 #1 opens\n {2}- screenshot: results\/a\/test-finished-1\.png/);
-  assert.match(md, /- FAIL J-x-01 #2 pays: Error: expect\(locator\)\.toBeVisible\(\) failed\n {2}- trace: results\/b\/trace\.zip/);
+  assert.match(
+    md,
+    /- PASS J-x-01 #1 opens \(`J-x-01\.pw\.mjs:12`\)\n {2}- 2 screenshots, one per browser page the test used: [^\n]*\n {2}- screenshot: results\/a\/test-finished-1\.png\n {2}- screenshot: results\/a\/test-finished-2\.png/,
+  );
+  assert.match(
+    md,
+    /- FAIL J-x-01 #2 pays \(`J-x-01\.pw\.mjs`\): Error: expect\(locator\)\.toBeVisible\(\) failed\n {2}- trace: results\/b\/trace\.zip/,
+  );
+});
+
+test('anvil: the stack’s own rule first; else the checkout’s, Foundry’s, then the newest ~/.intafaced install', () => {
+  const have = new Set();
+  const args = (env = {}) => ({
+    env: { PATH: '/usr/bin', ...env },
+    home: '/h',
+    checkout: '/c',
+    exists: (p) => have.has(p),
+    list: (d) => (d === '/h/.intafaced' ? ['slots', 'foundry-1.5.1', 'foundry-1.10.0', 'foundry-notes'] : []),
+  });
+  assert.equal(installedAnvil(args()), null);
+  have.add('/h/.intafaced/foundry-1.5.1/anvil');
+  assert.equal(installedAnvil(args()), '/h/.intafaced/foundry-1.5.1/anvil');
+  have.add('/h/.intafaced/foundry-1.10.0/anvil');
+  assert.equal(installedAnvil(args()), '/h/.intafaced/foundry-1.10.0/anvil');
+  have.add('/h/.foundry/bin/anvil');
+  assert.equal(installedAnvil(args()), '/h/.foundry/bin/anvil');
+  have.add('/c/.tools/foundry/bin/anvil');
+  assert.equal(installedAnvil(args()), '/c/.tools/foundry/bin/anvil');
+  assert.equal(installedAnvil(args({ LOCAL_STACK_ANVIL_BIN: '/x/anvil' })), null);
+  have.add('/usr/bin/anvil');
+  assert.equal(installedAnvil(args()), null);
 });

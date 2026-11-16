@@ -29,11 +29,11 @@ pnpm local:stack verify launch J-charts-desk-01 # also writes the TEST chart his
 pnpm local:stack verify launch --only edge,identity,trade,matching,ledger,customer,bank   # only these (a first start names the journeys' core six)
 ```
 
-It starts the stack, or reuses this checkout's running one. It builds only when the source changed since the last build, and it migrates every schema of a service it starts. From an empty state folder, it also enrols the TEST founders. Then it readies the stack once, the way a journeys shard is readied: matching restarted, the TEST gates, the TEST market maker and the TEST content (`readyStack` in `tooling/scripts/journey-local.mjs`). It ends by running the doctor.
+It starts the stack, or reuses this checkout's running one. It builds only when the source changed since the last build, and it migrates every schema of a service it starts. From an empty state folder, it also enrols the TEST founders. Then it readies the stack once, the way a journeys shard is readied: matching restarted, the TEST gates, the TEST market maker and the TEST content (`readyStack` in `tooling/scripts/journey-local.mjs`). It ends by running the doctor, which prints one line, `verify: doctor: worth driving (<checks> ok; ...)`, or every check when one fails.
 
 **Ready** is the last line: `verify: launch: ready in <n>s: http://127.0.0.1:<port> (slot <n>; ...)`, exit 0. Any other end means it is not usable. The line above it says why, and `pnpm local:stack verify doctor` names the check that failed.
 
-**The TEST chain needs anvil.** The stack runs it with the anvil binary named by `LOCAL_STACK_ANVIL_BIN`, else the first `anvil` on `PATH`. When it finds none, launch prints `chain: no anvil binary` and the health table shows `svc-indexer absent (no TEST chain)`. That is still ready, but a step on the TEST chain then fails. Before you report the chain as missing, look for an installed one: `command -v anvil; ls ~/.foundry/bin/anvil ~/.intafaced/foundry-*/anvil 2>/dev/null`. If one is there, run `LOCAL_STACK_ANVIL_BIN=<its path> pnpm local:stack verify launch`: a start on a running stack starts the chain it lacks. Only when none is installed is the chain the missing precondition. The feature file names each file that uses the chain.
+**The TEST chain needs anvil.** The stack runs it with the anvil binary named by `LOCAL_STACK_ANVIL_BIN`, else the first `anvil` on `PATH`. When neither names one, launch looks where Foundry installs it (this checkout's `.tools/foundry/bin`, `~/.foundry/bin`, the newest `~/.intafaced/foundry-<version>/`), says `verify: launch: anvil is not on PATH; the TEST chain uses the installed <path>`, and hands that path to the stack. When there is none anywhere, launch prints `chain: no anvil binary` and the health table shows `svc-indexer absent (no TEST chain)`. That is still ready, but a step on the TEST chain then fails, and the chain is the missing precondition. The feature file names each file that uses the chain.
 
 **After a source edit,** run `launch` again. The start rebuilds what the edit touched. It restarts only the services whose build changed. The Customer server reads its files from disk on every request, so a Customer-only edit needs no restart. Readying is not repeated on the same stack.
 
@@ -61,7 +61,7 @@ Its checks, one line each:
 - `build`: the running processes are on the build on disk, and the source has not changed since that build.
 - `readied`: `verify launch` readied this very stack.
 
-It ends `verify: doctor: worth driving` (exit 0) or `verify: doctor: not worth driving (<check>). Fix: <command>` (exit 1). Run it first whenever anything looks off. `drive` and `look` run it themselves and refuse an instance it fails.
+It ends `verify: doctor: worth driving` (exit 0) or `verify: doctor: not worth driving (<check>). Fix: <command>` (exit 1). Run it first whenever anything looks off. `drive` and `look` run it themselves, print its one line, and refuse an instance it fails.
 
 ## Drive
 
@@ -98,11 +98,11 @@ It runs `tooling/scripts/verify-look.pw.mjs` through the same config and harness
 
 Every `drive` and `look` keeps one run folder: `.verify/runs/<UTC time>-<label>/`, in this checkout and ignored by git.
 
-- `summary.md`: what was driven, the exact command (it starts with `cd` to the checkout, so it can be pasted as it stands), the commit and whether `git status` was clean, the slot and address, start and end, exit code, and each test with PASS or FAIL and its first error line. Under "What the harness said" are any `WORLD RESTORE` lines: the harness putting the shared test world back after the journey file that ran last in this slot, which may be another checkout's or an earlier run's (its record is in `/tmp/intafaced-real-app`, `-<slot>` after a slot above 0). Such a line says what could not be put back. Read it before you trust a step that reads the shared order book or a market.
+- `summary.md`: what was driven, the exact command (it starts with `cd` to the checkout, so it can be pasted as it stands), the commit and whether `git status` was clean, the slot and address, start and end, exit code, and each test with PASS or FAIL, its `file:line` and its first error line. Under "What the harness said" are any `WORLD RESTORE` lines: the harness putting the shared test world back after the journey file that ran last in this slot, which may be another checkout's or an earlier run's (its record is in `/tmp/intafaced-real-app`, `-<slot>` after a slot above 0). Such a line says what could not be put back. Read it before you trust a step that reads the shared order book or a market.
 - `output.log`: everything the run printed.
 - `summary.json`: the same, for a script.
 - `report.json`: Playwright's JSON report.
-- `results/<test>/test-finished-1.png`: the visible part of the page (1440×900) as each test ended, passed or failed. The journeys' own config takes it. It can miss a result that sits below the fold, so the test's assertions, listed in `summary.md`, are the proof of what the step checks. For a whole page as a person would scroll it, add a `look` at the same path. A test with no page leaves none. `trace.zip` is kept for a failed test.
+- `results/<test>/test-finished-<n>.png`: the visible part of each page (1440×900) as the test ended, passed or failed. The journeys' own config takes it. A test that used several browsers (a second person, say) leaves one per page, and `summary.md` says so above them: the pages still open at the end come first, then each page whose browser the test closed earlier, so `-1` is not always the step's own result. Look at each before you say which shows it. A screenshot can miss a result that sits below the fold, so the test's assertions, in its file at the `file:line` `summary.md` names, are the proof of what the step checks. For a whole page as a person would scroll it, add a `look` at the same path. A test with no page leaves none. `trace.zip` is kept for a failed test.
 - `look` only: `page.png` (full page), `page.aria.yml` (the page's ARIA snapshot), `page.url.txt`, and with `--selector`: `element.png`, `element.aria.yml` and `element.json` (box and text).
 
 `pnpm local:stack verify evidence` lists the runs, newest first, with their verdicts.
@@ -122,21 +122,23 @@ What counts as proof:
 pnpm local:stack verify stop
 ```
 
-It stops the stack only when `verify launch` started it. First the TEST market maker that launch's readying started is stopped through its own stop (by its pid file; it cancels its resting TEST orders), then the stack through the stack's own stop. That stop ends exactly the processes the stack recorded, each checked by pid file and command line, then Postgres, and frees the slot. Nothing is ever stopped by name or pattern. A stack this checkout already had running before `launch` is left running, and the line says so. The evidence stays in `.verify/runs/`, and the line names it.
+It stops the stack only when `verify launch` started it. First the TEST market maker that launch's readying started is stopped through its own stop (by its pid file; it cancels its resting TEST orders), then the stack through the stack's own stop. That stop ends exactly the processes the stack recorded, each checked by pid file and command line, then Postgres, and frees the slot. Nothing is ever stopped by name or pattern. A stack this checkout already had running before `launch` is left running, and the line says so. Then it checks what you would check by hand: `verify: stop: nothing answers on any of slot <n>'s <count> ports` (exit 0), or it names each port still answering (exit 1; `lsof -nP -iTCP:<port> -sTCP:LISTEN` names the process). The evidence stays in `.verify/runs/`, and the last line names it.
+
+The stack's process record and its health table can still show pids from an earlier stack in the same slot, another checkout's or an earlier run's; its stop reports those `not running` and touches nothing. To check cleanup yourself, read the slot's ports or the pids this run printed, not that record.
 
 Run `stop` after a failed attempt too, so a broken try strands no process or port. Ctrl-C on any verify command stops only its own child and leaves the stack up for `stop`.
 
 ## Helpers
 
-| Command                                                              | What it does                                             | Exit                                          |
-| -------------------------------------------------------------------- | -------------------------------------------------------- | --------------------------------------------- |
-| `pnpm local:stack verify launch [<J-id> ...] [--only a,b]`           | start or reuse, rebuild what changed, ready once, doctor | 0 ready, 1 not, 3 no slot or refused          |
-| `pnpm local:stack verify doctor`                                     | read-only: worth driving?                                | 0 yes, 1 no                                   |
-| `pnpm local:stack verify drive <J-id> ['#n' ...]`                    | run those steps' tests, keep the evidence                | 0 passed, 1 failed or refused, 2 no such step |
-| `pnpm local:stack verify look <path> [--sign-up] [--selector <css>]` | one page's screenshot and ARIA snapshot                  | 0 answered, 1 not                             |
-| `pnpm local:stack verify map [<J-id> ...]`                           | write the feature map                                    | 0                                             |
-| `pnpm local:stack verify evidence`                                   | list kept runs                                           | 0                                             |
-| `pnpm local:stack verify stop`                                       | stop the stack `launch` started; keep the evidence       | 0 stopped or none, 1 not ours                 |
+| Command                                                              | What it does                                             | Exit                                                                                |
+| -------------------------------------------------------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `pnpm local:stack verify launch [<J-id> ...] [--only a,b]`           | start or reuse, rebuild what changed, ready once, doctor | 0 ready, 1 not, 3 no slot or refused                                                |
+| `pnpm local:stack verify doctor`                                     | read-only: worth driving?                                | 0 yes, 1 no                                                                         |
+| `pnpm local:stack verify drive <J-id> ['#n' ...]`                    | run those steps' tests, keep the evidence                | 0 passed, 1 failed or refused, 2 no such step                                       |
+| `pnpm local:stack verify look <path> [--sign-up] [--selector <css>]` | one page's screenshot and ARIA snapshot                  | 0 answered, 1 not                                                                   |
+| `pnpm local:stack verify map [<J-id> ...]`                           | write the feature map                                    | 0                                                                                   |
+| `pnpm local:stack verify evidence`                                   | list kept runs                                           | 0                                                                                   |
+| `pnpm local:stack verify stop`                                       | stop the stack `launch` started; keep the evidence       | 0 stopped, nothing left on its ports, or none; 1 not ours or a port still answering |
 
 They are tested in `tooling/scripts/verify-app.test.mjs` (`node --test tooling/scripts/verify-app.test.mjs`), which CI's tooling tests run.
 

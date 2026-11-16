@@ -27,6 +27,8 @@
  */
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import net from 'node:net';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CHECKOUT, slotClaims, slotPorts } from './local-test-facts.mjs';
@@ -347,7 +349,10 @@ export function planDrive(id, steps, found) {
 
 const ESC = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g');
 
-/** Every test the report holds: title, status, first error line, and the screenshots it attached. */
+/** A screenshot's number in Playwright's `test-finished-<n>.png` (or `test-failed-<n>.png`). */
+const shotNumber = (p) => Number(/-(\d+)\.png$/.exec(p)?.[1] ?? 0);
+
+/** Every test the report holds: title, where it is, status, first error line, and the screenshots it attached, by number. */
 export function reportTests(report) {
   const out = [];
   const walk = (suite, file) => {
@@ -362,17 +367,29 @@ export function reportTests(report) {
           .find(Boolean);
         out.push({
           file: spec.file ?? file,
+          line: spec.line ?? null,
           title: spec.title,
           status: t.status === 'expected' ? 'passed' : t.status === 'skipped' ? 'skipped' : 'failed',
           error: t.status === 'expected' ? null : (error ?? t.status ?? 'failed'),
-          shots: (last?.attachments ?? []).filter((a) => a.contentType === 'image/png' && a.path).map((a) => a.path),
+          shots: (last?.attachments ?? [])
+            .filter((a) => a.contentType === 'image/png' && a.path)
+            .map((a) => a.path)
+            .sort((a, b) => shotNumber(a) - shotNumber(b)),
           trace: (last?.attachments ?? []).find((a) => a.name === 'trace')?.path ?? null,
         });
       }
   };
   for (const s of report?.suites ?? []) walk(s, s.file);
   for (const e of report?.errors ?? [])
-    out.push({ file: null, title: 'run error', status: 'failed', error: String(e.message ?? e).split('\n')[0], shots: [], trace: null });
+    out.push({
+      file: null,
+      line: null,
+      title: 'run error',
+      status: 'failed',
+      error: String(e.message ?? e).split('\n')[0],
+      shots: [],
+      trace: null,
+    });
   return out;
 }
 
@@ -399,7 +416,12 @@ export function summaryMarkdown(run) {
     '',
   ];
   for (const t of run.tests) {
-    lines.push(`- ${WORD[t.status]} ${t.title}${t.error ? `: ${t.error}` : ''}`);
+    const at = t.file ? ` (\`${t.file}${t.line ? `:${t.line}` : ''}\`)` : '';
+    lines.push(`- ${WORD[t.status]} ${t.title}${at}${t.error ? `: ${t.error}` : ''}`);
+    if (t.shots.length > 1)
+      lines.push(
+        `  - ${t.shots.length} screenshots, one per browser page the test used: first the pages still open when it ended, in the order they were opened, then each page whose browser the test closed earlier. Look at each before you say which shows the step.`,
+      );
     for (const s of t.shots) lines.push(`  - screenshot: ${path.relative(run.dir, s)}`);
     if (t.trace) lines.push(`  - trace: ${path.relative(run.dir, t.trace)}`);
   }
@@ -566,6 +588,52 @@ function newRunDir(label) {
   return dir;
 }
 
+/**
+ * An anvil installed where Foundry puts one but not on PATH: the checkout's own `.tools/foundry/bin`
+ * (local-infra-bootstrap.sh), `~/.foundry/bin` (foundryup), then the newest `~/.intafaced/foundry-<version>/`. Null when
+ * LOCAL_STACK_ANVIL_BIN is set (the stack uses that) or anvil is on PATH, or when none is installed. The stack's own
+ * rule (`anvilBin` in local-test-chain.mjs) stays as it is for CI; launch only names the found one to it.
+ */
+export function installedAnvil({ env, home, checkout, exists, list }) {
+  if (env.LOCAL_STACK_ANVIL_BIN) return null;
+  if ((env.PATH ?? '').split(path.delimiter).some((d) => d && exists(path.join(d, 'anvil')))) return null;
+  const versions = list(path.join(home, '.intafaced'))
+    .filter((d) => /^foundry-\d/.test(d))
+    .sort((a, b) => b.localeCompare(a, 'en', { numeric: true }))
+    .map((d) => path.join(home, '.intafaced', d, 'anvil'));
+  return (
+    [path.join(checkout, '.tools', 'foundry', 'bin', 'anvil'), path.join(home, '.foundry', 'bin', 'anvil'), ...versions].find(exists) ??
+    null
+  );
+}
+
+const listDir = (d) => {
+  try {
+    return fs.readdirSync(d);
+  } catch {
+    return [];
+  }
+};
+
+/** The ports of `slot` that something still answers on, each tried once on 127.0.0.1. */
+async function portsAnswering(slot) {
+  const ports = [...new Set(Object.values(slotPorts(slot)).flatMap((group) => Object.values(group)))];
+  const answers = (port) =>
+    new Promise((resolve) => {
+      const s = net.connect({ host: '127.0.0.1', port });
+      const done = (v) => {
+        s.destroy();
+        resolve(v);
+      };
+      s.setTimeout(500, () => done(false));
+      s.once('connect', () => done(true));
+      s.once('error', () => done(false));
+    });
+  const open = [];
+  for (const p of ports) if (await answers(p)) open.push(p);
+  return { ports, open };
+}
+
 async function doctor(io, { quiet = false } = {}) {
   const claim = ourClaim();
   let status = { code: 1, text: '' };
@@ -585,7 +653,7 @@ async function doctor(io, { quiet = false } = {}) {
     for (const c of checks) io.say(`${PREFIX} doctor ${c.ok ? 'ok ' : 'NOT'} ${c.name}: ${c.detail}`);
     const first = checks.find((c) => !c.ok);
     io.say(ok ? `${PREFIX} doctor: worth driving` : `${PREFIX} doctor: not worth driving (${first.name}). Fix: ${first.fix}`);
-  }
+  } else io.say(`${PREFIX} doctor: worth driving (${checks.map((c) => c.name).join(', ')} ok; ${RUN} doctor prints each)`);
   return { ok, checks, claim };
 }
 
@@ -607,6 +675,12 @@ async function launch(opts, io) {
   io.say(
     `${PREFIX} launch: ${hadStack ? `this checkout's stack is up on slot ${before.slot}; starting what is not running and rebuilding what changed` : 'starting a stack for this checkout'}`,
   );
+  const anvil = installedAnvil({ env: process.env, home: os.homedir(), checkout: CHECKOUT, exists: fs.existsSync, list: listDir });
+  if (anvil) {
+    io.say(`${PREFIX} launch: anvil is not on PATH; the TEST chain uses the installed ${anvil}`);
+    // Every start in this launch reads it, the readying's restart of matching included, so none reports the chain missing.
+    process.env.LOCAL_STACK_ANVIL_BIN = anvil;
+  }
   const start = await io.run(['node', STACK, 'start', ...(opts.only ? ['--only', opts.only] : [])], { capture: true });
   const why = refusal(start.text);
   const ready = start.code === 0 || (opts.only && start.code === 1 && !why && onlyReady(start.text, opts.only).ready);
@@ -837,8 +911,20 @@ async function stop(io) {
   const r = await io.run(['node', STACK, 'stop'], { capture: false });
   if (market.code !== 0) io.say(`${PREFIX} stop: the TEST market maker's own stop exited ${market.code}; its line above says why`);
   writeJson(LAUNCH, { ...rec, stoppedAt: new Date().toISOString() });
+  // The check an agent would make by hand: nothing answers on any of this slot's ports. A process still closing gets
+  // ten seconds; one that answers after that is named, by port, for `lsof -nP -iTCP:<port>` to name its pid.
+  let left = await portsAnswering(claim.slot);
+  for (let i = 0; i < 10 && left.open.length; i++) {
+    await new Promise((res) => setTimeout(res, 1000));
+    left = await portsAnswering(claim.slot);
+  }
+  io.say(
+    left.open.length
+      ? `${PREFIX} stop: still answering on slot ${claim.slot}'s port(s) ${left.open.join(', ')}; lsof -nP -iTCP:<port> -sTCP:LISTEN names the process`
+      : `${PREFIX} stop: nothing answers on any of slot ${claim.slot}'s ${left.ports.length} ports`,
+  );
   kept();
-  return r.code === 0 && market.code === 0 ? 0 : 1;
+  return r.code === 0 && market.code === 0 && !left.open.length ? 0 : 1;
 }
 
 function map(opts, io) {
