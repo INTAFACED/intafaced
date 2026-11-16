@@ -33,11 +33,11 @@ It starts the stack, or reuses this checkout's running one. It builds only when 
 
 **Ready** is the last line: `verify: launch: ready in <n>s: http://127.0.0.1:<port> (slot <n>; ...)`, exit 0. Any other end means it is not usable. The line above it says why, and `pnpm local:stack verify doctor` names the check that failed.
 
-**No TEST chain without anvil.** When no anvil binary is installed, launch prints `chain: no anvil binary` and the health table shows `svc-indexer absent (no TEST chain)`. That is still ready, but a step on the TEST chain then fails: report the chain as the missing precondition. The feature file names each file that uses the chain.
+**The TEST chain needs anvil.** The stack runs it with the anvil binary named by `LOCAL_STACK_ANVIL_BIN`, else the first `anvil` on `PATH`. When it finds none, launch prints `chain: no anvil binary` and the health table shows `svc-indexer absent (no TEST chain)`. That is still ready, but a step on the TEST chain then fails. Before you report the chain as missing, look for an installed one: `command -v anvil; ls ~/.foundry/bin/anvil ~/.intafaced/foundry-*/anvil 2>/dev/null`. If one is there, run `LOCAL_STACK_ANVIL_BIN=<its path> pnpm local:stack verify launch`: a start on a running stack starts the chain it lacks. Only when none is installed is the chain the missing precondition. The feature file names each file that uses the chain.
 
 **After a source edit,** run `launch` again. The start rebuilds what the edit touched. It restarts only the services whose build changed. The Customer server reads its files from disk on every request, so a Customer-only edit needs no restart. Readying is not repeated on the same stack.
 
-The first start in a checkout builds everything: a few minutes, more under load. Later launches take seconds plus whatever the edit rebuilds. Teardown is `verify stop` (Cleanup).
+The first start in a checkout builds everything: a few minutes, more under load. Later launches take seconds plus whatever the edit rebuilds. Teardown is `verify stop` (Cleanup). The start's own output, printed in the middle of launch's, ends `Stop: pnpm local:stack:stop`; under this skill, stop with `verify stop` instead, which also stops the TEST market maker launch started.
 
 ## Doctor
 
@@ -57,7 +57,7 @@ Its checks, one line each:
 - `stack`: this checkout holds a live slot of its own.
 - `health`: every service, the Customer, invitation and apex sites, the console and its HTTPS front answer.
 - `market`: the TEST market maker is not down or stale.
-- `owned`: every service answering on this slot's ports is a process this stack started (pid, command line, start time).
+- `owned`: every `svc-*` service answering on this slot's ports is a process this stack started (pid, command line, start time). The sites (Customer, invitation, apex, console and its HTTPS front) are checked by `health` only: the stack's plan lists services, not sites.
 - `build`: the running processes are on the build on disk, and the source has not changed since that build.
 - `readied`: `verify launch` readied this very stack.
 
@@ -98,10 +98,11 @@ It runs `tooling/scripts/verify-look.pw.mjs` through the same config and harness
 
 Every `drive` and `look` keeps one run folder: `.verify/runs/<UTC time>-<label>/`, in this checkout and ignored by git.
 
-- `summary.md`: what was driven, the exact command, the commit (and whether there were uncommitted edits), the slot and address, start and end, exit code, and each test with PASS or FAIL and its first error line.
+- `summary.md`: what was driven, the exact command (it starts with `cd` to the checkout, so it can be pasted as it stands), the commit and whether `git status` was clean, the slot and address, start and end, exit code, and each test with PASS or FAIL and its first error line. Under "What the harness said" are any `WORLD RESTORE` lines: the harness putting the shared test world back after the journey file that ran last in this slot, which may be another checkout's or an earlier run's (its record is in `/tmp/intafaced-real-app`, `-<slot>` after a slot above 0). Such a line says what could not be put back. Read it before you trust a step that reads the shared order book or a market.
+- `output.log`: everything the run printed.
 - `summary.json`: the same, for a script.
 - `report.json`: Playwright's JSON report.
-- `results/<test>/test-finished-1.png`: the page as each test ended, passed or failed. A test with no page leaves none. `trace.zip` is kept for a failed test.
+- `results/<test>/test-finished-1.png`: the visible part of the page (1440×900) as each test ended, passed or failed. The journeys' own config takes it. It can miss a result that sits below the fold, so the test's assertions, listed in `summary.md`, are the proof of what the step checks. For a whole page as a person would scroll it, add a `look` at the same path. A test with no page leaves none. `trace.zip` is kept for a failed test.
 - `look` only: `page.png` (full page), `page.aria.yml` (the page's ARIA snapshot), `page.url.txt`, and with `--selector`: `element.png`, `element.aria.yml` and `element.json` (box and text).
 
 `pnpm local:stack verify evidence` lists the runs, newest first, with their verdicts.

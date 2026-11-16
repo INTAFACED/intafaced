@@ -391,7 +391,7 @@ export function summaryMarkdown(run) {
     '',
     `- What: ${run.what}`,
     `- Command: \`${run.command}\``,
-    `- Code: ${run.head}${run.dirty ? ' with uncommitted edits' : ''} on branch ${run.branch}`,
+    `- Code: ${run.head}, ${run.dirty ? `with uncommitted edits (${run.dirty} path(s) in git status)` : 'clean (git status empty)'}, ${run.branch === 'HEAD' ? 'detached HEAD' : `branch ${run.branch}`}`,
     `- Stack: slot ${run.slot}, ${run.customer}`,
     `- Started ${run.startedAt}, ended ${run.endedAt}, exit ${run.exit}`,
     '',
@@ -403,6 +403,15 @@ export function summaryMarkdown(run) {
     for (const s of t.shots) lines.push(`  - screenshot: ${path.relative(run.dir, s)}`);
     if (t.trace) lines.push(`  - trace: ${path.relative(run.dir, t.trace)}`);
   }
+  if (run.notes?.length)
+    lines.push(
+      '',
+      '## What the harness said',
+      '',
+      "Lines the journeys harness printed while it put the shared test world back (world-restore.mjs). One naming another file is that file's run, earlier in this slot; the whole output is output.log.",
+      '',
+      ...run.notes.map((n) => `- ${n}`),
+    );
   if (run.files?.length) lines.push('', '## Files kept', '', ...run.files.map((f) => `- ${f}`));
   lines.push('', "A local pass never counts as proof: the proof is the Real-app journeys run on the PR's exact head.");
   return `${lines.join('\n')}\n`;
@@ -681,12 +690,13 @@ async function drive(opts, io) {
     path.join(dir, 'results'),
     ...(plan.grep ? ['--grep', plan.grep] : []),
   ];
-  const command = `JOURNEY_FILES=${shellWord(plan.files.join(' '))} ${argv.map(shellWord).join(' ')}`;
+  const command = `cd ${shellWord(CHECKOUT)} && JOURNEY_FILES=${shellWord(plan.files.join(' '))} JOURNEY_REPORT=${shellWord(report)} ${argv.map(shellWord).join(' ')}`;
   const startedAt = new Date().toISOString();
   io.say(`${PREFIX} drive: ${opts.id} ${plan.steps.map((n) => `#${n}`).join(' ')} in ${plan.files.join(', ')}`);
-  const pw = await io.run(argv, { capture: false, env: { JOURNEY_FILES: plan.files.join(' '), JOURNEY_REPORT: report } });
+  const pw = await io.run(argv, { capture: true, env: { JOURNEY_FILES: plan.files.join(' '), JOURNEY_REPORT: report } });
   return finishRun(io, {
     dir,
+    output: pw.text,
     label,
     what: `journey ${opts.id}, steps ${plan.steps.map((n) => `#${n}`).join(' ')}${plan.chained.length ? `, with the tests before them in ${plan.chained.map((c) => c.file).join(', ')}` : ''}`,
     command,
@@ -711,19 +721,37 @@ async function look(opts, io) {
     ...(opts.selector ? { VERIFY_LOOK_SELECTOR: opts.selector } : {}),
     JOURNEY_REPORT: report,
   };
-  const command = `${Object.entries(env)
-    .filter(([k]) => k !== 'JOURNEY_REPORT')
+  const command = `cd ${shellWord(CHECKOUT)} && ${Object.entries(env)
     .map(([k, v]) => `${k}=${shellWord(v)}`)
     .join(' ')} ${argv.map(shellWord).join(' ')}`;
   const startedAt = new Date().toISOString();
   io.say(
     `${PREFIX} look: ${opts.path}${opts.signUp ? ' as a new TEST person' : ' signed out'}${opts.selector ? `, element ${opts.selector}` : ''}`,
   );
-  const pw = await io.run(argv, { capture: false, env });
-  return finishRun(io, { dir, label, what: `page ${opts.path}`, command, startedAt, exit: pw.code, report, claim: d.claim });
+  const pw = await io.run(argv, { capture: true, env });
+  return finishRun(io, {
+    dir,
+    output: pw.text,
+    label,
+    what: `page ${opts.path}`,
+    command,
+    startedAt,
+    exit: pw.code,
+    report,
+    claim: d.claim,
+  });
 }
 
-function finishRun(io, { dir, label, what, command, startedAt, exit, report, claim }) {
+/** The harness's own lines in a run's output: what putting the shared world back did (world-restore.mjs). */
+export function harnessNotes(output) {
+  return String(output ?? '')
+    .split('\n')
+    .map((l) => l.replace(ESC, '').trim())
+    .filter((l) => /^WORLD RESTORE\b/.test(l));
+}
+
+function finishRun(io, { dir, output, label, what, command, startedAt, exit, report, claim }) {
+  fs.writeFileSync(path.join(dir, 'output.log'), String(output ?? ''));
   const tests = reportTests(readJson(report));
   const passed = exit === 0 && tests.length > 0 && tests.every((t) => t.status !== 'failed');
   const listFiles = (d) =>
@@ -741,13 +769,14 @@ function finishRun(io, { dir, label, what, command, startedAt, exit, report, cla
     verdict: passed ? 'PASS' : 'FAIL',
     head: git('rev-parse', 'HEAD'),
     branch: git('rev-parse', '--abbrev-ref', 'HEAD'),
-    dirty: git('status', '--porcelain', '--', 'services', 'packages', 'apps', 'pnpm-lock.yaml') !== '',
+    dirty: git('status', '--porcelain').split('\n').filter(Boolean).length,
     slot: claim?.slot,
     customer: claim ? `http://127.0.0.1:${slotPorts(claim.slot).stack.customer}` : '?',
     startedAt,
     endedAt: new Date().toISOString(),
     exit,
     tests,
+    notes: harnessNotes(output),
   };
   run.files = listFiles(dir)
     .filter((f) => f !== 'summary.md' && f !== 'summary.json')

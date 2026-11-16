@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import {
   STEP_TITLE,
   doctorChecks,
+  harnessNotes,
   shellWord,
   titlePattern,
   featureMarkdown,
@@ -325,14 +326,14 @@ test('evidence: each test with its verdict, first error line and screenshots; th
     ],
   );
   assert.deepEqual(reportTests(null), []);
-  const md = summaryMarkdown({
+  const run = {
     dir: '/r',
     label: 'J-x-01-s1',
     verdict: 'FAIL',
     what: 'journey J-x-01, steps #1 #2',
     command: 'JOURNEY_FILES="J-x-01.pw.mjs" pnpm exec playwright test',
     head: 'abc',
-    dirty: true,
+    dirty: 2,
     branch: 'fix/1',
     slot: 0,
     customer: 'http://127.0.0.1:3210',
@@ -341,10 +342,18 @@ test('evidence: each test with its verdict, first error line and screenshots; th
     exit: 1,
     tests,
     files: ['report.json'],
-  });
+  };
+  const md = summaryMarkdown(run);
   assert.match(md, /^# J-x-01-s1: FAIL$/m);
   assert.match(md, /- Command: `JOURNEY_FILES="J-x-01\.pw\.mjs" pnpm exec playwright test`/);
-  assert.match(md, /- Code: abc with uncommitted edits on branch fix\/1/);
+  assert.match(md, /- Code: abc, with uncommitted edits \(2 path\(s\) in git status\), branch fix\/1/);
+  assert.match(
+    summaryMarkdown({ ...run, dirty: 0, branch: 'HEAD', notes: ['WORLD RESTORE after J-a-01.pw.mjs: x: cancel-all answered 403'] }),
+    /- Code: abc, clean \(git status empty\), detached HEAD[\s\S]*## What the harness said[\s\S]*- WORLD RESTORE after J-a-01\.pw\.mjs: x: cancel-all answered 403/,
+  );
+  assert.deepEqual(harnessNotes('Running 1 test\n\u001b[2mWORLD RESTORE after J-b.pw.mjs: gone\u001b[22m\n  ✓ 1 x\n'), [
+    'WORLD RESTORE after J-b.pw.mjs: gone',
+  ]);
   assert.match(md, /- PASS J-x-01 #1 opens\n {2}- screenshot: results\/a\/test-finished-1\.png/);
   assert.match(md, /- FAIL J-x-01 #2 pays: Error: expect\(locator\)\.toBeVisible\(\) failed\n {2}- trace: results\/b\/trace\.zip/);
 });
