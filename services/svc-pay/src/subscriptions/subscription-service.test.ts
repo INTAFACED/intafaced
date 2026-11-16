@@ -192,7 +192,7 @@ describe('fee resolver blip (L728)', () => {
         return Promise.resolve([{ ...subscription }]);
       }
       throw new Error(`unhandled subscription sql: ${text.replace(/\s+/g, ' ').slice(0, 240)}`);
-    }) as unknown as Sql;
+    }) as Sql;
 
     const subs = new SubscriptionService(sql, () => MAY, openInvoice, {
       resolveMerchantFeeBps: input.resolveMerchantFeeBps,
